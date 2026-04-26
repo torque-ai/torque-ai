@@ -195,6 +195,29 @@ describe('runAgenticLoop — no tool calls (single iteration)', () => {
     expect(result.toolLog).toHaveLength(0);
   });
 
+  it('stops instead of accepting tool-log-only output after summary retry', async () => {
+    const adapter = mockAdapter([
+      toolCallResponse('list_directory', { path: '.' }),
+      textResponse(''),
+      textResponse(''),
+    ]);
+    const executor = mockToolExecutor({
+      list_directory: { result: 'package.json\nsrc\ntests', metadata: {} },
+    });
+
+    const result = await runAgenticLoop({
+      adapter,
+      systemPrompt: 'You are a helpful assistant.',
+      taskPrompt: 'Inspect the repository and produce a Markdown plan.',
+      tools: NOOP_TOOLS,
+      toolExecutor: executor,
+    });
+
+    expect(result.output).toContain('did not produce a final answer');
+    expect(result.stopReason).toBe('empty_final_output');
+    expect(result.toolLog).toHaveLength(1);
+  });
+
   it('nudges read-only tasks that end with write-refusal boilerplate after tool use', async () => {
     const adapter = mockAdapter([
       toolCallResponse('list_directory', { path: '.' }),

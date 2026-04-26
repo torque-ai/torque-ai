@@ -608,6 +608,7 @@ const NON_CONVERGED_AGENTIC_STOP_REASONS = new Set([
 
 const HARD_FAIL_AGENTIC_STOP_REASONS = new Set([
   'consecutive_tool_errors',
+  'empty_final_output',
   'missing_tool_evidence',
 ]);
 
@@ -630,7 +631,9 @@ function inspectHardFailAgenticStopReason(task, workingDir, agenticPolicy, resul
   const taskKind = taskLikelyRequiresFileChanges(task) ? 'modification' : 'inspection';
   const reason = stopReason === 'missing_tool_evidence'
     ? 'stopped without required repository tool evidence'
-    : 'stopped after repeated tool execution errors';
+    : stopReason === 'empty_final_output'
+      ? 'stopped without a final answer after repository tool use'
+      : 'stopped after repeated tool execution errors';
 
   return {
     message: `Agentic ${taskKind} task ${reason} (${stopReason}).`,

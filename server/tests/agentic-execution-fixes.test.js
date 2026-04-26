@@ -389,6 +389,51 @@ describe('providers/execution agentic fixes', () => {
     expect(result.output).toBe('Verified from package.json.');
   });
 
+  it('falls back when a free agentic provider returns tool logs without a final answer', async () => {
+    const { mod } = loadSubject();
+
+    vi.spyOn(require('worker_threads'), 'Worker').mockImplementation(
+      createWorkerCtor([
+        {
+          type: 'result',
+          output: 'Task stopped: model did not produce a final answer after repository tool use.\n\n--- Tool Execution Log (1 calls) ---\n[1] list_directory({"path":"."}) -> OK',
+          stopReason: 'empty_final_output',
+          toolLog: [{ name: 'list_directory', error: false }],
+          tokenUsage: { prompt_tokens: 20, completion_tokens: 0 },
+          changedFiles: [],
+          iterations: 3,
+        },
+        {
+          type: 'result',
+          output: 'Generated the requested Markdown plan.',
+          stopReason: 'model_finished',
+          toolLog: [{ name: 'read_file', error: false }],
+          tokenUsage: { prompt_tokens: 30, completion_tokens: 12 },
+          changedFiles: [],
+          iterations: 1,
+        },
+      ])
+    );
+
+    const task = {
+      id: 'task-empty-final-output-fallback',
+      task_description: 'Generate an execution plan for DLPhone.',
+      working_directory: 'C:/repo',
+      metadata: JSON.stringify({ plan_task_title: 'Plan DLPhone typed failure coverage' }),
+    };
+    const chain = [
+      { provider: 'cerebras', model: 'qwen-3-coder' },
+      { provider: 'google-ai', model: 'gemini-2.5-flash' },
+    ];
+
+    const result = await mod.executeWithFallback(task, chain, buildWorkerConfig, {});
+
+    expect(result.provider).toBe('google-ai');
+    expect(result.model).toBe('gemini-2.5-flash');
+    expect(result.chainPosition).toBe(2);
+    expect(result.output).toBe('Generated the requested Markdown plan.');
+  });
+
   it('falls back when an OpenRouter agentic attempt produces no first response', async () => {
     vi.useFakeTimers();
 

@@ -429,6 +429,12 @@ async function runAgenticLoop({
         emptySummaryRetried = true;
         continue; // one retry
       }
+      if (!content.trim() && toolLog.length > 0 && emptySummaryRetried) {
+        finalOutput = 'Task stopped: model did not produce a final answer after repository tool use.';
+        stopReason = 'empty_final_output';
+        logger.warn('[Agentic] Empty final answer after tool use and summary retry — stopping');
+        break;
+      }
 
       if (requireToolUseBeforeFinal && toolLog.length === 0) {
         if (!toolEvidenceRetried) {
