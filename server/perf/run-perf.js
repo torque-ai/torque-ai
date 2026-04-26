@@ -47,6 +47,29 @@ async function run() {
   const payload = { captured_at: new Date().toISOString(), env: report.captureEnv(), metrics: results };
   const target = report.writeLastRun(outDir, payload);
   console.log(`wrote ${target}`);
+
+  const baseline = report.readBaseline(outDir);
+  const cmp = report.compareToBaseline(baseline, payload);
+  if (cmp.notes.length > 0) console.log(cmp.notes.join('\n'));
+  if (cmp.improvements.length > 0) {
+    console.log(`\nImprovements (${cmp.improvements.length}):`);
+    for (const i of cmp.improvements) {
+      console.log(`  ${i.id}: ${i.baseline_median.toFixed(2)} → ${i.current_median.toFixed(2)} (${i.delta_pct.toFixed(1)}%)`);
+    }
+  }
+  if (cmp.regressions.length > 0) {
+    console.log(`\nRegressions (${cmp.regressions.length}):`);
+    for (const r of cmp.regressions) {
+      console.log(`  ${r.id}: ${r.baseline_median.toFixed(2)} → ${r.current_median.toFixed(2)} (+${r.delta_pct.toFixed(1)}%)`);
+    }
+    if (process.env.PERF_GATE_BYPASS === '1') {
+      console.log('\nPERF_GATE_BYPASS=1 set — regressions logged but exit suppressed');
+    } else if (cmp.advisory) {
+      console.log('\nadvisory mode — regressions reported but exit suppressed');
+    } else {
+      return 1;
+    }
+  }
   return 0;
 }
 

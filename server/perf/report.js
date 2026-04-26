@@ -27,4 +27,53 @@ function readBaseline(outDir) {
   return JSON.parse(fs.readFileSync(target, 'utf8'));
 }
 
-module.exports = { captureEnv, writeLastRun, readBaseline };
+const REGRESSION_THRESHOLD_PCT = 10;
+const IMPROVEMENT_THRESHOLD_PCT = -10;
+
+function expandVariants(metrics) {
+  const out = {};
+  for (const [id, entry] of Object.entries(metrics || {})) {
+    if (entry.byVariant) {
+      for (const [variant, vEntry] of Object.entries(entry.byVariant)) {
+        out[`${id}.${variant}`] = vEntry;
+      }
+    } else {
+      out[id] = entry;
+    }
+  }
+  return out;
+}
+
+function compareToBaseline(baseline, current) {
+  if (!baseline) {
+    return { regressions: [], improvements: [], advisory: false, notes: ['no baseline.json — first run'] };
+  }
+  const baselineHost = baseline.env?.host_label;
+  const currentHost = current.env?.host_label;
+  if (baselineHost && currentHost && baselineHost !== currentHost) {
+    return {
+      regressions: [], improvements: [], advisory: true,
+      notes: [`env mismatch: baseline captured on ${baselineHost}, current on ${currentHost} — advisory only`]
+    };
+  }
+
+  const baseM = expandVariants(baseline.metrics);
+  const curM = expandVariants(current.metrics);
+  const regressions = [];
+  const improvements = [];
+
+  for (const [id, cur] of Object.entries(curM)) {
+    const base = baseM[id];
+    if (!base || typeof base.median !== 'number') continue;
+    const delta_pct = ((cur.median - base.median) / base.median) * 100;
+    if (delta_pct > REGRESSION_THRESHOLD_PCT) {
+      regressions.push({ id, baseline_median: base.median, current_median: cur.median, delta_pct });
+    } else if (delta_pct < IMPROVEMENT_THRESHOLD_PCT) {
+      improvements.push({ id, baseline_median: base.median, current_median: cur.median, delta_pct });
+    }
+  }
+
+  return { regressions, improvements, advisory: false, notes: [] };
+}
+
+module.exports = { captureEnv, writeLastRun, readBaseline, compareToBaseline, REGRESSION_THRESHOLD_PCT };
