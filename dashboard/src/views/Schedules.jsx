@@ -180,14 +180,23 @@ export default function Schedules() {
     }
   }, [toast]);
 
+  // Mirror selectedScheduleId into a ref so the polling effect doesn't have
+  // to depend on it — otherwise the interval is torn down + recreated every
+  // time the drawer opens or closes, churning timers and missing fallback
+  // polls during the gap.
+  const selectedScheduleIdRef = useRef(selectedScheduleId);
+  useEffect(() => {
+    selectedScheduleIdRef.current = selectedScheduleId;
+  }, [selectedScheduleId]);
+
   useEffect(() => {
     loadSchedules();
     const interval = setInterval(() => {
-      if (document.hidden || selectedScheduleId) return; // pause polling while drawer is open
+      if (document.hidden || selectedScheduleIdRef.current) return; // pause polling while drawer is open
       loadSchedules();
     }, 60000);
     return () => clearInterval(interval);
-  }, [loadSchedules, selectedScheduleId]);
+  }, [loadSchedules]);
 
   const updateDrawerParams = useCallback((nextScheduleId, nextRunId = null) => {
     const nextParams = new URLSearchParams(searchParams);
