@@ -300,7 +300,11 @@ function resolveDataDir() {
         : dir === HOME_DATA_DIR ? 'default (~/.torque)'
         : dir === LEGACY_DATA_DIR ? 'legacy (server dir)'
         : 'tmpdir fallback';
-      console.log(`[data-dir] Resolved: ${dir} (via ${source})`);
+      // stderr (not stdout) so subprocesses that pipe stdout (notably the
+      // vitest-setup-perf tests) don't see this diagnostic line bleed into
+      // their captured output. Production operators reading the log either
+      // way will still see it.
+      console.error(`[data-dir] Resolved: ${dir} (via ${source})`);
 
       // Migrate provider configs from legacy location if we moved away from it
       if (!isTestSandboxActive() && dir !== LEGACY_DATA_DIR) {
@@ -311,7 +315,7 @@ function resolveDataDir() {
     }
   }
 
-  console.log(`[data-dir] WARNING: No writable candidate found, using HOME_DATA_DIR: ${HOME_DATA_DIR}`);
+  console.error(`[data-dir] WARNING: No writable candidate found, using HOME_DATA_DIR: ${HOME_DATA_DIR}`);
   return HOME_DATA_DIR;
 }
 

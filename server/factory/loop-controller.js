@@ -4075,6 +4075,90 @@ async function executePlanStage(project, instance, selectedWorkItem = null) {
   }
 
   if (workItem?.origin?.plan_path && fs.existsSync(workItem.origin.plan_path)) {
+    // Bug D fix: pre-written plans previously bypassed plan-quality-gate
+    // entirely, so plans containing bare `dotnet test` (and other heavy local
+    // validation that governance rejects at execution time) reached EXECUTE
+    // and the resulting tasks failed in 1s on the heavy-validation guard,
+    // thrashing the worktree-reclaim loop. Run the gate against the
+    // pre-written plan so it has the same quality bar as architect-generated.
+    const planQualityGate = require('./plan-quality-gate');
+    let preWrittenGateVerdict = null;
+    let preWrittenPlanText = '';
+    try {
+      preWrittenPlanText = fs.readFileSync(workItem.origin.plan_path, 'utf8');
+      preWrittenGateVerdict = await planQualityGate.evaluatePlan({
+        plan: preWrittenPlanText,
+        workItem,
+        project,
+      });
+    } catch (err) {
+      logger.warn('pre-written plan-quality-gate evaluation failed; treating as pass (fail-open)', {
+        project_id: project.id,
+        work_item_id: workItem.id,
+        plan_path: workItem.origin.plan_path,
+        err: err.message,
+      });
+      safeLogDecision({
+        project_id: project.id,
+        stage: LOOP_STATES.PLAN,
+        action: 'plan_quality_gate_fail_open',
+        reasoning: `Pre-written plan gate threw: ${err.message}`,
+        outcome: {
+          work_item_id: workItem.id,
+          plan_path: workItem.origin.plan_path,
+        },
+        confidence: 1,
+        batch_id: getDecisionBatchId(project, workItem, null, instance),
+      });
+    }
+
+    if (preWrittenGateVerdict && !preWrittenGateVerdict.passed) {
+      const failedRules = preWrittenGateVerdict.hardFails.map((h) => h.rule);
+      logger.warn('PLAN stage: pre-written plan rejected by quality gate', {
+        project_id: project.id,
+        work_item_id: workItem.id,
+        plan_path: workItem.origin.plan_path,
+        rules: failedRules,
+      });
+      try {
+        factoryIntake.rejectWorkItemUnactionable(
+          workItem.id,
+          'pre_written_plan_rejected_by_quality_gate',
+        );
+      } catch (_rejectErr) { void _rejectErr; }
+      safeLogDecision({
+        project_id: project.id,
+        stage: LOOP_STATES.PLAN,
+        action: 'pre_written_plan_quality_rejected',
+        reasoning: `Pre-written plan failed quality gate: ${failedRules.join(', ')}.`,
+        inputs: {
+          ...getWorkItemDecisionContext(workItem),
+          plan_path: workItem.origin.plan_path,
+        },
+        outcome: {
+          architect_skipped: false,
+          rule_violations: preWrittenGateVerdict.hardFails,
+          plan_path: workItem.origin.plan_path,
+          ...getWorkItemDecisionContext(workItem),
+        },
+        confidence: 1,
+        batch_id: getDecisionBatchId(project, workItem, null, instance),
+      });
+      return {
+        reason: 'pre-written plan rejected by quality gate',
+        work_item: factoryIntake.getWorkItem(workItem.id) || workItem,
+        stop_execution: true,
+        next_state: LOOP_STATES.SENSE,
+        stage_result: {
+          status: 'rejected',
+          reason: 'pre_written_plan_rejected_by_quality_gate',
+          work_item_id: workItem.id,
+          plan_path: workItem.origin.plan_path,
+          rule_violations: failedRules,
+        },
+      };
+    }
+
     workItem = factoryIntake.updateWorkItem(workItem.id, { status: 'executing' });
     rememberSelectedWorkItem(instance.id, workItem);
     logger.info('PLAN stage: pre-written plan detected, skipping architect', {
@@ -4086,13 +4170,14 @@ async function executePlanStage(project, instance, selectedWorkItem = null) {
       project_id: project.id,
       stage: LOOP_STATES.PLAN,
       action: 'skipped_for_plan_file',
-      reasoning: 'pre-written plan detected',
+      reasoning: 'pre-written plan detected; quality gate passed',
       inputs: {
         ...getWorkItemDecisionContext(workItem),
       },
       outcome: {
         architect_skipped: true,
         reason: 'pre-written plan detected',
+        gate_passed: Boolean(preWrittenGateVerdict?.passed),
         ...getWorkItemDecisionContext(workItem),
       },
       confidence: 1,
@@ -7510,9 +7595,15 @@ async function executeVerifyStage(project_id, batch_id, instance = null) {
             };
           }
 
+          // build_failure is treated like task_caused: route to the auto-retry
+          // path so MAX_AUTO_VERIFY_RETRIES bounds it. After retries exhaust,
+          // the work item gets auto-rejected as unactionable rather than
+          // sitting in human-pause limbo (the f9cf2275 failure mode).
           const reviewedAction = review && review.classification === 'task_caused'
             ? 'verify_reviewed_task_caused'
-            : 'verify_reviewed_retrying';
+            : review && review.classification === 'build_failure'
+              ? 'verify_reviewed_build_failure'
+              : 'verify_reviewed_retrying';
           safeLogDecision({
             project_id,
             stage: LOOP_STATES.VERIFY,

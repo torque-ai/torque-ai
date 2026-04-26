@@ -19,6 +19,7 @@ const REJECT_REASONS = Object.freeze(new Set([
   'retry_off_scope',
   'branch_stale_vs_master',
   'branch_stale_vs_base',
+  'pre_written_plan_rejected_by_quality_gate',
 ]));
 const CLOSED_STATUSES = new Set(['completed', 'rejected', 'shipped', 'unactionable']);
 const PRIORITY_LEVELS = Object.freeze({
