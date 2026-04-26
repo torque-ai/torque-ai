@@ -456,6 +456,7 @@ run_torque_remote() {
     TORQUE_REMOTE_TEST_ARGV_LOG="$tmp/argv.log" \
     TORQUE_REMOTE_TEST_REMOTE_COMMANDS="$tmp/remote-commands.log" \
     TORQUE_REMOTE_TEST_REMOTE_STDIN="$tmp/remote-stdin.bin" \
+    TORQUE_REMOTE_SYNC_LOG="$tmp/sync.log" \
     bash "$SCRIPT_UNDER_TEST" "$@" >"$stdout_file" 2>"$stderr_file"
   )
   RUN_EXIT=$?
@@ -715,6 +716,60 @@ test_remote_overlay_bundle_reaches_run_command() {
   finish_test "test_remote_overlay_bundle_reaches_run_command"
 }
 
+test_sync_log_path_is_env_overridable() {
+  local tmp
+
+  echo "Test: TORQUE_REMOTE_SYNC_LOG redirects sync output away from the global default"
+  TEST_ERRORS=()
+  reset_stub_env
+
+  make_test_env
+  tmp="$LAST_TEST_ENV"
+  export GIT_REV_PARSE_OUTPUT="main"
+
+  # run_torque_remote() sets TORQUE_REMOTE_SYNC_LOG="$tmp/sync.log" already,
+  # so the test-isolated path should receive output. We can't reliably assert
+  # "global default file unchanged" — the global /tmp/torque-remote-sync.log is
+  # multi-tenant on a dev box (parallel torque-remote calls from other sessions
+  # append to it), so a strict before/after byte-count comparison flakes on
+  # busy machines. Positive assertion (test path got output) is sufficient
+  # proof that the env-var override is plumbed through.
+  run_torque_remote "$tmp" echo hi
+
+  expect_eq "exit code is 0" "0" "$RUN_EXIT"
+  expect_greater_than_zero "test-isolated sync log received output" "$(file_size_bytes "$tmp/sync.log")"
+
+  finish_test "test_sync_log_path_is_env_overridable"
+}
+
+test_sync_emits_npm_install_hint_for_node_layouts() {
+  local tmp
+
+  echo "Test: sync command emits npm install hints for the standard Node.js layouts"
+  TEST_ERRORS=()
+  reset_stub_env
+
+  make_test_env
+  tmp="$LAST_TEST_ENV"
+  export GIT_REV_PARSE_OUTPUT="main"
+
+  run_torque_remote "$tmp" echo hi
+
+  expect_eq "exit code is 0" "0" "$RUN_EXIT"
+  # The sync command appends three `if exist <pj> if not exist node_modules`
+  # checks (root, server/, dashboard/) — verify each lands in the SSH command.
+  # Backslash-separated paths are bash-escaping nightmares for grep needles, so
+  # match on the surrounding literal substrings instead.
+  expect_file_contains "root package.json hint is wired into sync" "$tmp/calls.log" "if exist package.json if not exist node_modules"
+  expect_file_contains "hint mentions ./package.json source" "$tmp/calls.log" "./package.json has no node_modules"
+  expect_file_contains "server hint mentions cd server && npm install" "$tmp/calls.log" "cd server"
+  expect_file_contains "server hint mentions server/package.json" "$tmp/calls.log" "server/package.json has no node_modules"
+  expect_file_contains "dashboard hint mentions cd dashboard && npm install" "$tmp/calls.log" "cd dashboard"
+  expect_file_contains "dashboard hint mentions dashboard/package.json" "$tmp/calls.log" "dashboard/package.json has no node_modules"
+
+  finish_test "test_sync_emits_npm_install_hint_for_node_layouts"
+}
+
 test_worktree_dot_git_file_is_project_root() {
   local parent worktree
 
@@ -774,6 +829,7 @@ EOF
     TORQUE_REMOTE_TEST_ARGV_LOG="$worktree/argv.log" \
     TORQUE_REMOTE_TEST_REMOTE_COMMANDS="$worktree/remote-commands.log" \
     TORQUE_REMOTE_TEST_REMOTE_STDIN="$worktree/remote-stdin.bin" \
+    TORQUE_REMOTE_SYNC_LOG="$worktree/sync.log" \
     bash "$SCRIPT_UNDER_TEST" echo hi >"$stdout_file" 2>"$stderr_file"
   )
   RUN_EXIT=$?
@@ -995,6 +1051,8 @@ main() {
   test_remote_run_does_not_require_timeout_binary
   test_successful_overlay_skips_failsafe_cleanup_round_trip
   test_remote_overlay_bundle_reaches_run_command
+  test_sync_log_path_is_env_overridable
+  test_sync_emits_npm_install_hint_for_node_layouts
   test_worktree_dot_git_file_is_project_root
   test_worktree_uses_main_repo_basename_for_project_name
   test_sync_includes_drift_detection
