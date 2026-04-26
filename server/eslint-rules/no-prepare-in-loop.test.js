@@ -22,7 +22,7 @@ tester.run('no-prepare-in-loop', rule, {
     // prepare inside a loop but with a long disable-comment reason
     {
       code: `for (const t of tables) {
-  // eslint-disable-next-line torque/no-prepare-in-loop -- dynamic table name prevents module-level hoist
+  // eslint-disable-next-line no-prepare-in-loop -- dynamic table name prevents module-level hoist
   db.prepare('SELECT * FROM ' + t).all();
 }`,
     },
@@ -41,7 +41,7 @@ tester.run('no-prepare-in-loop', rule, {
     // prepare inside loop with a short disable-comment reason
     {
       code: `for (const t of tables) {
-  // eslint-disable-next-line torque/no-prepare-in-loop -- ok
+  // eslint-disable-next-line no-prepare-in-loop -- ok
   db.prepare('SELECT * FROM ' + t).all();
 }`,
       errors: [{ messageId: 'shortDisableReason' }],
