@@ -5072,6 +5072,97 @@ async function executePlanFileStage(project, instance, workItem) {
       batchId: executeLogBatchId,
       deferral: resumedDeferredExecute,
     });
+
+    // Bug D-extension: when resuming a deferred EXECUTE batch (e.g. after
+    // a project pause/restart) the loop bypasses PLAN entirely, so the
+    // plan-quality-gate that the executePlanStage Bug D fix runs is never
+    // exercised on these items. Items that were approved under the older
+    // gate rule-set (or by an architect prior to the gate existing) get
+    // stuck looping EXECUTE → governance-reject → reclaim → EXECUTE
+    // (observed live this session on SpudgetBooks items 455, 458, 711, 764).
+    // Re-evaluate the persisted plan file here so legacy items get the same
+    // quality bar as freshly-planned ones, and bail out of EXECUTE if it
+    // would now be rejected.
+    const planQualityGateResume = require('./plan-quality-gate');
+    let resumeGateVerdict = null;
+    try {
+      const planText = fs.readFileSync(targetItem.origin.plan_path, 'utf8');
+      resumeGateVerdict = await planQualityGateResume.evaluatePlan({
+        plan: planText,
+        workItem: targetItem,
+        project,
+      });
+    } catch (err) {
+      logger.warn('resume-deferred plan-quality-gate evaluation failed; proceeding (fail-open)', {
+        project_id: project.id,
+        work_item_id: targetItem.id,
+        plan_path: targetItem.origin.plan_path,
+        err: err.message,
+      });
+      safeLogDecision({
+        project_id: project.id,
+        stage: LOOP_STATES.EXECUTE,
+        action: 'plan_quality_gate_fail_open',
+        reasoning: `Resume-deferred plan gate threw: ${err.message}`,
+        outcome: {
+          work_item_id: targetItem.id,
+          plan_path: targetItem.origin.plan_path,
+        },
+        confidence: 1,
+        batch_id: executeLogBatchId,
+      });
+    }
+    if (resumeGateVerdict && !resumeGateVerdict.passed) {
+      const failedRules = resumeGateVerdict.hardFails.map((h) => h.rule);
+      try {
+        factoryIntake.rejectWorkItemUnactionable(
+          targetItem.id,
+          'pre_written_plan_rejected_by_quality_gate',
+        );
+      } catch (rejectErr) {
+        // Don't swallow silently — if rejection fails (DB lock, REJECT_REASONS
+        // gap, etc.) the work item stays in_progress and we'd loop again.
+        logger.warn('resume-deferred work-item rejection failed; loop may re-enter', {
+          project_id: project.id,
+          work_item_id: targetItem.id,
+          err: rejectErr.message,
+        });
+      }
+      logger.warn('EXECUTE stage: resumed deferred plan rejected by quality gate', {
+        project_id: project.id,
+        work_item_id: targetItem.id,
+        plan_path: targetItem.origin.plan_path,
+        rules: failedRules,
+      });
+      safeLogDecision({
+        project_id: project.id,
+        stage: LOOP_STATES.EXECUTE,
+        action: 'resumed_plan_quality_rejected',
+        reasoning: `Resumed deferred plan failed quality gate on re-evaluation: ${failedRules.join(', ')}.`,
+        inputs: {
+          ...getWorkItemDecisionContext(targetItem),
+          plan_path: targetItem.origin.plan_path,
+        },
+        outcome: {
+          rule_violations: resumeGateVerdict.hardFails,
+          plan_path: targetItem.origin.plan_path,
+          ...getWorkItemDecisionContext(targetItem),
+        },
+        confidence: 1,
+        batch_id: executeLogBatchId,
+      });
+      return {
+        next_state: LOOP_STATES.IDLE,
+        stop_execution: true,
+        stage_result: {
+          status: 'rejected',
+          reason: 'pre_written_plan_rejected_by_quality_gate',
+          work_item_id: targetItem.id,
+          plan_path: targetItem.origin.plan_path,
+          rule_violations: failedRules,
+        },
+      };
+    }
   }
 
   // Spin detector: if this batch has re-entered EXECUTE many times in a
