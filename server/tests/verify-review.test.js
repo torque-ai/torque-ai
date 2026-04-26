@@ -342,6 +342,32 @@ Tests Passed: 2, Failed: 0
     };
     expect(parseFailingTests(out)).toEqual([]);
   });
+
+  it('strips ANSI escape codes before matching vitest output (vitest 4 emits SGR colors even when stdout is redirected to a file)', () => {
+    // Live regression 2026-04-25: torque-public went baseline_broken because
+    // vitest 4 wraps its arrow-pointer and FAIL-header lines in SGR escapes
+    // ([31m...[39m) even when stdout is redirected to a non-TTY.
+    // The existing regexes use `❯\s+(<path>):\d+` and `^\s*FAIL\s+(<path>)`
+    // which only match against clean text — the embedded escape codes between
+    // ❯ and the path (or between FAIL and the path) make `\s+` fail and the
+    // parser returns []. Empty failing_tests then collapses the classifier
+    // to the LLM tiebreak, which hallucinated "patch overlay conflicts" and
+    // marked the project verify_failed_baseline_unrelated for a full day.
+    const ESC = '';
+    const out = {
+      stdout: `
+ ${ESC}[31m❯${ESC}[39m server/tests/p3-silent-catches.test.js ${ESC}[2m(${ESC}[22m${ESC}[2m1 test${ESC}[22m${ESC}[2m | ${ESC}[22m${ESC}[31m1 failed${ESC}[39m${ESC}[2m)${ESC}[22m${ESC}[33m 338${ESC}[2mms${ESC}[22m${ESC}[39m
+${ESC}[31m     ${ESC}[31m×${ESC}[31m no handler catch blocks should be empty${ESC}[39m
+${ESC}[41m${ESC}[1m FAIL ${ESC}[22m${ESC}[49m server/tests/v2-task-handlers.test.js${ESC}[2m > ${ESC}[22mhandleReassignTaskProvider > preserves metadata
+${ESC}[31m${ESC}[1mAssertionError${ESC}[22m: ...
+${ESC}[36m ${ESC}[2m❯${ESC}[22m server/tests/v2-task-handlers.test.js:${ESC}[2m1399:31${ESC}[22m${ESC}[39m
+`,
+      stderr: '',
+    };
+    const r = parseFailingTests(out);
+    expect(r).toContain('server/tests/p3-silent-catches.test.js');
+    expect(r).toContain('server/tests/v2-task-handlers.test.js');
+  });
 });
 
 const childProcess = require('node:child_process');
