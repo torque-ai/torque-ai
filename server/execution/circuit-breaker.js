@@ -75,9 +75,7 @@ class CircuitBreaker {
       for (const row of this._store.listAll()) {
         const entry = createProviderState(this._config.baseRecoveryTimeoutMs);
         entry.state = row.state;
-        // Support both real DB (snake_case) and test mock (camelCase) shapes.
-        const trippedAtRaw = row.tripped_at ?? row.trippedAt ?? null;
-        entry.trippedAt = trippedAtRaw ? new Date(trippedAtRaw).getTime() : null;
+        entry.trippedAt = row.tripped_at ? new Date(row.tripped_at).getTime() : null;
         // consecutiveFailures intentionally not persisted — counter resets on restart.
         this._providers.set(row.provider_id, entry);
       }

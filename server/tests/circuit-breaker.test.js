@@ -246,7 +246,15 @@ describe('circuit-breaker', () => {
       store = {
         getState: vi.fn((id) => persisted.get(id) ?? null),
         persist: vi.fn((id, patch) => {
-          persisted.set(id, { provider_id: id, ...persisted.get(id), ...patch });
+          const existing = persisted.get(id) ?? { provider_id: id };
+          const next = { ...existing };
+          if (patch.state !== undefined) next.state = patch.state;
+          if (patch.trippedAt !== undefined) next.tripped_at = patch.trippedAt;
+          if (patch.untrippedAt !== undefined) next.untripped_at = patch.untrippedAt;
+          if (patch.tripReason !== undefined) next.trip_reason = patch.tripReason;
+          if (patch.lastCanaryAt !== undefined) next.last_canary_at = patch.lastCanaryAt;
+          if (patch.lastCanaryStatus !== undefined) next.last_canary_status = patch.lastCanaryStatus;
+          persisted.set(id, next);
         }),
         listAll: vi.fn(() => Array.from(persisted.values())),
       };
