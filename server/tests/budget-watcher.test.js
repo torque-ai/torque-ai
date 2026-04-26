@@ -47,7 +47,7 @@ function insertCost({
       model,
       input_tokens,
       output_tokens,
-      estimated_cost,
+      cost_usd,
       tracked_at
     ) VALUES (?, ?, ?, ?, ?, ?, ?)
   `).run(provider, 'task-1', 'model', 1, 1, estimatedCost, createdAt);
@@ -72,7 +72,7 @@ beforeEach(() => {
       model TEXT,
       input_tokens INTEGER,
       output_tokens INTEGER,
-      estimated_cost REAL,
+      cost_usd REAL,
       tracked_at TEXT
     );
   `);
@@ -286,5 +286,21 @@ describe('db/budget-watcher', () => {
 
     expect(result.thresholdBreached).toBe('downgrade');
     expect(result.action).toBe('activate_cost_saver');
+  });
+
+  it('getCurrentSpend sums cost_usd not estimated_cost (correctness regression)', () => {
+    insertBudget({
+      id: 'budget-correctness',
+      name: 'Correctness Budget',
+      provider: 'ollama',
+      budgetAmount: 10,
+    });
+    // Insert a row with cost_usd = 0.05 via insertCost helper (which now uses cost_usd column)
+    insertCost({ provider: 'ollama', estimatedCost: 0.05 });
+
+    const result = budgetWatcher.checkBudgetThresholds('ollama');
+    // spendAmount must reflect the actual cost_usd value, not zero
+    expect(result.spendAmount).toBeCloseTo(0.05, 4);
+    expect(result.spendPercent).toBeCloseTo(0.5, 1);
   });
 });
