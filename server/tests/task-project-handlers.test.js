@@ -187,7 +187,20 @@ function createVirtualFs(initialEntries = {}) {
       // production callers pass 'utf8' and expect a string; mirror that.
       return typeof encoding === 'string' || (encoding && encoding.encoding) ? String(buf) : buf;
     }),
-    stat: vi.fn(async (filePath) => api.statSync(filePath)),
+    // Mirror lstatSync's directory-aware behavior so callers that stat a
+    // directory (e.g. handleGenerateTestTasks does `await fs.promises.stat(srcDir)`
+    // before scanning) don't get ENOENT when the path is a registered dir.
+    // The bare statSync mock only checks `files`, which would short-circuit
+    // those callers and return zero source files.
+    stat: vi.fn(async (filePath) => {
+      const lstat = api.lstatSync(filePath);
+      return {
+        size: lstat.size,
+        isFile: lstat.isFile,
+        isDirectory: lstat.isDirectory,
+        isSymbolicLink: lstat.isSymbolicLink,
+      };
+    }),
     lstat: vi.fn(async (filePath) => api.lstatSync(filePath)),
     writeFile: vi.fn(async (filePath, content) => api.writeFileSync(filePath, content)),
     realpath: vi.fn(async (filePath) => api.realpathSync(filePath)),

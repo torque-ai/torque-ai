@@ -372,7 +372,7 @@ describe('automation-handlers main unit suite', () => {
   });
 
   describe('helpers', () => {
-    it('sanitizeTemplateVariable truncates long values and strips shell template syntax', () => {
+    it('sanitizeTemplateVariable truncates long values and strips shell template syntax', async () => {
       const { helpers } = loadAutomationModule();
 
       const result = helpers.sanitizeTemplateVariable('`$(danger)${expr}`' + 'x'.repeat(10250));
@@ -455,7 +455,7 @@ describe('automation-handlers main unit suite', () => {
       expect(helpers.findRelatedExistingTestPath('src/core/queue.ts', testFiles, '.test.ts')).toBeNull();
     });
 
-    it('scanDirectory collects source files and recognizes test files', () => {
+    it('scanDirectory collects source files and recognizes test files', async () => {
       const workingDir = 'C:\\repo';
       const fsMock = createVirtualFs({
         [path.join(workingDir, 'src', 'core', 'queue.ts')]: buildLines(3, 'queue'),
@@ -467,7 +467,7 @@ describe('automation-handlers main unit suite', () => {
       const sourceFiles = [];
       const testFiles = new Set();
 
-      helpers.scanDirectory(path.join(workingDir, 'src'), workingDir, sourceFiles, testFiles, '.test.ts');
+      await helpers.scanDirectory(path.join(workingDir, 'src'), workingDir, sourceFiles, testFiles, '.test.ts');
 
       expect(sourceFiles).toEqual([
         { relativePath: 'src/core/queue.ts', lines: 3 },
@@ -479,7 +479,7 @@ describe('automation-handlers main unit suite', () => {
       ]);
     });
 
-    it('scanDirectory ignores build output, coverage, and mock directories', () => {
+    it('scanDirectory ignores build output, coverage, and mock directories', async () => {
       const workingDir = 'C:\\repo';
       const fsMock = createVirtualFs({
         [path.join(workingDir, 'src', 'main.ts')]: buildLines(2, 'main'),
@@ -492,13 +492,13 @@ describe('automation-handlers main unit suite', () => {
       const sourceFiles = [];
       const testFiles = new Set();
 
-      helpers.scanDirectory(path.join(workingDir, 'src'), workingDir, sourceFiles, testFiles, '.test.ts');
+      await helpers.scanDirectory(path.join(workingDir, 'src'), workingDir, sourceFiles, testFiles, '.test.ts');
 
       expect(sourceFiles).toEqual([{ relativePath: 'src/main.ts', lines: 2 }]);
       expect(testFiles.size).toBe(0);
     });
 
-    it('scanDirectory tolerates file read failures by recording zero lines', () => {
+    it('scanDirectory tolerates file read failures by recording zero lines', async () => {
       const workingDir = 'C:\\repo';
       const fsMock = createVirtualFs({
         [path.join(workingDir, 'src', 'broken.js')]: buildLines(5, 'broken'),
@@ -514,7 +514,7 @@ describe('automation-handlers main unit suite', () => {
       const sourceFiles = [];
       const testFiles = new Set();
 
-      helpers.scanDirectory(path.join(workingDir, 'src'), workingDir, sourceFiles, testFiles, '.test.ts');
+      await helpers.scanDirectory(path.join(workingDir, 'src'), workingDir, sourceFiles, testFiles, '.test.ts');
 
       expect(sourceFiles).toEqual([{ relativePath: 'src/broken.js', lines: 0 }]);
     });
