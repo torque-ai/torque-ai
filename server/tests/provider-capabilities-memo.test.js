@@ -8,15 +8,15 @@ test('getProviderCapabilitySet returns a Set', () => {
   expect(s.size).toBeGreaterThan(0);
 });
 
-test('100 calls to getProviderCapabilitySet build the Set exactly once (cache hit)', () => {
+test('100 calls to getProviderCapabilitySet return the exact same Set reference (cache hit)', () => {
   const { createProviderCapabilities } = require('../db/provider-capabilities');
   const caps = createProviderCapabilities();
-  let buildCount = 0;
-  const orig = caps.getProviderCapabilities.bind(caps);
-  caps.getProviderCapabilities = (p) => { buildCount++; return orig(p); };
-  for (let i = 0; i < 100; i++) caps.getProviderCapabilitySet('codex');
-  // The cache is populated on first call; subsequent 99 calls skip getProviderCapabilities.
-  expect(buildCount).toBe(1);
+  // The first call builds and caches the Set; all subsequent calls return the same reference.
+  const first = caps.getProviderCapabilitySet('codex');
+  for (let i = 1; i < 100; i++) {
+    const s = caps.getProviderCapabilitySet('codex');
+    expect(s).toBe(first); // exact same Set object — cache hit
+  }
 });
 
 test('setDb clears the capability set cache', () => {
