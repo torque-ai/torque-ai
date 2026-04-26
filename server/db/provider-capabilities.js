@@ -26,7 +26,8 @@ const QUALITY_GATES = {
 };
 
 let _db = null;
-function setDb(db) { _db = db; }
+const _capabilitySetCache = new Map();
+function setDb(db) { _db = db; _capabilitySetCache.clear(); }
 
 function getProviderCapabilities(provider) {
   if (_db && typeof _db.getProvider === 'function') {
@@ -57,6 +58,13 @@ function meetsCapabilityRequirements(provider, requirements) {
   if (!requirements || requirements.length === 0) return true;
   const caps = new Set(getProviderCapabilities(provider));
   return requirements.every(req => caps.has(req));
+}
+
+function getProviderCapabilitySet(provider) {
+  if (_capabilitySetCache.has(provider)) return _capabilitySetCache.get(provider);
+  const s = new Set(getProviderCapabilities(provider));
+  _capabilitySetCache.set(provider, s);
+  return s;
 }
 
 function passesQualityGate(band, qualityTier) {
@@ -121,6 +129,6 @@ function createProviderCapabilities({ db: dbInstance } = {}) {
 module.exports = {
   DEFAULT_CAPABILITIES, BAND_ORDER, QUALITY_GATES,
   setDb, createProviderCapabilities, getProviderCapabilities, getQualityBand,
-  meetsCapabilityRequirements, passesQualityGate,
+  getProviderCapabilitySet, meetsCapabilityRequirements, passesQualityGate,
   inferCapabilityRequirements, generateEligibleProviders,
 };

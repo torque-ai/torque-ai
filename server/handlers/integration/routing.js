@@ -29,7 +29,7 @@ const {
 } = require('../../factory/provider-lane-policy');
 const modelRoles = require('../../db/model-roles');
 const modelCaps = require('../../db/model-capabilities');
-const { getProviderCapabilities } = require('../../db/provider-capabilities');
+const { getProviderCapabilities, getProviderCapabilitySet } = require('../../db/provider-capabilities');
 const { isAgenticCapable } = require('../../providers/agentic-capability');
 const logger = require('../../logger').child({ component: 'integration-routing' });
 const serverConfig = require('../../config');
@@ -139,7 +139,7 @@ function providerSupportsRepoWriteTasks(provider, model) {
   if (!provider) return false;
   if (BUILTIN_AGENTIC_PROVIDERS.has(provider)) return true;
 
-  const providerCapabilities = new Set(getProviderCapabilities(provider));
+  const providerCapabilities = getProviderCapabilitySet(provider);
   if (!providerCapabilities.has('file_creation') || !providerCapabilities.has('file_edit')) {
     return false;
   }
