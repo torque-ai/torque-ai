@@ -272,13 +272,34 @@ function getTaskContextTokenEstimate(...args) { return _taskUtils.getTaskContext
 // Legacy getters below delegate to registry for backward compatibility
 let freeQuotaTracker = null;
 
+const DEFAULT_FREE_PROVIDER_RATE_LIMITS = Object.freeze([
+  { provider: 'groq', rpm_limit: 30, rpd_limit: 14400, tpm_limit: 6000, tpd_limit: 500000, daily_reset_hour: 0, daily_reset_tz: 'UTC' },
+  { provider: 'cerebras', rpm_limit: 30, rpd_limit: 14400, tpm_limit: 64000, tpd_limit: 1000000, daily_reset_hour: 0, daily_reset_tz: 'UTC' },
+  { provider: 'google-ai', rpm_limit: 10, rpd_limit: 250, tpm_limit: 250000, tpd_limit: null, daily_reset_hour: 0, daily_reset_tz: 'America/Los_Angeles' },
+  { provider: 'openrouter', rpm_limit: 20, rpd_limit: 50, tpm_limit: null, tpd_limit: null, daily_reset_hour: 0, daily_reset_tz: 'UTC' },
+  { provider: 'ollama-cloud', rpm_limit: 10, rpd_limit: 500, tpm_limit: 100000, tpd_limit: null, daily_reset_hour: 0, daily_reset_tz: 'UTC' },
+  { provider: 'ollama', rpm_limit: null, rpd_limit: null, tpm_limit: null, tpd_limit: null, daily_reset_hour: 0, daily_reset_tz: 'UTC' },
+]);
+
+function mergeDefaultFreeProviderRateLimits(limits = []) {
+  const byProvider = new Map();
+  for (const limit of DEFAULT_FREE_PROVIDER_RATE_LIMITS) {
+    byProvider.set(limit.provider, { ...limit, is_free_tier: 1 });
+  }
+  for (const limit of Array.isArray(limits) ? limits : []) {
+    if (!limit?.provider) continue;
+    byProvider.set(limit.provider, { ...byProvider.get(limit.provider), ...limit, is_free_tier: 1 });
+  }
+  return Array.from(byProvider.values());
+}
+
 // NOTE: getFreeQuotaTracker uses a lazy singleton. Node.js is single-threaded
 // so there is no concurrent-init race in the event loop, but if this function
 // is ever called from multiple worker threads the `if (!freeQuotaTracker)`
 // check would not be atomic. Currently safe — only called from the main thread.
 function getFreeQuotaTracker() {
   if (!freeQuotaTracker) {
-    const limits = db.getProviderRateLimits ? db.getProviderRateLimits() : [];
+    const limits = mergeDefaultFreeProviderRateLimits(db.getProviderRateLimits ? db.getProviderRateLimits() : []);
     freeQuotaTracker = new FreeQuotaTracker(limits);
     // Wire DB module so daily snapshots persist when quota windows reset
     if (db.recordDailySnapshot) {
