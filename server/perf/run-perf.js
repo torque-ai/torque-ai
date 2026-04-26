@@ -17,6 +17,17 @@ async function run() {
     return 0;
   }
 
+  if (args.includes('--update-baseline')) {
+    try {
+      const target = report.updateBaseline(outDir);
+      console.log(`updated baseline at ${target}`);
+      return 0;
+    } catch (err) {
+      console.error(err.message);
+      return 2;
+    }
+  }
+
   if (process.env.PERF_SMOKE === '1') {
     const payload = { captured_at: new Date().toISOString(), env: report.captureEnv(), metrics: {} };
     const target = report.writeLastRun(outDir, payload);

@@ -76,4 +76,26 @@ function compareToBaseline(baseline, current) {
   return { regressions, improvements, advisory: false, notes: [] };
 }
 
-module.exports = { captureEnv, writeLastRun, readBaseline, compareToBaseline, REGRESSION_THRESHOLD_PCT };
+function updateBaseline(outDir) {
+  const lastPath = path.join(outDir, 'last-run.json');
+  if (!fs.existsSync(lastPath)) {
+    throw new Error(`last-run.json not found at ${lastPath} — run perf first`);
+  }
+  const last = JSON.parse(fs.readFileSync(lastPath, 'utf8'));
+  const stamp = new Date().toISOString();
+  const metrics = {};
+  for (const [id, entry] of Object.entries(last.metrics || {})) {
+    metrics[id] = { ...entry, last_updated_at: stamp };
+  }
+  const baseline = {
+    captured_at: last.captured_at,
+    env: last.env,
+    last_updated_at: stamp,
+    metrics
+  };
+  const target = path.join(outDir, 'baseline.json');
+  fs.writeFileSync(target, JSON.stringify(baseline, null, 2));
+  return target;
+}
+
+module.exports = { captureEnv, writeLastRun, readBaseline, compareToBaseline, updateBaseline, REGRESSION_THRESHOLD_PCT };
