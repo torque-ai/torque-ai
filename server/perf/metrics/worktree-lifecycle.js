@@ -26,13 +26,32 @@ async function run(ctx) {
   let r = cp.spawnSync('git', ['worktree', 'add', '--no-checkout', '-b', branch, worktreePath, 'HEAD'], {
     cwd: repoRoot, encoding: 'utf8'
   });
-  if (r.status !== 0) throw new Error(`worktree add failed: ${r.stderr}`);
+  if (r.status !== 0) {
+    // Add failed; nothing to clean up.
+    throw new Error(`worktree add failed: ${r.stderr || r.error?.message || 'unknown'}`);
+  }
 
-  // Cleanup.
-  r = cp.spawnSync('git', ['worktree', 'remove', '--force', worktreePath], { cwd: repoRoot, encoding: 'utf8' });
-  if (r.status !== 0) throw new Error(`worktree remove failed: ${r.stderr}`);
-  cp.spawnSync('git', ['branch', '-D', branch], { cwd: repoRoot, encoding: 'utf8' });
+  let removeError = null;
+  try {
+    r = cp.spawnSync('git', ['worktree', 'remove', '--force', worktreePath], { cwd: repoRoot, encoding: 'utf8' });
+    if (r.status !== 0) {
+      removeError = new Error(`worktree remove failed: ${r.stderr || r.error?.message || 'unknown'}`);
+    }
+  } finally {
+    // Best-effort branch cleanup regardless of remove outcome.
+    cp.spawnSync('git', ['branch', '-D', branch], { cwd: repoRoot, encoding: 'utf8' });
+    // If remove failed, also try to nuke the directory directly.
+    if (removeError) {
+      try {
+        const fs = require('fs');
+        fs.rmSync(worktreePath, { recursive: true, force: true });
+        // Re-run prune to clean up git's internal worktree registry.
+        cp.spawnSync('git', ['worktree', 'prune'], { cwd: repoRoot, encoding: 'utf8' });
+      } catch (_e) { /* best effort — if even rmSync fails, the leftover will need manual cleanup */ }
+    }
+  }
 
+  if (removeError) throw removeError;
   return { value: performance.now() - start };
 }
 
