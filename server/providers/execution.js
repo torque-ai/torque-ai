@@ -613,6 +613,16 @@ const HARD_FAIL_AGENTIC_STOP_REASONS = new Set([
 
 function inspectHardFailAgenticStopReason(task, workingDir, agenticPolicy, result) {
   const stopReason = String(result?.stopReason || '').trim();
+  const toolCount = Array.isArray(result?.toolLog) ? result.toolLog.length : 0;
+  const output = String(result?.output || '').trim();
+  if (!output && toolCount === 0 && (!stopReason || stopReason === 'model_finished')) {
+    return {
+      message: 'Agentic task returned no output and no repository tool evidence (empty_toolless_result).',
+      stopReason: 'empty_toolless_result',
+      verificationCommand: resolveTaskVerificationCommand(task, workingDir, agenticPolicy),
+    };
+  }
+
   if (!HARD_FAIL_AGENTIC_STOP_REASONS.has(stopReason)) {
     return null;
   }
@@ -624,6 +634,7 @@ function inspectHardFailAgenticStopReason(task, workingDir, agenticPolicy, resul
 
   return {
     message: `Agentic ${taskKind} task ${reason} (${stopReason}).`,
+    stopReason,
     verificationCommand: resolveTaskVerificationCommand(task, workingDir, agenticPolicy),
   };
 }
@@ -4018,7 +4029,7 @@ async function executeWithFallback(task, chain, buildWorkerConfig, callbacks, ag
       const resultFailure = inspectHardFailAgenticStopReason(task, workingDir, agenticPolicy, result)
         || buildIncompleteAgenticFailure(task, workingDir, agenticPolicy, result, config?.maxIterations, entry.provider, resolvedModel);
       if (resultFailure) {
-        const stopReason = result?.stopReason || 'completion_review_failed';
+        const stopReason = resultFailure.stopReason || result?.stopReason || 'completion_review_failed';
         const resultError = new Error(resultFailure.message);
         resultError.name = stopReason;
         lastError = resultError;
