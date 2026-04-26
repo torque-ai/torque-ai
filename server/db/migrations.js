@@ -796,6 +796,15 @@ const MIGRATIONS = [
     version: 37,
     name: 'idx_fge_batch',
     up: function(sqliteDb) {
+      // Skip when the underlying table is absent. db-migrations.test.js seeds
+      // applied-versions lists that pre-claim migration 16 (which creates
+      // factory_guardrail_events) against a deliberately-minimal schema, so
+      // the table doesn't actually exist. The index gets created the first
+      // time the table is materialised in production.
+      const tableExists = sqliteDb.prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='factory_guardrail_events'"
+      ).get();
+      if (!tableExists) return;
       sqliteDb.prepare(
         'CREATE INDEX IF NOT EXISTS idx_fge_batch ON factory_guardrail_events (project_id, batch_id, created_at)'
       ).run();
