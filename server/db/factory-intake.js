@@ -314,6 +314,39 @@ function createFromFindings(project_id, findings, source) {
   return created;
 }
 
+const PARK_STATUSES = Object.freeze([
+  'parked_codex_unavailable',
+  'parked_chain_exhausted',
+]);
+
+function isParkedStatus(status) {
+  return PARK_STATUSES.includes(status);
+}
+
+function parkWorkItemForCodex({ db: dbArg, workItemId, reason }) {
+  if (!dbArg) throw new Error('parkWorkItemForCodex requires db');
+  if (!Number.isInteger(workItemId)) throw new Error('workItemId must be integer');
+  // reason is intentionally unused in Phase 1 — callers log it via decision-logs.
+  void reason;
+  dbArg.prepare(`
+    UPDATE factory_work_items
+    SET status = 'parked_codex_unavailable',
+        updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+    WHERE id = ?
+  `).run(workItemId);
+}
+
+function resumeAllCodexParked({ db: dbArg }) {
+  if (!dbArg) throw new Error('resumeAllCodexParked requires db');
+  const result = dbArg.prepare(`
+    UPDATE factory_work_items
+    SET status = 'pending',
+        updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+    WHERE status = 'parked_codex_unavailable'
+  `).run();
+  return result.changes;
+}
+
 module.exports = {
   setDb,
   isMetaTaskTitle,
@@ -338,4 +371,8 @@ module.exports = {
   REJECT_REASONS,
   VALID_PRIORITIES,
   CLOSED_STATUSES,
+  PARK_STATUSES,
+  isParkedStatus,
+  parkWorkItemForCodex,
+  resumeAllCodexParked,
 };
