@@ -238,4 +238,44 @@ describe('circuit-breaker', () => {
     expect(allStates.deepinfra.state).toBe(STATES.HALF_OPEN);
     expect(allStates.anthropic.state).toBe(STATES.HALF_OPEN);
   });
+
+  describe('persistence', () => {
+    let store;
+    beforeEach(() => {
+      const persisted = new Map();
+      store = {
+        getState: vi.fn((id) => persisted.get(id) ?? null),
+        persist: vi.fn((id, patch) => {
+          persisted.set(id, { provider_id: id, ...persisted.get(id), ...patch });
+        }),
+        listAll: vi.fn(() => Array.from(persisted.values())),
+      };
+    });
+
+    it('loads persisted OPEN state on construction', () => {
+      store.persist('codex', {
+        state: 'OPEN',
+        trippedAt: new Date('2026-04-26T19:55:00.000Z').toISOString(),
+        tripReason: 'manual_disabled',
+      });
+      const breaker = createCircuitBreaker({ eventBus, config: TEST_CONFIG, store });
+      expect(breaker.getState('codex').state).toBe(STATES.OPEN);
+      expect(store.listAll).toHaveBeenCalled();
+    });
+
+    it('writes through to store on trip', () => {
+      const breaker = createCircuitBreaker({ eventBus, config: TEST_CONFIG, store });
+      tripCircuit(breaker, 'codex');
+      expect(store.persist).toHaveBeenCalledWith('codex', expect.objectContaining({
+        state: 'OPEN',
+      }));
+    });
+
+    it('survives breaker recreation (state loaded from store)', () => {
+      const breaker1 = createCircuitBreaker({ eventBus, config: TEST_CONFIG, store });
+      tripCircuit(breaker1, 'codex');
+      const breaker2 = createCircuitBreaker({ eventBus, config: TEST_CONFIG, store });
+      expect(breaker2.getState('codex').state).toBe(STATES.OPEN);
+    });
+  });
 });

@@ -65,10 +65,23 @@ function createProviderState(baseRecoveryTimeoutMs) {
 }
 
 class CircuitBreaker {
-  constructor({ eventBus, config }) {
+  constructor({ eventBus, config, store }) {
     this._eventBus = eventBus || createNoopEventBus();
     this._config = { ...DEFAULT_CONFIG, ...config };
     this._providers = new Map();
+    this._store = store || null;
+
+    if (this._store && typeof this._store.listAll === 'function') {
+      for (const row of this._store.listAll()) {
+        const entry = createProviderState(this._config.baseRecoveryTimeoutMs);
+        entry.state = row.state;
+        // Support both real DB (snake_case) and test mock (camelCase) shapes.
+        const trippedAtRaw = row.tripped_at ?? row.trippedAt ?? null;
+        entry.trippedAt = trippedAtRaw ? new Date(trippedAtRaw).getTime() : null;
+        // consecutiveFailures intentionally not persisted — counter resets on restart.
+        this._providers.set(row.provider_id, entry);
+      }
+    }
   }
 
   _getStateEntry(provider) {
@@ -83,6 +96,15 @@ class CircuitBreaker {
   _emit(event, payload) {
     if (typeof this._eventBus?.emit === "function") {
       this._eventBus.emit(event, payload);
+    }
+  }
+
+  _persist(provider, patch) {
+    if (!this._store) return;
+    try {
+      this._store.persist(provider, patch);
+    } catch (_err) {
+      // Persistence errors must not break the breaker.
     }
   }
 
@@ -118,6 +140,11 @@ class CircuitBreaker {
       consecutiveFailures: entry.consecutiveFailures,
       recoveryTimeoutMs: entry.recoveryTimeoutMs,
     });
+
+    this._persist(provider, {
+      state: 'OPEN',
+      trippedAt: new Date(entry.trippedAt).toISOString(),
+    });
   }
 
   recordSuccess(provider) {
@@ -132,6 +159,10 @@ class CircuitBreaker {
     entry.currentProbeAllowed = false;
     if (wasHalfOpen) {
       entry.recoveryTimeoutMs = this._config.baseRecoveryTimeoutMs;
+      this._persist(normalizedProvider, {
+        state: 'CLOSED',
+        untrippedAt: new Date().toISOString(),
+      });
     }
 
     return this.getState(normalizedProvider);
@@ -235,8 +266,8 @@ class CircuitBreaker {
   }
 }
 
-function createCircuitBreaker({ eventBus, config } = {}) {
-  return new CircuitBreaker({ eventBus, config });
+function createCircuitBreaker({ eventBus, config, store } = {}) {
+  return new CircuitBreaker({ eventBus, config, store });
 }
 
 module.exports = { createCircuitBreaker, classifyFailure, STATES };
