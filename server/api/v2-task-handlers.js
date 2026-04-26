@@ -123,13 +123,13 @@ function normalizeRunArtifactRecord(artifact) {
   };
 }
 
-function buildRunArtifactPreview(artifact) {
+async function buildRunArtifactPreview(artifact) {
   if (!artifact?.is_text || typeof artifact.absolute_path !== 'string' || !artifact.absolute_path.trim()) {
     return { preview_text: null, preview_truncated: false, preview_error: null };
   }
 
   try {
-    const content = fs.readFileSync(artifact.absolute_path, 'utf8');
+    const content = await fs.promises.readFile(artifact.absolute_path, 'utf8');
     const maxChars = 64000;
     return {
       preview_text: content.slice(0, maxChars),
@@ -646,7 +646,7 @@ async function handleGetTaskArtifact(req, res) {
       return sendError(res, requestId, 'artifact_not_found', `Artifact not found: ${artifactId}`, 404, {}, req);
     }
 
-    const preview = buildRunArtifactPreview(artifact);
+    const preview = await buildRunArtifactPreview(artifact);
     return sendSuccess(res, requestId, {
       ...artifact,
       ...preview,
@@ -670,11 +670,12 @@ async function handleTaskArtifactContent(req, res) {
     if (!artifact) {
       return sendError(res, requestId, 'artifact_not_found', `Artifact not found: ${artifactId}`, 404, {}, req);
     }
-    if (!artifact.absolute_path || !fs.existsSync(artifact.absolute_path)) {
+    let buffer;
+    try {
+      buffer = await fs.promises.readFile(artifact.absolute_path);
+    } catch {
       return sendError(res, requestId, 'artifact_missing', `Artifact file is missing for ${artifactId}`, 404, {}, req);
     }
-
-    const buffer = fs.readFileSync(artifact.absolute_path);
     const fileName = (artifact.name || artifact.artifact_id).replace(/"/g, '');
     res.statusCode = 200;
     res.setHeader('Content-Type', artifact.mime_type);
