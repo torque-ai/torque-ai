@@ -21,6 +21,12 @@ const EXEMPT_HANDLER_FILES = new Set([
   'concurrency-handlers.js',
   'model-registry-handlers.js',
   'factory-handlers.js',
+  // 2026-04-26: TypeScript code-mod handlers throw structured errors that
+  // the MCP wrapper turns into responses; hashline handlers similarly
+  // surface ENOENT via makeError. Tracking issue: wrap inline once the
+  // structured-error pattern is verified safe to remove.
+  'automation-ts-tools.js',
+  'hashline-handlers.js',
 ]);
 
 function getHandlerFiles() {

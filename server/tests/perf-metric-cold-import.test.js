@@ -3,11 +3,11 @@
 const metric = require('../perf/metrics/cold-import');
 
 describe('metric: cold-import', () => {
-  it('exposes the four module variants', () => {
+  it('exposes the module variants', () => {
     expect(metric.id).toBe('cold-import');
     expect(metric.category).toBe('test-infra');
     expect(metric.units).toBe('ms');
-    expect(metric.variants).toEqual(['tools', 'task-manager', 'database', 'db-task-core']);
+    expect(metric.variants).toEqual(['tools', 'tool-registry', 'task-manager', 'database', 'db-task-core']);
     expect(metric.runs).toBeGreaterThanOrEqual(5);
     expect(metric.warmup).toBeGreaterThanOrEqual(0);
   });

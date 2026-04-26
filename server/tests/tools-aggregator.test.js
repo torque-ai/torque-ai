@@ -64,12 +64,19 @@ function createToolsSubject(options = {}) {
     ...(options.database || {}),
   };
 
+  const realToolRegistry = REQUIRE_FROM_TOOLS('./tool-registry');
+  const stubbedToolRegistry = {
+    ...realToolRegistry,
+    schemaMap: new Map(),
+  };
+
   const injectedModules = {
     './logger': logger.root,
     './hooks/post-tool-hooks': hooks,
     './utils/logger': collisionLogger,
     './task-manager': taskManager,
     './database': database,
+    './tool-registry': stubbedToolRegistry,
   };
 
   for (const request of TOOL_DEF_REQUESTS) {

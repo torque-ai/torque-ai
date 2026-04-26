@@ -1271,6 +1271,12 @@ async function handleSmartSubmitTask(args) {
       taskModel = 'gpt-5.3-codex-spark';
     }
     logger.info(`[SmartRouting] Test task detected → routing to Codex${sparkEnabled ? ' Spark' : ''} (${routingResult?.provider || 'selected provider'} lacks reliable repo-write test capability)`);
+  } else if (isTestTask && selectedProvider === 'codex' && !taskModel && !codexExhausted) {
+    const sparkEnabled = serverConfig.isOptIn('codex_spark_enabled');
+    if (sparkEnabled) {
+      taskModel = 'gpt-5.3-codex-spark';
+      logger.info('[SmartRouting] Test task already on Codex → assigning Spark model');
+    }
   }
   const modResult = await resolveModificationRouting(task, files, routingResult, {
     selectedProvider,

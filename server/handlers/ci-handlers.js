@@ -137,7 +137,7 @@ function formatRunsMarkdown(runs) {
 
 async function handleAwaitCiRun(args) {
   try {
-    const repoResult = requireRepo(args);
+    const repoResult = await requireRepo(args);
     if (repoResult.error) {
       return repoResult.error;
     }
@@ -200,7 +200,11 @@ async function handleAwaitCiRun(args) {
 
 async function handleWatchCiRepo(args) {
   try {
-    const repoResult = requireRepo(args);
+    // requireRepo is async (resolveRepo may shell out to `gh`); without
+    // await, repoResult is a Promise — repoResult.error is undefined and
+    // repoResult.repo is undefined, which then gets passed to
+    // watcher.watchRepo({ repo: undefined, ... }).
+    const repoResult = await requireRepo(args);
     if (repoResult.error) {
       return repoResult.error;
     }
@@ -228,51 +232,55 @@ async function handleWatchCiRepo(args) {
 }
 
 async function handleStopCiWatch(args) {
-  const repoResult = await resolveRepo(args);
-  const requestedProvider = parseProvider(args);
-  let repo = repoResult;
-  let provider = requestedProvider;
+  try {
+    const repoResult = await resolveRepo(args);
+    const requestedProvider = parseProvider(args);
+    let repo = repoResult;
+    let provider = requestedProvider;
 
-  if (!repo && args.watch_id) {
-    const active = watcher.getActiveWatches?.();
-    if (!active || !Array.isArray(active) || active.length === 0) {
-      return makeError(ErrorCodes.RESOURCE_NOT_FOUND, `No active CI watch found for id ${args.watch_id}`);
+    if (!repo && args.watch_id) {
+      const active = watcher.getActiveWatches?.();
+      if (!active || !Array.isArray(active) || active.length === 0) {
+        return makeError(ErrorCodes.RESOURCE_NOT_FOUND, `No active CI watch found for id ${args.watch_id}`);
+      }
+
+      const target = active.find((entry) => String(entry.id) === String(args.watch_id));
+      if (!target) {
+        return makeError(ErrorCodes.RESOURCE_NOT_FOUND, `No active CI watch found for id ${args.watch_id}`);
+      }
+
+      repo = target.repo;
+      provider = target.provider || provider;
     }
 
-    const target = active.find((entry) => String(entry.id) === String(args.watch_id));
-    if (!target) {
-      return makeError(ErrorCodes.RESOURCE_NOT_FOUND, `No active CI watch found for id ${args.watch_id}`);
+    if (!repo) {
+      return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'repo or watch_id is required');
+    }
+    if (!provider) {
+      return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'provider is required when stopping by repo');
     }
 
-    repo = target.repo;
-    provider = target.provider || provider;
-  }
+    const stopped = watcher.stopWatch({
+      repo,
+      provider,
+    });
 
-  if (!repo) {
-    return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'repo or watch_id is required');
+    return {
+      content: [{
+        type: 'text',
+        text: `## CI Watch Stopped\n\n` +
+          `Watch stopped for repository **${repo}** using provider **${provider}**.\n` +
+          `Database record updated: ${Boolean(stopped).toString()}`,
+      }],
+    };
+  } catch (err) {
+    return makeError(ErrorCodes.PROVIDER_ERROR, `Failed to stop CI watch: ${err.message || err}`);
   }
-  if (!provider) {
-    return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'provider is required when stopping by repo');
-  }
-
-  const stopped = watcher.stopWatch({
-    repo,
-    provider,
-  });
-
-  return {
-    content: [{
-      type: 'text',
-      text: `## CI Watch Stopped\n\n` +
-        `Watch stopped for repository **${repo}** using provider **${provider}**.\n` +
-        `Database record updated: ${Boolean(stopped).toString()}`,
-    }],
-  };
 }
 
 async function handleCiRunStatus(args) {
   try {
-    const repoResult = requireRepo(args);
+    const repoResult = await requireRepo(args);
     if (repoResult.error) {
       return repoResult.error;
     }
@@ -293,7 +301,7 @@ async function handleCiRunStatus(args) {
 
 async function handleDiagnoseCiFailure(args) {
   try {
-    const repoResult = requireRepo(args);
+    const repoResult = await requireRepo(args);
     if (repoResult.error) {
       return repoResult.error;
     }
@@ -329,7 +337,7 @@ async function handleDiagnoseCiFailure(args) {
 
 async function handleListCiRuns(args) {
   try {
-    const repoResult = requireRepo(args);
+    const repoResult = await requireRepo(args);
     if (repoResult.error) {
       return repoResult.error;
     }

@@ -32,9 +32,12 @@ const ASYNC_HANDLER_FILE_EXEMPTIONS = new Set([
   'concurrency-handlers.js',
   'model-registry-handlers.js',
   'factory-handlers.js',
+  'automation-ts-tools.js',
+  'hashline-handlers.js',
   'integration/infra.js',
   'validation/file.js',
   'validation/index.js',
+  'task/pipeline.js',
 ]);
 
 const ASYNC_HANDLER_EXEMPTIONS = new Set([

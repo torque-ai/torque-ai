@@ -329,7 +329,13 @@ function handleProviderFailover(ctx) {
   // alone does NOT trigger failover — too risky (transient 500s would loop).
   // The blocklist will catch a model with consecutive 5xx via the threshold.
   const shouldFailover = isQuotaErr || isModelMissing;
-  if (ctx.status === 'failed' && providerActuallyFailed && task && failoverCount < MAX_FAILOVERS && shouldFailover) {
+  // Local ollama failures should go through the local-first fallback path
+  // (different host/model on the same local ollama) regardless of whether
+  // the error looks model-shaped — the local-fallback chain knows about
+  // host alternatives that a generic provider failover can't see.
+  // ollama-cloud (API) still uses the failover path.
+  const isLocalOllama = task?.provider === 'ollama';
+  if (ctx.status === 'failed' && providerActuallyFailed && task && failoverCount < MAX_FAILOVERS && shouldFailover && !isLocalOllama) {
     const currentProvider = task.provider || 'codex';
     const fallbackProvider = db.getNextFallbackProvider(taskId);
 
