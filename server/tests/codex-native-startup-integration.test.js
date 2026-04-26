@@ -133,4 +133,63 @@ describe('evaluateFactoryWorktreeHeavyValidationGuard', () => {
 
     expect(result).toBeNull();
   });
+
+  it('exempts verify_review tasks even when the description names dotnet test', () => {
+    // Verify_review prompts contain the failed verify command as
+    // context ("the verify_command was `dotnet test ...`"), not as an
+    // instruction. The reviewer emits a JSON verdict, no shell.
+    // Observed live 2026-04-25/26: 9 codex verify_review tasks failed
+    // because the rule triggered on prompt text rather than execution.
+    const result = evaluateFactoryWorktreeHeavyValidationGuard({
+      task_description: 'You are a quality reviewer. Verification: dotnet test simtests/SimCore.DotNet.Tests.csproj -c Release returned exit code 1...',
+      working_directory: 'C:\\Users\\FactoryUser\\Projects\\SimCore\\.worktrees\\fea-1234',
+      metadata: { kind: 'verify_review', factory_internal: true },
+    }, 'codex');
+
+    expect(result).toBeNull();
+  });
+
+  it('exempts plan_generation tasks naming dotnet test in their context', () => {
+    const result = evaluateFactoryWorktreeHeavyValidationGuard({
+      task_description: 'Generate a plan for fixing the failing telemetry tests. Verify command: dotnet test ...',
+      working_directory: 'C:\\Users\\FactoryUser\\Projects\\SimCore\\.worktrees\\fea-1234',
+      metadata: { kind: 'plan_generation', factory_internal: true },
+    }, 'codex');
+
+    expect(result).toBeNull();
+  });
+
+  it('exempts diffusion compute tasks even when description includes heavy commands', () => {
+    const result = evaluateFactoryWorktreeHeavyValidationGuard({
+      task_description: 'Compute file_edits for: run dotnet test before shipping...',
+      working_directory: 'C:\\Users\\FactoryUser\\Projects\\SimCore\\.worktrees\\fea-1234',
+      metadata: { diffusion_role: 'compute' },
+    }, 'codex');
+
+    expect(result).toBeNull();
+  });
+
+  it('still blocks an EXECUTE task that names dotnet test even when factory_internal=true', () => {
+    // factory_internal alone is not a free pass — the kind has to be one
+    // of the structured-output kinds (or the diffusion compute role).
+    // EXECUTE tasks in the factory pipeline are normal code-writing
+    // tasks and SHOULD be steered to torque-remote.
+    const result = evaluateFactoryWorktreeHeavyValidationGuard({
+      task_description: 'Implement the feature. Verify with: dotnet test SpudgetBooks.sln --no-build.',
+      working_directory: 'C:\\Users\\FactoryUser\\Projects\\SpudgetBooks\\.worktrees\\fea-1234',
+      metadata: { kind: 'execute', factory_internal: true },
+    }, 'codex');
+
+    expect(result).toMatchObject({ blocked: true });
+  });
+
+  it('parses metadata when stored as a JSON string (db round-trip shape)', () => {
+    const result = evaluateFactoryWorktreeHeavyValidationGuard({
+      task_description: 'You are a quality reviewer. Verification: dotnet test ...',
+      working_directory: 'C:\\Users\\FactoryUser\\Projects\\SimCore\\.worktrees\\fea-1234',
+      metadata: JSON.stringify({ kind: 'verify_review', factory_internal: true }),
+    }, 'codex');
+
+    expect(result).toBeNull();
+  });
 });

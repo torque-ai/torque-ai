@@ -1024,6 +1024,33 @@ function evaluateClaimedStartupPolicy({
   };
 }
 
+// Structured-output kinds whose prompts CONTAIN the verify command as
+// context (e.g. "the verify command was `dotnet test ...`, exit code 1")
+// but never EXECUTE it. The reviewer reads the failure trace and emits
+// a JSON verdict — no shell. Treating the description text as if the
+// task were going to run dotnet/cargo/maven blocks legitimate reviewer
+// work. Observed live 2026-04-25/26: 9 codex verify_review tasks failed
+// because the verify_command they were reviewing happened to mention
+// `dotnet test ...`. The rule was right to gate code-writing tasks; it
+// just wasn't kind-aware.
+const HEAVY_VALIDATION_GUARD_EXEMPT_KINDS = new Set([
+  'architect_cycle',
+  'plan_generation',
+  'verify_review',
+]);
+
+function isHeavyValidationGuardExempt(task) {
+  let metadata = task?.metadata;
+  if (typeof metadata === 'string') {
+    try { metadata = JSON.parse(metadata); } catch { metadata = {}; }
+  }
+  if (!metadata || typeof metadata !== 'object') return false;
+  const kind = String(metadata.kind || '').trim().toLowerCase();
+  if (HEAVY_VALIDATION_GUARD_EXEMPT_KINDS.has(kind)) return true;
+  if (metadata.diffusion_role === 'compute') return true;
+  return false;
+}
+
 function evaluateFactoryWorktreeHeavyValidationGuard(task, provider) {
   const normalizedProvider = String(provider || task?.provider || '').trim().toLowerCase();
   if (!VISIBLE_SHELL_PROVIDERS.has(normalizedProvider)) {
@@ -1032,6 +1059,14 @@ function evaluateFactoryWorktreeHeavyValidationGuard(task, provider) {
 
   const workingDirectory = String(task?.working_directory || '');
   if (!FACTORY_WORKTREE_RE.test(workingDirectory)) {
+    return null;
+  }
+
+  // Structured-output tasks (verify_review / plan_generation /
+  // architect_cycle / diffusion compute) carry the verify command as
+  // prompt context, not as an instruction. Don't block them — they
+  // produce JSON verdicts/plans, not shell side effects.
+  if (isHeavyValidationGuardExempt(task)) {
     return null;
   }
 
