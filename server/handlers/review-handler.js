@@ -1,6 +1,8 @@
 'use strict';
 
 const childProcess = require('child_process');
+const { promisify } = require('util');
+const execFileAsync = promisify(childProcess.execFile);
 const { randomUUID } = require('crypto');
 const { ErrorCodes, makeError } = require('./error-codes');
 const { buildTaskStudyContextEnvelope } = require('../integrations/codebase-study-engine');
@@ -146,16 +148,17 @@ function getDiffArgs(task) {
   return ['diff', 'HEAD~1'];
 }
 
-function collectDiffOutput(workingDirectory, task = null) {
+async function collectDiffOutput(workingDirectory, task = null) {
   const diffArgs = getDiffArgs(task);
 
   try {
-    return childProcess.execFileSync('git', diffArgs, {
+    const { stdout } = await execFileAsync('git', diffArgs, {
       cwd: workingDirectory,
       encoding: 'utf8',
       maxBuffer: 4 * 1024 * 1024,
       windowsHide: true,
     });
+    return stdout;
   } catch (error) {
     const stderr = error && error.stderr
       ? (Buffer.isBuffer(error.stderr) ? error.stderr.toString('utf8') : String(error.stderr))
@@ -232,7 +235,7 @@ function getServices() {
   }
 }
 
-function handleReviewTaskOutput(args = {}) {
+async function handleReviewTaskOutput(args = {}) {
   const taskId = normalizeString(args.task_id);
   const requestedProvider = normalizeString(args.provider);
 
@@ -266,7 +269,7 @@ function handleReviewTaskOutput(args = {}) {
   try {
     const sourceTaskProvider = extractOriginalProvider(task);
     const reviewProvider = selectReviewProvider(requestedProvider, sourceTaskProvider);
-    const diffOutput = collectDiffOutput(workingDirectory, task);
+    const diffOutput = await collectDiffOutput(workingDirectory, task);
     const metadata = parseMetadata(task.metadata);
     const fallbackStudyEnvelope = buildTaskStudyContextEnvelope({
       workingDirectory,

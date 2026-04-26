@@ -175,3 +175,21 @@ describe('review-handler', () => {
     expect(createdTask.provider).not.toBe('codex');
   });
 });
+
+describe('review-handler lint', () => {
+  it('has zero torque/no-sync-fs-on-hot-paths violations', async () => {
+    const { execFile } = require('child_process');
+    const { promisify } = require('util');
+    const execFileAsync = promisify(execFile);
+    const { stdout } = await execFileAsync(
+      process.execPath,
+      ['../node_modules/.bin/eslint', '--format=json', 'handlers/review-handler.js'],
+      { cwd: __dirname + '/..', encoding: 'utf8' }
+    ).catch((e) => ({ stdout: e.stdout || '[]' }));
+    const results = JSON.parse(stdout || '[]');
+    const violations = (results[0]?.messages || []).filter(
+      (m) => m.ruleId === 'torque/no-sync-fs-on-hot-paths'
+    );
+    expect(violations).toHaveLength(0);
+  });
+});
