@@ -344,6 +344,51 @@ describe('providers/execution agentic fixes', () => {
     expect(result.output).toBe('Verified from package.json.');
   });
 
+  it('falls back when a free agentic provider returns an empty toolless result', async () => {
+    const { mod } = loadSubject();
+
+    vi.spyOn(require('worker_threads'), 'Worker').mockImplementation(
+      createWorkerCtor([
+        {
+          type: 'result',
+          output: '',
+          stopReason: 'model_finished',
+          toolLog: [],
+          tokenUsage: { prompt_tokens: 20, completion_tokens: 0 },
+          changedFiles: [],
+          iterations: 2,
+        },
+        {
+          type: 'result',
+          output: 'Verified from package.json.',
+          stopReason: 'model_finished',
+          toolLog: [{ name: 'read_file', error: false }],
+          tokenUsage: { prompt_tokens: 30, completion_tokens: 12 },
+          changedFiles: [],
+          iterations: 1,
+        },
+      ])
+    );
+
+    const task = {
+      id: 'task-empty-result-fallback',
+      task_description: 'Inspect repository configuration and report facts only.',
+      working_directory: 'C:/repo',
+      metadata: JSON.stringify({ plan_task_title: 'Verify repository configuration' }),
+    };
+    const chain = [
+      { provider: 'cerebras', model: 'qwen-3-coder' },
+      { provider: 'google-ai', model: 'gemini-2.5-flash' },
+    ];
+
+    const result = await mod.executeWithFallback(task, chain, buildWorkerConfig, {});
+
+    expect(result.provider).toBe('google-ai');
+    expect(result.model).toBe('gemini-2.5-flash');
+    expect(result.chainPosition).toBe(2);
+    expect(result.output).toBe('Verified from package.json.');
+  });
+
   it('falls back when an OpenRouter agentic attempt produces no first response', async () => {
     vi.useFakeTimers();
 
