@@ -164,36 +164,43 @@ if ! git merge-base --is-ancestor "${BRANCH}" main; then
   exit 1
 fi
 
-# Post-merge working-tree parity check. `git merge` is supposed to update the
-# working tree to match the new HEAD, but on Windows a locked file (AV scan,
-# editor open on a tracked file, stale file handle in an aborted worktree)
-# can leave `git merge` exiting clean with disk state still holding the old
-# content. The merge commit lands, no error fires, and the first process
-# that later runs `git add --renormalize .` (the factory's mergeWorktree
-# path) silently commits the stale disk content under a misleading message.
-# 2026-04-24 saw that clobber 150 lines of shipped perf work on main.
-# Diff HEAD vs. the working tree with EOL + whitespace ignored — if the
-# diff is non-empty after a fresh merge, something's wrong and we should
-# abort before handing off to the restart barrier.
-if ! git -C "${REPO_ROOT}" diff --quiet --ignore-cr-at-eol --ignore-all-space HEAD 2>/dev/null; then
-  drifted=$(git -C "${REPO_ROOT}" diff --name-only --ignore-cr-at-eol --ignore-all-space HEAD 2>/dev/null | head -20)
-  echo "ERROR: post-merge working tree has semantic drift vs HEAD."
-  echo "       The merge commit landed but disk content doesn't match — most"
-  echo "       likely a Windows file-lock during checkout. Investigate before"
-  echo "       triggering the restart barrier; the factory's renormalize path"
-  echo "       would otherwise capture the drift and clobber main."
-  echo "       Drifted files:"
-  echo "$drifted" | sed 's/^/         /'
-  echo ""
-  echo "       To recover: verify no editors/AV hold tracked files open, then"
-  echo "       'git checkout HEAD -- .' to re-materialize HEAD content, then"
-  echo "       re-run the cutover."
-  exit 1
+merge_changed_files=$(git diff --name-only HEAD@{1} HEAD 2>/dev/null || true)
+
+# Post-merge working-tree parity check, scoped to the files this merge actually
+# touched. `git merge` is supposed to update the working tree to match the new
+# HEAD, but on Windows a locked file (AV scan, editor open on a tracked file,
+# stale file handle in an aborted worktree) can leave `git merge` exiting
+# clean with disk state still holding the old content. The merge commit lands,
+# no error fires, and the first process that later runs `git add --renormalize .`
+# (the factory's mergeWorktree path) silently commits the stale disk content
+# under a misleading message. 2026-04-24 saw that clobber 150 lines of shipped
+# perf work on main.
+#
+# Scope the diff to merge-changed files so a concurrent Claude session's
+# uncommitted edits on UNRELATED files (allowed via CUTOVER_ALLOW_DIRTY_MAIN)
+# don't false-positive as merge-clobber. The original failure mode is strictly
+# "merge wrote new content for files in its diff and disk doesn't match" — any
+# drift outside that set is by definition not a merge-clobber.
+if [ -n "$merge_changed_files" ]; then
+  mapfile -t _merged_paths <<<"$merge_changed_files"
+  if ! git -C "${REPO_ROOT}" diff --quiet --ignore-cr-at-eol --ignore-all-space HEAD -- "${_merged_paths[@]}" 2>/dev/null; then
+    drifted=$(git -C "${REPO_ROOT}" diff --name-only --ignore-cr-at-eol --ignore-all-space HEAD -- "${_merged_paths[@]}" 2>/dev/null | head -20)
+    echo "ERROR: post-merge working tree has semantic drift vs HEAD on merged files."
+    echo "       The merge commit landed but disk content doesn't match — most"
+    echo "       likely a Windows file-lock during checkout. Investigate before"
+    echo "       triggering the restart barrier; the factory's renormalize path"
+    echo "       would otherwise capture the drift and clobber main."
+    echo "       Drifted files:"
+    echo "$drifted" | sed 's/^/         /'
+    echo ""
+    echo "       To recover: verify no editors/AV hold tracked files open, then"
+    echo "       'git checkout HEAD -- .' to re-materialize HEAD content, then"
+    echo "       re-run the cutover."
+    exit 1
+  fi
 fi
 
 echo "[ok] Merged"
-
-merge_changed_files=$(git diff --name-only HEAD@{1} HEAD 2>/dev/null || true)
 
 # Refresh node_modules when the merge bumped runtime deps. Without this, a
 # feature branch that adds (e.g.) `ajv` to server/package.json silently lands
