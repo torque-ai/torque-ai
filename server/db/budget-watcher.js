@@ -169,8 +169,12 @@ function hasThresholdConfigColumn(database) {
   }
   const columns = database.prepare('PRAGMA table_info(cost_budgets)').all();
   const result = columns.some((column) => column.name === 'threshold_config');
-  _hasThresholdConfigColumnCache.set(database, result);
   perfCounters.increment('pragmaCostBudgets');
+  // Only cache true results — the column may be added via DDL (ensureThresholdConfigStorage)
+  // after an initial false check, so caching false would return stale data.
+  if (result) {
+    _hasThresholdConfigColumnCache.set(database, result);
+  }
   return result;
 }
 
