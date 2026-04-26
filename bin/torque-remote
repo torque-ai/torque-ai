@@ -296,6 +296,19 @@ if [[ "$1" == "--branch" ]]; then
   shift 2
 fi
 
+# Reject unknown leading flags. Without this, a typo like `--cwd <dir>` (not a
+# torque-remote flag — only --branch is) silently slips into COMMAND_ARGS,
+# and the local-fallback path then tries to exec `--cwd` as a program with
+# the cryptic "command not found". Anything starting with `--` in $1 either
+# is a known torque-remote flag (handled above) or is a user error; in
+# either case, surface it instead of forwarding it to the inner command.
+if [[ "${1:-}" == --* ]]; then
+  die "Unknown torque-remote flag: $1
+torque-remote only supports --branch <ref>. If $1 is meant for your inner
+command, place it after the command name, e.g.:
+  torque-remote npx vitest run $1 ..."
+fi
+
 if [[ $# -eq 0 ]]; then
   cat >&2 << 'USAGE'
 Usage: torque-remote [--branch <ref>] <command...>
@@ -617,7 +630,20 @@ case "$TRANSPORT" in
         "${SYNC_BOOTSTRAP}cd \"$EFFECTIVE_REMOTE_PROJECT_PATH\" && git fetch origin && $SYNC_CHECKOUT && git reset --hard $SYNC_REF && (git clean -fdx || true) && (git diff --quiet HEAD || (echo \"[torque-remote-sync] drift after reset — file locks (Defender/Search/AV) may have prevented checkout from updating tracked files\" 1>&2 && exit 99))" \
         2>&1 | tee -a /tmp/torque-remote-sync.log | (grep -v 'Unable to persist credentials\|credential store\|aka.ms/gcm' || true) || sync_status="${PIPESTATUS[0]}"
       if [[ "$sync_status" -ne 0 ]]; then
-        warn "Sync failed — remote may have stale code (see /tmp/torque-remote-sync.log)"
+        # Sync failed — falling back to local execution rather than running
+        # against stale or wrong-base remote state. The drift-detection exit
+        # 99 (file lock during checkout) and any other non-zero ssh exit both
+        # land here. Live regression 2026-04-25: torque-public's remote test
+        # worktree silently stayed at an old commit for 24h because sync
+        # warned but proceeded; the LLM verify-reviewer then hallucinated
+        # "patch overlay conflicts" against the stale state.
+        warn "Sync failed (status=$sync_status) — falling back to local (see /tmp/torque-remote-sync.log)"
+        cd "$PROJECT_ROOT"
+        set +e
+        "${COMMAND_ARGS[@]}"
+        exit_code=$?
+        set -e
+        exit $exit_code
       fi
     fi
 

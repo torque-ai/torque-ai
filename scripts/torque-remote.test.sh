@@ -901,6 +901,61 @@ test_sync_includes_drift_detection() {
   finish_test "test_sync_includes_drift_detection"
 }
 
+test_sync_failure_falls_back_to_local() {
+  local tmp
+
+  echo "Test: ssh sync failure falls back to local execution instead of running tests against stale remote state"
+  TEST_ERRORS=()
+  reset_stub_env
+
+  make_test_env
+  tmp="$LAST_TEST_ENV"
+  export GIT_REV_PARSE_OUTPUT="main"
+  # Drift sentinel from runner.sh's `git diff --quiet HEAD || exit 99`. Live
+  # regression 2026-04-25: torque-public's remote test worktree got stuck at
+  # an old commit because sync emitted exit 99 but torque-remote only warned
+  # and proceeded to run tests against the stale state, producing nonsense
+  # verify output that the LLM tiebreak misclassified as baseline_broken.
+  export SSH_SYNC_EXIT_CODE=99
+
+  run_torque_remote "$tmp" argv-dump "remote-stale-canary"
+
+  expect_eq "exit code is 0 (local fallback succeeded)" "0" "$RUN_EXIT"
+  expect_contains "stderr reports sync failure" "$RUN_STDERR" "Sync failed"
+  expect_contains "stderr reports falling back to local" "$RUN_STDERR" "falling back to local"
+  expect_contains "argv-dump captured the canary argument locally" "$RUN_ARGV_LOG" "1=remote-stale-canary"
+  # The remote-run path must NOT have fired — runner.sh only ships when sync
+  # passes (or in the existing fallback paths). If we reach the remote runner
+  # despite a 99 sync, we'd be running tests against stale code.
+  expect_eq "remote-stdin bundle is empty (no runner.sh shipped)" "0" "$RUN_REMOTE_STDIN_SIZE"
+
+  finish_test "test_sync_failure_falls_back_to_local"
+}
+
+test_unknown_leading_flag_errors() {
+  local tmp
+
+  echo "Test: torque-remote rejects unknown leading flags with a clear error"
+  TEST_ERRORS=()
+  reset_stub_env
+
+  make_test_env
+  tmp="$LAST_TEST_ENV"
+
+  # `--cwd <dir>` is not a torque-remote flag (only --branch is). Without
+  # validation, $1 = `--cwd` slips into COMMAND_ARGS and the local fallback
+  # tries to exec `--cwd` as a program — `command not found`. Detect early.
+  run_torque_remote "$tmp" --cwd /some/dir echo hi
+
+  expect_nonzero "exit code is non-zero" "$RUN_EXIT"
+  expect_contains "stderr names the unknown flag" "$RUN_STDERR" "--cwd"
+  expect_contains "stderr points to the supported flag set" "$RUN_STDERR" "--branch"
+  expect_file_not_contains "command was not invoked locally" "$tmp/calls.log" "echo hi"
+  expect_eq "no remote bundle shipped" "0" "$RUN_REMOTE_STDIN_SIZE"
+
+  finish_test "test_unknown_leading_flag_errors"
+}
+
 test_timeout_style_failure_triggers_failsafe_cleanup_round_trip() {
   local tmp
 
@@ -943,6 +998,8 @@ main() {
   test_worktree_dot_git_file_is_project_root
   test_worktree_uses_main_repo_basename_for_project_name
   test_sync_includes_drift_detection
+  test_sync_failure_falls_back_to_local
+  test_unknown_leading_flag_errors
   test_timeout_style_failure_triggers_failsafe_cleanup_round_trip
 
   echo ""
