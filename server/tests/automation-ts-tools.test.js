@@ -42,14 +42,14 @@ function read(fp) {
 // 1. handleAddTsInterfaceMembers
 // ════════════════════════════════════════════════════════════════════════════════
 describe('handleAddTsInterfaceMembers', () => {
-  it('adds members to an interface', () => {
+  it('adds members to an interface', async () => {
     const fp = tmpFile('iface.ts', [
       'export interface Config {',
       '  name: string;',
       '}',
     ].join('\n'));
 
-    const result = handlers.handleAddTsInterfaceMembers({
+    const result = await handlers.handleAddTsInterfaceMembers({
       file_path: fp,
       interface_name: 'Config',
       members: [
@@ -65,8 +65,8 @@ describe('handleAddTsInterfaceMembers', () => {
     expect(result.content[0].text).toContain('Added 2 members');
   });
 
-  it('returns error for missing file', () => {
-    const result = handlers.handleAddTsInterfaceMembers({
+  it('returns error for missing file', async () => {
+    const result = await handlers.handleAddTsInterfaceMembers({
       file_path: path.join(tmpDir, 'nonexistent.ts'),
       interface_name: 'Config',
       members: [{ name: 'a', type_definition: 'string' }],
@@ -75,14 +75,14 @@ describe('handleAddTsInterfaceMembers', () => {
     expect(result.error_code).toBe('RESOURCE_NOT_FOUND');
   });
 
-  it('detects duplicate members', () => {
+  it('detects duplicate members', async () => {
     const fp = tmpFile('iface-dup.ts', [
       'export interface Config {',
       '  timeout: number;',
       '}',
     ].join('\n'));
 
-    const result = handlers.handleAddTsInterfaceMembers({
+    const result = await handlers.handleAddTsInterfaceMembers({
       file_path: fp,
       interface_name: 'Config',
       members: [{ name: 'timeout', type_definition: 'number' }],
@@ -93,20 +93,20 @@ describe('handleAddTsInterfaceMembers', () => {
     expect(result.content[0].text).toContain('timeout');
   });
 
-  it('returns error for missing required params', () => {
-    const result = handlers.handleAddTsInterfaceMembers({});
+  it('returns error for missing required params', async () => {
+    const result = await handlers.handleAddTsInterfaceMembers({});
     expect(result.isError).toBe(true);
     expect(result.error_code).toBe('MISSING_REQUIRED_PARAM');
   });
 
-  it('supports payload format members', () => {
+  it('supports payload format members', async () => {
     const fp = tmpFile('iface-payload.ts', [
       'export interface AppEvents {',
       '  click: { x: number; y: number };',
       '}',
     ].join('\n'));
 
-    const result = handlers.handleAddTsInterfaceMembers({
+    const result = await handlers.handleAddTsInterfaceMembers({
       file_path: fp,
       interface_name: 'AppEvents',
       members: [{ name: 'hover', payload: { x: 'number', y: 'number' } }],
@@ -138,10 +138,10 @@ describe('handleInjectClassDependency', () => {
     '}',
   ].join('\n');
 
-  it('injects import, field, init, and getter', () => {
+  it('injects import, field, init, and getter', async () => {
     const fp = tmpFile('app-service.ts', classContent);
 
-    const result = handlers.handleInjectClassDependency({
+    const result = await handlers.handleInjectClassDependency({
       file_path: fp,
       import_statement: 'import { FooSystem } from "./FooSystem";',
       field_declaration: 'private fooSystem!: FooSystem;',
@@ -157,8 +157,8 @@ describe('handleInjectClassDependency', () => {
     expect(content).toContain('getFooSystem()');
   });
 
-  it('returns error for missing file', () => {
-    const result = handlers.handleInjectClassDependency({
+  it('returns error for missing file', async () => {
+    const result = await handlers.handleInjectClassDependency({
       file_path: path.join(tmpDir, 'nope.ts'),
       import_statement: 'import { X } from "./X";',
       field_declaration: 'private x!: X;',
@@ -168,10 +168,10 @@ describe('handleInjectClassDependency', () => {
     expect(result.error_code).toBe('RESOURCE_NOT_FOUND');
   });
 
-  it('skips duplicate import (skip_if_exists default)', () => {
+  it('skips duplicate import (skip_if_exists default)', async () => {
     const fp = tmpFile('service-dup.ts', classContent);
 
-    const result = handlers.handleInjectClassDependency({
+    const result = await handlers.handleInjectClassDependency({
       file_path: fp,
       import_statement: 'import { EventBus } from "./EventBus";',
       field_declaration: 'private eventBus2!: EventBus;',
@@ -182,8 +182,8 @@ describe('handleInjectClassDependency', () => {
     expect(result.content[0].text).toContain('already imported');
   });
 
-  it('returns error for missing required params', () => {
-    const result = handlers.handleInjectClassDependency({
+  it('returns error for missing required params', async () => {
+    const result = await handlers.handleInjectClassDependency({
       file_path: tmpFile('empty.ts', ''),
     });
     expect(result.isError).toBe(true);
@@ -202,10 +202,10 @@ describe('handleAddTsUnionMembers', () => {
     '',
   ].join('\n');
 
-  it('adds new members to union type', () => {
+  it('adds new members to union type', async () => {
     const fp = tmpFile('union.ts', unionContent);
 
-    const result = handlers.handleAddTsUnionMembers({
+    const result = await handlers.handleAddTsUnionMembers({
       file_path: fp,
       type_name: 'NotificationEvent',
       members: ['scroll', 'resize'],
@@ -218,8 +218,8 @@ describe('handleAddTsUnionMembers', () => {
     expect(result.content[0].text).toContain('Added 2 members');
   });
 
-  it('returns error for missing file', () => {
-    const result = handlers.handleAddTsUnionMembers({
+  it('returns error for missing file', async () => {
+    const result = await handlers.handleAddTsUnionMembers({
       file_path: path.join(tmpDir, 'missing.ts'),
       type_name: 'X',
       members: ['a'],
@@ -228,10 +228,10 @@ describe('handleAddTsUnionMembers', () => {
     expect(result.error_code).toBe('RESOURCE_NOT_FOUND');
   });
 
-  it('detects duplicate union members', () => {
+  it('detects duplicate union members', async () => {
     const fp = tmpFile('union-dup.ts', unionContent);
 
-    const result = handlers.handleAddTsUnionMembers({
+    const result = await handlers.handleAddTsUnionMembers({
       file_path: fp,
       type_name: 'NotificationEvent',
       members: ['click'],
@@ -247,7 +247,7 @@ describe('handleAddTsUnionMembers', () => {
 // 4. handleInjectMethodCalls
 // ════════════════════════════════════════════════════════════════════════════════
 describe('handleInjectMethodCalls', () => {
-  it('inserts code before a marker string', () => {
+  it('inserts code before a marker string', async () => {
     const fp = tmpFile('bridge.ts', [
       'class Bridge {',
       '  bind() {',
@@ -256,7 +256,7 @@ describe('handleInjectMethodCalls', () => {
       '}',
     ].join('\n'));
 
-    const result = handlers.handleInjectMethodCalls({
+    const result = await handlers.handleInjectMethodCalls({
       file_path: fp,
       before_marker: 'this.connected = true;',
       code: '    this.init();\n',
@@ -270,10 +270,10 @@ describe('handleInjectMethodCalls', () => {
     expect(initIdx).toBeGreaterThan(-1);
   });
 
-  it('returns error when marker not found', () => {
+  it('returns error when marker not found', async () => {
     const fp = tmpFile('no-marker.ts', 'class Foo {}');
 
-    const result = handlers.handleInjectMethodCalls({
+    const result = await handlers.handleInjectMethodCalls({
       file_path: fp,
       before_marker: 'nonexistent marker',
       code: 'x();',
@@ -283,8 +283,8 @@ describe('handleInjectMethodCalls', () => {
     expect(result.error_code).toBe('RESOURCE_NOT_FOUND');
   });
 
-  it('returns error for missing required params', () => {
-    const result = handlers.handleInjectMethodCalls({});
+  it('returns error for missing required params', async () => {
+    const result = await handlers.handleInjectMethodCalls({});
     expect(result.isError).toBe(true);
     expect(result.error_code).toBe('MISSING_REQUIRED_PARAM');
   });
@@ -301,10 +301,10 @@ describe('handleAddTsEnumMembers', () => {
     '}',
   ].join('\n');
 
-  it('adds new members to an enum', () => {
+  it('adds new members to an enum', async () => {
     const fp = tmpFile('enums.ts', enumContent);
 
-    const result = handlers.handleAddTsEnumMembers({
+    const result = await handlers.handleAddTsEnumMembers({
       file_path: fp,
       enum_name: 'Status',
       members: [
@@ -319,8 +319,8 @@ describe('handleAddTsEnumMembers', () => {
     expect(content).toContain('Archived = "archived"');
   });
 
-  it('returns error for missing file', () => {
-    const result = handlers.handleAddTsEnumMembers({
+  it('returns error for missing file', async () => {
+    const result = await handlers.handleAddTsEnumMembers({
       file_path: path.join(tmpDir, 'nope.ts'),
       enum_name: 'Status',
       members: [{ name: 'X', value: 'x' }],
@@ -329,10 +329,10 @@ describe('handleAddTsEnumMembers', () => {
     expect(result.error_code).toBe('RESOURCE_NOT_FOUND');
   });
 
-  it('detects duplicate enum members', () => {
+  it('detects duplicate enum members', async () => {
     const fp = tmpFile('enum-dup.ts', enumContent);
 
-    const result = handlers.handleAddTsEnumMembers({
+    const result = await handlers.handleAddTsEnumMembers({
       file_path: fp,
       enum_name: 'Status',
       members: [{ name: 'Active', value: 'active' }],
@@ -349,7 +349,7 @@ describe('handleAddTsEnumMembers', () => {
 // 7. handleNormalizeInterfaceFormatting
 // ════════════════════════════════════════════════════════════════════════════════
 describe('handleNormalizeInterfaceFormatting', () => {
-  it('fixes inconsistent indentation', () => {
+  it('fixes inconsistent indentation', async () => {
     const fp = tmpFile('drifted.ts', [
       'export interface AppEvents {',
       '    name: string;',
@@ -358,7 +358,7 @@ describe('handleNormalizeInterfaceFormatting', () => {
       '}',
     ].join('\n'));
 
-    const result = handlers.handleNormalizeInterfaceFormatting({
+    const result = await handlers.handleNormalizeInterfaceFormatting({
       file_path: fp,
       interface_name: 'AppEvents',
       indent: '  ',
@@ -373,10 +373,10 @@ describe('handleNormalizeInterfaceFormatting', () => {
     expect(result.content[0].text).toContain('Lines fixed:');
   });
 
-  it('returns error when interface not found', () => {
+  it('returns error when interface not found', async () => {
     const fp = tmpFile('no-iface.ts', 'const x = 1;');
 
-    const result = handlers.handleNormalizeInterfaceFormatting({
+    const result = await handlers.handleNormalizeInterfaceFormatting({
       file_path: fp,
       interface_name: 'NonExistent',
     });
@@ -385,7 +385,7 @@ describe('handleNormalizeInterfaceFormatting', () => {
     expect(result.error_code).toBe('RESOURCE_NOT_FOUND');
   });
 
-  it('is idempotent — running twice produces same result', () => {
+  it('is idempotent — running twice produces same result', async () => {
     const fp = tmpFile('idempotent.ts', [
       'export interface Config {',
       '      x: number;',
@@ -393,14 +393,14 @@ describe('handleNormalizeInterfaceFormatting', () => {
       '}',
     ].join('\n'));
 
-    handlers.handleNormalizeInterfaceFormatting({
+    await handlers.handleNormalizeInterfaceFormatting({
       file_path: fp,
       interface_name: 'Config',
       indent: '  ',
     });
     const first = read(fp);
 
-    handlers.handleNormalizeInterfaceFormatting({
+    await handlers.handleNormalizeInterfaceFormatting({
       file_path: fp,
       interface_name: 'Config',
       indent: '  ',
@@ -434,10 +434,10 @@ describe('handleAddTsMethodToClass', () => {
     '}',
   ].join('\n');
 
-  it('adds a method at end of class by default', () => {
+  it('adds a method at end of class by default', async () => {
     const fp = tmpFile('service.ts', classSource);
 
-    const result = handlers.handleAddTsMethodToClass({
+    const result = await handlers.handleAddTsMethodToClass({
       file_path: fp,
       class_name: 'MyService',
       method_code: 'public newMethod() {\n  return 42;\n}',
@@ -449,10 +449,10 @@ describe('handleAddTsMethodToClass', () => {
     expect(result.content[0].text).toContain('Added method');
   });
 
-  it('returns error for non-existent class', () => {
+  it('returns error for non-existent class', async () => {
     const fp = tmpFile('cls.ts', classSource);
 
-    const result = handlers.handleAddTsMethodToClass({
+    const result = await handlers.handleAddTsMethodToClass({
       file_path: fp,
       class_name: 'NoSuchClass',
       method_code: 'public foo() {}',
@@ -463,10 +463,10 @@ describe('handleAddTsMethodToClass', () => {
     expect(result.content[0].text).toContain('not found');
   });
 
-  it('skips duplicate method (idempotency)', () => {
+  it('skips duplicate method (idempotency)', async () => {
     const fp = tmpFile('cls-dup.ts', classSource);
 
-    const result = handlers.handleAddTsMethodToClass({
+    const result = await handlers.handleAddTsMethodToClass({
       file_path: fp,
       class_name: 'MyService',
       method_code: 'public getData() {\n  return "new";\n}',
@@ -496,10 +496,10 @@ describe('handleReplaceTsMethodBody', () => {
     '}',
   ].join('\n');
 
-  it('replaces a method body', () => {
+  it('replaces a method body', async () => {
     const fp = tmpFile('calc.ts', classSource);
 
-    const result = handlers.handleReplaceTsMethodBody({
+    const result = await handlers.handleReplaceTsMethodBody({
       file_path: fp,
       class_name: 'Calculator',
       method_name: 'add',
@@ -514,10 +514,10 @@ describe('handleReplaceTsMethodBody', () => {
     expect(content).toContain('return a - b;');
   });
 
-  it('returns error for non-existent method', () => {
+  it('returns error for non-existent method', async () => {
     const fp = tmpFile('calc2.ts', classSource);
 
-    const result = handlers.handleReplaceTsMethodBody({
+    const result = await handlers.handleReplaceTsMethodBody({
       file_path: fp,
       class_name: 'Calculator',
       method_name: 'multiply',
@@ -529,8 +529,8 @@ describe('handleReplaceTsMethodBody', () => {
     expect(result.content[0].text).toContain('multiply');
   });
 
-  it('returns error for missing required params', () => {
-    const result = handlers.handleReplaceTsMethodBody({
+  it('returns error for missing required params', async () => {
+    const result = await handlers.handleReplaceTsMethodBody({
       file_path: tmpFile('empty.ts', 'export class X {}'),
       class_name: 'X',
     });
@@ -552,10 +552,10 @@ describe('handleAddImportStatement', () => {
     '}',
   ].join('\n');
 
-  it('adds an import statement after existing imports', () => {
+  it('adds an import statement after existing imports', async () => {
     const fp = tmpFile('imports.ts', fileContent);
 
-    const result = handlers.handleAddImportStatement({
+    const result = await handlers.handleAddImportStatement({
       file_path: fp,
       import_statement: 'import { C } from "./C";',
     });
@@ -566,10 +566,10 @@ describe('handleAddImportStatement', () => {
     expect(result.content[0].text).toContain('Added import');
   });
 
-  it('skips duplicate import for same module (idempotency)', () => {
+  it('skips duplicate import for same module (idempotency)', async () => {
     const fp = tmpFile('imports-dup.ts', fileContent);
 
-    const result = handlers.handleAddImportStatement({
+    const result = await handlers.handleAddImportStatement({
       file_path: fp,
       import_statement: 'import { A2 } from "./A";',
     });
@@ -580,10 +580,10 @@ describe('handleAddImportStatement', () => {
     expect(read(fp)).toBe(fileContent);
   });
 
-  it('returns error for malformed import statement', () => {
+  it('returns error for malformed import statement', async () => {
     const fp = tmpFile('imports-bad.ts', fileContent);
 
-    const result = handlers.handleAddImportStatement({
+    const result = await handlers.handleAddImportStatement({
       file_path: fp,
       import_statement: 'const x = 42;',
     });
@@ -592,8 +592,8 @@ describe('handleAddImportStatement', () => {
     expect(result.error_code).toBe('INVALID_PARAM');
   });
 
-  it('returns error for missing file', () => {
-    const result = handlers.handleAddImportStatement({
+  it('returns error for missing file', async () => {
+    const result = await handlers.handleAddImportStatement({
       file_path: path.join(tmpDir, 'nope.ts'),
       import_statement: 'import { X } from "./X";',
     });

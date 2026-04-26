@@ -75,13 +75,40 @@ function resolveScopedFilePath(args, filePath) {
   return resolvedPath;
 }
 
+/**
+ * Async read-modify-write helper.
+ * Reads filePath, passes content to transformFn(content), then:
+ *   - If transformFn returns an error object (isError), returns it without writing.
+ *   - If transformFn returns { newContent, response }, writes newContent and returns response.
+ *   - If transformFn returns { response } without newContent (skip-write case), returns response.
+ *   - Any other return value is passed through as-is (e.g. early-success plain objects).
+ * On read failure returns a RESOURCE_NOT_FOUND error.
+ */
+async function readModifyWrite(filePath, transformFn) {
+  let content;
+  try {
+    content = await fs.promises.readFile(filePath, 'utf8');
+  } catch {
+    return makeError(ErrorCodes.RESOURCE_NOT_FOUND, `File not found: ${filePath}`);
+  }
+  const result = transformFn(content);
+  if (!result || result.isError) return result;
+  if ('newContent' in result) {
+    await fs.promises.writeFile(filePath, result.newContent, 'utf8');
+    return result.response;
+  }
+  if ('response' in result) return result.response;
+  // Plain object (e.g. early-success without write) — return as-is
+  return result;
+}
+
 // ─── Universal Tools ────────────────────────────────────────────────────────
 
 /**
  * UNIVERSAL: Add members to any TypeScript interface in any file.
  * Works for any project. Validates no duplicates. Consistent indentation.
  */
-function handleAddTsInterfaceMembers(args) {
+async function handleAddTsInterfaceMembers(args) {
   const rawFilePath = args.file_path;
   const interfaceName = args.interface_name;
   const members = args.members; // Array of { name: string, type_definition: string } OR { name, payload: {field: type} }
@@ -97,11 +124,8 @@ function handleAddTsInterfaceMembers(args) {
   if (!members.every((m) => m && typeof m === 'object' && typeof m.name === 'string')) {
     return makeError(ErrorCodes.INVALID_PARAM, 'Each member must include a string name');
   }
-  if (!fs.existsSync(filePath)) {
-    return makeError(ErrorCodes.RESOURCE_NOT_FOUND, `File not found: ${filePath}`);
-  }
 
-  let content = fs.readFileSync(filePath, 'utf8');
+  return readModifyWrite(filePath, (content) => {
 
   // Check for duplicates
   const duplicates = [];
@@ -156,17 +180,19 @@ function handleAddTsInterfaceMembers(args) {
     }
   }
 
-  content = content.slice(0, closingBraceIndex) + newEntries + content.slice(closingBraceIndex);
-  fs.writeFileSync(filePath, content, 'utf8');
-
-  return {
-    content: [{
-      type: 'text',
-      text: `## Added ${members.length} members to ${interfaceName}\n\n` +
-        `**File:** ${filePath}\n\n` +
-        members.map(m => `- \`${m.name}\``).join('\n') + '\n'
-    }],
-  };
+    const newContent = content.slice(0, closingBraceIndex) + newEntries + content.slice(closingBraceIndex);
+    return {
+      newContent,
+      response: {
+        content: [{
+          type: 'text',
+          text: `## Added ${members.length} members to ${interfaceName}\n\n` +
+            `**File:** ${filePath}\n\n` +
+            members.map(m => `- \`${m.name}\``).join('\n') + '\n'
+        }],
+      },
+    };
+  });
 }
 
 /**
@@ -174,7 +200,7 @@ function handleAddTsInterfaceMembers(args) {
  * Inserts: import, field, initialization line, and optional getter.
  * Uses configurable anchor patterns with sensible defaults.
  */
-function handleInjectClassDependency(args) {
+async function handleInjectClassDependency(args) {
   const rawFilePath = args.file_path;
   const filePath = resolveScopedFilePath(args, rawFilePath);
   if (filePath && filePath.isError) {
@@ -182,9 +208,6 @@ function handleInjectClassDependency(args) {
   }
   if (!rawFilePath) {
     return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'file_path is required');
-  }
-  if (!fs.existsSync(filePath)) {
-    return makeError(ErrorCodes.RESOURCE_NOT_FOUND, `File not found: ${filePath}`);
   }
 
   const importStatement = args.import_statement;   // e.g., 'import { FooService } from "./FooService";'
@@ -204,17 +227,17 @@ function handleInjectClassDependency(args) {
   const initAfter = anchors.init_after || null;           // regex string: insert init after last line matching this
   const getterBefore = anchors.getter_before || null;     // regex string: insert getter before first line matching this
 
-  const content = fs.readFileSync(filePath, 'utf8');
-  const lines = content.split('\n');
+  return readModifyWrite(filePath, (content) => {
+    const lines = content.split('\n');
 
-  // Check if already present
-  if (skipDuplicate) {
-    // Extract class name from import statement
-    const classMatch = importStatement.match(/import\s*\{\s*(\w+)/);
-    if (classMatch && content.includes(`import { ${classMatch[1]} }`)) {
-      return { content: [{ type: 'text', text: `${classMatch[1]} is already imported in ${path.basename(filePath)} — skipping.` }] };
+    // Check if already present
+    if (skipDuplicate) {
+      // Extract class name from import statement
+      const classMatch = importStatement.match(/import\s*\{\s*(\w+)/);
+      if (classMatch && content.includes(`import { ${classMatch[1]} }`)) {
+        return { content: [{ type: 'text', text: `${classMatch[1]} is already imported in ${path.basename(filePath)} — skipping.` }] };
+      }
     }
-  }
 
   const results = [];
 
@@ -309,22 +332,24 @@ function handleInjectClassDependency(args) {
     }
   }
 
-  fs.writeFileSync(filePath, lines.join('\n'), 'utf8');
-
-  return {
-    content: [{
-      type: 'text',
-      text: `## Injected dependency into ${path.basename(filePath)}\n\n` +
-        results.map(r => `- ✓ ${r}`).join('\n') + '\n'
-    }],
-  };
+    return {
+      newContent: lines.join('\n'),
+      response: {
+        content: [{
+          type: 'text',
+          text: `## Injected dependency into ${path.basename(filePath)}\n\n` +
+            results.map(r => `- ✓ ${r}`).join('\n') + '\n'
+        }],
+      },
+    };
+  });
 }
 
 /**
  * UNIVERSAL: Add members to any TypeScript union type in any file.
  * Validates no duplicates.
  */
-function handleAddTsUnionMembers(args) {
+async function handleAddTsUnionMembers(args) {
   const rawFilePath = args.file_path;
   const typeName = args.type_name;
   const members = args.members; // Array of strings or objects with `name` field
@@ -336,16 +361,13 @@ function handleAddTsUnionMembers(args) {
   if (!rawFilePath || !typeName || !members || !Array.isArray(members) || members.length === 0) {
     return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'file_path, type_name, and members array are required');
   }
-  if (!fs.existsSync(filePath)) {
-    return makeError(ErrorCodes.RESOURCE_NOT_FOUND, `File not found: ${filePath}`);
-  }
 
   const normalizedMembers = members.map((member) => (typeof member === 'string' ? member : member?.name));
   if (!normalizedMembers.every((member) => typeof member === 'string' && member.length > 0)) {
     return makeError(ErrorCodes.INVALID_PARAM, 'Each union member must be an object with a name string');
   }
 
-  let content = fs.readFileSync(filePath, 'utf8');
+  return readModifyWrite(filePath, (content) => {
 
   // Check for duplicates
   const duplicates = normalizedMembers.filter(m => content.includes(`"${m}"`));
@@ -380,25 +402,26 @@ function handleAddTsUnionMembers(args) {
 
   const absolutePos = typeStartMatch.index + lastUnionMatch.index + lastUnionMatch[1].length;
   const newEntries = normalizedMembers.map(m => `\n  | "${m}"`).join('');
-  content = content.slice(0, absolutePos) + newEntries + content.slice(absolutePos);
-
-  fs.writeFileSync(filePath, content, 'utf8');
-
+  const newContent = content.slice(0, absolutePos) + newEntries + content.slice(absolutePos);
   return {
-    content: [{
-      type: 'text',
-      text: `## Added ${members.length} members to ${typeName}\n\n` +
-        `**File:** ${filePath}\n\n` +
-        members.map(m => `- \`"${m}"\``).join('\n') + '\n'
-    }],
+    newContent,
+    response: {
+      content: [{
+        type: 'text',
+        text: `## Added ${members.length} members to ${typeName}\n\n` +
+          `**File:** ${filePath}\n\n` +
+          members.map(m => `- \`"${m}"\``).join('\n') + '\n'
+      }],
+    },
   };
+  });
 }
 
 /**
  * UNIVERSAL: Insert code into a method body before a marker line.
  * Works for any file, any method. Pure string insertion.
  */
-function handleInjectMethodCalls(args) {
+async function handleInjectMethodCalls(args) {
   const rawFilePath = args.file_path;
   const marker = args.before_marker;  // String to find, e.g., "this.connected = true;"
   const code = args.code;             // Code block to insert (string, can be multi-line)
@@ -410,30 +433,30 @@ function handleInjectMethodCalls(args) {
   if (!rawFilePath || !marker || !code) {
     return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'file_path, before_marker, and code are required');
   }
-  if (!fs.existsSync(filePath)) {
-    return makeError(ErrorCodes.RESOURCE_NOT_FOUND, `File not found: ${filePath}`);
-  }
 
-  let content = fs.readFileSync(filePath, 'utf8');
-  const markerPos = content.indexOf(marker);
-  if (markerPos === -1) {
-    return makeError(ErrorCodes.RESOURCE_NOT_FOUND, `Marker "${marker}" not found in ${filePath}`);
-  }
+  return readModifyWrite(filePath, (content) => {
+    const markerPos = content.indexOf(marker);
+    if (markerPos === -1) {
+      return makeError(ErrorCodes.RESOURCE_NOT_FOUND, `Marker "${marker}" not found in ${filePath}`);
+    }
 
-  // Collapse excessive blank lines before the marker to at most one
-  const before = content.slice(0, markerPos).replace(/\n{3,}$/, '\n\n');
-  // Only add trailing newline if code doesn't already end with one
-  const separator = code.endsWith('\n') ? '' : '\n';
-  content = before + code + separator + content.slice(markerPos);
-  fs.writeFileSync(filePath, content, 'utf8');
+    // Collapse excessive blank lines before the marker to at most one
+    const before = content.slice(0, markerPos).replace(/\n{3,}$/, '\n\n');
+    // Only add trailing newline if code doesn't already end with one
+    const separator = code.endsWith('\n') ? '' : '\n';
+    const newContent = before + code + separator + content.slice(markerPos);
 
-  const lineCount = code.split('\n').length;
-  return {
-    content: [{
-      type: 'text',
-      text: `## Injected ${lineCount} lines into ${path.basename(filePath)}\n\nInserted before: \`${marker.trim()}\`\n`
-    }],
-  };
+    const lineCount = code.split('\n').length;
+    return {
+      newContent,
+      response: {
+        content: [{
+          type: 'text',
+          text: `## Injected ${lineCount} lines into ${path.basename(filePath)}\n\nInserted before: \`${marker.trim()}\`\n`
+        }],
+      },
+    };
+  });
 }
 
 /**
@@ -453,60 +476,58 @@ function handleAddTsEnumMembers(args) {
   if (!rawFilePath || !enumName || !members || !Array.isArray(members) || members.length === 0) {
     return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'file_path, enum_name, and members array are required');
   }
-  if (!fs.existsSync(filePath)) {
-    return makeError(ErrorCodes.RESOURCE_NOT_FOUND, `File not found: ${filePath}`);
-  }
 
-  let content = fs.readFileSync(filePath, 'utf8');
-
-  // Check for duplicates
-  const duplicates = members.filter(m => {
-    const pattern = new RegExp(`\\b${escapeRegex(m.name)}\\s*=`);
-    return pattern.test(content);
-  });
-  if (duplicates.length > 0) {
-    return makeError(ErrorCodes.CONFLICT, `Duplicate enum members already exist: ${duplicates.map(d => d.name).join(', ')}`);
-  }
-
-  // Find the enum
-  const enumPattern = new RegExp(`(?:export\\s+)?enum\\s+${escapeRegex(enumName)}\\s*\\{`);
-  const enumMatch = enumPattern.exec(content);
-  if (!enumMatch) {
-    return makeError(ErrorCodes.RESOURCE_NOT_FOUND, `Could not find enum ${enumName} in ${filePath}`);
-  }
-
-  // Find closing brace
-  let braceDepth = 0;
-  let closingBraceIndex = -1;
-  for (let i = content.indexOf('{', enumMatch.index); i < content.length; i++) {
-    if (content[i] === '{') braceDepth++;
-    if (content[i] === '}') {
-      braceDepth--;
-      if (braceDepth === 0) { closingBraceIndex = i; break; }
+  return readModifyWrite(filePath, (content) => {
+    // Check for duplicates
+    const duplicates = members.filter(m => {
+      const pattern = new RegExp(`\\b${escapeRegex(m.name)}\\s*=`);
+      return pattern.test(content);
+    });
+    if (duplicates.length > 0) {
+      return makeError(ErrorCodes.CONFLICT, `Duplicate enum members already exist: ${duplicates.map(d => d.name).join(', ')}`);
     }
-  }
-  if (closingBraceIndex === -1) {
-    return makeError(ErrorCodes.OPERATION_FAILED, `Could not find closing brace of enum ${enumName}`);
-  }
 
-  // Build new entries
-  let newEntries = '';
-  for (const m of members) {
-    const valueStr = typeof m.value === 'string' ? `"${m.value}"` : String(m.value);
-    newEntries += `  ${m.name} = ${valueStr},\n`;
-  }
+    // Find the enum
+    const enumPattern = new RegExp(`(?:export\\s+)?enum\\s+${escapeRegex(enumName)}\\s*\\{`);
+    const enumMatch = enumPattern.exec(content);
+    if (!enumMatch) {
+      return makeError(ErrorCodes.RESOURCE_NOT_FOUND, `Could not find enum ${enumName} in ${filePath}`);
+    }
 
-  content = content.slice(0, closingBraceIndex) + newEntries + content.slice(closingBraceIndex);
-  fs.writeFileSync(filePath, content, 'utf8');
+    // Find closing brace
+    let braceDepth = 0;
+    let closingBraceIndex = -1;
+    for (let i = content.indexOf('{', enumMatch.index); i < content.length; i++) {
+      if (content[i] === '{') braceDepth++;
+      if (content[i] === '}') {
+        braceDepth--;
+        if (braceDepth === 0) { closingBraceIndex = i; break; }
+      }
+    }
+    if (closingBraceIndex === -1) {
+      return makeError(ErrorCodes.OPERATION_FAILED, `Could not find closing brace of enum ${enumName}`);
+    }
 
-  return {
-    content: [{
-      type: 'text',
-      text: `## Added ${members.length} members to enum ${enumName}\n\n` +
-        `**File:** ${filePath}\n\n` +
-        members.map(m => `- \`${m.name} = ${typeof m.value === 'string' ? '"' + m.value + '"' : m.value}\``).join('\n') + '\n'
-    }],
-  };
+    // Build new entries
+    let newEntries = '';
+    for (const m of members) {
+      const valueStr = typeof m.value === 'string' ? `"${m.value}"` : String(m.value);
+      newEntries += `  ${m.name} = ${valueStr},\n`;
+    }
+
+    const newContent = content.slice(0, closingBraceIndex) + newEntries + content.slice(closingBraceIndex);
+    return {
+      newContent,
+      response: {
+        content: [{
+          type: 'text',
+          text: `## Added ${members.length} members to enum ${enumName}\n\n` +
+            `**File:** ${filePath}\n\n` +
+            members.map(m => `- \`${m.name} = ${typeof m.value === 'string' ? '"' + m.value + '"' : m.value}\``).join('\n') + '\n'
+        }],
+      },
+    };
+  });
 }
 
 // ─── Validation & Audit ─────────────────────────────────────────────────────
@@ -515,7 +536,7 @@ function handleAddTsEnumMembers(args) {
  * Normalize indentation in a TypeScript interface. Fixes accumulated drift
  * from multiple batch edits. Idempotent.
  */
-function handleNormalizeInterfaceFormatting(args) {
+async function handleNormalizeInterfaceFormatting(args) {
   const rawFilePath = args.file_path;
   const interfaceName = args.interface_name;
   const targetIndent = args.indent || '  ';
@@ -527,12 +548,9 @@ function handleNormalizeInterfaceFormatting(args) {
   if (!rawFilePath || !interfaceName) {
     return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'file_path and interface_name are required');
   }
-  if (!fs.existsSync(filePath)) {
-    return makeError(ErrorCodes.RESOURCE_NOT_FOUND, `File not found: ${filePath}`);
-  }
 
-  const content = fs.readFileSync(filePath, 'utf8');
-  const lines = content.split('\n');
+  return readModifyWrite(filePath, (content) => {
+    const lines = content.split('\n');
 
   // Find interface boundaries
   let inInterface = false;
@@ -581,21 +599,23 @@ function handleNormalizeInterfaceFormatting(args) {
     }
   }
 
-  if (startLine === -1) {
-    return makeError(ErrorCodes.RESOURCE_NOT_FOUND, `Could not find interface ${interfaceName} in ${filePath}`);
-  }
+    if (startLine === -1) {
+      return makeError(ErrorCodes.RESOURCE_NOT_FOUND, `Could not find interface ${interfaceName} in ${filePath}`);
+    }
 
-  fs.writeFileSync(filePath, reformattedLines.join('\n'), 'utf8');
-
-  return {
-    content: [{
-      type: 'text',
-      text: `## Normalized ${interfaceName} formatting\n\n` +
-        `**File:** ${filePath}\n` +
-        `**Lines fixed:** ${fixCount}\n` +
-        `**Target indent:** "${targetIndent}" (${targetIndent.length} spaces)\n`
-    }],
-  };
+    return {
+      newContent: reformattedLines.join('\n'),
+      response: {
+        content: [{
+          type: 'text',
+          text: `## Normalized ${interfaceName} formatting\n\n` +
+            `**File:** ${filePath}\n` +
+            `**Lines fixed:** ${fixCount}\n` +
+            `**Target indent:** "${targetIndent}" (${targetIndent.length} spaces)\n`
+        }],
+      },
+    };
+  });
 }
 
 // ─── Semantic TypeScript Tools (Harness Problem mitigation) ──────────────────
@@ -603,7 +623,7 @@ function handleNormalizeInterfaceFormatting(args) {
 /**
  * Add a method body to a TypeScript class, identified by class name.
  */
-function handleAddTsMethodToClass(args) {
+async function handleAddTsMethodToClass(args) {
   const { file_path: rawFilePath, class_name: className, method_code, position = 'end' } = args;
   const filePath = resolveScopedFilePath(args, rawFilePath);
 
@@ -612,11 +632,7 @@ function handleAddTsMethodToClass(args) {
   if (!className) return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'class_name is required');
   if (!method_code) return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'method_code is required');
 
-  if (!fs.existsSync(filePath)) {
-    return makeError(ErrorCodes.RESOURCE_NOT_FOUND, `File not found: ${filePath}`);
-  }
-
-  let content = fs.readFileSync(filePath, 'utf8');
+  return readModifyWrite(filePath, (content) => {
 
   const classPattern = new RegExp(`(?:export\\s+)?class\\s+${escapeRegex(className)}\\b`);
   const classMatch = classPattern.exec(content);
@@ -684,27 +700,28 @@ function handleAddTsMethodToClass(args) {
     }
   }
 
-  const indent = '  ';
-  const formattedMethod = '\n' + method_code.split('\n').map(l => indent + l).join('\n') + '\n';
-
-  content = content.slice(0, insertIndex) + formattedMethod + content.slice(insertIndex);
-  fs.writeFileSync(filePath, content, 'utf8');
-
-  return {
-    content: [{
-      type: 'text',
-      text: `## Added method to class ${className}\n\n` +
-        `**File:** ${filePath}\n` +
-        `**Method:** ${methodName || '(anonymous)'}\n` +
-        `**Position:** ${position}\n`
-    }],
-  };
+    const indent = '  ';
+    const formattedMethod = '\n' + method_code.split('\n').map(l => indent + l).join('\n') + '\n';
+    const newContent = content.slice(0, insertIndex) + formattedMethod + content.slice(insertIndex);
+    return {
+      newContent,
+      response: {
+        content: [{
+          type: 'text',
+          text: `## Added method to class ${className}\n\n` +
+            `**File:** ${filePath}\n` +
+            `**Method:** ${methodName || '(anonymous)'}\n` +
+            `**Position:** ${position}\n`
+        }],
+      },
+    };
+  });
 }
 
 /**
  * Replace a method's implementation by class + method name.
  */
-function handleReplaceTsMethodBody(args) {
+async function handleReplaceTsMethodBody(args) {
   const { file_path: rawFilePath, class_name: className, method_name: methodName, new_body: newBody } = args;
   const filePath = resolveScopedFilePath(args, rawFilePath);
 
@@ -714,11 +731,7 @@ function handleReplaceTsMethodBody(args) {
   if (!methodName) return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'method_name is required');
   if (!newBody) return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'new_body is required');
 
-  if (!fs.existsSync(filePath)) {
-    return makeError(ErrorCodes.RESOURCE_NOT_FOUND, `File not found: ${filePath}`);
-  }
-
-  let content = fs.readFileSync(filePath, 'utf8');
+  return readModifyWrite(filePath, (content) => {
 
   const classPattern = new RegExp(`(?:export\\s+)?class\\s+${escapeRegex(className)}\\b`);
   const classMatch = classPattern.exec(content);
@@ -775,28 +788,29 @@ function handleReplaceTsMethodBody(args) {
     return makeError(ErrorCodes.OPERATION_FAILED, `Could not find method body for '${methodName}'`);
   }
 
-  const indent = '    ';
-  const formattedBody = newBody.split('\n').map(l => indent + l).join('\n');
-  content = content.slice(0, methodBodyStart + 1) + '\n' + formattedBody + '\n  ' + content.slice(methodBodyEnd);
-
-  fs.writeFileSync(filePath, content, 'utf8');
-
-  return {
-    content: [{
-      type: 'text',
-      text: `## Replaced method body\n\n` +
-        `**File:** ${filePath}\n` +
-        `**Class:** ${className}\n` +
-        `**Method:** ${methodName}\n` +
-        `**New body:** ${newBody.split('\n').length} lines\n`
-    }],
-  };
+    const indent = '    ';
+    const formattedBody = newBody.split('\n').map(l => indent + l).join('\n');
+    const newContent = content.slice(0, methodBodyStart + 1) + '\n' + formattedBody + '\n  ' + content.slice(methodBodyEnd);
+    return {
+      newContent,
+      response: {
+        content: [{
+          type: 'text',
+          text: `## Replaced method body\n\n` +
+            `**File:** ${filePath}\n` +
+            `**Class:** ${className}\n` +
+            `**Method:** ${methodName}\n` +
+            `**New body:** ${newBody.split('\n').length} lines\n`
+        }],
+      },
+    };
+  });
 }
 
 /**
  * Idempotent import injection — add an import statement if the module isn't already imported.
  */
-function handleAddImportStatement(args) {
+async function handleAddImportStatement(args) {
   const { file_path: rawFilePath, import_statement: importStatement } = args;
   const filePath = resolveScopedFilePath(args, rawFilePath);
 
@@ -804,58 +818,53 @@ function handleAddImportStatement(args) {
   if (!rawFilePath) return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'file_path is required');
   if (!importStatement) return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'import_statement is required');
 
-  if (!fs.existsSync(filePath)) {
-    return makeError(ErrorCodes.RESOURCE_NOT_FOUND, `File not found: ${filePath}`);
-  }
-
-  let content = fs.readFileSync(filePath, 'utf8');
-
   const moduleMatch = importStatement.match(/from\s+['"]([^'"]+)['"]/);
   if (!moduleMatch) {
     return makeError(ErrorCodes.INVALID_PARAM, 'Could not extract module path from import statement');
   }
-
   const modulePath = moduleMatch[1];
 
-  const existingPattern = new RegExp(`from\\s+['"]${escapeRegex(modulePath)}['"]`);
-  if (existingPattern.test(content)) {
+  return readModifyWrite(filePath, (content) => {
+    const existingPattern = new RegExp(`from\\s+['"]${escapeRegex(modulePath)}['"]`);
+    if (existingPattern.test(content)) {
+      return {
+        content: [{
+          type: 'text',
+          text: `Skipped: module '${modulePath}' is already imported in ${filePath}`
+        }],
+      };
+    }
+
+    const lines = content.split('\n');
+    let lastImportIndex = -1;
+    for (let i = 0; i < lines.length; i++) {
+      if (/^\s*(import\s|const\s+\w+\s*=\s*require\()/.test(lines[i])) {
+        lastImportIndex = i;
+      }
+      if (lastImportIndex >= 0 && i > lastImportIndex + 2 && /\S/.test(lines[i]) && !/^\s*(import|const\s+\w+\s*=\s*require)/.test(lines[i])) {
+        break;
+      }
+    }
+
+    if (lastImportIndex >= 0) {
+      lines.splice(lastImportIndex + 1, 0, importStatement);
+    } else {
+      lines.unshift(importStatement);
+    }
+
     return {
-      content: [{
-        type: 'text',
-        text: `Skipped: module '${modulePath}' is already imported in ${filePath}`
-      }],
+      newContent: lines.join('\n'),
+      response: {
+        content: [{
+          type: 'text',
+          text: `## Added import statement\n\n` +
+            `**File:** ${filePath}\n` +
+            `**Import:** \`${importStatement}\`\n` +
+            `**Module:** ${modulePath}\n`
+        }],
+      },
     };
-  }
-
-  const lines = content.split('\n');
-  let lastImportIndex = -1;
-  for (let i = 0; i < lines.length; i++) {
-    if (/^\s*(import\s|const\s+\w+\s*=\s*require\()/.test(lines[i])) {
-      lastImportIndex = i;
-    }
-    if (lastImportIndex >= 0 && i > lastImportIndex + 2 && /\S/.test(lines[i]) && !/^\s*(import|const\s+\w+\s*=\s*require)/.test(lines[i])) {
-      break;
-    }
-  }
-
-  if (lastImportIndex >= 0) {
-    lines.splice(lastImportIndex + 1, 0, importStatement);
-  } else {
-    lines.unshift(importStatement);
-  }
-
-  content = lines.join('\n');
-  fs.writeFileSync(filePath, content, 'utf8');
-
-  return {
-    content: [{
-      type: 'text',
-      text: `## Added import statement\n\n` +
-        `**File:** ${filePath}\n` +
-        `**Import:** \`${importStatement}\`\n` +
-        `**Module:** ${modulePath}\n`
-    }],
-  };
+  });
 }
 
 module.exports = {
