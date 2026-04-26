@@ -3,7 +3,7 @@
 const fs = require('fs');
 const path = require('path');
 const { randomUUID } = require('crypto');
-const { setupTestDb, teardownTestDb, rawDb } = require('./vitest-setup');
+const { setupTestDbOnly, teardownTestDb, rawDb } = require('./vitest-setup');
 const { getDataDir } = require('../data-dir');
 const { buildBundle, FALLBACK_BUNDLE_DIR_NAME } = require('../runs/build-bundle');
 
@@ -12,7 +12,7 @@ let testDir;
 let conn;
 
 beforeAll(() => {
-  const setup = setupTestDb('build-bundle');
+  const setup = setupTestDbOnly('build-bundle');
   db = setup.db;
   testDir = setup.testDir;
   conn = rawDb();

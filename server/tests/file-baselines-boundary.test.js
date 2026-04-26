@@ -10,7 +10,7 @@ const {
   handleSearchSimilarFiles,
 } = require('../handlers/validation/file');
 const {
-  setupTestDb,
+  setupTestDbOnly,
   teardownTestDb,
   resetTables,
   getText,
@@ -32,7 +32,7 @@ function createTask(overrides = {}) {
 }
 
 beforeAll(() => {
-  ({ db, testDir } = setupTestDb('file-baselines-boundary'));
+  ({ db, testDir } = setupTestDbOnly('file-baselines-boundary'));
 });
 
 beforeEach(() => {

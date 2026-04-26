@@ -2,7 +2,7 @@ const path = require('path');
 const os = require('os');
 const fs = require('fs');
 const {
-  setupTestDb,
+  setupTestDbOnly,
   teardownTestDb,
   getText,
   mkTask,
@@ -17,7 +17,7 @@ let tempDir;
 let outsideFilePath;
 
 beforeAll(() => {
-  ({ db } = setupTestDb('hashline-path-scoping'));
+  ({ db } = setupTestDbOnly('hashline-path-scoping'));
   tempDir = path.join(os.tmpdir(), 'torque-hashline-path-scoping-tests');
   fs.mkdirSync(tempDir, { recursive: true });
 });

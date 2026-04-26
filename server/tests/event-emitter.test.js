@@ -1,11 +1,11 @@
 'use strict';
 
-const { setupTestDb, teardownTestDb } = require('./vitest-setup');
+const { setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
 
 let db;
 
 beforeAll(() => {
-  const setup = setupTestDb('events');
+  const setup = setupTestDbOnly('events');
   db = setup.db.getDbInstance();
 });
 

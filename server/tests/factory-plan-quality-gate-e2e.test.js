@@ -3,7 +3,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { setupTestDb, teardownTestDb, rawDb } = require('./vitest-setup');
+const { setupTestDbOnly, teardownTestDb, rawDb } = require('./vitest-setup');
 
 function seedProjectAndItem(db, { trust = 'autonomous', originOverrides = {}, projectPath } = {}) {
   const projectId = 'proj-e2e-1';
@@ -151,7 +151,7 @@ describe('auto-generated plan description quality scoring', () => {
 describe('executeNonPlanFileStage plan-quality-gate integration', () => {
   let db;
   beforeEach(() => {
-    setupTestDb('plan-quality-gate-e2e');
+    setupTestDbOnly('plan-quality-gate-e2e');
     db = rawDb();
   });
   afterEach(() => {
@@ -225,7 +225,7 @@ describe('executeNonPlanFileStage plan-quality-gate integration', () => {
 describe('executeNonPlanFileStage plan-quality-gate — reject paths', () => {
   let db;
   beforeEach(() => {
-    setupTestDb('plan-quality-gate-e2e-rejects');
+    setupTestDbOnly('plan-quality-gate-e2e-rejects');
     db = rawDb();
   });
   afterEach(() => {

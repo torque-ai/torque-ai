@@ -4,7 +4,7 @@ const path = require('path');
 const { EventEmitter } = require('events');
 const { randomUUID } = require('crypto');
 
-const { setupTestDb, teardownTestDb, getText } = require('./vitest-setup');
+const { setupTestDbOnly, teardownTestDb, getText } = require('./vitest-setup');
 const providerRoutingCore = require('../db/provider-routing-core');
 const taskManager = require('../task-manager');
 const { gitSync, cleanupRepo } = require('./git-test-utils');
@@ -29,7 +29,7 @@ describe('integration/index handlers', () => {
   let repoDir;
 
   beforeEach(() => {
-    ({ db } = setupTestDb(`integration-index-${Date.now()}`));
+    ({ db } = setupTestDbOnly(`integration-index-${Date.now()}`));
     tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'torque-integration-index-'));
     repoDir = null;
   });

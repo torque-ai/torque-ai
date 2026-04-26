@@ -1,6 +1,6 @@
 'use strict';
 
-const { setupTestDb, teardownTestDb, rawDb } = require('./vitest-setup');
+const { setupTestDbOnly, teardownTestDb, rawDb } = require('./vitest-setup');
 
 function seedPausedBaselineProject(db, { probeAttempts = 0, tickCountSincePause = 1 } = {}) {
   const cfg = {
@@ -22,7 +22,7 @@ function seedPausedBaselineProject(db, { probeAttempts = 0, tickCountSincePause 
 describe('factory-tick baseline probe phase', () => {
   let db;
   beforeEach(() => {
-    setupTestDb('baseline-probe-tick');
+    setupTestDbOnly('baseline-probe-tick');
     db = rawDb();
   });
   afterEach(() => { teardownTestDb(); vi.restoreAllMocks(); });
@@ -154,7 +154,7 @@ describe('factory-tick baseline probe phase', () => {
 describe('handleResumeProjectBaselineFixed', () => {
   let db;
   beforeEach(() => {
-    setupTestDb('baseline-resume');
+    setupTestDbOnly('baseline-resume');
     db = rawDb();
   });
   afterEach(() => { teardownTestDb(); vi.restoreAllMocks(); });
