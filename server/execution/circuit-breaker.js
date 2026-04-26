@@ -20,6 +20,14 @@ const FAILURE_PATTERNS = {
   resource: /(out of memory|OOM|disk full|GPU|CUDA|no space)/i,
 };
 
+const ERROR_CODE_TO_CATEGORY = {
+  quota_exceeded: 'rate_limit',
+  rate_limit: 'rate_limit',
+  auth_failed: 'auth',
+};
+
+const SENTINEL_EXIT_CODES = new Set([-101, -102, -103]);
+
 function createNoopEventBus() {
   return { emit() {} };
 }
@@ -168,11 +176,25 @@ class CircuitBreaker {
   }
 
   recordFailure(provider, errorOutput) {
+    const category = classifyFailure(errorOutput);
+    return this._recordFailureWithCategory(provider, category);
+  }
+
+  recordFailureByCode(provider, { errorCode, exitCode } = {}) {
+    let category = 'unknown';
+    if (errorCode && ERROR_CODE_TO_CATEGORY[errorCode]) {
+      category = ERROR_CODE_TO_CATEGORY[errorCode];
+    } else if (typeof exitCode === 'number' && SENTINEL_EXIT_CODES.has(exitCode)) {
+      category = 'resource';
+    }
+    return this._recordFailureWithCategory(provider, category);
+  }
+
+  _recordFailureWithCategory(provider, category) {
     const normalizedProvider = normalizeProvider(provider);
     const entry = this._getStateEntry(normalizedProvider);
     this._maybeTransitionToHalfOpen(normalizedProvider, entry);
 
-    const category = classifyFailure(errorOutput);
     entry.consecutiveFailures = entry.lastFailureCategory === category
       ? entry.consecutiveFailures + 1
       : 1;

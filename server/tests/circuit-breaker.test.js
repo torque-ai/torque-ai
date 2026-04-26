@@ -303,4 +303,32 @@ describe('circuit-breaker', () => {
       errorSpy.mockRestore();
     });
   });
+
+  describe('recordFailureByCode', () => {
+    it('classifies quota_exceeded as rate_limit category', () => {
+      const breaker = createCircuitBreaker({ eventBus, config: TEST_CONFIG });
+      breaker.recordFailureByCode('codex', { errorCode: 'quota_exceeded' });
+      expect(breaker.getState('codex').lastFailureCategory).toBe('rate_limit');
+    });
+
+    it('classifies auth_failed as auth category', () => {
+      const breaker = createCircuitBreaker({ eventBus, config: TEST_CONFIG });
+      breaker.recordFailureByCode('codex', { errorCode: 'auth_failed' });
+      expect(breaker.getState('codex').lastFailureCategory).toBe('auth');
+    });
+
+    it('classifies sentinel exit codes as resource', () => {
+      const breaker = createCircuitBreaker({ eventBus, config: TEST_CONFIG });
+      breaker.recordFailureByCode('codex', { exitCode: -101 });
+      expect(breaker.getState('codex').lastFailureCategory).toBe('resource');
+    });
+
+    it('3 codex-coded failures trip the circuit', () => {
+      const breaker = createCircuitBreaker({ eventBus, config: TEST_CONFIG });
+      breaker.recordFailureByCode('codex', { errorCode: 'rate_limit' });
+      breaker.recordFailureByCode('codex', { errorCode: 'rate_limit' });
+      breaker.recordFailureByCode('codex', { errorCode: 'rate_limit' });
+      expect(breaker.getState('codex').state).toBe(STATES.OPEN);
+    });
+  });
 });
