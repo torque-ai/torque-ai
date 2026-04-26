@@ -333,6 +333,7 @@ async function runAgenticLoop({
           timeoutMs: timeoutMs || 120000,
           signal,
           onChunk,
+          requireToolUseBeforeFinal,
           ...(options || {}),
         });
         break; // success

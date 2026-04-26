@@ -12,7 +12,7 @@
 
 const mod = require('../providers/agentic-capability');
 const { TEST_MODELS } = require('./test-helpers');
-const { init, isAgenticCapable } = mod;
+const { init, isAgenticCapable, needsPromptInjection } = mod;
 const TEST_MODEL_PREFIX = TEST_MODELS.DEFAULT.split(':')[0];
 
 // ---------------------------------------------------------------------------
@@ -142,6 +142,14 @@ describe('isAgenticCapable — custom whitelist via config', () => {
     const deepseekResult = isAgenticCapable('ollama', 'deepseek-coder:7b');
     expect(deepseekResult.capable).toBe(true);
     expect(deepseekResult.source).toBe('whitelist');
+  });
+});
+
+describe('needsPromptInjection', () => {
+  it('matches routed gpt-oss model names with provider prefixes', () => {
+    expect(needsPromptInjection('gpt-oss-120b')).toBe(true);
+    expect(needsPromptInjection('openai/gpt-oss-120b')).toBe(true);
+    expect(needsPromptInjection('groq/openai/gpt-oss-120b')).toBe(true);
   });
 });
 
