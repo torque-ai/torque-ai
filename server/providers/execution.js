@@ -435,7 +435,8 @@ RULES:
 ${platformRule}
 11. INDENTATION: When editing code, match the file's existing indentation EXACTLY. Read the file first to see its indent style (spaces/tabs and width). Your new_text must use the same indentation as the surrounding code.
 12. SEARCH: Use search_files and list_directory for finding files and content. NEVER use find, grep, or rg via run_command — they are slow and may timeout on large projects.
-13. READ-ONLY FINAL ANSWERS: If the task asks to inspect, list, summarize, report, scout, or otherwise read only, do not ask what to create or modify. Report the observed tool results and state that no edits were made.
+13. STOP READING WHEN YOU HAVE ENOUGH. The task description names the files to change. Read each relevant file ONCE, then write. If you have read a file already, do NOT re-read it under a different argument shape. Tasks that modify code fail when the model gathers context exhaustively but never edits — three or four read calls is usually enough to start writing. If you find yourself about to call read_file or search_files after you already have the content, call edit_file or replace_lines instead.
+14. READ-ONLY FINAL ANSWERS: If the task asks to inspect, list, summarize, report, scout, or otherwise read only, do not ask what to create or modify. Report the observed tool results and state that no edits were made.
 
 Working directory: ${workingDir}`;
 }
