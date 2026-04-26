@@ -370,5 +370,29 @@ describe('circuit-breaker', () => {
         tripReason: 'manual_disabled',
       }));
     });
+
+    it('untrip() clears trippedAt to null', () => {
+      const breaker = createCircuitBreaker({ eventBus, config: TEST_CONFIG });
+      tripCircuit(breaker, 'codex');
+      expect(breaker.getState('codex').trippedAt).not.toBeNull();
+      breaker.untrip('codex', 'operator_override');
+      expect(breaker.getState('codex').trippedAt).toBeNull();
+    });
+
+    it('untrip() persists CLOSED state to store', () => {
+      const persisted = new Map();
+      const store = {
+        getState: vi.fn((id) => persisted.get(id) ?? null),
+        persist: vi.fn((id, patch) => persisted.set(id, { ...persisted.get(id), ...patch })),
+        listAll: vi.fn(() => []),
+      };
+      const breaker = createCircuitBreaker({ eventBus, config: TEST_CONFIG, store });
+      breaker.trip('codex', 'manual_disabled');
+      store.persist.mockClear();
+      breaker.untrip('codex', 'operator_override');
+      expect(store.persist).toHaveBeenCalledWith('codex', expect.objectContaining({
+        state: 'CLOSED',
+      }));
+    });
   });
 });

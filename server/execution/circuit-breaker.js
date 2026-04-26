@@ -314,6 +314,7 @@ class CircuitBreaker {
     entry.lastFailureCategory = null;
     entry.recoveryTimeoutMs = this._config.baseRecoveryTimeoutMs;
     entry.currentProbeAllowed = false;
+    entry.trippedAt = null;
     this._emit('circuit:recovered', {
       provider: normalizedProvider,
       reason: reason || 'manual',
