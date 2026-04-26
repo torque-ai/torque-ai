@@ -1117,4 +1117,7 @@ module.exports = {
   handleListCommits,
   handleAnalyzeTask,
   createTaskPipelineHandlers,
+  // Exported for unit tests
+  execGit,
+  execGitCommit,
 };
