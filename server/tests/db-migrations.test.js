@@ -936,5 +936,14 @@ describe('db/migrations', () => {
       expect(tableExists(db, 'rollback_marker')).toBe(true);
       expect(getAppliedVersions(db)).not.toContain(777);
     });
+
+    it('migration 37 creates idx_fge_batch on factory_guardrail_events', () => {
+      createBaseSchema(db);
+
+      subject.runMigrations(db);
+
+      expect(indexExists(db, 'idx_fge_batch')).toBe(true);
+      expect(getAppliedVersions(db)).toContain(37);
+    });
   });
 });

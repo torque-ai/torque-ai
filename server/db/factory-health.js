@@ -212,6 +212,52 @@ function getScoreHistory(projectId, dimension, limit, options = {}) {
   `).all(projectId, dimension, limit || 100);
 }
 
+function getLatestScoresBatch(projectIds) {
+  if (!projectIds || projectIds.length === 0) return new Map();
+
+  const placeholders = projectIds.map(() => '?').join(', ');
+  const rows = getDb().prepare(
+    'SELECT s.project_id, s.dimension, s.score' +
+    ' FROM factory_health_snapshots s' +
+    ' INNER JOIN (' +
+    '   SELECT project_id, dimension, MAX(id) AS max_id' +
+    '   FROM factory_health_snapshots' +
+    '   WHERE project_id IN (' + placeholders + ')' +
+    '   GROUP BY project_id, dimension' +
+    ' ) latest ON s.id = latest.max_id'
+  ).all(...projectIds);
+
+  const result = new Map();
+  for (const row of rows) {
+    if (!result.has(row.project_id)) result.set(row.project_id, {});
+    result.get(row.project_id)[row.dimension] = row.score;
+  }
+  return result;
+}
+
+function getScoreHistoryBatch(projectId, dimensions, limit) {
+  const maxRows = limit || 20;
+  if (!dimensions || dimensions.length === 0) return {};
+
+  const placeholders = dimensions.map(() => '?').join(', ');
+  const rows = getDb().prepare(
+    'SELECT dimension, score, created_at' +
+    ' FROM factory_health_snapshots' +
+    ' WHERE project_id = ?' +
+    ' AND dimension IN (' + placeholders + ')' +
+    ' ORDER BY id DESC'
+  ).all(projectId, ...dimensions);
+
+  // Partition by dimension; enforce limit per dimension in JS
+  const result = Object.fromEntries(dimensions.map((d) => [d, []]));
+  for (const row of rows) {
+    if (result[row.dimension] && result[row.dimension].length < maxRows) {
+      result[row.dimension].push(row);
+    }
+  }
+  return result;
+}
+
 function getLatestSnapshotIds(projectId) {
   const rows = getDb().prepare(`
     SELECT dimension, MAX(id) AS snapshot_id
@@ -340,7 +386,9 @@ module.exports = {
   updateProject,
   recordSnapshot,
   getLatestScores,
+  getLatestScoresBatch,
   getScoreHistory,
+  getScoreHistoryBatch,
   getLatestSnapshotIds,
   getBalanceScore,
   recordFindings,

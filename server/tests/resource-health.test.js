@@ -4,6 +4,7 @@ import { createRequire } from 'module';
 const require = createRequire(import.meta.url);
 const { setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
 const resourceHealth = require('../db/resource-health');
+const { assertMaxPrepares } = require('./perf-test-helpers.test');
 
 function createDeps(overrides = {}) {
   return {
@@ -238,5 +239,46 @@ describe('db/resource-health', () => {
       webhook_logs: expect.any(Number),
       health_status: expect.any(Number),
     }));
+  });
+
+  describe('prepare-in-loop regressions', () => {
+    it('getSystemMetrics uses 0 prepares after first call (module-level cache)', async () => {
+      // First call initializes cache
+      resourceHealth.getSystemMetrics();
+      // Second call should use 0 prepares for the table-count loop
+      const count = await assertMaxPrepares(db, 0, () => {
+        resourceHealth.getSystemMetrics();
+      });
+      expect(count).toBe(0);
+    });
+
+    it('getDatabaseHealth uses 0 prepares after first call (module-level cache)', async () => {
+      resourceHealth.getDatabaseHealth();
+      const count = await assertMaxPrepares(db, 0, () => {
+        resourceHealth.getDatabaseHealth();
+      });
+      expect(count).toBe(0);
+    });
+
+    it('getHealthSummary issues at most 2 queries total regardless of check type count', async () => {
+      // Insert 3 types x 5 entries each
+      const base = Date.parse('2026-02-03T04:05:06.000Z');
+      const types = ['cpu', 'memory', 'disk'];
+      for (const type of types) {
+        for (let i = 0; i < 5; i++) {
+          insertHealthRow(type, i % 2 === 0 ? 'healthy' : 'degraded', 10 + i, null, null, new Date(base + i * 1000).toISOString());
+        }
+      }
+
+      let queryCount = 0;
+      const origPrepare = db.prepare.bind(db);
+      db.prepare = (...args) => { queryCount++; return origPrepare(...args); };
+
+      resourceHealth.getHealthSummary();
+
+      db.prepare = origPrepare;
+      // Old 2N+1 pattern: 1 DISTINCT + 2*3 = 7. New: at most 2.
+      expect(queryCount).toBeLessThanOrEqual(2);
+    });
   });
 });

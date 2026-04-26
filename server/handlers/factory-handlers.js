@@ -600,8 +600,10 @@ async function handleListFactoryProjects(args) {
   // factory_status MCP tool. countCommitsToday is cached per-path with a
   // TTL, so this isn't a git-log spawn per poll — the first call within
   // the TTL pays, subsequent reads hit the cache.
+  const projectIds = projects.map((p) => p.id);
+  const scoresMap = factoryHealth.getLatestScoresBatch(projectIds);
   const summaries = await Promise.all(projects.map(async (p) => {
-    const scores = factoryHealth.getLatestScores(p.id);
+    const scores = scoresMap.get(p.id) ?? {};
     const balance = factoryHealth.getBalanceScore(p.id, scores);
     const commitsToday = await countCommitsToday(p.path);
     return { ...p, scores, balance, commits_today: commitsToday };
@@ -640,10 +642,7 @@ async function handleProjectHealth(args) {
   };
 
   if (args.include_trends) {
-    result.trends = {};
-    for (const dim of dimensions) {
-      result.trends[dim] = factoryHealth.getScoreHistory(project.id, dim, 20);
-    }
+    result.trends = factoryHealth.getScoreHistoryBatch(project.id, dimensions, 20);
   }
 
   if (args.include_findings) {
@@ -805,26 +804,25 @@ async function handleResumeProject(args) {
 
 async function handlePauseAllProjects(args = {}) {
   const projects = factoryHealth.listProjects();
-  let paused = 0;
-  for (const p of projects) {
-    if (p.status !== 'paused') {
-      const previous_status = p.status;
-      const updated = factoryHealth.updateProject(p.id, { status: 'paused' });
-      try {
-        factoryAudit.recordAuditEvent({
-          project_id: updated.id,
-          event_type: 'pause',
-          previous_status,
-          reason: args.reason || null,
-          actor: args.__user || args.actor || 'unknown',
-          source: args.source || 'mcp',
-        });
-      } catch (err) {
-        logger.warn({ err }, 'Failed to record pause audit event');
-      }
-      paused++;
+  const results = await Promise.all(projects.map(async (p) => {
+    if (p.status === 'paused') return false;
+    const previous_status = p.status;
+    const updated = factoryHealth.updateProject(p.id, { status: 'paused' });
+    try {
+      factoryAudit.recordAuditEvent({
+        project_id: updated.id,
+        event_type: 'pause',
+        previous_status,
+        reason: args.reason || null,
+        actor: args.__user || args.actor || 'unknown',
+        source: args.source || 'mcp',
+      });
+    } catch (err) {
+      logger.warn({ err }, 'Failed to record pause audit event');
     }
-  }
+    return true;
+  }));
+  const paused = results.filter(Boolean).length;
   logger.info(`Emergency pause: ${paused} projects paused`);
   return jsonResponse({
     message: `${paused} project(s) paused`,
@@ -837,8 +835,10 @@ async function handleFactoryStatus() {
   const projects = factoryHealth.listProjects();
   const nowMs = Date.now();
   let cacheHitCount = 0;
+  const projectIds = projects.map((p) => p.id);
+  const scoresMap = factoryHealth.getLatestScoresBatch(projectIds);
   const summaries = await Promise.all(projects.map(async (p) => {
-    const scores = factoryHealth.getLatestScores(p.id);
+    const scores = scoresMap.get(p.id) ?? {};
     const balance = factoryHealth.getBalanceScore(p.id, scores);
     const weakest = Object.entries(scores).sort((a, b) => a[1] - b[1])[0];
     const healthModel = summarizeHealthModel(scores);

@@ -7,71 +7,71 @@
     "platform": "win32",
     "host_label": "BahumutsOmen"
   },
-  "last_updated_at": "2026-04-26T15:01:42.917Z",
+  "last_updated_at": "2026-04-26T19:10:48.442Z",
   "metrics": {
     "queue-scheduler-tick": {
       "id": "queue-scheduler-tick",
-      "median": 0.16209999999999525,
-      "p95": 0.22530000000000427,
+      "median": 0.19469999999998322,
+      "p95": 0.41679999999999495,
       "runs": 1000,
       "warmup": 10,
-      "last_updated_at": "2026-04-26T15:01:42.917Z"
+      "last_updated_at": "2026-04-26T19:10:48.442Z"
     },
     "task-core-create": {
       "id": "task-core-create",
-      "median": 0.4196499999999901,
-      "p95": 0.4796999999999798,
+      "median": 0.4627999999999588,
+      "p95": 0.6216000000000008,
       "runs": 100,
       "warmup": 5,
-      "last_updated_at": "2026-04-26T15:01:42.917Z"
+      "last_updated_at": "2026-04-26T19:10:48.442Z"
     },
     "governance-evaluate": {
       "id": "governance-evaluate",
-      "median": 157.95485000000008,
-      "p95": 165.29889999999978,
+      "median": 170.1769999999999,
+      "p95": 178.64600000000064,
       "runs": 100,
       "warmup": 5,
-      "last_updated_at": "2026-04-26T15:01:42.917Z"
+      "last_updated_at": "2026-04-26T19:10:48.442Z"
     },
     "handler-project-stats": {
       "id": "handler-project-stats",
-      "median": 1.1612500000010186,
-      "p95": 1.501799999998184,
+      "median": 1.084049999999479,
+      "p95": 1.2318999999988591,
       "runs": 50,
       "warmup": 5,
-      "last_updated_at": "2026-04-26T15:01:42.917Z"
+      "last_updated_at": "2026-04-26T19:10:48.442Z"
     },
     "mcp-task-info": {
       "id": "mcp-task-info",
-      "median": 0.25464999999894644,
-      "p95": 0.30760000000009313,
+      "median": 0.26970000000073924,
+      "p95": 0.343300000000454,
       "runs": 100,
       "warmup": 5,
-      "last_updated_at": "2026-04-26T15:01:42.917Z"
+      "last_updated_at": "2026-04-26T19:10:48.442Z"
     },
     "sse-dispatch": {
       "id": "sse-dispatch",
-      "median": 0.2907499999982974,
-      "p95": 0.3425999999999476,
+      "median": 0.33664999999928114,
+      "p95": 0.4147999999986496,
       "runs": 50,
       "warmup": 5,
-      "last_updated_at": "2026-04-26T15:01:42.917Z"
+      "last_updated_at": "2026-04-26T19:10:48.442Z"
     },
     "db-factory-cost-summary": {
       "id": "db-factory-cost-summary",
-      "median": 0.5314999999991414,
-      "p95": 0.5839999999989232,
+      "median": 0.545350000000326,
+      "p95": 0.6959999999999127,
       "runs": 50,
       "warmup": 5,
-      "last_updated_at": "2026-04-26T15:01:42.917Z"
+      "last_updated_at": "2026-04-26T19:10:48.442Z"
     },
     "db-project-stats": {
       "id": "db-project-stats",
-      "median": 1.0957499999985885,
-      "p95": 1.3702999999986787,
+      "median": 1.0538500000002387,
+      "p95": 1.2181999999993423,
       "runs": 50,
       "warmup": 5,
-      "last_updated_at": "2026-04-26T15:01:42.917Z"
+      "last_updated_at": "2026-04-26T19:10:48.442Z"
     },
     "db-list-tasks": {
       "id": "db-list-tasks",
@@ -79,25 +79,25 @@
       "warmup": 5,
       "byVariant": {
         "parsed": {
-          "median": 14.85334999999941,
-          "p95": 15.860399999997753,
+          "median": 17.712400000000343,
+          "p95": 20.98540000000139,
           "runs": 50
         },
         "raw": {
-          "median": 14.869799999998577,
-          "p95": 15.684700000001612,
+          "median": 16.1833000000006,
+          "p95": 19.7484000000004,
           "runs": 50
         }
       },
-      "last_updated_at": "2026-04-26T15:01:42.917Z"
+      "last_updated_at": "2026-04-26T19:10:48.442Z"
     },
     "db-budget-threshold": {
       "id": "db-budget-threshold",
-      "median": 0.15029999999933352,
-      "p95": 0.1900000000023283,
+      "median": 0.1518000000014581,
+      "p95": 0.22000000000116415,
       "runs": 50,
       "warmup": 5,
-      "last_updated_at": "2026-04-26T15:01:42.917Z"
+      "last_updated_at": "2026-04-26T19:10:48.442Z"
     },
     "cold-import": {
       "id": "cold-import",
@@ -105,49 +105,49 @@
       "warmup": 1,
       "byVariant": {
         "tools": {
-          "median": 718.9165,
-          "p95": 731.783,
+          "median": 859.021,
+          "p95": 877.671,
           "runs": 10
         },
         "task-manager": {
-          "median": 281.9945,
-          "p95": 284.401,
+          "median": 273.471,
+          "p95": 330.58,
           "runs": 10
         },
         "database": {
-          "median": 24.5195,
-          "p95": 24.861,
+          "median": 25.0075,
+          "p95": 29.283,
           "runs": 10
         },
         "db-task-core": {
-          "median": 13.891,
-          "p95": 14.27,
+          "median": 14.1175,
+          "p95": 14.473,
           "runs": 10
         },
         "tool-registry": {
-          "median": 49.686,
-          "p95": 61.394,
-          "runs": 12,
+          "median": 52.346000000000004,
+          "p95": 64.325,
+          "runs": 10,
           "notes": "Phase 4: thin metadata module, no handler loading. Measured on local Windows dev machine (expect ~15-30ms on BahumutsOmen Linux). Target: <200ms."
         }
       },
-      "last_updated_at": "2026-04-26T15:01:42.917Z"
+      "last_updated_at": "2026-04-26T19:10:48.442Z"
     },
     "worktree-lifecycle": {
       "id": "worktree-lifecycle",
-      "median": 153.78830000000016,
-      "p95": 155.30219999999827,
+      "median": 149.30329999999958,
+      "p95": 158.23070000000007,
       "runs": 5,
       "warmup": 1,
-      "last_updated_at": "2026-04-26T15:01:42.917Z"
+      "last_updated_at": "2026-04-26T19:10:48.442Z"
     },
     "restart-barrier": {
       "id": "restart-barrier",
-      "median": 0.018037650000002032,
-      "p95": 0.019131600000000616,
+      "median": 0.020886600000001636,
+      "p95": 0.02538470000000234,
       "runs": 50,
       "warmup": 5,
-      "last_updated_at": "2026-04-26T15:01:42.917Z"
+      "last_updated_at": "2026-04-26T19:10:48.442Z"
     }
   }
 }

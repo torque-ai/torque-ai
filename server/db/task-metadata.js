@@ -490,19 +490,13 @@ function removeTaskTags(taskId, tagsToRemove) {
  * Get all unique tags used across all tasks
  */
 function getAllTags() {
-  const rows = db.prepare("SELECT DISTINCT tags FROM tasks WHERE tags IS NOT NULL AND status NOT IN ('deleted')").all();
-  const allTags = new Set();
-
-  for (const row of rows) {
-    if (row.tags) {
-      const tags = safeJsonParse(row.tags, []);
-      if (Array.isArray(tags)) {
-        tags.forEach(tag => allTags.add(tag));
-      }
-    }
-  }
-
-  return Array.from(allTags).sort();
+  const rows = db.prepare(`
+    SELECT DISTINCT je.value AS tag
+    FROM tasks, json_each(tasks.tags) AS je
+    WHERE tasks.tags IS NOT NULL AND json_valid(tasks.tags) AND tasks.status NOT IN ('deleted')
+    ORDER BY je.value
+  `).all();
+  return rows.map((row) => row.tag);
 }
 
 /**
@@ -510,23 +504,13 @@ function getAllTags() {
  * @returns {any}
  */
 function getTagStats() {
-  const rows = db.prepare('SELECT tags FROM tasks WHERE tags IS NOT NULL').all();
-  const tagCounts = {};
-
-  for (const row of rows) {
-    if (row.tags) {
-      const tags = safeJsonParse(row.tags, []);
-      if (Array.isArray(tags)) {
-        tags.forEach(tag => {
-          tagCounts[tag] = (tagCounts[tag] || 0) + 1;
-        });
-      }
-    }
-  }
-
-  return Object.entries(tagCounts)
-    .map(([tag, count]) => ({ tag, count }))
-    .sort((a, b) => b.count - a.count);
+  return db.prepare(`
+    SELECT je.value AS tag, COUNT(*) AS count
+    FROM tasks, json_each(tasks.tags) AS je
+    WHERE tasks.tags IS NOT NULL AND json_valid(tasks.tags)
+    GROUP BY je.value
+    ORDER BY count DESC
+  `).all();
 }
 
 // ============ Batch Operations Functions ============

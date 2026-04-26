@@ -72,6 +72,27 @@ Run timings on the canonical `torque-remote` workstation are the reference basel
 4. Run `npm run perf` and confirm it appears in the output.
 5. Capture a baseline entry for the new metric: `node perf/run-perf.js --update-baseline`, commit with a `perf-baseline:` trailer documenting the new addition.
 
+## Phase notes (audit trail corrections)
+
+### Phase 2 — `cold-import.tools` 718ms → 859ms (+20%)
+
+The Phase 2 baseline-update commit's trailer attributed this regression to "new eslint rules at startup." That attribution is **incorrect**. ESLint rules are loaded only by `eslint.config.js` at `npx eslint` time; they are NOT in `tools.js`'s require chain.
+
+Investigation (5× cold-import samples, BahumutsOmen) confirmed the regression is real (875ms median, 12ms spread — well above noise) and identified the actual cause:
+
+**V8 parse+compile cost of ~160 lines of legitimate Phase 2 N+1-fix code**, distributed across modules transitively required by `tools.js`:
+
+| Module | Δ cold-import | New code |
+|---|---|---|
+| `db/factory-health.js` | +11ms | `getLatestScoresBatch`, `getScoreHistoryBatch` |
+| `db/task-metadata.js` | +4ms | `json_each` rewrites |
+| `db/scheduling-automation.js` | +3.6ms | PRAGMA cache |
+| `handlers/factory-handlers.js` (transitive) | +43ms | wired-up batch primitive callers |
+
+All statement caches are lazy-init (`db/task-core.js`, `db/project-config-core.js` show 0ms delta, confirming no eager-evaluation bug). The 859ms baseline value is correct; only the attribution was wrong.
+
+**v0.1 follow-up:** if cold-import.tools needs to come back down, the path is lazy-requiring `factory-handlers` from `tools.js` (load on first MCP tool call rather than at module require). That's a Phase 4-class lazy-load change, not a Phase 2 fix.
+
 ## Files in this directory
 
 - `run-perf.js` — CLI entry; supports `--metrics-list`, `--update-baseline`, default run.

@@ -19,6 +19,7 @@ let db;
 let _getTaskFn;
 let getPipelineFn;
 let createPipelineFn;
+let _auditLogColumnsCache = null;
 const { createHash } = require('crypto');
 const { safeJsonParse } = require('../utils/json');
 
@@ -26,6 +27,7 @@ const approvalWorkflows = require('./approval-workflows');
 const cronScheduling = require('./cron-scheduling');
 
 function setDb(dbInstance) {
+  if (dbInstance !== db) { _auditLogColumnsCache = null; }
   db = dbInstance;
   approvalWorkflows.setDb(dbInstance);
   cronScheduling.setDb(dbInstance);
@@ -54,6 +56,7 @@ function getAuditLogColumns() {
   if (!db) {
     return { chainSupported: false, previousHashColumn: false, chainHashColumn: false };
   }
+  if (_auditLogColumnsCache) return _auditLogColumnsCache;
 
   const pragmaResult = db.prepare('PRAGMA table_info(audit_log)').all();
   const columns = new Set(pragmaResult.map((column) => column.name));
@@ -61,11 +64,12 @@ function getAuditLogColumns() {
   const hasPreviousHash = columns.has('previous_hash');
   const hasChainHash = columns.has('chain_hash');
 
-  return {
+  _auditLogColumnsCache = {
     chainSupported: hasPreviousHash && hasChainHash,
     previousHashColumn: hasPreviousHash,
     chainHashColumn: hasChainHash,
   };
+  return _auditLogColumnsCache;
 }
 
 function getLatestAuditChainHash() {
@@ -1017,6 +1021,7 @@ module.exports = {
   deleteMaintenanceSchedule,
 
   // Audit
+  getAuditLogColumns,
   recordAuditLog,
   getAuditLog,
   getAuditLogCount,

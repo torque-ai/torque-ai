@@ -5,6 +5,7 @@ const noVitestRequireRule = require('./eslint-rules/no-vitest-require');
 const noSyncFsOnHotPathsRule = require('./eslint-rules/no-sync-fs-on-hot-paths');
 const noHeavyTestImportsRule = require('./eslint-rules/no-heavy-test-imports');
 const noResetModulesInEachRule = require('./eslint-rules/no-reset-modules-in-each');
+const noPrepareInLoopRule = require('./eslint-rules/no-prepare-in-loop');
 
 const vitestGlobals = {
   describe: 'readonly',
@@ -232,6 +233,19 @@ module.exports = [
     },
     rules: {
       'torque/no-sync-fs-on-hot-paths': 'error',
+    },
+  },
+  {
+    files: ['db/**/*.js', 'handlers/**/*.js', 'factory/**/*.js'],
+    plugins: {
+      torque: {
+        rules: {
+          'no-prepare-in-loop': noPrepareInLoopRule,
+        },
+      },
+    },
+    rules: {
+      'torque/no-prepare-in-loop': 'error',
     },
   },
   {

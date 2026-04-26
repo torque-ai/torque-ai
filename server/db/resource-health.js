@@ -18,7 +18,21 @@ const _deps = {
   getSlowQueries: () => [],
 };
 
-function setDb(d) { db = d; }
+// Module-level prepared statement caches — cleared on db change.
+const _systemMetricsStmts = new Map();
+const _dbHealthStmts = new Map();
+let _healthSummaryStmt = null;
+let _healthHistoryStmt = null;
+
+function setDb(d) {
+  if (d !== db) {
+    _systemMetricsStmts.clear();
+    _dbHealthStmts.clear();
+    _healthSummaryStmt = null;
+    _healthHistoryStmt = null;
+  }
+  db = d;
+}
 
 /**
  * Initialize with dependencies from parent module.
@@ -127,31 +141,52 @@ function getHealthHistory(options = {}) {
  * Get health summary (all types)
  */
 function getHealthSummary() {
-  const types = db.prepare(`
-    SELECT DISTINCT check_type FROM health_status
-  `).all();
+  if (!_healthSummaryStmt) {
+    _healthSummaryStmt = db.prepare(`
+      SELECT check_type, status, response_time_ms, error_message, checked_at
+      FROM (
+        SELECT check_type, status, response_time_ms, error_message, checked_at,
+               ROW_NUMBER() OVER (PARTITION BY check_type ORDER BY checked_at DESC) AS rn
+        FROM health_status
+      )
+      WHERE rn = 1
+    `);
+    _healthHistoryStmt = db.prepare(`
+      SELECT check_type, status, response_time_ms, error_message, checked_at
+      FROM health_status
+      ORDER BY checked_at DESC
+      LIMIT 100
+    `);
+  }
+
+  const latestRows = _healthSummaryStmt.all();
+  const historyRows = _healthHistoryStmt.all();
+
+  // Group history by check_type in JS (limit to 10 per type for stats)
+  const historyByType = {};
+  for (const row of historyRows) {
+    if (!historyByType[row.check_type]) historyByType[row.check_type] = [];
+    if (historyByType[row.check_type].length < 10) {
+      historyByType[row.check_type].push(row);
+    }
+  }
 
   const summary = {};
-  for (const { check_type } of types) {
-    const latest = getLatestHealthCheck(check_type);
-    const history = getHealthHistory({ checkType: check_type, limit: 10 });
-
-    // Calculate uptime percentage from recent checks
+  for (const latest of latestRows) {
+    const history = historyByType[latest.check_type] || [];
     const successCount = history.filter(h => h.status === 'healthy').length;
     const uptimePercent = history.length > 0 ? Math.round((successCount / history.length) * 100) : 0;
-
-    // Calculate average response time
     const responseTimes = history.filter(h => h.response_time_ms).map(h => h.response_time_ms);
     const avgResponseTime = responseTimes.length > 0
       ? Math.round(responseTimes.reduce((a, b) => a + b, 0) / responseTimes.length)
       : 0;
 
-    summary[check_type] = {
-      status: latest ? latest.status : 'unknown',
-      lastCheck: latest ? latest.checked_at : null,
+    summary[latest.check_type] = {
+      status: latest.status || 'unknown',
+      lastCheck: latest.checked_at || null,
       uptimePercent,
       avgResponseTime,
-      lastError: latest && latest.status !== 'healthy' ? latest.error_message : null
+      lastError: latest.status !== 'healthy' ? latest.error_message : null
     };
   }
 
@@ -314,12 +349,19 @@ function getResourceMetrics() {
     const ALLOWED_TABLES = new Set(['tasks', 'task_events', 'webhooks', 'webhook_logs', 'health_status', 'audit_log']);
     for (const table of ALLOWED_TABLES) {
       if (!ALLOWED_TABLES.has(table)) throw new Error(`Disallowed table: ${table}`);
+      if (!_systemMetricsStmts.has(table)) {
+        try {
+          _systemMetricsStmts.set(table, db.prepare(`SELECT COUNT(*) as count FROM ${table}`));
+        } catch (_e) {
+          void _e;
+          // Table might not exist
+        }
+      }
       try {
-        const count = db.prepare(`SELECT COUNT(*) as count FROM ${table}`).get();
-        metrics.tables[table] = count?.count || 0;
+        const count = _systemMetricsStmts.has(table) ? _systemMetricsStmts.get(table).get() : null;
+        metrics.tables[table] = count?.count ?? -1;
       } catch (_e) {
         void _e;
-        // Table might not exist
         metrics.tables[table] = -1;
       }
     }
@@ -534,9 +576,16 @@ function getDatabaseHealth() {
 
     health.metrics.tableCounts = {};
     for (const [table, query] of Object.entries(tables)) {
+      if (!_dbHealthStmts.has(table)) {
+        try {
+          _dbHealthStmts.set(table, db.prepare(query));
+        } catch {
+          // Table might not exist
+        }
+      }
       try {
-        const result = db.prepare(query).get();
-        health.metrics.tableCounts[table] = result?.count || 0;
+        const result = _dbHealthStmts.has(table) ? _dbHealthStmts.get(table).get() : null;
+        health.metrics.tableCounts[table] = result?.count ?? -1;
 
         // Warn if table is very large
         if (result?.count > 100000) {

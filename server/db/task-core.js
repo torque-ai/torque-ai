@@ -84,6 +84,11 @@ function serializeTaskJsonColumnValue(value) {
 let db = null;
 let dbClosed = false;
 
+// Module-level prepared statement cache for _cleanOrphanedTaskChildren.
+// Keys are table names; values are PreparedStatement instances.
+// Populated lazily on first call; cleared when setDb() is called with a new instance.
+const _childTableDeletes = new Map();
+
 // Cross-module function references (injected to avoid circular requires)
 let _getProjectFromPath = null;
 let _recordEvent = null;
@@ -97,6 +102,9 @@ function setDb(dbInstance) {
     dbClosed = true;
   } else {
     dbClosed = false;
+  }
+  if (dbInstance !== db) {
+    _childTableDeletes.clear();
   }
   db = dbInstance;
 }
@@ -1012,12 +1020,26 @@ function _cleanOrphanedTaskChildren(taskId) {
     'xaml_consistency_results', 'smoke_test_results'
   ]);
   for (const table of childTables) {
-    if (!childTables.has(table)) throw new Error(`Disallowed table: ${table}`);
-    try { db.prepare(`DELETE FROM ${table} WHERE task_id = ?`).run(taskId); } catch (_e) { void _e; /* skip */ }
+    if (!_childTableDeletes.has(table)) {
+      try {
+        _childTableDeletes.set(table, db.prepare(`DELETE FROM ${table} WHERE task_id = ?`));
+      } catch (_e) { void _e; /* table may not exist — skip */ continue; }
+    }
+    try { _childTableDeletes.get(table).run(taskId); } catch (_e) { void _e; /* skip */ }
   }
-  // Tables with non-standard FK columns
-  try { db.prepare('DELETE FROM similar_tasks WHERE source_task_id = ? OR similar_task_id = ?').run(taskId, taskId); } catch (_e) { void _e; /* skip */ }
-  try { db.prepare('DELETE FROM task_replays WHERE original_task_id = ? OR replay_task_id = ?').run(taskId, taskId); } catch (_e) { void _e; /* skip */ }
+  // Tables with non-standard FK columns — cached under special keys
+  if (!_childTableDeletes.has('__similar_tasks')) {
+    try { _childTableDeletes.set('__similar_tasks', db.prepare('DELETE FROM similar_tasks WHERE source_task_id = ? OR similar_task_id = ?')); } catch (_e) { void _e; }
+  }
+  if (_childTableDeletes.has('__similar_tasks')) {
+    try { _childTableDeletes.get('__similar_tasks').run(taskId, taskId); } catch (_e) { void _e; }
+  }
+  if (!_childTableDeletes.has('__task_replays')) {
+    try { _childTableDeletes.set('__task_replays', db.prepare('DELETE FROM task_replays WHERE original_task_id = ? OR replay_task_id = ?')); } catch (_e) { void _e; }
+  }
+  if (_childTableDeletes.has('__task_replays')) {
+    try { _childTableDeletes.get('__task_replays').run(taskId, taskId); } catch (_e) { void _e; }
+  }
 }
 
 /**
@@ -1715,4 +1737,6 @@ module.exports = {
   normalizeProviderValue,
   ALLOWED_TASK_COLUMNS,
   TERMINAL_TASK_STATUSES,
+  // Perf test helpers
+  _childTableDeletes,
 };

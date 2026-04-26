@@ -792,6 +792,16 @@ const MIGRATIONS = [
       'DROP TABLE IF EXISTS workflow_state',
     ].join('; '),
   },
+  {
+    version: 37,
+    name: 'idx_fge_batch',
+    up: function(sqliteDb) {
+      sqliteDb.prepare(
+        'CREATE INDEX IF NOT EXISTS idx_fge_batch ON factory_guardrail_events (project_id, batch_id, created_at)'
+      ).run();
+    },
+    down: 'DROP INDEX IF EXISTS idx_fge_batch',
+  },
 ];
 
 function ensureMigrationTable(sqliteDb) {
