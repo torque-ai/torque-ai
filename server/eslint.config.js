@@ -2,6 +2,7 @@ const js = require('@eslint/js');
 const noHardcodedFactoryProviderRule = require('./eslint-rules/no-hardcoded-factory-provider');
 const noSpawnSyncInFactoryRule = require('./eslint-rules/no-spawn-sync-in-factory');
 const noVitestRequireRule = require('./eslint-rules/no-vitest-require');
+const noSyncFsOnHotPathsRule = require('./eslint-rules/no-sync-fs-on-hot-paths');
 
 const vitestGlobals = {
   describe: 'readonly',
@@ -130,6 +131,28 @@ module.exports = [
     rules: {
       'local/no-hardcoded-factory-provider': 'error',
       'local/no-spawn-sync-in-factory': 'error',
+    },
+  },
+  {
+    files: [
+      'server/handlers/**/*.js',
+      'server/execution/**/*.js',
+      'server/governance/**/*.js',
+      'server/audit/**/*.js',
+      'server/api/**/*.js',
+      'server/dashboard-server.js',
+      'server/queue-scheduler*.js',
+      'server/maintenance/orphan-cleanup.js',
+    ],
+    plugins: {
+      torque: {
+        rules: {
+          'no-sync-fs-on-hot-paths': noSyncFsOnHotPathsRule,
+        },
+      },
+    },
+    rules: {
+      'torque/no-sync-fs-on-hot-paths': 'warn',
     },
   },
   {

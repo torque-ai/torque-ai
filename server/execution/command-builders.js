@@ -28,8 +28,10 @@ const { resolveCodexNativeBinary } = require('./codex-native-resolve');
 function resolveSandboxWritableRoots(workingDirectory) {
   try {
     const gitPath = path.join(workingDirectory, '.git');
+    // eslint-disable-next-line torque/no-sync-fs-on-hot-paths -- sandbox writable-roots probe — task startup, single small read each.
     const st = fs.statSync(gitPath);
     if (!st.isFile()) return null;
+    // eslint-disable-next-line torque/no-sync-fs-on-hot-paths -- sandbox writable-roots probe — task startup, single small read each.
     const content = fs.readFileSync(gitPath, 'utf8');
     const match = content.match(/^gitdir:\s*(.+)\s*$/m);
     if (!match) return null;
@@ -40,6 +42,7 @@ function resolveSandboxWritableRoots(workingDirectory) {
     let commonGitDir;
     try {
       const commondirFile = path.join(perWorktreeGitDir, 'commondir');
+      // eslint-disable-next-line torque/no-sync-fs-on-hot-paths -- sandbox writable-roots probe — task startup, single small read each.
       const raw = fs.readFileSync(commondirFile, 'utf8').trim();
       commonGitDir = path.isAbsolute(raw) ? raw : path.resolve(perWorktreeGitDir, raw);
     } catch {
@@ -49,6 +52,7 @@ function resolveSandboxWritableRoots(workingDirectory) {
     // --add-dir must reference an existing dir.
     for (const sub of ['objects', 'refs', 'logs']) {
       const p = path.join(commonGitDir, sub);
+      // eslint-disable-next-line torque/no-sync-fs-on-hot-paths -- best-effort sandbox dir creation.
       try { fs.mkdirSync(p, { recursive: true }); } catch { /* best effort */ }
     }
     return {

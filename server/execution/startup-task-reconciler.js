@@ -121,6 +121,7 @@ function isMissingWorkingDirectory(workingDirectory) {
     return false;
   }
   try {
+    // eslint-disable-next-line torque/no-sync-fs-on-hot-paths -- startup reconciler — runs once at server boot.
     return !fs.existsSync(workingDirectory);
   } catch {
     return true;
