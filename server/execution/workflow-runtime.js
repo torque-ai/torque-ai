@@ -287,7 +287,7 @@ function handlePlanProjectTaskFailure(taskId) {
  * @param {string} pipelineId - Pipeline ID
  * @param {string} finalStatus - Final pipeline status ('completed' or 'failed')
  */
-function generatePipelineDocumentation(pipelineId, finalStatus) {
+async function generatePipelineDocumentation(pipelineId, finalStatus) {
   try {
     const pipeline = db.getPipeline(pipelineId);
     if (!pipeline) {
@@ -396,9 +396,7 @@ function generatePipelineDocumentation(pipelineId, finalStatus) {
     const torqueDir = path.join(outputDir, '.torque', 'pipeline-reports');
 
     // Create directory if it doesn't exist
-    if (!fs.existsSync(torqueDir)) {
-      fs.mkdirSync(torqueDir, { recursive: true });
-    }
+    await fs.promises.mkdir(torqueDir, { recursive: true });
 
     // Generate filename with timestamp
     const timestamp = endTime.toISOString().replace(/[:.]/g, '-').slice(0, 19);
@@ -406,7 +404,7 @@ function generatePipelineDocumentation(pipelineId, finalStatus) {
     const filename = `${safeName}-${timestamp}.md`;
     const filepath = path.join(torqueDir, filename);
 
-    fs.writeFileSync(filepath, markdown, 'utf8');
+    await fs.promises.writeFile(filepath, markdown, 'utf8');
     logger.info(`[Pipeline Doc] Generated documentation: ${filepath}`);
 
     // Record event with doc path
@@ -1149,6 +1147,7 @@ const NON_TERMINAL_TASK_STATUSES = ['queued', 'running', 'blocked', 'waiting', '
 function workingDirExists(dir) {
   if (!dir || typeof dir !== 'string') return false;
   try {
+    // eslint-disable-next-line torque/no-sync-fs-on-hot-paths -- startup reconciler only; called once at process start, not per-request
     return fs.statSync(dir).isDirectory();
   } catch {
     return false;
