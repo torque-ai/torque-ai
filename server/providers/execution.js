@@ -3795,6 +3795,34 @@ async function executeApiProviderWithAgentic(task, providerInstance) {
     const handledError = normalizeAgenticWorkerError(error, cleanupTrackedWorker);
     const currentTask = db.getTask(taskId) || task;
     recordAgenticRateLimit(handledError.agenticFailedProvider || provider, handledError);
+    // Record (provider, model) failure into the in-memory blocklist when the
+    // error pattern indicates the model isn't callable on this key — 4xx/5xx
+    // model-not-found, model_not_supported, deprecation, or persistent
+    // INTERNAL/5xx. FAILURE_THRESHOLD ensures one transient 5xx doesn't
+    // block; repeated failures will. execute-api.js consults the blocklist
+    // before submission and falls back to the provider's default model when
+    // blocked. This complements close-phases.js's failover hook (which only
+    // fires for non-agentic tasks) by covering the agentic-API path that
+    // bypasses close-phases on failure.
+    try {
+      const failedProvider = handledError.agenticFailedProvider || provider;
+      const failedModel = handledError.agenticFailedModel || model || null;
+      if (failedProvider && failedModel) {
+        const errMsg = String(handledError.message || '');
+        const looksModelMissing = /\bdoes not exist\b|\bmodel_not_found\b|\bmodel\b[^\n]{0,80}\bnot found\b|\bmodel\b[^\n]{0,80}\bnot supported\b|\bdeprecated\b/i.test(errMsg);
+        const looks5xx = /(?:HTTP|status|code)[\s:=]*5\d{2}\b/i.test(errMsg) || /\bINTERNAL\b/.test(errMsg);
+        if (looksModelMissing || looks5xx) {
+          const modelBlocklist = require('./model-blocklist');
+          modelBlocklist.recordFailure(
+            failedProvider,
+            failedModel,
+            looksModelMissing ? 'model_missing' : 'persistent_5xx',
+          );
+        }
+      }
+    } catch (e) {
+      logger.debug(`[Agentic] model-blocklist record failed: ${e.message}`);
+    }
     const handoffTarget = resolveAgenticHandoffTarget({
       task: currentTask,
       chain,
