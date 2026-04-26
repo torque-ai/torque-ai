@@ -90,7 +90,7 @@ function recordEvent({ project_id, category, check_name, status, details, batch_
   return getEvent(info.lastInsertRowid);
 }
 
-function getEvents(project_id, { category, status, limit, offset } = {}) {
+function getEvents(project_id, { category, status, batch_id, limit, offset } = {}) {
   if (!project_id) throw new Error('project_id is required');
   if (category && !VALID_CATEGORIES.has(category)) throw new Error(`Invalid category: ${category}`);
   if (status && !VALID_STATUSES.has(status)) throw new Error(`Invalid status: ${status}`);
@@ -111,6 +111,10 @@ function getEvents(project_id, { category, status, limit, offset } = {}) {
   if (status) {
     sql += ' AND status = ?';
     params.push(status);
+  }
+  if (batch_id !== undefined) {
+    sql += ' AND batch_id = ?';
+    params.push(batch_id ?? null);
   }
 
   sql += ' ORDER BY created_at DESC LIMIT ? OFFSET ?';

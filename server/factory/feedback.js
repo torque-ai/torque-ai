@@ -229,8 +229,7 @@ function buildExecutionMetrics(options, health_delta) {
 
 function getGuardrailActivity(project_id, batch_id) {
   const events = guardrailDb
-    .getEvents(project_id, { limit: 100 })
-    .filter((event) => event.batch_id === (batch_id || null));
+    .getEvents(project_id, { batch_id: batch_id ?? null, limit: 100 });
 
   let pass_count = 0;
   let warn_count = 0;
