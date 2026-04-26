@@ -172,15 +172,20 @@ describe('factory selected work item', () => {
       trust_level: 'dark',
     });
     const planPath = path.join(tempDir, 'selected-plan.md');
-    // Plan has one already-completed task with no file references so the
-    // executor treats it as trusted-complete (no submit/await call) without
-    // tripping Fix 1's no_tasks_executed pause for empty plans.
+    // Plan has one already-completed task so the executor treats it as
+    // trusted-complete (no submit/await call) without tripping Fix 1's
+    // no_tasks_executed pause for empty plans. The task body still has to
+    // satisfy plan-quality-gate (>=100 chars, file path reference, accept-
+    // ance criterion, no vague verbs without context) — the gate runs
+    // before the trusted-complete branch.
     fs.writeFileSync(planPath, [
       '# Selected plan',
       '',
-      '## Task 1: noop',
+      '## Task 1: bind selected work item',
       '',
-      '- [x] **Step 1: already done**',
+      '- [x] **Step 1: confirm the prior bind landed**',
+      '',
+      '    The previous run already bound the selected plan file item to the EXECUTE tick in server/factory/loop-controller.js, so this task is a verification breadcrumb only. Acceptance criterion: `expect(selectedItem.status).toBe(\'executing\')` after the EXECUTE tick observes the existing binding.',
       '',
     ].join('\n'));
 

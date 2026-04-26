@@ -21,25 +21,26 @@ const queueScheduler = require('../execution/queue-scheduler');
 const originalHandleSmartSubmitTask = routingModule.handleSmartSubmitTask;
 const originalHandleAwaitTask = awaitModule.handleAwaitTask;
 
+// Plan body must satisfy the plan-quality-gate that runs on pre-written
+// plans in executePlanStage: each task body needs >=100 chars of concrete
+// instruction, a file path reference, an acceptance criterion (expect/
+// assert/etc.), and no vague verbs ("update", "cover") without object
+// detail. Same pattern as commit 670552f5 in factory-loop-controller.test.
 const PLAN = `# Pending Approval Plan
 
 **Tech Stack:** Node.js, vitest.
 
 ## Task 1: wire executor
 
-- [ ] **Step 1: update executor**
+- [ ] **Step 1: wire approval helper in executor**
 
-\`\`\`text
-Update server/factory/plan-executor.js.
-\`\`\`
+    Edit server/factory/plan-executor.js to wire the approval-decision callback into the existing executor entry point. Add the new helper alongside the existing exported helpers without disturbing call sites. Acceptance criterion: \`expect(planExecutor.handleApproval('seed').wired).toBe(true)\` in a colocated unit test.
 
 ## Task 2: add approval test
 
-- [ ] **Step 1: cover approval flow**
+- [ ] **Step 1: cover approval flow with a focused handler test**
 
-\`\`\`text
-Create server/tests/task-approve-handler.test.js.
-\`\`\`
+    Create server/tests/task-approve-handler.test.js with a focused test that constructs a fake task, drives the handler through the pending-approval branch, and asserts the resulting status. Acceptance criterion: \`expect(handler(...).status).toBe('approved')\` covers the happy path and one rejection.
 `;
 
 function registerPlanProject(testDir) {

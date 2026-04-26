@@ -20,10 +20,11 @@ tester.run('no-sync-fs-on-hot-paths', rule, {
       filename: 'C:/repo/server/scripts/migrate.js',
       code: "const fs = require('fs');\nfs.readFileSync('/tmp/x', 'utf8');",
     },
-    // Async variant in hot-path file — allowed
+    // Async variant in hot-path file — allowed. Wrapped in an async function
+    // because `sourceType: 'commonjs'` doesn't permit top-level await.
     {
       filename: 'C:/repo/server/handlers/review-handler.js',
-      code: "const fsPromises = require('fs').promises;\nawait fsPromises.readFile('/tmp/x', 'utf8');",
+      code: "const fsPromises = require('fs').promises;\nasync function read() { await fsPromises.readFile('/tmp/x', 'utf8'); }",
     },
     // spawn (async) is fine even in hot-path
     {
