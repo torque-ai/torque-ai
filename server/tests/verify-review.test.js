@@ -295,6 +295,53 @@ Test Files: /r/tests/Bar.Tests/bin/Debug/net8.0/Bar.Tests.dll
     };
     expect(parseFailingTests(out)).toEqual(['tests/foo.py']);
   });
+
+  it('parses Pester 5 stack-trace lines into test script paths', () => {
+    const out = {
+      stdout: `
+Describing FactoryGate
+  [-] should reject when ratio < threshold 30ms
+     Expected 0.99 but was 0.85
+     at <ScriptBlock>, C:\\Users\\Werem\\Projects\\StateTrace\\Modules\\Tests\\SharedCacheHitRatioGate.Tests.ps1:42
+  [-] should mark warm runs ready 18ms
+     at <ScriptBlock>, Modules/Tests/SharedCacheHitRatioGate.Tests.ps1:67
+
+Tests Passed: 12, Failed: 2, Skipped: 0
+`,
+      stderr: '',
+    };
+    const r = parseFailingTests(out);
+    expect(r.some(p => p.endsWith('SharedCacheHitRatioGate.Tests.ps1'))).toBe(true);
+    expect(r.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('parses Pester 4 stack-trace lines into test script paths', () => {
+    const out = {
+      stdout: `
+[-] InvokeAllChecks.Validate fails on missing manifest
+   Expected: True
+   But was:  False
+   at line: 14 in C:\\Users\\Werem\\Projects\\StateTrace\\Tools\\Tests\\InvokeAllChecks.Tests.ps1
+`,
+      stderr: '',
+    };
+    const r = parseFailingTests(out);
+    expect(r.some(p => p.endsWith('InvokeAllChecks.Tests.ps1'))).toBe(true);
+  });
+
+  it('returns empty for Pester output with no failures (only [+] markers)', () => {
+    const out = {
+      stdout: `
+Describing TestSuite
+  [+] passes one 5ms
+  [+] passes two 4ms
+
+Tests Passed: 2, Failed: 0
+`,
+      stderr: '',
+    };
+    expect(parseFailingTests(out)).toEqual([]);
+  });
 });
 
 const childProcess = require('node:child_process');

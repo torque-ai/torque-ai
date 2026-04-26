@@ -113,6 +113,20 @@ describe('auto-recovery-core day-one rules', () => {
     expect(r.suggested_strategies).toContain('reject_and_advance');
   });
 
+  it('classifies verify_reviewed_ambiguous_paused as transient with reject_and_advance fallback', () => {
+    const r = classifier.classify({
+      stage: 'verify',
+      action: 'verify_reviewed_ambiguous_paused',
+      reasoning: 'Classifier says ambiguous (confidence=low); pausing instead of auto-retrying.',
+      outcome: { classification: 'ambiguous', confidence: 'low' },
+    });
+    expect(r.matched_rule).toBe('verify_reviewer_ambiguous');
+    expect(r.category).toBe('transient');
+    expect(r.suggested_strategies[0]).toBe('retry');
+    expect(r.suggested_strategies).toContain('reject_and_advance');
+    expect(r.suggested_strategies).toContain('escalate');
+  });
+
   it('classifies reviewer timeout pauses as provider overload and prefers a fresh-session retry', () => {
     const r = classifier.classify({
       stage: 'verify',
