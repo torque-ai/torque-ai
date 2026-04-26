@@ -782,9 +782,24 @@ function buildAgenticTaskPrompt(task, workingDir, budgetChars, agenticPolicy = n
 }
 
 function shouldRequireToolEvidence(provider, task, workingDir) {
-  return FREE_AGENTIC_TOOL_EVIDENCE_PROVIDERS.has(normalizeProviderName(provider))
-    && !!workingDir
-    && !!String(task?.task_description || '').trim();
+  if (!FREE_AGENTIC_TOOL_EVIDENCE_PROVIDERS.has(normalizeProviderName(provider))) return false;
+  if (!workingDir) return false;
+  if (!String(task?.task_description || '').trim()) return false;
+
+  // Structured-output tasks (JSON mode) deliberately answer from the
+  // prompt alone — they're verdict/classification calls, not exploration.
+  // Forcing them to call repository tools first stops the model with
+  // missing_tool_evidence even though the model behaved correctly.
+  // Observed live on StateTrace 2026-04-26: cerebras/zai-glm-4.7 verify
+  // reviewer task killed for "missing_tool_evidence" because the JSON
+  // prompt told it not to use tools.
+  const metadata = normalizeTaskMetadata(task);
+  if (metadata.kind === 'verify_review') return false;
+  const rf = metadata.response_format;
+  if (rf === 'json_object' || rf === 'json' || (rf && typeof rf === 'object' && rf.type === 'json_object')) {
+    return false;
+  }
+  return true;
 }
 
 function isSafeRelativeProposalPath(workingDir, filePath) {
@@ -4163,4 +4178,6 @@ module.exports = {
   spawnAndTrackProcess: _executeCliModule.spawnAndTrackProcess,
   // Legacy backward compat
   runAgenticPipeline,
+  // Exported for tests
+  shouldRequireToolEvidence,
 };
