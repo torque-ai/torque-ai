@@ -8,6 +8,37 @@
 const BaseProvider = require('./base');
 const { MAX_STREAMING_OUTPUT } = require('../constants');
 const { isJsonModeRequested } = require('./shared');
+const { getQuotaStore } = require('../db/provider-quotas');
+
+// Session-limit cooldown is far longer than burst-rate cooldown.
+// `weremittens has reached your session usage limit` resets daily on
+// the free tier; a 60s default cooldown caused TORQUE to re-pick
+// ollama-cloud within seconds and burn 21 retries in 72h (2026-04-25/26).
+// 30 minutes is long enough to avoid the hot loop, short enough that
+// a transient/edge-case 429 still recovers without operator action.
+const SESSION_LIMIT_COOLDOWN_MS = 30 * 60 * 1000;
+const SESSION_LIMIT_PATTERNS = [
+  /session usage limit/i,
+  /upgrade for higher limit/i,
+  /daily.*limit/i,
+];
+
+function classify429Cooldown(errorBody) {
+  const body = String(errorBody || '');
+  for (const pattern of SESSION_LIMIT_PATTERNS) {
+    if (pattern.test(body)) {
+      return { cooldownMs: SESSION_LIMIT_COOLDOWN_MS, reason: 'session_limit' };
+    }
+  }
+  return { cooldownMs: undefined, reason: 'rate_limit' }; // undefined = use store default
+}
+
+function recordOllamaCloud429(errorBody) {
+  try {
+    const { cooldownMs, reason } = classify429Cooldown(errorBody);
+    getQuotaStore().record429('ollama-cloud', { cooldownMs, reason });
+  } catch (_e) { /* non-fatal — 429 tracking should never break the throw path */ }
+}
 
 class OllamaCloudProvider extends BaseProvider {
   constructor(config = {}) {
@@ -85,6 +116,7 @@ class OllamaCloudProvider extends BaseProvider {
 
       if (!response.ok) {
         const errorBody = await response.text();
+        if (response.status === 429) recordOllamaCloud429(errorBody);
         throw new Error(`Ollama Cloud API error (${response.status}): ${errorBody}`);
       }
 
@@ -185,6 +217,7 @@ class OllamaCloudProvider extends BaseProvider {
 
       if (!response.ok) {
         const errorBody = await response.text();
+        if (response.status === 429) recordOllamaCloud429(errorBody);
         throw new Error(`Ollama Cloud streaming error (${response.status}): ${errorBody}`);
       }
 

@@ -174,13 +174,26 @@ function createQuotaStore() {
     entry.status = computeStatus(entry.limits);
   }
 
-  function record429(provider) {
+  // Default 429 cooldown. Long enough that a routing pass won't immediately
+  // re-pick the same provider in a hot loop (which is what produced the
+  // 21 ollama-cloud session-limit failures observed 2026-04-25/26), short
+  // enough that a brief burst-rate trip recovers within a single retry
+  // cadence. Callers (e.g., session-limit detection) can pass a longer
+  // cooldownMs when the failure shape implies a longer wall-clock outage.
+  const DEFAULT_COOLDOWN_MS = 60_000;
+
+  function record429(provider, opts = {}) {
     if (!provider) return;
+
+    const cooldownMs = Number.isFinite(opts.cooldownMs) && opts.cooldownMs > 0
+      ? opts.cooldownMs
+      : DEFAULT_COOLDOWN_MS;
 
     const entry = ensureEntry(provider);
     entry.status = 'red';
-    entry.cooldownUntil = new Date(Date.now() + 60000).toISOString();
+    entry.cooldownUntil = new Date(Date.now() + cooldownMs).toISOString();
     entry.lastUpdated = new Date().toISOString();
+    if (opts.reason) entry.cooldownReason = String(opts.reason);
   }
 
   function getQuota(provider) {
@@ -193,8 +206,20 @@ function createQuotaStore() {
 
   function isExhausted(provider) {
     const quota = quotas[provider];
-    if (!quota || !quota.limits) return false;
+    if (!quota) return false;
 
+    // A live cooldown counts as exhausted for routing — a provider that
+    // just returned 429 should be skipped until the window clears, even if
+    // its `limits.remaining` counters look fine. Routing previously checked
+    // only `limits.remaining`, so `record429` quietly did nothing useful
+    // for selection (only the dashboard saw `status: 'red'`). Folding
+    // cooldown into `isExhausted` makes one source of truth for "skip me."
+    if (quota.cooldownUntil) {
+      const cooldownUntil = new Date(quota.cooldownUntil).getTime();
+      if (Number.isFinite(cooldownUntil) && cooldownUntil > Date.now()) return true;
+    }
+
+    if (!quota.limits) return false;
     return Object.values(quota.limits).some((limit) => {
       const remaining = parseNumber(limit && limit.remaining);
       return remaining !== null && remaining <= 0;

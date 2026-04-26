@@ -210,6 +210,33 @@ describe('provider-quotas', () => {
       expect(cooldownUntil).toBeGreaterThan(now);
       expect(cooldownUntil).toBeLessThanOrEqual(now + 60000);
     });
+
+    it('honors custom cooldownMs (e.g., 30 minutes for session-limit 429s)', () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-04-26T05:00:00.000Z'));
+
+      store.record429('ollama-cloud', { cooldownMs: 30 * 60 * 1000, reason: 'session_limit' });
+
+      const quota = store.getQuota('ollama-cloud');
+      const cooldownUntil = new Date(quota.cooldownUntil).getTime();
+      const expected = Date.now() + 30 * 60 * 1000;
+
+      expect(cooldownUntil).toBe(expected);
+      expect(quota.cooldownReason).toBe('session_limit');
+    });
+
+    it('falls back to default cooldown when cooldownMs is invalid', () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-04-26T05:00:00.000Z'));
+
+      store.record429('groq', { cooldownMs: -100 });
+
+      const quota = store.getQuota('groq');
+      const cooldownUntil = new Date(quota.cooldownUntil).getTime();
+
+      expect(cooldownUntil).toBeLessThanOrEqual(Date.now() + 60000);
+      expect(cooldownUntil).toBeGreaterThan(Date.now());
+    });
   });
 
   describe('isOnCooldown', () => {
@@ -248,6 +275,32 @@ describe('provider-quotas', () => {
       });
 
       expect(store.isExhausted('groq')).toBe(false);
+    });
+
+    it('returns true during a 429 cooldown even if limits look healthy', () => {
+      // Live cooldown should count as exhausted for routing — otherwise
+      // smart-routing keeps re-picking a provider it just got 429'd from.
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-04-26T05:00:00.000Z'));
+
+      store.updateFromHeaders('ollama-cloud', {
+        'x-ratelimit-limit-requests': '30',
+        'x-ratelimit-remaining-requests': '5',
+      });
+      store.record429('ollama-cloud', { cooldownMs: 30 * 60 * 1000 });
+
+      expect(store.isExhausted('ollama-cloud')).toBe(true);
+    });
+
+    it('returns false again after the 429 cooldown expires', () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-04-26T05:00:00.000Z'));
+
+      store.record429('ollama-cloud', { cooldownMs: 60 * 1000 });
+      expect(store.isExhausted('ollama-cloud')).toBe(true);
+
+      vi.setSystemTime(new Date('2026-04-26T05:01:30.000Z')); // 90s later
+      expect(store.isExhausted('ollama-cloud')).toBe(false);
     });
   });
 
