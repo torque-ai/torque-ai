@@ -286,7 +286,7 @@ describe('DeepInfraProvider', () => {
       });
 
       const chunks = [];
-      const result = await provider.submitStream('test', null, {
+      const result = await provider.submitStream('test', 'test-model-stub', {
         onChunk: (token) => chunks.push(token),
       });
 
@@ -310,7 +310,7 @@ describe('DeepInfraProvider', () => {
       });
 
       const chunks = [];
-      const result = await provider.submitStream('test', null, {
+      const result = await provider.submitStream('test', 'test-model-stub', {
         onChunk: (token) => chunks.push(token),
       });
 
@@ -332,7 +332,7 @@ describe('DeepInfraProvider', () => {
         body: makeSSEStream(sseData),
       });
 
-      const result = await provider.submitStream('test', null, {});
+      const result = await provider.submitStream('test', 'test-model-stub', {});
       expect(result.status).toBe('completed');
       expect(result.output).toBe('Hello world');
       expect(result.usage.tokens).toBe(0);
@@ -353,7 +353,7 @@ describe('DeepInfraProvider', () => {
       });
 
       const chunks = [];
-      const result = await provider.submitStream('test', null, {
+      const result = await provider.submitStream('test', 'test-model-stub', {
         onChunk: (t) => chunks.push(t),
       });
 
@@ -373,7 +373,7 @@ describe('DeepInfraProvider', () => {
         body: makeSSEStream(sseData),
       });
 
-      const result = await provider.submitStream('test', null, {});
+      const result = await provider.submitStream('test', 'test-model-stub', {});
       expect(result.output).toBe('Hello');
       expect(result.usage.tokens).toBe(0);
       expect(result.usage.input_tokens).toBe(0);
@@ -393,7 +393,7 @@ describe('DeepInfraProvider', () => {
       });
 
       const chunks = [];
-      await provider.submitStream('test', null, {
+      await provider.submitStream('test', 'test-model-stub', {
         onChunk: (t) => chunks.push(t),
       });
 
@@ -407,7 +407,7 @@ describe('DeepInfraProvider', () => {
         text: async () => 'Server error',
       });
 
-      await expect(provider.submitStream('test', null, {})).rejects.toThrow(/500/);
+      await expect(provider.submitStream('test', 'test-model-stub', {})).rejects.toThrow(/500/);
     });
 
     it('returns timeout on abort', async () => {
@@ -415,7 +415,7 @@ describe('DeepInfraProvider', () => {
       abortErr.name = 'AbortError';
       vi.spyOn(globalThis, 'fetch').mockRejectedValue(abortErr);
 
-      const result = await provider.submitStream('test', null, {});
+      const result = await provider.submitStream('test', 'test-model-stub', {});
       expect(result.status).toBe('timeout');
     });
 
@@ -429,7 +429,7 @@ describe('DeepInfraProvider', () => {
         text: async () => 'Rate limited',
       });
 
-      await expect(provider.submitStream('test', null, {})).rejects.toThrow(/retry_after_seconds=9/);
+      await expect(provider.submitStream('test', 'test-model-stub', {})).rejects.toThrow(/retry_after_seconds=9/);
     });
 
     it('cancels stream reader when abort signal fires mid-stream', async () => {
@@ -470,7 +470,7 @@ describe('DeepInfraProvider', () => {
         },
       });
 
-      const resultPromise = provider.submitStream('test', null, { signal: abortController.signal });
+      const resultPromise = provider.submitStream('test', 'test-model-stub', { signal: abortController.signal });
       await Promise.resolve();
       abortController.abort();
 
@@ -495,7 +495,7 @@ describe('DeepInfraProvider', () => {
         body: makeSSEStream(sseData),
       });
 
-      await provider.submitStream('test', null, { signal });
+      await provider.submitStream('test', 'test-model-stub', { signal });
 
       expect(signal.addEventListener).toHaveBeenCalledWith('abort', expect.any(Function), { once: true });
       const abortHandler = signal.addEventListener.mock.calls[0][1];

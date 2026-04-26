@@ -285,7 +285,7 @@ describe('HyperbolicProvider', () => {
       });
 
       const chunks = [];
-      const result = await provider.submitStream('test', null, {
+      const result = await provider.submitStream('test', 'test-model-stub', {
         onChunk: (token) => chunks.push(token),
       });
 
@@ -309,7 +309,7 @@ describe('HyperbolicProvider', () => {
       });
 
       const chunks = [];
-      const result = await provider.submitStream('test', null, {
+      const result = await provider.submitStream('test', 'test-model-stub', {
         onChunk: (token) => chunks.push(token),
       });
 
@@ -332,7 +332,7 @@ describe('HyperbolicProvider', () => {
       });
 
       const chunks = [];
-      const result = await provider.submitStream('test', null, {
+      const result = await provider.submitStream('test', 'test-model-stub', {
         onChunk: (t) => chunks.push(t),
       });
 
@@ -358,7 +358,7 @@ describe('HyperbolicProvider', () => {
       });
 
       const chunks = [];
-      const result = await provider.submitStream('test', null, {
+      const result = await provider.submitStream('test', 'test-model-stub', {
         onChunk: (t) => chunks.push(t),
       });
 
@@ -380,7 +380,7 @@ describe('HyperbolicProvider', () => {
         body: makeSSEStream(sseData),
       });
 
-      const result = await provider.submitStream('test', null, {});
+      const result = await provider.submitStream('test', 'test-model-stub', {});
       expect(result.output).toBe('Hello');
       expect(result.usage.tokens).toBe(0);
       expect(result.usage.input_tokens).toBe(0);
@@ -395,7 +395,7 @@ describe('HyperbolicProvider', () => {
         text: async () => 'Rate limited',
       });
 
-      await expect(provider.submitStream('test', null, {})).rejects.toThrow(/429/);
+      await expect(provider.submitStream('test', 'test-model-stub', {})).rejects.toThrow(/429/);
     });
 
     it('returns timeout on abort', async () => {
@@ -403,7 +403,7 @@ describe('HyperbolicProvider', () => {
       abortErr.name = 'AbortError';
       vi.spyOn(globalThis, 'fetch').mockRejectedValue(abortErr);
 
-      const result = await provider.submitStream('test', null, {});
+      const result = await provider.submitStream('test', 'test-model-stub', {});
       expect(result.status).toBe('timeout');
     });
 
@@ -417,7 +417,7 @@ describe('HyperbolicProvider', () => {
         text: async () => 'Rate limited',
       });
 
-      await expect(provider.submitStream('test', null, {})).rejects.toThrow(/retry_after_seconds=11/);
+      await expect(provider.submitStream('test', 'test-model-stub', {})).rejects.toThrow(/retry_after_seconds=11/);
     });
 
     it('cancels stream reader when abort signal fires mid-stream', async () => {
@@ -458,7 +458,7 @@ describe('HyperbolicProvider', () => {
         },
       });
 
-      const resultPromise = provider.submitStream('test', null, { signal: abortController.signal });
+      const resultPromise = provider.submitStream('test', 'test-model-stub', { signal: abortController.signal });
       await Promise.resolve();
       abortController.abort();
 
@@ -483,7 +483,7 @@ describe('HyperbolicProvider', () => {
         body: makeSSEStream(sseData),
       });
 
-      await provider.submitStream('test', null, { signal });
+      await provider.submitStream('test', 'test-model-stub', { signal });
 
       expect(signal.addEventListener).toHaveBeenCalledWith('abort', expect.any(Function), { once: true });
       const abortHandler = signal.addEventListener.mock.calls[0][1];

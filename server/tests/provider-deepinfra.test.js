@@ -304,7 +304,7 @@ describe('DeepInfraProvider', () => {
         signal: expect.any(AbortSignal),
       }));
       expect(body).toEqual({
-        model: null,
+        model: 'test-model-stub',
         messages: [{
           role: 'user',
           content: 'Files: src/index.js\n\nWorking directory: /repo\n\nAnalyze module',
@@ -323,7 +323,7 @@ describe('DeepInfraProvider', () => {
       await provider.submit('task', 'test-model-stub', {});
 
       const body = JSON.parse(fetchMock.mock.calls[0][1].body);
-      expect(body.model).toBeNull();
+      expect(body.model).toBe('test-model-stub');
       expect(body.max_tokens).toBe(4096);
       expect(body.temperature).toBeUndefined();
     });
@@ -365,7 +365,7 @@ describe('DeepInfraProvider', () => {
       expect(result.usage.input_tokens).toBe(0);
       expect(result.usage.output_tokens).toBe(0);
       expect(result.usage.cost).toBe(0);
-      expect(result.usage.model).toBeNull();
+      expect(result.usage.model).toBe('test-model-stub');
     });
 
     it.each([401, 403])('builds an auth-aware error message for %i responses', async (status) => {
@@ -533,7 +533,7 @@ describe('DeepInfraProvider', () => {
         signal: expect.any(AbortSignal),
       }));
       expect(requestBody).toEqual({
-        model: null,
+        model: 'test-model-stub',
         messages: [{ role: 'user', content: 'task' }],
         max_tokens: 4096,
         stream: true,

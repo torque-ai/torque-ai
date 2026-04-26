@@ -276,7 +276,7 @@ describe.each(providers)('$name Provider', ({ Class, envKey, expectedName, expec
       }));
 
       expect(p.activeTasks).toBe(0);
-      await expect(p.submit('task')).rejects.toThrow(/500/);
+      await expect(p.submit('task', expectedDefaultModel || 'test-model-stub', {})).rejects.toThrow(/500/);
       expect(p.activeTasks).toBe(0);
     });
 
