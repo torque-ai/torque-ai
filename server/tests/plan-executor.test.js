@@ -221,4 +221,100 @@ Modify \`src/already-there.js\`:
     expect(updated).toContain('2. [x] Submit the plugin');
     expect(r.completed_tasks).toEqual([1]);
   });
+
+  it('refuses to submit a task whose body contains a bare dotnet test (no torque-remote)', async () => {
+    // Live regression 2026-04-26: the plan-quality gate ran at PLAN time, but the
+    // saved plan file was materialized at EXECUTE time without re-validation. Plans
+    // that carried bare `dotnet test` (because they were generated before the gate
+    // landed, or through a path that bypassed it) sailed straight into the queue
+    // and got blocked by the runtime governance guard, which charged the failure
+    // to whichever provider happened to be selected. The executor must catch the
+    // violation BEFORE submission so the loop can pause/replan instead of burning
+    // a slot on a doomed task.
+    const BAD_PLAN = `# Heavy validation in body
+
+## Task 1: validate the contract
+
+- [ ] **Step 1: run the failing test**
+
+Read \`tests/SpudgetBooks.Infrastructure.Tests.csproj\`. Run \`dotnet test tests/SpudgetBooks.Infrastructure.Tests/SpudgetBooks.Infrastructure.Tests.csproj --verbosity normal\` to confirm.
+`;
+    fs.writeFileSync(planPath, BAD_PLAN);
+    const r = await exec.execute({ plan_path: planPath, project: 'p', working_directory: dir });
+
+    expect(submitMock).not.toHaveBeenCalled();
+    expect(awaitMock).not.toHaveBeenCalled();
+    expect(r.failed_task).toBe(1);
+    expect(r.violation).toMatchObject({
+      rule: 'task_avoids_local_heavy_validation',
+      task_number: 1,
+    });
+    expect(r.violation.detected_command).toMatch(/dotnet\s+test/i);
+  });
+
+  it('submits when the same heavy command is wrapped in torque-remote', async () => {
+    const GOOD_PLAN = `# Heavy validation routed remotely
+
+## Task 1: validate the contract
+
+- [ ] **Step 1: run the failing test**
+
+Read \`tests/Foo.csproj\`. Run \`torque-remote dotnet test tests/Foo.csproj --verbosity normal\` to confirm.
+`;
+    fs.writeFileSync(planPath, GOOD_PLAN);
+    await exec.execute({ plan_path: planPath, project: 'p', working_directory: dir });
+
+    expect(submitMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('refuses on bare dotnet build and pwsh scripts/build.ps1 too', async () => {
+    const PLAN_BUILD = `# Bare dotnet build
+
+## Task 1: build it
+
+- [ ] **Step 1: compile**
+
+Run \`dotnet build src/Foo.csproj\` and verify it succeeds. Edit \`src/Foo.cs\` if needed.
+`;
+    fs.writeFileSync(planPath, PLAN_BUILD);
+    const r1 = await exec.execute({ plan_path: planPath, project: 'p', working_directory: dir });
+    expect(submitMock).not.toHaveBeenCalled();
+    expect(r1.violation?.rule).toBe('task_avoids_local_heavy_validation');
+
+    submitMock.mockClear();
+    const PLAN_PS = `# Bare pwsh build
+
+## Task 1: build it
+
+- [ ] **Step 1: compile**
+
+Run \`pwsh scripts/build.ps1\` to compile and verify. Edit \`src/Foo.ps1\` first.
+`;
+    fs.writeFileSync(planPath, PLAN_PS);
+    const r2 = await exec.execute({ plan_path: planPath, project: 'p', working_directory: dir });
+    expect(submitMock).not.toHaveBeenCalled();
+    expect(r2.violation?.rule).toBe('task_avoids_local_heavy_validation');
+  });
+
+  it('does not block in non-live (suppress) mode — dry runs may surface bad plans for inspection', async () => {
+    const BAD_PLAN = `# Heavy validation in body
+
+## Task 1: validate
+
+- [ ] **Step 1: run**
+
+Run \`dotnet test foo.csproj\` to confirm. Edit \`foo.cs\`.
+`;
+    fs.writeFileSync(planPath, BAD_PLAN);
+    const r = await exec.execute({
+      plan_path: planPath,
+      project: 'p',
+      working_directory: dir,
+      execution_mode: 'suppress',
+    });
+    // dry-run / suppress paths report the plan structure for inspection; the
+    // runtime guard belongs to live submission, not dry-run accounting.
+    expect(r.violation).toBeUndefined();
+    expect(r.dry_run).toBe(true);
+  });
 });
