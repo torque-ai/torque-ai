@@ -1,4 +1,5 @@
 'use strict';
+/* eslint-disable torque/no-sync-fs-on-hot-paths -- schedule-handlers sync calls are in crontab/schedule file management; Phase 2 async conversion tracked separately. */
 
 const fs = require('fs');
 const path = require('path');

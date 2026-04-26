@@ -410,7 +410,7 @@ async function handleAutoVerifyAndFix(args) {
 
 // ─── Feature 3: Generate Test Tasks ──────────────────────────────────────────
 
-function handleGenerateTestTasks(args) {
+async function handleGenerateTestTasks(args) {
   const workingDir = args.working_directory;
   if (!workingDir) {
     return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'working_directory is required');
@@ -437,11 +437,15 @@ function handleGenerateTestTasks(args) {
   const sourceFiles = [];
   const testFiles = new Set();
 
-  for (const srcDir of sourceDirs) {
+  await Promise.all(sourceDirs.map(async (srcDir) => {
     const fullSrcDir = path.join(workingDir, srcDir);
-    if (!fs.existsSync(fullSrcDir)) continue;
-    scanDirectory(fullSrcDir, workingDir, sourceFiles, testFiles, testPattern);
-  }
+    try {
+      await fs.promises.stat(fullSrcDir);
+    } catch {
+      return; // directory does not exist
+    }
+    await scanDirectory(fullSrcDir, workingDir, sourceFiles, testFiles, testPattern);
+  }));
 
   // Find untested files (no matching test file)
   const untestedFiles = sourceFiles.filter(f => {
@@ -586,49 +590,49 @@ function findRelatedExistingTestPath(relativePath, testFiles, testPattern) {
   return null;
 }
 
-// Helper: recursively scan directory for source and test files
-function scanDirectory(dirPath, rootDir, sourceFiles, testFiles, testPattern) {
+// Helper: recursively scan directory for source and test files (async)
+async function scanDirectory(dirPath, rootDir, sourceFiles, testFiles, testPattern) {
   const IGNORE = new Set(['node_modules', '.git', 'dist', 'build', 'coverage', '__mocks__']);
 
   let entries;
   try {
-    entries = fs.readdirSync(dirPath, { withFileTypes: true });
+    entries = await fs.promises.readdir(dirPath, { withFileTypes: true });
   } catch {
     return;
   }
 
-  for (const entry of entries) {
+  await Promise.all(entries.map(async (entry) => {
     const fullPath = path.join(dirPath, entry.name);
     const relativePath = path.relative(rootDir, fullPath).replace(/\\/g, '/');
 
     if (entry.isDirectory()) {
       if (!IGNORE.has(entry.name)) {
-        scanDirectory(fullPath, rootDir, sourceFiles, testFiles, testPattern);
+        await scanDirectory(fullPath, rootDir, sourceFiles, testFiles, testPattern);
       }
-      continue;
+      return;
     }
 
-    if (!entry.isFile()) continue;
+    if (!entry.isFile()) return;
 
     const ext = path.extname(entry.name);
-    if (!['.ts', '.tsx', '.js', '.jsx'].includes(ext)) continue;
+    if (!['.ts', '.tsx', '.js', '.jsx'].includes(ext)) return;
 
     if (entry.name.endsWith(testPattern) || entry.name.endsWith('.spec.ts') || entry.name.endsWith('.spec.js')) {
       testFiles.add(relativePath);
-      continue;
+      return;
     }
 
     // Count lines
     let lines = 0;
     try {
-      const content = fs.readFileSync(fullPath, 'utf8');
+      const content = await fs.promises.readFile(fullPath, 'utf8');
       lines = content.split('\n').length;
     } catch {
       lines = 0;
     }
 
     sourceFiles.push({ relativePath, lines });
-  }
+  }));
 }
 
 // ─── Feature 4: Per-Project Provider Defaults ────────────────────────────────

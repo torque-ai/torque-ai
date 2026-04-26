@@ -194,7 +194,7 @@ describe('workflow-runtime', () => {
   });
 
   describe('generatePipelineDocumentation', () => {
-    it('writes a markdown report with step details and output snippets', () => {
+    it('writes a markdown report with step details and output snippets', async () => {
       const pipelineId = randomUUID();
       const workingDir = makeWorkDir('pipeline-doc');
       projectConfigCore.createPipeline({
@@ -230,7 +230,7 @@ describe('workflow-runtime', () => {
       });
       projectConfigCore.updatePipelineStep(step.id, { status: 'completed', task_id: taskId });
 
-      mod.generatePipelineDocumentation(pipelineId, 'completed');
+      await mod.generatePipelineDocumentation(pipelineId, 'completed');
 
       const reportDir = path.join(workingDir, '.torque', 'pipeline-reports');
       const files = fs.readdirSync(reportDir).filter(f => f.endsWith('.md'));
@@ -243,7 +243,7 @@ describe('workflow-runtime', () => {
       expect(report).toContain('`src/app.js`');
     });
 
-    it('writes a markdown report when files_modified JSON is malformed', () => {
+    it('writes a markdown report when files_modified JSON is malformed', async () => {
       const pipelineId = randomUUID();
       const workingDir = makeWorkDir('pipeline-doc-malformed');
       projectConfigCore.createPipeline({
@@ -279,9 +279,7 @@ describe('workflow-runtime', () => {
       });
       projectConfigCore.updatePipelineStep(step.id, { status: 'completed', task_id: taskId });
 
-      expect(() => {
-        mod.generatePipelineDocumentation(pipelineId, 'completed');
-      }).not.toThrow();
+      await expect(mod.generatePipelineDocumentation(pipelineId, 'completed')).resolves.not.toThrow();
 
       const reportDir = path.join(workingDir, '.torque', 'pipeline-reports');
       const files = fs.readdirSync(reportDir).filter(f => f.endsWith('.md'));
@@ -294,11 +292,11 @@ describe('workflow-runtime', () => {
       expect(report).not.toContain('`src/app.js`');
     });
 
-    it('returns without writing docs for unknown pipeline ids', () => {
+    it('returns without writing docs for unknown pipeline ids', async () => {
       const workingDir = makeWorkDir('pipeline-doc-missing');
       const beforeEntries = fs.readdirSync(workingDir);
 
-      mod.generatePipelineDocumentation(randomUUID(), 'failed');
+      await mod.generatePipelineDocumentation(randomUUID(), 'failed');
 
       const afterEntries = fs.readdirSync(workingDir);
       expect(afterEntries).toEqual(beforeEntries);

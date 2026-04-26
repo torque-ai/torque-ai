@@ -72,31 +72,31 @@ describe('review-handler', () => {
     ({ handleReviewTaskOutput } = require('../handlers/review-handler'));
   });
 
-  it('returns error for missing task', () => {
+  it('returns error for missing task', async () => {
     mockTaskCore.getTask.mockReturnValue(null);
 
-    const result = handleReviewTaskOutput({ task_id: 'missing-task' });
+    const result = await handleReviewTaskOutput({ task_id: 'missing-task' });
 
     expect(result.isError).toBe(true);
     expect(result.content[0].text).toContain('not found');
     expect(mockTaskCore.createTask).not.toHaveBeenCalled();
   });
 
-  it('returns error for non-completed task', () => {
+  it('returns error for non-completed task', async () => {
     mockTaskCore.getTask.mockReturnValue({
       id: 'source-task',
       status: 'running',
       working_directory: '/repo',
     });
 
-    const result = handleReviewTaskOutput({ task_id: 'source-task' });
+    const result = await handleReviewTaskOutput({ task_id: 'source-task' });
 
     expect(result.isError).toBe(true);
     expect(result.content[0].text).toContain('completed');
     expect(mockTaskCore.createTask).not.toHaveBeenCalled();
   });
 
-  it('creates review task with structured prompt', () => {
+  it('creates review task with structured prompt', async () => {
     mockTaskCore.getTask.mockReturnValue({
       id: 'source-task',
       status: 'completed',
@@ -106,7 +106,7 @@ describe('review-handler', () => {
       git_before_sha: 'abc123',
     });
 
-    handleReviewTaskOutput({
+    await handleReviewTaskOutput({
       task_id: 'source-task',
       provider: 'deepinfra',
     });
@@ -116,7 +116,7 @@ describe('review-handler', () => {
     expect(createdTask.task_description).toContain('Review this code change');
   });
 
-  it('injects stored study context into the review prompt', () => {
+  it('injects stored study context into the review prompt', async () => {
     mockTaskCore.getTask.mockReturnValue({
       id: 'source-task',
       status: 'completed',
@@ -129,13 +129,13 @@ describe('review-handler', () => {
       git_before_sha: 'abc123',
     });
 
-    handleReviewTaskOutput({ task_id: 'source-task' });
+    await handleReviewTaskOutput({ task_id: 'source-task' });
 
     const createdTask = mockTaskCore.createTask.mock.calls[0][0];
     expect(createdTask.task_description).toContain('Study context: review task lifecycle and scheduler invariants first.');
   });
 
-  it('derives study context from JSON-string files_modified when stored prompt is absent', () => {
+  it('derives study context from JSON-string files_modified when stored prompt is absent', async () => {
     mockStudyEngine.buildTaskStudyContextEnvelope.mockReturnValue({
       study_context_prompt: 'Study context: inspect scheduler-related files first.',
     });
@@ -149,7 +149,7 @@ describe('review-handler', () => {
       git_before_sha: 'abc123',
     });
 
-    handleReviewTaskOutput({ task_id: 'source-task' });
+    await handleReviewTaskOutput({ task_id: 'source-task' });
 
     expect(mockStudyEngine.buildTaskStudyContextEnvelope).toHaveBeenCalledWith({
       workingDirectory: '/repo',
@@ -160,7 +160,7 @@ describe('review-handler', () => {
     expect(createdTask.task_description).toContain('Study context: inspect scheduler-related files first.');
   });
 
-  it('selects a different provider from the original when none is specified', () => {
+  it('selects a different provider from the original when none is specified', async () => {
     mockTaskCore.getTask.mockReturnValue({
       id: 'source-task',
       status: 'completed',
@@ -169,9 +169,27 @@ describe('review-handler', () => {
       working_directory: '/repo',
     });
 
-    handleReviewTaskOutput({ task_id: 'source-task' });
+    await handleReviewTaskOutput({ task_id: 'source-task' });
 
     const createdTask = mockTaskCore.createTask.mock.calls[0][0];
     expect(createdTask.provider).not.toBe('codex');
+  });
+});
+
+describe('review-handler lint', () => {
+  it('has zero torque/no-sync-fs-on-hot-paths violations', async () => {
+    const { execFile } = require('child_process');
+    const { promisify } = require('util');
+    const execFileAsync = promisify(execFile);
+    const { stdout } = await execFileAsync(
+      process.execPath,
+      ['../node_modules/.bin/eslint', '--format=json', 'handlers/review-handler.js'],
+      { cwd: __dirname + '/..', encoding: 'utf8' }
+    ).catch((e) => ({ stdout: e.stdout || '[]' }));
+    const results = JSON.parse(stdout || '[]');
+    const violations = (results[0]?.messages || []).filter(
+      (m) => m.ruleId === 'torque/no-sync-fs-on-hot-paths'
+    );
+    expect(violations).toHaveLength(0);
   });
 });

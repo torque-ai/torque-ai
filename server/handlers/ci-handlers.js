@@ -9,15 +9,17 @@ const credentialCrypto = require('../utils/credential-crypto');
 
 const DEFAULT_CI_PROVIDER = 'github-actions';
 
-function resolveRepo(args) {
+async function resolveRepo(args) {
   if (args.repo) return args.repo;
 
   const fromConfig = configCore.getConfig('default_ci_repo');
   if (fromConfig) return fromConfig;
 
   try {
-    const { execFileSync } = require('child_process');
-    const result = execFileSync(
+    const childProcess = require('child_process');
+    const { promisify } = require('util');
+    const execFileAsync = promisify(childProcess.execFile);
+    const result = await execFileAsync(
       'gh',
       ['repo', 'view', '--json', 'nameWithOwner', '-q', '.nameWithOwner'],
       {
@@ -27,14 +29,15 @@ function resolveRepo(args) {
         windowsHide: true,
       },
     );
-    return result.trim();
+    const stdout = (result && typeof result === 'object' && 'stdout' in result) ? result.stdout : result;
+    return typeof stdout === 'string' ? stdout.trim() : null;
   } catch {
     return null;
   }
 }
 
-function requireRepo(args) {
-  const repo = resolveRepo(args);
+async function requireRepo(args) {
+  const repo = await resolveRepo(args);
   if (!repo) {
     return { error: makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'repo is required (or set default_ci_repo)') };
   }
@@ -224,8 +227,8 @@ async function handleWatchCiRepo(args) {
   }
 }
 
-function handleStopCiWatch(args) {
-  const repoResult = resolveRepo(args);
+async function handleStopCiWatch(args) {
+  const repoResult = await resolveRepo(args);
   const requestedProvider = parseProvider(args);
   let repo = repoResult;
   let provider = requestedProvider;

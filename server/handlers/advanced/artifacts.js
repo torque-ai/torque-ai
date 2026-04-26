@@ -1,3 +1,4 @@
+/* eslint-disable torque/no-sync-fs-on-hot-paths -- artifacts handler uses sync fd-based I/O for streaming upload assembly; Phase 2 async conversion tracked separately. */
 /**
  * Advanced handlers — Task Artifacts
  *

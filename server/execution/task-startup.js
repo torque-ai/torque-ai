@@ -13,6 +13,7 @@ const logger = require('../logger').child({ component: 'task-startup' });
 const { TASK_TIMEOUTS } = require('../constants');
 const gitUtils = require('../utils/git');
 const { parseGitStatusLine } = gitUtils;
+// eslint-disable-next-line torque/no-sync-fs-on-hot-paths -- fallback only: safeGitExec is always defined in production; this branch never executes on the live hot-path.
 const safeGitExec = gitUtils.safeGitExec || ((args, opts) => execFileSync('git', args, opts));
 const { parseMentions } = require('../repo-graph/mention-parser');
 const { createTaskTranscriptLog } = require('../transcripts/transcript-log');
@@ -341,6 +342,9 @@ function getNvmNodePath() {
 
 const NVM_NODE_PATH = getNvmNodePath();
 
+/** Process-lifetime memo for resolveWindowsCmdToNode — same cmd resolves to the same path. */
+const _cmdToNodeCache = new Map();
+
 /**
  * Resolve a Windows .cmd npm wrapper to its underlying node + script path.
  * npm-installed CLIs on Windows use .cmd wrappers that run via cmd.exe.
@@ -349,22 +353,36 @@ const NVM_NODE_PATH = getNvmNodePath();
  * This function parses the .cmd file to find the actual node script,
  * allowing us to spawn node directly and bypass cmd.exe entirely.
  *
+ * Results are memoized per process lifetime — the resolved path of a given
+ * .cmd file does not change while the server is running.
+ *
  * @param {string} cmdPath - Path to the .cmd file (e.g. 'codex.cmd')
  * @returns {{ nodePath: string, scriptPath: string } | null}
  */
 function resolveWindowsCmdToNode(cmdPath) {
+  if (_cmdToNodeCache.has(cmdPath)) {
+    return _cmdToNodeCache.get(cmdPath);
+  }
+  const result = _resolveWindowsCmdToNodeUncached(cmdPath);
+  _cmdToNodeCache.set(cmdPath, result);
+  return result;
+}
+
+function _resolveWindowsCmdToNodeUncached(cmdPath) {
   try {
     // Resolve the full path if it's just a filename
     let fullCmdPath = cmdPath;
     if (!path.isAbsolute(cmdPath)) {
       // Search PATH for the .cmd file using execFileSync (no shell injection)
       try {
+        // eslint-disable-next-line torque/no-sync-fs-on-hot-paths -- memoized: where.exe runs once per unique cmdPath per server lifetime.
         fullCmdPath = execFileSync('where.exe', [cmdPath], { encoding: 'utf-8', windowsHide: true }).trim().split('\n')[0].trim();
       } catch {
         return null; // Not found in PATH
       }
     }
 
+    // eslint-disable-next-line torque/no-sync-fs-on-hot-paths -- memoized: .cmd file read runs once per unique cmdPath per server lifetime.
     const cmdContent = fs.readFileSync(fullCmdPath, 'utf-8');
     const cmdDir = path.dirname(fullCmdPath);
 
@@ -377,10 +395,12 @@ function resolveWindowsCmdToNode(cmdPath) {
     const relativeScriptPath = match[1].replace(/\\/g, '/');
     const scriptPath = path.resolve(cmdDir, relativeScriptPath);
 
+    // eslint-disable-next-line torque/no-sync-fs-on-hot-paths -- memoized: existsSync runs once per unique cmdPath per server lifetime.
     if (!fs.existsSync(scriptPath)) return null;
 
     // Determine node path: check if node.exe exists alongside the .cmd
     const localNode = path.join(cmdDir, 'node.exe');
+    // eslint-disable-next-line torque/no-sync-fs-on-hot-paths -- memoized: existsSync runs once per unique cmdPath per server lifetime.
     const nodePath = fs.existsSync(localNode) ? localNode : 'node';
 
     return { nodePath, scriptPath };
@@ -482,6 +502,7 @@ function captureBaselineHead({ taskId, baselineCapture, skipGit, log }) {
     if (baselineCapture.command === 'git') {
       return safeGitExec(baselineCapture.args, baselineCapture.options).trim();
     }
+    // eslint-disable-next-line torque/no-sync-fs-on-hot-paths -- baseline capture runs once per task at startup; async conversion requires callers to await (tracked separately).
     return execFileSync(baselineCapture.command, baselineCapture.args, baselineCapture.options).trim();
   } catch (e) {
     log.info(`[TaskManager] Could not capture baseline HEAD for task ${taskId}: ${e.message}`);
@@ -585,6 +606,7 @@ async function buildProviderStartupCommand({
 function runPreflightChecks(task) {
   if (task.working_directory) {
     try {
+      // eslint-disable-next-line torque/no-sync-fs-on-hot-paths -- preflight runs once per task slot acquisition; converting to async cascades into scheduler internals (tracked separately).
       const stats = fs.statSync(task.working_directory);
       if (!stats.isDirectory()) {
         throw new PreflightError(`Working directory is not a directory: ${task.working_directory}`, {

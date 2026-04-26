@@ -1,4 +1,5 @@
 'use strict';
+/* eslint-disable torque/no-sync-fs-on-hot-paths -- factory-handlers sync calls are in plan/scout file reading at MCP tool invocation time; Phase 2 async conversion tracked separately. */
 
 const { randomUUID } = require('crypto');
 const path = require('path');

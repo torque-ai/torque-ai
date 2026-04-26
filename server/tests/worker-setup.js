@@ -62,9 +62,11 @@ try {
 
 // Save originals — git-test-utils.js uses these for real git operations
 const _realExecFileSync = childProcess.execFileSync;
+const _realExecFile = childProcess.execFile;
 const _realSpawn = childProcess.spawn;
 const _realSpawnSync = childProcess.spawnSync;
 childProcess._realExecFileSync = _realExecFileSync;
+childProcess._realExecFile = _realExecFile;
 childProcess._realSpawn = _realSpawn;
 childProcess._realSpawnSync = _realSpawnSync;
 
@@ -162,6 +164,49 @@ childProcess.execFileSync = function(file, args, options) {
   return _realExecFileSync.call(this, file, args, options);
 };
 
+// Patch execFile (async) — intercept git with the same stub, pass through everything else.
+// Required because async converters (promisify(execFile)) bypass execFileSync patches.
+childProcess.execFile = function(file, args, options, callback) {
+  // Handle optional args/options overloads
+  if (typeof args === 'function') { callback = args; args = []; options = {}; }
+  else if (typeof options === 'function') { callback = options; options = args; args = args; }
+
+  if (isGitCommand(file)) {
+    const encoding = (typeof options === 'object' && options !== null) ? options.encoding : undefined;
+    let stdout;
+    let callbackError = null;
+    try {
+      stdout = stubGitOutput(args, encoding);
+    } catch (err) {
+      callbackError = err;
+      stdout = '';
+    }
+    process.nextTick(() => {
+      if (callbackError) {
+        callback(callbackError, '', '');
+      } else {
+        callback(null, stdout, '');
+      }
+    });
+    return { kill: () => {} };
+  }
+  return _realExecFile.call(this, file, args, options, callback);
+};
+
+// Add Node's custom promisify symbol so that promisify(childProcess.execFile) resolves to
+// { stdout, stderr } — matching the real execFile behaviour. Without this, promisify wraps
+// the stub as a standard 2-arg callback (resolves to stdout string directly), causing
+// destructuring like `const { stdout } = await execFileAsync(...)` to produce undefined.
+const { promisify } = require('util');
+childProcess.execFile[promisify.custom] = function(file, args, options) {
+  return new Promise((resolve, reject) => {
+    childProcess.execFile(file, args, options, (err, stdout, stderr) => {
+      if (err) { err.stdout = stdout; err.stderr = stderr; reject(err); }
+      else resolve({ stdout, stderr });
+    });
+  });
+};
+
 // Patch spawn — block accidental real agent CLIs in tests. Test files that need
 // process behavior should install their own mock spawn; real Codex/Claude runs
 // are too slow and can leak child processes on Windows.
@@ -195,4 +240,6 @@ module.exports = {
   isAgentCliCommand,
   getSubcommand,
   stubGitOutput,
+  // Exposed for tests that need real async git calls (parallel to _realExecFileSync)
+  _realExecFile,
 };

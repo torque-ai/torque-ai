@@ -956,7 +956,7 @@ async function handleImportPlan(req, res) {
     const path = require('path');
 
     const tempFile = path.join(os.tmpdir(), `plan-${crypto.randomUUID()}.md`);
-    fs.writeFileSync(tempFile, body.plan_content);
+    await fs.promises.writeFile(tempFile, body.plan_content);
 
     try {
       const { handleToolCall } = require('../tools');
@@ -976,7 +976,7 @@ async function handleImportPlan(req, res) {
 
       sendSuccess(res, requestId, result, 200, req);
     } finally {
-      try { fs.unlinkSync(tempFile); } catch (err) { logger.debug("task handler error", { err: err.message }); /* cleanup */ }
+      try { await fs.promises.unlink(tempFile); } catch (err) { logger.debug("task handler error", { err: err.message }); /* cleanup */ }
     }
   } catch (err) {
     sendError(res, requestId, 'operation_failed', err.message, 500, {}, req);

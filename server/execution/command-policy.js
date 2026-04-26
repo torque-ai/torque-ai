@@ -1,4 +1,5 @@
 'use strict';
+/* eslint-disable torque/no-sync-fs-on-hot-paths -- command-policy sync calls are in capability-detection paths run at task startup; Phase 2 async conversion tracked separately. */
 
 const path = require('path');
 const childProcess = require('child_process');

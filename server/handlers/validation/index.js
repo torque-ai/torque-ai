@@ -223,7 +223,7 @@ function handleUpdateValidationRule(args) {
   };
 }
 
-function handleValidateTaskOutput(args) {
+async function handleValidateTaskOutput(args) {
   const { task_id } = args;
 
   const err = requireString(args, 'task_id');
@@ -234,7 +234,11 @@ function handleValidateTaskOutput(args) {
 
   const fileChanges = [];
   const workDir = task.working_directory;
-  if (workDir && fs.existsSync(workDir)) {
+  let workDirExists = false;
+  try {
+    if (workDir) { await fs.promises.stat(workDir); workDirExists = true; }
+  } catch { /* workDir does not exist */ }
+  if (workDir && workDirExists) {
     try {
       let gitOutput = '';
       const tryGitDiff = (gitArgs) => {
@@ -250,18 +254,18 @@ function handleValidateTaskOutput(args) {
       if (!gitOutput) gitOutput = tryGitDiff(['diff', '--name-only', '--cached']);
       if (!gitOutput) gitOutput = tryGitDiff(['diff', '--name-only']);
       const changedFiles = gitOutput.split('\n').filter(f => f.trim());
-      for (const relFile of changedFiles) {
+      await Promise.all(changedFiles.map(async (relFile) => {
         const absPath = path.join(workDir, relFile);
-        if (fs.existsSync(absPath)) {
-          try {
-            const content = fs.readFileSync(absPath, 'utf-8');
-            const stats = fs.statSync(absPath);
-            fileChanges.push({ path: relFile, content, size: stats.size });
-          } catch (readErr) {
-            logger.debug('[validation-handlers] non-critical error reading files for validation:', readErr.message || readErr);
-          }
+        try {
+          const [content, stats] = await Promise.all([
+            fs.promises.readFile(absPath, 'utf-8'),
+            fs.promises.stat(absPath),
+          ]);
+          fileChanges.push({ path: relFile, content, size: stats.size });
+        } catch (readErr) {
+          logger.debug('[validation-handlers] non-critical error reading files for validation:', readErr.message || readErr);
         }
-      }
+      }));
     } catch (gitErr) {
       logger.debug('[validation-handlers] non-critical error reading git diff for validation:', gitErr.message || gitErr);
     }
@@ -860,16 +864,20 @@ function handleSetupPrecommitHook(args) {
   }
 
   const gitDir = path.join(working_directory, '.git');
+  // eslint-disable-next-line torque/no-sync-fs-on-hot-paths -- pre-commit hook setup runs once per user request, not on every hot-path invocation.
   if (!fs.existsSync(gitDir)) {
     return makeError(ErrorCodes.INVALID_PARAM, 'Not a git repository');
   }
 
   const hooksDir = path.join(gitDir, 'hooks');
+  // eslint-disable-next-line torque/no-sync-fs-on-hot-paths -- pre-commit hook setup runs once per user request, not on every hot-path invocation.
   if (!fs.existsSync(hooksDir)) {
+    // eslint-disable-next-line torque/no-sync-fs-on-hot-paths -- pre-commit hook setup runs once per user request, not on every hot-path invocation.
     fs.mkdirSync(hooksDir, { recursive: true });
   }
 
   const configPath = path.join(hooksDir, 'pre-commit.config.json');
+  // eslint-disable-next-line torque/no-sync-fs-on-hot-paths -- pre-commit hook setup runs once per user request, not on every hot-path invocation.
   fs.writeFileSync(configPath, JSON.stringify({ checks }, null, 2), { encoding: 'utf-8' });
 
   const isWindows = process.platform === 'win32';
@@ -884,10 +892,12 @@ function handleSetupPrecommitHook(args) {
     psScript += `# Allow commit to proceed\nexit 0\n`;
 
     const psPath = path.join(hooksDir, 'pre-commit.ps1');
+    // eslint-disable-next-line torque/no-sync-fs-on-hot-paths -- pre-commit hook setup runs once per user request, not on every hot-path invocation.
     fs.writeFileSync(psPath, psScript, { encoding: 'utf-8' });
 
     const shimScript = `#!/bin/sh\n# Torque pre-commit hook shim — delegates to PowerShell on Windows\nexec powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$(dirname "$0")/pre-commit.ps1"\n`;
     hookPath = path.join(hooksDir, 'pre-commit');
+    // eslint-disable-next-line torque/no-sync-fs-on-hot-paths -- pre-commit hook setup runs once per user request, not on every hot-path invocation.
     fs.writeFileSync(hookPath, shimScript, { mode: 0o755 });
   } else {
     let hookScript = `#!/bin/bash\n# Torque pre-commit hook\n# Checks: ${checksText}\n\necho "Running Torque pre-commit checks..."\n\n`;
@@ -907,6 +917,7 @@ function handleSetupPrecommitHook(args) {
     hookScript += `# Allow commit to proceed\nexit 0\n`;
 
     hookPath = path.join(hooksDir, 'pre-commit');
+    // eslint-disable-next-line torque/no-sync-fs-on-hot-paths -- pre-commit hook setup runs once per user request, not on every hot-path invocation.
     fs.writeFileSync(hookPath, hookScript, { mode: 0o755 });
   }
 

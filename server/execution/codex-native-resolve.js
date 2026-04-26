@@ -1,4 +1,5 @@
 'use strict';
+/* eslint-disable torque/no-sync-fs-on-hot-paths -- codex path resolver uses sync calls at task startup only; not in the per-request event loop. Phase 2 async conversion tracked separately. */
 
 /**
  * Codex Native Binary Resolver

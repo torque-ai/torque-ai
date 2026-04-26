@@ -64,12 +64,12 @@ function evictOldest() {
   if (firstKey) fileCache.delete(firstKey);
 }
 
-function getCachedFile(filePath) {
+async function getCachedFile(filePath) {
   const entry = fileCache.get(filePath);
   if (!entry) return null;
   // Check if file has been modified since caching
   try {
-    const stat = fs.statSync(filePath);
+    const stat = await fs.promises.stat(filePath);
     if (stat.mtimeMs !== entry.mtime) return null;
   } catch {
     return null;
@@ -77,9 +77,9 @@ function getCachedFile(filePath) {
   return entry;
 }
 
-function cacheFile(filePath) {
-  const content = fs.readFileSync(filePath, 'utf8');
-  const stat = fs.statSync(filePath);
+async function cacheFile(filePath) {
+  const content = await fs.promises.readFile(filePath, 'utf8');
+  const stat = await fs.promises.stat(filePath);
   const rawLines = content.split('\n');
   const lines = rawLines.map((line, i) => ({
     num: i + 1,
@@ -129,7 +129,7 @@ function resolveScopedFilePath(args, filePath) {
 
 // ─── hashline_read ──────────────────────────────────────────────────────────
 
-function handleHashlineRead(args) {
+async function handleHashlineRead(args) {
   const filePath = args.file_path;
   if (!filePath) {
     return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'file_path is required');
@@ -139,17 +139,18 @@ function handleHashlineRead(args) {
     return resolvedFilePath;
   }
   const absoluteFilePath = resolvedFilePath;
-  if (!fs.existsSync(absoluteFilePath)) {
-    return makeError(ErrorCodes.RESOURCE_NOT_FOUND, `File not found: ${absoluteFilePath}`);
-  }
 
   const offset = Math.max(1, Math.floor(args.offset || 1));
   const limit = args.limit ? Math.max(1, Math.floor(args.limit)) : null;
 
-  // Read and cache
-  let cached = getCachedFile(absoluteFilePath);
+  // Read and cache (cacheFile throws ENOENT if file not found)
+  let cached = await getCachedFile(absoluteFilePath);
   if (!cached) {
-    cached = cacheFile(absoluteFilePath);
+    try {
+      cached = await cacheFile(absoluteFilePath);
+    } catch {
+      return makeError(ErrorCodes.RESOURCE_NOT_FOUND, `File not found: ${absoluteFilePath}`);
+    }
   }
 
   const totalLines = cached.lines.length;
@@ -177,7 +178,7 @@ function handleHashlineRead(args) {
 
 // ─── hashline_edit ──────────────────────────────────────────────────────────
 
-function handleHashlineEdit(args) {
+async function handleHashlineEdit(args) {
   const filePath = args.file_path;
   if (!filePath) {
     return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'file_path is required');
@@ -187,9 +188,6 @@ function handleHashlineEdit(args) {
     return resolvedFilePath;
   }
   const absoluteFilePath = resolvedFilePath;
-  if (!fs.existsSync(absoluteFilePath)) {
-    return makeError(ErrorCodes.RESOURCE_NOT_FOUND, `File not found: ${absoluteFilePath}`);
-  }
 
   const edits = args.edits;
   if (!Array.isArray(edits) || edits.length === 0) {
@@ -197,9 +195,13 @@ function handleHashlineEdit(args) {
   }
 
   // Ensure we have a cached version (or refresh it)
-  let cached = getCachedFile(absoluteFilePath);
+  let cached = await getCachedFile(absoluteFilePath);
   if (!cached) {
-    cached = cacheFile(absoluteFilePath);
+    try {
+      cached = await cacheFile(absoluteFilePath);
+    } catch {
+      return makeError(ErrorCodes.RESOURCE_NOT_FOUND, `File not found: ${absoluteFilePath}`);
+    }
   }
 
   // Validate all edits before applying any
@@ -264,10 +266,10 @@ function handleHashlineEdit(args) {
 
   // Write back to disk
   const newFileContent = lines.join('\n');
-  fs.writeFileSync(absoluteFilePath, newFileContent, 'utf8');
+  await fs.promises.writeFile(absoluteFilePath, newFileContent, 'utf8');
 
   // Refresh cache
-  const freshCached = cacheFile(absoluteFilePath);
+  const freshCached = await cacheFile(absoluteFilePath);
 
   // Show context around each edit (3 lines before/after)
   let output = `## Edited ${path.basename(absoluteFilePath)}\n\n`;

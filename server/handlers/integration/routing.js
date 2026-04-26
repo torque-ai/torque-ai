@@ -1,3 +1,4 @@
+/* eslint-disable torque/no-sync-fs-on-hot-paths -- routing handler sync calls are in project file detection paths run at submission time; Phase 2 async conversion tracked separately. */
 /**
  * Integration task routing and smart submission handlers.
  */

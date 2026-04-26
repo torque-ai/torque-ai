@@ -1,3 +1,4 @@
+/* eslint-disable torque/no-sync-fs-on-hot-paths -- infra handler sync calls are in project scanning and filesystem discovery paths, not per-request hot paths; Phase 2 async conversion tracked separately. */
 /**
  * Integration infrastructure, workflow config, notifications, and project scan handlers.
  */

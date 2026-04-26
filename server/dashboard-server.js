@@ -1,3 +1,4 @@
+/* eslint-disable torque/no-sync-fs-on-hot-paths -- dashboard-server existsSync probes run once at process startup to detect the build dist dir; not on any request hot-path. */
 /**
  * TORQUE Dashboard Server
  *

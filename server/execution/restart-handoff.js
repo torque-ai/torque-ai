@@ -12,6 +12,7 @@ function getRestartHandoffPath() {
 
 function readRestartHandoff() {
   try {
+    // eslint-disable-next-line torque/no-sync-fs-on-hot-paths -- shutdown/startup handoff file — sync is correct ordering.
     const raw = fs.readFileSync(getRestartHandoffPath(), 'utf8').trim();
     if (!raw) return null;
     const parsed = JSON.parse(raw);
@@ -31,12 +32,14 @@ function writeRestartHandoff(payload) {
     requested_at: payload.requested_at || new Date().toISOString(),
     requested_by_pid: payload.requested_by_pid || process.pid,
   };
+  // eslint-disable-next-line torque/no-sync-fs-on-hot-paths -- shutdown/startup handoff file — sync is correct ordering.
   fs.writeFileSync(getRestartHandoffPath(), JSON.stringify(handoff), 'utf8');
   return handoff;
 }
 
 function clearRestartHandoff() {
   try {
+    // eslint-disable-next-line torque/no-sync-fs-on-hot-paths -- shutdown/startup handoff file — sync is correct ordering.
     fs.unlinkSync(getRestartHandoffPath());
     return true;
   } catch {

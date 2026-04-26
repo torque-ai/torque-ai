@@ -554,19 +554,19 @@ describe('automation-handlers', () => {
   });
 
   describe('handleGenerateTestTasks', () => {
-    it('returns a validation error when working_directory is missing', () => {
+    it('returns a validation error when working_directory is missing', async () => {
       const { handlers } = loadHandlers();
 
-      const result = handlers.handleGenerateTestTasks({});
+      const result = await handlers.handleGenerateTestTasks({});
 
       expect(result.isError).toBe(true);
       expect(getText(result)).toContain('working_directory is required');
     });
 
-    it('rejects non-string source_dirs entries', () => {
+    it('rejects non-string source_dirs entries', async () => {
       const { handlers } = loadHandlers();
 
-      const result = handlers.handleGenerateTestTasks({
+      const result = await handlers.handleGenerateTestTasks({
         working_directory: 'C:\\repo',
         source_dirs: ['src', 7],
       });
@@ -575,11 +575,11 @@ describe('automation-handlers', () => {
       expect(getText(result)).toContain('source_dirs must be an array of strings or a string');
     });
 
-    it('handles an empty project without generating test tasks', () => {
+    it('handles an empty project without generating test tasks', async () => {
       const workingDir = createTempProject();
       const { handlers } = loadHandlers();
 
-      const result = handlers.handleGenerateTestTasks({ working_directory: workingDir });
+      const result = await handlers.handleGenerateTestTasks({ working_directory: workingDir });
       const text = getText(result);
 
       expect(text).toContain('**Source files:** 0');
@@ -587,14 +587,14 @@ describe('automation-handlers', () => {
       expect(text).toContain('No suitable untested files found.');
     });
 
-    it('reuses an existing related test file outside __tests__', () => {
+    it('reuses an existing related test file outside __tests__', async () => {
       const workingDir = createTempProject({
         [path.join('src', 'handlers', 'task-pipeline.js')]: buildLines(40, 'pipeline'),
         [path.join('tests', 'handler-task-pipeline.test.js')]: 'export {}',
       });
       const { handlers } = loadHandlers();
 
-      const result = handlers.handleGenerateTestTasks({
+      const result = await handlers.handleGenerateTestTasks({
         working_directory: workingDir,
         source_dirs: ['src/handlers', 'tests'],
         test_pattern: '.test.js',
@@ -608,14 +608,14 @@ describe('automation-handlers', () => {
       expect(generatedTasks[0].task).toContain('Extend the existing test file tests/handler-task-pipeline.test.js');
     });
 
-    it('auto-submits generated test tasks through the task manager', () => {
+    it('auto-submits generated test tasks through the task manager', async () => {
       const workingDir = createTempProject({
         [path.join('src', 'systems', 'QueueSystem.ts')]: buildLines(32, 'queue'),
       });
       const db = createMockDb();
       const { handlers, mocks } = loadHandlers({ db });
 
-      const result = handlers.handleGenerateTestTasks({
+      const result = await handlers.handleGenerateTestTasks({
         working_directory: workingDir,
         auto_submit: true,
         provider: 'claude-cli',
