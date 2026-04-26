@@ -13,10 +13,12 @@ const { countTasks } = require('../db/task-core');
 const { getDefaultProvider, getProviderHealth, isProviderHealthy } = require('../db/provider-routing-core');
 const { listOllamaHosts, recordHostHealthCheck } = require('../db/host-management');
 const { getProviderStats } = require('../db/file-tracking');
+const { getApprovedModels } = require('../models/registry');
 const { PROVIDER_DEFAULT_TIMEOUTS, PROVIDER_DEFAULTS } = require('../constants');
 const { getProviderHealthStatus } = require('../utils/provider-health-status');
 const {
   getProviderCapabilityMatrix,
+  getProviderAdapter,
 } = require('../providers/adapter-registry');
 const { parseModelSizeB } = require('../utils/model');
 const { probeOllamaEndpoint } = require('../handlers/shared');
@@ -448,8 +450,9 @@ function normalizeProviderModels(models) {
       if (value) uniqueModels.add(value);
       continue;
     }
-    if (model && typeof model === 'object' && typeof model.name === 'string') {
-      const value = model.name.trim();
+    if (model && typeof model === 'object') {
+      const candidate = model.model_name || model.id || model.name || model.model;
+      const value = typeof candidate === 'string' ? candidate.trim() : '';
       if (value) uniqueModels.add(value);
     }
   }
@@ -484,6 +487,21 @@ function getConfiguredProviderModels(providerId) {
   ]);
 }
 
+function getV2ApprovedProviderModels(providerId) {
+  if (providerId !== 'openrouter') {
+    return [];
+  }
+
+  try {
+    const approvedModels = getApprovedModels(providerId, undefined);
+    return Array.isArray(approvedModels)
+      ? approvedModels.filter((model) => typeof model?.model_name === 'string' && model.model_name.trim())
+      : [];
+  } catch {
+    return [];
+  }
+}
+
 function getV2ModelDisplayName(modelId) {
   return PROVIDER_MODEL_NAME_OVERRIDES[modelId] || modelId;
 }
@@ -504,13 +522,21 @@ function getV2ModelParameters(modelId, rawModel = null) {
     }
   }
 
-  const sizeBytes = Number(rawModel?.size);
+  const registryParameterSize = Number(rawModel?.parameter_size_b);
+  if (Number.isFinite(registryParameterSize) && registryParameterSize > 0) {
+    parameters.parameter_count_b = registryParameterSize;
+  }
+
+  const sizeBytes = Number(rawModel?.size ?? rawModel?.size_bytes);
   if (Number.isFinite(sizeBytes) && sizeBytes > 0) {
     parameters.size_bytes = sizeBytes;
   }
 
-  if (typeof rawModel?.details?.family === 'string' && rawModel.details.family.trim()) {
-    parameters.family = rawModel.details.family.trim();
+  const family = typeof rawModel?.details?.family === 'string'
+    ? rawModel.details.family
+    : rawModel?.family;
+  if (typeof family === 'string' && family.trim()) {
+    parameters.family = family.trim();
   }
 
   if (typeof rawModel?.details?.quantization_level === 'string' && rawModel.details.quantization_level.trim()) {
@@ -523,11 +549,15 @@ function getV2ModelParameters(modelId, rawModel = null) {
 function buildV2ModelDescriptor(providerId, rawModel, source, refreshedAt) {
   const modelId = typeof rawModel === 'string'
     ? rawModel.trim()
-    : typeof rawModel?.name === 'string'
-      ? rawModel.name.trim()
-      : typeof rawModel?.model === 'string'
-        ? rawModel.model.trim()
-        : '';
+    : typeof rawModel?.model_name === 'string'
+      ? rawModel.model_name.trim()
+      : typeof rawModel?.id === 'string'
+        ? rawModel.id.trim()
+        : typeof rawModel?.name === 'string'
+          ? rawModel.name.trim()
+          : typeof rawModel?.model === 'string'
+            ? rawModel.model.trim()
+            : '';
 
   if (!modelId) {
     return null;
@@ -682,9 +712,45 @@ async function getV2ProviderModels(providerId) {
   }
 
   const refreshedAt = new Date().toISOString();
+  const configuredModels = getConfiguredProviderModels(providerId);
+
+  if (providerId === 'openrouter' && configuredModels.length === 0) {
+    const approvedModels = getV2ApprovedProviderModels(providerId);
+    if (approvedModels.length > 0) {
+      return {
+        models: mergeV2ModelDescriptors(
+          approvedModels
+            .map((model) => buildV2ModelDescriptor(providerId, model, 'registry', refreshedAt))
+            .filter(Boolean),
+        ),
+        source: 'registry',
+        refreshed_at: refreshedAt,
+      };
+    }
+
+    try {
+      const adapter = getProviderAdapter(providerId);
+      const liveModels = adapter && typeof adapter.listModels === 'function'
+        ? await adapter.listModels({ freeOnly: true, toolsOnly: false })
+        : [];
+
+      return {
+        models: mergeV2ModelDescriptors(
+          (Array.isArray(liveModels) ? liveModels : [])
+            .map((model) => buildV2ModelDescriptor(providerId, model, 'provider_api_live', refreshedAt))
+            .filter(Boolean),
+        ),
+        source: 'provider_api_live',
+        refreshed_at: refreshedAt,
+      };
+    } catch {
+      // Fall through to the static/provider catalog below if live metadata fails.
+    }
+  }
+
   const source = getV2ProviderModelSource(providerId);
   const modelDescriptors = mergeV2ModelDescriptors(
-    getConfiguredProviderModels(providerId)
+    configuredModels
       .map((model) => buildV2ModelDescriptor(providerId, model, source, refreshedAt))
       .filter(Boolean),
   );
@@ -729,6 +795,17 @@ function getV2ProviderSuccessRatio(providerStats, runtimeHealth) {
 }
 
 function isV2ProviderApiKeyConfigured(providerId) {
+  try {
+    const apiKey = typeof serverConfig.getApiKey === 'function'
+      ? serverConfig.getApiKey(providerId)
+      : null;
+    if (typeof apiKey === 'string' && apiKey.trim()) {
+      return true;
+    }
+  } catch {
+    // Ignore config lookup failures in discovery helpers.
+  }
+
   const configKeys = PROVIDER_API_KEY_CONFIG_KEYS[providerId] || [];
   for (const key of configKeys) {
     try {
@@ -858,6 +935,7 @@ module.exports = {
   normalizeProviderModels,
   getV2ProviderModelSource,
   getConfiguredProviderModels,
+  getV2ApprovedProviderModels,
   getV2ModelDisplayName,
   getV2ModelParameters,
   buildV2ModelDescriptor,

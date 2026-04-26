@@ -20,6 +20,7 @@ server/torque.db-shm
 server/secret.key
 server/torque.pid
 server/backups/
+backups/
 server/task-file-write-snapshots/
 server/torque.log
 server/torque.log.*
@@ -113,7 +114,3 @@ drafts/
 /tmp_google_ai_*.js
 /tmp_ollama_*.js
 .torque-checkpoints/
-
-# Perf harness — last run is local-only; baseline.json IS committed
-server/perf/last-run.json
-server/perf/bypass-audit.log

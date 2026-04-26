@@ -42,6 +42,8 @@ const MODEL_SOURCES = Object.freeze([
   'static',
   'runtime',
   'provider_api',
+  'provider_api_live',
+  'registry',
 ]);
 
 const STANDARD_ERROR_RESPONSE_SCHEMA = Object.freeze({
