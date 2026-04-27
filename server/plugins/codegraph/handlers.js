@@ -146,16 +146,23 @@ function createHandlers({ db }) {
     async cg_resolve_tool(args) {
       const repoPath = requireString(args, 'repo_path');
       const toolName = requireString(args, 'tool_name');
-      const { handlers, candidates } = resolveTool({ db, repoPath, toolName });
+      const { handlers, candidates, convention_candidates } = resolveTool({ db, repoPath, toolName });
+      const hasHandlers = handlers.length > 0;
+      const hasCandidates = candidates.length > 0;
+      const hasConvention = convention_candidates.length > 0;
       return asToolResult({
         tool_name: toolName,
         handlers,
         candidates,
-        ...(handlers.length === 0 && candidates.length > 0 && {
-          hint: `No explicit dispatcher captured for '${toolName}', but ${candidates.length} symbol(s) with that exact name were found in the index. In most JS/TS conventions (and TORQUE plugins specifically), the runtime dispatch handlers[toolName] resolves to a same-named method or function — these candidate symbols are very likely the actual handler. Verify by inspecting the file/line.`,
+        convention_candidates,
+        ...(hasHandlers === false && hasCandidates && {
+          hint: `No explicit dispatcher captured for '${toolName}', but ${candidates.length} symbol(s) with that exact name were found. In most JS/TS conventions (and TORQUE plugins), runtime dispatch handlers[toolName] resolves to a same-named method — these candidates are very likely the actual handler.`,
         }),
-        ...(handlers.length === 0 && candidates.length === 0 && {
-          hint: `No dispatcher captured AND no symbol named '${toolName}' was found in the indexed repo. The tool may be defined in a different repo, registered dynamically from a string interpolation, or misspelled. Try cg_find_references on the tool name as a string symbol to find call sites that mention it.`,
+        ...(hasHandlers === false && hasCandidates === false && hasConvention && {
+          hint: `No dispatcher and no exact-name symbol found for '${toolName}', but ${convention_candidates.length} symbol(s) match the TORQUE handle<PascalCase> convention (e.g. smart_submit_task → handleSmartSubmitTask). These are likely the handler — verify by inspecting the file/line.`,
+        }),
+        ...(hasHandlers === false && hasCandidates === false && hasConvention === false && {
+          hint: `No dispatcher, no exact-name symbol, and no handle<PascalCase> convention match for '${toolName}'. The tool may be defined in a different repo, registered dynamically from a string interpolation, or misspelled. Try cg_find_references on '${toolName}' as a string symbol to find call sites that mention it.`,
         }),
         staleness: staleness(db, repoPath),
       });

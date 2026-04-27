@@ -79,12 +79,13 @@ describe('codegraph handlers', () => {
     expect(r.caveat).toMatch(/permissive/i);
   });
 
-  it('cg_resolve_tool returns empty handlers + candidates + name-not-found hint', async () => {
+  it('cg_resolve_tool returns empty handlers + candidates + convention_candidates + name-not-found hint', async () => {
     const r = data(await handlers.cg_resolve_tool({ repo_path: repo, tool_name: 'no_such_tool' }));
     expect(r.tool_name).toBe('no_such_tool');
     expect(r.handlers).toEqual([]);
     expect(r.candidates).toEqual([]);
-    expect(r.hint).toMatch(/No dispatcher captured AND no symbol/i);
+    expect(r.convention_candidates).toEqual([]);
+    expect(r.hint).toMatch(/handle<PascalCase> convention match/i);
   });
 
   it('cg_resolve_tool surfaces same-name symbols as candidates when no dispatcher matches', async () => {
@@ -98,6 +99,29 @@ describe('codegraph handlers', () => {
       file: 'a.js',
     }));
     expect(r.hint).toMatch(/very likely the actual handler/i);
+  });
+
+  it('cg_resolve_tool falls back to handle<PascalCase> convention when no exact symbol exists', async () => {
+    // Add a function named handleSomeTool to the fixture so the convention
+    // fallback has a target. Test directly via the test-helper repo.
+    const fs = require('fs');
+    const path = require('path');
+    const { execFileSync } = require('child_process');
+    fs.writeFileSync(path.join(repo, 'c.js'), 'function handleSomeTool(args) { return null; }\n');
+    execFileSync('git', ['add', '.'], { cwd: repo, windowsHide: true, stdio: ['ignore','ignore','pipe'] });
+    execFileSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '-m', 'add handler'],
+      { cwd: repo, windowsHide: true, stdio: ['ignore','ignore','pipe'] });
+    await handlers.cg_reindex({ repo_path: repo, async: false, force: true });
+
+    const r = data(await handlers.cg_resolve_tool({ repo_path: repo, tool_name: 'some_tool' }));
+    expect(r.handlers).toEqual([]);
+    expect(r.candidates).toEqual([]);
+    expect(r.convention_candidates.length).toBeGreaterThan(0);
+    expect(r.convention_candidates[0]).toEqual(expect.objectContaining({
+      name: 'handleSomeTool',
+      file: 'c.js',
+    }));
+    expect(r.hint).toMatch(/handle<PascalCase> convention/i);
   });
 
   it('staleness reports stale=true after a new commit lands without reindex', async () => {

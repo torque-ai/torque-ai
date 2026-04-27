@@ -15,14 +15,9 @@ const DISPATCH_SQL = `
   ORDER BY file_path, line
 `;
 
-// Fallback: when no dispatcher matched, look up symbols whose name matches
-// the tool name. In TORQUE plugins (and most JS conventions), the runtime
-// dispatch `handlers[toolDef.name]` resolves to a method whose name equals
-// the tool name. The `cg_dispatch_edges` capture for createXxxHandlers
-// factories should usually have already returned an answer, but this
-// fallback covers cases where the factory isn't recognized — exported
-// handler maps, alternate naming conventions, or method definitions inside
-// classes.
+// Fallback 1: same-name symbols. In TORQUE plugins (and most JS conventions),
+// the runtime dispatch handlers[toolDef.name] resolves to a method whose
+// name equals the tool name.
 const SYMBOL_FALLBACK_SQL = `
   SELECT
     name      AS name,
@@ -36,13 +31,54 @@ const SYMBOL_FALLBACK_SQL = `
   LIMIT 10
 `;
 
-function resolveTool({ db, repoPath, toolName }) {
-  const handlers = db.prepare(DISPATCH_SQL).all({ repoPath, toolName });
-  if (handlers.length > 0) return { handlers, candidates: [] };
-
-  // No explicit dispatcher — return same-name symbols as candidates.
-  const candidates = db.prepare(SYMBOL_FALLBACK_SQL).all({ repoPath, toolName });
-  return { handlers: [], candidates };
+// Fallback 2: convention-based name guessing. Many TORQUE handlers use
+// handle<PascalCase(toolName)> naming — e.g. smart_submit_task →
+// handleSmartSubmitTask. Generate likely candidates and look them up.
+function guessHandlerNames(toolName) {
+  const pascal = toolName
+    .split(/[_\-]/)
+    .filter(Boolean)
+    .map((p) => p.charAt(0).toUpperCase() + p.slice(1))
+    .join('');
+  if (!pascal) return [];
+  return [
+    `handle${pascal}`,
+    `do${pascal}`,
+    `${pascal.charAt(0).toLowerCase()}${pascal.slice(1)}Handler`,
+  ];
 }
 
-module.exports = { resolveTool };
+const CONVENTION_FALLBACK_SQL = `
+  SELECT
+    name      AS name,
+    kind      AS kind,
+    file_path AS file,
+    start_line AS line,
+    start_col  AS column
+  FROM cg_symbols
+  WHERE repo_path = @repoPath AND name IN (SELECT value FROM json_each(@names))
+  ORDER BY file_path, start_line
+  LIMIT 10
+`;
+
+function resolveTool({ db, repoPath, toolName }) {
+  const handlers = db.prepare(DISPATCH_SQL).all({ repoPath, toolName });
+  if (handlers.length > 0) return { handlers, candidates: [], convention_candidates: [] };
+
+  // Fallback 1: same-name symbols.
+  const candidates = db.prepare(SYMBOL_FALLBACK_SQL).all({ repoPath, toolName });
+  if (candidates.length > 0) return { handlers: [], candidates, convention_candidates: [] };
+
+  // Fallback 2: convention-guessed names.
+  const guesses = guessHandlerNames(toolName);
+  let convention_candidates = [];
+  if (guesses.length > 0) {
+    convention_candidates = db.prepare(CONVENTION_FALLBACK_SQL).all({
+      repoPath,
+      names: JSON.stringify(guesses),
+    });
+  }
+  return { handlers: [], candidates: [], convention_candidates };
+}
+
+module.exports = { resolveTool, guessHandlerNames };
