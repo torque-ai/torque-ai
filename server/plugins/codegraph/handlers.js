@@ -88,8 +88,13 @@ function createHandlers({ db }) {
     async cg_find_references(args) {
       const repoPath = requireString(args, 'repo_path');
       const symbol   = requireString(args, 'symbol');
+      const scope    = args.scope || 'loose';
+      if (scope !== 'loose' && scope !== 'strict') {
+        throw new Error("scope must be 'loose' or 'strict'");
+      }
       return asToolResult({
-        references: findReferences({ db, repoPath, symbol }),
+        references: findReferences({ db, repoPath, symbol, scope }),
+        scope,
         staleness: staleness(db, repoPath),
       });
     },
@@ -99,12 +104,17 @@ function createHandlers({ db }) {
       const symbol    = requireString(args, 'symbol');
       const direction = args.direction || 'callees';
       const depth     = args.depth ?? 2;
-      const g = callGraph({ db, repoPath, symbol, direction, depth });
+      const scope     = args.scope || 'loose';
+      if (scope !== 'loose' && scope !== 'strict') {
+        throw new Error("scope must be 'loose' or 'strict'");
+      }
+      const g = callGraph({ db, repoPath, symbol, direction, depth, scope });
       return asToolResult({
         nodes: g.nodes,
         edges: g.edges,
         truncated: g.truncated,
         max_nodes: g.max_nodes,
+        scope,
         ...(g.truncated && { truncation_hint: `Result hit the ${g.max_nodes}-node cap. Narrow with smaller depth, or pivot to find_references / impact_set on a more specific symbol.` }),
         staleness: staleness(db, repoPath),
       });
@@ -114,13 +124,18 @@ function createHandlers({ db }) {
       const repoPath = requireString(args, 'repo_path');
       const symbol   = requireString(args, 'symbol');
       const depth    = args.depth ?? 3;
-      const i = impactSet({ db, repoPath, symbol, depth });
+      const scope    = args.scope || 'loose';
+      if (scope !== 'loose' && scope !== 'strict') {
+        throw new Error("scope must be 'loose' or 'strict'");
+      }
+      const i = impactSet({ db, repoPath, symbol, depth, scope });
       return asToolResult({
         symbols: i.symbols,
         files: i.files,
         truncated: !!i.truncated,
         max_nodes: i.max_nodes,
         depth_used: depth,
+        scope,
         ...(i.truncated && { truncation_hint: `Result hit the ${i.max_nodes}-node cap. The blast radius is wider than this query exposes. Reduce depth (try 2) for direct impact, or query specific call sites with find_references.` }),
         staleness: staleness(db, repoPath),
       });

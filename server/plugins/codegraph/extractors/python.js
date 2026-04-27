@@ -126,6 +126,71 @@ function extractClassEdges(classNode) {
   return out;
 }
 
+// Pull a dotted_name's full text (e.g., 'pkg.sub').
+function dottedNameText(node) {
+  if (!node) return '';
+  if (node.type === 'identifier') return node.text;
+  if (node.type === 'dotted_name') {
+    return node.namedChildren.map((c) => c.text).join('.');
+  }
+  return node.text;
+}
+
+// Python import shapes:
+//   import x               → (local=x,  module=x)
+//   import x.y             → (local=x,  module=x.y)
+//   import x as y          → (local=y,  module=x)
+//   from x import foo      → (local=foo, module=x, name=foo)
+//   from x import foo as f → (local=f,   module=x, name=foo)
+//   from x import *        → not recorded (wildcard)
+function extractImportsFromImportStatement(node) {
+  const out = [];
+  const line = node.startPosition.row + 1;
+  const col  = node.startPosition.column;
+
+  if (node.type === 'import_statement') {
+    for (let i = 0; i < node.namedChildCount; i++) {
+      const child = node.namedChild(i);
+      if (child.type === 'dotted_name') {
+        const full = dottedNameText(child);
+        const top = child.namedChild(0)?.text || full;
+        out.push({ localName: top, sourceModule: full, sourceName: null, line, col });
+      } else if (child.type === 'aliased_import') {
+        const dn = child.namedChildren.find((c) => c.type === 'dotted_name');
+        const id = child.namedChildren.find((c) => c.type === 'identifier');
+        if (dn && id) {
+          out.push({ localName: id.text, sourceModule: dottedNameText(dn), sourceName: null, line, col });
+        }
+      }
+    }
+    return out;
+  }
+
+  if (node.type === 'import_from_statement') {
+    const mod = node.namedChildren.find((c) => c.type === 'dotted_name' || c.type === 'relative_import');
+    if (!mod) return out;
+    const moduleName = mod.type === 'relative_import' ? mod.text : dottedNameText(mod);
+    for (let i = 0; i < node.namedChildCount; i++) {
+      const child = node.namedChild(i);
+      if (child === mod) continue;
+      if (child.type === 'wildcard_import') continue;
+      if (child.type === 'dotted_name') {
+        const name = dottedNameText(child);
+        out.push({ localName: name, sourceModule: moduleName, sourceName: name, line, col });
+      } else if (child.type === 'aliased_import') {
+        const dn = child.namedChildren.find((c) => c.type === 'dotted_name');
+        const id = child.namedChildren.find((c) => c.type === 'identifier');
+        if (dn && id) {
+          out.push({ localName: id.text, sourceModule: moduleName, sourceName: dottedNameText(dn), line, col });
+        }
+      }
+    }
+    return out;
+  }
+
+  return out;
+}
+
 async function extractFromSource(source) {
   const parser = await getParser('python');
   const tree = parser.parse(source, null, {
@@ -136,6 +201,7 @@ async function extractFromSource(source) {
   const references = [];
   const dispatchEdges = []; // not used in Python; left empty for shape parity
   const classEdges = [];
+  const imports = [];
   const exportedNames = new Set();
   const enclosingStack = [];           // indexes into `symbols`
   const insideClassStack = [];         // booleans tracking whether inside class
@@ -226,6 +292,10 @@ async function extractFromSource(source) {
       }
     }
 
+    if (node.type === 'import_statement' || node.type === 'import_from_statement') {
+      for (const imp of extractImportsFromImportStatement(node)) imports.push(imp);
+    }
+
     // Generic recursion for non-definition nodes (statements, expressions).
     for (let i = 0; i < node.namedChildCount; i++) {
       walk(node.namedChild(i), depth);
@@ -239,7 +309,7 @@ async function extractFromSource(source) {
     s.isExported = exportedNames.has(s.name);
   }
 
-  return { symbols, references, dispatchEdges, classEdges, exportedNames: [...exportedNames] };
+  return { symbols, references, dispatchEdges, classEdges, imports, exportedNames: [...exportedNames] };
 }
 
 module.exports = { extractFromSource };

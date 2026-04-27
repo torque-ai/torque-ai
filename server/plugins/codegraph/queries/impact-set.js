@@ -8,8 +8,8 @@ const { callGraph } = require('./call-graph');
 // Depth 3 captures the local blast radius (direct callers + their callers
 // + theirs) which is the practical refactor scope; depth 5+ is available
 // for explicit transitive analysis.
-function impactSet({ db, repoPath, symbol, depth = 3 }) {
-  const g = callGraph({ db, repoPath, symbol, direction: 'callers', depth });
+function impactSet({ db, repoPath, symbol, depth = 3, scope = 'loose' }) {
+  const g = callGraph({ db, repoPath, symbol, direction: 'callers', depth, scope });
   const symbols = g.nodes.map((n) => n.name).filter((n) => n !== symbol);
   if (symbols.length === 0) {
     return { symbols: [], files: [], truncated: g.truncated };

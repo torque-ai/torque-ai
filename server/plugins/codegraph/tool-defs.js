@@ -38,12 +38,13 @@ const tools = [
   },
   {
     name: 'cg_find_references',
-    description: 'Find every call site of a named symbol in the indexed repo. Returns `{references: [{file, line, column, callerSymbol}], staleness}` — callerSymbol is the function/method enclosing the call site, or null for file-scope calls.' + RESOLUTION_NOTE + STALENESS_NOTE,
+    description: 'Find every call site of a named symbol in the indexed repo. Returns `{references: [{file, line, column, callerSymbol}], scope, staleness}`. callerSymbol is the function/method enclosing the call site, or null for file-scope calls. The `scope` parameter trades recall for precision: "loose" (default) matches by identifier — high recall, false-positive-prone for common names. "strict" only returns references the indexer pinned to a specific exported symbol via import-binding analysis — high precision, drops cross-package and dynamically-dispatched calls.' + RESOLUTION_NOTE + STALENESS_NOTE,
     inputSchema: {
       type: 'object',
       properties: {
         repo_path: { type: 'string' },
         symbol:    { type: 'string', description: 'Bare identifier name (no namespacing, no parens). For methods like `foo.bar()` this matches any symbol named `bar`.' },
+        scope:     { type: 'string', enum: ['loose', 'strict'], default: 'loose', description: 'loose = identifier-only match (high recall); strict = only resolved-via-import references (high precision).' },
       },
       required: ['repo_path', 'symbol'],
       additionalProperties: false,
@@ -51,7 +52,7 @@ const tools = [
   },
   {
     name: 'cg_call_graph',
-    description: 'Walk the call graph from a symbol. direction=callees follows what the symbol calls; direction=callers follows what calls it; direction=both unions both. Returns `{nodes: [{name}], edges: [{from, to}], truncated, max_nodes, staleness}`. Bounded by depth (max 8) and a 100-node cap. When truncated=true the response includes truncation_hint suggesting how to narrow scope.' + RESOLUTION_NOTE + STALENESS_NOTE,
+    description: 'Walk the call graph from a symbol. direction=callees follows what the symbol calls; direction=callers follows what calls it; direction=both unions both. Returns `{nodes: [{name}], edges: [{from, to}], truncated, max_nodes, scope, staleness}`. Bounded by depth (max 8) and a 100-node cap. When truncated=true the response includes truncation_hint suggesting how to narrow. The `scope` parameter has the same loose/strict meaning as cg_find_references.' + RESOLUTION_NOTE + STALENESS_NOTE,
     inputSchema: {
       type: 'object',
       properties: {
@@ -59,6 +60,7 @@ const tools = [
         symbol:    { type: 'string' },
         direction: { type: 'string', enum: ['callers', 'callees', 'both'], default: 'callees' },
         depth:     { type: 'integer', minimum: 1, maximum: 8, default: 2 },
+        scope:     { type: 'string', enum: ['loose', 'strict'], default: 'loose' },
       },
       required: ['repo_path', 'symbol'],
       additionalProperties: false,
@@ -66,13 +68,14 @@ const tools = [
   },
   {
     name: 'cg_impact_set',
-    description: 'Compute the impact set of changing a symbol: every transitively-affected (caller-side) symbol and the files containing them. Returns `{symbols: [name], files: [path], truncated, depth_used, staleness}`. Use before refactoring to scope the work. The queried symbol is excluded from `symbols`. Default depth=3 covers the practical refactor scope (direct callers + 2 hops). Bump to 5+ only when you explicitly want transitive blast radius — foundational functions hit the 100-node cap fast and the response sets truncated=true.' + RESOLUTION_NOTE + STALENESS_NOTE,
+    description: 'Compute the impact set of changing a symbol: every transitively-affected (caller-side) symbol and the files containing them. Returns `{symbols: [name], files: [path], truncated, depth_used, scope, staleness}`. Use before refactoring to scope the work. The queried symbol is excluded from `symbols`. Default depth=3 covers the practical refactor scope (direct callers + 2 hops). Bump to 5+ only when you explicitly want transitive blast radius — foundational functions hit the 100-node cap fast. `scope` parameter same as cg_find_references; pass scope=strict to filter out same-name unrelated symbols.' + RESOLUTION_NOTE + STALENESS_NOTE,
     inputSchema: {
       type: 'object',
       properties: {
         repo_path: { type: 'string' },
         symbol:    { type: 'string' },
         depth:     { type: 'integer', minimum: 1, maximum: 8, default: 3, description: 'BFS depth over the caller graph. depth=1 is direct callers only; depth=3 covers local refactor scope (default); depth=5+ is transitive blast radius.' },
+        scope:     { type: 'string', enum: ['loose', 'strict'], default: 'loose' },
       },
       required: ['repo_path', 'symbol'],
       additionalProperties: false,
