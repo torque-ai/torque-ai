@@ -57,6 +57,44 @@ describe('codegraph handlers', () => {
     expect(r.staleness.stale).toBe(false);
   });
 
+  it('cg_find_references emits callerKind + caller modifiers when caller has them', async () => {
+    // Add a file where an async function calls beta. The fixture's b.js
+    // already declares beta(); we add an async caller in c.js.
+    const fs = require('fs');
+    const path = require('path');
+    const { execFileSync } = require('child_process');
+    fs.writeFileSync(path.join(repo, 'c.js'), 'async function callerAsync() { return beta(); }\n');
+    execFileSync('git', ['add', '.'], { cwd: repo, windowsHide: true, stdio: ['ignore','ignore','pipe'] });
+    execFileSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '-m', 'add async caller'],
+      { cwd: repo, windowsHide: true, stdio: ['ignore','ignore','pipe'] });
+    await handlers.cg_reindex({ repo_path: repo, async: false, force: true });
+
+    const r = data(await handlers.cg_find_references({ repo_path: repo, symbol: 'beta' }));
+    const asyncRef = r.references.find((x) => x.callerSymbol === 'callerAsync');
+    expect(asyncRef).toBeTruthy();
+    expect(asyncRef.callerKind).toBe('function');
+    expect(asyncRef.callerIsAsync).toBe(true);
+    expect(asyncRef.callerIsGenerator).toBeUndefined();  // sparse — only when truthy
+
+    const syncRef = r.references.find((x) => x.callerSymbol === 'alpha');
+    expect(syncRef).toBeTruthy();
+    expect(syncRef.callerKind).toBe('function');
+    expect(syncRef.callerIsAsync).toBeUndefined();
+  });
+
+  it('cg_call_graph nodes carry kind + modifier flags', async () => {
+    const r = data(await handlers.cg_call_graph({
+      repo_path: repo, symbol: 'alpha', direction: 'callees', depth: 1,
+    }));
+    const alpha = r.nodes.find((n) => n.name === 'alpha');
+    const beta  = r.nodes.find((n) => n.name === 'beta');
+    expect(alpha).toEqual(expect.objectContaining({ name: 'alpha', kind: 'function' }));
+    expect(beta).toEqual(expect.objectContaining({ name: 'beta', kind: 'function' }));
+    // Neither alpha nor beta is async in the fixture — sparse fields stay absent.
+    expect(alpha.is_async).toBeUndefined();
+    expect(beta.is_async).toBeUndefined();
+  });
+
   it('cg_impact_set returns {symbols, files, staleness}', async () => {
     const r = data(await handlers.cg_impact_set({ repo_path: repo, symbol: 'beta', depth: 5 }));
     expect(r.symbols).toEqual(['alpha']);

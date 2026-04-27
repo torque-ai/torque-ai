@@ -43,6 +43,36 @@ function expand(db, repoPath, frontier, sql, depth, visited) {
   return { edges, truncated };
 }
 
+// Look up kind + modifier flags for a batch of symbol names. Returns a Map
+// keyed by name. When multiple symbols share a name (overloads, plugin
+// methods + module functions, etc.) we keep the first row — the call graph
+// is identifier-only so all same-name symbols are conflated anyway.
+const NODE_INFO_SQL = `
+  SELECT name, kind, is_async AS isAsync, is_generator AS isGenerator, is_static AS isStatic
+  FROM cg_symbols
+  WHERE repo_path = @repoPath AND name IN (SELECT value FROM json_each(@names))
+`;
+
+function lookupNodeInfo(db, repoPath, names) {
+  if (names.length === 0) return new Map();
+  const rows = db.prepare(NODE_INFO_SQL).all({ repoPath, names: JSON.stringify(names) });
+  const map = new Map();
+  for (const r of rows) {
+    if (!map.has(r.name)) map.set(r.name, r);
+  }
+  return map;
+}
+
+function decorateNode(name, info) {
+  const node = { name };
+  if (!info) return node;
+  node.kind = info.kind;
+  if (info.isAsync)     node.is_async = true;
+  if (info.isGenerator) node.is_generator = true;
+  if (info.isStatic)    node.is_static = true;
+  return node;
+}
+
 function callGraph({ db, repoPath, symbol, direction = 'callees', depth = 2 }) {
   const cap = Math.min(Math.max(1, depth | 0), MAX_DEPTH);
   const visited = new Set([symbol]);
@@ -60,8 +90,12 @@ function callGraph({ db, repoPath, symbol, direction = 'callees', depth = 2 }) {
     truncated = truncated || r.truncated;
   }
 
+  // One bulk symbol-info lookup, then decorate each node sparsely.
+  const names = [...visited];
+  const info = lookupNodeInfo(db, repoPath, names);
+
   return {
-    nodes: [...visited].map((name) => ({ name })),
+    nodes: names.map((name) => decorateNode(name, info.get(name))),
     edges: [...allEdges].map((e) => {
       const [from, to] = e.split('->');
       return { from, to };
