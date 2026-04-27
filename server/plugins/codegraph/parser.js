@@ -5,6 +5,7 @@ const JavaScript = require('tree-sitter-javascript');
 const TypeScript = require('tree-sitter-typescript');
 const Python = require('tree-sitter-python');
 const Go = require('tree-sitter-go');
+const CSharp = require('tree-sitter-c-sharp');
 
 const GRAMMARS = {
   javascript: JavaScript,
@@ -12,6 +13,7 @@ const GRAMMARS = {
   tsx:        TypeScript.tsx,
   python:     Python,
   go:         Go,
+  csharp:     CSharp,
 };
 
 const cache = new Map();

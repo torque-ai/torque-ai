@@ -269,7 +269,7 @@ TORQUE loads several plugins by default (configured in `DEFAULT_PLUGIN_NAMES` in
 | **snapscope** | `server/plugins/snapscope/` | ~35 `peek_*` and `capture_*` tools for visual verification, window capture, manifest validation, semantic diff, OCR, baselines |
 | **version-control** | `server/plugins/version-control/` | ~13 `vc_*` tools for worktree lifecycle, commit/PR generation, changelog, release cutting |
 | **remote-agents** | `server/plugins/remote-agents/` | `register_remote_agent`, `run_remote_command`, `run_tests`, plus health checks. Registers a `TestRunnerRegistry` route so `verify_command` / tests run on the configured remote with automatic local fallback; without it the validation pipeline is local-only |
-| **codegraph** | `server/plugins/codegraph/` | Eight `cg_*` tools for symbol/reference queries (find-references, call-graph, impact-set, dead-symbols, resolve-tool, class-hierarchy) plus `cg_index_status` and `cg_reindex`. Off by default — set `TORQUE_CODEGRAPH_ENABLED=1` to enable. JS/TS/TSX/Python/Go supported. See `docs/codegraph.md`. |
+| **codegraph** | `server/plugins/codegraph/` | Eight `cg_*` tools for symbol/reference queries (find-references, call-graph, impact-set, dead-symbols, resolve-tool, class-hierarchy) plus `cg_index_status` and `cg_reindex`. Off by default — set `TORQUE_CODEGRAPH_ENABLED=1` to enable. JS/TS/TSX/Python/Go/C# supported. See `docs/codegraph.md`. |
 
 ## Remote Workstation
 
