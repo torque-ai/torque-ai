@@ -138,10 +138,17 @@ describe('coord http server', () => {
   });
 
   it('GET /results rejects path-traversal attempts with 400', async () => {
-    const traversal = await request(port, 'GET', '/results/..%2F..%2Fetc/abc/gate');
-    expect(traversal.status).toBe(400);
+    const encoded = await request(port, 'GET', '/results/..%2F..%2Fetc/abc/gate');
+    expect(encoded.status).toBe(400);
     const slashSuite = await request(port, 'GET', '/results/torque-public/abc/gate%2F..');
     expect(slashSuite.status).toBe(400);
+    // Literal `..` as a path segment was previously accepted by the regex
+    // (only-dots passes [a-zA-Z0-9._-]+). path.join(root, '..', ...) then
+    // escapes results_dir. The regex's negative lookahead now blocks it.
+    const literalDotDot = await request(port, 'GET', '/results/../abc/gate');
+    expect(literalDotDot.status).toBe(400);
+    const literalDot = await request(port, 'GET', '/results/torque-public/./gate');
+    expect(literalDot.status).toBe(400);
   });
 
   it('GET /results rejects empty path components with 400', async () => {
