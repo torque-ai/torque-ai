@@ -4,6 +4,7 @@ const logger = require('../logger').child({ component: 'routes' });
 const providerRoutingCore = require('../db/provider-routing-core');
 const { validateInferenceRequest } = require('./v2-schemas');
 const { requestId, validateRequest } = require('./v2-middleware');
+const { COORD_ROUTES } = require('./routes/coord-routes');
 
 function buildV2Middleware(schema = {}) {
   return [requestId, validateRequest(schema)];
@@ -1465,6 +1466,10 @@ const routes = [
 
   // Shutdown — auth is handled inside handleShutdown (localhost bypass + key check)
   { method: 'POST', path: '/api/shutdown', handlerName: 'handleShutdown', skipAuth: true },
+
+  // ─── Coord daemon visibility routes ─────────────────────────────────────────
+  // Phase 3a: surface workstation coord daemon state through TORQUE.
+  ...COORD_ROUTES,
 
   // ─── Auto-generated tool passthrough routes (410 MCP tools) ─────────────────
   // Every MCP tool gets a semantic REST endpoint via handleToolCall() dispatch.
