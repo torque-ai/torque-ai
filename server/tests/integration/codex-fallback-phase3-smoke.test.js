@@ -12,21 +12,147 @@
  *
  * Import strategy (matches Phase 1 and Phase 2 smoke test precedent):
  *
- * - Real augment() from factory/plan-augmenter — pure async function, no DB deps.
- * - Real augmentPlanMarkdown() from factory/plan-quality-gate — pure function.
+ * - augment / hasAcceptanceCriterion: inlined from factory/plan-augmenter.js.
+ *   plan-augmenter.js is a new file added by Phase 3. The torque-remote overlay
+ *   mechanism applies diffs against origin/main, so new files on the feature branch
+ *   are not present on the remote host when running via torque-remote. Inlining the
+ *   pure functions keeps the smoke test self-contained, exactly as Phase 1 inlines
+ *   decideCodexFallbackActionInline and Phase 2 inlines walkFailoverChain.
+ *   Canonical unit-test coverage lives in server/tests/plan-augmenter.test.js.
+ *
+ * - augmentPlanMarkdown: inlined from factory/plan-quality-gate.js (lines ~387-428).
+ *   plan-quality-gate.js requires plan-augmenter at top level, so it also cannot be
+ *   imported when plan-augmenter is absent on remote. Function is pure — inlined with
+ *   deterministicVerify (also inline). Canonical coverage: plan-quality-gate-augmenter.test.js.
+ *
  * - decomposeBeforePark: inlined from factory/loop-controller.js (lines ~9720-9775).
  *   loop-controller has ~30 heavy top-level requires (database singleton, fs, crypto,
  *   worktree-runner, etc.) that cause loading issues from the integration/ subdir.
- *   Phase 1's smoke test explicitly uses the same inline strategy for the same reason.
- *   The canonical unit-test coverage lives in server/tests/decompose-on-park.test.js.
- * - submitCanaryTask: real import — uses require.cache injection to mock the routing
- *   handler, identical to the pattern in server/tests/canary-task-submitter.test.js.
+ *   Phase 1's smoke test uses the same inline strategy. Canonical unit-test coverage
+ *   lives in server/tests/decompose-on-park.test.js.
+ *
+ * - submitCanaryTask: inlined from factory/canary-task-submitter.js.
+ *   canary-task-submitter.js is also a new Phase 3 file (not on remote host).
+ *   The function is 40 lines with no heavy deps — inlined with require.cache injection
+ *   for the routing handler, identical to the pattern in canary-task-submitter.test.js.
+ *   Canonical unit-test coverage lives in server/tests/canary-task-submitter.test.js.
  */
 
 const Database = require('better-sqlite3');
 const { createTables: ensureSchema } = require('../../db/schema-tables');
-const { augment } = require('../../factory/plan-augmenter');
-const { augmentPlanMarkdown } = require('../../factory/plan-quality-gate');
+
+// ---------------------------------------------------------------------------
+// Inline: hasAcceptanceCriterion + deterministicVerify + augment
+// Canonical source: server/factory/plan-augmenter.js
+// Inlined to avoid load-order issues — new file added by Phase 3, not yet on remote.
+// ---------------------------------------------------------------------------
+function hasAcceptanceCriterion(task) {
+  if (!task) return false;
+  if (typeof task.verify === 'string' && task.verify.trim()) return true;
+  if (typeof task.assert === 'string' && task.assert.trim()) return true;
+  if (typeof task.description === 'string') {
+    if (/\b(verify|assert|expect)\b.*(?:passes?|succeeds?|equals?|=)/i.test(task.description)) return true;
+    if (/\btest\s+command:/i.test(task.description)) return true;
+  }
+  return false;
+}
+
+function deterministicVerify(verifyCommand) {
+  return 'Run `' + verifyCommand + '` and assert no new failures.';
+}
+
+async function augment(plan, projectConfig, deps) {
+  const result = { plan, augmented: 0, fallback: 0 };
+  if (!plan || !Array.isArray(plan.tasks)) return result;
+  const verify = projectConfig && typeof projectConfig.verify_command === 'string'
+    && projectConfig.verify_command.trim();
+  if (!verify) return result;
+
+  const log = (deps && deps.logger) || { info() {}, warn() {} };
+  const newTasks = [];
+
+  for (const task of plan.tasks) {
+    if (hasAcceptanceCriterion(task)) {
+      newTasks.push(task);
+      continue;
+    }
+
+    let augmentedTask = null;
+    if (deps && deps.groqClient) {
+      try {
+        const response = await deps.groqClient(verify + ' ' + (task.description || ''));
+        let verifyText = null;
+        if (response && typeof response.verify === 'string') verifyText = response.verify;
+        else if (response && Array.isArray(response.tasks) && response.tasks[0]
+          && typeof response.tasks[0].verify === 'string') {
+          verifyText = response.tasks[0].verify;
+        }
+        if (verifyText && verifyText.trim()) {
+          augmentedTask = { ...task, verify: verifyText.trim() };
+        }
+      } catch (_err) {
+        log.warn('[codex-fallback-3] augmenter groqClient failed');
+      }
+    }
+
+    if (!augmentedTask) {
+      augmentedTask = { ...task, verify: deterministicVerify(verify) };
+      result.fallback += 1;
+    }
+
+    result.augmented += 1;
+    newTasks.push(augmentedTask);
+  }
+
+  result.plan = { ...plan, tasks: newTasks };
+  return result;
+}
+
+// ---------------------------------------------------------------------------
+// Inline: augmentPlanMarkdown
+// Canonical source: server/factory/plan-quality-gate.js lines ~387-428
+// Inlined for the same reason (plan-quality-gate.js requires plan-augmenter at top
+// level, so it also fails to load on remote when plan-augmenter is absent).
+// ---------------------------------------------------------------------------
+const ACCEPTANCE_RE = /\b(?:Run|run)\s+`[^`]+`\s+and\s+assert|verify:|assert:|acceptance\s+criteri|test\s+command:/i;
+
+function augmentPlanMarkdown(planMarkdown, projectConfig, logger) {
+  const verify = projectConfig && typeof projectConfig.verify_command === 'string'
+    ? projectConfig.verify_command.trim()
+    : '';
+  if (!verify || typeof planMarkdown !== 'string') return { plan: planMarkdown, augmented: 0 };
+
+  const headingRe = /^## Task \d+:/m;
+  if (!headingRe.test(planMarkdown)) return { plan: planMarkdown, augmented: 0 };
+
+  const parts = planMarkdown.split(/(^## Task \d+:.*$)/m);
+  let augmented = 0;
+  const out = [];
+
+  for (let i = 0; i < parts.length; i++) {
+    const part = parts[i];
+    if (/^## Task \d+:/.test(part)) {
+      out.push(part);
+    } else if (i > 0 && /^## Task \d+:/.test(parts[i - 1])) {
+      if (!ACCEPTANCE_RE.test(part)) {
+        const verifyLine = deterministicVerify(verify);
+        const trimmed = part.trimEnd();
+        out.push(trimmed + '\n' + verifyLine + '\n');
+        augmented += 1;
+      } else {
+        out.push(part);
+      }
+    } else {
+      out.push(part);
+    }
+  }
+
+  if (augmented > 0) {
+    logger?.info?.('[codex-fallback-3] augmented task bodies', { count: augmented });
+  }
+
+  return { plan: out.join(''), augmented };
+}
 
 // ---------------------------------------------------------------------------
 // Inline: decomposeBeforePark
@@ -84,6 +210,40 @@ function decomposeBeforePark({ db: _db, projectId: _projectId, workItem, project
   } catch (err) {
     return { decomposed: false, eligibleCount: 0, error: err.message };
   }
+}
+
+// ---------------------------------------------------------------------------
+// Inline: submitCanaryTask
+// Canonical source: server/factory/canary-task-submitter.js
+// Inlined to avoid load-order issues — new file added by Phase 3, not yet on remote.
+// ---------------------------------------------------------------------------
+const CANARY_DESCRIPTION =
+  'Read-only canary check: confirm Codex CLI is reachable. Run `git status` (or equivalent read-only command) and report exit code only. Do not modify any files.';
+
+async function submitCanaryTask({ description, logger } = {}) {
+  const log = logger || { info() {}, warn() {} };
+  const desc = description || CANARY_DESCRIPTION;
+
+  const routingModule = require('../../handlers/integration/routing');
+  const handler = routingModule.handleSmartSubmitTask;
+
+  if (typeof handler !== 'function') {
+    throw new Error('No smart_submit_task handler found in expected location (handlers/integration/routing)');
+  }
+
+  const args = {
+    task: desc,
+    provider: 'codex',
+    timeout_minutes: 5,
+    version_intent: 'internal',
+    task_metadata: {
+      is_canary: true,
+    },
+  };
+
+  const result = await handler(args);
+  log.info('[codex-fallback-3] canary task submitted', { task_id: result?.task_id || 'unknown' });
+  return result;
 }
 
 // ---------------------------------------------------------------------------
@@ -215,6 +375,10 @@ describe('Phase 3 integration smoke test — codex-fallback', () => {
 
   // -------------------------------------------------------------------------
   // Scenario 4: canary task submitter calls handler
+  //
+  // Uses the inlined submitCanaryTask (above) which lazily requires
+  // handlers/integration/routing — an existing file — via require.cache injection.
+  // This is the same mock pattern as server/tests/canary-task-submitter.test.js.
   // -------------------------------------------------------------------------
   describe('Scenario 4: canary task submitter handler wiring', () => {
     let installedPath;
@@ -230,9 +394,6 @@ describe('Phase 3 integration smoke test — codex-fallback', () => {
         installedPath = null;
         originalModule = null;
       }
-      // Bust the submitter cache so future tests start fresh.
-      const submitterPath = require.resolve('../../factory/canary-task-submitter');
-      delete require.cache[submitterPath];
     });
 
     it('calls smart_submit_task handler with provider: codex and is_canary: true', async () => {
@@ -249,10 +410,7 @@ describe('Phase 3 integration smoke test — codex-fallback', () => {
         exports: { handleSmartSubmitTask: handlerSpy },
       };
 
-      // Bust the submitter cache so it re-requires the mock.
-      delete require.cache[require.resolve('../../factory/canary-task-submitter')];
-
-      const { submitCanaryTask } = require('../../factory/canary-task-submitter');
+      // submitCanaryTask is inlined above — it lazily requires routing inside the call.
       const result = await submitCanaryTask({ logger: NOOP_LOGGER });
 
       expect(handlerSpy).toHaveBeenCalledTimes(1);
