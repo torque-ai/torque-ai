@@ -273,10 +273,21 @@ function extractMapRegistrations(callNode) {
   const valArg = args.namedChild(1);
   const caseString = stringLiteralValue(keyArg);
   if (!caseString) return null;
-  if (valArg.type !== 'identifier') return null;
+
+  // Accept either a bare identifier (`handleFoo`) or a member expression
+  // (`namespace.handleFoo`) as the registered handler. TORQUE's tools.js
+  // uses the member-expression form: routeMap.set('foo', mod.handleFoo).
+  let handlerName = '';
+  if (valArg.type === 'identifier') {
+    handlerName = valArg.text;
+  } else if (valArg.type === 'member_expression') {
+    const prop = valArg.childForFieldName('property');
+    if (prop && prop.type === 'property_identifier') handlerName = prop.text;
+  }
+  if (!handlerName) return null;
   return {
     caseString,
-    handlerName: valArg.text,
+    handlerName,
     line: callNode.startPosition.row + 1,
     col: callNode.startPosition.column,
   };
@@ -304,8 +315,13 @@ function extractObjectLiteralRegistration(objectNode) {
     if (!keyName) continue;
     if ((keyName === 'name' || keyName === 'command' || keyName === 'tool') && val.type === 'string') {
       nameVal = stringLiteralValue(val);
-    } else if (keyName === 'handler' && val.type === 'identifier') {
-      handlerVal = val.text;
+    } else if (keyName === 'handler') {
+      if (val.type === 'identifier') {
+        handlerVal = val.text;
+      } else if (val.type === 'member_expression') {
+        const prop = val.childForFieldName('property');
+        if (prop && prop.type === 'property_identifier') handlerVal = prop.text;
+      }
     }
   }
   if (nameVal && handlerVal) {

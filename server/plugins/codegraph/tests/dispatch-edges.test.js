@@ -105,6 +105,31 @@ describe('codegraph dispatch-edge capture', () => {
     expect(map['no-handler-here']).toBeUndefined();
   });
 
+  it('extractor captures Map.set("name", module.handler) member-expression values', async () => {
+    // TORQUE-style: routeMap.set('foo', mod.handleFoo) — member expression as value.
+    const src = `
+      const routeMap = new Map();
+      routeMap.set('search_symbols', symbolHandlers.handleSearchSymbols);
+      routeMap.set('register_repo', symbolHandlers.handleRegisterRepo);
+    `;
+    const result = await extractFromSource(src, 'javascript');
+    const map = Object.fromEntries(result.dispatchEdges.map((e) => [e.caseString, e.handlerName]));
+    expect(map.search_symbols).toBe('handleSearchSymbols');
+    expect(map.register_repo).toBe('handleRegisterRepo');
+  });
+
+  it('extractor captures object-literal handler:module.fn member-expression values', async () => {
+    const src = `
+      const tools = [
+        { name: 'cg_reindex', handler: codegraphHandlers.cg_reindex },
+      ];
+    `;
+    const result = await extractFromSource(src, 'javascript');
+    expect(result.dispatchEdges).toContainEqual(
+      expect.objectContaining({ caseString: 'cg_reindex', handlerName: 'cg_reindex' })
+    );
+  });
+
   it('extractor accepts `command:` and `tool:` as alternative name keys for object-literal dispatch', async () => {
     const src = `
       const a = { command: 'do_thing', handler: handleDoThing };
