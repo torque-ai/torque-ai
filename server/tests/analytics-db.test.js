@@ -764,9 +764,16 @@ describe('server/db/analytics', () => {
       const insertPattern = createStatement({
         run: vi.fn(() => ({ changes: 1 })),
       });
+      // learnFailurePattern prepares the increment statement up front even
+      // when no existing pattern row matches; provide a placeholder so the
+      // db.prepare mock doesn't reject the unknown SQL during preparation.
+      const incrementPattern = createStatement({
+        run: vi.fn(() => ({ changes: 0 })),
+      });
 
       installDb([
         exact('SELECT * FROM failure_patterns WHERE id = ?', existingPattern),
+        contains('UPDATE failure_patterns SET failure_count', incrementPattern),
         contains('INSERT INTO failure_patterns', insertPattern),
       ]);
 
