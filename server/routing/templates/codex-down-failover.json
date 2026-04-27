@@ -1,0 +1,36 @@
+{
+  "name": "Codex-Down Failover",
+  "description": "Routes around a tripped Codex circuit breaker — free cloud providers only. Codex-only categories (architectural, large_code_gen, xaml_wpf, security, reasoning) have no chain and will park until Codex recovers.",
+  "rules": {
+    "simple_generation": [
+      {"provider": "groq", "model": "openai/gpt-oss-120b"},
+      {"provider": "cerebras", "model": "qwen-3-235b-a22b-instruct-2507"},
+      {"provider": "ollama"}
+    ],
+    "targeted_file_edit": [
+      {"provider": "groq", "model": "openai/gpt-oss-120b"},
+      {"provider": "cerebras", "model": "qwen-3-235b-a22b-instruct-2507"},
+      {"provider": "ollama"}
+    ],
+    "documentation": [
+      {"provider": "groq", "model": "openai/gpt-oss-120b"},
+      {"provider": "cerebras", "model": "qwen-3-235b-a22b-instruct-2507"},
+      {"provider": "google-ai", "model": "gemini-2.5-flash"}
+    ],
+    "default": [
+      {"provider": "groq", "model": "openai/gpt-oss-120b"},
+      {"provider": "cerebras", "model": "qwen-3-235b-a22b-instruct-2507"},
+      {"provider": "google-ai", "model": "gemini-2.5-flash"}
+    ],
+    "plan_generation": [
+      {"provider": "cerebras", "model": "qwen-3-235b-a22b-instruct-2507"},
+      {"provider": "groq", "model": "openai/gpt-oss-120b"},
+      {"provider": "google-ai", "model": "gemini-2.5-flash"}
+    ],
+    "tests": [
+      {"provider": "cerebras", "model": "qwen-3-235b-a22b-instruct-2507"},
+      {"provider": "google-ai", "model": "gemini-2.5-flash"},
+      {"provider": "openrouter", "model": "moonshotai/kimi-k2-instruct"}
+    ]
+  }
+}
