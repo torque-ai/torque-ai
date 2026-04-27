@@ -150,14 +150,34 @@ const COLUMN_MIGRATIONS = [
 ];
 
 function ensureSchema(db) {
+  // Three-pass order so an upgrade path from an older cg_symbols (without
+  // is_exported / container_name / etc.) doesn't fail. The previous single-
+  // pass loop ran CREATE INDEX statements that reference container_name BEFORE
+  // the column migration that adds it — fine on fresh DBs (CREATE TABLE
+  // includes the column) but crashes on pre-migration tables, e.g.
+  //   SqliteError: no such column: container_name
+  //     at ensureSchema schema.js:154
+  // surfaced by tests/schema.test.js > "migrates is_exported column onto an
+  // existing pre-migration cg_symbols".
+  //
+  //   1. CREATE TABLE statements first — gives the migration a target to
+  //      ALTER, and is a no-op via IF NOT EXISTS when the table already exists.
+  //   2. COLUMN_MIGRATIONS — backfills columns missing on legacy tables.
+  //   3. Everything else (CREATE INDEX etc.) — now safe because every column
+  //      referenced by an index either came from the CREATE TABLE or from a
+  //      migration.
+  const isCreateTable = (sql) => /^\s*CREATE\s+TABLE\b/i.test(sql);
   for (const sql of SCHEMA_SQL) {
-    db.prepare(sql).run();
+    if (isCreateTable(sql)) db.prepare(sql).run();
   }
   for (const m of COLUMN_MIGRATIONS) {
     const cols = db.prepare(`PRAGMA table_info('${m.table}')`).all().map((c) => c.name);
     if (!cols.includes(m.column)) {
       db.prepare(m.sql).run();
     }
+  }
+  for (const sql of SCHEMA_SQL) {
+    if (!isCreateTable(sql)) db.prepare(sql).run();
   }
 }
 
