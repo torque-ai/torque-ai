@@ -279,18 +279,25 @@ gate_failed() {
   exit 1
 }
 
-echo "[pre-push] Running dashboard + server + perf gate in parallel on remote (branch: $staging_branch)..."
-# All three phases run inside ONE torque-remote SSH session so the
-# (~80s) git fetch+checkout+reset sync only happens once instead of twice.
-# Previously the perf gate paid its own sync after tests passed; combining
-# saves that round trip. Inside the session, dashboard, server, and perf
-# run as background jobs in parallel — dashboard ~100s, server ~200s,
-# perf ~80s — so wall time is bounded by the server run. Each phase is
-# wrapped in `timeout` so a hung process can't stall the gate forever.
+echo "[pre-push] Running dashboard + server tests in parallel on remote (branch: $staging_branch)..."
+# Both phases run inside ONE torque-remote SSH session so the (~80s)
+# git fetch+checkout+reset sync only happens once instead of twice. Inside
+# that session, dashboard and server tests run as background jobs in
+# parallel — dashboard finishes in ~100s, server in ~200s, so wall time
+# is bounded by the server run. Each phase is wrapped in `timeout` so a
+# hung vitest process can't stall the gate forever.
 #
-# Output is line-prefixed [dash]/[serv]/[perf] so the interleaved stream
-# stays legible; tee in run_with_flake_retry streams it live to the user
-# so the gate doesn't look frozen during long phases.
+# The perf gate runs SEQUENTIALLY after tests pass (see below). Earlier we
+# tried bundling perf into this parallel block to save the second SSH sync,
+# but cold-import.tools / cold-import.task-manager / worktree-lifecycle
+# measurements got contaminated by concurrent vitest CPU/IO load — the
+# perf gate fired false-positive regressions on otherwise clean pushes.
+# Sequential perf trades ~80s of wall time for measurement reliability.
+# See project_test_gate_perf_session.md for the diagnosis.
+#
+# Output is line-prefixed [dash]/[serv] so the interleaved stream stays
+# legible; tee in run_with_flake_retry streams it live to the user so the
+# gate doesn't look frozen during long phases.
 #
 # IMPORTANT: each phase cd's into its own subdirectory before invoking
 # vitest so the tuned per-package config is picked up
@@ -298,16 +305,12 @@ echo "[pre-push] Running dashboard + server + perf gate in parallel on remote (b
 # pool=forks with no retry which reproducibly produces cross-file flakes;
 # dashboard/vitest.config.js: jsdom + react plugin).
 #
-# Exit code: $((dash_exit + serv_exit + perf_exit)) — non-zero if any failed.
-# Perf failures are still bypassable via PERF_GATE_BYPASS=1; the gate-end
-# marker carries the per-phase exits so the hook can apply that bypass to
-# perf only.
+# Exit code: $((dash_exit + serv_exit)) — non-zero if either failed.
 cd "$REPO_ROOT"
 remote_parallel_cmd=$(cat <<EOF
 set -uo pipefail
 DASH_EXIT_FILE=\$(mktemp)
 SERV_EXIT_FILE=\$(mktemp)
-PERF_EXIT_FILE=\$(mktemp)
 {
   timeout ${PHASE_TIMEOUT_SECS} bash -lc "cd dashboard && npx vitest run --reporter=dot"
   echo \$? > "\$DASH_EXIT_FILE"
@@ -318,20 +321,13 @@ DASH_PID=\$!
   echo \$? > "\$SERV_EXIT_FILE"
 } 2>&1 | sed -u "s/^/[serv] /" &
 SERV_PID=\$!
-{
-  timeout ${PHASE_TIMEOUT_SECS} bash -lc "cd server && node perf/run-perf.js"
-  echo \$? > "\$PERF_EXIT_FILE"
-} 2>&1 | sed -u "s/^/[perf] /" &
-PERF_PID=\$!
 wait \$DASH_PID 2>/dev/null
 wait \$SERV_PID 2>/dev/null
-wait \$PERF_PID 2>/dev/null
 DASH_EXIT=\$(cat "\$DASH_EXIT_FILE" 2>/dev/null || echo "1")
 SERV_EXIT=\$(cat "\$SERV_EXIT_FILE" 2>/dev/null || echo "1")
-PERF_EXIT=\$(cat "\$PERF_EXIT_FILE" 2>/dev/null || echo "1")
-rm -f "\$DASH_EXIT_FILE" "\$SERV_EXIT_FILE" "\$PERF_EXIT_FILE"
-echo "[gate-end] dash_exit=\$DASH_EXIT serv_exit=\$SERV_EXIT perf_exit=\$PERF_EXIT"
-exit \$((DASH_EXIT + SERV_EXIT + PERF_EXIT))
+rm -f "\$DASH_EXIT_FILE" "\$SERV_EXIT_FILE"
+echo "[gate-end] dash_exit=\$DASH_EXIT serv_exit=\$SERV_EXIT"
+exit \$((DASH_EXIT + SERV_EXIT))
 EOF
 )
 run_with_flake_retry "Test gate" "torque-remote --suite gate --branch $staging_branch bash -c $(printf %q "$remote_parallel_cmd")"
@@ -341,7 +337,6 @@ combined_exit="$RETRIED_EXIT"
 # Split combined output into per-phase streams for failure analysis.
 dash_output=$(echo "$combined_output" | grep '^\[dash\] ' | sed 's/^\[dash\] //')
 server_output=$(echo "$combined_output" | grep '^\[serv\] ' | sed 's/^\[serv\] //')
-perf_output=$(echo "$combined_output" | grep '^\[perf\] ' | sed 's/^\[perf\] //')
 
 # The gate-end marker reports per-phase exits even when overall exit code
 # is nonzero from `set -uo pipefail` weirdness. Prefer the marker when
@@ -349,11 +344,9 @@ perf_output=$(echo "$combined_output" | grep '^\[perf\] ' | sed 's/^\[perf\] //'
 if echo "$combined_output" | grep -qE '\[gate-end\] dash_exit=[0-9]'; then
   dash_exit=$(echo "$combined_output" | grep '\[gate-end\]' | sed -E 's/.*dash_exit=([0-9]+).*/\1/' | tail -1)
   server_exit=$(echo "$combined_output" | grep '\[gate-end\]' | sed -E 's/.*serv_exit=([0-9]+).*/\1/' | tail -1)
-  perf_exit=$(echo "$combined_output" | grep '\[gate-end\]' | sed -E 's/.*perf_exit=([0-9]+).*/\1/' | tail -1)
 else
   dash_exit="$combined_exit"
   server_exit="$combined_exit"
-  perf_exit="$combined_exit"
 fi
 
 if [ "$dash_exit" -ne 0 ] || tests_have_failures "$dash_output"; then
@@ -366,18 +359,30 @@ if [ "$server_exit" -ne 0 ] || tests_have_failures "$server_output"; then
 fi
 
 # ---------------------------------------------------------------------------
-# Perf regression gate result — runs in parallel above; this section only
-# applies the PERF_GATE_BYPASS env-var override and the audit-log entry.
+# Perf regression gate: runs SEQUENTIALLY after tests pass, against the
+# same staging-branch ref. Sequential is intentional — running perf in
+# parallel with the test phase contaminated cold-import.* and
+# worktree-lifecycle measurements with vitest CPU/IO contention, firing
+# false-positive regressions. The ~80s second sync is the cost of
+# reliable perf measurements.
 # ---------------------------------------------------------------------------
-if [ "$perf_exit" -ne 0 ]; then
-  echo "$perf_output" | tail -20
+echo "[pre-push] Running perf regression gate against $staging_branch..."
+
+set +e
+PERF_OUT=$(torque-remote --branch "$staging_branch" bash -c "cd server && node perf/run-perf.js" 2>&1)
+PERF_STATUS=$?
+set -e
+
+echo "$PERF_OUT"
+
+if [ "$PERF_STATUS" -ne 0 ]; then
   if [ "${PERF_GATE_BYPASS:-0}" = "1" ]; then
     echo "[pre-push] PERF_GATE_BYPASS=1 set — perf regressions logged but push allowed"
     AUDIT_LINE="[$(date -Iseconds 2>/dev/null || date)] BYPASS sha=$(git rev-parse HEAD) reason=PERF_GATE_BYPASS user=$(git config user.email 2>/dev/null || echo unknown)"
     mkdir -p "$REPO_ROOT/server/perf"
     echo "$AUDIT_LINE" >> "$REPO_ROOT/server/perf/bypass-audit.log"
   else
-    echo "[pre-push] BLOCKED: perf regression gate failed (exit $perf_exit)"
+    echo "[pre-push] BLOCKED: perf regression gate failed (exit $PERF_STATUS)"
     echo "[pre-push] To bypass for incident response: PERF_GATE_BYPASS=1 git push"
     exit 1
   fi
