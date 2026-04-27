@@ -638,8 +638,17 @@ case "$TRANSPORT" in
       # `if not exist` returns 0 even when the condition was false.
       sync_status=0
       sync_log_path="${TORQUE_REMOTE_SYNC_LOG:-/tmp/torque-remote-sync.log}"
+      # `git clean -fd` (no -x) was `-fdx` until 2026-04-27. The -x flag
+      # removes gitignored files — including node_modules. On Windows, that
+      # tear-down/rebuild churn cost ~15s per sync (Defender re-scans tens
+      # of thousands of node_modules entries each cycle), and operators had
+      # to re-run `npm install` between every sync since gitignored deps got
+      # wiped. Dropping -x preserves node_modules across syncs; tracked-file
+      # cleanup still runs via -fd, which removes only untracked files left
+      # by killed prior runs. The first-sync npm-install hints below still
+      # fire correctly when node_modules genuinely doesn't exist.
       ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" \
-        "${SYNC_BOOTSTRAP}cd \"$EFFECTIVE_REMOTE_PROJECT_PATH\" && git fetch origin && $SYNC_CHECKOUT && git reset --hard $SYNC_REF && (git clean -fdx || true) && (git diff --quiet HEAD || (echo \"[torque-remote-sync] drift after reset — file locks (Defender/Search/AV) may have prevented checkout from updating tracked files\" 1>&2 && exit 99)) && (if exist package.json if not exist node_modules echo [torque-remote-sync] HINT: ./package.json has no node_modules at $EFFECTIVE_REMOTE_PROJECT_PATH — run: npm install 1>&2) && (if exist server\\package.json if not exist server\\node_modules echo [torque-remote-sync] HINT: server/package.json has no node_modules — run: cd server ^&^& npm install 1>&2) && (if exist dashboard\\package.json if not exist dashboard\\node_modules echo [torque-remote-sync] HINT: dashboard/package.json has no node_modules — run: cd dashboard ^&^& npm install 1>&2)" \
+        "${SYNC_BOOTSTRAP}cd \"$EFFECTIVE_REMOTE_PROJECT_PATH\" && git fetch origin && $SYNC_CHECKOUT && git reset --hard $SYNC_REF && (git clean -fd || true) && (git diff --quiet HEAD || (echo \"[torque-remote-sync] drift after reset — file locks (Defender/Search/AV) may have prevented checkout from updating tracked files\" 1>&2 && exit 99)) && (if exist package.json if not exist node_modules echo [torque-remote-sync] HINT: ./package.json has no node_modules at $EFFECTIVE_REMOTE_PROJECT_PATH — run: npm install 1>&2) && (if exist server\\package.json if not exist server\\node_modules echo [torque-remote-sync] HINT: server/package.json has no node_modules — run: cd server ^&^& npm install 1>&2) && (if exist dashboard\\package.json if not exist dashboard\\node_modules echo [torque-remote-sync] HINT: dashboard/package.json has no node_modules — run: cd dashboard ^&^& npm install 1>&2)" \
         2>&1 | tee -a "$sync_log_path" | (grep -v 'Unable to persist credentials\|credential store\|aka.ms/gcm' || true) || sync_status="${PIPESTATUS[0]}"
       if [[ "$sync_status" -ne 0 ]]; then
         # Sync failed — falling back to local execution rather than running
