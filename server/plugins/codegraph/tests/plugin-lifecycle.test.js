@@ -1,23 +1,25 @@
 'use strict';
 
-const Database = require('better-sqlite3');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
 const { createCodegraphPlugin } = require('../index');
 
 describe('codegraph plugin lifecycle', () => {
-  let db;
+  let dataDir;
   let container;
 
   beforeEach(() => {
-    db = new Database(':memory:');
+    dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cg-lifecycle-'));
     container = {
       get(name) {
-        if (name === 'db') return { getDbInstance: () => db };
+        if (name === 'db') return { getDataDir: () => dataDir };
         throw new Error(`unknown service: ${name}`);
       },
     };
   });
 
-  afterEach(() => db.close());
+  afterEach(() => fs.rmSync(dataDir, { recursive: true, force: true }));
 
   it('reports plugin metadata', () => {
     const plugin = createCodegraphPlugin();
@@ -51,12 +53,27 @@ describe('codegraph plugin lifecycle', () => {
       expect(tools.length).toBeGreaterThan(0);
       expect(tools.every((t) => typeof t.name === 'string')).toBe(true);
       expect(tools.every((t) => typeof t.handler === 'function')).toBe(true);
+      plugin.uninstall();
     } finally {
       delete process.env.TORQUE_CODEGRAPH_ENABLED;
     }
   });
 
-  it('uninstall clears tools', () => {
+  it('install creates a dedicated codegraph.db in DATA_DIR', () => {
+    process.env.TORQUE_CODEGRAPH_ENABLED = '1';
+    try {
+      const plugin = createCodegraphPlugin();
+      plugin.install(container);
+      expect(fs.existsSync(path.join(dataDir, 'codegraph.db'))).toBe(true);
+      // Diagnostics surface the path so operators can locate the file.
+      expect(plugin.diagnostics().dbPath).toBe(path.join(dataDir, 'codegraph.db'));
+      plugin.uninstall();
+    } finally {
+      delete process.env.TORQUE_CODEGRAPH_ENABLED;
+    }
+  });
+
+  it('uninstall clears tools and closes the dedicated db', () => {
     process.env.TORQUE_CODEGRAPH_ENABLED = '1';
     try {
       const plugin = createCodegraphPlugin();

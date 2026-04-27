@@ -8,6 +8,11 @@ const { indexRepoAtHead } = require('./index-runner');
 (async () => {
   try {
     const db = new Database(workerData.dbPath);
+    // Match the main thread's WAL config so concurrent reads (e.g., the parent
+    // calling cg_index_status while reindex runs) don't block each other.
+    db.pragma('journal_mode = WAL');
+    db.pragma('synchronous = NORMAL');
+    db.pragma('busy_timeout = 10000');
     ensureSchema(db);
     const result = await indexRepoAtHead({
       db,
