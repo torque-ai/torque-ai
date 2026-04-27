@@ -89,12 +89,17 @@ function createHandlers({ db }) {
       const repoPath = requireString(args, 'repo_path');
       const symbol   = requireString(args, 'symbol');
       const scope    = args.scope || 'loose';
+      const container = typeof args.container === 'string' && args.container ? args.container : null;
       if (scope !== 'loose' && scope !== 'strict') {
         throw new Error("scope must be 'loose' or 'strict'");
       }
+      if (container && scope !== 'strict') {
+        throw new Error("container filter requires scope='strict'");
+      }
       return asToolResult({
-        references: findReferences({ db, repoPath, symbol, scope }),
+        references: findReferences({ db, repoPath, symbol, scope, container }),
         scope,
+        ...(container && { container }),
         staleness: staleness(db, repoPath),
       });
     },

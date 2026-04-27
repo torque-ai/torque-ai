@@ -23,16 +23,19 @@ const SCHEMA_SQL = [
     is_exported INTEGER NOT NULL DEFAULT 0,
     is_async INTEGER NOT NULL DEFAULT 0,
     is_generator INTEGER NOT NULL DEFAULT 0,
-    is_static INTEGER NOT NULL DEFAULT 0
+    is_static INTEGER NOT NULL DEFAULT 0,
+    container_name TEXT
   )`,
   `CREATE INDEX IF NOT EXISTS idx_cg_symbols_name ON cg_symbols(repo_path, name)`,
   `CREATE INDEX IF NOT EXISTS idx_cg_symbols_file ON cg_symbols(repo_path, file_path)`,
+  `CREATE INDEX IF NOT EXISTS idx_cg_symbols_container ON cg_symbols(repo_path, container_name, name)`,
   `CREATE TABLE IF NOT EXISTS cg_references (
     id INTEGER PRIMARY KEY,
     repo_path TEXT NOT NULL,
     file_path TEXT NOT NULL,
     caller_symbol_id INTEGER,
     target_name TEXT NOT NULL,
+    receiver_name TEXT,
     line INTEGER NOT NULL,
     col INTEGER NOT NULL,
     resolved_symbol_id INTEGER
@@ -64,6 +67,35 @@ const SCHEMA_SQL = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_cg_imports_file  ON cg_imports(repo_path, file_path)`,
   `CREATE INDEX IF NOT EXISTS idx_cg_imports_local ON cg_imports(repo_path, file_path, local_name)`,
+  // cg_locals: per-scope variable type bindings used by Slice B method-call
+  // resolution. A row records "in this file, inside this enclosing function/
+  // method, the local name X has type Y". When the indexer encounters a
+  // member call `obj.foo()`, it looks up `obj` here to find the receiver's
+  // type, then looks up methods on that type.
+  //
+  //   const x: Foo = ...           → (local='x', type='Foo')        TS only
+  //   x: Foo = make()              → (local='x', type='Foo')        Python
+  //   const x = new Foo()          → (local='x', type='Foo')        JS/TS/C#
+  //   var x Foo                    → (local='x', type='Foo')        Go
+  //   Foo x;                       → (local='x', type='Foo')        C#
+  //   func f(x Foo)                → (local='x', type='Foo')        Go param
+  //   def f(x: Foo)                → (local='x', type='Foo')        Python param
+  //
+  // scope_symbol_id: the cg_symbols.id of the enclosing function/method,
+  // or NULL if file-scope. Member-call resolution walks up the scope chain
+  // (function scope first, then file scope).
+  `CREATE TABLE IF NOT EXISTS cg_locals (
+    id INTEGER PRIMARY KEY,
+    repo_path TEXT NOT NULL,
+    file_path TEXT NOT NULL,
+    scope_symbol_id INTEGER,
+    local_name TEXT NOT NULL,
+    type_name TEXT NOT NULL,
+    line INTEGER NOT NULL,
+    col INTEGER NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_cg_locals_lookup ON cg_locals(repo_path, file_path, scope_symbol_id, local_name)`,
+  `CREATE INDEX IF NOT EXISTS idx_cg_locals_file   ON cg_locals(repo_path, file_path)`,
   `CREATE TABLE IF NOT EXISTS cg_index_state (
     repo_path TEXT PRIMARY KEY,
     commit_sha TEXT NOT NULL,
@@ -113,6 +145,8 @@ const COLUMN_MIGRATIONS = [
   { table: 'cg_symbols', column: 'is_generator', sql: "ALTER TABLE cg_symbols ADD COLUMN is_generator INTEGER NOT NULL DEFAULT 0" },
   { table: 'cg_symbols', column: 'is_static',    sql: "ALTER TABLE cg_symbols ADD COLUMN is_static INTEGER NOT NULL DEFAULT 0" },
   { table: 'cg_references', column: 'resolved_symbol_id', sql: "ALTER TABLE cg_references ADD COLUMN resolved_symbol_id INTEGER" },
+  { table: 'cg_references', column: 'receiver_name', sql: "ALTER TABLE cg_references ADD COLUMN receiver_name TEXT" },
+  { table: 'cg_symbols',    column: 'container_name', sql: "ALTER TABLE cg_symbols ADD COLUMN container_name TEXT" },
 ];
 
 function ensureSchema(db) {
