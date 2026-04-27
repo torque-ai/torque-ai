@@ -100,3 +100,30 @@ describe('codegraph queries: impact_set', () => {
     expect(impact.files).toEqual([]);
   });
 });
+
+const { deadSymbols } = require('../queries/dead-symbols');
+
+describe('codegraph queries: dead_symbols', () => {
+  let db;
+  beforeEach(async () => {
+    db = new Database(':memory:'); ensureSchema(db);
+    await runIndex({ db, repoPath: FIXTURE, files: ['a.js', 'b.js'] });
+  });
+  afterEach(() => db.close());
+
+  it('flags `delta` and `gamma` as never-referenced (callers only — no internal refs)', () => {
+    const dead = deadSymbols({ db, repoPath: FIXTURE });
+    const names = dead.map((d) => d.name).sort();
+    expect(names).toEqual(['delta', 'gamma']);
+  });
+
+  it('returns kind/file/line for each dead symbol', () => {
+    const dead = deadSymbols({ db, repoPath: FIXTURE });
+    for (const d of dead) {
+      expect(typeof d.name).toBe('string');
+      expect(typeof d.kind).toBe('string');
+      expect(typeof d.file).toBe('string');
+      expect(typeof d.line).toBe('number');
+    }
+  });
+});
