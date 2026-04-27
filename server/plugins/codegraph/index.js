@@ -29,12 +29,23 @@ function createCodegraphPlugin() {
   let db = null;
   let installed = false;
   let toolList = [];
+  let diagnostics = null;
 
   function install(container) {
     if (!isFeatureEnabled()) return;
     const dbService = getContainerService(container, 'db');
     db = resolveRawDb(dbService);
     ensureSchema(db);
+    diagnostics = { unreachableRepos: [] };
+    try {
+      const fs = require('fs');
+      const rows = db.prepare('SELECT repo_path FROM cg_index_state').all();
+      for (const { repo_path: repoPath } of rows) {
+        if (!fs.existsSync(repoPath)) {
+          diagnostics.unreachableRepos.push(repoPath);
+        }
+      }
+    } catch { /* schema may be empty */ }
     const handlers = createHandlers({ db });
     toolList = toolDefs.map((toolDef) => ({
       ...toolDef,
@@ -47,6 +58,7 @@ function createCodegraphPlugin() {
     db = null;
     installed = false;
     toolList = [];
+    diagnostics = null;
   }
 
   function mcpTools() {
@@ -67,6 +79,7 @@ function createCodegraphPlugin() {
     middleware,
     eventHandlers,
     configSchema,
+    diagnostics: () => diagnostics || { unreachableRepos: [] },
   };
 }
 
