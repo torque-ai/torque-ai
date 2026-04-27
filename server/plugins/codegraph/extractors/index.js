@@ -7,7 +7,10 @@ const EXT_TO_LANGUAGE = {
   '.js': 'javascript',
   '.mjs': 'javascript',
   '.cjs': 'javascript',
-  '.jsx': 'javascript',
+  // .jsx routes through the tsx grammar, which is a superset that handles
+  // JSX syntax. The plain `javascript` grammar rejects JSX with a parse
+  // error, taking down the whole index for one bad file.
+  '.jsx': 'tsx',
   '.ts': 'typescript',
   '.tsx': 'tsx',
 };

@@ -62,4 +62,20 @@ describe('codegraph indexer', () => {
     ).get(FIXTURE).n;
     expect(count).toBe(4);
   });
+
+  it('skips unreadable files and continues indexing', async () => {
+    const result = await runIndex({
+      db,
+      repoPath: FIXTURE,
+      files: ['a.js', 'does-not-exist.js', 'b.js'],
+    });
+    expect(result.files).toBe(2);
+    expect(result.skipped).toEqual([
+      expect.objectContaining({ file: 'does-not-exist.js', reason: 'read' }),
+    ]);
+    const names = db.prepare(
+      "SELECT name FROM cg_symbols WHERE repo_path = ? ORDER BY name"
+    ).all(FIXTURE).map((r) => r.name);
+    expect(names).toEqual(['alpha', 'beta', 'delta', 'gamma']);
+  });
 });

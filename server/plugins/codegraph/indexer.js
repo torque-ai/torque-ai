@@ -39,13 +39,29 @@ async function runIndex({ db, repoPath, files, commitSha = null, _sourceDir = nu
   `);
 
   const work = [];
+  const skipped = [];
   for (const rel of files) {
     const ext = extractorFor(rel);
     if (!ext) continue;
     const abs = path.join(_sourceDir || repoPath, rel);
-    const buf = await fs.readFile(abs);
+    let buf;
+    try {
+      buf = await fs.readFile(abs);
+    } catch (err) {
+      skipped.push({ file: rel, reason: 'read', error: err.message });
+      continue;
+    }
     const source = buf.toString('utf8');
-    const extracted = await ext.extract(source);
+    let extracted;
+    try {
+      extracted = await ext.extract(source);
+    } catch (err) {
+      // Tree-sitter throws on files it can't parse (binary blobs renamed
+      // to .js, exotic syntax extensions, oversize source). Skip and keep
+      // indexing — a single bad file shouldn't take down the whole graph.
+      skipped.push({ file: rel, reason: 'parse', error: err.message });
+      continue;
+    }
     work.push({ rel, language: ext.language, contentSha: sha256(buf), extracted });
   }
 
@@ -104,7 +120,9 @@ async function runIndex({ db, repoPath, files, commitSha = null, _sourceDir = nu
 
   tx();
 
-  return { files: totalFiles, symbols: totalSymbols, references: totalRefs };
+  const result = { files: totalFiles, symbols: totalSymbols, references: totalRefs };
+  if (skipped.length > 0) result.skipped = skipped;
+  return result;
 }
 
 module.exports = { runIndex };
