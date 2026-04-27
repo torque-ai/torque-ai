@@ -76,6 +76,22 @@ function callTargetName(callNode) {
   return '';
 }
 
+// Pull the receiver expression's identifier from a member-expression call:
+//   foo.bar()     → 'foo'
+//   this.x.y()    → 'this' (only direct receiver; deeper resolution needs
+//                            field tracking which is out of Slice B scope)
+//   pkg.fn()      → 'pkg'
+// Returns '' for non-member calls or non-identifier objects (e.g.,
+// `(a||b).foo()`, function calls returning objects).
+function callReceiverName(callNode) {
+  const fn = callNode.childForFieldName('function');
+  if (!fn || fn.type !== 'member_expression') return '';
+  const obj = fn.childForFieldName('object');
+  if (!obj) return '';
+  if (obj.type === 'identifier' || obj.type === 'this') return obj.text;
+  return '';
+}
+
 // Walk a node subtree collecting named children matching a predicate.
 function findDescendants(node, predicate, out = []) {
   if (predicate(node)) out.push(node);
@@ -641,6 +657,107 @@ function extractImportsFromRequireDeclarator(declNode) {
   return out;
 }
 
+// Pull a usable name out of a TS type annotation node:
+//   type_identifier            → its text
+//   generic_type               → underlying head (drops <T> args)
+//   nested_type_identifier     → rightmost name (a.b.Foo → 'Foo')
+//   union_type                 → null (we won't resolve "Foo | null" to one type)
+// Returns '' when the type is too complex to commit to a single name.
+function unwrapTsTypeName(node) {
+  if (!node) return '';
+  if (node.type === 'type_identifier' || node.type === 'identifier') return node.text;
+  if (node.type === 'generic_type') {
+    const head = node.namedChild(0);
+    return head ? unwrapTsTypeName(head) : '';
+  }
+  if (node.type === 'nested_type_identifier') {
+    const last = node.namedChild(node.namedChildCount - 1);
+    return last ? last.text : '';
+  }
+  // type_annotation wraps the actual type; drill in.
+  if (node.type === 'type_annotation') {
+    const inner = node.namedChild(0);
+    return inner ? unwrapTsTypeName(inner) : '';
+  }
+  return '';
+}
+
+// Extract local-variable type bindings from a `variable_declarator` node:
+//   const x: Foo = ...           → { localName: 'x', typeName: 'Foo' } (TS only)
+//   const x = new Foo(...)       → { localName: 'x', typeName: 'Foo' } (JS+TS)
+// Returns null when no usable type can be derived.
+function extractLocalTypeBinding(declNode, language) {
+  const nameNode = declNode.childForFieldName('name');
+  if (!nameNode || nameNode.type !== 'identifier') return null;
+  const localName = nameNode.text;
+
+  // TS path: explicit type annotation. `const x: Foo = ...` produces a
+  // `type_annotation` named child containing the type expression.
+  const isTs = language === 'typescript' || language === 'tsx';
+  if (isTs) {
+    const typeAnno = declNode.namedChildren.find((c) => c.type === 'type_annotation');
+    if (typeAnno) {
+      const t = unwrapTsTypeName(typeAnno);
+      if (t) {
+        return {
+          localName, typeName: t,
+          line: declNode.startPosition.row + 1,
+          col:  declNode.startPosition.column,
+        };
+      }
+    }
+  }
+
+  // Constructor inference: `const x = new Foo(...)` works in both JS and TS.
+  // tree-sitter-javascript surfaces `new Foo()` as a `new_expression` whose
+  // `constructor` field is the type identifier. tree-sitter-typescript uses
+  // the same shape.
+  const value = declNode.childForFieldName('value');
+  if (value && value.type === 'new_expression') {
+    const ctor = value.childForFieldName('constructor');
+    const ctorName = ctor && (ctor.type === 'identifier' || ctor.type === 'type_identifier')
+      ? ctor.text
+      : (ctor && ctor.type === 'member_expression'
+          ? (ctor.childForFieldName('property')?.text || '')
+          : '');
+    if (ctorName) {
+      return {
+        localName, typeName: ctorName,
+        line: declNode.startPosition.row + 1,
+        col:  declNode.startPosition.column,
+      };
+    }
+  }
+  return null;
+}
+
+// Walk a `parameters` node and emit cg_locals rows for typed parameters.
+// TS-only — plain JS function params have no type annotations.
+function collectParameterTypes(paramsNode, locals, scopeSymbolIndex, language) {
+  if (language !== 'typescript' && language !== 'tsx') return;
+  for (let i = 0; i < paramsNode.namedChildCount; i++) {
+    const param = paramsNode.namedChild(i);
+    // Required/optional params; rest params; defaulted params.
+    if (param.type !== 'required_parameter'
+     && param.type !== 'optional_parameter'
+     && param.type !== 'rest_parameter') continue;
+    const pat = param.childForFieldName('pattern')
+             || param.namedChildren.find((c) => c.type === 'identifier');
+    if (!pat || pat.type !== 'identifier') continue;
+    const typeAnno = param.namedChildren.find((c) => c.type === 'type_annotation');
+    if (!typeAnno) continue;
+    const typeName = unwrapTsTypeName(typeAnno);
+    if (!typeName) continue;
+    locals.push({
+      localName: pat.text,
+      typeName,
+      scopeSymbolIndex,
+      line: param.startPosition.row + 1,
+      col:  param.startPosition.column,
+    });
+  }
+}
+
 async function extractFromSource(source, language) {
   const parser = await getParser(language);
   // Native tree-sitter defaults bufferSize to 32KB and throws "Invalid argument"
@@ -654,11 +771,14 @@ async function extractFromSource(source, language) {
   const dispatchEdges = [];
   const classEdges = [];
   const imports = [];
+  const locals = [];
   const exportedNames = new Set();
   const enclosingStack = []; // indexes into `symbols`
+  const containerStack = []; // names of enclosing class/interface declarations
 
   function walk(node) {
     let pushed = false;
+    let pushedContainer = false;
     if (FUNCTION_NODE_TYPES.has(node.type)) {
       const name = nodeName(node);
       if (name) {
@@ -667,6 +787,12 @@ async function extractFromSource(source, language) {
         // Constructors are recognized by name in class bodies — promote 'method'
         // to 'constructor' when the property identifier is exactly that.
         if (kind === 'method' && name === 'constructor') kind = 'constructor';
+        // Methods defined inside a class/interface get container_name set so
+        // pass-2 method-call resolution can join cg_locals.type_name to
+        // cg_symbols.container_name.
+        const containerName = (kind === 'method' || kind === 'constructor' || kind === 'getter' || kind === 'setter')
+          ? containerStack[containerStack.length - 1] || null
+          : null;
         symbols.push({
           name,
           kind,
@@ -677,9 +803,22 @@ async function extractFromSource(source, language) {
           isAsync: mods.isAsync,
           isGenerator: mods.isGenerator,
           isStatic: mods.isStatic,
+          containerName,
         });
         enclosingStack.push(symbols.length - 1);
         pushed = true;
+        // Capture parameter types for TS arrow functions / function decls /
+        // method decls. Anywhere parameters live, the parser surfaces them
+        // under a `parameters` field.
+        const params = node.childForFieldName('parameters');
+        if (params) collectParameterTypes(params, locals, symbols.length - 1, language);
+      }
+    }
+    if (node.type === 'class_declaration' || node.type === 'interface_declaration') {
+      const cname = nodeName(node);
+      if (cname) {
+        containerStack.push(cname);
+        pushedContainer = true;
       }
     }
     if (node.type === 'call_expression') {
@@ -687,6 +826,7 @@ async function extractFromSource(source, language) {
       if (target) {
         references.push({
           targetName: target,
+          receiverName: callReceiverName(node) || null,
           line: node.startPosition.row + 1,
           col:  node.startPosition.column,
           callerSymbolIndex: enclosingStack[enclosingStack.length - 1] ?? null,
@@ -729,11 +869,22 @@ async function extractFromSource(source, language) {
         const decl = node.namedChild(i);
         if (decl.type !== 'variable_declarator') continue;
         for (const imp of extractImportsFromRequireDeclarator(decl)) imports.push(imp);
+        // Type annotations + constructor inference for method-call resolution.
+        // Only TS files have type annotations at the AST level; for plain JS
+        // we still pick up `new Foo()` constructor calls.
+        const local = extractLocalTypeBinding(decl, language);
+        if (local) {
+          locals.push({
+            ...local,
+            scopeSymbolIndex: enclosingStack[enclosingStack.length - 1] ?? null,
+          });
+        }
       }
     }
     for (let i = 0; i < node.namedChildCount; i++) {
       walk(node.namedChild(i));
     }
+    if (pushedContainer) containerStack.pop();
     if (pushed) enclosingStack.pop();
   }
 
@@ -744,7 +895,7 @@ async function extractFromSource(source, language) {
     s.isExported = exportedNames.has(s.name);
   }
 
-  return { symbols, references, dispatchEdges, classEdges, imports, exportedNames: [...exportedNames] };
+  return { symbols, references, dispatchEdges, classEdges, imports, locals, exportedNames: [...exportedNames] };
 }
 
 module.exports = { extractFromSource };

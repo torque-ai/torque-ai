@@ -44,7 +44,8 @@ const tools = [
       properties: {
         repo_path: { type: 'string' },
         symbol:    { type: 'string', description: 'Bare identifier name (no namespacing, no parens). For methods like `foo.bar()` this matches any symbol named `bar`.' },
-        scope:     { type: 'string', enum: ['loose', 'strict'], default: 'loose', description: 'loose = identifier-only match (high recall); strict = only resolved-via-import references (high precision).' },
+        scope:     { type: 'string', enum: ['loose', 'strict'], default: 'loose', description: 'loose = identifier-only match (high recall); strict = only resolved-via-import or import-typed-receiver references (high precision).' },
+        container: { type: 'string', description: 'When scope=strict, also filter by the resolved symbol\'s container_name. Disambiguates methods that share a name across multiple classes (e.g. Animal.speak vs Other.speak). Ignored when scope=loose.' },
       },
       required: ['repo_path', 'symbol'],
       additionalProperties: false,

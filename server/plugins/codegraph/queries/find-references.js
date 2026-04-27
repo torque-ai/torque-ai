@@ -31,8 +31,10 @@ const LOOSE_SQL = `
 // Strict resolution: an inner JOIN against cg_symbols on resolved_symbol_id
 // guarantees we only surface references the indexer has confirmed point at
 // the named symbol. The outer LEFT JOIN against caller still decorates with
-// caller-context modifiers.
-const STRICT_SQL = `
+// caller-context modifiers. When `container` is set, also filter by the
+// resolved symbol's container_name — disambiguates methods sharing a name
+// across multiple classes (e.g., Animal.speak vs Other.speak).
+const STRICT_SQL_BASE = `
   SELECT
     r.file_path     AS file,
     r.line          AS line,
@@ -45,9 +47,9 @@ const STRICT_SQL = `
   FROM cg_references r
   JOIN cg_symbols rs ON rs.id = r.resolved_symbol_id
   LEFT JOIN cg_symbols cs ON cs.id = r.caller_symbol_id
-  WHERE r.repo_path = @repoPath AND rs.name = @symbol
-  ORDER BY r.file_path, r.line
-`;
+  WHERE r.repo_path = @repoPath AND rs.name = @symbol`;
+const STRICT_SQL                = STRICT_SQL_BASE + ' ORDER BY r.file_path, r.line';
+const STRICT_SQL_WITH_CONTAINER = STRICT_SQL_BASE + ' AND rs.container_name = @container ORDER BY r.file_path, r.line';
 
 // Sparse modifier surface: only emit boolean flags when truthy. Keeps payloads
 // compact for the common case (caller is a plain sync function).
@@ -59,9 +61,14 @@ function decorate(row) {
   return rest;
 }
 
-function findReferences({ db, repoPath, symbol, scope = 'loose' }) {
-  const sql = scope === 'strict' ? STRICT_SQL : LOOSE_SQL;
-  return db.prepare(sql).all({ repoPath, symbol }).map(decorate);
+function findReferences({ db, repoPath, symbol, scope = 'loose', container = null }) {
+  if (scope === 'strict') {
+    if (container) {
+      return db.prepare(STRICT_SQL_WITH_CONTAINER).all({ repoPath, symbol, container }).map(decorate);
+    }
+    return db.prepare(STRICT_SQL).all({ repoPath, symbol }).map(decorate);
+  }
+  return db.prepare(LOOSE_SQL).all({ repoPath, symbol }).map(decorate);
 }
 
 module.exports = { findReferences };

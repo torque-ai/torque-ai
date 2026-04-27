@@ -18,21 +18,26 @@ async function runIndex({ db, repoPath, files, commitSha = null, _sourceDir = nu
   const deleteDispatchEdges = db.prepare('DELETE FROM cg_dispatch_edges WHERE repo_path = ?');
   const deleteClassEdges    = db.prepare('DELETE FROM cg_class_edges    WHERE repo_path = ?');
   const deleteImports       = db.prepare('DELETE FROM cg_imports        WHERE repo_path = ?');
+  const deleteLocals        = db.prepare('DELETE FROM cg_locals         WHERE repo_path = ?');
   const insertImport = db.prepare(`
     INSERT INTO cg_imports (repo_path, file_path, local_name, source_module, source_name, line, col)
     VALUES (@repoPath, @filePath, @localName, @sourceModule, @sourceName, @line, @col)
+  `);
+  const insertLocal = db.prepare(`
+    INSERT INTO cg_locals (repo_path, file_path, scope_symbol_id, local_name, type_name, line, col)
+    VALUES (@repoPath, @filePath, @scopeSymbolId, @localName, @typeName, @line, @col)
   `);
   const insertFile = db.prepare(`
     INSERT INTO cg_files (repo_path, file_path, language, content_sha, indexed_at)
     VALUES (@repoPath, @filePath, @language, @contentSha, @indexedAt)
   `);
   const insertSymbol = db.prepare(`
-    INSERT INTO cg_symbols (repo_path, file_path, name, kind, start_line, start_col, end_line, end_col, is_exported, is_async, is_generator, is_static)
-    VALUES (@repoPath, @filePath, @name, @kind, @startLine, @startCol, @endLine, @endCol, @isExported, @isAsync, @isGenerator, @isStatic)
+    INSERT INTO cg_symbols (repo_path, file_path, name, kind, start_line, start_col, end_line, end_col, is_exported, is_async, is_generator, is_static, container_name)
+    VALUES (@repoPath, @filePath, @name, @kind, @startLine, @startCol, @endLine, @endCol, @isExported, @isAsync, @isGenerator, @isStatic, @containerName)
   `);
   const insertReference = db.prepare(`
-    INSERT INTO cg_references (repo_path, file_path, caller_symbol_id, target_name, line, col)
-    VALUES (@repoPath, @filePath, @callerSymbolId, @targetName, @line, @col)
+    INSERT INTO cg_references (repo_path, file_path, caller_symbol_id, target_name, receiver_name, line, col)
+    VALUES (@repoPath, @filePath, @callerSymbolId, @targetName, @receiverName, @line, @col)
   `);
   const insertDispatchEdge = db.prepare(`
     INSERT INTO cg_dispatch_edges (repo_path, file_path, case_string, handler_name, line, col)
@@ -80,9 +85,10 @@ async function runIndex({ db, repoPath, files, commitSha = null, _sourceDir = nu
     work.push({ rel, language: ext.language, contentSha: sha256(buf), extracted });
   }
 
-  let totalFiles = 0, totalSymbols = 0, totalRefs = 0, totalDispatch = 0, totalClassEdges = 0, totalImports = 0;
+  let totalFiles = 0, totalSymbols = 0, totalRefs = 0, totalDispatch = 0, totalClassEdges = 0, totalImports = 0, totalLocals = 0;
 
   const tx = db.transaction(() => {
+    deleteLocals.run(repoPath);
     deleteImports.run(repoPath);
     deleteClassEdges.run(repoPath);
     deleteDispatchEdges.run(repoPath);
@@ -111,6 +117,7 @@ async function runIndex({ db, repoPath, files, commitSha = null, _sourceDir = nu
           isAsync:     s.isAsync     ? 1 : 0,
           isGenerator: s.isGenerator ? 1 : 0,
           isStatic:    s.isStatic    ? 1 : 0,
+          containerName: s.containerName == null ? null : s.containerName,
         });
         symbolIds.push(info.lastInsertRowid);
       }
@@ -123,11 +130,27 @@ async function runIndex({ db, repoPath, files, commitSha = null, _sourceDir = nu
           filePath: rel,
           callerSymbolId: callerId,
           targetName: r.targetName,
+          receiverName: r.receiverName == null ? null : r.receiverName,
           line: r.line,
           col:  r.col,
         });
       }
       totalRefs += extracted.references.length;
+
+      const lcs = extracted.locals || [];
+      for (const l of lcs) {
+        const scopeId = l.scopeSymbolIndex == null ? null : symbolIds[l.scopeSymbolIndex];
+        insertLocal.run({
+          repoPath,
+          filePath: rel,
+          scopeSymbolId: scopeId,
+          localName: l.localName,
+          typeName: l.typeName,
+          line: l.line,
+          col:  l.col,
+        });
+      }
+      totalLocals += lcs.length;
 
       const edges = extracted.dispatchEdges || [];
       for (const e of edges) {
@@ -265,12 +288,12 @@ async function runIncrementalIndex({
     VALUES (@repoPath, @filePath, @language, @contentSha, @indexedAt)
   `);
   const insertSymbol = db.prepare(`
-    INSERT INTO cg_symbols (repo_path, file_path, name, kind, start_line, start_col, end_line, end_col, is_exported, is_async, is_generator, is_static)
-    VALUES (@repoPath, @filePath, @name, @kind, @startLine, @startCol, @endLine, @endCol, @isExported, @isAsync, @isGenerator, @isStatic)
+    INSERT INTO cg_symbols (repo_path, file_path, name, kind, start_line, start_col, end_line, end_col, is_exported, is_async, is_generator, is_static, container_name)
+    VALUES (@repoPath, @filePath, @name, @kind, @startLine, @startCol, @endLine, @endCol, @isExported, @isAsync, @isGenerator, @isStatic, @containerName)
   `);
   const insertReference = db.prepare(`
-    INSERT INTO cg_references (repo_path, file_path, caller_symbol_id, target_name, line, col)
-    VALUES (@repoPath, @filePath, @callerSymbolId, @targetName, @line, @col)
+    INSERT INTO cg_references (repo_path, file_path, caller_symbol_id, target_name, receiver_name, line, col)
+    VALUES (@repoPath, @filePath, @callerSymbolId, @targetName, @receiverName, @line, @col)
   `);
   const insertDispatchEdge = db.prepare(`
     INSERT INTO cg_dispatch_edges (repo_path, file_path, case_string, handler_name, line, col)
@@ -284,6 +307,11 @@ async function runIncrementalIndex({
     INSERT INTO cg_imports (repo_path, file_path, local_name, source_module, source_name, line, col)
     VALUES (@repoPath, @filePath, @localName, @sourceModule, @sourceName, @line, @col)
   `);
+  const insertLocal = db.prepare(`
+    INSERT INTO cg_locals (repo_path, file_path, scope_symbol_id, local_name, type_name, line, col)
+    VALUES (@repoPath, @filePath, @scopeSymbolId, @localName, @typeName, @line, @col)
+  `);
+  const deleteLocalRows = db.prepare('DELETE FROM cg_locals WHERE repo_path = ? AND file_path = ?');
   const upsertState = db.prepare(`
     INSERT INTO cg_index_state (repo_path, commit_sha, indexed_at, files, symbols, references_count)
     VALUES (@repoPath, @commitSha, @indexedAt, @files, @symbols, @refs)
@@ -305,6 +333,7 @@ async function runIncrementalIndex({
     // Drop rows for every changed file in one pass — modified files will get
     // re-inserted from `work` below, deleted files stay gone.
     for (const rel of toDelete) {
+      deleteLocalRows.run(repoPath, rel);
       deleteImportRows.run(repoPath, rel);
       deleteClassEdgeRows.run(repoPath, rel);
       deleteDispatchEdgeRows.run(repoPath, rel);
@@ -334,6 +363,7 @@ async function runIncrementalIndex({
           isAsync:     s.isAsync     ? 1 : 0,
           isGenerator: s.isGenerator ? 1 : 0,
           isStatic:    s.isStatic    ? 1 : 0,
+          containerName: s.containerName == null ? null : s.containerName,
         });
         symbolIds.push(info.lastInsertRowid);
       }
@@ -346,11 +376,26 @@ async function runIncrementalIndex({
           filePath: rel,
           callerSymbolId: callerId,
           targetName: r.targetName,
+          receiverName: r.receiverName == null ? null : r.receiverName,
           line: r.line,
           col:  r.col,
         });
       }
       newRefs += extracted.references.length;
+
+      const lcs = extracted.locals || [];
+      for (const l of lcs) {
+        const scopeId = l.scopeSymbolIndex == null ? null : symbolIds[l.scopeSymbolIndex];
+        insertLocal.run({
+          repoPath,
+          filePath: rel,
+          scopeSymbolId: scopeId,
+          localName: l.localName,
+          typeName: l.typeName,
+          line: l.line,
+          col:  l.col,
+        });
+      }
 
       const edges = extracted.dispatchEdges || [];
       for (const e of edges) {
@@ -480,8 +525,12 @@ function resolveRelativeModule(db, repoPath, importingFile, sourceModule) {
 // If the import points to a same-repo file, find an exported symbol by name
 // and set resolved_symbol_id. Cross-package or ambiguous imports stay NULL.
 function resolveReferences({ db, repoPath }) {
+  // Pull every unresolved ref. receiver_name distinguishes member calls
+  // (obj.foo() → receiver='obj') from bare calls (foo() → receiver=NULL).
+  // caller_symbol_id is the enclosing function's id and is the scope key
+  // for cg_locals lookups in the method-call path.
   const refsToResolve = db.prepare(`
-    SELECT r.id, r.file_path, r.target_name
+    SELECT r.id, r.file_path, r.target_name, r.receiver_name, r.caller_symbol_id
     FROM cg_references r
     WHERE r.repo_path = @repoPath AND r.resolved_symbol_id IS NULL
   `).all({ repoPath });
@@ -497,6 +546,27 @@ function resolveReferences({ db, repoPath }) {
     WHERE repo_path = @repoPath AND file_path = @filePath AND name = @name
     LIMIT 1
   `);
+  // Walk a local's scope chain: enclosing-function scope first, then
+  // file-scope (NULL scope_symbol_id). First match wins. type_name resolves
+  // the receiver, which we then use to pick a method whose container_name
+  // matches.
+  const localLookup = db.prepare(`
+    SELECT type_name FROM cg_locals
+    WHERE repo_path = @repoPath
+      AND file_path = @filePath
+      AND local_name = @localName
+      AND (scope_symbol_id = @scopeId OR scope_symbol_id IS NULL)
+    ORDER BY (scope_symbol_id IS NULL) ASC
+    LIMIT 1
+  `);
+  // Look up a method on a given container (class/struct/interface) by name.
+  // container_name is set on cg_symbols by the extractor when a method is
+  // defined inside a class_declaration / interface_declaration body.
+  const methodLookup = db.prepare(`
+    SELECT id FROM cg_symbols
+    WHERE repo_path = @repoPath AND container_name = @container AND name = @name
+    LIMIT 1
+  `);
   const updateRef = db.prepare(`
     UPDATE cg_references SET resolved_symbol_id = @resolvedId WHERE id = @id
   `);
@@ -504,15 +574,36 @@ function resolveReferences({ db, repoPath }) {
   let resolved = 0;
   const tx = db.transaction(() => {
     for (const r of refsToResolve) {
+      // Method-call resolution: `obj.foo()` — find obj's type via cg_locals,
+      // then look up foo on that type.
+      if (r.receiver_name) {
+        const local = localLookup.get({
+          repoPath,
+          filePath: r.file_path,
+          localName: r.receiver_name,
+          scopeId: r.caller_symbol_id,
+        });
+        if (local && local.type_name) {
+          const method = methodLookup.get({
+            repoPath, container: local.type_name, name: r.target_name,
+          });
+          if (method) {
+            updateRef.run({ resolvedId: method.id, id: r.id });
+            resolved++;
+            continue;
+          }
+        }
+        // Receiver couldn't be typed → can't resolve member call. Stays NULL.
+        continue;
+      }
+
+      // Function-call resolution (Slice A path): same as before — match
+      // the file's import for target_name, follow source_module to the
+      // owning file, look up the symbol by source_name there.
       const imp = importLookup.get({ repoPath, filePath: r.file_path, localName: r.target_name });
       if (!imp) continue;
-      // Cross-package: source_module doesn't start with './' or '../' or '/'.
-      // Stays NULL — we can't reach into npm packages, Go stdlib, etc.
       const targetFile = resolveRelativeModule(db, repoPath, r.file_path, imp.source_module);
       if (!targetFile) continue;
-      // If source_name is null (namespace import / module-level binding),
-      // we can't pick a single symbol; leave unresolved. Slice B will use
-      // cg_locals to handle `obj.foo()` calls through namespace imports.
       const targetName = imp.source_name;
       if (!targetName || targetName === 'default') continue;
       const sym = symbolLookup.get({ repoPath, filePath: targetFile, name: targetName });
