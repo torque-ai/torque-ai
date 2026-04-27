@@ -61,6 +61,43 @@ function init(deps) {
 // Smart Routing Analysis
 // ============================================================
 
+/**
+ * Failover chain identifiers. The codex-down-failover template is the one auto-
+ * activated by the failover-activator on circuit:tripped. When this template is
+ * active, the resolver walks each per-category chain through the live circuit
+ * breaker so providers with open circuits are skipped at routing time, not
+ * after the fact.
+ */
+const FAILOVER_TEMPLATE_IDS = new Set(['preset-codex-down-failover']);
+const FAILOVER_TEMPLATE_NAMES = new Set(['Codex-Down Failover', 'codex-down-failover']);
+
+function isFailoverTemplate(template) {
+  if (!template) return false;
+  if (template.id && FAILOVER_TEMPLATE_IDS.has(template.id)) return true;
+  if (template.name && FAILOVER_TEMPLATE_NAMES.has(template.name)) return true;
+  return false;
+}
+
+/**
+ * Pure helper: walk a per-category provider chain and return the first link
+ * the breaker says is reachable.
+ *
+ * @param {object} args
+ * @param {Array<{provider: string, model?: string|null}>} args.chain
+ * @param {{ allowRequest: (provider: string) => boolean }|null} [args.breaker]
+ * @returns {{ provider: string, model: string|null }|null} first allowed link, or null on exhaustion / empty / null chain
+ */
+function walkFailoverChain({ chain, breaker } = {}) {
+  if (!Array.isArray(chain) || chain.length === 0) return null;
+  for (const link of chain) {
+    if (!link || typeof link.provider !== 'string') continue;
+    if (!breaker || typeof breaker.allowRequest !== 'function' || breaker.allowRequest(link.provider)) {
+      return { provider: link.provider, model: link.model || null };
+    }
+  }
+  return null;
+}
+
 function resolveRoutingTemplate(taskDescription, files, options, deps) {
   const {
     categoryClassifier,
@@ -91,6 +128,36 @@ function resolveRoutingTemplate(taskDescription, files, options, deps) {
     const resolved = templateStore.resolveProvider(template, category, complexity);
     if (!resolved) {
       return null;
+    }
+
+    // Codex-Down Failover branch: when this template is active, walk the
+    // category chain through the live circuit breaker. Skip providers whose
+    // breaker is open. On exhaustion, return null so the task parks (the
+    // failover template intentionally has empty chains for codex-only
+    // categories like architectural / large_code_gen).
+    if (isFailoverTemplate(template)) {
+      const breaker = (typeof deps?.getCircuitBreaker === 'function')
+        ? deps.getCircuitBreaker()
+        : null;
+      const chain = Array.isArray(resolved.chain) ? resolved.chain : null;
+      const choice = walkFailoverChain({ chain, breaker });
+      if (!choice) {
+        logger.info(`[SmartRouting] codex-down-failover: chain exhausted for category=${category} — parking task`);
+        return null;
+      }
+      const providerConfig = getProvider(choice.provider);
+      if (!providerConfig || !providerConfig.enabled) {
+        logger.info(`[SmartRouting] codex-down-failover: ${choice.provider} not enabled — chain walker selected disabled provider, parking`);
+        return null;
+      }
+      return maybeApplyFallback({
+        provider: choice.provider,
+        model: choice.model,
+        chain,
+        rule: null,
+        complexity,
+        reason: `${reasonPrefix} [codex-down-failover]: ${category} -> ${choice.provider}`,
+      });
     }
 
     const originalChain = Array.isArray(resolved.chain) && resolved.chain.length > 0
@@ -560,6 +627,7 @@ function analyzeTaskForRouting(taskDescription, workingDirectory, files = [], op
     hostManagementFns,
     maybeApplyFallback,
     rankProviderCandidatesByScore: _deps.rankProviderCandidatesByScore,
+    getCircuitBreaker,
   });
   if (templateResult) return templateResult;
 
@@ -1108,4 +1176,12 @@ module.exports = {
   // Codex Exhaustion
   isCodexExhausted,
   setCodexExhausted,
+
+  // Codex Fallback Phase 2: failover chain walker
+  walkFailoverChain,
+
+  // Test hook (not part of the public API): expose resolveRoutingTemplate
+  // so the failover-branch integration can be unit-tested without the full
+  // analyzeTaskForRouting harness.
+  _resolveRoutingTemplateForTest: resolveRoutingTemplate,
 };
