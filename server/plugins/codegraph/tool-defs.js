@@ -24,13 +24,14 @@ const tools = [
   },
   {
     name: 'cg_reindex',
-    description: 'Build (or rebuild) the code graph index for a repo by parsing every JS/TS/TSX file at git HEAD. Idempotent: returns {skipped: true} if the index already matches the current HEAD SHA, unless force=true. Reads from HEAD only — uncommitted changes in the working tree are ignored. By default runs in a worker thread (returns immediately with a jobId; poll cg_index_status to detect completion). Pass async=false to block until indexing finishes (use only for small repos — TORQUE itself takes a few seconds).',
+    description: 'Build (or rebuild) the code graph index for a repo by parsing every JS/TS/TSX file at git HEAD. Idempotent: returns {skipped: true} if the index already matches the current HEAD SHA, unless force=true. Reads from HEAD only — uncommitted changes in the working tree are ignored. By default runs in a worker thread (returns immediately with a jobId; poll cg_index_status to detect completion). Pass async=false to block until indexing finishes (use only for small repos — TORQUE itself takes a few seconds). Pass if_tracked=true to skip with `{skipped:"not_tracked"}` when the repo is not already in cg_index_state — used by the post-commit auto-reindex hook to keep existing indexes fresh without bootstrapping new ones.',
     inputSchema: {
       type: 'object',
       properties: {
-        repo_path: { type: 'string' },
-        force:     { type: 'boolean', default: false, description: 'Re-index even if the indexed SHA matches current HEAD.' },
-        async:     { type: 'boolean', default: true,  description: 'Run in worker thread (returns jobId immediately). Set false for blocking sync indexing.' },
+        repo_path:  { type: 'string' },
+        force:      { type: 'boolean', default: false, description: 'Re-index even if the indexed SHA matches current HEAD.' },
+        async:      { type: 'boolean', default: true,  description: 'Run in worker thread (returns jobId immediately). Set false for blocking sync indexing.' },
+        if_tracked: { type: 'boolean', default: false, description: 'Skip with {skipped:"not_tracked"} unless repo_path already has a cg_index_state row. Lets fire-and-forget callers (post-commit hook) refresh existing indexes without bootstrapping new ones.' },
       },
       required: ['repo_path'],
       additionalProperties: false,

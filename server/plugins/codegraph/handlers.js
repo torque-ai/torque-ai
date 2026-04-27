@@ -78,6 +78,18 @@ function createHandlers({ db }) {
       const repoPath = requireString(args, 'repo_path');
       const force = args.force === true;
       const wantsAsync = args.async !== false;
+      const ifTracked = args.if_tracked === true;
+      // if_tracked guards against accidentally bootstrapping a brand-new repo
+      // index from a fire-and-forget caller (e.g. the post-commit hook). When
+      // set, we only reindex repos already in cg_index_state — so the hook
+      // keeps existing indexes fresh without ever spending minutes on a full
+      // first-time index of an unrelated worktree's commit.
+      if (ifTracked) {
+        const tracked = getIndexState({ db, repoPath });
+        if (!tracked) {
+          return asToolResult({ skipped: true, reason: 'not_tracked', repo_path: repoPath });
+        }
+      }
       const dbPath = db.name && db.name !== ':memory:' ? db.name : null;
       if (wantsAsync && dbPath) {
         return asToolResult(require('./index-runner').startReindexJob({ dbPath, repoPath, force }));
