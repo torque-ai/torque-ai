@@ -26,7 +26,13 @@ module.exports = {
     // Suppresses unhandled rejection noise from provider mocks in CI pipelines.
     // Disable locally to catch real async leaks during development.
     dangerouslyIgnoreUnhandledErrors: !!process.env.CI,
-    maxWorkers: Math.max(1, Math.min(os.cpus().length - 1, 8)),
+    // Cap raised from 8 to 16: remote workstation has 20 cores, local has 32.
+    // The prior cap left 60% of remote cores idle. With pool: threads sharing
+    // the module cache, scaling is roughly linear up to ~cpu_count. The 16
+    // ceiling protects against future high-core boxes spawning runaway threads
+    // that amplify rare native-module crashes (better-sqlite3 + Node 24
+    // SIGSEGV — pre-push hook retries those once).
+    maxWorkers: Math.max(1, Math.min(os.cpus().length - 1, 16)),
     fileParallelism: true,
     globalSetup: ['tests/global-setup.js'],
     coverage: {
