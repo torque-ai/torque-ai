@@ -26,7 +26,9 @@ async function startDaemon(overrides = {}) {
     persist_path: path.join(state_dir, 'active.json'),
   });
   const reconciled = state.restoreFromFile();
-  if (reconciled.crashed_count > 0) {
+  if (reconciled.restore_error) {
+    process.stderr.write(`[coord] active.json parse failed (treated as fresh start): ${reconciled.restore_error}\n`);
+  } else if (reconciled.crashed_count > 0) {
     process.stdout.write(`[coord] reconciled ${reconciled.crashed_count} stale locks across restart\n`);
   }
 
@@ -59,7 +61,32 @@ async function startDaemon(overrides = {}) {
 
 if (require.main === module) {
   const configFile = process.env.TORQUE_COORD_CONFIG || null;
-  startDaemon({ config_file: configFile }).catch((err) => {
+  // N3: fail fast if a config file was named but doesn't exist — otherwise
+  // loadConfig silently returns DEFAULTS and the operator never knows.
+  if (configFile) {
+    const fs = require('fs');
+    if (!fs.existsSync(configFile)) {
+      process.stderr.write(`[coord] TORQUE_COORD_CONFIG points to missing file: ${configFile}\n`);
+      process.exit(1);
+    }
+  }
+  const daemonPromise = startDaemon({ config_file: configFile });
+  // N1: graceful shutdown on Task Scheduler "End task" (SIGTERM) and Ctrl+C.
+  // Without this, in-flight HTTP requests are abandoned and the reaper interval
+  // is killed mid-tick. tests don't hit this path because they call .stop().
+  for (const sig of ['SIGTERM', 'SIGINT']) {
+    process.on(sig, async () => {
+      process.stdout.write(`[coord] ${sig} received, shutting down\n`);
+      try {
+        const d = await daemonPromise;
+        await d.stop();
+        process.exit(0);
+      } catch (_e) {
+        process.exit(1);
+      }
+    });
+  }
+  daemonPromise.catch((err) => {
     process.stderr.write(`[coord] failed to start: ${err.message}\n`);
     process.exit(1);
   });

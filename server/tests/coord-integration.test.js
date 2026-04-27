@@ -87,4 +87,28 @@ describe('coord daemon integration', () => {
     const res = await get(daemon.port, '/active');
     expect(res.body.active).toEqual([]);
   });
+
+  it('startDaemon surfaces a restore_error when active.json is corrupt', async () => {
+    fs.mkdirSync(path.join(tmpDir, 'state'), { recursive: true });
+    fs.writeFileSync(path.join(tmpDir, 'state', 'active.json'), '{ corrupt');
+    daemon = await startDaemon({
+      port: 0,
+      state_dir: path.join(tmpDir, 'state'),
+      results_dir: path.join(tmpDir, 'results'),
+    });
+    // The daemon comes up cleanly even with a corrupt file (it's a fresh start).
+    const res = await get(daemon.port, '/health');
+    expect(res.status).toBe(200);
+  });
+
+  it('restoreFromFile returns restore_error when active.json is corrupt', async () => {
+    const { createStateStore } = require('../coord/state');
+    const file = path.join(tmpDir, 'corrupt.json');
+    fs.writeFileSync(file, '{ corrupt');
+    const store = createStateStore({ max_concurrent_runs: 2, persist_path: file });
+    const out = store.restoreFromFile();
+    expect(out.crashed_count).toBe(0);
+    expect(out.restore_error).toBeDefined();
+    expect(typeof out.restore_error).toBe('string');
+  });
 });

@@ -41,8 +41,8 @@ function createStateStore(config) {
       byProject.clear();
       persist();
       return { crashed_count };
-    } catch (_err) {
-      return { crashed_count: 0 };
+    } catch (err) {
+      return { crashed_count: 0, restore_error: err.message };
     }
   }
 
