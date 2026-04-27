@@ -18,8 +18,21 @@ let recordAuditLogFn;
 const { safeJsonParse } = require('../utils/json');
 const eventBus = require('../event-bus');
 
+// Lazy module-level cache of prepared statements keyed by a stable name.
+// Cleared whenever setDb() rebinds the database connection (e.g. in tests).
+const _approvalStmts = new Map();
+
+function _getApprovalStmt(key, sql) {
+  const cached = _approvalStmts.get(key);
+  if (cached) return cached;
+  const stmt = db.prepare(sql);
+  _approvalStmts.set(key, stmt);
+  return stmt;
+}
+
 function setDb(dbInstance) {
   db = dbInstance;
+  _approvalStmts.clear();
 }
 
 function setGetTask(fn) {
@@ -156,9 +169,11 @@ function checkApprovalRequired(taskOrId) {
   const task = taskOrId && typeof taskOrId !== 'string' ? taskOrId : (taskId ? _getTaskFn(taskId) : null);
   if (!task) return { required: false, status: 'not_required', rule: null };
 
-  const existingApproval = db.prepare(
+  const selectLatestApprovalStmt = _getApprovalStmt(
+    'selectLatestApprovalForTask',
     `SELECT * FROM approval_requests WHERE task_id = ? ORDER BY requested_at DESC LIMIT 1`
-  ).get(task.id);
+  );
+  const existingApproval = selectLatestApprovalStmt.get(task.id);
 
   if (existingApproval) {
     return {
@@ -173,15 +188,22 @@ function checkApprovalRequired(taskOrId) {
     return { required: false, status: 'not_required', rule: null };
   }
 
+  const insertOrIgnoreStmt = _getApprovalStmt(
+    'insertOrIgnoreApprovalRequest',
+    `INSERT OR IGNORE INTO approval_requests (id, task_id, rule_id, status, requested_at) VALUES (?, ?, ?, 'pending', ?)`
+  );
+  const setTaskPendingStmt = _getApprovalStmt(
+    'setTaskApprovalPending',
+    `UPDATE tasks SET approval_status = 'pending' WHERE id = ?`
+  );
+
   for (const rule of rules) {
     if (evaluateApprovalRule(rule, task)) {
       if (taskId) {
         const approvalId = `apr-${taskId}-${rule.id}`;
         const createRequestTxn = db.transaction(() => {
-          db.prepare(
-            `INSERT OR IGNORE INTO approval_requests (id, task_id, rule_id, status, requested_at) VALUES (?, ?, ?, 'pending', ?)`
-          ).run(approvalId, task.id, rule.id, new Date().toISOString());
-          db.prepare(`UPDATE tasks SET approval_status = 'pending' WHERE id = ?`).run(task.id);
+          insertOrIgnoreStmt.run(approvalId, task.id, rule.id, new Date().toISOString());
+          setTaskPendingStmt.run(task.id);
         });
 
         createRequestTxn();
@@ -261,13 +283,22 @@ function createApprovalRequest(taskId, ruleId) {
 
   const id = require('uuid').v4();
 
+  const selectExistingStmt = _getApprovalStmt(
+    'selectApprovalForTaskRule',
+    `SELECT id, status FROM approval_requests WHERE task_id = ? AND rule_id = ?`
+  );
+  const insertApprovalStmt = _getApprovalStmt(
+    'insertApprovalRequest',
+    `INSERT INTO approval_requests (id, task_id, rule_id, status, requested_at) VALUES (?, ?, ?, 'pending', ?)`
+  );
+  const setTaskPendingStmt = _getApprovalStmt(
+    'setTaskApprovalPending',
+    `UPDATE tasks SET approval_status = 'pending' WHERE id = ?`
+  );
+
   const transaction = db.transaction(() => {
     // Check if an approval already exists for this task+rule
-    const existing = db.prepare(`
-      SELECT id, status
-      FROM approval_requests
-      WHERE task_id = ? AND rule_id = ?
-    `).get(taskId, ruleId);
+    const existing = selectExistingStmt.get(taskId, ruleId);
 
     if (existing) {
       // Duplicate request — return existing ID without reverting approval state
@@ -275,12 +306,8 @@ function createApprovalRequest(taskId, ruleId) {
     }
 
     // New request — insert and set task to pending
-    db.prepare(`
-      INSERT INTO approval_requests (id, task_id, rule_id, status, requested_at)
-      VALUES (?, ?, ?, 'pending', ?)
-    `).run(id, taskId, ruleId, new Date().toISOString());
-
-    db.prepare(`UPDATE tasks SET approval_status = 'pending' WHERE id = ?`).run(taskId);
+    insertApprovalStmt.run(id, taskId, ruleId, new Date().toISOString());
+    setTaskPendingStmt.run(taskId);
 
     return id;
   });

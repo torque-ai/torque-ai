@@ -1,5 +1,6 @@
 const { randomUUID } = require('crypto');
 const { setupTestDbModule, teardownTestDb, rawDb } = require('./vitest-setup');
+const { assertMaxPrepares } = require('./perf-test-helpers.test');
 const taskCore = require('../db/task-core');
 const schedulingAutomation = require('../db/scheduling-automation');
 
@@ -335,6 +336,24 @@ describe('duration-prediction module', () => {
       const summary = mod.calibratePredictionModels();
       expect(summary.models_updated).toBe(0);
       expect(summary.samples_processed).toBe(0);
+    });
+
+    it('reuses cached pattern statements across calibration runs (prepare-in-loop regression)', async () => {
+      const seed = mkTask({ status: 'completed', task_description: 'test parser one' });
+      patchTask(seed.id, { started_at: '2026-01-01T00:00:00.000Z', completed_at: '2026-01-01T00:01:00.000Z' });
+
+      // Warm the cache.
+      mod.calibratePredictionModels();
+
+      // Second call: the 9 per-pattern SELECTs must hit the module-level cache.
+      // Remaining prepares (global SELECT, template SELECT, updatePredictionModel)
+      // are out of scope for this regression but capped at a generous ceiling so
+      // any reintroduction of in-loop prepares fails the assertion immediately
+      // (would push count well above 5).
+      const count = await assertMaxPrepares(rawDb(), 5, () => {
+        mod.calibratePredictionModels();
+      });
+      expect(count).toBeLessThanOrEqual(5);
     });
   });
 
