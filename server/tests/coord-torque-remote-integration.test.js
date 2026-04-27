@@ -119,4 +119,58 @@ describe('torque-remote coord integration', () => {
     // No coord chatter for custom suite
     expect(result.stderr).not.toContain('[torque-coord]');
   });
+
+  it('on 202 wait_for, follows wait stream and re-acquires after release', async () => {
+    makeConfig(tmpDir);
+    const handlerSource = `
+      (() => {
+        let acquireAttempts = 0;
+        return (req, res) => {
+        if (req.url === '/acquire' && req.method === 'POST') {
+          let body = '';
+          req.on('data', (c) => { body += c; });
+          req.on('end', () => {
+            acquireAttempts++;
+            if (acquireAttempts === 1) {
+              res.writeHead(202, { 'content-type': 'application/json' });
+              res.end(JSON.stringify({
+                acquired: false, reason: 'project_held',
+                wait_for: 'holder-lock', lock_id: null,
+              }));
+            } else {
+              res.writeHead(200, { 'content-type': 'application/json' });
+              res.end(JSON.stringify({ acquired: true, lock_id: 'mine-2' }));
+            }
+          });
+        } else if (req.url === '/wait/holder-lock' && req.method === 'GET') {
+          res.writeHead(200, {
+            'content-type': 'text/event-stream',
+            'cache-control': 'no-cache',
+            'connection': 'keep-alive',
+          });
+          res.write('event: progress\\ndata: {"type":"progress","elapsed_ms":1000}\\n\\n');
+          setTimeout(() => {
+            res.write('event: released\\ndata: {"type":"released","exit_code":0}\\n\\n');
+            res.end();
+          }, 50);
+        } else if (req.url === '/release' || req.url === '/heartbeat') {
+          res.writeHead(200, { 'content-type': 'application/json' });
+          res.end(JSON.stringify({ released: true, ok: true }));
+        } else {
+          res.writeHead(404).end();
+        }
+        };
+      })()
+    `;
+    stub = await spawnStubDaemon(tmpDir, handlerSource);
+
+    const result = spawnTorqueRemote(['--suite', 'gate', 'echo', 'after-wait'], {
+      TORQUE_COORD_PORT: String(stub.port),
+      HOME: tmpDir,
+    }, tmpDir);
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('after-wait');
+    expect(result.stderr).toContain('[torque-coord] waiting for in-flight run (holder-lock');
+  });
 });

@@ -513,7 +513,13 @@ COORD_LOCK_ID=""
 COORD_PROJECT="$PROJECT_NAME"
 COORD_SHA="${BRANCH_OVERRIDE:-$(git rev-parse HEAD 2>/dev/null || echo unknown)}"
 
+COORD_MAX_ACQUIRE_ATTEMPTS=50
 coord_attempt_acquire() {
+  local attempt=${1:-1}
+  if (( attempt > COORD_MAX_ACQUIRE_ATTEMPTS )); then
+    echo "[torque-coord] giving up after $COORD_MAX_ACQUIRE_ATTEMPTS attempts; running uncoordinated" >&2
+    return 1
+  fi
   local attempt_output rc
   attempt_output=$(node "$SCRIPT_DIR/torque-coord-client" acquire \
     --project "$COORD_PROJECT" --sha "$COORD_SHA" --suite "$SUITE" 2>/dev/null)
@@ -524,6 +530,10 @@ coord_attempt_acquire() {
   fi
   if [[ $rc -eq 0 ]]; then
     COORD_LOCK_ID=$(echo "$attempt_output" | sed -n 's/.*"lock_id":"\([^"]*\)".*/\1/p')
+    if [[ -z "$COORD_LOCK_ID" ]]; then
+      echo "[torque-coord] acquire returned 200 but no lock_id parsed; running uncoordinated" >&2
+      return 1
+    fi
     COORD_ACQUIRED=1
     return 0
   fi
@@ -531,14 +541,14 @@ coord_attempt_acquire() {
     local wait_for
     wait_for=$(echo "$attempt_output" | sed -n 's/.*"wait_for":"\([^"]*\)".*/\1/p')
     if [[ -n "$wait_for" ]]; then
-      echo "[torque-coord] waiting for in-flight run ($wait_for)…" >&2
+      echo "[torque-coord] waiting for in-flight run ($wait_for, attempt $attempt)…" >&2
       node "$SCRIPT_DIR/torque-coord-client" wait --lock-id "$wait_for" >/dev/null 2>&1 || true
-      coord_attempt_acquire
+      coord_attempt_acquire $((attempt + 1))
       return $?
     fi
-    echo "[torque-coord] queued (global semaphore full); waiting…" >&2
+    echo "[torque-coord] queued (global semaphore full, attempt $attempt); waiting…" >&2
     sleep 5
-    coord_attempt_acquire
+    coord_attempt_acquire $((attempt + 1))
     return $?
   fi
   echo "[torque-coord] unexpected exit $rc, running uncoordinated" >&2
@@ -555,6 +565,12 @@ coord_release_on_exit() {
       --tail "" \
       >/dev/null 2>&1 || true
   fi
+  # Chain through to the original cleanup. bash's trap is single-slot, so
+  # installing this trap REPLACED the pre-existing `trap cleanup_on_exit EXIT`
+  # at line ~264. Without this call, every coord-mode run skips temp-dir
+  # cleanup, the orphan-tarball sweep, and remote-side cleanup — re-introducing
+  # the documented 150 GB orphan accumulation regression.
+  cleanup_on_exit
 }
 
 if [[ "$SUITE" != "custom" ]]; then
