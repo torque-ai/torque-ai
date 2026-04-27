@@ -74,7 +74,7 @@ installCjsModuleMock('../api/v2-governance-handlers', handlerModule([
   'handleGetConfig', 'handleSetConfig',
   'handleConfigureStallDetection', 'handleListWebhooks', 'handleAddWebhook',
   'handleRemoveWebhook', 'handleTestWebhook', 'handleAutoVerifyAndFix',
-  'handleDetectFileConflicts',
+  'handleDetectFileConflicts', 'handleGetPerfCounters',
 ]));
 installCjsModuleMock('../api/v2-analytics-handlers', handlerModule([
   'handleStatsOverview', 'handleTimeSeries', 'handleQualityStats',
