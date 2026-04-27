@@ -15,7 +15,7 @@ describe('classify (free-eligibility)', () => {
     expect(result.eligibility).toBe('codex_only');
   });
 
-  it.each(['simple_generation', 'targeted_file_edit', 'documentation', 'default'])(
+  it.each(['simple_generation', 'targeted_file_edit', 'documentation', 'default', 'plan_generation'])(
     '%s within size cap returns free',
     (cat) => {
       const plan = { tasks: [{ files_touched: ['a.js'], estimated_lines: 50 }] };
@@ -23,6 +23,18 @@ describe('classify (free-eligibility)', () => {
       expect(result.eligibility).toBe('free');
     }
   );
+
+  it('plan_generation within size cap returns free', () => {
+    const plan = { tasks: [{ files_touched: ['plan.md'], estimated_lines: 80 }] };
+    const result = classify({ category: 'plan_generation' }, plan, {});
+    expect(result.eligibility).toBe('free');
+  });
+
+  it('plan_generation exceeding size cap returns codex_only', () => {
+    const plan = { tasks: [{ files_touched: ['a.md', 'b.md', 'c.md', 'd.md'] }] };
+    const result = classify({ category: 'plan_generation' }, plan, {});
+    expect(result.eligibility).toBe('codex_only');
+  });
 
   it('size cap exceeded (files > 3) returns codex_only', () => {
     const plan = {

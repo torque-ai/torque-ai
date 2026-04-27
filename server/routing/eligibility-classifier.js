@@ -13,6 +13,7 @@ const FREE_ELIGIBLE_CATEGORIES = new Set([
   'targeted_file_edit',
   'documentation',
   'default',
+  'plan_generation',
 ]);
 
 const SIZE_CAP_FILES = 3;
