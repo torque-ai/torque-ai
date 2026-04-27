@@ -347,6 +347,37 @@ function resumeAllCodexParked({ db: dbArg }) {
   return result.changes;
 }
 
+const CODEX_FALLBACK_POLICIES = Object.freeze(['auto', 'manual', 'wait_for_codex']);
+const DEFAULT_CODEX_FALLBACK_POLICY = 'auto';
+
+function getCodexFallbackPolicy({ db: dbArg, projectId }) {
+  if (!dbArg) throw new Error('getCodexFallbackPolicy requires db');
+  const row = dbArg.prepare(`SELECT config_json FROM factory_projects WHERE id = ?`).get(projectId);
+  if (!row) return DEFAULT_CODEX_FALLBACK_POLICY;
+  try {
+    const cfg = row.config_json ? JSON.parse(row.config_json) : {};
+    if (CODEX_FALLBACK_POLICIES.includes(cfg.codex_fallback_policy)) {
+      return cfg.codex_fallback_policy;
+    }
+  } catch (_e) {
+    // Fall through to default on JSON parse failure.
+  }
+  return DEFAULT_CODEX_FALLBACK_POLICY;
+}
+
+function setCodexFallbackPolicy({ db: dbArg, projectId, policy }) {
+  if (!dbArg) throw new Error('setCodexFallbackPolicy requires db');
+  if (!CODEX_FALLBACK_POLICIES.includes(policy)) {
+    throw new Error(`invalid policy: ${policy}`);
+  }
+  const row = dbArg.prepare(`SELECT config_json FROM factory_projects WHERE id = ?`).get(projectId);
+  if (!row) throw new Error(`project not found: ${projectId}`);
+  const cfg = row.config_json ? JSON.parse(row.config_json) : {};
+  cfg.codex_fallback_policy = policy;
+  dbArg.prepare(`UPDATE factory_projects SET config_json = ? WHERE id = ?`)
+    .run(JSON.stringify(cfg), projectId);
+}
+
 module.exports = {
   setDb,
   isMetaTaskTitle,
@@ -375,4 +406,8 @@ module.exports = {
   isParkedStatus,
   parkWorkItemForCodex,
   resumeAllCodexParked,
+  CODEX_FALLBACK_POLICIES,
+  DEFAULT_CODEX_FALLBACK_POLICY,
+  getCodexFallbackPolicy,
+  setCodexFallbackPolicy,
 };
