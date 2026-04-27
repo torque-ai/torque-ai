@@ -9,7 +9,7 @@ describe('codegraph schema', () => {
   beforeEach(() => { db = new Database(':memory:'); });
   afterEach(() => db.close());
 
-  it('creates cg_files, cg_symbols, cg_references, cg_index_state, cg_dispatch_edges, cg_class_edges tables', () => {
+  it('creates the codegraph tables (cg_*)', () => {
     ensureSchema(db);
     const tables = db.prepare(
       "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'cg_%'"
@@ -18,7 +18,9 @@ describe('codegraph schema', () => {
       'cg_class_edges',
       'cg_dispatch_edges',
       'cg_files',
+      'cg_imports',
       'cg_index_state',
+      'cg_locals',
       'cg_references',
       'cg_symbols',
     ]);
