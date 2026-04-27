@@ -477,6 +477,19 @@ describe('server index MCP platform startup hook', () => {
   let tempDir;
   let index;
 
+  // index.init() runs the real database.js init() path even though
+  // ../database is vi.doMock'd — the mock isn't reaching index.js's call site
+  // under pool: threads + vitest 4 (the lock-check stack `attemptInit
+  // database.js:584:21` confirms the real module ran). Setting the documented
+  // bypass env var (commit 53681487) is the right fix for these CI-only
+  // tests; the lock-check is meant to protect humans running a second TORQUE
+  // instance against an already-running one, not isolated worker tests that
+  // share the worker-setup.js TORQUE_DATA_DIR. Cleared in afterEach so it
+  // doesn't leak to other suites.
+  beforeEach(() => {
+    process.env.TORQUE_DB_INIT_BYPASS_LOCK_CHECK = '1';
+  });
+
   afterEach(() => {
     try { index?._testing?.resetForTest(); } catch { /* ignore */ }
     vi.useRealTimers();
@@ -484,6 +497,7 @@ describe('server index MCP platform startup hook', () => {
     vi.resetModules();
     currentIndexModules = null;
     delete process.env.TORQUE_MCP_PLATFORM_ENABLED;
+    delete process.env.TORQUE_DB_INIT_BYPASS_LOCK_CHECK;
     if (tempDir) {
       try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch { /* ignore */ }
       tempDir = null;
