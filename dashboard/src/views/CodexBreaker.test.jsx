@@ -54,14 +54,16 @@ describe('CodexBreaker view', () => {
     await waitFor(() => {
       expect(codexBreakerApi.getStatus).toHaveBeenCalled();
     });
-    expect(await screen.findByText('CLOSED')).toBeInTheDocument();
+    const closedBadges = await screen.findAllByText('CLOSED');
+    // One badge for live state, one for persisted record.
+    expect(closedBadges.length).toBeGreaterThanOrEqual(2);
   });
 
   it('shows OPEN state with persisted trip metadata', async () => {
     codexBreakerApi.getStatus.mockResolvedValue(openStatus);
     renderWithProviders(<CodexBreaker />);
     await waitFor(() => {
-      expect(screen.getByText('OPEN')).toBeInTheDocument();
+      expect(screen.getAllByText('OPEN').length).toBeGreaterThanOrEqual(2);
     });
     expect(screen.getByText(/manual operator trip/)).toBeInTheDocument();
     expect(screen.getByText(/sandbox_error/)).toBeInTheDocument();
@@ -70,7 +72,7 @@ describe('CodexBreaker view', () => {
   it('calls trip when the Trip button is clicked', async () => {
     renderWithProviders(<CodexBreaker />);
     await waitFor(() => {
-      expect(screen.getByText('CLOSED')).toBeInTheDocument();
+      expect(screen.getAllByText('CLOSED').length).toBeGreaterThanOrEqual(1);
     });
     const reasonInput = screen.getByPlaceholderText(/Reason/i);
     fireEvent.change(reasonInput, { target: { value: 'investigating sandbox issue' } });
@@ -84,7 +86,7 @@ describe('CodexBreaker view', () => {
     codexBreakerApi.getStatus.mockResolvedValue(openStatus);
     renderWithProviders(<CodexBreaker />);
     await waitFor(() => {
-      expect(screen.getByText('OPEN')).toBeInTheDocument();
+      expect(screen.getAllByText('OPEN').length).toBeGreaterThanOrEqual(1);
     });
     const reasonInput = screen.getByPlaceholderText(/Reason/i);
     fireEvent.change(reasonInput, { target: { value: 'codex restored' } });
