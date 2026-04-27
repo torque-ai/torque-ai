@@ -82,6 +82,104 @@ function callTargetName(callNode) {
   return '';
 }
 
+// Receiver of a member call: in `obj.Foo()`, the receiver is `obj`. Returns
+// '' when the receiver isn't a single identifier (chained selectors,
+// function-call receivers, package-qualified calls like `pkg.Foo()` —
+// the last is treated as a package call rather than a method call here).
+function callReceiverName(callNode) {
+  const fn = callNode.childForFieldName('function');
+  if (!fn || fn.type !== 'selector_expression') return '';
+  const obj = fn.namedChild(0);
+  if (!obj || obj.type !== 'identifier') return '';
+  return obj.text;
+}
+
+// Capture local variable type bindings from Go declarations:
+//   var a *Dog                  → a : Dog
+//   var a Dog                   → a : Dog
+//   b := &Dog{}                 → b : Dog (constructor inference)
+//   c := Dog{}                  → c : Dog (composite literal)
+//   d := f()                    → no binding (return type unknown without
+//                                  cross-call type tracking)
+function extractGoLocalsFromVarSpec(specNode, scopeSymbolIndex) {
+  const out = [];
+  // var_spec can declare multiple names: `var a, b *Dog`. Walk the type
+  // child once and bind every preceding identifier to it.
+  const ids = specNode.namedChildren.filter((c) => c.type === 'identifier');
+  const typeNode = specNode.namedChildren.find((c) =>
+    c.type === 'type_identifier' || c.type === 'pointer_type'
+       || c.type === 'qualified_type' || c.type === 'generic_type'
+  );
+  if (!typeNode) return out;
+  const t = typeName(typeNode);
+  if (!t) return out;
+  for (const id of ids) {
+    out.push({
+      localName: id.text,
+      typeName: t,
+      scopeSymbolIndex,
+      line: id.startPosition.row + 1,
+      col:  id.startPosition.column,
+    });
+  }
+  return out;
+}
+
+function extractGoLocalsFromShortDecl(declNode, scopeSymbolIndex) {
+  const out = [];
+  // short_var_declaration shape:
+  //   expression_list (LHS identifiers) + expression_list (RHS values)
+  // Per-binding RHS inference for composite literals only.
+  const lists = declNode.namedChildren.filter((c) => c.type === 'expression_list');
+  if (lists.length !== 2) return out;
+  const lhs = lists[0].namedChildren;
+  const rhs = lists[1].namedChildren;
+  for (let i = 0; i < lhs.length && i < rhs.length; i++) {
+    if (lhs[i].type !== 'identifier') continue;
+    const localName = lhs[i].text;
+    let value = rhs[i];
+    // &Dog{} → unary_expression wrapping composite_literal
+    if (value && value.type === 'unary_expression') value = value.namedChild(0);
+    if (!value || value.type !== 'composite_literal') continue;
+    const tNode = value.childForFieldName('type')
+               || value.namedChildren.find((c) =>
+                    c.type === 'type_identifier' || c.type === 'qualified_type'
+                       || c.type === 'pointer_type' || c.type === 'generic_type');
+    const t = typeName(tNode);
+    if (!t) continue;
+    out.push({
+      localName, typeName: t, scopeSymbolIndex,
+      line: lhs[i].startPosition.row + 1,
+      col:  lhs[i].startPosition.column,
+    });
+  }
+  return out;
+}
+
+// Function/method parameter list → typed locals scoped to the function's
+// symbol id. Receiver parameters are handled separately by method_declaration
+// since they bind to the containing struct/interface.
+function collectGoParameterTypes(paramListNode, locals, scopeSymbolIndex) {
+  for (let i = 0; i < paramListNode.namedChildCount; i++) {
+    const param = paramListNode.namedChild(i);
+    if (param.type !== 'parameter_declaration') continue;
+    const ids = param.namedChildren.filter((c) => c.type === 'identifier');
+    const tNode = param.namedChildren.find((c) =>
+      c.type === 'type_identifier' || c.type === 'pointer_type'
+         || c.type === 'qualified_type' || c.type === 'generic_type'
+    );
+    const t = typeName(tNode);
+    if (!t) continue;
+    for (const id of ids) {
+      locals.push({
+        localName: id.text, typeName: t, scopeSymbolIndex,
+        line: id.startPosition.row + 1,
+        col:  id.startPosition.column,
+      });
+    }
+  }
+}
+
 // Extract symbols + class edges from a type_declaration. type_declaration
 // has one or more type_spec children — each defines a named type. We surface
 // each as a symbol (kind='struct'|'interface'|'type') and walk struct/iface
@@ -229,6 +327,7 @@ async function extractFromSource(source) {
   const dispatchEdges = []; // not used for Go (no switch-case-as-handler-table convention)
   const classEdges = [];
   const imports = [];
+  const locals = [];
   const exportedNames = new Set();
   const enclosingStack = [];
 
@@ -252,10 +351,14 @@ async function extractFromSource(source) {
         if (isExportedName(name)) exportedNames.add(name);
         enclosingStack.push(symbols.length - 1);
         pushedSymbol = true;
+        // Capture parameter type bindings for the function body.
+        const params = node.namedChildren.find((c) => c.type === 'parameter_list');
+        if (params) collectGoParameterTypes(params, locals, symbols.length - 1);
       }
     } else if (node.type === 'method_declaration') {
       const name = methodName(node);
       if (name) {
+        const recv = methodReceiverType(node);
         symbols.push({
           name,
           kind: 'method',
@@ -266,14 +369,35 @@ async function extractFromSource(source) {
           isAsync: false,
           isGenerator: false,
           isStatic: false,
-          // Receiver type lives in `receiverType` so consumers can scope
-          // symbol lookups to the owning struct. Doesn't affect the schema
-          // (no column for it yet) but available on the extractor's output.
-          receiverType: methodReceiverType(node),
+          // containerName matches the receiver type — the schema's standard
+          // way to record "this method belongs to this type". receiverType
+          // (extractor-side) and container_name (DB-side) are the same value
+          // for Go.
+          containerName: recv || null,
+          receiverType: recv,
         });
         if (isExportedName(name)) exportedNames.add(name);
         enclosingStack.push(symbols.length - 1);
         pushedSymbol = true;
+        const sIdx = symbols.length - 1;
+        // Bind the receiver parameter to the containing type so calls like
+        // `d.OtherMethod()` inside a method body can resolve via cg_locals.
+        const lists = node.namedChildren.filter((c) => c.type === 'parameter_list');
+        if (lists.length > 0 && recv) {
+          const recvParam = lists[0].namedChildren.find((c) => c.type === 'parameter_declaration');
+          if (recvParam) {
+            const id = recvParam.namedChildren.find((c) => c.type === 'identifier');
+            if (id) {
+              locals.push({
+                localName: id.text, typeName: recv, scopeSymbolIndex: sIdx,
+                line: recvParam.startPosition.row + 1,
+                col:  recvParam.startPosition.column,
+              });
+            }
+          }
+          // The second parameter_list is the actual method parameters.
+          if (lists.length > 1) collectGoParameterTypes(lists[1], locals, sIdx);
+        }
       }
     } else if (node.type === 'type_declaration') {
       extractTypeDeclaration(node, symbols, classEdges, exportedNames);
@@ -286,6 +410,7 @@ async function extractFromSource(source) {
       if (target) {
         references.push({
           targetName: target,
+          receiverName: callReceiverName(node) || null,
           line: node.startPosition.row + 1,
           col:  node.startPosition.column,
           callerSymbolIndex: enclosingStack[enclosingStack.length - 1] ?? null,
@@ -295,6 +420,22 @@ async function extractFromSource(source) {
 
     if (node.type === 'import_declaration') {
       for (const imp of extractImportsFromImportDeclaration(node)) imports.push(imp);
+    }
+
+    if (node.type === 'var_declaration') {
+      // Each var_spec inside is a binding group — `var (a int; b *Dog)` etc.
+      for (let i = 0; i < node.namedChildCount; i++) {
+        const spec = node.namedChild(i);
+        if (spec.type !== 'var_spec') continue;
+        for (const l of extractGoLocalsFromVarSpec(spec, enclosingStack[enclosingStack.length - 1] ?? null)) {
+          locals.push(l);
+        }
+      }
+    }
+    if (node.type === 'short_var_declaration') {
+      for (const l of extractGoLocalsFromShortDecl(node, enclosingStack[enclosingStack.length - 1] ?? null)) {
+        locals.push(l);
+      }
     }
 
     for (let i = 0; i < node.namedChildCount; i++) {
@@ -310,7 +451,7 @@ async function extractFromSource(source) {
     s.isExported = exportedNames.has(s.name);
   }
 
-  return { symbols, references, dispatchEdges, classEdges, imports, exportedNames: [...exportedNames] };
+  return { symbols, references, dispatchEdges, classEdges, imports, locals, exportedNames: [...exportedNames] };
 }
 
 module.exports = { extractFromSource };
