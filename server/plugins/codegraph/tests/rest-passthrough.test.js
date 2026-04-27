@@ -40,4 +40,11 @@ describe('codegraph REST passthrough routes', () => {
     expect(r.path).toBe('/api/v2/codegraph/resolve-tool');
     expect(r.mapBody).toBe(true);
   });
+
+  it('exposes POST /api/v2/codegraph/class-hierarchy for cg_class_hierarchy', () => {
+    const r = find('cg_class_hierarchy', 'POST');
+    expect(r).toBeTruthy();
+    expect(r.path).toBe('/api/v2/codegraph/class-hierarchy');
+    expect(r.mapBody).toBe(true);
+  });
 });

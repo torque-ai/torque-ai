@@ -6,6 +6,7 @@ const { callGraph }      = require('./queries/call-graph');
 const { impactSet }      = require('./queries/impact-set');
 const { deadSymbols }    = require('./queries/dead-symbols');
 const { resolveTool }    = require('./queries/resolve-tool');
+const { classHierarchy } = require('./queries/class-hierarchy');
 
 function requireString(args, key) {
   if (typeof args?.[key] !== 'string' || args[key].length === 0) {
@@ -140,6 +141,32 @@ function createHandlers({ db }) {
         caveat: includeLikelyDispatched
           ? 'Permissive mode: dynamic-dispatch heuristic disabled. Many results will be tool handlers, plugin contract methods, or framework hooks called by name — not actually dead.'
           : 'Identifier-only resolution. Symbols dispatched via dynamic lookups beyond the heuristic are still false-positive risk. Verify before deletion.',
+      });
+    },
+
+    async cg_class_hierarchy(args) {
+      const repoPath  = requireString(args, 'repo_path');
+      const symbol    = requireString(args, 'symbol');
+      const direction = args.direction || 'descendants';
+      if (direction !== 'descendants' && direction !== 'ancestors') {
+        throw new Error("direction must be 'descendants' or 'ancestors'");
+      }
+      const depth = args.depth ?? 3;
+      const h = classHierarchy({ db, repoPath, symbol, direction, depth });
+      const otherDir = direction === 'descendants' ? 'ancestors' : 'descendants';
+      return asToolResult({
+        symbol,
+        direction,
+        nodes: h.nodes,
+        edges: h.edges,
+        truncated: h.truncated,
+        max_nodes: h.max_nodes,
+        depth_used: depth,
+        ...(h.edges.length === 0 && {
+          hint: `No ${direction} found for '${symbol}'. The class may not exist in the indexed repo, may be defined in a third-party package (only own-source classes are captured), or may use dynamic inheritance (e.g. mixin functions). Try cg_find_references on '${symbol}' to confirm it's reachable, and try direction='${otherDir}' to walk the other way.`,
+        }),
+        ...(h.truncated && { truncation_hint: `Result hit the ${h.max_nodes}-node cap. The hierarchy is larger than this query exposes. Reduce depth (try 1 or 2) for direct relationships, or query a more specific subclass.` }),
+        staleness: staleness(db, repoPath),
       });
     },
 

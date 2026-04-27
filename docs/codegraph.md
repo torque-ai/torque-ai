@@ -5,7 +5,7 @@
 ## Status
 
 - **Languages:** JavaScript, TypeScript, TSX (parsed via native `tree-sitter` + `tree-sitter-javascript` + `tree-sitter-typescript`)
-- **Storage:** SQLite tables prefixed `cg_*` in the TORQUE database
+- **Storage:** SQLite tables prefixed `cg_*` in a dedicated `<DATA_DIR>/codegraph.db` file (separate from the main TORQUE db so reindex transactions don't lock task scheduling)
 - **Off by default.** Set `TORQUE_CODEGRAPH_ENABLED=1` and restart to enable.
 
 ## REST endpoints
@@ -18,8 +18,10 @@
 | `POST` | `/api/v2/codegraph/call-graph` | `{ repo_path, symbol, direction?, depth? }` |
 | `POST` | `/api/v2/codegraph/impact-set` | `{ repo_path, symbol, depth? }` |
 | `GET`  | `/api/v2/codegraph/dead-symbols?repo_path=...` | — |
+| `POST` | `/api/v2/codegraph/resolve-tool` | `{ repo_path, tool_name }` |
+| `POST` | `/api/v2/codegraph/class-hierarchy` | `{ repo_path, symbol, direction?, depth? }` |
 
-Every endpoint has a 1:1 MCP tool with the same name (`cg_index_status`, `cg_reindex`, `cg_find_references`, `cg_call_graph`, `cg_impact_set`, `cg_dead_symbols`). REST is the source of truth — MCP tools are thin shims dispatching through `handleToolCall()` to the same handlers.
+Every endpoint has a 1:1 MCP tool with the same name (`cg_index_status`, `cg_reindex`, `cg_find_references`, `cg_call_graph`, `cg_impact_set`, `cg_dead_symbols`, `cg_resolve_tool`, `cg_class_hierarchy`). REST is the source of truth — MCP tools are thin shims dispatching through `handleToolCall()` to the same handlers.
 
 ## Indexing semantics
 
@@ -49,8 +51,10 @@ server/plugins/codegraph/
 │   ├── find-references.js
 │   ├── call-graph.js     # BFS bounded at depth 8, MAX_NODES 100
 │   ├── impact-set.js     # transitive caller closure + file rollup
-│   └── dead-symbols.js   # symbols never appearing as a target_name
-├── handlers.js           # 6 async tool handlers (createHandlers({db}))
+│   ├── dead-symbols.js   # symbols never appearing as a target_name
+│   ├── resolve-tool.js   # MCP tool name → handler symbol via dispatch edges
+│   └── class-hierarchy.js # extends/implements BFS for ancestors / descendants
+├── handlers.js           # 8 async tool handlers (createHandlers({db}))
 ├── tool-defs.js          # MCP tool descriptors with inputSchema
 ├── test-helpers.js       # setupTinyRepo / destroyTinyRepo (real git via execFileSync)
 ├── fixtures/tiny-repo/   # a.js + b.js used by deterministic tests

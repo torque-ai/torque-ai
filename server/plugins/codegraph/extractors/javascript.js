@@ -453,6 +453,85 @@ function extractHandlerFactoryPattern(functionNode) {
   return out;
 }
 
+// Pull a usable name out of an extends/implements expression.
+// Handles `class X extends Foo`, `class X extends ns.Foo`, and falls back
+// to the raw text for unusual cases (mixin calls etc.). Returns '' when
+// nothing identifier-like is present, in which case the edge is dropped.
+function supertypeName(node) {
+  if (!node) return '';
+  if (node.type === 'identifier' || node.type === 'type_identifier') return node.text;
+  if (node.type === 'member_expression') {
+    const prop = node.childForFieldName('property');
+    return prop ? prop.text : '';
+  }
+  // generic_type wraps `Foo<T>`; the underlying name is the first child.
+  if (node.type === 'generic_type') {
+    const head = node.namedChild(0);
+    if (head) return supertypeName(head);
+  }
+  return '';
+}
+
+// Walk a class_declaration / interface_declaration node and emit class-edge
+// records for its extends/implements clauses. Tree-sitter shapes the
+// heritage tree differently across grammars:
+//   JS class:  class_heritage → identifier ("Animal")          [direct child = supertype]
+//   TS class:  class_heritage → extends_clause → identifier
+//                            → implements_clause → type_identifier+
+//   TS iface:  interface_declaration → extends_type_clause → type_identifier+
+// We accept both shapes by treating `class_heritage`'s direct identifier
+// children as extends edges (JS shape) AND by recursing into nested
+// extends_clause / implements_clause / extends_type_clause wrappers (TS).
+function extractClassEdges(node) {
+  const subName = nodeName(node);
+  if (!subName) return [];
+  const out = [];
+
+  function pushSupertype(supertypeNode, edgeKind) {
+    const sup = supertypeName(supertypeNode);
+    if (!sup) return;
+    out.push({
+      subtypeName: subName,
+      supertypeName: sup,
+      edgeKind,
+      line: supertypeNode.startPosition.row + 1,
+      col:  supertypeNode.startPosition.column,
+    });
+  }
+
+  function visitClause(clause) {
+    if (!clause) return;
+    if (clause.type === 'class_heritage') {
+      // Either wraps clauses (TS) or directly contains the supertype (JS).
+      for (let i = 0; i < clause.namedChildCount; i++) {
+        const child = clause.namedChild(i);
+        if (child.type === 'extends_clause' || child.type === 'implements_clause') {
+          visitClause(child);
+        } else {
+          // JS shape: the bare supertype identifier sits inside class_heritage.
+          pushSupertype(child, 'extends');
+        }
+      }
+      return;
+    }
+    if (clause.type === 'extends_clause' || clause.type === 'extends_type_clause') {
+      for (let i = 0; i < clause.namedChildCount; i++) {
+        pushSupertype(clause.namedChild(i), 'extends');
+      }
+      return;
+    }
+    if (clause.type === 'implements_clause') {
+      for (let i = 0; i < clause.namedChildCount; i++) {
+        pushSupertype(clause.namedChild(i), 'implements');
+      }
+      return;
+    }
+  }
+
+  for (let i = 0; i < node.namedChildCount; i++) visitClause(node.namedChild(i));
+  return out;
+}
+
 async function extractFromSource(source, language) {
   const parser = await getParser(language);
   // Native tree-sitter defaults bufferSize to 32KB and throws "Invalid argument"
@@ -464,6 +543,7 @@ async function extractFromSource(source, language) {
   const symbols = [];
   const references = [];
   const dispatchEdges = [];
+  const classEdges = [];
   const exportedNames = new Set();
   const enclosingStack = []; // indexes into `symbols`
 
@@ -527,6 +607,9 @@ async function extractFromSource(source, language) {
     if (node.type === 'function_declaration') {
       for (const e of extractHandlerFactoryPattern(node)) dispatchEdges.push(e);
     }
+    if (node.type === 'class_declaration' || node.type === 'interface_declaration') {
+      for (const e of extractClassEdges(node)) classEdges.push(e);
+    }
     for (let i = 0; i < node.namedChildCount; i++) {
       walk(node.namedChild(i));
     }
@@ -540,7 +623,7 @@ async function extractFromSource(source, language) {
     s.isExported = exportedNames.has(s.name);
   }
 
-  return { symbols, references, dispatchEdges, exportedNames: [...exportedNames] };
+  return { symbols, references, dispatchEdges, classEdges, exportedNames: [...exportedNames] };
 }
 
 module.exports = { extractFromSource };

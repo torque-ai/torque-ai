@@ -16,6 +16,7 @@ async function runIndex({ db, repoPath, files, commitSha = null, _sourceDir = nu
   const deleteSymbols       = db.prepare('DELETE FROM cg_symbols        WHERE repo_path = ?');
   const deleteReferences    = db.prepare('DELETE FROM cg_references     WHERE repo_path = ?');
   const deleteDispatchEdges = db.prepare('DELETE FROM cg_dispatch_edges WHERE repo_path = ?');
+  const deleteClassEdges    = db.prepare('DELETE FROM cg_class_edges    WHERE repo_path = ?');
   const insertFile = db.prepare(`
     INSERT INTO cg_files (repo_path, file_path, language, content_sha, indexed_at)
     VALUES (@repoPath, @filePath, @language, @contentSha, @indexedAt)
@@ -31,6 +32,10 @@ async function runIndex({ db, repoPath, files, commitSha = null, _sourceDir = nu
   const insertDispatchEdge = db.prepare(`
     INSERT INTO cg_dispatch_edges (repo_path, file_path, case_string, handler_name, line, col)
     VALUES (@repoPath, @filePath, @caseString, @handlerName, @line, @col)
+  `);
+  const insertClassEdge = db.prepare(`
+    INSERT INTO cg_class_edges (repo_path, file_path, subtype_name, supertype_name, edge_kind, line, col)
+    VALUES (@repoPath, @filePath, @subtypeName, @supertypeName, @edgeKind, @line, @col)
   `);
   const upsertState = db.prepare(`
     INSERT INTO cg_index_state (repo_path, commit_sha, indexed_at, files, symbols, references_count)
@@ -70,9 +75,10 @@ async function runIndex({ db, repoPath, files, commitSha = null, _sourceDir = nu
     work.push({ rel, language: ext.language, contentSha: sha256(buf), extracted });
   }
 
-  let totalFiles = 0, totalSymbols = 0, totalRefs = 0, totalDispatch = 0;
+  let totalFiles = 0, totalSymbols = 0, totalRefs = 0, totalDispatch = 0, totalClassEdges = 0;
 
   const tx = db.transaction(() => {
+    deleteClassEdges.run(repoPath);
     deleteDispatchEdges.run(repoPath);
     deleteReferences.run(repoPath);
     deleteSymbols.run(repoPath);
@@ -129,6 +135,20 @@ async function runIndex({ db, repoPath, files, commitSha = null, _sourceDir = nu
         });
       }
       totalDispatch += edges.length;
+
+      const cEdges = extracted.classEdges || [];
+      for (const e of cEdges) {
+        insertClassEdge.run({
+          repoPath,
+          filePath: rel,
+          subtypeName: e.subtypeName,
+          supertypeName: e.supertypeName,
+          edgeKind: e.edgeKind,
+          line: e.line,
+          col: e.col,
+        });
+      }
+      totalClassEdges += cEdges.length;
     }
 
     upsertState.run({
@@ -143,7 +163,13 @@ async function runIndex({ db, repoPath, files, commitSha = null, _sourceDir = nu
 
   tx();
 
-  const result = { files: totalFiles, symbols: totalSymbols, references: totalRefs, dispatch_edges: totalDispatch };
+  const result = {
+    files: totalFiles,
+    symbols: totalSymbols,
+    references: totalRefs,
+    dispatch_edges: totalDispatch,
+    class_edges: totalClassEdges,
+  };
   if (skipped.length > 0) result.skipped = skipped;
   return result;
 }

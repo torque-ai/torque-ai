@@ -93,6 +93,21 @@ const tools = [
     },
   },
   {
+    name: 'cg_class_hierarchy',
+    description: 'Walk the class/interface inheritance graph from a symbol. direction=descendants finds subclasses (who extends/implements this?); direction=ancestors finds superclasses/interfaces (what does this extend/implement?). Returns `{symbol, direction, nodes: [{name, kind?}], edges: [{from, to, kind}], truncated, max_nodes, depth_used, staleness}`. Edge kind is "extends" (class:class or interface:interface) or "implements" (class:interface). Bounded by depth (max 8) and a 100-node cap. Use before refactoring a base class to scope which subclasses depend on its surface — the most common "I want to change X but who would break?" question for OO code.' + RESOLUTION_NOTE + STALENESS_NOTE,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        repo_path: { type: 'string' },
+        symbol:    { type: 'string', description: 'Class or interface name (bare identifier).' },
+        direction: { type: 'string', enum: ['descendants', 'ancestors'], default: 'descendants', description: 'descendants: who extends/implements this? ancestors: what does this extend/implement?' },
+        depth:     { type: 'integer', minimum: 1, maximum: 8, default: 3 },
+      },
+      required: ['repo_path', 'symbol'],
+      additionalProperties: false,
+    },
+  },
+  {
     name: 'cg_resolve_tool',
     description: 'Map an MCP tool name (e.g. `smart_submit_task`) to its handler function symbol(s) (e.g. `handleSmartSubmitTask`) by walking dispatcher case statements indexed at parse time. Returns `{tool_name, handlers: [{toolName, handlerName, file, line, column}], staleness}`. Use this when cg_find_references / cg_call_graph return empty for a name that\'s actually a tool name — the graph indexes only function declarations and call expressions, not the string-keyed dispatch in `switch (name) { case "X": return handleX() }`. Once you have the handler symbol, query it directly with cg_call_graph or cg_find_references.' + STALENESS_NOTE,
     inputSchema: {

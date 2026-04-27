@@ -61,6 +61,23 @@ const SCHEMA_SQL = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_cg_dispatch_case ON cg_dispatch_edges(repo_path, case_string)`,
   `CREATE INDEX IF NOT EXISTS idx_cg_dispatch_handler ON cg_dispatch_edges(repo_path, handler_name)`,
+  // cg_class_edges: extends/implements relationships between classes and
+  // interfaces. edge_kind is 'extends' (class:class or interface:interface)
+  // or 'implements' (class:interface). Powers cg_class_hierarchy — the
+  // "what subclasses depend on this base?" question that comes up before
+  // refactoring a parent class.
+  `CREATE TABLE IF NOT EXISTS cg_class_edges (
+    id INTEGER PRIMARY KEY,
+    repo_path TEXT NOT NULL,
+    file_path TEXT NOT NULL,
+    subtype_name TEXT NOT NULL,
+    supertype_name TEXT NOT NULL,
+    edge_kind TEXT NOT NULL,
+    line INTEGER NOT NULL,
+    col INTEGER NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_cg_class_sub   ON cg_class_edges(repo_path, subtype_name)`,
+  `CREATE INDEX IF NOT EXISTS idx_cg_class_super ON cg_class_edges(repo_path, supertype_name)`,
 ];
 
 // Idempotent column adds for upgrade paths from existing schemas.
