@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# SCRIPT_DIR is needed for locating torque-coord-client (sibling script).
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 # torque-remote — Route commands to the configured remote workstation.
 # Usage: torque-remote <command...>
 #   Routes the command to the remote workstation via SSH.
@@ -285,29 +288,36 @@ USAGE
   exit 1
 fi
 
-# Parse an optional branch override before the command payload.
+# Parse leading torque-remote flags. Supported: --branch <ref>, --suite <name>.
+# Both are optional. Anything else starting with -- is a user error — surface
+# it rather than forwarding to the inner command (a typo like --cwd would
+# otherwise silently slip into COMMAND_ARGS and the local-fallback path
+# would try to exec it as a program with the cryptic "command not found").
 BRANCH_OVERRIDE=""
-if [[ "$1" == "--branch" ]]; then
-  [[ $# -lt 2 ]] && die "Invalid --branch value: "
-  BRANCH_OVERRIDE="$2"
-  if [[ ! "$BRANCH_OVERRIDE" =~ ^[a-zA-Z0-9_./-]+$ ]]; then
-    die "Invalid --branch value: $BRANCH_OVERRIDE"
-  fi
-  shift 2
-fi
-
-# Reject unknown leading flags. Without this, a typo like `--cwd <dir>` (not a
-# torque-remote flag — only --branch is) silently slips into COMMAND_ARGS,
-# and the local-fallback path then tries to exec `--cwd` as a program with
-# the cryptic "command not found". Anything starting with `--` in $1 either
-# is a known torque-remote flag (handled above) or is a user error; in
-# either case, surface it instead of forwarding it to the inner command.
-if [[ "${1:-}" == --* ]]; then
-  die "Unknown torque-remote flag: $1
-torque-remote only supports --branch <ref>. If $1 is meant for your inner
-command, place it after the command name, e.g.:
+SUITE="${TORQUE_REMOTE_DEFAULT_SUITE:-custom}"
+while [[ "${1:-}" == --* ]]; do
+  case "$1" in
+    --branch)
+      [[ $# -lt 2 ]] && die "Invalid --branch value: "
+      BRANCH_OVERRIDE="$2"
+      if [[ ! "$BRANCH_OVERRIDE" =~ ^[a-zA-Z0-9_./-]+$ ]]; then
+        die "Invalid --branch value: $BRANCH_OVERRIDE"
+      fi
+      shift 2
+      ;;
+    --suite)
+      [[ $# -lt 2 ]] && die "Invalid --suite value: "
+      SUITE="$2"
+      shift 2
+      ;;
+    *)
+      die "Unknown torque-remote flag: $1
+torque-remote supports --branch <ref> and --suite <name>. If $1 is meant for
+your inner command, place it after the command name, e.g.:
   torque-remote npx vitest run $1 ..."
-fi
+      ;;
+  esac
+done
 
 if [[ $# -eq 0 ]]; then
   cat >&2 << 'USAGE'
@@ -490,6 +500,68 @@ COMMAND_ARGS=("$@")
 COMMAND_DISPLAY="$(format_command_for_log "${COMMAND_ARGS[@]}")"
 
 # ---- Execute ----
+
+# ─── Coord acquire (best-effort, opt-in via --suite) ───────────────────
+# When --suite is set to anything other than "custom", attempt to acquire a
+# lock from the torque-coord daemon. If the daemon is unreachable or the
+# lock is held by someone else, follow the wait flow. Daemon-down (CLI exit
+# 2) degrades to uncoordinated execution. The EXIT trap below ensures we
+# always release the lock if we acquired one, regardless of which transport
+# branch exits the script.
+COORD_ACQUIRED=0
+COORD_LOCK_ID=""
+COORD_PROJECT="$PROJECT_NAME"
+COORD_SHA="${BRANCH_OVERRIDE:-$(git rev-parse HEAD 2>/dev/null || echo unknown)}"
+
+coord_attempt_acquire() {
+  local attempt_output rc
+  attempt_output=$(node "$SCRIPT_DIR/torque-coord-client" acquire \
+    --project "$COORD_PROJECT" --sha "$COORD_SHA" --suite "$SUITE" 2>/dev/null)
+  rc=$?
+  if [[ $rc -eq 2 ]]; then
+    echo "[torque-coord] unreachable, running uncoordinated" >&2
+    return 1
+  fi
+  if [[ $rc -eq 0 ]]; then
+    COORD_LOCK_ID=$(echo "$attempt_output" | sed -n 's/.*"lock_id":"\([^"]*\)".*/\1/p')
+    COORD_ACQUIRED=1
+    return 0
+  fi
+  if [[ $rc -eq 3 ]]; then
+    local wait_for
+    wait_for=$(echo "$attempt_output" | sed -n 's/.*"wait_for":"\([^"]*\)".*/\1/p')
+    if [[ -n "$wait_for" ]]; then
+      echo "[torque-coord] waiting for in-flight run ($wait_for)…" >&2
+      node "$SCRIPT_DIR/torque-coord-client" wait --lock-id "$wait_for" >/dev/null 2>&1 || true
+      coord_attempt_acquire
+      return $?
+    fi
+    echo "[torque-coord] queued (global semaphore full); waiting…" >&2
+    sleep 5
+    coord_attempt_acquire
+    return $?
+  fi
+  echo "[torque-coord] unexpected exit $rc, running uncoordinated" >&2
+  return 1
+}
+
+coord_release_on_exit() {
+  local final_exit=$?
+  if [[ "$COORD_ACQUIRED" -eq 1 && -n "$COORD_LOCK_ID" ]]; then
+    node "$SCRIPT_DIR/torque-coord-client" release \
+      --lock-id "$COORD_LOCK_ID" \
+      --exit "$final_exit" \
+      --status "$([[ $final_exit -eq 0 ]] && echo pass || echo fail)" \
+      --tail "" \
+      >/dev/null 2>&1 || true
+  fi
+}
+
+if [[ "$SUITE" != "custom" ]]; then
+  trap coord_release_on_exit EXIT
+  coord_attempt_acquire || true
+fi
+# ────────────────────────────────────────────────────────────────────────
 
 case "$TRANSPORT" in
 
