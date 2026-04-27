@@ -39,7 +39,11 @@ function callTargetName(callNode) {
 
 async function extractFromSource(source, language) {
   const parser = await getParser(language);
-  const tree = parser.parse(source);
+  // Native tree-sitter defaults bufferSize to 32KB and throws "Invalid argument"
+  // on larger sources. Pass headroom (source length + 32KB, min 32KB) so the
+  // parser fits any reasonable file. The buffer is allocated lazily — passing
+  // a high cap doesn't preallocate.
+  const tree = parser.parse(source, null, { bufferSize: Math.max(32 * 1024, source.length + 32 * 1024) });
 
   const symbols = [];
   const references = [];
