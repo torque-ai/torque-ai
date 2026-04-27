@@ -558,9 +558,14 @@ coord_begin() {
     return 1
   fi
   local out rc event
+  # stderr passes through (not silenced like the prior per-call 2>/dev/null)
+  # because begin emits operator-relevant warnings such as
+  # "[torque-coord] hash mismatch on cached result, running fresh" that the
+  # integration tests assert on. Only stdout is captured; node's own
+  # diagnostics travel through to torque-remote's stderr.
   out=$(node "$SCRIPT_DIR/torque-coord-client" begin \
     --project "$COORD_PROJECT" --sha "$COORD_SHA" --suite "$SUITE" \
-    --root "$PROJECT_ROOT" 2>/dev/null)
+    --root "$PROJECT_ROOT")
   rc=$?
   event=$(coord_extract_field "$out" event)
   case "$event" in

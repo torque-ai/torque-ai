@@ -228,7 +228,11 @@ async function main() {
             });
             process.exit(0);
           }
-          // hashes mismatch — fall through to acquire below
+          // hashes mismatch — fall through to acquire below.
+          // Surface the discard reason on stderr so callers (and integration
+          // tests) can observe that the cached result was bypassed instead of
+          // silently re-running.
+          process.stderr.write('[torque-coord] hash mismatch on cached result, running fresh\n');
         } else if (resultsResp.status !== 200 && resultsResp.status !== 404) {
           // Server error on results — surface it but still try acquire
           // since acquire is the actual gate. (rc=1 if acquire also fails.)
