@@ -376,7 +376,14 @@ async function handlePostCompletion(ctx) {
       if (ctx.status === 'completed' && code === 0) {
         circuitBreaker.recordSuccess(task.provider);
       } else if (ctx.status === 'failed') {
-        circuitBreaker.recordFailure(task.provider, ctx.errorOutput || '');
+        if (task.provider === 'codex' || task.provider === 'codex-spark') {
+          circuitBreaker.recordFailureByCode(task.provider, {
+            errorCode: task.error_code || ctx.errorCode || null,
+            exitCode: task.exit_code != null ? task.exit_code : (code != null ? code : null),
+          });
+        } else {
+          circuitBreaker.recordFailure(task.provider, ctx.errorOutput || '');
+        }
       }
     }
   } catch (cbErr) {
