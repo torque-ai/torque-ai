@@ -365,6 +365,44 @@ describe('v2 provider health and model inventory endpoints', () => {
     });
   });
 
+  it('serves live OpenRouter free models even when no API key is configured', async () => {
+    // OpenRouter's free model catalog is public, so the v2 discovery endpoint
+    // must not gate live adapter discovery on a configured key. This test
+    // explicitly clears the env var so an accidental future "require key
+    // before live discovery" check would fail loudly.
+    delete process.env.OPENROUTER_API_KEY;
+    setProvider('openrouter');
+    const listModels = vi.fn(async () => [
+      'google/gemma-4-31b-it',
+      'nvidia/nemotron-3-super-120b-a12b:free',
+    ]);
+    getProviderAdapterSpy.mockImplementation((providerId) => (
+      providerId === 'openrouter'
+        ? { listModels }
+        : originalGetProviderAdapter(providerId)
+    ));
+
+    const response = await dispatchRequest(requestHandler, {
+      method: 'GET',
+      url: '/api/v2/providers/openrouter/models',
+    });
+
+    expect(response.statusCode).toBe(200);
+    const payload = JSON.parse(response.body);
+
+    expect(payload.data.provider_id).toBe('openrouter');
+    expect(payload.source).toBe('provider_api_live');
+    expect(payload.data.models.map((model) => model.id)).toEqual([
+      'google/gemma-4-31b-it',
+      'nvidia/nemotron-3-super-120b-a12b:free',
+    ]);
+    expect(payload.data.models.every((model) => model.source === 'provider_api_live')).toBe(true);
+    expect(listModels).toHaveBeenCalledWith({
+      freeOnly: true,
+      toolsOnly: false,
+    });
+  });
+
   it('queries live Ollama hosts for model inventory and aggregates unique descriptors', async () => {
     setProvider('ollama', { transport: 'api' });
     listOllamaHostsSpy.mockReturnValue([
