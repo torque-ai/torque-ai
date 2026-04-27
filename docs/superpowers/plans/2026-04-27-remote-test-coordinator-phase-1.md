@@ -67,7 +67,7 @@ Create `server/tests/coord-config.test.js`:
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { describe, it, expect, beforeEach, afterEach } = require('vitest');
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 
 const { loadConfig, DEFAULTS } = require('../coord/config');
 
@@ -187,7 +187,7 @@ Create `server/tests/coord-state.test.js`:
 
 ```javascript
 'use strict';
-const { describe, it, expect, beforeEach } = require('vitest');
+import { describe, it, expect, beforeEach } from 'vitest';
 const { createStateStore } = require('../coord/state');
 
 const HOLDER = { host: 'omen', pid: 1234, user: 'kenten' };
@@ -429,7 +429,7 @@ Create `server/tests/coord-state-persistence.test.js`:
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { describe, it, expect, beforeEach, afterEach } = require('vitest');
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 const { createStateStore } = require('../coord/state');
 
 const HOLDER = { host: 'omen', pid: 1234, user: 'kenten' };
@@ -673,7 +673,7 @@ Create `server/tests/coord-result-store.test.js`:
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { describe, it, expect, beforeEach, afterEach } = require('vitest');
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 const { createResultStore } = require('../coord/result-store');
 
 describe('coord result store (Phase 1 write-only stub)', () => {
@@ -808,7 +808,7 @@ Create `server/tests/coord-reaper.test.js`:
 
 ```javascript
 'use strict';
-const { describe, it, expect } = require('vitest');
+import { describe, it, expect } from 'vitest';
 const { createStateStore } = require('../coord/state');
 const { reapStaleLocks, startReaper } = require('../coord/reaper');
 
@@ -914,7 +914,7 @@ Create `server/tests/coord-http.test.js`:
 ```javascript
 'use strict';
 const http = require('http');
-const { describe, it, expect, beforeEach, afterEach } = require('vitest');
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 const { createStateStore } = require('../coord/state');
 const { createResultStore } = require('../coord/result-store');
 const { createServer } = require('../coord/http');
@@ -1295,7 +1295,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const http = require('http');
-const { describe, it, expect, beforeEach, afterEach } = require('vitest');
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 const { startDaemon } = require('../coord/index');
 
 function get(port, urlPath) {
@@ -1556,7 +1556,7 @@ Create `server/tests/coord-client-cli.test.js`:
 const path = require('path');
 const http = require('http');
 const { spawnSync } = require('child_process');
-const { describe, it, expect, afterEach } = require('vitest');
+import { describe, it, expect, afterEach } from 'vitest';
 
 const CLIENT = path.join(__dirname, '..', '..', 'bin', 'torque-coord-client');
 
@@ -1833,7 +1833,7 @@ const os = require('os');
 const path = require('path');
 const http = require('http');
 const { spawnSync } = require('child_process');
-const { describe, it, expect, beforeEach, afterEach } = require('vitest');
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 
 const TORQUE_REMOTE = path.join(__dirname, '..', '..', 'bin', 'torque-remote');
 
