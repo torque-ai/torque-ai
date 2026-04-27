@@ -57,6 +57,92 @@ describe('codegraph dispatch-edge capture', () => {
     ]);
   });
 
+  it('extractor captures routeMap.set("name", handler) registrations on dispatch-named receivers', async () => {
+    const src = `
+      const routeMap = new Map();
+      routeMap.set('foo', handleFoo);
+      routeMap.set('bar', handleBar);
+      // these should NOT be captured (receiver name does not match dispatch pattern)
+      const otherSet = new Set();
+      otherSet.set('not-a-tool', helper);
+      const cache = new Map();
+      cache.set('cachekey', value);
+    `;
+    const result = await extractFromSource(src, 'javascript');
+    const map = Object.fromEntries(result.dispatchEdges.map((e) => [e.caseString, e.handlerName]));
+    expect(map.foo).toBe('handleFoo');
+    expect(map.bar).toBe('handleBar');
+    expect(map['not-a-tool']).toBeUndefined();
+    expect(map.cachekey).toBeUndefined();
+  });
+
+  it('extractor captures toolHandlers.set("name", handler) on plural-handler receivers', async () => {
+    const src = `
+      const toolHandlers = new Map();
+      toolHandlers.set('alpha_tool', handleAlpha);
+      const commandRegistry = new Map();
+      commandRegistry.set('beta_command', handleBeta);
+    `;
+    const result = await extractFromSource(src, 'javascript');
+    const map = Object.fromEntries(result.dispatchEdges.map((e) => [e.caseString, e.handlerName]));
+    expect(map.alpha_tool).toBe('handleAlpha');
+    expect(map.beta_command).toBe('handleBeta');
+  });
+
+  it('extractor captures object-literal { name: "...", handler: ... } dispatch entries', async () => {
+    const src = `
+      const tools = [
+        { name: 'cg_reindex', description: 'rebuild index', handler: handleReindex },
+        { name: 'cg_status',  handler: handleStatus },
+        { name: 'no-handler-here' },  // should NOT be captured
+        { handler: orphanedHandler },  // should NOT be captured
+      ];
+    `;
+    const result = await extractFromSource(src, 'javascript');
+    const map = Object.fromEntries(result.dispatchEdges.map((e) => [e.caseString, e.handlerName]));
+    expect(map.cg_reindex).toBe('handleReindex');
+    expect(map.cg_status).toBe('handleStatus');
+    expect(map['no-handler-here']).toBeUndefined();
+  });
+
+  it('extractor accepts `command:` and `tool:` as alternative name keys for object-literal dispatch', async () => {
+    const src = `
+      const a = { command: 'do_thing', handler: handleDoThing };
+      const b = { tool: 'other_thing', handler: handleOtherThing };
+    `;
+    const result = await extractFromSource(src, 'javascript');
+    const map = Object.fromEntries(result.dispatchEdges.map((e) => [e.caseString, e.handlerName]));
+    expect(map.do_thing).toBe('handleDoThing');
+    expect(map.other_thing).toBe('handleOtherThing');
+  });
+
+  it('extractor filters method-name false positives (push/then/get/etc.) in case bodies', async () => {
+    const src = `
+      function dispatch(name, args) {
+        switch (name) {
+          case 'analyze': {
+            const result = analyzeDatabase(args);
+            list.push(result);
+            return result;
+          }
+          case 'fetch': return promise.then(handler);
+          case 'lookup': return cache.get(args);
+        }
+      }
+    `;
+    const result = await extractFromSource(src, 'javascript');
+    const map = Object.fromEntries(result.dispatchEdges.map((e) => [e.caseString, e.handlerName]));
+    // 'analyze': push is a method built-in, skipped. analyzeDatabase is in a
+    //  variable_declaration (lexical_declaration), not return/expression — and
+    //  the only top-level call we see is list.push(result), which IS filtered.
+    //  No call survives → no dispatch edge.
+    expect(map.analyze).toBeUndefined();
+    // 'fetch': promise.then is a method built-in. No edge emitted.
+    expect(map.fetch).toBeUndefined();
+    // 'lookup': cache.get is also a method built-in.
+    expect(map.lookup).toBeUndefined();
+  });
+
   it('extractor captures CommonJS module.exports = { ... } as exported names', async () => {
     const src = `
       function publicFn() {}

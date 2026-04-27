@@ -153,6 +153,38 @@ const COERCION_BUILTINS = new Set([
   'Map', 'Set', 'WeakMap', 'WeakSet', 'Buffer',
 ]);
 
+// Common method names called via `obj.foo()` that are never the tool's
+// dispatched handler. Without this filter, `case 'analyze': const result =
+// analyzeDatabase(args); list.push(result); return result` would pin `push`
+// as the handler (it's the only call inside an expression_statement).
+const METHOD_BUILTINS = new Set([
+  // Array
+  'push', 'pop', 'shift', 'unshift', 'slice', 'splice', 'concat', 'join',
+  'reverse', 'sort', 'fill', 'find', 'findIndex', 'findLast', 'findLastIndex',
+  'includes', 'indexOf', 'lastIndexOf', 'some', 'every', 'forEach', 'map',
+  'filter', 'reduce', 'reduceRight', 'flat', 'flatMap', 'at',
+  // Map / Set
+  'has', 'get', 'set', 'delete', 'clear', 'add', 'keys', 'values', 'entries',
+  // String
+  'charAt', 'charCodeAt', 'codePointAt', 'endsWith', 'matchAll', 'normalize',
+  'padEnd', 'padStart', 'repeat', 'replace', 'replaceAll', 'startsWith',
+  'substr', 'substring', 'toLowerCase', 'toUpperCase', 'trim', 'trimEnd',
+  'trimStart', 'split',
+  // Object / Function
+  'hasOwnProperty', 'toString', 'valueOf', 'bind', 'call', 'apply',
+  // Promise
+  'then', 'catch', 'finally',
+  // Console
+  'log', 'warn', 'error', 'info', 'debug',
+  // Generic data ops
+  'toJSON', 'parse', 'stringify',
+]);
+
+// Heuristic: receiver names that look like dispatch tables. Used to gate
+// `routeMap.set('foo', handleFoo)` capture so we don't pollute dispatch_edges
+// with every Map.set() call in the codebase.
+const DISPATCH_RECEIVER_PATTERN = /(map|handlers|registry|routes|dispatch|tools|commands|router)$/i;
+
 // Detect dispatcher patterns:
 //   switch (x) { case 'foo': return handleFoo(args); ... }
 //   switch (x) { case 'foo': { return handleFoo(args); } ... }
@@ -206,7 +238,7 @@ function extractDispatchEdgesFromSwitch(switchStatementNode) {
         const prop = fn.childForFieldName('property');
         if (prop && prop.type === 'property_identifier') name = prop.text;
       }
-      if (!name || COERCION_BUILTINS.has(name)) continue;
+      if (!name || COERCION_BUILTINS.has(name) || METHOD_BUILTINS.has(name)) continue;
       out.push({
         caseString,
         handlerName: name,
@@ -217,6 +249,74 @@ function extractDispatchEdgesFromSwitch(switchStatementNode) {
     }
   }
   return out;
+}
+
+// Detect map-registration patterns:
+//   routeMap.set('toolname', handlerFn)
+//   handlersByName.set('foo', handleFoo)
+// Returns [{caseString, handlerName, line, col}, ...]. Restricted to receivers
+// whose name matches DISPATCH_RECEIVER_PATTERN to avoid capturing every
+// Map.set() / Set.add() call in the codebase.
+function extractMapRegistrations(callNode) {
+  const fn = callNode.childForFieldName('function');
+  if (!fn || fn.type !== 'member_expression') return null;
+  const obj = fn.childForFieldName('object');
+  const prop = fn.childForFieldName('property');
+  if (!obj || obj.type !== 'identifier') return null;
+  if (!prop || prop.type !== 'property_identifier') return null;
+  if (prop.text !== 'set') return null;
+  if (!DISPATCH_RECEIVER_PATTERN.test(obj.text)) return null;
+
+  const args = callNode.childForFieldName('arguments');
+  if (!args || args.namedChildCount < 2) return null;
+  const keyArg = args.namedChild(0);
+  const valArg = args.namedChild(1);
+  const caseString = stringLiteralValue(keyArg);
+  if (!caseString) return null;
+  if (valArg.type !== 'identifier') return null;
+  return {
+    caseString,
+    handlerName: valArg.text,
+    line: callNode.startPosition.row + 1,
+    col: callNode.startPosition.column,
+  };
+}
+
+// Detect object-literal dispatch tables:
+//   { name: 'tool_name', handler: handlerFn }
+//   { command: 'tool_name', handler: handlerFn }
+//   { tool: 'tool_name', handler: handlerFn }
+// These show up in plugin tool registrations and arrays of route specs.
+// Returns one edge per object that has BOTH a string `name`/`command`/`tool`
+// field AND an identifier `handler` field.
+function extractObjectLiteralRegistration(objectNode) {
+  let nameVal = null;
+  let handlerVal = null;
+  for (let i = 0; i < objectNode.namedChildCount; i++) {
+    const pair = objectNode.namedChild(i);
+    if (pair.type !== 'pair') continue;
+    const key = pair.childForFieldName('key');
+    const val = pair.childForFieldName('value');
+    if (!key || !val) continue;
+    const keyName =
+      key.type === 'property_identifier' || key.type === 'identifier' ? key.text :
+      key.type === 'string' ? stringLiteralValue(key) : null;
+    if (!keyName) continue;
+    if ((keyName === 'name' || keyName === 'command' || keyName === 'tool') && val.type === 'string') {
+      nameVal = stringLiteralValue(val);
+    } else if (keyName === 'handler' && val.type === 'identifier') {
+      handlerVal = val.text;
+    }
+  }
+  if (nameVal && handlerVal) {
+    return {
+      caseString: nameVal,
+      handlerName: handlerVal,
+      line: objectNode.startPosition.row + 1,
+      col: objectNode.startPosition.column,
+    };
+  }
+  return null;
 }
 
 async function extractFromSource(source, language) {
@@ -273,6 +373,14 @@ async function extractFromSource(source, language) {
     }
     if (node.type === 'switch_statement') {
       for (const e of extractDispatchEdgesFromSwitch(node)) dispatchEdges.push(e);
+    }
+    if (node.type === 'call_expression') {
+      const reg = extractMapRegistrations(node);
+      if (reg) dispatchEdges.push(reg);
+    }
+    if (node.type === 'object') {
+      const reg = extractObjectLiteralRegistration(node);
+      if (reg) dispatchEdges.push(reg);
     }
     for (let i = 0; i < node.namedChildCount; i++) {
       walk(node.namedChild(i));
