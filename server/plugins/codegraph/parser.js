@@ -1,36 +1,37 @@
 'use strict';
 
 const Parser = require('tree-sitter');
-const JavaScript = require('tree-sitter-javascript');
-const TypeScript = require('tree-sitter-typescript');
-const Go = require('tree-sitter-go');
 
-// tree-sitter-python and tree-sitter-c-sharp now ship as ESM with top-level
-// await, which `require()` refuses with ERR_REQUIRE_ASYNC_MODULE on Node 22+.
-// Wrap each in a try/catch so a broken language binding doesn't take the
-// whole codegraph plugin (and the ~18 dependent test files) down with it.
-// The lookup in `getParser` returns null for unavailable languages — callers
-// already handle missing grammars via the `unsupported language` throw path.
-let Python = null;
-let CSharp = null;
-try { Python = require('tree-sitter-python'); } catch (_e) { /* ESM/TLA on newer Node */ }
-try { CSharp = require('tree-sitter-c-sharp'); } catch (_e) { /* ESM/TLA on newer Node */ }
-
-const GRAMMARS = {
-  javascript: JavaScript,
-  typescript: TypeScript.typescript,
-  tsx:        TypeScript.tsx,
-  python:     Python,
-  go:         Go,
-  csharp:     CSharp,
+// Grammar loaders. Each returns a tree-sitter Language object suitable for
+// `parser.setLanguage()`. Most languages publish a CommonJS package; some
+// (tree-sitter-c-sharp@0.23.5+) switched to ESM-only and require dynamic
+// import. Loaders are async so we can mix the two transparently — this
+// supersedes the defensive `try { require(...) } catch {}` workaround in
+// commit aea5015d, which kept those grammars *unavailable* on Node 22+
+// instead of actually loading them.
+const LOADERS = {
+  javascript: async () => require('tree-sitter-javascript'),
+  typescript: async () => require('tree-sitter-typescript').typescript,
+  tsx:        async () => require('tree-sitter-typescript').tsx,
+  python:     async () => require('tree-sitter-python'),
+  go:         async () => require('tree-sitter-go'),
+  csharp:     async () => {
+    // tree-sitter-c-sharp@0.23.5 ships as ESM-only ("type": "module").
+    // Dynamic import keeps this file CommonJS-compatible.
+    const mod = await import('tree-sitter-c-sharp');
+    return mod.default || mod;
+  },
+  powershell: async () => require('tree-sitter-powershell'),
 };
 
 const cache = new Map();
 
 async function getParser(language) {
-  const grammar = GRAMMARS[language];
-  if (!grammar) throw new Error(`unsupported language: ${language}`);
+  const loader = LOADERS[language];
+  if (!loader) throw new Error(`unsupported language: ${language}`);
   if (cache.has(language)) return cache.get(language);
+  const grammar = await loader();
+  if (!grammar) throw new Error(`grammar for ${language} loaded as null`);
   const parser = new Parser();
   parser.setLanguage(grammar);
   cache.set(language, parser);
@@ -38,9 +39,7 @@ async function getParser(language) {
 }
 
 function supportedLanguages() {
-  // Filter to languages whose grammar actually loaded — Python/C# may be
-  // null on Node versions where the binding's ESM/TLA isn't `require()`-able.
-  return Object.keys(GRAMMARS).filter((lang) => GRAMMARS[lang] != null);
+  return Object.keys(LOADERS);
 }
 
 module.exports = { getParser, supportedLanguages };

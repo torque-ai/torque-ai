@@ -5,6 +5,7 @@ const javascript = require('./javascript');
 const python = require('./python');
 const go = require('./go');
 const csharp = require('./csharp');
+const powershell = require('./powershell');
 
 const EXT_TO_LANGUAGE = {
   '.js':  'javascript',
@@ -20,11 +21,13 @@ const EXT_TO_LANGUAGE = {
   '.pyi': 'python', // type stubs; same grammar
   '.go':  'go',
   '.cs':  'csharp',
+  '.ps1': 'powershell',
+  '.psm1': 'powershell', // module-scope scripts
 };
 
 // Map language → extractor module. Each module exports extractFromSource(src, lang)
 // (the JS extractor takes lang because one module handles javascript/typescript/tsx).
-// Single-language extractors (python, go, csharp, future rust/powershell/etc.)
+// Single-language extractors (python, go, csharp, powershell, future rust/etc.)
 // ignore the lang arg.
 const EXTRACTORS_BY_LANGUAGE = {
   javascript: javascript,
@@ -33,6 +36,7 @@ const EXTRACTORS_BY_LANGUAGE = {
   python:     python,
   go:         go,
   csharp:     csharp,
+  powershell: powershell,
 };
 
 function languageFor(filePath) {
