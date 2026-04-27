@@ -18,11 +18,21 @@ function makeConfig(tmpDir) {
 }
 
 function spawnTorqueRemote(args, env, cwd) {
+  // 60s timeout (was 10s) because torque-remote shells out to
+  // `node bin/torque-coord-client {results, acquire, release}` — that's
+  // 3 separate Node spawns per invocation. On Windows under Defender
+  // real-time scan, each `node` cold-start measures ~8-9s on the test
+  // remote (timed 2026-04-27: noop `node -e '0'` = 8866ms; coord-client
+  // results-then-acquire = 14729ms + 11819ms). 3 × 9s = 27s pure startup
+  // overhead; 10s wasn't enough margin even when the daemon answered
+  // immediately. The proper fix — collapsing the multi-call protocol into
+  // one node process — is a separate refactor; bumping the test ceiling
+  // unblocks the gate without changing observed coord behavior.
   return spawnSync('bash', [TORQUE_REMOTE, ...args], {
     env: { ...process.env, ...env },
     cwd,
     encoding: 'utf8',
-    timeout: 10000,
+    timeout: 60000,
   });
 }
 
