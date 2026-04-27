@@ -62,6 +62,7 @@ export default function CodexBreaker() {
         return;
       }
       const all = [];
+      let failures = 0;
       for (const proj of projects) {
         try {
           const resp = await factoryApi.intake(proj.id, { status: 'parked_codex_unavailable', limit: 50 });
@@ -73,12 +74,12 @@ export default function CodexBreaker() {
           // Per-project failure is non-fatal — continue with the rest, but
           // surface the global-failure soft-fail UI if every project fails.
           console.error(`Failed to load parked items for project ${proj.id}:`, err);
-          throw err;
+          failures += 1;
         }
       }
       if (mountedRef.current) {
         setParked(all);
-        setParkedAvailable(true);
+        setParkedAvailable(failures < projects.length);
       }
     } catch (err) {
       console.error('Parked items unavailable:', err);

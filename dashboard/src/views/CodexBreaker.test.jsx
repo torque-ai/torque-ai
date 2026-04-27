@@ -119,4 +119,27 @@ describe('CodexBreaker view', () => {
     });
     consoleSpy.mockRestore();
   });
+
+  it('shows parked items from working projects when some fail', async () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    factoryApi.projects.mockResolvedValue({
+      items: [
+        { id: 'p_ok', name: 'Working' },
+        { id: 'p_fail', name: 'Failing' },
+      ],
+    });
+    factoryApi.intake.mockImplementation((projectId) => {
+      if (projectId === 'p_fail') return Promise.reject(new Error('500 error'));
+      return Promise.resolve({
+        items: [{ id: 1, title: 'Parked Item A', status: 'parked_codex_unavailable', project_id: 'p_ok' }],
+      });
+    });
+    renderWithProviders(<CodexBreaker />);
+    await waitFor(() => {
+      expect(screen.getByText('Parked Item A')).toBeInTheDocument();
+    });
+    // Should NOT show the "Parked items unavailable" banner since one project worked
+    expect(screen.queryByText(/parked items unavailable/i)).not.toBeInTheDocument();
+    consoleSpy.mockRestore();
+  });
 });

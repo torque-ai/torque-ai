@@ -276,7 +276,7 @@ const routes = [
   { method: 'POST', path: '/api/v2/discovery/configure-model-roles', tool: 'configure_model_roles', mapBody: true },
   { method: 'POST', path: '/api/v2/discovery/list-model-roles', tool: 'list_model_roles', mapBody: true },
 
-  // ─── governance (11 routes) ──────────────────────────────────────────────────
+  // ─── governance (15 routes) ──────────────────────────────────────────────────
   { method: 'POST', path: '/api/v2/governance/get-governance-rules', tool: 'get_governance_rules', mapBody: true },
   { method: 'POST', path: '/api/v2/governance/set-governance-rule-mode', tool: 'set_governance_rule_mode', mapBody: true },
   { method: 'POST', path: '/api/v2/governance/toggle-governance-rule', tool: 'toggle_governance_rule', mapBody: true },
