@@ -369,7 +369,7 @@ fi
 echo "[pre-push] Running perf regression gate against $staging_branch..."
 
 set +e
-PERF_OUT=$(torque-remote --branch "$staging_branch" bash -c "cd server && node perf/run-perf.js" 2>&1)
+PERF_OUT=$(torque-remote --suite gate --branch "$staging_branch" bash -c "cd server && node perf/run-perf.js" 2>&1)
 PERF_STATUS=$?
 set -e
 
