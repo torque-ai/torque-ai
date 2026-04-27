@@ -32,7 +32,11 @@ function createHandlers({ db }) {
     async cg_reindex(args) {
       const repoPath = requireString(args, 'repo_path');
       const force = args.force === true;
-      // async path is enabled in Task 17 (worker-thread). For now always synchronous.
+      const wantsAsync = args.async !== false;
+      const dbPath = db.name && db.name !== ':memory:' ? db.name : null;
+      if (wantsAsync && dbPath) {
+        return require('./index-runner').startReindexJob({ dbPath, repoPath, force });
+      }
       return indexRepoAtHead({ db, repoPath, force });
     },
 

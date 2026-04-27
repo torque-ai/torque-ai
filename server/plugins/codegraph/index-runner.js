@@ -62,4 +62,29 @@ async function indexRepoAtHead({ db, repoPath, force = false }) {
   }
 }
 
-module.exports = { indexRepoAtHead, getIndexState };
+const { Worker } = require('worker_threads');
+const crypto = require('crypto');
+
+const jobs = new Map();
+
+function startReindexJob({ dbPath, repoPath, force = false }) {
+  const jobId = crypto.randomUUID();
+  jobs.set(jobId, { state: 'running' });
+  const worker = new Worker(path.join(__dirname, 'indexer-worker.js'), {
+    workerData: { dbPath, repoPath, force },
+  });
+  worker.once('message', (msg) => jobs.set(jobId, msg));
+  worker.once('error', (err) => jobs.set(jobId, { state: 'error', error: err.message }));
+  worker.once('exit', (code) => {
+    if (code !== 0 && jobs.get(jobId).state === 'running') {
+      jobs.set(jobId, { state: 'error', error: `worker exited ${code}` });
+    }
+  });
+  return { jobId };
+}
+
+function getJobStatus(jobId) {
+  return jobs.get(jobId) || { state: 'unknown' };
+}
+
+module.exports = { indexRepoAtHead, getIndexState, startReindexJob, getJobStatus };
