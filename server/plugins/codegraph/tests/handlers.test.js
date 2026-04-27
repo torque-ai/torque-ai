@@ -5,6 +5,11 @@ const { ensureSchema } = require('../schema');
 const { createHandlers } = require('../handlers');
 const { setupTinyRepo, destroyTinyRepo } = require('../test-helpers');
 
+// Handlers return MCP tool envelopes: { content: [{type, text}], structuredData }.
+// Read structuredData for typed access; the REST passthrough re-parses
+// content[0].text on the way out.
+const data = (r) => r.structuredData;
+
 describe('codegraph handlers', () => {
   let db, repo, handlers;
 
@@ -17,36 +22,44 @@ describe('codegraph handlers', () => {
 
   afterEach(() => { db.close(); destroyTinyRepo(repo); });
 
-  it('cg_index_status returns commit_sha + counts', async () => {
+  it('handlers return MCP envelope shape (content + structuredData)', async () => {
     const r = await handlers.cg_index_status({ repo_path: repo });
+    expect(r.content).toBeInstanceOf(Array);
+    expect(r.content[0].type).toBe('text');
+    expect(typeof r.content[0].text).toBe('string');
+    expect(JSON.parse(r.content[0].text)).toEqual(r.structuredData);
+  });
+
+  it('cg_index_status returns commit_sha + counts', async () => {
+    const r = data(await handlers.cg_index_status({ repo_path: repo }));
     expect(r.commit_sha.length).toBe(40);
     expect(r.files).toBe(2);
     expect(r.symbols).toBe(2);
   });
 
   it('cg_find_references finds beta callers', async () => {
-    const r = await handlers.cg_find_references({ repo_path: repo, symbol: 'beta' });
+    const r = data(await handlers.cg_find_references({ repo_path: repo, symbol: 'beta' }));
     expect(r).toEqual(expect.arrayContaining([
       expect.objectContaining({ callerSymbol: 'alpha' }),
     ]));
   });
 
   it('cg_call_graph returns nodes + edges', async () => {
-    const r = await handlers.cg_call_graph({
+    const r = data(await handlers.cg_call_graph({
       repo_path: repo, symbol: 'alpha', direction: 'callees', depth: 1,
-    });
+    }));
     expect(r.nodes.map((n) => n.name).sort()).toEqual(['alpha', 'beta']);
     expect(r.edges).toEqual([{ from: 'alpha', to: 'beta' }]);
   });
 
   it('cg_impact_set returns symbols + files', async () => {
-    const r = await handlers.cg_impact_set({ repo_path: repo, symbol: 'beta', depth: 5 });
+    const r = data(await handlers.cg_impact_set({ repo_path: repo, symbol: 'beta', depth: 5 }));
     expect(r.symbols).toEqual(['alpha']);
     expect(r.files).toEqual(['a.js']);
   });
 
   it('cg_dead_symbols flags alpha (alpha is not called)', async () => {
-    const r = await handlers.cg_dead_symbols({ repo_path: repo });
+    const r = data(await handlers.cg_dead_symbols({ repo_path: repo }));
     expect(r.map((d) => d.name)).toContain('alpha');
   });
 
