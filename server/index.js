@@ -1201,6 +1201,13 @@ function init() {
   } catch {
     // Sandbox support is optional for bootstrapping and tests.
   }
+  // Eagerly construct so the circuit:recovered subscription is in place
+  // before any breaker events can fire.
+  try {
+    defaultContainer.get('parkResumeHandler');
+  } catch (err) {
+    logger.warn(`[startup] parkResumeHandler construction failed (non-fatal): ${err.message}`);
+  }
   if (!testRunnerRegistry) {
     testRunnerRegistry = createTestRunnerRegistry();
   }

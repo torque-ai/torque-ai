@@ -247,6 +247,18 @@ _defaultContainer.register(
     });
   }
 );
+_defaultContainer.register(
+  'parkResumeHandler',
+  ['db', 'eventBus', 'logger'],
+  ({ db, eventBus, logger: log }) => {
+    const { createParkResumeHandler } = require('./factory/park-resume-handler');
+    return createParkResumeHandler({
+      db: unwrapDb(db),
+      eventBus,
+      logger: log,
+    });
+  }
+);
 _defaultContainer.register('checkpointStore', ['db'], ({ db }) => {
   const { createCheckpointStore } = require('./workflow-state/checkpoint-store');
   return createCheckpointStore({ db: unwrapDb(db) });
