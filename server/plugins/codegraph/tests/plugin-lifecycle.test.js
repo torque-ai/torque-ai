@@ -42,7 +42,7 @@ describe('codegraph plugin lifecycle', () => {
     }
   });
 
-  it.skip('install registers tools when feature flag is on (Task 13 wires tool-defs)', () => {
+  it('install registers tools when feature flag is on', () => {
     process.env.TORQUE_CODEGRAPH_ENABLED = '1';
     try {
       const plugin = createCodegraphPlugin();

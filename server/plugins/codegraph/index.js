@@ -3,6 +3,8 @@
 const PLUGIN_NAME = 'codegraph';
 const PLUGIN_VERSION = '0.1.0';
 const { ensureSchema } = require('./schema');
+const toolDefs = require('./tool-defs');
+const { createHandlers } = require('./handlers');
 
 function isFeatureEnabled() {
   return process.env.TORQUE_CODEGRAPH_ENABLED === '1';
@@ -33,8 +35,12 @@ function createCodegraphPlugin() {
     const dbService = getContainerService(container, 'db');
     db = resolveRawDb(dbService);
     ensureSchema(db);
+    const handlers = createHandlers({ db });
+    toolList = toolDefs.map((toolDef) => ({
+      ...toolDef,
+      handler: handlers[toolDef.name],
+    }));
     installed = true;
-    toolList = [];
   }
 
   function uninstall() {
