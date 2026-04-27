@@ -129,4 +129,48 @@ describe('torque-coord-client CLI', () => {
     expect(result.status).toBe(64);
     expect(JSON.parse(result.stdout).status).toBe('usage_error');
   });
+
+  it('lock-hashes subcommand prints the {relative_path: sha256} map for a project root', () => {
+    const fs = require('fs');
+    const os = require('os');
+    const path = require('path');
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'coord-cli-locks-'));
+    fs.writeFileSync(path.join(tmpDir, 'package-lock.json'), '{}');
+    fs.mkdirSync(path.join(tmpDir, 'server'), { recursive: true });
+    fs.writeFileSync(path.join(tmpDir, 'server', 'package-lock.json'), '{}');
+    try {
+      const result = runClient(['lock-hashes', '--root', tmpDir], 9395);
+      expect(result.status).toBe(0);
+      const body = JSON.parse(result.stdout);
+      expect(Object.keys(body).sort()).toEqual([
+        'package-lock.json',
+        'server/package-lock.json',
+      ]);
+      for (const v of Object.values(body)) {
+        expect(v).toMatch(/^[0-9a-f]{64}$/);
+      }
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it('lock-hashes defaults --root to process.cwd() when omitted', () => {
+    const fs = require('fs');
+    const os = require('os');
+    const path = require('path');
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'coord-cli-locks-cwd-'));
+    fs.writeFileSync(path.join(tmpDir, 'package-lock.json'), '{}');
+    try {
+      const result = require('child_process').spawnSync('node', [CLIENT, 'lock-hashes'], {
+        cwd: tmpDir,
+        env: { ...process.env, TORQUE_COORD_PORT: '9395' },
+        encoding: 'utf8',
+      });
+      expect(result.status).toBe(0);
+      const body = JSON.parse(result.stdout);
+      expect(Object.keys(body)).toEqual(['package-lock.json']);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
 });

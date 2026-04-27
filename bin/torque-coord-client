@@ -159,6 +159,13 @@ async function main() {
         process.exit(0);
         break;
       }
+      case 'lock-hashes': {
+        const root = args.root || process.cwd();
+        const { computeLockHashes } = require('../server/coord/lock-hashes');
+        emit(computeLockHashes(root));
+        process.exit(0);
+        break;
+      }
       default:
         emit({ status: 'usage_error', detail: `unknown subcommand: ${subcommand || '(none)'}` });
         process.exit(64);
