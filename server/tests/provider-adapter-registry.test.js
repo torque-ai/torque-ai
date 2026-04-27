@@ -1,5 +1,8 @@
 import { describe, it, expect, vi, beforeAll, afterAll, afterEach } from 'vitest';
 
+const AnthropicProvider = require('../providers/anthropic');
+const OpenRouterProvider = require('../providers/openrouter');
+
 const {
   createProviderAdapter,
   registerProviderAdapter,
@@ -152,6 +155,36 @@ describe('provider adapter registry', () => {
     expect(submitResult.output).toBe('adapter-output');
     expect(healthResult).toEqual({ available: true, models: [{ model_name: 'claude-sonnet-4-20250514', id: 'claude-sonnet-4-20250514', owned_by: null, context_window: null }] });
     expect(modelsResult).toContain('claude-sonnet-4-20250514');
+  });
+
+  it('forwards listModels options through adapter to provider implementation', async () => {
+    const adapter = getProviderAdapter('anthropic');
+    const listModelsSpy = vi.spyOn(AnthropicProvider.prototype, 'listModels').mockResolvedValue(['anthropic-claude']);
+
+    await adapter.listModels({
+      limit: 12,
+      toolsOnly: true,
+      timeoutMs: 1234,
+    });
+
+    expect(listModelsSpy).toHaveBeenCalledWith({
+      limit: 12,
+      toolsOnly: true,
+      timeoutMs: 1234,
+    });
+    listModelsSpy.mockRestore();
+  });
+
+  it('forwards discoverModels options through adapter to provider implementation', async () => {
+    const adapter = getProviderAdapter('openrouter');
+    const discoverModelsSpy = vi.spyOn(OpenRouterProvider.prototype, 'discoverModels')
+      .mockResolvedValue({ provider: 'openrouter', models: [] });
+
+    const options = { limit: 7, toolsOnly: true };
+    await adapter.discoverModels(options);
+
+    expect(discoverModelsSpy).toHaveBeenCalledWith(options);
+    discoverModelsSpy.mockRestore();
   });
 
   it('delegates stream calls to provider streaming implementation', async () => {
