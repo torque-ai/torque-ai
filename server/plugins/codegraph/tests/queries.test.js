@@ -73,3 +73,30 @@ describe('codegraph queries: call_graph', () => {
     expect(g.nodes.length).toBeLessThanOrEqual(100);
   });
 });
+
+const { impactSet } = require('../queries/impact-set');
+
+describe('codegraph queries: impact_set', () => {
+  let db;
+  beforeEach(async () => {
+    db = new Database(':memory:'); ensureSchema(db);
+    await runIndex({ db, repoPath: FIXTURE, files: ['a.js', 'b.js'] });
+  });
+  afterEach(() => db.close());
+
+  it('reports all transitive callers of `beta` as impacted symbols', () => {
+    const impact = impactSet({ db, repoPath: FIXTURE, symbol: 'beta', depth: 5 });
+    expect(impact.symbols.sort()).toEqual(['alpha', 'delta', 'gamma']);
+  });
+
+  it('reports the files containing impacted symbols', () => {
+    const impact = impactSet({ db, repoPath: FIXTURE, symbol: 'beta', depth: 5 });
+    expect(impact.files.sort()).toEqual(['a.js', 'b.js']);
+  });
+
+  it('returns empty arrays for an unreferenced symbol', () => {
+    const impact = impactSet({ db, repoPath: FIXTURE, symbol: 'nope', depth: 5 });
+    expect(impact.symbols).toEqual([]);
+    expect(impact.files).toEqual([]);
+  });
+});
