@@ -20,7 +20,17 @@ test('handleRoutingDecisions passes raw:true to listTasks', () => {
   const { handleRoutingDecisions } = require('../api/v2-analytics-handlers');
   Module._load = origLoad;
   const req = { query: { limit: '10' } };
-  const res = { json: () => {} };
+  // sendJson (used by sendSuccess in v2-control-plane.js) calls writeHead +
+  // end on res. Provide stubs so the response path completes synchronously
+  // — without them the handler's promise rejects asynchronously and trips
+  // vitest's unhandled-rejection guard, causing the suite to exit non-zero
+  // even though every assertion passes.
+  const res = {
+    json: () => {},
+    writeHead: () => {},
+    end: () => {},
+    setHeader: () => {},
+  };
   handleRoutingDecisions(req, res);
   expect(capturedOpts).not.toBeNull();
   expect(capturedOpts.raw).toBe(true);
