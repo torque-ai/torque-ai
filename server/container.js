@@ -261,8 +261,8 @@ _defaultContainer.register(
 );
 _defaultContainer.register(
   'failoverActivator',
-  ['eventBus', 'logger'],
-  ({ eventBus, logger: log }) => {
+  ['eventBus', 'logger', 'circuitBreaker'],
+  ({ eventBus, logger: log, circuitBreaker }) => {
     const { createFailoverActivator } = require('./routing/failover-activator');
     const templateStore = require('./routing/template-store');
     // Adapt template-store API to the activator's expected { getActiveName, setActive } shape.
@@ -272,13 +272,16 @@ _defaultContainer.register(
       getActiveName: () => templateStore.getExplicitActiveTemplateId(),
       setActive: (name) => templateStore.setActiveTemplate(name),
     };
-    return createFailoverActivator({ store, eventBus, logger: log });
+    // Pass breaker so the activator can startup-reconcile against persisted
+    // OPEN state when TORQUE restarts mid-trip (the seed loop in
+    // CircuitBreaker doesn't emit circuit:tripped on construction).
+    return createFailoverActivator({ store, eventBus, logger: log, breaker: circuitBreaker });
   }
 );
 _defaultContainer.register(
   'canaryScheduler',
-  ['eventBus', 'logger'],
-  ({ eventBus, logger: log }) => {
+  ['eventBus', 'logger', 'circuitBreaker'],
+  ({ eventBus, logger: log, circuitBreaker }) => {
     const { createCanaryScheduler } = require('./factory/canary-scheduler');
     const { submitCanaryTask } = require('./factory/canary-task-submitter');
     const submitTask = (args) => submitCanaryTask({
@@ -288,7 +291,8 @@ _defaultContainer.register(
       log.warn('[codex-fallback-3] canary submission failed', { error: err.message });
       throw err; // rethrow so the scheduler reschedules per its existing failure-handling path
     });
-    return createCanaryScheduler({ eventBus, submitTask, logger: log });
+    // breaker enables startup-reconcile when persisted state is OPEN.
+    return createCanaryScheduler({ eventBus, submitTask, logger: log, breaker: circuitBreaker });
   }
 );
 _defaultContainer.register('checkpointStore', ['db'], ({ db }) => {
