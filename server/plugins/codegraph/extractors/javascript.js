@@ -143,38 +143,77 @@ function exportedNamesFromCjsAssignment(node) {
   return [];
 }
 
+// JavaScript built-ins / type coercion that are never tool dispatch handlers.
+// Without filtering, `case 'initialize': const x = Boolean(args.foo)` would
+// pin `Boolean` as the handler for tool 'initialize' — pure noise.
+const COERCION_BUILTINS = new Set([
+  'Boolean', 'Number', 'String', 'Array', 'Object', 'Symbol', 'BigInt',
+  'parseInt', 'parseFloat', 'isNaN', 'isFinite',
+  'Date', 'RegExp', 'Error', 'TypeError', 'RangeError', 'Promise',
+  'Map', 'Set', 'WeakMap', 'WeakSet', 'Buffer',
+]);
+
 // Detect dispatcher patterns:
 //   switch (x) { case 'foo': return handleFoo(args); ... }
-//   switch (x) { case 'foo': handleFoo(args); break; ... }
+//   switch (x) { case 'foo': { return handleFoo(args); } ... }
 // Returns [{caseString, handlerName, line, col}, ...]
+//
+// Only top-level statements of the case body are inspected (not deep
+// descendants), and return-position calls are preferred over expression
+// statements. This avoids pinning incidental helper calls inside the
+// case body as the dispatched handler.
 function extractDispatchEdgesFromSwitch(switchStatementNode) {
   const out = [];
   const body = switchStatementNode.childForFieldName('body');
   if (!body) return out;
 
+  function pickCalls(switchCase) {
+    const returnCalls = [];
+    const exprCalls  = [];
+    function collect(stmt) {
+      if (stmt.type === 'return_statement') {
+        const e = stmt.namedChild(0);
+        if (e && e.type === 'call_expression') returnCalls.push(e);
+      } else if (stmt.type === 'expression_statement') {
+        const e = stmt.namedChild(0);
+        if (e && e.type === 'call_expression') exprCalls.push(e);
+      } else if (stmt.type === 'statement_block') {
+        for (let j = 0; j < stmt.namedChildCount; j++) collect(stmt.namedChild(j));
+      }
+    }
+    // Skip the case value at index 0; iterate the rest as statements.
+    for (let i = 1; i < switchCase.namedChildCount; i++) collect(switchCase.namedChild(i));
+    return [...returnCalls, ...exprCalls];
+  }
+
   for (let i = 0; i < body.namedChildCount; i++) {
     const switchCase = body.namedChild(i);
     if (switchCase.type !== 'switch_case') continue;
 
-    // First named child of switch_case is the case value (possibly a string literal).
     const valueNode = switchCase.namedChild(0);
     const caseString = stringLiteralValue(valueNode);
     if (!caseString) continue;
 
-    // Find the first call_expression in the case body that's a direct identifier call.
-    // Skip past the value node's siblings looking for statements.
-    const calls = findDescendants(switchCase, (n) => n.type === 'call_expression');
+    const calls = pickCalls(switchCase);
     for (const c of calls) {
       const fn = c.childForFieldName('function');
-      if (fn && fn.type === 'identifier') {
-        out.push({
-          caseString,
-          handlerName: fn.text,
-          line: c.startPosition.row + 1,
-          col: c.startPosition.column,
-        });
-        break; // just the first handler call
+      if (!fn) continue;
+      let name = '';
+      if (fn.type === 'identifier') {
+        name = fn.text;
+      } else if (fn.type === 'member_expression') {
+        // Capture the property name for `obj.handleFoo()` style dispatch.
+        const prop = fn.childForFieldName('property');
+        if (prop && prop.type === 'property_identifier') name = prop.text;
       }
+      if (!name || COERCION_BUILTINS.has(name)) continue;
+      out.push({
+        caseString,
+        handlerName: name,
+        line: c.startPosition.row + 1,
+        col: c.startPosition.column,
+      });
+      break;
     }
   }
   return out;

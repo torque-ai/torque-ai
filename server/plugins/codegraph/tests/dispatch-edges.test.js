@@ -26,6 +26,37 @@ describe('codegraph dispatch-edge capture', () => {
     expect(map).toEqual({ foo: 'handleFoo', bar: 'handleBar', baz: 'handleBaz' });
   });
 
+  it('extractor skips coercion built-ins in the case body and prefers return-position calls', async () => {
+    const src = `
+      function dispatch(name, args) {
+        switch (name) {
+          case 'init': { const x = Boolean(args); return realHandler(x); }
+          case 'parse': return parseInt(args, 10);
+          case 'wrap': return helper(Number(args));
+        }
+      }
+    `;
+    const result = await extractFromSource(src, 'javascript');
+    const map = Object.fromEntries(result.dispatchEdges.map((e) => [e.caseString, e.handlerName]));
+    expect(map.init).toBe('realHandler');
+    expect(map.parse).toBeUndefined();
+    expect(map.wrap).toBe('helper');
+  });
+
+  it('extractor captures member-expression handlers (handlers.foo())', async () => {
+    const src = `
+      function dispatch(name, args) {
+        switch (name) {
+          case 'foo': return handlers.handleFoo(args);
+        }
+      }
+    `;
+    const result = await extractFromSource(src, 'javascript');
+    expect(result.dispatchEdges).toEqual([
+      expect.objectContaining({ caseString: 'foo', handlerName: 'handleFoo' }),
+    ]);
+  });
+
   it('extractor captures CommonJS module.exports = { ... } as exported names', async () => {
     const src = `
       function publicFn() {}
