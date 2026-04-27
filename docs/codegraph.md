@@ -4,7 +4,7 @@
 
 ## Status
 
-- **Languages:** JavaScript, TypeScript, TSX, Python, Go, C# (parsed via native `tree-sitter` + per-language grammars: `tree-sitter-javascript`, `tree-sitter-typescript`, `tree-sitter-python`, `tree-sitter-go`, `tree-sitter-c-sharp`)
+- **Languages:** JavaScript, TypeScript, TSX, Python, Go, C#, PowerShell (parsed via native `tree-sitter@0.25` + per-language grammars: `tree-sitter-javascript`, `tree-sitter-typescript`, `tree-sitter-python`, `tree-sitter-go`, `tree-sitter-c-sharp`, `tree-sitter-powershell`)
 - **Storage:** SQLite tables prefixed `cg_*` in a dedicated `<DATA_DIR>/codegraph.db` file (separate from the main TORQUE db so reindex transactions don't lock task scheduling)
 - **Off by default.** Set `TORQUE_CODEGRAPH_ENABLED=1` and restart to enable.
 
