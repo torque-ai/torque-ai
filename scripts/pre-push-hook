@@ -128,14 +128,26 @@ is_file_load_only_flake() {
   return 1
 }
 
-# Detects a native-module segfault (exit 139) inside a vitest worker. Root
-# cause is better-sqlite3 12.x + Node 24 + worker_threads — see
-# https://github.com/WiseLibs/better-sqlite3/issues/1376. The crash kills the
-# whole vitest process before it prints a "Test Files" summary, so
-# is_file_load_only_flake() can't see it. Match the literal "Segmentation
-# fault" line that npx prints on signal 11 instead. Pair with the same
-# real-failure guard so a segfault that follows a real assertion failure
-# doesn't get retried.
+# Detects a native crash inside a vitest worker — broader than "segfault"
+# despite the legacy name. Root cause cluster: better-sqlite3 12.x + Node 24
+# + worker_threads (https://github.com/WiseLibs/better-sqlite3/issues/1376),
+# libuv handle-state asserts in src\win\handle.c on async I/O races, and the
+# occasional V8 abort. All three kill the vitest process before it prints a
+# "Test Files" summary, so is_file_load_only_flake() can't see them. Match
+# the wire-level signatures for each. Pair with the same real-failure guard
+# so a crash that follows a real assertion failure doesn't get retried.
+#
+# Patterns (any one is sufficient):
+#   - "Segmentation fault" — npx's wrapper prints this on signal 11
+#   - "SIGSEGV" / "exit code 139" — alternate wordings for signal 11
+#   - "Assertion failed:" + ".c, line" — libuv/V8 native asserts (e.g.
+#     "Assertion failed: 0, file src\\win\\handle.c, line 71")
+#   - "FATAL ERROR" — V8 fatal abort (OOM, ineffective mark-compacts, etc.)
+#   - "Aborted" / "abort()" — explicit abort calls in native code
+#   - "exit code 134" / "exit code 127" — common abnormal exits when the
+#     shell maps a native abort to a non-zero rc on Windows. We bound this
+#     to lines that ALSO contain a crash phrase, so we don't retry a
+#     legitimate "command not found" 127.
 is_segfault_flake() {
   local output="$1"
   local plain
@@ -143,10 +155,27 @@ is_segfault_flake() {
   if echo "$plain" | grep -qE '^[[:space:]]*Tests[[:space:]]+[0-9]+ failed'; then
     return 1
   fi
-  if echo "$plain" | grep -qE 'Segmentation fault|SIGSEGV|exit code 139'; then
+  if echo "$plain" | grep -qE 'Segmentation fault|SIGSEGV|exit code 139|exit code 134|Aborted|abort\(\)|FATAL ERROR'; then
+    return 0
+  fi
+  # libuv-style native assertion. Restrict to .c source files so we don't
+  # match incidental "Assertion failed" strings inside JS test output.
+  if echo "$plain" | grep -qE 'Assertion failed:.*\.c, line [0-9]+'; then
     return 0
   fi
   return 1
+}
+
+# Returns 0 (true) if the gate-end marker reports any nonzero phase exit.
+# Used to gate retry decisions independently of $RETRIED_EXIT, which is
+# unreliable: under Git Bash on Windows the wait/eval/`&` pipeline
+# occasionally surfaces 0 even when the inner SSH command exited nonzero
+# (observed 2026-04-27: dash_exit=1 serv_exit=127 in the marker but
+# RETRIED_EXIT==0, so the file-load-flake retry never fired). The marker
+# is printed verbatim by the parallel-gate heredoc and is the ground truth.
+gate_marker_has_failure() {
+  local output="$1"
+  echo "$output" | grep -qE '\[gate-end\] .*_exit=[1-9]'
 }
 
 # Per-phase timeout caps pathological SSH stalls. Empirically, dashboard
@@ -230,14 +259,23 @@ run_with_flake_retry() {
   set -e
   RETRIED_OUTPUT=$(<"$tmp")
 
-  if [ "$RETRIED_EXIT" -ne 0 ] && is_file_load_only_flake "$RETRIED_OUTPUT"; then
+  # Gate retry on EITHER RETRIED_EXIT being nonzero OR the gate-end marker
+  # reporting any nonzero phase exit. RETRIED_EXIT alone is unreliable on
+  # Git Bash + Windows when the eval'd ssh command crashes mid-stream (the
+  # 2026-04-27 measurement saw `dash_exit=1 serv_exit=127` in the marker but
+  # RETRIED_EXIT==0, so neither flake retry fired). gate_marker_has_failure
+  # is the ground truth; combined with the existing exit-code check it
+  # belt-and-suspenders the retry trigger.
+  if { [ "$RETRIED_EXIT" -ne 0 ] || gate_marker_has_failure "$RETRIED_OUTPUT"; } \
+       && is_file_load_only_flake "$RETRIED_OUTPUT"; then
     echo "[pre-push] $label: file-load flake detected (0 test failures, N file-load failures) — retrying once..."
     set +e
     run_with_flake_retry_inner "$cmd" "$tmp"
     set -e
     RETRIED_OUTPUT=$(<"$tmp")
-  elif [ "$RETRIED_EXIT" -ne 0 ] && is_segfault_flake "$RETRIED_OUTPUT"; then
-    echo "[pre-push] $label: native-module segfault detected (better-sqlite3 + Node 24 + worker_threads) — retrying once..."
+  elif { [ "$RETRIED_EXIT" -ne 0 ] || gate_marker_has_failure "$RETRIED_OUTPUT"; } \
+         && is_segfault_flake "$RETRIED_OUTPUT"; then
+    echo "[pre-push] $label: native crash detected (segfault / libuv assert / V8 abort) — retrying once..."
     set +e
     run_with_flake_retry_inner "$cmd" "$tmp"
     set -e
