@@ -1,6 +1,7 @@
 'use strict';
 
 const { findHeavyLocalValidationCommand } = require('../utils/heavy-validation-guard');
+const { deterministicVerify } = require('./plan-augmenter');
 
 const MAX_REPLAN_ATTEMPTS = 1;
 const LLM_TIMEOUT_MS = 60_000;
@@ -377,13 +378,73 @@ function buildFeedbackPrompt(hardFails, warnings, llmCritique) {
   return lines.join('\n');
 }
 
-async function evaluatePlan({ plan, workItem, project }) {
-  const { hardFails, warnings } = runDeterministicRules(plan);
+/**
+ * Augments a plan markdown string by appending acceptance-criterion lines to
+ * tasks that lack one, using the project's verify_command as the basis.
+ * Only runs when projectConfig.verify_command is set.
+ * Returns { plan: string, augmented: number }.
+ */
+function augmentPlanMarkdown(planMarkdown, projectConfig, logger) {
+  const verify = projectConfig && typeof projectConfig.verify_command === 'string'
+    ? projectConfig.verify_command.trim()
+    : '';
+  if (!verify || typeof planMarkdown !== 'string') return { plan: planMarkdown, augmented: 0 };
+
+  const headingRe = /^## Task \d+:/m;
+  if (!headingRe.test(planMarkdown)) return { plan: planMarkdown, augmented: 0 };
+
+  // Split at task headings, augment bodies that lack acceptance criterion.
+  const parts = planMarkdown.split(/(^## Task \d+:.*$)/m);
+  // parts alternates: [pre, heading, body, heading, body, ...]
+  let augmented = 0;
+  const out = [];
+
+  for (let i = 0; i < parts.length; i++) {
+    const part = parts[i];
+    // Is this part a task heading?
+    if (/^## Task \d+:/.test(part)) {
+      out.push(part);
+    } else if (i > 0 && /^## Task \d+:/.test(parts[i - 1])) {
+      // This part is the body following a heading.
+      if (!ACCEPTANCE_RE.test(part)) {
+        const verifyLine = deterministicVerify(verify);
+        // Append the verify line (preserve trailing newline behaviour).
+        const trimmed = part.trimEnd();
+        out.push(trimmed + '\n' + verifyLine + '\n');
+        augmented += 1;
+      } else {
+        out.push(part);
+      }
+    } else {
+      out.push(part);
+    }
+  }
+
+  if (augmented > 0) {
+    logger?.info?.('[codex-fallback-3] plan-quality-gate augmented task bodies', { count: augmented });
+  }
+
+  return { plan: out.join(''), augmented };
+}
+
+async function evaluatePlan({ plan, workItem, project, projectConfig }) {
+  // Auto-augment: inject acceptance criterion into tasks that lack one.
+  let activePlan = plan;
+  if (projectConfig && projectConfig.verify_command) {
+    try {
+      const aug = augmentPlanMarkdown(activePlan, projectConfig, null);
+      activePlan = aug.plan;
+    } catch (err) {
+      // Fall through with original plan on unexpected augmentation error.
+      void err;
+    }
+  }
+  const { hardFails, warnings } = runDeterministicRules(activePlan);
   if (hardFails.length > 0) {
     const feedbackPrompt = buildFeedbackPrompt(hardFails, warnings, null);
     return { passed: false, hardFails, warnings, llmCritique: null, feedbackPrompt };
   }
-  const critique = await module.exports.runLlmSemanticCheck({ plan, workItem, project });
+  const critique = await module.exports.runLlmSemanticCheck({ plan: activePlan, workItem, project });
   const isNoGo = typeof critique === 'string' && critique.startsWith('[no-go]');
   if (isNoGo) {
     const cleanCritique = critique.replace(/^\[no-go\]\s*/, '');
@@ -404,5 +465,6 @@ module.exports = {
   runLlmSemanticCheck,
   buildFeedbackPrompt,
   isUnsupportedWorktreeSetupCritique,
+  augmentPlanMarkdown,
   evaluatePlan,
 };
