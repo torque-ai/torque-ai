@@ -735,8 +735,19 @@ case "$TRANSPORT" in
       # cleanup still runs via -fd, which removes only untracked files left
       # by killed prior runs. The first-sync npm-install hints below still
       # fire correctly when node_modules genuinely doesn't exist.
+      #
+      # `git fetch --prune` removes remotes/origin/* refs that origin no
+      # longer advertises. Without --prune, every pre-push-gate/<sha>
+      # staging ref (created and then deleted from origin by the pre-push
+      # hook) leaves a permanent local entry. Measured 2026-04-27: 43 stale
+      # pre-push-gate refs + ~80 other dead branches accumulated, bringing
+      # total refs to 587 and doubling the worktree-lifecycle perf metric
+      # (149→299ms) because git iterates all refs for branch-ambiguity
+      # checks on every `git worktree add`. After pruning, the metric
+      # dropped to 131ms (better than the original baseline). --prune adds
+      # no measurable overhead to fetch itself.
       ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" \
-        "${SYNC_BOOTSTRAP}cd \"$EFFECTIVE_REMOTE_PROJECT_PATH\" && git fetch origin && $SYNC_CHECKOUT && git reset --hard $SYNC_REF && (git clean -fd || true) && (git diff --quiet HEAD || (echo \"[torque-remote-sync] drift after reset — file locks (Defender/Search/AV) may have prevented checkout from updating tracked files\" 1>&2 && exit 99)) && (if exist package.json if not exist node_modules echo [torque-remote-sync] HINT: ./package.json has no node_modules at $EFFECTIVE_REMOTE_PROJECT_PATH — run: npm install 1>&2) && (if exist server\\package.json if not exist server\\node_modules echo [torque-remote-sync] HINT: server/package.json has no node_modules — run: cd server ^&^& npm install 1>&2) && (if exist dashboard\\package.json if not exist dashboard\\node_modules echo [torque-remote-sync] HINT: dashboard/package.json has no node_modules — run: cd dashboard ^&^& npm install 1>&2)" \
+        "${SYNC_BOOTSTRAP}cd \"$EFFECTIVE_REMOTE_PROJECT_PATH\" && git fetch --prune origin && $SYNC_CHECKOUT && git reset --hard $SYNC_REF && (git clean -fd || true) && (git diff --quiet HEAD || (echo \"[torque-remote-sync] drift after reset — file locks (Defender/Search/AV) may have prevented checkout from updating tracked files\" 1>&2 && exit 99)) && (if exist package.json if not exist node_modules echo [torque-remote-sync] HINT: ./package.json has no node_modules at $EFFECTIVE_REMOTE_PROJECT_PATH — run: npm install 1>&2) && (if exist server\\package.json if not exist server\\node_modules echo [torque-remote-sync] HINT: server/package.json has no node_modules — run: cd server ^&^& npm install 1>&2) && (if exist dashboard\\package.json if not exist dashboard\\node_modules echo [torque-remote-sync] HINT: dashboard/package.json has no node_modules — run: cd dashboard ^&^& npm install 1>&2)" \
         2>&1 | tee -a "$sync_log_path" | (grep -v 'Unable to persist credentials\|credential store\|aka.ms/gcm' || true) || sync_status="${PIPESTATUS[0]}"
       if [[ "$sync_status" -ne 0 ]]; then
         # Sync failed — falling back to local execution rather than running
