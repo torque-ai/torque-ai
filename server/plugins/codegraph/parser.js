@@ -3,11 +3,13 @@
 const Parser = require('tree-sitter');
 const JavaScript = require('tree-sitter-javascript');
 const TypeScript = require('tree-sitter-typescript');
+const Python = require('tree-sitter-python');
 
 const GRAMMARS = {
   javascript: JavaScript,
   typescript: TypeScript.typescript,
   tsx:        TypeScript.tsx,
+  python:     Python,
 };
 
 const cache = new Map();
