@@ -280,14 +280,14 @@ _defaultContainer.register(
   ['eventBus', 'logger'],
   ({ eventBus, logger: log }) => {
     const { createCanaryScheduler } = require('./factory/canary-scheduler');
-    // submitTask wraps the smart_submit_task MCP call. For now, use a stub that
-    // logs and returns a fake task_id; Task 9 (integration smoke) will exercise
-    // a real submission path. If a smart_submit_task helper exists for in-process
-    // use, wire it here; otherwise the stub keeps Phase 2 self-contained.
-    const submitTask = async (args) => {
-      log.info('[codex-fallback-2] canary submit (stub)', args);
-      return { task_id: 'stub' };
-    };
+    const { submitCanaryTask } = require('./factory/canary-task-submitter');
+    const submitTask = (args) => submitCanaryTask({
+      description: args.description,
+      logger: log,
+    }).catch((err) => {
+      log.warn('[codex-fallback-3] canary submission failed', { error: err.message });
+      throw err; // rethrow so the scheduler reschedules per its existing failure-handling path
+    });
     return createCanaryScheduler({ eventBus, submitTask, logger: log });
   }
 );
