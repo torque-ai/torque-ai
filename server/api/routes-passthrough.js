@@ -276,11 +276,15 @@ const routes = [
   { method: 'POST', path: '/api/v2/discovery/configure-model-roles', tool: 'configure_model_roles', mapBody: true },
   { method: 'POST', path: '/api/v2/discovery/list-model-roles', tool: 'list_model_roles', mapBody: true },
 
-  // ─── governance (11 routes) ──────────────────────────────────────────────────
+  // ─── governance (15 routes) ──────────────────────────────────────────────────
   { method: 'POST', path: '/api/v2/governance/get-governance-rules', tool: 'get_governance_rules', mapBody: true },
   { method: 'POST', path: '/api/v2/governance/set-governance-rule-mode', tool: 'set_governance_rule_mode', mapBody: true },
   { method: 'POST', path: '/api/v2/governance/toggle-governance-rule', tool: 'toggle_governance_rule', mapBody: true },
   { method: 'POST', path: '/api/v2/governance/get-circuit-breaker-status', tool: 'get_circuit_breaker_status', mapBody: true },
+  { method: 'POST', path: '/api/v2/governance/get-codex-breaker-status', tool: 'get_codex_breaker_status', mapBody: true },
+  { method: 'POST', path: '/api/v2/governance/trip-codex-breaker', tool: 'trip_codex_breaker', mapBody: true },
+  { method: 'POST', path: '/api/v2/governance/untrip-codex-breaker', tool: 'untrip_codex_breaker', mapBody: true },
+  { method: 'POST', path: '/api/v2/governance/configure-codex-policy', tool: 'configure_codex_policy', mapBody: true },
   { method: 'POST', path: '/api/v2/governance/get-file-risk', tool: 'get_file_risk', mapBody: true },
   { method: 'POST', path: '/api/v2/governance/set-file-risk-override', tool: 'set_file_risk_override', mapBody: true },
   { method: 'POST', path: '/api/v2/governance/get-high-risk-files', tool: 'get_high_risk_files', mapBody: true },

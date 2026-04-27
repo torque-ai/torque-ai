@@ -20,6 +20,14 @@ const FAILURE_PATTERNS = {
   resource: /(out of memory|OOM|disk full|GPU|CUDA|no space)/i,
 };
 
+const ERROR_CODE_TO_CATEGORY = {
+  quota_exceeded: 'rate_limit',
+  rate_limit: 'rate_limit',
+  auth_failed: 'auth',
+};
+
+const SENTINEL_EXIT_CODES = new Set([-101, -102, -103]);
+
 function createNoopEventBus() {
   return { emit() {} };
 }
@@ -65,10 +73,21 @@ function createProviderState(baseRecoveryTimeoutMs) {
 }
 
 class CircuitBreaker {
-  constructor({ eventBus, config }) {
+  constructor({ eventBus, config, store }) {
     this._eventBus = eventBus || createNoopEventBus();
     this._config = { ...DEFAULT_CONFIG, ...config };
     this._providers = new Map();
+    this._store = store || null;
+
+    if (this._store && typeof this._store.listAll === 'function') {
+      for (const row of this._store.listAll()) {
+        const entry = createProviderState(this._config.baseRecoveryTimeoutMs);
+        entry.state = row.state;
+        entry.trippedAt = row.tripped_at ? new Date(row.tripped_at).getTime() : null;
+        // consecutiveFailures intentionally not persisted — counter resets on restart.
+        this._providers.set(row.provider_id, entry);
+      }
+    }
   }
 
   _getStateEntry(provider) {
@@ -83,6 +102,16 @@ class CircuitBreaker {
   _emit(event, payload) {
     if (typeof this._eventBus?.emit === "function") {
       this._eventBus.emit(event, payload);
+    }
+  }
+
+  _persist(provider, patch) {
+    if (!this._store) return;
+    try {
+      this._store.persist(provider, patch);
+    } catch (err) {
+      // Persistence errors must not break the breaker, but they should be visible.
+      console.error('[circuit-breaker] persist failed for', provider, err.message);
     }
   }
 
@@ -118,6 +147,11 @@ class CircuitBreaker {
       consecutiveFailures: entry.consecutiveFailures,
       recoveryTimeoutMs: entry.recoveryTimeoutMs,
     });
+
+    this._persist(provider, {
+      state: 'OPEN',
+      trippedAt: new Date(entry.trippedAt).toISOString(),
+    });
   }
 
   recordSuccess(provider) {
@@ -132,17 +166,35 @@ class CircuitBreaker {
     entry.currentProbeAllowed = false;
     if (wasHalfOpen) {
       entry.recoveryTimeoutMs = this._config.baseRecoveryTimeoutMs;
+      this._persist(normalizedProvider, {
+        state: 'CLOSED',
+        untrippedAt: new Date().toISOString(),
+      });
     }
 
     return this.getState(normalizedProvider);
   }
 
   recordFailure(provider, errorOutput) {
+    const category = classifyFailure(errorOutput);
+    return this._recordFailureWithCategory(provider, category);
+  }
+
+  recordFailureByCode(provider, { errorCode, exitCode } = {}) {
+    let category = 'unknown';
+    if (errorCode && ERROR_CODE_TO_CATEGORY[errorCode]) {
+      category = ERROR_CODE_TO_CATEGORY[errorCode];
+    } else if (typeof exitCode === 'number' && SENTINEL_EXIT_CODES.has(exitCode)) {
+      category = 'resource';
+    }
+    return this._recordFailureWithCategory(provider, category);
+  }
+
+  _recordFailureWithCategory(provider, category) {
     const normalizedProvider = normalizeProvider(provider);
     const entry = this._getStateEntry(normalizedProvider);
     this._maybeTransitionToHalfOpen(normalizedProvider, entry);
 
-    const category = classifyFailure(errorOutput);
     entry.consecutiveFailures = entry.lastFailureCategory === category
       ? entry.consecutiveFailures + 1
       : 1;
@@ -233,10 +285,49 @@ class CircuitBreaker {
 
     return result;
   }
+
+  trip(provider, reason) {
+    const normalizedProvider = normalizeProvider(provider);
+    const entry = this._getStateEntry(normalizedProvider);
+    entry.state = STATES.OPEN;
+    entry.trippedAt = Date.now();
+    entry.lastFailureCategory = entry.lastFailureCategory || 'manual';
+    this._emit('circuit:tripped', {
+      provider: normalizedProvider,
+      category: entry.lastFailureCategory,
+      consecutiveFailures: entry.consecutiveFailures,
+      recoveryTimeoutMs: entry.recoveryTimeoutMs,
+      reason: reason || 'manual',
+    });
+    this._persist(normalizedProvider, {
+      state: 'OPEN',
+      trippedAt: new Date(entry.trippedAt).toISOString(),
+      tripReason: reason || 'manual',
+    });
+  }
+
+  untrip(provider, reason) {
+    const normalizedProvider = normalizeProvider(provider);
+    const entry = this._getStateEntry(normalizedProvider);
+    entry.state = STATES.CLOSED;
+    entry.consecutiveFailures = 0;
+    entry.lastFailureCategory = null;
+    entry.recoveryTimeoutMs = this._config.baseRecoveryTimeoutMs;
+    entry.currentProbeAllowed = false;
+    entry.trippedAt = null;
+    this._emit('circuit:recovered', {
+      provider: normalizedProvider,
+      reason: reason || 'manual',
+    });
+    this._persist(normalizedProvider, {
+      state: 'CLOSED',
+      untrippedAt: new Date().toISOString(),
+    });
+  }
 }
 
-function createCircuitBreaker({ eventBus, config } = {}) {
-  return new CircuitBreaker({ eventBus, config });
+function createCircuitBreaker({ eventBus, config, store } = {}) {
+  return new CircuitBreaker({ eventBus, config, store });
 }
 
 module.exports = { createCircuitBreaker, classifyFailure, STATES };

@@ -10,12 +10,14 @@ const Budget = lazy(() => import('./Budget'));
 const Governance = lazy(() => import('./Governance'));
 const VersionControl = lazy(() => import('./VersionControl'));
 const OperationsPerf = lazy(() => import('./OperationsPerf'));
+const CodexBreaker = lazy(() => import('./CodexBreaker'));
 
 const TABS = [
   { id: 'routing', label: 'Routing' },
   { id: 'schedules', label: 'Schedules' },
   { id: 'budget', label: 'Budget' },
   { id: 'governance', label: 'Governance' },
+  { id: 'codex', label: 'Codex Breaker' },
   { id: 'version-control', label: 'Version Control' },
   { id: 'perf', label: 'Perf' },
 ];
@@ -58,6 +60,12 @@ export default function OperationsHub(props) {
       {tab === 'governance' && (
         <Suspense fallback={LOADING_FALLBACK}>
           <Governance {...props} />
+        </Suspense>
+      )}
+
+      {tab === 'codex' && (
+        <Suspense fallback={LOADING_FALLBACK}>
+          <CodexBreaker {...props} />
         </Suspense>
       )}
 

@@ -314,6 +314,78 @@ function createFromFindings(project_id, findings, source) {
   return created;
 }
 
+const PARK_STATUSES = Object.freeze([
+  'parked_codex_unavailable',
+  'parked_chain_exhausted',
+]);
+
+function isParkedStatus(status) {
+  return PARK_STATUSES.includes(status);
+}
+
+function parkWorkItemForCodex({ db: dbArg, workItemId, reason }) {
+  if (!dbArg) throw new Error('parkWorkItemForCodex requires db');
+  if (!Number.isInteger(workItemId)) throw new Error('workItemId must be integer');
+  // reason is intentionally unused in Phase 1 — callers log it via decision-logs.
+  void reason;
+  dbArg.prepare(`
+    UPDATE factory_work_items
+    SET status = 'parked_codex_unavailable',
+        updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+    WHERE id = ?
+  `).run(workItemId);
+}
+
+function resumeAllCodexParked({ db: dbArg }) {
+  if (!dbArg) throw new Error('resumeAllCodexParked requires db');
+  const result = dbArg.prepare(`
+    UPDATE factory_work_items
+    SET status = 'pending',
+        updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+    WHERE status = 'parked_codex_unavailable'
+  `).run();
+  return result.changes;
+}
+
+const CODEX_FALLBACK_POLICIES = Object.freeze(['auto', 'manual', 'wait_for_codex']);
+const DEFAULT_CODEX_FALLBACK_POLICY = 'auto';
+
+function getCodexFallbackPolicy({ db: dbArg, projectId }) {
+  if (!dbArg) throw new Error('getCodexFallbackPolicy requires db');
+  const row = dbArg.prepare(`SELECT config_json FROM factory_projects WHERE id = ?`).get(projectId);
+  if (!row) return DEFAULT_CODEX_FALLBACK_POLICY;
+  try {
+    const cfg = row.config_json ? JSON.parse(row.config_json) : {};
+    if (CODEX_FALLBACK_POLICIES.includes(cfg.codex_fallback_policy)) {
+      return cfg.codex_fallback_policy;
+    }
+  } catch (_e) {
+    // Fall through to default on JSON parse failure.
+  }
+  return DEFAULT_CODEX_FALLBACK_POLICY;
+}
+
+function setCodexFallbackPolicy({ db: dbArg, projectId, policy }) {
+  if (!dbArg) throw new Error('setCodexFallbackPolicy requires db');
+  if (!CODEX_FALLBACK_POLICIES.includes(policy)) {
+    throw new Error(`invalid policy: ${policy}`);
+  }
+  const row = dbArg.prepare(`SELECT config_json FROM factory_projects WHERE id = ?`).get(projectId);
+  if (!row) throw new Error(`project not found: ${projectId}`);
+  let cfg = {};
+  if (row.config_json) {
+    try {
+      cfg = JSON.parse(row.config_json);
+    } catch (_e) {
+      // Malformed config_json — start fresh; setting policy is a write, so we don't preserve garbage.
+      cfg = {};
+    }
+  }
+  cfg.codex_fallback_policy = policy;
+  dbArg.prepare(`UPDATE factory_projects SET config_json = ? WHERE id = ?`)
+    .run(JSON.stringify(cfg), projectId);
+}
+
 module.exports = {
   setDb,
   isMetaTaskTitle,
@@ -338,4 +410,12 @@ module.exports = {
   REJECT_REASONS,
   VALID_PRIORITIES,
   CLOSED_STATUSES,
+  PARK_STATUSES,
+  isParkedStatus,
+  parkWorkItemForCodex,
+  resumeAllCodexParked,
+  CODEX_FALLBACK_POLICIES,
+  DEFAULT_CODEX_FALLBACK_POLICY,
+  getCodexFallbackPolicy,
+  setCodexFallbackPolicy,
 };

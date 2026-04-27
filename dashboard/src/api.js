@@ -735,4 +735,29 @@ export const factory = {
   recordCorrection: (projectId, data, opts = {}) => requestV2(`/factory/projects/${projectId}/corrections`, { method: 'POST', body: JSON.stringify(data), ...opts }),
 };
 
-export default { tasks, providers, stats, planProjects, hosts, peekHosts, budget, schedules, study, taskLogs, system, instances, projectTuning, benchmarks, workflows, workflowSpecs, approvals, governance, coordination, versionControl, strategic, routingTemplates, factory };
+// ─── Codex circuit breaker (v2 passthrough to MCP tools) ────────────────────
+
+export const codexBreaker = {
+  getStatus: (opts = {}) => requestV2('/governance/get-codex-breaker-status', {
+    method: 'POST',
+    body: JSON.stringify({}),
+    ...opts,
+  }),
+  trip: (reason, opts = {}) => requestV2('/governance/trip-codex-breaker', {
+    method: 'POST',
+    body: JSON.stringify({ reason: reason || 'manual' }),
+    ...opts,
+  }),
+  untrip: (reason, opts = {}) => requestV2('/governance/untrip-codex-breaker', {
+    method: 'POST',
+    body: JSON.stringify({ reason: reason || 'manual' }),
+    ...opts,
+  }),
+  configurePolicy: (projectId, mode, opts = {}) => requestV2('/governance/configure-codex-policy', {
+    method: 'POST',
+    body: JSON.stringify({ project_id: projectId, mode }),
+    ...opts,
+  }),
+};
+
+export default { tasks, providers, stats, planProjects, hosts, peekHosts, budget, schedules, study, taskLogs, system, instances, projectTuning, benchmarks, workflows, workflowSpecs, approvals, governance, coordination, versionControl, strategic, routingTemplates, factory, codexBreaker };

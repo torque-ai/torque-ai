@@ -238,4 +238,161 @@ describe('circuit-breaker', () => {
     expect(allStates.deepinfra.state).toBe(STATES.HALF_OPEN);
     expect(allStates.anthropic.state).toBe(STATES.HALF_OPEN);
   });
+
+  describe('persistence', () => {
+    let store;
+    beforeEach(() => {
+      const persisted = new Map();
+      store = {
+        getState: vi.fn((id) => persisted.get(id) ?? null),
+        persist: vi.fn((id, patch) => {
+          const existing = persisted.get(id) ?? { provider_id: id };
+          const next = { ...existing };
+          if (patch.state !== undefined) next.state = patch.state;
+          if (patch.trippedAt !== undefined) next.tripped_at = patch.trippedAt;
+          if (patch.untrippedAt !== undefined) next.untripped_at = patch.untrippedAt;
+          if (patch.tripReason !== undefined) next.trip_reason = patch.tripReason;
+          if (patch.lastCanaryAt !== undefined) next.last_canary_at = patch.lastCanaryAt;
+          if (patch.lastCanaryStatus !== undefined) next.last_canary_status = patch.lastCanaryStatus;
+          persisted.set(id, next);
+        }),
+        listAll: vi.fn(() => Array.from(persisted.values())),
+      };
+    });
+
+    it('loads persisted OPEN state on construction', () => {
+      store.persist('codex', {
+        state: 'OPEN',
+        trippedAt: new Date('2026-04-26T19:55:00.000Z').toISOString(),
+        tripReason: 'manual_disabled',
+      });
+      const breaker = createCircuitBreaker({ eventBus, config: TEST_CONFIG, store });
+      expect(breaker.getState('codex').state).toBe(STATES.OPEN);
+      expect(store.listAll).toHaveBeenCalled();
+    });
+
+    it('writes through to store on trip', () => {
+      const breaker = createCircuitBreaker({ eventBus, config: TEST_CONFIG, store });
+      tripCircuit(breaker, 'codex');
+      expect(store.persist).toHaveBeenCalledWith('codex', expect.objectContaining({
+        state: 'OPEN',
+      }));
+    });
+
+    it('survives breaker recreation (state loaded from store)', () => {
+      const breaker1 = createCircuitBreaker({ eventBus, config: TEST_CONFIG, store });
+      tripCircuit(breaker1, 'codex');
+      const breaker2 = createCircuitBreaker({ eventBus, config: TEST_CONFIG, store });
+      expect(breaker2.getState('codex').state).toBe(STATES.OPEN);
+    });
+
+    it('logs but does not throw when store.persist fails', () => {
+      const erroringStore = {
+        getState: vi.fn(() => null),
+        persist: vi.fn(() => { throw new Error('DB locked'); }),
+        listAll: vi.fn(() => []),
+      };
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const breaker = createCircuitBreaker({ eventBus, config: TEST_CONFIG, store: erroringStore });
+      expect(() => tripCircuit(breaker, 'codex')).not.toThrow();
+      expect(errorSpy).toHaveBeenCalledWith(
+        expect.stringContaining('persist failed'),
+        'codex',
+        'DB locked'
+      );
+      errorSpy.mockRestore();
+    });
+  });
+
+  describe('recordFailureByCode', () => {
+    it('classifies quota_exceeded as rate_limit category', () => {
+      const breaker = createCircuitBreaker({ eventBus, config: TEST_CONFIG });
+      breaker.recordFailureByCode('codex', { errorCode: 'quota_exceeded' });
+      expect(breaker.getState('codex').lastFailureCategory).toBe('rate_limit');
+    });
+
+    it('classifies auth_failed as auth category', () => {
+      const breaker = createCircuitBreaker({ eventBus, config: TEST_CONFIG });
+      breaker.recordFailureByCode('codex', { errorCode: 'auth_failed' });
+      expect(breaker.getState('codex').lastFailureCategory).toBe('auth');
+    });
+
+    it('classifies sentinel exit codes as resource', () => {
+      const breaker = createCircuitBreaker({ eventBus, config: TEST_CONFIG });
+      breaker.recordFailureByCode('codex', { exitCode: -101 });
+      expect(breaker.getState('codex').lastFailureCategory).toBe('resource');
+    });
+
+    it('3 codex-coded failures trip the circuit', () => {
+      const breaker = createCircuitBreaker({ eventBus, config: TEST_CONFIG });
+      breaker.recordFailureByCode('codex', { errorCode: 'rate_limit' });
+      breaker.recordFailureByCode('codex', { errorCode: 'rate_limit' });
+      breaker.recordFailureByCode('codex', { errorCode: 'rate_limit' });
+      expect(breaker.getState('codex').state).toBe(STATES.OPEN);
+    });
+  });
+
+  describe('manual trip/untrip', () => {
+    it('trip() forces OPEN state with reason', () => {
+      const breaker = createCircuitBreaker({ eventBus, config: TEST_CONFIG });
+      breaker.trip('codex', 'manual_disabled');
+      expect(breaker.getState('codex').state).toBe(STATES.OPEN);
+      expect(eventBus.emit).toHaveBeenCalledWith(
+        'circuit:tripped',
+        expect.objectContaining({ provider: 'codex', reason: 'manual_disabled' })
+      );
+    });
+
+    it('untrip() forces CLOSED state and resets counters', () => {
+      const breaker = createCircuitBreaker({ eventBus, config: TEST_CONFIG });
+      tripCircuit(breaker, 'codex');
+      breaker.untrip('codex', 'operator_override');
+      const state = breaker.getState('codex');
+      expect(state.state).toBe(STATES.CLOSED);
+      expect(state.consecutiveFailures).toBe(0);
+      expect(eventBus.emit).toHaveBeenCalledWith(
+        'circuit:recovered',
+        expect.objectContaining({ provider: 'codex', reason: 'operator_override' })
+      );
+    });
+
+    it('trip() persists reason via store', () => {
+      const persisted = new Map();
+      const store = {
+        getState: vi.fn((id) => persisted.get(id) ?? null),
+        persist: vi.fn((id, patch) => persisted.set(id, { ...persisted.get(id), ...patch })),
+        listAll: vi.fn(() => []),
+      };
+      const breaker = createCircuitBreaker({ eventBus, config: TEST_CONFIG, store });
+      breaker.trip('codex', 'manual_disabled');
+      expect(store.persist).toHaveBeenCalledWith('codex', expect.objectContaining({
+        state: 'OPEN',
+        tripReason: 'manual_disabled',
+      }));
+    });
+
+    it('untrip() clears trippedAt to null', () => {
+      const breaker = createCircuitBreaker({ eventBus, config: TEST_CONFIG });
+      tripCircuit(breaker, 'codex');
+      expect(breaker.getState('codex').trippedAt).not.toBeNull();
+      breaker.untrip('codex', 'operator_override');
+      expect(breaker.getState('codex').trippedAt).toBeNull();
+    });
+
+    it('untrip() persists CLOSED state to store', () => {
+      const persisted = new Map();
+      const store = {
+        getState: vi.fn((id) => persisted.get(id) ?? null),
+        persist: vi.fn((id, patch) => persisted.set(id, { ...persisted.get(id), ...patch })),
+        listAll: vi.fn(() => []),
+      };
+      const breaker = createCircuitBreaker({ eventBus, config: TEST_CONFIG, store });
+      breaker.trip('codex', 'manual_disabled');
+      store.persist.mockClear();
+      breaker.untrip('codex', 'operator_override');
+      expect(store.persist).toHaveBeenCalledWith('codex', expect.objectContaining({
+        state: 'CLOSED',
+      }));
+    });
+  });
 });
