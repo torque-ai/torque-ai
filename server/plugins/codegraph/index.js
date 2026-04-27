@@ -8,6 +8,7 @@ const PLUGIN_VERSION = '0.1.0';
 const { ensureSchema } = require('./schema');
 const toolDefs = require('./tool-defs');
 const { createHandlers } = require('./handlers');
+const telemetry = require('./telemetry');
 
 const DEDICATED_DB_FILENAME = 'codegraph.db';
 
@@ -67,7 +68,13 @@ function createCodegraphPlugin() {
       }
     } catch { /* schema may be empty */ }
 
-    const handlers = createHandlers({ db });
+    const rawHandlers = createHandlers({ db });
+    // Wrap each cg_* handler so every invocation is recorded into
+    // cg_tool_usage. The wrapper swallows any recorder error so a failed
+    // INSERT never breaks the tool call. cg_telemetry is added unwrapped —
+    // surfacing telemetry must not record itself (recursion / measurement
+    // bias).
+    const handlers = telemetry.instrument(rawHandlers, db);
     toolList = toolDefs.map((toolDef) => ({
       ...toolDef,
       handler: handlers[toolDef.name],

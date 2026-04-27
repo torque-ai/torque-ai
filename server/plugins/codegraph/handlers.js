@@ -7,6 +7,7 @@ const { impactSet }      = require('./queries/impact-set');
 const { deadSymbols }    = require('./queries/dead-symbols');
 const { resolveTool }    = require('./queries/resolve-tool');
 const { classHierarchy } = require('./queries/class-hierarchy');
+const telemetry          = require('./telemetry');
 
 function requireString(args, key) {
   if (typeof args?.[key] !== 'string' || args[key].length === 0) {
@@ -224,6 +225,21 @@ function createHandlers({ db }) {
           hint: `No dispatcher, no exact-name symbol, and no handle<PascalCase> convention match for '${toolName}'. The tool may be defined in a different repo, registered dynamically from a string interpolation, or misspelled. Try cg_find_references on '${toolName}' as a string symbol to find call sites that mention it.`,
         }),
         staleness: staleness(db, repoPath),
+      });
+    },
+
+    async cg_telemetry(args) {
+      const sinceHoursRaw = args?.since_hours;
+      const sinceHours = Number.isFinite(sinceHoursRaw) && sinceHoursRaw > 0
+        ? Math.min(sinceHoursRaw, 24 * 365)
+        : 24;
+      const tool = typeof args?.tool === 'string' && args.tool ? args.tool : null;
+      const summary = telemetry.summarize(db, { sinceHours, tool });
+      return asToolResult({
+        since_hours: sinceHours,
+        ...(tool && { tool_filter: tool }),
+        tools: summary,
+        total_calls: summary.reduce((acc, r) => acc + r.calls, 0),
       });
     },
   };
