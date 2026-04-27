@@ -50,6 +50,17 @@ function request({ method, path, body }) {
     });
     req.on('error', reject);
     req.on('timeout', () => req.destroy(new Error('timeout')));
+    // The `timeout` option on http.request is an INACTIVITY timeout — it only
+    // fires once a socket exists. When the OS firewall silently drops SYNs to a
+    // closed port (Windows Defender against port 1, for example), the connect
+    // itself blocks for the full OS TCP connect timeout (~20s) before
+    // surfacing ECONNREFUSED, which is longer than callers expect. Bind the
+    // socket-level timeout the moment the socket exists so connect-stage
+    // hangs surface in CONNECT_TIMEOUT_MS regardless of OS connect behavior.
+    req.on('socket', (socket) => {
+      socket.setTimeout(CONNECT_TIMEOUT_MS);
+      socket.once('timeout', () => req.destroy(new Error('connect timeout')));
+    });
     if (body) req.write(JSON.stringify(body));
     req.end();
   });
