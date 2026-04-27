@@ -200,6 +200,12 @@ function insertProject(overrides = {}) {
 beforeEach(() => {
   db = new Database(':memory:');
   createFactoryTables(db);
+  // Run the production schema migrations too so any container factory that
+  // prepares statements at boot (e.g. providerCircuitBreakerStore queries
+  // the provider_circuit_breaker table) finds its table. createFactoryTables
+  // alone is not enough — it covers factory_* only, not the rest of the
+  // server schema that container.boot() depends on.
+  require('../db/schema-tables').createTables(db, { debug: () => {}, info: () => {}, warn: () => {} });
   factoryHealth.setDb(db);
   factoryFeedback.setDb(db);
   factoryIntake.setDb(db);

@@ -9,12 +9,13 @@ describe('codegraph schema', () => {
   beforeEach(() => { db = new Database(':memory:'); });
   afterEach(() => db.close());
 
-  it('creates cg_files, cg_symbols, cg_references, cg_index_state, cg_dispatch_edges tables', () => {
+  it('creates cg_files, cg_symbols, cg_references, cg_index_state, cg_dispatch_edges, cg_class_edges tables', () => {
     ensureSchema(db);
     const tables = db.prepare(
       "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'cg_%'"
     ).all().map((r) => r.name).sort();
     expect(tables).toEqual([
+      'cg_class_edges',
       'cg_dispatch_edges',
       'cg_files',
       'cg_index_state',
