@@ -172,6 +172,49 @@ const selectedWorkItemIds = new Map();
 const loopAdvanceJobs = new Map();
 const activeLoopAdvanceJobs = new Map();
 
+// Codex Fallback Phase 2 — instances flagged at PRIORITIZE for failover
+// routing. When `decideCodexFallbackAction` returns 'proceed_with_fallback'
+// (breaker tripped + project policy=auto), the instance id is added here.
+// The EXECUTE submit path (Task 7 — chain walker in smart-routing) reads
+// this set and applies the 'codex-down-failover' routing template to the
+// task metadata so the failover provider chain is used instead of Codex.
+//
+// In-memory state (approach B) was chosen over a DB column (approach A)
+// because:
+//   1. The marker only needs to live for the gap between PRIORITIZE and
+//      EXECUTE submission within a single process — no schema migration
+//      cost, no cross-restart durability concern (a restart would re-run
+//      `decideCodexFallbackAction` at the next PRIORITIZE tick anyway).
+//   2. It mirrors the existing `selectedWorkItemIds` Map pattern (see
+//      above), so the lifecycle hooks already cover instance teardown.
+//   3. Setting per-task `_routing_template` (approach C) directly from
+//      PRIORITIZE would require plumbing through the plan-executor's
+//      `submit` callback at submission time anyway; the in-memory marker
+//      keeps PRIORITIZE oblivious to submission internals.
+const instancesPendingFallbackRouting = new Set();
+
+function markInstanceFallbackRouting(instance_id) {
+  if (!instance_id) return;
+  instancesPendingFallbackRouting.add(instance_id);
+}
+
+function consumeInstanceFallbackRouting(instance_id) {
+  if (!instance_id) return false;
+  const had = instancesPendingFallbackRouting.has(instance_id);
+  instancesPendingFallbackRouting.delete(instance_id);
+  return had;
+}
+
+function isInstanceFallbackRoutingPending(instance_id) {
+  if (!instance_id) return false;
+  return instancesPendingFallbackRouting.has(instance_id);
+}
+
+function clearInstanceFallbackRouting(instance_id) {
+  if (!instance_id) return;
+  instancesPendingFallbackRouting.delete(instance_id);
+}
+
 function nowIso() {
   return new Date().toISOString();
 }
@@ -724,6 +767,10 @@ function terminateInstanceAndSync(instance_id, { abandonWorktree = false } = {})
   const before = getInstanceOrThrow(instance_id);
   factoryIntake.releaseClaimForInstance(instance_id);
   clearSelectedWorkItem(instance_id);
+  // Drop any pending Codex-down failover marker so a future instance with
+  // the same id (extremely unlikely — uuids — but cheap to be defensive)
+  // doesn't inherit a stale "use the failover chain" hint.
+  clearInstanceFallbackRouting(instance_id);
 
   // Only abandon the factory_worktrees row when explicitly requested
   // (operator force-terminate) or when the instance died mid-flight
@@ -5069,8 +5116,33 @@ async function handlePrioritizeTransition({ project, instance, currentState }) {
         nextState: getCurrentLoopState(instance),
       };
     }
-    // 'proceed' and 'proceed_with_fallback' fall through to PLAN.
-    // Phase 2 will distinguish them.
+    if (codexDecision.action === 'proceed_with_fallback') {
+      // Codex Fallback Phase 2 — Codex is unavailable but project policy
+      // is 'auto'. Mark the loop instance so the EXECUTE submit path
+      // (Task 7) routes the next task through the 'codex-down-failover'
+      // routing template instead of the system default. The marker lives
+      // in module-memory (`instancesPendingFallbackRouting`); see the
+      // declaration block for the rationale on choosing in-memory over
+      // a DB column or per-task arg propagation. We still fall through
+      // to the existing PLAN advance — only the routing changes.
+      markInstanceFallbackRouting(instance.id);
+      safeLogDecision({
+        project_id: project.id,
+        stage: LOOP_STATES.PRIORITIZE,
+        actor: 'codex_fallback',
+        action: 'marked_for_failover_routing',
+        reasoning:
+          `Codex breaker open and project policy=auto; marking instance ${instance.id} so EXECUTE uses codex-down-failover chain for work item ${transitionWorkItem.id}`,
+        outcome: {
+          work_item_id: transitionWorkItem.id,
+          instance_id: instance.id,
+          fallback_template: 'codex-down-failover',
+        },
+        confidence: 1,
+        batch_id: getDecisionBatchId(project, transitionWorkItem, null, instance),
+      });
+    }
+    // 'proceed' falls through to PLAN with normal routing.
   }
 
   const enterPlan = tryMoveInstanceToStage(instance, LOOP_STATES.PLAN, {
@@ -9657,6 +9729,14 @@ module.exports = {
   // Codex fallback (Phase 1) — pure decision helper consulted at PRIORITIZE
   // before we advance to PLAN. Exported for unit tests + future Phase 2 callers.
   decideCodexFallbackAction,
+  // Codex fallback (Phase 2) — in-memory marker that PRIORITIZE sets when
+  // `decideCodexFallbackAction` returns 'proceed_with_fallback'. The
+  // EXECUTE submit path (smart-routing chain walker — Task 7) consumes
+  // the marker to apply the 'codex-down-failover' routing template.
+  markInstanceFallbackRouting,
+  consumeInstanceFallbackRouting,
+  isInstanceFallbackRoutingPending,
+  clearInstanceFallbackRouting,
   // Test hooks
   setWorktreeRunnerForTests,
   __testing__: {

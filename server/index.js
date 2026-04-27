@@ -1208,6 +1208,18 @@ function init() {
   } catch (err) {
     logger.warn(`[startup] parkResumeHandler construction failed (non-fatal): ${err.message}`);
   }
+  // Eagerly construct so circuit:tripped/recovered subscriptions are live at startup.
+  try {
+    defaultContainer.get('failoverActivator');
+  } catch (err) {
+    logger.warn(`[startup] failoverActivator construction failed (non-fatal): ${err.message}`);
+  }
+  // Eagerly construct so canary scheduling starts the moment a codex breaker trips.
+  try {
+    defaultContainer.get('canaryScheduler');
+  } catch (err) {
+    logger.warn(`[startup] canaryScheduler construction failed (non-fatal): ${err.message}`);
+  }
   if (!testRunnerRegistry) {
     testRunnerRegistry = createTestRunnerRegistry();
   }

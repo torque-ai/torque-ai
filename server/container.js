@@ -259,6 +259,38 @@ _defaultContainer.register(
     });
   }
 );
+_defaultContainer.register(
+  'failoverActivator',
+  ['eventBus', 'logger'],
+  ({ eventBus, logger: log }) => {
+    const { createFailoverActivator } = require('./routing/failover-activator');
+    const templateStore = require('./routing/template-store');
+    // Adapt template-store API to the activator's expected { getActiveName, setActive } shape.
+    // template-store exposes getExplicitActiveTemplateId (returns the stored ID or null)
+    // and setActiveTemplate (sets by template ID string).
+    const store = {
+      getActiveName: () => templateStore.getExplicitActiveTemplateId(),
+      setActive: (name) => templateStore.setActiveTemplate(name),
+    };
+    return createFailoverActivator({ store, eventBus, logger: log });
+  }
+);
+_defaultContainer.register(
+  'canaryScheduler',
+  ['eventBus', 'logger'],
+  ({ eventBus, logger: log }) => {
+    const { createCanaryScheduler } = require('./factory/canary-scheduler');
+    // submitTask wraps the smart_submit_task MCP call. For now, use a stub that
+    // logs and returns a fake task_id; Task 9 (integration smoke) will exercise
+    // a real submission path. If a smart_submit_task helper exists for in-process
+    // use, wire it here; otherwise the stub keeps Phase 2 self-contained.
+    const submitTask = async (args) => {
+      log.info('[codex-fallback-2] canary submit (stub)', args);
+      return { task_id: 'stub' };
+    };
+    return createCanaryScheduler({ eventBus, submitTask, logger: log });
+  }
+);
 _defaultContainer.register('checkpointStore', ['db'], ({ db }) => {
   const { createCheckpointStore } = require('./workflow-state/checkpoint-store');
   return createCheckpointStore({ db: unwrapDb(db) });
