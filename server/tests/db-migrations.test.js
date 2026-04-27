@@ -615,6 +615,62 @@ describe('db/migrations', () => {
       });
     });
 
+    it('drops abandoned codegraph cg_* tables during migration v38', () => {
+      createBaseSchema(db);
+      // Pre-populate the orphaned cg_* tables that older deployments carry in
+      // tasks.db. Match the original isolated schema so the DROP path exercises
+      // the same shape it would on real disk.
+      db.prepare(`CREATE TABLE cg_files (
+        id INTEGER PRIMARY KEY,
+        repo_path TEXT NOT NULL,
+        file_path TEXT NOT NULL,
+        language TEXT NOT NULL,
+        content_sha TEXT NOT NULL,
+        indexed_at TEXT NOT NULL
+      )`).run();
+      db.prepare(`CREATE TABLE cg_symbols (
+        id INTEGER PRIMARY KEY,
+        repo_path TEXT NOT NULL,
+        name TEXT NOT NULL
+      )`).run();
+      db.prepare('CREATE INDEX idx_cg_symbols_name ON cg_symbols(repo_path, name)').run();
+      db.prepare(`CREATE TABLE cg_references (
+        id INTEGER PRIMARY KEY,
+        repo_path TEXT NOT NULL,
+        target_name TEXT NOT NULL
+      )`).run();
+      db.prepare('CREATE INDEX idx_cg_refs_target ON cg_references(repo_path, target_name)').run();
+      db.prepare(`CREATE TABLE cg_dispatch_edges (
+        id INTEGER PRIMARY KEY,
+        repo_path TEXT NOT NULL,
+        case_string TEXT NOT NULL,
+        handler_name TEXT NOT NULL
+      )`).run();
+      db.prepare('CREATE INDEX idx_cg_dispatch_case ON cg_dispatch_edges(repo_path, case_string)').run();
+      db.prepare(`CREATE TABLE cg_index_state (
+        repo_path TEXT PRIMARY KEY,
+        commit_sha TEXT NOT NULL
+      )`).run();
+
+      subject.runMigrations(db);
+
+      for (const t of ['cg_files', 'cg_symbols', 'cg_references', 'cg_dispatch_edges', 'cg_class_edges', 'cg_index_state']) {
+        expect(tableExists(db, t)).toBe(false);
+      }
+      for (const i of ['idx_cg_symbols_name', 'idx_cg_refs_target', 'idx_cg_dispatch_case']) {
+        expect(indexExists(db, i)).toBe(false);
+      }
+      expect(getAppliedVersions(db)).toContain(38);
+    });
+
+    it('migration v38 is a no-op when cg_* tables were never present', () => {
+      createBaseSchema(db);
+      // Fresh tasks.db that never had codegraph writes — most modern deployments.
+      expect(tableExists(db, 'cg_files')).toBe(false);
+      subject.runMigrations(db);
+      expect(getAppliedVersions(db)).toContain(38);
+    });
+
     it('is idempotent when rerun after all migrations have already been applied', () => {
       createBaseSchema(db);
 

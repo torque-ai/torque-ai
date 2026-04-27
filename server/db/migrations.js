@@ -810,6 +810,34 @@ const MIGRATIONS = [
     },
     down: 'DROP INDEX IF EXISTS idx_fge_batch',
   },
+  {
+    version: 38,
+    name: 'drop_abandoned_codegraph_tables',
+    // Codegraph used to write to tasks.db; commit 66aa6f3e moved it to its own
+    // <DATA_DIR>/codegraph.db. Older deployments still carry the now-orphan
+    // cg_* tables in tasks.db — they're never read but consume disk and clutter
+    // schema dumps. Drop them. cg_class_edges was added AFTER isolation so it
+    // never lived in tasks.db; included in IF EXISTS list for completeness.
+    up: [
+      'DROP INDEX IF EXISTS idx_cg_symbols_name',
+      'DROP INDEX IF EXISTS idx_cg_symbols_file',
+      'DROP INDEX IF EXISTS idx_cg_refs_target',
+      'DROP INDEX IF EXISTS idx_cg_refs_caller',
+      'DROP INDEX IF EXISTS idx_cg_dispatch_case',
+      'DROP INDEX IF EXISTS idx_cg_dispatch_handler',
+      'DROP INDEX IF EXISTS idx_cg_class_sub',
+      'DROP INDEX IF EXISTS idx_cg_class_super',
+      'DROP TABLE IF EXISTS cg_dispatch_edges',
+      'DROP TABLE IF EXISTS cg_class_edges',
+      'DROP TABLE IF EXISTS cg_references',
+      'DROP TABLE IF EXISTS cg_symbols',
+      'DROP TABLE IF EXISTS cg_files',
+      'DROP TABLE IF EXISTS cg_index_state',
+    ].join('; '),
+    // No down — restoring orphaned tables would just recreate them empty.
+    // Use `cg_reindex` against the dedicated codegraph.db to repopulate the
+    // graph in its proper home if a rollback is ever required.
+  },
 ];
 
 function ensureMigrationTable(sqliteDb) {
