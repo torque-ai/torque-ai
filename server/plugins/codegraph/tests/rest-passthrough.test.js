@@ -33,4 +33,11 @@ describe('codegraph REST passthrough routes', () => {
     expect(r.path).toBe('/api/v2/codegraph/dead-symbols');
     expect(r.mapQuery).toBe(true);
   });
+
+  it('exposes POST /api/v2/codegraph/resolve-tool for cg_resolve_tool', () => {
+    const r = find('cg_resolve_tool', 'POST');
+    expect(r).toBeTruthy();
+    expect(r.path).toBe('/api/v2/codegraph/resolve-tool');
+    expect(r.mapBody).toBe(true);
+  });
 });

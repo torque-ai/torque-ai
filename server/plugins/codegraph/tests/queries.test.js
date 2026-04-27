@@ -111,10 +111,30 @@ describe('codegraph queries: dead_symbols', () => {
   });
   afterEach(() => db.close());
 
-  it('flags `delta` and `gamma` as never-referenced (callers only — no internal refs)', () => {
+  it('default mode filters exported symbols out (delta/gamma are exported in fixtures)', () => {
+    // delta and gamma both appear in `module.exports = { ... }` in the fixture
+    // files, so the default filter excludes them from the "real dead code" list.
     const dead = deadSymbols({ db, repoPath: FIXTURE });
+    expect(dead.length).toBe(0);
+  });
+
+  it('include_exported=true surfaces never-referenced symbols including exported ones', () => {
+    const dead = deadSymbols({ db, repoPath: FIXTURE, includeExported: true });
     const names = dead.map((d) => d.name).sort();
     expect(names).toEqual(['delta', 'gamma']);
+    // is_exported is included in the response when caller asked for it
+    expect(dead.every((d) => d.is_exported === true)).toBe(true);
+  });
+
+  it('looksLikeDispatched matches the documented patterns', () => {
+    const { looksLikeDispatched } = require('../queries/dead-symbols');
+    expect(looksLikeDispatched('cg_reindex')).toBe(true);
+    expect(looksLikeDispatched('handleSubmitTask')).toBe(true);
+    expect(looksLikeDispatched('install')).toBe(true);
+    expect(looksLikeDispatched('mcpTools')).toBe(true);
+    expect(looksLikeDispatched('Component')).toBe(true);
+    expect(looksLikeDispatched('foo')).toBe(false);
+    expect(looksLikeDispatched('helperUtil')).toBe(false);
   });
 
   it('returns kind/file/line for each dead symbol', () => {

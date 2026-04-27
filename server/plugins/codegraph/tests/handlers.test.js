@@ -64,12 +64,26 @@ describe('codegraph handlers', () => {
     expect(r.staleness.stale).toBe(false);
   });
 
-  it('cg_dead_symbols returns {dead_symbols, staleness, caveat}', async () => {
+  it('cg_dead_symbols returns {dead_symbols, filter, staleness, caveat}', async () => {
     const r = data(await handlers.cg_dead_symbols({ repo_path: repo }));
     expect(r.dead_symbols.map((d) => d.name)).toContain('alpha');
     expect(r.staleness.stale).toBe(false);
     expect(typeof r.caveat).toBe('string');
-    expect(r.caveat).toMatch(/dynamic dispatch/i);
+    expect(r.caveat).toMatch(/dispatch/i);
+    expect(r.filter).toEqual({ include_exported: false, include_likely_dispatched: false });
+  });
+
+  it('cg_dead_symbols include_likely_dispatched=true switches to permissive caveat', async () => {
+    const r = data(await handlers.cg_dead_symbols({ repo_path: repo, include_likely_dispatched: true }));
+    expect(r.filter.include_likely_dispatched).toBe(true);
+    expect(r.caveat).toMatch(/permissive/i);
+  });
+
+  it('cg_resolve_tool returns empty handlers + hint when no dispatcher matches', async () => {
+    const r = data(await handlers.cg_resolve_tool({ repo_path: repo, tool_name: 'no_such_tool' }));
+    expect(r.tool_name).toBe('no_such_tool');
+    expect(r.handlers).toEqual([]);
+    expect(typeof r.hint).toBe('string');
   });
 
   it('staleness reports stale=true after a new commit lands without reindex', async () => {

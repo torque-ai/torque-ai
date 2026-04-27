@@ -5,6 +5,7 @@ const { findReferences } = require('./queries/find-references');
 const { callGraph }      = require('./queries/call-graph');
 const { impactSet }      = require('./queries/impact-set');
 const { deadSymbols }    = require('./queries/dead-symbols');
+const { resolveTool }    = require('./queries/resolve-tool');
 
 function requireString(args, key) {
   if (typeof args?.[key] !== 'string' || args[key].length === 0) {
@@ -101,6 +102,9 @@ function createHandlers({ db }) {
       return asToolResult({
         nodes: g.nodes,
         edges: g.edges,
+        truncated: g.truncated,
+        max_nodes: g.max_nodes,
+        ...(g.truncated && { truncation_hint: `Result hit the ${g.max_nodes}-node cap. Narrow with smaller depth, or pivot to find_references / impact_set on a more specific symbol.` }),
         staleness: staleness(db, repoPath),
       });
     },
@@ -108,22 +112,48 @@ function createHandlers({ db }) {
     async cg_impact_set(args) {
       const repoPath = requireString(args, 'repo_path');
       const symbol   = requireString(args, 'symbol');
-      const depth    = args.depth ?? 5;
+      const depth    = args.depth ?? 3;
       const i = impactSet({ db, repoPath, symbol, depth });
       return asToolResult({
         symbols: i.symbols,
         files: i.files,
+        truncated: !!i.truncated,
+        max_nodes: i.max_nodes,
+        depth_used: depth,
+        ...(i.truncated && { truncation_hint: `Result hit the ${i.max_nodes}-node cap. The blast radius is wider than this query exposes. Reduce depth (try 2) for direct impact, or query specific call sites with find_references.` }),
         staleness: staleness(db, repoPath),
       });
     },
 
     async cg_dead_symbols(args) {
       const repoPath = requireString(args, 'repo_path');
-      const dead = deadSymbols({ db, repoPath });
+      const includeExported = args.include_exported === true;
+      const includeLikelyDispatched = args.include_likely_dispatched === true;
+      const dead = deadSymbols({ db, repoPath, includeExported, includeLikelyDispatched });
       return asToolResult({
         dead_symbols: dead,
+        filter: {
+          include_exported: includeExported,
+          include_likely_dispatched: includeLikelyDispatched,
+        },
         staleness: staleness(db, repoPath),
-        caveat: 'MVP uses identifier-only resolution. Dynamic dispatch (string-keyed handler lookup, plugin contract methods called by loaders, dependency-injection containers) will appear here as false positives. Treat results as deletion candidates requiring human verification, not facts.',
+        caveat: includeLikelyDispatched
+          ? 'Permissive mode: dynamic-dispatch heuristic disabled. Many results will be tool handlers, plugin contract methods, or framework hooks called by name — not actually dead.'
+          : 'Identifier-only resolution. Symbols dispatched via dynamic lookups beyond the heuristic are still false-positive risk. Verify before deletion.',
+      });
+    },
+
+    async cg_resolve_tool(args) {
+      const repoPath = requireString(args, 'repo_path');
+      const toolName = requireString(args, 'tool_name');
+      const handlers = resolveTool({ db, repoPath, toolName });
+      return asToolResult({
+        tool_name: toolName,
+        handlers,
+        ...(handlers.length === 0 && {
+          hint: `No dispatcher case 'case "${toolName}":' was found. The tool may be: (a) registered via an object map (e.g. handlers[name]) — not yet captured by the indexer; (b) defined in another repo or via a plugin; (c) misspelled. Try cg_find_references with the tool name as a string symbol to find call sites that mention it.`,
+        }),
+        staleness: staleness(db, repoPath),
       });
     },
   };

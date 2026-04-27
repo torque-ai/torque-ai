@@ -19,7 +19,8 @@ const SCHEMA_SQL = [
     start_line INTEGER NOT NULL,
     start_col INTEGER NOT NULL,
     end_line INTEGER NOT NULL,
-    end_col INTEGER NOT NULL
+    end_col INTEGER NOT NULL,
+    is_exported INTEGER NOT NULL DEFAULT 0
   )`,
   `CREATE INDEX IF NOT EXISTS idx_cg_symbols_name ON cg_symbols(repo_path, name)`,
   `CREATE INDEX IF NOT EXISTS idx_cg_symbols_file ON cg_symbols(repo_path, file_path)`,
@@ -42,11 +43,37 @@ const SCHEMA_SQL = [
     symbols INTEGER NOT NULL DEFAULT 0,
     references_count INTEGER NOT NULL DEFAULT 0
   )`,
+  // cg_dispatch_edges: maps a string literal used as a switch-case label
+  // to the function name dispatched in the case body. Lets cg_resolve_tool
+  // answer "what function handles tool X" — the gap exposed by querying
+  // tool names like 'smart_submit_task' that aren't symbol declarations.
+  `CREATE TABLE IF NOT EXISTS cg_dispatch_edges (
+    id INTEGER PRIMARY KEY,
+    repo_path TEXT NOT NULL,
+    file_path TEXT NOT NULL,
+    case_string TEXT NOT NULL,
+    handler_name TEXT NOT NULL,
+    line INTEGER NOT NULL,
+    col INTEGER NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_cg_dispatch_case ON cg_dispatch_edges(repo_path, case_string)`,
+  `CREATE INDEX IF NOT EXISTS idx_cg_dispatch_handler ON cg_dispatch_edges(repo_path, handler_name)`,
+];
+
+// Idempotent column adds for upgrade paths from existing schemas.
+const COLUMN_MIGRATIONS = [
+  { table: 'cg_symbols', column: 'is_exported', sql: "ALTER TABLE cg_symbols ADD COLUMN is_exported INTEGER NOT NULL DEFAULT 0" },
 ];
 
 function ensureSchema(db) {
   for (const sql of SCHEMA_SQL) {
     db.prepare(sql).run();
+  }
+  for (const m of COLUMN_MIGRATIONS) {
+    const cols = db.prepare(`PRAGMA table_info('${m.table}')`).all().map((c) => c.name);
+    if (!cols.includes(m.column)) {
+      db.prepare(m.sql).run();
+    }
   }
 }
 

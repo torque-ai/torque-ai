@@ -20,6 +20,7 @@ const CALLERS_SQL = `
 function expand(db, repoPath, frontier, sql, depth, visited) {
   let next = new Set(frontier);
   const edges = new Set();
+  let truncated = false;
   for (let d = 0; d < depth && next.size > 0; d++) {
     const newFrontier = new Set();
     for (const sym of next) {
@@ -31,24 +32,32 @@ function expand(db, repoPath, frontier, sql, depth, visited) {
           visited.add(r.name);
           newFrontier.add(r.name);
         }
-        if (visited.size >= MAX_NODES) return edges;
+        if (visited.size >= MAX_NODES) {
+          truncated = true;
+          return { edges, truncated };
+        }
       }
     }
     next = newFrontier;
   }
-  return edges;
+  return { edges, truncated };
 }
 
 function callGraph({ db, repoPath, symbol, direction = 'callees', depth = 2 }) {
   const cap = Math.min(Math.max(1, depth | 0), MAX_DEPTH);
   const visited = new Set([symbol]);
   const allEdges = new Set();
+  let truncated = false;
 
   if (direction === 'callees' || direction === 'both') {
-    for (const e of expand(db, repoPath, [symbol], CALLEES_SQL, cap, visited)) allEdges.add(e);
+    const r = expand(db, repoPath, [symbol], CALLEES_SQL, cap, visited);
+    for (const e of r.edges) allEdges.add(e);
+    truncated = truncated || r.truncated;
   }
   if (direction === 'callers' || direction === 'both') {
-    for (const e of expand(db, repoPath, [symbol], CALLERS_SQL, cap, visited)) allEdges.add(e);
+    const r = expand(db, repoPath, [symbol], CALLERS_SQL, cap, visited);
+    for (const e of r.edges) allEdges.add(e);
+    truncated = truncated || r.truncated;
   }
 
   return {
@@ -57,7 +66,9 @@ function callGraph({ db, repoPath, symbol, direction = 'callees', depth = 2 }) {
       const [from, to] = e.split('->');
       return { from, to };
     }),
+    truncated,
+    max_nodes: MAX_NODES,
   };
 }
 
-module.exports = { callGraph };
+module.exports = { callGraph, MAX_NODES, MAX_DEPTH };

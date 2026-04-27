@@ -51,7 +51,7 @@ const tools = [
   },
   {
     name: 'cg_call_graph',
-    description: 'Walk the call graph from a symbol. direction=callees follows what the symbol calls; direction=callers follows what calls it; direction=both unions both. Returns `{nodes: [{name}], edges: [{from, to}], staleness}`. Bounded by depth (max 8) and a hard cap of 100 nodes to keep responses LLM-context-friendly. Use for understanding "what does this function depend on" (callees) or "what relies on this function" (callers).' + RESOLUTION_NOTE + STALENESS_NOTE,
+    description: 'Walk the call graph from a symbol. direction=callees follows what the symbol calls; direction=callers follows what calls it; direction=both unions both. Returns `{nodes: [{name}], edges: [{from, to}], truncated, max_nodes, staleness}`. Bounded by depth (max 8) and a 100-node cap. When truncated=true the response includes truncation_hint suggesting how to narrow scope.' + RESOLUTION_NOTE + STALENESS_NOTE,
     inputSchema: {
       type: 'object',
       properties: {
@@ -66,13 +66,13 @@ const tools = [
   },
   {
     name: 'cg_impact_set',
-    description: 'Compute the impact set of changing a symbol: every transitively-affected (caller-side) symbol and the files containing them. Returns `{symbols: [name], files: [path], staleness}`. Use before refactoring to scope the work and identify all files that need updates. The queried symbol is excluded from `symbols` (you already know that one is changing).' + RESOLUTION_NOTE + STALENESS_NOTE,
+    description: 'Compute the impact set of changing a symbol: every transitively-affected (caller-side) symbol and the files containing them. Returns `{symbols: [name], files: [path], truncated, depth_used, staleness}`. Use before refactoring to scope the work. The queried symbol is excluded from `symbols`. Default depth=3 covers the practical refactor scope (direct callers + 2 hops). Bump to 5+ only when you explicitly want transitive blast radius — foundational functions hit the 100-node cap fast and the response sets truncated=true.' + RESOLUTION_NOTE + STALENESS_NOTE,
     inputSchema: {
       type: 'object',
       properties: {
         repo_path: { type: 'string' },
         symbol:    { type: 'string' },
-        depth:     { type: 'integer', minimum: 1, maximum: 8, default: 5, description: 'BFS depth over the caller graph. Default 5 covers most real refactors.' },
+        depth:     { type: 'integer', minimum: 1, maximum: 8, default: 3, description: 'BFS depth over the caller graph. depth=1 is direct callers only; depth=3 covers local refactor scope (default); depth=5+ is transitive blast radius.' },
       },
       required: ['repo_path', 'symbol'],
       additionalProperties: false,
@@ -80,13 +80,28 @@ const tools = [
   },
   {
     name: 'cg_dead_symbols',
-    description: 'List symbols defined in the repo but never referenced anywhere else in the indexed code. Returns `{dead_symbols: [{name, kind, file, line}], staleness, caveat}`. ⚠ The `caveat` field in every response explicitly warns that MVP-grade identifier-only resolution produces false positives for dynamic dispatch, plugin contract methods, exported APIs, and framework lifecycle hooks. Read the caveat. Use this for dead-code investigation, never for unattended deletion.' + STALENESS_NOTE,
+    description: 'List symbols defined in the repo but never referenced anywhere else in the indexed code. Returns `{dead_symbols: [{name, kind, file, line}], filter, staleness, caveat}`. By default, applies two filters to reduce noise: (1) excludes symbols flagged is_exported (they have external consumers we can\'t see), (2) excludes names matching a known-dynamic-dispatch heuristic (`cg_*`/`vc_*`/`peek_*`/`handle*`, plugin contract methods like install/uninstall/mcpTools, lifecycle hooks like init/main, capitalized React components). Pass include_exported=true to surface exported symbols, include_likely_dispatched=true to surface heuristic-filtered names. The default-filtered list is the high-signal "real dead code" candidate set; the permissive output requires careful human review.' + STALENESS_NOTE,
     inputSchema: {
       type: 'object',
       properties: {
         repo_path: { type: 'string' },
+        include_exported: { type: 'boolean', default: false, description: 'Include symbols flagged is_exported (likely consumed externally).' },
+        include_likely_dispatched: { type: 'boolean', default: false, description: 'Include names matching the dynamic-dispatch heuristic patterns (handlers, plugin methods, etc.).' },
       },
       required: ['repo_path'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'cg_resolve_tool',
+    description: 'Map an MCP tool name (e.g. `smart_submit_task`) to its handler function symbol(s) (e.g. `handleSmartSubmitTask`) by walking dispatcher case statements indexed at parse time. Returns `{tool_name, handlers: [{toolName, handlerName, file, line, column}], staleness}`. Use this when cg_find_references / cg_call_graph return empty for a name that\'s actually a tool name — the graph indexes only function declarations and call expressions, not the string-keyed dispatch in `switch (name) { case "X": return handleX() }`. Once you have the handler symbol, query it directly with cg_call_graph or cg_find_references.' + STALENESS_NOTE,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        repo_path: { type: 'string' },
+        tool_name: { type: 'string', description: 'MCP tool name as it appears in a switch/case dispatcher (e.g. "smart_submit_task", "cg_reindex").' },
+      },
+      required: ['repo_path', 'tool_name'],
       additionalProperties: false,
     },
   },

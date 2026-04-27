@@ -12,20 +12,25 @@ function sha256(buf) {
 async function runIndex({ db, repoPath, files, commitSha = null, _sourceDir = null }) {
   const now = new Date().toISOString();
 
-  const deleteFiles      = db.prepare('DELETE FROM cg_files      WHERE repo_path = ?');
-  const deleteSymbols    = db.prepare('DELETE FROM cg_symbols    WHERE repo_path = ?');
-  const deleteReferences = db.prepare('DELETE FROM cg_references WHERE repo_path = ?');
+  const deleteFiles         = db.prepare('DELETE FROM cg_files          WHERE repo_path = ?');
+  const deleteSymbols       = db.prepare('DELETE FROM cg_symbols        WHERE repo_path = ?');
+  const deleteReferences    = db.prepare('DELETE FROM cg_references     WHERE repo_path = ?');
+  const deleteDispatchEdges = db.prepare('DELETE FROM cg_dispatch_edges WHERE repo_path = ?');
   const insertFile = db.prepare(`
     INSERT INTO cg_files (repo_path, file_path, language, content_sha, indexed_at)
     VALUES (@repoPath, @filePath, @language, @contentSha, @indexedAt)
   `);
   const insertSymbol = db.prepare(`
-    INSERT INTO cg_symbols (repo_path, file_path, name, kind, start_line, start_col, end_line, end_col)
-    VALUES (@repoPath, @filePath, @name, @kind, @startLine, @startCol, @endLine, @endCol)
+    INSERT INTO cg_symbols (repo_path, file_path, name, kind, start_line, start_col, end_line, end_col, is_exported)
+    VALUES (@repoPath, @filePath, @name, @kind, @startLine, @startCol, @endLine, @endCol, @isExported)
   `);
   const insertReference = db.prepare(`
     INSERT INTO cg_references (repo_path, file_path, caller_symbol_id, target_name, line, col)
     VALUES (@repoPath, @filePath, @callerSymbolId, @targetName, @line, @col)
+  `);
+  const insertDispatchEdge = db.prepare(`
+    INSERT INTO cg_dispatch_edges (repo_path, file_path, case_string, handler_name, line, col)
+    VALUES (@repoPath, @filePath, @caseString, @handlerName, @line, @col)
   `);
   const upsertState = db.prepare(`
     INSERT INTO cg_index_state (repo_path, commit_sha, indexed_at, files, symbols, references_count)
@@ -65,9 +70,10 @@ async function runIndex({ db, repoPath, files, commitSha = null, _sourceDir = nu
     work.push({ rel, language: ext.language, contentSha: sha256(buf), extracted });
   }
 
-  let totalFiles = 0, totalSymbols = 0, totalRefs = 0;
+  let totalFiles = 0, totalSymbols = 0, totalRefs = 0, totalDispatch = 0;
 
   const tx = db.transaction(() => {
+    deleteDispatchEdges.run(repoPath);
     deleteReferences.run(repoPath);
     deleteSymbols.run(repoPath);
     deleteFiles.run(repoPath);
@@ -89,6 +95,7 @@ async function runIndex({ db, repoPath, files, commitSha = null, _sourceDir = nu
           startCol:  s.startCol,
           endLine:   s.endLine,
           endCol:    s.endCol,
+          isExported: s.isExported ? 1 : 0,
         });
         symbolIds.push(info.lastInsertRowid);
       }
@@ -106,6 +113,19 @@ async function runIndex({ db, repoPath, files, commitSha = null, _sourceDir = nu
         });
       }
       totalRefs += extracted.references.length;
+
+      const edges = extracted.dispatchEdges || [];
+      for (const e of edges) {
+        insertDispatchEdge.run({
+          repoPath,
+          filePath: rel,
+          caseString: e.caseString,
+          handlerName: e.handlerName,
+          line: e.line,
+          col: e.col,
+        });
+      }
+      totalDispatch += edges.length;
     }
 
     upsertState.run({
@@ -120,7 +140,7 @@ async function runIndex({ db, repoPath, files, commitSha = null, _sourceDir = nu
 
   tx();
 
-  const result = { files: totalFiles, symbols: totalSymbols, references: totalRefs };
+  const result = { files: totalFiles, symbols: totalSymbols, references: totalRefs, dispatch_edges: totalDispatch };
   if (skipped.length > 0) result.skipped = skipped;
   return result;
 }
