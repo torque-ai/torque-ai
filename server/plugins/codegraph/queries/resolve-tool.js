@@ -18,13 +18,19 @@ const DISPATCH_SQL = `
 // Fallback 1: same-name symbols. In TORQUE plugins (and most JS conventions),
 // the runtime dispatch handlers[toolDef.name] resolves to a method whose
 // name equals the tool name.
+const SYMBOL_COLS = `
+  name        AS name,
+  kind        AS kind,
+  file_path   AS file,
+  start_line  AS line,
+  start_col   AS column,
+  is_async    AS isAsync,
+  is_generator AS isGenerator,
+  is_static   AS isStatic
+`;
+
 const SYMBOL_FALLBACK_SQL = `
-  SELECT
-    name      AS name,
-    kind      AS kind,
-    file_path AS file,
-    start_line AS line,
-    start_col  AS column
+  SELECT ${SYMBOL_COLS}
   FROM cg_symbols
   WHERE repo_path = @repoPath AND name = @toolName
   ORDER BY file_path, start_line
@@ -49,24 +55,29 @@ function guessHandlerNames(toolName) {
 }
 
 const CONVENTION_FALLBACK_SQL = `
-  SELECT
-    name      AS name,
-    kind      AS kind,
-    file_path AS file,
-    start_line AS line,
-    start_col  AS column
+  SELECT ${SYMBOL_COLS}
   FROM cg_symbols
   WHERE repo_path = @repoPath AND name IN (SELECT value FROM json_each(@names))
   ORDER BY file_path, start_line
   LIMIT 10
 `;
 
+// Promote sparse modifier flags to the surface object: only emit when truthy
+// to keep payloads tight for the common (modifier-free) case.
+function decorateSymbolRow(row) {
+  const { isAsync, isGenerator, isStatic, ...rest } = row;
+  if (isAsync)     rest.is_async = true;
+  if (isGenerator) rest.is_generator = true;
+  if (isStatic)    rest.is_static = true;
+  return rest;
+}
+
 function resolveTool({ db, repoPath, toolName }) {
   const handlers = db.prepare(DISPATCH_SQL).all({ repoPath, toolName });
   if (handlers.length > 0) return { handlers, candidates: [], convention_candidates: [] };
 
   // Fallback 1: same-name symbols.
-  const candidates = db.prepare(SYMBOL_FALLBACK_SQL).all({ repoPath, toolName });
+  const candidates = db.prepare(SYMBOL_FALLBACK_SQL).all({ repoPath, toolName }).map(decorateSymbolRow);
   if (candidates.length > 0) return { handlers: [], candidates, convention_candidates: [] };
 
   // Fallback 2: convention-guessed names.
@@ -76,7 +87,7 @@ function resolveTool({ db, repoPath, toolName }) {
     convention_candidates = db.prepare(CONVENTION_FALLBACK_SQL).all({
       repoPath,
       names: JSON.stringify(guesses),
-    });
+    }).map(decorateSymbolRow);
   }
   return { handlers: [], candidates: [], convention_candidates };
 }

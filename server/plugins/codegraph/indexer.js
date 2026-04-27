@@ -21,8 +21,8 @@ async function runIndex({ db, repoPath, files, commitSha = null, _sourceDir = nu
     VALUES (@repoPath, @filePath, @language, @contentSha, @indexedAt)
   `);
   const insertSymbol = db.prepare(`
-    INSERT INTO cg_symbols (repo_path, file_path, name, kind, start_line, start_col, end_line, end_col, is_exported)
-    VALUES (@repoPath, @filePath, @name, @kind, @startLine, @startCol, @endLine, @endCol, @isExported)
+    INSERT INTO cg_symbols (repo_path, file_path, name, kind, start_line, start_col, end_line, end_col, is_exported, is_async, is_generator, is_static)
+    VALUES (@repoPath, @filePath, @name, @kind, @startLine, @startCol, @endLine, @endCol, @isExported, @isAsync, @isGenerator, @isStatic)
   `);
   const insertReference = db.prepare(`
     INSERT INTO cg_references (repo_path, file_path, caller_symbol_id, target_name, line, col)
@@ -95,7 +95,10 @@ async function runIndex({ db, repoPath, files, commitSha = null, _sourceDir = nu
           startCol:  s.startCol,
           endLine:   s.endLine,
           endCol:    s.endCol,
-          isExported: s.isExported ? 1 : 0,
+          isExported:  s.isExported  ? 1 : 0,
+          isAsync:     s.isAsync     ? 1 : 0,
+          isGenerator: s.isGenerator ? 1 : 0,
+          isStatic:    s.isStatic    ? 1 : 0,
         });
         symbolIds.push(info.lastInsertRowid);
       }

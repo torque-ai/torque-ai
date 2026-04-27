@@ -24,8 +24,14 @@ function looksLikeDispatched(name) {
   return DISPATCH_LIKELY_PATTERNS.some((re) => re.test(name));
 }
 
+const SELECT_COLS = `
+  s.name, s.kind, s.file_path AS file, s.start_line AS line,
+  s.is_exported AS isExported, s.is_async AS isAsync,
+  s.is_generator AS isGenerator, s.is_static AS isStatic
+`;
+
 const DEFAULT_SQL = `
-  SELECT s.name, s.kind, s.file_path AS file, s.start_line AS line, s.is_exported AS isExported
+  SELECT ${SELECT_COLS}
   FROM cg_symbols s
   WHERE s.repo_path = @repoPath
     AND s.is_exported = 0
@@ -41,7 +47,7 @@ const DEFAULT_SQL = `
 `;
 
 const PERMISSIVE_SQL = `
-  SELECT s.name, s.kind, s.file_path AS file, s.start_line AS line, s.is_exported AS isExported
+  SELECT ${SELECT_COLS}
   FROM cg_symbols s
   WHERE s.repo_path = @repoPath
     AND NOT EXISTS (
@@ -51,14 +57,27 @@ const PERMISSIVE_SQL = `
   ORDER BY s.file_path, s.start_line
 `;
 
+// Decorate raw query rows with boolean modifiers and (optionally) is_exported.
+// Modifier flags are only emitted when truthy to keep response payloads tight
+// for the common case (functions with no special modifiers).
+function decorate(rows, { includeExported }) {
+  return rows.map(({ isExported, isAsync, isGenerator, isStatic, ...rest }) => {
+    const out = { ...rest };
+    if (includeExported) out.is_exported = !!isExported;
+    if (isAsync)     out.is_async = true;
+    if (isGenerator) out.is_generator = true;
+    if (isStatic)    out.is_static = true;
+    return out;
+  });
+}
+
 function deadSymbols({ db, repoPath, includeExported = false, includeLikelyDispatched = false }) {
   const sql = includeExported ? PERMISSIVE_SQL : DEFAULT_SQL;
-  let result = db.prepare(sql).all({ repoPath });
+  let rows = db.prepare(sql).all({ repoPath });
   if (!includeLikelyDispatched) {
-    result = result.filter((s) => !looksLikeDispatched(s.name));
+    rows = rows.filter((s) => !looksLikeDispatched(s.name));
   }
-  // Strip is_exported from the surface output unless caller asked for it.
-  return result.map(({ isExported, ...rest }) => includeExported ? { ...rest, is_exported: !!isExported } : rest);
+  return decorate(rows, { includeExported });
 }
 
 module.exports = { deadSymbols, looksLikeDispatched, DISPATCH_LIKELY_PATTERNS };

@@ -4,6 +4,7 @@ const { getParser } = require('../parser');
 
 const FUNCTION_NODE_TYPES = new Set([
   'function_declaration',
+  'generator_function_declaration',
   'method_definition',
   'class_declaration',
   'arrow_function',
@@ -15,14 +16,52 @@ function nodeName(node) {
   return nameNode ? nameNode.text : '';
 }
 
-function kindFor(node) {
+// Walk the function/method node's tokens (children, not just namedChildren)
+// for modifier keywords: `async`, `static`, `*` (generator), `get`, `set`.
+// These appear as unnamed token nodes before the name in tree-sitter-javascript.
+function detectModifiers(node) {
+  let isAsync = false;
+  let isGenerator = false;
+  let isStatic = false;
+  let isGetter = false;
+  let isSetter = false;
+  for (let i = 0; i < node.childCount; i++) {
+    const c = node.child(i);
+    if (c.isNamed) {
+      // Named children are sub-trees (parameters, body, name, etc.) — modifier
+      // tokens have already passed by this point in the child sequence. Stop
+      // scanning to avoid drifting into the body.
+      if (c.type !== 'property_identifier' && c.type !== 'identifier') break;
+      continue;
+    }
+    switch (c.type) {
+      case 'async':  isAsync = true; break;
+      case 'static': isStatic = true; break;
+      case '*':      isGenerator = true; break;
+      case 'get':    isGetter = true; break;
+      case 'set':    isSetter = true; break;
+      default: break;
+    }
+  }
+  // generator_function_declaration always implies generator regardless of token scan.
+  if (node.type === 'generator_function_declaration') isGenerator = true;
+  return { isAsync, isGenerator, isStatic, isGetter, isSetter };
+}
+
+function kindFor(node, mods) {
   switch (node.type) {
-    case 'function_declaration': return 'function';
-    case 'method_definition':    return 'method';
-    case 'class_declaration':    return 'class';
-    case 'arrow_function':       return 'function';
-    case 'function':             return 'function';
-    default:                     return 'unknown';
+    case 'function_declaration':
+    case 'generator_function_declaration':
+      return mods.isGenerator ? 'generator' : 'function';
+    case 'method_definition':
+      if (mods.isGetter) return 'getter';
+      if (mods.isSetter) return 'setter';
+      // Constructor recognized by name, not modifier — caller fills it in.
+      return 'method';
+    case 'class_declaration': return 'class';
+    case 'arrow_function':    return 'arrow';
+    case 'function':          return 'function';
+    default:                  return 'unknown';
   }
 }
 
@@ -433,13 +472,21 @@ async function extractFromSource(source, language) {
     if (FUNCTION_NODE_TYPES.has(node.type)) {
       const name = nodeName(node);
       if (name) {
+        const mods = detectModifiers(node);
+        let kind = kindFor(node, mods);
+        // Constructors are recognized by name in class bodies — promote 'method'
+        // to 'constructor' when the property identifier is exactly that.
+        if (kind === 'method' && name === 'constructor') kind = 'constructor';
         symbols.push({
           name,
-          kind: kindFor(node),
+          kind,
           startLine: node.startPosition.row + 1,
           startCol: node.startPosition.column,
           endLine:   node.endPosition.row + 1,
           endCol:    node.endPosition.column,
+          isAsync: mods.isAsync,
+          isGenerator: mods.isGenerator,
+          isStatic: mods.isStatic,
         });
         enclosingStack.push(symbols.length - 1);
         pushed = true;

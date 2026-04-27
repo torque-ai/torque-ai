@@ -101,6 +101,26 @@ describe('codegraph handlers', () => {
     expect(r.hint).toMatch(/very likely the actual handler/i);
   });
 
+  it('cg_resolve_tool surfaces is_async / is_generator modifiers on candidates', async () => {
+    const fs = require('fs');
+    const path = require('path');
+    const { execFileSync } = require('child_process');
+    fs.writeFileSync(path.join(repo, 'mods.js'),
+      'async function async_tool() {}\nfunction* gen_tool() {}\n');
+    execFileSync('git', ['add', '.'], { cwd: repo, windowsHide: true, stdio: ['ignore','ignore','pipe'] });
+    execFileSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '-m', 'add mods'],
+      { cwd: repo, windowsHide: true, stdio: ['ignore','ignore','pipe'] });
+    await handlers.cg_reindex({ repo_path: repo, async: false, force: true });
+
+    const a = data(await handlers.cg_resolve_tool({ repo_path: repo, tool_name: 'async_tool' }));
+    expect(a.candidates[0].is_async).toBe(true);
+    expect(a.candidates[0].is_generator).toBeUndefined();  // sparse: only emit when truthy
+
+    const g = data(await handlers.cg_resolve_tool({ repo_path: repo, tool_name: 'gen_tool' }));
+    expect(g.candidates[0].kind).toBe('generator');
+    expect(g.candidates[0].is_generator).toBe(true);
+  });
+
   it('cg_resolve_tool falls back to handle<PascalCase> convention when no exact symbol exists', async () => {
     // Add a function named handleSomeTool to the fixture so the convention
     // fallback has a target. Test directly via the test-helper repo.

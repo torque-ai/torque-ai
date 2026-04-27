@@ -20,7 +20,10 @@ const SCHEMA_SQL = [
     start_col INTEGER NOT NULL,
     end_line INTEGER NOT NULL,
     end_col INTEGER NOT NULL,
-    is_exported INTEGER NOT NULL DEFAULT 0
+    is_exported INTEGER NOT NULL DEFAULT 0,
+    is_async INTEGER NOT NULL DEFAULT 0,
+    is_generator INTEGER NOT NULL DEFAULT 0,
+    is_static INTEGER NOT NULL DEFAULT 0
   )`,
   `CREATE INDEX IF NOT EXISTS idx_cg_symbols_name ON cg_symbols(repo_path, name)`,
   `CREATE INDEX IF NOT EXISTS idx_cg_symbols_file ON cg_symbols(repo_path, file_path)`,
@@ -62,7 +65,10 @@ const SCHEMA_SQL = [
 
 // Idempotent column adds for upgrade paths from existing schemas.
 const COLUMN_MIGRATIONS = [
-  { table: 'cg_symbols', column: 'is_exported', sql: "ALTER TABLE cg_symbols ADD COLUMN is_exported INTEGER NOT NULL DEFAULT 0" },
+  { table: 'cg_symbols', column: 'is_exported',  sql: "ALTER TABLE cg_symbols ADD COLUMN is_exported INTEGER NOT NULL DEFAULT 0" },
+  { table: 'cg_symbols', column: 'is_async',     sql: "ALTER TABLE cg_symbols ADD COLUMN is_async INTEGER NOT NULL DEFAULT 0" },
+  { table: 'cg_symbols', column: 'is_generator', sql: "ALTER TABLE cg_symbols ADD COLUMN is_generator INTEGER NOT NULL DEFAULT 0" },
+  { table: 'cg_symbols', column: 'is_static',    sql: "ALTER TABLE cg_symbols ADD COLUMN is_static INTEGER NOT NULL DEFAULT 0" },
 ];
 
 function ensureSchema(db) {
