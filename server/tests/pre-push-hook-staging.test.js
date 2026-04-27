@@ -67,13 +67,13 @@ describe('pre-push-hook staging-branch invariants', () => {
 
   it('passes --suite gate to torque-remote so coord serializes the gate', () => {
     const src = readHook();
-    // Both gate invocations (test gate + perf gate) must opt into coord
-    // coordination. Without --suite, torque-remote defaults to "custom"
-    // and skips the daemon — so two concurrent main pushes would race on
-    // the workstation as before.
+    // The unified parallel gate (test + perf inside one torque-remote SSH
+    // session, see "Three phases run inside ONE torque-remote SSH session")
+    // must opt into coord coordination via --suite gate. Without it,
+    // torque-remote defaults to "custom" and skips the daemon — so two
+    // concurrent main pushes would race on the workstation as before.
     const suiteMatches = src.match(/torque-remote\s+(?:--\S+\s+\S+\s+)*--suite\s+gate/g) || [];
-    // We expect at least 2 occurrences (test gate at ~line 298, perf gate at ~line 334).
-    expect(suiteMatches.length).toBeGreaterThanOrEqual(2);
+    expect(suiteMatches.length).toBeGreaterThanOrEqual(1);
   });
 
   it('installs an EXIT trap that deletes the staging ref', () => {
