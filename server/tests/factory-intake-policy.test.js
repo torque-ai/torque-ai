@@ -75,4 +75,11 @@ describe('codex_fallback_policy accessor', () => {
     expect(() => setCodexFallbackPolicy({ db, projectId: 'p_does_not_exist', policy: 'auto' }))
       .toThrow(/project not found/i);
   });
+
+  it('setCodexFallbackPolicy succeeds when existing config_json is malformed', () => {
+    db.prepare(`UPDATE factory_projects SET config_json = ? WHERE id = ?`).run('not json', 'p1');
+    expect(() => setCodexFallbackPolicy({ db, projectId: 'p1', policy: 'manual' })).not.toThrow();
+    // After set, the policy is readable and the corrupt JSON is replaced with valid JSON.
+    expect(getCodexFallbackPolicy({ db, projectId: 'p1' })).toBe('manual');
+  });
 });

@@ -372,7 +372,15 @@ function setCodexFallbackPolicy({ db: dbArg, projectId, policy }) {
   }
   const row = dbArg.prepare(`SELECT config_json FROM factory_projects WHERE id = ?`).get(projectId);
   if (!row) throw new Error(`project not found: ${projectId}`);
-  const cfg = row.config_json ? JSON.parse(row.config_json) : {};
+  let cfg = {};
+  if (row.config_json) {
+    try {
+      cfg = JSON.parse(row.config_json);
+    } catch (_e) {
+      // Malformed config_json — start fresh; setting policy is a write, so we don't preserve garbage.
+      cfg = {};
+    }
+  }
   cfg.codex_fallback_policy = policy;
   dbArg.prepare(`UPDATE factory_projects SET config_json = ? WHERE id = ?`)
     .run(JSON.stringify(cfg), projectId);
