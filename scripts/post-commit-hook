@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+# Post-commit hook: ask TORQUE to incrementally reindex the code graph.
+#
+# Fire-and-forget — never blocks the commit, never fails it. If TORQUE is
+# down, codegraph is disabled, or the repo is not already indexed, this is
+# a silent no-op.
+#
+# Skip with: TORQUE_SKIP_AUTO_REINDEX=1 git commit ...
+
+set +e
+
+if [ "${TORQUE_SKIP_AUTO_REINDEX:-}" = "1" ]; then exit 0; fi
+
+# Resolve the *main* repo path even when the hook fires from a worktree.
+# `git rev-parse --git-common-dir` points at the main checkout's `.git`
+# directory regardless of which worktree fired the commit. The repo root
+# is its parent. Falling back to --show-toplevel covers non-worktree case.
+common_dir="$(git rev-parse --git-common-dir 2>/dev/null)"
+case "$common_dir" in
+  '') exit 0 ;;
+  /*|[A-Za-z]:*) repo_path="$(dirname "$common_dir")" ;;
+  *)             repo_path="$(cd "$common_dir/.." && pwd)" ;;
+esac
+[ -z "$repo_path" ] && exit 0
+
+# Convert MSYS/Cygwin path to Windows form so the repo_path key matches
+# whatever TORQUE used at original index time (TORQUE runs from a Windows
+# cwd so it stores native Windows paths in cg_index_state).
+case "$(uname -s 2>/dev/null)" in
+  MINGW*|MSYS*|CYGWIN*)
+    if command -v cygpath >/dev/null 2>&1; then
+      repo_path="$(cygpath -w "$repo_path")"
+    fi
+    ;;
+esac
+
+# JSON-escape: backslashes and quotes only. Control chars not expected in paths.
+escaped="$(printf '%s' "$repo_path" | sed 's|\\|\\\\|g; s|"|\\"|g')"
+payload="$(printf '{"repo_path":"%s","async":true,"if_tracked":true}' "$escaped")"
+
+endpoint="${TORQUE_API_BASE:-http://127.0.0.1:3457}/api/v2/codegraph/reindex"
+
+# 2s timeout: TORQUE not running -> silent skip. Output discarded so the
+# hook never echoes JSON into the user's terminal post-commit.
+curl -fsS --max-time 2 \
+     -H 'Content-Type: application/json' \
+     -X POST -d "$payload" \
+     "$endpoint" \
+     >/dev/null 2>&1
+
+exit 0

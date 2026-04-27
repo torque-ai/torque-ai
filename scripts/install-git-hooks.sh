@@ -20,6 +20,7 @@ HOOKS_DST_DIR="$(git rev-parse --git-common-dir)/hooks"
 # Hooks we track. Each entry is "<source-filename>:<installed-hook-name>".
 HOOKS=(
   "pre-push-hook:pre-push"
+  "post-commit-hook:post-commit"
 )
 
 if [ ! -d "$HOOKS_DST_DIR" ]; then
