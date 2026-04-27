@@ -5000,6 +5000,79 @@ async function handlePrioritizeTransition({ project, instance, currentState }) {
   setConsecutiveEmptyCycles(project.id, 0);
   instance = getInstanceOrThrow(instance.id);
 
+  // Codex Fallback Phase 1 — consult the breaker + project policy before
+  // we advance to PLAN. If the breaker is open and the project policy is
+  // `wait_for_codex`, park the work item and skip the PLAN advance for
+  // this cycle. The park-resume handler (event-bus listener for
+  // `circuit:recovered`) will flip parked items back to `pending` once
+  // Codex recovers; the next PRIORITIZE tick will re-pick the work.
+  // 'auto' / 'manual' policies fall through to the existing PLAN path
+  // (Phase 2 will wire actual provider rerouting for 'auto').
+  if (transitionWorkItem) {
+    let breaker = null;
+    try {
+      const container = require('../container').defaultContainer;
+      if (container && typeof container.has === 'function' && container.has('circuitBreaker')) {
+        breaker = container.get('circuitBreaker');
+      }
+    } catch (_e) { void _e; /* container unavailable — treat as breaker-closed */ }
+
+    const codexDecision = decideCodexFallbackAction({
+      db: database.getDbInstance(),
+      projectId: project.id,
+      workItemId: transitionWorkItem.id,
+      breaker,
+    });
+
+    if (codexDecision.action === 'park') {
+      try {
+        const { parkWorkItemForCodex } = require('../db/factory-intake');
+        parkWorkItemForCodex({
+          db: database.getDbInstance(),
+          workItemId: transitionWorkItem.id,
+          reason: codexDecision.reason,
+        });
+      } catch (parkError) {
+        logger.warn('Failed to park work item for codex fallback', {
+          err: parkError.message,
+          project_id: project.id,
+          work_item_id: transitionWorkItem.id,
+        });
+      }
+      // Drop the loop's hold on the now-parked item so a future tick
+      // picks fresh work without reusing the parked id.
+      try {
+        clearSelectedWorkItem(instance.id);
+        instance = updateInstanceAndSync(instance.id, {
+          work_item_id: null,
+          last_action_at: nowIso(),
+        });
+      } catch (_e) { void _e; }
+      safeLogDecision({
+        project_id: project.id,
+        stage: LOOP_STATES.PRIORITIZE,
+        actor: 'codex_fallback',
+        action: 'parked_codex_unavailable',
+        reasoning: `Codex unavailable and project policy=wait_for_codex; parking item ${transitionWorkItem.id}`,
+        outcome: {
+          work_item_id: transitionWorkItem.id,
+          reason: codexDecision.reason,
+        },
+        confidence: 1,
+        batch_id: getDecisionBatchId(project, transitionWorkItem, null, instance),
+      });
+      return {
+        instance,
+        transitionWorkItem: null,
+        stageResult,
+        transitionReason: 'parked_codex_unavailable',
+        nextState: getCurrentLoopState(instance),
+      };
+    }
+    // 'proceed' and 'proceed_with_fallback' fall through to PLAN.
+    // Phase 2 will distinguish them.
+  }
+
   const enterPlan = tryMoveInstanceToStage(instance, LOOP_STATES.PLAN, {
     work_item_id: transitionWorkItem?.id ?? instance.work_item_id,
   });
@@ -9479,6 +9552,59 @@ function resumeAutoAdvanceOnStartup(options) {
   return reconcileFactoryProjectsOnStartup(options);
 }
 
+/**
+ * Decide what to do at PRIORITIZE when Codex may be unavailable.
+ *
+ * Pure decision function — reads the breaker and the project's
+ * codex_fallback_policy and returns one of:
+ *   - { action: 'proceed' }                                  Codex is available, or the policy
+ *                                                            opts the project out of fallback.
+ *   - { action: 'park', reason: 'wait_for_codex_policy' }    Park the work item until
+ *                                                            Codex recovers (Phase 1 only path
+ *                                                            that changes runtime behavior).
+ *   - { action: 'proceed_with_fallback' }                    Phase 2 will reroute EXECUTE;
+ *                                                            for now we proceed and let the
+ *                                                            existing chain take over.
+ *
+ * The breaker is taken as a dependency so the function is unit-testable
+ * without the DI container. Real callers pass
+ * `defaultContainer.get('circuitBreaker')`.
+ */
+function decideCodexFallbackAction({ db, projectId, workItemId, breaker }) {
+  void workItemId; // reserved for future per-item policy decisions
+  // Determine if Codex is currently unavailable.
+  let codexOpen = false;
+  if (breaker) {
+    if (typeof breaker.isOpen === 'function') {
+      try { codexOpen = breaker.isOpen('codex'); } catch (_e) { void _e; codexOpen = false; }
+    } else if (typeof breaker.allowRequest === 'function') {
+      try { codexOpen = !breaker.allowRequest('codex'); } catch (_e) { void _e; codexOpen = false; }
+    }
+  }
+  if (!codexOpen) return { action: 'proceed' };
+
+  const { getCodexFallbackPolicy } = require('../db/factory-intake');
+  let policy;
+  try {
+    policy = getCodexFallbackPolicy({ db, projectId });
+  } catch (_e) {
+    void _e;
+    // Defensive: if policy lookup fails (missing project, malformed
+    // config_json), default to 'auto' so we never accidentally park.
+    policy = 'auto';
+  }
+
+  if (policy === 'wait_for_codex') {
+    return { action: 'park', reason: 'wait_for_codex_policy' };
+  }
+  if (policy === 'manual') {
+    return { action: 'proceed' };
+  }
+  // 'auto' policy — Phase 1 has no failover routing yet.
+  // Phase 2 will reroute EXECUTE; for now we proceed and let it fail.
+  return { action: 'proceed_with_fallback' };
+}
+
 module.exports = {
   StageOccupiedError,
   startLoop,
@@ -9528,6 +9654,9 @@ module.exports = {
   isEmptyBranchMergeError,
   countPriorEmptyMergeFailuresForWorkItem,
   shouldQuarantineForEmptyMerges,
+  // Codex fallback (Phase 1) — pure decision helper consulted at PRIORITIZE
+  // before we advance to PLAN. Exported for unit tests + future Phase 2 callers.
+  decideCodexFallbackAction,
   // Test hooks
   setWorktreeRunnerForTests,
   __testing__: {
