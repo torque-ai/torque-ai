@@ -79,11 +79,25 @@ describe('codegraph handlers', () => {
     expect(r.caveat).toMatch(/permissive/i);
   });
 
-  it('cg_resolve_tool returns empty handlers + hint when no dispatcher matches', async () => {
+  it('cg_resolve_tool returns empty handlers + candidates + name-not-found hint', async () => {
     const r = data(await handlers.cg_resolve_tool({ repo_path: repo, tool_name: 'no_such_tool' }));
     expect(r.tool_name).toBe('no_such_tool');
     expect(r.handlers).toEqual([]);
-    expect(typeof r.hint).toBe('string');
+    expect(r.candidates).toEqual([]);
+    expect(r.hint).toMatch(/No dispatcher captured AND no symbol/i);
+  });
+
+  it('cg_resolve_tool surfaces same-name symbols as candidates when no dispatcher matches', async () => {
+    // The fixture repo has function alpha() in a.js. Querying an "alpha" tool
+    // (no dispatcher anywhere) should fall back to the same-named symbol.
+    const r = data(await handlers.cg_resolve_tool({ repo_path: repo, tool_name: 'alpha' }));
+    expect(r.handlers).toEqual([]);
+    expect(r.candidates.length).toBeGreaterThan(0);
+    expect(r.candidates[0]).toEqual(expect.objectContaining({
+      name: 'alpha',
+      file: 'a.js',
+    }));
+    expect(r.hint).toMatch(/very likely the actual handler/i);
   });
 
   it('staleness reports stale=true after a new commit lands without reindex', async () => {

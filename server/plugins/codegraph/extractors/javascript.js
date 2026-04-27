@@ -335,6 +335,85 @@ function extractObjectLiteralRegistration(objectNode) {
   return null;
 }
 
+// Detect handler-factory pattern:
+//   function createXxxHandlers({ deps }) {
+//     return {
+//       cg_reindex(args) { ... },
+//       cg_find_references(args) { ... },
+//     };
+//   }
+//
+// In TORQUE plugins, the methods of this returned object ARE the handlers
+// for tools whose names match the method names. Static analysis can't
+// observe the runtime `handlers[toolDef.name]` lookup that pairs them with
+// tool descriptors, so we emit a self-referential dispatch edge per method:
+// caseString = handlerName = methodName. Querying cg_resolve_tool('cg_reindex')
+// then returns the method's location, which is exactly what the LLM needs.
+//
+// Restricted to functions whose name matches /^create[A-Z]\w*[Hh]andlers?$/
+// to avoid false positives from arbitrary factories.
+const HANDLER_FACTORY_NAME_PATTERN = /^create[A-Z]\w*[Hh]andlers?$/;
+
+function extractHandlerFactoryPattern(functionNode) {
+  const out = [];
+  const nameNode = functionNode.childForFieldName('name');
+  if (!nameNode) return out;
+  const fnName = nameNode.text;
+  if (!HANDLER_FACTORY_NAME_PATTERN.test(fnName)) return out;
+
+  const body = functionNode.childForFieldName('body');
+  if (!body || body.type !== 'statement_block') return out;
+
+  // Look for `return { ... }` at the top level of the function body.
+  // Conservative: only match a direct return statement, not nested returns.
+  for (let i = 0; i < body.namedChildCount; i++) {
+    const stmt = body.namedChild(i);
+    if (stmt.type !== 'return_statement') continue;
+    const returned = stmt.namedChild(0);
+    if (!returned || returned.type !== 'object') continue;
+
+    // Walk the object's properties. Each method or pair-with-function-value
+    // is a handler.
+    for (let j = 0; j < returned.namedChildCount; j++) {
+      const member = returned.namedChild(j);
+      let methodName = null;
+      let line = member.startPosition.row + 1;
+      let col = member.startPosition.column;
+
+      if (member.type === 'method_definition') {
+        const nm = member.childForFieldName('name');
+        if (nm && (nm.type === 'property_identifier' || nm.type === 'identifier')) {
+          methodName = nm.text;
+        } else if (nm && nm.type === 'string') {
+          // String-keyed method: `'cg_tool'(args) { ... }`
+          methodName = stringLiteralValue(nm);
+        }
+      } else if (member.type === 'pair') {
+        const key = member.childForFieldName('key');
+        const val = member.childForFieldName('value');
+        if (!key || !val) continue;
+        // Only emit when the value is a function — otherwise this is just data.
+        if (val.type !== 'arrow_function' && val.type !== 'function' && val.type !== 'function_expression') continue;
+        if (key.type === 'property_identifier' || key.type === 'identifier') {
+          methodName = key.text;
+        } else if (key.type === 'string') {
+          methodName = stringLiteralValue(key);
+        }
+      }
+
+      if (methodName) {
+        out.push({
+          caseString: methodName,
+          handlerName: methodName,
+          line,
+          col,
+        });
+      }
+    }
+  }
+  return out;
+}
+
 async function extractFromSource(source, language) {
   const parser = await getParser(language);
   // Native tree-sitter defaults bufferSize to 32KB and throws "Invalid argument"
@@ -397,6 +476,9 @@ async function extractFromSource(source, language) {
     if (node.type === 'object') {
       const reg = extractObjectLiteralRegistration(node);
       if (reg) dispatchEdges.push(reg);
+    }
+    if (node.type === 'function_declaration') {
+      for (const e of extractHandlerFactoryPattern(node)) dispatchEdges.push(e);
     }
     for (let i = 0; i < node.namedChildCount; i++) {
       walk(node.namedChild(i));

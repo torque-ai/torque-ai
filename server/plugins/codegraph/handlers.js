@@ -146,12 +146,16 @@ function createHandlers({ db }) {
     async cg_resolve_tool(args) {
       const repoPath = requireString(args, 'repo_path');
       const toolName = requireString(args, 'tool_name');
-      const handlers = resolveTool({ db, repoPath, toolName });
+      const { handlers, candidates } = resolveTool({ db, repoPath, toolName });
       return asToolResult({
         tool_name: toolName,
         handlers,
-        ...(handlers.length === 0 && {
-          hint: `No dispatcher case 'case "${toolName}":' was found. The tool may be: (a) registered via an object map (e.g. handlers[name]) — not yet captured by the indexer; (b) defined in another repo or via a plugin; (c) misspelled. Try cg_find_references with the tool name as a string symbol to find call sites that mention it.`,
+        candidates,
+        ...(handlers.length === 0 && candidates.length > 0 && {
+          hint: `No explicit dispatcher captured for '${toolName}', but ${candidates.length} symbol(s) with that exact name were found in the index. In most JS/TS conventions (and TORQUE plugins specifically), the runtime dispatch handlers[toolName] resolves to a same-named method or function — these candidate symbols are very likely the actual handler. Verify by inspecting the file/line.`,
+        }),
+        ...(handlers.length === 0 && candidates.length === 0 && {
+          hint: `No dispatcher captured AND no symbol named '${toolName}' was found in the indexed repo. The tool may be defined in a different repo, registered dynamically from a string interpolation, or misspelled. Try cg_find_references on the tool name as a string symbol to find call sites that mention it.`,
         }),
         staleness: staleness(db, repoPath),
       });

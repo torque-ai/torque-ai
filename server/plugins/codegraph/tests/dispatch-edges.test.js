@@ -141,6 +141,58 @@ describe('codegraph dispatch-edge capture', () => {
     expect(map.other_thing).toBe('handleOtherThing');
   });
 
+  it('extractor captures createXxxHandlers factory shorthand methods as self-dispatch edges', async () => {
+    // TORQUE plugin pattern: factory returns an object whose method names ARE
+    // the tool names. Emit caseString=handlerName=methodName so cg_resolve_tool
+    // can find the implementation location.
+    const src = `
+      function createCodegraphHandlers({ db }) {
+        return {
+          async cg_index_status(args) { return null; },
+          async cg_reindex(args) { return null; },
+          'cg_string_keyed'(args) { return null; },
+        };
+      }
+    `;
+    const result = await extractFromSource(src, 'javascript');
+    const factoryEdges = result.dispatchEdges.filter(
+      (e) => e.caseString === e.handlerName
+    );
+    const names = factoryEdges.map((e) => e.caseString).sort();
+    expect(names).toEqual(['cg_index_status', 'cg_reindex', 'cg_string_keyed']);
+  });
+
+  it('extractor captures pair-with-arrow-function in handler factories', async () => {
+    const src = `
+      function createPluginHandlers() {
+        return {
+          alpha_tool: (args) => doAlpha(args),
+          beta_tool:  function(args) { return doBeta(args); },
+        };
+      }
+    `;
+    const result = await extractFromSource(src, 'javascript');
+    const factoryEdges = result.dispatchEdges.filter(
+      (e) => e.caseString === e.handlerName
+    );
+    const names = factoryEdges.map((e) => e.caseString).sort();
+    expect(names).toEqual(['alpha_tool', 'beta_tool']);
+  });
+
+  it('extractor does NOT capture non-handler factory pattern (different name shape)', async () => {
+    const src = `
+      function makeThings() {
+        return { foo: () => 1, bar: () => 2 };
+      }
+    `;
+    const result = await extractFromSource(src, 'javascript');
+    // Only matches /^create[A-Z]\\w*[Hh]andlers?$/ — makeThings is unaffected.
+    const factoryEdges = result.dispatchEdges.filter(
+      (e) => e.caseString === e.handlerName
+    );
+    expect(factoryEdges).toEqual([]);
+  });
+
   it('extractor filters method-name false positives (push/then/get/etc.) in case bodies', async () => {
     const src = `
       function dispatch(name, args) {
@@ -207,12 +259,15 @@ describe('codegraph dispatch-edge capture', () => {
     ensureSchema(db);
     return runIndex({ db, repoPath: tmpRepo, files: ['tools.js'] }).then((r) => {
       expect(r.dispatch_edges).toBe(2);
-      const handlers = resolveTool({ db, repoPath: tmpRepo, toolName: 'alpha_tool' });
-      expect(handlers).toEqual([
+      const result = resolveTool({ db, repoPath: tmpRepo, toolName: 'alpha_tool' });
+      expect(result.handlers).toEqual([
         expect.objectContaining({ toolName: 'alpha_tool', handlerName: 'handleAlpha', file: 'tools.js' }),
       ]);
+      expect(result.candidates).toEqual([]);
+
       const empty = resolveTool({ db, repoPath: tmpRepo, toolName: 'no_such' });
-      expect(empty).toEqual([]);
+      expect(empty.handlers).toEqual([]);
+      expect(empty.candidates).toEqual([]);
       db.close();
       fs.rmSync(tmpRepo, { recursive: true, force: true });
     });
