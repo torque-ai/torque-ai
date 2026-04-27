@@ -1,18 +1,9 @@
 'use strict';
 
+// Reach into child_process via the live module ref (not a destructured alias)
+// so that test harnesses which rebind methods on the module after this file
+// loads (see server/tests/worker-setup.js) see the restored function.
 const childProcess = require('child_process');
-// Vitest worker-setup.js (server/tests/worker-setup.js) monkey-patches
-// child_process.{execFileSync,execFile,spawn,spawnSync} to stub real `git`
-// invocations and prevent orphan git.exe processes on Windows. The codegraph
-// indexer needs real git output (rev-parse, ls-tree, show), so restore the
-// originals here. Outside vitest these *_real* slots are undefined and this
-// is a no-op. Mirrors the same restoration pattern used by
-// server/tests/git-test-utils.js.
-if (childProcess._realExecFileSync) childProcess.execFileSync = childProcess._realExecFileSync;
-if (childProcess._realExecFile) childProcess.execFile = childProcess._realExecFile;
-if (childProcess._realSpawnSync) childProcess.spawnSync = childProcess._realSpawnSync;
-
-const { execFileSync } = childProcess;
 const fsSync = require('fs');
 const path = require('path');
 const os = require('os');
@@ -20,13 +11,13 @@ const { runIndex } = require('./indexer');
 const { languageFor } = require('./extractors');
 
 function gitHeadSha(repoPath) {
-  return execFileSync('git', ['rev-parse', 'HEAD'], {
+  return childProcess.execFileSync('git', ['rev-parse', 'HEAD'], {
     cwd: repoPath, encoding: 'utf8',
   }).trim();
 }
 
 function gitListTree(repoPath, sha) {
-  const out = execFileSync('git', ['ls-tree', '-r', '--name-only', sha], {
+  const out = childProcess.execFileSync('git', ['ls-tree', '-r', '--name-only', sha], {
     cwd: repoPath, encoding: 'utf8', maxBuffer: 32 * 1024 * 1024,
   });
   return out.split('\n').filter(Boolean);
@@ -37,7 +28,7 @@ function gitMaterializeAtHead(repoPath, sha, files) {
   for (const rel of files) {
     const dest = path.join(tmp, rel);
     fsSync.mkdirSync(path.dirname(dest), { recursive: true });
-    const content = execFileSync('git', ['show', `${sha}:${rel}`], {
+    const content = childProcess.execFileSync('git', ['show', `${sha}:${rel}`], {
       cwd: repoPath, maxBuffer: 32 * 1024 * 1024,
     });
     fsSync.writeFileSync(dest, content);
