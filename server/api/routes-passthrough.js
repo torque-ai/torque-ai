@@ -615,6 +615,14 @@ const routes = [
   { method: 'POST', path: '/api/v2/routing/activate', tool: 'activate_routing_template', mapBody: true },
   { method: 'GET', path: '/api/v2/routing/categories', tool: 'list_routing_categories', mapQuery: true },
 
+  // ─── codegraph (6 routes) ─────────────────────────────────────────────────────
+  { method: 'GET',  path: '/api/v2/codegraph/index-status',   tool: 'cg_index_status',     mapQuery: true },
+  { method: 'POST', path: '/api/v2/codegraph/reindex',        tool: 'cg_reindex',          mapBody:  true },
+  { method: 'POST', path: '/api/v2/codegraph/find-references',tool: 'cg_find_references',  mapBody:  true },
+  { method: 'POST', path: '/api/v2/codegraph/call-graph',     tool: 'cg_call_graph',       mapBody:  true },
+  { method: 'POST', path: '/api/v2/codegraph/impact-set',     tool: 'cg_impact_set',       mapBody:  true },
+  { method: 'GET',  path: '/api/v2/codegraph/dead-symbols',   tool: 'cg_dead_symbols',     mapQuery: true },
+
 ];
 
 module.exports = routes;
