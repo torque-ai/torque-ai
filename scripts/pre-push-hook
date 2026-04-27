@@ -295,7 +295,7 @@ echo "[gate-end] dash_exit=\$DASH_EXIT serv_exit=\$SERV_EXIT"
 exit \$((DASH_EXIT + SERV_EXIT))
 EOF
 )
-run_with_flake_retry "Test gate" "torque-remote --branch $staging_branch bash -c $(printf %q "$remote_parallel_cmd")"
+run_with_flake_retry "Test gate" "torque-remote --suite gate --branch $staging_branch bash -c $(printf %q "$remote_parallel_cmd")"
 combined_output="$RETRIED_OUTPUT"
 combined_exit="$RETRIED_EXIT"
 
@@ -331,7 +331,7 @@ fi
 echo "[pre-push] Running perf regression gate against $staging_branch..."
 
 set +e
-PERF_OUT=$(torque-remote --branch "$staging_branch" bash -c "cd server && node perf/run-perf.js" 2>&1)
+PERF_OUT=$(torque-remote --suite gate --branch "$staging_branch" bash -c "cd server && node perf/run-perf.js" 2>&1)
 PERF_STATUS=$?
 set -e
 
