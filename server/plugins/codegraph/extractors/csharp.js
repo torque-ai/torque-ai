@@ -133,6 +133,65 @@ function extractTypeEdges(typeNode, classEdges, interfaceNamesInFile) {
   }
 }
 
+// C# `using` shapes:
+//   using System;                 — namespace import; no local-name binding
+//                                   (Slice A doesn't track these — call sites
+//                                   like Console.WriteLine() are resolved by
+//                                   class qualifier, not by which `using` is
+//                                   in scope. Slice B will add namespace
+//                                   resolution for typed variable references.)
+//   using IO = System.IO;         — namespace alias; emit (local='IO',
+//                                   module='System.IO', name=null)
+//   using static System.Math;     — static class import; emit (local=null,
+//                                   module='System.Math', name=null) so
+//                                   Slice B can resolve bare member calls.
+function extractImportsFromUsingDirective(node) {
+  const out = [];
+  const line = node.startPosition.row + 1;
+  const col  = node.startPosition.column;
+
+  // Detect `using static` via unnamed `static` token.
+  let isStatic = false;
+  for (let i = 0; i < node.childCount; i++) {
+    const c = node.child(i);
+    if (!c.isNamed && c.type === 'static') isStatic = true;
+  }
+
+  const namedKids = node.namedChildren;
+  if (namedKids.length === 0) return out;
+
+  // Aliased: first child is the local identifier, second is the qualified target.
+  if (namedKids.length >= 2 && namedKids[0].type === 'identifier') {
+    const local = namedKids[0].text;
+    const target = namedKids[1];
+    let module = '';
+    if (target.type === 'qualified_name')      module = target.text;
+    else if (target.type === 'identifier')     module = target.text;
+    if (module) out.push({ localName: local, sourceModule: module, sourceName: null, line, col });
+    return out;
+  }
+
+  // Single child: either `using System;` or `using static System.Math;`.
+  const single = namedKids[0];
+  let module = '';
+  if (single.type === 'qualified_name')      module = single.text;
+  else if (single.type === 'identifier')     module = single.text;
+  if (!module) return out;
+
+  if (isStatic) {
+    // Local name is the type's last segment so future Slice-B resolution
+    // can find calls to its static members. e.g. `using static System.Math`
+    // → local='Math' so calls like Sin() can be hinted.
+    const parts = module.split('.');
+    const last = parts[parts.length - 1];
+    out.push({ localName: last, sourceModule: module, sourceName: null, line, col });
+  }
+  // Plain `using System;` is intentionally skipped for Slice A — see comment
+  // at the top of this function.
+
+  return out;
+}
+
 async function extractFromSource(source) {
   const parser = await getParser('csharp');
   const tree = parser.parse(source, null, {
@@ -155,6 +214,7 @@ async function extractFromSource(source) {
   const references = [];
   const dispatchEdges = []; // C# switch expressions could populate this in future
   const classEdges = [];
+  const imports = [];
   const exportedNames = new Set();
   const enclosingStack = [];
   const containingTypeStack = []; // names of class/struct/record/enum we're inside
@@ -228,6 +288,10 @@ async function extractFromSource(source) {
       }
     }
 
+    if (node.type === 'using_directive') {
+      for (const imp of extractImportsFromUsingDirective(node)) imports.push(imp);
+    }
+
     for (let i = 0; i < node.namedChildCount; i++) {
       walk(node.namedChild(i));
     }
@@ -242,7 +306,7 @@ async function extractFromSource(source) {
     s.isExported = exportedNames.has(s.name);
   }
 
-  return { symbols, references, dispatchEdges, classEdges, exportedNames: [...exportedNames] };
+  return { symbols, references, dispatchEdges, classEdges, imports, exportedNames: [...exportedNames] };
 }
 
 module.exports = { extractFromSource };

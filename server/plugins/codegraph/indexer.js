@@ -17,6 +17,11 @@ async function runIndex({ db, repoPath, files, commitSha = null, _sourceDir = nu
   const deleteReferences    = db.prepare('DELETE FROM cg_references     WHERE repo_path = ?');
   const deleteDispatchEdges = db.prepare('DELETE FROM cg_dispatch_edges WHERE repo_path = ?');
   const deleteClassEdges    = db.prepare('DELETE FROM cg_class_edges    WHERE repo_path = ?');
+  const deleteImports       = db.prepare('DELETE FROM cg_imports        WHERE repo_path = ?');
+  const insertImport = db.prepare(`
+    INSERT INTO cg_imports (repo_path, file_path, local_name, source_module, source_name, line, col)
+    VALUES (@repoPath, @filePath, @localName, @sourceModule, @sourceName, @line, @col)
+  `);
   const insertFile = db.prepare(`
     INSERT INTO cg_files (repo_path, file_path, language, content_sha, indexed_at)
     VALUES (@repoPath, @filePath, @language, @contentSha, @indexedAt)
@@ -75,9 +80,10 @@ async function runIndex({ db, repoPath, files, commitSha = null, _sourceDir = nu
     work.push({ rel, language: ext.language, contentSha: sha256(buf), extracted });
   }
 
-  let totalFiles = 0, totalSymbols = 0, totalRefs = 0, totalDispatch = 0, totalClassEdges = 0;
+  let totalFiles = 0, totalSymbols = 0, totalRefs = 0, totalDispatch = 0, totalClassEdges = 0, totalImports = 0;
 
   const tx = db.transaction(() => {
+    deleteImports.run(repoPath);
     deleteClassEdges.run(repoPath);
     deleteDispatchEdges.run(repoPath);
     deleteReferences.run(repoPath);
@@ -149,6 +155,20 @@ async function runIndex({ db, repoPath, files, commitSha = null, _sourceDir = nu
         });
       }
       totalClassEdges += cEdges.length;
+
+      const imps = extracted.imports || [];
+      for (const imp of imps) {
+        insertImport.run({
+          repoPath,
+          filePath: rel,
+          localName: imp.localName,
+          sourceModule: imp.sourceModule,
+          sourceName: imp.sourceName == null ? null : imp.sourceName,
+          line: imp.line,
+          col:  imp.col,
+        });
+      }
+      totalImports += imps.length;
     }
 
     upsertState.run({
@@ -162,6 +182,12 @@ async function runIndex({ db, repoPath, files, commitSha = null, _sourceDir = nu
   });
 
   tx();
+  // Pass 2: resolve references using import map + cross-file symbol lookup.
+  // Runs in its own (smaller) transaction. Sets resolved_symbol_id on
+  // references whose target name maps through the file's imports to a
+  // single exported symbol elsewhere. Stays NULL otherwise — strict-scope
+  // queries skip NULLs, loose-scope falls back to identifier match.
+  const resolvedCount = resolveReferences({ db, repoPath });
 
   const result = {
     files: totalFiles,
@@ -169,6 +195,8 @@ async function runIndex({ db, repoPath, files, commitSha = null, _sourceDir = nu
     references: totalRefs,
     dispatch_edges: totalDispatch,
     class_edges: totalClassEdges,
+    imports: totalImports,
+    resolved_references: resolvedCount,
   };
   if (skipped.length > 0) result.skipped = skipped;
   return result;
@@ -230,6 +258,7 @@ async function runIncrementalIndex({
   const deleteReferenceRows    = db.prepare('DELETE FROM cg_references     WHERE repo_path = ? AND file_path = ?');
   const deleteDispatchEdgeRows = db.prepare('DELETE FROM cg_dispatch_edges WHERE repo_path = ? AND file_path = ?');
   const deleteClassEdgeRows    = db.prepare('DELETE FROM cg_class_edges    WHERE repo_path = ? AND file_path = ?');
+  const deleteImportRows       = db.prepare('DELETE FROM cg_imports        WHERE repo_path = ? AND file_path = ?');
 
   const insertFile = db.prepare(`
     INSERT INTO cg_files (repo_path, file_path, language, content_sha, indexed_at)
@@ -250,6 +279,10 @@ async function runIncrementalIndex({
   const insertClassEdge = db.prepare(`
     INSERT INTO cg_class_edges (repo_path, file_path, subtype_name, supertype_name, edge_kind, line, col)
     VALUES (@repoPath, @filePath, @subtypeName, @supertypeName, @edgeKind, @line, @col)
+  `);
+  const insertImport = db.prepare(`
+    INSERT INTO cg_imports (repo_path, file_path, local_name, source_module, source_name, line, col)
+    VALUES (@repoPath, @filePath, @localName, @sourceModule, @sourceName, @line, @col)
   `);
   const upsertState = db.prepare(`
     INSERT INTO cg_index_state (repo_path, commit_sha, indexed_at, files, symbols, references_count)
@@ -272,6 +305,7 @@ async function runIncrementalIndex({
     // Drop rows for every changed file in one pass — modified files will get
     // re-inserted from `work` below, deleted files stay gone.
     for (const rel of toDelete) {
+      deleteImportRows.run(repoPath, rel);
       deleteClassEdgeRows.run(repoPath, rel);
       deleteDispatchEdgeRows.run(repoPath, rel);
       deleteReferenceRows.run(repoPath, rel);
@@ -338,6 +372,17 @@ async function runIncrementalIndex({
         });
       }
       newClassEdges += cEdges.length;
+
+      const imps = extracted.imports || [];
+      for (const imp of imps) {
+        insertImport.run({
+          repoPath, filePath: rel,
+          localName: imp.localName,
+          sourceModule: imp.sourceModule,
+          sourceName: imp.sourceName == null ? null : imp.sourceName,
+          line: imp.line, col: imp.col,
+        });
+      }
     }
 
     // Recompute repo-wide totals after deletes + inserts. cg_index_state
@@ -358,6 +403,22 @@ async function runIncrementalIndex({
 
   tx();
 
+  // Clear dangling resolved_symbol_id values: when a file is deleted or
+  // modified, its old symbol rows go away with new IDs assigned to the new
+  // ones. References from OTHER files that pointed at the old IDs need to
+  // be re-resolved or they'd point at ghosts. One UPDATE handles all of
+  // them; pass 2 below re-resolves the now-NULL rows.
+  db.prepare(`
+    UPDATE cg_references
+    SET resolved_symbol_id = NULL
+    WHERE repo_path = @repoPath
+      AND resolved_symbol_id IS NOT NULL
+      AND resolved_symbol_id NOT IN (SELECT id FROM cg_symbols WHERE repo_path = @repoPath)
+  `).run({ repoPath });
+
+  // Pass 2: re-resolve references for the entire repo.
+  const resolvedCount = resolveReferences({ db, repoPath });
+
   const result = {
     incremental: true,
     from_sha: fromSha,
@@ -368,6 +429,7 @@ async function runIncrementalIndex({
     new_symbols: newSymbols,
     new_references: newRefs,
     new_dispatch_edges: newDispatch,
+    resolved_references_added: resolvedCount,
     new_class_edges: newClassEdges,
     // Repo-wide totals after the incremental update — same shape as the full
     // reindex result so downstream callers (cg_index_status) don't branch.
@@ -379,4 +441,88 @@ async function runIncrementalIndex({
   return result;
 }
 
-module.exports = { runIndex, runIncrementalIndex };
+// Resolve a `./bar`-style relative module specifier against the importing
+// file's path. Tries the literal target plus common file extensions and
+// `/index` resolution. Returns the relative path (matching cg_files.file_path)
+// of the first match, or null. Bare specifiers ('fmt', 'System.IO', 'lodash')
+// resolve to null — those are cross-package imports we can't reach.
+function resolveRelativeModule(db, repoPath, importingFile, sourceModule) {
+  if (!sourceModule || (!sourceModule.startsWith('.') && !sourceModule.startsWith('/'))) {
+    return null;
+  }
+  const path = require('path');
+  // Drop the importing file's basename, then resolve the module spec against
+  // its dir. Use POSIX semantics so cg_files paths (forward slashes) match.
+  const importerDir = path.posix.dirname(importingFile.replace(/\\/g, '/'));
+  const joined = path.posix.normalize(path.posix.join(importerDir, sourceModule));
+
+  const lookup = db.prepare(
+    'SELECT file_path FROM cg_files WHERE repo_path = ? AND file_path = ? LIMIT 1'
+  );
+  // Direct hit (already has extension, e.g. './bar.js').
+  const direct = lookup.get(repoPath, joined);
+  if (direct) return direct.file_path;
+  // Try common extensions.
+  for (const ext of ['.js', '.mjs', '.cjs', '.ts', '.tsx', '.jsx', '.py', '.go', '.cs']) {
+    const row = lookup.get(repoPath, joined + ext);
+    if (row) return row.file_path;
+  }
+  // index files: ./bar → ./bar/index.{ext}
+  for (const ext of ['.js', '.mjs', '.cjs', '.ts', '.tsx', '.jsx', '.py']) {
+    const row = lookup.get(repoPath, joined + '/index' + ext);
+    if (row) return row.file_path;
+  }
+  return null;
+}
+
+// Pass 2: resolve cg_references rows by joining against cg_imports + cg_symbols.
+// For each unresolved reference, look up the file's import for `target_name`.
+// If the import points to a same-repo file, find an exported symbol by name
+// and set resolved_symbol_id. Cross-package or ambiguous imports stay NULL.
+function resolveReferences({ db, repoPath }) {
+  const refsToResolve = db.prepare(`
+    SELECT r.id, r.file_path, r.target_name
+    FROM cg_references r
+    WHERE r.repo_path = @repoPath AND r.resolved_symbol_id IS NULL
+  `).all({ repoPath });
+
+  const importLookup = db.prepare(`
+    SELECT source_module, source_name
+    FROM cg_imports
+    WHERE repo_path = @repoPath AND file_path = @filePath AND local_name = @localName
+    LIMIT 1
+  `);
+  const symbolLookup = db.prepare(`
+    SELECT id FROM cg_symbols
+    WHERE repo_path = @repoPath AND file_path = @filePath AND name = @name
+    LIMIT 1
+  `);
+  const updateRef = db.prepare(`
+    UPDATE cg_references SET resolved_symbol_id = @resolvedId WHERE id = @id
+  `);
+
+  let resolved = 0;
+  const tx = db.transaction(() => {
+    for (const r of refsToResolve) {
+      const imp = importLookup.get({ repoPath, filePath: r.file_path, localName: r.target_name });
+      if (!imp) continue;
+      // Cross-package: source_module doesn't start with './' or '../' or '/'.
+      // Stays NULL — we can't reach into npm packages, Go stdlib, etc.
+      const targetFile = resolveRelativeModule(db, repoPath, r.file_path, imp.source_module);
+      if (!targetFile) continue;
+      // If source_name is null (namespace import / module-level binding),
+      // we can't pick a single symbol; leave unresolved. Slice B will use
+      // cg_locals to handle `obj.foo()` calls through namespace imports.
+      const targetName = imp.source_name;
+      if (!targetName || targetName === 'default') continue;
+      const sym = symbolLookup.get({ repoPath, filePath: targetFile, name: targetName });
+      if (!sym) continue;
+      updateRef.run({ resolvedId: sym.id, id: r.id });
+      resolved++;
+    }
+  });
+  tx();
+  return resolved;
+}
+
+module.exports = { runIndex, runIncrementalIndex, resolveReferences };

@@ -3,21 +3,40 @@
 const MAX_DEPTH = 8;
 const MAX_NODES = 100;
 
-const CALLEES_SQL = `
+// Loose mode (back-compat): identifier-only matching. Conflates same-name
+// symbols across the repo. Strict mode joins on resolved_symbol_id and only
+// surfaces reference edges the indexer pinned through import resolution.
+const CALLEES_SQL_LOOSE = `
   SELECT DISTINCT r.target_name AS name
   FROM cg_references r
   JOIN cg_symbols s ON s.id = r.caller_symbol_id
   WHERE r.repo_path = @repoPath AND s.name = @symbol
 `;
 
-const CALLERS_SQL = `
+const CALLERS_SQL_LOOSE = `
   SELECT DISTINCT s.name AS name
   FROM cg_references r
   JOIN cg_symbols s ON s.id = r.caller_symbol_id
   WHERE r.repo_path = @repoPath AND r.target_name = @symbol
 `;
 
-function expand(db, repoPath, frontier, sql, depth, visited) {
+const CALLEES_SQL_STRICT = `
+  SELECT DISTINCT rs.name AS name
+  FROM cg_references r
+  JOIN cg_symbols s  ON s.id = r.caller_symbol_id
+  JOIN cg_symbols rs ON rs.id = r.resolved_symbol_id
+  WHERE r.repo_path = @repoPath AND s.name = @symbol
+`;
+
+const CALLERS_SQL_STRICT = `
+  SELECT DISTINCT s.name AS name
+  FROM cg_references r
+  JOIN cg_symbols s  ON s.id = r.caller_symbol_id
+  JOIN cg_symbols rs ON rs.id = r.resolved_symbol_id
+  WHERE r.repo_path = @repoPath AND rs.name = @symbol
+`;
+
+function expand(db, repoPath, frontier, sql, isCalleesSql, depth, visited) {
   let next = new Set(frontier);
   const edges = new Set();
   let truncated = false;
@@ -26,8 +45,8 @@ function expand(db, repoPath, frontier, sql, depth, visited) {
     for (const sym of next) {
       const rows = db.prepare(sql).all({ repoPath, symbol: sym });
       for (const r of rows) {
-        if (sql === CALLEES_SQL) edges.add(`${sym}->${r.name}`);
-        else                     edges.add(`${r.name}->${sym}`);
+        if (isCalleesSql) edges.add(`${sym}->${r.name}`);
+        else              edges.add(`${r.name}->${sym}`);
         if (!visited.has(r.name)) {
           visited.add(r.name);
           newFrontier.add(r.name);
@@ -73,19 +92,22 @@ function decorateNode(name, info) {
   return node;
 }
 
-function callGraph({ db, repoPath, symbol, direction = 'callees', depth = 2 }) {
+function callGraph({ db, repoPath, symbol, direction = 'callees', depth = 2, scope = 'loose' }) {
   const cap = Math.min(Math.max(1, depth | 0), MAX_DEPTH);
   const visited = new Set([symbol]);
   const allEdges = new Set();
   let truncated = false;
 
+  const calleesSql = scope === 'strict' ? CALLEES_SQL_STRICT : CALLEES_SQL_LOOSE;
+  const callersSql = scope === 'strict' ? CALLERS_SQL_STRICT : CALLERS_SQL_LOOSE;
+
   if (direction === 'callees' || direction === 'both') {
-    const r = expand(db, repoPath, [symbol], CALLEES_SQL, cap, visited);
+    const r = expand(db, repoPath, [symbol], calleesSql, true, cap, visited);
     for (const e of r.edges) allEdges.add(e);
     truncated = truncated || r.truncated;
   }
   if (direction === 'callers' || direction === 'both') {
-    const r = expand(db, repoPath, [symbol], CALLERS_SQL, cap, visited);
+    const r = expand(db, repoPath, [symbol], callersSql, false, cap, visited);
     for (const e of r.edges) allEdges.add(e);
     truncated = truncated || r.truncated;
   }

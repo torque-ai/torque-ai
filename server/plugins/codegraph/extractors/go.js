@@ -160,6 +160,64 @@ function extractTypeDeclaration(typeDeclNode, symbols, classEdges, exportedNames
   }
 }
 
+// Read a Go interpreted_string_literal's raw payload (drops the quotes).
+function readGoString(node) {
+  if (!node || node.type !== 'interpreted_string_literal') return '';
+  const t = node.text;
+  if (t.length >= 2 && t[0] === '"') return t.slice(1, -1);
+  return t;
+}
+
+// Go import shapes:
+//   import "fmt"            → (local='fmt', module='fmt', name=null)
+//   import f "fmt"          → (local='f',   module='fmt', name=null)
+//   import . "fmt"          → skipped (dot import — names merged into current scope)
+//   import _ "fmt"          → skipped (blank import; runs init only)
+//   Default local for bare import is the last path component:
+//   `encoding/json` → `json`.
+function extractImportsFromImportSpec(specNode, line, col) {
+  const out = [];
+  const stringNode = specNode.namedChildren.find((c) => c.type === 'interpreted_string_literal');
+  const aliasNode  = specNode.namedChildren.find((c) =>
+    c.type === 'package_identifier' || c.type === 'blank_identifier' || c.type === 'dot'
+  );
+  const sourceModule = readGoString(stringNode);
+  if (!sourceModule) return out;
+  if (aliasNode && (aliasNode.type === 'blank_identifier' || aliasNode.type === 'dot')) return out;
+
+  let localName;
+  if (aliasNode && aliasNode.type === 'package_identifier') {
+    localName = aliasNode.text;
+  } else {
+    const parts = sourceModule.split('/');
+    localName = parts[parts.length - 1];
+  }
+  out.push({ localName, sourceModule, sourceName: null, line, col });
+  return out;
+}
+
+function extractImportsFromImportDeclaration(node) {
+  const out = [];
+  const line = node.startPosition.row + 1;
+  const col  = node.startPosition.column;
+  for (let i = 0; i < node.namedChildCount; i++) {
+    const child = node.namedChild(i);
+    if (child.type === 'import_spec') {
+      for (const imp of extractImportsFromImportSpec(child, line, col)) out.push(imp);
+    } else if (child.type === 'import_spec_list') {
+      for (let j = 0; j < child.namedChildCount; j++) {
+        const spec = child.namedChild(j);
+        if (spec.type === 'import_spec') {
+          for (const imp of extractImportsFromImportSpec(spec, spec.startPosition.row + 1, spec.startPosition.column)) {
+            out.push(imp);
+          }
+        }
+      }
+    }
+  }
+  return out;
+}
+
 async function extractFromSource(source) {
   const parser = await getParser('go');
   const tree = parser.parse(source, null, {
@@ -170,6 +228,7 @@ async function extractFromSource(source) {
   const references = [];
   const dispatchEdges = []; // not used for Go (no switch-case-as-handler-table convention)
   const classEdges = [];
+  const imports = [];
   const exportedNames = new Set();
   const enclosingStack = [];
 
@@ -234,6 +293,10 @@ async function extractFromSource(source) {
       }
     }
 
+    if (node.type === 'import_declaration') {
+      for (const imp of extractImportsFromImportDeclaration(node)) imports.push(imp);
+    }
+
     for (let i = 0; i < node.namedChildCount; i++) {
       walk(node.namedChild(i));
     }
@@ -247,7 +310,7 @@ async function extractFromSource(source) {
     s.isExported = exportedNames.has(s.name);
   }
 
-  return { symbols, references, dispatchEdges, classEdges, exportedNames: [...exportedNames] };
+  return { symbols, references, dispatchEdges, classEdges, imports, exportedNames: [...exportedNames] };
 }
 
 module.exports = { extractFromSource };

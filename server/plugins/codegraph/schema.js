@@ -34,10 +34,36 @@ const SCHEMA_SQL = [
     caller_symbol_id INTEGER,
     target_name TEXT NOT NULL,
     line INTEGER NOT NULL,
-    col INTEGER NOT NULL
+    col INTEGER NOT NULL,
+    resolved_symbol_id INTEGER
   )`,
   `CREATE INDEX IF NOT EXISTS idx_cg_refs_target ON cg_references(repo_path, target_name)`,
   `CREATE INDEX IF NOT EXISTS idx_cg_refs_caller ON cg_references(caller_symbol_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_cg_refs_resolved ON cg_references(resolved_symbol_id)`,
+  // cg_imports: per-file binding of a local name to an external module/name.
+  // Powers scoped resolution — cg_find_references with scope='strict' uses
+  // resolved_symbol_id (set by indexer pass 2) which itself is computed by
+  // joining cg_references against this table + cg_symbols.
+  //   import { foo as fooLocal } from './bar'
+  //     → (local_name='fooLocal', source_module='./bar', source_name='foo')
+  //   import './side-effects'
+  //     → not recorded (no binding)
+  //   const { foo } = require('./bar')   (CommonJS destructure)
+  //     → (local_name='foo', source_module='./bar', source_name='foo')
+  // source_name is NULL for namespace imports (`import * as ns`) and for
+  // bare-module imports where the local name IS the module.
+  `CREATE TABLE IF NOT EXISTS cg_imports (
+    id INTEGER PRIMARY KEY,
+    repo_path TEXT NOT NULL,
+    file_path TEXT NOT NULL,
+    local_name TEXT NOT NULL,
+    source_module TEXT NOT NULL,
+    source_name TEXT,
+    line INTEGER NOT NULL,
+    col INTEGER NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_cg_imports_file  ON cg_imports(repo_path, file_path)`,
+  `CREATE INDEX IF NOT EXISTS idx_cg_imports_local ON cg_imports(repo_path, file_path, local_name)`,
   `CREATE TABLE IF NOT EXISTS cg_index_state (
     repo_path TEXT PRIMARY KEY,
     commit_sha TEXT NOT NULL,
@@ -86,6 +112,7 @@ const COLUMN_MIGRATIONS = [
   { table: 'cg_symbols', column: 'is_async',     sql: "ALTER TABLE cg_symbols ADD COLUMN is_async INTEGER NOT NULL DEFAULT 0" },
   { table: 'cg_symbols', column: 'is_generator', sql: "ALTER TABLE cg_symbols ADD COLUMN is_generator INTEGER NOT NULL DEFAULT 0" },
   { table: 'cg_symbols', column: 'is_static',    sql: "ALTER TABLE cg_symbols ADD COLUMN is_static INTEGER NOT NULL DEFAULT 0" },
+  { table: 'cg_references', column: 'resolved_symbol_id', sql: "ALTER TABLE cg_references ADD COLUMN resolved_symbol_id INTEGER" },
 ];
 
 function ensureSchema(db) {

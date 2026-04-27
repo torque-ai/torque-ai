@@ -532,6 +532,115 @@ function extractClassEdges(node) {
   return out;
 }
 
+// Read the string payload from a string-literal node (the path side of an
+// import/require). Older grammars use a `string_fragment` named child;
+// newer ones expose `text` directly.
+function readStringLiteral(node) {
+  if (!node) return '';
+  if (node.type !== 'string') return '';
+  const frag = node.namedChildren.find((c) => c.type === 'string_fragment');
+  if (frag) return frag.text;
+  const t = node.text;
+  if (t.length >= 2 && (t[0] === '"' || t[0] === "'" || t[0] === '`')) return t.slice(1, -1);
+  return t;
+}
+
+// ESM `import_statement`. Shape variants:
+//   import { foo, bar as b2 } from './x'
+//   import * as ns from './y'
+//   import def from './z'
+//   import './side-effect'         — no binding; emits nothing
+//   import type { Foo } from 'x'   — TS type-only; emits nothing
+function extractImportsFromImportStatement(node) {
+  const out = [];
+  // Detect TS type-only imports. tree-sitter-typescript renders the `type`
+  // keyword as an unnamed token; if any child token text === 'type', skip
+  // entirely (those bindings don't appear at runtime so they can't resolve
+  // a call).
+  for (let i = 0; i < node.childCount; i++) {
+    const c = node.child(i);
+    if (!c.isNamed && c.type === 'type') return out;
+  }
+
+  const importClause = node.namedChildren.find((c) => c.type === 'import_clause');
+  const stringNode  = node.namedChildren.find((c) => c.type === 'string');
+  const sourceModule = readStringLiteral(stringNode);
+  if (!sourceModule || !importClause) return out;
+
+  const line = node.startPosition.row + 1;
+  const col  = node.startPosition.column;
+
+  for (let i = 0; i < importClause.namedChildCount; i++) {
+    const child = importClause.namedChild(i);
+    if (child.type === 'identifier') {
+      // default import: `import def from './z'`
+      out.push({ localName: child.text, sourceModule, sourceName: 'default', line, col });
+    } else if (child.type === 'namespace_import') {
+      // `import * as ns from './y'`
+      const id = child.namedChildren.find((c) => c.type === 'identifier');
+      if (id) out.push({ localName: id.text, sourceModule, sourceName: null, line, col });
+    } else if (child.type === 'named_imports') {
+      // `import { foo, bar as b2 } from './x'`
+      for (let j = 0; j < child.namedChildCount; j++) {
+        const spec = child.namedChild(j);
+        if (spec.type !== 'import_specifier') continue;
+        // import_specifier has 1 identifier (just the name) or 2 (name + alias).
+        const ids = spec.namedChildren.filter((c) => c.type === 'identifier');
+        if (ids.length === 1) {
+          out.push({ localName: ids[0].text, sourceModule, sourceName: ids[0].text, line, col });
+        } else if (ids.length >= 2) {
+          out.push({ localName: ids[1].text, sourceModule, sourceName: ids[0].text, line, col });
+        }
+      }
+    }
+  }
+  return out;
+}
+
+// CommonJS via `const X = require('mod')` or `const { x, y: yy } = require('mod')`.
+// declNode is a variable_declarator. Returns [] if it doesn't look like a
+// require() destructure / binding.
+function extractImportsFromRequireDeclarator(declNode) {
+  const out = [];
+  const value = declNode.childForFieldName('value');
+  if (!value || value.type !== 'call_expression') return out;
+  const fn = value.childForFieldName('function');
+  if (!fn || fn.type !== 'identifier' || fn.text !== 'require') return out;
+  const args = value.childForFieldName('arguments');
+  if (!args) return out;
+  const argString = args.namedChildren.find((c) => c.type === 'string');
+  const sourceModule = readStringLiteral(argString);
+  if (!sourceModule) return out;
+
+  const line = value.startPosition.row + 1;
+  const col  = value.startPosition.column;
+
+  const lhs = declNode.childForFieldName('name');
+  if (!lhs) return out;
+  if (lhs.type === 'identifier') {
+    // const mod = require('./bb')  → binds module's exports object as `mod`.
+    // We record it with sourceName=null so resolution treats `mod` as a
+    // namespace handle (consumers pivot to `mod.X` lookups, which slice B
+    // will resolve once method-call resolution lands).
+    out.push({ localName: lhs.text, sourceModule, sourceName: null, line, col });
+  } else if (lhs.type === 'object_pattern') {
+    // const { a, b: bb } = require('./aa')
+    for (let i = 0; i < lhs.namedChildCount; i++) {
+      const part = lhs.namedChild(i);
+      if (part.type === 'shorthand_property_identifier_pattern') {
+        out.push({ localName: part.text, sourceModule, sourceName: part.text, line, col });
+      } else if (part.type === 'pair_pattern') {
+        const key = part.childForFieldName('key');
+        const val = part.childForFieldName('value');
+        if (key && val && val.type === 'identifier') {
+          out.push({ localName: val.text, sourceModule, sourceName: key.text, line, col });
+        }
+      }
+    }
+  }
+  return out;
+}
+
 async function extractFromSource(source, language) {
   const parser = await getParser(language);
   // Native tree-sitter defaults bufferSize to 32KB and throws "Invalid argument"
@@ -544,6 +653,7 @@ async function extractFromSource(source, language) {
   const references = [];
   const dispatchEdges = [];
   const classEdges = [];
+  const imports = [];
   const exportedNames = new Set();
   const enclosingStack = []; // indexes into `symbols`
 
@@ -610,6 +720,17 @@ async function extractFromSource(source, language) {
     if (node.type === 'class_declaration' || node.type === 'interface_declaration') {
       for (const e of extractClassEdges(node)) classEdges.push(e);
     }
+    if (node.type === 'import_statement') {
+      for (const imp of extractImportsFromImportStatement(node)) imports.push(imp);
+    }
+    if (node.type === 'lexical_declaration' || node.type === 'variable_declaration') {
+      // CommonJS require: `const x = require('./y')` or destructure variant.
+      for (let i = 0; i < node.namedChildCount; i++) {
+        const decl = node.namedChild(i);
+        if (decl.type !== 'variable_declarator') continue;
+        for (const imp of extractImportsFromRequireDeclarator(decl)) imports.push(imp);
+      }
+    }
     for (let i = 0; i < node.namedChildCount; i++) {
       walk(node.namedChild(i));
     }
@@ -623,7 +744,7 @@ async function extractFromSource(source, language) {
     s.isExported = exportedNames.has(s.name);
   }
 
-  return { symbols, references, dispatchEdges, classEdges, exportedNames: [...exportedNames] };
+  return { symbols, references, dispatchEdges, classEdges, imports, exportedNames: [...exportedNames] };
 }
 
 module.exports = { extractFromSource };
