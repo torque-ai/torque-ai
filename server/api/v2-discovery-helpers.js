@@ -487,8 +487,8 @@ function getConfiguredProviderModels(providerId) {
   ]);
 }
 
-function getV2ApprovedProviderModels(providerId) {
-  if (providerId !== 'openrouter') {
+function getApprovedProviderModels(providerId) {
+  if (typeof providerId !== 'string' || PROVIDER_LOCAL_IDS.has(providerId)) {
     return [];
   }
 
@@ -500,6 +500,19 @@ function getV2ApprovedProviderModels(providerId) {
   } catch {
     return [];
   }
+}
+
+async function getLiveProviderModelsFromAdapter(providerId, options = {}) {
+  if (typeof providerId !== 'string' || PROVIDER_LOCAL_IDS.has(providerId)) {
+    return [];
+  }
+
+  const adapter = getProviderAdapter(providerId);
+  if (!adapter || typeof adapter.listModels !== 'function') {
+    return [];
+  }
+  const liveModels = await adapter.listModels(options);
+  return Array.isArray(liveModels) ? liveModels : [];
 }
 
 function getV2ModelDisplayName(modelId) {
@@ -715,7 +728,7 @@ async function getV2ProviderModels(providerId) {
   const configuredModels = getConfiguredProviderModels(providerId);
 
   if (providerId === 'openrouter' && configuredModels.length === 0) {
-    const approvedModels = getV2ApprovedProviderModels(providerId);
+    const approvedModels = getApprovedProviderModels(providerId);
     if (approvedModels.length > 0) {
       return {
         models: mergeV2ModelDescriptors(
@@ -729,14 +742,13 @@ async function getV2ProviderModels(providerId) {
     }
 
     try {
-      const adapter = getProviderAdapter(providerId);
-      const liveModels = adapter && typeof adapter.listModels === 'function'
-        ? await adapter.listModels({ freeOnly: true, toolsOnly: false })
-        : [];
-
+      const liveModels = await getLiveProviderModelsFromAdapter(providerId, {
+        freeOnly: true,
+        toolsOnly: false,
+      });
       return {
         models: mergeV2ModelDescriptors(
-          (Array.isArray(liveModels) ? liveModels : [])
+          liveModels
             .map((model) => buildV2ModelDescriptor(providerId, model, 'provider_api_live', refreshedAt))
             .filter(Boolean),
         ),
@@ -935,7 +947,8 @@ module.exports = {
   normalizeProviderModels,
   getV2ProviderModelSource,
   getConfiguredProviderModels,
-  getV2ApprovedProviderModels,
+  getApprovedProviderModels,
+  getLiveProviderModelsFromAdapter,
   getV2ModelDisplayName,
   getV2ModelParameters,
   buildV2ModelDescriptor,
