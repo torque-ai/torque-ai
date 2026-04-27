@@ -88,11 +88,25 @@ function createServer({ state, results, config }) {
     return sendJson(res, 200, { released: true });
   }
 
+  // Path components are part of the on-disk file path under results_dir.
+  // Refuse anything that isn't a simple identifier so a request can't
+  // escape the results tree via `../`, slashes, NUL bytes, etc.
+  // Reject standalone `.` / `..` so `/results/../sha/suite` can't escape
+  // results_dir via path.join's parent-resolution. Names like `my.project`
+  // and `1.2.3` still pass — only the literal traversal tokens are blocked.
+  const SAFE_COMPONENT = /^(?!\.\.?$)[a-zA-Z0-9._-]+$/;
+
   function handleResults(_req, res, parts) {
     if (parts.length < 5) return sendJson(res, 400, { error: 'bad_path' });
     const project = parts[2];
     const sha = parts[3];
     const suite = parts[4];
+    if (!project || !sha || !suite
+        || !SAFE_COMPONENT.test(project)
+        || !SAFE_COMPONENT.test(sha)
+        || !SAFE_COMPONENT.test(suite)) {
+      return sendJson(res, 400, { error: 'bad_path_component' });
+    }
     const hit = results.getResult({ project, sha, suite });
     if (!hit) return sendJson(res, 404, { hit: false });
     return sendJson(res, 200, hit);

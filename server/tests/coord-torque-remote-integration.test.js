@@ -30,10 +30,34 @@ function spawnTorqueRemote(args, env, cwd) {
 // the parent event loop. Returns {port, kill} from a tmp script.
 async function spawnStubDaemon(tmpDir, handlerSource) {
   const scriptPath = path.join(tmpDir, 'stub-daemon.js');
+  // handlerSource may be a bare expression (existing tests) or a block of
+  // statements ending in an expression (new warm-hit tests with helper
+  // requires at the top). Detect the trailing expression by finding the
+  // last semicolon at top-level; everything after it becomes the return
+  // value of an IIFE. For bare-expression sources, no semicolons appear at
+  // top level so the whole source is the return value.
+  const trimmedSource = handlerSource.trim().replace(/;\s*$/, '');
+  // Find the boundary: last top-level `;` outside braces/parens.
+  let depth = 0;
+  let lastSemi = -1;
+  for (let i = 0; i < trimmedSource.length; i++) {
+    const c = trimmedSource[i];
+    if (c === '{' || c === '(' || c === '[') depth++;
+    else if (c === '}' || c === ')' || c === ']') depth--;
+    else if (c === ';' && depth === 0) lastSemi = i;
+  }
+  let body;
+  if (lastSemi >= 0) {
+    const head = trimmedSource.slice(0, lastSemi + 1);
+    const tail = trimmedSource.slice(lastSemi + 1).trim();
+    body = `${head}\nreturn (${tail});`;
+  } else {
+    body = `return (${trimmedSource});`;
+  }
   fs.writeFileSync(scriptPath, `
 'use strict';
 const http = require('http');
-const handler = ${handlerSource};
+const handler = (function() { ${body} })();
 const server = http.createServer(handler);
 server.listen(0, '127.0.0.1', () => {
   process.send({ ready: true, port: server.address().port });
@@ -172,5 +196,128 @@ describe('torque-remote coord integration', () => {
     expect(result.status).toBe(0);
     expect(result.stdout).toContain('after-wait');
     expect(result.stderr).toContain('[torque-coord] waiting for in-flight run (holder-lock');
+  });
+
+  it('replays cached result on warm hit, skipping acquire and command execution', async () => {
+    makeConfig(tmpDir);
+    const fs = require('fs');
+    const path = require('path');
+    const resultsDir = path.join(tmpDir, '.torque-coord', 'results');
+    const projectRoot = path.join(tmpDir, 'tr-coord');
+    fs.mkdirSync(projectRoot, { recursive: true });
+    fs.writeFileSync(path.join(projectRoot, 'package-lock.json'), '{}');
+    fs.writeFileSync(path.join(projectRoot, '.torque-remote.json'), JSON.stringify({
+      transport: 'local', intercept_commands: [],
+    }));
+    const projectHashes = require('../coord/lock-hashes').computeLockHashes(projectRoot);
+
+    const shaDir = path.join(resultsDir, 'tr-coord', 'HEAD');
+    fs.mkdirSync(shaDir, { recursive: true });
+    fs.writeFileSync(path.join(shaDir, 'gate.json'), JSON.stringify({
+      project: 'tr-coord', sha: 'HEAD', suite: 'gate',
+      exit_code: 0, suite_status: 'pass', output_tail: 'CACHED RESULT REPLAY\n',
+      package_lock_hashes: projectHashes,
+      completed_at: new Date().toISOString(),
+    }));
+
+    const handlerSource = `
+      const fs = require('fs');
+      const path = require('path');
+      const RESULTS_DIR = ${JSON.stringify(resultsDir)};
+      (req, res) => {
+        if (req.url.startsWith('/results/')) {
+          const parts = req.url.split('/');
+          const file = path.join(RESULTS_DIR, parts[2], parts[3], parts[4] + '.json');
+          if (fs.existsSync(file)) {
+            res.writeHead(200, { 'content-type': 'application/json' });
+            res.end(fs.readFileSync(file, 'utf8'));
+          } else {
+            res.writeHead(404).end();
+          }
+          return;
+        }
+        if (req.url === '/acquire') {
+          res.writeHead(500).end();
+          return;
+        }
+        res.writeHead(404).end();
+      }
+    `;
+    stub = await spawnStubDaemon(tmpDir, handlerSource);
+
+    const result = spawnTorqueRemote(['--suite', 'gate', '--branch', 'HEAD', 'echo', 'should-not-run'], {
+      TORQUE_COORD_PORT: String(stub.port),
+      HOME: tmpDir,
+    }, projectRoot);
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('CACHED RESULT REPLAY');
+    expect(result.stdout).not.toContain('should-not-run');
+    expect(result.stderr).toContain('[torque-coord] cache hit');
+  });
+
+  it('skips warm hit when stored hashes do not match local hashes', async () => {
+    makeConfig(tmpDir);
+    const fs = require('fs');
+    const path = require('path');
+    const resultsDir = path.join(tmpDir, '.torque-coord', 'results');
+    const projectRoot = path.join(tmpDir, 'tr-coord');
+    fs.mkdirSync(projectRoot, { recursive: true });
+    fs.writeFileSync(path.join(projectRoot, 'package-lock.json'), 'local content');
+    fs.writeFileSync(path.join(projectRoot, '.torque-remote.json'), JSON.stringify({
+      transport: 'local', intercept_commands: [],
+    }));
+
+    const shaDir = path.join(resultsDir, 'tr-coord', 'HEAD');
+    fs.mkdirSync(shaDir, { recursive: true });
+    fs.writeFileSync(path.join(shaDir, 'gate.json'), JSON.stringify({
+      project: 'tr-coord', sha: 'HEAD', suite: 'gate',
+      exit_code: 0, suite_status: 'pass', output_tail: 'STALE\n',
+      package_lock_hashes: { 'package-lock.json': 'deadbeef-mismatch' },
+      completed_at: new Date().toISOString(),
+    }));
+
+    const handlerSource = `
+      const fs = require('fs');
+      const path = require('path');
+      const RESULTS_DIR = ${JSON.stringify(resultsDir)};
+      (req, res) => {
+        if (req.url.startsWith('/results/')) {
+          const parts = req.url.split('/');
+          const file = path.join(RESULTS_DIR, parts[2], parts[3], parts[4] + '.json');
+          if (fs.existsSync(file)) {
+            res.writeHead(200, { 'content-type': 'application/json' });
+            res.end(fs.readFileSync(file, 'utf8'));
+          } else {
+            res.writeHead(404).end();
+          }
+          return;
+        }
+        let body = '';
+        req.on('data', (c) => { body += c; });
+        req.on('end', () => {
+          if (req.url === '/acquire') {
+            res.writeHead(200, { 'content-type': 'application/json' });
+            res.end(JSON.stringify({ acquired: true, lock_id: 'fresh' }));
+          } else if (req.url === '/release' || req.url === '/heartbeat') {
+            res.writeHead(200, { 'content-type': 'application/json' });
+            res.end(JSON.stringify({ released: true, ok: true }));
+          } else {
+            res.writeHead(404).end();
+          }
+        });
+      }
+    `;
+    stub = await spawnStubDaemon(tmpDir, handlerSource);
+
+    const result = spawnTorqueRemote(['--suite', 'gate', '--branch', 'HEAD', 'echo', 'fresh-run'], {
+      TORQUE_COORD_PORT: String(stub.port),
+      HOME: tmpDir,
+    }, projectRoot);
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('fresh-run');
+    expect(result.stdout).not.toContain('STALE');
+    expect(result.stderr).toContain('[torque-coord] hash mismatch');
   });
 });

@@ -4,6 +4,7 @@ const path = require('path');
 
 function createResultStore(config) {
   const root = config.results_dir;
+  const ttlMs = (config.result_ttl_seconds || 3600) * 1000;
 
   function writeResult(record) {
     if (record.crashed) return; // never share crashed runs
@@ -24,9 +25,19 @@ function createResultStore(config) {
     fs.renameSync(file + '.tmp', file);
   }
 
-  // Phase 1: read path stubbed. Phase 2 will check TTL + recompute hashes.
-  function getResult(_query) {
-    return null;
+  function getResult({ project, sha, suite }) {
+    const file = path.join(root, project, sha, `${suite}.json`);
+    if (!fs.existsSync(file)) return null;
+    let record;
+    try {
+      record = JSON.parse(fs.readFileSync(file, 'utf8'));
+    } catch (_err) {
+      return null; // corrupt — treat as miss
+    }
+    if (!record.completed_at) return null;
+    const age = Date.now() - Date.parse(record.completed_at);
+    if (Number.isNaN(age) || age > ttlMs) return null;
+    return record;
   }
 
   return { writeResult, getResult };

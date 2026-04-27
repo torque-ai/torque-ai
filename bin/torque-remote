@@ -514,6 +514,66 @@ COORD_PROJECT="$PROJECT_NAME"
 COORD_SHA="${BRANCH_OVERRIDE:-$(git rev-parse HEAD 2>/dev/null || echo unknown)}"
 
 COORD_MAX_ACQUIRE_ATTEMPTS=50
+
+COORD_LOCAL_HASHES=""
+coord_compute_local_hashes() {
+  if [[ -n "$COORD_LOCAL_HASHES" ]]; then return; fi
+  local out
+  out=$(node "$SCRIPT_DIR/torque-coord-client" lock-hashes --root "$PROJECT_ROOT" 2>/dev/null) || out="{}"
+  COORD_LOCAL_HASHES="$out"
+}
+
+coord_hashes_match() {
+  # $1: stored hashes JSON (from a result record)
+  # Returns 0 (match) iff every key in stored matches the same key in local.
+  # An empty stored map matches anything (back-compat with Phase-1 records).
+  coord_compute_local_hashes
+  node -e '
+    const stored = JSON.parse(process.argv[1] || "{}");
+    const local = JSON.parse(process.argv[2] || "{}");
+    const storedKeys = Object.keys(stored);
+    if (storedKeys.length === 0) process.exit(0);
+    for (const k of storedKeys) {
+      if (local[k] !== stored[k]) process.exit(1);
+    }
+    process.exit(0);
+  ' "$1" "$COORD_LOCAL_HASHES" >/dev/null 2>&1
+}
+
+coord_check_warm_hit() {
+  # Returns 0 (and prints the hit's output_tail to stdout, exits the script
+  # with the hit's exit_code) when there's a fresh, hash-matching cached
+  # result for our (project, sha, suite). Returns 1 otherwise.
+  local hit_output rc
+  hit_output=$(node "$SCRIPT_DIR/torque-coord-client" results \
+    --project "$COORD_PROJECT" --sha "$COORD_SHA" --suite "$SUITE" 2>/dev/null)
+  rc=$?
+  if [[ $rc -ne 0 ]]; then return 1; fi
+  if echo "$hit_output" | grep -q '"hit":false'; then return 1; fi
+  local stored_hashes hit_exit hit_tail
+  stored_hashes=$(node -e '
+    try {
+      const r = JSON.parse(process.argv[1]);
+      process.stdout.write(JSON.stringify(r.package_lock_hashes || {}));
+    } catch { process.stdout.write("{}"); }
+  ' "$hit_output" 2>/dev/null)
+  if ! coord_hashes_match "$stored_hashes"; then
+    echo "[torque-coord] hash mismatch on cached result, running fresh" >&2
+    return 1
+  fi
+  hit_exit=$(node -e '
+    try { process.stdout.write(String(JSON.parse(process.argv[1]).exit_code ?? 1)); }
+    catch { process.stdout.write("1"); }
+  ' "$hit_output" 2>/dev/null)
+  hit_tail=$(node -e '
+    try { process.stdout.write(JSON.parse(process.argv[1]).output_tail || ""); }
+    catch { process.stdout.write(""); }
+  ' "$hit_output" 2>/dev/null)
+  echo "[torque-coord] cache hit — replaying stored result (exit $hit_exit)" >&2
+  printf "%s" "$hit_tail"
+  exit "$hit_exit"
+}
+
 coord_attempt_acquire() {
   local attempt=${1:-1}
   if (( attempt > COORD_MAX_ACQUIRE_ATTEMPTS )); then
@@ -543,6 +603,9 @@ coord_attempt_acquire() {
     if [[ -n "$wait_for" ]]; then
       echo "[torque-coord] waiting for in-flight run ($wait_for, attempt $attempt)…" >&2
       node "$SCRIPT_DIR/torque-coord-client" wait --lock-id "$wait_for" >/dev/null 2>&1 || true
+      # The holder just released — they may have written a result for our
+      # exact (project, sha, suite). Re-check before paying for our own run.
+      coord_check_warm_hit || true
       coord_attempt_acquire $((attempt + 1))
       return $?
     fi
@@ -558,11 +621,13 @@ coord_attempt_acquire() {
 coord_release_on_exit() {
   local final_exit=$?
   if [[ "$COORD_ACQUIRED" -eq 1 && -n "$COORD_LOCK_ID" ]]; then
+    coord_compute_local_hashes
     node "$SCRIPT_DIR/torque-coord-client" release \
       --lock-id "$COORD_LOCK_ID" \
       --exit "$final_exit" \
       --status "$([[ $final_exit -eq 0 ]] && echo pass || echo fail)" \
       --tail "" \
+      --hashes "$COORD_LOCAL_HASHES" \
       >/dev/null 2>&1 || true
   fi
   # Chain through to the original cleanup. bash's trap is single-slot, so
@@ -575,6 +640,9 @@ coord_release_on_exit() {
 
 if [[ "$SUITE" != "custom" ]]; then
   trap coord_release_on_exit EXIT
+  coord_check_warm_hit || true
+  # If coord_check_warm_hit found a hit it would have exit'd; falling through
+  # means cache miss or coord unreachable → proceed to acquire.
   coord_attempt_acquire || true
 fi
 # ────────────────────────────────────────────────────────────────────────

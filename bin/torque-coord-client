@@ -97,11 +97,17 @@ async function main() {
         break;
       }
       case 'release': {
+        let parsedHashes = {};
+        if (args.hashes) {
+          try { parsedHashes = JSON.parse(args.hashes); }
+          catch (_e) { parsedHashes = {}; }
+        }
         const body = {
           lock_id: args['lock-id'],
           exit_code: parseInt(args.exit || '0', 10),
           suite_status: args.status || 'unknown',
           output_tail: args.tail || '',
+          package_lock_hashes: parsedHashes,
         };
         const r = await request({ method: 'POST', path: '/release', body });
         emit(r.body);
@@ -156,6 +162,13 @@ async function main() {
           req.on('error', reject);
           req.end();
         });
+        process.exit(0);
+        break;
+      }
+      case 'lock-hashes': {
+        const root = args.root || process.cwd();
+        const { computeLockHashes } = require('../server/coord/lock-hashes');
+        emit(computeLockHashes(root));
         process.exit(0);
         break;
       }
