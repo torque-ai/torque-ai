@@ -115,4 +115,18 @@ describe('torque-coord-client CLI', () => {
     expect(result.status).toBe(2);
     expect(JSON.parse(result.stdout)).toMatchObject({ status: 'unreachable' });
   });
+
+  it('rejects bare flag with usage_error and exit 64', () => {
+    const result = runClient(['acquire', '--project', '--sha', 'abc', '--suite', 'gate'], 9395);
+    expect(result.status).toBe(64);
+    const body = JSON.parse(result.stdout);
+    expect(body.status).toBe('usage_error');
+    expect(body.detail).toContain('--project');
+  });
+
+  it('rejects unexpected positional with usage_error and exit 64', () => {
+    const result = runClient(['acquire', 'positional', '--sha', 'abc'], 9395);
+    expect(result.status).toBe(64);
+    expect(JSON.parse(result.stdout).status).toBe('usage_error');
+  });
 });

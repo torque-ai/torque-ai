@@ -18,7 +18,15 @@ function unreachable(detail) {
 function parseArgs(argv) {
   const out = {};
   for (let i = 0; i < argv.length; i += 2) {
-    if (argv[i].startsWith('--')) out[argv[i].slice(2)] = argv[i + 1];
+    const key = argv[i];
+    const value = argv[i + 1];
+    if (!key || !key.startsWith('--')) {
+      throw new Error(`unexpected positional argument: ${key}`);
+    }
+    if (value === undefined || value.startsWith('--')) {
+      throw new Error(`flag ${key} missing a value`);
+    }
+    out[key.slice(2)] = value;
   }
   return out;
 }
@@ -49,7 +57,13 @@ function request({ method, path, body }) {
 
 async function main() {
   const [, , subcommand, ...rest] = process.argv;
-  const args = parseArgs(rest);
+  let args;
+  try {
+    args = parseArgs(rest);
+  } catch (err) {
+    emit({ status: 'usage_error', detail: err.message });
+    process.exit(64);
+  }
 
   try {
     switch (subcommand) {
@@ -105,12 +119,15 @@ async function main() {
         break;
       }
       case 'wait': {
+        // No request.timeout for wait — it's an inactivity timeout that
+        // would kill long streams. The daemon emits progress every 5s but
+        // a quiet stretch is normal. Daemon-down is detected by the socket
+        // error handler below; that's sufficient.
         const opts = {
           hostname: HOST, port: PORT,
           path: `/wait/${encodeURIComponent(args['lock-id'])}`,
           method: 'GET',
           headers: { accept: 'text/event-stream' },
-          timeout: CONNECT_TIMEOUT_MS,
         };
         await new Promise((resolve, reject) => {
           const req = http.request(opts, (res) => {
@@ -137,7 +154,6 @@ async function main() {
             res.on('end', resolve);
           });
           req.on('error', reject);
-          req.on('timeout', () => req.destroy(new Error('timeout')));
           req.end();
         });
         process.exit(0);
