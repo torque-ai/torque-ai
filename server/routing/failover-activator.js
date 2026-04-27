@@ -1,6 +1,10 @@
 'use strict';
 
-const FAILOVER_TEMPLATE = 'codex-down-failover';
+// Templates are seeded with id = `preset-<filename>` by template-store.seedPresets,
+// so the codex-down-failover.json file becomes id 'preset-codex-down-failover'.
+// setActiveTemplate validates by id, not by filename slug or human name —
+// using the bare slug throws 'Template not found: codex-down-failover' on trip.
+const FAILOVER_TEMPLATE = 'preset-codex-down-failover';
 
 function createFailoverActivator({ store, eventBus, logger }) {
   if (!store) throw new Error('createFailoverActivator requires store');
