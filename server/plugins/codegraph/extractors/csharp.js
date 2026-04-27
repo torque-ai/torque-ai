@@ -104,6 +104,118 @@ function callTargetName(invNode) {
   return '';
 }
 
+// Receiver of a member call. C# `obj.Foo()` produces invocation_expression
+// whose function is member_access_expression with two children: the
+// expression (object) and the name. Returns '' for chained or
+// non-identifier receivers.
+function callReceiverName(invNode) {
+  const fn = invNode.childForFieldName('function')
+          || invNode.namedChild(0);
+  if (!fn || fn.type !== 'member_access_expression') return '';
+  const obj = fn.childForFieldName('expression') || fn.namedChild(0);
+  if (!obj) return '';
+  if (obj.type === 'identifier') return obj.text;
+  if (obj.type === 'this_expression') return 'this';
+  return '';
+}
+
+// Pull a name out of a C# type-syntax node (the LHS of a variable decl,
+// the type before a parameter name, the target of `new`).
+//   predefined_type    → text (int, string, etc.)
+//   identifier         → text (Foo)
+//   qualified_name     → rightmost identifier (System.IO → IO)
+//   generic_name       → head identifier (List<T> → List)
+//   nullable_type      → recurse on inner (Foo? → Foo)
+//   array_type         → recurse on element
+//   pointer_type       → recurse on inner
+function csharpTypeName(node) {
+  if (!node) return '';
+  if (node.type === 'identifier' || node.type === 'predefined_type') return node.text;
+  if (node.type === 'qualified_name') {
+    const last = node.namedChild(node.namedChildCount - 1);
+    return last ? csharpTypeName(last) : '';
+  }
+  if (node.type === 'generic_name') {
+    const id = node.childForFieldName('name') || node.namedChild(0);
+    return id ? id.text : '';
+  }
+  if (node.type === 'nullable_type' || node.type === 'pointer_type') {
+    const inner = node.namedChild(0);
+    return inner ? csharpTypeName(inner) : '';
+  }
+  if (node.type === 'array_type') {
+    const inner = node.childForFieldName('type') || node.namedChild(0);
+    return inner ? csharpTypeName(inner) : '';
+  }
+  return '';
+}
+
+// Capture variable type bindings from a `local_declaration_statement`. The
+// inner `variable_declaration` carries the type (or `var`/`implicit_type`)
+// followed by one or more `variable_declarator` children (name + value).
+//   Foo a = ...                  → a : Foo
+//   var b = new Foo()            → b : Foo (constructor inference)
+//   Foo c = null                 → c : Foo
+function extractCsharpLocalsFromVarDecl(varDeclNode, scopeSymbolIndex) {
+  const out = [];
+  // First named child is the type. Could be implicit_type for `var`.
+  const typeNode = varDeclNode.namedChild(0);
+  if (!typeNode) return out;
+  const isImplicit = typeNode.type === 'implicit_type';
+  const explicitTypeName = isImplicit ? '' : csharpTypeName(typeNode);
+
+  for (let i = 1; i < varDeclNode.namedChildCount; i++) {
+    const decl = varDeclNode.namedChild(i);
+    if (decl.type !== 'variable_declarator') continue;
+    const id = decl.childForFieldName('name')
+            || decl.namedChildren.find((c) => c.type === 'identifier');
+    if (!id) continue;
+    const localName = id.text;
+
+    let typeName = explicitTypeName;
+    if (!typeName) {
+      // implicit `var` — try constructor inference from the value side.
+      const value = decl.childForFieldName('value')
+                 || decl.namedChildren.find((c) => c.type === 'object_creation_expression');
+      if (value && value.type === 'object_creation_expression') {
+        const ctor = value.childForFieldName('type') || value.namedChild(0);
+        typeName = csharpTypeName(ctor);
+      }
+    }
+    if (!typeName) continue;
+
+    out.push({
+      localName, typeName, scopeSymbolIndex,
+      line: decl.startPosition.row + 1,
+      col:  decl.startPosition.column,
+    });
+  }
+  return out;
+}
+
+// Capture parameter type bindings from a parameter_list node.
+function collectCsharpParameterTypes(paramListNode, locals, scopeSymbolIndex) {
+  for (let i = 0; i < paramListNode.namedChildCount; i++) {
+    const param = paramListNode.namedChild(i);
+    if (param.type !== 'parameter') continue;
+    const tNode = param.childForFieldName('type')
+               || param.namedChildren.find((c) =>
+                    c.type === 'identifier' || c.type === 'predefined_type'
+                       || c.type === 'qualified_name' || c.type === 'generic_name'
+                       || c.type === 'nullable_type' || c.type === 'array_type');
+    const id = param.childForFieldName('name')
+             || param.namedChildren.filter((c) => c.type === 'identifier').slice(-1)[0];
+    if (!tNode || !id) continue;
+    const t = csharpTypeName(tNode);
+    if (!t) continue;
+    locals.push({
+      localName: id.text, typeName: t, scopeSymbolIndex,
+      line: param.startPosition.row + 1,
+      col:  param.startPosition.column,
+    });
+  }
+}
+
 // Walk a type declaration and emit class-edge records from its base_list.
 // In C#, a class's base_list mixes its base class (always first) with any
 // implemented interfaces; without cross-file knowledge of which names are
@@ -215,11 +327,16 @@ async function extractFromSource(source) {
   const dispatchEdges = []; // C# switch expressions could populate this in future
   const classEdges = [];
   const imports = [];
+  const locals = [];
   const exportedNames = new Set();
   const enclosingStack = [];
   const containingTypeStack = []; // names of class/struct/record/enum we're inside
 
   function pushSymbol(name, kind, node, mods, extra = {}) {
+    // Members defined inside a class/struct/record/interface/enum carry
+    // container_name so method-call resolution can join cg_locals.type_name
+    // → cg_symbols.container_name.
+    const containerName = containingTypeStack[containingTypeStack.length - 1] || null;
     symbols.push({
       name,
       kind,
@@ -230,6 +347,7 @@ async function extractFromSource(source) {
       isAsync:     mods.has('async'),
       isGenerator: false,
       isStatic:    mods.has('static'),
+      containerName,
       ...extra,
     });
     if (isExportedFromModifiers(mods)) exportedNames.add(name);
@@ -273,6 +391,9 @@ async function extractFromSource(source) {
         else if (node.type === 'event_declaration')         kind = 'event';
         pushSymbol(name, kind, node, mods);
         pushedSymbol = true;
+        // Capture parameter type bindings for method/constructor bodies.
+        const paramList = node.namedChildren.find((c) => c.type === 'parameter_list');
+        if (paramList) collectCsharpParameterTypes(paramList, locals, symbols.length - 1);
       }
     }
 
@@ -281,6 +402,7 @@ async function extractFromSource(source) {
       if (target) {
         references.push({
           targetName: target,
+          receiverName: callReceiverName(node) || null,
           line: node.startPosition.row + 1,
           col:  node.startPosition.column,
           callerSymbolIndex: enclosingStack[enclosingStack.length - 1] ?? null,
@@ -290,6 +412,16 @@ async function extractFromSource(source) {
 
     if (node.type === 'using_directive') {
       for (const imp of extractImportsFromUsingDirective(node)) imports.push(imp);
+    }
+
+    if (node.type === 'local_declaration_statement') {
+      // local_declaration_statement wraps a variable_declaration.
+      const varDecl = node.namedChildren.find((c) => c.type === 'variable_declaration');
+      if (varDecl) {
+        for (const l of extractCsharpLocalsFromVarDecl(varDecl, enclosingStack[enclosingStack.length - 1] ?? null)) {
+          locals.push(l);
+        }
+      }
     }
 
     for (let i = 0; i < node.namedChildCount; i++) {
@@ -306,7 +438,7 @@ async function extractFromSource(source) {
     s.isExported = exportedNames.has(s.name);
   }
 
-  return { symbols, references, dispatchEdges, classEdges, imports, exportedNames: [...exportedNames] };
+  return { symbols, references, dispatchEdges, classEdges, imports, locals, exportedNames: [...exportedNames] };
 }
 
 module.exports = { extractFromSource };
