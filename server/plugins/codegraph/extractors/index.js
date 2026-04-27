@@ -3,6 +3,7 @@
 const path = require('path');
 const javascript = require('./javascript');
 const python = require('./python');
+const go = require('./go');
 
 const EXT_TO_LANGUAGE = {
   '.js':  'javascript',
@@ -16,16 +17,18 @@ const EXT_TO_LANGUAGE = {
   '.tsx': 'tsx',
   '.py':  'python',
   '.pyi': 'python', // type stubs; same grammar
+  '.go':  'go',
 };
 
 // Map language → extractor module. Each module exports extractFromSource(src, lang)
 // (the JS extractor takes lang because one module handles javascript/typescript/tsx).
-// Single-language extractors (python, future go/rust/etc.) ignore the lang arg.
+// Single-language extractors (python, go, future c#/rust/etc.) ignore the lang arg.
 const EXTRACTORS_BY_LANGUAGE = {
   javascript: javascript,
   typescript: javascript,
   tsx:        javascript,
   python:     python,
+  go:         go,
 };
 
 function languageFor(filePath) {
