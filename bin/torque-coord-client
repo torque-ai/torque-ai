@@ -102,11 +102,27 @@ async function main() {
           try { parsedHashes = JSON.parse(args.hashes); }
           catch (_e) { parsedHashes = {}; }
         }
+        // Tail content is normally captured by the wrapper into a tempfile
+        // and passed via --tail-from-file. Reading from a file lets us
+        // bypass shell-quoting limits on arbitrary inner-command output
+        // (newlines, quotes, ANSI, etc.). --tail still works for tiny
+        // synthetic values in tests.
+        let tailContent = args.tail || '';
+        if (args['tail-from-file']) {
+          try {
+            const fs = require('fs');
+            const buf = fs.readFileSync(args['tail-from-file']);
+            const sliced = buf.length > 16384 ? buf.slice(buf.length - 16384) : buf;
+            tailContent = sliced.toString('utf8');
+          } catch (_e) {
+            tailContent = '';
+          }
+        }
         const body = {
           lock_id: args['lock-id'],
           exit_code: parseInt(args.exit || '0', 10),
           suite_status: args.status || 'unknown',
-          output_tail: args.tail || '',
+          output_tail: tailContent,
           package_lock_hashes: parsedHashes,
         };
         const r = await request({ method: 'POST', path: '/release', body });

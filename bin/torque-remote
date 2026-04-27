@@ -622,13 +622,22 @@ coord_release_on_exit() {
   local final_exit=$?
   if [[ "$COORD_ACQUIRED" -eq 1 && -n "$COORD_LOCK_ID" ]]; then
     coord_compute_local_hashes
+    local tail_args=()
+    if [[ -n "$COORD_OUTPUT_LOG" && -f "$COORD_OUTPUT_LOG" ]]; then
+      tail_args=(--tail-from-file "$COORD_OUTPUT_LOG")
+    else
+      tail_args=(--tail "")
+    fi
     node "$SCRIPT_DIR/torque-coord-client" release \
       --lock-id "$COORD_LOCK_ID" \
       --exit "$final_exit" \
       --status "$([[ $final_exit -eq 0 ]] && echo pass || echo fail)" \
-      --tail "" \
+      "${tail_args[@]}" \
       --hashes "$COORD_LOCAL_HASHES" \
       >/dev/null 2>&1 || true
+  fi
+  if [[ -n "$COORD_OUTPUT_LOG" && -f "$COORD_OUTPUT_LOG" ]]; then
+    rm -f "$COORD_OUTPUT_LOG" 2>/dev/null || true
   fi
   # Chain through to the original cleanup. bash's trap is single-slot, so
   # installing this trap REPLACED the pre-existing `trap cleanup_on_exit EXIT`
@@ -638,12 +647,21 @@ coord_release_on_exit() {
   cleanup_on_exit
 }
 
+# COORD_OUTPUT_LOG is the tempfile we tee inner-command stdout/stderr into so
+# `coord_release_on_exit` can pass the last 16KB as --tail-from-file. Empty
+# when SUITE=custom (coord disabled) — the transport branches see "" and
+# fall through to today's uncoordinated path with no capture overhead.
+COORD_OUTPUT_LOG=""
+
 if [[ "$SUITE" != "custom" ]]; then
   trap coord_release_on_exit EXIT
   coord_check_warm_hit || true
   # If coord_check_warm_hit found a hit it would have exit'd; falling through
   # means cache miss or coord unreachable → proceed to acquire.
   coord_attempt_acquire || true
+  # Provision capture tempfile for the transport branches below. Created
+  # AFTER warm-hit so a cache hit doesn't allocate a file it'd never use.
+  COORD_OUTPUT_LOG=$(mktemp -t torque-coord-output.XXXXXX 2>/dev/null || mktemp)
 fi
 # ────────────────────────────────────────────────────────────────────────
 
@@ -653,8 +671,24 @@ case "$TRANSPORT" in
     info "Running locally: $COMMAND_DISPLAY"
     cd "$PROJECT_ROOT"
     set +e
-    "${COMMAND_ARGS[@]}"
-    exit_code=$?
+    if [[ -n "$COORD_OUTPUT_LOG" ]]; then
+      # Tee stdout/stderr to the capture file so coord_release_on_exit can
+      # store the last 16KB as the result's output_tail. tail -F --pid
+      # streams the file to the user's terminal in real time and self-exits
+      # when the writer (cmd_pid) dies — this avoids the EOF-leak hang the
+      # pre-push hook documents (Git Bash + Windows ssh keep stdio handles
+      # open longer than `tee` expects, hanging the parent indefinitely).
+      "${COMMAND_ARGS[@]}" > "$COORD_OUTPUT_LOG" 2>&1 &
+      cmd_pid=$!
+      tail -f --pid="$cmd_pid" "$COORD_OUTPUT_LOG" &
+      tail_pid=$!
+      wait "$cmd_pid"
+      exit_code=$?
+      wait "$tail_pid" 2>/dev/null || true
+    else
+      "${COMMAND_ARGS[@]}"
+      exit_code=$?
+    fi
     set -e
     exit $exit_code
     ;;
@@ -908,9 +942,25 @@ EOF
 
     info "Running on $SSH_USER@$SSH_HOST: $COMMAND_DISPLAY"
     set +e
-    run_with_timeout "$TIMEOUT_SECONDS" ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" \
-      "$REMOTE_RUN_COMMAND" < "$LOCAL_STATE_BUNDLE"
-    exit_code=$?
+    if [[ -n "$COORD_OUTPUT_LOG" ]]; then
+      # See coord-release_on_exit comment: tee SSH output via tail-F-pid so
+      # the user sees real-time progress AND the result-store gets a full
+      # output_tail to replay on warm-hit. Without this, --tail-from-file
+      # reads an empty file and warm-hit replay shows only the cache-hit
+      # log line (the documented Phase 2 limitation we're fixing here).
+      run_with_timeout "$TIMEOUT_SECONDS" ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" \
+        "$REMOTE_RUN_COMMAND" < "$LOCAL_STATE_BUNDLE" > "$COORD_OUTPUT_LOG" 2>&1 &
+      cmd_pid=$!
+      tail -f --pid="$cmd_pid" "$COORD_OUTPUT_LOG" &
+      tail_pid=$!
+      wait "$cmd_pid"
+      exit_code=$?
+      wait "$tail_pid" 2>/dev/null || true
+    else
+      run_with_timeout "$TIMEOUT_SECONDS" ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" \
+        "$REMOTE_RUN_COMMAND" < "$LOCAL_STATE_BUNDLE"
+      exit_code=$?
+    fi
     set -e
 
     if [[ "$APPLY_LOCAL_STATE" == "true" ]]; then
