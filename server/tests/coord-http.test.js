@@ -107,6 +107,48 @@ describe('coord http server', () => {
     expect(res.status).toBe(404);
   });
 
+  it('GET /results returns 200 with the cached record when present', async () => {
+    const tmpDir = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), 'coord-http-results-'));
+    const writingStore = require('../coord/result-store').createResultStore({
+      results_dir: tmpDir, result_ttl_seconds: 3600,
+    });
+    writingStore.writeResult({
+      project: 'torque-public', sha: 'abc', suite: 'gate',
+      exit_code: 0, suite_status: 'pass', output_tail: 'ok',
+      package_lock_hashes: { 'server/package-lock.json': 'deadbeef' },
+    });
+    const newResults = require('../coord/result-store').createResultStore({
+      results_dir: tmpDir, result_ttl_seconds: 3600,
+    });
+    await new Promise((r) => server.close(r));
+    server = createServer({ state, results: newResults, config: { protocol_version: 1 } });
+    await new Promise((r) => server.listen(0, '127.0.0.1', r));
+    port = server.address().port;
+
+    const res = await request(port, 'GET', '/results/torque-public/abc/gate');
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({
+      project: 'torque-public',
+      sha: 'abc',
+      suite: 'gate',
+      exit_code: 0,
+      package_lock_hashes: { 'server/package-lock.json': 'deadbeef' },
+    });
+    require('fs').rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('GET /results rejects path-traversal attempts with 400', async () => {
+    const traversal = await request(port, 'GET', '/results/..%2F..%2Fetc/abc/gate');
+    expect(traversal.status).toBe(400);
+    const slashSuite = await request(port, 'GET', '/results/torque-public/abc/gate%2F..');
+    expect(slashSuite.status).toBe(400);
+  });
+
+  it('GET /results rejects empty path components with 400', async () => {
+    const res = await request(port, 'GET', '/results//abc/gate');
+    expect(res.status).toBe(400);
+  });
+
   it('GET /active lists current holders', async () => {
     await request(port, 'POST', '/acquire', {
       project: 'p1', sha: 'a', suite: 'gate',
