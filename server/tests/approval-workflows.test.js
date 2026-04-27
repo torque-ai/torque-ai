@@ -4,6 +4,7 @@ import { createRequire } from 'module';
 const require = createRequire(import.meta.url);
 const { randomUUID } = require('crypto');
 const { setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
+const { assertMaxPrepares } = require('./perf-test-helpers.test');
 
 const SUBJECT_MODULE = '../db/approval-workflows';
 const EVENT_BUS_MODULE = '../event-bus';
@@ -300,5 +301,47 @@ describe('db/approval-workflows', () => {
     expect(mod.listPendingApprovals({ project: 'proj-a', limit: 10 })).toHaveLength(0);
     expect(recordTaskEventMock).toHaveBeenCalledWith(taskId, 'approval', 'pending', 'auto_approved', null);
     expect(eventBusMock.emitQueueChanged).toHaveBeenCalled();
+  });
+
+  describe('prepare-in-loop regressions', () => {
+    it('createApprovalRequest reuses cached statements after warm-up', async () => {
+      const taskA = insertTask(rawDb, testDir, { project: 'proj-a' });
+      const taskB = insertTask(rawDb, testDir, { project: 'proj-a' });
+      const taskC = insertTask(rawDb, testDir, { project: 'proj-a' });
+      const ruleId = mod.createApprovalRule('all tasks', 'all', {}, { project: 'proj-a' });
+
+      // Warm: first invocation prepares & caches the 3 statements used inside
+      // the db.transaction (select-existing, insert, update-task-status).
+      mod.createApprovalRequest(taskA, ruleId);
+
+      // Warm subsequent calls must hit the cache for all 3 statements.
+      // 0 new prepares is the regression target.
+      const count = await assertMaxPrepares(rawDb, 0, () => {
+        mod.createApprovalRequest(taskB, ruleId);
+        mod.createApprovalRequest(taskC, ruleId);
+      });
+      expect(count).toBe(0);
+    });
+
+    it('checkApprovalRequired reuses cached statements across calls', async () => {
+      const taskA = insertTask(rawDb, testDir, { project: 'proj-a', priority: 9 });
+      const taskB = insertTask(rawDb, testDir, { project: 'proj-a', priority: 9 });
+      const taskC = insertTask(rawDb, testDir, { project: 'proj-a', priority: 9 });
+      mod.createApprovalRule('priority gate', 'priority', { minPriority: 5 }, { project: 'proj-a' });
+
+      // Warm the cache with a real call that exercises the rule loop.
+      mod.checkApprovalRequired(taskA);
+
+      // Subsequent calls must reuse cached prepares for the latest-approval
+      // SELECT, the INSERT OR IGNORE, and the UPDATE inside the rule loop.
+      // listApprovalRules + getApprovalRule still prepare ad-hoc statements
+      // (out of scope for this regression), so allow a generous ceiling but
+      // any reintroduction of in-loop prepares would push the count well past 6.
+      const count = await assertMaxPrepares(rawDb, 6, () => {
+        mod.checkApprovalRequired(taskB);
+        mod.checkApprovalRequired(taskC);
+      });
+      expect(count).toBeLessThanOrEqual(6);
+    });
   });
 });

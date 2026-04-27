@@ -19,7 +19,24 @@ let db;
 let getTaskFn;
 const dbFunctions = {};
 
-function setDb(dbInstance) { db = dbInstance; }
+// Lazy module-level cache of prepared statements keyed by a stable name.
+// Cleared whenever setDb() rebinds the database connection (e.g. in tests).
+const _calibrationPatternStmts = new Map();
+const _stmtCache = new Map();
+
+function _getStmt(key, sql) {
+  const cached = _stmtCache.get(key);
+  if (cached) return cached;
+  const stmt = db.prepare(sql);
+  _stmtCache.set(key, stmt);
+  return stmt;
+}
+
+function setDb(dbInstance) {
+  db = dbInstance;
+  _calibrationPatternStmts.clear();
+  _stmtCache.clear();
+}
 function setGetTask(fn) { getTaskFn = fn; }
 function setDbFunctions(fns) { Object.assign(dbFunctions, fns); }
 function setFindSimilarTasks(fn) { findSimilarTasksFn = fn; }
@@ -274,21 +291,7 @@ function calibratePredictionModels() {
   const patterns = ['test', 'build', 'lint', 'refactor', 'fix', 'create', 'update', 'delete', 'general'];
 
   for (const pattern of patterns) {
-    // getPatternCondition() returns a hardcoded SQL fragment from an internal
-    // map keyed by the fixed 'patterns' array above — 'pattern' is never user
-    // input, so the interpolation is safe against injection.
-    const patternCondition = getPatternCondition(pattern);
-    const stmt = db.prepare(`
-      SELECT COUNT(*) as count,
-             AVG((julianday(completed_at) - julianday(started_at)) * 86400) as avg_seconds,
-             AVG((julianday(completed_at) - julianday(started_at)) * 86400 * (julianday(completed_at) - julianday(started_at)) * 86400) as avg_sq
-      FROM tasks
-      WHERE status = 'completed'
-        AND started_at IS NOT NULL
-        AND completed_at IS NOT NULL
-        AND (${patternCondition})
-    `);
-
+    const stmt = _getCalibrationPatternStmt(pattern);
     const stats = stmt.get();
     if (stats.count >= 3) {
       const variance = stats.avg_sq - (stats.avg_seconds * stats.avg_seconds);
@@ -329,6 +332,31 @@ function calibratePredictionModels() {
   }
 
   return results;
+}
+
+/**
+ * Lazily build and cache the per-pattern calibration query.
+ * Cache is cleared when setDb() rebinds the connection.
+ */
+function _getCalibrationPatternStmt(pattern) {
+  const cached = _calibrationPatternStmts.get(pattern);
+  if (cached) return cached;
+  // getPatternCondition() returns a hardcoded SQL fragment from an internal
+  // map keyed by the fixed 'patterns' array in calibratePredictionModels —
+  // 'pattern' is never user input, so the interpolation is safe against injection.
+  const patternCondition = getPatternCondition(pattern);
+  const stmt = db.prepare(`
+    SELECT COUNT(*) as count,
+           AVG((julianday(completed_at) - julianday(started_at)) * 86400) as avg_seconds,
+           AVG((julianday(completed_at) - julianday(started_at)) * 86400 * (julianday(completed_at) - julianday(started_at)) * 86400) as avg_sq
+    FROM tasks
+    WHERE status = 'completed'
+      AND started_at IS NOT NULL
+      AND completed_at IS NOT NULL
+      AND (${patternCondition})
+  `);
+  _calibrationPatternStmts.set(pattern, stmt);
+  return stmt;
 }
 
 /**
@@ -641,28 +669,42 @@ function learnFailurePattern(taskId) {
   const patterns = [];
   const now = new Date().toISOString();
 
+  const selectFailurePatternStmt = _getStmt(
+    'selectFailurePattern',
+    'SELECT * FROM failure_patterns WHERE id = ?'
+  );
+  const incrementFailurePatternStmt = _getStmt(
+    'incrementFailurePattern',
+    `UPDATE failure_patterns
+     SET failure_count = failure_count + 1,
+         total_matches = total_matches + 1,
+         failure_rate = CAST(failure_count + 1 AS REAL) / (total_matches + 1),
+         last_updated_at = ?
+     WHERE id = ?`
+  );
+  const insertKeywordFailurePatternStmt = _getStmt(
+    'insertKeywordFailurePattern',
+    `INSERT INTO failure_patterns (id, pattern_type, pattern_definition, failure_count, total_matches, failure_rate, confidence, created_at, last_updated_at)
+     VALUES (?, 'keyword', ?, 1, 1, 1.0, 0.3, ?, ?)`
+  );
+  const insertTimeFailurePatternStmt = _getStmt(
+    'insertTimeFailurePattern',
+    `INSERT INTO failure_patterns (id, pattern_type, pattern_definition, failure_count, total_matches, failure_rate, confidence, created_at, last_updated_at)
+     VALUES (?, 'time_based', ?, 1, 1, 1.0, 0.2, ?, ?)`
+  );
+
   // Keyword patterns
   const keywords = extractKeywords(task.task_description);
   for (const keyword of keywords) {
     const patternDef = { keyword, context: 'description' };
     const patternId = crypto.createHash('md5').update(`keyword:${keyword}`).digest('hex').substring(0, 16);
 
-    const existing = db.prepare('SELECT * FROM failure_patterns WHERE id = ?').get(patternId);
+    const existing = selectFailurePatternStmt.get(patternId);
 
     if (existing) {
-      db.prepare(`
-        UPDATE failure_patterns
-        SET failure_count = failure_count + 1,
-            total_matches = total_matches + 1,
-            failure_rate = CAST(failure_count + 1 AS REAL) / (total_matches + 1),
-            last_updated_at = ?
-        WHERE id = ?
-      `).run(now, patternId);
+      incrementFailurePatternStmt.run(now, patternId);
     } else {
-      db.prepare(`
-        INSERT INTO failure_patterns (id, pattern_type, pattern_definition, failure_count, total_matches, failure_rate, confidence, created_at, last_updated_at)
-        VALUES (?, 'keyword', ?, 1, 1, 1.0, 0.3, ?, ?)
-      `).run(patternId, JSON.stringify(patternDef), now, now);
+      insertKeywordFailurePatternStmt.run(patternId, JSON.stringify(patternDef), now, now);
     }
     patterns.push({ id: patternId, type: 'keyword', definition: patternDef });
   }
@@ -672,21 +714,11 @@ function learnFailurePattern(taskId) {
   const timePatternDef = { hour_start: hour, hour_end: hour + 1 };
   const timePatternId = crypto.createHash('md5').update(`time:${hour}`).digest('hex').substring(0, 16);
 
-  const existingTime = db.prepare('SELECT * FROM failure_patterns WHERE id = ?').get(timePatternId);
+  const existingTime = selectFailurePatternStmt.get(timePatternId);
   if (existingTime) {
-    db.prepare(`
-      UPDATE failure_patterns
-      SET failure_count = failure_count + 1,
-          total_matches = total_matches + 1,
-          failure_rate = CAST(failure_count + 1 AS REAL) / (total_matches + 1),
-          last_updated_at = ?
-      WHERE id = ?
-    `).run(now, timePatternId);
+    incrementFailurePatternStmt.run(now, timePatternId);
   } else {
-    db.prepare(`
-      INSERT INTO failure_patterns (id, pattern_type, pattern_definition, failure_count, total_matches, failure_rate, confidence, created_at, last_updated_at)
-      VALUES (?, 'time_based', ?, 1, 1, 1.0, 0.2, ?, ?)
-    `).run(timePatternId, JSON.stringify(timePatternDef), now, now);
+    insertTimeFailurePatternStmt.run(timePatternId, JSON.stringify(timePatternDef), now, now);
   }
   patterns.push({ id: timePatternId, type: 'time_based', definition: timePatternDef });
 
@@ -886,31 +918,41 @@ function logIntelligenceAction(taskId, actionType, actionDetails, confidence) {
  * Update intelligence outcome for feedback loop
  */
 function updateIntelligenceOutcome(logId, outcome) {
-  db.prepare(`
-    UPDATE intelligence_log SET outcome = ? WHERE id = ?
-  `).run(outcome, logId);
+  const updateOutcomeStmt = _getStmt(
+    'updateIntelligenceOutcome',
+    `UPDATE intelligence_log SET outcome = ? WHERE id = ?`
+  );
+  updateOutcomeStmt.run(outcome, logId);
 
   // Get the log entry to update pattern confidence
-  const log = db.prepare('SELECT * FROM intelligence_log WHERE id = ?').get(logId);
+  const selectIntelligenceLogStmt = _getStmt(
+    'selectIntelligenceLog',
+    'SELECT * FROM intelligence_log WHERE id = ?'
+  );
+  const log = selectIntelligenceLogStmt.get(logId);
   if (log && log.action_type === 'failure_predicted') {
     const details = safeJsonParse(log.action_details, {});
 
     // Update pattern confidence based on outcome
+    const adjustPatternConfidenceStmt = _getStmt(
+      'adjustPatternConfidence',
+      `UPDATE failure_patterns
+       SET confidence = MIN(1.0, MAX(0.1, confidence + ?)),
+           last_updated_at = ?
+       WHERE id = ?`
+    );
     for (const patternId of (details.pattern_ids || [])) {
       const adjustment = outcome === 'correct' ? 0.05 : -0.1;
-      db.prepare(`
-        UPDATE failure_patterns
-        SET confidence = MIN(1.0, MAX(0.1, confidence + ?)),
-            last_updated_at = ?
-        WHERE id = ?
-      `).run(adjustment, new Date().toISOString(), patternId);
+      adjustPatternConfidenceStmt.run(adjustment, new Date().toISOString(), patternId);
     }
 
     // Prune low-confidence patterns with enough samples
-    db.prepare(`
-      DELETE FROM failure_patterns
-      WHERE confidence < 0.3 AND total_matches >= 20
-    `).run();
+    const prunePatternsStmt = _getStmt(
+      'pruneLowConfidencePatterns',
+      `DELETE FROM failure_patterns
+       WHERE confidence < 0.3 AND total_matches >= 20`
+    );
+    prunePatternsStmt.run();
   }
 }
 
