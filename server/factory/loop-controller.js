@@ -5116,6 +5116,33 @@ async function handlePrioritizeTransition({ project, instance, currentState }) {
     });
 
     if (codexDecision.action === 'park') {
+      // Codex Fallback Phase 3 — before parking, probe whether decomposition
+      // could yield free-eligible sub-items. Log the finding so operators can
+      // see "this item WOULD have decomposed into N free sub-tasks" without
+      // actually materialising sub-item rows (deferred to Phase 4).
+      try {
+        let parkProjectConfig = {};
+        try { parkProjectConfig = project?.config_json ? JSON.parse(project.config_json) : {}; } catch (_e) { void _e; }
+        const decomposeResult = decomposeBeforePark({
+          db: database.getDbInstance(),
+          projectId: project.id,
+          workItem: transitionWorkItem,
+          projectConfig: parkProjectConfig,
+        });
+        if (decomposeResult.decomposed && decomposeResult.eligibleCount > 0) {
+          safeLogDecision({
+            project_id: project.id,
+            stage: LOOP_STATES.PRIORITIZE,
+            actor: 'codex_fallback',
+            action: 'decompose_would_yield_eligible',
+            reasoning: `Item ${transitionWorkItem.id} could decompose into ${decomposeResult.eligibleCount}/${decomposeResult.subtaskCount} free-eligible sub-items; parking original (sub-item creation deferred).`,
+            outcome: { work_item_id: transitionWorkItem.id, ...decomposeResult },
+            confidence: 0.9,
+            batch_id: getDecisionBatchId(project, transitionWorkItem, null, instance),
+          });
+        }
+      } catch (_decompErr) { void _decompErr; }
+
       try {
         const { parkWorkItemForCodex } = require('../db/factory-intake');
         parkWorkItemForCodex({
@@ -9721,6 +9748,76 @@ function decideCodexFallbackAction({ db, projectId, workItemId, breaker }) {
   return { action: 'proceed_with_fallback' };
 }
 
+/**
+ * decomposeBeforePark — Codex Fallback Phase 3 helper.
+ *
+ * Before parking a `codex_only` work item, attempt to decompose it into
+ * smaller sub-tasks and classify each sub-task's free eligibility.  This
+ * function is READ-ONLY — it never writes to the database.  The return value
+ * tells the caller whether decomposition would yield any free-eligible
+ * sub-items; actual sub-item creation is deferred to a future phase.
+ *
+ * @param {{ db, projectId, workItem, projectConfig }} opts
+ * @returns {{ decomposed: boolean, eligibleCount: number, subtaskCount?: number,
+ *             eligibleSubitems?: string[], error?: string }}
+ */
+function decomposeBeforePark({ db, projectId, workItem, projectConfig }) {
+  void db; void projectId; // read-only — no DB writes needed
+  try {
+    const { decomposeTask } = require('../db/host-complexity');
+    const { classify } = require('../routing/eligibility-classifier');
+
+    const description = workItem?.title || workItem?.description || '';
+    const workingDirectory = workItem?.working_directory || '';
+
+    const subtasks = decomposeTask(description, workingDirectory);
+    if (!Array.isArray(subtasks) || subtasks.length === 0) {
+      return { decomposed: false, eligibleCount: 0 };
+    }
+
+    // Each element from decomposeTask is a plain string (task description).
+    // Build a minimal work-item + plan shape for the classifier:
+    // - category: inherit from the parent item, falling back to 'simple_generation'
+    //   (decomposed sub-tasks tend to be targeted file edits).
+    // - plan: single task touching 1 file inferred from the sub-task string.
+    const parentCategory = workItem?.category || 'simple_generation';
+    let eligibleCount = 0;
+    const eligibleSubitems = [];
+
+    for (const sub of subtasks) {
+      const subText = typeof sub === 'string' ? sub : String(sub);
+
+      // Extract a file path from the description when present (e.g. "Create file /tmp/Foo.cs …").
+      const filePattern = /\bfile\s+(\S+\.\w+)/i;
+      const fileHit = filePattern.test(subText) ? filePattern.exec(subText) : null;
+      const inferredFile = fileHit ? fileHit[1] : null;
+
+      const subItem = { category: parentCategory };
+      const subPlan = {
+        tasks: [{
+          files_touched: inferredFile ? [inferredFile] : [],
+          estimated_lines: 50, // conservative single-file estimate
+        }],
+      };
+
+      const result = classify(subItem, subPlan, projectConfig || {});
+      if (result.eligibility === 'free') {
+        eligibleCount += 1;
+        eligibleSubitems.push(subText);
+      }
+    }
+
+    return {
+      decomposed: true,
+      subtaskCount: subtasks.length,
+      eligibleCount,
+      eligibleSubitems,
+    };
+  } catch (err) {
+    return { decomposed: false, eligibleCount: 0, error: err.message };
+  }
+}
+
 module.exports = {
   StageOccupiedError,
   startLoop,
@@ -9773,6 +9870,10 @@ module.exports = {
   // Codex fallback (Phase 1) — pure decision helper consulted at PRIORITIZE
   // before we advance to PLAN. Exported for unit tests + future Phase 2 callers.
   decideCodexFallbackAction,
+  // Codex fallback (Phase 3) — read-only decomposition probe called before
+  // parking a work item. Returns whether the item could be split into
+  // free-eligible sub-tasks. Sub-item creation is deferred to Phase 4.
+  decomposeBeforePark,
   // Codex fallback (Phase 2) — in-memory marker that PRIORITIZE sets when
   // `decideCodexFallbackAction` returns 'proceed_with_fallback'. The
   // EXECUTE submit path (smart-routing chain walker — Task 7) consumes
