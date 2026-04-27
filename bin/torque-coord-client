@@ -66,6 +66,61 @@ function request({ method, path, body }) {
   });
 }
 
+// Single-process replacement for the bash-driven sequence
+// `lock-hashes` -> `results` -> `acquire`. Returns one of the begin event
+// objects: cache_hit / acquired / queued / error. Throws on transport
+// failure; the case 'begin' caller catches and emits the unreachable event.
+async function runBegin(args) {
+  const root = args.root || process.cwd();
+  const { computeLockHashes } = require('../server/coord/lock-hashes');
+  const localHashes = computeLockHashes(root);
+  const localHashesJson = JSON.stringify(localHashes);
+
+  // Cache-hit path.
+  const resultsPath = `/results/${encodeURIComponent(args.project)}/${encodeURIComponent(args.sha)}/${encodeURIComponent(args.suite)}`;
+  const resultsResp = await request({ method: 'GET', path: resultsPath });
+  if (resultsResp.status === 200 && resultsResp.body && resultsResp.body.hit !== false) {
+    const stored = (resultsResp.body && resultsResp.body.package_lock_hashes) || {};
+    let allMatch = true;
+    for (const k of Object.keys(stored)) {
+      if (localHashes[k] !== stored[k]) { allMatch = false; break; }
+    }
+    if (allMatch) {
+      return {
+        event: 'cache_hit',
+        exit_code: resultsResp.body.exit_code != null ? resultsResp.body.exit_code : 1,
+        output_tail: resultsResp.body.output_tail || '',
+      };
+    }
+    // Hash mismatch — surface to stderr (integration tests assert on this
+    // line and operators want to see why the cached result got discarded)
+    // and fall through to acquire.
+    process.stderr.write('[torque-coord] hash mismatch on cached result, running fresh\n');
+  }
+  // Server errors on results (non-200/non-404) fall through to acquire —
+  // acquire is the real gate; if the server is healthy enough to answer
+  // /acquire we proceed, otherwise the caller surfaces the error event.
+
+  const acquireBody = {
+    project: args.project,
+    sha: args.sha,
+    suite: args.suite,
+    holder: {
+      host: args.host || require('os').hostname(),
+      pid: parseInt(args.pid || String(process.pid), 10),
+      user: args.user || (process.env.USER || process.env.USERNAME || 'unknown'),
+    },
+  };
+  const acqResp = await request({ method: 'POST', path: '/acquire', body: acquireBody });
+  if (acqResp.status === 200 && acqResp.body && acqResp.body.lock_id) {
+    return { event: 'acquired', lock_id: acqResp.body.lock_id, local_hashes: localHashesJson };
+  }
+  if (acqResp.status === 202 && acqResp.body && acqResp.body.wait_for) {
+    return { event: 'queued', wait_for: acqResp.body.wait_for, local_hashes: localHashesJson };
+  }
+  return { event: 'error', status: acqResp.status, body: acqResp.body };
+}
+
 async function main() {
   const [, , subcommand, ...rest] = process.argv;
   let args;
@@ -207,58 +262,23 @@ async function main() {
         //   1  protocol/server error
         //   2  unreachable
         //   3  queued (caller must wait + re-call begin)
-        const root = args.root || process.cwd();
-        const { computeLockHashes } = require('../server/coord/lock-hashes');
-        const localHashes = computeLockHashes(root);
-        const localHashesJson = JSON.stringify(localHashes);
-        // Try the cache-hit path first.
-        const resultsPath = `/results/${encodeURIComponent(args.project)}/${encodeURIComponent(args.sha)}/${encodeURIComponent(args.suite)}`;
-        const resultsResp = await request({ method: 'GET', path: resultsPath });
-        if (resultsResp.status === 200 && resultsResp.body && resultsResp.body.hit !== false) {
-          const stored = (resultsResp.body && resultsResp.body.package_lock_hashes) || {};
-          let allMatch = true;
-          for (const k of Object.keys(stored)) {
-            if (localHashes[k] !== stored[k]) { allMatch = false; break; }
-          }
-          if (allMatch) {
-            emit({
-              event: 'cache_hit',
-              exit_code: resultsResp.body.exit_code != null ? resultsResp.body.exit_code : 1,
-              output_tail: resultsResp.body.output_tail || '',
-            });
-            process.exit(0);
-          }
-          // hashes mismatch — fall through to acquire below.
-          // Surface the discard reason on stderr so callers (and integration
-          // tests) can observe that the cached result was bypassed instead of
-          // silently re-running.
-          process.stderr.write('[torque-coord] hash mismatch on cached result, running fresh\n');
-        } else if (resultsResp.status !== 200 && resultsResp.status !== 404) {
-          // Server error on results — surface it but still try acquire
-          // since acquire is the actual gate. (rc=1 if acquire also fails.)
+        try {
+          const ev = await runBegin(args);
+          emit(ev);
+          if (ev.event === 'cache_hit' || ev.event === 'acquired') process.exit(0);
+          if (ev.event === 'queued') process.exit(3);
+          if (ev.event === 'unreachable') process.exit(2);
+          process.exit(1);
+        } catch (err) {
+          // Connect failures and other transport errors land here. Emit the
+          // event-shaped output that bash's coord_begin expects (rather than
+          // the legacy {"status":"unreachable",...} from the shared
+          // unreachable() helper, which doesn't have an "event" field for
+          // bash's sed-based extractor and was causing the unreachable test
+          // to fail with the wrong stderr message).
+          emit({ event: 'unreachable', detail: err.message });
+          process.exit(2);
         }
-        // Acquire.
-        const acquireBody = {
-          project: args.project,
-          sha: args.sha,
-          suite: args.suite,
-          holder: {
-            host: args.host || require('os').hostname(),
-            pid: parseInt(args.pid || String(process.pid), 10),
-            user: args.user || (process.env.USER || process.env.USERNAME || 'unknown'),
-          },
-        };
-        const acqResp = await request({ method: 'POST', path: '/acquire', body: acquireBody });
-        if (acqResp.status === 200 && acqResp.body && acqResp.body.lock_id) {
-          emit({ event: 'acquired', lock_id: acqResp.body.lock_id, local_hashes: localHashesJson });
-          process.exit(0);
-        }
-        if (acqResp.status === 202 && acqResp.body && acqResp.body.wait_for) {
-          emit({ event: 'queued', wait_for: acqResp.body.wait_for, local_hashes: localHashesJson });
-          process.exit(3);
-        }
-        emit({ event: 'error', status: acqResp.status, body: acqResp.body });
-        process.exit(1);
         break;
       }
       default:
