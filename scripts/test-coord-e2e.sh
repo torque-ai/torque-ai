@@ -18,15 +18,24 @@ REF="${1:-HEAD}"
 echo "[e2e] Target ref: $REF"
 
 # ─── Scenario A: serialization ────────────────────────────────────────────
+# Use a unique per-run SUITE label so Phase 2 warm-hit can't replay a
+# previous scenario's cached result. The serialization observation
+# requires both sessions to actually run their inner command; warm-hit
+# replay would short-circuit them in <5s and defeat the test. We can't
+# vary --branch easily because torque-remote validates that the ref
+# exists on origin; suite is part of the cache key + lock identity, so
+# a unique label gives us a fresh slot per run with no origin push.
+SERIALIZE_SUITE="gate-serialize-$(date +%s)"
 echo
 echo "── Scenario A: two parallel sessions serialize ───────────────"
+echo "[e2e] Scenario A using unique suite: $SERIALIZE_SUITE"
 OUT1=$(mktemp)
 OUT2=$(mktemp)
 start=$(date +%s)
-(time torque-remote --suite gate --branch "$REF" bash -c "echo 'session A' && sleep 30") > "$OUT1" 2>&1 &
+(time torque-remote --suite "$SERIALIZE_SUITE" --branch "$REF" bash -c "echo 'session A' && sleep 30") > "$OUT1" 2>&1 &
 PID1=$!
 sleep 2
-(time torque-remote --suite gate --branch "$REF" bash -c "echo 'session B' && sleep 30") > "$OUT2" 2>&1 &
+(time torque-remote --suite "$SERIALIZE_SUITE" --branch "$REF" bash -c "echo 'session B' && sleep 30") > "$OUT2" 2>&1 &
 PID2=$!
 wait $PID1
 wait $PID2
@@ -42,13 +51,20 @@ echo "[e2e] Scenario A PASS: serialization observed."
 rm -f "$OUT1" "$OUT2"
 
 # ─── Scenario B: warm-hit replay ──────────────────────────────────────────
+# Unique per-run SUITE so the first invocation reliably populates a fresh
+# result instead of (possibly) warm-hitting a stale prior run, and the
+# second invocation reliably hits THAT result rather than any other.
+# (Same rationale as Scenario A: --branch validation makes per-run refs
+# awkward, so we vary suite instead.)
+WARMHIT_SUITE="gate-warmhit-$(date +%s)"
 echo
 echo "── Scenario B: warm-hit replay ──────────────────────────────"
+echo "[e2e] Scenario B using unique suite: $WARMHIT_SUITE"
 OUT3=$(mktemp)
 OUT4=$(mktemp)
-torque-remote --suite gate --branch "$REF" bash -c "echo 'POPULATING' && sleep 5" > "$OUT3" 2>&1
+torque-remote --suite "$WARMHIT_SUITE" --branch "$REF" bash -c "echo 'POPULATING' && sleep 5" > "$OUT3" 2>&1
 start=$(date +%s)
-torque-remote --suite gate --branch "$REF" bash -c "echo 'SHOULD-NOT-PRINT'" > "$OUT4" 2>&1
+torque-remote --suite "$WARMHIT_SUITE" --branch "$REF" bash -c "echo 'SHOULD-NOT-PRINT'" > "$OUT4" 2>&1
 end=$(date +%s)
 hit_duration=$((end - start))
 echo "[e2e] Scenario B replay wallclock: ${hit_duration}s (expected <5s for replay; sync skipped)"
