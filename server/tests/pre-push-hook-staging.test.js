@@ -57,10 +57,23 @@ describe('pre-push-hook staging-branch invariants', () => {
     // both phases inside a single torque-remote SSH session (one sync,
     // parallel jobs), so the --branch invocation appears once but the
     // remote script must reference both `cd dashboard` and `cd server`.
-    const branchMatches = src.match(/torque-remote\s+--branch\s+\$(?:\{)?staging_branch/g) || [];
+    // Regex is permissive about other torque-remote flags appearing between
+    // `torque-remote` and `--branch` (e.g. --suite gate from coord wiring).
+    const branchMatches = src.match(/torque-remote(?:\s+--\S+(?:\s+\S+)?)*\s+--branch\s+\$(?:\{)?staging_branch/g) || [];
     expect(branchMatches.length).toBeGreaterThanOrEqual(1);
     expect(src).toMatch(/cd\s+dashboard\s+&&\s+npx\s+vitest\s+run/);
     expect(src).toMatch(/cd\s+server\s+&&\s+npx\s+vitest\s+run/);
+  });
+
+  it('passes --suite gate to torque-remote so coord serializes the gate', () => {
+    const src = readHook();
+    // Both gate invocations (test gate + perf gate) must opt into coord
+    // coordination. Without --suite, torque-remote defaults to "custom"
+    // and skips the daemon — so two concurrent main pushes would race on
+    // the workstation as before.
+    const suiteMatches = src.match(/torque-remote\s+(?:--\S+\s+\S+\s+)*--suite\s+gate/g) || [];
+    // We expect at least 2 occurrences (test gate at ~line 298, perf gate at ~line 334).
+    expect(suiteMatches.length).toBeGreaterThanOrEqual(2);
   });
 
   it('installs an EXIT trap that deletes the staging ref', () => {

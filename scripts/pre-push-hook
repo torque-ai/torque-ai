@@ -334,7 +334,7 @@ echo "[gate-end] dash_exit=\$DASH_EXIT serv_exit=\$SERV_EXIT perf_exit=\$PERF_EX
 exit \$((DASH_EXIT + SERV_EXIT + PERF_EXIT))
 EOF
 )
-run_with_flake_retry "Test gate" "torque-remote --branch $staging_branch bash -c $(printf %q "$remote_parallel_cmd")"
+run_with_flake_retry "Test gate" "torque-remote --suite gate --branch $staging_branch bash -c $(printf %q "$remote_parallel_cmd")"
 combined_output="$RETRIED_OUTPUT"
 combined_exit="$RETRIED_EXIT"
 

@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# torque-coord — launch the Remote Test Coordinator daemon.
+#
+# Run modes:
+#   torque-coord                   # foreground (logs to stdout)
+#   TORQUE_COORD_CONFIG=path.json torque-coord
+#
+# Production: invoked by Windows Task Scheduler (TorqueCoord task) on the
+# workstation. The Task Scheduler entry redirects stdout/stderr to a log
+# file under the user's profile.
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+ENTRY="$PROJECT_ROOT/server/coord/index.js"
+
+if [[ ! -f "$ENTRY" ]]; then
+  echo "ERROR: entry point not found: $ENTRY" >&2
+  exit 1
+fi
+
+exec node "$ENTRY" "$@"

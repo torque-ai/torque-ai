@@ -1,0 +1,171 @@
+#!/usr/bin/env node
+'use strict';
+const http = require('http');
+
+const HOST = process.env.TORQUE_COORD_HOST || '127.0.0.1';
+const PORT = parseInt(process.env.TORQUE_COORD_PORT || '9395', 10);
+const CONNECT_TIMEOUT_MS = 2000;
+
+function emit(obj) {
+  process.stdout.write(JSON.stringify(obj) + '\n');
+}
+
+function unreachable(detail) {
+  emit({ status: 'unreachable', detail });
+  process.exit(2);
+}
+
+function parseArgs(argv) {
+  const out = {};
+  for (let i = 0; i < argv.length; i += 2) {
+    const key = argv[i];
+    const value = argv[i + 1];
+    if (!key || !key.startsWith('--')) {
+      throw new Error(`unexpected positional argument: ${key}`);
+    }
+    if (value === undefined || value.startsWith('--')) {
+      throw new Error(`flag ${key} missing a value`);
+    }
+    out[key.slice(2)] = value;
+  }
+  return out;
+}
+
+function request({ method, path, body }) {
+  return new Promise((resolve, reject) => {
+    const opts = {
+      hostname: HOST, port: PORT, path, method,
+      headers: { 'content-type': 'application/json' },
+      timeout: CONNECT_TIMEOUT_MS,
+    };
+    const req = http.request(opts, (res) => {
+      const chunks = [];
+      res.on('data', (c) => chunks.push(c));
+      res.on('end', () => {
+        const text = Buffer.concat(chunks).toString('utf8');
+        let json = null;
+        try { json = text ? JSON.parse(text) : null; } catch (_e) { /* not json */ }
+        resolve({ status: res.statusCode, body: json });
+      });
+    });
+    req.on('error', reject);
+    req.on('timeout', () => req.destroy(new Error('timeout')));
+    if (body) req.write(JSON.stringify(body));
+    req.end();
+  });
+}
+
+async function main() {
+  const [, , subcommand, ...rest] = process.argv;
+  let args;
+  try {
+    args = parseArgs(rest);
+  } catch (err) {
+    emit({ status: 'usage_error', detail: err.message });
+    process.exit(64);
+  }
+
+  try {
+    switch (subcommand) {
+      case 'health': {
+        const r = await request({ method: 'GET', path: '/health' });
+        emit(r.body);
+        process.exit(r.status === 200 ? 0 : 1);
+        break;
+      }
+      case 'acquire': {
+        const body = {
+          project: args.project,
+          sha: args.sha,
+          suite: args.suite,
+          holder: {
+            host: args.host || require('os').hostname(),
+            pid: parseInt(args.pid || String(process.pid), 10),
+            user: args.user || (process.env.USER || process.env.USERNAME || 'unknown'),
+          },
+        };
+        const r = await request({ method: 'POST', path: '/acquire', body });
+        emit(r.body);
+        process.exit(r.status === 200 ? 0 : (r.status === 202 ? 3 : 1));
+        break;
+      }
+      case 'heartbeat': {
+        const body = { lock_id: args['lock-id'], log_chunk: args.log || '' };
+        const r = await request({ method: 'POST', path: '/heartbeat', body });
+        emit(r.body);
+        process.exit(r.status === 200 ? 0 : 1);
+        break;
+      }
+      case 'release': {
+        const body = {
+          lock_id: args['lock-id'],
+          exit_code: parseInt(args.exit || '0', 10),
+          suite_status: args.status || 'unknown',
+          output_tail: args.tail || '',
+        };
+        const r = await request({ method: 'POST', path: '/release', body });
+        emit(r.body);
+        process.exit(r.status === 200 ? 0 : 1);
+        break;
+      }
+      case 'results': {
+        const r = await request({
+          method: 'GET',
+          path: `/results/${encodeURIComponent(args.project)}/${encodeURIComponent(args.sha)}/${encodeURIComponent(args.suite)}`,
+        });
+        if (r.status === 404) { emit({ hit: false }); process.exit(0); }
+        emit(r.body);
+        process.exit(r.status === 200 ? 0 : 1);
+        break;
+      }
+      case 'wait': {
+        // No request.timeout for wait — it's an inactivity timeout that
+        // would kill long streams. The daemon emits progress every 5s but
+        // a quiet stretch is normal. Daemon-down is detected by the socket
+        // error handler below; that's sufficient.
+        const opts = {
+          hostname: HOST, port: PORT,
+          path: `/wait/${encodeURIComponent(args['lock-id'])}`,
+          method: 'GET',
+          headers: { accept: 'text/event-stream' },
+        };
+        await new Promise((resolve, reject) => {
+          const req = http.request(opts, (res) => {
+            res.setEncoding('utf8');
+            let buf = '';
+            res.on('data', (chunk) => {
+              buf += chunk;
+              let idx;
+              while ((idx = buf.indexOf('\n\n')) >= 0) {
+                const frame = buf.slice(0, idx);
+                buf = buf.slice(idx + 2);
+                const dataLine = frame.split('\n').find((l) => l.startsWith('data: '));
+                if (dataLine) {
+                  const parsed = JSON.parse(dataLine.slice(6));
+                  emit(parsed);
+                  if (parsed.type === 'released' || parsed.type === 'holder_crashed') {
+                    res.destroy();
+                    resolve();
+                  }
+                }
+              }
+            });
+            res.on('error', reject);
+            res.on('end', resolve);
+          });
+          req.on('error', reject);
+          req.end();
+        });
+        process.exit(0);
+        break;
+      }
+      default:
+        emit({ status: 'usage_error', detail: `unknown subcommand: ${subcommand || '(none)'}` });
+        process.exit(64);
+    }
+  } catch (err) {
+    unreachable(err.message);
+  }
+}
+
+main();
