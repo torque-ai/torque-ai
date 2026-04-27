@@ -10,15 +10,41 @@ const os = require('os');
 const { runIndex } = require('./indexer');
 const { languageFor } = require('./extractors');
 
+// Windows-safe defaults for git invocations:
+//   windowsHide: true       — no console window per call (otherwise indexing a
+//                              repo with N tracked files pops N command windows
+//                              and locks up the desktop)
+//   stdio: ['ignore','pipe','pipe'] — captured output, no terminal allocation
+//   GIT_TERMINAL_PROMPT=0   — never prompt for credentials
+//   GIT_OPTIONAL_LOCKS=0    — don't take index.lock during reads
+//   GIT_CONFIG_NOSYSTEM=1   — skip system gitconfig (may launch hooks)
+const GIT_ENV = {
+  ...process.env,
+  GIT_TERMINAL_PROMPT: '0',
+  GIT_OPTIONAL_LOCKS: '0',
+  GIT_CONFIG_NOSYSTEM: '1',
+};
+
+const GIT_BASE_OPTS = Object.freeze({
+  windowsHide: true,
+  env: GIT_ENV,
+  stdio: ['ignore', 'pipe', 'pipe'],
+});
+
 function gitHeadSha(repoPath) {
   return childProcess.execFileSync('git', ['rev-parse', 'HEAD'], {
-    cwd: repoPath, encoding: 'utf8',
+    ...GIT_BASE_OPTS,
+    cwd: repoPath,
+    encoding: 'utf8',
   }).trim();
 }
 
 function gitListTree(repoPath, sha) {
   const out = childProcess.execFileSync('git', ['ls-tree', '-r', '--name-only', sha], {
-    cwd: repoPath, encoding: 'utf8', maxBuffer: 32 * 1024 * 1024,
+    ...GIT_BASE_OPTS,
+    cwd: repoPath,
+    encoding: 'utf8',
+    maxBuffer: 32 * 1024 * 1024,
   });
   return out.split('\n').filter(Boolean);
 }
@@ -29,7 +55,9 @@ function gitMaterializeAtHead(repoPath, sha, files) {
     const dest = path.join(tmp, rel);
     fsSync.mkdirSync(path.dirname(dest), { recursive: true });
     const content = childProcess.execFileSync('git', ['show', `${sha}:${rel}`], {
-      cwd: repoPath, maxBuffer: 32 * 1024 * 1024,
+      ...GIT_BASE_OPTS,
+      cwd: repoPath,
+      maxBuffer: 32 * 1024 * 1024,
     });
     fsSync.writeFileSync(dest, content);
   }

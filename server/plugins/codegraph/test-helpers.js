@@ -16,7 +16,19 @@ const path = require('path');
 const os = require('os');
 
 function git(cwd, args) {
-  execFileSync('git', args, { cwd, stdio: ['ignore', 'ignore', 'pipe'] });
+  // windowsHide:true prevents a console window per call (a 2085-file repo
+  // would otherwise pop 2085 cmd.exe windows and lock up the desktop).
+  execFileSync('git', args, {
+    cwd,
+    windowsHide: true,
+    stdio: ['ignore', 'ignore', 'pipe'],
+    env: {
+      ...process.env,
+      GIT_TERMINAL_PROMPT: '0',
+      GIT_OPTIONAL_LOCKS: '0',
+      GIT_CONFIG_NOSYSTEM: '1',
+    },
+  });
 }
 
 function setupTinyRepo(prefix = 'cg-') {
