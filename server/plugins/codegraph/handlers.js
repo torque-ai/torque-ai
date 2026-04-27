@@ -1,6 +1,6 @@
 'use strict';
 
-const { indexRepoAtHead, getIndexState } = require('./index-runner');
+const { indexRepoAtHead, getIndexState, getCurrentRepoSha } = require('./index-runner');
 const { findReferences } = require('./queries/find-references');
 const { callGraph }      = require('./queries/call-graph');
 const { impactSet }      = require('./queries/impact-set');
@@ -15,7 +15,6 @@ function requireString(args, key) {
 
 // MCP tool response envelope. The REST passthrough at api-server.core.js reads
 // result.content[0].text — bare object returns surface as empty `result: ""`.
-// Mirror the version-control plugin's pattern.
 function asToolResult(payload) {
   return {
     content: [{
@@ -26,12 +25,42 @@ function asToolResult(payload) {
   };
 }
 
+// Snapshot of how trustworthy the indexed data is right now.
+// LLM consumers should check `staleness.stale` before acting on results;
+// when stale, either call cg_reindex or treat the data as historical.
+function staleness(db, repoPath) {
+  const state = getIndexState({ db, repoPath });
+  const currentSha = getCurrentRepoSha(repoPath);
+  if (!state) {
+    return {
+      indexed: false,
+      current_sha: currentSha,
+      stale: true,
+      message: 'Repo has not been indexed. Call cg_reindex first.',
+    };
+  }
+  const isStale = currentSha != null && state.commitSha !== currentSha;
+  return {
+    indexed: true,
+    indexed_sha: state.commitSha,
+    indexed_at: state.indexedAt,
+    current_sha: currentSha,
+    stale: isStale,
+    ...(isStale && { message: 'Index is older than current HEAD. Results reflect a previous commit; call cg_reindex with force=true to refresh.' }),
+  };
+}
+
 function createHandlers({ db }) {
   return {
     async cg_index_status(args) {
       const repoPath = requireString(args, 'repo_path');
       const state = getIndexState({ db, repoPath });
-      if (!state) return asToolResult({ indexed: false });
+      if (!state) {
+        return asToolResult({
+          indexed: false,
+          staleness: staleness(db, repoPath),
+        });
+      }
       return asToolResult({
         indexed: true,
         commit_sha: state.commitSha,
@@ -39,6 +68,7 @@ function createHandlers({ db }) {
         files: state.files,
         symbols: state.symbols,
         references: state.referencesCount,
+        staleness: staleness(db, repoPath),
       });
     },
 
@@ -56,7 +86,10 @@ function createHandlers({ db }) {
     async cg_find_references(args) {
       const repoPath = requireString(args, 'repo_path');
       const symbol   = requireString(args, 'symbol');
-      return asToolResult(findReferences({ db, repoPath, symbol }));
+      return asToolResult({
+        references: findReferences({ db, repoPath, symbol }),
+        staleness: staleness(db, repoPath),
+      });
     },
 
     async cg_call_graph(args) {
@@ -64,19 +97,34 @@ function createHandlers({ db }) {
       const symbol    = requireString(args, 'symbol');
       const direction = args.direction || 'callees';
       const depth     = args.depth ?? 2;
-      return asToolResult(callGraph({ db, repoPath, symbol, direction, depth }));
+      const g = callGraph({ db, repoPath, symbol, direction, depth });
+      return asToolResult({
+        nodes: g.nodes,
+        edges: g.edges,
+        staleness: staleness(db, repoPath),
+      });
     },
 
     async cg_impact_set(args) {
       const repoPath = requireString(args, 'repo_path');
       const symbol   = requireString(args, 'symbol');
       const depth    = args.depth ?? 5;
-      return asToolResult(impactSet({ db, repoPath, symbol, depth }));
+      const i = impactSet({ db, repoPath, symbol, depth });
+      return asToolResult({
+        symbols: i.symbols,
+        files: i.files,
+        staleness: staleness(db, repoPath),
+      });
     },
 
     async cg_dead_symbols(args) {
       const repoPath = requireString(args, 'repo_path');
-      return asToolResult(deadSymbols({ db, repoPath }));
+      const dead = deadSymbols({ db, repoPath });
+      return asToolResult({
+        dead_symbols: dead,
+        staleness: staleness(db, repoPath),
+        caveat: 'MVP uses identifier-only resolution. Dynamic dispatch (string-keyed handler lookup, plugin contract methods called by loaders, dependency-injection containers) will appear here as false positives. Treat results as deletion candidates requiring human verification, not facts.',
+      });
     },
   };
 }

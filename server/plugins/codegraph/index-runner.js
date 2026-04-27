@@ -49,19 +49,34 @@ function gitListTree(repoPath, sha) {
   return out.split('\n').filter(Boolean);
 }
 
-function gitMaterializeAtHead(repoPath, sha, files) {
+// Materialize the entire repo at `sha` into a temp directory.
+// Implementation: `git archive` writes a tar to disk; `tar xf` extracts it.
+// Two subprocess calls regardless of repo size — replaces the per-file
+// `git show` loop, which was O(N) syscalls and ~3 files/sec on Windows
+// (15+ minutes for the TORQUE repo's 2085 tracked files).
+function gitMaterializeAtHead(repoPath, sha) {
   const tmp = fsSync.mkdtempSync(path.join(os.tmpdir(), 'cg-head-'));
-  for (const rel of files) {
-    const dest = path.join(tmp, rel);
-    fsSync.mkdirSync(path.dirname(dest), { recursive: true });
-    const content = childProcess.execFileSync('git', ['show', `${sha}:${rel}`], {
-      ...GIT_BASE_OPTS,
-      cwd: repoPath,
-      maxBuffer: 32 * 1024 * 1024,
-    });
-    fsSync.writeFileSync(dest, content);
-  }
+  const archivePath = path.join(tmp, '.archive.tar');
+  childProcess.execFileSync('git', ['archive', '--format=tar', '-o', archivePath, sha], {
+    ...GIT_BASE_OPTS,
+    cwd: repoPath,
+    maxBuffer: 256 * 1024 * 1024,
+  });
+  // --force-local: prevent GNU tar from interpreting the `C:` in a Windows
+  // path as a remote host (rsh-style). Run tar with cwd=tmp so all paths are
+  // relative — no drive-letter parsing happens at all.
+  childProcess.execFileSync('tar', ['--force-local', '-xf', '.archive.tar'], {
+    windowsHide: true,
+    stdio: ['ignore', 'pipe', 'pipe'],
+    cwd: tmp,
+    maxBuffer: 256 * 1024 * 1024,
+  });
+  fsSync.unlinkSync(archivePath);
   return tmp;
+}
+
+function getCurrentRepoSha(repoPath) {
+  try { return gitHeadSha(repoPath); } catch { return null; }
 }
 
 function getIndexState({ db, repoPath }) {
@@ -82,7 +97,7 @@ async function indexRepoAtHead({ db, repoPath, force = false }) {
     return runIndex({ db, repoPath, files: [], commitSha: sha });
   }
 
-  const headDir = gitMaterializeAtHead(repoPath, sha, indexable);
+  const headDir = gitMaterializeAtHead(repoPath, sha);
   try {
     return await runIndex({ db, repoPath, files: indexable, commitSha: sha, _sourceDir: headDir });
   } finally {
@@ -115,4 +130,4 @@ function getJobStatus(jobId) {
   return jobs.get(jobId) || { state: 'unknown' };
 }
 
-module.exports = { indexRepoAtHead, getIndexState, startReindexJob, getJobStatus };
+module.exports = { indexRepoAtHead, getIndexState, getCurrentRepoSha, startReindexJob, getJobStatus };

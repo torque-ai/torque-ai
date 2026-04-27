@@ -30,37 +30,61 @@ describe('codegraph handlers', () => {
     expect(JSON.parse(r.content[0].text)).toEqual(r.structuredData);
   });
 
-  it('cg_index_status returns commit_sha + counts', async () => {
+  it('cg_index_status returns commit_sha + counts + staleness', async () => {
     const r = data(await handlers.cg_index_status({ repo_path: repo }));
     expect(r.commit_sha.length).toBe(40);
     expect(r.files).toBe(2);
     expect(r.symbols).toBe(2);
+    expect(r.staleness.indexed).toBe(true);
+    expect(r.staleness.stale).toBe(false);
+    expect(r.staleness.indexed_sha).toBe(r.staleness.current_sha);
   });
 
-  it('cg_find_references finds beta callers', async () => {
+  it('cg_find_references returns {references, staleness}', async () => {
     const r = data(await handlers.cg_find_references({ repo_path: repo, symbol: 'beta' }));
-    expect(r).toEqual(expect.arrayContaining([
+    expect(r.references).toEqual(expect.arrayContaining([
       expect.objectContaining({ callerSymbol: 'alpha' }),
     ]));
+    expect(r.staleness.stale).toBe(false);
   });
 
-  it('cg_call_graph returns nodes + edges', async () => {
+  it('cg_call_graph returns {nodes, edges, staleness}', async () => {
     const r = data(await handlers.cg_call_graph({
       repo_path: repo, symbol: 'alpha', direction: 'callees', depth: 1,
     }));
     expect(r.nodes.map((n) => n.name).sort()).toEqual(['alpha', 'beta']);
     expect(r.edges).toEqual([{ from: 'alpha', to: 'beta' }]);
+    expect(r.staleness.stale).toBe(false);
   });
 
-  it('cg_impact_set returns symbols + files', async () => {
+  it('cg_impact_set returns {symbols, files, staleness}', async () => {
     const r = data(await handlers.cg_impact_set({ repo_path: repo, symbol: 'beta', depth: 5 }));
     expect(r.symbols).toEqual(['alpha']);
     expect(r.files).toEqual(['a.js']);
+    expect(r.staleness.stale).toBe(false);
   });
 
-  it('cg_dead_symbols flags alpha (alpha is not called)', async () => {
+  it('cg_dead_symbols returns {dead_symbols, staleness, caveat}', async () => {
     const r = data(await handlers.cg_dead_symbols({ repo_path: repo }));
-    expect(r.map((d) => d.name)).toContain('alpha');
+    expect(r.dead_symbols.map((d) => d.name)).toContain('alpha');
+    expect(r.staleness.stale).toBe(false);
+    expect(typeof r.caveat).toBe('string');
+    expect(r.caveat).toMatch(/dynamic dispatch/i);
+  });
+
+  it('staleness reports stale=true after a new commit lands without reindex', async () => {
+    const fs = require('fs');
+    const path = require('path');
+    const { execFileSync } = require('child_process');
+    fs.writeFileSync(path.join(repo, 'c.js'), 'function gamma() {}\n');
+    execFileSync('git', ['add', '.'], { cwd: repo, windowsHide: true, stdio: ['ignore','ignore','pipe'] });
+    execFileSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '-m', 'add c.js'],
+      { cwd: repo, windowsHide: true, stdio: ['ignore','ignore','pipe'] });
+
+    const r = data(await handlers.cg_find_references({ repo_path: repo, symbol: 'beta' }));
+    expect(r.staleness.stale).toBe(true);
+    expect(r.staleness.indexed_sha).not.toBe(r.staleness.current_sha);
+    expect(r.staleness.message).toMatch(/cg_reindex/);
   });
 
   it('all handlers reject when repo_path is missing', async () => {
