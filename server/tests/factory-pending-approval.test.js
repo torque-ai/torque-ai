@@ -17,6 +17,7 @@ const taskCore = require('../db/task-core');
 const loopController = require('../factory/loop-controller');
 const { LOOP_STATES } = require('../factory/loop-states');
 const queueScheduler = require('../execution/queue-scheduler');
+const planQualityGate = require('../factory/plan-quality-gate');
 
 const originalHandleSmartSubmitTask = routingModule.handleSmartSubmitTask;
 const originalHandleAwaitTask = awaitModule.handleAwaitTask;
@@ -102,6 +103,19 @@ describe('factory supervised execute pending approval', () => {
       'factory_health_snapshots',
       'factory_health_findings',
     ]);
+
+    // Bypass the plan-quality-gate's LLM semantic check. The gate runs at
+    // PLAN stage on pre-written plans (Bug D fix) and submits an internal
+    // task via handleSmartSubmitTask + awaits it via handleAwaitTask.
+    // Without this stub, the gate's submit and await calls would pollute
+    // the per-plan-task mock counters this test asserts on.
+    vi.spyOn(planQualityGate, 'evaluatePlan').mockResolvedValue({
+      passed: true,
+      hardFails: [],
+      warnings: [],
+      llmCritique: null,
+      feedbackPrompt: null,
+    });
 
     routingModule.handleSmartSubmitTask = vi.fn(async (args) => {
       const taskId = `pending-approval-task-${args.plan_task_number}`;
@@ -189,8 +203,11 @@ describe('factory supervised execute pending approval', () => {
     const queuedTasks = taskCore.listTasks({ status: 'queued', limit: 10 });
     expect(queuedTasks).toHaveLength(0);
 
+    // Tasks were held for approval, not completed — the plan file's [ ]
+    // checkboxes must remain unchecked. Assert against the actual step
+    // titles in PLAN above rather than placeholders from an earlier draft.
     const planContents = fs.readFileSync(planPath, 'utf8');
-    expect(planContents).toContain('- [ ] **Step 1: update executor**');
-    expect(planContents).toContain('- [ ] **Step 1: cover approval flow**');
+    expect(planContents).toContain('- [ ] **Step 1: wire approval helper in executor**');
+    expect(planContents).toContain('- [ ] **Step 1: cover approval flow with a focused handler test**');
   });
 });

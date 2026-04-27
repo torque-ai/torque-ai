@@ -21,6 +21,7 @@ const factoryHealth = require('../db/factory-health');
 const factoryIntake = require('../db/factory-intake');
 const loopController = require('../factory/loop-controller');
 const { LOOP_STATES } = require('../factory/loop-states');
+const planQualityGate = require('../factory/plan-quality-gate');
 
 function createFactoryTables(db) {
   db.exec(`
@@ -150,6 +151,16 @@ beforeEach(() => {
   originalGetDbInstance = database.getDbInstance;
   database.getDbInstance = () => db;
   tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'factory-selected-work-item-'));
+  // Bypass the plan-quality-gate's LLM semantic check; the routing/await
+  // mocks for this test return undefined, which would make the gate's
+  // submit step fail and pollute the EXECUTE flow under test.
+  vi.spyOn(planQualityGate, 'evaluatePlan').mockResolvedValue({
+    passed: true,
+    hardFails: [],
+    warnings: [],
+    llmCritique: null,
+    feedbackPrompt: null,
+  });
 });
 
 afterEach(() => {
@@ -166,9 +177,21 @@ afterEach(() => {
 
 describe('factory selected work item', () => {
   it('keeps the PRIORITIZE-selected plan file item bound through the EXECUTE tick', async () => {
+    const projectPath = path.join(tempDir, 'project');
+    // plan-executor's verifyCompletedTaskArtifacts probes the working
+    // directory for every file path mentioned in a [x]-marked task body.
+    // If none exist, it treats the [x] as untrusted and submits a real
+    // task — which would hit the routing mock and fail the EXECUTE flow.
+    // Materialize the file path the plan task references so the [x] is
+    // trusted and the executor short-circuits without submitting.
+    fs.mkdirSync(path.join(projectPath, 'server', 'factory'), { recursive: true });
+    fs.writeFileSync(
+      path.join(projectPath, 'server', 'factory', 'loop-controller.js'),
+      '// stub for verifyCompletedTaskArtifacts',
+    );
     const project = factoryHealth.registerProject({
       name: 'Selected Work Item Project',
-      path: path.join(tempDir, 'project'),
+      path: projectPath,
       trust_level: 'dark',
     });
     const planPath = path.join(tempDir, 'selected-plan.md');

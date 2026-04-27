@@ -13,6 +13,7 @@ const factoryWorktrees = require('../db/factory-worktrees');
 const routingModule = require('../handlers/integration/routing');
 const loopController = require('../factory/loop-controller');
 const { LOOP_STATES } = require('../factory/loop-states');
+const planQualityGate = require('../factory/plan-quality-gate');
 
 function writeTwoTaskPlan(planPath) {
   fs.mkdirSync(path.dirname(planPath), { recursive: true });
@@ -69,6 +70,18 @@ describe('factory loop-controller paused EXECUTE deferral', () => {
     loopController.setWorktreeRunnerForTests(null);
     submitSpy = vi.spyOn(routingModule, 'handleSmartSubmitTask')
       .mockResolvedValue({ task_id: 'execute-task-2' });
+    // Bypass the plan-quality-gate. Bug D-extension at executePlanFileStage
+    // re-runs the gate on resumed deferred EXECUTE batches; the abbreviated
+    // plan body in this test deliberately omits the file-reference and
+    // acceptance-criterion details the gate enforces, so a real gate run
+    // would auto-reject the work item before EXECUTE submits anything.
+    vi.spyOn(planQualityGate, 'evaluatePlan').mockResolvedValue({
+      passed: true,
+      hardFails: [],
+      warnings: [],
+      llmCritique: null,
+      feedbackPrompt: null,
+    });
   });
 
   afterEach(() => {
