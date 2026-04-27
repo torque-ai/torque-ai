@@ -18,21 +18,21 @@ function makeConfig(tmpDir) {
 }
 
 function spawnTorqueRemote(args, env, cwd) {
-  // 60s timeout (was 10s) because torque-remote shells out to
-  // `node bin/torque-coord-client {results, acquire, release}` — that's
-  // 3 separate Node spawns per invocation. On Windows under Defender
-  // real-time scan, each `node` cold-start measures ~8-9s on the test
-  // remote (timed 2026-04-27: noop `node -e '0'` = 8866ms; coord-client
-  // results-then-acquire = 14729ms + 11819ms). 3 × 9s = 27s pure startup
-  // overhead; 10s wasn't enough margin even when the daemon answered
-  // immediately. The proper fix — collapsing the multi-call protocol into
-  // one node process — is a separate refactor; bumping the test ceiling
-  // unblocks the gate without changing observed coord behavior.
+  // 30s timeout (was 10s) because torque-remote shells out to
+  // `node bin/torque-coord-client begin` then `node bin/torque-coord-client
+  // release` — two separate Node spawns per invocation. On Windows under
+  // Defender real-time scan, each `node` cold-start measures ~8-9s on the
+  // test remote (timed 2026-04-27: noop `node -e '0'` = 8866ms). 2 × 9s =
+  // ~18s pure startup overhead, so 10s wasn't enough margin even when the
+  // daemon answered immediately. The previous flow paid 3 spawns; the
+  // `begin` consolidation (commit 88fd1c62 follow-up) cut that to 2,
+  // bringing the wall back under 30s. If Defender exclusions for node.exe
+  // get configured on the test runner, this can drop further.
   return spawnSync('bash', [TORQUE_REMOTE, ...args], {
     env: { ...process.env, ...env },
     cwd,
     encoding: 'utf8',
-    timeout: 60000,
+    timeout: 30000,
   });
 }
 
