@@ -174,4 +174,120 @@ describe('factory shipped detector', () => {
     expect(result.signals.title_tokens).toEqual(expect.arrayContaining(['logging', 'metrics', 'dashboard', 'wire']));
     expect(result.signals.title_tokens).not.toContain('and');
   });
+
+  // Regression: live DLPhone bug 2026-04-28. The architect kept regenerating
+  // identical "dlphone-typed-lan-startup-failure-reasons" plans because the
+  // shipped detector was scoring 0.6+ token overlap against unrelated merge
+  // commits. Specifically wi=2010 with title tokens
+  // [dlphone, unity, playmode, host, join, smoke] auto-shipped against
+  // "Merge branch 'feat/factory-681-add-first-run-unity-host-join-ux-smoke-c'"
+  // which matched [unity, host, join, smoke] (4/6 = 0.67) but lacks the
+  // discriminating "dlphone" project token. The fix requires commitKeywordHit
+  // (top-2 tokens BOTH in the subject) for any ship decision.
+  it('does NOT ship when score >= 0.6 but the project-identifying top tokens are absent (DLPhone false-positive)', () => {
+    writeRepoFiles(repoRoot, FILE_REFERENCES.slice(0, 1));
+    const runGitLog = vi.fn().mockReturnValue([
+      "Merge branch 'feat/factory-681-add-first-run-unity-host-join-ux-smoke-c'",
+      "Merge branch 'feat/factory-680-finish-udp-packet-contract-regression-co'",
+    ]);
+    const detector = createShippedDetector({ repoRoot, runGitLog });
+
+    const result = detector.detectShipped({
+      title: 'DLPhone Unity Playmode Host Join Smoke',
+      content: createPlanContent('DLPhone Unity Playmode Host Join Smoke', FILE_REFERENCES.slice(0, 1)),
+    });
+
+    // 4/6 token overlap (unity, host, join, smoke) → score 0.67, but
+    // top-2 = [dlphone, unity] and "dlphone" isn't in any subject →
+    // commitKeywordHit must be false → must NOT ship.
+    expect(result.signals.git_match_score).toBeGreaterThanOrEqual(0.6);
+    expect(result.signals.commit_keyword_hit).toBe(false);
+    expect(result.shipped).toBe(false);
+  });
+
+  it('DOES ship when the project-identifying top tokens AND the score threshold are both met', () => {
+    writeRepoFiles(repoRoot, FILE_REFERENCES.slice(0, 9));
+    const runGitLog = vi.fn().mockReturnValue([
+      'feat(dlphone): unity playmode host join smoke',
+    ]);
+    const detector = createShippedDetector({ repoRoot, runGitLog });
+
+    const result = detector.detectShipped({
+      title: 'DLPhone Unity Playmode Host Join Smoke',
+      content: createPlanContent('DLPhone Unity Playmode Host Join Smoke', FILE_REFERENCES.slice(0, 9)),
+    });
+
+    // top-2 [dlphone, unity] both in subject → commitKeywordHit:true, all 6
+    // tokens overlap → score 1.0 → high confidence shipped.
+    expect(result.signals.commit_keyword_hit).toBe(true);
+    expect(result.signals.git_match_score).toBeGreaterThanOrEqual(0.6);
+    expect(result.shipped).toBe(true);
+    expect(result.confidence).toBe('high');
+  });
+
+  // The medium-confidence branch (file_existence_ratio >= 0.8 AND
+  // gitMatchScore >= 0.3) also requires commitKeywordHit now, so a high
+  // file-existence + weak token overlap on an unrelated subject can't sneak
+  // through without the project-identifying token.
+  it('medium-confidence branch also requires commitKeywordHit', () => {
+    writeRepoFiles(repoRoot, FILE_REFERENCES.slice(0, 9));
+    const runGitLog = vi.fn().mockReturnValue([
+      "Merge branch 'feat/factory-681-add-first-run-unity-host-join-ux-smoke-c'",
+    ]);
+    const detector = createShippedDetector({ repoRoot, runGitLog });
+
+    const result = detector.detectShipped({
+      title: 'DLPhone Unity Host Join Stress Coverage',
+      content: createPlanContent('DLPhone Unity Host Join Stress Coverage', FILE_REFERENCES.slice(0, 9)),
+    });
+
+    // file_existence_ratio = 1.0, gitMatchScore = 0.5 (3/6: unity, host, join)
+    // — would have qualified for medium under the old logic, but
+    // commitKeywordHit is false because "dlphone" is missing.
+    expect(result.signals.file_existence_ratio).toBeGreaterThanOrEqual(0.8);
+    expect(result.signals.git_match_score).toBeGreaterThanOrEqual(0.3);
+    expect(result.signals.commit_keyword_hit).toBe(false);
+    expect(result.shipped).toBe(false);
+  });
+
+  // Regression: DLPhone (and other non-Node projects) had file_existence_ratio:
+  // null because the FILE_REFERENCE_REGEX whitelist didn't include `.cs`,
+  // `simtests/`, or `client/UnityProject/Assets/`. That meant the detector's
+  // file-existence signal was always null for these projects, leaving it
+  // entirely dependent on git-token matching — which then produced the
+  // false-positive above.
+  it('extracts C# file references in simtests/ (DLPhone-style)', () => {
+    const cs = ['simtests/HelloSimTests.cs', 'simtests/CombatTests.cs', 'simtests/ConfigTestPaths.cs'];
+    writeRepoFiles(repoRoot, cs);
+    const runGitLog = vi.fn().mockReturnValue([]);
+    const detector = createShippedDetector({ repoRoot, runGitLog });
+
+    const result = detector.detectShipped({
+      title: 'DLPhone Hello Sim Determinism Coverage',
+      content: createPlanContent('DLPhone Hello Sim Determinism Coverage', cs),
+    });
+
+    expect(result.signals.file_reference_total).toBe(3);
+    expect(result.signals.existing_file_count).toBe(3);
+    expect(result.signals.file_existence_ratio).toBe(1);
+  });
+
+  it('extracts Unity asset and PowerShell file references', () => {
+    const refs = [
+      'client/UnityProject/Assets/Scripts/PlayerController.cs',
+      'client/UnityProject/Assets/Prefabs/Player.prefab',
+      'scripts/Invoke-AllChecks.ps1',
+    ];
+    writeRepoFiles(repoRoot, refs);
+    const runGitLog = vi.fn().mockReturnValue([]);
+    const detector = createShippedDetector({ repoRoot, runGitLog });
+
+    const result = detector.detectShipped({
+      title: 'StateTrace WPF Render Pipeline Coverage',
+      content: createPlanContent('StateTrace WPF Render Pipeline Coverage', refs),
+    });
+
+    expect(result.signals.file_reference_total).toBe(3);
+    expect(result.signals.existing_file_count).toBe(3);
+  });
 });

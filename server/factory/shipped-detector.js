@@ -4,7 +4,12 @@ const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
 
-const FILE_REFERENCE_REGEX = /(server|dashboard|docs|scripts|tests)\/[\w.\-/]+\.(tsx|jsx|json|html|sql|css|md|ts|js)/g;
+// Whitelist of source-tree roots and file extensions for plan-referenced files.
+// The regex extracts file paths mentioned in plan markdown so the detector can
+// check whether the work has been completed (file exists on disk + git log
+// matches). Add a directory or extension here when a factory project's source
+// layout isn't covered — e.g., DLPhone's `simtests/*.cs` and Unity assets.
+const FILE_REFERENCE_REGEX = /(server|dashboard|docs|scripts|tests|simtests|simcore|client|src|lib|app|pkg)\/[\w.\-/]+\.(tsx|jsx|json|html|sql|css|md|ts|js|cs|csproj|cshtml|xaml|unity|asset|prefab|asmdef|py|go|rs|rb|java|kt|swift|cpp|c|h|hpp|ps1|psm1|psd1|yml|yaml|toml)/g;
 const TITLE_STOPWORDS = new Set([
   'implementation',
   'plan',
@@ -147,10 +152,18 @@ function createShippedDetector({ repoRoot, runGitLog } = {}) {
 
     let confidence = 'low';
     let shipped = false;
-    if (gitMatchScore >= 0.6 || (commitKeywordHit && fileExistenceRatio !== null && fileExistenceRatio >= 0.8)) {
+    // Every "shipped" decision requires commitKeywordHit (top-2 title tokens
+    // both appear in some matching commit subject). Without this gate, generic
+    // word overlap with topically-related-but-distinct merge subjects falsely
+    // ships new work items — observed live on DLPhone where merge commits like
+    // "feat/factory-681-add-first-run-unity-host-join-ux-smoke-c" matched 4 of
+    // 6 tokens of an UNRELATED new plan that happened to share host/join/smoke
+    // terminology. The project-identifying first 1-2 tokens (e.g., "dlphone")
+    // must appear in the matched subject for the ship signal to be trustworthy.
+    if (commitKeywordHit && (gitMatchScore >= 0.6 || (fileExistenceRatio !== null && fileExistenceRatio >= 0.8))) {
       confidence = 'high';
       shipped = true;
-    } else if (fileExistenceRatio !== null && fileExistenceRatio >= 0.8 && gitMatchScore >= 0.3) {
+    } else if (commitKeywordHit && fileExistenceRatio !== null && fileExistenceRatio >= 0.8 && gitMatchScore >= 0.3) {
       confidence = 'medium';
       shipped = true;
     }
