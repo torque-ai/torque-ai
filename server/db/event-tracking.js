@@ -12,10 +12,20 @@
 const { safeJsonParse } = require('../utils/json');
 
 let db;
+
+// Lazy module-level cache of prepared statements keyed by a stable name.
+const _stmtCache = new Map();
+function _getStmt(key, sql) {
+  const cached = _stmtCache.get(key);
+  if (cached) return cached;
+  const stmt = db.prepare(sql);
+  _stmtCache.set(key, stmt);
+  return stmt;
+}
 let getTaskFn;
 const dbFunctions = {};
 
-function setDb(dbInstance) { db = dbInstance; }
+function setDb(dbInstance) { db = dbInstance; _stmtCache.clear(); }
 function setGetTask(fn) { getTaskFn = fn; }
 function setDbFunctions(fns) { Object.assign(dbFunctions, fns); }
 
@@ -618,7 +628,7 @@ function importData(importObj, options = {}) {
 
         if (existing) {
           // Update existing task
-          db.prepare('DELETE FROM tasks WHERE id = ?').run(task.id);
+          _getStmt('deleteTask', 'DELETE FROM tasks WHERE id = ?').run(task.id);
         }
 
         createTask({
@@ -666,8 +676,8 @@ function importData(importObj, options = {}) {
         }
 
         if (existing) {
-          db.prepare('DELETE FROM pipeline_steps WHERE pipeline_id = ?').run(pipeline.id);
-          db.prepare('DELETE FROM pipelines WHERE id = ?').run(pipeline.id);
+          _getStmt('deletePipelineSteps', 'DELETE FROM pipeline_steps WHERE pipeline_id = ?').run(pipeline.id);
+          _getStmt('deletePipeline', 'DELETE FROM pipelines WHERE id = ?').run(pipeline.id);
         }
 
         createPipeline({

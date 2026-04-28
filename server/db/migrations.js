@@ -871,6 +871,7 @@ function runMigrations(sqliteDb) {
         const stmts = migration.up.split(';').filter(s => s.trim());
         for (const stmt of stmts) {
           try {
+            // eslint-disable-next-line torque/no-prepare-in-loop -- migration DDL split into statements; each is unique SQL run exactly once when the migration applies
             sqliteDb.prepare(stmt).run();
           } catch (err) {
             // Tolerate "duplicate column" errors — the column may already exist in the base schema
@@ -883,6 +884,7 @@ function runMigrations(sqliteDb) {
         }
       }
 
+      // eslint-disable-next-line torque/no-prepare-in-loop -- inside the per-migration runOne transaction; each migration applies exactly once at startup, no cache benefit across the runner's lifetime
       sqliteDb.prepare(
         'INSERT INTO schema_migrations (version, name, applied_at) VALUES (?, ?, ?)'
       ).run(migration.version, migration.name, new Date().toISOString());
@@ -911,6 +913,7 @@ function rollbackMigration(sqliteDb, version) {
     void _err;
     const stmts = migration.down.split(';').filter(function(s) { return s.trim(); });
     for (const stmt of stmts) {
+      // eslint-disable-next-line torque/no-prepare-in-loop -- rollback DDL split into statements; each is unique SQL run exactly once during rollback
       sqliteDb.prepare(stmt).run();
     }
   }

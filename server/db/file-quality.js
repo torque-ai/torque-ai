@@ -12,8 +12,19 @@ const { TASK_TIMEOUTS } = require('../constants');
 let db;
 let _getTaskFn;
 
+// Lazy module-level cache of prepared statements keyed by a stable name.
+const _stmtCache = new Map();
+function _getStmt(key, sql) {
+  const cached = _stmtCache.get(key);
+  if (cached) return cached;
+  const stmt = db.prepare(sql);
+  _stmtCache.set(key, stmt);
+  return stmt;
+}
+
 function setDb(dbInstance) {
   db = dbInstance;
+  _stmtCache.clear();
 }
 
 function setGetTask(fn) {
@@ -686,7 +697,7 @@ function checkRateLimit(provider, taskId = null) {
 
       if (!windowStart || (now - windowStart) > limit.window_seconds * 1000) {
         // Reset window
-        db.prepare('UPDATE rate_limits SET current_value = 1, window_start = ? WHERE id = ?')
+        _getStmt('resetRateWindow', 'UPDATE rate_limits SET current_value = 1, window_start = ? WHERE id = ?')
           .run(now.toISOString(), limit.id);
       } else if (limit.current_value >= limit.max_value) {
         const windowEnd = new Date(windowStart.getTime() + limit.window_seconds * 1000);
@@ -694,7 +705,7 @@ function checkRateLimit(provider, taskId = null) {
         recordRateLimitEvent(provider, taskId, 'blocked', limit.current_value, limit.max_value);
         return { allowed: false, reason: `Rate limit reached (${limit.current_value}/${limit.max_value} per ${limit.window_seconds}s)`, retryAfter };
       } else {
-        db.prepare('UPDATE rate_limits SET current_value = current_value + 1 WHERE id = ?')
+        _getStmt('incrRateValue', 'UPDATE rate_limits SET current_value = current_value + 1 WHERE id = ?')
           .run(limit.id);
       }
     }
@@ -821,7 +832,7 @@ function checkOutputSizeLimits(taskId, provider, outputSize, fileChanges = []) {
 
   // Record violations
   for (const v of violations) {
-    db.prepare(`
+    _getStmt('insertOutputViolation', `
       INSERT INTO output_violations (task_id, violation_type, actual_size, max_allowed, file_path, created_at)
       VALUES (?, ?, ?, ?, ?, ?)
     `).run(taskId, v.type, v.actual, v.max, v.filePath || null, new Date().toISOString());

@@ -107,8 +107,19 @@ let getTaskFn;
 
 let _conflictDataDir = null;
 
+// Lazy module-level cache of prepared statements keyed by a stable name.
+const _stmtCache = new Map();
+function _getStmt(key, sql) {
+  const cached = _stmtCache.get(key);
+  if (cached) return cached;
+  const stmt = db.prepare(sql);
+  _stmtCache.set(key, stmt);
+  return stmt;
+}
+
 function setDb(dbInstance) {
   db = dbInstance;
+  _stmtCache.clear();
   fileBaselines.setDb(dbInstance);
   fileQuality.setDb(dbInstance);
   fileTrackingScans.setDb(dbInstance);
@@ -258,7 +269,7 @@ function runSecurityScan(taskId, filePath, content) {
 
   // Record findings
   for (const issue of issues) {
-    db.prepare(`
+    _getStmt('insertSecurityScan', `
       INSERT INTO security_scans (task_id, file_path, scan_type, severity, issue_type, description, line_number, code_snippet, scanned_at)
       VALUES (?, ?, 'static', ?, ?, ?, ?, ?, ?)
     `).run(taskId, filePath, issue.severity, issue.category, issue.description, issue.lineNumber, issue.codeSnippet, new Date().toISOString());
@@ -411,7 +422,7 @@ async function runStyleCheck(taskId, filePath, workingDirectory, autoFix = false
       results.push(result);
 
       // Record result
-      db.prepare(`
+      _getStmt('insertStyleCheck', `
         INSERT INTO style_checks (task_id, file_path, linter, issue_count, issues, auto_fixed, checked_at)
         VALUES (?, ?, ?, ?, ?, ?, ?)
       `).run(taskId, filePath, linter.name, result.passed ? 0 : 1, result.errorOutput || result.output, result.autoFixed ? 1 : 0, new Date().toISOString());
@@ -499,7 +510,7 @@ function analyzeChangeImpact(taskId, changedFile, workingDirectory) {
 
   // Record impacts
   for (const impact of impacts) {
-    db.prepare(`
+    _getStmt('insertChangeImpact', `
       INSERT INTO change_impacts (task_id, changed_file, impacted_file, impact_type, confidence, analyzed_at)
       VALUES (?, ?, ?, ?, ?, ?)
     `).run(taskId, changedFile, impact.impactedFile, impact.impactType, impact.confidence, new Date().toISOString());

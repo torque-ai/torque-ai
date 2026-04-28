@@ -14,8 +14,19 @@ const { SOURCE_EXTENSIONS, UI_EXTENSIONS } = require('../constants');
 
 let db;
 
+// Lazy module-level cache of prepared statements keyed by a stable name.
+const _stmtCache = new Map();
+function _getStmt(key, sql) {
+  const cached = _stmtCache.get(key);
+  if (cached) return cached;
+  const stmt = db.prepare(sql);
+  _stmtCache.set(key, stmt);
+  return stmt;
+}
+
 function setDb(dbInstance) {
   db = dbInstance;
+  _stmtCache.clear();
 }
 
 // ============================================
@@ -144,7 +155,7 @@ function detectDeadCode(taskId, filePath, content) {
   }
 
   for (const item of deadCode) {
-    db.prepare(`
+    _getStmt('insertDeadCode', `
       INSERT INTO dead_code_results (task_id, file_path, dead_code_type, identifier, line_number, confidence, detected_at)
       VALUES (?, ?, ?, ?, ?, ?, ?)
     `).run(taskId, filePath, item.type, item.identifier, item.line, item.confidence, now);
@@ -494,7 +505,7 @@ function verifyTypeReferences(taskId, filePath, content, workingDirectory) {
       searchDir(workingDirectory);
     }
 
-    db.prepare(`
+    _getStmt('insertTypeVerification', `
       INSERT INTO type_verification_results (task_id, file_path, type_name, type_kind, exists_in_codebase, found_in_file, severity, details, verified_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
@@ -602,7 +613,7 @@ function analyzeBuildOutput(taskId, buildOutput) {
   }
 
   for (const error of errors) {
-    db.prepare(`
+    _getStmt('insertBuildErrorAnalysis', `
       INSERT INTO build_error_analysis (task_id, error_code, error_type, file_path, line_number, message, suggested_fix, auto_fixable, analyzed_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
