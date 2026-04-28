@@ -760,4 +760,26 @@ export const codexBreaker = {
   }),
 };
 
-export default { tasks, providers, stats, planProjects, hosts, peekHosts, budget, schedules, study, taskLogs, system, instances, projectTuning, benchmarks, workflows, workflowSpecs, approvals, governance, coordination, versionControl, strategic, routingTemplates, factory, codexBreaker };
+// ─── Remote Test Coordinator (workstation lock daemon mirror) ──────────────
+
+export const coord = {
+  getActive: async (opts = {}) => {
+    const ctrl = opts.signal ? null : new AbortController();
+    const signal = opts.signal || ctrl?.signal;
+    const timer = ctrl ? setTimeout(() => ctrl.abort(), opts.timeout_ms || 8000) : null;
+    try {
+      const res = await fetch('/api/coord/active', { signal, credentials: 'same-origin' });
+      if (!res.ok) {
+        // The endpoint always returns 200 even when the workstation is
+        // unreachable. A non-200 here means the TORQUE server itself failed,
+        // which is a different concern — surface it as an error.
+        throw new Error(`/api/coord/active returned HTTP ${res.status}`);
+      }
+      return await res.json();
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  },
+};
+
+export default { tasks, providers, stats, planProjects, hosts, peekHosts, budget, schedules, study, taskLogs, system, instances, projectTuning, benchmarks, workflows, workflowSpecs, approvals, governance, coordination, versionControl, strategic, routingTemplates, factory, codexBreaker, coord };

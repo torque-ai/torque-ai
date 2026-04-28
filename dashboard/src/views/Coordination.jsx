@@ -4,6 +4,7 @@ import { useToast } from '../components/Toast';
 import StatCard from '../components/StatCard';
 import { formatDate } from '../utils/formatters';
 import LoadingSkeleton from '../components/LoadingSkeleton';
+import { RemoteCoordPanel } from '../components/RemoteCoordPanel';
 
 const PAGE_LIMIT = 25;
 
@@ -174,6 +175,9 @@ export default function Coordination() {
 
   return (
     <div className="p-6">
+      <div className="mb-4">
+        <RemoteCoordPanel />
+      </div>
       <div className="mb-6">
         <h2 className="heading-lg text-white">Coordination</h2>
         <p className="text-slate-400 text-sm mt-1">Multi-agent coordination, routing rules, and active claims</p>
