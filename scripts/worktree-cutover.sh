@@ -42,6 +42,26 @@ resolve_torque_pid_file() {
   echo "${TMPDIR:-/tmp}/torque/torque.pid"
 }
 
+resolve_torque_handoff_file() {
+  if [ -n "${TORQUE_HANDOFF_FILE:-}" ]; then
+    echo "${TORQUE_HANDOFF_FILE}"
+    return 0
+  fi
+  if [ -n "${TORQUE_DATA_DIR:-}" ]; then
+    echo "${TORQUE_DATA_DIR}/restart-handoff.json"
+    return 0
+  fi
+  if [ -f "${HOME}/.torque/restart-handoff.json" ] || [ -d "${HOME}/.torque" ]; then
+    echo "${HOME}/.torque/restart-handoff.json"
+    return 0
+  fi
+  if [ -f "${REPO_ROOT}/server/restart-handoff.json" ] || [ -d "${REPO_ROOT}/server" ]; then
+    echo "${REPO_ROOT}/server/restart-handoff.json"
+    return 0
+  fi
+  echo "${TMPDIR:-/tmp}/torque/restart-handoff.json"
+}
+
 read_pid_signature() {
   local pid_file="${1:-}"
   if [ -z "$pid_file" ] || [ ! -f "$pid_file" ]; then
@@ -79,6 +99,28 @@ try {
 EOF
 }
 
+restart_handoff_matches_barrier() {
+  local barrier_id="${1:-}"
+  local handoff_file="${2:-}"
+  if [ -z "$barrier_id" ] || [ -z "$handoff_file" ] || [ ! -f "$handoff_file" ]; then
+    return 1
+  fi
+  node - "$barrier_id" "$handoff_file" <<'EOF'
+const fs = require('fs');
+
+const barrierId = process.argv[2];
+const handoffFile = process.argv[3];
+if (!barrierId || !handoffFile) process.exit(1);
+
+try {
+  const parsed = JSON.parse(fs.readFileSync(handoffFile, 'utf8'));
+  process.exit(parsed && parsed.barrier_id === barrierId ? 0 : 1);
+} catch {
+  process.exit(1);
+}
+EOF
+}
+
 pid_signature_changed() {
   local before="${1:-}"
   local after="${2:-}"
@@ -86,6 +128,7 @@ pid_signature_changed() {
 }
 
 TORQUE_PID_FILE_PATH="$(resolve_torque_pid_file)"
+TORQUE_HANDOFF_FILE_PATH="$(resolve_torque_handoff_file)"
 TORQUE_PRE_RESTART_PID_SIGNATURE=""
 
 if [ ! -d "$WORKTREE_DIR" ]; then
@@ -330,7 +373,8 @@ if [ "$TORQUE_RUNNING" = "true" ]; then
     echo "  GET ${TORQUE_API}/api/v2/tasks/<task_id>"
     echo "[dry-run] Would confirm process turnover before accepting health:"
     echo "  PID file: ${TORQUE_PID_FILE_PATH}"
-    echo "  Require changed pid/startedAt or outage + recovery fallback"
+    echo "  Restart handoff: ${TORQUE_HANDOFF_FILE_PATH}"
+    echo "  Require matching restart handoff plus changed pid/startedAt or outage + recovery fallback"
     echo "[dry-run] Would verify new server:"
     echo "  curl http://127.0.0.1:3458/sse"
   else
@@ -409,12 +453,14 @@ if [ "$TORQUE_RUNNING" = "true" ]; then
     if [ "${BARRIER_STATUS:-}" != "restart_scheduled" ]; then
       echo "  Waiting for pipeline drain..."
       LAST_BLOCKER_REPORT=0
+      BARRIER_READY_FOR_RESTART=false
       while true; do
         TASK_RESP=$(curl -s --max-time 5 "${TORQUE_API}/api/v2/tasks/${BARRIER_TASK_ID}" 2>/dev/null || echo "")
         TASK_STATUS=$(echo "$TASK_RESP" | sed -nE 's/.*"status"[[:space:]]*:[[:space:]]*"([^"\\]+)".*/\1/p' | head -1 || true)
 
         if [ "$TASK_STATUS" = "completed" ]; then
           echo "[ok] Barrier completed — server restarting."
+          BARRIER_READY_FOR_RESTART=true
           break
         fi
         if [ "$TASK_STATUS" = "failed" ]; then
@@ -444,9 +490,24 @@ if [ "$TORQUE_RUNNING" = "true" ]; then
           exit 2
         fi
         if [ -z "$TASK_STATUS" ]; then
-          # Server may have already shut down mid-poll — this is expected
-          # during the restart grace period. Break and check for new server.
-          echo "  Server unreachable (expected during restart)."
+          if restart_handoff_matches_barrier "$BARRIER_TASK_ID" "$TORQUE_HANDOFF_FILE_PATH"; then
+            # Once the server stages the successor-owned handoff, a brief API
+            # outage is expected while the process exits and restarts.
+            echo "  Server unreachable after matching restart handoff (expected during restart)."
+            BARRIER_READY_FOR_RESTART=true
+            break
+          fi
+          echo "[error] TORQUE became unreachable while barrier ${BARRIER_TASK_ID:0:8} was still draining."
+          echo "        No matching restart handoff exists at ${TORQUE_HANDOFF_FILE_PATH}."
+          echo "        Refusing to start a successor over an undrained barrier."
+          echo "        Merge landed but TORQUE was NOT safely restarted."
+          echo "        Check torque.log, the PID file, and the running task state before recovery."
+          exit 2
+        fi
+
+        if restart_handoff_matches_barrier "$BARRIER_TASK_ID" "$TORQUE_HANDOFF_FILE_PATH"; then
+          echo "[ok] Restart handoff staged for barrier ${BARRIER_TASK_ID:0:8}; waiting for successor."
+          BARRIER_READY_FOR_RESTART=true
           break
         fi
 
@@ -465,6 +526,8 @@ if [ "$TORQUE_RUNNING" = "true" ]; then
         echo "    Barrier ${BARRIER_TASK_ID:0:8}: ${TASK_STATUS} — sleeping 10s..."
         sleep 10
       done
+    else
+      BARRIER_READY_FOR_RESTART=true
     fi
 
     # 4. Wait for the new server to come up. The barrier handler triggers
@@ -530,6 +593,12 @@ if [ "$TORQUE_RUNNING" = "true" ]; then
     fi
 
     if [ "$RESTART_CONFIRMED" != "true" ]; then
+      if [ "${BARRIER_READY_FOR_RESTART:-false}" != "true" ] && \
+         ! restart_handoff_matches_barrier "$BARRIER_TASK_ID" "$TORQUE_HANDOFF_FILE_PATH"; then
+        echo "[error] TORQUE did not come back, but no completed barrier or matching restart handoff was observed."
+        echo "        Refusing manual start to avoid replacing a server that may still be draining work."
+        exit 2
+      fi
       echo "[warn] TORQUE did not come back up within ${RESTART_WAIT_SECONDS}s. Starting manually..."
       nohup node "${REPO_ROOT}/server/index.js" > /dev/null 2>&1 &
       MANUAL_WAIT_SECONDS=${CUTOVER_MANUAL_START_WAIT_SECONDS:-240}

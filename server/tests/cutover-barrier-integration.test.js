@@ -1,6 +1,7 @@
 'use strict';
 
-const { execFileSync } = require('child_process');
+const childProcess = require('child_process');
+const { execFileSync } = childProcess;
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -43,7 +44,10 @@ git() {
   case "$1" in
     rev-parse)   echo "/fake/repo" ;;
     show-ref)    return 0 ;;
+    symbolic-ref) echo "main" ;;
     merge)       echo "Already up to date." ;;
+    merge-base)  return 0 ;;
+    checkout)    return 0 ;;
     diff)        return 0 ;;
     worktree)    return 0 ;;
     branch)      return 0 ;;
@@ -74,7 +78,10 @@ git() {
   case "$1" in
     rev-parse)   echo "/tmp/cutover-test-$$" ;;
     show-ref)    return 0 ;;
+    symbolic-ref) echo "main" ;;
     merge)       echo "Already up to date." ;;
+    merge-base)  return 0 ;;
+    checkout)    return 0 ;;
     diff)        return 0 ;;
     worktree)    return 0 ;;
     branch)      return 0 ;;
@@ -136,7 +143,10 @@ git() {
   case "$1" in
     rev-parse)   echo "$FAKE_REPO" ;;
     show-ref)    return 0 ;;
+    symbolic-ref) echo "main" ;;
     merge)       echo "Already up to date." ;;
+    merge-base)  return 0 ;;
+    checkout)    return 0 ;;
     diff)        return 0 ;;
     worktree)    return 0 ;;
     branch)      return 0 ;;
@@ -198,6 +208,107 @@ rm -rf "$FAKE_ROOT"
       env: { ...process.env, ...env },
       windowsHide: true,
     });
+  } finally {
+    try {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    } catch { /* cleanup best-effort */ }
+  }
+}
+
+function runMidDrainUnreachableSimulation(featureName, env = {}) {
+  const wrapper = `
+#!/usr/bin/env bash
+set -euo pipefail
+
+SAFE_NAME=$(echo "${featureName}" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9._-]/-/g')
+FAKE_ROOT=$(mktemp -d)
+FAKE_REPO="$FAKE_ROOT/repo"
+FAKE_WORKTREE="$FAKE_REPO/.worktrees/feat-$SAFE_NAME"
+FAKE_DATA="$FAKE_ROOT/data"
+mkdir -p "$FAKE_WORKTREE" "$FAKE_DATA" "$FAKE_REPO/server"
+PID_FILE="$FAKE_DATA/torque.pid"
+HANDOFF_FILE="$FAKE_DATA/restart-handoff.json"
+printf '{"pid":111,"startedAt":"2026-04-28T13:47:00.000Z","heartbeatAt":"2026-04-28T13:47:05.000Z"}' > "$PID_FILE"
+
+git() {
+  if [ "$1" = "-C" ]; then
+    shift 2
+  fi
+  case "$1" in
+    rev-parse)    echo "$FAKE_REPO" ;;
+    show-ref)     return 0 ;;
+    symbolic-ref) echo "main" ;;
+    merge)        echo "Already up to date." ;;
+    merge-base)   return 0 ;;
+    diff)         return 0 ;;
+    worktree)     return 0 ;;
+    branch)       return 0 ;;
+    status)       return 0 ;;
+    *)            command git "$@" ;;
+  esac
+}
+export -f git
+
+sleep() { :; }
+export -f sleep
+
+nohup() {
+  echo "NOHUP_CALLED"
+  return 0
+}
+export -f nohup
+
+curl() {
+  case "\${*}" in
+    */api/v2/system/restart-server*)
+      echo '{"task_id":"22222222-2222-4222-8222-222222222222","status":"running"}'
+      return 0
+      ;;
+    */api/v2/tasks/22222222-2222-4222-8222-222222222222*)
+      return 1
+      ;;
+    */api/v2/tasks?status=*)
+      echo '{"items":[]}'
+      return 0
+      ;;
+    */livez*|*/api/version*)
+      echo '{"ok":true}'
+      return 0
+      ;;
+    *)
+      echo '{}'
+      return 0
+      ;;
+  esac
+}
+export -f curl
+
+export TORQUE_PID_FILE="$PID_FILE"
+export TORQUE_HANDOFF_FILE="$HANDOFF_FILE"
+
+SCRIPT_BODY=$(tail -n +3 "${SCRIPT_PATH.replace(/\\/g, '/')}")
+eval "$SCRIPT_BODY" <<< ""
+
+rm -rf "$FAKE_ROOT"
+`;
+
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cutover-mid-drain-'));
+  const wrapperPath = path.join(tmpDir, 'mid-drain-cutover.sh');
+  fs.writeFileSync(wrapperPath, wrapper, { mode: 0o755 });
+
+  try {
+    const result = childProcess.spawnSync(BASH_EXECUTABLE, [wrapperPath, featureName], {
+      encoding: 'utf8',
+      timeout: 10000,
+      env: { ...process.env, ...env },
+      windowsHide: true,
+    });
+    return {
+      status: result.status,
+      stdout: result.stdout || '',
+      stderr: result.stderr || '',
+      error: result.error || null,
+    };
   } finally {
     try {
       fs.rmSync(tmpDir, { recursive: true, force: true });
@@ -275,7 +386,8 @@ describe('worktree-cutover.sh barrier integration', () => {
     });
 
     it('handles server unreachable during restart grace period', () => {
-      expect(scriptSource).toContain('Server unreachable (expected during restart)');
+      expect(scriptSource).toContain('Server unreachable after matching restart handoff');
+      expect(scriptSource).toContain('No matching restart handoff exists');
     });
 
     it('waits for new server after barrier completes', () => {
@@ -285,6 +397,8 @@ describe('worktree-cutover.sh barrier integration', () => {
 
     it('requires process turnover before accepting a healthy server', () => {
       expect(scriptSource).toContain('TORQUE_PID_FILE');
+      expect(scriptSource).toContain('TORQUE_HANDOFF_FILE');
+      expect(scriptSource).toContain('restart_handoff_matches_barrier');
       expect(scriptSource).toContain('confirmed via PID turnover');
       expect(scriptSource).toContain('never showed PID turnover');
     });
@@ -369,7 +483,8 @@ describe('worktree-cutover.sh barrier integration', () => {
     it('prints the turnover confirmation step', () => {
       if (!dryRunOutput) return;
       expect(dryRunOutput).toContain('[dry-run] Would confirm process turnover before accepting health');
-      expect(dryRunOutput).toContain('Require changed pid/startedAt');
+      expect(dryRunOutput).toContain('Require matching restart handoff');
+      expect(dryRunOutput).toContain('changed pid/startedAt');
     });
 
     it('prints the SSE verification call', () => {
@@ -391,6 +506,18 @@ describe('worktree-cutover.sh barrier integration', () => {
       if (!output) return;
       expect(output).toContain('Confirming restart via PID turnover');
       expect(output).toContain('TORQUE restarted on updated main (confirmed via PID turnover)');
+    });
+  });
+
+  describe('simulated mid-drain outage', () => {
+    it('refuses manual start when the server disappears before staging a restart handoff', () => {
+      const result = runMidDrainUnreachableSimulation('test-barrier-feature');
+
+      expect(result.error).toBeNull();
+      expect(result.status).toBe(2);
+      expect(result.stdout).toContain('No matching restart handoff exists');
+      expect(result.stdout).toContain('Refusing to start a successor over an undrained barrier');
+      expect(result.stdout).not.toContain('NOHUP_CALLED');
     });
   });
 

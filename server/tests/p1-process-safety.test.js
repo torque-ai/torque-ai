@@ -29,11 +29,29 @@ describe('index.killStaleInstance process safety', () => {
     return require('../index');
   }
 
+  function clearSystemBarriers() {
+    try {
+      const pidFile = index && index._testing && index._testing.PID_FILE;
+      if (!pidFile) return;
+      const Database = require('better-sqlite3');
+      const sql = new Database(path.join(path.dirname(pidFile), 'tasks.db'));
+      sql.prepare("DELETE FROM tasks WHERE provider = 'system'").run();
+      sql.close();
+    } catch { /* test database may not be initialized yet */ }
+    try {
+      const pidFile = index && index._testing && index._testing.PID_FILE;
+      if (!pidFile) return;
+      const handoffPath = path.join(path.dirname(pidFile), 'restart-handoff.json');
+      if (fs.existsSync(handoffPath)) fs.unlinkSync(handoffPath);
+    } catch { /* cleanup best-effort */ }
+  }
+
   beforeEach(() => {
     tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'torque-p1-index-'));
     originalDataDir = process.env.TORQUE_DATA_DIR;
     process.env.TORQUE_DATA_DIR = tempDir;
     index = loadIndexForTempDir();
+    clearSystemBarriers();
   });
 
   afterEach(() => {
@@ -44,6 +62,7 @@ describe('index.killStaleInstance process safety', () => {
         fs.unlinkSync(pidFile);
       }
     } catch { /* ignore */ }
+    clearSystemBarriers();
     if (tempDir) {
       try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch { /* ignore */ }
     }
@@ -98,6 +117,55 @@ describe('index.killStaleInstance process safety', () => {
       expect(processKillSpy).toHaveBeenCalledTimes(2);
     }
     expect(fs.existsSync(pidPath)).toBe(false);
+  });
+
+  it('blocks competing startup instead of killing a stale PID during an undrained restart barrier', () => {
+    const oldPid = 98767;
+    const pidPath = index._testing.PID_FILE;
+    fs.writeFileSync(pidPath, JSON.stringify({
+      pid: oldPid,
+      startedAt: new Date(Date.now() - 120000).toISOString(),
+      heartbeatAt: new Date(Date.now() - 60000).toISOString(),
+    }), 'utf8');
+
+    const Database = require('better-sqlite3');
+    const sql = new Database(path.join(path.dirname(pidPath), 'tasks.db'));
+    sql.prepare("DELETE FROM tasks WHERE provider = 'system'").run();
+    sql.prepare(`
+      INSERT INTO tasks (id, status, task_description, provider, created_at, started_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run(
+      'barrier-active',
+      'running',
+      'Restart barrier: test',
+      'system',
+      new Date().toISOString(),
+      new Date().toISOString()
+    );
+    sql.close();
+
+    const processKillSpy = vi.spyOn(process, 'kill').mockImplementation(() => true);
+    const execFileSpy = vi.spyOn(childProcess, 'execFileSync').mockImplementation((cmd) => {
+      if (cmd === 'wmic') return `node ${path.join(tempDir, 'torque.js')} --worker`;
+      if (cmd === 'taskkill') throw new Error('taskkill should not be called');
+      return '';
+    });
+    vi.spyOn(childProcess, 'execSync').mockReturnValue(`node ${path.join(tempDir, 'torque.js')} --worker`);
+    vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+
+    const result = index.killStaleInstance();
+
+    expect(result).toMatchObject({
+      action: 'blocked',
+      reason: 'undrained_restart_barrier_without_handoff',
+      blockStartup: true,
+      pid: oldPid,
+      barrier_id: 'barrier-active',
+    });
+    expect(processKillSpy).toHaveBeenCalledWith(oldPid, 0);
+    expect(processKillSpy).toHaveBeenCalledTimes(1);
+    expect(execFileSpy.mock.calls.filter(([cmd]) => cmd === 'taskkill')).toHaveLength(0);
+    expect(fs.existsSync(pidPath)).toBe(true);
   });
 });
 

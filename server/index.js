@@ -82,6 +82,7 @@ let mcpPlatform = null;
 // process running a torque-named script to claim the exact same PID within 30s of reboot).
 const PID_FILE = path.join(db.getDataDir(), 'torque.pid');
 const LOCK_FILE = path.join(db.getDataDir(), 'torque.lock');
+const TASKS_DB_FILE = path.join(db.getDataDir(), 'tasks.db');
 
 /**
  * Acquire an exclusive startup lock to prevent concurrent instances.
@@ -760,8 +761,8 @@ function killStaleInstance() {
       const heartbeatAge = Date.now() - new Date(record.heartbeatAt).getTime();
       if (heartbeatAge < PID_HEARTBEAT_STALE_MS) {
         // Heartbeat is recent — process is actively running, don't kill
-        process.stderr.write(`[TORQUE] Kill guard: PID ${oldPid} heartbeat is recent (${Math.round(heartbeatAge / 1000)}s ago), skipping\n`);
-        return;
+        reportKillGuard(`PID ${oldPid} heartbeat is recent (${Math.round(heartbeatAge / 1000)}s ago), skipping`);
+        return { action: 'skipped', reason: 'fresh_heartbeat', pid: oldPid };
       }
     }
     // Legacy format (raw PID) or stale heartbeat — treat as stale, proceed with kill
@@ -787,12 +788,27 @@ function killStaleInstance() {
       // A node.exe process unrelated to TORQUE will not contain 'torque' in its args.
       const isTorqueProcess = commandLine.includes('node') && commandLine.includes('torque');
       if (!isTorqueProcess) {
-        process.stderr.write(`[TORQUE] Kill guard: PID ${oldPid} now maps to non-TORQUE process, skipping stale cleanup\n`);
-        return;
+        reportKillGuard(`PID ${oldPid} now maps to non-TORQUE process, skipping stale cleanup`);
+        return { action: 'skipped', reason: 'non_torque_process', pid: oldPid };
       }
     } catch {
-      process.stderr.write(`[TORQUE] Kill guard: PID ${oldPid} command-line lookup failed, skipping stale cleanup\n`);
-      return;
+      reportKillGuard(`PID ${oldPid} command-line lookup failed, skipping stale cleanup`);
+      return { action: 'skipped', reason: 'command_line_lookup_failed', pid: oldPid };
+    }
+
+    const undrainedBarrier = findUndrainedRestartBarrierWithoutHandoff();
+    if (undrainedBarrier) {
+      reportKillGuard(
+        `PID ${oldPid} heartbeat is stale, but restart barrier ${String(undrainedBarrier.id).slice(0, 8)} ` +
+        `is ${undrainedBarrier.status} with no matching handoff; leaving existing process alone and blocking startup`
+      );
+      return {
+        action: 'blocked',
+        reason: 'undrained_restart_barrier_without_handoff',
+        blockStartup: true,
+        pid: oldPid,
+        barrier_id: undrainedBarrier.id,
+      };
     }
 
     // Terminate the stale process
@@ -806,15 +822,72 @@ function killStaleInstance() {
       } else {
         process.kill(oldPid, 'SIGTERM');
       }
-      process.stderr.write(`[TORQUE] Kill guard: terminated stale instance (PID ${oldPid})\n`);
+      reportKillGuard(`terminated stale instance (PID ${oldPid})`);
     } catch {
       // Process may have exited between check and kill — ignore
     }
 
     // Clean up the old PID file (we'll write ours later)
     try { fs.unlinkSync(PID_FILE); } catch { /* ignore */ }
+    return { action: 'terminated', pid: oldPid };
   } catch {
     // Non-fatal — PID file may be corrupt or inaccessible
+    return { action: 'skipped', reason: 'pid_file_error' };
+  }
+}
+
+function reportKillGuard(message) {
+  const text = `[TORQUE] Kill guard: ${message}`;
+  try {
+    logger.warn(`[kill-guard] ${message}`);
+  } catch { /* ignore logging failures during early startup */ }
+  try {
+    process.stderr.write(`${text}\n`);
+  } catch { /* ignore stderr failures */ }
+}
+
+function findUndrainedRestartBarrierWithoutHandoff() {
+  let handoff = null;
+  try {
+    const restartHandoff = require('./execution/restart-handoff');
+    handoff = restartHandoff.readRestartHandoff();
+  } catch {
+    handoff = null;
+  }
+
+  let Database;
+  try {
+    Database = require('better-sqlite3');
+  } catch {
+    return null;
+  }
+
+  if (!fs.existsSync(TASKS_DB_FILE)) {
+    return null;
+  }
+
+  let sql;
+  try {
+    sql = new Database(TASKS_DB_FILE, { readonly: true, fileMustExist: true });
+    const rows = sql.prepare(`
+      SELECT id, status
+      FROM tasks
+      WHERE provider = 'system'
+        AND status IN ('queued', 'running')
+      ORDER BY COALESCE(started_at, created_at) DESC
+      LIMIT 20
+    `).all();
+    if (!rows || rows.length === 0) {
+      return null;
+    }
+    const matchingHandoff = handoff && rows.some(row => row.id === handoff.barrier_id);
+    return matchingHandoff ? null : rows[0];
+  } catch {
+    return null;
+  } finally {
+    if (sql) {
+      try { sql.close(); } catch { /* ignore */ }
+    }
   }
 }
 
@@ -844,7 +917,10 @@ function init() {
 
   // Kill guard: terminate stale TORQUE instance from a prior session (PID-file based).
   // Without this, stale instances from prior sessions can overwrite files with old code.
-  killStaleInstance();
+  const staleInstanceAction = killStaleInstance();
+  if (staleInstanceAction && staleInstanceAction.blockStartup) {
+    process.exit(1);
+  }
 
   // Exclusive startup lock — prevents dual instances from corrupting the database.
   // If another instance holds the lock, exit immediately.
