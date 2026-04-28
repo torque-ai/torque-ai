@@ -15,7 +15,8 @@ const UNRESOLVED_REFS_SQL = `
     r.receiver_name AS receiverName,
     r.caller_symbol_id AS callerSymbolId,
     cs.name         AS callerSymbol,
-    cs.kind         AS callerKind
+    cs.kind         AS callerKind,
+    cs.container_name AS callerContainer
   FROM cg_references r
   LEFT JOIN cg_symbols cs ON cs.id = r.caller_symbol_id
   WHERE r.repo_path = @repoPath
@@ -85,13 +86,51 @@ function hasMethodOnType(db, repoPath, typeName, methodName) {
   return Boolean(row);
 }
 
+// Walk cg_class_edges upward from a starting type and return the first
+// ancestor (extends/implements) that defines methodName. BFS, cycle-safe,
+// bounded depth so a pathological hierarchy can't hang the diagnostic.
+function findAncestorWithMethod(db, repoPath, startType, methodName, maxDepth = 16) {
+  if (!startType) return null;
+  const ancestorsStmt = db.prepare(`
+    SELECT supertype_name FROM cg_class_edges
+    WHERE repo_path = ? AND subtype_name = ?
+  `);
+  const seen = new Set([startType]);
+  let frontier = [startType];
+  for (let depth = 0; depth < maxDepth && frontier.length > 0; depth++) {
+    const next = [];
+    for (const t of frontier) {
+      for (const row of ancestorsStmt.all(repoPath, t)) {
+        const sup = row.supertype_name;
+        if (!sup || seen.has(sup)) continue;
+        seen.add(sup);
+        if (hasMethodOnType(db, repoPath, sup, methodName)) return sup;
+        next.push(sup);
+      }
+    }
+    frontier = next;
+  }
+  return null;
+}
+
 function classifyUnresolvedRef(db, repoPath, ref) {
   // Method call: receiver_name set on the reference.
   if (ref.receiverName) {
     if (ref.receiverName === 'this') {
-      // `this.foo()` — pass 2 resolves via the enclosing class, not cg_locals.
-      // If unresolved, the enclosing class either doesn't exist as a symbol or
-      // doesn't have this method.
+      // `this.foo()` — pass 2 resolves via the enclosing class. The bare
+      // "enclosing class doesn't have this method" classification is wrong
+      // when the method is inherited from a parent the indexer captured in
+      // cg_class_edges. Walk that chain before assigning blame.
+      if (ref.callerContainer) {
+        if (hasMethodOnType(db, repoPath, ref.callerContainer, ref.targetName)) {
+          // Direct hit: enclosing class defines this method, pass 2 still
+          // didn't pin it. Real edge case in `this`-resolution.
+          return 'method_resolution_edge_case';
+        }
+        const ancestor = findAncestorWithMethod(db, repoPath, ref.callerContainer, ref.targetName);
+        if (ancestor) return 'inherited_method_resolution_gap';
+      }
+      // No enclosing class symbol, or no ancestor defines the method.
       return 'this_enclosing_class_lacks_method';
     }
     const local = findLocalForReceiver(db, repoPath, ref.file, ref.callerSymbolId, ref.receiverName);

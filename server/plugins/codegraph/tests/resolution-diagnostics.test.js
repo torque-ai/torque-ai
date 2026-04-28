@@ -105,4 +105,37 @@ describe('cg_resolution_diagnostics', () => {
     }));
     expect(r.sample_size).toBe(200);
   });
+
+  it('classifies this.X() inherited from a captured base class as inherited_method_resolution_gap', async () => {
+    // Fresh repo: a Base class with method bark, a Derived subclass that
+    // calls this.bark(). Pass 2 doesn't currently walk extends, so the
+    // call is unresolved; the classifier must recognize the inherited
+    // method instead of falsely labeling it "enclosing class lacks method".
+    const repo2 = setupTinyRepo('cg-inh-');
+    fs.writeFileSync(path.join(repo2, 'inh.js'),
+      'class Base { bark() { return 1; } }\n' +
+      'class Derived extends Base {\n' +
+      '  speak() { return this.bark(); }\n' +
+      '}\n');
+    git(repo2, ['add', '.']);
+    git(repo2, ['-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '-m', 'inh']);
+    const db2 = new Database(':memory:'); ensureSchema(db2);
+    const h2 = createHandlers({ db: db2 });
+    await h2.cg_reindex({ repo_path: repo2, async: false });
+    try {
+      const r = data(await h2.cg_resolution_diagnostics({ repo_path: repo2, symbol: 'bark' }));
+      // Derived.speak's call to this.bark() is unresolved (inheritance not
+      // walked by pass 2). Classifier should now spot the inherited method.
+      expect(r.reasons.inherited_method_resolution_gap || 0).toBeGreaterThanOrEqual(1);
+      // And the wrong "enclosing class lacks method" bucket must NOT have
+      // been chosen for that ref.
+      const sample = r.unresolved_samples.find((s) => s.callerSymbol === 'speak');
+      if (sample) {
+        expect(sample.reason).toBe('inherited_method_resolution_gap');
+      }
+    } finally {
+      db2.close();
+      destroyTinyRepo(repo2);
+    }
+  });
 });
