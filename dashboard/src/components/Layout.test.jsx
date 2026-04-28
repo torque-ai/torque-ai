@@ -23,7 +23,7 @@ function renderLayout(props = {}, route = '/') {
 
 // Layout has two banners that each fire a fetch on mount:
 //   - SecurityWarningBanner → /api/v2/system/status
-//   - PausedFactoryBanner   → /api/v2/factory/projects
+//   - PausedFactoryBanner   → /api/v2/factory/projects?status=paused&summary=basic
 // Default both to harmless responses; paused-banner tests override only
 // the factory-projects branch via mockFactoryProjects().
 function mockFactoryProjects(projects) {
@@ -175,6 +175,10 @@ describe('Layout', () => {
         );
         expect(factoryCalls.length).toBeGreaterThanOrEqual(1);
       });
+      expect(fetch).toHaveBeenCalledWith(
+        '/api/v2/factory/projects?status=paused&summary=basic',
+        expect.objectContaining({ credentials: 'same-origin' })
+      );
       expect(screen.queryByText(/Factory paused/i)).toBeNull();
     });
 

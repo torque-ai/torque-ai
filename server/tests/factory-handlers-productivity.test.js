@@ -176,6 +176,59 @@ describe('factory_status productivity', () => {
     }));
   });
 
+  it('skips commit counting for basic project-list responses', async () => {
+    const db = rawDb();
+    const alphaPath = path.join(testDir, 'list-alpha');
+    const betaPath = path.join(testDir, 'list-beta');
+    fs.mkdirSync(alphaPath, { recursive: true });
+    fs.mkdirSync(betaPath, { recursive: true });
+
+    insertProject(db, { id: 'list-alpha', name: 'Alpha', projectPath: alphaPath, status: 'running' });
+    insertProject(db, { id: 'list-beta', name: 'Beta', projectPath: betaPath, status: 'paused' });
+    const spawnSpy = vi.spyOn(childProcess, 'spawn').mockImplementation(() => {
+      throw new Error('git should not be spawned for basic project lists');
+    });
+
+    const result = await factoryHandlers.handleListFactoryProjects({ status: 'paused', summary: 'basic' });
+
+    expect(result.isError).toBeFalsy();
+    expect(result.structuredData.projects).toEqual([
+      expect.objectContaining({
+        id: 'list-beta',
+        name: 'Beta',
+        path: betaPath,
+        trust_level: 'guided',
+        status: 'paused',
+      }),
+    ]);
+    expect(result.structuredData.projects[0]).not.toHaveProperty('commits_today');
+    expect(result.structuredData.projects[0]).not.toHaveProperty('scores');
+    expect(result.structuredData.projects[0]).not.toHaveProperty('balance');
+    expect(spawnSpy).not.toHaveBeenCalled();
+  });
+
+  it('can omit commit counts while preserving project health fields', async () => {
+    const db = rawDb();
+    const projectPath = path.join(testDir, 'list-without-commits');
+    fs.mkdirSync(projectPath, { recursive: true });
+
+    insertProject(db, { id: 'without-commits', name: 'WithoutCommits', projectPath, status: 'running' });
+    const spawnSpy = vi.spyOn(childProcess, 'spawn').mockImplementation(() => {
+      throw new Error('git should not be spawned when include_commits=false');
+    });
+
+    const result = await factoryHandlers.handleListFactoryProjects({ include_commits: 'false' });
+    const project = result.structuredData.projects.find((entry) => entry.id === 'without-commits');
+
+    expect(project).toMatchObject({
+      id: 'without-commits',
+      scores: {},
+    });
+    expect(project).toHaveProperty('balance');
+    expect(project).not.toHaveProperty('commits_today');
+    expect(spawnSpy).not.toHaveBeenCalled();
+  });
+
   it('returns cached value within the ttl and refreshes after expiry', async () => {
     const projectPath = path.join(testDir, 'cache-project');
     fs.mkdirSync(projectPath, { recursive: true });

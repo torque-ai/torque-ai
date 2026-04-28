@@ -53,6 +53,38 @@ function getCachedCommitsToday(projectPath, nowMs = Date.now()) {
   return cached.commitsToday;
 }
 
+function isExplicitFalse(value) {
+  if (value === false || value === 0) {
+    return true;
+  }
+  if (typeof value !== 'string') {
+    return false;
+  }
+  return ['false', '0', 'no', 'off'].includes(value.trim().toLowerCase());
+}
+
+function isBasicProjectListRequest(args = {}) {
+  const summary = typeof args.summary === 'string' ? args.summary.trim().toLowerCase() : '';
+  const detail = typeof args.detail === 'string' ? args.detail.trim().toLowerCase() : '';
+  const fields = typeof args.fields === 'string' ? args.fields.trim().toLowerCase() : '';
+
+  return summary === 'basic'
+    || detail === 'basic'
+    || fields === 'basic'
+    || args.basic === true
+    || args.basic === 'true';
+}
+
+function summarizeBasicFactoryProject(project) {
+  return {
+    id: project.id,
+    name: project.name,
+    path: project.path,
+    trust_level: project.trust_level,
+    status: project.status,
+  };
+}
+
 function nowIso() {
   return new Date().toISOString();
 }
@@ -594,19 +626,26 @@ async function handleRegisterFactoryProject(args) {
   });
 }
 
-async function handleListFactoryProjects(args) {
+async function handleListFactoryProjects(args = {}) {
   const projects = factoryHealth.listProjects(args.status ? { status: args.status } : undefined);
-  // Include commits_today so REST consumers see the same shape as the
-  // factory_status MCP tool. countCommitsToday is cached per-path with a
-  // TTL, so this isn't a git-log spawn per poll — the first call within
-  // the TTL pays, subsequent reads hit the cache.
+  if (isBasicProjectListRequest(args)) {
+    return jsonResponse({ projects: projects.map(summarizeBasicFactoryProject) });
+  }
+
+  // Include commits_today by default so existing REST consumers see the
+  // same shape as the factory_status MCP tool. Lightweight pollers can
+  // pass include_commits=false or summary=basic to avoid git work.
+  const includeCommits = !isExplicitFalse(args.include_commits);
   const projectIds = projects.map((p) => p.id);
   const scoresMap = factoryHealth.getLatestScoresBatch(projectIds);
   const summaries = await Promise.all(projects.map(async (p) => {
     const scores = scoresMap.get(p.id) ?? {};
     const balance = factoryHealth.getBalanceScore(p.id, scores);
-    const commitsToday = await countCommitsToday(p.path);
-    return { ...p, scores, balance, commits_today: commitsToday };
+    const summary = { ...p, scores, balance };
+    if (includeCommits) {
+      summary.commits_today = await countCommitsToday(p.path);
+    }
+    return summary;
   }));
   return jsonResponse({ projects: summaries });
 }
