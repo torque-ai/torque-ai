@@ -136,6 +136,33 @@ const SCHEMA_SQL = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_cg_class_sub   ON cg_class_edges(repo_path, subtype_name)`,
   `CREATE INDEX IF NOT EXISTS idx_cg_class_super ON cg_class_edges(repo_path, supertype_name)`,
+  // cg_tool_usage: shadow-mode telemetry. One row per cg_* tool invocation,
+  // recorded inside the handler wrapper. Lets us answer:
+  //   - is the planner integration paying off (call counts trending up)?
+  //   - is the loose/strict scope split useful (strict_pct over time)?
+  //   - are queries hitting the truncation cap too often (truncation_pct)?
+  //   - are consumers seeing stale results (staleness_pct)?
+  //   - what are the real latency tails?
+  // Recording is best-effort: a failed insert never breaks the handler call.
+  // Schema is intentionally flat — no FK to repos/symbols — so telemetry
+  // survives reindexes and repo deletions intact.
+  `CREATE TABLE IF NOT EXISTS cg_tool_usage (
+    id INTEGER PRIMARY KEY,
+    tool TEXT NOT NULL,
+    repo_path TEXT,
+    scope TEXT,
+    direction TEXT,
+    depth INTEGER,
+    duration_ms INTEGER NOT NULL,
+    result_count INTEGER,
+    truncated INTEGER NOT NULL DEFAULT 0,
+    staleness_stale INTEGER NOT NULL DEFAULT 0,
+    ok INTEGER NOT NULL DEFAULT 1,
+    error_kind TEXT,
+    at TEXT NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_cg_tool_usage_at   ON cg_tool_usage(at)`,
+  `CREATE INDEX IF NOT EXISTS idx_cg_tool_usage_tool ON cg_tool_usage(tool, at)`,
 ];
 
 // Idempotent column adds for upgrade paths from existing schemas.

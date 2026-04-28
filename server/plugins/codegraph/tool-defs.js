@@ -125,6 +125,18 @@ const tools = [
       additionalProperties: false,
     },
   },
+  {
+    name: 'cg_telemetry',
+    description: 'Aggregate the shadow-mode usage telemetry for cg_* tools over a recent time window. Every cg_* call records one row in cg_tool_usage at handler time (best-effort, errors swallowed). Returns `{since_hours, tools: [{tool, calls, avg_duration_ms, max_duration_ms, avg_result_count, strict_pct, truncation_pct, staleness_pct, error_pct, last_call_at}], total_calls}`. Use to answer: is the planner integration paying off? Are loose vs strict scope ratios drifting? Are queries hitting truncation caps too often? Are consumers seeing stale results?',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        since_hours: { type: 'integer', minimum: 1, maximum: 8760, default: 24, description: 'Look-back window in hours (default 24, max 8760 = 1 year).' },
+        tool:        { type: 'string', description: 'Optional filter — return aggregate only for this cg_* tool name.' },
+      },
+      additionalProperties: false,
+    },
+  },
 ];
 
 module.exports = tools;
