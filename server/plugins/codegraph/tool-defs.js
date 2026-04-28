@@ -125,6 +125,23 @@ const tools = [
       additionalProperties: false,
     },
   },
+  {
+    name: 'cg_search',
+    description: 'Find symbols by name pattern in the indexed repo. Pattern uses SQLite GLOB syntax: `*` matches any chars, `?` matches one char, `[abc]` matches a class. Returns `{pattern, results: [{name, kind, file, line, column, container?, is_exported?, is_async?, is_generator?, is_static?}], truncated, limit, staleness}`. Filter by `kind` (function/class/method/constructor/getter/setter/interface/struct/enum), `container` (only return symbols inside this class/interface), or `is_exported`. Replaces grep-then-cg_find_references for many planner workflows — answer "what symbols match X" without touching source files. Defaults to limit=200 (max 1000); over the limit returns truncated:true. Examples: pattern="create*" finds all create* symbols; pattern="*Handler" finds all *Handler classes; pattern="cg_*"+kind="function" lists cg_* tool functions.' + STALENESS_NOTE,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        repo_path: { type: 'string' },
+        pattern:   { type: 'string', description: 'Symbol name pattern. SQLite GLOB syntax: * = any chars, ? = one char, [abc] = char class. Use the literal name for an exact match.' },
+        kind:      { type: 'string', description: 'Filter by symbol kind. Common values: function, class, method, constructor, getter, setter, interface, struct, enum.' },
+        container: { type: 'string', description: 'Filter to symbols whose container_name equals this (e.g. "Animal" for methods on class Animal). Useful with kind="method".' },
+        is_exported: { type: 'boolean', description: 'Filter to only exported (true) or only non-exported (false) symbols. Omit for both.' },
+        limit:     { type: 'integer', minimum: 1, maximum: 1000, default: 200, description: 'Cap on result count. Over the cap, returns truncated:true.' },
+      },
+      required: ['repo_path', 'pattern'],
+      additionalProperties: false,
+    },
+  },
 ];
 
 module.exports = tools;
