@@ -154,4 +154,22 @@ describe('ollama-tools command security', () => {
     const result = executor.execute('run_command', { command: 'Get-Content foo | Set-Content bar' });
     expect(result.error).toBe(true);
   });
+
+  it('always allows ls (Unix-style) when allowlist excludes it', () => {
+    const executor = createToolExecutor(process.cwd(), {
+      commandMode: 'allowlist',
+      commandAllowlist: ['npm *'],
+    });
+    const result = executor.execute('run_command', { command: 'ls' });
+    expect(result.result).not.toContain('not in allowlist');
+  });
+
+  it('always allows gci (PS short alias for Get-ChildItem)', () => {
+    const executor = createToolExecutor(process.cwd(), {
+      commandMode: 'allowlist',
+      commandAllowlist: ['npm *'],
+    });
+    const result = executor.execute('run_command', { command: 'gci' });
+    expect(result.result).not.toContain('not in allowlist');
+  });
 });
