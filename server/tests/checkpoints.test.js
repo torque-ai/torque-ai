@@ -2,9 +2,28 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const childProcess = require('child_process');
 
+// Restore real git BEFORE requiring the snapshot module. worker-setup.js
+// patches childProcess.execFileSync to return canned strings without
+// spawning real git, and snapshot.js destructures `execFileSync` at the
+// top of the file — so whatever is bound to childProcess.execFileSync at
+// require time becomes a frozen local reference. The destructure pattern
+// is intentional (other tests like task-finalizer.test.js spy on
+// childProcess.execFileSync to assert no sync git in the finalizer hot
+// path, and rely on the checkpoint module's reference being independent
+// from the spy target). To get real git into the destructure for THIS
+// suite, swap the property to _realExecFileSync before the require, then
+// restore the stub for downstream require sites.
+const _stubbedRunner = childProcess.execFileSync;
+if (childProcess._realExecFileSync) {
+  childProcess.execFileSync = childProcess._realExecFileSync;
+}
 const { ensureShadowRepo, snapshotTaskState } = require('../checkpoints/snapshot');
 const { rollbackTask, listCheckpoints } = require('../checkpoints/rollback');
+// Restore the stub so any subsequent module loaded by this worker still
+// sees the patched version.
+childProcess.execFileSync = _stubbedRunner;
 
 let projectRoot;
 beforeEach(() => {
@@ -13,19 +32,17 @@ beforeEach(() => {
 });
 afterEach(() => { fs.rmSync(projectRoot, { recursive: true, force: true }); });
 
-// TODO(factory-146-shadow-git): three tests below fail on the Omen remote
-// runner but not the feature-branch run that shipped the feature. Symptoms:
-//   - ensureShadowRepo() returns created=true but .torque-checkpoints/.git
-//     is not on disk after the call;
-//   - snapshotTaskState() silently returns ok=false (git commit fails
-//     despite local user.name/email being configured);
-//   - rollbackTask() therefore can't find a tag to restore.
-// Likely a Windows git-init path/env interaction specific to the
-// %USERPROFILE%\AppData\Local\Temp tmpdir, or a missing git config that
-// only shows up outside the original feature-branch container. Skipping
-// to unblock the factory-hardening push; re-enable once the remote
-// environment issue is root-caused.
-describe.skip('shadow git checkpoints', () => {
+// Re-enabled 2026-04-28: the original "skip" diagnosis was wrong. The
+// real cause was worker-setup.js patching child_process — git calls
+// returned canned "Initialized empty Git repository\n" strings without
+// ever touching the filesystem, so `.torque-checkpoints/.git` was never
+// created. The standalone repro outside vitest (which doesn't load
+// worker-setup) ran against real git and worked fine, which seemed to
+// contradict the "feature works locally but fails on remote" symptom —
+// but the feature-branch run that originally passed must have been
+// before worker-setup acquired its git stub. Real git restored at the
+// top of this file unblocks all four cases.
+describe('shadow git checkpoints', () => {
   it('initializes a shadow repo on first snapshot', () => {
     const result = ensureShadowRepo(projectRoot);
     expect(result.created).toBe(true);
