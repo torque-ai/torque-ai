@@ -33,6 +33,10 @@ function runClient(args, env) {
 // On Windows, spawn('ssh') uses CreateProcess which requires a .exe or
 // PATHEXT-listed extension. We create a .cmd wrapper alongside the shebang
 // script so the fake ssh is found on both Unix and Windows.
+//
+// The coord-client accepts TORQUE_COORD_SSH_BIN to override the ssh binary
+// path, allowing tests to inject the .cmd wrapper directly (bypassing the
+// PATHEXT lookup that bare spawn('ssh') can't do on Windows).
 function writeFakeSsh(dir, argvFile) {
   const scriptPath = path.join(dir, 'ssh');
   const escapedArgvFile = argvFile.replace(/\\/g, '/');
@@ -46,10 +50,15 @@ function writeFakeSsh(dir, argvFile) {
   fs.chmodSync(scriptPath, 0o755);
 
   // Windows .cmd wrapper — delegates to the node script above.
-  // CreateProcess finds ssh.cmd via PATHEXT when ssh is in PATH.
+  // Used via TORQUE_COORD_SSH_BIN so CreateProcess can execute it with shell:true.
   const cmdPath = path.join(dir, 'ssh.cmd');
   // %* forwards all arguments; NODE_PATH variable points node to our script.
   fs.writeFileSync(cmdPath, `@"${process.execPath}" "${scriptPath}" %*\r\n`);
+
+  // Return the best binary path for the current platform:
+  //   - Windows: the .cmd path (used with shell:true via TORQUE_COORD_SSH_BIN)
+  //   - Unix: the shebang script (used with shell:false)
+  return process.platform === 'win32' ? cmdPath : scriptPath;
 }
 
 // Spawn a stub HTTP daemon in a separate child process to avoid the spawnSync
@@ -106,13 +115,15 @@ process.on('message', (m) => { if (m === 'shutdown') server.close(() => process.
 describe('coord-client ssh mode', () => {
   let fakeSshDir;
   let argvFile;
+  let sshBin;
 
   beforeEach(() => {
     // Build a tiny on-disk fake `ssh` that records argv + emits a configurable response.
-    // Putting it on PATH lets the child Node CLI invoke "ssh" and hit our stub.
+    // sshBin is the platform-appropriate path passed via TORQUE_COORD_SSH_BIN so the
+    // coord-client uses it directly instead of searching PATH (avoids PATHEXT issues on Win).
     fakeSshDir = fs.mkdtempSync(path.join(os.tmpdir(), 'fake-ssh-'));
     argvFile = path.join(fakeSshDir, 'argv.json');
-    writeFakeSsh(fakeSshDir, argvFile);
+    sshBin = writeFakeSsh(fakeSshDir, argvFile);
   });
 
   afterEach(() => {
@@ -122,7 +133,7 @@ describe('coord-client ssh mode', () => {
   it('routes `health` through ssh+curl when remote env is set', () => {
     // FAKE_SSH_STDOUT simulates: curl body + "\n" + http_code (as curl -w '\n%{http_code}' would produce)
     const result = runClient(['health'], {
-      PATH: fakeSshDir + path.delimiter + (process.env.PATH || ''),
+      TORQUE_COORD_SSH_BIN: sshBin,
       TORQUE_COORD_REMOTE_HOST: REMOTE_HOST,
       TORQUE_COORD_REMOTE_USER: REMOTE_USER,
       FAKE_SSH_STDOUT: '{"status":"ok"}\n200',
@@ -147,7 +158,7 @@ describe('coord-client ssh mode', () => {
       '--pid', '4242',
       '--user', 'tester',
     ], {
-      PATH: fakeSshDir + path.delimiter + (process.env.PATH || ''),
+      TORQUE_COORD_SSH_BIN: sshBin,
       TORQUE_COORD_REMOTE_HOST: REMOTE_HOST,
       TORQUE_COORD_REMOTE_USER: REMOTE_USER,
       FAKE_SSH_STDOUT: '{"lock_id":"abc123"}\n200',
@@ -164,7 +175,7 @@ describe('coord-client ssh mode', () => {
 
   it('exits with status 2 (unreachable) when ssh fails', () => {
     const result = runClient(['health'], {
-      PATH: fakeSshDir + path.delimiter + (process.env.PATH || ''),
+      TORQUE_COORD_SSH_BIN: sshBin,
       TORQUE_COORD_REMOTE_HOST: REMOTE_HOST,
       TORQUE_COORD_REMOTE_USER: REMOTE_USER,
       FAKE_SSH_EXIT: '255',
@@ -179,7 +190,6 @@ describe('coord-client ssh mode', () => {
     const daemon = await makeStubDaemon('{"status":"ok"}');
     try {
       const result = runClient(['health'], {
-        PATH: fakeSshDir + path.delimiter + (process.env.PATH || ''),
         TORQUE_COORD_PORT: String(daemon.port),
         // intentionally no TORQUE_COORD_REMOTE_HOST/USER
       });

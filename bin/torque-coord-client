@@ -10,6 +10,11 @@ const REMOTE_HOST = process.env.TORQUE_COORD_REMOTE_HOST || '';
 const REMOTE_USER = process.env.TORQUE_COORD_REMOTE_USER || '';
 const SSH_MODE = !!(REMOTE_HOST && REMOTE_USER);
 const SSH_TIMEOUT_SECS = parseInt(process.env.TORQUE_COORD_SSH_TIMEOUT || '5', 10);
+// Allow tests to inject a fake ssh binary (e.g. a .cmd wrapper on Windows).
+// When the binary ends in '.cmd', spawn it via the shell so CreateProcess can
+// execute it; production default 'ssh' uses shell:false (no % expansion risk).
+const SSH_BIN = process.env.TORQUE_COORD_SSH_BIN || 'ssh';
+const SSH_SHELL = process.platform === 'win32' && SSH_BIN.toLowerCase().endsWith('.cmd');
 
 function emit(obj) {
   process.stdout.write(JSON.stringify(obj) + '\n');
@@ -60,20 +65,6 @@ function request({ method, path, body }) {
   });
 }
 
-// On Windows, Node's spawn() uses CreateProcess which does NOT apply PATHEXT, so
-// `spawn('ssh')` can't find `ssh.cmd` on PATH. Use `where` to resolve the full path
-// before spawning so PATHEXT-discovered executables (e.g. test fakes) are honoured.
-function resolveExecutable(name) {
-  if (process.platform !== 'win32') return name;
-  const { spawnSync } = require('child_process');
-  const r = spawnSync('where', [name], { encoding: 'utf8' });
-  if (r.status === 0 && r.stdout.trim()) {
-    // `where` may return multiple lines; take the first match
-    return r.stdout.trim().split(/\r?\n/)[0].trim();
-  }
-  return name; // fallback — let spawn fail naturally
-}
-
 function requestViaSsh({ method, path: urlPath, body }) {
   return new Promise((resolve, reject) => {
     const { spawn } = require('child_process');
@@ -99,7 +90,7 @@ function requestViaSsh({ method, path: urlPath, body }) {
       `${REMOTE_USER}@${REMOTE_HOST}`,
       'curl', ...curlArgs,
     ];
-    const proc = spawn(resolveExecutable('ssh'), sshArgs, { windowsHide: true });
+    const proc = spawn(SSH_BIN, sshArgs, { windowsHide: true, shell: SSH_SHELL });
     let stdout = '';
     let stderr = '';
     proc.stdout.on('data', (chunk) => { stdout += chunk.toString('utf8'); });
@@ -140,7 +131,7 @@ function streamViaSsh({ path: urlPath, onFrame }) {
       `${REMOTE_USER}@${REMOTE_HOST}`,
       'curl', ...curlArgs,
     ];
-    const proc = spawn(resolveExecutable('ssh'), sshArgs, { windowsHide: true });
+    const proc = spawn(SSH_BIN, sshArgs, { windowsHide: true, shell: SSH_SHELL });
     let buf = '';
     proc.stdout.setEncoding('utf8');
     proc.stdout.on('data', (chunk) => {
