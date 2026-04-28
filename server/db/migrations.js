@@ -847,6 +847,27 @@ const MIGRATIONS = [
       'DROP TABLE IF EXISTS fine_tune_jobs',
     ].join('; '),
   },
+  {
+    version: 40,
+    name: 'add_fine_tune_job_scope_columns',
+    up: function(sqliteDb) {
+      const tableExists = sqliteDb.prepare(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='fine_tune_jobs'"
+      ).get();
+      if (!tableExists) return;
+
+      const columns = new Set(
+        sqliteDb.prepare('PRAGMA table_info(fine_tune_jobs)').all().map((column) => column.name)
+      );
+      if (!columns.has('working_dir')) {
+        sqliteDb.prepare('ALTER TABLE fine_tune_jobs ADD COLUMN working_dir TEXT').run();
+      }
+      if (!columns.has('ignore_globs_json')) {
+        sqliteDb.prepare('ALTER TABLE fine_tune_jobs ADD COLUMN ignore_globs_json TEXT').run();
+      }
+    },
+    down: 'SELECT 1',
+  },
 ];
 
 function ensureMigrationTable(sqliteDb) {

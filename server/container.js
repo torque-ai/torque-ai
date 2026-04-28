@@ -232,6 +232,17 @@ _defaultContainer.register('providerScoring', ['db'], ({ db }) => {
   const { createProviderScoring } = require('./db/provider-scoring');
   return createProviderScoring({ db: unwrapDb(db) });
 });
+_defaultContainer.register('fineTuneRuntime', ['db', 'logger'], ({ db, logger: log }) => {
+  const { createFineTuneRuntime } = require('./fine-tune/fine-tune-runtime');
+  const { buildDataset } = require('./fine-tune/dataset-builder');
+  const llamaCpp = require('./fine-tune/backends/llama-cpp');
+  return createFineTuneRuntime({
+    db: unwrapDb(db),
+    backends: { 'llama-cpp': llamaCpp },
+    buildDataset,
+    logger: log,
+  });
+});
 _defaultContainer.register('providerCircuitBreakerStore', ['db'], ({ db }) => {
   const { createProviderCircuitBreakerStore } = require('./db/provider-circuit-breaker-store');
   return createProviderCircuitBreakerStore({ db: unwrapDb(db) });

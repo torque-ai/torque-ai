@@ -139,6 +139,7 @@ const HANDLER_MODULES = [
   require('./handlers/workstation-handlers'),
   require('./handlers/concurrency-handlers'),
   require('./handlers/model-handlers'),
+  require('./handlers/fine-tune-handlers'),
   require('./handlers/discovery-handlers'),
   require('./handlers/agent-discovery-handlers'),
   require('./handlers/circuit-breaker-handlers'),

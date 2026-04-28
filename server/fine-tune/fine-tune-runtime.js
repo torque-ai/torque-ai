@@ -34,6 +34,9 @@ function validateSubmit(input, backends) {
   if (!Array.isArray(input.sourceGlobs) || input.sourceGlobs.length === 0) {
     throw new Error('Fine-tune sourceGlobs must be a non-empty array');
   }
+  if (input.ignore !== undefined && !Array.isArray(input.ignore)) {
+    throw new Error('Fine-tune ignore must be an array');
+  }
   if (!backends[input.backend]) throw new Error(`Unknown backend: ${input.backend}`);
 }
 
@@ -43,7 +46,9 @@ function createFineTuneRuntime({ db, backends, buildDataset, logger: _logger = c
   if (typeof buildDataset !== 'function') throw new Error('Fine-tune buildDataset function is required');
 
   const supportsWorkingDir = hasColumn(rawDb, 'fine_tune_jobs', 'working_dir');
+  const supportsIgnoreGlobs = hasColumn(rawDb, 'fine_tune_jobs', 'ignore_globs_json');
   const workingDirsByJobId = new Map();
+  const ignoreGlobsByJobId = new Map();
 
   async function submit(input) {
     validateSubmit(input, backends);
@@ -52,23 +57,30 @@ function createFineTuneRuntime({ db, backends, buildDataset, logger: _logger = c
       baseModel,
       backend,
       sourceGlobs,
+      ignore = [],
       workingDir = null,
       domainId = null,
     } = input;
     const jobId = `ft_${randomUUID().slice(0, 12)}`;
 
+    const columns = ['job_id', 'domain_id', 'name', 'base_model', 'backend', 'source_globs_json'];
+    const values = [jobId, domainId, name, baseModel, backend, JSON.stringify(sourceGlobs)];
     if (supportsWorkingDir) {
-      rawDb.prepare(`
-        INSERT INTO fine_tune_jobs (job_id, domain_id, name, base_model, backend, source_globs_json, working_dir)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-      `).run(jobId, domainId, name, baseModel, backend, JSON.stringify(sourceGlobs), workingDir);
-    } else {
-      rawDb.prepare(`
-        INSERT INTO fine_tune_jobs (job_id, domain_id, name, base_model, backend, source_globs_json)
-        VALUES (?, ?, ?, ?, ?, ?)
-      `).run(jobId, domainId, name, baseModel, backend, JSON.stringify(sourceGlobs));
-      if (workingDir) workingDirsByJobId.set(jobId, workingDir);
+      columns.push('working_dir');
+      values.push(workingDir);
     }
+    if (supportsIgnoreGlobs) {
+      columns.push('ignore_globs_json');
+      values.push(JSON.stringify(ignore));
+    }
+    const placeholders = columns.map(() => '?').join(', ');
+    rawDb.prepare(`
+      INSERT INTO fine_tune_jobs (${columns.join(', ')})
+      VALUES (${placeholders})
+    `).run(...values);
+
+    if (!supportsWorkingDir && workingDir) workingDirsByJobId.set(jobId, workingDir);
+    if (!supportsIgnoreGlobs && ignore.length > 0) ignoreGlobsByJobId.set(jobId, ignore);
 
     return jobId;
   }
@@ -87,10 +99,14 @@ function createFineTuneRuntime({ db, backends, buildDataset, logger: _logger = c
 
     try {
       const globs = parseSourceGlobs(job.source_globs_json);
+      const ignore = typeof job.ignore_globs_json === 'string'
+        ? parseSourceGlobs(job.ignore_globs_json)
+        : (ignoreGlobsByJobId.get(jobId) || []);
       const datasetOut = path.join(os.tmpdir(), `${jobId}.jsonl`);
       const dataset = await buildDataset({
         workingDir: job.working_dir || workingDirsByJobId.get(jobId) || process.cwd(),
         globs,
+        ignore,
         outputPath: datasetOut,
       });
 

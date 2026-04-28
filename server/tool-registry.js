@@ -75,6 +75,7 @@ const TOOLS = [
   ...require('./tool-defs/workstation-defs'),
   ...require('./tool-defs/concurrency-defs'),
   ...require('./tool-defs/model-defs'),
+  ...require('./tool-defs/fine-tune-defs'),
   ...require('./tool-defs/discovery-defs'),
   ...require('./tool-defs/agent-discovery-defs'),
   ...require('./tool-defs/circuit-breaker-defs'),
