@@ -7,6 +7,20 @@ const noHeavyTestImportsRule = require('./eslint-rules/no-heavy-test-imports');
 const noResetModulesInEachRule = require('./eslint-rules/no-reset-modules-in-each');
 const noPrepareInLoopRule = require('./eslint-rules/no-prepare-in-loop');
 
+// Single torque plugin definition. ESLint flat config requires that a plugin
+// name resolve to one and only one object across the entire config — defining
+// `plugins: { torque: ... }` in multiple blocks (even with the same rules)
+// trips "Cannot redefine plugin 'torque'". Hoist all rules here and reference
+// them by name in per-files rule blocks below.
+const torquePlugin = {
+  rules: {
+    'no-heavy-test-imports': noHeavyTestImportsRule,
+    'no-reset-modules-in-each': noResetModulesInEachRule,
+    'no-sync-fs-on-hot-paths': noSyncFsOnHotPathsRule,
+    'no-prepare-in-loop': noPrepareInLoopRule,
+  },
+};
+
 const vitestGlobals = {
   describe: 'readonly',
   it: 'readonly',
@@ -21,6 +35,11 @@ const vitestGlobals = {
 
 module.exports = [
   js.configs.recommended,
+  // Register the torque plugin once for the whole config tree. Per-files
+  // blocks below enable specific rules without re-registering the plugin.
+  {
+    plugins: { torque: torquePlugin },
+  },
   {
     languageOptions: {
       ecmaVersion: 2022,
@@ -123,14 +142,6 @@ module.exports = [
   },
   {
     files: ['tests/**/*.js', '**/*.test.js'],
-    plugins: {
-      torque: {
-        rules: {
-          'no-heavy-test-imports': noHeavyTestImportsRule,
-          'no-reset-modules-in-each': noResetModulesInEachRule,
-        },
-      },
-    },
     rules: {
       'torque/no-reset-modules-in-each': 'error',
       'torque/no-heavy-test-imports': ['error', {
@@ -224,26 +235,12 @@ module.exports = [
       'queue-scheduler*.js',
       'maintenance/orphan-cleanup.js',
     ],
-    plugins: {
-      torque: {
-        rules: {
-          'no-sync-fs-on-hot-paths': noSyncFsOnHotPathsRule,
-        },
-      },
-    },
     rules: {
       'torque/no-sync-fs-on-hot-paths': 'error',
     },
   },
   {
     files: ['db/**/*.js', 'handlers/**/*.js', 'factory/**/*.js'],
-    plugins: {
-      torque: {
-        rules: {
-          'no-prepare-in-loop': noPrepareInLoopRule,
-        },
-      },
-    },
     rules: {
       'torque/no-prepare-in-loop': 'error',
     },
