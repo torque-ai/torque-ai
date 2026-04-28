@@ -618,11 +618,21 @@ async function runAgenticLoop({
       // Consecutive error detection — only across iterations, not within a batch.
       // Within a single iteration, multiple read_file errors are expected (batch reads
       // where some files don't exist). We track per-iteration error counts and only
-      // trigger early stop when the SAME tool fails across 2+ separate iterations.
+      // trigger early stop when the SAME tool fails across 3+ separate iterations.
+      // Allowlist rejections (execResult._allowlist_rejection) are skipped — they're
+      // routing hints, not real errors, and shouldn't burn the budget.
       if (error) {
-        if (lastErrorToolName === tc.name && lastErrorIteration < iterations) {
+        if (execResult._allowlist_rejection) {
+          // Allowlist rejections are routing hints (the model can read the
+          // suggestion and switch to the right built-in tool) — not real
+          // errors. Reset tracking like a success so the model isn't cut off
+          // while pivoting between rejected variants.
+          lastErrorToolName = null;
+          consecutiveErrorCount = 0;
+          logger.info(`[Agentic] allowlist rejection (suppressed from consecutive-error counter): ${tc.name}`);
+        } else if (lastErrorToolName === tc.name && lastErrorIteration < iterations) {
           consecutiveErrorCount++;
-          if (consecutiveErrorCount >= 2) {
+          if (consecutiveErrorCount >= 3) {
             // Add the error result first, then stop
             if (promptInjectedTools) {
               messages.push({ role: 'user', content: `[TOOL_RESULTS][{"call":{"name":"${tc.name}"},"output":${JSON.stringify(resultStr)}}][/TOOL_RESULTS]`, _wasError: true });
