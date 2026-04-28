@@ -586,6 +586,38 @@ export const coordination = {
   listClaims: () => requestV2('/coordination/claims'),
 };
 
+export const codegraph = {
+  indexStatus: (repoPath) => requestV2(
+    '/codegraph/index-status?repo_path=' + encodeURIComponent(repoPath)),
+  reindex: (body) => requestV2('/codegraph/reindex', {
+    method: 'POST', body: JSON.stringify(body),
+  }),
+  search: ({ repoPath, pattern, kind, container, isExported, limit = 50 } = {}) => {
+    const qs = new URLSearchParams({ repo_path: repoPath, pattern, limit });
+    if (kind) qs.set('kind', kind);
+    if (container) qs.set('container', container);
+    if (isExported === true || isExported === false) qs.set('is_exported', String(isExported));
+    return requestV2('/codegraph/search?' + qs.toString());
+  },
+  telemetry: (sinceHours = 24, tool = null) => {
+    const qs = new URLSearchParams({ since_hours: sinceHours });
+    if (tool) qs.set('tool', tool);
+    return requestV2('/codegraph/telemetry?' + qs.toString());
+  },
+  diff: (body) => requestV2('/codegraph/diff', {
+    method: 'POST', body: JSON.stringify(body),
+  }),
+  resolutionDiagnostics: (body) => requestV2('/codegraph/resolution-diagnostics', {
+    method: 'POST', body: JSON.stringify(body),
+  }),
+  deadSymbols: ({ repoPath, includeExported = false, includeLikelyDispatched = false } = {}) => {
+    const qs = new URLSearchParams({ repo_path: repoPath });
+    if (includeExported) qs.set('include_exported', 'true');
+    if (includeLikelyDispatched) qs.set('include_likely_dispatched', 'true');
+    return requestV2('/codegraph/dead-symbols?' + qs.toString());
+  },
+};
+
 export const versionControl = {
   getWorktrees: () => requestV2('/version-control/worktrees'),
   getCommits: (days = 7) => requestV2('/version-control/commits?days=' + days),
