@@ -838,6 +838,15 @@ const MIGRATIONS = [
     // Use `cg_reindex` against the dedicated codegraph.db to repopulate the
     // graph in its proper home if a rollback is ever required.
   },
+  {
+    version: 39,
+    name: 'add_fine_tune_jobs',
+    up: readSqlMigration('039-fine-tune-jobs.sql'),
+    down: [
+      'DROP INDEX IF EXISTS idx_fine_tune_status',
+      'DROP TABLE IF EXISTS fine_tune_jobs',
+    ].join('; '),
+  },
 ];
 
 function ensureMigrationTable(sqliteDb) {
