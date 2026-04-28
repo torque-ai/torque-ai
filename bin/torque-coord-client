@@ -6,6 +6,11 @@ const HOST = process.env.TORQUE_COORD_HOST || '127.0.0.1';
 const PORT = parseInt(process.env.TORQUE_COORD_PORT || '9395', 10);
 const CONNECT_TIMEOUT_MS = 2000;
 
+const REMOTE_HOST = process.env.TORQUE_COORD_REMOTE_HOST || '';
+const REMOTE_USER = process.env.TORQUE_COORD_REMOTE_USER || '';
+const SSH_MODE = !!(REMOTE_HOST && REMOTE_USER);
+const SSH_TIMEOUT_SECS = parseInt(process.env.TORQUE_COORD_SSH_TIMEOUT || '5', 10);
+
 function emit(obj) {
   process.stdout.write(JSON.stringify(obj) + '\n');
 }
@@ -55,6 +60,103 @@ function request({ method, path, body }) {
   });
 }
 
+function requestViaSsh({ method, path: urlPath, body }) {
+  return new Promise((resolve, reject) => {
+    const { spawn } = require('child_process');
+    // Build a curl invocation that runs on the remote workstation.
+    // -s silent, -w writes the HTTP status code on its own line at the end
+    // so we can split it from the body without parsing headers.
+    const url = `http://127.0.0.1:9395${urlPath}`;
+    const curlArgs = [
+      '-s',
+      '--max-time', '5',
+      '-X', method,
+      '-H', 'content-type: application/json',
+      '-w', '\n%{http_code}',
+    ];
+    if (body) {
+      // pass body via stdin so we don't have to escape arbitrary JSON for the shell
+      curlArgs.push('--data-binary', '@-');
+    }
+    curlArgs.push(url);
+    const sshArgs = [
+      '-o', `ConnectTimeout=${SSH_TIMEOUT_SECS}`,
+      '-o', 'StrictHostKeyChecking=accept-new',
+      `${REMOTE_USER}@${REMOTE_HOST}`,
+      'curl', ...curlArgs,
+    ];
+    const proc = spawn('ssh', sshArgs, { windowsHide: true });
+    let stdout = '';
+    let stderr = '';
+    proc.stdout.on('data', (chunk) => { stdout += chunk.toString('utf8'); });
+    proc.stderr.on('data', (chunk) => { stderr += chunk.toString('utf8'); });
+    proc.on('error', reject);
+    proc.on('close', (code) => {
+      if (code !== 0) {
+        return reject(new Error(`ssh exited ${code}: ${stderr.trim().slice(0, 200) || 'no stderr'}`));
+      }
+      // Last line is the http_code from `-w`. Body is everything before.
+      const idx = stdout.lastIndexOf('\n');
+      const httpCode = idx >= 0 ? parseInt(stdout.slice(idx + 1).trim(), 10) : NaN;
+      const text = idx >= 0 ? stdout.slice(0, idx) : stdout;
+      let json = null;
+      try { json = text ? JSON.parse(text) : null; } catch (_e) { /* not json */ }
+      resolve({ status: Number.isFinite(httpCode) ? httpCode : 0, body: json });
+    });
+    if (body) {
+      proc.stdin.end(JSON.stringify(body));
+    } else {
+      proc.stdin.end();
+    }
+  });
+}
+
+function streamViaSsh({ path: urlPath, onFrame }) {
+  return new Promise((resolve, reject) => {
+    const { spawn } = require('child_process');
+    const url = `http://127.0.0.1:9395${urlPath}`;
+    const curlArgs = [
+      '-s', '-N',  // -N: no buffering, keep SSE frames flowing
+      '-H', 'accept: text/event-stream',
+      url,
+    ];
+    const sshArgs = [
+      '-o', `ConnectTimeout=${SSH_TIMEOUT_SECS}`,
+      '-o', 'StrictHostKeyChecking=accept-new',
+      `${REMOTE_USER}@${REMOTE_HOST}`,
+      'curl', ...curlArgs,
+    ];
+    const proc = spawn('ssh', sshArgs, { windowsHide: true });
+    let buf = '';
+    proc.stdout.setEncoding('utf8');
+    proc.stdout.on('data', (chunk) => {
+      buf += chunk;
+      let idx;
+      while ((idx = buf.indexOf('\n\n')) >= 0) {
+        const frame = buf.slice(0, idx);
+        buf = buf.slice(idx + 2);
+        const dataLine = frame.split('\n').find((l) => l.startsWith('data: '));
+        if (dataLine) {
+          try {
+            const parsed = JSON.parse(dataLine.slice(6));
+            const stop = onFrame(parsed);
+            if (stop) {
+              proc.kill('SIGTERM');
+              return resolve();
+            }
+          } catch (_e) { /* malformed frame, ignore */ }
+        }
+      }
+    });
+    proc.on('error', reject);
+    proc.on('close', () => resolve());
+  });
+}
+
+function dispatch(args) {
+  return SSH_MODE ? requestViaSsh(args) : request(args);
+}
+
 async function main() {
   const [, , subcommand, ...rest] = process.argv;
   let args;
@@ -68,7 +170,7 @@ async function main() {
   try {
     switch (subcommand) {
       case 'health': {
-        const r = await request({ method: 'GET', path: '/health' });
+        const r = await dispatch({ method: 'GET', path: '/health' });
         emit(r.body);
         process.exit(r.status === 200 ? 0 : 1);
         break;
@@ -84,14 +186,14 @@ async function main() {
             user: args.user || (process.env.USER || process.env.USERNAME || 'unknown'),
           },
         };
-        const r = await request({ method: 'POST', path: '/acquire', body });
+        const r = await dispatch({ method: 'POST', path: '/acquire', body });
         emit(r.body);
         process.exit(r.status === 200 ? 0 : (r.status === 202 ? 3 : 1));
         break;
       }
       case 'heartbeat': {
         const body = { lock_id: args['lock-id'], log_chunk: args.log || '' };
-        const r = await request({ method: 'POST', path: '/heartbeat', body });
+        const r = await dispatch({ method: 'POST', path: '/heartbeat', body });
         emit(r.body);
         process.exit(r.status === 200 ? 0 : 1);
         break;
@@ -125,13 +227,13 @@ async function main() {
           output_tail: tailContent,
           package_lock_hashes: parsedHashes,
         };
-        const r = await request({ method: 'POST', path: '/release', body });
+        const r = await dispatch({ method: 'POST', path: '/release', body });
         emit(r.body);
         process.exit(r.status === 200 ? 0 : 1);
         break;
       }
       case 'results': {
-        const r = await request({
+        const r = await dispatch({
           method: 'GET',
           path: `/results/${encodeURIComponent(args.project)}/${encodeURIComponent(args.sha)}/${encodeURIComponent(args.suite)}`,
         });
@@ -141,6 +243,16 @@ async function main() {
         break;
       }
       case 'wait': {
+        if (SSH_MODE) {
+          await streamViaSsh({
+            path: `/wait/${encodeURIComponent(args['lock-id'])}`,
+            onFrame: (parsed) => {
+              emit(parsed);
+              return parsed.type === 'released' || parsed.type === 'holder_crashed';
+            },
+          });
+          process.exit(0);
+        }
         // No request.timeout for wait — it's an inactivity timeout that
         // would kill long streams. The daemon emits progress every 5s but
         // a quiet stretch is normal. Daemon-down is detected by the socket
