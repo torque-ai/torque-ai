@@ -160,7 +160,13 @@ describe('Group 1: Live Ollama Integration', () => {
       );
       expect(usedExpectedTool).toBe(true);
     },
-    120000 // 2 min for cold model load
+    // Outer test timeout MUST exceed the inner runAgenticLoop timeoutMs
+    // (120000ms) plus the catch-block log/return overhead. If the two are
+    // equal, vitest's testTimeout races runAgenticLoop's own timeout — vitest
+    // wins, the catch block (which would skip gracefully on a model-load
+    // timeout) never runs, and the test hard-fails. 180000ms gives 60s of
+    // headroom for the inner timeout to fire and unwind cleanly.
+    180000
   );
 });
 
