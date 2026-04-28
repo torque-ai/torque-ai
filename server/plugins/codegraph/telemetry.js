@@ -6,6 +6,11 @@
 // best-effort: any error in the recorder is swallowed so a failed write to
 // cg_tool_usage never breaks the underlying tool call.
 
+// Every cg_* tool except cg_telemetry itself records here. cg_telemetry is
+// the surfacing query — recording it would be recursive and bias the very
+// numbers it reports. New cg_* tools MUST be added to this set; the test
+// "TELEMETRY_TOOLS covers every declared cg_* tool except cg_telemetry"
+// asserts that on every CI run.
 const TELEMETRY_TOOLS = new Set([
   'cg_index_status',
   'cg_reindex',
@@ -15,6 +20,9 @@ const TELEMETRY_TOOLS = new Set([
   'cg_dead_symbols',
   'cg_class_hierarchy',
   'cg_resolve_tool',
+  'cg_diff',
+  'cg_search',
+  'cg_resolution_diagnostics',
 ]);
 
 // Pull the result_count out of the structured payload using each tool's

@@ -4,6 +4,7 @@ const Database = require('better-sqlite3');
 const { ensureSchema } = require('../schema');
 const { createHandlers } = require('../handlers');
 const telemetry = require('../telemetry');
+const toolDefs = require('../tool-defs');
 const { setupTinyRepo, destroyTinyRepo } = require('../test-helpers');
 
 const data = (r) => r.structuredData;
@@ -70,6 +71,37 @@ describe('codegraph shadow-mode telemetry', () => {
     const row = usageRows()[0];
     expect(row.ok).toBe(0);
     expect(row.error_kind).toBe('internal_error');
+  });
+
+  it('TELEMETRY_TOOLS covers every declared cg_* tool except cg_telemetry', () => {
+    // Regression guard: a new cg_* tool added to tool-defs without being
+    // added to TELEMETRY_TOOLS silently bypasses the recorder. cg_telemetry
+    // is the only allowed exemption (it surfaces telemetry; recording it
+    // would be recursive).
+    const declared = toolDefs.map((t) => t.name);
+    const missing = declared.filter(
+      (name) => name !== 'cg_telemetry' && !telemetry.TELEMETRY_TOOLS.has(name),
+    );
+    expect(missing).toEqual([]);
+  });
+
+  it('cg_search / cg_diff / cg_resolution_diagnostics each record one row', async () => {
+    // Tightens the regression guard above: every new tool that just shipped
+    // must produce at least one cg_tool_usage row when invoked through the
+    // wrapper. If any of these slip out of TELEMETRY_TOOLS in the future,
+    // this test fails before review.
+    await instrumented.cg_search({ repo_path: repo, pattern: '*', limit: 5 });
+    await instrumented.cg_resolution_diagnostics({ repo_path: repo, symbol: 'beta' });
+    // cg_diff needs two reachable shas — repo has only one commit, but
+    // gitShaReachable checks `<sha>^{commit}` so HEAD-vs-HEAD is reachable.
+    const { execFileSync } = require('child_process');
+    const sha = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repo, encoding: 'utf8' }).trim();
+    await instrumented.cg_diff({ repo_path: repo, from_sha: sha, to_sha: sha });
+
+    const tools = usageRows().map((r) => r.tool).sort();
+    expect(tools).toContain('cg_search');
+    expect(tools).toContain('cg_diff');
+    expect(tools).toContain('cg_resolution_diagnostics');
   });
 
   it('cg_telemetry is NOT itself instrumented (no recursion / measurement bias)', async () => {
