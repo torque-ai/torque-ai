@@ -51,6 +51,28 @@ describe('index.killStaleInstance process safety', () => {
     originalDataDir = process.env.TORQUE_DATA_DIR;
     process.env.TORQUE_DATA_DIR = tempDir;
     index = loadIndexForTempDir();
+    // The "blocks competing startup" test below writes a barrier row to
+    // tasks.db at PID_FILE's dirname. PID_FILE is bound at module load
+    // time (cached via getDataDir), so depending on which tests ran first
+    // in this worker that path may or may not have a tasks.db with schema.
+    // In true isolation the path is a fresh temp dir with no schema, and
+    // the test's `DELETE FROM tasks` raises "no such table: tasks". Copy
+    // the global-setup template buffer (which has the full schema applied
+    // including the provider column the test relies on) into place if
+    // tasks.db is missing or empty.
+    try {
+      const pidFile = index && index._testing && index._testing.PID_FILE;
+      if (pidFile) {
+        const tasksDb = path.join(path.dirname(pidFile), 'tasks.db');
+        const needsSeed = !fs.existsSync(tasksDb) || fs.statSync(tasksDb).size === 0;
+        if (needsSeed) {
+          const templateBuf = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
+          if (fs.existsSync(templateBuf)) {
+            fs.copyFileSync(templateBuf, tasksDb);
+          }
+        }
+      }
+    } catch { /* best-effort; the affected test will surface a clearer error */ }
     clearSystemBarriers();
   });
 
