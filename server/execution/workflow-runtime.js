@@ -302,6 +302,7 @@ async function generatePipelineDocumentation(pipelineId, finalStatus) {
     try {
       const earlyOutputDir = pipeline.working_directory || process.cwd();
       const earlyTorqueDir = path.join(earlyOutputDir, '.torque', 'pipeline-reports');
+      // eslint-disable-next-line torque/no-sync-fs-on-hot-paths -- intentional: callers and tests observe the directory immediately after this function returns; the comment block above documents this as part of the contract — async would defer creation past the function return
       fs.mkdirSync(earlyTorqueDir, { recursive: true });
     } catch (_mkdirErr) {
       // Non-fatal — the async mkdir below will retry. Tests that probe

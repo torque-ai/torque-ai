@@ -7,8 +7,12 @@ vi.mock('../../../logger', () => ({ child: () => ({ info: vi.fn(), warn: vi.fn()
 describe('remote-agents plugin', () => {
   let plugin;
 
-  beforeEach(() => {
-    vi.resetModules();
+  beforeAll(() => {
+    // Tests inspect read-only plugin properties (name, contract shape,
+    // empty mcpTools()) — no shared mutable state to reset between cases.
+    // Move from beforeEach to beforeAll: avoid per-test module cache clear,
+    // which the perf rule (torque/no-reset-modules-in-each) flags as a
+    // 100x+ overhead since createPlugin() pulls in the whole DI graph.
     const { createPlugin } = require('../index');
     plugin = createPlugin();
   });

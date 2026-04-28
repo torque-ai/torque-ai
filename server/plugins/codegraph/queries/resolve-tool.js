@@ -42,7 +42,7 @@ const SYMBOL_FALLBACK_SQL = `
 // handleSmartSubmitTask. Generate likely candidates and look them up.
 function guessHandlerNames(toolName) {
   const pascal = toolName
-    .split(/[_\-]/)
+    .split(/[_-]/)
     .filter(Boolean)
     .map((p) => p.charAt(0).toUpperCase() + p.slice(1))
     .join('');
