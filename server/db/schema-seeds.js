@@ -173,11 +173,17 @@ function seedDefaults(db, logger, safeAddColumn, extras = {}) {
     hyperbolic: 'cloud-api', cerebras: 'cloud-api', 'google-ai': 'cloud-api',
     openrouter: 'cloud-api', 'ollama-cloud': 'cloud-api',
   };
-  const updateProviderType = db.prepare('UPDATE provider_config SET provider_type = ? WHERE provider = ? AND provider_type IS NULL');
+  // Prepare lazily inside the try so a missing provider_type column (the
+  // migration that adds it may not have applied yet) is caught and ignored
+  // — same forgiving behavior as the per-iteration prepare this replaced.
+  let _updateProviderType = null;
   for (const [provider, type] of Object.entries(providerTypes)) {
     try {
-      updateProviderType.run(type, provider);
-    } catch { /* ignore */ }
+      if (!_updateProviderType) {
+        _updateProviderType = db.prepare('UPDATE provider_config SET provider_type = ? WHERE provider = ? AND provider_type IS NULL');
+      }
+      _updateProviderType.run(type, provider);
+    } catch { /* column may not exist yet, or row may not match */ }
   }
   const PROVIDER_CAPABILITIES = {
     codex: { capabilities: ['file_creation', 'file_edit', 'multi_file', 'reasoning'], band: 'A' },
@@ -195,11 +201,16 @@ function seedDefaults(db, logger, safeAddColumn, extras = {}) {
     'google-ai': { capabilities: [], band: 'D' },
   };
 
-  const updateProviderCapabilities = db.prepare('UPDATE provider_config SET capability_tags = ?, quality_band = ? WHERE provider = ?');
+  // Lazy prepare inside try/catch — capability_tags / quality_band columns
+  // are added by a migration; tolerate the column-missing case as before.
+  let _updateProviderCapabilities = null;
   for (const [provider, config] of Object.entries(PROVIDER_CAPABILITIES)) {
     try {
-      updateProviderCapabilities.run(JSON.stringify(config.capabilities), config.band, provider);
-    } catch { /* provider may not exist yet */ }
+      if (!_updateProviderCapabilities) {
+        _updateProviderCapabilities = db.prepare('UPDATE provider_config SET capability_tags = ?, quality_band = ? WHERE provider = ?');
+      }
+      _updateProviderCapabilities.run(JSON.stringify(config.capabilities), config.band, provider);
+    } catch { /* provider may not exist yet, or columns missing */ }
   }
   const insertRateLimit = db.prepare('INSERT OR IGNORE INTO provider_rate_limits (provider, is_free_tier, rpm_limit, rpd_limit, tpm_limit, tpd_limit, daily_reset_hour, daily_reset_tz, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
   insertRateLimit.run('groq', 1, 30, 14400, 6000, 500000, 0, 'UTC', now);
