@@ -172,4 +172,90 @@ describe('ollama-tools command security', () => {
     const result = executor.execute('run_command', { command: 'gci' });
     expect(result.result).not.toContain('not in allowlist');
   });
+
+  it('rejection of cat suggests read_file', () => {
+    const executor = createToolExecutor('/tmp/test-dir', {
+      commandMode: 'allowlist',
+      commandAllowlist: ['npm *'],
+    });
+    const result = executor.execute('run_command', { command: 'cat foo.txt' });
+    expect(result.error).toBe(true);
+    expect(result.result).toContain('use read_file');
+    expect(result._allowlist_rejection).toBe(true);
+  });
+
+  it('rejection of head suggests read_file with end_line', () => {
+    const executor = createToolExecutor('/tmp/test-dir', {
+      commandMode: 'allowlist',
+      commandAllowlist: ['npm *'],
+    });
+    const result = executor.execute('run_command', { command: 'head -n 20 foo.txt' });
+    expect(result.error).toBe(true);
+    expect(result.result).toContain('end_line');
+    expect(result._allowlist_rejection).toBe(true);
+  });
+
+  it('rejection of tail suggests read_file with start_line', () => {
+    const executor = createToolExecutor('/tmp/test-dir', {
+      commandMode: 'allowlist',
+      commandAllowlist: ['npm *'],
+    });
+    const result = executor.execute('run_command', { command: 'tail -n 20 foo.txt' });
+    expect(result.error).toBe(true);
+    expect(result.result).toContain('start_line');
+    expect(result._allowlist_rejection).toBe(true);
+  });
+
+  it('rejection of find suggests search_files', () => {
+    const executor = createToolExecutor('/tmp/test-dir', {
+      commandMode: 'allowlist',
+      commandAllowlist: ['npm *'],
+    });
+    const result = executor.execute('run_command', { command: 'find . -name foo' });
+    expect(result.error).toBe(true);
+    expect(result.result).toContain('use search_files');
+    expect(result._allowlist_rejection).toBe(true);
+  });
+
+  it('rejection of grep suggests search_files', () => {
+    const executor = createToolExecutor('/tmp/test-dir', {
+      commandMode: 'allowlist',
+      commandAllowlist: ['npm *'],
+    });
+    const result = executor.execute('run_command', { command: 'grep -r foo .' });
+    expect(result.error).toBe(true);
+    expect(result.result).toContain('use search_files');
+    expect(result._allowlist_rejection).toBe(true);
+  });
+
+  it('rejection of unknown destructive command sets marker but no specific suggestion', () => {
+    const executor = createToolExecutor('/tmp/test-dir', {
+      commandMode: 'allowlist',
+      commandAllowlist: ['npm *'],
+    });
+    const result = executor.execute('run_command', { command: 'somethingweird --flag' });
+    expect(result.error).toBe(true);
+    expect(result.result).toContain('not in allowlist');
+    expect(result.result).not.toContain(' — use ');
+    expect(result._allowlist_rejection).toBe(true);
+  });
+
+  it('rejection marker is set on every allowlist-rejection (rm -rf included)', () => {
+    const executor = createToolExecutor('/tmp/test-dir', {
+      commandMode: 'allowlist',
+      commandAllowlist: ['npm *'],
+    });
+    const result = executor.execute('run_command', { command: 'rm -rf node_modules' });
+    expect(result.error).toBe(true);
+    expect(result._allowlist_rejection).toBe(true);
+  });
+
+  it('successful command does not have _allowlist_rejection marker', () => {
+    const executor = createToolExecutor(process.cwd(), {
+      commandMode: 'allowlist',
+      commandAllowlist: ['node *'],
+    });
+    const result = executor.execute('run_command', { command: 'node --version' });
+    expect(result._allowlist_rejection).toBeUndefined();
+  });
 });
