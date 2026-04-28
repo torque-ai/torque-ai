@@ -120,6 +120,16 @@ class MockWebSocket {
   }
 }
 
+// Bump hookTimeout for this file. The `await import('./App')` in the
+// second beforeAll below pulls in App.jsx (~410 lines + react-router +
+// websocket hook + many lazy chains). On the Defender-scanned Windows
+// test runner each file imported triggers an AV scan; the cumulative
+// import wall-time blows past vitest's 10s default hookTimeout and the
+// whole test file fails at setup with no test-level signal — just
+// "1 failed file, 0 failed tests". 60s is the same generous ceiling
+// coord-torque-remote-integration uses for the same Defender reason.
+vi.setConfig({ hookTimeout: 60000 });
+
 // Apply WebSocket mock using vi.stubGlobal for reliable override
 beforeAll(() => {
   vi.stubGlobal('WebSocket', MockWebSocket);
