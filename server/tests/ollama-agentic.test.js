@@ -690,4 +690,154 @@ describe('ollama-agentic', () => {
       expect(result.output).toContain(secondProse);
     });
   });
+
+  describe('Integration — small-model robustness composition', () => {
+    // Each test composes 2+ of the Task 1-5 fixes in a single runAgenticLoop run.
+    // Uses the same vi.resetModules() + dynamic-import harness as Fix #3 and Fix #1B
+    // (handled by the top-level beforeEach which resets modules and re-imports).
+
+    const CORRECTIVE_REPROMPT_FRAGMENT = 'Your previous response had no tool calls';
+
+    function messagesContainCorrectivePrompt(messages) {
+      return messages.some(
+        (m) => m.role === 'user' && typeof m.content === 'string' && m.content.includes(CORRECTIVE_REPROMPT_FRAGMENT)
+      );
+    }
+
+    it('Scenario A: markdown-then-recovery — model produces prose on iter 0, validator nudges, model tool_calls, completes', async () => {
+      // Composes: Fix #1B (first-iter validator) + Fix #4 (few-shot system prompt / normal agentic flow)
+      //
+      // Adapter sequence:
+      //   call 1 (iter 0): long prose text-only — validator fires, sends corrective reprompt
+      //   call 2 (iter 0 retry): tool call (write_file) — succeeds
+      //   call 3 (iter 1): final text "Done. Created m.sql."
+      const longProse = "I'll create the migration. Here is the SQL:\n```sql\nCREATE TABLE x (id INTEGER PRIMARY KEY);\n```\nThat's the schema definition for the new table.";
+      expect(longProse.length).toBeGreaterThan(50);
+
+      const adapter = createAdapter([
+        textResponse(longProse),
+        toolResponse({ name: 'write_file', arguments: { path: 'm.sql', content: 'CREATE TABLE x (id INTEGER PRIMARY KEY);' } }),
+        textResponse('Done. Created m.sql.'),
+      ]);
+      const toolExecutor = createToolExecutor((name, args, changedFiles) => {
+        if (name === 'write_file') changedFiles.add(args.path);
+        return { result: `${name} completed for ${args.path}` };
+      });
+
+      const result = await runAgenticLoop({
+        adapter,
+        systemPrompt: 'System prompt',
+        taskPrompt: 'Create the migration file at m.sql.',
+        tools: TOOL_DEFINITIONS,
+        toolExecutor,
+        maxIterations: 10,
+      });
+
+      // Task completes normally — not stopped by error guard
+      expect(result.stopReason).not.toBe('consecutive_tool_errors');
+      // Final output contains the completion message from iter 1
+      expect(result.output).toContain('Done. Created m.sql.');
+      // The write_file call is in the toolLog — exactly 1 tool call executed
+      expect(result.toolLog).toHaveLength(1);
+      expect(result.toolLog[0].name).toBe('write_file');
+      // The 2nd adapter call (the retry) must have the corrective prompt in its messages
+      const retryMessages = adapter.chatCompletion.mock.calls[1][0].messages;
+      expect(messagesContainCorrectivePrompt(retryMessages)).toBe(true);
+      // 3 adapter calls total: iter-0 prose, iter-0 retry with tool, iter-1 final
+      expect(adapter.chatCompletion).toHaveBeenCalledTimes(3);
+    });
+
+    it('Scenario B: allowlist-recovery — model uses cat (rejected with suggestion), then read_file (success), counter not incremented', async () => {
+      // Composes: Task 2 (allowlist rejection + suggestion) + Task 3 (counter skip on _allowlist_rejection)
+      //
+      // Adapter sequence:
+      //   iter 0: run_command 'cat src/foo.js' — executor returns _allowlist_rejection (counter stays at 0)
+      //   iter 1: read_file 'src/foo.js' — succeeds
+      //   iter 2: final text summarizing findings
+      const adapter = createAdapter([
+        toolResponse({ name: 'run_command', arguments: { command: 'cat src/foo.js' } }),
+        toolResponse({ name: 'read_file', arguments: { path: 'src/foo.js' } }),
+        textResponse('Read foo.js — it has a default export and 3 helpers.'),
+      ]);
+      const toolExecutor = createToolExecutor((name, args) => {
+        if (name === 'run_command' && args.command === 'cat src/foo.js') {
+          return {
+            result: 'Error: Command not in allowlist: cat src/foo.js — use read_file({path}) instead',
+            error: true,
+            _allowlist_rejection: true,
+          };
+        }
+        if (name === 'read_file' && args.path === 'src/foo.js') {
+          return { result: '1\texport default function foo() {}\n' };
+        }
+        return { result: 'ok' };
+      });
+
+      const result = await runAgenticLoop({
+        adapter,
+        systemPrompt: 'System prompt',
+        taskPrompt: 'Read and describe src/foo.js.',
+        tools: TOOL_DEFINITIONS,
+        toolExecutor,
+        maxIterations: 10,
+      });
+
+      // The allowlist rejection did NOT increment the consecutive-error counter — no early stop
+      expect(result.stopReason).not.toBe('consecutive_tool_errors');
+      // Final output contains the successful summary
+      expect(result.output).toContain('Read foo.js');
+      // Two tool entries: the rejected run_command + the successful read_file
+      expect(result.toolLog).toHaveLength(2);
+      expect(result.toolLog[0].name).toBe('run_command');
+      expect(result.toolLog[0].error).toBe(true);
+      expect(result.toolLog[1].name).toBe('read_file');
+      expect(result.toolLog[1].error).toBe(false);
+      // The tool result message for the first call contains the suggestion text
+      const allMessages = adapter.chatCompletion.mock.calls.flatMap((c) => c[0].messages);
+      const toolResultMessages = allMessages.filter((m) => m.role === 'tool');
+      expect(toolResultMessages.some((m) => m.content.includes('use read_file'))).toBe(true);
+    });
+
+    it('Scenario C: relaxed early-stop — 2 same-tool errors do NOT bail; 3rd error triggers stop', async () => {
+      // Composes: Task 3 (threshold 2→3 for consecutive errors)
+      //
+      // Adapter sequence:
+      //   iter 0: read_file bad0.js — ENOENT error (counter=1)
+      //   iter 1: read_file bad1.js — ENOENT error (counter=2, threshold NOT hit)
+      //   iter 2: read_file bad2.js — ENOENT error (counter=3, threshold HIT — early stop)
+      //   iter 3: 'shouldnt-reach' — must NOT be called
+      const adapter = createAdapter([
+        toolResponse({ name: 'read_file', arguments: { path: 'bad0.js' } }),
+        toolResponse({ name: 'read_file', arguments: { path: 'bad1.js' } }),
+        toolResponse({ name: 'read_file', arguments: { path: 'bad2.js' } }),
+        textResponse('shouldnt-reach'),
+      ]);
+      const toolExecutor = createToolExecutor((_name, args) => ({
+        result: `Error: ENOENT: no such file or directory, open '${args.path}'`,
+        error: true,
+      }));
+
+      const result = await runAgenticLoop({
+        adapter,
+        systemPrompt: 'System prompt',
+        taskPrompt: 'Read the specified files.',
+        tools: TOOL_DEFINITIONS,
+        toolExecutor,
+        maxIterations: 10,
+      });
+
+      // Stopped by the consecutive error guard
+      expect(result.stopReason).toBe('consecutive_tool_errors');
+      // Output mentions the tool name and iteration count
+      expect(result.output).toContain('consecutive errors from read_file');
+      // The threshold is 3 iterations (not the old 2)
+      expect(result.output).toContain('after 3 iterations');
+      // Exactly 3 read_file error entries in the toolLog
+      expect(result.toolLog).toHaveLength(3);
+      expect(result.toolLog.every((entry) => entry.name === 'read_file' && entry.error)).toBe(true);
+      // The 4th adapter response ('shouldnt-reach') must NOT have been used
+      // — adapter should have been called exactly 3 times (one per iteration)
+      expect(adapter.chatCompletion).toHaveBeenCalledTimes(3);
+    });
+  });
 });
