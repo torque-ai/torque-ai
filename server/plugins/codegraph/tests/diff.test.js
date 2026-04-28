@@ -3,20 +3,30 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const { execFileSync } = require('child_process');
+const childProcess = require('child_process');
+// server/tests/worker-setup.js stubs child_process.{execFileSync,spawnSync}
+// to return fake values like 'abcdef1234567890' for `git rev-parse HEAD`,
+// preventing orphaned git.exe processes on Windows. Test-helpers.js restores
+// the originals — but only by virtue of being imported. cgDiff under test
+// also calls execFileSync internally, so we need the real implementation in
+// scope when the test creates a fixture repo AND when cgDiff diffs it.
+if (childProcess._realExecFileSync) childProcess.execFileSync = childProcess._realExecFileSync;
+const { execFileSync } = childProcess;
 const { cgDiff } = require('../queries/diff');
 
-const GIT_OPTS = {
-  windowsHide: true,
-  stdio: ['ignore', 'ignore', 'pipe'],
-  env: { ...process.env, GIT_TERMINAL_PROMPT: '0', GIT_OPTIONAL_LOCKS: '0', GIT_CONFIG_NOSYSTEM: '1' },
-};
+const GIT_ENV = { ...process.env, GIT_TERMINAL_PROMPT: '0', GIT_OPTIONAL_LOCKS: '0', GIT_CONFIG_NOSYSTEM: '1' };
 
 function git(repo, ...args) {
-  return execFileSync('git', args, { ...GIT_OPTS, cwd: repo, encoding: 'utf8' }).trim();
+  return execFileSync('git', args, {
+    cwd: repo, encoding: 'utf8', windowsHide: true, env: GIT_ENV,
+    stdio: ['ignore', 'pipe', 'pipe'],
+  }).trim();
 }
 function gitVoid(repo, ...args) {
-  execFileSync('git', args, { ...GIT_OPTS, cwd: repo });
+  execFileSync('git', args, {
+    cwd: repo, windowsHide: true, env: GIT_ENV,
+    stdio: ['ignore', 'ignore', 'pipe'],
+  });
 }
 
 function makeRepo() {
@@ -79,8 +89,11 @@ describe('cg_diff', () => {
   });
 
   it('diffs a fully removed file (every symbol counted as removed)', async () => {
-    const sha1 = commitFile(repo, 'a.js', 'function alpha() {}\n', 'init');
-    commitFile(repo, 'b.js', 'function gamma() {}\n', 'add b.js');
+    commitFile(repo, 'a.js', 'function alpha() {}\n', 'init');
+    // sha1 has b.js; sha2 has b.js removed. Diff sha1→sha2 surfaces gamma
+    // as removed. (Diffing init→sha2 would show no net change for b.js
+    // since it was added and then removed in between.)
+    const sha1 = commitFile(repo, 'b.js', 'function gamma() {}\n', 'add b.js');
     const sha2 = rmFile(repo, 'b.js', 'rm b.js');
 
     const r = await cgDiff({ repoPath: repo, fromSha: sha1, toSha: sha2 });

@@ -38,8 +38,12 @@ function gitShowFile(repoPath, sha, filePath) {
 }
 
 function gitShaReachable(repoPath, sha) {
+  // rev-parse --verify <sha>^{commit} forces a strict commit-existence check.
+  // Plain `cat-file -e` is more lenient — it accepts unique short prefixes
+  // and any object type (blob/tree/commit). The `^{commit}` peel ensures we
+  // reject blob/tree shas that would let cgDiff proceed with a non-commit.
   try {
-    childProcess.execFileSync('git', ['cat-file', '-e', sha], {
+    childProcess.execFileSync('git', ['rev-parse', '--verify', '--quiet', `${sha}^{commit}`], {
       ...GIT_BASE_OPTS, cwd: repoPath,
     });
     return true;
