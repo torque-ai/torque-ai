@@ -852,6 +852,7 @@ module.exports = {
   setRuntimeRegisteredToolDefs,
   getRuntimeRegisteredToolDefs,
   getRuntimeRegisteredToolDef,
+  getPluginToolDef,
   createTools,
   RESTART_COOLDOWN_MS,
   handleRestartServerBarrier,

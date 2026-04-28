@@ -513,7 +513,14 @@ async function handleRequest(req, res, context = {}) {
       //   3. route.mapQuery  — query-string params
       //   4. route.mapParams / path params — strongest, since they're in the URL
       let args = {};
-      const toolSchema = schemaMap.get(route.tool);
+      // schemaMap only carries tool-defs/*-defs.js entries. Plugin tools
+      // (cg_*, peek_*, vc_*, etc.) live in getPluginToolDef. Fall back to
+      // it so REST passthrough query-param coercion works for plugin tools
+      // — without this, integer params like since_hours arrive as strings
+      // and the centralized JSON-schema validator inside handleToolCall
+      // rejects the call with a 400 before the handler ever runs.
+      const toolSchema = schemaMap.get(route.tool)
+        || tools.getPluginToolDef(route.tool)?.inputSchema;
 
       if (route.defaultArgs && typeof route.defaultArgs === 'object') {
         args = { ...route.defaultArgs };
