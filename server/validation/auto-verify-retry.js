@@ -24,6 +24,7 @@ const { extractModifiedFiles } = require('../utils/file-resolution');
 const { checkResourceGate } = require('../utils/resource-gate');
 const { elicit } = require('../mcp/elicitation');
 const { copyWorkspaceToSandbox } = require('../sandbox/workspace-sync');
+const { inspectPostTaskDiff } = require('./codegraph-diff-validator');
 
 // Providers that get auto-verify by default.
 // Built via character join to avoid the repo's PII scrub, which case-
@@ -365,6 +366,48 @@ async function handleAutoVerifyRetry(ctx) {
   // Success — task stays completed
   if (verifyExitCode === 0) {
     logger.info(`[auto-verify] Task ${taskId}: verify passed`);
+    // Codegraph diff inspection: surface signature changes / parse errors
+    // the verify command can't see. Soft signal — never flips status,
+    // skip-silently if codegraph isn't available.
+    try {
+      const baselineSha = ctx?.proc?.baselineCommit
+        || (typeof task?.git_before_sha === 'string' ? task.git_before_sha : null);
+      if (baselineSha) {
+        const inspection = await inspectPostTaskDiff({
+          repoPath: task.working_directory,
+          workingDirectory: task.working_directory,
+          fromSha: baselineSha,
+          taskDescription: task.task_description || '',
+        });
+        if (inspection.ran && inspection.warnings.length > 0) {
+          const summary = inspection.warnings.map((w) => `[${w.code}] ${w.message}`).join('\n');
+          logger.info(`[auto-verify] Task ${taskId}: cg_diff surfaced ${inspection.warnings.length} warning(s)`);
+          try {
+            const currentTask = _db.getTask(taskId);
+            const existingTags = Array.isArray(currentTask?.tags) ? currentTask.tags : [];
+            const codegraphTags = [];
+            if (inspection.signature_undeclared.length > 0) codegraphTags.push('cg_diff:signature_undeclared');
+            if (inspection.parse_errors.length > 0) codegraphTags.push('cg_diff:parse_errors');
+            if (codegraphTags.length > 0 && typeof _db.updateTask === 'function') {
+              const merged = Array.from(new Set(existingTags.concat(codegraphTags)));
+              _db.updateTask(taskId, { tags: merged });
+            }
+            // Annotate output for dashboard / QC review.
+            const newOutput = (currentTask?.output || '') +
+              (currentTask?.output ? '\n\n' : '') +
+              `── codegraph diff (cg_diff ${inspection.from_sha.slice(0, 8)}..${inspection.to_sha.slice(0, 8)}) ──\n` +
+              summary;
+            if (typeof _db.updateTask === 'function') {
+              _db.updateTask(taskId, { output: newOutput });
+            }
+          } catch (annotateErr) {
+            logger.info(`[auto-verify] Task ${taskId}: cg_diff annotation failed: ${annotateErr.message}`);
+          }
+        }
+      }
+    } catch (cgErr) {
+      logger.info(`[auto-verify] Task ${taskId}: cg_diff inspection failed: ${cgErr.message}`);
+    }
     return;
   }
 
