@@ -60,6 +60,20 @@ function request({ method, path, body }) {
   });
 }
 
+// On Windows, Node's spawn() uses CreateProcess which does NOT apply PATHEXT, so
+// `spawn('ssh')` can't find `ssh.cmd` on PATH. Use `where` to resolve the full path
+// before spawning so PATHEXT-discovered executables (e.g. test fakes) are honoured.
+function resolveExecutable(name) {
+  if (process.platform !== 'win32') return name;
+  const { spawnSync } = require('child_process');
+  const r = spawnSync('where', [name], { encoding: 'utf8' });
+  if (r.status === 0 && r.stdout.trim()) {
+    // `where` may return multiple lines; take the first match
+    return r.stdout.trim().split(/\r?\n/)[0].trim();
+  }
+  return name; // fallback — let spawn fail naturally
+}
+
 function requestViaSsh({ method, path: urlPath, body }) {
   return new Promise((resolve, reject) => {
     const { spawn } = require('child_process');
@@ -85,7 +99,7 @@ function requestViaSsh({ method, path: urlPath, body }) {
       `${REMOTE_USER}@${REMOTE_HOST}`,
       'curl', ...curlArgs,
     ];
-    const proc = spawn('ssh', sshArgs, { windowsHide: true });
+    const proc = spawn(resolveExecutable('ssh'), sshArgs, { windowsHide: true });
     let stdout = '';
     let stderr = '';
     proc.stdout.on('data', (chunk) => { stdout += chunk.toString('utf8'); });
@@ -126,7 +140,7 @@ function streamViaSsh({ path: urlPath, onFrame }) {
       `${REMOTE_USER}@${REMOTE_HOST}`,
       'curl', ...curlArgs,
     ];
-    const proc = spawn('ssh', sshArgs, { windowsHide: true });
+    const proc = spawn(resolveExecutable('ssh'), sshArgs, { windowsHide: true });
     let buf = '';
     proc.stdout.setEncoding('utf8');
     proc.stdout.on('data', (chunk) => {
