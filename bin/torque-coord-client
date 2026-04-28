@@ -70,30 +70,48 @@ function request({ method, path, body }) {
   });
 }
 
+// Escape a string for use inside a cmd.exe double-quoted argument.
+// The remote workstation's sshd runs the command through cmd.exe.
+// Inside cmd.exe double-quoted strings, only `"` needs escaping.
+function cmdQuote(s) {
+  return '"' + s.replace(/"/g, '\\"') + '"';
+}
+
 function requestViaSsh({ method, path: urlPath, body }) {
   return new Promise((resolve, reject) => {
     const { spawn } = require('child_process');
     // Build a curl invocation that runs on the remote workstation.
-    // -s silent, -w writes the HTTP status code on its own line at the end
-    // so we can split it from the body without parsing headers.
+    // -s silent; -w appends a sentinel + HTTP status code so we can
+    // separate it from the response body without relying on newlines.
+    // The sentinel is a plain alphanumeric string that cannot appear in
+    // valid JSON, so indexOf is a safe split point.
+    //
+    // We pass the entire curl command as a SINGLE argument to ssh (after
+    // the hostname). This is key: ssh sends a single-string command to
+    // the remote shell (cmd.exe), which then parses it normally.
+    // Passing individual args causes ssh to join them with spaces and
+    // Windows CreateProcess quoting can mangle %{...} in the -w format.
+    // A single pre-built cmd.exe-safe string avoids that entirely.
+    const SENTINEL = 'HTTPSTATUS:';
     const url = `http://127.0.0.1:9395${urlPath}`;
-    const curlArgs = [
-      '-s',
-      '--max-time', '5',
+    const curlParts = [
+      'curl', '-s',
+      '--max-time', String(SSH_TIMEOUT_SECS),
       '-X', method,
-      '-H', 'content-type: application/json',
-      '-w', '\\n%{http_code}',
+      '-H', cmdQuote('content-type: application/json'),
+      '-w', `HTTPSTATUS:%{http_code}`,
     ];
     if (body) {
-      // pass body via stdin so we don't have to escape arbitrary JSON for the shell
-      curlArgs.push('--data-binary', '@-');
+      // pass body via stdin
+      curlParts.push('--data-binary', '@-');
     }
-    curlArgs.push(url);
+    curlParts.push(url);
+    const remoteCmd = curlParts.join(' ');
     const sshArgs = [
       '-o', `ConnectTimeout=${SSH_TIMEOUT_SECS}`,
       '-o', 'StrictHostKeyChecking=accept-new',
       `${REMOTE_USER}@${REMOTE_HOST}`,
-      'curl', ...curlArgs,
+      remoteCmd,
     ];
     const spawnArgs = SSH_SCRIPT ? [SSH_SCRIPT, ...sshArgs] : sshArgs;
     // .cmd files on Windows require shell:true for CreateProcess to execute them.
@@ -108,10 +126,11 @@ function requestViaSsh({ method, path: urlPath, body }) {
       if (code !== 0) {
         return reject(new Error(`ssh exited ${code}: ${stderr.trim().slice(0, 200) || 'no stderr'}`));
       }
-      // Last line is the http_code from `-w`. Body is everything before.
-      const idx = stdout.lastIndexOf('\n');
-      const httpCode = idx >= 0 ? parseInt(stdout.slice(idx + 1).trim(), 10) : NaN;
+      // Split on sentinel to extract body + status code.
+      const idx = stdout.indexOf(SENTINEL);
       const text = idx >= 0 ? stdout.slice(0, idx) : stdout;
+      const statusStr = idx >= 0 ? stdout.slice(idx + SENTINEL.length).trim() : '';
+      const httpCode = parseInt(statusStr, 10);
       let json = null;
       try { json = text ? JSON.parse(text) : null; } catch (_e) { /* not json */ }
       resolve({ status: Number.isFinite(httpCode) ? httpCode : 0, body: json });
@@ -128,16 +147,18 @@ function streamViaSsh({ path: urlPath, onFrame }) {
   return new Promise((resolve, reject) => {
     const { spawn } = require('child_process');
     const url = `http://127.0.0.1:9395${urlPath}`;
-    const curlArgs = [
-      '-s', '-N',  // -N: no buffering, keep SSE frames flowing
-      '-H', 'accept: text/event-stream',
+    // Same single-command-string approach as requestViaSsh.
+    const curlParts2 = [
+      'curl', '-s', '-N',  // -N: no buffering, keep SSE frames flowing
+      '-H', cmdQuote('accept: text/event-stream'),
       url,
     ];
+    const remoteCmd2 = curlParts2.join(' ');
     const sshArgs = [
       '-o', `ConnectTimeout=${SSH_TIMEOUT_SECS}`,
       '-o', 'StrictHostKeyChecking=accept-new',
       `${REMOTE_USER}@${REMOTE_HOST}`,
-      'curl', ...curlArgs,
+      remoteCmd2,
     ];
     const spawnArgs2 = SSH_SCRIPT ? [SSH_SCRIPT, ...sshArgs] : sshArgs;
     const useShell2 = SSH_BIN.toLowerCase().endsWith('.cmd');

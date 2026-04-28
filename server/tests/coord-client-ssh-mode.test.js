@@ -131,12 +131,12 @@ describe('coord-client ssh mode', () => {
   });
 
   it('routes `health` through ssh+curl when remote env is set', () => {
-    // FAKE_SSH_STDOUT simulates: curl body + "\n" + http_code (as curl -w '\n%{http_code}' would produce)
+    // FAKE_SSH_STDOUT simulates curl output with the HTTPSTATUS: sentinel appended by -w.
     const result = runClient(['health'], {
       TORQUE_COORD_SSH_BIN: sshBin,
       TORQUE_COORD_REMOTE_HOST: REMOTE_HOST,
       TORQUE_COORD_REMOTE_USER: REMOTE_USER,
-      FAKE_SSH_STDOUT: '{"status":"ok"}\n200',
+      FAKE_SSH_STDOUT: '{"status":"ok"}HTTPSTATUS:200',
     });
     expect(result.status).toBe(0);
     const argv = JSON.parse(fs.readFileSync(argvFile, 'utf8'));
@@ -148,7 +148,7 @@ describe('coord-client ssh mode', () => {
   });
 
   it('routes `acquire` through ssh and posts the request body via curl --data', () => {
-    // FAKE_SSH_STDOUT simulates: curl body + "\n" + http_code
+    // FAKE_SSH_STDOUT simulates curl output with HTTPSTATUS: sentinel appended by -w.
     const result = runClient([
       'acquire',
       '--project', 'torque-public',
@@ -161,7 +161,7 @@ describe('coord-client ssh mode', () => {
       TORQUE_COORD_SSH_BIN: sshBin,
       TORQUE_COORD_REMOTE_HOST: REMOTE_HOST,
       TORQUE_COORD_REMOTE_USER: REMOTE_USER,
-      FAKE_SSH_STDOUT: '{"lock_id":"abc123"}\n200',
+      FAKE_SSH_STDOUT: '{"lock_id":"abc123"}HTTPSTATUS:200',
     });
     expect(result.status).toBe(0);
     const argv = JSON.parse(fs.readFileSync(argvFile, 'utf8'));
