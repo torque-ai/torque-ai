@@ -93,6 +93,7 @@ const TOOLS = [
   ...require('./tool-defs/template-defs'),
   ...require('./tool-defs/diffusion-defs'),
   ...require('./tool-defs/factory-defs'),
+  ...require('./tool-defs/coord-defs').tools,
 ];
 
 function toBehavioralAnnotationSnapshot(tool) {

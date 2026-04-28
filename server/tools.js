@@ -776,6 +776,11 @@ async function handleToolCall(name, args) {
       }
       return { __unlock_tier: tier, content: [{ type: 'text', text: `Unlocked Tier ${tier}: ${TOOL_TIER_LABELS[tier]}. The tools list has been refreshed.` }] };
     }
+    case 'coord_status': {
+      const { getActiveLocks } = require('./coord/coord-poller');
+      const payload = await getActiveLocks();
+      return { content: [{ type: 'text', text: JSON.stringify(payload) }] };
+    }
   }
 
   // Centralized JSON Schema validation (Phase 2)
