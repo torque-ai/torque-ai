@@ -444,7 +444,7 @@ async function runAgenticLoop({
           content: 'Your previous response had no tool calls — only text. Tool calls are the ONLY way to make progress. Re-attempt: invoke read_file, list_directory, or write_file directly using the structured tool-call mechanism. Do NOT write code or plans in the message body.',
         });
         firstIterValidatorFired = true;
-        continue; // retry; do NOT increment iterations
+        continue; // retry; firstIterValidatorFired is the single-shot guard (iterations increments normally)
       }
 
       // Empty first response retry: if the very first iteration returns empty
