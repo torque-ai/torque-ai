@@ -113,6 +113,28 @@ describe('cg_search', () => {
     expect(r.limit).toBe(1000);
   });
 
+  it('GLOB is case-sensitive by default', async () => {
+    // The fixture has classes Animal and Plant (capitalized). Lower-case
+    // pattern returns nothing without case_insensitive=true.
+    const lower = data(await handlers.cg_search({ repo_path: repo, pattern: 'animal' }));
+    expect(lower.results).toHaveLength(0);
+    const upper = data(await handlers.cg_search({ repo_path: repo, pattern: 'Animal' }));
+    expect(upper.results.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('case_insensitive=true matches across casings', async () => {
+    const r = data(await handlers.cg_search({
+      repo_path: repo, pattern: 'animal', case_insensitive: true,
+    }));
+    expect(r.results.find((s) => s.name === 'Animal')).toBeTruthy();
+  });
+
+  it('rejects pattern containing NUL bytes (no silent C-string truncation)', async () => {
+    await expect(
+      handlers.cg_search({ repo_path: repo, pattern: '*\x00*' }),
+    ).rejects.toThrow(/NUL/);
+  });
+
   it('disambiguates same-name methods across two classes via container filter', async () => {
     // 'speak' exists on both Animal and Plant.
     const both = data(await handlers.cg_search({ repo_path: repo, pattern: 'speak' }));

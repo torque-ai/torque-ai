@@ -261,6 +261,15 @@ function createHandlers({ db }) {
     async cg_search(args) {
       const repoPath = requireString(args, 'repo_path');
       const pattern  = requireString(args, 'pattern');
+      // SQLite's TEXT binding is C-string-truncating: a pattern containing
+      // a NUL byte silently degrades to the prefix before the NUL, which
+      // can collapse `*\x00*` to `*` and quietly match every symbol.
+      // Reject up front so the caller sees the issue instead of getting
+      // back surprise full-table results.
+      if (pattern.indexOf('\x00') !== -1) {
+        throw new Error('pattern must not contain NUL bytes');
+      }
+      const caseInsensitive = args.case_insensitive === true;
       const kind      = typeof args.kind === 'string' && args.kind ? args.kind : null;
       const container = typeof args.container === 'string' && args.container ? args.container : null;
       const isExportedRaw = args.is_exported;
@@ -269,7 +278,7 @@ function createHandlers({ db }) {
       const limit = Number.isInteger(limitRaw) && limitRaw > 0
         ? Math.min(limitRaw, 1000)
         : 200;
-      const r = search({ db, repoPath, pattern, kind, container, isExported, limit });
+      const r = search({ db, repoPath, pattern, kind, container, isExported, limit, caseInsensitive });
       return asToolResult({
         pattern,
         ...(kind && { kind_filter: kind }),

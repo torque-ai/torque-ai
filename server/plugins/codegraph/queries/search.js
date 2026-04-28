@@ -2,14 +2,22 @@
 
 // Search cg_symbols by name pattern. Pattern uses SQLite GLOB syntax —
 // `*` matches any chars, `?` matches one char, `[abc]` matches a class.
+// GLOB is CASE-SENSITIVE by default. Pass caseInsensitive:true to match
+// case-insensitively (LOWER both sides; ASCII-only).
 // Common usage from LLM consumers:
 //   pattern='create*'         → all symbols starting with create
 //   pattern='*Handler'        → all symbols ending with Handler
 //   pattern='cg_*'            → all cg_* tool handlers
 //   pattern='handle?Create*'  → handleCreateX (one char between e and Create)
-function search({ db, repoPath, pattern, kind = null, container = null, isExported = null, limit = 200 }) {
+function search({
+  db, repoPath, pattern,
+  kind = null, container = null, isExported = null, limit = 200,
+  caseInsensitive = false,
+}) {
   const params = { repo_path: repoPath, pattern, limit };
-  const filters = ['repo_path = @repo_path', 'name GLOB @pattern'];
+  const nameExpr    = caseInsensitive ? 'LOWER(name)' : 'name';
+  const patternExpr = caseInsensitive ? 'LOWER(@pattern)' : '@pattern';
+  const filters = ['repo_path = @repo_path', `${nameExpr} GLOB ${patternExpr}`];
   if (kind != null) {
     filters.push('kind = @kind');
     params.kind = kind;

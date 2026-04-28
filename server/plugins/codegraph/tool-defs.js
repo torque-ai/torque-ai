@@ -154,15 +154,16 @@ const tools = [
   },
   {
     name: 'cg_search',
-    description: 'Find symbols by name pattern in the indexed repo. Pattern uses SQLite GLOB syntax: `*` matches any chars, `?` matches one char, `[abc]` matches a class. Returns `{pattern, results: [{name, kind, file, line, column, container?, is_exported?, is_async?, is_generator?, is_static?}], truncated, limit, staleness}`. Filter by `kind` (function/class/method/constructor/getter/setter/interface/struct/enum), `container` (only return symbols inside this class/interface), or `is_exported`. Replaces grep-then-cg_find_references for many planner workflows — answer "what symbols match X" without touching source files. Defaults to limit=200 (max 1000); over the limit returns truncated:true. Examples: pattern="create*" finds all create* symbols; pattern="*Handler" finds all *Handler classes; pattern="cg_*"+kind="function" lists cg_* tool functions.' + STALENESS_NOTE,
+    description: 'Find symbols by name pattern in the indexed repo. Pattern uses SQLite GLOB syntax: `*` matches any chars, `?` matches one char, `[abc]` matches a class. **GLOB is case-sensitive** — `Handler*` and `handler*` are different searches; pass case_insensitive=true to match either casing. Pattern must not contain NUL bytes (rejected with an error to avoid SQLite C-string truncation collapsing `*\\x00*` to `*`). The container filter is also case-sensitive. Returns `{pattern, results: [{name, kind, file, line, column, container?, is_exported?, is_async?, is_generator?, is_static?}], truncated, limit, staleness}`. Filter by `kind` (function/class/method/constructor/getter/setter/interface/struct/enum), `container` (only return symbols inside this class/interface), or `is_exported`. Replaces grep-then-cg_find_references for many planner workflows — answer "what symbols match X" without touching source files. Defaults to limit=200 (max 1000); over the limit returns truncated:true. Examples: pattern="create*" finds all create* symbols; pattern="*Handler" finds all *Handler classes; pattern="cg_*"+kind="function" lists cg_* tool functions.' + STALENESS_NOTE,
     inputSchema: {
       type: 'object',
       properties: {
         repo_path: { type: 'string' },
-        pattern:   { type: 'string', description: 'Symbol name pattern. SQLite GLOB syntax: * = any chars, ? = one char, [abc] = char class. Use the literal name for an exact match.' },
+        pattern:   { type: 'string', description: 'Symbol name pattern. SQLite GLOB syntax: * = any chars, ? = one char, [abc] = char class. Use the literal name for an exact match. Case-sensitive unless case_insensitive=true.' },
         kind:      { type: 'string', description: 'Filter by symbol kind. Common values: function, class, method, constructor, getter, setter, interface, struct, enum.' },
-        container: { type: 'string', description: 'Filter to symbols whose container_name equals this (e.g. "Animal" for methods on class Animal). Useful with kind="method".' },
+        container: { type: 'string', description: 'Filter to symbols whose container_name equals this (e.g. "Animal" for methods on class Animal). Useful with kind="method". Case-sensitive.' },
         is_exported: { type: 'boolean', description: 'Filter to only exported (true) or only non-exported (false) symbols. Omit for both.' },
+        case_insensitive: { type: 'boolean', default: false, description: 'When true, both pattern and stored name are lowered before GLOB matching. ASCII-only; non-ASCII letters are unaffected.' },
         limit:     { type: 'integer', minimum: 1, maximum: 1000, default: 200, description: 'Cap on result count. Over the cap, returns truncated:true.' },
       },
       required: ['repo_path', 'pattern'],
