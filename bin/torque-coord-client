@@ -10,11 +10,16 @@ const REMOTE_HOST = process.env.TORQUE_COORD_REMOTE_HOST || '';
 const REMOTE_USER = process.env.TORQUE_COORD_REMOTE_USER || '';
 const SSH_MODE = !!(REMOTE_HOST && REMOTE_USER);
 const SSH_TIMEOUT_SECS = parseInt(process.env.TORQUE_COORD_SSH_TIMEOUT || '5', 10);
-// Allow tests to inject a fake ssh binary (e.g. a .cmd wrapper on Windows).
-// When the binary ends in '.cmd', spawn it via the shell so CreateProcess can
-// execute it; production default 'ssh' uses shell:false (no % expansion risk).
-const SSH_BIN = process.env.TORQUE_COORD_SSH_BIN || 'ssh';
-const SSH_SHELL = process.platform === 'win32' && SSH_BIN.toLowerCase().endsWith('.cmd');
+// Allow tests to inject a fake ssh binary without relying on PATH or PATHEXT.
+// Supports two forms:
+//   TORQUE_COORD_SSH_BIN=ssh          (default — use system ssh)
+//   TORQUE_COORD_SSH_BIN=node:/path   (test mode — spawns node <path> <args>)
+// The "node:" prefix lets tests on Windows bypass the PATHEXT/.cmd/.shell issues
+// entirely: the coord-client spawns node.exe directly with the script path.
+const SSH_BIN_RAW = process.env.TORQUE_COORD_SSH_BIN || 'ssh';
+const SSH_BIN_IS_NODE = SSH_BIN_RAW.startsWith('node:');
+const SSH_BIN = SSH_BIN_IS_NODE ? process.execPath : SSH_BIN_RAW;
+const SSH_SCRIPT = SSH_BIN_IS_NODE ? SSH_BIN_RAW.slice(5) : null;
 
 function emit(obj) {
   process.stdout.write(JSON.stringify(obj) + '\n');
@@ -77,7 +82,7 @@ function requestViaSsh({ method, path: urlPath, body }) {
       '--max-time', '5',
       '-X', method,
       '-H', 'content-type: application/json',
-      '-w', '\n%{http_code}',
+      '-w', '\\n%{http_code}',
     ];
     if (body) {
       // pass body via stdin so we don't have to escape arbitrary JSON for the shell
@@ -90,7 +95,10 @@ function requestViaSsh({ method, path: urlPath, body }) {
       `${REMOTE_USER}@${REMOTE_HOST}`,
       'curl', ...curlArgs,
     ];
-    const proc = spawn(SSH_BIN, sshArgs, { windowsHide: true, shell: SSH_SHELL });
+    const spawnArgs = SSH_SCRIPT ? [SSH_SCRIPT, ...sshArgs] : sshArgs;
+    // .cmd files on Windows require shell:true for CreateProcess to execute them.
+    const useShell = SSH_BIN.toLowerCase().endsWith('.cmd');
+    const proc = spawn(SSH_BIN, spawnArgs, { windowsHide: true, shell: useShell });
     let stdout = '';
     let stderr = '';
     proc.stdout.on('data', (chunk) => { stdout += chunk.toString('utf8'); });
@@ -131,7 +139,9 @@ function streamViaSsh({ path: urlPath, onFrame }) {
       `${REMOTE_USER}@${REMOTE_HOST}`,
       'curl', ...curlArgs,
     ];
-    const proc = spawn(SSH_BIN, sshArgs, { windowsHide: true, shell: SSH_SHELL });
+    const spawnArgs2 = SSH_SCRIPT ? [SSH_SCRIPT, ...sshArgs] : sshArgs;
+    const useShell2 = SSH_BIN.toLowerCase().endsWith('.cmd');
+    const proc = spawn(SSH_BIN, spawnArgs2, { windowsHide: true, shell: useShell2 });
     let buf = '';
     proc.stdout.setEncoding('utf8');
     proc.stdout.on('data', (chunk) => {
