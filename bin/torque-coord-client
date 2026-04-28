@@ -65,6 +65,17 @@ function request({ method, path, body }) {
     });
     req.on('error', reject);
     req.on('timeout', () => req.destroy(new Error('timeout')));
+    // The `timeout` option on http.request is an INACTIVITY timeout — it only
+    // fires once a socket exists. When the OS firewall silently drops SYNs to a
+    // closed port (Windows Defender against port 1, for example), the connect
+    // itself blocks for the full OS TCP connect timeout (~20s) before
+    // surfacing ECONNREFUSED, which is longer than callers expect. Bind the
+    // socket-level timeout the moment the socket exists so connect-stage
+    // hangs surface in CONNECT_TIMEOUT_MS regardless of OS connect behavior.
+    req.on('socket', (socket) => {
+      socket.setTimeout(CONNECT_TIMEOUT_MS);
+      socket.once('timeout', () => req.destroy(new Error('connect timeout')));
+    });
     if (body) req.write(JSON.stringify(body));
     req.end();
   });
@@ -191,6 +202,64 @@ function streamViaSsh({ path: urlPath, onFrame }) {
 
 function dispatch(args) {
   return SSH_MODE ? requestViaSsh(args) : request(args);
+}
+
+// Single-process replacement for the bash-driven sequence
+// `lock-hashes` -> `results` -> `acquire`. Returns one of the begin event
+// objects: cache_hit / acquired / queued / error. Throws on transport
+// failure; the case 'begin' caller catches and emits the unreachable event.
+// HTTP calls go through dispatch() so this works in both local and ssh modes
+// (Phase 3c). The lock-hashes computation always runs locally — it hashes
+// the dev box's working tree, which is what the cache key is built against.
+async function runBegin(args) {
+  const root = args.root || process.cwd();
+  const { computeLockHashes } = require('../server/coord/lock-hashes');
+  const localHashes = computeLockHashes(root);
+  const localHashesJson = JSON.stringify(localHashes);
+
+  // Cache-hit path.
+  const resultsPath = `/results/${encodeURIComponent(args.project)}/${encodeURIComponent(args.sha)}/${encodeURIComponent(args.suite)}`;
+  const resultsResp = await dispatch({ method: 'GET', path: resultsPath });
+  if (resultsResp.status === 200 && resultsResp.body && resultsResp.body.hit !== false) {
+    const stored = (resultsResp.body && resultsResp.body.package_lock_hashes) || {};
+    let allMatch = true;
+    for (const k of Object.keys(stored)) {
+      if (localHashes[k] !== stored[k]) { allMatch = false; break; }
+    }
+    if (allMatch) {
+      return {
+        event: 'cache_hit',
+        exit_code: resultsResp.body.exit_code != null ? resultsResp.body.exit_code : 1,
+        output_tail: resultsResp.body.output_tail || '',
+      };
+    }
+    // Hash mismatch — surface to stderr (integration tests assert on this
+    // line and operators want to see why the cached result got discarded)
+    // and fall through to acquire.
+    process.stderr.write('[torque-coord] hash mismatch on cached result, running fresh\n');
+  }
+  // Server errors on results (non-200/non-404) fall through to acquire —
+  // acquire is the real gate; if the server is healthy enough to answer
+  // /acquire we proceed, otherwise the caller surfaces the error event.
+
+  const acquireBody = {
+    project: args.project,
+    sha: args.sha,
+    suite: args.suite,
+    holder: {
+      host: args.host || require('os').hostname(),
+      pid: parseInt(args.pid || String(process.pid), 10),
+      user: args.user || (process.env.USER || process.env.USERNAME || 'unknown'),
+    },
+  };
+  const acqResp = await dispatch({ method: 'POST', path: '/acquire', body: acquireBody });
+  if (acqResp.status === 200 && acqResp.body && acqResp.body.lock_id) {
+    return { event: 'acquired', lock_id: acqResp.body.lock_id, local_hashes: localHashesJson };
+  }
+  if (acqResp.status === 202 && acqResp.body && acqResp.body.wait_for) {
+    return { event: 'queued', wait_for: acqResp.body.wait_for, local_hashes: localHashesJson };
+  }
+  return { event: 'error', status: acqResp.status, body: acqResp.body };
 }
 
 async function main() {
@@ -334,6 +403,49 @@ async function main() {
         const { computeLockHashes } = require('../server/coord/lock-hashes');
         emit(computeLockHashes(root));
         process.exit(0);
+        break;
+      }
+      case 'begin': {
+        // Single-process replacement for the prior bash-driven sequence
+        // `lock-hashes` -> `results` -> `acquire`. Each separate node spawn
+        // costs ~9s of cold-start time on the Windows test remote (Defender
+        // real-time scan), so the bash-driven flow paid 27-36s of pure
+        // startup before the user command ran. This subcommand collapses
+        // that to a single 9s startup regardless of which path runs.
+        //
+        // Output (single JSON line) — bash parses by extracting "event":
+        //   {"event":"cache_hit","exit_code":N,"output_tail":"..."}
+        //     → bash prints output_tail and exits with exit_code
+        //   {"event":"acquired","lock_id":"...","local_hashes":"<json>"}
+        //     → bash sets COORD_ACQUIRED=1 + runs the user command
+        //   {"event":"queued","wait_for":"...","local_hashes":"<json>"}
+        //     → bash runs `wait`, then re-runs `begin`
+        //   {"event":"unreachable"}
+        //     → bash proceeds uncoordinated (matches prior exit-2 behavior)
+        //
+        // Exit codes (mirroring the per-call codes so callers can still
+        // branch on rc instead of parsing JSON when they don't need detail):
+        //   0  acquired or cache_hit
+        //   1  protocol/server error
+        //   2  unreachable
+        //   3  queued (caller must wait + re-call begin)
+        try {
+          const ev = await runBegin(args);
+          emit(ev);
+          if (ev.event === 'cache_hit' || ev.event === 'acquired') process.exit(0);
+          if (ev.event === 'queued') process.exit(3);
+          if (ev.event === 'unreachable') process.exit(2);
+          process.exit(1);
+        } catch (err) {
+          // Connect failures and other transport errors land here. Emit the
+          // event-shaped output that bash's coord_begin expects (rather than
+          // the legacy {"status":"unreachable",...} from the shared
+          // unreachable() helper, which doesn't have an "event" field for
+          // bash's sed-based extractor and was causing the unreachable test
+          // to fail with the wrong stderr message).
+          emit({ event: 'unreachable', detail: err.message });
+          process.exit(2);
+        }
         break;
       }
       default:

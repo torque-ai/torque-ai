@@ -563,113 +563,110 @@ COORD_SHA="${BRANCH_OVERRIDE:-$(git rev-parse HEAD 2>/dev/null || echo unknown)}
 
 COORD_MAX_ACQUIRE_ATTEMPTS=50
 
+# Lock hashes captured during coord_begin so coord_release_on_exit can
+# forward them to /release without paying another node startup. Empty
+# string means "no hashes computed yet" (e.g. unreachable path); release
+# can pass {} in that case and the daemon treats it as Phase-1 back-compat.
 COORD_LOCAL_HASHES=""
-coord_compute_local_hashes() {
-  if [[ -n "$COORD_LOCAL_HASHES" ]]; then return; fi
-  local out
-  out=$(node "$SCRIPT_DIR/torque-coord-client" lock-hashes --root "$PROJECT_ROOT" 2>/dev/null) || out="{}"
-  COORD_LOCAL_HASHES="$out"
+
+coord_extract_field() {
+  # $1: JSON line, $2: field name → echoes value or empty.
+  # Avoids spawning a node process for what's a one-line key extract.
+  echo "$1" | sed -n "s/.*\"$2\":\"\([^\"]*\)\".*/\1/p"
 }
 
-coord_hashes_match() {
-  # $1: stored hashes JSON (from a result record)
-  # Returns 0 (match) iff every key in stored matches the same key in local.
-  # An empty stored map matches anything (back-compat with Phase-1 records).
-  coord_compute_local_hashes
-  node -e '
-    const stored = JSON.parse(process.argv[1] || "{}");
-    const local = JSON.parse(process.argv[2] || "{}");
-    const storedKeys = Object.keys(stored);
-    if (storedKeys.length === 0) process.exit(0);
-    for (const k of storedKeys) {
-      if (local[k] !== stored[k]) process.exit(1);
-    }
-    process.exit(0);
-  ' "$1" "$COORD_LOCAL_HASHES" >/dev/null 2>&1
+coord_extract_int_field() {
+  # $1: JSON line, $2: field name → echoes integer value or empty.
+  echo "$1" | sed -n "s/.*\"$2\":\([0-9-]*\).*/\1/p"
 }
 
-coord_check_warm_hit() {
-  # Returns 0 (and prints the hit's output_tail to stdout, exits the script
-  # with the hit's exit_code) when there's a fresh, hash-matching cached
-  # result for our (project, sha, suite). Returns 1 otherwise.
-  local hit_output rc
-  hit_output=$(node "$SCRIPT_DIR/torque-coord-client" results \
-    --project "$COORD_PROJECT" --sha "$COORD_SHA" --suite "$SUITE" 2>/dev/null)
-  rc=$?
-  if [[ $rc -ne 0 ]]; then return 1; fi
-  if echo "$hit_output" | grep -q '"hit":false'; then return 1; fi
-  local stored_hashes hit_exit hit_tail
-  stored_hashes=$(node -e '
-    try {
-      const r = JSON.parse(process.argv[1]);
-      process.stdout.write(JSON.stringify(r.package_lock_hashes || {}));
-    } catch { process.stdout.write("{}"); }
-  ' "$hit_output" 2>/dev/null)
-  if ! coord_hashes_match "$stored_hashes"; then
-    echo "[torque-coord] hash mismatch on cached result, running fresh" >&2
-    return 1
-  fi
-  hit_exit=$(node -e '
-    try { process.stdout.write(String(JSON.parse(process.argv[1]).exit_code ?? 1)); }
-    catch { process.stdout.write("1"); }
-  ' "$hit_output" 2>/dev/null)
-  hit_tail=$(node -e '
-    try { process.stdout.write(JSON.parse(process.argv[1]).output_tail || ""); }
-    catch { process.stdout.write(""); }
-  ' "$hit_output" 2>/dev/null)
-  echo "[torque-coord] cache hit — replaying stored result (exit $hit_exit)" >&2
-  printf "%s" "$hit_tail"
-  exit "$hit_exit"
+coord_extract_local_hashes() {
+  # $1: JSON line containing "local_hashes":"<escaped JSON string>"
+  # Echoes the unescaped JSON, or empty if not present.
+  # The begin subcommand emits local_hashes as a JSON string (so the
+  # outer JSON parses cleanly); we unescape \" back to ".
+  echo "$1" | sed -n 's/.*"local_hashes":"\(.*\)"}.*/\1/p' | sed 's/\\"/"/g'
 }
 
-coord_attempt_acquire() {
+coord_begin() {
+  # Single-process coord entry — calls torque-coord-client `begin`, which
+  # internally does lock-hashes + results + acquire (and cache-hit
+  # comparison) in one node startup. Replaces three separate
+  # spawns (~9s each on Windows under Defender real-time scan) with one.
+  #
+  # Sets globals on success:
+  #   COORD_ACQUIRED=1, COORD_LOCK_ID=<lk>, COORD_LOCAL_HASHES=<json>
+  # On cache_hit: prints output_tail and exits the script with hit's exit_code.
+  # On unreachable: warns and returns 1 (caller proceeds uncoordinated).
+  # On queued: waits for the in-flight run's release stream, then re-calls
+  #   coord_begin (bounded by COORD_MAX_ACQUIRE_ATTEMPTS).
   local attempt=${1:-1}
   if (( attempt > COORD_MAX_ACQUIRE_ATTEMPTS )); then
     echo "[torque-coord] giving up after $COORD_MAX_ACQUIRE_ATTEMPTS attempts; running uncoordinated" >&2
     return 1
   fi
-  local attempt_output rc
-  attempt_output=$(node "$SCRIPT_DIR/torque-coord-client" acquire \
-    --project "$COORD_PROJECT" --sha "$COORD_SHA" --suite "$SUITE" 2>/dev/null)
+  local out rc event
+  # stderr passes through (not silenced like the prior per-call 2>/dev/null)
+  # because begin emits operator-relevant warnings such as
+  # "[torque-coord] hash mismatch on cached result, running fresh" that the
+  # integration tests assert on. Only stdout is captured; node's own
+  # diagnostics travel through to torque-remote's stderr.
+  out=$(node "$SCRIPT_DIR/torque-coord-client" begin \
+    --project "$COORD_PROJECT" --sha "$COORD_SHA" --suite "$SUITE" \
+    --root "$PROJECT_ROOT")
   rc=$?
-  if [[ $rc -eq 2 ]]; then
-    echo "[torque-coord] unreachable, running uncoordinated" >&2
-    return 1
-  fi
-  if [[ $rc -eq 0 ]]; then
-    COORD_LOCK_ID=$(echo "$attempt_output" | sed -n 's/.*"lock_id":"\([^"]*\)".*/\1/p')
-    if [[ -z "$COORD_LOCK_ID" ]]; then
-      echo "[torque-coord] acquire returned 200 but no lock_id parsed; running uncoordinated" >&2
-      return 1
-    fi
-    COORD_ACQUIRED=1
-    return 0
-  fi
-  if [[ $rc -eq 3 ]]; then
-    local wait_for
-    wait_for=$(echo "$attempt_output" | sed -n 's/.*"wait_for":"\([^"]*\)".*/\1/p')
-    if [[ -n "$wait_for" ]]; then
-      echo "[torque-coord] waiting for in-flight run ($wait_for, attempt $attempt)…" >&2
-      node "$SCRIPT_DIR/torque-coord-client" wait --lock-id "$wait_for" >/dev/null 2>&1 || true
-      # The holder just released — they may have written a result for our
-      # exact (project, sha, suite). Re-check before paying for our own run.
-      coord_check_warm_hit || true
-      coord_attempt_acquire $((attempt + 1))
+  event=$(coord_extract_field "$out" event)
+  case "$event" in
+    cache_hit)
+      local hit_exit hit_tail
+      hit_exit=$(coord_extract_int_field "$out" exit_code)
+      [[ -z "$hit_exit" ]] && hit_exit=1
+      hit_tail=$(echo "$out" | sed -n 's/.*"output_tail":"\(.*\)","event".*/\1/p; s/.*"output_tail":"\(.*\)"}.*/\1/p' | sed 's/\\n/\n/g')
+      echo "[torque-coord] cache hit — replaying stored result (exit $hit_exit)" >&2
+      printf "%s" "$hit_tail"
+      exit "$hit_exit"
+      ;;
+    acquired)
+      COORD_LOCK_ID=$(coord_extract_field "$out" lock_id)
+      COORD_LOCAL_HASHES=$(coord_extract_local_hashes "$out")
+      if [[ -z "$COORD_LOCK_ID" ]]; then
+        echo "[torque-coord] begin returned acquired but no lock_id parsed; running uncoordinated" >&2
+        return 1
+      fi
+      COORD_ACQUIRED=1
+      return 0
+      ;;
+    queued)
+      local wait_for
+      wait_for=$(coord_extract_field "$out" wait_for)
+      COORD_LOCAL_HASHES=$(coord_extract_local_hashes "$out")
+      if [[ -n "$wait_for" ]]; then
+        echo "[torque-coord] waiting for in-flight run ($wait_for, attempt $attempt)…" >&2
+        node "$SCRIPT_DIR/torque-coord-client" wait --lock-id "$wait_for" >/dev/null 2>&1 || true
+        coord_begin $((attempt + 1))
+        return $?
+      fi
+      echo "[torque-coord] queued (global semaphore full, attempt $attempt); waiting…" >&2
+      sleep 5
+      coord_begin $((attempt + 1))
       return $?
-    fi
-    echo "[torque-coord] queued (global semaphore full, attempt $attempt); waiting…" >&2
-    sleep 5
-    coord_attempt_acquire $((attempt + 1))
-    return $?
-  fi
-  echo "[torque-coord] unexpected exit $rc, running uncoordinated" >&2
-  return 1
+      ;;
+    unreachable)
+      echo "[torque-coord] unreachable, running uncoordinated" >&2
+      return 1
+      ;;
+    *)
+      echo "[torque-coord] begin: unexpected exit $rc / event '$event', running uncoordinated" >&2
+      return 1
+      ;;
+  esac
 }
 
 coord_release_on_exit() {
   local final_exit=$?
   if [[ "$COORD_ACQUIRED" -eq 1 && -n "$COORD_LOCK_ID" ]]; then
-    coord_compute_local_hashes
+    # Hashes were captured by coord_begin and travel with the lock —
+    # no extra `node lock-hashes` spawn here.
     local tail_args=()
     if [[ -n "$COORD_OUTPUT_LOG" && -f "$COORD_OUTPUT_LOG" ]]; then
       tail_args=(--tail-from-file "$COORD_OUTPUT_LOG")
@@ -681,7 +678,7 @@ coord_release_on_exit() {
       --exit "$final_exit" \
       --status "$([[ $final_exit -eq 0 ]] && echo pass || echo fail)" \
       "${tail_args[@]}" \
-      --hashes "$COORD_LOCAL_HASHES" \
+      --hashes "${COORD_LOCAL_HASHES:-{}}" \
       >/dev/null 2>&1 || true
   fi
   if [[ -n "$COORD_OUTPUT_LOG" && -f "$COORD_OUTPUT_LOG" ]]; then
@@ -707,12 +704,15 @@ coord_select_routing_mode
 
 if [[ "$SUITE" != "custom" ]]; then
   trap coord_release_on_exit EXIT
-  coord_check_warm_hit || true
-  # If coord_check_warm_hit found a hit it would have exit'd; falling through
-  # means cache miss or coord unreachable → proceed to acquire.
-  coord_attempt_acquire || true
-  # Provision capture tempfile for the transport branches below. Created
-  # AFTER warm-hit so a cache hit doesn't allocate a file it'd never use.
+  # Single node spawn handles lock-hashes + results + acquire (+ cache-hit
+  # comparison + queued-retry). Prior bash flow paid 3-5 separate ~9s node
+  # cold-starts on Windows under Defender; this collapses to 1 (+ wait/retry
+  # if queued). On cache_hit, coord_begin exits the script directly so the
+  # COORD_OUTPUT_LOG mktemp below never runs for warm hits.
+  coord_begin || true
+  # Provision capture tempfile for the transport branches below — kept from
+  # Phase 2.1's tee-via-tail-F-pid output-capture work so coord_release_on_exit
+  # can post the inner command's last 16KB as the result's output_tail.
   COORD_OUTPUT_LOG=$(mktemp -t torque-coord-output.XXXXXX 2>/dev/null || mktemp)
 fi
 # ────────────────────────────────────────────────────────────────────────

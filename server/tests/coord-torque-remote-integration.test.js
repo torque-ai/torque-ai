@@ -26,23 +26,26 @@ function makeConfig(tmpDir) {
 }
 
 function spawnTorqueRemote(args, env, cwd) {
-  // 90s timeout (was 10s). torque-remote shells out to multiple Node
-  // processes per invocation (coord-client lock-hashes / results /
-  // acquire / release). On the Windows test remote, `node` cold-start
-  // under Defender real-time scan is ~9-22s (bench 2026-04-27: 5
-  // sequential `node -e '0'` runs measured 8839/8864/8879/11794/11813ms;
-  // coord-client begin against an unreachable port across 5 runs:
-  // 18331/19662/22208/19587/19596ms). Three to four coord-client spawns
-  // plus the inner command can easily reach 30-40s on a slow startup
-  // day, so 10s was guaranteed to fire even when the daemon answered
-  // immediately.
+  // 90s timeout (was 10s). After the begin-collapse refactor, torque-remote
+  // shells out to two Node processes per invocation (begin + release). On
+  // the Windows test remote, `node` cold-start under Defender real-time
+  // scan is highly variable: measured 2026-04-27 across 5 sequential noop
+  // runs, 8839/8864/8879/11794/11813ms, and `coord-client begin` against
+  // an unreachable port across 5 runs: 18331/19662/22208/19587/19596ms.
+  // Each begin = startup (~9-12s) + computeLockHashes (~3s for require +
+  // walk) + immediate ECONNREFUSED. Worst-case wall under variance:
+  // begin (~22s) + release (~12s) = ~34s, plus echo command + bash
+  // overhead. 90s leaves clean margin for a slow node spawn while still
+  // bounding pathological hangs.
   //
-  // The proper fix — collapsing the multi-call protocol into one node
-  // process via a `begin` subcommand — is staged on
-  // feat/fix-remaining-tests (commit 82ab61b4) but deferred until that
-  // branch is rebased onto the current bin/torque-remote, which has the
-  // COORD_OUTPUT_LOG capture work that must be preserved. Until then,
-  // the timeout ceiling is the application-side floor.
+  // The proper system-level fix is to add `node.exe` to Defender's
+  // process-exclusion list on the test runner, which would bring node
+  // startup back down to ~200-500ms. Until that lands, the 2-spawn
+  // protocol (collapsed from 3+ in this branch) is the application-side
+  // floor.
+  //
+  // BASH_EXECUTABLE pins to Git Bash on Windows so we don't accidentally
+  // resolve to WSL bash (mirrors d25abbda).
   return spawnSync(BASH_EXECUTABLE, [TORQUE_REMOTE, ...args], {
     env: { ...process.env, ...env },
     cwd,
@@ -98,10 +101,17 @@ process.on('SIGTERM', () => server.close(() => process.exit(0)));
   return { port, kill: () => new Promise((r) => { child.on('exit', r); child.kill('SIGTERM'); }) };
 }
 
-// Per-test timeout 120s — vitest.config.js's testTimeout=15000 is too tight
-// for sync spawnSync calls that wait up to 90s. Retry disabled because these
-// shell-integration tests are deterministic; under node-startup variance a
-// retry just doubles the wall without changing outcomes.
+// Per-test timeout 120s — each test's spawnSync waits up to 90s for
+// torque-remote (which itself shells out to two Node processes that
+// cold-start in 9-22s each on this Defender-scanned Windows runner).
+// 120s = 90s spawn + 30s stub-daemon setup/teardown headroom. Pair with
+// vitest.config.js testTimeout=15000 default — that's too tight for
+// integration tests that boot real subprocesses.
+//
+// Retry disabled for this file because (a) tests are deterministic shell-
+// integration tests not subject to the file-load-flake retry rationale and
+// (b) under Defender variance, a retry can add another 100s of node-spawn
+// cost without changing the outcome.
 vi.setConfig({ testTimeout: 120000, retry: 0 });
 
 describe('torque-remote coord integration', () => {
