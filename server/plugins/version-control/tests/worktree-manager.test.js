@@ -972,7 +972,11 @@ describe('version-control worktree manager (real git integration)', () => {
 
     const log = runRealGit(repoPath, ['log', '--pretty=%s', 'main']).trim();
     expect(log).toMatch(/pre-merge cleanup/);
-  });
+  }, 60000); // 60s timeout — initGitRepo + createWorktree + 2 commits + mergeWorktree
+              // (which does its own attempt-3 cleanup commit + merge) is 5+ git
+              // invocations. On Windows under Defender each git.exe call is
+              // slow; the default 15s testTimeout was firing before the merge
+              // step completed. This passes in ~2-5s on a healthy box.
 
   it('mergeWorktree auto-commits line-ending drift before the clean check (Windows + remote Linux test runs)', () => {
     const repoPath = initGitRepo();
