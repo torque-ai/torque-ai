@@ -180,6 +180,7 @@ const ALLOWED_MIGRATION_TABLES = new Set([
   'build_results', 'build_checks', 'build_error_analysis',
   // Artifacts & storage
   'artifacts', 'task_artifacts', 'artifact_config',
+  'applied_actions',
   // Debugging
   'breakpoints', 'task_breakpoints', 'debug_sessions', 'debug_captures',
   // Workflows & templates

@@ -7,6 +7,7 @@ const VALID_TABLE_NAMES = new Set([
   'agent_metrics',
   'agentic_model_probes',
   'agents',
+  'applied_actions',
   'api_keys',
   'analytics',
   'api_contract_results',
@@ -1418,6 +1419,21 @@ function createTables(db, logger) {
     `);
   db.exec(`
       CREATE INDEX IF NOT EXISTS idx_run_artifacts_task ON run_artifacts(task_id);
+    `);
+  db.exec(`
+      CREATE TABLE IF NOT EXISTS applied_actions (
+        action_id TEXT PRIMARY KEY,
+        task_id TEXT NOT NULL,
+        workflow_id TEXT,
+        seq INTEGER NOT NULL,
+        action_type TEXT NOT NULL,
+        payload_json TEXT NOT NULL,
+        result_json TEXT,
+        applied_at TEXT NOT NULL DEFAULT (datetime('now'))
+      )
+    `);
+  db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_applied_actions_task ON applied_actions(task_id, seq);
     `);
   db.exec(`
       CREATE TABLE IF NOT EXISTS task_breakpoints (

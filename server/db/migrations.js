@@ -838,6 +838,15 @@ const MIGRATIONS = [
     // Use `cg_reindex` against the dedicated codegraph.db to repopulate the
     // graph in its proper home if a rollback is ever required.
   },
+  {
+    version: 39,
+    name: 'add_applied_actions',
+    up: readSqlMigration('039-applied-actions.sql'),
+    down: [
+      'DROP INDEX IF EXISTS idx_applied_actions_task',
+      'DROP TABLE IF EXISTS applied_actions',
+    ].join('; '),
+  },
 ];
 
 function ensureMigrationTable(sqliteDb) {
