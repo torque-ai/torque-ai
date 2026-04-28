@@ -41,6 +41,7 @@ const {
   providerLaneHandoffBlockReason,
 } = require('../factory/provider-lane-policy');
 const { isJsonModeRequested } = require('./shared');
+const { createProviderActionStream } = require('../actions/provider-stream-hook');
 
 const { acquireHostLock } = require('./host-mutex');
 const ollamaChatAdapter = require('./adapters/ollama-chat');
@@ -2842,6 +2843,12 @@ async function executeOllamaTaskWithAgentic(task) {
 
   const ollamaStreamId = db.getOrCreateTaskStream(taskId, 'output');
   const scoutSignalParser = createScoutSignalParserForTask(task, taskId);
+  const actionStream = createProviderActionStream({
+    task,
+    taskId,
+    workflowId: task.workflow_id || null,
+    logger,
+  });
   // timeout_minutes === 0 → no enforced timeout (opt-in unbounded). Preserve
   // 0, skip the setTimeout; downstream HTTP client receives timeoutMs=0 which
   // also means "no timeout" for node http.
@@ -2941,6 +2948,7 @@ async function executeOllamaTaskWithAgentic(task) {
         } catch { /* ignore */ }
       },
       onChunk: (msg) => {
+        actionStream?.feed(msg.text);
         feedScoutSignalParser(scoutSignalParser, msg.text, taskId);
         try {
           db.addStreamChunk(ollamaStreamId, msg.text, 'stdout');
@@ -3094,6 +3102,7 @@ async function executeOllamaTaskWithAgentic(task) {
     if (typeof releaseSelectedHostSlot === 'function') {
       try { releaseSelectedHostSlot(); } catch { /* ignore */ }
     }
+    actionStream?.end();
     destroyScoutSignalParser(scoutSignalParser, taskId);
     // Release per-host mutex so the next queued task can proceed
     if (releaseHostLock) releaseHostLock();
@@ -3259,6 +3268,12 @@ async function executeApiProviderWithAgentic(task, providerInstance) {
 
   const ollamaStreamId = db.getOrCreateTaskStream(taskId, 'output');
   const scoutSignalParser = createScoutSignalParserForTask(task, taskId);
+  const actionStream = createProviderActionStream({
+    task,
+    taskId,
+    workflowId: task.workflow_id || null,
+    logger,
+  });
   // timeout_minutes === 0 → no enforced timeout (opt-in unbounded). Preserve
   // 0, skip the setTimeout; downstream receives timeoutMs=0 which also means
   // "no timeout" for node http.
@@ -3331,6 +3346,7 @@ async function executeApiProviderWithAgentic(task, providerInstance) {
         } catch { /* ignore */ }
       },
       onChunk: (msg) => {
+        actionStream?.feed(msg.text);
         feedScoutSignalParser(scoutSignalParser, msg.text, taskId);
         try {
           db.addStreamChunk(ollamaStreamId, msg.text, 'stdout');
@@ -3881,6 +3897,7 @@ async function executeApiProviderWithAgentic(task, providerInstance) {
     clearTimeout(timeoutHandle);
     if (apiAbortControllers2) apiAbortControllers2.delete(taskId);
     cleanupTrackedWorker?.();
+    actionStream?.end();
     destroyScoutSignalParser(scoutSignalParser, taskId);
     dashboard.notifyTaskUpdated(taskId);
     // Workflow termination in both success and failure paths

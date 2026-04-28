@@ -18,6 +18,7 @@ const { safeJsonParse } = require('../utils/json');
 const { buildResumeContext, prependResumeContextToPrompt } = require('../utils/resume-context');
 const { applyStudyContextPrompt } = require('../integrations/codebase-study-engine');
 const { isJsonModeRequested } = require('./shared');
+const { createProviderActionStream } = require('../actions/provider-stream-hook');
 
 // Phase 2: Proxy support for enterprise environments.
 // When HTTPS_PROXY / HTTP_PROXY env vars are set, all cloud API fetch() calls
@@ -681,10 +682,18 @@ async function executeApiProvider(task, provider) {
 
       while (true) {
         streamAttempt += 1;
+        let actionStream = null;
         try {
+          actionStream = createProviderActionStream({
+            task,
+            taskId,
+            workflowId: task.workflow_id || null,
+            logger,
+          });
           result = await provider.submitStream(effectiveDescription, model, {
             ...providerOptions,
             onChunk: (token) => {
+              actionStream?.feed(token);
               try {
                 db.addStreamChunk(streamId, token, 'stdout');
                 dashboard.notifyTaskOutput(taskId, token);
@@ -704,6 +713,8 @@ async function executeApiProvider(task, provider) {
             retryAfter,
           });
           await delay(retryMs);
+        } finally {
+          actionStream?.end();
         }
       }
     } else {

@@ -20,6 +20,7 @@ const { buildSafeEnv } = require('../utils/safe-env');
 const serverConfig = require('../config');
 const { applyStudyContextPrompt } = require('../integrations/codebase-study-engine');
 const { resolveCodexNativeBinary } = require('../execution/codex-native-resolve');
+const { createProviderActionStream } = require('../actions/provider-stream-hook');
 
 // Subprocess exit-code sentinels for cases where there is no real exit code
 // (the subprocess either never ran, was torn down before tracking, or the
@@ -507,6 +508,12 @@ function spawnAndTrackProcess(taskId, task, cmdSpec, provider) {
 
   // Get or create stream for this task
   const streamId = db.getOrCreateTaskStream(taskId, 'output');
+  const actionStream = createProviderActionStream({
+    task,
+    taskId,
+    workflowId: task.workflow_id || null,
+    logger,
+  });
 
   // Handle stdout errors
   child.stdout.on('error', (err) => {
@@ -516,6 +523,7 @@ function spawnAndTrackProcess(taskId, task, cmdSpec, provider) {
   // Handle stdout
   child.stdout.on('data', (data) => {
     const text = data.toString();
+    actionStream?.feed(text);
     const proc = runningProcesses.get(taskId);
     if (proc) {
       if (proc.startupTimeoutHandle) {
@@ -621,6 +629,7 @@ function spawnAndTrackProcess(taskId, task, cmdSpec, provider) {
   // Handle stderr
   child.stderr.on('data', (data) => {
     const text = data.toString();
+    actionStream?.feed(text);
     const proc = runningProcesses.get(taskId);
     if (proc) {
       if (proc.startupTimeoutHandle) {
@@ -720,6 +729,7 @@ function spawnAndTrackProcess(taskId, task, cmdSpec, provider) {
 
   child.on('close', async (code, signal) => {
     closeEventFired = true;
+    actionStream?.end();
     const effectiveSignal = signal || exitSignal;
     if (!markTaskCleanedUp(taskId)) {
       return;
@@ -961,6 +971,7 @@ function spawnAndTrackProcess(taskId, task, cmdSpec, provider) {
 
   // Handle process errors
   child.on('error', async (err) => {
+    actionStream?.end();
     let queueManaged = false;
     if (!markTaskCleanedUp(taskId)) {
       return;

@@ -358,6 +358,7 @@ async function handleSubmitTask(req, res) {
     : { intended_provider: provider };
   if (body.context_stuff !== undefined) metadata.context_stuff = body.context_stuff;
   if (body.study_context !== undefined) metadata.study_context_enabled = body.study_context !== false;
+  if (body.streaming_actions !== undefined) metadata.streaming_actions = body.streaming_actions === true;
   maybeAttachStudyContextMetadata(metadata, body, description);
   const policyResult = typeof _taskManager?.evaluateTaskSubmissionPolicy === 'function'
     ? _taskManager.evaluateTaskSubmissionPolicy({

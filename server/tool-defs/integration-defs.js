@@ -506,6 +506,10 @@ const tools = [
           type: 'boolean',
           description: 'Route to $0 providers only: local Ollama first, then cloud free tiers (Google AI, Groq, OpenRouter, Ollama Cloud, Cerebras). Skips paid providers entirely.'
         },
+        streaming_actions: {
+          type: 'boolean',
+          description: 'Enable incremental <action> blocks from provider stream output.'
+        },
         tuning: {
           type: 'object',
           description: 'Per-task tuning overrides (highest priority, overrides model and global settings)',

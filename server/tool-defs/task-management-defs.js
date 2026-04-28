@@ -33,6 +33,11 @@ module.exports = [
           "type": "number",
           "description": "Task priority (higher = processed first)",
           "default": 0
+        },
+        "streaming_actions": {
+          "type": "boolean",
+          "description": "Enable incremental <action> blocks from provider stream output.",
+          "default": false
         }
       },
       "required": [

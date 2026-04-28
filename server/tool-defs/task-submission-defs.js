@@ -89,6 +89,11 @@ module.exports = [
           "description": "Inject a compact study-derived repo brief from docs/architecture into task metadata and supported provider prompts (default: true when study artifacts exist).",
           "default": true
         },
+        "streaming_actions": {
+          "type": "boolean",
+          "description": "Enable incremental <action> blocks from provider stream output.",
+          "default": false
+        },
         "tuning": {
           "type": "object",
           "description": "Per-task tuning overrides (temperature, num_ctx, top_p, etc.)",

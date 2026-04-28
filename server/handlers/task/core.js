@@ -319,6 +319,7 @@ function handleSubmitTask(args) {
       context_stuff: args.context_stuff,
       context_depth: args.context_depth,
       study_context: args.study_context,
+      streaming_actions: args.streaming_actions,
       tuning: args.tuning,
       routing_template: args.routing_template,
       version_intent: args.version_intent,
@@ -458,6 +459,9 @@ function handleSubmitTask(args) {
   }
   if (args.study_context !== undefined) {
     metadata.study_context_enabled = args.study_context !== false;
+  }
+  if (args.streaming_actions !== undefined) {
+    metadata.streaming_actions = args.streaming_actions === true;
   }
   maybeAttachStudyContextMetadata(
     metadata,
@@ -769,6 +773,9 @@ function handleQueueTask(args) {
     : { intended_provider: providerName };
   if (args.study_context !== undefined) {
     metadata.study_context_enabled = args.study_context !== false;
+  }
+  if (args.streaming_actions !== undefined) {
+    metadata.streaming_actions = args.streaming_actions === true;
   }
   maybeAttachStudyContextMetadata(
     metadata,

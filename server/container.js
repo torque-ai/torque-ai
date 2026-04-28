@@ -303,6 +303,29 @@ _defaultContainer.register('workflowState', ['db'], ({ db }) => {
   const { createWorkflowState } = require('./workflow-state/workflow-state');
   return createWorkflowState({ db: unwrapDb(db) });
 });
+_defaultContainer.register('actionApplier', ['db', 'serverConfig', 'workflowState', 'logger'], ({
+  db,
+  serverConfig,
+  workflowState,
+  logger: log,
+}) => {
+  const { createActionApplier } = require('./actions/action-applier');
+  const workingDir = serverConfig.get('default_working_dir') || process.cwd();
+  const allowlist = (serverConfig.get('shell_action_allowlist') || '')
+    .split(',')
+    .map((cmd) => cmd.trim())
+    .filter(Boolean);
+
+  return createActionApplier({
+    db: unwrapDb(db),
+    logger: log,
+    sinks: {
+      file: require('./actions/sinks/file-sink').createFileSink({ workingDir }),
+      shell: require('./actions/sinks/shell-sink').createShellSink({ workingDir, allowlist }),
+      state_patch: require('./actions/sinks/state-sink').createStateSink({ workflowState }),
+    },
+  });
+});
 _defaultContainer.register('forker', ['db', 'checkpointStore', 'workflowState'], ({
   db,
   checkpointStore,

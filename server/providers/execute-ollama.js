@@ -21,6 +21,7 @@ const serverConfig = require('../config');
 const { safeJsonParse } = require('../utils/json');
 const { buildResumeContext, prependResumeContextToPrompt } = require('../utils/resume-context');
 const { applyStudyContextPrompt } = require('../integrations/codebase-study-engine');
+const { createProviderActionStream } = require('../actions/provider-stream-hook');
 // Agentic tool-calling is now handled exclusively by execution.js wrapper
 
 let _projectConfigCore = null;
@@ -600,6 +601,12 @@ async function executeOllamaTask(task) {
     // execution.js wrapper (executeOllamaTaskWithAgentic) before this function
     // is called. If we reach here, the task is non-agentic.
     const ollamaStreamId = db.getOrCreateTaskStream(taskId, 'output');
+    const actionStream = createProviderActionStream({
+      task,
+      taskId,
+      workflowId: task.workflow_id || null,
+      logger,
+    });
     // timeout_minutes === 0 means "no timeout enforcement" (opt-in). Use
     // parseInt + Number.isFinite to preserve the explicit 0, and gate the
     // setTimeout on timeoutMinutes !== 0 so unbounded tasks never receive
@@ -684,6 +691,7 @@ async function executeOllamaTask(task) {
           const processParsedLine = (parsed) => {
             chunksReceived++;
             if (parsed.response) {
+              actionStream?.feed(parsed.response);
               appendResponseChunk(parsed.response);
               tokensGenerated++;
 
@@ -783,6 +791,7 @@ async function executeOllamaTask(task) {
     } finally {
       clearInterval(cancelCheckInterval);
       clearTimeout(timeoutHandle);
+      actionStream?.end();
     }
 
     // Update progress
