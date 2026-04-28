@@ -236,6 +236,39 @@ describe('rejected work item recovery sweep', () => {
     expect(countRecoveryDecisions()).toBe(0);
   });
 
+  it('keeps deterministic plan-generation rejects closed even when reject recovery is enabled', async () => {
+    const project = createRunningDarkProject();
+    const cannotGenerate = createRejectedWorkItem(project.id, {
+      rejectReason: 'cannot_generate_plan: task timed out after 600s',
+    });
+    const replanFailed = createRejectedWorkItem(project.id, {
+      rejectReason: 'replan_generation_failed',
+    });
+    const qualityRejected = createRejectedWorkItem(project.id, {
+      rejectReason: 'plan_quality_gate_rejected_after_2_attempts',
+    });
+    enableRejectRecovery();
+
+    await factoryTick.tickProject(project);
+
+    expect(factoryIntake.getWorkItem(cannotGenerate.id)).toMatchObject({
+      id: cannotGenerate.id,
+      status: 'rejected',
+      reject_reason: 'cannot_generate_plan: task timed out after 600s',
+    });
+    expect(factoryIntake.getWorkItem(replanFailed.id)).toMatchObject({
+      id: replanFailed.id,
+      status: 'rejected',
+      reject_reason: 'replan_generation_failed',
+    });
+    expect(factoryIntake.getWorkItem(qualityRejected.id)).toMatchObject({
+      id: qualityRejected.id,
+      status: 'rejected',
+      reject_reason: 'plan_quality_gate_rejected_after_2_attempts',
+    });
+    expect(countRecoveryDecisions()).toBe(0);
+  });
+
   it('reopens at most one terminal item per project per sweep', async () => {
     const project = createRunningDarkProject();
     const first = createRejectedWorkItem(project.id, {

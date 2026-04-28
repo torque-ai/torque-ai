@@ -53,6 +53,41 @@ describe('factory-intake shipped_stale status', () => {
     expect(factoryIntake.VALID_STATUSES.has('shipped_stale')).toBe(true);
   });
 
+  it('treats shipped_stale as closed intake', () => {
+    const stale = factoryIntake.createWorkItem({
+      project_id: 'p1', source: 'scout', title: 'Scout finding X',
+    });
+    const open = factoryIntake.createWorkItem({
+      project_id: 'p1', source: 'scout', title: 'Scout finding Y',
+    });
+    factoryIntake.updateWorkItem(stale.id, { status: 'shipped_stale' });
+
+    expect(factoryIntake.listOpenWorkItems({ project_id: 'p1' }).map((item) => item.id))
+      .toEqual([open.id]);
+    expect(factoryIntake.getWorkItemForProject('p1', stale.id)).toBeNull();
+    expect(factoryIntake.getWorkItemForProject('p1', stale.id, { includeClosed: true }))
+      .toMatchObject({ id: stale.id, status: 'shipped_stale' });
+  });
+
+  it('finds recent terminal duplicate scout items by exact normalized title', () => {
+    const rejected = factoryIntake.createWorkItem({
+      project_id: 'p1', source: 'scout', title: 'Scout   Finding X',
+    });
+    const manual = factoryIntake.createWorkItem({
+      project_id: 'p1', source: 'manual', title: 'Scout Finding X',
+    });
+    factoryIntake.updateWorkItem(rejected.id, { status: 'rejected', reject_reason: 'cannot_generate_plan: timeout' });
+    factoryIntake.updateWorkItem(manual.id, { status: 'rejected', reject_reason: 'not relevant' });
+
+    const matches = factoryIntake.findRecentDuplicateWorkItems('p1', 'scout finding x', {
+      source: 'scout',
+      statuses: ['rejected'],
+      windowMs: 60 * 1000,
+    });
+
+    expect(matches.map((item) => item.id)).toEqual([rejected.id]);
+  });
+
   it('still rejects truly bogus statuses', () => {
     const created = factoryIntake.createWorkItem({
       project_id: 'p1', source: 'scout', title: 'Scout finding Y',

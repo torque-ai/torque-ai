@@ -282,4 +282,47 @@ describe('scout output intake', () => {
     })]);
     expect(factoryIntake.createWorkItem).not.toHaveBeenCalled();
   });
+
+  it('skips recently terminal scout duplicates from starvation recovery output', () => {
+    const factoryIntake = {
+      findDuplicates: vi.fn().mockReturnValue([]),
+      findRecentDuplicateWorkItems: vi.fn().mockReturnValue([{ id: 9, status: 'rejected' }]),
+      createWorkItem: vi.fn(),
+    };
+    const intake = createScoutOutputIntake({ factoryIntake });
+
+    const result = intake.promoteTask({
+      id: 'task-1',
+      metadata: {
+        mode: 'scout',
+        reason: 'factory_starvation_recovery',
+        project_id: 'project-1',
+      },
+      output: [
+        '__SCOUT_COMPLETE__',
+        JSON.stringify({
+          concrete_factory_work_items: [{
+            title: 'DLPhone startup failure reasons',
+            reason: 'Repeated scout finding.',
+          }],
+        }),
+        '__SCOUT_COMPLETE_END__',
+      ].join('\n'),
+    });
+
+    expect(result.created).toHaveLength(0);
+    expect(result.skipped).toEqual([expect.objectContaining({
+      reason: 'duplicate_recent_terminal_item',
+      work_item_id: 9,
+    })]);
+    expect(factoryIntake.findRecentDuplicateWorkItems).toHaveBeenCalledWith(
+      'project-1',
+      'DLPhone startup failure reasons',
+      expect.objectContaining({
+        source: 'scout',
+        statuses: expect.arrayContaining(['rejected', 'shipped_stale']),
+      }),
+    );
+    expect(factoryIntake.createWorkItem).not.toHaveBeenCalled();
+  });
 });

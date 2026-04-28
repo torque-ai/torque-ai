@@ -21,7 +21,7 @@ const REJECT_REASONS = Object.freeze(new Set([
   'branch_stale_vs_base',
   'pre_written_plan_rejected_by_quality_gate',
 ]));
-const CLOSED_STATUSES = new Set(['completed', 'rejected', 'shipped', 'unactionable']);
+const CLOSED_STATUSES = new Set(['completed', 'rejected', 'shipped', 'shipped_stale', 'unactionable']);
 const PRIORITY_LEVELS = Object.freeze({
   low: 30,
   default: 50,
@@ -163,7 +163,7 @@ function listOpenWorkItems({ project_id, limit } = {}) {
   let sql = `
     SELECT * FROM factory_work_items
     WHERE 1=1
-      AND status NOT IN ('completed', 'rejected', 'shipped', 'unactionable')
+      AND status NOT IN ('completed', 'rejected', 'shipped', 'shipped_stale', 'unactionable')
   `;
   const params = [];
 
@@ -248,7 +248,7 @@ function rejectWorkItemUnactionable(id, reason) {
 function findDuplicates(project_id, title) {
   const rows = db.prepare(`
     SELECT * FROM factory_work_items
-    WHERE project_id = ? AND status NOT IN ('rejected', 'shipped', 'completed', 'unactionable')
+    WHERE project_id = ? AND status NOT IN ('rejected', 'shipped', 'shipped_stale', 'completed', 'unactionable')
     ORDER BY created_at DESC LIMIT 50
   `).all(project_id);
 
@@ -263,6 +263,47 @@ function findDuplicates(project_id, title) {
     }
   }
   return matches;
+}
+
+function normalizeDuplicateTitle(title) {
+  return String(title || '').trim().replace(/\s+/g, ' ').toLowerCase();
+}
+
+function findRecentDuplicateWorkItems(project_id, title, {
+  source,
+  statuses,
+  windowMs = 24 * 60 * 60 * 1000,
+  limit = 100,
+} = {}) {
+  if (!project_id) throw new Error('project_id is required');
+  const normalizedTitle = normalizeDuplicateTitle(title);
+  if (!normalizedTitle) return [];
+
+  const params = [project_id];
+  let sql = 'SELECT * FROM factory_work_items WHERE project_id = ?';
+  if (source) {
+    sql += ' AND source = ?';
+    params.push(source);
+  }
+  sql += ' ORDER BY updated_at DESC, created_at DESC LIMIT ?';
+  params.push(limit || 100);
+
+  const allowedStatuses = Array.isArray(statuses) && statuses.length > 0
+    ? new Set(statuses)
+    : null;
+  const thresholdMs = Number.isFinite(windowMs) && windowMs > 0
+    ? Date.now() - windowMs
+    : null;
+
+  return db.prepare(sql).all(...params)
+    .map(parseWorkItem)
+    .filter((item) => {
+      if (allowedStatuses && !allowedStatuses.has(item.status)) return false;
+      if (normalizeDuplicateTitle(item.title) !== normalizedTitle) return false;
+      if (thresholdMs === null) return true;
+      const updatedAtMs = Date.parse(item.updated_at || item.created_at || '');
+      return Number.isFinite(updatedAtMs) && updatedAtMs >= thresholdMs;
+    });
 }
 
 function linkItems(id, linkedId) {
@@ -402,6 +443,7 @@ module.exports = {
   rejectWorkItem,
   rejectWorkItemUnactionable,
   findDuplicates,
+  findRecentDuplicateWorkItems,
   linkItems,
   getIntakeStats,
   createFromFindings,

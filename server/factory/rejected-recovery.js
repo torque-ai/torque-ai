@@ -29,12 +29,9 @@ const AUTO_REJECT_REASON_PATTERNS = Object.freeze([
   /^auto_/i,
   /auto[-_ ]rejected/i,
   /^verify_failed_after_\d+_retries$/i,
-  /^plan_quality_gate_rejected_after_2_attempts$/i,
   /^no_worktree_for_batch/i,
   /^consecutive_empty_executions$/i,
   /^stuck_executing_over_1h_no_progress/i,
-  /^cannot_generate_plan:/i,
-  /^replan_generation_failed$/i,
   /^execute_spin_loop_\d+_starts_in_5min$/i,
   /^worktree_creation_failed:/i,
   /^execute_exception:/i,
@@ -46,6 +43,11 @@ const AUTO_REJECT_REASON_PATTERNS = Object.freeze([
 const AUTO_UNACTIONABLE_REASON_PATTERNS = Object.freeze([
   /^branch_stale_vs_base$/i,
   /^branch_stale_vs_master$/i,
+]);
+const NON_RECOVERABLE_REJECT_REASON_PATTERNS = Object.freeze([
+  /^cannot_generate_plan:/i,
+  /^replan_generation_failed$/i,
+  /^plan_quality_gate_rejected_after_2_attempts$/i,
 ]);
 
 let lastSweepAtMs = null;
@@ -95,9 +97,37 @@ function parseJsonObject(value) {
   }
 }
 
+function getReasonCandidates(reason) {
+  const text = String(reason || '').trim();
+  if (!text) {
+    return [];
+  }
+
+  const parsed = parseJsonObject(text);
+  if (parsed) {
+    return [
+      text,
+      parsed.reason,
+      parsed.reject_reason,
+      parsed.action,
+    ].filter((value) => String(value || '').trim()).map((value) => String(value).trim());
+  }
+
+  return [text];
+}
+
+function candidatesMatch(patterns, candidates) {
+  return candidates.some((candidate) => patterns.some((pattern) => pattern.test(candidate)));
+}
+
 function matchesRecoverableReason(patterns, reason) {
   const text = String(reason || '').trim();
   if (!text) {
+    return false;
+  }
+
+  const candidates = getReasonCandidates(text);
+  if (candidatesMatch(NON_RECOVERABLE_REJECT_REASON_PATTERNS, candidates)) {
     return false;
   }
 
@@ -105,10 +135,10 @@ function matchesRecoverableReason(patterns, reason) {
   if (parsed) {
     return parsed.auto_rejected === true
       || parsed.action === 'auto_rejected'
-      || patterns.some((pattern) => pattern.test(String(parsed.reason || '')));
+      || candidatesMatch(patterns, candidates);
   }
 
-  return patterns.some((pattern) => pattern.test(text));
+  return candidatesMatch(patterns, candidates);
 }
 
 function isAutoRecoverableTerminalReason(status, reason) {

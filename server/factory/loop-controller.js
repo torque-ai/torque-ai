@@ -77,7 +77,7 @@ const SELECTED_WORK_ITEM_DECISION_ACTIONS = Object.freeze([
   'generated_plan',
 ]);
 
-const CLOSED_WORK_ITEM_STATUSES = new Set(['completed', 'shipped', 'rejected', 'unactionable']);
+const CLOSED_WORK_ITEM_STATUSES = new Set(['completed', 'shipped', 'shipped_stale', 'rejected', 'unactionable']);
 
 let sharedWorktreeRunner = null;
 let worktreeRunnerTestOverride = undefined; // undefined = auto; null = disabled; object = forced runner

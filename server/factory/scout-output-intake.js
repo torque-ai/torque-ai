@@ -4,6 +4,14 @@ const { StreamSignalParser } = require('../diffusion/stream-signal-parser');
 
 const STARVATION_RECOVERY_REASON = 'factory_starvation_recovery';
 const MAX_TITLE_LENGTH = 140;
+const RECENT_TERMINAL_DUPLICATE_WINDOW_MS = 24 * 60 * 60 * 1000;
+const TERMINAL_DUPLICATE_STATUSES = Object.freeze([
+  'completed',
+  'rejected',
+  'shipped',
+  'shipped_stale',
+  'unactionable',
+]);
 const SIGNAL_MARKERS = {
   patterns_ready: ['__PATTERNS_READY__', '__PATTERNS_READY_END__'],
   scout_discovery: ['__SCOUT_DISCOVERY__', '__SCOUT_DISCOVERY_END__'],
@@ -236,18 +244,39 @@ function createScoutOutputIntake({ factoryIntake, logger = console, resolveProje
     throw new Error('factoryIntake with createWorkItem is required');
   }
 
-  function hasOpenDuplicate(projectId, title) {
+  function findScoutDuplicate(projectId, title) {
     if (typeof factoryIntake.findDuplicates !== 'function') {
-      return false;
+      return null;
     }
     try {
-      return (factoryIntake.findDuplicates(projectId, title) || []).length > 0;
+      const openDuplicates = factoryIntake.findDuplicates(projectId, title) || [];
+      if (openDuplicates.length > 0) {
+        return {
+          reason: 'duplicate_open_item',
+          work_item_id: openDuplicates[0]?.item?.id || null,
+        };
+      }
+      if (typeof factoryIntake.findRecentDuplicateWorkItems !== 'function') {
+        return null;
+      }
+      const terminalDuplicates = factoryIntake.findRecentDuplicateWorkItems(projectId, title, {
+        source: 'scout',
+        statuses: TERMINAL_DUPLICATE_STATUSES,
+        windowMs: RECENT_TERMINAL_DUPLICATE_WINDOW_MS,
+      }) || [];
+      if (terminalDuplicates.length > 0) {
+        return {
+          reason: 'duplicate_recent_terminal_item',
+          work_item_id: terminalDuplicates[0]?.id || null,
+        };
+      }
+      return null;
     } catch (err) {
       logger.warn?.('Scout output duplicate check failed', {
         project_id: projectId,
         err: err.message,
       });
-      return false;
+      return null;
     }
   }
 
@@ -275,8 +304,9 @@ function createScoutOutputIntake({ factoryIntake, logger = console, resolveProje
     for (const pattern of patterns) {
       const label = pattern.description || pattern.id || 'scout pattern';
       const title = truncateTitle(`Scout pattern: ${label}`);
-      if (hasOpenDuplicate(projectId, title)) {
-        skipped.push({ reason: 'duplicate_open_item', title });
+      const duplicate = findScoutDuplicate(projectId, title);
+      if (duplicate) {
+        skipped.push({ ...duplicate, title });
         continue;
       }
 
@@ -310,8 +340,9 @@ function createScoutOutputIntake({ factoryIntake, logger = console, resolveProje
 
     for (const concreteItem of concreteItems) {
       const title = truncateTitle(concreteItem.title);
-      if (hasOpenDuplicate(projectId, title)) {
-        skipped.push({ reason: 'duplicate_open_item', title });
+      const duplicate = findScoutDuplicate(projectId, title);
+      if (duplicate) {
+        skipped.push({ ...duplicate, title });
         continue;
       }
 
