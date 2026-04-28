@@ -195,14 +195,15 @@ describe('ollama-tools command security', () => {
     expect(result._allowlist_rejection).toBe(true);
   });
 
-  it('rejection of tail suggests read_file with start_line', () => {
+  it('rejection of tail suggests read_file (no negative-offset support)', () => {
     const executor = createToolExecutor('/tmp/test-dir', {
       commandMode: 'allowlist',
       commandAllowlist: ['npm *'],
     });
     const result = executor.execute('run_command', { command: 'tail -n 20 foo.txt' });
     expect(result.error).toBe(true);
-    expect(result.result).toContain('start_line');
+    expect(result.result).toContain('use read_file');
+    expect(result.result).toContain('does not support tail-style negative offsets');
     expect(result._allowlist_rejection).toBe(true);
   });
 
@@ -226,6 +227,38 @@ describe('ollama-tools command security', () => {
     expect(result.error).toBe(true);
     expect(result.result).toContain('use search_files');
     expect(result._allowlist_rejection).toBe(true);
+  });
+
+  it('rejection of rg suggests search_files', () => {
+    const executor = createToolExecutor('/tmp/test-dir', {
+      commandMode: 'allowlist',
+      commandAllowlist: ['npm *'],
+    });
+    const result = executor.execute('run_command', { command: 'rg -i pattern .' });
+    expect(result.error).toBe(true);
+    expect(result.result).toContain('use search_files');
+    expect(result._allowlist_rejection).toBe(true);
+  });
+
+  it('security-blocked command (rm -rf /) does NOT have _allowlist_rejection marker', () => {
+    const executor = createToolExecutor('/tmp/test-dir', {
+      commandMode: 'allowlist',
+      commandAllowlist: ['*'], // wildcard would normally allow, but security check fires
+    });
+    const result = executor.execute('run_command', { command: 'rm -rf /' });
+    expect(result.error).toBe(true);
+    expect(result.result).toContain('not in allowlist');
+    expect(result._allowlist_rejection).toBeUndefined();
+  });
+
+  it('shell-metachar-blocked command does NOT have _allowlist_rejection marker', () => {
+    const executor = createToolExecutor('/tmp/test-dir', {
+      commandMode: 'allowlist',
+      commandAllowlist: ['*'],
+    });
+    const result = executor.execute('run_command', { command: 'echo foo; rm bar' });
+    expect(result.error).toBe(true);
+    expect(result._allowlist_rejection).toBeUndefined();
   });
 
   it('rejection of unknown destructive command sets marker but no specific suggestion', () => {
