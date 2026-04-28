@@ -1,5 +1,5 @@
 {
-  "captured_at": "2026-04-26T15:00:54.565Z",
+  "captured_at": "2026-04-28T13:19:53.481Z",
   "env": {
     "cpu_count": 20,
     "total_memory_mb": 32630,
@@ -7,71 +7,71 @@
     "platform": "win32",
     "host_label": "BahumutsOmen"
   },
-  "last_updated_at": "2026-04-26T19:10:48.442Z",
+  "last_updated_at": "2026-04-28T13:20:12.125Z",
   "metrics": {
     "queue-scheduler-tick": {
       "id": "queue-scheduler-tick",
-      "median": 0.19469999999998322,
-      "p95": 0.41679999999999495,
+      "median": 0.345799999999997,
+      "p95": 0.511099999999999,
       "runs": 1000,
       "warmup": 10,
-      "last_updated_at": "2026-04-26T19:10:48.442Z"
+      "last_updated_at": "2026-04-28T13:20:12.125Z"
     },
     "task-core-create": {
       "id": "task-core-create",
-      "median": 0.4627999999999588,
-      "p95": 0.6216000000000008,
+      "median": 0.634050000000002,
+      "p95": 0.7173999999999978,
       "runs": 100,
       "warmup": 5,
-      "last_updated_at": "2026-04-26T19:10:48.442Z"
+      "last_updated_at": "2026-04-28T13:20:12.125Z"
     },
     "governance-evaluate": {
       "id": "governance-evaluate",
-      "median": 170.1769999999999,
-      "p95": 178.64600000000064,
+      "median": 213.80724999999893,
+      "p95": 227.2616999999991,
       "runs": 100,
       "warmup": 5,
-      "last_updated_at": "2026-04-26T19:10:48.442Z"
+      "last_updated_at": "2026-04-28T13:20:12.125Z"
     },
     "handler-project-stats": {
       "id": "handler-project-stats",
-      "median": 1.084049999999479,
-      "p95": 1.2318999999988591,
+      "median": 1.0879500000010012,
+      "p95": 1.5178000000014435,
       "runs": 50,
       "warmup": 5,
-      "last_updated_at": "2026-04-26T19:10:48.442Z"
+      "last_updated_at": "2026-04-28T13:20:12.125Z"
     },
     "mcp-task-info": {
       "id": "mcp-task-info",
-      "median": 0.26970000000073924,
-      "p95": 0.343300000000454,
+      "median": 0.27924999999959255,
+      "p95": 0.3761999999987893,
       "runs": 100,
       "warmup": 5,
-      "last_updated_at": "2026-04-26T19:10:48.442Z"
+      "last_updated_at": "2026-04-28T13:20:12.125Z"
     },
     "sse-dispatch": {
       "id": "sse-dispatch",
-      "median": 0.33664999999928114,
-      "p95": 0.4147999999986496,
+      "median": 0.32440000000133296,
+      "p95": 0.6834999999991851,
       "runs": 50,
       "warmup": 5,
-      "last_updated_at": "2026-04-26T19:10:48.442Z"
+      "last_updated_at": "2026-04-28T13:20:12.125Z"
     },
     "db-factory-cost-summary": {
       "id": "db-factory-cost-summary",
-      "median": 0.545350000000326,
-      "p95": 0.6959999999999127,
+      "median": 0.5321000000003551,
+      "p95": 0.6754000000000815,
       "runs": 50,
       "warmup": 5,
-      "last_updated_at": "2026-04-26T19:10:48.442Z"
+      "last_updated_at": "2026-04-28T13:20:12.125Z"
     },
     "db-project-stats": {
       "id": "db-project-stats",
-      "median": 1.0538500000002387,
-      "p95": 1.2181999999993423,
+      "median": 1.0953500000014174,
+      "p95": 1.4085000000013679,
       "runs": 50,
       "warmup": 5,
-      "last_updated_at": "2026-04-26T19:10:48.442Z"
+      "last_updated_at": "2026-04-28T13:20:12.125Z"
     },
     "db-list-tasks": {
       "id": "db-list-tasks",
@@ -79,26 +79,25 @@
       "warmup": 5,
       "byVariant": {
         "parsed": {
-          "median": 29.63,
-          "p95": 33.21,
+          "median": 16.192250000000058,
+          "p95": 19.19090000000142,
           "runs": 50
         },
         "raw": {
-          "median": 30.72,
-          "p95": 34.85,
+          "median": 14.759899999999107,
+          "p95": 16.181500000002416,
           "runs": 50
         }
       },
-      "notes": "Phase 3: harness uses SELECT * (no column projection) so context/output blob I/O dominates and obscures JSON.parse savings. Unit test (in-memory DB + column projection) confirms >10% raw speedup. Harness baseline reflects real DB I/O cost.",
-      "last_updated_at": "2026-04-25T00:00:00.000Z"
+      "last_updated_at": "2026-04-28T13:20:12.125Z"
     },
     "db-budget-threshold": {
       "id": "db-budget-threshold",
-      "median": 0.1518000000014581,
-      "p95": 0.22000000000116415,
+      "median": 0.16199999999844295,
+      "p95": 0.21860000000015134,
       "runs": 50,
       "warmup": 5,
-      "last_updated_at": "2026-04-26T19:10:48.442Z"
+      "last_updated_at": "2026-04-28T13:20:12.125Z"
     },
     "cold-import": {
       "id": "cold-import",
@@ -106,49 +105,48 @@
       "warmup": 1,
       "byVariant": {
         "tools": {
-          "median": 859.021,
-          "p95": 877.671,
-          "runs": 10
-        },
-        "task-manager": {
-          "median": 273.471,
-          "p95": 330.58,
-          "runs": 10
-        },
-        "database": {
-          "median": 25.0075,
-          "p95": 29.283,
-          "runs": 10
-        },
-        "db-task-core": {
-          "median": 14.1175,
-          "p95": 14.473,
+          "median": 937.533,
+          "p95": 958.322,
           "runs": 10
         },
         "tool-registry": {
-          "median": 52.346000000000004,
-          "p95": 64.325,
-          "runs": 10,
-          "notes": "Phase 4: thin metadata module, no handler loading. Measured on local Windows dev machine (expect ~15-30ms on BahumutsOmen Linux). Target: <200ms."
+          "median": 62.333,
+          "p95": 67.294,
+          "runs": 10
+        },
+        "task-manager": {
+          "median": 379.683,
+          "p95": 400.215,
+          "runs": 10
+        },
+        "database": {
+          "median": 32.200500000000005,
+          "p95": 34.879,
+          "runs": 10
+        },
+        "db-task-core": {
+          "median": 19.3315,
+          "p95": 21.355,
+          "runs": 10
         }
       },
-      "last_updated_at": "2026-04-26T19:10:48.442Z"
+      "last_updated_at": "2026-04-28T13:20:12.125Z"
     },
     "worktree-lifecycle": {
       "id": "worktree-lifecycle",
-      "median": 149.30329999999958,
-      "p95": 158.23070000000007,
+      "median": 218.4195999999938,
+      "p95": 220.73790000000008,
       "runs": 5,
       "warmup": 1,
-      "last_updated_at": "2026-04-26T19:10:48.442Z"
+      "last_updated_at": "2026-04-28T13:20:12.125Z"
     },
     "restart-barrier": {
       "id": "restart-barrier",
-      "median": 0.020886600000001636,
-      "p95": 0.02538470000000234,
+      "median": 0.020737550000001645,
+      "p95": 0.027619800000000395,
       "runs": 50,
       "warmup": 5,
-      "last_updated_at": "2026-04-26T19:10:48.442Z"
+      "last_updated_at": "2026-04-28T13:20:12.125Z"
     }
   }
 }
