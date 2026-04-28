@@ -1,6 +1,27 @@
 #!/usr/bin/env node
 'use strict';
 const http = require('http');
+const path = require('path');
+
+// Resolve `server/coord/lock-hashes` from one of two locations:
+//
+//   1. The relative path `../server/coord/lock-hashes` — works when this CLI
+//      file lives at <repo>/bin/torque-coord-client (in-repo case).
+//   2. <args.root>/server/coord/lock-hashes — works when this CLI was copied
+//      to a user-bin location (e.g. ~/bin/torque-coord-client) and `..`
+//      resolves to ~/ instead of <repo>/.
+//
+// Without this fallback, the wrapper's coord_begin sees `{event:"unreachable",
+// detail:"Cannot find module '../server/coord/lock-hashes'"}` and silently
+// degrades to uncoordinated — observed live 2026-04-28 once user-bin diverged
+// from repo-bin in a way that didn't ship the server/coord tree alongside.
+function loadLockHashes(root) {
+  try {
+    return require('../server/coord/lock-hashes');
+  } catch (_e) {
+    return require(path.join(root, 'server', 'coord', 'lock-hashes'));
+  }
+}
 
 const HOST = process.env.TORQUE_COORD_HOST || '127.0.0.1';
 const PORT = parseInt(process.env.TORQUE_COORD_PORT || '9395', 10);
@@ -213,7 +234,7 @@ function dispatch(args) {
 // the dev box's working tree, which is what the cache key is built against.
 async function runBegin(args) {
   const root = args.root || process.cwd();
-  const { computeLockHashes } = require('../server/coord/lock-hashes');
+  const { computeLockHashes } = loadLockHashes(root);
   const localHashes = computeLockHashes(root);
   const localHashesJson = JSON.stringify(localHashes);
 
@@ -400,7 +421,7 @@ async function main() {
       }
       case 'lock-hashes': {
         const root = args.root || process.cwd();
-        const { computeLockHashes } = require('../server/coord/lock-hashes');
+        const { computeLockHashes } = loadLockHashes(root);
         emit(computeLockHashes(root));
         process.exit(0);
         break;
