@@ -293,10 +293,58 @@ fi
 # it rather than forwarding to the inner command (a typo like --cwd would
 # otherwise silently slip into COMMAND_ARGS and the local-fallback path
 # would try to exec it as a program with the cryptic "command not found").
+# Choose how coord client calls reach the daemon for this wrapper invocation.
+# Sets COORD_ROUTING_MODE to one of:
+#   "local"            — 127.0.0.1:9395 responded; legacy path (TORQUE_COORD_REMOTE_* unset)
+#   "ssh:user@host"    — local daemon down + remote config present; export TORQUE_COORD_REMOTE_*
+#   "none"             — no local daemon and no remote config; coord disabled (graceful degrade)
+COORD_ROUTING_MODE=""
+coord_select_routing_mode() {
+  # Already decided — idempotent.
+  if [[ -n "$COORD_ROUTING_MODE" ]]; then return 0; fi
+  # 1. If env vars already set by caller, honor them outright.
+  if [ -n "${TORQUE_COORD_REMOTE_HOST:-}" ] && [ -n "${TORQUE_COORD_REMOTE_USER:-}" ]; then
+    COORD_ROUTING_MODE="ssh:${TORQUE_COORD_REMOTE_USER}@${TORQUE_COORD_REMOTE_HOST}"
+    return 0
+  fi
+  # 2. Probe local daemon. -s silent, --max-time 1 is enough — local socket or nothing.
+  # TORQUE_COORD_PROBE_URL is a test-only override to redirect the probe to an
+  # unreachable address (e.g. http://127.0.0.1:1) so tests can simulate "daemon down"
+  # even when a real daemon is running on the default port.
+  local _probe_url="${TORQUE_COORD_PROBE_URL:-http://127.0.0.1:9395/health}"
+  if curl -s --max-time 1 "$_probe_url" >/dev/null 2>&1; then
+    COORD_ROUTING_MODE="local"
+    return 0
+  fi
+  # 3. Local daemon down — try to read remote config.
+  local cfg="${HOME}/.torque-remote.local.json"
+  if [ -f "$cfg" ]; then
+    local host user
+    host=$(node -e 'try { const c = require(process.argv[1]); process.stdout.write(c.host || ""); } catch (_) {}' "$cfg" 2>/dev/null || echo "")
+    user=$(node -e 'try { const c = require(process.argv[1]); process.stdout.write(c.user || ""); } catch (_) {}' "$cfg" 2>/dev/null || echo "")
+    if [ -n "$host" ] && [ -n "$user" ]; then
+      export TORQUE_COORD_REMOTE_HOST="$host"
+      export TORQUE_COORD_REMOTE_USER="$user"
+      COORD_ROUTING_MODE="ssh:${user}@${host}"
+      return 0
+    fi
+  fi
+  COORD_ROUTING_MODE="none"
+  return 0
+}
+
 BRANCH_OVERRIDE=""
 SUITE="${TORQUE_REMOTE_DEFAULT_SUITE:-custom}"
 while [[ "${1:-}" == --* ]]; do
   case "$1" in
+    --__internal-print-routing-mode)
+      # Test-only fast-path: print the coord routing decision and exit.
+      # Lets server/tests/coord-torque-remote-routing.test.js assert the routing
+      # without paying for a full sync. Not a public API.
+      coord_select_routing_mode
+      echo "$COORD_ROUTING_MODE"
+      exit 0
+      ;;
     --branch)
       [[ $# -lt 2 ]] && die "Invalid --branch value: "
       BRANCH_OVERRIDE="$2"
@@ -652,6 +700,10 @@ coord_release_on_exit() {
 # when SUITE=custom (coord disabled) — the transport branches see "" and
 # fall through to today's uncoordinated path with no capture overhead.
 COORD_OUTPUT_LOG=""
+
+# Resolve coord routing mode once before any coord calls so env vars are
+# exported in time for all subsequent `bin/torque-coord-client` invocations.
+coord_select_routing_mode
 
 if [[ "$SUITE" != "custom" ]]; then
   trap coord_release_on_exit EXIT
