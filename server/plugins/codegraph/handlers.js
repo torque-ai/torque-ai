@@ -7,6 +7,7 @@ const { impactSet }      = require('./queries/impact-set');
 const { deadSymbols }    = require('./queries/dead-symbols');
 const { resolveTool }    = require('./queries/resolve-tool');
 const { classHierarchy } = require('./queries/class-hierarchy');
+const { diagnose: diagnoseResolution } = require('./queries/resolution-diagnostics');
 
 function requireString(args, key) {
   if (typeof args?.[key] !== 'string' || args[key].length === 0) {
@@ -223,6 +224,20 @@ function createHandlers({ db }) {
         ...(hasHandlers === false && hasCandidates === false && hasConvention === false && {
           hint: `No dispatcher, no exact-name symbol, and no handle<PascalCase> convention match for '${toolName}'. The tool may be defined in a different repo, registered dynamically from a string interpolation, or misspelled. Try cg_find_references on '${toolName}' as a string symbol to find call sites that mention it.`,
         }),
+        staleness: staleness(db, repoPath),
+      });
+    },
+
+    async cg_resolution_diagnostics(args) {
+      const repoPath = requireString(args, 'repo_path');
+      const symbol   = requireString(args, 'symbol');
+      const sampleSizeRaw = args.sample_size;
+      const sampleSize = Number.isInteger(sampleSizeRaw) && sampleSizeRaw > 0
+        ? Math.min(sampleSizeRaw, 200)
+        : 20;
+      const r = diagnoseResolution({ db, repoPath, symbol, sampleSize });
+      return asToolResult({
+        ...r,
         staleness: staleness(db, repoPath),
       });
     },
