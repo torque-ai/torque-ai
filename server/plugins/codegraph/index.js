@@ -13,7 +13,12 @@ const telemetry = require('./telemetry');
 const DEDICATED_DB_FILENAME = 'codegraph.db';
 
 function isFeatureEnabled() {
-  return process.env.TORQUE_CODEGRAPH_ENABLED === '1';
+  // Default: enabled. Set TORQUE_CODEGRAPH_ENABLED=0 to opt out.
+  // The plugin is now part of the standard surface — disabling it leaves
+  // /api/v2/codegraph/* routes returning "Unknown tool: cg_*" 500s, which
+  // the dashboard's /codegraph page surfaces as "Error: internal server
+  // error" with no actionable message.
+  return process.env.TORQUE_CODEGRAPH_ENABLED !== '0';
 }
 
 function getContainerService(container, name) {
