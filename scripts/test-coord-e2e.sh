@@ -96,5 +96,71 @@ fi
 echo "[e2e] Scenario B PASS: warm-hit replay observed."
 rm -f "$OUT3" "$OUT4"
 
+# ─── Scenario C: cross-machine serialization ──────────────────────────────
+# Simulates two dev-box sessions both pointed at the workstation daemon via
+# ssh. The first acquire wins; the second waits and acquires after the first
+# releases. Skipped when no remote config is present (CI / dev-box without
+# workstation access).
+echo
+echo "── Scenario C: cross-machine acquire/release via ssh ────────"
+if [ ! -f "$HOME/.torque-remote.local.json" ]; then
+  echo "[e2e] Scenario C SKIPPED: no ~/.torque-remote.local.json present"
+else
+  # Force ssh-mode for the client by pre-exporting the env vars from the
+  # config file — same logic the wrapper uses, just inline so the test is
+  # self-contained.
+  export TORQUE_COORD_REMOTE_HOST=$(node -e 'process.stdout.write(require(process.env.HOME + "/.torque-remote.local.json").host)')
+  export TORQUE_COORD_REMOTE_USER=$(node -e 'process.stdout.write(require(process.env.HOME + "/.torque-remote.local.json").user)')
+  CROSSMACHINE_SUITE="gate-crossmachine-$(date +%s)"
+  echo "[e2e] Scenario C using suite: $CROSSMACHINE_SUITE"
+  ACQ_OUT_A=$(mktemp)
+  ACQ_OUT_B=$(mktemp)
+  # First acquire — should succeed immediately.
+  # Use "cmd && ok=0 || ok=$?" pattern so set -euo pipefail does not fire
+  # on the non-zero exit codes we intentionally check (e.g. 3 = 202 wait).
+  bin/torque-coord-client acquire \
+    --project torque-public --sha "$(git rev-parse HEAD)" --suite "$CROSSMACHINE_SUITE" \
+    --host "devbox-a" --pid 11111 --user tester > "$ACQ_OUT_A" 2>&1 && status_a=0 || status_a=$?
+  if [ "$status_a" -ne 0 ]; then
+    echo "[e2e] Scenario C FAIL: first ssh acquire returned $status_a"
+    cat "$ACQ_OUT_A"
+    rm -f "$ACQ_OUT_A" "$ACQ_OUT_B"
+    exit 1
+  fi
+  lock_id_a=$(node -e 'try { process.stdout.write((JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).lock_id) || ""); } catch(_) {}' "$ACQ_OUT_A")
+  if [ -z "$lock_id_a" ]; then
+    echo "[e2e] Scenario C FAIL: first acquire returned no lock_id"
+    cat "$ACQ_OUT_A"
+    rm -f "$ACQ_OUT_A" "$ACQ_OUT_B"
+    exit 1
+  fi
+  # Second acquire — same project/sha/suite, should return 202 wait (exit 3).
+  bin/torque-coord-client acquire \
+    --project torque-public --sha "$(git rev-parse HEAD)" --suite "$CROSSMACHINE_SUITE" \
+    --host "devbox-b" --pid 22222 --user tester > "$ACQ_OUT_B" 2>&1 && status_b=0 || status_b=$?
+  if [ "$status_b" -ne 3 ]; then
+    echo "[e2e] Scenario C FAIL: second ssh acquire expected exit 3 (wait), got $status_b"
+    cat "$ACQ_OUT_B"
+    bin/torque-coord-client release --lock-id "$lock_id_a" --exit 0 --status passed >/dev/null 2>&1 || true
+    rm -f "$ACQ_OUT_A" "$ACQ_OUT_B"
+    exit 1
+  fi
+  # Release first; second can now acquire.
+  bin/torque-coord-client release --lock-id "$lock_id_a" --exit 0 --status passed >/dev/null 2>&1 || true
+  bin/torque-coord-client acquire \
+    --project torque-public --sha "$(git rev-parse HEAD)" --suite "$CROSSMACHINE_SUITE" \
+    --host "devbox-b" --pid 22222 --user tester > "$ACQ_OUT_B" 2>&1 && status_b2=0 || status_b2=$?
+  lock_id_b=$(node -e 'try { process.stdout.write((JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).lock_id) || ""); } catch(_) {}' "$ACQ_OUT_B")
+  if [ "$status_b2" -ne 0 ] || [ -z "$lock_id_b" ]; then
+    echo "[e2e] Scenario C FAIL: second acquire after release returned $status_b2 (no lock_id)"
+    cat "$ACQ_OUT_B"
+    rm -f "$ACQ_OUT_A" "$ACQ_OUT_B"
+    exit 1
+  fi
+  bin/torque-coord-client release --lock-id "$lock_id_b" --exit 0 --status passed >/dev/null 2>&1 || true
+  echo "[e2e] Scenario C PASS: cross-machine serialization observed via ssh-mode."
+  rm -f "$ACQ_OUT_A" "$ACQ_OUT_B"
+fi
+
 echo
 echo "[e2e] All scenarios PASS."

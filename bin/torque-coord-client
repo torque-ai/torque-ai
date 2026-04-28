@@ -6,6 +6,21 @@ const HOST = process.env.TORQUE_COORD_HOST || '127.0.0.1';
 const PORT = parseInt(process.env.TORQUE_COORD_PORT || '9395', 10);
 const CONNECT_TIMEOUT_MS = 2000;
 
+const REMOTE_HOST = process.env.TORQUE_COORD_REMOTE_HOST || '';
+const REMOTE_USER = process.env.TORQUE_COORD_REMOTE_USER || '';
+const SSH_MODE = !!(REMOTE_HOST && REMOTE_USER);
+const SSH_TIMEOUT_SECS = parseInt(process.env.TORQUE_COORD_SSH_TIMEOUT || '5', 10);
+// Allow tests to inject a fake ssh binary without relying on PATH or PATHEXT.
+// Supports two forms:
+//   TORQUE_COORD_SSH_BIN=ssh          (default — use system ssh)
+//   TORQUE_COORD_SSH_BIN=node:/path   (test mode — spawns node <path> <args>)
+// The "node:" prefix lets tests on Windows bypass the PATHEXT/.cmd/.shell issues
+// entirely: the coord-client spawns node.exe directly with the script path.
+const SSH_BIN_RAW = process.env.TORQUE_COORD_SSH_BIN || 'ssh';
+const SSH_BIN_IS_NODE = SSH_BIN_RAW.startsWith('node:');
+const SSH_BIN = SSH_BIN_IS_NODE ? process.execPath : SSH_BIN_RAW;
+const SSH_SCRIPT = SSH_BIN_IS_NODE ? SSH_BIN_RAW.slice(5) : null;
+
 function emit(obj) {
   process.stdout.write(JSON.stringify(obj) + '\n');
 }
@@ -55,6 +70,129 @@ function request({ method, path, body }) {
   });
 }
 
+// Escape a string for use inside a cmd.exe double-quoted argument.
+// The remote workstation's sshd runs the command through cmd.exe.
+// Inside cmd.exe double-quoted strings, only `"` needs escaping.
+function cmdQuote(s) {
+  return '"' + s.replace(/"/g, '\\"') + '"';
+}
+
+function requestViaSsh({ method, path: urlPath, body }) {
+  return new Promise((resolve, reject) => {
+    const { spawn } = require('child_process');
+    // Build a curl invocation that runs on the remote workstation.
+    // -s silent; -w appends a sentinel + HTTP status code so we can
+    // separate it from the response body without relying on newlines.
+    // The sentinel is a plain alphanumeric string that cannot appear in
+    // valid JSON, so indexOf is a safe split point.
+    //
+    // We pass the entire curl command as a SINGLE argument to ssh (after
+    // the hostname). This is key: ssh sends a single-string command to
+    // the remote shell (cmd.exe), which then parses it normally.
+    // Passing individual args causes ssh to join them with spaces and
+    // Windows CreateProcess quoting can mangle %{...} in the -w format.
+    // A single pre-built cmd.exe-safe string avoids that entirely.
+    const SENTINEL = 'HTTPSTATUS:';
+    const url = `http://127.0.0.1:9395${urlPath}`;
+    const curlParts = [
+      'curl', '-s',
+      '--max-time', String(SSH_TIMEOUT_SECS),
+      '-X', method,
+      '-H', cmdQuote('content-type: application/json'),
+      '-w', `HTTPSTATUS:%{http_code}`,
+    ];
+    if (body) {
+      // pass body via stdin
+      curlParts.push('--data-binary', '@-');
+    }
+    curlParts.push(url);
+    const remoteCmd = curlParts.join(' ');
+    const sshArgs = [
+      '-o', `ConnectTimeout=${SSH_TIMEOUT_SECS}`,
+      '-o', 'StrictHostKeyChecking=accept-new',
+      `${REMOTE_USER}@${REMOTE_HOST}`,
+      remoteCmd,
+    ];
+    const spawnArgs = SSH_SCRIPT ? [SSH_SCRIPT, ...sshArgs] : sshArgs;
+    // .cmd files on Windows require shell:true for CreateProcess to execute them.
+    const useShell = SSH_BIN.toLowerCase().endsWith('.cmd');
+    const proc = spawn(SSH_BIN, spawnArgs, { windowsHide: true, shell: useShell });
+    let stdout = '';
+    let stderr = '';
+    proc.stdout.on('data', (chunk) => { stdout += chunk.toString('utf8'); });
+    proc.stderr.on('data', (chunk) => { stderr += chunk.toString('utf8'); });
+    proc.on('error', reject);
+    proc.on('close', (code) => {
+      if (code !== 0) {
+        return reject(new Error(`ssh exited ${code}: ${stderr.trim().slice(0, 200) || 'no stderr'}`));
+      }
+      // Split on sentinel to extract body + status code.
+      const idx = stdout.indexOf(SENTINEL);
+      const text = idx >= 0 ? stdout.slice(0, idx) : stdout;
+      const statusStr = idx >= 0 ? stdout.slice(idx + SENTINEL.length).trim() : '';
+      const httpCode = parseInt(statusStr, 10);
+      let json = null;
+      try { json = text ? JSON.parse(text) : null; } catch (_e) { /* not json */ }
+      resolve({ status: Number.isFinite(httpCode) ? httpCode : 0, body: json });
+    });
+    if (body) {
+      proc.stdin.end(JSON.stringify(body));
+    } else {
+      proc.stdin.end();
+    }
+  });
+}
+
+function streamViaSsh({ path: urlPath, onFrame }) {
+  return new Promise((resolve, reject) => {
+    const { spawn } = require('child_process');
+    const url = `http://127.0.0.1:9395${urlPath}`;
+    // Same single-command-string approach as requestViaSsh.
+    const curlParts2 = [
+      'curl', '-s', '-N',  // -N: no buffering, keep SSE frames flowing
+      '-H', cmdQuote('accept: text/event-stream'),
+      url,
+    ];
+    const remoteCmd2 = curlParts2.join(' ');
+    const sshArgs = [
+      '-o', `ConnectTimeout=${SSH_TIMEOUT_SECS}`,
+      '-o', 'StrictHostKeyChecking=accept-new',
+      `${REMOTE_USER}@${REMOTE_HOST}`,
+      remoteCmd2,
+    ];
+    const spawnArgs2 = SSH_SCRIPT ? [SSH_SCRIPT, ...sshArgs] : sshArgs;
+    const useShell2 = SSH_BIN.toLowerCase().endsWith('.cmd');
+    const proc = spawn(SSH_BIN, spawnArgs2, { windowsHide: true, shell: useShell2 });
+    let buf = '';
+    proc.stdout.setEncoding('utf8');
+    proc.stdout.on('data', (chunk) => {
+      buf += chunk;
+      let idx;
+      while ((idx = buf.indexOf('\n\n')) >= 0) {
+        const frame = buf.slice(0, idx);
+        buf = buf.slice(idx + 2);
+        const dataLine = frame.split('\n').find((l) => l.startsWith('data: '));
+        if (dataLine) {
+          try {
+            const parsed = JSON.parse(dataLine.slice(6));
+            const stop = onFrame(parsed);
+            if (stop) {
+              proc.kill('SIGTERM');
+              return resolve();
+            }
+          } catch (_e) { /* malformed frame, ignore */ }
+        }
+      }
+    });
+    proc.on('error', reject);
+    proc.on('close', () => resolve());
+  });
+}
+
+function dispatch(args) {
+  return SSH_MODE ? requestViaSsh(args) : request(args);
+}
+
 async function main() {
   const [, , subcommand, ...rest] = process.argv;
   let args;
@@ -68,7 +206,7 @@ async function main() {
   try {
     switch (subcommand) {
       case 'health': {
-        const r = await request({ method: 'GET', path: '/health' });
+        const r = await dispatch({ method: 'GET', path: '/health' });
         emit(r.body);
         process.exit(r.status === 200 ? 0 : 1);
         break;
@@ -84,14 +222,14 @@ async function main() {
             user: args.user || (process.env.USER || process.env.USERNAME || 'unknown'),
           },
         };
-        const r = await request({ method: 'POST', path: '/acquire', body });
+        const r = await dispatch({ method: 'POST', path: '/acquire', body });
         emit(r.body);
         process.exit(r.status === 200 ? 0 : (r.status === 202 ? 3 : 1));
         break;
       }
       case 'heartbeat': {
         const body = { lock_id: args['lock-id'], log_chunk: args.log || '' };
-        const r = await request({ method: 'POST', path: '/heartbeat', body });
+        const r = await dispatch({ method: 'POST', path: '/heartbeat', body });
         emit(r.body);
         process.exit(r.status === 200 ? 0 : 1);
         break;
@@ -125,13 +263,13 @@ async function main() {
           output_tail: tailContent,
           package_lock_hashes: parsedHashes,
         };
-        const r = await request({ method: 'POST', path: '/release', body });
+        const r = await dispatch({ method: 'POST', path: '/release', body });
         emit(r.body);
         process.exit(r.status === 200 ? 0 : 1);
         break;
       }
       case 'results': {
-        const r = await request({
+        const r = await dispatch({
           method: 'GET',
           path: `/results/${encodeURIComponent(args.project)}/${encodeURIComponent(args.sha)}/${encodeURIComponent(args.suite)}`,
         });
@@ -141,6 +279,16 @@ async function main() {
         break;
       }
       case 'wait': {
+        if (SSH_MODE) {
+          await streamViaSsh({
+            path: `/wait/${encodeURIComponent(args['lock-id'])}`,
+            onFrame: (parsed) => {
+              emit(parsed);
+              return parsed.type === 'released' || parsed.type === 'holder_crashed';
+            },
+          });
+          process.exit(0);
+        }
         // No request.timeout for wait — it's an inactivity timeout that
         // would kill long streams. The daemon emits progress every 5s but
         // a quiet stretch is normal. Daemon-down is detected by the socket
