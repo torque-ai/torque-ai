@@ -1208,9 +1208,28 @@ function createToolExecutor(workingDir, options = {}) {
           // Validate against allowlist if in allowlist mode
           if (commandMode === 'allowlist') {
             if (!isCommandAllowed(args.command, commandAllowlist)) {
+              // Suggest the built-in tool when one matches the rejected command's
+              // intent. Helps the model recover in one step instead of retrying
+              // the same idea with different shell syntax.
+              const leadingToken = args.command.trim().split(/\s+/)[0].toLowerCase();
+              const SUGGESTIONS = {
+                'cat': 'use read_file({path}) instead',
+                'get-content': 'use read_file({path}) instead',
+                'head': 'use read_file({path, end_line: N}) instead',
+                'tail': 'use read_file({path, start_line: -N}) instead',
+                'ls': 'use list_directory({path}) instead',
+                'dir': 'use list_directory({path}) instead',
+                'get-childitem': 'use list_directory({path}) instead',
+                'find': 'use search_files({pattern, path}) instead',
+                'grep': 'use search_files({pattern, path}) instead',
+                'select-string': 'use search_files({pattern, path}) instead',
+                'rg': 'use search_files({pattern, path}) instead',
+              };
+              const hint = SUGGESTIONS[leadingToken] ? ` — ${SUGGESTIONS[leadingToken]}` : '';
               return {
-                result: `Error: Command not in allowlist: ${args.command}`,
+                result: `Error: Command not in allowlist: ${args.command}${hint}`,
                 error: true,
+                _allowlist_rejection: true,
               };
             }
           }
