@@ -943,6 +943,26 @@ BUNDLE_DIR="\$(cd "\$(dirname "\$0")" && pwd)"
 $COMMAND_ARGS_LITERAL
 set -euo pipefail
 cd "\$PROJECT_PATH"
+
+# Concurrent-session guard. The sync block above set the worktree to
+# \$SYNC_REF, but a parallel torque-remote invocation can call `git
+# checkout/reset --hard` against the same path between sync and run and
+# silently swap the worktree to a different ref. Tests then run against
+# unrelated code and produce confusing false failures (the gate has been
+# bitten by this multiple times). Verify HEAD still resolves to the same
+# commit \$SYNC_REF resolves to right now; if not, abort with a clear
+# error rather than running tests on contaminated state.
+ACTUAL_HEAD_SHA=\$(git rev-parse HEAD 2>/dev/null || echo "")
+EXPECTED_HEAD_SHA=\$(git rev-parse "\$SYNC_REF" 2>/dev/null || echo "")
+if [[ -z "\$ACTUAL_HEAD_SHA" || -z "\$EXPECTED_HEAD_SHA" ]]; then
+  echo "[torque-remote-sync] failed to resolve worktree HEAD or \$SYNC_REF" 1>&2
+  exit 98
+fi
+if [[ "\$ACTUAL_HEAD_SHA" != "\$EXPECTED_HEAD_SHA" ]]; then
+  echo "[torque-remote-sync] worktree HEAD (\$ACTUAL_HEAD_SHA) does not match \$SYNC_REF (\$EXPECTED_HEAD_SHA) — concurrent torque-remote session likely clobbered the checkout" 1>&2
+  exit 98
+fi
+
 APPLIED_LOCAL_STATE="false"
 cleanup() {
   if [[ "\$APPLIED_LOCAL_STATE" == "true" ]]; then
