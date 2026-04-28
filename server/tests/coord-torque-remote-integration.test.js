@@ -3,7 +3,6 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const http = require('http');
 const { spawnSync, spawn } = require('child_process');
 
 const TORQUE_REMOTE = path.join(__dirname, '..', '..', 'bin', 'torque-remote');

@@ -55,7 +55,7 @@ function getFixtureTasks() {
   return cachedTasks;
 }
 
-async function run(ctx) {
+async function run(_ctx) {
   const tasks = getFixtureTasks();
   const start = performance.now();
   categorizeQueuedTasks(tasks, /* codexEnabled */ true);

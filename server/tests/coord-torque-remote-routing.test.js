@@ -33,7 +33,6 @@ function runRoutingProbe(env) {
 describe('torque-remote coord routing decision', () => {
   let fakeHome;
   let localServer;
-  let localPort;
 
   beforeEach(async () => {
     fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'tr-routing-home-'));
@@ -43,7 +42,6 @@ describe('torque-remote coord routing decision', () => {
     if (localServer) {
       await new Promise((r) => localServer.close(r));
       localServer = null;
-      localPort = undefined;
     }
     fs.rmSync(fakeHome, { recursive: true, force: true });
   });

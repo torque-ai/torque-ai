@@ -77,14 +77,12 @@ describe('routing resolver — codex-down-failover branch', () => {
 
   let smartRouting;
   let templateStore;
-  let categoryClassifier;
 
   beforeEach(() => {
     // Reset module registry so we can swap mocks per test.
     delete require.cache[require.resolve('../db/smart-routing')];
     smartRouting = require('../db/smart-routing');
     templateStore = require('../routing/template-store');
-    categoryClassifier = require('../routing/category-classifier');
   });
 
   function makeFailoverTemplate() {

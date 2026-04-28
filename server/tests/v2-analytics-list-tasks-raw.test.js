@@ -6,7 +6,7 @@ test('handleRoutingDecisions passes raw:true to listTasks', () => {
   // Intercept the taskCore require before loading the handler
   const Module = require('module');
   const origLoad = Module._load;
-  Module._load = function(request, parent, isMain) {
+  Module._load = function(request, _parent, _isMain) {
     if (typeof request === 'string' && (request.endsWith('task-core') || request.endsWith('task-core.js'))) {
       return {
         listTasks: (opts) => { capturedOpts = opts; return []; },

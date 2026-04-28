@@ -31,7 +31,7 @@ async function setup() {
   return cached;
 }
 
-async function run(ctx) {
+async function run(_ctx) {
   const { handleToolCall, taskId } = await setup();
   const start = performance.now();
   // Use mode:'result' to stay within the task-core.js path (requireTask only).

@@ -345,16 +345,6 @@ function detectDefaultBranch(cwd) {
   return 'main';
 }
 
-// Read the current HEAD sha. Returns null on failure.
-function readWorktreeHeadSha(cwd) {
-  if (!cwd) return null;
-  try {
-    return execFileSync('git', ['rev-parse', 'HEAD'], {
-      cwd, encoding: 'utf8', windowsHide: true, timeout: 5000, stdio: ['pipe', 'pipe', 'ignore'],
-    }).trim();
-  } catch { return null; }
-}
-
 // True if the worktree has uncommitted changes (tracked or staged) at HEAD.
 function isWorktreeDirty(cwd) {
   if (!cwd) return false;

@@ -2,15 +2,6 @@
 
 const { getParser } = require('../parser');
 
-// Top-level Go declarations we capture as symbols. method_declaration is
-// special — its name lives in `field_identifier`, not `identifier`, and we
-// also need the receiver type so cg_class_hierarchy / cg_find_references
-// can attribute the method to its struct.
-const SYMBOL_NODE_TYPES = new Set([
-  'function_declaration',
-  'method_declaration',
-  // type_declaration wraps type_spec(s); we look one level in.
-]);
 
 // Go convention: a capitalized first letter means exported (visible outside
 // the package). Lowercase = package-private.

@@ -45,7 +45,7 @@ function lazyLoad() {
 
 let counter = 0;
 
-async function run(ctx) {
+async function run(_ctx) {
   const { taskCore } = lazyLoad();
   counter += 1;
   const taskId = `perf-create-${process.pid}-${counter}`;

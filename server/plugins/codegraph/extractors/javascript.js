@@ -92,15 +92,6 @@ function callReceiverName(callNode) {
   return '';
 }
 
-// Walk a node subtree collecting named children matching a predicate.
-function findDescendants(node, predicate, out = []) {
-  if (predicate(node)) out.push(node);
-  for (let i = 0; i < node.namedChildCount; i++) {
-    findDescendants(node.namedChild(i), predicate, out);
-  }
-  return out;
-}
-
 // Extract the string value from a tree-sitter string node.
 // CommonJS: tree-sitter-javascript surfaces strings as `string` with `string_fragment` children.
 // Trim the surrounding quotes from .text as a fallback for older grammars.
@@ -432,8 +423,8 @@ function extractHandlerFactoryPattern(functionNode) {
     for (let j = 0; j < returned.namedChildCount; j++) {
       const member = returned.namedChild(j);
       let methodName = null;
-      let line = member.startPosition.row + 1;
-      let col = member.startPosition.column;
+      const line = member.startPosition.row + 1;
+      const col = member.startPosition.column;
 
       if (member.type === 'method_definition') {
         const nm = member.childForFieldName('name');

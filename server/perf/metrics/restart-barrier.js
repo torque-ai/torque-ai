@@ -36,7 +36,7 @@ function lazyLoad() {
   return cached;
 }
 
-async function run(ctx) {
+async function run(_ctx) {
   const { isRestartBarrierActive, fx } = lazyLoad();
   const start = performance.now();
   for (let i = 0; i < BATCH_SIZE; i++) {

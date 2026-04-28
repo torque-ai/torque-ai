@@ -29,7 +29,7 @@ const {
 } = require('../../factory/provider-lane-policy');
 const modelRoles = require('../../db/model-roles');
 const modelCaps = require('../../db/model-capabilities');
-const { getProviderCapabilities, getProviderCapabilitySet } = require('../../db/provider-capabilities');
+const { getProviderCapabilitySet } = require('../../db/provider-capabilities');
 const { isAgenticCapable } = require('../../providers/agentic-capability');
 const logger = require('../../logger').child({ component: 'integration-routing' });
 const serverConfig = require('../../config');

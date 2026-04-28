@@ -974,7 +974,7 @@ async function handleReassignTaskProvider(req, res) {
         }
       }
       metadata._routing_chain = chain;
-    } catch (e) {
+    } catch (_e) {
       // Fall back to single-entry chain if registry probing fails — better
       // than the previous behavior of leaving _routing_chain undefined.
       metadata._routing_chain = [{ provider, model: null }];

@@ -1,5 +1,5 @@
 'use strict';
-/* global describe, it, expect, vi, beforeEach, afterEach */
+/* global describe, it, expect, vi, afterEach */
 
 describe('canary-task-submitter', () => {
   let installedModulePath;

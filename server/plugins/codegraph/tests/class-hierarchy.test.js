@@ -6,7 +6,6 @@ const path = require('path');
 const Database = require('better-sqlite3');
 const { ensureSchema } = require('../schema');
 const { extractFromSource } = require('../extractors/javascript');
-const { runIndex } = require('../indexer');
 const { classHierarchy } = require('../queries/class-hierarchy');
 const { createHandlers } = require('../handlers');
 
@@ -117,10 +116,9 @@ describe('classHierarchy query', () => {
 });
 
 describe('cg_class_hierarchy handler integration', () => {
-  let dataDir, repo, db, plugin;
+  let repo, db, plugin;
 
   function git(cwd, args) {
-    const { execFileSync } = require('child_process');
     if (require('child_process')._realExecFileSync) {
       require('child_process').execFileSync = require('child_process')._realExecFileSync;
     }

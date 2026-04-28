@@ -13,7 +13,7 @@ const path = require('path');
 
 let counter = 0;
 
-async function run(ctx) {
+async function run(_ctx) {
   const repoRoot = path.resolve(__dirname, '..', '..', '..');
   counter++;
   const slug = `perf-mtm-${process.pid}-${counter}`;

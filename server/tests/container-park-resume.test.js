@@ -46,10 +46,10 @@ describe('container — park-resume handler wiring', () => {
         'parkResumeHandler',
         ['db', 'eventBus', 'logger'],
         function(deps) {
-          var db = deps.db;
-          var eb = deps.eventBus;
-          var log = deps.logger;
-          var mod = require('../factory/park-resume-handler');
+          const db = deps.db;
+          const eb = deps.eventBus;
+          const log = deps.logger;
+          const mod = require('../factory/park-resume-handler');
           return mod.createParkResumeHandler({ db: db, eventBus: eb, logger: log });
         }
       );

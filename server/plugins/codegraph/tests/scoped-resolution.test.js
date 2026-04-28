@@ -6,7 +6,7 @@ const path = require('path');
 const Database = require('better-sqlite3');
 const { ensureSchema } = require('../schema');
 const { createHandlers } = require('../handlers');
-const { setupTinyRepo, destroyTinyRepo, git } = require('../test-helpers');
+const { destroyTinyRepo, git } = require('../test-helpers');
 
 const data = (r) => r.structuredData;
 

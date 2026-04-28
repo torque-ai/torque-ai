@@ -2,14 +2,6 @@
 
 const { getParser } = require('../parser');
 
-// Top-level definitions we surface as symbols.
-const SYMBOL_NODE_TYPES = new Set([
-  'function_statement',     // function Verb-Noun { ... } / filter Verb-Noun { ... }
-  'class_statement',        // class Foo { ... }
-  'class_method_definition',
-  'class_property_definition',
-]);
-
 function findChild(node, type) {
   for (let i = 0; i < node.namedChildCount; i++) {
     const c = node.namedChild(i);
@@ -86,10 +78,6 @@ function classMethodName(node) {
 function classPropertyName(node) {
   const v = findChild(node, 'variable');
   return v ? variableName(v) : '';
-}
-
-function classPropertyType(node) {
-  return typeFromLiteral(findChild(node, 'type_literal'));
 }
 
 // Walk a class_method_definition's parameter list and emit cg_locals rows

@@ -20,12 +20,6 @@ function installMock(modulePath, exportsValue) {
     exports: exportsValue,
   };
 }
-function removeMock(...modulePaths) {
-  for (const p of modulePaths) {
-    try { delete require.cache[require.resolve(p)]; } catch (_) { /* ignore */ }
-  }
-}
-
 // Install static mocks required by completion-pipeline before it loads.
 // These must be installed before the first require of completion-pipeline.
 installMock('../hooks/post-tool-hooks', { fireHook: vi.fn().mockResolvedValue(undefined) });

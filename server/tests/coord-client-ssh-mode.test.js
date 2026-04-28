@@ -4,7 +4,6 @@ const { spawnSync, spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
-const http = require('http');
 
 // Hostnames intentionally dotless to dodge PII pattern matchers.
 const REMOTE_HOST = 'wkshost';

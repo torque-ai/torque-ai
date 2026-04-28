@@ -7,7 +7,7 @@
 // module. vi.hoisted runs before any require() in this file, so by the time
 // pipeline.js does `const cp = require('child_process')` it sees our mock.
 const { loggerMock, uuidMock, execFileMock } = vi.hoisted(() => {
-  // eslint-disable-next-line global-require
+   
   const childProcess = require('child_process');
   const execFileMock = vi.fn();
   childProcess.execFile = execFileMock;

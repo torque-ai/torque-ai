@@ -8,7 +8,6 @@ const { createProviderCircuitBreakerStore } = require('../../db/provider-circuit
 const { createParkResumeHandler } = require('../../factory/park-resume-handler');
 const {
   parkWorkItemForCodex,
-  resumeAllCodexParked,
   setCodexFallbackPolicy,
   getCodexFallbackPolicy,
 } = require('../../db/factory-intake');

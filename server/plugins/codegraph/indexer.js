@@ -236,6 +236,7 @@ async function runIndex({ db, repoPath, files, commitSha = null, _sourceDir = nu
     dispatch_edges: totalDispatch,
     class_edges: totalClassEdges,
     imports: totalImports,
+    locals: totalLocals,
     resolved_references: resolvedCount,
   };
   if (skipped.length > 0) result.skipped = skipped;

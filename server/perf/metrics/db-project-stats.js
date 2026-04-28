@@ -27,7 +27,7 @@ function lazyLoad() {
   return cached;
 }
 
-async function run(ctx) {
+async function run(_ctx) {
   const { projectConfigCore, fx } = lazyLoad();
   const start = performance.now();
   const stats = projectConfigCore.getProjectStats(fx.projectId);
