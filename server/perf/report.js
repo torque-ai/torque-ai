@@ -29,15 +29,18 @@ function readBaseline(outDir) {
 
 const REGRESSION_THRESHOLD_PCT = 10;
 const IMPROVEMENT_THRESHOLD_PCT = -10;
-// Sub-millisecond metrics (mcp-task-info, sse-dispatch, restart-barrier,
-// queue-scheduler-tick, task-core-create) sit at 0.1-0.5ms baseline. Run-to-run
-// variance there is ±0.1-0.2ms — well within timer resolution and Defender
-// scheduling noise — but a 0.1ms wobble on a 0.3ms baseline reads as +33%
-// regression. Absorb that noise with an absolute floor: any delta below this
-// threshold is treated as zero, regardless of percent change. Empirically
-// 0.5ms covers the observed variance on the BahumutsOmen test runner without
-// hiding regressions on the 14ms+ metrics where +10% is meaningful.
-const REGRESSION_THRESHOLD_ABS_MS = 0.5;
+// Sub-millisecond and small-millisecond metrics (mcp-task-info, sse-dispatch,
+// restart-barrier, queue-scheduler-tick, task-core-create, db-list-tasks)
+// have run-to-run variance of ±1-2ms on the BahumutsOmen test runner — well
+// within timer resolution and Defender scheduling noise. Absorbing 12-33%
+// "regressions" on a 0.3ms or 16ms baseline keeps the gate from flapping on
+// pure variance. Calibrated 2026-04-28 against observed back-to-back run
+// deltas (mcp-task-info 0.27↔0.51, db-list-tasks.parsed 14↔18 with no code
+// change). Real regressions on these metrics show up as larger absolute
+// jumps; medium-size metrics (governance-evaluate ~170ms, cold-import
+// hundreds of ms) still gate on the 10% percent rule with millisecond-scale
+// floors well below their 17-50ms regression wedges.
+const REGRESSION_THRESHOLD_ABS_MS = 2;
 
 function expandVariants(metrics) {
   const out = {};

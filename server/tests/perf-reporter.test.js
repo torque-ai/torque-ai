@@ -72,11 +72,22 @@ describe('perf reporter compareToBaseline', () => {
     expect(result.improvements).toEqual([]);
   });
 
+  it('does NOT flag small-millisecond regression below the 2ms absolute floor', () => {
+    // 16ms → 18ms is +12.5% but only +2ms (right at floor) — observed real
+    // variance on db-list-tasks.parsed across back-to-back runs without code
+    // change. Must not trip the gate.
+    const baseline = { metrics: { foo: { median: 16 } } };
+    const current = { metrics: { foo: { median: 17.9 } } };
+    const result = compareToBaseline(baseline, current);
+    expect(result.regressions).toEqual([]);
+    expect(result.improvements).toEqual([]);
+  });
+
   it('still flags large-percent regressions above the absolute floor', () => {
-    // 5ms → 7ms is +40% AND +2ms. The 2ms exceeds the 0.5ms floor so this
+    // 10ms → 13ms is +30% AND +3ms. The 3ms exceeds the 2ms floor so this
     // genuine regression must still be reported.
-    const baseline = { metrics: { foo: { median: 5 } } };
-    const current = { metrics: { foo: { median: 7 } } };
+    const baseline = { metrics: { foo: { median: 10 } } };
+    const current = { metrics: { foo: { median: 13 } } };
     const result = compareToBaseline(baseline, current);
     expect(result.regressions).toHaveLength(1);
   });
