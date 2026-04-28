@@ -602,6 +602,12 @@ function normalizeToolArguments(name, rawArgs) {
   return name === 'search_files' ? normalizeSearchFilesArgs(args) : args;
 }
 
+// Security guard: substrings that are unconditionally blocked from run_command,
+// regardless of the configured allowlist. Module-scoped so isCommandAllowed and
+// the run_command rejection branch in createToolExecutor reference the same list
+// — keeps the security-vs-allowlist-mismatch invariant from drifting.
+const ALWAYS_BLOCKED = ['rm -rf /', 'mkfs', 'dd if=', ':(){', 'fork bomb'];
+
 /**
  * Validate a command against a list of allowlist patterns.
  * Pattern matching: '*' in a pattern matches any sequence of characters
@@ -613,7 +619,6 @@ function normalizeToolArguments(name, rawArgs) {
  */
 function isCommandAllowed(command, allowlist) {
   // ALWAYS check dangerous commands regardless of allowlist mode
-  const ALWAYS_BLOCKED = ['rm -rf /', 'mkfs', 'dd if=', ':(){', 'fork bomb'];
   const cmdLower = command.toLowerCase();
   if (ALWAYS_BLOCKED.some(b => cmdLower.includes(b))) {
     return false;
@@ -1212,8 +1217,8 @@ function createToolExecutor(workingDir, options = {}) {
               // from ordinary allowlist mismatches. Security blocks are NOT
               // recoverable and must NOT be marked as routing hints — Task 3's
               // counter-suppression logic depends on this distinction.
+              // ALWAYS_BLOCKED is the module-level constant shared with isCommandAllowed.
               const cmdLower = args.command.toLowerCase();
-              const ALWAYS_BLOCKED = ['rm -rf /', 'mkfs', 'dd if=', ':(){', 'fork bomb'];
               const isSecurityBlock = ALWAYS_BLOCKED.some(b => cmdLower.includes(b))
                 || /[;|&`]|>\s*>/.test(args.command);
               if (isSecurityBlock) {
