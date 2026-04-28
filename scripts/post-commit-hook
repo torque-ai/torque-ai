@@ -11,41 +11,60 @@ set +e
 
 if [ "${TORQUE_SKIP_AUTO_REINDEX:-}" = "1" ]; then exit 0; fi
 
-# Resolve the *main* repo path even when the hook fires from a worktree.
-# `git rev-parse --git-common-dir` points at the main checkout's `.git`
-# directory regardless of which worktree fired the commit. The repo root
-# is its parent. Falling back to --show-toplevel covers non-worktree case.
+# Resolve TWO candidate repo paths so a user who indexed either the main
+# checkout OR the current worktree gets the right index refreshed:
+#  - `git rev-parse --git-common-dir` -> main checkout's .git regardless of
+#    which worktree fired the commit; dirname is the main repo root.
+#  - `git rev-parse --show-toplevel`  -> the worktree's own root.
+# When commit fires from main these are the same path; when from a worktree
+# they differ. We post both, with if_tracked:true on each, so whichever the
+# user actually indexed is the one that gets refreshed and the other side
+# returns {skipped:"not_tracked"} (silent no-op).
 common_dir="$(git rev-parse --git-common-dir 2>/dev/null)"
 case "$common_dir" in
   '') exit 0 ;;
-  /*|[A-Za-z]:*) repo_path="$(dirname "$common_dir")" ;;
-  *)             repo_path="$(cd "$common_dir/.." && pwd)" ;;
+  /*|[A-Za-z]:*) main_repo="$(dirname "$common_dir")" ;;
+  *)             main_repo="$(cd "$common_dir/.." && pwd)" ;;
 esac
-[ -z "$repo_path" ] && exit 0
+[ -z "$main_repo" ] && exit 0
+worktree_repo="$(git rev-parse --show-toplevel 2>/dev/null)"
 
-# Convert MSYS/Cygwin path to Windows form so the repo_path key matches
+# Convert MSYS/Cygwin paths to Windows form so the repo_path key matches
 # whatever TORQUE used at original index time (TORQUE runs from a Windows
 # cwd so it stores native Windows paths in cg_index_state).
-case "$(uname -s 2>/dev/null)" in
-  MINGW*|MSYS*|CYGWIN*)
-    if command -v cygpath >/dev/null 2>&1; then
-      repo_path="$(cygpath -w "$repo_path")"
-    fi
-    ;;
-esac
-
-# JSON-escape: backslashes and quotes only. Control chars not expected in paths.
-escaped="$(printf '%s' "$repo_path" | sed 's|\\|\\\\|g; s|"|\\"|g')"
-payload="$(printf '{"repo_path":"%s","async":true,"if_tracked":true}' "$escaped")"
+to_native() {
+  case "$(uname -s 2>/dev/null)" in
+    MINGW*|MSYS*|CYGWIN*)
+      if command -v cygpath >/dev/null 2>&1; then cygpath -w "$1"; return; fi
+      ;;
+  esac
+  printf '%s' "$1"
+}
+main_repo="$(to_native "$main_repo")"
+[ -n "$worktree_repo" ] && worktree_repo="$(to_native "$worktree_repo")"
 
 endpoint="${TORQUE_API_BASE:-http://127.0.0.1:3457}/api/v2/codegraph/reindex"
 
+# Fire-and-forget POST to the reindex endpoint with if_tracked:true.
 # 2s timeout: TORQUE not running -> silent skip. Output discarded so the
 # hook never echoes JSON into the user's terminal post-commit.
-curl -fsS --max-time 2 \
-     -H 'Content-Type: application/json' \
-     -X POST -d "$payload" \
-     "$endpoint" \
-     >/dev/null 2>&1
+post_reindex() {
+  local repo_path="$1"
+  [ -z "$repo_path" ] && return 0
+  # JSON-escape: backslashes and quotes only. Control chars not expected in paths.
+  local escaped payload
+  escaped="$(printf '%s' "$repo_path" | sed 's|\\|\\\\|g; s|"|\\"|g')"
+  payload="$(printf '{"repo_path":"%s","async":true,"if_tracked":true}' "$escaped")"
+  curl -fsS --max-time 2 \
+       -H 'Content-Type: application/json' \
+       -X POST -d "$payload" \
+       "$endpoint" \
+       >/dev/null 2>&1
+}
+
+post_reindex "$main_repo"
+if [ -n "$worktree_repo" ] && [ "$worktree_repo" != "$main_repo" ]; then
+  post_reindex "$worktree_repo"
+fi
 
 exit 0
