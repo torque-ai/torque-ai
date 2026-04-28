@@ -233,7 +233,7 @@ function PausedFactoryBanner() {
     async function loadPausedProjects() {
       try {
         const csrfToken = window.__torqueCsrf;
-        const response = await fetch('/api/v2/factory/projects', {
+        const response = await fetch('/api/v2/factory/projects?status=paused&summary=basic', {
           credentials: 'same-origin',
           ...(csrfToken ? { headers: { 'X-CSRF-Token': csrfToken } } : {}),
         });
