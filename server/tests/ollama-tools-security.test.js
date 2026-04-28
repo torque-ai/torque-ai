@@ -90,4 +90,68 @@ describe('ollama-tools command security', () => {
     // Should not produce an allowlist error; execution result may vary by OS
     expect(result.result).not.toContain('not in allowlist');
   });
+
+  it('always allows Get-Content even when allowlist excludes it', () => {
+    const executor = createToolExecutor(process.cwd(), {
+      commandMode: 'allowlist',
+      commandAllowlist: ['npm *'], // explicitly does not include Get-Content
+    });
+    const result = executor.execute('run_command', { command: 'Get-Content package.json' });
+    expect(result.result).not.toContain('not in allowlist');
+  });
+
+  it('always allows Get-ChildItem with no flags', () => {
+    const executor = createToolExecutor(process.cwd(), {
+      commandMode: 'allowlist',
+      commandAllowlist: ['npm *'],
+    });
+    const result = executor.execute('run_command', { command: 'Get-ChildItem' });
+    expect(result.result).not.toContain('not in allowlist');
+  });
+
+  it('always allows Select-String pattern over a path', () => {
+    const executor = createToolExecutor(process.cwd(), {
+      commandMode: 'allowlist',
+      commandAllowlist: ['npm *'],
+    });
+    const result = executor.execute('run_command', { command: 'Select-String -Pattern foo package.json' });
+    expect(result.result).not.toContain('not in allowlist');
+  });
+
+  it('always allows Measure-Object', () => {
+    const executor = createToolExecutor(process.cwd(), {
+      commandMode: 'allowlist',
+      commandAllowlist: ['npm *'],
+    });
+    const result = executor.execute('run_command', { command: 'Measure-Object' });
+    expect(result.result).not.toContain('not in allowlist');
+  });
+
+  it('match is case-insensitive (get-content lowercase still allowed)', () => {
+    const executor = createToolExecutor(process.cwd(), {
+      commandMode: 'allowlist',
+      commandAllowlist: ['npm *'],
+    });
+    const result = executor.execute('run_command', { command: 'get-content package.json' });
+    expect(result.result).not.toContain('not in allowlist');
+  });
+
+  it('still blocks dangerous cmdlets (Remove-Item) even though they share Get-* prefix family', () => {
+    const executor = createToolExecutor('/tmp/test-dir', {
+      commandMode: 'allowlist',
+      commandAllowlist: ['npm *'],
+    });
+    const result = executor.execute('run_command', { command: 'Remove-Item foo.txt' });
+    expect(result.error).toBe(true);
+    expect(result.result).toContain('not in allowlist');
+  });
+
+  it('still blocks Get-Content when piped (shell metachar guard fires)', () => {
+    const executor = createToolExecutor('/tmp/test-dir', {
+      commandMode: 'allowlist',
+      commandAllowlist: ['*'],
+    });
+    const result = executor.execute('run_command', { command: 'Get-Content foo | Set-Content bar' });
+    expect(result.error).toBe(true);
+  });
 });

@@ -625,6 +625,24 @@ function isCommandAllowed(command, allowlist) {
   if (/[;|&`]|>\s*>/.test(command)) {
     return false;
   }
+  // ALWAYS allow safe read-only inspection commands regardless of the
+  // configured allowlist. These are read-only by design and the shell-
+  // metachar guard above already rejects pipelines/redirects, so any
+  // composition that could mutate state is already blocked.
+  // Match by leading token (the cmdlet/binary name), case-insensitive.
+  const ALWAYS_ALLOWED_READONLY = new Set([
+    'get-content',
+    'get-childitem',
+    'gci',
+    'dir',
+    'ls',
+    'select-string',
+    'measure-object',
+  ]);
+  const leadingToken = command.trim().split(/\s+/)[0].toLowerCase();
+  if (ALWAYS_ALLOWED_READONLY.has(leadingToken)) {
+    return true;
+  }
   for (const pattern of allowlist) {
     if (pattern === '*') return true;
     // Convert the simple glob to a regex:
