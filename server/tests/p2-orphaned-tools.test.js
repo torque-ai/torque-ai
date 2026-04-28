@@ -11,6 +11,9 @@ const INLINE_TOOL_HANDLERS = new Set([
   'unlock_all_tools',
   'unlock_tier',
   'get_tool_schema',
+  // tools.js dispatches coord_status via a switch case to coord-poller's
+  // getActiveLocks (no routeMap entry, no plugin handler).
+  'coord_status',
 ]);
 const EXPECTED_UNMAPPED_TOOLS = new Set([
   // Tool-def names differ from handler route names (set_provider_api_key vs set_api_key)

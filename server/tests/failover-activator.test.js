@@ -32,7 +32,7 @@ describe('failover-activator', () => {
   it('on circuit:tripped for codex, swaps to codex-down-failover', () => {
     createFailoverActivator({ store, eventBus, logger });
     eventBus.emit('circuit:tripped', { provider: 'codex' });
-    expect(store.setActive).toHaveBeenCalledWith('codex-down-failover');
+    expect(store.setActive).toHaveBeenCalledWith('preset-codex-down-failover');
   });
 
   it('ignores non-codex circuit:tripped', () => {
@@ -50,7 +50,7 @@ describe('failover-activator', () => {
   });
 
   it('ignores duplicate trip while already on codex-down-failover', () => {
-    store.getActiveName.mockReturnValue('codex-down-failover');
+    store.getActiveName.mockReturnValue('preset-codex-down-failover');
     createFailoverActivator({ store, eventBus, logger });
     eventBus.emit('circuit:tripped', { provider: 'codex' });
     expect(store.setActive).not.toHaveBeenCalled();

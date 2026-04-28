@@ -8,4 +8,7 @@ const tools = [
   },
 ];
 
-module.exports = { tools };
+// Bare-array export matches every other tool-defs/*-defs.js — required by
+// rest-passthrough-coverage's loadToolDefNames which iterates the directory
+// and assumes each file's default export is an Array of tool descriptors.
+module.exports = tools;
