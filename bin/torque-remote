@@ -307,14 +307,6 @@ coord_select_routing_mode() {
     COORD_ROUTING_MODE="ssh:${TORQUE_COORD_REMOTE_USER}@${TORQUE_COORD_REMOTE_HOST}"
     return 0
   fi
-  # 1b. Caller pinned a non-default coord port (TORQUE_COORD_PORT). They want
-  # a specific local daemon — skip auto-detect entirely. Integration tests
-  # rely on this so the unconditional probe doesn't reach a real workstation
-  # daemon and slow them down (or, when curl misbehaves on Windows, hang).
-  if [ -n "${TORQUE_COORD_PORT:-}" ]; then
-    COORD_ROUTING_MODE="local"
-    return 0
-  fi
   # 2. Probe local daemon. -s silent, --max-time 1 is enough — local socket or nothing.
   # TORQUE_COORD_PROBE_URL is a test-only override to redirect the probe to an
   # unreachable address (e.g. http://127.0.0.1:1) so tests can simulate "daemon down"
