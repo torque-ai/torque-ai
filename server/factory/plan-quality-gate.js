@@ -2,6 +2,7 @@
 
 const { findHeavyLocalValidationCommand } = require('../utils/heavy-validation-guard');
 const { deterministicVerify } = require('./plan-augmenter');
+const { checkPlanImpact } = require('./codegraph-plan-augmenter');
 
 const MAX_REPLAN_ATTEMPTS = 1;
 const LLM_TIMEOUT_MS = 60_000;
@@ -454,7 +455,18 @@ async function evaluatePlan({ plan, workItem, project, projectConfig }) {
     const feedbackPrompt = buildFeedbackPrompt([], warnings, cleanCritique);
     return { passed: false, hardFails: [], warnings, llmCritique: cleanCritique, feedbackPrompt };
   }
-  return { passed: true, hardFails: [], warnings, llmCritique: critique, feedbackPrompt: null };
+  // Codegraph augmentation: only when the gate already approved the plan,
+  // because we don't want to spend SQLite roundtrips on plans that need a
+  // rewrite anyway. checkPlanImpact is non-throwing and returns [] silently
+  // when codegraph isn't available, so a missing index can't stall the gate.
+  const codegraphWarnings = await checkPlanImpact({
+    plan: activePlan,
+    repoPath: project && typeof project.path === 'string' ? project.path : null,
+  });
+  const allWarnings = codegraphWarnings.length > 0
+    ? warnings.concat(codegraphWarnings)
+    : warnings;
+  return { passed: true, hardFails: [], warnings: allWarnings, llmCritique: critique, feedbackPrompt: null };
 }
 
 module.exports = {
