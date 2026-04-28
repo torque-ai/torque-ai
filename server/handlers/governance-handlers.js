@@ -79,7 +79,9 @@ function resolveGovernanceRules() {
     void containerError;
   }
 
-  // Fallback: try a container-managed db before requiring the database module
+  // Fallback: try a container-managed db. database.js#init() and
+  // resetForTest() both register the facade with defaultContainer as 'db',
+  // so this is the standard resolution path once the database is open.
   try {
     const { defaultContainer } = require('../container');
     if (defaultContainer && typeof defaultContainer.get === 'function') {
@@ -96,19 +98,6 @@ function resolveGovernanceRules() {
     }
   } catch (containerError) {
     void containerError;
-  }
-
-  // Last resort: create directly from the database module
-  try {
-    const database = require('../database');
-    const db = database.getDbInstance ? database.getDbInstance() : null;
-    if (db && typeof db.prepare === 'function') {
-      const rules = createGovernanceRules({ db });
-      rules.seedBuiltinRules();
-      return { governanceRules: rules };
-    }
-  } catch (databaseError) {
-    void databaseError;
   }
 
   return { error: new Error('Governance rules not initialized — database not available') };

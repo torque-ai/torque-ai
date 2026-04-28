@@ -1,5 +1,7 @@
 'use strict';
 
+const Module = require('module');
+
 const HANDLER_MODULE = require.resolve('../handlers/governance-handlers');
 const CONTAINER_MODULE = require.resolve('../container');
 const DATABASE_MODULE = require.resolve('../database');
@@ -116,7 +118,7 @@ describe('handlers/governance-handlers resolveGovernanceRules', () => {
     expect(databaseModule.getDbInstance).not.toHaveBeenCalled();
   });
 
-  it('uses container db before falling back to the raw database module', async () => {
+  it('uses container db when governanceRules service is unavailable', async () => {
     const containerDb = { prepare: vi.fn() };
     const { handlers, createGovernanceRules, createdRules, databaseModule, defaultContainer } = loadHandlers({
       containerDbValue: containerDb,
@@ -134,21 +136,34 @@ describe('handlers/governance-handlers resolveGovernanceRules', () => {
     expect(databaseModule.getDbInstance).not.toHaveBeenCalled();
   });
 
-  it('still falls back to the raw database module as a last resort', async () => {
-    const databaseDb = { prepare: vi.fn() };
+  it('does not fall back to the raw database module when container db is unavailable', async () => {
+    const originalLoad = Module._load;
+    const blockedRequests = [];
     const { handlers, createGovernanceRules, createdRules, databaseModule, defaultContainer } = loadHandlers({
       containerDbError: new Error('container db unavailable'),
-      databaseDbValue: databaseDb,
+      databaseDbValue: { prepare: vi.fn() },
+    });
+    const databaseLoadSpy = vi.spyOn(Module, '_load').mockImplementation(function patchedLoad(request, parent, isMain) {
+      const parentFile = parent?.filename ? parent.filename.replace(/\\/g, '/') : '';
+      if (request === '../database' && parentFile.endsWith('server/handlers/governance-handlers.js')) {
+        blockedRequests.push(request);
+        throw new Error('governance handler should not require database facade');
+      }
+      return originalLoad.call(this, request, parent, isMain);
     });
 
-    const result = await handlers.handleGetGovernanceRules();
+    try {
+      const result = await handlers.handleGetGovernanceRules();
 
-    expect(result.status).toBe(200);
-    expect(result.structuredData.count).toBe(1);
-    expect(defaultContainer.get.mock.calls.map(([name]) => name)).toEqual(['governanceRules', 'db']);
-    expect(databaseModule.getDbInstance).toHaveBeenCalledOnce();
-    expect(createGovernanceRules).toHaveBeenCalledTimes(1);
-    expect(createGovernanceRules).toHaveBeenCalledWith({ db: databaseDb });
-    expect(createdRules.seedBuiltinRules).toHaveBeenCalledOnce();
+      expect(result.status).toBe(503);
+      expect(result.structuredData.details).toContain('database not available');
+      expect(defaultContainer.get.mock.calls.map(([name]) => name)).toEqual(['governanceRules', 'db']);
+      expect(databaseModule.getDbInstance).not.toHaveBeenCalled();
+      expect(createGovernanceRules).not.toHaveBeenCalled();
+      expect(createdRules.seedBuiltinRules).not.toHaveBeenCalled();
+      expect(blockedRequests).toEqual([]);
+    } finally {
+      databaseLoadSpy.mockRestore();
+    }
   });
 });
