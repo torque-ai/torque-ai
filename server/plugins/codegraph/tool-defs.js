@@ -125,6 +125,21 @@ const tools = [
       additionalProperties: false,
     },
   },
+  {
+    name: 'cg_diff',
+    description: 'Compute the symbol-level delta between two git commits in a repo. Re-extracts symbols from each changed file at both shas (added files: extract at to_sha; deleted: extract at from_sha; modified: extract both and set-diff). Returns `{from_sha, to_sha, added_symbols: [{name, kind, file, line, container?}], removed_symbols: [...], changed_files: {added, modified, deleted}, skipped_files, truncated, max_files, total_files_changed}`. Symbol identity is (name, kind, container, file) — line numbers don\'t affect identity, so a function moved within a file won\'t appear as add+remove. Bounded to changed files only (fast for typical commits) and capped at max_files (default 500); over the cap returns truncated:true with no symbol diff. Reads from git object store directly — does NOT depend on cg_index_state, so it works on any reachable shas without reindexing.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        repo_path: { type: 'string' },
+        from_sha:  { type: 'string', description: 'Git sha to diff from (older).' },
+        to_sha:    { type: 'string', description: 'Git sha to diff to (newer). Both shas must be reachable in the repo.' },
+        max_files: { type: 'integer', minimum: 1, maximum: 5000, default: 500, description: 'Cap on number of indexable files in the diff scope. Over the cap, returns truncated:true with no symbol diff.' },
+      },
+      required: ['repo_path', 'from_sha', 'to_sha'],
+      additionalProperties: false,
+    },
+  },
 ];
 
 module.exports = tools;

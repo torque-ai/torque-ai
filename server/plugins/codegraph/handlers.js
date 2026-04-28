@@ -7,6 +7,7 @@ const { impactSet }      = require('./queries/impact-set');
 const { deadSymbols }    = require('./queries/dead-symbols');
 const { resolveTool }    = require('./queries/resolve-tool');
 const { classHierarchy } = require('./queries/class-hierarchy');
+const { cgDiff }         = require('./queries/diff');
 
 function requireString(args, key) {
   if (typeof args?.[key] !== 'string' || args[key].length === 0) {
@@ -225,6 +226,18 @@ function createHandlers({ db }) {
         }),
         staleness: staleness(db, repoPath),
       });
+    },
+
+    async cg_diff(args) {
+      const repoPath = requireString(args, 'repo_path');
+      const fromSha  = requireString(args, 'from_sha');
+      const toSha    = requireString(args, 'to_sha');
+      const maxFilesRaw = args.max_files;
+      const maxFiles = Number.isInteger(maxFilesRaw) && maxFilesRaw > 0
+        ? Math.min(maxFilesRaw, 5000)
+        : 500;
+      const result = await cgDiff({ repoPath, fromSha, toSha, maxFiles });
+      return asToolResult(result);
     },
   };
 }
