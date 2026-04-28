@@ -84,13 +84,8 @@ function parseProviderModels() {
 function isHashlineCapableModelName(modelName) {
   // Try model_capabilities registry first (populated by discovery + heuristics)
   try {
-    let rawDb;
-    try {
-      const { defaultContainer } = require('../container');
-      rawDb = defaultContainer.get('db');
-    } catch {
-      rawDb = require('../database').getDbInstance();
-    }
+    const { defaultContainer } = require('../container');
+    const rawDb = defaultContainer.get('db');
     if (rawDb) {
       const { isHashlineCapable } = require('../discovery/capability-lookup');
       if (isHashlineCapable(rawDb, modelName)) return true;

@@ -61,7 +61,7 @@ function ensureProviderRegistration(providerRegistry, providerName) {
   }
 
   try {
-    const db = require('../database');
+    const db = defaultContainer?.has?.('db') ? defaultContainer.get('db') : null;
     if (db?.isReady?.()) {
       require('../config').init({ db });
       if (typeof providerRegistry.init === 'function') {

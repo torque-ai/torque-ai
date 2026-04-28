@@ -330,13 +330,14 @@ function handleSubmitTask(args) {
   const workDir = args.working_directory || null;
   if (workDir) {
     try {
-      let rawDb;
-      try {
-        const { defaultContainer } = require('../../container');
-        rawDb = defaultContainer.get('db');
-      } catch {
-        rawDb = require('../../database').getDbInstance();
-      }
+      // DI container has the facade registered as 'db' since
+      // database.js#init() / resetForTest() both call
+      // registerFacadeWithContainer(). The facade exposes getDbInstance()
+      // and lazy property getters (e.g., facade.prepare → underlying db),
+      // so passing the facade itself is equivalent to passing
+      // getDbInstance() for any consumer that calls db.prepare(...).
+      const { defaultContainer } = require('../../container');
+      const rawDb = defaultContainer.get('db');
       const versionIntentError = enforceVersionIntentForProject(
         rawDb,
         workDir,

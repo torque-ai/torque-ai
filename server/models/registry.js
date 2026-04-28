@@ -35,14 +35,6 @@ function getDb() {
         instance = resolveDbHandle(defaultContainer.get('db'));
       }
     } catch {
-      // Fall through to the database.js fallback below.
-    }
-  }
-  if (!instance) {
-    try {
-      const database = require('../database');
-      instance = resolveDbHandle(database);
-    } catch {
       // Let the explicit error below surface if no active DB is available.
     }
   }
