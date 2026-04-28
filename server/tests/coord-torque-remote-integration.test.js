@@ -18,11 +18,28 @@ function makeConfig(tmpDir) {
 }
 
 function spawnTorqueRemote(args, env, cwd) {
+  // 90s timeout (was 10s). torque-remote shells out to multiple Node
+  // processes per invocation (coord-client lock-hashes / results /
+  // acquire / release). On the Windows test remote, `node` cold-start
+  // under Defender real-time scan is ~9-22s (bench 2026-04-27: 5
+  // sequential `node -e '0'` runs measured 8839/8864/8879/11794/11813ms;
+  // coord-client begin against an unreachable port across 5 runs:
+  // 18331/19662/22208/19587/19596ms). Three to four coord-client spawns
+  // plus the inner command can easily reach 30-40s on a slow startup
+  // day, so 10s was guaranteed to fire even when the daemon answered
+  // immediately.
+  //
+  // The proper fix — collapsing the multi-call protocol into one node
+  // process via a `begin` subcommand — is staged on
+  // feat/fix-remaining-tests (commit 82ab61b4) but deferred until that
+  // branch is rebased onto the current bin/torque-remote, which has the
+  // COORD_OUTPUT_LOG capture work that must be preserved. Until then,
+  // the timeout ceiling is the application-side floor.
   return spawnSync('bash', [TORQUE_REMOTE, ...args], {
     env: { ...process.env, ...env },
     cwd,
     encoding: 'utf8',
-    timeout: 10000,
+    timeout: 90000,
   });
 }
 
@@ -72,6 +89,12 @@ process.on('SIGTERM', () => server.close(() => process.exit(0)));
   });
   return { port, kill: () => new Promise((r) => { child.on('exit', r); child.kill('SIGTERM'); }) };
 }
+
+// Per-test timeout 120s — vitest.config.js's testTimeout=15000 is too tight
+// for sync spawnSync calls that wait up to 90s. Retry disabled because these
+// shell-integration tests are deterministic; under node-startup variance a
+// retry just doubles the wall without changing outcomes.
+vi.setConfig({ testTimeout: 120000, retry: 0 });
 
 describe('torque-remote coord integration', () => {
   let tmpDir, stub;
