@@ -101,6 +101,18 @@ function createAutoRecoveryEngine({
   });
   const classifier = createClassifier({ rules: registry.getRules() });
 
+  // Closure-level cache of prepared statements. The factory is constructed
+  // once per engine instance and `db` stays bound, so prepares are reused
+  // across all tick invocations.
+  const _stmtCache = new Map();
+  function _getStmt(key, sql) {
+    const cached = _stmtCache.get(key);
+    if (cached) return cached;
+    const stmt = db.prepare(sql);
+    _stmtCache.set(key, stmt);
+    return stmt;
+  }
+
   function markExhausted(projectId, reason) {
     db.prepare(`UPDATE factory_projects SET auto_recovery_exhausted = 1 WHERE id = ?`).run(projectId);
     logDecision(db, {
@@ -128,7 +140,7 @@ function createAutoRecoveryEngine({
       }
 
       const rearmCause = activeProgress ? 'active_progress' : 'new_real_decision';
-      db.prepare(`UPDATE factory_projects
+      _getStmt('rearmProject', `UPDATE factory_projects
                   SET auto_recovery_attempts = 0,
                       auto_recovery_exhausted = 0,
                       auto_recovery_last_action_at = NULL,

@@ -15,13 +15,24 @@ const { safeJsonParse } = require('../utils/json');
 const eventBus = require('../event-bus');
 
 let db;
+
+// Lazy module-level cache of prepared statements keyed by a stable name.
+// Cleared whenever setDb() rebinds the database connection (e.g. in tests).
+const _stmtCache = new Map();
+function _getStmt(key, sql) {
+  const cached = _stmtCache.get(key);
+  if (cached) return cached;
+  const stmt = db.prepare(sql);
+  _stmtCache.set(key, stmt);
+  return stmt;
+}
 let getTaskFn;
 
 function emitQueueChanged() {
   eventBus.emitQueueChanged();
 }
 
-function setDb(dbInstance) { db = dbInstance; }
+function setDb(dbInstance) { db = dbInstance; _stmtCache.clear(); }
 function setGetTask(fn) { getTaskFn = fn; }
 
 
@@ -256,7 +267,7 @@ function checkOfflineAgents() {
   `).all(cutoff);
 
   for (const agent of offlineAgents) {
-    db.prepare(`
+    _getStmt('markOffline', `
       UPDATE agents SET status = 'offline', disconnected_at = ?
       WHERE id = ?
     `).run(new Date().toISOString(), agent.id);

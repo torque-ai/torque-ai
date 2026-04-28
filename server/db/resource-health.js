@@ -351,6 +351,7 @@ function getResourceMetrics() {
       if (!ALLOWED_TABLES.has(table)) throw new Error(`Disallowed table: ${table}`);
       if (!_systemMetricsStmts.has(table)) {
         try {
+          // eslint-disable-next-line torque/no-prepare-in-loop -- already cached per-table in _systemMetricsStmts; runs once per unique table from a closed allowlist
           _systemMetricsStmts.set(table, db.prepare(`SELECT COUNT(*) as count FROM ${table}`));
         } catch (_e) {
           void _e;
@@ -578,6 +579,7 @@ function getDatabaseHealth() {
     for (const [table, query] of Object.entries(tables)) {
       if (!_dbHealthStmts.has(table)) {
         try {
+          // eslint-disable-next-line torque/no-prepare-in-loop -- already cached per-table in _dbHealthStmts; runs once per unique table from a closed allowlist
           _dbHealthStmts.set(table, db.prepare(query));
         } catch {
           // Table might not exist

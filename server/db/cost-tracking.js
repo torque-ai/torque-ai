@@ -22,8 +22,20 @@ const VALID_COST_PERIOD_FORMATS = Object.freeze({
 let db;
 let getTaskFn;
 
+// Lazy module-level cache of prepared statements keyed by a stable name.
+// Cleared whenever setDb() rebinds the database connection (e.g. in tests).
+const _stmtCache = new Map();
+function _getStmt(key, sql) {
+  const cached = _stmtCache.get(key);
+  if (cached) return cached;
+  const stmt = db.prepare(sql);
+  _stmtCache.set(key, stmt);
+  return stmt;
+}
+
 function setDb(dbInstance) {
   db = dbInstance;
+  _stmtCache.clear();
   if (db && typeof db.prepare === 'function') {
     _ensureQuotaTable();
   }
@@ -434,7 +446,7 @@ function resetExpiredBudgets() {
     }
 
     if (now.getTime() - resetAt.getTime() >= periodMs) {
-      db.prepare('UPDATE cost_budgets SET current_spend = 0, reset_at = ? WHERE id = ?')
+      _getStmt('resetBudget', 'UPDATE cost_budgets SET current_spend = 0, reset_at = ? WHERE id = ?')
         .run(now.toISOString(), budget.id);
       logger.info(`[Budget] Reset "${budget.name}" (period: ${budget.period}, was: $${budget.current_spend.toFixed(2)})`);
       resetCount++;

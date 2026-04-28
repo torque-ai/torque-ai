@@ -1029,6 +1029,7 @@ function _cleanOrphanedTaskChildren(taskId) {
   for (const table of childTables) {
     if (!_childTableDeletes.has(table)) {
       try {
+        // eslint-disable-next-line torque/no-prepare-in-loop -- already cached per-table in _childTableDeletes; runs once per unique table name across the process lifetime
         _childTableDeletes.set(table, db.prepare(`DELETE FROM ${table} WHERE task_id = ?`));
       } catch (_e) { void _e; /* table may not exist — skip */ continue; }
     }

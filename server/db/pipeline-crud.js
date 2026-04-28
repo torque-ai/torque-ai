@@ -8,9 +8,19 @@ const { safeJsonParse } = require('../utils/json');
 // ============================================================
 
 let db = null;
+
+// Lazy module-level cache of prepared statements keyed by a stable name.
+const _stmtCache = new Map();
+function _getStmt(key, sql) {
+  const cached = _stmtCache.get(key);
+  if (cached) return cached;
+  const stmt = db.prepare(sql);
+  _stmtCache.set(key, stmt);
+  return stmt;
+}
 let _recordEvent = null;
 
-function setDb(d) { db = d; }
+function setDb(d) { db = d; _stmtCache.clear(); }
 function setRecordEvent(fn) { _recordEvent = fn; }
 
 // ============================================================
@@ -361,7 +371,7 @@ function reconcilePipelineStepStatus() {
       const newStepStatus = step.task_status === 'completed' ? 'completed' : 'failed';
 
       // Update the step status
-      db.prepare(`UPDATE pipeline_steps SET status = ? WHERE id = ?`)
+      _getStmt('updateStepStatus', `UPDATE pipeline_steps SET status = ? WHERE id = ?`)
         .run(newStepStatus, step.step_id);
 
       results.stepsFixed++;
@@ -369,7 +379,7 @@ function reconcilePipelineStepStatus() {
       // If task failed/cancelled, mark the pipeline as failed
       if (newStepStatus === 'failed' && step.pipeline_status === 'running') {
         const errorMsg = `Step ${step.step_order} (${step.step_name}) ${step.task_status}: ${(step.error_output || 'No error details').slice(0, 200)}`;
-        db.prepare(`UPDATE pipelines SET status = 'failed', error = ? WHERE id = ?`)
+        _getStmt('failPipeline', `UPDATE pipelines SET status = 'failed', error = ? WHERE id = ?`)
           .run(errorMsg, step.pipeline_id);
         results.pipelinesFailed++;
       }

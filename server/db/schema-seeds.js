@@ -173,10 +173,10 @@ function seedDefaults(db, logger, safeAddColumn, extras = {}) {
     hyperbolic: 'cloud-api', cerebras: 'cloud-api', 'google-ai': 'cloud-api',
     openrouter: 'cloud-api', 'ollama-cloud': 'cloud-api',
   };
+  const updateProviderType = db.prepare('UPDATE provider_config SET provider_type = ? WHERE provider = ? AND provider_type IS NULL');
   for (const [provider, type] of Object.entries(providerTypes)) {
     try {
-      db.prepare('UPDATE provider_config SET provider_type = ? WHERE provider = ? AND provider_type IS NULL')
-        .run(type, provider);
+      updateProviderType.run(type, provider);
     } catch { /* ignore */ }
   }
   const PROVIDER_CAPABILITIES = {
@@ -195,10 +195,10 @@ function seedDefaults(db, logger, safeAddColumn, extras = {}) {
     'google-ai': { capabilities: [], band: 'D' },
   };
 
+  const updateProviderCapabilities = db.prepare('UPDATE provider_config SET capability_tags = ?, quality_band = ? WHERE provider = ?');
   for (const [provider, config] of Object.entries(PROVIDER_CAPABILITIES)) {
     try {
-      db.prepare('UPDATE provider_config SET capability_tags = ?, quality_band = ? WHERE provider = ?')
-        .run(JSON.stringify(config.capabilities), config.band, provider);
+      updateProviderCapabilities.run(JSON.stringify(config.capabilities), config.band, provider);
     } catch { /* provider may not exist yet */ }
   }
   const insertRateLimit = db.prepare('INSERT OR IGNORE INTO provider_rate_limits (provider, is_free_tier, rpm_limit, rpd_limit, tpm_limit, tpd_limit, daily_reset_hour, daily_reset_tz, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');

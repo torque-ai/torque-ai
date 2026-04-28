@@ -522,6 +522,7 @@ function ensureMemorySchema(db) {
   for (const [column, statement] of additions) {
     if (columns.has(column)) continue;
     try {
+      // eslint-disable-next-line torque/no-prepare-in-loop -- one-shot ALTER TABLE migration; each iteration is unique DDL run exactly once at schema-init time, no cache benefit
       db.prepare(statement).run();
     } catch (error) {
       if (!String(error && error.message || '').includes('duplicate column')) {

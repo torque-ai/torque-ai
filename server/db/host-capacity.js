@@ -14,6 +14,16 @@ const logger = require('../logger').child({ component: 'host-capacity' });
 
 let db;
 
+// Lazy module-level cache of prepared statements keyed by a stable name.
+const _stmtCache = new Map();
+function _getStmt(key, sql) {
+  const cached = _stmtCache.get(key);
+  if (cached) return cached;
+  const stmt = db.prepare(sql);
+  _stmtCache.set(key, stmt);
+  return stmt;
+}
+
 // Host CRUD function references injected by parent
 let _getOllamaHost;
 let _listOllamaHosts;
@@ -23,6 +33,7 @@ let _getDatabaseConfig;
 
 function setDb(dbInstance) {
   db = dbInstance;
+  _stmtCache.clear();
 }
 
 /**
@@ -443,7 +454,7 @@ function disableStaleHosts(staleHoursThreshold = 24) {
 
   let disabled = 0;
   for (const host of staleHosts) {
-    db.prepare('UPDATE ollama_hosts SET enabled = 0 WHERE id = ?').run(host.id);
+    _getStmt('disableHost', 'UPDATE ollama_hosts SET enabled = 0 WHERE id = ?').run(host.id);
     logger.warn(`Auto-disabled stale host "${host.name}" (id: ${host.id}) - down since before ${cutoff}`);
     disabled++;
   }

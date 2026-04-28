@@ -13,6 +13,16 @@ const crypto = require('crypto');
 const { safeJsonParse } = require('../utils/json');
 
 let db = null;
+
+// Lazy module-level cache of prepared statements keyed by a stable name.
+const _stmtCache = new Map();
+function _getStmt(key, sql) {
+  const cached = _stmtCache.get(key);
+  if (cached) return cached;
+  const stmt = db.prepare(sql);
+  _stmtCache.set(key, stmt);
+  return stmt;
+}
 let _getTask = null;
 const _dbFunctions = {};
 const EXPLAIN_QUERY_ALLOWLIST = new Set([
@@ -34,7 +44,7 @@ const SAFE_EXPLAIN_QUERY_PATTERN = /^SELECT\s+([\w,\s.*]+)\s+FROM\s+([A-Za-z_][A
 const DANGEROUS_EXPLAIN_MARKERS = /\bUNION\b|;|--|\/\*|\*\/|\(\s*SELECT/i;
 const EXPLAIN_QUERY_ERROR = 'Only SELECT queries can be explained';
 
-function setDb(dbInstance) { db = dbInstance; }
+function setDb(dbInstance) { db = dbInstance; _stmtCache.clear(); }
 function setGetTask(fn) { _getTask = fn; }
 function setDbFunctions(fns) { Object.assign(_dbFunctions, fns); }
 
@@ -281,7 +291,7 @@ function warmCache(limit = 100, _minSuccessRate = 0.9, since = null) {
     if (cached >= limit) break;
 
     const contentHash = computeContentHash(task.task_description, task.working_directory, task.context);
-    const existing = db.prepare('SELECT id FROM task_cache WHERE content_hash = ?').get(contentHash);
+    const existing = _getStmt('checkCacheHash', 'SELECT id FROM task_cache WHERE content_hash = ?').get(contentHash);
 
     if (!existing) {
       cacheTaskResult(task.id, ttlHours);
@@ -537,7 +547,9 @@ function getDatabaseStats() {
 
   const stats = tableStats.map(t => {
     try {
-      const countResult = db.prepare(`SELECT COUNT(*) as count FROM "${t.name}"`).get();
+      // Per-table count statement; cache key includes table name so each
+      // unique table's prepared SELECT is reused across calls.
+      const countResult = _getStmt(`countTable:${t.name}`, `SELECT COUNT(*) as count FROM "${t.name}"`).get();
       return {
         table_name: t.name,
         row_count: countResult.count,
