@@ -180,6 +180,7 @@ function seedDefaults(db, logger, safeAddColumn, extras = {}) {
   for (const [provider, type] of Object.entries(providerTypes)) {
     try {
       if (!_updateProviderType) {
+        // eslint-disable-next-line torque/no-prepare-in-loop -- lazy single-prepare cached in closure-local var; must run inside try/catch because provider_type column is migration-added and may not exist yet
         _updateProviderType = db.prepare('UPDATE provider_config SET provider_type = ? WHERE provider = ? AND provider_type IS NULL');
       }
       _updateProviderType.run(type, provider);
@@ -207,6 +208,7 @@ function seedDefaults(db, logger, safeAddColumn, extras = {}) {
   for (const [provider, config] of Object.entries(PROVIDER_CAPABILITIES)) {
     try {
       if (!_updateProviderCapabilities) {
+        // eslint-disable-next-line torque/no-prepare-in-loop -- lazy single-prepare cached in closure-local var; must run inside try/catch because capability_tags / quality_band columns are migration-added
         _updateProviderCapabilities = db.prepare('UPDATE provider_config SET capability_tags = ?, quality_band = ? WHERE provider = ?');
       }
       _updateProviderCapabilities.run(JSON.stringify(config.capabilities), config.band, provider);
