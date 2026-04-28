@@ -87,10 +87,38 @@ function record(db, entry) {
   }
 }
 
+// Open a dedicated connection for telemetry writes with busy_timeout=0,
+// so the recorder fast-fails on writer contention instead of blocking the
+// main handler up to the plugin's busy_timeout (10s) when a cg_reindex
+// worker holds the writer lock. Falls back to the caller-supplied handle
+// when the path can't be cloned (in-memory dbs, anonymous test fixtures).
+// Returns { db, close } where close() is a no-op when we reused the input.
+function openRecorderDb(db) {
+  const name = db && typeof db.name === 'string' ? db.name : '';
+  if (!name || name === ':memory:' || name.startsWith('file::memory:')) {
+    return { db, close: () => {} };
+  }
+  try {
+    const Database = require('better-sqlite3');
+    const r = new Database(name);
+    r.pragma('busy_timeout = 0');
+    return { db: r, close: () => { try { r.close(); } catch {} } };
+  } catch {
+    return { db, close: () => {} };
+  }
+}
+
 // Wrap a handlers map (name -> async fn) so each call records a row.
-// Returns a new map; original handlers map is untouched.
+// Returns a new map; original handlers map is untouched. The map carries a
+// non-enumerable `closeRecorder()` so plugin teardown (and tests) can
+// release the dedicated recorder connection.
 function instrument(handlers, db) {
+  const recorder = openRecorderDb(db);
+  const recorderDb = recorder.db;
   const out = {};
+  Object.defineProperty(out, 'closeRecorder', {
+    value: recorder.close, enumerable: false, writable: false, configurable: false,
+  });
   for (const [name, handler] of Object.entries(handlers)) {
     if (!TELEMETRY_TOOLS.has(name)) {
       out[name] = handler;
@@ -102,7 +130,7 @@ function instrument(handlers, db) {
       try {
         const result = await handler(args);
         const structured = result?.structuredData;
-        record(db, {
+        record(recorderDb, {
           tool:            name,
           repo_path:       typeof args?.repo_path === 'string' ? args.repo_path : null,
           scope:           typeof args?.scope === 'string' ? args.scope : null,
@@ -117,7 +145,7 @@ function instrument(handlers, db) {
         });
         return result;
       } catch (err) {
-        record(db, {
+        record(recorderDb, {
           tool:            name,
           repo_path:       typeof args?.repo_path === 'string' ? args.repo_path : null,
           scope:           typeof args?.scope === 'string' ? args.scope : null,

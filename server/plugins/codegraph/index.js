@@ -48,6 +48,7 @@ function createCodegraphPlugin() {
   let installed = false;
   let toolList = [];
   let diagnostics = null;
+  let instrumentedHandlers = null;
 
   function install(container) {
     if (!isFeatureEnabled()) return;
@@ -79,15 +80,22 @@ function createCodegraphPlugin() {
     // INSERT never breaks the tool call. cg_telemetry is added unwrapped —
     // surfacing telemetry must not record itself (recursion / measurement
     // bias).
-    const handlers = telemetry.instrument(rawHandlers, db);
+    instrumentedHandlers = telemetry.instrument(rawHandlers, db);
     toolList = toolDefs.map((toolDef) => ({
       ...toolDef,
-      handler: handlers[toolDef.name],
+      handler: instrumentedHandlers[toolDef.name],
     }));
     installed = true;
   }
 
   function uninstall() {
+    // Telemetry's dedicated recorder connection (busy_timeout=0) is
+    // separate from the main handle and must be closed too, otherwise
+    // SQLite keeps the WAL file locked on Windows.
+    if (instrumentedHandlers && typeof instrumentedHandlers.closeRecorder === 'function') {
+      try { instrumentedHandlers.closeRecorder(); } catch { /* ignore */ }
+    }
+    instrumentedHandlers = null;
     if (db) {
       try { db.close(); } catch { /* ignore close errors */ }
     }

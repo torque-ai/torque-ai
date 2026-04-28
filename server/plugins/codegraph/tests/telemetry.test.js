@@ -170,6 +170,49 @@ describe('codegraph shadow-mode telemetry', () => {
     ensureSchema(db);
   });
 
+  it('recorder uses busy_timeout=0 against a held writer (does not block the handler)', () => {
+    // File-backed db so the recorder can open its own connection and have
+    // distinct lock state. Hold a BEGIN IMMEDIATE writer on a separate
+    // connection and verify a recorder INSERT fails fast (<500ms) instead
+    // of waiting up to busy_timeout (10s on the live plugin).
+    const fs = require('fs');
+    const path = require('path');
+    const os = require('os');
+    const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'cg-bt-')), 'cg.db');
+    const main = new Database(file);
+    main.pragma('journal_mode = WAL');
+    main.pragma('busy_timeout = 10000');   // matches plugin install
+    ensureSchema(main);
+
+    const hold = new Database(file);
+    hold.pragma('busy_timeout = 0');
+    hold.prepare('BEGIN IMMEDIATE').run();
+    hold.prepare(
+      'INSERT INTO cg_tool_usage (tool, duration_ms, at) VALUES (?, ?, ?)',
+    ).run('hold', 0, new Date().toISOString());
+
+    const noop = telemetry.instrument(
+      { cg_find_references: async () => ({ structuredData: { references: [] } }) },
+      main,
+    );
+    const t0 = Date.now();
+    return noop.cg_find_references({ repo_path: '/x', symbol: 'foo' }).then(() => {
+      const elapsed = Date.now() - t0;
+      try {
+        // The handler must complete; the busy recorder must have fast-failed
+        // and been swallowed. Without the dedicated busy_timeout=0 connection
+        // this would block ~10s on the held writer.
+        expect(elapsed).toBeLessThan(500);
+      } finally {
+        hold.prepare('ROLLBACK').run();
+        hold.close();
+        if (typeof noop.closeRecorder === 'function') noop.closeRecorder();
+        main.close();
+        try { fs.rmSync(path.dirname(file), { recursive: true, force: true }); } catch {}
+      }
+    });
+  });
+
   it('pruneOlderThan deletes rows older than keepDays', () => {
     const oldIso = new Date(Date.now() - 60 * 86400_000).toISOString();
     const newIso = new Date().toISOString();
