@@ -167,9 +167,12 @@ childProcess.execFileSync = function(file, args, options) {
 // Patch execFile (async) — intercept git with the same stub, pass through everything else.
 // Required because async converters (promisify(execFile)) bypass execFileSync patches.
 childProcess.execFile = function(file, args, options, callback) {
-  // Handle optional args/options overloads
+  // Handle optional args/options overloads. Mirror Node's execFile signature:
+  //   (file, callback)              → args is the function
+  //   (file, args, callback)        → options is the function; args stays
+  //   (file, args, options, callback) → all positional
   if (typeof args === 'function') { callback = args; args = []; options = {}; }
-  else if (typeof options === 'function') { callback = options; options = args; args = args; }
+  else if (typeof options === 'function') { callback = options; options = {}; }
 
   if (isGitCommand(file)) {
     const encoding = (typeof options === 'object' && options !== null) ? options.encoding : undefined;

@@ -251,6 +251,9 @@ module.exports = [
       'dashboard/',
       'scripts/',
       'tools-original.js',
+      // Codegraph test fixtures intentionally contain unresolved references,
+      // duplicate symbols, etc. so the indexer's edge cases get exercised.
+      'plugins/codegraph/fixtures/',
     ],
   },
 ];
