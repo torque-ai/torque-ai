@@ -620,16 +620,13 @@ function injectReviewDependency(workflowId, completedNodeId, reviewTaskId) {
         AND td.task_id <> ?
     `).all(workflowId, completedTask.id, reviewTaskId);
 
-    const selectReviewGate = _getStmt('selectReviewGate', `
-      SELECT id
-      FROM task_dependencies
-      WHERE workflow_id = ? AND task_id = ? AND depends_on_task_id = ?
-      LIMIT 1
-    `);
-    const selectTaskMeta = _getStmt('selectTaskMeta', 'SELECT metadata FROM tasks WHERE id = ? LIMIT 1');
-    const updateTaskMeta = _getStmt('updateTaskMeta', 'UPDATE tasks SET metadata = ? WHERE id = ?');
     for (const dep of downstreamDeps) {
-      const reviewGate = selectReviewGate.get(workflowId, dep.task_id, reviewTaskId);
+      const reviewGate = _getStmt('selectReviewGate', `
+        SELECT id
+        FROM task_dependencies
+        WHERE workflow_id = ? AND task_id = ? AND depends_on_task_id = ?
+        LIMIT 1
+      `).get(workflowId, dep.task_id, reviewTaskId);
       if (!reviewGate) {
         addTaskDependency({
           workflow_id: workflowId,
@@ -639,14 +636,14 @@ function injectReviewDependency(workflowId, completedNodeId, reviewTaskId) {
         });
       }
 
-      const downstreamTask = selectTaskMeta.get(dep.task_id);
+      const downstreamTask = _getStmt('selectTaskMeta', 'SELECT metadata FROM tasks WHERE id = ? LIMIT 1').get(dep.task_id);
       if (!downstreamTask) continue;
       const downstreamMeta = normalizeTaskMetadata(downstreamTask.metadata);
       const updatedDownstreamMeta = {
         ...downstreamMeta,
         context_from: mergeContextFrom(downstreamMeta, reviewNodeId),
       };
-      updateTaskMeta.run(JSON.stringify(updatedDownstreamMeta), dep.task_id);
+      _getStmt('updateTaskMeta', 'UPDATE tasks SET metadata = ? WHERE id = ?').run(JSON.stringify(updatedDownstreamMeta), dep.task_id);
     }
 
     return {

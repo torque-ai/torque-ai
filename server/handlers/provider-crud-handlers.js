@@ -367,43 +367,40 @@ function handleAddProvider(args = {}) {
         defaultModel,
       );
 
-      const selectExistingModel = _getStmt('selectExistingHostlessModel', `
-        SELECT id
-        FROM model_registry
-        WHERE provider = ?
-          AND COALESCE(host_id, '') = ''
-          AND model_name = ?
-        LIMIT 1
-      `);
-      const updateModelToPending = _getStmt('updateModelToPending', `
-        UPDATE model_registry
-        SET status = 'pending',
-            first_seen_at = COALESCE(first_seen_at, ?),
-            last_seen_at = ?,
-            approved_at = NULL,
-            approved_by = NULL
-        WHERE id = ?
-      `);
-      const insertHostlessModel = _getStmt('insertHostlessModel', `
-        INSERT INTO model_registry (
-          id,
-          provider,
-          host_id,
-          model_name,
-          status,
-          first_seen_at,
-          last_seen_at
-        ) VALUES (?, ?, NULL, ?, 'pending', ?, ?)
-      `);
       for (const modelName of models) {
-        const existingModel = selectExistingModel.get(providerName, modelName);
+        const existingModel = _getStmt('selectExistingHostlessModel', `
+          SELECT id
+          FROM model_registry
+          WHERE provider = ?
+            AND COALESCE(host_id, '') = ''
+            AND model_name = ?
+          LIMIT 1
+        `).get(providerName, modelName);
 
         if (existingModel) {
-          updateModelToPending.run(now, now, existingModel.id);
+          _getStmt('updateModelToPending', `
+            UPDATE model_registry
+            SET status = 'pending',
+                first_seen_at = COALESCE(first_seen_at, ?),
+                last_seen_at = ?,
+                approved_at = NULL,
+                approved_by = NULL
+            WHERE id = ?
+          `).run(now, now, existingModel.id);
           continue;
         }
 
-        insertHostlessModel.run(randomUUID(), providerName, modelName, now, now);
+        _getStmt('insertHostlessModel', `
+          INSERT INTO model_registry (
+            id,
+            provider,
+            host_id,
+            model_name,
+            status,
+            first_seen_at,
+            last_seen_at
+          ) VALUES (?, ?, NULL, ?, 'pending', ?, ?)
+        `).run(randomUUID(), providerName, modelName, now, now);
       }
     });
 
@@ -501,24 +498,6 @@ function handleRemoveProvider(args = {}) {
 
       database.prepare('DELETE FROM provider_config WHERE provider = ?').run(providerName);
 
-      const rerouteTask = _getStmt('rerouteTaskToNextProvider', `
-        UPDATE tasks
-        SET provider = ?,
-            model = NULL,
-            original_provider = COALESCE(original_provider, ?),
-            provider_switched_at = ?,
-            metadata = ?
-        WHERE id = ?
-      `);
-      const clearTaskProvider = _getStmt('clearTaskProvider', `
-        UPDATE tasks
-        SET provider = NULL,
-            model = NULL,
-            original_provider = COALESCE(original_provider, ?),
-            provider_switched_at = ?,
-            metadata = ?
-        WHERE id = ?
-      `);
       for (const task of queuedTasks) {
         const nextProvider = getBestAvailableProvider(providerName, task);
         const metadata = safeJsonParse(task.metadata, {});
@@ -526,7 +505,15 @@ function handleRemoveProvider(args = {}) {
         metadata.removed_provider = providerName;
 
         if (nextProvider) {
-          rerouteTask.run(
+          _getStmt('rerouteTaskToNextProvider', `
+            UPDATE tasks
+            SET provider = ?,
+                model = NULL,
+                original_provider = COALESCE(original_provider, ?),
+                provider_switched_at = ?,
+                metadata = ?
+            WHERE id = ?
+          `).run(
             nextProvider,
             providerName,
             now,
@@ -537,7 +524,15 @@ function handleRemoveProvider(args = {}) {
           continue;
         }
 
-        clearTaskProvider.run(
+        _getStmt('clearTaskProvider', `
+          UPDATE tasks
+          SET provider = NULL,
+              model = NULL,
+              original_provider = COALESCE(original_provider, ?),
+              provider_switched_at = ?,
+              metadata = ?
+          WHERE id = ?
+        `).run(
           providerName,
           now,
           JSON.stringify(metadata),

@@ -110,13 +110,12 @@ function findSimilarTasks(taskId, options = {}) {
     .slice(0, limit);
 
   // Cache results in similar_tasks table
-  const insertSimilarTask = _getStmt('insertSimilarTask', `
-    INSERT OR REPLACE INTO similar_tasks (source_task_id, similar_task_id, similarity_score, created_at)
-    VALUES (?, ?, ?, datetime('now'))
-  `);
   for (const result of results) {
     try {
-      insertSimilarTask.run(taskId, result.task.id, result.similarity);
+      _getStmt('insertSimilarTask', `
+        INSERT OR REPLACE INTO similar_tasks (source_task_id, similar_task_id, similarity_score, created_at)
+        VALUES (?, ?, ?, datetime('now'))
+      `).run(taskId, result.task.id, result.similarity);
     } catch (_e) {
       void _e;
       // Ignore caching errors
@@ -256,11 +255,10 @@ function learnFromTask(taskId) {
   }
 
   // Save/update patterns
-  const selectPattern = _getStmt('selectPattern', `
-    SELECT * FROM task_patterns WHERE pattern_type = ? AND pattern_value = ?
-  `);
   for (const p of patterns) {
-    const existing = selectPattern.get(p.type, p.value);
+    const existing = _getStmt('selectPattern', `
+      SELECT * FROM task_patterns WHERE pattern_type = ? AND pattern_value = ?
+    `).get(p.type, p.value);
 
     if (existing) {
       // Update existing pattern with running average
