@@ -9,18 +9,6 @@ const { ErrorCodes, makeError } = require('./error-codes');
 const credentialCrypto = require('../utils/credential-crypto');
 const { safeJsonParse } = require('../utils/json');
 
-// Lazy module-level cache of prepared statements keyed by a stable name.
-// `database` is imported once at module load and never rebound, so the
-// prepared statements stay valid for the process lifetime.
-const _stmtCache = new Map();
-function _getStmt(key, sql) {
-  const cached = _stmtCache.get(key);
-  if (cached) return cached;
-  const stmt = database.prepare(sql);
-  _stmtCache.set(key, stmt);
-  return stmt;
-}
-
 const VALID_PROVIDER_TYPES = new Set(['ollama', 'cloud-cli', 'cloud-api', 'custom']);
 const DEFAULT_MAX_CONCURRENT = 3;
 const MAX_CONCURRENT_LIMIT = 100;
@@ -368,7 +356,8 @@ function handleAddProvider(args = {}) {
       );
 
       for (const modelName of models) {
-        const existingModel = _getStmt('selectExistingHostlessModel', `
+        // eslint-disable-next-line torque/no-prepare-in-loop -- database facade is rebound by setupTestDb in test contexts; module-level prepared-statement caching holds stale references after a reset
+        const existingModel = database.prepare(`
           SELECT id
           FROM model_registry
           WHERE provider = ?
@@ -378,7 +367,8 @@ function handleAddProvider(args = {}) {
         `).get(providerName, modelName);
 
         if (existingModel) {
-          _getStmt('updateModelToPending', `
+          // eslint-disable-next-line torque/no-prepare-in-loop -- see note above; database facade rebinds across tests
+          database.prepare(`
             UPDATE model_registry
             SET status = 'pending',
                 first_seen_at = COALESCE(first_seen_at, ?),
@@ -390,7 +380,8 @@ function handleAddProvider(args = {}) {
           continue;
         }
 
-        _getStmt('insertHostlessModel', `
+        // eslint-disable-next-line torque/no-prepare-in-loop -- see note above; database facade rebinds across tests
+        database.prepare(`
           INSERT INTO model_registry (
             id,
             provider,
@@ -505,7 +496,8 @@ function handleRemoveProvider(args = {}) {
         metadata.removed_provider = providerName;
 
         if (nextProvider) {
-          _getStmt('rerouteTaskToNextProvider', `
+          // eslint-disable-next-line torque/no-prepare-in-loop -- database facade rebinds across tests; cached stmts go stale after setupTestDb reset
+          database.prepare(`
             UPDATE tasks
             SET provider = ?,
                 model = NULL,
@@ -524,7 +516,8 @@ function handleRemoveProvider(args = {}) {
           continue;
         }
 
-        _getStmt('clearTaskProvider', `
+        // eslint-disable-next-line torque/no-prepare-in-loop -- see note above; database facade rebinds across tests
+        database.prepare(`
           UPDATE tasks
           SET provider = NULL,
               model = NULL,
