@@ -630,6 +630,7 @@ const routes = [
   { method: 'POST', path: '/api/v2/codegraph/class-hierarchy',tool: 'cg_class_hierarchy',  mapBody:  true },
   { method: 'GET',  path: '/api/v2/codegraph/telemetry',      tool: 'cg_telemetry',        mapQuery: true },
   { method: 'POST', path: '/api/v2/codegraph/diff',           tool: 'cg_diff',             mapBody:  true },
+  { method: 'GET',  path: '/api/v2/codegraph/search',         tool: 'cg_search',           mapQuery: true },
 
 ];
 

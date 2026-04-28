@@ -9,6 +9,7 @@ const { resolveTool }    = require('./queries/resolve-tool');
 const { classHierarchy } = require('./queries/class-hierarchy');
 const telemetry          = require('./telemetry');
 const { cgDiff }         = require('./queries/diff');
+const { search }         = require('./queries/search');
 
 function requireString(args, key) {
   if (typeof args?.[key] !== 'string' || args[key].length === 0) {
@@ -254,6 +255,31 @@ function createHandlers({ db }) {
         : 500;
       const result = await cgDiff({ repoPath, fromSha, toSha, maxFiles });
       return asToolResult(result);
+    },
+
+    async cg_search(args) {
+      const repoPath = requireString(args, 'repo_path');
+      const pattern  = requireString(args, 'pattern');
+      const kind      = typeof args.kind === 'string' && args.kind ? args.kind : null;
+      const container = typeof args.container === 'string' && args.container ? args.container : null;
+      const isExportedRaw = args.is_exported;
+      const isExported = isExportedRaw === true ? true : (isExportedRaw === false ? false : null);
+      const limitRaw = args.limit;
+      const limit = Number.isInteger(limitRaw) && limitRaw > 0
+        ? Math.min(limitRaw, 1000)
+        : 200;
+      const r = search({ db, repoPath, pattern, kind, container, isExported, limit });
+      return asToolResult({
+        pattern,
+        ...(kind && { kind_filter: kind }),
+        ...(container && { container_filter: container }),
+        ...(isExported !== null && { is_exported_filter: isExported }),
+        results:   r.results,
+        truncated: r.truncated,
+        limit:     r.limit,
+        ...(r.truncated && { truncation_hint: `Hit the ${r.limit}-result cap. Narrow the pattern, add kind/container filters, or raise limit (max 1000).` }),
+        staleness: staleness(db, repoPath),
+      });
     },
   };
 }
