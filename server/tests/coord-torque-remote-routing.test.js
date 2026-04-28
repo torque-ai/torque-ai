@@ -8,6 +8,14 @@ const { spawnSync } = require('child_process');
 
 const TORQUE_REMOTE = path.resolve(__dirname, '..', '..', 'bin', 'torque-remote');
 
+// On Windows, bare `bash` may resolve to WSL bash (C:\Windows\System32\bash.exe),
+// which can't execute scripts at native Windows paths and exits 127. Pin to Git
+// Bash when present. Mirrors the fix in coord-torque-remote-integration.test.js.
+const GIT_BASH_PATH = path.join('C:', 'Program Files', 'Git', 'bin', 'bash.exe');
+const BASH_EXECUTABLE = process.platform === 'win32' && fs.existsSync(GIT_BASH_PATH)
+  ? GIT_BASH_PATH
+  : 'bash';
+
 // Tests probe a tiny shell helper we added: bin/torque-remote exposes
 // `coord_select_routing_mode` via a `--__internal-print-routing-mode` flag
 // (test-only) so we can assert the decision without running a full sync.
@@ -15,7 +23,7 @@ const TORQUE_REMOTE = path.resolve(__dirname, '..', '..', 'bin', 'torque-remote'
 // TORQUE_COORD_PROBE_URL is set to redirect the curl health-check away from
 // the real daemon port so tests stay hermetic even when the daemon is running.
 function runRoutingProbe(env) {
-  return spawnSync('bash', [TORQUE_REMOTE, '--__internal-print-routing-mode'], {
+  return spawnSync(BASH_EXECUTABLE, [TORQUE_REMOTE, '--__internal-print-routing-mode'], {
     encoding: 'utf8',
     env: { ...process.env, ...env, PATH: process.env.PATH || '' },
     timeout: 5000,
