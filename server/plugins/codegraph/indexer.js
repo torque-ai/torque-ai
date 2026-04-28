@@ -62,10 +62,15 @@ async function runIndex({ db, repoPath, files, commitSha = null, _sourceDir = nu
   // reads on Windows (Defender/Search-indexer) are I/O-bound — Promise.all
   // batches let those reads overlap. Tunable via TORQUE_CG_INDEX_CONCURRENCY;
   // default 8 covers a typical SSD without saturating the parser path.
+  // env=0 means "serial" (treated as 1) so a benchmarking script can
+  // disable batching without silently falling back to the default 8.
   const concurrencyEnv = parseInt(process.env.TORQUE_CG_INDEX_CONCURRENCY || '', 10);
-  const CONCURRENCY = Number.isFinite(concurrencyEnv) && concurrencyEnv > 0
-    ? Math.min(concurrencyEnv, 64)
-    : 8;
+  let CONCURRENCY;
+  if (Number.isFinite(concurrencyEnv) && concurrencyEnv >= 0) {
+    CONCURRENCY = Math.min(Math.max(concurrencyEnv, 1), 64);
+  } else {
+    CONCURRENCY = 8;
+  }
   const work = [];
   const skipped = [];
 
