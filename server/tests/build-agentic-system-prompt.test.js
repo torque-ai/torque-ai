@@ -1,7 +1,6 @@
 'use strict';
 
-const { describe, it, expect } = require('vitest');
-
+// describe/it/expect are vitest globals injected via globals:true in vitest.config.js
 // buildAgenticSystemPrompt is module-private; we test through the export shim.
 const execution = require('../providers/execution');
 const { buildAgenticSystemPrompt } = execution;
