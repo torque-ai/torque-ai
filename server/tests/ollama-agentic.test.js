@@ -268,7 +268,8 @@ describe('ollama-agentic', () => {
     });
 
     expect(result.output).toContain('Task stopped: consecutive errors from run_command');
-    expect(result.toolLog).toHaveLength(2);
+    expect(result.output).toContain('after 3 iterations');
+    expect(result.toolLog).toHaveLength(3);
     expect(result.toolLog.every((entry) => entry.error)).toBe(true);
   });
 
@@ -353,5 +354,159 @@ describe('ollama-agentic', () => {
 
   it('MAX_ITERATIONS constant equals the free-agentic default', () => {
     expect(MAX_ITERATIONS).toBe(25);
+  });
+
+  describe('Fix #3 — relaxed early-stop and allowlist-rejection skip', () => {
+    it('does NOT trigger early-stop on 2 same-tool real errors (was the threshold before)', async () => {
+      const adapter = createAdapter([
+        toolResponse({ name: 'read_file', arguments: { path: 'a.js' } }),
+        toolResponse({ name: 'read_file', arguments: { path: 'b.js' } }),
+        toolResponse({ name: 'read_file', arguments: { path: 'c.js' } }),
+        textResponse('Done.'),
+      ]);
+      const toolExecutor = createToolExecutor((_name, args) => {
+        if (args.path === 'c.js') return { result: 'contents of c.js' };
+        return { result: `ENOENT: ${args.path}`, error: true };
+      });
+
+      const result = await runAgenticLoop({
+        adapter,
+        systemPrompt: 'System prompt',
+        taskPrompt: 'Read some files.',
+        tools: TOOL_DEFINITIONS,
+        toolExecutor,
+        maxIterations: 10,
+      });
+
+      expect(result.stopReason).not.toBe('consecutive_tool_errors');
+      expect(result.output).toContain('Done.');
+    });
+
+    it('DOES trigger early-stop on 3 same-tool real errors', async () => {
+      const adapter = createAdapter([
+        toolResponse({ name: 'read_file', arguments: { path: 'a.js' } }),
+        toolResponse({ name: 'read_file', arguments: { path: 'b.js' } }),
+        toolResponse({ name: 'read_file', arguments: { path: 'c.js' } }),
+        textResponse('Should not reach here.'),
+      ]);
+      const toolExecutor = createToolExecutor((_name, args) => ({
+        result: `ENOENT: ${args.path}`,
+        error: true,
+      }));
+
+      const result = await runAgenticLoop({
+        adapter,
+        systemPrompt: 'System prompt',
+        taskPrompt: 'Read some files.',
+        tools: TOOL_DEFINITIONS,
+        toolExecutor,
+        maxIterations: 10,
+      });
+
+      expect(result.stopReason).toBe('consecutive_tool_errors');
+      expect(result.output).toContain('consecutive errors from read_file');
+    });
+
+    it('skips the counter when error has _allowlist_rejection marker', async () => {
+      const adapter = createAdapter([
+        toolResponse({ name: 'run_command', arguments: { command: 'cat foo' } }),
+        toolResponse({ name: 'run_command', arguments: { command: 'cat bar' } }),
+        toolResponse({ name: 'run_command', arguments: { command: 'cat baz' } }),
+        toolResponse({ name: 'read_file', arguments: { path: 'foo.txt' } }),
+        textResponse('Read foo.'),
+      ]);
+      const toolExecutor = createToolExecutor((name) => {
+        if (name === 'run_command') {
+          return {
+            result: 'Error: cat is not allowed; try read_file',
+            error: true,
+            _allowlist_rejection: true,
+          };
+        }
+        return { result: 'foo contents' };
+      });
+
+      const result = await runAgenticLoop({
+        adapter,
+        systemPrompt: 'System prompt',
+        taskPrompt: 'Read foo.',
+        tools: TOOL_DEFINITIONS,
+        toolExecutor,
+        maxIterations: 10,
+      });
+
+      expect(result.stopReason).not.toBe('consecutive_tool_errors');
+      expect(result.output).toContain('Read foo.');
+    });
+
+    it('mix: real error + allowlist rejection + same-tool real errors does not trigger early-stop', async () => {
+      // Sequence:
+      //   iter 0: read_file a.js — real error (counter=1, lastErrorTool=read_file)
+      //   iter 1: run_command — _allowlist_rejection (counter resets to 0)
+      //   iter 2: read_file b.js — real error (counter=1, lastErrorTool=read_file again)
+      //   iter 3: read_file c.js — real error (counter=2; threshold 3 not yet hit)
+      //   iter 4: text response 'Done.'
+      const adapter = createAdapter([
+        toolResponse({ name: 'read_file', arguments: { path: 'a.js' } }),
+        toolResponse({ name: 'run_command', arguments: { command: 'cat foo' } }),
+        toolResponse({ name: 'read_file', arguments: { path: 'b.js' } }),
+        toolResponse({ name: 'read_file', arguments: { path: 'c.js' } }),
+        textResponse('Done.'),
+      ]);
+      const toolExecutor = createToolExecutor((name, args) => {
+        if (name === 'run_command') {
+          return {
+            result: 'Error: cat is not allowed; try read_file',
+            error: true,
+            _allowlist_rejection: true,
+          };
+        }
+        return { result: `ENOENT: ${args.path}`, error: true };
+      });
+
+      const result = await runAgenticLoop({
+        adapter,
+        systemPrompt: 'System prompt',
+        taskPrompt: 'Mix of failures.',
+        tools: TOOL_DEFINITIONS,
+        toolExecutor,
+        maxIterations: 10,
+      });
+
+      expect(result.stopReason).not.toBe('consecutive_tool_errors');
+      expect(result.output).toContain('Done.');
+    });
+
+    it('different-tool error breaks the consecutive count', async () => {
+      // iter 0: read_file errors (counter=1, lastErrorTool=read_file)
+      // iter 1: run_command errors (different tool; resets to counter=1, lastErrorTool=run_command)
+      // iter 2: read_file errors (different from lastErrorTool=run_command; resets again)
+      // iter 3: text response 'Done.'
+      const adapter = createAdapter([
+        toolResponse({ name: 'read_file', arguments: { path: 'a.js' } }),
+        toolResponse({ name: 'run_command', arguments: { command: 'echo hi' } }),
+        toolResponse({ name: 'read_file', arguments: { path: 'b.js' } }),
+        textResponse('Done.'),
+      ]);
+      const toolExecutor = createToolExecutor((name, args) => {
+        if (name === 'run_command') {
+          // NOT an allowlist rejection — a genuine command-execution error.
+          return { result: 'command failed', error: true };
+        }
+        return { result: `ENOENT: ${args.path}`, error: true };
+      });
+
+      const result = await runAgenticLoop({
+        adapter,
+        systemPrompt: 'System prompt',
+        taskPrompt: 'Different tool errors.',
+        tools: TOOL_DEFINITIONS,
+        toolExecutor,
+        maxIterations: 10,
+      });
+
+      expect(result.stopReason).not.toBe('consecutive_tool_errors');
+      expect(result.output).toContain('Done.');
+    });
   });
 });
