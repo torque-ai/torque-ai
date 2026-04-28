@@ -1,11 +1,10 @@
 import { lazy, Suspense, useState } from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 import TabBar from '../components/TabBar';
+import RemoteCoordPanel from '../components/RemoteCoordPanel';
 
 const Strategy = lazy(() => import('./Strategy'));
 const Schedules = lazy(() => import('./Schedules'));
-// Coordination tab mothballed — repurpose for workstation layer coordination later
-// const Coordination = lazy(() => import('./Coordination'));
 const Budget = lazy(() => import('./Budget'));
 const Governance = lazy(() => import('./Governance'));
 const VersionControl = lazy(() => import('./VersionControl'));
@@ -14,6 +13,7 @@ const CodexBreaker = lazy(() => import('./CodexBreaker'));
 
 const TABS = [
   { id: 'routing', label: 'Routing' },
+  { id: 'coordination', label: 'Coordination' },
   { id: 'schedules', label: 'Schedules' },
   { id: 'budget', label: 'Budget' },
   { id: 'governance', label: 'Governance' },
@@ -26,7 +26,14 @@ const LOADING_FALLBACK = <div className="p-6 text-slate-400">Loading...</div>;
 
 export default function OperationsHub(props) {
   const location = useLocation();
-  const [tab, setTab] = useState('routing');
+  // Initial tab respects the URL hash so /operations#coordination opens the
+  // Coordination tab directly. Mirrors the redirect at App.jsx's
+  // `<Route path="coordination" element={<Navigate to="/operations#coordination" />}>`
+  const initialTab = (() => {
+    const hashId = (location.hash || '').replace(/^#/, '');
+    return TABS.some((t) => t.id === hashId) ? hashId : 'routing';
+  })();
+  const [tab, setTab] = useState(initialTab);
 
   if (location.hash === '#approvals') {
     return <Navigate to={`/approvals${location.search || ''}`} replace />;
@@ -36,13 +43,19 @@ export default function OperationsHub(props) {
     <div>
       <div className="px-6 pt-6">
         <h1 className="heading-lg text-white mb-4">Operations</h1>
-        <TabBar tabs={TABS} defaultTab="routing" onTabChange={setTab} />
+        <TabBar tabs={TABS} defaultTab={initialTab} onTabChange={setTab} />
       </div>
 
       {tab === 'routing' && (
         <Suspense fallback={LOADING_FALLBACK}>
           <Strategy {...props} />
         </Suspense>
+      )}
+
+      {tab === 'coordination' && (
+        <div className="px-6 py-4">
+          <RemoteCoordPanel />
+        </div>
       )}
 
       {tab === 'schedules' && (
