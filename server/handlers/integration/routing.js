@@ -401,13 +401,13 @@ function extractSmartSubmitInputs(args) {
   }
   if (working_directory) {
     try {
-      let rawDb;
-      try {
-        const { defaultContainer } = require('../../container');
-        rawDb = defaultContainer.get('db');
-      } catch {
-        rawDb = require('../../database').getDbInstance();
-      }
+      // database.js#init() / resetForTest() register the facade as 'db'
+      // on the DI container, so this lookup is the single source of truth.
+      // Surrounding try/catch (started at line ~403) handles missing DI
+      // by surfacing "version-intent module unavailable" — preserves the
+      // graceful-degrade behavior of the prior legacy fallback.
+      const { defaultContainer } = require('../../container');
+      const rawDb = defaultContainer.get('db');
       const versionIntentError = enforceVersionIntentForProject(
         rawDb,
         working_directory,

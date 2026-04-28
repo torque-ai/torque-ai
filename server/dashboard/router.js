@@ -151,11 +151,9 @@ function resolveDashboardGovernanceDb(dbService) {
       try {
         const db = unwrapDashboardDb(defaultContainer.get('db'));
         if (db) return { db };
-      } catch { /* container not booted — fall through */ }
+      } catch { /* container not booted — surface error below */ }
     }
 
-    const db = unwrapDashboardDb(require('../database'));
-    if (db) return { db };
     throw new Error('No database available');
   } catch (error) {
     return { error };
@@ -169,7 +167,6 @@ function resolveDashboardVersionControlDb(dbService) {
       return { db: providedDb };
     }
 
-    // Try container first
     const { defaultContainer } = require('../container');
     if (defaultContainer && typeof defaultContainer.get === 'function') {
       try {
@@ -177,16 +174,10 @@ function resolveDashboardVersionControlDb(dbService) {
         if (db && typeof db.prepare === 'function') {
           return { db };
         }
-      } catch { /* container not booted or db not registered — fall through */ }
+      } catch { /* container not booted or db not registered — surface error below */ }
     }
 
-    // Fallback: require database.js directly (same pattern as version-control plugin)
-    const db = unwrapDashboardDb(require('../database'));
-    if (db && typeof db.prepare === 'function') {
-      return { db };
-    }
-
-    throw new Error('No database available via container or direct require');
+    throw new Error('No database available via container');
   } catch (error) {
     return { error };
   }
