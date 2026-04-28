@@ -154,6 +154,63 @@ describe('cg_diff', () => {
       .rejects.toThrow(/to_sha not reachable/);
   });
 
+  it('flags signature changes (sync → async) without reporting add+remove', async () => {
+    const sha1 = commitFile(repo, 'a.js', 'function foo() { return 1; }\n', 'init');
+    const sha2 = commitFile(repo, 'a.js', 'async function foo() { return 1; }\n', 'flip async');
+
+    const r = await cgDiff({ repoPath: repo, fromSha: sha1, toSha: sha2 });
+    expect(r.added_symbols).toHaveLength(0);
+    expect(r.removed_symbols).toHaveLength(0);
+    expect(r.signature_changed_symbols).toHaveLength(1);
+    const sig = r.signature_changed_symbols[0];
+    expect(sig.name).toBe('foo');
+    expect(sig.file).toBe('a.js');
+    expect(sig.changed.isAsync).toEqual({ from: false, to: true });
+    expect(sig.from_flags.isAsync).toBe(false);
+    expect(sig.to_flags.isAsync).toBe(true);
+  });
+
+  it('treats a content-stable file rename as 0 added / 0 removed and lists it under changed_files.renamed', async () => {
+    const sha1 = commitFile(repo, 'a.js', 'function foo() { return 1; }\n', 'init');
+    fs.renameSync(path.join(repo, 'a.js'), path.join(repo, 'b.js'));
+    gitVoid(repo, 'add', '-A');
+    gitVoid(repo, 'commit', '-q', '-m', 'rename a→b');
+    const sha2 = git(repo, 'rev-parse', 'HEAD');
+
+    const r = await cgDiff({ repoPath: repo, fromSha: sha1, toSha: sha2 });
+    expect(r.added_symbols).toHaveLength(0);
+    expect(r.removed_symbols).toHaveLength(0);
+    expect(r.signature_changed_symbols).toHaveLength(0);
+    expect(r.changed_files.renamed).toHaveLength(1);
+    expect(r.changed_files.renamed[0]).toEqual({ from: 'a.js', to: 'b.js' });
+    // Old shape kept these out of added/deleted; new shape continues to.
+    expect(r.changed_files.added).not.toContain('b.js');
+    expect(r.changed_files.deleted).not.toContain('a.js');
+    expect(r.total_files_changed).toBe(1);
+  });
+
+  it('within a rename, surfaces real symbol additions and signature flips', async () => {
+    // Body is large enough that the small async/bar additions keep the
+    // rename above git's -M50% similarity threshold (otherwise the rename
+    // decomposes into add+delete and changed_files.renamed is empty).
+    const body = 'function foo() {\n  // shared body keeps similarity > 50%\n  return 1;\n  return 2;\n  return 3;\n  return 4;\n}\n';
+    const sha1 = commitFile(repo, 'a.js', body, 'init');
+    fs.renameSync(path.join(repo, 'a.js'), path.join(repo, 'b.js'));
+    fs.writeFileSync(path.join(repo, 'b.js'),
+      body.replace('function foo()', 'async function foo()') + 'function bar() {}\n');
+    gitVoid(repo, 'add', '-A');
+    gitVoid(repo, 'commit', '-q', '-m', 'rename + edit');
+    const sha2 = git(repo, 'rev-parse', 'HEAD');
+
+    const r = await cgDiff({ repoPath: repo, fromSha: sha1, toSha: sha2 });
+    expect(r.changed_files.renamed[0]).toEqual({ from: 'a.js', to: 'b.js' });
+    expect(r.added_symbols.find((s) => s.name === 'bar' && s.file === 'b.js')).toBeTruthy();
+    expect(r.removed_symbols).toHaveLength(0);
+    const sig = r.signature_changed_symbols.find((s) => s.name === 'foo');
+    expect(sig).toBeTruthy();
+    expect(sig.changed.isAsync).toEqual({ from: false, to: true });
+  });
+
   it('captures the container of an added method', async () => {
     const sha1 = commitFile(repo, 'a.js',
       'class Animal { speak() {} }\n', 'init');
