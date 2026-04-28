@@ -17,8 +17,19 @@ const { evaluateCondition: evaluateEdgeCondition } = require('./condition-eval')
 let db;
 const TERMINAL_DEPENDENCY_STATUSES = new Set(['completed', 'failed', 'cancelled', 'skipped']);
 
+// Lazy module-level cache of prepared statements keyed by a stable name.
+const _stmtCache = new Map();
+function _getStmt(key, sql) {
+  const cached = _stmtCache.get(key);
+  if (cached) return cached;
+  const stmt = db.prepare(sql);
+  _stmtCache.set(key, stmt);
+  return stmt;
+}
+
 function setDb(dbInstance) {
   db = dbInstance;
+  _stmtCache.clear();
 }
 
 // ============================================
@@ -360,9 +371,9 @@ function cleanupOldWorkflows(retentionDays = 30) {
     let deleted = 0;
     for (const wf of oldWorkflows) {
       // Nullify task workflow_id to avoid FK violations
-      db.prepare('UPDATE tasks SET workflow_id = NULL WHERE workflow_id = ?').run(wf.id);
-      db.prepare('DELETE FROM task_dependencies WHERE workflow_id = ?').run(wf.id);
-      db.prepare('DELETE FROM workflows WHERE id = ?').run(wf.id);
+      _getStmt('nullifyTaskWorkflow', 'UPDATE tasks SET workflow_id = NULL WHERE workflow_id = ?').run(wf.id);
+      _getStmt('deleteWorkflowDeps', 'DELETE FROM task_dependencies WHERE workflow_id = ?').run(wf.id);
+      _getStmt('deleteWorkflow', 'DELETE FROM workflows WHERE id = ?').run(wf.id);
       deleted++;
     }
     return deleted;
@@ -609,13 +620,16 @@ function injectReviewDependency(workflowId, completedNodeId, reviewTaskId) {
         AND td.task_id <> ?
     `).all(workflowId, completedTask.id, reviewTaskId);
 
+    const selectReviewGate = _getStmt('selectReviewGate', `
+      SELECT id
+      FROM task_dependencies
+      WHERE workflow_id = ? AND task_id = ? AND depends_on_task_id = ?
+      LIMIT 1
+    `);
+    const selectTaskMeta = _getStmt('selectTaskMeta', 'SELECT metadata FROM tasks WHERE id = ? LIMIT 1');
+    const updateTaskMeta = _getStmt('updateTaskMeta', 'UPDATE tasks SET metadata = ? WHERE id = ?');
     for (const dep of downstreamDeps) {
-      const reviewGate = db.prepare(`
-        SELECT id
-        FROM task_dependencies
-        WHERE workflow_id = ? AND task_id = ? AND depends_on_task_id = ?
-        LIMIT 1
-      `).get(workflowId, dep.task_id, reviewTaskId);
+      const reviewGate = selectReviewGate.get(workflowId, dep.task_id, reviewTaskId);
       if (!reviewGate) {
         addTaskDependency({
           workflow_id: workflowId,
@@ -625,14 +639,14 @@ function injectReviewDependency(workflowId, completedNodeId, reviewTaskId) {
         });
       }
 
-      const downstreamTask = db.prepare('SELECT metadata FROM tasks WHERE id = ? LIMIT 1').get(dep.task_id);
+      const downstreamTask = selectTaskMeta.get(dep.task_id);
       if (!downstreamTask) continue;
       const downstreamMeta = normalizeTaskMetadata(downstreamTask.metadata);
       const updatedDownstreamMeta = {
         ...downstreamMeta,
         context_from: mergeContextFrom(downstreamMeta, reviewNodeId),
       };
-      db.prepare('UPDATE tasks SET metadata = ? WHERE id = ?').run(JSON.stringify(updatedDownstreamMeta), dep.task_id);
+      updateTaskMeta.run(JSON.stringify(updatedDownstreamMeta), dep.task_id);
     }
 
     return {

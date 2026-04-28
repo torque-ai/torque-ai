@@ -9,6 +9,18 @@ const { ErrorCodes, makeError } = require('./error-codes');
 const credentialCrypto = require('../utils/credential-crypto');
 const { safeJsonParse } = require('../utils/json');
 
+// Lazy module-level cache of prepared statements keyed by a stable name.
+// `database` is imported once at module load and never rebound, so the
+// prepared statements stay valid for the process lifetime.
+const _stmtCache = new Map();
+function _getStmt(key, sql) {
+  const cached = _stmtCache.get(key);
+  if (cached) return cached;
+  const stmt = database.prepare(sql);
+  _stmtCache.set(key, stmt);
+  return stmt;
+}
+
 const VALID_PROVIDER_TYPES = new Set(['ollama', 'cloud-cli', 'cloud-api', 'custom']);
 const DEFAULT_MAX_CONCURRENT = 3;
 const MAX_CONCURRENT_LIMIT = 100;
@@ -355,40 +367,43 @@ function handleAddProvider(args = {}) {
         defaultModel,
       );
 
+      const selectExistingModel = _getStmt('selectExistingHostlessModel', `
+        SELECT id
+        FROM model_registry
+        WHERE provider = ?
+          AND COALESCE(host_id, '') = ''
+          AND model_name = ?
+        LIMIT 1
+      `);
+      const updateModelToPending = _getStmt('updateModelToPending', `
+        UPDATE model_registry
+        SET status = 'pending',
+            first_seen_at = COALESCE(first_seen_at, ?),
+            last_seen_at = ?,
+            approved_at = NULL,
+            approved_by = NULL
+        WHERE id = ?
+      `);
+      const insertHostlessModel = _getStmt('insertHostlessModel', `
+        INSERT INTO model_registry (
+          id,
+          provider,
+          host_id,
+          model_name,
+          status,
+          first_seen_at,
+          last_seen_at
+        ) VALUES (?, ?, NULL, ?, 'pending', ?, ?)
+      `);
       for (const modelName of models) {
-        const existingModel = database.prepare(`
-          SELECT id
-          FROM model_registry
-          WHERE provider = ?
-            AND COALESCE(host_id, '') = ''
-            AND model_name = ?
-          LIMIT 1
-        `).get(providerName, modelName);
+        const existingModel = selectExistingModel.get(providerName, modelName);
 
         if (existingModel) {
-          database.prepare(`
-            UPDATE model_registry
-            SET status = 'pending',
-                first_seen_at = COALESCE(first_seen_at, ?),
-                last_seen_at = ?,
-                approved_at = NULL,
-                approved_by = NULL
-            WHERE id = ?
-          `).run(now, now, existingModel.id);
+          updateModelToPending.run(now, now, existingModel.id);
           continue;
         }
 
-        database.prepare(`
-          INSERT INTO model_registry (
-            id,
-            provider,
-            host_id,
-            model_name,
-            status,
-            first_seen_at,
-            last_seen_at
-          ) VALUES (?, ?, NULL, ?, 'pending', ?, ?)
-        `).run(randomUUID(), providerName, modelName, now, now);
+        insertHostlessModel.run(randomUUID(), providerName, modelName, now, now);
       }
     });
 
@@ -486,6 +501,24 @@ function handleRemoveProvider(args = {}) {
 
       database.prepare('DELETE FROM provider_config WHERE provider = ?').run(providerName);
 
+      const rerouteTask = _getStmt('rerouteTaskToNextProvider', `
+        UPDATE tasks
+        SET provider = ?,
+            model = NULL,
+            original_provider = COALESCE(original_provider, ?),
+            provider_switched_at = ?,
+            metadata = ?
+        WHERE id = ?
+      `);
+      const clearTaskProvider = _getStmt('clearTaskProvider', `
+        UPDATE tasks
+        SET provider = NULL,
+            model = NULL,
+            original_provider = COALESCE(original_provider, ?),
+            provider_switched_at = ?,
+            metadata = ?
+        WHERE id = ?
+      `);
       for (const task of queuedTasks) {
         const nextProvider = getBestAvailableProvider(providerName, task);
         const metadata = safeJsonParse(task.metadata, {});
@@ -493,15 +526,7 @@ function handleRemoveProvider(args = {}) {
         metadata.removed_provider = providerName;
 
         if (nextProvider) {
-          database.prepare(`
-            UPDATE tasks
-            SET provider = ?,
-                model = NULL,
-                original_provider = COALESCE(original_provider, ?),
-                provider_switched_at = ?,
-                metadata = ?
-            WHERE id = ?
-          `).run(
+          rerouteTask.run(
             nextProvider,
             providerName,
             now,
@@ -512,15 +537,7 @@ function handleRemoveProvider(args = {}) {
           continue;
         }
 
-        database.prepare(`
-          UPDATE tasks
-          SET provider = NULL,
-              model = NULL,
-              original_provider = COALESCE(original_provider, ?),
-              provider_switched_at = ?,
-              metadata = ?
-          WHERE id = ?
-        `).run(
+        clearTaskProvider.run(
           providerName,
           now,
           JSON.stringify(metadata),

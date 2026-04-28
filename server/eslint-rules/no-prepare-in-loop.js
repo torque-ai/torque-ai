@@ -5,7 +5,8 @@
  * Hoisting prepares to module level is always correct for better-sqlite3
  * because PreparedStatement is reentrant and stateless between .run()/.get()/.all() calls.
  *
- * Disable with a comment that includes a reason of more than 10 chars:
+ * Disable via ESLint's standard mechanism when a hoist isn't possible
+ * (e.g., one-shot migration DDL where each iteration has unique SQL):
  *   // eslint-disable-next-line torque/no-prepare-in-loop -- reason here
  */
 
@@ -62,8 +63,6 @@ module.exports = {
     messages: {
       prepareInLoop:
         'db.prepare() inside a loop or callback. Hoist to module level — PreparedStatement is reentrant.',
-      shortDisableReason:
-        'Disable comment reason is too short (more than 10 chars required). Explain why this prepare cannot be hoisted.',
     },
   },
   create(context) {
@@ -76,17 +75,10 @@ module.exports = {
 
         if (!isInsideLoop(node)) return;
 
-        const sourceCode = context.getSourceCode();
-        const comments = sourceCode.getCommentsBefore(node);
-        for (const comment of comments) {
-          if (comment.value.includes('eslint-disable')) {
-            const reasonMatch = comment.value.match(/--\s*(.+)/);
-            if (reasonMatch && reasonMatch[1].trim().length > 10) return;
-            context.report({ node, messageId: 'shortDisableReason' });
-            return;
-          }
-        }
-
+        // ESLint's standard directive layer (eslint-disable-next-line) handles
+        // suppressions cleanly. Don't double-handle — if the rule swallows the
+        // disable comment internally, ESLint reports the directive as "unused"
+        // because no error was generated for it to suppress.
         context.report({ node, messageId: 'prepareInLoop' });
       },
     };

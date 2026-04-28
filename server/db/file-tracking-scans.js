@@ -17,8 +17,19 @@ const { TASK_TIMEOUTS } = require('../constants');
 
 let db;
 
+// Lazy module-level cache of prepared statements keyed by a stable name.
+const _stmtCache = new Map();
+function _getStmt(key, sql) {
+  const cached = _stmtCache.get(key);
+  if (cached) return cached;
+  const stmt = db.prepare(sql);
+  _stmtCache.set(key, stmt);
+  return stmt;
+}
+
 function setDb(dbInstance) {
   db = dbInstance;
+  _stmtCache.clear();
 }
 
 /**
@@ -85,7 +96,7 @@ async function runVulnerabilityScan(taskId, workingDirectory) {
         }
 
         // Store result
-        db.prepare(`
+        _getStmt('insertVulnScan', `
           INSERT INTO vulnerability_scans (task_id, working_directory, package_manager, scan_output, vulnerabilities_found, critical_count, high_count, medium_count, low_count, scanned_at)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `).run(taskId, workingDirectory, pm.manager, result.output, vulnCounts.total, vulnCounts.critical, vulnCounts.high, vulnCounts.medium, vulnCounts.low, now);
@@ -297,7 +308,7 @@ function captureConfigBaselines(workingDirectory) {
         const content = fs.readFileSync(fullPath, 'utf8');
         const hash = crypto.createHash('sha256').update(content).digest('hex');
 
-        db.prepare(`
+        _getStmt('insertConfigBaseline', `
           INSERT OR REPLACE INTO config_baselines (working_directory, file_path, file_hash, content, captured_at)
           VALUES (?, ?, ?, ?, ?)
         `).run(workingDirectory, file, hash, content, now);
@@ -331,7 +342,7 @@ function detectConfigDrift(taskId, workingDirectory) {
       if (currentHash !== baseline.file_hash) {
         const driftType = currentContent.length > baseline.content.length ? 'expanded' : 'reduced';
 
-        db.prepare(`
+        _getStmt('insertConfigDrift', `
           INSERT INTO config_drift_results (task_id, file_path, drift_type, old_hash, new_hash, changes_summary, detected_at)
           VALUES (?, ?, ?, ?, ?, ?, ?)
         `).run(taskId, baseline.file_path, driftType, baseline.file_hash, currentHash, `Size changed from ${baseline.content.length} to ${currentContent.length}`, now);
@@ -346,7 +357,7 @@ function detectConfigDrift(taskId, workingDirectory) {
     } catch (e) {
       // File may have been deleted
       if (e.code === 'ENOENT') {
-        db.prepare(`
+        _getStmt('insertConfigDriftDeleted', `
           INSERT INTO config_drift_results (task_id, file_path, drift_type, old_hash, new_hash, changes_summary, detected_at)
           VALUES (?, ?, 'deleted', ?, NULL, 'File was deleted', ?)
         `).run(taskId, baseline.file_path, baseline.file_hash, now);
@@ -483,7 +494,7 @@ function validateXamlSemantics(taskId, filePath, content) {
 
   // Record issues to database
   for (const issue of issues) {
-    db.prepare(`
+    _getStmt('insertXamlValidation', `
       INSERT INTO xaml_validation_results (task_id, file_path, issue_type, severity, line_number, code_snippet, message, suggested_fix, validated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(taskId, filePath, issue.type, issue.severity, issue.line, issue.snippet, issue.message, issue.fix, now);
@@ -564,7 +575,7 @@ function checkXamlCodeBehindConsistency(taskId, xamlPath, xamlContent, codeBehin
 
   // Record issues
   for (const issue of issues) {
-    db.prepare(`
+    _getStmt('insertXamlConsistency', `
       INSERT INTO xaml_consistency_results (task_id, xaml_file, codebehind_file, issue_type, element_name, severity, message, checked_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `).run(taskId, xamlPath, codeBehindPath, issue.type, issue.element, issue.severity, issue.message, now);

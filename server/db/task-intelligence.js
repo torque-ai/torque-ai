@@ -12,9 +12,19 @@
 const { safeJsonParse } = require('../utils/json');
 
 let db;
+
+// Lazy module-level cache of prepared statements keyed by a stable name.
+const _stmtCache = new Map();
+function _getStmt(key, sql) {
+  const cached = _stmtCache.get(key);
+  if (cached) return cached;
+  const stmt = db.prepare(sql);
+  _stmtCache.set(key, stmt);
+  return stmt;
+}
 let getTaskFn;
 
-function setDb(dbInstance) { db = dbInstance; }
+function setDb(dbInstance) { db = dbInstance; _stmtCache.clear(); }
 function setGetTask(fn) { getTaskFn = fn; }
 
 function addTaskSuggestion(taskId, suggestionType, suggestionText, confidence = 0.5) {
@@ -100,13 +110,13 @@ function findSimilarTasks(taskId, options = {}) {
     .slice(0, limit);
 
   // Cache results in similar_tasks table
+  const insertSimilarTask = _getStmt('insertSimilarTask', `
+    INSERT OR REPLACE INTO similar_tasks (source_task_id, similar_task_id, similarity_score, created_at)
+    VALUES (?, ?, ?, datetime('now'))
+  `);
   for (const result of results) {
     try {
-      const insertStmt = db.prepare(`
-        INSERT OR REPLACE INTO similar_tasks (source_task_id, similar_task_id, similarity_score, created_at)
-        VALUES (?, ?, ?, datetime('now'))
-      `);
-      insertStmt.run(taskId, result.task.id, result.similarity);
+      insertSimilarTask.run(taskId, result.task.id, result.similarity);
     } catch (_e) {
       void _e;
       // Ignore caching errors
@@ -246,10 +256,11 @@ function learnFromTask(taskId) {
   }
 
   // Save/update patterns
+  const selectPattern = _getStmt('selectPattern', `
+    SELECT * FROM task_patterns WHERE pattern_type = ? AND pattern_value = ?
+  `);
   for (const p of patterns) {
-    const existing = db.prepare(`
-      SELECT * FROM task_patterns WHERE pattern_type = ? AND pattern_value = ?
-    `).get(p.type, p.value);
+    const existing = selectPattern.get(p.type, p.value);
 
     if (existing) {
       // Update existing pattern with running average
@@ -269,14 +280,14 @@ function learnFromTask(taskId) {
         ? (existing.avg_duration_seconds * existing.hit_count + durationSeconds) / newHitCount
         : durationSeconds || existing.avg_duration_seconds;
 
-      db.prepare(`
+      _getStmt('updatePattern', `
         UPDATE task_patterns
         SET suggested_config = ?, hit_count = ?, success_rate = ?, avg_duration_seconds = ?, last_matched_at = datetime('now')
         WHERE id = ?
       `).run(JSON.stringify(updatedConfig), newHitCount, newSuccessRate, newAvgDuration, existing.id);
     } else {
       // Create new pattern
-      db.prepare(`
+      _getStmt('insertPattern', `
         INSERT INTO task_patterns (pattern_type, pattern_value, suggested_config, hit_count, success_rate, avg_duration_seconds, created_at)
         VALUES (?, ?, ?, 1, 1.0, ?, datetime('now'))
       `).run(p.type, p.value, JSON.stringify(p.config), durationSeconds);

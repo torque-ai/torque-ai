@@ -12,9 +12,19 @@ const logger = require('../logger').child({ component: 'validation-rules' });
 
 const MAX_REGEX_INPUT_LENGTH = 50000; // 50KB
 let db = null;
+
+// Lazy module-level cache of prepared statements keyed by a stable name.
+const _stmtCache = new Map();
+function _getStmt(key, sql) {
+  const cached = _stmtCache.get(key);
+  if (cached) return cached;
+  const stmt = db.prepare(sql);
+  _stmtCache.set(key, stmt);
+  return stmt;
+}
 let _getTask = null;
 
-function setDb(dbInstance) { db = dbInstance; }
+function setDb(dbInstance) { db = dbInstance; _stmtCache.clear(); }
 function setGetTask(fn) { _getTask = fn; }
 
 function getTask(...args) { return _getTask(...args); }
@@ -478,17 +488,15 @@ function matchFailurePatterns(taskId, output, provider) {
       const regex = new RegExp(signature, 'gmi');
       if (regex.test(inputToMatch)) {
         // Record the match
-        const stmt = db.prepare(`
+        _getStmt('insertFailureMatch', `
           INSERT INTO failure_matches (task_id, pattern_id, match_details, matched_at)
           VALUES (?, ?, ?, ?)
-        `);
-        stmt.run(taskId, pattern.id, `Matched pattern: ${pattern.name}`, new Date().toISOString());
+        `).run(taskId, pattern.id, `Matched pattern: ${pattern.name}`, new Date().toISOString());
 
         // Increment occurrence count
-        const updateStmt = db.prepare(`
+        _getStmt('incrFailurePatternCount', `
           UPDATE failure_patterns SET occurrence_count = occurrence_count + 1, last_seen_at = ? WHERE id = ?
-        `);
-        updateStmt.run(new Date().toISOString(), pattern.id);
+        `).run(new Date().toISOString(), pattern.id);
 
         matches.push({
           pattern: pattern.name,
@@ -626,11 +634,10 @@ function shouldRetryWithCloud(taskId, output, context = {}) {
 
     if (shouldRetry) {
       // Record the retry attempt
-      const retryStmt = db.prepare(`
+      _getStmt('insertRetryAttempt', `
         INSERT INTO retry_attempts (task_id, original_provider, retry_provider, rule_id, attempt_number, trigger_reason, outcome, attempted_at)
         VALUES (?, ?, ?, ?, ?, ?, 'pending', ?)
-      `);
-      retryStmt.run(taskId, task.provider, rule.fallback_provider, rule.id, attempts.count + 1, reason, new Date().toISOString());
+      `).run(taskId, task.provider, rule.fallback_provider, rule.id, attempts.count + 1, reason, new Date().toISOString());
 
       return {
         shouldRetry: true,
