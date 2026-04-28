@@ -13,9 +13,19 @@ const REMOTE_USER = 'wksuser';
 const COORD_CLIENT = path.resolve(__dirname, '..', '..', 'bin', 'torque-coord-client');
 
 function runClient(args, env) {
+  // On Windows, process.env may expose PATH as 'Path' (mixed case) while the
+  // env we pass has 'PATH' (uppercase). Having both in the env block causes
+  // the child to inherit the ORIGINAL Path value (ignoring our override) when
+  // Windows searches for executables. Fix: strip any existing PATH-like key
+  // from the base env before applying our override so only one copy exists.
+  const baseEnv = {};
+  for (const [k, v] of Object.entries(process.env)) {
+    if (k.toUpperCase() !== 'PATH') baseEnv[k] = v;
+  }
+  const childPath = env.PATH || process.env.PATH || '';
   return spawnSync(process.execPath, [COORD_CLIENT, ...args], {
     encoding: 'utf8',
-    env: { ...process.env, ...env, PATH: env.PATH || process.env.PATH || '' },
+    env: { ...baseEnv, ...env, PATH: childPath },
     timeout: 10000,
   });
 }
