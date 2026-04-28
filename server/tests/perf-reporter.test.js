@@ -61,6 +61,25 @@ describe('perf reporter compareToBaseline', () => {
     expect(result.improvements).toEqual([]);
     expect(result.notes).toContain('no baseline.json — first run');
   });
+
+  it('does NOT flag sub-millisecond regression below the absolute floor', () => {
+    // 0.32ms → 0.51ms is +59% but only +0.19ms — well within timer-resolution
+    // and Defender scheduling noise. Must not trip the gate.
+    const baseline = { metrics: { foo: { median: 0.32 } } };
+    const current = { metrics: { foo: { median: 0.51 } } };
+    const result = compareToBaseline(baseline, current);
+    expect(result.regressions).toEqual([]);
+    expect(result.improvements).toEqual([]);
+  });
+
+  it('still flags large-percent regressions above the absolute floor', () => {
+    // 5ms → 7ms is +40% AND +2ms. The 2ms exceeds the 0.5ms floor so this
+    // genuine regression must still be reported.
+    const baseline = { metrics: { foo: { median: 5 } } };
+    const current = { metrics: { foo: { median: 7 } } };
+    const result = compareToBaseline(baseline, current);
+    expect(result.regressions).toHaveLength(1);
+  });
 });
 
 const { captureEnv } = require('../perf/report');

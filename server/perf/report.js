@@ -29,6 +29,15 @@ function readBaseline(outDir) {
 
 const REGRESSION_THRESHOLD_PCT = 10;
 const IMPROVEMENT_THRESHOLD_PCT = -10;
+// Sub-millisecond metrics (mcp-task-info, sse-dispatch, restart-barrier,
+// queue-scheduler-tick, task-core-create) sit at 0.1-0.5ms baseline. Run-to-run
+// variance there is ±0.1-0.2ms — well within timer resolution and Defender
+// scheduling noise — but a 0.1ms wobble on a 0.3ms baseline reads as +33%
+// regression. Absorb that noise with an absolute floor: any delta below this
+// threshold is treated as zero, regardless of percent change. Empirically
+// 0.5ms covers the observed variance on the BahumutsOmen test runner without
+// hiding regressions on the 14ms+ metrics where +10% is meaningful.
+const REGRESSION_THRESHOLD_ABS_MS = 0.5;
 
 function expandVariants(metrics) {
   const out = {};
@@ -65,7 +74,12 @@ function compareToBaseline(baseline, current) {
   for (const [id, cur] of Object.entries(curM)) {
     const base = baseM[id];
     if (!base || typeof base.median !== 'number') continue;
-    const delta_pct = ((cur.median - base.median) / base.median) * 100;
+    const delta_abs = cur.median - base.median;
+    const delta_pct = (delta_abs / base.median) * 100;
+    // Skip both regression and improvement classification when the absolute
+    // delta is below the noise floor — protects sub-millisecond metrics
+    // from triggering on timer-resolution wobble.
+    if (Math.abs(delta_abs) < REGRESSION_THRESHOLD_ABS_MS) continue;
     if (delta_pct > REGRESSION_THRESHOLD_PCT) {
       regressions.push({ id, baseline_median: base.median, current_median: cur.median, delta_pct });
     } else if (delta_pct < IMPROVEMENT_THRESHOLD_PCT) {
