@@ -10,6 +10,7 @@ const { classHierarchy } = require('./queries/class-hierarchy');
 const telemetry          = require('./telemetry');
 const { cgDiff }         = require('./queries/diff');
 const { search }         = require('./queries/search');
+const { diagnose: diagnoseResolution } = require('./queries/resolution-diagnostics');
 
 function requireString(args, key) {
   if (typeof args?.[key] !== 'string' || args[key].length === 0) {
@@ -278,6 +279,20 @@ function createHandlers({ db }) {
         truncated: r.truncated,
         limit:     r.limit,
         ...(r.truncated && { truncation_hint: `Hit the ${r.limit}-result cap. Narrow the pattern, add kind/container filters, or raise limit (max 1000).` }),
+        staleness: staleness(db, repoPath),
+      });
+    },
+
+    async cg_resolution_diagnostics(args) {
+      const repoPath = requireString(args, 'repo_path');
+      const symbol   = requireString(args, 'symbol');
+      const sampleSizeRaw = args.sample_size;
+      const sampleSize = Number.isInteger(sampleSizeRaw) && sampleSizeRaw > 0
+        ? Math.min(sampleSizeRaw, 200)
+        : 20;
+      const r = diagnoseResolution({ db, repoPath, symbol, sampleSize });
+      return asToolResult({
+        ...r,
         staleness: staleness(db, repoPath),
       });
     },

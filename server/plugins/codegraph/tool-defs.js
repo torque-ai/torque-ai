@@ -169,6 +169,20 @@ const tools = [
       additionalProperties: false,
     },
   },
+  {
+    name: 'cg_resolution_diagnostics',
+    description: 'Explain why cg_find_references with scope="strict" returns fewer results than scope="loose" for a symbol. Walks every reference whose target_name matches the symbol that did NOT get a resolved_symbol_id during indexer pass 2, and classifies each by why binding analysis missed it. Returns `{symbol, loose_count, strict_count, unresolved_count, reasons: {<reason>: count}, unresolved_samples: [{file, line, column, callerSymbol, callerKind, receiver?, reason}], sample_size, truncated_samples, staleness}`. Reason buckets: `no_import_for_target` (no cg_imports row matches the bare identifier in the calling file), `import_to_unindexed_local_file` (relative import points at a file that exists but didn\'t produce a same-named symbol), `import_from_external_module` (import resolves to a third-party package not in cg_symbols), `method_no_local_binding` (method call but no cg_locals row records the receiver\'s type), `method_local_binding_to_unknown_type` (receiver type known but no method of this name on it), `this_enclosing_class_lacks_method` (`this.X()` but enclosing class has no `X`), `method_resolution_edge_case` (binding looks fine — likely indexer bug). Use to triage why a refactor query under-counts.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        repo_path:   { type: 'string' },
+        symbol:      { type: 'string', description: 'Bare identifier name; same shape as cg_find_references.symbol.' },
+        sample_size: { type: 'integer', minimum: 1, maximum: 200, default: 20, description: 'Cap on unresolved-sample count returned. Reason counts always reflect the full unresolved set.' },
+      },
+      required: ['repo_path', 'symbol'],
+      additionalProperties: false,
+    },
+  },
 ];
 
 module.exports = tools;

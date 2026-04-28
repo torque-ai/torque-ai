@@ -631,6 +631,7 @@ const routes = [
   { method: 'GET',  path: '/api/v2/codegraph/telemetry',      tool: 'cg_telemetry',        mapQuery: true },
   { method: 'POST', path: '/api/v2/codegraph/diff',           tool: 'cg_diff',             mapBody:  true },
   { method: 'GET',  path: '/api/v2/codegraph/search',         tool: 'cg_search',           mapQuery: true },
+  { method: 'POST', path: '/api/v2/codegraph/resolution-diagnostics', tool: 'cg_resolution_diagnostics', mapBody: true },
 
 ];
 
