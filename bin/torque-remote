@@ -261,7 +261,16 @@ create_local_state_bundle() {
   printf '%s\n%s\n' "$bundle_tar" "$has_local_state"
 }
 
-trap cleanup_on_exit EXIT
+# Skip the cleanup-on-exit trap for the routing-mode fast-path. That code
+# path creates no temp dirs and exits immediately after a curl probe — but
+# the trap also fires sweep_old_orphans, which on Windows runs
+# `find /tmp -exec rm -rf` against accumulated torque-remote.* dirs. Under
+# Defender real-time scan that sweep takes 10+ seconds, blowing past the
+# 5s spawnSync timeout in tests/coord-torque-remote-routing.test.js even
+# though the routing decision itself returns in <1s.
+if [[ "${1:-}" != "--__internal-print-routing-mode" ]]; then
+  trap cleanup_on_exit EXIT
+fi
 
 # ---- Prerequisites ----
 
