@@ -25,6 +25,7 @@ const { checkResourceGate } = require('../utils/resource-gate');
 const { elicit } = require('../mcp/elicitation');
 const { copyWorkspaceToSandbox } = require('../sandbox/workspace-sync');
 const { inspectPostTaskDiff } = require('./codegraph-diff-validator');
+const { enrichFixPromptWithCodegraph } = require('../utils/codegraph-fix-enrichment');
 
 // Providers that get auto-verify by default.
 // Built via character join to avoid the repo's PII scrub, which case-
@@ -626,6 +627,23 @@ async function handleAutoVerifyRetry(ctx) {
   } catch (_) { /* resume context injection is best-effort */ }
   if (resumeContextForPrompt) {
     fixDescription = prependResumeContextToPrompt(fixDescription, resumeContextForPrompt);
+  }
+
+  // Codegraph caller-graph enrichment: extract candidate failing-symbol
+  // names from the verify error, query cg_call_graph(callers), and inject
+  // a small markdown block listing who else might break. Soft signal —
+  // returns '' on every failure mode so the fix task still ships.
+  try {
+    const codegraphContext = await enrichFixPromptWithCodegraph({
+      repoPath: task.working_directory,
+      errorText: errors,
+    });
+    if (codegraphContext) {
+      fixDescription += '\n\n' + codegraphContext;
+      logger.info(`[auto-verify] Task ${taskId}: cg_call_graph enrichment attached to fix prompt`);
+    }
+  } catch (cgErr) {
+    logger.info(`[auto-verify] Task ${taskId}: cg enrichment failed: ${cgErr.message}`);
   }
 
   // Create fix task
