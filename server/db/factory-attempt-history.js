@@ -20,13 +20,7 @@ function getDb() {
       if (defaultContainer && typeof defaultContainer.has === 'function' && defaultContainer.has('db')) {
         instance = resolveDbHandle(defaultContainer.get('db'));
       }
-    } catch { /* fall through */ }
-  }
-  if (!instance) {
-    try {
-      const database = require('../database');
-      instance = resolveDbHandle(database);
-    } catch { /* surface error below */ }
+    } catch { /* fall through to error below */ }
   }
   if (instance) db = instance;
   if (!instance || typeof instance.prepare !== 'function') {

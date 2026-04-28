@@ -51,6 +51,9 @@ function getDb() {
       // Fall through to database.js below.
     }
   }
+  // Legacy fallback retained because tests/factory-health.test.js explicitly
+  // verifies fallback behavior when setDb(null) is called and the DI
+  // container hasn't been wired (the "module handle cleared" path).
   if (!instance) {
     try {
       const database = require('../database');
