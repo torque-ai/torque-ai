@@ -8,6 +8,14 @@ const { spawnSync, spawn } = require('child_process');
 
 const TORQUE_REMOTE = path.join(__dirname, '..', '..', 'bin', 'torque-remote');
 
+// On Windows, bare `bash` may resolve to WSL bash (C:\Windows\System32\bash.exe),
+// which can't execute scripts at native Windows paths and exits 127. Pin to Git
+// Bash when present. Mirrors server/tests/cutover-barrier-integration.test.js.
+const GIT_BASH_PATH = path.join('C:', 'Program Files', 'Git', 'bin', 'bash.exe');
+const BASH_EXECUTABLE = process.platform === 'win32' && fs.existsSync(GIT_BASH_PATH)
+  ? GIT_BASH_PATH
+  : 'bash';
+
 function makeConfig(tmpDir) {
   const cfg = path.join(tmpDir, '.torque-remote.json');
   fs.writeFileSync(cfg, JSON.stringify({
@@ -35,7 +43,7 @@ function spawnTorqueRemote(args, env, cwd) {
   // branch is rebased onto the current bin/torque-remote, which has the
   // COORD_OUTPUT_LOG capture work that must be preserved. Until then,
   // the timeout ceiling is the application-side floor.
-  return spawnSync('bash', [TORQUE_REMOTE, ...args], {
+  return spawnSync(BASH_EXECUTABLE, [TORQUE_REMOTE, ...args], {
     env: { ...process.env, ...env },
     cwd,
     encoding: 'utf8',
