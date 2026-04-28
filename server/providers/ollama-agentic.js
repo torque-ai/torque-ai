@@ -279,6 +279,10 @@ async function runAgenticLoop({
   // Empty summary retry: track if we already prompted for a summary
   let emptySummaryRetried = false;
 
+  // First-iteration text-only validator (Fix #1B): track if we already sent the
+  // corrective reprompt for an iter-0 prose-only response. Single-shot per task.
+  let firstIterValidatorFired = false;
+
   // Proposal-output retry: read-only proposal tasks should finish by emitting
   // file_edits JSON, not by asking for write tools they deliberately lack.
   let proposalOutputRetried = false;
@@ -418,6 +422,30 @@ async function runAgenticLoop({
       }
 
       // No tool calls — model is done, this is the final response
+
+      // First-iteration text-only validator (Fix #1B).
+      // Small models (qwen3-coder:30b) sometimes ignore the system prompt's
+      // "tool calls only" rule and reply with prose + markdown code blocks on
+      // iter 0. A single corrective reprompt names the failure mode and asks
+      // for a tool call. Gated on iterations === 0 so it fires AT MOST once
+      // per task. If the retry also produces text-only, control falls through
+      // to the normal final-response handling.
+      if (
+        iterations === 0 &&
+        !firstIterValidatorFired &&
+        content.trim().length > 50
+      ) {
+        logger.info(`[Agentic] iter-0 produced text-only response (${content.length} chars) — sending corrective reprompt`);
+        // Preserve the model's prose response in the conversation so the model
+        // can see what it said and what we are responding to.
+        messages.push({ role: 'assistant', content });
+        messages.push({
+          role: 'user',
+          content: 'Your previous response had no tool calls — only text. Tool calls are the ONLY way to make progress. Re-attempt: invoke read_file, list_directory, or write_file directly using the structured tool-call mechanism. Do NOT write code or plans in the message body.',
+        });
+        firstIterValidatorFired = true;
+        continue; // retry; firstIterValidatorFired is the single-shot guard (iterations increments normally)
+      }
 
       // Empty first response retry: if the very first iteration returns empty
       // (no content, no tool calls), retry once — some providers intermittently
@@ -618,11 +646,21 @@ async function runAgenticLoop({
       // Consecutive error detection — only across iterations, not within a batch.
       // Within a single iteration, multiple read_file errors are expected (batch reads
       // where some files don't exist). We track per-iteration error counts and only
-      // trigger early stop when the SAME tool fails across 2+ separate iterations.
+      // trigger early stop when the SAME tool fails across 3+ separate iterations.
+      // Allowlist rejections (execResult._allowlist_rejection) are skipped — they're
+      // routing hints, not real errors, and shouldn't burn the budget.
       if (error) {
-        if (lastErrorToolName === tc.name && lastErrorIteration < iterations) {
+        if (execResult._allowlist_rejection) {
+          // Allowlist rejections are routing hints (the model can read the
+          // suggestion and switch to the right built-in tool) — not real
+          // errors. Reset tracking like a success so the model isn't cut off
+          // while pivoting between rejected variants.
+          lastErrorToolName = null;
+          consecutiveErrorCount = 0;
+          logger.info(`[Agentic] allowlist rejection (suppressed from consecutive-error counter): ${tc.name}`);
+        } else if (lastErrorToolName === tc.name && lastErrorIteration < iterations) {
           consecutiveErrorCount++;
-          if (consecutiveErrorCount >= 2) {
+          if (consecutiveErrorCount >= 3) {
             // Add the error result first, then stop
             if (promptInjectedTools) {
               messages.push({ role: 'user', content: `[TOOL_RESULTS][{"call":{"name":"${tc.name}"},"output":${JSON.stringify(resultStr)}}][/TOOL_RESULTS]`, _wasError: true });

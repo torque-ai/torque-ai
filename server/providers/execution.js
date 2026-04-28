@@ -422,6 +422,14 @@ You are an autonomous coding agent with tool access. Complete the task using ONL
 CRITICAL — TOOL CALLS ARE THE ONLY WAY TO MAKE PROGRESS.
 Your first response MUST invoke a tool. Use the structured tool-call mechanism the API gives you (a real tool_calls field, or the JSON-array tool-call format if your model uses prompt-injected tools). Do NOT type the words "read_file" or "search_files" inside the message body — that is text, not a tool call, and the task will be killed and retried on a different model. If you reply with a prose plan, an outline, or "I'll start by...", the task fails. The right move is to invoke read_file, list_directory, or search_files immediately to gather information.
 
+EXAMPLE — correct first response shape:
+Task: "Read server/foo.js and add a license header at the top."
+Your first response MUST be a tool call, NOT prose. The structured tool-call payload looks like:
+  {"name": "read_file", "arguments": {"path": "server/foo.js"}}
+Then on the NEXT iteration, after seeing the file content, you would call:
+  {"name": "edit_file", "arguments": {"path": "server/foo.js", "old_text": "...", "new_text": "..."}}
+DO NOT respond with text saying "I'll read the file first" — that is prose, not a tool call. Invoke read_file directly.
+
 RULES:
 1. Use tools to read files, make edits, list directories, search code, and run commands.
 2. NEVER describe what you would do — actually do it with tools.
@@ -4267,4 +4275,5 @@ module.exports = {
   runAgenticPipeline,
   // Exported for tests
   shouldRequireToolEvidence,
+  buildAgenticSystemPrompt,
 };

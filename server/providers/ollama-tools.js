@@ -602,6 +602,12 @@ function normalizeToolArguments(name, rawArgs) {
   return name === 'search_files' ? normalizeSearchFilesArgs(args) : args;
 }
 
+// Security guard: substrings that are unconditionally blocked from run_command,
+// regardless of the configured allowlist. Module-scoped so isCommandAllowed and
+// the run_command rejection branch in createToolExecutor reference the same list
+// — keeps the security-vs-allowlist-mismatch invariant from drifting.
+const ALWAYS_BLOCKED = ['rm -rf /', 'mkfs', 'dd if=', ':(){', 'fork bomb'];
+
 /**
  * Validate a command against a list of allowlist patterns.
  * Pattern matching: '*' in a pattern matches any sequence of characters
@@ -613,7 +619,6 @@ function normalizeToolArguments(name, rawArgs) {
  */
 function isCommandAllowed(command, allowlist) {
   // ALWAYS check dangerous commands regardless of allowlist mode
-  const ALWAYS_BLOCKED = ['rm -rf /', 'mkfs', 'dd if=', ':(){', 'fork bomb'];
   const cmdLower = command.toLowerCase();
   if (ALWAYS_BLOCKED.some(b => cmdLower.includes(b))) {
     return false;
@@ -624,6 +629,24 @@ function isCommandAllowed(command, allowlist) {
   // node -e "...", dotnet test --filter "...", etc.)
   if (/[;|&`]|>\s*>/.test(command)) {
     return false;
+  }
+  // ALWAYS allow safe read-only inspection commands regardless of the
+  // configured allowlist. These are read-only by design and the shell-
+  // metachar guard above already rejects pipelines/redirects, so any
+  // composition that could mutate state is already blocked.
+  // Match by leading token (the cmdlet/binary name), case-insensitive.
+  const ALWAYS_ALLOWED_READONLY = new Set([
+    'get-content',
+    'get-childitem',
+    'gci',
+    'dir',
+    'ls',
+    'select-string',
+    'measure-object',
+  ]);
+  const leadingToken = command.trim().split(/\s+/)[0].toLowerCase();
+  if (ALWAYS_ALLOWED_READONLY.has(leadingToken)) {
+    return true;
   }
   for (const pattern of allowlist) {
     if (pattern === '*') return true;
@@ -1190,9 +1213,41 @@ function createToolExecutor(workingDir, options = {}) {
           // Validate against allowlist if in allowlist mode
           if (commandMode === 'allowlist') {
             if (!isCommandAllowed(args.command, commandAllowlist)) {
+              // Distinguish security blocks (ALWAYS_BLOCKED + shell-metachar guard)
+              // from ordinary allowlist mismatches. Security blocks are NOT
+              // recoverable and must NOT be marked as routing hints — Task 3's
+              // counter-suppression logic depends on this distinction.
+              // ALWAYS_BLOCKED is the module-level constant shared with isCommandAllowed.
+              const cmdLower = args.command.toLowerCase();
+              const isSecurityBlock = ALWAYS_BLOCKED.some(b => cmdLower.includes(b))
+                || /[;|&`]|>\s*>/.test(args.command);
+              if (isSecurityBlock) {
+                return {
+                  result: `Error: Command not in allowlist: ${args.command}`,
+                  error: true,
+                  // No _allowlist_rejection marker — security blocks are not recoverable.
+                };
+              }
+              // Allowlist mismatch — emit suggestion + recoverable marker.
+              const leadingToken = args.command.trim().split(/\s+/)[0].toLowerCase();
+              const SUGGESTIONS = {
+                'cat': 'use read_file({path}) instead',
+                'get-content': 'use read_file({path}) instead',
+                'head': 'use read_file({path, end_line: N}) instead',
+                'tail': 'use read_file({path}) to read the file (read_file does not support tail-style negative offsets)',
+                'ls': 'use list_directory({path}) instead',
+                'dir': 'use list_directory({path}) instead',
+                'get-childitem': 'use list_directory({path}) instead',
+                'find': 'use search_files({pattern, path}) instead',
+                'grep': 'use search_files({pattern, path}) instead',
+                'select-string': 'use search_files({pattern, path}) instead',
+                'rg': 'use search_files({pattern, path}) instead',
+              };
+              const hint = SUGGESTIONS[leadingToken] ? ` — ${SUGGESTIONS[leadingToken]}` : '';
               return {
-                result: `Error: Command not in allowlist: ${args.command}`,
+                result: `Error: Command not in allowlist: ${args.command}${hint}`,
                 error: true,
+                _allowlist_rejection: true,
               };
             }
           }
