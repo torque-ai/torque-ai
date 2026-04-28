@@ -454,9 +454,15 @@ if [ "$TORQUE_RUNNING" = "true" ]; then
       echo "  Waiting for pipeline drain..."
       LAST_BLOCKER_REPORT=0
       BARRIER_READY_FOR_RESTART=false
+      EMPTY_TASK_STATUS_STREAK=0
+      MID_DRAIN_UNREACHABLE_RETRIES=${CUTOVER_MID_DRAIN_UNREACHABLE_RETRIES:-6}
       while true; do
         TASK_RESP=$(curl -s --max-time 5 "${TORQUE_API}/api/v2/tasks/${BARRIER_TASK_ID}" 2>/dev/null || echo "")
         TASK_STATUS=$(echo "$TASK_RESP" | sed -nE 's/.*"status"[[:space:]]*:[[:space:]]*"([^"\\]+)".*/\1/p' | head -1 || true)
+
+        if [ -n "$TASK_STATUS" ]; then
+          EMPTY_TASK_STATUS_STREAK=0
+        fi
 
         if [ "$TASK_STATUS" = "completed" ]; then
           echo "[ok] Barrier completed — server restarting."
@@ -496,6 +502,17 @@ if [ "$TORQUE_RUNNING" = "true" ]; then
             echo "  Server unreachable after matching restart handoff (expected during restart)."
             BARRIER_READY_FOR_RESTART=true
             break
+          fi
+          EMPTY_TASK_STATUS_STREAK=$((EMPTY_TASK_STATUS_STREAK + 1))
+          if torque_api_reachable; then
+            echo "    Barrier ${BARRIER_TASK_ID:0:8}: task read returned empty but TORQUE is reachable — retrying (${EMPTY_TASK_STATUS_STREAK}/${MID_DRAIN_UNREACHABLE_RETRIES})..."
+            sleep 5
+            continue
+          fi
+          if [ "$EMPTY_TASK_STATUS_STREAK" -lt "$MID_DRAIN_UNREACHABLE_RETRIES" ]; then
+            echo "    Barrier ${BARRIER_TASK_ID:0:8}: TORQUE unreachable before handoff — retrying (${EMPTY_TASK_STATUS_STREAK}/${MID_DRAIN_UNREACHABLE_RETRIES})..."
+            sleep 5
+            continue
           fi
           echo "[error] TORQUE became unreachable while barrier ${BARRIER_TASK_ID:0:8} was still draining."
           echo "        No matching restart handoff exists at ${TORQUE_HANDOFF_FILE_PATH}."

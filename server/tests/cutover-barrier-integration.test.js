@@ -228,6 +228,7 @@ FAKE_DATA="$FAKE_ROOT/data"
 mkdir -p "$FAKE_WORKTREE" "$FAKE_DATA" "$FAKE_REPO/server"
 PID_FILE="$FAKE_DATA/torque.pid"
 HANDOFF_FILE="$FAKE_DATA/restart-handoff.json"
+RESTART_FLAG="$FAKE_DATA/restart-submitted"
 printf '{"pid":111,"startedAt":"2026-04-28T13:47:00.000Z","heartbeatAt":"2026-04-28T13:47:05.000Z"}' > "$PID_FILE"
 
 git() {
@@ -261,6 +262,7 @@ export -f nohup
 curl() {
   case "\${*}" in
     */api/v2/system/restart-server*)
+      touch "$RESTART_FLAG"
       echo '{"task_id":"22222222-2222-4222-8222-222222222222","status":"running"}'
       return 0
       ;;
@@ -272,6 +274,9 @@ curl() {
       return 0
       ;;
     */livez*|*/api/version*)
+      if [ -f "$RESTART_FLAG" ]; then
+        return 1
+      fi
       echo '{"ok":true}'
       return 0
       ;;
@@ -300,7 +305,108 @@ rm -rf "$FAKE_ROOT"
     const result = childProcess.spawnSync(BASH_EXECUTABLE, [wrapperPath, featureName], {
       encoding: 'utf8',
       timeout: 10000,
-      env: { ...process.env, ...env },
+      env: { ...process.env, CUTOVER_MID_DRAIN_UNREACHABLE_RETRIES: '1', ...env },
+      windowsHide: true,
+    });
+    return {
+      status: result.status,
+      stdout: result.stdout || '',
+      stderr: result.stderr || '',
+      error: result.error || null,
+    };
+  } finally {
+    try {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    } catch { /* cleanup best-effort */ }
+  }
+}
+
+function runTransientTaskReadSimulation(featureName, env = {}) {
+  const wrapper = `
+#!/usr/bin/env bash
+set -euo pipefail
+
+SAFE_NAME=$(echo "${featureName}" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9._-]/-/g')
+FAKE_ROOT=$(mktemp -d)
+FAKE_REPO="$FAKE_ROOT/repo"
+FAKE_WORKTREE="$FAKE_REPO/.worktrees/feat-$SAFE_NAME"
+FAKE_DATA="$FAKE_ROOT/data"
+mkdir -p "$FAKE_WORKTREE" "$FAKE_DATA" "$FAKE_REPO/server"
+PID_FILE="$FAKE_DATA/torque.pid"
+TASK_POLL_FILE="$FAKE_DATA/task-polled"
+printf '{"pid":111,"startedAt":"2026-04-28T13:47:00.000Z","heartbeatAt":"2026-04-28T13:47:05.000Z"}' > "$PID_FILE"
+
+git() {
+  if [ "$1" = "-C" ]; then
+    shift 2
+  fi
+  case "$1" in
+    rev-parse)    echo "$FAKE_REPO" ;;
+    show-ref)     return 0 ;;
+    symbolic-ref) echo "main" ;;
+    merge)        echo "Already up to date." ;;
+    merge-base)   return 0 ;;
+    checkout)     return 0 ;;
+    diff)         return 0 ;;
+    worktree)     return 0 ;;
+    branch)       return 0 ;;
+    status)       return 0 ;;
+    *)            command git "$@" ;;
+  esac
+}
+export -f git
+
+sleep() { :; }
+export -f sleep
+
+curl() {
+  case "\${*}" in
+    */api/v2/system/restart-server*)
+      echo '{"task_id":"33333333-3333-4333-8333-333333333333","status":"running"}'
+      return 0
+      ;;
+    */api/v2/tasks/33333333-3333-4333-8333-333333333333*)
+      if [ ! -f "$TASK_POLL_FILE" ]; then
+        touch "$TASK_POLL_FILE"
+        return 1
+      fi
+      echo '{"status":"completed"}'
+      return 0
+      ;;
+    */api/v2/tasks?status=*)
+      echo '{"items":[]}'
+      return 0
+      ;;
+    */livez*|*/api/version*)
+      echo '{"ok":true}'
+      return 0
+      ;;
+    *)
+      echo '{}'
+      return 0
+      ;;
+  esac
+}
+export -f curl
+
+export TORQUE_PID_FILE="$PID_FILE"
+export TORQUE_HANDOFF_FILE="$FAKE_DATA/restart-handoff.json"
+
+SCRIPT_BODY=$(tail -n +3 "${SCRIPT_PATH.replace(/\\/g, '/')}")
+eval "$SCRIPT_BODY" <<< ""
+
+rm -rf "$FAKE_ROOT"
+`;
+
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cutover-transient-task-read-'));
+  const wrapperPath = path.join(tmpDir, 'transient-task-read-cutover.sh');
+  fs.writeFileSync(wrapperPath, wrapper, { mode: 0o755 });
+
+  try {
+    const result = childProcess.spawnSync(BASH_EXECUTABLE, [wrapperPath, featureName], {
+      encoding: 'utf8',
+      timeout: 10000,
+      env: { ...process.env, CUTOVER_RESTART_WAIT_SECONDS: '1', ...env },
       windowsHide: true,
     });
     return {
@@ -387,6 +493,7 @@ describe('worktree-cutover.sh barrier integration', () => {
 
     it('handles server unreachable during restart grace period', () => {
       expect(scriptSource).toContain('Server unreachable after matching restart handoff');
+      expect(scriptSource).toContain('task read returned empty but TORQUE is reachable');
       expect(scriptSource).toContain('No matching restart handoff exists');
     });
 
@@ -518,6 +625,15 @@ describe('worktree-cutover.sh barrier integration', () => {
       expect(result.stdout).toContain('No matching restart handoff exists');
       expect(result.stdout).toContain('Refusing to start a successor over an undrained barrier');
       expect(result.stdout).not.toContain('NOHUP_CALLED');
+    });
+
+    it('retries an empty barrier task read when TORQUE is still reachable', () => {
+      const result = runTransientTaskReadSimulation('test-barrier-feature');
+
+      expect(result.error).toBeNull();
+      expect(result.stdout).toContain('task read returned empty but TORQUE is reachable');
+      expect(result.stdout).toContain('TORQUE stayed reachable but never showed PID turnover');
+      expect(result.stdout).not.toContain('No matching restart handoff exists');
     });
   });
 
