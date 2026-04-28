@@ -29,6 +29,7 @@ const FactoryHealth = lazy(() => import('./views/factory/Health'));
 const FactoryActivity = lazy(() => import('./views/factory/Activity'));
 const FactoryHistory = lazy(() => import('./views/factory/History'));
 const FactoryPolicy = lazy(() => import('./views/factory/Policy'));
+const Codegraph = lazy(() => import('./views/Codegraph'));
 
 function mergeTaskUpdates(prevTasks, incomingTasks) {
   const updates = new Map(
@@ -315,6 +316,7 @@ function AppInner() {
                 <Route path="history" element={<FactoryHistory />} />
                 <Route path="policy" element={<FactoryPolicy />} />
               </Route>
+              <Route path="codegraph" element={<Codegraph />} />
               <Route path="settings" element={<ProjectSettings />} />
               {/* Redirects for old bookmarks */}
               <Route path="project-settings" element={<Navigate to="/settings" replace />} />

@@ -5,13 +5,24 @@ const DEFAULT_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 const CANARY_TASK_DESCRIPTION =
   'Read-only canary check: confirm Codex CLI is reachable. List files in /src and report counts only — do not modify any files.';
 
-function createCanaryScheduler({ eventBus, submitTask, logger, intervalMs }) {
+function createCanaryScheduler({ eventBus, submitTask, logger, intervalMs, breaker }) {
   if (!eventBus) throw new Error('createCanaryScheduler requires eventBus');
   if (typeof submitTask !== 'function') throw new Error('createCanaryScheduler requires submitTask function');
   const log = logger || { info() {}, warn() {} };
   const interval = intervalMs || DEFAULT_INTERVAL_MS;
   let pendingTimer = null;
   let active = false;
+
+  // Startup reconcile: if breaker reloaded as OPEN from persisted DB state
+  // (TORQUE restarted while Codex tripped), no circuit:tripped event fires
+  // on construction. Without this, the canary stays disarmed and the
+  // breaker can never auto-recover via canary probe.
+  if (breaker && typeof breaker.allowRequest === 'function' && !breaker.allowRequest('codex')) {
+    active = true;
+    log.info('[codex-fallback-2] canary scheduler startup reconcile: breaker is OPEN, arming', { intervalMs: interval });
+    // Schedule on next tick so the construction completes first.
+    setImmediate(() => { if (active && !pendingTimer) schedule(); });
+  }
 
   function schedule() {
     if (pendingTimer) return; // already scheduled

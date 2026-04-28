@@ -586,6 +586,38 @@ export const coordination = {
   listClaims: () => requestV2('/coordination/claims'),
 };
 
+export const codegraph = {
+  indexStatus: (repoPath) => requestV2(
+    '/codegraph/index-status?repo_path=' + encodeURIComponent(repoPath)),
+  reindex: (body) => requestV2('/codegraph/reindex', {
+    method: 'POST', body: JSON.stringify(body),
+  }),
+  search: ({ repoPath, pattern, kind, container, isExported, limit = 50 } = {}) => {
+    const qs = new URLSearchParams({ repo_path: repoPath, pattern, limit });
+    if (kind) qs.set('kind', kind);
+    if (container) qs.set('container', container);
+    if (isExported === true || isExported === false) qs.set('is_exported', String(isExported));
+    return requestV2('/codegraph/search?' + qs.toString());
+  },
+  telemetry: (sinceHours = 24, tool = null) => {
+    const qs = new URLSearchParams({ since_hours: sinceHours });
+    if (tool) qs.set('tool', tool);
+    return requestV2('/codegraph/telemetry?' + qs.toString());
+  },
+  diff: (body) => requestV2('/codegraph/diff', {
+    method: 'POST', body: JSON.stringify(body),
+  }),
+  resolutionDiagnostics: (body) => requestV2('/codegraph/resolution-diagnostics', {
+    method: 'POST', body: JSON.stringify(body),
+  }),
+  deadSymbols: ({ repoPath, includeExported = false, includeLikelyDispatched = false } = {}) => {
+    const qs = new URLSearchParams({ repo_path: repoPath });
+    if (includeExported) qs.set('include_exported', 'true');
+    if (includeLikelyDispatched) qs.set('include_likely_dispatched', 'true');
+    return requestV2('/codegraph/dead-symbols?' + qs.toString());
+  },
+};
+
 export const versionControl = {
   getWorktrees: () => requestV2('/version-control/worktrees'),
   getCommits: (days = 7) => requestV2('/version-control/commits?days=' + days),
@@ -760,4 +792,26 @@ export const codexBreaker = {
   }),
 };
 
-export default { tasks, providers, stats, planProjects, hosts, peekHosts, budget, schedules, study, taskLogs, system, instances, projectTuning, benchmarks, workflows, workflowSpecs, approvals, governance, coordination, versionControl, strategic, routingTemplates, factory, codexBreaker };
+// ─── Remote Test Coordinator (workstation lock daemon mirror) ──────────────
+
+export const coord = {
+  getActive: async (opts = {}) => {
+    const ctrl = opts.signal ? null : new AbortController();
+    const signal = opts.signal || ctrl?.signal;
+    const timer = ctrl ? setTimeout(() => ctrl.abort(), opts.timeout_ms || 8000) : null;
+    try {
+      const res = await fetch('/api/coord/active', { signal, credentials: 'same-origin' });
+      if (!res.ok) {
+        // The endpoint always returns 200 even when the workstation is
+        // unreachable. A non-200 here means the TORQUE server itself failed,
+        // which is a different concern — surface it as an error.
+        throw new Error(`/api/coord/active returned HTTP ${res.status}`);
+      }
+      return await res.json();
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  },
+};
+
+export default { tasks, providers, stats, planProjects, hosts, peekHosts, budget, schedules, study, taskLogs, system, instances, projectTuning, benchmarks, workflows, workflowSpecs, approvals, governance, coordination, versionControl, strategic, routingTemplates, factory, codexBreaker, coord };

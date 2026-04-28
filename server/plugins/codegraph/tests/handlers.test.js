@@ -202,4 +202,31 @@ describe('codegraph handlers', () => {
       await expect(handlers[name]({})).rejects.toThrow(/repo_path/);
     }
   });
+
+  it('cg_reindex with if_tracked=true skips when repo is not in cg_index_state', async () => {
+    // Fresh db without any indexed repos. The post-commit hook calls with
+    // if_tracked=true so it never bootstraps a brand-new index.
+    const freshDb = new Database(':memory:'); ensureSchema(freshDb);
+    const freshHandlers = createHandlers({ db: freshDb });
+    try {
+      const r = data(await freshHandlers.cg_reindex({ repo_path: repo, if_tracked: true, async: false }));
+      expect(r.skipped).toBe(true);
+      expect(r.reason).toBe('not_tracked');
+      expect(r.repo_path).toBe(repo);
+      // No state row should have been created.
+      const row = freshDb.prepare('SELECT 1 FROM cg_index_state WHERE repo_path = ?').get(repo);
+      expect(row).toBeUndefined();
+    } finally {
+      freshDb.close();
+    }
+  });
+
+  it('cg_reindex with if_tracked=true refreshes when repo is already indexed', async () => {
+    // beforeEach indexed `repo`. With if_tracked=true the call should proceed
+    // and return skipped:true (idempotent — index already matches HEAD).
+    const r = data(await handlers.cg_reindex({ repo_path: repo, if_tracked: true, async: false }));
+    expect(r.reason).toBeUndefined();           // not the not_tracked branch
+    expect(r.skipped).toBe(true);               // idempotent: HEAD already indexed
+    expect(r.commitSha).toMatch(/^[0-9a-f]{40}$/);
+  });
 });

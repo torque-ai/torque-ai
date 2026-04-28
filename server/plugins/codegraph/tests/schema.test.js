@@ -23,6 +23,7 @@ describe('codegraph schema', () => {
       'cg_locals',
       'cg_references',
       'cg_symbols',
+      'cg_tool_usage',
     ]);
   });
 

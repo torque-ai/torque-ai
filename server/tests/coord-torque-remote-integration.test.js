@@ -8,6 +8,14 @@ const { spawnSync, spawn } = require('child_process');
 
 const TORQUE_REMOTE = path.join(__dirname, '..', '..', 'bin', 'torque-remote');
 
+// On Windows, bare `bash` may resolve to WSL bash (C:\Windows\System32\bash.exe),
+// which can't execute scripts at native Windows paths and exits 127. Pin to Git
+// Bash when present. Mirrors server/tests/cutover-barrier-integration.test.js.
+const GIT_BASH_PATH = path.join('C:', 'Program Files', 'Git', 'bin', 'bash.exe');
+const BASH_EXECUTABLE = process.platform === 'win32' && fs.existsSync(GIT_BASH_PATH)
+  ? GIT_BASH_PATH
+  : 'bash';
+
 function makeConfig(tmpDir) {
   const cfg = path.join(tmpDir, '.torque-remote.json');
   fs.writeFileSync(cfg, JSON.stringify({
@@ -18,22 +26,27 @@ function makeConfig(tmpDir) {
 }
 
 function spawnTorqueRemote(args, env, cwd) {
-  // 90s timeout (was 10s). torque-remote shells out to two Node processes
-  // per invocation (begin + release). On the Windows test remote, `node`
-  // cold-start under Defender real-time scan is highly variable: measured
-  // 2026-04-27 across 5 sequential noop runs, 8839/8864/8879/11794/11813ms,
-  // and `coord-client begin` against an unreachable port across 5 runs:
-  // 18331/19662/22208/19587/19596ms. Each begin = startup (~9-12s) +
-  // computeLockHashes (~3s for require + walk) + immediate ECONNREFUSED.
-  // Worst-case wall under variance: begin (~22s) + release (~12s) =
-  // ~34s, plus echo command + bash overhead. 90s leaves clean margin for
-  // a slow node spawn while still bounding pathological hangs.
+  // 90s timeout (was 10s). After the begin-collapse refactor, torque-remote
+  // shells out to two Node processes per invocation (begin + release). On
+  // the Windows test remote, `node` cold-start under Defender real-time
+  // scan is highly variable: measured 2026-04-27 across 5 sequential noop
+  // runs, 8839/8864/8879/11794/11813ms, and `coord-client begin` against
+  // an unreachable port across 5 runs: 18331/19662/22208/19587/19596ms.
+  // Each begin = startup (~9-12s) + computeLockHashes (~3s for require +
+  // walk) + immediate ECONNREFUSED. Worst-case wall under variance:
+  // begin (~22s) + release (~12s) = ~34s, plus echo command + bash
+  // overhead. 90s leaves clean margin for a slow node spawn while still
+  // bounding pathological hangs.
   //
-  // The proper system-level fix is to add `node.exe` to Defender's process-
-  // exclusion list on the test runner, which would bring node startup back
-  // down to ~200-500ms. Until that lands, the 2-spawn protocol (collapsed
-  // from 3 in commit e5c31eb3) is the application-side floor.
-  return spawnSync('bash', [TORQUE_REMOTE, ...args], {
+  // The proper system-level fix is to add `node.exe` to Defender's
+  // process-exclusion list on the test runner, which would bring node
+  // startup back down to ~200-500ms. Until that lands, the 2-spawn
+  // protocol (collapsed from 3+ in this branch) is the application-side
+  // floor.
+  //
+  // BASH_EXECUTABLE pins to Git Bash on Windows so we don't accidentally
+  // resolve to WSL bash (mirrors d25abbda).
+  return spawnSync(BASH_EXECUTABLE, [TORQUE_REMOTE, ...args], {
     env: { ...process.env, ...env },
     cwd,
     encoding: 'utf8',

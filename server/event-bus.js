@@ -70,6 +70,17 @@ function createEventBus() {
     listeners: (event) => emitter.listeners(event),
     removeListener: (event, fn) => emitter.removeListener(event, fn),
 
+    // Generic pass-through for code that needs raw event subscriptions on
+    // event names not exposed as typed methods (e.g. circuit-breaker emits
+    // 'circuit:tripped' / 'circuit:recovered'; budget-watcher subscribes
+    // generically). Without these, factories registered against ['eventBus']
+    // that call eventBus.on(...) on construction crash container.boot()
+    // with 'eventBus.on is not a function', taking out every DI service
+    // including providerScoring, autoRecoveryEngine, and starvationRecovery.
+    on: (event, fn) => emitter.on(event, fn),
+    emit: (event, payload) => emitter.emit(event, payload),
+    off: (event, fn) => emitter.off(event, fn),
+
     // Cleanup
     removeAllListeners: () => emitter.removeAllListeners(),
   };

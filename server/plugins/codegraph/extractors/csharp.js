@@ -115,7 +115,9 @@ function callReceiverName(invNode) {
   const obj = fn.childForFieldName('expression') || fn.namedChild(0);
   if (!obj) return '';
   if (obj.type === 'identifier') return obj.text;
-  if (obj.type === 'this_expression') return 'this';
+  // tree-sitter-c-sharp ≥0.23 emits a bare `this` node (unnamed); older
+  // versions used `this_expression`. Accept both.
+  if (obj.type === 'this_expression' || obj.type === 'this') return 'this';
   return '';
 }
 

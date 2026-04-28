@@ -26,10 +26,18 @@ describe('codex-down-failover template', () => {
     }
   });
 
-  it('does NOT have chains for codex_only categories', () => {
+  it('has fallback chains for codex_only categories too (codex-down means EVERY category needs a chain)', () => {
+    // The template was originally written when codex-down-failover only covered
+    // free-eligible categories. The whole point of codex-down failover is that
+    // when Codex itself is unreachable, the categories that normally route to
+    // Codex (architectural, large_code_gen, etc.) need *some* path forward — so
+    // the template now provides free-provider chains for them too. The earlier
+    // assertion that those categories should NOT have chains was stale.
     tmpl = JSON.parse(fs.readFileSync(TEMPLATE_PATH, 'utf8'));
     for (const cat of ['architectural', 'large_code_gen', 'xaml_wpf', 'security', 'reasoning']) {
-      expect(tmpl.rules[cat], `${cat} should not have a chain`).toBeUndefined();
+      expect(tmpl.rules[cat], `${cat} should have a fallback chain in the codex-down template`).toBeDefined();
+      expect(Array.isArray(tmpl.rules[cat])).toBe(true);
+      expect(tmpl.rules[cat].length).toBeGreaterThan(0);
     }
   });
 

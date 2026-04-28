@@ -8,11 +8,17 @@ const PLUGIN_VERSION = '0.1.0';
 const { ensureSchema } = require('./schema');
 const toolDefs = require('./tool-defs');
 const { createHandlers } = require('./handlers');
+const telemetry = require('./telemetry');
 
 const DEDICATED_DB_FILENAME = 'codegraph.db';
 
 function isFeatureEnabled() {
-  return process.env.TORQUE_CODEGRAPH_ENABLED === '1';
+  // Default: enabled. Set TORQUE_CODEGRAPH_ENABLED=0 to opt out.
+  // The plugin is now part of the standard surface — disabling it leaves
+  // /api/v2/codegraph/* routes returning "Unknown tool: cg_*" 500s, which
+  // the dashboard's /codegraph page surfaces as "Error: internal server
+  // error" with no actionable message.
+  return process.env.TORQUE_CODEGRAPH_ENABLED !== '0';
 }
 
 function getContainerService(container, name) {
@@ -67,7 +73,13 @@ function createCodegraphPlugin() {
       }
     } catch { /* schema may be empty */ }
 
-    const handlers = createHandlers({ db });
+    const rawHandlers = createHandlers({ db });
+    // Wrap each cg_* handler so every invocation is recorded into
+    // cg_tool_usage. The wrapper swallows any recorder error so a failed
+    // INSERT never breaks the tool call. cg_telemetry is added unwrapped —
+    // surfacing telemetry must not record itself (recursion / measurement
+    // bias).
+    const handlers = telemetry.instrument(rawHandlers, db);
     toolList = toolDefs.map((toolDef) => ({
       ...toolDef,
       handler: handlers[toolDef.name],

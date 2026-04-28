@@ -7,6 +7,10 @@ const { impactSet }      = require('./queries/impact-set');
 const { deadSymbols }    = require('./queries/dead-symbols');
 const { resolveTool }    = require('./queries/resolve-tool');
 const { classHierarchy } = require('./queries/class-hierarchy');
+const telemetry          = require('./telemetry');
+const { cgDiff }         = require('./queries/diff');
+const { search }         = require('./queries/search');
+const { diagnose: diagnoseResolution } = require('./queries/resolution-diagnostics');
 
 function requireString(args, key) {
   if (typeof args?.[key] !== 'string' || args[key].length === 0) {
@@ -78,6 +82,18 @@ function createHandlers({ db }) {
       const repoPath = requireString(args, 'repo_path');
       const force = args.force === true;
       const wantsAsync = args.async !== false;
+      const ifTracked = args.if_tracked === true;
+      // if_tracked guards against accidentally bootstrapping a brand-new repo
+      // index from a fire-and-forget caller (e.g. the post-commit hook). When
+      // set, we only reindex repos already in cg_index_state — so the hook
+      // keeps existing indexes fresh without ever spending minutes on a full
+      // first-time index of an unrelated worktree's commit.
+      if (ifTracked) {
+        const tracked = getIndexState({ db, repoPath });
+        if (!tracked) {
+          return asToolResult({ skipped: true, reason: 'not_tracked', repo_path: repoPath });
+        }
+      }
       const dbPath = db.name && db.name !== ':memory:' ? db.name : null;
       if (wantsAsync && dbPath) {
         return asToolResult(require('./index-runner').startReindexJob({ dbPath, repoPath, force }));
@@ -211,6 +227,72 @@ function createHandlers({ db }) {
         ...(hasHandlers === false && hasCandidates === false && hasConvention === false && {
           hint: `No dispatcher, no exact-name symbol, and no handle<PascalCase> convention match for '${toolName}'. The tool may be defined in a different repo, registered dynamically from a string interpolation, or misspelled. Try cg_find_references on '${toolName}' as a string symbol to find call sites that mention it.`,
         }),
+        staleness: staleness(db, repoPath),
+      });
+    },
+
+    async cg_telemetry(args) {
+      const sinceHoursRaw = args?.since_hours;
+      const sinceHours = Number.isFinite(sinceHoursRaw) && sinceHoursRaw > 0
+        ? Math.min(sinceHoursRaw, 24 * 365)
+        : 24;
+      const tool = typeof args?.tool === 'string' && args.tool ? args.tool : null;
+      const summary = telemetry.summarize(db, { sinceHours, tool });
+      return asToolResult({
+        since_hours: sinceHours,
+        ...(tool && { tool_filter: tool }),
+        tools: summary,
+        total_calls: summary.reduce((acc, r) => acc + r.calls, 0),
+      });
+    },
+
+    async cg_diff(args) {
+      const repoPath = requireString(args, 'repo_path');
+      const fromSha  = requireString(args, 'from_sha');
+      const toSha    = requireString(args, 'to_sha');
+      const maxFilesRaw = args.max_files;
+      const maxFiles = Number.isInteger(maxFilesRaw) && maxFilesRaw > 0
+        ? Math.min(maxFilesRaw, 5000)
+        : 500;
+      const result = await cgDiff({ repoPath, fromSha, toSha, maxFiles });
+      return asToolResult(result);
+    },
+
+    async cg_search(args) {
+      const repoPath = requireString(args, 'repo_path');
+      const pattern  = requireString(args, 'pattern');
+      const kind      = typeof args.kind === 'string' && args.kind ? args.kind : null;
+      const container = typeof args.container === 'string' && args.container ? args.container : null;
+      const isExportedRaw = args.is_exported;
+      const isExported = isExportedRaw === true ? true : (isExportedRaw === false ? false : null);
+      const limitRaw = args.limit;
+      const limit = Number.isInteger(limitRaw) && limitRaw > 0
+        ? Math.min(limitRaw, 1000)
+        : 200;
+      const r = search({ db, repoPath, pattern, kind, container, isExported, limit });
+      return asToolResult({
+        pattern,
+        ...(kind && { kind_filter: kind }),
+        ...(container && { container_filter: container }),
+        ...(isExported !== null && { is_exported_filter: isExported }),
+        results:   r.results,
+        truncated: r.truncated,
+        limit:     r.limit,
+        ...(r.truncated && { truncation_hint: `Hit the ${r.limit}-result cap. Narrow the pattern, add kind/container filters, or raise limit (max 1000).` }),
+        staleness: staleness(db, repoPath),
+      });
+    },
+
+    async cg_resolution_diagnostics(args) {
+      const repoPath = requireString(args, 'repo_path');
+      const symbol   = requireString(args, 'symbol');
+      const sampleSizeRaw = args.sample_size;
+      const sampleSize = Number.isInteger(sampleSizeRaw) && sampleSizeRaw > 0
+        ? Math.min(sampleSizeRaw, 200)
+        : 20;
+      const r = diagnoseResolution({ db, repoPath, symbol, sampleSize });
+      return asToolResult({
+        ...r,
         staleness: staleness(db, repoPath),
       });
     },

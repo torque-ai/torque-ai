@@ -32,15 +32,16 @@ describe('codegraph plugin lifecycle', () => {
     expect(plugin.mcpTools()).toEqual([]);
   });
 
-  it('install is a no-op when feature flag is off', () => {
+  it('install is a no-op when feature flag is explicitly disabled (=0)', () => {
     const prev = process.env.TORQUE_CODEGRAPH_ENABLED;
-    delete process.env.TORQUE_CODEGRAPH_ENABLED;
+    process.env.TORQUE_CODEGRAPH_ENABLED = '0';
     try {
       const plugin = createCodegraphPlugin();
       plugin.install(container);
       expect(plugin.mcpTools()).toEqual([]);
     } finally {
       if (prev !== undefined) process.env.TORQUE_CODEGRAPH_ENABLED = prev;
+      else delete process.env.TORQUE_CODEGRAPH_ENABLED;
     }
   });
 

@@ -1,6 +1,6 @@
 {
   "name": "Codex-Down Failover",
-  "description": "Routes around a tripped Codex circuit breaker — free cloud providers only. Codex-only categories (architectural, large_code_gen, xaml_wpf, security, reasoning) have no chain and will park until Codex recovers.",
+  "description": "Routes around a tripped Codex circuit breaker using the best free providers. Free-eligible categories (simple_generation, targeted_file_edit, documentation, default, plan_generation, tests) chain through fast/cheap providers (groq, cerebras). Codex-only categories (architectural, large_code_gen, xaml_wpf, security, reasoning) chain through the most capable free providers (kimi-k2:1t, qwen3-coder:480b, gemini-2.5-pro, mistral-large) — slower than Codex on heavy work but they actually attempt to complete instead of falling through to local ollama which can't drive their agentic prompts at 30b param scale.",
   "rules": {
     "simple_generation": [
       {"provider": "groq", "model": "openai/gpt-oss-120b"},
@@ -30,6 +30,31 @@
     "tests": [
       {"provider": "cerebras", "model": "qwen-3-235b-a22b-instruct-2507"},
       {"provider": "google-ai", "model": "gemini-2.5-flash"},
+      {"provider": "openrouter", "model": "moonshotai/kimi-k2-instruct"}
+    ],
+    "architectural": [
+      {"provider": "ollama-cloud", "model": "kimi-k2:1t"},
+      {"provider": "google-ai", "model": "gemini-2.5-pro"},
+      {"provider": "openrouter", "model": "moonshotai/kimi-k2-instruct"}
+    ],
+    "large_code_gen": [
+      {"provider": "ollama-cloud", "model": "qwen3-coder:480b"},
+      {"provider": "ollama-cloud", "model": "kimi-k2:1t"},
+      {"provider": "google-ai", "model": "gemini-2.5-pro"}
+    ],
+    "xaml_wpf": [
+      {"provider": "ollama-cloud", "model": "kimi-k2:1t"},
+      {"provider": "google-ai", "model": "gemini-2.5-pro"},
+      {"provider": "cerebras", "model": "qwen-3-235b-a22b-instruct-2507"}
+    ],
+    "security": [
+      {"provider": "google-ai", "model": "gemini-2.5-pro"},
+      {"provider": "ollama-cloud", "model": "kimi-k2:1t"},
+      {"provider": "openrouter", "model": "moonshotai/kimi-k2-instruct"}
+    ],
+    "reasoning": [
+      {"provider": "ollama-cloud", "model": "kimi-k2:1t"},
+      {"provider": "google-ai", "model": "gemini-2.5-pro"},
       {"provider": "openrouter", "model": "moonshotai/kimi-k2-instruct"}
     ]
   }

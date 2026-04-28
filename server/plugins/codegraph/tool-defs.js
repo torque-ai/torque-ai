@@ -24,13 +24,14 @@ const tools = [
   },
   {
     name: 'cg_reindex',
-    description: 'Build (or rebuild) the code graph index for a repo by parsing every JS/TS/TSX file at git HEAD. Idempotent: returns {skipped: true} if the index already matches the current HEAD SHA, unless force=true. Reads from HEAD only — uncommitted changes in the working tree are ignored. By default runs in a worker thread (returns immediately with a jobId; poll cg_index_status to detect completion). Pass async=false to block until indexing finishes (use only for small repos — TORQUE itself takes a few seconds).',
+    description: 'Build (or rebuild) the code graph index for a repo by parsing every JS/TS/TSX file at git HEAD. Idempotent: returns {skipped: true} if the index already matches the current HEAD SHA, unless force=true. Reads from HEAD only — uncommitted changes in the working tree are ignored. By default runs in a worker thread (returns immediately with a jobId; poll cg_index_status to detect completion). Pass async=false to block until indexing finishes (use only for small repos — TORQUE itself takes a few seconds). Pass if_tracked=true to skip with `{skipped:"not_tracked"}` when the repo is not already in cg_index_state — used by the post-commit auto-reindex hook to keep existing indexes fresh without bootstrapping new ones.',
     inputSchema: {
       type: 'object',
       properties: {
-        repo_path: { type: 'string' },
-        force:     { type: 'boolean', default: false, description: 'Re-index even if the indexed SHA matches current HEAD.' },
-        async:     { type: 'boolean', default: true,  description: 'Run in worker thread (returns jobId immediately). Set false for blocking sync indexing.' },
+        repo_path:  { type: 'string' },
+        force:      { type: 'boolean', default: false, description: 'Re-index even if the indexed SHA matches current HEAD.' },
+        async:      { type: 'boolean', default: true,  description: 'Run in worker thread (returns jobId immediately). Set false for blocking sync indexing.' },
+        if_tracked: { type: 'boolean', default: false, description: 'Skip with {skipped:"not_tracked"} unless repo_path already has a cg_index_state row. Lets fire-and-forget callers (post-commit hook) refresh existing indexes without bootstrapping new ones.' },
       },
       required: ['repo_path'],
       additionalProperties: false,
@@ -121,6 +122,64 @@ const tools = [
         tool_name: { type: 'string', description: 'MCP tool name as it appears in a switch/case dispatcher (e.g. "smart_submit_task", "cg_reindex").' },
       },
       required: ['repo_path', 'tool_name'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'cg_telemetry',
+    description: 'Aggregate the shadow-mode usage telemetry for cg_* tools over a recent time window. Every cg_* call records one row in cg_tool_usage at handler time (best-effort, errors swallowed). Returns `{since_hours, tools: [{tool, calls, avg_duration_ms, max_duration_ms, avg_result_count, strict_pct, truncation_pct, staleness_pct, error_pct, last_call_at}], total_calls}`. Use to answer: is the planner integration paying off? Are loose vs strict scope ratios drifting? Are queries hitting truncation caps too often? Are consumers seeing stale results?',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        since_hours: { type: 'integer', minimum: 1, maximum: 8760, default: 24, description: 'Look-back window in hours (default 24, max 8760 = 1 year).' },
+        tool:        { type: 'string', description: 'Optional filter — return aggregate only for this cg_* tool name.' },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'cg_diff',
+    description: 'Compute the symbol-level delta between two git commits in a repo. Re-extracts symbols from each changed file at both shas (added files: extract at to_sha; deleted: extract at from_sha; modified: extract both and set-diff). Returns `{from_sha, to_sha, added_symbols: [{name, kind, file, line, container?}], removed_symbols: [...], changed_files: {added, modified, deleted}, skipped_files, truncated, max_files, total_files_changed}`. Symbol identity is (name, kind, container, file) — line numbers don\'t affect identity, so a function moved within a file won\'t appear as add+remove. Bounded to changed files only (fast for typical commits) and capped at max_files (default 500); over the cap returns truncated:true with no symbol diff. Reads from git object store directly — does NOT depend on cg_index_state, so it works on any reachable shas without reindexing.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        repo_path: { type: 'string' },
+        from_sha:  { type: 'string', description: 'Git sha to diff from (older).' },
+        to_sha:    { type: 'string', description: 'Git sha to diff to (newer). Both shas must be reachable in the repo.' },
+        max_files: { type: 'integer', minimum: 1, maximum: 5000, default: 500, description: 'Cap on number of indexable files in the diff scope. Over the cap, returns truncated:true with no symbol diff.' },
+      },
+      required: ['repo_path', 'from_sha', 'to_sha'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'cg_search',
+    description: 'Find symbols by name pattern in the indexed repo. Pattern uses SQLite GLOB syntax: `*` matches any chars, `?` matches one char, `[abc]` matches a class. Returns `{pattern, results: [{name, kind, file, line, column, container?, is_exported?, is_async?, is_generator?, is_static?}], truncated, limit, staleness}`. Filter by `kind` (function/class/method/constructor/getter/setter/interface/struct/enum), `container` (only return symbols inside this class/interface), or `is_exported`. Replaces grep-then-cg_find_references for many planner workflows — answer "what symbols match X" without touching source files. Defaults to limit=200 (max 1000); over the limit returns truncated:true. Examples: pattern="create*" finds all create* symbols; pattern="*Handler" finds all *Handler classes; pattern="cg_*"+kind="function" lists cg_* tool functions.' + STALENESS_NOTE,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        repo_path: { type: 'string' },
+        pattern:   { type: 'string', description: 'Symbol name pattern. SQLite GLOB syntax: * = any chars, ? = one char, [abc] = char class. Use the literal name for an exact match.' },
+        kind:      { type: 'string', description: 'Filter by symbol kind. Common values: function, class, method, constructor, getter, setter, interface, struct, enum.' },
+        container: { type: 'string', description: 'Filter to symbols whose container_name equals this (e.g. "Animal" for methods on class Animal). Useful with kind="method".' },
+        is_exported: { type: 'boolean', description: 'Filter to only exported (true) or only non-exported (false) symbols. Omit for both.' },
+        limit:     { type: 'integer', minimum: 1, maximum: 1000, default: 200, description: 'Cap on result count. Over the cap, returns truncated:true.' },
+      },
+      required: ['repo_path', 'pattern'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'cg_resolution_diagnostics',
+    description: 'Explain why cg_find_references with scope="strict" returns fewer results than scope="loose" for a symbol. Walks every reference whose target_name matches the symbol that did NOT get a resolved_symbol_id during indexer pass 2, and classifies each by why binding analysis missed it. Returns `{symbol, loose_count, strict_count, unresolved_count, reasons: {<reason>: count}, unresolved_samples: [{file, line, column, callerSymbol, callerKind, receiver?, reason}], sample_size, truncated_samples, staleness}`. Reason buckets: `no_import_for_target` (no cg_imports row matches the bare identifier in the calling file), `import_to_unindexed_local_file` (relative import points at a file that exists but didn\'t produce a same-named symbol), `import_from_external_module` (import resolves to a third-party package not in cg_symbols), `method_no_local_binding` (method call but no cg_locals row records the receiver\'s type), `method_local_binding_to_unknown_type` (receiver type known but no method of this name on it), `this_enclosing_class_lacks_method` (`this.X()` but enclosing class has no `X`), `method_resolution_edge_case` (binding looks fine — likely indexer bug). Use to triage why a refactor query under-counts.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        repo_path:   { type: 'string' },
+        symbol:      { type: 'string', description: 'Bare identifier name; same shape as cg_find_references.symbol.' },
+        sample_size: { type: 'integer', minimum: 1, maximum: 200, default: 20, description: 'Cap on unresolved-sample count returned. Reason counts always reflect the full unresolved set.' },
+      },
+      required: ['repo_path', 'symbol'],
       additionalProperties: false,
     },
   },

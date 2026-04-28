@@ -140,8 +140,8 @@ describe('Phase 2 integration smoke test — codex-fallback', () => {
       expect(breaker.allowRequest('codex')).toBe(false);
 
       // Failover activator must have swapped the active template.
-      expect(templateStore._active).toBe('codex-down-failover');
-      expect(templateStore.setActive).toHaveBeenCalledWith('codex-down-failover');
+      expect(templateStore._active).toBe('preset-codex-down-failover');
+      expect(templateStore.setActive).toHaveBeenCalledWith('preset-codex-down-failover');
     });
 
     it('manual untrip emits circuit:recovered and activator restores prior template', () => {
@@ -149,7 +149,7 @@ describe('Phase 2 integration smoke test — codex-fallback', () => {
       breaker.recordFailureByCode('codex', { errorCode: 'quota_exceeded' });
       breaker.recordFailureByCode('codex', { errorCode: 'quota_exceeded' });
       breaker.recordFailureByCode('codex', { errorCode: 'quota_exceeded' });
-      expect(templateStore._active).toBe('codex-down-failover');
+      expect(templateStore._active).toBe('preset-codex-down-failover');
 
       // Simulate canary succeeded — manual untrip.
       breaker.untrip('codex', 'canary_succeeded');

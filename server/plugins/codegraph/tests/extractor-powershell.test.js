@@ -1,8 +1,26 @@
 'use strict';
 
+// tree-sitter-powershell isn't always available on the test runner — npm
+// install on Windows currently can't fetch a prebuilt for it on Node 24.
+// parser.js's async loader throws when the grammar can't be required, which
+// would otherwise surface as 11 file-load failures here. Probe the loader
+// in beforeAll and skip per-test if the grammar is absent. Same pattern as
+// extractor-python-types and extractor-csharp-types.
 const { extractFromSource } = require('../extractors/powershell');
 
 describe('powershell extractor', () => {
+  let grammarReady = false;
+  beforeAll(async () => {
+    try {
+      await extractFromSource('function _probe { 1 }\n');
+      grammarReady = true;
+    } catch (_e) {
+      grammarReady = false;
+    }
+  });
+  beforeEach((ctx) => {
+    if (!grammarReady) ctx.skip();
+  });
   it('extracts function statements', async () => {
     const r = await extractFromSource('function Get-Hello { return "hi" }\n');
     const fn = r.symbols.find((s) => s.name === 'Get-Hello');

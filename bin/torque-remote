@@ -293,10 +293,58 @@ fi
 # it rather than forwarding to the inner command (a typo like --cwd would
 # otherwise silently slip into COMMAND_ARGS and the local-fallback path
 # would try to exec it as a program with the cryptic "command not found").
+# Choose how coord client calls reach the daemon for this wrapper invocation.
+# Sets COORD_ROUTING_MODE to one of:
+#   "local"            — 127.0.0.1:9395 responded; legacy path (TORQUE_COORD_REMOTE_* unset)
+#   "ssh:user@host"    — local daemon down + remote config present; export TORQUE_COORD_REMOTE_*
+#   "none"             — no local daemon and no remote config; coord disabled (graceful degrade)
+COORD_ROUTING_MODE=""
+coord_select_routing_mode() {
+  # Already decided — idempotent.
+  if [[ -n "$COORD_ROUTING_MODE" ]]; then return 0; fi
+  # 1. If env vars already set by caller, honor them outright.
+  if [ -n "${TORQUE_COORD_REMOTE_HOST:-}" ] && [ -n "${TORQUE_COORD_REMOTE_USER:-}" ]; then
+    COORD_ROUTING_MODE="ssh:${TORQUE_COORD_REMOTE_USER}@${TORQUE_COORD_REMOTE_HOST}"
+    return 0
+  fi
+  # 2. Probe local daemon. -s silent, --max-time 1 is enough — local socket or nothing.
+  # TORQUE_COORD_PROBE_URL is a test-only override to redirect the probe to an
+  # unreachable address (e.g. http://127.0.0.1:1) so tests can simulate "daemon down"
+  # even when a real daemon is running on the default port.
+  local _probe_url="${TORQUE_COORD_PROBE_URL:-http://127.0.0.1:9395/health}"
+  if curl -s --max-time 1 "$_probe_url" >/dev/null 2>&1; then
+    COORD_ROUTING_MODE="local"
+    return 0
+  fi
+  # 3. Local daemon down — try to read remote config.
+  local cfg="${HOME}/.torque-remote.local.json"
+  if [ -f "$cfg" ]; then
+    local host user
+    host=$(node -e 'try { const c = require(process.argv[1]); process.stdout.write(c.host || ""); } catch (_) {}' "$cfg" 2>/dev/null || echo "")
+    user=$(node -e 'try { const c = require(process.argv[1]); process.stdout.write(c.user || ""); } catch (_) {}' "$cfg" 2>/dev/null || echo "")
+    if [ -n "$host" ] && [ -n "$user" ]; then
+      export TORQUE_COORD_REMOTE_HOST="$host"
+      export TORQUE_COORD_REMOTE_USER="$user"
+      COORD_ROUTING_MODE="ssh:${user}@${host}"
+      return 0
+    fi
+  fi
+  COORD_ROUTING_MODE="none"
+  return 0
+}
+
 BRANCH_OVERRIDE=""
 SUITE="${TORQUE_REMOTE_DEFAULT_SUITE:-custom}"
 while [[ "${1:-}" == --* ]]; do
   case "$1" in
+    --__internal-print-routing-mode)
+      # Test-only fast-path: print the coord routing decision and exit.
+      # Lets server/tests/coord-torque-remote-routing.test.js assert the routing
+      # without paying for a full sync. Not a public API.
+      coord_select_routing_mode
+      echo "$COORD_ROUTING_MODE"
+      exit 0
+      ;;
     --branch)
       [[ $# -lt 2 ]] && die "Invalid --branch value: "
       BRANCH_OVERRIDE="$2"
@@ -619,13 +667,22 @@ coord_release_on_exit() {
   if [[ "$COORD_ACQUIRED" -eq 1 && -n "$COORD_LOCK_ID" ]]; then
     # Hashes were captured by coord_begin and travel with the lock —
     # no extra `node lock-hashes` spawn here.
+    local tail_args=()
+    if [[ -n "$COORD_OUTPUT_LOG" && -f "$COORD_OUTPUT_LOG" ]]; then
+      tail_args=(--tail-from-file "$COORD_OUTPUT_LOG")
+    else
+      tail_args=(--tail "")
+    fi
     node "$SCRIPT_DIR/torque-coord-client" release \
       --lock-id "$COORD_LOCK_ID" \
       --exit "$final_exit" \
       --status "$([[ $final_exit -eq 0 ]] && echo pass || echo fail)" \
-      --tail "" \
+      "${tail_args[@]}" \
       --hashes "${COORD_LOCAL_HASHES:-{}}" \
       >/dev/null 2>&1 || true
+  fi
+  if [[ -n "$COORD_OUTPUT_LOG" && -f "$COORD_OUTPUT_LOG" ]]; then
+    rm -f "$COORD_OUTPUT_LOG" 2>/dev/null || true
   fi
   # Chain through to the original cleanup. bash's trap is single-slot, so
   # installing this trap REPLACED the pre-existing `trap cleanup_on_exit EXIT`
@@ -635,13 +692,28 @@ coord_release_on_exit() {
   cleanup_on_exit
 }
 
+# COORD_OUTPUT_LOG is the tempfile we tee inner-command stdout/stderr into so
+# `coord_release_on_exit` can pass the last 16KB as --tail-from-file. Empty
+# when SUITE=custom (coord disabled) — the transport branches see "" and
+# fall through to today's uncoordinated path with no capture overhead.
+COORD_OUTPUT_LOG=""
+
+# Resolve coord routing mode once before any coord calls so env vars are
+# exported in time for all subsequent `bin/torque-coord-client` invocations.
+coord_select_routing_mode
+
 if [[ "$SUITE" != "custom" ]]; then
   trap coord_release_on_exit EXIT
   # Single node spawn handles lock-hashes + results + acquire (+ cache-hit
   # comparison + queued-retry). Prior bash flow paid 3-5 separate ~9s node
   # cold-starts on Windows under Defender; this collapses to 1 (+ wait/retry
-  # if queued).
+  # if queued). On cache_hit, coord_begin exits the script directly so the
+  # COORD_OUTPUT_LOG mktemp below never runs for warm hits.
   coord_begin || true
+  # Provision capture tempfile for the transport branches below — kept from
+  # Phase 2.1's tee-via-tail-F-pid output-capture work so coord_release_on_exit
+  # can post the inner command's last 16KB as the result's output_tail.
+  COORD_OUTPUT_LOG=$(mktemp -t torque-coord-output.XXXXXX 2>/dev/null || mktemp)
 fi
 # ────────────────────────────────────────────────────────────────────────
 
@@ -651,8 +723,24 @@ case "$TRANSPORT" in
     info "Running locally: $COMMAND_DISPLAY"
     cd "$PROJECT_ROOT"
     set +e
-    "${COMMAND_ARGS[@]}"
-    exit_code=$?
+    if [[ -n "$COORD_OUTPUT_LOG" ]]; then
+      # Tee stdout/stderr to the capture file so coord_release_on_exit can
+      # store the last 16KB as the result's output_tail. tail -F --pid
+      # streams the file to the user's terminal in real time and self-exits
+      # when the writer (cmd_pid) dies — this avoids the EOF-leak hang the
+      # pre-push hook documents (Git Bash + Windows ssh keep stdio handles
+      # open longer than `tee` expects, hanging the parent indefinitely).
+      "${COMMAND_ARGS[@]}" > "$COORD_OUTPUT_LOG" 2>&1 &
+      cmd_pid=$!
+      tail -f --pid="$cmd_pid" "$COORD_OUTPUT_LOG" &
+      tail_pid=$!
+      wait "$cmd_pid"
+      exit_code=$?
+      wait "$tail_pid" 2>/dev/null || true
+    else
+      "${COMMAND_ARGS[@]}"
+      exit_code=$?
+    fi
     set -e
     exit $exit_code
     ;;
@@ -906,9 +994,25 @@ EOF
 
     info "Running on $SSH_USER@$SSH_HOST: $COMMAND_DISPLAY"
     set +e
-    run_with_timeout "$TIMEOUT_SECONDS" ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" \
-      "$REMOTE_RUN_COMMAND" < "$LOCAL_STATE_BUNDLE"
-    exit_code=$?
+    if [[ -n "$COORD_OUTPUT_LOG" ]]; then
+      # See coord-release_on_exit comment: tee SSH output via tail-F-pid so
+      # the user sees real-time progress AND the result-store gets a full
+      # output_tail to replay on warm-hit. Without this, --tail-from-file
+      # reads an empty file and warm-hit replay shows only the cache-hit
+      # log line (the documented Phase 2 limitation we're fixing here).
+      run_with_timeout "$TIMEOUT_SECONDS" ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" \
+        "$REMOTE_RUN_COMMAND" < "$LOCAL_STATE_BUNDLE" > "$COORD_OUTPUT_LOG" 2>&1 &
+      cmd_pid=$!
+      tail -f --pid="$cmd_pid" "$COORD_OUTPUT_LOG" &
+      tail_pid=$!
+      wait "$cmd_pid"
+      exit_code=$?
+      wait "$tail_pid" 2>/dev/null || true
+    else
+      run_with_timeout "$TIMEOUT_SECONDS" ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" \
+        "$REMOTE_RUN_COMMAND" < "$LOCAL_STATE_BUNDLE"
+      exit_code=$?
+    fi
     set -e
 
     if [[ "$APPLY_LOCAL_STATE" == "true" ]]; then

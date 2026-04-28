@@ -131,6 +131,13 @@ function unwrapPythonTypeName(typeNode) {
     const head = inner.childForFieldName('value') || inner.namedChild(0);
     return head ? unwrapPythonTypeName(head) : '';
   }
+  if (inner.type === 'generic_type') {
+    // tree-sitter-python ≥0.23 surfaces List[Foo] as generic_type whose
+    // first named child is the head identifier (List) and the rest are
+    // type_parameter nodes. Pre-0.23 used `subscript` (handled above).
+    const head = inner.namedChild(0);
+    return head ? unwrapPythonTypeName(head) : '';
+  }
   if (inner.type === 'string') return ''; // forward refs ('Foo') skipped for v1
   return '';
 }

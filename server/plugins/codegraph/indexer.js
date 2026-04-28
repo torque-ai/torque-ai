@@ -58,18 +58,26 @@ async function runIndex({ db, repoPath, files, commitSha = null, _sourceDir = nu
       references_count = excluded.references_count
   `);
 
+  // Read+extract pipeline. Tree-sitter parse is sync-on-thread, but file
+  // reads on Windows (Defender/Search-indexer) are I/O-bound — Promise.all
+  // batches let those reads overlap. Tunable via TORQUE_CG_INDEX_CONCURRENCY;
+  // default 8 covers a typical SSD without saturating the parser path.
+  const concurrencyEnv = parseInt(process.env.TORQUE_CG_INDEX_CONCURRENCY || '', 10);
+  const CONCURRENCY = Number.isFinite(concurrencyEnv) && concurrencyEnv > 0
+    ? Math.min(concurrencyEnv, 64)
+    : 8;
   const work = [];
   const skipped = [];
-  for (const rel of files) {
+
+  async function processOne(rel) {
     const ext = extractorFor(rel);
-    if (!ext) continue;
+    if (!ext) return null;
     const abs = path.join(_sourceDir || repoPath, rel);
     let buf;
     try {
       buf = await fs.readFile(abs);
     } catch (err) {
-      skipped.push({ file: rel, reason: 'read', error: err.message });
-      continue;
+      return { skipped: { file: rel, reason: 'read', error: err.message } };
     }
     const source = buf.toString('utf8');
     let extracted;
@@ -79,10 +87,19 @@ async function runIndex({ db, repoPath, files, commitSha = null, _sourceDir = nu
       // Tree-sitter throws on files it can't parse (binary blobs renamed
       // to .js, exotic syntax extensions, oversize source). Skip and keep
       // indexing — a single bad file shouldn't take down the whole graph.
-      skipped.push({ file: rel, reason: 'parse', error: err.message });
-      continue;
+      return { skipped: { file: rel, reason: 'parse', error: err.message } };
     }
-    work.push({ rel, language: ext.language, contentSha: sha256(buf), extracted });
+    return { work: { rel, language: ext.language, contentSha: sha256(buf), extracted } };
+  }
+
+  for (let i = 0; i < files.length; i += CONCURRENCY) {
+    const batch = files.slice(i, i + CONCURRENCY);
+    const results = await Promise.all(batch.map(processOne));
+    for (const r of results) {
+      if (!r) continue;
+      if (r.skipped) skipped.push(r.skipped);
+      else if (r.work) work.push(r.work);
+    }
   }
 
   let totalFiles = 0, totalSymbols = 0, totalRefs = 0, totalDispatch = 0, totalClassEdges = 0, totalImports = 0, totalLocals = 0;

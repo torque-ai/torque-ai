@@ -13,7 +13,9 @@ const peekHandlers = require('../plugins/snapscope/handlers/analysis');
 const tools = require('../tools');
 const remoteAgentToolDefs = require('../plugins/remote-agents/tool-defs');
 
-const INLINE_TOOL_HANDLERS = new Set(['ping', 'restart_server', 'restart_status', 'unlock_all_tools', 'unlock_tier', 'get_tool_schema']);
+// `coord_status` is dispatched inline via a switch case in tools.js (calls
+// coord-poller.getActiveLocks); no routeMap entry, no plugin handler.
+const INLINE_TOOL_HANDLERS = new Set(['ping', 'restart_server', 'restart_status', 'unlock_all_tools', 'unlock_tier', 'get_tool_schema', 'coord_status']);
 const PLUGIN_PROVIDED_TOOL_DEFS = new Set(
   remoteAgentToolDefs
     .filter((def) => def && typeof def.name === 'string')

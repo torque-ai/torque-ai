@@ -173,4 +173,93 @@ describe('torque-coord-client CLI', () => {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }
   });
+
+  it('release --tail-from-file reads the file content into output_tail (last 16KB if larger)', async () => {
+    const fs = require('fs');
+    const os = require('os');
+    const path = require('path');
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'coord-cli-tail-'));
+    const tailFile = path.join(tmpDir, 'output.log');
+    fs.writeFileSync(tailFile, 'session A done\nexit 0\n');
+
+    // Stub the daemon in a child process; the child writes the bodies it
+    // received to a side-channel file we read after each runClient call.
+    const dropPath = path.join(tmpDir, 'captured.json');
+    const handlerSource = `(() => {
+      const fs = require('fs');
+      const DROP = ${JSON.stringify(dropPath)};
+      return (req, res) => {
+        let body = '';
+        req.on('data', (c) => { body += c; });
+        req.on('end', () => {
+          if (req.url === '/release' && req.method === 'POST') {
+            try { fs.appendFileSync(DROP, body + '\\n'); } catch (_e) {}
+            res.writeHead(200, { 'content-type': 'application/json' });
+            res.end(JSON.stringify({ released: true }));
+          } else {
+            res.writeHead(404).end();
+          }
+        });
+      };
+    })()`;
+    const stubLocal = await makeStubDaemon(handlerSource);
+    try {
+      const result = runClient([
+        'release', '--lock-id', 'lk1', '--exit', '0',
+        '--status', 'pass', '--tail-from-file', tailFile,
+      ], stubLocal.port);
+      expect(result.status).toBe(0);
+      const captured1 = JSON.parse(fs.readFileSync(dropPath, 'utf8').trim().split('\n').pop());
+      expect(captured1.output_tail).toBe('session A done\nexit 0\n');
+
+      // Now a >16KB payload — only the last 16KB should land.
+      const large = 'X'.repeat(20000) + 'TAIL_MARKER';
+      fs.writeFileSync(tailFile, large);
+      const result2 = runClient([
+        'release', '--lock-id', 'lk2', '--exit', '0',
+        '--status', 'pass', '--tail-from-file', tailFile,
+      ], stubLocal.port);
+      expect(result2.status).toBe(0);
+      const captured2 = JSON.parse(fs.readFileSync(dropPath, 'utf8').trim().split('\n').pop());
+      expect(captured2.output_tail.length).toBe(16384);
+      expect(captured2.output_tail.endsWith('TAIL_MARKER')).toBe(true);
+    } finally {
+      await stubLocal.close();
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it('release --tail-from-file falls back to empty when file is missing', async () => {
+    const fs = require('fs');
+    const os = require('os');
+    const path = require('path');
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'coord-cli-tail-missing-'));
+    const dropPath = path.join(tmpDir, 'captured.json');
+    const handlerSource = `(() => {
+      const fs = require('fs');
+      const DROP = ${JSON.stringify(dropPath)};
+      return (req, res) => {
+        let body = '';
+        req.on('data', (c) => { body += c; });
+        req.on('end', () => {
+          try { fs.appendFileSync(DROP, body + '\\n'); } catch (_e) {}
+          res.writeHead(200, { 'content-type': 'application/json' });
+          res.end(JSON.stringify({ released: true }));
+        });
+      };
+    })()`;
+    const stubLocal = await makeStubDaemon(handlerSource);
+    try {
+      const result = runClient([
+        'release', '--lock-id', 'lk-missing', '--exit', '0',
+        '--status', 'pass', '--tail-from-file', '/nonexistent/path/output.log',
+      ], stubLocal.port);
+      expect(result.status).toBe(0);
+      const captured = JSON.parse(fs.readFileSync(dropPath, 'utf8').trim().split('\n').pop());
+      expect(captured.output_tail).toBe('');
+    } finally {
+      await stubLocal.close();
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
 });
