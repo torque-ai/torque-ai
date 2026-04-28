@@ -123,10 +123,12 @@ function gitMaterializeAtHead(repoPath, sha) {
     cwd: repoPath,
     maxBuffer: 256 * 1024 * 1024,
   });
-  // --force-local: prevent GNU tar from interpreting the `C:` in a Windows
-  // path as a remote host (rsh-style). Run tar with cwd=tmp so all paths are
-  // relative — no drive-letter parsing happens at all.
-  childProcess.execFileSync('tar', ['--force-local', '-xf', '.archive.tar'], {
+  // Run tar with cwd=tmp and a relative path so no drive-letter parsing
+  // (GNU tar's rsh-style remote-host trigger) ever happens. We deliberately
+  // do NOT pass --force-local: it's redundant given the relative path, and
+  // BSD tar (the default on Windows 10+, in C:\Windows\System32\tar.exe)
+  // rejects the GNU-only flag with "Option --force-local is not supported".
+  childProcess.execFileSync('tar', ['-xf', '.archive.tar'], {
     windowsHide: true,
     stdio: ['ignore', 'pipe', 'pipe'],
     cwd: tmp,
