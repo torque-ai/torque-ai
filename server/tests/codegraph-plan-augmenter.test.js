@@ -164,7 +164,7 @@ describe('checkPlanImpact', () => {
         if (pattern === 'badOne') throw new Error('search blew up');
         return wrap({ results: [{ name: pattern, kind: 'function', file: 'f.js', line: 1 }] });
       },
-      async cg_impact_set({ symbol }) {
+      async cg_impact_set({ symbol: _symbol }) {
         return wrap({ symbols: callers, files: [] });
       },
     };

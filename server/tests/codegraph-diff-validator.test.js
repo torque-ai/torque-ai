@@ -1,5 +1,5 @@
 'use strict';
-/* global describe, it, expect, beforeEach, afterEach, vi */
+/* global describe, it, expect, beforeEach, afterEach */
 
 const fs = require('fs');
 const path = require('path');
