@@ -1484,6 +1484,75 @@ describe('factory loop-controller EXECUTE modes', () => {
     expect(decisions.find((d) => d.action === 'execute_wait_owner_completed')).toBeTruthy();
   });
 
+  it('does not pre-reclaim when the worktree row is old but the owning task is fresh', async () => {
+    // Regression: prior to the fix the grace check used only the worktree
+    // row's created_at. A long-lived row with a freshly-attached LIVE task
+    // would fail the grace check and have its in-flight task killed with
+    // reason "pre_reclaim_before_create". Defense in depth uses the
+    // owning task's own created_at (via min(rowAge, ownerTaskAge)) so the
+    // freshly-attached owner is recognized as live even when the row is old.
+    const { project, workItem } = registerPlanProject();
+    db.prepare('ALTER TABLE factory_worktrees ADD COLUMN owning_task_id TEXT').run();
+    const targetBranch = `feat/factory-${workItem.id}-dry-run-plan-item`;
+    const worktreePath = path.join(project.path, '.worktrees', 'feat-old-row-fresh-owner');
+    fs.mkdirSync(worktreePath, { recursive: true });
+    const existing = factoryWorktrees.recordWorktree({
+      project_id: project.id,
+      work_item_id: workItem.id,
+      batch_id: `factory-${project.id}-${workItem.id}`,
+      vc_worktree_id: 'vc-old-row',
+      branch: targetBranch,
+      worktree_path: worktreePath,
+    });
+    factoryWorktrees.setOwningTask(existing.id, 'task-fresh-owner');
+    // Backdate the worktree row to 2 hours ago — well beyond the 10-minute
+    // default grace. The setOwningTask bump above is intentionally
+    // overwritten here to isolate the loop-controller's defensive use of
+    // the owning task's own created_at.
+    db.prepare("UPDATE factory_worktrees SET created_at = datetime('now', '-2 hours') WHERE id = ?").run(existing.id);
+
+    taskCore.getTask = vi.fn((taskId) => ({
+      id: taskId,
+      status: taskId === 'task-fresh-owner' ? 'running' : 'completed',
+      error_output: null,
+      // Owner task is fresh — within the grace window.
+      created_at: new Date().toISOString(),
+    }));
+
+    const worktreeRunner = {
+      createForBatch: vi.fn(),
+      verify: vi.fn(async () => ({ passed: true, output: 'ok', durationMs: 12 })),
+      mergeToMain: vi.fn(),
+      abandon: vi.fn(),
+    };
+    loopController.setWorktreeRunnerForTests(worktreeRunner);
+
+    await advanceSupervisedPlanProject(project.id);
+    const executeAdvance = await loopController.advanceLoopForProject(project.id);
+
+    // Fresh owning task → must NOT cancel + reclaim, must wait.
+    expect(worktreeRunner.createForBatch).not.toHaveBeenCalled();
+    expect(worktreeRunner.abandon).not.toHaveBeenCalled();
+    expect(routingModule.handleSmartSubmitTask).not.toHaveBeenCalled();
+    expect(executeAdvance.new_state).toBe(LOOP_STATES.EXECUTE);
+    expect(executeAdvance.stage_result).toMatchObject({
+      status: 'waiting',
+      reason: 'active_worktree_owner_running',
+      factory_worktree_id: existing.id,
+      owning_task_id: 'task-fresh-owner',
+    });
+    expect(db.prepare('SELECT status FROM factory_worktrees WHERE id = ?').get(existing.id).status).toBe('active');
+
+    const decisions = listDecisionRows(db, project.id);
+    const skipDecision = decisions.find((d) => d.action === 'worktree_reclaim_skipped_live_owner');
+    expect(skipDecision).toBeTruthy();
+    // Decision outcome should record both the row age (large) and the
+    // owning task age (small), with effective_age_ms reflecting the min.
+    expect(skipDecision.outcome.stale_age_ms).toBeGreaterThan(60 * 60 * 1000);
+    expect(skipDecision.outcome.owning_task_age_ms).toBeLessThan(10 * 1000);
+    expect(skipDecision.outcome.effective_age_ms).toBe(skipDecision.outcome.owning_task_age_ms);
+  });
+
   it('reuses an active worktree owned by a completed task instead of reclaiming it', async () => {
     const { project, workItem } = registerPlanProject();
     db.prepare('ALTER TABLE factory_worktrees ADD COLUMN owning_task_id TEXT').run();

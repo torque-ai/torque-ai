@@ -5968,7 +5968,26 @@ async function executePlanFileStage(project, instance, workItem) {
           ? Date.parse(`${createdAtRaw.replace(' ', 'T')}Z`)
           : Date.parse(createdAtRaw);
         const staleAgeMs = Number.isFinite(createdAt) ? Date.now() - createdAt : null;
-        const withinReclaimGrace = staleAgeMs === null || staleAgeMs < reclaimGraceMs;
+        // Defense in depth: derive grace from whichever reference is fresher
+        // — the worktree row's created_at OR the owning task's created_at.
+        // setOwningTask bumps the row's created_at on attach so row age
+        // alone is normally correct, but using min(rowAge, ownerTaskAge)
+        // here means a future code path that attaches an owner without
+        // going through that helper still won't get its fresh task killed.
+        let owningTaskAgeMs = null;
+        if (owning && owning.created_at) {
+          const ownerCreatedRaw = String(owning.created_at);
+          const ownerCreated = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/.test(ownerCreatedRaw)
+            ? Date.parse(`${ownerCreatedRaw.replace(' ', 'T')}Z`)
+            : Date.parse(ownerCreatedRaw);
+          if (Number.isFinite(ownerCreated)) {
+            owningTaskAgeMs = Date.now() - ownerCreated;
+          }
+        }
+        const effectiveAgeMs = staleAgeMs === null
+          ? owningTaskAgeMs
+          : (owningTaskAgeMs === null ? staleAgeMs : Math.min(staleAgeMs, owningTaskAgeMs));
+        const withinReclaimGrace = effectiveAgeMs === null || effectiveAgeMs < reclaimGraceMs;
         if (owning && LIVE_WORKTREE_OWNER_STATUSES.has(owningStatus) && withinReclaimGrace) {
           logger.info('factory worktree: skipping pre-reclaim for fresh live owner', {
             project_id: project.id,
@@ -5979,6 +5998,8 @@ async function executePlanFileStage(project, instance, workItem) {
             owning_task_id: stale.owningTaskId,
             owning_status: owningStatus,
             stale_age_ms: staleAgeMs,
+            owning_task_age_ms: owningTaskAgeMs,
+            effective_age_ms: effectiveAgeMs,
             reclaim_grace_ms: reclaimGraceMs,
           });
           safeLogDecision({
@@ -5994,6 +6015,8 @@ async function executePlanFileStage(project, instance, workItem) {
               owning_task_id: stale.owningTaskId,
               owning_status: owningStatus,
               stale_age_ms: staleAgeMs,
+              owning_task_age_ms: owningTaskAgeMs,
+              effective_age_ms: effectiveAgeMs,
               reclaim_grace_ms: reclaimGraceMs,
             },
             confidence: 1,
