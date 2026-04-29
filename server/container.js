@@ -27,6 +27,7 @@ const { createActionRegistry } = require('./dispatch/action-registry');
 const { createConstructionCache } = require('./dispatch/construction-cache');
 const { createExecutor } = require('./dispatch/executor');
 const { createRunDirManager } = require('./runs/run-dir-manager');
+const { createSharedFactoryStore } = require('./db/shared-factory-store');
 const { createSpecialistStorage } = require('./routing/specialist-storage');
 const { createTurnClassifier } = require('./routing/turn-classifier');
 const { createRoutedOrchestrator } = require('./routing/routed-orchestrator');
@@ -224,6 +225,12 @@ _defaultContainer.register('actionRegistry', [], () => createActionRegistry());
 _defaultContainer.register('testRunnerRegistry', [], () => createTestRunnerRegistry());
 _defaultContainer.register('constructionCache', ['db'], ({ db }) => createConstructionCache({ db: unwrapDb(db) }));
 _defaultContainer.register('executor', ['actionRegistry'], ({ actionRegistry }) => createExecutor({ registry: actionRegistry }));
+_defaultContainer.register('sharedFactoryStore', ['db', 'serverConfig'], ({ db, serverConfig }) => (
+  createSharedFactoryStore({
+    config: serverConfig,
+    dataDir: typeof db.getDataDir === 'function' ? db.getDataDir() : undefined,
+  })
+));
 _defaultContainer.register('registeredSpecialists', [], () => ({}));
 _defaultContainer.register('runDirManager', ['db'], ({ db }) => {
   const dataDir = typeof db.getDataDir === 'function'

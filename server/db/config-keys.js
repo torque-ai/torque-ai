@@ -135,6 +135,7 @@ const VALID_CONFIG_KEYS = new Set([
   'require_approval_patterns',
   'scheduling_mode',
   'server_epoch',
+  'shared_factory_db_path',
   'security_scanning_enabled',
   'smart_routing_default_provider',
   'smart_routing_enabled',
