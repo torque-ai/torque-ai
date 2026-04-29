@@ -2,6 +2,19 @@ const path = require('path');
 const fs = require('fs');
 const { randomUUID } = require('crypto');
 const { setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
+const { installMock } = require('./cjs-mock');
+
+const loggerMock = {
+  debug: vi.fn(),
+  info: vi.fn(),
+  warn: vi.fn(),
+  error: vi.fn(),
+  close: vi.fn(),
+  child: vi.fn(),
+};
+loggerMock.child.mockReturnValue(loggerMock);
+installMock('../logger', loggerMock);
+const loggerDebug = loggerMock.debug;
 
 let testDir;
 let db;
@@ -305,6 +318,15 @@ describe('workflow-runtime', () => {
   });
 
   describe('handlePipelineStepCompletion', () => {
+    it('does not debug-log completed non-pipeline tasks', () => {
+      const taskId = createTask({ status: 'completed' });
+
+      loggerDebug.mockClear();
+      mod.handlePipelineStepCompletion(taskId, 'completed');
+
+      expect(loggerDebug).not.toHaveBeenCalled();
+    });
+
     it('advances to the next step, creating and starting the next task', () => {
       const pipelineId = randomUUID();
       const workingDir = makeWorkDir('pipeline-next');
@@ -327,6 +349,7 @@ describe('workflow-runtime', () => {
       taskCore.updateTaskStatus(firstTaskId, 'completed', { output: 'first-step-output' });
       projectConfigCore.updatePipelineStep(step1.id, { status: 'running', task_id: firstTaskId });
 
+      loggerDebug.mockClear();
       mod.handlePipelineStepCompletion(firstTaskId, 'completed');
 
       const refreshedSteps = projectConfigCore.getPipelineSteps(pipelineId);
@@ -341,6 +364,25 @@ describe('workflow-runtime', () => {
       expect(nextTask.task_description).toContain('first-step-output');
       expect(pipeline.current_step).toBe(step2.step_order);
       expect(startCalls).toContain(refreshedStep2.task_id);
+      expect(loggerDebug).toHaveBeenCalledTimes(2);
+      expect(loggerDebug).toHaveBeenNthCalledWith(1, expect.objectContaining({
+        task_id: firstTaskId,
+        pipeline_id: pipelineId,
+        step_id: step1.id,
+        status: 'completed',
+        step_status: 'completed',
+        next_step_id: step2.id,
+        next_step_order: step2.step_order,
+      }), 'Pipeline step completion decision');
+      expect(loggerDebug).toHaveBeenNthCalledWith(2, expect.objectContaining({
+        task_id: refreshedStep2.task_id,
+        pipeline_id: pipelineId,
+        step_id: step2.id,
+        status: 'running',
+        step_status: 'running',
+        next_step_id: step2.id,
+        next_step_order: step2.step_order,
+      }), 'Pipeline next step task started');
     });
 
     it('marks the next step queued when startTask defers execution', () => {
