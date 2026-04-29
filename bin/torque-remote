@@ -226,7 +226,7 @@ acquire_remote_sync_lock() {
   fi
 
   REMOTE_SYNC_LOCK_DIR="$EFFECTIVE_REMOTE_PROJECT_PATH\\.torque-remote-sync.lock"
-  local timeout=300
+  local timeout="${TORQUE_REMOTE_SYNC_LOCK_TIMEOUT_SECS:-1800}"
   local elapsed=0
   local poll=2
   local ack
@@ -247,7 +247,7 @@ acquire_remote_sync_lock() {
     sleep "$poll"
     elapsed=$((elapsed + poll))
     if (( elapsed >= timeout )); then
-      warn "Sync lock wait exceeded ${timeout}s; proceeding without serialization (risk of worktree contamination)"
+      warn "Sync lock wait exceeded ${timeout}s; refusing remote sync to avoid worktree contamination"
       return 1
     fi
   done
@@ -883,7 +883,15 @@ case "$TRANSPORT" in
       # Acquire exclusive worktree lock BEFORE sync so concurrent
       # torque-remote invocations against the same remote project path
       # serialize. Released in cleanup_on_exit.
-      acquire_remote_sync_lock || true
+      if ! acquire_remote_sync_lock; then
+        warn "Remote sync lock unavailable — falling back to local execution instead of risking remote worktree contamination"
+        cd "$PROJECT_ROOT"
+        set +e
+        "${COMMAND_ARGS[@]}"
+        exit_code=$?
+        set -e
+        exit $exit_code
+      fi
 
       if [[ -n "$BRANCH_OVERRIDE" ]]; then
         if [[ ! "$BRANCH_OVERRIDE" =~ ^[a-zA-Z0-9_./-]+$ ]]; then

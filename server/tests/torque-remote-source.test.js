@@ -30,4 +30,14 @@ describe('torque-remote source invariants', () => {
     expect(src).toContain('EXPECTED_HEAD_SHA="\\$EXPECTED_SYNC_SHA"');
     expect(src).not.toContain('EXPECTED_HEAD_SHA=$(git rev-parse "$SYNC_REF"');
   });
+
+  it('does not proceed with uncoordinated remote sync after lock timeout', () => {
+    const src = readTorqueRemote();
+    expect(src).toContain('TORQUE_REMOTE_SYNC_LOCK_TIMEOUT_SECS:-1800');
+    expect(src).toContain('refusing remote sync to avoid worktree contamination');
+    expect(src).toContain('Remote sync lock unavailable — falling back to local execution instead of risking remote worktree contamination');
+    expect(src).toContain('if ! acquire_remote_sync_lock; then');
+    expect(src).not.toContain('acquire_remote_sync_lock || true');
+    expect(src).not.toContain('proceeding without serialization');
+  });
 });
