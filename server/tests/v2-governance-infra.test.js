@@ -913,6 +913,43 @@ describe('api/v2-governance-handlers infrastructure routes', () => {
       });
     });
 
+    it('falls back to point counts when bulk provider counts are unavailable', async () => {
+      const req = createReq({ query: { days: '1' } });
+      const res = createMockRes();
+      const getProviderDailyCounts = mockDb.getProviderDailyCounts;
+
+      mockDb.listProviders.mockReturnValue([{ provider: 'codex' }]);
+      mockCountTasksWithMap({
+        [countKey({ provider: 'codex', from_date: '2026-03-10', to_date: '2026-03-11' })]: 4,
+        [countKey({ provider: 'codex', from_date: '2026-03-10', to_date: '2026-03-11', status: 'completed' })]: 3,
+        [countKey({ provider: 'codex', from_date: '2026-03-10', to_date: '2026-03-11', status: 'failed' })]: 1,
+      });
+
+      mockDb.getProviderDailyCounts = undefined;
+      try {
+        await handlers.handleProviderTrends(req, res);
+      } finally {
+        mockDb.getProviderDailyCounts = getProviderDailyCounts;
+      }
+
+      expect(mockDb.countTasks).toHaveBeenCalledWith({
+        provider: 'codex',
+        from_date: '2026-03-10',
+        to_date: '2026-03-11',
+      });
+      expect(expectSuccess(res)).toEqual({
+        providers: ['codex'],
+        days: 1,
+        series: [{
+          date: '2026-03-10',
+          codex_total: 4,
+          codex_completed: 3,
+          codex_failed: 1,
+          codex_success_rate: 75,
+        }],
+      });
+    });
+
     it('uses a default 7 day window when days is omitted', async () => {
       const res = createMockRes();
 

@@ -53,6 +53,12 @@ const VALID_ACTIONS = new Set(['pause', 'resume', 'retry']);
 const STUDY_TOOL_NAME = 'run_codebase_study';
 const SECURITY_WARNING_MESSAGE = 'TORQUE is running without authentication. Run configure to set an API key.';
 
+function nextIsoDate(date) {
+  const next = new Date(`${date}T00:00:00.000Z`);
+  next.setUTCDate(next.getUTCDate() + 1);
+  return next.toISOString().split('T')[0];
+}
+
 function init(depsOrTaskManager = {}) {
   const isDepsObject = depsOrTaskManager
     && typeof depsOrTaskManager === 'object'
@@ -1248,7 +1254,17 @@ async function handleProviderTrends(req, res) {
 
     const counts = (taskCore.getProviderDailyCounts
       ? taskCore.getProviderDailyCounts(fromDate, toDate)
-      : []) || [];
+      : providerNames.flatMap(provider => dates.map((date) => {
+        const nextDate = nextIsoDate(date);
+        const countFilters = { provider, from_date: date, to_date: nextDate };
+        return {
+          provider,
+          date,
+          total: taskCore.countTasks ? taskCore.countTasks(countFilters) : 0,
+          completed: taskCore.countTasks ? taskCore.countTasks({ ...countFilters, status: 'completed' }) : 0,
+          failed: taskCore.countTasks ? taskCore.countTasks({ ...countFilters, status: 'failed' }) : 0,
+        };
+      }))) || [];
 
     // Index rows by provider→date for O(1) lookup while building the series.
     const byProviderDate = new Map();
@@ -1264,7 +1280,14 @@ async function handleProviderTrends(req, res) {
         dayBucket = { total: 0, completed: 0, failed: 0 };
         providerMap.set(row.date, dayBucket);
       }
-      const n = row.count || 0;
+      if (Number.isFinite(Number(row.total))) {
+        dayBucket.total += Number(row.total) || 0;
+        dayBucket.completed += Number(row.completed) || 0;
+        dayBucket.failed += Number(row.failed) || 0;
+        continue;
+      }
+
+      const n = Number(row.count) || 0;
       dayBucket.total += n;
       if (row.status === 'completed') dayBucket.completed += n;
       else if (row.status === 'failed') dayBucket.failed += n;
