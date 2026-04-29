@@ -631,6 +631,9 @@ test_remote_inline_command_preserves_quoted_arguments() {
   expect_contains "runner.sh preserves semicolon literal" "$RUN_RUNNER_SH" "semi\\;ignored"
   expect_contains "runner.sh executes argv array" "$RUN_RUNNER_SH" "\"\${COMMAND_ARGS[@]}\""
   expect_not_contains "runner.sh does not use eval" "$RUN_RUNNER_SH" "eval \"\$COMMAND\""
+  if grep -Fxq -- "git" "$tmp/calls.log"; then
+    record_failure "runner.sh generation must not execute bare git from heredoc comments"
+  fi
 
   finish_test "test_remote_inline_command_preserves_quoted_arguments"
 }

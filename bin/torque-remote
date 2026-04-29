@@ -1017,8 +1017,8 @@ set -euo pipefail
 cd "\$PROJECT_PATH"
 
 # Concurrent-session guard. The sync block above set the worktree to
-# \$SYNC_REF, but a parallel torque-remote invocation can call `git
-# checkout/reset --hard` against the same path between sync and run and
+# \$SYNC_REF, but a parallel torque-remote invocation can call git
+# checkout/reset --hard against the same path between sync and run and
 # silently swap the worktree to a different ref. Tests then run against
 # unrelated code and produce confusing false failures (the gate has been
 # bitten by this multiple times). Verify HEAD still resolves to the same
