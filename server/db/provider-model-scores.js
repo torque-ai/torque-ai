@@ -72,7 +72,6 @@ function ensureInitialized() {
       const { defaultContainer } = require('../container');
       database = defaultContainer.get('db');
     } catch {
-      // eslint-disable-next-line global-require -- pre-boot fallback
       database = require('../database');
     }
     currentDb = resolveDbHandle(database);

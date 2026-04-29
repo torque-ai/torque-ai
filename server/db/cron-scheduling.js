@@ -1198,7 +1198,6 @@ function runScheduledTaskNow(id, options = {}) {
       databaseFacade = defaultContainer.get('db');
     } catch {
       try {
-        // eslint-disable-next-line global-require -- pre-boot fallback
         databaseFacade = require('../database');
       } catch {
         databaseFacade = null;

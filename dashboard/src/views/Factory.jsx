@@ -4,7 +4,8 @@ import { factory as factoryApi } from '../api';
 import LoadingSkeleton from '../components/LoadingSkeleton';
 import { StarvationBanner } from '../components/StarvationBanner';
 import { useToast } from '../components/Toast';
-import { ProjectCard, ProjectListRow, SelectProjectPrompt, groupProjectsForList } from './factory/shared';
+import { ProjectCard, ProjectListRow, SelectProjectPrompt } from './factory/shared';
+import { groupProjectsForList } from './factory/utils';
 import { useFactoryShell } from './factory/useFactoryShell';
 
 const FACTORY_TABS = [

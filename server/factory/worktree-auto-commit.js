@@ -8,7 +8,6 @@ function resolveDatabase() {
     const { defaultContainer } = require('../container');
     return defaultContainer.get('db');
   } catch {
-    // eslint-disable-next-line global-require -- pre-boot fallback
     return require('../database');
   }
 }
