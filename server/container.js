@@ -30,6 +30,7 @@ const { createRunDirManager } = require('./runs/run-dir-manager');
 const { createSpecialistStorage } = require('./routing/specialist-storage');
 const { createTurnClassifier } = require('./routing/turn-classifier');
 const { createRoutedOrchestrator } = require('./routing/routed-orchestrator');
+const { createTestRunnerRegistry } = require('./test-runner-registry');
 
 /**
  * Topological sort using Kahn's algorithm.
@@ -215,6 +216,12 @@ function unwrapDb(db) {
 }
 _defaultContainer.register('familyTemplates', ['db'], ({ db }) => createFamilyTemplates({ db: unwrapDb(db) }));
 _defaultContainer.register('actionRegistry', [], () => createActionRegistry());
+// Singleton TestRunnerRegistry. The remote-agents plugin retrieves this from
+// the container during install() and calls .register() to install
+// remote-routing overrides. Constructing fresh registries elsewhere bypasses
+// those overrides and runs verify_command locally — so all consumers must
+// resolve from the container.
+_defaultContainer.register('testRunnerRegistry', [], () => createTestRunnerRegistry());
 _defaultContainer.register('constructionCache', ['db'], ({ db }) => createConstructionCache({ db: unwrapDb(db) }));
 _defaultContainer.register('executor', ['actionRegistry'], ({ actionRegistry }) => createExecutor({ registry: actionRegistry }));
 _defaultContainer.register('registeredSpecialists', [], () => ({}));
