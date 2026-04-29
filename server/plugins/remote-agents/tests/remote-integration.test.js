@@ -73,7 +73,7 @@ afterAll(async () => {
   }
   // Clean up temp directory
   if (tmpDir && fs.existsSync(tmpDir)) {
-    fs.rmSync(tmpDir, { recursive: true, force: true });
+    await removeTempDirWithRetry(tmpDir);
   }
 });
 
@@ -161,6 +161,39 @@ async function waitForRunningTasks(minRunningTasks, { timeoutMs = 1000, interval
   }
 
   throw new Error(`Agent never reached ${minRunningTasks} running task(s); last observed ${lastRunningTasks}`);
+}
+
+async function waitForRunningTaskCount(expectedRunningTasks, { timeoutMs = 5000, intervalMs = 50 } = {}) {
+  const start = Date.now();
+  let lastRunningTasks = 0;
+
+  while (Date.now() - start < timeoutMs) {
+    const response = await requestAgent({
+      pathname: '/health',
+      headers: { 'X-Torque-Secret': TEST_SECRET },
+      timeout: timeoutMs,
+    });
+    const health = JSON.parse(response.body);
+    lastRunningTasks = health.running_tasks || 0;
+    if (lastRunningTasks === expectedRunningTasks) return health;
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
+
+  throw new Error(`Agent never reached ${expectedRunningTasks} running task(s); last observed ${lastRunningTasks}`);
+}
+
+async function removeTempDirWithRetry(dir, { attempts = 5, delayMs = 100 } = {}) {
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    try {
+      fs.rmSync(dir, { recursive: true, force: true });
+      return;
+    } catch (err) {
+      if (attempt === attempts || !['EBUSY', 'ENOTEMPTY', 'EPERM'].includes(err.code)) {
+        throw err;
+      }
+      await new Promise((resolve) => setTimeout(resolve, delayMs * attempt));
+    }
+  }
 }
 
 // ── Tests ─────────────────────────────────────────────────────
@@ -348,6 +381,7 @@ describe('Remote Agent Integration', { timeout: 30000 }, () => {
 
       // Clean up: wait for the slow task to be killed by its own timeout
       try { await slowTask; } catch { /* expected — killed by timeout */ }
+      await waitForRunningTaskCount(0);
     });
   });
 
@@ -368,6 +402,7 @@ describe('Remote Agent Integration', { timeout: 30000 }, () => {
       // The process should have been killed by the agent's timeout mechanism
       expect(result.success).toBe(false);
       expect(result.exitCode).not.toBe(0);
+      await waitForRunningTaskCount(0);
     });
   });
 
