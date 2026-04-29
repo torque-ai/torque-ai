@@ -14,6 +14,7 @@ const DEFAULT_LEARNING_TTL_MS = 1000 * 60 * 60 * 24 * 30;
 const DEFAULT_CLAIM_TTL_MS = 1000 * 60 * 30;
 const DEFAULT_DEMAND_TTL_MS = 1000 * 60 * 5;
 const DEFAULT_PROVIDER_FAILURE_SIGNAL_TYPE = 'provider_failure_rate';
+const DEFAULT_VERIFY_FAILURE_SIGNAL_TYPE = 'verify_failure_pattern';
 
 function isNonEmptyString(value) {
   return typeof value === 'string' && value.trim().length > 0;
@@ -93,6 +94,123 @@ function normalizeJson(value, fallback = {}) {
   return JSON.stringify(value);
 }
 
+function normalizePatternText(value) {
+  return typeof value === 'string'
+    ? value.toLowerCase().replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g, ' ').trim()
+    : '';
+}
+
+function normalizeVerifyFailureCategory(value) {
+  if (typeof value !== 'string') return null;
+  const normalized = value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+  return normalized || null;
+}
+
+function normalizeVerifyFailureCategories(values) {
+  const input = Array.isArray(values) ? values : [values];
+  const seen = new Set();
+  const categories = [];
+  for (const value of input) {
+    const normalized = normalizeVerifyFailureCategory(value);
+    if (!normalized || seen.has(normalized)) continue;
+    seen.add(normalized);
+    categories.push(normalized);
+  }
+  return categories;
+}
+
+function collectPatternText(value, output) {
+  if (value === null || value === undefined) return;
+  if (typeof value === 'string' || typeof value === 'number') {
+    const text = String(value).trim();
+    if (text) output.push(text);
+    return;
+  }
+  if (Array.isArray(value)) {
+    for (const entry of value) collectPatternText(entry, output);
+    return;
+  }
+  if (typeof value === 'object') {
+    try {
+      output.push(JSON.stringify(value));
+    } catch {
+      // Ignore non-serializable pattern context.
+    }
+  }
+}
+
+function parseMetadataForPattern(input = {}) {
+  const task = input.task && typeof input.task === 'object' ? input.task : {};
+  let metadata = input.metadata ?? task.metadata ?? {};
+  if (typeof metadata === 'string') {
+    try {
+      metadata = JSON.parse(metadata);
+    } catch {
+      metadata = {};
+    }
+  }
+  return metadata && typeof metadata === 'object' && !Array.isArray(metadata) ? metadata : {};
+}
+
+function getVerifyPatternHaystack(input = {}) {
+  const task = input.task && typeof input.task === 'object' ? input.task : {};
+  const metadata = parseMetadataForPattern(input);
+  const parts = [];
+  collectPatternText(input.title, parts);
+  collectPatternText(input.description, parts);
+  collectPatternText(input.taskDescription, parts);
+  collectPatternText(input.workingDirectory ?? input.working_directory, parts);
+  collectPatternText(input.output, parts);
+  collectPatternText(input.errorOutput ?? input.error_output, parts);
+  collectPatternText(input.files, parts);
+  collectPatternText(input.validationStages, parts);
+  collectPatternText(task.task_description ?? task.description, parts);
+  collectPatternText(task.working_directory ?? task.cwd, parts);
+  collectPatternText(task.files ?? task.files_modified, parts);
+  collectPatternText(metadata, parts);
+  return parts.join('\n');
+}
+
+function detectNodeScope(haystack) {
+  const signals = [];
+  if (/\bpackage\.json\b/i.test(haystack)) signals.push('file:package.json');
+  if (/\b(?:npm|pnpm|yarn)\b/i.test(haystack)) signals.push('keyword:npm');
+  if (/\b(?:vitest|jest|node|typescript|javascript)\b/i.test(haystack)) signals.push('keyword:node');
+  if (/\.(?:mjs|cjs|js|jsx|ts|tsx)\b/i.test(haystack)) signals.push('file_ext:js_ts');
+  if (signals.length === 0) return null;
+  return {
+    scope_key: 'tech_stack:node',
+    scopeKey: 'tech_stack:node',
+    tech_stack: 'node',
+    techStack: 'node',
+    signals: [...new Set(signals)],
+  };
+}
+
+function buildVerifyFailurePatternHash({ scopeKey, techStack, categories }) {
+  const normalizedCategories = normalizeVerifyFailureCategories(categories).sort();
+  const normalizedPattern = normalizePatternText([
+    scopeKey || '',
+    techStack || '',
+    normalizedCategories.join(' '),
+  ].join(' '));
+  const patternHash = crypto
+    .createHash('sha256')
+    .update(normalizedPattern || 'generic verify failure')
+    .digest('hex')
+    .slice(0, 16);
+  return {
+    normalized_pattern: normalizedPattern,
+    normalizedPattern,
+    pattern_hash: patternHash,
+    patternHash,
+  };
+}
+
 function deriveLearningScope(input = {}) {
   const task = input.task && typeof input.task === 'object' ? input.task : {};
   let metadata = input.metadata ?? task.metadata ?? {};
@@ -134,6 +252,7 @@ function deriveLearningScope(input = {}) {
   collectFiles(metadata.modifiedFiles);
 
   const description = [
+    input.title,
     input.description,
     input.taskDescription,
     task.task_description,
@@ -160,6 +279,7 @@ function deriveLearningScope(input = {}) {
     dotnetSignals.push('keyword:EntityFramework');
   }
   if (/\bEF\s+Core\b/i.test(haystack)) dotnetSignals.push('keyword:EF Core');
+  if (/\b(?:DbContext|DbSet)\b/i.test(haystack)) dotnetSignals.push('keyword:DbContext');
   if (/\bdotnet\b/i.test(haystack)) dotnetSignals.push('keyword:dotnet');
   if (/\b\.NET\b/i.test(haystack) || /\bcsproj\b/i.test(haystack)) dotnetSignals.push('keyword:.NET');
 
@@ -176,6 +296,64 @@ function deriveLearningScope(input = {}) {
   }
 
   return null;
+}
+
+function deriveVerifyFailurePattern(input = {}) {
+  const haystack = getVerifyPatternHaystack(input);
+  const learningScope = deriveLearningScope(input);
+  const nodeScope = learningScope ? null : detectNodeScope(haystack);
+  const techStack = learningScope?.tech_stack || nodeScope?.tech_stack || 'unknown';
+  const scopeKey = learningScope?.scope_key || nodeScope?.scope_key || `tech_stack:${techStack}`;
+  const signals = [
+    ...(Array.isArray(learningScope?.signals) ? learningScope.signals : []),
+    ...(Array.isArray(nodeScope?.signals) ? nodeScope.signals : []),
+  ];
+  const categories = [];
+
+  const isDotnet = techStack === 'dotnet';
+  const isNode = techStack === 'node';
+  const hasEfCore = /\b(?:ef\s*core|entity\s*framework|entityframework|dbcontext|dbset)\b/i.test(haystack);
+  const hasRefactorSignal = /\b(?:refactor|migration|migrations|repository|repositories|schema|model|models|entity|entities|relationship|navigation|linq)\b/i.test(haystack);
+  const hasTestSignal = /\b(?:test|tests|testing|assert|assertion|xunit|nunit|mstest|vitest|jest|pytest|dotnet\s+test|npm\s+test|pnpm\s+test|yarn\s+test)\b/i.test(haystack);
+  const hasBuildSignal = /\b(?:build|compile|compiler|tsc|dotnet\s+build)\b/i.test(haystack);
+  const hasVerifySignal = /\b(?:auto[-_ ]?verify|verification|verify|verified)\b/i.test(haystack);
+
+  if (isDotnet && hasEfCore && hasRefactorSignal) {
+    categories.push('ef_core_refactor_verify_failure');
+  } else if (isDotnet && hasEfCore) {
+    categories.push('ef_core_verify_failure');
+  }
+
+  if (isDotnet) categories.push('dotnet_verify_failure');
+  if (isNode) categories.push('node_verify_failure');
+  if (hasTestSignal) categories.push('test_verify_failure');
+  if (hasBuildSignal) categories.push(`${techStack}_build_verify_failure`);
+  if (categories.length === 0 && hasVerifySignal) categories.push('generic_verify_failure');
+
+  const normalizedCategories = normalizeVerifyFailureCategories(categories);
+  if (normalizedCategories.length === 0) return null;
+
+  const hash = buildVerifyFailurePatternHash({
+    scopeKey,
+    techStack,
+    categories: normalizedCategories,
+  });
+
+  return {
+    signal_type: DEFAULT_VERIFY_FAILURE_SIGNAL_TYPE,
+    signalType: DEFAULT_VERIFY_FAILURE_SIGNAL_TYPE,
+    scope_key: scopeKey,
+    scopeKey,
+    tech_stack: techStack,
+    techStack,
+    categories: normalizedCategories,
+    failure_category: normalizedCategories[0],
+    failureCategory: normalizedCategories[0],
+    failure_pattern: hash.pattern_hash,
+    failurePattern: hash.pattern_hash,
+    ...hash,
+    signals: [...new Set(signals)],
+  };
 }
 
 function computeExpiresAt({ expiresAt, ttlMs, defaultTtlMs, now }) {
@@ -786,10 +964,13 @@ function createSharedFactoryStore(options = {}) {
 module.exports = {
   createSharedFactoryStore,
   deriveLearningScope,
+  deriveVerifyFailurePattern,
   ensureSchema,
+  normalizeVerifyFailureCategories,
   resolveSharedFactoryDbPath,
   SHARED_FACTORY_DB_ENV,
   SHARED_FACTORY_DB_CONFIG_KEY,
   DEFAULT_SHARED_FACTORY_DB_FILENAME,
   DEFAULT_PROVIDER_FAILURE_SIGNAL_TYPE,
+  DEFAULT_VERIFY_FAILURE_SIGNAL_TYPE,
 };

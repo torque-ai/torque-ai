@@ -25,7 +25,9 @@ const resumeContextUtils = require('../utils/resume-context');
 const {
   createSharedFactoryStore,
   deriveLearningScope,
+  deriveVerifyFailurePattern,
   DEFAULT_PROVIDER_FAILURE_SIGNAL_TYPE,
+  DEFAULT_VERIFY_FAILURE_SIGNAL_TYPE,
 } = require('../db/shared-factory-store');
 const { v4: uuidv4 } = require('uuid');
 
@@ -275,6 +277,37 @@ function computeProviderFailureConfidence(sampleCount) {
   return Math.min(0.95, 0.35 + (count * 0.12));
 }
 
+function computeVerifyFailureConfidence(sampleCount, categories = []) {
+  const numeric = Number(sampleCount);
+  const count = Number.isFinite(numeric) ? Math.max(1, Math.trunc(numeric)) : 1;
+  const categoryBoost = Array.isArray(categories) && categories.length > 1 ? 0.05 : 0;
+  return Math.min(0.98, 0.45 + (count * 0.12) + categoryBoost);
+}
+
+function hasVerifyFailureSignal(ctx) {
+  if (ctx?.status !== 'failed') return false;
+
+  const output = typeof ctx?.output === 'string' ? ctx.output : '';
+  const errorOutput = typeof ctx?.errorOutput === 'string' ? ctx.errorOutput : '';
+  const combinedOutput = `${output}\n${errorOutput}`;
+  if (/\[auto-verify\]|\bauto[-_ ]?verify\b/i.test(combinedOutput)) return true;
+  if (/\bverify\b.{0,80}\b(?:fail|failed|failure|error)\b/i.test(combinedOutput)) return true;
+  if (/\b(?:dotnet|npm|pnpm|yarn|pytest|vitest|jest|go test|cargo test)\b.{0,120}\b(?:fail|failed|failure|error)\b/i.test(combinedOutput)) {
+    return true;
+  }
+
+  const stages = ctx?.validationStages && typeof ctx.validationStages === 'object'
+    ? ctx.validationStages
+    : {};
+  return Object.entries(stages).some(([stageName, stage]) => (
+    /verify|validation|build_test|test|style/i.test(stageName)
+    && stage
+    && typeof stage === 'object'
+    && stage.status_after === 'failed'
+    && stage.status_before !== 'failed'
+  ));
+}
+
 function recordSharedProviderLearning(ctx) {
   try {
     if (ctx?.status !== 'failed') return;
@@ -326,6 +359,68 @@ function recordSharedProviderLearning(ctx) {
     });
   } catch (err) {
     logger.info(`[finalizer] Shared provider learning recording failed: ${err.message}`);
+  }
+}
+
+function recordSharedVerifyFailureLearning(ctx) {
+  try {
+    if (!hasVerifyFailureSignal(ctx)) return;
+    const task = ctx?.task || {};
+    const provider = normalizeText(task.provider || ctx?.proc?.provider);
+    if (!provider) return;
+
+    const metadata = mergeTaskMetadata(task, ctx);
+    const pattern = deriveVerifyFailurePattern({
+      task,
+      metadata,
+      files: ctx?.filesModified,
+      workingDirectory: task.working_directory,
+      description: task.task_description,
+      output: ctx?.output,
+      errorOutput: ctx?.errorOutput,
+      validationStages: ctx?.validationStages,
+    });
+    if (!pattern || !pattern.pattern_hash) return;
+
+    const store = getSharedFactoryStore();
+    if (!store || typeof store.upsertLearning !== 'function') return;
+
+    const key = {
+      signal_type: DEFAULT_VERIFY_FAILURE_SIGNAL_TYPE,
+      scope_key: pattern.scope_key,
+      provider,
+      failure_pattern: pattern.pattern_hash,
+    };
+    const existing = typeof store.getLearning === 'function' ? store.getLearning(key) : null;
+    const nextSampleCount = (Number(existing?.sample_count) || 0) + 1;
+    const failureCategory = categorizeFailure(ctx);
+
+    store.upsertLearning({
+      ...key,
+      tech_stack: pattern.tech_stack,
+      sample_count: 1,
+      confidence: computeVerifyFailureConfidence(nextSampleCount, pattern.categories),
+      project_source: resolveTaskProjectId(task) || normalizeText(task.working_directory) || 'unknown',
+      payload: {
+        signal_type: DEFAULT_VERIFY_FAILURE_SIGNAL_TYPE,
+        scope_key: pattern.scope_key,
+        tech_stack: pattern.tech_stack,
+        provider,
+        pattern_hash: pattern.pattern_hash,
+        normalized_pattern: pattern.normalized_pattern,
+        failure_categories: pattern.categories,
+        failure_category: pattern.failure_category,
+        finalizer_failure_category: failureCategory,
+        signals: pattern.signals || [],
+        task_id: ctx.taskId || task.id || null,
+        task_description: task.task_description || null,
+        working_directory: task.working_directory || null,
+        files_modified: ctx?.filesModified || [],
+        status: ctx.status,
+      },
+    });
+  } catch (err) {
+    logger.info(`[finalizer] Shared verify failure learning recording failed: ${err.message}`);
   }
 }
 
@@ -1079,6 +1174,7 @@ async function finalizeTask(taskId, options = {}) {
 
     recordProviderScoring(ctx);
     recordSharedProviderLearning(ctx);
+    recordSharedVerifyFailureLearning(ctx);
 
     try {
       const budgetWatcher = require('../db/budget-watcher');
@@ -1192,6 +1288,7 @@ async function finalizeTask(taskId, options = {}) {
     await indexRunArtifacts(taskId, fallbackCtx.task?.workflow_id || currentTask?.workflow_id || null);
     recordProviderScoring(fallbackCtx);
     recordSharedProviderLearning(fallbackCtx);
+    recordSharedVerifyFailureLearning(fallbackCtx);
 
     if (typeof deps.handlePostCompletion === 'function') {
       try {
