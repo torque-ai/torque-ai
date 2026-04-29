@@ -127,6 +127,15 @@ function createMockDb(initialHosts = []) {
       const host = hosts.get(hostId);
       return host ? { ...host } : null;
     }),
+    getRunningTasksForHost: vi.fn((hostId) => {
+      const host = hosts.get(hostId);
+      if (!host || !host.running_tasks) return [];
+      return Array.from({ length: host.running_tasks }, (_unused, index) => ({
+        id: `${hostId}-task-${index + 1}`,
+        ollama_host_id: hostId,
+        status: 'running',
+      }));
+    }),
     recoverOllamaHost: vi.fn((hostId) => {
       const host = hosts.get(hostId);
       if (!host) throw new Error(`Unknown host ${hostId}`);
@@ -416,6 +425,32 @@ describe('host-monitoring.js', () => {
       expect(request.req.destroy).toHaveBeenCalledTimes(1);
       expect(db.recordHostHealthCheck).toHaveBeenCalledWith('host-e', false, null);
       expect(db.getOllamaHost('host-e').status).toBe('degraded');
+    });
+
+    it('does not mark an active host down when a health probe times out during a running task', async () => {
+      const host = createHost('host-busy', {
+        status: 'healthy',
+        consecutive_failures: 2,
+        running_tasks: 1,
+      });
+      const cleanupOrphanedHostTasks = vi.fn();
+      const { monitoring, db, mocks } = setupTest({
+        hosts: [host],
+        cleanupOrphanedHostTasks,
+      });
+
+      const request = createMockRequest({ timeout: true });
+      mocks.httpModule.get.mockImplementation((_url, _options, callback) => request.invoke(getCallback(_options, callback)));
+
+      await monitoring.runHostHealthChecks();
+
+      expect(request.req.destroy).toHaveBeenCalledTimes(1);
+      expect(db.recordHostHealthCheck).not.toHaveBeenCalled();
+      expect(cleanupOrphanedHostTasks).not.toHaveBeenCalled();
+      expect(db.getOllamaHost('host-busy')).toMatchObject({
+        status: 'healthy',
+        consecutive_failures: 2,
+      });
     });
 
     it('recovers hosts that were already down after a successful probe', async () => {

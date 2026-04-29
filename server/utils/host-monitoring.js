@@ -153,12 +153,12 @@ async function runHostHealthChecks() {
                   resolve({ healthy: true, models: null });
                 }
               } else {
-                resolve({ healthy: false, models: null });
+                resolve({ healthy: false, models: null, failureReason: `HTTP ${res.statusCode}` });
               }
             });
           });
-          req.on('error', () => resolve({ healthy: false, models: null }));
-          req.on('timeout', () => { req.destroy(); resolve({ healthy: false, models: null }); });
+          req.on('error', (error) => resolve({ healthy: false, models: null, failureReason: getErrorMessage(error) }));
+          req.on('timeout', () => { req.destroy(); resolve({ healthy: false, models: null, failureReason: 'timeout' }); });
         });
 
         // Auto-recover hosts that were down
@@ -173,6 +173,17 @@ async function runHostHealthChecks() {
 
         // Track previous status to detect down transitions
         const previousStatus = host.status;
+        const activeTaskCount = getDeferredHealthFailureRunningTaskCount(host, result);
+        if (activeTaskCount > 0) {
+          logThrottledMonitoringIssue(
+            'warn',
+            `${hostLogKey}:busy-timeout`,
+            `[Health Check] Host ${host.name || host.url} health probe timed out while task(s) are running; preserving host status`,
+            { hostId: host.id, hostUrl: host.url, runningTasks: activeTaskCount }
+          );
+          continue;
+        }
+
         db.recordHostHealthCheck(host.id, result.healthy, result.models);
         if (result.healthy) {
           clearMonitoringIssue(hostLogKey);
@@ -219,6 +230,23 @@ async function runHostHealthChecks() {
   } catch (err) {
     logger.info(`[Health Check] Error: ${err.message}`);
   }
+}
+
+function getDeferredHealthFailureRunningTaskCount(host, result) {
+  if (!host || !result || result.healthy || result.failureReason !== 'timeout') {
+    return 0;
+  }
+
+  if (typeof db?.getRunningTasksForHost === 'function') {
+    try {
+      const runningTasks = db.getRunningTasksForHost(host.id);
+      return Array.isArray(runningTasks) ? runningTasks.length : 0;
+    } catch (_err) {
+      void _err;
+    }
+  }
+
+  return Number(host.running_tasks || 0);
 }
 
 /**
