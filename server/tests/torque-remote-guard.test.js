@@ -17,12 +17,17 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
-// Bash on Windows (Git Bash) expects POSIX-style path separators. path.resolve
-// on Windows produces backslashes which bash interprets as escape characters;
-// the script path then fails to resolve and `bash <GUARD>` exits 127. Convert
-// to forward slashes so the same test works on both platforms.
+// Bash on Windows (Git Bash) needs MinGW-style absolute paths (/c/foo/bar)
+// rather than the Windows-form (C:/foo/bar or C:\foo\bar) that path.resolve
+// returns. Git Bash interprets `bash C:/path/to/script` as a missing-script
+// (exit 127); the same script invoked as `bash /c/path/to/script` runs
+// fine. Strip the drive letter into the leading `/<letter>/` form. On
+// Linux/macOS path.resolve already returns POSIX-style; the regex is a
+// no-op there.
 const GUARD_RAW = path.resolve(__dirname, '..', '..', 'bin', 'torque-remote-guard');
-const GUARD = GUARD_RAW.replace(/\\/g, '/');
+const GUARD = GUARD_RAW
+  .replace(/\\/g, '/')
+  .replace(/^([A-Za-z]):/, (_, d) => '/' + d.toLowerCase());
 const BASH_PROBE = spawnSync('bash', ['--version'], { encoding: 'utf8' });
 const BASH_AVAILABLE = BASH_PROBE.status === 0;
 
