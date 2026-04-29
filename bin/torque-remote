@@ -948,7 +948,16 @@ case "$TRANSPORT" in
         # build outputs, etc.) doesn't trip Windows MAX_PATH=260. Git uses
         # the \\?\-prefixed Win32 API when this is on, raising the ceiling
         # to ~32K characters.
-        SYNC_BOOTSTRAP="if not exist \"$EFFECTIVE_REMOTE_PROJECT_PATH\\.git\" (cd /d \"$REMOTE_PROJECT_PATH\" && git worktree add --force \"$EFFECTIVE_REMOTE_PROJECT_PATH\" $SYNC_REF 2>nul) && cd /d \"$EFFECTIVE_REMOTE_PROJECT_PATH\" && git config core.longpaths true && "
+        # The bare `if not exist X (block)` is wrapped in an extra `(...)`
+        # so the trailing `&& chain` continues to run when the if-condition
+        # is false (i.e., .git already exists — every sync after the first).
+        # Without the outer parens, CMD swallows the whole `&&` chain when
+        # the if-block is skipped, silently producing exit 0 and zero output.
+        # Verified live 2026-04-29: bare form skipped fetch+checkout+reset
+        # for 3 days, leaving the test worktree at a stale HEAD and
+        # surfacing as spurious "concurrent torque-remote clobbered the
+        # checkout" errors in the runner.sh exit-98 guard.
+        SYNC_BOOTSTRAP="(if not exist \"$EFFECTIVE_REMOTE_PROJECT_PATH\\.git\" (cd /d \"$REMOTE_PROJECT_PATH\" && git worktree add --force \"$EFFECTIVE_REMOTE_PROJECT_PATH\" $SYNC_REF 2>nul)) && cd /d \"$EFFECTIVE_REMOTE_PROJECT_PATH\" && git config core.longpaths true && "
         SYNC_CHECKOUT="git checkout --force --detach $SYNC_REF"
       else
         SYNC_CHECKOUT="git checkout --force $SYNC_BRANCH"

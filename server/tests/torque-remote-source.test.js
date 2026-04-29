@@ -40,4 +40,18 @@ describe('torque-remote source invariants', () => {
     expect(src).not.toContain('acquire_remote_sync_lock || true');
     expect(src).not.toContain('proceeding without serialization');
   });
+
+  it('wraps the worktree-bootstrap if-not-exist in outer parens so the && chain survives when .git already exists', () => {
+    // Without outer parens, CMD's `if X (block) && rest` form silently
+    // skips `rest` whenever the if-condition is false (i.e., on every
+    // sync after the worktree's first creation). The bare form looks
+    // correct, exits 0, prints nothing, and leaves the remote worktree
+    // HEAD at whatever it was before — which the runner.sh exit-98
+    // guard then misattributes to a "concurrent torque-remote session
+    // clobbered the checkout" instead of the real cause: the bootstrap
+    // silently skipped its own sync. Reproduced live 2026-04-29.
+    const src = readTorqueRemote();
+    expect(src).toContain('SYNC_BOOTSTRAP="(if not exist \\"$EFFECTIVE_REMOTE_PROJECT_PATH\\\\.git\\"');
+    expect(src).not.toMatch(/^\s*SYNC_BOOTSTRAP="if not exist /m);
+  });
 });
