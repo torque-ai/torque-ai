@@ -663,4 +663,31 @@ describe('handleInboundWebhook quota routing', () => {
       task: 'Lint torque on develop',
     }));
   });
+
+  it('leaves prototype placeholders literal in quota task description', async () => {
+    const secret = crypto.randomBytes(32).toString('hex');
+    db.createInboundWebhook({
+      name: 'subst-prototype-free-hook',
+      source_type: 'generic',
+      secret,
+      action_config: {
+        task_description: 'Lint {{payload.repo}} {{payload.constructor.prototype.value}}',
+        trigger_type: 'quota_task',
+      },
+    });
+
+    const mockTracker = {
+      getAvailableProvidersSmart: vi.fn(() => [
+        { provider: 'groq', dailyRemainingPct: 80, score: 9.0, avgLatencyMs: 200, estimatedTokens: 500 },
+      ]),
+    };
+    setQuotaTrackerGetter(() => mockTracker);
+
+    const { statusCode } = await triggerWebhook('subst-prototype-free-hook', { repo: 'torque' });
+
+    expect(statusCode).toBe(200);
+    expect(toolCallSpy).toHaveBeenCalledWith('submit_task', expect.objectContaining({
+      task: 'Lint torque {{payload.constructor.prototype.value}}',
+    }));
+  });
 });

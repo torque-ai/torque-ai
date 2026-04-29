@@ -10,6 +10,7 @@
  */
 
 const crypto = require('crypto');
+const { EventEmitter } = require('events');
 const { setupTestDb, teardownTestDb, safeTool, getText, rawDb } = require('./vitest-setup');
 
 let db, mod;
@@ -467,6 +468,101 @@ describe('Inbound Webhook Handlers', () => {
       expect(result.isError).toBe(true);
       expect(getText(result)).toContain('not found');
     });
+  });
+});
+
+// ============================================
+// Production Trigger Path Tests
+// ============================================
+
+describe('Inbound Webhook Production Trigger Path', () => {
+  beforeEach(() => { resetInboundWebhooks(); });
+
+  function createMockRes() {
+    let resolvePromise;
+    const done = new Promise((resolve) => { resolvePromise = resolve; });
+    const resObj = {
+      statusCode: null,
+      _body: null,
+      _headers: {},
+      setHeader: vi.fn((name, val) => { resObj._headers[name.toLowerCase()] = val; }),
+      getHeader: vi.fn((name) => resObj._headers[name.toLowerCase()]),
+      writeHead: vi.fn((code, hdrs) => {
+        resObj.statusCode = code;
+        if (hdrs) Object.assign(resObj._headers, hdrs);
+      }),
+      end: vi.fn((body) => {
+        resObj._body = body;
+        resolvePromise();
+      }),
+    };
+    return { res: resObj, done };
+  }
+
+  async function triggerSignedWebhook(handleInboundWebhook, webhookName, payload, secret) {
+    const rawBody = JSON.stringify(payload);
+    const signature = `sha256=${crypto.createHmac('sha256', secret).update(rawBody, 'utf8').digest('hex')}`;
+    const req = new EventEmitter();
+    req.method = 'POST';
+    req.url = `/api/webhooks/inbound/${encodeURIComponent(webhookName)}`;
+    req.headers = { 'x-webhook-signature': signature };
+    req.destroy = vi.fn();
+    req.socket = { remoteAddress: '127.0.0.1' };
+    req.connection = { remoteAddress: '127.0.0.1' };
+
+    const { res, done } = createMockRes();
+    const handlerPromise = handleInboundWebhook(req, res, webhookName);
+    process.nextTick(() => {
+      req.emit('data', rawBody);
+      req.emit('end');
+    });
+
+    await handlerPromise;
+    await done;
+
+    return {
+      statusCode: res.statusCode,
+      body: res._body ? JSON.parse(res._body) : null,
+    };
+  }
+
+  it('leaves prototype placeholders literal while resolving normal payload fields', async () => {
+    const secret = crypto.randomBytes(32).toString('hex');
+    mod.createInboundWebhook({
+      name: 'prototype-trigger-hook',
+      source_type: 'generic',
+      secret,
+      action_config: {
+        task_description: 'Run {{payload.repo}} {{payload.constructor.prototype.value}}',
+      },
+    });
+
+    const tools = require('../tools');
+    const toolCallSpy = vi.spyOn(tools, 'handleToolCall').mockResolvedValue({
+      content: [{ type: 'text', text: 'Queued from prototype regression' }],
+      __subscribe_task_id: 'task-prototype-001',
+    });
+    const webhooksPath = require.resolve('../api/webhooks');
+    delete require.cache[webhooksPath];
+
+    try {
+      const { handleInboundWebhook } = require('../api/webhooks');
+      const { statusCode, body } = await triggerSignedWebhook(
+        handleInboundWebhook,
+        'prototype-trigger-hook',
+        { repo: 'torque' },
+        secret
+      );
+
+      expect(statusCode).toBe(200);
+      expect(body.success).toBe(true);
+      expect(toolCallSpy).toHaveBeenCalledWith('smart_submit_task', expect.objectContaining({
+        task_description: 'Run torque {{payload.constructor.prototype.value}}',
+      }));
+    } finally {
+      toolCallSpy.mockRestore();
+      delete require.cache[webhooksPath];
+    }
   });
 });
 
