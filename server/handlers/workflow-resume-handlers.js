@@ -5,10 +5,20 @@ const { ErrorCodes, makeError } = require('./shared');
 
 let initialized = false;
 
+function resolveDbFacade() {
+  try {
+    const { defaultContainer } = require('../container');
+    return defaultContainer.get('db');
+  } catch {
+    // eslint-disable-next-line global-require -- pre-boot fallback
+    return require('../database');
+  }
+}
+
 function ensureWorkflowResumeInitialized() {
   if (initialized) return;
   workflowResume.init({
-    db: require('../database'),
+    db: resolveDbFacade(),
     eventBus: require('../event-bus'),
     logger: require('../logger').child({ component: 'workflow-resume' }),
   });

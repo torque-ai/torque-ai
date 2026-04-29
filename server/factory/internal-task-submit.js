@@ -41,11 +41,21 @@ function ignoredSchemaLookupError(error) {
   return message.includes('no such table') || message.includes('no such column');
 }
 
+function resolveFacade() {
+  try {
+    const { defaultContainer } = require('../container');
+    return defaultContainer.get('db');
+  } catch {
+    // eslint-disable-next-line global-require -- pre-boot fallback
+    return require('../database');
+  }
+}
+
 function readFactoryProject(project_id) {
   if (!project_id) return null;
 
   try {
-    const database = require('../database');
+    const database = resolveFacade();
     const db = database.getDbInstance?.();
     if (db && typeof db.prepare === 'function') {
       const row = db.prepare('SELECT id, name, path, status, config_json FROM factory_projects WHERE id = ?').get(project_id);

@@ -1,6 +1,5 @@
 'use strict';
 
-const database = require('../database');
 const { EVENT_TYPES } = require('./event-types');
 const eventBus = require('../event-bus');
 const logger = require('../logger').child({ component: 'event-emitter' });
@@ -9,8 +8,19 @@ const KNOWN_TYPES = new Set(Object.values(EVENT_TYPES));
 const MAX_PAYLOAD_BYTES = 100000;
 const STRING_TRUNCATE_LENGTH = 4000;
 
+function resolveFacade() {
+  try {
+    const { defaultContainer } = require('../container');
+    return defaultContainer.get('db');
+  } catch {
+    // eslint-disable-next-line global-require -- pre-boot fallback
+    return require('../database');
+  }
+}
+
 function getDb() {
-  const db = typeof database.getDbInstance === 'function' ? database.getDbInstance() : database;
+  const facade = resolveFacade();
+  const db = typeof facade.getDbInstance === 'function' ? facade.getDbInstance() : facade;
   if (!db || typeof db.prepare !== 'function') {
     throw new Error('Database is not initialized');
   }

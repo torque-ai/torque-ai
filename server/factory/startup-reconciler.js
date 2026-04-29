@@ -1,6 +1,14 @@
 'use strict';
 
-const database = require('../database');
+function resolveDatabase() {
+  try {
+    const { defaultContainer } = require('../container');
+    return defaultContainer.get('db');
+  } catch {
+    // eslint-disable-next-line global-require -- pre-boot fallback
+    return require('../database');
+  }
+}
 const factoryHealth = require('../db/factory-health');
 const factoryLoopInstances = require('../db/factory-loop-instances');
 const taskCore = require('../db/task-core');
@@ -124,7 +132,7 @@ function reconcileWorktreesBeforeAdvance(project, logger, actions) {
   }
 
   try {
-    const db = database.getDbInstance();
+    const db = resolveDatabase().getDbInstance();
     if (!db || !project.path) {
       return;
     }

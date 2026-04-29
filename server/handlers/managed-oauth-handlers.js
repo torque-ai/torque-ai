@@ -1,6 +1,15 @@
 'use strict';
 
-const database = require('../database');
+function resolveDatabase() {
+  try {
+    const { defaultContainer } = require('../container');
+    return defaultContainer.get('db');
+  } catch {
+    // eslint-disable-next-line global-require -- pre-boot fallback
+    return require('../database');
+  }
+}
+
 const { createAuthConfigStore } = require('../auth/auth-config-store');
 const { createConnectedAccountStore } = require('../auth/connected-account-store');
 const { createOAuthController } = require('../auth/oauth-controller');
@@ -18,6 +27,7 @@ function jsonResponse(data) {
 }
 
 function getDbHandle() {
+  const database = resolveDatabase();
   if (database && typeof database.getDbInstance === 'function') {
     return database.getDbInstance();
   }
