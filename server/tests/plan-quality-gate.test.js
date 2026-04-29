@@ -105,6 +105,18 @@ describe('runDeterministicRules — per-task content', () => {
     expect(hardFails.find(f => f.rule === 'task_has_acceptance_criterion')).toBeUndefined();
   });
 
+  it('rule 6: task with generated acceptance criteria phrasing passes task_has_acceptance_criterion', () => {
+    const plan = `## Task 1: Extend file-context-builder focused coverage\n\nEdit server/tests/file-context-builder.test.js only, using server/execution/file-context-builder.js as the subject under test. Add a buildFileContext fallback test where symbolIndexerMock.searchSymbols throws after init. Acceptance criteria: buildFileContext must return whole-file numbered context for src/fallback.js, loggerMock.info must include Symbol index unavailable, and contextEnrichmentMock.enrichResolvedContextAsync must not be called when enrichment is disabled. Validation: npm --prefix server test -- tests/file-context-builder.test.js must pass.`;
+    const { hardFails } = runDeterministicRules(plan);
+    expect(hardFails.find(f => f.rule === 'task_has_acceptance_criterion')).toBeUndefined();
+  });
+
+  it('rule 6: npm --prefix test command passes task_has_acceptance_criterion', () => {
+    const plan = `## Task 1: Cover file context branches\n\nEdit server/tests/file-context-builder.test.js and target server/execution/file-context-builder.js with one focused regression around outside path handling. Validation: npm --prefix server test -- tests/file-context-builder.test.js should report the existing suite plus the new focused case.`;
+    const { hardFails } = runDeterministicRules(plan);
+    expect(hardFails.find(f => f.rule === 'task_has_acceptance_criterion')).toBeUndefined();
+  });
+
   it('rule 6: task with only a file reference but no acceptance criterion hard-fails task_has_acceptance_criterion', () => {
     const plan = `## Task 1: Touch src/foo.ts\n\nIn src/foo.ts adjust the handleFoo function so that its behavior is more in line with current expectations about the system.`;
     const { hardFails } = runDeterministicRules(plan);
