@@ -219,6 +219,12 @@ beforeEach(() => {
   defaultContainer.registerValue('db', db);
   defaultContainer.registerValue('eventBus', { emit: () => {}, on: () => {}, off: () => {} });
   defaultContainer.registerValue('logger', { info: () => {}, warn: () => {}, error: () => {}, debug: () => {} });
+  // sharedFactoryStore (registered in container.js since c8a129c9) declares
+  // a `serverConfig` dep. Production wires it in server/index.js, but
+  // standalone unit-test boots that don't go through index.js need a
+  // placeholder so topoSort can resolve. createSharedFactoryStore reads
+  // config.get/getConfig/peek and tolerates missing keys.
+  defaultContainer.registerValue('serverConfig', {});
   defaultContainer.boot();
 
   resetFeedbackAnalysisModule();
