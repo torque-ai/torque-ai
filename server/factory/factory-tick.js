@@ -206,6 +206,25 @@ function getVerifyBatchWaitState(projectId, instance) {
   }
 }
 
+function hasNonTerminalFactoryBatchTasks(instance) {
+  if (!instance?.batch_id) {
+    return false;
+  }
+
+  try {
+    return loopController
+      .listTasksForFactoryBatch(instance.batch_id)
+      .some((task) => !TERMINAL_FACTORY_BATCH_TASK_STATUSES.has(task.status));
+  } catch (err) {
+    logger.debug('Factory tick: batch task inspection failed', {
+      instance_id: instance.id,
+      batch_id: instance.batch_id,
+      err: err.message,
+    });
+    return false;
+  }
+}
+
 function resolveTaskCore(override) {
   if (override !== undefined) return override;
   return require('../db/task-core');
@@ -835,6 +854,7 @@ async function tickProject(project) {
           instance_id: instance.id,
           batch_id: instance.batch_id,
           last_action_at: instance.last_action_at,
+          has_non_terminal_batch_tasks: hasNonTerminalFactoryBatchTasks(instance),
         });
         if (stallAlert.alerted) {
           logger.warn('Factory tick emitted stalled alert', {

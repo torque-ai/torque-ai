@@ -41,7 +41,7 @@ describe('factory_status', () => {
   });
 
   beforeEach(() => {
-    resetTables(['factory_loop_instances', 'factory_work_items', 'factory_projects']);
+    resetTables(['tasks', 'factory_loop_instances', 'factory_work_items', 'factory_projects']);
     notifications.flushAllDigests();
     notifications._testing.resetAlertRuntimeState();
   });
@@ -124,6 +124,27 @@ describe('factory_status', () => {
       batchId: 'batch-paused',
     });
     insertProject.run(
+      'project-paused-execute-old',
+      'Paused Execute Old',
+      path.join(testDir, 'project-paused-execute-old'),
+      'paused project with stale execute loop',
+      'guided',
+      'paused',
+      null,
+      'EXECUTE',
+      'batch-paused-execute',
+      oldActionAt,
+      null,
+      createdAt,
+      createdAt,
+    );
+    insertActiveLoopInstance(db, {
+      projectId: 'project-paused-execute-old',
+      loopState: 'EXECUTE',
+      lastActionAt: oldActionAt,
+      batchId: 'batch-paused-execute',
+    });
+    insertProject.run(
       'project-idle-old',
       'Idle Old',
       path.join(testDir, 'project-idle-old'),
@@ -155,6 +176,10 @@ describe('factory_status', () => {
       loop_state: 'PAUSED',
       loop_paused_at_stage: 'VERIFY_FAIL',
     });
+    expect(projectsById['project-paused-execute-old']).toMatchObject({
+      status: 'paused',
+      loop_state: 'EXECUTE',
+    });
     expect(projectsById['project-idle-old']).toMatchObject({
       loop_state: 'IDLE',
       loop_paused_at_stage: null,
@@ -174,11 +199,83 @@ describe('factory_status', () => {
     expect(projectsById['project-idle-old'].health_missing_dimensions).toContain('build_ci');
 
     expect(payload.summary).toMatchObject({
-      total: 3,
+      total: 4,
       running: 2,
-      paused: 1,
+      paused: 2,
       stalled: 1,
     });
+  });
+
+  it('does not report a running execute loop as stalled while its batch still has live tasks', async () => {
+    const db = rawDb();
+    const now = new Date();
+    const oldActionAt = new Date(now.getTime() - (45 * 60 * 1000)).toISOString();
+    const createdAt = now.toISOString();
+
+    db.prepare(`
+      INSERT INTO factory_projects (
+        id,
+        name,
+        path,
+        brief,
+        trust_level,
+        status,
+        config_json,
+        loop_state,
+        loop_batch_id,
+        loop_last_action_at,
+        loop_paused_at_stage,
+        created_at,
+        updated_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      'project-active-batch',
+      'Active Batch',
+      path.join(testDir, 'project-active-batch'),
+      'active batch should suppress stalled status',
+      'autonomous',
+      'running',
+      null,
+      'EXECUTE',
+      'batch-active',
+      oldActionAt,
+      null,
+      createdAt,
+      createdAt,
+    );
+    insertActiveLoopInstance(db, {
+      projectId: 'project-active-batch',
+      loopState: 'EXECUTE',
+      lastActionAt: oldActionAt,
+      batchId: 'batch-active',
+    });
+    db.prepare('INSERT INTO tasks (id, task_description, status, tags, created_at) VALUES (?, ?, ?, ?, ?)')
+      .run(
+        'task-active-batch',
+        'Active factory batch task',
+        'running',
+        JSON.stringify(['factory:batch_id=batch-active']),
+        createdAt,
+      );
+
+    notifications.notifyFactoryStalled({
+      project_id: 'project-active-batch',
+      stalled_minutes: 45,
+      threshold_minutes: 30,
+      stage: 'EXECUTE',
+      instance_id: 'project-active-batch-instance',
+      batch_id: 'batch-active',
+      last_action_at: oldActionAt,
+    });
+
+    const result = await safeTool('factory_status', {});
+
+    expect(result.isError).toBeFalsy();
+    expect(result.structuredData.summary.stalled).toBe(0);
+    const project = result.structuredData.projects.find((item) => item.id === 'project-active-batch');
+    expect(project.alert_badge).toBeNull();
+    expect(project).not.toHaveProperty('_has_non_terminal_batch_tasks');
   });
 
   it('exposes alert_badge and clears stale idle badges when pending work exists', async () => {

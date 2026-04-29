@@ -68,6 +68,7 @@ const logger = require('../logger').child({ component: 'factory-handlers' });
 const STALL_THRESHOLD_MS = 30 * 60 * 1000;
 const COMMITS_TODAY_CACHE_TTL_MS = 60 * 1000;
 const COMMITS_TODAY_TIMEOUT_MS = 5 * 1000;
+const TERMINAL_FACTORY_BATCH_TASK_STATUSES = new Set(['completed', 'shipped', 'cancelled', 'failed', 'skipped']);
 const BASELINE_RESUME_JOBS_TO_KEEP_PER_PROJECT = 25;
 const commitsTodayCache = new Map();
 const baselineResumeJobs = new Map();
@@ -383,7 +384,25 @@ function countOpenFactoryWorkItems(projectId) {
   }
 }
 
-function getFactoryStatusAlertBadge(projectId, { openWorkItemCount, loopState } = {}) {
+function hasNonTerminalFactoryBatchTasks(batchId) {
+  if (!batchId) {
+    return false;
+  }
+
+  try {
+    return loopController
+      .listTasksForFactoryBatch(batchId)
+      .some((task) => !TERMINAL_FACTORY_BATCH_TASK_STATUSES.has(task.status));
+  } catch (error) {
+    logger.debug('Failed to inspect factory batch tasks for status', {
+      err: error.message,
+      batch_id: batchId,
+    });
+    return false;
+  }
+}
+
+function getFactoryStatusAlertBadge(projectId, { openWorkItemCount, loopState, hasNonTerminalBatchTasks = false } = {}) {
   const hasPendingWork = openWorkItemCount > 0;
   const hasRunningLoop = normalizeProjectLoopState(loopState) !== 'IDLE';
   if (hasPendingWork || hasRunningLoop) {
@@ -393,6 +412,12 @@ function getFactoryStatusAlertBadge(projectId, { openWorkItemCount, loopState } 
       running_count: hasRunningLoop ? 1 : 0,
       has_pending_work: hasPendingWork,
       has_running_item: hasRunningLoop,
+    });
+  }
+  if (hasNonTerminalBatchTasks) {
+    notifications.clearFactoryAlertBadge({
+      project_id: projectId,
+      alert_type: notifications.ALERT_TYPES.FACTORY_STALLED,
     });
   }
 
@@ -934,10 +959,14 @@ async function handleFactoryStatus() {
     const lastActionAt = activeInstance
       ? (activeInstance.last_action_at || null)
       : (p.loop_last_action_at || null);
+    const hasNonTerminalBatchTasks = activeInstance
+      ? hasNonTerminalFactoryBatchTasks(activeInstance.batch_id)
+      : false;
     const openWorkItemCount = countOpenFactoryWorkItems(p.id);
     const alertBadge = getFactoryStatusAlertBadge(p.id, {
       openWorkItemCount,
       loopState,
+      hasNonTerminalBatchTasks,
     });
 
     if (getCachedCommitsToday(p.path, nowMs) !== null) {
@@ -961,6 +990,7 @@ async function handleFactoryStatus() {
       dimension_count: healthModel.dimension_count,
       health_model_status: healthModel.status,
       health_missing_dimensions: healthModel.missing_dimensions,
+      _has_non_terminal_batch_tasks: hasNonTerminalBatchTasks,
     };
   }));
 
@@ -972,12 +1002,16 @@ async function handleFactoryStatus() {
   // instance can't look "running but stalled" forever — with no active
   // instance, loop_state is IDLE and the project is excluded from stalled.
   const stalled = summaries.filter((summary) => {
+    if (summary.status !== 'running' || summary._has_non_terminal_batch_tasks) {
+      return false;
+    }
     if (summary.loop_state === 'IDLE' || !summary.loop_last_action_at) {
       return false;
     }
     const lastActionMs = Date.parse(summary.loop_last_action_at);
     return Number.isFinite(lastActionMs) && (nowMs - lastActionMs) >= STALL_THRESHOLD_MS;
   }).length;
+  const publicSummaries = summaries.map(({ _has_non_terminal_batch_tasks, ...summary }) => summary);
 
   logger.debug('Loaded factory_status productivity snapshot', {
     'x-cache-hit-count': cacheHitCount,
@@ -987,7 +1021,7 @@ async function handleFactoryStatus() {
   });
 
   return jsonResponse({
-    projects: summaries,
+    projects: publicSummaries,
     summary: {
       total: projects.length,
       running,

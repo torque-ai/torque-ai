@@ -231,6 +231,7 @@ function recordFactoryTickState({
   instance_id,
   batch_id,
   last_action_at,
+  has_non_terminal_batch_tasks = false,
   now_ms = Date.now(),
   threshold_ms = FACTORY_STALL_THRESHOLD_MS,
   reason = 'no recorded factory progress',
@@ -255,6 +256,7 @@ function recordFactoryTickState({
     || currentStage === 'IDLE'
     || currentStage === 'PAUSED'
     || pausedAtGate
+    || has_non_terminal_batch_tasks === true
     || !Number.isFinite(lastActionMs)
   ) {
     factoryStallAlerts.delete(alertKey);
