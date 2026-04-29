@@ -193,9 +193,18 @@ gate_marker_has_failure() {
   echo "$output" | grep -qE '\[gate-end\] .*_exit=[1-9]'
 }
 
-# Per-phase timeout caps pathological SSH stalls. Empirically, dashboard
-# completes in ~1m and server in ~2.5m, so 10min is a generous safety net.
-PHASE_TIMEOUT_SECS="${PRE_PUSH_PHASE_TIMEOUT_SECS:-600}"
+# Per-phase timeout caps pathological SSH stalls. Set generously over the
+# observed worst case so a slow but legitimate run is not killed mid-suite.
+# History:
+#   2026-04-25 (0fb2524ed): default 600s — measured dashboard 52s, server 141s
+#   2026-04-29: server suite grew past 600s after the factory-coordination
+#     batch landed (~1075 server test files vs. ~600 in late April). Pushes
+#     started failing with `[gate-end] dash_exit=0 serv_exit=1`, no vitest
+#     summary, output cut mid-test — the fingerprint of `timeout` killing
+#     vitest before the `echo $?` line could write to SERV_EXIT_FILE, so
+#     the missing-file fallback wrote "1". Bumped default to 1800s (30 min).
+#     Override via PRE_PUSH_PHASE_TIMEOUT_SECS when needed.
+PHASE_TIMEOUT_SECS="${PRE_PUSH_PHASE_TIMEOUT_SECS:-1800}"
 
 # Run a test command with one auto-retry if the only failure shape is
 # file-load (see is_file_load_only_flake). Exports RETRIED_OUTPUT and
