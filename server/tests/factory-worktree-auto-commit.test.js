@@ -501,7 +501,11 @@ describe('factory worktree auto-commit', () => {
       },
     });
     expect(decisions[0].outcome.files_changed).toContain('feature.txt');
-  });
+  }, 60000); // 60s timeout — initGitWorktree (git worktree add is slow on
+              // Windows under Defender), seedFactoryProject (multiple
+              // commits via runRealGit), task:completed listener path that
+              // commits feature.txt, plus runRealGit log/rev-parse reads.
+              // Same pattern as worktree-manager.test.js:954 (b2dddf9b).
 
   it('cleans factory run artifacts and plan progress churn without committing them', async () => {
     const { worktreePath } = initGitWorktree(tempDirs);
