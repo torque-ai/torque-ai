@@ -1,7 +1,7 @@
 import { Fragment, useState } from 'react';
 import { useOutletContext } from 'react-router-dom';
 import LoadingSkeleton from '../../components/LoadingSkeleton';
-import { SelectProjectPrompt } from './shared';
+import { FactorySubviewLoadError, SelectProjectPrompt } from './shared';
 import {
   BADGE_FALLBACK_STYLE,
   DECISION_ACTOR_BADGE_STYLES,
@@ -184,10 +184,12 @@ function DecisionAuditTable({ decisionLoading, decisionLog }) {
 export default function Activity() {
   const {
     decisionFilters,
+    decisionLogError,
     decisionLoading,
     decisionLog,
     decisionStats,
     digest,
+    refreshSelectedProject,
     selectedProject,
     setDecisionFilters,
   } = useOutletContext();
@@ -339,6 +341,17 @@ export default function Activity() {
           </div>
         </div>
       </div>
+
+      {decisionLogError && (
+        <div className="mt-4">
+          <FactorySubviewLoadError
+            title="Audit trail failed to refresh"
+            message={decisionLogError}
+            onRetry={refreshSelectedProject}
+            retryLabel="Retry audit trail"
+          />
+        </div>
+      )}
 
       <DecisionAuditTable
         key={decisionScopeKey}

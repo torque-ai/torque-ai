@@ -17,26 +17,40 @@ import { useFactoryLoopControl } from './useFactoryLoopControl';
 const EMPTY_BACKLOG = { items: [], cycleId: null, reasoningSummary: null };
 const EMPTY_DECISION_FILTERS = { stage: '', actor: '', batchId: '', since: '' };
 
+function getErrorMessage(error, fallback) {
+  return error?.message || fallback;
+}
+
 export function useFactoryShell() {
   const [projectActivity, setProjectActivity] = useState({});
   const [selectedHealth, setSelectedHealth] = useState(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState('');
   const [intakeItems, setIntakeItems] = useState([]);
   const [intakeLoading, setIntakeLoading] = useState(false);
+  const [intakeError, setIntakeError] = useState('');
   const [architectBacklog, setArchitectBacklog] = useState(EMPTY_BACKLOG);
   const [backlogLoading, setBacklogLoading] = useState(false);
+  const [backlogError, setBacklogError] = useState('');
   const [architectLoading, setArchitectLoading] = useState(false);
   const [decisionFilters, setDecisionFilters] = useState(EMPTY_DECISION_FILTERS);
   const [decisionLog, setDecisionLog] = useState([]);
   const [decisionStats, setDecisionStats] = useState(() => normalizeDecisionStats());
   const [decisionLoading, setDecisionLoading] = useState(false);
+  const [decisionLogError, setDecisionLogError] = useState('');
   const [digest, setDigest] = useState(null);
   const [costMetrics, setCostMetrics] = useState(null);
   const [costMetricsLoading, setCostMetricsLoading] = useState(false);
+  const [costMetricsError, setCostMetricsError] = useState('');
   const [rejectingItemId, setRejectingItemId] = useState(null);
   const [pauseAllBusy, setPauseAllBusy] = useState(false);
   const [recentActivity, setRecentActivity] = useState([]);
   const [recentActivityHydrated, setRecentActivityHydrated] = useState(false);
+  const detailProjectIdRef = useRef(null);
+  const intakeProjectIdRef = useRef(null);
+  const backlogProjectIdRef = useRef(null);
+  const decisionProjectIdRef = useRef(null);
+  const costMetricsProjectIdRef = useRef(null);
   const toast = useToast();
   const {
     activeProjectAction,
@@ -73,11 +87,17 @@ export function useFactoryShell() {
     if (!projectId) {
       if (!isCancelled()) {
         setSelectedHealth(null);
+        setDetailError('');
+        detailProjectIdRef.current = null;
       }
       return;
     }
 
     if (!isCancelled()) {
+      if (detailProjectIdRef.current !== projectId) {
+        setDetailError('');
+      }
+      detailProjectIdRef.current = projectId;
       setSelectedHealth(buildDetailFallback(fallbackProject));
       setDetailLoading(true);
     }
@@ -86,10 +106,13 @@ export function useFactoryShell() {
       const response = await factoryApi.health(projectId);
       if (!isCancelled()) {
         setSelectedHealth(normalizeHealth(response));
+        setDetailError('');
       }
     } catch (error) {
       if (!isCancelled()) {
-        toast.error(`Failed to load project health: ${error.message}`);
+        const message = getErrorMessage(error, 'Unable to load project health.');
+        setDetailError(message);
+        toast.error(`Failed to load project health: ${message}`);
       }
     } finally {
       if (!isCancelled()) {
@@ -103,20 +126,31 @@ export function useFactoryShell() {
       if (!isCancelled()) {
         setIntakeItems([]);
         setIntakeLoading(false);
+        setIntakeError('');
+        intakeProjectIdRef.current = null;
       }
       return;
     }
 
+    const hasSameProjectData = intakeProjectIdRef.current === projectId;
+    if (!hasSameProjectData) {
+      setIntakeItems([]);
+      setIntakeError('');
+      intakeProjectIdRef.current = projectId;
+    }
     setIntakeLoading(true);
     try {
       const response = await factoryApi.intake(projectId);
       if (!isCancelled()) {
         setIntakeItems(getIntakeItemsFromResponse(response));
+        setIntakeError('');
+        intakeProjectIdRef.current = projectId;
       }
     } catch (error) {
       if (!isCancelled()) {
-        setIntakeItems([]);
-        toast.error(`Failed to load intake queue: ${error.message}`);
+        const message = getErrorMessage(error, 'Unable to load intake queue.');
+        setIntakeError(message);
+        toast.error(`Failed to load intake queue: ${message}`);
       }
     } finally {
       if (!isCancelled()) {
@@ -130,21 +164,31 @@ export function useFactoryShell() {
       if (!isCancelled()) {
         setArchitectBacklog(EMPTY_BACKLOG);
         setBacklogLoading(false);
+        setBacklogError('');
+        backlogProjectIdRef.current = null;
       }
       return;
     }
 
-    setArchitectBacklog(EMPTY_BACKLOG);
+    const hasSameProjectData = backlogProjectIdRef.current === projectId;
+    if (!hasSameProjectData) {
+      setArchitectBacklog(EMPTY_BACKLOG);
+      setBacklogError('');
+      backlogProjectIdRef.current = projectId;
+    }
     setBacklogLoading(true);
     try {
       const response = await factoryApi.backlog(projectId);
       if (!isCancelled()) {
         applyBacklogResponse(response);
+        setBacklogError('');
+        backlogProjectIdRef.current = projectId;
       }
     } catch (error) {
       if (!isCancelled()) {
-        setArchitectBacklog(EMPTY_BACKLOG);
-        toast.error(`Failed to load architect backlog: ${error.message}`);
+        const message = getErrorMessage(error, 'Unable to load architect backlog.');
+        setBacklogError(message);
+        toast.error(`Failed to load architect backlog: ${message}`);
       }
     } finally {
       if (!isCancelled()) {
@@ -159,6 +203,8 @@ export function useFactoryShell() {
         setDecisionLog([]);
         setDecisionStats(normalizeDecisionStats());
         setDecisionLoading(false);
+        setDecisionLogError('');
+        decisionProjectIdRef.current = null;
       }
       return;
     }
@@ -168,6 +214,13 @@ export function useFactoryShell() {
 
     // Keep prior results visible while fetching — clearing to [] here
     // flashed the empty-state between keystrokes on filter changes.
+    const hasSameProjectData = decisionProjectIdRef.current === projectId;
+    if (!hasSameProjectData) {
+      setDecisionLog([]);
+      setDecisionStats(normalizeDecisionStats());
+      setDecisionLogError('');
+      decisionProjectIdRef.current = projectId;
+    }
     setDecisionLoading(true);
 
     try {
@@ -197,11 +250,12 @@ export function useFactoryShell() {
 
       setDecisionLog(decisions);
       setDecisionStats(normalizeDecisionStats(response?.stats));
+      setDecisionLogError('');
     } catch (error) {
       if (!isCancelled()) {
-        setDecisionLog([]);
-        setDecisionStats(normalizeDecisionStats());
-        toast.error(`Failed to load audit trail: ${error.message}`);
+        const message = getErrorMessage(error, 'Unable to load audit trail.');
+        setDecisionLogError(message);
+        toast.error(`Failed to load audit trail: ${message}`);
       }
     } finally {
       if (!isCancelled()) {
@@ -235,21 +289,31 @@ export function useFactoryShell() {
       if (!isCancelled()) {
         setCostMetrics(null);
         setCostMetricsLoading(false);
+        setCostMetricsError('');
+        costMetricsProjectIdRef.current = null;
       }
       return;
     }
 
-    setCostMetrics(null);
+    const hasSameProjectData = costMetricsProjectIdRef.current === projectId;
+    if (!hasSameProjectData) {
+      setCostMetrics(null);
+      setCostMetricsError('');
+      costMetricsProjectIdRef.current = projectId;
+    }
     setCostMetricsLoading(true);
     try {
       const response = await factoryApi.factoryCosts(projectId);
       if (!isCancelled()) {
         setCostMetrics(normalizeCostMetrics(response));
+        setCostMetricsError('');
+        costMetricsProjectIdRef.current = projectId;
       }
     } catch (error) {
       if (!isCancelled()) {
-        setCostMetrics(null);
-        toast.error(`Failed to load cost metrics: ${error.message}`);
+        const message = getErrorMessage(error, 'Unable to load cost metrics.');
+        setCostMetricsError(message);
+        toast.error(`Failed to load cost metrics: ${message}`);
       }
     } finally {
       if (!isCancelled()) {
@@ -394,6 +458,8 @@ export function useFactoryShell() {
         setRecentActivity(Array.isArray(recentResponse?.decisions) ? recentResponse.decisions : []);
         if (backlogResponse) {
           applyBacklogResponse(backlogResponse);
+          setBacklogError('');
+          backlogProjectIdRef.current = selectedProjectId;
         }
       } finally {
         if (!cancelled) {
@@ -529,6 +595,8 @@ export function useFactoryShell() {
       await factoryApi.triggerArchitect(selectedProjectId);
       const response = await factoryApi.backlog(selectedProjectId);
       applyBacklogResponse(response);
+      setBacklogError('');
+      backlogProjectIdRef.current = selectedProjectId;
       toast.success('Architect cycle completed');
     } catch (error) {
       toast.error(`Architect failed: ${error.message}`);
@@ -556,20 +624,25 @@ export function useFactoryShell() {
       approvalsHref,
       architectBacklog,
       architectLoading,
+      backlogError,
       backlogLoading,
       costMetrics,
+      costMetricsError,
       costMetricsLoading,
       decisionFilters,
+      decisionLogError,
       decisionLoading,
       decisionLog,
       decisionStats,
       detail,
+      detailError,
       detailLoading,
       digest,
       handleRejectWorkItem,
       handleRerunArchitect,
       handleToggleProject,
       intakeItems,
+      intakeError,
       intakeLoading,
       loopAdvanceJob,
       loopActionBusy,

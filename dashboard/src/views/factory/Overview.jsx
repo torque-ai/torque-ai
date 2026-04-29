@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useOutletContext } from 'react-router-dom';
 import { factory as factoryApi } from '../../api';
 import LoadingSkeleton from '../../components/LoadingSkeleton';
-import { SelectProjectPrompt } from './shared';
+import { FactorySubviewLoadError, SelectProjectPrompt } from './shared';
 import LoopControlBar from './LoopControlBar';
 import {
   BADGE_FALLBACK_STYLE,
@@ -78,11 +78,13 @@ export default function Overview() {
   const {
     activeProjectAction,
     approvalsHref,
+    detailError,
     handleToggleProject,
     pendingApprovalCount,
     projects,
     recentActivity,
     recentActivityHydrated,
+    refreshSelectedProject,
     selectedProject,
     selectedProjectId,
     setSelectedProjectId,
@@ -182,6 +184,13 @@ export default function Overview() {
         projects={projects}
         selectedProjectId={selectedProjectId}
         setSelectedProjectId={setSelectedProjectId}
+      />
+
+      <FactorySubviewLoadError
+        title="Project health failed to refresh"
+        message={detailError}
+        onRetry={refreshSelectedProject}
+        retryLabel="Retry project health"
       />
 
       <section className="mt-4 rounded-lg border border-slate-700 bg-slate-800/60 p-4">

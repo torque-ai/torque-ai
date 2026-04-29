@@ -4,7 +4,7 @@ import { factory as factoryApi } from '../../api';
 import RadarChart from '../../components/RadarChart';
 import LoadingSkeleton from '../../components/LoadingSkeleton';
 import { useToast } from '../../components/Toast';
-import { DimensionBar, SelectProjectPrompt, StatusDot, TrustBadge } from './shared';
+import { DimensionBar, FactorySubviewLoadError, SelectProjectPrompt, StatusDot, TrustBadge } from './shared';
 import { formatBalance, formatLabel, getScoreEntries } from './utils';
 
 function FeedbackPanel({ project }) {
@@ -88,14 +88,21 @@ function FeedbackPanel({ project }) {
 }
 
 export default function Health() {
-  const { detail, detailLoading, selectedProject } = useOutletContext();
+  const { detail, detailError, detailLoading, refreshSelectedProject, selectedProject } = useOutletContext();
 
   if (!selectedProject) {
     return <SelectProjectPrompt message="Select a project above to view its health scores and drift feedback." />;
   }
 
   if (!detail) {
-    return null;
+    return detailError ? (
+      <FactorySubviewLoadError
+        title="Project health failed to refresh"
+        message={detailError}
+        onRetry={refreshSelectedProject}
+        retryLabel="Retry project health"
+      />
+    ) : null;
   }
 
   const detailEntries = getScoreEntries(detail.scores || {});
@@ -120,6 +127,17 @@ export default function Health() {
             </span>
           </div>
         </div>
+
+        {detailError && (
+          <div className="mt-4">
+            <FactorySubviewLoadError
+              title="Project health failed to refresh"
+              message={detailError}
+              onRetry={refreshSelectedProject}
+              retryLabel="Retry project health"
+            />
+          </div>
+        )}
 
         {detailLoading && !detail.scores ? (
           <div className="mt-6">

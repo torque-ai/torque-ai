@@ -1,7 +1,7 @@
 import { Fragment, useState } from 'react';
 import { useOutletContext } from 'react-router-dom';
 import LoadingSkeleton from '../../components/LoadingSkeleton';
-import { ArchitectBacklogItemRow, SelectProjectPrompt } from './shared';
+import { ArchitectBacklogItemRow, FactorySubviewLoadError, SelectProjectPrompt } from './shared';
 import {
   BADGE_FALLBACK_STYLE,
   INTAKE_SOURCE_BADGE_STYLES,
@@ -39,11 +39,14 @@ export default function Intake() {
   const {
     architectBacklog,
     architectLoading,
+    backlogError,
     backlogLoading,
     handleRejectWorkItem,
     handleRerunArchitect,
+    intakeError,
     intakeItems,
     intakeLoading,
+    refreshSelectedProject,
     rejectingItemId,
     selectedProject,
   } = useOutletContext();
@@ -86,6 +89,17 @@ export default function Intake() {
             </>
           )}
         </div>
+
+        {intakeError && (
+          <div className="mt-4">
+            <FactorySubviewLoadError
+              title="Intake queue failed to refresh"
+              message={intakeError}
+              onRetry={refreshSelectedProject}
+              retryLabel="Retry intake"
+            />
+          </div>
+        )}
 
         {intakeLoading && intakeItems.length === 0 ? (
           <div className="mt-6">
@@ -177,6 +191,17 @@ export default function Intake() {
             {architectLoading ? 'Re-running...' : 'Re-run architect'}
           </button>
         </div>
+
+        {backlogError && (
+          <div className="mt-4">
+            <FactorySubviewLoadError
+              title="Architect backlog failed to refresh"
+              message={backlogError}
+              onRetry={refreshSelectedProject}
+              retryLabel="Retry backlog"
+            />
+          </div>
+        )}
 
         {backlogLoading && architectBacklog.items.length === 0 ? (
           <div className="mt-6">

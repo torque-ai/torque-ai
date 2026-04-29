@@ -97,6 +97,35 @@ export function SelectProjectPrompt({ message = 'Select a factory project above 
   );
 }
 
+export function FactorySubviewLoadError({ title, message, onRetry, retryLabel = 'Retry' }) {
+  if (!message) {
+    return null;
+  }
+
+  return (
+    <div
+      role="alert"
+      className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100"
+    >
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <p className="font-semibold text-amber-50">{title}</p>
+          <p className="mt-1 text-amber-100/80">{message}</p>
+        </div>
+        {onRetry && (
+          <button
+            type="button"
+            onClick={onRetry}
+            className="self-start rounded-lg border border-amber-400/40 bg-slate-900/40 px-3 py-1.5 text-xs font-medium text-amber-100 transition-colors hover:bg-slate-900/60"
+          >
+            {retryLabel}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function StatusDot({ status }) {
   return (
     <span

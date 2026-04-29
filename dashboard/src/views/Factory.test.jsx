@@ -2,7 +2,11 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import Factory from './Factory';
+import Activity from './factory/Activity';
+import Health from './factory/Health';
+import Intake from './factory/Intake';
 import Overview from './factory/Overview';
+import Policy from './factory/Policy';
 import { ToastProvider } from '../components/Toast';
 
 vi.mock('./factory/useFactoryShell', () => ({
@@ -20,11 +24,19 @@ vi.mock('../api', () => ({
     approveGateInstance: vi.fn(),
     rejectGateInstance: vi.fn(),
     retryVerifyInstance: vi.fn(),
+    driftStatus: vi.fn(),
+    getPolicy: vi.fn(),
+    setPolicy: vi.fn(),
+    guardrailStatus: vi.fn(),
+    guardrailEvents: vi.fn(),
+  },
+  providers: {
+    list: vi.fn(),
   },
 }));
 
 import { useFactoryShell } from './factory/useFactoryShell';
-import { factory as factoryApi } from '../api';
+import { factory as factoryApi, providers as providersApi } from '../api';
 
 const approveGate = vi.fn();
 const handlePauseAll = vi.fn();
@@ -49,13 +61,17 @@ const factoryProject = {
   loop_last_action_at: '2026-04-13T12:00:00Z',
 };
 
-function renderFactory() {
+function renderFactory(initialEntry = '/factory') {
   return render(
     <ToastProvider>
-      <MemoryRouter initialEntries={['/factory']}>
+      <MemoryRouter initialEntries={[initialEntry]}>
         <Routes>
           <Route path="/factory" element={<Factory />}>
             <Route index element={<Overview />} />
+            <Route path="intake" element={<Intake />} />
+            <Route path="health" element={<Health />} />
+            <Route path="activity" element={<Activity />} />
+            <Route path="policy" element={<Policy />} />
           </Route>
         </Routes>
       </MemoryRouter>
@@ -91,6 +107,28 @@ describe('Factory overview', () => {
     factoryApi.approveGateInstance.mockResolvedValue({});
     factoryApi.rejectGateInstance.mockResolvedValue({});
     factoryApi.retryVerifyInstance.mockResolvedValue({});
+    factoryApi.driftStatus.mockResolvedValue({ drift_detected: false, message: 'No drift detected.' });
+    factoryApi.getPolicy.mockResolvedValue({
+      policy: {
+        budget_ceiling: null,
+        blast_radius_percent: 25,
+        scope_ceiling: { max_tasks: 20, max_files_per_task: 10 },
+        restricted_paths: [],
+        required_checks: [],
+        escalation_rules: {
+          security_findings: true,
+          breaking_changes: true,
+          health_drop_threshold: 10,
+          budget_warning_percent: 80,
+        },
+        provider_restrictions: [],
+        work_hours: null,
+      },
+    });
+    factoryApi.setPolicy.mockResolvedValue({});
+    factoryApi.guardrailStatus.mockResolvedValue({ status_map: {} });
+    factoryApi.guardrailEvents.mockResolvedValue({ events: [] });
+    providersApi.list.mockResolvedValue([]);
     useFactoryShell.mockReturnValue({
       activeProjectAction: null,
       handlePauseAll,
@@ -102,10 +140,13 @@ describe('Factory overview', () => {
         approvalsHref: '/approvals?project=torque-public&source=factory',
         architectBacklog: { items: [], cycleId: null, reasoningSummary: null },
         architectLoading: false,
+        backlogError: '',
         backlogLoading: false,
         costMetrics: null,
+        costMetricsError: '',
         costMetricsLoading: false,
         decisionFilters: { stage: '', actor: '', batchId: '', since: '' },
+        decisionLogError: '',
         decisionLoading: false,
         decisionLog: [],
         decisionStats: null,
@@ -115,12 +156,14 @@ describe('Factory overview', () => {
           balance: factoryProject.balance,
           weakest_dimension: factoryProject.weakest_dimension,
         },
+        detailError: '',
         detailLoading: false,
         digest: null,
         handleRejectWorkItem: vi.fn(),
         handleRerunArchitect: vi.fn(),
         handleToggleProject,
         intakeItems: [],
+        intakeError: '',
         intakeLoading: false,
         loopAdvanceJob: null,
         loopActionBusy: null,
@@ -180,6 +223,134 @@ describe('Factory overview', () => {
       expect(factoryApi.approveGateInstance).toHaveBeenCalledWith('11111111-1111-4111-8111-111111111111', 'VERIFY');
     });
     expect(screen.getAllByRole('button', { name: 'Pause' }).length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('shows a retryable project health error on the overview', () => {
+    const baseShell = useFactoryShell();
+    useFactoryShell.mockReturnValue({
+      ...baseShell,
+      outletContext: {
+        ...baseShell.outletContext,
+        detailError: 'Health endpoint timed out',
+      },
+    });
+
+    renderFactory();
+
+    const alert = screen.getByRole('alert');
+    expect(alert).toHaveTextContent('Project health failed to refresh');
+    expect(alert).toHaveTextContent('Health endpoint timed out');
+
+    fireEvent.click(screen.getByRole('button', { name: /retry project health/i }));
+
+    expect(refreshSelectedProject).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows intake and backlog errors without hiding stale rows', () => {
+    const baseShell = useFactoryShell();
+    useFactoryShell.mockReturnValue({
+      ...baseShell,
+      outletContext: {
+        ...baseShell.outletContext,
+        architectBacklog: {
+          cycleId: 'cycle-stale',
+          reasoningSummary: null,
+          items: [{
+            priority_rank: 1,
+            title: 'Stale backlog candidate',
+            why: 'Existing architect output remains useful.',
+            scope_budget: 'small',
+            expected_impact: { structural: 2 },
+          }],
+        },
+        backlogError: 'Backlog service unavailable',
+        intakeError: 'Intake queue unavailable',
+        intakeItems: [{
+          id: 77,
+          title: 'Stale intake item',
+          description: 'Previously loaded work item',
+          displaySource: 'manual',
+          displayStatus: 'pending',
+          priority: 'high',
+          created_at: '2026-04-13T12:00:00Z',
+        }],
+      },
+    });
+
+    renderFactory('/factory/intake');
+
+    const alerts = screen.getAllByRole('alert');
+    expect(alerts[0]).toHaveTextContent('Intake queue failed to refresh');
+    expect(alerts[1]).toHaveTextContent('Architect backlog failed to refresh');
+    expect(screen.getByText('Stale intake item')).toBeInTheDocument();
+    expect(screen.getByText('Stale backlog candidate')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /retry intake/i }));
+
+    expect(refreshSelectedProject).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows audit trail errors without hiding stale decisions', () => {
+    const baseShell = useFactoryShell();
+    useFactoryShell.mockReturnValue({
+      ...baseShell,
+      outletContext: {
+        ...baseShell.outletContext,
+        decisionLog: [{
+          id: 'decision-stale',
+          stage: 'verify',
+          actor: 'factory',
+          action: 'Approved stale result',
+          confidence: 0.83,
+          reasoning: 'Decision loaded before the failing refresh.',
+          created_at: '2026-04-13T12:00:00Z',
+        }],
+        decisionLogError: 'Decision log service unavailable',
+      },
+    });
+
+    renderFactory('/factory/activity');
+
+    const alert = screen.getByRole('alert');
+    expect(alert).toHaveTextContent('Audit trail failed to refresh');
+    expect(alert).toHaveTextContent('Decision log service unavailable');
+    expect(screen.getByText('Approved stale result')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /retry audit trail/i }));
+
+    expect(refreshSelectedProject).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows cost metric errors without hiding stale provider metrics', () => {
+    const baseShell = useFactoryShell();
+    useFactoryShell.mockReturnValue({
+      ...baseShell,
+      outletContext: {
+        ...baseShell.outletContext,
+        costMetrics: {
+          cost_per_cycle: 1.23,
+          cost_per_health_point: 0.45,
+          provider_efficiency: [{
+            provider: 'codex',
+            cost_per_task: 0.42,
+            task_count: 2,
+            total_cost: 0.84,
+          }],
+        },
+        costMetricsError: 'Cost metrics service unavailable',
+      },
+    });
+
+    renderFactory('/factory/policy');
+
+    const alert = screen.getByRole('alert');
+    expect(alert).toHaveTextContent('Cost metrics failed to refresh');
+    expect(alert).toHaveTextContent('Cost metrics service unavailable');
+    expect(screen.getByText(/2 tasks/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /retry cost metrics/i }));
+
+    expect(refreshSelectedProject).toHaveBeenCalledTimes(1);
   });
 
   it('renders keyed factory alert badges and ignores unkeyed alert payloads', () => {

@@ -4,7 +4,7 @@ import { factory as factoryApi, providers as providersApi } from '../../api';
 import LoadingSkeleton from '../../components/LoadingSkeleton';
 import StatCard from '../../components/StatCard';
 import { useToast } from '../../components/Toast';
-import { SelectProjectPrompt, StatusDot, TrustBadge } from './shared';
+import { FactorySubviewLoadError, SelectProjectPrompt, StatusDot, TrustBadge } from './shared';
 import { formatCurrency, formatLabel, normalizeCostMetrics } from './utils';
 
 const GUARDRAIL_COLORS = { green: 'text-green-400', yellow: 'text-yellow-400', red: 'text-red-400' };
@@ -522,7 +522,13 @@ function PolicyPanel({ project, onSave }) {
 }
 
 export default function Policy() {
-  const { costMetrics, costMetricsLoading, refreshSelectedProject, selectedProject } = useOutletContext();
+  const {
+    costMetrics,
+    costMetricsError,
+    costMetricsLoading,
+    refreshSelectedProject,
+    selectedProject,
+  } = useOutletContext();
 
   if (!selectedProject) {
     return <SelectProjectPrompt message="Select a project above to view its policy, guardrails, and cost metrics." />;
@@ -561,6 +567,17 @@ export default function Policy() {
             <span className="text-xs uppercase tracking-wide text-slate-500">Refreshing</span>
           )}
         </div>
+
+        {costMetricsError && (
+          <div className="mt-4">
+            <FactorySubviewLoadError
+              title="Cost metrics failed to refresh"
+              message={costMetricsError}
+              onRetry={refreshSelectedProject}
+              retryLabel="Retry cost metrics"
+            />
+          </div>
+        )}
 
         {costMetricsLoading && !costMetrics ? (
           <div className="mt-6">
