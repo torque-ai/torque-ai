@@ -168,6 +168,17 @@ is_segfault_flake() {
   return 1
 }
 
+# Detects torque-remote's explicit guard for a shared remote checkout being
+# swapped between sync and command execution. This is transient when another
+# already-running client does not honor the remote worktree lock; retry once
+# after a short backoff instead of failing the whole push immediately.
+is_remote_worktree_contamination() {
+  local output="$1"
+  local plain
+  plain=$(echo "$output" | strip_ansi | strip_phase_prefix)
+  echo "$plain" | grep -qE '\[torque-remote-sync\] worktree HEAD .*does not match .*concurrent torque-remote session likely clobbered the checkout'
+}
+
 # Returns 0 (true) if the gate-end marker reports any nonzero phase exit.
 # Used to gate retry decisions independently of $RETRIED_EXIT, which is
 # unreliable: under Git Bash on Windows the wait/eval/`&` pipeline
@@ -269,6 +280,14 @@ run_with_flake_retry() {
   # is the ground truth; combined with the existing exit-code check it
   # belt-and-suspenders the retry trigger.
   if { [ "$RETRIED_EXIT" -ne 0 ] || gate_marker_has_failure "$RETRIED_OUTPUT"; } \
+       && is_remote_worktree_contamination "$RETRIED_OUTPUT"; then
+    echo "[pre-push] $label: remote worktree contamination detected -- waiting for concurrent sync to finish and retrying once..."
+    sleep "${PRE_PUSH_REMOTE_CONTAMINATION_RETRY_DELAY_SECS:-5}"
+    set +e
+    run_with_flake_retry_inner "$cmd" "$tmp"
+    set -e
+    RETRIED_OUTPUT=$(<"$tmp")
+  elif { [ "$RETRIED_EXIT" -ne 0 ] || gate_marker_has_failure "$RETRIED_OUTPUT"; } \
        && is_file_load_only_flake "$RETRIED_OUTPUT"; then
     echo "[pre-push] $label: file-load flake detected (0 test failures, N file-load failures) — retrying once..."
     set +e

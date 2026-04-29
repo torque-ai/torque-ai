@@ -107,6 +107,14 @@ describe('pre-push-hook staging-branch invariants', () => {
     expect(src).toMatch(/\brun_with_flake_retry\s*\(\)/);
   });
 
+  it('retries once when torque-remote detects concurrent worktree contamination', () => {
+    const src = readHook();
+    expect(src).toMatch(/\bis_remote_worktree_contamination\s*\(\)/);
+    expect(src).toMatch(/remote worktree contamination detected/);
+    expect(src).toMatch(/concurrent torque-remote session likely clobbered the checkout/);
+    expect(src).toMatch(/PRE_PUSH_REMOTE_CONTAMINATION_RETRY_DELAY_SECS/);
+  });
+
   it('strips ANSI codes before matching vitest summary lines', () => {
     const src = readHook();
     // vitest emits ANSI colors under --reporter=dot, making the `^` anchor
