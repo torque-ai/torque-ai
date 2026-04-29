@@ -54,4 +54,18 @@ describe('torque-remote source invariants', () => {
     expect(src).toContain('SYNC_BOOTSTRAP="(if not exist \\"$EFFECTIVE_REMOTE_PROJECT_PATH\\\\.git\\"');
     expect(src).not.toMatch(/^\s*SYNC_BOOTSTRAP="if not exist /m);
   });
+
+  it('puts the remote sync lock at a sibling path so git clean -fd cannot remove it mid-run', () => {
+    // The sync chain runs `git clean -fd` after reset, which removes any
+    // untracked dir under the worktree — including a lock dir placed at
+    // "$WORKTREE/.torque-remote-sync.lock". When that lock self-clobbers,
+    // a concurrent torque-remote can acquire it mid-run and reset HEAD
+    // between this script's sync and runner.sh, surfacing as a phantom
+    // "concurrent torque-remote session clobbered the checkout" in the
+    // exit-98 guard. Sibling path keeps the lock outside any git operation
+    // scoped to the worktree. Reproduced live 2026-04-29.
+    const src = readTorqueRemote();
+    expect(src).toContain('REMOTE_SYNC_LOCK_DIR="${EFFECTIVE_REMOTE_PROJECT_PATH}.torque-remote-sync.lock"');
+    expect(src).not.toContain('REMOTE_SYNC_LOCK_DIR="$EFFECTIVE_REMOTE_PROJECT_PATH\\\\.torque-remote-sync.lock"');
+  });
 });

@@ -225,7 +225,19 @@ acquire_remote_sync_lock() {
     return 0
   fi
 
-  REMOTE_SYNC_LOCK_DIR="$EFFECTIVE_REMOTE_PROJECT_PATH\\.torque-remote-sync.lock"
+  # Lock dir lives at a SIBLING path next to the worktree, not inside it.
+  # The sync chain runs `git clean -fd` after `git reset --hard`, and
+  # `git clean -fd` removes any untracked dir under the worktree —
+  # including a lock dir at "$WORKTREE/.torque-remote-sync.lock". That
+  # self-clobber lets a concurrent torque-remote acquire the lock
+  # mid-run and reset HEAD between this script's sync and runner.sh,
+  # which the exit-98 guard then surfaces as "concurrent torque-remote
+  # session likely clobbered the checkout". Verified live 2026-04-29:
+  # the prior in-worktree path silently disappeared on every sync
+  # whose .git already existed (i.e., every sync after the first).
+  # Sibling path is naturally invisible to any git operation scoped
+  # to the worktree.
+  REMOTE_SYNC_LOCK_DIR="${EFFECTIVE_REMOTE_PROJECT_PATH}.torque-remote-sync.lock"
   local timeout="${TORQUE_REMOTE_SYNC_LOCK_TIMEOUT_SECS:-1800}"
   local elapsed=0
   local poll=2
