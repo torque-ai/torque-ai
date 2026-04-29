@@ -248,6 +248,15 @@ describe('db/schema.js — smoke test', () => {
       expect(indexes).toContain('idx_tasks_project');
     });
 
+    it('tasks project activity covering index exists', () => {
+      const row = rawDb().prepare(
+        "SELECT sql FROM sqlite_master WHERE type = 'index' AND name = 'idx_tasks_project_created'"
+      ).get();
+
+      expect(row?.sql).toContain('ON tasks(project, created_at)');
+      expect(row?.sql).toContain("WHERE project IS NOT NULL AND project != ''");
+    });
+
     it('analytics indexes exist', () => {
       const indexes = getIndexNames();
       expect(indexes).toContain('idx_analytics_event');

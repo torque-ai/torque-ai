@@ -209,6 +209,15 @@ function runMigrations(db, logger, safeAddColumn, extras = {}) {
   } catch (e) {
     logger.debug(`Schema migration (tasks project index): ${e.message}`);
   }
+  try {
+    db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_tasks_project_created
+      ON tasks(project, created_at)
+      WHERE project IS NOT NULL AND project != ''
+    `);
+  } catch (e) {
+    logger.debug(`Schema migration (tasks project activity index): ${e.message}`);
+  }
   safeAddColumn('scheduled_tasks', 'project TEXT');
   safeAddColumn('scheduled_tasks', 'task_config TEXT');
   safeAddColumn('scheduled_tasks', 'updated_at TEXT');
