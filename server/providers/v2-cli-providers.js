@@ -329,15 +329,15 @@ class CodexCliProvider extends CliProviderAdapter {
   }
 
   async submitViaApi(task, model, options = {}) {
-    // TODO(issue-5): The API transport path has no worktree isolation. The CLI transport
-    // runs inside a sandboxed git worktree (if configured), but submitViaApi() sends the
-    // prompt directly to the OpenAI Codex API without any filesystem isolation.  If the
-    // Codex API response writes files back through a post-processing hook, those writes
-    // land in the working directory without the sandbox protections that the CLI path has.
-    // Fix: integrate WorktreeManager here, or explicitly block file-write responses.
-    if (options.working_directory && typeof options._worktreeIsolated !== 'boolean') {
-      logger.warn(`[CodexAPI] submitViaApi: no worktree isolation active for working_directory='${options.working_directory}'. File writes from API response land directly in the repo.`);
-    }
+    // The API transport is read-only: it POSTs a prompt to OpenAI's /v1/responses
+    // endpoint and returns the response text. No filesystem I/O happens here, and
+    // none of the current consumers (runPrompt callers, task output storage) parse
+    // the response into file edits. working_directory is informational only on this
+    // path — it's not passed to any subprocess. If a future hook ever interprets
+    // API output as file edits, that hook (not this transport) is responsible for
+    // sandboxing those writes. The CLI transport for Codex also skips worktree
+    // isolation by design (see execute-cli.js: codex's own sandbox reverts writes
+    // inside worktrees), so there is no missing parity to restore here.
     const apiToken = resolveCodexApiToken();
     if (!apiToken) {
       throw new Error('codex API transport is unavailable: no OPENAI_API_KEY or Codex auth token found');
