@@ -175,6 +175,87 @@ describe('data-dir legacy migration', () => {
     expect(fs.existsSync(path.join(activeDir, 'secret.key'))).toBe(true);
   });
 
+  function createConfigTable(db) {
+    db.prepare('CREATE TABLE IF NOT EXISTS config (key TEXT PRIMARY KEY, value TEXT)').run();
+  }
+
+  it('skips migration when legacy_data_dir_migration_done flag is set', () => {
+    const legacyDb = new Database(path.join(legacyDir, 'tasks.db'));
+    createProviderConfigTable(legacyDb);
+    seedProvider(legacyDb, 'groq', { enabled: true, key: 'legacy-key' });
+    legacyDb.close();
+
+    const activeDb = new Database(path.join(activeDir, 'tasks.db'));
+    createProviderConfigTable(activeDb);
+    seedProvider(activeDb, 'groq', { enabled: false });
+    createConfigTable(activeDb);
+    activeDb.prepare("INSERT INTO config (key, value) VALUES ('legacy_data_dir_migration_done', '1')").run();
+    activeDb.close();
+
+    const { migrateLegacyProviderConfigs } = require('../data-dir');
+    migrateLegacyProviderConfigs(legacyDir, activeDir);
+
+    const verifyDb = new Database(path.join(activeDir, 'tasks.db'), { readonly: true });
+    const groq = verifyDb.prepare('SELECT * FROM provider_config WHERE provider = ?').get('groq');
+    verifyDb.close();
+
+    // Migration was skipped: enabled stays disabled, no key was migrated.
+    expect(groq.enabled).toBe(0);
+    expect(groq.api_key_encrypted).toBeNull();
+  });
+
+  it('sets the migration-done flag after a first successful run', () => {
+    const legacyDb = new Database(path.join(legacyDir, 'tasks.db'));
+    createProviderConfigTable(legacyDb);
+    seedProvider(legacyDb, 'groq', { enabled: true, key: 'legacy-key' });
+    legacyDb.close();
+
+    const activeDb = new Database(path.join(activeDir, 'tasks.db'));
+    createProviderConfigTable(activeDb);
+    createConfigTable(activeDb);
+    seedProvider(activeDb, 'groq', { enabled: false });
+    activeDb.close();
+
+    const { migrateLegacyProviderConfigs } = require('../data-dir');
+    migrateLegacyProviderConfigs(legacyDir, activeDir);
+
+    const verifyDb = new Database(path.join(activeDir, 'tasks.db'), { readonly: true });
+    const flag = verifyDb.prepare("SELECT value FROM config WHERE key = 'legacy_data_dir_migration_done'").get();
+    verifyDb.close();
+
+    expect(flag).toBeDefined();
+    expect(flag.value).toBe('1');
+  });
+
+  it('bootstraps the flag (and skips migration) when active DB already has stored keys', () => {
+    const legacyDb = new Database(path.join(legacyDir, 'tasks.db'));
+    createProviderConfigTable(legacyDb);
+    seedProvider(legacyDb, 'groq', { enabled: true, key: 'legacy-key' });
+    seedProvider(legacyDb, 'cerebras', { enabled: true, key: 'legacy-cerebras-key' });
+    legacyDb.close();
+
+    const activeDb = new Database(path.join(activeDir, 'tasks.db'));
+    createProviderConfigTable(activeDb);
+    createConfigTable(activeDb);
+    // User has set up groq's key in active and disabled cerebras.
+    seedProvider(activeDb, 'groq', { enabled: true, key: 'user-active-key' });
+    seedProvider(activeDb, 'cerebras', { enabled: false });
+    activeDb.close();
+
+    const { migrateLegacyProviderConfigs } = require('../data-dir');
+    migrateLegacyProviderConfigs(legacyDir, activeDir);
+
+    const verifyDb = new Database(path.join(activeDir, 'tasks.db'), { readonly: true });
+    const cerebras = verifyDb.prepare('SELECT * FROM provider_config WHERE provider = ?').get('cerebras');
+    const flag = verifyDb.prepare("SELECT value FROM config WHERE key = 'legacy_data_dir_migration_done'").get();
+    verifyDb.close();
+
+    // Bootstrap path detected user customization — skipped re-enabling cerebras.
+    expect(cerebras.enabled).toBe(0);
+    expect(cerebras.api_key_encrypted).toBeNull();
+    expect(flag?.value).toBe('1');
+  });
+
   it('migrates default_model from legacy if active has none', () => {
     const legacyDb = new Database(path.join(legacyDir, 'tasks.db'));
     createProviderConfigTable(legacyDb);

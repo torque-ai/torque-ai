@@ -1122,6 +1122,29 @@ function countTasksByStatus() {
 }
 
 /**
+ * Get daily task counts grouped by provider, date, and status, in a single
+ * query. Replaces the N×days×3 pattern (one countTasks call per
+ * provider/day/status) used by the trends endpoint.
+ *
+ * @param {string} fromDate ISO date (YYYY-MM-DD) inclusive lower bound on created_at
+ * @param {string} toDate ISO date (YYYY-MM-DD) exclusive upper bound on created_at
+ * @returns {Array<{provider: string, date: string, status: string, count: number}>}
+ */
+function getProviderDailyCounts(fromDate, toDate) {
+  if (!db || dbClosed) return [];
+  return db.prepare(`
+    SELECT
+      provider,
+      substr(created_at, 1, 10) AS date,
+      status,
+      COUNT(*) AS count
+    FROM tasks
+    WHERE created_at >= ? AND created_at < ?
+    GROUP BY provider, date, status
+  `).all(fromDate, toDate);
+}
+
+/**
  * Get model usage statistics grouped by model and provider.
  * @param {string} since ISO timestamp lower bound
  * @returns {Array}
@@ -1718,6 +1741,7 @@ module.exports = {
   deleteTasks,
   countTasks,
   countTasksByStatus,
+  getProviderDailyCounts,
   getModelUsageStats,
   getModelDailyUsageSeries,
   listKnownProjects,

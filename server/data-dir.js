@@ -116,6 +116,45 @@ function migrateLegacyProviderConfigs(legacyDir, activeDir) {
   }
 
   try {
+    // Idempotency: skip if migration has already run against this active DB.
+    // Without this guard, every server restart re-applies the legacy provider
+    // state — which silently re-enables any provider the user has disabled
+    // (the migration only flips enabled 0→1, never 1→0). See provider-page-fixes
+    // worktree investigation: disabled cloud providers were being un-disabled
+    // on every reboot because their api_key_encrypted is set in the legacy DB.
+    try {
+      const activeHasConfig = activeSql.prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='config'"
+      ).get();
+      if (activeHasConfig) {
+        const flag = activeSql.prepare(
+          "SELECT value FROM config WHERE key = 'legacy_data_dir_migration_done'"
+        ).get();
+        if (flag && flag.value === '1') return;
+
+        // Bootstrap for existing installs that predate the flag: if the active
+        // DB already contains a stored API key, the user has clearly completed
+        // setup and any subsequent re-migration would only clobber their
+        // disable choices. Mark migration as done and exit.
+        const activeHasProviderTable = activeSql.prepare(
+          "SELECT name FROM sqlite_master WHERE type='table' AND name='provider_config'"
+        ).get();
+        if (activeHasProviderTable) {
+          const existingKey = activeSql.prepare(
+            "SELECT 1 FROM provider_config WHERE api_key_encrypted IS NOT NULL AND api_key_encrypted != '' LIMIT 1"
+          ).get();
+          if (existingKey) {
+            try {
+              activeSql.prepare(
+                "INSERT OR REPLACE INTO config (key, value) VALUES ('legacy_data_dir_migration_done', '1')"
+              ).run();
+            } catch { /* best-effort */ }
+            return;
+          }
+        }
+      }
+    } catch { /* config table may not exist yet — fall through and migrate */ }
+
     // Check if provider_config table exists in both
     const legacyHasTable = legacySql.prepare(
       "SELECT name FROM sqlite_master WHERE type='table' AND name='provider_config'"
@@ -273,6 +312,17 @@ function migrateLegacyProviderConfigs(legacyDir, activeDir) {
       }
     } catch (hostErr) {
       console.log(`[data-dir] Host migration error (non-fatal): ${hostErr.message}`);
+    }
+
+    // Persist migration-done flag so subsequent boots skip the re-apply.
+    // Done last so a partial failure above leaves the flag unset and we'll
+    // retry on the next boot.
+    try {
+      activeSql.prepare(
+        "INSERT OR REPLACE INTO config (key, value) VALUES ('legacy_data_dir_migration_done', '1')"
+      ).run();
+    } catch (flagErr) {
+      console.log(`[data-dir] Could not persist migration-done flag (non-fatal): ${flagErr.message}`);
     }
   } catch (err) {
     console.log(`[data-dir] Legacy migration error (non-fatal): ${err.message}`);

@@ -1238,21 +1238,49 @@ async function handleProviderTrends(req, res) {
       dates.push(d.toISOString().split('T')[0]);
     }
 
-    const providerSeries = {};
-    for (const p of providers) {
-      providerSeries[p.provider] = getProviderTimeSeries(p.provider, days);
+    // One bulk GROUP BY instead of providers × days × 3 separate countTasks
+    // queries (was 273+ point lookups per request). Date range mirrors the
+    // window built above; upper bound is exclusive so today's tasks count.
+    const fromDate = dates[0];
+    const toDateObj = new Date(now);
+    toDateObj.setDate(toDateObj.getDate() + 1);
+    const toDate = toDateObj.toISOString().split('T')[0];
+
+    const counts = (taskCore.getProviderDailyCounts
+      ? taskCore.getProviderDailyCounts(fromDate, toDate)
+      : []) || [];
+
+    // Index rows by provider→date for O(1) lookup while building the series.
+    const byProviderDate = new Map();
+    for (const row of counts) {
+      if (!row || !row.provider || !row.date) continue;
+      let providerMap = byProviderDate.get(row.provider);
+      if (!providerMap) {
+        providerMap = new Map();
+        byProviderDate.set(row.provider, providerMap);
+      }
+      let dayBucket = providerMap.get(row.date);
+      if (!dayBucket) {
+        dayBucket = { total: 0, completed: 0, failed: 0 };
+        providerMap.set(row.date, dayBucket);
+      }
+      const n = row.count || 0;
+      dayBucket.total += n;
+      if (row.status === 'completed') dayBucket.completed += n;
+      else if (row.status === 'failed') dayBucket.failed += n;
     }
 
-    const series = dates.map((date, idx) => {
+    const series = dates.map((date) => {
       const entry = { date };
       for (const p of providers) {
-        const dayData = providerSeries[p.provider]?.[idx] || {};
-        const total = (dayData.completed || 0) + (dayData.failed || 0);
-        entry[`${p.provider}_total`] = dayData.total ?? 0;
-        entry[`${p.provider}_completed`] = dayData.completed || 0;
-        entry[`${p.provider}_failed`] = dayData.failed || 0;
-        entry[`${p.provider}_success_rate`] = total > 0
-          ? Math.round((dayData.completed || 0) / total * 100) : null;
+        const dayData = byProviderDate.get(p.provider)?.get(date) || { total: 0, completed: 0, failed: 0 };
+        const totalCompletedFailed = dayData.completed + dayData.failed;
+        entry[`${p.provider}_total`] = dayData.total;
+        entry[`${p.provider}_completed`] = dayData.completed;
+        entry[`${p.provider}_failed`] = dayData.failed;
+        entry[`${p.provider}_success_rate`] = totalCompletedFailed > 0
+          ? Math.round((dayData.completed / totalCompletedFailed) * 100)
+          : null;
       }
       return entry;
     });

@@ -389,7 +389,7 @@ function buildChartData(history, metric = 'requests') {
   return { chartData, providerKeys };
 }
 
-export default function Providers({ statsVersion, tasksTick }) {
+export default function Providers({ statsVersion, tasksTick: _tasksTick }) {
   const mountedRef = useRef(true);
   // Tracks deferred reload timers (e.g. handleSetApiKey schedules retries
   // at 5s + 15s for the health check to settle). Without this, navigating
@@ -498,10 +498,15 @@ export default function Providers({ statsVersion, tasksTick }) {
     }
   }, [days, addToast]);
 
-  // Refetch when statsVersion or tasksTick changes (WebSocket push) or days filter changes
+  // Refetch on the throttled stats:updated WebSocket signal, plus mount and
+  // days change. We deliberately do NOT refetch on tasksTick — that increments
+  // on every individual task lifecycle event, and the trends/list endpoints
+  // are heavy enough that re-running them per task event makes the page feel
+  // unresponsive while TORQUE is active. The 120s fallback below covers the
+  // WebSocket-disconnected case.
   useEffect(() => {
     loadData();
-  }, [days, statsVersion, tasksTick, loadData]);
+  }, [days, statsVersion, loadData]);
 
   // Fallback polling at 120s in case WebSocket is disconnected
   useEffect(() => {
