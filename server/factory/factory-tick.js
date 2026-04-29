@@ -17,7 +17,6 @@ function resolveDatabase() {
     const { defaultContainer } = require('../container');
     return defaultContainer.get('db');
   } catch {
-    // eslint-disable-next-line global-require -- pre-boot fallback
     return require('../database');
   }
 }
@@ -33,7 +32,6 @@ function resolveTestRunnerRegistry() {
     const registry = defaultContainer.get('testRunnerRegistry');
     if (registry) return registry;
   } catch { /* fall through to pre-boot fallback */ }
-  // eslint-disable-next-line global-require -- pre-boot fallback
   return require('../test-runner-registry').createTestRunnerRegistry();
 }
 const eventBus = require('../event-bus');

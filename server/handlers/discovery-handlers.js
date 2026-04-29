@@ -9,7 +9,6 @@ function getDbInstance() {
     const facade = defaultContainer.get('db');
     return typeof facade.getDbInstance === 'function' ? facade.getDbInstance() : facade;
   } catch {
-    // eslint-disable-next-line global-require -- pre-boot fallback
     return require('../database').getDbInstance();
   }
 }

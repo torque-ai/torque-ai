@@ -63,7 +63,6 @@ function getOrCreateRemoteAgentRegistry(deps = {}) {
         const { defaultContainer } = require('../container');
         dbService = defaultContainer.get('db');
       } catch {
-        // eslint-disable-next-line global-require -- pre-boot fallback
         dbService = require('../database');
       }
     }

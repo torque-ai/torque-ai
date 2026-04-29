@@ -21,7 +21,6 @@ function getDatabase() {
   } catch {
     // Container not booted (some tests construct handlers before
     // container.boot() runs). Fall back to the direct facade.
-    // eslint-disable-next-line global-require -- pre-boot test contexts only
     return require('../database');
   }
 }
@@ -37,7 +36,6 @@ function getTestRunnerRegistry() {
     const registry = defaultContainer.get('testRunnerRegistry');
     if (registry) return registry;
   } catch { /* fall through to pre-boot fallback */ }
-  // eslint-disable-next-line global-require -- pre-boot fallback
   return require('../test-runner-registry').createTestRunnerRegistry();
 }
 const factoryDecisions = require('../db/factory-decisions');

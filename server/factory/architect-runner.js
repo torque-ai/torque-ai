@@ -815,7 +815,6 @@ async function ingestScoutFindings(project) {
       const { defaultContainer } = require('../container');
       database = defaultContainer.get('db');
     } catch {
-      // eslint-disable-next-line global-require -- pre-boot fallback
       database = require('../database');
     }
     const db = typeof database.getDbInstance === 'function' ? database.getDbInstance() : null;
