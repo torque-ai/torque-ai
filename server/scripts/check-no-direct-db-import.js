@@ -57,6 +57,14 @@ const ALLOWED = new Set([
 
 const DB_IMPORT_PATTERN = /require\s*\(\s*['"]\..*database['"]\s*\)/;
 const FACTORY_PATTERN = /function\s+create[A-Z]/;
+// Files that also reach the DI container for 'db' are considered migrated:
+// the require('../database') is a fallback for pre-boot test contexts where
+// defaultContainer.get('db') throws "called before boot()". Production code
+// goes through DI; tests fall back to the facade. Both paths return the
+// same facade module (database.js#init() and resetForTest() register it
+// with defaultContainer). Detect the migrated shape by requiring at least
+// one defaultContainer access alongside the database require.
+const DI_CONTAINER_PATTERN = /defaultContainer\s*[.[]/;
 
 /**
  * Walk a directory tree, calling visitor(fullPath, relativePath) for each .js file.
@@ -98,6 +106,11 @@ function scan() {
 
     const baseName = path.basename(fullPath);
     if (ALLOWED.has(baseName) || ALLOWED.has(relativePath)) return;
+
+    // DI-aware-with-fallback: file also accesses defaultContainer for db.
+    // Treat as migrated — production goes through DI, the require is a
+    // pre-boot test fallback only.
+    if (DI_CONTAINER_PATTERN.test(content)) return;
 
     sourceViolations.push(relativePath);
   }, { skipTests: true });

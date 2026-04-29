@@ -1,7 +1,21 @@
 'use strict';
 
+function getDbInstance() {
+  // Resolve via DI when booted; fall back to direct facade for the
+  // pre-boot test contexts that exercise this handler without
+  // container.boot() (e.g., handler-task-pipeline.test.js patterns).
+  try {
+    const { defaultContainer } = require('../container');
+    const facade = defaultContainer.get('db');
+    return typeof facade.getDbInstance === 'function' ? facade.getDbInstance() : facade;
+  } catch {
+    // eslint-disable-next-line global-require -- pre-boot fallback
+    return require('../database').getDbInstance();
+  }
+}
+
 async function handleDiscoverModels(args) {
-  const db = require('../database').getDbInstance();
+  const db = getDbInstance();
   // Ensure model registry has the DB handle (legacy setDb pattern)
   const registry = require('../models/registry');
   if (typeof registry.setDb === 'function') registry.setDb(db);
