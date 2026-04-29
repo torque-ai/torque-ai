@@ -334,4 +334,58 @@ describe('factory worktrees persistence', () => {
     db.close();
     factoryWorktrees.setDb(null);
   });
+
+  it('refreshes created_at when setOwningTask attaches a non-null owner', async () => {
+    // Regression: the loop-controller pre-reclaim grace check uses the
+    // worktree row's created_at to decide whether the slot is "fresh."
+    // Before this fix, attaching a fresh task to an old worktree row left
+    // created_at frozen at row-insert time, so a fresh in-flight task would
+    // be killed by the reclaim sweep with reason "pre_reclaim_before_create".
+    // setOwningTask now bumps created_at on attach so the grace check sees
+    // the slot as freshly-owned.
+    const db = new Database(dbPath);
+    createTables(db);
+    db.prepare('ALTER TABLE factory_worktrees ADD COLUMN owning_task_id TEXT').run();
+    const workItemId = seedParents(db);
+
+    const factoryWorktrees = loadFreshFactoryWorktrees();
+    factoryWorktrees.setDb(db);
+    const recorded = factoryWorktrees.recordWorktree({
+      project_id: 'project-1',
+      work_item_id: workItemId,
+      batch_id: 'batch-attach',
+      vc_worktree_id: 'vc-worktree-1',
+      branch: 'feat/factory-attach',
+      worktree_path: 'C:/repo/.worktrees/feat/factory-attach',
+    });
+
+    // Backdate the row to simulate a long-lived worktree slot.
+    db.prepare("UPDATE factory_worktrees SET created_at = datetime('now', '-2 hours') WHERE id = ?").run(recorded.id);
+    const stale = db.prepare('SELECT created_at FROM factory_worktrees WHERE id = ?').get(recorded.id);
+    const staleMs = Date.parse(`${stale.created_at.replace(' ', 'T')}Z`);
+    expect(Date.now() - staleMs).toBeGreaterThan(60 * 60 * 1000);
+
+    // Sleep briefly so the bump is observable at second resolution.
+    await new Promise((resolve) => setTimeout(resolve, 1100));
+
+    const refreshed = factoryWorktrees.setOwningTask(recorded.id, 'task-fresh');
+    expect(refreshed).toBeTruthy();
+    expect(refreshed.owningTaskId).toBe('task-fresh');
+
+    const after = db.prepare('SELECT created_at FROM factory_worktrees WHERE id = ?').get(recorded.id);
+    const afterMs = Date.parse(`${after.created_at.replace(' ', 'T')}Z`);
+    // Created_at should now be within the last few seconds, not 2 hours old.
+    expect(Date.now() - afterMs).toBeLessThan(10 * 1000);
+
+    // Clearing the owner (null) must NOT bump created_at — clearing isn't a
+    // slot reuse, just an end-of-life transition.
+    const beforeClear = db.prepare('SELECT created_at FROM factory_worktrees WHERE id = ?').get(recorded.id).created_at;
+    await new Promise((resolve) => setTimeout(resolve, 1100));
+    factoryWorktrees.clearOwningTask(recorded.id);
+    const afterClear = db.prepare('SELECT created_at FROM factory_worktrees WHERE id = ?').get(recorded.id).created_at;
+    expect(afterClear).toBe(beforeClear);
+
+    db.close();
+    factoryWorktrees.setDb(null);
+  });
 });

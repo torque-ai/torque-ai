@@ -1556,8 +1556,11 @@ Edit server/factory/plan-executor.js and make the requested behavior change. Kee
       branch: targetBranch,
       worktree_path: worktreePath,
     });
-    db.prepare("UPDATE factory_worktrees SET created_at = datetime('now', '-2 hours') WHERE id = ?").run(existing.id);
     factoryWorktrees.setOwningTask(existing.id, 'task-young-live-owner');
+    // setOwningTask normally refreshes created_at on attach. Backdate after
+    // attach so this test still covers the controller's defense-in-depth path
+    // for any future caller that leaves an old row attached to a fresh owner.
+    db.prepare("UPDATE factory_worktrees SET created_at = datetime('now', '-2 hours') WHERE id = ?").run(existing.id);
     const ownerStartedAt = new Date().toISOString();
     taskCore.getTask = vi.fn((taskId) => ({
       id: taskId,
