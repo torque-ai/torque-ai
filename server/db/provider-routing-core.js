@@ -4,6 +4,17 @@ const logger = require('../logger').child({ component: 'provider-routing' });
 const { safeJsonParse } = require('../utils/json');
 const serverConfig = require('../config');
 const providerRegistry = require('../providers/registry');
+const {
+  createSharedFactoryStore,
+  deriveLearningScope,
+  DEFAULT_PROVIDER_FAILURE_SIGNAL_TYPE,
+} = require('./shared-factory-store');
+const {
+  computeSharedLearningPenalty,
+  SHARED_LEARNING_MIN_CONFIDENCE,
+  SHARED_LEARNING_MIN_SAMPLES,
+  SHARED_LEARNING_MAX_PENALTY,
+} = require('./provider-scoring');
 
 // Extracted modules
 const smartRouting = require('./smart-routing');
@@ -18,6 +29,12 @@ try {
 
 let providerScoring = null;
 function setProviderScoring(scoring) { providerScoring = scoring || null; }
+
+let sharedFactoryStore = null;
+let ownedSharedFactoryStore = null;
+function setSharedFactoryStore(store) {
+  sharedFactoryStore = store || null;
+}
 
 let circuitBreakerInstance = null;
 function setCircuitBreaker(cb) { circuitBreakerInstance = cb || null; }
@@ -124,6 +141,92 @@ function _getTrustedProviderScoreMap() {
   }
 }
 
+function _getSharedFactoryStore() {
+  if (sharedFactoryStore) return sharedFactoryStore;
+
+  try {
+    const { defaultContainer } = require('../container');
+    if (
+      defaultContainer
+      && typeof defaultContainer.has === 'function'
+      && typeof defaultContainer.get === 'function'
+      && defaultContainer.has('sharedFactoryStore')
+    ) {
+      return defaultContainer.get('sharedFactoryStore');
+    }
+  } catch (_err) {
+    // Container may be unavailable in isolated routing tests.
+  }
+
+  if (ownedSharedFactoryStore) return ownedSharedFactoryStore;
+
+  const hasDataDir = typeof db?.getDataDir === 'function';
+  let configuredPath = null;
+  try {
+    configuredPath = getDatabaseConfig('shared_factory_db_path');
+  } catch (_err) {
+    configuredPath = null;
+  }
+  if (!hasDataDir && !(typeof configuredPath === 'string' && configuredPath.trim())) {
+    return null;
+  }
+
+  try {
+    ownedSharedFactoryStore = createSharedFactoryStore({
+      config: db,
+      dataDir: hasDataDir ? db.getDataDir() : undefined,
+    });
+    return ownedSharedFactoryStore;
+  } catch (_err) {
+    return null;
+  }
+}
+
+function _getSharedProviderLearningPenalties(learningScope, options = {}) {
+  const scopeKey = learningScope?.scope_key || learningScope?.scopeKey;
+  if (!scopeKey) return new Map();
+
+  const store = options.sharedFactoryStore || _getSharedFactoryStore();
+  if (!store || typeof store.listLearnings !== 'function') return new Map();
+
+  let rows = [];
+  try {
+    rows = store.listLearnings({
+      signal_type: DEFAULT_PROVIDER_FAILURE_SIGNAL_TYPE,
+      scope_key: scopeKey,
+      minConfidence: SHARED_LEARNING_MIN_CONFIDENCE,
+      now: options.now,
+      limit: 100,
+    });
+  } catch (_err) {
+    return new Map();
+  }
+  if (!Array.isArray(rows) || rows.length === 0) return new Map();
+
+  const penalties = new Map();
+  for (const row of rows) {
+    if (!row || row.signal_type !== DEFAULT_PROVIDER_FAILURE_SIGNAL_TYPE) continue;
+    if ((Number(row.sample_count) || 0) < SHARED_LEARNING_MIN_SAMPLES) continue;
+    const provider = typeof row.provider === 'string' ? row.provider.trim() : '';
+    if (!provider) continue;
+
+    const penalty = computeSharedLearningPenalty(row);
+    if (penalty <= 0) continue;
+
+    const current = penalties.get(provider) || {
+      provider,
+      penalty: 0,
+      scope_key: scopeKey,
+      learnings: [],
+    };
+    current.penalty = Math.min(SHARED_LEARNING_MAX_PENALTY, current.penalty + penalty);
+    current.learnings.push(row);
+    penalties.set(provider, current);
+  }
+
+  return penalties;
+}
+
 function _rankProviderCandidatesByScore(candidates, options = {}) {
   if (!Array.isArray(candidates) || candidates.length <= 1) {
     return { candidates: Array.isArray(candidates) ? [...candidates] : [], applied: false };
@@ -140,16 +243,24 @@ function _rankProviderCandidatesByScore(candidates, options = {}) {
   if (scoreMap.size === 0) {
     return { candidates: [...candidates], applied: false };
   }
+  const learningScope = options.learningScope || null;
+  const learningPenalties = _getSharedProviderLearningPenalties(learningScope, options);
 
   const decorated = candidates.map((candidate, index) => {
     const provider = extractProvider(candidate);
     const hasTrustedScore = provider ? scoreMap.has(provider) : false;
+    const baseScore = hasTrustedScore ? (scoreMap.get(provider) || 0) : 0;
+    const learningPenalty = provider && learningPenalties.has(provider)
+      ? learningPenalties.get(provider).penalty
+      : 0;
     return {
       candidate,
       index,
       provider,
       hasTrustedScore,
-      score: hasTrustedScore ? (scoreMap.get(provider) || 0) : 0,
+      compositeScore: baseScore,
+      learningPenalty,
+      score: Math.max(0, baseScore - learningPenalty),
     };
   });
 
@@ -172,8 +283,13 @@ function _rankProviderCandidatesByScore(candidates, options = {}) {
     candidates: decorated.map((entry) => entry.candidate),
     applied: true,
     selectedProvider: selected.provider,
-    selectedScore: selected.hasTrustedScore ? selected.score : null,
+    selectedScore: selected.hasTrustedScore ? selected.compositeScore : null,
+    selectedAdjustedScore: selected.hasTrustedScore ? selected.score : null,
+    selectedLearningPenalty: selected.learningPenalty || 0,
     scoreMap,
+    learningScope,
+    learningPenalties,
+    learningPenaltyApplied: decorated.some((entry) => entry.learningPenalty > 0),
   };
 }
 
@@ -187,7 +303,22 @@ function _isProviderEnabled(providerName) {
   }
 }
 
-function _applyScoredEligibleProviders(result, taskMetadata = {}) {
+function buildLearningPenaltySummary(learningPenalties) {
+  if (!(learningPenalties instanceof Map) || learningPenalties.size === 0) return undefined;
+  const summary = {};
+  for (const [provider, entry] of learningPenalties.entries()) {
+    if (!entry || entry.penalty <= 0) continue;
+    summary[provider] = {
+      penalty: entry.penalty,
+      scope_key: entry.scope_key,
+      sample_count: entry.learnings.reduce((total, row) => total + (Number(row.sample_count) || 0), 0),
+      confidence: entry.learnings.reduce((max, row) => Math.max(max, Number(row.confidence) || 0), 0),
+    };
+  }
+  return Object.keys(summary).length > 0 ? summary : undefined;
+}
+
+function _applyScoredEligibleProviders(result, taskMetadata = {}, learningScope = null) {
   if (!result || !Array.isArray(result.eligible_providers) || result.eligible_providers.length <= 1) {
     return result;
   }
@@ -199,6 +330,7 @@ function _applyScoredEligibleProviders(result, taskMetadata = {}) {
 
   const ranked = _rankProviderCandidatesByScore(availableProviders, {
     taskMetadata,
+    learningScope,
     extractProvider: (providerName) => providerName,
   });
   if (!ranked.applied || ranked.candidates.length === 0) {
@@ -212,13 +344,18 @@ function _applyScoredEligibleProviders(result, taskMetadata = {}) {
   result.routing_score = {
     provider: selectedProvider,
     composite_score: ranked.selectedScore,
-    source: 'provider_scores',
+    adjusted_score: ranked.selectedAdjustedScore,
+    learning_penalty: ranked.selectedLearningPenalty,
+    learning_penalties: buildLearningPenaltySummary(ranked.learningPenalties),
+    scope_key: ranked.learningScope?.scope_key || ranked.learningScope?.scopeKey || undefined,
+    source: ranked.learningPenaltyApplied ? 'provider_scores+shared_learnings' : 'provider_scores',
   };
-  result.reason = `${result.reason} [score-ranked: ${selectedProvider} composite=${Number(ranked.selectedScore || 0).toFixed(3)}]`;
+  const learningSuffix = ranked.learningPenaltyApplied ? ` adjusted=${Number(ranked.selectedAdjustedScore || 0).toFixed(3)} shared-learning=applied` : '';
+  result.reason = `${result.reason} [score-ranked: ${selectedProvider} composite=${Number(ranked.selectedScore || 0).toFixed(3)}${learningSuffix}]`;
   return result;
 }
 
-function _applyScoredFallbackChain(result, taskMetadata = {}) {
+function _applyScoredFallbackChain(result, taskMetadata = {}, learningScope = null) {
   if (!result || !Array.isArray(result.chain) || result.chain.length <= 1) {
     return result;
   }
@@ -236,7 +373,7 @@ function _applyScoredFallbackChain(result, taskMetadata = {}) {
 
     const selected = chain[selectedIndex];
     const fallbackCandidates = chain.filter((_, index) => index !== selectedIndex);
-    const rankedFallbacks = _rankProviderCandidatesByScore(fallbackCandidates, { taskMetadata });
+    const rankedFallbacks = _rankProviderCandidatesByScore(fallbackCandidates, { taskMetadata, learningScope });
     if (!rankedFallbacks.applied) return result;
 
     const fallbackChain = [selected, ...rankedFallbacks.candidates];
@@ -260,10 +397,21 @@ function _applyScoredFallbackChain(result, taskMetadata = {}) {
 
 const _smartRoutingAnalyzeTaskForRouting = smartRouting.analyzeTaskForRouting;
 function analyzeTaskForRouting(taskDescription, workingDirectory, files = [], options = {}) {
-  const result = _smartRoutingAnalyzeTaskForRouting(taskDescription, workingDirectory, files, options);
   const taskMetadata = options?.taskMetadata || {};
-  _applyScoredEligibleProviders(result, taskMetadata);
-  return _applyScoredFallbackChain(result, taskMetadata);
+  const learningScope = options?.learningScope || deriveLearningScope({
+    metadata: taskMetadata,
+    files,
+    workingDirectory,
+    description: taskDescription,
+  });
+  const result = _smartRoutingAnalyzeTaskForRouting(
+    taskDescription,
+    workingDirectory,
+    files,
+    learningScope ? { ...options, learningScope } : options,
+  );
+  _applyScoredEligibleProviders(result, taskMetadata, learningScope);
+  return _applyScoredFallbackChain(result, taskMetadata, learningScope);
 }
 
 // Escape a string for use as a Prometheus label value (inside double quotes)
@@ -1607,10 +1755,11 @@ const { persistHealthWindow, getHealthHistory, getHealthTrend, pruneHealthHistor
 // Factory function (dependency injection without singletons)
 // ============================================================
 
-function createProviderRoutingCore({ db: dbInstance, taskCore, hostManagement } = {}) {
+function createProviderRoutingCore({ db: dbInstance, taskCore, hostManagement, sharedFactoryStore: sharedStore } = {}) {
   if (dbInstance) setDb(dbInstance);
   if (taskCore) setGetTask(taskCore);
   if (hostManagement) setHostManagement(hostManagement);
+  if (sharedStore !== undefined) setSharedFactoryStore(sharedStore);
   return module.exports;
 }
 
@@ -1626,6 +1775,7 @@ module.exports = {
   setGetTask,
   setHostManagement,
   setProviderScoring,
+  setSharedFactoryStore,
   setCircuitBreaker,
 
   // Provider Core
@@ -1709,4 +1859,7 @@ module.exports = {
 
   // Factory function (dependency injection without singletons)
   createProviderRoutingCore,
+
+  // Testable scoring helpers
+  _getSharedProviderLearningPenalties,
 };

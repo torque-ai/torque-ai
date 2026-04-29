@@ -22,14 +22,26 @@ const { parseComputeOutput, validateComputeSchema } = require('../diffusion/comp
 const { expandApplyTaskDescription } = require('../diffusion/planner');
 const { safeJsonParse } = require('../utils/json');
 const resumeContextUtils = require('../utils/resume-context');
+const {
+  createSharedFactoryStore,
+  deriveLearningScope,
+  deriveVerifyFailurePattern,
+  DEFAULT_PROVIDER_FAILURE_SIGNAL_TYPE,
+  DEFAULT_VERIFY_FAILURE_SIGNAL_TYPE,
+} = require('../db/shared-factory-store');
 const { v4: uuidv4 } = require('uuid');
 
 let deps = {};
 let handleVerificationLedger = null;
 let handleAdversarialReview = null;
 const finalizationLocks = new Map();
+let ownedSharedFactoryStore = null;
 
 function resetForTest() {
+  if (ownedSharedFactoryStore && typeof ownedSharedFactoryStore.close === 'function') {
+    try { ownedSharedFactoryStore.close(); } catch { /* non-fatal */ }
+  }
+  ownedSharedFactoryStore = null;
   deps = {};
   handleVerificationLedger = null;
   handleAdversarialReview = null;
@@ -179,6 +191,236 @@ function getRawDbInstance() {
     return injectedDb && typeof injectedDb.prepare === 'function' ? injectedDb : null;
   } catch (_err) {
     return null;
+  }
+}
+
+function readDbConfig(key) {
+  if (!deps.db || typeof deps.db.getConfig !== 'function') return null;
+  try { return deps.db.getConfig(key); } catch { return null; }
+}
+
+function normalizeText(value) {
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+function getSharedFactoryStore() {
+  if (deps.sharedFactoryStore) return deps.sharedFactoryStore;
+
+  try {
+    const { defaultContainer } = require('../container');
+    if (
+      defaultContainer
+      && typeof defaultContainer.has === 'function'
+      && typeof defaultContainer.get === 'function'
+      && defaultContainer.has('sharedFactoryStore')
+    ) {
+      return defaultContainer.get('sharedFactoryStore');
+    }
+  } catch (_err) {
+    // Container may be unavailable in direct-module tests.
+  }
+
+  if (ownedSharedFactoryStore) return ownedSharedFactoryStore;
+  try {
+    ownedSharedFactoryStore = createSharedFactoryStore({
+      config: deps.db,
+      dataDir: typeof deps.db?.getDataDir === 'function' ? deps.db.getDataDir() : undefined,
+    });
+    return ownedSharedFactoryStore;
+  } catch (err) {
+    logger.debug(`[finalizer] Shared factory store unavailable for claim release: ${err.message}`);
+    return null;
+  }
+}
+
+function resolveTaskProjectId(task) {
+  const metadata = parseMetadata(task?.metadata);
+  return normalizeText(deps.projectId || deps.project_id)
+    || normalizeText(process.env.TORQUE_FACTORY_PROJECT_ID)
+    || normalizeText(readDbConfig('factory_project_id'))
+    || normalizeText(readDbConfig('project_id'))
+    || normalizeText(metadata.factory_project_id)
+    || normalizeText(metadata.project_id)
+    || normalizeText(metadata.projectId)
+    || normalizeText(task?.project)
+    || null;
+}
+
+function releaseSharedCodexClaims(taskId, reason, task) {
+  const store = getSharedFactoryStore();
+  if (!store || typeof store.releaseResourceClaimsForTask !== 'function') return;
+
+  const projectId = resolveTaskProjectId(task);
+  const filters = { task_id: taskId, provider: 'codex' };
+  try {
+    const released = store.releaseResourceClaimsForTask(
+      projectId ? { ...filters, project_id: projectId } : filters,
+      reason,
+    );
+    if (projectId && (!Array.isArray(released) || released.length === 0)) {
+      store.releaseResourceClaimsForTask(filters, reason);
+    }
+  } catch (err) {
+    logger.info(`[finalizer] Shared Codex claim release failed for ${taskId}: ${err.message}`);
+  }
+}
+
+function releaseSharedCodexClaimsForEarlyExit(taskId, task, ctx) {
+  let currentTask = null;
+  try { currentTask = deps.db?.getTask?.(taskId) || null; } catch { currentTask = null; }
+  releaseSharedCodexClaims(taskId, 'queue_managed', currentTask || ctx?.task || task);
+}
+
+function computeProviderFailureConfidence(sampleCount) {
+  const numeric = Number(sampleCount);
+  const count = Number.isFinite(numeric) ? Math.max(1, Math.trunc(numeric)) : 1;
+  return Math.min(0.95, 0.35 + (count * 0.12));
+}
+
+function computeVerifyFailureConfidence(sampleCount, categories = []) {
+  const numeric = Number(sampleCount);
+  const count = Number.isFinite(numeric) ? Math.max(1, Math.trunc(numeric)) : 1;
+  const categoryBoost = Array.isArray(categories) && categories.length > 1 ? 0.05 : 0;
+  return Math.min(0.98, 0.45 + (count * 0.12) + categoryBoost);
+}
+
+function hasVerifyFailureSignal(ctx) {
+  if (ctx?.status !== 'failed') return false;
+
+  const output = typeof ctx?.output === 'string' ? ctx.output : '';
+  const errorOutput = typeof ctx?.errorOutput === 'string' ? ctx.errorOutput : '';
+  const combinedOutput = `${output}\n${errorOutput}`;
+  if (/\[auto-verify\]|\bauto[-_ ]?verify\b/i.test(combinedOutput)) return true;
+  if (/\bverify\b.{0,80}\b(?:fail|failed|failure|error)\b/i.test(combinedOutput)) return true;
+  if (/\b(?:dotnet|npm|pnpm|yarn|pytest|vitest|jest|go test|cargo test)\b.{0,120}\b(?:fail|failed|failure|error)\b/i.test(combinedOutput)) {
+    return true;
+  }
+
+  const stages = ctx?.validationStages && typeof ctx.validationStages === 'object'
+    ? ctx.validationStages
+    : {};
+  return Object.entries(stages).some(([stageName, stage]) => (
+    /verify|validation|build_test|test|style/i.test(stageName)
+    && stage
+    && typeof stage === 'object'
+    && stage.status_after === 'failed'
+    && stage.status_before !== 'failed'
+  ));
+}
+
+function recordSharedProviderLearning(ctx) {
+  try {
+    if (ctx?.status !== 'failed') return;
+    const task = ctx?.task || {};
+    const provider = normalizeText(task.provider || ctx?.proc?.provider);
+    if (!provider) return;
+
+    const metadata = mergeTaskMetadata(task, ctx);
+    const scope = deriveLearningScope({
+      task,
+      metadata,
+      files: ctx?.filesModified,
+      workingDirectory: task.working_directory,
+      description: task.task_description,
+    });
+    if (!scope || !scope.scope_key) return;
+
+    const store = getSharedFactoryStore();
+    if (!store || typeof store.upsertLearning !== 'function') return;
+
+    const failureCategory = categorizeFailure(ctx);
+    const key = {
+      signal_type: DEFAULT_PROVIDER_FAILURE_SIGNAL_TYPE,
+      scope_key: scope.scope_key,
+      provider,
+      failure_pattern: failureCategory,
+    };
+    const existing = typeof store.getLearning === 'function' ? store.getLearning(key) : null;
+    const nextSampleCount = (Number(existing?.sample_count) || 0) + 1;
+
+    store.upsertLearning({
+      ...key,
+      tech_stack: scope.tech_stack,
+      sample_count: 1,
+      confidence: computeProviderFailureConfidence(nextSampleCount),
+      project_source: resolveTaskProjectId(task) || normalizeText(task.working_directory) || 'unknown',
+      payload: {
+        signal_type: DEFAULT_PROVIDER_FAILURE_SIGNAL_TYPE,
+        scope_key: scope.scope_key,
+        tech_stack: scope.tech_stack,
+        signals: scope.signals || [],
+        failure_category: failureCategory,
+        task_id: ctx.taskId || task.id || null,
+        task_description: task.task_description || null,
+        working_directory: task.working_directory || null,
+        files_modified: ctx?.filesModified || [],
+        status: ctx.status,
+      },
+    });
+  } catch (err) {
+    logger.info(`[finalizer] Shared provider learning recording failed: ${err.message}`);
+  }
+}
+
+function recordSharedVerifyFailureLearning(ctx) {
+  try {
+    if (!hasVerifyFailureSignal(ctx)) return;
+    const task = ctx?.task || {};
+    const provider = normalizeText(task.provider || ctx?.proc?.provider);
+    if (!provider) return;
+
+    const metadata = mergeTaskMetadata(task, ctx);
+    const pattern = deriveVerifyFailurePattern({
+      task,
+      metadata,
+      files: ctx?.filesModified,
+      workingDirectory: task.working_directory,
+      description: task.task_description,
+      output: ctx?.output,
+      errorOutput: ctx?.errorOutput,
+      validationStages: ctx?.validationStages,
+    });
+    if (!pattern || !pattern.pattern_hash) return;
+
+    const store = getSharedFactoryStore();
+    if (!store || typeof store.upsertLearning !== 'function') return;
+
+    const key = {
+      signal_type: DEFAULT_VERIFY_FAILURE_SIGNAL_TYPE,
+      scope_key: pattern.scope_key,
+      provider,
+      failure_pattern: pattern.pattern_hash,
+    };
+    const existing = typeof store.getLearning === 'function' ? store.getLearning(key) : null;
+    const nextSampleCount = (Number(existing?.sample_count) || 0) + 1;
+    const failureCategory = categorizeFailure(ctx);
+
+    store.upsertLearning({
+      ...key,
+      tech_stack: pattern.tech_stack,
+      sample_count: 1,
+      confidence: computeVerifyFailureConfidence(nextSampleCount, pattern.categories),
+      project_source: resolveTaskProjectId(task) || normalizeText(task.working_directory) || 'unknown',
+      payload: {
+        signal_type: DEFAULT_VERIFY_FAILURE_SIGNAL_TYPE,
+        scope_key: pattern.scope_key,
+        tech_stack: pattern.tech_stack,
+        provider,
+        pattern_hash: pattern.pattern_hash,
+        normalized_pattern: pattern.normalized_pattern,
+        failure_categories: pattern.categories,
+        failure_category: pattern.failure_category,
+        finalizer_failure_category: failureCategory,
+        signals: pattern.signals || [],
+        task_id: ctx.taskId || task.id || null,
+        task_description: task.task_description || null,
+        working_directory: task.working_directory || null,
+        files_modified: ctx?.filesModified || [],
+        status: ctx.status,
+      },
+    });
+  } catch (err) {
+    logger.info(`[finalizer] Shared verify failure learning recording failed: ${err.message}`);
   }
 }
 
@@ -683,6 +925,9 @@ async function finalizeTask(taskId, options = {}) {
       return { finalized: false, queueManaged: false, task: null, reason: 'not_found' };
     }
     if (!isFinalizableStatus(task.status)) {
+      if (['completed', 'failed', 'cancelled'].includes(task.status)) {
+        releaseSharedCodexClaims(taskId, task.status, task);
+      }
       return {
         finalized: false,
         queueManaged: false,
@@ -730,6 +975,7 @@ async function finalizeTask(taskId, options = {}) {
 
     await runStage(ctx, 'retry_logic', deps.handleRetryLogic, ctx.code !== 0);
     if (ctx.earlyExit) {
+      releaseSharedCodexClaimsForEarlyExit(taskId, task, ctx);
       return {
         finalized: false,
         queueManaged: true,
@@ -742,6 +988,7 @@ async function finalizeTask(taskId, options = {}) {
 
     await runStage(ctx, 'safeguard_checks', deps.handleSafeguardChecks, typeof deps.handleSafeguardChecks === 'function');
     if (ctx.earlyExit) {
+      releaseSharedCodexClaimsForEarlyExit(taskId, task, ctx);
       return {
         finalized: false,
         queueManaged: true,
@@ -771,6 +1018,7 @@ async function finalizeTask(taskId, options = {}) {
       (stageCtx) => runCodexBannerOnlyDetection(stageCtx),
       ctx.status === 'failed' || ctx.status === 'cancelled');
     if (ctx.earlyExit) {
+      releaseSharedCodexClaimsForEarlyExit(taskId, task, ctx);
       return {
         finalized: false,
         queueManaged: true,
@@ -787,6 +1035,7 @@ async function finalizeTask(taskId, options = {}) {
     await runStage(ctx, 'auto_verify_retry', deps.handleAutoVerifyRetry, typeof deps.handleAutoVerifyRetry === 'function');
     await runStage(ctx, 'verification_ledger', handleVerificationLedger, typeof handleVerificationLedger === 'function');
     if (ctx.earlyExit) {
+      releaseSharedCodexClaimsForEarlyExit(taskId, task, ctx);
       return {
         finalized: false,
         queueManaged: true,
@@ -817,6 +1066,7 @@ async function finalizeTask(taskId, options = {}) {
       typeof deps.handleProviderFailover === 'function' && !ctx.pipelineError
     );
     if (ctx.earlyExit) {
+      releaseSharedCodexClaimsForEarlyExit(taskId, task, ctx);
       return {
         finalized: false,
         queueManaged: true,
@@ -923,6 +1173,8 @@ async function finalizeTask(taskId, options = {}) {
     }
 
     recordProviderScoring(ctx);
+    recordSharedProviderLearning(ctx);
+    recordSharedVerifyFailureLearning(ctx);
 
     try {
       const budgetWatcher = require('../db/budget-watcher');
@@ -953,6 +1205,7 @@ async function finalizeTask(taskId, options = {}) {
 
     // Strategic brain hooks (fire-and-forget, never blocks finalization)
     triggerStrategicHooks(ctx);
+    releaseSharedCodexClaims(taskId, ctx.status, ctx.task || task);
 
     return {
       finalized: true,
@@ -966,6 +1219,9 @@ async function finalizeTask(taskId, options = {}) {
 
     const currentTask = deps.db.getTask(taskId);
     if (!currentTask || !isFinalizableStatus(currentTask.status)) {
+      if (currentTask && ['completed', 'failed', 'cancelled'].includes(currentTask.status)) {
+        releaseSharedCodexClaims(taskId, currentTask.status, currentTask);
+      }
       return {
         finalized: false,
         queueManaged: false,
@@ -1031,6 +1287,8 @@ async function finalizeTask(taskId, options = {}) {
     fallbackCtx.task = deps.db.getTask(taskId) || currentTask;
     await indexRunArtifacts(taskId, fallbackCtx.task?.workflow_id || currentTask?.workflow_id || null);
     recordProviderScoring(fallbackCtx);
+    recordSharedProviderLearning(fallbackCtx);
+    recordSharedVerifyFailureLearning(fallbackCtx);
 
     if (typeof deps.handlePostCompletion === 'function') {
       try {
@@ -1042,6 +1300,7 @@ async function finalizeTask(taskId, options = {}) {
 
     // Strategic brain hooks (fire-and-forget, never blocks finalization)
     triggerStrategicHooks(fallbackCtx);
+    releaseSharedCodexClaims(taskId, 'finalizer_fatal', fallbackCtx.task || currentTask);
 
     return {
       finalized: true,

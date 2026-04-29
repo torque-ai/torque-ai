@@ -11,6 +11,13 @@ const { lintPlanContent } = require('./plan-lint');
 const { createScoutFindingsIntake } = require('./scout-findings-intake');
 const { guardIntakeItem } = require('./meta-intake-guard');
 const { composeGuide } = require('./plan-authoring-guide');
+const {
+  createSharedFactoryStore,
+  deriveVerifyFailurePattern,
+  normalizeVerifyFailureCategories,
+  DEFAULT_VERIFY_FAILURE_SIGNAL_TYPE,
+  SHARED_FACTORY_DB_ENV,
+} = require('../db/shared-factory-store');
 const logger = require('../logger').child({ component: 'architect-runner' });
 const CLOSED_WORK_ITEM_STATUSES = new Set(['completed', 'rejected', 'shipped']);
 const PRIORITIZABLE_WORK_ITEM_STATUSES = new Set([
@@ -33,6 +40,19 @@ function isUserOverridePriority(item) {
   const { priority } = item;
   return priority === 'user_override' || priority === USER_OVERRIDE_NUMERIC;
 }
+
+const VERIFY_LEARNING_MIN_CONFIDENCE = 0.35;
+const VERIFY_LEARNING_MIN_SAMPLES = 1;
+const VERIFY_LEARNING_MAX_PENALTY = 5;
+const GENERIC_VERIFY_FAILURE_CATEGORIES = new Set([
+  'generic_verify_failure',
+  'test_verify_failure',
+  'dotnet_verify_failure',
+  'node_verify_failure',
+]);
+
+let sharedFactoryStore = null;
+let ownedSharedFactoryStore = null;
 
 const DIMENSION_KEYWORDS = {
   structural: ['structural', 'architecture', 'architectural', 'module', 'modules', 'layer', 'layers', 'boundary', 'boundaries', 'coupling'],
@@ -203,6 +223,184 @@ function includesKeyword(searchText, keyword) {
   return ` ${searchText} `.includes(` ${normalizedKeyword} `);
 }
 
+function parsePayloadJson(row) {
+  if (!row || typeof row.payload_json !== 'string') return {};
+  try {
+    const parsed = JSON.parse(row.payload_json);
+    return isRecord(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function normalizeVerifyLearningRow(row) {
+  if (!isRecord(row) || row.signal_type !== DEFAULT_VERIFY_FAILURE_SIGNAL_TYPE) {
+    return null;
+  }
+  const payload = parsePayloadJson(row);
+  const categories = normalizeVerifyFailureCategories([
+    ...(Array.isArray(payload.failure_categories) ? payload.failure_categories : []),
+    payload.failure_category,
+    payload.primary_category,
+  ]);
+  const confidence = toFiniteNumber(row.confidence) ?? 0;
+  const sampleCount = toFiniteNumber(row.sample_count) ?? 0;
+
+  return {
+    id: row.id || null,
+    signal_type: row.signal_type,
+    scope_key: row.scope_key || null,
+    provider: row.provider || null,
+    tech_stack: row.tech_stack || payload.tech_stack || null,
+    failure_pattern: row.failure_pattern || null,
+    pattern_hash: payload.pattern_hash || row.failure_pattern || null,
+    normalized_pattern: payload.normalized_pattern || null,
+    categories,
+    primary_category: categories[0] || null,
+    confidence,
+    sample_count: sampleCount,
+    project_source: row.project_source || null,
+  };
+}
+
+function setSharedFactoryStore(store) {
+  sharedFactoryStore = store || null;
+}
+
+function getSharedFactoryStore() {
+  if (sharedFactoryStore) return sharedFactoryStore;
+
+  try {
+    const { defaultContainer } = require('../container');
+    if (
+      defaultContainer
+      && typeof defaultContainer.has === 'function'
+      && typeof defaultContainer.get === 'function'
+      && defaultContainer.has('sharedFactoryStore')
+    ) {
+      return defaultContainer.get('sharedFactoryStore');
+    }
+  } catch (_err) {
+    // Container may be unavailable or not booted in isolated tests.
+  }
+
+  if (ownedSharedFactoryStore) return ownedSharedFactoryStore;
+  if (!process.env[SHARED_FACTORY_DB_ENV]) return null;
+
+  try {
+    ownedSharedFactoryStore = createSharedFactoryStore();
+    return ownedSharedFactoryStore;
+  } catch (_err) {
+    return null;
+  }
+}
+
+function loadActiveVerifyFailureLearnings(options = {}) {
+  const store = options.sharedFactoryStore || getSharedFactoryStore();
+  if (!store || typeof store.listLearnings !== 'function') return [];
+
+  let rows;
+  try {
+    rows = store.listLearnings({
+      signal_type: DEFAULT_VERIFY_FAILURE_SIGNAL_TYPE,
+      minConfidence: VERIFY_LEARNING_MIN_CONFIDENCE,
+      now: options.now,
+      limit: options.limit || 50,
+    });
+  } catch (err) {
+    logger.debug(`Could not load shared verify-failure learnings: ${err.message}`);
+    return [];
+  }
+
+  return (Array.isArray(rows) ? rows : [])
+    .map(normalizeVerifyLearningRow)
+    .filter((learning) => (
+      learning
+      && learning.categories.length > 0
+      && learning.confidence >= VERIFY_LEARNING_MIN_CONFIDENCE
+      && learning.sample_count >= VERIFY_LEARNING_MIN_SAMPLES
+    ));
+}
+
+function hasSpecificCategoryOverlap(leftCategories, rightCategories) {
+  const right = new Set(rightCategories);
+  return leftCategories.some((category) => (
+    right.has(category) && !GENERIC_VERIFY_FAILURE_CATEGORIES.has(category)
+  ));
+}
+
+function computeLearningPenalty(learning) {
+  const confidence = Math.max(0, Math.min(1, Number(learning?.confidence) || 0));
+  const sampleCount = Math.max(1, Math.trunc(Number(learning?.sample_count) || 1));
+  const confidencePenalty = Math.max(1, Math.ceil(confidence * 3));
+  const samplePenalty = sampleCount >= 5 ? 2 : (sampleCount >= 2 ? 1 : 0);
+  return Math.min(VERIFY_LEARNING_MAX_PENALTY, confidencePenalty + samplePenalty);
+}
+
+function getLearningPenaltyMatch(item, sharedLearnings, project) {
+  if (!Array.isArray(sharedLearnings) || sharedLearnings.length === 0) return null;
+  const pattern = deriveVerifyFailurePattern({
+    title: item && typeof item.title === 'string' ? item.title : '',
+    description: item && typeof item.description === 'string'
+      ? item.description
+      : (item && typeof item.why === 'string' ? item.why : ''),
+    workingDirectory: project && typeof project.path === 'string' ? project.path : '',
+    metadata: item && isRecord(item) ? {
+      constraints: item.constraints || item.constraints_json || null,
+      origin: item.origin || item.origin_json || null,
+    } : {},
+  });
+  if (!pattern || !Array.isArray(pattern.categories) || pattern.categories.length === 0) {
+    return null;
+  }
+
+  const matches = [];
+  for (const learning of sharedLearnings) {
+    if (!learning) continue;
+    const learningStack = learning.tech_stack || null;
+    const itemStack = pattern.tech_stack || null;
+    if (learningStack && itemStack && learningStack !== itemStack) continue;
+
+    const sameHash = learning.pattern_hash && pattern.pattern_hash && learning.pattern_hash === pattern.pattern_hash;
+    const specificOverlap = hasSpecificCategoryOverlap(pattern.categories, learning.categories);
+    if (!sameHash && !specificOverlap) continue;
+
+    matches.push({
+      ...learning,
+      matched_categories: learning.categories.filter((category) => pattern.categories.includes(category)),
+      penalty: computeLearningPenalty(learning),
+    });
+  }
+
+  if (matches.length === 0) return null;
+  const penalty = Math.min(
+    VERIFY_LEARNING_MAX_PENALTY,
+    matches.reduce((total, match) => total + match.penalty, 0),
+  );
+  const matchedCategories = normalizeVerifyFailureCategories(matches.flatMap((match) => match.matched_categories));
+  const strongest = matches
+    .slice()
+    .sort((left, right) => right.confidence - left.confidence || right.sample_count - left.sample_count)[0];
+
+  return {
+    penalty,
+    categories: matchedCategories.length > 0 ? matchedCategories : normalizeVerifyFailureCategories(matches.flatMap((match) => match.categories)),
+    strongest,
+    matches,
+  };
+}
+
+function formatLearningPenaltyNote(learningMatch) {
+  if (!learningMatch || !learningMatch.penalty) return '';
+  const category = learningMatch.categories[0] || learningMatch.strongest?.primary_category || 'verify_failure_pattern';
+  const provider = learningMatch.strongest?.provider ? ` provider ${learningMatch.strongest.provider}` : '';
+  const source = learningMatch.strongest?.project_source ? ` from ${learningMatch.strongest.project_source}` : '';
+  const confidence = Number.isFinite(learningMatch.strongest?.confidence)
+    ? ` confidence ${learningMatch.strongest.confidence.toFixed(2)}`
+    : '';
+  return `Shared verify-failure learning penalty ${learningMatch.penalty} applied for ${category}${provider}${source}${confidence}.`;
+}
+
 function getWeakDimensionMatch(item, weakDimensions) {
   const searchText = getItemSearchText(item);
   if (!searchText) {
@@ -239,7 +437,7 @@ function inferScopeBudget(item) {
   return 5;
 }
 
-function buildWhy(item, match, weakDimensions) {
+function buildWhy(item, match, weakDimensions, learningMatch = null) {
   const reasons = [];
 
   if (isUserOverridePriority(item)) {
@@ -259,34 +457,51 @@ function buildWhy(item, match, weakDimensions) {
     reasons.push('No health scores available; ordered by override status and age.');
   }
 
+  const learningNote = formatLearningPenaltyNote(learningMatch);
+  if (learningNote) {
+    reasons.push(learningNote);
+  }
+
   return reasons.join(' ');
 }
 
-function createBacklogEntry(item, match, weakDimensions, priorityRank) {
+function createBacklogEntry(item, match, weakDimensions, priorityRank, learningMatch = null) {
+  const learningPenalty = learningMatch?.penalty || 0;
   return {
     work_item_id: item && item.id ? item.id : null,
     title: item && typeof item.title === 'string' && item.title.trim()
       ? item.title.trim()
       : `Work item ${priorityRank}`,
-    why: buildWhy(item, match, weakDimensions),
+    why: buildWhy(item, match, weakDimensions, learningMatch),
     expected_impact: match ? { [match.dimension]: 'targeted' } : {},
     scope_budget: inferScopeBudget(item),
+    learning_penalty: learningPenalty,
+    learning_categories: learningPenalty > 0 ? learningMatch.categories : [],
     priority_rank: priorityRank,
   };
 }
 
-function prioritizeByHealth(intakeItems, healthScores) {
+function prioritizeByHealth(intakeItems, healthScores, options = {}) {
   if (!Array.isArray(intakeItems)) {
     throw new TypeError('intakeItems must be an array');
   }
 
   const weakDimensions = getSortedWeakDimensions(healthScores);
+  const sharedLearnings = Array.isArray(options.sharedLearnings)
+    ? options.sharedLearnings
+      .map((learning) => (learning && Array.isArray(learning.categories) ? learning : normalizeVerifyLearningRow(learning)))
+      .filter(Boolean)
+    : [];
+  const project = isRecord(options.project) ? options.project : null;
   const rankedItems = intakeItems.map((item, index) => {
     const match = getWeakDimensionMatch(item, weakDimensions);
+    const learningMatch = getLearningPenaltyMatch(item, sharedLearnings, project);
     return {
       item,
       index,
       isUserOverride: isUserOverridePriority(item),
+      learningPenalty: learningMatch?.penalty || 0,
+      learningMatch,
       matchRank: match ? match.rank : Number.POSITIVE_INFINITY,
       match,
       createdAt: getCreatedAtValue(item),
@@ -298,6 +513,10 @@ function prioritizeByHealth(intakeItems, healthScores) {
   rankedItems.sort((left, right) => {
     if (left.isUserOverride !== right.isUserOverride) {
       return left.isUserOverride ? -1 : 1;
+    }
+
+    if (left.learningPenalty !== right.learningPenalty) {
+      return left.learningPenalty - right.learningPenalty;
     }
 
     if (left.matchRank !== right.matchRank) {
@@ -322,11 +541,11 @@ function prioritizeByHealth(intakeItems, healthScores) {
   });
 
   return rankedItems.map((entry, index) => (
-    createBacklogEntry(entry.item, entry.match, weakDimensions, index + 1)
+    createBacklogEntry(entry.item, entry.match, weakDimensions, index + 1, entry.learningMatch)
   ));
 }
 
-function buildReasoning({ project, trigger, healthScores, intakeItems, backlog, prevCycle }) {
+function buildReasoning({ project, trigger, healthScores, intakeItems, backlog, prevCycle, sharedLearnings = [] }) {
   const weakDimensions = getSortedWeakDimensions(healthScores);
   const weakestSummary = weakDimensions.length > 0
     ? weakDimensions
@@ -343,15 +562,65 @@ function buildReasoning({ project, trigger, healthScores, intakeItems, backlog, 
   const parts = [
     `Architect cycle for ${project.name || project.id || project.project_id || 'project'} triggered by ${trigger}.`,
     `Evaluated ${intakeItems.length} intake item(s) against ${healthScores.length} health dimension(s); weakest dimensions: ${weakestSummary}.`,
-    'Ordering rules were deterministic: user_override items first, then work aligned to weak-dimension keywords in title/description, then oldest created_at first.',
+    'Ordering rules were deterministic: user_override items first, then active shared verify-failure learning penalties, then work aligned to weak-dimension keywords in title/description, then oldest created_at first.',
     `Generated ${backlog.length} prioritized backlog item(s); top entries: ${prioritizedTitles}.`,
   ];
+
+  const penalized = backlog.filter((entry) => entry && Number(entry.learning_penalty) > 0);
+  if (sharedLearnings.length > 0 && penalized.length === 0) {
+    parts.push(`Loaded ${sharedLearnings.length} active shared verify-failure learning(s); none matched the current intake queue.`);
+  } else if (penalized.length > 0) {
+    const penaltySummary = penalized
+      .slice(0, 3)
+      .map((entry) => `${entry.title} (${(entry.learning_categories || []).join(', ') || 'verify_failure_pattern'} penalty ${entry.learning_penalty})`)
+      .join('; ');
+    parts.push(`Applied shared verify-failure learning penalties to ${penalized.length} item(s): ${penaltySummary}.`);
+  }
 
   if (prevCycle) {
     parts.push(`Previous cycle ${prevCycle.id} was included as prompt context for continuity.`);
   }
 
   return parts.join(' ');
+}
+
+function annotateBacklogWithSharedLearningPenalties(backlog, sharedLearnings, project) {
+  if (!Array.isArray(backlog) || !Array.isArray(sharedLearnings) || sharedLearnings.length === 0) {
+    return Array.isArray(backlog) ? backlog : [];
+  }
+
+  return backlog.map((entry) => {
+    if (!isRecord(entry)) return entry;
+    const learningMatch = getLearningPenaltyMatch(entry, sharedLearnings, project);
+    if (!learningMatch || !learningMatch.penalty) return entry;
+
+    const learningNote = formatLearningPenaltyNote(learningMatch);
+    const existingWhy = typeof entry.why === 'string' ? entry.why.trim() : '';
+    const why = existingWhy.includes(learningNote)
+      ? existingWhy
+      : [existingWhy, learningNote].filter(Boolean).join(' ');
+    return {
+      ...entry,
+      why,
+      learning_penalty: learningMatch.penalty,
+      learning_categories: learningMatch.categories,
+    };
+  });
+}
+
+function appendSharedLearningReasoning(reasoning, backlog, sharedLearnings) {
+  const base = typeof reasoning === 'string' && reasoning.trim() ? reasoning.trim() : 'Architect backlog generated.';
+  const penalized = Array.isArray(backlog)
+    ? backlog.filter((entry) => entry && Number(entry.learning_penalty) > 0)
+    : [];
+
+  if (penalized.length > 0) {
+    return `${base} Shared verify-failure learning penalties were attached to ${penalized.length} backlog item(s).`;
+  }
+  if (Array.isArray(sharedLearnings) && sharedLearnings.length > 0) {
+    return `${base} Active shared verify-failure learnings were loaded but did not match the selected backlog.`;
+  }
+  return base;
 }
 
 /**
@@ -473,6 +742,8 @@ async function promoteBacklogToIntake(project, cycle, backlog) {
           priority_rank: entry.priority_rank,
           scope_budget: entry.scope_budget,
           expected_impact: entry.expected_impact || {},
+          learning_penalty: entry.learning_penalty || 0,
+          learning_categories: entry.learning_categories || [],
         }),
         status: 'pending',
         priority: getArchitectItemPriority(entry.priority_rank),
@@ -601,6 +872,9 @@ async function runArchitectCycle(project_id, trigger = 'manual') {
   }
 
   const prevCycle = factoryArchitect.getLatestCycle(project_id);
+  const sharedVerifyFailureLearnings = loadActiveVerifyFailureLearnings({
+    project,
+  });
 
   // Load human corrections for architect calibration
   let corrections = [];
@@ -636,6 +910,7 @@ async function runArchitectCycle(project_id, trigger = 'manual') {
     project,
     healthScores,
     intakeItems,
+    sharedLearnings: sharedVerifyFailureLearnings,
     previousBacklog: prevCycle ? prevCycle.backlog : [],
     previousReasoning: prevCycle ? prevCycle.reasoning : '',
     corrections,
@@ -671,8 +946,12 @@ async function runArchitectCycle(project_id, trigger = 'manual') {
     try {
       const llmResult = await runArchitectLLM(prompt, project_id, project.path);
       if (llmResult && Array.isArray(llmResult.backlog) && llmResult.backlog.length > 0) {
-        backlog = llmResult.backlog;
-        reasoning = llmResult.reasoning || 'LLM-prioritized backlog';
+        backlog = annotateBacklogWithSharedLearningPenalties(llmResult.backlog, sharedVerifyFailureLearnings, project);
+        reasoning = appendSharedLearningReasoning(
+          llmResult.reasoning || 'LLM-prioritized backlog',
+          backlog,
+          sharedVerifyFailureLearnings,
+        );
         llmUsed = true;
         logger.info('Architect cycle used LLM', { project_id, backlog_count: backlog.length });
       }
@@ -682,8 +961,19 @@ async function runArchitectCycle(project_id, trigger = 'manual') {
   }
 
   if (!llmUsed) {
-    backlog = prioritizeByHealth(intakeItems, healthScores);
-    reasoning = buildReasoning({ project, trigger, healthScores, intakeItems, backlog, prevCycle });
+    backlog = prioritizeByHealth(intakeItems, healthScores, {
+      project,
+      sharedLearnings: sharedVerifyFailureLearnings,
+    });
+    reasoning = buildReasoning({
+      project,
+      trigger,
+      healthScores,
+      intakeItems,
+      backlog,
+      prevCycle,
+      sharedLearnings: sharedVerifyFailureLearnings,
+    });
   }
   const cycle = factoryArchitect.createCycle({
     project_id,
@@ -692,6 +982,14 @@ async function runArchitectCycle(project_id, trigger = 'manual') {
       intakeItems: intakeItems.map((item) => ({
         id: item && item.id ? item.id : null,
         title: item && typeof item.title === 'string' ? item.title : null,
+      })),
+      sharedVerifyFailureLearnings: sharedVerifyFailureLearnings.map((learning) => ({
+        provider: learning.provider,
+        tech_stack: learning.tech_stack,
+        categories: learning.categories,
+        confidence: learning.confidence,
+        sample_count: learning.sample_count,
+        project_source: learning.project_source,
       })),
     },
     reasoning,
@@ -720,5 +1018,10 @@ module.exports = {
   runArchitectCycle,
   prioritizeByHealth,
   updateBacklogWorkItemStatuses,
-  _internalForTests: { runArchitectLLM },
+  _internalForTests: {
+    runArchitectLLM,
+    loadActiveVerifyFailureLearnings,
+    setSharedFactoryStore,
+    normalizeVerifyLearningRow,
+  },
 };

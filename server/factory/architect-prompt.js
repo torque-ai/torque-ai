@@ -1,6 +1,9 @@
 'use strict';
 
+const { normalizeVerifyFailureCategories } = require('../db/shared-factory-store');
+
 const MAX_INTAKE_ITEMS = 20;
+const MAX_SHARED_LEARNINGS = 8;
 
 function isRecord(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -174,6 +177,46 @@ function formatIntakeItems(intakeItems) {
   return lines;
 }
 
+function parsePayloadJson(row) {
+  if (!row || typeof row.payload_json !== 'string') return {};
+  try {
+    const parsed = JSON.parse(row.payload_json);
+    return isRecord(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function formatSharedLearnings(sharedLearnings) {
+  if (!Array.isArray(sharedLearnings) || sharedLearnings.length === 0) {
+    return ['- No active shared verify-failure learnings.'];
+  }
+
+  const rowsToRender = sharedLearnings
+    .filter(isRecord)
+    .slice(0, MAX_SHARED_LEARNINGS);
+  if (rowsToRender.length === 0) {
+    return ['- No active shared verify-failure learnings.'];
+  }
+
+  return rowsToRender.map((learning, index) => {
+    const payload = parsePayloadJson(learning);
+    const categories = normalizeVerifyFailureCategories([
+      ...(Array.isArray(learning.categories) ? learning.categories : []),
+      ...(Array.isArray(payload.failure_categories) ? payload.failure_categories : []),
+      learning.primary_category,
+      payload.failure_category,
+    ]);
+    const categoryText = categories.length > 0 ? categories.join(', ') : 'verify_failure_pattern';
+    const techStack = normalizeInlineText(learning.tech_stack || payload.tech_stack, 'unknown');
+    const provider = normalizeInlineText(learning.provider, 'unknown');
+    const source = normalizeInlineText(learning.project_source, 'unknown');
+    const confidence = formatScore(learning.confidence);
+    const sampleCount = toFiniteNumber(learning.sample_count);
+    return `- ${index + 1}. ${categoryText} | stack=${techStack} | provider=${provider} | confidence=${confidence} | samples=${sampleCount === null ? 'unknown' : sampleCount} | source=${source}`;
+  });
+}
+
 function buildArchitectPrompt(options = {}) {
   if (!isRecord(options)) {
     throw new TypeError('buildArchitectPrompt requires an options object');
@@ -183,6 +226,7 @@ function buildArchitectPrompt(options = {}) {
     project,
     healthScores,
     intakeItems,
+    sharedLearnings,
     previousBacklog,
     previousReasoning,
     corrections,
@@ -196,6 +240,7 @@ function buildArchitectPrompt(options = {}) {
   const safeIntakeItems = ensureArray(intakeItems, 'intakeItems');
   const healthSection = formatHealthScores(safeHealthScores);
   const intakeSection = formatIntakeItems(safeIntakeItems);
+  const sharedLearningSection = formatSharedLearnings(sharedLearnings);
   const projectBrief = formatMultilineText(project.brief, 'No project brief provided.');
   const previousBacklogText = formatPreviousCycleValue(previousBacklog);
   const previousReasoningText = formatPreviousCycleValue(previousReasoning);
@@ -211,6 +256,10 @@ function buildArchitectPrompt(options = {}) {
     '## Health scores',
     ...healthSection.lines,
     `Weakest dimension: ${healthSection.weakestSummary}`,
+    '',
+    '## Shared verify-failure learnings',
+    'Use these cross-project verification failures as deprioritization signals. Do not drop matching work; attach a learning_penalty and explain it in why.',
+    ...sharedLearningSection,
     '',
     '## Intake queue',
     ...intakeSection,
@@ -265,6 +314,7 @@ function buildArchitectPrompt(options = {}) {
     '      "why": "Which health dimension, user journey, or risk",',
     '      "expected_impact": { "dimension": "score_delta" },',
     '      "scope_budget": 5,',
+    '      "learning_penalty": 0,',
     '      "priority_rank": 1',
     '    }',
     '  ],',
