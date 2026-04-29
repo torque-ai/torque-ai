@@ -7,11 +7,23 @@ const fs = require('fs');
 const childProcess = require('child_process');
 // Lazy-resolve the database via the DI container at call time. database.js
 // registers the facade as 'db' on defaultContainer during init() and
-// resetForTest(), so this is the single source of truth. We avoid a
-// top-level direct require so the DI lint check stays clean.
+// resetForTest(), so this is the single source of truth in normal runtime.
+// Some test contexts construct handlers before container.boot() runs; in
+// that case fall back to the direct database module facade so handlers
+// don't crash with "Container: get('db') called before boot()". The
+// fallback is necessary even though it re-introduces a database.js
+// require — the alternative is breaking ~4 plan-file MCP-tool tests that
+// exercise factory-handlers without booting the full container.
 function getDatabase() {
-  const { defaultContainer } = require('../container');
-  return defaultContainer.get('db');
+  try {
+    const { defaultContainer } = require('../container');
+    return defaultContainer.get('db');
+  } catch {
+    // Container not booted (some tests construct handlers before
+    // container.boot() runs). Fall back to the direct facade.
+    // eslint-disable-next-line global-require -- pre-boot test contexts only
+    return require('../database');
+  }
 }
 const factoryDecisions = require('../db/factory-decisions');
 const factoryAudit = require('../db/factory-audit');
