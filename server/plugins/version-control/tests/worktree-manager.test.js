@@ -1013,7 +1013,11 @@ describe('version-control worktree manager (real git integration)', () => {
     expect(log).toMatch(/add feature/);
     // The auto-commit message is recorded when any renormalization landed.
     expect(log).toMatch(/(add feature|normalize line endings)/);
-  });
+  }, 60000); // 60s timeout — initGitRepo + createWorktree + 2 commits + CRLF
+              // rewrite + mergeWorktree (which adds a renormalize-and-commit
+              // pass before the clean check) is 7+ git.exe invocations. The
+              // sibling test on line 954 was bumped for the same reason
+              // (commit b2dddf9b 2026-04-27); this one was missed.
 
   it('mergeWorktree succeeds when the worktree branch is ahead and clean', () => {
     const repoPath = initGitRepo();
