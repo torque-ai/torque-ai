@@ -37,7 +37,16 @@ const GUARD = GUARD_RAW
 const BASH_PROBE = spawnSync(BASH_BIN, ['--version'], { encoding: 'utf8' });
 const BASH_AVAILABLE = BASH_PROBE.status === 0;
 
-const SKIP = !BASH_AVAILABLE || !fs.existsSync(GUARD_RAW);
+// jq is a hard dependency of the guard — without it, the guard self-disables
+// and exits 0 for everything (silent-allow). Skip the suite cleanly if the
+// spawned bash can't find jq, so we don't produce false-green tests where
+// "allow" cases pass for the wrong reason and "block" cases fail.
+const JQ_PROBE = BASH_AVAILABLE
+  ? spawnSync(BASH_BIN, ['-c', 'command -v jq'], { encoding: 'utf8' })
+  : { status: 1 };
+const JQ_AVAILABLE = JQ_PROBE.status === 0;
+
+const SKIP = !BASH_AVAILABLE || !JQ_AVAILABLE || !fs.existsSync(GUARD_RAW);
 
 // Use describe.skipIf when bash or the guard isn't reachable; the test
 // file should still load cleanly so the suite reports an explicit skip.
