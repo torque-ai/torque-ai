@@ -17,11 +17,16 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
-const GUARD = path.resolve(__dirname, '..', '..', 'bin', 'torque-remote-guard');
+// Bash on Windows (Git Bash) expects POSIX-style path separators. path.resolve
+// on Windows produces backslashes which bash interprets as escape characters;
+// the script path then fails to resolve and `bash <GUARD>` exits 127. Convert
+// to forward slashes so the same test works on both platforms.
+const GUARD_RAW = path.resolve(__dirname, '..', '..', 'bin', 'torque-remote-guard');
+const GUARD = GUARD_RAW.replace(/\\/g, '/');
 const BASH_PROBE = spawnSync('bash', ['--version'], { encoding: 'utf8' });
 const BASH_AVAILABLE = BASH_PROBE.status === 0;
 
-const SKIP = !BASH_AVAILABLE || !fs.existsSync(GUARD);
+const SKIP = !BASH_AVAILABLE || !fs.existsSync(GUARD_RAW);
 
 // Use describe.skipIf when bash or the guard isn't reachable; the test
 // file should still load cleanly so the suite reports an explicit skip.
@@ -54,7 +59,15 @@ maybe('torque-remote-guard', () => {
   });
 
   afterEach(() => {
-    if (repo) fs.rmSync(repo, { recursive: true, force: true });
+    // Windows holds file handles briefly after subprocess exit (Defender/AV
+    // scans the .torque-remote.json we just wrote); rmSync intermittently
+    // hits EPERM. The temp dir is unique per test under os.tmpdir() and the
+    // OS sweeps it eventually, so swallow the cleanup error rather than
+    // failing the test on it.
+    if (repo) {
+      try { fs.rmSync(repo, { recursive: true, force: true }); }
+      catch { /* tolerated — see comment above */ }
+    }
   });
 
   describe('git -C <path> subcommand parsing (regression for false-positive blocks)', () => {
@@ -135,7 +148,8 @@ maybe('torque-remote-guard', () => {
         const r = runGuard('vitest run', localRepo);
         expect(r.status).toBe(0);
       } finally {
-        fs.rmSync(localRepo, { recursive: true, force: true });
+        try { fs.rmSync(localRepo, { recursive: true, force: true }); }
+        catch { /* tolerated — see afterEach comment */ }
       }
     });
   });
