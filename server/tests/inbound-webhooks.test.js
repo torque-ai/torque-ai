@@ -369,14 +369,14 @@ describe('Inbound Webhook Handlers', () => {
         name: 'full-hook',
         task_description: 'Run something',
         tags: 'ci,deploy',
-        working_directory: '/home/user/project',
+        working_directory: '/home/<user>/project',
       });
 
       expect(result.isError).toBeFalsy();
 
       const webhook = mod.getInboundWebhook('full-hook');
       expect(webhook.action_config.tags).toBe('ci,deploy');
-      expect(webhook.action_config.working_directory).toBe('/home/user/project');
+      expect(webhook.action_config.working_directory).toBe('/home/<user>/project');
     });
 
     it('generates a 64-character hex secret', async () => {
