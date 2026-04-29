@@ -178,6 +178,34 @@ describe('ollama-agentic', () => {
     ).toBe(true);
   });
 
+  it('does not apply modification no-progress guards when taskExpectsModification is false', async () => {
+    const readResponses = Array.from({ length: 8 }, (_, index) =>
+      toolResponse({ name: 'read_file', arguments: { path: `src/file-${index}.cs` } })
+    );
+    const adapter = createAdapter([
+      ...readResponses,
+      textResponse('## Task 1: Add a focused startup diagnostic test\n\nVerify the relay reports a typed LAN startup failure reason.'),
+    ]);
+    const toolExecutor = createToolExecutor((name, args) => ({
+      result: `${name} result for ${args.path}`,
+    }));
+
+    const result = await runAgenticLoop({
+      adapter,
+      systemPrompt: 'System prompt',
+      taskPrompt: 'Generate an execution plan to fix LAN startup failure reason handling.',
+      tools: TOOL_DEFINITIONS,
+      toolExecutor,
+      maxIterations: 12,
+      taskExpectsModification: false,
+    });
+
+    expect(adapter.chatCompletion).toHaveBeenCalledTimes(9);
+    expect(result.stopReason).toBe('model_finished');
+    expect(result.output).toContain('## Task 1:');
+    expect(result.toolLog).toHaveLength(8);
+  });
+
   it('runAgenticLoop stops at MAX_ITERATIONS and includes iteration count in output', async () => {
     let callCount = 0;
     const adapter = {

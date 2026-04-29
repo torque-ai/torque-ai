@@ -591,9 +591,7 @@ function getNextAgenticChainTarget(chain, currentProvider, currentModel, current
 function taskLikelyRequiresFileChanges(task) {
   const metadata = normalizeTaskMetadata(task);
   if (metadata.diffusion_role === 'compute') return false;
-  if (metadata.factory_internal === true && FACTORY_INTERNAL_STRUCTURED_KINDS.has(String(metadata.kind || '').trim().toLowerCase())) {
-    return false;
-  }
+  if (isFactoryInternalStructuredTask(task, metadata)) return false;
 
   const taskDescription = String(task?.task_description || '');
   if (taskExplicitlyReadOnly(taskDescription, metadata)) {
@@ -607,6 +605,12 @@ function taskLikelyRequiresFileChanges(task) {
   const filePaths = normalizeStringList(metadata.file_paths);
   const requiredPaths = normalizeStringList(metadata.agentic_required_modified_paths ?? metadata.required_modified_paths);
   return filePaths.length > 0 || requiredPaths.length > 0;
+}
+
+function isFactoryInternalStructuredTask(task, metadata = null) {
+  const safeMetadata = metadata || normalizeTaskMetadata(task);
+  return safeMetadata.factory_internal === true
+    && FACTORY_INTERNAL_STRUCTURED_KINDS.has(String(safeMetadata.kind || '').trim().toLowerCase());
 }
 
 const NON_CONVERGED_AGENTIC_STOP_REASONS = new Set([
@@ -806,6 +810,7 @@ function shouldRequireToolEvidence(provider, task, workingDir) {
   // reviewer task killed for "missing_tool_evidence" because the JSON
   // prompt told it not to use tools.
   const metadata = normalizeTaskMetadata(task);
+  if (isFactoryInternalStructuredTask(task, metadata)) return false;
   if (metadata.kind === 'verify_review') return false;
   const rf = metadata.response_format;
   if (rf === 'json_object' || rf === 'json' || (rf && typeof rf === 'object' && rf.type === 'json_object')) {
@@ -2538,6 +2543,7 @@ async function runAgenticPipeline({
   const taskId = task.id;
   const agenticPolicy = buildTaskAgenticPolicy(task, workingDir, serverConfig);
   const proposalOutputMode = shouldUseProposalApplyMode(task, agenticPolicy);
+  const taskExpectsModification = taskLikelyRequiresFileChanges(task);
 
   // Create tool executor
   const executor = createToolExecutor(workingDir, {
@@ -2582,6 +2588,7 @@ async function runAgenticPipeline({
     actionlessIterationLimit: agenticPolicy.actionlessIterationLimit,
     requireToolUseBeforeFinal: shouldRequireToolEvidence(adapterOptions?.providerName, task, workingDir),
     proposalOutputMode,
+    taskExpectsModification,
     onProgress: (iteration, max, lastTool) => {
       const pct = Math.min(85, 10 + Math.floor((iteration / max) * 75));
       try {
@@ -2673,6 +2680,7 @@ async function executeOllamaTaskWithAgentic(task) {
   maybePersistEffectiveAgenticMetadata(task, db, workingDir);
   const agenticPolicy = buildTaskAgenticPolicy(task, workingDir, serverConfig);
   const proposalOutputMode = shouldUseProposalApplyMode(task, agenticPolicy);
+  const taskExpectsModification = taskLikelyRequiresFileChanges(task);
 
   const noopPlanningResult = maybeShortCircuitPlanningTask(task, workingDir, agenticPolicy);
   if (noopPlanningResult) {
@@ -2917,6 +2925,7 @@ async function executeOllamaTaskWithAgentic(task) {
       contextBudget,
       promptInjectedTools: usePromptInjection,
       proposalOutputMode,
+      taskExpectsModification,
       commandMode: agenticPolicy.commandMode,
       commandAllowlist: agenticPolicy.commandAllowlist,
       toolAllowlist: agenticPolicy.toolAllowlist,
@@ -3210,6 +3219,7 @@ async function executeApiProviderWithAgentic(task, providerInstance) {
   maybePersistEffectiveAgenticMetadata(task, db, workingDir);
   const agenticPolicy = buildTaskAgenticPolicy(task, workingDir, serverConfig);
   const proposalOutputMode = shouldUseProposalApplyMode(task, agenticPolicy);
+  const taskExpectsModification = taskLikelyRequiresFileChanges(task);
 
   const noopPlanningResult = maybeShortCircuitPlanningTask(task, workingDir, agenticPolicy);
   if (noopPlanningResult) {
@@ -3383,6 +3393,7 @@ async function executeApiProviderWithAgentic(task, providerInstance) {
           promptInjectedTools: needsPromptInjection(entryModel || ''),
           proposalOutputMode,
           requireToolUseBeforeFinal: shouldRequireToolEvidence(entry.provider, task, workingDir),
+          taskExpectsModification,
           commandMode: agenticPolicy.commandMode,
           commandAllowlist: agenticPolicy.commandAllowlist,
           toolAllowlist: agenticPolicy.toolAllowlist,
@@ -3421,6 +3432,7 @@ async function executeApiProviderWithAgentic(task, providerInstance) {
         promptInjectedTools: false,
         proposalOutputMode,
         requireToolUseBeforeFinal: shouldRequireToolEvidence(provider, task, workingDir),
+        taskExpectsModification,
         commandMode: agenticPolicy.commandMode,
         commandAllowlist: agenticPolicy.commandAllowlist,
         toolAllowlist: agenticPolicy.toolAllowlist,

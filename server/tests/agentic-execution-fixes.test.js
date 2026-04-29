@@ -2161,6 +2161,82 @@ describe('providers/execution agentic fixes', () => {
     expect(runningProcesses.has('task-ollama')).toBe(false);
   });
 
+  it('passes factory structured Ollama tasks as non-modification agentic work', async () => {
+    const { mod } = loadSubject();
+    const host = { id: 'host-1', url: 'http://ollama-host:11434' };
+    const runningProcesses = new Map();
+    runningProcesses.stallAttempts = new Map();
+    const db = {
+      listOllamaHosts: vi.fn(() => [host]),
+      selectOllamaHostForModel: vi.fn(() => ({ host })),
+      tryReserveHostSlot: vi.fn(() => ({ acquired: true })),
+      releaseHostSlot: vi.fn(),
+      decrementHostTasks: vi.fn(),
+      updateTaskStatus: vi.fn(),
+      getOrCreateTaskStream: vi.fn(() => 'stream-1'),
+      getTask: vi.fn((taskId) => ({ id: taskId, status: 'running' })),
+      addStreamChunk: vi.fn(),
+    };
+    const deps = {
+      db,
+      dashboard: {
+        notifyTaskUpdated: vi.fn(),
+        notifyTaskOutput: vi.fn(),
+      },
+      runningProcesses,
+      safeUpdateTaskStatus: vi.fn(),
+      processQueue: vi.fn(),
+      handleWorkflowTermination: vi.fn(),
+      apiAbortControllers: new Map(),
+    };
+
+    mod.init(deps);
+
+    let workerData;
+    vi.spyOn(require('worker_threads'), 'Worker').mockImplementation(function MockWorker(_filename, options) {
+      const emitter = new EventEmitter();
+      workerData = options.workerData;
+      this.postMessage = vi.fn();
+      this.terminate = vi.fn();
+      this.on = (eventName, handler) => emitter.on(eventName, handler);
+      this.once = (eventName, handler) => emitter.once(eventName, handler);
+      this.removeAllListeners = (eventName) => emitter.removeAllListeners(eventName);
+      setImmediate(() => emitter.emit('message', {
+        type: 'result',
+        output: '## Task 1: Add startup diagnostic coverage',
+        toolLog: [],
+        tokenUsage: {},
+        changedFiles: [],
+        iterations: 1,
+        stopReason: 'model_finished',
+      }));
+    });
+
+    await mod.executeOllamaTask({
+      id: 'task-ollama-plan-generation',
+      provider: 'ollama',
+      model: TEST_MODELS.DEFAULT,
+      task_description: 'Generate an execution plan to fix LAN startup failure reason handling.',
+      working_directory: 'C:/repo',
+      timeout_minutes: 1,
+      metadata: JSON.stringify({
+        factory_internal: true,
+        kind: 'plan_generation',
+      }),
+    });
+
+    expect(workerData.taskExpectsModification).toBe(false);
+    expect(workerData.taskPrompt).toContain('Generate an execution plan');
+    expect(deps.safeUpdateTaskStatus).toHaveBeenCalledWith(
+      'task-ollama-plan-generation',
+      'completed',
+      expect.objectContaining({
+        output: expect.stringContaining('## Task 1:'),
+        exit_code: 0,
+      }),
+    );
+  });
+
   it('marks Ollama agentic modification tasks failed when the model changes no files', async () => {
     const { mod } = loadSubject();
     const workerControl = createDeferredWorkerControl();

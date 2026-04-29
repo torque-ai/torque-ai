@@ -198,6 +198,7 @@ function buildOutputSummary(finalOutput, toolLog, changedFiles) {
  * @param {number|null} [params.actionlessIterationLimit] - Stop after this many consecutive no-action iterations on modification tasks
  * @param {boolean} [params.requireToolUseBeforeFinal] - Require at least one tool call before accepting a final answer
  * @param {boolean} [params.proposalOutputMode] - Read-only proposal mode that must end with file_edits JSON
+ * @param {boolean|null} [params.taskExpectsModification] - Override prompt regex for tasks that mention edit verbs as output context only
  * @param {Function} [params.onProgress] - (iteration, maxIter, lastTool) => void
  * @param {Function} [params.onToolCall] - (name, args, result) => void — for dashboard
  * @param {Function} [params.onChunk] - (text) => void — streamed model output heartbeat
@@ -218,6 +219,7 @@ async function runAgenticLoop({
   actionlessIterationLimit = null,
   requireToolUseBeforeFinal = false,
   proposalOutputMode = false,
+  taskExpectsModification: taskExpectsModificationOverride = null,
   promptInjectedTools = false, // When true, tool results sent as user messages with [TOOL_RESULTS] format
   onProgress,
   onToolCall,
@@ -256,7 +258,10 @@ async function runAgenticLoop({
   // Read-only spin detection: if model does N iterations with only read-only tools
   // (read_file, list_directory, search_files) and no writes, it's going in circles.
   // Only applies to tasks that expect modification — pure analysis/search tasks are allowed to be read-only.
-  const taskExpectsModification = /\b(create|add|write|implement|generate|edit|modify|change|update|refactor|rename|fix|remove|delete|replace)\b/i.test(taskPrompt);
+  const inferredTaskExpectsModification = /\b(create|add|write|implement|generate|edit|modify|change|update|refactor|rename|fix|remove|delete|replace)\b/i.test(taskPrompt);
+  const taskExpectsModification = typeof taskExpectsModificationOverride === 'boolean'
+    ? taskExpectsModificationOverride
+    : inferredTaskExpectsModification;
   const parsedActionlessLimit = Number.isFinite(Number(actionlessIterationLimit))
     ? Math.max(0, Math.trunc(Number(actionlessIterationLimit)))
     : null;
@@ -432,6 +437,7 @@ async function runAgenticLoop({
       // to the normal final-response handling.
       if (
         iterations === 0 &&
+        taskExpectsModification &&
         !firstIterValidatorFired &&
         content.trim().length > 50
       ) {
