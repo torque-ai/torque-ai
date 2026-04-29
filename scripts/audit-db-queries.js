@@ -30,17 +30,59 @@ const SCHEMA_FILES = [
 /**
  * Extract index column lists from schema source text.
  * Returns Map<tableName, string[][]> -- list of index column arrays per table.
+ *
+ * Two sources are stitched together so the audit doesn't false-positive on
+ * primary-key lookups (the dominant pattern in this codebase):
+ *   1. Explicit `CREATE INDEX ... ON table (cols)` declarations.
+ *   2. Inline column-level `id ... PRIMARY KEY` and table-level
+ *      `PRIMARY KEY (cols)` declarations inside `CREATE TABLE ...` blocks.
+ *      SQLite uses the rowid alias (or the typed PK) as a covering index
+ *      automatically, so a query like `WHERE id = ?` against a table with
+ *      `id INTEGER PRIMARY KEY` is index-covered even though no explicit
+ *      `CREATE INDEX` mentions it.
  */
 function extractIndexColumns(schemaText) {
   const result = new Map();
-  const re = /CREATE\s+(?:UNIQUE\s+)?INDEX\s+(?:IF\s+NOT\s+EXISTS\s+)?\w+\s+ON\s+(\w+)\s*\(([^)]+)\)/gi;
+
+  const idxRe = /CREATE\s+(?:UNIQUE\s+)?INDEX\s+(?:IF\s+NOT\s+EXISTS\s+)?\w+\s+ON\s+(\w+)\s*\(([^)]+)\)/gi;
   let m;
-  while ((m = re.exec(schemaText)) !== null) {
+  while ((m = idxRe.exec(schemaText)) !== null) {
     const table = m[1].toLowerCase();
     const cols = m[2].split(',').map((c) => c.trim().replace(/\s+.*/, '').toLowerCase());
     if (!result.has(table)) result.set(table, []);
     result.get(table).push(cols);
   }
+
+  // CREATE TABLE blocks - capture the table name and the body so we can
+  // mine primary-key declarations.
+  const tableRe = /CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(\w+)\s*\(([\s\S]*?)\)\s*;/gi;
+  while ((m = tableRe.exec(schemaText)) !== null) {
+    const table = m[1].toLowerCase();
+    const body = m[2];
+    const pkCols = [];
+
+    // Column-level PK: e.g. `id INTEGER PRIMARY KEY AUTOINCREMENT,`
+    const colPkRe = /^\s*(\w+)\s+[A-Z][^,\n]*\bPRIMARY\s+KEY\b/gim;
+    let pm;
+    while ((pm = colPkRe.exec(body)) !== null) {
+      pkCols.push(pm[1].toLowerCase());
+    }
+
+    // Table-level PK: e.g. `PRIMARY KEY (col1, col2)`
+    const tablePkRe = /\bPRIMARY\s+KEY\s*\(([^)]+)\)/gi;
+    while ((pm = tablePkRe.exec(body)) !== null) {
+      const cols = pm[1].split(',').map((c) => c.trim().replace(/\s+.*/, '').toLowerCase()).filter(Boolean);
+      if (cols.length) pkCols.push(...cols);
+    }
+
+    if (pkCols.length) {
+      if (!result.has(table)) result.set(table, []);
+      // Treat the PK as a single multi-column index (matches SQLite's
+      // covering behaviour for prefix lookups).
+      result.get(table).push([...new Set(pkCols)]);
+    }
+  }
+
   return result;
 }
 
@@ -90,11 +132,18 @@ function scanFiles(dirs) {
       const content = fs.readFileSync(filePath, 'utf8');
       const lines = content.split('\n');
       lines.forEach((line, idx) => {
-        const whereMatch = line.match(/WHERE\s+(.+)/i);
+        // Match SQL keywords case-sensitively. Codebase convention is
+        // uppercase SQL (FROM/WHERE/SELECT…), so this skips prose
+        // mentions like "called from the cache" or "matches where the
+        // value is missing" inside JSDoc/line comments. Prior
+        // case-insensitive match produced ~227 false positives whose
+        // "table" was actually the next prose word ("the", "an",
+        // "low", etc.) — see commit history for sample inputs.
+        const whereMatch = line.match(/WHERE\s+(.+)/);
         if (!whereMatch) return;
         const context = lines.slice(Math.max(0, idx - 10), idx + 1);
         if (isFullScanAnnotated(context)) return;
-        const fromMatch = context.join(' ').match(/FROM\s+(\w+)/i);
+        const fromMatch = context.join(' ').match(/FROM\s+(\w+)/);
         if (!fromMatch) return;
         const table = fromMatch[1].toLowerCase();
         const whereClause = whereMatch[1];
@@ -144,4 +193,10 @@ function main() {
 
 module.exports = { extractIndexColumns, extractWhereColumns, isFullScanAnnotated, checkViolations, scanFiles };
 
-main();
+// Only run the audit when invoked directly (`node scripts/audit-db-queries.js`).
+// Without this guard, `require('.../audit-db-queries')` from a test file kicks
+// off the full scan and then calls `process.exit()`, which kills the vitest
+// worker mid-load and leaves the suite hanging.
+if (require.main === module) {
+  main();
+}
