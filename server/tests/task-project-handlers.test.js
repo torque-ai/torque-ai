@@ -352,10 +352,20 @@ function resetMocks(options = {}) {
 
   const originalLoad = Module._load;
   moduleLoadSpy = vi.spyOn(Module, '_load').mockImplementation(function mockedLoad(request, parent, isMain) {
-    if (request === 'fs') return mockFs;
-    if (request === 'path') return mockPath;
-    if (request === 'child_process') return mockChildProcess;
-    if (request === 'uuid') return { v4: mockUuidV4 };
+    // Only intercept core-module requires when the caller is in the
+    // project tree, not from inside node_modules. Otherwise dependencies
+    // like better-sqlite3 (which `require('fs')` for backup paths) get
+    // handed our virtual-fs shim, and operations like `promisify(fs.access)`
+    // throw because the shim doesn't implement every method. Real fs is
+    // safe for them — they only touch real backup files.
+    const fromNodeModules = parent && typeof parent.filename === 'string'
+      && parent.filename.includes('node_modules');
+    if (!fromNodeModules) {
+      if (request === 'fs') return mockFs;
+      if (request === 'path') return mockPath;
+      if (request === 'child_process') return mockChildProcess;
+      if (request === 'uuid') return { v4: mockUuidV4 };
+    }
     return originalLoad.call(this, request, parent, isMain);
   });
 }
