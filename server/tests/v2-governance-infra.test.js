@@ -26,6 +26,7 @@ const mockDb = {
   updateProvider: vi.fn(),
   listProviders: vi.fn(),
   countTasks: vi.fn(),
+  getProviderDailyCounts: vi.fn(),
   getConfig: vi.fn(),
 };
 
@@ -189,6 +190,7 @@ function resetMockDefaults() {
   mockDb.updateProvider.mockReset().mockReturnValue(undefined);
   mockDb.listProviders.mockReset().mockReturnValue([]);
   mockDb.countTasks.mockReset().mockReturnValue(0);
+  mockDb.getProviderDailyCounts.mockReset().mockReturnValue([]);
   mockDb.getConfig.mockReset().mockReturnValue(undefined);
 
   mockParseBody.mockReset().mockResolvedValue({});
@@ -870,23 +872,17 @@ describe('api/v2-governance-handlers infrastructure routes', () => {
         { provider: 'codex' },
         { provider: 'ollama' },
       ]);
-      mockCountTasksWithMap({
-        [countKey({ provider: 'codex', from_date: '2026-03-09', to_date: '2026-03-10' })]: 5,
-        [countKey({ provider: 'codex', from_date: '2026-03-09', to_date: '2026-03-10', status: 'completed' })]: 4,
-        [countKey({ provider: 'codex', from_date: '2026-03-09', to_date: '2026-03-10', status: 'failed' })]: 1,
-        [countKey({ provider: 'codex', from_date: '2026-03-10', to_date: '2026-03-11' })]: 0,
-        [countKey({ provider: 'codex', from_date: '2026-03-10', to_date: '2026-03-11', status: 'completed' })]: 0,
-        [countKey({ provider: 'codex', from_date: '2026-03-10', to_date: '2026-03-11', status: 'failed' })]: 0,
-        [countKey({ provider: 'ollama', from_date: '2026-03-09', to_date: '2026-03-10' })]: 3,
-        [countKey({ provider: 'ollama', from_date: '2026-03-09', to_date: '2026-03-10', status: 'completed' })]: 2,
-        [countKey({ provider: 'ollama', from_date: '2026-03-09', to_date: '2026-03-10', status: 'failed' })]: 1,
-        [countKey({ provider: 'ollama', from_date: '2026-03-10', to_date: '2026-03-11' })]: 2,
-        [countKey({ provider: 'ollama', from_date: '2026-03-10', to_date: '2026-03-11', status: 'completed' })]: 2,
-        [countKey({ provider: 'ollama', from_date: '2026-03-10', to_date: '2026-03-11', status: 'failed' })]: 0,
-      });
+      mockDb.getProviderDailyCounts.mockReturnValue([
+        { provider: 'codex', date: '2026-03-09', status: 'completed', count: 4 },
+        { provider: 'codex', date: '2026-03-09', status: 'failed', count: 1 },
+        { provider: 'ollama', date: '2026-03-09', status: 'completed', count: 2 },
+        { provider: 'ollama', date: '2026-03-09', status: 'failed', count: 1 },
+        { provider: 'ollama', date: '2026-03-10', status: 'completed', count: 2 },
+      ]);
 
       await handlers.handleProviderTrends(req, res);
 
+      expect(mockDb.getProviderDailyCounts).toHaveBeenCalledWith('2026-03-09', '2026-03-11');
       expect(expectSuccess(res)).toEqual({
         providers: ['codex', 'ollama'],
         days: 2,
