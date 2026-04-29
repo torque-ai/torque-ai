@@ -885,7 +885,11 @@ case "$TRANSPORT" in
       acquire_remote_sync_lock || true
 
       if [[ -n "$BRANCH_OVERRIDE" ]]; then
-        if ! git rev-parse --verify "origin/$BRANCH_OVERRIDE" >/dev/null 2>&1; then
+        if [[ ! "$BRANCH_OVERRIDE" =~ ^[a-zA-Z0-9_./-]+$ ]]; then
+          die "Branch '$BRANCH_OVERRIDE' contains unsafe characters"
+        fi
+        if ! git rev-parse --verify "origin/$BRANCH_OVERRIDE" >/dev/null 2>&1 \
+             && ! git ls-remote --exit-code --heads origin "$BRANCH_OVERRIDE" >/dev/null 2>&1; then
           die "Branch '$BRANCH_OVERRIDE' does not exist on origin"
         fi
         SYNC_REF="origin/$BRANCH_OVERRIDE"

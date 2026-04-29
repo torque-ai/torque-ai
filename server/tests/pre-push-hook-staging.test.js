@@ -24,6 +24,10 @@ function readHook() {
   return fs.readFileSync(HOOK_PATH, 'utf8');
 }
 
+function readTorqueRemote() {
+  return fs.readFileSync(path.join(REPO_ROOT, 'bin', 'torque-remote'), 'utf8');
+}
+
 describe('pre-push-hook staging-branch invariants', () => {
   it('does not push HEAD directly to refs/heads/main for the gate', () => {
     const src = readHook();
@@ -118,6 +122,21 @@ describe('pre-push-hook staging-branch invariants', () => {
     const flakeHelper = src.match(/is_file_load_only_flake\s*\(\)\s*\{[\s\S]*?\n\}/);
     expect(failuresHelper?.[0]).toMatch(/strip_ansi/);
     expect(flakeHelper?.[0]).toMatch(/strip_ansi/);
+  });
+});
+
+describe('torque-remote staging branch validation', () => {
+  it('accepts --branch refs that exist on origin before a local remote-tracking ref is fetched', () => {
+    const src = readTorqueRemote();
+    expect(src).toMatch(/git\s+rev-parse\s+--verify\s+"origin\/\$BRANCH_OVERRIDE"/);
+    expect(src).toMatch(/git\s+ls-remote\s+--exit-code\s+--heads\s+origin\s+"\$BRANCH_OVERRIDE"/);
+    expect(src).toMatch(/Branch '\$BRANCH_OVERRIDE' does not exist on origin/);
+  });
+
+  it('rejects unsafe --branch values before interpolating them into remote shell commands', () => {
+    const src = readTorqueRemote();
+    expect(src).toMatch(/\[\[\s+!\s+"\$BRANCH_OVERRIDE"\s+=~\s+\^\[a-zA-Z0-9_\.\/-\]\+\$\s+\]\]/);
+    expect(src).toMatch(/Branch '\$BRANCH_OVERRIDE' contains unsafe characters/);
   });
 });
 
