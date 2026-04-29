@@ -18,6 +18,7 @@
 
 'use strict';
 
+const { EventEmitter } = require('events');
 const path = require('path');
 
 const _executeApiModule = require('./execute-api');
@@ -2493,6 +2494,92 @@ function trackAgenticWorkerTask(taskId, {
   return cleanup;
 }
 
+function createAbortableTrackerProcess({ abortController = null, workerHandle = null } = {}) {
+  const emitter = new EventEmitter();
+  const proc = {
+    pid: undefined,
+    exitCode: null,
+    killed: false,
+    signalCode: null,
+    kill(signal = 'SIGTERM') {
+      proc.killed = true;
+      proc.signalCode = signal;
+      try { abortController?.abort?.(); } catch { /* ignore */ }
+      try { workerHandle?.abort?.(); } catch { /* ignore */ }
+      setImmediate(() => emitter.emit('exit', proc.exitCode ?? 1, signal));
+      return true;
+    },
+    emit(eventName, ...args) {
+      if (eventName === 'close' || eventName === 'exit') {
+        proc.exitCode = args[0] ?? proc.exitCode;
+      }
+      return emitter.emit(eventName, ...args);
+    },
+    on(eventName, handler) {
+      emitter.on(eventName, handler);
+      return proc;
+    },
+    once(eventName, handler) {
+      emitter.once(eventName, handler);
+      return proc;
+    },
+    removeAllListeners(eventName) {
+      emitter.removeAllListeners(eventName);
+      return proc;
+    },
+  };
+  return proc;
+}
+
+function trackPendingAgenticTask(taskId, {
+  abortController = null,
+  provider = null,
+  model = null,
+  workingDir = null,
+  timeoutMs = null,
+  reason = 'waiting',
+} = {}) {
+  const runningProcesses = getAgenticRunningProcesses();
+  if (!runningProcesses?.set) return () => {};
+
+  const now = Date.now();
+  const procRecord = {
+    process: createAbortableTrackerProcess({ abortController }),
+    output: `[Agentic: ${reason}${provider ? ` on ${provider}` : ''}${model ? ` ${model}` : ''}]`,
+    errorOutput: '',
+    startTime: now,
+    lastOutputAt: now,
+    stallWarned: false,
+    provider,
+    model,
+    workingDirectory: workingDir,
+    isAgenticWorker: true,
+    waitingForHostLock: reason === 'waiting for host lock',
+    timeoutMs,
+  };
+
+  procRecord.silentHeartbeatHandle = setInterval(() => {
+    const current = runningProcesses.get(taskId);
+    if (current !== procRecord) {
+      clearInterval(procRecord.silentHeartbeatHandle);
+      return;
+    }
+    current.lastOutputAt = Date.now();
+  }, AGENTIC_WORKER_SILENT_HEARTBEAT_MS);
+  procRecord.silentHeartbeatHandle.unref?.();
+
+  runningProcesses.set(taskId, procRecord);
+
+  return () => {
+    const current = runningProcesses.get(taskId);
+    if (current === procRecord) {
+      if (current.silentHeartbeatHandle) clearInterval(current.silentHeartbeatHandle);
+      runningProcesses.delete(taskId);
+      runningProcesses.stallAttempts?.delete?.(taskId);
+    }
+  };
+}
+
 function normalizeAgenticWorkerError(error, cleanupTrackedWorker) {
   const state = cleanupTrackedWorker?.getState?.();
   if (!state?.firstResponseTimedOut) return error;
@@ -2875,15 +2962,41 @@ async function executeOllamaTaskWithAgentic(task) {
   // Hoisted so the finally block can call removeEventListener for cleanup
   let origAbortHandler = null;
   let cleanupTrackedWorker = null;
+  let cleanupPendingHostLockTracking = null;
 
   // Per-host mutex — wait for any prior task on this host to finish.
   // Prevents GPU contention when multi-instance scheduling races occur.
   let releaseHostLock = null;
-  if (selectedHostId) {
-    releaseHostLock = await acquireHostLock(selectedHostId);
-  }
-
   try {
+    if (selectedHostId) {
+      cleanupPendingHostLockTracking = trackPendingAgenticTask(taskId, {
+        abortController,
+        provider,
+        model: resolvedModel,
+        workingDir,
+        timeoutMs,
+        reason: 'waiting for host lock',
+      });
+      let waitedForHostLock = false;
+      const hostLockWaitMarker = setImmediate(() => { waitedForHostLock = true; });
+      try {
+        releaseHostLock = await acquireHostLock(selectedHostId);
+      } finally {
+        globalThis.clearImmediate?.(hostLockWaitMarker);
+      }
+      cleanupPendingHostLockTracking?.();
+      cleanupPendingHostLockTracking = null;
+
+      const latestTask = db.getTask(taskId);
+      if (waitedForHostLock && latestTask?.status && latestTask.status !== 'running') {
+        logger.info(`[Agentic] Ollama task ${taskId} not started after host lock; current status=${latestTask.status}`);
+        return;
+      }
+      if (abortController.signal.aborted) {
+        throw new Error('Task aborted while waiting for Ollama host lock');
+      }
+    }
+
     logger.info(`[Agentic] Starting Ollama task ${taskId} with model ${resolvedModel} on ${ollamaHost}`);
 
     // Category-aware max iterations: complex tasks get more room
@@ -3099,6 +3212,7 @@ async function executeOllamaTaskWithAgentic(task) {
     clearInterval(cancelCheckInterval);
     clearTimeout(timeoutHandle);
     if (apiAbortControllers) apiAbortControllers.delete(taskId);
+    cleanupPendingHostLockTracking?.();
     cleanupTrackedWorker?.();
     if (typeof releaseSelectedHostSlot === 'function') {
       try { releaseSelectedHostSlot(); } catch { /* ignore */ }

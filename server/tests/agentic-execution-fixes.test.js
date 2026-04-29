@@ -26,6 +26,7 @@ const MODEL_ROLES_PATH = require.resolve('../db/model-roles');
 const ROUTING_CORE_PATH = require.resolve('../db/provider-routing-core');
 const PROVIDER_MODEL_SCORES_PATH = require.resolve('../db/provider-model-scores');
 const OLLAMA_AGENTIC_PATH = require.resolve('../providers/ollama-agentic');
+const HOST_MUTEX_PATH = require.resolve('../providers/host-mutex');
 
 const TRACKED_CACHE_PATHS = [
   SUBJECT_PATH,
@@ -47,6 +48,7 @@ const TRACKED_CACHE_PATHS = [
   ROUTING_CORE_PATH,
   PROVIDER_MODEL_SCORES_PATH,
   OLLAMA_AGENTIC_PATH,
+  HOST_MUTEX_PATH,
 ];
 
 const ORIGINAL_CACHE_ENTRIES = new Map(
@@ -210,6 +212,7 @@ function loadSubject(overrides = {}) {
   installMock(ROUTING_CORE_PATH, { recordProviderOutcome: vi.fn() });
   installMock(PROVIDER_MODEL_SCORES_PATH, providerModelScoresMock);
   installMock(OLLAMA_AGENTIC_PATH, { runAgenticLoop: vi.fn() });
+  installMock(HOST_MUTEX_PATH, overrides.hostMutexMock || { acquireHostLock: vi.fn(async () => vi.fn()) });
 
   delete require.cache[SUBJECT_PATH];
 
@@ -2159,6 +2162,162 @@ describe('providers/execution agentic fixes', () => {
     await taskPromise;
 
     expect(runningProcesses.has('task-ollama')).toBe(false);
+  });
+
+  it('tracks agentic Ollama tasks while they wait for the host mutex', async () => {
+    let resolveHostLock;
+    const releaseHostLock = vi.fn();
+    const hostMutexMock = {
+      acquireHostLock: vi.fn(() => new Promise((resolve) => {
+        resolveHostLock = () => resolve(releaseHostLock);
+      })),
+    };
+    const { mod } = loadSubject({ hostMutexMock });
+    const workerControl = createDeferredWorkerControl();
+    const host = { id: 'host-1', url: 'http://ollama-host:11434' };
+    const runningProcesses = new Map();
+    runningProcesses.stallAttempts = new Map();
+    const db = {
+      listOllamaHosts: vi.fn(() => [host]),
+      selectOllamaHostForModel: vi.fn(() => ({ host })),
+      tryReserveHostSlot: vi.fn(() => ({ acquired: true })),
+      releaseHostSlot: vi.fn(),
+      decrementHostTasks: vi.fn(),
+      updateTaskStatus: vi.fn(),
+      getOrCreateTaskStream: vi.fn(() => 'stream-1'),
+      getTask: vi.fn((taskId) => ({ id: taskId, status: 'running' })),
+      addStreamChunk: vi.fn(),
+    };
+    const deps = {
+      db,
+      dashboard: {
+        notifyTaskUpdated: vi.fn(),
+        notifyTaskOutput: vi.fn(),
+      },
+      runningProcesses,
+      safeUpdateTaskStatus: vi.fn(),
+      processQueue: vi.fn(),
+      handleWorkflowTermination: vi.fn(),
+      apiAbortControllers: new Map(),
+    };
+
+    mod.init(deps);
+
+    const workerSpy = vi.spyOn(require('worker_threads'), 'Worker').mockImplementation(workerControl.WorkerCtor);
+
+    const taskPromise = mod.executeOllamaTask({
+      id: 'task-ollama-waiting',
+      provider: 'ollama',
+      model: TEST_MODELS.DEFAULT,
+      task_description: 'Generate a plan',
+      working_directory: 'C:/repo',
+      timeout_minutes: 1,
+    });
+
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(hostMutexMock.acquireHostLock).toHaveBeenCalledWith('host-1');
+    expect(workerSpy).not.toHaveBeenCalled();
+    expect(runningProcesses.get('task-ollama-waiting')).toEqual(expect.objectContaining({
+      provider: 'ollama',
+      model: TEST_MODELS.DEFAULT,
+      workingDirectory: 'C:/repo',
+      isAgenticWorker: true,
+      waitingForHostLock: true,
+      timeoutMs: 60000,
+    }));
+    expect(typeof runningProcesses.get('task-ollama-waiting').process.kill).toBe('function');
+
+    resolveHostLock();
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(workerSpy).toHaveBeenCalledTimes(1);
+    expect(runningProcesses.get('task-ollama-waiting')).toEqual(expect.objectContaining({
+      isAgenticWorker: true,
+    }));
+    expect(runningProcesses.get('task-ollama-waiting').waitingForHostLock).toBeUndefined();
+
+    workerControl.latest().emitMessage({
+      type: 'result',
+      output: 'done',
+      toolLog: [],
+      tokenUsage: {},
+      changedFiles: [],
+      iterations: 1,
+    });
+
+    await taskPromise;
+
+    expect(releaseHostLock).toHaveBeenCalledTimes(1);
+    expect(runningProcesses.has('task-ollama-waiting')).toBe(false);
+  });
+
+  it('does not start stale Ollama work after status changes while waiting for the host mutex', async () => {
+    let resolveHostLock;
+    const releaseHostLock = vi.fn();
+    const hostMutexMock = {
+      acquireHostLock: vi.fn(() => new Promise((resolve) => {
+        resolveHostLock = () => resolve(releaseHostLock);
+      })),
+    };
+    const { mod } = loadSubject({ hostMutexMock });
+    const host = { id: 'host-1', url: 'http://ollama-host:11434' };
+    const runningProcesses = new Map();
+    runningProcesses.stallAttempts = new Map();
+    let taskStatus = 'running';
+    const db = {
+      listOllamaHosts: vi.fn(() => [host]),
+      selectOllamaHostForModel: vi.fn(() => ({ host })),
+      tryReserveHostSlot: vi.fn(() => ({ acquired: true })),
+      releaseHostSlot: vi.fn(),
+      decrementHostTasks: vi.fn(),
+      updateTaskStatus: vi.fn(),
+      getOrCreateTaskStream: vi.fn(() => 'stream-1'),
+      getTask: vi.fn((taskId) => ({ id: taskId, status: taskStatus })),
+      addStreamChunk: vi.fn(),
+    };
+    const deps = {
+      db,
+      dashboard: {
+        notifyTaskUpdated: vi.fn(),
+        notifyTaskOutput: vi.fn(),
+      },
+      runningProcesses,
+      safeUpdateTaskStatus: vi.fn(),
+      processQueue: vi.fn(),
+      handleWorkflowTermination: vi.fn(),
+      apiAbortControllers: new Map(),
+    };
+
+    mod.init(deps);
+
+    const workerSpy = vi.spyOn(require('worker_threads'), 'Worker').mockImplementation(createDeferredWorkerControl().WorkerCtor);
+
+    const taskPromise = mod.executeOllamaTask({
+      id: 'task-ollama-stale-waiter',
+      provider: 'ollama',
+      model: TEST_MODELS.DEFAULT,
+      task_description: 'Generate a plan',
+      working_directory: 'C:/repo',
+      timeout_minutes: 1,
+    });
+
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(runningProcesses.has('task-ollama-stale-waiter')).toBe(true);
+
+    taskStatus = 'skipped';
+    resolveHostLock();
+
+    await taskPromise;
+
+    expect(workerSpy).not.toHaveBeenCalled();
+    expect(releaseHostLock).toHaveBeenCalledTimes(1);
+    expect(runningProcesses.has('task-ollama-stale-waiter')).toBe(false);
+    expect(deps.safeUpdateTaskStatus).not.toHaveBeenCalledWith(
+      'task-ollama-stale-waiter',
+      'failed',
+      expect.anything(),
+    );
   });
 
   it('passes factory structured Ollama tasks as non-modification agentic work', async () => {
