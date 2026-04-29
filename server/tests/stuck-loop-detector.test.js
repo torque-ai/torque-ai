@@ -7,7 +7,7 @@ const { rawDb, resetTables, setupTestDbOnly, teardownTestDb } = require('./vites
 
 let db;
 
-function insertProject({ name, loopState, lastActionAt }) {
+function insertProject({ name, loopState, lastActionAt, status = 'running' }) {
   const id = randomUUID();
   db.prepare(`
     INSERT INTO factory_projects (
@@ -18,11 +18,12 @@ function insertProject({ name, loopState, lastActionAt }) {
       loop_state,
       loop_last_action_at
     )
-    VALUES (?, ?, ?, 'running', ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?)
   `).run(
     id,
     name,
     `C:/projects/${id}`,
+    status,
     loopState,
     lastActionAt,
   );
@@ -126,6 +127,17 @@ describe('detectStuckLoops', () => {
       name: 'Recent Work',
       loopState: 'SENSE',
       lastActionAt: new Date(Date.now() - (5 * 60 * 1000)).toISOString(),
+    });
+
+    expect(detectStuckLoops(db)).toEqual([]);
+  });
+
+  it('ignores stale project rows that are explicitly paused', () => {
+    insertProject({
+      name: 'Paused Plan Project',
+      status: 'paused',
+      loopState: 'PLAN',
+      lastActionAt: new Date(Date.now() - (3 * STALL_THRESHOLD_MS)).toISOString(),
     });
 
     expect(detectStuckLoops(db)).toEqual([]);

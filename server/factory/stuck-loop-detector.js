@@ -45,6 +45,7 @@ function detectStuckLoops(db, thresholdMs = STALL_THRESHOLD_MS) {
       loop_last_action_at AS last_action_at
     FROM factory_projects
     WHERE loop_last_action_at IS NOT NULL
+      AND COALESCE(LOWER(status), 'paused') = 'running'
       AND COALESCE(UPPER(loop_state), 'IDLE') NOT IN ('IDLE', 'PAUSED')
     ORDER BY loop_last_action_at ASC
   `).all();

@@ -944,6 +944,156 @@ function getStoredPlanGeneratorProvider(workItem) {
   return normalizeOptionalString(parsedOrigin?.plan_generator_provider);
 }
 
+function getStoredPlanGenerationTaskId(workItem) {
+  const direct = normalizeOptionalString(workItem?.origin?.plan_generation_task_id);
+  if (direct) {
+    return direct;
+  }
+  const parsedOrigin = parseJsonObject(workItem?.origin_json);
+  return normalizeOptionalString(parsedOrigin?.plan_generation_task_id);
+}
+
+function clearPlanGenerationWaitFields(origin = {}) {
+  const next = { ...(origin && typeof origin === 'object' ? origin : {}) };
+  delete next.plan_generation_task_id;
+  delete next.plan_generation_status;
+  delete next.plan_generation_wait_reason;
+  delete next.plan_generation_retry_after;
+  delete next.plan_generation_updated_at;
+  return next;
+}
+
+function getTaskMetadataObject(task) {
+  const raw = task?.metadata;
+  if (!raw) {
+    return {};
+  }
+  if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+    return raw;
+  }
+  return parseJsonObject(raw) || {};
+}
+
+function getPlanGenerationFileLockWait(task, message = '') {
+  const metadata = getTaskMetadataObject(task);
+  const wait = metadata.file_lock_wait;
+  if (wait && typeof wait === 'object' && !Array.isArray(wait)) {
+    return wait;
+  }
+
+  const text = [
+    message,
+    typeof task?.error_output === 'string' ? task.error_output : '',
+  ].filter(Boolean).join('\n');
+  if (/Requeued:\s*file\s+'[^']+'\s+is being edited by task\b/i.test(text)) {
+    return { reason: 'file_lock_wait' };
+  }
+  return null;
+}
+
+function isPlanGenerationTaskPending(task) {
+  return ['pending', 'queued', 'running', 'waiting'].includes(
+    String(task?.status || '').toLowerCase()
+  );
+}
+
+function getPlanGenerationTask(taskCore, taskId) {
+  if (!taskCore || typeof taskCore.getTask !== 'function' || !taskId) {
+    return null;
+  }
+  try {
+    return taskCore.getTask(taskId) || null;
+  } catch (error) {
+    logger.debug('Unable to load plan-generation task state', {
+      task_id: taskId,
+      err: error.message,
+    });
+    return null;
+  }
+}
+
+function buildPlanGenerationDeferredResult({
+  project,
+  instance,
+  targetItem,
+  planPath,
+  generationTaskId,
+  generationTask,
+  wait,
+  reason,
+}) {
+  const status = generationTask?.status || 'queued';
+  const retryAfter = normalizeOptionalString(wait?.retry_after);
+  const deferredOrigin = {
+    ...getWorkItemOriginObject(targetItem),
+    plan_path: planPath,
+    plan_generation_task_id: generationTaskId,
+    plan_generation_status: status,
+    plan_generation_wait_reason: 'file_lock_wait',
+    ...(retryAfter ? { plan_generation_retry_after: retryAfter } : {}),
+    plan_generation_updated_at: nowIso(),
+  };
+  let updatedWorkItem = targetItem;
+  try {
+    updatedWorkItem = factoryIntake.updateWorkItem(targetItem.id, {
+      origin_json: deferredOrigin,
+      status: targetItem.status || 'planned',
+    });
+    rememberSelectedWorkItem(instance.id, updatedWorkItem);
+  } catch (error) {
+    logger.warn('EXECUTE stage: failed to persist deferred plan-generation state', {
+      project_id: project.id,
+      work_item_id: targetItem.id,
+      generation_task_id: generationTaskId,
+      err: error.message,
+    });
+  }
+
+  logger.info('EXECUTE stage: deferred plan generation for file-lock contention', {
+    project_id: project.id,
+    work_item_id: targetItem.id,
+    plan_path: planPath,
+    generation_task_id: generationTaskId,
+    task_status: status,
+    retry_after: retryAfter || null,
+  });
+  safeLogDecision({
+    project_id: project.id,
+    stage: LOOP_STATES.EXECUTE,
+    action: 'plan_generation_deferred_file_lock',
+    reasoning: reason || 'plan generation task is waiting on file-lock contention',
+    inputs: {
+      ...getWorkItemDecisionContext(targetItem),
+    },
+    outcome: {
+      reason: 'file_lock_wait',
+      plan_path: planPath,
+      generation_task_id: generationTaskId,
+      task_status: status,
+      retry_after: retryAfter || null,
+      ...getWorkItemDecisionContext(targetItem),
+    },
+    confidence: 1,
+    batch_id: getDecisionBatchId(project, updatedWorkItem, null, instance),
+  });
+
+  return {
+    reason: 'plan generation deferred for file-lock contention',
+    work_item: updatedWorkItem,
+    stop_execution: true,
+    next_state: LOOP_STATES.PAUSED,
+    paused_at_stage: LOOP_STATES.EXECUTE,
+    stage_result: {
+      status: 'deferred',
+      reason: 'file_lock_wait',
+      plan_path: planPath,
+      generation_task_id: generationTaskId,
+      task_status: status,
+      retry_after: retryAfter || null,
+    },
+  };
+}
+
 function getPlanGeneratorLabel(provider) {
   return normalizeOptionalString(provider) || PLAN_GENERATOR_LABEL;
 }
@@ -4001,6 +4151,53 @@ function getWorkItemOriginObject(workItem) {
   return { ...(parseJsonObject(workItem?.origin_json) || {}) };
 }
 
+function maybeClearDeferredPlanGenerationWait(project, instance) {
+  const workItem = tryGetSelectedWorkItem(instance, project.id, {
+    fallbackToLoopSelection: true,
+  });
+  const generationTaskId = getStoredPlanGenerationTaskId(workItem);
+  const origin = getWorkItemOriginObject(workItem);
+  if (!workItem || !generationTaskId) {
+    return null;
+  }
+
+  if (origin.plan_path && fs.existsSync(origin.plan_path)) {
+    const updated = updateInstanceAndSync(instance.id, {
+      paused_at_stage: null,
+      last_action_at: nowIso(),
+    });
+    return {
+      cleared: true,
+      instance: updated,
+      task_id: generationTaskId,
+      task_status: null,
+    };
+  }
+
+  const taskCore = require('../db/task-core');
+  const generationTask = getPlanGenerationTask(taskCore, generationTaskId);
+  if (isPlanGenerationTaskPending(generationTask)) {
+    const wait = getPlanGenerationFileLockWait(generationTask);
+    return {
+      waiting: true,
+      task_id: generationTaskId,
+      task_status: generationTask?.status || 'queued',
+      retry_after: normalizeOptionalString(wait?.retry_after),
+    };
+  }
+
+  const updated = updateInstanceAndSync(instance.id, {
+    paused_at_stage: null,
+    last_action_at: nowIso(),
+  });
+  return {
+    cleared: true,
+    instance: updated,
+    task_id: generationTaskId,
+    task_status: generationTask?.status || null,
+  };
+}
+
 const PLAN_QUALITY_REJECT_CAP = 5;
 
 function returnAutoGeneratedPlanToPrioritizeForDescriptionQuality({
@@ -4396,7 +4593,7 @@ async function executeNonPlanFileStage(project, instance, workItem) {
 
   if (fs.existsSync(planPath)) {
     const updatedWorkItem = factoryIntake.updateWorkItem(targetItem.id, {
-      origin_json: nextOrigin,
+      origin_json: clearPlanGenerationWaitFields(nextOrigin),
       status: 'executing',
     });
     rememberSelectedWorkItem(instance.id, updatedWorkItem);
@@ -4474,22 +4671,59 @@ async function executeNonPlanFileStage(project, instance, workItem) {
   const { handleAwaitTask } = require('../handlers/workflow/await');
   const taskCore = require('../db/task-core');
   const prompt = buildAutoGeneratedPlanPrompt(project, targetItem);
-  let generationTaskId = null;
+  let generationTaskId = getStoredPlanGenerationTaskId(targetItem);
 
   try {
-    const { task_id } = await submitFactoryInternalTask({
-      task: prompt,
-      project: 'factory-architect',
-      working_directory: project.path || process.cwd(),
-      kind: 'plan_generation',
-      project_id: project.id,
-      work_item_id: targetItem.id,
-      timeout_minutes: 10,
-    });
-
-    generationTaskId = task_id;
     if (!generationTaskId) {
-      throw new Error('smart_submit_task did not return task_id');
+      const { task_id } = await submitFactoryInternalTask({
+        task: prompt,
+        project: 'factory-architect',
+        working_directory: project.path || process.cwd(),
+        kind: 'plan_generation',
+        project_id: project.id,
+        work_item_id: targetItem.id,
+        timeout_minutes: 10,
+      });
+
+      generationTaskId = task_id;
+      if (!generationTaskId) {
+        throw new Error('smart_submit_task did not return task_id');
+      }
+
+      try {
+        const pendingWorkItem = factoryIntake.updateWorkItem(targetItem.id, {
+          origin_json: {
+            ...nextOrigin,
+            plan_generation_task_id: generationTaskId,
+            plan_generation_status: 'submitted',
+            plan_generation_updated_at: nowIso(),
+          },
+          status: targetItem.status || 'planned',
+        });
+        rememberSelectedWorkItem(instance.id, pendingWorkItem);
+      } catch (persistErr) {
+        logger.warn('EXECUTE stage: failed to persist pending plan-generation task id', {
+          project_id: project.id,
+          work_item_id: targetItem.id,
+          generation_task_id: generationTaskId,
+          err: persistErr.message,
+        });
+      }
+    } else {
+      const existingGenerationTask = getPlanGenerationTask(taskCore, generationTaskId);
+      const existingWait = getPlanGenerationFileLockWait(existingGenerationTask);
+      if (isPlanGenerationTaskPending(existingGenerationTask) && existingWait) {
+        return buildPlanGenerationDeferredResult({
+          project,
+          instance,
+          targetItem,
+          planPath,
+          generationTaskId,
+          generationTask: existingGenerationTask,
+          wait: existingWait,
+          reason: existingGenerationTask?.error_output || 'plan generation task is waiting on file-lock contention',
+        });
+      }
     }
 
     // heartbeat_minutes: 0 disables periodic heartbeat returns — we want
@@ -4498,6 +4732,19 @@ async function executeNonPlanFileStage(project, instance, workItem) {
     const awaitResult = await handleAwaitTask({ task_id: generationTaskId, timeout_minutes: 10, heartbeat_minutes: 0 });
     const generationTask = taskCore.getTask(generationTaskId);
     if (!generationTask || generationTask.status !== 'completed') {
+      const wait = getPlanGenerationFileLockWait(generationTask, extractTextContent(awaitResult));
+      if (isPlanGenerationTaskPending(generationTask) && wait) {
+        return buildPlanGenerationDeferredResult({
+          project,
+          instance,
+          targetItem,
+          planPath,
+          generationTaskId,
+          generationTask,
+          wait,
+          reason: generationTask?.error_output || extractTextContent(awaitResult),
+        });
+      }
       throw new Error(
         generationTask?.error_output
         || extractTextContent(awaitResult)
@@ -4518,7 +4765,7 @@ async function executeNonPlanFileStage(project, instance, workItem) {
     fs.writeFileSync(planPath, normalizedPlanMarkdown);
 
     let updatedWorkItem = factoryIntake.updateWorkItem(targetItem.id, {
-      origin_json: nextOrigin,
+      origin_json: clearPlanGenerationWaitFields(nextOrigin),
       status: 'executing',
     });
     if (generationProvider) {
@@ -4987,6 +5234,21 @@ async function executeNonPlanFileStage(project, instance, workItem) {
       },
     };
   } catch (error) {
+    const generationTask = getPlanGenerationTask(taskCore, generationTaskId);
+    const wait = getPlanGenerationFileLockWait(generationTask, error.message);
+    if (generationTaskId && isPlanGenerationTaskPending(generationTask) && wait) {
+      return buildPlanGenerationDeferredResult({
+        project,
+        instance,
+        targetItem,
+        planPath,
+        generationTaskId,
+        generationTask,
+        wait,
+        reason: error.message,
+      });
+    }
+
     logger.warn('EXECUTE stage: failed to generate plan for non-plan-file work item', {
       project_id: project.id,
       work_item_id: targetItem.id,
@@ -8659,6 +8921,29 @@ async function runAdvanceLoop(instance_id) {
   }
 
   if (pausedAtStage === LOOP_STATES.EXECUTE) {
+    const deferredPlanGeneration = maybeClearDeferredPlanGenerationWait(project, instance);
+    if (deferredPlanGeneration?.waiting) {
+      return {
+        project_id: project.id,
+        instance_id: instance.id,
+        previous_state: previousState,
+        new_state: currentState,
+        paused_at_stage: pausedAtStage,
+        stage_result: {
+          status: 'waiting',
+          reason: 'plan_generation_file_lock_wait',
+          generation_task_id: deferredPlanGeneration.task_id,
+          task_status: deferredPlanGeneration.task_status,
+          retry_after: deferredPlanGeneration.retry_after || null,
+        },
+        reason: 'plan generation still waiting on file-lock contention',
+      };
+    }
+    if (deferredPlanGeneration?.cleared) {
+      instance = deferredPlanGeneration.instance;
+      pausedAtStage = null;
+    }
+
     const executeWait = maybeClearCompletedExecuteOwnerWait(project, instance);
     if (executeWait?.waiting) {
       return {

@@ -398,6 +398,94 @@ describe('factory loop-controller EXECUTE for non-plan-file work items', () => {
     });
   });
 
+  it('defers transient plan-generation file-lock waits instead of rejecting the work item', async () => {
+    const { project, workItem } = registerExecuteProject({
+      description: 'Add coverage for the plugin catalog runtime loader.',
+    });
+    const retryAfter = '2026-04-28T23:45:00.000Z';
+    factoryIntake.updateWorkItem(workItem.id, {
+      origin_json: {
+        plan_generation_task_id: 'plan-gen-task',
+      },
+    });
+    taskCore.getTask = vi.fn((taskId) => ({
+      id: taskId,
+      status: 'queued',
+      output: '',
+      error_output: "Requeued: file 'docs/superpowers/plans/auto-generated/2041-plugin-catalog-runtime.md' is being edited by task holder-task. Waiting 2500ms before retry.",
+      metadata: JSON.stringify({
+        file_lock_wait: {
+          file: 'docs/superpowers/plans/auto-generated/2041-plugin-catalog-runtime.md',
+          locked_by: 'holder-task',
+          retry_after: retryAfter,
+          delay_ms: 2500,
+        },
+      }),
+    }));
+
+    const executeAdvance = await loopController.advanceLoopForProject(project.id);
+    const updatedWorkItem = factoryIntake.getWorkItem(workItem.id);
+
+    expect(executeAdvance).toMatchObject({
+      new_state: LOOP_STATES.EXECUTE,
+      paused_at_stage: LOOP_STATES.EXECUTE,
+      reason: 'plan generation deferred for file-lock contention',
+      stage_result: {
+        status: 'deferred',
+        reason: 'file_lock_wait',
+        generation_task_id: 'plan-gen-task',
+        task_status: 'queued',
+        retry_after: retryAfter,
+      },
+    });
+    expect(updatedWorkItem).toMatchObject({
+      id: workItem.id,
+      status: 'planned',
+      reject_reason: null,
+      origin: expect.objectContaining({
+        plan_generation_task_id: 'plan-gen-task',
+        plan_generation_wait_reason: 'file_lock_wait',
+        plan_generation_retry_after: retryAfter,
+      }),
+    });
+    expect(createPlanExecutorMock).not.toHaveBeenCalled();
+    expect(routingModule.handleSmartSubmitTask).not.toHaveBeenCalled();
+    expect(awaitModule.handleAwaitTask).not.toHaveBeenCalled();
+
+    const decisions = listDecisionRows(db, project.id);
+    const deferredDecision = decisions.find((row) => row.action === 'plan_generation_deferred_file_lock');
+    expect(deferredDecision).toMatchObject({
+      stage: 'execute',
+      outcome: expect.objectContaining({
+        reason: 'file_lock_wait',
+        generation_task_id: 'plan-gen-task',
+        task_status: 'queued',
+        retry_after: retryAfter,
+        work_item_id: workItem.id,
+      }),
+    });
+    expect(decisions.find((row) => row.action === 'cannot_generate_plan')).toBeUndefined();
+
+    routingModule.handleSmartSubmitTask.mockClear();
+    awaitModule.handleAwaitTask.mockClear();
+    const waitingAdvance = await loopController.advanceLoopForProject(project.id);
+
+    expect(waitingAdvance).toMatchObject({
+      new_state: LOOP_STATES.EXECUTE,
+      paused_at_stage: LOOP_STATES.EXECUTE,
+      reason: 'plan generation still waiting on file-lock contention',
+      stage_result: {
+        status: 'waiting',
+        reason: 'plan_generation_file_lock_wait',
+        generation_task_id: 'plan-gen-task',
+        task_status: 'queued',
+        retry_after: retryAfter,
+      },
+    });
+    expect(routingModule.handleSmartSubmitTask).not.toHaveBeenCalled();
+    expect(awaitModule.handleAwaitTask).not.toHaveBeenCalled();
+  });
+
   it('normalizes file_edits JSON from plan generation into executable Markdown', async () => {
     const { project, workItem, projectDir } = registerExecuteProject({
       description: 'Add typed LAN startup failure reasons to the Unity coordinator.',
