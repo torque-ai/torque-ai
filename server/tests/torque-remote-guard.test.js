@@ -52,12 +52,19 @@ const SKIP = !BASH_AVAILABLE || !JQ_AVAILABLE || !fs.existsSync(GUARD_RAW);
 // file should still load cleanly so the suite reports an explicit skip.
 const maybe = SKIP ? describe.skip : describe;
 
+// Per-invocation timeout. The guard runs ~6 jq subprocess calls plus token
+// iteration; on a Windows box with Defender real-time scanning the temp
+// .torque-remote.json, each jq spawn is ~500-1500ms, so total wall time
+// can reach 10s on a cold path. 30s gives ample headroom without making
+// genuine hangs invisible.
+const PER_CALL_TIMEOUT_MS = 30000;
+
 function runGuard(command, cwd) {
   return spawnSync(BASH_BIN, [GUARD], {
     cwd,
     input: JSON.stringify({ tool_input: { command } }),
     encoding: 'utf8',
-    timeout: 10000,
+    timeout: PER_CALL_TIMEOUT_MS,
   });
 }
 
@@ -70,6 +77,13 @@ function setupRepo(transport, interceptCommands) {
   );
   return dir;
 }
+
+// Vitest's default 15s testTimeout is tight for these tests on Windows
+// because each runGuard() spawns Git Bash which forks ~6 jq subprocesses,
+// and Defender real-time scanning of the temp .torque-remote.json adds
+// noticeable latency per spawn. Bump to 60s so block-path tests (which
+// do the most jq + heredoc work) don't get killed by the test runner.
+vi.setConfig({ testTimeout: 60000 });
 
 maybe('torque-remote-guard', () => {
   let repo;
