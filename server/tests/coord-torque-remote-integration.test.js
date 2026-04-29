@@ -287,6 +287,7 @@ describe('torque-remote coord integration', () => {
 
     const result = spawnTorqueRemote(['--suite', 'gate', '--branch', 'HEAD', 'echo', 'should-not-run'], {
       TORQUE_COORD_PORT: String(stub.port),
+      TORQUE_REMOTE_COORD_SHA: 'HEAD',
       HOME: tmpDir,
     }, projectRoot);
 
@@ -352,6 +353,7 @@ describe('torque-remote coord integration', () => {
 
     const result = spawnTorqueRemote(['--suite', 'gate', '--branch', 'HEAD', 'echo', 'fresh-run'], {
       TORQUE_COORD_PORT: String(stub.port),
+      TORQUE_REMOTE_COORD_SHA: 'HEAD',
       HOME: tmpDir,
     }, projectRoot);
 
