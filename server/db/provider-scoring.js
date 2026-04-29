@@ -21,6 +21,9 @@ const TABLE_SQL = `
 `;
 
 const MIN_SAMPLES = 5;
+const SHARED_LEARNING_MIN_SAMPLES = 3;
+const SHARED_LEARNING_MIN_CONFIDENCE = 0.6;
+const SHARED_LEARNING_MAX_PENALTY = 0.35;
 const QUALITY_EMA_ALPHA = 0.3;
 const DEFAULT_WEIGHTS = Object.freeze({
   cost: 0.15,
@@ -129,6 +132,21 @@ function computeCompositeScore(row) {
     + (clamp01(row.reliability_score) * compositeWeights.reliability)
     + (normalizeQuality(row.quality_score) * compositeWeights.quality),
   );
+}
+
+function computeSharedLearningPenalty(row, options = {}) {
+  const minSamples = normalizeCount(options.minSamples ?? SHARED_LEARNING_MIN_SAMPLES);
+  const minConfidence = clamp01(Number(options.minConfidence ?? SHARED_LEARNING_MIN_CONFIDENCE));
+  const maxPenalty = clamp01(Number(options.maxPenalty ?? SHARED_LEARNING_MAX_PENALTY));
+  const sampleCount = normalizeCount(row?.sample_count ?? row?.sampleCount);
+  const confidence = clamp01(Number(row?.confidence));
+
+  if (sampleCount < minSamples || confidence < minConfidence || maxPenalty <= 0) {
+    return 0;
+  }
+
+  const sampleFactor = clamp01((sampleCount - minSamples + 1) / Math.max(1, minSamples));
+  return clamp01(Math.min(maxPenalty, maxPenalty * confidence * (0.5 + (sampleFactor * 0.5))));
 }
 
 function getNow() {
@@ -483,5 +501,9 @@ module.exports = {
   getCompositeWeights,
   setCompositeWeights,
   recalculateComposite: recomputeComposite,
+  computeSharedLearningPenalty,
   MIN_SAMPLES,
+  SHARED_LEARNING_MIN_SAMPLES,
+  SHARED_LEARNING_MIN_CONFIDENCE,
+  SHARED_LEARNING_MAX_PENALTY,
 };

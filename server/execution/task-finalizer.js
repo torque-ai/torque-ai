@@ -22,7 +22,11 @@ const { parseComputeOutput, validateComputeSchema } = require('../diffusion/comp
 const { expandApplyTaskDescription } = require('../diffusion/planner');
 const { safeJsonParse } = require('../utils/json');
 const resumeContextUtils = require('../utils/resume-context');
-const { createSharedFactoryStore } = require('../db/shared-factory-store');
+const {
+  createSharedFactoryStore,
+  deriveLearningScope,
+  DEFAULT_PROVIDER_FAILURE_SIGNAL_TYPE,
+} = require('../db/shared-factory-store');
 const { v4: uuidv4 } = require('uuid');
 
 let deps = {};
@@ -263,6 +267,66 @@ function releaseSharedCodexClaimsForEarlyExit(taskId, task, ctx) {
   let currentTask = null;
   try { currentTask = deps.db?.getTask?.(taskId) || null; } catch { currentTask = null; }
   releaseSharedCodexClaims(taskId, 'queue_managed', currentTask || ctx?.task || task);
+}
+
+function computeProviderFailureConfidence(sampleCount) {
+  const numeric = Number(sampleCount);
+  const count = Number.isFinite(numeric) ? Math.max(1, Math.trunc(numeric)) : 1;
+  return Math.min(0.95, 0.35 + (count * 0.12));
+}
+
+function recordSharedProviderLearning(ctx) {
+  try {
+    if (ctx?.status !== 'failed') return;
+    const task = ctx?.task || {};
+    const provider = normalizeText(task.provider || ctx?.proc?.provider);
+    if (!provider) return;
+
+    const metadata = mergeTaskMetadata(task, ctx);
+    const scope = deriveLearningScope({
+      task,
+      metadata,
+      files: ctx?.filesModified,
+      workingDirectory: task.working_directory,
+      description: task.task_description,
+    });
+    if (!scope || !scope.scope_key) return;
+
+    const store = getSharedFactoryStore();
+    if (!store || typeof store.upsertLearning !== 'function') return;
+
+    const failureCategory = categorizeFailure(ctx);
+    const key = {
+      signal_type: DEFAULT_PROVIDER_FAILURE_SIGNAL_TYPE,
+      scope_key: scope.scope_key,
+      provider,
+      failure_pattern: failureCategory,
+    };
+    const existing = typeof store.getLearning === 'function' ? store.getLearning(key) : null;
+    const nextSampleCount = (Number(existing?.sample_count) || 0) + 1;
+
+    store.upsertLearning({
+      ...key,
+      tech_stack: scope.tech_stack,
+      sample_count: 1,
+      confidence: computeProviderFailureConfidence(nextSampleCount),
+      project_source: resolveTaskProjectId(task) || normalizeText(task.working_directory) || 'unknown',
+      payload: {
+        signal_type: DEFAULT_PROVIDER_FAILURE_SIGNAL_TYPE,
+        scope_key: scope.scope_key,
+        tech_stack: scope.tech_stack,
+        signals: scope.signals || [],
+        failure_category: failureCategory,
+        task_id: ctx.taskId || task.id || null,
+        task_description: task.task_description || null,
+        working_directory: task.working_directory || null,
+        files_modified: ctx?.filesModified || [],
+        status: ctx.status,
+      },
+    });
+  } catch (err) {
+    logger.info(`[finalizer] Shared provider learning recording failed: ${err.message}`);
+  }
 }
 
 function getCheckpointStore() {
@@ -1014,6 +1078,7 @@ async function finalizeTask(taskId, options = {}) {
     }
 
     recordProviderScoring(ctx);
+    recordSharedProviderLearning(ctx);
 
     try {
       const budgetWatcher = require('../db/budget-watcher');
@@ -1126,6 +1191,7 @@ async function finalizeTask(taskId, options = {}) {
     fallbackCtx.task = deps.db.getTask(taskId) || currentTask;
     await indexRunArtifacts(taskId, fallbackCtx.task?.workflow_id || currentTask?.workflow_id || null);
     recordProviderScoring(fallbackCtx);
+    recordSharedProviderLearning(fallbackCtx);
 
     if (typeof deps.handlePostCompletion === 'function') {
       try {

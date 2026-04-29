@@ -13,6 +13,7 @@ const DEFAULT_BUSY_TIMEOUT_MS = 5000;
 const DEFAULT_LEARNING_TTL_MS = 1000 * 60 * 60 * 24 * 30;
 const DEFAULT_CLAIM_TTL_MS = 1000 * 60 * 30;
 const DEFAULT_DEMAND_TTL_MS = 1000 * 60 * 5;
+const DEFAULT_PROVIDER_FAILURE_SIGNAL_TYPE = 'provider_failure_rate';
 
 function isNonEmptyString(value) {
   return typeof value === 'string' && value.trim().length > 0;
@@ -92,6 +93,91 @@ function normalizeJson(value, fallback = {}) {
   return JSON.stringify(value);
 }
 
+function deriveLearningScope(input = {}) {
+  const task = input.task && typeof input.task === 'object' ? input.task : {};
+  let metadata = input.metadata ?? task.metadata ?? {};
+  if (typeof metadata === 'string') {
+    try {
+      const parsed = JSON.parse(metadata);
+      metadata = parsed && typeof parsed === 'object' ? parsed : {};
+    } catch {
+      metadata = {};
+    }
+  }
+  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) {
+    metadata = {};
+  }
+
+  const files = [];
+  const collectFiles = (value) => {
+    if (!value) return;
+    if (Array.isArray(value)) {
+      for (const entry of value) collectFiles(entry);
+      return;
+    }
+    if (typeof value === 'string') {
+      const trimmed = value.trim();
+      if (trimmed) files.push(trimmed);
+    }
+  };
+
+  collectFiles(input.files);
+  collectFiles(task.files);
+  collectFiles(task.files_modified);
+  collectFiles(metadata.files);
+  collectFiles(metadata.file);
+  collectFiles(metadata.target_files);
+  collectFiles(metadata.targetFiles);
+  collectFiles(metadata.files_modified);
+  collectFiles(metadata.filesModified);
+  collectFiles(metadata.modified_files);
+  collectFiles(metadata.modifiedFiles);
+
+  const description = [
+    input.description,
+    input.taskDescription,
+    task.task_description,
+    task.description,
+  ].filter(isNonEmptyString).join('\n');
+  const workingDirectory = [
+    input.workingDirectory,
+    input.working_directory,
+    task.working_directory,
+    task.cwd,
+  ].filter(isNonEmptyString).join('\n');
+  let metadataText = '';
+  try {
+    metadataText = JSON.stringify(metadata);
+  } catch {
+    metadataText = '';
+  }
+
+  const haystack = `${description}\n${workingDirectory}\n${metadataText}\n${files.join('\n')}`;
+  const dotnetSignals = [];
+  if (files.some((file) => /\.cs$/i.test(file))) dotnetSignals.push('file_ext:.cs');
+  if (files.some((file) => /\.csproj$/i.test(file))) dotnetSignals.push('file_ext:.csproj');
+  if (/\bEntityFramework\b/i.test(haystack) || /\bEntity\s+Framework\b/i.test(haystack)) {
+    dotnetSignals.push('keyword:EntityFramework');
+  }
+  if (/\bEF\s+Core\b/i.test(haystack)) dotnetSignals.push('keyword:EF Core');
+  if (/\bdotnet\b/i.test(haystack)) dotnetSignals.push('keyword:dotnet');
+  if (/\b\.NET\b/i.test(haystack) || /\bcsproj\b/i.test(haystack)) dotnetSignals.push('keyword:.NET');
+
+  if (dotnetSignals.length > 0) {
+    return {
+      signal_type: DEFAULT_PROVIDER_FAILURE_SIGNAL_TYPE,
+      signalType: DEFAULT_PROVIDER_FAILURE_SIGNAL_TYPE,
+      scope_key: 'tech_stack:dotnet',
+      scopeKey: 'tech_stack:dotnet',
+      tech_stack: 'dotnet',
+      techStack: 'dotnet',
+      signals: [...new Set(dotnetSignals)],
+    };
+  }
+
+  return null;
+}
+
 function computeExpiresAt({ expiresAt, ttlMs, defaultTtlMs, now }) {
   const explicit = normalizeIsoTimestamp(expiresAt, 'expires_at');
   if (explicit) return explicit;
@@ -104,6 +190,8 @@ function ensureSchema(db) {
   db.exec(`
     CREATE TABLE IF NOT EXISTS factory_learnings (
       id TEXT PRIMARY KEY,
+      signal_type TEXT NOT NULL DEFAULT 'provider_failure_rate',
+      scope_key TEXT NOT NULL,
       provider TEXT NOT NULL,
       tech_stack TEXT NOT NULL,
       failure_pattern TEXT NOT NULL,
@@ -115,7 +203,7 @@ function ensureSchema(db) {
       last_seen_at TEXT NOT NULL,
       expires_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
-      UNIQUE(provider, tech_stack, failure_pattern)
+      UNIQUE(signal_type, scope_key, provider, failure_pattern)
     );
 
     CREATE INDEX IF NOT EXISTS idx_factory_learnings_provider_stack
@@ -172,6 +260,30 @@ function ensureSchema(db) {
     CREATE INDEX IF NOT EXISTS idx_factory_project_demands_expires_at
       ON factory_project_demands(expires_at);
   `);
+
+  const learningColumns = new Set(
+    db.prepare("PRAGMA table_info('factory_learnings')").all().map((column) => column.name),
+  );
+  if (!learningColumns.has('signal_type')) {
+    db.exec("ALTER TABLE factory_learnings ADD COLUMN signal_type TEXT NOT NULL DEFAULT 'provider_failure_rate'");
+  }
+  if (!learningColumns.has('scope_key')) {
+    db.exec('ALTER TABLE factory_learnings ADD COLUMN scope_key TEXT');
+  }
+  db.exec(`
+    UPDATE factory_learnings
+    SET signal_type = COALESCE(NULLIF(signal_type, ''), 'provider_failure_rate'),
+        scope_key = COALESCE(NULLIF(scope_key, ''), 'tech_stack:' || tech_stack)
+    WHERE signal_type IS NULL
+       OR signal_type = ''
+       OR scope_key IS NULL
+       OR scope_key = '';
+
+    CREATE UNIQUE INDEX IF NOT EXISTS ux_factory_learnings_signal_scope_provider_pattern
+      ON factory_learnings(signal_type, scope_key, provider, failure_pattern);
+    CREATE INDEX IF NOT EXISTS idx_factory_learnings_signal_scope
+      ON factory_learnings(signal_type, scope_key, confidence DESC, sample_count DESC, last_seen_at DESC);
+  `);
 }
 
 function createSharedFactoryStore(options = {}) {
@@ -197,21 +309,23 @@ function createSharedFactoryStore(options = {}) {
     getLearningByKey: db.prepare(`
       SELECT *
       FROM factory_learnings
-      WHERE provider = ?
-        AND tech_stack = ?
+      WHERE signal_type = ?
+        AND scope_key = ?
+        AND provider = ?
         AND failure_pattern = ?
       LIMIT 1
     `),
     upsertLearning: db.prepare(`
       INSERT INTO factory_learnings (
-        id, provider, tech_stack, failure_pattern, confidence, sample_count,
+        id, signal_type, scope_key, provider, tech_stack, failure_pattern, confidence, sample_count,
         project_source, payload_json, first_seen_at, last_seen_at, expires_at, updated_at
       )
       VALUES (
-        @id, @provider, @tech_stack, @failure_pattern, @confidence, @sample_count,
+        @id, @signal_type, @scope_key, @provider, @tech_stack, @failure_pattern, @confidence, @sample_count,
         @project_source, @payload_json, @first_seen_at, @last_seen_at, @expires_at, @updated_at
       )
-      ON CONFLICT(provider, tech_stack, failure_pattern) DO UPDATE SET
+      ON CONFLICT(signal_type, scope_key, provider, failure_pattern) DO UPDATE SET
+        tech_stack = excluded.tech_stack,
         confidence = excluded.confidence,
         sample_count = factory_learnings.sample_count + excluded.sample_count,
         project_source = excluded.project_source,
@@ -307,7 +421,7 @@ function createSharedFactoryStore(options = {}) {
   const upsertLearningTxn = db.transaction((row, nowIso) => {
     expireStaleRowsNow(nowIso);
     statements.upsertLearning.run(row);
-    return statements.getLearningByKey.get(row.provider, row.tech_stack, row.failure_pattern);
+    return statements.getLearningByKey.get(row.signal_type, row.scope_key, row.provider, row.failure_pattern);
   });
 
   const upsertClaimTxn = db.transaction((row, nowIso) => {
@@ -325,10 +439,18 @@ function createSharedFactoryStore(options = {}) {
   function buildLearningRow(record = {}) {
     const nowIso = isoNow(record.now);
     const lastSeenAt = normalizeIsoTimestamp(record.last_seen_at ?? record.lastSeenAt, 'last_seen_at') || nowIso;
+    const signalType = normalizeOptionalString(record.signal_type ?? record.signalType)
+      || DEFAULT_PROVIDER_FAILURE_SIGNAL_TYPE;
+    const rawScopeKey = normalizeOptionalString(record.scope_key ?? record.scopeKey);
+    const techStack = normalizeOptionalString(record.tech_stack ?? record.techStack)
+      || (rawScopeKey && rawScopeKey.startsWith('tech_stack:') ? rawScopeKey.slice('tech_stack:'.length) : null);
+    const scopeKey = rawScopeKey || (techStack ? `tech_stack:${techStack}` : null);
     return {
       id: normalizeOptionalString(record.id) || crypto.randomUUID(),
+      signal_type: signalType,
+      scope_key: normalizeRequiredString('scope_key', scopeKey),
       provider: normalizeRequiredString('provider', record.provider),
-      tech_stack: normalizeRequiredString('tech_stack', record.tech_stack ?? record.techStack),
+      tech_stack: normalizeRequiredString('tech_stack', techStack),
       failure_pattern: normalizeRequiredString('failure_pattern', record.failure_pattern ?? record.failurePattern),
       confidence: clampConfidence(record.confidence),
       sample_count: normalizeCount(record.sample_count ?? record.sampleCount, 1),
@@ -398,9 +520,16 @@ function createSharedFactoryStore(options = {}) {
   function findLearning(key) {
     if (isNonEmptyString(key)) return statements.getLearningById.get(key) || null;
     if (!key || typeof key !== 'object') return null;
+    const signalType = normalizeOptionalString(key.signal_type ?? key.signalType)
+      || DEFAULT_PROVIDER_FAILURE_SIGNAL_TYPE;
+    const rawScopeKey = normalizeOptionalString(key.scope_key ?? key.scopeKey);
+    const techStack = normalizeOptionalString(key.tech_stack ?? key.techStack)
+      || (rawScopeKey && rawScopeKey.startsWith('tech_stack:') ? rawScopeKey.slice('tech_stack:'.length) : null);
+    const scopeKey = rawScopeKey || (techStack ? `tech_stack:${techStack}` : null);
     return statements.getLearningByKey.get(
+      signalType,
+      normalizeRequiredString('scope_key', scopeKey),
       normalizeRequiredString('provider', key.provider),
-      normalizeRequiredString('tech_stack', key.tech_stack ?? key.techStack),
       normalizeRequiredString('failure_pattern', key.failure_pattern ?? key.failurePattern),
     ) || null;
   }
@@ -413,6 +542,14 @@ function createSharedFactoryStore(options = {}) {
     if (!filters.includeExpired) {
       where.push('expires_at > ?');
       params.push(nowIso);
+    }
+    if (filters.signal_type || filters.signalType) {
+      where.push('signal_type = ?');
+      params.push(normalizeRequiredString('signal_type', filters.signal_type ?? filters.signalType));
+    }
+    if (filters.scope_key || filters.scopeKey) {
+      where.push('scope_key = ?');
+      params.push(normalizeRequiredString('scope_key', filters.scope_key ?? filters.scopeKey));
     }
     if (filters.provider) {
       where.push('provider = ?');
@@ -648,9 +785,11 @@ function createSharedFactoryStore(options = {}) {
 
 module.exports = {
   createSharedFactoryStore,
+  deriveLearningScope,
   ensureSchema,
   resolveSharedFactoryDbPath,
   SHARED_FACTORY_DB_ENV,
   SHARED_FACTORY_DB_CONFIG_KEY,
   DEFAULT_SHARED_FACTORY_DB_FILENAME,
+  DEFAULT_PROVIDER_FAILURE_SIGNAL_TYPE,
 };
