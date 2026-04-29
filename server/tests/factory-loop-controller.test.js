@@ -469,6 +469,64 @@ describe('factory loop-controller EXECUTE modes', () => {
     });
   });
 
+  it('rejects a bad pre-written plan at EXECUTE before creating a worktree', async () => {
+    const { project, workItem, planPath } = registerPlanProject();
+    fs.writeFileSync(planPath, `# Weak plan
+
+**Tech Stack:** Node.js.
+
+## Task 1: Modify the helper
+
+Edit server/factory/plan-executor.js and make the requested behavior change. Keep the implementation small, stay inside the helper module, and leave unrelated files alone.
+`);
+    const batchId = `factory-${project.id}-${workItem.id}`;
+    const instance = factoryLoopInstances.createInstance({
+      project_id: project.id,
+      work_item_id: workItem.id,
+      batch_id: batchId,
+    });
+    factoryLoopInstances.updateInstance(instance.id, {
+      loop_state: LOOP_STATES.EXECUTE,
+      work_item_id: workItem.id,
+      batch_id: batchId,
+      paused_at_stage: null,
+    });
+    factoryHealth.updateProject(project.id, {
+      loop_state: LOOP_STATES.EXECUTE,
+      loop_batch_id: batchId,
+      loop_paused_at_stage: null,
+    });
+
+    const worktreeRunner = {
+      createForBatch: vi.fn(),
+      verify: vi.fn(),
+      mergeToMain: vi.fn(),
+      abandon: vi.fn(),
+    };
+    loopController.setWorktreeRunnerForTests(worktreeRunner);
+
+    const executeAdvance = await loopController.advanceLoopForProject(project.id);
+
+    expect(executeAdvance.new_state).toBe(LOOP_STATES.IDLE);
+    expect(executeAdvance.paused_at_stage).toBeNull();
+    expect(executeAdvance.stage_result).toMatchObject({
+      status: 'rejected',
+      reason: 'pre_written_plan_rejected_by_quality_gate',
+      work_item_id: workItem.id,
+      plan_path: planPath,
+      rule_violations: expect.arrayContaining(['task_has_acceptance_criterion']),
+    });
+    expect(worktreeRunner.createForBatch).not.toHaveBeenCalled();
+    expect(routingModule.handleSmartSubmitTask).not.toHaveBeenCalled();
+    expect(factoryIntake.getWorkItem(workItem.id)).toMatchObject({
+      status: 'unactionable',
+      reject_reason: 'pre_written_plan_rejected_by_quality_gate',
+    });
+
+    const decisions = listDecisionRows(db, project.id);
+    expect(decisions.find((d) => d.action === 'pre_written_plan_quality_rejected_before_execute')).toBeTruthy();
+  });
+
   it('keeps pure suppression available when config.execute_mode is suppress', async () => {
     const { project, workItem, planPath } = registerPlanProject({
       config: { execute_mode: 'suppress' },
@@ -1482,6 +1540,72 @@ describe('factory loop-controller EXECUTE modes', () => {
     const decisions = listDecisionRows(db, project.id);
     expect(decisions.find((d) => d.action === 'worktree_reclaim_skipped_live_owner')).toBeTruthy();
     expect(decisions.find((d) => d.action === 'execute_wait_owner_completed')).toBeTruthy();
+  });
+
+  it('does not pre-reclaim an old active worktree when the owning task just started', async () => {
+    const { project, workItem } = registerPlanProject();
+    db.prepare('ALTER TABLE factory_worktrees ADD COLUMN owning_task_id TEXT').run();
+    const targetBranch = `feat/factory-${workItem.id}-dry-run-plan-item`;
+    const worktreePath = path.join(project.path, '.worktrees', 'feat-young-live-owner');
+    fs.mkdirSync(worktreePath, { recursive: true });
+    const existing = factoryWorktrees.recordWorktree({
+      project_id: project.id,
+      work_item_id: workItem.id,
+      batch_id: `factory-${project.id}-${workItem.id}`,
+      vc_worktree_id: 'vc-young-live-owner',
+      branch: targetBranch,
+      worktree_path: worktreePath,
+    });
+    db.prepare("UPDATE factory_worktrees SET created_at = datetime('now', '-2 hours') WHERE id = ?").run(existing.id);
+    factoryWorktrees.setOwningTask(existing.id, 'task-young-live-owner');
+    const ownerStartedAt = new Date().toISOString();
+    taskCore.getTask = vi.fn((taskId) => ({
+      id: taskId,
+      status: taskId === 'task-young-live-owner' ? 'running' : 'completed',
+      started_at: taskId === 'task-young-live-owner' ? ownerStartedAt : null,
+      created_at: taskId === 'task-young-live-owner' ? ownerStartedAt : null,
+      error_output: null,
+    }));
+
+    const worktreeRunner = {
+      createForBatch: vi.fn(),
+      verify: vi.fn(),
+      mergeToMain: vi.fn(),
+      abandon: vi.fn(),
+    };
+    loopController.setWorktreeRunnerForTests(worktreeRunner);
+
+    await advanceSupervisedPlanProject(project.id);
+    const executeAdvance = await loopController.advanceLoopForProject(project.id);
+
+    expect(worktreeRunner.createForBatch).not.toHaveBeenCalled();
+    expect(worktreeRunner.abandon).not.toHaveBeenCalled();
+    expect(routingModule.handleSmartSubmitTask).not.toHaveBeenCalled();
+    expect(executeAdvance.new_state).toBe(LOOP_STATES.EXECUTE);
+    expect(executeAdvance.stage_result).toMatchObject({
+      status: 'waiting',
+      reason: 'active_worktree_owner_running',
+      factory_worktree_id: existing.id,
+      owning_task_id: 'task-young-live-owner',
+      owning_status: 'running',
+    });
+    expect(executeAdvance.stage_result.stale_age_ms).toBeGreaterThan(60 * 60 * 1000);
+    expect(executeAdvance.stage_result.owner_age_ms).toBeGreaterThanOrEqual(0);
+    expect(executeAdvance.stage_result.owner_age_ms).toBeLessThan(10 * 60 * 1000);
+    expect(db.prepare('SELECT status FROM factory_worktrees WHERE id = ?').get(existing.id).status).toBe('active');
+
+    const decisions = listDecisionRows(db, project.id);
+    const skipped = decisions.find((d) => d.action === 'worktree_reclaim_skipped_live_owner');
+    expect(skipped).toBeTruthy();
+    expect(skipped.outcome).toMatchObject({
+      stale_factory_worktree_id: existing.id,
+      owning_task_id: 'task-young-live-owner',
+      owning_status: 'running',
+      worktree_dirty: false,
+    });
+    expect(skipped.outcome.stale_age_ms).toBeGreaterThan(60 * 60 * 1000);
+    expect(skipped.outcome.owner_age_ms).toBeGreaterThanOrEqual(0);
+    expect(skipped.outcome.owner_age_ms).toBeLessThan(10 * 60 * 1000);
   });
 
   it('reuses an active worktree owned by a completed task instead of reclaiming it', async () => {
