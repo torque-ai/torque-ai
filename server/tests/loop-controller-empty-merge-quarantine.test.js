@@ -4,6 +4,7 @@ const {
   isEmptyBranchMergeError,
   countPriorEmptyMergeFailuresForWorkItem,
   shouldQuarantineForEmptyMerges,
+  isMergeTargetOperatorBlockedError,
 } = require('../factory/loop-controller');
 
 describe('isEmptyBranchMergeError', () => {
@@ -94,5 +95,18 @@ describe('shouldQuarantineForEmptyMerges', () => {
       workItemId: 5,
       threshold: 2,
     })).toBe(false);
+  });
+});
+
+describe('isMergeTargetOperatorBlockedError', () => {
+  it('matches git conflict states and dirty merge targets that require operator cleanup', () => {
+    expect(isMergeTargetOperatorBlockedError({ code: 'IN_PROGRESS_GIT_OPERATION' })).toBe(true);
+    expect(isMergeTargetOperatorBlockedError({ code: 'MAIN_REPO_SEMANTIC_DRIFT' })).toBe(true);
+  });
+
+  it('does not match generic merge failures that may be handled by other recovery paths', () => {
+    expect(isMergeTargetOperatorBlockedError({ code: 'OTHER_FAILURE' })).toBe(false);
+    expect(isMergeTargetOperatorBlockedError(null)).toBe(false);
+    expect(isMergeTargetOperatorBlockedError(undefined)).toBe(false);
   });
 });

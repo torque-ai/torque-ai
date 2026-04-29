@@ -705,16 +705,23 @@ function createWorktreeManager({ db } = {}) {
     // silently wipe 150 lines of a shipped performance fix. Fail loudly so
     // the operator (or factory recovery) can investigate before merging.
     if (action === 'merge-target') {
-      const dirtyFiles = String(runGit(worktreePath, ['diff', '--name-only', 'HEAD'])).trim();
+      const dirtyOut = String(runGit(worktreePath, ['diff', '--name-only', 'HEAD'])).trim();
+      const dirtyFiles = dirtyOut ? dirtyOut.split(/\r?\n/).filter(Boolean) : [];
+      const untrackedFiles = listUntrackedFiles(worktreePath, { ignoreManagedWorktreeDirs });
+      const files = [...new Set([...dirtyFiles, ...untrackedFiles])];
+      const driftKind = dirtyFiles.length > 0 ? 'semantic drift vs HEAD' : 'untracked files';
+      const fileSummary = files.length > 0 ? files.join(', ') : '(none reported)';
       const err = new Error(
-        `main repo at ${worktreePath} has semantic drift vs HEAD — refusing to auto-commit `
+        `main repo at ${worktreePath} has ${driftKind} — refusing to auto-commit `
         + `under "pre-merge cleanup" and land arbitrary content on main. Files: `
-        + `${dirtyFiles.split('\n').filter(Boolean).join(', ')}. Inspect the drift with `
+        + `${fileSummary}. Inspect the drift with 'git status --short' and `
         + `'git diff HEAD' in ${worktreePath} before retrying the factory merge.`
       );
       err.code = 'MAIN_REPO_SEMANTIC_DRIFT';
       err.path = worktreePath;
-      err.files = dirtyFiles.split('\n').filter(Boolean);
+      err.files = files;
+      err.dirty_files = dirtyFiles;
+      err.untracked_files = untrackedFiles;
       throw err;
     }
     try {

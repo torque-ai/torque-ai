@@ -1072,6 +1072,37 @@ describe('version-control worktree manager (real git integration)', () => {
     expect(log).not.toMatch(/normalize line endings/);
   });
 
+  it('mergeWorktree reports untracked files on the main repo before factory merge', () => {
+    const repoPath = initGitRepo();
+    const created = manager.createWorktree(repoPath, 'merge target untracked');
+
+    fs.writeFileSync(path.join(created.worktree_path, 'feature.txt'), 'feature\n');
+    runRealGit(created.worktree_path, ['add', 'feature.txt']);
+    runRealGit(created.worktree_path, ['commit', '-m', 'add feature']);
+
+    fs.mkdirSync(path.join(repoPath, 'docs'), { recursive: true });
+    fs.writeFileSync(path.join(repoPath, 'docs', 'generated-plan.md'), 'pending operator review\n');
+
+    let thrown;
+    try {
+      manager.mergeWorktree(created.id, { deleteAfter: false });
+    } catch (err) {
+      thrown = err;
+    }
+
+    expect(thrown).toBeTruthy();
+    expect(thrown.code).toBe('MAIN_REPO_SEMANTIC_DRIFT');
+    expect(thrown.message).toContain('untracked files');
+    expect(thrown.message).toContain('docs/generated-plan.md');
+    expect(thrown.message).not.toContain('Files: .');
+    expect(thrown.files).toContain('docs/generated-plan.md');
+    expect(thrown.untracked_files).toContain('docs/generated-plan.md');
+
+    const log = runRealGit(repoPath, ['log', '--pretty=%s', 'main']).trim();
+    expect(log).not.toMatch(/pre-merge cleanup/);
+    expect(log).not.toMatch(/normalize line endings/);
+  });
+
   it('renormalizeLineEndings path refuses to commit when the staged diff is semantic, not EOL-only', () => {
     // Unit-level check on the first-attempt commit: when git add --renormalize
     // stages a blob that has semantic content differences (not just CRLF/LF),

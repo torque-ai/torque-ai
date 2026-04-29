@@ -2251,6 +2251,64 @@ async function maybeShipWorkItemAfterLearn(project_id, batch_id, instance) {
           }
         }
 
+        // If the target repo is operator-blocked, retrying every ~60s is
+        // pointless and can re-enter the same verified work item into PLAN.
+        // Pause the project so the operator gets a single clear signal instead
+        // of a retry storm. Mid-merge/rebase was observed against bitsy on
+        // 2026-04-20; dirty/untracked merge targets reproduced against DLPhone
+        // on 2026-04-29 after a successful Ollama canary verify.
+        if (isMergeTargetOperatorBlockedError(err)) {
+          const isGitOperation = err.code === 'IN_PROGRESS_GIT_OPERATION';
+          const reason = isGitOperation ? 'merge_target_in_conflict_state' : 'merge_target_dirty';
+          const action = reason;
+          const operatorPath = err.path || worktreeRecord.worktreePath;
+          try {
+            factoryHealth.updateProject(project_id, { status: 'paused' });
+          } catch (_pauseErr) {
+            void _pauseErr;
+          }
+          logger.warn('worktree merge blocked by target repo state; pausing project', {
+            project_id,
+            branch: worktreeRecord.branch,
+            code: err.code,
+            err: err.message,
+          });
+          safeLogDecision({
+            project_id,
+            stage: LOOP_STATES.LEARN,
+            action,
+            reasoning: isGitOperation
+              ? `Merge target ${operatorPath} is mid-${err.op || 'merge'}; pausing project. `
+                + `Operator must resolve the conflict or run \`git ${err.op || 'merge'} --abort\` before resuming.`
+              : `Merge target ${operatorPath} has uncommitted or untracked files; pausing project. `
+                + 'Operator must inspect the target repo and decide whether to commit, remove, or ignore the files before resuming.',
+            outcome: {
+              work_item_id: workItem.id,
+              branch: worktreeRecord.branch,
+              op: err.op || null,
+              path: operatorPath,
+              error: err.message,
+              files: Array.isArray(err.files) ? err.files : [],
+              dirty_files: Array.isArray(err.dirty_files) ? err.dirty_files : [],
+              untracked_files: Array.isArray(err.untracked_files) ? err.untracked_files : [],
+              next_state: LOOP_STATES.PAUSED,
+              paused_at_stage: LOOP_STATES.LEARN,
+            },
+            confidence: 1,
+            batch_id: shippingDecision.decision_batch_id || decisionBatchId,
+          });
+          return {
+            status: 'paused',
+            reason,
+            work_item_id: workItem.id,
+            error: err.message,
+            op: err.op || null,
+            files: Array.isArray(err.files) ? err.files : [],
+            dirty_files: Array.isArray(err.dirty_files) ? err.dirty_files : [],
+            untracked_files: Array.isArray(err.untracked_files) ? err.untracked_files : [],
+          };
+        }
+
         logger.warn('worktree merge failed; leaving work item open', {
           project_id,
           branch: worktreeRecord.branch,
@@ -2272,44 +2330,6 @@ async function maybeShipWorkItemAfterLearn(project_id, batch_id, instance) {
           confidence: 1,
           batch_id: shippingDecision.decision_batch_id || decisionBatchId,
         });
-
-        // If the target repo is mid-merge / mid-rebase / mid-cherry-pick /
-        // mid-revert, retrying every ~60s is pointless — `git commit` will
-        // keep refusing until the operator resolves or aborts. Pause the
-        // project so the operator gets a single clear signal instead of a
-        // retry storm (observed against bitsy on 2026-04-20: 13 failed
-        // merges in 75 minutes, all identical "uncommitted changes" errors).
-        if (err && err.code === 'IN_PROGRESS_GIT_OPERATION') {
-          try {
-            factoryHealth.updateProject(project_id, { status: 'paused' });
-          } catch (_pauseErr) {
-            void _pauseErr;
-          }
-          safeLogDecision({
-            project_id,
-            stage: LOOP_STATES.LEARN,
-            action: 'merge_target_in_conflict_state',
-            reasoning: `Merge target ${err.path || worktreeRecord.worktreePath} is mid-${err.op || 'merge'}; pausing project. `
-              + `Operator must resolve the conflict or run \`git ${err.op || 'merge'} --abort\` before resuming.`,
-            outcome: {
-              work_item_id: workItem.id,
-              branch: worktreeRecord.branch,
-              op: err.op || null,
-              path: err.path || null,
-              next_state: LOOP_STATES.PAUSED,
-              paused_at_stage: LOOP_STATES.LEARN,
-            },
-            confidence: 1,
-            batch_id: shippingDecision.decision_batch_id || decisionBatchId,
-          });
-          return {
-            status: 'paused',
-            reason: 'merge_target_in_conflict_state',
-            work_item_id: workItem.id,
-            error: err.message,
-            op: err.op || null,
-          };
-        }
 
         // Fix 2: if this is the second consecutive empty-branch merge failure
         // for the same work item, auto-quarantine it. Otherwise the LEARN
@@ -7106,6 +7126,13 @@ function shouldQuarantineForEmptyMerges({ currentErrorMessage, priorDecisions, w
   return countPriorEmptyMergeFailuresForWorkItem(priorDecisions, workItemId) >= threshold;
 }
 
+function isMergeTargetOperatorBlockedError(err) {
+  return Boolean(err && (
+    err.code === 'IN_PROGRESS_GIT_OPERATION'
+    || err.code === 'MAIN_REPO_SEMANTIC_DRIFT'
+  ));
+}
+
 function stripAnsi(text) {
   const ansiPattern = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, 'g');
   return typeof text === 'string'
@@ -10704,6 +10731,7 @@ module.exports = {
   isEmptyBranchMergeError,
   countPriorEmptyMergeFailuresForWorkItem,
   shouldQuarantineForEmptyMerges,
+  isMergeTargetOperatorBlockedError,
   // Codex fallback (Phase 1) — pure decision helper consulted at PRIORITIZE
   // before we advance to PLAN. Exported for unit tests + future Phase 2 callers.
   decideCodexFallbackAction,
