@@ -304,14 +304,18 @@ If the remote is unreachable or overloaded, `torque-remote` falls back to local 
 ## Testing workflow
 
 Pre-push checks are two-tier:
-- Pushes to `main` run the full dashboard + remote server test suite. The gate stages HEAD on a disposable `pre-push-gate/<sha>` ref on origin so the remote workstation can sync and test the pending commits without touching `origin/main`. On success the outer `git push` proceeds normally (clean fast-forward, zero ref drift, exit 0). On failure the staging ref is deleted and the push is blocked (exit 1); `origin/main` is never modified by the gate.
-- Pushes to non-main branches skip tests for fast iteration. Merges to `main` still run the full gate.
+- Pushes to `main` run a conservative changed-file gate. Docs-only changes skip heavy remote phases; dashboard-only changes run dashboard tests; server test-only changes run the touched server tests; server implementation, dependency, gate, remote-runner, coordinator, or unclassified changes fail closed to broader coverage. Server implementation changes still run server tests plus the perf gate and DB query audit.
+- Remote phases stage HEAD on a disposable `pre-push-gate/<sha>` ref on origin so the remote workstation can sync and test the pending commits without touching `origin/main`. Dashboard and server phases run in parallel inside one `torque-remote` session, then perf runs sequentially in that same synced checkout to avoid a second remote sync while keeping perf measurements isolated from Vitest load.
+- The coordinator suite name includes the gate-plan hash and `torque-remote` keys cache entries by the resolved commit SHA, not the disposable branch name. Passing reruns of the same SHA and same plan can replay; failed runs are not stored as reusable cache hits.
+- Pushes to non-main branches skip tests for fast iteration. Merges to `main` still run the conservative main gate.
+- Force full gate: `PRE_PUSH_FORCE_FULL=1 git push origin main` or `PRE_PUSH_GATE_MODE=full git push origin main`.
 - Escape hatch: `git push --no-verify` bypasses the hook.
 
 Examples:
 
-    git push origin main                    # gated: full dashboard + remote server suite
+    git push origin main                    # gated: conservative changed-file main gate
     git push origin wip/experiment          # ungated: skip tests for iteration
+    PRE_PUSH_FORCE_FULL=1 git push origin main  # gated: force the full main gate
 
 When iterating on an unpushed feature branch before it lands on `main`, run `torque-remote` from that feature worktree so the remote workstation sees the exact local state you are validating.
 

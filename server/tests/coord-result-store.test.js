@@ -50,6 +50,24 @@ describe('coord result store (Phase 1 write-only stub)', () => {
     expect(fs.existsSync(file)).toBe(false);
   });
 
+  it('writeResult is a no-op for failed runs', () => {
+    store.writeResult({
+      project: 'torque-public', sha: 'abc', suite: 'gate',
+      exit_code: 1, suite_status: 'fail', output_tail: 'failed',
+    });
+    const file = path.join(tmpDir, 'torque-public', 'abc', 'gate.json');
+    expect(fs.existsSync(file)).toBe(false);
+  });
+
+  it('writeResult is a no-op for unsafe path components', () => {
+    store.writeResult({
+      project: 'torque-public', sha: '../escape', suite: 'gate',
+      exit_code: 0, suite_status: 'pass', output_tail: 'ok',
+    });
+    expect(fs.existsSync(path.join(tmpDir, 'escape', 'gate.json'))).toBe(false);
+    expect(fs.existsSync(path.join(tmpDir, 'torque-public'))).toBe(false);
+  });
+
   it('getResult returns the stored record when within TTL', () => {
     store.writeResult({
       project: 'torque-public', sha: 'abc', suite: 'gate',

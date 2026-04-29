@@ -56,27 +56,27 @@ describe('pre-push-hook staging-branch invariants', () => {
     expect(src).toMatch(/git\s+push\s+[^\n]*origin\s+"?\$(?:\{)?local_head_sha(?:\})?"?:refs\/heads\/\$(?:\{)?staging_branch/);
   });
 
-  it('invokes torque-remote with --branch $staging_branch and exercises both suites', () => {
+  it('invokes torque-remote with --branch $staging_branch and exercises selected gate phases', () => {
     const src = readHook();
     // Both suites (dashboard + server) must run against the staged ref,
     // not the local HEAD or origin/main. The current architecture runs
-    // both phases inside a single torque-remote SSH session (one sync,
-    // parallel jobs), so the --branch invocation appears once but the
-    // remote script must reference both `cd dashboard` and `cd server`.
-    expect(src).toMatch(/run_with_flake_retry "Test gate" "\$TORQUE_REMOTE_CMD --suite gate --branch \$staging_branch/);
+    // test phases and perf inside a single torque-remote SSH session (one
+    // sync), so the --branch invocation appears once but the remote script
+    // must reference dashboard, server, and perf commands.
+    expect(src).toMatch(/run_with_flake_retry "Remote gate" "\$TORQUE_REMOTE_CMD --suite \$GATE_COORD_SUITE --branch \$staging_branch/);
     expect(src).toMatch(/cd\s+dashboard\s+&&\s+npx\s+vitest\s+run/);
     expect(src).toMatch(/cd\s+server\s+&&\s+npx\s+vitest\s+run/);
+    expect(src).toMatch(/cd\s+server\s+&&\s+node\s+perf\/run-perf\.js/);
   });
 
-  it('passes --suite gate to torque-remote so coord serializes the gate', () => {
+  it('passes a plan-specific gate suite to torque-remote so coord serializes and caches correctly', () => {
     const src = readHook();
-    // The unified parallel gate (test + perf inside one torque-remote SSH
-    // session, see "Three phases run inside ONE torque-remote SSH session")
-    // must opt into coord coordination via --suite gate. Without it,
-    // torque-remote defaults to "custom" and skips the daemon — so two
-    // concurrent main pushes would race on the workstation as before.
-    expect(src).toMatch(/\$TORQUE_REMOTE_CMD --suite gate --branch \$staging_branch/);
-    expect(src).toMatch(/"\$TORQUE_REMOTE_BIN" --suite gate --branch "\$staging_branch"/);
+    // The suite name includes the conservative gate plan hash. Without it,
+    // a warm result from a docs-only or affected-test run could be replayed
+    // for a later full-gate override against the same commit.
+    expect(src).toMatch(/GATE_COORD_SUITE/);
+    expect(src).toMatch(/\$TORQUE_REMOTE_CMD --suite \$GATE_COORD_SUITE --branch \$staging_branch/);
+    expect(src).not.toMatch(/PERF_OUT=\$\("\$TORQUE_REMOTE_BIN" --suite gate/);
   });
 
   it('prefers the repo-local bin directory before invoking torque-remote', () => {
@@ -86,8 +86,15 @@ describe('pre-push-hook staging-branch invariants', () => {
     expect(src).toMatch(/export PATH/);
     expect(src).toMatch(/TORQUE_REMOTE_BIN="\$REPO_ROOT\/bin\/torque-remote"/);
     expect(src).toMatch(/TORQUE_REMOTE_CMD="\$\(printf '%q' "\$TORQUE_REMOTE_BIN"\)"/);
-    expect(src).toMatch(/run_with_flake_retry "Test gate" "\$TORQUE_REMOTE_CMD --suite gate/);
-    expect(src).toMatch(/PERF_OUT=\$\("\$TORQUE_REMOTE_BIN" --suite gate/);
+    expect(src).toMatch(/run_with_flake_retry "Remote gate" "\$TORQUE_REMOTE_CMD --suite \$GATE_COORD_SUITE/);
+  });
+
+  it('uses a conservative changed-file gate planner before remote execution', () => {
+    const src = readHook();
+    expect(src).toMatch(/scripts\/pre-push-gate-plan\.js/);
+    expect(src).toMatch(/Gate phases: dashboard=\$GATE_RUN_DASHBOARD server=\$GATE_RUN_SERVER perf=\$GATE_RUN_PERF audit=\$GATE_RUN_AUDIT/);
+    expect(src).toMatch(/PRE_PUSH_FORCE_FULL/);
+    expect(src).toMatch(/Heavy remote gate skipped by gate plan/);
   });
 
   it('installs an EXIT trap that deletes the staging ref', () => {
@@ -164,6 +171,14 @@ describe('torque-remote staging branch validation', () => {
     const src = readTorqueRemote();
     expect(src).toMatch(/\[\[\s+!\s+"\$BRANCH_OVERRIDE"\s+=~\s+\^\[a-zA-Z0-9_\.\/-\]\+\$\s+\]\]/);
     expect(src).toMatch(/Branch '\$BRANCH_OVERRIDE' contains unsafe characters/);
+  });
+
+  it('keys coord cache by resolved commit sha instead of the ephemeral staging branch name', () => {
+    const src = readTorqueRemote();
+    expect(src).toMatch(/resolve_coord_sha\s*\(\)/);
+    expect(src).toMatch(/TORQUE_REMOTE_COORD_SHA/);
+    expect(src).toMatch(/git\s+ls-remote\s+--heads\s+origin\s+"\$BRANCH_OVERRIDE"/);
+    expect(src).toMatch(/COORD_SHA="\$\(resolve_coord_sha\)"/);
   });
 });
 
