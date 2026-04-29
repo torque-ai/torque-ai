@@ -192,9 +192,76 @@ cleanup_remote_exec() {
 }
 
 cleanup_on_exit() {
+  release_remote_sync_lock
   cleanup_remote_exec
   cleanup_temp_dirs
   sweep_old_orphans
+}
+
+# Filesystem-level mutex on the remote test worktree, held for the entire
+# torque-remote invocation that does a sync. Two concurrent torque-remote
+# calls targeting the same `$EFFECTIVE_REMOTE_PROJECT_PATH` need to
+# serialize their `git fetch + checkout + reset --hard` AND the inner
+# command — otherwise the second call's checkout swaps HEAD between the
+# first call's sync and its test, contaminating the first run.
+#
+# The exit-98 guard in the runner.sh body (added 2026-04-28) detects
+# this AFTER the contamination happens. This lock prevents it.
+#
+# `--suite gate` already serializes via the coord daemon, but `--suite
+# custom` (factory autopilot's default) skipped coord entirely and was
+# the source of the race. Acquire the FS lock for ALL sync paths
+# regardless of suite, since the coord daemon's lock semantic
+# (result-cache key) is different from "exclusive worktree access".
+#
+# Implementation: `mkdir` is atomic on Windows and posix. The directory
+# exists ⇒ someone holds the lock. Held across the whole script via the
+# EXIT trap.
+REMOTE_SYNC_LOCK_HELD=0
+REMOTE_SYNC_LOCK_DIR=""
+
+acquire_remote_sync_lock() {
+  if [[ -z "${SSH_USER:-}" || -z "${SSH_HOST:-}" || -z "${EFFECTIVE_REMOTE_PROJECT_PATH:-}" ]]; then
+    return 0
+  fi
+
+  REMOTE_SYNC_LOCK_DIR="$EFFECTIVE_REMOTE_PROJECT_PATH\\.torque-remote-sync.lock"
+  local timeout=300
+  local elapsed=0
+  local poll=2
+  local ack
+  while true; do
+    # CMD-compatible: `if not exist DIR (mkdir DIR && echo ACQUIRED) else (echo HELD)`.
+    # mkdir on Windows is atomic at the directory-entry level; if two
+    # acquires race, only one's mkdir succeeds, the other reports HELD.
+    ack=$(ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" \
+      "if not exist \"$REMOTE_SYNC_LOCK_DIR\" (mkdir \"$REMOTE_SYNC_LOCK_DIR\" 2>nul && echo ACQUIRED) else (echo HELD)" \
+      2>/dev/null | tr -d '\r' | tail -1)
+    if [[ "$ack" == "ACQUIRED" ]]; then
+      REMOTE_SYNC_LOCK_HELD=1
+      return 0
+    fi
+    if (( elapsed == 0 )); then
+      info "Waiting for remote sync lock at $EFFECTIVE_REMOTE_PROJECT_PATH (held by another torque-remote invocation)..."
+    fi
+    sleep "$poll"
+    elapsed=$((elapsed + poll))
+    if (( elapsed >= timeout )); then
+      warn "Sync lock wait exceeded ${timeout}s; proceeding without serialization (risk of worktree contamination)"
+      return 1
+    fi
+  done
+}
+
+release_remote_sync_lock() {
+  if [[ "${REMOTE_SYNC_LOCK_HELD:-0}" != "1" || -z "${REMOTE_SYNC_LOCK_DIR:-}" ]]; then
+    return 0
+  fi
+  ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" \
+    "rmdir \"$REMOTE_SYNC_LOCK_DIR\" 2>nul" \
+    >/dev/null 2>&1 || true
+  REMOTE_SYNC_LOCK_HELD=0
+  REMOTE_SYNC_LOCK_DIR=""
 }
 
 resolve_sync_ref() {
@@ -812,6 +879,11 @@ case "$TRANSPORT" in
 
     # Sync
     if [[ "$SYNC_BEFORE_RUN" == "true" ]]; then
+      # Acquire exclusive worktree lock BEFORE sync so concurrent
+      # torque-remote invocations against the same remote project path
+      # serialize. Released in cleanup_on_exit.
+      acquire_remote_sync_lock || true
+
       if [[ -n "$BRANCH_OVERRIDE" ]]; then
         if ! git rev-parse --verify "origin/$BRANCH_OVERRIDE" >/dev/null 2>&1; then
           die "Branch '$BRANCH_OVERRIDE' does not exist on origin"
