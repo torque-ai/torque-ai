@@ -17,18 +17,24 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
-// Bash on Windows (Git Bash) needs MinGW-style absolute paths (/c/foo/bar)
-// rather than the Windows-form (C:/foo/bar or C:\foo\bar) that path.resolve
-// returns. Git Bash interprets `bash C:/path/to/script` as a missing-script
-// (exit 127); the same script invoked as `bash /c/path/to/script` runs
-// fine. Strip the drive letter into the leading `/<letter>/` form. On
-// Linux/macOS path.resolve already returns POSIX-style; the regex is a
-// no-op there.
+// On the Windows remote, bare `bash` on PATH resolves to WSL's bash (matches
+// the existing feedback_test_remote_wsl_bash_trap pattern) — its path-space
+// is the WSL VM's, so /c/trt/... or C:/trt/... both miss the host's actual
+// filesystem and the script load fails with exit 127. Pin Git Bash via its
+// short-name path (matching what bin/torque-remote uses internally). On
+// Linux/macOS, fall back to plain `bash`.
+const GIT_BASH_WIN = 'C:\\progra~1\\Git\\bin\\bash.exe';
+const BASH_BIN = process.platform === 'win32' && fs.existsSync('C:\\Program Files\\Git\\bin\\bash.exe')
+  ? GIT_BASH_WIN
+  : 'bash';
+
+// Git Bash needs MinGW-style absolute paths (/c/foo/bar) for argv-passed
+// script paths; Linux/macOS use POSIX paths from path.resolve directly.
 const GUARD_RAW = path.resolve(__dirname, '..', '..', 'bin', 'torque-remote-guard');
 const GUARD = GUARD_RAW
   .replace(/\\/g, '/')
   .replace(/^([A-Za-z]):/, (_, d) => '/' + d.toLowerCase());
-const BASH_PROBE = spawnSync('bash', ['--version'], { encoding: 'utf8' });
+const BASH_PROBE = spawnSync(BASH_BIN, ['--version'], { encoding: 'utf8' });
 const BASH_AVAILABLE = BASH_PROBE.status === 0;
 
 const SKIP = !BASH_AVAILABLE || !fs.existsSync(GUARD_RAW);
@@ -38,7 +44,7 @@ const SKIP = !BASH_AVAILABLE || !fs.existsSync(GUARD_RAW);
 const maybe = SKIP ? describe.skip : describe;
 
 function runGuard(command, cwd) {
-  return spawnSync('bash', [GUARD], {
+  return spawnSync(BASH_BIN, [GUARD], {
     cwd,
     input: JSON.stringify({ tool_input: { command } }),
     encoding: 'utf8',
