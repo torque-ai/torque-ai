@@ -25,6 +25,21 @@ function getDatabase() {
     return require('../database');
   }
 }
+// The shared TestRunnerRegistry is the only one the remote-agents plugin
+// registers overrides on. A fresh instance created here would silently
+// bypass remote routing (its _overrides is null) and run verify_command
+// locally — spawning the full dotnet/vitest/etc. test chain on the dev box.
+// Always prefer the container singleton; fall back to a fresh instance only
+// in pre-boot test contexts.
+function getTestRunnerRegistry() {
+  try {
+    const { defaultContainer } = require('../container');
+    const registry = defaultContainer.get('testRunnerRegistry');
+    if (registry) return registry;
+  } catch { /* fall through to pre-boot fallback */ }
+  // eslint-disable-next-line global-require -- pre-boot fallback
+  return require('../test-runner-registry').createTestRunnerRegistry();
+}
 const factoryDecisions = require('../db/factory-decisions');
 const factoryAudit = require('../db/factory-audit');
 const factoryArchitect = require('../db/factory-architect');
@@ -1523,7 +1538,7 @@ async function executeBaselineResumeProbe({
 
   try {
     const baselineProbe = require('../factory/baseline-probe');
-    const runnerRegistry = require('../test-runner-registry').createTestRunnerRegistry();
+    const runnerRegistry = getTestRunnerRegistry();
     const runner = async ({ command, cwd, timeoutMs: runnerTimeoutMs }) => {
       const runnerResult = await runnerRegistry.runVerifyCommand(command, cwd, { timeout: runnerTimeoutMs });
       return {
