@@ -1,4 +1,5 @@
 import { lazy, Suspense, useState } from 'react';
+import { useLocation } from 'react-router-dom';
 import TabBar from '../components/TabBar';
 
 const Workflows = lazy(() => import('./Workflows'));
@@ -13,8 +14,15 @@ const TABS = [
 
 const LOADING_FALLBACK = <div className="p-6 text-slate-400">Loading...</div>;
 
+function resolveInitialTab(hash) {
+  const hashId = String(hash || '').replace(/^#/, '');
+  return TABS.some((tab) => tab.id === hashId) ? hashId : 'workflows';
+}
+
 export default function WorkflowsHub(props) {
-  const [tab, setTab] = useState('workflows');
+  const location = useLocation();
+  const initialTab = resolveInitialTab(location.hash);
+  const [tab, setTab] = useState(initialTab);
   const [showHelp, setShowHelp] = useState(() => {
     try {
       return localStorage.getItem('torque-workflows-help-dismissed') !== 'true';
@@ -32,7 +40,7 @@ export default function WorkflowsHub(props) {
     <div>
       <div className="px-6 pt-6">
         <h1 className="heading-lg text-white mb-4">Workflows</h1>
-        <TabBar tabs={TABS} defaultTab="workflows" onTabChange={setTab} />
+        <TabBar tabs={TABS} defaultTab={initialTab} onTabChange={setTab} />
       </div>
 
       {showHelp && (
