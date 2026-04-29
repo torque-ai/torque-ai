@@ -35,6 +35,16 @@ const openStatus = {
   },
 };
 
+function createDeferred() {
+  let resolve;
+  let reject;
+  const promise = new Promise((promiseResolve, promiseReject) => {
+    resolve = promiseResolve;
+    reject = promiseReject;
+  });
+  return { promise, resolve, reject };
+}
+
 describe('CodexBreaker view', () => {
   beforeEach(() => {
     codexBreakerApi.getStatus.mockResolvedValue(closedStatus);
@@ -57,6 +67,39 @@ describe('CodexBreaker view', () => {
     const closedBadges = await screen.findAllByText('CLOSED');
     // One badge for live state, one for persisted record.
     expect(closedBadges.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('shows a loading skeleton before the breaker status response', async () => {
+    const statusRequest = createDeferred();
+    codexBreakerApi.getStatus.mockReturnValue(statusRequest.promise);
+
+    renderWithProviders(<CodexBreaker />);
+
+    expect(screen.getAllByTestId('loading-skeleton').length).toBeGreaterThanOrEqual(1);
+    statusRequest.resolve(closedStatus);
+    const closedBadges = await screen.findAllByText('CLOSED');
+    expect(closedBadges.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('shows a retryable error state when breaker status fails', async () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    codexBreakerApi.getStatus
+      .mockRejectedValueOnce(new Error('status backend offline'))
+      .mockResolvedValueOnce(closedStatus);
+
+    renderWithProviders(<CodexBreaker />);
+
+    expect(await screen.findByText('Codex breaker status unavailable')).toBeInTheDocument();
+    expect(screen.getByText(/status backend offline/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+
+    await waitFor(() => {
+      expect(codexBreakerApi.getStatus).toHaveBeenCalledTimes(2);
+    });
+    const closedBadges = await screen.findAllByText('CLOSED');
+    expect(closedBadges.length).toBeGreaterThanOrEqual(2);
+    consoleSpy.mockRestore();
   });
 
   it('shows OPEN state with persisted trip metadata', async () => {
@@ -96,6 +139,17 @@ describe('CodexBreaker view', () => {
     });
   });
 
+  it('shows a parked items loading state before factory projects resolve', async () => {
+    const projectsRequest = createDeferred();
+    factoryApi.projects.mockReturnValue(projectsRequest.promise);
+
+    renderWithProviders(<CodexBreaker />);
+
+    expect(screen.getByText(/Loading parked work items/i)).toBeInTheDocument();
+    projectsRequest.resolve({ items: [] });
+    expect(await screen.findByText(/No work items currently parked/i)).toBeInTheDocument();
+  });
+
   it('renders parked work items from factory.intake', async () => {
     factoryApi.projects.mockResolvedValue({ items: [{ id: 'proj-1', name: 'Demo' }] });
     factoryApi.intake.mockResolvedValue({
@@ -109,7 +163,7 @@ describe('CodexBreaker view', () => {
     });
   });
 
-  it('soft-fails parked items list when the endpoint errors', async () => {
+  it('shows a global parked items failure without hiding breaker status', async () => {
     const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     factoryApi.projects.mockResolvedValue({ items: [{ id: 'proj-1', name: 'Demo' }] });
     factoryApi.intake.mockRejectedValue(new Error('not supported'));
@@ -117,6 +171,9 @@ describe('CodexBreaker view', () => {
     await waitFor(() => {
       expect(screen.getByText(/Parked items unavailable/i)).toBeInTheDocument();
     });
+    expect(screen.getByText(/Every project intake request failed/i)).toBeInTheDocument();
+    const closedBadges = await screen.findAllByText('CLOSED');
+    expect(closedBadges.length).toBeGreaterThanOrEqual(2);
     consoleSpy.mockRestore();
   });
 
@@ -138,8 +195,17 @@ describe('CodexBreaker view', () => {
     await waitFor(() => {
       expect(screen.getByText('Parked Item A')).toBeInTheDocument();
     });
-    // Should NOT show the "Parked items unavailable" banner since one project worked
+    expect(screen.getByText(/Some parked items could not be loaded/i)).toBeInTheDocument();
     expect(screen.queryByText(/parked items unavailable/i)).not.toBeInTheDocument();
     consoleSpy.mockRestore();
+  });
+
+  it('shows the parked items empty state when no projects return parked work', async () => {
+    factoryApi.projects.mockResolvedValue({ items: [{ id: 'proj-1', name: 'Demo' }] });
+    factoryApi.intake.mockResolvedValue({ items: [] });
+
+    renderWithProviders(<CodexBreaker />);
+
+    expect(await screen.findByText(/No work items currently parked/i)).toBeInTheDocument();
   });
 });
