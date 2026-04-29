@@ -51,6 +51,8 @@ describe('pre-push-hook staging-branch invariants', () => {
   it('stages HEAD on a pre-push-gate/<sha> branch', () => {
     const src = readHook();
     expect(src).toMatch(/staging_branch="pre-push-gate\//);
+    expect(src).toMatch(/hook_run_id="\$\(date \+%s 2>\/dev\/null \|\| echo time\)-\$\$"/);
+    expect(src).toMatch(/staging_branch="pre-push-gate\/\$\(echo "\$local_head_sha" \| cut -c1-12\)-\$hook_run_id"/);
     expect(src).toMatch(/git\s+push\s+[^\n]*origin\s+"?\$(?:\{)?local_head_sha(?:\})?"?:refs\/heads\/\$(?:\{)?staging_branch/);
   });
 

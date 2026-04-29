@@ -308,10 +308,11 @@ run_with_flake_retry() {
   rm -f "$tmp"
 }
 
-# Disposable ref under refs/heads/pre-push-gate/. Includes the local sha so
-# concurrent pushes from different working trees don't collide, and so a
-# failed cleanup (rare) leaves a ref we can later GC by prefix.
-staging_branch="pre-push-gate/$(echo "$local_head_sha" | cut -c1-12)"
+# Disposable ref under refs/heads/pre-push-gate/. Includes the local sha plus
+# a per-hook-run suffix so an older failed hook's EXIT cleanup cannot delete a
+# newer attempt for the same HEAD while the newer remote sync is still fetching.
+hook_run_id="$(date +%s 2>/dev/null || echo time)-$$"
+staging_branch="pre-push-gate/$(echo "$local_head_sha" | cut -c1-12)-$hook_run_id"
 
 delete_staging_ref() {
   # Best-effort cleanup — never block the hook on a failed cleanup, but log
