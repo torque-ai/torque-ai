@@ -527,5 +527,37 @@ describe('factory alert notification primitives', () => {
     });
     expect(eventBus.emitTaskEvent).not.toHaveBeenCalled();
     expect(notifications.getFactoryAlertBadge({ project_id: PROJECT_ID })).toBeNull();
+
+    notifications._testing.resetAlertRuntimeState();
+    vi.clearAllMocks();
+
+    const stale = notifications.recordFactoryTickState({
+      project_id: PROJECT_ID,
+      project_status: 'running',
+      stage: 'EXECUTE',
+      instance_id: 'loop-active-batch',
+      batch_id: 'batch-active',
+      last_action_at: '2026-04-20T12:00:00.000Z',
+    });
+    expect(stale.alerted).toBe(true);
+    expect(notifications.getFactoryAlertBadge({ project_id: PROJECT_ID })).toMatchObject({
+      alert_type: notifications.ALERT_TYPES.FACTORY_STALLED,
+    });
+
+    const activeBatch = notifications.recordFactoryTickState({
+      project_id: PROJECT_ID,
+      project_status: 'running',
+      stage: 'EXECUTE',
+      instance_id: 'loop-active-batch',
+      batch_id: 'batch-active',
+      last_action_at: '2026-04-20T12:00:00.000Z',
+      has_non_terminal_batch_tasks: true,
+    });
+
+    expect(activeBatch).toMatchObject({
+      alerted: false,
+      stalled: false,
+    });
+    expect(notifications.getFactoryAlertBadge({ project_id: PROJECT_ID })).toBeNull();
   });
 });
