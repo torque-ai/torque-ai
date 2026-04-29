@@ -1,5 +1,7 @@
 'use strict';
 
+const fs = require('fs');
+const path = require('path');
 const { StreamSignalParser } = require('../diffusion/stream-signal-parser');
 
 const STARVATION_RECOVERY_REASON = 'factory_starvation_recovery';
@@ -219,6 +221,68 @@ function buildConcreteDescription(item, task) {
   ].filter(Boolean).join('\n\n');
 }
 
+/**
+ * Resolve the working directory for a scout task. Tasks store the actual
+ * working directory at the top level; metadata may also carry project_path
+ * or working_directory as a fallback. Returns null when none is available
+ * — in that case existence checks fail-open (we can't validate without a
+ * base directory, so we let the original behavior pass through).
+ */
+function resolveScoutWorkingDir(task, metadata) {
+  const candidates = [
+    task?.working_directory,
+    metadata?.working_directory,
+    metadata?.project_path,
+  ];
+  for (const c of candidates) {
+    if (typeof c === 'string' && c.trim()) {
+      return c.trim();
+    }
+  }
+  return null;
+}
+
+/**
+ * Filter a list of file path strings to those that exist relative to baseDir.
+ * Used to catch hallucinated exemplar_files from small-LLM scouts that invent
+ * paths instead of reading the real codebase (observed 2026-04-29 with
+ * qwen3-coder:30b producing factory-starvation-recovery.md and 3 other
+ * fictional paths in a DLPhone scout, see scout task e50cfe25).
+ *
+ * @returns {{ kept: string[], dropped: string[], unchecked: boolean }}
+ *   `unchecked: true` when baseDir is missing or input is not an array —
+ *   callers should fail-open in that case.
+ */
+function filterExistingFiles(filePaths, baseDir) {
+  if (!Array.isArray(filePaths) || filePaths.length === 0) {
+    return { kept: [], dropped: [], unchecked: false };
+  }
+  if (!baseDir || typeof baseDir !== 'string') {
+    return { kept: [...filePaths], dropped: [], unchecked: true };
+  }
+  const kept = [];
+  const dropped = [];
+  for (const raw of filePaths) {
+    if (typeof raw !== 'string') continue;
+    const trimmed = raw.trim();
+    if (!trimmed) continue;
+    const normalized = trimmed.replace(/\\/g, '/');
+    const resolved = path.resolve(baseDir, normalized);
+    let exists = false;
+    try {
+      exists = fs.existsSync(resolved);
+    } catch {
+      exists = false;
+    }
+    if (exists) {
+      kept.push(raw);
+    } else {
+      dropped.push(raw);
+    }
+  }
+  return { kept, dropped, unchecked: false };
+}
+
 function priorityForConcreteItem(item) {
   if (typeof item.priority === 'string') {
     const normalized = item.priority.trim().toLowerCase();
@@ -294,6 +358,7 @@ function createScoutOutputIntake({ factoryIntake, logger = console, resolveProje
 
     const patterns = collectPatterns(task.output || '');
     const concreteItems = collectConcreteWorkItems(task.output || '');
+    const workingDir = resolveScoutWorkingDir(task, metadata);
     const created = [];
     const skipped = [];
 
@@ -308,6 +373,46 @@ function createScoutOutputIntake({ factoryIntake, logger = console, resolveProje
       if (duplicate) {
         skipped.push({ ...duplicate, title });
         continue;
+      }
+
+      // Existence guard: drop patterns whose exemplar_files are entirely
+      // hallucinated. Small-LLM scouts (qwen3-coder:30b on DLPhone, scout
+      // task e50cfe25 on 2026-04-29) regularly produce plausible-looking
+      // patterns about fictional files. Without this filter the patterns
+      // reach the architect, get re-planned 5 times until the deterministic
+      // plan-quality cap kicks in, then move on to the next hallucinated
+      // pattern — burning a full STARVED recovery cycle on garbage.
+      if (pattern.exemplar_files.length > 0) {
+        const existence = filterExistingFiles(pattern.exemplar_files, workingDir);
+        if (!existence.unchecked && existence.kept.length === 0 && existence.dropped.length > 0) {
+          logger.warn?.('Scout pattern dropped: all exemplar_files non-existent', {
+            project_id: projectId,
+            pattern_id: pattern.id,
+            title,
+            dropped_files: existence.dropped,
+            working_directory: workingDir,
+            scout_task_id: task?.id || null,
+          });
+          skipped.push({
+            reason: 'exemplar_files_hallucinated',
+            title,
+            pattern_id: pattern.id,
+            dropped_files: existence.dropped,
+          });
+          continue;
+        }
+        if (!existence.unchecked && existence.dropped.length > 0) {
+          logger.info?.('Scout pattern: filtered hallucinated exemplar_files', {
+            project_id: projectId,
+            pattern_id: pattern.id,
+            title,
+            kept_count: existence.kept.length,
+            dropped_count: existence.dropped.length,
+            dropped_files: existence.dropped,
+            scout_task_id: task?.id || null,
+          });
+          pattern.exemplar_files = existence.kept;
+        }
       }
 
       try {
@@ -344,6 +449,40 @@ function createScoutOutputIntake({ factoryIntake, logger = console, resolveProje
       if (duplicate) {
         skipped.push({ ...duplicate, title });
         continue;
+      }
+
+      // Existence guard for concrete work items — same rationale as the
+      // pattern loop above. allowed_files is the ground truth for what
+      // the EXECUTE stage will be allowed to touch; if all entries are
+      // hallucinated, the work item can't possibly be executed.
+      if (concreteItem.allowed_files.length > 0) {
+        const existence = filterExistingFiles(concreteItem.allowed_files, workingDir);
+        if (!existence.unchecked && existence.kept.length === 0 && existence.dropped.length > 0) {
+          logger.warn?.('Scout concrete item dropped: all allowed_files non-existent', {
+            project_id: projectId,
+            title,
+            dropped_files: existence.dropped,
+            working_directory: workingDir,
+            scout_task_id: task?.id || null,
+          });
+          skipped.push({
+            reason: 'allowed_files_hallucinated',
+            title,
+            dropped_files: existence.dropped,
+          });
+          continue;
+        }
+        if (!existence.unchecked && existence.dropped.length > 0) {
+          logger.info?.('Scout concrete item: filtered hallucinated allowed_files', {
+            project_id: projectId,
+            title,
+            kept_count: existence.kept.length,
+            dropped_count: existence.dropped.length,
+            dropped_files: existence.dropped,
+            scout_task_id: task?.id || null,
+          });
+          concreteItem.allowed_files = existence.kept;
+        }
       }
 
       try {
@@ -426,7 +565,9 @@ module.exports = {
   collectConcreteWorkItems,
   collectPatterns,
   createScoutOutputIntake,
+  filterExistingFiles,
   isStarvationRecoveryScoutTask,
   promoteScoutSignalToIntake,
   promoteScoutTaskOutputToIntake,
+  resolveScoutWorkingDir,
 };

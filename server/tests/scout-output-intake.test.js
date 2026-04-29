@@ -1,11 +1,16 @@
 'use strict';
 
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
 const {
   collectConcreteWorkItems,
   collectPatterns,
   createScoutOutputIntake,
+  filterExistingFiles,
   isStarvationRecoveryScoutTask,
   promoteScoutSignalToIntake,
+  resolveScoutWorkingDir,
 } = require('../factory/scout-output-intake');
 
 describe('scout output intake', () => {
@@ -219,7 +224,10 @@ describe('scout output intake', () => {
 
     const result = intake.promoteTask({
       id: 'task-legacy',
-      working_directory: 'C:\\repo',
+      // No working_directory — resolveProjectId is mocked, so this test
+      // doesn't exercise path resolution. Omitting working_directory also
+      // makes the existence-guard fail-open (unchecked), preserving the
+      // original test intent of "concrete_factory_work_items get promoted."
       metadata: {
         mode: 'scout',
         scope: 'Factory starvation recovery scout. The project reached STARVED.',
@@ -324,5 +332,359 @@ describe('scout output intake', () => {
       }),
     );
     expect(factoryIntake.createWorkItem).not.toHaveBeenCalled();
+  });
+});
+
+describe('scout output intake — exemplar_files existence guard', () => {
+  // The guard catches small-LLM scouts (qwen3-coder:30b on DLPhone, scout
+  // task e50cfe25 on 2026-04-29) that hallucinate plausible-looking file
+  // paths instead of reading the real codebase. Without it, a hallucinated
+  // pattern reaches the architect, gets re-planned 5 times until the
+  // deterministic plan-quality cap kicks in, then moves to the next bad
+  // pattern — burning a full STARVED recovery cycle on garbage.
+
+  let tmpRoot;
+
+  beforeEach(() => {
+    tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'scout-existence-guard-'));
+    fs.mkdirSync(path.join(tmpRoot, 'server', 'factory'), { recursive: true });
+    fs.writeFileSync(path.join(tmpRoot, 'server', 'factory', 'real-file.js'), '// real');
+    fs.writeFileSync(path.join(tmpRoot, 'server', 'factory', 'another-real.js'), '// real');
+  });
+
+  afterEach(() => {
+    if (tmpRoot && fs.existsSync(tmpRoot)) {
+      fs.rmSync(tmpRoot, { recursive: true, force: true });
+    }
+  });
+
+  describe('filterExistingFiles', () => {
+    it('keeps files that exist relative to baseDir', () => {
+      const r = filterExistingFiles(['server/factory/real-file.js'], tmpRoot);
+      expect(r.kept).toEqual(['server/factory/real-file.js']);
+      expect(r.dropped).toEqual([]);
+      expect(r.unchecked).toBe(false);
+    });
+
+    it('drops files that do not exist', () => {
+      const r = filterExistingFiles(['server/factory/imaginary.js'], tmpRoot);
+      expect(r.kept).toEqual([]);
+      expect(r.dropped).toEqual(['server/factory/imaginary.js']);
+      expect(r.unchecked).toBe(false);
+    });
+
+    it('partitions a mixed list', () => {
+      const r = filterExistingFiles([
+        'server/factory/real-file.js',
+        'docs/superpowers/plans/factory-starvation-recovery.md',
+        'server/factory/another-real.js',
+        'docs/superpowers/plans/queue-monitoring.md',
+      ], tmpRoot);
+      expect(r.kept).toEqual([
+        'server/factory/real-file.js',
+        'server/factory/another-real.js',
+      ]);
+      expect(r.dropped).toEqual([
+        'docs/superpowers/plans/factory-starvation-recovery.md',
+        'docs/superpowers/plans/queue-monitoring.md',
+      ]);
+      expect(r.unchecked).toBe(false);
+    });
+
+    it('handles backslash-style paths from Windows scouts', () => {
+      const r = filterExistingFiles(['server\\factory\\real-file.js'], tmpRoot);
+      expect(r.kept).toEqual(['server\\factory\\real-file.js']);
+      expect(r.dropped).toEqual([]);
+    });
+
+    it('returns unchecked=true when baseDir is missing (fail-open)', () => {
+      const r = filterExistingFiles(['anything.js'], null);
+      expect(r.unchecked).toBe(true);
+      expect(r.kept).toEqual(['anything.js']);
+      expect(r.dropped).toEqual([]);
+    });
+
+    it('returns empty when input is empty or non-array', () => {
+      expect(filterExistingFiles([], tmpRoot)).toEqual({ kept: [], dropped: [], unchecked: false });
+      expect(filterExistingFiles(null, tmpRoot)).toEqual({ kept: [], dropped: [], unchecked: false });
+      expect(filterExistingFiles('not-an-array', tmpRoot)).toEqual({ kept: [], dropped: [], unchecked: false });
+    });
+
+    it('skips non-string and empty entries', () => {
+      const r = filterExistingFiles(['server/factory/real-file.js', '', null, 42, '   '], tmpRoot);
+      expect(r.kept).toEqual(['server/factory/real-file.js']);
+      expect(r.dropped).toEqual([]);
+    });
+  });
+
+  describe('resolveScoutWorkingDir', () => {
+    it('prefers task.working_directory', () => {
+      expect(resolveScoutWorkingDir(
+        { working_directory: 'C:/proj' },
+        { working_directory: 'C:/wrong', project_path: 'C:/wrong2' },
+      )).toBe('C:/proj');
+    });
+    it('falls back to metadata.working_directory then metadata.project_path', () => {
+      expect(resolveScoutWorkingDir({}, { working_directory: 'C:/meta' })).toBe('C:/meta');
+      expect(resolveScoutWorkingDir({}, { project_path: 'C:/proj' })).toBe('C:/proj');
+    });
+    it('returns null when no candidate is available', () => {
+      expect(resolveScoutWorkingDir({}, {})).toBe(null);
+      expect(resolveScoutWorkingDir(null, null)).toBe(null);
+      expect(resolveScoutWorkingDir({ working_directory: '   ' }, {})).toBe(null);
+    });
+  });
+
+  describe('promoteTask integration', () => {
+    function makeFactoryIntake() {
+      return {
+        findDuplicates: vi.fn().mockReturnValue([]),
+        findRecentDuplicateWorkItems: vi.fn().mockReturnValue([]),
+        createWorkItem: vi.fn((item) => ({ id: Math.floor(Math.random() * 1000), ...item })),
+      };
+    }
+
+    it('drops a pattern whose exemplar_files are entirely hallucinated', () => {
+      const factoryIntake = makeFactoryIntake();
+      const logger = { warn: vi.fn(), info: vi.fn() };
+      const intake = createScoutOutputIntake({ factoryIntake, logger });
+
+      const result = intake.promoteTask({
+        id: 'task-halluc',
+        status: 'completed',
+        working_directory: tmpRoot,
+        metadata: { mode: 'scout', reason: 'factory_starvation_recovery', project_id: 'project-1' },
+        output: [
+          '__PATTERNS_READY__',
+          JSON.stringify({
+            patterns: [{
+              id: 'queue-monitoring',
+              description: 'Add monitoring for queue starvation',
+              transformation: 'Add queue monitoring logic',
+              exemplar_files: ['docs/superpowers/plans/queue-monitoring.md'],
+              file_count: 15,
+            }],
+          }),
+          '__PATTERNS_READY_END__',
+        ].join('\n'),
+      });
+
+      expect(factoryIntake.createWorkItem).not.toHaveBeenCalled();
+      expect(result.created).toHaveLength(0);
+      expect(result.skipped).toEqual([expect.objectContaining({
+        reason: 'exemplar_files_hallucinated',
+        pattern_id: 'queue-monitoring',
+        dropped_files: ['docs/superpowers/plans/queue-monitoring.md'],
+      })]);
+      expect(logger.warn).toHaveBeenCalledWith(
+        'Scout pattern dropped: all exemplar_files non-existent',
+        expect.objectContaining({
+          project_id: 'project-1',
+          pattern_id: 'queue-monitoring',
+          scout_task_id: 'task-halluc',
+        }),
+      );
+    });
+
+    it('filters partially-hallucinated exemplar_files and creates the work item with the real subset', () => {
+      const factoryIntake = makeFactoryIntake();
+      const logger = { warn: vi.fn(), info: vi.fn() };
+      const intake = createScoutOutputIntake({ factoryIntake, logger });
+
+      const result = intake.promoteTask({
+        id: 'task-mixed',
+        status: 'completed',
+        working_directory: tmpRoot,
+        metadata: { mode: 'scout', reason: 'factory_starvation_recovery', project_id: 'project-1' },
+        output: [
+          '__PATTERNS_READY__',
+          JSON.stringify({
+            patterns: [{
+              id: 'mixed-pattern',
+              description: 'Pattern with mixed real and fake files',
+              transformation: 'Refactor',
+              exemplar_files: [
+                'server/factory/real-file.js',
+                'docs/superpowers/plans/imaginary.md',
+                'server/factory/another-real.js',
+              ],
+              file_count: 3,
+            }],
+          }),
+          '__PATTERNS_READY_END__',
+        ].join('\n'),
+      });
+
+      expect(result.created).toHaveLength(1);
+      expect(factoryIntake.createWorkItem).toHaveBeenCalledWith(expect.objectContaining({
+        origin: expect.objectContaining({
+          exemplar_files: [
+            'server/factory/real-file.js',
+            'server/factory/another-real.js',
+          ],
+        }),
+      }));
+      expect(logger.info).toHaveBeenCalledWith(
+        'Scout pattern: filtered hallucinated exemplar_files',
+        expect.objectContaining({
+          pattern_id: 'mixed-pattern',
+          kept_count: 2,
+          dropped_count: 1,
+        }),
+      );
+    });
+
+    it('creates the work item normally when all exemplar_files exist', () => {
+      const factoryIntake = makeFactoryIntake();
+      const logger = { warn: vi.fn(), info: vi.fn() };
+      const intake = createScoutOutputIntake({ factoryIntake, logger });
+
+      const result = intake.promoteTask({
+        id: 'task-clean',
+        status: 'completed',
+        working_directory: tmpRoot,
+        metadata: { mode: 'scout', reason: 'factory_starvation_recovery', project_id: 'project-1' },
+        output: [
+          '__PATTERNS_READY__',
+          JSON.stringify({
+            patterns: [{
+              id: 'real-pattern',
+              description: 'Pattern with real exemplars',
+              exemplar_files: ['server/factory/real-file.js'],
+              file_count: 1,
+            }],
+          }),
+          '__PATTERNS_READY_END__',
+        ].join('\n'),
+      });
+
+      expect(result.created).toHaveLength(1);
+      expect(logger.warn).not.toHaveBeenCalled();
+      expect(logger.info).not.toHaveBeenCalled();
+    });
+
+    it('fails open when no working_directory is available (preserves prior behavior)', () => {
+      const factoryIntake = makeFactoryIntake();
+      const logger = { warn: vi.fn(), info: vi.fn() };
+      const intake = createScoutOutputIntake({ factoryIntake, logger });
+
+      const result = intake.promoteTask({
+        id: 'task-no-cwd',
+        status: 'completed',
+        // no working_directory; no project_path/working_directory in metadata
+        metadata: { mode: 'scout', reason: 'factory_starvation_recovery', project_id: 'project-1' },
+        output: [
+          '__PATTERNS_READY__',
+          JSON.stringify({
+            patterns: [{
+              id: 'unchecked-pattern',
+              description: 'Pattern that cannot be validated',
+              exemplar_files: ['some/path/that/might/not/exist.js'],
+              file_count: 1,
+            }],
+          }),
+          '__PATTERNS_READY_END__',
+        ].join('\n'),
+      });
+
+      expect(result.created).toHaveLength(1);
+      expect(logger.warn).not.toHaveBeenCalled();
+    });
+
+    it('does not gate on patterns that have no exemplar_files at all', () => {
+      // A pattern with 0 exemplar_files makes no path claim, so the guard
+      // shouldn't drop it. The factory's other quality gates handle the
+      // "vague pattern" case.
+      const factoryIntake = makeFactoryIntake();
+      const intake = createScoutOutputIntake({ factoryIntake });
+
+      const result = intake.promoteTask({
+        id: 'task-empty-exemplars',
+        status: 'completed',
+        working_directory: tmpRoot,
+        metadata: { mode: 'scout', reason: 'factory_starvation_recovery', project_id: 'project-1' },
+        output: [
+          '__PATTERNS_READY__',
+          JSON.stringify({
+            patterns: [{
+              id: 'no-exemplars',
+              description: 'Pattern without exemplar_files',
+              exemplar_files: [],
+              file_count: 0,
+            }],
+          }),
+          '__PATTERNS_READY_END__',
+        ].join('\n'),
+      });
+
+      expect(result.created).toHaveLength(1);
+    });
+
+    it('drops a concrete work item whose allowed_files are entirely hallucinated', () => {
+      const factoryIntake = makeFactoryIntake();
+      const logger = { warn: vi.fn(), info: vi.fn() };
+      const intake = createScoutOutputIntake({ factoryIntake, logger });
+
+      const result = intake.promoteTask({
+        id: 'task-concrete-halluc',
+        status: 'completed',
+        working_directory: tmpRoot,
+        metadata: { mode: 'scout', reason: 'factory_starvation_recovery', project_id: 'project-1' },
+        output: [
+          '__SCOUT_COMPLETE__',
+          JSON.stringify({
+            concrete_factory_work_items: [{
+              title: 'Implement queue starvation recovery',
+              description: 'Add starvation recovery mechanism',
+              allowed_files: ['docs/imagined.md', 'src/imagined.ts'],
+            }],
+          }),
+          '__SCOUT_COMPLETE_END__',
+        ].join('\n'),
+      });
+
+      expect(result.created).toHaveLength(0);
+      expect(result.skipped).toEqual([expect.objectContaining({
+        reason: 'allowed_files_hallucinated',
+        dropped_files: ['docs/imagined.md', 'src/imagined.ts'],
+      })]);
+    });
+
+    it('falls back to metadata.project_path when task.working_directory is absent', () => {
+      const factoryIntake = makeFactoryIntake();
+      const logger = { warn: vi.fn(), info: vi.fn() };
+      const intake = createScoutOutputIntake({ factoryIntake, logger });
+
+      intake.promoteTask({
+        id: 'task-meta-cwd',
+        status: 'completed',
+        // no working_directory at top level
+        metadata: {
+          mode: 'scout',
+          reason: 'factory_starvation_recovery',
+          project_id: 'project-1',
+          project_path: tmpRoot,
+        },
+        output: [
+          '__PATTERNS_READY__',
+          JSON.stringify({
+            patterns: [{
+              id: 'p1',
+              description: 'Pattern',
+              exemplar_files: ['docs/imagined.md'],
+              file_count: 1,
+            }],
+          }),
+          '__PATTERNS_READY_END__',
+        ].join('\n'),
+      });
+
+      expect(logger.warn).toHaveBeenCalledWith(
+        'Scout pattern dropped: all exemplar_files non-existent',
+        expect.objectContaining({
+          working_directory: tmpRoot,
+        }),
+      );
+    });
   });
 });
