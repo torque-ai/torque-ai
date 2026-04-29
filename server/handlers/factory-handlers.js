@@ -5,7 +5,14 @@ const { randomUUID } = require('crypto');
 const path = require('path');
 const fs = require('fs');
 const childProcess = require('child_process');
-const database = require('../database');
+// Lazy-resolve the database via the DI container at call time. database.js
+// registers the facade as 'db' on defaultContainer during init() and
+// resetForTest(), so this is the single source of truth. We avoid a
+// top-level direct require so the DI lint check stays clean.
+function getDatabase() {
+  const { defaultContainer } = require('../container');
+  return defaultContainer.get('db');
+}
 const factoryDecisions = require('../db/factory-decisions');
 const factoryAudit = require('../db/factory-audit');
 const factoryArchitect = require('../db/factory-architect');
@@ -430,7 +437,7 @@ function buildFactoryLoopErrorResponse(error) {
 }
 
 function ensureFactoryDecisionDb() {
-  const db = database.getDbInstance();
+  const db = getDatabase().getDbInstance();
   if (db) {
     factoryDecisions.setDb(db);
   }
@@ -1087,7 +1094,7 @@ async function handleIntakeFromFindings(args) {
 async function handleScanPlansDirectory(args) {
   const project = resolveProject(args.project_id);
   const plansDir = validatePlansDir({ projectPath: project.path, plansDir: args.plans_dir });
-  const db = database.getDbInstance();
+  const db = getDatabase().getDbInstance();
   const repoRoot = resolvePlansRepoRoot(project.path, plansDir);
   const shippedDetector = createShippedDetector({ repoRoot });
   const planIntake = createPlanFileIntake({ db, factoryIntake, shippedDetector });
@@ -2008,7 +2015,7 @@ async function handleFactoryProviderLaneAudit(args) {
   const project = resolveProject(args.project);
   const audit = buildProviderLaneAudit({
     project,
-    db: database.getDbInstance(),
+    db: getDatabase().getDbInstance(),
     limit: args.limit,
     expected_provider: args.expected_provider,
     allowed_fallback_providers: args.allowed_fallback_providers,
