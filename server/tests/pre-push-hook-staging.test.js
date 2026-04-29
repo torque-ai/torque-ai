@@ -136,6 +136,20 @@ describe('pre-push-hook staging-branch invariants', () => {
     expect(failuresHelper?.[0]).toMatch(/strip_ansi/);
     expect(flakeHelper?.[0]).toMatch(/strip_ansi/);
   });
+
+  it('sets the per-phase timeout default high enough for the current server suite', () => {
+    // Default lifted from 600s → 1800s on 2026-04-29 after the
+    // factory-coordination batch grew the server suite past 600s. Symptom:
+    // [gate-end] dash_exit=0 serv_exit=1 with no vitest summary, output cut
+    // mid-test — `timeout` killed vitest before the heredoc's `echo $?`
+    // could write SERV_EXIT_FILE, so the missing-file fallback wrote "1".
+    // Don't drop below 1800 without measuring; suite duration is monotonic
+    // upward as features land, and a too-tight default produces a
+    // failure shape that masquerades as a real test regression.
+    const src = readHook();
+    expect(src).toMatch(/PRE_PUSH_PHASE_TIMEOUT_SECS:-1800/);
+    expect(src).not.toMatch(/PRE_PUSH_PHASE_TIMEOUT_SECS:-600/);
+  });
 });
 
 describe('torque-remote staging branch validation', () => {
