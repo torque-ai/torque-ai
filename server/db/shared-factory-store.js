@@ -12,6 +12,7 @@ const DEFAULT_SHARED_FACTORY_DB_FILENAME = 'shared-factory.db';
 const DEFAULT_BUSY_TIMEOUT_MS = 5000;
 const DEFAULT_LEARNING_TTL_MS = 1000 * 60 * 60 * 24 * 30;
 const DEFAULT_CLAIM_TTL_MS = 1000 * 60 * 30;
+const DEFAULT_DEMAND_TTL_MS = 1000 * 60 * 5;
 
 function isNonEmptyString(value) {
   return typeof value === 'string' && value.trim().length > 0;
@@ -149,6 +150,27 @@ function ensureSchema(db) {
       ON factory_resource_claims(task_id);
     CREATE INDEX IF NOT EXISTS idx_factory_resource_claims_expires_at
       ON factory_resource_claims(expires_at);
+
+    CREATE TABLE IF NOT EXISTS factory_project_demands (
+      project_id TEXT NOT NULL,
+      project_name TEXT,
+      provider TEXT NOT NULL,
+      queued_count INTEGER NOT NULL DEFAULT 0,
+      running_count INTEGER NOT NULL DEFAULT 0,
+      priority_sum INTEGER NOT NULL DEFAULT 0,
+      payload_json TEXT NOT NULL DEFAULT '{}',
+      reported_at TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY(project_id, provider)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_factory_project_demands_provider
+      ON factory_project_demands(provider, expires_at);
+    CREATE INDEX IF NOT EXISTS idx_factory_project_demands_project
+      ON factory_project_demands(project_id, provider);
+    CREATE INDEX IF NOT EXISTS idx_factory_project_demands_expires_at
+      ON factory_project_demands(expires_at);
   `);
 }
 
@@ -244,12 +266,40 @@ function createSharedFactoryStore(options = {}) {
           updated_at = @released_at
       WHERE id = @id
     `),
+    expireDemands: db.prepare('DELETE FROM factory_project_demands WHERE expires_at <= ?'),
+    getDemandByKey: db.prepare(`
+      SELECT *
+      FROM factory_project_demands
+      WHERE project_id = ?
+        AND provider = ?
+      LIMIT 1
+    `),
+    upsertDemand: db.prepare(`
+      INSERT INTO factory_project_demands (
+        project_id, project_name, provider, queued_count, running_count,
+        priority_sum, payload_json, reported_at, expires_at, updated_at
+      )
+      VALUES (
+        @project_id, @project_name, @provider, @queued_count, @running_count,
+        @priority_sum, @payload_json, @reported_at, @expires_at, @updated_at
+      )
+      ON CONFLICT(project_id, provider) DO UPDATE SET
+        project_name = excluded.project_name,
+        queued_count = excluded.queued_count,
+        running_count = excluded.running_count,
+        priority_sum = excluded.priority_sum,
+        payload_json = excluded.payload_json,
+        reported_at = excluded.reported_at,
+        expires_at = excluded.expires_at,
+        updated_at = excluded.updated_at
+    `),
   };
 
   function expireStaleRowsNow(nowIso) {
     const learnings = statements.expireLearnings.run(nowIso).changes;
     const claims = statements.expireClaims.run(nowIso, nowIso).changes;
-    return { learnings, claims };
+    const demands = statements.expireDemands.run(nowIso).changes;
+    return { learnings, claims, demands };
   }
 
   const expireStaleRowsTxn = db.transaction(expireStaleRowsNow);
@@ -264,6 +314,12 @@ function createSharedFactoryStore(options = {}) {
     expireStaleRowsNow(nowIso);
     statements.upsertClaim.run(row);
     return statements.getClaimByKey.get(row.project_id, row.provider, row.task_id);
+  });
+
+  const upsertDemandTxn = db.transaction((row, nowIso) => {
+    expireStaleRowsNow(nowIso);
+    statements.upsertDemand.run(row);
+    return statements.getDemandByKey.get(row.project_id, row.provider);
   });
 
   function buildLearningRow(record = {}) {
@@ -307,6 +363,28 @@ function createSharedFactoryStore(options = {}) {
         ttlMs: record.ttlMs ?? (record.ttlSeconds ? Number(record.ttlSeconds) * 1000 : undefined),
         defaultTtlMs: DEFAULT_CLAIM_TTL_MS,
         now: claimedAt,
+      }),
+      updated_at: nowIso,
+    };
+  }
+
+  function buildDemandRow(record = {}) {
+    const nowIso = isoNow(record.now);
+    const reportedAt = normalizeIsoTimestamp(record.reported_at ?? record.reportedAt, 'reported_at') || nowIso;
+    return {
+      project_id: normalizeRequiredString('project_id', record.project_id ?? record.projectId ?? record.project),
+      project_name: normalizeOptionalString(record.project_name ?? record.projectName),
+      provider: normalizeRequiredString('provider', record.provider),
+      queued_count: normalizeCount(record.queued_count ?? record.queuedCount, 0),
+      running_count: normalizeCount(record.running_count ?? record.runningCount, 0),
+      priority_sum: normalizeCount(record.priority_sum ?? record.prioritySum, 0),
+      payload_json: normalizeJson(record.payload_json ?? record.payloadJson ?? record.payload),
+      reported_at: reportedAt,
+      expires_at: computeExpiresAt({
+        expiresAt: record.expires_at ?? record.expiresAt,
+        ttlMs: record.ttlMs ?? (record.ttlSeconds ? Number(record.ttlSeconds) * 1000 : undefined),
+        defaultTtlMs: DEFAULT_DEMAND_TTL_MS,
+        now: reportedAt,
       }),
       updated_at: nowIso,
     };
@@ -408,6 +486,82 @@ function createSharedFactoryStore(options = {}) {
     return listRows(sql, params, filters.limit);
   }
 
+  function findDemand(key) {
+    if (!key || typeof key !== 'object') return null;
+    return statements.getDemandByKey.get(
+      normalizeRequiredString('project_id', key.project_id ?? key.projectId ?? key.project),
+      normalizeRequiredString('provider', key.provider),
+    ) || null;
+  }
+
+  function listDemandRows(filters = {}) {
+    const nowIso = isoNow(filters.now);
+    const where = [];
+    const params = [];
+
+    if (!filters.includeExpired) {
+      where.push('expires_at > ?');
+      params.push(nowIso);
+    }
+    if (filters.project_id || filters.projectId || filters.project) {
+      where.push('project_id = ?');
+      params.push(normalizeRequiredString('project_id', filters.project_id ?? filters.projectId ?? filters.project));
+    }
+    if (filters.provider) {
+      where.push('provider = ?');
+      params.push(normalizeRequiredString('provider', filters.provider));
+    }
+
+    const sql = `
+      SELECT *
+      FROM factory_project_demands
+      ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
+      ORDER BY priority_sum DESC, queued_count DESC, reported_at DESC
+    `;
+    return listRows(sql, params, filters.limit);
+  }
+
+  function releaseResourceClaimsForTask(filters = {}, reason = 'released') {
+    const taskId = normalizeRequiredString('task_id', filters.task_id ?? filters.taskId ?? filters.task);
+    const provider = normalizeOptionalString(filters.provider);
+    const projectId = normalizeOptionalString(filters.project_id ?? filters.projectId ?? filters.project);
+    const nowIso = isoNow(filters.now);
+    expireStaleRowsNow(nowIso);
+
+    const where = ['task_id = ?', "status = 'active'", 'expires_at > ?'];
+    const params = [taskId, nowIso];
+    if (provider) {
+      where.push('provider = ?');
+      params.push(provider);
+    }
+    if (projectId) {
+      where.push('project_id = ?');
+      params.push(projectId);
+    }
+
+    const rows = db.prepare(`
+      SELECT id
+      FROM factory_resource_claims
+      WHERE ${where.join(' AND ')}
+    `).all(...params);
+    if (rows.length === 0) return [];
+
+    const releaseTxn = db.transaction((claimRows) => {
+      const released = [];
+      for (const row of claimRows) {
+        statements.releaseClaimById.run({
+          id: row.id,
+          released_at: nowIso,
+          release_reason: String(reason || 'released'),
+        });
+        const releasedRow = statements.getClaimById.get(row.id);
+        if (releasedRow) released.push(releasedRow);
+      }
+      return released;
+    });
+    return releaseTxn(rows);
+  }
+
   return {
     dbPath,
     getDbPath() {
@@ -447,6 +601,23 @@ function createSharedFactoryStore(options = {}) {
       const row = buildClaimRow(record);
       return upsertClaimTxn(row, row.updated_at);
     },
+    upsertProjectDemand(record) {
+      const row = buildDemandRow(record);
+      return upsertDemandTxn(row, row.updated_at);
+    },
+    upsertFactoryProjectDemand(record) {
+      const row = buildDemandRow(record);
+      return upsertDemandTxn(row, row.updated_at);
+    },
+    getProjectDemand(key) {
+      return findDemand(key);
+    },
+    listProjectDemands(filters = {}) {
+      return listDemandRows(filters);
+    },
+    listActiveProjectDemands(filters = {}) {
+      return listDemandRows({ ...filters, includeExpired: false });
+    },
     getResourceClaim(key) {
       return findClaim(key);
     },
@@ -467,6 +638,7 @@ function createSharedFactoryStore(options = {}) {
       });
       return statements.getClaimById.get(claim.id) || null;
     },
+    releaseResourceClaimsForTask,
     close() {
       if (!closed && ownsDb) db.close();
       closed = true;

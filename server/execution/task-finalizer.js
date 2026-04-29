@@ -22,14 +22,20 @@ const { parseComputeOutput, validateComputeSchema } = require('../diffusion/comp
 const { expandApplyTaskDescription } = require('../diffusion/planner');
 const { safeJsonParse } = require('../utils/json');
 const resumeContextUtils = require('../utils/resume-context');
+const { createSharedFactoryStore } = require('../db/shared-factory-store');
 const { v4: uuidv4 } = require('uuid');
 
 let deps = {};
 let handleVerificationLedger = null;
 let handleAdversarialReview = null;
 const finalizationLocks = new Map();
+let ownedSharedFactoryStore = null;
 
 function resetForTest() {
+  if (ownedSharedFactoryStore && typeof ownedSharedFactoryStore.close === 'function') {
+    try { ownedSharedFactoryStore.close(); } catch { /* non-fatal */ }
+  }
+  ownedSharedFactoryStore = null;
   deps = {};
   handleVerificationLedger = null;
   handleAdversarialReview = null;
@@ -180,6 +186,83 @@ function getRawDbInstance() {
   } catch (_err) {
     return null;
   }
+}
+
+function readDbConfig(key) {
+  if (!deps.db || typeof deps.db.getConfig !== 'function') return null;
+  try { return deps.db.getConfig(key); } catch { return null; }
+}
+
+function normalizeText(value) {
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+function getSharedFactoryStore() {
+  if (deps.sharedFactoryStore) return deps.sharedFactoryStore;
+
+  try {
+    const { defaultContainer } = require('../container');
+    if (
+      defaultContainer
+      && typeof defaultContainer.has === 'function'
+      && typeof defaultContainer.get === 'function'
+      && defaultContainer.has('sharedFactoryStore')
+    ) {
+      return defaultContainer.get('sharedFactoryStore');
+    }
+  } catch (_err) {
+    // Container may be unavailable in direct-module tests.
+  }
+
+  if (ownedSharedFactoryStore) return ownedSharedFactoryStore;
+  try {
+    ownedSharedFactoryStore = createSharedFactoryStore({
+      config: deps.db,
+      dataDir: typeof deps.db?.getDataDir === 'function' ? deps.db.getDataDir() : undefined,
+    });
+    return ownedSharedFactoryStore;
+  } catch (err) {
+    logger.debug(`[finalizer] Shared factory store unavailable for claim release: ${err.message}`);
+    return null;
+  }
+}
+
+function resolveTaskProjectId(task) {
+  const metadata = parseMetadata(task?.metadata);
+  return normalizeText(deps.projectId || deps.project_id)
+    || normalizeText(process.env.TORQUE_FACTORY_PROJECT_ID)
+    || normalizeText(readDbConfig('factory_project_id'))
+    || normalizeText(readDbConfig('project_id'))
+    || normalizeText(metadata.factory_project_id)
+    || normalizeText(metadata.project_id)
+    || normalizeText(metadata.projectId)
+    || normalizeText(task?.project)
+    || null;
+}
+
+function releaseSharedCodexClaims(taskId, reason, task) {
+  const store = getSharedFactoryStore();
+  if (!store || typeof store.releaseResourceClaimsForTask !== 'function') return;
+
+  const projectId = resolveTaskProjectId(task);
+  const filters = { task_id: taskId, provider: 'codex' };
+  try {
+    const released = store.releaseResourceClaimsForTask(
+      projectId ? { ...filters, project_id: projectId } : filters,
+      reason,
+    );
+    if (projectId && (!Array.isArray(released) || released.length === 0)) {
+      store.releaseResourceClaimsForTask(filters, reason);
+    }
+  } catch (err) {
+    logger.info(`[finalizer] Shared Codex claim release failed for ${taskId}: ${err.message}`);
+  }
+}
+
+function releaseSharedCodexClaimsForEarlyExit(taskId, task, ctx) {
+  let currentTask = null;
+  try { currentTask = deps.db?.getTask?.(taskId) || null; } catch { currentTask = null; }
+  releaseSharedCodexClaims(taskId, 'queue_managed', currentTask || ctx?.task || task);
 }
 
 function getCheckpointStore() {
@@ -683,6 +766,9 @@ async function finalizeTask(taskId, options = {}) {
       return { finalized: false, queueManaged: false, task: null, reason: 'not_found' };
     }
     if (!isFinalizableStatus(task.status)) {
+      if (['completed', 'failed', 'cancelled'].includes(task.status)) {
+        releaseSharedCodexClaims(taskId, task.status, task);
+      }
       return {
         finalized: false,
         queueManaged: false,
@@ -730,6 +816,7 @@ async function finalizeTask(taskId, options = {}) {
 
     await runStage(ctx, 'retry_logic', deps.handleRetryLogic, ctx.code !== 0);
     if (ctx.earlyExit) {
+      releaseSharedCodexClaimsForEarlyExit(taskId, task, ctx);
       return {
         finalized: false,
         queueManaged: true,
@@ -742,6 +829,7 @@ async function finalizeTask(taskId, options = {}) {
 
     await runStage(ctx, 'safeguard_checks', deps.handleSafeguardChecks, typeof deps.handleSafeguardChecks === 'function');
     if (ctx.earlyExit) {
+      releaseSharedCodexClaimsForEarlyExit(taskId, task, ctx);
       return {
         finalized: false,
         queueManaged: true,
@@ -771,6 +859,7 @@ async function finalizeTask(taskId, options = {}) {
       (stageCtx) => runCodexBannerOnlyDetection(stageCtx),
       ctx.status === 'failed' || ctx.status === 'cancelled');
     if (ctx.earlyExit) {
+      releaseSharedCodexClaimsForEarlyExit(taskId, task, ctx);
       return {
         finalized: false,
         queueManaged: true,
@@ -787,6 +876,7 @@ async function finalizeTask(taskId, options = {}) {
     await runStage(ctx, 'auto_verify_retry', deps.handleAutoVerifyRetry, typeof deps.handleAutoVerifyRetry === 'function');
     await runStage(ctx, 'verification_ledger', handleVerificationLedger, typeof handleVerificationLedger === 'function');
     if (ctx.earlyExit) {
+      releaseSharedCodexClaimsForEarlyExit(taskId, task, ctx);
       return {
         finalized: false,
         queueManaged: true,
@@ -817,6 +907,7 @@ async function finalizeTask(taskId, options = {}) {
       typeof deps.handleProviderFailover === 'function' && !ctx.pipelineError
     );
     if (ctx.earlyExit) {
+      releaseSharedCodexClaimsForEarlyExit(taskId, task, ctx);
       return {
         finalized: false,
         queueManaged: true,
@@ -953,6 +1044,7 @@ async function finalizeTask(taskId, options = {}) {
 
     // Strategic brain hooks (fire-and-forget, never blocks finalization)
     triggerStrategicHooks(ctx);
+    releaseSharedCodexClaims(taskId, ctx.status, ctx.task || task);
 
     return {
       finalized: true,
@@ -966,6 +1058,9 @@ async function finalizeTask(taskId, options = {}) {
 
     const currentTask = deps.db.getTask(taskId);
     if (!currentTask || !isFinalizableStatus(currentTask.status)) {
+      if (currentTask && ['completed', 'failed', 'cancelled'].includes(currentTask.status)) {
+        releaseSharedCodexClaims(taskId, currentTask.status, currentTask);
+      }
       return {
         finalized: false,
         queueManaged: false,
@@ -1042,6 +1137,7 @@ async function finalizeTask(taskId, options = {}) {
 
     // Strategic brain hooks (fire-and-forget, never blocks finalization)
     triggerStrategicHooks(fallbackCtx);
+    releaseSharedCodexClaims(taskId, 'finalizer_fatal', fallbackCtx.task || currentTask);
 
     return {
       finalized: true,
