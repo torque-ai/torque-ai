@@ -276,11 +276,22 @@ function markAbandoned(id, reason) {
 
 function setOwningTask(id, task_id) {
   try {
-    const result = getDb().prepare(`
-      UPDATE factory_worktrees
-      SET owning_task_id = ?
-      WHERE id = ?
-    `).run(
+    // When a non-null task is being attached, also bump created_at so the
+    // factory loop's pre-reclaim grace window starts from "current owner
+    // attached" rather than "row first inserted". Without this, a long-lived
+    // worktree row that gets a fresh task attached would fail the grace
+    // check (loop-controller.js pre_reclaim_before_create path) and have its
+    // freshly-running task killed mid-flight. Clearing the owner (null) is
+    // not a slot reuse, so leave created_at alone there.
+    const sql = task_id
+      ? `UPDATE factory_worktrees
+         SET owning_task_id = ?,
+             created_at = datetime('now')
+         WHERE id = ?`
+      : `UPDATE factory_worktrees
+         SET owning_task_id = ?
+         WHERE id = ?`;
+    const result = getDb().prepare(sql).run(
       task_id ? requireText(task_id, 'task_id') : null,
       requireInteger(id, 'id'),
     );
