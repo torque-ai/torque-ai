@@ -907,6 +907,7 @@ case "$TRANSPORT" in
       fi
 
       SYNC_BRANCH="${SYNC_REF#origin/}"
+      FETCH_COMMAND="git fetch --prune origin +refs/heads/$SYNC_BRANCH:refs/remotes/origin/$SYNC_BRANCH"
       info "Syncing $SYNC_BRANCH on remote..."
       # When the test-worktree subdir is configured, ensure the worktree
       # exists before sync. We register it from the MAIN checkout (the only
@@ -986,8 +987,9 @@ case "$TRANSPORT" in
       # dropped to 131ms (better than the original baseline). --prune adds
       # no measurable overhead to fetch itself.
       ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" \
-        "${SYNC_BOOTSTRAP}cd \"$EFFECTIVE_REMOTE_PROJECT_PATH\" && git fetch --prune origin && $SYNC_CHECKOUT && git reset --hard $SYNC_REF && (git clean -fd || true) && (git diff --quiet HEAD || (echo \"[torque-remote-sync] drift after reset — file locks (Defender/Search/AV) may have prevented checkout from updating tracked files\" 1>&2 && exit 99)) && (if exist package.json if not exist node_modules echo [torque-remote-sync] HINT: ./package.json has no node_modules at $EFFECTIVE_REMOTE_PROJECT_PATH — run: npm install 1>&2) && (if exist server\\package.json if not exist server\\node_modules echo [torque-remote-sync] HINT: server/package.json has no node_modules — run: cd server ^&^& npm install 1>&2) && (if exist dashboard\\package.json if not exist dashboard\\node_modules echo [torque-remote-sync] HINT: dashboard/package.json has no node_modules — run: cd dashboard ^&^& npm install 1>&2)" \
-        2>&1 | tee -a "$sync_log_path" | (grep -v 'Unable to persist credentials\|credential store\|aka.ms/gcm' || true) || sync_status="${PIPESTATUS[0]}"
+        "${SYNC_BOOTSTRAP}cd \"$EFFECTIVE_REMOTE_PROJECT_PATH\" && $FETCH_COMMAND && $SYNC_CHECKOUT && git reset --hard $SYNC_REF && (git clean -fd || true) && (git diff --quiet HEAD || (echo \"[torque-remote-sync] drift after reset — file locks (Defender/Search/AV) may have prevented checkout from updating tracked files\" 1>&2 && exit 99)) && (if exist package.json if not exist node_modules echo [torque-remote-sync] HINT: ./package.json has no node_modules at $EFFECTIVE_REMOTE_PROJECT_PATH — run: npm install 1>&2) && (if exist server\\package.json if not exist server\\node_modules echo [torque-remote-sync] HINT: server/package.json has no node_modules — run: cd server ^&^& npm install 1>&2) && (if exist dashboard\\package.json if not exist dashboard\\node_modules echo [torque-remote-sync] HINT: dashboard/package.json has no node_modules — run: cd dashboard ^&^& npm install 1>&2)" \
+        2>&1 | tee -a "$sync_log_path" | (grep -v 'Unable to persist credentials\|credential store\|aka.ms/gcm' || true)
+      sync_status="${PIPESTATUS[0]}"
       if [[ "$sync_status" -ne 0 ]]; then
         # Sync failed — falling back to local execution rather than running
         # against stale or wrong-base remote state. The drift-detection exit
