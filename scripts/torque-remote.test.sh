@@ -166,12 +166,16 @@ reset_stub_env() {
   unset GIT_VERIFY_EXISTS GIT_VERIFY_DEFAULT_EXIT_CODE
   unset GIT_DIFF_BASE_OUTPUT GIT_DIFF_HEAD_OUTPUT GIT_DIFF_EXIT_CODE
   unset GIT_LS_FILES_OUTPUT GIT_LS_FILES_EXIT_CODE
+  unset GIT_LS_REMOTE_OUTPUT GIT_LS_REMOTE_EXIT_CODE
   unset SSH_CONNECT_OUTPUT SSH_CONNECT_EXIT_CODE
   unset SSH_WMIC_OUTPUT SSH_WMIC_EXIT_CODE
   unset GIT_COMMON_DIR_OUTPUT GIT_COMMON_DIR_EXIT_CODE
   unset SSH_BRANCH_EXISTS_OUTPUT SSH_BRANCH_EXISTS_EXIT_CODE
   unset SSH_SYNC_OUTPUT SSH_SYNC_EXIT_CODE
   unset SSH_EXEC_OUTPUT SSH_EXEC_EXIT_CODE
+  unset SSH_LOCK_ACQUIRE_SEQUENCE SSH_LOCK_ACQUIRE_EXIT_CODE
+  unset SSH_LOCK_OWNER_OUTPUT SSH_LOCK_OWNER_READ_EXIT_CODE SSH_LOCK_OWNER_WRITE_EXIT_CODE
+  unset SSH_LOCK_REAP_EXIT_CODE TORQUE_REMOTE_SYNC_LOCK_STALE_CHECK_SECS
 }
 
 write_stub_argv_dump() {
@@ -290,6 +294,25 @@ if [[ "$#" -ge 4 && "$1" == "ls-files" && "$2" == "--others" && "$3" == "--exclu
   exit "${GIT_LS_FILES_EXIT_CODE:-0}"
 fi
 
+if [[ "$#" -ge 5 && "$1" == "ls-remote" && "$2" == "--exit-code" && "$3" == "--heads" ]]; then
+  branch="${5:-}"
+  if grep -Fxq -- "origin/$branch" <<<"${GIT_VERIFY_EXISTS:-}"; then
+    printf '0123456789012345678901234567890123456789\trefs/heads/%s\n' "$branch"
+    exit 0
+  fi
+  exit "${GIT_LS_REMOTE_EXIT_CODE:-2}"
+fi
+
+if [[ "$#" -ge 4 && "$1" == "ls-remote" && "$2" == "--heads" ]]; then
+  branch="${4:-main}"
+  if [[ "${GIT_LS_REMOTE_OUTPUT+x}" == "x" && -n "$GIT_LS_REMOTE_OUTPUT" ]]; then
+    printf '%s\n' "$GIT_LS_REMOTE_OUTPUT"
+  else
+    printf '0123456789012345678901234567890123456789\trefs/heads/%s\n' "$branch"
+  fi
+  exit "${GIT_LS_REMOTE_EXIT_CODE:-0}"
+fi
+
 exit "${GIT_DEFAULT_EXIT_CODE:-0}"
 EOF
 }
@@ -328,6 +351,50 @@ fi
 
 if [[ -n "${TORQUE_REMOTE_TEST_REMOTE_COMMANDS:-}" ]]; then
   printf '%s\n' "$remote_cmd" >> "$TORQUE_REMOTE_TEST_REMOTE_COMMANDS"
+fi
+
+next_lock_ack() {
+  local sequence="${SSH_LOCK_ACQUIRE_SEQUENCE:-ACQUIRED}"
+  local state_file="${TORQUE_REMOTE_TEST_LOCK_STATE:-}"
+  local index=0
+  local last_index
+  local ack
+  IFS=',' read -r -a lock_states <<< "$sequence"
+  if [[ -n "$state_file" && -f "$state_file" ]]; then
+    index="$(cat "$state_file")"
+  fi
+  last_index=$((${#lock_states[@]} - 1))
+  if (( index <= last_index )); then
+    ack="${lock_states[$index]}"
+  else
+    ack="${lock_states[$last_index]}"
+  fi
+  if [[ -n "$state_file" ]]; then
+    printf '%s' "$((index + 1))" > "$state_file"
+  fi
+  printf '%s\n' "$ack"
+}
+
+if [[ "$remote_cmd" == *".torque-remote-sync.lock"* && "$remote_cmd" == *"mkdir"* && "$remote_cmd" == *"echo ACQUIRED"* ]]; then
+  next_lock_ack
+  exit "${SSH_LOCK_ACQUIRE_EXIT_CODE:-0}"
+fi
+
+if [[ "$remote_cmd" == *".torque-remote-sync.lock\\owner.env"* && "$remote_cmd" == *"echo host="* ]]; then
+  exit "${SSH_LOCK_OWNER_WRITE_EXIT_CODE:-0}"
+fi
+
+if [[ "$remote_cmd" == *".torque-remote-sync.lock\\owner.env"* && "$remote_cmd" == *"type"* ]]; then
+  if [[ "${SSH_LOCK_OWNER_OUTPUT+x}" == "x" && -n "$SSH_LOCK_OWNER_OUTPUT" ]]; then
+    printf '%s\n' "$SSH_LOCK_OWNER_OUTPUT"
+  else
+    printf 'NO_OWNER\n'
+  fi
+  exit "${SSH_LOCK_OWNER_READ_EXIT_CODE:-0}"
+fi
+
+if [[ "$remote_cmd" == *".torque-remote-sync.lock"* && "$remote_cmd" == *"rmdir /s /q"* ]]; then
+  exit "${SSH_LOCK_REAP_EXIT_CODE:-0}"
 fi
 
 if [[ "$remote_cmd" == "wmic cpu get loadpercentage /value" ]]; then
@@ -456,6 +523,7 @@ run_torque_remote() {
     TORQUE_REMOTE_TEST_ARGV_LOG="$tmp/argv.log" \
     TORQUE_REMOTE_TEST_REMOTE_COMMANDS="$tmp/remote-commands.log" \
     TORQUE_REMOTE_TEST_REMOTE_STDIN="$tmp/remote-stdin.bin" \
+    TORQUE_REMOTE_TEST_LOCK_STATE="$tmp/lock-state" \
     TORQUE_REMOTE_SYNC_LOG="$tmp/sync.log" \
     bash "$SCRIPT_UNDER_TEST" "$@" >"$stdout_file" 2>"$stderr_file"
   )
@@ -743,6 +811,57 @@ test_sync_log_path_is_env_overridable() {
   expect_greater_than_zero "test-isolated sync log received output" "$(file_size_bytes "$tmp/sync.log")"
 
   finish_test "test_sync_log_path_is_env_overridable"
+}
+
+test_sync_lock_writes_owner_metadata_and_removes_nonempty_lock() {
+  local tmp
+
+  echo "Test: sync lock writes owner metadata and removes non-empty lock dir"
+  TEST_ERRORS=()
+  reset_stub_env
+
+  make_test_env
+  tmp="$LAST_TEST_ENV"
+  export GIT_REV_PARSE_OUTPUT="main"
+
+  run_torque_remote "$tmp" echo hi
+
+  expect_eq "exit code is 0" "0" "$RUN_EXIT"
+  expect_contains "owner metadata file is written" "$RUN_REMOTE_COMMANDS" ".torque-remote-sync.lock\\owner.env"
+  expect_contains "owner host is written" "$RUN_REMOTE_COMMANDS" "echo host="
+  expect_contains "owner pid is written" "$RUN_REMOTE_COMMANDS" "echo pid="
+  expect_contains "non-empty lock dir is removed recursively" "$RUN_REMOTE_COMMANDS" "rmdir /s /q"
+
+  finish_test "test_sync_lock_writes_owner_metadata_and_removes_nonempty_lock"
+}
+
+test_stale_sync_lock_is_reaped_and_retried() {
+  local tmp owner_host acquire_count
+
+  echo "Test: stale sync lock is reaped and retried"
+  TEST_ERRORS=()
+  reset_stub_env
+
+  make_test_env
+  tmp="$LAST_TEST_ENV"
+  export GIT_REV_PARSE_OUTPUT="main"
+  export SSH_LOCK_ACQUIRE_SEQUENCE="HELD,ACQUIRED"
+  owner_host="$(printf '%s' "${COMPUTERNAME:-$(hostname 2>/dev/null || echo unknown)}" | tr '[:upper:]' '[:lower:]' | tr -cd '[:alnum:]_.:-')"
+  export SSH_LOCK_OWNER_OUTPUT=$'host='"$owner_host"$'\npid=99999999\nstarted_at_epoch=1'
+  export TORQUE_REMOTE_SYNC_LOCK_STALE_CHECK_SECS=1
+
+  run_torque_remote "$tmp" echo hi
+
+  acquire_count="$(grep -F "echo ACQUIRED" "$tmp/remote-commands.log" | wc -l | tr -d '[:space:]')"
+  expect_eq "exit code is 0" "0" "$RUN_EXIT"
+  expect_contains "stderr reports stale lock reap" "$RUN_STDERR" "Remote sync lock appears stale"
+  expect_contains "stale lock is removed recursively" "$RUN_REMOTE_COMMANDS" "rmdir /s /q"
+  expect_contains "owner metadata is read before reaping" "$RUN_REMOTE_COMMANDS" ".torque-remote-sync.lock\\owner.env"
+  if [[ "$acquire_count" -lt 2 ]]; then
+    record_failure "lock acquisition was not retried after reap (expected at least 2 attempts, got $acquire_count)"
+  fi
+
+  finish_test "test_stale_sync_lock_is_reaped_and_retried"
 }
 
 test_sync_emits_npm_install_hint_for_node_layouts() {
@@ -1055,6 +1174,8 @@ main() {
   test_successful_overlay_skips_failsafe_cleanup_round_trip
   test_remote_overlay_bundle_reaches_run_command
   test_sync_log_path_is_env_overridable
+  test_sync_lock_writes_owner_metadata_and_removes_nonempty_lock
+  test_stale_sync_lock_is_reaped_and_retried
   test_sync_emits_npm_install_hint_for_node_layouts
   test_worktree_dot_git_file_is_project_root
   test_worktree_uses_main_repo_basename_for_project_name
