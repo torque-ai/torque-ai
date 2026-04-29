@@ -79,8 +79,18 @@ function readTaskSnapshots(tasksDir) {
   return taskById;
 }
 
+function resolveDatabaseFacade() {
+  try {
+    const { defaultContainer } = require('../container');
+    return defaultContainer.get('db');
+  } catch {
+    // eslint-disable-next-line global-require -- pre-boot fallback
+    return require('../database');
+  }
+}
+
 function buildReplayTasks(taskById) {
-  const db = require('../database');
+  const db = resolveDatabaseFacade();
   const depsByTask = {};
 
   for (const taskId of Object.keys(taskById)) {

@@ -2,7 +2,15 @@
 
 const fs = require('fs');
 const path = require('path');
-const db = require('../database');
+function resolveDb() {
+  try {
+    const { defaultContainer } = require('../container');
+    return defaultContainer.get('db');
+  } catch {
+    // eslint-disable-next-line global-require -- pre-boot fallback
+    return require('../database');
+  }
+}
 const { getDataDir } = require('../data-dir');
 const logger = require('../logger').child({ component: 'runs' });
 
@@ -17,14 +25,14 @@ const FALLBACK_BUNDLE_DIR_NAME = 'workflow-bundles';
  */
 function buildBundle(workflowId, opts = {}) {
   const normalizedWorkflowId = normalizePathSegment(workflowId, 'workflowId');
-  const workflow = db.getWorkflow(normalizedWorkflowId);
+  const workflow = resolveDb().getWorkflow(normalizedWorkflowId);
   if (!workflow) return null;
 
   const bundleDir = resolveBundleDir(workflow, normalizedWorkflowId, opts);
   const tasksDir = path.join(bundleDir, 'tasks');
   fs.mkdirSync(tasksDir, { recursive: true });
 
-  const tasks = db.getWorkflowTasks(normalizedWorkflowId) || [];
+  const tasks = resolveDb().getWorkflowTasks(normalizedWorkflowId) || [];
   const manifest = buildManifest(workflow, tasks);
   fs.writeFileSync(path.join(bundleDir, 'manifest.json'), JSON.stringify(manifest, null, 2));
 
@@ -141,8 +149,8 @@ function buildTaskSnapshot(task) {
 
 function writeRetroIfAvailable(workflowId, manifest, bundleDir) {
   try {
-    if (typeof db.getRetroByWorkflow !== 'function') return;
-    const retro = db.getRetroByWorkflow(workflowId);
+    if (typeof resolveDb().getRetroByWorkflow !== 'function') return;
+    const retro = resolveDb().getRetroByWorkflow(workflowId);
     if (!retro) return;
 
     const narrative = parseObjectColumn(retro.narrative);

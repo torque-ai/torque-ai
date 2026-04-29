@@ -10,7 +10,15 @@
 const mcpProtocol = require('../../mcp-protocol');
 const { TOOLS, handleToolCall } = require('../../tools');
 const { CORE_TOOL_NAMES, EXTENDED_TOOL_NAMES } = require('../../core-tools');
-const db = require('../../database');
+function resolveDb() {
+  try {
+    const { defaultContainer } = require('../../container');
+    return defaultContainer.get('db');
+  } catch {
+    // eslint-disable-next-line global-require -- pre-boot fallback
+    return require('../../database');
+  }
+}
 const session = require('./session');
 
 // ──────────────────────────────────────────────────────────────
@@ -232,7 +240,7 @@ function initProtocol(shutdownAbort) {
     onInitialize: (_sess) => {
       // Economy mode removed — routing templates handle cost-aware provider selection
     },
-    isAuthConfigured: () => Boolean(db.getConfig('api_key')),
+    isAuthConfigured: () => Boolean(resolveDb().getConfig('api_key')),
   });
 }
 

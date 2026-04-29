@@ -539,7 +539,14 @@ function updateBacklogWorkItemStatuses(backlog) {
 async function ingestScoutFindings(project) {
   if (!project || !project.path) return;
   try {
-    const database = require('../database');
+    let database;
+    try {
+      const { defaultContainer } = require('../container');
+      database = defaultContainer.get('db');
+    } catch {
+      // eslint-disable-next-line global-require -- pre-boot fallback
+      database = require('../database');
+    }
     const db = typeof database.getDbInstance === 'function' ? database.getDbInstance() : null;
     if (!db) return;
     const findings_dir = path.join(project.path, 'docs', 'findings');

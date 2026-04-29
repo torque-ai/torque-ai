@@ -1,6 +1,14 @@
 'use strict';
 
-const database = require('../database');
+function resolveDatabase() {
+  try {
+    const { defaultContainer } = require('../container');
+    return defaultContainer.get('db');
+  } catch {
+    // eslint-disable-next-line global-require -- pre-boot fallback
+    return require('../database');
+  }
+}
 const { safeJsonParse } = require('../utils/json');
 
 const DEFAULT_LIMIT = 50;
@@ -452,7 +460,7 @@ function buildProviderLaneAudit({
     throw new Error('project is required');
   }
 
-  const dbHandle = db || database.getDbInstance();
+  const dbHandle = db || resolveDatabase().getDbInstance();
   if (!dbHandle) {
     throw new Error('database handle is unavailable');
   }

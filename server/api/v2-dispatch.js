@@ -57,7 +57,16 @@ function getOrCreateRemoteAgentRegistry(deps = {}) {
   }
 
   try {
-    const dbService = deps.db || require('../database');
+    let dbService = deps.db;
+    if (!dbService) {
+      try {
+        const { defaultContainer } = require('../container');
+        dbService = defaultContainer.get('db');
+      } catch {
+        // eslint-disable-next-line global-require -- pre-boot fallback
+        dbService = require('../database');
+      }
+    }
     const { RemoteAgentRegistry } = require('../plugins/remote-agents/agent-registry');
     _remoteAgentRegistry = new RemoteAgentRegistry(unwrapRemoteAgentDb(dbService));
   } catch (err) {

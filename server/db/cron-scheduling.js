@@ -1192,13 +1192,20 @@ function runScheduledTaskNow(id, options = {}) {
 
   let runtimeDb = options.db;
   if (!runtimeDb) {
+    let databaseFacade = null;
     try {
-      const databaseFacade = require('../database');
-      if (databaseFacade?.createTask && databaseFacade?.markScheduledTaskRun) {
-        runtimeDb = databaseFacade;
-      }
+      const { defaultContainer } = require('../container');
+      databaseFacade = defaultContainer.get('db');
     } catch {
-      runtimeDb = null;
+      try {
+        // eslint-disable-next-line global-require -- pre-boot fallback
+        databaseFacade = require('../database');
+      } catch {
+        databaseFacade = null;
+      }
+    }
+    if (databaseFacade?.createTask && databaseFacade?.markScheduledTaskRun) {
+      runtimeDb = databaseFacade;
     }
   }
 

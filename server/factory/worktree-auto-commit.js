@@ -3,7 +3,15 @@
 const childProcess = require('child_process');
 const fs = require('fs');
 const path = require('path');
-const database = require('../database');
+function resolveDatabase() {
+  try {
+    const { defaultContainer } = require('../container');
+    return defaultContainer.get('db');
+  } catch {
+    // eslint-disable-next-line global-require -- pre-boot fallback
+    return require('../database');
+  }
+}
 const factoryDecisions = require('../db/factory-decisions');
 const attemptHistory = require('../db/factory-attempt-history');
 const { classifyZeroDiff } = require('./completion-rationale');
@@ -458,7 +466,7 @@ function safeLogDecision(entry) {
   }
 
   try {
-    const db = database.getDbInstance();
+    const db = resolveDatabase().getDbInstance();
     if (db) {
       factoryDecisions.setDb(db);
     }

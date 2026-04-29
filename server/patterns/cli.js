@@ -92,8 +92,18 @@ function getPatternsDir(cwd, dir) {
   return path.resolve(dir || path.join(cwd, '.torque', 'patterns'));
 }
 
+function resolveDatabaseFacade() {
+  try {
+    const { defaultContainer } = require('../container');
+    return defaultContainer.get('db');
+  } catch {
+    // eslint-disable-next-line global-require -- pre-boot fallback
+    return require('../database');
+  }
+}
+
 function initializeProviderRuntime() {
-  const db = require('../database');
+  const db = resolveDatabaseFacade();
   const serverConfig = require('../config');
   const providerRegistry = require('../providers/registry');
 

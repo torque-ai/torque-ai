@@ -67,7 +67,14 @@ function ensureColumns() {
 
 function ensureInitialized() {
   if (!currentDb) {
-    const database = require('../database');
+    let database;
+    try {
+      const { defaultContainer } = require('../container');
+      database = defaultContainer.get('db');
+    } catch {
+      // eslint-disable-next-line global-require -- pre-boot fallback
+      database = require('../database');
+    }
     currentDb = resolveDbHandle(database);
   }
   validateDb(currentDb);

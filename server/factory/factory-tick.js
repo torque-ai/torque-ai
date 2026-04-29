@@ -12,7 +12,15 @@ const factoryHealth = require('../db/factory-health');
 const factoryIntake = require('../db/factory-intake');
 const factoryLoopInstances = require('../db/factory-loop-instances');
 const { getRejectRecoveryConfig } = require('../db/config-core');
-const database = require('../database');
+function resolveDatabase() {
+  try {
+    const { defaultContainer } = require('../container');
+    return defaultContainer.get('db');
+  } catch {
+    // eslint-disable-next-line global-require -- pre-boot fallback
+    return require('../database');
+  }
+}
 const eventBus = require('../event-bus');
 const { handleRetryFactoryVerify } = require('../handlers/factory-handlers');
 const loopController = require('./loop-controller');
@@ -511,7 +519,7 @@ async function resolveUnrecoverableVerifyLoop({ project_id, attempts, last_actio
   }
 
   try {
-    resetRecoveryAttempts(database.getDbInstance(), project_id);
+    resetRecoveryAttempts(resolveDatabase().getDbInstance(), project_id);
   } catch (err) {
     logger.warn('Factory tick: failed to reset VERIFY recovery attempts', {
       project_id,
@@ -714,7 +722,7 @@ async function tickProject(project) {
     // up now so the subsequent auto-start finds a usable disk state. Fail
     // soft — reconciliation is best-effort and must not stall the tick.
     try {
-      const db = database.getDbInstance();
+      const db = resolveDatabase().getDbInstance();
       if (db && project.path) {
         const result = reconcileOrphanWorktrees({
           db,
@@ -901,7 +909,7 @@ async function tickProject(project) {
       });
     }
 
-    const db = database.getDbInstance();
+    const db = resolveDatabase().getDbInstance();
     if (db) {
       for (const stuckLoop of detectStuckLoops(db)) {
         const payload = {
