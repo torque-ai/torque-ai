@@ -959,6 +959,8 @@ function clearPlanGenerationWaitFields(origin = {}) {
   delete next.plan_generation_status;
   delete next.plan_generation_wait_reason;
   delete next.plan_generation_retry_after;
+  delete next.plan_generation_retry_count;
+  delete next.plan_generation_last_error;
   delete next.plan_generation_updated_at;
   return next;
 }
@@ -978,7 +980,7 @@ function getPlanGenerationFileLockWait(task, message = '') {
   const metadata = getTaskMetadataObject(task);
   const wait = metadata.file_lock_wait;
   if (wait && typeof wait === 'object' && !Array.isArray(wait)) {
-    return wait;
+    return { ...wait, reason: 'file_lock_wait' };
   }
 
   const text = [
@@ -989,6 +991,27 @@ function getPlanGenerationFileLockWait(task, message = '') {
     return { reason: 'file_lock_wait' };
   }
   return null;
+}
+
+function getPlanGenerationRunningWait(task, message = '') {
+  if (!isPlanGenerationTaskPending(task)) {
+    return null;
+  }
+
+  const text = [
+    message,
+    typeof task?.error_output === 'string' ? task.error_output : '',
+  ].filter(Boolean).join('\n');
+
+  if (!text || /task\s+timed\s+out|timed\s+out|timeout|status:\s*(?:running|queued|pending|waiting)\b/i.test(text)) {
+    return { reason: 'task_still_running' };
+  }
+  return null;
+}
+
+function getPlanGenerationWait(task, message = '') {
+  return getPlanGenerationFileLockWait(task, message)
+    || getPlanGenerationRunningWait(task, message);
 }
 
 function isPlanGenerationTaskPending(task) {
@@ -1023,13 +1046,15 @@ function buildPlanGenerationDeferredResult({
   reason,
 }) {
   const status = generationTask?.status || 'queued';
+  const waitReason = normalizeOptionalString(wait?.reason) || 'task_still_running';
+  const isFileLockWait = waitReason === 'file_lock_wait';
   const retryAfter = normalizeOptionalString(wait?.retry_after);
   const deferredOrigin = {
     ...getWorkItemOriginObject(targetItem),
     plan_path: planPath,
     plan_generation_task_id: generationTaskId,
     plan_generation_status: status,
-    plan_generation_wait_reason: 'file_lock_wait',
+    plan_generation_wait_reason: waitReason,
     ...(retryAfter ? { plan_generation_retry_after: retryAfter } : {}),
     plan_generation_updated_at: nowIso(),
   };
@@ -1049,24 +1074,29 @@ function buildPlanGenerationDeferredResult({
     });
   }
 
-  logger.info('EXECUTE stage: deferred plan generation for file-lock contention', {
+  logger.info(isFileLockWait
+    ? 'EXECUTE stage: deferred plan generation for file-lock contention'
+    : 'EXECUTE stage: deferred plan generation while task remains active', {
     project_id: project.id,
     work_item_id: targetItem.id,
     plan_path: planPath,
     generation_task_id: generationTaskId,
+    reason: waitReason,
     task_status: status,
     retry_after: retryAfter || null,
   });
   safeLogDecision({
     project_id: project.id,
     stage: LOOP_STATES.EXECUTE,
-    action: 'plan_generation_deferred_file_lock',
-    reasoning: reason || 'plan generation task is waiting on file-lock contention',
+    action: isFileLockWait ? 'plan_generation_deferred_file_lock' : 'plan_generation_deferred_running',
+    reasoning: reason || (isFileLockWait
+      ? 'plan generation task is waiting on file-lock contention'
+      : 'plan generation task is still active'),
     inputs: {
       ...getWorkItemDecisionContext(targetItem),
     },
     outcome: {
-      reason: 'file_lock_wait',
+      reason: waitReason,
       plan_path: planPath,
       generation_task_id: generationTaskId,
       task_status: status,
@@ -1078,18 +1108,112 @@ function buildPlanGenerationDeferredResult({
   });
 
   return {
-    reason: 'plan generation deferred for file-lock contention',
+    reason: isFileLockWait
+      ? 'plan generation deferred for file-lock contention'
+      : 'plan generation deferred while task remains active',
     work_item: updatedWorkItem,
     stop_execution: true,
     next_state: LOOP_STATES.PAUSED,
     paused_at_stage: LOOP_STATES.EXECUTE,
     stage_result: {
       status: 'deferred',
-      reason: 'file_lock_wait',
+      reason: waitReason,
       plan_path: planPath,
       generation_task_id: generationTaskId,
       task_status: status,
       retry_after: retryAfter || null,
+    },
+  };
+}
+
+const PLAN_GENERATION_UNUSABLE_OUTPUT_RETRIES = 1;
+
+function getPlanGenerationRetryCount(workItem) {
+  const origin = getWorkItemOriginObject(workItem);
+  const count = Number(origin.plan_generation_retry_count || 0);
+  return Number.isFinite(count) && count > 0 ? Math.floor(count) : 0;
+}
+
+function buildPlanGenerationRetryResult({
+  project,
+  instance,
+  targetItem,
+  planPath,
+  generationTaskId,
+  error,
+}) {
+  const priorRetries = getPlanGenerationRetryCount(targetItem);
+  const retryCount = priorRetries + 1;
+  const retryAfter = new Date(Date.now() + 60 * 1000).toISOString();
+  const origin = getWorkItemOriginObject(targetItem);
+  const retryOrigin = {
+    ...origin,
+    plan_path: planPath,
+    plan_generation_status: 'retry_scheduled',
+    plan_generation_retry_count: retryCount,
+    plan_generation_retry_after: retryAfter,
+    plan_generation_last_error: String(error?.message || error || 'unusable plan-generation output').slice(0, 1000),
+    plan_generation_updated_at: nowIso(),
+  };
+  delete retryOrigin.plan_generation_task_id;
+  delete retryOrigin.plan_generation_wait_reason;
+
+  let updatedWorkItem = targetItem;
+  try {
+    updatedWorkItem = factoryIntake.updateWorkItem(targetItem.id, {
+      origin_json: retryOrigin,
+      status: targetItem.status || 'planned',
+    });
+    rememberSelectedWorkItem(instance.id, updatedWorkItem);
+  } catch (persistErr) {
+    logger.warn('EXECUTE stage: failed to persist plan-generation retry state', {
+      project_id: project.id,
+      work_item_id: targetItem.id,
+      generation_task_id: generationTaskId,
+      err: persistErr.message,
+    });
+  }
+
+  logger.warn('EXECUTE stage: retrying unusable plan-generation output', {
+    project_id: project.id,
+    work_item_id: targetItem.id,
+    generation_task_id: generationTaskId,
+    retry_count: retryCount,
+    retry_after: retryAfter,
+    error: String(error?.message || error || '').slice(0, 500),
+  });
+  safeLogDecision({
+    project_id: project.id,
+    stage: LOOP_STATES.EXECUTE,
+    action: 'plan_generation_retry_unusable_output',
+    reasoning: error?.message || 'plan-generation task completed without executable plan markdown',
+    inputs: {
+      ...getWorkItemDecisionContext(targetItem),
+    },
+    outcome: {
+      reason: 'unusable_plan_generation_output',
+      plan_path: planPath,
+      generation_task_id: generationTaskId,
+      retry_count: retryCount,
+      retry_after: retryAfter,
+      ...getWorkItemDecisionContext(targetItem),
+    },
+    confidence: 0.8,
+    batch_id: getDecisionBatchId(project, updatedWorkItem, null, instance),
+  });
+
+  return {
+    reason: 'plan generation retry scheduled after unusable output',
+    work_item: updatedWorkItem,
+    stop_execution: true,
+    next_state: LOOP_STATES.IDLE,
+    stage_result: {
+      status: 'retry_scheduled',
+      reason: 'unusable_plan_generation_output',
+      plan_path: planPath,
+      generation_task_id: generationTaskId,
+      retry_count: retryCount,
+      retry_after: retryAfter,
     },
   };
 }
@@ -4177,11 +4301,12 @@ function maybeClearDeferredPlanGenerationWait(project, instance) {
   const taskCore = require('../db/task-core');
   const generationTask = getPlanGenerationTask(taskCore, generationTaskId);
   if (isPlanGenerationTaskPending(generationTask)) {
-    const wait = getPlanGenerationFileLockWait(generationTask);
+    const wait = getPlanGenerationWait(generationTask);
     return {
       waiting: true,
       task_id: generationTaskId,
       task_status: generationTask?.status || 'queued',
+      wait_reason: normalizeOptionalString(wait?.reason) || 'task_still_running',
       retry_after: normalizeOptionalString(wait?.retry_after),
     };
   }
@@ -4711,7 +4836,7 @@ async function executeNonPlanFileStage(project, instance, workItem) {
       }
     } else {
       const existingGenerationTask = getPlanGenerationTask(taskCore, generationTaskId);
-      const existingWait = getPlanGenerationFileLockWait(existingGenerationTask);
+      const existingWait = getPlanGenerationWait(existingGenerationTask);
       if (isPlanGenerationTaskPending(existingGenerationTask) && existingWait) {
         return buildPlanGenerationDeferredResult({
           project,
@@ -4732,7 +4857,7 @@ async function executeNonPlanFileStage(project, instance, workItem) {
     const awaitResult = await handleAwaitTask({ task_id: generationTaskId, timeout_minutes: 10, heartbeat_minutes: 0 });
     const generationTask = taskCore.getTask(generationTaskId);
     if (!generationTask || generationTask.status !== 'completed') {
-      const wait = getPlanGenerationFileLockWait(generationTask, extractTextContent(awaitResult));
+      const wait = getPlanGenerationWait(generationTask, extractTextContent(awaitResult));
       if (isPlanGenerationTaskPending(generationTask) && wait) {
         return buildPlanGenerationDeferredResult({
           project,
@@ -5235,7 +5360,7 @@ async function executeNonPlanFileStage(project, instance, workItem) {
     };
   } catch (error) {
     const generationTask = getPlanGenerationTask(taskCore, generationTaskId);
-    const wait = getPlanGenerationFileLockWait(generationTask, error.message);
+    const wait = getPlanGenerationWait(generationTask, error.message);
     if (generationTaskId && isPlanGenerationTaskPending(generationTask) && wait) {
       return buildPlanGenerationDeferredResult({
         project,
@@ -5246,6 +5371,21 @@ async function executeNonPlanFileStage(project, instance, workItem) {
         generationTask,
         wait,
         reason: error.message,
+      });
+    }
+    if (
+      generationTaskId
+      && generationTask?.status === 'completed'
+      && /generated plan output did not contain any "## Task N:" sections/i.test(error.message || '')
+      && getPlanGenerationRetryCount(targetItem) < PLAN_GENERATION_UNUSABLE_OUTPUT_RETRIES
+    ) {
+      return buildPlanGenerationRetryResult({
+        project,
+        instance,
+        targetItem,
+        planPath,
+        generationTaskId,
+        error,
       });
     }
 
@@ -8923,6 +9063,8 @@ async function runAdvanceLoop(instance_id) {
   if (pausedAtStage === LOOP_STATES.EXECUTE) {
     const deferredPlanGeneration = maybeClearDeferredPlanGenerationWait(project, instance);
     if (deferredPlanGeneration?.waiting) {
+      const waitReason = deferredPlanGeneration.wait_reason || 'task_still_running';
+      const isFileLockWait = waitReason === 'file_lock_wait';
       return {
         project_id: project.id,
         instance_id: instance.id,
@@ -8931,12 +9073,14 @@ async function runAdvanceLoop(instance_id) {
         paused_at_stage: pausedAtStage,
         stage_result: {
           status: 'waiting',
-          reason: 'plan_generation_file_lock_wait',
+          reason: isFileLockWait ? 'plan_generation_file_lock_wait' : 'plan_generation_task_active',
           generation_task_id: deferredPlanGeneration.task_id,
           task_status: deferredPlanGeneration.task_status,
           retry_after: deferredPlanGeneration.retry_after || null,
         },
-        reason: 'plan generation still waiting on file-lock contention',
+        reason: isFileLockWait
+          ? 'plan generation still waiting on file-lock contention'
+          : 'plan generation task is still active',
       };
     }
     if (deferredPlanGeneration?.cleared) {

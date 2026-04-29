@@ -9,6 +9,8 @@ const logger = require('../logger').child({ component: 'worktree-reconcile' });
 const DEFAULT_WORKTREE_DIR = '.worktrees';
 const FACTORY_LEAF_PREFIX = 'feat-factory-';
 const RECLAIMABLE_STATUSES = new Set(['abandoned', 'shipped', 'merged']);
+const RECONCILE_FAILURE_WARN_INTERVAL_MS = 15 * 60 * 1000;
+const reconcileFailureLogState = new Map();
 
 function runGit(repoPath, args) {
   return childProcess.execFileSync('git', args, {
@@ -31,6 +33,59 @@ function tryGit(repoPath, args) {
 
 function normalizePathKey(p) {
   return path.resolve(String(p || '')).replace(/\\/g, '/').toLowerCase();
+}
+
+function flattenAttemptErrors(attempts = []) {
+  const out = [];
+  for (const attempt of attempts || []) {
+    if (!attempt || attempt.ok) continue;
+    if (attempt.err) {
+      out.push(`${attempt.step || 'unknown'}:${attempt.err}`);
+    }
+    if (Array.isArray(attempt.sub_attempts)) {
+      out.push(...flattenAttemptErrors(attempt.sub_attempts));
+    }
+  }
+  return out;
+}
+
+function reconcileFailureKey({ project_id, worktreePath, branch, reason, attempts }) {
+  const errors = flattenAttemptErrors(attempts).join('|').slice(0, 1000);
+  return [
+    project_id || '',
+    normalizePathKey(worktreePath),
+    branch || '',
+    reason || '',
+    errors,
+  ].join('::');
+}
+
+function shouldLogReconcileFailure(failure, nowMs = Date.now()) {
+  const key = reconcileFailureKey(failure);
+  const existing = reconcileFailureLogState.get(key);
+  if (!existing || nowMs >= existing.nextLogAt) {
+    const suppressedCount = existing?.suppressedCount || 0;
+    reconcileFailureLogState.set(key, {
+      nextLogAt: nowMs + RECONCILE_FAILURE_WARN_INTERVAL_MS,
+      suppressedCount: 0,
+    });
+    return {
+      log: true,
+      suppressed_count: suppressedCount,
+      next_log_at: new Date(nowMs + RECONCILE_FAILURE_WARN_INTERVAL_MS).toISOString(),
+    };
+  }
+
+  existing.suppressedCount += 1;
+  return {
+    log: false,
+    suppressed_count: existing.suppressedCount,
+    next_log_at: new Date(existing.nextLogAt).toISOString(),
+  };
+}
+
+function resetReconcileFailureLogStateForTests() {
+  reconcileFailureLogState.clear();
 }
 
 // Recursively clear read-only attributes so a subsequent rmSync can succeed.
@@ -472,18 +527,28 @@ function reconcileProject({ db, project_id, project_path, worktree_dir = DEFAULT
         quarantinePath: result.quarantinePath || null,
       });
     } else {
-      failed.push({
+      const failedEntry = {
+        project_id,
         worktreePath: dirPath,
         branch,
         reason: classification.reason,
         attempts: result.attempts,
-      });
-      logger.warn('failed to reconcile worktree', {
-        project_id,
-        worktreePath: dirPath,
-        branch,
-        attempts: result.attempts,
-      });
+      };
+      const logDecision = shouldLogReconcileFailure(failedEntry);
+      failedEntry.log_suppressed = !logDecision.log;
+      failedEntry.suppressed_count = logDecision.suppressed_count;
+      failedEntry.next_log_at = logDecision.next_log_at;
+      failed.push(failedEntry);
+      if (logDecision.log) {
+        logger.warn('failed to reconcile worktree', {
+          project_id,
+          worktreePath: dirPath,
+          branch,
+          attempts: result.attempts,
+          suppressed_count: logDecision.suppressed_count,
+          next_log_at: logDecision.next_log_at,
+        });
+      }
     }
   }
 
@@ -499,6 +564,9 @@ module.exports = {
   forceRmDir,
   clearReadOnlyRecursive,
   quarantineDir,
+  shouldLogReconcileFailure,
+  resetReconcileFailureLogStateForTests,
+  RECONCILE_FAILURE_WARN_INTERVAL_MS,
   RECLAIMABLE_STATUSES,
   FACTORY_LEAF_PREFIX,
 };

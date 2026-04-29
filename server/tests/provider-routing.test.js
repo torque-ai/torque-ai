@@ -241,6 +241,28 @@ describe('provider-routing module', () => {
         restoreFallbackChain(provider, previousChain);
       }
     });
+
+    it('getNextFallbackProvider skips disabled codex-family fallback providers', () => {
+      const provider = 'codex';
+      const key = `fallback_chain_${provider}`;
+      const previousChain = configCore.getConfig(key);
+      const previousClaude = mod.getProvider('claude-cli')?.enabled;
+      const previousOllama = mod.getProvider('ollama')?.enabled;
+      const taskId = createTask({ provider, original_provider: provider });
+
+      try {
+        mod.updateProvider('claude-cli', { enabled: 0 });
+        mod.updateProvider('ollama', { enabled: 1 });
+        mod.setProviderFallbackChain(provider, ['claude-cli', 'ollama']);
+        require('../db/config-core').clearConfigCache();
+
+        expect(mod.getNextFallbackProvider(taskId)).toBe('ollama');
+      } finally {
+        if (previousClaude !== undefined) mod.updateProvider('claude-cli', { enabled: previousClaude ? 1 : 0 });
+        if (previousOllama !== undefined) mod.updateProvider('ollama', { enabled: previousOllama ? 1 : 0 });
+        restoreFallbackChain(provider, previousChain);
+      }
+    });
   });
 
   describe('usage tracking', () => {

@@ -486,6 +486,118 @@ describe('factory loop-controller EXECUTE for non-plan-file work items', () => {
     expect(awaitModule.handleAwaitTask).not.toHaveBeenCalled();
   });
 
+  it('defers active plan-generation tasks after an await timeout instead of rejecting the work item', async () => {
+    const { project, workItem } = registerExecuteProject({
+      description: 'Add coverage for delayed plan generation.',
+    });
+    factoryIntake.updateWorkItem(workItem.id, {
+      origin_json: {
+        plan_generation_task_id: 'plan-gen-task',
+      },
+    });
+    taskCore.getTask = vi.fn((taskId) => ({
+      id: taskId,
+      status: 'running',
+      output: '',
+      error_output: '',
+    }));
+
+    const executeAdvance = await loopController.advanceLoopForProject(project.id);
+    const updatedWorkItem = factoryIntake.getWorkItem(workItem.id);
+
+    expect(executeAdvance).toMatchObject({
+      new_state: LOOP_STATES.EXECUTE,
+      paused_at_stage: LOOP_STATES.EXECUTE,
+      reason: 'plan generation deferred while task remains active',
+      stage_result: {
+        status: 'deferred',
+        reason: 'task_still_running',
+        generation_task_id: 'plan-gen-task',
+        task_status: 'running',
+      },
+    });
+    expect(updatedWorkItem).toMatchObject({
+      id: workItem.id,
+      status: 'planned',
+      reject_reason: null,
+      origin: expect.objectContaining({
+        plan_generation_task_id: 'plan-gen-task',
+        plan_generation_wait_reason: 'task_still_running',
+      }),
+    });
+    expect(routingModule.handleSmartSubmitTask).not.toHaveBeenCalled();
+    expect(awaitModule.handleAwaitTask).not.toHaveBeenCalled();
+
+    const decisions = listDecisionRows(db, project.id);
+    const deferredDecision = decisions.find((row) => row.action === 'plan_generation_deferred_running');
+    expect(deferredDecision).toMatchObject({
+      stage: 'execute',
+      outcome: expect.objectContaining({
+        reason: 'task_still_running',
+        generation_task_id: 'plan-gen-task',
+        task_status: 'running',
+        work_item_id: workItem.id,
+      }),
+    });
+    expect(decisions.find((row) => row.action === 'cannot_generate_plan')).toBeUndefined();
+  });
+
+  it('retries one unusable completed plan-generation result before rejecting the work item', async () => {
+    const { project, workItem } = registerExecuteProject({
+      description: 'Create a focused plan for a flaky generated output case.',
+    });
+    factoryIntake.updateWorkItem(workItem.id, {
+      origin_json: {
+        plan_generation_task_id: 'plan-gen-task',
+      },
+    });
+    taskCore.getTask = vi.fn((taskId) => ({
+      id: taskId,
+      status: 'completed',
+      output: 'I inspected the repository and found the likely files, but did not produce a task plan.',
+      error_output: null,
+    }));
+
+    const executeAdvance = await loopController.advanceLoopForProject(project.id);
+    const updatedWorkItem = factoryIntake.getWorkItem(workItem.id);
+
+    expect(executeAdvance).toMatchObject({
+      new_state: LOOP_STATES.IDLE,
+      reason: 'plan generation retry scheduled after unusable output',
+      stage_result: {
+        status: 'retry_scheduled',
+        reason: 'unusable_plan_generation_output',
+        generation_task_id: 'plan-gen-task',
+        retry_count: 1,
+      },
+    });
+    expect(updatedWorkItem).toMatchObject({
+      id: workItem.id,
+      status: 'planned',
+      reject_reason: null,
+      origin: expect.objectContaining({
+        plan_generation_status: 'retry_scheduled',
+        plan_generation_retry_count: 1,
+      }),
+    });
+    expect(updatedWorkItem.origin.plan_generation_task_id).toBeUndefined();
+    expect(createPlanExecutorMock).not.toHaveBeenCalled();
+    expect(routingModule.handleSmartSubmitTask).not.toHaveBeenCalled();
+
+    const decisions = listDecisionRows(db, project.id);
+    const retryDecision = decisions.find((row) => row.action === 'plan_generation_retry_unusable_output');
+    expect(retryDecision).toMatchObject({
+      stage: 'execute',
+      outcome: expect.objectContaining({
+        reason: 'unusable_plan_generation_output',
+        generation_task_id: 'plan-gen-task',
+        retry_count: 1,
+        work_item_id: workItem.id,
+      }),
+    });
+    expect(decisions.find((row) => row.action === 'cannot_generate_plan')).toBeUndefined();
+  });
+
   it('normalizes file_edits JSON from plan generation into executable Markdown', async () => {
     const { project, workItem, projectDir } = registerExecuteProject({
       description: 'Add typed LAN startup failure reasons to the Unity coordinator.',

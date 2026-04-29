@@ -957,11 +957,9 @@ function getNextFallbackProvider(taskId) {
   const isFallbackCandidateEnabled = (candidate) => {
     if (!candidate) return false;
 
-    if (candidate !== 'codex' && candidate !== 'claude-cli') {
-      const providerConfig = getProvider(candidate);
-      if (!providerConfig || !providerConfig.enabled) {
-        return false;
-      }
+    const providerConfig = getProvider(candidate);
+    if (!providerConfig || !providerConfig.enabled) {
+      return false;
     }
 
     const configKey = `${candidate.replace(/-/g, '_')}_enabled`;

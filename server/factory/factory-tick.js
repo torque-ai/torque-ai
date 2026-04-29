@@ -721,13 +721,16 @@ async function tickProject(project) {
           project_id: project.id,
           project_path: project.path,
         });
-        if (result.cleaned.length > 0 || result.failed.length > 0) {
+        const visibleFailures = result.failed.filter((failure) => !failure.log_suppressed);
+        const suppressedFailures = result.failed.length - visibleFailures.length;
+        if (result.cleaned.length > 0 || visibleFailures.length > 0) {
           logger.info('Factory tick: worktree reconcile', {
             project_id: project.id,
             scanned: result.scanned,
             cleaned: result.cleaned.length,
             skipped: result.skipped.length,
-            failed: result.failed.length,
+            failed: visibleFailures.length,
+            suppressed_failed: suppressedFailures,
           });
         }
       }

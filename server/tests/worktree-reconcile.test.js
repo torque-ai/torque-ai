@@ -10,6 +10,9 @@ const {
   reclaimDir,
   classifyDir,
   forceRmDir,
+  shouldLogReconcileFailure,
+  resetReconcileFailureLogStateForTests,
+  RECONCILE_FAILURE_WARN_INTERVAL_MS,
   RECLAIMABLE_STATUSES,
   FACTORY_LEAF_PREFIX,
 } = require('../factory/worktree-reconcile');
@@ -111,6 +114,7 @@ beforeEach(() => {
   ensureFactoryWorktreesSchema(dbHandle);
   runDdl(dbHandle, 'DELETE FROM factory_worktrees');
   runDdl(dbHandle, 'DELETE FROM vc_worktrees');
+  resetReconcileFailureLogStateForTests();
 });
 
 afterAll(() => {
@@ -528,5 +532,36 @@ describe('reconcileProject', () => {
     // row owned by this project is treated as stale.
     expect(result.cleaned).toHaveLength(1);
     expect(fs.existsSync(bDir)).toBe(false);
+  });
+});
+
+describe('reconcile failure logging', () => {
+  it('throttles repeated reconcile failures for the same locked worktree', () => {
+    const failure = {
+      project_id: 'project-1',
+      worktreePath: 'C:/repo/.worktrees/feat-factory-1-locked',
+      branch: 'feat/factory-1-locked',
+      reason: 'orphan factory dir with no db row',
+      attempts: [
+        { step: 'worktree_remove', ok: false, err: 'fatal: not a working tree' },
+        {
+          step: 'fs_rm',
+          ok: false,
+          err: 'rm_plain: EBUSY',
+          sub_attempts: [{ step: 'rm_plain', ok: false, err: 'EBUSY: resource busy or locked' }],
+        },
+      ],
+    };
+
+    const first = shouldLogReconcileFailure(failure, 1_000);
+    const second = shouldLogReconcileFailure(failure, 2_000);
+    const third = shouldLogReconcileFailure(
+      failure,
+      1_000 + RECONCILE_FAILURE_WARN_INTERVAL_MS + 1
+    );
+
+    expect(first).toMatchObject({ log: true, suppressed_count: 0 });
+    expect(second).toMatchObject({ log: false, suppressed_count: 1 });
+    expect(third).toMatchObject({ log: true, suppressed_count: 1 });
   });
 });
