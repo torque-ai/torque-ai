@@ -19,7 +19,7 @@ describe('torque-remote source invariants', () => {
 
   it('captures ssh sync status before grep filtering can mask failures', () => {
     const src = readTorqueRemote();
-    expect(src).toMatch(/grep -v 'Unable to persist credentials\\\|credential store\\\|aka\.ms\/gcm' \|\| true\)\n\s+sync_status="\$\{PIPESTATUS\[0\]\}"/);
+    expect(src).toMatch(/set \+e\n\s+ssh "\$\{SSH_OPTS\[@\]\}" "\$SSH_USER@\$SSH_HOST"[\s\S]*grep -v 'Unable to persist credentials\\\|credential store\\\|aka\.ms\/gcm' \|\| true\)\n\s+sync_status="\$\{PIPESTATUS\[0\]\}"\n\s+set -e/);
     expect(src).not.toContain('|| sync_status="${PIPESTATUS[0]}"');
   });
 
@@ -67,5 +67,19 @@ describe('torque-remote source invariants', () => {
     const src = readTorqueRemote();
     expect(src).toContain('REMOTE_SYNC_LOCK_DIR="${EFFECTIVE_REMOTE_PROJECT_PATH}.torque-remote-sync.lock"');
     expect(src).not.toContain('REMOTE_SYNC_LOCK_DIR="$EFFECTIVE_REMOTE_PROJECT_PATH\\\\.torque-remote-sync.lock"');
+  });
+
+  it('records sync lock ownership and only reaps stale locks owned by this workstation', () => {
+    const src = readTorqueRemote();
+    expect(src).toContain('REMOTE_SYNC_LOCK_OWNER_FILE="owner.env"');
+    expect(src).toContain('write_remote_sync_lock_owner()');
+    expect(src).toContain('read_remote_sync_lock_owner()');
+    expect(src).toContain('remote_sync_lock_is_stale()');
+    expect(src).toContain('owner_host="$(owner_field "$owner" host | tr');
+    expect(src).toContain('owner_pid="$(owner_field "$owner" pid)"');
+    expect(src).toContain('if [[ -z "$owner_host" || "$owner_host" != "$local_host" ]]; then');
+    expect(src).toContain('kill -0 "$owner_pid"');
+    expect(src).toContain('rmdir /s /q \\"$REMOTE_SYNC_LOCK_DIR\\"');
+    expect(src).not.toContain('rmdir "$REMOTE_SYNC_LOCK_DIR"');
   });
 });
