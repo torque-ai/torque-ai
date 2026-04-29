@@ -19,6 +19,7 @@ const factoryHealth = require('../db/factory-health');
 const factoryIntake = require('../db/factory-intake');
 const factoryLoopInstances = require('../db/factory-loop-instances');
 const factoryWorktrees = require('../db/factory-worktrees');
+const projectConfigCore = require('../db/project-config-core');
 const routingModule = require('../handlers/integration/routing');
 const awaitModule = require('../handlers/workflow/await');
 const taskCore = require('../db/task-core');
@@ -190,6 +191,7 @@ describe('factory loop-controller EXECUTE for non-plan-file work items', () => {
     factoryLoopInstances.setDb(db);
     factoryDecisions.setDb(db);
     factoryWorktrees.setDb(db);
+    projectConfigCore.setDb(db);
     originalGetDbInstance = database.getDbInstance;
     database.getDbInstance = () => db;
     tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'factory-execute-non-plan-file-'));
@@ -222,6 +224,7 @@ describe('factory loop-controller EXECUTE for non-plan-file work items', () => {
     factoryLoopInstances.setDb(null);
     factoryDecisions.setDb(null);
     factoryWorktrees.setDb(null);
+    projectConfigCore.setDb(null);
     routingModule.handleSmartSubmitTask = originalHandleSmartSubmitTask;
     awaitModule.handleAwaitTask = originalHandleAwaitTask;
     taskCore.getTask = originalGetTask;
@@ -234,7 +237,10 @@ describe('factory loop-controller EXECUTE for non-plan-file work items', () => {
     tempDir = null;
   });
 
-  function registerExecuteProject({ description = 'Add regression coverage for factory scoring behavior.' } = {}) {
+  function registerExecuteProject({
+    description = 'Add regression coverage for factory scoring behavior.',
+    config,
+  } = {}) {
     const projectDir = path.join(tempDir, `project-${Date.now()}-${Math.random().toString(16).slice(2)}`);
     fs.mkdirSync(projectDir, { recursive: true });
 
@@ -242,7 +248,10 @@ describe('factory loop-controller EXECUTE for non-plan-file work items', () => {
       name: 'Execute Non Plan Project',
       path: projectDir,
       trust_level: 'supervised',
+      config,
     });
+    factoryHealth.updateProject(project.id, { status: 'running' });
+    const runningProject = factoryHealth.getProject(project.id);
 
     const workItem = factoryIntake.createWorkItem({
       project_id: project.id,
@@ -261,7 +270,7 @@ describe('factory loop-controller EXECUTE for non-plan-file work items', () => {
       loop_batch_id: null,
     });
 
-    return { project, workItem: plannedWorkItem, projectDir };
+    return { project: runningProject, workItem: plannedWorkItem, projectDir };
   }
 
   // TODO: mock setup for the happy path doesn't currently let the implementation
@@ -322,7 +331,8 @@ describe('factory loop-controller EXECUTE for non-plan-file work items', () => {
     }));
     expect(awaitModule.handleAwaitTask).toHaveBeenCalledWith({
       task_id: 'plan-gen-task',
-      timeout_minutes: 10,
+      timeout_minutes: 30,
+      heartbeat_minutes: 0,
     });
     expect(createPlanExecutorMock).toHaveBeenCalled();
     expect(planExecuteMock).toHaveBeenCalledWith(expect.objectContaining({
@@ -395,6 +405,80 @@ describe('factory loop-controller EXECUTE for non-plan-file work items', () => {
         work_item_id: workItem.id,
         plan_path: null,
       }),
+    });
+  });
+
+  it('uses the extended default plan-generation timeout for submit and await', async () => {
+    const { project, workItem } = registerExecuteProject({
+      description: 'Create a focused plan for delayed factory plan generation coverage.',
+    });
+    taskCore.getTask = vi.fn((taskId) => ({
+      id: taskId,
+      status: 'running',
+      output: '',
+      error_output: '',
+    }));
+    awaitModule.handleAwaitTask = vi.fn(async () => ({
+      content: [{ type: 'text', text: 'task timed out while status: running' }],
+    }));
+
+    const executeAdvance = await loopController.advanceLoopForProject(project.id);
+    const updatedWorkItem = factoryIntake.getWorkItem(workItem.id);
+
+    expect(routingModule.handleSmartSubmitTask).toHaveBeenCalledWith(expect.objectContaining({
+      timeout_minutes: 30,
+      tags: expect.arrayContaining([
+        'factory:plan_generation',
+        `factory:work_item_id=${workItem.id}`,
+      ]),
+      task_metadata: expect.objectContaining({
+        kind: 'plan_generation',
+        work_item_id: workItem.id,
+      }),
+    }));
+    expect(awaitModule.handleAwaitTask).toHaveBeenCalledWith({
+      task_id: 'plan-gen-task',
+      timeout_minutes: 30,
+      heartbeat_minutes: 0,
+    });
+    expect(executeAdvance).toMatchObject({
+      new_state: LOOP_STATES.EXECUTE,
+      paused_at_stage: LOOP_STATES.EXECUTE,
+      reason: 'plan generation deferred while task remains active',
+      stage_result: {
+        status: 'deferred',
+        reason: 'task_still_running',
+        generation_task_id: 'plan-gen-task',
+        task_status: 'running',
+      },
+    });
+    expect(updatedWorkItem.origin).toMatchObject({
+      plan_generation_task_id: 'plan-gen-task',
+      plan_generation_wait_reason: 'task_still_running',
+    });
+  });
+
+  it('uses project plan_generation_timeout_minutes when configured', async () => {
+    const { project } = registerExecuteProject({
+      description: 'Create a focused plan for configurable factory plan generation coverage.',
+      config: { plan_generation_timeout_minutes: 45 },
+    });
+    taskCore.getTask = vi.fn((taskId) => ({
+      id: taskId,
+      status: 'running',
+      output: '',
+      error_output: '',
+    }));
+
+    await loopController.advanceLoopForProject(project.id);
+
+    expect(routingModule.handleSmartSubmitTask).toHaveBeenCalledWith(expect.objectContaining({
+      timeout_minutes: 45,
+    }));
+    expect(awaitModule.handleAwaitTask).toHaveBeenCalledWith({
+      task_id: 'plan-gen-task',
+      timeout_minutes: 45,
+      heartbeat_minutes: 0,
     });
   });
 
