@@ -1,5 +1,10 @@
 const os = require('os');
 
+const configuredMaxWorkers = Number.parseInt(process.env.VITEST_MAX_WORKERS || '', 10);
+const workerCap = Number.isFinite(configuredMaxWorkers) && configuredMaxWorkers > 0
+  ? configuredMaxWorkers
+  : 8;
+
 module.exports = {
   test: {
     globals: true,
@@ -26,13 +31,11 @@ module.exports = {
     // Suppresses unhandled rejection noise from provider mocks in CI pipelines.
     // Disable locally to catch real async leaks during development.
     dangerouslyIgnoreUnhandledErrors: !!process.env.CI,
-    // Cap raised from 8 to 16: remote workstation has 20 cores, local has 32.
-    // The prior cap left 60% of remote cores idle. With pool: threads sharing
-    // the module cache, scaling is roughly linear up to ~cpu_count. The 16
-    // ceiling protects against future high-core boxes spawning runaway threads
-    // that amplify rare native-module crashes (better-sqlite3 + Node 24
-    // SIGSEGV — pre-push hook retries those once).
-    maxWorkers: Math.max(1, Math.min(os.cpus().length - 1, 16)),
+    // Keep the default below the remote core count. The pre-push server suite
+    // loads many better-sqlite3 users under Node 24 worker_threads, and high
+    // parallelism has produced repeat SIGSEGV exits before tests can report.
+    // VITEST_MAX_WORKERS allows explicit local/CI tuning when needed.
+    maxWorkers: Math.max(1, Math.min(os.cpus().length - 1, workerCap)),
     fileParallelism: true,
     globalSetup: ['tests/global-setup.js'],
     coverage: {
