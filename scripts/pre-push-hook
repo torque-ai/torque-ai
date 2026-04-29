@@ -23,6 +23,8 @@
 set -euo pipefail
 
 REPO_ROOT="$(git rev-parse --show-toplevel)"
+PATH="$REPO_ROOT/bin:$PATH"
+export PATH
 
 ZERO_SHA="0000000000000000000000000000000000000000"
 remote_refs=()

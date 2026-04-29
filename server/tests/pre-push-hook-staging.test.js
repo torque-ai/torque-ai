@@ -76,6 +76,13 @@ describe('pre-push-hook staging-branch invariants', () => {
     expect(suiteMatches.length).toBeGreaterThanOrEqual(1);
   });
 
+  it('prefers the repo-local bin directory before invoking torque-remote', () => {
+    const src = readHook();
+    expect(src).toMatch(/REPO_ROOT="\$\(git rev-parse --show-toplevel\)"/);
+    expect(src).toMatch(/PATH="\$REPO_ROOT\/bin:\$PATH"/);
+    expect(src).toMatch(/export PATH/);
+  });
+
   it('installs an EXIT trap that deletes the staging ref', () => {
     const src = readHook();
     expect(src).toMatch(/trap\s+'delete_staging_ref'\s+EXIT/);
