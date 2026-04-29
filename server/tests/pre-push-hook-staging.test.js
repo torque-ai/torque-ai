@@ -61,10 +61,7 @@ describe('pre-push-hook staging-branch invariants', () => {
     // both phases inside a single torque-remote SSH session (one sync,
     // parallel jobs), so the --branch invocation appears once but the
     // remote script must reference both `cd dashboard` and `cd server`.
-    // Regex is permissive about other torque-remote flags appearing between
-    // `torque-remote` and `--branch` (e.g. --suite gate from coord wiring).
-    const branchMatches = src.match(/torque-remote(?:\s+--\S+(?:\s+\S+)?)*\s+--branch\s+\$(?:\{)?staging_branch/g) || [];
-    expect(branchMatches.length).toBeGreaterThanOrEqual(1);
+    expect(src).toMatch(/run_with_flake_retry "Test gate" "\$TORQUE_REMOTE_CMD --suite gate --branch \$staging_branch/);
     expect(src).toMatch(/cd\s+dashboard\s+&&\s+npx\s+vitest\s+run/);
     expect(src).toMatch(/cd\s+server\s+&&\s+npx\s+vitest\s+run/);
   });
@@ -76,8 +73,8 @@ describe('pre-push-hook staging-branch invariants', () => {
     // must opt into coord coordination via --suite gate. Without it,
     // torque-remote defaults to "custom" and skips the daemon — so two
     // concurrent main pushes would race on the workstation as before.
-    const suiteMatches = src.match(/torque-remote\s+(?:--\S+\s+\S+\s+)*--suite\s+gate/g) || [];
-    expect(suiteMatches.length).toBeGreaterThanOrEqual(1);
+    expect(src).toMatch(/\$TORQUE_REMOTE_CMD --suite gate --branch \$staging_branch/);
+    expect(src).toMatch(/"\$TORQUE_REMOTE_BIN" --suite gate --branch "\$staging_branch"/);
   });
 
   it('prefers the repo-local bin directory before invoking torque-remote', () => {
@@ -85,6 +82,10 @@ describe('pre-push-hook staging-branch invariants', () => {
     expect(src).toMatch(/REPO_ROOT="\$\(git rev-parse --show-toplevel\)"/);
     expect(src).toMatch(/PATH="\$REPO_ROOT\/bin:\$PATH"/);
     expect(src).toMatch(/export PATH/);
+    expect(src).toMatch(/TORQUE_REMOTE_BIN="\$REPO_ROOT\/bin\/torque-remote"/);
+    expect(src).toMatch(/TORQUE_REMOTE_CMD="\$\(printf '%q' "\$TORQUE_REMOTE_BIN"\)"/);
+    expect(src).toMatch(/run_with_flake_retry "Test gate" "\$TORQUE_REMOTE_CMD --suite gate/);
+    expect(src).toMatch(/PERF_OUT=\$\("\$TORQUE_REMOTE_BIN" --suite gate/);
   });
 
   it('installs an EXIT trap that deletes the staging ref', () => {
