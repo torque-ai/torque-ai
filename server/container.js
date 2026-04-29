@@ -419,6 +419,7 @@ _defaultContainer.register(
     const { createStarvationRecovery } = require('./factory/starvation-recovery');
     const { createScoutFindingsIntake } = require('./factory/scout-findings-intake');
     const { getProviderLanePolicyFromProject } = require('./factory/provider-lane-policy');
+    const { createScoutProviderResolver } = require('./factory/scout-provider-resolver');
     const { handleSubmitScout } = require('./handlers/diffusion-handlers');
     const factoryHealth = require('./db/factory-health');
     const factoryIntake = require('./db/factory-intake');
@@ -427,7 +428,11 @@ _defaultContainer.register(
       ? log.child({ component: 'starvation-recovery' })
       : log;
     const rawDb = unwrapDb(db);
-    const scoutLaneProviders = new Set(['codex', 'codex-spark', 'claude-cli', 'ollama-cloud']);
+    // Mirrors FILESYSTEM_PROVIDERS in handlers/diffusion-handlers.js — providers
+    // that can drive a scout task via the agentic loop. Local `ollama` is
+    // included as of 2026-04 once qwen3-coder:30b's tool engagement and
+    // tool-error recovery were hardened (see ollama-agentic.js).
+    const scoutLaneProviders = new Set(['codex', 'codex-spark', 'claude-cli', 'ollama', 'ollama-cloud']);
     const activeScoutStatuses = ['pending', 'pending_approval', 'queued', 'running', 'waiting'];
     const recentScoutStatuses = ['completed', 'failed', 'cancelled', 'skipped'];
     const escapeLike = (value) => String(value || '').replace(/[\\%_]/g, '\\$&');
@@ -467,11 +472,15 @@ _defaultContainer.register(
         provider: opts.provider,
         timeout_minutes: opts.timeout_minutes || 30,
       }),
-      resolveScoutProvider: (project) => {
-        const policy = getProviderLanePolicyFromProject(project || {});
-        const provider = policy?.expected_provider || null;
-        return scoutLaneProviders.has(provider) ? provider : null;
-      },
+      resolveScoutProvider: createScoutProviderResolver({
+        eligibleProviders: scoutLaneProviders,
+        getProviderLanePolicyFromProject,
+        getProjectDefaults: (pathOrProject) => {
+          const projectConfigCore = require('./db/project-config-core');
+          return projectConfigCore.getProjectDefaults(pathOrProject);
+        },
+        logger: recoveryLogger,
+      }),
       countOpenWorkItems: async (projectId) => factoryIntake.listOpenWorkItems({
         project_id: projectId,
         limit: 1,

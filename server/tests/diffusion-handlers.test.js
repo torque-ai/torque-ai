@@ -139,6 +139,33 @@ describe('handleSubmitScout', () => {
     }));
   });
 
+  it('accepts local ollama provider for agentic scout repository access', () => {
+    // Added 2026-04-29 alongside the scoutLaneProviders / FILESYSTEM_PROVIDERS
+    // expansion that lets local ollama drive starvation recovery scouts on
+    // projects pinned to preset-all-local. Mirrors the ollama-cloud case.
+    const result = handlers.handleSubmitScout({
+      scope: 'analyze tests', working_directory: '/proj', provider: 'ollama',
+    });
+
+    expect(result.isError).toBeFalsy();
+    expect(mockTaskCore.createTask).toHaveBeenCalledWith(expect.objectContaining({
+      provider: 'ollama',
+      metadata: expect.stringContaining('"mode":"scout"'),
+    }));
+  });
+
+  it('lists eligible providers in the rejection message', () => {
+    const result = handlers.handleSubmitScout({
+      scope: 'analyze', working_directory: '/proj', provider: 'cerebras',
+    });
+    expect(result.isError).toBe(true);
+    const msg = result.content[0].text;
+    expect(msg).toContain('repository access');
+    expect(msg).toContain('codex');
+    expect(msg).toContain('ollama');
+    expect(msg).toContain('ollama-cloud');
+  });
+
   it('tags starvation recovery scouts with project context', () => {
     const result = handlers.handleSubmitScout({
       scope: 'Factory starvation recovery scout.',
