@@ -3,6 +3,23 @@
 const { LOOP_STATES } = require('./loop-states');
 
 const DEFAULT_DWELL_MS = 15 * 60 * 1000;
+const MAX_DWELL_MS = 4 * 60 * 60 * 1000;
+const DEFAULT_SCOUT_TIMEOUT_MINUTES = 12;
+const ACTIVE_SCOUT_STATUSES = new Set(['pending', 'pending_approval', 'queued', 'running', 'waiting']);
+const TERMINAL_SCOUT_STATUSES = new Set(['completed', 'failed', 'cancelled', 'skipped']);
+const SCOUT_SIGNAL_MARKERS = [
+  '__SCOUT_COMPLETE__',
+  '__PATTERNS_READY__',
+  '__SCOUT_DISCOVERY__',
+];
+const DEFAULT_SCOUT_FILE_PATTERNS = [
+  'docs/superpowers/plans/**/*.md',
+  'docs/findings/**/*.md',
+  'docs/**/*.md',
+  'README*',
+  'CHANGELOG*',
+  'TODO*',
+];
 
 function parseLastActionMs(value) {
   const parsed = Date.parse(value || '');
@@ -27,14 +44,86 @@ function getCreatedCount(result) {
   return normalizeCount(result.created_count);
 }
 
+function normalizeTasks(tasks) {
+  return Array.isArray(tasks) ? tasks.filter(Boolean) : [];
+}
+
+function getTaskStatus(task) {
+  return String(task?.status || '').trim().toLowerCase();
+}
+
+function getTaskId(task) {
+  return typeof task?.id === 'string' && task.id.trim() ? task.id.trim() : null;
+}
+
+function scoutOutputHasActionableSignal(task) {
+  const text = [
+    task?.output,
+    task?.partial_output,
+  ].filter((value) => typeof value === 'string' && value.length > 0).join('\n');
+  return SCOUT_SIGNAL_MARKERS.some((marker) => text.includes(marker));
+}
+
+function isNoYieldScoutTask(task) {
+  const status = getTaskStatus(task);
+  if (!TERMINAL_SCOUT_STATUSES.has(status)) {
+    return false;
+  }
+  if (status === 'completed') {
+    return !scoutOutputHasActionableSignal(task);
+  }
+  return true;
+}
+
+function countConsecutiveNoYieldScouts(tasks) {
+  let count = 0;
+  for (const task of normalizeTasks(tasks)) {
+    const status = getTaskStatus(task);
+    if (ACTIVE_SCOUT_STATUSES.has(status)) {
+      continue;
+    }
+    if (!TERMINAL_SCOUT_STATUSES.has(status)) {
+      continue;
+    }
+    if (!isNoYieldScoutTask(task)) {
+      break;
+    }
+    count += 1;
+  }
+  return count;
+}
+
+function computeBackoffDwellMs(baseDwellMs, noYieldScoutCount, maxDwellMs = MAX_DWELL_MS) {
+  const base = Number.isFinite(Number(baseDwellMs)) && Number(baseDwellMs) > 0
+    ? Number(baseDwellMs)
+    : DEFAULT_DWELL_MS;
+  const failures = Math.max(0, Number(noYieldScoutCount) || 0);
+  return Math.min(base * (2 ** failures), maxDwellMs);
+}
+
+function summarizeActiveScout(tasks) {
+  const active = normalizeTasks(tasks).filter((task) => ACTIVE_SCOUT_STATUSES.has(getTaskStatus(task)));
+  const first = active[0] || null;
+  return {
+    active,
+    existing_task_id: getTaskId(first),
+    active_scout_count: active.length,
+  };
+}
+
 function createStarvationRecovery({
   submitScout,
   updateLoopState,
   countOpenWorkItems,
   ingestScoutFindings,
   ingestScoutOutputs,
+  listActiveScouts,
+  listRecentScouts,
   resolveScoutProvider,
   dwellMs = DEFAULT_DWELL_MS,
+  maxDwellMs = MAX_DWELL_MS,
+  scoutTimeoutMinutes = DEFAULT_SCOUT_TIMEOUT_MINUTES,
+  scoutFilePatterns = DEFAULT_SCOUT_FILE_PATTERNS,
   now = () => Date.now(),
   logger = console,
 } = {}) {
@@ -43,6 +132,36 @@ function createStarvationRecovery({
   }
   if (typeof updateLoopState !== 'function') {
     throw new Error('updateLoopState is required');
+  }
+
+  async function activeScouts(project) {
+    if (typeof listActiveScouts !== 'function') {
+      return [];
+    }
+    try {
+      return normalizeTasks(await listActiveScouts(project));
+    } catch (err) {
+      logger.warn?.('Starvation recovery active scout lookup failed', {
+        project_id: project.id,
+        err: err.message,
+      });
+      return [];
+    }
+  }
+
+  async function recentScouts(project) {
+    if (typeof listRecentScouts !== 'function') {
+      return [];
+    }
+    try {
+      return normalizeTasks(await listRecentScouts(project));
+    } catch (err) {
+      logger.warn?.('Starvation recovery scout history lookup failed', {
+        project_id: project.id,
+        err: err.message,
+      });
+      return [];
+    }
   }
 
   async function openWorkItemCount(project) {
@@ -111,14 +230,31 @@ function createStarvationRecovery({
       });
     }
 
+    const activeScoutState = summarizeActiveScout(await activeScouts(project));
+    if (activeScoutState.active_scout_count > 0) {
+      return {
+        recovered: false,
+        reason: 'scout_already_running',
+        existing_task_id: activeScoutState.existing_task_id,
+        active_scout_count: activeScoutState.active_scout_count,
+        ...context,
+      };
+    }
+
+    const scoutHistory = await recentScouts(project);
+    const noYieldScoutCount = countConsecutiveNoYieldScouts(scoutHistory);
+    const effectiveDwellMs = computeBackoffDwellMs(dwellMs, noYieldScoutCount, maxDwellMs);
+
     const lastActionMs = parseLastActionMs(project.loop_last_action_at);
     const elapsedMs = lastActionMs === null ? Infinity : now() - lastActionMs;
-    if (!force && elapsedMs < dwellMs) {
+    if (!force && elapsedMs < effectiveDwellMs) {
       return {
         recovered: false,
         reason: 'dwell_not_elapsed',
         elapsed_ms: elapsedMs,
-        dwell_ms: dwellMs,
+        dwell_ms: effectiveDwellMs,
+        base_dwell_ms: dwellMs,
+        no_yield_scout_count: noYieldScoutCount,
       };
     }
 
@@ -181,6 +317,8 @@ function createStarvationRecovery({
       'Inspect configured plans, recent findings, rejected items, and repo-local TODOs.',
       'Return concrete, code-changing factory work items or explain why the queue should remain empty.',
       'Use the scout signal format with actionable transformation patterns; avoid meta-work about creating more intake.',
+      'Keep the pass bounded: inspect at most 80 candidate files, prefer plan/findings/docs evidence first, and only inspect source files referenced by that evidence.',
+      `Current no-yield scout backoff count: ${noYieldScoutCount}.`,
     ].join(' ');
 
     let scoutProvider = null;
@@ -202,14 +340,11 @@ function createStarvationRecovery({
       working_directory: project.path,
       reason: 'factory_starvation_recovery',
       ...(scoutProvider ? { provider: scoutProvider } : {}),
-      timeout_minutes: 30,
+      timeout_minutes: scoutTimeoutMinutes,
       scope,
-      file_patterns: [
-        'docs/superpowers/plans/**/*.md',
-        'docs/findings/**/*.md',
-        'server/**/*.js',
-        'dashboard/src/**/*.{js,jsx,ts,tsx}',
-      ],
+      file_patterns: Array.isArray(scoutFilePatterns) && scoutFilePatterns.length > 0
+        ? scoutFilePatterns
+        : DEFAULT_SCOUT_FILE_PATTERNS,
     });
 
     if (scout?.errorCode || scout?.error_code || scout?.isError) {
@@ -231,6 +366,8 @@ function createStarvationRecovery({
       recovered: false,
       reason: 'scout_submitted_waiting_for_intake',
       scout,
+      no_yield_scout_count: noYieldScoutCount,
+      dwell_ms: effectiveDwellMs,
       findings_ingest: findingsIngest,
       scout_output_ingest: scoutOutputIngest,
       ...context,
@@ -242,5 +379,11 @@ function createStarvationRecovery({
 
 module.exports = {
   DEFAULT_DWELL_MS,
+  MAX_DWELL_MS,
+  DEFAULT_SCOUT_TIMEOUT_MINUTES,
+  DEFAULT_SCOUT_FILE_PATTERNS,
+  countConsecutiveNoYieldScouts,
+  computeBackoffDwellMs,
+  isNoYieldScoutTask,
   createStarvationRecovery,
 };

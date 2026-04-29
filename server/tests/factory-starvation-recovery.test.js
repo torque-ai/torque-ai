@@ -1,6 +1,12 @@
 'use strict';
 
-const { createStarvationRecovery } = require('../factory/starvation-recovery');
+const {
+  DEFAULT_SCOUT_FILE_PATTERNS,
+  DEFAULT_SCOUT_TIMEOUT_MINUTES,
+  computeBackoffDwellMs,
+  countConsecutiveNoYieldScouts,
+  createStarvationRecovery,
+} = require('../factory/starvation-recovery');
 const { LOOP_STATES } = require('../factory/loop-states');
 
 describe('factory starvation recovery', () => {
@@ -81,6 +87,76 @@ describe('factory starvation recovery', () => {
     expect(updateLoopState).toHaveBeenCalledWith('project-1', expect.objectContaining({
       loop_state: LOOP_STATES.STARVED,
     }));
+  });
+
+  it('does not submit a second starvation scout while one is already active for the project', async () => {
+    const submitScout = vi.fn();
+    const updateLoopState = vi.fn();
+    const countOpenWorkItems = vi.fn().mockResolvedValue(0);
+    const listActiveScouts = vi.fn().mockResolvedValue([
+      { id: 'scout-running-1', status: 'running' },
+    ]);
+    const recovery = createStarvationRecovery({
+      submitScout,
+      updateLoopState,
+      countOpenWorkItems,
+      listActiveScouts,
+      dwellMs: 1000,
+      now: () => Date.parse('2026-04-22T12:30:00.000Z'),
+    });
+
+    const result = await recovery.maybeRecover({
+      id: 'project-1',
+      path: 'C:\\repo',
+      loop_state: LOOP_STATES.STARVED,
+      loop_last_action_at: '2026-04-22T12:00:00.000Z',
+    });
+
+    expect(result).toMatchObject({
+      recovered: false,
+      reason: 'scout_already_running',
+      existing_task_id: 'scout-running-1',
+      active_scout_count: 1,
+    });
+    expect(submitScout).not.toHaveBeenCalled();
+    expect(updateLoopState).not.toHaveBeenCalled();
+  });
+
+  it('applies exponential dwell backoff after consecutive no-yield scouts', async () => {
+    const submitScout = vi.fn();
+    const updateLoopState = vi.fn();
+    const countOpenWorkItems = vi.fn().mockResolvedValue(0);
+    const listActiveScouts = vi.fn().mockResolvedValue([]);
+    const listRecentScouts = vi.fn().mockResolvedValue([
+      { id: 'failed-2', status: 'failed' },
+      { id: 'failed-1', status: 'completed', output: 'No actionable findings.' },
+    ]);
+    const recovery = createStarvationRecovery({
+      submitScout,
+      updateLoopState,
+      countOpenWorkItems,
+      listActiveScouts,
+      listRecentScouts,
+      dwellMs: 1000,
+      now: () => Date.parse('2026-04-22T12:00:01.500Z'),
+    });
+
+    const result = await recovery.maybeRecover({
+      id: 'project-1',
+      path: 'C:\\repo',
+      loop_state: LOOP_STATES.STARVED,
+      loop_last_action_at: '2026-04-22T12:00:00.000Z',
+    });
+
+    expect(result).toMatchObject({
+      recovered: false,
+      reason: 'dwell_not_elapsed',
+      elapsed_ms: 1500,
+      dwell_ms: 4000,
+      base_dwell_ms: 1000,
+      no_yield_scout_count: 2,
+    });
+    expect(submitScout).not.toHaveBeenCalled();
   });
 
   it('moves STARVED projects back to SENSE immediately when intake is available', async () => {
@@ -235,8 +311,11 @@ describe('factory starvation recovery', () => {
       project_path: 'C:\\repo',
       working_directory: 'C:\\repo',
       reason: 'factory_starvation_recovery',
-      timeout_minutes: 30,
+      timeout_minutes: DEFAULT_SCOUT_TIMEOUT_MINUTES,
+      file_patterns: DEFAULT_SCOUT_FILE_PATTERNS,
     }));
+    expect(submitScout.mock.calls[0][0].file_patterns).not.toContain('server/**/*.js');
+    expect(submitScout.mock.calls[0][0].file_patterns).not.toContain('dashboard/src/**/*.{js,jsx,ts,tsx}');
     expect(updateLoopState).toHaveBeenCalledWith('project-1', {
       loop_state: LOOP_STATES.STARVED,
       loop_last_action_at: '2026-04-22T12:30:00.000Z',
@@ -275,5 +354,30 @@ describe('factory starvation recovery', () => {
       project_id: 'project-1',
       provider: 'ollama-cloud',
     }));
+  });
+});
+
+describe('starvation recovery scout backoff helpers', () => {
+  it('counts consecutive terminal scouts that produced no actionable scout signal', () => {
+    expect(countConsecutiveNoYieldScouts([
+      { id: 'running', status: 'running' },
+      { id: 'failed', status: 'failed' },
+      { id: 'empty-complete', status: 'completed', output: 'No work found.' },
+      { id: 'signal', status: 'completed', output: '__SCOUT_COMPLETE__\n{}' },
+      { id: 'older-failed', status: 'failed' },
+    ])).toBe(2);
+  });
+
+  it('ignores scout signal markers that only appear in stderr', () => {
+    expect(countConsecutiveNoYieldScouts([
+      { id: 'prompt-echo', status: 'completed', error_output: 'Example: __SCOUT_COMPLETE__' },
+      { id: 'signal', status: 'completed', output: '__SCOUT_COMPLETE__\n{}' },
+    ])).toBe(1);
+  });
+
+  it('caps exponential dwell backoff', () => {
+    expect(computeBackoffDwellMs(1000, 0, 8000)).toBe(1000);
+    expect(computeBackoffDwellMs(1000, 2, 8000)).toBe(4000);
+    expect(computeBackoffDwellMs(1000, 10, 8000)).toBe(8000);
   });
 });

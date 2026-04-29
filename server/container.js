@@ -421,6 +421,32 @@ _defaultContainer.register(
       : log;
     const rawDb = unwrapDb(db);
     const scoutLaneProviders = new Set(['codex', 'codex-spark', 'claude-cli', 'ollama-cloud']);
+    const activeScoutStatuses = ['pending', 'pending_approval', 'queued', 'running', 'waiting'];
+    const recentScoutStatuses = ['completed', 'failed', 'cancelled', 'skipped'];
+    const escapeLike = (value) => String(value || '').replace(/[\\%_]/g, '\\$&');
+    const listStarvationScoutTasks = (project, statuses, options = {}) => {
+      if (!rawDb || !project?.id || !Array.isArray(statuses) || statuses.length === 0) {
+        return [];
+      }
+      const statusPlaceholders = statuses.map(() => '?').join(', ');
+      const includeOutput = options.includeOutput === true;
+      const outputColumns = includeOutput ? ', output, partial_output, error_output' : '';
+      const limit = Number.isInteger(options.limit) && options.limit > 0 ? options.limit : 20;
+      return rawDb.prepare(`
+        SELECT id, status, provider, created_at, started_at, completed_at, timeout_minutes${outputColumns}
+        FROM tasks
+        WHERE status IN (${statusPlaceholders})
+          AND tags LIKE ? ESCAPE '\\'
+          AND tags LIKE ? ESCAPE '\\'
+        ORDER BY COALESCE(started_at, created_at) DESC
+        LIMIT ?
+      `).all(
+        ...statuses,
+        `%"factory:project_id=${escapeLike(project.id)}"%`,
+        '%"factory:starvation_recovery"%',
+        limit,
+      );
+    };
 
     return createStarvationRecovery({
       logger: recoveryLogger,
@@ -443,6 +469,13 @@ _defaultContainer.register(
         project_id: projectId,
         limit: 1,
       }).length,
+      listActiveScouts: async (project) => listStarvationScoutTasks(project, activeScoutStatuses, {
+        limit: 10,
+      }),
+      listRecentScouts: async (project) => listStarvationScoutTasks(project, recentScoutStatuses, {
+        limit: 20,
+        includeOutput: true,
+      }),
       ingestScoutFindings: async (project) => {
         if (!rawDb || !project?.path) {
           return { created: [], skipped: [], scanned: 0 };
