@@ -685,7 +685,15 @@ function spawnAndTrackProcess(taskId, task, cmdSpec, provider) {
       }
 
       try {
-        db.addStreamChunk(streamId, text, 'stderr');
+        const sequence = db.addStreamChunk(streamId, text, 'stderr');
+        dashboard.notifyTaskOutput(taskId, {
+          content: text,
+          type: 'stderr',
+          chunk_type: 'stderr',
+          sequence,
+          sequence_num: sequence,
+          isStderr: true,
+        });
         proc.streamErrorCount = 0;
       } catch (err) {
         proc.streamErrorCount++;

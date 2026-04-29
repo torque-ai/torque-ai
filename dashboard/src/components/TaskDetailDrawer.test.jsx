@@ -261,6 +261,79 @@ describe('TaskDetailDrawer', () => {
     });
   });
 
+  it('renders persisted stream stderr chunks in the output tab', async () => {
+    tasksApi.get.mockResolvedValueOnce({
+      ...mockTask,
+      output: null,
+      error_output: null,
+    });
+    taskLogs.get.mockResolvedValueOnce({
+      task_id: 'task-1',
+      status: 'running',
+      output: null,
+      error_output: null,
+      stream_chunks: [
+        {
+          sequence_num: 4,
+          chunk_type: 'stderr',
+          chunk_data: 'codex stderr from stream table',
+        },
+      ],
+    });
+
+    renderWithProviders(<TaskDetailDrawer taskId="task-1" onClose={vi.fn()} />);
+
+    await waitFor(() => {
+      expect(screen.getByText('output')).toBeInTheDocument();
+    });
+
+    await act(async () => {
+      screen.getByText('output').click();
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('stderr')).toBeInTheDocument();
+      expect(screen.getByText('codex stderr from stream table')).toBeInTheDocument();
+    });
+  });
+
+  it('renders live streaming stderr chunks in the output tab', async () => {
+    tasksApi.get.mockResolvedValueOnce({
+      ...mockTask,
+      output: null,
+      error_output: null,
+    });
+    taskLogs.get.mockResolvedValueOnce({
+      task_id: 'task-1',
+      status: 'running',
+      output: null,
+      error_output: null,
+      stream_chunks: [],
+    });
+
+    renderWithProviders(
+      <TaskDetailDrawer
+        taskId="task-1"
+        onClose={vi.fn()}
+        streamingOutput={[{ content: 'live codex stderr chunk', type: 'stderr', isStderr: true }]}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('output')).toBeInTheDocument();
+    });
+
+    await act(async () => {
+      screen.getByText('output').click();
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('Streaming live output...')).toBeInTheDocument();
+      expect(screen.getByText('stderr')).toBeInTheDocument();
+      expect(screen.getByText('live codex stderr chunk')).toBeInTheDocument();
+    });
+  });
+
   it('shows an empty output state when v2 logs fields are blank', async () => {
     tasksApi.get.mockResolvedValueOnce({
       ...mockTask,

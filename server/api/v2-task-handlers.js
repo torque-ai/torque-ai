@@ -13,6 +13,7 @@ const { v4: uuidv4 } = require('uuid');
 const taskCore = require('../db/task-core');
 const providerRoutingCore = require('../db/provider-routing-core');
 const fileTracking = require('../db/file-tracking');
+const webhooksStreaming = require('../db/webhooks-streaming');
 const serverConfig = require('../config');
 const logger = require('../logger').child({ component: 'v2-task-handlers' });
 const { PROVIDER_DEFAULT_TIMEOUTS } = require('../constants');
@@ -1104,11 +1105,19 @@ async function handleTaskLogs(req, res) {
     return sendError(res, requestId, 'task_not_found', `Task not found: ${taskId}`, 404, {}, req);
   }
 
+  let streamChunks = [];
+  try {
+    streamChunks = webhooksStreaming.getStreamChunks(taskId, { limit: 1000 });
+  } catch (err) {
+    logger.debug("task log stream chunk lookup failed", { taskId, err: err.message });
+  }
+
   sendSuccess(res, requestId, {
     task_id: taskId,
     status: task.status,
     output: task.output || null,
     error_output: task.error_output || null,
+    stream_chunks: streamChunks,
   }, 200, req);
 }
 

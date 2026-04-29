@@ -34,6 +34,10 @@ const mockMiddleware = {
   parseBody: vi.fn(),
 };
 
+const mockWebhooksStreaming = {
+  getStreamChunks: vi.fn(),
+};
+
 const mockPipeline = {
   handleCommitTask: vi.fn(),
 };
@@ -68,6 +72,7 @@ vi.mock('../config', () => mockConfig);
 vi.mock('../constants', () => mockConstants);
 vi.mock('../api/v2-control-plane', () => mockControlPlane);
 vi.mock('../api/middleware', () => mockMiddleware);
+vi.mock('../db/webhooks-streaming', () => mockWebhooksStreaming);
 vi.mock('../handlers/task/pipeline', () => mockPipeline);
 vi.mock('../logger', () => mockLoggerModule);
 vi.mock('../integrations/codebase-study-engine', () => mockStudyEngine);
@@ -89,6 +94,7 @@ function loadHandlers() {
   installCjsModuleMock('../db/task-core', mockDb);
   installCjsModuleMock('../db/provider-routing-core', mockDb);
   installCjsModuleMock('../db/file-tracking', mockDb);
+  installCjsModuleMock('../db/webhooks-streaming', mockWebhooksStreaming);
   installCjsModuleMock('../config', mockConfig);
   installCjsModuleMock('../constants', mockConstants);
   installCjsModuleMock('../api/v2-control-plane', mockControlPlane);
@@ -200,6 +206,7 @@ function resetMockDefaults() {
   mockControlPlane.buildTaskDetailResponse.mockImplementation(buildTaskDetail);
 
   mockMiddleware.parseBody.mockResolvedValue({});
+  mockWebhooksStreaming.getStreamChunks.mockReturnValue([]);
 
   mockPipeline.handleCommitTask.mockReturnValue({
     isError: false,
@@ -1589,9 +1596,42 @@ describe('api/v2-task-handlers.handleTaskLogs', () => {
         status: 'failed',
         output: 'stdout',
         error_output: 'stderr',
+        stream_chunks: [],
       },
       status: 200,
       req,
+    });
+  });
+
+  it('returns persisted stream chunks for live Codex stderr output', async () => {
+    const req = createReq({ params: { task_id: 'task-streams' } });
+    const res = createRes();
+    const streamChunks = [
+      {
+        sequence_num: 12,
+        chunk_type: 'stderr',
+        chunk_data: 'codex exec trace',
+        timestamp: '2026-04-29 01:50:00',
+      },
+    ];
+
+    mockDb.getTask.mockReturnValue({
+      id: 'task-streams',
+      status: 'running',
+      output: null,
+      error_output: null,
+    });
+    mockWebhooksStreaming.getStreamChunks.mockReturnValue(streamChunks);
+
+    await handlers.handleTaskLogs(req, res);
+
+    expect(mockWebhooksStreaming.getStreamChunks).toHaveBeenCalledWith('task-streams', { limit: 1000 });
+    expect(getLastSuccess().data).toEqual({
+      task_id: 'task-streams',
+      status: 'running',
+      output: null,
+      error_output: null,
+      stream_chunks: streamChunks,
     });
   });
 

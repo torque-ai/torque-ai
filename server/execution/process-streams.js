@@ -253,8 +253,16 @@ function setupStderrHandler(child, taskId, streamId) {
     }
 
     try {
-      deps.db.addStreamChunk(streamId, text, 'stderr');
+      const sequence = deps.db.addStreamChunk(streamId, text, 'stderr');
       proc.streamErrorCount = 0;
+      deps.dashboard.notifyTaskOutput(taskId, {
+        content: text,
+        type: 'stderr',
+        chunk_type: 'stderr',
+        sequence,
+        sequence_num: sequence,
+        isStderr: true,
+      });
     } catch (err) {
       proc.streamErrorCount++;
       logger.info(`Stream chunk error (${proc.streamErrorCount}): ${err.message}`);

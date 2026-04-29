@@ -72,16 +72,31 @@ function isMeaningfulOutputChunk(chunk) {
 
 function normalizeOutputChunks(source) {
   const nextOutput = source?.output;
-  if (Array.isArray(nextOutput)) return nextOutput.filter(isMeaningfulOutputChunk);
-  if (typeof nextOutput === 'string') return nextOutput ? [nextOutput] : [];
-  if (nextOutput != null) return isMeaningfulOutputChunk(nextOutput) ? [nextOutput] : [];
+  if (Array.isArray(nextOutput)) {
+    const chunks = nextOutput.filter(isMeaningfulOutputChunk);
+    if (chunks.length > 0) return chunks;
+  } else if (typeof nextOutput === 'string') {
+    if (nextOutput) return [nextOutput];
+  } else if (nextOutput != null && isMeaningfulOutputChunk(nextOutput)) {
+    return [nextOutput];
+  }
 
   const legacyOutput = source?.output_chunks;
-  if (Array.isArray(legacyOutput)) return legacyOutput.filter(isMeaningfulOutputChunk);
-  if (typeof legacyOutput === 'string') return legacyOutput ? [legacyOutput] : [];
-  if (legacyOutput != null) return isMeaningfulOutputChunk(legacyOutput) ? [legacyOutput] : [];
+  if (Array.isArray(legacyOutput)) {
+    const chunks = legacyOutput.filter(isMeaningfulOutputChunk);
+    if (chunks.length > 0) return chunks;
+  } else if (typeof legacyOutput === 'string') {
+    if (legacyOutput) return [legacyOutput];
+  } else if (legacyOutput != null && isMeaningfulOutputChunk(legacyOutput)) {
+    return [legacyOutput];
+  }
 
   return [];
+}
+
+function normalizeStreamChunks(source) {
+  const streamChunks = source?.stream_chunks || source?.chunks;
+  return Array.isArray(streamChunks) ? streamChunks.filter(isMeaningfulOutputChunk) : [];
 }
 
 function getOutputChunkText(chunk) {
@@ -89,9 +104,16 @@ function getOutputChunkText(chunk) {
   if (chunk && typeof chunk === 'object') {
     if (typeof chunk.content === 'string') return chunk.content;
     if (typeof chunk.text === 'string') return chunk.text;
+    if (typeof chunk.chunk_data === 'string') return chunk.chunk_data;
     return JSON.stringify(chunk);
   }
   return '';
+}
+
+function isStderrChunk(chunk) {
+  if (!chunk || typeof chunk !== 'object') return false;
+  const type = chunk.type || chunk.chunk_type;
+  return chunk.isStderr === true || type === 'stderr';
 }
 
 function normalizeTextValue(value) {
@@ -103,7 +125,9 @@ function normalizeTaskLogs(logData, taskData) {
   const fallbackErrorOutput = normalizeTextValue(taskData?.error_output);
 
   if (logData && typeof logData === 'object' && !Array.isArray(logData)) {
+    const streamChunks = normalizeStreamChunks(logData);
     const output = normalizeOutputChunks(logData);
+    const hasStreamedStderr = streamChunks.some(isStderrChunk);
     const errorOutput = normalizeTextValue(logData.error_output);
     const timeline = Array.isArray(logData.logs)
       ? logData.logs.filter(Boolean)
@@ -112,8 +136,8 @@ function normalizeTaskLogs(logData, taskData) {
         : [];
     return {
       timeline,
-      output: output.length > 0 ? output : fallbackOutput,
-      errorOutput: errorOutput || fallbackErrorOutput,
+      output: streamChunks.length > 0 ? streamChunks : output.length > 0 ? output : fallbackOutput,
+      errorOutput: hasStreamedStderr ? '' : errorOutput || fallbackErrorOutput,
     };
   }
 
@@ -824,11 +848,14 @@ function OutputTab({ output, errorOutput = '', streamingOutput, outputEndRef, to
   const stdoutRef = useRef(null);
   const allChunks = useMemo(() => [...(output || []), ...(streamingOutput || [])], [output, streamingOutput]);
   const isStreaming = streamingOutput.length > 0;
-  const stdoutText = useMemo(() => allChunks.filter(c => !c.isStderr).map(c => getOutputChunkText(c)).join(''), [allChunks]);
-  const stderrText = normalizeTextValue(errorOutput);
+  const stdoutChunks = useMemo(() => allChunks.filter(c => !isStderrChunk(c)), [allChunks]);
+  const stderrChunks = useMemo(() => allChunks.filter(isStderrChunk), [allChunks]);
+  const stdoutText = useMemo(() => stdoutChunks.map(c => getOutputChunkText(c)).join(''), [stdoutChunks]);
+  const streamedStderrText = useMemo(() => stderrChunks.map(c => getOutputChunkText(c)).join(''), [stderrChunks]);
+  const stderrText = [normalizeTextValue(errorOutput), streamedStderrText].filter(Boolean).join('');
   const lineCount = [stdoutText, stderrText].filter(Boolean).join('\n').split('\n').length;
   const stderrLineCount = stderrText ? stderrText.split('\n').length : 0;
-  const hasStdout = allChunks.length > 0;
+  const hasStdout = stdoutChunks.length > 0;
   const hasStderr = stderrText.length > 0;
 
   // Auto-scroll when new streaming output arrives (gated on followMode)
@@ -905,7 +932,7 @@ function OutputTab({ output, errorOutput = '', streamingOutput, outputEndRef, to
       <div className="space-y-4">
         {hasStdout && (
           <pre ref={stdoutRef} onScroll={handleOutputScroll} className="bg-gray-900 text-gray-100 rounded-lg p-4 text-sm overflow-x-auto whitespace-pre-wrap font-mono leading-relaxed max-h-[60vh] overflow-y-auto">
-            {allChunks.map((chunk, i) => {
+            {stdoutChunks.map((chunk, i) => {
               const segments = parseAnsi(getOutputChunkText(chunk));
               return (
                 <span key={`chunk-${i}`}>

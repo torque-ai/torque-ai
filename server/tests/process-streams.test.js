@@ -484,15 +484,24 @@ describe('process-streams', () => {
       expect(proc.lastProgress).toBe(80); // unchanged
     });
 
-    it('streams chunks via addStreamChunk', () => {
+    it('streams stderr chunks via addStreamChunk and notifyTaskOutput', () => {
       const child = makeChild();
       const proc = makeProc();
       deps.runningProcesses.set('t1', proc);
+      deps.db.addStreamChunk.mockReturnValue(7);
 
       processStreams.setupStderrHandler(child, 't1', 's1');
       child.stderr.emit('data', Buffer.from('err chunk'));
 
       expect(deps.db.addStreamChunk).toHaveBeenCalledWith('s1', 'err chunk', 'stderr');
+      expect(deps.dashboard.notifyTaskOutput).toHaveBeenCalledWith('t1', {
+        content: 'err chunk',
+        type: 'stderr',
+        chunk_type: 'stderr',
+        sequence: 7,
+        sequence_num: 7,
+        isStderr: true,
+      });
     });
 
     it('continues streaming when stderr estimateProgress throws for malformed text', () => {

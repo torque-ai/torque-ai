@@ -551,6 +551,12 @@ describe('execute-cli.js', () => {
         const proc = runningProcesses.get(taskId);
         expect(proc).toBeDefined();
         expect(proc.errorOutput).toContain('Warning: something');
+        expect(deps.dashboard.notifyTaskOutput).toHaveBeenCalledWith(taskId, expect.objectContaining({
+          content: 'Warning: something',
+          type: 'stderr',
+          chunk_type: 'stderr',
+          isStderr: true,
+        }));
       } finally {
         vi.useRealTimers();
       }

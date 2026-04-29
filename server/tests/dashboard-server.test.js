@@ -433,7 +433,7 @@ describe('dashboard-server', () => {
   it('broadcasts task output only to subscribed clients', async () => {
     const { dashboardServer } = await loadDashboardServer();
 
-    await dashboardServer.start({ port: 4572, openBrowser: false });
+    await dashboardServer.start({ port: 4579, openBrowser: false });
 
     const wss = wsInstances[wsInstances.length - 1];
     const subscriber = createMockWsClient();
@@ -451,6 +451,27 @@ describe('dashboard-server', () => {
     expect(subscriberEvents).toHaveLength(1);
     expect(subscriberEvents[0].data).toEqual({ taskId: 'task-2', chunk: 'stream chunk' });
     expect(otherEvents).toHaveLength(0);
+
+    dashboardServer.stop();
+  });
+
+  it('preserves structured stderr task output chunks', async () => {
+    const { dashboardServer } = await loadDashboardServer();
+
+    await dashboardServer.start({ port: 4572, openBrowser: false });
+
+    const wss = wsInstances[wsInstances.length - 1];
+    const subscriber = createMockWsClient();
+    wss.handlers.connection(subscriber);
+
+    subscriber.emit('message', Buffer.from(JSON.stringify({ event: 'subscribe', taskId: 'task-2' })));
+    const chunk = { content: 'codex stderr chunk', type: 'stderr', isStderr: true, sequence: 3 };
+    dashboardServer.notifyTaskOutput('task-2', chunk);
+
+    const subscriberEvents = sentEvents(subscriber).filter((evt) => evt.event === 'task:output');
+
+    expect(subscriberEvents).toHaveLength(1);
+    expect(subscriberEvents[0].data).toEqual({ taskId: 'task-2', chunk });
 
     dashboardServer.stop();
   });
