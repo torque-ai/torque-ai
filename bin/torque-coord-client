@@ -141,6 +141,7 @@ function requestViaSsh({ method, path: urlPath, body }) {
     const remoteCmd = curlParts.join(' ');
     const sshArgs = [
       '-o', `ConnectTimeout=${SSH_TIMEOUT_SECS}`,
+      '-o', 'BatchMode=yes',
       '-o', 'StrictHostKeyChecking=accept-new',
       `${REMOTE_USER}@${REMOTE_HOST}`,
       remoteCmd,
@@ -188,6 +189,7 @@ function streamViaSsh({ path: urlPath, onFrame }) {
     const remoteCmd2 = curlParts2.join(' ');
     const sshArgs = [
       '-o', `ConnectTimeout=${SSH_TIMEOUT_SECS}`,
+      '-o', 'BatchMode=yes',
       '-o', 'StrictHostKeyChecking=accept-new',
       `${REMOTE_USER}@${REMOTE_HOST}`,
       remoteCmd2,

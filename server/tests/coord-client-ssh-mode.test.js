@@ -140,6 +140,7 @@ describe('coord-client ssh mode', () => {
     expect(result.status).toBe(0);
     const argv = JSON.parse(fs.readFileSync(argvFile, 'utf8'));
     const joined = argv.join(' ');
+    expect(joined).toContain('BatchMode=yes');
     expect(joined).toContain(`${REMOTE_USER}@${REMOTE_HOST}`);
     expect(joined).toContain('curl');
     expect(joined).toContain('http://127.0.0.1:9395/health');
