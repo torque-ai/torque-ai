@@ -687,6 +687,15 @@ if [ -x "${REPO_ROOT}/scripts/prune-merged-worktrees.sh" ]; then
   bash "${REPO_ROOT}/scripts/prune-merged-worktrees.sh" --apply --keep-factory 2>&1 | sed 's/^/  /' || true
 fi
 
+# Refresh user-bin wrappers from the freshly-merged repo source. Without
+# this, fixes to bin/torque-remote* land in main but $HOME/bin/torque-remote
+# silently keeps running the old version — which masked a 5GB local-test
+# storm on 2026-04-29 because the previous-day mutex+HEAD-swap-guard
+# updates never deployed. Best-effort: never blocks the cutover.
+if [ -x "${REPO_ROOT}/scripts/install-userbin.sh" ]; then
+  bash "${REPO_ROOT}/scripts/install-userbin.sh" 2>&1 | sed 's/^/  /' || true
+fi
+
 echo ""
 echo "  Cutover complete!"
 echo "  Main is now up to date with ${FEATURE_NAME}."

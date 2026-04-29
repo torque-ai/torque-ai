@@ -80,8 +80,42 @@ fi
 # etc. carry free-form strings as arguments. Pattern-matching them as if
 # they were commands produces false positives (e.g. the literal word
 # "vitest" inside a commit message).
+#
+# Detect the actual subcommand by walking tokens after `git`, skipping
+# git's own pre-subcommand option flags (and their values where applicable).
+# A naive `awk '{print $2}'` mis-reads `git -C <path> commit ...` as
+# subcommand "-C" and lets the false-positive content scan run on the
+# commit message body.
 if [[ "$first_token" == "git" ]]; then
-  git_sub=$(echo "$command" | awk '{print $2}')
+  IFS=' ' read -ra git_tokens <<< "$(echo "$command" | tr '\n\r' '  ')"
+  git_sub=""
+  gi=1  # skip "git" itself
+  while (( gi < ${#git_tokens[@]} )); do
+    gt="${git_tokens[$gi]}"
+    case "$gt" in
+      "")
+        # Empty slot from double-space; skip.
+        gi=$((gi + 1))
+        ;;
+      -C|-c|--exec-path|--git-dir|--work-tree|--namespace|--super-prefix|--config-env)
+        # Takes a separate-token value; skip flag and its arg.
+        gi=$((gi + 2))
+        ;;
+      --exec-path=*|--git-dir=*|--work-tree=*|--namespace=*|--super-prefix=*|--config-env=*)
+        # Inline value form; skip just this token.
+        gi=$((gi + 1))
+        ;;
+      -p|-P|--paginate|--no-pager|--no-replace-objects|--bare|--literal-pathspecs|--glob-pathspecs|--noglob-pathspecs|--icase-pathspecs|-h|--help|-v|--version)
+        # Standalone flag with no value; skip just this token.
+        gi=$((gi + 1))
+        ;;
+      *)
+        # First non-option token is the subcommand.
+        git_sub="$gt"
+        break
+        ;;
+    esac
+  done
   case "$git_sub" in
     commit|log|show|tag|blame|notes|grep|rebase|bisect|cherry-pick)
       exit 0
