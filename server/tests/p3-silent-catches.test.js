@@ -33,6 +33,8 @@ const ALLOWED_SILENT_CATCHES = new Set([
   'context-handler.js:100',
   'context-handler.js:121',
   'context-handler.js:334',
+  // Factory DB fallback during direct handler construction in tests.
+  'factory-handlers.js:39',
   // Governance direct-construction fallbacks — intentionally swallow container/module errors
   'automation-handlers.js:86',
   'automation-handlers.js:99',
