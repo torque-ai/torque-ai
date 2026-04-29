@@ -74,6 +74,21 @@ if echo "$command" | grep -q 'curl '; then
   exit 0
 fi
 
+# ---- Skip git subcommands that legitimately take arbitrary text ----
+#
+# `git commit -m "... vitest ..."`, `git log --grep vitest`, `git show ...`
+# etc. carry free-form strings as arguments. Pattern-matching them as if
+# they were commands produces false positives (e.g. the literal word
+# "vitest" inside a commit message).
+if [[ "$first_token" == "git" ]]; then
+  git_sub=$(echo "$command" | awk '{print $2}')
+  case "$git_sub" in
+    commit|log|show|tag|blame|notes|grep|rebase|bisect|cherry-pick)
+      exit 0
+      ;;
+  esac
+fi
+
 # ---- Load intercept patterns ----
 
 # Read intercept_commands as newline-separated list (strip \r from Windows line endings)
@@ -111,7 +126,7 @@ match_pattern() {
   IFS=' ' read -ra pat_tokens <<< "$pattern"
   local pat_len=${#pat_tokens[@]}
 
-  # Scan for consecutive token match
+  # Scan for consecutive token match — catches `npx vitest`, `dotnet build`, etc.
   for (( i=0; i <= ${#tokens[@]} - pat_len; i++ )); do
     local matched=true
     for (( j=0; j < pat_len; j++ )); do
@@ -124,6 +139,32 @@ match_pattern() {
       return 0
     fi
   done
+
+  # Path-component scan for SINGLE-WORD patterns (e.g. `vitest`, `tsc`, `jest`).
+  # The consecutive-token matcher above misses bypass forms like:
+  #   node node_modules/vitest/vitest.mjs run
+  #   node ./node_modules/.bin/vitest run
+  # because none of those tokens equals "vitest" exactly. This scan catches
+  # the pattern appearing as a path component (preceded/followed by `/`, `\`,
+  # `.`, or string boundary) inside any token. Multi-word patterns like
+  # "dotnet build" don't need this — they're command-pair forms already.
+  #
+  # Boundary cases verified:
+  #   "vitest"                       ✓ (start, end)
+  #   "vitest.mjs"                   ✓ (start, .)
+  #   "node_modules/vitest/foo.js"   ✓ (after /, before /)
+  #   "/usr/local/bin/vitest"        ✓ (after /, end)
+  #   "myvitest" / "vitestrun"       ✗ (no boundary on one side)
+  if (( pat_len == 1 )); then
+    local single="${pat_tokens[0]}"
+    local token
+    for token in "${tokens[@]}"; do
+      if [[ "$token" =~ (^|[/\\])"$single"($|\.|[/\\]) ]]; then
+        return 0
+      fi
+    done
+  fi
+
   return 1
 }
 
