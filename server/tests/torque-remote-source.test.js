@@ -22,4 +22,12 @@ describe('torque-remote source invariants', () => {
     expect(src).toMatch(/grep -v 'Unable to persist credentials\\\|credential store\\\|aka\.ms\/gcm' \|\| true\)\n\s+sync_status="\$\{PIPESTATUS\[0\]\}"/);
     expect(src).not.toContain('|| sync_status="${PIPESTATUS[0]}"');
   });
+
+  it('passes an expected sha into runner guard instead of resolving ephemeral refs later', () => {
+    const src = readTorqueRemote();
+    expect(src).toContain('EXPECTED_SYNC_SHA="$(git ls-remote --heads origin "$SYNC_BRANCH"');
+    expect(src).toContain('EXPECTED_SYNC_SHA=$(shell_quote "$EXPECTED_SYNC_SHA")');
+    expect(src).toContain('EXPECTED_HEAD_SHA="\\$EXPECTED_SYNC_SHA"');
+    expect(src).not.toContain('EXPECTED_HEAD_SHA=$(git rev-parse "$SYNC_REF"');
+  });
 });

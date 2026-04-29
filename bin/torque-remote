@@ -874,6 +874,7 @@ case "$TRANSPORT" in
 
     SYNC_REF=""
     SYNC_BRANCH=""
+    EXPECTED_SYNC_SHA=""
     APPLY_LOCAL_STATE="false"
     LOCAL_STATE_BUNDLE=""
 
@@ -907,6 +908,13 @@ case "$TRANSPORT" in
       fi
 
       SYNC_BRANCH="${SYNC_REF#origin/}"
+      EXPECTED_SYNC_SHA="$(git ls-remote --heads origin "$SYNC_BRANCH" | awk 'NR == 1 { print $1 }')"
+      if [[ -z "$EXPECTED_SYNC_SHA" ]]; then
+        EXPECTED_SYNC_SHA="$(git rev-parse "$SYNC_REF" 2>/dev/null || echo "")"
+      fi
+      if [[ -z "$EXPECTED_SYNC_SHA" ]]; then
+        die "Could not resolve expected sha for '$SYNC_REF'"
+      fi
       FETCH_COMMAND="git fetch --prune origin +refs/heads/$SYNC_BRANCH:refs/remotes/origin/$SYNC_BRANCH"
       info "Syncing $SYNC_BRANCH on remote..."
       # When the test-worktree subdir is configured, ensure the worktree
@@ -1017,6 +1025,7 @@ case "$TRANSPORT" in
 # torque-remote-inline-run
 PROJECT_PATH=$(shell_quote "$EFFECTIVE_REMOTE_PROJECT_PATH")
 SYNC_REF=$(shell_quote "$SYNC_REF")
+EXPECTED_SYNC_SHA=$(shell_quote "$EXPECTED_SYNC_SHA")
 BUNDLE_DIR="\$(cd "\$(dirname "\$0")" && pwd)"
 $COMMAND_ARGS_LITERAL
 set -euo pipefail
@@ -1027,13 +1036,13 @@ cd "\$PROJECT_PATH"
 # checkout/reset --hard against the same path between sync and run and
 # silently swap the worktree to a different ref. Tests then run against
 # unrelated code and produce confusing false failures (the gate has been
-# bitten by this multiple times). Verify HEAD still resolves to the same
-# commit \$SYNC_REF resolves to right now; if not, abort with a clear
-# error rather than running tests on contaminated state.
+# bitten by this multiple times). Verify HEAD still matches the expected
+# commit captured before sync; short-lived staging refs may disappear from
+# remote-tracking refs after checkout.
 ACTUAL_HEAD_SHA=\$(git rev-parse HEAD 2>/dev/null || echo "")
-EXPECTED_HEAD_SHA=\$(git rev-parse "\$SYNC_REF" 2>/dev/null || echo "")
+EXPECTED_HEAD_SHA="\$EXPECTED_SYNC_SHA"
 if [[ -z "\$ACTUAL_HEAD_SHA" || -z "\$EXPECTED_HEAD_SHA" ]]; then
-  echo "[torque-remote-sync] failed to resolve worktree HEAD or \$SYNC_REF" 1>&2
+  echo "[torque-remote-sync] failed to resolve worktree HEAD or expected \$SYNC_REF commit" 1>&2
   exit 98
 fi
 if [[ "\$ACTUAL_HEAD_SHA" != "\$EXPECTED_HEAD_SHA" ]]; then
