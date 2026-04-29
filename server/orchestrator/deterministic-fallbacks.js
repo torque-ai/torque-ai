@@ -55,6 +55,7 @@ function fallbackDecompose({ feature_name, working_directory, config }) {
 }
 
 const ERROR_PATTERNS = [
+  { pattern: /invalid configuration|config(?:uration)?[^\n]{0,80}\binvalid\b|invalid (?:tick rate|input delay|max|manifest|setting)/i, action: 'fix_task', reason: 'Invalid configuration - fix task inputs or project config' },
   { pattern: /timed?\s*out|timeout|ETIMEDOUT/i, action: 'retry', reason: 'Task timed out - retry with longer timeout' },
   { pattern: /CUDA out of memory|OOM|out of memory/i, action: 'switch_provider', reason: 'Out of memory - switch to cloud provider', suggested_provider: 'deepinfra' },
   { pattern: /rate limit|429|too many requests/i, action: 'retry', reason: 'Rate limited - retry after backoff' },

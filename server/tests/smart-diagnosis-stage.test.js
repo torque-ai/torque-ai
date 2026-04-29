@@ -101,6 +101,16 @@ describe('smartDiagnosisStage (Experiment 5)', () => {
   });
 
   describe('code error detection', () => {
+    it('diagnoses invalid configuration before timeout text → fix_task', () => {
+      const ctx = makeCtx({
+        errorOutput: 'Invalid configuration: invalid tick rate. Previous attempt also timed out after 600s.',
+      });
+      smartDiagnosisStage(ctx);
+      const metadata = parseMeta(ctx.task.metadata);
+      expect(metadata.strategic_diagnosis.action).toBe('fix_task');
+      expect(metadata.fix_suggestion).toContain('Invalid configuration');
+    });
+
     it('diagnoses TypeScript errors → fix_task', () => {
       const ctx = makeCtx({
         errorOutput: "error TS2304: Cannot find name 'Observable'.",
