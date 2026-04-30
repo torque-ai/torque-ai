@@ -81,6 +81,72 @@ fi
 # they were commands produces false positives (e.g. the literal word
 # "vitest" inside a commit message).
 #
+# Also handle the chained form `cd X && git commit -m "...vitest..."` —
+# common when the operator stages and commits in one shell call. The
+# first_token in that case is `cd` (not `git`), but the heavy-pattern
+# scan would still match "vitest" inside the commit message body and
+# block. Detect any clause that starts with `git <safe-subcommand>`
+# anywhere in the chain and exit early.
+chained_git_safe_subcommand_present() {
+  local cmd="$1"
+  # Split on shell-chain operators (&&, ||, ;) into rough clauses. This
+  # is a heuristic — quoted operators inside arguments will mis-split,
+  # but the only consequence of a mis-split is that we MIGHT exempt a
+  # command that contains a chained git-safe clause when we shouldn't.
+  # Since the alternative is blocking legitimate `cd X && git commit`
+  # patterns, the heuristic is the right trade-off.
+  local IFS_save="$IFS"
+  IFS=$'\n'
+  # Translate each chain operator to a newline so `read -a` splits.
+  local clauses
+  clauses=$(printf '%s\n' "$cmd" | sed -E 's/(&&|\|\||;)/\n/g')
+  IFS="$IFS_save"
+  while IFS= read -r clause; do
+    # Trim leading whitespace.
+    clause="${clause#"${clause%%[![:space:]]*}"}"
+    # Get the first token of this clause.
+    local first
+    first=$(printf '%s' "$clause" | awk '{print $1}')
+    if [[ "$first" == "git" || "$first" == */git ]]; then
+      # Walk past pre-subcommand options to find the actual subcommand.
+      local IFS_inner=' '
+      local clause_tokens
+      IFS=$IFS_inner read -ra clause_tokens <<< "$clause"
+      IFS="$IFS_save"
+      local sub=""
+      local idx=1
+      while (( idx < ${#clause_tokens[@]} )); do
+        local tok="${clause_tokens[$idx]}"
+        case "$tok" in
+          "")
+            idx=$((idx + 1))
+            ;;
+          -C|-c|--exec-path|--git-dir|--work-tree|--namespace|--super-prefix|--config-env)
+            idx=$((idx + 2))
+            ;;
+          --exec-path=*|--git-dir=*|--work-tree=*|--namespace=*|--super-prefix=*|--config-env=*)
+            idx=$((idx + 1))
+            ;;
+          -p|-P|--paginate|--no-pager|--no-replace-objects|--bare|--literal-pathspecs|--glob-pathspecs|--noglob-pathspecs|--icase-pathspecs|-h|--help|-v|--version)
+            idx=$((idx + 1))
+            ;;
+          *)
+            sub="$tok"
+            break
+            ;;
+        esac
+      done
+      case "$sub" in
+        commit|log|show|tag|blame|notes|grep|rebase|bisect|cherry-pick)
+          return 0
+          ;;
+      esac
+    fi
+  done <<< "$clauses"
+  return 1
+}
+
+# Fast path: the first-token-is-git case is the common one.
 # Detect the actual subcommand by walking tokens after `git`, skipping
 # git's own pre-subcommand option flags (and their values where applicable).
 # A naive `awk '{print $2}'` mis-reads `git -C <path> commit ...` as
@@ -121,6 +187,13 @@ if [[ "$first_token" == "git" ]]; then
       exit 0
       ;;
   esac
+fi
+
+# Chained-form git-safe check: catches `cd X && git commit -m "...vitest..."`
+# and similar patterns where the heavy-pattern would otherwise match free-text
+# inside a git commit message or log/grep argument.
+if chained_git_safe_subcommand_present "$command"; then
+  exit 0
 fi
 
 # ---- Load intercept patterns ----
@@ -202,16 +275,43 @@ match_pattern() {
   return 1
 }
 
+command_has_shell_features() {
+  # Detect shell chaining/redirection — when present, prepending
+  # `torque-remote` to the whole string produces a nonsensical command
+  # (e.g. `torque-remote cd X && torque-remote Y` runs cd on the remote
+  # but Y locally). Wrapping in `bash -c` is the only correct shape.
+  local s="$1"
+  [[ "$s" == *"&&"* || "$s" == *"||"* || "$s" == *";"* || "$s" == *"|"* ]] && return 0
+  [[ "$s" == *">"* || "$s" == *"<"* ]] && return 0
+  return 1
+}
+
+build_suggested_command() {
+  local cmd="$1"
+  if command_has_shell_features "$cmd"; then
+    # Escape single quotes inside the user's command for safe wrapping.
+    local escaped="${cmd//\'/\'\\\'\'}"
+    printf "torque-remote bash -c '%s'" "$escaped"
+  else
+    printf "torque-remote %s" "$cmd"
+  fi
+}
+
 while IFS= read -r pattern; do
   [[ -z "$pattern" ]] && continue
   if match_pattern "$pattern"; then
+    suggested=$(build_suggested_command "$command")
     cat >&2 << EOF
 BLOCKED: "$pattern" should run on the remote workstation.
 
-Use:  torque-remote $command
+Use:  $suggested
 
 The remote workstation handles heavy builds/tests. If it's unreachable,
 torque-remote will automatically fall back to local execution.
+Chained commands (cd && X, X | Y, X > out) must be wrapped in
+\`torque-remote bash -c '...'\` so the entire pipeline runs on the
+remote — prepending torque-remote alone only forwards the first
+clause and leaves the rest running locally.
 EOF
     exit 2
   fi
