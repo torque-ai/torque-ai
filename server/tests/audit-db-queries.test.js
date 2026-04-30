@@ -163,4 +163,47 @@ describe('scripts/audit-db-queries', () => {
       expect(viols).toHaveLength(1);
     });
   });
+
+  describe('extractWhereColumns word-boundary handling', () => {
+    it('does not extract a column fragment from inside a string literal containing IN', () => {
+      // Canonical bug: `WHERE t.status IN ('pending', 'queued')` parsed
+      // as columns `[status, pend]` because the regex matched the
+      // substring `IN` at position 5 of `pending`, treating `pend` as
+      // a column. With \b boundaries on IN/LIKE/IS, only the real
+      // `status IN` pair matches.
+      const cols = audit.extractWhereColumns("t.status IN ('pending', 'queued')");
+      expect(cols).toContain('status');
+      expect(cols).not.toContain('pend');
+      expect(cols).not.toContain('queue');
+    });
+
+    it('does not extract a fragment from a string literal containing LIKE', () => {
+      // `name LIKE 'unliked%'` previously could have matched `unli` as
+      // column=`unli` operator=`LIKE` against position 2 of `unliked`.
+      const cols = audit.extractWhereColumns("name LIKE 'unliked%'");
+      expect(cols).toContain('name');
+      expect(cols).not.toContain('unli');
+    });
+
+    it('does not extract a fragment from a string literal containing IS', () => {
+      // `tag = 'permissionless'` should give just `tag`, not `permiss`.
+      const cols = audit.extractWhereColumns("tag = 'permissionless'");
+      expect(cols).toContain('tag');
+      expect(cols).not.toContain('permiss');
+    });
+
+    it('still parses standard IN/LIKE/IS clauses correctly', () => {
+      const inCols = audit.extractWhereColumns('status IN (?,?,?)');
+      expect(inCols).toEqual(['status']);
+      const likeCols = audit.extractWhereColumns("name LIKE ?");
+      expect(likeCols).toEqual(['name']);
+      const isCols = audit.extractWhereColumns("deleted_at IS NULL");
+      expect(isCols).toEqual(['deleted_at']);
+    });
+
+    it('handles compound operators (<=, >=, !=, <>) without splitting them', () => {
+      const cols = audit.extractWhereColumns('created_at >= ? AND updated_at <= ? AND status != ? AND id <> ?');
+      expect(cols.sort()).toEqual(['created_at', 'id', 'status', 'updated_at']);
+    });
+  });
 });
