@@ -1041,6 +1041,29 @@ const MIGRATIONS = [
     },
     down: 'DROP INDEX IF EXISTS idx_file_locks_active',
   },
+  {
+    version: 48,
+    name: 'add_tasks_review_status_index',
+    // server/db/host-management.js#getTasksNeedingCorrection runs
+    // `SELECT * FROM tasks WHERE review_status = 'needs_correction'`
+    // for the dashboard's correction-queue widget. The tasks table
+    // is the largest in the deployment (one row per submitted task),
+    // and review_status was un-indexed, so each dashboard refresh
+    // walked every historical task row. Since needs_correction is a
+    // small subset of all rows, an index on review_status is highly
+    // selective and cheap to maintain.
+    up: function(sqliteDb) {
+      // Tolerate minimal-schema test fixtures. Same pattern as v37 / v39+.
+      const tableExists = sqliteDb.prepare(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='tasks'"
+      ).get();
+      if (!tableExists) return;
+      sqliteDb.prepare(
+        'CREATE INDEX IF NOT EXISTS idx_tasks_review_status ON tasks(review_status)'
+      ).run();
+    },
+    down: 'DROP INDEX IF EXISTS idx_tasks_review_status',
+  },
 ];
 
 function ensureMigrationTable(sqliteDb) {
