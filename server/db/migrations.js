@@ -996,6 +996,27 @@ const MIGRATIONS = [
     },
     down: 'DROP INDEX IF EXISTS idx_adversarial_reviews_review_task',
   },
+  {
+    version: 46,
+    name: 'add_ci_run_cache_created_at_index',
+    // server/db/ci-cache.js#pruneCiRunCache runs
+    // `DELETE FROM ci_run_cache WHERE created_at < datetime('now', ?)`
+    // periodically to age out stale CI cache entries (default 7 days).
+    // The table had repo+branch and commit_sha indexes but nothing on
+    // created_at, so each prune walked every cached row. An index on
+    // created_at lets the cleanup seek straight to expired rows.
+    up: function(sqliteDb) {
+      // Tolerate minimal-schema test fixtures. Same pattern as v37 / v39+.
+      const tableExists = sqliteDb.prepare(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='ci_run_cache'"
+      ).get();
+      if (!tableExists) return;
+      sqliteDb.prepare(
+        'CREATE INDEX IF NOT EXISTS idx_ci_run_cache_created_at ON ci_run_cache(created_at)'
+      ).run();
+    },
+    down: 'DROP INDEX IF EXISTS idx_ci_run_cache_created_at',
+  },
 ];
 
 function ensureMigrationTable(sqliteDb) {
