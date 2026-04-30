@@ -97,9 +97,42 @@ describe('concurrency-handlers — unwraps facade before raw SQL', () => {
     const text = result?.content?.[0]?.text || '';
     expect(text).toMatch(/Set max_concurrent for provider 'codex' to 3/);
     expect(text).not.toMatch(/Failed to set/);
+    // Success responses must not carry isError — that signal lets the
+    // dispatch helper map only failures to non-2xx HTTP responses.
+    expect(result?.isError).toBeFalsy();
 
     const row = rawDb.prepare('SELECT max_concurrent FROM provider_config WHERE provider = ?').get('codex');
     expect(row?.max_concurrent).toBe(3);
+  });
+
+  it('handleSetConcurrencyLimit flags missing-target validation as isError 400', () => {
+    const result = handlers.handleSetConcurrencyLimit({ scope: 'provider', max_concurrent: 3 });
+    expect(result?.isError).toBe(true);
+    expect(result?.status).toBe(400);
+    expect(result?.content?.[0]?.text).toMatch(/target is required/);
+  });
+
+  it('handleSetConcurrencyLimit flags out-of-range max_concurrent as isError 400', () => {
+    const result = handlers.handleSetConcurrencyLimit({
+      scope: 'provider',
+      target: 'codex',
+      max_concurrent: 9999,
+    });
+    expect(result?.isError).toBe(true);
+    expect(result?.status).toBe(400);
+    expect(result?.content?.[0]?.text).toMatch(/max_concurrent must be an integer/);
+  });
+
+  it('handleSetConcurrencyLimit flags unknown provider as isError 404', () => {
+    const result = handlers.handleSetConcurrencyLimit({
+      scope: 'provider',
+      target: 'no-such-provider',
+      max_concurrent: 3,
+    });
+    expect(result?.isError).toBe(true);
+    expect(result?.status).toBe(404);
+    expect(result?.code).toBe('provider_not_found');
+    expect(result?.content?.[0]?.text).toMatch(/Provider 'no-such-provider' not found/);
   });
 
   it('handleSetConcurrencyLimit persists vram_factor via raw SQL on the config table', () => {

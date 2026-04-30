@@ -194,21 +194,66 @@ function throwToolResultError(result) {
   throw error;
 }
 
+/**
+ * Send a tool-result response with isError-aware HTTP status mapping.
+ *
+ * Wrappers in V2_CP_HANDLER_LOOKUP SHOULD use this helper rather than
+ * calling `sendJson(...200)` directly. The MCP tool-result convention
+ * lets handlers signal failure with `isError: true` (and an optional
+ * `status` / `code`); without checking that flag, the wrapper sends an
+ * HTTP 200 with the error text in `data.message` and the dashboard's
+ * try/catch never fires — failures masquerade as fake successes. That
+ * pattern hid a 25-day silent-write bug in the concurrency endpoints
+ * (8a0430c8 → 30e6cd4d) and the same shape exists in ~19 other wrappers
+ * here as of this commit. Migrate them incrementally.
+ *
+ * Modes:
+ *   - `unwrap` (default): success body = unwrapToolResult(result).
+ *     Match for handlers like handleAddProvider that already use this.
+ *   - `json`: parses content[0].text as JSON; non-JSON throws 500.
+ *     Match for handlers that JSON.stringify a structured payload into
+ *     content[0].text (e.g. handleGetConcurrencyLimits).
+ *   - `message`: wraps content[0].text as `{message: text}`.
+ *     Match for handlers that return a human-readable status string
+ *     (e.g. handleSetConcurrencyLimit).
+ */
+function sendToolResult(res, req, ctx, result, options = {}) {
+  if (result?.isError) {
+    throwToolResultError(result);
+  }
+  const { successStatus = 200, mode = 'unwrap' } = options;
+  let data;
+  if (mode === 'json') {
+    const text = result?.content?.[0]?.text || '{}';
+    try {
+      data = JSON.parse(text);
+    } catch {
+      const err = new Error('Tool returned non-JSON content where JSON was expected.');
+      err.code = 'operation_failed';
+      err.status = 500;
+      err.details = { sample: text.slice(0, 200) };
+      throw err;
+    }
+  } else if (mode === 'message') {
+    data = { message: result?.content?.[0]?.text || '' };
+  } else {
+    data = unwrapToolResult(result);
+  }
+  sendJson(res, { data, meta: { request_id: ctx.requestId } }, successStatus, req);
+}
+
 // ─── Handler Lookup ──────────────────────────────────────────────────────────
 
 const V2_CP_HANDLER_LOOKUP = {
   // Concurrency limits
   handleV2CpGetConcurrencyLimits: (req, res, ctx) => {
     const result = concurrencyHandlers.handleGetConcurrencyLimits();
-    const text = result?.content?.[0]?.text || '{}';
-    let data; try { data = JSON.parse(text); } catch { data = { error: 'Failed to parse tool response' }; }
-    sendJson(res, { data, meta: { request_id: ctx.requestId } }, 200, req);
+    sendToolResult(res, req, ctx, result, { mode: 'json' });
   },
   handleV2CpSetConcurrencyLimit: async (req, res, ctx) => {
     const body = await readJsonBody(req);
     const result = concurrencyHandlers.handleSetConcurrencyLimit(body);
-    const text = result?.content?.[0]?.text || '';
-    sendJson(res, { data: { message: text }, meta: { request_id: ctx.requestId } }, 200, req);
+    sendToolResult(res, req, ctx, result, { mode: 'message' });
   },
   // Economy mode removed — use routing templates instead
   handleV2CpGetEconomyStatus: (_req, res, ctx) => {
@@ -748,4 +793,9 @@ module.exports = {
   V2_CP_HANDLER_LOOKUP,
   MAX_BODY_SIZE,
   validateJsonDepth,
+  // Exported so wrapper migrations and tests can use the same isError-aware
+  // response path. See the docblock on sendToolResult above for the contract.
+  sendToolResult,
+  unwrapToolResult,
+  throwToolResultError,
 };
