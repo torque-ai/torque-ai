@@ -1017,6 +1017,30 @@ const MIGRATIONS = [
     },
     down: 'DROP INDEX IF EXISTS idx_ci_run_cache_created_at',
   },
+  {
+    version: 47,
+    name: 'add_file_locks_released_at_index',
+    // server/db/file-baselines.js#getActiveFileLocks (no-task-id case)
+    // and #releaseExpiredFileLocks both filter on
+    // `WHERE released_at IS NULL AND (expires_at IS NULL OR expires_at > ?)`
+    // — the active-lock sweep used by every file-baseline open. The
+    // table had file_path+working_directory and task_id indexes, but
+    // nothing led on released_at, so each sweep walked every row of
+    // lock history (released or not). A composite (released_at,
+    // expires_at) index lets SQLite's index-on-NULL machinery seek
+    // straight to the unreleased rows and range-filter expires_at.
+    up: function(sqliteDb) {
+      // Tolerate minimal-schema test fixtures. Same pattern as v37 / v39+.
+      const tableExists = sqliteDb.prepare(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='file_locks'"
+      ).get();
+      if (!tableExists) return;
+      sqliteDb.prepare(
+        'CREATE INDEX IF NOT EXISTS idx_file_locks_active ON file_locks(released_at, expires_at)'
+      ).run();
+    },
+    down: 'DROP INDEX IF EXISTS idx_file_locks_active',
+  },
 ];
 
 function ensureMigrationTable(sqliteDb) {
