@@ -82,4 +82,16 @@ describe('torque-remote source invariants', () => {
     expect(src).toContain('rmdir /s /q \\"$REMOTE_SYNC_LOCK_DIR\\"');
     expect(src).not.toContain('rmdir "$REMOTE_SYNC_LOCK_DIR"');
   });
+
+  it('strips trailing whitespace from owner.env field values so the host check matches', () => {
+    // CMD's `echo X>file` writes a trailing space before the newline,
+    // so owner.env values read back with a literal trailing space.
+    // Without stripping, the owner_host == local_host comparison in
+    // remote_sync_lock_is_stale always fails and the auto-reap path
+    // never fires for crashed sessions. Verified live 2026-04-29 via
+    // certutil hex dump of a CMD-echoed file: the bytes were
+    // `<value>\\x20\\x0D\\x0A`.
+    const src = readTorqueRemote();
+    expect(src).toMatch(/owner_field\s*\(\)\s*\{[\s\S]*?sed 's\/\[\[:space:\]\]\*\$\/\/'/);
+  });
 });

@@ -262,7 +262,12 @@ read_remote_sync_lock_owner() {
 
 owner_field() {
   local owner="$1" key="$2"
-  printf '%s\n' "$owner" | sed -n "s/^${key}=//p" | head -n 1
+  # Strip trailing whitespace (including the space CMD's `echo X>file` writes
+  # before the newline). owner.env values otherwise read back with a literal
+  # trailing space, which causes the owner_host == local_host comparison in
+  # remote_sync_lock_is_stale to fail and the auto-reap path never fires for
+  # crashed sessions.
+  printf '%s\n' "$owner" | sed -n "s/^${key}=//p" | head -n 1 | sed 's/[[:space:]]*$//'
 }
 
 remote_sync_lock_is_stale() {
