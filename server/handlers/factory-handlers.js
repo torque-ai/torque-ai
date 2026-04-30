@@ -1855,24 +1855,21 @@ async function handleResumeProjectBaselineFixed(args) {
       );
     }
 
-    let verifyCommand = cfg.verify_command || null;
-    if (!verifyCommand) {
-      try {
-        const projectConfigCore = require('../db/project-config-core');
-        const defaults = projectConfigCore.getProjectDefaults(projectRow.path || projectRow.id);
-        if (defaults && defaults.verify_command) {
-          verifyCommand = defaults.verify_command;
-        }
-      } catch (_e) { void _e; }
-    }
+    const baselineProbe = require('../factory/baseline-probe');
+    let defaults = null;
+    try {
+      const projectConfigCore = require('../db/project-config-core');
+      defaults = projectConfigCore.getProjectDefaults(projectRow.path || projectRow.id);
+    } catch (_e) { void _e; }
+    const verifyCommand = baselineProbe.resolveBaselineVerifyCommand({ cfg, defaults });
     if (!verifyCommand) {
       return makeError(
         ErrorCodes.INVALID_PARAM,
-        `Project "${projectRow.name}" has no verify_command configured; cannot probe. Set one via set_project_defaults and try again.`,
+        `Project "${projectRow.name}" has no verify_command configured; cannot probe. Set one via set_project_defaults (verify_command or baseline_verify_command) and try again.`,
       );
     }
 
-    const baselineProbe = require('../factory/baseline-probe');
+
     const timeoutMs = baselineProbe.resolveBaselineProbeTimeoutMs({
       timeout_minutes: args.timeout_minutes,
       config: cfg,

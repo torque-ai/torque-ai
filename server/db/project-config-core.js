@@ -713,6 +713,10 @@ function setProjectConfig(project, config) {
       updates.push('verify_command = ?');
       values.push(config.verify_command);
     }
+    if (config.baseline_verify_command !== undefined) {
+      updates.push('baseline_verify_command = ?');
+      values.push(config.baseline_verify_command);
+    }
     if (config.routing_template_id !== undefined) {
       updates.push('routing_template_id = ?');
       values.push(config.routing_template_id || null);
@@ -765,10 +769,10 @@ function setProjectConfig(project, config) {
         test_verification_enabled, test_command, test_timeout, rollback_on_test_failure,
         style_check_enabled, style_check_command, style_check_timeout,
         auto_pr_enabled, auto_pr_base_branch,
-        default_provider, default_model, verify_command, routing_template_id, auto_fix_enabled, test_pattern,
+        default_provider, default_model, verify_command, baseline_verify_command, routing_template_id, auto_fix_enabled, test_pattern,
         auto_verify_on_completion, remote_agent_id, remote_project_path, prefer_remote_tests,
         economy_policy, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     stmt.run(
@@ -797,6 +801,7 @@ function setProjectConfig(project, config) {
       config.default_provider || null,
       config.default_model || null,
       config.verify_command || null,
+      config.baseline_verify_command || null,
       config.routing_template_id || null,
       config.auto_fix_enabled ? 1 : 0,
       config.test_pattern || null,

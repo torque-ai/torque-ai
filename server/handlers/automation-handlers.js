@@ -652,6 +652,7 @@ function handleSetProjectDefaults(args) {
   database().safeAddColumn('project_config', 'default_provider TEXT');
   database().safeAddColumn('project_config', 'default_model TEXT');
   database().safeAddColumn('project_config', 'verify_command TEXT');
+  database().safeAddColumn('project_config', 'baseline_verify_command TEXT');
   database().safeAddColumn('project_config', 'routing_template_id TEXT');
   database().safeAddColumn('project_config', 'auto_fix_enabled INTEGER DEFAULT 0');
   database().safeAddColumn('project_config', 'test_pattern TEXT');
@@ -677,6 +678,11 @@ function handleSetProjectDefaults(args) {
   if (args.verify_command) {
     configUpdate.verify_command = args.verify_command;
     changes.push(`Verify command: ${args.verify_command}`);
+  }
+
+  if (args.baseline_verify_command !== undefined) {
+    configUpdate.baseline_verify_command = args.baseline_verify_command || null;
+    changes.push(`Baseline verify command: ${args.baseline_verify_command || '(cleared)'}`);
   }
 
   if (args.routing_template_id !== undefined) {
