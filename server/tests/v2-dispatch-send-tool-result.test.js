@@ -50,6 +50,10 @@ describe('sendToolResult — isError-aware response mapping', () => {
     expect(caught?.status).toBe(404);
     expect(caught?.code).toBe('provider_not_found');
     expect(caught?.message).toBe('Provider not found');
+    // v2 marker tells normalizeError to preserve the message verbatim.
+    // Without it, the dashboard sees "Internal server error" instead of
+    // the actionable handler message — defeating the entire isError path.
+    expect(caught?.v2).toBe(true);
   });
 
   it('defaults isError responses to status 400 when no status is set', () => {

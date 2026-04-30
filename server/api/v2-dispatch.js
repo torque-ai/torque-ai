@@ -191,6 +191,15 @@ function throwToolResultError(result) {
   error.code = result?.code || 'operation_failed';
   error.status = Number.isInteger(result?.status) ? result.status : 400;
   error.details = result?.details || {};
+  // Mark as a v2-shaped error so normalizeError preserves the user-facing
+  // message instead of replacing it with the generic DEFAULT_ERROR_MESSAGE
+  // ("Internal server error"). Tool-result error text is crafted by
+  // handlers as actionable feedback for the API caller (e.g. "Provider X
+  // not found.", "max_concurrent must be an integer from 0 to 100.") —
+  // it's intentionally user-facing and must reach the client. Without
+  // this marker, the dashboard's catch handler shows
+  // "Failed: Internal server error" for every error path.
+  error.v2 = true;
   throw error;
 }
 
