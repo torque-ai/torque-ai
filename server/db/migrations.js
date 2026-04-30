@@ -864,6 +864,28 @@ const MIGRATIONS = [
     },
     down: 'DROP INDEX IF EXISTS idx_benchmark_results_host',
   },
+  {
+    version: 40,
+    name: 'add_quality_scores_scored_at_index',
+    // server/db/file-quality.js runs two stats queries against
+    // quality_scores filtering on `WHERE scored_at >= ?` (overall stats
+    // and per-provider stats since timestamp). The table only carried
+    // task_id and provider indexes — every stats roll-up was a full
+    // scan that grows linearly with task history. Adding an index on
+    // scored_at gives the dashboard's quality-stats panel a real seek.
+    up: function(sqliteDb) {
+      // Tolerate minimal-schema test fixtures that don't include the
+      // quality_scores table. Same pattern as v37 / v39.
+      const tableExists = sqliteDb.prepare(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='quality_scores'"
+      ).get();
+      if (!tableExists) return;
+      sqliteDb.prepare(
+        'CREATE INDEX IF NOT EXISTS idx_quality_scores_scored_at ON quality_scores(scored_at)'
+      ).run();
+    },
+    down: 'DROP INDEX IF EXISTS idx_quality_scores_scored_at',
+  },
 ];
 
 function ensureMigrationTable(sqliteDb) {
