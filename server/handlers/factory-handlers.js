@@ -1025,10 +1025,24 @@ async function handleResumeProject(args) {
   } catch (err) {
     logger.warn({ err }, 'Failed to record resume audit event');
   }
-  // Start factory tick timer when project resumes
+  // Start factory tick timer when project resumes.
+  // Phase L (2026-04-30): honor cfg.loop.tick_interval_ms so an operator can
+  // pause + resume to apply a new tick interval without restarting TORQUE.
+  // Previously startTick(updated) used the default 5min regardless of config,
+  // so the only way to change the interval was a full server restart.
   try {
     const { startTick } = require('../factory/factory-tick');
-    startTick(updated);
+    let intervalMs;
+    if (updated.config_json) {
+      try {
+        const cfg = JSON.parse(updated.config_json);
+        const cfgInterval = cfg?.loop?.tick_interval_ms;
+        if (Number.isFinite(cfgInterval) && cfgInterval > 0) {
+          intervalMs = cfgInterval;
+        }
+      } catch (_e) { void _e; /* invalid config_json — fall back to default */ }
+    }
+    startTick(updated, intervalMs);
   } catch (_e) { void _e; /* factory-tick not loaded */ }
   logger.info(`Factory project resumed: ${updated.name}`);
   return jsonResponse({
