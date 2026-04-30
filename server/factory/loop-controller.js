@@ -27,6 +27,7 @@ const { createPlanFileIntake } = require('./plan-file-intake');
 const { createPlanReviewer, selectReviewers } = require('./plan-reviewer');
 const { createShippedDetector } = require('./shipped-detector');
 const { createWorktreeRunner, detectDefaultBranch } = require('./worktree-runner');
+const { extractExplicitVerifyCommand, normalizeVerifyCommand } = require('./plan-parser');
 const { buildProviderLaneTaskMetadata } = require('./provider-lane-policy');
 const { createWorktreeManager } = require('../plugins/version-control/worktree-manager');
 const eventBus = require('../event-bus');
@@ -4688,6 +4689,60 @@ function getWorkItemOriginObject(workItem) {
   return { ...(parseJsonObject(workItem?.origin_json) || {}) };
 }
 
+function readWorkItemPlanText(workItem) {
+  const origin = getWorkItemOriginObject(workItem);
+  const planPath = origin?.plan_path;
+  if (!planPath || !fs.existsSync(planPath)) {
+    return null;
+  }
+  try {
+    return fs.readFileSync(planPath, 'utf8');
+  } catch (_err) {
+    return null;
+  }
+}
+
+function resolveProjectVerifyCommand(project) {
+  const fromFactoryConfig = normalizeVerifyCommand(project?.config?.verify_command);
+  if (fromFactoryConfig) return { command: fromFactoryConfig, source: 'factory_project_config' };
+
+  if (project && project.name) {
+    try {
+      const projectConfigCore = require('../db/project-config-core');
+      const defaults = projectConfigCore.getProjectConfig(project.name);
+      const fromDefaults = normalizeVerifyCommand(defaults?.verify_command);
+      if (fromDefaults) return { command: fromDefaults, source: 'project_defaults' };
+    } catch (_pccErr) {
+      void _pccErr;
+    }
+  }
+
+  return { command: 'cd server && npx vitest run', source: 'fallback_default' };
+}
+
+function resolveWorkItemVerifyCommand(workItem) {
+  const origin = getWorkItemOriginObject(workItem);
+  for (const key of ['verify_command', 'verification', 'validation_command', 'validation']) {
+    const command = normalizeVerifyCommand(origin?.[key]);
+    if (command) return { command, source: `work_item_origin.${key}` };
+  }
+
+  const descriptionCommand = extractExplicitVerifyCommand(workItem?.description || '');
+  if (descriptionCommand) return { command: descriptionCommand, source: 'work_item_description' };
+
+  const planText = readWorkItemPlanText(workItem);
+  const planCommand = extractExplicitVerifyCommand(planText || '');
+  if (planCommand) return { command: planCommand, source: 'plan_file' };
+
+  return null;
+}
+
+function resolveFactoryVerifyCommand({ project, workItem } = {}) {
+  const workItemCommand = resolveWorkItemVerifyCommand(workItem);
+  if (workItemCommand) return workItemCommand;
+  return resolveProjectVerifyCommand(project);
+}
+
 function maybeClearDeferredPlanGenerationWait(project, instance) {
   const workItem = tryGetSelectedWorkItem(instance, project.id, {
     fallbackToLoopSelection: true,
@@ -8217,30 +8272,10 @@ async function executeVerifyStage(project_id, batch_id, instance = null) {
 
   if (worktreeRecord && worktreeRunner) {
     const project = factoryHealth.getProject(project_id);
-    // Priority: factory config_json -> project_defaults (set via
-    // set_project_defaults) -> hardcoded vitest fallback. Factory config
-    // expresses explicit loop intent; project_defaults is the general
-    // per-project config; the hardcoded string is last resort for repos
-    // that have neither configured.
-    let verifyCommand = project && project.config && project.config.verify_command;
-    if (!verifyCommand && project && project.name) {
-      try {
-        const projectConfigCore = require('../db/project-config-core');
-        const defaults = projectConfigCore.getProjectConfig(project.name);
-        if (defaults && defaults.verify_command) {
-          verifyCommand = defaults.verify_command;
-        }
-      } catch (_pccErr) {
-        void _pccErr;
-      }
-    }
-    if (!verifyCommand) {
-      verifyCommand = 'cd server && npx vitest run';
-    }
-
     // Pull the associated work item so the retry prompt can reference the
-    // plan. Best-effort: if we can't resolve it, the retry still runs
-    // with less context.
+    // plan and so VERIFY can honor work-item-specific scoped validation.
+    // Best-effort: if we can't resolve it, the retry still runs with less
+    // context and falls back to the project verify command.
     let workItemForRetry = null;
     try {
       if (instance && instance.work_item_id) {
@@ -8251,6 +8286,11 @@ async function executeVerifyStage(project_id, batch_id, instance = null) {
     } catch (_err) {
       workItemForRetry = null;
     }
+    const resolvedVerify = resolveFactoryVerifyCommand({
+      project,
+      workItem: workItemForRetry,
+    });
+    const verifyCommand = resolvedVerify.command;
 
     let projectConfig = {};
     try {
@@ -8402,6 +8442,7 @@ async function executeVerifyStage(project_id, batch_id, instance = null) {
               worktree_path: worktreeRecord.worktreePath,
               duration_ms: res.durationMs,
               verify_command: verifyCommand,
+              verify_command_source: resolvedVerify.source,
               retry_attempt: retryAttempt,
             },
             confidence: 1,
@@ -11045,6 +11086,7 @@ module.exports = {
     isOutOfScope,
     getVerifyRetryDiffFiles,
     enforceVerifyRetryScopeEnvelope,
+    resolveFactoryVerifyCommand,
   },
   _internalForTests: {
     claimNextWorkItemForInstance,
