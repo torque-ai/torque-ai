@@ -222,6 +222,29 @@ function forceFull(plan, reason) {
   plan.reasons.push(reason);
 }
 
+// Top-level JS files in these dirs are the audit's actual scan targets
+// (audit-db-queries.js scans dir entries, not subdirectories). Any changed
+// file under one of these prefixes flips the audit into --strict, which
+// subtracts scripts/audit-db-queries.baseline.json — pre-existing warnings
+// stay un-enforced; new violations block the push.
+const AUDIT_STRICT_PREFIXES = [
+  'server/db/',
+  'server/handlers/',
+  'server/factory/',
+];
+
+function isAuditStrictTrigger(file) {
+  if (!file.endsWith('.js')) return false;
+  if (isServerTest(file)) return false;
+  for (const prefix of AUDIT_STRICT_PREFIXES) {
+    if (!file.startsWith(prefix)) continue;
+    const remainder = file.slice(prefix.length);
+    // Top-level JS only — audit reads `fs.readdirSync(dir)` without recursion.
+    if (!remainder.includes('/')) return true;
+  }
+  return false;
+}
+
 function planFromFiles(files, options = {}) {
   const changedFiles = uniqSorted((files || []).filter(Boolean));
   const plan = {
@@ -234,6 +257,7 @@ function planFromFiles(files, options = {}) {
     run_server: false,
     run_perf: false,
     run_audit: false,
+    audit_strict: false,
     dashboard_args: [],
     server_args: [],
     _dashboard_full: false,
@@ -241,6 +265,13 @@ function planFromFiles(files, options = {}) {
     base: options.base || '',
     head: options.head || '',
   };
+
+  for (const file of changedFiles) {
+    if (isAuditStrictTrigger(file)) {
+      plan.audit_strict = true;
+      break;
+    }
+  }
 
   if (changedFiles.length === 0) {
     forceFull(plan, 'empty or unreadable diff');
@@ -317,6 +348,7 @@ function planFromFiles(files, options = {}) {
     plan.run_server = true;
     plan.run_perf = true;
     plan.run_audit = true;
+    plan.audit_strict = true;
     plan.dashboard_args = [];
     plan.server_args = [];
     plan._dashboard_full = true;
@@ -324,6 +356,7 @@ function planFromFiles(files, options = {}) {
   } else {
     plan.dashboard_args = plan.run_dashboard ? uniqSorted(plan.dashboard_args) : [];
     plan.server_args = plan.run_server ? uniqSorted(plan.server_args) : [];
+    if (!plan.run_audit) plan.audit_strict = false;
     if (!plan.run_dashboard && !plan.run_server && !plan.run_perf && !plan.run_audit) {
       plan.mode = 'docs-only';
       plan.reasons.push('documentation-only diff');
@@ -332,7 +365,7 @@ function planFromFiles(files, options = {}) {
       if (plan.run_dashboard) plan.reasons.push(plan.dashboard_args.length ? 'dashboard affected tests' : 'dashboard full suite');
       if (plan.run_server) plan.reasons.push(plan.server_args.length ? 'server affected tests' : 'server full suite');
       if (plan.run_perf) plan.reasons.push('perf gate required');
-      if (plan.run_audit) plan.reasons.push('db query audit required');
+      if (plan.run_audit) plan.reasons.push(plan.audit_strict ? 'db query audit (strict, baseline-aware)' : 'db query audit required');
     }
   }
 
@@ -343,6 +376,7 @@ function planFromFiles(files, options = {}) {
     run_server: plan.run_server,
     run_perf: plan.run_perf,
     run_audit: plan.run_audit,
+    audit_strict: plan.audit_strict,
     dashboard_args: plan.dashboard_args,
     server_args: plan.server_args,
     changed_files: plan.changed_files,
@@ -377,6 +411,7 @@ function toShell(plan) {
     GATE_RUN_SERVER: plan.run_server ? '1' : '0',
     GATE_RUN_PERF: plan.run_perf ? '1' : '0',
     GATE_RUN_AUDIT: plan.run_audit ? '1' : '0',
+    GATE_AUDIT_STRICT: plan.audit_strict ? '1' : '0',
     GATE_DASHBOARD_TEST_ARGS: shellArgs(plan.dashboard_args),
     GATE_SERVER_TEST_ARGS: shellArgs(plan.server_args),
   };

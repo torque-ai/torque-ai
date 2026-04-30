@@ -6,9 +6,16 @@
  * by any schema index. Known intentional full-scans can be suppressed with:
  *   // @full-scan: <reason>
  *
- * By default exits 0 (informational). Pass --strict to exit 1 on violations.
+ * By default exits 0 (informational). Pass --strict to enforce: --strict
+ * subtracts the baseline (scripts/audit-db-queries.baseline.json) from the
+ * current scan and exits 1 if any uncovered WHERE remains. The baseline
+ * captures pre-existing warnings the codebase has accepted; only NEW
+ * violations introduced after the baseline block --strict.
  *
- * Usage: node scripts/audit-db-queries.js [--strict]
+ * Pass --write-baseline to regenerate the baseline file from the current
+ * scan. Run after fixing violations so the file stays in sync.
+ *
+ * Usage: node scripts/audit-db-queries.js [--strict] [--write-baseline]
  */
 
 'use strict';
@@ -21,6 +28,9 @@ const SCAN_DIRS = [
   path.join(__dirname, '../server/handlers'),
   path.join(__dirname, '../server/factory'),
 ];
+
+const BASELINE_PATH = path.join(__dirname, 'audit-db-queries.baseline.json');
+const REPO_ROOT = path.resolve(__dirname, '..');
 
 // Schema source — every server/db/*.js file. The original audit only read
 // schema-tables.js and schema.js, but per-feature db modules carry their
@@ -474,25 +484,140 @@ function readAllDbSchema(dir) {
     .join('\n');
 }
 
-function main() {
-  const strict = process.argv.includes('--strict');
-  const schemaText = readAllDbSchema(SERVER_DB_DIR);
+/**
+ * Stable identity for a violation: repo-relative file + table + sorted cols.
+ * Line numbers are deliberately excluded so unrelated edits that shift a
+ * baselined WHERE up or down the file don't invalidate the baseline entry.
+ *
+ * Two separate full-scan WHEREs in the same file with the same (table, cols)
+ * fingerprint as each other are still represented as two baseline rows —
+ * the multiset semantics in `subtractBaseline` ensures adding a third such
+ * WHERE blocks the gate even though the fingerprint already exists.
+ */
+function fingerprintViolation(violation) {
+  const rel = path.relative(REPO_ROOT, violation.file).split(path.sep).join('/');
+  const cols = [...new Set(violation.cols)].sort();
+  return rel + '::' + violation.table + '::' + cols.join(',');
+}
 
+function loadBaseline() {
+  if (!fs.existsSync(BASELINE_PATH)) return [];
+  let raw;
+  try {
+    raw = fs.readFileSync(BASELINE_PATH, 'utf8');
+  } catch {
+    return [];
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (err) {
+    throw new Error('audit-db-queries baseline is not valid JSON: ' + err.message);
+  }
+  if (!Array.isArray(parsed)) {
+    throw new Error('audit-db-queries baseline must be a JSON array');
+  }
+  return parsed;
+}
+
+/**
+ * Multiset subtraction: returns the violations in `current` whose
+ * fingerprints exceed the count present in `baseline`. If two baseline
+ * rows match a fingerprint, the first two current matches are absorbed
+ * and the third (if any) is reported as new.
+ */
+function subtractBaseline(currentViolations, baselineEntries) {
+  const remaining = new Map();
+  for (const entry of baselineEntries) {
+    const cols = [...new Set(entry.cols || [])].sort();
+    const fp = (entry.file || '') + '::' + (entry.table || '') + '::' + cols.join(',');
+    remaining.set(fp, (remaining.get(fp) || 0) + 1);
+  }
+  const newOnes = [];
+  for (const v of currentViolations) {
+    const fp = fingerprintViolation(v);
+    const c = remaining.get(fp) || 0;
+    if (c > 0) {
+      remaining.set(fp, c - 1);
+    } else {
+      newOnes.push(v);
+    }
+  }
+  return newOnes;
+}
+
+function violationsToBaselineRows(violations) {
+  const rows = violations.map((v) => {
+    const rel = path.relative(REPO_ROOT, v.file).split(path.sep).join('/');
+    const cols = [...new Set(v.cols)].sort();
+    return { file: rel, table: v.table, cols };
+  });
+  rows.sort((a, b) => {
+    if (a.file !== b.file) return a.file < b.file ? -1 : 1;
+    if (a.table !== b.table) return a.table < b.table ? -1 : 1;
+    const aCols = a.cols.join(',');
+    const bCols = b.cols.join(',');
+    if (aCols !== bCols) return aCols < bCols ? -1 : 1;
+    return 0;
+  });
+  return rows;
+}
+
+function writeBaseline(violations) {
+  const rows = violationsToBaselineRows(violations);
+  fs.writeFileSync(BASELINE_PATH, JSON.stringify(rows, null, 2) + '\n');
+  return rows.length;
+}
+
+function describeViolation(v) {
+  const rel = path.relative(REPO_ROOT, v.file).split(path.sep).join('/');
+  return rel + ':' + v.line + ' table=' + v.table + ' cols=' + v.cols.join(',');
+}
+
+function main() {
+  const argv = process.argv.slice(2);
+  const strict = argv.includes('--strict');
+  const writeBase = argv.includes('--write-baseline');
+
+  const schemaText = readAllDbSchema(SERVER_DB_DIR);
   const indexMap = extractIndexColumns(schemaText);
   const findings = scanFiles(SCAN_DIRS);
   const violations = checkViolations(findings, indexMap);
 
-  if (violations.length === 0) {
-    console.log('audit-db-queries: clean');
+  if (writeBase) {
+    const count = writeBaseline(violations);
+    console.log('audit-db-queries: wrote baseline with ' + count + ' violation(s) to ' + path.relative(REPO_ROOT, BASELINE_PATH));
     process.exit(0);
   }
 
-  const level = strict ? 'ERROR' : 'WARN';
-  console.error('audit-db-queries ' + level + ': ' + violations.length + ' potential full-scan(s) found (use @full-scan: annotation to suppress)');
   if (!strict) {
-    console.log('audit-db-queries: ' + violations.length + ' warnings (pass --strict to fail on violations)');
+    if (violations.length === 0) {
+      console.log('audit-db-queries: clean');
+      process.exit(0);
+    }
+    console.error('audit-db-queries WARN: ' + violations.length + ' potential full-scan(s) found (use @full-scan: annotation to suppress)');
+    console.log('audit-db-queries: ' + violations.length + ' warnings (pass --strict to fail on new violations)');
+    process.exit(0);
   }
-  process.exit(strict ? 1 : 0);
+
+  // --strict: subtract baseline, fail only on NEW violations.
+  let baseline;
+  try {
+    baseline = loadBaseline();
+  } catch (err) {
+    console.error('audit-db-queries ERROR: ' + err.message);
+    process.exit(1);
+  }
+  const newViolations = subtractBaseline(violations, baseline);
+  if (newViolations.length === 0) {
+    console.log('audit-db-queries: clean against baseline (' + violations.length + ' total, ' + baseline.length + ' baselined)');
+    process.exit(0);
+  }
+  console.error('audit-db-queries ERROR: ' + newViolations.length + ' NEW potential full-scan(s) introduced (baseline has ' + baseline.length + '). Add @full-scan:, add an index, or run --write-baseline if intentional.');
+  for (const v of newViolations) {
+    console.error('  ' + describeViolation(v));
+  }
+  process.exit(1);
 }
 
 module.exports = {
@@ -506,6 +631,10 @@ module.exports = {
   scanFiles,
   readAllDbSchema,
   trimWhereClauseToSqlBoundary,
+  fingerprintViolation,
+  loadBaseline,
+  subtractBaseline,
+  violationsToBaselineRows,
 };
 
 // Only run the audit when invoked directly (`node scripts/audit-db-queries.js`).

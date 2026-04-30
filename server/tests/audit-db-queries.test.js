@@ -679,4 +679,107 @@ describe('scripts/audit-db-queries', () => {
       expect(findings.find((f) => f.table === 'task_cache')).toBeUndefined();
     });
   });
+
+  describe('baseline subtraction', () => {
+    const REPO_ROOT = path.resolve(__dirname, '..', '..');
+
+    function makeViolation(repoRel, table, cols, line = 1) {
+      return {
+        file: path.join(REPO_ROOT, ...repoRel.split('/')),
+        line,
+        table,
+        cols,
+        sql: `SELECT * FROM ${table} WHERE ${cols.join(' = ? AND ')} = ?`,
+      };
+    }
+
+    it('produces a stable fingerprint independent of line number', () => {
+      const a = makeViolation('server/db/foo.js', 'foo', ['x'], 12);
+      const b = makeViolation('server/db/foo.js', 'foo', ['x'], 314);
+      expect(audit.fingerprintViolation(a)).toBe(audit.fingerprintViolation(b));
+    });
+
+    it('sorts cols inside the fingerprint so input order does not matter', () => {
+      const a = makeViolation('server/db/foo.js', 'foo', ['a', 'b']);
+      const b = makeViolation('server/db/foo.js', 'foo', ['b', 'a']);
+      expect(audit.fingerprintViolation(a)).toBe(audit.fingerprintViolation(b));
+    });
+
+    it('subtracts a fully-baselined run to empty', () => {
+      const v = makeViolation('server/db/foo.js', 'foo', ['x']);
+      const baseline = audit.violationsToBaselineRows([v]);
+      expect(audit.subtractBaseline([v], baseline)).toEqual([]);
+    });
+
+    it('reports a violation that has no baseline counterpart', () => {
+      const old = makeViolation('server/db/foo.js', 'foo', ['x']);
+      const fresh = makeViolation('server/db/foo.js', 'bar', ['y']);
+      const baseline = audit.violationsToBaselineRows([old]);
+      const remainder = audit.subtractBaseline([old, fresh], baseline);
+      expect(remainder).toHaveLength(1);
+      expect(remainder[0].table).toBe('bar');
+    });
+
+    it('uses multiset semantics — adding a 3rd of the same fingerprint blocks', () => {
+      // baseline has two entries for the same fingerprint
+      const v = makeViolation('server/db/foo.js', 'foo', ['x']);
+      const baseline = audit.violationsToBaselineRows([v, v]);
+      // current run has three of the same
+      const remainder = audit.subtractBaseline([v, v, v], baseline);
+      expect(remainder).toHaveLength(1);
+    });
+
+    it('passes when a previously-baselined violation has been fixed', () => {
+      // baseline has a violation we no longer see — that's a fix, not a
+      // new violation. Subtraction returns 0 new (the baseline is now
+      // stale by one entry, but that's a separate maintenance concern).
+      const fixed = makeViolation('server/db/foo.js', 'foo', ['x']);
+      const baseline = audit.violationsToBaselineRows([fixed]);
+      expect(audit.subtractBaseline([], baseline)).toEqual([]);
+    });
+
+    it('writes baseline rows in stable sorted order', () => {
+      const violations = [
+        makeViolation('server/db/zeta.js', 'zeta', ['z']),
+        makeViolation('server/db/alpha.js', 'alpha', ['a']),
+        makeViolation('server/db/alpha.js', 'alpha', ['b']),
+        makeViolation('server/db/alpha.js', 'beta', ['a']),
+      ];
+      const rows = audit.violationsToBaselineRows(violations);
+      expect(rows.map((r) => `${r.file}|${r.table}|${r.cols.join(',')}`)).toEqual([
+        'server/db/alpha.js|alpha|a',
+        'server/db/alpha.js|alpha|b',
+        'server/db/alpha.js|beta|a',
+        'server/db/zeta.js|zeta|z',
+      ]);
+    });
+
+    it('the shipped baseline file matches the current scan', () => {
+      // Regression guard: anyone modifying the audited dirs without
+      // running --write-baseline should learn about it from this test
+      // before the pre-push gate blocks them. Mirrors what the strict
+      // gate does at push time.
+      const fs = require('fs');
+      const baselinePath = path.join(REPO_ROOT, 'scripts', 'audit-db-queries.baseline.json');
+      expect(fs.existsSync(baselinePath)).toBe(true);
+
+      const SCAN_DIRS = [
+        path.join(REPO_ROOT, 'server', 'db'),
+        path.join(REPO_ROOT, 'server', 'handlers'),
+        path.join(REPO_ROOT, 'server', 'factory'),
+      ];
+      const SERVER_DB_DIR = path.join(REPO_ROOT, 'server', 'db');
+      const schemaText = audit.readAllDbSchema(SERVER_DB_DIR);
+      const indexMap = audit.extractIndexColumns(schemaText);
+      const findings = audit.scanFiles(SCAN_DIRS);
+      const violations = audit.checkViolations(findings, indexMap);
+
+      const baseline = audit.loadBaseline();
+      const remainder = audit.subtractBaseline(violations, baseline);
+      // The error message lists the offending violations so a failing
+      // worktree gets actionable output without re-running the CLI.
+      const detail = remainder.map((v) => `  ${path.relative(REPO_ROOT, v.file).split(path.sep).join('/')}:${v.line} table=${v.table} cols=${v.cols.join(',')}`).join('\n');
+      expect(remainder, `\nNew uncovered WHERE clauses introduced; baseline is stale.\nRun: node scripts/audit-db-queries.js --write-baseline\nDetails:\n${detail}\n`).toEqual([]);
+    });
+  });
 });
