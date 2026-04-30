@@ -838,6 +838,25 @@ const MIGRATIONS = [
     // Use `cg_reindex` against the dedicated codegraph.db to repopulate the
     // graph in its proper home if a rollback is ever required.
   },
+  {
+    version: 39,
+    name: 'add_replan_recovery_columns',
+    up: (db) => {
+      const tryAlter = (sql) => {
+        try { db.prepare(sql).run(); } catch (_e) { void _e; }
+      };
+      tryAlter('ALTER TABLE factory_work_items ADD COLUMN recovery_attempts INTEGER NOT NULL DEFAULT 0');
+      tryAlter('ALTER TABLE factory_work_items ADD COLUMN last_recovery_at TEXT');
+      tryAlter('ALTER TABLE factory_work_items ADD COLUMN recovery_history_json TEXT');
+      tryAlter('ALTER TABLE factory_work_items ADD COLUMN depth INTEGER NOT NULL DEFAULT 0');
+      db.prepare(`
+        CREATE INDEX IF NOT EXISTS idx_factory_work_items_replan_eligibility
+        ON factory_work_items(status, recovery_attempts, last_recovery_at)
+        WHERE status IN ('rejected', 'unactionable')
+      `).run();
+    },
+    // No down — column drops on SQLite require table rebuild; not worth it for an additive migration.
+  },
 ];
 
 function ensureMigrationTable(sqliteDb) {
