@@ -751,7 +751,7 @@ function collectParameterTypes(paramsNode, locals, scopeSymbolIndex, language) {
 
 async function extractFromSource(source, language) {
   const parser = await getParser(language);
-  // Native tree-sitter defaults bufferSize to 32KB and throws "Invalid argument"
+  // Tree-sitter defaults bufferSize to 32KB and throws "Invalid argument"
   // on larger sources. Pass headroom (source length + 32KB, min 32KB) so the
   // parser fits any reasonable file. The buffer is allocated lazily — passing
   // a high cap doesn't preallocate.

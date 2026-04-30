@@ -4,7 +4,7 @@
 
 ## Status
 
-- **Languages:** JavaScript, TypeScript, TSX, Python, Go, C#, PowerShell (parsed via native `tree-sitter@0.25` + per-language grammars: `tree-sitter-javascript`, `tree-sitter-typescript`, `tree-sitter-python`, `tree-sitter-go`, `tree-sitter-c-sharp`, `tree-sitter-powershell`)
+- **Languages:** JavaScript, TypeScript, TSX, Python, Go, and C# through `web-tree-sitter` plus `tree-sitter-wasms`. PowerShell files are detected but skipped until a compatible PowerShell WASM grammar is available.
 - **Storage:** SQLite tables prefixed `cg_*` in a dedicated `<DATA_DIR>/codegraph.db` file (separate from the main TORQUE db so reindex transactions don't lock task scheduling)
 - **Off by default.** Set `TORQUE_CODEGRAPH_ENABLED=1` and restart to enable.
 
@@ -40,7 +40,7 @@ For file-backed databases, `cg_reindex` defaults to running in a `worker_threads
 server/plugins/codegraph/
 ├── index.js              # Plugin factory + lifecycle (install/uninstall/mcpTools/diagnostics)
 ├── schema.js             # CREATE TABLE for cg_files/cg_symbols/cg_references/cg_index_state
-├── parser.js             # Native tree-sitter parser pool (cached per language)
+├── parser.js             # WASM tree-sitter parser pool (cached per language)
 ├── extractors/
 │   ├── index.js          # extractorFor(filePath) dispatch by file extension
 │   └── javascript.js     # AST walker for JS/TS/TSX → {symbols, references}
@@ -63,7 +63,7 @@ server/plugins/codegraph/
 
 ## Limitations (MVP)
 
-- JS/TS only. Native grammars for Python, Go, Rust, C# and others are available as separate npm packages and can be added by writing one extractor per language behind the same `extractorFor(filePath)` interface.
+- PowerShell is listed for extractor compatibility but skipped at parse time because `tree-sitter-wasms@0.1.13` does not ship a PowerShell grammar.
 - No cross-repo references.
 - Identifier-based call resolution only — no scope or import-aware binding. `foo()` in two files maps to the same target name. Consumers should treat results as candidate impact, not proof.
 - No incremental commit-by-commit updates; `cg_reindex` always re-indexes from scratch (idempotent — runs no-op if HEAD is unchanged).

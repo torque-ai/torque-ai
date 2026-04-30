@@ -22,7 +22,7 @@ Copy MCP settings from example:
 
 ## 2) Development Setup
 
-- Node.js 20+
+- Node.js 24+
 - better-sqlite3 native module (prebuilt binaries available for most platforms)
 - Ollama optional for local LLM provider testing
 

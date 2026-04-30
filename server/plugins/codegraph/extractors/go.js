@@ -206,11 +206,13 @@ function extractTypeDeclaration(typeDeclNode, symbols, classEdges, exportedNames
 
     if (!body) continue;
     if (body.type === 'interface_type') {
-      // Embedded interfaces appear as `type_elem` children. Each represents
-      // an extends edge: this interface includes the methods of the embedded.
+      // Embedded interfaces appear as `type_elem` children in newer grammars
+      // and `constraint_elem` in the WASM grammar bundled by tree-sitter-wasms.
+      // Each represents an extends edge: this interface includes the methods
+      // of the embedded interface.
       for (let j = 0; j < body.namedChildCount; j++) {
         const elem = body.namedChild(j);
-        if (elem.type !== 'type_elem') continue;
+        if (elem.type !== 'type_elem' && elem.type !== 'constraint_elem') continue;
         const supName = typeName(elem.namedChild(0));
         if (!supName) continue;
         classEdges.push({

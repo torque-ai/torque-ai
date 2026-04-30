@@ -4,7 +4,7 @@
 
 | Requirement | Version | Purpose |
 |-------------|---------|---------|
-| **Node.js** | 20.0+ | Runtime |
+| **Node.js** | 24.0+ | Runtime |
 | **Claude Code** | Latest | MCP host (IDE integration) |
 | **Ollama** | Latest | Local LLM execution (optional) |
 | **Git** | Any | Version control, baselines, rollback |

@@ -1,45 +1,70 @@
 'use strict';
 
-const Parser = require('tree-sitter');
+const fs = require('fs');
+const path = require('path');
 
-// Grammar loaders. Each returns a tree-sitter Language object suitable for
-// `parser.setLanguage()`. Most languages publish a CommonJS package; some
-// (tree-sitter-c-sharp@0.23.5+) switched to ESM-only and require dynamic
-// import. Loaders are async so we can mix the two transparently — this
-// supersedes the defensive `try { require(...) } catch {}` workaround in
-// commit aea5015d, which kept those grammars *unavailable* on Node 22+
-// instead of actually loading them.
-const LOADERS = {
-  javascript: async () => require('tree-sitter-javascript'),
-  typescript: async () => require('tree-sitter-typescript').typescript,
-  tsx:        async () => require('tree-sitter-typescript').tsx,
-  python:     async () => require('tree-sitter-python'),
-  go:         async () => require('tree-sitter-go'),
-  csharp:     async () => {
-    // tree-sitter-c-sharp@0.23.5 ships as ESM-only ("type": "module").
-    // Dynamic import keeps this file CommonJS-compatible.
-    const mod = await import('tree-sitter-c-sharp');
-    return mod.default || mod;
-  },
-  powershell: async () => require('tree-sitter-powershell'),
+const WASM_DIR = path.join(__dirname, '..', '..', 'node_modules', 'tree-sitter-wasms', 'out');
+
+const WASM_BY_LANGUAGE = {
+  javascript: 'javascript',
+  typescript: 'typescript',
+  tsx: 'tsx',
+  python: 'python',
+  go: 'go',
+  csharp: 'c_sharp',
+  // tree-sitter-wasms does not ship PowerShell yet. Keep the language listed
+  // so existing extractor probes fail cleanly and indexing skips .ps1 files.
+  powershell: null,
 };
 
 const cache = new Map();
+let ParserClass = null;
+let LanguageClass = null;
+let initPromise = null;
+
+async function initRuntime() {
+  if (!initPromise) {
+    initPromise = (async () => {
+      const TreeSitter = require('web-tree-sitter');
+      ParserClass = typeof TreeSitter === 'function' ? TreeSitter : (TreeSitter.Parser || TreeSitter);
+      if (!ParserClass || typeof ParserClass !== 'function') {
+        throw new Error('web-tree-sitter Parser export not found');
+      }
+      if (typeof ParserClass.init === 'function') {
+        await ParserClass.init();
+      }
+      LanguageClass = ParserClass.Language || (typeof TreeSitter === 'object' ? TreeSitter.Language : null);
+      if (!LanguageClass || typeof LanguageClass.load !== 'function') {
+        throw new Error('web-tree-sitter Language export not found');
+      }
+    })();
+  }
+  await initPromise;
+}
 
 async function getParser(language) {
-  const loader = LOADERS[language];
-  if (!loader) throw new Error(`unsupported language: ${language}`);
+  if (!Object.prototype.hasOwnProperty.call(WASM_BY_LANGUAGE, language)) {
+    throw new Error(`unsupported language: ${language}`);
+  }
   if (cache.has(language)) return cache.get(language);
-  const grammar = await loader();
-  if (!grammar) throw new Error(`grammar for ${language} loaded as null`);
-  const parser = new Parser();
+  const wasmName = WASM_BY_LANGUAGE[language];
+  if (!wasmName) throw new Error(`grammar for ${language} is unavailable`);
+
+  await initRuntime();
+  const wasmPath = path.join(WASM_DIR, `tree-sitter-${wasmName}.wasm`);
+  if (!fs.existsSync(wasmPath)) {
+    throw new Error(`grammar for ${language} is unavailable at ${wasmPath}`);
+  }
+
+  const grammar = await LanguageClass.load(wasmPath);
+  const parser = new ParserClass();
   parser.setLanguage(grammar);
   cache.set(language, parser);
   return parser;
 }
 
 function supportedLanguages() {
-  return Object.keys(LOADERS);
+  return Object.keys(WASM_BY_LANGUAGE);
 }
 
 module.exports = { getParser, supportedLanguages };

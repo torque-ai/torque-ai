@@ -4,7 +4,7 @@ This guide walks you through installing TORQUE, connecting a provider, and runni
 
 ## Prerequisites
 
-- **Node.js 20+** — [download](https://nodejs.org/)
+- **Node.js 24+** — [download](https://nodejs.org/)
 - At least one AI provider (see [Provider Guide](providers.md) for options):
   - **Ollama** (local) — [install](https://ollama.com/)
   - **Codex CLI** or **Claude Code CLI** — installed and authenticated

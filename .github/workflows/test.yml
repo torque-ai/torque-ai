@@ -28,7 +28,7 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-        node-version: [20, 22]
+        node-version: [24]
       fail-fast: false
 
     steps:
@@ -84,7 +84,7 @@ jobs:
           exit $VITEST_EXIT
 
       - name: Run server tests with coverage
-        if: matrix.os == 'ubuntu-latest' && matrix.node-version == 20
+        if: matrix.os == 'ubuntu-latest' && matrix.node-version == 24
         shell: bash
         working-directory: server
         timeout-minutes: 5
@@ -103,7 +103,7 @@ jobs:
           exit $VITEST_EXIT
 
       - name: Upload server coverage report
-        if: matrix.os == 'ubuntu-latest' && matrix.node-version == 20
+        if: matrix.os == 'ubuntu-latest' && matrix.node-version == 24
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
           name: server-coverage
@@ -132,12 +132,12 @@ jobs:
         working-directory: dashboard
 
       - name: Run dashboard tests with coverage
-        if: matrix.os == 'ubuntu-latest' && matrix.node-version == 20
+        if: matrix.os == 'ubuntu-latest' && matrix.node-version == 24
         run: npx vitest run --coverage
         working-directory: dashboard
 
       - name: Upload dashboard coverage report
-        if: matrix.os == 'ubuntu-latest' && matrix.node-version == 20
+        if: matrix.os == 'ubuntu-latest' && matrix.node-version == 24
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
           name: dashboard-coverage
@@ -145,12 +145,12 @@ jobs:
           retention-days: 14
 
       - name: Install Playwright browsers
-        if: matrix.os == 'ubuntu-latest' && matrix.node-version == 22
+        if: matrix.os == 'ubuntu-latest' && matrix.node-version == 24
         run: npx playwright install --with-deps chromium
         working-directory: dashboard
 
       - name: Run dashboard E2E tests
-        if: matrix.os == 'ubuntu-latest' && matrix.node-version == 20
+        if: matrix.os == 'ubuntu-latest' && matrix.node-version == 24
         continue-on-error: true
         timeout-minutes: 10
         run: npm run test:e2e
@@ -162,10 +162,10 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-      - name: Setup Node.js 22
+      - name: Setup Node.js 24
         uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
         with:
-          node-version: 22
+          node-version: 24
 
       - name: Install server dependencies
         run: npm ci
