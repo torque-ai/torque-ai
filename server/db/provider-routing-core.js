@@ -853,15 +853,22 @@ function getPrometheusMetrics() {
  * @param {number} runningMinutes - Mark running tasks as failed after this many minutes (default: 60)
  * @param {number} queuedMinutes - Mark queued tasks as failed after this many minutes (default: 1440 = 24h)
  * @param {number} terminalWorkflowGraceMinutes - Grace period before closing active tasks for terminal workflows
+ * @param {number} restartResubmissionMinutes - Cancel stale standalone restart resubmissions after this many minutes
  * @returns {object} - Count of cleaned up tasks
  */
-function cleanupStaleTasks(runningMinutes = 60, queuedMinutes = 1440, terminalWorkflowGraceMinutes = 5) {
+function cleanupStaleTasks(
+  runningMinutes = 60,
+  queuedMinutes = 1440,
+  terminalWorkflowGraceMinutes = 5,
+  restartResubmissionMinutes = 1440,
+) {
   const now = new Date().toISOString();
 
   // Calculate cutoff times
   const runningCutoff = new Date(Date.now() - runningMinutes * 60 * 1000).toISOString();
   const queuedCutoff = new Date(Date.now() - queuedMinutes * 60 * 1000).toISOString();
   const terminalWorkflowCutoff = new Date(Date.now() - terminalWorkflowGraceMinutes * 60 * 1000).toISOString();
+  const restartResubmissionCutoff = new Date(Date.now() - restartResubmissionMinutes * 60 * 1000).toISOString();
 
   // Mark stale running tasks as failed
   const staleRunning = db.prepare(`
@@ -893,6 +900,28 @@ function cleanupStaleTasks(runningMinutes = 60, queuedMinutes = 1440, terminalWo
       )
   `).run(now, terminalWorkflowCutoff);
 
+  const staleRestartResubmissions = restartResubmissionMinutes > 0
+    ? db.prepare(`
+      UPDATE tasks
+      SET status = 'cancelled',
+          completed_at = ?,
+          cancel_reason = 'stale_restart_resubmission',
+          error_output = COALESCE(error_output || char(10), '') ||
+            'Task cancelled: restart resubmission remained pending past stale cutoff'
+      WHERE status = 'pending'
+        AND workflow_id IS NULL
+        AND created_at < ?
+        AND provider NOT IN ('workflow', 'system')
+        AND COALESCE(approval_status, 'not_required') != 'pending'
+        AND metadata IS NOT NULL
+        AND json_valid(metadata)
+        AND (
+          json_extract(metadata, '$.resubmitted_from') IS NOT NULL
+          OR CAST(COALESCE(json_extract(metadata, '$.restart_resubmit_count'), 0) AS INTEGER) > 0
+        )
+    `).run(now, restartResubmissionCutoff)
+    : { changes: 0 };
+
   // Mark very old standalone queued tasks as failed (likely abandoned).
   // Workflow-owned tasks are excluded because dependency-blocked nodes can sit
   // behind upstream work for longer than the generic queue TTL.
@@ -910,7 +939,8 @@ function cleanupStaleTasks(runningMinutes = 60, queuedMinutes = 1440, terminalWo
     running_cleaned: staleRunning.changes,
     queued_cleaned: staleQueued.changes,
     workflow_task_cleaned: terminalWorkflowChildren.changes,
-    total: staleRunning.changes + staleQueued.changes + terminalWorkflowChildren.changes
+    restart_resubmission_cleaned: staleRestartResubmissions.changes,
+    total: staleRunning.changes + staleQueued.changes + terminalWorkflowChildren.changes + staleRestartResubmissions.changes
   };
 }
 

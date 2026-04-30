@@ -827,6 +827,67 @@ describe('provider-routing module', () => {
       });
     });
 
+    it('cleanupStaleTasks cancels stale standalone restart resubmissions only', () => {
+      const workflowId = createWorkflow({ status: 'running' });
+      const staleResubmittedId = createTask({
+        status: 'pending',
+        project: 'cleanup-restart-resubmit',
+        metadata: {
+          resubmitted_from: 'original-orphaned-task',
+          restart_resubmit_count: 1,
+        },
+      });
+      const freshResubmittedId = createTask({
+        status: 'pending',
+        project: 'cleanup-restart-resubmit',
+        metadata: {
+          resubmitted_from: 'fresh-orphaned-task',
+          restart_resubmit_count: 1,
+        },
+      });
+      const approvalPendingId = createTask({
+        status: 'pending',
+        approval_status: 'pending',
+        project: 'cleanup-restart-resubmit',
+        metadata: {
+          resubmitted_from: 'approval-task',
+          restart_resubmit_count: 1,
+        },
+      });
+      const workflowOwnedId = createTask({
+        status: 'pending',
+        workflow_id: workflowId,
+        project: 'cleanup-restart-resubmit',
+        metadata: {
+          resubmitted_from: 'workflow-task',
+          restart_resubmit_count: 1,
+        },
+      });
+      const plainPendingId = createTask({
+        status: 'pending',
+        project: 'cleanup-restart-resubmit',
+        metadata: {
+          reason: 'parked manually',
+        },
+      });
+      const old = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
+      rawDb().prepare('UPDATE tasks SET created_at = ? WHERE id IN (?, ?, ?, ?)')
+        .run(old, staleResubmittedId, approvalPendingId, workflowOwnedId, plainPendingId);
+
+      const cleaned = mod.cleanupStaleTasks(60, 120, 5, 60);
+
+      expect(cleaned.restart_resubmission_cleaned).toBe(1);
+      expect(taskCore.getTask(staleResubmittedId)).toMatchObject({
+        status: 'cancelled',
+        cancel_reason: 'stale_restart_resubmission',
+      });
+      expect(taskCore.getTask(staleResubmittedId).error_output).toContain('restart resubmission remained pending');
+      expect(taskCore.getTask(freshResubmittedId)).toMatchObject({ status: 'pending' });
+      expect(taskCore.getTask(approvalPendingId)).toMatchObject({ status: 'pending' });
+      expect(taskCore.getTask(workflowOwnedId)).toMatchObject({ status: 'pending' });
+      expect(taskCore.getTask(plainPendingId)).toMatchObject({ status: 'pending' });
+    });
+
     it('cleanupStaleTasks handles running tasks with null started_at', () => {
       const runningId = createTask({ status: 'running', project: 'cleanup-null-start' });
       const old = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();

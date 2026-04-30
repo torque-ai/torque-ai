@@ -1015,10 +1015,11 @@ function handleRunMaintenance(args) {
     const staleRunningMin = serverConfig.getInt('stale_running_minutes', 60);
     const staleQueuedMin = serverConfig.getInt('stale_queued_minutes', 120);
     const dormantWorkflowMin = serverConfig.getInt('stale_pending_workflow_minutes', 7 * 24 * 60);
+    const restartResubmissionMin = serverConfig.getInt('stale_restart_resubmission_minutes', 24 * 60);
     addResult('Stale task cleanup', () => {
-      const stale = providerRoutingCore.cleanupStaleTasks(staleRunningMin, staleQueuedMin);
+      const stale = providerRoutingCore.cleanupStaleTasks(staleRunningMin, staleQueuedMin, 5, restartResubmissionMin);
       const dormant = workflowEngine.cleanupDormantPendingWorkflows(dormantWorkflowMin);
-      return `${stale.total} task(s) (${stale.running_cleaned} running, ${stale.queued_cleaned} queued, ${stale.workflow_task_cleaned || 0} workflow child); ${dormant.workflows_cancelled || 0} dormant workflow(s), ${dormant.tasks_cancelled || 0} task(s) cancelled`;
+      return `${stale.total} task(s) (${stale.running_cleaned} running, ${stale.queued_cleaned} queued, ${stale.workflow_task_cleaned || 0} workflow child, ${stale.restart_resubmission_cleaned || 0} restart resubmission); ${dormant.workflows_cancelled || 0} dormant workflow(s), ${dormant.tasks_cancelled || 0} task(s) cancelled`;
     });
   }
 
