@@ -909,6 +909,28 @@ const MIGRATIONS = [
     },
     down: 'DROP INDEX IF EXISTS idx_validation_results_validated_at',
   },
+  {
+    version: 42,
+    name: 'add_task_streams_created_at_index',
+    // server/db/webhooks-streaming.js runs two cleanup queries against
+    // task_streams filtering on `WHERE created_at < ?` to expire old
+    // streams (one for purging chunks tied to expired streams, one for
+    // deleting the streams themselves). The table only carried a
+    // task_id index, so each cleanup tick was a full scan growing with
+    // total stream history. An index on created_at lets the cleanup
+    // sweep seek directly to expired rows.
+    up: function(sqliteDb) {
+      // Tolerate minimal-schema test fixtures. Same pattern as v37 / v39 / v40 / v41.
+      const tableExists = sqliteDb.prepare(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='task_streams'"
+      ).get();
+      if (!tableExists) return;
+      sqliteDb.prepare(
+        'CREATE INDEX IF NOT EXISTS idx_task_streams_created_at ON task_streams(created_at)'
+      ).run();
+    },
+    down: 'DROP INDEX IF EXISTS idx_task_streams_created_at',
+  },
 ];
 
 function ensureMigrationTable(sqliteDb) {
