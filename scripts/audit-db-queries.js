@@ -230,6 +230,66 @@ function extractWhereColumnsWithAlias(whereClause) {
 }
 
 /**
+ * Identify WHERE columns that are filtered with patterns SQLite cannot
+ * use an index for, regardless of which indexes exist on the table.
+ * Adding an index for these is a misleading "fix" — the planner still
+ * has to walk every row.
+ *
+ * The two unambiguous cases handled here:
+ *
+ *   1. LIKE with a leading wildcard. SQLite's LIKE optimization
+ *      (`PRAGMA case_sensitive_like=ON` plus index on the column) only
+ *      helps when the pattern is `prefix%` — anchored at the start.
+ *      `%substr%` and `%suffix` always full-scan. The audit's call
+ *      sites all use `LIKE ?` with `\`%${escaped}%\`` parameters, so
+ *      treating any LIKE clause on a column as un-indexable matches
+ *      this codebase's actual usage. (A future, narrower form could
+ *      look at the .run/.get/.all argument list to detect the rare
+ *      prefix-LIKE case, but none exist in server/db today.)
+ *
+ *   2. Reverse LIKE: `? LIKE col` or `? LIKE '%' || col || '%'`. The
+ *      pattern side is parameter-driven and the column appears in the
+ *      pattern, so no index on the column can drive the seek. Used in
+ *      adaptive_retry_rules to find rules whose `error_pattern` is a
+ *      substring of the runtime error text.
+ */
+function findUnindexableColumns(whereClause) {
+  const out = new Set();
+  // We deliberately do NOT call trimWhereClauseToSqlBoundary() here —
+  // that helper trims at the first quote to strip JS code following a
+  // SQL string literal, which would discard the `'%' || col || '%'`
+  // pattern that defines reverse-LIKE. The patterns we look for are
+  // unambiguous on the raw text; spurious matches from JS-side
+  // identifiers don't surface because Form 1 anchors on `LIKE` and
+  // Form 2 anchors on `? LIKE`, both of which are SQL constructs.
+  const source = String(whereClause || '');
+
+  // Form 1: `<col> LIKE ...` or `<alias>.<col> LIKE ...`
+  const colLikeRe = /(?:\w+\.)?([a-zA-Z_]\w*)\s+LIKE\b/gi;
+  for (const m of source.matchAll(colLikeRe)) {
+    const col = m[1].toLowerCase();
+    if (!['and', 'or', 'not', 'null', 'true', 'false'].includes(col)) {
+      out.add(col);
+    }
+  }
+  // Form 2: `? LIKE ... col ...` (reverse — column appears on the
+  // pattern side after LIKE). Match `? LIKE` and pull every column
+  // identifier that follows up to the next AND/OR/closing paren.
+  const reverseLikeRe = /\?\s+LIKE\b([^)]*?)(?=\bAND\b|\bOR\b|\)|$)/gi;
+  for (const m of source.matchAll(reverseLikeRe)) {
+    const tail = m[1] || '';
+    const idRe = /(?:\w+\.)?([a-zA-Z_]\w*)/g;
+    for (const idMatch of tail.matchAll(idRe)) {
+      const col = idMatch[1].toLowerCase();
+      // Skip SQL keywords and string literals embedded as identifiers.
+      if (['and', 'or', 'not', 'null', 'true', 'false', 'escape'].includes(col)) continue;
+      out.add(col);
+    }
+  }
+  return out;
+}
+
+/**
  * Build an alias-to-table map from the SQL context lines. Recognizes
  * both FROM <table> [AS] <alias> and JOIN <table> [AS] <alias> and
  * lowercases everything for stable lookup. Used by the JOIN-aware
@@ -335,8 +395,14 @@ function scanFiles(dirs) {
         // actually filter on that table.
         const aliasMap = buildAliasMap(context);
         const aliasedCols = extractWhereColumnsWithAlias(whereClause);
+        // Drop columns SQLite cannot use an index for under any
+        // circumstances (LIKE leading-wildcard, reverse-LIKE) before
+        // grouping. Reporting them as missing-index candidates is a
+        // false positive: adding an index doesn't change the plan.
+        const unindexable = findUnindexableColumns(whereClause);
         const groups = new Map();
         for (const { alias, col } of aliasedCols) {
+          if (unindexable.has(col)) continue;
           const resolved = (alias && aliasMap.get(alias)) || table;
           if (!groups.has(resolved)) groups.set(resolved, []);
           groups.get(resolved).push(col);
@@ -433,6 +499,7 @@ module.exports = {
   extractIndexColumns,
   extractWhereColumns,
   extractWhereColumnsWithAlias,
+  findUnindexableColumns,
   buildAliasMap,
   isFullScanAnnotated,
   checkViolations,
