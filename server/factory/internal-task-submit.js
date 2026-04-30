@@ -3,6 +3,7 @@
 const {
   buildProviderLaneTaskMetadata,
   getProviderLanePolicyFromProject,
+  specializePolicyForKind,
 } = require('./provider-lane-policy');
 
 const PROJECT_BY_KIND = Object.freeze({
@@ -126,8 +127,18 @@ function resolveInheritedRoutingIntent({
   workingDirectory,
   requestedProvider,
   requestedRoutingTemplate,
+  kind,
 }) {
-  const lanePolicy = getProviderLanePolicyFromProject(targetProject || {});
+  const rawLanePolicy = getProviderLanePolicyFromProject(targetProject || {});
+  // Phase H: when the project's lane policy carries a `by_kind` map and
+  // this submission has a kind that matches, the kind's override
+  // becomes the effective expected_provider. Without specialization the
+  // architect/plan-quality/verify-review tasks would inherit the
+  // worker-lane provider (e.g. ollama on DLPhone) and never reach the
+  // stronger model the operator pinned for those manager kinds.
+  const lanePolicy = kind
+    ? specializePolicyForKind(rawLanePolicy, kind)
+    : rawLanePolicy;
   const laneProvider = !requestedProvider && !requestedRoutingTemplate
     ? normalizeOptionalString(lanePolicy?.expected_provider)
     : null;
@@ -200,6 +211,7 @@ async function submitFactoryInternalTask({
     workingDirectory: resolvedWorkingDirectory,
     requestedProvider,
     requestedRoutingTemplate,
+    kind: resolvedKind,
   });
   const effectiveProvider = requestedProvider || inheritedIntent.provider;
   const effectiveRoutingTemplate = requestedRoutingTemplate || inheritedIntent.routingTemplate;
