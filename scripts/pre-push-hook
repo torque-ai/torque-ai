@@ -534,7 +534,13 @@ ensure_node_modules() {
 
   if [ -n "\$install_reason" ]; then
     echo "[\$phase] [setup] installing \$dir dependencies (\$install_reason)"
-    (cd "\$dir" && npm install --no-audit --no-fund --prefer-offline) 2>&1 | sed -u "s/^/[\$phase] [setup] /"
+    if ! (cd "\$dir" && npm install --no-audit --no-fund --prefer-offline) 2>&1 | sed -u "s/^/[\$phase] [setup] /"; then
+      return 1
+    fi
+    if ! dependency_tree_ok "\$dir"; then
+      echo "[\$phase] [setup] \$dir dependencies still invalid after install"
+      return 1
+    fi
     prepend_node_modules "\$dir/node_modules"
   fi
 }

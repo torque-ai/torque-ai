@@ -93,6 +93,7 @@ describe('pre-push-hook staging-branch invariants', () => {
     expect(src).toMatch(/using \\\$dir dependencies from base checkout/);
     expect(src).toMatch(/using \\\$dir dependencies from base checkout via PATH/);
     expect(src).toMatch(/npm install --no-audit --no-fund --prefer-offline/);
+    expect(src).toMatch(/dependencies still invalid after install/);
     expect(src).toMatch(/cd\s+dashboard\s+&&\s+vitest\s+run/);
     expect(src).toMatch(/cd\s+server\s+&&\s+vitest\s+run/);
   });
@@ -214,8 +215,9 @@ describe('torque-remote staging branch validation', () => {
     expect(src).toMatch(/TORQUE_REMOTE_TEST_WORKTREE_SUFFIX/);
     expect(src).toMatch(/\^\[a-zA-Z0-9_\.-\]\+\$/);
     expect(src).toMatch(/REMOTE_TEST_WORKTREE_SUFFIX="\$TORQUE_REMOTE_TEST_WORKTREE_SUFFIX"/);
+    expect(src).toMatch(/BASE_EFFECTIVE_REMOTE_PROJECT_PATH="\$EFFECTIVE_REMOTE_PROJECT_PATH"/);
     expect(src).toMatch(/EFFECTIVE_REMOTE_PROJECT_PATH="\$\{EFFECTIVE_REMOTE_PROJECT_PATH\}\$\{REMOTE_TEST_WORKTREE_SUFFIX\}"/);
-    expect(src).toMatch(/TORQUE_REMOTE_BASE_PROJECT_PATH=\$\(shell_quote "\$REMOTE_PROJECT_PATH"\)/);
+    expect(src).toMatch(/TORQUE_REMOTE_BASE_PROJECT_PATH=\$\(shell_quote "\$BASE_EFFECTIVE_REMOTE_PROJECT_PATH"\)/);
     expect(src).toMatch(/export TORQUE_REMOTE_BASE_PROJECT_PATH/);
   });
 });

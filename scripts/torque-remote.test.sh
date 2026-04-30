@@ -1051,6 +1051,7 @@ EOF
   # fix derives PROJECT_NAME from the main repo so the path stays stable across
   # branches: C:\trt\torque-public.
   expect_contains "remote path uses main-repo basename" "$RUN_RUNNER_SH" 'C:\trt\torque-public'
+  expect_contains "base dependency path uses effective worktree root" "$RUN_RUNNER_SH" "TORQUE_REMOTE_BASE_PROJECT_PATH='C:\trt\torque-public'"
   expect_not_contains "remote path does NOT use worktree dir name" "$RUN_RUNNER_SH" 'C:\trt\feat-x'
 
   finish_test "test_worktree_uses_main_repo_basename_for_project_name"
@@ -1072,6 +1073,7 @@ test_worktree_suffix_uses_sibling_path_and_lock() {
 
   expect_eq "exit code is 0" "0" "$RUN_EXIT"
   expect_contains "runner uses suffixed project path" "$RUN_RUNNER_SH" "/fake-pre-push-gate"
+  expect_contains "base dependency path stays unsuffixed" "$RUN_RUNNER_SH" "TORQUE_REMOTE_BASE_PROJECT_PATH='/fake'"
   expect_contains "sync lock uses suffixed project path" "$RUN_REMOTE_COMMANDS" "/fake-pre-push-gate.torque-remote-sync.lock"
   expect_not_contains "sync lock does not use default project path" "$RUN_REMOTE_COMMANDS" "/fake.torque-remote-sync.lock"
 
