@@ -49,6 +49,7 @@ const { scoreAll, resolveHealthScanSourceDirs } = require('../factory/scorer-reg
 const { runPreBatchChecks, runPostBatchChecks, runPreShipChecks, getGuardrailSummary } = require('../factory/guardrail-runner');
 const guardrailDb = require('../db/factory-guardrails');
 const loopController = require('../factory/loop-controller');
+const baselineRequeue = require('../factory/baseline-requeue');
 const { pollGitHubIssues } = require('../factory/github-intake');
 const { createPlanFileIntake } = require('../factory/plan-file-intake');
 const { validatePlansDir } = require('../factory/plans-dir-validator');
@@ -179,6 +180,7 @@ function normalizeBaselineResumeJob(job) {
     error: job.error || null,
     preview_output: job.preview_output || null,
     starvation_recovery: job.starvation_recovery || null,
+    requeued_work_item: job.requeued_work_item || null,
   };
 }
 
@@ -219,6 +221,36 @@ async function triggerBaselineStarvationRecovery(project) {
       err: err.message,
     });
     return null;
+  }
+}
+
+function logBaselineRequeueDecision({ project, result, trigger }) {
+  if (!project?.id || !result?.requeued) {
+    return;
+  }
+  try {
+    factoryDecisions.setDb(getDatabase());
+    factoryDecisions.recordDecision({
+      project_id: project.id,
+      stage: LOOP_STATES.VERIFY.toLowerCase(),
+      actor: 'auto-recovery',
+      action: 'baseline_blocked_work_item_requeued',
+      reasoning: 'Baseline probe passed; requeued the work item that had been blocked by unrelated baseline failure.',
+      outcome: {
+        trigger,
+        work_item_id: result.work_item_id,
+        previous_status: result.previous_status,
+        previous_reject_reason: result.previous_reject_reason,
+        status: result.status,
+      },
+      confidence: 1,
+      batch_id: null,
+    });
+  } catch (err) {
+    logger.debug('Failed to log baseline work item requeue decision', {
+      project_id: project.id,
+      err: err.message,
+    });
   }
 }
 
@@ -1725,6 +1757,23 @@ async function executeBaselineResumeProbe({
     const project = factoryHealth.getProject(projectRow.id);
     const cfg = parseProjectConfig(project?.config_json);
     const pausedSince = Date.parse(cfg.baseline_broken_since) || Date.now();
+    const requeueResult = baselineRequeue.maybeRequeueBaselineBlockedWorkItem({
+      project_id: projectRow.id,
+      config: cfg,
+    });
+    if (requeueResult.requeued) {
+      job.requeued_work_item = {
+        work_item_id: requeueResult.work_item_id,
+        previous_status: requeueResult.previous_status,
+        previous_reject_reason: requeueResult.previous_reject_reason,
+        status: requeueResult.status,
+      };
+    }
+    logBaselineRequeueDecision({
+      project: projectRow,
+      result: requeueResult,
+      trigger: 'manual_baseline_resume',
+    });
     cfg.baseline_broken_since = null;
     cfg.baseline_broken_reason = null;
     cfg.baseline_broken_evidence = null;

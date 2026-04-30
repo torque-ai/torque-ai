@@ -11,6 +11,7 @@
 const factoryHealth = require('../db/factory-health');
 const factoryIntake = require('../db/factory-intake');
 const factoryLoopInstances = require('../db/factory-loop-instances');
+const factoryDecisions = require('../db/factory-decisions');
 const { getRejectRecoveryConfig } = require('../db/config-core');
 function resolveDatabase() {
   try {
@@ -41,6 +42,7 @@ const { detectStuckLoops } = require('./stuck-loop-detector');
 const { runRejectedRecoverySweep } = require('./rejected-recovery');
 const { recoverStalledVerifyLoops, resetRecoveryAttempts } = require('./verify-stall-recovery');
 const { reconcileProject: reconcileOrphanWorktrees } = require('./worktree-reconcile');
+const baselineRequeue = require('./baseline-requeue');
 const factoryNotifications = require('./notifications');
 const { LOOP_STATES } = require('./loop-states');
 const logger = require('../logger').child({ component: 'factory-tick' });
@@ -59,6 +61,36 @@ const DEFAULT_TASK_CANCEL_GRACE_MS = Math.max(
 function getProjectConfig(project) {
   if (!project.config_json) return {};
   try { return JSON.parse(project.config_json); } catch (_e) { void _e; return {}; }
+}
+
+function logBaselineRequeueDecision({ project, result, trigger }) {
+  if (!project?.id || !result?.requeued) {
+    return;
+  }
+  try {
+    factoryDecisions.setDb(resolveDatabase());
+    factoryDecisions.recordDecision({
+      project_id: project.id,
+      stage: LOOP_STATES.VERIFY.toLowerCase(),
+      actor: 'auto-recovery',
+      action: 'baseline_blocked_work_item_requeued',
+      reasoning: 'Baseline probe passed; requeued the work item that had been blocked by unrelated baseline failure.',
+      outcome: {
+        trigger,
+        work_item_id: result.work_item_id,
+        previous_status: result.previous_status,
+        previous_reject_reason: result.previous_reject_reason,
+        status: result.status,
+      },
+      confidence: 1,
+      batch_id: null,
+    });
+  } catch (err) {
+    logger.debug('Factory tick: failed to log baseline work item requeue', {
+      project_id: project.id,
+      err: err.message,
+    });
+  }
 }
 
 async function maybeRecoverStarvedProject(project) {
@@ -685,6 +717,15 @@ async function tickProject(project) {
 
           if (probe.passed) {
             const pausedSince = Date.parse(cfg.baseline_broken_since) || Date.now();
+            const requeueResult = baselineRequeue.maybeRequeueBaselineBlockedWorkItem({
+              project_id: project.id,
+              config: cfg,
+            });
+            logBaselineRequeueDecision({
+              project,
+              result: requeueResult,
+              trigger: 'baseline_probe_passed',
+            });
             cfg.baseline_broken_since = null;
             cfg.baseline_broken_reason = null;
             cfg.baseline_broken_evidence = null;

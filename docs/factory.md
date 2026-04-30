@@ -139,5 +139,6 @@ The factory emits named decisions for each auto-recovery path so stuck loops are
 | `dep_resolver_disabled` | verify | Missing dep detected but `config_json.dep_resolver.enabled === false` | Falling through to existing classifier; no resolver involvement |
 | `dep_resolver_pending_approval` | verify | Missing dep detected on supervised/guided trust project | Operator must approve before install |
 | `dep_resolver_no_adapter` | verify | Manager field unknown to registry (should not happen in v1) | Falling through to existing retry |
+| `baseline_blocked_work_item_requeued` | verify | Baseline probe passed after a baseline/environment failure paused the project | Reopens the rejected work item as `pending` so it can run again after the unrelated failure clears |
 
 When a project's loop is stuck, start with: `GET /api/v2/factory/projects/<id>/decisions?limit=50`. The action name tells you which safety net fired (or didn't).
