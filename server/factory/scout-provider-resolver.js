@@ -5,11 +5,16 @@
  * factory paths that need to choose a provider for a fresh scout task.
  *
  * Priority order:
- *   1. Provider lane policy `expected_provider` set on the project's
+ *   1. Provider lane policy `by_kind.scout` (Phase I, 2026-04-30) —
+ *      lets a project route scouts to a different provider than its
+ *      worker EXECUTE lane. Used by the "Codex as manager, ollama as
+ *      worker" pattern where scouting/architecting/reviewing all go
+ *      to codex while the actual code edit stays on local ollama.
+ *   2. Provider lane policy `expected_provider` set on the project's
  *      config (legacy contract — projects pinning a specific provider
  *      via `provider_lane_policy`).
- *   2. project_defaults.provider — the project's declared routing
- *      intent (e.g. preset-all-local pinning `ollama`). This was added
+ *   3. project_defaults.provider — the project's declared routing
+ *      intent (e.g. preset-all-local pinning `ollama`). Added
  *      2026-04-29: previously the resolver only honored explicit lane
  *      policy and silently fell through to the system default (codex)
  *      for projects that simply set a routing template.
@@ -52,7 +57,15 @@ function createScoutProviderResolver({
   return function resolveScoutProvider(project) {
     const safeProject = project || {};
 
-    // Priority 1: explicit provider lane policy.
+    // Priority 1 (Phase I): provider lane policy `by_kind.scout`.
+    //
+    // When a project pins different providers for different factory
+    // task kinds, scouts are routed by the by_kind.scout entry. This
+    // is the "Codex manages, ollama works" pattern where scouting is
+    // a manager activity (deciding what's worth doing) and the EXECUTE
+    // lane stays on the local worker.
+    //
+    // Priority 2: legacy `expected_provider`.
     //
     // An explicit `expected_provider` is authoritative even when ineligible
     // for scout: returning null lets the caller fall through to its own
@@ -62,8 +75,12 @@ function createScoutProviderResolver({
     // that choice matters").
     let policyProvider = null;
     let policyProviderPresent = false;
+    let scoutByKind = null;
     try {
       const policy = getProviderLanePolicyFromProject(safeProject);
+      // by_kind.scout takes precedence over expected_provider.
+      const byKindRaw = policy?.by_kind?.scout;
+      scoutByKind = normalizeProvider(byKindRaw);
       const raw = policy?.expected_provider;
       policyProviderPresent = typeof raw === 'string' && raw.trim().length > 0;
       policyProvider = normalizeProvider(raw);
@@ -72,6 +89,9 @@ function createScoutProviderResolver({
         project_id: safeProject.id,
         err: err.message,
       });
+    }
+    if (scoutByKind) {
+      return eligibleProviders.has(scoutByKind) ? scoutByKind : null;
     }
     if (policyProviderPresent) {
       return (policyProvider && eligibleProviders.has(policyProvider))

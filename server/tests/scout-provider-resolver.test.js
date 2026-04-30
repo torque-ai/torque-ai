@@ -159,3 +159,90 @@ describe('createScoutProviderResolver', () => {
     expect(resolver({ id: 'p1', path: 'C:/proj' })).toBe(null);
   });
 });
+
+describe('Phase I: by_kind.scout overrides expected_provider for scouts', () => {
+  // Lets DLPhone pin EXECUTE to ollama while routing scouts (a manager
+  // activity — deciding what's worth doing) to codex via by_kind.scout.
+  // Without this, the worker-lane provider also drove discovery, and
+  // qwen3-coder:30b's scouts kept emitting hallucinated file paths
+  // (Phase B existence guard had to drop them at intake every cycle).
+
+  it('returns by_kind.scout when set, ignoring expected_provider', () => {
+    const resolver = makeResolver({
+      getProviderLanePolicyFromProject: () => ({
+        expected_provider: 'ollama',
+        allowed_providers: ['ollama'],
+        by_kind: { scout: 'codex' },
+        enforce_handoffs: true,
+      }),
+    });
+    expect(resolver({ id: 'p1', path: 'C:/proj' })).toBe('codex');
+  });
+
+  it('rejects by_kind.scout when the provider is not in eligibleProviders', () => {
+    // Eligible set includes the scout filesystem providers; deepinfra
+    // is not in there, so a by_kind.scout=deepinfra entry returns null
+    // (caller falls through to its own default).
+    const resolver = makeResolver({
+      getProviderLanePolicyFromProject: () => ({
+        expected_provider: 'ollama',
+        by_kind: { scout: 'deepinfra' },
+        enforce_handoffs: true,
+      }),
+    });
+    expect(resolver({ id: 'p1', path: 'C:/proj' })).toBe(null);
+  });
+
+  it('falls back to expected_provider when by_kind.scout is absent', () => {
+    const resolver = makeResolver({
+      getProviderLanePolicyFromProject: () => ({
+        expected_provider: 'ollama',
+        by_kind: { architect_cycle: 'codex' },
+        enforce_handoffs: true,
+      }),
+    });
+    expect(resolver({ id: 'p1', path: 'C:/proj' })).toBe('ollama');
+  });
+
+  it('falls back to expected_provider when by_kind is missing entirely', () => {
+    const resolver = makeResolver({
+      getProviderLanePolicyFromProject: () => ({
+        expected_provider: 'ollama',
+        enforce_handoffs: true,
+      }),
+    });
+    expect(resolver({ id: 'p1', path: 'C:/proj' })).toBe('ollama');
+  });
+
+  it('normalizes case/whitespace on by_kind.scout', () => {
+    const resolver = makeResolver({
+      getProviderLanePolicyFromProject: () => ({
+        by_kind: { scout: '  CODEX  ' },
+      }),
+    });
+    expect(resolver({ id: 'p1', path: 'C:/proj' })).toBe('codex');
+  });
+
+  it('treats empty/non-string by_kind.scout as missing', () => {
+    const resolver = makeResolver({
+      getProviderLanePolicyFromProject: () => ({
+        expected_provider: 'ollama',
+        by_kind: { scout: '' },
+        enforce_handoffs: true,
+      }),
+    });
+    expect(resolver({ id: 'p1', path: 'C:/proj' })).toBe('ollama');
+  });
+
+  it('by_kind.scout takes precedence even when expected_provider is also eligible', () => {
+    // Both ollama and codex are scout-eligible. by_kind.scout wins.
+    const resolver = makeResolver({
+      getProviderLanePolicyFromProject: () => ({
+        expected_provider: 'ollama-cloud',
+        by_kind: { scout: 'codex' },
+        enforce_handoffs: true,
+      }),
+    });
+    expect(resolver({ id: 'p1', path: 'C:/proj' })).toBe('codex');
+  });
+});
