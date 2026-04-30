@@ -63,6 +63,54 @@ function logDecision(db, { project_id, stage, action, reasoning, outcome, confid
          new Date().toISOString());
 }
 
+// Counts auto-recovery strategy_selected decisions for a given matched_rule
+// since the most recent rearm/exhaust event (or since the start of time if
+// neither has fired). Used by the engine to budget-pick the next strategy
+// instead of always returning the first applicable one.
+//
+// The scope window resets on `auto_recovery_rearmed` (project resumed
+// active progress) and on `auto_recovery_exhausted` (a previous chain ended).
+// This means each fresh PAUSED state gets a clean budget per strategy —
+// retry's 3 attempts are scoped to the current pause, not lifetime.
+function recentStrategyAttemptsForRule(db, projectId, matchedRule) {
+  const counts = new Map();
+  if (!projectId) return counts;
+  const scopeRow = db.prepare(`
+    SELECT created_at FROM factory_decisions
+    WHERE project_id = ? AND COALESCE(actor, '') = 'auto-recovery'
+      AND action IN ('auto_recovery_rearmed', 'auto_recovery_exhausted')
+    ORDER BY id DESC LIMIT 1
+  `).get(projectId);
+  const scopeStart = scopeRow?.created_at || null;
+
+  const params = [projectId];
+  let sql = `SELECT outcome_json FROM factory_decisions
+             WHERE project_id = ? AND COALESCE(actor, '') = 'auto-recovery'
+               AND action = 'auto_recovery_strategy_selected'`;
+  if (scopeStart) {
+    sql += ` AND created_at > ?`;
+    params.push(scopeStart);
+  }
+  sql += ` ORDER BY id ASC`;
+
+  const rows = db.prepare(sql).all(...params);
+  for (const row of rows) {
+    if (!row?.outcome_json) continue;
+    let outcome = null;
+    try { outcome = JSON.parse(row.outcome_json); } catch { continue; }
+    if (!outcome || typeof outcome !== 'object') continue;
+    // Decisions are logged with outcome { strategy, classification: { matched_rule, ... } }.
+    // When matchedRule is null (e.g., 'unknown' classification with no rule),
+    // scope strictly by null to avoid cross-rule pollution.
+    const rowRule = outcome.classification?.matched_rule ?? null;
+    if (rowRule !== matchedRule) continue;
+    const name = outcome.strategy;
+    if (typeof name !== 'string' || !name) continue;
+    counts.set(name, (counts.get(name) || 0) + 1);
+  }
+  return counts;
+}
+
 function isTerminalRealDecision(decision) {
   if (!decision) return false;
   const action = String(decision.action || '').toLowerCase();
@@ -206,16 +254,47 @@ function createAutoRecoveryEngine({
       batch_id: decision?.batch_id || null,
     });
 
-    const strategy = registry.pick(classification);
+    const recentAttempts = recentStrategyAttemptsForRule(db, project.id, classification.matched_rule);
+    const strategy = typeof registry.pickWithBudget === 'function'
+      ? registry.pickWithBudget(classification, recentAttempts)
+      : registry.pick(classification);
     if (!strategy) {
+      // Two reasons we end up here:
+      //   1. None of the suggested strategies are registered (legacy case
+      //      — `no_strategy`).
+      //   2. Every applicable strategy in the chain has already burned its
+      //      `max_attempts_per_project` budget for this matched_rule since
+      //      the most recent rearm — `all_strategies_exhausted`.
+      // Distinguishing the two matters for triage: case 2 means the chain
+      // ran to completion without unblocking the loop, which is the signal
+      // we want to surface. Without this distinction, every operator would
+      // see "no_strategy" and assume a misconfiguration.
+      const anyApplicableExists = (classification.suggested_strategies || []).some((name) => {
+        const strat = registry.getStrategyByName(name);
+        if (!strat) return false;
+        return strat.applicable_categories.includes(classification.category)
+            || strat.applicable_categories.includes('any');
+      });
+      const reason = anyApplicableExists ? 'all_strategies_exhausted' : 'no_strategy';
+      const action = anyApplicableExists
+        ? 'auto_recovery_all_strategies_exhausted'
+        : 'auto_recovery_no_strategy';
+      const reasoning = anyApplicableExists
+        ? `Every strategy in chain [${(classification.suggested_strategies || []).join(', ')}] has hit max_attempts_per_project for matched_rule=${classification.matched_rule || 'none'} since the last rearm; advancing to ${reason}.`
+        : `No strategy registered for category ${classification.category}`;
       logDecision(db, {
         project_id: project.id, stage: decision?.stage || 'verify',
-        action: 'auto_recovery_no_strategy',
-        reasoning: `No strategy registered for category ${classification.category}`,
-        outcome: { category: classification.category, suggested: classification.suggested_strategies },
+        action,
+        reasoning,
+        outcome: {
+          category: classification.category,
+          matched_rule: classification.matched_rule || null,
+          suggested: classification.suggested_strategies,
+          strategy_attempts: Object.fromEntries(recentAttempts),
+        },
         batch_id: decision?.batch_id || null,
       });
-      markExhausted(project.id, 'no_strategy');
+      markExhausted(project.id, reason);
       return { attempted: false, strategy: null };
     }
 

@@ -2541,6 +2541,7 @@ function isNonVerifyFailTerminalDecision(action) {
     || action === 'dep_resolver_cascade_exhausted'
     || action === 'dep_resolver_escalation_pause'
     || action === 'verify_reviewed_baseline_broken'
+    || action === 'verify_reviewed_baseline_likely'
     || action === 'verify_reviewed_environment_failure'
     || action.startsWith('auto_rejected_')
     || action.startsWith('auto_quarantined_')
@@ -8756,6 +8757,7 @@ async function executeVerifyStage(project_id, batch_id, instance = null) {
           }
 
           if (review && (review.classification === 'baseline_broken'
+                         || review.classification === 'baseline_likely'
                          || review.classification === 'environment_failure')) {
             if (instance?.work_item_id) {
               try {
@@ -8776,6 +8778,12 @@ async function executeVerifyStage(project_id, batch_id, instance = null) {
                 exit_code: res.exitCode,
                 environment_signals: review.environmentSignals,
                 llm_critique: review.llmCritique,
+                // baseline_likely was reached without an LLM verdict —
+                // record the deterministic shape that justified it so the
+                // baseline-probe phase has the same evidence the operator
+                // would have used.
+                classification: review.classification,
+                shared_infra_touched: review.sharedInfraTouched || false,
               };
               cfg.baseline_broken_probe_attempts = 0;
               cfg.baseline_broken_tick_count = 0;
@@ -8786,12 +8794,17 @@ async function executeVerifyStage(project_id, batch_id, instance = null) {
             } catch (_e) { void _e; }
 
             try {
-              if (review.classification === 'baseline_broken') {
+              if (review.classification === 'baseline_broken'
+                  || review.classification === 'baseline_likely') {
                 eventBus.emitFactoryProjectBaselineBroken({
                   project_id,
                   reason: review.suggestedRejectReason,
                   failing_tests: review.failingTests,
-                  evidence: { exit_code: res.exitCode, llm_critique: review.llmCritique },
+                  evidence: {
+                    exit_code: res.exitCode,
+                    llm_critique: review.llmCritique,
+                    classification: review.classification,
+                  },
                 });
               } else {
                 eventBus.emitFactoryProjectEnvironmentFailure({
@@ -8804,14 +8817,19 @@ async function executeVerifyStage(project_id, batch_id, instance = null) {
 
             const action = review.classification === 'baseline_broken'
               ? 'verify_reviewed_baseline_broken'
-              : 'verify_reviewed_environment_failure';
+              : review.classification === 'baseline_likely'
+                ? 'verify_reviewed_baseline_likely'
+                : 'verify_reviewed_environment_failure';
+            const reasoning = review.classification === 'baseline_broken'
+              ? `Baseline broken — ${review.failingTests.length} failing test(s) unrelated to this diff. ${review.llmCritique || ''}`
+              : review.classification === 'baseline_likely'
+                ? `Baseline likely broken — LLM verdict unavailable (${review.llmStatus || 'null'}); ${review.failingTests.length} failing test(s) do not touch any modified file and no shared infrastructure was modified. Pausing for baseline-probe to confirm against main.`
+                : `Environment failure — signals: ${review.environmentSignals.join(', ')}.`;
             safeLogDecision({
               project_id,
               stage: LOOP_STATES.VERIFY,
               action,
-              reasoning: review.classification === 'baseline_broken'
-                ? `Baseline broken — ${review.failingTests.length} failing test(s) unrelated to this diff. ${review.llmCritique || ''}`
-                : `Environment failure — signals: ${review.environmentSignals.join(', ')}.`,
+              reasoning,
               outcome: {
                 work_item_id: instance?.work_item_id || null,
                 classification: review.classification,
@@ -8824,6 +8842,8 @@ async function executeVerifyStage(project_id, batch_id, instance = null) {
                 llmCritique: review.llmCritique || null,
                 llmStatus: review.llmStatus || null,
                 llmTaskId: review.llmTaskId || null,
+                sharedInfraTouched: review.sharedInfraTouched || false,
+                sharedInfraFiles: review.sharedInfraFiles || [],
               },
               confidence: 1,
               batch_id,
@@ -8894,7 +8914,9 @@ async function executeVerifyStage(project_id, batch_id, instance = null) {
               project_id,
               stage: LOOP_STATES.VERIFY,
               action: 'verify_reviewed_ambiguous_paused',
-              reasoning: `Classifier says ambiguous (confidence=${review.confidence}); pausing instead of auto-retrying an unscoped failure.`,
+              reasoning: review.sharedInfraTouched
+                ? `Classifier says ambiguous (confidence=${review.confidence}); shared infrastructure was touched (${(review.sharedInfraFiles || []).join(', ')}) so deterministic baseline upgrade is suppressed; pausing for engine strategy escalation.`
+                : `Classifier says ambiguous (confidence=${review.confidence}); pausing instead of auto-retrying an unscoped failure.`,
               outcome: {
                 work_item_id: instance?.work_item_id || null,
                 classification: review.classification,
@@ -8907,6 +8929,8 @@ async function executeVerifyStage(project_id, batch_id, instance = null) {
                 llmCritique: review.llmCritique || null,
                 llmStatus: review.llmStatus || null,
                 llmTaskId: review.llmTaskId || null,
+                sharedInfraTouched: review.sharedInfraTouched || false,
+                sharedInfraFiles: review.sharedInfraFiles || [],
               },
               confidence: 1,
               batch_id,
