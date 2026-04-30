@@ -204,4 +204,82 @@ describe('pre-push gate planner', () => {
     expect(shell).toContain('tests/task-operations.test.js');
     expect(shell).toContain(`GATE_COORD_SUITE='${plan.coord_suite}'`);
   });
+
+  describe('audit_strict trigger', () => {
+    it('flips audit_strict on for changes under server/db/', () => {
+      const plan = planFromFiles(['server/db/analytics.js']);
+
+      expect(plan.run_audit).toBe(true);
+      expect(plan.audit_strict).toBe(true);
+      expect(plan.summary).toContain('strict');
+    });
+
+    it('flips audit_strict on for changes under server/handlers/', () => {
+      const plan = planFromFiles(['server/handlers/factory-handlers.js']);
+
+      expect(plan.audit_strict).toBe(true);
+    });
+
+    it('flips audit_strict on for changes under server/factory/', () => {
+      const plan = planFromFiles(['server/factory/scout-provider-resolver.js']);
+
+      expect(plan.audit_strict).toBe(true);
+    });
+
+    it('does NOT flip audit_strict for nested-only paths', () => {
+      // audit-db-queries.js scans top-level .js only (no recursion). A
+      // change in a subdirectory of one of the audited dirs is therefore
+      // not in scope and shouldn't trigger strict mode.
+      const plan = planFromFiles(['server/handlers/advanced/some-deep-handler.js']);
+
+      expect(plan.audit_strict).toBe(false);
+    });
+
+    it('does NOT flip audit_strict for server tests under audited dirs', () => {
+      const plan = planFromFiles(['server/tests/factory-handlers.test.js']);
+
+      expect(plan.audit_strict).toBe(false);
+    });
+
+    it('does NOT flip audit_strict for documentation-only changes', () => {
+      const plan = planFromFiles(['README.md']);
+
+      expect(plan.audit_strict).toBe(false);
+      expect(plan.run_audit).toBe(false);
+    });
+
+    it('forces audit_strict on for full-gate triggers', () => {
+      const plan = planFromFiles(['server/package-lock.json']);
+
+      expect(plan.full).toBe(true);
+      expect(plan.audit_strict).toBe(true);
+    });
+
+    it('exposes audit_strict via shell assignments', () => {
+      const plan = planFromFiles(['server/db/analytics.js']);
+      const shell = toShell(plan);
+
+      expect(shell).toContain(`GATE_AUDIT_STRICT='1'`);
+    });
+
+    it('emits GATE_AUDIT_STRICT=0 when run_audit is false', () => {
+      const plan = planFromFiles(['README.md']);
+      const shell = toShell(plan);
+
+      expect(shell).toContain(`GATE_AUDIT_STRICT='0'`);
+    });
+
+    it('changes the plan hash when audit_strict toggles', () => {
+      // Same files except for triggering audit_strict — proves the hash
+      // (and thus the coord_suite cache key) takes audit_strict into
+      // account. Otherwise stale cached gate runs from before this
+      // change could replay over a strict-required push.
+      const handler = planFromFiles(['server/handlers/factory-handlers.js']);
+      const test = planFromFiles(['server/tests/factory-handlers.test.js']);
+
+      expect(handler.audit_strict).toBe(true);
+      expect(test.audit_strict).toBe(false);
+      expect(handler.hash).not.toBe(test.hash);
+    });
+  });
 });

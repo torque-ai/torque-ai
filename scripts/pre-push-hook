@@ -336,6 +336,7 @@ if ! gate_plan_output=$(node "$REPO_ROOT/scripts/pre-push-gate-plan.js" --base "
   GATE_RUN_SERVER="1"
   GATE_RUN_PERF="1"
   GATE_RUN_AUDIT="1"
+  GATE_AUDIT_STRICT="1"
   GATE_DASHBOARD_TEST_ARGS=""
   GATE_SERVER_TEST_ARGS=""
 else
@@ -351,12 +352,18 @@ if [ "${PRE_PUSH_FORCE_FULL:-0}" = "1" ] || [ "${PRE_PUSH_GATE_MODE:-}" = "full"
   GATE_RUN_SERVER="1"
   GATE_RUN_PERF="1"
   GATE_RUN_AUDIT="1"
+  GATE_AUDIT_STRICT="1"
   GATE_DASHBOARD_TEST_ARGS=""
   GATE_SERVER_TEST_ARGS=""
 fi
 
+# Older gate plans (or external callers eval'ing a stale plan) may not set
+# GATE_AUDIT_STRICT. Default it to "0" so the audit invocation below stays
+# conservative (warn-only) when the plan didn't opt in.
+GATE_AUDIT_STRICT="${GATE_AUDIT_STRICT:-0}"
+
 echo "[pre-push] Gate plan: $GATE_PLAN_SUMMARY"
-echo "[pre-push] Gate phases: dashboard=$GATE_RUN_DASHBOARD server=$GATE_RUN_SERVER perf=$GATE_RUN_PERF audit=$GATE_RUN_AUDIT suite=$GATE_COORD_SUITE"
+echo "[pre-push] Gate phases: dashboard=$GATE_RUN_DASHBOARD server=$GATE_RUN_SERVER perf=$GATE_RUN_PERF audit=$GATE_RUN_AUDIT(strict=$GATE_AUDIT_STRICT) suite=$GATE_COORD_SUITE"
 
 if [ "$GATE_RUN_DASHBOARD" = "1" ] || [ "$GATE_RUN_SERVER" = "1" ] || [ "$GATE_RUN_PERF" = "1" ]; then
   # Disposable ref under refs/heads/pre-push-gate/. Includes the local sha plus
@@ -734,11 +741,23 @@ if [ -n "$remote_main_sha" ]; then
 fi
 
 if [ "$GATE_RUN_AUDIT" = "1" ]; then
-  echo "Running DB query audit..."
-  node "$REPO_ROOT/scripts/audit-db-queries.js"
-  if [ $? -ne 0 ]; then
-    echo "ERROR: DB query audit failed. Add @full-scan: annotations or add missing indexes."
-    exit 1
+  if [ "$GATE_AUDIT_STRICT" = "1" ]; then
+    echo "Running DB query audit (strict, baseline-aware)..."
+    node "$REPO_ROOT/scripts/audit-db-queries.js" --strict
+    if [ $? -ne 0 ]; then
+      echo "ERROR: DB query audit detected NEW potential full-scan(s) in this push."
+      echo "       Add @full-scan: <reason>, add an index, or run"
+      echo "       'node scripts/audit-db-queries.js --write-baseline' if intentional"
+      echo "       and commit the regenerated baseline."
+      exit 1
+    fi
+  else
+    echo "Running DB query audit (warn-only, no audited paths in diff)..."
+    node "$REPO_ROOT/scripts/audit-db-queries.js"
+    if [ $? -ne 0 ]; then
+      echo "ERROR: DB query audit failed."
+      exit 1
+    fi
   fi
 else
   echo "[pre-push] DB query audit skipped by gate plan."
