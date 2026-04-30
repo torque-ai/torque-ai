@@ -953,6 +953,28 @@ const MIGRATIONS = [
     },
     down: 'DROP INDEX IF EXISTS idx_factory_worktrees_batch',
   },
+  {
+    version: 44,
+    name: 'add_distributed_locks_expires_at_index',
+    // server/db/coordination.js#cleanupExpiredLocks runs
+    // `DELETE FROM distributed_locks WHERE expires_at < ?` on every
+    // maintenance tick. The table only had `lock_name PRIMARY KEY`,
+    // so the cleanup walked every row to find expired ones. An index
+    // on expires_at lets the sweep seek straight to the dead-rows
+    // range, especially valuable when many transient locks accumulate
+    // between sweeps.
+    up: function(sqliteDb) {
+      // Tolerate minimal-schema test fixtures. Same pattern as v37 / v39+.
+      const tableExists = sqliteDb.prepare(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='distributed_locks'"
+      ).get();
+      if (!tableExists) return;
+      sqliteDb.prepare(
+        'CREATE INDEX IF NOT EXISTS idx_distributed_locks_expires_at ON distributed_locks(expires_at)'
+      ).run();
+    },
+    down: 'DROP INDEX IF EXISTS idx_distributed_locks_expires_at',
+  },
 ];
 
 function ensureMigrationTable(sqliteDb) {
