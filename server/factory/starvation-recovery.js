@@ -88,12 +88,44 @@ function buildStarvationRecoveryScope({ project, noYieldScoutCount }) {
   );
   lines.push('');
 
+  lines.push('## Output format — prefer concrete work items');
+  lines.push(
+    `Two output formats are available; for ${projectName} you should strongly prefer the second.`
+  );
+  lines.push('');
+  lines.push(
+    '**Loose patterns** (`__PATTERNS_READY__`) describe a transformation pattern that spans many files. ' +
+    'These are useful for sweep-style refactors but the architect that consumes them has trouble ' +
+    'turning a pattern description into a concrete plan that passes the deterministic plan-quality ' +
+    'gate. Each loose pattern downstream consumes 5 architect retries before being auto-rejected.'
+  );
+  lines.push('');
+  lines.push(
+    '**Concrete work items** (`__SCOUT_COMPLETE__` with a `concrete_factory_work_items` array) ' +
+    'are tightly-scoped, single-batch units of work. Each item should include:'
+  );
+  lines.push('  - `title` — short imperative ("Add X test for Y in Z.cs")');
+  lines.push('  - `why` — one-sentence motivation (the missing coverage / bug / inconsistency)');
+  lines.push('  - `description` — what the worker will do, naming the exact files to change');
+  lines.push('  - `allowed_files` — array of repo-relative paths the worker MAY touch');
+  lines.push('  - `verification` — exact command (e.g. `dotnet test ... --filter ...`)');
+  lines.push('');
+  lines.push(
+    `Concrete items succeed at much higher rates than loose patterns because the architect can use ` +
+    `\`allowed_files\` and \`verification\` directly in plan tasks. Aim for 3-5 small concrete items ` +
+    `over 1-2 sweeping patterns. If you only have evidence for sweeping patterns, emit them — but ` +
+    `concrete is preferred.`
+  );
+  lines.push('');
+
   lines.push('## Evidence requirement (CRITICAL)');
   lines.push(
-    'Every pattern you emit MUST have at least one `exemplar_files` path that you saw via `list_directory` or `search_files` in this scout run. ' +
-    'You may NOT invent file paths. Before emitting `__PATTERNS_READY__`, call `list_directory` on the working directory at least once. ' +
-    `If after exploring you cannot find concrete code-level patterns specific to ${projectName}, ` +
-    'return an empty `patterns` array in `__PATTERNS_READY__`. An empty result is a valid signal — invented patterns are not.'
+    'Every pattern OR concrete item MUST have at least one path you observed via `list_directory` ' +
+    'or `search_files`. You may NOT invent file paths. Before emitting any signal, call ' +
+    '`list_directory` on the working directory at least once. ' +
+    `If after exploring you cannot find concrete code-level work specific to ${projectName}, ` +
+    'return an empty `patterns` array AND an empty `concrete_factory_work_items` array. ' +
+    'An empty result is a valid signal — invented work is not.'
   );
   lines.push('');
 
