@@ -69,16 +69,31 @@ function run(command, commandArgs, options = {}) {
     stdio: 'ignore',
     windowsHide: true,
   });
-  return result.status === 0;
+  if (result.status === 0) {
+    return true;
+  }
+  const detail = result.error
+    ? result.error.message
+    : `status=${result.status} signal=${result.signal || 'none'}`;
+  log(`${options.label || command} failed: ${detail}`);
+  return false;
 }
 
 function npmCommand(nodeExecutable) {
   const nodeDir = path.dirname(nodeExecutable);
+  const npmCli = path.join(nodeDir, 'node_modules', 'npm', 'bin', 'npm-cli.js');
+  if (fs.existsSync(npmCli)) {
+    return { command: nodeExecutable, argsPrefix: [npmCli] };
+  }
   const localNpm = path.join(nodeDir, process.platform === 'win32' ? 'npm.cmd' : 'npm');
   if (fs.existsSync(localNpm)) {
-    return localNpm;
+    return { command: localNpm, argsPrefix: [] };
   }
-  return process.platform === 'win32' ? 'npm.cmd' : 'npm';
+  return { command: process.platform === 'win32' ? 'npm.cmd' : 'npm', argsPrefix: [] };
+}
+
+function runNpm(npm, npmArgs, options) {
+  return run(npm.command, [...npm.argsPrefix, ...npmArgs], options);
 }
 
 async function main() {
@@ -101,14 +116,26 @@ async function main() {
   const npm = npmCommand(process.execPath);
   if (fs.existsSync(path.join(serverDir, 'package.json'))) {
     log('rebuilding better-sqlite3');
-    let ok = run(npm, ['--prefix', serverDir, 'rebuild', 'better-sqlite3'], { cwd: repoRoot, env });
+    let ok = runNpm(npm, ['--prefix', serverDir, 'rebuild', 'better-sqlite3'], {
+      cwd: repoRoot,
+      env,
+      label: 'npm rebuild better-sqlite3',
+    });
     if (!ok) {
       log('better-sqlite3 rebuild failed, running npm install');
-      ok = run(npm, ['--prefix', serverDir, 'install', '--prefer-offline', '--no-audit', '--no-fund'], { cwd: repoRoot, env });
+      ok = runNpm(npm, ['--prefix', serverDir, 'install', '--prefer-offline', '--no-audit', '--no-fund'], {
+        cwd: repoRoot,
+        env,
+        label: 'npm install',
+      });
       if (!ok) {
         throw new Error('npm install failed after better-sqlite3 rebuild failure');
       }
-      ok = run(npm, ['--prefix', serverDir, 'rebuild', 'better-sqlite3'], { cwd: repoRoot, env });
+      ok = runNpm(npm, ['--prefix', serverDir, 'rebuild', 'better-sqlite3'], {
+        cwd: repoRoot,
+        env,
+        label: 'npm rebuild better-sqlite3 after install',
+      });
       if (!ok) {
         throw new Error('better-sqlite3 rebuild failed after npm install');
       }
