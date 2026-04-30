@@ -1102,7 +1102,16 @@ describe('reviewVerifyFailure orchestrator', () => {
     diffSpy.mockRestore();
   });
 
-  it('baseline_candidate + LLM null without timeout: returns ambiguous (conservative)', async () => {
+  it('baseline_candidate + LLM null without timeout + non-infra diff: upgrades to baseline_likely', async () => {
+    // When the LLM verdict is unavailable (submit_failed / invalid_output /
+    // empty_output / await_failed) we used to return ambiguous and pause for
+    // operator triage. That left the loop stuck whenever the reviewer
+    // provider was flaky. The deterministic shape here — failing tests do
+    // not touch any modified file, modifiedFiles all live outside shared
+    // infrastructure — is strong enough to upgrade to baseline_likely with
+    // medium confidence. Loop-controller routes baseline_likely through the
+    // same handler as baseline_broken (reject the work item, pause for the
+    // baseline-probe to confirm against main).
     const llmSpy = vi.spyOn(verifyReview, 'runLlmTiebreak').mockResolvedValue({
       verdict: null,
       critique: null,
@@ -1118,11 +1127,115 @@ describe('reviewVerifyFailure orchestrator', () => {
       workItem: { id: 1, title: 'w', description: 'd' },
       project: { id: 'p', path: '/tmp/p' },
     });
-    expect(r.classification).toBe('ambiguous');
-    expect(r.confidence).toBe('low');
+    expect(r.classification).toBe('baseline_likely');
+    expect(r.confidence).toBe('medium');
     expect(r.llmStatus).toBe('invalid_output');
     expect(r.llmTaskId).toBe('llm-invalid-1');
+    expect(r.intersection).toEqual([]);
+    expect(r.sharedInfraTouched).toBe(false);
+    expect(r.suggestedRejectReason).toBe('verify_failed_baseline_likely_unrelated');
+    llmSpy.mockRestore();
+    diffSpy.mockRestore();
+  });
+
+  it('baseline_candidate + LLM null + shared-infra diff: stays ambiguous (conservative)', async () => {
+    // Hardening against false negatives in the path-intersection heuristic.
+    // When a modified file is shared infrastructure (lockfile, build config,
+    // top-level script, etc.) it can break tests that don't import it
+    // directly — codegraph tests can fail because of a package.json bump,
+    // for instance. In that case `intersection: []` is misleading, so we
+    // refuse to upgrade to baseline_likely and stay ambiguous. The engine's
+    // strategy escalation (retry → reject_and_advance → escalate) is the
+    // safety net that breaks the loop instead.
+    const llmSpy = vi.spyOn(verifyReview, 'runLlmTiebreak').mockResolvedValue({
+      verdict: null,
+      critique: null,
+      status: 'submit_failed',
+      taskId: null,
+    });
+    const diffSpy = vi.spyOn(verifyReview, 'getModifiedFiles').mockResolvedValue([
+      'package.json',
+      'scripts/install-userbin.sh',
+      'server/tests/install-userbin.test.js',
+    ]);
+    const r = await verifyReview.reviewVerifyFailure({
+      verifyOutput: {
+        exitCode: 1,
+        stdout: 'FAIL  server/plugins/codegraph/tests/parser.test.js > parser > works',
+        stderr: '',
+        timedOut: false,
+      },
+      workingDirectory: '/tmp/p',
+      worktreeBranch: 'feat/factory-1',
+      mergeBase: 'main',
+      workItem: { id: 1, title: 'w', description: 'd' },
+      project: { id: 'p', path: '/tmp/p' },
+    });
+    expect(r.classification).toBe('ambiguous');
+    expect(r.confidence).toBe('low');
+    expect(r.sharedInfraTouched).toBe(true);
+    expect(Array.isArray(r.sharedInfraFiles)).toBe(true);
+    expect(r.sharedInfraFiles).toEqual(expect.arrayContaining(['package.json', 'scripts/install-userbin.sh']));
     expect(r.suggestedRejectReason).toBeNull();
+    llmSpy.mockRestore();
+    diffSpy.mockRestore();
+  });
+
+  it('baseline_candidate + LLM null + tsconfig.json in diff: stays ambiguous', async () => {
+    const llmSpy = vi.spyOn(verifyReview, 'runLlmTiebreak').mockResolvedValue({
+      verdict: null,
+      critique: null,
+      status: 'submit_failed',
+      taskId: null,
+    });
+    const diffSpy = vi.spyOn(verifyReview, 'getModifiedFiles').mockResolvedValue([
+      'tsconfig.json',
+      'src/foo.ts',
+    ]);
+    const r = await verifyReview.reviewVerifyFailure({
+      verifyOutput: { exitCode: 1, stdout: 'FAIL  src/unrelated.test.ts > x > y\n❯ src/unrelated.test.ts:5:1', stderr: '', timedOut: false },
+      workingDirectory: '/tmp/p',
+      worktreeBranch: 'feat/factory-1',
+      mergeBase: 'main',
+      workItem: { id: 1, title: 'w', description: 'd' },
+      project: { id: 'p', path: '/tmp/p' },
+    });
+    expect(r.classification).toBe('ambiguous');
+    expect(r.sharedInfraTouched).toBe(true);
+    expect(r.sharedInfraFiles).toContain('tsconfig.json');
+    llmSpy.mockRestore();
+    diffSpy.mockRestore();
+  });
+
+  it('baseline_candidate + LLM submit_failed + multi-file non-infra diff: upgrades to baseline_likely', async () => {
+    const llmSpy = vi.spyOn(verifyReview, 'runLlmTiebreak').mockResolvedValue({
+      verdict: null,
+      critique: null,
+      status: 'submit_failed',
+      taskId: null,
+    });
+    const diffSpy = vi.spyOn(verifyReview, 'getModifiedFiles').mockResolvedValue([
+      'src/feature/alpha.ts',
+      'src/feature/beta.ts',
+      'src/feature/__tests__/alpha.test.ts',
+    ]);
+    const r = await verifyReview.reviewVerifyFailure({
+      verifyOutput: {
+        exitCode: 1,
+        stdout: 'FAIL  tests/legacy/parser.test.ts > x > y\n❯ tests/legacy/parser.test.ts:8:3',
+        stderr: '',
+        timedOut: false,
+      },
+      workingDirectory: '/tmp/p',
+      worktreeBranch: 'feat/factory-1',
+      mergeBase: 'main',
+      workItem: { id: 1, title: 'w', description: 'd' },
+      project: { id: 'p', path: '/tmp/p' },
+    });
+    expect(r.classification).toBe('baseline_likely');
+    expect(r.confidence).toBe('medium');
+    expect(r.suggestedRejectReason).toBe('verify_failed_baseline_likely_unrelated');
+    expect(r.sharedInfraTouched).toBe(false);
     llmSpy.mockRestore();
     diffSpy.mockRestore();
   });
@@ -1143,6 +1256,81 @@ describe('reviewVerifyFailure orchestrator', () => {
     expect(r.suggestedRejectReason).toBe('verify_failed_baseline_unrelated');
     llmSpy.mockRestore();
     diffSpy.mockRestore();
+  });
+});
+
+describe('isSharedInfrastructureFile', () => {
+  const { isSharedInfrastructureFile } = require('../factory/verify-review');
+
+  it('detects Node lockfiles + manifests', () => {
+    expect(isSharedInfrastructureFile('package.json')).toBe(true);
+    expect(isSharedInfrastructureFile('package-lock.json')).toBe(true);
+    expect(isSharedInfrastructureFile('yarn.lock')).toBe(true);
+    expect(isSharedInfrastructureFile('pnpm-lock.yaml')).toBe(true);
+    expect(isSharedInfrastructureFile('server/package.json')).toBe(true);
+    expect(isSharedInfrastructureFile('packages/foo/package.json')).toBe(true);
+  });
+
+  it('detects test/build config files', () => {
+    expect(isSharedInfrastructureFile('tsconfig.json')).toBe(true);
+    expect(isSharedInfrastructureFile('tsconfig.base.json')).toBe(true);
+    expect(isSharedInfrastructureFile('vitest.config.ts')).toBe(true);
+    expect(isSharedInfrastructureFile('jest.config.js')).toBe(true);
+    expect(isSharedInfrastructureFile('vite.config.mjs')).toBe(true);
+    expect(isSharedInfrastructureFile('eslint.config.js')).toBe(true);
+    expect(isSharedInfrastructureFile('.eslintrc.json')).toBe(true);
+  });
+
+  it('detects Python project metadata', () => {
+    expect(isSharedInfrastructureFile('pyproject.toml')).toBe(true);
+    expect(isSharedInfrastructureFile('requirements.txt')).toBe(true);
+    expect(isSharedInfrastructureFile('requirements-dev.txt')).toBe(true);
+    expect(isSharedInfrastructureFile('Pipfile')).toBe(true);
+    expect(isSharedInfrastructureFile('setup.py')).toBe(true);
+  });
+
+  it('detects Rust/Go/.NET build files', () => {
+    expect(isSharedInfrastructureFile('Cargo.toml')).toBe(true);
+    expect(isSharedInfrastructureFile('Cargo.lock')).toBe(true);
+    expect(isSharedInfrastructureFile('go.mod')).toBe(true);
+    expect(isSharedInfrastructureFile('go.sum')).toBe(true);
+    expect(isSharedInfrastructureFile('SpudgetBooks.sln')).toBe(true);
+    expect(isSharedInfrastructureFile('src/Domain/Domain.csproj')).toBe(true);
+    expect(isSharedInfrastructureFile('Makefile')).toBe(true);
+  });
+
+  it('detects repo-wide infrastructure directories', () => {
+    expect(isSharedInfrastructureFile('.github/workflows/ci.yml')).toBe(true);
+    expect(isSharedInfrastructureFile('scripts/install-userbin.sh')).toBe(true);
+    expect(isSharedInfrastructureFile('tools/bench.js')).toBe(true);
+    expect(isSharedInfrastructureFile('bin/torque-remote')).toBe(true);
+    expect(isSharedInfrastructureFile('.husky/pre-commit')).toBe(true);
+  });
+
+  it('detects top-level shell/script files', () => {
+    expect(isSharedInfrastructureFile('install.sh')).toBe(true);
+    expect(isSharedInfrastructureFile('build.ps1')).toBe(true);
+    expect(isSharedInfrastructureFile('Setup.bat')).toBe(true);
+  });
+
+  it('handles Windows backslash separators', () => {
+    expect(isSharedInfrastructureFile('server\\package.json')).toBe(true);
+    expect(isSharedInfrastructureFile('scripts\\install.sh')).toBe(true);
+  });
+
+  it('does NOT flag ordinary source/test files', () => {
+    expect(isSharedInfrastructureFile('src/foo.ts')).toBe(false);
+    expect(isSharedInfrastructureFile('server/factory/loop-controller.js')).toBe(false);
+    expect(isSharedInfrastructureFile('tests/foo.test.ts')).toBe(false);
+    expect(isSharedInfrastructureFile('docs/readme.md')).toBe(false);
+    // Nested .sh under src/ is still not infra at the top level
+    expect(isSharedInfrastructureFile('src/runner/launch.sh')).toBe(false);
+  });
+
+  it('handles empty/null input gracefully', () => {
+    expect(isSharedInfrastructureFile('')).toBe(false);
+    expect(isSharedInfrastructureFile(null)).toBe(false);
+    expect(isSharedInfrastructureFile(undefined)).toBe(false);
   });
 });
 

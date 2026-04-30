@@ -35,6 +35,75 @@ const ENVIRONMENT_STDERR_PATTERNS = [
 ];
 const REVIEW_TASK_TIMEOUT_RE = /\btimeout exceeded\b/i;
 
+// Files whose modification can break tests that don't import them directly:
+// dependency lockfiles, build/test config, repo-wide infrastructure dirs,
+// top-level shell/PowerShell scripts. When ANY modified file matches these
+// patterns, `intersection: []` is no longer reliable evidence that failing
+// tests are unrelated to the diff — a package.json bump can break codegraph
+// tests without any literal path overlap. The classifier refuses to upgrade
+// from `ambiguous` to `baseline_likely` whenever this returns true; the
+// engine's strategy escalation (retry → reject_and_advance → escalate) is
+// the safety net for those cases instead.
+const SHARED_INFRASTRUCTURE_PATTERNS = [
+  // Node / JS lockfiles + manifests
+  /^(?:.*\/)?package\.json$/i,
+  /^(?:.*\/)?package-lock\.json$/i,
+  /^(?:.*\/)?yarn\.lock$/i,
+  /^(?:.*\/)?pnpm-lock\.yaml$/i,
+  /^(?:.*\/)?\.npmrc$/i,
+  /^(?:.*\/)?\.yarnrc[^/]*$/i,
+  // Test/build config
+  /^(?:.*\/)?tsconfig[^/]*\.json$/i,
+  /^(?:.*\/)?(?:jest|vitest|vite|babel|webpack|rollup|esbuild|playwright|cypress)\.config\.[a-z]+$/i,
+  /^(?:.*\/)?eslint\.config\.[a-z]+$/i,
+  /^(?:.*\/)?\.eslintrc[^/]*$/i,
+  /^(?:.*\/)?\.prettierrc[^/]*$/i,
+  /^(?:.*\/)?prettier\.config\.[a-z]+$/i,
+  // Python project metadata
+  /^(?:.*\/)?pyproject\.toml$/i,
+  /^(?:.*\/)?requirements[^/]*\.txt$/i,
+  /^(?:.*\/)?Pipfile$/i,
+  /^(?:.*\/)?Pipfile\.lock$/i,
+  /^(?:.*\/)?setup\.(?:py|cfg)$/i,
+  // Rust / Go / .NET / JVM build files
+  /^(?:.*\/)?Cargo\.toml$/i,
+  /^(?:.*\/)?Cargo\.lock$/i,
+  /^(?:.*\/)?go\.mod$/i,
+  /^(?:.*\/)?go\.sum$/i,
+  /^(?:.*\/)?[^/]+\.(?:csproj|sln|fsproj|vbproj)$/i,
+  /^(?:.*\/)?build\.gradle[^/]*$/i,
+  /^(?:.*\/)?settings\.gradle[^/]*$/i,
+  /^(?:.*\/)?[^/]+\.gradle(?:\.kts)?$/i,
+  /^(?:.*\/)?pom\.xml$/i,
+  /^(?:.*\/)?Makefile$/i,
+  /^(?:.*\/)?CMakeLists\.txt$/i,
+  // Repo-wide infrastructure directories
+  /^\.github\//i,
+  /^\.gitlab\//i,
+  /^\.config\//i,
+  /^\.husky\//i,
+  /^scripts\//i,
+  /^tools\//i,
+  /^bin\//i,
+  /^build\//i,
+  // Top-level shell/script files (depth 1 only, e.g. install-userbin.sh).
+  // Nested .sh under src/ is not flagged — it's typically a fixture or
+  // launcher tightly scoped to the feature it lives in.
+  /^[^/]+\.(?:sh|ps1|bat|cmd|psm1)$/i,
+];
+
+function isSharedInfrastructureFile(filePath) {
+  if (filePath == null) return false;
+  const norm = String(filePath).replace(/\\/g, '/');
+  if (!norm) return false;
+  return SHARED_INFRASTRUCTURE_PATTERNS.some((re) => re.test(norm));
+}
+
+function modifiedFilesTouchingSharedInfra(modifiedFiles) {
+  if (!Array.isArray(modifiedFiles)) return [];
+  return modifiedFiles.filter(isSharedInfrastructureFile);
+}
+
 function buildLlmResult(overrides = {}) {
   return {
     verdict: null,
@@ -723,6 +792,43 @@ async function reviewVerifyFailure({
         suggestedRejectReason: null,
       };
     }
+
+    // Deterministic baseline-likely upgrade path: when the LLM verdict is
+    // unavailable but the deterministic shape is strong (failing tests do
+    // not touch any modified file, AND no modified file is shared
+    // infrastructure that could break unrelated tests indirectly), classify
+    // as `baseline_likely` instead of `ambiguous`. The loop-controller
+    // routes this through the same handler as `baseline_broken` — reject
+    // the work item, pause the project, then the baseline-probe re-runs
+    // verify on main to confirm. If main is also broken, the project
+    // stays paused (correct). If main passes, the project resumes; the
+    // rejection stands until an operator re-creates the work item.
+    const sharedInfraFiles = modifiedFilesTouchingSharedInfra(modifiedFiles);
+    const sharedInfraTouched = sharedInfraFiles.length > 0;
+    const deterministicBaselineLikely = (
+      failingTests.length > 0
+      && intersection.length === 0
+      && modifiedFiles.length > 0
+      && !sharedInfraTouched
+    );
+    if (deterministicBaselineLikely) {
+      return {
+        classification: 'baseline_likely',
+        confidence: 'medium',
+        modifiedFiles,
+        failingTests,
+        intersection,
+        environmentSignals: [],
+        llmVerdict: null,
+        llmCritique: null,
+        llmStatus: llm?.status || null,
+        llmTaskId: llm?.taskId || null,
+        sharedInfraTouched: false,
+        sharedInfraFiles: [],
+        suggestedRejectReason: 'verify_failed_baseline_likely_unrelated',
+      };
+    }
+
     return {
       classification: 'ambiguous',
       confidence: 'low',
@@ -734,6 +840,8 @@ async function reviewVerifyFailure({
       llmCritique: null,
       llmStatus: llm?.status || null,
       llmTaskId: llm?.taskId || null,
+      sharedInfraTouched,
+      sharedInfraFiles,
       suggestedRejectReason: null,
     };
   }
@@ -773,6 +881,7 @@ module.exports = {
   LLM_TIMEOUT_MS,
   ENVIRONMENT_EXIT_CODES,
   ENVIRONMENT_STDERR_PATTERNS,
+  SHARED_INFRASTRUCTURE_PATTERNS,
   normalizeVerifyOutput,
   detectEnvironmentFailure,
   detectBuildFailure,
@@ -783,6 +892,8 @@ module.exports = {
   reviewVerifyFailure,
   buildTiebreakPrompt,
   extractVerifyExcerpt,
+  isSharedInfrastructureFile,
+  modifiedFilesTouchingSharedInfra,
   STRICT_JSON_SUFFIX,
   // Exported for tests
   resolveReviewerModel,

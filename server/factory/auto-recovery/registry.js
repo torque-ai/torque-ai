@@ -65,7 +65,38 @@ function createRegistry({ logger = { warn: () => {} } } = {}) {
     return null;
   }
 
-  return { registerFromPlugin, getRules, getStrategies, getStrategyByName, pick };
+  // Budget-aware strategy selection: walks the chain in order, but skips any
+  // strategy whose `max_attempts_per_project` budget has already been spent
+  // (per `recentAttempts`, a Map<strategy_name, count>). Returns null when
+  // every strategy in the chain is exhausted, signalling the engine to mark
+  // the project `auto_recovery_exhausted = 1` with reason
+  // `all_strategies_exhausted`.
+  //
+  // Strategies without `max_attempts_per_project` default to a budget of 1 —
+  // the conservative interpretation, since an unspecified budget would
+  // otherwise let the engine pick the same strategy forever after one
+  // failed attempt and re-introduce the loop this function exists to break.
+  function pickWithBudget(classification, recentAttempts) {
+    if (!classification?.suggested_strategies?.length) return null;
+    const counts = recentAttempts instanceof Map
+      ? recentAttempts
+      : new Map(Object.entries(recentAttempts || {}));
+    for (const name of classification.suggested_strategies) {
+      const strat = strategies.get(name);
+      if (!strat) continue;
+      if (!strat.applicable_categories.includes(classification.category)
+          && !strat.applicable_categories.includes('any')) continue;
+      const budget = Number.isFinite(strat.max_attempts_per_project) && strat.max_attempts_per_project > 0
+        ? strat.max_attempts_per_project
+        : 1;
+      const used = Number(counts.get(name) || 0);
+      if (used >= budget) continue;
+      return strat;
+    }
+    return null;
+  }
+
+  return { registerFromPlugin, getRules, getStrategies, getStrategyByName, pick, pickWithBudget };
 }
 
 module.exports = { createRegistry };

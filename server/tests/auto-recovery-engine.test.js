@@ -310,3 +310,228 @@ describe('auto-recovery engine.tick', () => {
     });
   });
 });
+
+describe('auto-recovery engine — per-strategy budget escalation', () => {
+  let db, logger;
+  beforeEach(() => { db = new Database(':memory:'); seedSchema(db); logger = makeLogger(); });
+
+  function insertVerifyAmbiguousProject(id, attempts) {
+    // The decision we care about is `verify_reviewed_ambiguous_paused` —
+    // the engine classifies the latest real decision and picks a strategy.
+    // Using `auto_recovery_attempts` carries over from prior ticks.
+    db.prepare(`INSERT INTO factory_projects
+                (id, status, loop_state, loop_batch_id, loop_paused_at_stage,
+                 loop_last_action_at, auto_recovery_attempts)
+                VALUES (?, 'running', 'PAUSED', 'batch-1', 'VERIFY_FAIL',
+                        '2026-04-30T12:00:00Z', ?)`).run(id, attempts);
+    db.prepare(`INSERT INTO factory_decisions
+                (project_id, stage, actor, action, batch_id, created_at)
+                VALUES (?, 'verify', 'verifier', 'verify_reviewed_ambiguous_paused',
+                        'batch-1', '2026-04-30T12:00:00Z')`).run(id);
+  }
+
+  function insertPriorStrategySelected(projectId, strategyName, ruleName, when) {
+    const outcome = JSON.stringify({
+      strategy: strategyName,
+      classification: { category: 'transient', matched_rule: ruleName, confidence: 0.6 },
+    });
+    db.prepare(`INSERT INTO factory_decisions
+                (project_id, stage, actor, action, batch_id, created_at, outcome_json)
+                VALUES (?, 'verify', 'auto-recovery', 'auto_recovery_strategy_selected',
+                        'batch-1', ?, ?)`).run(projectId, when, outcome);
+  }
+
+  it('escalates from retry to reject_and_advance when retry budget is exhausted', async () => {
+    // Project paused at VERIFY_FAIL. Three prior strategy_selected decisions
+    // for retry on the same matched_rule — that hits retry's budget of 3.
+    // The engine should now pick reject_and_advance (next in the chain).
+    insertVerifyAmbiguousProject('p-budget', 3);
+    insertPriorStrategySelected('p-budget', 'retry', 'verify_reviewer_ambiguous', '2026-04-30T12:01:00Z');
+    insertPriorStrategySelected('p-budget', 'retry', 'verify_reviewer_ambiguous', '2026-04-30T12:05:00Z');
+    insertPriorStrategySelected('p-budget', 'retry', 'verify_reviewer_ambiguous', '2026-04-30T12:10:00Z');
+
+    const ran = [];
+    const engine = createAutoRecoveryEngine({
+      db, logger, eventBus: { emit: () => {} },
+      rules: [{
+        name: 'verify_reviewer_ambiguous',
+        category: 'transient',
+        priority: 65,
+        confidence: 0.6,
+        match: { stage: 'verify', action: 'verify_reviewed_ambiguous_paused' },
+        suggested_strategies: ['retry', 'reject_and_advance', 'escalate'],
+      }],
+      strategies: [
+        {
+          name: 'retry',
+          applicable_categories: ['transient'],
+          max_attempts_per_project: 3,
+          async run() { ran.push('retry'); return { success: true, next_action: 'retry' }; },
+        },
+        {
+          name: 'reject_and_advance',
+          applicable_categories: ['transient'],
+          max_attempts_per_project: 1,
+          async run() { ran.push('reject_and_advance'); return { success: true, next_action: 'advance' }; },
+        },
+        {
+          name: 'escalate',
+          applicable_categories: ['transient'],
+          max_attempts_per_project: 1,
+          async run() { ran.push('escalate'); return { success: true, next_action: 'escalate' }; },
+        },
+      ],
+      nowMs: () => Date.parse('2026-04-30T13:00:00Z'),
+    });
+
+    await engine.tick();
+
+    expect(ran).toEqual(['reject_and_advance']);
+    const selected = db.prepare(`SELECT outcome_json FROM factory_decisions
+                                 WHERE actor='auto-recovery' AND action='auto_recovery_strategy_selected'
+                                 ORDER BY id DESC LIMIT 1`).get();
+    expect(JSON.parse(selected.outcome_json).strategy).toBe('reject_and_advance');
+  });
+
+  it('escalates further to escalate when both retry and reject_and_advance budgets are exhausted', async () => {
+    insertVerifyAmbiguousProject('p-budget2', 4);
+    insertPriorStrategySelected('p-budget2', 'retry', 'verify_reviewer_ambiguous', '2026-04-30T12:01:00Z');
+    insertPriorStrategySelected('p-budget2', 'retry', 'verify_reviewer_ambiguous', '2026-04-30T12:05:00Z');
+    insertPriorStrategySelected('p-budget2', 'retry', 'verify_reviewer_ambiguous', '2026-04-30T12:10:00Z');
+    insertPriorStrategySelected('p-budget2', 'reject_and_advance', 'verify_reviewer_ambiguous', '2026-04-30T12:15:00Z');
+
+    const ran = [];
+    const engine = createAutoRecoveryEngine({
+      db, logger, eventBus: { emit: () => {} },
+      rules: [{
+        name: 'verify_reviewer_ambiguous',
+        category: 'transient',
+        priority: 65,
+        match: { stage: 'verify', action: 'verify_reviewed_ambiguous_paused' },
+        suggested_strategies: ['retry', 'reject_and_advance', 'escalate'],
+      }],
+      strategies: [
+        { name: 'retry', applicable_categories: ['transient'], max_attempts_per_project: 3,
+          async run() { ran.push('retry'); return { success: true }; } },
+        { name: 'reject_and_advance', applicable_categories: ['transient'], max_attempts_per_project: 1,
+          async run() { ran.push('reject_and_advance'); return { success: true }; } },
+        { name: 'escalate', applicable_categories: ['transient'], max_attempts_per_project: 1,
+          async run() { ran.push('escalate'); return { success: true }; } },
+      ],
+      nowMs: () => Date.parse('2026-04-30T13:00:00Z'),
+    });
+
+    await engine.tick();
+    expect(ran).toEqual(['escalate']);
+  });
+
+  it('marks all_strategies_exhausted when every strategy in the chain has hit its budget', async () => {
+    insertVerifyAmbiguousProject('p-budget3', 5);
+    insertPriorStrategySelected('p-budget3', 'retry', 'verify_reviewer_ambiguous', '2026-04-30T12:01:00Z');
+    insertPriorStrategySelected('p-budget3', 'retry', 'verify_reviewer_ambiguous', '2026-04-30T12:05:00Z');
+    insertPriorStrategySelected('p-budget3', 'retry', 'verify_reviewer_ambiguous', '2026-04-30T12:10:00Z');
+    insertPriorStrategySelected('p-budget3', 'reject_and_advance', 'verify_reviewer_ambiguous', '2026-04-30T12:15:00Z');
+    insertPriorStrategySelected('p-budget3', 'escalate', 'verify_reviewer_ambiguous', '2026-04-30T12:20:00Z');
+
+    const ran = [];
+    const engine = createAutoRecoveryEngine({
+      db, logger, eventBus: { emit: () => {} },
+      rules: [{
+        name: 'verify_reviewer_ambiguous',
+        category: 'transient',
+        priority: 65,
+        match: { stage: 'verify', action: 'verify_reviewed_ambiguous_paused' },
+        suggested_strategies: ['retry', 'reject_and_advance', 'escalate'],
+      }],
+      strategies: [
+        { name: 'retry', applicable_categories: ['transient'], max_attempts_per_project: 3,
+          async run() { ran.push('retry'); return { success: true }; } },
+        { name: 'reject_and_advance', applicable_categories: ['transient'], max_attempts_per_project: 1,
+          async run() { ran.push('reject_and_advance'); return { success: true }; } },
+        { name: 'escalate', applicable_categories: ['transient'], max_attempts_per_project: 1,
+          async run() { ran.push('escalate'); return { success: true }; } },
+      ],
+      nowMs: () => Date.parse('2026-04-30T13:00:00Z'),
+    });
+
+    await engine.tick();
+    expect(ran).toEqual([]);
+    const exhausted = db.prepare(`SELECT outcome_json FROM factory_decisions
+                                  WHERE actor='auto-recovery' AND action='auto_recovery_exhausted'
+                                  ORDER BY id DESC LIMIT 1`).get();
+    expect(exhausted).toBeDefined();
+    const reason = JSON.parse(exhausted.outcome_json).reason;
+    expect(reason).toBe('all_strategies_exhausted');
+    const project = db.prepare('SELECT auto_recovery_exhausted FROM factory_projects WHERE id=?')
+      .get('p-budget3');
+    expect(project.auto_recovery_exhausted).toBe(1);
+  });
+
+  it('only counts strategies for the SAME matched_rule (different rule does not consume budget)', async () => {
+    insertVerifyAmbiguousProject('p-different-rule', 3);
+    // Three prior retries — but for a DIFFERENT matched_rule.
+    insertPriorStrategySelected('p-different-rule', 'retry', 'unrelated_rule', '2026-04-30T12:01:00Z');
+    insertPriorStrategySelected('p-different-rule', 'retry', 'unrelated_rule', '2026-04-30T12:05:00Z');
+    insertPriorStrategySelected('p-different-rule', 'retry', 'unrelated_rule', '2026-04-30T12:10:00Z');
+
+    const ran = [];
+    const engine = createAutoRecoveryEngine({
+      db, logger, eventBus: { emit: () => {} },
+      rules: [{
+        name: 'verify_reviewer_ambiguous',
+        category: 'transient',
+        priority: 65,
+        match: { stage: 'verify', action: 'verify_reviewed_ambiguous_paused' },
+        suggested_strategies: ['retry', 'reject_and_advance'],
+      }],
+      strategies: [
+        { name: 'retry', applicable_categories: ['transient'], max_attempts_per_project: 3,
+          async run() { ran.push('retry'); return { success: true }; } },
+        { name: 'reject_and_advance', applicable_categories: ['transient'], max_attempts_per_project: 1,
+          async run() { ran.push('reject_and_advance'); return { success: true }; } },
+      ],
+      nowMs: () => Date.parse('2026-04-30T13:00:00Z'),
+    });
+
+    await engine.tick();
+    // Counts are scoped to matched_rule — retry budget for verify_reviewer_ambiguous is fresh.
+    expect(ran).toEqual(['retry']);
+  });
+
+  it('resets strategy attempt count after auto_recovery_rearmed', async () => {
+    // Same project, same rule, but budget should reset because a rearm event
+    // exists between the prior attempts and now.
+    insertVerifyAmbiguousProject('p-rearm', 0);
+    insertPriorStrategySelected('p-rearm', 'retry', 'verify_reviewer_ambiguous', '2026-04-30T11:00:00Z');
+    insertPriorStrategySelected('p-rearm', 'retry', 'verify_reviewer_ambiguous', '2026-04-30T11:05:00Z');
+    insertPriorStrategySelected('p-rearm', 'retry', 'verify_reviewer_ambiguous', '2026-04-30T11:10:00Z');
+    db.prepare(`INSERT INTO factory_decisions
+                (project_id, stage, actor, action, batch_id, created_at, outcome_json)
+                VALUES ('p-rearm', 'verify', 'auto-recovery', 'auto_recovery_rearmed',
+                        'batch-1', '2026-04-30T11:30:00Z',
+                        '{"rearm_cause":"new_real_decision"}')`).run();
+
+    const ran = [];
+    const engine = createAutoRecoveryEngine({
+      db, logger, eventBus: { emit: () => {} },
+      rules: [{
+        name: 'verify_reviewer_ambiguous',
+        category: 'transient',
+        priority: 65,
+        match: { stage: 'verify', action: 'verify_reviewed_ambiguous_paused' },
+        suggested_strategies: ['retry', 'reject_and_advance'],
+      }],
+      strategies: [
+        { name: 'retry', applicable_categories: ['transient'], max_attempts_per_project: 3,
+          async run() { ran.push('retry'); return { success: true }; } },
+        { name: 'reject_and_advance', applicable_categories: ['transient'], max_attempts_per_project: 1,
+          async run() { ran.push('reject_and_advance'); return { success: true }; } },
+      ],
+      nowMs: () => Date.parse('2026-04-30T13:00:00Z'),
+    });
+
+    await engine.tick();
+    // Pre-rearm retries don't count — fresh budget post-rearm.
+    expect(ran).toEqual(['retry']);
+  });
+});

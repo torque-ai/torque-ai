@@ -125,7 +125,13 @@ describe('reviewVerifyFailure zero-diff cascade classifier', () => {
 
     const result = await verifyReview.reviewVerifyFailure(buildReviewArgs({ projectId, batchId: 'B1' }));
 
-    expect(result.classification).toBe('ambiguous');
+    // The LLM tiebreak is mocked to return verdict=null, so without the
+    // baseline_likely upgrade path this would land on ambiguous. With the
+    // path enabled (failing tests + no intersection + non-infra diff), the
+    // deterministic shape is now strong enough to upgrade to baseline_likely
+    // — but importantly NOT zero_diff_cascade, which was the original bug
+    // this test was guarding against.
+    expect(result.classification).toBe('baseline_likely');
     expect(result.classification).not.toBe('zero_diff_cascade');
     expect(result.modifiedFiles).toEqual(['x.js']);
     expect(llmSpy).toHaveBeenCalledTimes(1);
