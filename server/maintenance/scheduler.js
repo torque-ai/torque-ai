@@ -422,9 +422,13 @@ function runMaintenanceTask(taskType) {
         // Runs every 5 minutes by default, catches orphaned tasks from crashes/restarts
         const staleRunningMin = serverConfig.getInt('stale_running_minutes', 60);
         const staleQueuedMin = serverConfig.getInt('stale_queued_minutes', 120);
+        const dormantWorkflowMin = serverConfig.getInt('stale_pending_workflow_minutes', 7 * 24 * 60);
         const result = db.cleanupStaleTasks(staleRunningMin, staleQueuedMin);
-        if (result.total > 0) {
-          debugLog(`Stale task cleanup: ${result.running_cleaned} running, ${result.queued_cleaned} queued, ${result.workflow_task_cleaned || 0} workflow child`);
+        const dormant = typeof db.cleanupDormantPendingWorkflows === 'function'
+          ? db.cleanupDormantPendingWorkflows(dormantWorkflowMin)
+          : { workflows_cancelled: 0, tasks_cancelled: 0 };
+        if (result.total > 0 || dormant.workflows_cancelled > 0) {
+          debugLog(`Stale task cleanup: ${result.running_cleaned} running, ${result.queued_cleaned} queued, ${result.workflow_task_cleaned || 0} workflow child, ${dormant.workflows_cancelled || 0} dormant workflow`);
         }
         break;
       }

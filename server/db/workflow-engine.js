@@ -382,6 +382,100 @@ function cleanupOldWorkflows(retentionDays = 30) {
   return { deleted: cleanup() };
 }
 
+/**
+ * Cancel never-started workflows that have stayed pending past the allowed age.
+ * This intentionally only targets workflows whose children are all pending or
+ * blocked: no running, queued, retrying, completed, failed, cancelled, or
+ * skipped task has ever made the workflow meaningfully active.
+ * @param {number} ageMinutes - Minimum pending age before cleanup (default: 7 days)
+ * @returns {{ workflows_cancelled: number, tasks_cancelled: number, workflow_ids: string[] }}
+ */
+function cleanupDormantPendingWorkflows(ageMinutes = 7 * 24 * 60) {
+  const minutes = Number.parseInt(ageMinutes, 10);
+  if (!Number.isFinite(minutes) || minutes <= 0) {
+    return { workflows_cancelled: 0, tasks_cancelled: 0, workflow_ids: [], skipped_reason: 'disabled' };
+  }
+
+  const cutoff = new Date(Date.now() - minutes * 60 * 1000).toISOString();
+  const candidates = db.prepare(`
+    SELECT w.id
+    FROM workflows w
+    JOIN tasks t ON t.workflow_id = w.id
+    WHERE w.status = 'pending'
+      AND w.created_at < ?
+    GROUP BY w.id
+    HAVING COUNT(t.id) > 0
+      AND SUM(CASE WHEN t.status NOT IN ('pending', 'blocked') THEN 1 ELSE 0 END) = 0
+  `).all(cutoff);
+
+  if (candidates.length === 0) {
+    return { workflows_cancelled: 0, tasks_cancelled: 0, workflow_ids: [] };
+  }
+
+  const now = new Date().toISOString();
+  const reason = `Workflow cancelled: pending for more than ${minutes} minutes without starting`;
+  const getDormantShape = _getStmt('getDormantPendingWorkflowShape', `
+    SELECT
+      w.status AS workflow_status,
+      COUNT(t.id) AS total_tasks,
+      SUM(CASE WHEN t.status NOT IN ('pending', 'blocked') THEN 1 ELSE 0 END) AS active_or_terminal_tasks
+    FROM workflows w
+    JOIN tasks t ON t.workflow_id = w.id
+    WHERE w.id = ?
+    GROUP BY w.id
+  `);
+  const cancelTasks = _getStmt('cancelDormantPendingWorkflowTasks', `
+    UPDATE tasks
+    SET status = 'cancelled',
+        completed_at = ?,
+        cancel_reason = 'stale_pending_workflow',
+        error_output = COALESCE(error_output || char(10), '') || ?
+    WHERE workflow_id = ?
+      AND status IN ('pending', 'blocked')
+  `);
+  const cancelWorkflow = _getStmt('cancelDormantPendingWorkflow', `
+    UPDATE workflows
+    SET status = 'cancelled',
+        completed_at = ?,
+        total_tasks = (SELECT COUNT(*) FROM tasks WHERE workflow_id = workflows.id)
+    WHERE id = ?
+      AND status = 'pending'
+  `);
+
+  const cleanup = db.transaction(() => {
+    const workflowIds = [];
+    let tasksCancelled = 0;
+    let workflowsCancelled = 0;
+
+    for (const candidate of candidates) {
+      const shape = getDormantShape.get(candidate.id);
+      if (
+        !shape
+        || shape.workflow_status !== 'pending'
+        || Number(shape.total_tasks || 0) <= 0
+        || Number(shape.active_or_terminal_tasks || 0) > 0
+      ) {
+        continue;
+      }
+      const workflowResult = cancelWorkflow.run(now, candidate.id);
+      if (workflowResult.changes > 0) {
+        const taskResult = cancelTasks.run(now, reason, candidate.id);
+        workflowIds.push(candidate.id);
+        workflowsCancelled += workflowResult.changes;
+        tasksCancelled += taskResult.changes;
+      }
+    }
+
+    return {
+      workflows_cancelled: workflowsCancelled,
+      tasks_cancelled: tasksCancelled,
+      workflow_ids: workflowIds,
+    };
+  });
+
+  return cleanup();
+}
+
 // ============================================
 // Dependency Graph (DAG)
 // ============================================
@@ -1499,6 +1593,7 @@ module.exports = {
   listWorkflows,
   deleteWorkflow,
   cleanupOldWorkflows,
+  cleanupDormantPendingWorkflows,
   wouldCreateCycle,
   addTaskDependency,
   getTaskDependencies,

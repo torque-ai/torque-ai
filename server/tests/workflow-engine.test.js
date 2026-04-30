@@ -8,7 +8,7 @@
 const { v4: uuidv4 } = require('uuid');
 const workflowEngine = require('../db/workflow-engine');
 const taskCore = require('../db/task-core');
-const { setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
+const { setupTestDbOnly, teardownTestDb, rawDb } = require('./vitest-setup');
 
 let db;
 
@@ -410,6 +410,73 @@ describe('Workflow Engine Module', () => {
       const history = workflowEngine.getWorkflowHistory(wf.id);
       const failEvent = history.find(e => e.type === 'task_failed');
       expect(failEvent).toBeDefined();
+    });
+  });
+
+  describe('cleanupDormantPendingWorkflows', () => {
+    it('cancels only old pending workflows whose tasks never started', () => {
+      const old = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
+      const dormant = createWorkflow({ id: `wf-dormant-${uuidv4()}`, name: 'Dormant Pending' });
+      const active = createWorkflow({ id: `wf-active-${uuidv4()}`, name: 'Active Pending' });
+      const partial = createWorkflow({ id: `wf-partial-${uuidv4()}`, name: 'Partial Pending' });
+      const paused = createWorkflow({ id: `wf-paused-${uuidv4()}`, name: 'Paused Workflow', status: 'paused' });
+      const fresh = createWorkflow({ id: `wf-fresh-${uuidv4()}`, name: 'Fresh Pending' });
+      rawDb().prepare('UPDATE workflows SET created_at = ? WHERE id IN (?, ?, ?, ?)')
+        .run(old, dormant.id, active.id, partial.id, paused.id);
+
+      const dormantPending = createTask({ id: `task-dormant-pending-${uuidv4()}`, workflow_id: dormant.id, status: 'pending' });
+      const dormantBlocked = createTask({ id: `task-dormant-blocked-${uuidv4()}`, workflow_id: dormant.id, status: 'blocked' });
+      const activeQueued = createTask({ id: `task-active-queued-${uuidv4()}`, workflow_id: active.id, status: 'queued' });
+      const partialDone = createTask({ id: `task-partial-done-${uuidv4()}`, workflow_id: partial.id, status: 'completed' });
+      const partialPending = createTask({ id: `task-partial-pending-${uuidv4()}`, workflow_id: partial.id, status: 'pending' });
+      const pausedPending = createTask({ id: `task-paused-pending-${uuidv4()}`, workflow_id: paused.id, status: 'pending' });
+      const freshPending = createTask({ id: `task-fresh-pending-${uuidv4()}`, workflow_id: fresh.id, status: 'pending' });
+
+      const result = workflowEngine.cleanupDormantPendingWorkflows(60);
+
+      expect(result).toMatchObject({
+        workflows_cancelled: 1,
+        tasks_cancelled: 2,
+        workflow_ids: [dormant.id],
+      });
+      expect(workflowEngine.getWorkflow(dormant.id)).toMatchObject({
+        status: 'cancelled',
+      });
+      expect(taskCore.getTask(dormantPending)).toMatchObject({
+        status: 'cancelled',
+        cancel_reason: 'stale_pending_workflow',
+      });
+      expect(taskCore.getTask(dormantBlocked)).toMatchObject({
+        status: 'cancelled',
+        cancel_reason: 'stale_pending_workflow',
+      });
+      expect(taskCore.getTask(dormantBlocked).error_output).toContain('pending for more than 60 minutes');
+      expect(workflowEngine.getWorkflow(active.id)).toMatchObject({ status: 'pending' });
+      expect(taskCore.getTask(activeQueued)).toMatchObject({ status: 'queued' });
+      expect(workflowEngine.getWorkflow(partial.id)).toMatchObject({ status: 'pending' });
+      expect(taskCore.getTask(partialDone)).toMatchObject({ status: 'completed' });
+      expect(taskCore.getTask(partialPending)).toMatchObject({ status: 'pending' });
+      expect(workflowEngine.getWorkflow(paused.id)).toMatchObject({ status: 'paused' });
+      expect(taskCore.getTask(pausedPending)).toMatchObject({ status: 'pending' });
+      expect(workflowEngine.getWorkflow(fresh.id)).toMatchObject({ status: 'pending' });
+      expect(taskCore.getTask(freshPending)).toMatchObject({ status: 'pending' });
+    });
+
+    it('can be disabled with a nonpositive age', () => {
+      const old = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
+      const workflow = createWorkflow({ id: `wf-disabled-dormant-${uuidv4()}`, name: 'Disabled Dormant' });
+      rawDb().prepare('UPDATE workflows SET created_at = ? WHERE id = ?').run(old, workflow.id);
+      const taskId = createTask({ id: `task-disabled-dormant-${uuidv4()}`, workflow_id: workflow.id, status: 'pending' });
+
+      const result = workflowEngine.cleanupDormantPendingWorkflows(0);
+
+      expect(result).toMatchObject({
+        workflows_cancelled: 0,
+        tasks_cancelled: 0,
+        skipped_reason: 'disabled',
+      });
+      expect(workflowEngine.getWorkflow(workflow.id)).toMatchObject({ status: 'pending' });
+      expect(taskCore.getTask(taskId)).toMatchObject({ status: 'pending' });
     });
   });
 
