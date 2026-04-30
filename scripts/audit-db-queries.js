@@ -90,6 +90,36 @@ function extractIndexColumns(schemaText) {
 }
 
 /**
+ * Trim a captured WHERE clause back to its SQL surface, dropping JS code
+ * that follows the closing string literal on the same line.
+ *
+ * scanFiles() captures the WHERE substring greedily to end-of-line, but
+ * a typical row reads ``db.prepare('SELECT ... WHERE col = ?').get(x)``
+ * — the closing quote ends the SQL and `).get(x)` is JavaScript. The
+ * column extractor would otherwise pull bogus column names out of the
+ * JS suffix (canonical: ``WHERE enabled = 1').all().map(r => {`` parsed
+ * `r` as a column because `r =` matched against the JS arrow function).
+ *
+ * We don't know which quote opens the SQL string, so we trim at the
+ * first occurrence of any of the three quote characters; whichever one
+ * appears first reliably marks the SQL boundary in the codebase's
+ * single-line prepared-statement patterns.
+ */
+function trimWhereClauseToSqlBoundary(whereClause) {
+  let firstQuote = -1;
+  for (const q of ["'", '"', '`']) {
+    const idx = whereClause.indexOf(q);
+    if (idx >= 0 && (firstQuote < 0 || idx < firstQuote)) {
+      firstQuote = idx;
+    }
+  }
+  if (firstQuote >= 0) {
+    return whereClause.slice(0, firstQuote);
+  }
+  return whereClause;
+}
+
+/**
  * Extract column names from a SQL WHERE clause string.
  * Returns string[] of column names (lowercased, without table prefix).
  *
@@ -103,12 +133,16 @@ function extractIndexColumns(schemaText) {
  * those bigrams produced a phantom column whose name was a fragment
  * of the literal. SQLite operators that aren't word-like
  * (=, !=, <, >, etc.) don't have this issue.
+ *
+ * The capture group also requires a leading letter or underscore so
+ * numeric literals like `WHERE 1=1` don't surface as columns.
  */
 function extractWhereColumns(whereClause) {
   const cols = [];
-  const re = /(?:\w+\.)?(\w+)\s*(?:=|!=|<>|<=|>=|<|>|\bIN\b|\bLIKE\b|\bIS\b)\s*/gi;
+  const trimmed = trimWhereClauseToSqlBoundary(whereClause);
+  const re = /(?:\w+\.)?([a-zA-Z_]\w*)\s*(?:=|!=|<>|<=|>=|<|>|\bIN\b|\bLIKE\b|\bIS\b)\s*/g;
   let m;
-  while ((m = re.exec(whereClause)) !== null) {
+  while ((m = re.exec(trimmed)) !== null) {
     const col = m[1].toLowerCase();
     if (!['and', 'or', 'not', 'null', 'true', 'false'].includes(col)) {
       cols.push(col);
@@ -226,7 +260,7 @@ function main() {
   process.exit(strict ? 1 : 0);
 }
 
-module.exports = { extractIndexColumns, extractWhereColumns, isFullScanAnnotated, checkViolations, scanFiles, readAllDbSchema };
+module.exports = { extractIndexColumns, extractWhereColumns, isFullScanAnnotated, checkViolations, scanFiles, readAllDbSchema, trimWhereClauseToSqlBoundary };
 
 // Only run the audit when invoked directly (`node scripts/audit-db-queries.js`).
 // Without this guard, `require('.../audit-db-queries')` from a test file kicks

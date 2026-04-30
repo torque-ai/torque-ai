@@ -206,4 +206,35 @@ describe('scripts/audit-db-queries', () => {
       expect(cols.sort()).toEqual(['created_at', 'id', 'status', 'updated_at']);
     });
   });
+
+  describe('trimWhereClauseToSqlBoundary + extractWhereColumns boundary handling', () => {
+    it('trims at first quote so JS code after the SQL string is ignored', () => {
+      // Real codebase pattern that produced false positive `r`:
+      //   db.prepare('SELECT * FROM x WHERE enabled = 1').all().map(r => ...)
+      // The line-based scanner captured everything after `WHERE`, so the
+      // arrow-fn arg `r =` looked like another column comparison.
+      const cols = audit.extractWhereColumns("enabled = 1').all().map(r => {");
+      expect(cols).toEqual(['enabled']);
+      expect(cols).not.toContain('r');
+    });
+
+    it("trims at the closing backtick of a template literal", () => {
+      const trimmed = audit.trimWhereClauseToSqlBoundary("col = ?` ).all().map(x => x)");
+      expect(trimmed).toBe('col = ?');
+    });
+
+    it('skips numeric "columns" like the 1=1 idiom', () => {
+      // `WHERE 1=1` is a common no-op used to make AND-chain code generation
+      // simpler. The audit used to extract `1` as a column.
+      const cols = audit.extractWhereColumns('1=1');
+      expect(cols).toEqual([]);
+    });
+
+    it('still rejects column names starting with a digit but accepts mixed alphanumerics', () => {
+      // Underscore-leading and letter-leading identifiers are valid SQLite
+      // column names; pure numeric isn't.
+      const cols = audit.extractWhereColumns("_internal_id = ? AND col2 = ? AND 99 > 0");
+      expect(cols.sort()).toEqual(['_internal_id', 'col2']);
+    });
+  });
 });
