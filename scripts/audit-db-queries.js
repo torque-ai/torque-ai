@@ -22,10 +22,13 @@ const SCAN_DIRS = [
   path.join(__dirname, '../server/factory'),
 ];
 
-const SCHEMA_FILES = [
-  path.join(__dirname, '../server/db/schema-tables.js'),
-  path.join(__dirname, '../server/db/schema.js'),
-];
+// Schema source — every server/db/*.js file. The original audit only read
+// schema-tables.js and schema.js, but per-feature db modules carry their
+// own `CREATE TABLE` blocks (factory_decisions in db/migrations.js,
+// factory_worktrees in db/factory-worktrees.js, etc.). Missing those left
+// ~85 tables looking schema-less, so every WHERE against them was reported
+// as a full scan even when the table had a perfectly good PK or index.
+const SERVER_DB_DIR = path.join(__dirname, '../server/db');
 
 /**
  * Extract index column lists from schema source text.
@@ -155,24 +158,45 @@ function scanFiles(dirs) {
   return findings;
 }
 
+// SQLite system tables and PRAGMA virtual tables that callers query for
+// metadata. They are never user-defined, so the "no covering index"
+// signal is meaningless — sqlite_master holds DDL rows and is small by
+// definition; pragma_* are introspection functions, not row-storage tables.
+const SYSTEM_TABLES = new Set([
+  'sqlite_master',
+  'sqlite_temp_master',
+  'sqlite_schema',
+  'sqlite_temp_schema',
+  'sqlite_sequence',
+  'sqlite_stat1',
+  'pragma_table_info',
+  'pragma_index_list',
+  'pragma_index_info',
+  'pragma_foreign_key_list',
+]);
+
 /**
  * Filter findings to only those with uncovered WHERE columns.
  */
 function checkViolations(findings, indexMap) {
   return findings.filter(({ table, cols }) => {
     if (cols.length === 0) return false;
+    if (SYSTEM_TABLES.has(table)) return false;
     return cols.some((col) => !isCovered(col, indexMap.get(table)));
   });
 }
 
+function readAllDbSchema(dir) {
+  if (!fs.existsSync(dir)) return '';
+  return fs.readdirSync(dir)
+    .filter((f) => f.endsWith('.js'))
+    .map((f) => fs.readFileSync(path.join(dir, f), 'utf8'))
+    .join('\n');
+}
+
 function main() {
   const strict = process.argv.includes('--strict');
-  let schemaText = '';
-  for (const schemaFile of SCHEMA_FILES) {
-    if (fs.existsSync(schemaFile)) {
-      schemaText += fs.readFileSync(schemaFile, 'utf8') + '\n';
-    }
-  }
+  const schemaText = readAllDbSchema(SERVER_DB_DIR);
 
   const indexMap = extractIndexColumns(schemaText);
   const findings = scanFiles(SCAN_DIRS);
@@ -191,7 +215,7 @@ function main() {
   process.exit(strict ? 1 : 0);
 }
 
-module.exports = { extractIndexColumns, extractWhereColumns, isFullScanAnnotated, checkViolations, scanFiles };
+module.exports = { extractIndexColumns, extractWhereColumns, isFullScanAnnotated, checkViolations, scanFiles, readAllDbSchema };
 
 // Only run the audit when invoked directly (`node scripts/audit-db-queries.js`).
 // Without this guard, `require('.../audit-db-queries')` from a test file kicks

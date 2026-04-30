@@ -96,4 +96,71 @@ describe('scripts/audit-db-queries', () => {
       }
     });
   });
+
+  describe('readAllDbSchema', () => {
+    const fs = require('fs');
+    const os = require('os');
+
+    let tmpDir;
+
+    beforeEach(() => {
+      tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'audit-db-schema-'));
+    });
+
+    afterEach(() => {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    });
+
+    it('reads CREATE TABLE blocks across every server/db/*.js file', () => {
+      // Per-feature db modules carry their own schema (factory_decisions
+      // in db/migrations.js, factory_worktrees in db/factory-worktrees.js,
+      // etc.). The original audit only loaded schema-tables.js + schema.js,
+      // so those tables looked schema-less and every WHERE against them
+      // was reported as a full scan.
+      const tasksDdl = 'CREATE TABLE tasks (id INTEGER PRIMARY KEY);';
+      const worktreesDdl = 'CREATE TABLE factory_worktrees (id INTEGER PRIMARY KEY, project_id TEXT NOT NULL);';
+      fs.writeFileSync(path.join(tmpDir, 'schema-tables.js'), `const ddl = ${JSON.stringify(tasksDdl)};`);
+      fs.writeFileSync(path.join(tmpDir, 'factory-worktrees.js'), `const ddl = ${JSON.stringify(worktreesDdl)};`);
+
+      const text = audit.readAllDbSchema(tmpDir);
+      const m = audit.extractIndexColumns(text);
+      // Both tables must register from independent files, including the
+      // per-feature module name pattern.
+      expect(m.has('tasks')).toBe(true);
+      expect(m.has('factory_worktrees')).toBe(true);
+    });
+  });
+
+  describe('SYSTEM_TABLES allowlist', () => {
+    it('does not flag SELECT … FROM sqlite_master as a full scan', () => {
+      // sqlite_master is a SQLite metadata table — it has no user-defined
+      // index and the "WHERE name = …" pattern is the standard idiom.
+      // Flagging this would push every reflection helper into the
+      // false-positive bucket forever.
+      const findings = [
+        { file: 'a.js', line: 1, table: 'sqlite_master', cols: ['name'], sql: 'SELECT name FROM sqlite_master WHERE name = ?' },
+      ];
+      const idxMap = new Map();
+      const viols = audit.checkViolations(findings, idxMap);
+      expect(viols).toEqual([]);
+    });
+
+    it('also allows pragma_table_info', () => {
+      const findings = [
+        { file: 'a.js', line: 1, table: 'pragma_table_info', cols: ['name'], sql: 'SELECT name FROM pragma_table_info(...) WHERE name = ?' },
+      ];
+      const idxMap = new Map();
+      const viols = audit.checkViolations(findings, idxMap);
+      expect(viols).toEqual([]);
+    });
+
+    it('still flags real tables that lack a covering index', () => {
+      const findings = [
+        { file: 'a.js', line: 1, table: 'tasks', cols: ['unindexed_col'], sql: 'WHERE unindexed_col = ?' },
+      ];
+      const idxMap = new Map([['tasks', [['id']]]]);
+      const viols = audit.checkViolations(findings, idxMap);
+      expect(viols).toHaveLength(1);
+    });
+  });
 });
