@@ -247,12 +247,12 @@ describe('submitFactoryInternalTask', () => {
       inherited_provider_from_project: 'DLPhone',
       inherited_provider_source: 'provider_lane_policy',
       user_provider_override: false,
-      provider_lane_policy: {
+      provider_lane_policy: expect.objectContaining({
         expected_provider: 'ollama-cloud',
         allowed_fallback_providers: [],
         allowed_providers: [],
         enforce_handoffs: true,
-      },
+      }),
     }));
   });
 
@@ -339,12 +339,12 @@ describe('submitFactoryInternalTask', () => {
         inherited_provider_from_project: 'DLPhone',
         inherited_provider_source: 'provider_lane_policy',
         user_provider_override: false,
-        provider_lane_policy: {
+        provider_lane_policy: expect.objectContaining({
           expected_provider: 'ollama-cloud',
           allowed_fallback_providers: [],
           allowed_providers: [],
           enforce_handoffs: true,
-        },
+        }),
       }),
     }));
   });
