@@ -437,6 +437,23 @@ remote_path_to_windows() {
   fi
 }
 
+gate_now_ms() {
+  node -e 'process.stdout.write(String(Date.now()))' 2>/dev/null || {
+    local seconds
+    seconds=\$(date +%s 2>/dev/null || echo 0)
+    printf '%s000\n' "\$seconds"
+  }
+}
+
+elapsed_ms() {
+  local start="\$1"
+  local end="\$2"
+  case "\$start:\$end" in
+    *[!0-9:]*|:*|*:) printf 'unknown\n' ;;
+    *) printf '%s\n' "\$((end - start))" ;;
+  esac
+}
+
 prepend_node_modules() {
   local modules_dir="\$1"
   if [ -d "\$modules_dir" ]; then
@@ -553,6 +570,10 @@ ensure_node_modules() {
   fi
 }
 
+GATE_START_MS=\$(gate_now_ms)
+SETUP_START_MS=\$(gate_now_ms)
+echo "[gate-timing] remote_start_ms=\$GATE_START_MS mode=$GATE_MODE changed=$GATE_CHANGED_COUNT"
+
 if [ "$GATE_RUN_DASHBOARD" = "1" ]; then
   ensure_node_modules dash dashboard
   SETUP_EXIT=\$?
@@ -575,32 +596,49 @@ if [ "\$SETUP_EXIT" -ne 0 ]; then
     serv) SERV_SETUP_EXIT=\$SETUP_EXIT ;;
     *) DASH_SETUP_EXIT=\$SETUP_EXIT ;;
   esac
+  SETUP_END_MS=\$(gate_now_ms)
+  echo "[gate-timing] setup_ms=\$(elapsed_ms "\$SETUP_START_MS" "\$SETUP_END_MS") exit=\$SETUP_EXIT failed_phase=\$SETUP_FAILED_PHASE"
   echo "[\$SETUP_FAILED_PHASE] [setup] dependency bootstrap failed exit=\$SETUP_EXIT"
+  GATE_END_MS=\$(gate_now_ms)
+  echo "[gate-timing] total_ms=\$(elapsed_ms "\$GATE_START_MS" "\$GATE_END_MS") dash_exit=\$DASH_SETUP_EXIT serv_exit=\$SERV_SETUP_EXIT perf_exit=0"
   echo "[gate-end] dash_exit=\$DASH_SETUP_EXIT serv_exit=\$SERV_SETUP_EXIT perf_exit=0"
   rm -f "\$DASH_EXIT_FILE" "\$SERV_EXIT_FILE" "\$PERF_EXIT_FILE"
   exit "\$SETUP_EXIT"
 fi
 
+SETUP_END_MS=\$(gate_now_ms)
+echo "[gate-timing] setup_ms=\$(elapsed_ms "\$SETUP_START_MS" "\$SETUP_END_MS") exit=0"
+
 if [ "$GATE_RUN_DASHBOARD" = "1" ]; then
   {
+    PHASE_START_MS=\$(gate_now_ms)
     timeout ${PHASE_TIMEOUT_SECS} bash -c "cd dashboard && vitest run --reporter=dot ${GATE_DASHBOARD_TEST_ARGS}"
-    echo \$? > "\$DASH_EXIT_FILE"
-  } 2>&1 | sed -u "s/^/[dash] /" &
+    PHASE_EXIT=\$?
+    PHASE_END_MS=\$(gate_now_ms)
+    echo "[gate-timing] dash_ms=\$(elapsed_ms "\$PHASE_START_MS" "\$PHASE_END_MS") exit=\$PHASE_EXIT"
+    echo \$PHASE_EXIT > "\$DASH_EXIT_FILE"
+  } 2>&1 | sed -u -e "/^\[gate-timing\]/!s/^/[dash] /" &
   DASH_PID=\$!
 else
   echo 0 > "\$DASH_EXIT_FILE"
   echo "[dash] skipped by gate plan"
+  echo "[gate-timing] dash_ms=0 exit=0 skipped=1"
 fi
 
 if [ "$GATE_RUN_SERVER" = "1" ]; then
   {
+    PHASE_START_MS=\$(gate_now_ms)
     timeout ${PHASE_TIMEOUT_SECS} bash -c "cd server && vitest run --reporter=dot ${GATE_SERVER_TEST_ARGS}"
-    echo \$? > "\$SERV_EXIT_FILE"
-  } 2>&1 | sed -u "s/^/[serv] /" &
+    PHASE_EXIT=\$?
+    PHASE_END_MS=\$(gate_now_ms)
+    echo "[gate-timing] serv_ms=\$(elapsed_ms "\$PHASE_START_MS" "\$PHASE_END_MS") exit=\$PHASE_EXIT"
+    echo \$PHASE_EXIT > "\$SERV_EXIT_FILE"
+  } 2>&1 | sed -u -e "/^\[gate-timing\]/!s/^/[serv] /" &
   SERV_PID=\$!
 else
   echo 0 > "\$SERV_EXIT_FILE"
   echo "[serv] skipped by gate plan"
+  echo "[gate-timing] serv_ms=0 exit=0 skipped=1"
 fi
 
 if [ -n "\${DASH_PID:-}" ]; then wait "\$DASH_PID" 2>/dev/null; fi
@@ -610,9 +648,13 @@ SERV_EXIT=\$(cat "\$SERV_EXIT_FILE" 2>/dev/null || echo "1")
 
 if [ "\$DASH_EXIT" -eq 0 ] && [ "\$SERV_EXIT" -eq 0 ] && [ "$GATE_RUN_PERF" = "1" ]; then
   {
+    PHASE_START_MS=\$(gate_now_ms)
     timeout ${PHASE_TIMEOUT_SECS} bash -c "cd server && node perf/run-perf.js"
-    echo \$? > "\$PERF_EXIT_FILE"
-  } 2>&1 | sed -u "s/^/[perf] /"
+    PHASE_EXIT=\$?
+    PHASE_END_MS=\$(gate_now_ms)
+    echo "[gate-timing] perf_ms=\$(elapsed_ms "\$PHASE_START_MS" "\$PHASE_END_MS") exit=\$PHASE_EXIT"
+    echo \$PHASE_EXIT > "\$PERF_EXIT_FILE"
+  } 2>&1 | sed -u -e "/^\[gate-timing\]/!s/^/[perf] /"
 else
   echo 0 > "\$PERF_EXIT_FILE"
   if [ "$GATE_RUN_PERF" != "1" ]; then
@@ -620,10 +662,13 @@ else
   else
     echo "[perf] skipped because a test phase failed"
   fi
+  echo "[gate-timing] perf_ms=0 exit=0 skipped=1"
 fi
 
 PERF_EXIT=\$(cat "\$PERF_EXIT_FILE" 2>/dev/null || echo "1")
 rm -f "\$DASH_EXIT_FILE" "\$SERV_EXIT_FILE" "\$PERF_EXIT_FILE"
+GATE_END_MS=\$(gate_now_ms)
+echo "[gate-timing] total_ms=\$(elapsed_ms "\$GATE_START_MS" "\$GATE_END_MS") dash_exit=\$DASH_EXIT serv_exit=\$SERV_EXIT perf_exit=\$PERF_EXIT"
 echo "[gate-end] dash_exit=\$DASH_EXIT serv_exit=\$SERV_EXIT perf_exit=\$PERF_EXIT"
 exit \$((DASH_EXIT + SERV_EXIT + PERF_EXIT))
 EOF

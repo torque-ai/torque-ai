@@ -2,10 +2,13 @@
 'use strict';
 
 const crypto = require('crypto');
+const fs = require('fs');
+const path = require('path');
 const { spawnSync } = require('child_process');
 
 const PLAN_VERSION = 1;
 const SAFE_PATH = /^[A-Za-z0-9._/-]+$/;
+const REPO_ROOT = path.resolve(__dirname, '..');
 
 const ROOT_DOC_FILES = new Set([
   'README.md',
@@ -51,6 +54,59 @@ function isServerTest(file) {
   return /^server\/tests\/.*\.test\.js$/.test(file)
     || /^server\/plugins\/[^/]+\/tests\/.*\.test\.js$/.test(file)
     || /^server\/eslint-rules\/.*\.test\.js$/.test(file);
+}
+
+function repoAbs(repoPath) {
+  return path.join(REPO_ROOT, ...repoPath.split('/'));
+}
+
+function repoPathExists(repoPath) {
+  return fs.existsSync(repoAbs(repoPath));
+}
+
+function listTestFilesUnder(repoDir) {
+  const root = repoAbs(repoDir);
+  const results = [];
+
+  function walk(absDir, relDir) {
+    let entries;
+    try {
+      entries = fs.readdirSync(absDir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+
+    for (const entry of entries) {
+      const childRel = `${relDir}/${entry.name}`;
+      const childAbs = path.join(absDir, entry.name);
+      if (entry.isDirectory()) {
+        walk(childAbs, childRel);
+      } else if (/\.test\.js$/.test(entry.name)) {
+        results.push(childRel);
+      }
+    }
+  }
+
+  if (fs.existsSync(root)) {
+    walk(root, repoDir);
+  }
+  return uniqSorted(results);
+}
+
+function serverTargetedSourceTests(file) {
+  if (file.startsWith('server/plugins/')) {
+    const parts = file.split('/');
+    const pluginName = parts[2];
+    if (!pluginName || parts[3] === 'tests') return [];
+    return listTestFilesUnder(`server/plugins/${pluginName}/tests`).map(serverRelative);
+  }
+
+  if (file.startsWith('server/eslint-rules/') && file.endsWith('.js') && !file.endsWith('.test.js')) {
+    const candidate = file.replace(/\.js$/, '.test.js');
+    return repoPathExists(candidate) ? [serverRelative(candidate)] : [];
+  }
+
+  return [];
 }
 
 function serverRelative(file) {
@@ -138,11 +194,18 @@ function planFromFiles(files, options = {}) {
         plan.run_server = true;
         if (!plan._server_full) plan.server_args.push(serverRelative(file));
       } else {
-        plan.run_server = true;
-        plan.run_perf = true;
-        plan.run_audit = true;
-        plan.server_args = [];
-        plan._server_full = true;
+        const targetedTests = serverTargetedSourceTests(file);
+        if (targetedTests.length > 0) {
+          plan.run_server = true;
+          if (!plan._server_full) plan.server_args.push(...targetedTests);
+          if (!file.startsWith('server/eslint-rules/')) plan.run_audit = true;
+        } else {
+          plan.run_server = true;
+          plan.run_perf = true;
+          plan.run_audit = true;
+          plan.server_args = [];
+          plan._server_full = true;
+        }
       }
       continue;
     }

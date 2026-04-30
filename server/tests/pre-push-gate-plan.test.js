@@ -65,6 +65,33 @@ describe('pre-push gate planner', () => {
     expect(plan.run_dashboard).toBe(false);
   });
 
+  it('runs isolated plugin test suites for plugin implementation changes', () => {
+    const plan = planFromFiles(['server/plugins/auth/key-manager.js']);
+
+    expect(plan.mode).toBe('affected');
+    expect(plan.run_server).toBe(true);
+    expect(plan.server_args).toEqual([
+      'plugins/auth/tests/auth-plugin.test.js',
+      'plugins/auth/tests/config-injector.test.js',
+      'plugins/auth/tests/key-manager.test.js',
+      'plugins/auth/tests/middleware.test.js',
+      'plugins/auth/tests/user-session.test.js',
+    ]);
+    expect(plan.run_perf).toBe(false);
+    expect(plan.run_audit).toBe(true);
+    expect(plan.summary).toContain('server affected tests');
+  });
+
+  it('runs exact eslint rule tests for isolated eslint rule implementation changes', () => {
+    const plan = planFromFiles(['server/eslint-rules/no-heavy-test-imports.js']);
+
+    expect(plan.mode).toBe('affected');
+    expect(plan.run_server).toBe(true);
+    expect(plan.server_args).toEqual(['eslint-rules/no-heavy-test-imports.test.js']);
+    expect(plan.run_perf).toBe(false);
+    expect(plan.run_audit).toBe(false);
+  });
+
   it('runs the full server suite when implementation and test files change together', () => {
     const plan = planFromFiles([
       'server/handlers/factory-handlers.js',

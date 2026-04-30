@@ -85,6 +85,14 @@ describe('pre-push-hook staging-branch invariants', () => {
     expect(src).toMatch(/\[\\\$phase\] \[setup\]/);
     expect(src).toContain('timeout ${PHASE_TIMEOUT_SECS} bash -c');
     expect(src).not.toContain('timeout ${PHASE_TIMEOUT_SECS} bash -lc');
+    expect(src).toMatch(/gate_now_ms\s*\(\)/);
+    expect(src).toMatch(/elapsed_ms\s*\(\)/);
+    expect(src).toMatch(/\[gate-timing\] remote_start_ms=/);
+    expect(src).toMatch(/\[gate-timing\] setup_ms=/);
+    expect(src).toMatch(/\[gate-timing\] dash_ms=/);
+    expect(src).toMatch(/\[gate-timing\] serv_ms=/);
+    expect(src).toMatch(/\[gate-timing\] perf_ms=/);
+    expect(src).toMatch(/\[gate-timing\] total_ms=/);
     expect(src).toMatch(/dependency_tree_ok\s*\(\)/);
     expect(src).toMatch(/better-sqlite3/);
     expect(src).toMatch(/web-tree-sitter/);
