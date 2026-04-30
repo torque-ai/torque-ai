@@ -72,6 +72,8 @@ const TIER_2 = [
   'register_factory_project', 'list_factory_projects', 'scan_project_health', 'set_factory_trust_level', 'get_project_policy', 'set_project_policy',
   // Factory intake
   'create_work_item', 'list_work_items', 'update_work_item', 'reject_work_item', 'intake_from_findings', 'scan_plans_directory', 'execute_plan_file', 'get_plan_execution_status', 'list_plan_intake_items', 'poll_github_issues', 'architect_log',
+  // Replan-recovery inbox
+  'list_recovery_inbox', 'inspect_recovery_item', 'revive_recovery_item', 'dismiss_recovery_item',
   // Factory loop
   'reset_factory_loop', 'start_factory_loop', 'await_factory_loop', 'advance_factory_loop', 'approve_factory_gate', 'retry_factory_verify', 'resume_project_baseline_fixed', 'factory_loop_status',
   'factory_provider_lane_audit',
