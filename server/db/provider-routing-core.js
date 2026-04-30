@@ -851,15 +851,17 @@ function getPrometheusMetrics() {
  * Clean up stale tasks - tasks stuck in 'running' or 'queued' state too long
  * This handles orphaned tasks from server restarts or process crashes
  * @param {number} runningMinutes - Mark running tasks as failed after this many minutes (default: 60)
- * @param {number} queuedMinutes - Mark queued tasks as cancelled after this many minutes (default: 1440 = 24h)
+ * @param {number} queuedMinutes - Mark queued tasks as failed after this many minutes (default: 1440 = 24h)
+ * @param {number} terminalWorkflowGraceMinutes - Grace period before closing active tasks for terminal workflows
  * @returns {object} - Count of cleaned up tasks
  */
-function cleanupStaleTasks(runningMinutes = 60, queuedMinutes = 1440) {
+function cleanupStaleTasks(runningMinutes = 60, queuedMinutes = 1440, terminalWorkflowGraceMinutes = 5) {
   const now = new Date().toISOString();
 
   // Calculate cutoff times
   const runningCutoff = new Date(Date.now() - runningMinutes * 60 * 1000).toISOString();
   const queuedCutoff = new Date(Date.now() - queuedMinutes * 60 * 1000).toISOString();
+  const terminalWorkflowCutoff = new Date(Date.now() - terminalWorkflowGraceMinutes * 60 * 1000).toISOString();
 
   // Mark stale running tasks as failed
   const staleRunning = db.prepare(`
@@ -871,7 +873,29 @@ function cleanupStaleTasks(runningMinutes = 60, queuedMinutes = 1440) {
       AND (started_at < ? OR (started_at IS NULL AND created_at < ?))
   `).run(now, runningCutoff, runningCutoff);
 
-  // Mark very old queued tasks as failed (likely abandoned)
+  // A terminal workflow cannot later make its pending/blocked child nodes runnable.
+  // Close them as skipped so they stop polluting the active queue without inflating
+  // task failure counts for nodes that never actually ran.
+  const terminalWorkflowChildren = db.prepare(`
+    UPDATE tasks
+    SET status = 'skipped',
+        completed_at = ?,
+        error_output = COALESCE(error_output || char(10), '') ||
+          'Task skipped: parent workflow is terminal (' ||
+          COALESCE((SELECT w.status FROM workflows w WHERE w.id = tasks.workflow_id), 'unknown') ||
+          ')'
+    WHERE status IN ('queued', 'pending', 'blocked', 'retry_scheduled', 'pending_provider_switch')
+      AND workflow_id IN (
+        SELECT id
+        FROM workflows
+        WHERE status IN ('completed', 'completed_with_errors', 'failed', 'cancelled', 'skipped')
+          AND COALESCE(completed_at, created_at) < ?
+      )
+  `).run(now, terminalWorkflowCutoff);
+
+  // Mark very old standalone queued tasks as failed (likely abandoned).
+  // Workflow-owned tasks are excluded because dependency-blocked nodes can sit
+  // behind upstream work for longer than the generic queue TTL.
   const staleQueued = db.prepare(`
     UPDATE tasks
     SET status = 'failed',
@@ -879,12 +903,14 @@ function cleanupStaleTasks(runningMinutes = 60, queuedMinutes = 1440) {
         error_output = COALESCE(error_output || char(10), '') || 'Task marked as failed: queued too long (stale session cleanup)'
     WHERE status = 'queued'
       AND created_at < ?
+      AND workflow_id IS NULL
   `).run(now, queuedCutoff);
 
   return {
     running_cleaned: staleRunning.changes,
     queued_cleaned: staleQueued.changes,
-    total: staleRunning.changes + staleQueued.changes
+    workflow_task_cleaned: terminalWorkflowChildren.changes,
+    total: staleRunning.changes + staleQueued.changes + terminalWorkflowChildren.changes
   };
 }
 

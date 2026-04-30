@@ -1015,7 +1015,7 @@ function handleRunMaintenance(args) {
     const staleQueuedMin = serverConfig.getInt('stale_queued_minutes', 120);
     addResult('Stale task cleanup', () => {
       const stale = providerRoutingCore.cleanupStaleTasks(staleRunningMin, staleQueuedMin);
-      return `${stale.total} task(s) (${stale.running_cleaned} running, ${stale.queued_cleaned} queued)`;
+      return `${stale.total} task(s) (${stale.running_cleaned} running, ${stale.queued_cleaned} queued, ${stale.workflow_task_cleaned || 0} workflow child)`;
     });
   }
 
