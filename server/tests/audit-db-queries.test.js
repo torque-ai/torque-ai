@@ -583,4 +583,100 @@ describe('scripts/audit-db-queries', () => {
       expect(groupIdViol).toBeUndefined();
     });
   });
+
+  describe('un-indexable column suppression (LIKE / reverse-LIKE)', () => {
+    const fs = require('fs');
+    const os = require('os');
+
+    let tmpDir;
+
+    beforeEach(() => {
+      tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'audit-db-unindexable-test-'));
+    });
+
+    afterEach(() => {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    });
+
+    it('findUnindexableColumns flags `<col> LIKE` as un-indexable', () => {
+      const cols = audit.findUnindexableColumns("output LIKE ? ESCAPE '\\\\'");
+      expect(cols.has('output')).toBe(true);
+    });
+
+    it('findUnindexableColumns strips alias prefix on the column side', () => {
+      const cols = audit.findUnindexableColumns("af.title LIKE ? AND af.severity = 'error'");
+      expect(cols.has('title')).toBe(true);
+      // severity is paired with `=`, not LIKE — must NOT be flagged.
+      expect(cols.has('severity')).toBe(false);
+    });
+
+    it("findUnindexableColumns flags reverse LIKE: `? LIKE '%' || col || '%'`", () => {
+      // adaptive_retry_rules pattern — find rules whose error_pattern
+      // is a substring of the runtime error text.
+      const cols = audit.findUnindexableColumns("? LIKE '%' || error_pattern || '%'");
+      expect(cols.has('error_pattern')).toBe(true);
+    });
+
+    it('findUnindexableColumns leaves non-LIKE columns alone', () => {
+      const cols = audit.findUnindexableColumns("status = 'pending' AND retry_count > 0");
+      expect(cols.size).toBe(0);
+    });
+
+    it('findUnindexableColumns mixed: only the LIKE-paired column is flagged', () => {
+      const cols = audit.findUnindexableColumns("enabled = 1 AND file_extensions LIKE ?");
+      expect(cols.has('file_extensions')).toBe(true);
+      expect(cols.has('enabled')).toBe(false);
+    });
+
+    it('scanFiles drops un-indexable columns from finding cols', () => {
+      // event-tracking.js#searchTaskOutputs pattern — full-text scan
+      // via `LIKE ?` against output/error_output. Adding indexes on
+      // these columns wouldn't help (the actual params are
+      // `%${pattern}%` leading-wildcard).
+      const file = path.join(tmpDir, 'search.js');
+      fs.writeFileSync(file, [
+        'function searchTaskOutputs(pattern) {',
+        "  return db.prepare(`SELECT id FROM tasks WHERE output LIKE ? ESCAPE '\\\\\\\\' OR error_output LIKE ? ESCAPE '\\\\\\\\'`).all('%'+pattern+'%', '%'+pattern+'%');",
+        '}',
+      ].join('\n'));
+
+      const findings = audit.scanFiles([tmpDir]);
+      // No finding should reference output or error_output as flagged
+      // columns — both are LIKE-only on the column side.
+      const outputViol = findings.find((f) => f.cols.includes('output') || f.cols.includes('error_output'));
+      expect(outputViol).toBeUndefined();
+    });
+
+    it('scanFiles preserves non-LIKE columns even when other cols are LIKE-paired', () => {
+      // Realistic mixed pattern: `enabled = 1 AND file_extensions LIKE ?`.
+      // The `enabled` column is still a (low-selectivity but real)
+      // index candidate; only `file_extensions` should be dropped.
+      const file = path.join(tmpDir, 'mixed.js');
+      fs.writeFileSync(file, [
+        'function listMatchingRules(ext) {',
+        "  return db.prepare(`SELECT * FROM security_rules WHERE enabled = 1 AND file_extensions LIKE ?`).all('%'+ext+'%');",
+        '}',
+      ].join('\n'));
+
+      const findings = audit.scanFiles([tmpDir]);
+      const finding = findings.find((f) => f.table === 'security_rules');
+      expect(finding).toBeDefined();
+      expect(finding.cols).toContain('enabled');
+      expect(finding.cols).not.toContain('file_extensions');
+    });
+
+    it('scanFiles emits no finding when ALL WHERE columns are un-indexable', () => {
+      // `WHERE col LIKE ?` with col being the only filter — drop the
+      // entire finding rather than emit an empty cols list.
+      const file = path.join(tmpDir, 'pure-like.js');
+      fs.writeFileSync(file, [
+        'function searchByDescription(pattern) {',
+        "  return db.prepare(`DELETE FROM task_cache WHERE task_description LIKE ?`).run('%'+pattern+'%');",
+        '}',
+      ].join('\n'));
+
+      const findings = audit.scanFiles([tmpDir]);
+      expect(findings.find((f) => f.table === 'task_cache')).toBeUndefined();
+    });
+  });
 });
