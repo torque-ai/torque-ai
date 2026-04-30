@@ -886,6 +886,29 @@ const MIGRATIONS = [
     },
     down: 'DROP INDEX IF EXISTS idx_quality_scores_scored_at',
   },
+  {
+    version: 41,
+    name: 'add_validation_results_validated_at_severity_index',
+    // server/db/file-quality.js#getValidationFailureRate runs two
+    // queries on validation_results filtering on `WHERE validated_at >= ?`
+    // (and one with an additional `severity IN ('error', 'critical')`).
+    // The table only had task_id and status indexes — every dashboard
+    // refresh of the validation-failure-rate widget was a full scan that
+    // grows linearly with task history. Composite (validated_at, severity)
+    // covers both queries: time-range seek on the leading column, then
+    // the in-list filter is pushed into the index walk for the second.
+    up: function(sqliteDb) {
+      // Tolerate minimal-schema test fixtures. Same pattern as v37 / v39 / v40.
+      const tableExists = sqliteDb.prepare(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='validation_results'"
+      ).get();
+      if (!tableExists) return;
+      sqliteDb.prepare(
+        'CREATE INDEX IF NOT EXISTS idx_validation_results_validated_at ON validation_results(validated_at, severity)'
+      ).run();
+    },
+    down: 'DROP INDEX IF EXISTS idx_validation_results_validated_at',
+  },
 ];
 
 function ensureMigrationTable(sqliteDb) {
