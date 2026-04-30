@@ -39,6 +39,22 @@ const FULL_GATE_FILES = new Set([
   'bin/torque-coord-client',
 ]);
 
+const SERVER_TARGETED_SOURCE_PREFIXES = [
+  'server/ci/',
+  'server/dashboard/routes/',
+  'server/execution/',
+  'server/factory/',
+  'server/providers/',
+  'server/tool-defs/',
+  'server/utils/',
+];
+
+const SERVER_TARGETED_SOURCE_FILES = new Set([
+  'server/api/v2-discovery-helpers.js',
+]);
+
+let serverTestContentCache = null;
+
 function isDocPath(file) {
   return ROOT_DOC_FILES.has(file)
     || file.startsWith('docs/')
@@ -62,6 +78,10 @@ function repoAbs(repoPath) {
 
 function repoPathExists(repoPath) {
   return fs.existsSync(repoAbs(repoPath));
+}
+
+function normalizeRepoPath(repoPath) {
+  return repoPath.replace(/\\/g, '/');
 }
 
 function listTestFilesUnder(repoDir) {
@@ -93,6 +113,52 @@ function listTestFilesUnder(repoDir) {
   return uniqSorted(results);
 }
 
+function quotedIncludes(content, value) {
+  return content.includes(`'${value}'`)
+    || content.includes(`"${value}"`)
+    || content.includes(`\`${value}\``);
+}
+
+function isTargetableServerSource(file) {
+  if (!file.startsWith('server/') || !file.endsWith('.js') || isServerTest(file)) return false;
+  if (file.startsWith('server/plugins/') || file.startsWith('server/eslint-rules/')) return false;
+  return SERVER_TARGETED_SOURCE_FILES.has(file)
+    || SERVER_TARGETED_SOURCE_PREFIXES.some((prefix) => file.startsWith(prefix));
+}
+
+function serverTestsWithContent() {
+  if (serverTestContentCache) return serverTestContentCache;
+  serverTestContentCache = listTestFilesUnder('server/tests').map((testFile) => {
+    let content = '';
+    try {
+      content = fs.readFileSync(repoAbs(testFile), 'utf8');
+    } catch {
+      content = '';
+    }
+    return { testFile, content };
+  });
+  return serverTestContentCache;
+}
+
+function directImportTestFilesForServerSource(file) {
+  if (!isTargetableServerSource(file)) return [];
+  const sourceAbs = repoAbs(file);
+  const matches = [];
+
+  for (const { testFile, content } of serverTestsWithContent()) {
+    if (!content) continue;
+    const testDir = path.dirname(repoAbs(testFile));
+    const withExt = normalizeRepoPath(path.relative(testDir, sourceAbs));
+    const normalizedWithExt = withExt.startsWith('.') ? withExt : `./${withExt}`;
+    const withoutExt = normalizedWithExt.replace(/\.js$/, '');
+    if (quotedIncludes(content, normalizedWithExt) || quotedIncludes(content, withoutExt)) {
+      matches.push(serverRelative(testFile));
+    }
+  }
+
+  return uniqSorted(matches);
+}
+
 function serverTargetedSourceTests(file) {
   if (file.startsWith('server/plugins/')) {
     const parts = file.split('/');
@@ -106,7 +172,7 @@ function serverTargetedSourceTests(file) {
     return repoPathExists(candidate) ? [serverRelative(candidate)] : [];
   }
 
-  return [];
+  return directImportTestFilesForServerSource(file);
 }
 
 function dashboardTargetedSourceTests(file) {

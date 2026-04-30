@@ -90,6 +90,33 @@ describe('pre-push gate planner', () => {
     expect(plan.run_dashboard).toBe(false);
   });
 
+  it('runs direct-import server tests for isolated leaf server source changes', () => {
+    const plan = planFromFiles([
+      'server/factory/scout-provider-resolver.js',
+      'server/factory/provider-lane-policy.js',
+    ]);
+
+    expect(plan.mode).toBe('affected');
+    expect(plan.run_server).toBe(true);
+    expect(plan.server_args).toEqual([
+      'tests/provider-lane-policy-by-kind.test.js',
+      'tests/scout-provider-resolver.test.js',
+    ]);
+    expect(plan.run_perf).toBe(false);
+    expect(plan.run_audit).toBe(true);
+    expect(plan.run_dashboard).toBe(false);
+  });
+
+  it('keeps central server modules on the full server suite', () => {
+    const plan = planFromFiles(['server/task-manager.js']);
+
+    expect(plan.mode).toBe('affected');
+    expect(plan.run_server).toBe(true);
+    expect(plan.server_args).toEqual([]);
+    expect(plan.run_perf).toBe(true);
+    expect(plan.run_audit).toBe(true);
+  });
+
   it('runs isolated plugin test suites for plugin implementation changes', () => {
     const plan = planFromFiles(['server/plugins/auth/key-manager.js']);
 
