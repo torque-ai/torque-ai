@@ -1,6 +1,5 @@
 'use strict';
 
-const { describe, it, expect } = require('vitest');
 const strategy = require('../factory/recovery-strategies/decompose');
 const { createMockArchitect } = require('./helpers/mock-architect');
 

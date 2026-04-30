@@ -1,6 +1,5 @@
 'use strict';
 
-const { describe, it, expect, beforeEach, afterEach } = require('vitest');
 const factoryIntake = require('../db/factory-intake');
 const factoryHealth = require('../db/factory-health');
 const { rawDb, setupTestDbOnly, teardownTestDb } = require('./vitest-setup');

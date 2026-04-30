@@ -12,8 +12,8 @@ const DECISION_ACTION_NO_STRATEGY = 'replan_recovery_no_strategy';
 const DECISION_ACTION_FAILED = 'replan_recovery_strategy_failed';
 const DECISION_ACTION_SPLIT = 'replan_recovery_split';
 const DECISION_ACTION_EXHAUSTED = 'replan_recovery_exhausted';
-const DECISION_STAGE = 'recover';
-const DECISION_ACTOR = 'replan-recovery';
+const DECISION_STAGE = 'learn';
+const DECISION_ACTOR = 'verifier';
 const BATCH_PREFIX = 'replan-recovery';
 
 let lastSweepAtMs = null;
@@ -26,7 +26,10 @@ function getBatchId(workItemId) {
   return `${BATCH_PREFIX}:${workItemId}`;
 }
 
-function listEligible(db, { strategyPatterns, hardCap }) {
+function listEligible(db, { strategyPatterns }) {
+  // Include items at or above the hard cap — the dispatcher's in-loop branch
+  // is responsible for routing those to `needs_review`. Filtering them out
+  // here would leave them stranded in `rejected` indefinitely.
   const placeholders = RECOVERABLE_TERMINAL_STATUSES.map(() => '?').join(', ');
   const rows = db.prepare(`
     SELECT wi.*, p.status AS project_status, p.trust_level AS project_trust_level
@@ -35,9 +38,8 @@ function listEligible(db, { strategyPatterns, hardCap }) {
     WHERE wi.status IN (${placeholders})
       AND p.status = 'running'
       AND p.trust_level = 'dark'
-      AND wi.recovery_attempts < ?
     ORDER BY COALESCE(wi.last_recovery_at, wi.updated_at, wi.created_at) ASC, wi.id ASC
-  `).all(...RECOVERABLE_TERMINAL_STATUSES, hardCap);
+  `).all(...RECOVERABLE_TERMINAL_STATUSES);
 
   return rows.filter((row) => {
     const reason = String(row.reject_reason || '');
@@ -232,7 +234,7 @@ function createDispatcher({
     const strategyPatterns = registry.allReasonPatterns();
     if (strategyPatterns.length === 0) return [];
 
-    const eligible = listEligible(db, { strategyPatterns, hardCap: config.hardCap });
+    const eligible = listEligible(db, { strategyPatterns });
     const actions = [];
     const reopenedThisSweepByProject = new Map();
     const openWorkItemCountByProject = new Map();

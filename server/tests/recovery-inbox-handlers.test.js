@@ -1,6 +1,5 @@
 'use strict';
 
-const { describe, it, expect, beforeEach, afterEach } = require('vitest');
 const factoryHealth = require('../db/factory-health');
 const factoryIntake = require('../db/factory-intake');
 const { rawDb, setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
@@ -44,8 +43,12 @@ describe('recovery-inbox handlers', () => {
   beforeEach(() => {
     ({ testDir } = setupTestDbOnly(`recovery-inbox-${Date.now()}`));
     db = rawDb();
+    handlers.setDbForTests(db);
   });
-  afterEach(() => { teardownTestDb(); });
+  afterEach(() => {
+    handlers.setDbForTests(null);
+    teardownTestDb();
+  });
 
   describe('list_recovery_inbox', () => {
     it('returns items with status needs_review only', async () => {

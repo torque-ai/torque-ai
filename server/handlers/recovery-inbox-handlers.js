@@ -5,10 +5,19 @@ const factoryDecisions = require('../db/factory-decisions');
 const decisionLog = require('../factory/decision-log');
 const { defaultContainer } = require('../container');
 
-const DECISION_STAGE = 'recover';
-const DECISION_ACTOR = 'inbox-operator';
+const DECISION_STAGE = 'learn';
+const DECISION_ACTOR = 'human';
 
-function getDb() { return defaultContainer.get('db'); }
+let _testDb = null;
+
+// Tests inject db directly (the DI container isn't booted in unit tests).
+// Production resolves db via the container at call time.
+function setDbForTests(db) { _testDb = db; }
+
+function getDb() {
+  if (_testDb) return _testDb;
+  return defaultContainer.get('db');
+}
 
 function deriveWhyWeGaveUp(historyJson) {
   let arr = [];
@@ -190,6 +199,7 @@ module.exports = {
   inspectRecoveryItem,
   reviveRecoveryItem,
   dismissRecoveryItem,
+  setDbForTests,
   // handleX aliases so the auto-router in tools.js registers them as MCP tools
   handleListRecoveryInbox: listRecoveryInbox,
   handleInspectRecoveryItem: inspectRecoveryItem,

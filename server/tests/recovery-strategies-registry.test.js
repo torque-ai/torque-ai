@@ -1,6 +1,5 @@
 'use strict';
 
-const { describe, it, expect, beforeEach } = require('vitest');
 const { createRegistry } = require('../factory/recovery-strategies/registry');
 
 const stubStrategy = (overrides = {}) => ({
