@@ -1,6 +1,5 @@
 'use strict';
 
-const { describe, it, expect, beforeEach, afterEach } = require('vitest');
 const { setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
 
 describe('factory-tick wires runReplanRecoverySweep', () => {

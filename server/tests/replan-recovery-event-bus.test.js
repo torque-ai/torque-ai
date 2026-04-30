@@ -1,6 +1,5 @@
 'use strict';
 
-const { describe, it, expect } = require('vitest');
 const eventBus = require('../event-bus');
 
 describe('event-bus replan-recovery events', () => {

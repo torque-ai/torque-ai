@@ -1,6 +1,5 @@
 'use strict';
 
-const { describe, it, expect, vi } = require('vitest');
 
 describe('architect-runner recovery helpers', () => {
   it('rewriteWorkItem returns parsed JSON from the underlying provider', async () => {

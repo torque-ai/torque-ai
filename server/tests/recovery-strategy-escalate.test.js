@@ -1,6 +1,5 @@
 'use strict';
 
-const { describe, it, expect } = require('vitest');
 const strategy = require('../factory/recovery-strategies/escalate-architect');
 
 const noopLogger = { warn() {}, error() {}, info() {} };

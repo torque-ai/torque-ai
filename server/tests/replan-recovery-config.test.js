@@ -1,6 +1,5 @@
 'use strict';
 
-const { describe, it, expect } = require('vitest');
 const {
   REPLAN_RECOVERY_CONFIG_DEFAULTS,
   getReplanRecoveryConfig,
