@@ -152,6 +152,56 @@ describe('Queue Scheduler', () => {
       expect(process.listenerCount('torque:queue-changed')).toBe(baselineListenerCount);
       reloadedScheduler.stop();
     });
+
+    it('clears pending torque:queue-changed debounce across module reloads', () => {
+      vi.useFakeTimers();
+      const queueChangedEvent = 'torque:queue-changed';
+      const idleListenerCount = process.listenerCount(queueChangedEvent) - 1;
+      const modPath = require.resolve('../execution/queue-scheduler');
+      let reloadedScheduler;
+
+      try {
+        mockDb.getRunningCount.mockReturnValue(0);
+        mockDb.listTasks.mockClear();
+        mockDb.listTasks.mockReturnValue([]);
+
+        process.emit(queueChangedEvent);
+        expect(process.listenerCount(queueChangedEvent)).toBe(idleListenerCount + 1);
+
+        delete require.cache[modPath];
+        reloadedScheduler = require('../execution/queue-scheduler');
+        const activeDb = {
+          ...mockDb,
+          getRunningCount: vi.fn().mockReturnValue(0),
+          listTasks: vi.fn().mockReturnValue([]),
+        };
+
+        reloadedScheduler.init({
+          db: activeDb,
+          ...mocks,
+        });
+
+        expect(process.listenerCount(queueChangedEvent)).toBe(idleListenerCount + 1);
+        vi.advanceTimersByTime(100);
+
+        expect(mockDb.listTasks).not.toHaveBeenCalled();
+        expect(activeDb.listTasks).not.toHaveBeenCalled();
+
+        process.emit(queueChangedEvent);
+        process.emit(queueChangedEvent);
+        vi.advanceTimersByTime(100);
+
+        expect(mockDb.listTasks).not.toHaveBeenCalled();
+        expect(activeDb.listTasks).toHaveBeenCalledTimes(1);
+
+        reloadedScheduler.stop();
+        reloadedScheduler.stop();
+        expect(process.listenerCount(queueChangedEvent)).toBe(idleListenerCount);
+      } finally {
+        if (reloadedScheduler) reloadedScheduler.stop();
+        vi.useRealTimers();
+      }
+    });
   });
 
   // ── Helper ────────────────────────────────────────────────
