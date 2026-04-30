@@ -439,6 +439,9 @@ remote_path_to_windows() {
 
 prepend_node_modules() {
   local modules_dir="\$1"
+  if [ -d "\$modules_dir" ]; then
+    modules_dir="\$(cd "\$modules_dir" && pwd -P)"
+  fi
   export PATH="\$modules_dir/.bin:\$PATH"
   if [ -n "\${NODE_PATH:-}" ]; then
     export NODE_PATH="\$modules_dir:\$NODE_PATH"

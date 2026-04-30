@@ -79,6 +79,7 @@ describe('pre-push-hook staging-branch invariants', () => {
     expect(src).toMatch(/local dir="\\\$2"/);
     expect(src).toMatch(/local dir="\\\$1"/);
     expect(src).toMatch(/local modules_dir="\\\$1"/);
+    expect(src).toMatch(/modules_dir="\\\$\(cd "\\\$modules_dir" && pwd -P\)"/);
     expect(src).toMatch(/ensure_node_modules dash dashboard/);
     expect(src).toMatch(/ensure_node_modules serv server/);
     expect(src).toMatch(/\[\\\$phase\] \[setup\]/);
