@@ -77,6 +77,89 @@ describe('scripts/audit-db-queries', () => {
       const idxs = m.get('factory_architect_cycles') || [];
       expect(idxs.some((cols) => cols.includes('id'))).toBe(true);
     });
+
+    it('treats a column-level UNIQUE constraint as a covering index', () => {
+      // SQLite auto-creates a covering index for any UNIQUE column. The
+      // audit was missing this and flagging `WHERE name = ?` against
+      // `cost_budgets` as a full scan even though the column is unique.
+      const schema = `
+        CREATE TABLE IF NOT EXISTS cost_budgets (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          name TEXT NOT NULL UNIQUE,
+          limit_cents INTEGER
+        );
+      `;
+      const m = audit.extractIndexColumns(schema);
+      const idxs = m.get('cost_budgets') || [];
+      // PK index (id) + UNIQUE index (name) both register.
+      expect(idxs.some((cols) => cols.length === 1 && cols[0] === 'name')).toBe(true);
+    });
+
+    it('does not flag a WHERE on a UNIQUE column as a full scan', () => {
+      // End-to-end: extract + checkViolations on the cost_budgets pattern.
+      const schema = `
+        CREATE TABLE IF NOT EXISTS cost_budgets (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          name TEXT NOT NULL UNIQUE
+        );
+      `;
+      const idxMap = audit.extractIndexColumns(schema);
+      const findings = [
+        { file: 'a.js', line: 1, table: 'cost_budgets', cols: ['name'], sql: 'WHERE name = ?' },
+      ];
+      expect(audit.checkViolations(findings, idxMap)).toEqual([]);
+    });
+
+    it('treats a table-level UNIQUE (col1, col2) as a composite covering index', () => {
+      const schema = `
+        CREATE TABLE IF NOT EXISTS factory_branches (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          project_id TEXT NOT NULL,
+          branch TEXT NOT NULL,
+          UNIQUE (project_id, branch)
+        );
+      `;
+      const m = audit.extractIndexColumns(schema);
+      const idxs = m.get('factory_branches') || [];
+      expect(idxs.some((cols) => cols.includes('project_id') && cols.includes('branch'))).toBe(true);
+    });
+
+    it('keeps PK and UNIQUE indexes as separate entries (not merged)', () => {
+      // A WHERE on `id` alone or `name` alone must each be covered. If
+      // PK and UNIQUE were merged into a single composite index, neither
+      // single-column lookup would qualify under SQLite's left-anchored
+      // index-prefix rule (SQLite uses the leading column).
+      const schema = `
+        CREATE TABLE IF NOT EXISTS cost_budgets (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          name TEXT NOT NULL UNIQUE
+        );
+      `;
+      const idxMap = audit.extractIndexColumns(schema);
+      const idxs = idxMap.get('cost_budgets') || [];
+      // Two distinct single-column indexes, not one composite.
+      const singleColIdxs = idxs.filter((cols) => cols.length === 1);
+      expect(singleColIdxs.map((c) => c[0]).sort()).toEqual(['id', 'name']);
+    });
+
+    it('does not double-register the table-level UNIQUE form as a column-level UNIQUE', () => {
+      // The column-level regex must not fire on lines like
+      // `UNIQUE (project_id, branch)` — those are owned by the
+      // table-level matcher. If both fired, we'd get `[['unique']]`
+      // and a bogus composite separately.
+      const schema = `
+        CREATE TABLE IF NOT EXISTS t (
+          project_id TEXT NOT NULL,
+          branch TEXT NOT NULL,
+          UNIQUE (project_id, branch)
+        );
+      `;
+      const idxs = audit.extractIndexColumns(schema).get('t') || [];
+      // No spurious ['unique'] entry.
+      expect(idxs.some((cols) => cols.includes('unique'))).toBe(false);
+      // Composite is registered.
+      expect(idxs.some((cols) => cols.includes('project_id') && cols.includes('branch'))).toBe(true);
+    });
   });
 
   describe('scanFiles + checkViolations (case-sensitive SQL keywords)', () => {
