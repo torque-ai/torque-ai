@@ -24,6 +24,7 @@ describe('restart_server tool', () => {
     shutdownListeners = [];
     resetTables('tasks');
     restartHandoff.clearRestartHandoff();
+    restartHandoff.clearRestartIntent();
   });
 
   afterEach(() => {
@@ -32,6 +33,7 @@ describe('restart_server tool', () => {
     }
     shutdownListeners = [];
     restartHandoff.clearRestartHandoff();
+    restartHandoff.clearRestartIntent();
     vi.useRealTimers();
     vi.restoreAllMocks();
   });
@@ -56,6 +58,13 @@ describe('restart_server tool', () => {
     expect(restartHandoff.readRestartHandoff()).toMatchObject({
       barrier_id: result.task_id,
       reason: 'unit restart',
+    });
+    expect(restartHandoff.readRestartIntent()).toMatchObject({
+      barrier_id: result.task_id,
+      reason: 'unit restart',
+      phase: 'handoff_staged',
+      running_count: 0,
+      queued_held_count: 0,
     });
 
     // Shutdown is delayed — not immediate
@@ -85,9 +94,47 @@ describe('restart_server tool', () => {
     expect(result.success).toBe(true);
     expect(result.task_id).toBeTruthy();
     expect(['drain_started', 'restart_scheduled']).toContain(result.status);
+    expect(restartHandoff.readRestartIntent()).toMatchObject({
+      barrier_id: result.task_id,
+      reason: 'drain restart',
+      phase: 'draining',
+      running_count: 1,
+      queued_held_count: 0,
+    });
 
     // No immediate shutdown — waiting for drain
     vi.runAllTimers();
     // Shutdown may or may not fire depending on drain poll timing
+  });
+
+  it('stale barrier cleanup reports the persisted restart intent phase', () => {
+    taskCore.createTask({
+      id: 'stale-barrier',
+      task_description: 'Restart barrier: stale',
+      provider: 'system',
+      working_directory: process.cwd(),
+      status: 'queued',
+    });
+    taskCore.updateTaskStatus('stale-barrier', 'running', {
+      started_at: '2026-04-30T15:23:05.000Z',
+    });
+    restartHandoff.writeRestartIntent({
+      barrier_id: 'stale-barrier',
+      reason: 'node24 rebuild',
+      phase: 'draining',
+      running_count: 2,
+      queued_held_count: 4,
+      requested_at: '2026-04-30T15:23:05.000Z',
+    });
+
+    const cleaned = tools.cleanupStaleRestartBarriers();
+
+    expect(cleaned).toBe(1);
+    expect(taskCore.getTask('stale-barrier')).toMatchObject({
+      status: 'failed',
+    });
+    expect(taskCore.getTask('stale-barrier').error_output).toContain("phase was 'draining'");
+    expect(taskCore.getTask('stale-barrier').error_output).toContain('reason=node24 rebuild');
+    expect(restartHandoff.readRestartIntent()).toBeNull();
   });
 });

@@ -507,7 +507,21 @@ async function handleRestartServerBarrier(args) {
   // indefinitely. Callers can override via drain_timeout_minutes/timeout_minutes.
   const drainTimeoutMinutes = args.drain_timeout_minutes || args.timeout_minutes || 60;
   const taskCore = require('./db/task-core');
-  const { stageRestartHandoff } = require('./execution/restart-handoff');
+  const {
+    clearRestartIntent,
+    stageRestartHandoff,
+    updateRestartIntent,
+    writeRestartIntent,
+  } = require('./execution/restart-handoff');
+
+  const persistRestartIntent = (updates) => {
+    try {
+      return updateRestartIntent(updates);
+    } catch (err) {
+      logger.warn(`[Restart] Failed to update restart intent for barrier ${barrierId}: ${err.message}`);
+      return null;
+    }
+  };
 
   logger.info(`[Restart] Server restart requested (barrier): ${reason}`);
 
@@ -574,6 +588,18 @@ async function handleRestartServerBarrier(args) {
     working_directory: process.cwd(),
     timeout_minutes: drainTimeoutMinutes,
   });
+  try {
+    writeRestartIntent({
+      barrier_id: barrierId,
+      reason,
+      phase: 'created',
+      running_count: runningTasks,
+      queued_held_count: queuedHeld,
+      drain_timeout_minutes: drainTimeoutMinutes,
+    });
+  } catch (err) {
+    logger.warn(`[Restart] Failed to persist restart intent for barrier ${barrierId}: ${err.message}`);
+  }
   logger.info(`[Restart] Created barrier task ${barrierId} — queue scheduler will block new starts`);
 
   // If pipeline is already empty, schedule restart immediately and let the
@@ -584,6 +610,11 @@ async function handleRestartServerBarrier(args) {
     // period (status change → setTimeout → emitShutdown).
     process._torqueRestartPending = true;
     taskCore.updateTaskStatus(barrierId, 'running', { started_at: new Date().toISOString() });
+    persistRestartIntent({
+      phase: 'handoff_staged',
+      running_count: 0,
+      queued_held_count: 0,
+    });
     stageRestartHandoff({ barrierId, reason });
     taskCore.updateTaskStatus(barrierId, 'running', {
       output: 'Pipeline was already empty; waiting for successor instance to confirm startup',
@@ -603,6 +634,12 @@ async function handleRestartServerBarrier(args) {
   // Pipeline has active work — start drain watcher
   logger.info(`[Restart] Drain mode: ${runningTasks} running, ${queuedHeld} queued held until restart (timeout: ${drainTimeoutMinutes}min)`);
   taskCore.updateTaskStatus(barrierId, 'running', { started_at: new Date().toISOString() });
+  persistRestartIntent({
+    phase: 'draining',
+    running_count: runningTasks,
+    queued_held_count: queuedHeld,
+    drain_started_at: new Date().toISOString(),
+  });
 
   const drainTimeoutMs = drainTimeoutMinutes * 60 * 1000;
   const drainStarted = Date.now();
@@ -619,6 +656,12 @@ async function handleRestartServerBarrier(args) {
       // draining. The barrier itself stays non-terminal until the successor
       // instance confirms startup.
       process._torqueRestartPending = true;
+      persistRestartIntent({
+        phase: 'handoff_staged',
+        running_count: 0,
+        queued_held_count: 0,
+        drain_completed_at: new Date().toISOString(),
+      });
       stageRestartHandoff({ barrierId, reason });
       taskCore.updateTaskStatus(barrierId, 'running', {
         output: `Drain complete after ${Math.round((Date.now() - drainStarted) / 1000)}s; waiting for successor instance to confirm startup`,
@@ -639,6 +682,7 @@ async function handleRestartServerBarrier(args) {
         error_output: `Drain timed out: ${running} task(s) still running after ${drainTimeoutMinutes}min`,
         completed_at: new Date().toISOString(),
       });
+      clearRestartIntent();
       try {
         const { dispatchTaskEvent } = require('./hooks/event-dispatch');
         dispatchTaskEvent('failed', taskCore.getTask(barrierId));
@@ -650,6 +694,12 @@ async function handleRestartServerBarrier(args) {
       .filter(t => t.provider !== 'system').length
       + taskCore.listTasks({ status: 'pending', limit: 1000 })
         .filter(t => t.provider !== 'system').length;
+    persistRestartIntent({
+      phase: 'draining',
+      running_count: running,
+      queued_held_count: heldNow,
+      last_drain_heartbeat_at: new Date().toISOString(),
+    });
     logger.info(`[Restart] Drain: ${running} running, ${heldNow} queued held (${Math.round(elapsed / 1000)}s elapsed)`);
   }, 10000);
 
@@ -709,8 +759,14 @@ function cleanupStaleRestartBarriers() {
   let cleanedCount = 0;
   try {
     const taskCore = require('./db/task-core');
-    const { readRestartHandoff } = require('./execution/restart-handoff');
+    const {
+      clearRestartIntent,
+      formatStaleRestartBarrierError,
+      readRestartHandoff,
+      readRestartIntent,
+    } = require('./execution/restart-handoff');
     const activeHandoff = readRestartHandoff();
+    const activeIntent = readRestartIntent();
     const candidates = taskCore.listTasks({ status: 'running', limit: 100 })
       .concat(taskCore.listTasks({ status: 'queued', limit: 100 }));
     for (const b of candidates) {
@@ -721,11 +777,15 @@ function cleanupStaleRestartBarriers() {
       if (activeHandoff && activeHandoff.barrier_id === b.id) {
         continue;
       }
+      const intent = activeIntent && activeIntent.barrier_id === b.id ? activeIntent : null;
       taskCore.updateTaskStatus(b.id, 'failed', {
-        error_output: '[startup-cleanup] Stale restart barrier — server restarted before drain completed',
+        error_output: formatStaleRestartBarrierError(b.id, intent),
         completed_at: new Date().toISOString(),
         cancel_reason: null,
       });
+      if (intent) {
+        clearRestartIntent();
+      }
       cleanedCount += 1;
     }
     const elapsedMs = Date.now() - startedAt;

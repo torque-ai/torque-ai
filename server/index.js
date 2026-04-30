@@ -623,6 +623,23 @@ function spawnRestartSuccessor(serverScript) {
   return child;
 }
 
+function recordRestartProcessExit(event, details = {}) {
+  try {
+    const { writeRestartExitDiagnostic } = require('./execution/restart-handoff');
+    const diagnostic = writeRestartExitDiagnostic({
+      event,
+      ...details,
+      shutdown_state: shutdownState,
+      restart_pending: Boolean(process._torqueRestartPending),
+    });
+    if (diagnostic) {
+      debugLog(`[Restart] Process ${event} diagnostic recorded`);
+    }
+  } catch (err) {
+    debugLog(`[Restart] Failed to record process ${event} diagnostic: ${err.message}`);
+  }
+}
+
 /**
  * Graceful shutdown handler - idempotent, can be called multiple times safely
  * Waits for in-flight requests to complete before closing resources
@@ -2106,6 +2123,8 @@ function main() {
   // Handle shutdown signals - use idempotent handler
   process.on('SIGINT', () => gracefulShutdown('SIGINT'));
   process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+  process.on('beforeExit', (code) => recordRestartProcessExit('beforeExit', { code }));
+  process.on('exit', (code) => recordRestartProcessExit('exit', { code }));
 
   // Global error handlers to prevent silent crashes
   //
