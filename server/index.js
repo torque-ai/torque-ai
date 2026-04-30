@@ -452,6 +452,7 @@ let stdioHeartbeatInterval = null;
 // Track active requests for graceful shutdown
 let activeRequestCount = 0;
 const SHUTDOWN_TIMEOUT_MS = 5000; // Max wait time for in-flight requests
+const RESTART_MIN_NODE_MAJOR = 24;
 
 // Error rate limiting - track recent errors to prevent log flooding
 const errorRateTracker = new Map();
@@ -520,31 +521,93 @@ function startStaleGitStatusCleanup() {
   staleGitStatusCleanupInterval.unref();
 }
 
+function getNodeMajor(executablePath) {
+  try {
+    const versionText = childProcess.execFileSync(executablePath, ['--version'], {
+      encoding: 'utf8',
+      timeout: 5000,
+      windowsHide: true,
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+    const match = /^v(\d+)\./.exec(versionText);
+    return match ? Number.parseInt(match[1], 10) : null;
+  } catch {
+    return null;
+  }
+}
+
+function addNodeCandidate(candidates, candidatePath) {
+  if (!candidatePath || typeof candidatePath !== 'string') return;
+  const normalized = candidatePath.replace(/^"|"$/g, '');
+  if (normalized && !candidates.includes(normalized)) {
+    candidates.push(normalized);
+  }
+}
+
+function findNodeExecutableForRestart() {
+  const candidates = [];
+  addNodeCandidate(candidates, process.env.TORQUE_NODE_EXECUTABLE);
+  addNodeCandidate(candidates, process.env.TORQUE_NODE_PATH);
+
+  if (process.platform === 'win32' && process.env.USERPROFILE) {
+    const localRoot = path.join(process.env.USERPROFILE, '.local');
+    try {
+      const localNodeDirs = fs.readdirSync(localRoot, { withFileTypes: true })
+        .filter((entry) => entry.isDirectory() && /^node-v\d+\.\d+\.\d+-win-x64$/i.test(entry.name))
+        .map((entry) => entry.name)
+        .sort()
+        .reverse();
+      for (const dirName of localNodeDirs) {
+        addNodeCandidate(candidates, path.join(localRoot, dirName, 'node.exe'));
+      }
+    } catch {
+      // No user-local Node install; fall through to process/PATH candidates.
+    }
+  }
+
+  addNodeCandidate(candidates, process.execPath);
+
+  const pathEntries = String(process.env.PATH || '').split(path.delimiter);
+  for (const entry of pathEntries) {
+    if (!entry) continue;
+    addNodeCandidate(candidates, path.join(entry, process.platform === 'win32' ? 'node.exe' : 'node'));
+  }
+
+  for (const candidate of candidates) {
+    if (!fs.existsSync(candidate)) continue;
+    const major = getNodeMajor(candidate);
+    if (major && major >= RESTART_MIN_NODE_MAJOR) {
+      return candidate;
+    }
+  }
+
+  return process.execPath;
+}
+
 function spawnRestartSuccessor(serverScript) {
   const repoRoot = path.resolve(__dirname, '..');
 
   if (process.platform === 'win32') {
-    const helperScript = path.join(repoRoot, 'scripts', 'restart-torque-node24.ps1');
+    const helperScript = path.join(repoRoot, 'scripts', 'restart-torque-successor.js');
     if (fs.existsSync(helperScript)) {
-      const powershell = process.env.SystemRoot
-        ? path.join(process.env.SystemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe')
-        : 'powershell.exe';
-      const helper = childProcess.spawn(powershell, [
-        '-NoProfile',
-        '-ExecutionPolicy', 'Bypass',
-        '-File', helperScript,
-        '-ServerScript', serverScript,
-        '-RepoRoot', repoRoot,
-        '-ParentPid', String(process.pid),
-        '-MinMajor', '24',
+      const nodeExecutable = findNodeExecutableForRestart();
+      const helper = childProcess.spawn(nodeExecutable, [
+        helperScript,
+        '--server-script', serverScript,
+        '--repo-root', repoRoot,
+        '--parent-pid', String(process.pid),
+        '--min-major', String(RESTART_MIN_NODE_MAJOR),
       ], {
         detached: true,
         stdio: 'ignore',
         windowsHide: true,
-        env: process.env,
+        env: {
+          ...process.env,
+          PATH: `${path.dirname(nodeExecutable)}${path.delimiter}${process.env.PATH || ''}`,
+        },
       });
       helper.unref();
-      debugLog(`[Restart] Spawned Windows restart helper (PID ${helper.pid})`);
+      debugLog(`[Restart] Spawned restart helper with ${nodeExecutable} (PID ${helper.pid})`);
       return helper;
     }
   }
