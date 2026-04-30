@@ -42,12 +42,22 @@ function parseVramFactor(value) {
 }
 
 function getDb() {
+  // The container's 'db' service is the database facade (high-level helpers
+  // like getConfig/createTask). It does not expose better-sqlite3's .prepare()
+  // directly; callers that need raw SQL must unwrap via getDbInstance().
+  // Without this unwrap, .prepare() throws TypeError, the handler returns a
+  // plaintext error the v2 dispatch can't JSON.parse, and the dashboard's
+  // concurrency UI silently fails to persist (regression from 8a0430c8).
+  let candidate;
   try {
-    return defaultContainer.get('db');
+    candidate = defaultContainer.get('db');
   } catch {
-    const database = require('../database');
-    return typeof database.getDbInstance === 'function' ? database.getDbInstance() : null;
+    candidate = require('../database');
   }
+  if (candidate && typeof candidate.getDbInstance === 'function') {
+    return candidate.getDbInstance();
+  }
+  return candidate || null;
 }
 
 function getConcurrencyLimits() {
@@ -145,7 +155,7 @@ function setConcurrencyLimit(args = {}) {
     }
 
     try {
-      const db = defaultContainer.get('db');
+      const db = getDb();
       db.prepare("INSERT OR REPLACE INTO config (key, value) VALUES ('vram_overhead_factor', ?)").run(String(parsed.value));
       return response(`Set vram_overhead_factor to ${parsed.value}.`);
     } catch (error) {
@@ -183,7 +193,7 @@ function setConcurrencyLimit(args = {}) {
   if (scope === 'provider') {
     if (!hasMaxConcurrent) return response('max_concurrent is required for provider scope.');
     try {
-      const db = defaultContainer.get('db');
+      const db = getDb();
       const existingProvider = db.prepare('SELECT provider FROM provider_config WHERE provider = ?').get(target);
       if (!existingProvider) {
         return response(`Provider '${target}' not found.`);
