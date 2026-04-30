@@ -520,6 +520,46 @@ function startStaleGitStatusCleanup() {
   staleGitStatusCleanupInterval.unref();
 }
 
+function spawnRestartSuccessor(serverScript) {
+  const repoRoot = path.resolve(__dirname, '..');
+
+  if (process.platform === 'win32') {
+    const helperScript = path.join(repoRoot, 'scripts', 'restart-torque-node24.ps1');
+    if (fs.existsSync(helperScript)) {
+      const powershell = process.env.SystemRoot
+        ? path.join(process.env.SystemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe')
+        : 'powershell.exe';
+      const helper = childProcess.spawn(powershell, [
+        '-NoProfile',
+        '-ExecutionPolicy', 'Bypass',
+        '-File', helperScript,
+        '-ServerScript', serverScript,
+        '-RepoRoot', repoRoot,
+        '-ParentPid', String(process.pid),
+        '-MinMajor', '24',
+      ], {
+        detached: true,
+        stdio: 'ignore',
+        windowsHide: true,
+        env: process.env,
+      });
+      helper.unref();
+      debugLog(`[Restart] Spawned Windows restart helper (PID ${helper.pid})`);
+      return helper;
+    }
+  }
+
+  const child = childProcess.spawn(process.execPath, [serverScript], {
+    detached: true,
+    stdio: 'ignore',
+    windowsHide: true,
+    env: process.env,
+  });
+  child.unref();
+  debugLog(`[Restart] Spawned new server (PID ${child.pid})`);
+  return child;
+}
+
 /**
  * Graceful shutdown handler - idempotent, can be called multiple times safely
  * Waits for in-flight requests to complete before closing resources
@@ -675,7 +715,6 @@ async function gracefulShutdown(signal) {
     // the old one hasn't fully released its ports yet.
     if (process._torqueRestartPending) {
       try {
-        const { spawn: spawnChild } = require('child_process');
         const serverScript = path.resolve(__dirname, 'index.js');
 
         // Wait for the API port to actually close before spawning.
@@ -697,14 +736,7 @@ async function gracefulShutdown(signal) {
           }
         }
 
-        const child = spawnChild(process.execPath, [serverScript], {
-          detached: true,
-          stdio: 'ignore',
-          windowsHide: true,
-          env: process.env,
-        });
-        child.unref();
-        debugLog(`[Restart] Spawned new server (PID ${child.pid})`);
+        spawnRestartSuccessor(serverScript);
       } catch (spawnErr) {
         debugLog(`[Restart] Failed to spawn: ${spawnErr.message}`);
       }
