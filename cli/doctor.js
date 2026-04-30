@@ -49,10 +49,10 @@ function findCliTool(name) {
 function checkNodeVersion() {
   const current = process.version;
   const major = parseInt(current.slice(1), 10);
-  if (major >= 20) {
-    return { status: 'pass', message: `Node.js ${current} (>= 20.0.0 required)` };
+  if (major >= 24) {
+    return { status: 'pass', message: `Node.js ${current} (>= 24.0.0 required)` };
   }
-  return { status: 'fail', message: `Node.js ${current} — version 20+ required` };
+  return { status: 'fail', message: `Node.js ${current} — version 24+ required` };
 }
 
 async function checkServer() {

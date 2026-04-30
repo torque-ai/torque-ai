@@ -3,14 +3,14 @@
 An automated software factory for Claude Code.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Node.js](https://img.shields.io/badge/Node.js-20%2B-green.svg)](https://nodejs.org/)
+[![Node.js](https://img.shields.io/badge/Node.js-24%2B-green.svg)](https://nodejs.org/)
 
 TORQUE turns Claude Code into an autonomous software factory. It discovers what needs building, plans the work, dispatches tasks across local and cloud LLM providers in parallel, verifies quality, auto-remediates failures, and cuts releases — with you as the architect at the control panel.
 
 ## Requirements
 
 - **Claude Code** — Claude is the architect; TORQUE is the factory floor.
-- **Node.js 20+**
+- **Node.js 24+**
 - **At least one execution provider** — Ollama (free, local), Codex CLI, or any supported cloud API key
 
 ## Quick Start

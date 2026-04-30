@@ -152,6 +152,17 @@ function csharpTypeName(node) {
   return '';
 }
 
+function findFirstDescendant(node, type) {
+  if (!node) return null;
+  for (let i = 0; i < node.namedChildCount; i++) {
+    const child = node.namedChild(i);
+    if (child.type === type) return child;
+    const found = findFirstDescendant(child, type);
+    if (found) return found;
+  }
+  return null;
+}
+
 // Capture variable type bindings from a `local_declaration_statement`. The
 // inner `variable_declaration` carries the type (or `var`/`implicit_type`)
 // followed by one or more `variable_declarator` children (name + value).
@@ -178,7 +189,8 @@ function extractCsharpLocalsFromVarDecl(varDeclNode, scopeSymbolIndex) {
     if (!typeName) {
       // implicit `var` — try constructor inference from the value side.
       const value = decl.childForFieldName('value')
-                 || decl.namedChildren.find((c) => c.type === 'object_creation_expression');
+                 || decl.namedChildren.find((c) => c.type === 'object_creation_expression')
+                 || findFirstDescendant(decl, 'object_creation_expression');
       if (value && value.type === 'object_creation_expression') {
         const ctor = value.childForFieldName('type') || value.namedChild(0);
         typeName = csharpTypeName(ctor);

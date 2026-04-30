@@ -56,4 +56,4 @@ Maintainers: add or recategorize providers in `server/providers/registry.js`. Pl
 
 ## Version
 
-TORQUE v2.0.0 — Node.js 20+ — SQLite (better-sqlite3)
+TORQUE v2.0.0 — Node.js 24+ — SQLite (better-sqlite3)

@@ -421,7 +421,7 @@ but represent opportunities for future cleanup sprints.
 
 | File | Line | Description |
 |------|------|-------------|
-| `server/package.json` | 43 | `"node": ">=18.0.0"` engine requirement — root `package.json` requires `>=20.0.0`; mismatch allows running server on Node 18 which may lack `AbortSignal.timeout` |
+| `server/package.json` | 43 | Server and root package engines now require Node 24+; keep package and installer documentation aligned when the runtime floor changes. |
 | `server/vitest.config.js` | 21 | `coverage.include: ['**/*.js']` — overly broad; includes generated files, scripts, and node_modules exclusions must compensate |
 | `server/vitest.config.js` | 29 | Coverage threshold `statements: 68` — below industry standard of 80% |
 | `server/vitest.config.js` | 30 | Coverage threshold `branches: 58` — significantly below industry standard |

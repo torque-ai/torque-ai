@@ -4,7 +4,7 @@
  * Workstation Bootstrap API
  *
  * GET /api/bootstrap/workstation — returns a shell script that:
- * 1. Checks prerequisites (node >= 18)
+ * 1. Checks prerequisites (node >= 24)
  * 2. Creates agent directory with minimal agent-server
  * 3. Generates a shared secret
  * 4. Registers with TORQUE
@@ -91,14 +91,14 @@ echo ""
 # Check Node.js
 if ! command -v node &> /dev/null; then
   echo "ERROR: Node.js is required but not found."
-  echo "Install it: https://nodejs.org/ (v18+)"
+  echo "Install it: https://nodejs.org/ (v24+)"
   exit 1
 fi
 
 NODE_VERSION=$(node -v)
 NODE_MAJOR=$(echo "$NODE_VERSION" | sed 's/v//' | cut -d. -f1)
-if [ "$NODE_MAJOR" -lt 18 ]; then
-  echo "ERROR: Node.js v18+ required, found $NODE_VERSION"
+if [ "$NODE_MAJOR" -lt 24 ]; then
+  echo "ERROR: Node.js v24+ required, found $NODE_VERSION"
   exit 1
 fi
 echo "[ok] Node.js $NODE_VERSION"

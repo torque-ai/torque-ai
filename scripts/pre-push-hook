@@ -456,7 +456,9 @@ dependency_tree_ok() {
   [ -e "\$dir/node_modules/.bin/vitest" ] || [ -e "\$dir/node_modules/vitest/vitest.mjs" ] || return 1
   case "\$dir" in
     server|*/server)
-      [ -d "\$dir/node_modules/better-sqlite3" ] && [ -d "\$dir/node_modules/tree-sitter" ]
+      [ -d "\$dir/node_modules/better-sqlite3" ] && \
+        [ -d "\$dir/node_modules/web-tree-sitter" ] && \
+        [ -d "\$dir/node_modules/tree-sitter-wasms" ]
       ;;
     *)
       return 0
