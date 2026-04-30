@@ -173,6 +173,7 @@ const tools = [
         description: { type: 'string', description: 'New description' },
         priority: { type: 'integer', description: 'New priority (1-100)' },
         status: { type: 'string', enum: ['pending', 'triaged', 'in_progress', 'completed', 'rejected', 'intake', 'prioritized', 'planned', 'executing', 'verifying', 'shipped'], description: 'New status' },
+        reject_reason: { type: ['string', 'null'], description: 'Reject reason. Set null to clear stale rejection context when reopening or shipping an item.' },
         batch_id: { type: 'string', description: 'Link to a TORQUE batch/workflow' },
         linked_item_id: { type: 'integer', description: 'Link to another work item' },
       },

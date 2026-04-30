@@ -163,6 +163,22 @@ describe('factory intake', () => {
     expect(updated.priority).toBe(90);
   });
 
+  test('updateWorkItem clears stale reject_reason when shipping recovered work', () => {
+    const item = factoryIntake.createWorkItem({
+      project_id: project.id,
+      title: 'Ship recovered request',
+    });
+    factoryIntake.rejectWorkItem(item.id, 'baseline moved');
+
+    const shipped = factoryIntake.updateWorkItem(item.id, {
+      status: 'shipped',
+      reject_reason: 'should not survive',
+    });
+
+    expect(shipped.status).toBe('shipped');
+    expect(shipped.reject_reason).toBeNull();
+  });
+
   test('rejectWorkItem sets status to rejected and stores reason', () => {
     const item = factoryIntake.createWorkItem({
       project_id: project.id,
@@ -173,6 +189,22 @@ describe('factory intake', () => {
 
     expect(rejected.status).toBe('rejected');
     expect(rejected.reject_reason).toBe('Already tracked elsewhere');
+  });
+
+  test('handleUpdateWorkItem forwards reject_reason updates', async () => {
+    const item = factoryIntake.createWorkItem({
+      project_id: project.id,
+      title: 'Manual reject context',
+    });
+
+    const response = parseJsonResponse(await handlers.handleUpdateWorkItem({
+      id: item.id,
+      status: 'rejected',
+      reject_reason: 'manual operator decision',
+    }));
+
+    expect(response.item.status).toBe('rejected');
+    expect(response.item.reject_reason).toBe('manual operator decision');
   });
 
   test('findDuplicates detects exact and partial title matches', () => {

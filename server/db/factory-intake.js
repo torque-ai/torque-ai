@@ -24,6 +24,7 @@ const REJECT_REASONS = Object.freeze(new Set([
   'pre_written_plan_rejected_by_quality_gate',
 ]));
 const CLOSED_STATUSES = new Set(['completed', 'rejected', 'shipped', 'shipped_stale', 'unactionable', 'needs_review', 'superseded']);
+const SUCCESS_REJECT_REASON_CLEAR_STATUSES = new Set(['completed', 'shipped', 'shipped_stale']);
 const PRIORITY_LEVELS = Object.freeze({
   low: 30,
   default: 50,
@@ -180,10 +181,17 @@ function listOpenWorkItems({ project_id, limit } = {}) {
 
 function updateWorkItem(id, updates) {
   const allowed = ['title', 'description', 'priority', 'status', 'origin_json', 'constraints_json', 'batch_id', 'reject_reason', 'linked_item_id', 'claimed_by_instance_id'];
+  const normalizedUpdates = { ...(updates || {}) };
+  if (
+    normalizedUpdates.status !== undefined
+    && SUCCESS_REJECT_REASON_CLEAR_STATUSES.has(normalizedUpdates.status)
+  ) {
+    normalizedUpdates.reject_reason = null;
+  }
   const sets = [];
   const params = [];
 
-  for (const [key, value] of Object.entries(updates)) {
+  for (const [key, value] of Object.entries(normalizedUpdates)) {
     if (!allowed.includes(key)) continue;
     if (key === 'status' && !VALID_STATUSES.has(value)) throw new Error(`Invalid status: ${value}`);
     sets.push(`${key} = ?`);

@@ -18,6 +18,7 @@ const NON_PRODUCT_REBASE_CLEANUP_PATTERNS = Object.freeze([
   /^tmp\//i,
   /^docs\/superpowers\/plans\//i,
 ]);
+const GIT_REBASE_TIMEOUT_MS = TASK_TIMEOUTS.GIT_REBASE || TASK_TIMEOUTS.GIT_COMMIT || 60000;
 
 function runGit(worktreePath, args, options = {}) {
   if (!worktreePath || !Array.isArray(args) || args.length === 0) {
@@ -85,6 +86,13 @@ function normalizeRelativePath(filePath) {
     .replace(/\\/g, '/')
     .replace(/^\/+/, '')
     .trim();
+}
+
+function formatGitFailure(result, fallback) {
+  const parts = [result?.stderr, result?.stdout]
+    .map((part) => String(part || '').trim())
+    .filter(Boolean);
+  return parts.join('\n') || fallback;
 }
 
 function normalizePaths(stdout) {
@@ -298,13 +306,17 @@ async function attemptRebase(worktreePath, branch, baseRef) {
     }, cleanupResult);
   }
 
-  const result = await runGit(worktreePath, ['rebase', baseRef]);
+  const result = await runGit(worktreePath, ['rebase', baseRef], {
+    timeout: GIT_REBASE_TIMEOUT_MS,
+  });
   if (result.code === 0) {
     return withCleanupOutcome({ ok: true }, cleanupResult);
   }
 
-  await runGit(worktreePath, ['rebase', '--abort']);
-  const error = (result.stderr || result.stdout || `git rebase exited with code ${result.code}`).trim();
+  await runGit(worktreePath, ['rebase', '--abort'], {
+    timeout: GIT_REBASE_TIMEOUT_MS,
+  });
+  const error = formatGitFailure(result, `git rebase exited with code ${result.code}`);
   return withCleanupOutcome({ ok: false, error }, cleanupResult);
 }
 

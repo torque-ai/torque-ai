@@ -258,6 +258,46 @@ describe('branch-freshness git helpers', () => {
     expect(fs.readFileSync(path.join(repo, 'src', 'master.js'), 'utf8')).toBe('master\n');
   });
 
+  it('allows rebase to run longer than a git status probe', async () => {
+    vi.useFakeTimers();
+    const killSpy = vi.fn();
+    const spawnSpy = vi.spyOn(childProcess, 'spawn').mockImplementation((_cmd, args) => {
+      const child = new EventEmitter();
+      child.stdout = new EventEmitter();
+      child.stderr = new EventEmitter();
+      child.kill = killSpy;
+
+      if (args[0] === 'status') {
+        setTimeout(() => child.emit('close', 0), 0);
+      } else if (args[0] === 'rebase' && args[1] === 'master') {
+        setTimeout(() => {
+          child.stderr.emit('data', Buffer.from('Rebasing (1/1)\n'));
+          child.emit('close', 0);
+        }, 6000);
+      } else {
+        setTimeout(() => child.emit('close', 0), 0);
+      }
+
+      return child;
+    });
+
+    try {
+      const resultPromise = branchFreshness.attemptRebase('C:/repo', 'feature-slow', 'master');
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(6000);
+
+      await expect(resultPromise).resolves.toEqual({ ok: true });
+      expect(killSpy).not.toHaveBeenCalled();
+      expect(spawnSpy).toHaveBeenCalledWith(
+        'git',
+        ['rebase', 'master'],
+        expect.objectContaining({ cwd: 'C:/repo', windowsHide: true }),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('aborts and reports an error when rebase conflicts', async () => {
     const repo = initRepo();
 

@@ -1242,6 +1242,7 @@ async function handleUpdateWorkItem(args) {
   if (args.description !== undefined) updates.description = args.description;
   if (args.priority !== undefined) updates.priority = args.priority;
   if (args.status !== undefined) updates.status = args.status;
+  if (args.reject_reason !== undefined) updates.reject_reason = args.reject_reason;
   if (args.batch_id !== undefined) updates.batch_id = args.batch_id;
   if (args.linked_item_id !== undefined) updates.linked_item_id = args.linked_item_id;
   if (args.constraints !== undefined) updates.constraints_json = args.constraints;
