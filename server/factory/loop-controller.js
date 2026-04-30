@@ -7516,10 +7516,72 @@ function countConsecutiveAutoCommitSkippedClean(project_id, batch_id, { limit = 
   return consecutiveClean;
 }
 
+/**
+ * Check whether this batch has already produced at least one real commit
+ * (auto_committed_task decision). Used by the zero-diff short-circuit to
+ * distinguish "work item is unactionable" (no diff was ever produced) from
+ * "work item already shipped its diff and subsequent retries are no-ops"
+ * (multi-task plan where the first task covered the goal, or a verify-
+ * retry that found nothing more to fix).
+ *
+ * Live evidence 2026-04-29: DLPhone work item #2097's first EXECUTE
+ * attempt landed commit 507350f at 22:47:48 (qwen3-coder:30b wrote a
+ * real C# test). Two follow-up retries at 22:51:36 and 22:51:47 no-opped
+ * because the work was already done, then the zero-diff short-circuit
+ * rejected the work item — even though the code had landed cleanly. The
+ * factory's bookkeeping treated "retries had no diff" as failure when
+ * the truth was "first attempt succeeded so well there was nothing left
+ * for retries to do."
+ */
+function batchHasAutoCommittedTask(project_id, batch_id, { limit = 50 } = {}) {
+  if (!project_id || !batch_id) return false;
+  const recent = factoryDecisions.listDecisions(project_id, {
+    stage: LOOP_STATES.EXECUTE.toLowerCase(),
+    limit,
+  }) || [];
+  return recent.some((d) => d.batch_id === batch_id && d.action === 'auto_committed_task');
+}
+
 function maybeShortCircuitZeroDiffExecute({ project, instance, workItem, batchId }) {
   if (!project?.id || !workItem?.id || !batchId) return null;
   const zeroDiffAttempts = countConsecutiveAutoCommitSkippedClean(project.id, batchId);
   if (zeroDiffAttempts < ZERO_DIFF_SHORT_CIRCUIT_THRESHOLD) return null;
+
+  // Phase E (2026-04-29 DLPhone #2097 fix): if the batch already produced a
+  // real commit earlier, the no-op retries are benign — the work landed on
+  // an earlier attempt and subsequent plan tasks or verify-retries had
+  // nothing more to do. Don't reject; signal "EXECUTE done, advance to
+  // VERIFY" so the test that was just written gets validated.
+  if (batchHasAutoCommittedTask(project.id, batchId)) {
+    safeLogDecision({
+      project_id: project.id,
+      stage: LOOP_STATES.EXECUTE,
+      action: 'execute_completed_after_no_op_retries',
+      reasoning: `Batch produced a real commit earlier (auto_committed_task); ${zeroDiffAttempts} subsequent no-op retries are benign. Advancing to VERIFY instead of rejecting the work item.`,
+      inputs: {
+        ...getWorkItemDecisionContext(workItem),
+        zero_diff_attempts: zeroDiffAttempts,
+      },
+      outcome: {
+        work_item_id: workItem.id,
+        instance_id: instance?.id || null,
+        zero_diff_attempts: zeroDiffAttempts,
+        next_state: LOOP_STATES.VERIFY,
+      },
+      confidence: 1,
+      batch_id: batchId,
+    });
+    return {
+      reason: 'execute_completed_after_no_op_retries',
+      work_item: workItem,
+      advance_to_verify: true,
+      stage_result: {
+        status: 'completed',
+        reason: 'execute_completed_after_no_op_retries',
+        zero_diff_attempts: zeroDiffAttempts,
+      },
+    };
+  }
 
   let updatedWorkItem = workItem;
   try {
@@ -9619,6 +9681,20 @@ async function runAdvanceLoop(instance_id) {
         batchId: instance.batch_id || targetItem.batch_id || getFactorySubmissionBatchId(project, targetItem, instance),
       });
       if (preExecuteZeroDiff) {
+        // Phase E: when the batch already produced a real commit, the
+        // short-circuit signals "advance to VERIFY" instead of rejecting.
+        // The work item stays alive; verify runs on the existing diff.
+        if (preExecuteZeroDiff.advance_to_verify) {
+          return {
+            project_id: project.id,
+            instance_id,
+            previous_state: previousState,
+            new_state: LOOP_STATES.VERIFY,
+            paused_at_stage: null,
+            stage_result: preExecuteZeroDiff.stage_result,
+            reason: preExecuteZeroDiff.reason,
+          };
+        }
         const lastActionAt = instance.last_action_at || null;
         terminateInstanceAndSync(instance.id);
         recordFactoryIdleIfExhausted(project.id, {
@@ -9776,6 +9852,20 @@ async function runAdvanceLoop(instance_id) {
           batchId: zdBatchId,
         });
         if (zeroDiff) {
+          // Phase E: prior auto_committed_task means the diff already
+          // landed; advance to VERIFY to validate the existing commit
+          // instead of treating no-op retries as failure.
+          if (zeroDiff.advance_to_verify) {
+            return {
+              project_id: project.id,
+              instance_id,
+              previous_state: previousState,
+              new_state: LOOP_STATES.VERIFY,
+              paused_at_stage: null,
+              stage_result: zeroDiff.stage_result,
+              reason: zeroDiff.reason,
+            };
+          }
           const lastActionAtZd = instance.last_action_at || null;
           terminateInstanceAndSync(instance.id);
           recordFactoryIdleIfExhausted(project.id, {
