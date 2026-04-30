@@ -422,8 +422,19 @@ SETUP_FAILED_PHASE=""
 ensure_node_modules() {
   phase="\$1"
   dir="\$2"
-  if [ -f "\$dir/package.json" ] && [ ! -d "\$dir/node_modules" ]; then
-    echo "[\$phase] [setup] installing \$dir dependencies"
+  if [ ! -f "\$dir/package.json" ]; then
+    return 0
+  fi
+
+  install_reason=""
+  if [ ! -d "\$dir/node_modules" ]; then
+    install_reason="missing node_modules"
+  elif ! (cd "\$dir" && npm ls --depth=0 >/dev/null 2>&1); then
+    install_reason="invalid dependency tree"
+  fi
+
+  if [ -n "\$install_reason" ]; then
+    echo "[\$phase] [setup] installing \$dir dependencies (\$install_reason)"
     (cd "\$dir" && npm install --silent --no-audit --no-fund --prefer-offline) 2>&1 | sed -u "s/^/[\$phase] [setup] /"
   fi
 }

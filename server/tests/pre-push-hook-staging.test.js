@@ -78,6 +78,8 @@ describe('pre-push-hook staging-branch invariants', () => {
     expect(src).toMatch(/ensure_node_modules dash dashboard/);
     expect(src).toMatch(/ensure_node_modules serv server/);
     expect(src).toMatch(/\[\\\$phase\] \[setup\]/);
+    expect(src).toMatch(/npm ls --depth=0/);
+    expect(src).toMatch(/invalid dependency tree/);
     expect(src).toMatch(/npm install --silent --no-audit --no-fund --prefer-offline/);
   });
 
