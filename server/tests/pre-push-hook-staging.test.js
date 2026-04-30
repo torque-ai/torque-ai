@@ -64,8 +64,8 @@ describe('pre-push-hook staging-branch invariants', () => {
     // sync), so the --branch invocation appears once but the remote script
     // must reference dashboard, server, and perf commands.
     expect(src).toMatch(/run_with_flake_retry "Remote gate" "\$TORQUE_REMOTE_CMD --suite \$GATE_COORD_SUITE --branch \$staging_branch/);
-    expect(src).toMatch(/cd\s+dashboard\s+&&\s+npx\s+vitest\s+run/);
-    expect(src).toMatch(/cd\s+server\s+&&\s+npx\s+vitest\s+run/);
+    expect(src).toMatch(/cd\s+dashboard\s+&&\s+vitest\s+run/);
+    expect(src).toMatch(/cd\s+server\s+&&\s+vitest\s+run/);
     expect(src).toMatch(/cd\s+server\s+&&\s+node\s+perf\/run-perf\.js/);
   });
 
@@ -80,7 +80,13 @@ describe('pre-push-hook staging-branch invariants', () => {
     expect(src).toMatch(/\[\\\$phase\] \[setup\]/);
     expect(src).toMatch(/npm ls --depth=0/);
     expect(src).toMatch(/invalid dependency tree/);
-    expect(src).toMatch(/npm install --silent --no-audit --no-fund --prefer-offline/);
+    expect(src).toMatch(/reuse_base_node_modules\s*\(\)/);
+    expect(src).toMatch(/TORQUE_REMOTE_BASE_PROJECT_PATH/);
+    expect(src).toMatch(/mklink \/J/);
+    expect(src).toMatch(/using \\\$dir dependencies from base checkout/);
+    expect(src).toMatch(/npm install --no-audit --no-fund --prefer-offline/);
+    expect(src).toMatch(/cd\s+dashboard\s+&&\s+vitest\s+run/);
+    expect(src).toMatch(/cd\s+server\s+&&\s+vitest\s+run/);
   });
 
   it('passes a plan-specific gate suite to torque-remote so coord serializes and caches correctly', () => {
@@ -201,6 +207,8 @@ describe('torque-remote staging branch validation', () => {
     expect(src).toMatch(/\^\[a-zA-Z0-9_\.-\]\+\$/);
     expect(src).toMatch(/REMOTE_TEST_WORKTREE_SUFFIX="\$TORQUE_REMOTE_TEST_WORKTREE_SUFFIX"/);
     expect(src).toMatch(/EFFECTIVE_REMOTE_PROJECT_PATH="\$\{EFFECTIVE_REMOTE_PROJECT_PATH\}\$\{REMOTE_TEST_WORKTREE_SUFFIX\}"/);
+    expect(src).toMatch(/TORQUE_REMOTE_BASE_PROJECT_PATH=\$\(shell_quote "\$REMOTE_PROJECT_PATH"\)/);
+    expect(src).toMatch(/export TORQUE_REMOTE_BASE_PROJECT_PATH/);
   });
 });
 

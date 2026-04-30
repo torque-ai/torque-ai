@@ -1194,6 +1194,8 @@ case "$TRANSPORT" in
     REMOTE_RUN_BODY=$(cat <<EOF
 # torque-remote-inline-run
 PROJECT_PATH=$(shell_quote "$EFFECTIVE_REMOTE_PROJECT_PATH")
+TORQUE_REMOTE_BASE_PROJECT_PATH=$(shell_quote "$REMOTE_PROJECT_PATH")
+export TORQUE_REMOTE_BASE_PROJECT_PATH
 SYNC_REF=$(shell_quote "$SYNC_REF")
 EXPECTED_SYNC_SHA=$(shell_quote "$EXPECTED_SYNC_SHA")
 BUNDLE_DIR="\$(cd "\$(dirname "\$0")" && pwd)"
