@@ -1,5 +1,7 @@
 # TORQUE - Threaded Orchestration Router for Queued Unit Execution
 
+> **HARD-STOP RULE — NEVER edit `torque-public` main directly.** All work — features, fixes, docs, config, one-line typos — goes through a feature worktree. A `PreToolUse` hook (`.claude/hooks/block-main-edit.js`) blocks `Edit`/`Write`/`NotebookEdit` when CWD's git common-dir equals its git-dir on the `torque-public` repo. To start work: `scripts/worktree-create.sh <feature-name>` and open `.worktrees/feat-<name>/` in Claude Code. Emergency hotfix override: `TORQUE_ALLOW_MAIN_EDIT=1` in env. See "Version Control — Worktree Workflow" for the full lifecycle.
+
 ## Setup
 
 TORQUE requires two things to work in Claude Code:
