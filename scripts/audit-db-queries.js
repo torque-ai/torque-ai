@@ -92,10 +92,21 @@ function extractIndexColumns(schemaText) {
 /**
  * Extract column names from a SQL WHERE clause string.
  * Returns string[] of column names (lowercased, without table prefix).
+ *
+ * The word-operator alternations (IN, LIKE, IS) require explicit \b
+ * boundaries — without them, the regex engine matches `IN` *inside*
+ * adjacent words and the column-capture group lands on a prefix.
+ * Canonical example: `WHERE t.status IN ('pending', 'queued')` parsed
+ * as columns `[status, pend]` because `pendIN` matched as
+ * column=`pend` operator=`IN` against the substring at position 5 of
+ * `pending`. Every IN/LIKE/IS clause containing a string literal with
+ * those bigrams produced a phantom column whose name was a fragment
+ * of the literal. SQLite operators that aren't word-like
+ * (=, !=, <, >, etc.) don't have this issue.
  */
 function extractWhereColumns(whereClause) {
   const cols = [];
-  const re = /(?:\w+\.)?(\w+)\s*(?:=|!=|<>|<|>|<=|>=|IN|LIKE|IS)\s*/gi;
+  const re = /(?:\w+\.)?(\w+)\s*(?:=|!=|<>|<=|>=|<|>|\bIN\b|\bLIKE\b|\bIS\b)\s*/gi;
   let m;
   while ((m = re.exec(whereClause)) !== null) {
     const col = m[1].toLowerCase();
