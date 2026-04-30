@@ -237,4 +237,37 @@ describe('scripts/audit-db-queries', () => {
       expect(cols.sort()).toEqual(['_internal_id', 'col2']);
     });
   });
+
+  describe('checkViolations coverage semantics', () => {
+    it('treats a multi-column WHERE as covered when ANY column has an index', () => {
+      // SQLite uses the indexed column to drive the seek and filters the
+      // remaining columns in memory. Reporting these as "full scan
+      // candidates" was wrong — old logic flagged them whenever any
+      // single column was uncovered.
+      const findings = [
+        { file: 'a.js', line: 1, table: 'distributed_locks', cols: ['lock_name', 'holder_id'], sql: 'WHERE lock_name = ? AND holder_id = ?' },
+      ];
+      const idxMap = new Map([['distributed_locks', [['lock_name']]]]);
+      const viols = audit.checkViolations(findings, idxMap);
+      expect(viols).toEqual([]);
+    });
+
+    it('still flags queries where NO column is indexed', () => {
+      const findings = [
+        { file: 'a.js', line: 1, table: 'tasks', cols: ['col_a', 'col_b'], sql: 'WHERE col_a = ? AND col_b = ?' },
+      ];
+      const idxMap = new Map([['tasks', [['id']]]]);
+      const viols = audit.checkViolations(findings, idxMap);
+      expect(viols).toHaveLength(1);
+    });
+
+    it('handles a single uncovered column the same as before', () => {
+      const findings = [
+        { file: 'a.js', line: 1, table: 'tasks', cols: ['unindexed_col'], sql: 'WHERE unindexed_col = ?' },
+      ];
+      const idxMap = new Map([['tasks', [['id']]]]);
+      const viols = audit.checkViolations(findings, idxMap);
+      expect(viols).toHaveLength(1);
+    });
+  });
 });

@@ -222,12 +222,27 @@ const SYSTEM_TABLES = new Set([
 
 /**
  * Filter findings to only those with uncovered WHERE columns.
+ *
+ * Coverage semantics: a query is a full-scan candidate only if NONE of
+ * its WHERE columns is covered by any index/PK on the table. The prior
+ * `cols.some(c => !isCovered(c))` rule flagged any query whose WHERE
+ * mentioned even one non-indexed column — but SQLite's planner happily
+ * uses the indexed column for the seek and filters the rest in memory.
+ *
+ * Concrete example that the old logic mis-flagged:
+ *   `WHERE lock_name = ? AND holder_id = ?`
+ * on a table where `lock_name` is the PRIMARY KEY. The PK index drives
+ * the seek; `holder_id` is filtered post-seek. That's not a full scan.
+ *
+ * Under the new rule a query is reported only when no WHERE column has
+ * any usable index — which is what "potential full scan" actually
+ * means.
  */
 function checkViolations(findings, indexMap) {
   return findings.filter(({ table, cols }) => {
     if (cols.length === 0) return false;
     if (SYSTEM_TABLES.has(table)) return false;
-    return cols.some((col) => !isCovered(col, indexMap.get(table)));
+    return !cols.some((col) => isCovered(col, indexMap.get(table)));
   });
 }
 
