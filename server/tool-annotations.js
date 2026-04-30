@@ -138,6 +138,8 @@ const OVERRIDES = Object.freeze({
   get_recovery_history:            Object.freeze({ readOnlyHint: true,  destructiveHint: false, idempotentHint: true,  openWorldHint: false }),
   clear_auto_recovery:             Object.freeze({ readOnlyHint: false, destructiveHint: false, idempotentHint: true,  openWorldHint: false }),
   trigger_auto_recovery:           Object.freeze({ readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }),
+  revive_recovery_item:            Object.freeze({ readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }),
+  dismiss_recovery_item:           Object.freeze({ readOnlyHint: false, destructiveHint: true,  idempotentHint: true,  openWorldHint: false }),
   factory_loop_status:             Object.freeze({ readOnlyHint: true,  destructiveHint: false, idempotentHint: true,  openWorldHint: false }),
   list_factory_loop_instances:     Object.freeze({ readOnlyHint: true,  destructiveHint: false, idempotentHint: true,  openWorldHint: false }),
   factory_loop_instance_status:    Object.freeze({ readOnlyHint: true,  destructiveHint: false, idempotentHint: true,  openWorldHint: false }),

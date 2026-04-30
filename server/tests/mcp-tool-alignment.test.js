@@ -53,6 +53,7 @@ const RAW_THROW_FILE_EXEMPTIONS = new Set([
   'review-handler.js',
   'factory-handlers.js',
   'task/core.js',
+  'recovery-inbox-handlers.js',
 ]);
 
 function walkJsFiles(dirPath) {
