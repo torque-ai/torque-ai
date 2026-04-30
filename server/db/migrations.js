@@ -1133,6 +1133,43 @@ const MIGRATIONS = [
     },
     // No down — column drops on SQLite require table rebuild; not worth it for an additive migration.
   },
+  {
+    version: 52,
+    name: 'add_misc_cleanup_prune_indexes',
+    // Two small cleanup-query indexes on growing tables. Both
+    // periodically prune by timestamp; without an index, each prune
+    // walks the full retention window of rows.
+    //   - task_cache.created_at: project-cache.js#purgeOlderThan
+    //   - task_file_writes.written_at: resource-health.js prune sweep
+    //
+    // The audit also flags token_usage with `WHERE provider IS NOT NULL`,
+    // but that's a dead branch — token_usage has no `provider` column;
+    // the query in provider-routing-core.js is wrapped in try/catch
+    // with a "may not have provider column" comment, so the SELECT
+    // always throws and falls through. No index needed; the audit
+    // false-positive there reflects a schema/code mismatch worth
+    // cleaning up separately.
+    up: function(sqliteDb) {
+      // Tolerate minimal-schema test fixtures. Same pattern as v37 / v39+.
+      const hasTable = (name) => sqliteDb.prepare(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?"
+      ).get(name);
+      if (hasTable('task_cache')) {
+        sqliteDb.prepare(
+          'CREATE INDEX IF NOT EXISTS idx_task_cache_created_at ON task_cache(created_at)'
+        ).run();
+      }
+      if (hasTable('task_file_writes')) {
+        sqliteDb.prepare(
+          'CREATE INDEX IF NOT EXISTS idx_task_file_writes_written_at ON task_file_writes(written_at)'
+        ).run();
+      }
+    },
+    down: [
+      'DROP INDEX IF EXISTS idx_task_cache_created_at',
+      'DROP INDEX IF EXISTS idx_task_file_writes_written_at',
+    ].join('; '),
+  },
 ];
 
 function ensureMigrationTable(sqliteDb) {
