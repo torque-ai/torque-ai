@@ -2,12 +2,16 @@
 
 const { setupTestDbOnly, teardownTestDb, rawDb } = require('./vitest-setup');
 
-function seedPausedBaselineProject(db, { probeAttempts = 0, tickCountSincePause = 1 } = {}) {
+function seedPausedBaselineProject(db, { probeAttempts = 0, tickCountSincePause = 1, workItemId = null } = {}) {
   const cfg = {
     loop: { auto_continue: true },
     baseline_broken_since: new Date(Date.now() - 10 * 60 * 1000).toISOString(),
     baseline_broken_reason: 'verify_failed_baseline_unrelated',
-    baseline_broken_evidence: { failing_tests: ['tests/foo.py'], exit_code: 1 },
+    baseline_broken_evidence: {
+      failing_tests: ['tests/foo.py'],
+      exit_code: 1,
+      work_item_id: workItemId,
+    },
     baseline_broken_probe_attempts: probeAttempts,
     baseline_broken_tick_count: tickCountSincePause,
   };
@@ -17,6 +21,24 @@ function seedPausedBaselineProject(db, { probeAttempts = 0, tickCountSincePause 
      VALUES (?, 'ProbeTest', '/tmp/probe', 'dark', 'paused', ?, datetime('now'), datetime('now'))`
   ).run(projectId, JSON.stringify(cfg));
   return projectId;
+}
+
+function insertRejectedBaselineWorkItem(db, projectId, { reason = 'verify_failed_baseline_unrelated' } = {}) {
+  const info = db.prepare(`
+    INSERT INTO factory_work_items (
+      project_id,
+      source,
+      title,
+      description,
+      priority,
+      status,
+      reject_reason,
+      created_at,
+      updated_at
+    )
+    VALUES (?, 'scout', 'Retry baseline-blocked feature', 'Feature was blocked by baseline failure.', 71, 'rejected', ?, datetime('now'), datetime('now'))
+  `).run(projectId, reason);
+  return Number(info.lastInsertRowid);
 }
 
 describe('factory-tick baseline probe phase', () => {
@@ -70,6 +92,45 @@ describe('factory-tick baseline probe phase', () => {
     const cfg = JSON.parse(updated.config_json);
     expect(cfg.baseline_broken_since).toBeTruthy();
     expect(cfg.baseline_broken_probe_attempts).toBe(1);
+  });
+
+  it('requeues the rejected work item when automatic baseline probe clears', async () => {
+    const factoryTick = require('../factory/factory-tick');
+    const baselineProbe = require('../factory/baseline-probe');
+
+    const projectId = seedPausedBaselineProject(db, { probeAttempts: 0, tickCountSincePause: 1 });
+    const workItemId = insertRejectedBaselineWorkItem(db, projectId);
+    const row = db.prepare('SELECT config_json FROM factory_projects WHERE id = ?').get(projectId);
+    const cfg = JSON.parse(row.config_json);
+    cfg.baseline_broken_evidence.work_item_id = workItemId;
+    db.prepare('UPDATE factory_projects SET config_json = ? WHERE id = ?').run(JSON.stringify(cfg), projectId);
+
+    vi.spyOn(baselineProbe, 'probeProjectBaseline').mockResolvedValue({
+      passed: true, exitCode: 0, output: 'all green', durationMs: 5000, error: null,
+    });
+
+    const project = db.prepare('SELECT * FROM factory_projects WHERE id = ?').get(projectId);
+    await factoryTick.tickProject(project);
+
+    const item = db.prepare('SELECT status, reject_reason, claimed_by_instance_id FROM factory_work_items WHERE id = ?').get(workItemId);
+    expect(item).toMatchObject({
+      status: 'pending',
+      reject_reason: null,
+      claimed_by_instance_id: null,
+    });
+    const decision = db.prepare(`
+      SELECT action, outcome_json
+      FROM factory_decisions
+      WHERE project_id = ? AND action = 'baseline_blocked_work_item_requeued'
+    `).get(projectId);
+    expect(decision).toBeTruthy();
+    expect(JSON.parse(decision.outcome_json)).toMatchObject({
+      trigger: 'baseline_probe_passed',
+      work_item_id: workItemId,
+      previous_status: 'rejected',
+      previous_reject_reason: 'verify_failed_baseline_unrelated',
+      status: 'pending',
+    });
   });
 
   it('uses project-configured baseline probe timeout when automatic probing runs', async () => {
@@ -183,6 +244,11 @@ describe('handleResumeProjectBaselineFixed', () => {
 
   it('clears flag and resumes when probe passes', async () => {
     const projectId = seedPausedBaselineProject(db, { probeAttempts: 0 });
+    const workItemId = insertRejectedBaselineWorkItem(db, projectId);
+    const row = db.prepare('SELECT config_json FROM factory_projects WHERE id = ?').get(projectId);
+    const baselineCfg = JSON.parse(row.config_json);
+    baselineCfg.baseline_broken_evidence.work_item_id = workItemId;
+    db.prepare('UPDATE factory_projects SET config_json = ? WHERE id = ?').run(JSON.stringify(baselineCfg), projectId);
     const projectConfigCore = require('../db/project-config-core');
     vi.spyOn(projectConfigCore, 'getProjectDefaults').mockReturnValue({ verify_command: 'npm test' });
     const baselineProbe = require('../factory/baseline-probe');
@@ -206,11 +272,22 @@ describe('handleResumeProjectBaselineFixed', () => {
     const statusAfterRun = await handleBaselineResumeJobStatus({ project: projectId, job_id: job.job_id });
     expect(statusAfterRun.structuredData.status).toBe('completed');
     expect(statusAfterRun.structuredData.project_resumed).toBe(true);
+    expect(statusAfterRun.structuredData.requeued_work_item).toMatchObject({
+      work_item_id: workItemId,
+      previous_status: 'rejected',
+      previous_reject_reason: 'verify_failed_baseline_unrelated',
+      status: 'pending',
+    });
     expect(probeSpy).toHaveBeenCalledWith(expect.objectContaining({ timeoutMs: 75 * 60 * 1000 }));
     const updated = db.prepare('SELECT status, config_json FROM factory_projects WHERE id = ?').get(projectId);
     expect(updated.status).toBe('running');
-    const cfg = JSON.parse(updated.config_json);
-    expect(cfg.baseline_broken_since).toBeNull();
+    const updatedCfg = JSON.parse(updated.config_json);
+    expect(updatedCfg.baseline_broken_since).toBeNull();
+    const item = db.prepare('SELECT status, reject_reason FROM factory_work_items WHERE id = ?').get(workItemId);
+    expect(item).toMatchObject({
+      status: 'pending',
+      reject_reason: null,
+    });
   });
 
   it('kicks immediate starvation recovery when a baseline-fixed project is STARVED', async () => {

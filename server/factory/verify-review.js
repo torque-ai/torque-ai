@@ -801,8 +801,8 @@ async function reviewVerifyFailure({
     // routes this through the same handler as `baseline_broken` — reject
     // the work item, pause the project, then the baseline-probe re-runs
     // verify on main to confirm. If main is also broken, the project
-    // stays paused (correct). If main passes, the project resumes; the
-    // rejection stands until an operator re-creates the work item.
+    // stays paused (correct). If main passes, the project resumes and the
+    // baseline-clear path requeues the blocked work item.
     const sharedInfraFiles = modifiedFilesTouchingSharedInfra(modifiedFiles);
     const sharedInfraTouched = sharedInfraFiles.length > 0;
     const deterministicBaselineLikely = (

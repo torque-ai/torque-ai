@@ -30,6 +30,7 @@ const { createWorktreeRunner, detectDefaultBranch } = require('./worktree-runner
 const { buildProviderLaneTaskMetadata } = require('./provider-lane-policy');
 const { createWorktreeManager } = require('../plugins/version-control/worktree-manager');
 const eventBus = require('../event-bus');
+const baselineRequeue = require('./baseline-requeue');
 const logger = require('../logger').child({ component: 'loop-controller' });
 
 const PLAN_GENERATOR_LABEL = 'auto-router';
@@ -8784,8 +8785,10 @@ async function executeVerifyStage(project_id, batch_id, instance = null) {
           if (review && (review.classification === 'baseline_broken'
                          || review.classification === 'baseline_likely'
                          || review.classification === 'environment_failure')) {
+            let blockedWorkItem = null;
             if (instance?.work_item_id) {
               try {
+                blockedWorkItem = factoryIntake.getWorkItem(instance.work_item_id);
                 factoryIntake.updateWorkItem(instance.work_item_id, {
                   status: 'rejected',
                   reject_reason: review.suggestedRejectReason,
@@ -8799,6 +8802,7 @@ async function executeVerifyStage(project_id, batch_id, instance = null) {
               cfg.baseline_broken_since = new Date().toISOString();
               cfg.baseline_broken_reason = review.suggestedRejectReason;
               cfg.baseline_broken_evidence = {
+                ...baselineRequeue.captureBlockedWorkItemEvidence(blockedWorkItem),
                 failing_tests: review.failingTests,
                 exit_code: res.exitCode,
                 environment_signals: review.environmentSignals,
