@@ -975,6 +975,27 @@ const MIGRATIONS = [
     },
     down: 'DROP INDEX IF EXISTS idx_distributed_locks_expires_at',
   },
+  {
+    version: 45,
+    name: 'add_adversarial_reviews_review_task_id_index',
+    // server/db/adversarial-reviews.js#getReviewByReviewTaskId runs
+    // `SELECT * FROM adversarial_reviews WHERE review_task_id = ?`
+    // — a single-row foreign-key lookup invoked from the close-handler
+    // pipeline whenever a review task completes. The table already had
+    // task_id and verdict indexes but nothing on review_task_id, so
+    // each lookup walked the whole adversarial-reviews history.
+    up: function(sqliteDb) {
+      // Tolerate minimal-schema test fixtures. Same pattern as v37 / v39+.
+      const tableExists = sqliteDb.prepare(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='adversarial_reviews'"
+      ).get();
+      if (!tableExists) return;
+      sqliteDb.prepare(
+        'CREATE INDEX IF NOT EXISTS idx_adversarial_reviews_review_task ON adversarial_reviews(review_task_id)'
+      ).run();
+    },
+    down: 'DROP INDEX IF EXISTS idx_adversarial_reviews_review_task',
+  },
 ];
 
 function ensureMigrationTable(sqliteDb) {
