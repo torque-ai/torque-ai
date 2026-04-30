@@ -420,7 +420,7 @@ SETUP_EXIT=0
 SETUP_FAILED_PHASE=""
 
 remote_path_to_unix() {
-  path="\$1"
+  local path="\$1"
   if command -v cygpath >/dev/null 2>&1; then
     cygpath -u "\$path" 2>/dev/null || printf '%s\n' "\$path"
   else
@@ -429,7 +429,7 @@ remote_path_to_unix() {
 }
 
 remote_path_to_windows() {
-  path="\$1"
+  local path="\$1"
   if command -v cygpath >/dev/null 2>&1; then
     cygpath -w "\$path" 2>/dev/null || printf '%s\n' "\$path"
   else
@@ -438,7 +438,7 @@ remote_path_to_windows() {
 }
 
 prepend_node_modules() {
-  modules_dir="\$1"
+  local modules_dir="\$1"
   export PATH="\$modules_dir/.bin:\$PATH"
   if [ -n "\${NODE_PATH:-}" ]; then
     export NODE_PATH="\$modules_dir:\$NODE_PATH"
@@ -448,7 +448,7 @@ prepend_node_modules() {
 }
 
 dependency_tree_ok() {
-  dir="\$1"
+  local dir="\$1"
   [ -d "\$dir/node_modules" ] || return 1
   [ -e "\$dir/node_modules/.bin/vitest" ] || [ -e "\$dir/node_modules/vitest/vitest.mjs" ] || return 1
   case "\$dir" in
@@ -462,9 +462,10 @@ dependency_tree_ok() {
 }
 
 reuse_base_node_modules() {
-  phase="\$1"
-  dir="\$2"
-  base_project_path="\${TORQUE_REMOTE_BASE_PROJECT_PATH:-}"
+  local phase="\$1"
+  local dir="\$2"
+  local base_project_path="\${TORQUE_REMOTE_BASE_PROJECT_PATH:-}"
+  local base_project_dir current_project_dir base_dir base_modules stale_dir target_win base_win
   if [ -z "\$base_project_path" ]; then
     return 1
   fi
@@ -508,8 +509,9 @@ reuse_base_node_modules() {
 }
 
 ensure_node_modules() {
-  phase="\$1"
-  dir="\$2"
+  local phase="\$1"
+  local dir="\$2"
+  local install_reason
   if [ ! -f "\$dir/package.json" ]; then
     return 0
   fi

@@ -75,6 +75,10 @@ describe('pre-push-hook staging-branch invariants', () => {
     expect(src).toMatch(/TORQUE_REMOTE_TEST_WORKTREE_SUFFIX="\$remote_gate_worktree_suffix"/);
     expect(src).toMatch(/PRE_PUSH_REMOTE_GATE_WORKTREE_SUFFIX contains unsafe characters/);
     expect(src).toMatch(/ensure_node_modules\s*\(\)/);
+    expect(src).toMatch(/local phase="\\\$1"/);
+    expect(src).toMatch(/local dir="\\\$2"/);
+    expect(src).toMatch(/local dir="\\\$1"/);
+    expect(src).toMatch(/local modules_dir="\\\$1"/);
     expect(src).toMatch(/ensure_node_modules dash dashboard/);
     expect(src).toMatch(/ensure_node_modules serv server/);
     expect(src).toMatch(/\[\\\$phase\] \[setup\]/);
