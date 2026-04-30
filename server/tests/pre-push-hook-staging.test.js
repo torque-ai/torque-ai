@@ -82,6 +82,8 @@ describe('pre-push-hook staging-branch invariants', () => {
     expect(src).toMatch(/ensure_node_modules dash dashboard/);
     expect(src).toMatch(/ensure_node_modules serv server/);
     expect(src).toMatch(/\[\\\$phase\] \[setup\]/);
+    expect(src).toContain('timeout ${PHASE_TIMEOUT_SECS} bash -c');
+    expect(src).not.toContain('timeout ${PHASE_TIMEOUT_SECS} bash -lc');
     expect(src).toMatch(/dependency_tree_ok\s*\(\)/);
     expect(src).toMatch(/better-sqlite3/);
     expect(src).toMatch(/tree-sitter/);

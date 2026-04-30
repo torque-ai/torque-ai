@@ -578,7 +578,7 @@ fi
 
 if [ "$GATE_RUN_DASHBOARD" = "1" ]; then
   {
-    timeout ${PHASE_TIMEOUT_SECS} bash -lc "cd dashboard && vitest run --reporter=dot ${GATE_DASHBOARD_TEST_ARGS}"
+    timeout ${PHASE_TIMEOUT_SECS} bash -c "cd dashboard && vitest run --reporter=dot ${GATE_DASHBOARD_TEST_ARGS}"
     echo \$? > "\$DASH_EXIT_FILE"
   } 2>&1 | sed -u "s/^/[dash] /" &
   DASH_PID=\$!
@@ -589,7 +589,7 @@ fi
 
 if [ "$GATE_RUN_SERVER" = "1" ]; then
   {
-    timeout ${PHASE_TIMEOUT_SECS} bash -lc "cd server && vitest run --reporter=dot ${GATE_SERVER_TEST_ARGS}"
+    timeout ${PHASE_TIMEOUT_SECS} bash -c "cd server && vitest run --reporter=dot ${GATE_SERVER_TEST_ARGS}"
     echo \$? > "\$SERV_EXIT_FILE"
   } 2>&1 | sed -u "s/^/[serv] /" &
   SERV_PID=\$!
@@ -605,7 +605,7 @@ SERV_EXIT=\$(cat "\$SERV_EXIT_FILE" 2>/dev/null || echo "1")
 
 if [ "\$DASH_EXIT" -eq 0 ] && [ "\$SERV_EXIT" -eq 0 ] && [ "$GATE_RUN_PERF" = "1" ]; then
   {
-    timeout ${PHASE_TIMEOUT_SECS} bash -lc "cd server && node perf/run-perf.js"
+    timeout ${PHASE_TIMEOUT_SECS} bash -c "cd server && node perf/run-perf.js"
     echo \$? > "\$PERF_EXIT_FILE"
   } 2>&1 | sed -u "s/^/[perf] /"
 else
