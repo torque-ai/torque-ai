@@ -75,12 +75,21 @@ function extractIndexColumns(schemaText) {
   // string-array DDL pattern (`'  id INTEGER PRIMARY KEY,',`).
   const colPkRe = /^[^\w]*['"`]?\s*(\w+)\s+[A-Z][^,]*\bPRIMARY\s+KEY\b/i;
   const tablePkRe = /\bPRIMARY\s+KEY\s*\(([^)]+)\)/i;
+  // Column-level UNIQUE: `name TEXT NOT NULL UNIQUE,` or `name TEXT UNIQUE,`.
+  // SQLite auto-creates a covering index for any UNIQUE column.
+  // Matches the column-name token, then a type and optional flags ending
+  // in `UNIQUE` followed by comma/end-of-line/closing-paren. Avoids the
+  // table-level form `UNIQUE (col1, col2)` which is captured separately.
+  const colUniqueRe = /^[^\w]*['"`]?\s*(\w+)\s+[A-Z][^,]*\bUNIQUE\b(?!\s*\()/i;
+  // Table-level UNIQUE constraint, e.g. `UNIQUE (project_id, branch)`.
+  const tableUniqueRe = /\bUNIQUE\s*\(([^)]+)\)/i;
 
   for (let i = 0; i < lines.length; i++) {
     const startMatch = lines[i].match(startRe);
     if (!startMatch) continue;
     const table = startMatch[1].toLowerCase();
     const pkCols = [];
+    const uniqueIndexes = [];  // Each UNIQUE adds a separate covering index.
     const window = Math.min(lines.length, i + 80);
 
     for (let j = i; j < window; j++) {
@@ -100,6 +109,22 @@ function extractIndexColumns(schemaText) {
         if (cols.length) pkCols.push(...cols);
       }
 
+      const colUniqueMatch = line.match(colUniqueRe);
+      if (colUniqueMatch) {
+        const cand = colUniqueMatch[1].toLowerCase();
+        // Skip the same false positives we skip for the PK matcher,
+        // plus 'unique' itself (table-level `UNIQUE (...)` lines).
+        if (cand !== 'primary' && cand !== 'unique') {
+          uniqueIndexes.push([cand]);
+        }
+      }
+
+      const tableUniqueMatch = line.match(tableUniqueRe);
+      if (tableUniqueMatch) {
+        const cols = tableUniqueMatch[1].split(',').map((c) => c.trim().replace(/\s+.*/, '').toLowerCase()).filter(Boolean);
+        if (cols.length) uniqueIndexes.push(cols);
+      }
+
       // Stop at a line that's effectively the closing paren of the
       // CREATE TABLE — bare `)`, `'),`, `');` etc.
       if (j > i && closeRe.test(line)) break;
@@ -108,6 +133,10 @@ function extractIndexColumns(schemaText) {
     if (pkCols.length) {
       if (!result.has(table)) result.set(table, []);
       result.get(table).push([...new Set(pkCols)]);
+    }
+    for (const idxCols of uniqueIndexes) {
+      if (!result.has(table)) result.set(table, []);
+      result.get(table).push(idxCols);
     }
   }
 
