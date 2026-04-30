@@ -1153,6 +1153,98 @@ Edit server/factory/plan-executor.js and make the requested behavior change. Kee
     expect(decisions.find((d) => d.action === 'worktree_verify_failed')).toBeUndefined();
   });
 
+  it('verify auto-retry submission carries the project provider_lane_policy in task_metadata', async () => {
+    // Regression for the leak observed live on DLPhone work item #2097
+    // (2026-04-29). DLPhone's provider_lane_policy.allowed_providers is
+    // ['ollama'] with enforce_handoffs:true, but submitVerifyFixTask
+    // submitted retry tasks without spreading buildProviderLaneTaskMetadata,
+    // so smart routing's chain filter had nothing to enforce against and
+    // the retries spawned codex.exe in the project worktree at 22:51:28
+    // and 22:51:41. This test asserts every verify-retry submission
+    // carries the project's lane policy in task_metadata so the smart-
+    // routing chain filter (handlers/integration/routing.js) can keep
+    // retries on-lane.
+    const { project, workItem } = registerPlanProject({
+      config: {
+        provider_lane_policy: {
+          expected_provider: 'ollama',
+          allowed_providers: ['ollama'],
+          allowed_fallback_providers: [],
+          enforce_handoffs: true,
+        },
+      },
+    });
+    const batchId = `factory-${project.id}-${workItem.id}`;
+    const wtPathLane = path.join(project.path, '.worktrees', 'feat-factory-lane-retry');
+    fs.mkdirSync(wtPathLane, { recursive: true });
+    vi.spyOn(verifyReview, 'reviewVerifyFailure').mockResolvedValue({
+      classification: 'task_caused',
+      confidence: 'high',
+      modifiedFiles: ['tests/factory-work.test.js'],
+      failingTests: ['tests/factory-work.test.js'],
+      intersection: ['tests/factory-work.test.js'],
+      environmentSignals: [],
+      llmVerdict: null,
+      llmCritique: null,
+      suggestedRejectReason: null,
+    });
+    let verifyCall = 0;
+    const worktreeRunner = {
+      createForBatch: vi.fn(async () => ({
+        id: 'vc-worktree-lane',
+        branch: 'feat/factory-lane-retry',
+        worktreePath: wtPathLane,
+      })),
+      verify: vi.fn(async () => {
+        verifyCall += 1;
+        return verifyCall === 1
+          ? { passed: false, output: 'lane retry — first verify failed', durationMs: 22 }
+          : { passed: true, output: 'ok', durationMs: 22 };
+      }),
+      mergeToMain: vi.fn(),
+      abandon: vi.fn(),
+    };
+    let submittedTaskCount = 0;
+    routingModule.handleSmartSubmitTask = vi.fn(async (args) => {
+      submittedTaskCount += 1;
+      const taskId = `lane-retry-task-${submittedTaskCount}`;
+      insertBatchTask(db, {
+        taskId,
+        batchId,
+        status: args.initial_status || 'pending_approval',
+      });
+      return { task_id: taskId };
+    });
+    loopController.setWorktreeRunnerForTests(worktreeRunner);
+
+    await advanceSupervisedPlanProject(project.id);
+    await loopController.advanceLoopForProject(project.id);
+    db.prepare(`UPDATE tasks SET status = 'completed' WHERE id = ?`).run('lane-retry-task-1');
+    loopController.approveGateForProject(project.id, LOOP_STATES.VERIFY);
+
+    await loopController.advanceLoopForProject(project.id);
+
+    // Find the verify-retry submission (the one tagged with
+    // factory_retry_attempt). Multiple submissions occur — initial EXECUTE
+    // then a retry — both should carry the lane policy.
+    const allCalls = routingModule.handleSmartSubmitTask.mock.calls.map((c) => c[0]);
+    const retryCall = allCalls.find((args) => args?.task_metadata?.factory_retry_attempt);
+    expect(retryCall).toBeDefined();
+    expect(retryCall.task_metadata.provider_lane_policy).toMatchObject({
+      expected_provider: 'ollama',
+      enforce_handoffs: true,
+    });
+    expect(retryCall.task_metadata.provider_lane_policy.allowed_providers).toContain('ollama');
+
+    // Initial EXECUTE submission should also carry the policy (regression
+    // for the same leak class — it was already correct in main, but cover
+    // it so a future refactor can't silently drop it).
+    const initialCall = allCalls.find((args) => args?.task_metadata?.provider_lane_policy
+      && !args?.task_metadata?.factory_retry_attempt);
+    expect(initialCall).toBeDefined();
+    expect(initialCall.task_metadata.provider_lane_policy.expected_provider).toBe('ollama');
+  });
+
   it('retries a transient submission failure (no task_id) without consuming a verify attempt', async () => {
     const { project, workItem } = registerPlanProject();
     const batchId = `factory-${project.id}-${workItem.id}`;
