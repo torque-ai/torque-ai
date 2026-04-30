@@ -5,6 +5,17 @@ const { LOOP_STATES } = require('./loop-states');
 const DEFAULT_DWELL_MS = 15 * 60 * 1000;
 const MAX_DWELL_MS = 4 * 60 * 60 * 1000;
 const DEFAULT_SCOUT_TIMEOUT_MINUTES = 12;
+// Codex does deeper recon than ollama (full directory tree walks, multi-tool
+// reasoning) and routinely needs ~15-25 min on a fresh repo. The 12-minute
+// default works for ollama (which converges fast — sometimes by hallucinating)
+// but kills codex mid-investigation; a real DLPhone scout was observed
+// timing out at 12m while it was still emitting __PATTERNS_READY__ deferrals
+// and actively reading real source files (2026-04-30, c0f278ca).
+const SCOUT_TIMEOUT_MINUTES_BY_PROVIDER = Object.freeze({
+  codex: 30,
+  'codex-spark': 30,
+  'claude-cli': 30,
+});
 const ACTIVE_SCOUT_STATUSES = new Set(['pending', 'pending_approval', 'queued', 'running', 'waiting']);
 const TERMINAL_SCOUT_STATUSES = new Set(['completed', 'failed', 'cancelled', 'skipped']);
 const SCOUT_SIGNAL_MARKERS = [
@@ -441,13 +452,17 @@ function createStarvationRecovery({
       }
     }
 
+    const effectiveScoutTimeout = (scoutProvider
+      && SCOUT_TIMEOUT_MINUTES_BY_PROVIDER[scoutProvider])
+      || scoutTimeoutMinutes;
+
     const scout = await submitScout({
       project_id: project.id,
       project_path: project.path,
       working_directory: project.path,
       reason: 'factory_starvation_recovery',
       ...(scoutProvider ? { provider: scoutProvider } : {}),
-      timeout_minutes: scoutTimeoutMinutes,
+      timeout_minutes: effectiveScoutTimeout,
       scope,
       file_patterns: Array.isArray(scoutFilePatterns) && scoutFilePatterns.length > 0
         ? scoutFilePatterns
@@ -488,6 +503,7 @@ module.exports = {
   DEFAULT_DWELL_MS,
   MAX_DWELL_MS,
   DEFAULT_SCOUT_TIMEOUT_MINUTES,
+  SCOUT_TIMEOUT_MINUTES_BY_PROVIDER,
   DEFAULT_SCOUT_FILE_PATTERNS,
   buildStarvationRecoveryScope,
   countConsecutiveNoYieldScouts,

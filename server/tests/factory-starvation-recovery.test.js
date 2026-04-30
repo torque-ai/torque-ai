@@ -3,6 +3,7 @@
 const {
   DEFAULT_SCOUT_FILE_PATTERNS,
   DEFAULT_SCOUT_TIMEOUT_MINUTES,
+  SCOUT_TIMEOUT_MINUTES_BY_PROVIDER,
   buildStarvationRecoveryScope,
   computeBackoffDwellMs,
   countConsecutiveNoYieldScouts,
@@ -354,6 +355,70 @@ describe('factory starvation recovery', () => {
     expect(submitScout).toHaveBeenCalledWith(expect.objectContaining({
       project_id: 'project-1',
       provider: 'ollama-cloud',
+    }));
+  });
+
+  it('extends scout timeout for codex (Phase J)', async () => {
+    // Codex needs more headroom than ollama for thorough recon. Without this,
+    // codex scouts time out at 12 min while still actively reading real source
+    // files and emitting __PATTERNS_READY__ deferrals (DLPhone c0f278ca,
+    // 2026-04-30).
+    const submitScout = vi.fn().mockResolvedValue({ task_id: 'task-codex' });
+    const updateLoopState = vi.fn().mockResolvedValue({});
+    const countOpenWorkItems = vi.fn().mockResolvedValue(0);
+    const resolveScoutProvider = vi.fn().mockReturnValue('codex');
+    const nowMs = Date.parse('2026-04-30T13:30:00.000Z');
+    const recovery = createStarvationRecovery({
+      submitScout,
+      updateLoopState,
+      countOpenWorkItems,
+      resolveScoutProvider,
+      dwellMs: 1000,
+      now: () => nowMs,
+    });
+
+    await recovery.maybeRecover({
+      id: 'project-1',
+      path: 'C:\\repo',
+      loop_state: LOOP_STATES.STARVED,
+      loop_last_action_at: '2026-04-30T13:00:00.000Z',
+    });
+
+    expect(submitScout).toHaveBeenCalledWith(expect.objectContaining({
+      provider: 'codex',
+      timeout_minutes: SCOUT_TIMEOUT_MINUTES_BY_PROVIDER.codex,
+    }));
+    expect(SCOUT_TIMEOUT_MINUTES_BY_PROVIDER.codex).toBeGreaterThan(DEFAULT_SCOUT_TIMEOUT_MINUTES);
+  });
+
+  it('keeps default scout timeout for ollama', async () => {
+    // Ollama converges fast (or hallucinates fast); the legacy 12-min budget
+    // is the right ceiling — bumping it would just make hallucinated scouts
+    // burn the cap before being filtered by Phase B's existence guard.
+    const submitScout = vi.fn().mockResolvedValue({ task_id: 'task-ollama' });
+    const updateLoopState = vi.fn().mockResolvedValue({});
+    const countOpenWorkItems = vi.fn().mockResolvedValue(0);
+    const resolveScoutProvider = vi.fn().mockReturnValue('ollama');
+    const nowMs = Date.parse('2026-04-30T13:30:00.000Z');
+    const recovery = createStarvationRecovery({
+      submitScout,
+      updateLoopState,
+      countOpenWorkItems,
+      resolveScoutProvider,
+      dwellMs: 1000,
+      now: () => nowMs,
+    });
+
+    await recovery.maybeRecover({
+      id: 'project-1',
+      path: 'C:\\repo',
+      loop_state: LOOP_STATES.STARVED,
+      loop_last_action_at: '2026-04-30T13:00:00.000Z',
+    });
+
+    expect(submitScout).toHaveBeenCalledWith(expect.objectContaining({
+      provider: 'ollama',
+      timeout_minutes: DEFAULT_SCOUT_TIMEOUT_MINUTES,
     }));
   });
 });
