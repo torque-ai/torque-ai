@@ -26,6 +26,89 @@ function parseLastActionMs(value) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+/**
+ * Build the scope text for a starvation recovery scout.
+ *
+ * Two failure modes drove the rewrite of the original scope text on
+ * 2026-04-29 (DLPhone scouts e50cfe25 and c6549cc0, both run on
+ * qwen3-coder:30b):
+ *
+ *  1. The original scope led with "Factory starvation recovery scout."
+ *     Small models read "factory" as a domain noun and produced
+ *     patterns about *factory infrastructure* (queue monitoring,
+ *     starvation recovery plans, work-item prioritization rules) for
+ *     a Unity/.NET multiplayer game project. The model never realized
+ *     "factory" was the autonomous build pipeline.
+ *
+ *  2. The example-rich scout system prompt seduced the model into
+ *     emitting plausible-looking exemplar_files without ever calling
+ *     read_file or list_directory. Without explicit "your output must
+ *     be grounded in real tool calls" wording, qwen3-coder defaulted
+ *     to invention.
+ *
+ * The new scope leads with the project's own brief (so "factory"
+ * lands as "automated build pipeline, not your topic"), names the
+ * project explicitly, and adds an evidence requirement: exemplar_files
+ * MUST come from list_directory / search_files results, and an empty
+ * patterns array is a valid signal when nothing actionable shows up.
+ *
+ * Phase B's existence guard at the intake boundary still catches any
+ * residual hallucination — this scope change just stops feeding the
+ * model the wrong frame in the first place.
+ */
+function buildStarvationRecoveryScope({ project, noYieldScoutCount }) {
+  const projectName = (project?.name || '').trim() || 'this project';
+  const rawBrief = (project?.brief || '').trim();
+  const brief = rawBrief ? rawBrief : null;
+
+  const lines = [
+    `You are scouting the **${projectName}** codebase to seed new work items for the autonomous build pipeline.`,
+    '',
+  ];
+
+  if (brief) {
+    lines.push('## Project context');
+    lines.push(brief);
+    lines.push('');
+  }
+
+  lines.push('## Disambiguation');
+  lines.push(
+    `In this scope, "factory" refers to the autonomous build pipeline that processes work items — NOT to ${projectName}'s domain. ` +
+    `Your work items must be about ${projectName}'s actual code (its source tree, tests, config, docs), ` +
+    `not about queue monitoring, starvation recovery, or generic factory/pipeline concepts.`
+  );
+  lines.push('');
+
+  lines.push('## Why we are scouting');
+  lines.push(
+    `${projectName}'s build pipeline queue is empty after repeated PRIORITIZE cycles found no open work items. ` +
+    `Walk the actual codebase, find concrete code-level transformations the project genuinely needs, ` +
+    'and produce work items that name real files in the tree.'
+  );
+  lines.push('');
+
+  lines.push('## Evidence requirement (CRITICAL)');
+  lines.push(
+    'Every pattern you emit MUST have at least one `exemplar_files` path that you saw via `list_directory` or `search_files` in this scout run. ' +
+    'You may NOT invent file paths. Before emitting `__PATTERNS_READY__`, call `list_directory` on the working directory at least once. ' +
+    `If after exploring you cannot find concrete code-level patterns specific to ${projectName}, ` +
+    'return an empty `patterns` array in `__PATTERNS_READY__`. An empty result is a valid signal — invented patterns are not.'
+  );
+  lines.push('');
+
+  lines.push('## Scope bounds');
+  lines.push(
+    'Inspect at most 80 candidate files. Prefer existing test files, docs, recent plan files, and TODO comments as evidence sources. ' +
+    'Avoid meta-work about creating more intake or improving the scout itself.'
+  );
+  lines.push('');
+
+  lines.push(`No-yield scout backoff count: ${noYieldScoutCount}.`);
+
+  return lines.join('\n');
+}
+
 function normalizeCount(value) {
   if (Array.isArray(value)) {
     return value.length;
@@ -311,15 +394,7 @@ function createStarvationRecovery({
       });
     }
 
-    const scope = [
-      'Factory starvation recovery scout.',
-      'The project reached STARVED after repeated PRIORITIZE cycles found no open work items.',
-      'Inspect configured plans, recent findings, rejected items, and repo-local TODOs.',
-      'Return concrete, code-changing factory work items or explain why the queue should remain empty.',
-      'Use the scout signal format with actionable transformation patterns; avoid meta-work about creating more intake.',
-      'Keep the pass bounded: inspect at most 80 candidate files, prefer plan/findings/docs evidence first, and only inspect source files referenced by that evidence.',
-      `Current no-yield scout backoff count: ${noYieldScoutCount}.`,
-    ].join(' ');
+    const scope = buildStarvationRecoveryScope({ project, noYieldScoutCount });
 
     let scoutProvider = null;
     if (typeof resolveScoutProvider === 'function') {
@@ -382,6 +457,7 @@ module.exports = {
   MAX_DWELL_MS,
   DEFAULT_SCOUT_TIMEOUT_MINUTES,
   DEFAULT_SCOUT_FILE_PATTERNS,
+  buildStarvationRecoveryScope,
   countConsecutiveNoYieldScouts,
   computeBackoffDwellMs,
   isNoYieldScoutTask,
