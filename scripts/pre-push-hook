@@ -419,6 +419,79 @@ SERV_PID=""
 SETUP_EXIT=0
 SETUP_FAILED_PHASE=""
 
+remote_path_to_unix() {
+  path="\$1"
+  if command -v cygpath >/dev/null 2>&1; then
+    cygpath -u "\$path" 2>/dev/null || printf '%s\n' "\$path"
+  else
+    printf '%s\n' "\$path"
+  fi
+}
+
+remote_path_to_windows() {
+  path="\$1"
+  if command -v cygpath >/dev/null 2>&1; then
+    cygpath -w "\$path" 2>/dev/null || printf '%s\n' "\$path"
+  else
+    printf '%s\n' "\$path"
+  fi
+}
+
+prepend_node_modules() {
+  modules_dir="\$1"
+  export PATH="\$modules_dir/.bin:\$PATH"
+  if [ -n "\${NODE_PATH:-}" ]; then
+    export NODE_PATH="\$modules_dir:\$NODE_PATH"
+  else
+    export NODE_PATH="\$modules_dir"
+  fi
+}
+
+dependency_tree_ok() {
+  dir="\$1"
+  [ -d "\$dir/node_modules" ] && (cd "\$dir" && npm ls --depth=0 >/dev/null 2>&1)
+}
+
+reuse_base_node_modules() {
+  phase="\$1"
+  dir="\$2"
+  base_project_path="\${TORQUE_REMOTE_BASE_PROJECT_PATH:-}"
+  if [ -z "\$base_project_path" ]; then
+    return 1
+  fi
+
+  base_project_dir="\$(remote_path_to_unix "\$base_project_path")"
+  current_project_dir="\$(pwd -P)"
+  if [ "\$base_project_dir" = "\$current_project_dir" ]; then
+    return 1
+  fi
+
+  base_dir="\$base_project_dir/\$dir"
+  base_modules="\$base_dir/node_modules"
+  if [ ! -d "\$base_modules" ] || ! (cd "\$base_dir" && npm ls --depth=0 >/dev/null 2>&1); then
+    return 1
+  fi
+
+  if [ -e "\$dir/node_modules" ] && ! dependency_tree_ok "\$dir"; then
+    stale_dir="\$dir/.node_modules-invalid-\$(date +%s 2>/dev/null || echo time)-\$\$"
+    mv "\$dir/node_modules" "\$stale_dir" 2>/dev/null || rm -rf "\$dir/node_modules" 2>/dev/null || true
+  fi
+
+  if [ ! -e "\$dir/node_modules" ]; then
+    target_win="\$(remote_path_to_windows "\$dir/node_modules")"
+    base_win="\$(remote_path_to_windows "\$base_modules")"
+    cmd //c "mklink /J \"\$target_win\" \"\$base_win\"" >/dev/null 2>&1 || return 1
+  fi
+
+  if dependency_tree_ok "\$dir"; then
+    prepend_node_modules "\$dir/node_modules"
+    echo "[\$phase] [setup] using \$dir dependencies from base checkout"
+    return 0
+  fi
+
+  return 1
+}
+
 ensure_node_modules() {
   phase="\$1"
   dir="\$2"
@@ -426,16 +499,26 @@ ensure_node_modules() {
     return 0
   fi
 
+  if dependency_tree_ok "\$dir"; then
+    prepend_node_modules "\$dir/node_modules"
+    return 0
+  fi
+
+  if reuse_base_node_modules "\$phase" "\$dir"; then
+    return 0
+  fi
+
   install_reason=""
   if [ ! -d "\$dir/node_modules" ]; then
     install_reason="missing node_modules"
-  elif ! (cd "\$dir" && npm ls --depth=0 >/dev/null 2>&1); then
+  elif ! dependency_tree_ok "\$dir"; then
     install_reason="invalid dependency tree"
   fi
 
   if [ -n "\$install_reason" ]; then
     echo "[\$phase] [setup] installing \$dir dependencies (\$install_reason)"
-    (cd "\$dir" && npm install --silent --no-audit --no-fund --prefer-offline) 2>&1 | sed -u "s/^/[\$phase] [setup] /"
+    (cd "\$dir" && npm install --no-audit --no-fund --prefer-offline) 2>&1 | sed -u "s/^/[\$phase] [setup] /"
+    prepend_node_modules "\$dir/node_modules"
   fi
 }
 
@@ -469,7 +552,7 @@ fi
 
 if [ "$GATE_RUN_DASHBOARD" = "1" ]; then
   {
-    timeout ${PHASE_TIMEOUT_SECS} bash -lc "cd dashboard && npx vitest run --reporter=dot ${GATE_DASHBOARD_TEST_ARGS}"
+    timeout ${PHASE_TIMEOUT_SECS} bash -lc "cd dashboard && vitest run --reporter=dot ${GATE_DASHBOARD_TEST_ARGS}"
     echo \$? > "\$DASH_EXIT_FILE"
   } 2>&1 | sed -u "s/^/[dash] /" &
   DASH_PID=\$!
@@ -480,7 +563,7 @@ fi
 
 if [ "$GATE_RUN_SERVER" = "1" ]; then
   {
-    timeout ${PHASE_TIMEOUT_SECS} bash -lc "cd server && npx vitest run --reporter=dot ${GATE_SERVER_TEST_ARGS}"
+    timeout ${PHASE_TIMEOUT_SECS} bash -lc "cd server && vitest run --reporter=dot ${GATE_SERVER_TEST_ARGS}"
     echo \$? > "\$SERV_EXIT_FILE"
   } 2>&1 | sed -u "s/^/[serv] /" &
   SERV_PID=\$!
