@@ -67,6 +67,7 @@ const STALL_THRESHOLD_MS = 30 * 60 * 1000;
 const COMMITS_TODAY_CACHE_TTL_MS = 60 * 1000;
 const COMMITS_TODAY_TIMEOUT_MS = 5 * 1000;
 const TERMINAL_FACTORY_BATCH_TASK_STATUSES = new Set(['completed', 'shipped', 'cancelled', 'failed', 'skipped']);
+const TERMINAL_FACTORY_INTERNAL_TASK_STATUSES = TERMINAL_FACTORY_BATCH_TASK_STATUSES;
 const BASELINE_RESUME_JOBS_TO_KEEP_PER_PROJECT = 25;
 const commitsTodayCache = new Map();
 const baselineResumeJobs = new Map();
@@ -361,6 +362,112 @@ function normalizeProjectLoopState(loopState) {
   }
   const normalized = loopState.trim().toUpperCase();
   return normalized || 'IDLE';
+}
+
+function parseJsonObject(value) {
+  if (!value || typeof value !== 'string') {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function normalizeOptionalText(value) {
+  if (typeof value !== 'string') {
+    return null;
+  }
+  const trimmed = value.trim();
+  return trimmed || null;
+}
+
+function summarizeActiveTask(task, kind) {
+  if (!task) {
+    return null;
+  }
+  return {
+    id: task.id,
+    kind,
+    status: task.status || null,
+    provider: task.provider || null,
+    model: task.model || null,
+    created_at: task.created_at || null,
+    started_at: task.started_at || null,
+    completed_at: task.completed_at || null,
+  };
+}
+
+function getActivePlanGenerationTask(activeInstance) {
+  const workItemId = activeInstance?.work_item_id || activeInstance?.workItemId || null;
+  if (!workItemId) {
+    return null;
+  }
+
+  let workItem;
+  try {
+    workItem = factoryIntake.getWorkItem(workItemId);
+  } catch (error) {
+    logger.debug('Failed to inspect active factory work item for status', {
+      err: error.message,
+      work_item_id: workItemId,
+    });
+    return null;
+  }
+
+  const origin = workItem?.origin && typeof workItem.origin === 'object'
+    ? workItem.origin
+    : parseJsonObject(workItem?.origin_json);
+  const taskId = normalizeOptionalText(origin?.plan_generation_task_id);
+  if (!taskId) {
+    return null;
+  }
+
+  let task;
+  try {
+    const taskCore = require('../db/task-core');
+    task = taskCore.getTask(taskId);
+  } catch (error) {
+    logger.debug('Failed to inspect active plan-generation task for status', {
+      err: error.message,
+      task_id: taskId,
+      work_item_id: workItemId,
+    });
+    return null;
+  }
+
+  if (!task || TERMINAL_FACTORY_INTERNAL_TASK_STATUSES.has(String(task.status || '').toLowerCase())) {
+    return null;
+  }
+
+  return summarizeActiveTask(task, 'plan_generation');
+}
+
+function summarizeFactoryStateConsistency({ project, loopState, activeStage, activeTask }) {
+  const projectLoopState = normalizeProjectLoopState(project?.loop_state);
+  const instanceLoopState = normalizeProjectLoopState(loopState);
+  const effectiveActiveStage = normalizeProjectLoopState(activeStage || instanceLoopState);
+  const mismatches = [];
+
+  if (projectLoopState !== instanceLoopState) {
+    mismatches.push('project_row_loop_state_drift');
+  }
+  if (effectiveActiveStage !== instanceLoopState) {
+    const activeReason = activeTask?.kind
+      ? `${activeTask.kind}_active_under_${instanceLoopState.toLowerCase()}`
+      : `${effectiveActiveStage.toLowerCase()}_active_under_${instanceLoopState.toLowerCase()}`;
+    mismatches.push(activeReason);
+  }
+
+  return {
+    ok: mismatches.length === 0,
+    project_loop_state: projectLoopState,
+    instance_loop_state: instanceLoopState,
+    active_stage: effectiveActiveStage,
+    mismatches,
+  };
 }
 
 function countOpenFactoryWorkItems(projectId) {
@@ -960,6 +1067,14 @@ async function handleFactoryStatus() {
     const hasNonTerminalBatchTasks = activeInstance
       ? hasNonTerminalFactoryBatchTasks(activeInstance.batch_id)
       : false;
+    const activeTask = getActivePlanGenerationTask(activeInstance);
+    const activeStage = activeTask?.kind === 'plan_generation' ? LOOP_STATES.PLAN : loopState;
+    const stateConsistency = summarizeFactoryStateConsistency({
+      project: p,
+      loopState,
+      activeStage,
+      activeTask,
+    });
     const openWorkItemCount = countOpenFactoryWorkItems(p.id);
     const alertBadge = getFactoryStatusAlertBadge(p.id, {
       openWorkItemCount,
@@ -979,6 +1094,9 @@ async function handleFactoryStatus() {
       status: p.status,
       commits_today: commitsToday,
       loop_state: loopState,
+      active_stage: activeStage,
+      active_task: activeTask,
+      state_consistency: stateConsistency,
       loop_paused_at_stage: pausedAtStage,
       loop_last_action_at: lastActionAt,
       consecutive_empty_cycles: Number(p.consecutive_empty_cycles) || 0,
@@ -996,6 +1114,8 @@ async function handleFactoryStatus() {
   const paused = summaries.filter(p => p.status === 'paused').length;
   const productionToday = summaries.reduce((sum, project) => sum + project.commits_today, 0);
   const zeroCommitProjects = summaries.filter(project => project.status === 'running' && project.commits_today === 0).length;
+  const activeInternalTasks = summaries.filter(project => project.active_task).length;
+  const stateMismatchProjects = summaries.filter(project => !project.state_consistency?.ok).length;
   // Stall calculation uses the instance-derived state too, so a dead
   // instance can't look "running but stalled" forever — with no active
   // instance, loop_state is IDLE and the project is excluded from stalled.
@@ -1027,6 +1147,8 @@ async function handleFactoryStatus() {
       stalled,
       production_today: productionToday,
       zero_commit_projects: zeroCommitProjects,
+      active_internal_tasks: activeInternalTasks,
+      state_mismatch_projects: stateMismatchProjects,
     },
   });
 }

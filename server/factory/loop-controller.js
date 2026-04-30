@@ -7606,6 +7606,31 @@ async function maybeShipNoop({ project_id, batch_id, work_item_id }) {
     return { shipped_as_noop: false, paused: true, paused_reason };
   }
 
+  if (!reason || reason === 'unknown' || conf < 0.8) {
+    if (!isFactoryFeatureEnabled(project_id, 'auto_ship_noop_enabled')) {
+      return { shipped_as_noop: false, reason: 'flag_off' };
+    }
+    const paused_reason = conf < 0.8
+      ? 'low_confidence_zero_diff_review_required'
+      : 'unknown_zero_diff_review_required';
+    safeLogDecision({
+      project_id, batch_id, stage: LOOP_STATES.EXECUTE,
+      action: 'paused_at_gate',
+      reasoning: 'Factory could not classify a zero-diff EXECUTE result confidently; pausing for operator review instead of treating the clean branch as progress.',
+      outcome: {
+        work_item_id,
+        paused_stage: 'EXECUTE',
+        paused_reason,
+        zero_diff_reason: reason || null,
+        classifier_source: latest.classifier_source,
+        classifier_conf: conf,
+        stdout_tail_preview: String(latest.stdout_tail || '').slice(0, 400),
+      },
+      confidence: 1,
+    });
+    return { shipped_as_noop: false, paused: true, paused_reason };
+  }
+
   return { shipped_as_noop: false };
 }
 

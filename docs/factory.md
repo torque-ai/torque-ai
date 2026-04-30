@@ -35,6 +35,16 @@ Enable continuous cycling and dark trust (no gates) via `set_factory_trust_level
 | `retry_factory_verify` | Resume from VERIFY_FAIL after operator fixes the issue |
 | `approve_factory_gate` / `reject_factory_gate` | Gate approval for supervised/guided trust levels |
 
+## Factory Status Coherence
+
+`factory_status` reports `loop_state` from the active `factory_loop_instances` row, not from the legacy project cache. It also reports:
+
+- `active_stage` — the effective current stage. This can be `PLAN` while `loop_state` is `EXECUTE` when EXECUTE is blocked on an internal plan-generation task.
+- `active_task` — the active internal support task, currently `kind: "plan_generation"`, including task id, status, provider, model, and timestamps.
+- `state_consistency` — compares the project cache state, active instance state, and effective active stage. `state_consistency.ok=false` means the dashboard should show the mismatch instead of implying smooth progress.
+
+Summary fields include `active_internal_tasks` and `state_mismatch_projects` so operators can distinguish productive internal work from stale or contradictory control-plane state.
+
 ## Auto-Ship Detection
 
 At PRIORITIZE, the shipped-detector checks if git commit subjects already match the work item's title. Items that were fixed manually in a prior session are auto-marked shipped and skipped — no wasted execution cycles.
@@ -60,12 +70,12 @@ Every factory Codex task writes one row to `factory_attempt_history` on completi
 
 Two feature flags on `factory_projects.config_json.feature_flags` gate behavioral changes:
 
-- `auto_ship_noop_enabled` — classifier reason `already_in_place` with conf >= 0.8 now pauses EXECUTE for operator review instead of skipping VERIFY.
+- `auto_ship_noop_enabled` — classifier reason `already_in_place` with conf >= 0.8 now pauses EXECUTE for operator review instead of skipping VERIFY. Unknown or low-confidence zero-diff results also pause for review instead of being treated as progress.
 - `verify_silent_rerun_enabled` — on ambiguous verify classifier verdict, rerun verify once silently before spending a Codex retry slot. Budget: one per batch, tracked on `factory_loop_instances.verify_silent_reruns`.
 
 Decision-log actions to watch:
 - `auto_commit_skipped_clean` — now carries `zero_diff_reason`, `classifier_source`, `classifier_conf`.
-- `paused_at_gate` with `paused_reason: 'already_in_place_review_required' | 'blocked_by_codex' | 'precondition_missing'` — classifier-triggered pause at EXECUTE.
+- `paused_at_gate` with `paused_reason: 'already_in_place_review_required' | 'blocked_by_codex' | 'precondition_missing' | 'unknown_zero_diff_review_required' | 'low_confidence_zero_diff_review_required'` — classifier-triggered pause at EXECUTE.
 - `verify_silent_rerun_started` / `verify_passed_on_silent_rerun` / `verify_rerun_same_failure` / `verify_rerun_different_failure` / `verify_silent_rerun_failed` — silent rerun lifecycle.
 
 Retry fix prompts now include a "Prior attempts on this work item:" block (last 3 attempts, file counts, Codex summaries) and a "Verify error progression:" diff between the prior and current verify runs. See `server/factory/loop-controller.js` (`buildVerifyFixPrompt`) for the budget + rendering rules.

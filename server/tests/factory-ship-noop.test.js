@@ -80,6 +80,56 @@ describe('loop-controller — zero-diff execute gating', () => {
     expect(result.shipped_as_noop).toBe(false);
   });
 
+  it('pauses low-confidence zero-diff results for operator review', async () => {
+    insertProject({ flagOn: true });
+    insertWorkItem(42);
+    attemptHistory.appendRow({
+      batch_id: 'batch-low-conf', work_item_id: '42', kind: 'execute', task_id: 't1',
+      files_touched: [], zero_diff_reason: 'already_in_place',
+      classifier_source: 'llm', classifier_conf: 0.7,
+    });
+    const result = await loopController.__testing__.maybeShipNoop({
+      project_id: 'proj-1', batch_id: 'batch-low-conf', work_item_id: '42',
+    });
+    expect(result).toEqual(expect.objectContaining({
+      shipped_as_noop: false,
+      paused: true,
+      paused_reason: 'low_confidence_zero_diff_review_required',
+    }));
+    const decision = db.prepare("SELECT * FROM factory_decisions WHERE batch_id='batch-low-conf' AND action='paused_at_gate'").get();
+    const outcome = JSON.parse(decision.outcome_json);
+    expect(outcome).toMatchObject({
+      paused_reason: 'low_confidence_zero_diff_review_required',
+      zero_diff_reason: 'already_in_place',
+      classifier_conf: 0.7,
+    });
+  });
+
+  it('pauses unknown zero-diff results instead of treating clean branches as progress', async () => {
+    insertProject({ flagOn: true });
+    insertWorkItem(42);
+    attemptHistory.appendRow({
+      batch_id: 'batch-unknown', work_item_id: '42', kind: 'execute', task_id: 't1',
+      files_touched: [], zero_diff_reason: 'unknown',
+      classifier_source: 'none', classifier_conf: 1.0,
+    });
+    const result = await loopController.__testing__.maybeShipNoop({
+      project_id: 'proj-1', batch_id: 'batch-unknown', work_item_id: '42',
+    });
+    expect(result).toEqual(expect.objectContaining({
+      shipped_as_noop: false,
+      paused: true,
+      paused_reason: 'unknown_zero_diff_review_required',
+    }));
+    const decision = db.prepare("SELECT * FROM factory_decisions WHERE batch_id='batch-unknown' AND action='paused_at_gate'").get();
+    const outcome = JSON.parse(decision.outcome_json);
+    expect(outcome).toMatchObject({
+      paused_reason: 'unknown_zero_diff_review_required',
+      zero_diff_reason: 'unknown',
+      classifier_source: 'none',
+    });
+  });
+
   it('emits paused_at_gate with paused_reason=blocked_by_codex when reason=blocked', async () => {
     insertProject({ flagOn: true });
     insertWorkItem(42);

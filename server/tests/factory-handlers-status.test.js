@@ -5,6 +5,7 @@ const notifications = require('../factory/notifications');
 
 function insertActiveLoopInstance(db, {
   projectId,
+  workItemId = null,
   loopState,
   pausedAtStage = null,
   lastActionAt = null,
@@ -14,6 +15,7 @@ function insertActiveLoopInstance(db, {
     INSERT INTO factory_loop_instances (
       id,
       project_id,
+      work_item_id,
       batch_id,
       loop_state,
       paused_at_stage,
@@ -21,10 +23,11 @@ function insertActiveLoopInstance(db, {
       created_at,
       terminated_at
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, NULL)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)
   `).run(
     `${projectId}-instance`,
     projectId,
+    workItemId,
     batchId,
     loopState,
     pausedAtStage,
@@ -276,6 +279,102 @@ describe('factory_status', () => {
     const project = result.structuredData.projects.find((item) => item.id === 'project-active-batch');
     expect(project.alert_badge).toBeNull();
     expect(project).not.toHaveProperty('_has_non_terminal_batch_tasks');
+  });
+
+  it('surfaces active plan generation as the effective active stage', async () => {
+    const db = rawDb();
+    const createdAt = new Date().toISOString();
+    const planTaskId = '11111111-1111-1111-1111-111111111111';
+
+    db.prepare(`
+      INSERT INTO factory_projects (
+        id,
+        name,
+        path,
+        brief,
+        trust_level,
+        status,
+        config_json,
+        loop_state,
+        loop_batch_id,
+        loop_last_action_at,
+        loop_paused_at_stage,
+        created_at,
+        updated_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      'project-plan-generation',
+      'Plan Generation',
+      path.join(testDir, 'project-plan-generation'),
+      'execute loop waiting on generated plan',
+      'autonomous',
+      'running',
+      null,
+      'EXECUTE',
+      'batch-plan-generation',
+      createdAt,
+      null,
+      createdAt,
+      createdAt,
+    );
+
+    const workItem = factoryIntake.createWorkItem({
+      project_id: 'project-plan-generation',
+      source: 'manual',
+      title: 'Implement status coherence',
+      description: 'Generate the concrete execution plan before edits.',
+      status: 'executing',
+      origin: {
+        plan_generation_task_id: planTaskId,
+        plan_generation_status: 'submitted',
+      },
+    });
+    insertActiveLoopInstance(db, {
+      projectId: 'project-plan-generation',
+      workItemId: workItem.id,
+      loopState: 'EXECUTE',
+      lastActionAt: createdAt,
+      batchId: 'batch-plan-generation',
+    });
+    db.prepare(`
+      INSERT INTO tasks (id, task_description, status, provider, tags, created_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run(
+      planTaskId,
+      'Generate factory plan',
+      'running',
+      'codex',
+      JSON.stringify(['factory:kind=plan_generation']),
+      createdAt,
+    );
+
+    const result = await safeTool('factory_status', {});
+
+    expect(result.isError).toBeFalsy();
+    const payload = result.structuredData;
+    const project = payload.projects.find((item) => item.id === 'project-plan-generation');
+    expect(project).toMatchObject({
+      loop_state: 'EXECUTE',
+      active_stage: 'PLAN',
+      active_task: {
+        id: planTaskId,
+        kind: 'plan_generation',
+        status: 'running',
+        provider: 'codex',
+      },
+      state_consistency: {
+        ok: false,
+        project_loop_state: 'EXECUTE',
+        instance_loop_state: 'EXECUTE',
+        active_stage: 'PLAN',
+      },
+    });
+    expect(project.state_consistency.mismatches).toContain('plan_generation_active_under_execute');
+    expect(payload.summary).toMatchObject({
+      active_internal_tasks: 1,
+      state_mismatch_projects: 1,
+    });
   });
 
   it('exposes alert_badge and clears stale idle badges when pending work exists', async () => {
