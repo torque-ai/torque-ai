@@ -11,6 +11,7 @@ let ctx;
 let db;
 let scheduler;
 let startTask;
+let sharedFactoryStore;
 
 function rawDb() {
   return db.getDbInstance();
@@ -20,7 +21,15 @@ function loadScheduler() {
   delete require.cache[MODULE_PATH];
   scheduler = require('../execution/slot-pull-scheduler');
   startTask = vi.fn();
-  scheduler.init({ db, startTask });
+  sharedFactoryStore = {
+    upsertProjectDemand: vi.fn((row) => ({ id: `demand-${row.project_id}-${row.provider}`, ...row })),
+    expireStaleRows: vi.fn(),
+    listActiveProjectDemands: vi.fn(() => []),
+    listActiveResourceClaims: vi.fn(() => []),
+    claimResource: vi.fn((row) => ({ id: `claim-${row.task_id}`, ...row })),
+    releaseResourceClaim: vi.fn(),
+  };
+  scheduler.init({ db, startTask, sharedFactoryStore });
 }
 
 function setProviderConfig(provider, overrides = {}) {
@@ -156,6 +165,7 @@ describe('slot-pull-scheduler', () => {
     db = null;
     scheduler = null;
     startTask = null;
+    sharedFactoryStore = null;
   });
 
   describe('findBestTaskForProvider', () => {

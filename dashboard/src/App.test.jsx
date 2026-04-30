@@ -370,6 +370,7 @@ describe('App', () => {
       event: 'tasks:batch-updated',
       data: [{ id: 'task-1', status: 'failed' }],
     });
+    await flushAppEffects();
 
     await waitFor(() => {
       expect(document.title).toBe('TORQUE (1 failed)');
