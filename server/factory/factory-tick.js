@@ -682,14 +682,12 @@ async function tickProject(project) {
 
         if (shouldProbe) {
           const baselineProbe = require('./baseline-probe');
-          let verifyCommand = cfg.verify_command || null;
-          if (!verifyCommand) {
-            try {
-              const projectConfigCore = require('../db/project-config-core');
-              const defaults = projectConfigCore.getProjectDefaults(project.path || project.id);
-              if (defaults && defaults.verify_command) verifyCommand = defaults.verify_command;
-            } catch (_e) { void _e; }
-          }
+          let defaults = null;
+          try {
+            const projectConfigCore = require('../db/project-config-core');
+            defaults = projectConfigCore.getProjectDefaults(project.path || project.id);
+          } catch (_e) { void _e; }
+          const verifyCommand = baselineProbe.resolveBaselineVerifyCommand({ cfg, defaults });
           const runnerRegistry = resolveTestRunnerRegistry();
           const runner = async ({ command, cwd, timeoutMs }) => {
             const r = await runnerRegistry.runVerifyCommand(command, cwd, { timeout: timeoutMs });

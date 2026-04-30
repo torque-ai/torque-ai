@@ -59,6 +59,7 @@ const tools = [
         provider: { type: 'string', description: 'Default provider for this project (codex, claude-cli, claude-ollama, ollama, ollama-cloud, anthropic, cerebras, deepinfra, google-ai, groq, hyperbolic, openrouter)', enum: ['codex', 'claude-cli', 'claude-ollama', 'ollama', 'ollama-cloud', 'anthropic', 'cerebras', 'deepinfra', 'google-ai', 'groq', 'hyperbolic', 'openrouter'] },
         model: { type: 'string', description: 'Default model for this project' },
         verify_command: { type: 'string', description: 'Post-task verify command (e.g., "npx tsc --noEmit && npx vitest run")' },
+        baseline_verify_command: { type: 'string', description: 'Optional smoke-test command for baseline-broken probes. If unset, probes use verify_command. Use a fast, reliable subset (e.g., "npx vitest run smoke/").' },
         auto_fix: { type: 'boolean', description: 'Auto-fix type errors after task completion' },
         test_pattern: { type: 'string', description: 'Test file suffix pattern (default: ".test.ts")' },
         verification_ledger: { type: 'boolean', description: 'Enable structured verification ledger (default: false)' },

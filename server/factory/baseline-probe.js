@@ -23,6 +23,19 @@ function resolveBaselineProbeTimeoutMs({ timeout_minutes, config } = {}) {
   return normalizeBaselineProbeTimeoutMinutes(timeout_minutes ?? configuredTimeout) * 60 * 1000;
 }
 
+// Resolve which verify command the baseline probe should run.
+// Precedence: cfg.baseline_verify_command > defaults.baseline_verify_command
+//           > cfg.verify_command         > defaults.verify_command.
+// `baseline_verify_command` exists so the probe can run a fast smoke subset
+// while per-task verification keeps the broader `verify_command`.
+function resolveBaselineVerifyCommand({ cfg, defaults } = {}) {
+  if (cfg && cfg.baseline_verify_command) return cfg.baseline_verify_command;
+  if (defaults && defaults.baseline_verify_command) return defaults.baseline_verify_command;
+  if (cfg && cfg.verify_command) return cfg.verify_command;
+  if (defaults && defaults.verify_command) return defaults.verify_command;
+  return null;
+}
+
 async function probeProjectBaseline({ project, verifyCommand, runner, timeoutMs = DEFAULT_BASELINE_PROBE_TIMEOUT_MS }) {
   if (!verifyCommand || !String(verifyCommand).trim()) {
     return { passed: false, exitCode: null, output: '', durationMs: 0, error: 'no_verify_command' };
@@ -56,5 +69,6 @@ module.exports = {
   MAX_BASELINE_PROBE_TIMEOUT_MINUTES,
   normalizeBaselineProbeTimeoutMinutes,
   resolveBaselineProbeTimeoutMs,
+  resolveBaselineVerifyCommand,
   probeProjectBaseline,
 };

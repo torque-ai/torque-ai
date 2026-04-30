@@ -5,6 +5,61 @@ describe('baseline-probe module exports', () => {
     const mod = require('../factory/baseline-probe');
     expect(typeof mod.probeProjectBaseline).toBe('function');
     expect(typeof mod.resolveBaselineProbeTimeoutMs).toBe('function');
+    expect(typeof mod.resolveBaselineVerifyCommand).toBe('function');
+  });
+});
+
+describe('resolveBaselineVerifyCommand', () => {
+  const { resolveBaselineVerifyCommand } = require('../factory/baseline-probe');
+
+  it('returns null when nothing is configured', () => {
+    expect(resolveBaselineVerifyCommand()).toBeNull();
+    expect(resolveBaselineVerifyCommand({})).toBeNull();
+    expect(resolveBaselineVerifyCommand({ cfg: {}, defaults: {} })).toBeNull();
+  });
+
+  it('prefers cfg.baseline_verify_command above all else', () => {
+    expect(resolveBaselineVerifyCommand({
+      cfg: {
+        baseline_verify_command: 'cfg-baseline',
+        verify_command: 'cfg-verify',
+      },
+      defaults: {
+        baseline_verify_command: 'def-baseline',
+        verify_command: 'def-verify',
+      },
+    })).toBe('cfg-baseline');
+  });
+
+  it('falls back to defaults.baseline_verify_command when cfg lacks one', () => {
+    expect(resolveBaselineVerifyCommand({
+      cfg: { verify_command: 'cfg-verify' },
+      defaults: {
+        baseline_verify_command: 'def-baseline',
+        verify_command: 'def-verify',
+      },
+    })).toBe('def-baseline');
+  });
+
+  it('falls back to cfg.verify_command before defaults.verify_command', () => {
+    expect(resolveBaselineVerifyCommand({
+      cfg: { verify_command: 'cfg-verify' },
+      defaults: { verify_command: 'def-verify' },
+    })).toBe('cfg-verify');
+  });
+
+  it('falls back to defaults.verify_command when cfg has nothing', () => {
+    expect(resolveBaselineVerifyCommand({
+      cfg: {},
+      defaults: { verify_command: 'def-verify' },
+    })).toBe('def-verify');
+  });
+
+  it('treats empty strings as missing for cfg.baseline_verify_command', () => {
+    expect(resolveBaselineVerifyCommand({
+      cfg: { baseline_verify_command: '', verify_command: 'cfg-verify' },
+      defaults: {},
+    })).toBe('cfg-verify');
   });
 });
 
