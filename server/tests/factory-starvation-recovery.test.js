@@ -447,7 +447,11 @@ describe('buildStarvationRecoveryScope', () => {
       noYieldScoutCount: 0,
     });
     expect(scope).toContain('## Evidence requirement');
-    expect(scope).toMatch(/MUST.*exemplar_files/i);
+    // Phase G broadened "Every pattern you emit MUST have ... exemplar_files"
+    // into "Every pattern OR concrete item MUST have ... at least one path"
+    // so the rule covers both __PATTERNS_READY__ (with exemplar_files) and
+    // __SCOUT_COMPLETE__ concrete_factory_work_items (with allowed_files).
+    expect(scope).toMatch(/MUST have at least one path/i);
     expect(scope).toMatch(/list_directory.*search_files|search_files.*list_directory/);
     expect(scope).toMatch(/may NOT invent file paths/i);
   });
