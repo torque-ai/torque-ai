@@ -43,6 +43,13 @@ const SERVER_DB_DIR = path.join(__dirname, '../server/db');
  *      automatically, so a query like `WHERE id = ?` against a table with
  *      `id INTEGER PRIMARY KEY` is index-covered even though no explicit
  *      `CREATE INDEX` mentions it.
+ *
+ * The CREATE TABLE scanner is line-based rather than regex-bounded so it
+ * handles both inline DDL (`CREATE TABLE foo (...);`) and the JS-array
+ * pattern used in db/migrations.js (`['CREATE TABLE foo (', 'col TYPE,
+ * ', ')'].join('\\n')`). The previous regex-bounded approach failed on
+ * the latter because the closing `)` is followed by `,]` rather than `;`,
+ * so the body capture stalled or absorbed unrelated content.
  */
 function extractIndexColumns(schemaText) {
   const result = new Map();
@@ -56,32 +63,50 @@ function extractIndexColumns(schemaText) {
     result.get(table).push(cols);
   }
 
-  // CREATE TABLE blocks - capture the table name and the body so we can
-  // mine primary-key declarations.
-  const tableRe = /CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(\w+)\s*\(([\s\S]*?)\)\s*;/gi;
-  while ((m = tableRe.exec(schemaText)) !== null) {
-    const table = m[1].toLowerCase();
-    const body = m[2];
+  // CREATE TABLE blocks — find the start line and walk forward up to N
+  // lines until we hit a line that's just a closing `)` (with optional
+  // trailing punctuation/quotes from JS-array DDL). Within that window,
+  // mine column-level and table-level PRIMARY KEY declarations.
+  const lines = schemaText.split('\n');
+  const startRe = /CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(\w+)\s*\(/i;
+  const closeRe = /^[^\w]*\)['"`,;\s]*$/;
+  // Column-level PK matcher tolerates a leading quote/whitespace prefix
+  // so it matches both raw SQL (`id INTEGER PRIMARY KEY,`) and the
+  // string-array DDL pattern (`'  id INTEGER PRIMARY KEY,',`).
+  const colPkRe = /^[^\w]*['"`]?\s*(\w+)\s+[A-Z][^,]*\bPRIMARY\s+KEY\b/i;
+  const tablePkRe = /\bPRIMARY\s+KEY\s*\(([^)]+)\)/i;
+
+  for (let i = 0; i < lines.length; i++) {
+    const startMatch = lines[i].match(startRe);
+    if (!startMatch) continue;
+    const table = startMatch[1].toLowerCase();
     const pkCols = [];
+    const window = Math.min(lines.length, i + 80);
 
-    // Column-level PK: e.g. `id INTEGER PRIMARY KEY AUTOINCREMENT,`
-    const colPkRe = /^\s*(\w+)\s+[A-Z][^,\n]*\bPRIMARY\s+KEY\b/gim;
-    let pm;
-    while ((pm = colPkRe.exec(body)) !== null) {
-      pkCols.push(pm[1].toLowerCase());
-    }
+    for (let j = i; j < window; j++) {
+      const line = lines[j];
 
-    // Table-level PK: e.g. `PRIMARY KEY (col1, col2)`
-    const tablePkRe = /\bPRIMARY\s+KEY\s*\(([^)]+)\)/gi;
-    while ((pm = tablePkRe.exec(body)) !== null) {
-      const cols = pm[1].split(',').map((c) => c.trim().replace(/\s+.*/, '').toLowerCase()).filter(Boolean);
-      if (cols.length) pkCols.push(...cols);
+      const colPkMatch = line.match(colPkRe);
+      if (colPkMatch) {
+        const cand = colPkMatch[1].toLowerCase();
+        // Skip false positive when the matched word is "PRIMARY" itself
+        // (i.e., the table-level form `PRIMARY KEY (...)` on its own line).
+        if (cand !== 'primary') pkCols.push(cand);
+      }
+
+      const tablePkMatch = line.match(tablePkRe);
+      if (tablePkMatch) {
+        const cols = tablePkMatch[1].split(',').map((c) => c.trim().replace(/\s+.*/, '').toLowerCase()).filter(Boolean);
+        if (cols.length) pkCols.push(...cols);
+      }
+
+      // Stop at a line that's effectively the closing paren of the
+      // CREATE TABLE — bare `)`, `'),`, `');` etc.
+      if (j > i && closeRe.test(line)) break;
     }
 
     if (pkCols.length) {
       if (!result.has(table)) result.set(table, []);
-      // Treat the PK as a single multi-column index (matches SQLite's
-      // covering behaviour for prefix lookups).
       result.get(table).push([...new Set(pkCols)]);
     }
   }
