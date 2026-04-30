@@ -366,6 +366,102 @@ describe('factory hardening end-to-end', () => {
     expect(verifyImpl).not.toHaveBeenCalled();
   });
 
+  it('Phase E: zero-diff with prior auto_committed_task advances to VERIFY (not IDLE/unactionable)', async () => {
+    // Regression for the live failure on DLPhone work item #2097
+    // (2026-04-29). qwen3-coder:30b's first EXECUTE attempt landed
+    // commit 507350f at 22:47:48 (a real C# test in the work item's
+    // allowed_files). Two follow-up retries no-op'd at 22:51:36 and
+    // 22:51:47 because the work was already done. Without this fix,
+    // the zero-diff short-circuit rejected the work item even though
+    // the diff had landed cleanly. The right behavior: detect the
+    // prior auto_committed_task in the batch and advance to VERIFY
+    // so the test that was just written gets validated.
+    const project = createProject({ config: { execute_mode: 'suppress' } });
+    const planPath = writePlanFile();
+    const workItem = factoryIntake.createWorkItem({
+      project_id: project.id,
+      source: 'plan_file',
+      title: 'Diff already landed; retries were benign no-ops',
+      description: 'Batch produced a real commit on the first attempt; subsequent retries had nothing to do.',
+      requestor: 'test',
+      status: 'verifying',
+      origin: { plan_path: planPath },
+    });
+    const batchId = `factory-${project.id}-${workItem.id}`;
+    const instanceId = randomUUID();
+    const now = new Date('2026-04-29T22:51:50.000Z').toISOString();
+
+    factoryIntake.updateWorkItem(workItem.id, {
+      batch_id: batchId,
+      claimed_by_instance_id: instanceId,
+    });
+    dbHandle.prepare(`
+      INSERT INTO factory_loop_instances (
+        id, project_id, work_item_id, batch_id, loop_state, paused_at_stage, last_action_at, created_at
+      )
+      VALUES (?, ?, ?, ?, 'EXECUTE', NULL, ?, ?)
+    `).run(instanceId, project.id, workItem.id, batchId, now, now);
+    factoryHealth.updateProject(project.id, {
+      loop_state: LOOP_STATES.EXECUTE,
+      loop_batch_id: batchId,
+      loop_last_action_at: now,
+      loop_paused_at_stage: null,
+    });
+
+    // The real commit landed FIRST in the batch...
+    insertDecision({
+      projectId: project.id,
+      batchId,
+      action: 'auto_committed_task',
+      createdAt: '2026-04-29T22:47:48.000Z',
+    });
+    // ...then two no-op retries (Phase D's verify-retry path with the
+    // diff already done — nothing left to commit).
+    insertDecision({
+      projectId: project.id,
+      batchId,
+      action: 'auto_commit_skipped_clean',
+      createdAt: '2026-04-29T22:51:36.000Z',
+    });
+    insertDecision({
+      projectId: project.id,
+      batchId,
+      action: 'auto_commit_skipped_clean',
+      createdAt: '2026-04-29T22:51:47.000Z',
+    });
+
+    const advanced = await loopController.advanceLoopForProject(project.id);
+
+    // New state should be VERIFY (not IDLE), and the reason should
+    // signal "completed after no-op retries" not "zero-diff rejection".
+    expect(advanced).toMatchObject({
+      previous_state: LOOP_STATES.EXECUTE,
+      new_state: LOOP_STATES.VERIFY,
+      paused_at_stage: null,
+      reason: 'execute_completed_after_no_op_retries',
+    });
+    expect(advanced.stage_result).toMatchObject({
+      status: 'completed',
+      reason: 'execute_completed_after_no_op_retries',
+    });
+
+    // Work item must NOT be marked unactionable — the diff IS done.
+    const wi = factoryIntake.getWorkItem(workItem.id);
+    expect(wi.status).not.toBe('unactionable');
+    expect(wi.reject_reason).not.toBe('zero_diff_across_retries');
+
+    // The Phase E decision should be logged once; the legacy
+    // execute_zero_diff_short_circuit decision should NOT fire.
+    expect(dbHandle.prepare(`
+      SELECT COUNT(*) AS count FROM factory_decisions
+      WHERE project_id = ? AND batch_id = ? AND action = 'execute_completed_after_no_op_retries'
+    `).get(project.id, batchId).count).toBe(1);
+    expect(dbHandle.prepare(`
+      SELECT COUNT(*) AS count FROM factory_decisions
+      WHERE project_id = ? AND batch_id = ? AND action = 'execute_zero_diff_short_circuit'
+    `).get(project.id, batchId).count).toBe(0);
+  });
+
   it('terminates VERIFY when verify review rejects and pauses the project', async () => {
     const project = createProject({ config: { verify_command: 'npm test' } });
     const planPath = writePlanFile();
