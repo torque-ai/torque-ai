@@ -46,6 +46,23 @@ const REJECT_RECOVERY_CONFIG_DEFAULTS = Object.freeze({
   reject_recovery_max_reopens: '1',
 });
 
+const REPLAN_RECOVERY_CONFIG_DEFAULTS = Object.freeze({
+  replan_recovery_enabled: '0',
+  replan_recovery_sweep_interval_ms: '900000',
+  replan_recovery_hard_cap: '3',
+  replan_recovery_max_per_project_per_sweep: '1',
+  replan_recovery_max_global_per_sweep: '5',
+  replan_recovery_skip_if_open_count_gte: '3',
+  replan_recovery_cooldown_ms_attempt_0: '3600000',
+  replan_recovery_cooldown_ms_attempt_1: '86400000',
+  replan_recovery_cooldown_ms_attempt_2: '259200000',
+  replan_recovery_strategy_timeout_ms: '90000',
+  replan_recovery_strategy_timeout_ms_escalate: '5000',
+  replan_recovery_history_max_entries: '10',
+  replan_recovery_split_max_children: '5',
+  replan_recovery_split_max_depth: '2',
+});
+
 function parseBooleanConfigValue(value, fallback = false) {
   if (value === undefined || value === null || value === '') {
     return fallback;
@@ -71,7 +88,9 @@ function parsePositiveIntegerConfigValue(value, fallback) {
 function readConfigWithDefault(key) {
   const value = getConfig(key);
   if (value === undefined || value === null || value === '') {
-    return REJECT_RECOVERY_CONFIG_DEFAULTS[key] ?? null;
+    return REJECT_RECOVERY_CONFIG_DEFAULTS[key]
+      ?? REPLAN_RECOVERY_CONFIG_DEFAULTS[key]
+      ?? null;
   }
   return value;
 }
@@ -94,6 +113,32 @@ function getRejectRecoveryConfig() {
       readConfigWithDefault('reject_recovery_max_reopens'),
       Number.parseInt(REJECT_RECOVERY_CONFIG_DEFAULTS.reject_recovery_max_reopens, 10),
     ),
+  };
+}
+
+function getReplanRecoveryConfig() {
+  const intDefault = (key) => Number.parseInt(REPLAN_RECOVERY_CONFIG_DEFAULTS[key], 10);
+  const intRead = (key) => parsePositiveIntegerConfigValue(readConfigWithDefault(key), intDefault(key));
+  return {
+    enabled: parseBooleanConfigValue(
+      readConfigWithDefault('replan_recovery_enabled'),
+      parseBooleanConfigValue(REPLAN_RECOVERY_CONFIG_DEFAULTS.replan_recovery_enabled),
+    ),
+    sweepIntervalMs: intRead('replan_recovery_sweep_interval_ms'),
+    hardCap: intRead('replan_recovery_hard_cap'),
+    maxPerProjectPerSweep: intRead('replan_recovery_max_per_project_per_sweep'),
+    maxGlobalPerSweep: intRead('replan_recovery_max_global_per_sweep'),
+    skipIfOpenCountGte: intRead('replan_recovery_skip_if_open_count_gte'),
+    cooldownMs: [
+      intRead('replan_recovery_cooldown_ms_attempt_0'),
+      intRead('replan_recovery_cooldown_ms_attempt_1'),
+      intRead('replan_recovery_cooldown_ms_attempt_2'),
+    ],
+    strategyTimeoutMs: intRead('replan_recovery_strategy_timeout_ms'),
+    strategyTimeoutMsEscalate: intRead('replan_recovery_strategy_timeout_ms_escalate'),
+    historyMaxEntries: intRead('replan_recovery_history_max_entries'),
+    splitMaxChildren: intRead('replan_recovery_split_max_children'),
+    splitMaxDepth: intRead('replan_recovery_split_max_depth'),
   };
 }
 
@@ -248,6 +293,7 @@ function createConfigCore({ db: dbInstance }) {
     getAllConfig,
     getProviderRateLimits,
     getRejectRecoveryConfig,
+    getReplanRecoveryConfig,
   };
 }
 
@@ -261,8 +307,10 @@ module.exports = {
   getAllConfig,
   getProviderRateLimits,
   REJECT_RECOVERY_CONFIG_DEFAULTS,
+  REPLAN_RECOVERY_CONFIG_DEFAULTS,
   parseBooleanConfigValue,
   parsePositiveIntegerConfigValue,
   getRejectRecoveryConfig,
+  getReplanRecoveryConfig,
   createConfigCore,
 };

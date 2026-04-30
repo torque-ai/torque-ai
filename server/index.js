@@ -1431,6 +1431,20 @@ function init() {
     debugLog(`Restart barrier cleanup failed (non-fatal): ${err.message}`);
   }
 
+  // Replan-recovery startup: register strategies + clear stale claims from prior instances.
+  try {
+    const { bootstrapReplanRecovery } = require('./factory/replan-recovery-bootstrap');
+    const { cleanupStaleReplanClaims } = require('./factory/replan-recovery');
+    bootstrapReplanRecovery();
+    const instanceId = process.env.TORQUE_INSTANCE_ID || 'default';
+    const cleared = cleanupStaleReplanClaims(db.getDbInstance(), instanceId);
+    if (cleared > 0) {
+      debugLog(`Cleared ${cleared} stale replan-recovery claim(s) from prior instance(s)`);
+    }
+  } catch (err) {
+    debugLog(`replan-recovery startup hook failed (non-fatal): ${err.message}`);
+  }
+
   // Instance-aware orphan cleanup — distinguishes tasks from crashed instances vs active siblings
   try {
     const runningTasks = db.getDbInstance().prepare(`

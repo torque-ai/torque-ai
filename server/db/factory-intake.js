@@ -7,11 +7,13 @@ const VALID_SOURCES = new Set([
   'self_generated', 'ci',
   'api', 'webhook', 'manual',
   'plan_file', 'architect',
+  'recovery_split',
 ]);
 const VALID_STATUSES = new Set([
   'pending', 'triaged', 'in_progress', 'completed', 'rejected',
   'intake', 'prioritized', 'planned', 'executing', 'verifying', 'shipped',
   'shipped_stale', 'unactionable',
+  'needs_review', 'superseded',
 ]);
 const REJECT_REASONS = Object.freeze(new Set([
   'meta_task_no_code_output',
@@ -21,7 +23,7 @@ const REJECT_REASONS = Object.freeze(new Set([
   'branch_stale_vs_base',
   'pre_written_plan_rejected_by_quality_gate',
 ]));
-const CLOSED_STATUSES = new Set(['completed', 'rejected', 'shipped', 'shipped_stale', 'unactionable']);
+const CLOSED_STATUSES = new Set(['completed', 'rejected', 'shipped', 'shipped_stale', 'unactionable', 'needs_review', 'superseded']);
 const PRIORITY_LEVELS = Object.freeze({
   low: 30,
   default: 50,

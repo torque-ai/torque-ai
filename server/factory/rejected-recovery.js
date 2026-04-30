@@ -48,6 +48,7 @@ const NON_RECOVERABLE_REJECT_REASON_PATTERNS = Object.freeze([
   /^cannot_generate_plan:/i,
   /^replan_generation_failed$/i,
   /^plan_quality_gate_rejected_after_2_attempts$/i,
+  /^dismissed_from_inbox:/i,
 ]);
 
 let lastSweepAtMs = null;

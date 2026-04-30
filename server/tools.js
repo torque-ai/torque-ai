@@ -156,6 +156,7 @@ const HANDLER_MODULES = [
   require('./handlers/pattern-handlers'),
   require('./handlers/auto-recovery-handlers'),
   require('./handlers/factory-handlers'),
+  require('./handlers/recovery-inbox-handlers'),
   evidenceRiskHandlers,
   reviewHandlers,
 ];

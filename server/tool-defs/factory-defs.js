@@ -793,6 +793,72 @@ const tools = [
       required: ['project'],
     },
   },
+  {
+    name: 'list_recovery_inbox',
+    description: 'List factory work items in the replan-recovery inbox (status=needs_review). These items exhausted automatic recovery attempts and need a human decision: retry, edit-and-retry, decompose, or dismiss.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        project_id: { type: 'string', description: 'Optional project ID to filter to one project' },
+      },
+    },
+  },
+  {
+    name: 'inspect_recovery_item',
+    description: 'Inspect a specific recovery-inbox item: full work-item detail, parsed recovery_history_json, and all factory_decisions logged for this item.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'integer', description: 'Work item ID' },
+      },
+      required: ['id'],
+    },
+  },
+  {
+    name: 'revive_recovery_item',
+    description: 'Revive an item from the recovery inbox. mode=retry resets attempts to 0 and pending status. mode=edit applies updates and resets. mode=split creates user-supplied children, parent superseded.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'integer', description: 'Work item ID' },
+        mode: { type: 'string', enum: ['retry', 'edit', 'split'], description: 'Revive mode' },
+        updates: {
+          type: 'object',
+          description: 'For mode=edit: title/description/constraints to apply',
+          properties: {
+            title: { type: 'string' },
+            description: { type: 'string' },
+            constraints: { type: 'object' },
+          },
+        },
+        children: {
+          type: 'array',
+          description: 'For mode=split: array of {title, description} child specs (length >= 2)',
+          items: {
+            type: 'object',
+            properties: {
+              title: { type: 'string' },
+              description: { type: 'string' },
+            },
+            required: ['title', 'description'],
+          },
+        },
+      },
+      required: ['id', 'mode'],
+    },
+  },
+  {
+    name: 'dismiss_recovery_item',
+    description: 'Permanently dismiss an inbox item. Status -> unactionable with reject_reason "dismissed_from_inbox: <reason>". Excluded from future recovery sweeps.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'integer', description: 'Work item ID' },
+        reason: { type: 'string', description: 'Why this item is being dismissed' },
+      },
+      required: ['id', 'reason'],
+    },
+  },
 ];
 
 module.exports = tools;

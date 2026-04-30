@@ -50,7 +50,7 @@ const logger = require('../logger').child({ component: 'factory-tick' });
 const DEFAULT_TICK_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 const activeTimers = new Map(); // project_id → intervalId
 const ACTIVE_FACTORY_TASK_STATUSES = Object.freeze(['queued', 'running', 'pending', 'blocked', 'retry_scheduled']);
-const CLOSED_FACTORY_WORK_ITEM_STATUSES = new Set(['completed', 'shipped', 'rejected', 'unactionable']);
+const CLOSED_FACTORY_WORK_ITEM_STATUSES = new Set(['completed', 'shipped', 'rejected', 'unactionable', 'needs_review', 'superseded']);
 const TERMINAL_FACTORY_BATCH_TASK_STATUSES = new Set(['completed', 'shipped', 'cancelled', 'failed', 'skipped']);
 const ORPHAN_INTERNAL_FACTORY_PROJECTS = new Set(['factory-architect', 'factory-plan']);
 const DEFAULT_TASK_CANCEL_GRACE_MS = Math.max(
@@ -1027,6 +1027,24 @@ async function tickProject(project) {
           logger,
           config: rejectRecoveryConfig,
         });
+      }
+
+      // Replan-recovery — idea-side rejection sweep. Off by default; opt-in
+      // per environment via replan_recovery_enabled.
+      try {
+        const { runReplanRecoverySweep } = require('./replan-recovery');
+        const { bootstrapReplanRecovery } = require('./replan-recovery-bootstrap');
+        const { getReplanRecoveryConfig } = require('../db/config-core');
+        bootstrapReplanRecovery();
+        await runReplanRecoverySweep({
+          db,
+          logger,
+          config: getReplanRecoveryConfig(),
+          eventBus,
+          instanceId: process.env.TORQUE_INSTANCE_ID || 'default',
+        });
+      } catch (replanErr) {
+        logger.error('replan-recovery sweep threw', { err: replanErr.message });
       }
 
       // Auto-recovery sweep — once per tick, across all eligible projects.
