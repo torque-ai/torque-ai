@@ -90,6 +90,8 @@ describe('pre-push-hook staging-branch invariants', () => {
     expect(src).toMatch(/reuse_base_node_modules\s*\(\)/);
     expect(src).toMatch(/TORQUE_REMOTE_BASE_PROJECT_PATH/);
     expect(src).toMatch(/mklink \/J/);
+    expect(src).toMatch(/New-Item -ItemType Junction/);
+    expect(src).toMatch(/could not link \\\$dir\/node_modules quickly/);
     expect(src).toMatch(/using \\\$dir dependencies from base checkout/);
     expect(src).toMatch(/using \\\$dir dependencies from base checkout via PATH/);
     expect(src).toMatch(/npm install --no-audit --no-fund --prefer-offline/);

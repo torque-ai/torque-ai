@@ -494,7 +494,10 @@ reuse_base_node_modules() {
   if [ ! -e "\$dir/node_modules" ]; then
     target_win="\$(remote_path_to_windows "\$dir/node_modules")"
     base_win="\$(remote_path_to_windows "\$base_modules")"
-    cmd //c "mklink /J \"\$target_win\" \"\$base_win\"" >/dev/null 2>&1 || return 1
+    if ! cmd //c "mklink /J \"\$target_win\" \"\$base_win\"" >/dev/null 2>&1; then
+      powershell.exe -NoProfile -Command "New-Item -ItemType Junction -Path '\$target_win' -Target '\$base_win' -ErrorAction Stop | Out-Null" >/dev/null 2>&1 || \
+        echo "[\$phase] [setup] could not link \$dir/node_modules quickly; using base dependencies via PATH"
+    fi
   fi
 
   if dependency_tree_ok "\$dir"; then
