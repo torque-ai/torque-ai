@@ -711,6 +711,58 @@ Edit server/factory/plan-executor.js and make the requested behavior change. Kee
     });
   });
 
+  it('uses scoped work-item verification before the broad project default', async () => {
+    const { project, workItem } = registerPlanProject({
+      config: {
+        verify_command: 'dotnet test simtests/SimCore.DotNet.Tests.csproj -c Release',
+      },
+    });
+    const scopedCommand = 'dotnet test simtests/SimCore.DotNet.Tests.csproj -c Release --filter FullyQualifiedName~LockstepTests';
+    factoryIntake.updateWorkItem(workItem.id, {
+      description: `Exercise EXECUTE safely.\n\nVerification: torque-remote ${scopedCommand}`,
+    });
+    const batchId = `factory-${project.id}-${workItem.id}`;
+    const wtPath = path.join(project.path, '.worktrees', 'feat-factory-scoped-verify');
+    fs.mkdirSync(wtPath, { recursive: true });
+    const worktreeRunner = {
+      createForBatch: vi.fn(async () => ({
+        id: 'vc-worktree-scoped-verify',
+        branch: 'feat/factory-scoped-verify',
+        worktreePath: wtPath,
+      })),
+      verify: vi.fn(async () => ({
+        passed: true,
+        output: 'ok',
+        durationMs: 18,
+      })),
+      mergeToMain: vi.fn(),
+      abandon: vi.fn(),
+    };
+    routingModule.handleSmartSubmitTask = vi.fn(async (_args) => {
+      insertBatchTask(db, {
+        taskId: 'scoped-verify-task-1',
+        batchId,
+        status: 'completed',
+      });
+      return { task_id: 'scoped-verify-task-1' };
+    });
+    loopController.setWorktreeRunnerForTests(worktreeRunner);
+
+    await advanceSupervisedPlanProject(project.id);
+    await loopController.advanceLoopForProject(project.id);
+
+    expect(worktreeRunner.verify).toHaveBeenCalledTimes(1);
+    expect(worktreeRunner.verify).toHaveBeenCalledWith(expect.objectContaining({
+      verifyCommand: scopedCommand,
+    }));
+    expect(listDecisionRows(db, project.id).find((d) => d.action === 'worktree_verify_passed')).toMatchObject({
+      outcome: expect.objectContaining({
+        verify_command: scopedCommand,
+        verify_command_source: 'work_item_description',
+      }),
+    });
+  });
+
   it('marks stale-branch verify conflicts unactionable and advances instead of looping at VERIFY', async () => {
     const { project, workItem } = registerPlanProject();
     const batchId = `factory-${project.id}-${workItem.id}`;

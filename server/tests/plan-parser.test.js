@@ -1,5 +1,10 @@
 'use strict';
-const { parsePlanFile, extractVerifyCommand } = require('../factory/plan-parser');
+const {
+  parsePlanFile,
+  extractVerifyCommand,
+  extractExplicitVerifyCommand,
+  normalizeVerifyCommand,
+} = require('../factory/plan-parser');
 
 const SAMPLE = `# Feature X Plan
 
@@ -103,6 +108,30 @@ describe('parsePlanFile', () => {
   it('extractVerifyCommand reads Tech Stack hints + project_defaults override', () => {
     expect(extractVerifyCommand(SAMPLE, null)).toMatch(/vitest|tsc|npm test/i);
     expect(extractVerifyCommand(SAMPLE, 'npm run check')).toBe('npm run check');
+  });
+
+  it('extractVerifyCommand prefers explicit scoped verification over project defaults', () => {
+    const plan = `${SAMPLE}
+
+Verification: torque-remote dotnet test simtests/SimCore.DotNet.Tests.csproj -c Release --filter FullyQualifiedName~LockstepTests
+`;
+    expect(extractVerifyCommand(plan, 'dotnet test simtests/SimCore.DotNet.Tests.csproj -c Release'))
+      .toBe('dotnet test simtests/SimCore.DotNet.Tests.csproj -c Release --filter FullyQualifiedName~LockstepTests');
+  });
+
+  it('extractExplicitVerifyCommand reads Validate with code spans', () => {
+    const plan = [
+      '# Focused plan',
+      'Acceptance criterion: run the focused regression. Validate with `torque-remote dotnet test simtests/SimCore.DotNet.Tests.csproj -c Release --filter FullyQualifiedName~LockstepTests`.',
+    ].join('\n');
+
+    expect(extractExplicitVerifyCommand(plan))
+      .toBe('dotnet test simtests/SimCore.DotNet.Tests.csproj -c Release --filter FullyQualifiedName~LockstepTests');
+  });
+
+  it('normalizeVerifyCommand strips the factory transport prefix', () => {
+    expect(normalizeVerifyCommand('torque-remote npm test'))
+      .toBe('npm test');
   });
 
   it('returns header metadata (title, goal, tech_stack)', () => {

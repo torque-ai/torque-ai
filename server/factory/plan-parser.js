@@ -324,8 +324,61 @@ function parsePlanMarkdown(content) {
   };
 }
 
+function normalizeVerifyCommand(command) {
+  let normalized = String(command || '').trim();
+  if (!normalized) return null;
+
+  normalized = normalized
+    .replace(/^`+|`+$/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/[.;,]+$/g, '')
+    .trim();
+
+  const quote = normalized[0];
+  if ((quote === '"' || quote === "'") && normalized.endsWith(quote)) {
+    normalized = normalized.slice(1, -1).trim();
+  }
+
+  const remoteBash = normalized.match(/^torque-remote\s+bash\s+-lc\s+(['"])([\s\S]+)\1$/i);
+  if (remoteBash) {
+    return normalizeVerifyCommand(remoteBash[2]);
+  }
+
+  if (/^torque-remote\s+/i.test(normalized)) {
+    normalized = normalized.replace(/^torque-remote\s+/i, '').trim();
+  }
+
+  return normalized || null;
+}
+
+function extractCommandFromVerifyText(text) {
+  const line = String(text || '').replace(/\*\*/g, '').trim();
+  if (!line) return null;
+
+  const explicit =
+    line.match(/\b(?:Verification|Verify command|Validation command)\s*:\s*(.+)$/i)
+    || line.match(/\b(?:Validate|Verify)\s+with\s+(.+)$/i);
+  if (!explicit) return null;
+
+  const raw = explicit[1].trim();
+  const codeSpan = raw.match(/`([^`]+)`/);
+  return normalizeVerifyCommand(codeSpan ? codeSpan[1] : raw);
+}
+
+function extractExplicitVerifyCommand(planContent) {
+  for (const line of String(planContent || '').split(/\r?\n/)) {
+    const command = extractCommandFromVerifyText(line);
+    if (command) return command;
+  }
+  return null;
+}
+
 function extractVerifyCommand(planContent, projectDefault) {
-  if (projectDefault) return projectDefault;
+  const explicit = extractExplicitVerifyCommand(planContent);
+  if (explicit) return explicit;
+  const defaultCommand = normalizeVerifyCommand(projectDefault);
+  if (defaultCommand) return defaultCommand;
   const tech = (planContent.match(/\*\*Tech Stack:\*\*\s*([^\n]+)/) || [])[1] || '';
   if (/vitest/i.test(tech)) return 'npx vitest run';
   if (/tsc|typescript/i.test(tech)) return 'npx tsc --noEmit && npx vitest run';
@@ -333,4 +386,10 @@ function extractVerifyCommand(planContent, projectDefault) {
   return 'npm test';
 }
 
-module.exports = { parsePlanFile, parsePlanMarkdown, extractVerifyCommand };
+module.exports = {
+  parsePlanFile,
+  parsePlanMarkdown,
+  extractVerifyCommand,
+  extractExplicitVerifyCommand,
+  normalizeVerifyCommand,
+};
