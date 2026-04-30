@@ -1064,6 +1064,27 @@ const MIGRATIONS = [
     },
     down: 'DROP INDEX IF EXISTS idx_tasks_review_status',
   },
+  {
+    version: 49,
+    name: 'add_pipeline_steps_status_index',
+    // server/db/pipeline-crud.js scans pipeline_steps for stuck steps:
+    // `WHERE ps.status = 'running' AND t.status IN (...)` joined with
+    // tasks. The table only had (pipeline_id, step_order); the
+    // status-leading filter walked every step row before joining.
+    // Since 'running' is a small subset of completed/failed history,
+    // an index on status is highly selective.
+    up: function(sqliteDb) {
+      // Tolerate minimal-schema test fixtures. Same pattern as v37 / v39+.
+      const tableExists = sqliteDb.prepare(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='pipeline_steps'"
+      ).get();
+      if (!tableExists) return;
+      sqliteDb.prepare(
+        'CREATE INDEX IF NOT EXISTS idx_pipeline_steps_status ON pipeline_steps(status)'
+      ).run();
+    },
+    down: 'DROP INDEX IF EXISTS idx_pipeline_steps_status',
+  },
 ];
 
 function ensureMigrationTable(sqliteDb) {
