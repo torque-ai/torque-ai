@@ -106,6 +106,85 @@ function verifyCompletedTaskArtifacts(task, working_directory) {
   return { trust: true, reason: existing.length === paths.length ? 'all_artifacts_present' : 'partial_artifacts_present', missing };
 }
 
+// Phase N (2026-04-30): pre-submission existence guard for plan tasks.
+//
+// Plans authored from scout/architect outputs sometimes reference files
+// that don't exist in the factory worktree (e.g. scout cited an untracked
+// file from main, or the architect imagined a path). When ollama gets such
+// a plan, it tries `read_file` on the missing path, gets ERROR, retries the
+// directory listing, can't find the file, and exits in 4-5 seconds with
+// `no_progress` after 7 tool iterations. The auto-recovery loop then
+// resubmits the same broken plan — observed live with DLPhone work item
+// 2117 (11+ identical failures over an hour) before the work item was
+// manually rejected.
+//
+// The guard runs only for "edit-style" tasks (modify/replace/update
+// language) — "create" tasks legitimately reference files that don't
+// exist yet. Returns { ok: true } when the task can proceed; otherwise
+// { ok: false, reason, missing, intent }.
+const EDIT_VERBS_RE = /\b(edit|modify|update|replace|repair|fix|refactor|rename|extend|change)\b/i;
+const CREATE_VERBS_RE = /\b(create|add|new|introduce|generate)\b\s+(?:a\s+|an\s+)?\b(?:file|module|class|component|test)/i;
+const CREATE_PHRASE_RE = /\b(?:create|new)\b[^.]{0,40}\b(?:if (?:it )?(?:does not |doesn't )exist|when missing|otherwise)\b/i;
+
+function verifyTaskTargetsForSubmission(task, working_directory, prompt) {
+  if (!working_directory) {
+    return { ok: true, reason: 'no_working_directory' };
+  }
+  const paths = extractTaskFilePaths(task, []);
+  if (paths.length === 0) {
+    return { ok: true, reason: 'no_extractable_paths' };
+  }
+
+  // Detect intent from prompt and task title. "Create" wins over "edit"
+  // when both appear — a task that says "Create X (or edit if it exists)"
+  // is intentionally tolerant of missing files.
+  const text = `${task.task_title || ''}\n${prompt || ''}`;
+  const isCreate = CREATE_VERBS_RE.test(text) || CREATE_PHRASE_RE.test(text);
+  const isEdit = !isCreate && EDIT_VERBS_RE.test(text);
+
+  // Without a clear edit/modify verb, don't gate. Many plans are
+  // ambiguous ("Add X to module Y") and could be either; conservative
+  // default is to let the task run.
+  if (!isEdit) {
+    return { ok: true, reason: 'intent_not_edit', intent: isCreate ? 'create' : 'ambiguous' };
+  }
+
+  const missing = [];
+  for (const p of paths) {
+    const absolute = path.isAbsolute(p) ? p : path.join(working_directory, p);
+    if (!fs.existsSync(absolute)) {
+      missing.push(p);
+    }
+  }
+
+  // All referenced files exist — task can proceed.
+  if (missing.length === 0) {
+    return { ok: true, reason: 'all_targets_present', intent: 'edit' };
+  }
+
+  // ALL files missing under edit intent → blocked. The plan's premise
+  // ("Edit X, Y, Z") is wrong; submitting would just thrash on
+  // read_file(404) until ollama gives up with no_progress.
+  if (missing.length === paths.length) {
+    return {
+      ok: false,
+      reason: 'all_edit_targets_missing',
+      missing,
+      intent: 'edit',
+    };
+  }
+
+  // Partial-miss under edit intent: some files exist, some don't. Often
+  // legitimate (touching one existing file plus creating one new helper).
+  // Don't block, but flag for observability.
+  return {
+    ok: true,
+    reason: 'partial_edit_targets_missing',
+    missing,
+    intent: 'edit',
+  };
+}
+
 function normalizeExecutionMode(executionMode, dryRun) {
   if (EXECUTION_MODES.has(executionMode)) {
     return executionMode;
@@ -186,6 +265,30 @@ function createPlanExecutor({ submit, awaitTask, findReusableTask = null, projec
             plan_path,
             task_number: task.task_number,
             detected_command: detectedCommand,
+          });
+          break;
+        }
+
+        // Phase N (2026-04-30): existence guard for edit-style tasks. If
+        // the plan says "Edit X, Y, Z" but ALL of X/Y/Z are missing in the
+        // factory worktree, ollama will exhaust 7 no-progress iterations
+        // on read_file(404) and exit in 4 seconds. Auto-recovery then
+        // resubmits the same broken plan, looping. Block at materialization
+        // so the work item bubbles up as needs-replan instead of thrashing.
+        const targetCheck = verifyTaskTargetsForSubmission(task, working_directory, prompt);
+        if (!targetCheck.ok) {
+          failed_task = task.task_number;
+          violation = {
+            rule: 'task_targets_missing_files',
+            task_number: task.task_number,
+            intent: targetCheck.intent,
+            missing: targetCheck.missing,
+          };
+          logger.warn(`task ${task.task_number} blocked at materialization — edit targets missing in worktree`, {
+            plan_path,
+            task_number: task.task_number,
+            missing: targetCheck.missing,
+            intent: targetCheck.intent,
           });
           break;
         }
@@ -372,4 +475,4 @@ function createPlanExecutor({ submit, awaitTask, findReusableTask = null, projec
   return { execute };
 }
 
-module.exports = { createPlanExecutor, buildTaskPrompt, tickTaskInFile };
+module.exports = { createPlanExecutor, buildTaskPrompt, tickTaskInFile, verifyTaskTargetsForSubmission };

@@ -329,4 +329,144 @@ dotnet test foo.csproj
     expect(r.violation).toBeUndefined();
     expect(r.dry_run).toBe(true);
   });
+
+  // ─── Phase N: existence guard for edit-style plan tasks ──────────────
+  it('blocks edit-style task when ALL referenced files are missing in worktree', async () => {
+    // Plan says "Edit only X" but X doesn't exist in the working dir.
+    // Without Phase N, ollama would receive this and exit in 4s with
+    // no_progress after 7 read_file(404) iterations, then auto-recovery
+    // would resubmit the same broken plan endlessly. With Phase N the
+    // executor short-circuits at materialization with violation rule
+    // task_targets_missing_files.
+    const PLAN_MISSING = `# X
+
+## Task 1: Replace stale assertions
+
+- [ ] **Step 1: rewrite**
+
+\`\`\`text
+Edit only \`Tests/Missing/PlayMode/SmokeTests.cs\` to replace the stale assertions.
+\`\`\`
+
+- [ ] **Step 2: commit**
+
+\`\`\`bash
+git commit -m "test: refresh smoke"
+\`\`\`
+`;
+    fs.writeFileSync(planPath, PLAN_MISSING);
+    const r = await exec.execute({
+      plan_path: planPath,
+      project: 'p',
+      working_directory: dir,
+    });
+    expect(submitMock).not.toHaveBeenCalled();
+    expect(r.violation?.rule).toBe('task_targets_missing_files');
+    expect(r.violation?.intent).toBe('edit');
+    expect(r.violation?.missing).toEqual(
+      expect.arrayContaining(['Tests/Missing/PlayMode/SmokeTests.cs']),
+    );
+  });
+
+  it('does NOT block when the edit-target file exists in the worktree', async () => {
+    // Same edit-style plan, but now the file actually exists.
+    const targetDir = path.join(dir, 'Tests', 'Missing', 'PlayMode');
+    fs.mkdirSync(targetDir, { recursive: true });
+    fs.writeFileSync(path.join(targetDir, 'SmokeTests.cs'), '// stub');
+
+    const PLAN_PRESENT = `# X
+
+## Task 1: Replace stale assertions
+
+- [ ] **Step 1: rewrite**
+
+\`\`\`text
+Edit only \`Tests/Missing/PlayMode/SmokeTests.cs\` to replace the stale assertions.
+\`\`\`
+
+- [ ] **Step 2: commit**
+
+\`\`\`bash
+git commit -m "test: refresh smoke"
+\`\`\`
+`;
+    fs.writeFileSync(planPath, PLAN_PRESENT);
+    await exec.execute({ plan_path: planPath, project: 'p', working_directory: dir });
+    expect(submitMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('does NOT block when intent is "create" (creating a missing file is legitimate)', async () => {
+    // "Create" tasks legitimately reference non-existent paths — that's
+    // the whole point of greenfield work. The guard must not catch them.
+    const PLAN_CREATE = `# X
+
+## Task 1: Add a new helper module
+
+- [ ] **Step 1: scaffold**
+
+\`\`\`text
+Create a new file \`Modules/NewHelper/Helper.psm1\` exporting a helper function.
+\`\`\`
+
+- [ ] **Step 2: commit**
+
+\`\`\`bash
+git commit -m "feat: add helper"
+\`\`\`
+`;
+    fs.writeFileSync(planPath, PLAN_CREATE);
+    await exec.execute({ plan_path: planPath, project: 'p', working_directory: dir });
+    expect(submitMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('does NOT block when intent is ambiguous (no edit/modify verb)', async () => {
+    // Conservative default: when the prompt doesn't clearly say "edit"
+    // or "create", don't gate. Many legitimate plans phrase work
+    // ambiguously and should proceed to the provider.
+    const PLAN_AMBIGUOUS = `# X
+
+## Task 1: Wire feature flag
+
+- [ ] **Step 1: implementation**
+
+\`\`\`text
+Wire the feature flag through \`src/missing/flag.ts\`.
+\`\`\`
+
+- [ ] **Step 2: commit**
+
+\`\`\`bash
+git commit -m "feat: flag wiring"
+\`\`\`
+`;
+    fs.writeFileSync(planPath, PLAN_AMBIGUOUS);
+    await exec.execute({ plan_path: planPath, project: 'p', working_directory: dir });
+    expect(submitMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('does NOT block partial misses — some files exist, some don\'t (legitimate edit + create combo)', async () => {
+    // Plan: "Edit X (existing), update Y (missing — will be added by edit)".
+    // Common pattern when the edit also adds a referenced helper. Don't gate.
+    fs.writeFileSync(path.join(dir, 'existing.ts'), '// existing');
+
+    const PLAN_PARTIAL = `# X
+
+## Task 1: Edit existing module
+
+- [ ] **Step 1: refactor**
+
+\`\`\`text
+Edit \`existing.ts\` and add a new \`new-helper.ts\` next to it.
+\`\`\`
+
+- [ ] **Step 2: commit**
+
+\`\`\`bash
+git commit -m "refactor: split helper"
+\`\`\`
+`;
+    fs.writeFileSync(planPath, PLAN_PARTIAL);
+    await exec.execute({ plan_path: planPath, project: 'p', working_directory: dir });
+    expect(submitMock).toHaveBeenCalledTimes(1);
+  });
 });
