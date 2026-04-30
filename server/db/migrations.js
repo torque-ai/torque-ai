@@ -1085,6 +1085,35 @@ const MIGRATIONS = [
     },
     down: 'DROP INDEX IF EXISTS idx_pipeline_steps_status',
   },
+  {
+    version: 50,
+    name: 'add_verification_checks_workflow_and_created_at_indexes',
+    // server/db/verification-ledger.js runs two queries on
+    // verification_checks that lacked covering indexes:
+    //   - getCheckSummary(workflowId): WHERE workflow_id = ? GROUP BY ...
+    //   - pruneOldChecks: DELETE WHERE created_at < ?
+    // The table had task_id and phase indexes but nothing on
+    // workflow_id or created_at, so both the ledger summary and the
+    // 90-day retention prune walked every check row. Adding both
+    // indexes lets each query seek directly.
+    up: function(sqliteDb) {
+      // Tolerate minimal-schema test fixtures. Same pattern as v37 / v39+.
+      const tableExists = sqliteDb.prepare(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='verification_checks'"
+      ).get();
+      if (!tableExists) return;
+      sqliteDb.prepare(
+        'CREATE INDEX IF NOT EXISTS idx_verification_checks_workflow ON verification_checks(workflow_id)'
+      ).run();
+      sqliteDb.prepare(
+        'CREATE INDEX IF NOT EXISTS idx_verification_checks_created_at ON verification_checks(created_at)'
+      ).run();
+    },
+    down: [
+      'DROP INDEX IF EXISTS idx_verification_checks_workflow',
+      'DROP INDEX IF EXISTS idx_verification_checks_created_at',
+    ].join('; '),
+  },
 ];
 
 function ensureMigrationTable(sqliteDb) {
