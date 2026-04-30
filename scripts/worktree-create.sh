@@ -2,17 +2,33 @@
 set -euo pipefail
 
 usage() {
-  echo "Usage: scripts/worktree-create.sh <feature-name> [--install]"
-  echo "Example: scripts/worktree-create.sh pii-guard --install"
+  echo "Usage: scripts/worktree-create.sh <feature-name> [--install|--no-install]"
+  echo ""
+  echo "Default: dependencies are installed (npm install in server/ and dashboard/"
+  echo "         when each has package.json). This makes the worktree immediately"
+  echo "         usable for tests/builds. Pass --no-install if you only need"
+  echo "         a docs-only worktree and want creation to stay cheap."
+  echo ""
+  echo "Examples:"
+  echo "  scripts/worktree-create.sh pii-guard               # default (installs deps)"
+  echo "  scripts/worktree-create.sh docs-only --no-install  # skip installs"
 }
 
 FEATURE_NAME=""
-INSTALL_DEPS="false"
+# Install dependencies by default. The prior default of skipping caused
+# silent test failures when worktrees got used immediately for testing
+# (no node_modules → vitest invocation produces empty output → operator
+# can't tell whether tests pass, fail, or never ran).
+INSTALL_DEPS="true"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --install)
       INSTALL_DEPS="true"
+      shift
+      ;;
+    --no-install)
+      INSTALL_DEPS="false"
       shift
       ;;
     -h|--help)

@@ -202,16 +202,43 @@ match_pattern() {
   return 1
 }
 
+command_has_shell_features() {
+  # Detect shell chaining/redirection — when present, prepending
+  # `torque-remote` to the whole string produces a nonsensical command
+  # (e.g. `torque-remote cd X && torque-remote Y` runs cd on the remote
+  # but Y locally). Wrapping in `bash -c` is the only correct shape.
+  local s="$1"
+  [[ "$s" == *"&&"* || "$s" == *"||"* || "$s" == *";"* || "$s" == *"|"* ]] && return 0
+  [[ "$s" == *">"* || "$s" == *"<"* ]] && return 0
+  return 1
+}
+
+build_suggested_command() {
+  local cmd="$1"
+  if command_has_shell_features "$cmd"; then
+    # Escape single quotes inside the user's command for safe wrapping.
+    local escaped="${cmd//\'/\'\\\'\'}"
+    printf "torque-remote bash -c '%s'" "$escaped"
+  else
+    printf "torque-remote %s" "$cmd"
+  fi
+}
+
 while IFS= read -r pattern; do
   [[ -z "$pattern" ]] && continue
   if match_pattern "$pattern"; then
+    suggested=$(build_suggested_command "$command")
     cat >&2 << EOF
 BLOCKED: "$pattern" should run on the remote workstation.
 
-Use:  torque-remote $command
+Use:  $suggested
 
 The remote workstation handles heavy builds/tests. If it's unreachable,
 torque-remote will automatically fall back to local execution.
+Chained commands (cd && X, X | Y, X > out) must be wrapped in
+\`torque-remote bash -c '...'\` so the entire pipeline runs on the
+remote — prepending torque-remote alone only forwards the first
+clause and leaves the rest running locally.
 EOF
     exit 2
   fi

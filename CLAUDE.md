@@ -37,9 +37,9 @@ This is a durable operating rule for Claude, Codex, and any future agent session
 
 ### Creating a Feature Worktree
 
-    scripts/worktree-create.sh <feature-name> [--install]
+    scripts/worktree-create.sh <feature-name> [--install|--no-install]
 
-This creates a worktree at `.worktrees/feat-<name>/` on branch `feat/<name>`. Open that directory in Claude Code to develop the feature. Dependency installs are skipped by default so worktree creation stays cheap; pass `--install` only when that worktree needs local `node_modules`.
+This creates a worktree at `.worktrees/feat-<name>/` on branch `feat/<name>`. Open that directory in Claude Code to develop the feature. **Dependencies are installed by default** (npm install in `server/` and `dashboard/` when each has `package.json`) so the worktree is immediately usable for tests and builds. Pass `--no-install` only for docs-only worktrees where creation cost matters more than test-readiness.
 
 ### During Development
 
@@ -291,6 +291,19 @@ Use `torque-remote` for heavy commands when a remote workstation is configured:
 
 Without `--branch`, `torque-remote` uses the current worktree as the source of truth for the remote run.
 
+**Path discipline for chained commands:** When the user command contains shell features (`&&`, `|`, `;`, redirects), wrap the whole thing in `bash -c` so the entire pipeline runs on the remote, and use **relative paths or `$TORQUE_REMOTE_PROJECT_PATH`** rather than the local worktree absolute path:
+
+    # Right — relative to the project (runner cd's there before exec):
+    torque-remote bash -c "cd server && npx vitest run tests/foo.test.js"
+
+    # Right — explicit env-var reference for clarity:
+    torque-remote bash -c 'cd "$TORQUE_REMOTE_PROJECT_PATH/server" && npx vitest run tests/foo.test.js'
+
+    # Wrong — local absolute path does not exist on the remote:
+    torque-remote bash -c "cd <local-worktree-path>/server && npx vitest..."
+
+`torque-remote` exports two env vars to the inner command: `TORQUE_REMOTE_PROJECT_PATH` (the synced project path on the remote, where your worktree state has been overlaid) and `TORQUE_REMOTE_BASE_PROJECT_PATH` (the base ref's project path). Prefer relative paths from the project root; fall back to `$TORQUE_REMOTE_PROJECT_PATH` only when an absolute path is required.
+
 If the remote is unreachable or overloaded, `torque-remote` falls back to local execution automatically.
 
 **Configuration:**
@@ -452,6 +465,16 @@ Use the container to access services instead of `require('./database')`:
 ## File Safety
 
 Unknown untracked files in `server/docs/`, `server/docs/investigations/`, or other `docs/` directories may be generated reports, audit results, or work products from other sessions. Investigate provenance before deleting them; enforceable cleanup rules are managed by the governance engine and summarized in `Operational Governance`.
+
+## Subagent Dispatch Discipline
+
+When dispatching subagents (via the `Agent` tool or the superpowers `subagent-driven-development` skill) for tasks in this repo, **always include a Monitor-stall bail-out clause** in the prompt. Stock superpowers/Claude prompt templates encourage agents to use `Monitor` to wait for long-running test commands; combined with the `torque-remote-guard` hook and intermittent remote-workstation availability, this routinely produces 20-minute Monitor-loop stalls where the agent burns context budget on a hung pipeline. Symptom: subagent output ends with internal-thinking leak ("Wait — `<<autonomous-loop-dynamic>>` is for /loop sessions...") and no structured report.
+
+Append this clause verbatim to every implementer-style subagent prompt:
+
+> **Bail-out on Monitor stall:** If you start a `Monitor` or `Bash run_in_background` watching for test/build output and the output file remains empty for >2 minutes (or the Monitor times out twice in a row), STOP. Do NOT re-arm. Report `BLOCKED` with `monitor_stall` as the reason and what command was hanging. Do not silently keep waiting; the operator needs to know immediately so they can clean up stuck SSH/processes. This rule applies even when you have `TodoWrite` tasks pending — a stalled test run is a higher-priority signal than completion percentage.
+
+This is operator-mandated for this repo until the underlying torque-remote ↔ remote-workstation reliability issues are resolved (see `feedback_test_infra_degraded_defer_verification.md` in user memory).
 
 ## Harness Problem — Edit Discipline
 
