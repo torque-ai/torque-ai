@@ -689,6 +689,114 @@ async function runArchitectLLM(prompt, project_id, projectPath) {
   return null;
 }
 
+async function submitArchitectJsonPrompt(prompt, project_id, projectPath, kind = 'architect_json') {
+  const taskCore = require('../db/task-core');
+  const { submitFactoryInternalTask } = require('./internal-task-submit');
+
+  const taskDescription = `You are the Architect for a software factory. Read the context below and return ONLY valid JSON output matching the specified format. No explanation outside the JSON.\n\n${prompt}`;
+
+  let taskId;
+  try {
+    const { task_id } = await submitFactoryInternalTask({
+      task: taskDescription,
+      working_directory: projectPath,
+      kind,
+      project_id,
+      timeout_minutes: 5,
+    });
+    taskId = task_id;
+    if (!taskId) return null;
+  } catch (err) {
+    logger.warn(`submitArchitectJsonPrompt: submit failed: ${err.message}`);
+    return null;
+  }
+
+  const deadline = Date.now() + 5 * 60 * 1000;
+  while (Date.now() < deadline) {
+    const task = taskCore.getTask(taskId);
+    if (!task) break;
+    if (task.status === 'completed') return task.output || '';
+    if (task.status === 'failed' || task.status === 'cancelled') return null;
+    await new Promise((resolve) => setTimeout(resolve, 3000));
+  }
+  return null;
+}
+
+function buildRewritePrompt({ workItem, history }) {
+  const recoveryLog = (history.recoveryRecords || [])
+    .map((r) => `  - attempt ${r.attempt}: strategy="${r.strategy}" outcome="${r.outcome}" at ${r.timestamp}`)
+    .join('\n') || '  (none)';
+  return [
+    'You are reviewing a factory work item that failed to plan. Your job is to rewrite the title and description so the architect can produce a plannable, testable, atomic unit.',
+    '',
+    `Original title: ${workItem.title}`,
+    'Original description:',
+    workItem.description || '(empty)',
+    '',
+    `Prior failure reason: ${history.priorReason || workItem.reject_reason || '(unknown)'}`,
+    'Prior recovery attempts:',
+    recoveryLog,
+    '',
+    'Rewrite to be specific, scoped, and testable. Output strict JSON ONLY (no prose, no markdown fence) of the form:',
+    '{ "title": "...", "description": "...", "acceptance_criteria": ["...", "..."] }',
+    '',
+    'The description must be at least 100 characters and describe what changes, where, and why.',
+    'Acceptance criteria must be concrete, testable, and at least 1 entry.',
+  ].join('\n');
+}
+
+function buildDecomposePrompt({ workItem, history, priorPlans }) {
+  const planLog = (priorPlans || [])
+    .map((p) => `### Attempt ${p.attempt}\n${p.planMarkdown || '(empty)'}\nLint errors: ${(p.lintErrors || []).join('; ') || '(none)'}`)
+    .join('\n\n') || '(no prior plans)';
+  return [
+    'You are reviewing a factory work item whose plan failed quality checks twice. Your job is to split it into 2-4 atomic child items, each independently plannable.',
+    '',
+    `Parent title: ${workItem.title}`,
+    'Parent description:',
+    workItem.description || '(empty)',
+    '',
+    'Prior plan attempts and lint failures:',
+    planLog,
+    '',
+    'Split into 2-4 children. Each child must be independently plannable, declare its own acceptance criteria, and reference the parent context where useful.',
+    'Output strict JSON ONLY of the form:',
+    '{ "children": [ { "title": "...", "description": "...", "acceptance_criteria": ["..."], "depends_on_index": 0 } ] }',
+    '',
+    'depends_on_index is optional and refers to a sibling index (0-based). Do not create cycles.',
+    'Each child description must be at least 100 characters.',
+  ].join('\n');
+}
+
+function parseStrictJson(raw, label) {
+  if (typeof raw !== 'string') {
+    throw new Error(`${label}: provider response was not a string`);
+  }
+  const match = raw.match(/\{[\s\S]*\}/);
+  const candidate = match ? match[0] : raw;
+  try {
+    return JSON.parse(candidate);
+  } catch (err) {
+    throw new Error(`${label}: provider returned invalid JSON: ${err.message}`);
+  }
+}
+
+async function rewriteWorkItem({ workItem, history, _testProviderCall, projectPath }) {
+  const prompt = buildRewritePrompt({ workItem, history });
+  const providerCall = _testProviderCall
+    || ((p) => submitArchitectJsonPrompt(p, workItem.project_id, projectPath, 'replan_rewrite'));
+  const raw = await providerCall(prompt, { mode: 'rewrite_work_item' });
+  return parseStrictJson(raw, 'rewriteWorkItem');
+}
+
+async function decomposeWorkItem({ workItem, history, priorPlans, _testProviderCall, projectPath }) {
+  const prompt = buildDecomposePrompt({ workItem, history, priorPlans });
+  const providerCall = _testProviderCall
+    || ((p) => submitArchitectJsonPrompt(p, workItem.project_id, projectPath, 'replan_decompose'));
+  const raw = await providerCall(prompt, { mode: 'decompose_work_item' });
+  return parseStrictJson(raw, 'decomposeWorkItem');
+}
+
 function getArchitectItemPriority(priorityRank) {
   const rank = toFiniteNumber(priorityRank);
   if (rank === null) {
@@ -1017,6 +1125,8 @@ module.exports = {
   runArchitectCycle,
   prioritizeByHealth,
   updateBacklogWorkItemStatuses,
+  rewriteWorkItem,
+  decomposeWorkItem,
   _internalForTests: {
     runArchitectLLM,
     loadActiveVerifyFailureLearnings,
