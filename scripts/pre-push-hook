@@ -449,7 +449,16 @@ prepend_node_modules() {
 
 dependency_tree_ok() {
   dir="\$1"
-  [ -d "\$dir/node_modules" ] && (cd "\$dir" && npm ls --depth=0 >/dev/null 2>&1)
+  [ -d "\$dir/node_modules" ] || return 1
+  [ -e "\$dir/node_modules/.bin/vitest" ] || [ -e "\$dir/node_modules/vitest/vitest.mjs" ] || return 1
+  case "\$dir" in
+    server|*/server)
+      [ -d "\$dir/node_modules/better-sqlite3" ] && [ -d "\$dir/node_modules/tree-sitter" ]
+      ;;
+    *)
+      return 0
+      ;;
+  esac
 }
 
 reuse_base_node_modules() {
@@ -468,13 +477,17 @@ reuse_base_node_modules() {
 
   base_dir="\$base_project_dir/\$dir"
   base_modules="\$base_dir/node_modules"
-  if [ ! -d "\$base_modules" ] || ! (cd "\$base_dir" && npm ls --depth=0 >/dev/null 2>&1); then
+  if ! dependency_tree_ok "\$base_dir"; then
     return 1
   fi
 
   if [ -e "\$dir/node_modules" ] && ! dependency_tree_ok "\$dir"; then
     stale_dir="\$dir/.node_modules-invalid-\$(date +%s 2>/dev/null || echo time)-\$\$"
-    mv "\$dir/node_modules" "\$stale_dir" 2>/dev/null || rm -rf "\$dir/node_modules" 2>/dev/null || true
+    if timeout 20 mv "\$dir/node_modules" "\$stale_dir" 2>/dev/null; then
+      echo "[\$phase] [setup] moved invalid \$dir/node_modules aside"
+    else
+      echo "[\$phase] [setup] could not move invalid \$dir/node_modules quickly; using base dependencies via PATH"
+    fi
   fi
 
   if [ ! -e "\$dir/node_modules" ]; then
@@ -489,7 +502,9 @@ reuse_base_node_modules() {
     return 0
   fi
 
-  return 1
+  prepend_node_modules "\$base_modules"
+  echo "[\$phase] [setup] using \$dir dependencies from base checkout via PATH"
+  return 0
 }
 
 ensure_node_modules() {

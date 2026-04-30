@@ -78,12 +78,16 @@ describe('pre-push-hook staging-branch invariants', () => {
     expect(src).toMatch(/ensure_node_modules dash dashboard/);
     expect(src).toMatch(/ensure_node_modules serv server/);
     expect(src).toMatch(/\[\\\$phase\] \[setup\]/);
-    expect(src).toMatch(/npm ls --depth=0/);
+    expect(src).toMatch(/dependency_tree_ok\s*\(\)/);
+    expect(src).toMatch(/better-sqlite3/);
+    expect(src).toMatch(/tree-sitter/);
+    expect(src).toMatch(/timeout 20 mv/);
     expect(src).toMatch(/invalid dependency tree/);
     expect(src).toMatch(/reuse_base_node_modules\s*\(\)/);
     expect(src).toMatch(/TORQUE_REMOTE_BASE_PROJECT_PATH/);
     expect(src).toMatch(/mklink \/J/);
     expect(src).toMatch(/using \\\$dir dependencies from base checkout/);
+    expect(src).toMatch(/using \\\$dir dependencies from base checkout via PATH/);
     expect(src).toMatch(/npm install --no-audit --no-fund --prefer-offline/);
     expect(src).toMatch(/cd\s+dashboard\s+&&\s+vitest\s+run/);
     expect(src).toMatch(/cd\s+server\s+&&\s+vitest\s+run/);
