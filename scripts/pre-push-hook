@@ -364,6 +364,15 @@ if [ "$GATE_RUN_DASHBOARD" = "1" ] || [ "$GATE_RUN_SERVER" = "1" ] || [ "$GATE_R
   # newer attempt for the same HEAD while the newer remote sync is still fetching.
   hook_run_id="$(date +%s 2>/dev/null || echo time)-$$"
   staging_branch="pre-push-gate/$(echo "$local_head_sha" | cut -c1-12)-$hook_run_id"
+  remote_gate_worktree_suffix="${PRE_PUSH_REMOTE_GATE_WORKTREE_SUFFIX--pre-push-gate}"
+  if [ -n "$remote_gate_worktree_suffix" ]; then
+    case "$remote_gate_worktree_suffix" in
+      *[!A-Za-z0-9_.-]*)
+        echo "[pre-push] BLOCKED: PRE_PUSH_REMOTE_GATE_WORKTREE_SUFFIX contains unsafe characters."
+        exit 1
+        ;;
+    esac
+  fi
 
   delete_staging_ref() {
     # Best-effort cleanup — never block the hook on a failed cleanup, but log
@@ -393,6 +402,13 @@ if [ "$GATE_RUN_DASHBOARD" = "1" ] || [ "$GATE_RUN_SERVER" = "1" ] || [ "$GATE_R
   # warm reruns replay only when the same SHA ran the same phase set.
   cd "$REPO_ROOT"
   export TORQUE_REMOTE_COORD_SHA="$local_head_sha"
+  if [ -n "$remote_gate_worktree_suffix" ]; then
+    export TORQUE_REMOTE_TEST_WORKTREE_SUFFIX="$remote_gate_worktree_suffix"
+    echo "[pre-push] Remote gate checkout suffix: $TORQUE_REMOTE_TEST_WORKTREE_SUFFIX"
+  else
+    unset TORQUE_REMOTE_TEST_WORKTREE_SUFFIX
+    echo "[pre-push] Remote gate checkout suffix disabled; using default torque-remote checkout."
+  fi
   remote_gate_cmd=$(cat <<EOF
 set -uo pipefail
 DASH_EXIT_FILE=\$(mktemp)
@@ -400,6 +416,45 @@ SERV_EXIT_FILE=\$(mktemp)
 PERF_EXIT_FILE=\$(mktemp)
 DASH_PID=""
 SERV_PID=""
+SETUP_EXIT=0
+SETUP_FAILED_PHASE=""
+
+ensure_node_modules() {
+  phase="\$1"
+  dir="\$2"
+  if [ -f "\$dir/package.json" ] && [ ! -d "\$dir/node_modules" ]; then
+    echo "[\$phase] [setup] installing \$dir dependencies"
+    (cd "\$dir" && npm install --silent --no-audit --no-fund --prefer-offline) 2>&1 | sed -u "s/^/[\$phase] [setup] /"
+  fi
+}
+
+if [ "$GATE_RUN_DASHBOARD" = "1" ]; then
+  ensure_node_modules dash dashboard
+  SETUP_EXIT=\$?
+  if [ "\$SETUP_EXIT" -ne 0 ]; then
+    SETUP_FAILED_PHASE="dash"
+  fi
+fi
+if [ "\$SETUP_EXIT" -eq 0 ] && { [ "$GATE_RUN_SERVER" = "1" ] || [ "$GATE_RUN_PERF" = "1" ]; }; then
+  ensure_node_modules serv server
+  SETUP_EXIT=\$?
+  if [ "\$SETUP_EXIT" -ne 0 ]; then
+    SETUP_FAILED_PHASE="serv"
+  fi
+fi
+if [ "\$SETUP_EXIT" -ne 0 ]; then
+  DASH_SETUP_EXIT=0
+  SERV_SETUP_EXIT=0
+  case "\$SETUP_FAILED_PHASE" in
+    dash) DASH_SETUP_EXIT=\$SETUP_EXIT ;;
+    serv) SERV_SETUP_EXIT=\$SETUP_EXIT ;;
+    *) DASH_SETUP_EXIT=\$SETUP_EXIT ;;
+  esac
+  echo "[\$SETUP_FAILED_PHASE] [setup] dependency bootstrap failed exit=\$SETUP_EXIT"
+  echo "[gate-end] dash_exit=\$DASH_SETUP_EXIT serv_exit=\$SERV_SETUP_EXIT perf_exit=0"
+  rm -f "\$DASH_EXIT_FILE" "\$SERV_EXIT_FILE" "\$PERF_EXIT_FILE"
+  exit "\$SETUP_EXIT"
+fi
 
 if [ "$GATE_RUN_DASHBOARD" = "1" ]; then
   {

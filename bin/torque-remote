@@ -673,6 +673,11 @@ REMOTE_TEST_WORKTREE_SUBDIR=""
 # REMOTE_TEST_WORKTREE_SUBDIR when both are set. Opt in via:
 #   { "remote_test_worktree_root": "C:/trt" }
 REMOTE_TEST_WORKTREE_ROOT=""
+# Optional per-invocation suffix appended to the derived remote test
+# worktree path. This lets specialized callers, such as the pre-push gate,
+# use a sibling checkout and therefore a separate sync lock without changing
+# the operator's default torque-remote worktree.
+REMOTE_TEST_WORKTREE_SUFFIX=""
 
 # Global local config
 GLOBAL_LOCAL="$HOME/.torque-remote.local.json"
@@ -694,6 +699,13 @@ if [[ -f "$PROJECT_LOCAL" ]]; then
   v=$(json_get "$PROJECT_LOCAL" '.remote_project_path');        [[ -n "$v" ]] && REMOTE_PROJECT_PATH="$v"
   v=$(json_get "$PROJECT_LOCAL" '.remote_test_worktree_subdir'); [[ -n "$v" ]] && REMOTE_TEST_WORKTREE_SUBDIR="$v"
   v=$(json_get "$PROJECT_LOCAL" '.remote_test_worktree_root');   [[ -n "$v" ]] && REMOTE_TEST_WORKTREE_ROOT="$v"
+fi
+
+if [[ -n "${TORQUE_REMOTE_TEST_WORKTREE_SUFFIX:-}" ]]; then
+  if [[ ! "$TORQUE_REMOTE_TEST_WORKTREE_SUFFIX" =~ ^[a-zA-Z0-9_.-]+$ ]]; then
+    die "TORQUE_REMOTE_TEST_WORKTREE_SUFFIX contains unsafe characters; allowed: letters, numbers, dot, underscore, hyphen"
+  fi
+  REMOTE_TEST_WORKTREE_SUFFIX="$TORQUE_REMOTE_TEST_WORKTREE_SUFFIX"
 fi
 
 # Derive remote project path if not explicitly set
@@ -725,6 +737,9 @@ elif [[ -n "$REMOTE_TEST_WORKTREE_SUBDIR" && -n "$REMOTE_PROJECT_PATH" ]]; then
     *\\) EFFECTIVE_REMOTE_PROJECT_PATH="${REMOTE_PROJECT_PATH}${REMOTE_TEST_WORKTREE_SUBDIR}" ;;
     *)   EFFECTIVE_REMOTE_PROJECT_PATH="${REMOTE_PROJECT_PATH}\\${REMOTE_TEST_WORKTREE_SUBDIR}" ;;
   esac
+fi
+if [[ -n "$REMOTE_TEST_WORKTREE_SUFFIX" && -n "$EFFECTIVE_REMOTE_PROJECT_PATH" ]]; then
+  EFFECTIVE_REMOTE_PROJECT_PATH="${EFFECTIVE_REMOTE_PROJECT_PATH}${REMOTE_TEST_WORKTREE_SUFFIX}"
 fi
 
 # ---- Command to run ----

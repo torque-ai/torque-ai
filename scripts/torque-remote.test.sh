@@ -176,6 +176,7 @@ reset_stub_env() {
   unset SSH_LOCK_ACQUIRE_SEQUENCE SSH_LOCK_ACQUIRE_EXIT_CODE
   unset SSH_LOCK_OWNER_OUTPUT SSH_LOCK_OWNER_READ_EXIT_CODE SSH_LOCK_OWNER_WRITE_EXIT_CODE
   unset SSH_LOCK_REAP_EXIT_CODE TORQUE_REMOTE_SYNC_LOCK_STALE_CHECK_SECS
+  unset TORQUE_REMOTE_TEST_WORKTREE_SUFFIX
 }
 
 write_stub_argv_dump() {
@@ -1055,6 +1056,48 @@ EOF
   finish_test "test_worktree_uses_main_repo_basename_for_project_name"
 }
 
+test_worktree_suffix_uses_sibling_path_and_lock() {
+  local tmp
+
+  echo "Test: test worktree suffix uses a sibling checkout and lock"
+  TEST_ERRORS=()
+  reset_stub_env
+
+  make_test_env
+  tmp="$LAST_TEST_ENV"
+  export GIT_REV_PARSE_OUTPUT="main"
+  export TORQUE_REMOTE_TEST_WORKTREE_SUFFIX="-pre-push-gate"
+
+  run_torque_remote "$tmp" echo hi
+
+  expect_eq "exit code is 0" "0" "$RUN_EXIT"
+  expect_contains "runner uses suffixed project path" "$RUN_RUNNER_SH" "/fake-pre-push-gate"
+  expect_contains "sync lock uses suffixed project path" "$RUN_REMOTE_COMMANDS" "/fake-pre-push-gate.torque-remote-sync.lock"
+  expect_not_contains "sync lock does not use default project path" "$RUN_REMOTE_COMMANDS" "/fake.torque-remote-sync.lock"
+
+  finish_test "test_worktree_suffix_uses_sibling_path_and_lock"
+}
+
+test_worktree_suffix_rejects_unsafe_chars() {
+  local tmp
+
+  echo "Test: test worktree suffix rejects unsafe characters"
+  TEST_ERRORS=()
+  reset_stub_env
+
+  make_test_env
+  tmp="$LAST_TEST_ENV"
+  export TORQUE_REMOTE_TEST_WORKTREE_SUFFIX="../bad"
+
+  run_torque_remote "$tmp" echo hi
+
+  expect_nonzero "exit code is non-zero" "$RUN_EXIT"
+  expect_contains "stderr names unsafe suffix" "$RUN_STDERR" "TORQUE_REMOTE_TEST_WORKTREE_SUFFIX contains unsafe characters"
+  expect_eq "no remote bundle shipped" "0" "$RUN_REMOTE_STDIN_SIZE"
+
+  finish_test "test_worktree_suffix_rejects_unsafe_chars"
+}
+
 test_sync_includes_drift_detection() {
   local tmp
 
@@ -1179,6 +1222,8 @@ main() {
   test_sync_emits_npm_install_hint_for_node_layouts
   test_worktree_dot_git_file_is_project_root
   test_worktree_uses_main_repo_basename_for_project_name
+  test_worktree_suffix_uses_sibling_path_and_lock
+  test_worktree_suffix_rejects_unsafe_chars
   test_sync_includes_drift_detection
   test_sync_failure_falls_back_to_local
   test_unknown_leading_flag_errors

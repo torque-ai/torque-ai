@@ -69,6 +69,18 @@ describe('pre-push-hook staging-branch invariants', () => {
     expect(src).toMatch(/cd\s+server\s+&&\s+node\s+perf\/run-perf\.js/);
   });
 
+  it('runs the remote gate in a dedicated checkout suffix and bootstraps first-use deps', () => {
+    const src = readHook();
+    expect(src).toMatch(/remote_gate_worktree_suffix="\$\{PRE_PUSH_REMOTE_GATE_WORKTREE_SUFFIX--pre-push-gate\}"/);
+    expect(src).toMatch(/TORQUE_REMOTE_TEST_WORKTREE_SUFFIX="\$remote_gate_worktree_suffix"/);
+    expect(src).toMatch(/PRE_PUSH_REMOTE_GATE_WORKTREE_SUFFIX contains unsafe characters/);
+    expect(src).toMatch(/ensure_node_modules\s*\(\)/);
+    expect(src).toMatch(/ensure_node_modules dash dashboard/);
+    expect(src).toMatch(/ensure_node_modules serv server/);
+    expect(src).toMatch(/\[\\\$phase\] \[setup\]/);
+    expect(src).toMatch(/npm install --silent --no-audit --no-fund --prefer-offline/);
+  });
+
   it('passes a plan-specific gate suite to torque-remote so coord serializes and caches correctly', () => {
     const src = readHook();
     // The suite name includes the conservative gate plan hash. Without it,
@@ -179,6 +191,14 @@ describe('torque-remote staging branch validation', () => {
     expect(src).toMatch(/TORQUE_REMOTE_COORD_SHA/);
     expect(src).toMatch(/git\s+ls-remote\s+--heads\s+origin\s+"\$BRANCH_OVERRIDE"/);
     expect(src).toMatch(/COORD_SHA="\$\(resolve_coord_sha\)"/);
+  });
+
+  it('supports a validated per-invocation test worktree suffix', () => {
+    const src = readTorqueRemote();
+    expect(src).toMatch(/TORQUE_REMOTE_TEST_WORKTREE_SUFFIX/);
+    expect(src).toMatch(/\^\[a-zA-Z0-9_\.-\]\+\$/);
+    expect(src).toMatch(/REMOTE_TEST_WORKTREE_SUFFIX="\$TORQUE_REMOTE_TEST_WORKTREE_SUFFIX"/);
+    expect(src).toMatch(/EFFECTIVE_REMOTE_PROJECT_PATH="\$\{EFFECTIVE_REMOTE_PROJECT_PATH\}\$\{REMOTE_TEST_WORKTREE_SUFFIX\}"/);
   });
 });
 
