@@ -278,14 +278,17 @@ describe('worktree-create dependency bootstrap', () => {
     return fs.readFileSync(createPath, 'utf8');
   }
 
-  it('documents optional --install usage and defaults installs off', () => {
+  it('documents --install/--no-install usage and defaults installs on', () => {
+    // Default flipped to install-on so worktrees are immediately usable for
+    // tests/builds; opt-out with --no-install for docs-only worktrees.
+    // See CLAUDE.md "During Development" section.
     const src = readCreate();
-    expect(src).toMatch(/Usage: scripts\/worktree-create\.sh <feature-name> \[--install\]/);
-    expect(src).toMatch(/INSTALL_DEPS="false"/);
-    expect(src).toMatch(/Skipping dependency installs \(default\)/);
+    expect(src).toMatch(/Usage: scripts\/worktree-create\.sh <feature-name> \[--install\|--no-install\]/);
+    expect(src).toMatch(/INSTALL_DEPS="true"/);
+    expect(src).toMatch(/--no-install/);
   });
 
-  it('gates npm installs behind the --install flag', () => {
+  it('runs install when INSTALL_DEPS is true (default) and skips otherwise', () => {
     const src = readCreate();
     expect(src).toMatch(/install_worktree_dependencies\s*\(\)/);
     expect(src).toMatch(/if \[\[ "\$INSTALL_DEPS" == "true" \]\]; then[\s\S]*install_worktree_dependencies "\$WORKTREE_DIR"/);

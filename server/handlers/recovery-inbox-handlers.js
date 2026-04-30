@@ -67,7 +67,10 @@ async function inspectRecoveryItem({ id }) {
   try {
     history = JSON.parse(item.recovery_history_json || '[]');
     if (!Array.isArray(history)) history = [];
-  } catch { /* ignore */ }
+  } catch (_e) {
+    void _e;
+    history = [];
+  }
   const decisions = db.prepare(`
     SELECT id, stage, actor, action, reasoning, inputs_json, outcome_json, created_at
     FROM factory_decisions
