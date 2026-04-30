@@ -211,6 +211,23 @@ function buildCodexCommand(task, resolvedFileContext, providerConfig, opts = {})
       codexArgs.push('--full-auto');
     }
 
+    // Factory-internal Codex prompts (Architect, scout, plan-gen, etc.) are
+    // template-driven structured-output tasks. The user's default Codex
+    // reasoning_effort (often "xhigh") burns the whole timeout window on
+    // reasoning before emitting any output, producing silent stalls. Override
+    // to "high" for these — still strong reasoning, but actually emits the
+    // structured response within the window. Real code-execute work-item
+    // tasks aren't submitted via submitFactoryInternalTask, so they keep
+    // whatever the user configured globally in ~/.codex/config.toml.
+    const taskMetadata = (() => {
+      if (!task.metadata) return null;
+      if (typeof task.metadata === 'object') return task.metadata;
+      try { return JSON.parse(task.metadata); } catch { return null; }
+    })();
+    if (taskMetadata && taskMetadata.factory_internal === true) {
+      codexArgs.push('-c', 'model_reasoning_effort=high');
+    }
+
     // Use worktree path if provided, otherwise use original working directory
     const effectiveWorkDir = opts.workingDirectoryOverride || task.working_directory;
     if (effectiveWorkDir) {

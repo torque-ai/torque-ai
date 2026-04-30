@@ -243,6 +243,62 @@ describe('execute-cli.js', () => {
       expect(result.selectedOllamaHostId).toBeNull();
       expect(result.usedEditFormat).toBeNull();
     });
+
+    it('forces reasoning_effort=high for factory-internal tasks', () => {
+      const task = {
+        id: randomUUID(),
+        provider: 'codex',
+        task_description: 'You are the Architect...',
+        metadata: { factory_internal: true, kind: 'architect_cycle' },
+      };
+      const result = mod.buildCodexCommand(task, '', null);
+      const idx = result.finalArgs.indexOf('-c');
+      expect(idx).toBeGreaterThanOrEqual(0);
+      expect(result.finalArgs[idx + 1]).toBe('model_reasoning_effort=high');
+    });
+
+    it('parses metadata when stored as JSON string', () => {
+      const task = {
+        id: randomUUID(),
+        provider: 'codex',
+        task_description: 'You are a codebase analyst...',
+        metadata: JSON.stringify({ factory_internal: true, kind: 'scout' }),
+      };
+      const result = mod.buildCodexCommand(task, '', null);
+      expect(result.finalArgs).toContain('model_reasoning_effort=high');
+    });
+
+    it('does NOT override reasoning_effort for non-factory tasks', () => {
+      const task = {
+        id: randomUUID(),
+        provider: 'codex',
+        task_description: 'Plan: implement feature X',
+        metadata: { kind: 'work_item_execute' },
+      };
+      const result = mod.buildCodexCommand(task, '', null);
+      expect(result.finalArgs.some(a => typeof a === 'string' && a.startsWith('model_reasoning_effort='))).toBe(false);
+    });
+
+    it('does NOT override reasoning_effort when metadata is null/missing', () => {
+      const task = {
+        id: randomUUID(),
+        provider: 'codex',
+        task_description: 'Test',
+      };
+      const result = mod.buildCodexCommand(task, '', null);
+      expect(result.finalArgs.some(a => typeof a === 'string' && a.startsWith('model_reasoning_effort='))).toBe(false);
+    });
+
+    it('does NOT override when metadata JSON is malformed', () => {
+      const task = {
+        id: randomUUID(),
+        provider: 'codex',
+        task_description: 'Test',
+        metadata: '{not valid json',
+      };
+      const result = mod.buildCodexCommand(task, '', null);
+      expect(result.finalArgs.some(a => typeof a === 'string' && a.startsWith('model_reasoning_effort='))).toBe(false);
+    });
   });
 
   // ── buildClaudeCliCommand ──────────────────────────────────────
