@@ -216,9 +216,33 @@ function scanFiles(dirs) {
         if (!whereMatch) return;
         const context = lines.slice(Math.max(0, idx - 10), idx + 1);
         if (isFullScanAnnotated(context)) return;
-        const fromMatch = context.join(' ').match(/FROM\s+(\w+)/);
-        if (!fromMatch) return;
-        const table = fromMatch[1].toLowerCase();
+        // Resolve table from the FROM clause closest to (and preceding)
+        // the WHERE on this line. Older logic joined the full 11-line
+        // context and grabbed the FIRST `FROM <table>` it found, which
+        // mis-attributed every WHERE to whatever table happened to be
+        // queried earlier in the function. Concrete bug:
+        //
+        //   line 100: db.prepare('SELECT * FROM task_claims WHERE ...')
+        //   line 111: db.prepare('DELETE FROM work_stealing_log WHERE ...')
+        //
+        // The audit reported the line-111 finding under `task_claims`
+        // because that FROM was first in the joined buffer.
+        //
+        // Strategy: prefer the FROM on the SAME line as the WHERE
+        // (single-line `db.prepare(...)` is the dominant codebase
+        // pattern). Fall back to walking the context backward and
+        // taking the LAST FROM seen — i.e. the closest preceding one.
+        let table = null;
+        const sameLineFrom = line.match(/FROM\s+(\w+)/);
+        if (sameLineFrom) {
+          table = sameLineFrom[1].toLowerCase();
+        } else {
+          for (let k = context.length - 1; k >= 0; k--) {
+            const m = context[k].match(/FROM\s+(\w+)/);
+            if (m) { table = m[1].toLowerCase(); break; }
+          }
+        }
+        if (!table) return;
         const whereClause = whereMatch[1];
         const cols = extractWhereColumns(whereClause);
         findings.push({ file: filePath, line: idx + 1, table, cols, sql: line.trim() });

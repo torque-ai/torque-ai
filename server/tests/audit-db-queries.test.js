@@ -115,6 +115,47 @@ describe('scripts/audit-db-queries', () => {
         expect(f.table).not.toBe('the');
       }
     });
+
+    it('attributes WHERE to the FROM on the SAME line, not an earlier one in the function', () => {
+      // Old logic joined an 11-line context and grabbed the first FROM
+      // it found. Two SQL statements in the same function would both
+      // resolve to the FIRST table — making every later WHERE flag the
+      // wrong table.
+      const file = path.join(tmpDir, 'two-queries.js');
+      fs.writeFileSync(file, [
+        "function audit() {",
+        "  db.prepare('SELECT * FROM task_claims WHERE claimer = ?').get(c);",
+        "  db.prepare('DELETE FROM work_stealing_log WHERE created_at < ?').run(cutoff);",
+        '}',
+      ].join('\n'));
+
+      const findings = audit.scanFiles([tmpDir]);
+      const second = findings.find((f) => f.sql.includes('DELETE FROM work_stealing_log'));
+      expect(second).toBeDefined();
+      expect(second.table).toBe('work_stealing_log');
+    });
+
+    it('falls back to the closest preceding FROM when WHERE is on a separate line', () => {
+      // Some code builds queries in pieces:
+      //   let sql = "SELECT * FROM tasks";
+      //   sql += " WHERE created_at >= ?";
+      // The WHERE has no same-line FROM, so we walk backward through the
+      // context. The CLOSEST preceding FROM should win — not the first
+      // one in the buffer.
+      const file = path.join(tmpDir, 'split-query.js');
+      fs.writeFileSync(file, [
+        "function build() {",
+        "  db.prepare('SELECT * FROM other_table WHERE x = ?').get(x);",
+        "  let sql = 'SELECT * FROM tasks';",
+        "  sql += ' WHERE created_at >= ?';",
+        '}',
+      ].join('\n'));
+
+      const findings = audit.scanFiles([tmpDir]);
+      const split = findings.find((f) => f.sql.includes('WHERE created_at >= ?'));
+      expect(split).toBeDefined();
+      expect(split.table).toBe('tasks');
+    });
   });
 
   describe('readAllDbSchema', () => {
