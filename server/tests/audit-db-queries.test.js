@@ -57,6 +57,26 @@ describe('scripts/audit-db-queries', () => {
       const idxs = m.get('task_claims') || [];
       expect(idxs.some((cols) => cols.includes('task_id') && cols.includes('claimer'))).toBe(true);
     });
+
+    it('parses PK from JS-array DDL pattern (no trailing semicolon after closing paren)', () => {
+      // server/db/migrations.js builds DDL via [...].join('\n'). The
+      // closing `)` is followed by `,` then `]` in JS source — no `;`.
+      // The previous regex required `\)\s*;` to terminate the body
+      // capture, so it either skipped these tables entirely or absorbed
+      // unrelated content. The new line-based scanner stops at any line
+      // that's effectively just the closing paren.
+      const schema = [
+        '        \'CREATE TABLE IF NOT EXISTS factory_architect_cycles (\',',
+        '        \'  id INTEGER PRIMARY KEY AUTOINCREMENT,\',',
+        '        \'  project_id TEXT NOT NULL,\',',
+        '        \'  created_at TEXT NOT NULL\',',
+        '        \')\',',
+        '      ].join(\'\\n\'),',
+      ].join('\n');
+      const m = audit.extractIndexColumns(schema);
+      const idxs = m.get('factory_architect_cycles') || [];
+      expect(idxs.some((cols) => cols.includes('id'))).toBe(true);
+    });
   });
 
   describe('scanFiles + checkViolations (case-sensitive SQL keywords)', () => {
