@@ -931,6 +931,28 @@ const MIGRATIONS = [
     },
     down: 'DROP INDEX IF EXISTS idx_task_streams_created_at',
   },
+  {
+    version: 43,
+    name: 'add_factory_worktrees_batch_id_index',
+    // server/db/factory-worktrees.js#getActiveWorktreeByBatch is on the
+    // factory-tick hot path — when a stage reuses a worktree for the
+    // same batch it queries `WHERE batch_id = ? AND status = 'active'`.
+    // The table already had an index on (project_id, status) but
+    // nothing leading on batch_id, so each tick walked the table.
+    // Composite (batch_id, status) seeks directly to the matching rows
+    // and lines up with the existing project_id+status pattern.
+    up: function(sqliteDb) {
+      // Tolerate minimal-schema test fixtures. Same pattern as v37 / v39 / v40 / v41 / v42.
+      const tableExists = sqliteDb.prepare(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='factory_worktrees'"
+      ).get();
+      if (!tableExists) return;
+      sqliteDb.prepare(
+        'CREATE INDEX IF NOT EXISTS idx_factory_worktrees_batch ON factory_worktrees(batch_id, status)'
+      ).run();
+    },
+    down: 'DROP INDEX IF EXISTS idx_factory_worktrees_batch',
+  },
 ];
 
 function ensureMigrationTable(sqliteDb) {
