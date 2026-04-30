@@ -1,5 +1,8 @@
 'use strict';
 
+// Boundary: pure routing-analysis helpers for smart-routing. Keep task
+// lifecycle, process management, and retry execution in their owning modules.
+
 const capabilities = require('./provider-capabilities');
 const perfTracker = require('./provider-performance');
 const { isSafeRegex } = require('../utils/safe-regex');
