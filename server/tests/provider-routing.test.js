@@ -966,6 +966,73 @@ describe('provider-routing module', () => {
   });
 
   describe('metrics and infrastructure', () => {
+    function createMetricsFallbackDb(options = {}) {
+      const {
+        providerUsageUnavailable = false,
+        validationUnavailable = false,
+      } = options;
+      const emptyRows = { all: () => [] };
+      const zeroCount = { get: () => ({ count: 0 }) };
+
+      return {
+        open: true,
+        prepare(sql) {
+          const normalizedSql = sql.replace(/\s+/g, ' ').trim();
+
+          if (normalizedSql.includes('FROM tasks GROUP BY status')) {
+            return emptyRows;
+          }
+          if (normalizedSql.includes("FROM agents WHERE status = 'online'")) {
+            return zeroCount;
+          }
+          if (normalizedSql.includes('FROM tasks WHERE completed_at IS NOT NULL')) {
+            return emptyRows;
+          }
+          if (normalizedSql.includes('FROM workflows GROUP BY status')) {
+            return emptyRows;
+          }
+          if (normalizedSql.includes("FROM token_usage WHERE recorded_at >= date('now', '-1 day')")) {
+            return { get: () => ({ total: 0, cost: 0 }) };
+          }
+          if (normalizedSql.includes('FROM tasks WHERE created_at IS NOT NULL')) {
+            return emptyRows;
+          }
+          if (normalizedSql.includes('FROM tasks WHERE provider IS NOT NULL AND completed_at IS NOT NULL')) {
+            return emptyRows;
+          }
+          if (normalizedSql.includes('FROM tasks WHERE provider IS NOT NULL')) {
+            return emptyRows;
+          }
+          if (normalizedSql.includes('FROM ollama_hosts')) {
+            throw new Error('missing ollama_hosts');
+          }
+          if (normalizedSql.includes("FROM tasks WHERE status = 'failed' AND exit_code = -2")) {
+            return zeroCount;
+          }
+          if (normalizedSql.includes('FROM tasks WHERE retry_count > 0')) {
+            return zeroCount;
+          }
+          if (normalizedSql.includes('FROM provider_usage')) {
+            if (providerUsageUnavailable) {
+              throw new Error('missing provider_usage');
+            }
+            return emptyRows;
+          }
+          if (normalizedSql.includes('FROM task_validations')) {
+            if (validationUnavailable) {
+              throw new Error('missing task_validations');
+            }
+            return zeroCount;
+          }
+          if (normalizedSql.includes('FROM token_usage WHERE provider IS NOT NULL')) {
+            return emptyRows;
+          }
+
+          throw new Error(`Unhandled metrics query: ${normalizedSql}`);
+        },
+      };
+    }
+
     it('getPrometheusMetrics exports task/workflow/agent/token metrics', () => {
       const t1 = createTask({ status: 'completed', project: 'metrics' });
       const t2 = createTask({ status: 'running', project: 'metrics' });
@@ -1036,6 +1103,65 @@ describe('provider-routing module', () => {
       expect(refreshedMetrics).toContain(`torque_provider_transport_retry_count_sum{provider="${provider}",transport="cli"} 0`);
       expect(refreshedMetrics).toContain(`torque_provider_transport_retry_count_avg{provider="${provider}",transport="cli"} 0.00`);
       expect(refreshedMetrics).toContain(`torque_provider_transport_failure_reason_total{provider="${provider}",transport="api",failure_reason="provider_unavailable"} 1`);
+    });
+
+    it('getPrometheusMetrics reports provider transport metrics and optional-table fallbacks', () => {
+      const provider = id('provider-transport');
+      rawDb().prepare(
+        'INSERT INTO provider_usage (provider, task_id, tokens_used, cost_estimate, duration_seconds, elapsed_ms, transport, retry_count, success, recorded_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+      ).run(
+        provider,
+        id('transport-task'),
+        22,
+        0.2,
+        4,
+        800,
+        'hybrid',
+        0,
+        1,
+        new Date().toISOString(),
+      );
+
+      const metrics = mod.getPrometheusMetrics();
+      expect(metrics).toContain(`torque_provider_transport_calls_total{provider="${provider}",transport="hybrid",outcome="success"} 1`);
+
+      mod.setDb(createMetricsFallbackDb({
+        providerUsageUnavailable: true,
+        validationUnavailable: true,
+      }));
+      try {
+        const fallbackMetrics = mod.getPrometheusMetrics();
+        expect(fallbackMetrics).toContain('torque_provider_transport_metrics_unavailable 1');
+        expect(fallbackMetrics).toContain('torque_validation_failures_total 0');
+      } finally {
+        mod.setDb(rawDb());
+      }
+    });
+
+    it('getPrometheusMetrics escapes quotes, backslashes, and newlines in labels', () => {
+      createTask({
+        id: id('escaped-status-task'),
+        status: 'queued"quote\\path\nline',
+        project: 'metrics',
+      });
+      rawDb().prepare(
+        'INSERT INTO provider_usage (provider, task_id, tokens_used, cost_estimate, duration_seconds, elapsed_ms, transport, retry_count, success, recorded_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+      ).run(
+        'provider"quote\\path\nline',
+        id('escaped-transport-task'),
+        10,
+        0.1,
+        2,
+        200,
+        'api"cli\\hybrid\nroute',
+        0,
+        1,
+        new Date().toISOString(),
+      );
+
+      const metrics = mod.getPrometheusMetrics();
+      expect(metrics).toContain('torque_tasks_total{status="queued\\"quote\\\\path\\nline"} 1');
+      expect(metrics).toContain('torque_provider_transport_calls_total{provider="provider\\"quote\\\\path\\nline",transport="api\\"cli\\\\hybrid\\nroute",outcome="success"} 1');
     });
 
     it('checkOllamaHealth returns true against healthy mock endpoint', async () => {
