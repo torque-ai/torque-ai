@@ -838,6 +838,32 @@ const MIGRATIONS = [
     // Use `cg_reindex` against the dedicated codegraph.db to repopulate the
     // graph in its proper home if a rollback is ever required.
   },
+  {
+    version: 39,
+    name: 'add_benchmark_results_host_id_index',
+    // server/db/host-benchmarking.js runs five host-scoped queries against
+    // benchmark_results, each filtering on `WHERE host_id = ?` (with
+    // additional predicates on model/success/tokens_per_second). The
+    // table only had `id INTEGER PRIMARY KEY`, so every host-stats lookup
+    // was a full scan. This grows linearly with benchmark history,
+    // multiplied by host count — the static DB-query audit (62 warnings
+    // before this) flagged all five lines.
+    up: function(sqliteDb) {
+      // Tolerate minimal-schema test fixtures that don't include the
+      // benchmark_results table. CREATE INDEX IF NOT EXISTS throws
+      // "no such table" when the underlying table is absent — skip the
+      // index in that case rather than aborting the migration. Same
+      // pattern as migration 37 for factory_guardrail_events.
+      const tableExists = sqliteDb.prepare(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='benchmark_results'"
+      ).get();
+      if (!tableExists) return;
+      sqliteDb.prepare(
+        'CREATE INDEX IF NOT EXISTS idx_benchmark_results_host ON benchmark_results(host_id, success)'
+      ).run();
+    },
+    down: 'DROP INDEX IF EXISTS idx_benchmark_results_host',
+  },
 ];
 
 function ensureMigrationTable(sqliteDb) {
