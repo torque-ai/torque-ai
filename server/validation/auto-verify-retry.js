@@ -267,7 +267,17 @@ async function handleAutoVerifyRetry(ctx) {
 
   // Look up project config
   if (!_db) throw new Error('auto-verify-retry: module not initialized — call init() first');
-  const project = _db.getProjectFromPath(task.working_directory);
+  // Phase M (2026-04-30): factory worktree paths (e.g.
+  // C:\...\DLPhone\.worktrees\fea-d44fc570) have their own .git
+  // gitdir-pointer file, so getProjectFromPath's findProjectRoot stops at
+  // the worktree subdir and returns "fea-d44fc570" — which doesn't exist
+  // in project_defaults, and the verify_command lookup below fails. Plan
+  // tasks always carry a `project:<name>` tag (set by loop-controller's
+  // factory submit), so consult that first; fall back to path-based
+  // detection for non-factory tasks.
+  const projectTag = tags.find((t) => typeof t === 'string' && t.startsWith('project:'));
+  const projectFromTag = projectTag ? projectTag.slice('project:'.length).trim() : null;
+  const project = projectFromTag || _db.getProjectFromPath(task.working_directory);
   if (!project) return;
 
   const config = _db.getProjectConfig(project) || {};

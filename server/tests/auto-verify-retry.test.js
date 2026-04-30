@@ -334,6 +334,62 @@ describe('handleAutoVerifyRetry — guards and init', () => {
     expect(mockRunVerifyCommand).not.toHaveBeenCalled();
   });
 
+  // Phase M (2026-04-30): factory worktree paths break getProjectFromPath
+  // (worktree subdir has its own .git pointer, so findProjectRoot stops
+  // there and returns the wrong project name). Plan tasks always carry
+  // a `project:<name>` tag; auto-verify-retry must consult it before
+  // falling back to path-based lookup.
+  it('uses project:<name> tag when present, even if path lookup would mis-resolve', async () => {
+    const db = createMockDb({
+      project: 'DLPhone',
+      initialConfig: { verify_command: 'dotnet test' },
+      projectExists: true,
+    });
+    // Force getProjectFromPath to return the wrong name (mimics the
+    // factory worktree subdir behavior).
+    db.getProjectFromPath = vi.fn(() => 'fea-d44fc570');
+
+    const { handleAutoVerifyRetry } = loadModuleWithMocks({ db });
+    const ctx = makeCtxWithModifiedFiles({
+      task: makeTask({
+        provider: 'ollama',
+        working_directory: 'C:/repo/DLPhone/.worktrees/fea-d44fc570',
+        tags: ['factory:work_item_id=2115', 'project:DLPhone'],
+      }),
+    });
+
+    await handleAutoVerifyRetry(ctx);
+
+    // The tag-based lookup should win — getProjectConfig is called with
+    // the DLPhone name from the tag, not the worktree subdir.
+    expect(db.getProjectConfig).toHaveBeenCalledWith('DLPhone');
+    // verify_command should fire because DLPhone's config has it set.
+    expect(mockRunVerifyCommand).toHaveBeenCalled();
+  });
+
+  it('falls back to path-based lookup when no project:<name> tag present', async () => {
+    const db = createMockDb({
+      project: 'recovered-from-path',
+      initialConfig: { verify_command: 'npm test' },
+    });
+
+    const { handleAutoVerifyRetry } = loadModuleWithMocks({ db });
+    const ctx = makeCtxWithModifiedFiles({
+      task: makeTask({
+        provider: 'ollama',
+        working_directory: 'C:/repo/some-project',
+        tags: ['factory:work_item_id=999'], // no project:<name> tag
+      }),
+    });
+
+    await handleAutoVerifyRetry(ctx);
+
+    // No project tag → falls back to getProjectFromPath
+    expect(db.getProjectFromPath).toHaveBeenCalled();
+    expect(db.getProjectConfig).toHaveBeenCalledWith('recovered-from-path');
+    expect(mockRunVerifyCommand).toHaveBeenCalled();
+  });
+
   it('skips when project has no verify_command configured', async () => {
     const db = createMockDb({ initialConfig: {} });
     const { handleAutoVerifyRetry } = loadModuleWithMocks({ db });
