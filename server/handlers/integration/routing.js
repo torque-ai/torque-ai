@@ -819,6 +819,7 @@ async function handleSmartSubmitTask(args) {
     if (routingResult.fallbackApplied) {
       logger.info(`[SmartRouting] Ollama unhealthy, falling back: ${routingResult.originalProvider} → ${selectedProvider}`);
     }
+
   }
 
   // Both-providers-down gate: reject if Codex exhausted AND no local LLM available (RB-031)
@@ -1431,6 +1432,40 @@ async function handleSmartSubmitTask(args) {
       logger.info(`[SmartRouting] Health gate: ${modRoutingReason}`);
     } else {
       logger.warn(`[SmartRouting] Provider ${selectedProvider} is unhealthy but no healthy alternative available`);
+    }
+  }
+
+  // Phase K (2026-04-30): enforce project lane policy AFTER all override
+  // stages. Smart routing can pick a provider via routing template, then
+  // resolveModificationRouting's EXP1 ("Ollama cannot create new files")
+  // can override back to codex, then the test-task gate, the codex-exhausted
+  // gate, and the health gate can each modify the choice. Without a final
+  // lane-policy enforcement here, a project that pins
+  // `expected_provider: ollama, allowed_providers: [ollama], enforce_handoffs: true`
+  // still ships work to codex/codex-spark because the lane filter previously
+  // only ran on fallback selection and chain metadata.
+  //
+  // The swap is skipped when `override_provider` is set — explicit user
+  // intent is sovereign. Lane policy only enforces against automatic routing.
+  if (
+    !override_provider
+    && providerLanePolicy
+    && providerLanePolicy.enforce_handoffs
+    && !isProviderAllowedForLane(selectedProvider)
+  ) {
+    const laneTarget = providerLanePolicy.expected_provider
+      || (Array.isArray(providerLanePolicy.allowed_providers) && providerLanePolicy.allowed_providers[0])
+      || (Array.isArray(providerLanePolicy.allowed_fallback_providers) && providerLanePolicy.allowed_fallback_providers[0])
+      || null;
+    if (laneTarget && laneTarget !== selectedProvider) {
+      const swappedFrom = selectedProvider;
+      logger.info(`[lane-policy] swapping ${swappedFrom} → ${laneTarget} (project lane policy disallows ${swappedFrom})`);
+      selectedProvider = laneTarget;
+      // Drop any model that was paired with the disallowed provider
+      // (e.g., gpt-5.3-codex-spark) so taskModel falls back to a default
+      // appropriate for the lane-allowed provider.
+      taskModel = null;
+      modRoutingReason = `lane-policy swap from ${swappedFrom} → ${laneTarget}`;
     }
   }
 
