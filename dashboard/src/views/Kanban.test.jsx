@@ -468,6 +468,67 @@ describe('Kanban', () => {
     });
   });
 
+  it('shows target-project badge on factory-internal tasks (architect/plan)', async () => {
+    tasksApi.list.mockImplementation(({ status }) => {
+      if (status === 'running') {
+        return Promise.resolve({
+          tasks: [
+            {
+              ...runningTask,
+              id: 'task-arch-1',
+              task_description: 'Architect cycle for DLPhone',
+              project: 'factory-architect',
+              tags: ['factory:internal', 'factory:architect_cycle', 'factory:target_project=DLPhone'],
+            },
+            {
+              ...runningTask,
+              id: 'task-plan-1',
+              task_description: 'Plan generation for torque-public',
+              project: 'factory-plan',
+              tags: ['factory:internal', 'factory:plan_generation', 'factory:target_project=torque-public'],
+            },
+          ],
+        });
+      }
+      return Promise.resolve(emptyTasks);
+    });
+
+    renderWithProviders(<Kanban />, { route: '/' });
+
+    await waitFor(() => {
+      expect(screen.getByText('Architect cycle for DLPhone')).toBeInTheDocument();
+      expect(screen.getByText('Plan generation for torque-public')).toBeInTheDocument();
+    });
+    expect(screen.getByText('→ DLPhone')).toBeInTheDocument();
+    expect(screen.getByText('→ torque-public')).toBeInTheDocument();
+  });
+
+  it('does NOT show target-project badge when target equals task.project', async () => {
+    tasksApi.list.mockImplementation(({ status }) => {
+      if (status === 'running') {
+        return Promise.resolve({
+          tasks: [
+            {
+              ...runningTask,
+              id: 'task-direct-1',
+              task_description: 'Direct task in DLPhone',
+              project: 'DLPhone',
+              tags: ['factory:target_project=DLPhone'],
+            },
+          ],
+        });
+      }
+      return Promise.resolve(emptyTasks);
+    });
+
+    renderWithProviders(<Kanban />, { route: '/' });
+
+    await waitFor(() => {
+      expect(screen.getByText('Direct task in DLPhone')).toBeInTheDocument();
+    });
+    expect(screen.queryByText('→ DLPhone')).toBeNull();
+  });
+
   it('routes Reject for pending provider switch tasks', async () => {
     tasksApi.list.mockImplementation(({ status }) => {
       if (status === 'pending_provider_switch') {

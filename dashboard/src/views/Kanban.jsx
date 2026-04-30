@@ -270,6 +270,14 @@ const TaskCard = memo(function TaskCard({
     ? hostActivity?.hosts?.[task.ollama_host_id] : null;
   const gpu = hostAct?.gpuMetrics || null;
   const batchId = getTaskTagValue(task, 'factory:batch_id');
+  // Factory-internal tasks (architect/plan-gen/verify-review) are billed
+  // under synthetic projects like "factory-architect" and "factory-plan",
+  // which hides which downstream project (DLPhone, torque-public, etc.)
+  // they were generated for. Surface the real target via the tag set by
+  // submitFactoryInternalTask, but only when it differs from task.project
+  // so we don't render a duplicate badge on ordinary tasks.
+  const targetProject = getTaskTagValue(task, 'factory:target_project');
+  const showTargetProject = targetProject && targetProject !== task.project;
   const providerOptions = useMemo(
     () => buildProviderOptions(providerList, task.provider),
     [providerList, task.provider]
@@ -316,6 +324,14 @@ const TaskCard = memo(function TaskCard({
           {task.project && (
             <span className="max-w-[140px] truncate rounded border border-cyan-500/25 bg-cyan-500/10 px-1.5 py-0.5 text-[10px] text-cyan-200">
               {task.project}
+            </span>
+          )}
+          {showTargetProject && (
+            <span
+              className="max-w-[140px] truncate rounded border border-fuchsia-500/30 bg-fuchsia-500/10 px-1.5 py-0.5 text-[10px] text-fuchsia-200"
+              title={`Factory target project: ${targetProject}`}
+            >
+              → {targetProject}
             </span>
           )}
           {batchId && (
