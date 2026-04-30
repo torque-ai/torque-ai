@@ -424,7 +424,7 @@ function runMaintenanceTask(taskType) {
         const staleQueuedMin = serverConfig.getInt('stale_queued_minutes', 120);
         const result = db.cleanupStaleTasks(staleRunningMin, staleQueuedMin);
         if (result.total > 0) {
-          debugLog(`Stale task cleanup: ${result.running_cleaned} running, ${result.queued_cleaned} queued`);
+          debugLog(`Stale task cleanup: ${result.running_cleaned} running, ${result.queued_cleaned} queued, ${result.workflow_task_cleaned || 0} workflow child`);
         }
         break;
       }

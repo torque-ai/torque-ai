@@ -770,6 +770,63 @@ describe('provider-routing module', () => {
       expect(taskCore.getTask(queuedId).cancel_reason).toBeNull();
     });
 
+    it('cleanupStaleTasks skips active child tasks for terminal workflows', () => {
+      const workflowId = createWorkflow({ status: 'failed' });
+      const activeWorkflowId = createWorkflow({ status: 'running' });
+      const old = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+      rawDb().prepare('UPDATE workflows SET completed_at = ? WHERE id = ?')
+        .run(old, workflowId);
+
+      const blockedId = createTask({
+        status: 'blocked',
+        workflow_id: workflowId,
+        project: 'cleanup-terminal-workflow',
+      });
+      const pendingId = createTask({
+        status: 'pending',
+        workflow_id: workflowId,
+        project: 'cleanup-terminal-workflow',
+      });
+      const activeBlockedId = createTask({
+        status: 'blocked',
+        workflow_id: activeWorkflowId,
+        project: 'cleanup-active-workflow',
+      });
+
+      const cleaned = mod.cleanupStaleTasks(60, 120);
+
+      expect(cleaned.workflow_task_cleaned).toBe(2);
+      expect(taskCore.getTask(blockedId)).toMatchObject({
+        status: 'skipped',
+      });
+      expect(taskCore.getTask(pendingId)).toMatchObject({
+        status: 'skipped',
+      });
+      expect(taskCore.getTask(blockedId).error_output).toContain('parent workflow is terminal (failed)');
+      expect(taskCore.getTask(activeBlockedId)).toMatchObject({
+        status: 'blocked',
+      });
+    });
+
+    it('cleanupStaleTasks does not fail queued tasks owned by nonterminal workflows', () => {
+      const workflowId = createWorkflow({ status: 'running' });
+      const queuedId = createTask({
+        status: 'queued',
+        workflow_id: workflowId,
+        project: 'cleanup-active-workflow-queue',
+      });
+      const old = new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString();
+      rawDb().prepare('UPDATE tasks SET created_at = ? WHERE id = ?')
+        .run(old, queuedId);
+
+      const cleaned = mod.cleanupStaleTasks(60, 120);
+
+      expect(cleaned.queued_cleaned).toBe(0);
+      expect(taskCore.getTask(queuedId)).toMatchObject({
+        status: 'queued',
+      });
+    });
+
     it('cleanupStaleTasks handles running tasks with null started_at', () => {
       const runningId = createTask({ status: 'running', project: 'cleanup-null-start' });
       const old = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
