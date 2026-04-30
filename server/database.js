@@ -915,7 +915,7 @@ const _LEGACY_EXPORT_MODULES = [
     'setHostTierHint', 'setProjectTuning', 'setTaskReviewStatus', 'tryReserveHostSlot', 'updateOllamaHost', 'upsertModelCapabilities',
   ] },
   { name: 'workflowEngine', exports: [
-    'addTaskDependency', 'areTaskDependenciesSatisfied', 'cleanupOldWorkflows', 'createWorkflow', 'createWorkflowTemplate', 'deleteTaskDependency',
+    'addTaskDependency', 'areTaskDependenciesSatisfied', 'cleanupDormantPendingWorkflows', 'cleanupOldWorkflows', 'createWorkflow', 'createWorkflowTemplate', 'deleteTaskDependency',
     'deleteWorkflow', 'deleteWorkflowTemplate', 'evaluateAST', 'evaluateCondition', 'findEmptyWorkflowPlaceholder', 'getBlockedTasks',
     'getTaskDependencies', 'getTaskDependents', 'getWorkflow', 'getWorkflowDependencies', 'getWorkflowHistory', 'getWorkflowStatus',
     'getWorkflowTaskCount', 'getWorkflowTasks', 'getWorkflowTemplate', 'getWorkflowTemplateByName', 'injectReviewDependency', 'isTaskUnblockable', 'listWorkflowTemplates',

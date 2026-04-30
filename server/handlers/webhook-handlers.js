@@ -15,6 +15,7 @@ const providerRoutingCore = require('../db/provider-routing-core');
 const schedulingAutomation = require('../db/scheduling-automation');
 const taskMetadata = require('../db/task-metadata');
 const webhooksStreaming = require('../db/webhooks-streaming');
+const workflowEngine = require('../db/workflow-engine');
 const resourceHealth = require('../db/resource-health');
 const serverConfig = require('../config');
 const logger = require('../logger').child({ component: 'webhook-handlers' });
@@ -1013,9 +1014,11 @@ function handleRunMaintenance(args) {
   if (runAll || taskType === 'cleanup_stale_tasks') {
     const staleRunningMin = serverConfig.getInt('stale_running_minutes', 60);
     const staleQueuedMin = serverConfig.getInt('stale_queued_minutes', 120);
+    const dormantWorkflowMin = serverConfig.getInt('stale_pending_workflow_minutes', 7 * 24 * 60);
     addResult('Stale task cleanup', () => {
       const stale = providerRoutingCore.cleanupStaleTasks(staleRunningMin, staleQueuedMin);
-      return `${stale.total} task(s) (${stale.running_cleaned} running, ${stale.queued_cleaned} queued, ${stale.workflow_task_cleaned || 0} workflow child)`;
+      const dormant = workflowEngine.cleanupDormantPendingWorkflows(dormantWorkflowMin);
+      return `${stale.total} task(s) (${stale.running_cleaned} running, ${stale.queued_cleaned} queued, ${stale.workflow_task_cleaned || 0} workflow child); ${dormant.workflows_cancelled || 0} dormant workflow(s), ${dormant.tasks_cancelled || 0} task(s) cancelled`;
     });
   }
 
