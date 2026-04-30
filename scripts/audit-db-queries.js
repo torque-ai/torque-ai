@@ -195,14 +195,64 @@ function extractWhereColumns(whereClause) {
   const cols = [];
   const trimmed = trimWhereClauseToSqlBoundary(whereClause);
   const re = /(?:\w+\.)?([a-zA-Z_]\w*)\s*(?:=|!=|<>|<=|>=|<|>|\bIN\b|\bLIKE\b|\bIS\b)\s*/g;
-  let m;
-  while ((m = re.exec(trimmed)) !== null) {
+  for (const m of trimmed.matchAll(re)) {
     const col = m[1].toLowerCase();
     if (!['and', 'or', 'not', 'null', 'true', 'false'].includes(col)) {
       cols.push(col);
     }
   }
   return [...new Set(cols)];
+}
+
+/**
+ * Like extractWhereColumns, but preserves the table alias prefix when
+ * the SQL writes WHERE agm.group_id = ?. Returns [{ alias, col }]
+ * (alias is empty when the column was bare). Drives JOIN-aware table
+ * resolution in scanFiles so that aliased columns no longer get
+ * attributed to the dominant FROM table when their actual filter
+ * target is a joined table whose own indexes already cover it.
+ */
+function extractWhereColumnsWithAlias(whereClause) {
+  const out = [];
+  const seen = new Set();
+  const trimmed = trimWhereClauseToSqlBoundary(whereClause);
+  const re = /(?:(\w+)\.)?([a-zA-Z_]\w*)\s*(?:=|!=|<>|<=|>=|<|>|\bIN\b|\bLIKE\b|\bIS\b)\s*/g;
+  for (const m of trimmed.matchAll(re)) {
+    const alias = (m[1] || '').toLowerCase();
+    const col = m[2].toLowerCase();
+    if (['and', 'or', 'not', 'null', 'true', 'false'].includes(col)) continue;
+    const key = alias + '|' + col;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ alias, col });
+  }
+  return out;
+}
+
+/**
+ * Build an alias-to-table map from the SQL context lines. Recognizes
+ * both FROM <table> [AS] <alias> and JOIN <table> [AS] <alias> and
+ * lowercases everything for stable lookup. Used by the JOIN-aware
+ * scanner so that aliased WHERE columns resolve to the joined table.
+ */
+function buildAliasMap(contextLines) {
+  const map = new Map();
+  const re = /\b(?:FROM|JOIN)\s+(\w+)(?:\s+(?:AS\s+)?([a-zA-Z_]\w*))?\b/gi;
+  const stopWords = new Set([
+    'on', 'where', 'inner', 'outer', 'left', 'right', 'cross', 'natural',
+    'using', 'group', 'order', 'limit', 'having', 'set', 'values', 'as',
+    'and', 'or',
+  ]);
+  for (const line of contextLines) {
+    for (const m of line.matchAll(re)) {
+      const table = m[1].toLowerCase();
+      const alias = (m[2] || '').toLowerCase();
+      if (alias && !stopWords.has(alias)) {
+        map.set(alias, table);
+      }
+    }
+  }
+  return map;
 }
 
 /**
@@ -273,8 +323,34 @@ function scanFiles(dirs) {
         }
         if (!table) return;
         const whereClause = whereMatch[1];
-        const cols = extractWhereColumns(whereClause);
-        findings.push({ file: filePath, line: idx + 1, table, cols, sql: line.trim() });
+
+        // Build alias map from FROM/JOIN clauses across the WHERE's
+        // context. A query like `SELECT a.* FROM agents a JOIN
+        // agent_group_members agm ON ... WHERE agm.group_id = ?`
+        // previously got attributed to the FROM table (`agents`)
+        // because the audit didn't resolve `agm` as a JOIN alias.
+        // The fix: group WHERE columns by their resolved table and
+        // emit one finding per (resolvedTable, cols) pair so each
+        // table's indexes are checked against the columns that
+        // actually filter on that table.
+        const aliasMap = buildAliasMap(context);
+        const aliasedCols = extractWhereColumnsWithAlias(whereClause);
+        const groups = new Map();
+        for (const { alias, col } of aliasedCols) {
+          const resolved = (alias && aliasMap.get(alias)) || table;
+          if (!groups.has(resolved)) groups.set(resolved, []);
+          groups.get(resolved).push(col);
+        }
+        if (groups.size === 0) return;
+        for (const [resolvedTable, groupCols] of groups) {
+          findings.push({
+            file: filePath,
+            line: idx + 1,
+            table: resolvedTable,
+            cols: [...new Set(groupCols)],
+            sql: line.trim(),
+          });
+        }
       });
     }
   }
@@ -353,7 +429,17 @@ function main() {
   process.exit(strict ? 1 : 0);
 }
 
-module.exports = { extractIndexColumns, extractWhereColumns, isFullScanAnnotated, checkViolations, scanFiles, readAllDbSchema, trimWhereClauseToSqlBoundary };
+module.exports = {
+  extractIndexColumns,
+  extractWhereColumns,
+  extractWhereColumnsWithAlias,
+  buildAliasMap,
+  isFullScanAnnotated,
+  checkViolations,
+  scanFiles,
+  readAllDbSchema,
+  trimWhereClauseToSqlBoundary,
+};
 
 // Only run the audit when invoked directly (`node scripts/audit-db-queries.js`).
 // Without this guard, `require('.../audit-db-queries')` from a test file kicks

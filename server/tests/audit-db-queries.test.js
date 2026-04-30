@@ -414,4 +414,173 @@ describe('scripts/audit-db-queries', () => {
       expect(viols).toHaveLength(1);
     });
   });
+
+  describe('JOIN-alias resolution', () => {
+    const fs = require('fs');
+    const os = require('os');
+
+    let tmpDir;
+
+    beforeEach(() => {
+      tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'audit-db-join-test-'));
+    });
+
+    afterEach(() => {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    });
+
+    it('buildAliasMap parses FROM and JOIN aliases', () => {
+      const ctx = [
+        '      SELECT a.* FROM agents a',
+        '      INNER JOIN agent_group_members agm ON agm.agent_id = a.id',
+        '      WHERE agm.group_id = ?',
+      ];
+      const map = audit.buildAliasMap(ctx);
+      expect(map.get('a')).toBe('agents');
+      expect(map.get('agm')).toBe('agent_group_members');
+    });
+
+    it('buildAliasMap also accepts the AS form', () => {
+      const ctx = [
+        'SELECT * FROM tasks AS t INNER JOIN runs AS r ON r.task_id = t.id WHERE r.status = ?',
+      ];
+      const map = audit.buildAliasMap(ctx);
+      expect(map.get('t')).toBe('tasks');
+      expect(map.get('r')).toBe('runs');
+    });
+
+    it('buildAliasMap skips SQL keywords that follow a bare table', () => {
+      // `FROM tasks WHERE x = ?` — the parser must NOT treat `WHERE`
+      // as the alias for `tasks`. Same for ON, INNER, OUTER, etc.
+      const ctx = ['SELECT * FROM tasks WHERE x = ?'];
+      const map = audit.buildAliasMap(ctx);
+      expect(map.get('where')).toBeUndefined();
+      expect(map.size).toBe(0);
+    });
+
+    it('extractWhereColumnsWithAlias preserves the alias prefix', () => {
+      const cols = audit.extractWhereColumnsWithAlias('agm.group_id = ? AND af.false_positive = 1');
+      expect(cols).toEqual([
+        { alias: 'agm', col: 'group_id' },
+        { alias: 'af', col: 'false_positive' },
+      ]);
+    });
+
+    it('extractWhereColumnsWithAlias treats bare columns as alias=""', () => {
+      const cols = audit.extractWhereColumnsWithAlias('id = ? AND status = ?');
+      expect(cols).toEqual([
+        { alias: '', col: 'id' },
+        { alias: '', col: 'status' },
+      ]);
+    });
+
+    it('attributes a JOIN-aliased WHERE to the joined table, not the FROM table', () => {
+      // Pre-fix bug: `WHERE agm.group_id = ?` against
+      // `FROM agents a INNER JOIN agent_group_members agm` was
+      // attributed to `agents` (the FROM target) and reported as a
+      // missing index on `agents.group_id`. The actual filter is on
+      // `agent_group_members.group_id` which IS indexed.
+      const file = path.join(tmpDir, 'join-where.js');
+      fs.writeFileSync(file, [
+        'function listGroupMembers(groupId) {',
+        '  return db.prepare(`',
+        '    SELECT a.* FROM agents a',
+        '    INNER JOIN agent_group_members agm ON agm.agent_id = a.id',
+        '    WHERE agm.group_id = ?',
+        '  `).all(groupId);',
+        '}',
+      ].join('\n'));
+
+      const findings = audit.scanFiles([tmpDir]);
+      const joinFinding = findings.find((f) => f.cols.includes('group_id'));
+      expect(joinFinding).toBeDefined();
+      expect(joinFinding.table).toBe('agent_group_members');
+    });
+
+    it('splits a multi-table-aliased WHERE into per-table findings', () => {
+      // `WHERE ar.project_path = ? AND af.false_positive = 1` should
+      // produce two findings — one per resolved table — so each
+      // table's indexes are checked independently.
+      const file = path.join(tmpDir, 'two-aliases.js');
+      fs.writeFileSync(file, [
+        'function getFalsePositives(projectPath) {',
+        '  return db.prepare(`',
+        '    SELECT af.* FROM audit_findings af',
+        '    INNER JOIN audit_runs ar ON ar.id = af.audit_run_id',
+        '    WHERE ar.project_path = ? AND af.false_positive = 1',
+        '  `).all(projectPath);',
+        '}',
+      ].join('\n'));
+
+      const findings = audit.scanFiles([tmpDir]);
+      const arFinding = findings.find((f) => f.table === 'audit_runs');
+      const afFinding = findings.find((f) => f.table === 'audit_findings');
+      expect(arFinding).toBeDefined();
+      expect(arFinding.cols).toEqual(['project_path']);
+      expect(afFinding).toBeDefined();
+      expect(afFinding.cols).toEqual(['false_positive']);
+    });
+
+    it('falls back to the FROM table when the WHERE column has no alias', () => {
+      // Even with JOINs in scope, an unaliased WHERE column should
+      // still attribute to the dominant FROM table. This matches
+      // SQL semantics where bare columns must be unambiguous.
+      const file = path.join(tmpDir, 'mixed.js');
+      fs.writeFileSync(file, [
+        'function find(name) {',
+        "  return db.prepare(`SELECT a.* FROM agents a INNER JOIN runs r ON r.agent_id = a.id WHERE name = ?`).get(name);",
+        '}',
+      ].join('\n'));
+
+      const findings = audit.scanFiles([tmpDir]);
+      const finding = findings.find((f) => f.cols.includes('name'));
+      expect(finding).toBeDefined();
+      expect(finding.table).toBe('agents');
+    });
+
+    it('groups same-table aliased and unaliased columns into one finding', () => {
+      // `FROM tasks t WHERE t.status = ? AND created_at = ?` —
+      // both columns belong to `tasks`, so emit ONE finding with
+      // both cols rather than two single-col findings.
+      const file = path.join(tmpDir, 'same-table.js');
+      fs.writeFileSync(file, [
+        'function find() {',
+        "  return db.prepare(`SELECT * FROM tasks t WHERE t.status = ? AND created_at = ?`).get();",
+        '}',
+      ].join('\n'));
+
+      const findings = audit.scanFiles([tmpDir]);
+      const finding = findings.find((f) => f.table === 'tasks');
+      expect(finding).toBeDefined();
+      expect(finding.cols.sort()).toEqual(['created_at', 'status']);
+    });
+
+    it('preserves end-to-end coverage when one alias resolves to an indexed table', () => {
+      // The full pipeline: extractIndexColumns + scanFiles +
+      // checkViolations on the agents/agent_group_members JOIN
+      // pattern, with an explicit index on agent_group_members(group_id).
+      const schema = `
+        CREATE TABLE IF NOT EXISTS agents (id TEXT PRIMARY KEY, name TEXT);
+        CREATE TABLE IF NOT EXISTS agent_group_members (
+          agent_id TEXT NOT NULL,
+          group_id TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_agent_group_members_group ON agent_group_members(group_id);
+      `;
+      const file = path.join(tmpDir, 'live.js');
+      fs.writeFileSync(file, [
+        'function listGroupMembers(groupId) {',
+        '  return db.prepare(`SELECT a.* FROM agents a INNER JOIN agent_group_members agm ON agm.agent_id = a.id WHERE agm.group_id = ?`).all(groupId);',
+        '}',
+      ].join('\n'));
+
+      const idxMap = audit.extractIndexColumns(schema);
+      const findings = audit.scanFiles([tmpDir]);
+      const viols = audit.checkViolations(findings, idxMap);
+      // The group_id finding should resolve to agent_group_members
+      // and be covered by the explicit index — no violation.
+      const groupIdViol = viols.find((v) => v.cols.includes('group_id'));
+      expect(groupIdViol).toBeUndefined();
+    });
+  });
 });
