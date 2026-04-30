@@ -4,11 +4,9 @@
 const logger = require('../logger').child({ component: 'smart-routing' });
 const serverConfig = require('../config');
 const { safeJsonParse } = require('../utils/json');
-const { isSafeRegex } = require('../utils/safe-regex');
 const { prependResumeContextToPrompt } = require('../utils/resume-context');
-const capabilities = require('./provider-capabilities');
-const perfTracker = require('./provider-performance');
 const eventBus = require('../event-bus');
+const routingAnalysis = require('./provider-routing-analysis');
 
 let categoryClassifier = null;
 let templateStore = null;
@@ -444,48 +442,18 @@ function routeByComplexity(taskDescription, files, deps) {
  * @returns {object} Routing decision.
  */
 function analyzeTaskForRouting(taskDescription, workingDirectory, files = [], options = {}) {
-  const { skipHealthCheck = false, isUserOverride = false, preferFree = false } = options;
-  const taskMetadata = options?.taskMetadata || {};
-  const hasRoutingTemplateIntent = typeof taskMetadata._routing_template === 'string' && taskMetadata._routing_template.trim() !== '';
-
+  const inputs = routingAnalysis.normalizeRoutingInputs(taskDescription, workingDirectory, files, options);
   const getDatabaseConfig = _deps.getDatabaseConfig;
   const getProvider = _deps.getProvider;
   const getDefaultProvider = _deps.getDefaultProvider;
   const hostManagementFns = _deps.getHostManagementFns();
   const isOllamaHealthy = _deps.isOllamaHealthy;
   const getFallbackChain = _deps.getFallbackChain;
-  const applyProviderSafetyNet = (routingResult) => {
-    if (!routingResult || typeof routingResult !== 'object') {
-      return routingResult;
-    }
-
-    let resolvedProvider = typeof routingResult.provider === 'string' ? routingResult.provider.trim() : '';
-    const providerConfig = resolvedProvider ? getProvider(resolvedProvider) : null;
-    if (resolvedProvider && providerConfig && providerConfig.enabled) {
-      routingResult.provider = resolvedProvider;
-      return routingResult;
-    }
-
-    // Safety net: if routing resolved to a disabled/missing provider or null,
-    // fall back to the first enabled provider to prevent tasks sitting in queue forever.
-    const invalidProvider = resolvedProvider;
-    try {
-      const db = _deps.getDb();
-      const enabledProviders = db.prepare(
-        "SELECT provider FROM provider_config WHERE enabled = 1 ORDER BY priority ASC LIMIT 1"
-      ).all();
-      if (enabledProviders.length > 0) {
-        resolvedProvider = enabledProviders[0].provider;
-        routingResult.provider = resolvedProvider;
-        logger.warn(`[SmartRouting] Invalid provider resolved (${invalidProvider || 'null'}) — falling back to ${resolvedProvider}`);
-      }
-    } catch { /* db may not be available */ }
-
-    if (resolvedProvider) {
-      routingResult.provider = resolvedProvider;
-    }
-    return routingResult;
-  };
+  const applyProviderSafetyNet = routingAnalysis.createProviderSafetyNet({
+    getProvider,
+    getDb: () => _deps.getDb(),
+    logger,
+  });
 
   // Check if smart routing is enabled
   const smartRoutingEnabled = getDatabaseConfig('smart_routing_enabled') === '1';
@@ -501,39 +469,18 @@ function analyzeTaskForRouting(taskDescription, workingDirectory, files = [], op
   const ollamaHealthy = isOllamaHealthy();
 
   // prefer_free: restrict to $0 providers — local Ollama first, then cloud free tiers
-  if (preferFree) {
-    // Try local Ollama if healthy (best free option: no rate limits, 24GB VRAM)
-    if (ollamaHealthy !== false) {
-      const providerConfig = getProvider('ollama');
-      if (providerConfig && providerConfig.enabled) {
-        return applyProviderSafetyNet({ provider: 'ollama', rule: null, reason: 'Free routing: local Ollama (ollama)', complexity: 'normal' });
-      }
-    }
-    // Fallback to cloud free tiers
-    const cloudFreeOrder = ['google-ai', 'groq', 'openrouter', 'ollama-cloud', 'cerebras'];
-    for (const p of cloudFreeOrder) {
-      const apiKey = serverConfig.getApiKey(p);
-      if (!apiKey) continue;
-      const pConfig = getProvider(p);
-      if (pConfig && pConfig.enabled) {
-        return applyProviderSafetyNet({ provider: p, rule: null, reason: `Free routing: cloud free tier (${p})`, complexity: 'normal' });
-      }
-    }
-    // No free providers available — fall through to normal routing with a warning
-    logger.warn('[SmartRouting] prefer_free requested but no free providers available, falling through to normal routing');
+  const freeRoutingResult = routingAnalysis.routePreferFreeProvider({
+    preferFree: inputs.preferFree,
+    ollamaHealthy,
+    getProvider,
+    serverConfig,
+    applyProviderSafetyNet,
+    logger,
+  });
+  if (freeRoutingResult) {
+    return freeRoutingResult;
   }
   const ollamaFallbackProvider = getDatabaseConfig('ollama_fallback_provider') || 'codex';
-
-  const descLower = (taskDescription || '').toLowerCase();
-
-  // Collect all file extensions from working directory and explicit files
-  const fileExtensions = new Set();
-  if (files && Array.isArray(files)) {
-    for (const file of files) {
-      const ext = file.includes('.') ? '.' + file.split('.').pop().toLowerCase() : '';
-      if (ext) fileExtensions.add(ext);
-    }
-  }
 
   // ─── Lazy-loaded optional integrations ────────────────────────────────
   function getCircuitBreaker() {
@@ -544,69 +491,21 @@ function analyzeTaskForRouting(taskDescription, workingDirectory, files = [], op
   // Helper to check if provider needs Ollama and handle fallback
   const isOllamaProvider = (provider) => provider === 'ollama';
 
-  const maybeApplyFallback = (result) => {
-    const hasPreservedIntent = isUserOverride || hasRoutingTemplateIntent;
-    if (!skipHealthCheck && isOllamaProvider(result.provider) && ollamaHealthy === false) {
-      // TDA-01: Do not silently reroute when a task has explicit provider intent.
-      if (hasPreservedIntent) {
-        logger.info(`[SmartRouting] Ollama unhealthy but explicit intent requested ${result.provider} — preserving intent (TDA-01)`);
-        return applyProviderSafetyNet(result);
-      }
-      return applyProviderSafetyNet({
-        provider: ollamaFallbackProvider,
-        rule: result.rule,
-        reason: `${result.reason} [Ollama unavailable - falling back to ${ollamaFallbackProvider}]`,
-        originalProvider: result.provider,
-        fallbackApplied: true
-      });
-    }
-
-    // Context overflow guard: estimate prompt size and reroute if it would exceed
-    // local LLM context window. The desc + file count is a rough proxy for the
-    // full prompt that execute-hashline/execute-ollama will build.
-    if (isOllamaProvider(result.provider) && !hasPreservedIntent) {
-      const descTokens = Math.ceil((taskDescription || '').length / 4);
-      const fileCount = (files || []).length;
-      // Each referenced file adds ~500–2000 tokens of context (path + relevant content).
-      // Conservative estimate: 800 tokens per file for context stuffing.
-      const estimatedFileTokens = fileCount * 800;
-      const estimatedTotal = descTokens + estimatedFileTokens;
-      const localCtxLimit = serverConfig.getInt('ollama_max_ctx', 32768);
-      // Reroute if estimated tokens would exceed 70% of context (leave room for response)
-      if (estimatedTotal > localCtxLimit * 0.7) {
-        logger.info(`[SmartRouting] Context overflow guard: ~${estimatedTotal} estimated tokens exceeds 70% of ${localCtxLimit} limit for ${result.provider} — rerouting to ${ollamaFallbackProvider}`);
-        return applyProviderSafetyNet({
-          provider: ollamaFallbackProvider,
-          rule: result.rule,
-          reason: `${result.reason} [context overflow: ~${estimatedTotal} tokens > ${localCtxLimit} limit, rerouted to ${ollamaFallbackProvider}]`,
-          originalProvider: result.provider,
-          fallbackApplied: true,
-          contextOverflow: true,
-        });
-      }
-    }
-
-    // Circuit breaker guard: if selected provider has an open circuit, apply fallback
-    const cb = getCircuitBreaker();
-    if (cb && !cb.allowRequest(result.provider) && !hasPreservedIntent) {
-      logger.info(`[SmartRouting] Circuit breaker OPEN for ${result.provider} — applying fallback`);
-      const fbChain = getFallbackChain(result.provider);
-      for (const fb of fbChain) {
-        if (cb.allowRequest(fb) && getProvider(fb)?.enabled) {
-          return applyProviderSafetyNet({
-            ...result,
-            provider: fb,
-            originalProvider: result.provider,
-            reason: `${result.reason} [circuit breaker: ${result.provider} tripped, rerouted to ${fb}]`,
-            fallbackApplied: true,
-          });
-        }
-      }
-      // All fallbacks also tripped — let it through and fail honestly
-    }
-
-    return applyProviderSafetyNet(result);
-  };
+  const maybeApplyFallback = routingAnalysis.createFallbackHandler({
+    skipHealthCheck: inputs.skipHealthCheck,
+    hasPreservedIntent: inputs.isUserOverride || inputs.hasRoutingTemplateIntent,
+    ollamaHealthy,
+    ollamaFallbackProvider,
+    taskDescription,
+    files,
+    getProvider,
+    getFallbackChain,
+    getCircuitBreaker,
+    isOllamaProvider,
+    applyProviderSafetyNet,
+    logger,
+    serverConfig,
+  });
 
   // ─── ROUTING EVALUATION ORDER ──────────────────────────────────────────
   // 1. Per-task routing template (explicit user override per task)
@@ -639,7 +538,7 @@ function analyzeTaskForRouting(taskDescription, workingDirectory, files = [], op
     getProvider,
     getQuotaStoreIfAvailable: getQuotaStoreIfAvailable,
     applyProviderSafetyNet,
-    isUserOverride
+    isUserOverride: inputs.isUserOverride
   });
   if (patternResult) return patternResult;
 
@@ -656,72 +555,8 @@ function analyzeTaskForRouting(taskDescription, workingDirectory, files = [], op
 
   // FALLBACK: Legacy keyword/extension rules
   const db = _deps.getDb();
-  let sql = 'SELECT * FROM routing_rules WHERE 1=1';
-  const params = [];
-
-  if (options.enabled !== undefined) {
-    sql += ' AND enabled = ?';
-    params.push(options.enabled ? 1 : 0);
-  }
-  if (options.rule_type) {
-    sql += ' AND rule_type = ?';
-    params.push(options.rule_type);
-  }
-
-  sql += ' ORDER BY priority ASC';
-
-  const rules = db.prepare(sql).all(...params);
-
-  // Check rules in priority order
-  for (const rule of rules) {
-    // Skip complexity rules (already handled above)
-    if (rule.complexity) continue;
-
-    if (typeof rule.pattern !== 'string') continue;
-    const patterns = (rule.pattern || '').split('|').map(p => p.trim().toLowerCase());
-
-    if (rule.rule_type === 'keyword') {
-      // Check if any keyword pattern matches the description
-      for (const pattern of patterns) {
-        if (descLower.includes(pattern)) {
-          return maybeApplyFallback({
-            provider: rule.target_provider,
-            rule: rule,
-            reason: `Matched keyword rule '${rule.name}': pattern '${pattern}'`
-          });
-        }
-      }
-    } else if (rule.rule_type === 'extension') {
-      // Check if any file extension matches
-      for (const pattern of patterns) {
-        if (fileExtensions.has(pattern)) {
-          return maybeApplyFallback({
-            provider: rule.target_provider,
-            rule: rule,
-            reason: `Matched extension rule '${rule.name}': extension '${pattern}'`
-          });
-        }
-      }
-    } else if (rule.rule_type === 'regex') {
-      // Full regex matching
-      try {
-        if (!isSafeRegex(rule.pattern)) {
-          logger.warn('Unsafe regex pattern skipped: ' + rule.pattern);
-          continue;
-        }
-        const regex = new RegExp(rule.pattern, 'i');
-        if (regex.test(taskDescription)) {
-          return maybeApplyFallback({
-            provider: rule.target_provider,
-            rule: rule,
-            reason: `Matched regex rule '${rule.name}'`
-          });
-        }
-      } catch {
-        // Invalid regex, skip
-      }
-    }
-  }
+  const legacyResult = routingAnalysis.routeByLegacyRules({ db, inputs, logger, maybeApplyFallback });
+  if (legacyResult) return legacyResult;
 
   // No rule matched, use default smart routing provider
   const defaultSmartProvider = getDatabaseConfig('smart_routing_default_provider') || 'ollama';
@@ -731,26 +566,7 @@ function analyzeTaskForRouting(taskDescription, workingDirectory, files = [], op
     reason: `No rule matched, using smart routing default: ${defaultSmartProvider}`
   });
 
-  if (options && options.tierList) {
-    const capReqs = capabilities.inferCapabilityRequirements(taskDescription);
-    const complexity = result.complexity || 'normal';
-    const qualityTier = complexity === 'complex' ? 'complex' : (complexity === 'simple' ? 'simple' : 'normal');
-    const eligibleProviders = capabilities.generateEligibleProviders({
-      capabilityRequirements: capReqs,
-      qualityTier,
-      getEmpiricalRank: (provider) => perfTracker.getEmpiricalRank(provider, perfTracker.inferTaskType(taskDescription)),
-    });
-    result.eligible_providers = eligibleProviders;
-    result.capability_requirements = capReqs;
-    result.quality_tier = qualityTier;
-  }
-
-  if (options && options.isUserOverride && options.overrideProvider) {
-    result.eligible_providers = [options.overrideProvider];
-    result.provider = options.overrideProvider;
-  }
-
-  return applyProviderSafetyNet(result);
+  return routingAnalysis.finalizeRoutingResult(result, inputs, applyProviderSafetyNet);
 }
 
 /**
