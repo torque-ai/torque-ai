@@ -109,6 +109,28 @@ function serverTargetedSourceTests(file) {
   return [];
 }
 
+function dashboardTargetedSourceTests(file) {
+  if (!file.startsWith('dashboard/src/') || isDashboardTest(file)) return [];
+  if (!/\.(js|jsx)$/.test(file)) return [];
+  if (![
+    'dashboard/src/components/',
+    'dashboard/src/hooks/',
+    'dashboard/src/utils/',
+    'dashboard/src/views/',
+  ].some((prefix) => file.startsWith(prefix))) {
+    return [];
+  }
+
+  const withoutExt = file.replace(/\.(js|jsx)$/, '');
+  const candidates = uniqSorted([
+    `${withoutExt}.test.js`,
+    `${withoutExt}.test.jsx`,
+  ]);
+  return candidates
+    .filter(repoPathExists)
+    .map(dashboardRelative);
+}
+
 function serverRelative(file) {
   return file.replace(/^server\//, '');
 }
@@ -178,8 +200,13 @@ function planFromFiles(files, options = {}) {
       if (isDashboardTest(file)) {
         if (!plan._dashboard_full) plan.dashboard_args.push(dashboardRelative(file));
       } else {
-        plan.dashboard_args = [];
-        plan._dashboard_full = true;
+        const targetedTests = dashboardTargetedSourceTests(file);
+        if (targetedTests.length > 0) {
+          if (!plan._dashboard_full) plan.dashboard_args.push(...targetedTests);
+        } else {
+          plan.dashboard_args = [];
+          plan._dashboard_full = true;
+        }
       }
       continue;
     }

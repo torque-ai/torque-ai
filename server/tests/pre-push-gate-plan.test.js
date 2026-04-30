@@ -29,12 +29,37 @@ describe('pre-push gate planner', () => {
   });
 
   it('runs the dashboard suite for non-test dashboard source changes', () => {
-    const plan = planFromFiles(['dashboard/src/views/factory/FactoryView.jsx']);
+    const plan = planFromFiles(['dashboard/src/App.jsx']);
 
     expect(plan.mode).toBe('affected');
     expect(plan.run_dashboard).toBe(true);
     expect(plan.dashboard_args).toEqual([]);
     expect(plan.run_server).toBe(false);
+  });
+
+  it('runs the dashboard suite for untested shared dashboard modules', () => {
+    const plan = planFromFiles(['dashboard/src/views/factory/shared.jsx']);
+
+    expect(plan.mode).toBe('affected');
+    expect(plan.run_dashboard).toBe(true);
+    expect(plan.dashboard_args).toEqual([]);
+    expect(plan.run_server).toBe(false);
+  });
+
+  it('runs direct dashboard tests for isolated dashboard source changes', () => {
+    const plan = planFromFiles([
+      'dashboard/src/components/StatCard.jsx',
+      'dashboard/src/utils/ansiToHtml.js',
+    ]);
+
+    expect(plan.mode).toBe('affected');
+    expect(plan.run_dashboard).toBe(true);
+    expect(plan.dashboard_args).toEqual([
+      'src/components/StatCard.test.jsx',
+      'src/utils/ansiToHtml.test.js',
+    ]);
+    expect(plan.run_server).toBe(false);
+    expect(plan.run_perf).toBe(false);
   });
 
   it('runs only touched server tests for server test-only changes', () => {
