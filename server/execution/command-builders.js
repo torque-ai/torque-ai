@@ -198,6 +198,27 @@ async function buildCodexCommand(task, providerConfig, resolvedFileContext, reso
     codexArgs.push('--full-auto');
   }
 
+  // Mirror the factory_internal reasoning_effort override from
+  // server/providers/execute-cli.js (commit e751d504). That file has a
+  // duplicate buildCodexCommand, but task-manager dispatches through
+  // THIS one — so the override never reached production for tasks that
+  // went via task-manager (the dominant path). Result: every
+  // factory_internal codex task kept inheriting the user's xhigh
+  // default, burning the entire timeout window on reasoning before
+  // emitting structured output, then failing with "Timeout exceeded".
+  // Observed live 2026-05-01 across NetSim plan_quality_review,
+  // StateTrace architect_cycle, SpudgetBooks plan_generation, etc.
+  // The task preamble even printed `reasoning effort: xhigh` despite
+  // the other file's override being theoretically active.
+  const taskMetadata = (() => {
+    if (!task.metadata) return null;
+    if (typeof task.metadata === 'object') return task.metadata;
+    try { return JSON.parse(task.metadata); } catch { return null; }
+  })();
+  if (taskMetadata && taskMetadata.factory_internal === true) {
+    codexArgs.push('-c', 'model_reasoning_effort=high');
+  }
+
   if (task.working_directory) {
     codexArgs.push('-C', task.working_directory);
     const sandboxRoots = resolveSandboxWritableRoots(task.working_directory);
