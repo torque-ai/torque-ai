@@ -106,6 +106,71 @@ function modifiedFilesTouchingSharedInfra(modifiedFiles) {
   return modifiedFiles.filter(isSharedInfrastructureFile);
 }
 
+const PYTHON_MISSING_MODULE_RE = /ModuleNotFoundError:\s+No module named ['"]([^'"]+)['"]/i;
+const PYTHON_UNITTEST_FAILED_IMPORT_RE = /Failed to import test module:\s*([A-Za-z0-9_.]+)/i;
+
+function isTestLikePythonModule(moduleName) {
+  const name = String(moduleName || '').trim();
+  return /^tests?\./i.test(name)
+    || /^test_[A-Za-z0-9_]+$/i.test(name)
+    || /\.test_[A-Za-z0-9_]+$/i.test(name)
+    || /_tests?$/i.test(name);
+}
+
+function pythonModuleToPath(moduleName) {
+  const name = String(moduleName || '').trim();
+  if (!name) return null;
+  return `${name.replace(/\./g, '/')}.py`;
+}
+
+function normalizeSearchText(value) {
+  return String(value || '')
+    .replace(/\\/g, '/')
+    .toLowerCase();
+}
+
+function workItemMentionsTarget(workItem, needles) {
+  if (!workItem || !Array.isArray(needles) || needles.length === 0) {
+    return false;
+  }
+  const haystack = Object.values(workItem)
+    .filter((value) => typeof value === 'string')
+    .map(normalizeSearchText)
+    .join('\n');
+  if (!haystack) return false;
+  return needles.some((needle) => needle && haystack.includes(normalizeSearchText(needle)));
+}
+
+function detectMissingTaskOwnedVerifyTarget(verifyOutput, workItem) {
+  const combined = normalizeVerifyOutput(verifyOutput).combined || '';
+  const moduleMatch = combined.match(PYTHON_MISSING_MODULE_RE);
+  const failedImportMatch = combined.match(PYTHON_UNITTEST_FAILED_IMPORT_RE);
+  const moduleName = moduleMatch?.[1] || failedImportMatch?.[1] || null;
+  if (!moduleName || !isTestLikePythonModule(moduleName)) {
+    return { detected: false };
+  }
+
+  const modulePath = pythonModuleToPath(moduleName);
+  const pathBase = modulePath ? modulePath.split('/').pop() : null;
+  const needles = [
+    moduleName,
+    modulePath,
+    modulePath ? modulePath.replace(/\.py$/i, '') : null,
+    pathBase,
+  ].filter(Boolean);
+
+  if (!workItemMentionsTarget(workItem, needles)) {
+    return { detected: false };
+  }
+
+  return {
+    detected: true,
+    module_name: moduleName,
+    module_path: modulePath,
+    signals: ['missing_task_owned_verify_target'],
+  };
+}
+
 function buildLlmResult(overrides = {}) {
   return {
     verdict: null,
@@ -731,6 +796,24 @@ async function reviewVerifyFailure({
     };
   }
 
+  const missingTaskTarget = module.exports.detectMissingTaskOwnedVerifyTarget(verifyOutput, workItem);
+  if (missingTaskTarget.detected) {
+    const modifiedFiles = await module.exports.getModifiedFiles(workingDirectory, worktreeBranch, mergeBase);
+    return {
+      classification: 'task_caused',
+      confidence: 'high',
+      modifiedFiles,
+      failingTests: missingTaskTarget.module_path ? [missingTaskTarget.module_path] : [],
+      intersection: [],
+      environmentSignals: [],
+      verifySignals: missingTaskTarget.signals || [],
+      missingModuleName: missingTaskTarget.module_name || null,
+      llmVerdict: null,
+      llmCritique: null,
+      suggestedRejectReason: null,
+    };
+  }
+
   // Missing-dependency classification: adapters detect common patterns
   // (ModuleNotFoundError, Cannot find module, etc.), LLM maps module→package.
   try {
@@ -949,6 +1032,7 @@ module.exports = {
   normalizeVerifyOutput,
   detectEnvironmentFailure,
   detectBuildFailure,
+  detectMissingTaskOwnedVerifyTarget,
   parseFailingTests,
   getModifiedFiles,
   runLlmTiebreak,
