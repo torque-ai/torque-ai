@@ -36,6 +36,7 @@ const logger = require('../logger').child({ component: 'loop-controller' });
 
 const PLAN_GENERATOR_LABEL = 'auto-router';
 const DEFAULT_PLAN_GENERATION_TIMEOUT_MINUTES = 30;
+const DEFAULT_STALE_PENDING_PLAN_GENERATION_MS = DEFAULT_PLAN_GENERATION_TIMEOUT_MINUTES * 60 * 1000;
 
 const WORK_ITEM_STATUS_ORDER = Object.freeze([
   'executing',
@@ -234,6 +235,22 @@ function resolvePlanGenerationTimeoutMinutes(project) {
 function getTaskAgeMs(task) {
   if (!task) return null;
   return elapsedMsSince(task.started_at || task.created_at || task.createdAt);
+}
+
+function isStaleNeverStartedPendingPlanGenerationTask(
+  task,
+  staleAfterMs = DEFAULT_STALE_PENDING_PLAN_GENERATION_MS
+) {
+  if (!task) return false;
+  if (String(task.status || '').toLowerCase() !== 'pending') return false;
+  if (task.started_at || task.startedAt) return false;
+
+  const createdAgeMs = elapsedMsSince(task.created_at || task.createdAt);
+  const thresholdMs = Number(staleAfterMs);
+  return createdAgeMs != null
+    && Number.isFinite(thresholdMs)
+    && thresholdMs >= 0
+    && createdAgeMs >= thresholdMs;
 }
 
 function getWorktreeDirtyStatus(worktreePath) {
@@ -1389,6 +1406,7 @@ function findExistingPlanTaskSubmission(taskCore, {
   workItemId,
   planTaskNumber,
   batchId = null,
+  stalePendingMs = DEFAULT_STALE_PENDING_PLAN_GENERATION_MS,
 }) {
   if (!taskCore || typeof taskCore.listTasks !== 'function') {
     return null;
@@ -1418,7 +1436,7 @@ function findExistingPlanTaskSubmission(taskCore, {
       orderBy: 'created_at',
       orderDir: 'desc',
       limit: 100,
-      columns: ['id', 'status', 'tags', 'created_at'],
+      columns: ['id', 'status', 'tags', 'created_at', 'started_at'],
     });
   } catch (error) {
     logger.debug({
@@ -1445,12 +1463,22 @@ function findExistingPlanTaskSubmission(taskCore, {
       ]
     : matching;
 
-  const active = prioritized.find((candidate) => (
-    candidate.status === 'running'
-    || candidate.status === 'queued'
-    || candidate.status === 'pending'
-    || candidate.status === 'pending_approval'
-  ));
+  const active = prioritized.find((candidate) => {
+    if (isStaleNeverStartedPendingPlanGenerationTask(candidate, stalePendingMs)) {
+      logger.warn('Ignoring stale pending reusable plan task submission', {
+        task_id: candidate.id,
+        work_item_id: normalizedWorkItemId,
+        plan_task_number: normalizedPlanTaskNumber,
+        status: candidate.status,
+        created_at: candidate.created_at || candidate.createdAt || null,
+      });
+      return false;
+    }
+    return candidate.status === 'running'
+      || candidate.status === 'queued'
+      || candidate.status === 'pending'
+      || candidate.status === 'pending_approval';
+  });
   if (active) {
     return { task_id: active.id, status: active.status };
   }
@@ -4844,6 +4872,43 @@ function maybeClearDeferredPlanGenerationWait(project, instance) {
 
   const taskCore = require('../db/task-core');
   const generationTask = getPlanGenerationTask(taskCore, generationTaskId);
+  if (isStaleNeverStartedPendingPlanGenerationTask(generationTask)) {
+    let updatedWorkItem = workItem;
+    try {
+      updatedWorkItem = factoryIntake.updateWorkItem(workItem.id, {
+        origin_json: clearPlanGenerationWaitFields(origin),
+        status: workItem.status || 'planned',
+      });
+      rememberSelectedWorkItem(instance.id, updatedWorkItem);
+    } catch (error) {
+      logger.warn('EXECUTE stage: failed to clear stale pending plan-generation wait fields', {
+        project_id: project.id,
+        work_item_id: workItem.id,
+        generation_task_id: generationTaskId,
+        err: error.message,
+      });
+    }
+
+    logger.warn('EXECUTE stage: clearing stale pending plan-generation wait', {
+      project_id: project.id,
+      work_item_id: updatedWorkItem?.id || workItem.id,
+      generation_task_id: generationTaskId,
+      task_status: generationTask?.status || null,
+      created_at: generationTask?.created_at || generationTask?.createdAt || null,
+    });
+    const updated = updateInstanceAndSync(instance.id, {
+      paused_at_stage: null,
+      last_action_at: nowIso(),
+    });
+    return {
+      cleared: true,
+      instance: updated,
+      task_id: generationTaskId,
+      task_status: generationTask?.status || null,
+      wait_reason: 'stale_pending_plan_generation',
+    };
+  }
+
   if (isPlanGenerationTaskPending(generationTask)) {
     const wait = getPlanGenerationWait(generationTask);
     return {
@@ -5260,6 +5325,7 @@ async function executeNonPlanFileStage(project, instance, workItem) {
     ...(targetItem.origin && typeof targetItem.origin === 'object' ? targetItem.origin : {}),
     plan_path: planPath,
   };
+  let planGenerationOrigin = nextOrigin;
 
   if (fs.existsSync(planPath)) {
     const updatedWorkItem = factoryIntake.updateWorkItem(targetItem.id, {
@@ -5343,8 +5409,57 @@ async function executeNonPlanFileStage(project, instance, workItem) {
   const prompt = buildAutoGeneratedPlanPrompt(project, targetItem);
   let generationTaskId = getStoredPlanGenerationTaskId(targetItem);
   const planGenerationTimeoutMinutes = resolvePlanGenerationTimeoutMinutes(project);
+  const stalePendingMs = planGenerationTimeoutMinutes * 60 * 1000;
 
   try {
+    if (generationTaskId) {
+      const resolved = resolveTaskReplacementChain(taskCore, generationTaskId);
+      if (resolved.replaced) {
+        generationTaskId = resolved.taskId;
+        persistPlanGenerationTaskReplacement(targetItem, generationTaskId);
+      }
+      const existingGenerationTask = resolved.task;
+      if (isStaleNeverStartedPendingPlanGenerationTask(existingGenerationTask, stalePendingMs)) {
+        planGenerationOrigin = clearPlanGenerationWaitFields(nextOrigin);
+        try {
+          const clearedWorkItem = factoryIntake.updateWorkItem(targetItem.id, {
+            origin_json: planGenerationOrigin,
+            status: targetItem.status || 'planned',
+          });
+          rememberSelectedWorkItem(instance.id, clearedWorkItem);
+        } catch (clearErr) {
+          logger.warn('EXECUTE stage: failed to clear stale pending plan-generation task reference', {
+            project_id: project.id,
+            work_item_id: targetItem.id,
+            generation_task_id: generationTaskId,
+            err: clearErr.message,
+          });
+        }
+        logger.warn('EXECUTE stage: replacing stale pending plan-generation task', {
+          project_id: project.id,
+          work_item_id: targetItem.id,
+          generation_task_id: generationTaskId,
+          task_status: existingGenerationTask?.status || null,
+          created_at: existingGenerationTask?.created_at || existingGenerationTask?.createdAt || null,
+        });
+        generationTaskId = null;
+      } else {
+        const existingWait = getPlanGenerationWait(existingGenerationTask);
+        if (isPlanGenerationTaskPending(existingGenerationTask) && existingWait) {
+          return buildPlanGenerationDeferredResult({
+            project,
+            instance,
+            targetItem,
+            planPath,
+            generationTaskId,
+            generationTask: existingGenerationTask,
+            wait: existingWait,
+            reason: existingGenerationTask?.error_output || 'plan generation task is waiting on file-lock contention',
+          });
+        }
+      }
+    }
+
     if (!generationTaskId) {
       const { task_id } = await submitFactoryInternalTask({
         task: prompt,
@@ -5364,7 +5479,7 @@ async function executeNonPlanFileStage(project, instance, workItem) {
       try {
         const pendingWorkItem = factoryIntake.updateWorkItem(targetItem.id, {
           origin_json: {
-            ...nextOrigin,
+            ...planGenerationOrigin,
             plan_generation_task_id: generationTaskId,
             plan_generation_status: 'submitted',
             plan_generation_updated_at: nowIso(),
@@ -5378,26 +5493,6 @@ async function executeNonPlanFileStage(project, instance, workItem) {
           work_item_id: targetItem.id,
           generation_task_id: generationTaskId,
           err: persistErr.message,
-        });
-      }
-    } else {
-      const resolved = resolveTaskReplacementChain(taskCore, generationTaskId);
-      if (resolved.replaced) {
-        generationTaskId = resolved.taskId;
-        persistPlanGenerationTaskReplacement(targetItem, generationTaskId);
-      }
-      const existingGenerationTask = resolved.task;
-      const existingWait = getPlanGenerationWait(existingGenerationTask);
-      if (isPlanGenerationTaskPending(existingGenerationTask) && existingWait) {
-        return buildPlanGenerationDeferredResult({
-          project,
-          instance,
-          targetItem,
-          planPath,
-          generationTaskId,
-          generationTask: existingGenerationTask,
-          wait: existingWait,
-          reason: existingGenerationTask?.error_output || 'plan generation task is waiting on file-lock contention',
         });
       }
     }
@@ -11149,6 +11244,7 @@ module.exports = {
   getEffectiveProjectProvider,
   OLLAMA_PLAN_GENERATION_TIMEOUT_MINUTES,
   DEFAULT_PLAN_GENERATION_TIMEOUT_MINUTES,
+  DEFAULT_STALE_PENDING_PLAN_GENERATION_MS,
   buildVerifyFixPrompt,
   VERIFY_FIX_PROMPT_TAIL_BUDGET,
   isProjectStatusPaused,
@@ -11203,6 +11299,7 @@ module.exports = {
     clearFactoryIdleForPendingWork,
     awaitTaskToStructuredResult,
     findExistingPlanTaskSubmission,
+    isStaleNeverStartedPendingPlanGenerationTask,
     lintAutoGeneratedPlan,
     parseAutoGeneratedPlanTasks,
     normalizeAutoGeneratedPlanMarkdown,

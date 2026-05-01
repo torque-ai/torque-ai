@@ -630,6 +630,140 @@ describe('factory loop-controller EXECUTE for non-plan-file work items', () => {
     expect(decisions.find((row) => row.action === 'cannot_generate_plan')).toBeUndefined();
   });
 
+  it('replaces a stored plan-generation task that stayed pending without starting', async () => {
+    const { project, workItem } = registerExecuteProject({
+      description: 'Add coverage for stale pending plan generation.',
+    });
+    factoryIntake.updateWorkItem(workItem.id, {
+      origin_json: {
+        plan_generation_task_id: 'stale-plan-gen-task',
+        plan_generation_wait_reason: 'task_still_running',
+      },
+    });
+    routingModule.handleSmartSubmitTask = vi.fn(async () => ({ task_id: 'new-plan-gen-task' }));
+    awaitModule.handleAwaitTask = vi.fn(async () => ({
+      content: [{ type: 'text', text: 'task timed out while status: running' }],
+    }));
+    taskCore.getTask = vi.fn((taskId) => {
+      if (taskId === 'stale-plan-gen-task') {
+        return {
+          id: taskId,
+          status: 'pending',
+          created_at: '2000-01-01T00:00:00.000Z',
+          started_at: null,
+          output: '',
+          error_output: '',
+        };
+      }
+      return {
+        id: taskId,
+        status: 'running',
+        created_at: new Date().toISOString(),
+        started_at: new Date().toISOString(),
+        output: '',
+        error_output: '',
+      };
+    });
+
+    const executeAdvance = await loopController.advanceLoopForProject(project.id);
+    const updatedWorkItem = factoryIntake.getWorkItem(workItem.id);
+
+    expect(routingModule.handleSmartSubmitTask).toHaveBeenCalled();
+    expect(awaitModule.handleAwaitTask).toHaveBeenCalledWith({
+      task_id: 'new-plan-gen-task',
+      timeout_minutes: 30,
+      heartbeat_minutes: 0,
+      auto_resubmit_on_restart: true,
+    });
+    expect(executeAdvance).toMatchObject({
+      new_state: LOOP_STATES.EXECUTE,
+      paused_at_stage: LOOP_STATES.EXECUTE,
+      reason: 'plan generation deferred while task remains active',
+      stage_result: {
+        status: 'deferred',
+        reason: 'task_still_running',
+        generation_task_id: 'new-plan-gen-task',
+        task_status: 'running',
+      },
+    });
+    expect(updatedWorkItem.origin).toMatchObject({
+      plan_generation_task_id: 'new-plan-gen-task',
+      plan_generation_wait_reason: 'task_still_running',
+    });
+  });
+
+  it('clears a deferred stale pending plan-generation wait before resubmitting', async () => {
+    const { project, workItem } = registerExecuteProject({
+      description: 'Add coverage for paused stale pending plan generation.',
+    });
+    taskCore.getTask = vi.fn((taskId) => ({
+      id: taskId,
+      status: 'running',
+      output: '',
+      error_output: '',
+    }));
+    awaitModule.handleAwaitTask = vi.fn(async () => ({
+      content: [{ type: 'text', text: 'task timed out while status: running' }],
+    }));
+
+    await loopController.advanceLoopForProject(project.id);
+    expect(factoryIntake.getWorkItem(workItem.id).origin).toMatchObject({
+      plan_generation_task_id: 'plan-gen-task',
+      plan_generation_wait_reason: 'task_still_running',
+    });
+
+    routingModule.handleSmartSubmitTask = vi.fn(async () => ({ task_id: 'replacement-plan-gen-task' }));
+    awaitModule.handleAwaitTask = vi.fn(async () => ({
+      content: [{ type: 'text', text: 'task timed out while status: running' }],
+    }));
+    taskCore.getTask = vi.fn((taskId) => {
+      if (taskId === 'plan-gen-task') {
+        return {
+          id: taskId,
+          status: 'pending',
+          created_at: '2000-01-01T00:00:00.000Z',
+          started_at: null,
+          output: '',
+          error_output: '',
+        };
+      }
+      return {
+        id: taskId,
+        status: 'running',
+        created_at: new Date().toISOString(),
+        started_at: new Date().toISOString(),
+        output: '',
+        error_output: '',
+      };
+    });
+
+    const executeAdvance = await loopController.advanceLoopForProject(project.id);
+    const updatedWorkItem = factoryIntake.getWorkItem(workItem.id);
+
+    expect(routingModule.handleSmartSubmitTask).toHaveBeenCalled();
+    expect(awaitModule.handleAwaitTask).toHaveBeenCalledWith({
+      task_id: 'replacement-plan-gen-task',
+      timeout_minutes: 30,
+      heartbeat_minutes: 0,
+      auto_resubmit_on_restart: true,
+    });
+    expect(executeAdvance).toMatchObject({
+      new_state: LOOP_STATES.EXECUTE,
+      paused_at_stage: LOOP_STATES.EXECUTE,
+      reason: 'plan generation deferred while task remains active',
+      stage_result: {
+        status: 'deferred',
+        reason: 'task_still_running',
+        generation_task_id: 'replacement-plan-gen-task',
+        task_status: 'running',
+      },
+    });
+    expect(updatedWorkItem.origin).toMatchObject({
+      plan_generation_task_id: 'replacement-plan-gen-task',
+      plan_generation_wait_reason: 'task_still_running',
+    });
+  });
+
   it('follows restart-resubmitted plan-generation task ids before deferring', async () => {
     const { project, workItem } = registerExecuteProject({
       description: 'Add coverage for restart-resubmitted plan generation.',
