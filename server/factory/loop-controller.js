@@ -37,6 +37,10 @@ const logger = require('../logger').child({ component: 'loop-controller' });
 const PLAN_GENERATOR_LABEL = 'auto-router';
 const DEFAULT_PLAN_GENERATION_TIMEOUT_MINUTES = 30;
 const DEFAULT_STALE_PENDING_PLAN_GENERATION_MS = DEFAULT_PLAN_GENERATION_TIMEOUT_MINUTES * 60 * 1000;
+const AUTO_ADVANCE_DEFAULT_DELAY_MS = 100;
+const AUTO_ADVANCE_DEFERRED_MIN_DELAY_MS = 2500;
+const AUTO_ADVANCE_DEFERRED_FALLBACK_DELAY_MS = 30 * 1000;
+const AUTO_ADVANCE_DEFERRED_MAX_DELAY_MS = 60 * 1000;
 
 const WORK_ITEM_STATUS_ORDER = Object.freeze([
   'executing',
@@ -406,6 +410,7 @@ function snapshotLoopAdvanceJob(job) {
     paused_at_stage: job.paused_at_stage ?? null,
     stage_result: job.stage_result ?? null,
     reason: job.reason ?? null,
+    auto_advance_delay_ms: job.auto_advance_delay_ms ?? null,
     completed_at: job.completed_at ?? null,
     error: job.error ?? null,
   };
@@ -421,6 +426,7 @@ function emitLoopAdvanceJobEvent(job) {
     current_state: job.current_state,
     new_state: job.new_state ?? null,
     paused_at_stage: job.paused_at_stage ?? null,
+    auto_advance_delay_ms: job.auto_advance_delay_ms ?? null,
     completed_at: job.completed_at ?? null,
     error: job.error ?? null,
     timestamp: nowIso(),
@@ -1098,6 +1104,62 @@ function normalizeOptionalString(value) {
   }
   const trimmed = value.trim();
   return trimmed || null;
+}
+
+function clampAutoAdvanceDelayMs(value, {
+  min = AUTO_ADVANCE_DEFAULT_DELAY_MS,
+  max = AUTO_ADVANCE_DEFERRED_MAX_DELAY_MS,
+} = {}) {
+  const delay = Number(value);
+  if (!Number.isFinite(delay)) {
+    return min;
+  }
+  return Math.max(min, Math.min(max, Math.ceil(delay)));
+}
+
+function parseRetryAfterDelayMs(retryAfter, nowMs = Date.now()) {
+  const normalized = normalizeOptionalString(retryAfter);
+  if (!normalized) {
+    return null;
+  }
+
+  const numeric = Number(normalized);
+  if (Number.isFinite(numeric)) {
+    if (numeric > 1e12) {
+      return numeric - nowMs;
+    }
+    if (numeric > 1e9) {
+      return (numeric * 1000) - nowMs;
+    }
+    return numeric * 1000;
+  }
+
+  const parsed = Date.parse(normalized);
+  if (!Number.isFinite(parsed)) {
+    return null;
+  }
+  return parsed - nowMs;
+}
+
+function getAutoAdvanceDelayMs(result, nowMs = Date.now()) {
+  const stageResult = result?.stage_result || {};
+  const status = normalizeOptionalString(stageResult.status);
+  const retryAfter = normalizeOptionalString(stageResult.retry_after);
+  const isDeferred = status === 'deferred' || Boolean(retryAfter);
+
+  if (!isDeferred) {
+    return AUTO_ADVANCE_DEFAULT_DELAY_MS;
+  }
+
+  const parsedDelay = parseRetryAfterDelayMs(retryAfter, nowMs);
+  if (parsedDelay !== null) {
+    return clampAutoAdvanceDelayMs(parsedDelay, {
+      min: AUTO_ADVANCE_DEFERRED_MIN_DELAY_MS,
+      max: AUTO_ADVANCE_DEFERRED_MAX_DELAY_MS,
+    });
+  }
+
+  return AUTO_ADVANCE_DEFERRED_FALLBACK_DELAY_MS;
 }
 
 function getStoredPlanGeneratorProvider(workItem) {
@@ -10621,6 +10683,7 @@ function advanceLoopAsync(instance_id, { autoAdvance = false } = {}) {
     paused_at_stage: null,
     stage_result: null,
     reason: null,
+    auto_advance_delay_ms: null,
     completed_at: null,
     error: null,
   };
@@ -10636,22 +10699,22 @@ function advanceLoopAsync(instance_id, { autoAdvance = false } = {}) {
       job.paused_at_stage = result.paused_at_stage ?? null;
       job.stage_result = result.stage_result ?? null;
       job.reason = result.reason ?? null;
+      const shouldAutoAdvance = autoAdvance
+        && result.new_state !== LOOP_STATES.IDLE
+        && result.new_state !== LOOP_STATES.STARVED
+        && !result.paused_at_stage
+        && !isProjectStatusPaused(project.id);
+      job.auto_advance_delay_ms = shouldAutoAdvance ? getAutoAdvanceDelayMs(result) : null;
       job.completed_at = nowIso();
       emitLoopAdvanceJobEvent(job);
 
       // Auto-advance: if the caller requested continuous driving AND the
       // instance is neither terminated (IDLE) nor paused at a gate AND the
-      // project row isn't paused, enqueue the next advance. The 100ms delay
-      // prevents tight synchronous loops on stages that complete instantly
-      // (SENSE, PRIORITIZE). The project-row check stops the chain the moment
-      // pause_project lands, without waiting for the current stage to finish.
-      if (
-        autoAdvance
-        && result.new_state !== LOOP_STATES.IDLE
-        && result.new_state !== LOOP_STATES.STARVED
-        && !result.paused_at_stage
-        && !isProjectStatusPaused(project.id)
-      ) {
+      // project row isn't paused, enqueue the next advance. Fast stages keep
+      // the short delay, while deferred stages honor their retry window.
+      // The project-row check stops the chain the moment pause_project lands,
+      // without waiting for the current stage to finish.
+      if (shouldAutoAdvance) {
         setTimeout(() => {
           try {
             advanceLoopAsync(instance_id, { autoAdvance: true });
@@ -10661,7 +10724,7 @@ function advanceLoopAsync(instance_id, { autoAdvance = false } = {}) {
               err: err.message,
             });
           }
-        }, 100);
+        }, job.auto_advance_delay_ms);
       }
     })
     .catch((error) => {
@@ -11402,6 +11465,7 @@ module.exports = {
     awaitTaskToStructuredResult,
     findExistingPlanTaskSubmission,
     isStaleNeverStartedPendingPlanGenerationTask,
+    getAutoAdvanceDelayMs,
     lintAutoGeneratedPlan,
     parseAutoGeneratedPlanTasks,
     normalizeAutoGeneratedPlanMarkdown,

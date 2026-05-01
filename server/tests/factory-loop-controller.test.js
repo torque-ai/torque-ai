@@ -266,6 +266,31 @@ describe('factory loop-controller EXECUTE modes', () => {
     tempDir = null;
   });
 
+  it('backs off async auto-advance for deferred stage waits', () => {
+    const { getAutoAdvanceDelayMs } = loopController._internalForTests;
+    const nowMs = Date.parse('2026-05-01T00:00:00.000Z');
+
+    expect(getAutoAdvanceDelayMs({ stage_result: { status: 'completed' } }, nowMs)).toBe(100);
+    expect(getAutoAdvanceDelayMs({
+      stage_result: {
+        status: 'deferred',
+        retry_after: '2026-05-01T00:00:05.000Z',
+      },
+    }, nowMs)).toBe(5000);
+    expect(getAutoAdvanceDelayMs({
+      stage_result: {
+        status: 'deferred',
+        retry_after: '2026-04-30T23:59:59.000Z',
+      },
+    }, nowMs)).toBe(2500);
+    expect(getAutoAdvanceDelayMs({ stage_result: { status: 'deferred' } }, nowMs)).toBe(30000);
+    expect(getAutoAdvanceDelayMs({
+      stage_result: {
+        retry_after: '5',
+      },
+    }, nowMs)).toBe(5000);
+  });
+
   function registerPlanProject({ config } = {}) {
     const projectDir = path.join(tempDir, `project-${Date.now()}-${Math.random().toString(16).slice(2)}`);
     const planPath = path.join(tempDir, `plan-${Date.now()}-${Math.random().toString(16).slice(2)}.md`);
