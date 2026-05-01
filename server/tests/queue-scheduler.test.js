@@ -546,6 +546,47 @@ describe('Queue Scheduler', () => {
     });
   });
 
+  describe('filterPausedFactoryProjectTasks', () => {
+    it('defers queued factory tasks for paused projects', () => {
+      mockDb.getDbInstance = vi.fn(() => ({
+        prepare: vi.fn(() => ({
+          get: vi.fn((projectId) => (
+            projectId === 'paused-project'
+              ? { status: 'paused' }
+              : { status: 'running' }
+          )),
+        })),
+      }));
+
+      const queued = [
+        makeTask({
+          id: 'paused-architect',
+          status: 'queued',
+          provider: 'codex',
+          tags: JSON.stringify([
+            'factory:internal',
+            'factory:architect_cycle',
+            'factory:project_id=paused-project',
+          ]),
+        }),
+        makeTask({
+          id: 'running-architect',
+          status: 'queued',
+          provider: 'codex',
+          tags: JSON.stringify([
+            'factory:internal',
+            'factory:architect_cycle',
+            'factory:project_id=running-project',
+          ]),
+        }),
+      ];
+
+      const filtered = scheduler.filterPausedFactoryProjectTasks(queued);
+
+      expect(filtered.map(task => task.id)).toEqual(['running-architect']);
+    });
+  });
+
   // ── processQueueInternal ──────────────────────────────────
 
   describe('processQueueInternal', () => {

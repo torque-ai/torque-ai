@@ -110,6 +110,12 @@ function createSchema(sqliteDb) {
       created_at TEXT
     );
 
+    CREATE TABLE factory_projects (
+      id TEXT PRIMARY KEY,
+      name TEXT,
+      status TEXT DEFAULT 'paused'
+    );
+
     CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_resubmitted_from_active
       ON tasks(json_extract(metadata,'$.resubmitted_from'))
       WHERE status != 'cancelled' AND json_extract(metadata,'$.resubmitted_from') IS NOT NULL;
@@ -280,6 +286,27 @@ describe('startup task reconciler', () => {
     expect(result.actions.cancelled).toBe(1);
     expect(result.actions.cloned).toBe(1);
     expect(cloneRowsFor('task-factory')).toHaveLength(1);
+  });
+
+  test('Factory orphan for paused project -> cancelled and not cloned', () => {
+    db.prepare("INSERT INTO factory_projects (id, name, status) VALUES (?, ?, 'paused')")
+      .run('paused-project', 'PausedProject');
+    insertTask({
+      id: 'task-paused-factory',
+      tags: [
+        'factory:internal',
+        'factory:architect_cycle',
+        'factory:project_id=paused-project',
+        'factory:target_project=PausedProject',
+      ],
+    });
+
+    const result = runReconciler();
+
+    expect(result.actions.cancelled).toBe(1);
+    expect(result.actions.cloned).toBe(0);
+    expect(getTaskRow('task-paused-factory').status).toBe('cancelled');
+    expect(cloneRowsFor('task-paused-factory')).toHaveLength(0);
   });
 
   test('Eligible orphan with missing working_directory -> failed and not cloned', () => {

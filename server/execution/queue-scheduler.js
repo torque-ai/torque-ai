@@ -461,6 +461,48 @@ function filterSupersededFactoryInternalTasks(queuedTasks, activeSignals = []) {
   return filtered;
 }
 
+function isFactoryProjectPausedForTask(task) {
+  const projectId = getFactoryProjectId(task);
+  if (!projectId) return false;
+
+  const rawDb = getRawDbForScheduler();
+  if (!rawDb || typeof rawDb.prepare !== 'function') return false;
+
+  try {
+    const row = rawDb.prepare('SELECT status FROM factory_projects WHERE id = ?').get(projectId);
+    return String(row?.status || '').toLowerCase() === 'paused';
+  } catch {
+    return false;
+  }
+}
+
+function filterPausedFactoryProjectTasks(queuedTasks) {
+  if (!Array.isArray(queuedTasks) || queuedTasks.length === 0) {
+    return queuedTasks || [];
+  }
+
+  const filtered = [];
+  for (const task of queuedTasks) {
+    if (!hasFactoryInternalTag(task) && !isFactoryProjectExecutionSignal(task)) {
+      filtered.push(task);
+      continue;
+    }
+
+    if (!isFactoryProjectPausedForTask(task)) {
+      filtered.push(task);
+      continue;
+    }
+
+    logger.info('Skipping queued factory task because target project is paused', {
+      task_id: task.id,
+      kind: getFactoryKind(task) || 'execution',
+      project_id: getFactoryProjectId(task),
+    });
+  }
+
+  return filtered;
+}
+
 function getRawDbForScheduler() {
   if (!db) return null;
   if (typeof db.getDbInstance === 'function') {
@@ -1113,11 +1155,12 @@ function processQueueInternal(options = {}) {
   // Independent concurrency limits per provider type
   const runningTasks = db.listTasks({ status: 'running', limit: 200 });
   const runningAll = Array.isArray(runningTasks) ? runningTasks : (runningTasks.tasks || []);
+  const pauseFilteredQueuedTasks = filterPausedFactoryProjectTasks(runnableQueuedTasks);
   const schedulableQueuedTasks = filterSupersededFactoryInternalTasks(
-    runnableQueuedTasks,
+    pauseFilteredQueuedTasks,
     [
       ...runningAll,
-      ...loadRecentFactorySupersessionSignals(runnableQueuedTasks),
+      ...loadRecentFactorySupersessionSignals(pauseFilteredQueuedTasks),
     ],
   );
   if (schedulableQueuedTasks.length === 0) return;
@@ -1461,6 +1504,7 @@ function createQueueScheduler(_deps) {
     resolveEffectiveProvider,
     categorizeQueuedTasks,
     filterSupersededFactoryInternalTasks,
+    filterPausedFactoryProjectTasks,
     loadRecentFactorySupersessionSignals,
     shouldSkipTaskForApproval,
     shouldSkipTaskForFileLockWait,
@@ -1484,6 +1528,7 @@ module.exports = {
   resolveEffectiveProvider,
   categorizeQueuedTasks,
   filterSupersededFactoryInternalTasks,
+  filterPausedFactoryProjectTasks,
   loadRecentFactorySupersessionSignals,
   shouldSkipTaskForApproval,
   shouldSkipTaskForFileLockWait,

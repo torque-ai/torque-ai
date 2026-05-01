@@ -599,6 +599,10 @@ function taskLikelyRequiresFileChanges(task) {
     return false;
   }
 
+  if (isFactoryExecutionTask(task, metadata)) {
+    return true;
+  }
+
   if (/\b(create|add|write|implement|generate|edit|modify|change|update|refactor|rename|fix|remove|delete|replace)\b/i.test(taskDescription)) {
     return true;
   }
@@ -612,6 +616,28 @@ function isFactoryInternalStructuredTask(task, metadata = null) {
   const safeMetadata = metadata || normalizeTaskMetadata(task);
   return safeMetadata.factory_internal === true
     && FACTORY_INTERNAL_STRUCTURED_KINDS.has(String(safeMetadata.kind || '').trim().toLowerCase());
+}
+
+function normalizeTaskTags(value) {
+  if (Array.isArray(value)) return value.map(tag => String(tag).trim()).filter(Boolean);
+  if (typeof value !== 'string' || value.trim() === '') return [];
+  try {
+    const parsed = JSON.parse(value);
+    if (Array.isArray(parsed)) {
+      return parsed.map(tag => String(tag).trim()).filter(Boolean);
+    }
+  } catch {
+    // Fall back to comma-separated legacy tags.
+  }
+  return value.split(',').map(tag => tag.trim()).filter(Boolean);
+}
+
+function isFactoryExecutionTask(task, metadata = null) {
+  const safeMetadata = metadata || normalizeTaskMetadata(task);
+  if (safeMetadata.factory_internal === true) return false;
+  const tags = normalizeTaskTags(task?.tags);
+  return tags.some(tag => tag.startsWith('factory:batch_id=factory-'))
+    || tags.some(tag => tag.startsWith('factory:plan_task_number='));
 }
 
 const NON_CONVERGED_AGENTIC_STOP_REASONS = new Set([
@@ -3721,7 +3747,13 @@ async function executeApiProviderWithAgentic(task, providerInstance) {
       maxIterations,
       result?.gitReport || completionGitReport,
       { changedFilesOverride: reviewedChangedFiles }
-    ) || buildIncompleteAgenticFailure(task, workingDir, agenticPolicy, result, maxIterations, provider, model);
+    ) || buildIncompleteAgenticFailure(task, workingDir, agenticPolicy, result, maxIterations, provider, model)
+      || (shouldEscalateNoOp && !proposalAppliedDeterministically
+        ? {
+            message: `Agentic no-op from ${(result?.provider || provider)}/${result?.model || model || 'default'}: ${(result?.toolLog || []).length} tool calls, ${(result?.changedFiles || []).length} files changed${proposalApplySkipReason ? `; proposal apply skipped: ${proposalApplySkipReason}` : ''}`,
+            verificationCommand: resolveTaskVerificationCommand(task, workingDir, agenticPolicy),
+          }
+        : null);
     const revertResult = completionFailure
       ? maybeRevertFailedAgenticChanges(task, workingDir, agenticPolicy, snapshot, result)
       : null;

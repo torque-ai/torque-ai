@@ -74,11 +74,73 @@ function normalizeTagsForCreate(tags) {
   return tags.split(',').map(tag => tag.trim()).filter(Boolean);
 }
 
+function getTaskTags(task) {
+  return normalizeTagsForCreate(task?.tags);
+}
+
 function tagsContainFactory(tags) {
   if (Array.isArray(tags)) {
     return tags.some(tag => String(tag).includes('factory'));
   }
   return String(tags || '').includes('factory');
+}
+
+function getFactoryProjectIdFromTask(task) {
+  const tags = getTaskTags(task);
+  const projectTag = tags.find(tag => typeof tag === 'string' && tag.startsWith('factory:project_id='));
+  if (projectTag) {
+    const projectId = projectTag.slice('factory:project_id='.length).trim();
+    if (projectId) return projectId;
+  }
+
+  const batchTag = tags.find(tag => typeof tag === 'string' && tag.startsWith('factory:batch_id='));
+  if (batchTag) {
+    const batchId = batchTag.slice('factory:batch_id='.length).trim();
+    const match = batchId.match(/^factory-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})-/i);
+    if (match) return match[1];
+  }
+
+  return null;
+}
+
+function getFactoryTargetProjectName(task) {
+  const tags = getTaskTags(task);
+  const targetTag = tags.find(tag => typeof tag === 'string' && tag.startsWith('factory:target_project='));
+  if (targetTag) {
+    const targetName = targetTag.slice('factory:target_project='.length).trim();
+    if (targetName) return targetName;
+  }
+
+  const projectTag = tags.find(tag => typeof tag === 'string' && tag.startsWith('project:'));
+  if (projectTag) {
+    const projectName = projectTag.slice('project:'.length).trim();
+    if (projectName && !projectName.startsWith('factory-')) return projectName;
+  }
+
+  return null;
+}
+
+function isFactoryProjectPaused(task, rawDb) {
+  if (!tagsContainFactory(task?.tags)) return false;
+  if (!rawDb || typeof rawDb.prepare !== 'function') return false;
+
+  try {
+    const projectId = getFactoryProjectIdFromTask(task);
+    if (projectId) {
+      const row = rawDb.prepare('SELECT status FROM factory_projects WHERE id = ?').get(projectId);
+      if (row && String(row.status || '').toLowerCase() === 'paused') return true;
+    }
+
+    const targetName = getFactoryTargetProjectName(task);
+    if (targetName) {
+      const row = rawDb.prepare('SELECT status FROM factory_projects WHERE name = ?').get(targetName);
+      if (row && String(row.status || '').toLowerCase() === 'paused') return true;
+    }
+  } catch {
+    return false;
+  }
+
+  return false;
 }
 
 function getRestartResubmitCount(metadata) {
@@ -87,6 +149,7 @@ function getRestartResubmitCount(metadata) {
 }
 
 function isEligibleForClone(original, metadata, db, rawDb) {
+  if (isFactoryProjectPaused(original, rawDb)) return false;
   if (metadata.auto_resubmit_on_restart === true) return true;
   if (tagsContainFactory(original.tags)) return true;
   if (original.workflow_id != null) {

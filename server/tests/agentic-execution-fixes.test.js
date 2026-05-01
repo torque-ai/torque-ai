@@ -2467,6 +2467,82 @@ describe('providers/execution agentic fixes', () => {
     );
   });
 
+  it('marks factory execution tasks failed when no tools or files were changed even if text lacks edit verbs', async () => {
+    const { mod } = loadSubject();
+    const workerControl = createDeferredWorkerControl();
+    const host = { id: 'host-1', url: 'http://ollama-host:11434' };
+    const runningProcesses = new Map();
+    runningProcesses.stallAttempts = new Map();
+    const db = {
+      listOllamaHosts: vi.fn(() => [host]),
+      selectOllamaHostForModel: vi.fn(() => ({ host })),
+      tryReserveHostSlot: vi.fn(() => ({ acquired: true })),
+      releaseHostSlot: vi.fn(),
+      decrementHostTasks: vi.fn(),
+      updateTaskStatus: vi.fn(),
+      getOrCreateTaskStream: vi.fn(() => 'stream-1'),
+      getTask: vi.fn((taskId) => ({ id: taskId, status: 'running' })),
+      addStreamChunk: vi.fn(),
+    };
+    const deps = {
+      db,
+      dashboard: {
+        notifyTaskUpdated: vi.fn(),
+        notifyTaskOutput: vi.fn(),
+      },
+      runningProcesses,
+      safeUpdateTaskStatus: vi.fn(),
+      processQueue: vi.fn(),
+      handleWorkflowTermination: vi.fn(),
+      apiAbortControllers: new Map(),
+    };
+
+    mod.init(deps);
+
+    vi.spyOn(require('worker_threads'), 'Worker').mockImplementation(workerControl.WorkerCtor);
+
+    const taskPromise = mod.executeOllamaTask({
+      id: 'task-factory-exec-noop',
+      provider: 'ollama',
+      model: TEST_MODELS.DEFAULT,
+      task_description: 'Plan task 1: validator coverage',
+      working_directory: 'C:/repo',
+      timeout_minutes: 1,
+      tags: JSON.stringify([
+        'factory:batch_id=factory-b9261762-7be5-4fc9-9794-f18c3e404fcb-2057',
+        'factory:plan_task_number=1',
+        'project:DLPhone',
+      ]),
+    });
+
+    await new Promise((resolve) => setImmediate(resolve));
+
+    workerControl.latest().emitMessage({
+      type: 'result',
+      output: 'The validator coverage is already present.',
+      toolLog: [],
+      tokenUsage: {},
+      changedFiles: [],
+      iterations: 1,
+    });
+
+    await taskPromise;
+
+    expect(deps.safeUpdateTaskStatus).toHaveBeenCalledWith(
+      'task-factory-exec-noop',
+      'failed',
+      expect.objectContaining({
+        exit_code: 1,
+        error_output: expect.stringContaining('Agentic no-op from ollama'),
+      }),
+    );
+    expect(deps.safeUpdateTaskStatus).not.toHaveBeenCalledWith(
+      'task-factory-exec-noop',
+      'completed',
+      expect.anything(),
+    );
+  });
+
   it('marks Ollama agentic modification tasks failed when write tools only error', async () => {
     const { mod } = loadSubject();
     const workerControl = createDeferredWorkerControl();
