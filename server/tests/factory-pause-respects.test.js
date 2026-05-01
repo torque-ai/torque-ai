@@ -226,6 +226,40 @@ describe('factory pause enforcement', () => {
     });
   });
 
+  it('keeps one scheduled auto-advance timer per instance', async () => {
+    vi.useFakeTimers();
+    const instanceId = 'timer-dedupe-instance';
+    const calls = [];
+    try {
+      loopController._internalForTests.scheduleAutoAdvanceForTests(instanceId, 1000, () => {
+        calls.push('first');
+      });
+      expect(loopController._internalForTests.getScheduledAutoAdvanceForTests(instanceId)).toMatchObject({
+        delay_ms: 1000,
+      });
+
+      loopController._internalForTests.scheduleAutoAdvanceForTests(instanceId, 2000, () => {
+        calls.push('second');
+      });
+      expect(loopController._internalForTests.getScheduledAutoAdvanceForTests(instanceId)).toMatchObject({
+        delay_ms: 2000,
+      });
+
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(calls).toEqual([]);
+      expect(loopController._internalForTests.getScheduledAutoAdvanceForTests(instanceId)).toMatchObject({
+        delay_ms: 2000,
+      });
+
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(calls).toEqual(['second']);
+      expect(loopController._internalForTests.getScheduledAutoAdvanceForTests(instanceId)).toBeNull();
+    } finally {
+      loopController._internalForTests.clearScheduledAutoAdvanceForTests(instanceId);
+      vi.useRealTimers();
+    }
+  });
+
   it('resolves unrecoverable VERIFY stalls by rejecting the item and terminating the instance', async () => {
     const project = registerFactoryProject({ status: 'running', autoContinue: true });
     const item = factoryIntake.createWorkItem({
