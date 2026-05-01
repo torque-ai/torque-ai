@@ -59,11 +59,15 @@ const REPLAN_RECOVERY_CONFIG_DEFAULTS = Object.freeze({
   // Outer timeout for rewrite-description / decompose strategies. Both call
   // architect-runner.submitArchitectJsonPrompt, which has its own 5min
   // (300_000ms) inner deadline polling for codex/claude-cli completion. The
-  // outer must exceed the inner or the strategy ALWAYS times out before the
-  // architect can return — DLPhone hit this live (Phase Q surfaced 12:40 +
-  // 12:48 UTC strategy timeouts on 2026-05-01 after the unknown-kind fix
-  // unblocked submission). 360_000ms gives 60s of buffer.
-  replan_recovery_strategy_timeout_ms: '360000',
+  // outer must exceed the inner or the strategy ALWAYS times out before
+  // the architect can return — DLPhone hit this live (Phase Q surfaced
+  // 12:40 + 12:48 UTC strategy timeouts on 2026-05-01 after the
+  // unknown-kind fix unblocked submission). The architect's actual MAX
+  // deadlineMs in submitArchitectJsonPrompt is 15 * 60 * 1000 = 900_000ms,
+  // not the 5min the Phase R commit assumed; bumping to 960_000ms gives
+  // 60s of buffer above that. The replan-recovery-config regression test
+  // pins this invariant.
+  replan_recovery_strategy_timeout_ms: '960000',
   // escalate-architect is purely synchronous (provider-chain bump in
   // constraints, no architect call), so 5s is plenty.
   replan_recovery_strategy_timeout_ms_escalate: '5000',
