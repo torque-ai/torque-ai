@@ -99,6 +99,12 @@ describe('shared-factory-store', () => {
     const second = openStore(dbPath);
 
     first.upsertLearning({
+      // Pin the upsert's wall-clock to a value strictly before
+      // `expires_at`. upsertLearningTxn calls expireStaleRowsNow with
+      // this value, and without an explicit `now` it falls back to
+      // Date.now(). Any test run after 2026-04-30T10:00Z would expire
+      // the row before the downstream getLearning observes it.
+      now: '2026-04-29T10:00:00.000Z',
       provider: 'codex',
       tech_stack: 'node',
       failure_pattern: 'verify-timeout',
@@ -135,6 +141,11 @@ describe('shared-factory-store', () => {
       failure_pattern: 'missing-sdk',
       project_source: 'SpudgetBooks',
       expires_at: '2026-05-01T00:00:00.000Z',
+      // Same pin as the case above — upsertLearningTxn's
+      // expireStaleRowsNow sweep would otherwise delete the first row
+      // on the second upsert, turning the increment-by-3 into a fresh
+      // INSERT once the wall-clock crosses expires_at.
+      now: '2026-04-30T10:00:00.000Z',
     };
 
     store.upsertLearning({ ...key, confidence: 0.4, sample_count: 1, payload: { first: true } });
