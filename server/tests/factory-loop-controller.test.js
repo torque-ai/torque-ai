@@ -1706,7 +1706,12 @@ Edit server/factory/plan-executor.js and make the requested behavior change. Kee
       factory_worktree_id: existing.id,
       owning_task_id: 'task-live-owner',
     });
-    expect(executeAdvance.paused_at_stage).toBe(LOOP_STATES.EXECUTE);
+    // Post-a0da7fcf ("keep internal execute waits running"): the loop no
+    // longer pauses at EXECUTE while a live owner runs — it stays in
+    // EXECUTE with paused_at_stage=null and re-checks on the next tick.
+    // Pausing would lock the dashboard "needs approval" state and
+    // confuse operators triaging running owners.
+    expect(executeAdvance.paused_at_stage).toBeNull();
     expect(db.prepare('SELECT status FROM factory_worktrees WHERE id = ?').get(existing.id).status).toBe('active');
 
     ownerStatus = 'completed';
