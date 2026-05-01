@@ -101,6 +101,9 @@ function listWebhooks(project = null) {
   let rows;
 
   if (project) {
+    // @full-scan: webhooks is operator-managed (small N) and the
+    // `project = ? OR project IS NULL` predicate is OR-disjunctive so
+    // an index on project couldn't drive a single seek anyway.
     stmt = db.prepare('SELECT * FROM webhooks WHERE project = ? OR project IS NULL ORDER BY created_at DESC');
     rows = stmt.all(project);
   } else {

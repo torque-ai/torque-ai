@@ -1170,6 +1170,27 @@ const MIGRATIONS = [
       'DROP INDEX IF EXISTS idx_task_file_writes_written_at',
     ].join('; '),
   },
+  {
+    version: 53,
+    name: 'add_factory_decisions_batch_id_index',
+    // factory_decisions is the event-sourcing log for the factory loop;
+    // grows by ~10 rows per work item. Two hot lookups full-scan it
+    // today:
+    //   - recovery-inbox-handlers.js#decisionsForItem: WHERE batch_id = ?
+    //   - rejected-recovery.js#countPriorReopens: WHERE action = ? AND batch_id = ?
+    // A single batch_id index covers both — `action` is filtered post-seek
+    // on the small per-batch result set.
+    up: function(sqliteDb) {
+      const hasTable = sqliteDb.prepare(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='factory_decisions'"
+      ).get();
+      if (!hasTable) return;
+      sqliteDb.prepare(
+        'CREATE INDEX IF NOT EXISTS idx_factory_decisions_batch_id ON factory_decisions(batch_id)'
+      ).run();
+    },
+    down: 'DROP INDEX IF EXISTS idx_factory_decisions_batch_id',
+  },
 ];
 
 function ensureMigrationTable(sqliteDb) {

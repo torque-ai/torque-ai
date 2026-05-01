@@ -800,6 +800,10 @@ function setOutputLimit(provider, maxOutputBytes = 1048576, maxFileSizeBytes = 5
  */
 
 function checkOutputSizeLimits(taskId, provider, outputSize, fileChanges = []) {
+  // @full-scan: output_limits is operator-managed (~13 rows max — one
+  // per provider plus a default). The OR-disjunctive `provider = ? OR
+  // provider IS NULL` predicate isn't seek-friendly anyway, and LIMIT 1
+  // short-circuits.
   const limits = db.prepare(`
     SELECT * FROM output_limits WHERE enabled = 1 AND (provider = ? OR provider IS NULL)
     ORDER BY provider DESC NULLS LAST LIMIT 1

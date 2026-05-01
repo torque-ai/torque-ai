@@ -573,6 +573,8 @@ function getTimeoutAlerts(taskId = null) {
   if (taskId) {
     return db.prepare('SELECT * FROM timeout_alerts WHERE task_id = ?').all(taskId);
   }
+  // @full-scan: timeout_alerts is a small queue of pending notifications;
+  // the notified=0 subset is what's left to process on each tick.
   return db.prepare('SELECT * FROM timeout_alerts WHERE notified = 0 ORDER BY created_at DESC').all();
 }
 

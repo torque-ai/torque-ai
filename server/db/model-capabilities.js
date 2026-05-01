@@ -236,6 +236,9 @@ function recordTaskOutcome(modelName, taskType, language, success, durationS, fa
  * @returns {Array<{ model_name: string, failure_category: string, failure_count: number }>}
  */
 function getModelFormatFailures(minFailures = 3) {
+  // @full-scan: aggregation over a 30-day window with multiple
+  // post-filter columns; the IN-clause on failure_category and the
+  // GROUP BY drive the plan more than success=0 would.
   return db.prepare(`
     SELECT model_name, failure_category, COUNT(*) as failure_count
     FROM model_task_outcomes

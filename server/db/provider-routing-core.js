@@ -819,6 +819,8 @@ function getPrometheusMetrics() {
 
   // Validation failures
   try {
+    // @full-scan: COUNT(*) prometheus metric — the planner aggregates
+    // over the boolean filter regardless of whether an index exists.
     const validationFails = db.prepare(`
       SELECT COUNT(*) as count FROM task_validations WHERE passed = 0
     `).get();
@@ -829,6 +831,10 @@ function getPrometheusMetrics() {
 
   // Cost by provider
   try {
+    // @full-scan: token_usage has no `provider` column on most installs;
+    // the catch below intentionally swallows the schema-mismatch error.
+    // No index possible on a missing column. (See migrations.js v52
+    // header note about this dead branch.)
     const costByProvider = db.prepare(`
       SELECT provider, SUM(estimated_cost_usd) as cost
       FROM token_usage

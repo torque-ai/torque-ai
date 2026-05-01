@@ -121,6 +121,9 @@ function listProjects(filter) {
   let sql = 'SELECT * FROM factory_projects';
   const params = [];
   if (filter?.status) {
+    // @full-scan: factory_projects is small (typically <20 rows, one per
+    // operator-registered project); the status predicate matches a
+    // sizable fraction so an index wouldn't be picked.
     sql += ' WHERE status = ?';
     params.push(filter.status);
   }

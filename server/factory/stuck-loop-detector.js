@@ -44,6 +44,9 @@ function detectStuckLoops(db, thresholdMs = STALL_THRESHOLD_MS) {
       loop_batch_id AS batch_id,
       loop_last_action_at AS last_action_at
     FROM factory_projects
+    -- @full-scan: factory_projects is small (~20 rows). The COALESCE/LOWER
+    -- predicates wrap status and loop_state which prevents index usage
+    -- regardless; loop_last_action_at IS NOT NULL is the cheap part.
     WHERE loop_last_action_at IS NOT NULL
       AND COALESCE(LOWER(status), 'paused') = 'running'
       AND COALESCE(UPPER(loop_state), 'IDLE') NOT IN ('IDLE', 'PAUSED')
