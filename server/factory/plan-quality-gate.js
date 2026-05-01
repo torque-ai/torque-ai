@@ -6,7 +6,15 @@ const { deterministicVerify } = require('./plan-augmenter');
 const { checkPlanImpact } = require('./codegraph-plan-augmenter');
 
 const MAX_REPLAN_ATTEMPTS = 1;
-const LLM_TIMEOUT_MS = 60_000;
+// Plan-quality semantic review has the model read a full generated plan
+// (~150-300 lines) and emit a structured verdict. With codex gpt-5.5 +
+// xhigh reasoning that routinely takes 30-120s on a real plan; the
+// previous 60_000 default math-floored to a 1-minute task timeout via
+// `Math.max(1, Math.floor(timeoutMs / 60_000))` and cancelled the
+// review mid-reasoning. Observed live 2026-05-01 (NetSim plan_quality_review
+// task 96782a35 etc.). 5 minutes leaves comfortable headroom for network
+// jitter and complex plans without blocking the loop.
+const LLM_TIMEOUT_MS = 5 * 60_000;
 const ACTIVE_LLM_SEMANTIC_CHECK_STATUSES = new Set(['pending', 'pending_approval', 'queued', 'running', 'waiting']);
 
 const RULES = {

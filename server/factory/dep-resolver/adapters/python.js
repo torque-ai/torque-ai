@@ -28,7 +28,12 @@ function detect(errorOutput) {
   return { detected: false };
 }
 
-const MAP_LLM_TIMEOUT_MS = 60_000;
+// Same math-floor pitfall as plan-quality-gate's LLM_TIMEOUT_MS — 60_000ms
+// becomes a 1-minute task-level timeout via Math.max(1, Math.floor(t/60000)),
+// which codex gpt-5.5 + xhigh routinely overruns. Module-to-package mapping
+// is structurally simpler than plan-quality review so 3 min headroom is
+// sufficient.
+const MAP_LLM_TIMEOUT_MS = 3 * 60_000;
 
 async function mapModuleToPackage({ module_name, error_output, manifest_excerpt, project, workItem, timeoutMs = MAP_LLM_TIMEOUT_MS }) {
   const { submitFactoryInternalTask } = require('../../internal-task-submit');
