@@ -288,6 +288,7 @@ describe('workflow-await handlers with DB-backed state', () => {
 
       expect(replacementId).toBeTruthy();
       expect(replacementTask).toMatchObject({
+        status: 'queued',
         workflow_id: null,
         workflow_node_id: null,
       });

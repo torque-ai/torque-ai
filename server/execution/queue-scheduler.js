@@ -31,6 +31,7 @@ const { resolveOllamaModel } = require('../providers/ollama-shared');
 const modelRoles = require('../db/model-roles');
 const eventBus = require('../event-bus');
 const { isRestartBarrierActive } = require('./restart-barrier');
+const { promotePendingRestartResubmissions } = require('./restart-resubmit-queue');
 
 // Dependency injection
 let db = null;
@@ -739,6 +740,8 @@ function processQueueInternal(options = {}) {
 
   // Guard against calls after DB has been closed (e.g., event-driven timer in tests)
   if (_stopped || !db || typeof db.getRunningCount !== 'function') return;
+
+  promotePendingRestartResubmissions(db, { logger });
 
   // Expire stale queued tasks
   const queueTtlMinutes = _safeConfigInt ? _safeConfigInt('queue_task_ttl_minutes', 0) : 0;

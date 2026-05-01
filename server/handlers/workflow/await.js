@@ -1675,7 +1675,7 @@ async function handleRestartRecovery(task, args, awaitStartTime, currentEpoch) {
 
     taskCore.createTask({
       id: newTaskId,
-      status: 'pending',
+      status: 'queued',
       task_description: prependResumeContextToPrompt(task.task_description, resumeContext),
       provider: task.provider,
       model: task.model,

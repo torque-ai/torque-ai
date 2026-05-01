@@ -19,6 +19,7 @@ const capabilities = require('../db/provider-capabilities');
 const perfTracker = require('../db/provider-performance');
 const { normalizeMetadata } = require('../utils/normalize-metadata');
 const { isRestartBarrierActive } = require('./restart-barrier');
+const { promotePendingRestartResubmissions } = require('./restart-resubmit-queue');
 const { createSharedFactoryStore } = require('../db/shared-factory-store');
 
 let _db = null;
@@ -480,6 +481,7 @@ function runSlotPullPass() {
   }
 
   const providers = getEnabledProviders();
+  promotePendingRestartResubmissions(_db, { logger });
   const queuedTasks = getUnassignedQueuedTasks();
   const codexDemand = publishLocalCodexDemand(queuedTasks);
   let assigned = 0;
