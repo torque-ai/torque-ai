@@ -60,6 +60,7 @@ const RULES = {
 
 const FILE_PATH_RE = /[A-Za-z0-9_./\\-]+\.(?:csproj|fsproj|vbproj|targets|props|tsx|jsx|cjs|mjs|yaml|yml|json|sql|xaml|axaml|xml|resx|psm1|ps1|sln|js|ts|py|cs|sh|md)\b/i;
 const GREP_TARGET_RE = /\bsearch_files\b|\bgrep\b/i;
+const VALIDATION_COMMAND_TARGET_RE = /\b(?:npx\s+vitest(?:\s+run)?|vitest(?:\s+run)?|pytest|python\s+-m\s+pytest|npm(?:\s+--prefix\s+\S+)?\s+(?:run\s+)?test\s+--)\s+[`'"]?([A-Za-z0-9_.][A-Za-z0-9_./\\-]*)(?=[`'"\s]|$)/i;
 const ACCEPTANCE_RE = /\b(npx vitest|dotnet test|pytest|npm(?:\s+--prefix\s+\S+)?\s+(?:run\s+)?test|assert|expect|acceptance criteria\s*:|validation\s*:|must\s+(?:pass|return|include|not\s+include|not\s+read|call|not\s+call)|should\s+(?:pass|report|produce|exist|include|not\s+include))\b/i;
 const CONCRETE_FILE_PATH_RE = /(?:^|[\s`'"([])(?:[A-Za-z]:)?(?:[A-Za-z0-9_.-]+[\\/])+[A-Za-z0-9_.-]+\.(?:csproj|fsproj|vbproj|targets|props|cjs|cs|css|go|html|java|js|json|jsx|md|mjs|psm1|ps1|py|rb|resx|rs|sh|sln|sql|ts|tsx|txt|xaml|axaml|xml|ya?ml)\b/i;
 const CONCRETE_BACKTICK_RE = /`[^`\n]+`/;
@@ -129,6 +130,16 @@ function findNestedWorktreeSetup(text) {
     }
   }
   return null;
+}
+
+function hasConcreteTaskScope(text) {
+  const value = String(text || '');
+  if (FILE_PATH_RE.test(value) || GREP_TARGET_RE.test(value)) {
+    return true;
+  }
+
+  const validationTarget = value.match(VALIDATION_COMMAND_TARGET_RE)?.[1] || '';
+  return /[\\/]/.test(validationTarget) || /\.[A-Za-z0-9]+$/.test(validationTarget);
 }
 
 function isUnsupportedWorktreeSetupCritique(text) {
@@ -213,7 +224,7 @@ function runDeterministicRules(planMarkdown) {
     }
 
     // Rule 5
-    if (!FILE_PATH_RE.test(task.body) && !GREP_TARGET_RE.test(task.body)) {
+    if (!hasConcreteTaskScope(task.body)) {
       hardFails.push({
         rule: 'task_has_file_reference',
         taskNumber: task.number,
