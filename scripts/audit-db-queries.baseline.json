@@ -14,13 +14,6 @@
     ]
   },
   {
-    "file": "server/db/analytics.js",
-    "table": "adaptive_retry_rules",
-    "cols": [
-      "enabled"
-    ]
-  },
-  {
     "file": "server/db/audit-store.js",
     "table": "audit_findings",
     "cols": [
@@ -64,53 +57,10 @@
     ]
   },
   {
-    "file": "server/db/file-quality.js",
-    "table": "safeguard_tool_config",
-    "cols": [
-      "enabled"
-    ]
-  },
-  {
-    "file": "server/db/file-quality.js",
-    "table": "safeguard_tool_config",
-    "cols": [
-      "enabled",
-      "safeguard_type"
-    ]
-  },
-  {
-    "file": "server/db/file-tracking.js",
-    "table": "linter_configs",
-    "cols": [
-      "enabled"
-    ]
-  },
-  {
-    "file": "server/db/file-tracking.js",
-    "table": "security_rules",
-    "cols": [
-      "enabled"
-    ]
-  },
-  {
-    "file": "server/db/file-tracking.js",
-    "table": "security_rules",
-    "cols": [
-      "enabled"
-    ]
-  },
-  {
     "file": "server/db/file-tracking.js",
     "table": "timeout_alerts",
     "cols": [
       "notified"
-    ]
-  },
-  {
-    "file": "server/db/host-management.js",
-    "table": "routing_rules",
-    "cols": [
-      "enabled"
     ]
   },
   {
@@ -178,13 +128,6 @@
     ]
   },
   {
-    "file": "server/db/smart-routing.js",
-    "table": "provider_config",
-    "cols": [
-      "enabled"
-    ]
-  },
-  {
     "file": "server/db/task-intelligence.js",
     "table": "task_patterns",
     "cols": [
@@ -196,27 +139,6 @@
     "table": "tasks",
     "cols": [
       "git_after_sha"
-    ]
-  },
-  {
-    "file": "server/db/validation-rules.js",
-    "table": "approval_rules",
-    "cols": [
-      "enabled"
-    ]
-  },
-  {
-    "file": "server/db/validation-rules.js",
-    "table": "failure_patterns",
-    "cols": [
-      "enabled"
-    ]
-  },
-  {
-    "file": "server/db/webhooks-streaming.js",
-    "table": "webhooks",
-    "cols": [
-      "enabled"
     ]
   },
   {

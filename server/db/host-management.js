@@ -520,6 +520,9 @@ function getAggregatedModels() {
  * @returns {any}
  */
 function getRoutingRules() {
+  // @full-scan: routing_rules is operator-managed and typically <50 rows.
+  // The enabled predicate matches most rows, so SQLite would prefer a
+  // scan to an index on `enabled`.
   const stmt = db.prepare('SELECT * FROM routing_rules WHERE enabled = 1 ORDER BY priority ASC');
   return stmt.all();
 }

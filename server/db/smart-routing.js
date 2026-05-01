@@ -471,6 +471,8 @@ function analyzeTaskForRouting(taskDescription, workingDirectory, files = [], op
     const invalidProvider = resolvedProvider;
     try {
       const db = _deps.getDb();
+      // @full-scan: provider_config has at most ~13 rows (one per registered
+      // provider); LIMIT 1 short-circuits after a single match.
       const enabledProviders = db.prepare(
         "SELECT provider FROM provider_config WHERE enabled = 1 ORDER BY priority ASC LIMIT 1"
       ).all();

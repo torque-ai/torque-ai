@@ -234,6 +234,9 @@ function runSecurityScan(taskId, filePath, content) {
   const path = require('path');
   const ext = path.extname(filePath).toLowerCase();
 
+  // @full-scan: security_rules is operator-managed; rules are loaded
+  // once per scan and the file_extensions LIKE predicate uses a
+  // leading-wildcard pattern that no index could anchor anyway.
   const rules = db.prepare(`
     SELECT * FROM security_rules WHERE enabled = 1 AND file_extensions LIKE ? ESCAPE '\\'
   `).all(`%${ext.replace(/[\\%_]/g, '\\$&')}%`);
@@ -293,6 +296,9 @@ function getSecurityScanResults(taskId) {
  * @returns {any}
  */
 function getSecurityRules(enabledOnly = true) {
+  // @full-scan: security_rules is a small config table; the enabled
+  // filter typically retains the majority of rows so an index on
+  // `enabled` wouldn't be picked by the planner.
   if (enabledOnly) {
     return db.prepare('SELECT * FROM security_rules WHERE enabled = 1 ORDER BY severity DESC').all();
   }
@@ -384,6 +390,9 @@ async function runStyleCheck(taskId, filePath, workingDirectory, autoFix = false
   const { spawn } = require('child_process');
 
   const ext = path.extname(filePath).toLowerCase();
+  // @full-scan: linter_configs is operator-managed (~10 rows). The
+  // file_extensions LIKE predicate uses a leading-wildcard pattern, so
+  // no index on file_extensions could anchor the seek anyway.
   const linters = db.prepare(`
     SELECT * FROM linter_configs WHERE enabled = 1 AND file_extensions LIKE ? ESCAPE '\\'
   `).all(`%${ext.replace(/[\\%_]/g, '\\$&')}%`);
