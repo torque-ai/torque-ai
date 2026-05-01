@@ -162,6 +162,26 @@ describe('factory_status', () => {
       createdAt,
       createdAt,
     );
+    insertProject.run(
+      'project-starved-old',
+      'Starved Old',
+      path.join(testDir, 'project-starved-old'),
+      'starved loop should not count as stalled',
+      'autonomous',
+      'running',
+      null,
+      'STARVED',
+      null,
+      oldActionAt,
+      null,
+      createdAt,
+      createdAt,
+    );
+    insertActiveLoopInstance(db, {
+      projectId: 'project-starved-old',
+      loopState: 'STARVED',
+      lastActionAt: oldActionAt,
+    });
 
     const result = await safeTool('factory_status', {});
 
@@ -187,6 +207,10 @@ describe('factory_status', () => {
       loop_state: 'IDLE',
       loop_paused_at_stage: null,
     });
+    expect(projectsById['project-starved-old']).toMatchObject({
+      loop_state: 'STARVED',
+      loop_paused_at_stage: null,
+    });
 
     for (const project of payload.projects) {
       expect(project).toHaveProperty('loop_state');
@@ -202,8 +226,8 @@ describe('factory_status', () => {
     expect(projectsById['project-idle-old'].health_missing_dimensions).toContain('build_ci');
 
     expect(payload.summary).toMatchObject({
-      total: 4,
-      running: 2,
+      total: 5,
+      running: 3,
       paused: 2,
       stalled: 1,
     });

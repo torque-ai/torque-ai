@@ -1194,7 +1194,7 @@ async function handleFactoryStatus() {
     if (summary.status !== 'running' || summary._has_non_terminal_batch_tasks) {
       return false;
     }
-    if (summary.loop_state === 'IDLE' || !summary.loop_last_action_at) {
+    if (NON_STALLABLE_FACTORY_LOOP_STATES.has(summary.loop_state) || !summary.loop_last_action_at) {
       return false;
     }
     const lastActionMs = Date.parse(summary.loop_last_action_at);
