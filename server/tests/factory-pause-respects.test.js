@@ -608,6 +608,102 @@ describe('factory pause enforcement', () => {
     expect(afterTick.paused_at_stage).toBeNull();
   });
 
+  it('auto-clears a paused project-row VERIFY batch wait when the batch becomes terminal', async () => {
+    const decisionLog = require('../factory/decision-log');
+    const factoryDecisions = require('../db/factory-decisions');
+    factoryDecisions.setDb(db);
+
+    const project = registerFactoryProject({ status: 'paused', autoContinue: true });
+    const batchId = `test-batch-paused-project-${Date.now()}`;
+    const instance = factoryLoopInstances.createInstance({
+      project_id: project.id,
+      batch_id: batchId,
+    });
+    factoryLoopInstances.updateInstance(instance.id, {
+      loop_state: LOOP_STATES.VERIFY,
+      paused_at_stage: LOOP_STATES.VERIFY,
+    });
+
+    db.prepare(`
+      INSERT INTO tasks (id, task_description, provider, status, tags, working_directory, created_at)
+      VALUES (?, 'batch-task-1', 'ollama', 'completed', ?, ?, datetime('now'))
+    `).run('paused-project-batch-task-1', JSON.stringify([`factory:batch_id=${batchId}`]), project.path);
+
+    decisionLog.logDecision({
+      project_id: project.id,
+      stage: 'verify',
+      actor: 'auto-recovery',
+      action: 'paused_at_gate',
+      reasoning: 'Loop paused awaiting batch task completion for VERIFY.',
+      inputs: { previous_state: 'VERIFY', trust_level: 'dark' },
+      outcome: {
+        from_state: 'VERIFY',
+        to_state: 'PAUSED',
+        gate_stage: 'VERIFY',
+        reason: 'batch_tasks_not_terminal',
+      },
+      confidence: 1,
+      batch_id: batchId,
+    });
+
+    const approveSpy = vi.spyOn(loopController, 'approveGateForProject');
+
+    await factoryTick.tickProject(factoryHealth.getProject(project.id));
+
+    expect(approveSpy).toHaveBeenCalledWith(project.id, 'VERIFY');
+    expect(factoryHealth.getProject(project.id).status).toBe('running');
+    const afterTick = factoryLoopInstances.getInstance(instance.id);
+    expect(afterTick.paused_at_stage).toBeNull();
+  });
+
+  it('starts ticks for paused project-row VERIFY batch waits on startup', () => {
+    vi.useFakeTimers();
+    const decisionLog = require('../factory/decision-log');
+    const factoryDecisions = require('../db/factory-decisions');
+    factoryDecisions.setDb(db);
+
+    try {
+      const project = registerFactoryProject({ status: 'paused', autoContinue: true });
+      const batchId = `test-batch-startup-paused-${Date.now()}`;
+      const instance = factoryLoopInstances.createInstance({
+        project_id: project.id,
+        batch_id: batchId,
+      });
+      factoryLoopInstances.updateInstance(instance.id, {
+        loop_state: LOOP_STATES.VERIFY,
+        paused_at_stage: LOOP_STATES.VERIFY,
+      });
+
+      db.prepare(`
+        INSERT INTO tasks (id, task_description, provider, status, tags, working_directory, created_at)
+        VALUES (?, 'batch-task-1', 'ollama', 'running', ?, ?, datetime('now'))
+      `).run('startup-paused-project-batch-task-1', JSON.stringify([`factory:batch_id=${batchId}`]), project.path);
+
+      decisionLog.logDecision({
+        project_id: project.id,
+        stage: 'verify',
+        actor: 'auto-recovery',
+        action: 'paused_at_gate',
+        reasoning: 'Loop paused awaiting batch task completion for VERIFY.',
+        inputs: { previous_state: 'VERIFY', trust_level: 'dark' },
+        outcome: {
+          from_state: 'VERIFY',
+          to_state: 'PAUSED',
+          gate_stage: 'VERIFY',
+          reason: 'batch_tasks_not_terminal',
+        },
+        confidence: 1,
+        batch_id: batchId,
+      });
+
+      expect(factoryTick._internalForTests.hasPausedVerifyBatchWait(factoryHealth.getProject(project.id))).toBe(true);
+      expect(factoryTick.initFactoryTicks()).toBe(1);
+    } finally {
+      factoryTick.stopAll();
+      vi.useRealTimers();
+    }
+  });
+
   it('auto-clears a VERIFY gate when batch tasks are all skipped', async () => {
     const decisionLog = require('../factory/decision-log');
     const factoryDecisions = require('../db/factory-decisions');

@@ -236,6 +236,26 @@ function getVerifyBatchWaitState(projectId, instance) {
   }
 }
 
+function hasPausedVerifyBatchWait(project) {
+  if (!project?.id || project.status !== 'paused') {
+    return false;
+  }
+
+  try {
+    const instances = factoryLoopInstances.listInstances({
+      project_id: project.id,
+      active_only: true,
+    });
+    return instances.some((instance) => Boolean(getVerifyBatchWaitState(project.id, instance)));
+  } catch (err) {
+    logger.debug('Factory tick: paused VERIFY batch wait inspection failed', {
+      project_id: project.id,
+      err: err.message,
+    });
+    return false;
+  }
+}
+
 function hasNonTerminalFactoryBatchTasks(instance) {
   if (!instance?.batch_id) {
     return false;
@@ -759,7 +779,9 @@ async function tickProject(project) {
         }
         return;
       }
-      return; // paused projects stay paused until explicitly resumed
+      if (!hasPausedVerifyBatchWait(freshProject)) {
+        return; // paused projects stay paused until explicitly resumed
+      }
     }
 
     if (freshProject && freshProject.loop_state === LOOP_STATES.STARVED) {
@@ -830,8 +852,11 @@ async function tickProject(project) {
       const state = instance.loop_state;
       const paused = instance.paused_at_stage;
 
-      const latestProject = factoryHealth.getProject(project.id);
-      if (!latestProject || latestProject.status !== 'running') {
+      let latestProject = factoryHealth.getProject(project.id);
+      const pausedVerifyBatchWaitState = latestProject?.status === 'paused'
+        ? getVerifyBatchWaitState(project.id, instance)
+        : null;
+      if (!latestProject || (latestProject.status !== 'running' && !pausedVerifyBatchWaitState)) {
         return;
       }
 
@@ -855,7 +880,7 @@ async function tickProject(project) {
       // VERIFY decision's outcome.reason confirms the bug shape, so other
       // VERIFY pause causes (human approval, VERIFY_FAIL) are untouched.
       if (paused === 'VERIFY' && instance.batch_id) {
-        const batchWaitState = getVerifyBatchWaitState(project.id, instance);
+        const batchWaitState = pausedVerifyBatchWaitState || getVerifyBatchWaitState(project.id, instance);
         if (batchWaitState && batchWaitState.batchTasks.length > 0 && batchWaitState.nonTerminal.length === 0) {
           logger.info('Factory tick: auto-clearing VERIFY gate — batch now terminal', {
             project_id: project.id,
@@ -864,6 +889,15 @@ async function tickProject(project) {
             batch_task_count: batchWaitState.batchTasks.length,
           });
           try {
+            if (latestProject.status === 'paused') {
+              factoryHealth.updateProject(project.id, { status: 'running' });
+              latestProject = factoryHealth.getProject(project.id) || { ...latestProject, status: 'running' };
+              logger.info('Factory tick: resumed paused project for terminal VERIFY batch wait', {
+                project_id: project.id,
+                instance_id: instance.id,
+                batch_id: instance.batch_id,
+              });
+            }
             loopController.approveGateForProject(project.id, 'VERIFY');
           } catch (approveErr) {
             logger.debug('Factory tick: auto-approve VERIFY gate failed', {
@@ -1131,7 +1165,7 @@ function initFactoryTicks() {
     for (const project of projects) {
       const cfg = getProjectConfig(project);
       const shouldTick = project.status === 'running'
-        || (project.status === 'paused' && cfg?.baseline_broken_since);
+        || (project.status === 'paused' && (cfg?.baseline_broken_since || hasPausedVerifyBatchWait(project)));
       if (!shouldTick) continue;
       const intervalMs = cfg?.loop?.tick_interval_ms || DEFAULT_TICK_INTERVAL_MS;
       startTick(project, intervalMs);
@@ -1155,5 +1189,6 @@ module.exports = {
     cancelFactoryTasksForInstance,
     resolveUnrecoverableVerifyLoop,
     maybeStartAutoAdvanceLoop,
+    hasPausedVerifyBatchWait,
   },
 };
