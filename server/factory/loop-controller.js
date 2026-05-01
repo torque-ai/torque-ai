@@ -253,6 +253,45 @@ function isStaleNeverStartedPendingPlanGenerationTask(
     && createdAgeMs >= thresholdMs;
 }
 
+function retireStalePendingPlanGenerationTask(taskCore, task, {
+  projectId = null,
+  workItemId = null,
+  staleAfterMs = DEFAULT_STALE_PENDING_PLAN_GENERATION_MS,
+  reason = 'stale_pending_plan_generation',
+} = {}) {
+  if (!isStaleNeverStartedPendingPlanGenerationTask(task, staleAfterMs)) {
+    return false;
+  }
+  if (!taskCore || typeof taskCore.updateTaskStatus !== 'function' || !task?.id) {
+    return false;
+  }
+
+  try {
+    taskCore.updateTaskStatus(task.id, 'skipped', {
+      output: 'Superseded stale never-started plan-generation task.',
+      error_output: `Skipped stale never-started plan-generation task: ${reason}`,
+    });
+    logger.warn('Retired stale pending plan-generation task', {
+      project_id: projectId,
+      work_item_id: workItemId,
+      task_id: task.id,
+      status: task.status,
+      created_at: task.created_at || task.createdAt || null,
+      reason,
+    });
+    return true;
+  } catch (error) {
+    logger.warn('Failed to retire stale pending plan-generation task', {
+      project_id: projectId,
+      work_item_id: workItemId,
+      task_id: task.id,
+      err: error.message,
+      reason,
+    });
+    return false;
+  }
+}
+
 function getWorktreeDirtyStatus(worktreePath) {
   if (!worktreePath || !fs.existsSync(worktreePath)) {
     return { dirty: false, checked: false, reason: 'missing' };
@@ -4873,6 +4912,11 @@ function maybeClearDeferredPlanGenerationWait(project, instance) {
   const taskCore = require('../db/task-core');
   const generationTask = getPlanGenerationTask(taskCore, generationTaskId);
   if (isStaleNeverStartedPendingPlanGenerationTask(generationTask)) {
+    retireStalePendingPlanGenerationTask(taskCore, generationTask, {
+      projectId: project.id,
+      workItemId: workItem.id,
+      reason: 'deferred_wait_recovery',
+    });
     let updatedWorkItem = workItem;
     try {
       updatedWorkItem = factoryIntake.updateWorkItem(workItem.id, {
@@ -5457,6 +5501,12 @@ async function executeNonPlanFileStage(project, instance, workItem) {
       }
       const existingGenerationTask = resolved.task;
       if (isStaleNeverStartedPendingPlanGenerationTask(existingGenerationTask, stalePendingMs)) {
+        retireStalePendingPlanGenerationTask(taskCore, existingGenerationTask, {
+          projectId: project.id,
+          workItemId: targetItem.id,
+          staleAfterMs: stalePendingMs,
+          reason: 'replacement_resubmit',
+        });
         planGenerationOrigin = clearPlanGenerationWaitFields(nextOrigin);
         try {
           const clearedWorkItem = factoryIntake.updateWorkItem(targetItem.id, {
