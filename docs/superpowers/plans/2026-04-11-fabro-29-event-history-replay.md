@@ -1,482 +1,518 @@
-> **STALE — needs rewrite (2026-05-01).** Current task table + decision_log already cover ~70% of this. Refresh focus: gap analysis vs existing decision_log + workflow_checkpoints (shipped via fabro-28) before deciding to extend or build a parallel store.
+# Fabro #29: Workflow Event Timeline (Extension of task_events)
 
-# Fabro #29: Event-History-Backed Workflow Replay (Temporal)
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task.
+**Goal:** Close the small remaining gap between the original "event-history-backed replay" proposal and what TORQUE already ships. Add the two missing event types (`workflow.state_patched`, `workflow.dependency_unblocked`), emit them from the existing runtime sites, expose a per-workflow event read path (REST + dashboard), and derive a stable per-workflow `seq` at read time. No new table, no new replay engine — both already exist.
 
-**Goal:** Persist every workflow as an append-only event journal — task-started, task-output, state-patched, dependency-unblocked, etc. — and use that journal as the source of truth for recovery, audit, and deterministic replay. Inspired by Temporal's Event History.
+**Architecture:** Extension of three existing systems:
 
-**Architecture:** A new `workflow_events` table records one row per significant runtime event with monotonically increasing `seq` per workflow. Events are written by a `journal-writer.js` module called from `task-startup.js`, `task-finalizer.js`, `workflow-state.js`, and the dependency unblocker. On restart the workflow runtime can call `replayWorkflow(workflowId)` to reconstruct in-memory state from events alone (no reliance on cached aggregates). A `GET /api/workflows/:id/events` route exposes the history; the dashboard adds a "raw event log" tab.
+- **`task_events` table + `events/event-emitter.js`** (Plan 14, shipped) is already the append-only journal: `(id, task_id, workflow_id, ts, type, actor, payload_json)` indexed for `(workflow_id, ts)` reads via `listEvents`. Nineteen typed events fire today across the task lifecycle (created/queued/running/completed/failed/cancelled/skipped/requeued, tool.called, provider.routed/failover, verify.ran, retry.scheduled, goal_gate.evaluated, workflow.started/completed/failed, budget.breached).
+- **`workflow_checkpoints` table** (migration 035 + Plan 28, shipped) snapshots full reduced state after every completion and is already the source of truth for replay-from-arbitrary-point — `forker.fork({ checkpointId, state_overrides })` rebuilds a fresh workflow with seeded state and cloned downstream steps.
+- **`runs/<workflow_id>/` artifact bundle** (Plan 15, shipped) already serializes events.jsonl + per-task snapshots + manifest at terminal transitions.
 
-**Tech Stack:** Node.js, better-sqlite3. Builds on plans 14 (typed event backbone), 27 (typed state), 28 (checkpoints).
+The original Fabro #29 plan proposed a parallel `workflow_events` store with monotonic per-workflow `seq`, plus a state-fold replay engine. Both are redundant: `task_events` already carries `workflow_id` + `ts` + autoincrement `id` (totally ordered) and the checkpoint store already snapshots reduced state after every completion (no need to fold events back into state). What is genuinely missing is **(a)** two event-type emissions, **(b)** a workflow-scoped read API, and **(c)** a derived `seq` field so consumers can address events by ordinal position. This plan delivers exactly that.
+
+**Tech Stack:** Node.js, better-sqlite3, React. Builds on Plans 14 (event backbone), 15 (artifact bundles), 27 (typed state), 28 (checkpoints + forker).
+
+**Spec:** `docs/superpowers/specs/2026-04-11-fabro-29-event-history-replay-design.md` (refresh against the gap analysis above before authoring; the original spec assumed a new table).
+
+**Branch:** `feat/fabro-29-workflow-event-timeline` (worktree: `.worktrees/feat-fabro-29-workflow-event-timeline/`)
+
+**Verify command (remote):** `torque-remote npx vitest run server/tests/`
+
+## Sandbox-tolerant verify fallback
+
+Each task below has Run-tests steps. Execute in this priority order:
+
+1. **Preferred:** `torque-remote npx vitest run <path/to/test>` — runs on the remote workstation.
+2. **Fallback 1:** `npx vitest run <path/to/test> --pool=threads --no-coverage` — avoids the fork-pool that sometimes hits `spawn EPERM`.
+3. **Fallback 2:** If both fail with spawn / access errors, note the exact error text, skip the run step, and proceed to the commit step. The host's post-task verification will surface regressions. Include "verify step skipped due to sandbox spawn restriction" in your final output.
+
+Do not let a blocked vitest invocation prevent you from committing a correct code change.
 
 ---
 
 ## File Structure
 
 **New files:**
-- `server/migrations/0NN-workflow-events.sql`
-- `server/journal/journal-writer.js`
-- `server/journal/journal-replay.js`
-- `server/tests/journal-writer.test.js`
-- `server/tests/journal-replay.test.js`
-- `dashboard/src/views/WorkflowEventLog.jsx`
+
+- `server/tests/workflow-event-timeline-emit.test.js` — asserts state_patched + dependency_unblocked emit
+- `server/tests/workflow-event-timeline-read.test.js` — asserts list-by-workflow returns derived `seq`
+- `server/tests/workflow-event-timeline-route.test.js` — REST endpoint smoke
+- `dashboard/src/views/WorkflowEventTimeline.jsx` — table view backed by the new endpoint
 
 **Modified files:**
-- `server/execution/task-startup.js` — emit `task_started` event
-- `server/execution/task-finalizer.js` — emit `task_completed` / `task_failed`, `state_patched`
-- `server/workflow-state/workflow-state.js` — emit `state_patched` (move into module)
-- `server/execution/dependency-resolver.js` (or equivalent) — emit `dependency_unblocked`
-- `server/api/routes/workflows.js` — `GET /:id/events`
-- `dashboard/src/views/WorkflowDetail.jsx` — events tab link
+
+- `server/events/event-types.js` — add `WORKFLOW_STATE_PATCHED`, `WORKFLOW_DEPENDENCY_UNBLOCKED`
+- `server/events/event-emitter.js` — extend `listEvents` to return derived `seq`; add `listWorkflowEvents` convenience
+- `server/workflow-state/workflow-state.js` — emit `workflow.state_patched` after successful patch
+- `server/execution/workflow-runtime.js` — emit `workflow.dependency_unblocked` when a blocked task transitions to runnable
+- `server/api/routes/workflows.js` (or the routes-passthrough table if no per-resource file exists yet) — `GET /:id/events`
+- `server/handlers/event-handlers.js` — extend `handleListTaskEvents` so workflow-scoped reads return `seq`
+- `dashboard/src/views/WorkflowDetail.jsx` — link to the timeline view
+- `dashboard/src/App.jsx` — register the timeline route
+
+No migrations. No new tables.
 
 ---
 
-## Task 1: Migration
+## Task 1: Add the two missing event types
 
-- [ ] **Step 1: Create migration**
+**Acceptance:** `EVENT_TYPES` in `server/events/event-types.js` exports `WORKFLOW_STATE_PATCHED = 'workflow.state_patched'` and `WORKFLOW_DEPENDENCY_UNBLOCKED = 'workflow.dependency_unblocked'`. A test asserts both are present and `KNOWN_TYPES` in `event-emitter.js` accepts them.
 
-`server/migrations/0NN-workflow-events.sql`:
+**Files:**
+- Modify: `server/events/event-types.js`
+- Test: `server/tests/workflow-event-timeline-emit.test.js` (create — covers Tasks 1-3)
 
-```sql
-CREATE TABLE IF NOT EXISTS workflow_events (
-  event_id TEXT PRIMARY KEY,
-  workflow_id TEXT NOT NULL,
-  seq INTEGER NOT NULL,
-  event_type TEXT NOT NULL,
-  task_id TEXT,
-  step_id TEXT,
-  payload_json TEXT,
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  UNIQUE (workflow_id, seq),
-  FOREIGN KEY (workflow_id) REFERENCES workflows(workflow_id) ON DELETE CASCADE
-);
+- [ ] **Step 1.1: Write the failing test (event-type contract only)**
 
-CREATE INDEX IF NOT EXISTS idx_workflow_events_wf_seq ON workflow_events(workflow_id, seq);
-CREATE INDEX IF NOT EXISTS idx_workflow_events_type ON workflow_events(event_type);
-CREATE INDEX IF NOT EXISTS idx_workflow_events_task ON workflow_events(task_id);
-```
+Create `server/tests/workflow-event-timeline-emit.test.js` with the type-contract block:
 
-Commit: `feat(journal): workflow_events table for event-sourced replay`.
+```javascript
+import { describe, it, expect } from 'vitest';
 
----
+const { EVENT_TYPES } = require('../events/event-types');
 
-## Task 2: Journal writer
-
-- [ ] **Step 1: Tests**
-
-Create `server/tests/journal-writer.test.js`:
-
-```js
-'use strict';
-const { describe, it, expect, beforeEach } = require('vitest');
-const { setupTestDb } = require('./helpers/test-db');
-const { createJournalWriter } = require('../journal/journal-writer');
-
-describe('journalWriter', () => {
-  let db, journal;
-  beforeEach(() => {
-    db = setupTestDb();
-    journal = createJournalWriter({ db });
-    db.prepare(`INSERT INTO workflows (workflow_id, name, status) VALUES ('wf-1', 't', 'running')`).run();
+describe('event-types: workflow lifecycle additions', () => {
+  it('exports WORKFLOW_STATE_PATCHED', () => {
+    expect(EVENT_TYPES.WORKFLOW_STATE_PATCHED).toBe('workflow.state_patched');
   });
-
-  it('write assigns monotonically increasing seq per workflow', () => {
-    const e1 = journal.write({ workflowId: 'wf-1', type: 'task_started', taskId: 't1' });
-    const e2 = journal.write({ workflowId: 'wf-1', type: 'task_completed', taskId: 't1' });
-    const e3 = journal.write({ workflowId: 'wf-1', type: 'task_started', taskId: 't2' });
-    expect(e1.seq).toBe(1);
-    expect(e2.seq).toBe(2);
-    expect(e3.seq).toBe(3);
-  });
-
-  it('seq counters are independent per workflow', () => {
-    db.prepare(`INSERT INTO workflows (workflow_id, name, status) VALUES ('wf-2', 't', 'running')`).run();
-    journal.write({ workflowId: 'wf-1', type: 'task_started', taskId: 't1' });
-    journal.write({ workflowId: 'wf-1', type: 'task_completed', taskId: 't1' });
-    const first = journal.write({ workflowId: 'wf-2', type: 'task_started', taskId: 'tA' });
-    expect(first.seq).toBe(1);
-  });
-
-  it('payload is serialized as JSON', () => {
-    journal.write({ workflowId: 'wf-1', type: 'state_patched', payload: { delta: { count: 1 } } });
-    const row = db.prepare('SELECT payload_json FROM workflow_events WHERE workflow_id = ? LIMIT 1').get('wf-1');
-    expect(JSON.parse(row.payload_json).delta.count).toBe(1);
-  });
-
-  it('readJournal returns all events in seq order', () => {
-    journal.write({ workflowId: 'wf-1', type: 'task_started', taskId: 't1' });
-    journal.write({ workflowId: 'wf-1', type: 'task_completed', taskId: 't1' });
-    journal.write({ workflowId: 'wf-1', type: 'state_patched', payload: { x: 1 } });
-    const events = journal.readJournal('wf-1');
-    expect(events.map(e => e.event_type)).toEqual(['task_started', 'task_completed', 'state_patched']);
-  });
-
-  it('write is atomic — concurrent writes get distinct seq values', () => {
-    // Simulated: 10 parallel writes (single-threaded JS but exercises the SQL transaction)
-    const seqs = [];
-    for (let i = 0; i < 10; i++) {
-      seqs.push(journal.write({ workflowId: 'wf-1', type: 'noop' }).seq);
-    }
-    const sorted = [...seqs].sort((a, b) => a - b);
-    expect(sorted).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
-    expect(new Set(seqs).size).toBe(10);
+  it('exports WORKFLOW_DEPENDENCY_UNBLOCKED', () => {
+    expect(EVENT_TYPES.WORKFLOW_DEPENDENCY_UNBLOCKED).toBe('workflow.dependency_unblocked');
   });
 });
 ```
 
-- [ ] **Step 2: Implement**
+- [ ] **Step 1.2: Run test to verify it fails**
 
-Create `server/journal/journal-writer.js`:
+`torque-remote npx vitest run server/tests/workflow-event-timeline-emit.test.js`. Expected: FAIL — `expected undefined to be 'workflow.state_patched'`.
 
-```js
-'use strict';
+- [ ] **Step 1.3: Add the two constants**
+
+In `server/events/event-types.js`, append two members to the `EVENT_TYPES` object:
+
+```javascript
+WORKFLOW_STATE_PATCHED: 'workflow.state_patched',
+WORKFLOW_DEPENDENCY_UNBLOCKED: 'workflow.dependency_unblocked',
+```
+
+The existing `KNOWN_TYPES = new Set(Object.values(EVENT_TYPES))` in `event-emitter.js` picks them up automatically.
+
+- [ ] **Step 1.4: Re-run the test**
+
+Expected: 2 passing.
+
+- [ ] **Step 1.5: Commit**
+
+```bash
+git add server/events/event-types.js server/tests/workflow-event-timeline-emit.test.js
+git commit -m "feat(events): add workflow.state_patched and workflow.dependency_unblocked types"
+```
+
+---
+
+## Task 2: Emit `workflow.state_patched` from `applyPatch`
+
+**Acceptance:** `workflow-state.js` `applyPatch(workflowId, patch)` emits `workflow.state_patched` on every successful patch, with `payload = { patch, reducers, version }`. Failure paths (validation errors, JSON failures) do not emit. Existing applyPatch tests still pass.
+
+**Important constraint:** `task_events.task_id` is `NOT NULL`. Workflow-scoped events without a task_id are not legal in the current schema. For state_patched, use the workflow_id as a synthetic task_id sentinel of the form `wf:<workflow_id>` — the read path filters on `workflow_id` (not task_id), so this is invisible to consumers, but it preserves the NOT NULL invariant. Document the convention as a code comment.
+
+**Files:**
+- Modify: `server/workflow-state/workflow-state.js`
+- Test: extend `server/tests/workflow-event-timeline-emit.test.js`
+
+- [ ] **Step 2.1: Extend the failing test**
+
+Append to `workflow-event-timeline-emit.test.js`:
+
+```javascript
 const { randomUUID } = require('crypto');
+const { setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
+const { createWorkflowState } = require('../workflow-state/workflow-state');
+const { listEvents } = require('../events/event-emitter');
 
-const VALID_EVENT_TYPES = new Set([
-  'workflow_created',
-  'workflow_started',
-  'workflow_completed',
-  'workflow_failed',
-  'task_created',
-  'task_started',
-  'task_completed',
-  'task_failed',
-  'task_cancelled',
-  'task_retried',
-  'dependency_unblocked',
-  'state_patched',
-  'state_validation_failed',
-  'checkpoint_taken',
-  'fork_created',
-  'noop', // for tests
-]);
+describe('workflow-state: applyPatch emits workflow.state_patched', () => {
+  let db;
+  beforeAll(() => { ({ db } = setupTestDbOnly('wf-event-emit')); });
+  afterAll(() => teardownTestDb());
 
-function createJournalWriter({ db, logger = console }) {
-  // SQLite transaction guarantees seq monotonicity per workflow
-  const writeStmt = db.prepare(`
-    INSERT INTO workflow_events (event_id, workflow_id, seq, event_type, task_id, step_id, payload_json)
-    VALUES (?, ?, COALESCE((SELECT MAX(seq) FROM workflow_events WHERE workflow_id = ?), 0) + 1, ?, ?, ?, ?)
-  `);
-  const readSeqStmt = db.prepare(`SELECT seq FROM workflow_events WHERE event_id = ?`);
-
-  function write({ workflowId, type, taskId = null, stepId = null, payload = null }) {
-    if (!VALID_EVENT_TYPES.has(type)) {
-      logger.warn?.('unknown event type, recording anyway', { type });
-    }
-    const eventId = `ev_${randomUUID().slice(0, 12)}`;
-    const tx = db.transaction(() => {
-      writeStmt.run(
-        eventId,
-        workflowId,
-        workflowId,
-        type,
-        taskId,
-        stepId,
-        payload ? JSON.stringify(payload) : null,
-      );
-      return readSeqStmt.get(eventId).seq;
-    });
-    const seq = tx();
-    return { event_id: eventId, seq };
-  }
-
-  function readJournal(workflowId, { fromSeq = null, toSeq = null } = {}) {
-    let sql = 'SELECT * FROM workflow_events WHERE workflow_id = ?';
-    const params = [workflowId];
-    if (fromSeq !== null) { sql += ' AND seq >= ?'; params.push(fromSeq); }
-    if (toSeq !== null) { sql += ' AND seq <= ?'; params.push(toSeq); }
-    sql += ' ORDER BY seq ASC';
-    return db.prepare(sql).all(...params).map(row => ({
-      ...row,
-      payload: row.payload_json ? JSON.parse(row.payload_json) : null,
-    }));
-  }
-
-  return { write, readJournal };
-}
-
-module.exports = { createJournalWriter, VALID_EVENT_TYPES };
-```
-
-Run tests → PASS. Commit: `feat(journal): writer with per-workflow monotonic seq`.
-
----
-
-## Task 3: Replay reconstructs state
-
-- [ ] **Step 1: Tests**
-
-Create `server/tests/journal-replay.test.js`:
-
-```js
-'use strict';
-const { describe, it, expect, beforeEach } = require('vitest');
-const { setupTestDb } = require('./helpers/test-db');
-const { createJournalWriter } = require('../journal/journal-writer');
-const { replayWorkflow } = require('../journal/journal-replay');
-
-describe('replayWorkflow', () => {
-  let db, journal;
-  beforeEach(() => {
-    db = setupTestDb();
-    journal = createJournalWriter({ db });
-    db.prepare(`INSERT INTO workflows (workflow_id, name, status) VALUES ('wf-1', 't', 'running')`).run();
+  it('emits exactly one workflow.state_patched per successful patch', () => {
+    const wfId = randomUUID();
+    db.prepare(`INSERT INTO workflows (id, name, status, created_at) VALUES (?, 't', 'running', ?)`)
+      .run(wfId, new Date().toISOString());
+    const ws = createWorkflowState({ db });
+    ws.setStateSchema(wfId, null, { count: 'numeric_sum' });
+    ws.applyPatch(wfId, { count: 1 });
+    ws.applyPatch(wfId, { count: 2 });
+    const events = listEvents({ workflow_id: wfId, type: 'workflow.state_patched' });
+    expect(events).toHaveLength(2);
+    expect(events[0].payload.patch).toEqual({ count: 1 });
+    expect(events[0].payload.reducers).toEqual({ count: 'numeric_sum' });
+    expect(events[0].payload.version).toBeGreaterThan(0);
   });
 
-  it('reconstructs task statuses from start/complete/fail events', () => {
-    journal.write({ workflowId: 'wf-1', type: 'task_started', taskId: 't1' });
-    journal.write({ workflowId: 'wf-1', type: 'task_completed', taskId: 't1' });
-    journal.write({ workflowId: 'wf-1', type: 'task_started', taskId: 't2' });
-    journal.write({ workflowId: 'wf-1', type: 'task_failed', taskId: 't2', payload: { reason: 'oom' } });
-
-    const replay = replayWorkflow({ db, workflowId: 'wf-1' });
-    expect(replay.tasks.t1.status).toBe('completed');
-    expect(replay.tasks.t2.status).toBe('failed');
-    expect(replay.tasks.t2.failure_payload.reason).toBe('oom');
-  });
-
-  it('reconstructs state by folding state_patched events through reducers', () => {
-    journal.write({ workflowId: 'wf-1', type: 'state_patched', payload: { patch: { count: 1 }, reducers: { count: 'numeric_sum' } } });
-    journal.write({ workflowId: 'wf-1', type: 'state_patched', payload: { patch: { count: 2 }, reducers: { count: 'numeric_sum' } } });
-    journal.write({ workflowId: 'wf-1', type: 'state_patched', payload: { patch: { tag: 'x' }, reducers: { tag: 'replace' } } });
-
-    const replay = replayWorkflow({ db, workflowId: 'wf-1' });
-    expect(replay.state).toEqual({ count: 3, tag: 'x' });
-  });
-
-  it('records last event seq seen', () => {
-    for (let i = 0; i < 4; i++) journal.write({ workflowId: 'wf-1', type: 'noop' });
-    const replay = replayWorkflow({ db, workflowId: 'wf-1' });
-    expect(replay.last_seq).toBe(4);
-  });
-
-  it('can replay up to a specific seq (point-in-time view)', () => {
-    journal.write({ workflowId: 'wf-1', type: 'state_patched', payload: { patch: { x: 1 }, reducers: { x: 'numeric_sum' } } });
-    journal.write({ workflowId: 'wf-1', type: 'state_patched', payload: { patch: { x: 1 }, reducers: { x: 'numeric_sum' } } });
-    journal.write({ workflowId: 'wf-1', type: 'state_patched', payload: { patch: { x: 1 }, reducers: { x: 'numeric_sum' } } });
-
-    const replay = replayWorkflow({ db, workflowId: 'wf-1', toSeq: 2 });
-    expect(replay.state.x).toBe(2);
-    expect(replay.last_seq).toBe(2);
+  it('does not emit when patch validation fails', () => {
+    const wfId = randomUUID();
+    db.prepare(`INSERT INTO workflows (id, name, status, created_at) VALUES (?, 't', 'running', ?)`)
+      .run(wfId, new Date().toISOString());
+    const ws = createWorkflowState({ db });
+    ws.setStateSchema(
+      wfId,
+      { type: 'object', properties: { count: { type: 'number' } }, required: ['count'] },
+      { count: 'replace' },
+    );
+    expect(() => ws.applyPatch(wfId, { count: 'not-a-number' })).toThrow();
+    const events = listEvents({ workflow_id: wfId, type: 'workflow.state_patched' });
+    expect(events).toHaveLength(0);
   });
 });
 ```
 
-- [ ] **Step 2: Implement**
+- [ ] **Step 2.2: Run — expect FAIL**
 
-Create `server/journal/journal-replay.js`:
+`torque-remote npx vitest run server/tests/workflow-event-timeline-emit.test.js`. Expect both new tests to fail (no events found).
 
-```js
-'use strict';
-const { reduceState } = require('../workflow-state/reducers');
-const { createJournalWriter } = require('./journal-writer');
+- [ ] **Step 2.3: Implement emission in `applyPatch`**
 
-function replayWorkflow({ db, workflowId, toSeq = null }) {
-  const journal = createJournalWriter({ db });
-  const events = journal.readJournal(workflowId, { toSeq });
+In `server/workflow-state/workflow-state.js`, locate `function applyPatch(workflowId, patch)` (around line 128). After the row is committed and the new state has been read back successfully, add:
 
-  const tasks = {};
-  let state = {};
-  let unblocked = new Set();
+```javascript
+// Emit workflow.state_patched (Plan 29). task_events.task_id is NOT NULL, so we
+// use a `wf:<id>` sentinel; the read path filters by workflow_id, never by task_id.
+try {
+  const { emitTaskEvent } = require('../events/event-emitter');
+  const { EVENT_TYPES } = require('../events/event-types');
+  emitTaskEvent({
+    task_id: `wf:${normalizedWorkflowId}`,
+    workflow_id: normalizedWorkflowId,
+    type: EVENT_TYPES.WORKFLOW_STATE_PATCHED,
+    actor: 'workflow-state',
+    payload: { patch, reducers: meta.reducers || null, version: nextVersion },
+  });
+} catch (err) {
+  // Event emission must not fail the state write. Log via the module logger if available,
+  // otherwise swallow — the write itself succeeded.
+}
+```
 
-  for (const ev of events) {
-    switch (ev.event_type) {
-      case 'task_created':
-        tasks[ev.task_id] = { status: 'pending', payload: ev.payload || {} };
-        break;
-      case 'task_started':
-        tasks[ev.task_id] = { ...(tasks[ev.task_id] || {}), status: 'running', started_at: ev.created_at };
-        break;
-      case 'task_completed':
-        tasks[ev.task_id] = { ...(tasks[ev.task_id] || {}), status: 'completed', completed_at: ev.created_at, output: ev.payload?.output };
-        break;
-      case 'task_failed':
-        tasks[ev.task_id] = { ...(tasks[ev.task_id] || {}), status: 'failed', failed_at: ev.created_at, failure_payload: ev.payload };
-        break;
-      case 'task_cancelled':
-        tasks[ev.task_id] = { ...(tasks[ev.task_id] || {}), status: 'cancelled' };
-        break;
-      case 'state_patched': {
-        const patch = ev.payload?.patch || {};
-        const reducers = ev.payload?.reducers || {};
-        state = reduceState(state, patch, reducers);
-        break;
-      }
-      case 'dependency_unblocked':
-        unblocked.add(ev.task_id);
-        break;
-      // workflow_*, noop, etc. are observability-only here
-    }
-  }
+`nextVersion` and `meta` are local variables already in scope inside `applyPatch`; if their names differ in the current file, use whatever the success branch already computed (the version returned to the caller, and the reducers map looked up for this workflow). Read the function body before editing — do not guess names.
 
-  return {
+- [ ] **Step 2.4: Re-run the test**
+
+Expected: 4 passing in `workflow-event-timeline-emit.test.js`. Also re-run any existing `workflow-state.test.js` to confirm no regression.
+
+- [ ] **Step 2.5: Commit**
+
+```bash
+git add server/workflow-state/workflow-state.js server/tests/workflow-event-timeline-emit.test.js
+git commit -m "feat(workflow-state): emit workflow.state_patched on every successful patch"
+```
+
+---
+
+## Task 3: Emit `workflow.dependency_unblocked` from the runtime
+
+**Acceptance:** When the workflow runtime transitions a previously-blocked task to runnable, exactly one `workflow.dependency_unblocked` event is emitted with `payload = { unblocked_task_id, dependencies_resolved: [task_id, ...] }`. Tasks that were never blocked (no dependencies) do not emit.
+
+**Files:**
+- Modify: `server/execution/workflow-runtime.js`
+- Test: extend `server/tests/workflow-event-timeline-emit.test.js`
+
+- [ ] **Step 3.1: Find the unblock site**
+
+Read `server/execution/workflow-runtime.js`. Search for the function that transitions tasks from a blocked/pending state to runnable after a dependency completes — typical names: `unblockTasks`, `markRunnable`, `evaluateDependencies`. Verify the exact function before editing. The site to instrument is the place where status flips from `pending`/`blocked` to `queued` or `runnable` *because* a dependency completed.
+
+- [ ] **Step 3.2: Write the failing test**
+
+Append to `workflow-event-timeline-emit.test.js`. The test should drive a 2-task workflow, complete task A, observe that the runtime unblocks task B, and assert one `workflow.dependency_unblocked` event with task B's id in the payload. If the runtime is awkward to drive directly in a unit test, mock at the level of the unblock helper (read the file first to choose the right seam).
+
+- [ ] **Step 3.3: Implement the emit**
+
+At the unblock site, after the status update succeeds, emit:
+
+```javascript
+try {
+  const { emitTaskEvent } = require('../events/event-emitter');
+  const { EVENT_TYPES } = require('../events/event-types');
+  emitTaskEvent({
+    task_id: unblockedTaskId,
     workflow_id: workflowId,
-    tasks,
-    state,
-    unblocked: Array.from(unblocked),
-    last_seq: events.length ? events[events.length - 1].seq : 0,
-    event_count: events.length,
-  };
-}
-
-module.exports = { replayWorkflow };
-```
-
-Run tests → PASS. Commit: `feat(journal): replay reconstructs state from events`.
-
----
-
-## Task 4: Wire emit calls into runtime
-
-- [ ] **Step 1: Container registration**
-
-In `server/container.js`:
-
-```js
-container.factory('journalWriter', (c) => {
-  const { createJournalWriter } = require('./journal/journal-writer');
-  return createJournalWriter({ db: c.get('db'), logger: c.get('logger') });
-});
-```
-
-- [ ] **Step 2: Emit from task-startup**
-
-In `server/execution/task-startup.js` after a task transitions to running:
-
-```js
-const journal = defaultContainer.get('journalWriter');
-if (task.workflow_id) {
-  journal.write({
-    workflowId: task.workflow_id,
-    type: 'task_started',
-    taskId,
-    stepId: task.node_id || null,
-    payload: { provider: task.provider, model: task.model },
+    type: EVENT_TYPES.WORKFLOW_DEPENDENCY_UNBLOCKED,
+    actor: 'workflow-runtime',
+    payload: { unblocked_task_id: unblockedTaskId, dependencies_resolved: completedDepIds },
   });
-}
+} catch { /* fail-open */ }
 ```
 
-- [ ] **Step 3: Emit from task-finalizer**
+If multiple tasks become runnable in a single tick, emit one event per task — do not batch.
 
-In `server/execution/task-finalizer.js` for both completion and failure paths:
+- [ ] **Step 3.4: Run the test, then run the full workflow-runtime test file to catch regressions**
 
-```js
-const journal = defaultContainer.get('journalWriter');
-if (task.workflow_id) {
-  if (status === 'completed') {
-    journal.write({
-      workflowId: task.workflow_id, type: 'task_completed', taskId, stepId: task.node_id,
-      payload: { exit_code: rawExitCode, has_output: !!finalOutput },
-    });
-  } else if (status === 'failed') {
-    journal.write({
-      workflowId: task.workflow_id, type: 'task_failed', taskId, stepId: task.node_id,
-      payload: { failure_class: failureClass, error_output: errorOutput },
-    });
-  }
-}
+`torque-remote npx vitest run server/tests/workflow-event-timeline-emit.test.js server/tests/workflow-runtime.test.js`. Expected: all green.
+
+- [ ] **Step 3.5: Commit**
+
+```bash
+git add server/execution/workflow-runtime.js server/tests/workflow-event-timeline-emit.test.js
+git commit -m "feat(workflow-runtime): emit workflow.dependency_unblocked when deps clear"
 ```
-
-- [ ] **Step 4: Emit state_patched**
-
-In `server/workflow-state/workflow-state.js` `applyPatch` — accept an optional `journal` and emit:
-
-```js
-function applyPatch(workflowId, patch) {
-  // ... existing logic ...
-  if (journal) {
-    journal.write({
-      workflowId, type: 'state_patched',
-      payload: { patch, reducers: getMeta(workflowId).reducers },
-    });
-  }
-  return { ok: true, state: next };
-}
-```
-
-Wire `journalWriter` into the `createWorkflowState` factory in container.js.
-
-- [ ] **Step 5: Emit dependency_unblocked**
-
-In `server/execution/dependency-resolver.js` (or wherever a task transitions from blocked to runnable) after the unblock:
-
-```js
-journal.write({
-  workflowId: task.workflow_id, type: 'dependency_unblocked', taskId: task.task_id,
-  payload: { unblocked_at: new Date().toISOString() },
-});
-```
-
-Commit: `feat(journal): emit task lifecycle + state events from runtime`.
 
 ---
 
-## Task 5: REST + dashboard
+## Task 4: Workflow-scoped read API with derived `seq`
 
-- [ ] **Step 1: REST**
+**Acceptance:** `listEvents({ workflow_id })` (or a new sibling `listWorkflowEvents(workflowId, opts)`) returns events ordered by `(ts ASC, id ASC)` with a derived integer `seq` field starting at 1. `seq` is computed in the read path — no schema change. `from_seq` / `to_seq` filters work and produce a contiguous subrange.
 
-In `server/api/routes/workflows.js`:
+**Files:**
+- Modify: `server/events/event-emitter.js`
+- Test: `server/tests/workflow-event-timeline-read.test.js` (create)
 
-```js
-router.get('/:id/events', (req, res) => {
-  const journal = defaultContainer.get('journalWriter');
-  const fromSeq = req.query.from_seq ? parseInt(req.query.from_seq, 10) : null;
-  const toSeq = req.query.to_seq ? parseInt(req.query.to_seq, 10) : null;
-  res.json({ workflow_id: req.params.id, events: journal.readJournal(req.params.id, { fromSeq, toSeq }) });
+- [ ] **Step 4.1: Write the failing test**
+
+Create `server/tests/workflow-event-timeline-read.test.js`:
+
+```javascript
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+const { randomUUID } = require('crypto');
+const { setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
+const { emitTaskEvent, listEvents, listWorkflowEvents } = require('../events/event-emitter');
+const { EVENT_TYPES } = require('../events/event-types');
+
+let db, wfA, wfB;
+
+beforeAll(() => {
+  ({ db } = setupTestDbOnly('wf-event-read'));
+  wfA = randomUUID();
+  wfB = randomUUID();
+  for (const id of [wfA, wfB]) {
+    db.prepare(`INSERT INTO workflows (id, name, status, created_at) VALUES (?, 't', 'running', ?)`)
+      .run(id, new Date().toISOString());
+  }
+  // Interleave events across two workflows
+  emitTaskEvent({ task_id: `wf:${wfA}`, workflow_id: wfA, type: EVENT_TYPES.WORKFLOW_STARTED, payload: {} });
+  emitTaskEvent({ task_id: `wf:${wfB}`, workflow_id: wfB, type: EVENT_TYPES.WORKFLOW_STARTED, payload: {} });
+  emitTaskEvent({ task_id: `wf:${wfA}`, workflow_id: wfA, type: EVENT_TYPES.WORKFLOW_STATE_PATCHED, payload: { patch: { x: 1 } } });
+  emitTaskEvent({ task_id: `wf:${wfA}`, workflow_id: wfA, type: EVENT_TYPES.WORKFLOW_STATE_PATCHED, payload: { patch: { x: 2 } } });
+  emitTaskEvent({ task_id: `wf:${wfB}`, workflow_id: wfB, type: EVENT_TYPES.WORKFLOW_COMPLETED, payload: {} });
 });
+afterAll(() => teardownTestDb());
 
-router.get('/:id/replay', (req, res) => {
-  const { replayWorkflow } = require('../../journal/journal-replay');
-  const toSeq = req.query.to_seq ? parseInt(req.query.to_seq, 10) : null;
-  res.json(replayWorkflow({ db: defaultContainer.get('db'), workflowId: req.params.id, toSeq }));
+describe('listWorkflowEvents derives per-workflow seq', () => {
+  it('returns events for one workflow with seq 1..N', () => {
+    const events = listWorkflowEvents(wfA);
+    expect(events.map(e => e.seq)).toEqual([1, 2, 3]);
+    expect(events.map(e => e.type)).toEqual([
+      'workflow.started', 'workflow.state_patched', 'workflow.state_patched',
+    ]);
+  });
+
+  it('seq is independent per workflow', () => {
+    const a = listWorkflowEvents(wfA);
+    const b = listWorkflowEvents(wfB);
+    expect(a[0].seq).toBe(1);
+    expect(b[0].seq).toBe(1);
+    expect(b).toHaveLength(2);
+  });
+
+  it('respects from_seq / to_seq window', () => {
+    const events = listWorkflowEvents(wfA, { from_seq: 2, to_seq: 3 });
+    expect(events.map(e => e.seq)).toEqual([2, 3]);
+  });
+
+  it('listEvents({ workflow_id }) also exposes derived seq', () => {
+    const events = listEvents({ workflow_id: wfA });
+    expect(events[0].seq).toBe(1);
+    expect(events[events.length - 1].seq).toBe(events.length);
+  });
 });
 ```
 
-- [ ] **Step 2: Dashboard log view**
+- [ ] **Step 4.2: Run — expect FAIL**
 
-Create `dashboard/src/views/WorkflowEventLog.jsx`:
+Expected: `listWorkflowEvents` is undefined, or `seq` is missing from results.
+
+- [ ] **Step 4.3: Implement**
+
+In `server/events/event-emitter.js`:
+
+1. Modify `listEvents` so that when `workflow_id` is provided, the returned rows include `seq` (1-based ordinal in the filtered, ordered result). When `workflow_id` is not provided, `seq` is omitted (it would be meaningless across workflows).
+2. Add `listWorkflowEvents(workflowId, { from_seq, to_seq, type, since, limit } = {})` — thin wrapper that calls `listEvents({ workflow_id: workflowId, type, since, limit })` then applies `from_seq` / `to_seq` filters in-memory after seq assignment.
+3. Export both.
+
+```javascript
+function listWorkflowEvents(workflowId, opts = {}) {
+  if (!workflowId) throw new Error('workflowId is required');
+  const { from_seq = null, to_seq = null, ...rest } = opts;
+  const events = listEvents({ workflow_id: workflowId, ...rest });
+  let filtered = events;
+  if (from_seq !== null) filtered = filtered.filter(e => e.seq >= from_seq);
+  if (to_seq !== null) filtered = filtered.filter(e => e.seq <= to_seq);
+  return filtered;
+}
+```
+
+For `listEvents` itself, the seq decoration is a single `forEach` after the existing `rows.map(...)`:
+
+```javascript
+const decorated = rows.map((row) => ({ ...row, payload: parsePayload(row.payload_json) }));
+if (workflow_id) {
+  decorated.forEach((evt, idx) => { evt.seq = idx + 1; });
+}
+return decorated;
+```
+
+- [ ] **Step 4.4: Re-run, then run the existing event-emitter test file**
+
+`torque-remote npx vitest run server/tests/workflow-event-timeline-read.test.js server/tests/event-emitter.test.js`. Both must pass.
+
+- [ ] **Step 4.5: Commit**
+
+```bash
+git add server/events/event-emitter.js server/tests/workflow-event-timeline-read.test.js
+git commit -m "feat(events): derive per-workflow seq + listWorkflowEvents convenience"
+```
+
+---
+
+## Task 5: REST endpoint and handler
+
+**Acceptance:** `GET /api/workflows/:id/events?from_seq=&to_seq=&type=` returns `{ workflow_id, events: [...] }` where each event has the derived `seq`. Response is JSON. Bad query params (`from_seq=abc`) return 400. Unknown workflow returns 200 with `events: []` (consistent with `listEvents`).
+
+**Files:**
+- Modify: `server/handlers/event-handlers.js` — add `handleListWorkflowEvents`
+- Modify: the route table that owns `/api/workflows/...` — add the new route. If a per-resource file does not exist, register in the existing `routes-passthrough.js` table.
+- Test: `server/tests/workflow-event-timeline-route.test.js` (create)
+
+- [ ] **Step 5.1: Write the failing test**
+
+Create `server/tests/workflow-event-timeline-route.test.js` that boots the REST app harness used elsewhere in the suite (mirror the pattern from any existing `server/tests/*-route.test.js` file — read one before authoring), seeds two events on a workflow id, and asserts `GET /api/workflows/:id/events` returns them with `seq: 1, 2`.
+
+- [ ] **Step 5.2: Run — expect 404 / undefined route**
+
+- [ ] **Step 5.3: Implement the handler**
+
+In `server/handlers/event-handlers.js`:
+
+```javascript
+function handleListWorkflowEvents(args = {}) {
+  const { workflow_id } = args;
+  if (!workflow_id) return makeError(ErrorCodes.INVALID_PARAM, 'workflow_id is required');
+
+  const fromSeq = parseOptionalInt(args.from_seq, 'from_seq');
+  if (!fromSeq.ok) return makeError(ErrorCodes.INVALID_PARAM, fromSeq.error);
+  const toSeq = parseOptionalInt(args.to_seq, 'to_seq');
+  if (!toSeq.ok) return makeError(ErrorCodes.INVALID_PARAM, toSeq.error);
+
+  try {
+    const { listWorkflowEvents } = require('../events/event-emitter');
+    const events = listWorkflowEvents(workflow_id, {
+      from_seq: fromSeq.value, to_seq: toSeq.value,
+      type: args.type || null, since: args.since || null,
+      limit: args.limit || 5000,
+    });
+    return {
+      content: [{ type: 'text', text: `${events.length} event(s) for workflow ${workflow_id}` }],
+      structuredData: { workflow_id, events },
+    };
+  } catch (err) {
+    return makeError(ErrorCodes.OPERATION_FAILED, err.message);
+  }
+}
+```
+
+`parseOptionalInt` is a small local helper that returns `{ ok: true, value: null }` for empty input, `{ ok: true, value: <int> }` for a parseable integer, and `{ ok: false, error }` otherwise. Mirror the shape of `normalizeLimit` already in the file.
+
+- [ ] **Step 5.4: Wire the route**
+
+If `server/api/routes/workflows.js` exists, add an Express handler. If routing is table-driven (`server/api/routes-passthrough.js` or similar), add an entry like:
+
+```javascript
+{ method: 'GET', path: /^\/api\/workflows\/([^/]+)\/events$/, tool: 'list_workflow_events', mapParams: ['workflow_id'], mapQuery: ['from_seq', 'to_seq', 'type', 'since', 'limit'] },
+```
+
+Register the corresponding tool in `server/tool-defs/event-defs.js` (or wherever the existing `list_task_events` tool is defined) so MCP callers also see `list_workflow_events`. Re-use the existing dispatch wiring — do not invent a new mechanism.
+
+- [ ] **Step 5.5: Re-run the test**
+
+Expected: green.
+
+- [ ] **Step 5.6: Commit**
+
+```bash
+git add server/handlers/event-handlers.js server/api/routes-passthrough.js server/tool-defs/event-defs.js server/tests/workflow-event-timeline-route.test.js
+git commit -m "feat(events): GET /api/workflows/:id/events + list_workflow_events tool"
+```
+
+(Adjust the `git add` list to match the files actually touched.)
+
+---
+
+## Task 6: Dashboard timeline view
+
+**Acceptance:** Visiting `/workflows/<id>/timeline` in the dashboard renders a sortable table of every event for that workflow with columns `seq`, `type`, `actor`, `task_id`, `payload preview`, `ts`. A type filter narrows the list client-side. The existing workflow detail page links to it.
+
+**Files:**
+- Create: `dashboard/src/views/WorkflowEventTimeline.jsx`
+- Modify: `dashboard/src/views/WorkflowDetail.jsx` (add a link)
+- Modify: `dashboard/src/App.jsx` (register the route)
+
+- [ ] **Step 6.1: Implement the view**
+
+Create `dashboard/src/views/WorkflowEventTimeline.jsx`:
 
 ```jsx
 import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 
-export default function WorkflowEventLog() {
+export default function WorkflowEventTimeline() {
   const { id } = useParams();
   const [events, setEvents] = useState([]);
   const [filter, setFilter] = useState('');
+  const [error, setError] = useState(null);
 
   useEffect(() => {
-    fetch(`/api/workflows/${id}/events`).then(r => r.json()).then(d => setEvents(d.events || []));
+    fetch(`/api/workflows/${id}/events`)
+      .then(r => r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`)))
+      .then(d => setEvents(d.events || []))
+      .catch(e => setError(e.message));
   }, [id]);
 
-  const filtered = filter ? events.filter(e => e.event_type.includes(filter) || e.task_id?.includes(filter)) : events;
+  const filtered = filter
+    ? events.filter(e => e.type.includes(filter) || (e.task_id && e.task_id.includes(filter)))
+    : events;
 
   return (
-    <div className="p-4 max-w-5xl">
-      <h2 className="text-xl font-semibold mb-2">Event log: {id}</h2>
+    <div className="p-4 max-w-6xl">
+      <h2 className="text-xl font-semibold mb-2">Event timeline: {id}</h2>
+      {error && <div className="text-red-600 text-sm mb-2">{error}</div>}
       <input
-        placeholder="filter by event_type or task_id"
+        placeholder="filter by event type or task id"
         value={filter}
         onChange={e => setFilter(e.target.value)}
         className="border rounded px-2 py-1 mb-3 w-full max-w-md"
       />
       <table className="w-full text-sm">
-        <thead className="bg-gray-100"><tr>
-          <th className="text-left px-2 py-1 w-12">seq</th>
-          <th className="text-left px-2 py-1">type</th>
-          <th className="text-left px-2 py-1">task</th>
-          <th className="text-left px-2 py-1">payload</th>
-          <th className="text-left px-2 py-1">at</th>
-        </tr></thead>
+        <thead className="bg-gray-100">
+          <tr>
+            <th className="text-left px-2 py-1 w-12">seq</th>
+            <th className="text-left px-2 py-1">type</th>
+            <th className="text-left px-2 py-1">actor</th>
+            <th className="text-left px-2 py-1">task</th>
+            <th className="text-left px-2 py-1">payload</th>
+            <th className="text-left px-2 py-1">ts</th>
+          </tr>
+        </thead>
         <tbody>
           {filtered.map(e => (
-            <tr key={e.event_id} className="border-t">
+            <tr key={`${e.seq}-${e.id}`} className="border-t align-top">
               <td className="px-2 py-1 font-mono">{e.seq}</td>
-              <td className="px-2 py-1 font-mono">{e.event_type}</td>
-              <td className="px-2 py-1 font-mono text-xs">{e.task_id || '-'}</td>
-              <td className="px-2 py-1 font-mono text-xs max-w-md truncate">{e.payload ? JSON.stringify(e.payload) : ''}</td>
-              <td className="px-2 py-1 text-xs text-gray-500">{e.created_at}</td>
+              <td className="px-2 py-1 font-mono">{e.type}</td>
+              <td className="px-2 py-1 font-mono text-xs">{e.actor || '-'}</td>
+              <td className="px-2 py-1 font-mono text-xs">{e.task_id ? e.task_id.slice(0, 12) : '-'}</td>
+              <td className="px-2 py-1 font-mono text-xs max-w-md truncate">
+                {e.payload ? JSON.stringify(e.payload) : ''}
+              </td>
+              <td className="px-2 py-1 text-xs text-gray-500">{e.ts}</td>
             </tr>
           ))}
         </tbody>
@@ -486,8 +522,88 @@ export default function WorkflowEventLog() {
 }
 ```
 
-Add route + link from `WorkflowDetail.jsx`.
+- [ ] **Step 6.2: Register the route**
 
-`await_restart`. Smoke: run any workflow, then call `GET /api/workflows/<id>/events` and `GET /api/workflows/<id>/replay`. Confirm replayed state matches `GET /api/workflows/<id>/state` from Plan 27.
+In `dashboard/src/App.jsx`, add (matching the existing checkpoint timeline registration from Plan 28):
 
-Commit: `feat(journal): REST + dashboard for event history and replay`.
+```jsx
+<Route path="/workflows/:id/timeline" element={<WorkflowEventTimeline />} />
+```
+
+If the path is already taken by Plan 28's checkpoint timeline, use `/workflows/:id/events` instead and adjust the link accordingly.
+
+- [ ] **Step 6.3: Link from `WorkflowDetail.jsx`**
+
+Add a navigation link (`<Link to={\`/workflows/${id}/events\`}>Event timeline</Link>`) next to the existing checkpoint-timeline link.
+
+- [ ] **Step 6.4: Smoke**
+
+Build the dashboard (`cd dashboard && npm run build`) or rely on the dev server, navigate to `/workflows/<some-running-workflow>/events`, confirm the table renders with seq starting at 1.
+
+- [ ] **Step 6.5: Commit**
+
+```bash
+git add dashboard/src/views/WorkflowEventTimeline.jsx dashboard/src/views/WorkflowDetail.jsx dashboard/src/App.jsx
+git commit -m "feat(dashboard): workflow event timeline view"
+```
+
+---
+
+## Task 7: Full-suite regression + docs
+
+**Acceptance:** Full server test suite passes remotely. `docs/superpowers/skills/event-history.md` (or the existing event-backbone doc — pick the right home; do not create a new top-level doc if one exists) describes the two new event types and the workflow-scoped read API.
+
+- [ ] **Step 7.1: Full suite**
+
+`torque-remote npx vitest run server/tests/`. Expected: all green. Pay attention to any test that fixes the count of known event types — bump expected counts where needed.
+
+- [ ] **Step 7.2: Documentation**
+
+Find the existing event documentation (likely `docs/superpowers/skills/event-history.md`, `docs/events.md`, or a section in `docs/architecture.md` — grep first). Append:
+
+- The two new event types with their payload shapes.
+- The `listWorkflowEvents` API and `GET /api/workflows/:id/events` REST endpoint.
+- The `wf:<workflow_id>` task_id sentinel convention for state-patched events.
+- A note that replay-from-checkpoint already exists via `forker.fork` and is the supported point-in-time recovery path; the event timeline is the audit/observability surface, not a state-reconstruction substrate.
+
+If no event-doc home exists, append to `docs/safeguards.md` under a new "Workflow Event Timeline" subsection rather than creating a fresh top-level doc.
+
+- [ ] **Step 7.3: Commit**
+
+```bash
+git add docs/
+git commit -m "docs(events): document workflow timeline + state_patched + dependency_unblocked"
+```
+
+---
+
+## Verification
+
+After cutover, exercise the full path against a live workflow:
+
+1. Submit a small 3-step workflow with workflow state (`set_state_schema` + a step that calls `apply_patch`).
+2. Wait for completion via `await_workflow`.
+3. `GET /api/workflows/<id>/events` returns:
+   - `seq=1` is `workflow.started`.
+   - At least one `workflow.state_patched` per `apply_patch` call, with `payload.patch` and `payload.reducers` populated.
+   - At least one `workflow.dependency_unblocked` per dependent step beyond the root.
+   - Final event is `workflow.completed`.
+4. Navigate to `/workflows/<id>/events` in the dashboard and confirm the table renders the same series with monotonic seq.
+5. Cross-check: `forker.fork({ checkpointId: <mid-run-checkpoint> })` still works — we have not regressed the existing replay path.
+6. Bundle smoke: confirm `runs/<id>/events.jsonl` already includes the two new event types (it should, automatically, because `buildBundle` reads `task_events` via `listEvents`).
+
+## Risks
+
+- **Disk cost.** `task_events` already grows linearly with task count; this plan adds two new emit sites. Per workflow we expect ~1 state_patched per `apply_patch` call (typically O(steps)) and ~1 dependency_unblocked per non-root step. Worst case: a 10-step workflow gains ~20 extra rows. At 100 bytes per row that is 2 KB per workflow — negligible. No retention change required at this size. Re-evaluate only if a single workflow emits >10k state patches (a sign the patch granularity is wrong, not the journal).
+- **NOT NULL on task_id.** The `wf:<workflow_id>` sentinel keeps the schema honest without a migration. If a future plan wants a true workflow-only event channel, the right move is a focused migration that drops NOT NULL on `task_events.task_id`, not a parallel table.
+- **`seq` is read-derived, not stored.** Two readers can disagree on `seq` if events arrive between their queries. This is acceptable for an audit/observability surface (the dashboard always re-queries) and unacceptable only for distributed consensus — which TORQUE does not need here. If that ever changes, store `seq` at write time via `COALESCE((SELECT MAX(seq) FROM task_events WHERE workflow_id = ?), 0) + 1` inside a transaction; until then, do not pay for the extra index.
+- **Existing replay path is preserved.** The `runs/` bundle and `forker.fork` continue to be the supported "go back in time" mechanisms. This plan does not introduce a competing event-fold replay engine.
+- **Event-emit failure must not break state writes.** The wrap in Task 2 / Task 3 is fail-open by design. Any logger noise from emit failures is preferable to a state-write that succeeded but threw.
+
+---
+
+## Post-plan operator rollout
+
+1. Cut over via `scripts/worktree-cutover.sh fabro-29-workflow-event-timeline`.
+2. Pick one already-running long workflow and call `GET /api/workflows/<id>/events`. Confirm at least `workflow.started` and one `workflow.dependency_unblocked` appear (older history will not have state_patched events because emission is forward-only — that is expected).
+3. After 24h, count rows in `task_events` for the new types: `SELECT type, COUNT(*) FROM task_events WHERE type IN ('workflow.state_patched', 'workflow.dependency_unblocked') GROUP BY type`. Non-zero on both means the emit sites are wired correctly. Zero on `state_patched` with non-zero on `dependency_unblocked` indicates the `applyPatch` emit is on a code path no live workflow exercises — investigate before assuming success.
