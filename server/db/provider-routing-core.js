@@ -729,6 +729,9 @@ function getPrometheusMetrics() {
   metrics.push(`torque_stall_total ${stallCount.count}`);
 
   // Retry count
+  // @full-scan: COUNT(*) prometheus metric — the inequality predicate
+  // (retry_count > 0) isn't a seek pattern, and the planner aggregates
+  // over the same row set whether or not retry_count is indexed.
   const retryCount = db.prepare(`
     SELECT COUNT(*) as count FROM tasks WHERE retry_count > 0
   `).get();

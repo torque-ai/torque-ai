@@ -1191,6 +1191,54 @@ const MIGRATIONS = [
     },
     down: 'DROP INDEX IF EXISTS idx_factory_decisions_batch_id',
   },
+  {
+    version: 54,
+    name: 'add_remaining_query_indexes',
+    // Round-3 perf indexes for queries flagged by audit-db-queries:
+    //   - adversarial_reviews(created_at): getReviewStats's
+    //     `WHERE created_at >= ?` time-windowed aggregate.
+    //   - vc_worktrees(repo_path): worktree-reconcile equality lookup;
+    //     repo_path is the natural lookup key but had no index.
+    //   - tasks(git_after_sha) PARTIAL: getTasksWithCommits filters
+    //     `WHERE git_after_sha IS NOT NULL` — most tasks never produce
+    //     a commit so the partial index stays tiny while covering the
+    //     hot rollback-candidate query.
+    //   - maintenance_schedule(next_run_at) PARTIAL on enabled=1: the
+    //     scheduler tick reads `WHERE enabled = 1 AND next_run_at IS NOT
+    //     NULL AND next_run_at <= ?` on every cycle.
+    // v37+ table-existence guard preserved for minimal-schema test fixtures.
+    up: function(sqliteDb) {
+      const hasTable = (name) => sqliteDb.prepare(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?"
+      ).get(name);
+      if (hasTable('adversarial_reviews')) {
+        sqliteDb.prepare(
+          'CREATE INDEX IF NOT EXISTS idx_adversarial_reviews_created_at ON adversarial_reviews(created_at)'
+        ).run();
+      }
+      if (hasTable('vc_worktrees')) {
+        sqliteDb.prepare(
+          'CREATE INDEX IF NOT EXISTS idx_vc_worktrees_repo_path ON vc_worktrees(repo_path)'
+        ).run();
+      }
+      if (hasTable('tasks')) {
+        sqliteDb.prepare(
+          'CREATE INDEX IF NOT EXISTS idx_tasks_git_after_sha ON tasks(git_after_sha) WHERE git_after_sha IS NOT NULL'
+        ).run();
+      }
+      if (hasTable('maintenance_schedule')) {
+        sqliteDb.prepare(
+          'CREATE INDEX IF NOT EXISTS idx_maintenance_schedule_next_run_at ON maintenance_schedule(next_run_at) WHERE enabled = 1 AND next_run_at IS NOT NULL'
+        ).run();
+      }
+    },
+    down: [
+      'DROP INDEX IF EXISTS idx_adversarial_reviews_created_at',
+      'DROP INDEX IF EXISTS idx_vc_worktrees_repo_path',
+      'DROP INDEX IF EXISTS idx_tasks_git_after_sha',
+      'DROP INDEX IF EXISTS idx_maintenance_schedule_next_run_at',
+    ].join('; '),
+  },
 ];
 
 function ensureMigrationTable(sqliteDb) {

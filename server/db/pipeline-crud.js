@@ -211,6 +211,9 @@ function listPipelines(options = {}) {
   const values = [];
 
   if (options.status) {
+    // @full-scan: pipelines is operator-managed (a few dozen rows max);
+    // status filter selects a sizable fraction so an index on it would
+    // not be picked by the planner.
     query += ' WHERE status = ?';
     values.push(options.status);
   }
