@@ -2025,7 +2025,7 @@ function listTasksForFactoryBatch(batchId) {
   try {
     const batchTag = `factory:batch_id=${batchId}`;
     return db.prepare(`
-      SELECT id, status
+      SELECT id, status, provider, model, created_at, started_at, completed_at
       FROM tasks
       WHERE tags LIKE ? ESCAPE '\\'
     `).all(`%"${escapeSqlLikeValue(batchTag)}"%`);
