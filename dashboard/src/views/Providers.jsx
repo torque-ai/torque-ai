@@ -255,20 +255,33 @@ function ProviderRow({ provider, quota, sparkData, onToggle, onUpdateConcurrency
             </div>
             <div className="flex items-center gap-2">
               <span className="text-xs text-slate-500">Max Concurrent:</span>
-              <input
-                type="number"
-                min={1}
-                max={100}
-                defaultValue={provider.max_concurrent || 1}
-                onClick={(e) => e.stopPropagation()}
-                onBlur={(e) => {
-                  const val = parseInt(e.target.value);
-                  if (val >= 1 && val <= 100 && val !== provider.max_concurrent) {
-                    onUpdateConcurrency(provider.provider, val);
-                  }
-                }}
-                className="w-14 px-1.5 py-0.5 text-xs bg-slate-800 border border-slate-600 rounded text-white"
-              />
+              {(() => {
+                // The v2 /providers descriptor (server/api/v2-discovery-helpers.js)
+                // emits max_concurrent under provider.limits.max_concurrent. Keep the
+                // top-level fallback so any caller that still hands us the older flat
+                // shape continues to work. Without `key`, this uncontrolled input
+                // would freeze on its first defaultValue and never refresh after
+                // loadData() returns a new value, which is what made changes look
+                // like they weren't persisting.
+                const currentMaxConcurrent = provider.limits?.max_concurrent ?? provider.max_concurrent ?? 1;
+                return (
+                  <input
+                    key={`${provider.provider || provider.id}-${currentMaxConcurrent}`}
+                    type="number"
+                    min={1}
+                    max={100}
+                    defaultValue={currentMaxConcurrent}
+                    onClick={(e) => e.stopPropagation()}
+                    onBlur={(e) => {
+                      const val = parseInt(e.target.value);
+                      if (val >= 1 && val <= 100 && val !== currentMaxConcurrent) {
+                        onUpdateConcurrency(provider.provider, val);
+                      }
+                    }}
+                    className="w-14 px-1.5 py-0.5 text-xs bg-slate-800 border border-slate-600 rounded text-white"
+                  />
+                );
+              })()}
             </div>
           </div>
           {hasQuotaData && (
