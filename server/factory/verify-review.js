@@ -3,6 +3,7 @@
 const childProcess = require('node:child_process');
 const { createHash } = require('node:crypto');
 const { getProviderLanePolicyFromProject } = require('./provider-lane-policy');
+const logger = require('../logger').child({ component: 'verify-review' });
 
 // Register built-in dep-resolver adapters on module load. Idempotent —
 // the registry holds a Map keyed by manager name.
