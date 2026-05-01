@@ -93,6 +93,12 @@ describe('runDeterministicRules — per-task content', () => {
     expect(hardFails.find(f => f.rule === 'task_has_file_reference')).toBeUndefined();
   });
 
+  it('rule 5: validation command target with a path segment passes task_has_file_reference', () => {
+    const plan = `## Task 1: Restart and smoke\n\nRun \`npx vitest run tests/workflow-budget --no-coverage\` and assert the budget regression suite passes. Then submit a smoke workflow with cost_budget_usd set to 0.01 and expect the workflow to fail with budget_exhausted.`;
+    const { hardFails } = runDeterministicRules(plan);
+    expect(hardFails.find(f => f.rule === 'task_has_file_reference')).toBeUndefined();
+  });
+
   it('rule 5: task with no file or grep reference hard-fails task_has_file_reference', () => {
     const plan = `## Task 1: Improve things\n\nMake the code cleaner by addressing pending concerns around the module structure and ensuring all relevant behavior is preserved.`;
     const { hardFails } = runDeterministicRules(plan);
