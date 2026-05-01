@@ -1,534 +1,372 @@
-> **STALE — needs rewrite (2026-05-01).** Phase 1+2 shipped; consumer migration off legacy ollama_hosts/peek_hosts/remote_agents tables never executed. Audit current dual-write state of workstations table + adapters before re-executing.
-
-# Workstations Phase 3+4+Dashboard Implementation Plan
+# Workstations Migration Completion Plan
 
 > **For agentic workers:** REQUIRED: Use superpowers:subagent-driven-development (if subagents available) or superpowers:executing-plans to implement this plan. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Complete the workstation unification by migrating all consumers from old tables (`ollama_hosts`, `peek_hosts`, `remote_agents`) to the `workstations` table, then drop old tables and add dashboard UI.
+**Goal:** Make `workstations` the single canonical store for host metadata. Today the table exists, an adapter layer exists, REST + MCP endpoints exist, and the dashboard's `Hosts.jsx` already imports `workstationsApi`. But the three legacy tables (`ollama_hosts`, `peek_hosts`, `remote_agents`) are still the primary write target for runtime mutations. They are only kept in sync with `workstations` by `migrateExistingHostsToWorkstations` running once at server startup, so any host registered or updated during a single server run is invisible to consumers that read through the workstation adapter until the next restart.
 
-**Architecture:** Phase 3 uses the existing adapter layer (`server/workstation/adapters.js`) as the bridge — redirect read operations in `host-management.js` and `host-selection.js` through the adapters, which already query the `workstations` table. Write operations dual-write to both tables during Phase 3 for safety. Phase 4 removes the dual-write and drops old tables. Dashboard adds workstation management views.
+This plan flips that direction — runtime writes land in `workstations` first, legacy table rows are produced as a backward-compatible projection during a deprecation window, and finally the legacy tables are dropped. No new feature surface is added; the dashboard work in the original plan is dropped because `Hosts.jsx` already reads workstation data and the REST/MCP layer is already in place.
 
-**Tech Stack:** Node.js, SQLite, React, Vitest
+**Architecture:** `workstations` becomes the source of truth. `host-management.js` (`addOllamaHost`/`updateOllamaHost`/`removeOllamaHost`) writes through `workstation/model.js` and emits the legacy `ollama_hosts` row from a deterministic projection function. Reads in `host-management.js`, `host-selection.js`, `host-benchmarking.js`, `host-capacity.js`, `provider-routing-core.js`, and `benchmark.js` keep their existing SQL — but the SQL targets a SQLite VIEW named `ollama_hosts_view` that is recreated from `workstations` on startup. Same pattern for `peek_hosts_view` (consumed by `db/email-peek.js`) and `remote_agents_view` (consumed by `plugins/remote-agents/agent-registry.js`). After two server releases without view-vs-table drift in production, the physical legacy tables are dropped and the views are renamed back to `ollama_hosts` / `peek_hosts` / `remote_agents` so existing query strings keep working unchanged.
 
-**Spec:** `docs/superpowers/specs/2026-03-16-unified-workstations-design.md`
+**Tech Stack:** Node.js (CommonJS), better-sqlite3 (views are first-class in SQLite), vitest, no dashboard work required.
 
----
+**Strategy choice — finish the migration, do not formalize dual-write.** Dual-write at runtime is the worst of both worlds: every mutation site has to know about both schemas, the test fixture surface doubles, and a missed call site silently desyncs. Running the data through one writer and exposing legacy shapes as views localizes the schema knowledge to two places (`workstation/model.js` and the view DDL) and lets every existing read site keep its query string. The cost is one schema migration plus ~6 file edits in the write path.
 
-## File Structure
+**`version_intent`:** `internal`. This plan moves no user-visible behavior — the same hosts continue to be listed, the same MCP tools continue to work, the same dashboard view continues to render. It is pure data-layer cleanup that retires three deprecated tables.
 
-### Modified files (Phase 3)
-| File | Changes |
-|------|---------|
-| `server/db/host-selection.js` | Redirect `listOllamaHosts()` and `getOllamaHost()` to read from workstation adapters |
-| `server/db/host-management.js` | Redirect read functions to adapters; dual-write on mutations |
-| `server/handlers/peek/shared.js` | Use `workstation/adapters.resolvePeekHost()` instead of `db.getPeekHost()` |
-| `server/remote/remote-test-routing.js` | Look up workstation with `command_exec` capability instead of `remote_agent_id` |
-| `server/handlers/task/core.js` | Look up workstation when displaying `ollama_host_id` info |
-| `server/db/host-benchmarking.js` | Redirect model fetching to use workstation data |
+**Source spec:** `docs/superpowers/specs/2026-03-16-unified-workstations-design.md` (phases 3-4 of the original unification design).
 
-### Modified files (Phase 4)
-| File | Changes |
-|------|---------|
-| `server/db/schema-migrations.js` | Mark old tables as deprecated (don't drop yet — let a future release do that) |
-| `server/workstation/adapters.js` | Remove — no longer needed, consumers call model.js directly |
-| `server/db/host-management.js` | Remove dual-write, use workstation model only |
-
-### New files (Dashboard)
-| File | Responsibility |
-|------|---------------|
-| `dashboard/src/views/Workstations.jsx` | Workstation list with capability icons, health status, capacity |
-| `dashboard/src/components/WorkstationWizard.jsx` | Add workstation wizard (SSH bootstrap or manual agent) |
+**Out of scope:**
+- Dashboard `Workstations.jsx` view + wizard — the original plan's Chunk 3. `Hosts.jsx` already consumes `workstationsApi`; a dedicated view is a separate UX decision, not a migration blocker.
+- New REST endpoints — `/api/v2/workstations` GET/POST/DELETE/toggle/probe are already wired (`server/api/routes.js:1129`).
+- Removing the `host-credentials` `host_type CHECK` workaround — already handled by `relaxHostCredentialsConstraint()` in `workstation/migration.js`.
+- Renaming `remote_agent_id` columns / config keys — separate config-deprecation cycle.
 
 ---
 
-## Chunk 1: Phase 3 — Consumer Migration (Core)
+## File structure
 
-### Task 1: Redirect host-selection.js Reads to Workstation Adapters
+```
+server/db/
+  schema-migrations.js          MODIFY: add views creation block after the workstations
+                                CREATE TABLE; add legacy-table drop in a guarded
+                                DEPRECATION_GATE migration (off by default)
+  host-management.js            MODIFY: rewrite add/update/remove to call workstation
+                                model + projector; reads keep their SQL but target the
+                                view (no string change required if view name matches)
+  email-peek.js                 MODIFY: same pattern for peek_hosts CRUD (registerPeekHost,
+                                unregisterPeekHost, updatePeekHost)
+
+server/db/legacy-projection.js  NEW: projectWorkstationToOllamaHost(ws),
+                                projectWorkstationToPeekHost(ws),
+                                projectWorkstationToRemoteAgent(ws). Pure functions.
+
+server/workstation/
+  model.js                      MODIFY: add upsertFromOllamaHost(host) +
+                                upsertFromPeekHost(host) + upsertFromRemoteAgent(agent)
+                                helpers; existing CRUD untouched
+  migration.js                  MODIFY: keep migration on first install but switch from
+                                INSERT OR IGNORE INTO workstations to creating the views
+                                after the row backfill (so views see the live data)
+
+server/plugins/remote-agents/
+  agent-registry.js             MODIFY: register() + remove() write through the
+                                workstation model; reads keep targeting remote_agents
+                                (which becomes a view)
+
+server/tests/
+  legacy-projection.test.js     NEW: pure-function tests for the three projectors
+  workstation-views.test.js     NEW: writes via host-management.addOllamaHost,
+                                reads via 'SELECT * FROM ollama_hosts' return the same
+                                row; same for peek_hosts and remote_agents
+  host-management.test.js       MODIFY: existing tests already use raw SQL on
+                                ollama_hosts. Update fixtures so the table is
+                                actually a view (drop CREATE TABLE inserts in fixtures
+                                that bypass workstations)
+```
+
+**Why views and not triggers:** SQLite triggers fire per row and need INSTEAD OF on a view to make INSERT/UPDATE/DELETE work — that effectively rebuilds the dual-write logic at the SQL layer. Views are read-only here; writes go through the JS write path (`host-management.addOllamaHost` etc.) and the views just project. This keeps the schema dumb and the test surface predictable.
+
+---
+
+## Task 1: Legacy projection module
 
 **Files:**
-- Modify: `server/db/host-selection.js`
-- Test: run existing `server/tests/db-host-selection.test.js`
+- Create: `server/db/legacy-projection.js`
+- Test: `server/tests/legacy-projection.test.js`
 
-`host-selection.js` has its OWN copies of `listOllamaHosts()` and `getOllamaHost()` that query `ollama_hosts` directly. Redirect these to use the workstation adapter.
+Pure functions that turn a workstation row into the shape the legacy tables expose. No DB access; just object reshaping. The view DDL in Task 2 will SELECT the same columns these functions return, so any drift between view and projector becomes a test failure rather than a runtime crash.
 
-- [ ] **Step 1: Modify listOllamaHosts in host-selection.js**
+- [ ] **Step 1: Write the failing test**
 
-At the top of `server/db/host-selection.js`, add:
+Create `server/tests/legacy-projection.test.js`. Cover:
+- `projectWorkstationToOllamaHost(ws)` returns `{id, name, url, enabled, status, consecutive_failures, last_health_check, last_healthy, running_tasks, models_cache, models_updated_at, memory_limit_mb, max_concurrent, priority, settings, gpu_metrics_port, vram_factor, created_at}` — matches the columns `host-management.js` queries today.
+- URL is reconstructed as `http://${ws.host}:${ws.ollama_port || 11434}`.
+- Non-ollama workstations (capabilities lack `ollama`) return `null`.
+- `projectWorkstationToPeekHost(ws)` returns `{name, url, ssh, is_default, platform, enabled, created_at}` and uses `ui_capture` capability to gate.
+- `projectWorkstationToRemoteAgent(ws)` returns `{id, name, host, port, secret, enabled, status, consecutive_failures, last_health_check, last_healthy, max_concurrent, metrics, tls, rejectUnauthorized, os_platform, created_at}` and uses `command_exec` capability to gate.
 
-```javascript
-let wsAdapters = null;
-function getWsAdapters() {
-  if (!wsAdapters) {
-    try { wsAdapters = require('../workstation/adapters'); } catch { return null; }
-  }
-  return wsAdapters;
-}
-```
+Run `npx vitest run server/tests/legacy-projection.test.js` — expect failure.
 
-Then modify the existing `listOllamaHosts(options)` function (around line 36). At the top of the function, add a workstation-first path:
+- [ ] **Step 2: Implement projectors**
 
-```javascript
-function listOllamaHosts(options = {}) {
-  // Phase 3: Read from workstations table via adapter
-  const adapters = getWsAdapters();
-  if (adapters) {
-    try {
-      const wsHosts = adapters.listOllamaHosts(options);
-      if (wsHosts.length > 0) return wsHosts;
-    } catch { /* fall through to legacy query */ }
-  }
+Create `server/db/legacy-projection.js` exporting the three functions. Capability check via `JSON.parse(ws.capabilities)`. Default port fallbacks must match the view DDL in Task 2 exactly.
 
-  // Legacy: direct ollama_hosts query (fallback)
-  let query = 'SELECT * FROM ollama_hosts WHERE 1=1';
-  // ... rest of existing function unchanged
-```
-
-- [ ] **Step 2: Modify getOllamaHost in host-selection.js**
-
-Modify `getOllamaHost(hostId)` (around line 417) similarly:
-
-```javascript
-function getOllamaHost(hostId) {
-  // Phase 3: Try workstation adapter first
-  const adapters = getWsAdapters();
-  if (adapters) {
-    try {
-      const wsHosts = adapters.listOllamaHosts();
-      const match = wsHosts.find(h => h.id === hostId);
-      if (match) return match;
-    } catch { /* fall through */ }
-  }
-
-  // Legacy fallback
-  const stmt = db.prepare('SELECT * FROM ollama_hosts WHERE id = ?');
-  // ... rest unchanged
-```
-
-- [ ] **Step 3: Run existing tests on the Omen**
+- [ ] **Step 3: Run tests on remote**
 
 ```bash
-ssh user@remote-gpu-host "cd /path/to\torque-public && git pull && npx vitest run server/tests/db-host-selection.test.js server/tests/host-management.test.js --reporter verbose"
+torque-remote bash -c "cd server && npx vitest run tests/legacy-projection.test.js"
 ```
-Expected: PASS
+Expected: PASS.
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add server/db/host-selection.js
-git commit -m "feat(workstations): phase 3 — redirect host-selection reads to workstation adapters"
+git add server/db/legacy-projection.js server/tests/legacy-projection.test.js
+git commit -m "feat(workstations): pure projector for legacy-table row shapes"
 ```
 
 ---
 
-### Task 2: Redirect host-management.js Reads + Dual-Write
+## Task 2: Replace legacy tables with views
 
 **Files:**
-- Modify: `server/db/host-management.js`
-- Test: run existing `server/tests/host-management.test.js`
+- Modify: `server/db/schema-migrations.js`
+- Modify: `server/workstation/migration.js`
+- Test: `server/tests/workstation-views.test.js` (new)
 
-The main `host-management.js` has read functions that query `ollama_hosts` directly. Redirect reads to adapters. For write operations (`addOllamaHost`, `updateOllamaHost`, `removeOllamaHost`), add dual-write: write to BOTH `ollama_hosts` AND workstations.
+This is the load-bearing migration. Existing legacy tables get backed up, dropped, and recreated as views over `workstations`.
 
-- [ ] **Step 1: Redirect listOllamaHosts reads**
+- [ ] **Step 1: Write the failing integration test**
 
-In `server/db/host-management.js`, modify `listOllamaHosts()` (around line 133) to try the adapter first:
+Create `server/tests/workstation-views.test.js`:
+- Boot a fresh in-memory DB, run all migrations.
+- Call `addOllamaHost({id, name, url, max_concurrent: 4})`.
+- Read back via `db.prepare('SELECT * FROM ollama_hosts WHERE id = ?').get(id)` — expect non-null.
+- Call `model.updateWorkstation(id, {status: 'healthy'})` directly, then read via legacy SELECT — expect updated status.
+- Same flow for peek_hosts (register via `email-peek.registerPeekHost`) and remote_agents (register via `agent-registry.register`).
 
-```javascript
-function listOllamaHosts(options = {}) {
-  // Phase 3: Read from workstations via adapter
-  try {
-    const wsAdapters = require('../workstation/adapters');
-    const wsHosts = wsAdapters.listOllamaHosts(options);
-    if (wsHosts.length > 0) return wsHosts;
-  } catch { /* fall through to legacy */ }
+Expected: failure (views don't exist yet, writes go to physical legacy tables).
 
-  // Legacy direct query
-  let query = 'SELECT * FROM ollama_hosts WHERE 1=1';
-  // ... rest unchanged
-```
+- [ ] **Step 2: Add view DDL to schema-migrations.js**
 
-- [ ] **Step 2: Add dual-write to addOllamaHost**
+In `server/db/schema-migrations.js`, after the `migrateExistingHostsToWorkstations(db)` call (currently around line 779), add a new step that:
 
-In `addOllamaHost()` (around line 72), after the existing INSERT into `ollama_hosts`, add:
+1. Detects whether `ollama_hosts`/`peek_hosts`/`remote_agents` are physical tables (query `sqlite_master`).
+2. If physical: `ALTER TABLE ollama_hosts RENAME TO ollama_hosts_legacy_backup_<timestamp>` then `CREATE VIEW ollama_hosts AS SELECT ... FROM workstations WHERE json_extract(capabilities, '$.ollama.detected') = 1`.
+3. The SELECT projects exactly the columns `legacy-projection.projectWorkstationToOllamaHost` returns. URL is built via `'http://' || host || ':' || COALESCE(ollama_port, 11434)`.
+4. Same flow for `peek_hosts` (capability `ui_capture`) and `remote_agents` (capability `command_exec`).
+5. The backup tables stay around for one release cycle in case rollback is needed; Task 6 drops them.
 
-```javascript
-  // Phase 3: Dual-write to workstations
-  try {
-    const wsAdapters = require('../workstation/adapters');
-    wsAdapters.addOllamaHost(host);
-  } catch { /* workstation write is best-effort during migration */ }
-```
+The migration is idempotent — if the view already exists, do nothing. If both view and backup exist (re-running), do nothing.
 
-- [ ] **Step 3: Add dual-write to updateOllamaHost**
+- [ ] **Step 3: Adjust workstation/migration.js ordering**
 
-In `updateOllamaHost()` (around line 180), after the existing UPDATE, add workstation update:
+`migrateExistingHostsToWorkstations` currently reads from `ollama_hosts`/`peek_hosts`/`remote_agents` via `db.prepare('SELECT * FROM ollama_hosts').all()`. This runs *before* the view conversion in Step 2 and works against the still-physical tables. Confirm by reading lines 38, 95, 151 of `server/workstation/migration.js`. No code change needed if Task 2 Step 2 runs the view conversion *after* `migrateExistingHostsToWorkstations` returns — preserve that ordering.
 
-```javascript
-  // Phase 3: Sync update to workstation
-  try {
-    const wsModel = require('../workstation/model');
-    const wsAdapters = require('../workstation/adapters');
-    const wsHosts = wsAdapters.listOllamaHosts();
-    const match = wsHosts.find(h => h.id === hostId);
-    if (match) {
-      // match.id is already the workstation id from the adapter
-      wsModel.updateWorkstation(hostId, updates);
-    }
-  } catch { /* best-effort */ }
-```
-
-- [ ] **Step 4: Run existing tests on the Omen**
+- [ ] **Step 4: Run integration test on remote**
 
 ```bash
-ssh user@remote-gpu-host "cd /path/to\torque-public && git pull && npx vitest run server/tests/host-management.test.js --reporter verbose"
+torque-remote bash -c "cd server && npx vitest run tests/workstation-views.test.js tests/host-management.test.js"
 ```
-Expected: PASS
+Expected: PASS.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add server/db/host-management.js
-git commit -m "feat(workstations): phase 3 — redirect host-management reads + dual-write"
+git add server/db/schema-migrations.js server/workstation/migration.js server/tests/workstation-views.test.js
+git commit -m "feat(workstations): replace legacy host tables with workstation-backed views"
 ```
 
 ---
 
-### Task 3: Migrate peek/shared.js to Workstation Adapter
+## Task 3: Route host-management.js writes through workstation model
 
 **Files:**
-- Modify: `server/handlers/peek/shared.js`
+- Modify: `server/db/host-management.js`
+- Modify: `server/workstation/model.js`
 
-- [ ] **Step 1: Replace db.getPeekHost with workstation adapter**
+After Task 2, `INSERT INTO ollama_hosts ...` will fail because the target is a view. This task rewrites the three mutating functions to use `workstation/model.js`.
 
-In `server/handlers/peek/shared.js`, find `resolvePeekHost()` (around line 99). Replace the `db.getPeekHost(args.host)` call:
+- [ ] **Step 1: Add upsertFromOllamaHost to workstation/model.js**
 
-```javascript
-function resolvePeekHost(args) {
-  // Phase 3: Use workstation adapter for peek host resolution
-  try {
-    const wsAdapters = require('../../workstation/adapters');
-    const wsHost = wsAdapters.resolvePeekHost(args);
-    if (wsHost) {
-      // Return in the shape that peek handlers expect
-      return {
-        name: wsHost.name,
-        url: `http://${wsHost.host}:9876`,
-        host: wsHost.host,
-        ssh: null,
-        is_default: wsHost.is_default,
-        enabled: wsHost.enabled,
-      };
-    }
-  } catch { /* fall through to legacy */ }
+Add `upsertFromOllamaHost(host)` that:
+- Generates a UUID if `host.id` is missing.
+- Parses `host.url` (use the existing `parseUrlHost` helper from `migration.js` — extract it to a shared util).
+- Builds capabilities `{ollama: {detected: true, port}}` via existing capability merge logic.
+- Calls `model.createWorkstation` if no row with the ID exists, otherwise `model.updateWorkstation`.
+- Returns the legacy-projection shape via `legacy-projection.projectWorkstationToOllamaHost`.
 
-  // Legacy: direct peek_hosts lookup
-  const host = db.getPeekHost(args.host);
-  // ... rest unchanged
-```
+- [ ] **Step 2: Rewrite host-management.addOllamaHost / updateOllamaHost / removeOllamaHost**
 
-- [ ] **Step 2: Run peek tests**
+In `server/db/host-management.js`:
+- `addOllamaHost(host)` — replace the `INSERT INTO ollama_hosts` (line 89) with `wsModel.upsertFromOllamaHost(host)`.
+- `updateOllamaHost(hostId, updates)` — replace the `UPDATE ollama_hosts SET ... WHERE id = ?` (line 219) with `wsModel.updateWorkstation(hostId, updates)`. Filter `updates` to the same allowed-fields list.
+- `removeOllamaHost(hostId)` — replace the `DELETE FROM ollama_hosts WHERE id = ?` (line 233) with `wsModel.deleteWorkstation(hostId)`.
+- `cleanupNullIdHosts()` — change the SQL to operate against `workstations` directly (`DELETE FROM workstations WHERE id IS NULL OR id = ''` — but workstations.id is `TEXT PRIMARY KEY NOT NULL`, so this clean-up is no-op after migration; leave the SQL but add a comment).
+- `getOllamaHost`, `getOllamaHostByUrl`, `listOllamaHosts` — unchanged. They `SELECT FROM ollama_hosts`, which is now the view.
+
+The `models_cache` repair branch in `getOllamaHost` (lines 119-122) currently issues `UPDATE ollama_hosts SET models_cache = NULL WHERE id = ?` — that will fail against a view. Replace with `wsModel.updateWorkstation(hostId, {models_cache: null})`.
+
+- [ ] **Step 3: Run host-management tests on remote**
 
 ```bash
-ssh user@remote-gpu-host "cd /path/to\torque-public && git pull && npx vitest run server/tests/contracts-peek.test.js --reporter verbose"
+torque-remote bash -c "cd server && npx vitest run tests/host-management.test.js tests/db-host-selection.test.js tests/host-distribution.test.js tests/host-capacity.test.js tests/db-host-benchmarking.test.js"
 ```
-Expected: PASS
+
+Existing fixtures that do `rawDb().prepare('DELETE FROM ollama_hosts').run()` need to switch to `DELETE FROM workstations` because the view is non-deletable. Update each test file flagged by the run.
+
+Expected: PASS after fixture updates.
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add server/db/host-management.js server/workstation/model.js server/tests/host-management.test.js [other touched test files]
+git commit -m "feat(workstations): host-management writes route through workstation model"
+```
+
+---
+
+## Task 4: Route email-peek.js writes through workstation model
+
+**Files:**
+- Modify: `server/db/email-peek.js`
+- Modify: `server/workstation/model.js` (add `upsertFromPeekHost`)
+
+Symmetric to Task 3, smaller surface.
+
+- [ ] **Step 1: Add upsertFromPeekHost to model.js**
+
+Capability `{ui_capture: {detected: true, has_display: true}}`. Honors `is_default` flip — if the new row is default, clear `is_default` on the previous default workstation in the same transaction.
+
+- [ ] **Step 2: Rewrite email-peek mutators**
+
+In `server/db/email-peek.js`:
+- `registerPeekHost(name, url, ssh, isDefault, platform)` — line 141. Replace the `UPDATE peek_hosts SET is_default = 0` + `INSERT OR REPLACE INTO peek_hosts ...` block with `wsModel.upsertFromPeekHost({name, url, ssh, is_default: isDefault, platform})`.
+- `unregisterPeekHost(name)` — line 148. Replace the `DELETE FROM peek_hosts WHERE name = ?` with `wsModel.deletePeekHostByName(name)` (new method that finds the workstation by name + ui_capture capability and deletes; returns boolean).
+- `updatePeekHost(name, updates)` — line 167. Replace with `wsModel.updatePeekHostByName(name, updates)` filtering to the existing `allowedFields` list.
+- `listPeekHosts`, `getDefaultPeekHost`, `getPeekHost` — unchanged. They read from the `peek_hosts` view.
+
+- [ ] **Step 3: Run tests on remote**
+
+```bash
+torque-remote bash -c "cd server && npx vitest run tests/db-email-peek.test.js tests/integration-infra.test.js"
+```
+
+The mock-DB tests in `db-email-peek.test.js` intercept SQL strings — they need updating to mock the workstation model calls instead. Convert these to use a real in-memory better-sqlite3 fixture (faster, more accurate, and matches the workstation-views test pattern).
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add server/db/email-peek.js server/workstation/model.js server/tests/db-email-peek.test.js
+git commit -m "feat(workstations): email-peek host writes route through workstation model"
+```
+
+---
+
+## Task 5: Route remote-agents plugin writes through workstation model
+
+**Files:**
+- Modify: `server/plugins/remote-agents/agent-registry.js`
+- Modify: `server/workstation/model.js` (add `upsertFromRemoteAgent`)
+
+The remote-agents plugin owns its own table today. After this task it stops being its own owner and becomes a workstation consumer.
+
+- [ ] **Step 1: Add upsertFromRemoteAgent to model.js**
+
+Capability `{command_exec: true, git_sync: true, test_runners: true}`. Note: `secret` is stored as scrypt hash by the plugin; preserve that — `model.upsertFromRemoteAgent` does not re-hash, just stores whatever the caller passed (the plugin already hashes before calling).
+
+- [ ] **Step 2: Rewrite agent-registry mutators**
+
+In `server/plugins/remote-agents/agent-registry.js`:
+- `register(...)` — replace the `INSERT OR REPLACE INTO remote_agents` (search around line 60-85) with `wsModel.upsertFromRemoteAgent({...})`.
+- `remove(id)` — line 111. Replace `DELETE FROM remote_agents WHERE id = ?` with `wsModel.deleteWorkstation(id)`.
+- `runHealthChecks` updates `status`/`last_healthy`/`metrics` via `UPDATE remote_agents` — replace with `wsModel.updateWorkstation(id, {...})`.
+- All read SELECTs (`get`, `getAll`, `getAvailable`, `runHealthChecks` initial fetch) keep their SQL — they hit the `remote_agents` view.
+
+- [ ] **Step 3: Run tests on remote**
+
+```bash
+torque-remote bash -c "cd server && npx vitest run plugins/remote-agents/tests/agent-registry.test.js plugins/remote-agents/tests/remote-routing.test.js plugins/remote-agents/tests/routing.test.js tests/remote-test-routing.test.js"
+```
+
+Expected: PASS. The `dashboard-routes.test.js` fixture at line 675 mocks the SELECT — confirm it still passes; if it filters on `WHERE`, it will still match the view's SQL because the column list is identical.
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add server/plugins/remote-agents/agent-registry.js server/workstation/model.js [test files]
+git commit -m "feat(workstations): remote-agents plugin writes route through workstation model"
+```
+
+---
+
+## Task 6: Drop legacy backup tables behind a release gate
+
+**Files:**
+- Modify: `server/db/schema-migrations.js`
+
+The Task 2 view conversion preserves `ollama_hosts_legacy_backup_<ts>`, `peek_hosts_legacy_backup_<ts>`, and `remote_agents_legacy_backup_<ts>` in case rollback is needed. After one release cycle without view-vs-projector drift reports, drop them.
+
+- [ ] **Step 1: Add a guarded migration step**
+
+Add a new step in `schema-migrations.js` that:
+- Reads the env flag `TORQUE_DROP_LEGACY_HOST_BACKUPS=1` (off by default).
+- When set, finds any table matching the pattern `(ollama_hosts|peek_hosts|remote_agents)_legacy_backup_*` and drops it.
+- Logs the drop at info level: `Dropped legacy backup table: <name>`.
+
+This stays opt-in for the next release. The release after that, flip the default to on (separate one-line PR).
+
+- [ ] **Step 2: Run the full server suite on remote**
+
+```bash
+torque-remote bash -c "cd server && TORQUE_DROP_LEGACY_HOST_BACKUPS=1 npx vitest run"
+```
+
+Expected: PASS, identical to the un-flagged run.
 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add server/handlers/peek/shared.js
-git commit -m "feat(workstations): phase 3 — migrate peek host resolution to workstation adapter"
+git add server/db/schema-migrations.js
+git commit -m "feat(workstations): opt-in migration drops legacy host backup tables"
 ```
 
 ---
 
-### Task 4: Migrate remote-test-routing.js to Workstation Lookup
+## Verification
 
-**Files:**
-- Modify: `server/remote/remote-test-routing.js`
-
-- [ ] **Step 1: Add workstation-based agent lookup**
-
-In `server/remote/remote-test-routing.js`, find where `config.remote_agent_id` is used (around line 117). Add a workstation fallback:
-
-```javascript
-      // Phase 3: Try workstation lookup if remote_agent_id matches a workstation
-      let agentHost = null;
-      let agentPort = 3460;
-      let agentSecret = null;
-
-      try {
-        const wsModel = require('../../workstation/model');
-        const ws = wsModel.getWorkstationByName(config.remote_agent_id) ||
-                   wsModel.getWorkstation(config.remote_agent_id);
-        if (ws && ws._capabilities && ws._capabilities.command_exec) {
-          agentHost = ws.host;
-          agentPort = ws.agent_port || 3460;
-          agentSecret = ws.secret;
-        }
-      } catch { /* fall through to legacy agent lookup */ }
-```
-
-- [ ] **Step 2: Commit**
+A migration is "complete" when these grep checks return only the expected residual call sites:
 
 ```bash
-git add server/remote/remote-test-routing.js
-git commit -m "feat(workstations): phase 3 — migrate remote test routing to workstation lookup"
+# Writes against legacy tables — should match ONLY workstation/migration.js
+# (the initial-data backfill) and test fixture cleanup.
+grep -rn "INSERT INTO ollama_hosts\|INSERT INTO peek_hosts\|INSERT INTO remote_agents\|UPDATE ollama_hosts\|UPDATE peek_hosts\|UPDATE remote_agents\|DELETE FROM ollama_hosts\|DELETE FROM peek_hosts\|DELETE FROM remote_agents" server/ --include="*.js"
 ```
+
+Expected matches after Task 5 ships:
+- `server/workstation/migration.js` (one-shot backfill from physical tables before they are dropped)
+- `server/tests/**` (fixture teardown that uses raw SQL)
+
+Reads against the views are fine and expected — the views will still match `FROM ollama_hosts`, `FROM peek_hosts`, `FROM remote_agents`.
+
+```bash
+# Full server test suite must pass on remote.
+torque-remote bash -c "cd server && npx vitest run"
+```
+
+Expected: 0 failures.
+
+```bash
+# Boot the server on a fresh DB, register hosts via MCP, restart, confirm
+# the rows survive (proves writes hit workstations, not the views).
+node server/index.js &
+# (use add_workstation MCP tool, then list_ollama_hosts, then restart)
+```
+
+Expected: `list_ollama_hosts` returns the workstation registered in the previous boot.
+
+```bash
+# DB query audit must not regress.
+torque-remote bash -c "cd server && npx vitest run tests/audit-db-queries.test.js"
+```
+
+Expected: PASS (audit treats views as their underlying table for index purposes; the existing audit assertions for `ollama_hosts` / `peek_hosts` / `remote_agents` continue to apply against `workstations`).
 
 ---
 
-### Task 5: Update task/core.js Host Display
+## Risks
 
-**Files:**
-- Modify: `server/handlers/task/core.js`
+**1. SQLite views are read-only by default.** Any code path that does `INSERT`/`UPDATE`/`DELETE` against the view name will fail at runtime with `cannot modify ollama_hosts because it is a view`. Tasks 3-5 cover the known write sites; the verification grep above is the safety net for missed call sites.
 
-- [ ] **Step 1: Add workstation fallback for ollama_host_id display**
+**2. View column drift.** If `legacy-projection.js` and the view DDL fall out of sync (different column lists, different default values), code that destructures rows will get `undefined` for the missing column. The Task 1 unit tests assert the projector's output keys; the Task 2 integration tests assert the view's row shape matches. Keep both in lockstep — same SELECT projection, same defaults.
 
-In `server/handlers/task/core.js`, find the `ollama_host_id` display blocks (around lines 69-74 and 615-616). Add a workstation fallback:
+**3. host-management mock fixtures.** `server/tests/host-management.test.js` and several others build a mock DB that intercepts SQL strings (e.g., `if (sql === 'DELETE FROM peek_hosts WHERE name = ?')`). After Tasks 3-5, those exact strings are no longer issued — the test sees `wsModel.deleteWorkstation` calls instead. These fixtures need to switch to a real in-memory better-sqlite3 instance. Time cost: ~30 minutes per file, four files affected.
 
-```javascript
-  if (task.ollama_host_id) {
-    // Phase 3: Try workstation first
-    let hostName = task.ollama_host_id;
-    try {
-      const wsModel = require('../../workstation/model');
-      const ws = wsModel.getWorkstation(task.ollama_host_id);
-      if (ws) hostName = ws.name;
-    } catch { /* ignore */ }
+**4. host-credentials FK-like constraints.** The `host_credentials.host_type` CHECK accepts `'ollama' | 'peek' | 'workstation'` after `relaxHostCredentialsConstraint`. After Task 6, only `'workstation'` will produce new rows in practice — but the existing rows referencing `'ollama'`/`'peek'` keep working because the CHECK still accepts them. Don't tighten the CHECK in this plan; that is a follow-up housekeeping pass.
 
-    const host = db.getOllamaHost(task.ollama_host_id);
-    if (host) hostName = host.name;
-    result += `**Ollama Host:** ${hostName}\n`;
-  }
-```
+**5. `data-dir.js` legacy-DB import.** `server/data-dir.js` lines 296-298 read from a *previous* `ollama_hosts` table during data-dir migration (cross-process upgrade path). That code reads from a separate SQLite file via its own `legacySql` connection — that file's schema is untouched by this plan, so the SELECT still works. No change needed.
 
-- [ ] **Step 2: Commit**
+**6. `benchmark.js` and `provider-routing-core.js` reads.** Both issue `SELECT ... FROM ollama_hosts` (benchmark.js:31, provider-routing-core.js:716). After Task 2 these hit the view. The view exposes the same columns, so query strings keep working. No code changes required, but include both files in the Task 3 test sweep to confirm.
 
-```bash
-git add server/handlers/task/core.js
-git commit -m "feat(workstations): phase 3 — workstation fallback for task host display"
-```
-
----
-
-### Task 6: Full Test Verification on Omen
-
-- [ ] **Step 1: Run full suite on the Omen**
-
-```bash
-ssh user@remote-gpu-host "cd /path/to\torque-public && git pull && npx vitest run"
-```
-Expected: 0 failures, 15,893+ passing
-
-- [ ] **Step 2: Commit any test fixes needed**
-
----
-
-## Chunk 2: Phase 4 — Remove Dual-Write, Deprecate Old Tables
-
-### Task 7: Remove Legacy Fallbacks
-
-**Files:**
-- Modify: `server/db/host-selection.js` — remove legacy `ollama_hosts` fallback paths
-- Modify: `server/db/host-management.js` — remove dual-write, reads go through adapter only
-- Modify: `server/handlers/peek/shared.js` — remove legacy `peek_hosts` fallback
-
-- [ ] **Step 1: Clean up host-selection.js**
-
-Remove the legacy fallback blocks added in Task 1. The workstation adapter path becomes the ONLY path. If the adapter returns empty, return empty (no fallback to `ollama_hosts`).
-
-- [ ] **Step 2: Clean up host-management.js**
-
-Remove the dual-write blocks added in Task 2. `addOllamaHost` writes only to workstations via adapter. `updateOllamaHost` updates only the workstation record.
-
-- [ ] **Step 3: Clean up peek/shared.js**
-
-Remove the legacy `db.getPeekHost` fallback. Workstation adapter is the only path.
-
-- [ ] **Step 4: Mark old tables deprecated in schema-migrations.js**
-
-Add a comment block in `server/db/schema-migrations.js`:
-
-```javascript
-  // DEPRECATED: ollama_hosts, peek_hosts, remote_agents tables are replaced by workstations.
-  // These tables are retained for data migration only. Do NOT add new queries against them.
-  // They will be dropped in a future release.
-```
-
-- [ ] **Step 5: Run full suite on the Omen**
-
-```bash
-ssh user@remote-gpu-host "cd /path/to\torque-public && git pull && npx vitest run"
-```
-Expected: 0 failures
-
-- [ ] **Step 6: Commit**
-
-```bash
-git add server/db/host-selection.js server/db/host-management.js server/handlers/peek/shared.js server/db/schema-migrations.js
-git commit -m "feat(workstations): phase 4 — remove legacy table fallbacks, deprecate old tables"
-```
-
----
-
-## Chunk 3: Dashboard — Workstation Views
-
-### Task 8: Workstation List View
-
-**Files:**
-- Create: `dashboard/src/views/Workstations.jsx`
-- Modify: `dashboard/src/components/Layout.jsx` — add nav item
-- Modify: `dashboard/src/api.js` — add workstation API client
-
-- [ ] **Step 1: Add workstation API client**
-
-In `dashboard/src/api.js`, add after the concurrency export:
-
-```javascript
-export const workstations = {
-  list: () => requestV2('/workstations').then(d => d.items || d),
-  add: (data) => requestV2('/workstations', { method: 'POST', body: JSON.stringify(data) }),
-  remove: (name) => requestV2(`/workstations/${encodeURIComponent(name)}`, { method: 'DELETE' }),
-  probe: (name) => requestV2(`/workstations/${encodeURIComponent(name)}/probe`, { method: 'POST' }),
-};
-```
-
-Note: These will route through the MCP tool passthrough (`add_workstation`, `remove_workstation`, `probe_workstation`). Add v2 routes if passthrough doesn't cover them.
-
-- [ ] **Step 2: Create Workstations.jsx**
-
-Create `dashboard/src/views/Workstations.jsx` showing:
-- Grid of workstation cards
-- Each card: name, host, status dot (green/amber/red), capability icons, GPU info
-- CapacityBar for running_tasks/max_concurrent
-- VramBar for GPU VRAM when available
-- Probe button (re-detect capabilities)
-- Remove button
-- "Add Workstation" button in header
-
-Use existing components: `CapacityBar`, `VramBar` (from Hosts.jsx — extract to shared if needed).
-
-Fetch data: call `list_workstations` MCP tool via API or use `concurrency.get()` which already returns workstation data.
-
-- [ ] **Step 3: Add nav item in Layout.jsx**
-
-In `dashboard/src/components/Layout.jsx`, add to the nav items array:
-
-```javascript
-{ to: '/workstations', icon: WorkstationIcon, label: 'Workstations' },
-```
-
-Add route in the routes array.
-
-- [ ] **Step 4: Rebuild dashboard and test**
-
-```bash
-cd dashboard && npm run build
-```
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add dashboard/src/views/Workstations.jsx dashboard/src/components/Layout.jsx dashboard/src/api.js
-git commit -m "feat(workstations): dashboard workstation list view with capability display"
-```
-
----
-
-### Task 9: Add Workstation Wizard
-
-**Files:**
-- Create: `dashboard/src/components/WorkstationWizard.jsx`
-- Modify: `dashboard/src/views/Workstations.jsx` — integrate wizard
-
-- [ ] **Step 1: Create WorkstationWizard.jsx**
-
-Multi-step wizard:
-1. **Choose method:** "Agent already running" or "SSH bootstrap" (future)
-2. **Enter details:** host, port (default 3460), secret, name
-3. **Probe:** call `probe_workstation` to detect capabilities
-4. **Review:** show detected capabilities, GPU, models
-5. **Confirm:** set priority, set as default (yes/no)
-
-Use `glass-card` styling, step indicator, form inputs consistent with existing dashboard.
-
-On submit: call `add_workstation` MCP tool via API, then `probe_workstation`.
-
-- [ ] **Step 2: Integrate into Workstations.jsx**
-
-Add "Add Workstation" button that opens the wizard as a modal/panel.
-
-- [ ] **Step 3: Rebuild and test**
-
-```bash
-cd dashboard && npm run build
-```
-
-- [ ] **Step 4: Commit**
-
-```bash
-git add dashboard/src/components/WorkstationWizard.jsx dashboard/src/views/Workstations.jsx
-git commit -m "feat(workstations): add workstation wizard with capability detection"
-```
-
----
-
-### Task 10: Dashboard v2 Routes for Workstations
-
-**Files:**
-- Modify: `server/api/routes.js` — add v2 workstation routes
-- Modify: `server/api/v2-dispatch.js` — add handler wrappers
-
-- [ ] **Step 1: Add v2 routes**
-
-In `server/api/routes.js`, add with the concurrency/economy routes:
-
-```javascript
-  // Workstations
-  { method: 'GET', path: '/api/v2/workstations', handlerName: 'handleV2CpListWorkstations', middleware: buildV2Middleware() },
-  { method: 'POST', path: '/api/v2/workstations', handlerName: 'handleV2CpAddWorkstation', middleware: buildV2Middleware() },
-  { method: 'DELETE', path: /^\/api\/v2\/workstations\/(.+)$/, handlerName: 'handleV2CpRemoveWorkstation', middleware: buildV2Middleware(), mapParams: ['name'] },
-  { method: 'POST', path: /^\/api\/v2\/workstations\/(.+)\/probe$/, handlerName: 'handleV2CpProbeWorkstation', middleware: buildV2Middleware(), mapParams: ['name'] },
-```
-
-- [ ] **Step 2: Add v2-dispatch handlers**
-
-In `server/api/v2-dispatch.js`, add handler wrappers that call the workstation handlers:
-
-```javascript
-  handleV2CpListWorkstations: (req, res, ctx) => {
-    const wsHandlers = require('../handlers/workstation-handlers');
-    const result = wsHandlers.handleListWorkstations(req.query || {});
-    const text = result?.content?.[0]?.text || '{}';
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ data: JSON.parse(text), meta: { request_id: ctx.requestId } }));
-  },
-  // ... similar for add, remove, probe
-```
-
-- [ ] **Step 3: Run meta-tests to verify no regressions**
-
-```bash
-ssh user@remote-gpu-host "cd /path/to\torque-public && git pull && npx vitest run server/tests/rest-control-plane-parity.test.js server/tests/v2-middleware.test.js server/tests/core-tools.test.js"
-```
-
-- [ ] **Step 4: Commit**
-
-```bash
-git add server/api/routes.js server/api/v2-dispatch.js
-git commit -m "feat(workstations): v2 REST endpoints for dashboard workstation management"
-```
-
----
-
-## Summary
-
-| Chunk | Tasks | Description |
-|-------|-------|-------------|
-| **1 (Phase 3)** | 1-6 | Consumer migration — redirect reads to adapters, dual-write on mutations |
-| **2 (Phase 4)** | 7 | Remove legacy fallbacks, deprecate old tables |
-| **3 (Dashboard)** | 8-10 | Workstation list view, add wizard, v2 REST routes |
-
-**Total:** 10 tasks
-
-**Migration strategy:** Phase 3 is non-destructive — legacy queries are fallbacks, not removed. Phase 4 removes fallbacks after Phase 3 is proven stable. Old tables are deprecated but NOT dropped (a future release can drop them after confirming no direct queries remain).
+**7. Backup tables disk usage.** Task 2 leaves `*_legacy_backup_<ts>` tables in place until Task 6 ships. On a long-running production DB the largest is `ollama_hosts` (typically <100 rows) so the disk cost is negligible. Documented here so it isn't a surprise during a DB inspection.

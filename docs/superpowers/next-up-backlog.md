@@ -80,12 +80,13 @@ These are still in `plans/` and remain actionable. Picked up the top 5 because t
 - `plans/2026-04-11-fabro-89-budget-aware-routing.md` — per-tenant spend feeds provider selection (depends on #6).
 - `plans/2026-04-11-fabro-103-classifier-first-router.md` — front-door classifier above the shipped crew-router.
 
-## REWRITE — concept fits but plan is stale
+## Recently rewritten — fresh plans, ready to pick up
 
-These have a `STALE — needs rewrite` header. Don't pick them up as-is; the plan was drafted on top of unshipped predecessors and needs collapsing or refresh:
+These were flagged STALE in the 2026-05-01 audit (drafted on top of unshipped predecessors), then rewritten 2026-05-01 against current TORQUE reality. No more STALE header — implementation-ready:
 
-- `plans/2026-04-11-fabro-23-typed-task-signatures.md`
-- `plans/2026-04-11-fabro-29-event-history-replay.md`
-- `plans/2026-04-11-fabro-67-step-suspend-rerun.md`
-- `plans/2026-04-11-fabro-79-eval-sdk.md`
-- `plans/2026-03-17-workstations-phase3-4-dashboard.md`
+- `plans/2026-03-17-workstations-phase3-4-dashboard.md` — finish workstations migration by projecting legacy `ollama_hosts`/`peek_hosts`/`remote_agents` as SQLite views over the canonical `workstations` table; reroute writes through `workstation/model.js`. Dashboard work dropped (already shipped). `internal`.
+- `plans/2026-04-11-fabro-23-typed-task-signatures.md` — opt-in `signature: { inputs, output }` field on the existing workflow YAML schema, validated at admission + completion pipeline using the same Ajv plumbing the crew runner already uses for `output_schema`. No side-table. `feature`.
+- `plans/2026-04-11-fabro-29-event-history-replay.md` — extension of the already-shipped `task_events` (Plan 14) + `workflow_checkpoints` (Plan 28). Add 2 missing event types, expose workflow-scoped REST + dashboard timeline. No new table. `internal`.
+- `plans/2026-04-11-fabro-79-eval-sdk.md` — minimal native A/B evaluator on top of existing benchmark + provider-scoring infrastructure. New `experiments` + `experiment_runs` tables, REST + Providers panel. Explicitly excludes OTEL, Promptfoo, hosted eval. `feature`.
+
+(`fabro-67-step-suspend-rerun` was DROPPED — its load-bearing siblings fabro-30 and fabro-43 didn't fit TORQUE; see `plans/archive/2026-04-11-fabro-67-step-suspend-rerun.md` for the rationale.)
