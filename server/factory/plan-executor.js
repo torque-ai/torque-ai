@@ -121,8 +121,23 @@ function extractTaskFilePaths(task, fallbackFilePaths = []) {
 // (the reference) because pyproject.toml has no slash. The completion
 // verifier then concluded "all extracted paths missing → [x] is stale"
 // and re-ran task 2 every tick (3+ recurrences observed live).
-const TARGET_VERBS = '(?:edit|create|modify|update|add|wire|extend|fix|refactor|rename|replace|configure|introduce|generate|implement|set up|write)';
+const TARGET_VERBS = '(?:edit|create|modify|update|add|wire|extend|fix|refactor|rename|replace|configure|introduce|generate|implement|set up|write|patch)';
 const EDIT_TARGET_RE = new RegExp(`\\b${TARGET_VERBS}\\b(?:\\s+(?:the|a|an|new))?\\s+\`([^\`\\n]+)\``, 'gi');
+
+// Phase V (2026-05-01): negation guard. Plans rewritten by the architect for
+// "this work item is already satisfied" (a "duplicate plan rewrite") often
+// say things like "do not create `X`" or "instead of editing `Y`, use `Z`".
+// Phase U's verb-anchored extractor matched `create` and `editing` as if they
+// were positive instructions, treating `X` and `Y` as edit targets — then
+// mistrusting the (correctly-marked) [x] when the file didn't exist.
+//
+// Live evidence: bitsy plan 721 task 1 says
+//   "Treat this request as already satisfied by the canonical
+//    dependency-health implementation; do not create
+//    `scripts/check_dependency_health.py` from this duplicate plan."
+// Phase U fired one false-positive resubmit on this plan before Phase V.
+const NEGATION_RE = /\b(?:do(?:es)?\s+not|don't|doesn't|never|instead\s+of|rather\s+than|without|skip(?:ping)?|avoid(?:ing)?)\b/i;
+const NEGATION_LOOKBACK = 30; // chars to scan before each verb match
 
 function extractEditTargetPaths(task) {
   // Prefer raw_markdown for the same reason extractTaskFilePaths does.
@@ -141,6 +156,19 @@ function extractEditTargetPaths(task) {
     if (!candidate || seen.has(candidate)) continue;
     if (candidate.startsWith('[') || candidate.includes(' ')) continue; // [tool.ruff], "target version"
     if (!candidate.includes('/') && !candidate.includes('.')) continue; // bare module/identifier
+    // Phase V: skip matches preceded by a negation within ~30 chars,
+    // but don't let the lookback cross a sentence boundary. Without the
+    // sentence-boundary stop, "Avoid X. Edit Y" would exclude Y because
+    // "Avoid" is within 30 chars of "Edit".
+    const lookbackStart = Math.max(0, match.index - NEGATION_LOOKBACK);
+    let lookback = taskText.slice(lookbackStart, match.index);
+    const lastSentenceEnd = Math.max(
+      lookback.lastIndexOf('. '),
+      lookback.lastIndexOf('.\n'),
+      lookback.lastIndexOf('\n\n'),
+    );
+    if (lastSentenceEnd >= 0) lookback = lookback.slice(lastSentenceEnd + 1);
+    if (NEGATION_RE.test(lookback)) continue;
     seen.add(candidate);
     targets.push(candidate);
   }
