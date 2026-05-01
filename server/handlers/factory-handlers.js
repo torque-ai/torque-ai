@@ -1075,6 +1075,59 @@ async function handleResumeProject(args) {
   });
 }
 
+function getConfiguredFactoryTickInterval(project) {
+  if (!project?.config_json) {
+    return undefined;
+  }
+  try {
+    const cfg = JSON.parse(project.config_json);
+    const cfgInterval = cfg?.loop?.tick_interval_ms;
+    if (Number.isFinite(cfgInterval) && cfgInterval > 0) {
+      return cfgInterval;
+    }
+  } catch (_e) {
+    void _e;
+  }
+  return undefined;
+}
+
+function startFactoryTickForProject(project) {
+  try {
+    const { startTick } = require('../factory/factory-tick');
+    startTick(project, getConfiguredFactoryTickInterval(project));
+  } catch (_e) {
+    void _e;
+  }
+}
+
+function resumeProjectRowForFactoryAction(project, args = {}, reason = 'factory_action') {
+  if (!project || project.status !== 'paused') {
+    return { resumed: false, project };
+  }
+
+  const previous_status = project.status;
+  const updated = factoryHealth.updateProject(project.id, { status: 'running' });
+  try {
+    factoryAudit.recordAuditEvent({
+      project_id: updated.id,
+      event_type: 'resume',
+      previous_status,
+      reason,
+      actor: args.__user || (args.actor || 'unknown'),
+      source: args.source || 'mcp',
+    });
+  } catch (err) {
+    logger.warn({ err }, 'Failed to record action-triggered resume audit event');
+  }
+  startFactoryTickForProject(updated);
+  logger.info('Factory project resumed for factory action', {
+    project_id: updated.id,
+    project_name: updated.name,
+    reason,
+  });
+  return { resumed: true, project: updated };
+}
+
 async function handlePauseAllProjects(args = {}) {
   const projects = factoryHealth.listProjects();
   const results = await Promise.all(projects.map(async (p) => {
@@ -1730,6 +1783,11 @@ async function handleApproveFactoryGate(args) {
 async function handleRetryFactoryVerify(args) {
   const project = resolveProject(args.project || args.project_id);
   const result = loopController.retryVerifyForProject(project.id);
+  const resumeResult = resumeProjectRowForFactoryAction(project, args, 'retry_factory_verify');
+  if (resumeResult.resumed) {
+    result.project_resumed = true;
+    result.project_status = resumeResult.project.status;
+  }
   return jsonResponse(result);
 }
 
@@ -2131,6 +2189,12 @@ async function handleRejectFactoryGateInstance(args) {
 async function handleRetryFactoryVerifyInstance(args) {
   try {
     const result = loopController.retryVerifyFromFailure(args.instance);
+    const project = factoryHealth.getProject(result.project_id);
+    const resumeResult = resumeProjectRowForFactoryAction(project, args, 'retry_factory_verify_instance');
+    if (resumeResult.resumed) {
+      result.project_resumed = true;
+      result.project_status = resumeResult.project.status;
+    }
     return jsonResponse(result);
   } catch (error) {
     return buildFactoryLoopErrorResponse(error);

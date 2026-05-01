@@ -10,6 +10,7 @@ const factoryIntake = require('../db/factory-intake');
 const factoryLoopInstances = require('../db/factory-loop-instances');
 const taskCore = require('../db/task-core');
 const routingModule = require('../handlers/integration/routing');
+const factoryHandlers = require('../handlers/factory-handlers');
 const factoryTick = require('../factory/factory-tick');
 const loopController = require('../factory/loop-controller');
 const { LOOP_STATES } = require('../factory/loop-states');
@@ -170,6 +171,59 @@ describe('factory pause enforcement', () => {
     })).rejects.toThrow(/paused.*internal task submission blocked/i);
 
     expect(submitSpy).not.toHaveBeenCalled();
+  });
+
+  it('retry_factory_verify clears the project-row pause and restarts ticking', async () => {
+    const project = registerFactoryProject({ status: 'paused', autoContinue: true });
+    const item = factoryIntake.createWorkItem({
+      project_id: project.id,
+      source: 'manual',
+      title: 'Retry paused verify project',
+      description: 'A paused project-row VERIFY retry should resume the row gate and restart ticking.',
+      status: 'verifying',
+    });
+    const instance = factoryLoopInstances.createInstance({
+      project_id: project.id,
+      work_item_id: item.id,
+      batch_id: 'factory-retry-paused-verify',
+    });
+    factoryLoopInstances.updateInstance(instance.id, {
+      loop_state: LOOP_STATES.VERIFY,
+      paused_at_stage: 'VERIFY',
+      last_action_at: new Date().toISOString(),
+    });
+    const startTickSpy = vi.spyOn(factoryTick, 'startTick').mockImplementation(() => {});
+
+    const response = await factoryHandlers.handleRetryFactoryVerify({
+      project: project.id,
+      actor: 'test-operator',
+    });
+
+    expect(response.structuredData).toMatchObject({
+      project_id: project.id,
+      state: LOOP_STATES.VERIFY,
+      project_resumed: true,
+      project_status: 'running',
+    });
+    expect(factoryHealth.getProject(project.id).status).toBe('running');
+    expect(factoryLoopInstances.getInstance(instance.id).paused_at_stage).toBeNull();
+    expect(startTickSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ id: project.id, status: 'running' }),
+      undefined,
+    );
+    expect(db.prepare(`
+      SELECT event_type, previous_status, reason, actor, source
+      FROM factory_audit_events
+      WHERE project_id = ?
+      ORDER BY id DESC
+      LIMIT 1
+    `).get(project.id)).toMatchObject({
+      event_type: 'resume',
+      previous_status: 'paused',
+      reason: 'retry_factory_verify',
+      actor: 'test-operator',
+      source: 'mcp',
+    });
   });
 
   it('resolves unrecoverable VERIFY stalls by rejecting the item and terminating the instance', async () => {
