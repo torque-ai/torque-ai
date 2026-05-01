@@ -269,6 +269,20 @@ describe('factory loop-controller EXECUTE modes', () => {
   function registerPlanProject({ config } = {}) {
     const projectDir = path.join(tempDir, `project-${Date.now()}-${Math.random().toString(16).slice(2)}`);
     const planPath = path.join(tempDir, `plan-${Date.now()}-${Math.random().toString(16).slice(2)}.md`);
+    // Phase N's existence guard (server/factory/plan-executor.js,
+    // verifyTaskTargetsForSubmission) blocks edit-style tasks whose
+    // referenced files don't exist in the working directory. The plan
+    // body below references `server/factory/plan-executor.js`, so the
+    // test working directory needs that file present — otherwise the
+    // executor breaks out before reaching submit and the test's
+    // assertions about the EXECUTE→VERIFY transition / submission tags
+    // never run. Stub the path with a no-op file (contents irrelevant
+    // to this test — the executor only checks existence).
+    fs.mkdirSync(path.join(projectDir, 'server', 'factory'), { recursive: true });
+    fs.writeFileSync(
+      path.join(projectDir, 'server', 'factory', 'plan-executor.js'),
+      '// stub for factory-loop-controller test fixture\n'
+    );
     // Plan body must satisfy the plan-quality-gate that runs on pre-written
     // plans in executePlanStage: each task body needs >=100 chars of concrete
     // instruction, a file path reference, an acceptance criterion, and no
