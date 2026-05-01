@@ -14,6 +14,13 @@ const VALID_STATUSES = new Set([
   'intake', 'prioritized', 'planned', 'executing', 'verifying', 'shipped',
   'shipped_stale', 'unactionable',
   'needs_review', 'superseded',
+  // Phase X1 (2026-05-01): non-terminal status for items whose current
+  // plan failed quality/parse/timeout/empty-diff checks. PRIORITIZE
+  // re-picks these (with cooldown) so the architect can produce a better
+  // plan with prior-rejection feedback (Phase X2). Replaces the old
+  // "reject and forget" path where plan-quality failures became terminal
+  // 'rejected' after N retries.
+  'needs_replan',
 ]);
 const REJECT_REASONS = Object.freeze(new Set([
   'meta_task_no_code_output',

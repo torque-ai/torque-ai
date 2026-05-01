@@ -51,7 +51,20 @@ const WORK_ITEM_STATUS_ORDER = Object.freeze([
   'pending',
   'triaged',
   'intake',
+  // Phase X1 (2026-05-01): items whose current plan failed quality/parse/
+  // timeout/empty-diff checks. Placed last so fresh `pending` items get
+  // first dibs; needs_replan items only get picked when no fresh work
+  // exists. Cooldown filter (NEEDS_REPLAN_COOLDOWN_MS) further prevents
+  // immediate re-loop after a rejection.
+  'needs_replan',
 ]);
+
+// Phase X1: minimum delay between a needs_replan rejection and PRIORITIZE
+// re-pickup. Without a cooldown, a rejected item would loop straight back
+// into PLAN on the next tick, racing the architect against itself. 5min
+// gives the queue room to admit other work and lets the operator see the
+// rejection in the dashboard before the next attempt fires.
+const NEEDS_REPLAN_COOLDOWN_MS = 5 * 60 * 1000;
 
 const DECISION_STAGE_ACTORS = Object.freeze({
   sense: 'health_model',
@@ -3432,6 +3445,18 @@ async function claimNextWorkItemForInstance(project_id, instance_id) {
       return { openItems: survivors, workItem: item };
     }
     if (item.claimed_by_instance_id) continue;
+
+    // Phase X1: needs_replan cooldown. An item that was just rejected
+    // for plan quality must not be re-picked on the next tick — that
+    // would race the architect against itself with no chance for fresh
+    // context. Skip if we're inside the cooldown window; PRIORITIZE will
+    // try again on a subsequent tick once the cooldown expires.
+    if (item.status === 'needs_replan') {
+      const updatedAtMs = item.updated_at ? Date.parse(item.updated_at) : NaN;
+      if (Number.isFinite(updatedAtMs) && (Date.now() - updatedAtMs) < NEEDS_REPLAN_COOLDOWN_MS) {
+        continue;
+      }
+    }
 
     // Stale probe — non-scout items Gate-1-out immediately in probeStaleness,
     // so it is safe to run for every candidate.
