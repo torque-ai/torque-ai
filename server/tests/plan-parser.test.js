@@ -134,6 +134,19 @@ Verification: torque-remote dotnet test simtests/SimCore.DotNet.Tests.csproj -c 
       .toBe('npm test');
   });
 
+  it('normalizeVerifyCommand wraps bare Pester commands for remote bash execution', () => {
+    const command = normalizeVerifyCommand('Invoke-Pester -Path .\\Modules\\Tests\\ParserAccessWpfSeparation.Tests.ps1');
+    expect(command).toMatch(/^powershell -NoProfile -ExecutionPolicy Bypass -EncodedCommand /);
+    const encoded = command.split(' ').at(-1);
+    expect(Buffer.from(encoded, 'base64').toString('utf16le'))
+      .toBe('Invoke-Pester -Path .\\Modules\\Tests\\ParserAccessWpfSeparation.Tests.ps1');
+  });
+
+  it('normalizeVerifyCommand does not double-wrap explicit PowerShell hosts', () => {
+    expect(normalizeVerifyCommand('powershell -NoProfile -Command "Invoke-Pester Modules/Tests"'))
+      .toBe('powershell -NoProfile -Command "Invoke-Pester Modules/Tests"');
+  });
+
   it('returns header metadata (title, goal, tech_stack)', () => {
     const parsed = parsePlanFile(SAMPLE);
     expect(parsed.title).toBe('Feature X Plan');

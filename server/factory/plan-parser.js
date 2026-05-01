@@ -4,6 +4,8 @@ const EXPLICIT_TASK_HEADER_RE = /^#{2,4}\s+Task\s+(\d+)\s*[:.]\s*(.+?)\s*$/;
 const EXPLICIT_STEP_RE = /^\s*-\s*\[([ xX])\]\s*\*\*Step\s+([0-9]+[A-Za-z]?)\s*[:.]\s*([^*]+?)\s*\*\*/;
 const CHECKLIST_HEADING_RE = /^(#{2,4})\s+(.+?)\s*$/;
 const CHECKLIST_STEP_RE = /^\s*(?:[-*]|\d+\.)\s*\[([ xX])\]\s*(.+?)\s*$/;
+const POWERSHELL_HOST_RE = /^(?:powershell(?:\.exe)?|pwsh(?:\.exe)?)\b/i;
+const POWERSHELL_VERIFY_COMMAND_RE = /^(?:Invoke-Pester|Import-Module|Set-StrictMode|\$ErrorActionPreference\b)/i;
 
 function normalizeInlineMarkdown(text) {
   return String(text || '')
@@ -347,6 +349,11 @@ function normalizeVerifyCommand(command) {
 
   if (/^torque-remote\s+/i.test(normalized)) {
     normalized = normalized.replace(/^torque-remote\s+/i, '').trim();
+  }
+
+  if (!POWERSHELL_HOST_RE.test(normalized) && POWERSHELL_VERIFY_COMMAND_RE.test(normalized)) {
+    const encoded = Buffer.from(normalized, 'utf16le').toString('base64');
+    normalized = `powershell -NoProfile -ExecutionPolicy Bypass -EncodedCommand ${encoded}`;
   }
 
   return normalized || null;
