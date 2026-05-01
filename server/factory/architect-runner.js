@@ -722,10 +722,81 @@ async function submitArchitectJsonPrompt(prompt, project_id, projectPath, kind =
   return null;
 }
 
+// Phase P (2026-04-30): map a reject_reason to actionable guidance the
+// architect should use when rewriting the work item. Without this, the
+// architect's rewrite prompt only sees a generic "Prior failure reason:
+// X" line and tends to produce variations on the same broken plan
+// instead of actually pivoting based on WHY the previous attempt failed.
+//
+// Patterns are evaluated in order; the first match wins. Returns an
+// empty string when no specific guidance applies (the generic
+// "rewrite to be specific" instructions still apply).
+function getFailureModeGuidance(priorReason) {
+  if (typeof priorReason !== 'string' || !priorReason.trim()) return '';
+  const reason = priorReason.trim();
+
+  // Phase N's pre-submission existence guard fired. The plan referenced
+  // files that don't exist in the worktree.
+  if (/^task_targets_missing_files/i.test(reason)) {
+    return [
+      '',
+      'FAILURE-MODE GUIDANCE: The previous plan referenced files that do not exist in the factory worktree.',
+      'When rewriting, do ONE of these:',
+      '- Reframe as "Create file X with content Y" (greenfield) — make the create intent EXPLICIT in the description.',
+      '- Identify the ACTUAL paths in the repo that contain this functionality. The phantom path was probably a guess; the real file may have a similar name (e.g. `Foo.cs` vs `FooImpl.cs`, or in a subdirectory).',
+      '- Drop references to the phantom file entirely and rescope to a related file that does exist.',
+      'Do NOT keep the same phantom path — the worker will fail again with the same error.',
+    ].join('\n');
+  }
+
+  // The heavy-local-validation guard fired. Plan tried to run dotnet
+  // test / pytest / etc. inline in a step instead of letting the host's
+  // verify_command handle it.
+  if (/^task_avoids_local_heavy_validation/i.test(reason)) {
+    return [
+      '',
+      'FAILURE-MODE GUIDANCE: The previous plan included a heavy local validation command (e.g. `dotnet test`, `pytest`, `npm test`) inside a task step.',
+      'When rewriting, remove all heavy validation steps from the plan. The host runs `verify_command` automatically after EXECUTE — do not duplicate it inside individual task steps.',
+      'Keep "git commit" steps but drop "run tests" / "build" / "validate" steps from the task body.',
+    ].join('\n');
+  }
+
+  // Plan generation timed out or the provider failed. Usually means
+  // the work item is too ambitious for one cycle.
+  if (/^cannot_generate_plan/i.test(reason)) {
+    return [
+      '',
+      'FAILURE-MODE GUIDANCE: The architect could not produce a viable plan from the previous description.',
+      'When rewriting:',
+      '- Cut scope by ~50%. The previous attempt was likely too ambitious or too vague.',
+      '- Name 1-3 SPECIFIC files (not directories or patterns).',
+      '- Acceptance criteria must be checkable in <30 seconds (one targeted test, not a full suite).',
+      '- If the work spans multiple files, pick the ONE file with the highest leverage and defer the rest to follow-up items.',
+    ].join('\n');
+  }
+
+  // Plan generated but failed the deterministic specificity gate.
+  if (/^pre_written_plan_rejected_by_quality_gate/i.test(reason)) {
+    return [
+      '',
+      'FAILURE-MODE GUIDANCE: A previous plan was rejected by the deterministic quality gate (insufficient specificity).',
+      'When rewriting, ensure the description includes:',
+      '- Backtick-wrapped paths to specific files (e.g. `src/foo/bar.ts`)',
+      '- Approximate line numbers when known ("around line 450")',
+      '- The exact verification command (e.g. `dotnet test --filter NameOfTest`)',
+      '- Step-by-step actions with file paths inline, not high-level goals',
+    ].join('\n');
+  }
+
+  return '';
+}
+
 function buildRewritePrompt({ workItem, history }) {
   const recoveryLog = (history.recoveryRecords || [])
     .map((r) => `  - attempt ${r.attempt}: strategy="${r.strategy}" outcome="${r.outcome}" at ${r.timestamp}`)
     .join('\n') || '  (none)';
+  const priorReason = history.priorReason || workItem.reject_reason || '(unknown)';
+  const failureModeGuidance = getFailureModeGuidance(priorReason);
   return [
     'You are reviewing a factory work item that failed to plan. Your job is to rewrite the title and description so the architect can produce a plannable, testable, atomic unit.',
     '',
@@ -733,9 +804,10 @@ function buildRewritePrompt({ workItem, history }) {
     'Original description:',
     workItem.description || '(empty)',
     '',
-    `Prior failure reason: ${history.priorReason || workItem.reject_reason || '(unknown)'}`,
+    `Prior failure reason: ${priorReason}`,
     'Prior recovery attempts:',
     recoveryLog,
+    failureModeGuidance,
     '',
     'Rewrite to be specific, scoped, and testable. Output strict JSON ONLY (no prose, no markdown fence) of the form:',
     '{ "title": "...", "description": "...", "acceptance_criteria": ["...", "..."] }',
@@ -1127,6 +1199,9 @@ module.exports = {
   updateBacklogWorkItemStatuses,
   rewriteWorkItem,
   decomposeWorkItem,
+  // Phase P (2026-04-30): expose pure helpers for unit testing.
+  buildRewritePrompt,
+  getFailureModeGuidance,
   _internalForTests: {
     runArchitectLLM,
     loadActiveVerifyFailureLearnings,

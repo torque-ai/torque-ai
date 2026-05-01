@@ -7244,14 +7244,27 @@ async function executePlanFileStage(project, instance, workItem) {
   }
 
   if (result.failed_task) {
+    // Phase P (2026-04-30): when the executor surfaces a violation
+    // (Phase N's task_targets_missing_files, the heavy-validation guard,
+    // future violations), use the violation rule as the reject_reason so
+    // replan-recovery can route to a failure-mode-specific strategy
+    // instead of falling through to the generic task_N_failed bucket
+    // (which routes to rejected-recovery and just retries the same plan).
+    const violationRule = result.violation && typeof result.violation.rule === 'string'
+      ? result.violation.rule.trim()
+      : null;
+    const rejectReason = violationRule
+      ? `${violationRule}: task_${result.failed_task}`
+      : `task_${result.failed_task}_failed`;
     factoryIntake.updateWorkItem(targetItem.id, {
       status: 'in_progress',
-      reject_reason: `task_${result.failed_task}_failed`,
+      reject_reason: rejectReason,
     });
     logger.warn('EXECUTE stage: plan executor stopped on failed task', {
       project_id: project.id,
       work_item_id: targetItem.id,
       failed_task: result.failed_task,
+      violation_rule: violationRule,
       plan_path: targetItem.origin.plan_path,
     });
     safeLogDecision({

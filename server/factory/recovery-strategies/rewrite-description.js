@@ -6,6 +6,15 @@ const reasonPatterns = [
   /^cannot_generate_plan:/i,
   /^pre_written_plan_rejected_by_quality_gate$/i,
   /^Rejected by user$/i,
+  // Phase P (2026-04-30): Phase N's pre-submission guard surfaces here
+  // as `task_targets_missing_files: task_N`. Without this pattern, the
+  // reject_reason fell through to rejected-recovery's `task_.+_failed`
+  // pattern and just retried the same broken plan (DLPhone #2117 thrash).
+  /^task_targets_missing_files(:|$)/i,
+  // The heavy-validation guard's violation also benefits from a rewrite
+  // (the plan called for a heavy local validation step that won't survive
+  // the runtime guard — rewrite to skip that step or route it elsewhere).
+  /^task_avoids_local_heavy_validation(:|$)/i,
 ];
 
 function validateRewriteResponse(response) {
