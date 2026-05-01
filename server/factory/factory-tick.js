@@ -915,23 +915,38 @@ async function tickProject(project) {
       // auto-start logic begin a fresh cycle with the next work item.
       if (paused === 'EXECUTE' && instance.batch_id) {
         try {
-          const taskCore = require('../db/task-core');
-          const batchTasks = taskCore.listTasks({
-            tags: [`factory:batch_id=${instance.batch_id}`],
-            status: 'running',
-          });
-          const queuedTasks = taskCore.listTasks({
-            tags: [`factory:batch_id=${instance.batch_id}`],
-            status: 'queued',
-          });
-          if (batchTasks.length === 0 && queuedTasks.length === 0) {
-            logger.warn('Factory tick: recovering PAUSED-at-EXECUTE with empty batch', {
+          const planGenerationWait = typeof loopController.getDeferredPlanGenerationWaitState === 'function'
+            ? loopController.getDeferredPlanGenerationWaitState(latestProject, instance)
+            : null;
+          if (planGenerationWait) {
+            logger.info('Factory tick: preserving PAUSED-at-EXECUTE for deferred plan generation', {
               project_id: project.id,
               instance_id: instance.id,
               batch_id: instance.batch_id,
+              work_item_id: planGenerationWait.work_item_id,
+              task_id: planGenerationWait.task_id,
+              task_status: planGenerationWait.task_status,
+              ready_to_advance: planGenerationWait.ready_to_advance === true,
             });
-            loopController.terminateInstanceAndSync(instance.id, { abandonWorktree: true });
-            continue; // auto-start below will create a fresh instance
+          } else {
+            const taskCore = require('../db/task-core');
+            const batchTasks = taskCore.listTasks({
+              tags: [`factory:batch_id=${instance.batch_id}`],
+              status: 'running',
+            });
+            const queuedTasks = taskCore.listTasks({
+              tags: [`factory:batch_id=${instance.batch_id}`],
+              status: 'queued',
+            });
+            if (batchTasks.length === 0 && queuedTasks.length === 0) {
+              logger.warn('Factory tick: recovering PAUSED-at-EXECUTE with empty batch', {
+                project_id: project.id,
+                instance_id: instance.id,
+                batch_id: instance.batch_id,
+              });
+              loopController.terminateInstanceAndSync(instance.id, { abandonWorktree: true });
+              continue; // auto-start below will create a fresh instance
+            }
           }
         } catch (checkErr) {
           logger.debug('Factory tick: batch check failed', { err: checkErr.message });

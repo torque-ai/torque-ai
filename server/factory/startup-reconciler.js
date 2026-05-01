@@ -268,6 +268,22 @@ function reconcileFactoryProjectsOnStartup({ logger = defaultLogger } = {}) {
         }
 
         if (paused === LOOP_STATES.EXECUTE) {
+          const planGenerationWait = typeof loopController.getDeferredPlanGenerationWaitState === 'function'
+            ? loopController.getDeferredPlanGenerationWaitState(project, instance)
+            : null;
+          if (planGenerationWait) {
+            safeLog(logger, 'info', 'startup reconciler preserved deferred plan-generation EXECUTE wait', {
+              project_id: project.id,
+              instance_id: instance.id,
+              work_item_id: planGenerationWait.work_item_id,
+              task_id: planGenerationWait.task_id,
+              task_status: planGenerationWait.task_status,
+              ready_to_advance: planGenerationWait.ready_to_advance === true,
+            });
+            scheduleAdvance(project.id, instance, state, logger);
+            actions.advanced += 1;
+            continue;
+          }
           if (countRunningOrQueuedTasksForBatch(instance.batch_id, logger) === 0) {
             loopController.terminateInstanceAndSync(instance.id, { abandonWorktree: true });
             scheduleStart(project.id, logger);

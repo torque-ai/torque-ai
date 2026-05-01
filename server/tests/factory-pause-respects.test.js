@@ -695,6 +695,66 @@ describe('factory pause enforcement', () => {
     expect(factoryLoopInstances.getInstance(instance.id).paused_at_stage).toBe('VERIFY');
   });
 
+  it('does not terminate paused EXECUTE when the empty batch is waiting on plan generation', async () => {
+    const project = registerFactoryProject({ status: 'running', autoContinue: true });
+    const batchId = `factory-plan-gen-${Date.now()}`;
+    const planPath = path.join(project.path, 'docs', 'superpowers', 'plans', 'auto-generated', 'tick-plan.md');
+    const item = factoryIntake.createWorkItem({
+      project_id: project.id,
+      source: 'architect',
+      title: 'Generate plan before execution',
+      description: 'Exercise tick preservation for deferred plan generation.',
+      requestor: 'test',
+      origin: {
+        plan_path: planPath,
+        plan_generation_task_id: 'tick-plan-generation-task',
+      },
+      status: 'planned',
+    });
+    const instance = factoryLoopInstances.createInstance({
+      project_id: project.id,
+      work_item_id: item.id,
+      batch_id: batchId,
+    });
+    factoryLoopInstances.updateInstance(instance.id, {
+      loop_state: LOOP_STATES.EXECUTE,
+      paused_at_stage: LOOP_STATES.EXECUTE,
+      work_item_id: item.id,
+      batch_id: batchId,
+    });
+    factoryIntake.updateWorkItem(item.id, {
+      batch_id: batchId,
+      claimed_by_instance_id: instance.id,
+    });
+    factoryHealth.updateProject(project.id, {
+      loop_state: LOOP_STATES.EXECUTE,
+      loop_batch_id: batchId,
+      loop_paused_at_stage: LOOP_STATES.EXECUTE,
+    });
+    taskCore.createTask({
+      id: 'tick-plan-generation-task',
+      status: 'completed',
+      task_description: 'Generate a plan',
+      working_directory: project.path,
+      project: 'factory-plan',
+      tags: [
+        'factory:internal',
+        'factory:plan_generation',
+        `factory:work_item_id=${item.id}`,
+      ],
+    });
+    const terminateSpy = vi.spyOn(loopController, 'terminateInstanceAndSync');
+    const advanceSpy = vi.spyOn(loopController, 'advanceLoopAsync')
+      .mockReturnValue({ status: 'running', job_id: 'advance-plan-generation' });
+
+    await factoryTick.tickProject(factoryHealth.getProject(project.id));
+
+    expect(terminateSpy).not.toHaveBeenCalled();
+    expect(factoryLoopInstances.getInstance(instance.id).terminated_at).toBeNull();
+    expect(advanceSpy).toHaveBeenCalledWith(instance.id, { autoAdvance: true });
+    expect(submitSpy).not.toHaveBeenCalled();
+  });
+
   it('resume restores normal tick auto-start behavior', async () => {
     const project = registerFactoryProject({ status: 'paused', autoContinue: true });
     const stalePausedProject = factoryHealth.getProject(project.id);

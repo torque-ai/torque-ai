@@ -194,15 +194,22 @@ describe('factory startup reconciler', () => {
     });
   }
 
-  function createInstance(project, { state = LOOP_STATES.SENSE, pausedAtStage = null, batchId = null } = {}) {
+  function createInstance(project, {
+    state = LOOP_STATES.SENSE,
+    pausedAtStage = null,
+    batchId = null,
+    workItemId = null,
+  } = {}) {
     const instance = factoryLoopInstances.createInstance({
       project_id: project.id,
       batch_id: batchId,
+      work_item_id: workItemId,
     });
     return factoryLoopInstances.updateInstance(instance.id, {
       loop_state: state,
       paused_at_stage: pausedAtStage,
       batch_id: batchId,
+      work_item_id: workItemId,
     });
   }
 
@@ -310,6 +317,57 @@ describe('factory startup reconciler', () => {
     expect(factoryLoopInstances.getInstance(instance.id).terminated_at).toBeNull();
     expect(calls.some((call) => call.type === 'start')).toBe(false);
     expect(calls.some((call) => call.type === 'advance')).toBe(false);
+  });
+
+  it('advances paused-at-EXECUTE instances that are waiting on internal plan generation', async () => {
+    const batchId = 'factory-plan-generation-wait';
+    const project = registerRunningProject();
+    const workItem = factoryIntake.createWorkItem({
+      project_id: project.id,
+      source: 'architect',
+      title: 'Generate missing plan',
+      description: 'Exercise startup recovery for deferred plan generation.',
+      requestor: 'test',
+      origin: {
+        plan_path: path.join(project.path, 'docs', 'superpowers', 'plans', 'auto-generated', 'startup-plan.md'),
+        plan_generation_task_id: 'plan-generation-task',
+      },
+      status: 'planned',
+    });
+    factoryIntake.updateWorkItem(workItem.id, {
+      batch_id: batchId,
+      claimed_by_instance_id: 'placeholder',
+    });
+    const instance = createInstance(project, {
+      state: LOOP_STATES.EXECUTE,
+      pausedAtStage: LOOP_STATES.EXECUTE,
+      batchId,
+      workItemId: workItem.id,
+    });
+    factoryIntake.updateWorkItem(workItem.id, {
+      claimed_by_instance_id: instance.id,
+    });
+    db.prepare(`
+      INSERT INTO tasks (id, status, tags)
+      VALUES (?, ?, ?)
+    `).run('plan-generation-task', 'completed', JSON.stringify([
+      'factory:internal',
+      'factory:plan_generation',
+      `factory:work_item_id=${workItem.id}`,
+    ]));
+    const terminateSpy = vi.spyOn(loopController, 'terminateInstanceAndSync');
+    const { reconcileFactoryProjectsOnStartup } = loadFreshReconciler();
+
+    const result = reconcileFactoryProjectsOnStartup();
+    await flushImmediate();
+
+    expect(result.actions).toMatchObject({ restarted: 0, advanced: 1 });
+    expect(terminateSpy).not.toHaveBeenCalled();
+    expect(factoryLoopInstances.getInstance(instance.id).terminated_at).toBeNull();
+    expect(calls.filter((call) => call.type === 'advance')).toEqual([
+      { type: 'advance', instanceId: instance.id, options: { autoAdvance: true } },
+    ]);
+    expect(calls.some((call) => call.type === 'start')).toBe(false);
   });
 
   it('defers VERIFY-state instances without advancing them', async () => {
