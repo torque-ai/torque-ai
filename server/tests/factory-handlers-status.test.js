@@ -401,6 +401,92 @@ describe('factory_status', () => {
     });
   });
 
+  it('surfaces active execution batch tasks under EXECUTE loops', async () => {
+    const db = rawDb();
+    const createdAt = new Date().toISOString();
+    const batchTaskId = '22222222-2222-2222-2222-222222222222';
+    const batchId = 'factory-project-execution-1';
+
+    db.prepare(`
+      INSERT INTO factory_projects (
+        id,
+        name,
+        path,
+        brief,
+        trust_level,
+        status,
+        config_json,
+        loop_state,
+        loop_batch_id,
+        loop_last_action_at,
+        loop_paused_at_stage,
+        created_at,
+        updated_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      'project-execution-active',
+      'Execution Active',
+      path.join(testDir, 'project-execution-active'),
+      'execute-stage active batch task view',
+      'dark',
+      'running',
+      null,
+      'EXECUTE',
+      batchId,
+      createdAt,
+      null,
+      createdAt,
+      createdAt,
+    );
+    insertActiveLoopInstance(db, {
+      projectId: 'project-execution-active',
+      loopState: 'EXECUTE',
+      lastActionAt: createdAt,
+      batchId,
+    });
+    db.prepare(`
+      INSERT INTO tasks (id, task_description, status, provider, tags, created_at, started_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      batchTaskId,
+      'Implement selected factory work item',
+      'running',
+      'codex',
+      JSON.stringify([`factory:batch_id=${batchId}`, 'factory:work_item_id=42', 'project:example']),
+      createdAt,
+      createdAt,
+    );
+
+    const result = await safeTool('factory_status', {});
+
+    expect(result.isError).toBeFalsy();
+    const payload = result.structuredData;
+    const project = payload.projects.find((item) => item.id === 'project-execution-active');
+    expect(project).toMatchObject({
+      loop_state: 'EXECUTE',
+      active_stage: 'EXECUTE',
+      active_task: {
+        id: batchTaskId,
+        kind: 'execution',
+        status: 'running',
+        provider: 'codex',
+      },
+      state_consistency: {
+        ok: true,
+        project_loop_state: 'EXECUTE',
+        instance_loop_state: 'EXECUTE',
+        active_stage: 'EXECUTE',
+      },
+    });
+    expect(project.state_consistency.mismatches).toEqual([]);
+    expect(payload.summary).toMatchObject({
+      active_internal_tasks: 0,
+      active_project_tasks: 1,
+      state_mismatch_projects: 0,
+    });
+  });
+
   it('treats paused legacy project rows as consistent with the active instance stage', async () => {
     const db = rawDb();
     const createdAt = new Date().toISOString();

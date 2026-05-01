@@ -69,6 +69,15 @@ const COMMITS_TODAY_CACHE_TTL_MS = 60 * 1000;
 const COMMITS_TODAY_TIMEOUT_MS = 5 * 1000;
 const TERMINAL_FACTORY_BATCH_TASK_STATUSES = new Set(['completed', 'shipped', 'cancelled', 'failed', 'skipped']);
 const TERMINAL_FACTORY_INTERNAL_TASK_STATUSES = TERMINAL_FACTORY_BATCH_TASK_STATUSES;
+const ACTIVE_FACTORY_BATCH_TASK_STATUS_RANK = new Map([
+  ['running', 0],
+  ['pending_provider_switch', 1],
+  ['retry_scheduled', 2],
+  ['queued', 3],
+  ['pending', 4],
+  ['waiting', 5],
+  ['blocked', 6],
+]);
 const BASELINE_RESUME_JOBS_TO_KEEP_PER_PROJECT = 25;
 const commitsTodayCache = new Map();
 const baselineResumeJobs = new Map();
@@ -481,6 +490,43 @@ function getActivePlanGenerationTask(activeInstance) {
   }
 
   return summarizeActiveTask(task, 'plan_generation');
+}
+
+function getActiveFactoryBatchTask(activeInstance) {
+  const batchId = activeInstance?.batch_id || activeInstance?.batchId || null;
+  if (!batchId) {
+    return null;
+  }
+
+  let tasks;
+  try {
+    tasks = loopController.listTasksForFactoryBatch(batchId);
+  } catch (error) {
+    logger.debug('Failed to inspect active factory batch task for status', {
+      err: error.message,
+      batch_id: batchId,
+    });
+    return null;
+  }
+
+  const activeTasks = Array.isArray(tasks)
+    ? tasks.filter((task) => !TERMINAL_FACTORY_BATCH_TASK_STATUSES.has(
+      String(task?.status || '').toLowerCase()
+    ))
+    : [];
+  if (activeTasks.length === 0) {
+    return null;
+  }
+
+  const [task] = activeTasks.sort((left, right) => {
+    const leftRank = ACTIVE_FACTORY_BATCH_TASK_STATUS_RANK.get(String(left?.status || '').toLowerCase()) ?? 99;
+    const rightRank = ACTIVE_FACTORY_BATCH_TASK_STATUS_RANK.get(String(right?.status || '').toLowerCase()) ?? 99;
+    if (leftRank !== rightRank) {
+      return leftRank - rightRank;
+    }
+    return String(left?.created_at || '').localeCompare(String(right?.created_at || ''));
+  });
+  return summarizeActiveTask(task, 'execution');
 }
 
 function summarizeFactoryStateConsistency({ project, loopState, activeStage, activeTask }) {
@@ -1190,7 +1236,8 @@ async function handleFactoryStatus() {
     const hasNonTerminalBatchTasks = activeInstance
       ? hasNonTerminalFactoryBatchTasks(activeInstance.batch_id)
       : false;
-    const activeTask = getActivePlanGenerationTask(activeInstance);
+    const activeTask = getActivePlanGenerationTask(activeInstance)
+      || getActiveFactoryBatchTask(activeInstance);
     const activeStage = activeTask?.kind === 'plan_generation' ? LOOP_STATES.PLAN : loopState;
     const stateConsistency = summarizeFactoryStateConsistency({
       project: p,
@@ -1238,7 +1285,10 @@ async function handleFactoryStatus() {
   const paused = summaries.filter(p => p.status === 'paused').length;
   const productionToday = summaries.reduce((sum, project) => sum + project.commits_today, 0);
   const zeroCommitProjects = summaries.filter(project => project.status === 'running' && project.commits_today === 0).length;
-  const activeInternalTasks = summaries.filter(project => project.active_task).length;
+  const activeInternalTasks = summaries.filter(project => (
+    project.active_task && project.active_task.kind !== 'execution'
+  )).length;
+  const activeProjectTasks = summaries.filter(project => project.active_task?.kind === 'execution').length;
   const stateMismatchProjects = summaries.filter(project => !project.state_consistency?.ok).length;
   // Stall calculation uses the instance-derived state too, so a dead
   // instance can't look "running but stalled" forever — with no active
@@ -1272,6 +1322,7 @@ async function handleFactoryStatus() {
       production_today: productionToday,
       zero_commit_projects: zeroCommitProjects,
       active_internal_tasks: activeInternalTasks,
+      active_project_tasks: activeProjectTasks,
       state_mismatch_projects: stateMismatchProjects,
     },
   });
