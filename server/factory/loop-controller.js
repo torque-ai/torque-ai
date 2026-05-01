@@ -6920,6 +6920,7 @@ async function executePlanFileStage(project, instance, workItem) {
           && LIVE_WORKTREE_OWNER_STATUSES.has(owningStatus)
           && (withinReclaimGrace || ownerWithinReclaimGrace || dirtyStatus.dirty)
         ) {
+          const retryAfter = new Date(Date.now() + AUTO_ADVANCE_DEFERRED_FALLBACK_DELAY_MS).toISOString();
           logger.info('factory worktree: skipping pre-reclaim for fresh live owner', {
             project_id: project.id,
             work_item_id: targetItem.id,
@@ -6954,6 +6955,7 @@ async function executePlanFileStage(project, instance, workItem) {
               worktree_dirty: dirtyStatus.dirty,
               worktree_dirty_checked: dirtyStatus.checked,
               worktree_dirty_check_reason: dirtyStatus.reason || null,
+              retry_after: retryAfter,
             },
             confidence: 1,
             batch_id: executeLogBatchId,
@@ -6972,6 +6974,7 @@ async function executePlanFileStage(project, instance, workItem) {
               stale_age_ms: staleAgeMs,
               owner_age_ms: ownerAgeMs,
               worktree_dirty: dirtyStatus.dirty,
+              retry_after: retryAfter,
             },
           };
         }
@@ -10183,6 +10186,7 @@ async function runAdvanceLoop(instance_id) {
 
     const executeWait = maybeClearCompletedExecuteOwnerWait(project, instance);
     if (executeWait?.waiting) {
+      const retryAfter = new Date(Date.now() + AUTO_ADVANCE_DEFERRED_FALLBACK_DELAY_MS).toISOString();
       return {
         project_id: project.id,
         instance_id: instance.id,
@@ -10194,6 +10198,7 @@ async function runAdvanceLoop(instance_id) {
           reason: 'active_worktree_owner_running',
           owning_task_id: executeWait.owning_task_id,
           owning_status: executeWait.owning_status,
+          retry_after: retryAfter,
         },
         reason: 'active worktree owner still running',
       };

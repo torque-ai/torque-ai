@@ -1705,7 +1705,9 @@ Edit server/factory/plan-executor.js and make the requested behavior change. Kee
       reason: 'active_worktree_owner_running',
       factory_worktree_id: existing.id,
       owning_task_id: 'task-live-owner',
+      retry_after: expect.any(String),
     });
+    expect(loopController._internalForTests.getAutoAdvanceDelayMs(executeAdvance)).toBeGreaterThanOrEqual(2500);
     // Post-a0da7fcf ("keep internal execute waits running"): the loop no
     // longer pauses at EXECUTE while a live owner runs — it stays in
     // EXECUTE with paused_at_stage=null and re-checks on the next tick.
@@ -1788,7 +1790,9 @@ Edit server/factory/plan-executor.js and make the requested behavior change. Kee
       factory_worktree_id: existing.id,
       owning_task_id: 'task-young-live-owner',
       owning_status: 'running',
+      retry_after: expect.any(String),
     });
+    expect(loopController._internalForTests.getAutoAdvanceDelayMs(executeAdvance)).toBeGreaterThanOrEqual(2500);
     expect(executeAdvance.stage_result.stale_age_ms).toBeGreaterThan(60 * 60 * 1000);
     expect(executeAdvance.stage_result.owner_age_ms).toBeGreaterThanOrEqual(0);
     expect(executeAdvance.stage_result.owner_age_ms).toBeLessThan(10 * 60 * 1000);
@@ -1802,6 +1806,7 @@ Edit server/factory/plan-executor.js and make the requested behavior change. Kee
       owning_task_id: 'task-young-live-owner',
       owning_status: 'running',
       worktree_dirty: false,
+      retry_after: expect.any(String),
     });
     expect(skipped.outcome.stale_age_ms).toBeGreaterThan(60 * 60 * 1000);
     expect(skipped.outcome.owner_age_ms).toBeGreaterThanOrEqual(0);
