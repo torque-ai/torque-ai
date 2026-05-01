@@ -276,8 +276,24 @@ function getTaskTags(task) {
   return rawTags.split(',').map(tag => tag.trim()).filter(Boolean);
 }
 
-function isFactoryInternalTask(task) {
-  return getTaskTags(task).includes('factory:internal');
+function getCodexFactoryWorkPriority(task) {
+  const tags = getTaskTags(task);
+  if (!tags.includes('factory:internal')) {
+    return 0;
+  }
+  if (tags.includes('factory:plan_generation') || tags.includes('factory:plan_quality_review')) {
+    return 1;
+  }
+  if (tags.includes('factory:architect_cycle')) {
+    return 2;
+  }
+  if (tags.includes('factory:replan_rewrite')) {
+    return 3;
+  }
+  if (tags.includes('factory:starvation_recovery') || tags.includes('factory:scout')) {
+    return 4;
+  }
+  return 5;
 }
 
 function prioritizeCodexProjectWork(codexTasks) {
@@ -285,20 +301,15 @@ function prioritizeCodexProjectWork(codexTasks) {
     return codexTasks || [];
   }
 
-  const projectWork = [];
-  const factoryInternal = [];
-  for (const task of codexTasks) {
-    if (isFactoryInternalTask(task)) {
-      factoryInternal.push(task);
-    } else {
-      projectWork.push(task);
-    }
-  }
-
-  if (projectWork.length === 0 || factoryInternal.length === 0) {
-    return codexTasks;
-  }
-  return [...projectWork, ...factoryInternal];
+  return codexTasks
+    .map((task, index) => ({ task, index, priority: getCodexFactoryWorkPriority(task) }))
+    .sort((left, right) => {
+      if (left.priority !== right.priority) {
+        return left.priority - right.priority;
+      }
+      return left.index - right.index;
+    })
+    .map(item => item.task);
 }
 
 function categorizeQueuedTasks(queuedTasks, codexEnabled) {

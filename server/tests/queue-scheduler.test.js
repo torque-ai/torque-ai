@@ -348,6 +348,40 @@ describe('Queue Scheduler', () => {
     });
   });
 
+  describe('prioritizeCodexProjectWork', () => {
+    it('keeps active factory plan work ahead of architect and scout maintenance', () => {
+      const ordered = scheduler.prioritizeCodexProjectWork([
+        makeTask({
+          id: 'architect',
+          provider: 'codex',
+          tags: JSON.stringify(['factory:internal', 'factory:architect_cycle']),
+        }),
+        makeTask({
+          id: 'scout',
+          provider: 'codex',
+          tags: JSON.stringify(['factory:internal', 'factory:scout', 'factory:starvation_recovery']),
+        }),
+        makeTask({
+          id: 'plan-generation',
+          provider: 'codex',
+          tags: JSON.stringify(['factory:internal', 'factory:plan_generation']),
+        }),
+        makeTask({
+          id: 'project-exec',
+          provider: 'codex',
+          tags: JSON.stringify(['factory:batch_id=batch-1', 'project:NetSim']),
+        }),
+      ]);
+
+      expect(ordered.map(task => task.id)).toEqual([
+        'project-exec',
+        'plan-generation',
+        'architect',
+        'scout',
+      ]);
+    });
+  });
+
   // ── processQueueInternal ──────────────────────────────────
 
   describe('processQueueInternal', () => {
