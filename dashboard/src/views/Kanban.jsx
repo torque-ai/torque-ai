@@ -278,6 +278,30 @@ const TaskCard = memo(function TaskCard({
   // so we don't render a duplicate badge on ordinary tasks.
   const targetProject = getTaskTagValue(task, 'factory:target_project');
   const showTargetProject = targetProject && targetProject !== task.project;
+  // Factory task kind — derived from the factory:<kind> tag set by
+  // submitFactoryInternalTask (architect_cycle, plan_generation,
+  // verify_review) or the scout submission path (scout). Surfaces the
+  // role of the task on the card so operators don't have to read the
+  // description to tell architect tasks from plan-gen tasks.
+  const FACTORY_KIND_LABELS = {
+    architect_cycle: 'architect',
+    architect_json: 'architect',
+    architect_backlog: 'architect',
+    plan_generation: 'plan-gen',
+    verify_review: 'verify-review',
+    scout: 'scout',
+  };
+  const factoryKind = (() => {
+    const tags = Array.isArray(task?.tags) ? task.tags : [];
+    for (const tag of tags) {
+      if (typeof tag !== 'string' || !tag.startsWith('factory:')) continue;
+      const rest = tag.slice('factory:'.length);
+      if (rest.includes('=')) continue;
+      const label = FACTORY_KIND_LABELS[rest];
+      if (label) return label;
+    }
+    return null;
+  })();
   const providerOptions = useMemo(
     () => buildProviderOptions(providerList, task.provider),
     [providerList, task.provider]
@@ -332,6 +356,14 @@ const TaskCard = memo(function TaskCard({
               title={`Factory target project: ${targetProject}`}
             >
               → {targetProject}
+            </span>
+          )}
+          {factoryKind && (
+            <span
+              className="rounded border border-violet-500/30 bg-violet-500/10 px-1.5 py-0.5 text-[10px] text-violet-200"
+              title={`Factory task kind: ${factoryKind}`}
+            >
+              {factoryKind}
             </span>
           )}
           {batchId && (

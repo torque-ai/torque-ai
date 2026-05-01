@@ -468,6 +468,49 @@ describe('Kanban', () => {
     });
   });
 
+  it('shows factory kind badge for scout/architect/plan-gen tasks', async () => {
+    tasksApi.list.mockImplementation(({ status }) => {
+      if (status === 'running') {
+        return Promise.resolve({
+          tasks: [
+            {
+              ...runningTask,
+              id: 'task-scout-1',
+              task_description: 'Starvation recovery scout for DLPhone',
+              project: null,
+              tags: [
+                'factory:scout',
+                'factory:reason=factory_starvation_recovery',
+                'factory:starvation_recovery',
+                'factory:target_project=DLPhone',
+              ],
+            },
+            {
+              ...runningTask,
+              id: 'task-arch-2',
+              task_description: 'Architect cycle',
+              project: 'factory-architect',
+              tags: ['factory:internal', 'factory:architect_cycle', 'factory:target_project=bitsy'],
+            },
+          ],
+        });
+      }
+      return Promise.resolve(emptyTasks);
+    });
+
+    renderWithProviders(<Kanban />, { route: '/' });
+
+    await waitFor(() => {
+      expect(screen.getByText('Starvation recovery scout for DLPhone')).toBeInTheDocument();
+      expect(screen.getByText('Architect cycle')).toBeInTheDocument();
+    });
+    expect(screen.getByText('scout')).toBeInTheDocument();
+    expect(screen.getByText('architect')).toBeInTheDocument();
+    // Scout case also gets the target-project badge so the user sees both
+    // pieces of info even though task.project is null.
+    expect(screen.getByText('→ DLPhone')).toBeInTheDocument();
+  });
+
   it('shows target-project badge on factory-internal tasks (architect/plan)', async () => {
     tasksApi.list.mockImplementation(({ status }) => {
       if (status === 'running') {

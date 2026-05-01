@@ -172,6 +172,18 @@ function handleSubmitScout(args) {
   }
   if (project_id) {
     tags.push(`factory:project_id=${project_id}`);
+    // Mirror submitFactoryInternalTask's target_project tag so the kanban
+    // can render a "→ <project>" badge on scout tasks the same way it does
+    // for architect/plan-gen. Without this, scout tasks (especially
+    // starvation_recovery scouts) showed up with no project label because
+    // task.project is null AND no target_project tag is set.
+    try {
+      const factoryHealth = require('../db/factory-health');
+      const project = factoryHealth.getProject(project_id);
+      if (project?.name) {
+        tags.push(`factory:target_project=${project.name}`);
+      }
+    } catch (_e) { void _e; }
   }
   if (reason === 'factory_starvation_recovery') {
     tags.push('factory:starvation_recovery');

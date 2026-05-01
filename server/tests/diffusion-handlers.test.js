@@ -185,6 +185,40 @@ describe('handleSubmitScout', () => {
       ]),
     }));
   });
+
+  it('adds factory:target_project tag when factoryHealth resolves the project name', () => {
+    // The kanban renders a "→ <project>" badge from factory:target_project,
+    // which makes scout tasks identifiable on the board the same way
+    // architect/plan-gen tasks already are.
+    installCjsModuleMock('../db/factory-health', {
+      getProject: (id) => (id === 'project-1' ? { id, name: 'DLPhone' } : null),
+    });
+    const fresh = require(HANDLER_MODULE);
+    fresh.handleSubmitScout({
+      scope: 'Factory starvation recovery scout.',
+      working_directory: '/proj',
+      provider: 'codex',
+      reason: 'factory_starvation_recovery',
+      project_id: 'project-1',
+    });
+    const lastCall = mockTaskCore.createTask.mock.calls.at(-1)[0];
+    expect(lastCall.tags).toContain('factory:target_project=DLPhone');
+  });
+
+  it('omits factory:target_project tag when factoryHealth has no record', () => {
+    installCjsModuleMock('../db/factory-health', {
+      getProject: () => null,
+    });
+    const fresh = require(HANDLER_MODULE);
+    fresh.handleSubmitScout({
+      scope: 'Scout.',
+      working_directory: '/proj',
+      provider: 'codex',
+      project_id: 'unknown-project',
+    });
+    const lastCall = mockTaskCore.createTask.mock.calls.at(-1)[0];
+    expect(lastCall.tags.some(t => t.startsWith('factory:target_project='))).toBe(false);
+  });
 });
 
 describe('handleCreateDiffusionPlan', () => {
