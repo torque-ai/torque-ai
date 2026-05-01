@@ -30,6 +30,7 @@ const { LOOP_STATES } = require('../factory/loop-states');
 const originalHandleSmartSubmitTask = routingModule.handleSmartSubmitTask;
 const originalHandleAwaitTask = awaitModule.handleAwaitTask;
 const originalGetTask = taskCore.getTask;
+const originalUpdateTaskStatus = taskCore.updateTaskStatus;
 
 function createFactoryTables(db) {
   db.exec(`
@@ -229,6 +230,7 @@ describe('factory loop-controller EXECUTE for non-plan-file work items', () => {
     routingModule.handleSmartSubmitTask = originalHandleSmartSubmitTask;
     awaitModule.handleAwaitTask = originalHandleAwaitTask;
     taskCore.getTask = originalGetTask;
+    taskCore.updateTaskStatus = originalUpdateTaskStatus;
     loopController.setWorktreeRunnerForTests(null);
     if (tempDir && fs.existsSync(tempDir)) {
       fs.rmSync(tempDir, { recursive: true, force: true });
@@ -716,6 +718,7 @@ describe('factory loop-controller EXECUTE for non-plan-file work items', () => {
     awaitModule.handleAwaitTask = vi.fn(async () => ({
       content: [{ type: 'text', text: 'task timed out while status: running' }],
     }));
+    const updateTaskStatusSpy = vi.spyOn(taskCore, 'updateTaskStatus').mockImplementation(() => null);
     taskCore.getTask = vi.fn((taskId) => {
       if (taskId === 'plan-gen-task') {
         return {
@@ -741,6 +744,13 @@ describe('factory loop-controller EXECUTE for non-plan-file work items', () => {
     const updatedWorkItem = factoryIntake.getWorkItem(workItem.id);
 
     expect(routingModule.handleSmartSubmitTask).toHaveBeenCalled();
+    expect(updateTaskStatusSpy).toHaveBeenCalledWith(
+      'plan-gen-task',
+      'skipped',
+      expect.objectContaining({
+        error_output: expect.stringContaining('stale never-started plan-generation task'),
+      })
+    );
     expect(awaitModule.handleAwaitTask).toHaveBeenCalledWith({
       task_id: 'replacement-plan-gen-task',
       timeout_minutes: 30,
