@@ -44,6 +44,40 @@ module.exports = [
     suggested_strategies: ['reject_and_advance', 'escalate'],
   },
   {
+    // EXECUTE pauses with reason "active worktree owner still running" are
+    // not failures — they're a transient wait condition the loop already
+    // self-heals via maybeClearCompletedExecuteOwnerWait
+    // (loop-controller.js:1709), which polls the owning_task_id every tick
+    // and clears the pause when the owner becomes terminal.
+    //
+    // Without this rule, auto-recovery falls through to the "unknown"
+    // catch-all, picks `retry`, and approveGate-clears the pause before the
+    // owner has actually finished. The next loop tick re-enters EXECUTE,
+    // the pre-execute reclaim check fires `worktree_reclaim_skipped_live_owner`
+    // again, and the loop transitions back to PAUSED. Auto-recovery then
+    // rearms on the new paused_at_gate decision and the cycle repeats every
+    // few minutes — observed live on bitsy work_item 2161 from 03:18 to
+    // 03:31 with no actual progress.
+    //
+    // Empty suggested_strategies routes the engine through the
+    // "no_strategy" branch, which marks `auto_recovery_exhausted=1` without
+    // touching the project. The factory tick keeps running because
+    // project.status stays "running"; maybeClearCompletedExecuteOwnerWait
+    // runs each tick and naturally lifts the pause when the owner finishes.
+    // The engine's normal rearm-on-real-decision path then resumes recovery
+    // for any future failure.
+    name: 'execute_paused_active_worktree_owner',
+    category: 'await_self_heal',
+    priority: 96,
+    confidence: 0.95,
+    match_fn: (d) => {
+      if (!d || d.stage !== 'execute' || d.action !== 'paused_at_gate') return false;
+      const reason = d.outcome?.reason;
+      return reason === 'active worktree owner still running';
+    },
+    suggested_strategies: [],
+  },
+  {
     name: 'execute_worktree_creation_gate',
     category: 'structural_failure',
     priority: 94,

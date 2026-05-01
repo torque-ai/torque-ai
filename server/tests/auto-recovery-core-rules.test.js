@@ -55,6 +55,49 @@ describe('auto-recovery-core day-one rules', () => {
     expect(r.matched_rule).toBe('execute_worktree_creation_gate');
   });
 
+  it('classifies "active worktree owner still running" as await_self_heal with empty strategies', () => {
+    // Regression for the bitsy work_item 2161 spin (2026-05-01 03:18-03:31):
+    // pre-execute reclaim found the worktree owned by a live task, the loop
+    // transitioned to PAUSED, auto-recovery picked retry → approveGate → un-paused,
+    // loop ticked → same condition → paused again, in a tight ~5 min cycle.
+    // This rule routes the fingerprint to no-action, letting
+    // maybeClearCompletedExecuteOwnerWait clear the pause naturally when the
+    // owning task terminates.
+    const r = classifier.classify({
+      stage: 'execute',
+      action: 'paused_at_gate',
+      reasoning: 'Loop paused awaiting approval for EXECUTE.',
+      outcome: {
+        from_state: 'EXECUTE',
+        to_state: 'PAUSED',
+        gate_stage: 'EXECUTE',
+        reason: 'active worktree owner still running',
+        work_item_id: 2161,
+      },
+    });
+    expect(r.matched_rule).toBe('execute_paused_active_worktree_owner');
+    expect(r.category).toBe('await_self_heal');
+    expect(r.suggested_strategies).toEqual([]);
+  });
+
+  it('does NOT match execute_paused_active_worktree_owner on other execute paused gates', () => {
+    // Sanity: the rule should be specific to the live-owner reason; it must not
+    // swallow other execute pauses (e.g. zero-diff, worktree-creation).
+    const zeroDiff = classifier.classify({
+      stage: 'execute',
+      action: 'paused_at_gate',
+      outcome: { reason: 'unknown_zero_diff_review_required' },
+    });
+    expect(zeroDiff.matched_rule).not.toBe('execute_paused_active_worktree_owner');
+
+    const wtCreate = classifier.classify({
+      stage: 'execute',
+      action: 'paused_at_gate',
+      outcome: { reason: 'worktree_creation_failed' },
+    });
+    expect(wtCreate.matched_rule).not.toBe('execute_paused_active_worktree_owner');
+  });
+
   it('classifies an unclassified VERIFY_FAIL as verify_fail_unclassified', () => {
     const r = classifier.classify({
       stage: 'verify', action: 'worktree_verify_failed',
