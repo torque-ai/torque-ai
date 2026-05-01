@@ -1,3 +1,5 @@
+> **STALE — needs rewrite (2026-05-01).** Current task table + decision_log already cover ~70% of this. Refresh focus: gap analysis vs existing decision_log + workflow_checkpoints (shipped via fabro-28) before deciding to extend or build a parallel store.
+
 # Fabro #29: Event-History-Backed Workflow Replay (Temporal)
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task.

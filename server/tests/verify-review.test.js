@@ -433,11 +433,11 @@ const modulePath = path.resolve(__dirname, '../factory/verify-review.js');
 describe('runLlmTiebreak', () => {
   const savedCache = new Map();
 
-  function installMocks({ submit, await: awaitFn, task }) {
+  function installMocks({ submit, await: awaitFn, task, listTasks }) {
     [
       { path: require.resolve('../factory/internal-task-submit'), exports: { submitFactoryInternalTask: submit } },
       { path: require.resolve('../handlers/workflow/await'), exports: { handleAwaitTask: awaitFn } },
-      { path: require.resolve('../db/task-core'), exports: { getTask: task } },
+      { path: require.resolve('../db/task-core'), exports: { getTask: task, ...(listTasks ? { listTasks } : {}) } },
     ].forEach(({ path, exports }) => {
       savedCache.set(path, require.cache[path]);
       require.cache[path] = { id: path, filename: path, loaded: true, exports, children: [], paths: [] };
@@ -484,6 +484,84 @@ describe('runLlmTiebreak', () => {
       project: { id: 'p', path: '/tmp/p' },
     });
     expect(r).toEqual({ verdict: null, critique: null, status: 'timeout', taskId: 't1' });
+  });
+
+  it('reuses an active queued verify_review task instead of submitting a duplicate', async () => {
+    const prompt = 'review this verify failure';
+    const hash = require('node:crypto').createHash('sha256').update(prompt).digest('hex').slice(0, 16);
+    const submit = vi.fn();
+    const awaitFn = vi.fn().mockResolvedValue({ status: 'timeout' });
+    installMocks({
+      submit,
+      await: awaitFn,
+      listTasks: vi.fn().mockReturnValue([{
+        id: 'existing-review',
+        status: 'queued',
+        tags: [
+          'factory:verify_review',
+          'factory:project_id=p',
+          'factory:work_item_id=1',
+          `factory:verify_review_hash=${hash}`,
+        ],
+      }]),
+      task: vi.fn().mockReturnValue({ status: 'queued', output: null }),
+    });
+    const { submitAndParseTiebreak } = require('../factory/verify-review');
+    const r = await submitAndParseTiebreak({
+      prompt,
+      workItem: { id: 1 },
+      project: { id: 'p', path: '/tmp/p' },
+      timeoutMs: 60_000,
+    });
+
+    expect(r).toEqual({ verdict: null, critique: null, status: 'timeout', taskId: 'existing-review' });
+    expect(submit).not.toHaveBeenCalled();
+    expect(awaitFn).toHaveBeenCalledWith({
+      task_id: 'existing-review',
+      timeout_minutes: 1,
+      heartbeat_minutes: 0,
+    });
+  });
+
+  it('reuses a completed verify_review task without awaiting or resubmitting', async () => {
+    const prompt = 'review this completed verify failure';
+    const hash = require('node:crypto').createHash('sha256').update(prompt).digest('hex').slice(0, 16);
+    const submit = vi.fn();
+    const awaitFn = vi.fn();
+    installMocks({
+      submit,
+      await: awaitFn,
+      listTasks: vi.fn().mockReturnValue([{
+        id: 'completed-review',
+        status: 'completed',
+        tags: [
+          'factory:verify_review',
+          'factory:project_id=p',
+          'factory:work_item_id=1',
+          `factory:verify_review_hash=${hash}`,
+        ],
+      }]),
+      task: vi.fn().mockReturnValue({
+        status: 'completed',
+        output: '{"verdict":"go","critique":"Existing review approved retry."}',
+      }),
+    });
+    const { submitAndParseTiebreak } = require('../factory/verify-review');
+    const r = await submitAndParseTiebreak({
+      prompt,
+      workItem: { id: 1 },
+      project: { id: 'p', path: '/tmp/p' },
+      timeoutMs: 60_000,
+    });
+
+    expect(r).toEqual({
+      verdict: 'go',
+      critique: 'Existing review approved retry.',
+      status: 'completed',
+      taskId: 'completed-review',
+    });
+    expect(submit).not.toHaveBeenCalled();
+    expect(awaitFn).not.toHaveBeenCalled();
   });
 
   it('returns {verdict: "no-go", critique} when task output is JSON no-go', async () => {

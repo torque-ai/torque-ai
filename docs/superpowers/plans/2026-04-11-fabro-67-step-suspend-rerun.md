@@ -1,3 +1,5 @@
+> **STALE — needs rewrite (2026-05-01).** Layered on unshipped fabro-30 (signals/queries) and fabro-43 (human tasks). Refresh focus: collapse 30/43/67 into one in-flight-pause primitive.
+
 # Fabro #67: Step-Native Suspend + Rerun (Pipedream)
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task.

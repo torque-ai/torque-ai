@@ -1,6 +1,7 @@
 'use strict';
 
 const childProcess = require('node:child_process');
+const { createHash } = require('node:crypto');
 const { getProviderLanePolicyFromProject } = require('./provider-lane-policy');
 
 // Register built-in dep-resolver adapters on module load. Idempotent —
@@ -34,6 +35,7 @@ const ENVIRONMENT_STDERR_PATTERNS = [
   /\bkilled by signal\b/i,
 ];
 const REVIEW_TASK_TIMEOUT_RE = /\btimeout exceeded\b/i;
+const ACTIVE_VERIFY_REVIEW_STATUSES = new Set(['pending', 'pending_approval', 'queued', 'running', 'waiting']);
 
 // Files whose modification can break tests that don't import them directly:
 // dependency lockfiles, build/test config, repo-wide infrastructure dirs,
@@ -460,43 +462,59 @@ async function submitAndParseTiebreak({ prompt, workingDirectory, project, workI
   const taskCore = require('../db/task-core');
 
   const timeoutMinutes = timeoutMinutesForMs(timeoutMs);
+  const reviewHash = getVerifyReviewHash(prompt);
   let taskId;
+  let taskStatus = null;
+  const existingTask = findExistingVerifyReviewTask(taskCore, {
+    project,
+    workItem,
+    reviewHash,
+  });
+  if (existingTask) {
+    taskId = existingTask.id;
+    taskStatus = String(existingTask.status || '').toLowerCase();
+  }
   try {
-    const submitResult = await submitFactoryInternalTask({
-      task: prompt,
-      working_directory: workingDirectory || project?.path || process.cwd(),
-      kind: 'verify_review',
-      project_id: project?.id,
-      work_item_id: workItem?.id,
-      timeout_minutes: timeoutMinutes,
-      // The prompt already contains all needed context (failing tests,
-      // modified files, verify excerpt). Skip context-stuffing so the
-      // model focuses on the verdict instead of re-deriving it from
-      // scanned project files.
-      context_stuff: false,
-      // prefer_free=true gives cerebras → groq → google-ai → openrouter
-      // fallback if the primary provider is unhealthy. Avoids paying
-      // Codex prices for what a fast free model handles in seconds.
-      prefer_free: true,
-      ...(reviewerProvider ? { provider: reviewerProvider } : {}),
-      // Pin the reviewer model — the routing template's free-agentic
-      // preset specifies qwen-3-235b for plan_generation, which would
-      // override the cerebras adapter's structured-output model
-      // selection. llama3.1-8b handles short JSON-mode prompts in <1s
-      // and is reliably available on tier-1 cerebras keys.
-      ...(reviewerModel ? { model: reviewerModel } : {}),
-      // Structured-output hint: the cerebras adapter (and any future
-      // adapter) treats response_format=json_object as a signal to
-      // a) flip on the API's JSON mode, b) prefer the smaller/faster
-      // structured model, and c) clamp temperature to 0. Cuts the
-      // invalid_output retry rate to near zero on JSON-mode-capable
-      // providers.
-      extra_metadata: {
-        response_format: 'json_object',
-        max_tokens: 512,
-      },
-    });
-    taskId = submitResult?.task_id || null;
+    if (!taskId) {
+      const submitResult = await submitFactoryInternalTask({
+        task: prompt,
+        working_directory: workingDirectory || project?.path || process.cwd(),
+        kind: 'verify_review',
+        project_id: project?.id,
+        work_item_id: workItem?.id,
+        timeout_minutes: timeoutMinutes,
+        // The prompt already contains all needed context (failing tests,
+        // modified files, verify excerpt). Skip context-stuffing so the
+        // model focuses on the verdict instead of re-deriving it from
+        // scanned project files.
+        context_stuff: false,
+        // prefer_free=true gives cerebras → groq → google-ai → openrouter
+        // fallback if the primary provider is unhealthy. Avoids paying
+        // Codex prices for what a fast free model handles in seconds.
+        prefer_free: true,
+        ...(reviewerProvider ? { provider: reviewerProvider } : {}),
+        // Pin the reviewer model — the routing template's free-agentic
+        // preset specifies qwen-3-235b for plan_generation, which would
+        // override the cerebras adapter's structured-output model
+        // selection. llama3.1-8b handles short JSON-mode prompts in <1s
+        // and is reliably available on tier-1 cerebras keys.
+        ...(reviewerModel ? { model: reviewerModel } : {}),
+        extra_tags: [`factory:verify_review_hash=${reviewHash}`],
+        // Structured-output hint: the cerebras adapter (and any future
+        // adapter) treats response_format=json_object as a signal to
+        // a) flip on the API's JSON mode, b) prefer the smaller/faster
+        // structured model, and c) clamp temperature to 0. Cuts the
+        // invalid_output retry rate to near zero on JSON-mode-capable
+        // providers.
+        extra_metadata: {
+          response_format: 'json_object',
+          max_tokens: 512,
+          verify_review_hash: reviewHash,
+        },
+      });
+      taskId = submitResult?.task_id || null;
+      taskStatus = null;
+    }
   } catch (err) {
     // Capture the underlying reason so the verifier's heuristic-only fallback
     // path is auditable. Without this, `llmStatus: "submit_failed"` ended up
@@ -524,11 +542,13 @@ async function submitAndParseTiebreak({ prompt, workingDirectory, project, workI
 
   let awaitResult = null;
   try {
-    awaitResult = await handleAwaitTask({
-      task_id: taskId,
-      timeout_minutes: timeoutMinutes,
-      heartbeat_minutes: 0,
-    });
+    if (taskStatus !== 'completed') {
+      awaitResult = await handleAwaitTask({
+        task_id: taskId,
+        timeout_minutes: timeoutMinutes,
+        heartbeat_minutes: 0,
+      });
+    }
   } catch (_e) {
     return buildLlmResult({ status: 'await_failed', taskId });
   }
@@ -562,6 +582,50 @@ async function submitAndParseTiebreak({ prompt, workingDirectory, project, workI
     void _e;
     return buildLlmResult({ status: 'invalid_output', taskId });
   }
+}
+
+function getVerifyReviewHash(prompt) {
+  return createHash('sha256')
+    .update(String(prompt || ''))
+    .digest('hex')
+    .slice(0, 16);
+}
+
+function findExistingVerifyReviewTask(taskCore, { project, workItem, reviewHash }) {
+  if (!taskCore || typeof taskCore.listTasks !== 'function' || !project?.id || !workItem?.id || !reviewHash) {
+    return null;
+  }
+
+  const projectTag = `factory:project_id=${project.id}`;
+  const workItemTag = `factory:work_item_id=${workItem.id}`;
+  const hashTag = `factory:verify_review_hash=${reviewHash}`;
+  let candidates = [];
+  try {
+    candidates = taskCore.listTasks({
+      project: 'factory-plan',
+      tag: workItemTag,
+      statuses: ['pending', 'pending_approval', 'queued', 'running', 'waiting', 'completed'],
+      orderBy: 'created_at',
+      orderDir: 'desc',
+      limit: 50,
+      columns: ['id', 'status', 'tags', 'created_at', 'started_at'],
+    });
+  } catch (_e) {
+    return null;
+  }
+
+  const matching = candidates.filter((candidate) => (
+    Array.isArray(candidate?.tags)
+    && candidate.tags.includes('factory:verify_review')
+    && candidate.tags.includes(projectTag)
+    && candidate.tags.includes(workItemTag)
+    && candidate.tags.includes(hashTag)
+  ));
+  if (matching.length === 0) return null;
+
+  return matching.find((candidate) => ACTIVE_VERIFY_REVIEW_STATUSES.has(String(candidate.status || '').toLowerCase()))
+    || matching.find((candidate) => String(candidate.status || '').toLowerCase() === 'completed')
+    || null;
 }
 
 // Statuses that warrant an in-process retry: the first attempt produced
@@ -914,6 +978,8 @@ module.exports = {
   getModifiedFiles,
   runLlmTiebreak,
   submitAndParseTiebreak,
+  getVerifyReviewHash,
+  findExistingVerifyReviewTask,
   reviewVerifyFailure,
   buildTiebreakPrompt,
   extractVerifyExcerpt,
