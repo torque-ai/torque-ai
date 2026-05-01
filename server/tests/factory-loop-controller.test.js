@@ -709,14 +709,14 @@ Edit server/factory/plan-executor.js and make the requested behavior change. Kee
     const executeAdvance = await loopController.advanceLoopForProject(project.id);
 
     expect(executeAdvance.new_state).toBe(LOOP_STATES.VERIFY);
-    expect(executeAdvance.paused_at_stage).toBe(LOOP_STATES.VERIFY);
+    // a0da7fcf: VERIFY no longer pauses while waiting for batch tasks —
+    // the loop just stays at VERIFY and re-checks on next advance once
+    // the tasks reach a terminal state. paused_at_stage is null.
+    expect(executeAdvance.paused_at_stage).toBeNull();
     expect(executeAdvance.reason).toBe('batch_tasks_not_terminal');
     expect(worktreeRunner.verify).not.toHaveBeenCalled();
 
     db.prepare(`UPDATE tasks SET status = 'completed' WHERE id = ?`).run('approval-task-1');
-
-    const approved = loopController.approveGateForProject(project.id, LOOP_STATES.VERIFY);
-    expect(approved.state).toBe(LOOP_STATES.VERIFY);
     expect(loopController.getLoopStateForProject(project.id)).toMatchObject({
       loop_state: LOOP_STATES.VERIFY,
       loop_paused_at_stage: null,
@@ -847,7 +847,9 @@ Edit server/factory/plan-executor.js and make the requested behavior change. Kee
       expect(executeAdvance.reason).toBe('batch_tasks_not_terminal');
 
       db.prepare(`UPDATE tasks SET status = 'completed' WHERE id = ?`).run('approval-task-branch-stale-1');
-      loopController.approveGateForProject(project.id, LOOP_STATES.VERIFY);
+      // a0da7fcf removed the VERIFY pause on the batch-tasks-not-terminal path,
+    // so there's nothing to approve here — the next advanceLoop transitions
+    // to VERIFY on its own once the task is completed above.
 
       const verifyAdvance = await loopController.advanceLoopForProject(project.id);
 
@@ -1219,7 +1221,9 @@ Edit server/factory/plan-executor.js and make the requested behavior change. Kee
     await loopController.advanceLoopForProject(project.id);
     // Complete pending-approval task so VERIFY can enter.
     db.prepare(`UPDATE tasks SET status = 'completed' WHERE id = ?`).run('approval-or-retry-task-1');
-    loopController.approveGateForProject(project.id, LOOP_STATES.VERIFY);
+    // a0da7fcf removed the VERIFY pause on the batch-tasks-not-terminal path,
+    // so there's nothing to approve here — the next advanceLoop transitions
+    // to VERIFY on its own once the task is completed above.
 
     const verifyAdvance = await loopController.advanceLoopForProject(project.id);
 
@@ -1311,7 +1315,9 @@ Edit server/factory/plan-executor.js and make the requested behavior change. Kee
     await advanceSupervisedPlanProject(project.id);
     await loopController.advanceLoopForProject(project.id);
     db.prepare(`UPDATE tasks SET status = 'completed' WHERE id = ?`).run('lane-retry-task-1');
-    loopController.approveGateForProject(project.id, LOOP_STATES.VERIFY);
+    // a0da7fcf removed the VERIFY pause on the batch-tasks-not-terminal path,
+    // so there's nothing to approve here — the next advanceLoop transitions
+    // to VERIFY on its own once the task is completed above.
 
     await loopController.advanceLoopForProject(project.id);
 
@@ -1379,7 +1385,9 @@ Edit server/factory/plan-executor.js and make the requested behavior change. Kee
     await advanceSupervisedPlanProject(project.id);
     await loopController.advanceLoopForProject(project.id);
     db.prepare(`UPDATE tasks SET status = 'completed' WHERE id = ?`).run('approval-task-transient-1');
-    loopController.approveGateForProject(project.id, LOOP_STATES.VERIFY);
+    // a0da7fcf removed the VERIFY pause on the batch-tasks-not-terminal path,
+    // so there's nothing to approve here — the next advanceLoop transitions
+    // to VERIFY on its own once the task is completed above.
 
     const verifyAdvance = await loopController.advanceLoopForProject(project.id);
 
@@ -1426,7 +1434,9 @@ Edit server/factory/plan-executor.js and make the requested behavior change. Kee
     await advanceSupervisedPlanProject(project.id);
     await loopController.advanceLoopForProject(project.id);
     db.prepare(`UPDATE tasks SET status = 'completed' WHERE id = ?`).run('approval-task-exhaust-1');
-    loopController.approveGateForProject(project.id, LOOP_STATES.VERIFY);
+    // a0da7fcf removed the VERIFY pause on the batch-tasks-not-terminal path,
+    // so there's nothing to approve here — the next advanceLoop transitions
+    // to VERIFY on its own once the task is completed above.
 
     const verifyAdvance = await loopController.advanceLoopForProject(project.id);
 
@@ -1485,7 +1495,9 @@ Edit server/factory/plan-executor.js and make the requested behavior change. Kee
     await advanceSupervisedPlanProject(project.id);
     await loopController.advanceLoopForProject(project.id);
     db.prepare(`UPDATE tasks SET status = 'completed' WHERE id = ?`).run('approval-task-cwd-missing-1');
-    loopController.approveGateForProject(project.id, LOOP_STATES.VERIFY);
+    // a0da7fcf removed the VERIFY pause on the batch-tasks-not-terminal path,
+    // so there's nothing to approve here — the next advanceLoop transitions
+    // to VERIFY on its own once the task is completed above.
 
     const verifyAdvance = await loopController.advanceLoopForProject(project.id);
 
