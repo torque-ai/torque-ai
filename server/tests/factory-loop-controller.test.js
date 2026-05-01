@@ -282,7 +282,7 @@ describe('factory loop-controller EXECUTE modes', () => {
         status: 'deferred',
         retry_after: '2026-04-30T23:59:59.000Z',
       },
-    }, nowMs)).toBe(2500);
+    }, nowMs)).toBe(30000);
     expect(getAutoAdvanceDelayMs({ stage_result: { status: 'deferred' } }, nowMs)).toBe(30000);
     expect(getAutoAdvanceDelayMs({
       stage_result: {

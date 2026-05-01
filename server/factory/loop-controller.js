@@ -1154,6 +1154,9 @@ function getAutoAdvanceDelayMs(result, nowMs = Date.now()) {
 
   const parsedDelay = parseRetryAfterDelayMs(retryAfter, nowMs);
   if (parsedDelay !== null) {
+    if (parsedDelay <= 0) {
+      return AUTO_ADVANCE_DEFERRED_FALLBACK_DELAY_MS;
+    }
     return clampAutoAdvanceDelayMs(parsedDelay, {
       min: AUTO_ADVANCE_DEFERRED_MIN_DELAY_MS,
       max: AUTO_ADVANCE_DEFERRED_MAX_DELAY_MS,
