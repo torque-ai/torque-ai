@@ -55,10 +55,19 @@ function setHostFns(fns) {
 // Cache: ollama_host_id → workstation_id (null = no workstation found)
 const _wsHostCache = new Map();
 function getVramOverheadFactor() {
-  const configured = _getDatabaseConfig('vram_overhead_factor');
-  if (configured) {
-    const val = parseFloat(configured);
-    if (val >= 0.5 && val <= 1.0) return val;
+  // host-management injects `_getDatabaseConfig` via setHostFns when its
+  // own setDb runs. Callers that reach this function before that
+  // bootstrap (test harnesses that wire only `db` through the DI
+  // container, lazy import paths) would otherwise hit
+  // `_getDatabaseConfig is not a function` and the caller's surrounding
+  // try/catch would surface a confusing "Failed to..." string instead
+  // of the sensible default the function already declares below.
+  if (typeof _getDatabaseConfig === 'function') {
+    const configured = _getDatabaseConfig('vram_overhead_factor');
+    if (configured) {
+      const val = parseFloat(configured);
+      if (val >= 0.5 && val <= 1.0) return val;
+    }
   }
   return 0.95;
 }
