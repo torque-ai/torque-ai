@@ -649,19 +649,30 @@ async function runArchitectLLM(prompt, project_id, projectPath) {
     });
     taskId = task_id;
     if (!taskId) {
-      logger.warn('Architect task submission returned no task_id');
+      logger.warn(`[architect-cycle] no_task_id project_id=${project_id}: submit returned without a task_id`);
       return null;
     }
   } catch (err) {
-    logger.warn(`Failed to submit architect task: ${err.message}`);
+    logger.warn(`[architect-cycle] submit_failed project_id=${project_id}: ${err.message}`);
     return null;
   }
 
-  // Wait for completion (up to 5 minutes)
-  const deadline = Date.now() + 5 * 60 * 1000;
+  // Phase W (2026-05-01): bumped from 5min → 15min to match Phase T's
+  // submitArchitectJsonPrompt deadline. Codex queue depth on busy days
+  // routinely exceeds 5min before a task lands; the original 5min poll
+  // gave up before the architect could run, leaving runArchitectCycle
+  // returning null and the loop reporting "Architect task timed out"
+  // even though the task itself was about to start. Live evidence:
+  // 2× warns on NetSim 2026-05-01 20:18 + 20:25 UTC during the same
+  // codex congestion that kept NetSim in STARVED for ~70min.
+  const deadlineMs = 15 * 60 * 1000;
+  const deadline = Date.now() + deadlineMs;
   while (Date.now() < deadline) {
     const task = taskCore.getTask(taskId);
-    if (!task) break;
+    if (!task) {
+      logger.warn(`[architect-cycle] task_vanished project_id=${project_id} task_id=${taskId}: task row not found mid-poll`);
+      return null;
+    }
     if (task.status === 'completed') {
       const output = task.output || '';
       try {
@@ -674,18 +685,20 @@ async function runArchitectLLM(prompt, project_id, projectPath) {
           }
         }
       } catch (parseErr) {
-        logger.warn(`Failed to parse architect output: ${parseErr.message}`);
+        logger.warn(`[architect-cycle] parse_failed project_id=${project_id} task_id=${taskId}: ${parseErr.message}`);
       }
       return null;
     }
     if (task.status === 'failed' || task.status === 'cancelled') {
+      const errSnippet = (task.error_output || '').slice(-200);
+      logger.warn(`[architect-cycle] task_${task.status} project_id=${project_id} task_id=${taskId} provider=${task.provider || '?'}: error_tail=${JSON.stringify(errSnippet)}`);
       return null;
     }
     // Brief wait before checking again
     await new Promise(resolve => setTimeout(resolve, 3000));
   }
 
-  logger.warn('Architect task timed out');
+  logger.warn(`[architect-cycle] deadline_exceeded project_id=${project_id} task_id=${taskId}: no terminal status within ${deadlineMs}ms`);
   return null;
 }
 
