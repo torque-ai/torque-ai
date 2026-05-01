@@ -645,10 +645,29 @@ async function handleRestartServerBarrier(args) {
   const drainTimeoutMs = drainTimeoutMinutes * 60 * 1000;
   const drainStarted = Date.now();
 
+  // Require running=0 across two consecutive polls before triggering shutdown.
+  // The single-poll variant raced with status-update lag: a Codex subprocess
+  // that exited but hadn't yet flushed its terminal status to the tasks row
+  // could let the drain see 0, fire shutdown, and then the row would be left
+  // in `running` status across the restart for the startup-task-reconciler
+  // to mark cancelled. Two consecutive empty polls (≥10s apart) confirms the
+  // pipeline is genuinely empty rather than mid-status-flush. Costs at most
+  // one extra 10s tick at the tail of every drain.
+  let consecutiveZeroPolls = 0;
+
   const drainPoll = setInterval(() => {
     const running = taskCore.listTasks({ status: 'running', limit: 1000 }).filter(t => t.provider !== 'system').length;
 
+    if (running > 0) {
+      consecutiveZeroPolls = 0;
+    }
+
     if (running === 0) {
+      consecutiveZeroPolls += 1;
+      if (consecutiveZeroPolls < 2) {
+        logger.info('[Restart] Drain: running=0; waiting one more poll to confirm pipeline is stably empty');
+        return;
+      }
       clearInterval(drainPoll);
       logger.info('[Restart] Drain complete — scheduling successor-owned barrier completion and restarting...');
       // Set the in-memory flag before shutdown scheduling so
