@@ -382,6 +382,170 @@ describe('Queue Scheduler', () => {
     });
   });
 
+  describe('filterSupersededFactoryInternalTasks', () => {
+    it('defers stale same-project architect work behind newer plan generation', () => {
+      const queued = [
+        makeTask({
+          id: 'old-architect',
+          status: 'queued',
+          created_at: '2026-05-01T20:00:00.000Z',
+          provider: 'codex',
+          tags: JSON.stringify([
+            'factory:internal',
+            'factory:architect_cycle',
+            'factory:project_id=project-a',
+          ]),
+        }),
+        makeTask({
+          id: 'new-plan',
+          status: 'queued',
+          created_at: '2026-05-01T21:00:00.000Z',
+          provider: 'codex',
+          tags: JSON.stringify([
+            'factory:internal',
+            'factory:plan_generation',
+            'factory:project_id=project-a',
+          ]),
+        }),
+      ];
+
+      const filtered = scheduler.filterSupersededFactoryInternalTasks(queued, []);
+
+      expect(filtered.map(task => task.id)).toEqual(['new-plan']);
+    });
+
+    it('defers stale same-project architect work behind active project execution parsed from batch id', () => {
+      const projectId = 'a1e8a728-c98c-46ad-b34f-772cd149572a';
+      const queued = [
+        makeTask({
+          id: 'old-architect',
+          status: 'queued',
+          created_at: '2026-05-01T20:00:00.000Z',
+          provider: 'codex',
+          tags: JSON.stringify([
+            'factory:internal',
+            'factory:architect_cycle',
+            `factory:project_id=${projectId}`,
+          ]),
+        }),
+      ];
+      const running = [
+        makeTask({
+          id: 'active-execute',
+          status: 'running',
+          created_at: '2026-05-01T21:00:00.000Z',
+          provider: 'codex',
+          tags: JSON.stringify([
+            `factory:batch_id=factory-${projectId}-2190`,
+            'factory:work_item_id=2190',
+            'project:NetSim',
+          ]),
+        }),
+      ];
+
+      const filtered = scheduler.filterSupersededFactoryInternalTasks(queued, running);
+
+      expect(filtered).toEqual([]);
+    });
+
+    it('keeps replan work after a newer plan-generation task is already terminal', () => {
+      const queued = [
+        makeTask({
+          id: 'replan',
+          status: 'queued',
+          created_at: '2026-05-01T20:00:00.000Z',
+          provider: 'codex',
+          tags: JSON.stringify([
+            'factory:internal',
+            'factory:replan_rewrite',
+            'factory:project_id=project-a',
+          ]),
+        }),
+      ];
+      const completedPlan = [
+        makeTask({
+          id: 'completed-plan',
+          status: 'completed',
+          created_at: '2026-05-01T21:00:00.000Z',
+          provider: 'codex',
+          tags: JSON.stringify([
+            'factory:internal',
+            'factory:plan_generation',
+            'factory:project_id=project-a',
+          ]),
+        }),
+      ];
+
+      const filtered = scheduler.filterSupersededFactoryInternalTasks(queued, completedPlan);
+
+      expect(filtered.map(task => task.id)).toEqual(['replan']);
+    });
+
+    it('keeps only the newest queued same-project maintenance task of a kind', () => {
+      const queued = [
+        makeTask({
+          id: 'old-architect',
+          status: 'queued',
+          created_at: '2026-05-01T20:00:00.000Z',
+          provider: 'codex',
+          tags: JSON.stringify([
+            'factory:internal',
+            'factory:architect_cycle',
+            'factory:project_id=project-a',
+          ]),
+        }),
+        makeTask({
+          id: 'new-architect',
+          status: 'queued',
+          created_at: '2026-05-01T21:00:00.000Z',
+          provider: 'codex',
+          tags: JSON.stringify([
+            'factory:internal',
+            'factory:architect_cycle',
+            'factory:project_id=project-a',
+          ]),
+        }),
+      ];
+
+      const filtered = scheduler.filterSupersededFactoryInternalTasks(queued, []);
+
+      expect(filtered.map(task => task.id)).toEqual(['new-architect']);
+    });
+
+    it('defers queued same-project maintenance when one of the same kind is already running', () => {
+      const queued = [
+        makeTask({
+          id: 'queued-architect',
+          status: 'queued',
+          created_at: '2026-05-01T21:00:00.000Z',
+          provider: 'codex',
+          tags: JSON.stringify([
+            'factory:internal',
+            'factory:architect_cycle',
+            'factory:project_id=project-a',
+          ]),
+        }),
+      ];
+      const running = [
+        makeTask({
+          id: 'running-architect',
+          status: 'running',
+          created_at: '2026-05-01T20:00:00.000Z',
+          provider: 'codex',
+          tags: JSON.stringify([
+            'factory:internal',
+            'factory:architect_cycle',
+            'factory:project_id=project-a',
+          ]),
+        }),
+      ];
+
+      const filtered = scheduler.filterSupersededFactoryInternalTasks(queued, running);
+
+      expect(filtered).toEqual([]);
+    });
+  });
+
   // ── processQueueInternal ──────────────────────────────────
 
   describe('processQueueInternal', () => {
@@ -422,6 +586,54 @@ describe('Queue Scheduler', () => {
       }
 
       expect(mockDb.listTasks).not.toHaveBeenCalled();
+      expect(mocks.safeStartTask).not.toHaveBeenCalled();
+    });
+
+    it('does not start a stale queued architect task when a newer completed plan-generation signal exists', () => {
+      const staleArchitect = makeTask({
+        id: 'old-architect',
+        status: 'queued',
+        provider: 'codex',
+        created_at: '2026-05-01T20:00:00.000Z',
+        tags: JSON.stringify([
+          'factory:internal',
+          'factory:architect_cycle',
+          'factory:project_id=project-a',
+        ]),
+      });
+      const completedPlan = {
+        id: 'new-plan',
+        status: 'completed',
+        created_at: '2026-05-01T21:00:00.000Z',
+        tags: JSON.stringify([
+          'factory:internal',
+          'factory:plan_generation',
+          'factory:project_id=project-a',
+        ]),
+        metadata: null,
+      };
+
+      mockDb.listTasks.mockImplementation(({ status }) => {
+        if (status === 'queued') return [staleArchitect];
+        if (status === 'running') return [];
+        return [];
+      });
+      mockDb.getNextQueuedTask.mockReturnValue(staleArchitect);
+      mockDb.prepare.mockImplementation((sql) => {
+        if (sql.includes('SELECT value FROM config')) {
+          return { get: (key) => {
+            const val = mockDb.getConfig(key);
+            return val != null ? { value: val } : undefined;
+          }};
+        }
+        if (sql.includes('FROM tasks') && sql.includes('factory:plan_generation')) {
+          return { all: vi.fn().mockReturnValue([completedPlan]) };
+        }
+        return { all: vi.fn().mockReturnValue([]), run: vi.fn(), get: vi.fn() };
+      });
+
+      scheduler.processQueueInternal();
+
       expect(mocks.safeStartTask).not.toHaveBeenCalled();
     });
 

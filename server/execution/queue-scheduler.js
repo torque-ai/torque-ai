@@ -78,6 +78,32 @@ const COST_FREE_PROVIDERS = Object.freeze([
   'ollama',
 ]);
 const FILE_LOCK_WAIT_METADATA_KEY = 'file_lock_wait';
+const FACTORY_SUPERSEDED_BY_PLAN_STATUSES = new Set([
+  'pending',
+  'queued',
+  'running',
+  'waiting',
+  'completed',
+]);
+const FACTORY_SUPERSEDED_BY_ACTIVE_STATUSES = new Set([
+  'pending',
+  'queued',
+  'running',
+  'waiting',
+]);
+const FACTORY_ARCHITECT_MAINTENANCE_KINDS = new Set([
+  'architect_cycle',
+  'scout',
+  'starvation_recovery',
+]);
+const FACTORY_REPLAN_MAINTENANCE_KINDS = new Set([
+  'replan_decompose',
+  'replan_rewrite',
+]);
+const FACTORY_PLAN_SIGNAL_KINDS = new Set([
+  'plan_generation',
+  'plan_quality_review',
+]);
 
 function removeStaleQueueChangedListeners() {
   for (const listener of process.listeners(QUEUE_CHANGED_EVENT)) {
@@ -274,6 +300,218 @@ function getTaskTags(task) {
     // Fall through to a lightweight comma split for legacy tag strings.
   }
   return rawTags.split(',').map(tag => tag.trim()).filter(Boolean);
+}
+
+function getTaskMetadata(task) {
+  try {
+    return normalizeMetadata(task?.metadata) || {};
+  } catch {
+    return {};
+  }
+}
+
+function getFactoryTagValue(tags, prefix) {
+  const tag = tags.find(item => typeof item === 'string' && item.startsWith(prefix));
+  return tag ? tag.slice(prefix.length) : null;
+}
+
+function getFactoryProjectId(task) {
+  const tags = getTaskTags(task);
+  const direct = getFactoryTagValue(tags, 'factory:project_id=');
+  if (direct) return direct;
+
+  const batchId = getFactoryTagValue(tags, 'factory:batch_id=');
+  if (batchId) {
+    const match = batchId.match(/^factory-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})-/i);
+    if (match) return match[1];
+  }
+
+  const metadata = getTaskMetadata(task);
+  if (typeof metadata.project_id === 'string' && metadata.project_id.trim()) {
+    return metadata.project_id.trim();
+  }
+  return null;
+}
+
+function getFactoryKind(task) {
+  const tags = getTaskTags(task);
+  const kindTag = tags.find(tag => (
+    typeof tag === 'string'
+    && tag.startsWith('factory:')
+    && !tag.includes('=')
+    && tag !== 'factory:internal'
+  ));
+  if (kindTag) return kindTag.slice('factory:'.length);
+
+  const metadata = getTaskMetadata(task);
+  if (typeof metadata.kind === 'string' && metadata.kind.trim()) {
+    return metadata.kind.trim();
+  }
+  return null;
+}
+
+function getTaskCreatedAtMs(task) {
+  const createdAtMs = Date.parse(task?.created_at || '');
+  return Number.isFinite(createdAtMs) ? createdAtMs : Number.NEGATIVE_INFINITY;
+}
+
+function hasFactoryInternalTag(task) {
+  return getTaskTags(task).includes('factory:internal') || getTaskMetadata(task).factory_internal === true;
+}
+
+function isFactoryMaintenanceTask(task) {
+  if (!hasFactoryInternalTag(task)) return false;
+  const kind = getFactoryKind(task);
+  return FACTORY_ARCHITECT_MAINTENANCE_KINDS.has(kind)
+    || FACTORY_REPLAN_MAINTENANCE_KINDS.has(kind);
+}
+
+function isActiveFactoryMaintenanceTask(task) {
+  return isFactoryMaintenanceTask(task)
+    && FACTORY_SUPERSEDED_BY_ACTIVE_STATUSES.has(String(task?.status || '').toLowerCase());
+}
+
+function isFactoryPlanSignal(task) {
+  return hasFactoryInternalTag(task) && FACTORY_PLAN_SIGNAL_KINDS.has(getFactoryKind(task));
+}
+
+function isFactoryProjectExecutionSignal(task) {
+  if (hasFactoryInternalTag(task)) return false;
+  const tags = getTaskTags(task);
+  return tags.some(tag => typeof tag === 'string' && tag.startsWith('factory:batch_id=factory-'));
+}
+
+function isSupersedingFactorySignal(candidate, signal) {
+  if (!candidate || !signal || candidate.id === signal.id) return false;
+
+  const projectId = getFactoryProjectId(candidate);
+  if (!projectId || getFactoryProjectId(signal) !== projectId) return false;
+
+  const candidateCreatedAt = getTaskCreatedAtMs(candidate);
+  const signalCreatedAt = getTaskCreatedAtMs(signal);
+  const candidateKind = getFactoryKind(candidate);
+  const signalStatus = String(signal.status || '').toLowerCase();
+
+  if (isActiveFactoryMaintenanceTask(signal) && getFactoryKind(signal) === candidateKind) {
+    return signalStatus === 'running' || signalCreatedAt > candidateCreatedAt;
+  }
+
+  if (signalCreatedAt < candidateCreatedAt) return false;
+
+  if (isFactoryProjectExecutionSignal(signal)) {
+    return FACTORY_SUPERSEDED_BY_ACTIVE_STATUSES.has(signalStatus);
+  }
+
+  if (!isFactoryPlanSignal(signal)) {
+    return false;
+  }
+
+  if (FACTORY_ARCHITECT_MAINTENANCE_KINDS.has(candidateKind)) {
+    return FACTORY_SUPERSEDED_BY_PLAN_STATUSES.has(signalStatus);
+  }
+
+  if (FACTORY_REPLAN_MAINTENANCE_KINDS.has(candidateKind)) {
+    return FACTORY_SUPERSEDED_BY_ACTIVE_STATUSES.has(signalStatus);
+  }
+
+  return false;
+}
+
+function filterSupersededFactoryInternalTasks(queuedTasks, activeSignals = []) {
+  if (!Array.isArray(queuedTasks) || queuedTasks.length === 0) {
+    return queuedTasks || [];
+  }
+
+  const signals = [
+    ...queuedTasks,
+    ...(Array.isArray(activeSignals) ? activeSignals : []),
+  ].filter(task => (
+    isFactoryPlanSignal(task)
+    || isFactoryProjectExecutionSignal(task)
+    || isActiveFactoryMaintenanceTask(task)
+  ));
+
+  if (signals.length === 0) {
+    return queuedTasks;
+  }
+
+  const filtered = [];
+  for (const task of queuedTasks) {
+    if (!isFactoryMaintenanceTask(task)) {
+      filtered.push(task);
+      continue;
+    }
+
+    const supersededBy = signals.find(signal => isSupersedingFactorySignal(task, signal));
+    if (!supersededBy) {
+      filtered.push(task);
+      continue;
+    }
+
+    logger.info('Skipping stale factory-internal queued task because newer same-project work is active', {
+      task_id: task.id,
+      kind: getFactoryKind(task),
+      project_id: getFactoryProjectId(task),
+      superseded_by_task_id: supersededBy.id,
+      superseded_by_kind: getFactoryKind(supersededBy) || 'execution',
+      superseded_by_status: supersededBy.status || null,
+    });
+  }
+
+  return filtered;
+}
+
+function getRawDbForScheduler() {
+  if (!db) return null;
+  if (typeof db.getDbInstance === 'function') {
+    try {
+      return db.getDbInstance();
+    } catch {
+      return null;
+    }
+  }
+  return typeof db.prepare === 'function' ? db : null;
+}
+
+function loadRecentFactorySupersessionSignals(queuedTasks, limit = 500) {
+  if (!Array.isArray(queuedTasks) || queuedTasks.length === 0) {
+    return [];
+  }
+
+  const candidateTimes = queuedTasks
+    .filter(isFactoryMaintenanceTask)
+    .map(getTaskCreatedAtMs)
+    .filter(Number.isFinite);
+  if (candidateTimes.length === 0) {
+    return [];
+  }
+
+  const rawDb = getRawDbForScheduler();
+  if (!rawDb || typeof rawDb.prepare !== 'function') {
+    return [];
+  }
+
+  const cutoff = new Date(Math.min(...candidateTimes)).toISOString();
+  try {
+    return rawDb.prepare(`
+      SELECT id, status, tags, metadata, created_at
+      FROM tasks
+      WHERE created_at >= ?
+        AND status IN ('pending','queued','running','waiting','completed')
+        AND (
+          tags LIKE '%factory:plan_generation%'
+          OR tags LIKE '%factory:plan_quality_review%'
+          OR tags LIKE '%factory:batch_id=factory-%'
+        )
+      ORDER BY created_at DESC
+      LIMIT ?
+    `).all(cutoff, limit);
+  } catch (err) {
+    logger.debug('Unable to load recent factory supersession signals', {
+      err: err.message,
+    });
+    return [];
+  }
 }
 
 function getCodexFactoryWorkPriority(task) {
@@ -872,8 +1110,20 @@ function processQueueInternal(options = {}) {
   // Check if codex execution is enabled (config: codex_enabled = '1')
   const codexEnabled = serverConfig.isOptIn('codex_enabled');
 
+  // Independent concurrency limits per provider type
+  const runningTasks = db.listTasks({ status: 'running', limit: 200 });
+  const runningAll = Array.isArray(runningTasks) ? runningTasks : (runningTasks.tasks || []);
+  const schedulableQueuedTasks = filterSupersededFactoryInternalTasks(
+    runnableQueuedTasks,
+    [
+      ...runningAll,
+      ...loadRecentFactorySupersessionSignals(runnableQueuedTasks),
+    ],
+  );
+  if (schedulableQueuedTasks.length === 0) return;
+
   // Separate tasks by provider type
-  const { ollamaTasks, codexTasks, apiTasks, invalidTasks } = categorizeQueuedTasks(runnableQueuedTasks, codexEnabled);
+  const { ollamaTasks, codexTasks, apiTasks, invalidTasks } = categorizeQueuedTasks(schedulableQueuedTasks, codexEnabled);
 
   for (const task of invalidTasks) {
     const providerLabel = typeof task?.provider === 'string' && task.provider.trim()
@@ -882,9 +1132,6 @@ function processQueueInternal(options = {}) {
     failQueuedTask(task, `Unknown provider: ${providerLabel}`);
   }
 
-  // Independent concurrency limits per provider type
-  const runningTasks = db.listTasks({ status: 'running', limit: 200 });
-  const runningAll = Array.isArray(runningTasks) ? runningTasks : (runningTasks.tasks || []);
   // Single-pass provider counts (RB-096) — uses registry for category lookup
   const providerCounts = { ollama: 0, codex: 0, api: 0 };
   for (const t of runningAll) {
@@ -1074,10 +1321,10 @@ function processQueueInternal(options = {}) {
       return;
     }
 
-    const queueHeadIndex = runnableQueuedTasks.findIndex((task) => task.id === queueHead.id);
+    const queueHeadIndex = schedulableQueuedTasks.findIndex((task) => task.id === queueHead.id);
     const fallbackTasks = queueHeadIndex >= 0
-      ? runnableQueuedTasks.slice(queueHeadIndex)
-      : runnableQueuedTasks;
+      ? schedulableQueuedTasks.slice(queueHeadIndex)
+      : schedulableQueuedTasks;
 
     for (const nextTask of fallbackTasks) {
       // Check provider-specific limits before blindly starting
@@ -1213,6 +1460,8 @@ function createQueueScheduler(_deps) {
     stop,
     resolveEffectiveProvider,
     categorizeQueuedTasks,
+    filterSupersededFactoryInternalTasks,
+    loadRecentFactorySupersessionSignals,
     shouldSkipTaskForApproval,
     shouldSkipTaskForFileLockWait,
     prioritizeCodexProjectWork,
@@ -1234,6 +1483,8 @@ module.exports = {
   stop,
   resolveEffectiveProvider,
   categorizeQueuedTasks,
+  filterSupersededFactoryInternalTasks,
+  loadRecentFactorySupersessionSignals,
   shouldSkipTaskForApproval,
   shouldSkipTaskForFileLockWait,
   prioritizeCodexProjectWork,
