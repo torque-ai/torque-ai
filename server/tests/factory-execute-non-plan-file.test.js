@@ -334,6 +334,7 @@ describe('factory loop-controller EXECUTE for non-plan-file work items', () => {
       task_id: 'plan-gen-task',
       timeout_minutes: 30,
       heartbeat_minutes: 0,
+      auto_resubmit_on_restart: true,
     });
     expect(createPlanExecutorMock).toHaveBeenCalled();
     expect(planExecuteMock).toHaveBeenCalledWith(expect.objectContaining({
@@ -441,6 +442,7 @@ describe('factory loop-controller EXECUTE for non-plan-file work items', () => {
       task_id: 'plan-gen-task',
       timeout_minutes: 30,
       heartbeat_minutes: 0,
+      auto_resubmit_on_restart: true,
     });
     expect(executeAdvance).toMatchObject({
       new_state: LOOP_STATES.EXECUTE,
@@ -480,6 +482,7 @@ describe('factory loop-controller EXECUTE for non-plan-file work items', () => {
       task_id: 'plan-gen-task',
       timeout_minutes: 45,
       heartbeat_minutes: 0,
+      auto_resubmit_on_restart: true,
     });
   });
 
@@ -625,6 +628,61 @@ describe('factory loop-controller EXECUTE for non-plan-file work items', () => {
       }),
     });
     expect(decisions.find((row) => row.action === 'cannot_generate_plan')).toBeUndefined();
+  });
+
+  it('follows restart-resubmitted plan-generation task ids before deferring', async () => {
+    const { project, workItem } = registerExecuteProject({
+      description: 'Add coverage for restart-resubmitted plan generation.',
+    });
+    factoryIntake.updateWorkItem(workItem.id, {
+      origin_json: {
+        plan_generation_task_id: 'old-plan-gen-task',
+      },
+    });
+    taskCore.getTask = vi.fn((taskId) => {
+      if (taskId === 'old-plan-gen-task') {
+        return {
+          id: taskId,
+          status: 'cancelled',
+          output: '',
+          error_output: 'Task orphaned by restart',
+          metadata: JSON.stringify({ resubmitted_as: 'new-plan-gen-task' }),
+        };
+      }
+      return {
+        id: taskId,
+        status: 'running',
+        output: '',
+        error_output: '',
+      };
+    });
+
+    const executeAdvance = await loopController.advanceLoopForProject(project.id);
+    const updatedWorkItem = factoryIntake.getWorkItem(workItem.id);
+
+    expect(executeAdvance).toMatchObject({
+      new_state: LOOP_STATES.EXECUTE,
+      paused_at_stage: LOOP_STATES.EXECUTE,
+      reason: 'plan generation deferred while task remains active',
+      stage_result: {
+        status: 'deferred',
+        reason: 'task_still_running',
+        generation_task_id: 'new-plan-gen-task',
+        task_status: 'running',
+      },
+    });
+    expect(updatedWorkItem).toMatchObject({
+      id: workItem.id,
+      status: 'planned',
+      reject_reason: null,
+      origin: expect.objectContaining({
+        plan_generation_task_id: 'new-plan-gen-task',
+        plan_generation_wait_reason: 'task_still_running',
+      }),
+    });
+    expect(routingModule.handleSmartSubmitTask).not.toHaveBeenCalled();
+    expect(awaitModule.handleAwaitTask).not.toHaveBeenCalled();
+    expect(createPlanExecutorMock).not.toHaveBeenCalled();
   });
 
   it('retries one unusable completed plan-generation result before rejecting the work item', async () => {

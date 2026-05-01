@@ -1132,6 +1132,58 @@ function getPlanGenerationTask(taskCore, taskId) {
   }
 }
 
+function resolveTaskReplacementChain(taskCore, taskId) {
+  let currentTaskId = normalizeOptionalString(taskId);
+  let currentTask = getPlanGenerationTask(taskCore, currentTaskId);
+  const seen = new Set();
+
+  while (currentTaskId && currentTask && !seen.has(currentTaskId)) {
+    seen.add(currentTaskId);
+    const replacementId = normalizeOptionalString(getTaskMetadataObject(currentTask).resubmitted_as);
+    if (!replacementId || replacementId === currentTaskId) {
+      break;
+    }
+    const replacementTask = getPlanGenerationTask(taskCore, replacementId);
+    if (!replacementTask) {
+      break;
+    }
+    currentTaskId = replacementId;
+    currentTask = replacementTask;
+  }
+
+  return {
+    taskId: currentTaskId,
+    task: currentTask,
+    replaced: currentTaskId !== taskId,
+  };
+}
+
+function persistPlanGenerationTaskReplacement(workItem, generationTaskId) {
+  if (!workItem?.id || !generationTaskId) {
+    return workItem;
+  }
+  const origin = getWorkItemOriginObject(workItem);
+  if (origin.plan_generation_task_id === generationTaskId) {
+    return workItem;
+  }
+  try {
+    return factoryIntake.updateWorkItem(workItem.id, {
+      origin_json: {
+        ...origin,
+        plan_generation_task_id: generationTaskId,
+        plan_generation_updated_at: nowIso(),
+      },
+    });
+  } catch (error) {
+    logger.warn('EXECUTE stage: failed to persist plan-generation replacement task id', {
+      work_item_id: workItem.id,
+      generation_task_id: generationTaskId,
+      err: error.message,
+    });
+    return workItem;
+  }
+}
+
 function buildPlanGenerationDeferredResult({
   project,
   instance,
@@ -5304,7 +5356,12 @@ async function executeNonPlanFileStage(project, instance, workItem) {
         });
       }
     } else {
-      const existingGenerationTask = getPlanGenerationTask(taskCore, generationTaskId);
+      const resolved = resolveTaskReplacementChain(taskCore, generationTaskId);
+      if (resolved.replaced) {
+        generationTaskId = resolved.taskId;
+        persistPlanGenerationTaskReplacement(targetItem, generationTaskId);
+      }
+      const existingGenerationTask = resolved.task;
       const existingWait = getPlanGenerationWait(existingGenerationTask);
       if (isPlanGenerationTaskPending(existingGenerationTask) && existingWait) {
         return buildPlanGenerationDeferredResult({
@@ -5327,8 +5384,14 @@ async function executeNonPlanFileStage(project, instance, workItem) {
       task_id: generationTaskId,
       timeout_minutes: planGenerationTimeoutMinutes,
       heartbeat_minutes: 0,
+      auto_resubmit_on_restart: true,
     });
-    const generationTask = taskCore.getTask(generationTaskId);
+    const resolvedGeneration = resolveTaskReplacementChain(taskCore, generationTaskId);
+    if (resolvedGeneration.replaced) {
+      generationTaskId = resolvedGeneration.taskId;
+      persistPlanGenerationTaskReplacement(targetItem, generationTaskId);
+    }
+    const generationTask = resolvedGeneration.task;
     if (!generationTask || generationTask.status !== 'completed') {
       const wait = getPlanGenerationWait(generationTask, extractTextContent(awaitResult));
       if (isPlanGenerationTaskPending(generationTask) && wait) {
