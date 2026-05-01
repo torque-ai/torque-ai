@@ -1,4 +1,4 @@
-import { screen, waitFor } from '@testing-library/react';
+import { fireEvent, screen, waitFor } from '@testing-library/react';
 import { renderWithProviders } from '../test-utils';
 import Providers from './Providers';
 
@@ -189,5 +189,45 @@ describe('Providers', () => {
       expect(screen.getByText('Overview')).toBeInTheDocument();
       expect(screen.getByText('Compare')).toBeInTheDocument();
     });
+  });
+
+  it('reads max_concurrent from provider.limits (v2 descriptor shape)', async () => {
+    providersApi.list.mockResolvedValue([
+      {
+        provider: 'codex',
+        enabled: true,
+        // Server-side v2 descriptor places concurrency under `limits`.
+        // Top-level max_concurrent is intentionally absent.
+        limits: { max_concurrent: 7 },
+        stats: { total_tasks: 1, completed_tasks: 1, failed_tasks: 0, success_rate: 100, avg_duration_seconds: 1, total_cost: 0 },
+      },
+    ]);
+    renderWithProviders(<Providers />);
+
+    await waitFor(() => {
+      expect(screen.getByText('codex')).toBeInTheDocument();
+    });
+    // Provider rows render collapsed by default; the Max Concurrent input
+    // lives in the expanded panel, so click to expand before asserting.
+    fireEvent.click(screen.getByText('codex'));
+    expect(screen.getByDisplayValue('7')).toBeInTheDocument();
+  });
+
+  it('still reads top-level max_concurrent when limits is absent (legacy shape)', async () => {
+    providersApi.list.mockResolvedValue([
+      {
+        provider: 'codex',
+        enabled: true,
+        max_concurrent: 4,
+        stats: { total_tasks: 1, completed_tasks: 1, failed_tasks: 0, success_rate: 100, avg_duration_seconds: 1, total_cost: 0 },
+      },
+    ]);
+    renderWithProviders(<Providers />);
+
+    await waitFor(() => {
+      expect(screen.getByText('codex')).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByText('codex'));
+    expect(screen.getByDisplayValue('4')).toBeInTheDocument();
   });
 });
