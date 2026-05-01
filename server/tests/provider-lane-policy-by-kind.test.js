@@ -222,3 +222,81 @@ describe('Phase H: by_kind in provider lane policy', () => {
     });
   });
 });
+
+describe('Phase S: kind-family fallback in by_kind specialization', () => {
+  // DLPhone shape: operator declared architect_cycle/plan_generation/verify_review
+  // → codex but did not enumerate every architect-related kind. The Phase P
+  // replan_rewrite/replan_decompose kinds (and architect_json) should
+  // inherit the architect_cycle override via family fallback rather than
+  // falling through to the project-level expected_provider (ollama) and
+  // hitting qwen3-coder:30b's "0 tool calls, 0 files changed" failure mode.
+  const dlphonePolicy = {
+    expected_provider: 'ollama',
+    allowed_providers: ['ollama'],
+    allowed_fallback_providers: [],
+    by_kind: {
+      scout: 'codex',
+      architect_cycle: 'codex',
+      plan_generation: 'codex',
+      verify_review: 'codex',
+    },
+    enforce_handoffs: true,
+  };
+
+  const { specializePolicyForKind, isProviderAllowedByLanePolicy } = require('../factory/provider-lane-policy');
+
+  it('replan_rewrite inherits architect_cycle override (architect family)', () => {
+    const sp = specializePolicyForKind(dlphonePolicy, 'replan_rewrite');
+    expect(sp.expected_provider).toBe('codex');
+    expect(isProviderAllowedByLanePolicy(sp, 'codex')).toBe(true);
+  });
+
+  it('replan_decompose inherits architect_cycle override (architect family)', () => {
+    const sp = specializePolicyForKind(dlphonePolicy, 'replan_decompose');
+    expect(sp.expected_provider).toBe('codex');
+  });
+
+  it('architect_json inherits architect_cycle override (architect family)', () => {
+    const sp = specializePolicyForKind(dlphonePolicy, 'architect_json');
+    expect(sp.expected_provider).toBe('codex');
+  });
+
+  it('plan_quality_review inherits plan_generation override (plan family)', () => {
+    const sp = specializePolicyForKind(dlphonePolicy, 'plan_quality_review');
+    expect(sp.expected_provider).toBe('codex');
+  });
+
+  it('exact-kind override wins over family fallback', () => {
+    // Operator can pin a specific kind to a different provider than its
+    // family. Here architect_cycle → codex but replan_rewrite → claude-cli
+    // explicitly. The exact match should win.
+    const policy = {
+      ...dlphonePolicy,
+      by_kind: {
+        ...dlphonePolicy.by_kind,
+        replan_rewrite: 'claude-cli',
+      },
+    };
+    expect(specializePolicyForKind(policy, 'replan_rewrite').expected_provider).toBe('claude-cli');
+    // architect_json still falls back to architect_cycle (no explicit override)
+    expect(specializePolicyForKind(policy, 'architect_json').expected_provider).toBe('codex');
+  });
+
+  it('falls through to project default when family member also missing', () => {
+    // Operator only declared plan_generation; architect_cycle was never set,
+    // so architect_json (architect family) falls all the way through.
+    const policy = {
+      ...dlphonePolicy,
+      by_kind: { plan_generation: 'codex' },
+    };
+    const sp = specializePolicyForKind(policy, 'architect_json');
+    expect(sp).toBe(policy);
+    expect(sp.expected_provider).toBe('ollama');
+  });
+
+  it('execute_task and other unknown kinds still fall through (no family entry)', () => {
+    const sp = specializePolicyForKind(dlphonePolicy, 'execute_task');
+    expect(sp).toBe(dlphonePolicy);
+    expect(sp.expected_provider).toBe('ollama');
+  });
+});

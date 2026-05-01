@@ -106,20 +106,54 @@ function normalizeProviderLanePolicy(value) {
 }
 
 /**
+ * Phase S: kind-family fallback. When `by_kind` lacks an entry for the
+ * exact kind, we look up the kind's family. This lets operators declare
+ * `architect_cycle: codex` once and have it cover all architect-related
+ * kinds (architect_json, replan_rewrite, replan_decompose) without
+ * having to enumerate every kind that didn't exist when they wrote
+ * their config.
+ *
+ * Live evidence (DLPhone 2026-05-01 13:03 UTC): operator's by_kind had
+ * architect_cycle/plan_generation/verify_review → codex, but Phase P's
+ * new replan_rewrite/replan_decompose kinds had no entry, so they fell
+ * through to the project default (ollama) and qwen3-coder:30b returned
+ * "0 tool calls, 0 files changed" on a structured-JSON architect prompt.
+ */
+const KIND_FAMILY = Object.freeze({
+  architect_json: 'architect_cycle',
+  architect_cycle: 'architect_cycle',
+  replan_rewrite: 'architect_cycle',
+  replan_decompose: 'architect_cycle',
+  plan_generation: 'plan_generation',
+  plan_quality_review: 'plan_generation',
+  verify_review: 'verify_review',
+  scout: 'scout',
+});
+
+/**
  * Phase H: return a kind-specialized view of the policy. When the kind
  * has a `by_kind` entry, that provider becomes the effective
  * `expected_provider` AND is added to `allowed_providers` so the lane
  * filter accepts it. Original allowed_providers / allowed_fallback_providers
  * are preserved so the worker lane is still legal for non-overridden
  * kinds. Returns the original policy unchanged when kind is missing or
- * has no by_kind entry.
+ * has no by_kind entry — including no family-level entry (Phase S).
  */
 function specializePolicyForKind(policy, kind) {
   if (!policy || typeof policy !== 'object') return policy;
   const normalizedKind = typeof kind === 'string' ? kind.trim().toLowerCase() : '';
   if (!normalizedKind) return policy;
   const byKind = policy.by_kind || {};
-  const overrideProvider = byKind[normalizedKind];
+  // Exact-kind override wins (operator was explicit).
+  // Family fallback covers new kinds that share an architect/plan/verify
+  // role with one the operator already mapped.
+  let overrideProvider = byKind[normalizedKind];
+  if (!overrideProvider) {
+    const family = KIND_FAMILY[normalizedKind];
+    if (family && family !== normalizedKind) {
+      overrideProvider = byKind[family];
+    }
+  }
   if (!overrideProvider) return policy;
 
   const allowedProviders = Array.isArray(policy.allowed_providers) ? policy.allowed_providers : [];
