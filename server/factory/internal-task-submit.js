@@ -7,7 +7,10 @@ const {
 } = require('./provider-lane-policy');
 
 const PROJECT_BY_KIND = Object.freeze({
+  architect_json: 'factory-architect',
   architect_cycle: 'factory-architect',
+  replan_decompose: 'factory-architect',
+  replan_rewrite: 'factory-architect',
   plan_generation: 'factory-plan',
   // verify_review is a structured yes/no verdict task (does this diff
   // explain those test failures?). Lives in factory-plan for billing

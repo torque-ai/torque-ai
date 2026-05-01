@@ -124,6 +124,43 @@ describe('submitFactoryInternalTask', () => {
     }));
   });
 
+  it('accepts architect JSON recovery kinds and routes them under factory-architect', async () => {
+    const { submitFactoryInternalTask } = loadSubject();
+    mockHandleSmartSubmitTask.mockResolvedValue({ task_id: 'architect-json-task' });
+
+    await submitFactoryInternalTask({
+      task: 'rewrite rejected work item',
+      working_directory: '/repo',
+      kind: 'replan_rewrite',
+      project_id: 'project-4',
+    });
+    await submitFactoryInternalTask({
+      task: 'split rejected work item',
+      working_directory: '/repo',
+      kind: 'replan_decompose',
+      project_id: 'project-4',
+    });
+    await submitFactoryInternalTask({
+      task: 'generic architect json task',
+      working_directory: '/repo',
+      kind: 'architect_json',
+      project_id: 'project-4',
+    });
+
+    expect(mockHandleSmartSubmitTask).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      project: 'factory-architect',
+      task_metadata: expect.objectContaining({ kind: 'replan_rewrite' }),
+    }));
+    expect(mockHandleSmartSubmitTask).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      project: 'factory-architect',
+      task_metadata: expect.objectContaining({ kind: 'replan_decompose' }),
+    }));
+    expect(mockHandleSmartSubmitTask).toHaveBeenNthCalledWith(3, expect.objectContaining({
+      project: 'factory-architect',
+      task_metadata: expect.objectContaining({ kind: 'architect_json' }),
+    }));
+  });
+
   it('builds tags and passes internal metadata to the submitter', async () => {
     const { submitFactoryInternalTask } = loadSubject();
     mockHandleSmartSubmitTask.mockResolvedValue({ task_id: 'plan-task-1' });
