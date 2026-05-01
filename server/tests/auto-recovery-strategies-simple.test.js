@@ -31,6 +31,46 @@ describe('simple strategies', () => {
     expect(services.calls.retry).toEqual({ project_id: 'p1' });
   });
 
+  it('retry on READY_FOR_PLAN routes to advanceLoop, NOT approveGate', async () => {
+    // Regression: pre-fix, the retry strategy called approveGate with
+    // "READY_FOR_PLAN", which threw "Invalid gate stage" because READY_FOR_*
+    // is not a valid LOOP_STATE. The strategy must detect the prefix and
+    // route to advanceLoop (which knows how to transition out of ready state).
+    const services = makeServices();
+    let approveGateCalled = false;
+    services.approveGate = async () => { approveGateCalled = true; };
+    const readyProject = { id: 'p1', loop_paused_at_stage: 'READY_FOR_PLAN' };
+    const r = await retry.run({
+      project: readyProject,
+      decision: { stage: 'plan', action: 'plan_recovery_failed', batch_id: null },
+      services,
+      classification: { category: 'unknown' },
+    });
+    expect(r.success).toBe(true);
+    expect(r.next_action).toBe('retry');
+    expect(r.outcome.mode).toBe('advance_loop_from_ready');
+    expect(r.outcome.paused_stage).toBe('READY_FOR_PLAN');
+    expect(services.calls.advance).toEqual({ project_id: 'p1' });
+    expect(approveGateCalled).toBe(false);
+  });
+
+  it('retry on a normal non-verify gate (EXECUTE) still uses approveGate', async () => {
+    // Sanity check: the READY_FOR_X carve-out shouldn't disturb the existing
+    // approveGate path for paused-at-X gates.
+    const services = makeServices();
+    let approveGateCalled = null;
+    services.approveGate = async (args) => { approveGateCalled = args; };
+    const pausedProject = { id: 'p1', loop_paused_at_stage: 'EXECUTE' };
+    const r = await retry.run({
+      project: pausedProject,
+      decision: { stage: 'execute', action: 'paused_at_gate', batch_id: 'b1' },
+      services,
+      classification: { category: 'unknown' },
+    });
+    expect(r.outcome.mode).toBe('approve_gate');
+    expect(approveGateCalled).toEqual({ project_id: 'p1', stage: 'EXECUTE' });
+  });
+
   it('clean_and_retry cleans then retries', async () => {
     const services = makeServices();
     const r = await cleanAndRetry.run({ project, decision, services, classification: { category: 'transient' } });
