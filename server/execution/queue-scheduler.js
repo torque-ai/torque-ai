@@ -1040,6 +1040,8 @@ function processQueueInternal(options = {}) {
         } else {
           const runCodex = providerCounts.codex || 0;
           if (runCodex >= maxCodexConcurrent) canStart = false;
+          const providerCapacity = providerRuntimeState.getProviderCapacity(provider, maxCodexConcurrent);
+          if (!providerCapacity.available) canStart = false;
         }
       } else if (category === 'ollama') {
         const runOllama = providerCounts.ollama;

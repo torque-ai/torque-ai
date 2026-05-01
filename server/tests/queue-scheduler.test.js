@@ -107,11 +107,11 @@ describe('Queue Scheduler', () => {
         process.emit('torque:queue-changed');
         vi.advanceTimersByTime(100);
 
-        expect(spy).toHaveBeenCalledTimes(1);
+        expect(spy.mock.calls.filter(([args]) => args?.status === 'queued')).toHaveLength(1);
 
         process.emit('torque:queue-changed');
         vi.advanceTimersByTime(100);
-        expect(spy).toHaveBeenCalledTimes(2);
+        expect(spy.mock.calls.filter(([args]) => args?.status === 'queued')).toHaveLength(2);
       } finally {
         spy.mockRestore();
         vi.useRealTimers();
@@ -130,7 +130,7 @@ describe('Queue Scheduler', () => {
         scheduler.processQueueInternal();
         vi.advanceTimersByTime(40);
 
-        expect(spy).toHaveBeenCalledTimes(2);
+        expect(spy.mock.calls.filter(([args]) => args?.status === 'queued')).toHaveLength(2);
       } finally {
         spy.mockRestore();
         vi.useRealTimers();
@@ -553,7 +553,7 @@ describe('Queue Scheduler', () => {
 
       scheduler.processQueueInternal();
 
-      expect(callLog).toEqual(['resetExpiredBudgets', 'cleanup', 'runningCount']);
+      expect(callLog).toEqual(['listTasks', 'resetExpiredBudgets', 'cleanup', 'runningCount']);
     });
 
     it('does not invoke VRAM guard when host has no running tasks', () => {
@@ -596,6 +596,41 @@ describe('Queue Scheduler', () => {
         if (key === 'max_concurrent') return 10;
         if (key === 'max_per_host') return 2;
         if (key === 'max_codex_concurrent') return 3;
+        return defaultVal;
+      });
+
+      scheduler.processQueueInternal();
+
+      expect(mocks.safeStartTask).not.toHaveBeenCalled();
+    });
+
+    it('does not fallback-start codex tasks when the provider limit is full', () => {
+      const queuedTask = makeTask({ id: 'codex-wait', provider: 'codex', model: null });
+      const runningCodexTasks = Array.from({ length: 6 }, (_, index) => makeTask({
+        id: `codex-run-${index}`,
+        provider: 'codex',
+        status: 'running',
+      }));
+
+      mockDb.getRunningCount.mockReturnValue(6);
+      mockDb.getProvider = vi.fn((provider) => (
+        provider === 'codex' ? { provider: 'codex', enabled: 1, max_concurrent: 6 } : null
+      ));
+      mockDb.listTasks.mockImplementation(({ status }) => {
+        if (status === 'queued') return [queuedTask];
+        if (status === 'running') return runningCodexTasks;
+        return [];
+      });
+      mockDb.getNextQueuedTask.mockReturnValue(queuedTask);
+      mockDb.getConfig.mockImplementation((key) => {
+        if (key === 'codex_enabled') return '1';
+        return null;
+      });
+      mocks.safeConfigInt.mockImplementation((key, defaultVal) => {
+        if (key === 'max_concurrent') return 20;
+        if (key === 'max_codex_concurrent') return 10;
+        if (key === 'max_ollama_concurrent') return 8;
+        if (key === 'max_api_concurrent') return 4;
         return defaultVal;
       });
 
@@ -1028,7 +1063,8 @@ describe('Queue Scheduler', () => {
 
       scheduler.processQueueInternal();
 
-      expect(mockDb.listTasks).not.toHaveBeenCalled();
+      expect(mockDb.listTasks).toHaveBeenCalledTimes(1);
+      expect(mockDb.listTasks).toHaveBeenCalledWith({ status: 'pending', limit: 100 });
       expect(mocks.safeStartTask).not.toHaveBeenCalled();
     });
 
