@@ -541,7 +541,7 @@ describe('task-startup', () => {
       fileLockConflict: true,
       conflictFile: 'server/api.js',
       conflictTask: 'holder-task',
-      retryAfter: '2026-04-23T00:00:02.500Z',
+      retryAfter: '2026-04-23T00:00:10.000Z',
     }));
     expect(ctx.deps.db.requeueTaskAfterAttemptedStart).toHaveBeenCalledWith(
       task.id,
@@ -551,7 +551,7 @@ describe('task-startup', () => {
           file_lock_wait: expect.objectContaining({
             file: 'server/api.js',
             locked_by: 'holder-task',
-            retry_after: '2026-04-23T00:00:02.500Z',
+            retry_after: '2026-04-23T00:00:10.000Z',
             delay_ms: ctx.module.FILE_LOCK_REQUEUE_DELAY_MS,
             conflict_count: 1,
             signature: 'server/api.js::holder-task',
@@ -605,7 +605,8 @@ describe('task-startup', () => {
     expect(patch.metadata.file_lock_wait).toEqual(expect.objectContaining({
       file: 'server/api.js',
       locked_by: 'holder-task',
-      retry_after: '2026-04-23T00:00:12.500Z',
+      retry_after: '2026-04-23T00:00:30.000Z',
+      delay_ms: 20000,
       conflict_count: 2,
       signature: 'server/api.js::holder-task',
     }));

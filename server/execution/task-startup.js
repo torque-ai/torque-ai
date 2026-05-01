@@ -63,7 +63,8 @@ const RETRY_CLEANUP_INTERVAL_MS = 30000;
 
 // Maximum output buffer size (10MB) to prevent memory exhaustion
 const MAX_OUTPUT_BUFFER = 10 * 1024 * 1024;
-const FILE_LOCK_REQUEUE_DELAY_MS = 2500;
+const FILE_LOCK_REQUEUE_DELAY_MS = 10000;
+const FILE_LOCK_REQUEUE_MAX_DELAY_MS = 120000;
 const FILE_LOCK_WAIT_METADATA_KEY = 'file_lock_wait';
 const FACTORY_WORKTREE_RE = /(^|[\\/])\.worktrees([\\/]|$)/i;
 const VISIBLE_SHELL_PROVIDERS = new Set(['claude-cli', 'codex', 'codex-spark']);
@@ -84,6 +85,14 @@ function appendLine(base, line) {
   return current.endsWith('\n') ? current + line : current + '\n' + line;
 }
 
+function getFileLockRequeueDelayMs(conflictCount) {
+  const safeCount = Number.isFinite(conflictCount) && conflictCount > 0
+    ? Math.floor(conflictCount)
+    : 1;
+  const multiplier = Math.min(2 ** (safeCount - 1), FILE_LOCK_REQUEUE_MAX_DELAY_MS / FILE_LOCK_REQUEUE_DELAY_MS);
+  return Math.min(FILE_LOCK_REQUEUE_MAX_DELAY_MS, FILE_LOCK_REQUEUE_DELAY_MS * multiplier);
+}
+
 function buildFileLockRequeuePatch(task, filePath, lockedBy) {
   const nowMs = Date.now();
   const lockedByLabel = typeof lockedBy === 'string' && lockedBy.trim()
@@ -98,6 +107,7 @@ function buildFileLockRequeuePatch(task, filePath, lockedBy) {
   const conflictCount = Number.isFinite(previousCount) && previousCount > 0
     ? previousCount + 1
     : 1;
+  const delayMs = getFileLockRequeueDelayMs(conflictCount);
   const signature = `${filePath}::${lockedByLabel}`;
   const previousSignature = typeof previousWait.signature === 'string'
     ? previousWait.signature
@@ -108,7 +118,7 @@ function buildFileLockRequeuePatch(task, filePath, lockedBy) {
   if (previousSignature !== signature && !errorOutput.includes(messagePrefix)) {
     errorOutput = appendLine(
       errorOutput,
-      `${messagePrefix} Waiting ${FILE_LOCK_REQUEUE_DELAY_MS}ms before retry.`,
+      `${messagePrefix} Waiting ${delayMs}ms before retry.`,
     );
   }
 
@@ -119,8 +129,8 @@ function buildFileLockRequeuePatch(task, filePath, lockedBy) {
       [FILE_LOCK_WAIT_METADATA_KEY]: {
         file: filePath,
         locked_by: lockedByLabel,
-        retry_after: new Date(nowMs + FILE_LOCK_REQUEUE_DELAY_MS).toISOString(),
-        delay_ms: FILE_LOCK_REQUEUE_DELAY_MS,
+        retry_after: new Date(nowMs + delayMs).toISOString(),
+        delay_ms: delayMs,
         conflict_count: conflictCount,
         last_conflict_at: new Date(nowMs).toISOString(),
         signature,
@@ -129,15 +139,18 @@ function buildFileLockRequeuePatch(task, filePath, lockedBy) {
   };
 }
 
-function scheduleFileLockRetryQueue() {
+function scheduleFileLockRetryQueue(delayMs = FILE_LOCK_REQUEUE_DELAY_MS) {
   if (typeof processQueue !== 'function') return;
+  const safeDelayMs = Number.isFinite(delayMs) && delayMs > 0
+    ? Math.min(delayMs, FILE_LOCK_REQUEUE_MAX_DELAY_MS)
+    : FILE_LOCK_REQUEUE_DELAY_MS;
   const timer = setTimeout(() => {
     try {
       processQueue();
     } catch (err) {
       logger.info(`[FileLock] Failed to process delayed queue retry: ${err.message}`);
     }
-  }, FILE_LOCK_REQUEUE_DELAY_MS);
+  }, safeDelayMs);
   if (timer && typeof timer.unref === 'function') {
     timer.unref();
   }
@@ -940,7 +953,7 @@ function createTaskStartupResourceLifecycle({
             const requeuePatch = buildFileLockRequeuePatch(task, filePath, lockResult.lockedBy);
             db.requeueTaskAfterAttemptedStart(taskId, requeuePatch);
             dashboard.notifyTaskUpdated(taskId);
-            scheduleFileLockRetryQueue();
+            scheduleFileLockRetryQueue(requeuePatch.metadata?.[FILE_LOCK_WAIT_METADATA_KEY]?.delay_ms);
             return {
               earlyResult: {
                 queued: true,
