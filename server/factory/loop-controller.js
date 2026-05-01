@@ -1330,8 +1330,8 @@ function buildPlanGenerationDeferredResult({
       : 'plan generation deferred while task remains active',
     work_item: updatedWorkItem,
     stop_execution: true,
-    next_state: LOOP_STATES.PAUSED,
-    paused_at_stage: LOOP_STATES.EXECUTE,
+    next_state: LOOP_STATES.EXECUTE,
+    paused_at_stage: null,
     stage_result: {
       status: 'deferred',
       reason: waitReason,
@@ -10245,6 +10245,13 @@ async function runAdvanceLoop(instance_id) {
             }
             break;
           }
+          if (generated.next_state === LOOP_STATES.EXECUTE && !generated.paused_at_stage) {
+            instance = updateInstanceAndSync(instance.id, {
+              paused_at_stage: null,
+              last_action_at: nowIso(),
+            });
+            break;
+          }
           instance = updateInstanceAndSync(instance.id, {
             paused_at_stage: generated.paused_at_stage || LOOP_STATES.PLAN_REVIEW,
             last_action_at: nowIso(),
@@ -10287,6 +10294,13 @@ async function runAdvanceLoop(instance_id) {
           if (moveToPrioritize.blocked) {
             transitionReason = 'stage_occupied';
           }
+          break;
+        }
+        if (executeStage.next_state === LOOP_STATES.EXECUTE && !executeStage.paused_at_stage) {
+          instance = updateInstanceAndSync(instance.id, {
+            paused_at_stage: null,
+            last_action_at: nowIso(),
+          });
           break;
         }
         instance = updateInstanceAndSync(instance.id, {
