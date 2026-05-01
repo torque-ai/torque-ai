@@ -1,3 +1,5 @@
+> **STALE — needs rewrite (2026-05-01).** Layered on unshipped fabro-70 (eval framework) and fabro-78 (OTEL). Refresh focus: drop the layered dependency, build a minimal native evaluator on the existing benchmark + provider-scoring pipes.
+
 # Fabro #79: Experiment SDK + Portable Scorers (Braintrust)
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task.

@@ -1,3 +1,5 @@
+> **STALE — needs rewrite (2026-05-01).** Phase 1+2 shipped; consumer migration off legacy ollama_hosts/peek_hosts/remote_agents tables never executed. Audit current dual-write state of workstations table + adapters before re-executing.
+
 # Workstations Phase 3+4+Dashboard Implementation Plan
 
 > **For agentic workers:** REQUIRED: Use superpowers:subagent-driven-development (if subagents available) or superpowers:executing-plans to implement this plan. Steps use checkbox (`- [ ]`) syntax for tracking.
