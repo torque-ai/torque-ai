@@ -162,7 +162,26 @@ function createAutoRecoveryEngine({
   }
 
   function markExhausted(projectId, reason) {
-    db.prepare(`UPDATE factory_projects SET auto_recovery_exhausted = 1 WHERE id = ?`).run(projectId);
+    // Bump auto_recovery_last_action_at alongside the exhausted flag so
+    // rearmRecoveredProjects' "newer real decision" check has a fresh
+    // anchor. Previously, hitting the no_strategy path (which doesn't
+    // call recoverOne's strategy block where last_action_at gets bumped)
+    // left this column unchanged. With the new `await_self_heal`
+    // classifier rules — execute_paused_active_worktree_owner et al —
+    // the no_strategy path is now hot, and the stale anchor caused
+    // every factory tick to:
+    //   1. classify the same paused_at_gate fingerprint
+    //   2. mark exhausted (without bumping last_action_at)
+    //   3. tick → rearm sees latestDecisionAt > stale lastRecoveryAt → rearm
+    //   4. classify again → same outcome → exhaust again
+    // The decision log fills with rearm/classify/exhaust spam every tick
+    // for as long as the underlying wait condition holds. Bumping
+    // last_action_at here breaks the cycle: rearm only triggers when a
+    // genuinely new decision lands after the exhaust, not on every tick.
+    db.prepare(`UPDATE factory_projects
+                SET auto_recovery_exhausted = 1,
+                    auto_recovery_last_action_at = ?
+                WHERE id = ?`).run(new Date().toISOString(), projectId);
     logDecision(db, {
       project_id: projectId, stage: 'verify',
       action: 'auto_recovery_exhausted',
