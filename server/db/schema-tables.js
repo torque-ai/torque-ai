@@ -3727,6 +3727,9 @@ function createTables(db, logger) {
   } catch {
     // Column already exists — ignore
   }
+  // Cover the trigger's `WHERE user_id = OLD.id` lookup so user-delete
+  // cascades don't full-scan api_keys.
+  try { db.prepare('CREATE INDEX IF NOT EXISTS idx_api_keys_user_id ON api_keys(user_id)').run(); } catch (_) {}
 
   // Cascade-delete user's API keys when user is deleted
   // (SQLite doesn't enforce ON DELETE CASCADE for ALTER TABLE columns)

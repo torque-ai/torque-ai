@@ -1021,6 +1021,9 @@ function getAdaptiveRetryRules(errorText = null) {
     });
   }
 
+  // @full-scan: see top-of-function note — adaptive_retry_rules is a small
+  // operator-managed table. Annotation duplicated here because the audit's
+  // context window is the 10 lines preceding the WHERE.
   return db.prepare('SELECT * FROM adaptive_retry_rules WHERE enabled = 1').all().map(r => {
     try { return { ...r, adjustment: JSON.parse(r.adjustment) }; }
     catch { return { ...r, adjustment: {} }; }

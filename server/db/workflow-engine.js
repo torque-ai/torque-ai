@@ -369,6 +369,10 @@ function cleanupOldWorkflows(retentionDays = 30) {
     ).all(cutoff);
 
     let deleted = 0;
+    // @full-scan: the audit attributes the WHERE on the next-line UPDATE
+    // to `workflows` because the FROM-clause extractor walks the
+    // surrounding context — but the actual UPDATE targets `tasks`, and
+    // `tasks.workflow_id` is covered by idx_tasks_workflow_id.
     for (const wf of oldWorkflows) {
       // Nullify task workflow_id to avoid FK violations
       _getStmt('nullifyTaskWorkflow', 'UPDATE tasks SET workflow_id = NULL WHERE workflow_id = ?').run(wf.id);

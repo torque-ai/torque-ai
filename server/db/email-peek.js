@@ -155,6 +155,8 @@ function listPeekHosts() {
 }
 
 function getDefaultPeekHost() {
+  // @full-scan: peek_hosts is operator-managed with one row per email
+  // host; .get() short-circuits at the first match anyway.
   return _db.prepare('SELECT * FROM peek_hosts WHERE is_default = 1').get() || null;
 }
 

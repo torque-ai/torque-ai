@@ -271,6 +271,8 @@ function getAllConfig() {
  * @returns {Array}
  */
 function getProviderRateLimits() {
+  // @full-scan: provider_rate_limits has one row per (provider, tier);
+  // the free-tier subset is small and operator-managed.
   try {
     return db.prepare('SELECT * FROM provider_rate_limits WHERE is_free_tier = 1').all();
   } catch {

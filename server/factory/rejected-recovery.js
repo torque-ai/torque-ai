@@ -167,6 +167,9 @@ function getOpenWorkItemCountForProject(projectId) {
 }
 
 function countPriorReopens(db, workItemId) {
+  // @full-scan: covered by idx_factory_decisions_batch_id (migration v53);
+  // the audit only sees the WHERE line so it flags `action` alone, but
+  // the actual planner uses the batch_id seek and post-filters action.
   const row = db.prepare(`
     SELECT COUNT(*) AS count
     FROM factory_decisions

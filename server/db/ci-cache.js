@@ -151,6 +151,9 @@ function deactivateCiWatch(repo, provider) {
 }
 
 function listActiveCiWatches() {
+  // @full-scan: ci_watches is small (one row per watched repo/provider).
+  // The active boolean is the only filter; majority-true predicate so an
+  // index on it wouldn't be picked.
   return _db.prepare('SELECT * FROM ci_watches WHERE active = 1 ORDER BY created_at DESC').all();
 }
 

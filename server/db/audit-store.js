@@ -483,6 +483,9 @@ function getFalsePositives(projectPath) {
   assertDbInitialized()
 
   try {
+    // @full-scan: ar.project_path drives the seek through audit_runs; the
+    // false_positive boolean is a post-join filter on a tiny per-run set
+    // so an index on it would not be used.
     const statement = db.prepare(`
       SELECT af.*
       FROM audit_findings af

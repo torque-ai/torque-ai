@@ -149,6 +149,8 @@ function getHealthSummary() {
                ROW_NUMBER() OVER (PARTITION BY check_type ORDER BY checked_at DESC) AS rn
         FROM health_status
       )
+      -- @full-scan: rn is a ROW_NUMBER() window-function alias on the
+      -- outer subquery; not a column on health_status. No index applies.
       WHERE rn = 1
     `);
     _healthHistoryStmt = db.prepare(`

@@ -151,6 +151,8 @@ function listStalledVerifyLoops(db, thresholdMs = VERIFY_STALL_THRESHOLD_MS) {
       ${attemptsSelect}
       ${arSelect}
     FROM factory_projects
+    -- @full-scan: same shape as stuck-loop-detector — small projects
+    -- table, COALESCE-wrapped predicates aren't index-eligible.
     WHERE loop_last_action_at IS NOT NULL
       AND (
         COALESCE(UPPER(loop_state), 'IDLE') = 'VERIFY'

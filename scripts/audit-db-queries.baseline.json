@@ -7,81 +7,10 @@
     ]
   },
   {
-    "file": "server/db/analytics.js",
-    "table": "adaptive_retry_rules",
-    "cols": [
-      "enabled"
-    ]
-  },
-  {
-    "file": "server/db/audit-store.js",
-    "table": "audit_findings",
-    "cols": [
-      "false_positive"
-    ]
-  },
-  {
-    "file": "server/db/ci-cache.js",
-    "table": "ci_watches",
-    "cols": [
-      "active"
-    ]
-  },
-  {
-    "file": "server/db/config-core.js",
-    "table": "provider_rate_limits",
-    "cols": [
-      "is_free_tier"
-    ]
-  },
-  {
-    "file": "server/db/email-peek.js",
-    "table": "peek_hosts",
-    "cols": [
-      "is_default"
-    ]
-  },
-  {
-    "file": "server/db/factory-health.js",
-    "table": "factory_projects",
-    "cols": [
-      "status"
-    ]
-  },
-  {
-    "file": "server/db/file-quality.js",
-    "table": "output_limits",
-    "cols": [
-      "enabled",
-      "provider"
-    ]
-  },
-  {
-    "file": "server/db/file-tracking.js",
-    "table": "timeout_alerts",
-    "cols": [
-      "notified"
-    ]
-  },
-  {
-    "file": "server/db/model-capabilities.js",
-    "table": "model_task_outcomes",
-    "cols": [
-      "success"
-    ]
-  },
-  {
     "file": "server/db/pipeline-crud.js",
     "table": "pipelines",
     "cols": [
       "status"
-    ]
-  },
-  {
-    "file": "server/db/provider-routing-core.js",
-    "table": "task_validations",
-    "cols": [
-      "passed"
     ]
   },
   {
@@ -92,32 +21,11 @@
     ]
   },
   {
-    "file": "server/db/provider-routing-core.js",
-    "table": "token_usage",
-    "cols": [
-      "provider"
-    ]
-  },
-  {
-    "file": "server/db/resource-health.js",
-    "table": "health_status",
-    "cols": [
-      "rn"
-    ]
-  },
-  {
     "file": "server/db/scheduling-automation.js",
     "table": "maintenance_schedule",
     "cols": [
       "enabled",
       "next_run_at"
-    ]
-  },
-  {
-    "file": "server/db/schema-tables.js",
-    "table": "api_keys",
-    "cols": [
-      "user_id"
     ]
   },
   {
@@ -142,52 +50,10 @@
     ]
   },
   {
-    "file": "server/db/webhooks-streaming.js",
-    "table": "webhooks",
-    "cols": [
-      "project"
-    ]
-  },
-  {
-    "file": "server/db/workflow-engine.js",
-    "table": "workflows",
-    "cols": [
-      "workflow_id"
-    ]
-  },
-  {
-    "file": "server/factory/rejected-recovery.js",
-    "table": "factory_decisions",
-    "cols": [
-      "action"
-    ]
-  },
-  {
-    "file": "server/factory/stuck-loop-detector.js",
-    "table": "factory_projects",
-    "cols": [
-      "loop_last_action_at"
-    ]
-  },
-  {
-    "file": "server/factory/verify-stall-recovery.js",
-    "table": "factory_projects",
-    "cols": [
-      "loop_last_action_at"
-    ]
-  },
-  {
     "file": "server/factory/worktree-reconcile.js",
     "table": "vc_worktrees",
     "cols": [
       "repo_path"
-    ]
-  },
-  {
-    "file": "server/handlers/recovery-inbox-handlers.js",
-    "table": "factory_decisions",
-    "cols": [
-      "batch_id"
     ]
   }
 ]
