@@ -1027,6 +1027,10 @@ function getTaskComplexityScore(taskId) {
  */
 
 function getSafeguardToolConfigs(safeguardType = null) {
+  // @full-scan: safeguard_tool_config is a small operator-managed config
+  // table — one row per (safeguard_type, tool) pair. Both queries scan
+  // an N<50 table; an index on `enabled` would not be used by SQLite
+  // because the predicate matches the majority of rows.
   if (safeguardType) {
     return db.prepare('SELECT * FROM safeguard_tool_config WHERE safeguard_type = ? AND enabled = 1').all(safeguardType);
   }

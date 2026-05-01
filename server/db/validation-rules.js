@@ -335,6 +335,7 @@ function validateTaskOutput(taskId, fileChanges = []) {
  * Get all approval rules
  */
 function getApprovalRules(enabledOnly = true) {
+  // @full-scan: approval_rules is a small operator-managed config table.
   const stmt = enabledOnly
     ? db.prepare('SELECT * FROM approval_rules WHERE enabled = 1')
     : db.prepare('SELECT * FROM approval_rules');
@@ -419,6 +420,8 @@ function hasAllApprovals(taskId) {
  * Get all failure patterns
  */
 function getFailurePatterns(enabledOnly = true) {
+  // @full-scan: failure_patterns is operator-managed and ordered by
+  // occurrence_count for ranking; the ORDER BY drives the plan.
   const stmt = enabledOnly
     ? db.prepare('SELECT * FROM failure_patterns WHERE enabled = 1 ORDER BY occurrence_count DESC')
     : db.prepare('SELECT * FROM failure_patterns ORDER BY occurrence_count DESC');

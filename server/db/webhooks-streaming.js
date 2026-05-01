@@ -196,6 +196,9 @@ function deleteWebhook(id) {
  * @returns {any}
  */
 function getWebhooksForEvent(event, project = null) {
+  // @full-scan: webhooks is a small operator-managed config table; the
+  // (project IS NULL OR project = ?) predicate is OR-disjunctive and not
+  // index-friendly anyway.
   const stmt = db.prepare(`
     SELECT * FROM webhooks
     WHERE enabled = 1

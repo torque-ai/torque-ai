@@ -1004,6 +1004,12 @@ function createAdaptiveRetryRule(errorPattern, ruleType, adjustment) {
  * Get adaptive retry rules
  */
 function getAdaptiveRetryRules(errorText = null) {
+  // @full-scan: adaptive_retry_rules is a small operator-managed config
+  // table (typically <50 rows). Both queries below load every enabled
+  // rule into memory; an index on `enabled` would not change the plan
+  // because SQLite's optimizer prefers a scan when the filtered subset
+  // approaches the table. The reverse-LIKE branch is anyway un-indexable
+  // (pattern column on the right side of LIKE).
   if (errorText) {
     return db.prepare(`
       SELECT * FROM adaptive_retry_rules
