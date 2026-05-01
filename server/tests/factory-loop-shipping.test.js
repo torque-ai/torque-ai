@@ -165,7 +165,11 @@ function createFactoryTables(db) {
       id TEXT PRIMARY KEY,
       status TEXT NOT NULL DEFAULT 'pending',
       tags TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      provider TEXT,
+      model TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      started_at TEXT,
+      completed_at TEXT
     );
   `);
 }
