@@ -17,7 +17,7 @@ describe('replan-recovery config defaults', () => {
       replan_recovery_cooldown_ms_attempt_0: '3600000',
       replan_recovery_cooldown_ms_attempt_1: '86400000',
       replan_recovery_cooldown_ms_attempt_2: '259200000',
-      replan_recovery_strategy_timeout_ms: '360000',
+      replan_recovery_strategy_timeout_ms: '960000',
       replan_recovery_strategy_timeout_ms_escalate: '5000',
       replan_recovery_history_max_entries: '10',
       replan_recovery_split_max_children: '5',
@@ -34,7 +34,7 @@ describe('replan-recovery config defaults', () => {
     expect(cfg.maxGlobalPerSweep).toBe(5);
     expect(cfg.skipIfOpenCountGte).toBe(3);
     expect(cfg.cooldownMs).toEqual([3600000, 86400000, 259200000]);
-    expect(cfg.strategyTimeoutMs).toBe(360000);
+    expect(cfg.strategyTimeoutMs).toBe(960000);
     expect(cfg.strategyTimeoutMsEscalate).toBe(5000);
     expect(cfg.historyMaxEntries).toBe(10);
     expect(cfg.splitMaxChildren).toBe(5);
