@@ -1,3 +1,5 @@
+> **STALE — needs rewrite (2026-05-01).** Predates fabro-1 (workflow-as-code, shipped); 'signature' field overlaps current schema. Refresh focus: integrate with existing workflow YAML schema instead of side-table.
+
 # Fabro #23: Typed Task Signatures Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task.
