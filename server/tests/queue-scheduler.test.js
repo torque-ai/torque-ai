@@ -1227,6 +1227,44 @@ describe('Queue Scheduler', () => {
       expect(mocks.safeStartTask).toHaveBeenCalledWith('ct-1', 'codex');
     });
 
+    it('starts project codex work before factory-internal codex work', () => {
+      mockDb.getRunningCount.mockReturnValue(0);
+      mockDb.listTasks.mockImplementation(({ status }) => {
+        if (status === 'queued') {
+          return [
+            makeTask({
+              id: 'factory-plan',
+              provider: 'codex',
+              task_description: 'Generate a factory plan',
+              tags: JSON.stringify(['factory:internal', 'factory:plan_generation']),
+            }),
+            makeTask({
+              id: 'project-exec',
+              provider: 'codex',
+              task_description: 'Implement the selected project task',
+              tags: JSON.stringify(['factory:batch_id=batch-1', 'project:bitsy']),
+            }),
+          ];
+        }
+        if (status === 'running') return [];
+        return [];
+      });
+      mockDb.getConfig.mockImplementation((key) => {
+        if (key === 'codex_enabled') return '1';
+        return null;
+      });
+      mocks.safeConfigInt.mockImplementation((key, defaultVal) => {
+        if (key === 'max_concurrent') return 10;
+        if (key === 'max_codex_concurrent') return 1;
+        return defaultVal;
+      });
+
+      scheduler.processQueueInternal();
+
+      expect(mocks.safeStartTask).toHaveBeenCalledTimes(1);
+      expect(mocks.safeStartTask).toHaveBeenCalledWith('project-exec', 'codex');
+    });
+
     it('starts API provider tasks', () => {
       mockDb.getRunningCount.mockReturnValue(0);
       mockDb.listTasks.mockImplementation(({ status }) => {

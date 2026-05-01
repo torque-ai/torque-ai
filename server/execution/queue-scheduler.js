@@ -257,6 +257,50 @@ function shouldSkipTaskForFileLockWait(task, nowMs = Date.now()) {
   return Number.isFinite(retryAfterMs) && retryAfterMs > nowMs;
 }
 
+function getTaskTags(task) {
+  const rawTags = task?.tags;
+  if (Array.isArray(rawTags)) {
+    return rawTags.map(tag => String(tag));
+  }
+  if (typeof rawTags !== 'string' || !rawTags.trim()) {
+    return [];
+  }
+  try {
+    const parsed = JSON.parse(rawTags);
+    if (Array.isArray(parsed)) {
+      return parsed.map(tag => String(tag));
+    }
+  } catch {
+    // Fall through to a lightweight comma split for legacy tag strings.
+  }
+  return rawTags.split(',').map(tag => tag.trim()).filter(Boolean);
+}
+
+function isFactoryInternalTask(task) {
+  return getTaskTags(task).includes('factory:internal');
+}
+
+function prioritizeCodexProjectWork(codexTasks) {
+  if (!Array.isArray(codexTasks) || codexTasks.length <= 1) {
+    return codexTasks || [];
+  }
+
+  const projectWork = [];
+  const factoryInternal = [];
+  for (const task of codexTasks) {
+    if (isFactoryInternalTask(task)) {
+      factoryInternal.push(task);
+    } else {
+      projectWork.push(task);
+    }
+  }
+
+  if (projectWork.length === 0 || factoryInternal.length === 0) {
+    return codexTasks;
+  }
+  return [...projectWork, ...factoryInternal];
+}
+
 function categorizeQueuedTasks(queuedTasks, codexEnabled) {
   const ollamaTasks = [];
   const codexTasks = [];
@@ -928,7 +972,7 @@ function processQueueInternal(options = {}) {
     const runningCodex = providerCounts.codex;
     const pendingFreeProviderOverflow = [];
 
-    for (const codexTask of codexTasks) {
+    for (const codexTask of prioritizeCodexProjectWork(codexTasks)) {
       if (shouldSkipTaskForApproval(codexTask)) {
         continue;
       }
@@ -1160,6 +1204,7 @@ function createQueueScheduler(_deps) {
     categorizeQueuedTasks,
     shouldSkipTaskForApproval,
     shouldSkipTaskForFileLockWait,
+    prioritizeCodexProjectWork,
     processQueueInternal,
     resolveCodexPendingTasks,
     _getLastAutoScaleActivation: () => _lastAutoScaleActivation,
@@ -1180,6 +1225,7 @@ module.exports = {
   categorizeQueuedTasks,
   shouldSkipTaskForApproval,
   shouldSkipTaskForFileLockWait,
+  prioritizeCodexProjectWork,
   processQueueInternal,
   resolveCodexPendingTasks,
   // Exposed for testing auto-scale cooldown

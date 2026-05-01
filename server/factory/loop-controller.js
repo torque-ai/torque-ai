@@ -1255,7 +1255,32 @@ function getTaskMetadataObject(task) {
   return parseJsonObject(raw) || {};
 }
 
+function isStalePlanGenerationFileLockWait(task, nowMs = Date.now()) {
+  const metadata = getTaskMetadataObject(task);
+  const wait = metadata.file_lock_wait;
+  if (!wait || typeof wait !== 'object' || Array.isArray(wait)) {
+    return false;
+  }
+
+  const status = String(task?.status || '').toLowerCase();
+  if (status === 'running') {
+    return true;
+  }
+
+  const retryAfter = normalizeOptionalString(wait.retry_after);
+  if (!retryAfter) {
+    return false;
+  }
+
+  const retryAfterMs = Date.parse(retryAfter);
+  return Number.isFinite(retryAfterMs) && retryAfterMs <= nowMs;
+}
+
 function getPlanGenerationFileLockWait(task, message = '') {
+  if (isStalePlanGenerationFileLockWait(task)) {
+    return null;
+  }
+
   const metadata = getTaskMetadataObject(task);
   const wait = metadata.file_lock_wait;
   if (wait && typeof wait === 'object' && !Array.isArray(wait)) {
@@ -1289,6 +1314,10 @@ function getPlanGenerationRunningWait(task, message = '') {
 }
 
 function getPlanGenerationWait(task, message = '') {
+  if (isPlanGenerationTaskPending(task) && isStalePlanGenerationFileLockWait(task)) {
+    return { reason: 'task_still_running' };
+  }
+
   return getPlanGenerationFileLockWait(task, message)
     || getPlanGenerationRunningWait(task, message);
 }

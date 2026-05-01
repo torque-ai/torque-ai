@@ -492,7 +492,7 @@ describe('factory loop-controller EXECUTE for non-plan-file work items', () => {
     const { project, workItem } = registerExecuteProject({
       description: 'Add coverage for the plugin catalog runtime loader.',
     });
-    const retryAfter = '2026-04-28T23:45:00.000Z';
+    const retryAfter = new Date(Date.now() + 60_000).toISOString();
     factoryIntake.updateWorkItem(workItem.id, {
       origin_json: {
         plan_generation_task_id: 'plan-gen-task',
@@ -574,6 +574,69 @@ describe('factory loop-controller EXECUTE for non-plan-file work items', () => {
     });
     expect(routingModule.handleSmartSubmitTask).not.toHaveBeenCalled();
     expect(awaitModule.handleAwaitTask).not.toHaveBeenCalled();
+  });
+
+  it('treats stale plan-generation file-lock metadata as an active task wait', async () => {
+    const { project, workItem } = registerExecuteProject({
+      description: 'Add coverage for delayed plan generation after a stale lock wait.',
+    });
+    const staleRetryAfter = '2000-01-01T00:00:00.000Z';
+    factoryIntake.updateWorkItem(workItem.id, {
+      origin_json: {
+        plan_generation_task_id: 'plan-gen-task',
+      },
+    });
+    taskCore.getTask = vi.fn((taskId) => ({
+      id: taskId,
+      status: 'running',
+      output: '',
+      error_output: "Requeued: file 'docs/superpowers/plans/auto-generated/2041-plugin-catalog-runtime.md' is being edited by task holder-task. Waiting 2500ms before retry.",
+      metadata: JSON.stringify({
+        file_lock_wait: {
+          file: 'docs/superpowers/plans/auto-generated/2041-plugin-catalog-runtime.md',
+          locked_by: 'holder-task',
+          retry_after: staleRetryAfter,
+          delay_ms: 2500,
+        },
+      }),
+    }));
+
+    const executeAdvance = await loopController.advanceLoopForProject(project.id);
+    const updatedWorkItem = factoryIntake.getWorkItem(workItem.id);
+
+    expect(executeAdvance).toMatchObject({
+      new_state: LOOP_STATES.EXECUTE,
+      paused_at_stage: null,
+      reason: 'plan generation deferred while task remains active',
+      stage_result: {
+        status: 'deferred',
+        reason: 'task_still_running',
+        generation_task_id: 'plan-gen-task',
+        task_status: 'running',
+        retry_after: null,
+      },
+    });
+    expect(updatedWorkItem).toMatchObject({
+      id: workItem.id,
+      status: 'planned',
+      origin: expect.objectContaining({
+        plan_generation_task_id: 'plan-gen-task',
+        plan_generation_wait_reason: 'task_still_running',
+      }),
+    });
+
+    const decisions = listDecisionRows(db, project.id);
+    expect(decisions.find((row) => row.action === 'plan_generation_deferred_file_lock')).toBeUndefined();
+    expect(decisions.find((row) => row.action === 'plan_generation_deferred_running')).toMatchObject({
+      stage: 'execute',
+      outcome: expect.objectContaining({
+        reason: 'task_still_running',
+        generation_task_id: 'plan-gen-task',
+        task_status: 'running',
+        retry_after: null,
+        work_item_id: workItem.id,
+      }),
+    });
   });
 
   it('defers active plan-generation tasks after an await timeout instead of rejecting the work item', async () => {
