@@ -252,7 +252,7 @@ async function submitFactoryInternalTask({
       inherited_provider_source: inheritedIntent.providerSource || 'project_defaults',
       user_provider_override: false,
     } : {}),
-    ...buildProviderLaneTaskMetadata(targetProject || {}),
+    ...buildProviderLaneTaskMetadata(targetProject || {}, resolvedKind),
     ...(extra_metadata || {}),
   };
 

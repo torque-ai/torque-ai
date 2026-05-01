@@ -300,3 +300,60 @@ describe('Phase S: kind-family fallback in by_kind specialization', () => {
     expect(sp.expected_provider).toBe('ollama');
   });
 });
+
+describe('Phase T: buildProviderLaneTaskMetadata accepts kind for stamping', () => {
+  // The metadata stamped onto a factory-internal task must match the
+  // routing decision the inheritedIntent path already made. Without
+  // kind specialization, downstream consumers that re-resolve provider
+  // from metadata.provider_lane_policy.expected_provider would see
+  // the unspecialized worker-lane provider and override the codex
+  // routing the manager-kind needed.
+  const { buildProviderLaneTaskMetadata } = require('../factory/provider-lane-policy');
+
+  const projectRow = {
+    id: 'b9261762-7be5-4fc9-9794-f18c3e404fcb',
+    name: 'DLPhone',
+    config_json: JSON.stringify({
+      provider_lane_policy: {
+        expected_provider: 'ollama',
+        allowed_providers: ['ollama'],
+        enforce_handoffs: true,
+        by_kind: {
+          scout: 'codex',
+          architect_cycle: 'codex',
+          plan_generation: 'codex',
+          verify_review: 'codex',
+        },
+      },
+    }),
+  };
+
+  it('without kind, stamps the unspecialized policy (legacy callers)', () => {
+    const meta = buildProviderLaneTaskMetadata(projectRow);
+    expect(meta.provider_lane_policy.expected_provider).toBe('ollama');
+  });
+
+  it('with kind=replan_rewrite, stamps codex via architect-family fallback', () => {
+    const meta = buildProviderLaneTaskMetadata(projectRow, 'replan_rewrite');
+    expect(meta.provider_lane_policy.expected_provider).toBe('codex');
+    expect(meta.provider_lane_policy.allowed_providers).toEqual(
+      expect.arrayContaining(['ollama', 'codex'])
+    );
+  });
+
+  it('with kind=architect_cycle, stamps codex via direct match', () => {
+    const meta = buildProviderLaneTaskMetadata(projectRow, 'architect_cycle');
+    expect(meta.provider_lane_policy.expected_provider).toBe('codex');
+  });
+
+  it('with kind for which the project has no override, stamps unspecialized policy', () => {
+    const meta = buildProviderLaneTaskMetadata(projectRow, 'execute_task');
+    expect(meta.provider_lane_policy.expected_provider).toBe('ollama');
+  });
+
+  it('with no policy on the project, returns empty metadata regardless of kind', () => {
+    const emptyProject = { id: 'x', name: 'Empty', config_json: '{}' };
+    expect(buildProviderLaneTaskMetadata(emptyProject)).toEqual({});
+    expect(buildProviderLaneTaskMetadata(emptyProject, 'replan_rewrite')).toEqual({});
+  });
+});

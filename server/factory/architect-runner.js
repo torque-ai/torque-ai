@@ -710,7 +710,16 @@ async function submitArchitectJsonPrompt(prompt, project_id, projectPath, kind =
       working_directory: projectPath,
       kind,
       project_id,
-      timeout_minutes: 5,
+      // Phase T (2026-05-01): bumped from 5 to 15 minutes. The 5-minute
+      // budget had to cover BOTH queue-wait time and execution time. With
+      // codex's 3-slot concurrency limit, queue wait alone routinely
+      // consumed 5 minutes when other architect_cycle / plan_generation
+      // tasks were running, so the architect-submit poll loop hit
+      // deadline_exceeded before the task ever reached `running`. Live
+      // evidence: DLPhone 2026-05-01 13:44 / 14:02 / 14:17 — three
+      // consecutive replan_rewrite tasks routed to codex correctly (after
+      // Phase S landed) but timed out in the queue before starting.
+      timeout_minutes: 15,
     });
     taskId = task_id;
     if (!taskId) {
@@ -722,7 +731,7 @@ async function submitArchitectJsonPrompt(prompt, project_id, projectPath, kind =
     return null;
   }
 
-  const deadlineMs = 5 * 60 * 1000;
+  const deadlineMs = 15 * 60 * 1000;
   const deadline = Date.now() + deadlineMs;
   while (Date.now() < deadline) {
     const task = taskCore.getTask(taskId);

@@ -194,9 +194,19 @@ function getProviderLanePolicyFromProject(projectOrConfig = {}) {
   );
 }
 
-function buildProviderLaneTaskMetadata(projectOrConfig = {}) {
-  const policy = getProviderLanePolicyFromProject(projectOrConfig);
-  return policy ? { provider_lane_policy: policy } : {};
+function buildProviderLaneTaskMetadata(projectOrConfig = {}, kind = null) {
+  // Phase T (2026-05-01): when the caller knows the kind, stamp the
+  // kind-specialized policy onto the task's metadata. Otherwise any
+  // downstream consumer that re-resolves provider from
+  // metadata.provider_lane_policy.expected_provider would see the
+  // unspecialized worker-lane provider (e.g. ollama on DLPhone) and
+  // override the codex routing that Phase H/S already chose at
+  // submission time. The metadata previously diverged from the actual
+  // routing decision; this keeps them aligned.
+  const rawPolicy = getProviderLanePolicyFromProject(projectOrConfig);
+  if (!rawPolicy) return {};
+  const policy = kind ? specializePolicyForKind(rawPolicy, kind) : rawPolicy;
+  return { provider_lane_policy: policy };
 }
 
 function isProviderAllowedByLanePolicy(policy, provider) {
