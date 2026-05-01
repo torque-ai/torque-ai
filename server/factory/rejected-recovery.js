@@ -46,6 +46,7 @@ const AUTO_UNACTIONABLE_REASON_PATTERNS = Object.freeze([
 ]);
 const NON_RECOVERABLE_REJECT_REASON_PATTERNS = Object.freeze([
   /^cannot_generate_plan:/i,
+  /^pre_written_plan_rejected_by_quality_gate$/i,
   /^replan_generation_failed$/i,
   /^plan_quality_gate_rejected_after_2_attempts$/i,
   /^dismissed_from_inbox:/i,

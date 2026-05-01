@@ -247,6 +247,9 @@ describe('rejected work item recovery sweep', () => {
     const qualityRejected = createRejectedWorkItem(project.id, {
       rejectReason: 'plan_quality_gate_rejected_after_2_attempts',
     });
+    const prewrittenPlanRejected = createUnactionableWorkItem(project.id, {
+      rejectReason: 'pre_written_plan_rejected_by_quality_gate',
+    });
     enableRejectRecovery();
 
     await factoryTick.tickProject(project);
@@ -265,6 +268,11 @@ describe('rejected work item recovery sweep', () => {
       id: qualityRejected.id,
       status: 'rejected',
       reject_reason: 'plan_quality_gate_rejected_after_2_attempts',
+    });
+    expect(factoryIntake.getWorkItem(prewrittenPlanRejected.id)).toMatchObject({
+      id: prewrittenPlanRejected.id,
+      status: 'unactionable',
+      reject_reason: 'pre_written_plan_rejected_by_quality_gate',
     });
     expect(countRecoveryDecisions()).toBe(0);
   });
