@@ -467,7 +467,15 @@ describe('runLlmTiebreak', () => {
       workItem: { id: 1, title: 'w', description: 'd' },
       project: { id: 'p', path: '/tmp/p' },
     });
-    expect(r).toEqual({ verdict: null, critique: null, status: 'submit_failed', taskId: null });
+    // 3e83e21d added `submitError` to the result so operators triaging
+    // baseline_likely classifications can see *why* the submit failed.
+    expect(r).toEqual({
+      verdict: null,
+      critique: null,
+      status: 'submit_failed',
+      taskId: null,
+      submitError: 'provider down',
+    });
   });
 
   it('returns timeout when the review task is cancelled for timeout', async () => {
