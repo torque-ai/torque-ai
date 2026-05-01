@@ -5,6 +5,7 @@ const { LOOP_STATES } = require('./loop-states');
 const DEFAULT_DWELL_MS = 15 * 60 * 1000;
 const MAX_DWELL_MS = 4 * 60 * 60 * 1000;
 const DEFAULT_SCOUT_TIMEOUT_MINUTES = 12;
+const DEFAULT_SCOUT_PROVIDER = 'codex';
 // Codex does deeper recon than ollama (full directory tree walks, multi-tool
 // reasoning) and routinely needs ~15-25 min on a fresh repo. The 12-minute
 // default works for ollama (which converges fast — sometimes by hallucinating)
@@ -140,6 +141,15 @@ function buildStarvationRecoveryScope({ project, noYieldScoutCount }) {
   );
   lines.push('');
 
+  lines.push('## Repository boundary (CRITICAL)');
+  lines.push(
+    'Inspect only files under the working directory for this scout. Do not read, search, or summarize ' +
+    'Codex memory files, user-home files, `.codex/`, `.torque/`, or any path outside the working directory. ' +
+    'If previous-attempt context mentions another project or memory path, treat it as noise unless the same ' +
+    'path exists under the current working directory.'
+  );
+  lines.push('');
+
   lines.push('## Scope bounds');
   lines.push(
     'Inspect at most 80 candidate files. Prefer existing test files, docs, recent plan files, and TODO comments as evidence sources. ' +
@@ -246,6 +256,7 @@ function createStarvationRecovery({
   listActiveScouts,
   listRecentScouts,
   resolveScoutProvider,
+  defaultScoutProvider = DEFAULT_SCOUT_PROVIDER,
   dwellMs = DEFAULT_DWELL_MS,
   maxDwellMs = MAX_DWELL_MS,
   scoutTimeoutMinutes = DEFAULT_SCOUT_TIMEOUT_MINUTES,
@@ -452,8 +463,8 @@ function createStarvationRecovery({
       }
     }
 
-    const effectiveScoutTimeout = (scoutProvider
-      && SCOUT_TIMEOUT_MINUTES_BY_PROVIDER[scoutProvider])
+    const timeoutProvider = scoutProvider || defaultScoutProvider;
+    const effectiveScoutTimeout = SCOUT_TIMEOUT_MINUTES_BY_PROVIDER[timeoutProvider]
       || scoutTimeoutMinutes;
 
     const scout = await submitScout({
@@ -503,6 +514,7 @@ module.exports = {
   DEFAULT_DWELL_MS,
   MAX_DWELL_MS,
   DEFAULT_SCOUT_TIMEOUT_MINUTES,
+  DEFAULT_SCOUT_PROVIDER,
   SCOUT_TIMEOUT_MINUTES_BY_PROVIDER,
   DEFAULT_SCOUT_FILE_PATTERNS,
   buildStarvationRecoveryScope,

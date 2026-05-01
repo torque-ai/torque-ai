@@ -2,6 +2,7 @@
 
 const {
   DEFAULT_SCOUT_FILE_PATTERNS,
+  DEFAULT_SCOUT_PROVIDER,
   DEFAULT_SCOUT_TIMEOUT_MINUTES,
   SCOUT_TIMEOUT_MINUTES_BY_PROVIDER,
   buildStarvationRecoveryScope,
@@ -313,7 +314,7 @@ describe('factory starvation recovery', () => {
       project_path: 'C:\\repo',
       working_directory: 'C:\\repo',
       reason: 'factory_starvation_recovery',
-      timeout_minutes: DEFAULT_SCOUT_TIMEOUT_MINUTES,
+      timeout_minutes: SCOUT_TIMEOUT_MINUTES_BY_PROVIDER[DEFAULT_SCOUT_PROVIDER],
       file_patterns: DEFAULT_SCOUT_FILE_PATTERNS,
     }));
     expect(submitScout.mock.calls[0][0].file_patterns).not.toContain('server/**/*.js');
@@ -389,6 +390,37 @@ describe('factory starvation recovery', () => {
       timeout_minutes: SCOUT_TIMEOUT_MINUTES_BY_PROVIDER.codex,
     }));
     expect(SCOUT_TIMEOUT_MINUTES_BY_PROVIDER.codex).toBeGreaterThan(DEFAULT_SCOUT_TIMEOUT_MINUTES);
+  });
+
+  it('extends timeout for implicit default codex scouts too', async () => {
+    // Regression: if no lane policy resolved, handleSubmitScout defaulted the
+    // provider to codex but starvation-recovery still sent the old 12-minute
+    // timeout. Those implicit codex scouts timed out mid-recon.
+    const submitScout = vi.fn().mockResolvedValue({ task_id: 'task-default-codex' });
+    const updateLoopState = vi.fn().mockResolvedValue({});
+    const countOpenWorkItems = vi.fn().mockResolvedValue(0);
+    const resolveScoutProvider = vi.fn().mockReturnValue(null);
+    const nowMs = Date.parse('2026-05-01T05:30:00.000Z');
+    const recovery = createStarvationRecovery({
+      submitScout,
+      updateLoopState,
+      countOpenWorkItems,
+      resolveScoutProvider,
+      dwellMs: 1000,
+      now: () => nowMs,
+    });
+
+    await recovery.maybeRecover({
+      id: 'project-1',
+      path: 'C:\\repo',
+      loop_state: LOOP_STATES.STARVED,
+      loop_last_action_at: '2026-05-01T05:00:00.000Z',
+    });
+
+    expect(submitScout).toHaveBeenCalledWith(expect.objectContaining({
+      timeout_minutes: SCOUT_TIMEOUT_MINUTES_BY_PROVIDER[DEFAULT_SCOUT_PROVIDER],
+    }));
+    expect(submitScout.mock.calls[0][0]).not.toHaveProperty('provider');
   });
 
   it('keeps default scout timeout for ollama', async () => {
@@ -519,6 +551,18 @@ describe('buildStarvationRecoveryScope', () => {
     expect(scope).toMatch(/MUST have at least one path/i);
     expect(scope).toMatch(/list_directory.*search_files|search_files.*list_directory/);
     expect(scope).toMatch(/may NOT invent file paths/i);
+  });
+
+  it('forbids reading Codex memory or paths outside the project working directory', () => {
+    const scope = buildStarvationRecoveryScope({
+      project: { name: 'StateTrace', brief: 'PowerShell desktop diagnostics.' },
+      noYieldScoutCount: 0,
+    });
+    expect(scope).toContain('## Repository boundary');
+    expect(scope).toMatch(/Inspect only files under the working directory/i);
+    expect(scope).toContain('Codex memory files');
+    expect(scope).toContain('`.codex/`');
+    expect(scope).toContain('any path outside the working directory');
   });
 
   it('explicitly allows an empty patterns array as a valid signal', () => {
