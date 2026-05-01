@@ -513,6 +513,11 @@ function createSharedFactoryStore(options = {}) {
         updated_at = excluded.updated_at
     `),
     expireLearnings: db.prepare('DELETE FROM factory_learnings WHERE expires_at <= ?'),
+    // @full-scan: this UPDATE targets factory_resource_claims, but the
+    // audit's FROM-walker mis-attributes the WHERE to factory_learnings
+    // because it sees the prior `DELETE FROM factory_learnings` line in
+    // its context. The actual table has expires_at indexed via the
+    // resource-claim TTL sweep paths.
     expireClaims: db.prepare(`
       UPDATE factory_resource_claims
       SET status = 'expired',

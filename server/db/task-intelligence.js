@@ -301,6 +301,9 @@ function learnFromTask(taskId) {
 function getTaskPatterns(options = {}) {
   const { type, minHitCount = 1, limit = 50 } = options;
 
+  // @full-scan: hit_count >= ? is an inequality predicate; with the
+  // typical default minHitCount=1 the filter retains essentially every
+  // row, and the ORDER BY hit_count DESC drives the plan anyway.
   let query = `SELECT * FROM task_patterns WHERE hit_count >= ?`;
   const params = [minHitCount];
 
