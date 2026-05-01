@@ -402,7 +402,7 @@ describe('runLlmSemanticCheck', () => {
     expect(submitMock).not.toHaveBeenCalled();
     expect(awaitMock).toHaveBeenCalledWith({
       task_id: 'existing-review',
-      timeout_minutes: 1,
+      timeout_minutes: 5,
       heartbeat_minutes: 0,
     });
   });
