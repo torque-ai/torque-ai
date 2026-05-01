@@ -401,10 +401,125 @@ describe('factory_status', () => {
     });
   });
 
+  it('surfaces active architect tasks as PLAN-stage work', async () => {
+    const db = rawDb();
+    const createdAt = new Date().toISOString();
+    const olderTaskAt = new Date(Date.now() - 60_000).toISOString();
+    const currentTaskAt = new Date(Date.now() - 1_000).toISOString();
+    const currentArchitectTaskId = '33333333-3333-3333-3333-333333333333';
+
+    db.prepare(`
+      INSERT INTO factory_projects (
+        id,
+        name,
+        path,
+        brief,
+        trust_level,
+        status,
+        config_json,
+        loop_state,
+        loop_batch_id,
+        loop_last_action_at,
+        loop_paused_at_stage,
+        created_at,
+        updated_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      'project-architect-active',
+      'Architect Active',
+      path.join(testDir, 'project-architect-active'),
+      'plan loop waiting on architect work',
+      'autonomous',
+      'running',
+      null,
+      'PLAN',
+      null,
+      createdAt,
+      null,
+      createdAt,
+      createdAt,
+    );
+    const workItem = factoryIntake.createWorkItem({
+      project_id: 'project-architect-active',
+      source: 'manual',
+      title: 'Split command handlers',
+      description: 'Use architect output to build a concrete plan.',
+      status: 'prioritized',
+    });
+    insertActiveLoopInstance(db, {
+      projectId: 'project-architect-active',
+      workItemId: workItem.id,
+      loopState: 'PLAN',
+      lastActionAt: createdAt,
+    });
+    db.prepare(`
+      INSERT INTO tasks (id, task_description, status, provider, tags, created_at, started_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      '22222222-3333-3333-3333-333333333333',
+      'Older architect cycle',
+      'queued',
+      'codex',
+      JSON.stringify([
+        'factory:internal',
+        'factory:architect_cycle',
+        'factory:project_id=project-architect-active',
+      ]),
+      olderTaskAt,
+      null,
+    );
+    db.prepare(`
+      INSERT INTO tasks (id, task_description, status, provider, tags, created_at, started_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      currentArchitectTaskId,
+      'Current architect cycle',
+      'queued',
+      'codex',
+      JSON.stringify([
+        'factory:internal',
+        'factory:architect_cycle',
+        'factory:project_id=project-architect-active',
+      ]),
+      currentTaskAt,
+      null,
+    );
+
+    const result = await safeTool('factory_status', {});
+
+    expect(result.isError).toBeFalsy();
+    const payload = result.structuredData;
+    const project = payload.projects.find((item) => item.id === 'project-architect-active');
+    expect(project).toMatchObject({
+      loop_state: 'PLAN',
+      active_stage: 'PLAN',
+      active_task: {
+        id: currentArchitectTaskId,
+        kind: 'architect_cycle',
+        status: 'queued',
+        provider: 'codex',
+      },
+      state_consistency: {
+        ok: true,
+        project_loop_state: 'PLAN',
+        instance_loop_state: 'PLAN',
+        active_stage: 'PLAN',
+      },
+    });
+    expect(project.state_consistency.mismatches).toEqual([]);
+    expect(payload.summary).toMatchObject({
+      active_internal_tasks: 1,
+      state_mismatch_projects: 0,
+    });
+  });
+
   it('surfaces active execution batch tasks under EXECUTE loops', async () => {
     const db = rawDb();
     const createdAt = new Date().toISOString();
     const batchTaskId = '22222222-2222-2222-2222-222222222222';
+    const newerBatchTaskId = '22222222-2222-2222-2222-222222222223';
+    const newerTaskAt = new Date(Date.now() + 1_000).toISOString();
     const batchId = 'factory-project-execution-1';
 
     db.prepare(`
@@ -456,6 +571,18 @@ describe('factory_status', () => {
       JSON.stringify([`factory:batch_id=${batchId}`, 'factory:work_item_id=42', 'project:example']),
       createdAt,
       createdAt,
+    );
+    db.prepare(`
+      INSERT INTO tasks (id, task_description, status, provider, tags, created_at, started_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      newerBatchTaskId,
+      'Implement later factory work item',
+      'running',
+      'codex',
+      JSON.stringify([`factory:batch_id=${batchId}`, 'factory:work_item_id=43', 'project:example']),
+      newerTaskAt,
+      newerTaskAt,
     );
 
     const result = await safeTool('factory_status', {});

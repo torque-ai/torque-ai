@@ -492,6 +492,85 @@ function getActivePlanGenerationTask(activeInstance) {
   return summarizeActiveTask(task, 'plan_generation');
 }
 
+function getTaskTags(task) {
+  if (Array.isArray(task?.tags)) {
+    return task.tags;
+  }
+  if (typeof task?.tags !== 'string') {
+    return [];
+  }
+  try {
+    const parsed = JSON.parse(task.tags);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function rankActiveFactoryTask(task) {
+  return ACTIVE_FACTORY_BATCH_TASK_STATUS_RANK.get(String(task?.status || '').toLowerCase()) ?? 99;
+}
+
+function sortActiveFactoryTasksByNewest(left, right) {
+  const leftRank = rankActiveFactoryTask(left);
+  const rightRank = rankActiveFactoryTask(right);
+  if (leftRank !== rightRank) {
+    return leftRank - rightRank;
+  }
+  return String(right?.created_at || '').localeCompare(String(left?.created_at || ''));
+}
+
+function sortActiveFactoryTasksByOldest(left, right) {
+  const leftRank = rankActiveFactoryTask(left);
+  const rightRank = rankActiveFactoryTask(right);
+  if (leftRank !== rightRank) {
+    return leftRank - rightRank;
+  }
+  return String(left?.created_at || '').localeCompare(String(right?.created_at || ''));
+}
+
+function getActiveArchitectTask(activeInstance) {
+  const projectId = normalizeOptionalText(activeInstance?.project_id || activeInstance?.projectId);
+  if (!projectId) {
+    return null;
+  }
+
+  let tasks;
+  try {
+    const taskCore = require('../db/task-core');
+    tasks = taskCore.listTasks({
+      tags: [`factory:project_id=${projectId}`, 'factory:architect_cycle'],
+      columns: ['id', 'status', 'provider', 'model', 'created_at', 'started_at', 'completed_at', 'tags'],
+      orderBy: 'created_at',
+      orderDir: 'desc',
+      limit: 50,
+    });
+  } catch (error) {
+    logger.debug('Failed to inspect active architect task for status', {
+      err: error.message,
+      project_id: projectId,
+    });
+    return null;
+  }
+
+  const projectTag = `factory:project_id=${projectId}`;
+  const activeTasks = Array.isArray(tasks)
+    ? tasks.filter((task) => {
+      if (TERMINAL_FACTORY_INTERNAL_TASK_STATUSES.has(String(task?.status || '').toLowerCase())) {
+        return false;
+      }
+      const tags = getTaskTags(task);
+      return tags.includes(projectTag) && tags.includes('factory:architect_cycle');
+    })
+    : [];
+  if (activeTasks.length === 0) {
+    return null;
+  }
+
+  const [task] = activeTasks.sort(sortActiveFactoryTasksByNewest);
+  return summarizeActiveTask(task, 'architect_cycle');
+}
+
 function getActiveFactoryBatchTask(activeInstance) {
   const batchId = activeInstance?.batch_id || activeInstance?.batchId || null;
   if (!batchId) {
@@ -518,14 +597,7 @@ function getActiveFactoryBatchTask(activeInstance) {
     return null;
   }
 
-  const [task] = activeTasks.sort((left, right) => {
-    const leftRank = ACTIVE_FACTORY_BATCH_TASK_STATUS_RANK.get(String(left?.status || '').toLowerCase()) ?? 99;
-    const rightRank = ACTIVE_FACTORY_BATCH_TASK_STATUS_RANK.get(String(right?.status || '').toLowerCase()) ?? 99;
-    if (leftRank !== rightRank) {
-      return leftRank - rightRank;
-    }
-    return String(left?.created_at || '').localeCompare(String(right?.created_at || ''));
-  });
+  const [task] = activeTasks.sort(sortActiveFactoryTasksByOldest);
   return summarizeActiveTask(task, 'execution');
 }
 
@@ -1237,8 +1309,11 @@ async function handleFactoryStatus() {
       ? hasNonTerminalFactoryBatchTasks(activeInstance.batch_id)
       : false;
     const activeTask = getActivePlanGenerationTask(activeInstance)
+      || getActiveArchitectTask(activeInstance)
       || getActiveFactoryBatchTask(activeInstance);
-    const activeStage = activeTask?.kind === 'plan_generation' ? LOOP_STATES.PLAN : loopState;
+    const activeStage = ['architect_cycle', 'plan_generation'].includes(activeTask?.kind)
+      ? LOOP_STATES.PLAN
+      : loopState;
     const stateConsistency = summarizeFactoryStateConsistency({
       project: p,
       loopState,
