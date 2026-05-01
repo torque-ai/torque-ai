@@ -108,15 +108,65 @@ function extractTaskFilePaths(task, fallbackFilePaths = []) {
   return matches.length > 0 ? matches : fallbackFilePaths;
 }
 
+// Phase U (2026-05-01): extract paths that immediately follow an
+// edit/create verb inside backticks. Unlike extractTaskFilePaths (which
+// requires a slash and so misses bare filenames like `pyproject.toml`),
+// this captures the actual edit/create target regardless of whether it
+// has a slash, AND ignores backticked references that aren't immediately
+// preceded by an action verb.
+//
+// Bug it fixes: bitsy plan 735 task 2 says "Edit `pyproject.toml`. ...
+// matching the lowest Python version used by `.github/workflows/python-ci.yml`".
+// extractTaskFilePaths returned ONLY .github/workflows/python-ci.yml
+// (the reference) because pyproject.toml has no slash. The completion
+// verifier then concluded "all extracted paths missing → [x] is stale"
+// and re-ran task 2 every tick (3+ recurrences observed live).
+const TARGET_VERBS = '(?:edit|create|modify|update|add|wire|extend|fix|refactor|rename|replace|configure|introduce|generate|implement|set up|write)';
+const EDIT_TARGET_RE = new RegExp(`\\b${TARGET_VERBS}\\b(?:\\s+(?:the|a|an|new))?\\s+\`([^\`\\n]+)\``, 'gi');
+
+function extractEditTargetPaths(task) {
+  // Prefer raw_markdown for the same reason extractTaskFilePaths does.
+  const taskText = task.raw_markdown || [
+    task.task_title,
+    ...task.steps.flatMap((step) => [step.title, ...step.code_blocks.map((b) => b.content)]),
+  ].join('\n');
+  const seen = new Set();
+  const targets = [];
+  for (const match of taskText.matchAll(EDIT_TARGET_RE)) {
+    // Capture must look like a filename/path: contains a slash OR a dot
+    // (extension). Excludes things like `[tool.ruff]`, `target-version`,
+    // bare module names. The dot rule still admits `pyproject.toml`,
+    // `README.md`, `package.json`.
+    const candidate = match[1].trim().replace(/\\/g, '/').replace(/[.,;:]+$/g, '');
+    if (!candidate || seen.has(candidate)) continue;
+    if (candidate.startsWith('[') || candidate.includes(' ')) continue; // [tool.ruff], "target version"
+    if (!candidate.includes('/') && !candidate.includes('.')) continue; // bare module/identifier
+    seen.add(candidate);
+    targets.push(candidate);
+  }
+  return targets;
+}
+
 function verifyCompletedTaskArtifacts(task, working_directory) {
   // Trust-but-verify: a [x]-marked task should have produced artifacts.
-  // If every path extracted from the task's code blocks is missing from
-  // the working directory, the [x] is almost certainly stale (carried
-  // over from a corrupted or aborted prior run). Don't trust it.
+  // If every TARGET path (not every cited path) is missing from the
+  // working directory, the [x] is almost certainly stale (carried over
+  // from a corrupted or aborted prior run). Don't trust it.
+  //
+  // Phase U: prefer "Edit `X`" / "Create `X`" extraction over the raw
+  // slash-path extractor. The raw extractor mistakes references for
+  // targets — bitsy plan 735 task 2 case (see extractEditTargetPaths
+  // comment). Fall back to the raw extractor when no verb-anchored
+  // targets are detectable.
   if (!working_directory) {
     return { trust: true, reason: 'no_working_directory' };
   }
-  const paths = extractTaskFilePaths(task, []);
+  let paths = extractEditTargetPaths(task);
+  let extractor = 'edit_target';
+  if (paths.length === 0) {
+    paths = extractTaskFilePaths(task, []);
+    extractor = 'slash_path_fallback';
+  }
   if (paths.length === 0) {
     return { trust: true, reason: 'no_extractable_paths' };
   }
@@ -131,9 +181,14 @@ function verifyCompletedTaskArtifacts(task, working_directory) {
     }
   }
   if (existing.length === 0) {
-    return { trust: false, reason: 'no_artifacts_present', missing };
+    return { trust: false, reason: 'no_artifacts_present', missing, extractor };
   }
-  return { trust: true, reason: existing.length === paths.length ? 'all_artifacts_present' : 'partial_artifacts_present', missing };
+  return {
+    trust: true,
+    reason: existing.length === paths.length ? 'all_artifacts_present' : 'partial_artifacts_present',
+    missing,
+    extractor,
+  };
 }
 
 // Phase N (2026-04-30): pre-submission existence guard for plan tasks.
@@ -533,4 +588,11 @@ function createPlanExecutor({ submit, awaitTask, findReusableTask = null, projec
   return { execute };
 }
 
-module.exports = { createPlanExecutor, buildTaskPrompt, tickTaskInFile, verifyTaskTargetsForSubmission };
+module.exports = {
+  createPlanExecutor,
+  buildTaskPrompt,
+  tickTaskInFile,
+  verifyTaskTargetsForSubmission,
+  verifyCompletedTaskArtifacts,
+  extractEditTargetPaths,
+};
