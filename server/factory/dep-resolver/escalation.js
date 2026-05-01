@@ -1,6 +1,10 @@
 'use strict';
 
-const ESCALATION_TIMEOUT_MS = 90_000;
+// Same math-floor pitfall — 90_000ms math-floors to 1-minute task timeout.
+// Bumping to 3 min keeps headroom consistent with the python adapter's
+// MAP_LLM_TIMEOUT_MS while still being shorter than the resolver's outer
+// 10-min budget.
+const ESCALATION_TIMEOUT_MS = 3 * 60_000;
 
 async function escalate({ project, workItem, originalError, resolverError, resolverPrompt, manifestExcerpt, timeoutMs = ESCALATION_TIMEOUT_MS }) {
   const { submitFactoryInternalTask } = require('../internal-task-submit');

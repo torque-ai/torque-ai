@@ -10,7 +10,7 @@ describe('plan-quality-gate module exports', () => {
     expect(typeof mod.isUnsupportedWorktreeSetupCritique).toBe('function');
     expect(typeof mod.RULES).toBe('object');
     expect(mod.MAX_REPLAN_ATTEMPTS).toBe(1);
-    expect(mod.LLM_TIMEOUT_MS).toBe(60_000);
+    expect(mod.LLM_TIMEOUT_MS).toBe(5 * 60_000);
   });
 });
 
