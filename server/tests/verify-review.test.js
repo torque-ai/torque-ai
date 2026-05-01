@@ -1136,6 +1136,44 @@ describe('reviewVerifyFailure orchestrator', () => {
     diffSpy.mockRestore();
   });
 
+  it('task_caused: missing work-item-owned unittest module does not pause baseline', async () => {
+    const llmSpy = vi.spyOn(verifyReview, 'runLlmTiebreak').mockResolvedValue({ verdict: 'no-go', critique: 'should not be called' });
+    const diffSpy = vi.spyOn(verifyReview, 'getModifiedFiles').mockResolvedValue([
+      'client/UnityProject/Assets/Scripts/Content/ConfigLoading.cs',
+    ]);
+    const r = await verifyReview.reviewVerifyFailure({
+      verifyOutput: {
+        exitCode: 1,
+        stdout: [
+          '[torque-remote] Running on host: python -m unittest tests.test_config_loading_static',
+          'ERROR: test_config_loading_static (unittest.loader._FailedTest.test_config_loading_static)',
+          'ImportError: Failed to import test module: test_config_loading_static',
+          "ModuleNotFoundError: No module named 'tests.test_config_loading_static'",
+        ].join('\n'),
+        stderr: '',
+        timedOut: false,
+      },
+      workingDirectory: '/tmp/p',
+      worktreeBranch: 'feat/factory-1',
+      mergeBase: 'main',
+      workItem: {
+        id: 1,
+        title: 'Load optional manifest config blobs in ConfigLoader',
+        description: 'Edit ConfigLoading.cs and add tests/test_config_loading_static.py to pin the full-manifest ingestion path.',
+      },
+      project: { id: 'p', path: '/tmp/p' },
+    });
+
+    expect(r.classification).toBe('task_caused');
+    expect(r.confidence).toBe('high');
+    expect(r.failingTests).toContain('tests/test_config_loading_static.py');
+    expect(r.verifySignals).toContain('missing_task_owned_verify_target');
+    expect(r.suggestedRejectReason).toBeNull();
+    expect(llmSpy).not.toHaveBeenCalled();
+    llmSpy.mockRestore();
+    diffSpy.mockRestore();
+  });
+
   it('baseline_candidate + LLM go: returns task_caused (LLM overruled deterministic)', async () => {
     const llmSpy = vi.spyOn(verifyReview, 'runLlmTiebreak').mockResolvedValue({ verdict: 'go', critique: 'Test imports the modified util via deep path alias.' });
     const diffSpy = vi.spyOn(verifyReview, 'getModifiedFiles').mockResolvedValue(['src/util.ts']);
