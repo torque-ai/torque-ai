@@ -532,6 +532,9 @@ describe('factory worktree auto-commit', () => {
     const runManifest = path.join(worktreePath, 'runs', 'artifact-run', 'manifest.json');
     fs.mkdirSync(path.dirname(runManifest), { recursive: true });
     fs.writeFileSync(runManifest, '{"ok":true}\n');
+    const pythonBuildCopy = path.join(worktreePath, 'build', 'lib', 'bitsy', 'agent', 'session.py');
+    fs.mkdirSync(path.dirname(pythonBuildCopy), { recursive: true });
+    fs.writeFileSync(pythonBuildCopy, '# generated package build copy\n');
 
     autoCommit.initFactoryWorktreeAutoCommit();
     taskEvents.emit('task:completed', { id: 'task-artifacts-only', status: 'completed' });
@@ -585,6 +588,9 @@ describe('factory worktree auto-commit', () => {
     const runManifest = path.join(worktreePath, 'runs', 'artifact-run', 'manifest.json');
     fs.mkdirSync(path.dirname(runManifest), { recursive: true });
     fs.writeFileSync(runManifest, '{"ok":true}\n');
+    const pythonBuildCopy = path.join(worktreePath, 'build', 'lib', 'bitsy', 'agent', 'session.py');
+    fs.mkdirSync(path.dirname(pythonBuildCopy), { recursive: true });
+    fs.writeFileSync(pythonBuildCopy, '# generated package build copy\n');
 
     autoCommit.initFactoryWorktreeAutoCommit();
     taskEvents.emit('task:completed', { id: 'task-product-plus-artifacts', status: 'completed' });
@@ -599,8 +605,10 @@ describe('factory worktree auto-commit', () => {
     expect(countCommits(worktreePath)).toBe(2);
     expect(runRealGit(worktreePath, ['status', '--porcelain']).trim()).toBe('');
     expect(fs.existsSync(runManifest)).toBe(false);
+    expect(fs.existsSync(pythonBuildCopy)).toBe(false);
     expect(committedFiles).toContain('server/factory/product-change.js');
     expect(committedFiles).not.toContain('runs/artifact-run/manifest.json');
+    expect(committedFiles).not.toContain('build/lib/bitsy/agent/session.py');
     expect(decisions).toHaveLength(1);
     expect(decisions[0]).toMatchObject({
       action: 'auto_committed_task',
@@ -610,8 +618,14 @@ describe('factory worktree auto-commit', () => {
       },
     });
     expect(decisions[0].outcome.files_changed).toEqual(['server/factory/product-change.js']);
-    expect(decisions[0].outcome.skipped_non_product_files).toEqual(['runs/artifact-run/manifest.json']);
-    expect(decisions[0].outcome.cleaned_non_product_files).toEqual(['runs/artifact-run/manifest.json']);
+    expect(decisions[0].outcome.skipped_non_product_files).toEqual([
+      'build/lib/bitsy/agent/session.py',
+      'runs/artifact-run/manifest.json',
+    ]);
+    expect(decisions[0].outcome.cleaned_non_product_files).toEqual([
+      'build/lib/bitsy/agent/session.py',
+      'runs/artifact-run/manifest.json',
+    ]);
   });
 
   it('rejects verify retry edits outside the existing branch and plan scope before committing', async () => {

@@ -40,6 +40,7 @@ const NON_PRODUCT_AUTO_COMMIT_PATTERNS = Object.freeze([
   /^\.torque-checkpoints\//i,
   /^\.tmp\//i,
   /^tmp\//i,
+  /^build\/lib(?:\/|$)/i,
   /^docs\/superpowers\/plans\//i,
 ]);
 const VERIFY_RETRY_SCOPE_PATH_RE = /[A-Za-z0-9_./\\-]+\.(?:tsx|jsx|cjs|mjs|yaml|yml|json|sql|js|ts|py|cs|md)/g;
