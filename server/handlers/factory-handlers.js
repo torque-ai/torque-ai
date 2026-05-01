@@ -496,7 +496,10 @@ function summarizeFactoryStateConsistency({ project, loopState, activeStage, act
   if (projectLoopState !== instanceLoopState) {
     mismatches.push('project_row_loop_state_drift');
   }
-  if (effectiveActiveStage !== instanceLoopState) {
+  const expectedPlanGenerationDuringExecute = activeTask?.kind === 'plan_generation'
+    && instanceLoopState === LOOP_STATES.EXECUTE
+    && effectiveActiveStage === LOOP_STATES.PLAN;
+  if (effectiveActiveStage !== instanceLoopState && !expectedPlanGenerationDuringExecute) {
     const activeReason = activeTask?.kind
       ? `${activeTask.kind}_active_under_${instanceLoopState.toLowerCase()}`
       : `${effectiveActiveStage.toLowerCase()}_active_under_${instanceLoopState.toLowerCase()}`;

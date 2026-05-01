@@ -364,16 +364,16 @@ describe('factory_status', () => {
         provider: 'codex',
       },
       state_consistency: {
-        ok: false,
+        ok: true,
         project_loop_state: 'EXECUTE',
         instance_loop_state: 'EXECUTE',
         active_stage: 'PLAN',
       },
     });
-    expect(project.state_consistency.mismatches).toContain('plan_generation_active_under_execute');
+    expect(project.state_consistency.mismatches).toEqual([]);
     expect(payload.summary).toMatchObject({
       active_internal_tasks: 1,
-      state_mismatch_projects: 1,
+      state_mismatch_projects: 0,
     });
   });
 
