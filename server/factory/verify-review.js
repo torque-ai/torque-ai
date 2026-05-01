@@ -497,10 +497,30 @@ async function submitAndParseTiebreak({ prompt, workingDirectory, project, workI
       },
     });
     taskId = submitResult?.task_id || null;
-  } catch (_e) {
-    return buildLlmResult({ status: 'submit_failed' });
+  } catch (err) {
+    // Capture the underlying reason so the verifier's heuristic-only fallback
+    // path is auditable. Without this, `llmStatus: "submit_failed"` ended up
+    // in decision logs with no explanation of WHY (provider unhealthy, no
+    // matching adapter, lane policy mismatch, validation error, etc.) — seen
+    // live on torque-public work_item 596 where a stalled smart_submit_task
+    // forced the verifier to classify `baseline_likely` based purely on
+    // file-overlap, paused the project, and the operator had no signal to
+    // act on.
+    const submitError = err && err.message ? String(err.message).slice(0, 500) : 'unknown';
+    logger.warn('verify-review: tiebreak submit threw', {
+      project_id: project?.id || null,
+      work_item_id: workItem?.id || null,
+      submitError,
+    });
+    return buildLlmResult({ status: 'submit_failed', submitError });
   }
-  if (!taskId) return buildLlmResult({ status: 'submit_failed' });
+  if (!taskId) {
+    logger.warn('verify-review: tiebreak submit returned no task_id', {
+      project_id: project?.id || null,
+      work_item_id: workItem?.id || null,
+    });
+    return buildLlmResult({ status: 'submit_failed', submitError: 'no_task_id_returned' });
+  }
 
   let awaitResult = null;
   try {
@@ -789,6 +809,7 @@ async function reviewVerifyFailure({
         llmCritique: null,
         llmStatus: llm.status,
         llmTaskId: llm.taskId || null,
+        llmSubmitError: llm?.submitError || null,
         suggestedRejectReason: null,
       };
     }
@@ -823,6 +844,7 @@ async function reviewVerifyFailure({
         llmCritique: null,
         llmStatus: llm?.status || null,
         llmTaskId: llm?.taskId || null,
+        llmSubmitError: llm?.submitError || null,
         sharedInfraTouched: false,
         sharedInfraFiles: [],
         suggestedRejectReason: 'verify_failed_baseline_likely_unrelated',
@@ -840,6 +862,7 @@ async function reviewVerifyFailure({
       llmCritique: null,
       llmStatus: llm?.status || null,
       llmTaskId: llm?.taskId || null,
+      llmSubmitError: llm?.submitError || null,
       sharedInfraTouched,
       sharedInfraFiles,
       suggestedRejectReason: null,
@@ -858,6 +881,7 @@ async function reviewVerifyFailure({
       llmCritique: llm.critique,
       llmStatus: llm.status,
       llmTaskId: llm.taskId || null,
+      llmSubmitError: llm?.submitError || null,
       suggestedRejectReason: 'verify_failed_baseline_unrelated',
     };
   }
@@ -873,6 +897,7 @@ async function reviewVerifyFailure({
     llmCritique: llm.critique,
     llmStatus: llm.status,
     llmTaskId: llm.taskId || null,
+    llmSubmitError: llm?.submitError || null,
     suggestedRejectReason: null,
   };
 }
