@@ -469,4 +469,47 @@ git commit -m "refactor: split helper"
     await exec.execute({ plan_path: planPath, project: 'p', working_directory: dir });
     expect(submitMock).toHaveBeenCalledTimes(1);
   });
+
+  // ─── Phase O: ollama-specific edit guidance in task prompts ─────────
+  it('appends ollama edit guidance when projectDefaults pins expected_provider=ollama', async () => {
+    const ollamaExec = createPlanExecutor({
+      submit: submitMock,
+      awaitTask: awaitMock,
+      projectDefaults: {
+        provider_lane_policy: { expected_provider: 'ollama' },
+      },
+    });
+    await ollamaExec.execute({ plan_path: planPath, project: 'p', working_directory: dir });
+    const promptSent = submitMock.mock.calls[0][0].task;
+    expect(promptSent).toContain('Editing guidance for large files');
+    expect(promptSent).toContain('replace_lines');
+    expect(promptSent).toContain('NOT `edit_file`');
+    // Sanity: the trailing "After making the edits, stop." still comes
+    // AFTER the guidance block (closing instruction must remain last).
+    const guidanceIdx = promptSent.indexOf('Editing guidance for large files');
+    const stopIdx = promptSent.indexOf('After making the edits, stop');
+    expect(guidanceIdx).toBeGreaterThan(0);
+    expect(stopIdx).toBeGreaterThan(guidanceIdx);
+  });
+
+  it('does NOT append ollama guidance when expected_provider is codex', async () => {
+    const codexExec = createPlanExecutor({
+      submit: submitMock,
+      awaitTask: awaitMock,
+      projectDefaults: {
+        provider_lane_policy: { expected_provider: 'codex' },
+      },
+    });
+    await codexExec.execute({ plan_path: planPath, project: 'p', working_directory: dir });
+    const promptSent = submitMock.mock.calls[0][0].task;
+    expect(promptSent).not.toContain('Editing guidance for large files');
+    expect(promptSent).not.toContain('replace_lines');
+  });
+
+  it('does NOT append ollama guidance when no lane policy is configured', async () => {
+    // Default behavior unchanged for projects without a lane policy.
+    await exec.execute({ plan_path: planPath, project: 'p', working_directory: dir });
+    const promptSent = submitMock.mock.calls[0][0].task;
+    expect(promptSent).not.toContain('Editing guidance for large files');
+  });
 });

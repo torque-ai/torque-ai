@@ -10,7 +10,30 @@ const EXECUTION_MODES = new Set(['live', 'suppress', 'pending_approval']);
 const LIVE_REUSABLE_STATUSES = new Set(['pending', 'queued', 'running']);
 const APPROVAL_REUSABLE_STATUSES = new Set(['pending_approval', 'pending', 'queued', 'running']);
 
-function buildTaskPrompt(task, planTitle) {
+// Phase O (2026-04-30): ollama-specific edit guidance for large files.
+// qwen3-coder:30b's `edit_file` tool requires an exact `old_text` match,
+// which is unreliable on files over a few hundred lines (whitespace,
+// indentation, hidden trailing-comma drift). DLPhone work item #2159 ran
+// end-to-end through the Phase A-N pipeline and committed a real diff in
+// other cases, but on a 400-line .cs file it tried `edit_file` with a
+// reconstructed function signature, hit "old_text not found", and exited
+// with no_progress after 9 tool calls. The CLAUDE.md "Ollama Task
+// Authoring" section already documents the right pattern (search_files
+// → read_file with line ranges → replace_lines), but the architect's
+// plan-tasks didn't surface it to the worker. Phase O appends the
+// guidance directly to the prompt when the project pins `expected_provider:
+// ollama` so the worker receives it on every task.
+const OLLAMA_EDIT_GUIDANCE = [
+  '',
+  '---',
+  'Editing guidance for large files (>~300 lines):',
+  '- Prefer this pattern: `search_files` → `read_file` with `start_line`/`end_line` to read only the relevant 30-50 lines → `replace_lines` (NOT `edit_file`) to edit by line number.',
+  '- `edit_file` requires an EXACT `old_text` match including whitespace and indentation; on long files this fails frequently. `replace_lines` is more robust because it works on line numbers from your previous `read_file` call.',
+  '- If `edit_file` fails once with "old_text not found", do NOT retry the same `old_text` — switch to `replace_lines` using line numbers from the prior `read_file`.',
+  '- For new files (no existing content), `write_file` is correct and `edit_file`/`replace_lines` do not apply.',
+].join('\n');
+
+function buildTaskPrompt(task, planTitle, opts = {}) {
   const lines = [`Plan: ${planTitle}`, `Task ${task.task_number}: ${task.task_title}`, ''];
   for (const step of task.steps) {
     lines.push(`### Step ${step.step_number}: ${step.title}`);
@@ -23,6 +46,13 @@ function buildTaskPrompt(task, planTitle) {
       lines.push('```');
     }
     lines.push('');
+  }
+  // Phase O: append ollama-specific edit guidance when the worker is ollama.
+  const providerHint = typeof opts.providerHint === 'string'
+    ? opts.providerHint.trim().toLowerCase()
+    : '';
+  if (providerHint === 'ollama') {
+    lines.push(OLLAMA_EDIT_GUIDANCE);
   }
   lines.push('After making the edits, stop. Do not run verify — the host will verify.');
   return lines.join('\n');
@@ -218,6 +248,18 @@ function createPlanExecutor({ submit, awaitTask, findReusableTask = null, projec
     const planFilePaths = extractFilePaths(content);
     const mode = normalizeExecutionMode(execution_mode, dry_run);
 
+    // Phase O (2026-04-30): derive provider hint from the project's lane
+    // policy so buildTaskPrompt can append ollama-specific edit guidance
+    // when the worker lane is ollama. Pulls from
+    // projectDefaults.provider_lane_policy.expected_provider — the same
+    // field Phase K's lane swap and Phase G's codegraph-skip already
+    // consult.
+    const providerHint = (
+      projectDefaults?.provider_lane_policy?.expected_provider
+      || projectDefaults?.expected_provider
+      || ''
+    );
+
     const completed_tasks = [];
     const submitted_tasks = [];
     let failed_task = null;
@@ -241,7 +283,7 @@ function createPlanExecutor({ submit, awaitTask, findReusableTask = null, projec
         }
       }
 
-      const prompt = buildTaskPrompt(task, parsed.title);
+      const prompt = buildTaskPrompt(task, parsed.title, { providerHint });
       const file_paths = extractTaskFilePaths(task, planFilePaths);
 
       // Re-run the heavy-validation guard at materialization. plan-quality-gate
