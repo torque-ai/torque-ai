@@ -463,4 +463,112 @@ describe('factory_status', () => {
     expect(projectsById['project-pending-clears-idle'].alert_badge).toBeNull();
     expect(notifications.getFactoryAlertBadge({ project_id: 'project-pending-clears-idle' })).toBeNull();
   });
+
+  it('clears stale stall badges for projects that are no longer stallable', async () => {
+    const db = rawDb();
+    const createdAt = new Date().toISOString();
+    const insertProject = db.prepare(`
+      INSERT INTO factory_projects (
+        id,
+        name,
+        path,
+        brief,
+        trust_level,
+        status,
+        config_json,
+        loop_state,
+        loop_batch_id,
+        loop_last_action_at,
+        loop_paused_at_stage,
+        created_at,
+        updated_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+
+    insertProject.run(
+      'project-cleared-idle-stall',
+      'Cleared Idle Stall',
+      path.join(testDir, 'project-cleared-idle-stall'),
+      'old stall badge but no active loop',
+      'autonomous',
+      'running',
+      null,
+      'IDLE',
+      null,
+      null,
+      null,
+      createdAt,
+      createdAt,
+    );
+    insertProject.run(
+      'project-cleared-starved-stall',
+      'Cleared Starved Stall',
+      path.join(testDir, 'project-cleared-starved-stall'),
+      'old stall badge but starved loop',
+      'autonomous',
+      'running',
+      null,
+      'STARVED',
+      null,
+      createdAt,
+      null,
+      createdAt,
+      createdAt,
+    );
+    insertProject.run(
+      'project-cleared-paused-stall',
+      'Cleared Paused Stall',
+      path.join(testDir, 'project-cleared-paused-stall'),
+      'old stall badge but project paused',
+      'autonomous',
+      'paused',
+      null,
+      'EXECUTE',
+      null,
+      createdAt,
+      null,
+      createdAt,
+      createdAt,
+    );
+    insertActiveLoopInstance(db, {
+      projectId: 'project-cleared-starved-stall',
+      loopState: 'STARVED',
+      lastActionAt: createdAt,
+    });
+    insertActiveLoopInstance(db, {
+      projectId: 'project-cleared-paused-stall',
+      loopState: 'EXECUTE',
+      lastActionAt: createdAt,
+    });
+
+    for (const projectId of [
+      'project-cleared-idle-stall',
+      'project-cleared-starved-stall',
+      'project-cleared-paused-stall',
+    ]) {
+      notifications.notifyFactoryStalled({
+        project_id: projectId,
+        stalled_minutes: 45,
+        threshold_minutes: 30,
+        stage: 'EXECUTE',
+        instance_id: `${projectId}-old-instance`,
+        last_action_at: createdAt,
+      });
+    }
+
+    const result = await safeTool('factory_status', {});
+
+    expect(result.isError).toBeFalsy();
+    const projectsById = Object.fromEntries(result.structuredData.projects.map(project => [project.id, project]));
+
+    for (const projectId of [
+      'project-cleared-idle-stall',
+      'project-cleared-starved-stall',
+      'project-cleared-paused-stall',
+    ]) {
+      expect(projectsById[projectId].alert_badge).toBeNull();
+      expect(notifications.getFactoryAlertBadge({ project_id: projectId })).toBeNull();
+    }
+  });
 });

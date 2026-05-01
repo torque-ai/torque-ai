@@ -396,6 +396,12 @@ function normalizeProjectLoopState(loopState) {
   return normalized || 'IDLE';
 }
 
+const NON_STALLABLE_FACTORY_LOOP_STATES = new Set([
+  LOOP_STATES.IDLE,
+  LOOP_STATES.PAUSED,
+  LOOP_STATES.STARVED,
+]);
+
 function parseJsonObject(value) {
   if (!value || typeof value !== 'string') {
     return null;
@@ -539,9 +545,15 @@ function hasNonTerminalFactoryBatchTasks(batchId) {
   }
 }
 
-function getFactoryStatusAlertBadge(projectId, { openWorkItemCount, loopState, hasNonTerminalBatchTasks = false } = {}) {
+function getFactoryStatusAlertBadge(projectId, {
+  openWorkItemCount,
+  loopState,
+  projectStatus,
+  hasNonTerminalBatchTasks = false,
+} = {}) {
   const hasPendingWork = openWorkItemCount > 0;
-  const hasRunningLoop = normalizeProjectLoopState(loopState) !== 'IDLE';
+  const normalizedLoopState = normalizeProjectLoopState(loopState);
+  const hasRunningLoop = normalizedLoopState !== LOOP_STATES.IDLE;
   if (hasPendingWork || hasRunningLoop) {
     notifications.recordFactoryIdleState({
       project_id: projectId,
@@ -551,7 +563,12 @@ function getFactoryStatusAlertBadge(projectId, { openWorkItemCount, loopState, h
       has_running_item: hasRunningLoop,
     });
   }
-  if (hasNonTerminalBatchTasks) {
+  const projectIsRunning = String(projectStatus || '').trim().toLowerCase() === 'running';
+  if (
+    hasNonTerminalBatchTasks
+    || !projectIsRunning
+    || NON_STALLABLE_FACTORY_LOOP_STATES.has(normalizedLoopState)
+  ) {
     notifications.clearFactoryAlertBadge({
       project_id: projectId,
       alert_type: notifications.ALERT_TYPES.FACTORY_STALLED,
@@ -1125,6 +1142,7 @@ async function handleFactoryStatus() {
     const alertBadge = getFactoryStatusAlertBadge(p.id, {
       openWorkItemCount,
       loopState,
+      projectStatus: p.status,
       hasNonTerminalBatchTasks,
     });
 
