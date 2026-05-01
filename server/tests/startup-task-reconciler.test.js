@@ -242,9 +242,12 @@ describe('startup task reconciler', () => {
     expect(result.actions.cloned).toBe(1);
 
     const original = getTaskRow('task-auto');
-    expect(original.status).toBe('failed');
-    expect(original.cancel_reason).toBeNull();
-    expect(original.error_output).toContain('[startup-reconciler] task marked failed by server restart');
+    // Restart-killed tasks are marked `cancelled` (not `failed`) so dashboards
+    // and failure-rate counters that segregate cancellations from real
+    // failures stop conflating restart casualties with actual task failures.
+    expect(original.status).toBe('cancelled');
+    expect(original.cancel_reason).toBe('server_restart');
+    expect(original.error_output).toContain('[startup-reconciler] task cancelled by server restart');
 
     const clones = cloneRowsFor('task-auto');
     expect(clones).toHaveLength(1);
@@ -261,7 +264,8 @@ describe('startup task reconciler', () => {
 
     expect(result.actions.cancelled).toBe(1);
     expect(result.actions.cloned).toBe(0);
-    expect(getTaskRow('task-legacy').status).toBe('failed');
+    expect(getTaskRow('task-legacy').status).toBe('cancelled');
+    expect(getTaskRow('task-legacy').cancel_reason).toBe('server_restart');
     expect(db.prepare('SELECT COUNT(*) as count FROM tasks').get().count).toBe(1);
   });
 
@@ -395,7 +399,8 @@ describe('startup task reconciler', () => {
     expect(result.actions.cancelled).toBe(1);
     expect(result.actions.capped).toBe(1);
     expect(result.actions.cloned).toBe(0);
-    expect(getTaskRow('task-capped').status).toBe('failed');
+    expect(getTaskRow('task-capped').status).toBe('cancelled');
+    expect(getTaskRow('task-capped').cancel_reason).toBe('server_restart');
     expect(cloneRowsFor('task-capped')).toHaveLength(0);
   });
 
@@ -415,7 +420,8 @@ describe('startup task reconciler', () => {
     expect(result.actions.cancelled).toBe(1);
     expect(result.actions.constraint_skipped).toBe(1);
     expect(result.actions.cloned).toBe(0);
-    expect(getTaskRow('task-race').status).toBe('failed');
+    expect(getTaskRow('task-race').status).toBe('cancelled');
+    expect(getTaskRow('task-race').cancel_reason).toBe('server_restart');
     expect(cloneRowsFor('task-race')).toHaveLength(1);
     expect(logger.warn).toHaveBeenCalledWith(
       expect.stringContaining('skipped duplicate resubmit'),

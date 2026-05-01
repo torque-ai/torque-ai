@@ -322,23 +322,27 @@ function reconcileOrphanedTasksOnStartup({
       }
 
       const rollbackResult = rollbackAgenticTaskChanges(original, { logger });
-      const failedOutput = appendRollbackReport(
-        `${original.error_output || ''}\n[startup-reconciler] task marked failed by server restart`,
+      // Restart-killed tasks land here regardless of whether the drain
+      // actually held them — the subprocess died with the parent process.
+      // Mark `cancelled` with cancel_reason='server_restart' rather than
+      // `failed` so dashboards and failure-rate counters that already
+      // segregate `cancelled` don't conflate restart casualties with real
+      // task failures. Eligible tasks still get cloned by the path below;
+      // the visible original just stops looking like an error someone
+      // needs to triage.
+      const restartOutput = appendRollbackReport(
+        `${original.error_output || ''}\n[startup-reconciler] task cancelled by server restart`,
         rollbackResult
       );
       const completedAt = new Date().toISOString();
-      if (original.status === 'cancelled') {
-        rawDb.prepare(`
-          UPDATE tasks
-          SET status = 'failed', cancel_reason = NULL, error_output = ?, completed_at = ?
-          WHERE id = ?
-        `).run(failedOutput, completedAt, original.id);
-      } else {
-        taskCore.updateTaskStatus(original.id, 'failed', {
-          error_output: failedOutput,
-          completed_at: completedAt,
-        });
-      }
+      rawDb.prepare(`
+        UPDATE tasks
+        SET status = 'cancelled',
+            cancel_reason = 'server_restart',
+            error_output = ?,
+            completed_at = ?
+        WHERE id = ?
+      `).run(restartOutput, completedAt, original.id);
       actions.cancelled++;
 
       if (!eligible) {
