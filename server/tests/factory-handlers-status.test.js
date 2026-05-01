@@ -377,6 +377,71 @@ describe('factory_status', () => {
     });
   });
 
+  it('treats paused legacy project rows as consistent with the active instance stage', async () => {
+    const db = rawDb();
+    const createdAt = new Date().toISOString();
+
+    db.prepare(`
+      INSERT INTO factory_projects (
+        id,
+        name,
+        path,
+        brief,
+        trust_level,
+        status,
+        config_json,
+        loop_state,
+        loop_batch_id,
+        loop_last_action_at,
+        loop_paused_at_stage,
+        created_at,
+        updated_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      'project-paused-execute',
+      'Paused Execute',
+      path.join(testDir, 'project-paused-execute'),
+      'legacy paused execute view',
+      'dark',
+      'running',
+      null,
+      'PAUSED',
+      'batch-paused-execute',
+      createdAt,
+      'EXECUTE',
+      createdAt,
+      createdAt,
+    );
+    insertActiveLoopInstance(db, {
+      projectId: 'project-paused-execute',
+      loopState: 'EXECUTE',
+      pausedAtStage: 'EXECUTE',
+      lastActionAt: createdAt,
+      batchId: 'batch-paused-execute',
+    });
+
+    const result = await safeTool('factory_status', {});
+
+    expect(result.isError).toBeFalsy();
+    const payload = result.structuredData;
+    const project = payload.projects.find((item) => item.id === 'project-paused-execute');
+    expect(project).toMatchObject({
+      loop_state: 'EXECUTE',
+      loop_paused_at_stage: 'EXECUTE',
+      state_consistency: {
+        ok: true,
+        project_loop_state: 'EXECUTE',
+        instance_loop_state: 'EXECUTE',
+        active_stage: 'EXECUTE',
+        mismatches: [],
+      },
+    });
+    expect(payload.summary).toMatchObject({
+      state_mismatch_projects: 0,
+    });
+  });
+
   it('exposes alert_badge and clears stale idle badges when pending work exists', async () => {
     const db = rawDb();
     const createdAt = new Date().toISOString();

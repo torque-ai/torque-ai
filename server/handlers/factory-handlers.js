@@ -484,7 +484,11 @@ function getActivePlanGenerationTask(activeInstance) {
 }
 
 function summarizeFactoryStateConsistency({ project, loopState, activeStage, activeTask }) {
-  const projectLoopState = normalizeProjectLoopState(project?.loop_state);
+  const rawProjectLoopState = normalizeProjectLoopState(project?.loop_state);
+  const projectPausedAtStage = normalizeProjectLoopState(project?.loop_paused_at_stage);
+  const projectLoopState = rawProjectLoopState === LOOP_STATES.PAUSED && projectPausedAtStage
+    ? projectPausedAtStage
+    : rawProjectLoopState;
   const instanceLoopState = normalizeProjectLoopState(loopState);
   const effectiveActiveStage = normalizeProjectLoopState(activeStage || instanceLoopState);
   const mismatches = [];
