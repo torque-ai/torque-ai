@@ -286,55 +286,59 @@ function createPlanExecutor({ submit, awaitTask, findReusableTask = null, projec
       const prompt = buildTaskPrompt(task, parsed.title, { providerHint });
       const file_paths = extractTaskFilePaths(task, planFilePaths);
 
-      // Re-run the heavy-validation guard at materialization. plan-quality-gate
-      // enforces this rule at plan generation, but plans live on disk and can
-      // be re-executed long after the gate ran (or saved through a path that
-      // bypassed it — e.g. authored before the rule shipped). Without this
-      // check the executor would submit a task that the runtime governance
-      // guard at task-startup blocks with no exit code, leaving the failure
-      // attributed to the selected provider rather than the stale plan.
-      // Live mode only — dry runs surface plan structure for inspection.
-      if (mode === 'live') {
+      // Pre-submission guards are evaluated lazily right before submit().
+      // Running them here would also fire when we end up reusing an
+      // already-running or already-completed task — that task was vetted
+      // when it was first submitted, so re-checking the prompt blocks
+      // reuse purely because the materialization view of the worktree no
+      // longer matches what the prompt says. Concrete failure: the
+      // factory-plan-executor-dry-run "reuses an already-running task"
+      // test sets up a tmpdir with no `src/app.js` and a plan that says
+      // "Update src/app.js" — the existence guard would fail the task
+      // before the reuse short-circuit runs. Defer to the submit branch.
+      let livePreSubmitChecked = false;
+      const runLivePreSubmitGuards = () => {
+        if (livePreSubmitChecked || mode !== 'live') return null;
+        livePreSubmitChecked = true;
+
         const detectedCommand = findHeavyLocalValidationCommand(prompt);
         if (detectedCommand) {
-          failed_task = task.task_number;
-          violation = {
-            rule: 'task_avoids_local_heavy_validation',
-            task_number: task.task_number,
-            detected_command: detectedCommand,
-          };
           logger.warn(`task ${task.task_number} blocked at materialization — heavy local validation present`, {
             plan_path,
             task_number: task.task_number,
             detected_command: detectedCommand,
           });
-          break;
+          return {
+            rule: 'task_avoids_local_heavy_validation',
+            task_number: task.task_number,
+            detected_command: detectedCommand,
+          };
         }
 
         // Phase N (2026-04-30): existence guard for edit-style tasks. If
         // the plan says "Edit X, Y, Z" but ALL of X/Y/Z are missing in the
         // factory worktree, ollama will exhaust 7 no-progress iterations
         // on read_file(404) and exit in 4 seconds. Auto-recovery then
-        // resubmits the same broken plan, looping. Block at materialization
+        // resubmits the same broken plan, looping. Block at submission
         // so the work item bubbles up as needs-replan instead of thrashing.
         const targetCheck = verifyTaskTargetsForSubmission(task, working_directory, prompt);
         if (!targetCheck.ok) {
-          failed_task = task.task_number;
-          violation = {
-            rule: 'task_targets_missing_files',
-            task_number: task.task_number,
-            intent: targetCheck.intent,
-            missing: targetCheck.missing,
-          };
           logger.warn(`task ${task.task_number} blocked at materialization — edit targets missing in worktree`, {
             plan_path,
             task_number: task.task_number,
             missing: targetCheck.missing,
             intent: targetCheck.intent,
           });
-          break;
+          return {
+            rule: 'task_targets_missing_files',
+            task_number: task.task_number,
+            intent: targetCheck.intent,
+            missing: targetCheck.missing,
+          };
         }
-      }
+
+        return null;
+      };
 
       if (mode === 'suppress') {
         task_count += 1;
@@ -418,6 +422,18 @@ function createPlanExecutor({ submit, awaitTask, findReusableTask = null, projec
         tickTaskInFile(plan_path, task.task_number);
         completed_tasks.push(task.task_number);
         continue;
+      }
+
+      // Live-mode pre-submit guards. They were previously evaluated
+      // unconditionally at the top of the loop body, which fired even
+      // on the reuse short-circuit branches above. We only need them
+      // when we're about to submit a brand-new task; the reuse paths
+      // already short-circuited with `continue`.
+      const guardViolation = runLivePreSubmitGuards();
+      if (guardViolation) {
+        failed_task = task.task_number;
+        violation = guardViolation;
+        break;
       }
 
       const submission = await submit({
