@@ -695,6 +695,14 @@ async function submitArchitectJsonPrompt(prompt, project_id, projectPath, kind =
 
   const taskDescription = `You are the Architect for a software factory. Read the context below and return ONLY valid JSON output matching the specified format. No explanation outside the JSON.\n\n${prompt}`;
 
+  // Phase Q (2026-04-30): every null-return path used to be silent except
+  // submit_failed (which logged a single warn). Downstream parseStrictJson
+  // would then throw "provider response was not a string" — completely
+  // hiding which of the 5 distinct upstream failures actually triggered
+  // the null. Tag each path with a structured warn so we can grep
+  // "[architect-submit]" in logs and see the real distribution of
+  // failure modes (DLPhone replan_recovery_strategy_failed at 03:29:15
+  // motivated this).
   let taskId;
   try {
     const { task_id } = await submitFactoryInternalTask({
@@ -705,20 +713,32 @@ async function submitArchitectJsonPrompt(prompt, project_id, projectPath, kind =
       timeout_minutes: 5,
     });
     taskId = task_id;
-    if (!taskId) return null;
+    if (!taskId) {
+      logger.warn(`[architect-submit] no_task_id kind=${kind} project_id=${project_id}: submit returned without a task_id`);
+      return null;
+    }
   } catch (err) {
-    logger.warn(`submitArchitectJsonPrompt: submit failed: ${err.message}`);
+    logger.warn(`[architect-submit] submit_failed kind=${kind} project_id=${project_id}: ${err.message}`);
     return null;
   }
 
-  const deadline = Date.now() + 5 * 60 * 1000;
+  const deadlineMs = 5 * 60 * 1000;
+  const deadline = Date.now() + deadlineMs;
   while (Date.now() < deadline) {
     const task = taskCore.getTask(taskId);
-    if (!task) break;
+    if (!task) {
+      logger.warn(`[architect-submit] task_vanished kind=${kind} project_id=${project_id} task_id=${taskId}: task row not found mid-poll (cleaned up?)`);
+      return null;
+    }
     if (task.status === 'completed') return task.output || '';
-    if (task.status === 'failed' || task.status === 'cancelled') return null;
+    if (task.status === 'failed' || task.status === 'cancelled') {
+      const errSnippet = (task.error_output || '').slice(-200);
+      logger.warn(`[architect-submit] task_${task.status} kind=${kind} project_id=${project_id} task_id=${taskId} provider=${task.provider || '?'}: error_tail=${JSON.stringify(errSnippet)}`);
+      return null;
+    }
     await new Promise((resolve) => setTimeout(resolve, 3000));
   }
+  logger.warn(`[architect-submit] deadline_exceeded kind=${kind} project_id=${project_id} task_id=${taskId}: no terminal status within ${deadlineMs}ms`);
   return null;
 }
 
@@ -1207,5 +1227,7 @@ module.exports = {
     loadActiveVerifyFailureLearnings,
     setSharedFactoryStore,
     normalizeVerifyLearningRow,
+    // Phase Q (2026-04-30): exposed for failure-mode logging tests.
+    submitArchitectJsonPrompt,
   },
 };
