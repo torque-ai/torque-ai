@@ -1249,8 +1249,8 @@ Edit server/factory/plan-executor.js and make the requested behavior change. Kee
   });
 
   it('verify auto-retry submission carries the project provider_lane_policy in task_metadata', async () => {
-    // Regression for the leak observed live on DLPhone work item #2097
-    // (2026-04-29). DLPhone's provider_lane_policy.allowed_providers is
+    // Regression for the leak observed live on example-project work item #2097
+    // (2026-04-29). example-project's provider_lane_policy.allowed_providers is
     // ['ollama'] with enforce_handoffs:true, but submitVerifyFixTask
     // submitted retry tasks without spreading buildProviderLaneTaskMetadata,
     // so smart routing's chain filter had nothing to enforce against and

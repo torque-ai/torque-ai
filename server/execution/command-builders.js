@@ -206,8 +206,8 @@ async function buildCodexCommand(task, providerConfig, resolvedFileContext, reso
   // factory_internal codex task kept inheriting the user's xhigh
   // default, burning the entire timeout window on reasoning before
   // emitting structured output, then failing with "Timeout exceeded".
-  // Observed live 2026-05-01 across NetSim plan_quality_review,
-  // StateTrace architect_cycle, SpudgetBooks plan_generation, etc.
+  // Observed live 2026-05-01 across example-project plan_quality_review,
+  // architect_cycle, plan_generation, etc.
   // The task preamble even printed `reasoning effort: xhigh` despite
   // the other file's override being theoretically active.
   const taskMetadata = (() => {
