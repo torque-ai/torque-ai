@@ -469,7 +469,7 @@ function getActivePlanGenerationTask(activeInstance) {
     : parseJsonObject(workItem?.origin_json);
   const taskId = normalizeOptionalText(origin?.plan_generation_task_id);
   if (!taskId) {
-    return null;
+    return getActivePlanGenerationTaskByTags(activeInstance, workItemId);
   }
 
   let task;
@@ -482,11 +482,11 @@ function getActivePlanGenerationTask(activeInstance) {
       task_id: taskId,
       work_item_id: workItemId,
     });
-    return null;
+    return getActivePlanGenerationTaskByTags(activeInstance, workItemId);
   }
 
   if (!task || TERMINAL_FACTORY_INTERNAL_TASK_STATUSES.has(String(task.status || '').toLowerCase())) {
-    return null;
+    return getActivePlanGenerationTaskByTags(activeInstance, workItemId);
   }
 
   return summarizeActiveTask(task, 'plan_generation');
@@ -527,6 +527,53 @@ function sortActiveFactoryTasksByOldest(left, right) {
     return leftRank - rightRank;
   }
   return String(left?.created_at || '').localeCompare(String(right?.created_at || ''));
+}
+
+function getActivePlanGenerationTaskByTags(activeInstance, workItemId) {
+  const projectId = normalizeOptionalText(activeInstance?.project_id || activeInstance?.projectId);
+  const normalizedWorkItemId = workItemId == null ? null : String(workItemId);
+  if (!projectId || !normalizedWorkItemId) {
+    return null;
+  }
+
+  const projectTag = `factory:project_id=${projectId}`;
+  const workItemTag = `factory:work_item_id=${normalizedWorkItemId}`;
+  let tasks;
+  try {
+    const taskCore = require('../db/task-core');
+    tasks = taskCore.listTasks({
+      tags: [projectTag, workItemTag, 'factory:plan_generation'],
+      columns: ['id', 'status', 'provider', 'model', 'created_at', 'started_at', 'completed_at', 'tags'],
+      orderBy: 'created_at',
+      orderDir: 'desc',
+      limit: 50,
+    });
+  } catch (error) {
+    logger.debug('Failed to infer active plan-generation task for status', {
+      err: error.message,
+      project_id: projectId,
+      work_item_id: normalizedWorkItemId,
+    });
+    return null;
+  }
+
+  const activeTasks = Array.isArray(tasks)
+    ? tasks.filter((task) => {
+      if (TERMINAL_FACTORY_INTERNAL_TASK_STATUSES.has(String(task?.status || '').toLowerCase())) {
+        return false;
+      }
+      const tags = getTaskTags(task);
+      return tags.includes(projectTag)
+        && tags.includes(workItemTag)
+        && tags.includes('factory:plan_generation');
+    })
+    : [];
+  if (activeTasks.length === 0) {
+    return null;
+  }
+
+  const [task] = activeTasks.sort(sortActiveFactoryTasksByNewest);
+  return summarizeActiveTask(task, 'plan_generation');
 }
 
 function getActiveArchitectTask(activeInstance) {

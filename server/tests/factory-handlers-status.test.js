@@ -401,6 +401,121 @@ describe('factory_status', () => {
     });
   });
 
+  it('infers active plan generation from project and work-item tags when origin lacks task id', async () => {
+    const db = rawDb();
+    const createdAt = new Date().toISOString();
+    const planTaskId = '11111111-1111-1111-1111-111111111112';
+    const architectTaskId = '11111111-1111-1111-1111-111111111113';
+
+    db.prepare(`
+      INSERT INTO factory_projects (
+        id,
+        name,
+        path,
+        brief,
+        trust_level,
+        status,
+        config_json,
+        loop_state,
+        loop_batch_id,
+        loop_last_action_at,
+        loop_paused_at_stage,
+        created_at,
+        updated_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      'project-plan-generation-tags',
+      'Plan Generation Tags',
+      path.join(testDir, 'project-plan-generation-tags'),
+      'execute loop waiting on tagged generated plan',
+      'autonomous',
+      'running',
+      null,
+      'EXECUTE',
+      null,
+      createdAt,
+      null,
+      createdAt,
+      createdAt,
+    );
+    const workItem = factoryIntake.createWorkItem({
+      project_id: 'project-plan-generation-tags',
+      source: 'manual',
+      title: 'Implement tagged status coherence',
+      description: 'The plan generation task is only linked through tags.',
+      status: 'executing',
+    });
+    insertActiveLoopInstance(db, {
+      projectId: 'project-plan-generation-tags',
+      workItemId: workItem.id,
+      loopState: 'EXECUTE',
+      lastActionAt: createdAt,
+    });
+    db.prepare(`
+      INSERT INTO tasks (id, task_description, status, provider, tags, created_at, started_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      architectTaskId,
+      'Older architect cycle',
+      'queued',
+      'codex',
+      JSON.stringify([
+        'factory:internal',
+        'factory:architect_cycle',
+        'factory:project_id=project-plan-generation-tags',
+      ]),
+      createdAt,
+      null,
+    );
+    db.prepare(`
+      INSERT INTO tasks (id, task_description, status, provider, model, tags, created_at, started_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      planTaskId,
+      'Generate factory plan from tags',
+      'running',
+      'codex',
+      'gpt-5.5',
+      JSON.stringify([
+        'factory:internal',
+        'factory:plan_generation',
+        'factory:project_id=project-plan-generation-tags',
+        `factory:work_item_id=${workItem.id}`,
+      ]),
+      createdAt,
+      createdAt,
+    );
+
+    const result = await safeTool('factory_status', {});
+
+    expect(result.isError).toBeFalsy();
+    const payload = result.structuredData;
+    const project = payload.projects.find((item) => item.id === 'project-plan-generation-tags');
+    expect(project).toMatchObject({
+      loop_state: 'EXECUTE',
+      active_stage: 'PLAN',
+      active_task: {
+        id: planTaskId,
+        kind: 'plan_generation',
+        status: 'running',
+        provider: 'codex',
+        model: 'gpt-5.5',
+      },
+      state_consistency: {
+        ok: true,
+        project_loop_state: 'EXECUTE',
+        instance_loop_state: 'EXECUTE',
+        active_stage: 'PLAN',
+      },
+    });
+    expect(project.state_consistency.mismatches).toEqual([]);
+    expect(payload.summary).toMatchObject({
+      active_internal_tasks: 1,
+      state_mismatch_projects: 0,
+    });
+  });
+
   it('surfaces active architect tasks as PLAN-stage work', async () => {
     const db = rawDb();
     const createdAt = new Date().toISOString();
