@@ -12,6 +12,7 @@ const PROJECT_BY_KIND = Object.freeze({
   replan_decompose: 'factory-architect',
   replan_rewrite: 'factory-architect',
   plan_generation: 'factory-plan',
+  plan_quality_review: 'factory-plan',
   // verify_review is a structured yes/no verdict task (does this diff
   // explain those test failures?). Lives in factory-plan for billing
   // grouping but exists as a distinct kind so the verify-review path can

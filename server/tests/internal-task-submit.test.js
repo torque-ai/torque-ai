@@ -124,6 +124,26 @@ describe('submitFactoryInternalTask', () => {
     }));
   });
 
+  it('accepts kind=plan_quality_review and routes it under factory-plan', async () => {
+    const { submitFactoryInternalTask } = loadSubject();
+    mockHandleSmartSubmitTask.mockResolvedValue({ task_id: 'plan-quality-review-task' });
+
+    await submitFactoryInternalTask({
+      task: 'review plan quality',
+      working_directory: '/review-repo',
+      kind: 'plan_quality_review',
+      project_id: 'project-3',
+    });
+
+    expect(mockHandleSmartSubmitTask).toHaveBeenCalledWith(expect.objectContaining({
+      project: 'factory-plan',
+      working_directory: '/review-repo',
+      task_metadata: expect.objectContaining({
+        kind: 'plan_quality_review',
+      }),
+    }));
+  });
+
   it('accepts architect JSON recovery kinds and routes them under factory-architect', async () => {
     const { submitFactoryInternalTask } = loadSubject();
     mockHandleSmartSubmitTask.mockResolvedValue({ task_id: 'architect-json-task' });

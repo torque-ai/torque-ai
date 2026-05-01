@@ -1,11 +1,13 @@
 'use strict';
 
+const { createHash } = require('crypto');
 const { findHeavyLocalValidationCommand } = require('../utils/heavy-validation-guard');
 const { deterministicVerify } = require('./plan-augmenter');
 const { checkPlanImpact } = require('./codegraph-plan-augmenter');
 
 const MAX_REPLAN_ATTEMPTS = 1;
 const LLM_TIMEOUT_MS = 60_000;
+const ACTIVE_LLM_SEMANTIC_CHECK_STATUSES = new Set(['pending', 'pending_approval', 'queued', 'running', 'waiting']);
 
 const RULES = {
   plan_has_task_heading: {
@@ -295,24 +297,42 @@ async function runLlmSemanticCheck({ plan, workItem, project, timeoutMs = LLM_TI
   const taskCore = require('../db/task-core');
 
   const prompt = buildLlmPrompt({ plan, workItem });
+  const planHash = getPlanSemanticCheckHash(plan);
   let taskId;
+  let taskStatus = null;
+  const existingTask = findExistingLlmSemanticCheckTask(taskCore, {
+    project,
+    workItem,
+    planHash,
+  });
+  if (existingTask) {
+    taskId = existingTask.id;
+    taskStatus = String(existingTask.status || '').toLowerCase();
+  }
   try {
-    const submitResult = await submitFactoryInternalTask({
-      task: prompt,
-      working_directory: project?.path || process.cwd(),
-      kind: 'plan_generation',
-      project_id: project?.id,
-      work_item_id: workItem?.id,
-      timeout_minutes: Math.max(1, Math.floor(timeoutMs / 60_000)),
-    });
-    taskId = submitResult?.task_id || null;
+    if (!taskId) {
+      const submitResult = await submitFactoryInternalTask({
+        task: prompt,
+        working_directory: project?.path || process.cwd(),
+        kind: 'plan_quality_review',
+        project_id: project?.id,
+        work_item_id: workItem?.id,
+        extra_tags: [`factory:plan_review_hash=${planHash}`],
+        extra_metadata: { plan_review_hash: planHash },
+        timeout_minutes: Math.max(1, Math.floor(timeoutMs / 60_000)),
+      });
+      taskId = submitResult?.task_id || null;
+      taskStatus = null;
+    }
   } catch (_e) {
     return null;
   }
   if (!taskId) return null;
 
   try {
-    await handleAwaitTask({ task_id: taskId, timeout_minutes: Math.max(1, Math.floor(timeoutMs / 60_000)), heartbeat_minutes: 0 });
+    if (taskStatus !== 'completed') {
+      await handleAwaitTask({ task_id: taskId, timeout_minutes: Math.max(1, Math.floor(timeoutMs / 60_000)), heartbeat_minutes: 0 });
+    }
   } catch (_e) {
     return null;
   }
@@ -333,6 +353,51 @@ async function runLlmSemanticCheck({ plan, workItem, project, timeoutMs = LLM_TI
     void _e;
   }
   return raw;
+}
+
+function getPlanSemanticCheckHash(plan) {
+  return createHash('sha256')
+    .update(String(plan || ''))
+    .digest('hex')
+    .slice(0, 16);
+}
+
+function findExistingLlmSemanticCheckTask(taskCore, { project, workItem, planHash }) {
+  if (!taskCore || typeof taskCore.listTasks !== 'function' || !workItem?.id || !project?.id || !planHash) {
+    return null;
+  }
+
+  const workItemTag = `factory:work_item_id=${workItem.id}`;
+  const projectTag = `factory:project_id=${project.id}`;
+  const hashTag = `factory:plan_review_hash=${planHash}`;
+  const kindTag = 'factory:plan_quality_review';
+  let candidates = [];
+  try {
+    candidates = taskCore.listTasks({
+      project: 'factory-plan',
+      tag: workItemTag,
+      statuses: ['pending', 'pending_approval', 'queued', 'running', 'waiting', 'completed'],
+      orderBy: 'created_at',
+      orderDir: 'desc',
+      limit: 50,
+      columns: ['id', 'status', 'tags', 'created_at', 'started_at'],
+    });
+  } catch (_e) {
+    return null;
+  }
+
+  const matching = candidates.filter((candidate) => (
+    Array.isArray(candidate?.tags)
+    && candidate.tags.includes(kindTag)
+    && candidate.tags.includes(projectTag)
+    && candidate.tags.includes(workItemTag)
+    && candidate.tags.includes(hashTag)
+  ));
+  if (matching.length === 0) return null;
+
+  return matching.find((candidate) => ACTIVE_LLM_SEMANTIC_CHECK_STATUSES.has(String(candidate.status || '').toLowerCase()))
+    || matching.find((candidate) => String(candidate.status || '').toLowerCase() === 'completed')
+    || null;
 }
 
 function buildLlmPrompt({ plan, workItem }) {
@@ -486,6 +551,8 @@ module.exports = {
   RULES,
   runDeterministicRules,
   runLlmSemanticCheck,
+  getPlanSemanticCheckHash,
+  findExistingLlmSemanticCheckTask,
   buildFeedbackPrompt,
   isUnsupportedWorktreeSetupCritique,
   augmentPlanMarkdown,

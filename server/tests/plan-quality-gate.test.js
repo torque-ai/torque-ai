@@ -367,9 +367,89 @@ describe('runLlmSemanticCheck', () => {
     expect(result).toBeNull();
   });
 
-  it('returns the critique when the task completes with a go verdict and one-sentence critique', async () => {
+  it('reuses an active queued semantic review task instead of submitting a duplicate', async () => {
+    const plan = '## Task 1: Example\n\nSome body.';
+    const hash = require('crypto').createHash('sha256').update(plan).digest('hex').slice(0, 16);
+    const submitMock = vi.fn();
+    const awaitMock = vi.fn().mockResolvedValue({ status: 'timeout' });
     installMock(submitPath, {
-      submitFactoryInternalTask: vi.fn().mockResolvedValue({ task_id: 'tid-2' }),
+      submitFactoryInternalTask: submitMock,
+    });
+    installMock(awaitPath, {
+      handleAwaitTask: awaitMock,
+    });
+    installMock(taskCorePath, {
+      listTasks: vi.fn().mockReturnValue([{
+        id: 'existing-review',
+        status: 'queued',
+        tags: [
+          'factory:plan_quality_review',
+          'factory:project_id=p',
+          'factory:work_item_id=1',
+          `factory:plan_review_hash=${hash}`,
+        ],
+      }]),
+      getTask: vi.fn().mockReturnValue({ status: 'queued', output: null }),
+    });
+    const { runLlmSemanticCheck } = require('../factory/plan-quality-gate');
+    const result = await runLlmSemanticCheck({
+      plan,
+      workItem: { id: 1, title: 'w', description: 'd' },
+      project: { id: 'p', path: '/tmp/p' },
+    });
+
+    expect(result).toBeNull();
+    expect(submitMock).not.toHaveBeenCalled();
+    expect(awaitMock).toHaveBeenCalledWith({
+      task_id: 'existing-review',
+      timeout_minutes: 1,
+      heartbeat_minutes: 0,
+    });
+  });
+
+  it('reuses a completed semantic review task without awaiting or resubmitting', async () => {
+    const plan = '## Task 1: Example\n\nSome body.';
+    const hash = require('crypto').createHash('sha256').update(plan).digest('hex').slice(0, 16);
+    const submitMock = vi.fn();
+    const awaitMock = vi.fn();
+    installMock(submitPath, {
+      submitFactoryInternalTask: submitMock,
+    });
+    installMock(awaitPath, {
+      handleAwaitTask: awaitMock,
+    });
+    installMock(taskCorePath, {
+      listTasks: vi.fn().mockReturnValue([{
+        id: 'completed-review',
+        status: 'completed',
+        tags: [
+          'factory:plan_quality_review',
+          'factory:project_id=p',
+          'factory:work_item_id=1',
+          `factory:plan_review_hash=${hash}`,
+        ],
+      }]),
+      getTask: vi.fn().mockReturnValue({
+        status: 'completed',
+        output: '{"verdict":"go","critique":"Existing review approved this plan."}',
+      }),
+    });
+    const { runLlmSemanticCheck } = require('../factory/plan-quality-gate');
+    const result = await runLlmSemanticCheck({
+      plan,
+      workItem: { id: 1, title: 'w', description: 'd' },
+      project: { id: 'p', path: '/tmp/p' },
+    });
+
+    expect(result).toBe('Existing review approved this plan.');
+    expect(submitMock).not.toHaveBeenCalled();
+    expect(awaitMock).not.toHaveBeenCalled();
+  });
+
+  it('returns the critique when the task completes with a go verdict and one-sentence critique', async () => {
+    const submitMock = vi.fn().mockResolvedValue({ task_id: 'tid-2' });
+    installMock(submitPath, {
+      submitFactoryInternalTask: submitMock,
     });
     installMock(awaitPath, {
       handleAwaitTask: vi.fn().mockResolvedValue({ status: 'completed' }),
@@ -387,6 +467,13 @@ describe('runLlmSemanticCheck', () => {
       project: { id: 'p', path: '/tmp/p' },
     });
     expect(result).toBe('Plan covers the stated goal.');
+    expect(submitMock).toHaveBeenCalledWith(expect.objectContaining({
+      kind: 'plan_quality_review',
+      extra_tags: expect.arrayContaining([expect.stringMatching(/^factory:plan_review_hash=/)]),
+      extra_metadata: expect.objectContaining({
+        plan_review_hash: expect.any(String),
+      }),
+    }));
   });
 
   it('returns the raw string when the task output is unparseable (treated as go)', async () => {
