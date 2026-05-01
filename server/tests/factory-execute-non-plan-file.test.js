@@ -448,7 +448,7 @@ describe('factory loop-controller EXECUTE for non-plan-file work items', () => {
     });
     expect(executeAdvance).toMatchObject({
       new_state: LOOP_STATES.EXECUTE,
-      paused_at_stage: LOOP_STATES.EXECUTE,
+      paused_at_stage: null,
       reason: 'plan generation deferred while task remains active',
       stage_result: {
         status: 'deferred',
@@ -518,7 +518,7 @@ describe('factory loop-controller EXECUTE for non-plan-file work items', () => {
 
     expect(executeAdvance).toMatchObject({
       new_state: LOOP_STATES.EXECUTE,
-      paused_at_stage: LOOP_STATES.EXECUTE,
+      paused_at_stage: null,
       reason: 'plan generation deferred for file-lock contention',
       stage_result: {
         status: 'deferred',
@@ -562,11 +562,11 @@ describe('factory loop-controller EXECUTE for non-plan-file work items', () => {
 
     expect(waitingAdvance).toMatchObject({
       new_state: LOOP_STATES.EXECUTE,
-      paused_at_stage: LOOP_STATES.EXECUTE,
-      reason: 'plan generation still waiting on file-lock contention',
+      paused_at_stage: null,
+      reason: 'plan generation deferred for file-lock contention',
       stage_result: {
-        status: 'waiting',
-        reason: 'plan_generation_file_lock_wait',
+        status: 'deferred',
+        reason: 'file_lock_wait',
         generation_task_id: 'plan-gen-task',
         task_status: 'queued',
         retry_after: retryAfter,
@@ -597,7 +597,7 @@ describe('factory loop-controller EXECUTE for non-plan-file work items', () => {
 
     expect(executeAdvance).toMatchObject({
       new_state: LOOP_STATES.EXECUTE,
-      paused_at_stage: LOOP_STATES.EXECUTE,
+      paused_at_stage: null,
       reason: 'plan generation deferred while task remains active',
       stage_result: {
         status: 'deferred',
@@ -679,7 +679,7 @@ describe('factory loop-controller EXECUTE for non-plan-file work items', () => {
     });
     expect(executeAdvance).toMatchObject({
       new_state: LOOP_STATES.EXECUTE,
-      paused_at_stage: LOOP_STATES.EXECUTE,
+      paused_at_stage: null,
       reason: 'plan generation deferred while task remains active',
       stage_result: {
         status: 'deferred',
@@ -759,7 +759,7 @@ describe('factory loop-controller EXECUTE for non-plan-file work items', () => {
     });
     expect(executeAdvance).toMatchObject({
       new_state: LOOP_STATES.EXECUTE,
-      paused_at_stage: LOOP_STATES.EXECUTE,
+      paused_at_stage: null,
       reason: 'plan generation deferred while task remains active',
       stage_result: {
         status: 'deferred',
@@ -806,7 +806,7 @@ describe('factory loop-controller EXECUTE for non-plan-file work items', () => {
 
     expect(executeAdvance).toMatchObject({
       new_state: LOOP_STATES.EXECUTE,
-      paused_at_stage: LOOP_STATES.EXECUTE,
+      paused_at_stage: null,
       reason: 'plan generation deferred while task remains active',
       stage_result: {
         status: 'deferred',
