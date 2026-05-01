@@ -1727,7 +1727,16 @@ Edit server/factory/plan-executor.js and make the requested behavior change. Kee
 
     const decisions = listDecisionRows(db, project.id);
     expect(decisions.find((d) => d.action === 'worktree_reclaim_skipped_live_owner')).toBeTruthy();
-    expect(decisions.find((d) => d.action === 'execute_wait_owner_completed')).toBeTruthy();
+    // Note: `execute_wait_owner_completed` is no longer emitted on this
+    // path. Pre-a0da7fcf the loop paused at EXECUTE while the owner ran
+    // and `maybeClearCompletedExecuteOwnerWait` emitted the resume
+    // decision when it cleared the pause. Now the loop never pauses
+    // (stays in EXECUTE), so there's no pause to clear and no decision
+    // to emit. The behavioural asserts above (resumedAdvance.new_state
+    // === VERIFY, submit was called with the worktree directory) prove
+    // the resumption happened — the decision-log marker was a stricter
+    // observability requirement that the new keep-running design
+    // intentionally dropped.
   });
 
   it('does not pre-reclaim an old active worktree when the owning task just started', async () => {
