@@ -667,6 +667,47 @@ function failQueuedTask(task, message) {
   }
 }
 
+function cancelQueuedFactoryTask(task, reason, message) {
+  if (!task?.id || !db || typeof db.updateTaskStatus !== 'function') {
+    return false;
+  }
+
+  try {
+    const completedAt = new Date().toISOString();
+    db.updateTaskStatus(task.id, 'cancelled', {
+      cancel_reason: reason,
+      error_output: message,
+      completed_at: completedAt,
+    });
+    notifyDashboard(task.id, {
+      status: 'cancelled',
+      cancel_reason: reason,
+      error_output: message,
+      completed_at: completedAt,
+    });
+    logger.info(`[queue] Cancelled queued factory task ${task.id}: ${message}`);
+    return true;
+  } catch (err) {
+    logger.warn(`[queue] Failed to cancel queued factory task ${task?.id || 'unknown'}: ${err.message}`);
+    return false;
+  }
+}
+
+function cancelFilteredQueuedFactoryTasks(beforeTasks, afterTasks, reason, message) {
+  if (!Array.isArray(beforeTasks) || beforeTasks.length === 0) return 0;
+  const retainedIds = new Set((Array.isArray(afterTasks) ? afterTasks : []).map(task => task?.id).filter(Boolean));
+  let cancelled = 0;
+  for (const task of beforeTasks) {
+    if (!task?.id || retainedIds.has(task.id)) continue;
+    if (String(task.status || '').toLowerCase() !== 'queued') continue;
+    if (!hasFactoryInternalTag(task) && !isFactoryProjectExecutionSignal(task)) continue;
+    if (cancelQueuedFactoryTask(task, reason, message)) {
+      cancelled += 1;
+    }
+  }
+  return cancelled;
+}
+
 function shouldSkipTaskForApproval(task) {
   if (!task) return false;
 
@@ -1156,12 +1197,24 @@ function processQueueInternal(options = {}) {
   const runningTasks = db.listTasks({ status: 'running', limit: 200 });
   const runningAll = Array.isArray(runningTasks) ? runningTasks : (runningTasks.tasks || []);
   const pauseFilteredQueuedTasks = filterPausedFactoryProjectTasks(runnableQueuedTasks);
+  cancelFilteredQueuedFactoryTasks(
+    runnableQueuedTasks,
+    pauseFilteredQueuedTasks,
+    'factory_project_paused',
+    'Queued factory task cancelled because its target project is paused.',
+  );
   const schedulableQueuedTasks = filterSupersededFactoryInternalTasks(
     pauseFilteredQueuedTasks,
     [
       ...runningAll,
       ...loadRecentFactorySupersessionSignals(pauseFilteredQueuedTasks),
     ],
+  );
+  cancelFilteredQueuedFactoryTasks(
+    pauseFilteredQueuedTasks,
+    schedulableQueuedTasks,
+    'superseded_factory_internal',
+    'Queued factory task cancelled because newer same-project work superseded it.',
   );
   if (schedulableQueuedTasks.length === 0) return;
 

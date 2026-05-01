@@ -676,6 +676,14 @@ describe('Queue Scheduler', () => {
       scheduler.processQueueInternal();
 
       expect(mocks.safeStartTask).not.toHaveBeenCalled();
+      expect(mockDb.updateTaskStatus).toHaveBeenCalledWith(
+        'old-architect',
+        'cancelled',
+        expect.objectContaining({
+          cancel_reason: 'superseded_factory_internal',
+          error_output: expect.stringContaining('newer same-project work'),
+        }),
+      );
     });
 
     it('fails tasks older than queue TTL', () => {
