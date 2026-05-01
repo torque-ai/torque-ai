@@ -189,6 +189,18 @@ function getEffectiveProjectProvider(project) {
   }
 }
 
+function getProjectConfigForPlanGate(project) {
+  if (project?.config && typeof project.config === 'object') {
+    return project.config;
+  }
+  try {
+    return project?.config_json ? JSON.parse(project.config_json) : {};
+  } catch (_err) {
+    void _err;
+    return {};
+  }
+}
+
 // Phase G: small local models (qwen3-coder:30b) consistently exceed the
 // 30min default architect timeout on harder work items because the prompt
 // is heavy (codegraph guidance + 5-signal specificity rules + scope files
@@ -5026,6 +5038,7 @@ async function executePlanStage(project, instance, selectedWorkItem = null) {
         plan: preWrittenPlanText,
         workItem,
         project,
+        projectConfig: getProjectConfigForPlanGate(project),
       });
     } catch (err) {
       logger.warn('pre-written plan-quality-gate evaluation failed; treating as pass (fail-open)', {
@@ -5549,6 +5562,7 @@ async function executeNonPlanFileStage(project, instance, workItem) {
           plan: normalizedPlanMarkdown,
           workItem: updatedWorkItem,
           project,
+          projectConfig: getProjectConfigForPlanGate(project),
         });
       } catch (err) {
         logger.warn('plan-quality-gate evaluation failed; treating as pass (fail-open)', {
@@ -5798,6 +5812,7 @@ async function executeNonPlanFileStage(project, instance, workItem) {
             plan: rePlanMarkdown,
             workItem: updatedWorkItem,
             project,
+            projectConfig: getProjectConfigForPlanGate(project),
           });
         } catch (err) {
           logger.warn('plan-quality-gate re-evaluation failed; fail-open', {
@@ -6236,6 +6251,7 @@ async function executePlanFileStage(project, instance, workItem) {
       plan: planText,
       workItem: targetItem,
       project,
+      projectConfig: getProjectConfigForPlanGate(project),
     });
     if (gateVerdict && !gateVerdict.passed) {
       const failedRules = gateVerdict.hardFails.map((h) => h.rule);
@@ -6350,6 +6366,7 @@ async function executePlanFileStage(project, instance, workItem) {
         plan: planText,
         workItem: targetItem,
         project,
+        projectConfig: getProjectConfigForPlanGate(project),
       });
     } catch (err) {
       logger.warn('resume-deferred plan-quality-gate evaluation failed; proceeding (fail-open)', {

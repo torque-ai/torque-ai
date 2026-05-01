@@ -122,6 +122,7 @@ async function replan({ workItem, history, deps }) {
       workItem,
       history,
       priorPlans: history.priorPlans || [],
+      projectPath: deps.projectPath || null,
     });
   } catch (err) {
     if (logger?.warn) {

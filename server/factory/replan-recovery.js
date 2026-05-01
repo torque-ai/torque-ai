@@ -32,7 +32,7 @@ function listEligible(db, { strategyPatterns }) {
   // here would leave them stranded in `rejected` indefinitely.
   const placeholders = RECOVERABLE_TERMINAL_STATUSES.map(() => '?').join(', ');
   const rows = db.prepare(`
-    SELECT wi.*, p.status AS project_status, p.trust_level AS project_trust_level
+    SELECT wi.*, p.status AS project_status, p.trust_level AS project_trust_level, p.path AS project_path
     FROM factory_work_items wi
     JOIN factory_projects p ON p.id = wi.project_id
     WHERE wi.status IN (${placeholders})
@@ -335,6 +335,7 @@ function createDispatcher({
             decisionLog,
             architectRunner: aR,
             factoryHealth: fH,
+            projectPath: row.project_path || null,
             config,
             now: nowMs,
           },

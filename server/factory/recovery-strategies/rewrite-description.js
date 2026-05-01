@@ -45,7 +45,11 @@ async function replan({ workItem, history, deps }) {
   const { architectRunner, logger } = deps;
   let response;
   try {
-    response = await architectRunner.rewriteWorkItem({ workItem, history });
+    response = await architectRunner.rewriteWorkItem({
+      workItem,
+      history,
+      projectPath: deps.projectPath || null,
+    });
   } catch (err) {
     if (logger?.warn) {
       logger.warn('rewrite-description: architect call threw', {

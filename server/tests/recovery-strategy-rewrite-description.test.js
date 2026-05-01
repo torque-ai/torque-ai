@@ -35,7 +35,11 @@ describe('rewrite-description strategy', () => {
     const result = await strategy.replan({
       workItem: baseWorkItem(),
       history: baseHistory(),
-      deps: { architectRunner: architect, logger: noopLogger },
+      deps: {
+        architectRunner: architect,
+        logger: noopLogger,
+        projectPath: '/projects/recovery-app',
+      },
     });
     expect(result.outcome).toBe('rewrote');
     expect(result.updates.title).toBe('New T');
@@ -44,6 +48,7 @@ describe('rewrite-description strategy', () => {
     expect(architect.calls.rewrite).toHaveLength(1);
     expect(architect.calls.rewrite[0].workItem.id).toBe(1);
     expect(architect.calls.rewrite[0].history.priorReason).toBe('cannot_generate_plan: too vague');
+    expect(architect.calls.rewrite[0].projectPath).toBe('/projects/recovery-app');
   });
 
   it('returns unrecoverable when title is empty', async () => {

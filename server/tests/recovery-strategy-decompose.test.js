@@ -41,11 +41,17 @@ describe('decompose strategy', () => {
     const result = await strategy.replan({
       workItem: baseWorkItem(),
       history: baseHistory(),
-      deps: { architectRunner: architect, logger: noopLogger, config: baseConfig },
+      deps: {
+        architectRunner: architect,
+        logger: noopLogger,
+        config: baseConfig,
+        projectPath: '/projects/recovery-app',
+      },
     });
     expect(result.outcome).toBe('split');
     expect(result.children).toHaveLength(3);
     expect(result.children[0].title).toBe('Child 1');
+    expect(architect.calls.decompose[0].projectPath).toBe('/projects/recovery-app');
   });
 
   it('rejects when fewer than 2 children', async () => {
