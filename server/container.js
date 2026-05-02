@@ -418,6 +418,7 @@ _defaultContainer.register(
   ({ db, logger: log, eventBus }) => {
     const { createStarvationRecovery } = require('./factory/starvation-recovery');
     const { createScoutFindingsIntake } = require('./factory/scout-findings-intake');
+    const { createHealthFindingSeed } = require('./factory/health-finding-seed');
     const { getProviderLanePolicyFromProject } = require('./factory/provider-lane-policy');
     const { createScoutProviderResolver } = require('./factory/scout-provider-resolver');
     const { handleSubmitScout } = require('./handlers/diffusion-handlers');
@@ -428,6 +429,9 @@ _defaultContainer.register(
       ? log.child({ component: 'starvation-recovery' })
       : log;
     const rawDb = unwrapDb(db);
+    const healthFindingSeed = rawDb
+      ? createHealthFindingSeed({ db: rawDb, factoryIntake, logger: recoveryLogger })
+      : null;
     // Mirrors FILESYSTEM_PROVIDERS in handlers/diffusion-handlers.js — providers
     // that can drive a scout task via the agentic loop. Local `ollama` is
     // included as of 2026-04 once qwen3-coder:30b's tool engagement and
@@ -487,6 +491,7 @@ _defaultContainer.register(
       }).length,
       listActiveScouts: async (project) => listStarvationScoutTasks(project, activeScoutStatuses, {
         limit: 10,
+        includeOutput: true,
       }),
       listRecentScouts: async (project) => listStarvationScoutTasks(project, recentScoutStatuses, {
         limit: 20,
@@ -531,6 +536,12 @@ _defaultContainer.register(
           skipped.push(...(result.skipped || []));
         }
         return { created, skipped, scanned: rows.length };
+      },
+      seedWorkItems: async (project, context) => {
+        if (!healthFindingSeed) {
+          return { created: [], skipped: [], scanned: 0 };
+        }
+        return healthFindingSeed.seed(project, context);
       },
       updateLoopState: async (projectId, updates) => {
         const activeInstances = factoryLoopInstances.listInstances({

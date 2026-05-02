@@ -2,6 +2,7 @@
 
 const {
   DEFAULT_SCOUT_FILE_PATTERNS,
+  DEFAULT_ACTIVE_SCOUT_GRACE_MS,
   DEFAULT_SCOUT_PROVIDER,
   DEFAULT_SCOUT_TIMEOUT_MINUTES,
   SCOUT_TIMEOUT_MINUTES_BY_PROVIDER,
@@ -9,6 +10,7 @@ const {
   computeBackoffDwellMs,
   countConsecutiveNoYieldScouts,
   createStarvationRecovery,
+  findNoSignalActiveScoutPastGrace,
 } = require('../factory/starvation-recovery');
 const { LOOP_STATES } = require('../factory/loop-states');
 
@@ -123,6 +125,101 @@ describe('factory starvation recovery', () => {
     });
     expect(submitScout).not.toHaveBeenCalled();
     expect(updateLoopState).not.toHaveBeenCalled();
+  });
+
+  it('seeds deterministic health-finding work when an active scout exceeds its no-signal grace window', async () => {
+    const submitScout = vi.fn();
+    const updateLoopState = vi.fn().mockResolvedValue({});
+    const countOpenWorkItems = vi.fn().mockResolvedValue(0);
+    const listActiveScouts = vi.fn().mockResolvedValue([
+      {
+        id: 'scout-running-1',
+        status: 'running',
+        started_at: '2026-05-02T12:00:00.000Z',
+        partial_output: 'still reading files',
+      },
+    ]);
+    const seedWorkItems = vi.fn().mockResolvedValue({
+      created: [{ id: 71 }],
+      skipped: [],
+      scanned: 4,
+    });
+    const nowMs = Date.parse('2026-05-02T12:11:00.000Z');
+    const recovery = createStarvationRecovery({
+      submitScout,
+      updateLoopState,
+      countOpenWorkItems,
+      listActiveScouts,
+      seedWorkItems,
+      dwellMs: 1000,
+      activeScoutGraceMs: DEFAULT_ACTIVE_SCOUT_GRACE_MS,
+      now: () => nowMs,
+    });
+
+    const result = await recovery.maybeRecover({
+      id: 'project-1',
+      path: 'C:\\repo',
+      loop_state: LOOP_STATES.STARVED,
+      loop_last_action_at: '2026-05-02T11:45:00.000Z',
+    });
+
+    expect(result).toMatchObject({
+      recovered: true,
+      reason: 'health_findings_seeded_while_scout_runs',
+      created_count: 1,
+      existing_task_id: 'scout-running-1',
+    });
+    expect(seedWorkItems).toHaveBeenCalledWith(expect.objectContaining({
+      id: 'project-1',
+    }), expect.objectContaining({
+      reason: 'active_scout_no_signal',
+      active_scout_task_id: 'scout-running-1',
+    }));
+    expect(submitScout).not.toHaveBeenCalled();
+    expect(updateLoopState).toHaveBeenCalledWith('project-1', expect.objectContaining({
+      loop_state: LOOP_STATES.SENSE,
+      consecutive_empty_cycles: 0,
+    }));
+  });
+
+  it('does not seed around an active scout that has already emitted a scout signal', async () => {
+    const submitScout = vi.fn();
+    const updateLoopState = vi.fn();
+    const countOpenWorkItems = vi.fn().mockResolvedValue(0);
+    const listActiveScouts = vi.fn().mockResolvedValue([
+      {
+        id: 'scout-running-1',
+        status: 'running',
+        started_at: '2026-05-02T12:00:00.000Z',
+        partial_output: '__SCOUT_COMPLETE__\n{"concrete_factory_work_items":[]}',
+      },
+    ]);
+    const seedWorkItems = vi.fn();
+    const nowMs = Date.parse('2026-05-02T12:30:00.000Z');
+    const recovery = createStarvationRecovery({
+      submitScout,
+      updateLoopState,
+      countOpenWorkItems,
+      listActiveScouts,
+      seedWorkItems,
+      dwellMs: 1000,
+      now: () => nowMs,
+    });
+
+    const result = await recovery.maybeRecover({
+      id: 'project-1',
+      path: 'C:\\repo',
+      loop_state: LOOP_STATES.STARVED,
+      loop_last_action_at: '2026-05-02T11:45:00.000Z',
+    });
+
+    expect(result).toMatchObject({
+      recovered: false,
+      reason: 'scout_already_running',
+      existing_task_id: 'scout-running-1',
+    });
+    expect(seedWorkItems).not.toHaveBeenCalled();
+    expect(submitScout).not.toHaveBeenCalled();
   });
 
   it('applies exponential dwell backoff after consecutive no-yield scouts', async () => {
@@ -279,6 +376,52 @@ describe('factory starvation recovery', () => {
     expect(updateLoopState).toHaveBeenCalledWith('project-1', expect.objectContaining({
       loop_state: LOOP_STATES.SENSE,
       consecutive_empty_cycles: 0,
+    }));
+  });
+
+  it('seeds health-finding work before submitting a new scout when STARVED intake is empty', async () => {
+    const submitScout = vi.fn();
+    const updateLoopState = vi.fn().mockResolvedValue({});
+    const countOpenWorkItems = vi.fn().mockResolvedValue(0);
+    const ingestScoutFindings = vi.fn().mockResolvedValue({ created: [], skipped: [], scanned: 0 });
+    const ingestScoutOutputs = vi.fn().mockResolvedValue({ created: [], skipped: [], scanned: 0 });
+    const seedWorkItems = vi.fn().mockResolvedValue({
+      created: [{ id: 72 }],
+      skipped: [],
+      scanned: 3,
+    });
+    const nowMs = Date.parse('2026-05-02T12:30:00.000Z');
+    const recovery = createStarvationRecovery({
+      submitScout,
+      updateLoopState,
+      countOpenWorkItems,
+      ingestScoutFindings,
+      ingestScoutOutputs,
+      seedWorkItems,
+      dwellMs: 1000,
+      now: () => nowMs,
+    });
+
+    const result = await recovery.maybeRecover({
+      id: 'project-1',
+      path: 'C:\\repo',
+      loop_state: LOOP_STATES.STARVED,
+      loop_last_action_at: '2026-05-02T12:00:00.000Z',
+    });
+
+    expect(result).toMatchObject({
+      recovered: true,
+      reason: 'health_findings_seeded',
+      created_count: 1,
+    });
+    expect(seedWorkItems).toHaveBeenCalledWith(expect.objectContaining({
+      id: 'project-1',
+    }), expect.objectContaining({
+      reason: 'empty_starved_intake',
+    }));
+    expect(submitScout).not.toHaveBeenCalled();
+    expect(updateLoopState).toHaveBeenCalledWith('project-1', expect.objectContaining({
+      loop_state: LOOP_STATES.SENSE,
     }));
   });
 
@@ -455,6 +598,17 @@ describe('factory starvation recovery', () => {
 });
 
 describe('starvation recovery scout backoff helpers', () => {
+  it('detects active scouts past grace only when no actionable signal has appeared', () => {
+    const nowMs = Date.parse('2026-05-02T12:15:00.000Z');
+    expect(findNoSignalActiveScoutPastGrace([
+      { id: 'fresh', status: 'running', started_at: '2026-05-02T12:10:00.000Z' },
+      { id: 'old-signal', status: 'running', started_at: '2026-05-02T12:00:00.000Z', partial_output: '__SCOUT_COMPLETE__\n{}' },
+      { id: 'old-empty', status: 'running', started_at: '2026-05-02T12:00:00.000Z', partial_output: 'still searching' },
+    ], nowMs, DEFAULT_ACTIVE_SCOUT_GRACE_MS)).toEqual(expect.objectContaining({
+      id: 'old-empty',
+    }));
+  });
+
   it('counts consecutive terminal scouts that produced no actionable scout signal', () => {
     expect(countConsecutiveNoYieldScouts([
       { id: 'running', status: 'running' },

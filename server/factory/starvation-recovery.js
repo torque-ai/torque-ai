@@ -6,6 +6,7 @@ const DEFAULT_DWELL_MS = 15 * 60 * 1000;
 const MAX_DWELL_MS = 4 * 60 * 60 * 1000;
 const DEFAULT_SCOUT_TIMEOUT_MINUTES = 12;
 const DEFAULT_SCOUT_PROVIDER = 'codex';
+const DEFAULT_ACTIVE_SCOUT_GRACE_MS = 10 * 60 * 1000;
 // Starvation recovery now uses a bounded concrete-item prompt instead of the
 // generic diffusion scout. Keep the cap short enough that a bad scout cannot
 // monopolize scarce Codex slots, while still giving it room to inspect files.
@@ -178,12 +179,35 @@ function getTaskId(task) {
   return typeof task?.id === 'string' && task.id.trim() ? task.id.trim() : null;
 }
 
+function getTaskStartedMs(task) {
+  const parsed = Date.parse(task?.started_at || task?.created_at || '');
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 function scoutOutputHasActionableSignal(task) {
   const text = [
     task?.output,
     task?.partial_output,
   ].filter((value) => typeof value === 'string' && value.length > 0).join('\n');
   return SCOUT_SIGNAL_MARKERS.some((marker) => text.includes(marker));
+}
+
+function findNoSignalActiveScoutPastGrace(tasks, nowMs, graceMs = DEFAULT_ACTIVE_SCOUT_GRACE_MS) {
+  const grace = Number.isFinite(Number(graceMs)) && Number(graceMs) > 0
+    ? Number(graceMs)
+    : DEFAULT_ACTIVE_SCOUT_GRACE_MS;
+  const nowValue = Number.isFinite(Number(nowMs)) ? Number(nowMs) : Date.now();
+
+  return normalizeTasks(tasks).find((task) => {
+    if (!ACTIVE_SCOUT_STATUSES.has(getTaskStatus(task))) {
+      return false;
+    }
+    if (scoutOutputHasActionableSignal(task)) {
+      return false;
+    }
+    const startedMs = getTaskStartedMs(task);
+    return startedMs !== null && nowValue - startedMs >= grace;
+  }) || null;
 }
 
 function isNoYieldScoutTask(task) {
@@ -241,10 +265,12 @@ function createStarvationRecovery({
   ingestScoutOutputs,
   listActiveScouts,
   listRecentScouts,
+  seedWorkItems,
   resolveScoutProvider,
   defaultScoutProvider = DEFAULT_SCOUT_PROVIDER,
   dwellMs = DEFAULT_DWELL_MS,
   maxDwellMs = MAX_DWELL_MS,
+  activeScoutGraceMs = DEFAULT_ACTIVE_SCOUT_GRACE_MS,
   scoutTimeoutMinutes = DEFAULT_SCOUT_TIMEOUT_MINUTES,
   scoutFilePatterns = DEFAULT_SCOUT_FILE_PATTERNS,
   now = () => Date.now(),
@@ -331,6 +357,21 @@ function createStarvationRecovery({
     });
   }
 
+  async function seedFromHealth(project, context = {}) {
+    if (typeof seedWorkItems !== 'function') {
+      return null;
+    }
+    try {
+      return await seedWorkItems(project, context);
+    } catch (err) {
+      logger.warn?.('Starvation recovery deterministic seed failed', {
+        project_id: project.id,
+        err: err.message,
+      });
+      return { created: [], skipped: [{ reason: 'seed_failed', error: err.message }] };
+    }
+  }
+
   async function maybeRecover(project, options = {}) {
     if (!project || project.loop_state !== LOOP_STATES.STARVED) {
       return { recovered: false, reason: 'not_starved' };
@@ -355,6 +396,26 @@ function createStarvationRecovery({
 
     const activeScoutState = summarizeActiveScout(await activeScouts(project));
     if (activeScoutState.active_scout_count > 0) {
+      const staleScout = findNoSignalActiveScoutPastGrace(activeScoutState.active, now(), activeScoutGraceMs);
+      if (staleScout) {
+        const startedMs = getTaskStartedMs(staleScout);
+        const seeded = await seedFromHealth(project, {
+          reason: 'active_scout_no_signal',
+          active_scout_task_id: getTaskId(staleScout),
+          active_scout_elapsed_ms: startedMs === null ? null : now() - startedMs,
+        });
+        const seededCount = getCreatedCount(seeded);
+        if (seededCount > 0) {
+          return moveToSense(project, 'health_findings_seeded_while_scout_runs', {
+            created_count: seededCount,
+            seed_result: seeded,
+            existing_task_id: getTaskId(staleScout),
+            active_scout_count: activeScoutState.active_scout_count,
+            ...context,
+          });
+        }
+      }
+
       return {
         recovered: false,
         reason: 'scout_already_running',
@@ -420,6 +481,18 @@ function createStarvationRecovery({
         created_count: createdFromScoutOutputs,
         scout_output_ingest: scoutOutputIngest,
         findings_ingest: findingsIngest,
+        ...context,
+      });
+    }
+
+    const seeded = await seedFromHealth(project, { reason: 'empty_starved_intake' });
+    const seededCount = getCreatedCount(seeded);
+    if (seededCount > 0) {
+      return moveToSense(project, 'health_findings_seeded', {
+        created_count: seededCount,
+        seed_result: seeded,
+        findings_ingest: findingsIngest,
+        scout_output_ingest: scoutOutputIngest,
         ...context,
       });
     }
@@ -497,6 +570,7 @@ function createStarvationRecovery({
 }
 
 module.exports = {
+  DEFAULT_ACTIVE_SCOUT_GRACE_MS,
   DEFAULT_DWELL_MS,
   MAX_DWELL_MS,
   DEFAULT_SCOUT_TIMEOUT_MINUTES,
@@ -506,6 +580,7 @@ module.exports = {
   buildStarvationRecoveryScope,
   countConsecutiveNoYieldScouts,
   computeBackoffDwellMs,
+  findNoSignalActiveScoutPastGrace,
   isNoYieldScoutTask,
   createStarvationRecovery,
 };
