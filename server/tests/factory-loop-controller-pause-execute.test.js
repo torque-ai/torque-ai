@@ -54,6 +54,16 @@ function listDecisionRows(db, projectId) {
   }));
 }
 
+function passingPlanGateVerdict() {
+  return {
+    passed: true,
+    hardFails: [],
+    warnings: [],
+    llmCritique: null,
+    feedbackPrompt: null,
+  };
+}
+
 describe('factory loop-controller paused EXECUTE deferral', () => {
   let db;
   let testDir;
@@ -75,13 +85,7 @@ describe('factory loop-controller paused EXECUTE deferral', () => {
     // plan body in this test deliberately omits the file-reference and
     // acceptance-criterion details the gate enforces, so a real gate run
     // would auto-reject the work item before EXECUTE submits anything.
-    vi.spyOn(planQualityGate, 'evaluatePlan').mockResolvedValue({
-      passed: true,
-      hardFails: [],
-      warnings: [],
-      llmCritique: null,
-      feedbackPrompt: null,
-    });
+    vi.spyOn(planQualityGate, 'evaluatePlan').mockResolvedValue(passingPlanGateVerdict());
   });
 
   afterEach(() => {
@@ -152,8 +156,12 @@ describe('factory loop-controller paused EXECUTE deferral', () => {
     };
   }
 
-  it('defers the next EXECUTE plan task without submitting while project status is paused', async () => {
-    const { project, workItem, batchId } = stageExecutePlanProject({ status: 'paused' });
+  it('defers the next EXECUTE plan task without submitting when the project pauses at the submit boundary', async () => {
+    const { project, workItem, batchId } = stageExecutePlanProject({ status: 'running' });
+    planQualityGate.evaluatePlan.mockImplementationOnce(async () => {
+      factoryHealth.updateProject(project.id, { status: 'paused' });
+      return passingPlanGateVerdict();
+    });
 
     const pausedAdvance = await loopController.advanceLoopForProject(project.id);
 
@@ -184,6 +192,7 @@ describe('factory loop-controller paused EXECUTE deferral', () => {
       outcome: expect.objectContaining({
         work_item_id: workItem.id,
         plan_task_number: 2,
+        remaining_plan_task_number: 2,
         next_state: LOOP_STATES.EXECUTE,
       }),
     });
