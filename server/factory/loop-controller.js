@@ -5268,28 +5268,176 @@ function getDeferredPlanGenerationWaitState(project, instance) {
   };
 }
 
+// Phase X5 (2026-05-01): when same-shape failures repeat, escalate.
+// "Same shape" = the normalized rejection reason matches the prior N
+// rejections AND any structured signals (missing_specificity_signals)
+// also match. After SAME_SHAPE_THRESHOLD repeats, the system bumps to
+// the next architect provider in the project's provider_chain. After
+// the chain is exhausted (no more providers to try), the work item
+// transitions to terminal 'escalation_exhausted' — distinct from
+// 'rejected' so the dashboard shows "system tried everything" vs
+// "system gave up after N retries."
+const SAME_SHAPE_THRESHOLD = 3;
+const ESCALATION_HISTORY_MAX = 20;
+
+// Strip variable parts (UUIDs, error messages) so two rejections from
+// the same root cause normalize to the same key.
+function normalizeRejectionReasonForShape(reason) {
+  if (!reason || typeof reason !== 'string') return 'unknown';
+  // Drop everything after the first colon (": ${err.message}", task IDs, etc.)
+  const head = reason.split(':')[0].trim();
+  return head.toLowerCase();
+}
+
+function readProjectProviderChain(projectId) {
+  try {
+    const project = factoryHealth.getProject(projectId);
+    if (!project || !project.provider_chain_json) return [];
+    const parsed = JSON.parse(project.provider_chain_json);
+    return Array.isArray(parsed) ? parsed.filter((p) => typeof p === 'string' && p) : [];
+  } catch (_e) {
+    return [];
+  }
+}
+
+function detectSameShapeEscalation(escalationHistory, currentEntry) {
+  if (!Array.isArray(escalationHistory) || escalationHistory.length < SAME_SHAPE_THRESHOLD - 1) {
+    return false;
+  }
+  const recent = escalationHistory.slice(-(SAME_SHAPE_THRESHOLD - 1));
+  const currentShape = normalizeRejectionReasonForShape(currentEntry.reason);
+  const currentSignals = (currentEntry.missing_signals || []).slice().sort().join(',');
+  for (const entry of recent) {
+    if (normalizeRejectionReasonForShape(entry.reason) !== currentShape) return false;
+    const sig = (entry.missing_signals || []).slice().sort().join(',');
+    if (sig !== currentSignals) return false;
+  }
+  return true;
+}
+
 // Phase X4 (2026-05-01): generic helper for routing a work item to
 // needs_replan. Used by the LLM-semantic gate, parse-error, timeout,
 // empty-branch, and replan-generation-failed paths — every reject reason
 // EXCEPT operator-rejected and "no description" (which has no replan
-// possible). Persists the rejection reason in origin_json so future
-// phases (X5 escalation) can detect same-shape failures, and so X2's
-// feedback prompt can be extended later to surface non-quality reasons.
+// possible).
+//
+// Phase X5 (2026-05-01): same-shape escalation. When the prior N
+// rejections all normalize to the same shape (same reason category +
+// same missing-signals set), bump architect_provider_override in
+// constraints_json to the next provider in the project's chain. When
+// the chain is exhausted, transition to terminal 'escalation_exhausted'
+// (distinct from 'rejected' so operators see "system tried everything").
 function routeWorkItemToNeedsReplan(workItem, { reason, attempt = null, details = null } = {}) {
   if (!workItem || !workItem.id) return workItem;
+  // Phase X5: never overwrite a terminal status. Once an item reaches
+  // escalation_exhausted, rejected, completed, etc., subsequent routing
+  // calls (defensive caller behavior) must not resurrect it. The
+  // operator owns terminal items.
+  const TERMINAL_BAILOUT = new Set(['rejected', 'shipped', 'shipped_stale', 'completed', 'unactionable', 'needs_review', 'superseded', 'escalation_exhausted']);
+  if (TERMINAL_BAILOUT.has(workItem.status)) {
+    return workItem;
+  }
   const existingOrigin = getWorkItemOriginObject(workItem) || {};
+  const reasonStr = String(reason || 'unknown');
+  const missingSignals = existingOrigin?.last_plan_description_quality_rejection?.missing_specificity_signals || [];
+
+  // Build escalation history first so same-shape detection has data.
+  const priorHistory = Array.isArray(existingOrigin.escalation_history)
+    ? existingOrigin.escalation_history.slice(-ESCALATION_HISTORY_MAX + 1)
+    : [];
+  const currentEntry = {
+    reason: reasonStr,
+    attempt,
+    missing_signals: missingSignals,
+    ts: new Date().toISOString(),
+  };
+  const escalationHistory = [...priorHistory, currentEntry];
+
+  // Read constraints to know which provider is currently in play.
+  let constraints = {};
+  try {
+    constraints = workItem.constraints_json
+      ? (typeof workItem.constraints_json === 'string'
+        ? JSON.parse(workItem.constraints_json)
+        : workItem.constraints_json) || {}
+      : {};
+  } catch (_e) { constraints = {}; }
+  const currentProvider = constraints.architect_provider_override || null;
+
+  // Same-shape escalation check.
+  let escalation = null;
+  if (detectSameShapeEscalation(priorHistory, currentEntry)) {
+    const chain = readProjectProviderChain(workItem.project_id);
+    if (chain.length > 0) {
+      // When no override is set, the project defaults to chain[0] — so
+      // the first escalation must move PAST chain[0] to chain[1]. Mirrors
+      // recovery-strategies/escalate-architect.js logic.
+      let currentIdx = currentProvider ? chain.indexOf(currentProvider) : 0;
+      if (currentIdx < 0) currentIdx = 0;
+      const nextIdx = currentIdx + 1;
+      if (nextIdx < chain.length) {
+        const nextProvider = chain[nextIdx];
+        constraints = { ...constraints, architect_provider_override: nextProvider };
+        escalation = {
+          kind: 'provider_switch',
+          from: currentProvider,
+          to: nextProvider,
+          reason_shape: normalizeRejectionReasonForShape(reasonStr),
+          consecutive_same_shape: SAME_SHAPE_THRESHOLD,
+        };
+      } else {
+        escalation = {
+          kind: 'chain_exhausted',
+          from: currentProvider,
+          chain,
+          reason_shape: normalizeRejectionReasonForShape(reasonStr),
+        };
+      }
+    } else {
+      escalation = {
+        kind: 'no_provider_chain',
+        reason_shape: normalizeRejectionReasonForShape(reasonStr),
+      };
+    }
+  }
+
+  // When an escalation fires, reset escalation_history so the new
+  // provider gets a fresh window of SAME_SHAPE_THRESHOLD attempts before
+  // the next escalation kicks in. Without this reset, the moment we
+  // escalate to provider B, the previous SAME_SHAPE_THRESHOLD-1 entries
+  // in history still match — so the very next rejection would re-trigger
+  // escalation and burn through the chain in a single tick.
+  const persistedHistory = escalation ? [currentEntry] : escalationHistory;
+
   const origin = {
     ...existingOrigin,
-    last_rejection_reason: String(reason || 'unknown'),
+    last_rejection_reason: reasonStr,
     ...(attempt !== null ? { last_rejection_attempt: attempt } : {}),
     ...(details ? { last_rejection_details: details } : {}),
     last_rejected_at: new Date().toISOString(),
+    escalation_history: persistedHistory,
+    ...(escalation ? { last_escalation: escalation } : {}),
   };
   delete origin.plan_path;
+
+  // Decide terminal vs needs_replan:
+  //   provider_switch → needs_replan with new architect override
+  //   chain_exhausted / no_provider_chain → terminal escalation_exhausted
+  //   no escalation triggered → needs_replan as usual
+  const escalationTerminal = escalation
+    && (escalation.kind === 'chain_exhausted' || escalation.kind === 'no_provider_chain');
+  const newStatus = escalationTerminal ? 'escalation_exhausted' : 'needs_replan';
+  const newRejectReason = escalationTerminal
+    ? `escalation_exhausted: ${escalation.kind} after ${SAME_SHAPE_THRESHOLD}× same-shape (${normalizeRejectionReasonForShape(reasonStr)})`
+    : reasonStr;
+
   return factoryIntake.updateWorkItem(workItem.id, {
-    status: 'needs_replan',
-    reject_reason: String(reason || 'unknown'),
+    status: newStatus,
+    reject_reason: newRejectReason,
     origin_json: origin,
+    ...(escalation && escalation.kind === 'provider_switch'
+      ? { constraints_json: JSON.stringify(constraints) }
+      : {}),
   });
 }
 
@@ -11643,6 +11791,10 @@ module.exports = {
   getDeferredPlanGenerationWaitState,
   buildAutoGeneratedPlanPrompt,
   buildPriorRejectionFeedbackPrompt,
+  routeWorkItemToNeedsReplan,
+  detectSameShapeEscalation,
+  normalizeRejectionReasonForShape,
+  SAME_SHAPE_THRESHOLD,
   resolvePlanGenerationTimeoutMinutes,
   getEffectiveProjectProvider,
   OLLAMA_PLAN_GENERATION_TIMEOUT_MINUTES,

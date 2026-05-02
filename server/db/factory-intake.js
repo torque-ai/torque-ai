@@ -21,6 +21,15 @@ const VALID_STATUSES = new Set([
   // "reject and forget" path where plan-quality failures became terminal
   // 'rejected' after N retries.
   'needs_replan',
+  // Phase X5 (2026-05-01): TERMINAL status — distinct from 'rejected'.
+  // Set when the plan-evolution arc tried every escalation strategy
+  // (provider switch first; future X5 follow-ons may add decompose,
+  // operator-notify) and the work item still cannot produce an
+  // acceptable plan. CRITICAL: this is NOT "we gave up after N retries"
+  // — it means we genuinely exhausted alternative architects. The name
+  // makes that distinction visible in the dashboard so operators see
+  // "system tried hard, needs human" vs "system gave up early."
+  'escalation_exhausted',
 ]);
 const REJECT_REASONS = Object.freeze(new Set([
   'meta_task_no_code_output',
@@ -30,7 +39,11 @@ const REJECT_REASONS = Object.freeze(new Set([
   'branch_stale_vs_base',
   'pre_written_plan_rejected_by_quality_gate',
 ]));
-const CLOSED_STATUSES = new Set(['completed', 'rejected', 'shipped', 'shipped_stale', 'unactionable', 'needs_review', 'superseded']);
+// Phase X5: escalation_exhausted is terminal-but-distinct — it joins the
+// closed set so PRIORITIZE doesn't keep re-picking it, but the operator
+// dashboard can show it separately from 'rejected' (which is now
+// reserved for operator action and scout-proven-impossibility only).
+const CLOSED_STATUSES = new Set(['completed', 'rejected', 'shipped', 'shipped_stale', 'unactionable', 'needs_review', 'superseded', 'escalation_exhausted']);
 const SUCCESS_REJECT_REASON_CLEAR_STATUSES = new Set(['completed', 'shipped', 'shipped_stale']);
 const PRIORITY_LEVELS = Object.freeze({
   low: 30,
@@ -173,7 +186,7 @@ function listOpenWorkItems({ project_id, limit } = {}) {
   let sql = `
     SELECT * FROM factory_work_items
     WHERE 1=1
-      AND status NOT IN ('completed', 'rejected', 'shipped', 'shipped_stale', 'unactionable')
+      AND status NOT IN ('completed', 'rejected', 'shipped', 'shipped_stale', 'unactionable', 'escalation_exhausted')
   `;
   const params = [];
 
@@ -265,7 +278,7 @@ function rejectWorkItemUnactionable(id, reason) {
 function findDuplicates(project_id, title) {
   const rows = db.prepare(`
     SELECT * FROM factory_work_items
-    WHERE project_id = ? AND status NOT IN ('rejected', 'shipped', 'shipped_stale', 'completed', 'unactionable')
+    WHERE project_id = ? AND status NOT IN ('rejected', 'shipped', 'shipped_stale', 'completed', 'unactionable', 'escalation_exhausted')
     ORDER BY created_at DESC LIMIT 50
   `).all(project_id);
 
