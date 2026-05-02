@@ -178,6 +178,24 @@ function listDecisionRows(db, projectId) {
   }));
 }
 
+function planGenerationTags(projectId, workItemId) {
+  return [
+    'factory:internal',
+    'factory:plan_generation',
+    `factory:project_id=${projectId}`,
+    `factory:work_item_id=${workItemId}`,
+  ];
+}
+
+function planGenerationMetadata(projectId, workItemId) {
+  return {
+    factory_internal: true,
+    kind: 'plan_generation',
+    project_id: projectId,
+    work_item_id: workItemId,
+  };
+}
+
 describe('factory loop-controller EXECUTE for non-plan-file work items', () => {
   let db;
   let originalGetDbInstance;
@@ -725,7 +743,7 @@ describe('factory loop-controller EXECUTE for non-plan-file work items', () => {
     expect(decisions.find((row) => row.action === 'cannot_generate_plan')).toBeUndefined();
   });
 
-  it('replaces a stored plan-generation task that stayed pending without starting', async () => {
+  it('replaces a scheduler-owned stored plan-generation task that stayed pending without starting', async () => {
     const { project, workItem } = registerExecuteProject({
       description: 'Add coverage for stale pending plan generation.',
     });
@@ -739,6 +757,7 @@ describe('factory loop-controller EXECUTE for non-plan-file work items', () => {
     awaitModule.handleAwaitTask = vi.fn(async () => ({
       content: [{ type: 'text', text: 'task timed out while status: running' }],
     }));
+    const updateTaskStatusSpy = vi.spyOn(taskCore, 'updateTaskStatus').mockImplementation(() => null);
     taskCore.getTask = vi.fn((taskId) => {
       if (taskId === 'stale-plan-gen-task') {
         return {
@@ -746,6 +765,7 @@ describe('factory loop-controller EXECUTE for non-plan-file work items', () => {
           status: 'pending',
           created_at: '2000-01-01T00:00:00.000Z',
           started_at: null,
+          metadata: planGenerationMetadata(project.id, workItem.id),
           output: '',
           error_output: '',
         };
@@ -764,6 +784,13 @@ describe('factory loop-controller EXECUTE for non-plan-file work items', () => {
     const updatedWorkItem = factoryIntake.getWorkItem(workItem.id);
 
     expect(routingModule.handleSmartSubmitTask).toHaveBeenCalled();
+    expect(updateTaskStatusSpy).toHaveBeenCalledWith(
+      'stale-plan-gen-task',
+      'skipped',
+      expect.objectContaining({
+        error_output: expect.stringContaining('stale never-started plan-generation task'),
+      })
+    );
     expect(awaitModule.handleAwaitTask).toHaveBeenCalledWith({
       task_id: 'new-plan-gen-task',
       timeout_minutes: 30,
@@ -785,9 +812,10 @@ describe('factory loop-controller EXECUTE for non-plan-file work items', () => {
       plan_generation_task_id: 'new-plan-gen-task',
       plan_generation_wait_reason: 'task_still_running',
     });
+    expect(updatedWorkItem.origin.plan_generation_task_id).not.toBe('stale-plan-gen-task');
   });
 
-  it('clears a deferred stale pending plan-generation wait before resubmitting', async () => {
+  it('clears a deferred scheduler-owned stale pending plan-generation wait before resubmitting', async () => {
     const { project, workItem } = registerExecuteProject({
       description: 'Add coverage for paused stale pending plan generation.',
     });
@@ -819,6 +847,7 @@ describe('factory loop-controller EXECUTE for non-plan-file work items', () => {
           status: 'pending',
           created_at: '2000-01-01T00:00:00.000Z',
           started_at: null,
+          tags: planGenerationTags(project.id, workItem.id),
           output: '',
           error_output: '',
         };
@@ -865,6 +894,93 @@ describe('factory loop-controller EXECUTE for non-plan-file work items', () => {
       plan_generation_task_id: 'replacement-plan-gen-task',
       plan_generation_wait_reason: 'task_still_running',
     });
+  });
+
+  it('keeps fresh and non-scheduler-owned pending plan-generation waits active', async () => {
+    const updateTaskStatusSpy = vi.spyOn(taskCore, 'updateTaskStatus').mockImplementation(() => null);
+
+    const fresh = registerExecuteProject({
+      description: 'Add coverage for fresh pending plan generation.',
+    });
+    factoryIntake.updateWorkItem(fresh.workItem.id, {
+      origin_json: {
+        plan_generation_task_id: 'fresh-plan-gen-task',
+      },
+    });
+    taskCore.getTask = vi.fn((taskId) => ({
+      id: taskId,
+      status: 'pending',
+      created_at: new Date().toISOString(),
+      started_at: null,
+      metadata: planGenerationMetadata(fresh.project.id, fresh.workItem.id),
+      output: '',
+      error_output: '',
+    }));
+
+    const freshAdvance = await loopController.advanceLoopForProject(fresh.project.id);
+    const freshWorkItem = factoryIntake.getWorkItem(fresh.workItem.id);
+
+    expect(freshAdvance).toMatchObject({
+      new_state: LOOP_STATES.EXECUTE,
+      paused_at_stage: null,
+      reason: 'plan generation deferred while task remains active',
+      stage_result: {
+        status: 'deferred',
+        reason: 'task_still_running',
+        generation_task_id: 'fresh-plan-gen-task',
+        task_status: 'pending',
+      },
+    });
+    expect(freshWorkItem.origin).toMatchObject({
+      plan_generation_task_id: 'fresh-plan-gen-task',
+      plan_generation_wait_reason: 'task_still_running',
+    });
+    expect(routingModule.handleSmartSubmitTask).not.toHaveBeenCalled();
+    expect(awaitModule.handleAwaitTask).not.toHaveBeenCalled();
+    expect(updateTaskStatusSpy).not.toHaveBeenCalled();
+
+    routingModule.handleSmartSubmitTask.mockClear();
+    awaitModule.handleAwaitTask.mockClear();
+    updateTaskStatusSpy.mockClear();
+
+    const unowned = registerExecuteProject({
+      description: 'Add coverage for stale pending user-owned plan generation.',
+    });
+    factoryIntake.updateWorkItem(unowned.workItem.id, {
+      origin_json: {
+        plan_generation_task_id: 'user-owned-plan-gen-task',
+      },
+    });
+    taskCore.getTask = vi.fn((taskId) => ({
+      id: taskId,
+      status: 'pending',
+      created_at: '2000-01-01T00:00:00.000Z',
+      started_at: null,
+      output: '',
+      error_output: '',
+    }));
+
+    const unownedAdvance = await loopController.advanceLoopForProject(unowned.project.id);
+    const unownedWorkItem = factoryIntake.getWorkItem(unowned.workItem.id);
+
+    expect(unownedAdvance).toMatchObject({
+      new_state: LOOP_STATES.EXECUTE,
+      paused_at_stage: null,
+      reason: 'plan generation deferred while task remains active',
+      stage_result: {
+        status: 'deferred',
+        reason: 'task_still_running',
+        generation_task_id: 'user-owned-plan-gen-task',
+        task_status: 'pending',
+      },
+    });
+    expect(unownedWorkItem.origin).toMatchObject({
+      plan_generation_task_id: 'user-owned-plan-gen-task',
+      plan_generation_wait_reason: 'task_still_running',
+    });
+    expect(routingModule.handleSmartSubmitTask).not.toHaveBeenCalled();
+    expect(awaitModule.handleAwaitTask).not.toHaveBeenCalled();
+    expect(updateTaskStatusSpy).not.toHaveBeenCalled();
   });
 
   it('follows restart-resubmitted plan-generation task ids before deferring', async () => {

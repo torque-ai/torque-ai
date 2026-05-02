@@ -268,20 +268,70 @@ function getTaskAgeMs(task) {
   );
 }
 
+function normalizeTaskTags(task) {
+  const rawTags = task?.tags;
+  const tags = Array.isArray(rawTags)
+    ? rawTags
+    : (typeof rawTags === 'string' ? parseJsonObject(rawTags) : []);
+  return Array.isArray(tags)
+    ? tags.filter((tag) => typeof tag === 'string')
+    : [];
+}
+
+function hasPlanGenerationFileLockWaitEvidence(task) {
+  const wait = getTaskMetadataObject(task).file_lock_wait;
+  if (wait && typeof wait === 'object' && !Array.isArray(wait)) {
+    return true;
+  }
+
+  return /Requeued:\s*file\s+'[^']+'\s+is being edited by task\b/i.test(
+    typeof task?.error_output === 'string' ? task.error_output : ''
+  );
+}
+
+function isSchedulerOwnedPlanGenerationTask(task, { projectId = null, workItemId = null } = {}) {
+  const metadata = getTaskMetadataObject(task);
+  if (metadata.kind === 'plan_generation' && metadata.factory_internal === true) {
+    return true;
+  }
+
+  const normalizedProjectId = projectId == null ? null : String(projectId).trim();
+  const normalizedWorkItemId = workItemId == null ? null : String(workItemId).trim();
+  if (!normalizedProjectId || !normalizedWorkItemId) {
+    return false;
+  }
+
+  const tags = new Set(normalizeTaskTags(task));
+  return tags.has('factory:internal')
+    && tags.has('factory:plan_generation')
+    && tags.has(`factory:project_id=${normalizedProjectId}`)
+    && tags.has(`factory:work_item_id=${normalizedWorkItemId}`);
+}
+
 function isStaleNeverStartedPendingPlanGenerationTask(
   task,
-  staleAfterMs = DEFAULT_STALE_PENDING_PLAN_GENERATION_MS
+  staleAfterMs = DEFAULT_STALE_PENDING_PLAN_GENERATION_MS,
+  {
+    projectId = null,
+    workItemId = null,
+    requireSchedulerOwned = false,
+  } = {}
 ) {
   if (!task) return false;
   if (String(task.status || '').toLowerCase() !== 'pending') return false;
   if (task.started_at || task.startedAt) return false;
+  if (hasPlanGenerationFileLockWaitEvidence(task)) return false;
 
   const createdAgeMs = elapsedMsSince(task.created_at || task.createdAt);
   const thresholdMs = Number(staleAfterMs);
-  return createdAgeMs != null
+  const isStale = createdAgeMs != null
     && Number.isFinite(thresholdMs)
     && thresholdMs >= 0
     && createdAgeMs >= thresholdMs;
+  if (!isStale) return false;
+  if (!requireSchedulerOwned) return true;
+
+  return isSchedulerOwnedPlanGenerationTask(task, { projectId, workItemId });
 }
 
 function retireStalePendingPlanGenerationTask(taskCore, task, {
@@ -289,8 +339,13 @@ function retireStalePendingPlanGenerationTask(taskCore, task, {
   workItemId = null,
   staleAfterMs = DEFAULT_STALE_PENDING_PLAN_GENERATION_MS,
   reason = 'stale_pending_plan_generation',
+  requireSchedulerOwned = false,
 } = {}) {
-  if (!isStaleNeverStartedPendingPlanGenerationTask(task, staleAfterMs)) {
+  if (!isStaleNeverStartedPendingPlanGenerationTask(task, staleAfterMs, {
+    projectId,
+    workItemId,
+    requireSchedulerOwned,
+  })) {
     return false;
   }
   if (!taskCore || typeof taskCore.updateTaskStatus !== 'function' || !task?.id) {
@@ -5510,12 +5565,12 @@ function maybeClearDeferredPlanGenerationWait(project, instance) {
 
   const taskCore = require('../db/task-core');
   const generationTask = getPlanGenerationTask(taskCore, generationTaskId);
-  if (isStaleNeverStartedPendingPlanGenerationTask(generationTask)) {
-    retireStalePendingPlanGenerationTask(taskCore, generationTask, {
-      projectId: project.id,
-      workItemId: workItem.id,
-      reason: 'deferred_wait_recovery',
-    });
+  if (retireStalePendingPlanGenerationTask(taskCore, generationTask, {
+    projectId: project.id,
+    workItemId: workItem.id,
+    reason: 'deferred_wait_recovery',
+    requireSchedulerOwned: true,
+  })) {
     let updatedWorkItem = workItem;
     try {
       updatedWorkItem = factoryIntake.updateWorkItem(workItem.id, {
@@ -6278,13 +6333,13 @@ async function executeNonPlanFileStage(project, instance, workItem) {
         persistPlanGenerationTaskReplacement(targetItem, generationTaskId);
       }
       const existingGenerationTask = resolved.task;
-      if (isStaleNeverStartedPendingPlanGenerationTask(existingGenerationTask, stalePendingMs)) {
-        retireStalePendingPlanGenerationTask(taskCore, existingGenerationTask, {
-          projectId: project.id,
-          workItemId: targetItem.id,
-          staleAfterMs: stalePendingMs,
-          reason: 'replacement_resubmit',
-        });
+      if (retireStalePendingPlanGenerationTask(taskCore, existingGenerationTask, {
+        projectId: project.id,
+        workItemId: targetItem.id,
+        staleAfterMs: stalePendingMs,
+        reason: 'replacement_resubmit',
+        requireSchedulerOwned: true,
+      })) {
         planGenerationOrigin = clearPlanGenerationWaitFields(nextOrigin);
         try {
           const clearedWorkItem = factoryIntake.updateWorkItem(targetItem.id, {
