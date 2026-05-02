@@ -224,7 +224,12 @@ function buildCodexCommand(task, resolvedFileContext, providerConfig, opts = {})
       if (typeof task.metadata === 'object') return task.metadata;
       try { return JSON.parse(task.metadata); } catch { return null; }
     })();
-    if (taskMetadata && taskMetadata.factory_internal === true) {
+    // Scout tasks (mode:'scout') hit the same xhigh-default trap as
+    // factory_internal — observed live 2026-05-02 on torque-public
+    // starvation-recovery scouts that ran 30 minutes with zero output.
+    const isFactoryInternal = taskMetadata && taskMetadata.factory_internal === true;
+    const isFactoryScout = taskMetadata && taskMetadata.mode === 'scout';
+    if (isFactoryInternal || isFactoryScout) {
       codexArgs.push('-c', 'model_reasoning_effort=high');
     }
 

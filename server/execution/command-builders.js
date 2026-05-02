@@ -215,7 +215,15 @@ async function buildCodexCommand(task, providerConfig, resolvedFileContext, reso
     if (typeof task.metadata === 'object') return task.metadata;
     try { return JSON.parse(task.metadata); } catch { return null; }
   })();
-  if (taskMetadata && taskMetadata.factory_internal === true) {
+  // Scout tasks (mode:'scout') aren't tagged factory_internal, but they
+  // suffer the same xhigh-default trap: 30-min timeout with zero output
+  // (observed live 2026-05-02 on torque-public starvation-recovery
+  // scouts 17248c7a and 5fb94110). Recognize them here so the override
+  // applies to every factory-originated codex task, not just the
+  // "internal" flavor.
+  const isFactoryInternal = taskMetadata && taskMetadata.factory_internal === true;
+  const isFactoryScout = taskMetadata && taskMetadata.mode === 'scout';
+  if (isFactoryInternal || isFactoryScout) {
     codexArgs.push('-c', 'model_reasoning_effort=high');
   }
 

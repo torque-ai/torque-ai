@@ -268,6 +268,18 @@ describe('execute-cli.js', () => {
       expect(result.finalArgs).toContain('model_reasoning_effort=high');
     });
 
+    it('forces reasoning_effort=high for scout tasks (mode=scout)', () => {
+      const task = {
+        id: randomUUID(),
+        provider: 'codex',
+        task_description: 'You are a codebase analyst...',
+        metadata: { mode: 'scout', diffusion: true, reason: 'factory_starvation_recovery' },
+      };
+      const result = mod.buildCodexCommand(task, '', null);
+      const idx = result.finalArgs.findIndex(a => a === 'model_reasoning_effort=high');
+      expect(idx).toBeGreaterThanOrEqual(0);
+    });
+
     it('does NOT override reasoning_effort for non-factory tasks', () => {
       const task = {
         id: randomUUID(),

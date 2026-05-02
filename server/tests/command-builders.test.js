@@ -416,6 +416,36 @@ describe('execution/command-builders', () => {
         expect(args.indexOf('-C')).toBeGreaterThan(args.indexOf('--full-auto'));
         expect(args[args.length - 1]).toBe('-');
       });
+
+      it('forces reasoning_effort=high for factory_internal tasks', async () => {
+        initModule();
+        const task = {
+          task_description: 'test',
+          metadata: { factory_internal: true, kind: 'architect_cycle' },
+        };
+        const result = await commandBuilders.buildCodexCommand(task, null, '', null);
+        expect(result.finalArgs).toContain('model_reasoning_effort=high');
+      });
+
+      it('forces reasoning_effort=high for scout tasks (mode=scout)', async () => {
+        initModule();
+        const task = {
+          task_description: 'You are a codebase analyst...',
+          metadata: { mode: 'scout', diffusion: true, reason: 'factory_starvation_recovery' },
+        };
+        const result = await commandBuilders.buildCodexCommand(task, null, '', null);
+        expect(result.finalArgs).toContain('model_reasoning_effort=high');
+      });
+
+      it('does NOT override reasoning_effort for non-factory tasks', async () => {
+        initModule();
+        const task = {
+          task_description: 'test',
+          metadata: { kind: 'work_item_execute' },
+        };
+        const result = await commandBuilders.buildCodexCommand(task, null, '', null);
+        expect(result.finalArgs.some(a => typeof a === 'string' && a.startsWith('model_reasoning_effort='))).toBe(false);
+      });
     });
 
     // --- CLI path resolution ---
