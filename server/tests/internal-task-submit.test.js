@@ -219,6 +219,38 @@ describe('submitFactoryInternalTask', () => {
     });
   });
 
+  it('bounds oversized internal task descriptions before calling smart submit', async () => {
+    const { submitFactoryInternalTask } = loadSubject();
+    mockHandleSmartSubmitTask.mockResolvedValue({ task_id: 'oversized-plan-task' });
+    const oversizedTask = [
+      'START: keep architect instructions',
+      'x'.repeat(55000),
+      'END: keep latest failure context',
+    ].join('\n');
+
+    await submitFactoryInternalTask({
+      task: oversizedTask,
+      working_directory: '/repo',
+      kind: 'architect_json',
+      project_id: 'project-42',
+    });
+
+    const submitted = mockHandleSmartSubmitTask.mock.calls[0][0];
+    expect(submitted.task.length).toBeLessThanOrEqual(50000);
+    expect(submitted.task).toContain('[Factory internal prompt truncated before submit]');
+    expect(submitted.task).toContain('START: keep architect instructions');
+    expect(submitted.task).toContain('[... factory internal prompt truncated: middle content omitted ...]');
+    expect(submitted.task).toContain('END: keep latest failure context');
+    expect(submitted.tags).toContain('factory:task_truncated');
+    expect(submitted.task_metadata).toEqual(expect.objectContaining({
+      task_description_truncated: true,
+      task_description_original_length: oversizedTask.length,
+      task_description_submitted_length: submitted.task.length,
+      task_description_limit: 50000,
+      task_description_truncation_strategy: 'preserve_head_and_tail',
+    }));
+  });
+
   it('preserves timeout_minutes=0 for explicit no-timeout internal tasks', async () => {
     const { submitFactoryInternalTask } = loadSubject();
     mockHandleSmartSubmitTask.mockResolvedValue({ task_id: 'plan-task-no-timeout' });

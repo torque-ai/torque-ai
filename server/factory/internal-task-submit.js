@@ -5,6 +5,9 @@ const {
   getProviderLanePolicyFromProject,
   specializePolicyForKind,
 } = require('./provider-lane-policy');
+const { MAX_TASK_LENGTH } = require('../handlers/shared');
+
+const TRUNCATED_TASK_MARKER = '[... factory internal prompt truncated: middle content omitted ...]';
 
 const PROJECT_BY_KIND = Object.freeze({
   architect_json: 'factory-architect',
@@ -186,6 +189,47 @@ function assertProjectAcceptsInternalTasks(project_id, targetProject = null) {
   }
 }
 
+function boundFactoryInternalTaskDescription(task, maxLength = MAX_TASK_LENGTH) {
+  if (typeof task !== 'string' || task.length <= maxLength) {
+    return {
+      task,
+      truncated: false,
+      originalLength: typeof task === 'string' ? task.length : null,
+      submittedLength: typeof task === 'string' ? task.length : null,
+    };
+  }
+
+  const notice = [
+    '[Factory internal prompt truncated before submit]',
+    `Original task description length: ${task.length} characters. Submission limit: ${maxLength}.`,
+    'The middle was omitted to keep this factory self-healing task admissible; preserve the visible instructions and use repository context if more detail is needed.',
+    '',
+  ].join('\n');
+  const marker = `\n\n${TRUNCATED_TASK_MARKER}\n\n`;
+  const contentBudget = maxLength - notice.length - marker.length;
+
+  if (contentBudget <= 0) {
+    const fallback = task.slice(0, maxLength);
+    return {
+      task: fallback,
+      truncated: true,
+      originalLength: task.length,
+      submittedLength: fallback.length,
+    };
+  }
+
+  const headLength = Math.ceil(contentBudget * 0.62);
+  const tailLength = contentBudget - headLength;
+  const boundedTask = `${notice}${task.slice(0, headLength)}${marker}${task.slice(task.length - tailLength)}`;
+
+  return {
+    task: boundedTask,
+    truncated: true,
+    originalLength: task.length,
+    submittedLength: boundedTask.length,
+  };
+}
+
 async function submitFactoryInternalTask({
   task,
   working_directory,
@@ -226,12 +270,14 @@ async function submitFactoryInternalTask({
   // on short structured prompts).
   const requestedModel = normalizeOptionalString(model);
   const effectiveModel = requestedModel || inheritedIntent.model;
+  const boundedTask = boundFactoryInternalTaskDescription(task);
   const tags = [
     'factory:internal',
     `factory:${resolvedKind}`,
     `factory:project_id=${project_id}`,
     ...(targetProject?.name ? [`factory:target_project=${targetProject.name}`] : []),
     ...(work_item_id ? [`factory:work_item_id=${work_item_id}`] : []),
+    ...(boundedTask.truncated ? ['factory:task_truncated'] : []),
     ...(Array.isArray(extra_tags) ? extra_tags : []),
   ];
   const task_metadata = {
@@ -241,6 +287,13 @@ async function submitFactoryInternalTask({
     ...(targetProject?.name ? { target_project: targetProject.name } : {}),
     ...(targetProject?.path ? { target_project_path: targetProject.path } : {}),
     ...(work_item_id ? { work_item_id } : {}),
+    ...(boundedTask.truncated ? {
+      task_description_truncated: true,
+      task_description_original_length: boundedTask.originalLength,
+      task_description_submitted_length: boundedTask.submittedLength,
+      task_description_limit: MAX_TASK_LENGTH,
+      task_description_truncation_strategy: 'preserve_head_and_tail',
+    } : {}),
     ...(requestedProvider ? { requested_provider: requestedProvider } : {}),
     ...(requestedRoutingTemplate ? { requested_routing_template: requestedRoutingTemplate } : {}),
     ...(!requestedRoutingTemplate && inheritedIntent.routingTemplate ? {
@@ -259,7 +312,7 @@ async function submitFactoryInternalTask({
 
   const { handleSmartSubmitTask } = require('../handlers/integration/routing');
   const result = await handleSmartSubmitTask({
-    task,
+    task: boundedTask.task,
     project,
     working_directory: resolvedWorkingDirectory,
     ...(effectiveProvider ? { provider: effectiveProvider } : {}),
