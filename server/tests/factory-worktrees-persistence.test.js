@@ -388,4 +388,89 @@ describe('factory worktrees persistence', () => {
     db.close();
     factoryWorktrees.setDb(null);
   });
+
+  it('refreshGraceForOwningTask bumps created_at for the active row owned by a task_id', async () => {
+    // Regression: stall recovery requeues the SAME task_id (status='queued',
+    // started_at=null) for a fresh attempt. Without this refresh the
+    // factory_worktrees row keeps its old created_at — and on the next
+    // factory tick, the loop-controller pre-reclaim sweep reads the row as
+    // overstayed and cancels the in-flight retry with reason
+    // pre_reclaim_before_create. This test pins the contract that
+    // refreshGraceForOwningTask resets the grace window for that path.
+    const db = new Database(dbPath);
+    createTables(db);
+    db.prepare('ALTER TABLE factory_worktrees ADD COLUMN owning_task_id TEXT').run();
+    const workItemId = seedParents(db);
+
+    const factoryWorktrees = loadFreshFactoryWorktrees();
+    factoryWorktrees.setDb(db);
+
+    // Two active rows on different work-items, the second owned by task-stall.
+    const recordedA = factoryWorktrees.recordWorktree({
+      project_id: 'project-1',
+      work_item_id: workItemId,
+      batch_id: 'batch-A',
+      vc_worktree_id: 'vc-worktree-1',
+      branch: 'feat/factory-A',
+      worktree_path: 'C:/repo/.worktrees/feat/factory-A',
+    });
+    factoryWorktrees.setOwningTask(recordedA.id, 'task-other');
+
+    db.prepare(`
+      INSERT INTO factory_work_items (project_id, source, title, description)
+      VALUES (?, ?, ?, ?)
+    `).run('project-1', 'manual', 'Second item', 'second');
+    const secondWorkItemId = db.prepare('SELECT MAX(id) AS id FROM factory_work_items').get().id;
+
+    db.prepare(`
+      INSERT INTO vc_worktrees (id, repo_path, worktree_path, branch, feature_name, base_branch, status, created_at, last_activity_at)
+      VALUES ('vc-worktree-2', 'C:/repo', 'C:/repo/.worktrees/feat/factory-stall', 'feat/factory-stall', 'factory-stall', 'main', 'active', datetime('now'), datetime('now'))
+    `).run();
+    const recordedB = factoryWorktrees.recordWorktree({
+      project_id: 'project-1',
+      work_item_id: secondWorkItemId,
+      batch_id: 'batch-B',
+      vc_worktree_id: 'vc-worktree-2',
+      branch: 'feat/factory-stall',
+      worktree_path: 'C:/repo/.worktrees/feat/factory-stall',
+    });
+    factoryWorktrees.setOwningTask(recordedB.id, 'task-stall');
+
+    // Backdate row B's created_at to simulate a long-running attempt.
+    db.prepare("UPDATE factory_worktrees SET created_at = datetime('now', '-2 hours') WHERE id = ?").run(recordedB.id);
+    const beforeB = db.prepare('SELECT created_at FROM factory_worktrees WHERE id = ?').get(recordedB.id);
+    expect(Date.now() - Date.parse(`${beforeB.created_at.replace(' ', 'T')}Z`)).toBeGreaterThan(60 * 60 * 1000);
+
+    // Also backdate row A — refreshing task-stall must NOT touch task-other.
+    db.prepare("UPDATE factory_worktrees SET created_at = datetime('now', '-2 hours') WHERE id = ?").run(recordedA.id);
+    const beforeA = db.prepare('SELECT created_at FROM factory_worktrees WHERE id = ?').get(recordedA.id);
+
+    await new Promise((resolve) => setTimeout(resolve, 1100));
+
+    const refreshed = factoryWorktrees.refreshGraceForOwningTask('task-stall');
+    expect(refreshed).toBeTruthy();
+    expect(refreshed.id).toBe(recordedB.id);
+    expect(refreshed.owningTaskId).toBe('task-stall');
+
+    // Row B's grace window is reset to ~now.
+    const afterB = db.prepare('SELECT created_at FROM factory_worktrees WHERE id = ?').get(recordedB.id);
+    expect(Date.now() - Date.parse(`${afterB.created_at.replace(' ', 'T')}Z`)).toBeLessThan(10 * 1000);
+
+    // Row A is unchanged — refresh is scoped to the matched owner only.
+    const afterA = db.prepare('SELECT created_at FROM factory_worktrees WHERE id = ?').get(recordedA.id);
+    expect(afterA.created_at).toBe(beforeA.created_at);
+
+    // Unknown task_id is a no-op (returns null).
+    expect(factoryWorktrees.refreshGraceForOwningTask('task-nonexistent')).toBeNull();
+
+    // Abandoned rows are not touched even if owning_task_id matches.
+    factoryWorktrees.markAbandoned(recordedB.id, 'test');
+    const beforeAbandoned = db.prepare('SELECT created_at FROM factory_worktrees WHERE id = ?').get(recordedB.id).created_at;
+    expect(factoryWorktrees.refreshGraceForOwningTask('task-stall')).toBeNull();
+    const afterAbandoned = db.prepare('SELECT created_at FROM factory_worktrees WHERE id = ?').get(recordedB.id).created_at;
+    expect(afterAbandoned).toBe(beforeAbandoned);
+
+    db.close();
+    factoryWorktrees.setDb(null);
+  });
 });

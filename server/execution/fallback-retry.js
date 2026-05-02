@@ -536,6 +536,22 @@ function tryStallRecovery(taskId, activity) {
     return true;
   }
 
+  // Refresh the factory-worktrees pre-reclaim grace window for any active row
+  // owned by this task. The same task_id is being requeued for a fresh
+  // attempt, so semantically the owner is "freshly attached" again. Without
+  // this, the loop-controller pre-reclaim sweep treats the row's old
+  // created_at as evidence of overstay and cancels the in-flight retry
+  // (pre_reclaim_before_create) — the exact death-spiral that turned stall
+  // recovery into task-killer.
+  try {
+    const factoryWorktrees = require('../db/factory-worktrees');
+    if (typeof factoryWorktrees.refreshGraceForOwningTask === 'function') {
+      factoryWorktrees.refreshGraceForOwningTask(taskId);
+    }
+  } catch (refreshErr) {
+    logger.info(`[StallRecovery] Task ${taskId}: worktree grace refresh failed (non-fatal): ${refreshErr.message}`);
+  }
+
   // Re-queue the task
   setTimeout(() => _processQueue(), STALL_REQUEUE_DEBOUNCE_MS);
 

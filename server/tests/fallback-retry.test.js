@@ -797,6 +797,51 @@ describe('fallback-retry module', () => {
       expect(updated.error_output).toContain('[STALL RECOVERY] Attempt 1: switch_edit_format');
     });
 
+    it('refreshes factory-worktrees grace window when requeuing', () => {
+      // Regression: stall recovery requeues the SAME task_id but the
+      // factory_worktrees row keeps its original created_at — on the next
+      // factory tick the loop-controller pre-reclaim sweep cancels the
+      // in-flight retry with reason pre_reclaim_before_create. The fix
+      // calls refreshGraceForOwningTask on requeue so the grace window is
+      // reset to "now."
+      const factoryWorktreesPath = require.resolve('../db/factory-worktrees');
+      const factoryWorktrees = require('../db/factory-worktrees');
+      const refreshSpy = vi.spyOn(factoryWorktrees, 'refreshGraceForOwningTask').mockReturnValue({ id: 1 });
+      try {
+        const task = createTask({ provider: 'ollama', model: TEST_MODELS.DEFAULT });
+        runningProcesses.set(task.id, { editFormat: 'diff' });
+
+        const ok = mod.tryStallRecovery(task.id, { lastActivitySeconds: 360 });
+        expect(ok).toBe(true);
+        expect(refreshSpy).toHaveBeenCalledWith(task.id);
+      } finally {
+        refreshSpy.mockRestore();
+        // Force re-load so subsequent tests see a clean module
+        delete require.cache[factoryWorktreesPath];
+      }
+    });
+
+    it('does not abort requeue when refreshGraceForOwningTask throws', () => {
+      // Defensive: a worktree-grace bump is best-effort; failure must not
+      // promote a transient DB error into a failed task.
+      const factoryWorktrees = require('../db/factory-worktrees');
+      const refreshSpy = vi.spyOn(factoryWorktrees, 'refreshGraceForOwningTask').mockImplementation(() => {
+        throw new Error('worktrees table missing');
+      });
+      try {
+        const task = createTask({ provider: 'ollama', model: TEST_MODELS.DEFAULT });
+        runningProcesses.set(task.id, { editFormat: 'diff' });
+
+        const ok = mod.tryStallRecovery(task.id, { lastActivitySeconds: 360 });
+        expect(ok).toBe(true);
+        expect(refreshSpy).toHaveBeenCalled();
+        const updated = taskCore.getTask(task.id);
+        expect(updated.status).toBe('queued');
+      } finally {
+        refreshSpy.mockRestore();
+      }
+    });
+
     it('switches to a larger model when task is already using whole edits', () => {
       const largerCoderModel = TEST_MODELS.CODER_QUALITY;
       const hostA = registerHealthyHost('stall-large-host', [TEST_MODELS.CODER_DEFAULT, largerCoderModel]);

@@ -252,22 +252,45 @@ function getTaskActivity(taskId, opts = {}) {
 
   // CPU activity rescue: if still stalled and process has a PID, check CPU usage.
   // A process using CPU is not stalled even without output or filesystem changes.
+  // Two signals are evaluated:
+  //   1) Instantaneous CPU% > threshold — catches actively-computing tasks.
+  //   2) Cumulative CPU time advanced since the previous sample — catches
+  //      agent-style tasks (codex, claude-cli) that idle at 0% while waiting
+  //      on the LLM API but still accrue user-time across the wait.
+  // Without (2), a codex run paused on a multi-minute API response was
+  // declared stalled and cancelled mid-call (pre_reclaim_before_create).
   const taskPid = proc.pid || proc.process?.pid;
   if (isStalled && taskPid) {
     try {
-      const { getProcessTreeCpu } = require('./process-activity');
+      const { getProcessTreeCpu, getProcessTreeCpuDelta } = require('./process-activity');
       const activity = getProcessTreeCpu(taskPid);
+      let rescueReason = null;
+      let cpuPercent = 0;
       if (activity && activity.isActive) {
+        rescueReason = 'instantaneous';
+        cpuPercent = Number.isFinite(activity.totalCpu)
+          ? activity.totalCpu
+          : (activity.totalCpuPercent || 0);
+      } else if (AGENT_PROVIDERS.has(proc.provider)) {
+        // For agents, also check cumulative CPU delta — an LLM call burns
+        // CPU on response receipt even if instantaneous sampling missed it.
+        const delta = getProcessTreeCpuDelta(taskPid);
+        if (delta && delta.isAdvancing) {
+          rescueReason = 'cumulative_delta';
+          cpuPercent = activity ? (activity.totalCpu || 0) : 0;
+          logger.info(`[Heartbeat] Task ${taskId} rescued by cumulative CPU delta (+${delta.deltaMs.toFixed(0)}ms since last sample, instantaneous ${cpuPercent.toFixed(2)}%)`);
+        }
+      }
+      if (rescueReason) {
         proc.lastOutputAt = Date.now(); // Reset stall timer
         proc.stallWarned = false;
         isStalled = false;
         cpuRescued = true;
         lastOutputAt = proc.lastOutputAt;
         lastActivitySeconds = 0;
-        const cpuPercent = Number.isFinite(activity.totalCpu)
-          ? activity.totalCpu
-          : (activity.totalCpuPercent || 0);
-        logger.info(`[Heartbeat] Task ${taskId} rescued by CPU activity (${cpuPercent.toFixed(1)}% CPU, ${activity.processCount} processes)`);
+        if (rescueReason === 'instantaneous') {
+          logger.info(`[Heartbeat] Task ${taskId} rescued by CPU activity (${cpuPercent.toFixed(1)}% CPU, ${activity.processCount} processes)`);
+        }
       }
     } catch { /* process-activity module not available or errored — ignore */ }
   }

@@ -6,6 +6,7 @@ const childProcess = require('child_process');
 const {
   clearActivityCache,
   getProcessTreeCpu,
+  getProcessTreeCpuDelta,
   isProcessAlive,
 } = require('../utils/process-activity');
 
@@ -66,5 +67,43 @@ describe('utils/process-activity', () => {
       isActive: false,
     });
     expect(second).not.toBe(first);
+  });
+
+  describe('getProcessTreeCpuDelta', () => {
+    it('returns isAdvancing=false on first sample (baseline only)', () => {
+      const first = getProcessTreeCpuDelta(process.pid);
+      expect(first.isAdvancing).toBe(false);
+      expect(first.deltaMs).toBe(0);
+      expect(first.hasBaseline).toBe(false);
+    });
+
+    it('returns isAdvancing=true when cumulative CPU advanced between calls', () => {
+      const cumulative = { value: 0 };
+      const first = getProcessTreeCpuDelta(12345, () => cumulative.value);
+      expect(first.isAdvancing).toBe(false);
+
+      cumulative.value = 250;
+      const second = getProcessTreeCpuDelta(12345, () => cumulative.value);
+      expect(second.isAdvancing).toBe(true);
+      expect(second.deltaMs).toBe(250);
+      expect(second.hasBaseline).toBe(true);
+    });
+
+    it('returns isAdvancing=false when cumulative CPU is unchanged', () => {
+      const cumulative = { value: 1000 };
+      getProcessTreeCpuDelta(12346, () => cumulative.value);
+      const second = getProcessTreeCpuDelta(12346, () => cumulative.value);
+      expect(second.isAdvancing).toBe(false);
+      expect(second.deltaMs).toBe(0);
+      expect(second.hasBaseline).toBe(true);
+    });
+
+    it('forgets baseline when sampler returns null (process gone)', () => {
+      const cumulative = { value: 500 };
+      getProcessTreeCpuDelta(12347, () => cumulative.value);
+      const result = getProcessTreeCpuDelta(12347, () => null);
+      expect(result.isAdvancing).toBe(false);
+      expect(result.hasBaseline).toBe(false);
+    });
   });
 });
