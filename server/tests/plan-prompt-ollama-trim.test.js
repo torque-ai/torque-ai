@@ -195,14 +195,19 @@ describe('Phase G: resolvePlanGenerationTimeoutMinutes', () => {
 
 describe('Phase G: buildStarvationRecoveryScope — concrete-item bias', () => {
   it('explicitly prefers concrete_factory_work_items over loose patterns', () => {
+    // fc73c9c9 ("bound scouts and extend active timeouts") reworded the
+    // scope to drop the loose-patterns escape hatch entirely — the section
+    // is now headed "Output format — concrete work items only" and the
+    // "strongly prefer" / "concrete is preferred" phrasings were replaced
+    // with direct prescriptive language.
     const scope = buildStarvationRecoveryScope({
       project: { name: 'DLPhone', brief: 'Mobile RTS.' },
       noYieldScoutCount: 0,
     });
     expect(scope).toContain('Output format');
     expect(scope).toContain('concrete_factory_work_items');
-    expect(scope).toMatch(/strongly prefer/i);
-    expect(scope).toMatch(/concrete is preferred/i);
+    expect(scope).toMatch(/concrete work items only/i);
+    expect(scope).toMatch(/much higher rates than loose patterns/i);
   });
 
   it('explains the concrete item shape (allowed_files + verification)', () => {
