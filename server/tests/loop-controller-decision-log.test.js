@@ -284,25 +284,32 @@ describe('loop-controller decision logging', () => {
     });
 
     const planAdvance = await loopController.advanceLoopForProject(project.id);
-    expect(planAdvance.new_state).toBe(LOOP_STATES.IDLE);
+    // Phase X4 (79917100): cannot_generate_plan now routes to needs_replan +
+    // PRIORITIZE so the next cycle can rework the item, instead of terminal
+    // 'rejected' → IDLE. The decision still fires and the rejection-reason
+    // metadata is preserved on origin_json (Phase X4's
+    // routeWorkItemToNeedsReplan helper).
+    expect(planAdvance.new_state).toBe(LOOP_STATES.PRIORITIZE);
     expect(planAdvance.reason).toBeTruthy();
     expect(factoryIntake.getWorkItem(workItem.id)).toMatchObject({
       id: workItem.id,
-      status: 'rejected',
-      reject_reason: expect.stringMatching(/^cannot_generate_plan: /),
+      status: 'needs_replan',
     });
     decisions = listDecisionRows(db, project.id);
     // Non-plan-file EXECUTE attempts production plan generation. This minimal
-    // fixture has no task pipeline, so the hardened path rejects the item
-    // instead of looping forever.
+    // fixture has no task pipeline, so the hardened path now routes the item
+    // to needs_replan instead of looping forever or terminating.
     expect(decisions.length).toBeGreaterThanOrEqual(9);
     expect(decisions.find(d => d.stage === 'execute' && d.action === 'started_execution')).toBeUndefined();
-    const rejected = decisions.find(d => d.stage === 'execute' && d.action === 'cannot_generate_plan');
-    expect(rejected).toBeTruthy();
-    expect(rejected.outcome).toMatchObject({
+    const routedToReplan = decisions.find(d => d.stage === 'execute' && (
+      d.action === 'cannot_generate_plan_routed_to_needs_replan'
+      || d.action === 'cannot_generate_plan'
+    ));
+    expect(routedToReplan).toBeTruthy();
+    expect(routedToReplan.outcome).toMatchObject({
       work_item_id: workItem.id,
     });
-    expect(rejected.outcome.reason).toBeTruthy();
+    expect(routedToReplan.outcome.reason).toBeTruthy();
   });
 
   it('refreshes the decision DB dependency when handleDecisionLog is called', async () => {

@@ -301,7 +301,11 @@ describe('executeNonPlanFileStage plan-quality-gate — reject paths', () => {
     expect(result.stage_result.description_quality.threshold).toBe(80);
   });
 
-  it('Scenario 3 (autonomous, bad plan twice): item rejected, next_state IDLE', async () => {
+  it('Scenario 3 (autonomous, bad plan twice): item routed to needs_replan, next_state PRIORITIZE', async () => {
+    // Phase X3/X4 (66b153fa, 79917100): plan-quality failures route to
+    // 'needs_replan' instead of terminal 'rejected', and the loop returns
+    // to PRIORITIZE (not IDLE) so the next architect attempt can produce
+    // a different plan with the prior-rejection feedback prepended.
     const loopController = require('../factory/loop-controller');
     const planGate = require('../factory/plan-quality-gate');
 
@@ -318,10 +322,9 @@ describe('executeNonPlanFileStage plan-quality-gate — reject paths', () => {
     const result = await loopController.executeNonPlanFileStage(project, instance, workItem);
 
     expect(result?.stop_execution).toBe(true);
-    expect(result?.next_state).toBe('IDLE');
+    expect(result?.next_state).toBe('PRIORITIZE');
     const after = db.prepare('SELECT status, reject_reason FROM factory_work_items WHERE id = ?').get(workItemId);
-    expect(after.status).toBe('rejected');
-    expect(after.reject_reason).toContain('plan_quality_gate_rejected_after_2_attempts');
+    expect(after.status).toBe('needs_replan');
   });
 
   it('Scenario 4 (supervised, bad plan): paused at PLAN_REVIEW with gate_feedback populated', async () => {
