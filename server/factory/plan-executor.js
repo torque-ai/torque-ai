@@ -1,6 +1,7 @@
 'use strict';
 const fs = require('fs');
 const path = require('path');
+const childProcess = require('node:child_process');
 const logger = require('../logger').child({ component: 'plan-executor' });
 const { parsePlanFile, extractVerifyCommand } = require('./plan-parser');
 const { findHeavyLocalValidationCommand } = require('../utils/heavy-validation-guard');
@@ -175,7 +176,34 @@ function extractEditTargetPaths(task) {
   return targets;
 }
 
-function verifyCompletedTaskArtifacts(task, working_directory) {
+// Phase X7 (2026-05-02): branch-state precondition for trusting [x] markers.
+// Runs `git rev-list --count HEAD ^<baseBranch>` in the worktree. Returns
+// 0 when the branch has no commits ahead of base, >0 when it has commits,
+// or null when git fails (not a repo, baseBranch missing, git error). The
+// null case lets callers fall through to other trust signals instead of
+// hard-failing on environments that aren't git-tracked (tests, dry-runs).
+function countCommitsAheadOfBase(working_directory, baseBranch) {
+  if (!working_directory || !baseBranch) return null;
+  try {
+    const result = childProcess.spawnSync(
+      'git',
+      ['rev-list', '--count', `HEAD`, `^${baseBranch}`],
+      {
+        cwd: working_directory,
+        encoding: 'utf8',
+        windowsHide: true,
+        timeout: 10000,
+      }
+    );
+    if (result.status !== 0) return null;
+    const n = Number.parseInt(String(result.stdout || '').trim(), 10);
+    return Number.isFinite(n) ? n : null;
+  } catch (_e) {
+    return null;
+  }
+}
+
+function verifyCompletedTaskArtifacts(task, working_directory, baseBranch = null) {
   // Trust-but-verify: a [x]-marked task should have produced artifacts.
   // If every TARGET path (not every cited path) is missing from the
   // working directory, the [x] is almost certainly stale (carried over
@@ -186,8 +214,39 @@ function verifyCompletedTaskArtifacts(task, working_directory) {
   // targets — bitsy plan 735 task 2 case (see extractEditTargetPaths
   // comment). Fall back to the raw extractor when no verb-anchored
   // targets are detectable.
+  //
+  // Phase X7 (2026-05-02): canonical evidence that work happened in this
+  // branch is COMMITS, not the existence of cited files. A plan citing
+  // `simtests/Foo.cs` will see that file exist whenever it's part of the
+  // repo's existing source — independent of whether any task actually
+  // wrote the requested change INSIDE it. When baseBranch is known, gate
+  // on `git rev-list HEAD ^<base>`: zero commits ahead means no task
+  // produced its work in this worktree, so [x] cannot be trusted.
+  //
+  // Live evidence (DLPhone item #2048, 2026-05-02): findReusableTask kept
+  // returning a stale completed task whose commits were never in this
+  // branch (different factory cycle). Phase U trusted because the cited
+  // .cs files existed in the repo. tickTaskInFile flipped [x], EXECUTE
+  // returned `completed_tasks: [1]` in the same second, branch had 0
+  // commits → empty_branch → routeWorkItemToNeedsReplan → repeat. Each
+  // cycle accumulated escalation_history; one item already terminated as
+  // escalation_exhausted before the gate landed.
   if (!working_directory) {
     return { trust: true, reason: 'no_working_directory' };
+  }
+  if (baseBranch) {
+    const aheadCount = countCommitsAheadOfBase(working_directory, baseBranch);
+    if (aheadCount === 0) {
+      return {
+        trust: false,
+        reason: 'branch_no_commits_ahead',
+        baseBranch,
+        commitsAhead: 0,
+      };
+    }
+    // null aheadCount = git unavailable / not a repo / unknown — fall
+    // through to the path-based check rather than blocking work in
+    // non-git environments (tests, sandboxes, scratch dirs).
   }
   let paths = extractEditTargetPaths(task);
   let extractor = 'edit_target';
@@ -323,6 +382,7 @@ function createPlanExecutor({ submit, awaitTask, findReusableTask = null, projec
     version_intent = 'feature',
     dry_run = false,
     execution_mode = null,
+    baseBranch = null,
   }) {
     const started = Date.now();
     const content = fs.readFileSync(plan_path, 'utf8');
@@ -351,12 +411,14 @@ function createPlanExecutor({ submit, awaitTask, findReusableTask = null, projec
 
     for (const task of parsed.tasks) {
       if (task.completed) {
-        const verification = verifyCompletedTaskArtifacts(task, working_directory);
+        const verification = verifyCompletedTaskArtifacts(task, working_directory, baseBranch);
         if (!verification.trust) {
           logger.warn(`task ${task.task_number} is marked [x] but its artifacts are missing — treating as incomplete (likely stale from prior corrupted run)`, {
             plan_path,
             task_number: task.task_number,
+            reason: verification.reason,
             missing_paths: verification.missing,
+            base_branch: verification.baseBranch,
           });
           // Fall through to submission path — don't skip.
         } else {
@@ -453,7 +515,7 @@ function createPlanExecutor({ submit, awaitTask, findReusableTask = null, projec
         : null;
 
       if (reusableTask?.task_id && reusableTask.status === 'completed') {
-        const verification = verifyCompletedTaskArtifacts(task, working_directory);
+        const verification = verifyCompletedTaskArtifacts(task, working_directory, baseBranch);
         if (verification.trust) {
           logger.info(`reusing completed task ${reusableTask.task_id} for already-landed plan task ${task.task_number}`);
           tickTaskInFile(plan_path, task.task_number);
@@ -464,7 +526,9 @@ function createPlanExecutor({ submit, awaitTask, findReusableTask = null, projec
         logger.warn(`completed task ${reusableTask.task_id} for plan task ${task.task_number} has missing artifacts — resubmitting`, {
           plan_path,
           task_number: task.task_number,
+          reason: verification.reason,
           missing_paths: verification.missing,
+          base_branch: verification.baseBranch,
         });
       }
 
@@ -622,5 +686,6 @@ module.exports = {
   tickTaskInFile,
   verifyTaskTargetsForSubmission,
   verifyCompletedTaskArtifacts,
+  countCommitsAheadOfBase,
   extractEditTargetPaths,
 };
