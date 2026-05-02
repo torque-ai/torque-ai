@@ -10,7 +10,11 @@ const TEST_MARKERS = [
 // Strip any absolute path (drive-letter or unix-style) in a token down to
 // its final file-name segment. Greedy match up to the LAST `/` or `\`.
 function stripPathsInToken(token) {
-  return token.replace(/(?:[A-Za-z]:)?[\\/][^\s>]*[\\/]([^\\/\s>]+)/g, '$1');
+  const normalized = token.replace(/\\/g, '/');
+  if (/^[A-Za-z]:\//.test(normalized) || normalized.startsWith('/')) {
+    return normalized.split('/').filter(Boolean).pop() || normalized;
+  }
+  return normalized;
 }
 
 function normalizeTestName(name) {

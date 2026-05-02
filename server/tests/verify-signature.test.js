@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 
-const { verifySignature } = require('../factory/verify-signature');
+const { normalizeTestName, verifySignature } = require('../factory/verify-signature');
 
 describe('verifySignature', () => {
   it('returns the same signature for identical vitest failures in different orders', () => {
@@ -12,6 +12,32 @@ describe('verifySignature', () => {
  FAIL foo.test.ts > handles empty array
  FAIL foo.test.ts > rejects null
 `;
+    expect(verifySignature(a)).toBe(verifySignature(b));
+  });
+
+  it('normalizes equivalent absolute and relative test-name paths', () => {
+    const a = 'FAIL C:\\repo\\server\\tests\\foo.test.js > rejects null';
+    const b = 'FAIL C:/repo/server/tests/foo.test.js > rejects null';
+    const c = 'FAIL /repo/server/tests/foo.test.js > rejects null';
+    expect(normalizeTestName('C:\\repo\\server\\tests\\foo.test.js > rejects null')).toBe(
+      normalizeTestName('/repo/server/tests/foo.test.js > rejects null'),
+    );
+    expect(normalizeTestName('C:/repo/server/tests/foo.test.js > rejects null')).toBe(
+      normalizeTestName('/repo/server/tests/foo.test.js > rejects null'),
+    );
+    expect(verifySignature(a)).toBe(verifySignature(b));
+    expect(verifySignature(b)).toBe(verifySignature(c));
+  });
+
+  it('preserves relative path context while normalizing separators', () => {
+    const a = 'FAIL server\\tests\\foo.test.js > rejects null';
+    const b = 'FAIL server/tests/foo.test.js > rejects null';
+    expect(normalizeTestName('server\\tests\\foo.test.js > rejects null')).toBe(
+      'server/tests/foo.test.js > rejects null',
+    );
+    expect(normalizeTestName('server\\tests\\foo.test.js > rejects null')).toBe(
+      normalizeTestName('server/tests/foo.test.js > rejects null'),
+    );
     expect(verifySignature(a)).toBe(verifySignature(b));
   });
 
