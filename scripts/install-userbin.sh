@@ -60,4 +60,4 @@ for name in "${WRAPPERS[@]}"; do
   installed=$((installed + 1))
 done
 
-echo "[install-userbin] done: ${installed} installed, ${skipped} unchanged, ${missing} missing-from-repo"
+echo "[install-userbin] done: ${installed} installed, ${skipped} skipped, ${missing} missing"

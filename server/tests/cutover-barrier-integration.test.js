@@ -532,6 +532,16 @@ describe('worktree-cutover.sh barrier integration', () => {
       expect(scriptSource).toContain('[dry-run]');
     });
 
+    it('refreshes user-bin wrappers after cleanup without blocking cutover', () => {
+      const cleanupIdx = scriptSource.indexOf('Branch ${BRANCH} deleted');
+      const installIdx = scriptSource.indexOf('scripts/install-userbin.sh');
+      const installBlock = scriptSource.slice(installIdx, installIdx + 220);
+
+      expect(installIdx).toBeGreaterThan(cleanupIdx);
+      expect(installBlock).toContain('sed \'s/^/  /\'');
+      expect(installBlock).toContain('|| true');
+    });
+
     it('handles restart_scheduled status for empty pipeline', () => {
       expect(scriptSource).toContain('restart_scheduled');
       expect(scriptSource).toContain('Pipeline was empty');

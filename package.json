@@ -9,6 +9,7 @@
   },
   "scripts": {
     "start": "node server/index.js",
+    "install:userbin": "bash scripts/install-userbin.sh",
     "test": "cd server && npx vitest run",
     "test:smoke": "cd server && npm run test:smoke",
     "lint": "cd server && npx eslint .",
