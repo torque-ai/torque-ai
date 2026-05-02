@@ -243,6 +243,8 @@ describe('factory loop-controller EXECUTE for non-plan-file work items', () => {
   function registerExecuteProject({
     description = 'Add regression coverage for factory scoring behavior.',
     config,
+    origin,
+    constraints,
   } = {}) {
     const projectDir = path.join(tempDir, `project-${Date.now()}-${Math.random().toString(16).slice(2)}`);
     fs.mkdirSync(projectDir, { recursive: true });
@@ -262,6 +264,8 @@ describe('factory loop-controller EXECUTE for non-plan-file work items', () => {
       title: 'Add behavioral tests for factory scorers',
       description,
       requestor: 'test',
+      origin,
+      constraints,
     });
 
     const plannedWorkItem = factoryIntake.updateWorkItem(workItem.id, {
@@ -486,6 +490,32 @@ describe('factory loop-controller EXECUTE for non-plan-file work items', () => {
       heartbeat_minutes: 0,
       auto_resubmit_on_restart: true,
     });
+  });
+
+  it('submits scoped scout files and disables ambient context for plan generation', async () => {
+    const allowedFiles = ['server/factory/loop-controller.js', 'server/tests/plan-prompt-scope-files.test.js'];
+    const { project, workItem } = registerExecuteProject({
+      description: 'Extract a focused helper while staying inside the scout file scope.',
+      origin: { allowed_files: allowedFiles },
+    });
+    taskCore.getTask = vi.fn((taskId) => ({
+      id: taskId,
+      status: 'running',
+      output: '',
+      error_output: '',
+    }));
+
+    await loopController.advanceLoopForProject(project.id);
+
+    expect(routingModule.handleSmartSubmitTask).toHaveBeenCalledWith(expect.objectContaining({
+      files: allowedFiles,
+      context_stuff: false,
+      study_context: false,
+      tags: expect.arrayContaining([
+        'factory:plan_generation',
+        `factory:work_item_id=${workItem.id}`,
+      ]),
+    }));
   });
 
   it('defers transient plan-generation file-lock waits instead of rejecting the work item', async () => {
