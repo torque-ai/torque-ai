@@ -537,16 +537,13 @@ describe('buildStarvationRecoveryScope', () => {
     expect(scope).toMatch(/queue monitoring|starvation recovery|generic factory/i);
   });
 
-  it('mandates evidence — patterns must come from list_directory or search_files', () => {
+  it('mandates evidence — concrete items must come from list_directory or search_files', () => {
     const scope = buildStarvationRecoveryScope({
       project: { name: 'DLPhone', brief: 'Mobile RTS.' },
       noYieldScoutCount: 0,
     });
     expect(scope).toContain('## Evidence requirement');
-    // Phase G broadened "Every pattern you emit MUST have ... exemplar_files"
-    // into "Every pattern OR concrete item MUST have ... at least one path"
-    // so the rule covers both __PATTERNS_READY__ (with exemplar_files) and
-    // __SCOUT_COMPLETE__ concrete_factory_work_items (with allowed_files).
+    expect(scope).toMatch(/Every concrete item MUST have at least one path/i);
     expect(scope).toMatch(/MUST have at least one path/i);
     expect(scope).toMatch(/list_directory.*search_files|search_files.*list_directory/);
     expect(scope).toMatch(/may NOT invent file paths/i);
@@ -564,17 +561,24 @@ describe('buildStarvationRecoveryScope', () => {
     expect(scope).toContain('any path outside the working directory');
   });
 
-  it('explicitly allows an empty patterns array as a valid signal', () => {
+  it('explicitly allows an empty concrete work item array as a valid signal', () => {
     const scope = buildStarvationRecoveryScope({
       project: { name: 'DLPhone', brief: 'Mobile RTS.' },
       noYieldScoutCount: 0,
     });
-    // Use plain substring checks — the scope intentionally formats
-    // `patterns` with backticks, which makes a single greedy regex
-    // brittle across backtick boundaries.
     expect(scope).toContain('empty');
-    expect(scope).toContain('`patterns` array');
+    expect(scope).toContain('`concrete_factory_work_items` array');
     expect(scope).toContain('empty result is a valid signal');
+  });
+
+  it('does not mention loose scout pattern blocks in the bounded scope', () => {
+    const scope = buildStarvationRecoveryScope({
+      project: { name: 'DLPhone', brief: 'Mobile RTS.' },
+      noYieldScoutCount: 0,
+    });
+    expect(scope).not.toContain('__PATTERNS_READY__');
+    expect(scope).not.toContain('Loose patterns');
+    expect(scope).not.toContain('`patterns` array');
   });
 
   it('falls back to "this project" when name is missing', () => {
