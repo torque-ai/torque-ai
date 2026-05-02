@@ -281,7 +281,10 @@ describe('executeNonPlanFileStage plan-quality-gate — reject paths', () => {
     expect(gateSpy).not.toHaveBeenCalled();
 
     const after = db.prepare('SELECT status, reject_reason FROM factory_work_items WHERE id = ?').get(workItemId);
-    expect(after.status).toBe('prioritized');
+    // Phase X3 (66b153fa): plan-quality failures route work items to
+    // 'needs_replan' instead of 'prioritized' so PRIORITIZE re-picks them
+    // with the Phase X2 prior-rejection feedback prepended next cycle.
+    expect(after.status).toBe('needs_replan');
     const rejectReason = JSON.parse(after.reject_reason);
     expect(rejectReason).toMatchObject({
       code: 'plan_description_quality_below_threshold',
