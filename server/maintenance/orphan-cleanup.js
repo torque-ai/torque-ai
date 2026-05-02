@@ -38,6 +38,7 @@ let tryStallRecovery = null;
 let detectOutputCompletion = null;
 let isInstanceAlive = null;
 let getMcpInstanceId = null;
+let reportRuntimeTaskProblem = null;
 
 // ---- Timer handles ----
 let dotnetCleanupInterval = null;
@@ -231,6 +232,57 @@ function getTrackedTaskIdleState(task, timeoutMs) {
   };
 }
 
+function getRuntimeProblemReporter() {
+  if (typeof reportRuntimeTaskProblem === 'function') {
+    return reportRuntimeTaskProblem;
+  }
+  try {
+    return require('../factory/runtime-problem-intake').reportRuntimeTaskProblem;
+  } catch (error) {
+    logger?.info?.(`[RuntimeProblemIntake] Reporter unavailable: ${error.message}`);
+    return null;
+  }
+}
+
+function hasReportedRuntimeProblem(proc, problem) {
+  return Boolean(proc?.runtimeProblemReports?.[problem]);
+}
+
+function markRuntimeProblemReported(proc, problem) {
+  if (!proc) return;
+  if (!proc.runtimeProblemReports || typeof proc.runtimeProblemReports !== 'object') {
+    proc.runtimeProblemReports = {};
+  }
+  proc.runtimeProblemReports[problem] = new Date().toISOString();
+}
+
+function maybeReportRuntimeProblem(task, problem, details = {}) {
+  const proc = task?.id && runningProcesses ? runningProcesses.get(task.id) : null;
+  if (proc && hasReportedRuntimeProblem(proc, problem)) {
+    return;
+  }
+
+  const reporter = getRuntimeProblemReporter();
+  if (!reporter) {
+    return;
+  }
+
+  try {
+    const result = reporter({
+      db,
+      task,
+      problem,
+      details,
+      logger,
+    });
+    if (proc && result?.reported) {
+      markRuntimeProblemReported(proc, problem);
+    }
+  } catch (error) {
+    logger?.info?.(`[RuntimeProblemIntake] Failed to report ${problem} for ${task?.id}: ${error.message}`);
+  }
+}
+
 /**
  * Check for stale running tasks that should have timed out
  * This catches tasks that exceeded their timeout but weren't cancelled
@@ -339,6 +391,11 @@ function checkStaleRunningTasks() {
           const elapsedMin = Math.round(elapsedMs / 60000);
           const idleMin = Math.round(idleState.idleMs / 60000);
           logger.info(`[Stale Check] Task ${task.id} has been running for ${elapsedMin}min (timeout: ${timeoutMinutes}min) but had activity ${idleMin}min ago - leaving running`);
+          maybeReportRuntimeProblem(task, 'timeout_overrun_active', {
+            timeoutMinutes,
+            elapsedMinutes: elapsedMin,
+            idleMinutes: idleMin,
+          });
           continue;
         }
 
@@ -574,6 +631,11 @@ function checkStalledTasks(autoCancel = false) {
       const aliveThreshold = activity.stallThreshold * 1.5;
       if (isProcessAlive(proc.process.pid) && activity.lastActivitySeconds <= aliveThreshold) {
         logger.warn(`[Heartbeat] Task ${taskId} output stalled for ${activity.lastActivitySeconds}s but PID ${proc.process.pid} is still alive; extending stall threshold from ${activity.stallThreshold}s to ${aliveThreshold}s.`);
+        maybeReportRuntimeProblem({ id: taskId }, 'stall_threshold_extended', {
+          lastActivitySeconds: activity.lastActivitySeconds,
+          stallThresholdSeconds: activity.stallThreshold,
+          aliveThresholdSeconds: aliveThreshold,
+        });
         isStalled = false;
         activity.stallThreshold = aliveThreshold;
       }
@@ -860,6 +922,7 @@ function init(deps) {
   detectOutputCompletion = deps.detectOutputCompletion;
   isInstanceAlive = deps.isInstanceAlive;
   getMcpInstanceId = deps.getMcpInstanceId;
+  reportRuntimeTaskProblem = deps.reportRuntimeTaskProblem || null;
 }
 
 module.exports = {

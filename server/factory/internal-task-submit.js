@@ -270,7 +270,7 @@ async function submitFactoryInternalTask({
     ...(context_depth !== undefined ? { context_depth } : {}),
     ...(study_context !== undefined ? { study_context } : {}),
     ...(Array.isArray(files) ? { files } : {}),
-    timeout_minutes: timeout_minutes || 10,
+    timeout_minutes: timeout_minutes ?? 10,
     version_intent: 'internal',
     tags,
     task_metadata,

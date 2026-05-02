@@ -300,6 +300,7 @@ describe('Orphan Cleanup', () => {
     it('extends stall threshold by 50% when the process is still alive', () => {
       const logger = { info: vi.fn(), warn: vi.fn() };
       const activity = { isStalled: true, lastActivitySeconds: 150, stallThreshold: 100 };
+      const reportRuntimeTaskProblem = vi.fn(() => ({ reported: true }));
       runningProcesses.set('task-1', { process: { pid: 123 } });
       vi.spyOn(process, 'kill').mockImplementation(() => {});
 
@@ -315,6 +316,7 @@ describe('Orphan Cleanup', () => {
         tryLocalFirstFallback: vi.fn(),
         getTaskActivity: vi.fn().mockReturnValue(activity),
         tryStallRecovery: mockTryStallRecovery,
+        reportRuntimeTaskProblem,
         safeConfigInt: vi.fn(),
       });
 
@@ -323,6 +325,15 @@ describe('Orphan Cleanup', () => {
       expect(mockCancelTask).not.toHaveBeenCalled();
       expect(mockTryStallRecovery).not.toHaveBeenCalled();
       expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('still alive'));
+      expect(reportRuntimeTaskProblem).toHaveBeenCalledWith(expect.objectContaining({
+        task: { id: 'task-1' },
+        problem: 'stall_threshold_extended',
+        details: expect.objectContaining({
+          lastActivitySeconds: 150,
+          stallThresholdSeconds: 100,
+          aliveThresholdSeconds: 150,
+        }),
+      }));
     });
 
     it('cancels stalled tasks when process is not alive', () => {
@@ -392,7 +403,7 @@ describe('Orphan Cleanup', () => {
   // ── checkStaleRunningTasks ────────────────────────────────
 
   describe('checkStaleRunningTasks', () => {
-    let mockDb, mockCancelTask, mockProcessQueue, mockIsInstanceAlive, mockGetMcpInstanceId, mockGetTaskActivity, runningProcesses;
+    let mockDb, mockCancelTask, mockProcessQueue, mockIsInstanceAlive, mockGetMcpInstanceId, mockGetTaskActivity, mockReportRuntimeProblem, runningProcesses;
 
     beforeEach(() => {
       runningProcesses = new Map();
@@ -401,6 +412,7 @@ describe('Orphan Cleanup', () => {
       mockIsInstanceAlive = vi.fn().mockReturnValue(true);
       mockGetMcpInstanceId = vi.fn().mockReturnValue('mcp-current');
       mockGetTaskActivity = vi.fn();
+      mockReportRuntimeProblem = vi.fn(() => ({ reported: true }));
       mockDb = {
         getConfig: vi.fn().mockReturnValue('0'),
         reconcileHostTaskCounts: vi.fn(),
@@ -423,6 +435,7 @@ describe('Orphan Cleanup', () => {
         tryStallRecovery: vi.fn(),
         isInstanceAlive: mockIsInstanceAlive,
         getMcpInstanceId: mockGetMcpInstanceId,
+        reportRuntimeTaskProblem: mockReportRuntimeProblem,
         safeConfigInt: vi.fn(),
       });
     });
@@ -479,6 +492,12 @@ describe('Orphan Cleanup', () => {
 
       expect(mockCancelTask).not.toHaveBeenCalled();
       expect(mockDb.updateTaskStatus).not.toHaveBeenCalled();
+      expect(mockReportRuntimeProblem).toHaveBeenCalledWith(expect.objectContaining({
+        db: mockDb,
+        task: expect.objectContaining({ id: 'task-active' }),
+        problem: 'timeout_overrun_active',
+        details: expect.objectContaining({ timeoutMinutes: 30 }),
+      }));
     });
 
     it('lets filesystem or CPU activity rescue a tracked task before stale timeout cancellation', () => {
@@ -502,6 +521,10 @@ describe('Orphan Cleanup', () => {
       expect(mockGetTaskActivity).toHaveBeenCalledWith('task-rescued');
       expect(mockCancelTask).not.toHaveBeenCalled();
       expect(mockDb.updateTaskStatus).not.toHaveBeenCalled();
+      expect(mockReportRuntimeProblem).toHaveBeenCalledWith(expect.objectContaining({
+        task: expect.objectContaining({ id: 'task-rescued' }),
+        problem: 'timeout_overrun_active',
+      }));
     });
 
     it('skips tasks without started_at', () => {

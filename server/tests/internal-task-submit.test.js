@@ -219,6 +219,23 @@ describe('submitFactoryInternalTask', () => {
     });
   });
 
+  it('preserves timeout_minutes=0 for explicit no-timeout internal tasks', async () => {
+    const { submitFactoryInternalTask } = loadSubject();
+    mockHandleSmartSubmitTask.mockResolvedValue({ task_id: 'plan-task-no-timeout' });
+
+    await submitFactoryInternalTask({
+      task: 'generate long-running plan',
+      working_directory: '/repo',
+      kind: 'plan_generation',
+      project_id: 'project-42',
+      timeout_minutes: 0,
+    });
+
+    expect(mockHandleSmartSubmitTask).toHaveBeenCalledWith(expect.objectContaining({
+      timeout_minutes: 0,
+    }));
+  });
+
   it('passes explicit provider and routing controls through to smart submit', async () => {
     const { submitFactoryInternalTask } = loadSubject();
     mockHandleSmartSubmitTask.mockResolvedValue({ task_id: 'plan-task-1' });
