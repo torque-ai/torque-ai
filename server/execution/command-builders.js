@@ -8,6 +8,7 @@ const fs = require('fs');
 const logger = require('../logger').child({ component: 'command-builders' });
 const { applyStudyContextPrompt } = require('../integrations/codebase-study-engine');
 const { resolveCodexNativeBinary } = require('./codex-native-resolve');
+const { classifyReasoningEffort } = require('./codex-reasoning-effort');
 
 // Git worktrees store per-worktree state at <main>/.git/worktrees/<name>/ and
 // the shared object database + refs at <main>/.git/, both outside the
@@ -198,40 +199,23 @@ async function buildCodexCommand(task, providerConfig, resolvedFileContext, reso
     codexArgs.push('--full-auto');
   }
 
-  // Mirror the factory_internal reasoning_effort override from
-  // server/providers/execute-cli.js (commit e751d504). That file has a
-  // duplicate buildCodexCommand, but task-manager dispatches through
-  // THIS one — so the override never reached production for tasks that
-  // went via task-manager (the dominant path). Result: every
-  // factory_internal codex task kept inheriting the user's xhigh
-  // default, burning the entire timeout window on reasoning before
-  // emitting structured output, then failing with "Timeout exceeded".
-  // Observed live 2026-05-01 across example-project plan_quality_review,
-  // architect_cycle, plan_generation, etc.
-  // The task preamble even printed `reasoning effort: xhigh` despite
-  // the other file's override being theoretically active.
-  const taskMetadata = (() => {
-    if (!task.metadata) return null;
-    if (typeof task.metadata === 'object') return task.metadata;
-    try { return JSON.parse(task.metadata); } catch { return null; }
-  })();
-  // Scout tasks (mode:'scout') aren't tagged factory_internal, but they
-  // suffer the same xhigh-default trap: 30-min timeout with zero output
-  // (observed live 2026-05-02 on torque-public starvation-recovery
-  // scouts 17248c7a and 5fb94110). Recognize them here so the override
-  // applies to every factory-originated codex task, not just the
-  // "internal" flavor.
-  const isFactoryInternal = taskMetadata && taskMetadata.factory_internal === true;
-  const isFactoryScout = taskMetadata && taskMetadata.mode === 'scout';
-  const factoryKind = typeof taskMetadata?.kind === 'string' ? taskMetadata.kind : null;
-  const lowReasoningFactoryKinds = new Set([
-    'plan_quality_review',
-    'replan_rewrite',
-    'verify_review',
-  ]);
-  if (isFactoryInternal || isFactoryScout) {
-    const effort = lowReasoningFactoryKinds.has(factoryKind) ? 'low' : 'high';
-    codexArgs.push('-c', `model_reasoning_effort=${effort}`);
+  // Pick the right reasoning_effort for this task. Centralized in
+  // server/execution/codex-reasoning-effort.js so the rules stay in sync
+  // across both buildCodexCommand implementations. Tiers:
+  //   simple  → low  (shell-execute tasks, plan_quality_review/
+  //                    replan_rewrite/verify_review structured-output kinds)
+  //   normal  → high (factory_internal + scout reconnaissance)
+  //   complex → no override (user's xhigh default for genuine hard
+  //                          reasoning work).
+  const effortDecision = classifyReasoningEffort(task);
+  if (effortDecision.reasoning_effort) {
+    codexArgs.push('-c', `model_reasoning_effort=${effortDecision.reasoning_effort}`);
+    logger.debug('Codex reasoning_effort override applied', {
+      task_id: task.id,
+      tier: effortDecision.tier,
+      reasoning_effort: effortDecision.reasoning_effort,
+      reason: effortDecision.reason,
+    });
   }
 
   if (task.working_directory) {
