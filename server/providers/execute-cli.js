@@ -20,6 +20,7 @@ const { buildSafeEnv } = require('../utils/safe-env');
 const serverConfig = require('../config');
 const { applyStudyContextPrompt } = require('../integrations/codebase-study-engine');
 const { resolveCodexNativeBinary } = require('../execution/codex-native-resolve');
+const { classifyReasoningEffort } = require('../execution/codex-reasoning-effort');
 
 // Subprocess exit-code sentinels for cases where there is no real exit code
 // (the subprocess either never ran, was torn down before tracking, or the
@@ -224,36 +225,22 @@ function buildCodexCommand(task, resolvedFileContext, providerConfig, opts = {})
       codexArgs.push('--full-auto');
     }
 
-    // Factory-internal Codex prompts (Architect, scout, plan-gen, etc.) are
-    // template-driven structured-output tasks. The user's default Codex
-    // reasoning_effort (often "xhigh") burns the whole timeout window on
-    // reasoning before emitting any output, producing silent stalls. Override
-    // to "high" for these — still strong reasoning, but actually emits the
-    // structured response within the window. Real code-execute work-item
-    // tasks aren't submitted via submitFactoryInternalTask, so they keep
-    // whatever the user configured globally in ~/.codex/config.toml.
-    const taskMetadata = (() => {
-      if (!task.metadata) return null;
-      if (typeof task.metadata === 'object') return task.metadata;
-      try { return JSON.parse(task.metadata); } catch { return null; }
-    })();
-    // Scout tasks (mode:'scout') hit the same xhigh-default trap as
-    // factory_internal — observed live 2026-05-02 on torque-public
-    // starvation-recovery scouts that ran 30 minutes with zero output.
-    const isFactoryInternal = taskMetadata && taskMetadata.factory_internal === true;
-    const isFactoryScout = taskMetadata && taskMetadata.mode === 'scout';
-    const factoryKind = typeof taskMetadata?.kind === 'string' ? taskMetadata.kind : null;
-    const scoutReason = typeof taskMetadata?.reason === 'string' ? taskMetadata.reason : null;
-    const lowReasoningFactoryKinds = new Set([
-      'plan_quality_review',
-      'replan_rewrite',
-      'verify_review',
-    ]);
-    if (isFactoryInternal || isFactoryScout) {
-      const effort = lowReasoningFactoryKinds.has(factoryKind) || scoutReason === 'factory_starvation_recovery'
-        ? 'low'
-        : 'high';
-      codexArgs.push('-c', `model_reasoning_effort=${effort}`);
+    // Pick reasoning_effort via the centralized classifier. See
+    // server/execution/codex-reasoning-effort.js — kinds like
+    // plan_quality_review/replan_rewrite/verify_review and bounded
+    // starvation-recovery scouts run on `low`; generic factory_internal +
+    // scouts run on `high`; shell-execute-only tasks run on `low`;
+    // everything else falls through to the user's xhigh default. Mirrors
+    // the same logic in command-builders.js.
+    const effortDecision = classifyReasoningEffort(task);
+    if (effortDecision.reasoning_effort) {
+      codexArgs.push('-c', `model_reasoning_effort=${effortDecision.reasoning_effort}`);
+      logger.debug('Codex reasoning_effort override applied', {
+        task_id: task.id,
+        tier: effortDecision.tier,
+        reasoning_effort: effortDecision.reasoning_effort,
+        reason: effortDecision.reason,
+      });
     }
 
     // Use worktree path if provided, otherwise use original working directory
