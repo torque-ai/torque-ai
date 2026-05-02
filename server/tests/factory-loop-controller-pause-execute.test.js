@@ -10,6 +10,7 @@ const factoryHealth = require('../db/factory-health');
 const factoryIntake = require('../db/factory-intake');
 const factoryLoopInstances = require('../db/factory-loop-instances');
 const factoryWorktrees = require('../db/factory-worktrees');
+const taskCore = require('../db/task-core');
 const routingModule = require('../handlers/integration/routing');
 const loopController = require('../factory/loop-controller');
 const { LOOP_STATES } = require('../factory/loop-states');
@@ -77,6 +78,7 @@ describe('factory loop-controller paused EXECUTE deferral', () => {
     factoryIntake.setDb(db);
     factoryLoopInstances.setDb(db);
     factoryWorktrees.setDb(db);
+    taskCore.setDb(db);
     loopController.setWorktreeRunnerForTests(null);
     submitSpy = vi.spyOn(routingModule, 'handleSmartSubmitTask')
       .mockResolvedValue({ task_id: 'execute-task-2' });
@@ -96,6 +98,7 @@ describe('factory loop-controller paused EXECUTE deferral', () => {
     factoryIntake.setDb(null);
     factoryLoopInstances.setDb(null);
     factoryWorktrees.setDb(null);
+    taskCore.setDb(null);
     teardownTestDb();
     db = null;
     testDir = null;
@@ -199,7 +202,7 @@ describe('factory loop-controller paused EXECUTE deferral', () => {
   });
 
   it('submits the same next plan task after the paused project resumes running', async () => {
-    const { project, batchId } = stageExecutePlanProject({ status: 'paused' });
+    const { project, batchId, instance, workItem } = stageExecutePlanProject({ status: 'paused' });
 
     await loopController.advanceLoopForProject(project.id);
     expect(submitSpy).not.toHaveBeenCalled();
@@ -207,6 +210,7 @@ describe('factory loop-controller paused EXECUTE deferral', () => {
     factoryHealth.updateProject(project.id, { status: 'running' });
     const resumedAdvance = await loopController.advanceLoopForProject(project.id);
 
+    expect(resumedAdvance.instance_id).toBe(instance.id);
     expect(resumedAdvance.previous_state).toBe(LOOP_STATES.EXECUTE);
     expect(submitSpy).toHaveBeenCalledTimes(1);
     const submitted = submitSpy.mock.calls[0][0];
@@ -216,5 +220,85 @@ describe('factory loop-controller paused EXECUTE deferral', () => {
       'factory:plan_task_number=2',
     ]));
     expect(submitted.task).toContain('Task 2: remaining execute work');
+
+    expect(factoryLoopInstances.getInstance(resumedAdvance.instance_id)).toMatchObject({
+      work_item_id: workItem.id,
+      batch_id: batchId,
+    });
+    const resumed = listDecisionRows(db, project.id).find((row) => row.action === 'execute_deferred_resumed');
+    expect(resumed).toMatchObject({
+      stage: 'execute',
+      batch_id: batchId,
+      outcome: expect.objectContaining({
+        work_item_id: workItem.id,
+        remaining_plan_task_number: 2,
+      }),
+    });
+  });
+
+  it('warns and does not duplicate work for an obsolete deferred EXECUTE task that already started', async () => {
+    const { project, workItem, batchId, planPath } = stageExecutePlanProject({ status: 'running' });
+    const activeTaskId = 'execute-task-2-already-started';
+    taskCore.createTask({
+      id: activeTaskId,
+      task_description: 'Task 2 already started',
+      working_directory: project.path,
+      project: project.name,
+      status: 'pending_approval',
+      tags: [
+        `factory:batch_id=${batchId}`,
+        `factory:work_item_id=${workItem.id}`,
+        'factory:plan_task_number=2',
+      ],
+    });
+    factoryDecisions.recordDecision({
+      project_id: project.id,
+      stage: 'execute',
+      actor: 'executor',
+      action: 'execute_deferred_paused',
+      reasoning: 'test stale deferred row after task submission',
+      inputs: {
+        work_item_id: workItem.id,
+        plan_task_number: 2,
+        remaining_plan_task_number: 2,
+      },
+      outcome: {
+        work_item_id: workItem.id,
+        plan_path: planPath,
+        plan_task_number: 2,
+        remaining_plan_task_number: 2,
+        next_state: LOOP_STATES.EXECUTE,
+      },
+      confidence: 1,
+      batch_id: batchId,
+    });
+
+    await loopController.advanceLoopForProject(project.id);
+
+    expect(submitSpy).not.toHaveBeenCalled();
+    const decisions = listDecisionRows(db, project.id);
+    const warning = decisions.find((row) => row.action === 'execute_deferred_paused_stale_warning');
+    expect(warning).toMatchObject({
+      stage: 'execute',
+      batch_id: batchId,
+      outcome: expect.objectContaining({
+        work_item_id: workItem.id,
+        stale_reason: 'remaining_plan_task_already_started',
+        remaining_plan_task_number: 2,
+        existing_task_id: activeTaskId,
+        existing_task_status: 'pending_approval',
+        ignored: true,
+      }),
+    });
+    const matchingTaskIds = taskCore.listTasks({
+      project: project.name,
+      tag: `factory:work_item_id=${workItem.id}`,
+      statuses: ['pending_approval', 'pending', 'queued', 'running'],
+      columns: ['id', 'status', 'tags'],
+    }).filter((task) => (
+      Array.isArray(task.tags)
+      && task.tags.includes('factory:plan_task_number=2')
+    )).map((task) => task.id);
+    expect(matchingTaskIds).toEqual([activeTaskId]);
   });
 });

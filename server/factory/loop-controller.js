@@ -27,7 +27,7 @@ const { createPlanFileIntake } = require('./plan-file-intake');
 const { createPlanReviewer, selectReviewers } = require('./plan-reviewer');
 const { createShippedDetector } = require('./shipped-detector');
 const { createWorktreeRunner, detectDefaultBranch } = require('./worktree-runner');
-const { extractExplicitVerifyCommand, normalizeVerifyCommand } = require('./plan-parser');
+const { extractExplicitVerifyCommand, normalizeVerifyCommand, parsePlanFile } = require('./plan-parser');
 const { buildProviderLaneTaskMetadata } = require('./provider-lane-policy');
 const { createWorktreeManager } = require('../plugins/version-control/worktree-manager');
 const eventBus = require('../event-bus');
@@ -695,17 +695,303 @@ function logExecuteDeferredResume({ project, instance, workItem, batchId, deferr
       deferral_decision_id: deferral.id,
       deferred_at: deferral.created_at || null,
       deferred_plan_task_number: deferral.outcome?.plan_task_number ?? null,
+      remaining_plan_task_number: getDeferredRemainingPlanTaskNumber(deferral),
     },
     outcome: {
       ...getWorkItemDecisionContext(workItem),
       instance_id: instance?.id || null,
       deferral_decision_id: deferral.id,
       batch_id: batchId,
+      remaining_plan_task_number: getDeferredRemainingPlanTaskNumber(deferral),
       next_state: LOOP_STATES.EXECUTE,
     },
     confidence: 1,
     batch_id: batchId,
   });
+}
+
+function normalizePlanTaskNumber(value) {
+  const numeric = Number(value);
+  return Number.isInteger(numeric) && numeric > 0 ? numeric : null;
+}
+
+function getDeferredRemainingPlanTaskNumber(deferral) {
+  return normalizePlanTaskNumber(
+    deferral?.outcome?.remaining_plan_task_number
+    ?? deferral?.inputs?.remaining_plan_task_number
+    ?? deferral?.outcome?.plan_task_number
+    ?? deferral?.inputs?.plan_task_number,
+  );
+}
+
+function getNextExecutablePlanTask(parsedPlan, workingDirectory) {
+  const tasks = Array.isArray(parsedPlan?.tasks) ? parsedPlan.tasks : [];
+  if (tasks.length === 0) {
+    return null;
+  }
+
+  let verifyCompletedTaskArtifacts = null;
+  try {
+    ({ verifyCompletedTaskArtifacts } = require('./plan-executor'));
+  } catch (_err) {
+    void _err;
+  }
+
+  for (const task of tasks) {
+    if (task.completed && typeof verifyCompletedTaskArtifacts === 'function') {
+      const verification = verifyCompletedTaskArtifacts(task, workingDirectory);
+      if (verification.trust) {
+        continue;
+      }
+    } else if (task.completed) {
+      continue;
+    }
+    return task;
+  }
+  return null;
+}
+
+function inspectExecuteDeferredResume({
+  project,
+  workItem,
+  batchId,
+  deferral,
+  planPath,
+  workingDirectory,
+  taskCore,
+}) {
+  if (!deferral) {
+    return null;
+  }
+
+  const remainingPlanTaskNumber = getDeferredRemainingPlanTaskNumber(deferral);
+  const base = {
+    deferral,
+    remaining_plan_task_number: remainingPlanTaskNumber,
+    next_executable_plan_task_number: null,
+    existing_task_id: null,
+    existing_task_status: null,
+    stale_reason: null,
+    valid: false,
+  };
+
+  if (!remainingPlanTaskNumber) {
+    return {
+      ...base,
+      stale_reason: 'missing_remaining_plan_task_number',
+    };
+  }
+
+  let parsedPlan = null;
+  try {
+    parsedPlan = parsePlanFile(fs.readFileSync(planPath, 'utf8'));
+  } catch (error) {
+    return {
+      ...base,
+      stale_reason: 'plan_unreadable',
+      error: error.message,
+    };
+  }
+
+  const tasks = Array.isArray(parsedPlan?.tasks) ? parsedPlan.tasks : [];
+  const remainingTask = tasks.find((task) => (
+    normalizePlanTaskNumber(task?.task_number) === remainingPlanTaskNumber
+  ));
+  if (!remainingTask) {
+    return {
+      ...base,
+      stale_reason: 'remaining_plan_task_missing',
+    };
+  }
+
+  const reusableTask = findExistingPlanTaskSubmission(taskCore, {
+    projectName: project?.name || null,
+    workingDirectory: null,
+    workItemId: workItem?.id,
+    planTaskNumber: remainingPlanTaskNumber,
+    batchId,
+  });
+  if (reusableTask?.task_id) {
+    return {
+      ...base,
+      existing_task_id: reusableTask.task_id,
+      existing_task_status: reusableTask.status || null,
+      stale_reason: reusableTask.status === 'completed'
+        ? 'remaining_plan_task_already_completed'
+        : 'remaining_plan_task_already_started',
+    };
+  }
+
+  const nextExecutableTask = getNextExecutablePlanTask(parsedPlan, workingDirectory);
+  const nextExecutablePlanTaskNumber = normalizePlanTaskNumber(nextExecutableTask?.task_number);
+  if (!nextExecutablePlanTaskNumber) {
+    return {
+      ...base,
+      stale_reason: 'no_next_executable_plan_task',
+    };
+  }
+
+  if (nextExecutablePlanTaskNumber !== remainingPlanTaskNumber) {
+    return {
+      ...base,
+      next_executable_plan_task_number: nextExecutablePlanTaskNumber,
+      stale_reason: 'remaining_plan_task_not_next_executable',
+    };
+  }
+
+  return {
+    ...base,
+    next_executable_plan_task_number: nextExecutablePlanTaskNumber,
+    valid: true,
+  };
+}
+
+function logExecuteDeferredPausedStaleWarning({ project, instance, workItem, batchId, inspection }) {
+  const deferral = inspection?.deferral;
+  if (!deferral || hasExecuteDeferralFollowup({
+    project_id: project.id,
+    batch_id: batchId,
+    action: 'execute_deferred_paused_stale_warning',
+    deferral_id: deferral.id,
+  })) {
+    return null;
+  }
+
+  const warning = {
+    work_item_id: workItem?.id ?? null,
+    instance_id: instance?.id || null,
+    batch_id: batchId,
+    deferral_decision_id: deferral.id,
+    deferred_at: deferral.created_at || null,
+    stale_reason: inspection.stale_reason || 'unknown',
+    remaining_plan_task_number: inspection.remaining_plan_task_number ?? null,
+    next_executable_plan_task_number: inspection.next_executable_plan_task_number ?? null,
+    existing_task_id: inspection.existing_task_id || null,
+    existing_task_status: inspection.existing_task_status || null,
+    ignored: true,
+  };
+
+  logger.warn('EXECUTE stage: ignoring stale paused deferral', {
+    project_id: project.id,
+    ...warning,
+  });
+
+  safeLogDecision({
+    project_id: project.id,
+    stage: LOOP_STATES.EXECUTE,
+    action: 'execute_deferred_paused_stale_warning',
+    reasoning: `Ignored stale paused EXECUTE deferral: ${warning.stale_reason}.`,
+    inputs: {
+      ...getWorkItemDecisionContext(workItem),
+      instance_id: instance?.id || null,
+      deferral_decision_id: deferral.id,
+      deferred_at: deferral.created_at || null,
+      remaining_plan_task_number: warning.remaining_plan_task_number,
+    },
+    outcome: {
+      ...warning,
+      next_state: LOOP_STATES.EXECUTE,
+    },
+    confidence: 1,
+    batch_id: batchId,
+  });
+
+  return warning;
+}
+
+async function maybeRejectResumedDeferredPlan({ project, workItem, batchId }) {
+  // Bug D-extension: when resuming a deferred EXECUTE batch (e.g. after
+  // a project pause/restart) the loop bypasses PLAN entirely, so the
+  // plan-quality-gate that the executePlanStage Bug D fix runs is never
+  // exercised on these items. Items that were approved under the older
+  // gate rule-set (or by an architect prior to the gate existing) get
+  // stuck looping EXECUTE -> governance-reject -> reclaim -> EXECUTE.
+  // Re-evaluate the persisted plan file here so legacy items get the same
+  // quality bar as freshly-planned ones, and bail out of EXECUTE if it
+  // would now be rejected.
+  const planQualityGateResume = require('./plan-quality-gate');
+  let resumeGateVerdict = null;
+  try {
+    const planText = fs.readFileSync(workItem.origin.plan_path, 'utf8');
+    resumeGateVerdict = await planQualityGateResume.evaluatePlan({
+      plan: planText,
+      workItem,
+      project,
+      projectConfig: getProjectConfigForPlanGate(project),
+    });
+  } catch (err) {
+    logger.warn('resume-deferred plan-quality-gate evaluation failed; proceeding (fail-open)', {
+      project_id: project.id,
+      work_item_id: workItem.id,
+      plan_path: workItem.origin.plan_path,
+      err: err.message,
+    });
+    safeLogDecision({
+      project_id: project.id,
+      stage: LOOP_STATES.EXECUTE,
+      action: 'plan_quality_gate_fail_open',
+      reasoning: `Resume-deferred plan gate threw: ${err.message}`,
+      outcome: {
+        work_item_id: workItem.id,
+        plan_path: workItem.origin.plan_path,
+      },
+      confidence: 1,
+      batch_id: batchId,
+    });
+  }
+  if (!resumeGateVerdict || resumeGateVerdict.passed) {
+    return null;
+  }
+
+  const failedRules = resumeGateVerdict.hardFails.map((h) => h.rule);
+  try {
+    factoryIntake.rejectWorkItemUnactionable(
+      workItem.id,
+      'pre_written_plan_rejected_by_quality_gate',
+    );
+  } catch (rejectErr) {
+    // Don't swallow silently; if rejection fails, the work item stays
+    // in_progress and the loop can re-enter the same rejected plan.
+    logger.warn('resume-deferred work-item rejection failed; loop may re-enter', {
+      project_id: project.id,
+      work_item_id: workItem.id,
+      err: rejectErr.message,
+    });
+  }
+  logger.warn('EXECUTE stage: resumed deferred plan rejected by quality gate', {
+    project_id: project.id,
+    work_item_id: workItem.id,
+    plan_path: workItem.origin.plan_path,
+    rules: failedRules,
+  });
+  safeLogDecision({
+    project_id: project.id,
+    stage: LOOP_STATES.EXECUTE,
+    action: 'resumed_plan_quality_rejected',
+    reasoning: `Resumed deferred plan failed quality gate on re-evaluation: ${failedRules.join(', ')}.`,
+    inputs: {
+      ...getWorkItemDecisionContext(workItem),
+      plan_path: workItem.origin.plan_path,
+    },
+    outcome: {
+      rule_violations: resumeGateVerdict.hardFails,
+      plan_path: workItem.origin.plan_path,
+      ...getWorkItemDecisionContext(workItem),
+    },
+    confidence: 1,
+    batch_id: batchId,
+  });
+  return {
+    next_state: LOOP_STATES.IDLE,
+    stop_execution: true,
+    stage_result: {
+      status: 'rejected',
+      reason: 'pre_written_plan_rejected_by_quality_gate',
+      work_item_id: workItem.id,
+      plan_path: workItem.origin.plan_path,
+      rule_violations: failedRules,
+    },
+  };
 }
 
 function maybeWarnStaleExecuteDeferral({ project, instance, workItem, batchId, deferral }) {
@@ -1643,9 +1929,8 @@ function findExistingPlanTaskSubmission(taskCore, {
 
   let candidates = [];
   try {
-    candidates = taskCore.listTasks({
-      ...(projectName ? { project: projectName } : {}),
-      ...(workingDirectory ? { workingDirectory } : {}),
+    const queryCandidates = (options = {}) => taskCore.listTasks({
+      ...options,
       tag: workItemTag,
       statuses: ['pending', 'pending_approval', 'queued', 'running', 'completed'],
       orderBy: 'created_at',
@@ -1653,6 +1938,15 @@ function findExistingPlanTaskSubmission(taskCore, {
       limit: 100,
       columns: ['id', 'status', 'tags', 'created_at', 'started_at'],
     });
+
+    candidates = queryCandidates({
+      ...(projectName ? { project: projectName } : {}),
+      ...(workingDirectory ? { workingDirectory } : {}),
+    });
+
+    if (candidates.length === 0 && (projectName || workingDirectory)) {
+      candidates = queryCandidates();
+    }
   } catch (error) {
     logger.debug({
       err: error.message,
@@ -7047,114 +7341,6 @@ async function executePlanFileStage(project, instance, workItem) {
       work_item_id: targetItem.id,
     })
     : null;
-  if (resumedDeferredExecute) {
-    logExecuteDeferredResume({
-      project,
-      instance,
-      workItem: targetItem,
-      batchId: executeLogBatchId,
-      deferral: resumedDeferredExecute,
-    });
-    maybeWarnStaleExecuteDeferral({
-      project,
-      instance,
-      workItem: targetItem,
-      batchId: executeLogBatchId,
-      deferral: resumedDeferredExecute,
-    });
-
-    // Bug D-extension: when resuming a deferred EXECUTE batch (e.g. after
-    // a project pause/restart) the loop bypasses PLAN entirely, so the
-    // plan-quality-gate that the executePlanStage Bug D fix runs is never
-    // exercised on these items. Items that were approved under the older
-    // gate rule-set (or by an architect prior to the gate existing) get
-    // stuck looping EXECUTE → governance-reject → reclaim → EXECUTE
-    // (observed live this session on example-project items 455, 458, 711, 764).
-    // Re-evaluate the persisted plan file here so legacy items get the same
-    // quality bar as freshly-planned ones, and bail out of EXECUTE if it
-    // would now be rejected.
-    const planQualityGateResume = require('./plan-quality-gate');
-    let resumeGateVerdict = null;
-    try {
-      const planText = fs.readFileSync(targetItem.origin.plan_path, 'utf8');
-      resumeGateVerdict = await planQualityGateResume.evaluatePlan({
-        plan: planText,
-        workItem: targetItem,
-        project,
-        projectConfig: getProjectConfigForPlanGate(project),
-      });
-    } catch (err) {
-      logger.warn('resume-deferred plan-quality-gate evaluation failed; proceeding (fail-open)', {
-        project_id: project.id,
-        work_item_id: targetItem.id,
-        plan_path: targetItem.origin.plan_path,
-        err: err.message,
-      });
-      safeLogDecision({
-        project_id: project.id,
-        stage: LOOP_STATES.EXECUTE,
-        action: 'plan_quality_gate_fail_open',
-        reasoning: `Resume-deferred plan gate threw: ${err.message}`,
-        outcome: {
-          work_item_id: targetItem.id,
-          plan_path: targetItem.origin.plan_path,
-        },
-        confidence: 1,
-        batch_id: executeLogBatchId,
-      });
-    }
-    if (resumeGateVerdict && !resumeGateVerdict.passed) {
-      const failedRules = resumeGateVerdict.hardFails.map((h) => h.rule);
-      try {
-        factoryIntake.rejectWorkItemUnactionable(
-          targetItem.id,
-          'pre_written_plan_rejected_by_quality_gate',
-        );
-      } catch (rejectErr) {
-        // Don't swallow silently — if rejection fails (DB lock, REJECT_REASONS
-        // gap, etc.) the work item stays in_progress and we'd loop again.
-        logger.warn('resume-deferred work-item rejection failed; loop may re-enter', {
-          project_id: project.id,
-          work_item_id: targetItem.id,
-          err: rejectErr.message,
-        });
-      }
-      logger.warn('EXECUTE stage: resumed deferred plan rejected by quality gate', {
-        project_id: project.id,
-        work_item_id: targetItem.id,
-        plan_path: targetItem.origin.plan_path,
-        rules: failedRules,
-      });
-      safeLogDecision({
-        project_id: project.id,
-        stage: LOOP_STATES.EXECUTE,
-        action: 'resumed_plan_quality_rejected',
-        reasoning: `Resumed deferred plan failed quality gate on re-evaluation: ${failedRules.join(', ')}.`,
-        inputs: {
-          ...getWorkItemDecisionContext(targetItem),
-          plan_path: targetItem.origin.plan_path,
-        },
-        outcome: {
-          rule_violations: resumeGateVerdict.hardFails,
-          plan_path: targetItem.origin.plan_path,
-          ...getWorkItemDecisionContext(targetItem),
-        },
-        confidence: 1,
-        batch_id: executeLogBatchId,
-      });
-      return {
-        next_state: LOOP_STATES.IDLE,
-        stop_execution: true,
-        stage_result: {
-          status: 'rejected',
-          reason: 'pre_written_plan_rejected_by_quality_gate',
-          work_item_id: targetItem.id,
-          plan_path: targetItem.origin.plan_path,
-          rule_violations: failedRules,
-        },
-      };
-    }
-  }
 
   // Spin detector: if this batch has re-entered EXECUTE many times in a
   // short window without making forward progress, the loop is thrashing —
@@ -7821,6 +8007,50 @@ async function executePlanFileStage(project, instance, workItem) {
       return targetItem.origin.plan_path;
     }
   })();
+
+  if (resumedDeferredExecute) {
+    const deferredResumeInspection = inspectExecuteDeferredResume({
+      project,
+      workItem: targetItem,
+      batchId: executeLogBatchId,
+      deferral: resumedDeferredExecute,
+      planPath: planPathForExecutor,
+      workingDirectory: executionWorkingDirectory,
+      taskCore,
+    });
+    if (deferredResumeInspection?.valid) {
+      logExecuteDeferredResume({
+        project,
+        instance,
+        workItem: targetItem,
+        batchId: executeLogBatchId,
+        deferral: resumedDeferredExecute,
+      });
+      maybeWarnStaleExecuteDeferral({
+        project,
+        instance,
+        workItem: targetItem,
+        batchId: executeLogBatchId,
+        deferral: resumedDeferredExecute,
+      });
+      const resumedPlanRejection = await maybeRejectResumedDeferredPlan({
+        project,
+        workItem: targetItem,
+        batchId: executeLogBatchId,
+      });
+      if (resumedPlanRejection) {
+        return resumedPlanRejection;
+      }
+    } else {
+      logExecuteDeferredPausedStaleWarning({
+        project,
+        instance,
+        workItem: targetItem,
+        batchId: executeLogBatchId,
+        inspection: deferredResumeInspection,
+      });
+    }
+  }
 
   let result;
   try {
