@@ -24,11 +24,17 @@ function resolveBaselineProbeTimeoutMs({ timeout_minutes, config } = {}) {
 }
 
 // Resolve which verify command the baseline probe should run.
-// Precedence: cfg.baseline_verify_command > defaults.baseline_verify_command
+// Precedence: cfg.baseline_broken_evidence.verify_command
+//           > cfg.baseline_verify_command > defaults.baseline_verify_command
 //           > cfg.verify_command         > defaults.verify_command.
 // `baseline_verify_command` exists so the probe can run a fast smoke subset
 // while per-task verification keeps the broader `verify_command`.
+// Once a task has already tripped a baseline pause, however, the probe must
+// prove the same command that failed or it can falsely requeue the blocked
+// task.
 function resolveBaselineVerifyCommand({ cfg, defaults } = {}) {
+  const evidenceCommand = cfg?.baseline_broken_evidence?.verify_command;
+  if (typeof evidenceCommand === 'string' && evidenceCommand.trim()) return evidenceCommand;
   if (cfg && cfg.baseline_verify_command) return cfg.baseline_verify_command;
   if (defaults && defaults.baseline_verify_command) return defaults.baseline_verify_command;
   if (cfg && cfg.verify_command) return cfg.verify_command;

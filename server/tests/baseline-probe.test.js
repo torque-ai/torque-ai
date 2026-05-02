@@ -18,7 +18,21 @@ describe('resolveBaselineVerifyCommand', () => {
     expect(resolveBaselineVerifyCommand({ cfg: {}, defaults: {} })).toBeNull();
   });
 
-  it('prefers cfg.baseline_verify_command above all else', () => {
+  it('prefers recorded failed verify command above smoke baseline commands', () => {
+    expect(resolveBaselineVerifyCommand({
+      cfg: {
+        baseline_broken_evidence: { verify_command: 'npx vitest run server/tests/full.test.js' },
+        baseline_verify_command: 'npx vitest run server/tests/smoke.test.js',
+        verify_command: 'npx vitest run',
+      },
+      defaults: {
+        baseline_verify_command: 'def-baseline',
+        verify_command: 'def-verify',
+      },
+    })).toBe('npx vitest run server/tests/full.test.js');
+  });
+
+  it('prefers cfg.baseline_verify_command when there is no recorded failure command', () => {
     expect(resolveBaselineVerifyCommand({
       cfg: {
         baseline_verify_command: 'cfg-baseline',

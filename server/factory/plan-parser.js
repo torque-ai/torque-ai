@@ -342,6 +342,12 @@ function normalizeVerifyCommand(command) {
     normalized = normalized.slice(1, -1).trim();
   }
 
+  const normalizeCdSemicolonChain = (value) => value.replace(
+    /^cd\s+((?:"[^"]+"|'[^']+'|[^\s;&|]+))\s*;\s*(.+)$/i,
+    'cd $1 && $2',
+  );
+  normalized = normalizeCdSemicolonChain(normalized);
+
   const remoteBash = normalized.match(/^torque-remote\s+bash\s+-lc\s+(['"])([\s\S]+)\1$/i);
   if (remoteBash) {
     return normalizeVerifyCommand(remoteBash[2]);
@@ -349,6 +355,7 @@ function normalizeVerifyCommand(command) {
 
   if (/^torque-remote\s+/i.test(normalized)) {
     normalized = normalized.replace(/^torque-remote\s+/i, '').trim();
+    normalized = normalizeCdSemicolonChain(normalized);
   }
 
   if (!POWERSHELL_HOST_RE.test(normalized) && POWERSHELL_VERIFY_COMMAND_RE.test(normalized)) {
@@ -363,11 +370,20 @@ function extractCommandFromVerifyText(text) {
   const line = String(text || '').replace(/\*\*/g, '').trim();
   if (!line) return null;
 
-  const explicit =
-    line.match(/\b(?:Verification|Verify command|Validation command)\s*:\s*(.+)$/i)
-    || line.match(/\b(?:Validate|Verify)\s+with\s+(.+)$/i);
-  if (!explicit) return null;
+  const colonCommand = line.match(/\b(?:Verification|Verify command|Validation command)\s*:\s*(.+)$/i);
+  if (colonCommand) {
+    const raw = colonCommand[1].trim();
+    const codeSpan = raw.match(/`([^`]+)`/);
+    return normalizeVerifyCommand(codeSpan ? codeSpan[1] : raw);
+  }
 
+  const withCodeSpan = line.match(/\b(?:Validate|Verify)\b[^`\n]{0,160}\bwith\s+`([^`]+)`/i);
+  if (withCodeSpan) {
+    return normalizeVerifyCommand(withCodeSpan[1]);
+  }
+
+  const explicit = line.match(/\b(?:Validate|Verify)\b[^\n]{0,160}\bwith\s+(.+)$/i);
+  if (!explicit) return null;
   const raw = explicit[1].trim();
   const codeSpan = raw.match(/`([^`]+)`/);
   return normalizeVerifyCommand(codeSpan ? codeSpan[1] : raw);
