@@ -7,6 +7,7 @@ const net = require('node:net');
 const os = require('node:os');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
+const { createActivityTimeout } = require('../../utils/activity-timeout');
 
 // SECURITY: default to localhost only. Set TORQUE_AGENT_HOST=0.0.0.0 to expose to network.
 const DEFAULT_HOST = process.env.TORQUE_AGENT_HOST || '127.0.0.1';
@@ -645,13 +646,13 @@ function streamRun(req, res, body, state) {
     'Transfer-Encoding': 'chunked',
   });
 
-  const finish = (exitCode) => {
+  function finish(exitCode) {
     if (finished) {
       return;
     }
 
     finished = true;
-    clearTimeout(timer);
+    activityTimeout?.cancel();
     state.load = Math.max(0, state.load - 1);
     writeNdjson(res, {
       exit_code: exitCode,
@@ -660,23 +661,23 @@ function streamRun(req, res, body, state) {
     try {
       if (!res.writableEnded) res.end();
     } catch (_e) { /* connection already closed */ }
-  };
-
-  const timer = setTimeout(() => {
-    timedOut = true;
-    writeNdjson(res, {
-      stream: 'stderr',
-      data: `Process timed out after ${runRequest.timeout}ms\n`,
-    });
-    terminateChild(child);
-    finish(124);
-  }, runRequest.timeout);
-
-  if (typeof timer.unref === 'function') {
-    timer.unref();
   }
 
+  const activityTimeout = createActivityTimeout({
+    timeoutMs: runRequest.timeout,
+    onTimeout: () => {
+      timedOut = true;
+      writeNdjson(res, {
+        stream: 'stderr',
+        data: `Process timed out after ${runRequest.timeout}ms without output\n`,
+      });
+      terminateChild(child);
+      finish(124);
+    },
+  });
+
   child.stdout.on('data', (chunk) => {
+    activityTimeout.touch();
     writeNdjson(res, {
       stream: 'stdout',
       data: chunk.toString('utf8'),
@@ -684,6 +685,7 @@ function streamRun(req, res, body, state) {
   });
 
   child.stderr.on('data', (chunk) => {
+    activityTimeout.touch();
     writeNdjson(res, {
       stream: 'stderr',
       data: chunk.toString('utf8'),

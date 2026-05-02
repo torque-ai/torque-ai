@@ -76,6 +76,20 @@ describe('TestRunnerRegistry', () => {
     expect(result.durationMs).toBe(0);
   });
 
+  it('extends the local verify timeout while stdout keeps streaming', async () => {
+    const script = "let n=0;process.stdout.write('tick '+n+'\\n');let t=setInterval(()=>{n+=1,process.stdout.write('tick '+n+'\\n'),n===4&&clearInterval(t)},200);setTimeout(()=>process.exit(0),950)";
+    const command = `${JSON.stringify(process.execPath)} -e ${JSON.stringify(script)}`;
+
+    const result = await registry.runVerifyCommand(command, process.cwd(), { timeout: 500 });
+
+    expect(result).toMatchObject({
+      success: true,
+      exitCode: 0,
+      timedOut: false,
+    });
+    expect(result.output).toContain('tick 4');
+  });
+
   it.skipIf(process.platform !== 'win32')('lets Windows PowerShell autoload built-in modules from the local verify shell', async () => {
     const result = await registry.runVerifyCommand(
       'powershell -NoProfile -Command "Get-Command Get-FileHash -ErrorAction Stop | Select-Object -ExpandProperty Source"',

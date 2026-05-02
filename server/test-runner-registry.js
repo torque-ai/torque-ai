@@ -2,6 +2,7 @@
 
 const { spawn } = require('child_process');
 const { resolveWindowsPowerShellEnv } = require('./utils/windows-powershell-env');
+const { createActivityTimeout } = require('./utils/activity-timeout');
 
 function createTestRunnerRegistry() {
   let _overrides = null;
@@ -34,23 +35,32 @@ function createTestRunnerRegistry() {
       child.stderr.setEncoding('utf8');
 
       const MAX_BUF = 10 * 1024 * 1024;
-      child.stdout.on('data', (d) => { if (stdout.length < MAX_BUF) stdout += d; });
-      child.stderr.on('data', (d) => { if (stderr.length < MAX_BUF) stderr += d; });
+      const activityTimeout = createActivityTimeout({
+        timeoutMs: timeout,
+        onTimeout: () => {
+          timedOut = true;
+          try { child.kill('SIGTERM'); } catch { /* best effort */ }
+          setTimeout(() => { try { child.kill('SIGKILL'); } catch {} }, 5000);
+        },
+      });
 
-      const timer = setTimeout(() => {
-        timedOut = true;
-        try { child.kill('SIGTERM'); } catch { /* best effort */ }
-        setTimeout(() => { try { child.kill('SIGKILL'); } catch {} }, 5000);
-      }, timeout);
+      child.stdout.on('data', (d) => {
+        activityTimeout.touch();
+        if (stdout.length < MAX_BUF) stdout += d;
+      });
+      child.stderr.on('data', (d) => {
+        activityTimeout.touch();
+        if (stderr.length < MAX_BUF) stderr += d;
+      });
 
       child.on('close', (code) => {
-        clearTimeout(timer);
+        activityTimeout.cancel();
         if (settled) return;
         settled = true;
         resolve({
           success: !timedOut && code === 0,
           output: stdout,
-          error: timedOut ? `Verify command timed out after ${Math.round(timeout / 1000)}s` : stderr,
+          error: timedOut ? `Verify command timed out after ${Math.round(timeout / 1000)}s without output` : stderr,
           exitCode: timedOut ? 124 : (code ?? 1),
           durationMs: Date.now() - startMs,
           remote: false,
@@ -59,7 +69,7 @@ function createTestRunnerRegistry() {
       });
 
       child.on('error', (err) => {
-        clearTimeout(timer);
+        activityTimeout.cancel();
         if (settled) return;
         settled = true;
         resolve({

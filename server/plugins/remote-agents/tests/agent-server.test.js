@@ -154,6 +154,30 @@ describe('remote/agent-server', () => {
     expect(finalLine.duration_ms).toEqual(expect.any(Number));
   });
 
+  it('POST /run keeps streaming commands alive past the idle timeout window', async () => {
+    const response = await request({
+      method: 'POST',
+      pathname: '/run',
+      headers: authHeaders(),
+      body: {
+        command: process.execPath,
+        args: [
+          '-e',
+          'let n=0\nprocess.stdout.write("tick "+n+"\\n")\nconst t=setInterval(()=>{n+=1\nprocess.stdout.write("tick "+n+"\\n")\nif(n===4)clearInterval(t)},200)\nsetTimeout(()=>process.exit(0),950)',
+        ],
+        cwd: projectsDir,
+        timeout: 500,
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+
+    const lines = parseNdjson(response.body);
+    expect(lines.filter((line) => line.stream === 'stdout' && line.data.includes('tick')).length).toBeGreaterThanOrEqual(5);
+    expect(lines.at(-1).exit_code).toBe(0);
+    expect(response.body).not.toContain('timed out');
+  });
+
   it('POST /run with failing command returns non-zero exit_code', async () => {
     const response = await request({
       method: 'POST',

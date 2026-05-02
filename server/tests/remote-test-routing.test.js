@@ -711,13 +711,45 @@ describe('remote-test-routing', () => {
       expect(result).toMatchObject({
         success: false,
         output: '',
-        error: 'Verify command timed out after 1s',
+        error: 'Verify command timed out after 1s without output',
         exitCode: 124,
         remote: false,
         timedOut: true,
       });
       expect(child.kill).toHaveBeenCalledWith('SIGTERM');
       expect(child.kill).toHaveBeenCalledWith('SIGKILL');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('runVerifyCommand extends async local verify timeout while stdout streams', async () => {
+    vi.useFakeTimers();
+    try {
+      const child = createMockChildProcess({ autoClose: false });
+      const router = remoteTestRouting.createRemoteTestRouter({
+        agentRegistry: createAgentRegistry(),
+        db: createDb(),
+        logger: createLogger(),
+      });
+      mockSpawn.mockReturnValueOnce(child);
+
+      const promise = router.runVerifyCommand('npm test', '/repo', { timeout: 1000 });
+      await vi.advanceTimersByTimeAsync(900);
+      child.stdout.emit('data', 'progress\n');
+      await vi.advanceTimersByTimeAsync(999);
+
+      expect(child.kill).not.toHaveBeenCalled();
+      child.emit('close', 0);
+      const result = await promise;
+
+      expect(result).toMatchObject({
+        success: true,
+        output: 'progress\n',
+        exitCode: 0,
+        remote: false,
+        timedOut: false,
+      });
     } finally {
       vi.useRealTimers();
     }

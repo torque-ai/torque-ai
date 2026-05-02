@@ -2,6 +2,7 @@
 
 const { spawnSync, spawn } = require('child_process');
 const { prepareLocalVerifyEnv } = require('../../utils/local-verify-env');
+const { createActivityTimeout } = require('../../utils/activity-timeout');
 const { killProcessGraceful } = require('../../execution/process-lifecycle');
 
 const SENSITIVE_ENV_PATTERNS = [
@@ -411,22 +412,31 @@ function createRemoteTestRouter({ agentRegistry, db, logger }) {
 
         // Cap buffer at 10MB
         const MAX_BUF = 10 * 1024 * 1024;
-        child.stdout.on('data', (d) => { if (stdout.length < MAX_BUF) stdout += d; });
-        child.stderr.on('data', (d) => { if (stderr.length < MAX_BUF) stderr += d; });
+        const activityTimeout = createActivityTimeout({
+          timeoutMs: timeout,
+          onTimeout: () => {
+            timedOut = true;
+            killProcessGraceful({ process: child }, 'verify-local', 5000, 'remote-routing');
+          },
+        });
 
-        const timer = setTimeout(() => {
-          timedOut = true;
-          killProcessGraceful({ process: child }, 'verify-local', 5000, 'remote-routing');
-        }, timeout);
+        child.stdout.on('data', (d) => {
+          activityTimeout.touch();
+          if (stdout.length < MAX_BUF) stdout += d;
+        });
+        child.stderr.on('data', (d) => {
+          activityTimeout.touch();
+          if (stderr.length < MAX_BUF) stderr += d;
+        });
 
         child.on('close', (code) => {
-          clearTimeout(timer);
+          activityTimeout.cancel();
           if (settled) return;
           settled = true;
           resolve({
             success: !timedOut && code === 0,
             output: stdout,
-            error: timedOut ? `Verify command timed out after ${Math.round(timeout / 1000)}s` : stderr,
+            error: timedOut ? `Verify command timed out after ${Math.round(timeout / 1000)}s without output` : stderr,
             exitCode: timedOut ? 124 : (code ?? 1),
             durationMs: Date.now() - startMs,
             remote: false,
@@ -435,7 +445,7 @@ function createRemoteTestRouter({ agentRegistry, db, logger }) {
         });
 
         child.on('error', (err) => {
-          clearTimeout(timer);
+          activityTimeout.cancel();
           if (settled) return;
           settled = true;
           resolve({
