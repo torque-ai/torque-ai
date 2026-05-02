@@ -31,12 +31,17 @@ function git(cwd, args) {
 }
 
 function setupRepo(workdir) {
-  git(workdir, ['init', '--quiet', '-b', 'master']);
+  // `git init -b <branch>` requires git 2.28+, which isn't guaranteed on
+  // every host (the remote workstation in pre-push gate has older git).
+  // Init with default branch name, then rename to 'master' after the
+  // first commit — works on any git version.
+  git(workdir, ['init', '--quiet']);
   git(workdir, ['config', 'commit.gpgsign', 'false']);
-  // Initial commit on master.
   fs.writeFileSync(path.join(workdir, 'README.md'), 'baseline\n');
   git(workdir, ['add', 'README.md']);
   git(workdir, ['commit', '--quiet', '-m', 'initial']);
+  // -M renames the current branch (force-rename, idempotent).
+  git(workdir, ['branch', '-M', 'master']);
 }
 
 function makeTaskWithEditTarget(targetRelPath) {
