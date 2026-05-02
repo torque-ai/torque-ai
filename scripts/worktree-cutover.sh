@@ -428,14 +428,29 @@ if [ "$TORQUE_RUNNING" = "true" ]; then
       fi
       BARRIER_STATUS=$(echo "$RESTART_RESP" | sed -nE 's/.*"status"[[:space:]]*:[[:space:]]*"([^"\\]+)".*/\1/p' | head -1 || true)
 
-      if [ -z "$BARRIER_TASK_ID" ]; then
+      # Empty-pipeline case: when the queue is idle, restart_server's MCP-tool
+      # response gets unwrapped to `{tool, result: "Pipeline empty. Server
+      # restart scheduled..."}` by the REST passthrough — the structured
+      # task_id/status fields are dropped. Both extractors come up empty.
+      # Recognize the empty-pipeline marker so the cutover doesn't fail
+      # in that branch (the server IS restarting, we just have no barrier
+      # id to poll). The wait-for-new-server step below confirms via PID
+      # turnover.
+      if [ -z "$BARRIER_TASK_ID" ] && echo "$RESTART_RESP" | grep -qE "Pipeline empty|restart scheduled|restart_scheduled"; then
+        echo "[ok] Pipeline was empty — server restart scheduled (no barrier task to poll)."
+        BARRIER_STATUS="restart_scheduled"
+      fi
+
+      if [ -z "$BARRIER_TASK_ID" ] && [ "${BARRIER_STATUS:-}" != "restart_scheduled" ]; then
         echo "[error] Restart barrier response missing task_id."
         echo "        Response: ${RESTART_RESP}"
         echo "        Merge landed but TORQUE was NOT restarted."
         exit 2
       fi
 
-      echo "  Barrier task: ${BARRIER_TASK_ID:0:8} (${BARRIER_STATUS})"
+      if [ -n "$BARRIER_TASK_ID" ]; then
+        echo "  Barrier task: ${BARRIER_TASK_ID:0:8} (${BARRIER_STATUS})"
+      fi
 
       # If status is already restart_scheduled, the pipeline was empty and
       # the server is about to restart — skip straight to the wait-for-new-server.
