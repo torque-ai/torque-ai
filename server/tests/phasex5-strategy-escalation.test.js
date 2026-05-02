@@ -187,6 +187,30 @@ describe('Phase X5: same-shape escalation in routeWorkItemToNeedsReplan', () => 
       expect(after.reject_reason).toMatch(/escalation_exhausted: chain_exhausted/);
     });
 
+    it('does not resurrect an item whose origin still records terminal escalation', () => {
+      makeProject(db, ['ollama', 'codex']);
+      const item = factoryIntake.createWorkItem({ project_id: 'p1', source: 'scout', title: 'X' });
+      let after = rejectN(item, SAME_SHAPE_THRESHOLD);
+      after = rejectN(after, SAME_SHAPE_THRESHOLD);
+      expect(after.status).toBe('escalation_exhausted');
+
+      const resurrected = factoryIntake.updateWorkItem(after.id, {
+        status: 'needs_replan',
+        reject_reason: 'empty_branch_after_execute',
+      });
+
+      const rerouted = routeWorkItemToNeedsReplan(resurrected, {
+        reason: 'empty_branch_after_execute',
+      });
+
+      expect(rerouted.status).toBe('escalation_exhausted');
+      expect(rerouted.reject_reason).toMatch(/escalation_exhausted: chain_exhausted/);
+      expect(rerouted.origin?.last_escalation).toMatchObject({
+        kind: 'chain_exhausted',
+        reason_shape: 'cannot_generate_plan',
+      });
+    });
+
     it('with no provider chain configured, first triggered escalation goes terminal', () => {
       makeProject(db, []);
       const item = factoryIntake.createWorkItem({ project_id: 'p1', source: 'scout', title: 'X' });

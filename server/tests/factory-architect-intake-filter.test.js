@@ -107,6 +107,36 @@ describe('factory architect intake filtering', () => {
     expect(items.map((item) => item.title)).toEqual(['Pending item']);
   });
 
+  test('listOpenWorkItems follows the shared closed status set', () => {
+    insertWorkItem('Needs review item', 'needs_review');
+    insertWorkItem('Superseded item', 'superseded');
+    insertWorkItem('Pending item', 'pending');
+
+    const items = factoryIntake.listOpenWorkItems({ project_id: project.id });
+
+    expect(items.map((item) => item.title)).toEqual(['Pending item']);
+  });
+
+  test('listOpenWorkItems excludes stale needs_replan items with terminal escalation evidence', () => {
+    factoryIntake.createWorkItem({
+      project_id: project.id,
+      title: 'Resurrected exhausted item',
+      source: 'scout',
+      status: 'needs_replan',
+      origin: {
+        last_escalation: {
+          kind: 'chain_exhausted',
+          reason_shape: 'empty_branch_after_execute',
+        },
+      },
+    });
+    insertWorkItem('Pending item', 'pending');
+
+    const items = factoryIntake.listOpenWorkItems({ project_id: project.id });
+
+    expect(items.map((item) => item.title)).toEqual(['Pending item']);
+  });
+
   test('listOpenWorkItems includes valid non-resolved statuses', () => {
     // These requested statuses are all currently accepted by VALID_STATUSES.
     const openStatuses = ['pending', 'prioritized', 'planned', 'executing', 'intake']

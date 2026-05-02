@@ -192,6 +192,59 @@ describe('factory pause enforcement', () => {
     expect(submitSpy).not.toHaveBeenCalled();
   });
 
+  it('runAdvanceLoop stops when terminal escalation evidence survived but status was resurrected', async () => {
+    const project = registerFactoryProject({ status: 'running', autoContinue: true });
+    const item = factoryIntake.createWorkItem({
+      project_id: project.id,
+      source: 'architect',
+      title: 'Resurrected exhausted selected item',
+      description: 'A stale needs_replan write must not revive exhausted work.',
+      status: 'needs_replan',
+      origin: {
+        last_escalation: {
+          kind: 'chain_exhausted',
+          reason_shape: 'empty_branch_after_execute',
+        },
+      },
+    });
+    const batchId = `factory-resurrected-closed-item-${Date.now()}`;
+    const instance = factoryLoopInstances.createInstance({
+      project_id: project.id,
+      work_item_id: item.id,
+      batch_id: batchId,
+    });
+    factoryLoopInstances.updateInstance(instance.id, {
+      loop_state: LOOP_STATES.EXECUTE,
+      work_item_id: item.id,
+      batch_id: batchId,
+      last_action_at: new Date().toISOString(),
+    });
+    factoryHealth.updateProject(project.id, {
+      loop_state: LOOP_STATES.EXECUTE,
+      loop_batch_id: batchId,
+    });
+
+    const result = await loopController.runAdvanceLoop(instance.id);
+
+    expect(result).toMatchObject({
+      project_id: project.id,
+      instance_id: instance.id,
+      previous_state: LOOP_STATES.EXECUTE,
+      new_state: LOOP_STATES.IDLE,
+      reason: 'work_item_closed_escalation_exhausted_origin',
+    });
+    expect(result.stage_result).toMatchObject({
+      status: 'stopped',
+      work_item_id: item.id,
+      work_item_status: 'escalation_exhausted',
+    });
+    expect(factoryIntake.getWorkItem(item.id)).toMatchObject({
+      status: 'escalation_exhausted',
+      reject_reason: 'escalation_exhausted: chain_exhausted (empty_branch_after_execute)',
+    });
+    expect(submitSpy).not.toHaveBeenCalled();
+  });
+
   it('advanceLoopAsync chain stops when the project is paused', async () => {
     const project = registerFactoryProject({ status: 'paused', autoContinue: true });
     const instance = factoryLoopInstances.createInstance({ project_id: project.id });
@@ -534,6 +587,54 @@ describe('factory pause enforcement', () => {
     expect(result.cancelled_task_ids).toEqual(['task-escalation-exhausted-work-item']);
     expect(result.closed_work_item_ids).toEqual([exhaustedItem.id]);
     expect(taskCore.getTask('task-escalation-exhausted-work-item')).toMatchObject({
+      status: 'skipped',
+      cancel_reason: null,
+    });
+  });
+
+  it('cancels active factory tasks whose work item has resurrected terminal escalation evidence', async () => {
+    const project = registerFactoryProject({ status: 'running', autoContinue: true });
+    const exhaustedItem = factoryIntake.createWorkItem({
+      project_id: project.id,
+      source: 'architect',
+      title: 'Resurrected exhausted item',
+      description: 'A later needs_replan write should not keep its task alive.',
+      status: 'needs_replan',
+      origin: {
+        last_escalation: {
+          kind: 'chain_exhausted',
+          reason_shape: 'empty_branch_after_execute',
+        },
+      },
+    });
+    taskCore.createTask({
+      id: 'task-resurrected-exhausted-work-item',
+      status: 'running',
+      task_description: 'stale resurrected exhausted work item task',
+      working_directory: project.path,
+      tags: [`factory:work_item_id=${exhaustedItem.id}`, 'project:torque-public'],
+    });
+    const taskManager = {
+      cancelTask: vi.fn((taskId, _reason, options) => {
+        taskCore.updateTaskStatus(taskId, options.terminal_status || 'cancelled', {
+          cancel_reason: options.cancel_reason,
+        });
+        return true;
+      }),
+    };
+
+    const result = await factoryTick._internalForTests.cancelClosedFactoryWorkItemTasks(
+      project.id,
+      { cancelGraceMs: 0, taskCore, taskManager },
+    );
+
+    expect(result.cancelled_task_ids).toEqual(['task-resurrected-exhausted-work-item']);
+    expect(result.closed_work_item_ids).toEqual([exhaustedItem.id]);
+    expect(factoryIntake.getWorkItem(exhaustedItem.id)).toMatchObject({
+      status: 'escalation_exhausted',
+      reject_reason: 'escalation_exhausted: chain_exhausted (empty_branch_after_execute)',
+    });
+    expect(taskCore.getTask('task-resurrected-exhausted-work-item')).toMatchObject({
       status: 'skipped',
       cancel_reason: null,
     });

@@ -44,6 +44,7 @@ const REJECT_REASONS = Object.freeze(new Set([
 // dashboard can show it separately from 'rejected' (which is now
 // reserved for operator action and scout-proven-impossibility only).
 const CLOSED_STATUSES = new Set(['completed', 'rejected', 'shipped', 'shipped_stale', 'unactionable', 'needs_review', 'superseded', 'escalation_exhausted']);
+const TERMINAL_ESCALATION_KINDS = new Set(['chain_exhausted', 'no_provider_chain']);
 const SUCCESS_REJECT_REASON_CLEAR_STATUSES = new Set(['completed', 'shipped', 'shipped_stale']);
 const PRIORITY_LEVELS = Object.freeze({
   low: 30,
@@ -150,11 +151,23 @@ function getWorkItemForProject(project_id, id, { includeClosed = false } = {}) {
     return null;
   }
 
-  if (!includeClosed && CLOSED_STATUSES.has(item.status)) {
+  if (!includeClosed && isClosedWorkItem(item)) {
     return null;
   }
 
   return item;
+}
+
+function parseJsonObject(value) {
+  if (!value) return null;
+  if (typeof value === 'object') return value;
+  if (typeof value !== 'string') return null;
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === 'object' ? parsed : null;
+  } catch {
+    return null;
+  }
 }
 
 function parseWorkItem(row) {
@@ -165,6 +178,44 @@ function parseWorkItem(row) {
     try { row.constraints = JSON.parse(row.constraints_json); } catch { row.constraints = null; }
   }
   return row;
+}
+
+function getTerminalEscalationEvidence(item) {
+  if (!item) return null;
+
+  const rejectReason = String(item.reject_reason || '').trim();
+  if (/^escalation_exhausted\b/i.test(rejectReason)) {
+    return {
+      source: 'reject_reason',
+      reject_reason: rejectReason,
+      kind: null,
+      reason_shape: null,
+    };
+  }
+
+  const origin = item.origin && typeof item.origin === 'object'
+    ? item.origin
+    : parseJsonObject(item.origin_json);
+  const lastEscalation = origin?.last_escalation;
+  const kind = typeof lastEscalation?.kind === 'string'
+    ? lastEscalation.kind.trim()
+    : '';
+  if (!TERMINAL_ESCALATION_KINDS.has(kind)) {
+    return null;
+  }
+
+  return {
+    source: 'origin_last_escalation',
+    kind,
+    reason_shape: typeof lastEscalation.reason_shape === 'string'
+      ? lastEscalation.reason_shape
+      : null,
+    reject_reason: rejectReason || null,
+  };
+}
+
+function isClosedWorkItem(item) {
+  return CLOSED_STATUSES.has(item?.status) || Boolean(getTerminalEscalationEvidence(item));
 }
 
 function listWorkItems({ project_id, status, source, limit } = {}) {
@@ -183,20 +234,26 @@ function listWorkItems({ project_id, status, source, limit } = {}) {
 }
 
 function listOpenWorkItems({ project_id, limit } = {}) {
+  const requestedLimit = limit || 100;
+  const closedStatuses = Array.from(CLOSED_STATUSES);
+  const closedPlaceholders = closedStatuses.map(() => '?').join(', ');
   let sql = `
     SELECT * FROM factory_work_items
     WHERE 1=1
-      AND status NOT IN ('completed', 'rejected', 'shipped', 'shipped_stale', 'unactionable', 'escalation_exhausted')
+      AND status NOT IN (${closedPlaceholders})
   `;
-  const params = [];
+  const params = [...closedStatuses];
 
   if (project_id) { sql += ' AND project_id = ?'; params.push(project_id); }
 
   sql += ' ORDER BY priority DESC, created_at DESC';
   sql += ' LIMIT ?';
-  params.push(limit || 100);
+  params.push(Math.max(requestedLimit * 5, requestedLimit + 50));
 
-  return db.prepare(sql).all(...params).map(parseWorkItem);
+  return db.prepare(sql).all(...params)
+    .map(parseWorkItem)
+    .filter((item) => !isClosedWorkItem(item))
+    .slice(0, requestedLimit);
 }
 
 function updateWorkItem(id, updates) {
@@ -482,6 +539,9 @@ module.exports = {
   REJECT_REASONS,
   VALID_PRIORITIES,
   CLOSED_STATUSES,
+  TERMINAL_ESCALATION_KINDS,
+  getTerminalEscalationEvidence,
+  isClosedWorkItem,
   PARK_STATUSES,
   isParkedStatus,
   parkWorkItemForCodex,

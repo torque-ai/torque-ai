@@ -5801,6 +5801,29 @@ function detectSameShapeEscalation(escalationHistory, currentEntry) {
   return true;
 }
 
+function buildTerminalEscalationRejectReason(workItem, evidence) {
+  const existing = String(workItem?.reject_reason || '').trim();
+  if (/^escalation_exhausted\b/i.test(existing)) {
+    return existing;
+  }
+  const kind = evidence?.kind || 'terminal_escalation';
+  const shape = evidence?.reason_shape ? ` (${evidence.reason_shape})` : '';
+  return `escalation_exhausted: ${kind}${shape}`;
+}
+
+function restoreTerminalEscalationWorkItem(workItem, evidence = null) {
+  if (!workItem?.id) return workItem;
+  const terminalEvidence = evidence
+    || factoryIntake.getTerminalEscalationEvidence?.(workItem)
+    || null;
+  if (!terminalEvidence) return workItem;
+
+  return factoryIntake.updateWorkItem(workItem.id, {
+    status: 'escalation_exhausted',
+    reject_reason: buildTerminalEscalationRejectReason(workItem, terminalEvidence),
+  }) || workItem;
+}
+
 // Phase X4 (2026-05-01): generic helper for routing a work item to
 // needs_replan. Used by the LLM-semantic gate, parse-error, timeout,
 // empty-branch, and replan-generation-failed paths — every reject reason
@@ -5815,6 +5838,15 @@ function detectSameShapeEscalation(escalationHistory, currentEntry) {
 // (distinct from 'rejected' so operators see "system tried everything").
 function routeWorkItemToNeedsReplan(workItem, { reason, attempt = null, details = null } = {}) {
   if (!workItem || !workItem.id) return workItem;
+  const existingOrigin = getWorkItemOriginObject(workItem) || {};
+  const terminalEscalation = factoryIntake.getTerminalEscalationEvidence?.({
+    ...workItem,
+    origin: existingOrigin,
+  });
+  if (terminalEscalation) {
+    return restoreTerminalEscalationWorkItem(workItem, terminalEscalation);
+  }
+
   // Phase X5: never overwrite a terminal status. Once an item reaches
   // escalation_exhausted, rejected, completed, etc., subsequent routing
   // calls (defensive caller behavior) must not resurrect it. The
@@ -5823,7 +5855,6 @@ function routeWorkItemToNeedsReplan(workItem, { reason, attempt = null, details 
   if (TERMINAL_BAILOUT.has(workItem.status)) {
     return workItem;
   }
-  const existingOrigin = getWorkItemOriginObject(workItem) || {};
   const reasonStr = String(reason || 'unknown');
   const missingSignals = existingOrigin?.last_plan_description_quality_rejection?.missing_specificity_signals || [];
 
@@ -10864,8 +10895,12 @@ function getClosedWorkItemLoopStopReason(workItem) {
   if (factoryIntake.CLOSED_STATUSES?.has(workItem.status)) {
     return `work_item_closed_${workItem.status}`;
   }
-  if (/^escalation_exhausted\b/i.test(String(workItem.reject_reason || '').trim())) {
+  const terminalEscalation = factoryIntake.getTerminalEscalationEvidence?.(workItem);
+  if (terminalEscalation?.source === 'reject_reason') {
     return 'work_item_closed_escalation_exhausted_reject_reason';
+  }
+  if (terminalEscalation) {
+    return 'work_item_closed_escalation_exhausted_origin';
   }
   return null;
 }
@@ -11115,11 +11150,12 @@ async function runAdvanceLoop(instance_id) {
       const closedWorkItemReason = getClosedWorkItemLoopStopReason(targetItem);
       if (closedWorkItemReason) {
         let finalWorkItem = targetItem;
-        if (closedWorkItemReason === 'work_item_closed_escalation_exhausted_reject_reason') {
+        if (
+          closedWorkItemReason === 'work_item_closed_escalation_exhausted_reject_reason'
+          || closedWorkItemReason === 'work_item_closed_escalation_exhausted_origin'
+        ) {
           try {
-            finalWorkItem = factoryIntake.updateWorkItem(targetItem.id, {
-              status: 'escalation_exhausted',
-            }) || targetItem;
+            finalWorkItem = restoreTerminalEscalationWorkItem(targetItem) || targetItem;
           } catch (err) {
             logger.warn('Factory loop: failed to restore terminal escalation_exhausted work item status', {
               project_id: project.id,

@@ -439,9 +439,25 @@ async function cancelClosedFactoryWorkItemTasks(project_id, options = {}) {
   for (const task of candidates) {
     const workItemId = getFactoryWorkItemIdFromTask(task);
     if (!workItemId) continue;
-    const workItem = factoryIntake.getWorkItem(workItemId);
+    let workItem = factoryIntake.getWorkItem(workItemId);
     if (!workItem || workItem.project_id !== project_id) continue;
-    if (!CLOSED_FACTORY_WORK_ITEM_STATUSES.has(workItem.status)) continue;
+    const terminalEscalation = factoryIntake.getTerminalEscalationEvidence?.(workItem);
+    if (terminalEscalation && workItem.status !== 'escalation_exhausted') {
+      try {
+        const shape = terminalEscalation.reason_shape ? ` (${terminalEscalation.reason_shape})` : '';
+        workItem = factoryIntake.updateWorkItem(workItem.id, {
+          status: 'escalation_exhausted',
+          reject_reason: terminalEscalation.reject_reason || `escalation_exhausted: ${terminalEscalation.kind || 'terminal_escalation'}${shape}`,
+        }) || workItem;
+      } catch (err) {
+        logger.warn('factory tick: failed to restore terminal escalation before task cancellation', {
+          task_id: task.id,
+          work_item_id: workItemId,
+          err: err && err.message,
+        });
+      }
+    }
+    if (!factoryIntake.isClosedWorkItem?.(workItem) && !CLOSED_FACTORY_WORK_ITEM_STATUSES.has(workItem.status)) continue;
 
     const reason = `Factory cancelled task because work item ${workItemId} is ${workItem.status}`;
     const result = cancelFactoryTask(task, reason, {
