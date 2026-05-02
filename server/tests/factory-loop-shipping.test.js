@@ -664,6 +664,107 @@ describe('factory loop work-item shipping', () => {
     });
   });
 
+  it('keeps LEARN paused when a dirty merge target blocks worktree shipping', async () => {
+    const batchId = 'batch-ship-dirty-target';
+    const { project, workItem } = registerPausedVerifyProject({
+      workItemStatus: 'verifying',
+      batchId,
+    });
+    seedLearnDependencies(project.id, batchId);
+
+    const branch = 'feat/factory-dirty-target';
+    const worktreePath = createExistingWorktreePath(branch);
+    factoryWorktrees.recordWorktree({
+      project_id: project.id,
+      work_item_id: workItem.id,
+      batch_id: batchId,
+      vc_worktree_id: 'vc-worktree-dirty-target',
+      branch,
+      worktree_path: worktreePath,
+    });
+
+    const mergeError = new Error('main repo has semantic drift vs HEAD');
+    mergeError.code = 'MAIN_REPO_SEMANTIC_DRIFT';
+    mergeError.path = project.path;
+    mergeError.dirty_files = ['server/tests/example.test.js'];
+
+    loopController.setWorktreeRunnerForTests({
+      createForBatch: vi.fn(),
+      verify: vi.fn(async () => ({
+        passed: true,
+        output: 'ok',
+        durationMs: 11,
+      })),
+      mergeToMain: vi.fn(async () => {
+        throw mergeError;
+      }),
+      abandon: vi.fn(),
+    });
+
+    recordExecutionDecision({
+      projectId: project.id,
+      batchId,
+      workItemId: workItem.id,
+      action: 'started_execution',
+      reasoning: 'Loop advanced into EXECUTE.',
+      outcome: {
+        from_state: 'PLAN',
+        to_state: 'EXECUTE',
+      },
+    });
+    recordExecutionDecision({
+      projectId: project.id,
+      batchId,
+      workItemId: workItem.id,
+      action: 'completed_execution',
+      reasoning: 'Plan execution completed successfully.',
+      outcome: {
+        completed_tasks: [1],
+        dry_run: false,
+        execution_mode: 'live',
+        task_count: null,
+        simulated: false,
+        submitted_tasks: [],
+        final_state: 'VERIFY',
+      },
+    });
+
+    const approved = loopController.approveGateForProject(project.id, LOOP_STATES.VERIFY);
+    expect(approved.state).toBe(LOOP_STATES.VERIFY);
+
+    const { learnAdvance } = await advanceVerifyThenLearn(project.id);
+
+    expect(learnAdvance.new_state).toBe(LOOP_STATES.LEARN);
+    expect(learnAdvance.paused_at_stage).toBe(LOOP_STATES.LEARN);
+    expect(learnAdvance.reason).toBe('merge_target_dirty');
+    expect(learnAdvance.stage_result.shipping_result).toMatchObject({
+      status: 'paused',
+      reason: 'merge_target_dirty',
+      pause_at_stage: LOOP_STATES.LEARN,
+      dirty_files: ['server/tests/example.test.js'],
+    });
+    expect(factoryHealth.getProject(project.id)).toMatchObject({ status: 'paused' });
+    expect(factoryIntake.getWorkItem(workItem.id)).toMatchObject({
+      id: workItem.id,
+      status: 'verifying',
+    });
+    expect(factoryWorktrees.getActiveWorktree(project.id)).toMatchObject({
+      status: 'active',
+      vc_worktree_id: 'vc-worktree-dirty-target',
+    });
+
+    const decisions = listDecisionRows(db, project.id);
+    expect(decisions.find((row) => row.stage === 'learn' && row.action === 'merge_target_dirty')).toMatchObject({
+      outcome: expect.objectContaining({
+        work_item_id: workItem.id,
+        next_state: LOOP_STATES.PAUSED,
+        paused_at_stage: LOOP_STATES.LEARN,
+        dirty_files: ['server/tests/example.test.js'],
+      }),
+    });
+    expect(decisions.find((row) => row.stage === 'learn' && row.action === 'shipped_work_item')).toBeUndefined();
+  });
+
   it('ships the work item and records cleanup_failed when merge cleanup fails after main already moved', async () => {
     const batchId = 'batch-ship-with-worktree-cleanup-fail';
     const { project, workItem } = registerPausedVerifyProject({

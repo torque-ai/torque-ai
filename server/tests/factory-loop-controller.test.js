@@ -1655,6 +1655,15 @@ Edit server/factory/plan-executor.js and make the requested behavior change. Kee
     expect(worktreeRunner.createForBatch).toHaveBeenCalledTimes(1);
     expect(worktreeRunner.verify).toHaveBeenCalledTimes(1);
 
+    const verifyAdvance = await loopController.advanceLoopForProject(project.id);
+    expect(verifyAdvance.previous_state).toBe(LOOP_STATES.VERIFY);
+    expect(verifyAdvance.new_state).toBe(LOOP_STATES.LEARN);
+    expect(verifyAdvance.stage_result).toMatchObject({
+      reason: 'batch_already_verified',
+      batch_id: `factory-${project.id}-${workItem.id}`,
+    });
+    expect(worktreeRunner.verify).toHaveBeenCalledTimes(1);
+
     const freshFactoryWorktrees = loadFreshFactoryWorktrees();
     freshFactoryWorktrees.setDb(db);
     expect(freshFactoryWorktrees.getActiveWorktree(project.id)).toMatchObject({

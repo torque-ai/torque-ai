@@ -1903,6 +1903,23 @@ function getLatestStageDecision(project_id, stage) {
   }
 }
 
+function hasVerifiedBatchDecision(project_id, batch_id) {
+  if (!project_id || !batch_id) return false;
+  try {
+    const decisions = factoryDecisions.listDecisions(project_id, {
+      stage: normalizeDecisionStage(LOOP_STATES.VERIFY),
+      limit: 50,
+    });
+    return decisions.some((decision) => (
+      decision?.action === 'verified_batch'
+      && (decision.batch_id === batch_id || decision.outcome?.batch_id === batch_id)
+    ));
+  } catch (error) {
+    logger.debug({ err: error.message, project_id, batch_id }, 'Unable to inspect verified batch decisions');
+    return false;
+  }
+}
+
 function getLatestExecuteLiveOwnerWaitDecision(project_id, batchId = null) {
   const db = database.getDbInstance();
   if (!db || !project_id) {
@@ -2632,6 +2649,7 @@ async function maybeShipWorkItemAfterLearn(project_id, batch_id, instance) {
           return {
             status: 'paused',
             reason,
+            pause_at_stage: LOOP_STATES.LEARN,
             work_item_id: workItem.id,
             error: err.message,
             op: err.op || null,
@@ -10198,6 +10216,9 @@ async function executeLearnStage(project_id, batch_id, instance) {
       batch_id,
     });
     const shippingResult = await maybeShipWorkItemAfterLearn(project_id, batch_id, instance);
+    if (analysis && typeof analysis === 'object') {
+      analysis.shipping_result = shippingResult || null;
+    }
     logger.info('LEARN stage: batch analysis complete', {
       project_id,
       batch_id,
@@ -10938,7 +10959,20 @@ async function runAdvanceLoop(instance_id) {
     case LOOP_STATES.VERIFY: {
       const latestVerifyDecision = getLatestStageDecision(project.id, LOOP_STATES.VERIFY);
       const rerunApprovedVerify = ['gate_approved', 'retry_verify_requested'].includes(latestVerifyDecision?.action);
-      stageResult = await runExecuteVerifyStage(project.id, instance.batch_id, instance);
+      const currentBatchAlreadyVerified = Boolean(
+        instance.batch_id
+        && !rerunApprovedVerify
+        && hasVerifiedBatchDecision(project.id, instance.batch_id)
+      );
+      if (currentBatchAlreadyVerified) {
+        stageResult = {
+          status: 'skipped',
+          reason: 'batch_already_verified',
+          batch_id: instance.batch_id,
+        };
+      } else {
+        stageResult = await runExecuteVerifyStage(project.id, instance.batch_id, instance);
+      }
       if (stageResult && stageResult.pause_at_stage) {
         instance = updateInstanceAndSync(instance.id, {
           paused_at_stage: stageResult.pause_at_stage,
@@ -10970,6 +11004,14 @@ async function runAdvanceLoop(instance_id) {
 
     case LOOP_STATES.LEARN: {
       stageResult = await executeLearnStage(project.id, instance.batch_id, instance);
+      if (stageResult?.shipping_result?.status === 'paused') {
+        instance = updateInstanceAndSync(instance.id, {
+          paused_at_stage: stageResult.shipping_result.pause_at_stage || LOOP_STATES.LEARN,
+          last_action_at: nowIso(),
+        });
+        transitionReason = stageResult.shipping_result.reason || 'shipping_paused';
+        break;
+      }
       const cfg = project.config_json ? (() => { try { return JSON.parse(project.config_json); } catch { return {}; } })() : {};
       if (cfg && cfg.loop && cfg.loop.auto_continue === true) {
         const moveToSense = tryMoveInstanceToStage(instance, LOOP_STATES.SENSE, {
