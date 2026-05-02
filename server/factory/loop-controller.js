@@ -5450,7 +5450,7 @@ function routeWorkItemToNeedsReplan(workItem, { reason, attempt = null, details 
   // item that lands in needs_replan with a stale plan_generation_task_id
   // gets stuck in an infinite loop: PRIORITIZE → PLAN → re-await stale
   // task → cached failure → routeWorkItemToNeedsReplan → PRIORITIZE...
-  // Live evidence (DLPhone work item #2078, 2026-05-02): task f387eef6
+  // Live evidence (example-project work item #2078, 2026-05-02): task f387eef6
   // failed on 2026-04-29 02:49 UTC, then the loop replayed its cached
   // "Aborted at iteration 2" error every ~1-10 minutes for THREE DAYS.
   const baseOrigin = clearPlanGenerationWaitFields(existingOrigin);
