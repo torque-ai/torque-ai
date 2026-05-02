@@ -4614,19 +4614,69 @@ function extractWorkItemAcceptanceCriteria(workItem) {
   return firstBlock.replace(/\s+/g, ' ').slice(0, 800);
 }
 
+function normalizeWorkItemDetail(value) {
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    return trimmed || null;
+  }
+  if (Array.isArray(value)) {
+    const parts = value
+      .map((item) => (typeof item === 'string' ? item.trim() : ''))
+      .filter(Boolean);
+    return parts.length > 0 ? parts.join('; ') : null;
+  }
+  return null;
+}
+
+function getWorkItemDetail(workItem, keys) {
+  const origin = getWorkItemOriginObject(workItem);
+  const constraints = getWorkItemConstraintsObject(workItem);
+  for (const source of [constraints, origin]) {
+    for (const key of keys) {
+      const detail = normalizeWorkItemDetail(source?.[key]);
+      if (detail) return detail;
+    }
+  }
+  return null;
+}
+
+function buildWorkItemValidationDetail(workItem) {
+  return getWorkItemDetail(workItem, [
+    'validation',
+    'verification',
+    'validation_command',
+    'verify_command',
+    'validation_steps',
+    'test_command',
+  ]);
+}
+
+function buildWorkItemSuccessDetail(workItem) {
+  return extractWorkItemAcceptanceCriteria(workItem)
+    || getWorkItemDetail(workItem, [
+      'acceptance_criteria',
+      'success_criteria',
+      'done_when',
+      'expected_result',
+    ])
+    || `work item #${workItem?.id || 'current'} is satisfied using the scoped files and unrelated files are left unchanged`;
+}
+
 function buildWorkItemScopeDetail(workItem) {
   const constraints = getWorkItemConstraintsObject(workItem);
-  const allowedFiles = Array.isArray(constraints.allowed_files)
-    ? constraints.allowed_files.map((file) => String(file || '').trim()).filter(Boolean)
-    : [];
-  const maxFiles = Number(constraints.max_files);
+  const origin = getWorkItemOriginObject(workItem);
+  const hardScopeFiles = collectArchitectHardScopeFiles(workItem);
+  const scopeFiles = collectArchitectScopeFiles(workItem);
+  const allowedFiles = hardScopeFiles.length > 0 ? hardScopeFiles : scopeFiles;
+  const maxFiles = Number(constraints.max_files || origin.max_files);
 
   if (allowedFiles.length > 0) {
     const fileList = allowedFiles.map((file) => `\`${file}\``).join(', ');
     const fileCount = Number.isFinite(maxFiles) && maxFiles > 0
       ? `up to ${maxFiles} file${maxFiles === 1 ? '' : 's'}`
       : `${allowedFiles.length} file${allowedFiles.length === 1 ? '' : 's'}`;
-    return `${fileCount}, limited to ${fileList}`;
+    const qualifier = hardScopeFiles.length > 0 ? 'limited to' : 'centered on';
+    return `${fileCount}, ${qualifier} ${fileList}`;
   }
 
   if (Number.isFinite(maxFiles) && maxFiles > 0) {
@@ -4643,13 +4693,17 @@ function buildTaskSpecificityAdditions(task, workItem) {
   const missing = new Set(score.missing_signals || []);
   const additions = [];
   const scopeDetail = buildWorkItemScopeDetail(workItem);
-  const acceptance = extractWorkItemAcceptanceCriteria(workItem);
+  const successDetail = buildWorkItemSuccessDetail(workItem);
+  const validationDetail = buildWorkItemValidationDetail(workItem);
 
   if ((missing.has('explicit_file_paths') || missing.has('estimated_scope')) && scopeDetail) {
     additions.push(`Estimated scope: single focused change across ${scopeDetail}.`);
   }
-  if ((missing.has('success_criteria') || missing.has('validation_steps')) && acceptance) {
-    additions.push(`Success criteria: ${acceptance}`);
+  if (missing.has('success_criteria') && successDetail) {
+    additions.push(`Success criteria: ${successDetail}`);
+  }
+  if (missing.has('validation_steps') && validationDetail) {
+    additions.push(`Validation: Run \`${validationDetail}\` and record the result.`);
   }
 
   return additions;
@@ -5103,7 +5157,7 @@ const PLAN_DESCRIPTION_QUALITY_SIGNALS = Object.freeze([
 const PLAN_DESCRIPTION_FILE_PATH_RE = /(?:^|[\s`'"([])(?:[A-Za-z]:)?(?:[A-Za-z0-9_.-]+[\\/])+[A-Za-z0-9_.-]+\.[A-Za-z0-9]+|(?:^|[\s`'"([])[A-Za-z0-9_.-]+\.(?:cjs|cs|css|go|html|java|js|json|jsx|md|mjs|ps1|py|rb|rs|sh|sql|ts|tsx|txt|xml|ya?ml)\b/gi;
 const PLAN_DESCRIPTION_SCOPE_RE = /\b(?:(?:about|approximately|around|under|within|up to|~)\s*)?\d+\s*(?:files?|lines?|loc|modules?|tests?|cases?|functions?|helpers?|commands?|changes?)\b|\b(?:single|one|two|three|four|five|small|focused)\s+(?:file|module|test|case|function|helper|command|change)s?\b/i;
 const PLAN_DESCRIPTION_SUCCESS_RE = /\b(?:acceptance criteria|success criteria|done when|passes when|expected result|verify that|ensure that|assert(?:s|ion)?|expect(?:s|ation)?|must|should produce|should return|should reject|should pass)\b/i;
-const PLAN_DESCRIPTION_VALIDATION_RE = /\b(?:npx\s+vitest|vitest\s+run|npm\s+(?:run\s+)?(?:test|lint)|pnpm\s+(?:run\s+)?(?:test|lint)|yarn\s+(?:test|lint)|node\s+--test|node\s+[^.\n]*\.m?js|pytest|(?:python\s+)?-m\s+(?:pytest|unittest|mypy|ruff|black|isort|pylint|flake8|bandit|coverage)|pre-commit\s+run|ruff\s+(?:check|format)|mypy\s+[\w./:-]+|black\s+[\w./:-]+|flake8\s+[\w./:-]+|isort\s+[\w./:-]+|bandit\s+(?:-[rc]|[\w./:-]+)|pip-audit|safety\s+check|dotnet\s+test|go\s+test|cargo\s+test|mvn\s+test|gradle\s+test|tsc\s+--noEmit|make\s+(?:test|check|lint)|rg\s+["'`]?[\w./:-]+)/i;
+const PLAN_DESCRIPTION_VALIDATION_RE = /\b(?:npx\s+vitest|vitest\s+run|npm\s+(?:run\s+)?(?:test|lint)|pnpm\s+(?:run\s+)?(?:test|lint)|yarn\s+(?:test|lint)|node\s+--test|node\s+[^.\n]*\.m?js|pytest|(?:python\s+)?-m\s+(?:pytest|unittest|mypy|ruff|black|isort|pylint|flake8|bandit|coverage)|python\s+(?!-m\b)[\w./\\:-]+\.py(?:\s+[\w./\\:-]+)*|pre-commit\s+run|ruff\s+(?:check|format)|mypy\s+[\w./:-]+|black\s+[\w./:-]+|flake8\s+[\w./:-]+|isort\s+[\w./:-]+|bandit\s+(?:-[rc]|[\w./:-]+)|pip-audit|safety\s+check|dotnet\s+test|go\s+test|cargo\s+test|mvn\s+test|gradle\s+test|tsc\s+--noEmit|make\s+(?:test|check|lint)|rg\s+["'`]?[\w./:-]+)/i;
 const PLAN_DESCRIPTION_VAGUE_PHRASES = Object.freeze([
   { label: 'improve', re: /\bimprov(?:e|es|ed|ing)\b/gi },
   { label: 'handle', re: /\bhandl(?:e|es|ed|ing)\b/gi },
@@ -12303,6 +12357,7 @@ module.exports = {
     parseAutoGeneratedPlanTasks,
     normalizeAutoGeneratedPlanMarkdown,
     buildPlanFromFileEditsProposal,
+    augmentAutoGeneratedTaskSpecificity,
     scoreAutoGeneratedPlanDescriptions,
     scoreAutoGeneratedTaskDescription,
     isTrackingSupportTask,
