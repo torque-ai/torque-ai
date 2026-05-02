@@ -5842,6 +5842,31 @@ function routeWorkItemToNeedsReplan(workItem, { reason, attempt = null, details 
   // "Aborted at iteration 2" error every ~1-10 minutes for THREE DAYS.
   const baseOrigin = clearPlanGenerationWaitFields(existingOrigin);
 
+  // Also delete the stale plan file from disk so the next pickup forces a
+  // fresh architect plan generation. Without this, plan_path is cleared
+  // from origin but the file persists with all-[x] markers from the prior
+  // attempt — and on the next pickup, EXECUTE re-discovers the file (if
+  // the architect happens to write to the same path) and Phase U trusts
+  // the stale [x] markers, producing empty branches indefinitely.
+  // Live evidence (DLPhone item #2048, 2026-05-02): plan file with both
+  // tasks marked [x] persisted across cycles. Each pickup completed
+  // EXECUTE in 3s with no diff, routed back via empty_branch_after_execute,
+  // hit Phase X5 same-shape escalation in 3 cycles, terminally exhausted.
+  const stalePlanPath = existingOrigin?.plan_path;
+  if (stalePlanPath && typeof stalePlanPath === 'string') {
+    try {
+      if (fs.existsSync(stalePlanPath)) {
+        fs.unlinkSync(stalePlanPath);
+      }
+    } catch (err) {
+      logger.warn('routeWorkItemToNeedsReplan: could not delete stale plan file', {
+        work_item_id: workItem.id,
+        plan_path: stalePlanPath,
+        err: err.message,
+      });
+    }
+  }
+
   const origin = {
     ...baseOrigin,
     last_rejection_reason: reasonStr,

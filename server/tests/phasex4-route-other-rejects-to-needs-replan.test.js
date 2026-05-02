@@ -15,13 +15,12 @@ describe('Phase X4: non-quality reject paths route to needs_replan, not rejected
     });
 
     it('writes needs_replan status and persists last_rejection_reason in origin_json', () => {
-      // Phase X5 expanded the helper substantially (escalation logic);
-      // widen the slice and check invariants rather than exact line shape.
+      // Phase X5 + the stale-plan-file fix expanded the helper; slice up
+      // to the next top-level function declaration so the assertion stays
+      // robust to future growth.
       const fnIdx = src.indexOf('function routeWorkItemToNeedsReplan');
-      const body = src.slice(fnIdx, fnIdx + 6000);
-      // Either the literal status:'needs_replan' (Phase X4 baseline) or
-      // a computed newStatus with 'needs_replan' as the default branch
-      // (Phase X5).
+      const nextFnIdx = src.indexOf('\nfunction ', fnIdx + 1);
+      const body = src.slice(fnIdx, nextFnIdx > 0 ? nextFnIdx : fnIdx + 12000);
       expect(body).toMatch(/'needs_replan'/);
       expect(body).toMatch(/last_rejection_reason:/);
       expect(body).toMatch(/last_rejected_at:/);
