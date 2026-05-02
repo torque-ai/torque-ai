@@ -9632,6 +9632,8 @@ async function executeVerifyStage(project_id, batch_id, instance = null) {
                 ...baselineRequeue.captureBlockedWorkItemEvidence(blockedWorkItem),
                 failing_tests: review.failingTests,
                 exit_code: res.exitCode,
+                verify_command: verifyCommand,
+                verify_command_source: resolvedVerify.source,
                 environment_signals: review.environmentSignals,
                 llm_critique: review.llmCritique,
                 // baseline_likely was reached without an LLM verdict —

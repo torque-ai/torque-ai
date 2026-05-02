@@ -133,6 +133,63 @@ describe('factory-tick baseline probe phase', () => {
     });
   });
 
+  it('runs the recorded failed verify command instead of a narrower smoke baseline before requeueing', async () => {
+    const factoryTick = require('../factory/factory-tick');
+    const baselineProbe = require('../factory/baseline-probe');
+
+    const projectId = seedPausedBaselineProject(db, { probeAttempts: 0, tickCountSincePause: 1 });
+    const workItemId = insertRejectedBaselineWorkItem(db, projectId);
+    const row = db.prepare('SELECT config_json FROM factory_projects WHERE id = ?').get(projectId);
+    const cfg = JSON.parse(row.config_json);
+    cfg.baseline_verify_command = 'npx vitest run server/tests/baseline-probe.test.js';
+    cfg.baseline_broken_evidence.work_item_id = workItemId;
+    cfg.baseline_broken_evidence.verify_command = 'npx vitest run server/tests/full-baseline.test.js';
+    db.prepare('UPDATE factory_projects SET config_json = ? WHERE id = ?').run(JSON.stringify(cfg), projectId);
+
+    const probeSpy = vi.spyOn(baselineProbe, 'probeProjectBaseline').mockResolvedValue({
+      passed: true, exitCode: 0, output: 'all green', durationMs: 5000, error: null,
+    });
+
+    const project = db.prepare('SELECT * FROM factory_projects WHERE id = ?').get(projectId);
+    await factoryTick.tickProject(project);
+
+    expect(probeSpy).toHaveBeenCalledWith(expect.objectContaining({
+      verifyCommand: 'npx vitest run server/tests/full-baseline.test.js',
+    }));
+    const item = db.prepare('SELECT status FROM factory_work_items WHERE id = ?').get(workItemId);
+    expect(item.status).toBe('pending');
+  });
+
+  it('does not requeue when a green probe did not prove the recorded failed verify command', () => {
+    const baselineRequeue = require('../factory/baseline-requeue');
+
+    const projectId = seedPausedBaselineProject(db, { probeAttempts: 0, tickCountSincePause: 1 });
+    const workItemId = insertRejectedBaselineWorkItem(db, projectId);
+    const row = db.prepare('SELECT config_json FROM factory_projects WHERE id = ?').get(projectId);
+    const cfg = JSON.parse(row.config_json);
+    cfg.baseline_broken_evidence.work_item_id = workItemId;
+    cfg.baseline_broken_evidence.verify_command = 'npx vitest run server/tests/full-baseline.test.js';
+
+    const result = baselineRequeue.maybeRequeueBaselineBlockedWorkItem({
+      project_id: projectId,
+      config: cfg,
+      probeVerifyCommand: 'npx vitest run server/tests/smoke-baseline.test.js',
+    });
+
+    expect(result).toMatchObject({
+      requeued: false,
+      reason: 'baseline_probe_command_mismatch',
+      work_item_id: workItemId,
+      blocked_verify_command: 'npx vitest run server/tests/full-baseline.test.js',
+      probe_verify_command: 'npx vitest run server/tests/smoke-baseline.test.js',
+    });
+    const item = db.prepare('SELECT status, reject_reason FROM factory_work_items WHERE id = ?').get(workItemId);
+    expect(item).toMatchObject({
+      status: 'rejected',
+      reject_reason: 'verify_failed_baseline_unrelated',
+    });
+  });
+
   it('uses project-configured baseline probe timeout when automatic probing runs', async () => {
     const factoryTick = require('../factory/factory-tick');
     const baselineProbe = require('../factory/baseline-probe');

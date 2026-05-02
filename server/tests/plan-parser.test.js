@@ -129,6 +129,16 @@ Verification: torque-remote dotnet test simtests/SimCore.DotNet.Tests.csproj -c 
       .toBe('dotnet test simtests/SimCore.DotNet.Tests.csproj -c Release --filter FullyQualifiedName~LockstepTests');
   });
 
+  it('extractExplicitVerifyCommand reads scoped validation phrasing and normalizes cd semicolon chains', () => {
+    const plan = [
+      '# Normalize verify signatures',
+      'Validate the slice with `cd server; npx vitest run tests/verify-signature.test.js`; do not run the whole suite.',
+    ].join('\n');
+
+    expect(extractExplicitVerifyCommand(plan))
+      .toBe('cd server && npx vitest run tests/verify-signature.test.js');
+  });
+
   it('normalizeVerifyCommand strips the factory transport prefix', () => {
     expect(normalizeVerifyCommand('torque-remote npm test'))
       .toBe('npm test');

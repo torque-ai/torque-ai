@@ -738,12 +738,32 @@ async function tickProject(project) {
             const requeueResult = baselineRequeue.maybeRequeueBaselineBlockedWorkItem({
               project_id: project.id,
               config: cfg,
+              probeVerifyCommand: verifyCommand,
             });
             logBaselineRequeueDecision({
               project,
               result: requeueResult,
               trigger: 'baseline_probe_passed',
             });
+            if (requeueResult.reason === 'baseline_probe_command_mismatch') {
+              cfg.baseline_broken_probe_attempts = attempts + 1;
+              cfg.baseline_broken_tick_count = nextTickCount;
+              cfg.baseline_broken_probe_last_mismatch = {
+                blocked_verify_command: requeueResult.blocked_verify_command,
+                probe_verify_command: requeueResult.probe_verify_command,
+                at: new Date().toISOString(),
+              };
+              factoryHealth.updateProject(project.id, {
+                status: 'paused',
+                config_json: JSON.stringify(cfg),
+              });
+              logger.warn('Factory tick: baseline probe passed but did not prove blocked verify command', {
+                project_id: project.id,
+                blocked_verify_command: requeueResult.blocked_verify_command,
+                probe_verify_command: requeueResult.probe_verify_command,
+              });
+              return;
+            }
             cfg.baseline_broken_since = null;
             cfg.baseline_broken_reason = null;
             cfg.baseline_broken_evidence = null;

@@ -2031,6 +2031,7 @@ async function executeBaselineResumeProbe({
     const requeueResult = baselineRequeue.maybeRequeueBaselineBlockedWorkItem({
       project_id: projectRow.id,
       config: cfg,
+      probeVerifyCommand: verifyCommand,
     });
     if (requeueResult.requeued) {
       job.requeued_work_item = {
@@ -2045,6 +2046,16 @@ async function executeBaselineResumeProbe({
       result: requeueResult,
       trigger: 'manual_baseline_resume',
     });
+    if (requeueResult.reason === 'baseline_probe_command_mismatch') {
+      job.status = 'failed';
+      job.message = 'Baseline probe passed, but it did not run the verify command that blocked the work item. Run the recorded failing command or clear the baseline manually after proving it.';
+      job.error = 'baseline_probe_command_mismatch';
+      job.baseline_probe_command_mismatch = {
+        blocked_verify_command: requeueResult.blocked_verify_command,
+        probe_verify_command: requeueResult.probe_verify_command,
+      };
+      return;
+    }
     cfg.baseline_broken_since = null;
     cfg.baseline_broken_reason = null;
     cfg.baseline_broken_evidence = null;
