@@ -1032,7 +1032,7 @@ Edit server/factory/plan-executor.js and make the requested behavior change. Kee
     });
   });
 
-  it('auto-rejects empty-branch verify failures instead of pausing ambiguous', async () => {
+  it('routes empty-branch verify failures to needs_replan (Phase X4) instead of pausing ambiguous', async () => {
     const { project, workItem } = registerPlanProject();
     const batchId = `factory-${project.id}-${workItem.id}`;
     const wtPathEmptyBranch = path.join(project.path, '.worktrees', 'feat-factory-empty-branch-rejected');
@@ -1073,31 +1073,36 @@ Edit server/factory/plan-executor.js and make the requested behavior change. Kee
 
     expect(reviewSpy).not.toHaveBeenCalled();
     expect(worktreeRunner.verify).toHaveBeenCalledTimes(1);
+    // Phase X4: empty-branch routes to needs_replan (not terminal rejected).
+    // PRIORITIZE re-picks on the next tick, with the architect getting prior
+    // rejection feedback in the prompt.
     expect(verifyAdvance).toMatchObject({
       previous_state: LOOP_STATES.EXECUTE,
       new_state: LOOP_STATES.IDLE,
       stage_result: expect.objectContaining({
-        status: 'rejected',
-        reason: 'empty_branch_after_execute',
+        status: 'needs_replan',
+        reason: expect.stringContaining('empty_branch_after_execute'),
       }),
     });
     expect(factoryIntake.getWorkItem(workItem.id)).toMatchObject({
       id: workItem.id,
-      status: 'rejected',
+      status: 'needs_replan',
       reject_reason: 'empty_branch_after_execute',
     });
     const decisions = listDecisionRows(db, project.id);
-    expect(decisions.find((d) => d.action === 'verify_empty_branch_auto_rejected')).toMatchObject({
+    expect(decisions.find((d) => d.action === 'verify_empty_branch_routed_to_needs_replan')).toMatchObject({
       outcome: expect.objectContaining({
         work_item_id: workItem.id,
         branch: 'feat/factory-empty-branch-rejected',
+        next_status: 'needs_replan',
       }),
     });
+    // The terminal-verify-outcome decision still fires (we route via the
+    // same path), but its reported status is now needs_replan.
     expect(decisions.find((d) => d.action === 'verify_terminal_rejection_terminated')).toMatchObject({
       outcome: expect.objectContaining({
         work_item_id: workItem.id,
-        status: 'rejected',
-        reason: 'empty_branch_after_execute',
+        status: 'needs_replan',
       }),
     });
     expect(decisions.find((d) => d.action === 'verify_reviewed_ambiguous_paused')).toBeUndefined();

@@ -795,7 +795,12 @@ function isTerminalVerifyOutcome(stageResult) {
   return stageResult
     && (stageResult.status === 'rejected'
       || stageResult.status === 'unactionable'
-      || stageResult.status === 'shipped');
+      || stageResult.status === 'shipped'
+      // Phase X4 (2026-05-01): needs_replan is "terminal for THIS verify
+      // attempt" — the loop should exit VERIFY (not loop in it) and go
+      // back through SENSE → PRIORITIZE on the next tick, where the
+      // needs_replan item gets re-picked after the X1 cooldown.
+      || stageResult.status === 'needs_replan');
 }
 
 function assertValidGateStage(stage) {
@@ -2536,30 +2541,34 @@ async function maybeShipWorkItemAfterLearn(project_id, batch_id, instance) {
               };
             }
 
-            // No ship evidence → reject so PRIORITIZE doesn't re-select the
-            // same item and loop forever. Operator can reopen if needed.
-            factoryIntake.updateWorkItem(workItem.id, {
-              status: 'rejected',
-              reject_reason: 'empty_branch_after_execute',
+            // Phase X4: route to needs_replan instead of terminal rejection.
+            // Empty-branch-after-execute means the worker ran but produced
+            // no diff. The next architect attempt should produce a sharper
+            // plan — possibly with a smaller scope or different file
+            // targets — rather than abandoning the work item. PRIORITIZE
+            // re-picks after the X1 cooldown.
+            const routed = routeWorkItemToNeedsReplan(workItem, {
+              reason: 'empty_branch_after_execute',
+              details: { batch_id: batch_id || null, resolution_source: resolutionSource },
             });
             factoryIntake.releaseClaimForInstance(instance.id);
             safeLogDecision({
               project_id,
               stage: LOOP_STATES.LEARN,
-              action: 'auto_rejected_empty_branch',
-              reasoning: 'Merge failed (no commits ahead) and shipped-detector did not find matching evidence on main. Rejecting to prevent infinite re-entry.',
+              action: 'empty_branch_routed_to_needs_replan',
+              reasoning: 'Merge failed (no commits ahead) and shipped-detector did not find matching evidence on main. Per the plan-evolution model, routing to needs_replan instead of terminal rejection (Phase X4) — the next architect attempt can produce a different plan shape.',
               inputs: {
                 batch_id: batch_id || null,
                 resolution_source: resolutionSource,
               },
-              outcome: { ...sharedOutcome, work_item_id: workItem.id },
+              outcome: { ...sharedOutcome, work_item_id: routed.id, next_status: 'needs_replan' },
               confidence: 1,
               batch_id: shippingDecision.decision_batch_id || decisionBatchId,
             });
             return {
-              status: 'rejected',
-              reason: 'empty_branch_after_execute',
-              work_item_id: workItem.id,
+              status: 'needs_replan',
+              reason: 'empty_branch_after_execute — routed to needs_replan',
+              work_item_id: routed.id,
             };
           };
 
@@ -3314,24 +3323,27 @@ function resolveVerifyEmptyBranch({
     };
   }
 
+  // Phase X4: route to needs_replan instead of terminal rejection.
+  // Same reasoning as the LEARN-stage empty-branch path.
+  let routed = resolvedWorkItem;
   if (resolvedWorkItem?.id) {
-    factoryIntake.updateWorkItem(resolvedWorkItem.id, {
-      status: 'rejected',
-      reject_reason: 'empty_branch_after_execute',
+    routed = routeWorkItemToNeedsReplan(resolvedWorkItem, {
+      reason: 'empty_branch_after_execute',
+      details: { branch: worktreeRecord.branch, stage: 'VERIFY' },
     });
   }
   safeLogDecision({
     project_id,
     stage: LOOP_STATES.VERIFY,
-    action: 'verify_empty_branch_auto_rejected',
-    reasoning: `VERIFY found no commits ahead for ${worktreeRecord.branch}, and shipped-detector did not match existing work on main. Rejecting so the factory can advance instead of pausing.`,
-    outcome: sharedOutcome,
+    action: 'verify_empty_branch_routed_to_needs_replan',
+    reasoning: `VERIFY found no commits ahead for ${worktreeRecord.branch}, and shipped-detector did not match existing work on main. Per the plan-evolution model, routing to needs_replan instead of terminal rejection (Phase X4) so the next architect attempt can produce a different plan.`,
+    outcome: { ...sharedOutcome, next_status: 'needs_replan' },
     confidence: 1,
     batch_id,
   });
   return {
-    status: 'rejected',
-    reason: 'empty_branch_after_execute',
+    status: 'needs_replan',
+    reason: 'empty_branch_after_execute — routed to needs_replan',
     branch: worktreeRecord.branch,
     worktree_path: worktreeRecord.worktreePath,
   };
@@ -5256,6 +5268,31 @@ function getDeferredPlanGenerationWaitState(project, instance) {
   };
 }
 
+// Phase X4 (2026-05-01): generic helper for routing a work item to
+// needs_replan. Used by the LLM-semantic gate, parse-error, timeout,
+// empty-branch, and replan-generation-failed paths — every reject reason
+// EXCEPT operator-rejected and "no description" (which has no replan
+// possible). Persists the rejection reason in origin_json so future
+// phases (X5 escalation) can detect same-shape failures, and so X2's
+// feedback prompt can be extended later to surface non-quality reasons.
+function routeWorkItemToNeedsReplan(workItem, { reason, attempt = null, details = null } = {}) {
+  if (!workItem || !workItem.id) return workItem;
+  const existingOrigin = getWorkItemOriginObject(workItem) || {};
+  const origin = {
+    ...existingOrigin,
+    last_rejection_reason: String(reason || 'unknown'),
+    ...(attempt !== null ? { last_rejection_attempt: attempt } : {}),
+    ...(details ? { last_rejection_details: details } : {}),
+    last_rejected_at: new Date().toISOString(),
+  };
+  delete origin.plan_path;
+  return factoryIntake.updateWorkItem(workItem.id, {
+    status: 'needs_replan',
+    reject_reason: String(reason || 'unknown'),
+    origin_json: origin,
+  });
+}
+
 // Phase X3 (2026-05-01): plan-quality is no longer a terminal failure.
 // Previously, after PLAN_QUALITY_REJECT_CAP (5) attempts the work item
 // moved to status 'rejected' and was forgotten. The user's directive:
@@ -6074,33 +6111,41 @@ async function executeNonPlanFileStage(project, instance, workItem) {
           };
         }
 
-        // autonomous / dark path
+        // Phase X4 (2026-05-01): per the plan-evolution model, even after the
+        // intra-batch retry cap, the work item stays alive. Route to
+        // needs_replan so PRIORITIZE re-picks it (after X1 cooldown) and the
+        // architect tries again with X2 feedback in the prompt.
         if (attemptsBefore >= planQualityGate.MAX_REPLAN_ATTEMPTS) {
-          // Final rejection: close the item, return to IDLE.
+          // Persist the latest origin first so the helper sees fresh attempt count,
+          // then route to needs_replan with the structured reason.
           factoryIntake.updateWorkItem(updatedWorkItem.id, {
-            status: 'rejected',
-            reject_reason: 'plan_quality_gate_rejected_after_2_attempts',
             origin_json: JSON.stringify(origin),
+          });
+          const refetched = factoryIntake.getWorkItem(updatedWorkItem.id) || updatedWorkItem;
+          const routed = routeWorkItemToNeedsReplan(refetched, {
+            reason: 'plan_quality_gate_rejected_after_intrabatch_retries',
+            attempt: origin.plan_gen_attempts || null,
+            details: { hardFails: gateVerdict.hardFails.map(h => h.rule) },
           });
           eventBus.emitFactoryPlanRejectedFinal({
             project_id: project.id,
-            work_item_id: updatedWorkItem.id,
+            work_item_id: routed.id,
             rule_violations: gateVerdict.hardFails,
           });
           safeLogDecision({
             project_id: project.id,
             stage: LOOP_STATES.PLAN,
-            action: 'plan_quality_rejected_final',
-            reasoning: 'Plan quality gate rejected on both attempts; closing item.',
-            outcome: { work_item_id: updatedWorkItem.id, hardFails: gateVerdict.hardFails.map(h => h.rule) },
+            action: 'plan_quality_routed_to_needs_replan_after_intrabatch_retries',
+            reasoning: 'LLM-semantic gate rejected both intra-batch attempts; routing to needs_replan instead of terminal rejection (Phase X4). The next batch attempt will see the prior rejection feedback (Phase X2) and try a different shape of plan.',
+            outcome: { work_item_id: routed.id, hardFails: gateVerdict.hardFails.map(h => h.rule), next_status: 'needs_replan' },
             confidence: 1,
-            batch_id: getDecisionBatchId(project, updatedWorkItem, null, instance),
+            batch_id: getDecisionBatchId(project, routed, null, instance),
           });
           return {
-            reason: 'plan quality gate rejected on final attempt',
-            work_item: factoryIntake.getWorkItem(updatedWorkItem.id) || updatedWorkItem,
+            reason: 'plan quality gate exhausted intra-batch retries — routed to needs_replan',
+            work_item: routed,
             stop_execution: true,
-            next_state: LOOP_STATES.IDLE,
+            next_state: LOOP_STATES.PRIORITIZE,
           };
         }
 
@@ -6145,15 +6190,18 @@ async function executeNonPlanFileStage(project, instance, workItem) {
           });
         }
         if (!reTaskId) {
-          factoryIntake.updateWorkItem(updatedWorkItem.id, {
-            status: 'rejected',
-            reject_reason: 'replan_generation_failed',
+          // Phase X4: route to needs_replan instead of terminal rejection.
+          // Re-plan submission can fail for transient queue/auth reasons —
+          // worth another shot from a fresh PRIORITIZE pass.
+          const routed = routeWorkItemToNeedsReplan(updatedWorkItem, {
+            reason: 'replan_generation_submit_failed',
+            attempt: origin.plan_gen_attempts || null,
           });
           return {
-            reason: 're-plan submission failed',
-            work_item: factoryIntake.getWorkItem(updatedWorkItem.id) || updatedWorkItem,
+            reason: 're-plan submission failed — routed to needs_replan',
+            work_item: routed,
             stop_execution: true,
-            next_state: LOOP_STATES.IDLE,
+            next_state: LOOP_STATES.PRIORITIZE,
           };
         }
 
@@ -6174,15 +6222,18 @@ async function executeNonPlanFileStage(project, instance, workItem) {
           });
         }
         if (!reTask || reTask.status !== 'completed') {
-          factoryIntake.updateWorkItem(updatedWorkItem.id, {
-            status: 'rejected',
-            reject_reason: 'replan_generation_failed',
+          // Phase X4: timeout or failure on re-plan task. Route to
+          // needs_replan — codex queue might be congested transiently.
+          const routed = routeWorkItemToNeedsReplan(updatedWorkItem, {
+            reason: 'replan_generation_task_did_not_complete',
+            attempt: origin.plan_gen_attempts || null,
+            details: { task_id: reTaskId, task_status: reTask?.status || 'no_task' },
           });
           return {
-            reason: 're-plan task did not complete',
-            work_item: factoryIntake.getWorkItem(updatedWorkItem.id) || updatedWorkItem,
+            reason: 're-plan task did not complete — routed to needs_replan',
+            work_item: routed,
             stop_execution: true,
-            next_state: LOOP_STATES.IDLE,
+            next_state: LOOP_STATES.PRIORITIZE,
           };
         }
 
@@ -6190,15 +6241,19 @@ async function executeNonPlanFileStage(project, instance, workItem) {
         const rePlanMarkdown = normalizeAutoGeneratedPlanMarkdown(rawRePlanMarkdown, updatedWorkItem, project)
           || String(rawRePlanMarkdown).trim();
         if (!rePlanMarkdown) {
-          factoryIntake.updateWorkItem(updatedWorkItem.id, {
-            status: 'rejected',
-            reject_reason: 'replan_generation_failed',
+          // Phase X4: empty output usually means architect crashed mid-stream
+          // or hit a parse/format failure. Route to needs_replan — next
+          // attempt with X2 feedback may produce useful output.
+          const routed = routeWorkItemToNeedsReplan(updatedWorkItem, {
+            reason: 'replan_generation_produced_empty_output',
+            attempt: origin.plan_gen_attempts || null,
+            details: { task_id: reTaskId },
           });
           return {
-            reason: 're-plan produced empty output',
-            work_item: factoryIntake.getWorkItem(updatedWorkItem.id) || updatedWorkItem,
+            reason: 're-plan produced empty output — routed to needs_replan',
+            work_item: routed,
             stop_execution: true,
-            next_state: LOOP_STATES.IDLE,
+            next_state: LOOP_STATES.PRIORITIZE,
           };
         }
 
@@ -6272,36 +6327,43 @@ async function executeNonPlanFileStage(project, instance, workItem) {
           normalizedPlanMarkdown = rePlanMarkdown;
           updatedWorkItem = factoryIntake.getWorkItem(updatedWorkItem.id) || updatedWorkItem;
         } else {
-          // Second attempt failed (including fail-open null): final rejection.
+          // Phase X4: second LLM-semantic attempt also failed. Per the
+          // plan-evolution model, route to needs_replan instead of terminal
+          // rejection. Persist updated origin + last_gate_feedback first so
+          // the next batch's architect can see it.
           const finalOrigin = {
             ...origin,
             plan_gen_attempts: (origin.plan_gen_attempts || 0) + 1,
             last_gate_feedback: reGateVerdict?.feedbackPrompt || origin.last_gate_feedback,
           };
           factoryIntake.updateWorkItem(updatedWorkItem.id, {
-            status: 'rejected',
-            reject_reason: 'plan_quality_gate_rejected_after_2_attempts',
             origin_json: JSON.stringify(finalOrigin),
+          });
+          const refetched = factoryIntake.getWorkItem(updatedWorkItem.id) || updatedWorkItem;
+          const routed = routeWorkItemToNeedsReplan(refetched, {
+            reason: 'plan_quality_gate_rejected_after_intrabatch_retries',
+            attempt: finalOrigin.plan_gen_attempts,
+            details: { hardFails: (reGateVerdict?.hardFails || []).map(h => h.rule) },
           });
           eventBus.emitFactoryPlanRejectedFinal({
             project_id: project.id,
-            work_item_id: updatedWorkItem.id,
+            work_item_id: routed.id,
             rule_violations: reGateVerdict?.hardFails || [],
           });
           safeLogDecision({
             project_id: project.id,
             stage: LOOP_STATES.PLAN,
-            action: 'plan_quality_rejected_final',
-            reasoning: 'Re-plan also rejected by gate; closing item.',
-            outcome: { work_item_id: updatedWorkItem.id },
+            action: 'plan_quality_routed_to_needs_replan_after_intrabatch_retries',
+            reasoning: 'Re-plan also rejected by LLM-semantic gate; routing to needs_replan for next batch attempt with feedback (Phase X4).',
+            outcome: { work_item_id: routed.id, next_status: 'needs_replan' },
             confidence: 1,
-            batch_id: getDecisionBatchId(project, updatedWorkItem, null, instance),
+            batch_id: getDecisionBatchId(project, routed, null, instance),
           });
           return {
-            reason: 'plan quality gate rejected on final attempt',
-            work_item: factoryIntake.getWorkItem(updatedWorkItem.id) || updatedWorkItem,
+            reason: 'LLM-semantic gate rejected both attempts — routed to needs_replan',
+            work_item: routed,
             stop_execution: true,
-            next_state: LOOP_STATES.IDLE,
+            next_state: LOOP_STATES.PRIORITIZE,
           };
         }
       } else if (gateVerdict === null) {
@@ -6382,36 +6444,41 @@ async function executeNonPlanFileStage(project, instance, workItem) {
       generation_task_id: generationTaskId,
       error: error.message,
     });
-    // Reject the work item so the factory moves to the next one instead
-    // of retrying plan generation forever in an infinite loop.
+    // Phase X4: route to needs_replan instead of terminal rejection.
+    // cannot_generate_plan covers parse errors and architect timeouts —
+    // both transient. Codex queue congestion or a bad output format
+    // shouldn't end the work item's life; let the next architect attempt
+    // try again with prior-rejection feedback.
+    let routed = targetItem;
     try {
-      factoryIntake.updateWorkItem(targetItem.id, {
-        status: 'rejected',
-        reject_reason: `cannot_generate_plan: ${error.message}`.slice(0, 200),
+      routed = routeWorkItemToNeedsReplan(targetItem, {
+        reason: `cannot_generate_plan: ${error.message}`.slice(0, 200),
+        details: { generation_task_id: generationTaskId, generator: PLAN_GENERATOR_LABEL },
       });
     } catch (_e) { void _e; }
     safeLogDecision({
       project_id: project.id,
       stage: LOOP_STATES.EXECUTE,
-      action: 'cannot_generate_plan',
-      reasoning: error.message,
+      action: 'cannot_generate_plan_routed_to_needs_replan',
+      reasoning: `${error.message} — routed to needs_replan instead of terminal rejection (Phase X4)`,
       inputs: {
         ...getWorkItemDecisionContext(targetItem),
       },
       outcome: {
         reason: error.message,
+        next_status: 'needs_replan',
         generator: PLAN_GENERATOR_LABEL,
         generation_task_id: generationTaskId,
-        ...getWorkItemDecisionContext(targetItem),
+        ...getWorkItemDecisionContext(routed),
       },
       confidence: 1,
-      batch_id: getDecisionBatchId(project, targetItem, null, instance),
+      batch_id: getDecisionBatchId(project, routed, null, instance),
     });
     return {
-      reason: error.message,
-      work_item: targetItem,
+      reason: `${error.message} — routed to needs_replan`,
+      work_item: routed,
       stop_execution: true,
-      next_state: LOOP_STATES.IDLE,
+      next_state: LOOP_STATES.PRIORITIZE,
     };
   }
 }
