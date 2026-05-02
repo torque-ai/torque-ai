@@ -251,7 +251,21 @@ function resolvePlanGenerationTimeoutMinutes(project) {
 
 function getTaskAgeMs(task) {
   if (!task) return null;
-  return elapsedMsSince(task.started_at || task.created_at || task.createdAt);
+  // provider_switched_at takes precedence so failover-requeued tasks reset the
+  // grace clock. Without this, the worktree pre-reclaim sweep cancels a
+  // freshly-requeued task because its row's started_at/created_at still
+  // reflect the original (now-failed) provider's run window. Live evidence:
+  // torque-public batch_id=...-2211 ran codex 977s, hit quota, failover
+  // re-queued the task on ollama; the next factory tick treated it as a
+  // 25-min-old "stale" owner and cancelled it with pre_reclaim_before_create
+  // before ollama could pick it up.
+  return elapsedMsSince(
+    task.provider_switched_at
+      || task.providerSwitchedAt
+      || task.started_at
+      || task.created_at
+      || task.createdAt,
+  );
 }
 
 function isStaleNeverStartedPendingPlanGenerationTask(
@@ -11938,6 +11952,7 @@ module.exports = {
     findExistingPlanTaskSubmission,
     isStaleNeverStartedPendingPlanGenerationTask,
     getAutoAdvanceDelayMs,
+    getTaskAgeMs,
     scheduleAutoAdvanceForTests: (instance_id, delay_ms, onAdvance) => scheduleAutoAdvance(instance_id, delay_ms, { onAdvance }),
     clearScheduledAutoAdvanceForTests: clearScheduledAutoAdvance,
     getScheduledAutoAdvanceForTests: (instance_id) => {
