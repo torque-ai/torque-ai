@@ -20,6 +20,7 @@ describe('architect-runner recovery helpers', () => {
     const promptArg = mockProvider.mock.calls[0][0];
     expect(promptArg).toMatch(/cannot_generate_plan: x/);
     expect(promptArg).toMatch(/strict JSON/i);
+    expect(promptArg).toMatch(/Do not inspect the repository or run shell commands/i);
   });
 
   it('rewriteWorkItem throws on invalid JSON from provider', async () => {

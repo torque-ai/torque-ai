@@ -257,6 +257,20 @@ describe('execute-cli.js', () => {
       expect(result.finalArgs[idx + 1]).toBe('model_reasoning_effort=high');
     });
 
+    it('uses low reasoning_effort for short structured factory repair tasks', () => {
+      const task = {
+        id: randomUUID(),
+        provider: 'codex',
+        task_description: 'Rewrite rejected work item as JSON',
+        metadata: { factory_internal: true, kind: 'replan_rewrite' },
+      };
+      const result = mod.buildCodexCommand(task, '', null);
+      const idx = result.finalArgs.indexOf('-c');
+      expect(idx).toBeGreaterThanOrEqual(0);
+      expect(result.finalArgs[idx + 1]).toBe('model_reasoning_effort=low');
+      expect(result.finalArgs).not.toContain('model_reasoning_effort=high');
+    });
+
     it('parses metadata when stored as JSON string', () => {
       const task = {
         id: randomUUID(),

@@ -707,6 +707,7 @@ async function submitArchitectJsonPrompt(prompt, project_id, projectPath, kind =
   const { submitFactoryInternalTask } = require('./internal-task-submit');
 
   const taskDescription = `You are the Architect for a software factory. Read the context below and return ONLY valid JSON output matching the specified format. No explanation outside the JSON.\n\n${prompt}`;
+  const recoveryJsonTask = kind === 'replan_rewrite' || kind === 'replan_decompose' || kind === 'architect_json';
 
   // Phase Q (2026-04-30): every null-return path used to be silent except
   // submit_failed (which logged a single warn). Downstream parseStrictJson
@@ -732,7 +733,11 @@ async function submitArchitectJsonPrompt(prompt, project_id, projectPath, kind =
       // evidence: DLPhone 2026-05-01 13:44 / 14:02 / 14:17 — three
       // consecutive replan_rewrite tasks routed to codex correctly (after
       // Phase S landed) but timed out in the queue before starting.
-      timeout_minutes: 15,
+      // Recovery JSON prompts already contain the full rejected item and prior
+      // failure context. Attaching study intelligence made Codex explore the
+      // repo for a "JSON only" rewrite and time out live on 2026-05-02.
+      ...(recoveryJsonTask ? { context_stuff: false, study_context: false } : {}),
+      timeout_minutes: recoveryJsonTask ? 5 : 15,
     });
     taskId = task_id;
     if (!taskId) {
@@ -850,6 +855,8 @@ function buildRewritePrompt({ workItem, history }) {
     'Prior recovery attempts:',
     recoveryLog,
     failureModeGuidance,
+    '',
+    'Do not inspect the repository or run shell commands. Rewrite using only the supplied title, description, failure reason, and recovery history.',
     '',
     'Rewrite to be specific, scoped, and testable. Output strict JSON ONLY (no prose, no markdown fence) of the form:',
     '{ "title": "...", "description": "...", "acceptance_criteria": ["...", "..."] }',

@@ -427,6 +427,17 @@ describe('execution/command-builders', () => {
         expect(result.finalArgs).toContain('model_reasoning_effort=high');
       });
 
+      it('uses low reasoning_effort for short structured factory repair tasks', async () => {
+        initModule();
+        const task = {
+          task_description: 'rewrite rejected work item as JSON',
+          metadata: { factory_internal: true, kind: 'replan_rewrite' },
+        };
+        const result = await commandBuilders.buildCodexCommand(task, null, '', null);
+        expect(result.finalArgs).toContain('model_reasoning_effort=low');
+        expect(result.finalArgs).not.toContain('model_reasoning_effort=high');
+      });
+
       it('forces reasoning_effort=high for scout tasks (mode=scout)', async () => {
         initModule();
         const task = {

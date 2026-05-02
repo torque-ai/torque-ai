@@ -234,6 +234,7 @@ describe('submitFactoryInternalTask', () => {
       prefer_free: false,
       context_stuff: false,
       context_depth: 'minimal',
+      study_context: false,
       files: ['docs/plan.md'],
     });
 
@@ -243,6 +244,7 @@ describe('submitFactoryInternalTask', () => {
       prefer_free: false,
       context_stuff: false,
       context_depth: 'minimal',
+      study_context: false,
       files: ['docs/plan.md'],
       task_metadata: expect.objectContaining({
         requested_provider: 'codex',

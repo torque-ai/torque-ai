@@ -229,8 +229,15 @@ function buildCodexCommand(task, resolvedFileContext, providerConfig, opts = {})
     // starvation-recovery scouts that ran 30 minutes with zero output.
     const isFactoryInternal = taskMetadata && taskMetadata.factory_internal === true;
     const isFactoryScout = taskMetadata && taskMetadata.mode === 'scout';
+    const factoryKind = typeof taskMetadata?.kind === 'string' ? taskMetadata.kind : null;
+    const lowReasoningFactoryKinds = new Set([
+      'plan_quality_review',
+      'replan_rewrite',
+      'verify_review',
+    ]);
     if (isFactoryInternal || isFactoryScout) {
-      codexArgs.push('-c', 'model_reasoning_effort=high');
+      const effort = lowReasoningFactoryKinds.has(factoryKind) ? 'low' : 'high';
+      codexArgs.push('-c', `model_reasoning_effort=${effort}`);
     }
 
     // Use worktree path if provided, otherwise use original working directory
