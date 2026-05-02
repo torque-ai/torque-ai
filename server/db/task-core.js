@@ -915,6 +915,13 @@ const TASK_PROVIDER_QUEUE_COLUMNS = Object.freeze(['id', 'provider', 'metadata']
  * @returns {Array}
  */
 function listTasks(options = {}) {
+  // Match listQueuedTasksLightweight's guard: callers (like the queue-scheduler
+  // debounce timer) can fire after a test or shutdown nulls db. Returning an
+  // empty array is the right "no tasks because the DB is gone" semantics; the
+  // alternative is a TypeError thrown into a setTimeout, which surfaces as an
+  // uncaught exception in vitest teardown.
+  if (!db || dbClosed) return [];
+
   // Column projection — opt-in narrow SELECT for endpoints that don't need heavy
   // TEXT blobs. Default `SELECT *` preserves existing behaviour for internal callers.
   let selectClause = 'SELECT *';
