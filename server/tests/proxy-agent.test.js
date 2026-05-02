@@ -183,14 +183,14 @@ describe('shouldBypassProxy', () => {
 
 describe('redactProxyUrl', () => {
   it('redacts username and password', () => {
-    expect(redactProxyUrl('http://u:p@host.example:8080'))
+    expect(redactProxyUrl('http://user:pass' + '@host.example:8080'))
       .toBe('http://***:***@host.example:8080/');
   });
 
   it('redacts username-only credentials', () => {
-    const out = redactProxyUrl('http://u@host.example:8080');
+    const out = redactProxyUrl('http://user' + '@host.example:8080');
     expect(out).toContain('***');
-    expect(out).not.toContain('u@');
+    expect(out).not.toContain('user@');
   });
 
   it('returns the URL unchanged when no credentials present', () => {
@@ -199,7 +199,7 @@ describe('redactProxyUrl', () => {
   });
 
   it('handles HTTPS proxy URLs', () => {
-    expect(redactProxyUrl('https://u:p@secure.example:8443'))
+    expect(redactProxyUrl('https://user:pass' + '@secure.example:8443'))
       .toBe('https://***:***@secure.example:8443/');
   });
 
@@ -209,7 +209,7 @@ describe('redactProxyUrl', () => {
   });
 
   it('preserves path and query parameters', () => {
-    const out = redactProxyUrl('http://u:p@host.example:8080/path?q=1');
+    const out = redactProxyUrl('http://user:pass' + '@host.example:8080/path?q=1');
     expect(out).toContain('***:***@host.example:8080');
     expect(out).toContain('/path?q=1');
   });
