@@ -568,6 +568,7 @@ function deferExecutePlanTaskIfProjectPaused({
     inputs: {
       ...getWorkItemDecisionContext(workItem),
       plan_task_number: deferral.plan_task_number,
+      remaining_plan_task_number: deferral.remaining_plan_task_number,
       plan_task_title: deferral.plan_task_title,
     },
     outcome: {
@@ -7679,6 +7680,8 @@ async function executePlanFileStage(project, instance, workItem) {
         tags.push('factory:pending_approval');
       }
 
+      // Re-read project status at the submission boundary so a pause that
+      // lands after this advance started still defers the next plan task.
       const pausedDeferral = deferExecutePlanTaskIfProjectPaused({
         project_id: project.id,
         batch_id: executeDecisionBatchId,
