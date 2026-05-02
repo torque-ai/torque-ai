@@ -1929,9 +1929,8 @@ function findExistingPlanTaskSubmission(taskCore, {
 
   let candidates = [];
   try {
-    candidates = taskCore.listTasks({
-      ...(projectName ? { project: projectName } : {}),
-      ...(workingDirectory ? { workingDirectory } : {}),
+    const queryCandidates = (options = {}) => taskCore.listTasks({
+      ...options,
       tag: workItemTag,
       statuses: ['pending', 'pending_approval', 'queued', 'running', 'completed'],
       orderBy: 'created_at',
@@ -1939,6 +1938,15 @@ function findExistingPlanTaskSubmission(taskCore, {
       limit: 100,
       columns: ['id', 'status', 'tags', 'created_at', 'started_at'],
     });
+
+    candidates = queryCandidates({
+      ...(projectName ? { project: projectName } : {}),
+      ...(workingDirectory ? { workingDirectory } : {}),
+    });
+
+    if (candidates.length === 0 && (projectName || workingDirectory)) {
+      candidates = queryCandidates();
+    }
   } catch (error) {
     logger.debug({
       err: error.message,
