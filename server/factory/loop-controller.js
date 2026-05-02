@@ -8226,6 +8226,12 @@ async function executePlanFileStage(project, instance, workItem) {
       project: project.name,
       working_directory: executionWorkingDirectory,
       execution_mode: executeMode,
+      // Phase X7 (2026-05-02): pass the worktree's base branch so the
+      // executor can refuse to trust [x] markers when the branch has no
+      // commits ahead of base. Without this, findReusableTask returning
+      // an old completed task from a different cycle would short-circuit
+      // EXECUTE in <1s with no real work, looping until escalation.
+      baseBranch: worktreeRecord?.base_branch || worktreeRecord?.baseBranch || null,
     });
   } catch (execErr) {
     if (execErr?.code === 'FACTORY_EXECUTE_DEFERRED_PAUSED') {
