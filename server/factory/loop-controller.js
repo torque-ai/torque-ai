@@ -3323,11 +3323,12 @@ function resolveVerifyEmptyBranch({
     };
   }
 
-  // Phase X4: route to needs_replan instead of terminal rejection.
-  // Same reasoning as the LEARN-stage empty-branch path.
-  let routed = resolvedWorkItem;
+  // Phase X4: route to needs_replan instead of terminal rejection. Same
+  // reasoning as the LEARN-stage empty-branch path. routeWorkItemToNeedsReplan
+  // persists the routing for its side effect; the immediate return below
+  // carries the outcome to the caller.
   if (resolvedWorkItem?.id) {
-    routed = routeWorkItemToNeedsReplan(resolvedWorkItem, {
+    routeWorkItemToNeedsReplan(resolvedWorkItem, {
       reason: 'empty_branch_after_execute',
       details: { branch: worktreeRecord.branch, stage: 'VERIFY' },
     });
