@@ -28,7 +28,11 @@ const { createPlanReviewer, selectReviewers } = require('./plan-reviewer');
 const { createShippedDetector } = require('./shipped-detector');
 const { createWorktreeRunner, detectDefaultBranch } = require('./worktree-runner');
 const { extractExplicitVerifyCommand, normalizeVerifyCommand, parsePlanFile } = require('./plan-parser');
-const { buildProviderLaneTaskMetadata } = require('./provider-lane-policy');
+const {
+  buildProviderLaneTaskMetadata,
+  getProviderLanePolicyFromProject,
+  specializePolicyForKind,
+} = require('./provider-lane-policy');
 const { createWorktreeManager } = require('../plugins/version-control/worktree-manager');
 const eventBus = require('../event-bus');
 const baselineRequeue = require('./baseline-requeue');
@@ -5636,9 +5640,29 @@ function normalizeRejectionReasonForShape(reason) {
 function readProjectProviderChain(projectId) {
   try {
     const project = factoryHealth.getProject(projectId);
-    if (!project || !project.provider_chain_json) return [];
-    const parsed = JSON.parse(project.provider_chain_json);
-    return Array.isArray(parsed) ? parsed.filter((p) => typeof p === 'string' && p) : [];
+    if (!project) return [];
+
+    if (project.provider_chain_json) {
+      const parsed = JSON.parse(project.provider_chain_json);
+      if (Array.isArray(parsed)) {
+        return parsed.filter((p) => typeof p === 'string' && p);
+      }
+    }
+
+    const policy = specializePolicyForKind(
+      getProviderLanePolicyFromProject(project),
+      'architect_cycle'
+    );
+    if (!policy) return [];
+
+    const chain = [
+      policy.expected_provider,
+      ...(Array.isArray(policy.allowed_fallback_providers) ? policy.allowed_fallback_providers : []),
+      ...(Array.isArray(policy.allowed_providers) ? policy.allowed_providers : []),
+    ]
+      .filter((p) => typeof p === 'string' && p.trim())
+      .map((p) => p.trim().toLowerCase());
+    return [...new Set(chain)];
   } catch (_e) {
     return [];
   }

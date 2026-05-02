@@ -51,6 +51,12 @@ function makeProject(database, providerChain) {
   database.prepare(insertSql).run(JSON.stringify(providerChain || []));
 }
 
+function makeProjectWithConfig(database, config) {
+  const insertSql = "INSERT INTO factory_projects (id, name, path, status, config_json, created_at, updated_at) "
+    + "VALUES ('p1', 'Proj', '/tmp/x5', 'running', ?, datetime('now'), datetime('now'))";
+  database.prepare(insertSql).run(JSON.stringify(config || {}));
+}
+
 describe('Phase X5: same-shape escalation in routeWorkItemToNeedsReplan', () => {
   let db;
 
@@ -187,6 +193,37 @@ describe('Phase X5: same-shape escalation in routeWorkItemToNeedsReplan', () => 
       const after = rejectN(item, SAME_SHAPE_THRESHOLD);
       expect(after.status).toBe('escalation_exhausted');
       expect(after.origin?.last_escalation).toMatchObject({ kind: 'no_provider_chain' });
+    });
+
+    it('uses modern provider_lane_policy config as the architect escalation chain', () => {
+      makeProjectWithConfig(db, {
+        provider_lane_policy: {
+          expected_provider: 'ollama',
+          allowed_providers: ['ollama'],
+          allowed_fallback_providers: [],
+          enforce_handoffs: true,
+          by_kind: {
+            architect_cycle: 'codex',
+            plan_generation: 'codex',
+            verify_review: 'codex',
+          },
+        },
+      });
+      const item = factoryIntake.createWorkItem({ project_id: 'p1', source: 'scout', title: 'X' });
+      let after = item;
+      for (let i = 0; i < SAME_SHAPE_THRESHOLD; i++) {
+        after = routeWorkItemToNeedsReplan(after, { reason: 'empty_branch_after_execute' });
+        after = factoryIntake.getWorkItem(after.id);
+      }
+      expect(after.status).toBe('needs_replan');
+      expect(after.origin?.last_escalation).toMatchObject({
+        kind: 'provider_switch',
+        from: null,
+        to: 'ollama',
+        reason_shape: 'empty_branch_after_execute',
+      });
+      const constraints = JSON.parse(after.constraints_json || '{}');
+      expect(constraints.architect_provider_override).toBe('ollama');
     });
 
     it('different-shape rejections do NOT accumulate toward escalation', () => {
