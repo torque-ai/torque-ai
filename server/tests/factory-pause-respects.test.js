@@ -141,6 +141,57 @@ describe('factory pause enforcement', () => {
     expect(submitSpy).not.toHaveBeenCalled();
   });
 
+  it('runAdvanceLoop stops when the selected work item already has terminal escalation evidence', async () => {
+    const project = registerFactoryProject({ status: 'running', autoContinue: true });
+    const item = factoryIntake.createWorkItem({
+      project_id: project.id,
+      source: 'architect',
+      title: 'Already exhausted selected item',
+      description: 'A cancelled architect path must not keep executing this item.',
+      status: 'verifying',
+    });
+    factoryIntake.updateWorkItem(item.id, {
+      reject_reason: 'escalation_exhausted: chain_exhausted after 3x same-shape',
+    });
+    const batchId = `factory-closed-item-${Date.now()}`;
+    const instance = factoryLoopInstances.createInstance({
+      project_id: project.id,
+      work_item_id: item.id,
+      batch_id: batchId,
+    });
+    factoryLoopInstances.updateInstance(instance.id, {
+      loop_state: LOOP_STATES.EXECUTE,
+      work_item_id: item.id,
+      batch_id: batchId,
+      last_action_at: new Date().toISOString(),
+    });
+    factoryHealth.updateProject(project.id, {
+      loop_state: LOOP_STATES.EXECUTE,
+      loop_batch_id: batchId,
+    });
+
+    const result = await loopController.runAdvanceLoop(instance.id);
+
+    expect(result).toMatchObject({
+      project_id: project.id,
+      instance_id: instance.id,
+      previous_state: LOOP_STATES.EXECUTE,
+      new_state: LOOP_STATES.IDLE,
+      reason: 'work_item_closed_escalation_exhausted_reject_reason',
+    });
+    expect(result.stage_result).toMatchObject({
+      status: 'stopped',
+      work_item_id: item.id,
+      work_item_status: 'escalation_exhausted',
+    });
+    expect(factoryLoopInstances.getInstance(instance.id).terminated_at).toBeTruthy();
+    expect(factoryIntake.getWorkItem(item.id)).toMatchObject({
+      status: 'escalation_exhausted',
+      reject_reason: 'escalation_exhausted: chain_exhausted after 3x same-shape',
+    });
+    expect(submitSpy).not.toHaveBeenCalled();
+  });
+
   it('advanceLoopAsync chain stops when the project is paused', async () => {
     const project = registerFactoryProject({ status: 'paused', autoContinue: true });
     const instance = factoryLoopInstances.createInstance({ project_id: project.id });
@@ -446,6 +497,45 @@ describe('factory pause enforcement', () => {
     });
     expect(taskCore.getTask('task-active-work-item')).toMatchObject({
       status: 'running',
+    });
+  });
+
+  it('cancels active factory tasks whose work item is escalation_exhausted', async () => {
+    const project = registerFactoryProject({ status: 'running', autoContinue: true });
+    const exhaustedItem = factoryIntake.createWorkItem({
+      project_id: project.id,
+      source: 'architect',
+      title: 'Exhausted item',
+      description: 'Same-shape escalation exhausted this work item.',
+      status: 'escalation_exhausted',
+      reject_reason: 'escalation_exhausted: chain_exhausted after 3x same-shape',
+    });
+    taskCore.createTask({
+      id: 'task-escalation-exhausted-work-item',
+      status: 'running',
+      task_description: 'stale exhausted work item task',
+      working_directory: project.path,
+      tags: [`factory:work_item_id=${exhaustedItem.id}`, 'project:torque-public'],
+    });
+    const taskManager = {
+      cancelTask: vi.fn((taskId, _reason, options) => {
+        taskCore.updateTaskStatus(taskId, options.terminal_status || 'cancelled', {
+          cancel_reason: options.cancel_reason,
+        });
+        return true;
+      }),
+    };
+
+    const result = await factoryTick._internalForTests.cancelClosedFactoryWorkItemTasks(
+      project.id,
+      { cancelGraceMs: 0, taskCore, taskManager },
+    );
+
+    expect(result.cancelled_task_ids).toEqual(['task-escalation-exhausted-work-item']);
+    expect(result.closed_work_item_ids).toEqual([exhaustedItem.id]);
+    expect(taskCore.getTask('task-escalation-exhausted-work-item')).toMatchObject({
+      status: 'skipped',
+      cancel_reason: null,
     });
   });
 

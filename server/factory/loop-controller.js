@@ -103,7 +103,16 @@ const SELECTED_WORK_ITEM_DECISION_ACTIONS = Object.freeze([
   'generated_plan',
 ]);
 
-const CLOSED_WORK_ITEM_STATUSES = new Set(['completed', 'shipped', 'shipped_stale', 'rejected', 'unactionable']);
+const CLOSED_WORK_ITEM_STATUSES = factoryIntake.CLOSED_STATUSES || new Set([
+  'completed',
+  'shipped',
+  'shipped_stale',
+  'rejected',
+  'unactionable',
+  'needs_review',
+  'superseded',
+  'escalation_exhausted',
+]);
 
 let sharedWorktreeRunner = null;
 let worktreeRunnerTestOverride = undefined; // undefined = auto; null = disabled; object = forced runner
@@ -10844,6 +10853,17 @@ function startLoopAutoAdvanceForProject(project_id) {
   return startLoopAutoAdvance(project_id);
 }
 
+function getClosedWorkItemLoopStopReason(workItem) {
+  if (!workItem) return null;
+  if (factoryIntake.CLOSED_STATUSES?.has(workItem.status)) {
+    return `work_item_closed_${workItem.status}`;
+  }
+  if (/^escalation_exhausted\b/i.test(String(workItem.reject_reason || '').trim())) {
+    return 'work_item_closed_escalation_exhausted_reject_reason';
+  }
+  return null;
+}
+
 async function runAdvanceLoop(instance_id) {
   const { project } = getLoopContextOrThrow(instance_id);
   let instance = getInstanceOrThrow(instance_id);
@@ -11083,6 +11103,60 @@ async function runAdvanceLoop(instance_id) {
           paused_at_stage: null,
           stage_result: null,
           reason: 'no_work_item_selected',
+        };
+      }
+
+      const closedWorkItemReason = getClosedWorkItemLoopStopReason(targetItem);
+      if (closedWorkItemReason) {
+        let finalWorkItem = targetItem;
+        if (closedWorkItemReason === 'work_item_closed_escalation_exhausted_reject_reason') {
+          try {
+            finalWorkItem = factoryIntake.updateWorkItem(targetItem.id, {
+              status: 'escalation_exhausted',
+            }) || targetItem;
+          } catch (err) {
+            logger.warn('Factory loop: failed to restore terminal escalation_exhausted work item status', {
+              project_id: project.id,
+              work_item_id: targetItem.id,
+              status: targetItem.status,
+              err: err.message,
+            });
+          }
+        }
+        const lastActionAt = instance.last_action_at || null;
+        terminateInstanceAndSync(instance.id);
+        recordFactoryIdleIfExhausted(project.id, {
+          last_action_at: lastActionAt,
+          reason: closedWorkItemReason,
+        });
+        try {
+          safeLogDecision({
+            project_id: project.id,
+            stage: String(currentState || '').toLowerCase(),
+            actor: 'loop-controller',
+            action: 'closed_work_item_loop_stopped',
+            reasoning: `Loop instance stopped because work item ${targetItem.id} is closed (${finalWorkItem.status || targetItem.status}).`,
+            outcome: {
+              work_item_id: targetItem.id,
+              work_item_status: finalWorkItem.status || targetItem.status,
+              reject_reason: finalWorkItem.reject_reason || targetItem.reject_reason || null,
+            },
+            batch_id: instance.batch_id || getDecisionBatchId(project, finalWorkItem),
+          });
+        } catch (_err) { void _err; }
+        return {
+          project_id: project.id,
+          instance_id: instance.id,
+          previous_state: previousState,
+          new_state: LOOP_STATES.IDLE,
+          paused_at_stage: null,
+          stage_result: {
+            status: 'stopped',
+            reason: closedWorkItemReason,
+            work_item_id: targetItem.id,
+            work_item_status: finalWorkItem.status || targetItem.status,
+          },
+          reason: closedWorkItemReason,
         };
       }
 
