@@ -196,6 +196,41 @@ async function cleanupOrphanedDotnetProcesses() {
 // Stale Task Timeout Check
 // ============================================================
 
+function resolveTaskTimeoutMinutes(task) {
+  const parsed = parseInt(task?.timeout_minutes, 10);
+  if (parsed === 0) return 0;
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 480;
+}
+
+function getTrackedTaskIdleState(task, timeoutMs) {
+  if (!runningProcesses || !runningProcesses.has(task.id)) {
+    return { tracked: false, active: false, idleMs: null };
+  }
+
+  const proc = runningProcesses.get(task.id);
+  const now = Date.now();
+  let lastActivity = proc?.lastOutputAt || proc?.startTime || now;
+  let idleMs = Math.max(0, now - lastActivity);
+
+  if (idleMs >= timeoutMs && typeof getTaskActivity === 'function') {
+    try {
+      // Lets filesystem/CPU activity rescue active agent tasks before stale
+      // timeout enforcement decides they are dead.
+      getTaskActivity(task.id);
+      lastActivity = proc?.lastOutputAt || proc?.startTime || now;
+      idleMs = Math.max(0, Date.now() - lastActivity);
+    } catch (activityErr) {
+      logger?.info?.(`[Stale Check] Activity probe failed for ${task.id}: ${activityErr.message}`);
+    }
+  }
+
+  return {
+    tracked: true,
+    active: idleMs < timeoutMs,
+    idleMs,
+  };
+}
+
 /**
  * Check for stale running tasks that should have timed out
  * This catches tasks that exceeded their timeout but weren't cancelled
@@ -292,11 +327,23 @@ function checkStaleRunningTasks() {
       }
 
       const elapsedMs = Date.now() - new Date(task.started_at).getTime();
-      const timeoutMs = (task.timeout_minutes || 480) * 60 * 1000;
+      const timeoutMinutes = resolveTaskTimeoutMinutes(task);
+      if (timeoutMinutes === 0) {
+        continue;
+      }
+      const timeoutMs = timeoutMinutes * 60 * 1000;
 
       if (elapsedMs > timeoutMs) {
+        const idleState = getTrackedTaskIdleState(task, timeoutMs);
+        if (idleState.tracked && idleState.active) {
+          const elapsedMin = Math.round(elapsedMs / 60000);
+          const idleMin = Math.round(idleState.idleMs / 60000);
+          logger.info(`[Stale Check] Task ${task.id} has been running for ${elapsedMin}min (timeout: ${timeoutMinutes}min) but had activity ${idleMin}min ago - leaving running`);
+          continue;
+        }
+
         const elapsedMin = Math.round(elapsedMs / 60000);
-        logger.info(`[Stale Check] Task ${task.id} has been running for ${elapsedMin}min (timeout: ${task.timeout_minutes || 480}min) - failing`);
+        logger.info(`[Stale Check] Task ${task.id} has been running for ${elapsedMin}min (timeout: ${timeoutMinutes}min) - failing`);
 
         // Fail via cancelTask if process is tracked, otherwise update DB directly.
         if (runningProcesses.has(task.id)) {
@@ -304,7 +351,7 @@ function checkStaleRunningTasks() {
         } else {
           // Process not tracked (server restarted) - update DB directly
           db.updateTaskStatus(task.id, 'failed', {
-            error_output: `Auto-failed: Task exceeded ${task.timeout_minutes || 480} minute timeout (detected by stale check)`,
+            error_output: `Auto-failed: Task exceeded ${timeoutMinutes} minute timeout (detected by stale check)`,
             completed_at: new Date().toISOString(),
             mcp_instance_id: null,
             ollama_host_id: null,
@@ -462,6 +509,19 @@ async function checkZombieProcesses() {
       const inactiveMs = Date.now() - lastActivity;
       const INACTIVITY_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
       if (inactiveMs > INACTIVITY_TIMEOUT_MS) {
+        if (typeof getTaskActivity === 'function') {
+          try {
+            getTaskActivity(taskId);
+            const refreshedLastActivity = proc.lastOutputAt || proc.startTime || Date.now();
+            const refreshedInactiveMs = Date.now() - refreshedLastActivity;
+            if (refreshedInactiveMs <= INACTIVITY_TIMEOUT_MS) {
+              logger.info(`[Zombie Check] Task ${taskId} appeared inactive for ${Math.round(inactiveMs / 60000)} minutes but has fresh activity; leaving running.`);
+              continue;
+            }
+          } catch (activityErr) {
+            logger.info(`[Zombie Check] Activity probe failed for ${taskId}: ${activityErr.message}`);
+          }
+        }
         logger.info(`[Zombie Check] Task ${taskId} has been inactive for ${Math.round(inactiveMs / 60000)} minutes. Forcing cleanup.`);
         killProcessGraceful(proc, taskId, 5000, 'Inactivity');
         setTimeout(() => {

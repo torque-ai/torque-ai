@@ -224,13 +224,16 @@ async function buildCodexCommand(task, providerConfig, resolvedFileContext, reso
   const isFactoryInternal = taskMetadata && taskMetadata.factory_internal === true;
   const isFactoryScout = taskMetadata && taskMetadata.mode === 'scout';
   const factoryKind = typeof taskMetadata?.kind === 'string' ? taskMetadata.kind : null;
+  const scoutReason = typeof taskMetadata?.reason === 'string' ? taskMetadata.reason : null;
   const lowReasoningFactoryKinds = new Set([
     'plan_quality_review',
     'replan_rewrite',
     'verify_review',
   ]);
   if (isFactoryInternal || isFactoryScout) {
-    const effort = lowReasoningFactoryKinds.has(factoryKind) ? 'low' : 'high';
+    const effort = lowReasoningFactoryKinds.has(factoryKind) || scoutReason === 'factory_starvation_recovery'
+      ? 'low'
+      : 'high';
     codexArgs.push('-c', `model_reasoning_effort=${effort}`);
   }
 

@@ -6,16 +6,13 @@ const DEFAULT_DWELL_MS = 15 * 60 * 1000;
 const MAX_DWELL_MS = 4 * 60 * 60 * 1000;
 const DEFAULT_SCOUT_TIMEOUT_MINUTES = 12;
 const DEFAULT_SCOUT_PROVIDER = 'codex';
-// Codex does deeper recon than ollama (full directory tree walks, multi-tool
-// reasoning) and routinely needs ~15-25 min on a fresh repo. The 12-minute
-// default works for ollama (which converges fast — sometimes by hallucinating)
-// but kills codex mid-investigation; a real DLPhone scout was observed
-// timing out at 12m while it was still emitting __PATTERNS_READY__ deferrals
-// and actively reading real source files (2026-04-30, c0f278ca).
+// Starvation recovery now uses a bounded concrete-item prompt instead of the
+// generic diffusion scout. Keep the cap short enough that a bad scout cannot
+// monopolize scarce Codex slots, while still giving it room to inspect files.
 const SCOUT_TIMEOUT_MINUTES_BY_PROVIDER = Object.freeze({
-  codex: 30,
-  'codex-spark': 30,
-  'claude-cli': 30,
+  codex: 15,
+  'codex-spark': 15,
+  'claude-cli': 15,
 });
 const ACTIVE_SCOUT_STATUSES = new Set(['pending', 'pending_approval', 'queued', 'running', 'waiting']);
 const TERMINAL_SCOUT_STATUSES = new Set(['completed', 'failed', 'cancelled', 'skipped']);
@@ -152,8 +149,8 @@ function buildStarvationRecoveryScope({ project, noYieldScoutCount }) {
 
   lines.push('## Scope bounds');
   lines.push(
-    'Inspect at most 80 candidate files. Prefer existing test files, docs, recent plan files, and TODO comments as evidence sources. ' +
-    'Avoid meta-work about creating more intake or improving the scout itself.'
+    'Inspect at most 20 candidate files, then stop. Prefer existing test files, docs, recent plan files, and TODO comments as evidence sources. ' +
+    'Return 1-5 concrete work items; do not perform a whole-repository audit or classify every remaining file. Avoid meta-work about creating more intake or improving the scout itself.'
   );
   lines.push('');
 

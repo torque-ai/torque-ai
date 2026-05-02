@@ -392,7 +392,7 @@ describe('Orphan Cleanup', () => {
   // ── checkStaleRunningTasks ────────────────────────────────
 
   describe('checkStaleRunningTasks', () => {
-    let mockDb, mockCancelTask, mockProcessQueue, mockIsInstanceAlive, mockGetMcpInstanceId, runningProcesses;
+    let mockDb, mockCancelTask, mockProcessQueue, mockIsInstanceAlive, mockGetMcpInstanceId, mockGetTaskActivity, runningProcesses;
 
     beforeEach(() => {
       runningProcesses = new Map();
@@ -400,6 +400,7 @@ describe('Orphan Cleanup', () => {
       mockProcessQueue = vi.fn();
       mockIsInstanceAlive = vi.fn().mockReturnValue(true);
       mockGetMcpInstanceId = vi.fn().mockReturnValue('mcp-current');
+      mockGetTaskActivity = vi.fn();
       mockDb = {
         getConfig: vi.fn().mockReturnValue('0'),
         reconcileHostTaskCounts: vi.fn(),
@@ -418,7 +419,7 @@ describe('Orphan Cleanup', () => {
         cancelTask: mockCancelTask,
         processQueue: mockProcessQueue,
         tryLocalFirstFallback: vi.fn(),
-        getTaskActivity: vi.fn(),
+        getTaskActivity: mockGetTaskActivity,
         tryStallRecovery: vi.fn(),
         isInstanceAlive: mockIsInstanceAlive,
         getMcpInstanceId: mockGetMcpInstanceId,
@@ -446,7 +447,11 @@ describe('Orphan Cleanup', () => {
 
     it('uses cancelTask for tasks in runningProcesses map', () => {
       const pastTime = new Date(Date.now() - 35 * 60 * 1000).toISOString();
-      runningProcesses.set('task-tracked', { process: { pid: 123 } });
+      runningProcesses.set('task-tracked', {
+        process: { pid: 123 },
+        startTime: Date.now() - 35 * 60 * 1000,
+        lastOutputAt: Date.now() - 31 * 60 * 1000,
+      });
       mockDb.getRunningTasksLightweight.mockReturnValue([
         { id: 'task-tracked', started_at: pastTime, timeout_minutes: 30 },
       ]);
@@ -457,6 +462,46 @@ describe('Orphan Cleanup', () => {
         expect.stringContaining('Timeout'),
         { cancel_reason: 'timeout' },
       );
+    });
+
+    it('leaves tracked tasks running when recent output shows activity beyond wall-clock timeout', () => {
+      const pastTime = new Date(Date.now() - 35 * 60 * 1000).toISOString();
+      runningProcesses.set('task-active', {
+        process: { pid: 123 },
+        startTime: Date.now() - 35 * 60 * 1000,
+        lastOutputAt: Date.now() - 2 * 60 * 1000,
+      });
+      mockDb.getRunningTasksLightweight.mockReturnValue([
+        { id: 'task-active', started_at: pastTime, timeout_minutes: 30 },
+      ]);
+
+      orphanCleanup.checkStaleRunningTasks();
+
+      expect(mockCancelTask).not.toHaveBeenCalled();
+      expect(mockDb.updateTaskStatus).not.toHaveBeenCalled();
+    });
+
+    it('lets filesystem or CPU activity rescue a tracked task before stale timeout cancellation', () => {
+      const pastTime = new Date(Date.now() - 35 * 60 * 1000).toISOString();
+      const proc = {
+        process: { pid: 123 },
+        startTime: Date.now() - 35 * 60 * 1000,
+        lastOutputAt: Date.now() - 31 * 60 * 1000,
+      };
+      runningProcesses.set('task-rescued', proc);
+      mockGetTaskActivity.mockImplementation(() => {
+        proc.lastOutputAt = Date.now();
+        return { isStalled: false };
+      });
+      mockDb.getRunningTasksLightweight.mockReturnValue([
+        { id: 'task-rescued', started_at: pastTime, timeout_minutes: 30 },
+      ]);
+
+      orphanCleanup.checkStaleRunningTasks();
+
+      expect(mockGetTaskActivity).toHaveBeenCalledWith('task-rescued');
+      expect(mockCancelTask).not.toHaveBeenCalled();
+      expect(mockDb.updateTaskStatus).not.toHaveBeenCalled();
     });
 
     it('skips tasks without started_at', () => {

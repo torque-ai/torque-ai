@@ -186,6 +186,26 @@ describe('handleSubmitScout', () => {
     }));
   });
 
+  it('uses a bounded work-item prompt for starvation recovery scouts', () => {
+    const result = handlers.handleSubmitScout({
+      scope: 'Factory starvation recovery scout.',
+      working_directory: '/proj',
+      provider: 'codex',
+      reason: 'factory_starvation_recovery',
+      project_id: 'project-1',
+    });
+
+    expect(result.isError).toBeFalsy();
+    const task = mockTaskCore.createTask.mock.calls.at(-1)[0];
+    expect(task.task_description).toContain('bounded work-item scout');
+    expect(task.task_description).toContain('inspect at most 20 candidate files');
+    expect(task.task_description).toContain('exactly one `__SCOUT_COMPLETE__`');
+    expect(task.task_description).toContain('concrete_factory_work_items');
+    expect(task.task_description).not.toContain('__PATTERNS_READY__');
+    expect(task.task_description).not.toContain('__SCOUT_DISCOVERY__');
+    expect(task.task_description).not.toContain('complete file content BEFORE');
+  });
+
   it('adds factory:target_project tag when factoryHealth resolves the project name', () => {
     // The kanban renders a "→ <project>" badge from factory:target_project,
     // which makes scout tasks identifiable on the board the same way

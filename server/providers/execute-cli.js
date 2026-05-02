@@ -30,6 +30,19 @@ const { resolveCodexNativeBinary } = require('../execution/codex-native-resolve'
 const EXIT_SPAWN_INSTANT_EXIT = -101;   // proc entry gone but task row still running
 const EXIT_CLOSE_HANDLER_EXCEPTION = -102; // close handler itself threw
 const EXIT_SPAWN_ERROR = -103;          // child.on('error') fired (ENOENT, EACCES, etc.)
+const MIN_TIMEOUT_RESCHEDULE_MS = 1000;
+
+function computeActivityAwareTimeoutDelay(proc, timeoutMs, now = Date.now()) {
+  if (!proc || !Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+    return 0;
+  }
+  const lastActivity = proc.lastOutputAt || proc.startTime || now;
+  const idleMs = Math.max(0, now - lastActivity);
+  if (idleMs >= timeoutMs) {
+    return 0;
+  }
+  return Math.max(MIN_TIMEOUT_RESCHEDULE_MS, timeoutMs - idleMs);
+}
 
 /**
  * Extract unified diffs from codex's stderr output.
@@ -230,13 +243,16 @@ function buildCodexCommand(task, resolvedFileContext, providerConfig, opts = {})
     const isFactoryInternal = taskMetadata && taskMetadata.factory_internal === true;
     const isFactoryScout = taskMetadata && taskMetadata.mode === 'scout';
     const factoryKind = typeof taskMetadata?.kind === 'string' ? taskMetadata.kind : null;
+    const scoutReason = typeof taskMetadata?.reason === 'string' ? taskMetadata.reason : null;
     const lowReasoningFactoryKinds = new Set([
       'plan_quality_review',
       'replan_rewrite',
       'verify_review',
     ]);
     if (isFactoryInternal || isFactoryScout) {
-      const effort = lowReasoningFactoryKinds.has(factoryKind) ? 'low' : 'high';
+      const effort = lowReasoningFactoryKinds.has(factoryKind) || scoutReason === 'factory_starvation_recovery'
+        ? 'low'
+        : 'high';
       codexArgs.push('-c', `model_reasoning_effort=${effort}`);
     }
 
@@ -1087,11 +1103,25 @@ function spawnAndTrackProcess(taskId, task, cmdSpec, provider) {
   if (rawTimeout > 0 && procRef) {
     const boundedTimeout = Math.max(MIN_TIMEOUT_MINUTES, Math.min(rawTimeout, MAX_TIMEOUT_MINUTES));
     const timeoutMs = boundedTimeout * 60 * 1000;
-    procRef.timeoutHandle = setTimeout(() => {
-      if (runningProcesses.has(taskId)) {
+    const scheduleTimeoutCheck = (delayMs) => {
+      procRef.timeoutHandle = setTimeout(() => {
+        const proc = runningProcesses.get(taskId);
+        if (!proc) {
+          return;
+        }
+        const rescheduleDelayMs = computeActivityAwareTimeoutDelay(proc, timeoutMs);
+        if (rescheduleDelayMs > 0) {
+          const idleSeconds = Math.round((Date.now() - (proc.lastOutputAt || proc.startTime || Date.now())) / 1000);
+          logger.info(
+            `[TaskManager] Task ${taskId} exceeded ${boundedTimeout}min wall time but had activity ${idleSeconds}s ago; extending timeout window`
+          );
+          scheduleTimeoutCheck(rescheduleDelayMs);
+          return;
+        }
         _helpers.cancelTask(taskId, 'Timeout exceeded');
-      }
-    }, timeoutMs);
+      }, delayMs);
+    };
+    scheduleTimeoutCheck(timeoutMs);
   }
 
   return { queued: false, task: db.getTask(taskId) };
@@ -1102,6 +1132,7 @@ module.exports = {
   buildClaudeCliCommand,
   buildCodexCommand,
   spawnAndTrackProcess,
+  computeActivityAwareTimeoutDelay,
   EXIT_SPAWN_INSTANT_EXIT,
   EXIT_CLOSE_HANDLER_EXCEPTION,
   EXIT_SPAWN_ERROR,

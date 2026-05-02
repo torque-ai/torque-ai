@@ -1525,6 +1525,42 @@ describe('process-lifecycle', () => {
       expect(deps.cancelTask).toHaveBeenCalledWith(taskId, 'Timeout exceeded', { cancel_reason: 'timeout' });
     });
 
+    it('extends the main timeout window when the process is still streaming output', async () => {
+      const taskId = 'task-timeout-streaming';
+      const child = createLifecycleChild();
+      const { subject } = loadLifecycleSubject({
+        dbMock: createLifecycleDbMock([createTaskRecord(taskId, { timeout_minutes: 1 })]),
+        spawnImpl: () => child,
+      });
+      const deps = createSpawnDeps();
+      subject.init(deps);
+
+      subject.spawnAndTrackProcess(taskId, createTaskRecord(taskId, { timeout_minutes: 1 }), {
+        cliPath: 'codex',
+        finalArgs: [],
+        stdinPrompt: null,
+        options: { cwd: 'C:/repo/task', env: {}, shell: false, stdio: ['pipe', 'pipe', 'pipe'] },
+        provider: 'codex',
+        selectedOllamaHostId: null,
+        usedEditFormat: null,
+        taskMetadata: null,
+        taskType: 'code',
+        contextTokenEstimate: null,
+        baselineCommit: null,
+      });
+
+      await vi.advanceTimersByTimeAsync(59000);
+      child.stdout.write('still working');
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(deps.cancelTask).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(58999);
+      expect(deps.cancelTask).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(1);
+      expect(deps.cancelTask).toHaveBeenCalledWith(taskId, 'Timeout exceeded', { cancel_reason: 'timeout' });
+    });
+
     it('falls back to safeUpdateTaskStatus when timeout cancellation throws and enforces the max timeout bound', async () => {
       const taskId = 'task-timeout-max';
       const child = createLifecycleChild();

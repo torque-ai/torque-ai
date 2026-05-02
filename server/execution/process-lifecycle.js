@@ -24,6 +24,8 @@ const { redactCommandArgs } = require('../utils/sanitize');
 const { buildCombinedProcessOutput, detectSuccessFromOutput } = require('../validation/completion-detection');
 const { extractModifiedFiles } = require('../utils/file-resolution');
 
+const MIN_TIMEOUT_RESCHEDULE_MS = 1000;
+
 // Dependencies injected via init() from task-manager.js
 let deps = null;
 
@@ -94,6 +96,18 @@ function logTaskkillFailureIfAlive(pid, message) {
     return;
   }
   logger.info(message);
+}
+
+function computeActivityAwareTimeoutDelay(proc, timeoutMs, now = Date.now()) {
+  if (!proc || !Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+    return 0;
+  }
+  const lastActivity = proc.lastOutputAt || proc.startTime || now;
+  const idleMs = Math.max(0, now - lastActivity);
+  if (idleMs >= timeoutMs) {
+    return 0;
+  }
+  return Math.max(MIN_TIMEOUT_RESCHEDULE_MS, timeoutMs - idleMs);
 }
 
 /**
@@ -759,19 +773,34 @@ function spawnAndTrackProcess(taskId, task, {
   if (!explicitZero) {
     const boundedTimeout = Math.max(MIN_TIMEOUT_MINUTES, Math.min(rawTimeout, MAX_TIMEOUT_MINUTES));
     const timeoutMs = boundedTimeout * 60 * 1000;
-    procRef.timeoutHandle = setTimeout(() => {
-      try {
-        if (deps.runningProcesses.has(taskId)) {
+    const scheduleTimeoutCheck = (delayMs) => {
+      procRef.timeoutHandle = setTimeout(() => {
+        try {
+          const proc = deps.runningProcesses.get(taskId);
+          if (!proc) {
+            return;
+          }
+          const rescheduleDelayMs = computeActivityAwareTimeoutDelay(proc, timeoutMs);
+          if (rescheduleDelayMs > 0) {
+            const idleSeconds = Math.round((Date.now() - (proc.lastOutputAt || proc.startTime || Date.now())) / 1000);
+            logger.info(
+              `[TaskManager] Task ${taskId} exceeded ${boundedTimeout}min wall time but had activity ${idleSeconds}s ago; extending timeout window`
+            );
+            scheduleTimeoutCheck(rescheduleDelayMs);
+            return;
+          }
+
           deps.cancelTask(taskId, 'Timeout exceeded', { cancel_reason: 'timeout' });
+        } catch (err) {
+          logger.info(`[TaskManager] Error in timeout callback for ${taskId}: ${err.message}`);
+          deps.safeUpdateTaskStatus(taskId, 'failed', {
+            error_output: `Timeout cancellation error: ${err.message}`,
+            exit_code: -1
+          });
         }
-      } catch (err) {
-        logger.info(`[TaskManager] Error in timeout callback for ${taskId}: ${err.message}`);
-        deps.safeUpdateTaskStatus(taskId, 'failed', {
-          error_output: `Timeout cancellation error: ${err.message}`,
-          exit_code: -1
-        });
-      }
-    }, timeoutMs);
+      }, delayMs);
+    };
+    scheduleTimeoutCheck(timeoutMs);
   }
 
   return { queued: false, task: taskCoreDb.getTask(taskId) };
@@ -808,6 +837,7 @@ module.exports = {
   safeTriggerWebhook,
   cleanupProcessTracking,
   cleanupChildProcessListeners,
+  computeActivityAwareTimeoutDelay,
   // D4.3: Spawn + handler lifecycle
   handleCloseCleanup,
   spawnAndTrackProcess,

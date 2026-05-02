@@ -27,6 +27,7 @@ const FILESYSTEM_PROVIDERS = new Set(['codex', 'codex-spark', 'claude-cli', 'oll
 const APPLY_CAPABLE_PROVIDERS = ['ollama', 'codex', 'claude-cli', 'ollama-cloud'];
 const DEFAULT_SCOUT_TIMEOUT = 30;
 const DEFAULT_SCOUT_PROVIDER = 'codex';
+const STARVATION_RECOVERY_REASON = 'factory_starvation_recovery';
 
 // Providers that can do compute (raw text completion, no filesystem needed).
 // Ordered by preference: high concurrency + free/cheap first.
@@ -124,6 +125,59 @@ function autoSelectApplyProviders() {
   return ['ollama']; // Fallback
 }
 
+function buildStarvationRecoveryScoutPrompt({
+  scope,
+  workingDirectory,
+  fileList,
+}) {
+  const system = [
+    'You are a bounded work-item scout for an automated software factory.',
+    'Do NOT modify files. Your job is to find a few concrete implementation work items, not to audit the whole repository.',
+    'This is starvation recovery: the queue needs executable work now. Keep the run short and emit a final signal quickly.',
+  ].join('\n');
+
+  const user = [
+    'Find concrete work items for this scope.',
+    '',
+    `**Scope:** ${scope}`,
+    `**Working Directory:** ${workingDirectory}`,
+    `**File Hints:** ${fileList}`,
+    '',
+    '## Hard Bounds',
+    '- Call `list_directory` or `search_files` first, then inspect at most 20 candidate files.',
+    '- Stop as soon as you have 1-5 concrete work items.',
+    '- Do not classify the rest of the repository.',
+    '- Do not produce intermediate diffusion discovery or pattern-readiness blocks for starvation recovery.',
+    '- Do not include complete before/after file contents.',
+    '',
+    '## Required Output',
+    'Output exactly one `__SCOUT_COMPLETE__` block, with no markdown fence:',
+    '',
+    '__SCOUT_COMPLETE__',
+    '{',
+    '  "concrete_factory_work_items": [',
+    '    {',
+    '      "title": "Short imperative title",',
+    '      "why": "One-sentence motivation grounded in observed files.",',
+    '      "description": "Specific worker instructions naming exact files.",',
+    '      "allowed_files": ["repo/relative/path.ext"],',
+    '      "verification": "exact command to validate the change"',
+    '    }',
+    '  ],',
+    '  "total_classified": 0,',
+    '  "total_skipped": 0,',
+    '  "scanned_so_far": 0,',
+    '  "total_candidates": 0,',
+    '  "notes": []',
+    '}',
+    '__SCOUT_COMPLETE_END__',
+    '',
+    'If you cannot find grounded work, output the same block with an empty `concrete_factory_work_items` array. Invented paths are worse than no work.',
+  ].join('\n');
+
+  return { system, user };
+}
+
 function handleSubmitScout(args) {
   const {
     scope,
@@ -157,11 +211,19 @@ function handleSubmitScout(args) {
   // file_patterns are passed as hints in the prompt, not expanded server-side
   const fileList = Array.isArray(file_patterns) ? file_patterns.join(', ') : '(all files in scope)';
 
-  const { system, user } = buildPrompt('scout', {
-    scope: scope.trim(),
-    working_directory,
-    file_list: fileList,
-  });
+  const normalizedScope = scope.trim();
+  const prompt = reason === STARVATION_RECOVERY_REASON
+    ? buildStarvationRecoveryScoutPrompt({
+        scope: normalizedScope,
+        workingDirectory: working_directory,
+        fileList,
+      })
+    : buildPrompt('scout', {
+        scope: normalizedScope,
+        working_directory,
+        file_list: fileList,
+      });
+  const { system, user } = prompt;
 
   const taskDescription = `${system}\n\n---\n\n${user}`;
   const taskId = uuidv4();
@@ -185,7 +247,7 @@ function handleSubmitScout(args) {
       }
     } catch (_e) { void _e; }
   }
-  if (reason === 'factory_starvation_recovery') {
+  if (reason === STARVATION_RECOVERY_REASON) {
     tags.push('factory:starvation_recovery');
   }
 

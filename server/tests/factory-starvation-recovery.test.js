@@ -359,11 +359,10 @@ describe('factory starvation recovery', () => {
     }));
   });
 
-  it('extends scout timeout for codex (Phase J)', async () => {
-    // Codex needs more headroom than ollama for thorough recon. Without this,
-    // codex scouts time out at 12 min while still actively reading real source
-    // files and emitting __PATTERNS_READY__ deferrals (DLPhone c0f278ca,
-    // 2026-04-30).
+  it('keeps codex starvation scouts bounded but above the default timeout', async () => {
+    // Starvation recovery uses a bounded work-item scout now. Keep enough
+    // headroom for real file inspection without letting broad scouts monopolize
+    // scarce Codex slots for 30 minutes.
     const submitScout = vi.fn().mockResolvedValue({ task_id: 'task-codex' });
     const updateLoopState = vi.fn().mockResolvedValue({});
     const countOpenWorkItems = vi.fn().mockResolvedValue(0);
@@ -594,13 +593,15 @@ describe('buildStarvationRecoveryScope', () => {
     expect(scope).toContain('No-yield scout backoff count: 3');
   });
 
-  it('preserves scope bounds (80-file cap, evidence sources)', () => {
+  it('preserves bounded scope limits and evidence sources', () => {
     const scope = buildStarvationRecoveryScope({
       project: { name: 'DLPhone', brief: 'Mobile RTS.' },
       noYieldScoutCount: 0,
     });
     expect(scope).toContain('## Scope bounds');
-    expect(scope).toContain('at most 80 candidate files');
+    expect(scope).toContain('at most 20 candidate files');
+    expect(scope).toContain('1-5 concrete work items');
+    expect(scope).toContain('do not perform a whole-repository audit');
     expect(scope).toMatch(/test files|docs|TODO/i);
   });
 

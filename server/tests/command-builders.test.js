@@ -438,14 +438,25 @@ describe('execution/command-builders', () => {
         expect(result.finalArgs).not.toContain('model_reasoning_effort=high');
       });
 
-      it('forces reasoning_effort=high for scout tasks (mode=scout)', async () => {
+      it('forces reasoning_effort=high for generic scout tasks (mode=scout)', async () => {
         initModule();
         const task = {
           task_description: 'You are a codebase analyst...',
-          metadata: { mode: 'scout', diffusion: true, reason: 'factory_starvation_recovery' },
+          metadata: { mode: 'scout', diffusion: true, reason: 'manual_diffusion' },
         };
         const result = await commandBuilders.buildCodexCommand(task, null, '', null);
         expect(result.finalArgs).toContain('model_reasoning_effort=high');
+      });
+
+      it('uses low reasoning_effort for bounded starvation recovery scouts', async () => {
+        initModule();
+        const task = {
+          task_description: 'You are a bounded work-item scout...',
+          metadata: { mode: 'scout', diffusion: true, reason: 'factory_starvation_recovery' },
+        };
+        const result = await commandBuilders.buildCodexCommand(task, null, '', null);
+        expect(result.finalArgs).toContain('model_reasoning_effort=low');
+        expect(result.finalArgs).not.toContain('model_reasoning_effort=high');
       });
 
       it('does NOT override reasoning_effort for non-factory tasks', async () => {
