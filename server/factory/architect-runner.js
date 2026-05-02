@@ -859,7 +859,7 @@ function buildRewritePrompt({ workItem, history }) {
   ].join('\n');
 }
 
-function buildDecomposePrompt({ workItem, history, priorPlans }) {
+function buildDecomposePrompt({ workItem, history: _history, priorPlans }) {
   const planLog = (priorPlans || [])
     .map((p) => `### Attempt ${p.attempt}\n${p.planMarkdown || '(empty)'}\nLint errors: ${(p.lintErrors || []).join('; ') || '(none)'}`)
     .join('\n\n') || '(no prior plans)';

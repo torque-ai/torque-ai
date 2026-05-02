@@ -146,6 +146,11 @@ function applySplit(db, workItem, children, attemptCount, historyJson) {
   const tx = db.transaction(() => {
     const childIds = [];
     const now = new Date().toISOString();
+    const linkChildStmt = db.prepare(`
+      UPDATE factory_work_items
+      SET linked_item_id = ?, depth = ?
+      WHERE id = ?
+    `);
     for (const child of children) {
       const childItem = factoryIntake.createWorkItem({
         project_id: workItem.project_id,
@@ -155,11 +160,7 @@ function applySplit(db, workItem, children, attemptCount, historyJson) {
         priority: Math.max(0, Number(workItem.priority || 50) - 1),
         constraints: child.constraints || null,
       });
-      db.prepare(`
-        UPDATE factory_work_items
-        SET linked_item_id = ?, depth = ?
-        WHERE id = ?
-      `).run(workItem.id, Number(workItem.depth || 0) + 1, childItem.id);
+      linkChildStmt.run(workItem.id, Number(workItem.depth || 0) + 1, childItem.id);
       childIds.push(childItem.id);
     }
     db.prepare(`

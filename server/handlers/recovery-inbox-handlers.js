@@ -124,6 +124,7 @@ async function reviveRecoveryItem({ id, mode, updates = null, children = null })
       throw new Error('mode=split requires children array of length >= 2');
     }
     const tx = db.transaction(() => {
+      const linkChildStmt = db.prepare('UPDATE factory_work_items SET linked_item_id = ?, depth = ? WHERE id = ?');
       for (const child of children) {
         const created = factoryIntake.createWorkItem({
           project_id: item.project_id,
@@ -132,8 +133,7 @@ async function reviveRecoveryItem({ id, mode, updates = null, children = null })
           description: child.description,
           priority: Math.max(0, Number(item.priority || 50) - 1),
         });
-        db.prepare('UPDATE factory_work_items SET linked_item_id = ?, depth = ? WHERE id = ?')
-          .run(item.id, Number(item.depth || 0) + 1, created.id);
+        linkChildStmt.run(item.id, Number(item.depth || 0) + 1, created.id);
       }
       db.prepare(`
         UPDATE factory_work_items
