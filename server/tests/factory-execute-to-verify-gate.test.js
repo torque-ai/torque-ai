@@ -272,8 +272,16 @@ describe('factory EXECUTE -> VERIFY gate semantics', () => {
     const verifyAdvance = await loopController.advanceLoopForProject(project.id);
     expect(verifyAdvance.new_state).toBe(LOOP_STATES.LEARN);
     expect(verifyAdvance.paused_at_stage).toBeNull();
+    // e8b750bf ("keep verified shipping state coherent") added a guard that
+    // short-circuits a second VERIFY advance for the same batch — once a
+    // 'verified_batch' decision is recorded, the rerun returns
+    // {status: 'skipped', reason: 'batch_already_verified', batch_id}
+    // instead of re-running the guardrail tests. The first advance still
+    // produced the {passed: true} result (asserted on executeAdvance above),
+    // so this captures the new "don't redo verify" semantics.
     expect(verifyAdvance.stage_result).toMatchObject({
-      passed: true,
+      status: 'skipped',
+      reason: 'batch_already_verified',
       batch_id: expect.any(String),
     });
     expect(loopController.getLoopStateForProject(project.id)).toMatchObject({
@@ -289,7 +297,9 @@ describe('factory EXECUTE -> VERIFY gate semantics', () => {
         to_state: LOOP_STATES.VERIFY,
       }),
     });
-    expect(decisions.filter((row) => row.action === 'verified_batch')).toHaveLength(2);
+    // Only one verified_batch decision now — the second advance's
+    // batch_already_verified short-circuit doesn't add another.
+    expect(decisions.filter((row) => row.action === 'verified_batch')).toHaveLength(1);
   });
 
   // Regression: before 8171e04d, any exception from executor.execute (submit
