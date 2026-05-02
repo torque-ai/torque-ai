@@ -1,24 +1,48 @@
 import { useEffect, useState } from 'react';
 import { workflowSpecs } from '../api';
+import LoadingSkeleton from '../components/LoadingSkeleton';
 
 function getTaskCountLabel(count) {
   const taskCount = Number.isFinite(Number(count)) ? Number(count) : 0;
   return `${taskCount} ${taskCount === 1 ? 'task' : 'tasks'}`;
 }
 
+function DashboardErrorState({ error, onRetry }) {
+  return (
+    <div className="p-4">
+      <h1 className="text-xl text-white mb-2">Workflow Specs</h1>
+      <div className="border border-red-600/40 rounded-lg bg-red-950/40 p-4 text-red-200">
+        <p className="font-medium">Failed to load workflow specs</p>
+        <p className="text-sm text-red-300 mt-1">{error}</p>
+        <button
+          type="button"
+          onClick={onRetry}
+          className="mt-3 px-3 py-1 bg-red-600 hover:bg-red-500 rounded text-white text-sm"
+        >
+          Retry
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function WorkflowSpecs() {
   const [specs, setSpecs] = useState(null);
   const [error, setError] = useState(null);
+  const [isLoading, setIsLoading] = useState(true);
   const [running, setRunning] = useState({});
   const [message, setMessage] = useState(null);
 
   async function load() {
+    setIsLoading(true);
+    setError(null);
     try {
       const res = await workflowSpecs.list();
       setSpecs(Array.isArray(res) ? res : res?.specs || []);
-      setError(null);
     } catch (err) {
-      setError(err?.message || 'Failed to load specs');
+      setError(err?.message || 'Failed to load workflow specs');
+    } finally {
+      setIsLoading(false);
     }
   }
 
@@ -40,12 +64,16 @@ export default function WorkflowSpecs() {
     }
   }
 
-  if (error) {
-    return <div className="p-4 text-red-400">Error: {error}</div>;
+  if (isLoading) {
+    return (
+      <div className="p-4">
+        <LoadingSkeleton lines={6} />
+      </div>
+    );
   }
 
-  if (specs === null) {
-    return <div className="p-4 text-slate-400">Loading...</div>;
+  if (error) {
+    return <DashboardErrorState error={error} onRetry={load} />;
   }
 
   if (specs.length === 0) {
