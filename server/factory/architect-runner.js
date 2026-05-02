@@ -645,7 +645,15 @@ async function runArchitectLLM(prompt, project_id, projectPath) {
       working_directory: projectPath,
       kind: 'architect_cycle',
       project_id,
-      timeout_minutes: 10,
+      // 0 = no enforced wall-clock timeout. The architect-runner polls
+      // until the task reaches a terminal state (completed/failed/cancelled)
+      // or the row vanishes. Provider-layer stall detection (see
+      // configure_stall_detection) is the bound on hung tasks; hardcoded
+      // wall-clock budgets here previously killed viable codex work that
+      // exceeded the inner timeout while the outer poll still had budget
+      // (Phase T/W aligned the layers; 2026-05-02 confirmed the alignment
+      // itself was the wrong shape — kill destruction, keep polling).
+      timeout_minutes: 0,
     });
     taskId = task_id;
     if (!taskId) {
@@ -657,17 +665,9 @@ async function runArchitectLLM(prompt, project_id, projectPath) {
     return null;
   }
 
-  // Phase W (2026-05-01): bumped from 5min → 15min to match Phase T's
-  // submitArchitectJsonPrompt deadline. Codex queue depth on busy days
-  // routinely exceeds 5min before a task lands; the original 5min poll
-  // gave up before the architect could run, leaving runArchitectCycle
-  // returning null and the loop reporting "Architect task timed out"
-  // even though the task itself was about to start. Live evidence:
-  // 2× warns on NetSim 2026-05-01 20:18 + 20:25 UTC during the same
-  // codex congestion that kept NetSim in STARVED for ~70min.
-  const deadlineMs = 15 * 60 * 1000;
-  const deadline = Date.now() + deadlineMs;
-  while (Date.now() < deadline) {
+  // Poll until the task reaches a terminal state. No wall-clock deadline:
+  // stall detection at the provider layer is what bounds hung tasks.
+  while (true) {
     const task = taskCore.getTask(taskId);
     if (!task) {
       logger.warn(`[architect-cycle] task_vanished project_id=${project_id} task_id=${taskId}: task row not found mid-poll`);
@@ -697,9 +697,6 @@ async function runArchitectLLM(prompt, project_id, projectPath) {
     // Brief wait before checking again
     await new Promise(resolve => setTimeout(resolve, 3000));
   }
-
-  logger.warn(`[architect-cycle] deadline_exceeded project_id=${project_id} task_id=${taskId}: no terminal status within ${deadlineMs}ms`);
-  return null;
 }
 
 async function submitArchitectJsonPrompt(prompt, project_id, projectPath, kind = 'architect_json') {
@@ -724,20 +721,15 @@ async function submitArchitectJsonPrompt(prompt, project_id, projectPath, kind =
       working_directory: projectPath,
       kind,
       project_id,
-      // Phase T (2026-05-01): bumped from 5 to 15 minutes. The 5-minute
-      // budget had to cover BOTH queue-wait time and execution time. With
-      // codex's 3-slot concurrency limit, queue wait alone routinely
-      // consumed 5 minutes when other architect_cycle / plan_generation
-      // tasks were running, so the architect-submit poll loop hit
-      // deadline_exceeded before the task ever reached `running`. Live
-      // evidence: DLPhone 2026-05-01 13:44 / 14:02 / 14:17 — three
-      // consecutive replan_rewrite tasks routed to codex correctly (after
-      // Phase S landed) but timed out in the queue before starting.
-      // Recovery JSON prompts already contain the full rejected item and prior
-      // failure context. Attaching study intelligence made Codex explore the
-      // repo for a "JSON only" rewrite and time out live on 2026-05-02.
+      // Recovery JSON prompts (replan_rewrite / replan_decompose /
+      // architect_json) already contain the full rejected item and prior
+      // failure context — context-stuffing on top of that pushed Codex into
+      // exploring the repo for a "JSON only" rewrite (2026-05-02 live).
       ...(recoveryJsonTask ? { context_stuff: false, study_context: false } : {}),
-      timeout_minutes: recoveryJsonTask ? 5 : 15,
+      // 0 = no enforced wall-clock timeout. Polling below bounds the wait
+      // by terminal task state, not by an arbitrary minute count. Stall
+      // detection is the safety net against hung tasks.
+      timeout_minutes: 0,
     });
     taskId = task_id;
     if (!taskId) {
@@ -749,9 +741,9 @@ async function submitArchitectJsonPrompt(prompt, project_id, projectPath, kind =
     return null;
   }
 
-  const deadlineMs = 15 * 60 * 1000;
-  const deadline = Date.now() + deadlineMs;
-  while (Date.now() < deadline) {
+  // Poll until the task reaches a terminal state. No wall-clock deadline:
+  // stall detection at the provider layer is what bounds hung tasks.
+  while (true) {
     const task = taskCore.getTask(taskId);
     if (!task) {
       logger.warn(`[architect-submit] task_vanished kind=${kind} project_id=${project_id} task_id=${taskId}: task row not found mid-poll (cleaned up?)`);
@@ -765,8 +757,6 @@ async function submitArchitectJsonPrompt(prompt, project_id, projectPath, kind =
     }
     await new Promise((resolve) => setTimeout(resolve, 3000));
   }
-  logger.warn(`[architect-submit] deadline_exceeded kind=${kind} project_id=${project_id} task_id=${taskId}: no terminal status within ${deadlineMs}ms`);
-  return null;
 }
 
 // Phase P (2026-04-30): map a reject_reason to actionable guidance the

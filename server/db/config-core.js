@@ -57,16 +57,14 @@ const REPLAN_RECOVERY_CONFIG_DEFAULTS = Object.freeze({
   replan_recovery_cooldown_ms_attempt_1: '86400000',
   replan_recovery_cooldown_ms_attempt_2: '259200000',
   // Outer timeout for rewrite-description / decompose strategies. Both call
-  // architect-runner.submitArchitectJsonPrompt, which has its own 5min
-  // (300_000ms) inner deadline polling for codex/claude-cli completion. The
-  // outer must exceed the inner or the strategy ALWAYS times out before
-  // the architect can return — DLPhone hit this live (Phase Q surfaced
-  // 12:40 + 12:48 UTC strategy timeouts on 2026-05-01 after the
-  // unknown-kind fix unblocked submission). The architect's actual MAX
-  // deadlineMs in submitArchitectJsonPrompt is 15 * 60 * 1000 = 900_000ms,
-  // not the 5min the Phase R commit assumed; bumping to 960_000ms gives
-  // 60s of buffer above that. The replan-recovery-config regression test
-  // pins this invariant.
+  // architect-runner.submitArchitectJsonPrompt, which polls until the
+  // task reaches a terminal state — no inner wall-clock deadline (2026-05-02
+  // poll-only policy). This outer timeout therefore becomes the only
+  // wall-clock bound on a single strategy attempt, used to release the
+  // replan-recovery sweep slot if a strategy gets stuck. Sized at 16min
+  // to give codex room to land on busy days. The architect-runner itself
+  // does not time out viable work; stall detection is the per-task safety
+  // net at the provider layer.
   replan_recovery_strategy_timeout_ms: '960000',
   // escalate-architect is purely synchronous (provider-chain bump in
   // constraints, no architect call), so 5s is plenty.

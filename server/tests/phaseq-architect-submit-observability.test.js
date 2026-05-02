@@ -1,9 +1,9 @@
 /**
- * Phase Q (2026-04-30): submitArchitectJsonPrompt's 5 null-return paths
+ * Phase Q (2026-04-30): submitArchitectJsonPrompt's null-return paths
  * each emit a structured warn with `[architect-submit] <mode>` so we can
  * distinguish them in logs.
  *
- * Pre-Phase-Q, all 5 returned `null` silently (except submit_failed which
+ * Pre-Phase-Q, all paths returned `null` silently (except submit_failed which
  * logged a generic warn). Downstream parseStrictJson then threw "provider
  * response was not a string" — masking which upstream condition actually
  * triggered the null. Live evidence: DLPhone work item replan at
@@ -11,13 +11,9 @@
  * "rewrite-description" threw or timed out: rewriteWorkItem: provider
  * response was not a string`.
  *
- * Test approach: read architect-runner.js source and assert each of the
- * 5 failure-mode log messages is present with the expected `[architect-
- * submit] <mode>` prefix and `kind=` + `project_id=` tags. This avoids
- * the vitest-doMock-vs-lazy-require mismatch that blocked dynamic
- * mocking of the internal-task-submit path. The source-grep approach is
- * brittle to refactors but reliable for verifying observability strings
- * are wired correctly.
+ * 2026-05-02 update: the deadline_exceeded mode was removed when the
+ * architect-runner switched to poll-only with no wall-clock deadline.
+ * Stall detection at the provider layer is the new bound on hung tasks.
  */
 
 'use strict';
@@ -59,25 +55,19 @@ describe('Phase Q: submitArchitectJsonPrompt failure-mode logging strings', () =
     expect(source).toMatch(/task row not found mid-poll/);
   });
 
-  it('logs deadline_exceeded when 5-min poll loop times out', () => {
-    expect(source).toMatch(/\[architect-submit\] deadline_exceeded/);
-    expect(source).toMatch(/no terminal status within \$\{deadlineMs\}ms/);
-  });
-
   it('exports submitArchitectJsonPrompt for direct integration testing', () => {
     const ar = require('../factory/architect-runner');
     expect(ar._internalForTests).toBeDefined();
     expect(typeof ar._internalForTests.submitArchitectJsonPrompt).toBe('function');
   });
 
-  it('all 5 failure modes are distinguishable by their unique tag', () => {
-    // Each failure mode's tag is unique enough to grep in production logs.
+  it('all remaining failure modes are distinguishable by their unique tag', () => {
+    // Each surviving failure-mode tag is unique enough to grep in production logs.
     const tags = [
       'submit_failed',
       'no_task_id',
       'task_${task.status}', // covers task_failed AND task_cancelled
       'task_vanished',
-      'deadline_exceeded',
     ];
     for (const tag of tags) {
       expect(source).toContain(`[architect-submit] ${tag}`);

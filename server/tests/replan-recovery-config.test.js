@@ -41,25 +41,22 @@ describe('replan-recovery config defaults', () => {
     expect(cfg.splitMaxDepth).toBe(2);
   });
 
-  it('strategy timeout exceeds architect-runner inner deadline', () => {
-    // Phase R regression guard: rewrite-description and decompose strategies
-    // call submitArchitectJsonPrompt, which polls for a terminal task status
-    // up to its own inner deadline. If the outer strategy timeout is shorter
-    // than the inner deadline, the strategy ALWAYS times out before the
-    // architect can resolve. DLPhone live evidence 2026-05-01 12:40 + 12:48
-    // UTC: outer 90s fired before inner 5min could complete on every
-    // codex-routed rewrite. Default outer must be >= inner + buffer.
+  it('architect-runner has no wall-clock inner deadline (2026-05-02 policy)', () => {
+    // Phase R originally required the outer strategy timeout to exceed the
+    // architect-runner inner deadline so strategies couldn't be cut off
+    // mid-poll. The architect-runner now polls without a wall-clock cap
+    // (see phasew-architect-cycle-deadline.test.js) — stall detection is
+    // the bound on hung architect tasks. The outer strategy timeout
+    // remains the only wall-clock bound on replan recovery, sized to give
+    // codex room to land on busy days.
     const fs = require('fs');
     const path = require('path');
     const archSrc = fs.readFileSync(
       path.join(__dirname, '..', 'factory', 'architect-runner.js'),
       'utf8',
     );
-    // Find any deadlineMs assignment of the form: deadlineMs = N * 60 * 1000
-    const matches = [...archSrc.matchAll(/deadlineMs\s*=\s*(\d+)\s*\*\s*60\s*\*\s*1000/g)];
-    expect(matches.length).toBeGreaterThan(0);
-    const innerDeadlineMs = Math.max(...matches.map((m) => Number(m[1]))) * 60 * 1000;
+    expect(archSrc).not.toMatch(/deadlineMs\s*=/);
     const cfg = getReplanRecoveryConfig();
-    expect(cfg.strategyTimeoutMs).toBeGreaterThanOrEqual(innerDeadlineMs);
+    expect(cfg.strategyTimeoutMs).toBeGreaterThan(0);
   });
 });
