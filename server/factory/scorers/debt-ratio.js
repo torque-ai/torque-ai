@@ -1,5 +1,13 @@
 'use strict';
 
+function isDebtRatioSelfReference(file) {
+  const normalizedFile = String(file || '').replace(/\\/g, '/');
+  return (
+    normalizedFile === 'server/factory/scorers/debt-ratio.js'
+    || normalizedFile.endsWith('/server/factory/scorers/debt-ratio.js')
+  );
+}
+
 function score(projectPath, scanReport, findingsDir) {
   void projectPath;
   void findingsDir;
@@ -9,7 +17,17 @@ function score(projectPath, scanReport, findingsDir) {
     return { score: 50, details: { source: 'no_data' }, findings: [] };
   }
 
-  const todoCount = todos.count || 0;
+  const todoItems = Array.isArray(todos.items) ? todos.items : null;
+  const selfReferenceCount = todoItems
+    ? todoItems.filter((entry) => isDebtRatioSelfReference(entry?.file)).length
+    : 0;
+  const scorableItems = todoItems
+    ? todoItems.filter((entry) => !isDebtRatioSelfReference(entry?.file))
+    : [];
+  const reportedCount = Number.isFinite(todos.count) && todos.count > 0 ? todos.count : null;
+  const todoCount = reportedCount !== null
+    ? Math.max(0, reportedCount - selfReferenceCount)
+    : scorableItems.length;
   const totalFiles = scanReport?.summary?.totalFiles || 1;
   const density = todoCount / totalFiles;
   const findings = [];
@@ -21,8 +39,8 @@ function score(projectPath, scanReport, findingsDir) {
   else if (density <= 0.2) s = 45;
   else s = 20;
 
-  if (todoCount > 0 && Array.isArray(todos.items)) {
-    const hacks = todos.items.filter(t => t.type === 'HACK' || t.type === 'FIXME' || t.type === 'XXX');
+  if (todoCount > 0 && todoItems) {
+    const hacks = scorableItems.filter(t => t.type === 'HACK' || t.type === 'FIXME' || t.type === 'XXX');
     if (hacks.length > 0) {
       s = Math.max(0, s - hacks.length * 5);
       for (const h of hacks.slice(0, 3)) {
