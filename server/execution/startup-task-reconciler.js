@@ -337,7 +337,18 @@ function reconcileOrphanedTasksOnStartup({
       if (original.status === 'retry_scheduled') {
         const retryCount = (typeof original.retry_count === 'number') ? original.retry_count : 0;
         const maxRetries = (typeof original.max_retries === 'number') ? original.max_retries : null;
-        const exhausted = maxRetries !== null && retryCount >= maxRetries;
+        // 2026-05-03 (bba865d8 fix): a retry_scheduled task whose timer was
+        // lost to a server restart hasn't actually consumed the SCHEDULED
+        // retry's budget — that retry never ran. retry-framework's
+        // `shouldRetry: retryCount <= maxRetries` lets the task into the
+        // scheduled state when retryCount==maxRetries (the final retry).
+        // The reconciler must mirror that: only treat the task as exhausted
+        // when retryCount EXCEEDS maxRetries (i.e. an additional failure
+        // beyond the budget-allowed retries). Using `>=` here would punish
+        // server-side restarts as if they were task-side failures, which
+        // led to plan_generation tasks being marked failed instead of
+        // re-queued every time a TORQUE cutover interrupted them.
+        const exhausted = maxRetries !== null && retryCount > maxRetries;
         if (exhausted) {
           taskCore.updateTaskStatus(original.id, 'failed', {
             error_output: `${original.error_output || ''}\n[startup-reconciler] retry budget exhausted (${retryCount}/${maxRetries}); retry_scheduled timer was lost to server restart`,

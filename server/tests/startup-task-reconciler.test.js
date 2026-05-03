@@ -682,7 +682,7 @@ describe('startup-task-reconciler — retry_scheduled orphans', () => {
     expect(after.status).toBe('queued');
   });
 
-  test('fails retry_scheduled task when retry budget is exhausted', () => {
+  test('fails retry_scheduled task when retry budget is exhausted (count > max)', () => {
     const id = randomUUID();
     taskCore.createTask({
       id,
@@ -695,8 +695,10 @@ describe('startup-task-reconciler — retry_scheduled orphans', () => {
     });
     // createTask does not set retry_count on insert (it's updated via retry
     // framework during runtime). Patch it directly so the exhaustion test
-    // exercises the real "count >= max" state.
-    db.getDbInstance().prepare('UPDATE tasks SET retry_count = ? WHERE id = ?').run(3, id);
+    // exercises the real exhausted state — retry_count strictly EXCEEDS
+    // max_retries, meaning even after granting the lost-timer attempt one
+    // re-queue, it would still exceed budget.
+    db.getDbInstance().prepare('UPDATE tasks SET retry_count = ? WHERE id = ?').run(4, id);
 
     const result = reconciler.reconcileOrphanedTasksOnStartup({
       db,
@@ -709,6 +711,44 @@ describe('startup-task-reconciler — retry_scheduled orphans', () => {
     const after = taskCore.getTask(id);
     expect(after.status).toBe('failed');
     expect(after.error_output).toMatch(/retry.*budget.*exhausted|startup-reconciler/i);
+  });
+
+  test('re-queues retry_scheduled task at the boundary (count == max) — lost-timer fairness', () => {
+    // Regression for bba865d8 (2026-05-03): a torque-public WI 517
+    // plan_generation task hit retry_scheduled with retry_count=2,
+    // max_retries=2 because the runtime had scheduled the FINAL retry
+    // (shouldRetry=(retryCount<=maxRetries)=(2<=2)=true). A TORQUE cutover
+    // killed the retry timer before it fired. Under the old `>=` check,
+    // the reconciler treated retryCount==maxRetries as exhausted and
+    // marked the task failed — even though the scheduled retry had never
+    // actually run. The fix mirrors retry-framework's shouldRetry: only
+    // exhaust when retryCount STRICTLY EXCEEDS maxRetries. The lost-timer
+    // attempt gets one re-queue chance; if it fails again the next
+    // increment pushes count past max and the normal failure path fires.
+    const id = randomUUID();
+    taskCore.createTask({
+      id,
+      task_description: 'final retry scheduled, timer lost to restart',
+      working_directory: testDir,
+      provider: 'claude-cli',
+      metadata: {},
+      status: 'retry_scheduled',
+      max_retries: 2,
+    });
+    db.getDbInstance().prepare('UPDATE tasks SET retry_count = ? WHERE id = ?').run(2, id);
+
+    const result = reconciler.reconcileOrphanedTasksOnStartup({
+      db,
+      taskCore,
+      getMcpInstanceId: () => 'current-instance',
+      isInstanceAlive: () => false,
+    });
+
+    expect(result.actions.retry_requeued).toBeGreaterThanOrEqual(1);
+    expect(result.actions.retry_exhausted_failed).toBe(0);
+    const after = taskCore.getTask(id);
+    expect(after.status).toBe('queued');
+    expect(after.error_output).toMatch(/re-queued after retry_scheduled timer was lost/);
   });
 
   test('conservatively promotes retry_scheduled task with null retry fields to queued', () => {
