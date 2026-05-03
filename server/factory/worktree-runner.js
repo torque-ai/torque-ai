@@ -5,6 +5,12 @@ const { spawn, execFileSync } = require('child_process');
 const { prepareLocalVerifyEnv } = require('../utils/local-verify-env');
 
 const CHILD_CLOSE_GRACE_MS = 250;
+// Verify commands run up to 30 minutes (`dotnet test`, vitest, etc.) and can
+// produce hundreds of MB of output. Cap stdout/stderr at 10 MB each so a
+// single noisy test run can't OOM the server or bloat the DB row this output
+// gets persisted to. Other parts of the codebase (test-runner-registry,
+// remote-test-routing) already use the same 10 MB cap.
+const MAX_CHILD_BUFFER_BYTES = 10 * 1024 * 1024;
 const NON_CODE_EXTENSIONS = new Set([
   '.md',
   '.txt',
@@ -61,8 +67,28 @@ function spawnTrackedProcessAsync(cmd, args, options = {}, spawnImpl = spawn) {
       }, options.timeout);
     }
 
-    child.stdout?.on('data', (chunk) => { stdout += chunk.toString('utf8'); });
-    child.stderr?.on('data', (chunk) => { stderr += chunk.toString('utf8'); });
+    let stdoutTruncated = false;
+    let stderrTruncated = false;
+    const truncationNotice = (stream, capBytes) =>
+      `\n[truncated: ${stream} exceeded ${capBytes} bytes]`;
+    child.stdout?.on('data', (chunk) => {
+      if (stdout.length >= MAX_CHILD_BUFFER_BYTES) return;
+      stdout += chunk.toString('utf8');
+      if (!stdoutTruncated && stdout.length >= MAX_CHILD_BUFFER_BYTES) {
+        stdoutTruncated = true;
+        stdout = stdout.slice(0, MAX_CHILD_BUFFER_BYTES)
+          + truncationNotice('stdout', MAX_CHILD_BUFFER_BYTES);
+      }
+    });
+    child.stderr?.on('data', (chunk) => {
+      if (stderr.length >= MAX_CHILD_BUFFER_BYTES) return;
+      stderr += chunk.toString('utf8');
+      if (!stderrTruncated && stderr.length >= MAX_CHILD_BUFFER_BYTES) {
+        stderrTruncated = true;
+        stderr = stderr.slice(0, MAX_CHILD_BUFFER_BYTES)
+          + truncationNotice('stderr', MAX_CHILD_BUFFER_BYTES);
+      }
+    });
     child.on('error', (err) => {
       finish({ status: 1, error: err });
     });
@@ -594,6 +620,7 @@ module.exports = {
   resolveSystemShellCommand,
   _internalForTests: {
     CHILD_CLOSE_GRACE_MS,
+    MAX_CHILD_BUFFER_BYTES,
     buildRemoteVerifyInvocation,
     defaultListChangedFiles,
     isNonCodeOnlyDiff,

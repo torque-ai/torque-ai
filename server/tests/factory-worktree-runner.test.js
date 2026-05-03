@@ -144,6 +144,39 @@ describe('async child process settlement', () => {
       error: { message: 'timeout after 1000ms' },
     });
   });
+
+  it('caps stdout/stderr at MAX_CHILD_BUFFER_BYTES with a truncation notice', async () => {
+    const child = createFakeChild();
+    const promise = _internalForTests.spawnTrackedProcessAsync(
+      'fake-cmd',
+      ['arg'],
+      {},
+      () => child,
+    );
+
+    const cap = _internalForTests.MAX_CHILD_BUFFER_BYTES;
+    expect(typeof cap).toBe('number');
+    expect(cap).toBeGreaterThan(0);
+
+    const chunkSize = 1024 * 1024;
+    const chunk = Buffer.alloc(chunkSize, 0x61); // 'a'
+    // Push enough data to exceed cap by ~5x.
+    const totalChunks = Math.ceil((cap / chunkSize) * 5);
+    for (let i = 0; i < totalChunks; i += 1) {
+      child.stdout.emit('data', chunk);
+      child.stderr.emit('data', chunk);
+    }
+
+    child.emit('exit', 0, null);
+    await vi.advanceTimersByTimeAsync(_internalForTests.CHILD_CLOSE_GRACE_MS);
+    const result = await promise;
+
+    expect(result.status).toBe(0);
+    expect(result.stdout.length).toBeLessThanOrEqual(cap + 200);
+    expect(result.stderr.length).toBeLessThanOrEqual(cap + 200);
+    expect(result.stdout).toContain('[truncated: stdout exceeded');
+    expect(result.stderr).toContain('[truncated: stderr exceeded');
+  });
 });
 
 describe('remote verify invocation builder', () => {
