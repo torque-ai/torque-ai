@@ -11,6 +11,12 @@ const {
   isValidState,
   getGatesForTrustLevel,
 } = require('./loop-states');
+const { createTransitionHelpers } = require('./transitions');
+const {
+  createStageSharedContext,
+  getDecisionActor,
+  normalizeDecisionStage,
+} = require('./stages/shared');
 const database = require('../database');
 const factoryDecisions = require('../db/factory-decisions');
 const factoryHealth = require('../db/factory-health');
@@ -70,16 +76,6 @@ const WORK_ITEM_STATUS_ORDER = Object.freeze([
 // rejection in the dashboard before the next attempt fires.
 const NEEDS_REPLAN_COOLDOWN_MS = 5 * 60 * 1000;
 
-const DECISION_STAGE_ACTORS = Object.freeze({
-  sense: 'health_model',
-  prioritize: 'architect',
-  plan: 'planner',
-  plan_review: 'reviewer',
-  execute: 'executor',
-  verify: 'verifier',
-  learn: 'verifier',
-});
-
 const PRIORITIZE_SOURCE_BASE_SCORES = Object.freeze({
   plan_file: 82,
   manual: 76,
@@ -113,6 +109,12 @@ const CLOSED_WORK_ITEM_STATUSES = factoryIntake.CLOSED_STATUSES || new Set([
   'superseded',
   'escalation_exhausted',
 ]);
+
+const {
+  getDecisionBatchId,
+  getFactorySubmissionBatchId,
+  getWorkItemDecisionContext,
+} = createStageSharedContext();
 
 let sharedWorktreeRunner = null;
 let worktreeRunnerTestOverride = undefined; // undefined = auto; null = disabled; object = forced runner
@@ -1522,73 +1524,6 @@ function moveInstanceToStage(instance, stage, updates = {}) {
       ? updates.work_item_id
       : claimed.work_item_id,
   });
-}
-
-function tryMoveInstanceToStage(instance, stage, updates = {}) {
-  try {
-    return {
-      instance: moveInstanceToStage(instance, stage, updates),
-      blocked: false,
-    };
-  } catch (error) {
-    if (error instanceof StageOccupiedError) {
-      return {
-        instance: parkInstanceForStage(instance, stage),
-        blocked: true,
-        error,
-      };
-    }
-    throw error;
-  }
-}
-
-function normalizeDecisionStage(stage) {
-  if (!stage || typeof stage !== 'string') {
-    return null;
-  }
-  const normalized = stage.toLowerCase();
-  return DECISION_STAGE_ACTORS[normalized] ? normalized : null;
-}
-
-function getDecisionActor(stage, actor) {
-  const normalizedStage = normalizeDecisionStage(stage);
-  if (actor) {
-    return actor;
-  }
-  return normalizedStage ? DECISION_STAGE_ACTORS[normalizedStage] : null;
-}
-
-function getDecisionBatchId(project, workItem, explicitBatchId, instance = null) {
-  return explicitBatchId
-    || workItem?.batch_id
-    || instance?.batch_id
-    || project?.loop_batch_id
-    || null;
-}
-
-function getFactorySubmissionBatchId(project, workItem, instance = null) {
-  return getDecisionBatchId(project, workItem, null, instance)
-    || (project?.id && workItem?.id != null ? `factory-${project.id}-${workItem.id}` : null);
-}
-
-function getWorkItemDecisionContext(workItem) {
-  if (!workItem) {
-    return {
-      work_item_id: null,
-      priority: null,
-      work_item_status: null,
-      work_item_source: null,
-      plan_path: null,
-    };
-  }
-
-  return {
-    work_item_id: workItem.id ?? null,
-    priority: workItem.priority ?? null,
-    work_item_status: workItem.status || null,
-    work_item_source: workItem.source || null,
-    plan_path: workItem.origin?.plan_path || null,
-  };
 }
 
 function parseJsonObject(value) {
@@ -3476,109 +3411,15 @@ function recordVerifyFailAlertDecision(entry) {
   }
 }
 
-function logTransitionDecision({
-  project,
-  currentState,
-  nextState,
-  pausedAtStage,
-  reason,
-  workItem,
-  batchId,
-}) {
-  const effectiveBatchId = getDecisionBatchId(project, workItem, batchId);
-
-  if (nextState === LOOP_STATES.PAUSED) {
-    safeLogDecision({
-      project_id: project.id,
-      stage: pausedAtStage,
-      actor: 'human',
-      action: 'paused_at_gate',
-      reasoning: `Loop paused awaiting approval for ${pausedAtStage}.`,
-      inputs: {
-        previous_state: currentState,
-        trust_level: project.trust_level,
-      },
-      outcome: {
-        from_state: currentState,
-        to_state: nextState,
-        gate_stage: pausedAtStage || null,
-        reason: reason || null,
-        ...getWorkItemDecisionContext(workItem),
-      },
-      confidence: 1,
-      batch_id: effectiveBatchId,
-    });
-    return;
-  }
-
-  if (nextState === LOOP_STATES.EXECUTE && currentState !== LOOP_STATES.EXECUTE) {
-    safeLogDecision({
-      project_id: project.id,
-      stage: LOOP_STATES.EXECUTE,
-      action: 'started_execution',
-      reasoning: `Loop advanced into ${LOOP_STATES.EXECUTE}.`,
-      inputs: {
-        previous_state: currentState,
-        trust_level: project.trust_level,
-      },
-      outcome: {
-        from_state: currentState,
-        to_state: nextState,
-        reason: reason || null,
-        batch_id: effectiveBatchId,
-        ...getWorkItemDecisionContext(workItem),
-      },
-      confidence: 1,
-      batch_id: effectiveBatchId,
-    });
-    return;
-  }
-
-  if (nextState === LOOP_STATES.VERIFY && currentState === LOOP_STATES.EXECUTE) {
-    safeLogDecision({
-      project_id: project.id,
-      stage: LOOP_STATES.VERIFY,
-      action: 'entered_from_execute',
-      reasoning: `Loop advanced from ${currentState} to ${nextState}.`,
-      inputs: {
-        previous_state: currentState,
-        trust_level: project.trust_level,
-      },
-      outcome: {
-        from_state: currentState,
-        to_state: nextState,
-        paused_at_stage: pausedAtStage || null,
-        reason: reason || null,
-        batch_id: effectiveBatchId,
-        ...getWorkItemDecisionContext(workItem),
-      },
-      confidence: 1,
-      batch_id: effectiveBatchId,
-    });
-    return;
-  }
-
-  safeLogDecision({
-    project_id: project.id,
-    stage: currentState,
-    action: `advance_from_${String(currentState).toLowerCase()}`,
-    reasoning: `Loop advanced from ${currentState} to ${nextState}.`,
-    inputs: {
-      previous_state: currentState,
-      trust_level: project.trust_level,
-    },
-    outcome: {
-      from_state: currentState,
-      to_state: nextState,
-      paused_at_stage: pausedAtStage || null,
-      reason: reason || null,
-      batch_id: effectiveBatchId,
-      ...getWorkItemDecisionContext(workItem),
-    },
-    confidence: 1,
-    batch_id: effectiveBatchId,
-  });
-}
+const { tryMoveInstanceToStage, logTransitionDecision } = createTransitionHelpers({
+  StageOccupiedError,
+  getDecisionBatchId,
+  getWorkItemDecisionContext,
+  loopStates: LOOP_STATES,
+  moveInstanceToStage,
+  parkInstanceForStage,
+  safeLogDecision,
+});
 
 function executeSenseStage(project_id, instance = null) {
   const project = getProjectOrThrow(project_id);
