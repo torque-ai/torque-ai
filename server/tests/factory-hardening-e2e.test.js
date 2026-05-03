@@ -479,41 +479,33 @@ describe('factory hardening end-to-end', () => {
     // The right behavior: when batchHasAutoCommittedTask returns false but
     // the branch has commits ahead of base, advance to VERIFY anyway —
     // the agent's self-commits did the work.
-    const childProc = require('child_process');
+    //
+    // git-test-utils.js bypasses the worker-setup git stub (which would
+    // make rev-list return empty); importing it also globally restores
+    // the real execFileSync so production code in the helper sees a real
+    // git repo, not the stub.
+    const { gitSync } = require('./git-test-utils');
 
     // Build a real git repo so the rev-list helper has something to count.
-    // Pin defaultBranch=master so this works regardless of the host's
-    // git init.defaultBranch global config (older gits default to 'master',
-    // newer gits to 'main' — without pinning, the test would be flaky).
     const repoPath = path.join(testDir, 'agent-self-commit-repo');
     fs.mkdirSync(repoPath, { recursive: true });
-    const gitOpts = {
-      cwd: repoPath,
-      env: {
-        ...process.env,
-        GIT_AUTHOR_NAME: 't',
-        GIT_AUTHOR_EMAIL: 't@t',
-        GIT_COMMITTER_NAME: 't',
-        GIT_COMMITTER_EMAIL: 't@t',
-      },
-      windowsHide: true,
-    };
-    childProc.execFileSync('git', ['init', '-q'], gitOpts);
-    childProc.execFileSync('git', ['config', 'commit.gpgsign', 'false'], gitOpts);
+    gitSync(['init'], { cwd: repoPath });
+    gitSync(['config', 'user.email', 'test@test.com'], { cwd: repoPath });
+    gitSync(['config', 'user.name', 'Test'], { cwd: repoPath });
+    gitSync(['config', 'commit.gpgsign', 'false'], { cwd: repoPath });
     fs.writeFileSync(path.join(repoPath, 'README.md'), '# base\n', 'utf8');
-    childProc.execFileSync('git', ['add', '.'], gitOpts);
-    childProc.execFileSync('git', ['commit', '-q', '-m', 'base'], gitOpts);
+    gitSync(['add', '.'], { cwd: repoPath });
+    gitSync(['commit', '-m', 'base', '--no-gpg-sign'], { cwd: repoPath });
     // Rename whatever the default branch is (master/main depending on git
     // version) to 'master' so the helper's rev-list query has the right ref.
-    childProc.execFileSync('git', ['branch', '-M', 'master'], gitOpts);
-    childProc.execFileSync('git', ['checkout', '-q', '-b', 'feat/agent-self-commits'], gitOpts);
+    gitSync(['branch', '-M', 'master'], { cwd: repoPath });
+    gitSync(['checkout', '-b', 'feat/agent-self-commits'], { cwd: repoPath });
     fs.writeFileSync(path.join(repoPath, 'agent.txt'), 'agent committed this\n', 'utf8');
-    childProc.execFileSync('git', ['add', '.'], gitOpts);
-    childProc.execFileSync('git', ['commit', '-q', '-m', 'agent: typing stubs'], gitOpts);
+    gitSync(['add', '.'], { cwd: repoPath });
+    gitSync(['commit', '-m', 'agent: typing stubs', '--no-gpg-sign'], { cwd: repoPath });
 
     // Direct sanity-check that the test repo is in the expected state.
-    const masterToHead = childProc.execFileSync('git', ['rev-list', '--count', 'master..HEAD'], gitOpts).toString().trim();
-    expect(masterToHead).toBe('1');
+    expect(gitSync(['rev-list', '--count', 'master..HEAD'], { cwd: repoPath })).toBe('1');
 
     const project = createProject({ config: { execute_mode: 'suppress' } });
     const planPath = writePlanFile();
