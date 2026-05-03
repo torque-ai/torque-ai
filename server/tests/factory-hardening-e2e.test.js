@@ -498,12 +498,14 @@ describe('factory hardening end-to-end', () => {
       },
       windowsHide: true,
     };
-    childProc.execFileSync('git', ['-c', 'init.defaultBranch=master', 'init', '-q'], gitOpts);
-    childProc.execFileSync('git', ['symbolic-ref', 'HEAD', 'refs/heads/master'], gitOpts);
+    childProc.execFileSync('git', ['init', '-q'], gitOpts);
     childProc.execFileSync('git', ['config', 'commit.gpgsign', 'false'], gitOpts);
     fs.writeFileSync(path.join(repoPath, 'README.md'), '# base\n', 'utf8');
     childProc.execFileSync('git', ['add', '.'], gitOpts);
     childProc.execFileSync('git', ['commit', '-q', '-m', 'base'], gitOpts);
+    // Rename whatever the default branch is (master/main depending on git
+    // version) to 'master' so the helper's rev-list query has the right ref.
+    childProc.execFileSync('git', ['branch', '-M', 'master'], gitOpts);
     childProc.execFileSync('git', ['checkout', '-q', '-b', 'feat/agent-self-commits'], gitOpts);
     fs.writeFileSync(path.join(repoPath, 'agent.txt'), 'agent committed this\n', 'utf8');
     childProc.execFileSync('git', ['add', '.'], gitOpts);
