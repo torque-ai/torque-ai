@@ -410,11 +410,31 @@ function parseFailingTests(verifyOutput) {
   return Array.from(paths);
 }
 
+// `git diff` can hang if the index is locked or the filesystem is wedged.
+// Without a timeout, this Promise never resolves and the caller — the
+// verify-review classifier inside the auto-recovery loop — blocks
+// indefinitely, taking the whole recovery loop down with it. Cap at 15s:
+// `git diff --name-only` on a healthy repo finishes in <1s; anything past
+// that is a sign of trouble, and an empty result lets the classifier fall
+// back to its less-informed branches rather than wedge.
+const GET_MODIFIED_FILES_TIMEOUT_MS = 15_000;
+
 async function getModifiedFiles(workingDirectory, worktreeBranch, mergeBase) {
   if (!workingDirectory || !worktreeBranch || !mergeBase) return [];
   return new Promise((resolve) => {
     let stdout = '';
     let child;
+    let settled = false;
+    let timeoutHandle = null;
+    const finish = (value) => {
+      if (settled) return;
+      settled = true;
+      if (timeoutHandle) {
+        clearTimeout(timeoutHandle);
+        timeoutHandle = null;
+      }
+      resolve(value);
+    };
     try {
       child = childProcess.spawn('git', ['diff', '--name-only', `${mergeBase}...${worktreeBranch}`], {
         cwd: workingDirectory,
@@ -422,18 +442,23 @@ async function getModifiedFiles(workingDirectory, worktreeBranch, mergeBase) {
         windowsHide: true,
       });
     } catch (_e) {
-      resolve([]);
+      finish([]);
       return;
     }
+    timeoutHandle = setTimeout(() => {
+      try { child.kill('SIGKILL'); } catch { /* ignore */ }
+      finish([]);
+    }, GET_MODIFIED_FILES_TIMEOUT_MS);
+    timeoutHandle.unref?.();
     child.stdout.on('data', (c) => { stdout += c.toString('utf8'); });
-    child.on('error', () => resolve([]));
+    child.on('error', () => finish([]));
     child.on('close', (code) => {
-      if (code !== 0) return resolve([]);
+      if (code !== 0) return finish([]);
       const paths = stdout
         .split('\n')
         .map((l) => l.trim())
         .filter((l) => l.length > 0);
-      resolve(paths);
+      finish(paths);
     });
   });
 }
