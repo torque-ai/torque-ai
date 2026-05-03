@@ -211,7 +211,15 @@ describe('factory pause/resume audit handlers', () => {
       source: 'mcp',
     });
 
-    expect(mockFactoryHealth.updateProject).toHaveBeenCalledWith(projectId, { status: 'paused' });
+    expect(mockFactoryHealth.updateProject).toHaveBeenCalledWith(projectId, expect.objectContaining({
+      status: 'paused',
+      config_json: expect.any(String),
+    }));
+    const pauseConfig = JSON.parse(mockFactoryHealth.updateProject.mock.calls[0][1].config_json);
+    expect(pauseConfig.loop).toMatchObject({
+      operator_paused: true,
+      operator_pause_reason: 'manual',
+    });
     expect(listRows()).toEqual([
       expect.objectContaining({
         project_id: projectId,
@@ -235,7 +243,10 @@ describe('factory pause/resume audit handlers', () => {
       source: 'mcp',
     });
 
-    expect(mockFactoryHealth.updateProject).toHaveBeenCalledWith(projectId, { status: 'running' });
+    expect(mockFactoryHealth.updateProject).toHaveBeenCalledWith(projectId, expect.objectContaining({
+      status: 'running',
+      config_json: null,
+    }));
     expect(listRows()).toEqual([
       expect.objectContaining({
         project_id: projectId,
