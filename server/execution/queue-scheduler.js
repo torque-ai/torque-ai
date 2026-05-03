@@ -26,6 +26,7 @@ const providerRegistry = require('../providers/registry');
 const serverConfig = require('../config');
 const gpuMetrics = require('../scripts/gpu-metrics-server');
 const { normalizeMetadata } = require('../utils/normalize-metadata');
+const { normalizeTaskStartOutcome } = require('../utils/task-start-outcome');
 const { DEFAULT_FALLBACK_MODEL } = require('../constants');
 const { resolveOllamaModel } = require('../providers/ollama-shared');
 const modelRoles = require('../db/model-roles');
@@ -160,32 +161,6 @@ function init(deps) {
   _queueChangedListener[QUEUE_CHANGED_LISTENER_TAG] = true;
   process.on(QUEUE_CHANGED_EVENT, _queueChangedListener);
   ensureExitCleanup();
-}
-
-function normalizeTaskStartOutcome(result) {
-  if (result && typeof result === 'object' && (
-    Object.prototype.hasOwnProperty.call(result, 'started')
-    || Object.prototype.hasOwnProperty.call(result, 'queued')
-    || Object.prototype.hasOwnProperty.call(result, 'pendingAsync')
-    || Object.prototype.hasOwnProperty.call(result, 'failed')
-  )) {
-    return {
-      started: result.started === true,
-      queued: result.queued === true,
-      pendingAsync: result.pendingAsync === true,
-      failed: result.failed === true,
-      reason: result.reason,
-      code: result.code,
-      error: result.error,
-    };
-  }
-
-  return {
-    started: Boolean(result),
-    queued: false,
-    pendingAsync: false,
-    failed: !result,
-  };
 }
 
 function attemptTaskStart(taskId, label) {
