@@ -529,7 +529,12 @@ describe('provider-routing-core', () => {
         },
       });
 
-      expect(core.analyzeTaskForRouting('Write docs', 'C:/repo')).toEqual({
+      // 2026-05-03: analyzeTaskForRouting now also attaches the
+      // routing_decision_trace to its result for downstream
+      // observability. Use toMatchObject so the trace doesn't bust
+      // these strict-equality assertions; the trace's own contract is
+      // covered by tests/routing-trace.test.js.
+      expect(core.analyzeTaskForRouting('Write docs', 'C:/repo')).toMatchObject({
         provider: 'claude-cli',
         rule: null,
         reason: 'Smart routing disabled',
@@ -552,7 +557,7 @@ describe('provider-routing-core', () => {
 
       const result = core.analyzeTaskForRouting('Write docs', 'C:/repo');
 
-      expect(result).toEqual({
+      expect(result).toMatchObject({
         provider: 'claude-cli',
         rule: null,
         reason: 'Smart routing disabled',
@@ -974,7 +979,9 @@ describe('provider-routing-core', () => {
 
       const result = core.analyzeTaskForRouting('Perform a generic task', 'C:/repo');
 
-      expect(result).toEqual({
+      // toMatchObject: routing_decision_trace was added 2026-05-03
+      // and is asserted in tests/routing-trace.test.js.
+      expect(result).toMatchObject({
         provider: 'codex',
         rule: null,
         reason: 'No rule matched, using smart routing default: codex',
@@ -997,7 +1004,7 @@ describe('provider-routing-core', () => {
 
       const result = core.analyzeTaskForRouting('Perform a generic task', 'C:/repo');
 
-      expect(result).toEqual({
+      expect(result).toMatchObject({
         provider: 'claude-cli',
         rule: null,
         reason: 'No rule matched, using smart routing default: codex',

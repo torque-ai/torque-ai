@@ -1,0 +1,33 @@
+{
+  "name": "Legacy Fallback (auto)",
+  "description": "Catch-all tail template that mirrors the historical hardcoded matchProviderByPattern routing — runs only when no explicit per-task or active template returned a chain. Each category lists the providers that the old hardcoded code preferred for that intent. Operators can edit, disable, or replace this template like any other; it is not given any special standing beyond running last in the template chain. Categories with empty chains intentionally fall through to the next routing stage (complexity / legacy DB rules / default provider).",
+  "rules": {
+    "security": [
+      {"provider": "anthropic"},
+      {"provider": "claude-cli"}
+    ],
+    "xaml_wpf": [
+      {"provider": "codex"}
+    ],
+    "architectural": [
+      {"provider": "deepinfra"},
+      {"provider": "hyperbolic"},
+      {"provider": "ollama-cloud"}
+    ],
+    "reasoning": [
+      {"provider": "deepinfra"},
+      {"provider": "hyperbolic"},
+      {"provider": "ollama-cloud"}
+    ],
+    "large_code_gen": [
+      {"provider": "deepinfra"},
+      {"provider": "hyperbolic"},
+      {"provider": "ollama-cloud"}
+    ],
+    "documentation": [],
+    "simple_generation": [],
+    "plan_generation": [],
+    "targeted_file_edit": [],
+    "default": []
+  }
+}

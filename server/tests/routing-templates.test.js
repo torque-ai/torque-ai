@@ -85,6 +85,41 @@ describe('seedPresets', () => {
     expect(providers.length).toBeGreaterThanOrEqual(2);
   });
 
+  it('Legacy Fallback (auto) preset exists with the categories promoted from matchProviderByPattern', () => {
+    // Phase A of the routing-templates fold-in: the security / xaml_wpf
+    // / architectural / reasoning / large_code_gen routing that used to
+    // live as hardcoded if-blocks in db/smart-routing.js
+    // matchProviderByPattern was promoted into this preset. The preset
+    // runs as the tail template (after explicit per-task / active
+    // templates) so operators can read, edit, or disable the rules
+    // visibly. The hardcoded matchProviderByPattern remains as a
+    // defense-in-depth fallback for environments where the preset
+    // isn't seeded.
+    const tmpl = mod.getTemplateByName('Legacy Fallback (auto)');
+    expect(tmpl).not.toBeNull();
+    expect(tmpl.preset).toBe(true);
+    // security category mirrors the old "anthropic → claude-cli" cascade.
+    const securityChain = Array.isArray(tmpl.rules.security)
+      ? tmpl.rules.security
+      : [tmpl.rules.security];
+    const securityProviders = securityChain.map((r) => (typeof r === 'string' ? r : r.provider));
+    expect(securityProviders).toEqual(['anthropic', 'claude-cli']);
+    // xaml_wpf went to codex.
+    const xamlChain = Array.isArray(tmpl.rules.xaml_wpf) ? tmpl.rules.xaml_wpf : [tmpl.rules.xaml_wpf];
+    expect(xamlChain.map((r) => r.provider)).toEqual(['codex']);
+    // The three large-model categories share the deepinfra → hyperbolic → ollama-cloud chain.
+    for (const cat of ['architectural', 'reasoning', 'large_code_gen']) {
+      const chain = Array.isArray(tmpl.rules[cat]) ? tmpl.rules[cat] : [tmpl.rules[cat]];
+      expect(chain.map((r) => r.provider)).toEqual(['deepinfra', 'hyperbolic', 'ollama-cloud']);
+    }
+    // Categories not handled by matchProviderByPattern have empty chains
+    // so they fall through to the next pipeline stage (complexity / legacy
+    // rules / default) instead of being rescued by the preset's default.
+    for (const cat of ['documentation', 'simple_generation', 'plan_generation', 'targeted_file_edit', 'default']) {
+      expect(tmpl.rules[cat]).toEqual([]);
+    }
+  });
+
   it('Quality First routes plan_generation to codex first, not ollama-cloud', () => {
     const tmpl = mod.getTemplateByName('Quality First');
     expect(tmpl).not.toBeNull();

@@ -40,6 +40,7 @@
 const KNOWN_STAGES = Object.freeze({
   TEMPLATE_PER_TASK: 'template_per_task',
   TEMPLATE_ACTIVE: 'template_active',
+  TEMPLATE_LEGACY_FALLBACK: 'template_legacy_fallback',
   PATTERN_MATCH: 'pattern_match',
   COMPLEXITY: 'complexity',
   LEGACY_RULE: 'legacy_rule',
