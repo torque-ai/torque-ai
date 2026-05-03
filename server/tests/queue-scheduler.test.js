@@ -6,6 +6,7 @@
  * All dependencies are mocked via init().
  */
 const { TEST_MODELS } = require('./test-helpers');
+const { normalizeTaskStartOutcome } = require('../utils/task-start-outcome');
 
 // Provider registry mock — getCategory is used by categorizeQueuedTasks, not hoisted
 vi.mock('../providers/registry', () => {
@@ -155,6 +156,45 @@ describe('Queue Scheduler', () => {
   });
 
   // ── Helper ────────────────────────────────────────────────
+
+  describe('task start outcome normalization', () => {
+    it('keeps the queue scheduler export wired to the shared helper', () => {
+      expect(scheduler.normalizeTaskStartOutcome).toBe(normalizeTaskStartOutcome);
+    });
+
+    it('does not consume codex capacity when a structured capacity outcome is returned', () => {
+      const attemptTaskStart = vi.fn()
+        .mockReturnValueOnce({ failed: true, reason: 'capacity', code: 'NO_SLOT' })
+        .mockReturnValueOnce({ started: true });
+
+      scheduler.init({
+        db: mockDb,
+        ...mocks,
+        attemptTaskStart,
+      });
+
+      mockDb.getRunningCount.mockReturnValue(0);
+      mockDb.listTasks.mockImplementation(({ status }) => {
+        if (status === 'queued') {
+          return [
+            makeTask({ id: 'codex-capacity', provider: 'codex' }),
+            makeTask({ id: 'codex-open', provider: 'codex' }),
+          ];
+        }
+        return [];
+      });
+      mockDb.getConfig.mockImplementation((key) => {
+        if (key === 'codex_enabled') return '1';
+        return null;
+      });
+
+      scheduler.processQueueInternal();
+
+      expect(attemptTaskStart).toHaveBeenNthCalledWith(1, 'codex-capacity', 'codex');
+      expect(attemptTaskStart).toHaveBeenNthCalledWith(2, 'codex-open', 'codex');
+      expect(mocks.safeStartTask).not.toHaveBeenCalled();
+    });
+  });
 
   function makeTask(overrides = {}) {
     return {
@@ -1664,6 +1704,16 @@ describe('Queue Scheduler', () => {
     });
 
     it('fallback: skips a queue head that re-queues and tries the next task', () => {
+      const attemptTaskStart = vi.fn()
+        .mockReturnValueOnce({ queued: true })
+        .mockReturnValueOnce({ started: true });
+
+      scheduler.init({
+        db: mockDb,
+        ...mocks,
+        attemptTaskStart,
+      });
+
       mockDb.getRunningCount.mockReturnValue(0);
       mockDb.listTasks.mockImplementation(({ status }) => {
         if (status === 'queued') {
@@ -1678,15 +1728,15 @@ describe('Queue Scheduler', () => {
       mockDb.selectOllamaHostForModel.mockReturnValue({ host: null, reason: 'no host' });
       mockDb.getConfig.mockReturnValue(null);
       mockDb.getNextQueuedTask.mockReturnValue({ id: 'fb-head', provider: 'ollama' });
-      mocks.safeStartTask.mockImplementation((id, source) => source === 'fallback' && id === 'fb-next');
 
       scheduler.processQueueInternal();
 
-      const fallbackCalls = mocks.safeStartTask.mock.calls.filter((c) => c[1] === 'fallback');
+      const fallbackCalls = attemptTaskStart.mock.calls.filter((c) => c[1] === 'fallback');
       expect(fallbackCalls).toEqual([
         ['fb-head', 'fallback'],
         ['fb-next', 'fallback'],
       ]);
+      expect(mocks.safeStartTask).not.toHaveBeenCalled();
     });
 
     it('skips queued tasks blocked by approval gate status', () => {

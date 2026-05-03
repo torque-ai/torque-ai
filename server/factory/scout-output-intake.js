@@ -3,6 +3,7 @@
 const fs = require('fs');
 const path = require('path');
 const { StreamSignalParser } = require('../diffusion/stream-signal-parser');
+const { normalizeMetadata } = require('../utils/normalize-metadata');
 
 const STARVATION_RECOVERY_REASON = 'factory_starvation_recovery';
 const MAX_TITLE_LENGTH = 140;
@@ -19,23 +20,6 @@ const SIGNAL_MARKERS = {
   scout_discovery: ['__SCOUT_DISCOVERY__', '__SCOUT_DISCOVERY_END__'],
   scout_complete: ['__SCOUT_COMPLETE__', '__SCOUT_COMPLETE_END__'],
 };
-
-function normalizeMetadata(metadata) {
-  if (!metadata) {
-    return {};
-  }
-  if (typeof metadata === 'object') {
-    return metadata;
-  }
-  if (typeof metadata !== 'string') {
-    return {};
-  }
-  try {
-    return JSON.parse(metadata);
-  } catch {
-    return {};
-  }
-}
 
 function isStarvationRecoveryScoutTask(task) {
   const metadata = normalizeMetadata(task?.metadata);
