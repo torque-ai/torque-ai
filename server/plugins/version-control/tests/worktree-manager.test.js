@@ -525,10 +525,39 @@ describe('version-control worktree manager', () => {
         throw new Error('Permission denied');
       }
 
+      if (args[0] === 'rmdir' || args[0] === 'rm') {
+        throw new Error('Permission denied');
+      }
+
       return '';
     });
+    // Block every fallback layer so cleanup_failed actually bubbles up.
+    // The 2026-05-03 fs-lock-recovery fix added forceRmSync + quarantine
+    // fallbacks to cleanupWorktree's catch; the unrecoverable post-merge
+    // case requires all of them to fail (otherwise cleanup quietly
+    // succeeds via fallback — see the dedicated fs-lock fallback test).
+    const originalRmSync = fs.rmSync;
+    const originalRenameSync = fs.renameSync;
+    const rmSpy = vi.spyOn(fs, 'rmSync').mockImplementation((target, options) => {
+      if (path.resolve(String(target)) === path.resolve(worktreePath)) {
+        throw new Error('Permission denied');
+      }
+      return originalRmSync.call(fs, target, options);
+    });
+    const renameSpy = vi.spyOn(fs, 'renameSync').mockImplementation((src, dest) => {
+      if (path.resolve(String(src)) === path.resolve(worktreePath)) {
+        throw new Error('Permission denied');
+      }
+      return originalRenameSync.call(fs, src, dest);
+    });
 
-    const result = manager.mergeWorktree('wt-merge-cleanup-fail');
+    let result;
+    try {
+      result = manager.mergeWorktree('wt-merge-cleanup-fail');
+    } finally {
+      rmSpy.mockRestore();
+      renameSpy.mockRestore();
+    }
 
     expect(result).toMatchObject({
       merged: true,
@@ -679,6 +708,48 @@ describe('version-control worktree manager', () => {
       killSignal: 'SIGKILL',
     });
     expect(manager.getWorktree('wt-cleanup')).toBeNull();
+  });
+
+  it('falls back to forceRmSync when git worktree remove --force hits a Windows file lock', () => {
+    // Regression for task 65072ba9-6b7b-4886-937b-d6fb665db468 (2026-05-03):
+    // a freshly-failed codex EXECUTE left the worktree dir locked by AV
+    // scanner / lingering process handles. The next factory tick's
+    // pre_reclaim_before_create called cleanupWorktree, which threw
+    // "Permission denied" out of `git worktree remove --force` and bubbled
+    // up to the auto-recovery rule that immediately rejected the work
+    // item. cleanupWorktree should fall through to the layered forceRmSync
+    // (chmod-clear-readonly → shell rmdir) on FS-lock errors, the same
+    // way createWorktree does.
+    const repoPath = makeRepoRoot();
+    const wtPath = path.join(repoPath, '.worktrees', 'feat-fs-lock');
+    insertWorktree({
+      id: 'wt-fs-lock',
+      repo_path: repoPath,
+      worktree_path: wtPath,
+      branch: 'feat/fs-lock',
+    });
+
+    execFileSyncMock.mockImplementation((cmd, args) => {
+      if (cmd === 'git' && Array.isArray(args)
+          && args[0] === 'worktree' && args[1] === 'remove') {
+        const err = new Error(
+          `Command failed: git worktree remove --force ${wtPath}\n`
+          + `error: failed to delete '${wtPath}': Permission denied\n`
+        );
+        err.stderr = `error: failed to delete '${wtPath}': Permission denied`;
+        throw err;
+      }
+      return '';
+    });
+
+    const result = manager.cleanupWorktree('wt-fs-lock');
+
+    expect(result.removed).toBe(true);
+    expect(result.warnings.some(
+      (w) => /forceRmSync after fs lock|quarantined stale path/.test(w)
+    )).toBe(true);
+    expect(fs.existsSync(wtPath)).toBe(false);
+    expect(manager.getWorktree('wt-fs-lock')).toBeNull();
   });
 
   it('removes the current worktree when only older same-path db siblings exist', () => {

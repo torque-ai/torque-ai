@@ -1039,11 +1039,18 @@ function classifyError(errorOutput, exitCode) {
   }
 
   // Signal-terminated subprocess (captured by the 'close' handler as
-  // "[process-exit] terminated by signal X") — distinct from a normal
-  // non-zero exit so ops can tell killed-by-OS from app-level failures.
-  const signalMatch = errorText.match(/\[process-exit\] terminated by signal (SIG[A-Z]+|\d+)/);
-  if (signalMatch) {
-    return makeResult(true, `Process killed by signal ${signalMatch[1]}`);
+  // "[process-exit] terminated by signal X" in the legacy format, or
+  // "[process-exit] code=X signal=Y ..." in the structured format) —
+  // distinct from a normal non-zero exit so ops can tell killed-by-OS
+  // from app-level failures. Both formats are matched so the classifier
+  // works against historical task records and future ones interchangeably.
+  const legacySignalMatch = errorText.match(/\[process-exit\] terminated by signal (SIG[A-Z]+|\d+)/);
+  if (legacySignalMatch) {
+    return makeResult(true, `Process killed by signal ${legacySignalMatch[1]}`);
+  }
+  const structuredSignalMatch = errorText.match(/\[process-exit\][^\n]*\bsignal=(SIG[A-Z]+|\d+)\b/);
+  if (structuredSignalMatch) {
+    return makeResult(true, `Process killed by signal ${structuredSignalMatch[1]}`);
   }
 
   // Subprocess exit sentinels from execute-cli.js

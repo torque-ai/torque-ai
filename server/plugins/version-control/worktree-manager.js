@@ -1127,11 +1127,45 @@ function createWorktree(repoPath, featureName, options = {}) {
         runGit(existing.repo_path, removeArgs);
       } catch (error) {
         const gitMessage = extractGitError(error);
-        if (!/is not a working tree/i.test(gitMessage)) {
+        const isNotWorkingTree = /is not a working tree/i.test(gitMessage);
+        // Windows file-lock failures (AV scanner, recently-terminated process
+        // still holding handles, indexer, etc.) surface as "Permission denied"
+        // / EBUSY / EPERM / "Access is denied" / "being used by another
+        // process" from `git worktree remove --force`. These are transient FS
+        // conditions, not structural failures — fall through to the layered
+        // forceRmSync (chmod-clear-readonly → shell rmdir) and quarantine
+        // fallbacks already used by createWorktree, instead of bubbling up and
+        // tripping auto-recovery's structural-failure rule which immediately
+        // rejects the work item. Live evidence 2026-05-03 (task
+        // 65072ba9-6b7b-4886-937b-d6fb665db468): pre_reclaim_before_create
+        // threw Permission denied here, the entire OTLP-spans work item was
+        // discarded by reject_and_advance.
+        const isFsLock = /Permission denied|EBUSY|EPERM|EACCES|access is denied|being used by another process/i.test(gitMessage);
+        if (!isNotWorkingTree && !isFsLock) {
           throw error;
         }
-        forceRmSync(existing.worktree_path);
-        warnings.push(`git worktree remove skipped stale path: ${gitMessage}`);
+        try {
+          forceRmSync(existing.worktree_path);
+          warnings.push(
+            isNotWorkingTree
+              ? `git worktree remove skipped stale path: ${gitMessage}`
+              : `git worktree remove fell back to forceRmSync after fs lock: ${gitMessage}`
+          );
+        } catch (_rmErr) {
+          // Layered cleanup couldn't unlink either. Try quarantine — rename
+          // the path out of the way so the factory can recreate at the
+          // original path on the next attempt. If quarantine also fails,
+          // surface the original git error so the operator can diagnose.
+          let quarantinePath = null;
+          try {
+            quarantinePath = quarantineStalePathSync(existing.worktree_path);
+          } catch (_qErr) {
+            throw error;
+          }
+          warnings.push(
+            `git worktree remove quarantined stale path to ${quarantinePath} after fs lock: ${gitMessage}`
+          );
+        }
       }
     } else {
       warnings.push('worktree path missing; removed stale database row');

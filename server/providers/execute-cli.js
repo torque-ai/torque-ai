@@ -930,13 +930,29 @@ function spawnAndTrackProcess(taskId, task, cmdSpec, provider) {
       const rawErrorOutput = proc
           ? proc.errorOutput
           : (currentTask?.error_output || 'Process tracking lost - task completed without captured output');
-      // Annotate the error output with the signal name when the subprocess
-      // was killed by signal (SIGKILL/SIGTERM/etc.) so diagnostics can tell a
-      // signal-killed process apart from a genuine non-zero exit.
-      const signalSuffix = effectiveSignal
-        ? `\n[process-exit] terminated by signal ${effectiveSignal}`
-        : '';
-      const annotatedErrorOutput = rawErrorOutput + signalSuffix;
+      // Annotate the error output with a structured exit summary on any
+      // non-zero/abnormal exit so diagnostics always preserve enough context
+      // to classify the failure (signal-kill vs genuine non-zero exit vs
+      // silent crash). The CLI's own stderr is often just an echo of the
+      // prompt and any successful exec calls; without this annotation a
+      // codex CLI that dies mid-stream (network blip, OOM, sandbox kill)
+      // leaves no record of when or why it ended. Live evidence 2026-05-03
+      // task 65072ba9: error_output had only the prompt-echo, no exit
+      // reason — investigation had to reconstruct timing from the factory
+      // decision log.
+      let exitSuffix = '';
+      if (effectiveSignal || (typeof code === 'number' && code !== 0)) {
+        const durationMs = proc?.startTime ? (Date.now() - proc.startTime) : null;
+        const parts = [
+          `code=${typeof code === 'number' ? code : 'null'}`,
+          `signal=${effectiveSignal || 'none'}`,
+          durationMs != null ? `duration_ms=${durationMs}` : null,
+          proc?.provider ? `provider=${proc.provider}` : (provider ? `provider=${provider}` : null),
+          proc?.model ? `model=${proc.model}` : null,
+        ].filter(Boolean);
+        exitSuffix = `\n[process-exit] ${parts.join(' ')}`;
+      }
+      const annotatedErrorOutput = rawErrorOutput + exitSuffix;
       const result = await finalizeTask(taskId, {
         exitCode: code,
         output: proc?.output ?? currentTask?.output ?? '',
