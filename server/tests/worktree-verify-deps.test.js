@@ -74,6 +74,48 @@ describe('worktree verify dependency preparation', () => {
     );
   });
 
+  it('repairs missing package bin shims before reusing linked node_modules', () => {
+    const repoRoot = makeTempDir();
+    const worktreeRoot = path.join(repoRoot, '.worktrees', 'feat-example');
+    const sourceNodeModules = path.join(repoRoot, 'server', 'node_modules');
+    const targetNodeModules = path.join(worktreeRoot, 'server', 'node_modules');
+
+    writeJson(path.join(repoRoot, 'server', 'package.json'), {
+      devDependencies: {
+        vitest: '^4.0.0',
+      },
+    });
+    writeJson(path.join(worktreeRoot, 'server', 'package.json'), {
+      devDependencies: {
+        vitest: '^4.0.0',
+      },
+    });
+    writeJson(path.join(sourceNodeModules, 'vitest', 'package.json'), {
+      name: 'vitest',
+      bin: {
+        vitest: './vitest.mjs',
+      },
+    });
+    writeFile(path.join(sourceNodeModules, 'vitest', 'vitest.mjs'), '#!/usr/bin/env node\n');
+    writeJson(path.join(targetNodeModules, 'vitest', 'package.json'), {
+      name: 'vitest',
+      bin: {
+        vitest: './vitest.mjs',
+      },
+    });
+    writeFile(path.join(targetNodeModules, 'vitest', 'vitest.mjs'), '#!/usr/bin/env node\n');
+
+    const result = prepareWorktreeVerifyDependencies(worktreeRoot);
+    const shimName = process.platform === 'win32' ? 'vitest.cmd' : 'vitest';
+
+    expect(result.packages).toEqual(expect.arrayContaining([
+      expect.objectContaining({ packageDir: 'server', action: 'linked' }),
+    ]));
+    expect(fs.existsSync(path.join(sourceNodeModules, '.bin', shimName))).toBe(true);
+    expect(fs.existsSync(path.join(targetNodeModules, '.bin', shimName))).toBe(true);
+    expect(_internalForTests.packageBinsUsable(targetNodeModules, 'vitest')).toBe(true);
+  });
+
   it('does nothing outside managed worktrees', () => {
     const projectRoot = makeTempDir();
 

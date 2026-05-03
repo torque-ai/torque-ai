@@ -59,6 +59,144 @@ function dependencyInstallPath(nodeModulesPath, dependencyName) {
   return path.join(nodeModulesPath, ...String(dependencyName).split('/').filter(Boolean));
 }
 
+function readPackageJson(packageJsonPath) {
+  try {
+    return JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
+function packageBinEntries(nodeModulesPath, dependencyName) {
+  const packageRoot = dependencyInstallPath(nodeModulesPath, dependencyName);
+  const packageJson = readPackageJson(path.join(packageRoot, 'package.json'));
+  if (!packageJson || !packageJson.bin) return [];
+
+  if (typeof packageJson.bin === 'string') {
+    const fallbackName = String(packageJson.name || dependencyName).split('/').filter(Boolean).pop();
+    return fallbackName ? [{ name: fallbackName, target: packageJson.bin }] : [];
+  }
+
+  if (typeof packageJson.bin !== 'object' || Array.isArray(packageJson.bin)) {
+    return [];
+  }
+
+  return Object.entries(packageJson.bin)
+    .filter(([name, target]) => typeof name === 'string' && typeof target === 'string')
+    .map(([name, target]) => ({ name, target }));
+}
+
+function isSafeBinName(name) {
+  return Boolean(name)
+    && !name.includes('/')
+    && !name.includes('\\')
+    && name !== '.'
+    && name !== '..';
+}
+
+function platformBinPath(binDir, binName) {
+  return process.platform === 'win32'
+    ? path.join(binDir, `${binName}.cmd`)
+    : path.join(binDir, binName);
+}
+
+function packageBinsUsable(nodeModulesPath, dependencyName) {
+  const entries = packageBinEntries(nodeModulesPath, dependencyName);
+  if (entries.length === 0) return true;
+
+  const binDir = path.join(nodeModulesPath, '.bin');
+  return entries.every(({ name, target }) => {
+    if (!isSafeBinName(name)) return true;
+    const packageRoot = dependencyInstallPath(nodeModulesPath, dependencyName);
+    const targetPath = path.resolve(packageRoot, target);
+    if (!fs.existsSync(targetPath)) return true;
+    return fs.existsSync(platformBinPath(binDir, name));
+  });
+}
+
+function writeFileIfMissing(filePath, content, mode) {
+  if (fs.existsSync(filePath)) return false;
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, content, mode ? { encoding: 'utf8', mode } : 'utf8');
+  return true;
+}
+
+function writeWindowsBinShim(binDir, binName, targetPath) {
+  const relativeTarget = path.relative(binDir, targetPath);
+  const cmdTarget = relativeTarget.replace(/\//g, '\\');
+  const psTarget = relativeTarget.replace(/\\/g, '/');
+  let created = 0;
+
+  if (writeFileIfMissing(
+    path.join(binDir, `${binName}.cmd`),
+    `@ECHO off\r\nnode "%~dp0\\${cmdTarget}" %*\r\n`,
+  )) {
+    created += 1;
+  }
+
+  if (writeFileIfMissing(
+    path.join(binDir, `${binName}.ps1`),
+    `$basedir = Split-Path $MyInvocation.MyCommand.Definition -Parent\n& node "$basedir/${psTarget}" @args\nexit $LASTEXITCODE\n`,
+  )) {
+    created += 1;
+  }
+
+  return created;
+}
+
+function writePosixBinShim(binPath, binDir, targetPath) {
+  if (fs.existsSync(binPath)) return false;
+
+  const relativeTarget = path.relative(binDir, targetPath).replace(/\\/g, '/');
+  try {
+    fs.symlinkSync(relativeTarget, binPath, 'file');
+  } catch {
+    writeFileIfMissing(
+      binPath,
+      `#!/bin/sh\nbasedir=$(dirname "$(echo "$0" | sed -e 's,\\\\,/,g')")\nexec node "$basedir/${relativeTarget}" "$@"\n`,
+      0o755,
+    );
+  }
+  try { fs.chmodSync(binPath, 0o755); } catch { /* best effort */ }
+  return true;
+}
+
+function ensurePackageBins(nodeModulesPath, dependencies, logger) {
+  let repaired = 0;
+
+  for (const dependency of dependencies) {
+    const packageRoot = dependencyInstallPath(nodeModulesPath, dependency);
+    if (!fs.existsSync(packageRoot)) continue;
+
+    for (const { name, target } of packageBinEntries(nodeModulesPath, dependency)) {
+      if (!isSafeBinName(name)) continue;
+      const targetPath = path.resolve(packageRoot, target);
+      if (!isSubpath(targetPath, packageRoot) || !fs.existsSync(targetPath)) continue;
+
+      try {
+        const binDir = path.join(nodeModulesPath, '.bin');
+        fs.mkdirSync(binDir, { recursive: true });
+        if (process.platform === 'win32') {
+          repaired += writeWindowsBinShim(binDir, name, targetPath);
+        } else if (writePosixBinShim(path.join(binDir, name), binDir, targetPath)) {
+          repaired += 1;
+        }
+      } catch (error) {
+        if (logger && typeof logger.warn === 'function') {
+          logger.warn('factory worktree verify: could not repair package bin shim', {
+            dependency,
+            bin: name,
+            node_modules: nodeModulesPath,
+            error: error && error.message ? error.message : String(error),
+          });
+        }
+      }
+    }
+  }
+
+  return repaired;
+}
+
 function nodeModulesUsable(targetNodeModules, sourceNodeModules, dependencies) {
   if (!fs.existsSync(targetNodeModules)) return false;
   for (const dependency of dependencies) {
@@ -66,6 +204,7 @@ function nodeModulesUsable(targetNodeModules, sourceNodeModules, dependencies) {
     if (!fs.existsSync(sourceDep)) continue;
     const targetDep = dependencyInstallPath(targetNodeModules, dependency);
     if (!fs.existsSync(targetDep)) return false;
+    if (!packageBinsUsable(targetNodeModules, dependency)) return false;
   }
   return true;
 }
@@ -106,8 +245,9 @@ function preparePackageNodeModules({ repoRoot, worktreeRoot, packageDir, logger 
   }
 
   const dependencies = readPackageDependencies(targetPackageJson);
+  const repairedBins = ensurePackageBins(sourceNodeModules, dependencies, logger);
   if (nodeModulesUsable(targetNodeModules, sourceNodeModules, dependencies)) {
-    return { packageDir: label, action: 'unchanged' };
+    return { packageDir: label, action: 'unchanged', repairedBins };
   }
 
   try {
@@ -119,6 +259,7 @@ function preparePackageNodeModules({ repoRoot, worktreeRoot, packageDir, logger 
       action: 'linked',
       source: sourceNodeModules,
       target: targetNodeModules,
+      repairedBins,
     };
   } catch (error) {
     if (logger && typeof logger.warn === 'function') {
@@ -171,9 +312,12 @@ module.exports = {
   _internalForTests: {
     PACKAGE_DIRS,
     dependencyInstallPath,
+    ensurePackageBins,
     findManagedWorktree,
     isSubpath,
     nodeModulesUsable,
+    packageBinEntries,
+    packageBinsUsable,
     preparePackageNodeModules,
     readPackageDependencies,
     removeTargetNodeModules,
