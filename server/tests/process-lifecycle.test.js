@@ -1561,26 +1561,29 @@ describe('process-lifecycle', () => {
       expect(deps.cancelTask).toHaveBeenCalledWith(taskId, 'Timeout exceeded', { cancel_reason: 'timeout' });
     });
 
-    it('enforces wall-clock cap for factory plan_generation even with recent activity', async () => {
-      const taskId = 'task-timeout-wall-cap';
+    it('cancels active factory plan-generation tasks at the hard wall-clock cap', async () => {
+      const taskId = 'task-timeout-plan-hard-cap';
       const child = createLifecycleChild();
-      const { subject } = loadLifecycleSubject({
-        dbMock: createLifecycleDbMock([createTaskRecord(taskId, { timeout_minutes: 2 })]),
+      const loggerState = createLifecycleLoggerMock();
+      const taskMetadata = {
+        factory_internal: true,
+        kind: 'plan_generation',
+        activity_timeout_policy: {
+          kind: 'plan_generation',
+          timeout_minutes: 1,
+          max_wall_clock_minutes: 2,
+          overrun_intake_problem: 'timeout_overrun_active',
+        },
+      };
+      const { subject, loggerMock } = loadLifecycleSubject({
+        dbMock: createLifecycleDbMock([createTaskRecord(taskId, { timeout_minutes: 1 })]),
+        loggerMock: loggerState,
         spawnImpl: () => child,
       });
       const deps = createSpawnDeps();
       subject.init(deps);
 
-      // Supply plan_generation metadata with a 3-minute wall-clock cap
-      const taskMetadata = {
-        activity_timeout_policy: {
-          kind: 'plan_generation',
-          timeout_minutes: 2,
-          max_wall_clock_minutes: 3,
-        },
-      };
-
-      subject.spawnAndTrackProcess(taskId, createTaskRecord(taskId, { timeout_minutes: 2 }), {
+      subject.spawnAndTrackProcess(taskId, createTaskRecord(taskId, { timeout_minutes: 1 }), {
         cliPath: 'codex',
         finalArgs: [],
         stdinPrompt: null,
@@ -1594,22 +1597,18 @@ describe('process-lifecycle', () => {
         baselineCommit: null,
       });
 
-      // At 1min 50s, activity keeps it alive past the first 2min window
-      await vi.advanceTimersByTimeAsync(110_000);
-      child.stdout.write('still generating plan');
+      await vi.advanceTimersByTimeAsync(59000);
+      child.stdout.write('still working');
+      await vi.advanceTimersByTimeAsync(1000);
       expect(deps.cancelTask).not.toHaveBeenCalled();
 
-      // The 2min idle timeout fires at 120s, but output was 10s ago → extends.
-      // Keep producing output to stay active.
-      await vi.advanceTimersByTimeAsync(50_000);
-      child.stdout.write('more output');
+      await vi.advanceTimersByTimeAsync(58000);
+      child.stdout.write('still active near cap');
+      await vi.advanceTimersByTimeAsync(1000);
       expect(deps.cancelTask).not.toHaveBeenCalled();
 
-      // At 3 minutes total, the wall-clock cap fires regardless of activity.
-      // The initial timeout fires at 2min (120s), sees recent activity, extends
-      // by ~10s. Next check at ~130s, extends again... eventually crosses 3min.
-      // Advance enough to cross the 3-minute wall-clock cap.
-      await vi.advanceTimersByTimeAsync(60_000);
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(loggerMock.info).toHaveBeenCalledWith(expect.stringContaining('factory plan-generation hard cap'));
       expect(deps.cancelTask).toHaveBeenCalledWith(taskId, 'Timeout exceeded', { cancel_reason: 'timeout' });
     });
 

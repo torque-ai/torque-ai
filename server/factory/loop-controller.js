@@ -276,6 +276,22 @@ function resolvePlanGenerationTimeoutMinutes(project) {
   return DEFAULT_PLAN_GENERATION_TIMEOUT_MINUTES;
 }
 
+function buildPlanGenerationActivityTimeoutPolicy(timeoutMinutes) {
+  const numeric = Number(timeoutMinutes);
+  const boundedTimeoutMinutes = Number.isFinite(numeric) && numeric > 0
+    ? Math.min(Math.max(Math.ceil(numeric), 1), 120)
+    : DEFAULT_PLAN_GENERATION_TIMEOUT_MINUTES;
+  return {
+    kind: 'plan_generation',
+    timeout_minutes: boundedTimeoutMinutes,
+    max_wall_clock_minutes: Math.min(
+      Math.max(boundedTimeoutMinutes * 2, boundedTimeoutMinutes + 15),
+      120
+    ),
+    overrun_intake_problem: 'timeout_overrun_active',
+  };
+}
+
 function getTaskAgeMs(task) {
   if (!task) return null;
   // provider_switched_at takes precedence so failover-requeued tasks reset the
@@ -6693,6 +6709,9 @@ async function executeNonPlanFileStage(project, instance, workItem) {
   const planGenerationFiles = collectArchitectScopeFiles(targetItem);
   let generationTaskId = getStoredPlanGenerationTaskId(targetItem);
   const planGenerationTimeoutMinutes = resolvePlanGenerationTimeoutMinutes(project);
+  const planGenerationActivityTimeoutPolicy = buildPlanGenerationActivityTimeoutPolicy(
+    planGenerationTimeoutMinutes
+  );
   const stalePendingMs = planGenerationTimeoutMinutes * 60 * 1000;
 
   try {
@@ -6772,10 +6791,6 @@ async function executeNonPlanFileStage(project, instance, workItem) {
         });
       }
 
-      const maxWallClockMinutes = Math.min(
-        Math.max(planGenerationTimeoutMinutes * 2, planGenerationTimeoutMinutes + 15),
-        120,
-      );
       const { task_id } = await submitFactoryInternalTask({
         task: prompt,
         project: 'factory-architect',
@@ -6788,11 +6803,7 @@ async function executeNonPlanFileStage(project, instance, workItem) {
         study_context: false,
         timeout_minutes: planGenerationTimeoutMinutes,
         extra_metadata: {
-          activity_timeout_policy: {
-            kind: 'plan_generation',
-            timeout_minutes: planGenerationTimeoutMinutes,
-            max_wall_clock_minutes: maxWallClockMinutes,
-          },
+          activity_timeout_policy: planGenerationActivityTimeoutPolicy,
         },
       });
 
@@ -7137,10 +7148,6 @@ async function executeNonPlanFileStage(project, instance, workItem) {
         const rePlanGenerationFiles = collectArchitectScopeFiles(updatedWorkItem);
         let reTaskId = null;
         try {
-          const reMaxWallClockMinutes = Math.min(
-            Math.max(planGenerationTimeoutMinutes * 2, planGenerationTimeoutMinutes + 15),
-            120,
-          );
           const reSubmit = await submitFactoryInternalTask({
             task: rePrompt,
             working_directory: project.path || process.cwd(),
@@ -7152,11 +7159,7 @@ async function executeNonPlanFileStage(project, instance, workItem) {
             study_context: false,
             timeout_minutes: planGenerationTimeoutMinutes,
             extra_metadata: {
-              activity_timeout_policy: {
-                kind: 'plan_generation',
-                timeout_minutes: planGenerationTimeoutMinutes,
-                max_wall_clock_minutes: reMaxWallClockMinutes,
-              },
+              activity_timeout_policy: planGenerationActivityTimeoutPolicy,
             },
           });
           reTaskId = reSubmit?.task_id || null;
@@ -13087,6 +13090,7 @@ module.exports = {
   normalizeRejectionReasonForShape,
   SAME_SHAPE_THRESHOLD,
   resolvePlanGenerationTimeoutMinutes,
+  buildPlanGenerationActivityTimeoutPolicy,
   getEffectiveProjectProvider,
   OLLAMA_PLAN_GENERATION_TIMEOUT_MINUTES,
   DEFAULT_PLAN_GENERATION_TIMEOUT_MINUTES,

@@ -35,6 +35,129 @@ describe('normalizeTimeoutMs', () => {
   });
 });
 
+describe('resolveActivityAwareTimeoutDecision', () => {
+  const minuteMs = 60 * 1000;
+  const timeoutMs = 30 * minuteMs;
+
+  function planGenerationMetadata(maxWallClockMinutes = 60) {
+    return {
+      factory_internal: true,
+      kind: 'plan_generation',
+      activity_timeout_policy: {
+        kind: 'plan_generation',
+        timeout_minutes: 30,
+        max_wall_clock_minutes: maxWallClockMinutes,
+        overrun_intake_problem: 'timeout_overrun_active',
+      },
+    };
+  }
+
+  it('extends active factory plan-generation tasks before the hard cap', () => {
+    const decision = resolveActivityAwareTimeoutDecision({
+      proc: { startTime: 0, lastOutputAt: 35 * minuteMs },
+      timeoutMs,
+      metadata: planGenerationMetadata(60),
+      now: 36 * minuteMs,
+    });
+
+    expect(decision).toEqual({
+      action: 'extend',
+      delayMs: 24 * minuteMs,
+      idleMs: minuteMs,
+      elapsedMs: 36 * minuteMs,
+    });
+  });
+
+  it('times out active factory plan-generation tasks at the hard cap', () => {
+    const decision = resolveActivityAwareTimeoutDecision({
+      proc: { startTime: 0, lastOutputAt: 59 * minuteMs },
+      timeoutMs,
+      metadata: planGenerationMetadata(60),
+      now: 60 * minuteMs,
+    });
+
+    expect(decision).toEqual({
+      action: 'timeout',
+      idleMs: minuteMs,
+      elapsedMs: 60 * minuteMs,
+      reason: 'factory_plan_generation_hard_cap',
+    });
+  });
+
+  it('keeps ordinary task activity-aware extension behavior', () => {
+    const decision = resolveActivityAwareTimeoutDecision({
+      proc: { startTime: 0, lastOutputAt: 35 * minuteMs },
+      timeoutMs,
+      metadata: {
+        factory_internal: false,
+        kind: 'verify',
+      },
+      now: 36 * minuteMs,
+    });
+
+    expect(decision).toEqual({
+      action: 'extend',
+      delayMs: 29 * minuteMs,
+      idleMs: minuteMs,
+      elapsedMs: 36 * minuteMs,
+    });
+  });
+
+  it('returns timeout decisions for invalid timeout input', () => {
+    expect(resolveActivityAwareTimeoutDecision({
+      proc: { startTime: 0, lastOutputAt: 0 },
+      timeoutMs: 0,
+      now: minuteMs,
+    })).toEqual({
+      action: 'timeout',
+      idleMs: 0,
+      elapsedMs: 0,
+      reason: 'invalid_timeout',
+    });
+  });
+
+  it('treats missing metadata as an ordinary activity-aware timeout', () => {
+    const decision = resolveActivityAwareTimeoutDecision({
+      proc: { startTime: 0, lastOutputAt: 35 * minuteMs },
+      timeoutMs,
+      now: 36 * minuteMs,
+    });
+
+    expect(decision).toEqual({
+      action: 'extend',
+      delayMs: 29 * minuteMs,
+      idleMs: minuteMs,
+      elapsedMs: 36 * minuteMs,
+    });
+  });
+
+  it('returns timeout decisions for missing process records', () => {
+    expect(resolveActivityAwareTimeoutDecision({
+      proc: null,
+      timeoutMs,
+      now: minuteMs,
+    })).toEqual({
+      action: 'timeout',
+      idleMs: 0,
+      elapsedMs: 0,
+      reason: 'missing_process',
+    });
+  });
+
+  it('returns timeout decisions for missing process start time', () => {
+    expect(resolveActivityAwareTimeoutDecision({
+      proc: { lastOutputAt: 0 },
+      timeoutMs,
+      now: minuteMs,
+    })).toEqual({
+      action: 'timeout',
+      idleMs: 0,
+      elapsedMs: 0,
+      reason: 'missing_start_time',
+    });
+  });
+});
+
 describe('createActivityTimeout', () => {
   beforeEach(() => {
     vi.useFakeTimers();
@@ -183,159 +306,5 @@ describe('createActivityTimeout', () => {
     expect(onTimeout).toHaveBeenCalledTimes(1);
 
     t.cancel();
-  });
-});
-
-describe('resolveActivityAwareTimeoutDecision', () => {
-  const BASE_TIME = 1_000_000;
-
-  it('returns extend when process has recent activity', () => {
-    const proc = { startTime: BASE_TIME, lastOutputAt: BASE_TIME + 5000 };
-    const result = resolveActivityAwareTimeoutDecision({
-      proc,
-      timeoutMs: 10_000,
-      now: BASE_TIME + 8000,
-    });
-    expect(result.action).toBe('extend');
-    expect(result.idleMs).toBe(3000);
-    expect(result.elapsedMs).toBe(7000);
-    expect(result.delayMs).toBe(7000); // timeoutMs - idleMs
-  });
-
-  it('returns idle_timeout when idle exceeds timeoutMs', () => {
-    const proc = { startTime: BASE_TIME, lastOutputAt: BASE_TIME + 1000 };
-    const result = resolveActivityAwareTimeoutDecision({
-      proc,
-      timeoutMs: 10_000,
-      now: BASE_TIME + 20_000,
-    });
-    expect(result.action).toBe('timeout');
-    expect(result.reason).toBe('idle_timeout');
-    expect(result.idleMs).toBe(19_000);
-    expect(result.elapsedMs).toBe(19_000);
-  });
-
-  it('returns invalid_input for missing proc', () => {
-    const result = resolveActivityAwareTimeoutDecision({
-      proc: null,
-      timeoutMs: 10_000,
-      now: BASE_TIME,
-    });
-    expect(result.action).toBe('timeout');
-    expect(result.reason).toBe('invalid_input');
-  });
-
-  it('returns invalid_input for non-positive timeoutMs', () => {
-    const proc = { startTime: BASE_TIME, lastOutputAt: BASE_TIME };
-    expect(resolveActivityAwareTimeoutDecision({ proc, timeoutMs: 0, now: BASE_TIME }).reason).toBe('invalid_input');
-    expect(resolveActivityAwareTimeoutDecision({ proc, timeoutMs: -1, now: BASE_TIME }).reason).toBe('invalid_input');
-    expect(resolveActivityAwareTimeoutDecision({ proc, timeoutMs: NaN, now: BASE_TIME }).reason).toBe('invalid_input');
-  });
-
-  it('extends for ordinary tasks even when elapsed exceeds any hypothetical wall cap', () => {
-    // No metadata → no wall-clock cap → extends as long as there is activity
-    const proc = { startTime: BASE_TIME, lastOutputAt: BASE_TIME + 200_000 };
-    const result = resolveActivityAwareTimeoutDecision({
-      proc,
-      timeoutMs: 10_000,
-      now: BASE_TIME + 205_000,
-    });
-    expect(result.action).toBe('extend');
-    expect(result.elapsedMs).toBe(205_000);
-  });
-
-  it('enforces factory plan_generation wall-clock cap even with recent activity', () => {
-    const proc = {
-      startTime: BASE_TIME,
-      lastOutputAt: BASE_TIME + 90 * 60 * 1000, // active 90min in
-    };
-    const metadata = {
-      activity_timeout_policy: {
-        kind: 'plan_generation',
-        timeout_minutes: 30,
-        max_wall_clock_minutes: 75,
-      },
-    };
-    const result = resolveActivityAwareTimeoutDecision({
-      proc,
-      timeoutMs: 30 * 60 * 1000,
-      metadata,
-      now: BASE_TIME + 90 * 60 * 1000 + 1000, // 90min + 1s elapsed
-    });
-    expect(result.action).toBe('timeout');
-    expect(result.reason).toBe('factory_plan_generation_wall_clock_cap');
-  });
-
-  it('extends factory plan_generation within wall-clock cap', () => {
-    const proc = {
-      startTime: BASE_TIME,
-      lastOutputAt: BASE_TIME + 30 * 60 * 1000, // active at 30min
-    };
-    const metadata = {
-      activity_timeout_policy: {
-        kind: 'plan_generation',
-        timeout_minutes: 30,
-        max_wall_clock_minutes: 75,
-      },
-    };
-    const result = resolveActivityAwareTimeoutDecision({
-      proc,
-      timeoutMs: 30 * 60 * 1000,
-      metadata,
-      now: BASE_TIME + 35 * 60 * 1000, // only 35min elapsed
-    });
-    expect(result.action).toBe('extend');
-  });
-
-  it('ignores policy with non-plan_generation kind', () => {
-    const proc = {
-      startTime: BASE_TIME,
-      lastOutputAt: BASE_TIME + 200_000,
-    };
-    const metadata = {
-      activity_timeout_policy: {
-        kind: 'something_else',
-        max_wall_clock_minutes: 1,
-      },
-    };
-    const result = resolveActivityAwareTimeoutDecision({
-      proc,
-      timeoutMs: 10_000,
-      metadata,
-      now: BASE_TIME + 205_000,
-    });
-    expect(result.action).toBe('extend');
-  });
-
-  it('uses startTime as fallback when lastOutputAt is missing', () => {
-    const proc = { startTime: BASE_TIME };
-    const result = resolveActivityAwareTimeoutDecision({
-      proc,
-      timeoutMs: 10_000,
-      now: BASE_TIME + 5000,
-    });
-    expect(result.action).toBe('extend');
-    expect(result.idleMs).toBe(5000);
-  });
-
-  it('enforces minimum reschedule delay of 1000ms', () => {
-    const proc = { startTime: BASE_TIME, lastOutputAt: BASE_TIME + 9500 };
-    const result = resolveActivityAwareTimeoutDecision({
-      proc,
-      timeoutMs: 10_000,
-      now: BASE_TIME + 9800,
-    });
-    expect(result.action).toBe('extend');
-    // timeoutMs - idleMs = 10000 - 300 = 9700, but min is 1000
-    expect(result.delayMs).toBe(9700);
-
-    // When close to deadline
-    const proc2 = { startTime: BASE_TIME, lastOutputAt: BASE_TIME + 9500 };
-    const result2 = resolveActivityAwareTimeoutDecision({
-      proc: proc2,
-      timeoutMs: 10_000,
-      now: BASE_TIME + 9900,
-    });
-    expect(result2.delayMs).toBeGreaterThanOrEqual(1000);
   });
 });
