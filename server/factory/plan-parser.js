@@ -326,6 +326,127 @@ function parsePlanMarkdown(content) {
   };
 }
 
+const VERIFY_COMMAND_EXECUTABLES = new Set([
+  'bash',
+  'bun',
+  'bundle',
+  'cargo',
+  'cmd',
+  'cmake',
+  'composer',
+  'ctest',
+  'deno',
+  'dotnet',
+  'flake8',
+  'gh',
+  'git',
+  'go',
+  'gradle',
+  'gradlew',
+  'invoke-pester',
+  'jest',
+  'just',
+  'make',
+  'mage',
+  'mvn',
+  'ninja',
+  'node',
+  'nosetests',
+  'npm',
+  'npx',
+  'php',
+  'pipenv',
+  'poetry',
+  'pnpm',
+  'powershell',
+  'pwsh',
+  'py',
+  'pytest',
+  'python',
+  'python3',
+  'rspec',
+  'ruby',
+  'ruff',
+  'sh',
+  'swift',
+  'task',
+  'tox',
+  'tsc',
+  'tsx',
+  'uv',
+  'vitest',
+  'xcodebuild',
+  'yarn',
+]);
+
+const VERIFY_SCRIPT_EXTENSION_RE = /\.(?:bat|cmd|exe|js|mjs|cjs|ps1|sh)$/i;
+const WINDOWS_ABSOLUTE_PATH_RE = /^[a-z]:[\\/]/i;
+
+function firstShellToken(command) {
+  const match = String(command || '').trim().match(/^(?:"([^"]+)"|'([^']+)'|(\S+))/);
+  return match ? (match[1] || match[2] || match[3] || '').trim() : '';
+}
+
+function commandBasename(token) {
+  const unquoted = String(token || '').replace(/^["']|["']$/g, '');
+  const parts = unquoted.split(/[\\/]/);
+  return (parts[parts.length - 1] || unquoted).toLowerCase();
+}
+
+function stripVerifySentenceSuffix(raw) {
+  let value = String(raw || '').trim();
+  const suffixPatterns = [
+    /\s+(?:should|must)\s+(?:pass|succeed|report|include|show|complete|run|exercise|return|produce)\b[\s\S]*$/i,
+    /\s+(?:and|then)\s+(?:verify|ensure|confirm|report|check|do\s+not|don't)\b[\s\S]*$/i,
+    /\s+without\s+(?:running|changing|failing)\b[\s\S]*$/i,
+  ];
+  for (const pattern of suffixPatterns) {
+    value = value.replace(pattern, '').trim();
+  }
+  return value;
+}
+
+function stripLeadingEnvAssignments(command) {
+  let rest = String(command || '').trim();
+  if (/^env\s+/i.test(rest)) {
+    rest = rest.replace(/^env\s+/i, '').trim();
+  }
+  for (let i = 0; i < 8; i += 1) {
+    const match = rest.match(/^[A-Za-z_][A-Za-z0-9_]*=(?:"[^"]*"|'[^']*'|\S+)\s+([\s\S]+)$/);
+    if (!match) break;
+    rest = match[1].trim();
+  }
+  return rest;
+}
+
+function isLikelyVerifyCommand(command, depth = 0) {
+  if (depth > 4) return false;
+  const normalized = stripLeadingEnvAssignments(command);
+  if (!normalized) return false;
+
+  const remoteBash = normalized.match(/^torque-remote\s+bash\s+-lc\s+(['"])([\s\S]+)\1$/i);
+  if (remoteBash) return isLikelyVerifyCommand(remoteBash[2], depth + 1);
+  if (/^torque-remote\s+/i.test(normalized)) {
+    return isLikelyVerifyCommand(normalized.replace(/^torque-remote\s+/i, '').trim(), depth + 1);
+  }
+
+  const cdChain = normalized.match(/^cd\s+((?:"[^"]+"|'[^']+'|[^\s;&|]+))\s*(?:&&|;)\s*([\s\S]+)$/i);
+  if (cdChain) return isLikelyVerifyCommand(cdChain[2], depth + 1);
+
+  const setChain = normalized.match(/^set\s+[A-Za-z_][A-Za-z0-9_]*=[^&|;]+\s*&&\s*([\s\S]+)$/i);
+  if (setChain) return isLikelyVerifyCommand(setChain[1], depth + 1);
+
+  const token = firstShellToken(normalized);
+  if (!token || /[,:]$/.test(token)) return false;
+  const base = commandBasename(token);
+  if (VERIFY_COMMAND_EXECUTABLES.has(base)) return true;
+  if (VERIFY_SCRIPT_EXTENSION_RE.test(base)) return true;
+  return token.startsWith('./')
+    || token.startsWith('.\\')
+    || token.startsWith('/')
+    || WINDOWS_ABSOLUTE_PATH_RE.test(token);
+}
+
 function normalizeVerifyCommand(command) {
   let normalized = String(command || '').trim();
   if (!normalized) return null;
@@ -363,16 +484,17 @@ function normalizeVerifyCommand(command) {
     normalized = `powershell -NoProfile -ExecutionPolicy Bypass -EncodedCommand ${encoded}`;
   }
 
-  return normalized || null;
+  if (!normalized || !isLikelyVerifyCommand(normalized)) return null;
+  return normalized;
 }
 
 function extractCommandFromVerifyText(text) {
   const line = String(text || '').replace(/\*\*/g, '').trim();
   if (!line) return null;
 
-  const colonCommand = line.match(/\b(?:Verification|Verify command|Validation command)\s*:\s*(.+)$/i);
+  const colonCommand = line.match(/\b(?:Verification|Verify|Verify command|Validation|Validation command|Validate)\s*:\s*(.+)$/i);
   if (colonCommand) {
-    const raw = colonCommand[1].trim();
+    const raw = stripVerifySentenceSuffix(colonCommand[1].trim());
     const codeSpan = raw.match(/`([^`]+)`/);
     return normalizeVerifyCommand(codeSpan ? codeSpan[1] : raw);
   }
@@ -384,7 +506,7 @@ function extractCommandFromVerifyText(text) {
 
   const explicit = line.match(/\b(?:Validate|Verify)\b[^\n]{0,160}\bwith\s+(.+)$/i);
   if (!explicit) return null;
-  const raw = explicit[1].trim();
+  const raw = stripVerifySentenceSuffix(explicit[1].trim());
   const codeSpan = raw.match(/`([^`]+)`/);
   return normalizeVerifyCommand(codeSpan ? codeSpan[1] : raw);
 }
@@ -415,4 +537,5 @@ module.exports = {
   extractVerifyCommand,
   extractExplicitVerifyCommand,
   normalizeVerifyCommand,
+  isLikelyVerifyCommand,
 };

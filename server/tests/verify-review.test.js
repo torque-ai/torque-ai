@@ -806,6 +806,48 @@ describe('runLlmTiebreak', () => {
     }
   });
 
+  it('falls back to routed reviewer selection when the default reviewer provider is disabled', async () => {
+    const submit = vi.fn()
+      .mockRejectedValueOnce(new Error('smart_submit_task failed [PROVIDER_ERROR]: Provider cerebras is disabled. Enable it or choose a different provider.'))
+      .mockResolvedValueOnce({ task_id: 't-routed' });
+    installMocks({
+      submit,
+      await: vi.fn().mockResolvedValue({ status: 'completed' }),
+      task: vi.fn().mockReturnValue({
+        status: 'completed',
+        output: '{"verdict":"no-go","critique":"unrelated baseline"}',
+      }),
+    });
+    const originalProvider = process.env.TORQUE_VERIFY_REVIEWER_PROVIDER;
+    const originalModel = process.env.TORQUE_VERIFY_REVIEWER_MODEL;
+    delete process.env.TORQUE_VERIFY_REVIEWER_PROVIDER;
+    delete process.env.TORQUE_VERIFY_REVIEWER_MODEL;
+    try {
+      const { runLlmTiebreak } = require('../factory/verify-review');
+      const result = await runLlmTiebreak({
+        failingTests: ['plugins/codegraph/tests/search.test.js'],
+        modifiedFiles: ['server/factory/loop-controller.js'],
+        workItem: { id: 519, title: 'Split loop controller', description: 'Extract helpers' },
+        project: { id: 'p', path: '/tmp/p' },
+      });
+      expect(submit).toHaveBeenCalledTimes(2);
+      expect(submit.mock.calls[0][0]).toEqual(expect.objectContaining({
+        provider: 'cerebras',
+        model: 'llama3.1-8b',
+      }));
+      expect(submit.mock.calls[1][0].provider).toBeUndefined();
+      expect(submit.mock.calls[1][0].model).toBeUndefined();
+      expect(submit.mock.calls[1][0].prefer_free).toBe(true);
+      expect(result.verdict).toBe('no-go');
+      expect(result.status).toBe('completed');
+    } finally {
+      if (originalProvider === undefined) delete process.env.TORQUE_VERIFY_REVIEWER_PROVIDER;
+      else process.env.TORQUE_VERIFY_REVIEWER_PROVIDER = originalProvider;
+      if (originalModel === undefined) delete process.env.TORQUE_VERIFY_REVIEWER_MODEL;
+      else process.env.TORQUE_VERIFY_REVIEWER_MODEL = originalModel;
+    }
+  });
+
   it('opts back into smart routing when TORQUE_VERIFY_REVIEWER_PROVIDER is empty', async () => {
     const submit = vi.fn().mockResolvedValue({ task_id: 't-empty' });
     installMocks({

@@ -139,9 +139,45 @@ Verification: torque-remote dotnet test simtests/SimCore.DotNet.Tests.csproj -c 
       .toBe('cd server && npx vitest run tests/verify-signature.test.js');
   });
 
+  it('does not treat prose validation guidance as an executable command', () => {
+    const plan = [
+      '# Split loop-controller Plan',
+      'Verify with the existing suite: server/tests/factory-loop-controller.test.js, loop-controller-learn.test.js, loop-controller-decision-log.test.js all already exercise the relevant paths. No behavior changes expected.',
+    ].join('\n');
+
+    expect(extractExplicitVerifyCommand(plan)).toBeNull();
+    expect(extractVerifyCommand(plan, 'cd server && npx vitest run tests/loop-controller-decision-log.test.js'))
+      .toBe('cd server && npx vitest run tests/loop-controller-decision-log.test.js');
+  });
+
+  it('keeps command-shaped validation without code spans', () => {
+    const plan = [
+      '# Focused parser Plan',
+      'Verification: npm --prefix server test -- tests/file-context-builder.test.js',
+    ].join('\n');
+
+    expect(extractExplicitVerifyCommand(plan))
+      .toBe('npm --prefix server test -- tests/file-context-builder.test.js');
+  });
+
+  it('trims prose suffixes after command-shaped validation text', () => {
+    const plan = [
+      '# Focused parser Plan',
+      'Validation: npm --prefix server test -- tests/file-context-builder.test.js should report the existing suite plus the new focused case.',
+    ].join('\n');
+
+    expect(extractExplicitVerifyCommand(plan))
+      .toBe('npm --prefix server test -- tests/file-context-builder.test.js');
+  });
+
   it('normalizeVerifyCommand strips the factory transport prefix', () => {
     expect(normalizeVerifyCommand('torque-remote npm test'))
       .toBe('npm test');
+  });
+
+  it('normalizeVerifyCommand rejects natural-language verify text', () => {
+    expect(normalizeVerifyCommand('the existing suite: server/tests/factory-loop-controller.test.js already covers this'))
+      .toBeNull();
   });
 
   it('normalizeVerifyCommand wraps bare Pester commands for remote bash execution', () => {

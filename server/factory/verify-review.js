@@ -728,13 +728,35 @@ function findExistingVerifyReviewTask(taskCore, { project, workItem, reviewHash 
 // terminal — no point retrying them in this loop.
 const RETRYABLE_TIEBREAK_STATUSES = new Set(['invalid_output', 'empty_output']);
 
+function shouldRetryTiebreakWithRouting(result, reviewerProvider) {
+  if (!reviewerProvider || result?.status !== 'submit_failed') return false;
+  const submitError = String(result?.submitError || '').toLowerCase();
+  return submitError.includes('provider_error')
+    || submitError.includes('provider is disabled')
+    || submitError.includes('provider_unavailable')
+    || submitError.includes('provider not found')
+    || submitError.includes('adapter not available')
+    || submitError.includes('not responding');
+}
+
 async function runLlmTiebreak({ failingTests, modifiedFiles, workItem, project, workingDirectory, verifyOutput, timeoutMs = LLM_TIMEOUT_MS }) {
   const prompt = buildTiebreakPrompt({ failingTests, modifiedFiles, workItem, verifyOutput });
   const reviewerProvider = resolveReviewerProvider(project);
   const reviewerModel = resolveReviewerModel();
-  const args = { workingDirectory, project, workItem, timeoutMs, reviewerProvider, reviewerModel };
+  let args = { workingDirectory, project, workItem, timeoutMs, reviewerProvider, reviewerModel };
 
-  const first = await module.exports.submitAndParseTiebreak({ ...args, prompt });
+  let first = await module.exports.submitAndParseTiebreak({ ...args, prompt });
+  if (shouldRetryTiebreakWithRouting(first, reviewerProvider)) {
+    args = {
+      workingDirectory,
+      project,
+      workItem,
+      timeoutMs,
+      reviewerProvider: null,
+      reviewerModel: null,
+    };
+    first = await module.exports.submitAndParseTiebreak({ ...args, prompt });
+  }
   if (!RETRYABLE_TIEBREAK_STATUSES.has(first.status)) return first;
 
   // Retry once with a stricter JSON-only instruction. Without this, a
@@ -1088,6 +1110,7 @@ module.exports = {
   getModifiedFiles,
   runLlmTiebreak,
   submitAndParseTiebreak,
+  shouldRetryTiebreakWithRouting,
   getVerifyReviewHash,
   findExistingVerifyReviewTask,
   reviewVerifyFailure,
