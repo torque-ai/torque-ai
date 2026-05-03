@@ -555,6 +555,16 @@ describe('factory hardening end-to-end', () => {
       createdAt: '2026-05-03T02:27:00.000Z',
     });
 
+    // Sanity-check: the worktree row should exist with base_branch set,
+    // and the helper should report commits ahead of master. If either
+    // fails, the loop transition will fall through to zero_diff_across_retries
+    // and the assertion errors below won't pinpoint the cause.
+    const wtRow = factoryWorktrees.getActiveWorktreeByBatch(batchId);
+    expect(wtRow).toBeTruthy();
+    expect(wtRow.baseBranch || wtRow.base_branch).toBe('master');
+    expect(wtRow.worktreePath || wtRow.worktree_path).toBe(repoPath);
+    expect(loopController.__testing__.batchBranchHasCommitsAhead(project.id, batchId)).toBe(true);
+
     const advanced = await loopController.advanceLoopForProject(project.id);
 
     expect(advanced).toMatchObject({
