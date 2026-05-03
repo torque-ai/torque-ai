@@ -12,6 +12,7 @@ const costTracking = require('../db/cost-tracking');
 const { sendJson } = require('./middleware');
 const { safeJsonParse } = require('../utils/json');
 const { summarizeTaskError } = require('../utils/error-summary');
+const { normalizeTrace: normalizeRoutingTrace } = require('../utils/routing-trace');
 
 // ─── Response Envelope ────────────────────────────────────────────────────
 
@@ -135,10 +136,21 @@ function buildTaskDetailResponse(task) {
   const studyContextSummary = extractStudyContextSummary(metadata);
   const base = buildTaskResponse(task);
 
+  // Routing decision trace — pulled from task metadata where the
+  // smart-submit pipeline persists it. Each entry records one stage
+  // that contributed to or overrode the provider selection (template
+  // → pattern → modification → test-task → codex-exhausted → health
+  // → lane-policy → user-override → fallback). The dashboard renders
+  // this as a vertical timeline so operators can see exactly who
+  // moved the task and why, instead of reverse-engineering a single
+  // routing_reason string.
+  const routingDecisionTrace = normalizeRoutingTrace(metadata?.routing_decision_trace);
+
   return {
     ...base,
     metadata,
     provider_decision_trace: providerDecisionTrace,
+    routing_decision_trace: routingDecisionTrace.length > 0 ? routingDecisionTrace : null,
     study_context: studyContext,
     study_context_summary: studyContextSummary,
     output: task.output || null,
