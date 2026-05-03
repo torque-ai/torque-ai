@@ -570,7 +570,15 @@ function getProcessTreeCpuDelta(rootPid, sampler) {
   if (typeof prev !== 'number') {
     return { deltaMs: 0, isAdvancing: false, hasBaseline: false };
   }
-  const deltaMs = Math.max(0, sample - prev);
+  // Cumulative CPU time only ever increases for a given process. A drop
+  // below the previous sample means the OS recycled the PID for a fresh
+  // process. Treat this as a baseline reset (no advancement reported,
+  // hasBaseline=false) so the caller doesn't false-stall a real task on
+  // its first delta sample after PID reuse.
+  if (sample < prev) {
+    return { deltaMs: 0, isAdvancing: false, hasBaseline: false };
+  }
+  const deltaMs = sample - prev;
   return { deltaMs, isAdvancing: deltaMs > 0, hasBaseline: true };
 }
 

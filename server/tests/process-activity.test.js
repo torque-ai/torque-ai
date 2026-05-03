@@ -105,5 +105,26 @@ describe('utils/process-activity', () => {
       expect(result.isAdvancing).toBe(false);
       expect(result.hasBaseline).toBe(false);
     });
+
+    it('resets baseline when cumulative CPU drops (PID reuse)', () => {
+      const cumulative = { value: 5000 };
+      getProcessTreeCpuDelta(12348, () => cumulative.value);
+      cumulative.value = 6000;
+      const advanced = getProcessTreeCpuDelta(12348, () => cumulative.value);
+      expect(advanced.isAdvancing).toBe(true);
+      expect(advanced.deltaMs).toBe(1000);
+
+      cumulative.value = 100;
+      const reused = getProcessTreeCpuDelta(12348, () => cumulative.value);
+      expect(reused.isAdvancing).toBe(false);
+      expect(reused.deltaMs).toBe(0);
+      expect(reused.hasBaseline).toBe(false);
+
+      cumulative.value = 200;
+      const fresh = getProcessTreeCpuDelta(12348, () => cumulative.value);
+      expect(fresh.isAdvancing).toBe(true);
+      expect(fresh.deltaMs).toBe(100);
+      expect(fresh.hasBaseline).toBe(true);
+    });
   });
 });
