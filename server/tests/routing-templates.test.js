@@ -112,11 +112,67 @@ describe('seedPresets', () => {
       const chain = Array.isArray(tmpl.rules[cat]) ? tmpl.rules[cat] : [tmpl.rules[cat]];
       expect(chain.map((r) => r.provider)).toEqual(['deepinfra', 'hyperbolic', 'ollama-cloud']);
     }
-    // Categories not handled by matchProviderByPattern have empty chains
-    // so they fall through to the next pipeline stage (complexity / legacy
-    // rules / default) instead of being rescued by the preset's default.
-    for (const cat of ['documentation', 'simple_generation', 'plan_generation', 'targeted_file_edit', 'default']) {
+    // documentation and simple_generation route to groq, gated by
+    // capability_constraints.max_files = 1 (Phase B). The chain
+    // filter skips groq when files > 1, falling through to the next
+    // pipeline stage; that captures the historical "groq fails on
+    // multi-file tool calls" rule that used to be hardcoded.
+    for (const cat of ['documentation', 'simple_generation']) {
+      const chain = Array.isArray(tmpl.rules[cat]) ? tmpl.rules[cat] : [tmpl.rules[cat]];
+      expect(chain.map((r) => r.provider)).toEqual(['groq']);
+    }
+    // The remaining un-handled categories still have empty chains
+    // so they fall through to the next pipeline stage.
+    for (const cat of ['plan_generation', 'targeted_file_edit', 'default']) {
       expect(tmpl.rules[cat]).toEqual([]);
+    }
+    // capability_constraints expose the groq file-count gate, the
+    // greenfield_provider (replacing EXP1's hardcoded codex), and the
+    // modification_oversize_provider (replacing P83's hardcoded codex).
+    expect(tmpl.capability_constraints).toMatchObject({
+      max_files: { groq: 1 },
+      greenfield_provider: 'codex',
+      modification_oversize_provider: 'codex',
+    });
+  });
+
+  it('validateTemplate accepts capability_constraints with max_files / greenfield_provider / modification_oversize_provider', () => {
+    // Phase B (2026-05-03): templates can declare per-template
+    // capability constraints to fold the historical hardcoded
+    // routing logic into a data-driven, dashboard-editable form.
+    // The schema accepts max_files (object of provider→non-negative
+    // integer), greenfield_provider (string), and
+    // modification_oversize_provider (string).
+    const result = mod.validateTemplate({
+      name: 'Test Constraints',
+      rules: validRules(),
+      capability_constraints: {
+        max_files: { groq: 1, cerebras: 2 },
+        greenfield_provider: 'codex',
+        modification_oversize_provider: 'claude-cli',
+      },
+    });
+    expect(result.valid).toBe(true);
+  });
+
+  it('validateTemplate rejects malformed capability_constraints', () => {
+    const cases = [
+      { name: 'cc not object', cc: 'not-an-object' },
+      { name: 'cc array', cc: [] },
+      { name: 'max_files not object', cc: { max_files: 'nope' } },
+      { name: 'max_files negative', cc: { max_files: { groq: -1 } } },
+      { name: 'max_files non-integer', cc: { max_files: { groq: 1.5 } } },
+      { name: 'greenfield_provider empty', cc: { greenfield_provider: '   ' } },
+      { name: 'modification_oversize_provider not string', cc: { modification_oversize_provider: 123 } },
+    ];
+    for (const c of cases) {
+      const result = mod.validateTemplate({
+        name: 'Bad ' + c.name,
+        rules: validRules(),
+        capability_constraints: c.cc,
+      });
+      expect(result.valid, c.name).toBe(false);
+      expect(result.errors.length, c.name).toBeGreaterThan(0);
     }
   });
 

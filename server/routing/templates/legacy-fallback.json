@@ -24,10 +24,21 @@
       {"provider": "hyperbolic"},
       {"provider": "ollama-cloud"}
     ],
-    "documentation": [],
-    "simple_generation": [],
+    "documentation": [
+      {"provider": "groq"}
+    ],
+    "simple_generation": [
+      {"provider": "groq"}
+    ],
     "plan_generation": [],
     "targeted_file_edit": [],
     "default": []
+  },
+  "capability_constraints": {
+    "max_files": {
+      "groq": 1
+    },
+    "greenfield_provider": "codex",
+    "modification_oversize_provider": "codex"
   }
 }

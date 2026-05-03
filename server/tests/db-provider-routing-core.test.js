@@ -210,7 +210,13 @@ describe('db/provider-routing-core', () => {
       core.updateProvider('groq', { enabled: 1 });
       const result = core.analyzeTaskForRouting('Update README documentation for setup', os.tmpdir(), []);
       expect(result.provider).toBe('groq');
-      expect(result.reason).toContain('API routing: documentation task');
+      // Phase B (2026-05-03): documentation routing was promoted from
+      // matchProviderByPattern's hardcoded "API routing: documentation"
+      // path into the Legacy Fallback preset template, gated by
+      // capability_constraints.max_files=1. Either reason string is
+      // acceptable — the preset wins when seeded; matchProviderByPattern
+      // remains as defense-in-depth fallback.
+      expect(result.reason).toMatch(/Legacy fallback|API routing: documentation task/);
     });
 
     it('matches extension rules using the files argument', () => {
@@ -297,7 +303,13 @@ describe('db/provider-routing-core', () => {
 
       const result = core.analyzeTaskForRouting('Add jsdoc comments to src/app.js', os.tmpdir(), ['src/app.js']);
       expect(result.provider).toBe('groq');
-      expect(result.reason).toContain('API routing: documentation task');
+      // Phase B (2026-05-03): documentation routing was promoted from
+      // matchProviderByPattern's hardcoded "API routing: documentation"
+      // path into the Legacy Fallback preset template, gated by
+      // capability_constraints.max_files=1. Either reason string is
+      // acceptable — the preset wins when seeded; matchProviderByPattern
+      // remains as defense-in-depth fallback.
+      expect(result.reason).toMatch(/Legacy fallback|API routing: documentation task/);
     });
 
     it('routes codex jsdoc edits through the documentation path before codex-specific handling', () => {
@@ -313,7 +325,13 @@ describe('db/provider-routing-core', () => {
 
       const result = core.analyzeTaskForRouting('Fix validation in src/api.ts and add jsdoc', os.tmpdir(), ['src/api.ts']);
       expect(result.provider).toBe('groq');
-      expect(result.reason).toContain('API routing: documentation task');
+      // Phase B (2026-05-03): documentation routing was promoted from
+      // matchProviderByPattern's hardcoded "API routing: documentation"
+      // path into the Legacy Fallback preset template, gated by
+      // capability_constraints.max_files=1. Either reason string is
+      // acceptable — the preset wins when seeded; matchProviderByPattern
+      // remains as defense-in-depth fallback.
+      expect(result.reason).toMatch(/Legacy fallback|API routing: documentation task/);
     });
 
     it('routes reasoning tasks to deepinfra when configured', () => {

@@ -2155,6 +2155,7 @@ function createTables(db, logger) {
         description TEXT,
         rules_json TEXT NOT NULL,
         complexity_overrides_json TEXT,
+        capability_constraints_json TEXT,
         preset INTEGER DEFAULT 0,
         created_at TEXT DEFAULT (datetime('now')),
         updated_at TEXT DEFAULT (datetime('now'))

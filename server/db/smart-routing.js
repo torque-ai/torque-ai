@@ -172,6 +172,19 @@ function resolveRoutingTemplate(taskDescription, files, options, deps) {
     const availableChain = [];
     const quotaStore = getQuotaStoreIfAvailable();
 
+    // Phase B: per-template capability_constraints. Currently honored:
+    //   max_files: { provider: integer } — skip a chain entry when
+    //   the task references more than N files. Captures the historical
+    //   "groq fails on multi-file tool calls" gate that used to be
+    //   hardcoded in matchProviderByPattern. Greenfield_provider and
+    //   modification_oversize_provider are declared by the schema and
+    //   consumed downstream by resolveModificationRouting.
+    const constraints = template?.capability_constraints || null;
+    const maxFilesByProvider = (constraints && constraints.max_files && typeof constraints.max_files === 'object')
+      ? constraints.max_files
+      : null;
+    const fileCount = Array.isArray(files) ? files.length : 0;
+
     for (const entry of originalChain) {
       const providerName = typeof entry === 'string' ? entry : entry?.provider;
       if (!providerName) {
@@ -186,6 +199,13 @@ function resolveRoutingTemplate(taskDescription, files, options, deps) {
         const label = providerName === resolved.provider ? 'primary ' : '';
         logger.info('[SmartRouting] Skipping ' + label + providerName + ' — quota exhausted');
         continue;
+      }
+      if (maxFilesByProvider && Object.prototype.hasOwnProperty.call(maxFilesByProvider, providerName)) {
+        const limit = maxFilesByProvider[providerName];
+        if (Number.isInteger(limit) && fileCount > limit) {
+          logger.info(`[SmartRouting] Skipping ${providerName} — max_files=${limit} but task references ${fileCount} files`);
+          continue;
+        }
       }
 
       availableChain.push(typeof entry === 'string' ? { provider: providerName, model: null } : entry);

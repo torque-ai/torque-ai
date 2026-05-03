@@ -25,10 +25,15 @@ function seedPresets() {
   try { files = fs.readdirSync(PRESETS_DIR).filter(f => f.endsWith('.json')); } catch (err) { logger.warn('[template-store] Cannot read presets directory: ' + err.message); return; }
   // INSERT OR REPLACE so updated JSON presets take effect on restart.
   // Only affects preset templates (preset=1) — user-created templates are untouched.
-  const upsert = db.prepare(`
-    INSERT OR REPLACE INTO routing_templates (id, name, description, rules_json, complexity_overrides_json, preset, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, 1, COALESCE((SELECT created_at FROM routing_templates WHERE id = ?), datetime('now')), datetime('now'))
+  // capability_constraints_json was added in migration 55. Pre-migration
+  // databases throw `no such column` on the INSERT below; the catch
+  // falls back to the legacy INSERT shape so seedPresets still works
+  // on a freshly-loaded test schema that hasn't run migrations yet.
+  const upsertWithConstraints = db.prepare(`
+    INSERT OR REPLACE INTO routing_templates (id, name, description, rules_json, complexity_overrides_json, capability_constraints_json, preset, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, 1, COALESCE((SELECT created_at FROM routing_templates WHERE id = ?), datetime('now')), datetime('now'))
   `);
+  let upsertLegacy = null;
   for (const file of files) {
     let data;
     try {
@@ -38,7 +43,29 @@ function seedPresets() {
       continue;
     }
     const id = `preset-${path.basename(file, '.json')}`;
-    upsert.run(id, data.name, data.description || '', JSON.stringify(data.rules), JSON.stringify(data.complexity_overrides || {}), id);
+    const constraintsJson = data.capability_constraints
+      ? JSON.stringify(data.capability_constraints)
+      : null;
+    try {
+      upsertWithConstraints.run(
+        id,
+        data.name,
+        data.description || '',
+        JSON.stringify(data.rules),
+        JSON.stringify(data.complexity_overrides || {}),
+        constraintsJson,
+        id,
+      );
+    } catch (err) {
+      if (!/no such column/i.test(err.message)) throw err;
+      if (!upsertLegacy) {
+        upsertLegacy = db.prepare(`
+          INSERT OR REPLACE INTO routing_templates (id, name, description, rules_json, complexity_overrides_json, preset, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, 1, COALESCE((SELECT created_at FROM routing_templates WHERE id = ?), datetime('now')), datetime('now'))
+        `);
+      }
+      upsertLegacy.run(id, data.name, data.description || '', JSON.stringify(data.rules), JSON.stringify(data.complexity_overrides || {}), id);
+    }
   }
 }
 
@@ -51,6 +78,11 @@ function parseRow(row) {
       description: row.description,
       rules: JSON.parse(row.rules_json),
       complexity_overrides: row.complexity_overrides_json ? JSON.parse(row.complexity_overrides_json) : {},
+      // capability_constraints_json may be undefined on rows from
+      // databases that haven't run migration 55 yet — treat as empty.
+      capability_constraints: row.capability_constraints_json
+        ? JSON.parse(row.capability_constraints_json)
+        : null,
       preset: Boolean(row.preset),
       created_at: row.created_at,
       updated_at: row.updated_at,
@@ -143,6 +175,55 @@ function validateTemplate(data) {
       }
     }
   }
+  // Capability constraints — optional, gate provider selection on
+  // file count / file size / greenfield-vs-modification etc. without
+  // hardcoding the rules in smart-routing. Phase B of the routing-
+  // templates fold-in arc.
+  //
+  //   capability_constraints: {
+  //     // Skip a provider in the chain if the task references more
+  //     // than N files. Captures groq's tool-calling ceiling and
+  //     // similar provider-specific limits.
+  //     max_files: { groq: 1, cerebras: 1 }
+  //
+  //     // Provider to use for greenfield (no existing-file context)
+  //     // tasks when the smart-routing path would otherwise pick
+  //     // ollama. Captures the EXP1 rule.
+  //     greenfield_provider: "codex"
+  //
+  //     // Provider to use when the modification target exceeds the
+  //     // selected provider's max_safe_edit_lines. Captures P83.
+  //     modification_oversize_provider: "codex"
+  //   }
+  if (data.capability_constraints !== undefined && data.capability_constraints !== null) {
+    const cc = data.capability_constraints;
+    if (typeof cc !== 'object' || Array.isArray(cc)) {
+      errors.push('capability_constraints must be an object');
+    } else {
+      if (cc.max_files !== undefined && cc.max_files !== null) {
+        if (typeof cc.max_files !== 'object' || Array.isArray(cc.max_files)) {
+          errors.push('capability_constraints.max_files must be an object of { provider: integer }');
+        } else {
+          for (const [provider, limit] of Object.entries(cc.max_files)) {
+            if (!provider || typeof provider !== 'string') {
+              errors.push('capability_constraints.max_files keys must be non-empty provider name strings');
+              continue;
+            }
+            if (!Number.isInteger(limit) || limit < 0) {
+              errors.push(`capability_constraints.max_files.${provider} must be a non-negative integer`);
+            }
+          }
+        }
+      }
+      for (const stringField of ['greenfield_provider', 'modification_oversize_provider']) {
+        if (cc[stringField] !== undefined && cc[stringField] !== null) {
+          if (typeof cc[stringField] !== 'string' || cc[stringField].trim().length === 0) {
+            errors.push(`capability_constraints.${stringField} must be a non-empty provider name string`);
+          }
+        }
+      }
+    }
+  }
   return { valid: errors.length === 0, errors };
 }
 
@@ -153,10 +234,21 @@ function createTemplate(data) {
     throw new Error(`Validation failed: ${validation.errors.join(', ')}`);
   }
   const id = randomUUID();
-  db.prepare(`
-    INSERT INTO routing_templates (id, name, description, rules_json, complexity_overrides_json, preset, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, 0, datetime('now'), datetime('now'))
-  `).run(id, data.name.trim(), data.description || '', JSON.stringify(data.rules), JSON.stringify(data.complexity_overrides || {}));
+  const constraintsJson = data.capability_constraints
+    ? JSON.stringify(data.capability_constraints)
+    : null;
+  try {
+    db.prepare(`
+      INSERT INTO routing_templates (id, name, description, rules_json, complexity_overrides_json, capability_constraints_json, preset, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, 0, datetime('now'), datetime('now'))
+    `).run(id, data.name.trim(), data.description || '', JSON.stringify(data.rules), JSON.stringify(data.complexity_overrides || {}), constraintsJson);
+  } catch (err) {
+    if (!/no such column/i.test(err.message)) throw err;
+    db.prepare(`
+      INSERT INTO routing_templates (id, name, description, rules_json, complexity_overrides_json, preset, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, 0, datetime('now'), datetime('now'))
+    `).run(id, data.name.trim(), data.description || '', JSON.stringify(data.rules), JSON.stringify(data.complexity_overrides || {}));
+  }
   return getTemplate(id);
 }
 
@@ -171,15 +263,27 @@ function updateTemplate(id, data) {
     description: data.description !== undefined ? data.description : existing.description,
     rules: data.rules !== undefined ? data.rules : existing.rules,
     complexity_overrides: data.complexity_overrides !== undefined ? data.complexity_overrides : existing.complexity_overrides,
+    capability_constraints: data.capability_constraints !== undefined ? data.capability_constraints : existing.capability_constraints,
   };
   const validation = validateTemplate(merged);
   if (!validation.valid) {
     throw new Error(`Validation failed: ${validation.errors.join(', ')}`);
   }
-  db.prepare(`
-    UPDATE routing_templates SET name = ?, description = ?, rules_json = ?, complexity_overrides_json = ?, updated_at = datetime('now')
-    WHERE id = ?
-  `).run(merged.name, merged.description || '', JSON.stringify(merged.rules), JSON.stringify(merged.complexity_overrides || {}), id);
+  const constraintsJson = merged.capability_constraints
+    ? JSON.stringify(merged.capability_constraints)
+    : null;
+  try {
+    db.prepare(`
+      UPDATE routing_templates SET name = ?, description = ?, rules_json = ?, complexity_overrides_json = ?, capability_constraints_json = ?, updated_at = datetime('now')
+      WHERE id = ?
+    `).run(merged.name, merged.description || '', JSON.stringify(merged.rules), JSON.stringify(merged.complexity_overrides || {}), constraintsJson, id);
+  } catch (err) {
+    if (!/no such column/i.test(err.message)) throw err;
+    db.prepare(`
+      UPDATE routing_templates SET name = ?, description = ?, rules_json = ?, complexity_overrides_json = ?, updated_at = datetime('now')
+      WHERE id = ?
+    `).run(merged.name, merged.description || '', JSON.stringify(merged.rules), JSON.stringify(merged.complexity_overrides || {}), id);
+  }
   return getTemplate(id);
 }
 
