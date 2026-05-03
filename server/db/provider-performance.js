@@ -2,6 +2,14 @@
 let _db = null;
 function setDb(db) { _db = db; }
 
+function getRawDb() {
+  if (!_db) return null;
+  if (typeof _db.prepare === 'function') return _db;
+  if (typeof _db.getDbInstance === 'function') return _db.getDbInstance();
+  if (typeof _db.getDb === 'function') return _db.getDb();
+  return null;
+}
+
 function getWindowKey() {
   return new Date().toISOString().slice(0, 10);
 }
@@ -9,7 +17,8 @@ function getWindowKey() {
 function recordTaskOutcome({ provider, taskType, durationSeconds, success, resubmitted, autoCheckPassed }) {
   if (!_db) return;
   const window = getWindowKey();
-  const rawDb = _db.getDbInstance();
+  const rawDb = getRawDb();
+  if (!rawDb) return;
   rawDb.prepare(`
     INSERT INTO provider_performance (provider, task_type, window_start, total_tasks, successful_tasks, failed_tasks, resubmitted_tasks, avg_duration_seconds, auto_check_pass_rate, updated_at)
     VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?, datetime('now'))
@@ -31,8 +40,9 @@ function recordTaskOutcome({ provider, taskType, durationSeconds, success, resub
 }
 
 function getProviderTaskStats(provider, taskType, days = 7) {
-  if (!_db) return { total_tasks: 0, successful_tasks: 0, failed_tasks: 0, resubmitted_tasks: 0, avg_duration_seconds: 0, auto_check_pass_rate: 0 };
-  const rawDb = _db.getDbInstance();
+  const rawDb = getRawDb();
+  if (!rawDb) return { total_tasks: 0, successful_tasks: 0, failed_tasks: 0, resubmitted_tasks: 0, avg_duration_seconds: 0, auto_check_pass_rate: 0 };
+
   const cutoff = new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
   const row = rawDb.prepare(`
     SELECT
