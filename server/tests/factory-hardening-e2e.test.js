@@ -133,6 +133,7 @@ function ensureFactoryTables(db) {
       vc_worktree_id TEXT NOT NULL,
       branch TEXT NOT NULL,
       worktree_path TEXT NOT NULL,
+      base_branch TEXT,
       status TEXT NOT NULL DEFAULT 'active',
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       merged_at TEXT,
@@ -460,6 +461,212 @@ describe('factory hardening end-to-end', () => {
       SELECT COUNT(*) AS count FROM factory_decisions
       WHERE project_id = ? AND batch_id = ? AND action = 'execute_zero_diff_short_circuit'
     `).get(project.id, batchId).count).toBe(0);
+  });
+
+  it('zero-diff with agent self-commits ahead of master advances to VERIFY (not IDLE/unactionable)', async () => {
+    // Regression for the live failure on bitsy work item #470 (2026-05-03,
+    // "Add type stubs and py.typed marker"). Codex generated a 4-task plan
+    // that passed the quality gate; claude-cli executed each task and
+    // committed inside the worktree (3f2ecf5, 2e69d25, 43a6cd3, e355132 —
+    // 337 lines, py.typed marker + 4 .pyi stubs + pyproject package-data
+    // + 2 mypy-running tests). Phase E only checks for auto_committed_task
+    // decisions (which fire when the FACTORY auto-commits leftover dirty
+    // state), so 4 auto_commit_skipped_clean decisions (each meaning
+    // "agent committed cleanly, factory had nothing extra") incorrectly
+    // tripped the zero-diff short-circuit and marked WI 470 unactionable
+    // despite the work having landed cleanly.
+    //
+    // The right behavior: when batchHasAutoCommittedTask returns false but
+    // the branch has commits ahead of base, advance to VERIFY anyway —
+    // the agent's self-commits did the work.
+    //
+    // git-test-utils.js bypasses the worker-setup git stub (which would
+    // make rev-list return empty); importing it also globally restores
+    // the real execFileSync so production code in the helper sees a real
+    // git repo, not the stub.
+    const { gitSync } = require('./git-test-utils');
+
+    // Build a real git repo so the rev-list helper has something to count.
+    const repoPath = path.join(testDir, 'agent-self-commit-repo');
+    fs.mkdirSync(repoPath, { recursive: true });
+    gitSync(['init'], { cwd: repoPath });
+    gitSync(['config', 'user.email', 'test@test.com'], { cwd: repoPath });
+    gitSync(['config', 'user.name', 'Test'], { cwd: repoPath });
+    gitSync(['config', 'commit.gpgsign', 'false'], { cwd: repoPath });
+    fs.writeFileSync(path.join(repoPath, 'README.md'), '# base\n', 'utf8');
+    gitSync(['add', '.'], { cwd: repoPath });
+    gitSync(['commit', '-m', 'base', '--no-gpg-sign'], { cwd: repoPath });
+    // Rename whatever the default branch is (master/main depending on git
+    // version) to 'master' so the helper's rev-list query has the right ref.
+    gitSync(['branch', '-M', 'master'], { cwd: repoPath });
+    gitSync(['checkout', '-b', 'feat/agent-self-commits'], { cwd: repoPath });
+    fs.writeFileSync(path.join(repoPath, 'agent.txt'), 'agent committed this\n', 'utf8');
+    gitSync(['add', '.'], { cwd: repoPath });
+    gitSync(['commit', '-m', 'agent: typing stubs', '--no-gpg-sign'], { cwd: repoPath });
+
+    // Direct sanity-check that the test repo is in the expected state.
+    expect(gitSync(['rev-list', '--count', 'master..HEAD'], { cwd: repoPath })).toBe('1');
+
+    const project = createProject({ config: { execute_mode: 'suppress' } });
+    const planPath = writePlanFile();
+    const workItem = factoryIntake.createWorkItem({
+      project_id: project.id,
+      source: 'plan_file',
+      title: 'Agent committed via its own git tooling',
+      description: 'Worktree is clean because the agent committed; not because no work was done.',
+      requestor: 'test',
+      status: 'verifying',
+      origin: { plan_path: planPath },
+    });
+    const batchId = `factory-${project.id}-${workItem.id}`;
+    const instanceId = randomUUID();
+    const now = new Date('2026-05-03T02:30:00.000Z').toISOString();
+
+    factoryIntake.updateWorkItem(workItem.id, {
+      batch_id: batchId,
+      claimed_by_instance_id: instanceId,
+    });
+    dbHandle.prepare(`
+      INSERT INTO factory_loop_instances (
+        id, project_id, work_item_id, batch_id, loop_state, paused_at_stage, last_action_at, created_at
+      )
+      VALUES (?, ?, ?, ?, 'EXECUTE', NULL, ?, ?)
+    `).run(instanceId, project.id, workItem.id, batchId, now, now);
+    factoryHealth.updateProject(project.id, {
+      loop_state: LOOP_STATES.EXECUTE,
+      loop_batch_id: batchId,
+      loop_last_action_at: now,
+      loop_paused_at_stage: null,
+    });
+
+    // Record an active worktree row pointing at the real git repo above
+    // with a branch that already has one commit ahead of master.
+    factoryWorktrees.recordWorktree({
+      project_id: project.id,
+      work_item_id: workItem.id,
+      batch_id: batchId,
+      vc_worktree_id: randomUUID(),
+      branch: 'feat/agent-self-commits',
+      worktree_path: repoPath,
+      base_branch: 'master',
+    });
+
+    // Two consecutive auto_commit_skipped_clean — agent committed each
+    // time, factory had nothing extra to capture. NO auto_committed_task
+    // decision fired (this is the gap Phase E missed).
+    insertDecision({
+      projectId: project.id,
+      batchId,
+      action: 'auto_commit_skipped_clean',
+      createdAt: '2026-05-03T02:25:00.000Z',
+    });
+    insertDecision({
+      projectId: project.id,
+      batchId,
+      action: 'auto_commit_skipped_clean',
+      createdAt: '2026-05-03T02:27:00.000Z',
+    });
+
+    // Sanity-check: the worktree row should exist with base_branch set,
+    // and the helper should report commits ahead of master. If either
+    // fails, the loop transition will fall through to zero_diff_across_retries
+    // and the assertion errors below won't pinpoint the cause.
+    const wtRow = factoryWorktrees.getActiveWorktreeByBatch(batchId);
+    expect(wtRow).toBeTruthy();
+    expect(wtRow.baseBranch || wtRow.base_branch).toBe('master');
+    expect(wtRow.worktreePath || wtRow.worktree_path).toBe(repoPath);
+    expect(loopController.__testing__.batchBranchHasCommitsAhead(project.id, batchId)).toBe(true);
+
+    const advanced = await loopController.advanceLoopForProject(project.id);
+
+    expect(advanced).toMatchObject({
+      previous_state: LOOP_STATES.EXECUTE,
+      new_state: LOOP_STATES.VERIFY,
+      paused_at_stage: null,
+      reason: 'execute_completed_with_agent_self_commits',
+    });
+    expect(advanced.stage_result).toMatchObject({
+      status: 'completed',
+      reason: 'execute_completed_with_agent_self_commits',
+    });
+
+    // Work item must NOT be marked unactionable — real commits exist on
+    // the branch, the factory just couldn't see them via decision history.
+    const wi = factoryIntake.getWorkItem(workItem.id);
+    expect(wi.status).not.toBe('unactionable');
+    expect(wi.reject_reason).not.toBe('zero_diff_across_retries');
+
+    expect(dbHandle.prepare(`
+      SELECT COUNT(*) AS count FROM factory_decisions
+      WHERE project_id = ? AND batch_id = ? AND action = 'execute_completed_with_agent_self_commits'
+    `).get(project.id, batchId).count).toBe(1);
+    expect(dbHandle.prepare(`
+      SELECT COUNT(*) AS count FROM factory_decisions
+      WHERE project_id = ? AND batch_id = ? AND action = 'execute_zero_diff_short_circuit'
+    `).get(project.id, batchId).count).toBe(0);
+  });
+
+  it('zero-diff with no worktree row or no commits ahead still rejects (safety: no false-positive advance)', async () => {
+    // Confirms the existing zero-diff rejection path still fires when
+    // there's no positive evidence of agent commits — we only divert to
+    // VERIFY when we can prove via git that the branch has commits ahead.
+    const project = createProject({ config: { execute_mode: 'suppress' } });
+    const planPath = writePlanFile();
+    const workItem = factoryIntake.createWorkItem({
+      project_id: project.id,
+      source: 'plan_file',
+      title: 'Genuine zero-diff: no commits ahead, no auto_committed_task',
+      description: 'Two no-op retries with no real work landed.',
+      requestor: 'test',
+      status: 'verifying',
+      origin: { plan_path: planPath },
+    });
+    const batchId = `factory-${project.id}-${workItem.id}`;
+    const instanceId = randomUUID();
+    const now = new Date('2026-05-03T03:00:00.000Z').toISOString();
+
+    factoryIntake.updateWorkItem(workItem.id, {
+      batch_id: batchId,
+      claimed_by_instance_id: instanceId,
+    });
+    dbHandle.prepare(`
+      INSERT INTO factory_loop_instances (
+        id, project_id, work_item_id, batch_id, loop_state, paused_at_stage, last_action_at, created_at
+      )
+      VALUES (?, ?, ?, ?, 'EXECUTE', NULL, ?, ?)
+    `).run(instanceId, project.id, workItem.id, batchId, now, now);
+    factoryHealth.updateProject(project.id, {
+      loop_state: LOOP_STATES.EXECUTE,
+      loop_batch_id: batchId,
+      loop_last_action_at: now,
+      loop_paused_at_stage: null,
+    });
+    insertDecision({
+      projectId: project.id,
+      batchId,
+      action: 'auto_commit_skipped_clean',
+      createdAt: '2026-05-03T03:00:01.000Z',
+    });
+    insertDecision({
+      projectId: project.id,
+      batchId,
+      action: 'auto_commit_skipped_clean',
+      createdAt: '2026-05-03T03:00:05.000Z',
+    });
+    // Note: no factory_worktrees row recorded → batchBranchHasCommitsAhead
+    // returns false (no row to look up).
+
+    const advanced = await loopController.advanceLoopForProject(project.id);
+
+    expect(advanced).toMatchObject({
+      previous_state: LOOP_STATES.EXECUTE,
+      new_state: LOOP_STATES.IDLE,
+      reason: 'zero_diff_across_retries',
+    });
+    expect(factoryIntake.getWorkItem(workItem.id)).toMatchObject({
+      status: 'unactionable',
+      reject_reason: 'zero_diff_across_retries',
+    });
   });
 
   it('terminates VERIFY when verify review rejects and pauses the project', async () => {
