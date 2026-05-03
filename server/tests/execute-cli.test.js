@@ -417,7 +417,7 @@ describe('execute-cli.js', () => {
   // ── spawnAndTrackProcess ───────────────────────────────────────
 
   describe('spawnAndTrackProcess', () => {
-    const { createMockChild, simulateSuccess } = require('./mocks/process-mock');
+    const { createMockChild, simulateSuccess, simulateFailure } = require('./mocks/process-mock');
 
     beforeEach(() => {
       resetConfigs();
@@ -770,6 +770,90 @@ describe('execute-cli.js', () => {
       } finally {
         vi.useRealTimers();
       }
+    });
+
+    it('annotates errorOutput with structured [process-exit] line on non-zero exit', async () => {
+      // Regression for task 65072ba9-6b7b-4886-937b-d6fb665db468 (2026-05-03):
+      // codex CLI exited 1 after 135s but error_output stored only the
+      // prompt-echo + a few exec lines, with no record of when or why it
+      // ended. Ensure the close handler always tags failed tasks with a
+      // structured exit summary (code/signal/duration/provider) so future
+      // diagnostics don't have to reconstruct timing from the factory log.
+      const mockChild = createMockChild();
+      spawnMock.mockReturnValue(mockChild);
+
+      const finalizeTaskSpy = vi.fn(async () => ({ finalized: true, queueManaged: false }));
+      const deps = makeDeps({ runningProcesses: new Map(), finalizeTask: finalizeTaskSpy });
+      mod.init(deps);
+
+      const taskId = randomUUID();
+      taskCore.createTask({
+        id: taskId,
+        task_description: 'Process exit annotation test',
+        status: 'running',
+        provider: 'codex',
+        working_directory: testDir,
+      });
+
+      const cmdSpec = {
+        cliPath: 'node',
+        finalArgs: [],
+        stdinPrompt: null,
+        envExtras: {},
+        selectedOllamaHostId: null,
+        usedEditFormat: null,
+      };
+
+      mod.spawnAndTrackProcess(taskId, { id: taskId, working_directory: testDir }, cmdSpec, 'codex');
+      simulateFailure(mockChild, '', 'codex CLI banner only', 1, 5);
+      await new Promise((r) => setTimeout(r, 50));
+
+      expect(finalizeTaskSpy).toHaveBeenCalled();
+      const finalizeArgs = finalizeTaskSpy.mock.calls[0][1];
+      expect(finalizeArgs.exitCode).toBe(1);
+      expect(finalizeArgs.errorOutput).toMatch(/\[process-exit\] /);
+      expect(finalizeArgs.errorOutput).toMatch(/code=1\b/);
+      expect(finalizeArgs.errorOutput).toMatch(/signal=none\b/);
+      expect(finalizeArgs.errorOutput).toMatch(/duration_ms=\d+/);
+      expect(finalizeArgs.errorOutput).toMatch(/provider=codex\b/);
+      // Original captured stderr should still be present before the suffix
+      expect(finalizeArgs.errorOutput).toContain('codex CLI banner only');
+    });
+
+    it('does NOT add the [process-exit] line on a clean exit (code 0)', async () => {
+      const mockChild = createMockChild();
+      spawnMock.mockReturnValue(mockChild);
+
+      const finalizeTaskSpy = vi.fn(async () => ({ finalized: true, queueManaged: false }));
+      const deps = makeDeps({ runningProcesses: new Map(), finalizeTask: finalizeTaskSpy });
+      mod.init(deps);
+
+      const taskId = randomUUID();
+      taskCore.createTask({
+        id: taskId,
+        task_description: 'Clean exit no annotation',
+        status: 'running',
+        provider: 'codex',
+        working_directory: testDir,
+      });
+
+      const cmdSpec = {
+        cliPath: 'node',
+        finalArgs: [],
+        stdinPrompt: null,
+        envExtras: {},
+        selectedOllamaHostId: null,
+        usedEditFormat: null,
+      };
+
+      mod.spawnAndTrackProcess(taskId, { id: taskId, working_directory: testDir }, cmdSpec, 'codex');
+      simulateSuccess(mockChild, 'all good', 5);
+      await new Promise((r) => setTimeout(r, 50));
+
+      expect(finalizeTaskSpy).toHaveBeenCalled();
+      const finalizeArgs = finalizeTaskSpy.mock.calls[0][1];
+      expect(finalizeArgs.exitCode).toBe(0);
+      expect(finalizeArgs.errorOutput || '').not.toMatch(/\[process-exit\]/);
     });
   });
 });

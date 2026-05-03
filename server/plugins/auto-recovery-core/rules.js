@@ -33,6 +33,40 @@ module.exports = [
     suggested_strategies: ['retry_plan_generation', 'fallback_provider', 'reject_and_advance'],
   },
   {
+    // FS-lock variant of worktree-creation failure. Covers the
+    // recoverable subset: Windows file-lock errors (AV scanner, recently-
+    // killed process's handles still holding the dir, indexer) surface as
+    // "Permission denied" / EBUSY / EPERM / "Access is denied" / "being
+    // used by another process" from `git worktree remove --force` during
+    // pre_reclaim_before_create. These self-heal in seconds-to-minutes,
+    // so retry first (clears the EXECUTE gate; next factory tick
+    // re-enters EXECUTE and pre_reclaim succeeds via the layered
+    // forceRmSync/quarantine fallback in worktree-manager.cleanupWorktree).
+    // Higher priority than the broad `execute_worktree_creation_failed`
+    // rule so the recoverable subset is matched first; the broad rule
+    // continues to handle genuinely structural failures like UNIQUE
+    // constraint collisions (which retry cannot fix).
+    //
+    // Live evidence 2026-05-03 (task 65072ba9-6b7b-4886-937b-d6fb665db468):
+    // OTLP-spans work item discarded by reject_and_advance after one
+    // Permission-denied collision on the prior task's worktree dir.
+    name: 'execute_worktree_creation_fs_lock',
+    category: 'transient',
+    priority: 97,
+    confidence: 0.85,
+    match_fn: (d) => {
+      if (!d || d.stage !== 'execute') return false;
+      const text = `${d.reasoning || ''} ${JSON.stringify(d.outcome || {})}`;
+      const isCreateFailure =
+        d.action === 'worktree_creation_failed'
+        || (d.action === 'paused_at_gate'
+            && /worktree_creation_failed|worktree creation failed/i.test(text));
+      if (!isCreateFailure) return false;
+      return /Permission denied|EBUSY|EPERM|EACCES|access is denied|being used by another process/i.test(text);
+    },
+    suggested_strategies: ['retry', 'reject_and_advance', 'escalate'],
+  },
+  {
     name: 'execute_worktree_creation_failed',
     category: 'structural_failure',
     priority: 95,

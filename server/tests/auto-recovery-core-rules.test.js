@@ -55,6 +55,57 @@ describe('auto-recovery-core day-one rules', () => {
     expect(r.matched_rule).toBe('execute_worktree_creation_gate');
   });
 
+  it('classifies Permission-denied worktree-creation failures as transient (fs_lock rule)', () => {
+    // Regression for task 65072ba9-6b7b-4886-937b-d6fb665db468 (2026-05-03):
+    // Codex EXECUTE finished with exit 1; the next attempt's
+    // pre_reclaim_before_create hit a Windows file-lock on the prior
+    // worktree dir, threw "Permission denied" from `git worktree remove
+    // --force`, and the structural-failure rule rejected the work item.
+    // The FS-lock subset is recoverable (the layered cleanup retries +
+    // factory tick re-enters EXECUTE), so it should classify as transient
+    // with retry first, reject_and_advance only as a final fallback.
+    const r = classifier.classify({
+      stage: 'execute',
+      action: 'worktree_creation_failed',
+      reasoning: `Worktree creation failed: Command failed: git worktree remove --force C:\\repo\\.worktrees\\fea-e4596ecd error: failed to delete 'C:/repo/.worktrees/fea-e4596ecd': Permission denied`,
+      outcome: { work_item_id: 209, error: 'Permission denied' },
+    });
+    expect(r.matched_rule).toBe('execute_worktree_creation_fs_lock');
+    expect(r.category).toBe('transient');
+    expect(r.suggested_strategies[0]).toBe('retry');
+    expect(r.suggested_strategies).toContain('reject_and_advance');
+  });
+
+  it('classifies EBUSY paused-at-gate worktree creation failures as transient (fs_lock rule)', () => {
+    const r = classifier.classify({
+      stage: 'execute',
+      action: 'paused_at_gate',
+      reasoning: 'Loop paused awaiting approval for EXECUTE.',
+      outcome: {
+        reason: 'worktree_creation_failed',
+        work_item_id: 545,
+        error: 'EBUSY: resource busy or locked, unlink',
+      },
+    });
+    expect(r.matched_rule).toBe('execute_worktree_creation_fs_lock');
+    expect(r.category).toBe('transient');
+    expect(r.suggested_strategies[0]).toBe('retry');
+  });
+
+  it('keeps non-fs-lock worktree-creation failures (e.g. UNIQUE constraint) on the structural rule', () => {
+    // The FS-lock rule must NOT swallow genuinely structural failures
+    // like UNIQUE constraint collisions on factory_worktrees.branch —
+    // retry cannot fix those.
+    const r = classifier.classify({
+      stage: 'execute',
+      action: 'worktree_creation_failed',
+      reasoning: 'git worktree creation failed',
+      outcome: { work_item_id: 545, error: 'UNIQUE constraint failed: factory_worktrees.branch' },
+    });
+    expect(r.matched_rule).toBe('execute_worktree_creation_failed');
+    expect(r.category).toBe('structural_failure');
+  });
+
   it('classifies "active worktree owner still running" as await_self_heal with empty strategies', () => {
     // Regression for the bitsy work_item 2161 spin (2026-05-01 03:18-03:31):
     // pre-execute reclaim found the worktree owned by a live task, the loop

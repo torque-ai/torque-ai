@@ -1669,6 +1669,17 @@ session id: abc123`);
     expect(result).toEqual({ retryable: true, reason: 'Process killed by signal SIGKILL' });
   });
 
+  it('classifies signal-terminated subprocess output via the structured process-exit tag', () => {
+    // Structured format introduced 2026-05-03 along with the broader
+    // [process-exit] annotation that captures code/duration/provider on
+    // any non-zero exit. The classifier still needs to recognize signal
+    // kills inside the structured form so failover/fallback decisions
+    // continue to treat them as retryable OS-level kills.
+    const stderr = 'some stderr noise\n[process-exit] code=null signal=SIGTERM duration_ms=42 provider=codex';
+    const result = classifyError(stderr, -1);
+    expect(result).toEqual({ retryable: true, reason: 'Process killed by signal SIGTERM' });
+  });
+
   it('classifies empty output with exit=-1 as premature exit (distinct from unknown)', () => {
     const result = classifyError('', -1);
     expect(result).toEqual({
