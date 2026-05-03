@@ -2,7 +2,6 @@
 
 const MODULE_PATHS = [
   '../dashboard/routes/analytics',
-  '../database',
   '../db/task-core',
   '../db/cost-tracking',
   '../db/event-tracking',
@@ -26,7 +25,8 @@ const mockDb = {
   getQualityStatsByProvider: vi.fn(),
   getValidationFailureRate: vi.fn(),
   listTasks: vi.fn(),
-  getDbInstance: vi.fn(),
+  getModelUsageStats: vi.fn(),
+  getModelDailyUsageSeries: vi.fn(),
   getFormatSuccessRatesSummary: vi.fn(),
   getWebhookStats: vi.fn(),
   listWebhooks: vi.fn(),
@@ -83,6 +83,8 @@ const mockQueueScheduler = {
 const mockTaskCore = {
   countTasks: mockDb.countTasks,
   listTasks: mockDb.listTasks,
+  getModelUsageStats: mockDb.getModelUsageStats,
+  getModelDailyUsageSeries: mockDb.getModelDailyUsageSeries,
 };
 
 const mockCostTracking = {
@@ -145,7 +147,6 @@ function clearLoadedModules() {
 
 function loadAnalytics() {
   clearLoadedModules();
-  installMock('../database', mockDb);
   installMock('../db/task-core', mockTaskCore);
   installMock('../db/cost-tracking', mockCostTracking);
   installMock('../db/event-tracking', mockEventTracking);
@@ -222,9 +223,8 @@ function resetMockDefaults() {
   mockDb.getQualityStatsByProvider.mockReset().mockReturnValue([]);
   mockDb.getValidationFailureRate.mockReset().mockReturnValue({});
   mockDb.listTasks.mockReset().mockReturnValue([]);
-  mockDb.getDbInstance.mockReset().mockReturnValue({
-    prepare: vi.fn().mockReturnValue({ all: vi.fn().mockReturnValue([]) }),
-  });
+  mockDb.getModelUsageStats.mockReset().mockReturnValue([]);
+  mockDb.getModelDailyUsageSeries.mockReset().mockReturnValue([]);
   mockDb.getFormatSuccessRatesSummary.mockReset().mockReturnValue([]);
   mockDb.getWebhookStats.mockReset().mockReturnValue({
     webhooks: { total: 0, active: 0 },
@@ -466,49 +466,42 @@ describe('dashboard analytics route handlers', () => {
     });
 
     it('handleModelStats aggregates provider rows by model and preserves the daily series', () => {
-      const prepare = vi.fn();
-      prepare
-        .mockReturnValueOnce({
-          all: vi.fn().mockReturnValue([
-            {
-              model: 'gpt-5',
-              provider: 'codex',
-              total: 3,
-              completed: 2,
-              failed: 1,
-              avg_duration_seconds: 10,
-              total_cost: 1.5,
-              last_used: '2026-03-10T10:00:00.000Z',
-            },
-            {
-              model: 'gpt-5',
-              provider: 'groq',
-              total: 1,
-              completed: 1,
-              failed: 0,
-              avg_duration_seconds: 30,
-              total_cost: 0.5,
-              last_used: '2026-03-10T11:00:00.000Z',
-            },
-            {
-              model: 'claude-4',
-              provider: 'claude-cli',
-              total: 2,
-              completed: 1,
-              failed: 1,
-              avg_duration_seconds: null,
-              total_cost: 0.2,
-              last_used: '2026-03-09T09:00:00.000Z',
-            },
-          ]),
-        })
-        .mockReturnValueOnce({
-          all: vi.fn().mockReturnValue([
-            { model: 'gpt-5', date: '2026-03-09', total: 2, completed: 1, failed: 1 },
-            { model: 'gpt-5', date: '2026-03-10', total: 2, completed: 2, failed: 0 },
-          ]),
-        });
-      mockDb.getDbInstance.mockReturnValue({ prepare });
+      mockDb.getModelUsageStats.mockReturnValue([
+        {
+          model: 'gpt-5',
+          provider: 'codex',
+          total: 3,
+          task_count: 3,
+          completed: 2,
+          failed: 1,
+          avg_duration_seconds: 10,
+          last_used: '2026-03-10T10:00:00.000Z',
+        },
+        {
+          model: 'gpt-5',
+          provider: 'groq',
+          total: 1,
+          task_count: 1,
+          completed: 1,
+          failed: 0,
+          avg_duration_seconds: 30,
+          last_used: '2026-03-10T11:00:00.000Z',
+        },
+        {
+          model: 'claude-4',
+          provider: 'claude-cli',
+          total: 2,
+          task_count: 2,
+          completed: 1,
+          failed: 1,
+          avg_duration_seconds: null,
+          last_used: '2026-03-09T09:00:00.000Z',
+        },
+      ]);
+      mockDb.getModelDailyUsageSeries.mockReturnValue([
+        { model: 'gpt-5', date: '2026-03-09', total: 2, completed: 1, failed: 1 },
+        { model: 'gpt-5', date: '2026-03-10', total: 2, completed: 2, failed: 0 },
+      ]);
 
       const res = createMockRes();
       analytics.handleModelStats({}, res, { days: '3' });
@@ -525,9 +518,10 @@ describe('dashboard analytics route handlers', () => {
           total: 4,
           completed: 3,
           failed: 1,
-          avg_duration_seconds: 20,
-          total_cost: 2,
+          avg_duration_seconds: 15,
           last_used: '2026-03-10T11:00:00.000Z',
+          _totalDuration: 60,
+          _totalCount: 4,
           success_rate: 75,
         },
         {
@@ -537,16 +531,17 @@ describe('dashboard analytics route handlers', () => {
           completed: 1,
           failed: 1,
           avg_duration_seconds: null,
-          total_cost: 0.2,
           last_used: '2026-03-09T09:00:00.000Z',
+          _totalDuration: 0,
+          _totalCount: 0,
           success_rate: 50,
         },
       ]));
     });
 
-    it('handleModelStats returns an error payload when the DB query fails', () => {
-      mockDb.getDbInstance.mockImplementation(() => {
-        throw new Error('sql offline');
+    it('handleModelStats returns an error payload when the task-core query fails', () => {
+      mockDb.getModelUsageStats.mockImplementation(() => {
+        throw new Error('model stats failed');
       });
 
       const res = createMockRes();
@@ -556,7 +551,7 @@ describe('dashboard analytics route handlers', () => {
         models: [],
         dailySeries: [],
         days: 7,
-        error: 'sql offline',
+        error: 'model stats failed',
       });
     });
 
@@ -938,25 +933,14 @@ describe('dashboard analytics route handlers', () => {
       });
     });
 
-    it('handleBudgetSummary falls back to SQL daily aggregation when period rows are unavailable', () => {
+    it('handleBudgetSummary returns an empty daily series when period rows are unavailable', () => {
       mockDb.getCostSummary.mockReturnValue([{ provider: 'codex', task_count: 3, total_cost: 0.9 }]);
       mockDb.getCostByPeriod.mockReturnValue([]);
-      mockDb.getDbInstance.mockReturnValue({
-        prepare: vi.fn().mockReturnValue({
-          all: vi.fn().mockReturnValue([
-            { date: '2026-03-09', cost: 0.4 },
-            { date: '2026-03-10', cost: 0.5 },
-          ]),
-        }),
-      });
 
       const res = createMockRes();
       analytics.handleBudgetSummary({}, res, { days: '7' });
 
-      expect(res.payload.daily).toEqual([
-        { date: '2026-03-09', cost: 0.4 },
-        { date: '2026-03-10', cost: 0.5 },
-      ]);
+      expect(res.payload.daily).toEqual([]);
     });
 
     it('handleBudgetStatus normalizes a single budget object into the expected payload', () => {

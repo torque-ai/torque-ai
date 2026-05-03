@@ -3,7 +3,6 @@
  *
  * Merged from: stats.js, strategic.js, finance.js, workflows.js
  */
-const database = require('../../database');   // getDbInstance (raw SQL)
 const taskCore = require('../../db/task-core');
 const costTracking = require('../../db/cost-tracking');
 const eventTracking = require('../../db/event-tracking');
@@ -303,84 +302,48 @@ function handleModelStats(req, res, query) {
   const since = new Date(Date.now() - days * 86400000).toISOString();
 
   try {
-    const sqlDb = database.getDbInstance();
-    const models = sqlDb.prepare(`
-      SELECT
-        model,
-        provider,
-        COUNT(*) as total,
-        SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed,
-        SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed,
-        AVG(CASE
-          WHEN completed_at IS NOT NULL AND started_at IS NOT NULL
-          THEN (julianday(completed_at) - julianday(started_at)) * 86400
-          ELSE NULL
-        END) as avg_duration_seconds,
-        SUM(COALESCE(
-          (SELECT SUM(tu.estimated_cost_usd) FROM token_usage tu WHERE tu.task_id = tasks.id),
-          0
-        )) as total_cost,
-        MAX(created_at) as last_used
-      FROM tasks
-      WHERE created_at >= ?
-        AND model IS NOT NULL
-        AND model != ''
-      GROUP BY model, provider
-      ORDER BY total DESC
-    `).all(since);
+    const rows = typeof taskCore.getModelUsageStats === 'function'
+      ? taskCore.getModelUsageStats(since)
+      : [];
 
-    // Also compute per-model daily time series for charts
-    const dailySeries = sqlDb.prepare(`
-      SELECT
-        model,
-        DATE(created_at) as date,
-        COUNT(*) as total,
-        SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed,
-        SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed
-      FROM tasks
-      WHERE created_at >= ?
-        AND model IS NOT NULL
-        AND model != ''
-      GROUP BY model, DATE(created_at)
-      ORDER BY date ASC
-    `).all(since);
-
-    // Build per-model summary
-    const modelSummary = {};
-    for (const row of models) {
-      const key = row.model;
-      if (!modelSummary[key]) {
-        modelSummary[key] = {
+    const modelMap = {};
+    for (const row of rows) {
+      if (!modelMap[row.model]) {
+        modelMap[row.model] = {
           model: row.model,
           providers: [],
           total: 0,
           completed: 0,
           failed: 0,
           avg_duration_seconds: null,
-          total_cost: 0,
           last_used: null,
+          _totalDuration: 0,
+          _totalCount: 0,
         };
       }
-      const m = modelSummary[key];
+      const m = modelMap[row.model];
       m.providers.push(row.provider);
       m.total += row.total;
       m.completed += row.completed;
       m.failed += row.failed;
-      m.total_cost += row.total_cost ?? 0;
       if (!m.last_used || row.last_used > m.last_used) m.last_used = row.last_used;
       if (row.avg_duration_seconds != null) {
-        m.avg_duration_seconds = m.avg_duration_seconds != null
-          ? (m.avg_duration_seconds + row.avg_duration_seconds) / 2
-          : row.avg_duration_seconds;
+        m._totalDuration += row.avg_duration_seconds * row.task_count;
+        m._totalCount += row.task_count;
+        m.avg_duration_seconds = m._totalDuration / m._totalCount;
       }
     }
 
-    const modelArray = Object.values(modelSummary).map(m => ({
+    const models = Object.values(modelMap).map(m => ({
       ...m,
       success_rate: m.total > 0 ? Math.round(m.completed / m.total * 100) : 0,
     }));
 
-    sendJson(res, { models: modelArray, dailySeries, days });
+    const dailySeries = typeof taskCore.getModelDailyUsageSeries === 'function'
+      ? taskCore.getModelDailyUsageSeries(since)
+      : [];
+
+    sendJson(res, { models, dailySeries, days });
   } catch (err) {
     sendJson(res, { models: [], dailySeries: [], days, error: err.message });
   }
@@ -642,19 +605,6 @@ function handleBudgetSummary(req, res, query) {
   const dailyRows = costTracking.getCostByPeriod('day', days);
   if (dailyRows && dailyRows.length > 0) {
     daily = dailyRows.map(r => ({ date: r.period, cost: r.cost || 0 })).reverse();
-  } else {
-    try {
-      const sqlDb = database.getDbInstance();
-      const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
-      const rows = sqlDb.prepare(`
-        SELECT strftime('%Y-%m-%d', tracked_at) as date,
-               SUM(cost_usd) as cost
-        FROM cost_tracking WHERE tracked_at > ?
-        GROUP BY strftime('%Y-%m-%d', tracked_at)
-        ORDER BY date ASC
-      `).all(since);
-      daily = rows.map(r => ({ date: r.date, cost: r.cost || 0 }));
-    } catch { /* ignore — daily chart just stays empty */ }
   }
 
   return sendJson(res, { total_cost: totalCost, task_count: taskCount, by_provider: byProvider, daily });
