@@ -8,8 +8,13 @@ const childProcess = require('child_process');
 const { setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
 const { reconcileProject } = require('../factory/worktree-reconcile');
 
-const GIT_TEST_ENV = {
-  ...process.env,
+const GIT_TEST_ENV = { ...process.env };
+delete GIT_TEST_ENV.GIT_DIR;
+delete GIT_TEST_ENV.GIT_WORK_TREE;
+delete GIT_TEST_ENV.GIT_INDEX_FILE;
+delete GIT_TEST_ENV.GIT_OBJECT_DIRECTORY;
+delete GIT_TEST_ENV.GIT_ALTERNATE_OBJECT_DIRECTORIES;
+Object.assign(GIT_TEST_ENV, {
   GIT_TERMINAL_PROMPT: '0',
   GIT_OPTIONAL_LOCKS: '0',
   GIT_CONFIG_NOSYSTEM: '1',
@@ -17,7 +22,7 @@ const GIT_TEST_ENV = {
   GIT_AUTHOR_EMAIL: 'factory-test@example.com',
   GIT_COMMITTER_NAME: 'Factory Test',
   GIT_COMMITTER_EMAIL: 'factory-test@example.com',
-};
+});
 
 let dbModule;
 let db;
@@ -28,7 +33,8 @@ function runDdl(dbHandle, sql) {
 }
 
 function runGit(repoDir, args) {
-  return childProcess.execFileSync('git', args, {
+  const execFileSync = childProcess._realExecFileSync || childProcess.execFileSync;
+  return execFileSync('git', args, {
     cwd: repoDir,
     encoding: 'utf8',
     windowsHide: true,
@@ -44,7 +50,7 @@ function createRepo() {
   fs.writeFileSync(path.join(repoDir, 'README.md'), '# test', 'utf8');
   runGit(repoDir, ['add', 'README.md']);
   runGit(repoDir, ['commit', '-m', 'init', '--no-gpg-sign']);
-  runGit(repoDir, ['checkout', '-b', 'main']);
+  runGit(repoDir, ['checkout', '-B', 'main']);
   return repoDir;
 }
 
@@ -63,6 +69,20 @@ function ensureSchema(handle) {
       trust_level TEXT NOT NULL DEFAULT 'supervised',
       status TEXT NOT NULL DEFAULT 'paused',
       config_json TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+  `);
+
+  runDdl(handle, `
+    CREATE TABLE IF NOT EXISTS factory_work_items (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      project_id TEXT NOT NULL,
+      source TEXT NOT NULL,
+      title TEXT NOT NULL,
+      description TEXT,
+      priority INTEGER NOT NULL DEFAULT 50,
+      status TEXT NOT NULL DEFAULT 'pending',
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
@@ -113,11 +133,27 @@ function makeProjectRow(repoDir) {
   };
 }
 
+function insertWorkItem(projectId) {
+  const info = db.prepare(`
+    INSERT INTO factory_work_items (project_id, source, title, description, priority, status, created_at, updated_at)
+    VALUES (?, 'test', 'worktree guard fixture', 'fixture', 50, 'executing', datetime('now'), datetime('now'))
+  `).run(projectId);
+  return Number(info.lastInsertRowid);
+}
+
 function insertWorktreeRow({ projectId, branch, status = 'active', worktreePath = null }) {
+  const workItemId = insertWorkItem(projectId);
   db.prepare(`
     INSERT INTO factory_worktrees (project_id, work_item_id, batch_id, vc_worktree_id, branch, worktree_path, status)
-    VALUES (?, 1, 'batch-1', 'vc-1', ?, ?, ?)
-  `).run(projectId, branch, worktreePath || path.join(testDir, 'unused', branch.replace(/[^\w-]/g, '-')), status);
+    VALUES (?, ?, 'batch-1', ?, ?, ?, ?)
+  `).run(
+    projectId,
+    workItemId,
+    `vc-${workItemId}`,
+    branch,
+    worktreePath || path.join(testDir, 'unused', branch.replace(/[^\w-]/g, '-')),
+    status,
+  );
 }
 
 function getDecision(projectId, action) {
@@ -140,6 +176,7 @@ beforeEach(() => {
   db = dbModule.getDbInstance();
   runDdl(db, 'DELETE FROM factory_worktrees');
   runDdl(db, 'DELETE FROM factory_decisions');
+  runDdl(db, 'DELETE FROM factory_work_items');
   runDdl(db, 'DELETE FROM factory_projects');
 });
 

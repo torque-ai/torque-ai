@@ -13,11 +13,27 @@ const RECONCILE_FAILURE_WARN_INTERVAL_MS = 15 * 60 * 1000;
 const FACTORY_HEAD_PREFIX = /^feat[-/]factory-/;
 const reconcileFailureLogState = new Map();
 
+function safeGitEnv() {
+  const env = { ...process.env };
+  delete env.GIT_DIR;
+  delete env.GIT_WORK_TREE;
+  delete env.GIT_INDEX_FILE;
+  delete env.GIT_OBJECT_DIRECTORY;
+  delete env.GIT_ALTERNATE_OBJECT_DIRECTORIES;
+  return {
+    ...env,
+    GIT_TERMINAL_PROMPT: '0',
+    GIT_OPTIONAL_LOCKS: '0',
+  };
+}
+
 function runGit(repoPath, args) {
-  return childProcess.execFileSync('git', args, {
+  const execFileSync = childProcess._realExecFileSync || childProcess.execFileSync;
+  return execFileSync('git', args, {
     cwd: repoPath,
     encoding: 'utf8',
     windowsHide: true,
+    env: safeGitEnv(),
     timeout: 30000,
     killSignal: 'SIGKILL',
   });
@@ -44,7 +60,31 @@ function isBusyDeleteError(err) {
   if (!err) return false;
   const code = String(err.code || '').toLowerCase();
   const message = String(err.message || err).toLowerCase();
-  return code === 'ebusy' || code === 'eperm' || message.includes('device or resource busy');
+  return code === 'ebusy'
+    || code === 'eperm'
+    || message.includes('ebusy')
+    || message.includes('eperm')
+    || message.includes('resource busy')
+    || message.includes('device or resource busy');
+}
+
+function parseGitPorcelainPath(rawPath) {
+  const trimmed = String(rawPath || '').trim();
+  if (!trimmed.startsWith('"') || !trimmed.endsWith('"')) {
+    return trimmed;
+  }
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    return trimmed
+      .slice(1, -1)
+      .replace(/\\([\\"nrt])/g, (match, ch) => {
+        if (ch === 'n') return '\n';
+        if (ch === 'r') return '\r';
+        if (ch === 't') return '\t';
+        return ch;
+      });
+  }
 }
 
 function normalizeFactoryBranchName(branch) {
@@ -129,7 +169,7 @@ function guardMainRepoHead({ db, project_id, project_path }) {
 
   let hasDirtyTree = false;
   try {
-    const status = runGit(project_path, ['status', '--porcelain']);
+    const status = runGit(project_path, ['status', '--porcelain', '--untracked-files=all']);
     hasDirtyTree = status.trim().length > 0;
   } catch (err) {
     logger.warn({ action: 'main_repo_head_status_failed', project_id, branch, err: err.message }, 'main repo head guard status check failed');
@@ -163,7 +203,11 @@ function guardMainRepoHead({ db, project_id, project_path }) {
 }
 
 function normalizePathKey(p) {
-  return path.resolve(String(p || '')).replace(/\\/g, '/').toLowerCase();
+  let value = String(p || '');
+  if (process.platform === 'win32') {
+    value = value.replace(/^\/([a-zA-Z])\//, '$1:/');
+  }
+  return path.resolve(value).replace(/\\/g, '/').toLowerCase();
 }
 
 function flattenAttemptErrors(attempts = []) {
@@ -495,7 +539,7 @@ function listWorktreeDirs(projectPath, worktreeDir = DEFAULT_WORKTREE_DIR) {
 
 function parseGitWorktreeList(projectPath) {
   try {
-    const raw = runGit(projectPath, ['worktree', 'list', '--porcelain']);
+    const raw = runGit(projectPath, ['-c', 'core.quotePath=false', 'worktree', 'list', '--porcelain']);
     if (!raw) {
       return new Set();
     }
@@ -505,7 +549,7 @@ function parseGitWorktreeList(projectPath) {
       if (!line.startsWith('worktree ')) {
         continue;
       }
-      const worktreePath = line.slice('worktree '.length).trim();
+      const worktreePath = parseGitPorcelainPath(line.slice('worktree '.length));
       if (worktreePath) {
         parsed.add(normalizePathKey(worktreePath));
       }
