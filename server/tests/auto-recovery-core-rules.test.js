@@ -308,6 +308,35 @@ describe('auto-recovery-core day-one rules', () => {
     expect(r.suggested_strategies).toContain('retry_plan_generation');
   });
 
+  it('classifies execute execution_failed as transient with retry first', () => {
+    // Regression for bitsy task ce75e955 (2026-05-03): WI 536 task 1
+    // cancelled by a concurrent Claude session that saw bitsy as paused
+    // and triaged the running task as 'leaked'. The cancellation surfaced
+    // as execute/execution_failed with reasoning 'task 1 failed'. Without
+    // this rule, the default unknown-classification picked retry, then
+    // escalate, exhausted recovery, and the project auto-paused — which
+    // caused the next attempt's task to get cancelled by the same
+    // concurrent session. retry advances the loop (the executor returns
+    // IDLE, not paused-at-gate), and reject_and_advance moves past the
+    // WI if retry's budget runs out — instead of escalating to a
+    // project-pause that compounds.
+    const r = classifier.classify({
+      stage: 'execute',
+      action: 'execution_failed',
+      reasoning: 'task 1 failed',
+      outcome: {
+        failed_task: 1,
+        final_state: 'IDLE',
+        plan_path: '/repo/docs/plans/536-x.md',
+        work_item_id: 536,
+      },
+    });
+    expect(r.matched_rule).toBe('execute_execution_failed');
+    expect(r.category).toBe('transient');
+    expect(r.suggested_strategies[0]).toBe('retry');
+    expect(r.suggested_strategies).toContain('reject_and_advance');
+  });
+
   it('classifies execute_zero_diff_short_circuit as transient with retry first', () => {
     // Regression for bitsy WI 2170 (2026-05-03): work item was already
     // shipped via a prior gitignore commit; both EXECUTE attempts produced

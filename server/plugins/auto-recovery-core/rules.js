@@ -289,6 +289,37 @@ module.exports = [
     suggested_strategies: ['fallback_provider', 'retry_plan_generation'],
   },
   {
+    // EXECUTE plan executor stopped on a failed task. Common shapes:
+    //   - the executor's child task was cancelled externally (operator
+    //     cancel_task, or another concurrent Claude/Codex session
+    //     triaging "leaked" tasks)
+    //   - the child task threw mid-execution
+    //   - a task-targets-missing-files violation was promoted to a stop
+    //
+    // Without this rule, recovery's default unknown-classification picks
+    // `retry`, which calls advanceLoop (the loop transitioned to IDLE on
+    // execution_failed; it isn't paused at a gate). The retry budget
+    // exhausts before any meaningful change happens, then escalate fires
+    // and pauseProject sets the project to paused — which causes any
+    // other session watching for "leaked" tasks to cancel the next
+    // attempt's child task too. Bitsy WI 536 task ce75e955 (2026-05-03)
+    // got cancelled by a concurrent session ~110s after start with
+    // reason "bitsy project is paused; stopping leaked running task
+    // before focusing on torque-public", triggering exactly this
+    // unknown-classification cascade.
+    //
+    // Strategy: `transient` + retry first (the failure may have been
+    // a one-off; advanceLoop re-runs the same WI with a fresh task),
+    // reject_and_advance second (after retry's budget runs out, move
+    // past the WI rather than escalating to a project-pause).
+    name: 'execute_execution_failed',
+    category: 'transient',
+    priority: 76,
+    confidence: 0.85,
+    match: { stage: 'execute', action: 'execution_failed' },
+    suggested_strategies: ['retry', 'reject_and_advance'],
+  },
+  {
     // EXECUTE zero-diff short-circuit fired — the work item already
     // produced N consecutive auto_commit_skipped_clean retries with no
     // commits ahead of base, so the safety net marked it `unactionable`
