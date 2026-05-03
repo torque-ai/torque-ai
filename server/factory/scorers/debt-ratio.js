@@ -18,10 +18,16 @@ function score(projectPath, scanReport, findingsDir) {
   }
 
   const todoItems = Array.isArray(todos.items) ? todos.items : null;
+  const selfReferenceCount = todoItems
+    ? todoItems.filter((entry) => isDebtRatioSelfReference(entry?.file)).length
+    : 0;
   const scorableItems = todoItems
-    ? todos.items.filter((entry) => !isDebtRatioSelfReference(entry?.file))
+    ? todoItems.filter((entry) => !isDebtRatioSelfReference(entry?.file))
     : [];
-  const todoCount = todoItems ? scorableItems.length : (todos.count || 0);
+  const reportedCount = Number.isFinite(todos.count) && todos.count > 0 ? todos.count : null;
+  const todoCount = reportedCount !== null
+    ? Math.max(0, reportedCount - selfReferenceCount)
+    : scorableItems.length;
   const totalFiles = scanReport?.summary?.totalFiles || 1;
   const density = todoCount / totalFiles;
   const findings = [];
