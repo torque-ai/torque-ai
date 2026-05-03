@@ -470,4 +470,99 @@ describe('factory loop pipeline parallelism', () => {
       reason: 'stage_occupied',
     });
   });
+
+  it('reports retry-recovered shipped cycles as completed instead of failed', async () => {
+    const project = registerProject();
+    const shippedItem = createPlanWorkItem(project.id, tempDir, 'retry-recovered-shipped');
+    const shippedBatchId = 'batch-retry-recovered-shipped';
+    const shippedInstance = seedInstance(project.id, {
+      loop_state: LOOP_STATES.VERIFY,
+      work_item_id: shippedItem.id,
+      batch_id: shippedBatchId,
+    });
+
+    factoryDecisions.recordDecision({
+      project_id: project.id,
+      stage: 'verify',
+      actor: 'verifier',
+      action: 'worktree_verify_failed',
+      reasoning: 'Initial verify failed before operator retry.',
+      batch_id: shippedBatchId,
+    });
+    factoryDecisions.recordDecision({
+      project_id: project.id,
+      stage: 'verify',
+      actor: 'human',
+      action: 'retry_verify_requested',
+      reasoning: 'Operator retried verify after fixing the underlying issue.',
+      batch_id: shippedBatchId,
+    });
+    factoryDecisions.recordDecision({
+      project_id: project.id,
+      stage: 'verify',
+      actor: 'verifier',
+      action: 'verify_empty_branch_auto_shipped',
+      reasoning: 'Retry found the branch empty because the work was already on main.',
+      batch_id: shippedBatchId,
+    });
+    factoryDecisions.recordDecision({
+      project_id: project.id,
+      stage: 'verify',
+      actor: 'verifier',
+      action: 'verify_terminal_shipped_terminated',
+      reasoning: 'VERIFY auto-resolved the work item as shipped.',
+      outcome: { status: 'shipped' },
+      batch_id: shippedBatchId,
+    });
+    factoryLoopInstances.terminateInstance(shippedInstance.id);
+
+    const rejectedItem = createPlanWorkItem(project.id, tempDir, 'unrecovered-verify-failure');
+    const rejectedBatchId = 'batch-unrecovered-failure';
+    const rejectedInstance = seedInstance(project.id, {
+      loop_state: LOOP_STATES.VERIFY,
+      work_item_id: rejectedItem.id,
+      batch_id: rejectedBatchId,
+    });
+    factoryDecisions.recordDecision({
+      project_id: project.id,
+      stage: 'verify',
+      actor: 'verifier',
+      action: 'worktree_verify_failed',
+      reasoning: 'Verify failed and was not recovered.',
+      batch_id: rejectedBatchId,
+    });
+    factoryDecisions.recordDecision({
+      project_id: project.id,
+      stage: 'verify',
+      actor: 'verifier',
+      action: 'verify_terminal_rejection_terminated',
+      reasoning: 'VERIFY reached a terminal failure.',
+      outcome: { status: 'rejected' },
+      batch_id: rejectedBatchId,
+    });
+    factoryLoopInstances.terminateInstance(rejectedInstance.id);
+
+    const cyclesRoute = findFactoryRoute(
+      (route) => route.handlerName === 'handleFactoryCycleHistory',
+      'handleFactoryCycleHistory',
+    );
+    const response = await invokeFactoryRoute(cyclesRoute, {
+      params: { project: project.id },
+    });
+
+    expect(response.res.statusCode).toBe(200);
+    const cyclesByInstanceId = Object.fromEntries(
+      response.body.data.cycles.map((cycle) => [cycle.instance_id, cycle]),
+    );
+    expect(cyclesByInstanceId[shippedInstance.id]).toMatchObject({
+      status: 'completed',
+      work_item_id: shippedItem.id,
+      batch_id: shippedBatchId,
+    });
+    expect(cyclesByInstanceId[rejectedInstance.id]).toMatchObject({
+      status: 'failed',
+      work_item_id: rejectedItem.id,
+      batch_id: rejectedBatchId,
+    });
+  });
 });

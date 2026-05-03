@@ -882,6 +882,15 @@ const FACTORY_CYCLE_FAILURE_ACTIONS = new Set([
   'worktree_verify_errored',
   'worktree_verify_failed',
 ]);
+const FACTORY_CYCLE_SUCCESS_ACTIONS = new Set([
+  'auto_shipped_at_prioritize',
+  'auto_shipped_at_verify_fail',
+  'auto_shipped_empty_branch',
+  'healed_already_shipped',
+  'shipped_work_item',
+  'verify_empty_branch_auto_shipped',
+  'verify_terminal_shipped_terminated',
+]);
 
 function normalizeFactoryCycleStage(stage) {
   const normalized = typeof stage === 'string' ? stage.trim().toLowerCase() : '';
@@ -908,6 +917,23 @@ function calculateFactoryCycleDurationMs(instance, nowMs = Date.now()) {
   }
 
   return endedAtMs - startedAtMs;
+}
+
+function determineFactoryCycleStatus(instance, decisions) {
+  if (!instance?.terminated_at) {
+    return 'active';
+  }
+
+  let status = 'completed';
+  for (const decision of decisions || []) {
+    if (FACTORY_CYCLE_FAILURE_ACTIONS.has(decision?.action)) {
+      status = 'failed';
+    }
+    if (FACTORY_CYCLE_SUCCESS_ACTIONS.has(decision?.action)) {
+      status = 'completed';
+    }
+  }
+  return status;
 }
 
 function selectFactoryCycleInstanceByTimestamp(instances, timestampMs) {
@@ -999,9 +1025,7 @@ function summarizeFactoryCycleInstance(instance, decisions, workItemTitle) {
     duration_ms: calculateFactoryCycleDurationMs(instance),
     decision_count: decisions.length,
     stage_progression: stageProgression,
-    status: instance.terminated_at
-      ? (decisions.some((decision) => FACTORY_CYCLE_FAILURE_ACTIONS.has(decision?.action)) ? 'failed' : 'completed')
-      : 'active',
+    status: determineFactoryCycleStatus(instance, decisions),
   };
 }
 
