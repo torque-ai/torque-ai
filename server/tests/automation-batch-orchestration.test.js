@@ -17,6 +17,8 @@ const mockTaskManager = require('../task-manager');
 const { ErrorCodes: _ErrorCodes } = require('../handlers/shared');
 const { createConfigMock } = require('./test-helpers');
 
+const REAL_GIT_TEST_TIMEOUT_MS = 60000;
+
 function setDbDefaults() {
   vi.spyOn(configCore, 'getConfig').mockImplementation(createConfigMock());
   vi.spyOn(configCore, 'setConfig').mockImplementation(() => undefined);
@@ -413,7 +415,7 @@ describe('automation-batch-orchestration handlers', () => {
       expect(result.isError).toBe(true);
       expect(result.error_code).toBe('INVALID_PARAM');
       expect(result.content[0].text).toContain('Invalid stage path: ../../etc/passwd');
-    });
+    }, REAL_GIT_TEST_TIMEOUT_MS);
 
     it('rejects absolute paths outside working_directory for stage_paths', async () => {
       const workingDir = createTempDir();
@@ -435,7 +437,7 @@ describe('automation-batch-orchestration handlers', () => {
       expect(result.isError).toBe(true);
       expect(result.error_code).toBe('INVALID_PARAM');
       expect(result.content[0].text).toContain(`Invalid stage path: ${outsidePath}`);
-    });
+    }, REAL_GIT_TEST_TIMEOUT_MS);
 
     it('rejects non-git working_directory', async () => {
       const workingDir = createNonGitDir();
@@ -470,7 +472,7 @@ describe('automation-batch-orchestration handlers', () => {
       expect(result.isError).toBeFalsy();
       expect(result.content[0].text).toContain('Warning: commit_message exceeded 4096 characters and was truncated.');
       expect(result.content[0].text).toContain(`Committed: "${'a'.repeat(4096)}"`);
-    });
+    }, REAL_GIT_TEST_TIMEOUT_MS);
 
     it('commits only task-tracked files and leaves unrelated changes uncommitted', async () => {
       const workingDir = createTempDir();
@@ -515,7 +517,7 @@ describe('automation-batch-orchestration handlers', () => {
       });
       expect(statusOutput).toContain('src/unrelated.ts');
       expect(statusOutput).not.toContain('src/intended.ts');
-    });
+    }, REAL_GIT_TEST_TIMEOUT_MS);
 
     it('does not push by default after committing tracked changes', async () => {
       const workingDir = createTempDir();
@@ -538,7 +540,7 @@ describe('automation-batch-orchestration handlers', () => {
       expect(result.content[0].text).toContain('Committed: "feat: commit without push"');
       expect(result.content[0].text).toContain('- **Pushed:** No');
       expect(result.content[0].text).not.toContain('### Step 4: Push');
-    });
+    }, REAL_GIT_TEST_TIMEOUT_MS);
   });
 
 
