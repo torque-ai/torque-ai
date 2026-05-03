@@ -1749,11 +1749,20 @@ Edit server/factory/plan-executor.js and make the requested behavior change. Kee
     expect(worktreeRunner.abandon).not.toHaveBeenCalled();
     expect(routingModule.handleSmartSubmitTask).not.toHaveBeenCalled();
     expect(executeAdvance.new_state).toBe(LOOP_STATES.EXECUTE);
+    // Post-2026-05-03 fix: the same-work-item LIVE owner case now
+    // short-circuits via `worktree_reclaim_skipped_in_flight_same_wi`
+    // before the grace check, eliminating the chance that an aged-out
+    // grace window would cancel the in-flight task with reason
+    // pre_reclaim_before_create (regression for torque-public wi=2215
+    // task 2d4b5dc2). The "active_worktree_owner_running" path is now
+    // reserved for cross-work-item collisions where the running task
+    // belongs to a different work item.
     expect(executeAdvance.stage_result).toMatchObject({
       status: 'waiting',
-      reason: 'active_worktree_owner_running',
+      reason: 'in_flight_owner_same_wi',
       factory_worktree_id: existing.id,
       owning_task_id: 'task-live-owner',
+      owning_status: 'running',
       retry_after: expect.any(String),
     });
     expect(loopController._internalForTests.getAutoAdvanceDelayMs(executeAdvance)).toBeGreaterThanOrEqual(2500);
@@ -1777,7 +1786,7 @@ Edit server/factory/plan-executor.js and make the requested behavior change. Kee
     expect(resumedAdvance.paused_at_stage).toBeNull();
 
     const decisions = listDecisionRows(db, project.id);
-    expect(decisions.find((d) => d.action === 'worktree_reclaim_skipped_live_owner')).toBeTruthy();
+    expect(decisions.find((d) => d.action === 'worktree_reclaim_skipped_in_flight_same_wi')).toBeTruthy();
     // Note: `execute_wait_owner_completed` is no longer emitted on this
     // path. Pre-a0da7fcf the loop paused at EXECUTE while the owner ran
     // and `maybeClearCompletedExecuteOwnerWait` emitted the resume
@@ -1833,33 +1842,156 @@ Edit server/factory/plan-executor.js and make the requested behavior change. Kee
     expect(worktreeRunner.abandon).not.toHaveBeenCalled();
     expect(routingModule.handleSmartSubmitTask).not.toHaveBeenCalled();
     expect(executeAdvance.new_state).toBe(LOOP_STATES.EXECUTE);
+    // Same-work-item LIVE owner short-circuit fires unconditionally now —
+    // the worktree row's age and the owner's age don't matter, the row
+    // belongs to the in-flight task for this work item and stall
+    // detection is the right tool for "live task is hung."
     expect(executeAdvance.stage_result).toMatchObject({
       status: 'waiting',
-      reason: 'active_worktree_owner_running',
+      reason: 'in_flight_owner_same_wi',
       factory_worktree_id: existing.id,
       owning_task_id: 'task-young-live-owner',
       owning_status: 'running',
       retry_after: expect.any(String),
     });
     expect(loopController._internalForTests.getAutoAdvanceDelayMs(executeAdvance)).toBeGreaterThanOrEqual(2500);
-    expect(executeAdvance.stage_result.stale_age_ms).toBeGreaterThan(60 * 60 * 1000);
-    expect(executeAdvance.stage_result.owner_age_ms).toBeGreaterThanOrEqual(0);
-    expect(executeAdvance.stage_result.owner_age_ms).toBeLessThan(10 * 60 * 1000);
     expect(db.prepare('SELECT status FROM factory_worktrees WHERE id = ?').get(existing.id).status).toBe('active');
 
     const decisions = listDecisionRows(db, project.id);
-    const skipped = decisions.find((d) => d.action === 'worktree_reclaim_skipped_live_owner');
+    const skipped = decisions.find((d) => d.action === 'worktree_reclaim_skipped_in_flight_same_wi');
     expect(skipped).toBeTruthy();
     expect(skipped.outcome).toMatchObject({
-      stale_factory_worktree_id: existing.id,
+      factory_worktree_id: existing.id,
       owning_task_id: 'task-young-live-owner',
       owning_status: 'running',
-      worktree_dirty: false,
       retry_after: expect.any(String),
     });
-    expect(skipped.outcome.stale_age_ms).toBeGreaterThan(60 * 60 * 1000);
-    expect(skipped.outcome.owner_age_ms).toBeGreaterThanOrEqual(0);
-    expect(skipped.outcome.owner_age_ms).toBeLessThan(10 * 60 * 1000);
+  });
+
+  it('does NOT cancel the in-flight task even when both stale and owner ages exceed reclaim grace (same-wi short-circuit)', async () => {
+    // Direct regression for torque-public wi=2215 task 2d4b5dc2
+    // (2026-05-03): a running 10-min-old codex EXECUTE task was killed
+    // by pre_reclaim_before_create because the worktree row, the task,
+    // and the worktree dir all had aged past the 10-min grace and codex
+    // had not yet written anything (worktree_dirty=false). The same-wi
+    // short-circuit must fire BEFORE the grace check so a long-running
+    // task on the current work item is never cancelled by the loop's
+    // own reclaim path; stall detection is the right mechanism for
+    // genuinely-hung tasks.
+    const { project, workItem } = registerPlanProject();
+    db.prepare('ALTER TABLE factory_worktrees ADD COLUMN owning_task_id TEXT').run();
+    const targetBranch = `feat/factory-${workItem.id}-dry-run-plan-item`;
+    const worktreePath = path.join(project.path, '.worktrees', 'feat-aged-same-wi');
+    fs.mkdirSync(worktreePath, { recursive: true });
+    const existing = factoryWorktrees.recordWorktree({
+      project_id: project.id,
+      work_item_id: workItem.id,
+      batch_id: `factory-${project.id}-${workItem.id}`,
+      vc_worktree_id: 'vc-aged-same-wi',
+      branch: targetBranch,
+      worktree_path: worktreePath,
+    });
+    factoryWorktrees.setOwningTask(existing.id, 'task-aged-same-wi');
+    // Backdate both the worktree row AND the owner's start time so both
+    // grace clauses (staleAgeMs / ownerAgeMs) are clearly past the new
+    // 30-min default. The OLD code would have called cancelTask here.
+    db.prepare("UPDATE factory_worktrees SET created_at = datetime('now', '-2 hours') WHERE id = ?").run(existing.id);
+    const ownerStartedAt = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
+
+    const cancelTaskSpy = vi.fn();
+    taskCore.cancelTask = cancelTaskSpy;
+    taskCore.getTask = vi.fn((taskId) => ({
+      id: taskId,
+      status: taskId === 'task-aged-same-wi' ? 'running' : 'completed',
+      started_at: taskId === 'task-aged-same-wi' ? ownerStartedAt : null,
+      created_at: taskId === 'task-aged-same-wi' ? ownerStartedAt : null,
+      provider_switched_at: null,
+      error_output: null,
+    }));
+
+    const worktreeRunner = {
+      createForBatch: vi.fn(),
+      verify: vi.fn(),
+      mergeToMain: vi.fn(),
+      abandon: vi.fn(),
+    };
+    loopController.setWorktreeRunnerForTests(worktreeRunner);
+
+    await advanceSupervisedPlanProject(project.id);
+    const executeAdvance = await loopController.advanceLoopForProject(project.id);
+
+    // Critical: the running task must NOT have been cancelled, the
+    // worktree must NOT have been abandoned, and the row must remain
+    // active so the in-flight task can complete normally.
+    expect(cancelTaskSpy).not.toHaveBeenCalled();
+    expect(worktreeRunner.abandon).not.toHaveBeenCalled();
+    expect(worktreeRunner.createForBatch).not.toHaveBeenCalled();
+    expect(executeAdvance.stage_result).toMatchObject({
+      status: 'waiting',
+      reason: 'in_flight_owner_same_wi',
+      factory_worktree_id: existing.id,
+      owning_task_id: 'task-aged-same-wi',
+      owning_status: 'running',
+    });
+    expect(db.prepare('SELECT status FROM factory_worktrees WHERE id = ?').get(existing.id).status).toBe('active');
+
+    // The decision log should record the short-circuit (not the old
+    // grace-based skip, and definitely not a worktree_reclaimed event).
+    const decisions = listDecisionRows(db, project.id);
+    expect(decisions.find((d) => d.action === 'worktree_reclaim_skipped_in_flight_same_wi')).toBeTruthy();
+    expect(decisions.find((d) => d.action === 'worktree_reclaimed')).toBeFalsy();
+  });
+
+  it('throttles the in-flight-same-wi skip log so 30s polling does not spam decisions', async () => {
+    // Regression for the torque-public wi=2215 noise pattern (2026-05-03):
+    // the loop ticked every ~30s and emitted 36+ identical
+    // worktree_reclaim_skipped_live_owner decisions before the grace
+    // expired and killed the running task. The new short-circuit logs
+    // once per (instance, owning_task_id) per IN_FLIGHT_SAME_WI_SKIP_
+    // LOG_INTERVAL_MS window so the decision log stays readable.
+    const { project, workItem } = registerPlanProject();
+    db.prepare('ALTER TABLE factory_worktrees ADD COLUMN owning_task_id TEXT').run();
+    const targetBranch = `feat/factory-${workItem.id}-dry-run-plan-item`;
+    const worktreePath = path.join(project.path, '.worktrees', 'feat-throttle');
+    fs.mkdirSync(worktreePath, { recursive: true });
+    const existing = factoryWorktrees.recordWorktree({
+      project_id: project.id,
+      work_item_id: workItem.id,
+      batch_id: `factory-${project.id}-${workItem.id}`,
+      vc_worktree_id: 'vc-throttle',
+      branch: targetBranch,
+      worktree_path: worktreePath,
+    });
+    factoryWorktrees.setOwningTask(existing.id, 'task-throttle');
+    taskCore.getTask = vi.fn((taskId) => ({
+      id: taskId,
+      status: taskId === 'task-throttle' ? 'running' : 'completed',
+      error_output: null,
+    }));
+
+    loopController.setWorktreeRunnerForTests({
+      createForBatch: vi.fn(),
+      verify: vi.fn(),
+      mergeToMain: vi.fn(),
+      abandon: vi.fn(),
+    });
+
+    await advanceSupervisedPlanProject(project.id);
+    // Three back-to-back EXECUTE re-entries — simulating the loop
+    // ticking every 30s while the same task is in flight. All three
+    // should return the same waiting verdict, but only the FIRST
+    // should emit a decision row.
+    const first = await loopController.advanceLoopForProject(project.id);
+    const second = await loopController.advanceLoopForProject(project.id);
+    const third = await loopController.advanceLoopForProject(project.id);
+
+    expect(first.stage_result.reason).toBe('in_flight_owner_same_wi');
+    expect(second.stage_result.reason).toBe('in_flight_owner_same_wi');
+    expect(third.stage_result.reason).toBe('in_flight_owner_same_wi');
+
+    const decisions = listDecisionRows(db, project.id)
+      .filter((d) => d.action === 'worktree_reclaim_skipped_in_flight_same_wi');
+    expect(decisions).toHaveLength(1);
   });
 
   it('reuses an active worktree owned by a completed task instead of reclaiming it', async () => {

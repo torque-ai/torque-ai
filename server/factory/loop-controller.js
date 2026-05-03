@@ -451,6 +451,18 @@ const loopAdvanceJobs = new Map();
 const activeLoopAdvanceJobs = new Map();
 const scheduledAutoAdvanceTimers = new Map();
 
+// Tracks the last-emitted timestamp for the in-flight-same-wi pre-reclaim
+// skip log, keyed by `${instanceId}:${owningTaskId}`. The factory loop
+// re-enters EXECUTE every ~30s while a task is in flight; without
+// throttling we'd emit 36+ identical decisions per task — see the
+// 2026-05-03 wi=2215 case. Only the FIRST skip per (instance,owner) and
+// then once every IN_FLIGHT_SKIP_LOG_INTERVAL_MS is logged. The map is
+// bounded and entries fall out via the lifecycle hooks that finalize an
+// instance (see clearInstanceTracking).
+const inFlightSameWiSkipEmitTimestamps = new Map();
+const IN_FLIGHT_SAME_WI_SKIP_LOG_INTERVAL_MS = 5 * 60 * 1000;
+const IN_FLIGHT_SAME_WI_SKIP_TRACKING_MAX_ENTRIES = 200;
+
 // Codex Fallback Phase 2 — instances flagged at PRIORITIZE for failover
 // routing. When `decideCodexFallbackAction` returns 'proceed_with_fallback'
 // (breaker tripped + project policy=auto), the instance id is added here.
@@ -7892,7 +7904,86 @@ async function executePlanFileStage(project, instance, workItem) {
             err: ownershipErr && ownershipErr.message,
           });
         }
-        let reclaimGraceMs = 10 * 60 * 1000;
+        // Same-work-item LIVE owner short-circuit. The "stale" row isn't
+        // stale at all — it's the in-flight execution attempt for THIS
+        // work item, owned by a task that's still running/queued. Killing
+        // it via pre_reclaim_before_create just because the reclaim grace
+        // expired would discard healthy work; stall detection (configurable
+        // per provider, 120-180s) is the right mechanism for "live task
+        // is hung." The reclaim grace is for orphan rows from PRIOR work
+        // items, not the current EXECUTE attempt's own task.
+        //
+        // Live evidence 2026-05-03 (task 2d4b5dc2-164a-454b-92a5-07b6c773bc8e
+        // for torque-public wi=2215): the loop killed its own 10-min-old
+        // codex EXECUTE task with reason `pre_reclaim_before_create`
+        // because the running task hadn't written to the worktree yet
+        // (codex was still in exploration phase) and the 10-minute grace
+        // had just expired. Net loss: 10 minutes of codex work and a
+        // failed work-item attempt that the loop then had to retry.
+        const ownerIsLive = owning && LIVE_WORKTREE_OWNER_STATUSES.has(owningStatus);
+        const sameWorkItem = stale.workItemId != null
+          && targetItem
+          && stale.workItemId === targetItem.id;
+        if (sameWorkItem && ownerIsLive) {
+          const retryAfter = new Date(Date.now() + AUTO_ADVANCE_DEFERRED_FALLBACK_DELAY_MS).toISOString();
+          const skipKey = `${instance.id}:${stale.owningTaskId}`;
+          const now = Date.now();
+          const lastEmit = inFlightSameWiSkipEmitTimestamps.get(skipKey) || 0;
+          const shouldEmit = (now - lastEmit) >= IN_FLIGHT_SAME_WI_SKIP_LOG_INTERVAL_MS;
+          if (shouldEmit) {
+            if (inFlightSameWiSkipEmitTimestamps.size >= IN_FLIGHT_SAME_WI_SKIP_TRACKING_MAX_ENTRIES) {
+              const oldestKey = inFlightSameWiSkipEmitTimestamps.keys().next().value;
+              if (oldestKey !== undefined) inFlightSameWiSkipEmitTimestamps.delete(oldestKey);
+            }
+            inFlightSameWiSkipEmitTimestamps.set(skipKey, now);
+            logger.info('factory worktree: pre-reclaim short-circuited for in-flight same-wi owner', {
+              project_id: project.id,
+              work_item_id: targetItem.id,
+              branch: targetBranch,
+              factory_worktree_id: stale.id,
+              owning_task_id: stale.owningTaskId,
+              owning_status: owningStatus,
+            });
+            safeLogDecision({
+              project_id: project.id,
+              stage: LOOP_STATES.EXECUTE,
+              action: 'worktree_reclaim_skipped_in_flight_same_wi',
+              reasoning: 'Skipped pre-reclaim because the worktree row belongs to the in-flight task for this same work item.',
+              inputs: { ...getWorkItemDecisionContext(targetItem) },
+              outcome: {
+                factory_worktree_id: stale.id,
+                stale_batch_id: stale.batch_id,
+                branch: targetBranch,
+                owning_task_id: stale.owningTaskId,
+                owning_status: owningStatus,
+                throttle_interval_ms: IN_FLIGHT_SAME_WI_SKIP_LOG_INTERVAL_MS,
+                retry_after: retryAfter,
+              },
+              confidence: 1,
+              batch_id: executeLogBatchId,
+            });
+          }
+          return {
+            reason: 'in-flight task owns worktree for same work item',
+            work_item: targetItem,
+            stop_execution: true,
+            next_state: LOOP_STATES.EXECUTE,
+            stage_result: {
+              status: 'waiting',
+              reason: 'in_flight_owner_same_wi',
+              factory_worktree_id: stale.id,
+              owning_task_id: stale.owningTaskId,
+              owning_status: owningStatus,
+              retry_after: retryAfter,
+            },
+          };
+        }
+        // Reclaim grace for OTHER cases (orphan rows from prior batches,
+        // or non-live owner statuses). Default 30 min: codex EXECUTE tasks
+        // with long prompts routinely run 15-30 min before the worktree
+        // sees its first write, so even orphan-row cleanup needs headroom
+        // beyond the old 10-min default that tripped on healthy work.
+        let reclaimGraceMs = 30 * 60 * 1000;
         try {
           const cfg = project?.config_json ? JSON.parse(project.config_json) : {};
           const configuredMs = Number(cfg.worktree_reclaim_grace_ms);
