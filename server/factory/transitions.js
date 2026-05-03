@@ -179,7 +179,46 @@ function createTransitionHelpers(dependencies = {}) {
   };
 }
 
+function createLoopStageDispatcher({ LOOP_STATES, loopStates, handlers = {} } = {}) {
+  const states = loopStates || LOOP_STATES || DEFAULT_LOOP_STATES;
+  const {
+    handleSenseTransition,
+    handlePrioritizeTransition,
+    handlePlanTransition,
+    handleExecuteTransition,
+    handleVerifyTransition,
+    handleLearnTransition,
+  } = handlers;
+
+  assertFunction(handleSenseTransition, 'handleSenseTransition');
+  assertFunction(handlePrioritizeTransition, 'handlePrioritizeTransition');
+  assertFunction(handlePlanTransition, 'handlePlanTransition');
+  assertFunction(handleExecuteTransition, 'handleExecuteTransition');
+  assertFunction(handleVerifyTransition, 'handleVerifyTransition');
+  assertFunction(handleLearnTransition, 'handleLearnTransition');
+
+  return async function dispatchAdvanceLoopStage(context) {
+    switch (context.currentState) {
+      case states.SENSE:
+        return handleSenseTransition(context);
+      case states.PRIORITIZE:
+        return handlePrioritizeTransition(context);
+      case states.PLAN:
+        return handlePlanTransition(context);
+      case states.EXECUTE:
+        return handleExecuteTransition(context);
+      case states.VERIFY:
+        return handleVerifyTransition(context);
+      case states.LEARN:
+        return handleLearnTransition(context);
+      default:
+        throw new Error(`Unsupported loop state: ${context.currentState}`);
+    }
+  };
+}
+
 module.exports = {
+  createLoopStageDispatcher,
   createTransitionDecisionLogger,
   createTransitionHelpers,
   createTryMoveInstanceToStage,

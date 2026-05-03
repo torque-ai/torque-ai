@@ -22,16 +22,23 @@ function createVerifyStage({
   factoryWorktrees,
   fs,
   getEffectiveProjectProvider,
+  getLatestStageDecision,
   getProjectOrThrow,
   getWorkItemDecisionContext,
   getWorktreeRunner,
   guardrailRunner,
+  hasVerifiedBatchDecision,
+  isTerminalVerifyOutcome,
   isProjectStatusPaused,
   listTasksForFactoryBatch,
   logger,
+  nowIso,
   resolveFactoryVerifyCommand,
   routeWorkItemToNeedsReplan,
   safeLogDecision,
+  tryMoveInstanceToStage,
+  updateInstanceAndSync,
+  finalizeTerminalVerifyOutcome,
 } = {}) {
   assertFunction(awaitTaskToStructuredResult, 'awaitTaskToStructuredResult');
   assertFunction(branchFreshness?.checkBranchFreshness, 'branchFreshness.checkBranchFreshness');
@@ -45,15 +52,22 @@ function createVerifyStage({
   assertFunction(factoryWorktrees?.getActiveWorktree, 'factoryWorktrees.getActiveWorktree');
   assertFunction(fs?.existsSync, 'fs.existsSync');
   assertFunction(getEffectiveProjectProvider, 'getEffectiveProjectProvider');
+  assertFunction(getLatestStageDecision, 'getLatestStageDecision');
   assertFunction(getProjectOrThrow, 'getProjectOrThrow');
   assertFunction(getWorkItemDecisionContext, 'getWorkItemDecisionContext');
   assertFunction(getWorktreeRunner, 'getWorktreeRunner');
   assertFunction(guardrailRunner?.runPostBatchChecks, 'guardrailRunner.runPostBatchChecks');
+  assertFunction(hasVerifiedBatchDecision, 'hasVerifiedBatchDecision');
+  assertFunction(isTerminalVerifyOutcome, 'isTerminalVerifyOutcome');
   assertFunction(isProjectStatusPaused, 'isProjectStatusPaused');
   assertFunction(listTasksForFactoryBatch, 'listTasksForFactoryBatch');
+  assertFunction(nowIso, 'nowIso');
   assertFunction(resolveFactoryVerifyCommand, 'resolveFactoryVerifyCommand');
   assertFunction(routeWorkItemToNeedsReplan, 'routeWorkItemToNeedsReplan');
   assertFunction(safeLogDecision, 'safeLogDecision');
+  assertFunction(tryMoveInstanceToStage, 'tryMoveInstanceToStage');
+  assertFunction(updateInstanceAndSync, 'updateInstanceAndSync');
+  assertFunction(finalizeTerminalVerifyOutcome, 'finalizeTerminalVerifyOutcome');
 
   function detectWorkItemShippedOnMain(project, workItem) {
     if (!project?.path || !workItem) {
@@ -2501,6 +2515,68 @@ function createVerifyStage({
     return executeVerifyStage(project_id, batch_id, instance);
   }
 
+  async function handleVerifyTransition({
+    project,
+    instance: initialInstance,
+    previousState,
+  }) {
+    let instance = initialInstance;
+    let transitionReason = null;
+    const latestVerifyDecision = getLatestStageDecision(project.id, LOOP_STATES.VERIFY);
+    const rerunApprovedVerify = ['gate_approved', 'retry_verify_requested'].includes(latestVerifyDecision?.action);
+    const currentBatchAlreadyVerified = Boolean(
+      instance.batch_id
+      && !rerunApprovedVerify
+      && hasVerifiedBatchDecision(project.id, instance.batch_id)
+    );
+    let stageResult = currentBatchAlreadyVerified
+      ? {
+        status: 'skipped',
+        reason: 'batch_already_verified',
+        batch_id: instance.batch_id,
+      }
+      : await runExecuteVerifyStage(project.id, instance.batch_id, instance);
+
+    if (stageResult && stageResult.pause_at_stage) {
+      instance = updateInstanceAndSync(instance.id, {
+        paused_at_stage: stageResult.pause_at_stage,
+        last_action_at: nowIso(),
+      });
+      transitionReason = stageResult.reason || transitionReason;
+      return {
+        instance,
+        stageResult,
+        transitionReason,
+      };
+    }
+
+    if (isTerminalVerifyOutcome(stageResult)) {
+      return {
+        finalResult: finalizeTerminalVerifyOutcome({
+          project,
+          instance,
+          previousState,
+          stageResult,
+        }),
+      };
+    }
+
+    const moveToLearn = tryMoveInstanceToStage(instance, LOOP_STATES.LEARN, {
+      batch_id: instance.batch_id,
+      work_item_id: instance.work_item_id,
+    });
+    instance = moveToLearn.instance;
+    transitionReason = moveToLearn.blocked
+      ? 'stage_occupied'
+      : (rerunApprovedVerify ? 'verify_rerun_completed' : 'verified_batch');
+
+    return {
+      instance,
+      stageResult,
+      transitionReason,
+    };
+  }
+
   return {
     VERIFY_FIX_PROMPT_PRIOR_BUDGET,
     VERIFY_FIX_PROMPT_TAIL_BUDGET,
@@ -2518,6 +2594,7 @@ function createVerifyStage({
     extractScopeEnvelopeFiles,
     getVerifyRetryDiffFiles,
     getVerifyStackGuidance,
+    handleVerifyTransition,
     isFactoryFeatureEnabled,
     isOutOfScope,
     maybeShipNoop,

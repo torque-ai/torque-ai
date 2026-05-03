@@ -531,10 +531,15 @@ function createPrioritizeStage({
     };
   }
 
-  async function handlePrioritizeTransition({ project, instance, currentState }) {
+  async function handlePrioritizeTransition({
+    project,
+    instance,
+    currentState,
+    transitionWorkItem: initialTransitionWorkItem = null,
+  }) {
     let stageResult = null;
     let transitionReason = null;
-    let transitionWorkItem = tryGetSelectedWorkItem(instance, project.id) || null;
+    let transitionWorkItem = initialTransitionWorkItem || tryGetSelectedWorkItem(instance, project.id) || null;
 
     const prioritizeStage = await executePrioritizeStage(project, instance, transitionWorkItem);
     transitionWorkItem = prioritizeStage?.work_item || transitionWorkItem;

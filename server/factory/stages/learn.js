@@ -11,6 +11,7 @@ function createLearnStage({
   LOOP_STATES,
   PENDING_APPROVAL_FAILURE_TASK_STATUSES,
   PENDING_APPROVAL_SUCCESS_TASK_STATUSES,
+  buildLoopAdvanceResult,
   createShippedDetector,
   detectDefaultBranch,
   factoryDecisions,
@@ -24,13 +25,21 @@ function createLearnStage({
   getProjectOrThrow,
   getRememberedSelectedWorkItemId,
   getWorktreeRunner,
+  isProjectPauseActive,
   listTasksForFactoryBatch,
   logger,
   normalizeWorkItemId,
+  nowIso,
+  parseProjectConfigObject,
+  recordFactoryIdleIfExhausted,
   rememberSelectedWorkItem,
   routeWorkItemToNeedsReplan,
   safeLogDecision,
+  terminateInstanceAndSync,
+  tryMoveInstanceToStage,
+  updateInstanceAndSync,
 } = {}) {
+  assertFunction(buildLoopAdvanceResult, 'buildLoopAdvanceResult');
   assertFunction(factoryDecisions?.listDecisions, 'factoryDecisions.listDecisions');
   assertFunction(factoryHealth?.updateProject, 'factoryHealth.updateProject');
   assertFunction(factoryIntake?.getWorkItemForProject, 'factoryIntake.getWorkItemForProject');
@@ -44,11 +53,18 @@ function createLearnStage({
   assertFunction(getProjectOrThrow, 'getProjectOrThrow');
   assertFunction(getRememberedSelectedWorkItemId, 'getRememberedSelectedWorkItemId');
   assertFunction(getWorktreeRunner, 'getWorktreeRunner');
+  assertFunction(isProjectPauseActive, 'isProjectPauseActive');
   assertFunction(listTasksForFactoryBatch, 'listTasksForFactoryBatch');
   assertFunction(normalizeWorkItemId, 'normalizeWorkItemId');
+  assertFunction(nowIso, 'nowIso');
+  assertFunction(parseProjectConfigObject, 'parseProjectConfigObject');
+  assertFunction(recordFactoryIdleIfExhausted, 'recordFactoryIdleIfExhausted');
   assertFunction(rememberSelectedWorkItem, 'rememberSelectedWorkItem');
   assertFunction(routeWorkItemToNeedsReplan, 'routeWorkItemToNeedsReplan');
   assertFunction(safeLogDecision, 'safeLogDecision');
+  assertFunction(terminateInstanceAndSync, 'terminateInstanceAndSync');
+  assertFunction(tryMoveInstanceToStage, 'tryMoveInstanceToStage');
+  assertFunction(updateInstanceAndSync, 'updateInstanceAndSync');
 
   // Fix 2: detect the "no commits ahead of <base>" merge-time failure that
   // signals an empty execution. Pure helpers are exported for testability.
@@ -865,11 +881,93 @@ function createLearnStage({
     }
   }
 
+  async function handleLearnTransition({
+    project,
+    instance: initialInstance,
+    previousState,
+    instance_id = initialInstance?.id,
+  }) {
+    let instance = initialInstance;
+    const stageResult = await runExecuteLearnStage(project.id, instance.batch_id, instance);
+    let transitionReason = null;
+
+    if (stageResult?.shipping_result?.status === 'paused') {
+      instance = updateInstanceAndSync(instance.id, {
+        paused_at_stage: stageResult.shipping_result.pause_at_stage || LOOP_STATES.LEARN,
+        last_action_at: nowIso(),
+      });
+      transitionReason = stageResult.shipping_result.reason || 'shipping_paused';
+      return {
+        instance,
+        stageResult,
+        transitionReason,
+      };
+    }
+
+    const latestProject = getProjectOrThrow(project.id);
+    if (isProjectPauseActive(latestProject)) {
+      const lastActionAt = instance.last_action_at || null;
+      terminateInstanceAndSync(instance.id);
+      recordFactoryIdleIfExhausted(project.id, {
+        last_action_at: lastActionAt,
+        reason: 'project_paused_after_learn',
+      });
+      return {
+        finalResult: buildLoopAdvanceResult({
+          project,
+          instance_id,
+          previousState,
+          newState: LOOP_STATES.IDLE,
+          pausedAtStage: null,
+          stageResult,
+          reason: 'project_paused_after_learn',
+        }),
+      };
+    }
+
+    const cfg = parseProjectConfigObject(latestProject);
+    if (cfg && cfg.loop && cfg.loop.auto_continue === true) {
+      const moveToSense = tryMoveInstanceToStage(instance, LOOP_STATES.SENSE, {
+        batch_id: null,
+        work_item_id: null,
+        paused_at_stage: null,
+      });
+      instance = moveToSense.instance;
+      if (moveToSense.blocked) {
+        transitionReason = 'stage_occupied';
+      }
+      return {
+        instance,
+        stageResult,
+        transitionReason,
+      };
+    }
+
+    const lastActionAt = instance.last_action_at || null;
+    terminateInstanceAndSync(instance.id);
+    recordFactoryIdleIfExhausted(project.id, {
+      last_action_at: lastActionAt,
+      reason: 'learn_completed',
+    });
+    return {
+      finalResult: buildLoopAdvanceResult({
+        project,
+        instance_id,
+        previousState,
+        newState: LOOP_STATES.IDLE,
+        pausedAtStage: null,
+        stageResult,
+        reason: 'learn_completed',
+      }),
+    };
+  }
+
   return {
     countPriorEmptyMergeFailuresForWorkItem,
     evaluatePendingApprovalExecution,
     evaluateWorkItemShipping,
     executeLearnStage,
+    handleLearnTransition,
     isEmptyBranchMergeError,
     isMergeTargetOperatorBlockedError,
     maybeShipWorkItemAfterLearn,

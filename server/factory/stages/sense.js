@@ -14,18 +14,24 @@ function createSenseStage({
   factoryHealth,
   factoryIntake,
   getDecisionBatchId,
+  getNextState,
+  getPendingGateStage,
   getProjectOrThrow,
   logger,
   resolvePlansRepoRoot,
   safeLogDecision,
+  tryMoveInstanceToStage,
 } = {}) {
   assertFunction(createPlanFileIntake, 'createPlanFileIntake');
   assertFunction(createShippedDetector, 'createShippedDetector');
   assertFunction(factoryHealth?.getProjectHealthSummary, 'factoryHealth.getProjectHealthSummary');
   assertFunction(getDecisionBatchId, 'getDecisionBatchId');
+  assertFunction(getNextState, 'getNextState');
+  assertFunction(getPendingGateStage, 'getPendingGateStage');
   assertFunction(getProjectOrThrow, 'getProjectOrThrow');
   assertFunction(resolvePlansRepoRoot, 'resolvePlansRepoRoot');
   assertFunction(safeLogDecision, 'safeLogDecision');
+  assertFunction(tryMoveInstanceToStage, 'tryMoveInstanceToStage');
 
   function executeSenseStage(project_id, instance = null) {
     const project = getProjectOrThrow(project_id);
@@ -89,8 +95,23 @@ function createSenseStage({
     return summary;
   }
 
+  function handleSenseTransition({ project, instance, currentState }) {
+    const pendingGate = getPendingGateStage(currentState, project.trust_level);
+    const targetStage = pendingGate || getNextState(currentState, project.trust_level, 'approved');
+    const moved = tryMoveInstanceToStage(instance, targetStage, {
+      paused_at_stage: pendingGate === targetStage ? targetStage : null,
+    });
+    return {
+      instance: moved.instance,
+      stageResult: null,
+      transitionReason: moved.blocked ? 'stage_occupied' : 'sense_completed',
+      transitionWorkItem: null,
+    };
+  }
+
   return {
     executeSenseStage,
+    handleSenseTransition,
   };
 }
 

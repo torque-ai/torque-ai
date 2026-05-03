@@ -12,6 +12,7 @@ function createPlanStage({
   factoryIntake,
   fs,
   getDecisionBatchId,
+  getHandleExecuteTransition,
   getProjectConfigForPlanGate,
   getSelectedWorkItem,
   getWorkItemDecisionContext,
@@ -19,6 +20,7 @@ function createPlanStage({
   rememberSelectedWorkItem,
   routePlanQualityGateFailureToNeedsReplan,
   safeLogDecision,
+  tryMoveInstanceToStage,
   updateInstanceAndSync,
 } = {}) {
   assertFunction(architectRunner?.runArchitectCycle, 'architectRunner.runArchitectCycle');
@@ -26,12 +28,14 @@ function createPlanStage({
   assertFunction(fs?.existsSync, 'fs.existsSync');
   assertFunction(fs?.readFileSync, 'fs.readFileSync');
   assertFunction(getDecisionBatchId, 'getDecisionBatchId');
+  assertFunction(getHandleExecuteTransition, 'getHandleExecuteTransition');
   assertFunction(getProjectConfigForPlanGate, 'getProjectConfigForPlanGate');
   assertFunction(getSelectedWorkItem, 'getSelectedWorkItem');
   assertFunction(getWorkItemDecisionContext, 'getWorkItemDecisionContext');
   assertFunction(rememberSelectedWorkItem, 'rememberSelectedWorkItem');
   assertFunction(routePlanQualityGateFailureToNeedsReplan, 'routePlanQualityGateFailureToNeedsReplan');
   assertFunction(safeLogDecision, 'safeLogDecision');
+  assertFunction(tryMoveInstanceToStage, 'tryMoveInstanceToStage');
   assertFunction(updateInstanceAndSync, 'updateInstanceAndSync');
 
   async function executePlanStage(project, instance, selectedWorkItem = null) {
@@ -204,8 +208,32 @@ function createPlanStage({
     };
   }
 
+  async function handlePlanTransition(context) {
+    const { instance, transitionWorkItem = null } = context;
+    const moveToExecute = tryMoveInstanceToStage(instance, LOOP_STATES.EXECUTE, {
+      work_item_id: instance.work_item_id,
+    });
+    if (moveToExecute.blocked) {
+      return {
+        instance: moveToExecute.instance,
+        transitionWorkItem,
+        stageResult: null,
+        transitionReason: 'stage_occupied',
+      };
+    }
+
+    const executeHandler = getHandleExecuteTransition();
+    assertFunction(executeHandler, 'getHandleExecuteTransition()');
+    return executeHandler({
+      ...context,
+      instance: moveToExecute.instance,
+      transitionWorkItem,
+    });
+  }
+
   return {
     executePlanStage,
+    handlePlanTransition,
   };
 }
 

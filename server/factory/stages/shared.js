@@ -59,8 +59,30 @@ function getWorkItemDecisionContext(workItem) {
   };
 }
 
+function buildLoopAdvanceResult({
+  project,
+  instance,
+  instance_id = null,
+  previousState,
+  newState,
+  pausedAtStage,
+  stageResult = null,
+  reason = null,
+}) {
+  return {
+    project_id: project.id,
+    instance_id: instance?.id ?? instance_id,
+    previous_state: previousState,
+    new_state: newState,
+    paused_at_stage: pausedAtStage,
+    stage_result: stageResult,
+    reason,
+  };
+}
+
 function createStageSharedContext(overrides = {}) {
   return Object.freeze({
+    buildLoopAdvanceResult,
     getDecisionActor,
     getDecisionBatchId,
     getFactorySubmissionBatchId,
@@ -72,6 +94,7 @@ function createStageSharedContext(overrides = {}) {
 
 module.exports = {
   DECISION_STAGE_ACTORS,
+  buildLoopAdvanceResult,
   createStageSharedContext,
   getDecisionActor,
   getDecisionBatchId,
