@@ -2,6 +2,7 @@
 
 const { spawnSync, spawn } = require('child_process');
 const { prepareLocalVerifyEnv } = require('../../utils/local-verify-env');
+const { prepareWorktreeVerifyDependencies } = require('../../utils/worktree-verify-deps');
 const { createActivityTimeout } = require('../../utils/activity-timeout');
 const { killProcessGraceful } = require('../../execution/process-lifecycle');
 
@@ -287,6 +288,7 @@ function createRemoteTestRouter({ agentRegistry, db, logger }) {
     // Local fallback
     logger.info(`[remote-routing] Running locally: ${command} ${args.join(' ')}`);
     const startMs = Date.now();
+    prepareWorktreeVerifyDependencies(cwd, logger);
     const preparedEnv = prepareLocalVerifyEnv([command, ...(args || [])].join(' '));
     try {
       const spawnResult = spawnSync(command, args, {
@@ -392,6 +394,7 @@ function createRemoteTestRouter({ agentRegistry, db, logger }) {
     logger.info(`[remote-routing] Running locally (async): ${command}`);
     const startMs = Date.now();
     const timeout = options.timeout || 300000; // 5 minutes default
+    prepareWorktreeVerifyDependencies(cwd, logger);
     const preparedEnv = prepareLocalVerifyEnv(command);
     try {
       const localResult = await new Promise((resolve) => {

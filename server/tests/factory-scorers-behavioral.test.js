@@ -313,14 +313,14 @@ describe('factory scorer behavioral coverage', () => {
 
     test('counts dotnet test projects and C# test files in the fallback heuristic', () => {
       const projectDir = createProjectFixture({
-        'tests/SpudgetBooks.CoreTests/SpudgetBooks.CoreTests.csproj': `<?xml version="1.0" encoding="utf-8"?>
+        'tests/example-project.CoreTests/example-project.CoreTests.csproj': `<?xml version="1.0" encoding="utf-8"?>
 <Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.10.0" />
     <PackageReference Include="xunit" Version="2.9.0" />
   </ItemGroup>
 </Project>`,
-        'tests/SpudgetBooks.CoreTests/InvoiceServiceTests.cs': 'namespace SpudgetBooks.CoreTests; public class InvoiceServiceTests {}',
+        'tests/example-project.CoreTests/InvoiceServiceTests.cs': 'namespace ExampleProject.CoreTests; public class InvoiceServiceTests {}',
       });
 
       const result = testCoverageScorer.score(projectDir, {
@@ -676,7 +676,7 @@ describe('factory scorer behavioral coverage', () => {
     test('detects WPF dashboard XAML surfaces without defaulting to the fallback score', () => {
       const projectDir = createProjectFixture({
         'Sections/Dashboard/MainDashboard.xaml': `
-          <UserControl x:Class="SpudgetBooks.Sections.Dashboard.MainDashboard"
+          <UserControl x:Class="ExampleProject.Sections.Dashboard.MainDashboard"
               xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
               xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
               AutomationProperties.Name="Dashboard">
@@ -773,10 +773,10 @@ describe('factory scorer behavioral coverage', () => {
 
     test('detects ASP.NET controller and minimal API surfaces', () => {
       const projectDir = createProjectFixture({
-        'SpudgetBooks.Api/Controllers/V1/InvoicesController.cs': `
+        'example-project.Api/Controllers/V1/InvoicesController.cs': `
           using Microsoft.AspNetCore.Mvc;
 
-          namespace SpudgetBooks.Api.Controllers.V1;
+          namespace ExampleProject.Api.Controllers.V1;
 
           [ApiController]
           [Route("api/v1/invoices")]
@@ -789,7 +789,7 @@ describe('factory scorer behavioral coverage', () => {
             public IActionResult Create() => Ok();
           }
         `,
-        'SpudgetBooks.Api/Program.cs': `
+        'example-project.Api/Program.cs': `
           var builder = WebApplication.CreateBuilder(args);
           var app = builder.Build();
           app.MapControllers();
@@ -1115,23 +1115,23 @@ describe('factory scorer behavioral coverage', () => {
 
     test('detects dotnet workflows and wrapper scripts as build and test signals', () => {
       const projectDir = createProjectFixture({
-        'SpudgetBooks.sln': 'Microsoft Visual Studio Solution File, Format Version 12.00',
-        'tests/SpudgetBooks.CoreTests/SpudgetBooks.CoreTests.csproj': `<?xml version="1.0" encoding="utf-8"?>
+        'example-project.sln': 'Microsoft Visual Studio Solution File, Format Version 12.00',
+        'tests/example-project.CoreTests/example-project.CoreTests.csproj': `<?xml version="1.0" encoding="utf-8"?>
 <Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.10.0" />
     <PackageReference Include="xunit" Version="2.9.0" />
   </ItemGroup>
 </Project>`,
-        'tests/SpudgetBooks.CoreTests/InvoiceServiceTests.cs': 'namespace SpudgetBooks.CoreTests; public class InvoiceServiceTests {}',
+        'tests/example-project.CoreTests/InvoiceServiceTests.cs': 'namespace ExampleProject.CoreTests; public class InvoiceServiceTests {}',
         '.github/workflows/ci.yml': `name: ci
 jobs:
   build:
     runs-on: windows-latest
     steps:
       - run: ./scripts/build.ps1
-      - run: dotnet test SpudgetBooks.sln --no-build`,
-        'scripts/build.ps1': 'dotnet build SpudgetBooks.sln',
+      - run: dotnet test example-project.sln --no-build`,
+        'scripts/build.ps1': 'dotnet build example-project.sln',
       });
 
       const result = buildCiScorer.score(projectDir, {}, null);

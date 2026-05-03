@@ -3,6 +3,7 @@
 const fs = require('fs');
 const { spawn, execFileSync } = require('child_process');
 const { prepareLocalVerifyEnv } = require('../utils/local-verify-env');
+const { prepareWorktreeVerifyDependencies } = require('../utils/worktree-verify-deps');
 
 const CHILD_CLOSE_GRACE_MS = 250;
 // Verify commands run up to 30 minutes (`dotnet test`, vitest, etc.) and can
@@ -509,6 +510,7 @@ function createWorktreeRunner({
     if (isWorktreeDirty(cwd)) {
       resyncWorktreeToHead(cwd, logger);
     }
+    prepareWorktreeVerifyDependencies(cwd, logger);
 
     let out = await Promise.resolve(runRemoteVerify({ branch, command, cwd, logger }));
     if (out && out.exitCode !== 0 && shouldFallbackToLocalVerify(out)) {
@@ -623,6 +625,7 @@ module.exports = {
     MAX_CHILD_BUFFER_BYTES,
     buildRemoteVerifyInvocation,
     defaultListChangedFiles,
+    prepareWorktreeVerifyDependencies,
     isNonCodeOnlyDiff,
     spawnTrackedProcessAsync,
     spawnInBashAsync,

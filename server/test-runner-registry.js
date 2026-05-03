@@ -3,6 +3,7 @@
 const { spawn } = require('child_process');
 const { resolveWindowsPowerShellEnv } = require('./utils/windows-powershell-env');
 const { createActivityTimeout } = require('./utils/activity-timeout');
+const { prepareWorktreeVerifyDependencies } = require('./utils/worktree-verify-deps');
 
 function createTestRunnerRegistry() {
   let _overrides = null;
@@ -15,6 +16,7 @@ function createTestRunnerRegistry() {
 
     const timeout = options.timeout || 300000;
     const startMs = Date.now();
+    prepareWorktreeVerifyDependencies(cwd);
 
     return new Promise((resolve) => {
       let stdout = '';
