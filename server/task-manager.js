@@ -340,11 +340,11 @@ let pendingCloseHandlers = 0;
 let closeHandlerResolvers = []; // Callbacks to notify when pendingCloseHandlers hits 0
 
 // Tasks currently in the finalization pipeline (close handler running).
-// The orphan checker must skip these — the process has exited but the close
-// handler (which includes auto-verify, ~90s) is still running async.
-// Without this, the orphan checker sees "running task, no tracked process"
-// and requeues the task, causing duplicate execution.
-const finalizingTasks = new Set();
+// The orphan checker must skip active finalizers — the process has exited but
+// the close handler (which includes auto-verify) is still running async.
+// Values carry a heartbeat so a leaked or wedged finalizer marker can be
+// recovered instead of leaving a DB row stuck as running forever.
+const finalizingTasks = new Map();
 
 // Test mode flag: when true, getActualModifiedFiles() returns null immediately,
 // preventing git process spawning in close handlers during E2E tests with mock processes.

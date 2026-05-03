@@ -370,6 +370,7 @@ function createRemoteTestRouter({ agentRegistry, db, logger }) {
             cwd: remoteConfig.remotePath,
             env: safeEnv,
             timeout: options.timeout || 120000,
+            onActivity: options.onActivity,
           });
 
           logger.info(`[remote-routing] Remote completed: exit=${result.exitCode} duration=${result.durationMs}ms`);
@@ -422,10 +423,16 @@ function createRemoteTestRouter({ agentRegistry, db, logger }) {
 
         child.stdout.on('data', (d) => {
           activityTimeout.touch();
+          if (typeof options.onActivity === 'function') {
+            try { options.onActivity({ stream: 'stdout', bytes: Buffer.byteLength(String(d)) }); } catch { /* non-critical */ }
+          }
           if (stdout.length < MAX_BUF) stdout += d;
         });
         child.stderr.on('data', (d) => {
           activityTimeout.touch();
+          if (typeof options.onActivity === 'function') {
+            try { options.onActivity({ stream: 'stderr', bytes: Buffer.byteLength(String(d)) }); } catch { /* non-critical */ }
+          }
           if (stderr.length < MAX_BUF) stderr += d;
         });
 

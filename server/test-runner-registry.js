@@ -46,10 +46,16 @@ function createTestRunnerRegistry() {
 
       child.stdout.on('data', (d) => {
         activityTimeout.touch();
+        if (typeof options.onActivity === 'function') {
+          try { options.onActivity({ stream: 'stdout', bytes: Buffer.byteLength(String(d)) }); } catch { /* non-critical */ }
+        }
         if (stdout.length < MAX_BUF) stdout += d;
       });
       child.stderr.on('data', (d) => {
         activityTimeout.touch();
+        if (typeof options.onActivity === 'function') {
+          try { options.onActivity({ stream: 'stderr', bytes: Buffer.byteLength(String(d)) }); } catch { /* non-critical */ }
+        }
         if (stderr.length < MAX_BUF) stderr += d;
       });
 

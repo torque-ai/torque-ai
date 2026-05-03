@@ -28,6 +28,37 @@ const { resolveActivityAwareTimeoutDecision } = require('../utils/activity-timeo
 // Dependencies injected via init() from task-manager.js
 let deps = null;
 
+function setFinalizingMarker(taskId, marker) {
+  if (!deps.finalizingTasks) return;
+  if (typeof deps.finalizingTasks.set === 'function') {
+    deps.finalizingTasks.set(taskId, marker);
+    return;
+  }
+  if (typeof deps.finalizingTasks.add === 'function') {
+    deps.finalizingTasks.add(taskId);
+  }
+}
+
+function touchFinalizingMarker(taskId, stage) {
+  if (!deps.finalizingTasks) return;
+  const now = Date.now();
+  if (typeof deps.finalizingTasks.get === 'function' && typeof deps.finalizingTasks.set === 'function') {
+    const existing = deps.finalizingTasks.get(taskId);
+    if (existing && typeof existing === 'object') {
+      existing.lastActivityAt = now;
+      existing.stage = stage;
+      existing.touches = (existing.touches || 0) + 1;
+    } else {
+      deps.finalizingTasks.set(taskId, {
+        startedAt: now,
+        lastActivityAt: now,
+        stage,
+        touches: 1,
+      });
+    }
+  }
+}
+
 /**
  * Initialize module with dependencies from task-manager.js context.
  *
@@ -596,7 +627,15 @@ function spawnAndTrackProcess(taskId, task, {
     // Mark task as finalizing so the orphan checker skips it.
     // The process has exited (runningProcesses cleared) but the close handler
     // pipeline (including auto-verify ~90s) is still running async.
-    if (deps.finalizingTasks) deps.finalizingTasks.add(taskId);
+    const finalizationStartedAt = Date.now();
+    setFinalizingMarker(taskId, {
+      startedAt: finalizationStartedAt,
+      lastActivityAt: finalizationStartedAt,
+      stage: 'close_handler',
+      provider,
+      touches: 0,
+    });
+    const finalizationHeartbeat = (stage = 'finalize') => touchFinalizingMarker(taskId, stage);
 
     try {
       const currentTask = taskCoreDb.getTask(taskId);
@@ -632,6 +671,7 @@ function spawnAndTrackProcess(taskId, task, {
         filesModified: proc
           ? extractModifiedFiles(buildCombinedProcessOutput(proc.output, proc.errorOutput))
           : [],
+        finalizationHeartbeat,
       });
       handlerManagedQueue = Boolean(result?.queueManaged);
     } catch (err) {
@@ -652,6 +692,7 @@ function spawnAndTrackProcess(taskId, task, {
               stateVersion: proc.stateVersion,
             }
           : {},
+          finalizationHeartbeat,
       });
       handlerManagedQueue = handlerManagedQueue || Boolean(result?.queueManaged);
     } finally {

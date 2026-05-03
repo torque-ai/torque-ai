@@ -67,6 +67,7 @@ const VALID_CONFIG_KEYS = new Set([
   'discovery_enabled',
   'duplicate_detection_enabled',
   'error_feedback_enabled',
+  'finalizing_task_stale_minutes',
   'file_baseline_enabled',
   'file_locking_enabled',
   'google_ai_api_key',

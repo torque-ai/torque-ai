@@ -319,6 +319,9 @@ async function handleAutoVerifyRetry(ctx) {
     : await getRouter().runVerifyCommand(verifyCommand, task.working_directory, {
       timeout: 300000, // 5 minutes — tsc + vitest can be slow on large projects
       provider,
+      onActivity: typeof ctx.finalizationHeartbeat === 'function'
+        ? () => ctx.finalizationHeartbeat('auto_verify:output')
+        : undefined,
     });
   logger.info(
     sandboxConfig.enabled

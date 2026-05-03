@@ -321,7 +321,7 @@ function checkStaleRunningTasks() {
 
       // Skip tasks whose close handler is still running (auto-verify can take 90s+).
       // The process exited (no longer in runningProcesses) but finalization is in progress.
-      if (finalizingTasks && finalizingTasks.has(task.id)) {
+      if (shouldSkipFinalizingTask(task)) {
         continue;
       }
 
@@ -904,6 +904,40 @@ function stopTimers() {
  * @param {Object} deps - Dependencies from task-manager.js
  */
 let finalizingTasks = null;
+
+function getFinalizingMarker(taskId) {
+  if (!finalizingTasks) return null;
+  if (typeof finalizingTasks.get === 'function') {
+    const marker = finalizingTasks.get(taskId);
+    return marker === undefined ? null : marker;
+  }
+  return typeof finalizingTasks.has === 'function' && finalizingTasks.has(taskId)
+    ? true
+    : null;
+}
+
+function shouldSkipFinalizingTask(task) {
+  const marker = getFinalizingMarker(task.id);
+  if (!marker) return false;
+
+  if (marker === true || typeof marker !== 'object') {
+    return true;
+  }
+
+  const lastActivityAt = Number(marker.lastActivityAt || marker.startedAt || 0);
+  const idleMs = Date.now() - lastActivityAt;
+  const staleMs = Math.max(
+    60 * 1000,
+    serverConfig.getInt('finalizing_task_stale_minutes', 15) * 60 * 1000,
+  );
+  if (Number.isFinite(idleMs) && idleMs <= staleMs) {
+    return true;
+  }
+
+  logger.info(`[Stale Check] Finalization marker for ${task.id} has been idle for ${Math.round(idleMs / 60000)}min at ${marker.stage || 'unknown'} - allowing orphan recovery`);
+  try { finalizingTasks.delete?.(task.id); } catch { /* non-critical */ }
+  return false;
+}
 
 function init(deps) {
   db = deps.db;

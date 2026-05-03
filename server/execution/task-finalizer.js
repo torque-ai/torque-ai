@@ -689,6 +689,9 @@ function categorizeFailure(ctx) {
 }
 
 async function runStage(ctx, name, handler, shouldRun = true) {
+  if (typeof ctx.finalizationHeartbeat === 'function') {
+    try { ctx.finalizationHeartbeat(`stage:${name}:start`); } catch { /* non-critical */ }
+  }
   if (!shouldRun) {
     ctx.validationStages[name] = {
       outcome: 'skipped',
@@ -698,6 +701,9 @@ async function runStage(ctx, name, handler, shouldRun = true) {
       code_after: ctx.code,
       early_exit: ctx.earlyExit === true,
     };
+    if (typeof ctx.finalizationHeartbeat === 'function') {
+      try { ctx.finalizationHeartbeat(`stage:${name}:skipped`); } catch { /* non-critical */ }
+    }
     return;
   }
 
@@ -723,6 +729,9 @@ async function runStage(ctx, name, handler, shouldRun = true) {
       error: err.message,
     };
     logger.info(`[TaskFinalizer] Stage ${name} failed for ${ctx.taskId}: ${err.message}`);
+    if (typeof ctx.finalizationHeartbeat === 'function') {
+      try { ctx.finalizationHeartbeat(`stage:${name}:error`); } catch { /* non-critical */ }
+    }
     return;
   }
 
@@ -740,6 +749,9 @@ async function runStage(ctx, name, handler, shouldRun = true) {
     early_exit: after.earlyExit,
     duration_ms: Date.now() - startedAt,
   };
+  if (typeof ctx.finalizationHeartbeat === 'function') {
+    try { ctx.finalizationHeartbeat(`stage:${name}:done`); } catch { /* non-critical */ }
+  }
 }
 
 async function waitForTaskLock(taskId) {
@@ -971,7 +983,13 @@ async function finalizeTask(taskId, options = {}) {
       earlyExit: false,
       validationStages: {},
       pipelineError: false,
+      finalizationHeartbeat: typeof options.finalizationHeartbeat === 'function'
+        ? options.finalizationHeartbeat
+        : null,
     };
+    if (ctx.finalizationHeartbeat) {
+      try { ctx.finalizationHeartbeat('finalizer:context_ready'); } catch { /* non-critical */ }
+    }
 
     await runStage(ctx, 'retry_logic', deps.handleRetryLogic, ctx.code !== 0);
     if (ctx.earlyExit) {

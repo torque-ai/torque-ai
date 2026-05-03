@@ -1718,6 +1718,47 @@ describe('process-lifecycle', () => {
       expect(runningProcesses.has(taskId)).toBe(false);
     });
 
+    it('records finalization heartbeat state while the close handler runs', async () => {
+      const taskId = 'task-close-finalizing-heartbeat';
+      const child = createLifecycleChild();
+      const finalizeTask = vi.fn(async (_id, options) => {
+        options.finalizationHeartbeat('test:active');
+        return { queueManaged: false };
+      });
+      const { subject } = loadLifecycleSubject({
+        dbMock: createLifecycleDbMock([createTaskRecord(taskId)]),
+        spawnImpl: () => child,
+      });
+      const finalizingTasks = new Map();
+      const deps = createSpawnDeps({ finalizeTask });
+      deps.finalizingTasks = finalizingTasks;
+      subject.init(deps);
+
+      subject.spawnAndTrackProcess(taskId, createTaskRecord(taskId), {
+        cliPath: 'codex',
+        finalArgs: [],
+        stdinPrompt: null,
+        options: { cwd: 'C:/repo/task', env: {}, shell: false, stdio: ['pipe', 'pipe', 'pipe'] },
+        provider: 'codex',
+        selectedOllamaHostId: null,
+        usedEditFormat: null,
+        taskMetadata: null,
+        taskType: 'code',
+        contextTokenEstimate: null,
+        baselineCommit: null,
+      });
+
+      child.emit('close', 0);
+
+      expect(finalizingTasks.get(taskId)).toEqual(expect.objectContaining({
+        stage: 'test:active',
+        provider: 'codex',
+      }));
+
+      await Promise.resolve();
+      expect(finalizingTasks.has(taskId)).toBe(false);
+    });
+
     it('skips finalization for cancelled tasks in the close handler', async () => {
       const taskId = 'task-close-cancelled';
       const child = createLifecycleChild();

@@ -621,6 +621,105 @@ describe('Orphan Cleanup', () => {
       expect(mockProcessQueue).toHaveBeenCalled();
     });
 
+    it('skips orphan recovery while finalization marker is active', () => {
+      const recentTime = new Date(Date.now() - 2 * 60 * 1000).toISOString();
+      const finalizingTasks = new Map([
+        ['task-active-finalizer', {
+          startedAt: Date.now() - 5 * 60 * 1000,
+          lastActivityAt: Date.now() - 10 * 1000,
+          stage: 'auto_verify:output',
+        }],
+      ]);
+      mockDb.getRunningTasksLightweight.mockReturnValue([
+        {
+          id: 'task-active-finalizer',
+          started_at: recentTime,
+          timeout_minutes: 30,
+          retry_count: 0,
+          max_retries: 2,
+          mcp_instance_id: 'mcp-current',
+          ollama_host_id: null,
+        },
+      ]);
+      orphanCleanup.init({
+        db: mockDb,
+        dashboard: { notifyTaskUpdated: vi.fn() },
+        logger: { info: vi.fn(), warn: vi.fn() },
+        runningProcesses,
+        finalizingTasks,
+        stallRecoveryAttempts: new Map(),
+        TASK_TIMEOUTS: { PROCESS_QUERY: 5000 },
+        cancelTask: mockCancelTask,
+        processQueue: mockProcessQueue,
+        tryLocalFirstFallback: vi.fn(),
+        getTaskActivity: mockGetTaskActivity,
+        tryStallRecovery: vi.fn(),
+        isInstanceAlive: mockIsInstanceAlive,
+        getMcpInstanceId: mockGetMcpInstanceId,
+        reportRuntimeTaskProblem: mockReportRuntimeProblem,
+        safeConfigInt: vi.fn(),
+      });
+
+      orphanCleanup.checkStaleRunningTasks();
+
+      expect(mockDb.updateTaskStatus).not.toHaveBeenCalled();
+      expect(mockProcessQueue).not.toHaveBeenCalled();
+      expect(finalizingTasks.has('task-active-finalizer')).toBe(true);
+    });
+
+    it('recovers a running task whose finalization marker went stale', () => {
+      const recentTime = new Date(Date.now() - 2 * 60 * 1000).toISOString();
+      const finalizingTasks = new Map([
+        ['task-stale-finalizer', {
+          startedAt: Date.now() - 30 * 60 * 1000,
+          lastActivityAt: Date.now() - 20 * 60 * 1000,
+          stage: 'auto_verify_retry',
+        }],
+      ]);
+      mockDb.getConfig.mockImplementation((key) => (
+        key === 'finalizing_task_stale_minutes' ? '15' : '0'
+      ));
+      mockDb.getRunningTasksLightweight.mockReturnValue([
+        {
+          id: 'task-stale-finalizer',
+          started_at: recentTime,
+          timeout_minutes: 30,
+          retry_count: 0,
+          max_retries: 2,
+          mcp_instance_id: 'mcp-current',
+          ollama_host_id: null,
+        },
+      ]);
+      orphanCleanup.init({
+        db: mockDb,
+        dashboard: { notifyTaskUpdated: vi.fn() },
+        logger: { info: vi.fn(), warn: vi.fn() },
+        runningProcesses,
+        finalizingTasks,
+        stallRecoveryAttempts: new Map(),
+        TASK_TIMEOUTS: { PROCESS_QUERY: 5000 },
+        cancelTask: mockCancelTask,
+        processQueue: mockProcessQueue,
+        tryLocalFirstFallback: vi.fn(),
+        getTaskActivity: mockGetTaskActivity,
+        tryStallRecovery: vi.fn(),
+        isInstanceAlive: mockIsInstanceAlive,
+        getMcpInstanceId: mockGetMcpInstanceId,
+        reportRuntimeTaskProblem: mockReportRuntimeProblem,
+        safeConfigInt: vi.fn(),
+      });
+
+      orphanCleanup.checkStaleRunningTasks();
+
+      expect(finalizingTasks.has('task-stale-finalizer')).toBe(false);
+      expect(mockDb.updateTaskStatus).toHaveBeenCalledWith('task-stale-finalizer', 'queued', expect.objectContaining({
+        retry_count: 1,
+        mcp_instance_id: null,
+        provider: null,
+      }));
+      expect(mockProcessQueue).toHaveBeenCalled();
+    });
+
     it('cancels dead-owner tasks when retries are exhausted', () => {
       const recentTime = new Date(Date.now() - 2 * 60 * 1000).toISOString();
       mockIsInstanceAlive.mockReturnValue(false);

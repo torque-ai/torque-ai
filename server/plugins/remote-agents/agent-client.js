@@ -116,13 +116,13 @@ class RemoteAgentClient {
    * @param {number} [opts.timeout=120000] - Agent-side timeout in ms
    * @returns {Promise<{success: boolean, output: string, error: string, exitCode: number, durationMs: number}>}
    */
-  async run(command, args, { cwd, env, timeout = 120000 } = {}) {
+  async run(command, args, { cwd, env, timeout = 120000, onActivity } = {}) {
     const body = { command, args, cwd, env, timeout_ms: timeout };
     // Client-side timeout is slightly longer than agent timeout to avoid
     // cutting off before the agent has a chance to respond with exit info
     const clientTimeout = timeout + 5000;
 
-    const res = await this._requestStreaming('POST', '/run', body, clientTimeout);
+    const res = await this._requestStreaming('POST', '/run', body, clientTimeout, { onActivity });
 
     return res;
   }
@@ -201,7 +201,7 @@ class RemoteAgentClient {
    * @returns {Promise<{success: boolean, output: string, error: string, exitCode: number, durationMs: number}>}
    * @private
    */
-  _requestStreaming(method, path, body, timeout) {
+  _requestStreaming(method, path, body, timeout, options = {}) {
     return new Promise((resolve, reject) => {
       const payload = JSON.stringify(body);
 
@@ -265,8 +265,14 @@ class RemoteAgentClient {
               const parsed = JSON.parse(trimmed);
               if (parsed.stream === 'stdout') {
                 stdoutLines.push(parsed.data);
+                if (typeof options.onActivity === 'function') {
+                  try { options.onActivity({ stream: 'stdout', bytes: Buffer.byteLength(String(parsed.data || '')) }); } catch { /* non-critical */ }
+                }
               } else if (parsed.stream === 'stderr') {
                 stderrLines.push(parsed.data);
+                if (typeof options.onActivity === 'function') {
+                  try { options.onActivity({ stream: 'stderr', bytes: Buffer.byteLength(String(parsed.data || '')) }); } catch { /* non-critical */ }
+                }
               } else if (parsed.exit_code !== undefined) {
                 exitCode = parsed.exit_code;
                 if (parsed.duration_ms !== undefined) {
@@ -286,8 +292,14 @@ class RemoteAgentClient {
               const parsed = JSON.parse(buffer.trim());
               if (parsed.stream === 'stdout') {
                 stdoutLines.push(parsed.data);
+                if (typeof options.onActivity === 'function') {
+                  try { options.onActivity({ stream: 'stdout', bytes: Buffer.byteLength(String(parsed.data || '')) }); } catch { /* non-critical */ }
+                }
               } else if (parsed.stream === 'stderr') {
                 stderrLines.push(parsed.data);
+                if (typeof options.onActivity === 'function') {
+                  try { options.onActivity({ stream: 'stderr', bytes: Buffer.byteLength(String(parsed.data || '')) }); } catch { /* non-critical */ }
+                }
               } else if (parsed.exit_code !== undefined) {
                 exitCode = parsed.exit_code;
                 if (parsed.duration_ms !== undefined) {
