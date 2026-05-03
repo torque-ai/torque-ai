@@ -456,6 +456,47 @@ function classifyDir(dirPath, rowsByPath, vcRowsByPath = new Map(), nowMs = Date
   return { action: 'skip', reason: 'non-factory dir with no db row', row: null };
 }
 
+function markStaleMissingActiveRows({ db, rows, dirs, nowMs = Date.now() }) {
+  const abandonedRows = [];
+  if (!Array.isArray(rows) || rows.length === 0) {
+    return abandonedRows;
+  }
+  const dirKeys = new Set((dirs || []).map((dirPath) => normalizePathKey(dirPath)));
+  const stmt = db.prepare(`
+    UPDATE factory_worktrees
+    SET status = 'abandoned',
+        abandoned_at = datetime('now')
+    WHERE id = ?
+      AND status = 'active'
+  `);
+
+  for (const row of rows) {
+    if (!row || row.status !== 'active' || !row.worktree_path) {
+      continue;
+    }
+    const key = normalizePathKey(row.worktree_path);
+    if (dirKeys.has(key)) {
+      continue;
+    }
+    const createdMs = parseSqliteUtcTimestamp(row.created_at);
+    if (createdMs === null || (nowMs - createdMs) <= STALE_ACTIVE_ROW_MAX_AGE_MS) {
+      continue;
+    }
+    const result = stmt.run(row.id);
+    if (result.changes > 0) {
+      const ageH = Math.round((nowMs - createdMs) / 3600000);
+      abandonedRows.push({
+        id: row.id,
+        worktreePath: row.worktree_path,
+        branch: row.branch || null,
+        reason: `stale active row missing dir (age ${ageH}h > ${STALE_ACTIVE_ROW_MAX_AGE_MS / 3600000}h)`,
+      });
+    }
+  }
+
+  return abandonedRows;
+}
+
 // Reconcile a project's .worktrees/ against factory_worktrees rows.
 // Removes stale directories whose DB state says they shouldn't be there,
 // leaving active rows and user-owned worktrees alone.
@@ -471,8 +512,10 @@ function reconcileProject({ db, project_id, project_path, worktree_dir = DEFAULT
   const failed = [];
 
   const { root, dirs } = listWorktreeDirs(project_path, worktree_dir);
+  const rows = listProjectFactoryWorktrees(db, project_id);
+  const abandonedRows = markStaleMissingActiveRows({ db, rows, dirs });
   if (dirs.length === 0) {
-    return { root, scanned: 0, cleaned, skipped, failed };
+    return { root, scanned: 0, cleaned, skipped, failed, abandonedRows };
   }
 
   // The branch → path map is deterministic, so a single path will
@@ -484,7 +527,6 @@ function reconcileProject({ db, project_id, project_path, worktree_dir = DEFAULT
   // — typically abandoned — and classifyDir then reclaims the fresh dir
   // that the just-inserted active row actually owns. Keep only the
   // first-seen (newest) row per path.
-  const rows = listProjectFactoryWorktrees(db, project_id);
   const rowsByPath = new Map();
   for (const row of rows) {
     if (!row.worktree_path) continue;
@@ -552,13 +594,14 @@ function reconcileProject({ db, project_id, project_path, worktree_dir = DEFAULT
     }
   }
 
-  return { root, scanned: dirs.length, cleaned, skipped, failed };
+  return { root, scanned: dirs.length, cleaned, skipped, failed, abandonedRows };
 }
 
 module.exports = {
   reconcileProject,
   reclaimDir,
   classifyDir,
+  markStaleMissingActiveRows,
   listProjectFactoryWorktrees,
   listRepoVcWorktrees,
   forceRmDir,

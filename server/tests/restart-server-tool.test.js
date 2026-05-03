@@ -21,6 +21,7 @@ describe('restart_server tool', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.restoreAllMocks();
+    delete process._torqueRestartPending;
     shutdownListeners = [];
     resetTables('tasks');
     restartHandoff.clearRestartHandoff();
@@ -34,6 +35,7 @@ describe('restart_server tool', () => {
     shutdownListeners = [];
     restartHandoff.clearRestartHandoff();
     restartHandoff.clearRestartIntent();
+    delete process._torqueRestartPending;
     vi.useRealTimers();
     vi.restoreAllMocks();
   });
@@ -105,6 +107,54 @@ describe('restart_server tool', () => {
     // No immediate shutdown — waiting for drain
     vi.runAllTimers();
     // Shutdown may or may not fire depending on drain poll timing
+  });
+
+  it('restart_status includes intent phase and blocking task summaries', async () => {
+    taskCore.createTask({
+      id: 'running-worker',
+      task_description: 'Normalize verify-signature test-name paths (#2213)',
+      provider: 'codex',
+      model: 'gpt-5.2',
+      working_directory: process.cwd(),
+      status: 'queued',
+    });
+    taskCore.updateTaskStatus('running-worker', 'running', {
+      started_at: '2026-05-03T00:34:28.000Z',
+    });
+    taskCore.createTask({
+      id: 'status-barrier',
+      task_description: 'Restart barrier: status',
+      provider: 'system',
+      working_directory: process.cwd(),
+      status: 'queued',
+    });
+    taskCore.updateTaskStatus('status-barrier', 'running', {
+      started_at: '2026-05-03T00:35:00.000Z',
+    });
+    restartHandoff.writeRestartIntent({
+      barrier_id: 'status-barrier',
+      reason: 'status test',
+      phase: 'draining',
+      running_count: 1,
+      queued_held_count: 0,
+      last_drain_heartbeat_at: new Date().toISOString(),
+    });
+
+    const status = await tools.handleToolCall('restart_status', {});
+
+    expect(status.structuredData).toMatchObject({
+      barrier_active: true,
+      barrier_id: 'status-barrier',
+      intent_phase: 'draining',
+      running_count: 1,
+    });
+    expect(status.structuredData.blocking_tasks).toEqual([expect.objectContaining({
+      id: 'running-worker',
+      provider: 'codex',
+      task_description: expect.stringContaining('Normalize verify-signature'),
+    })]);
+    expect(status.content[0].text).toContain('Intent phase: draining');
+    expect(status.content[0].text).toContain('running-:codex');
   });
 
   it('stale barrier cleanup reports the persisted restart intent phase', () => {

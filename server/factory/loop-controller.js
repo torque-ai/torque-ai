@@ -1012,20 +1012,7 @@ async function maybeRejectResumedDeferredPlan({ project, workItem, batchId }) {
   }
 
   const failedRules = resumeGateVerdict.hardFails.map((h) => h.rule);
-  try {
-    factoryIntake.rejectWorkItemUnactionable(
-      workItem.id,
-      'pre_written_plan_rejected_by_quality_gate',
-    );
-  } catch (rejectErr) {
-    // Don't swallow silently; if rejection fails, the work item stays
-    // in_progress and the loop can re-enter the same rejected plan.
-    logger.warn('resume-deferred work-item rejection failed; loop may re-enter', {
-      project_id: project.id,
-      work_item_id: workItem.id,
-      err: rejectErr.message,
-    });
-  }
+  const routed = routePlanQualityGateFailureToNeedsReplan(workItem, resumeGateVerdict);
   logger.warn('EXECUTE stage: resumed deferred plan rejected by quality gate', {
     project_id: project.id,
     work_item_id: workItem.id,
@@ -1044,18 +1031,19 @@ async function maybeRejectResumedDeferredPlan({ project, workItem, batchId }) {
     outcome: {
       rule_violations: resumeGateVerdict.hardFails,
       plan_path: workItem.origin.plan_path,
+      next_status: routed.status,
       ...getWorkItemDecisionContext(workItem),
     },
     confidence: 1,
     batch_id: batchId,
   });
   return {
-    next_state: LOOP_STATES.IDLE,
+    next_state: LOOP_STATES.PRIORITIZE,
     stop_execution: true,
     stage_result: {
-      status: 'rejected',
+      status: 'needs_replan',
       reason: 'pre_written_plan_rejected_by_quality_gate',
-      work_item_id: workItem.id,
+      work_item_id: routed.id,
       plan_path: workItem.origin.plan_path,
       rule_violations: failedRules,
     },
@@ -1263,6 +1251,13 @@ function deriveInstanceStateFromLegacyProject(project) {
 
 function backfillLegacyProjectLoopInstance(project_id) {
   const project = getProjectOrThrow(project_id);
+  if (project.status === 'paused') {
+    logger.info('Backfill skipped for paused factory project', {
+      project_id: project.id,
+      loop_state: project.loop_state || LOOP_STATES.IDLE,
+    });
+    return null;
+  }
   const legacyState = deriveInstanceStateFromLegacyProject(project);
   if (legacyState === LOOP_STATES.IDLE) {
     return null;
@@ -5546,6 +5541,37 @@ function buildPlanDescriptionQualityRejectPayload(descriptionQuality) {
   };
 }
 
+function buildPlanQualityGateRejectPayload(gateVerdict) {
+  const hardFails = Array.isArray(gateVerdict?.hardFails) ? gateVerdict.hardFails : [];
+  const rules = [...new Set(hardFails.map((failure) => failure.rule).filter(Boolean))];
+  const reasons = hardFails
+    .map((failure) => failure.detail || failure.rule)
+    .filter(Boolean);
+  const failingTasks = hardFails.map((failure) => ({
+    task_index: typeof failure.taskNumber === 'number' ? failure.taskNumber - 1 : null,
+    task_title: null,
+    score: null,
+    threshold: null,
+    missing_specificity_signals: failure.rule ? [failure.rule] : [],
+    reasons: [failure.detail || failure.rule].filter(Boolean),
+    rule: failure.rule || null,
+    task_number: typeof failure.taskNumber === 'number' ? failure.taskNumber : null,
+  }));
+  const firstFailure = failingTasks[0] || {};
+
+  return {
+    code: 'plan_quality_gate_failed',
+    failing_task_index: firstFailure.task_index ?? null,
+    failing_task_title: null,
+    score: null,
+    threshold: null,
+    missing_specificity_signals: rules,
+    reasons,
+    failing_tasks: failingTasks,
+    feedback_prompt: gateVerdict?.feedbackPrompt || null,
+  };
+}
+
 function getWorkItemOriginObject(workItem) {
   if (workItem?.origin && typeof workItem.origin === 'object') {
     return { ...workItem.origin };
@@ -5839,6 +5865,8 @@ function restoreTerminalEscalationWorkItem(workItem, evidence = null) {
 function routeWorkItemToNeedsReplan(workItem, { reason, attempt = null, details = null } = {}) {
   if (!workItem || !workItem.id) return workItem;
   const existingOrigin = getWorkItemOriginObject(workItem) || {};
+  const detailObject = details && typeof details === 'object' ? details : null;
+  const detailPlanQualityRejection = detailObject?.last_plan_description_quality_rejection || null;
   const terminalEscalation = factoryIntake.getTerminalEscalationEvidence?.({
     ...workItem,
     origin: existingOrigin,
@@ -5856,7 +5884,9 @@ function routeWorkItemToNeedsReplan(workItem, { reason, attempt = null, details 
     return workItem;
   }
   const reasonStr = String(reason || 'unknown');
-  const missingSignals = existingOrigin?.last_plan_description_quality_rejection?.missing_specificity_signals || [];
+  const missingSignals = detailPlanQualityRejection?.missing_specificity_signals
+    || existingOrigin?.last_plan_description_quality_rejection?.missing_specificity_signals
+    || [];
 
   // Build escalation history first so same-shape detection has data.
   const priorHistory = Array.isArray(existingOrigin.escalation_history)
@@ -5942,7 +5972,7 @@ function routeWorkItemToNeedsReplan(workItem, { reason, attempt = null, details 
   // attempt — and on the next pickup, EXECUTE re-discovers the file (if
   // the architect happens to write to the same path) and Phase U trusts
   // the stale [x] markers, producing empty branches indefinitely.
-  // Live evidence (DLPhone item #2048, 2026-05-02): plan file with both
+  // Live evidence (example-project item #2048, 2026-05-02): plan file with both
   // tasks marked [x] persisted across cycles. Each pickup completed
   // EXECUTE in 3s with no diff, routed back via empty_branch_after_execute,
   // hit Phase X5 same-shape escalation in 3 cycles, terminally exhausted.
@@ -5963,6 +5993,8 @@ function routeWorkItemToNeedsReplan(workItem, { reason, attempt = null, details 
 
   const origin = {
     ...baseOrigin,
+    ...(detailPlanQualityRejection ? { last_plan_description_quality_rejection: detailPlanQualityRejection } : {}),
+    ...(detailObject?.last_gate_feedback ? { last_gate_feedback: detailObject.last_gate_feedback } : {}),
     last_rejection_reason: reasonStr,
     ...(attempt !== null ? { last_rejection_attempt: attempt } : {}),
     ...(details ? { last_rejection_details: details } : {}),
@@ -5990,6 +6022,24 @@ function routeWorkItemToNeedsReplan(workItem, { reason, attempt = null, details 
     ...(escalation && escalation.kind === 'provider_switch'
       ? { constraints_json: JSON.stringify(constraints) }
       : {}),
+  });
+}
+
+function routePlanQualityGateFailureToNeedsReplan(workItem, gateVerdict, {
+  reason = 'pre_written_plan_rejected_by_quality_gate',
+  attempt = null,
+} = {}) {
+  const hardFails = Array.isArray(gateVerdict?.hardFails) ? gateVerdict.hardFails : [];
+  const rejectPayload = buildPlanQualityGateRejectPayload(gateVerdict);
+  return routeWorkItemToNeedsReplan(workItem, {
+    reason,
+    attempt,
+    details: {
+      hardFails: hardFails.map((failure) => failure.rule).filter(Boolean),
+      rule_violations: hardFails,
+      last_plan_description_quality_rejection: rejectPayload,
+      ...(gateVerdict?.feedbackPrompt ? { last_gate_feedback: gateVerdict.feedbackPrompt } : {}),
+    },
   });
 }
 
@@ -6192,26 +6242,12 @@ async function executePlanStage(project, instance, selectedWorkItem = null) {
         plan_path: workItem.origin.plan_path,
         rules: failedRules,
       });
-      try {
-        factoryIntake.rejectWorkItemUnactionable(
-          workItem.id,
-          'pre_written_plan_rejected_by_quality_gate',
-        );
-      } catch (rejectErr) {
-        // Don't swallow silently — if rejection fails (DB lock, REJECT_REASONS
-        // gap, etc.) the work item stays prioritized and PRIORITIZE will pick
-        // it again next tick. Logging makes the regression detectable.
-        logger.warn('pre-written plan rejection failed; loop may re-pick item', {
-          project_id: project.id,
-          work_item_id: workItem.id,
-          err: rejectErr.message,
-        });
-      }
+      const routed = routePlanQualityGateFailureToNeedsReplan(workItem, preWrittenGateVerdict);
       safeLogDecision({
         project_id: project.id,
         stage: LOOP_STATES.PLAN,
         action: 'pre_written_plan_quality_rejected',
-        reasoning: `Pre-written plan failed quality gate: ${failedRules.join(', ')}.`,
+        reasoning: `Pre-written plan failed quality gate and was routed to needs_replan: ${failedRules.join(', ')}.`,
         inputs: {
           ...getWorkItemDecisionContext(workItem),
           plan_path: workItem.origin.plan_path,
@@ -6222,6 +6258,7 @@ async function executePlanStage(project, instance, selectedWorkItem = null) {
           gate_only_evaluated: true,
           rule_violations: preWrittenGateVerdict.hardFails,
           plan_path: workItem.origin.plan_path,
+          next_status: routed.status,
           ...getWorkItemDecisionContext(workItem),
         },
         confidence: 1,
@@ -6229,16 +6266,16 @@ async function executePlanStage(project, instance, selectedWorkItem = null) {
       });
       return {
         reason: 'pre-written plan rejected by quality gate',
-        work_item: factoryIntake.getWorkItem(workItem.id) || workItem,
+        work_item: routed,
         stop_execution: true,
         // Match the convention at line 4039 (architect-side rejection):
         // PRIORITIZE picks the next work item next tick rather than re-running
         // SENSE's full plan-file scan.
         next_state: LOOP_STATES.PRIORITIZE,
         stage_result: {
-          status: 'rejected',
+          status: 'needs_replan',
           reason: 'pre_written_plan_rejected_by_quality_gate',
-          work_item_id: workItem.id,
+          work_item_id: routed.id,
           plan_path: workItem.origin.plan_path,
           rule_violations: failedRules,
         },
@@ -7462,18 +7499,7 @@ async function executePlanFileStage(project, instance, workItem) {
     });
     if (gateVerdict && !gateVerdict.passed) {
       const failedRules = gateVerdict.hardFails.map((h) => h.rule);
-      try {
-        factoryIntake.rejectWorkItemUnactionable(
-          targetItem.id,
-          'pre_written_plan_rejected_by_quality_gate',
-        );
-      } catch (rejectErr) {
-        logger.warn('execute pre-written plan rejection failed; loop may re-enter', {
-          project_id: project.id,
-          work_item_id: targetItem.id,
-          err: rejectErr.message,
-        });
-      }
+      const routed = routePlanQualityGateFailureToNeedsReplan(targetItem, gateVerdict);
       logger.warn('EXECUTE stage: pre-written plan rejected by quality gate before worktree creation', {
         project_id: project.id,
         work_item_id: targetItem.id,
@@ -7493,20 +7519,21 @@ async function executePlanFileStage(project, instance, workItem) {
           gate_only_evaluated: true,
           rule_violations: gateVerdict.hardFails,
           plan_path: targetItem.origin.plan_path,
+          next_status: routed.status,
           ...getWorkItemDecisionContext(targetItem),
         },
         confidence: 1,
         batch_id: executeLogBatchId,
       });
       return {
-        next_state: LOOP_STATES.IDLE,
+        next_state: LOOP_STATES.PRIORITIZE,
         stop_execution: true,
         reason: 'pre-written plan rejected by quality gate',
-        work_item: factoryIntake.getWorkItem(targetItem.id) || targetItem,
+        work_item: routed,
         stage_result: {
-          status: 'rejected',
+          status: 'needs_replan',
           reason: 'pre_written_plan_rejected_by_quality_gate',
-          work_item_id: targetItem.id,
+          work_item_id: routed.id,
           plan_path: targetItem.origin.plan_path,
           rule_violations: failedRules,
         },
@@ -10789,6 +10816,25 @@ function scheduleLoop(project_id, interval_minutes) {
 
 function startLoop(project_id) {
   const project = getProjectOrThrow(project_id);
+  if (project.status === 'paused') {
+    safeLogDecision({
+      project_id: project.id,
+      stage: LOOP_STATES.SENSE,
+      action: 'start_loop_blocked_project_paused',
+      reasoning: 'Factory loop start was refused because the project row is paused. Resume the project before starting the loop.',
+      inputs: {
+        current_status: project.status,
+        previous_state: getCurrentLoopState(project),
+      },
+      outcome: {
+        started: false,
+        status: project.status,
+      },
+      confidence: 1,
+      batch_id: null,
+    });
+    throw new Error('Cannot start factory loop for paused project; resume_project first');
+  }
   const previousState = getCurrentLoopState(project);
   try {
     const { initFactoryWorktreeAutoCommit } = require('./worktree-auto-commit');

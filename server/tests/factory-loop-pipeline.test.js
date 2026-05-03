@@ -126,11 +126,12 @@ function createFactoryTables(db) {
 }
 
 function registerProject({ name, trust_level = 'dark' } = {}) {
-  return factoryHealth.registerProject({
+  const project = factoryHealth.registerProject({
     name: name || `Factory Pipeline ${Date.now()}`,
     path: path.join(os.tmpdir(), `factory-pipeline-${Date.now()}-${Math.random().toString(16).slice(2)}`),
     trust_level,
   });
+  return factoryHealth.updateProject(project.id, { status: 'running' });
 }
 
 function seedInstance(project_id, updates = {}) {

@@ -741,6 +741,10 @@ async function handleRestartServerBarrier(args) {
 function handleRestartStatus() {
   const taskCore = require('./db/task-core');
   const { isRestartBarrierActive } = require('./execution/restart-barrier');
+  const {
+    readRestartHandoff,
+    readRestartIntent,
+  } = require('./execution/restart-handoff');
   const barrier = isRestartBarrierActive(taskCore);
   if (!barrier) {
     return {
@@ -756,6 +760,43 @@ function handleRestartStatus() {
   const elapsedSeconds = startedAt
     ? Math.floor((Date.now() - new Date(startedAt).getTime()) / 1000)
     : null;
+  const blockingTasks = taskCore.listTasks({
+    status: 'running',
+    limit: 1000,
+    orderBy: 'started_at',
+    columns: ['id', 'status', 'provider', 'model', 'task_description', 'working_directory', 'started_at', 'created_at'],
+  })
+    .filter(t => t.provider !== 'system')
+    .slice(0, 10)
+    .map(t => ({
+      id: t.id,
+      status: t.status,
+      provider: t.provider || null,
+      model: t.model || null,
+      task_description: typeof t.task_description === 'string'
+        ? t.task_description.slice(0, 160)
+        : null,
+      working_directory: t.working_directory || null,
+      started_at: t.started_at || null,
+      created_at: t.created_at || null,
+    }));
+  const restartIntent = readRestartIntent();
+  const restartHandoff = readRestartHandoff();
+  const matchingIntent = restartIntent && restartIntent.barrier_id === barrier.id ? restartIntent : null;
+  const matchingHandoff = restartHandoff && restartHandoff.barrier_id === barrier.id ? restartHandoff : null;
+  const staleHints = [];
+  if (!matchingIntent && !matchingHandoff && elapsedSeconds !== null && elapsedSeconds > 60) {
+    staleHints.push('active barrier has no matching restart intent or handoff');
+  }
+  if (matchingIntent?.phase === 'draining') {
+    const heartbeatAt = matchingIntent.last_drain_heartbeat_at || matchingIntent.updated_at || null;
+    const heartbeatAgeSeconds = heartbeatAt
+      ? Math.floor((Date.now() - new Date(heartbeatAt).getTime()) / 1000)
+      : null;
+    if (heartbeatAgeSeconds !== null && heartbeatAgeSeconds > 120 && running > 0) {
+      staleHints.push(`drain heartbeat stale for ${heartbeatAgeSeconds}s`);
+    }
+  }
   const data = {
     barrier_active: true,
     barrier_id: barrier.id,
@@ -764,9 +805,20 @@ function handleRestartStatus() {
     queued_held_count: queuedHeld,
     elapsed_seconds: elapsedSeconds,
     started_at: startedAt,
+    intent_phase: matchingIntent?.phase || null,
+    intent_updated_at: matchingIntent?.updated_at || null,
+    last_drain_heartbeat_at: matchingIntent?.last_drain_heartbeat_at || null,
+    handoff_phase: matchingHandoff?.phase || null,
+    blocking_tasks: blockingTasks,
+    stale_hints: staleHints,
   };
   const elapsedText = elapsedSeconds != null ? `, ${elapsedSeconds}s elapsed` : '';
-  const text = `Restart barrier ${barrier.id.slice(0, 8)} (status: ${barrier.status}): ${running} running, ${queuedHeld} queued held${elapsedText}.`;
+  const blockersText = blockingTasks.length > 0
+    ? ` Blocking: ${blockingTasks.map(t => `${t.id.slice(0, 8)}:${t.provider || 'unknown'}`).join(', ')}.`
+    : '';
+  const intentText = matchingIntent?.phase ? ` Intent phase: ${matchingIntent.phase}.` : '';
+  const staleText = staleHints.length > 0 ? ` Stale hints: ${staleHints.join('; ')}.` : '';
+  const text = `Restart barrier ${barrier.id.slice(0, 8)} (status: ${barrier.status}): ${running} running, ${queuedHeld} queued held${elapsedText}.${intentText}${blockersText}${staleText}`;
   return { content: [{ type: 'text', text }], structuredData: data };
 }
 

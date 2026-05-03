@@ -397,6 +397,15 @@ describe('factory loop-controller EXECUTE modes', () => {
     expect(factoryLoopInstances.listInstances({ project_id: project.id, active_only: true })).toHaveLength(1);
   });
 
+  it('does not start or resume a paused project', () => {
+    const { project } = registerPlanProject();
+    factoryHealth.updateProject(project.id, { status: 'paused' });
+
+    expect(() => loopController.startLoopForProject(project.id)).toThrow(/paused project/);
+    expect(factoryHealth.getProject(project.id)).toMatchObject({ status: 'paused' });
+    expect(factoryLoopInstances.listInstances({ project_id: project.id, active_only: true })).toHaveLength(0);
+  });
+
   it('does not restore an unactionable item from the decision log on a fresh loop', async () => {
     const { project, workItem, planPath } = registerPlanProject();
     factoryIntake.updateWorkItem(workItem.id, {
@@ -512,7 +521,7 @@ describe('factory loop-controller EXECUTE modes', () => {
     });
   });
 
-  it('rejects a bad pre-written plan at EXECUTE before creating a worktree', async () => {
+  it('routes a bad pre-written plan to needs_replan at EXECUTE before creating a worktree', async () => {
     const { project, workItem, planPath } = registerPlanProject();
     fs.writeFileSync(planPath, `# Weak plan
 
@@ -550,10 +559,10 @@ Edit server/factory/plan-executor.js and make the requested behavior change. Kee
 
     const executeAdvance = await loopController.advanceLoopForProject(project.id);
 
-    expect(executeAdvance.new_state).toBe(LOOP_STATES.IDLE);
+    expect(executeAdvance.new_state).toBe(LOOP_STATES.PRIORITIZE);
     expect(executeAdvance.paused_at_stage).toBeNull();
     expect(executeAdvance.stage_result).toMatchObject({
-      status: 'rejected',
+      status: 'needs_replan',
       reason: 'pre_written_plan_rejected_by_quality_gate',
       work_item_id: workItem.id,
       plan_path: planPath,
@@ -562,8 +571,12 @@ Edit server/factory/plan-executor.js and make the requested behavior change. Kee
     expect(worktreeRunner.createForBatch).not.toHaveBeenCalled();
     expect(routingModule.handleSmartSubmitTask).not.toHaveBeenCalled();
     expect(factoryIntake.getWorkItem(workItem.id)).toMatchObject({
-      status: 'unactionable',
+      status: 'needs_replan',
       reject_reason: 'pre_written_plan_rejected_by_quality_gate',
+    });
+    expect(factoryIntake.getWorkItem(workItem.id).origin?.last_plan_description_quality_rejection).toMatchObject({
+      code: 'plan_quality_gate_failed',
+      missing_specificity_signals: expect.arrayContaining(['task_has_acceptance_criterion']),
     });
 
     const decisions = listDecisionRows(db, project.id);
@@ -2007,6 +2020,7 @@ Edit server/factory/plan-executor.js and make the requested behavior change. Kee
         plans_dir: path.join(tempDir, 'nonexistent-plans-dir'),
       },
     });
+    factoryHealth.updateProject(project.id, { status: 'running' });
 
     expect(() => loopController.startLoopForProject(project.id)).toThrow(/plans_dir/);
 

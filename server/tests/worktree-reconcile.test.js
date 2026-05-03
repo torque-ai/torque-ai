@@ -66,11 +66,11 @@ function ensureFactoryWorktreesSchema(db) {
   `);
 }
 
-function insertRow(db, { project_id, branch, worktree_path, status = 'active', work_item_id = 1, batch_id = 'batch-1', vc_worktree_id = 'vc-1' }) {
+function insertRow(db, { project_id, branch, worktree_path, status = 'active', work_item_id = 1, batch_id = 'batch-1', vc_worktree_id = 'vc-1', created_at = null }) {
   db.prepare(`
-    INSERT INTO factory_worktrees (project_id, work_item_id, batch_id, vc_worktree_id, branch, worktree_path, status)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
-  `).run(project_id, work_item_id, batch_id, vc_worktree_id, branch, worktree_path, status);
+    INSERT INTO factory_worktrees (project_id, work_item_id, batch_id, vc_worktree_id, branch, worktree_path, status, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')))
+  `).run(project_id, work_item_id, batch_id, vc_worktree_id, branch, worktree_path, status, created_at);
 }
 
 function insertVcRow(db, { id, repo_path, worktree_path, branch, status = 'active' }) {
@@ -358,6 +358,57 @@ describe('reconcileProject', () => {
     expect(result.cleaned).toEqual([]);
     expect(result.skipped).toEqual([]);
     expect(result.failed).toEqual([]);
+  });
+
+  it('marks stale active rows abandoned when their worktree directory is missing', () => {
+    const project = makeProject();
+    const missingDir = path.join(project.path, '.worktrees', 'feat-factory-777-missing');
+    insertRow(dbHandle, {
+      project_id: project.id,
+      branch: 'feat/factory-777-missing',
+      worktree_path: missingDir,
+      status: 'active',
+      created_at: '2026-04-01 00:00:00',
+    });
+
+    const result = reconcileProject({
+      db: dbHandle,
+      project_id: project.id,
+      project_path: project.path,
+    });
+
+    expect(result.scanned).toBe(0);
+    expect(result.abandonedRows).toEqual([expect.objectContaining({
+      worktreePath: missingDir,
+      branch: 'feat/factory-777-missing',
+    })]);
+    expect(dbHandle.prepare('SELECT status, abandoned_at FROM factory_worktrees WHERE worktree_path = ?').get(missingDir)).toMatchObject({
+      status: 'abandoned',
+      abandoned_at: expect.any(String),
+    });
+  });
+
+  it('does not abandon fresh active rows whose worktree directory has not appeared yet', () => {
+    const project = makeProject();
+    const missingDir = path.join(project.path, '.worktrees', 'feat-factory-778-fresh');
+    insertRow(dbHandle, {
+      project_id: project.id,
+      branch: 'feat/factory-778-fresh',
+      worktree_path: missingDir,
+      status: 'active',
+    });
+
+    const result = reconcileProject({
+      db: dbHandle,
+      project_id: project.id,
+      project_path: project.path,
+    });
+
+    expect(result.abandonedRows).toEqual([]);
+    expect(dbHandle.prepare('SELECT status, abandoned_at FROM factory_worktrees WHERE worktree_path = ?').get(missingDir)).toMatchObject({
+      status: 'active',
+      abandoned_at: null,
+    });
   });
 
   it('cleans orphan dirs with abandoned/shipped/merged rows and leaves active alone', () => {

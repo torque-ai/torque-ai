@@ -1634,6 +1634,31 @@ describe('classifyError', () => {
     expect(result.retryable).toBe(true);
   });
 
+  it('treats a Codex startup banner with no task output as retryable', () => {
+    const result = classifyError(`OpenAI Codex
+--------
+workdir: C:\\Projects\\torque-public
+model: gpt-5.2
+provider: openai
+approval: never
+sandbox: danger-full-access
+reasoning effort: high
+reasoning summaries: auto
+session id: abc123`);
+    expect(result).toEqual({
+      retryable: true,
+      reason: 'Codex startup banner only - no task output captured',
+    });
+  });
+
+  it('treats stale-session heartbeat cleanup as retryable', () => {
+    const result = classifyError('Task marked as failed: no heartbeat (stale session cleanup)');
+    expect(result).toEqual({
+      retryable: true,
+      reason: 'Stale session cleanup after no heartbeat',
+    });
+  });
+
   it('matches patterns case-insensitively', () => {
     const result = classifyError('COMMAND NOT FOUND');
     expect(result).toEqual({ retryable: false, reason: 'Command not found' });

@@ -14,7 +14,7 @@ const APPROVAL_REUSABLE_STATUSES = new Set(['pending_approval', 'pending', 'queu
 // Phase O (2026-04-30): ollama-specific edit guidance for large files.
 // qwen3-coder:30b's `edit_file` tool requires an exact `old_text` match,
 // which is unreliable on files over a few hundred lines (whitespace,
-// indentation, hidden trailing-comma drift). DLPhone work item #2159 ran
+// indentation, hidden trailing-comma drift). example-project work item #2159 ran
 // end-to-end through the Phase A-N pipeline and committed a real diff in
 // other cases, but on a 400-line .cs file it tried `edit_file` with a
 // reconstructed function signature, hit "old_text not found", and exited
@@ -250,7 +250,7 @@ async function verifyCompletedTaskArtifacts(task, working_directory, baseBranch 
   // on `git rev-list HEAD ^<base>`: zero commits ahead means no task
   // produced its work in this worktree, so [x] cannot be trusted.
   //
-  // Live evidence (DLPhone item #2048, 2026-05-02): findReusableTask kept
+  // Live evidence (example-project item #2048, 2026-05-02): findReusableTask kept
   // returning a stale completed task whose commits were never in this
   // branch (different factory cycle). Phase U trusted because the cited
   // .cs files existed in the repo. tickTaskInFile flipped [x], EXECUTE
@@ -313,7 +313,7 @@ async function verifyCompletedTaskArtifacts(task, working_directory, baseBranch 
 // a plan, it tries `read_file` on the missing path, gets ERROR, retries the
 // directory listing, can't find the file, and exits in 4-5 seconds with
 // `no_progress` after 7 tool iterations. The auto-recovery loop then
-// resubmits the same broken plan — observed live with DLPhone work item
+// resubmits the same broken plan — observed live with example-project work item
 // 2117 (11+ identical failures over an hour) before the work item was
 // manually rejected.
 //

@@ -361,6 +361,16 @@ function resolveProject(projectRef) {
   if (!project) {
     project = factoryHealth.getProjectByPath(projectRef);
   }
+  if (!project && typeof projectRef === 'string' && projectRef.trim()) {
+    const needle = projectRef.trim().toLowerCase();
+    const matches = factoryHealth.listProjects()
+      .filter((candidate) => String(candidate.name || '').trim().toLowerCase() === needle);
+    if (matches.length === 1) {
+      project = matches[0];
+    } else if (matches.length > 1) {
+      throw new Error(`Project name is ambiguous: ${projectRef}`);
+    }
+  }
   if (!project) {
     throw new Error(`Project not found: ${projectRef}`);
   }
@@ -783,6 +793,14 @@ function classifyFactoryLoopError(error) {
     return {
       errorCode: ErrorCodes.RESOURCE_NOT_FOUND,
       status: 404,
+      message,
+    };
+  }
+
+  if (message.startsWith('Project name is ambiguous:')) {
+    return {
+      errorCode: ErrorCodes.CONFLICT,
+      status: 409,
       message,
     };
   }

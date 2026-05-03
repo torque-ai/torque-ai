@@ -234,6 +234,22 @@ describe('factory end-to-end flow', () => {
     expect(factoryHealth.getProject(projectId).status).toBe('paused');
   });
 
+  test('handler: pause_project resolves a unique project name', async () => {
+    const regResult = await handlers.handleRegisterFactoryProject({
+      name: 'Bitsy',
+      path: '/projects/bitsy',
+      trust_level: 'dark',
+    });
+    const projectId = JSON.parse(regResult.content[0].text).project.id;
+    factoryHealth.updateProject(projectId, { status: 'running' });
+
+    const pauseResult = await handlers.handlePauseProject({ project: 'bitsy', reason: 'operator allowlist' });
+    const pauseData = JSON.parse(pauseResult.content[0].text);
+
+    expect(pauseData.project.id).toBe(projectId);
+    expect(factoryHealth.getProject(projectId).status).toBe('paused');
+  });
+
   test('handler: list projects includes health data', async () => {
     const reg = await handlers.handleRegisterFactoryProject({ name: 'A', path: '/a' });
     const id = JSON.parse(reg.content[0].text).project.id;
