@@ -482,10 +482,24 @@ describe('factory hardening end-to-end', () => {
     const childProc = require('child_process');
 
     // Build a real git repo so the rev-list helper has something to count.
+    // Pin defaultBranch=master so this works regardless of the host's
+    // git init.defaultBranch global config (older gits default to 'master',
+    // newer gits to 'main' — without pinning, the test would be flaky).
     const repoPath = path.join(testDir, 'agent-self-commit-repo');
     fs.mkdirSync(repoPath, { recursive: true });
-    const gitOpts = { cwd: repoPath, env: { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' } };
-    childProc.execFileSync('git', ['init', '-q', '--initial-branch=master'], gitOpts);
+    const gitOpts = {
+      cwd: repoPath,
+      env: {
+        ...process.env,
+        GIT_AUTHOR_NAME: 't',
+        GIT_AUTHOR_EMAIL: 't@t',
+        GIT_COMMITTER_NAME: 't',
+        GIT_COMMITTER_EMAIL: 't@t',
+      },
+      windowsHide: true,
+    };
+    childProc.execFileSync('git', ['-c', 'init.defaultBranch=master', 'init', '-q'], gitOpts);
+    childProc.execFileSync('git', ['symbolic-ref', 'HEAD', 'refs/heads/master'], gitOpts);
     childProc.execFileSync('git', ['config', 'commit.gpgsign', 'false'], gitOpts);
     fs.writeFileSync(path.join(repoPath, 'README.md'), '# base\n', 'utf8');
     childProc.execFileSync('git', ['add', '.'], gitOpts);
@@ -494,6 +508,10 @@ describe('factory hardening end-to-end', () => {
     fs.writeFileSync(path.join(repoPath, 'agent.txt'), 'agent committed this\n', 'utf8');
     childProc.execFileSync('git', ['add', '.'], gitOpts);
     childProc.execFileSync('git', ['commit', '-q', '-m', 'agent: typing stubs'], gitOpts);
+
+    // Direct sanity-check that the test repo is in the expected state.
+    const masterToHead = childProc.execFileSync('git', ['rev-list', '--count', 'master..HEAD'], gitOpts).toString().trim();
+    expect(masterToHead).toBe('1');
 
     const project = createProject({ config: { execute_mode: 'suppress' } });
     const planPath = writePlanFile();
