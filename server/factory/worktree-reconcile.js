@@ -10,6 +10,7 @@ const DEFAULT_WORKTREE_DIR = '.worktrees';
 const FACTORY_LEAF_PREFIX = 'feat-factory-';
 const RECLAIMABLE_STATUSES = new Set(['abandoned', 'shipped', 'merged']);
 const RECONCILE_FAILURE_WARN_INTERVAL_MS = 15 * 60 * 1000;
+const FACTORY_HEAD_PREFIX = /^feat[-/]factory-/;
 const reconcileFailureLogState = new Map();
 
 function runGit(repoPath, args) {
@@ -29,6 +30,136 @@ function tryGit(repoPath, args) {
   } catch (err) {
     return { ok: false, err };
   }
+}
+
+function isNotGitRepositoryError(err) {
+  if (!err) return false;
+  const code = err.code || err.status;
+  if (code === 128) return true;
+  const message = String(err.message || err.stderr || '').toLowerCase();
+  return message.includes('not a git repository');
+}
+
+function isBusyDeleteError(err) {
+  if (!err) return false;
+  const code = String(err.code || '').toLowerCase();
+  const message = String(err.message || err).toLowerCase();
+  return code === 'ebusy' || code === 'eperm' || message.includes('device or resource busy');
+}
+
+function normalizeFactoryBranchName(branch) {
+  if (!branch || typeof branch !== 'string') return null;
+  const trimmed = branch.trim();
+  if (!trimmed) return null;
+  return trimmed.replace('feat/factory-', 'feat-factory-');
+}
+
+function areFactoryBranchNamesEquivalent(a, b) {
+  if (a === b) return true;
+  const normA = normalizeFactoryBranchName(a);
+  const normB = normalizeFactoryBranchName(b);
+  return Boolean(normA && normB && normA === normB);
+}
+
+function hasOpenFactoryWorktreeRowsForBranch(rows, branch) {
+  if (!Array.isArray(rows) || rows.length === 0) {
+    return false;
+  }
+  return rows.some((row) => {
+    if (!row || typeof row.branch !== 'string') return false;
+    if (!FACTORY_HEAD_PREFIX.test(row.branch)) return false;
+    if (!areFactoryBranchNamesEquivalent(row.branch, branch)) return false;
+    return !RECLAIMABLE_STATUSES.has(row.status || '');
+  });
+}
+
+function insertReconcileDecisionRow(db, { project_id, action, inputs, outcome }) {
+  if (!db || typeof db.prepare !== 'function') return;
+  try {
+    db.prepare(`
+      INSERT INTO factory_decisions (
+        project_id,
+        stage,
+        actor,
+        action,
+        inputs_json,
+        outcome_json,
+        created_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      project_id,
+      'reconcile',
+      'auto-recovery',
+      action,
+      JSON.stringify(inputs || {}),
+      JSON.stringify(outcome || {}),
+      new Date().toISOString(),
+    );
+  } catch (err) {
+    if (err && typeof err.message === 'string' && err.message.includes('no such table: factory_decisions')) {
+      return;
+    }
+    throw err;
+  }
+}
+
+function guardMainRepoHead({ db, project_id, project_path }) {
+  let branch = null;
+  try {
+    branch = runGit(project_path, ['rev-parse', '--abbrev-ref', 'HEAD']).trim();
+  } catch (err) {
+    if (isNotGitRepositoryError(err)) {
+      return;
+    }
+    throw err;
+  }
+
+  if (!branch || branch === 'main' || branch === 'master') {
+    return;
+  }
+  if (!FACTORY_HEAD_PREFIX.test(branch)) {
+    return;
+  }
+
+  const rows = listProjectFactoryWorktrees(db, project_id);
+  if (hasOpenFactoryWorktreeRowsForBranch(rows, branch)) {
+    return;
+  }
+
+  let hasDirtyTree = false;
+  try {
+    const status = runGit(project_path, ['status', '--porcelain']);
+    hasDirtyTree = status.trim().length > 0;
+  } catch (err) {
+    logger.warn({ action: 'main_repo_head_status_failed', project_id, branch, err: err.message }, 'main repo head guard status check failed');
+    return;
+  }
+
+  if (hasDirtyTree) {
+    db.prepare('UPDATE factory_projects SET status = ? WHERE id = ?').run('paused', project_id);
+    insertReconcileDecisionRow(db, {
+      project_id,
+      action: 'main_repo_on_stale_factory_branch',
+      inputs: { branch },
+      outcome: { resolved: 'paused_project', reason: 'dirty_working_tree' },
+    });
+    return;
+  }
+
+  runGit(project_path, ['checkout', 'main']);
+  console.warn({
+    action: 'main_repo_on_stale_factory_branch',
+    project_id,
+    branch,
+    expected_main: 'main',
+  });
+  insertReconcileDecisionRow(db, {
+    project_id,
+    action: 'main_repo_on_stale_factory_branch',
+    inputs: { branch },
+    outcome: { resolved: 'reset_to_main' },
+  });
 }
 
 function normalizePathKey(p) {
@@ -201,6 +332,19 @@ function forceRmDir(dir, options = {}) {
     attempts.push({ step: 'rm_shell', ok: false, err: err.message });
   }
 
+  const failedAttempts = attempts.filter((attempt) => !attempt.ok && attempt.err);
+  const allBusy = failedAttempts.length > 0 && failedAttempts.every((attempt) => (
+    isBusyDeleteError(attempt.err)
+  ));
+  if (allBusy && fs.existsSync(dir)) {
+    return {
+      ok: false,
+      removed: false,
+      reason: 'busy',
+      attempts,
+    };
+  }
+
   if (!fs.existsSync(dir)) {
     return { ok: true, attempts };
   }
@@ -347,6 +491,32 @@ function listWorktreeDirs(projectPath, worktreeDir = DEFAULT_WORKTREE_DIR) {
     .filter((entry) => entry.isDirectory())
     .map((entry) => path.join(root, entry.name));
   return { root, dirs };
+}
+
+function parseGitWorktreeList(projectPath) {
+  try {
+    const raw = runGit(projectPath, ['worktree', 'list', '--porcelain']);
+    if (!raw) {
+      return new Set();
+    }
+
+    const parsed = new Set();
+    for (const line of String(raw).split(/\r?\n/)) {
+      if (!line.startsWith('worktree ')) {
+        continue;
+      }
+      const worktreePath = line.slice('worktree '.length).trim();
+      if (worktreePath) {
+        parsed.add(normalizePathKey(worktreePath));
+      }
+    }
+    return parsed;
+  } catch (err) {
+    if (isNotGitRepositoryError(err)) {
+      return null;
+    }
+    throw err;
+  }
 }
 
 // Minimum age (ms) before a factory-named dir with no DB row is considered
@@ -497,6 +667,85 @@ function markStaleMissingActiveRows({ db, rows, dirs, nowMs = Date.now() }) {
   return abandonedRows;
 }
 
+function sweepOrphanWorktreeDirs({ db, project_id, project_path, worktree_dir = DEFAULT_WORKTREE_DIR }) {
+  const tally = { swept: 0, deferred_busy: 0, errored: 0 };
+  const { dirs } = listWorktreeDirs(project_path, worktree_dir);
+  const listedGitWorktrees = parseGitWorktreeList(project_path);
+
+  if (!Array.isArray(dirs) || dirs.length === 0) {
+    insertReconcileDecisionRow(db, {
+      project_id,
+      action: 'swept_orphan_worktree_dirs',
+      inputs: {
+        worktree_dir,
+      },
+      outcome: tally,
+    });
+    return tally;
+  }
+
+  const rows = listProjectFactoryWorktrees(db, project_id);
+  const openPaths = new Set();
+  for (const row of rows) {
+    if (!row || !row.worktree_path) {
+      continue;
+    }
+    if (RECLAIMABLE_STATUSES.has(row.status || '')) {
+      continue;
+    }
+    openPaths.add(normalizePathKey(row.worktree_path));
+  }
+
+  if (listedGitWorktrees === null) {
+    insertReconcileDecisionRow(db, {
+      project_id,
+      action: 'swept_orphan_worktree_dirs',
+      inputs: {
+        worktree_dir,
+      },
+      outcome: tally,
+    });
+    return tally;
+  }
+
+  for (const dirPath of dirs) {
+    const key = normalizePathKey(dirPath);
+    if (listedGitWorktrees.has(key)) {
+      continue;
+    }
+    if (openPaths.has(key)) {
+      continue;
+    }
+
+    const removal = forceRmDir(dirPath);
+    if (removal.ok) {
+      tally.swept += 1;
+      continue;
+    }
+    if (removal.reason === 'busy') {
+      tally.deferred_busy += 1;
+      continue;
+    }
+    tally.errored += 1;
+    logger.warn('failed to sweep orphan worktree directory', {
+      project_id,
+      worktreePath: dirPath,
+      attempts: removal.attempts,
+    });
+  }
+
+  insertReconcileDecisionRow(db, {
+    project_id,
+    action: 'swept_orphan_worktree_dirs',
+    inputs: {
+      worktree_dir,
+    },
+    outcome: tally,
+  });
+
+  return tally;
+}
+
 // Reconcile a project's .worktrees/ against factory_worktrees rows.
 // Removes stale directories whose DB state says they shouldn't be there,
 // leaving active rows and user-owned worktrees alone.
@@ -507,15 +756,35 @@ function reconcileProject({ db, project_id, project_path, worktree_dir = DEFAULT
   if (!project_id) throw new Error('project_id is required');
   if (!project_path) throw new Error('project_path is required');
 
+  guardMainRepoHead({ db, project_id, project_path });
+
   const cleaned = [];
   const skipped = [];
   const failed = [];
+  const orphanSweep = { swept: 0, deferred_busy: 0, errored: 0 };
 
   const { root, dirs } = listWorktreeDirs(project_path, worktree_dir);
   const rows = listProjectFactoryWorktrees(db, project_id);
   const abandonedRows = markStaleMissingActiveRows({ db, rows, dirs });
   if (dirs.length === 0) {
-    return { root, scanned: 0, cleaned, skipped, failed, abandonedRows };
+    const sweepResult = sweepOrphanWorktreeDirs({
+      db,
+      project_id,
+      project_path,
+      worktree_dir,
+    });
+    orphanSweep.swept = sweepResult.swept;
+    orphanSweep.deferred_busy = sweepResult.deferred_busy;
+    orphanSweep.errored = sweepResult.errored;
+    return {
+      root,
+      scanned: 0,
+      cleaned,
+      skipped,
+      failed,
+      abandonedRows,
+      orphanSweep,
+    };
   }
 
   // The branch → path map is deterministic, so a single path will
@@ -594,7 +863,25 @@ function reconcileProject({ db, project_id, project_path, worktree_dir = DEFAULT
     }
   }
 
-  return { root, scanned: dirs.length, cleaned, skipped, failed, abandonedRows };
+  const sweepResult = sweepOrphanWorktreeDirs({
+    db,
+    project_id,
+    project_path,
+    worktree_dir,
+  });
+  orphanSweep.swept = sweepResult.swept;
+  orphanSweep.deferred_busy = sweepResult.deferred_busy;
+  orphanSweep.errored = sweepResult.errored;
+
+  return {
+    root,
+    scanned: dirs.length,
+    cleaned,
+    skipped,
+    failed,
+    abandonedRows,
+    orphanSweep,
+  };
 }
 
 module.exports = {
@@ -612,4 +899,7 @@ module.exports = {
   RECONCILE_FAILURE_WARN_INTERVAL_MS,
   RECLAIMABLE_STATUSES,
   FACTORY_LEAF_PREFIX,
+  parseGitWorktreeList,
+  sweepOrphanWorktreeDirs,
+  guardMainRepoHead,
 };
