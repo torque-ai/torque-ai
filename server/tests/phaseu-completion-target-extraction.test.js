@@ -18,10 +18,10 @@ function makeTask(rawMarkdown, completed = true) {
   };
 }
 
-function withTmpDir(fn) {
+async function withTmpDir(fn) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'phaseu-'));
   try {
-    return fn(dir);
+    return await fn(dir);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -88,7 +88,7 @@ describe('Phase U: edit-target extraction', () => {
   });
 
   describe('verifyCompletedTaskArtifacts (Phase U integration)', () => {
-    it('trusts [x] when the bare filename target exists (bitsy bug fix)', () => withTmpDir((dir) => {
+    it('trusts [x] when the bare filename target exists (bitsy bug fix)', () => withTmpDir(async (dir) => {
       // Reproduce the exact bitsy plan 735 task 2 scenario.
       fs.writeFileSync(path.join(dir, 'pyproject.toml'), '[tool.ruff]\n');
       // Note: .github/workflows/python-ci.yml does NOT exist (the source bug).
@@ -97,22 +97,22 @@ describe('Phase U: edit-target extraction', () => {
 - [x] **Step 1**
 
     Edit \`pyproject.toml\`. Use the version from \`.github/workflows/python-ci.yml\`.`;
-      const result = verifyCompletedTaskArtifacts(makeTask(md), dir);
+      const result = await verifyCompletedTaskArtifacts(makeTask(md), dir);
       expect(result.trust).toBe(true);
       expect(result.reason).toBe('all_artifacts_present');
       expect(result.extractor).toBe('edit_target');
     }));
 
-    it('mistrusts [x] when the actual edit target is missing', () => withTmpDir((dir) => {
+    it('mistrusts [x] when the actual edit target is missing', () => withTmpDir(async (dir) => {
       const md = 'Edit `pyproject.toml`.';
       // pyproject.toml deliberately not created
-      const result = verifyCompletedTaskArtifacts(makeTask(md), dir);
+      const result = await verifyCompletedTaskArtifacts(makeTask(md), dir);
       expect(result.trust).toBe(false);
       expect(result.reason).toBe('no_artifacts_present');
       expect(result.missing).toEqual(['pyproject.toml']);
     }));
 
-    it('falls back to slash-path extractor when no verb-anchored target exists', () => withTmpDir((dir) => {
+    it('falls back to slash-path extractor when no verb-anchored target exists', () => withTmpDir(async (dir) => {
       // Plans that just list paths without "Edit X" framing should still
       // get the legacy verification.
       fs.writeFileSync(path.join(dir, 'a.js'), '');
@@ -120,28 +120,28 @@ describe('Phase U: edit-target extraction', () => {
       // mkdir to make src/a.js path resolve correctly
       fs.mkdirSync(path.join(dir, 'src'));
       fs.writeFileSync(path.join(dir, 'src/a.js'), '');
-      const result = verifyCompletedTaskArtifacts(makeTask(md), dir);
+      const result = await verifyCompletedTaskArtifacts(makeTask(md), dir);
       expect(result.extractor).toBe('slash_path_fallback');
     }));
 
-    it('returns no_extractable_paths trust=true when nothing extractable', () => withTmpDir((dir) => {
+    it('returns no_extractable_paths trust=true when nothing extractable', () => withTmpDir(async (dir) => {
       const md = 'Just some prose. No paths here.';
-      const result = verifyCompletedTaskArtifacts(makeTask(md), dir);
+      const result = await verifyCompletedTaskArtifacts(makeTask(md), dir);
       expect(result.trust).toBe(true);
       expect(result.reason).toBe('no_extractable_paths');
     }));
 
-    it('returns trust=true when working_directory is missing', () => {
+    it('returns trust=true when working_directory is missing', async () => {
       const md = 'Edit `pyproject.toml`.';
-      const result = verifyCompletedTaskArtifacts(makeTask(md), null);
+      const result = await verifyCompletedTaskArtifacts(makeTask(md), null);
       expect(result.trust).toBe(true);
       expect(result.reason).toBe('no_working_directory');
     });
 
-    it('partial_artifacts_present when one of multiple targets exists', () => withTmpDir((dir) => {
+    it('partial_artifacts_present when one of multiple targets exists', () => withTmpDir(async (dir) => {
       fs.writeFileSync(path.join(dir, 'a.js'), '');
       const md = 'Edit `a.js`. Create `b.js`.';
-      const result = verifyCompletedTaskArtifacts(makeTask(md), dir);
+      const result = await verifyCompletedTaskArtifacts(makeTask(md), dir);
       expect(result.trust).toBe(true);
       expect(result.reason).toBe('partial_artifacts_present');
       expect(result.missing).toEqual(['b.js']);
