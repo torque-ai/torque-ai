@@ -3,7 +3,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const childProcess = require('node:child_process');
+const { gitSync } = require('./git-test-utils');
 const {
   verifyCompletedTaskArtifacts,
   countCommitsAheadOfBase,
@@ -12,22 +12,10 @@ const {
 const { parsePlanFile } = require('../factory/plan-parser');
 
 function git(cwd, args) {
-  const r = childProcess.spawnSync('git', args, {
-    cwd,
-    encoding: 'utf8',
+  return gitSync(args, {
     windowsHide: true,
-    env: {
-      ...process.env,
-      GIT_AUTHOR_NAME: 'Test',
-      GIT_AUTHOR_EMAIL: 'test@example.com',
-      GIT_COMMITTER_NAME: 'Test',
-      GIT_COMMITTER_EMAIL: 'test@example.com',
-    },
+    cwd,
   });
-  if (r.status !== 0) {
-    throw new Error(`git ${args.join(' ')} failed: ${r.stderr || r.stdout}`);
-  }
-  return String(r.stdout || '').trim();
 }
 
 function setupRepo(workdir) {
