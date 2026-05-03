@@ -8,6 +8,7 @@ describe('provider-router', () => {
   let mockParseTaskMetadata;
   let mockCircuitBreaker;
   let mockDefaultContainer;
+  let mockExecFile;
   let configValues;
   let boolValues;
 
@@ -20,6 +21,7 @@ describe('provider-router', () => {
     mockDb = {
       getDefaultProvider: vi.fn().mockReturnValue('codex'),
       patchTaskMetadata: vi.fn().mockReturnValue(true),
+      updateTaskStatus: vi.fn(),
       isBudgetExceeded: vi.fn().mockReturnValue({ exceeded: false, warning: false }),
       listOllamaHosts: vi.fn().mockReturnValue([]),
     };
@@ -58,6 +60,7 @@ describe('provider-router', () => {
       has: vi.fn().mockReturnValue(false),
       get: vi.fn().mockReturnValue(mockCircuitBreaker),
     };
+    mockExecFile = vi.fn();
 
     providerRouter = await import('../execution/provider-router.js');
     providerRouter.init({
@@ -66,6 +69,7 @@ describe('provider-router', () => {
       providerRegistry: mockProviderRegistry,
       parseTaskMetadata: mockParseTaskMetadata,
       safeUpdateTaskStatus: vi.fn(),
+      execFile: async (...args) => mockExecFile(...args),
       defaultContainer: mockDefaultContainer,
     });
   }
@@ -456,6 +460,115 @@ describe('provider-router', () => {
         categoryLimit: 7,
         categoryProviderGroup: ['anthropic', 'groq', 'openrouter'],
       });
+    });
+  });
+
+  describe('tryCreateAutoPR', () => {
+    it('skips auto-PR when current branch matches base branch', async () => {
+      const task = {
+        task_description: 'Test branch skip behavior',
+      };
+      const workingDir = '/tmp/torque-project';
+      const projectConfig = { auto_pr_base_branch: 'main' };
+
+      mockExecFile.mockResolvedValueOnce({ stdout: 'main\n' });
+
+      await providerRouter.tryCreateAutoPR('task-base', task, workingDir, projectConfig);
+
+      expect(mockDb.updateTaskStatus).not.toHaveBeenCalled();
+      expect(mockExecFile).toHaveBeenCalledTimes(1);
+      expect(mockExecFile).toHaveBeenCalledWith(
+        'git',
+        ['rev-parse', '--abbrev-ref', 'HEAD'],
+        expect.objectContaining({ cwd: workingDir, encoding: 'utf8', windowsHide: true }),
+      );
+    });
+
+    it('skips auto-PR when no unpushed commits exist', async () => {
+      const task = {
+        task_description: 'Test no unpushed skip behavior',
+      };
+      const workingDir = '/tmp/torque-project';
+      const projectConfig = { auto_pr_base_branch: 'main' };
+
+      mockExecFile
+        .mockResolvedValueOnce({ stdout: 'feature/skip-no-changes\n' })
+        .mockResolvedValueOnce({ stdout: '\n' });
+
+      await providerRouter.tryCreateAutoPR('task-no-unpushed', task, workingDir, projectConfig);
+
+      expect(mockDb.updateTaskStatus).not.toHaveBeenCalled();
+      expect(mockExecFile).toHaveBeenCalledTimes(2);
+      expect(mockExecFile).toHaveBeenNthCalledWith(
+        1,
+        'git',
+        ['rev-parse', '--abbrev-ref', 'HEAD'],
+        expect.objectContaining({ cwd: workingDir, encoding: 'utf8', windowsHide: true }),
+      );
+      expect(mockExecFile).toHaveBeenNthCalledWith(
+        2,
+        'git',
+        ['log', 'origin/main..HEAD', '--oneline'],
+        expect.objectContaining({ cwd: workingDir, encoding: 'utf8', windowsHide: true }),
+      );
+    });
+
+    it('creates PR and records pr_url only when auto-PR succeeds', async () => {
+      const task = {
+        task_description: 'Create PR success case',
+      };
+      const workingDir = '/tmp/torque-project';
+      const projectConfig = { auto_pr_base_branch: 'main' };
+      const prUrl = 'https://github.com/acme/repo/pull/77';
+
+      mockExecFile
+        .mockResolvedValueOnce({ stdout: 'feature/auto-pr\n' })
+        .mockResolvedValueOnce({ stdout: 'abc123 Add feature\n' })
+        .mockResolvedValueOnce({ stdout: 'Pushed\n' })
+        .mockResolvedValueOnce({ stdout: `${prUrl}\n` });
+
+      await providerRouter.tryCreateAutoPR('task-success', task, workingDir, projectConfig);
+
+      expect(mockDb.updateTaskStatus).toHaveBeenCalledTimes(1);
+      expect(mockDb.updateTaskStatus).toHaveBeenCalledWith(
+        'task-success',
+        'completed',
+        { pr_url: prUrl },
+      );
+      expect(mockExecFile).toHaveBeenCalledTimes(4);
+      expect(mockExecFile).toHaveBeenNthCalledWith(
+        1,
+        'git',
+        ['rev-parse', '--abbrev-ref', 'HEAD'],
+        expect.objectContaining({ cwd: workingDir, encoding: 'utf8', windowsHide: true }),
+      );
+      expect(mockExecFile).toHaveBeenNthCalledWith(
+        2,
+        'git',
+        ['log', 'origin/main..HEAD', '--oneline'],
+        expect.objectContaining({ cwd: workingDir, encoding: 'utf8', windowsHide: true }),
+      );
+      expect(mockExecFile).toHaveBeenNthCalledWith(
+        3,
+        'git',
+        ['push', '-u', 'origin', 'feature/auto-pr'],
+        expect.objectContaining({ cwd: workingDir, encoding: 'utf8', windowsHide: true }),
+      );
+      expect(mockExecFile).toHaveBeenNthCalledWith(
+        4,
+        'gh',
+        [
+          'pr',
+          'create',
+          '--title',
+          '[Auto] Create PR success case',
+          '--body',
+          expect.stringContaining('Automatically created PR for task task-success.'),
+          '--base',
+          'main',
+        ],
+        expect.objectContaining({ cwd: workingDir, encoding: 'utf8', windowsHide: true }),
+      );
     });
   });
 
