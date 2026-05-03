@@ -600,6 +600,16 @@ export default function TaskDetailDrawer({ taskId, onClose, subscribe, unsubscri
                     </CollapsibleSection>
                   )}
 
+                  {/* Routing decision trace — vertical timeline of every
+                      stage that contributed to or overrode the provider
+                      selection. Default-open so the lineage is visible
+                      without an extra click. */}
+                  {Array.isArray(task.routing_decision_trace) && task.routing_decision_trace.length > 0 && (
+                    <CollapsibleSection title="Routing trace" defaultOpen={true}>
+                      <RoutingTraceTimeline trace={task.routing_decision_trace} />
+                    </CollapsibleSection>
+                  )}
+
                   {/* Actions */}
                   <div className="flex flex-wrap items-center gap-2 pt-2">
                     {task.status === 'failed' && (
@@ -1441,5 +1451,58 @@ function TimelineEntry({ label, time, detail, isLast, color = 'bg-blue-500', dur
         {detail && <p className="text-xs text-slate-500 mt-1">{detail}</p>}
       </div>
     </div>
+  );
+}
+
+// Map machine-readable trace stage names to human-readable labels.
+// Unknown stages render as the raw stage name (the trace helper tags
+// them with _unknown_stage for forward-compat).
+const ROUTING_STAGE_LABELS = {
+  template_per_task: 'Per-task template',
+  template_active: 'Active template',
+  pattern_match: 'Pattern match',
+  complexity: 'Complexity routing',
+  legacy_rule: 'Legacy rule',
+  default_provider: 'Default provider',
+  modification: 'Modification routing',
+  test_task: 'Test-task gate',
+  codex_exhausted: 'Codex exhausted',
+  health_gate: 'Health gate',
+  lane_policy: 'Lane policy',
+  user_override: 'User override',
+  fallback: 'Fallback',
+};
+
+function RoutingTraceTimeline({ trace }) {
+  return (
+    <ol data-testid="routing-trace-timeline" className="space-y-2">
+      {trace.map((entry, idx) => {
+        const label = ROUTING_STAGE_LABELS[entry.stage] || entry.stage;
+        const arrow = entry.from && entry.to && entry.from !== entry.to
+          ? `${entry.from} → ${entry.to}`
+          : (entry.to || '(no provider)');
+        const isLast = idx === trace.length - 1;
+        return (
+          <li key={`${entry.stage}-${idx}`} className="flex gap-3">
+            <div className="flex flex-col items-center">
+              <div className="w-2.5 h-2.5 rounded-full bg-blue-500 mt-1.5 flex-shrink-0" />
+              {!isLast && <div className="w-px flex-1 bg-slate-700 my-1" />}
+            </div>
+            <div className="pb-2 min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-xs uppercase tracking-wide text-slate-400">{label}</span>
+                <span className="text-sm text-white font-mono">{arrow}</span>
+                {entry.rule && (
+                  <span className="text-[10px] text-slate-500 bg-slate-800 px-1.5 py-0.5 rounded">
+                    {entry.rule}
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-slate-300 mt-0.5 break-words">{entry.reason}</p>
+            </div>
+          </li>
+        );
+      })}
+    </ol>
   );
 }

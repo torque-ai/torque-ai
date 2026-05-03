@@ -236,6 +236,55 @@ describe('TaskDetailDrawer', () => {
     });
   });
 
+  it('renders the routing-decision-trace timeline when present', async () => {
+    // The smart-submit pipeline persists a structured trace on every
+    // task. The drawer renders it as a vertical timeline so operators
+    // can see exactly which stage(s) moved the task between providers.
+    tasksApi.get.mockResolvedValueOnce({
+      ...mockTask,
+      routing_decision_trace: [
+        {
+          stage: 'template_active',
+          from: null,
+          to: 'codex',
+          reason: "Template 'Quality First': architectural -> codex",
+          rule: 'Quality First',
+        },
+        {
+          stage: 'lane_policy',
+          from: 'codex',
+          to: 'ollama',
+          reason: 'Lane policy: project disallows codex — swapped to ollama',
+        },
+      ],
+    });
+
+    renderWithProviders(<TaskDetailDrawer taskId="task-1" onClose={vi.fn()} />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('routing-trace-timeline')).toBeInTheDocument();
+    });
+    const timeline = screen.getByTestId('routing-trace-timeline');
+    expect(timeline).toHaveTextContent('Active template');
+    expect(timeline).toHaveTextContent('Quality First');
+    expect(timeline).toHaveTextContent('Lane policy');
+    expect(timeline).toHaveTextContent('codex → ollama');
+  });
+
+  it('does not render the routing trace section when the trace is empty or missing', async () => {
+    tasksApi.get.mockResolvedValueOnce({
+      ...mockTask,
+      routing_decision_trace: [],
+    });
+
+    renderWithProviders(<TaskDetailDrawer taskId="task-1" onClose={vi.fn()} />);
+
+    await waitFor(() => {
+      expect(screen.getByText(/Test task description/i)).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId('routing-trace-timeline')).not.toBeInTheDocument();
+  });
+
   it('renders the "Why it failed" summary callout for failed tasks', async () => {
     // Failed tasks return an error_summary alongside error_output. The
     // dashboard surfaces the heuristic 1-2 line summary at the top of

@@ -31,6 +31,11 @@ const modelRoles = require('../../db/model-roles');
 const modelCaps = require('../../db/model-capabilities');
 const { getProviderCapabilitySet } = require('../../db/provider-capabilities');
 const { isAgenticCapable } = require('../../providers/agentic-capability');
+const {
+  KNOWN_STAGES: ROUTING_TRACE_STAGES,
+  createTrace: createRoutingTrace,
+  recordRoutingDecision,
+} = require('../../utils/routing-trace');
 const logger = require('../../logger').child({ component: 'integration-routing' });
 const serverConfig = require('../../config');
 const eventBus = require('../../event-bus');
@@ -800,10 +805,23 @@ async function handleSmartSubmitTask(args) {
     return normalizedProvider;
   };
 
+  // Routing decision trace — captures every stage that influenced the
+  // provider selection so operators can answer "who moved my task and
+  // why?" instead of staring at a single `routing_reason` string.
+  // Persisted on the task row at submit time and surfaced on the
+  // dashboard task detail drawer as a vertical timeline.
+  const routingTrace = createRoutingTrace();
+
   if (override_provider) {
     // User explicitly requested a provider
     selectedProvider = override_provider;
-    routingResult = { provider: override_provider, rule: null, reason: 'User override' };
+    routingResult = { provider: override_provider, rule: null, reason: 'User override', trace: routingTrace };
+    recordRoutingDecision(routingTrace, {
+      stage: ROUTING_TRACE_STAGES.USER_OVERRIDE,
+      from: null,
+      to: override_provider,
+      reason: 'Caller passed override_provider — explicit user intent',
+    });
   } else {
     // Run fresh health check before routing (force=true to avoid stale cache)
     await providerRoutingCore.checkOllamaHealth(true);
@@ -812,6 +830,7 @@ async function handleSmartSubmitTask(args) {
     routingResult = providerRoutingCore.analyzeTaskForRouting(task, working_directory, files, {
       preferFree: !!prefer_free,
       taskMetadata: effectiveRoutingTemplate ? { _routing_template: effectiveRoutingTemplate } : undefined,
+      trace: routingTrace,
     });
     selectedProvider = routingResult.provider;
 
@@ -1266,12 +1285,19 @@ async function handleSmartSubmitTask(args) {
   const routingModel = model || routingResult?.model || taskModel || null;
   const selectedProviderSupportsTests = providerSupportsRepoWriteTasks(selectedProvider, routingModel);
   if (isTestTask && !selectedProviderSupportsTests && selectedProvider !== 'codex' && serverConfig.isOptIn('codex_enabled') && !codexExhausted) {
+    const testTaskFrom = selectedProvider;
     selectedProvider = 'codex';
     const sparkEnabled = serverConfig.isOptIn('codex_spark_enabled');
     if (sparkEnabled) {
       taskModel = 'gpt-5.3-codex-spark';
     }
     logger.info(`[SmartRouting] Test task detected → routing to Codex${sparkEnabled ? ' Spark' : ''} (${routingResult?.provider || 'selected provider'} lacks reliable repo-write test capability)`);
+    recordRoutingDecision(routingTrace, {
+      stage: ROUTING_TRACE_STAGES.TEST_TASK,
+      from: testTaskFrom,
+      to: selectedProvider,
+      reason: `Test-task gate: ${testTaskFrom} lacks reliable repo-write capability${sparkEnabled ? ' — using Codex Spark' : ' — using Codex'}`,
+    });
   } else if (isTestTask && selectedProvider === 'codex' && !taskModel && !codexExhausted) {
     const sparkEnabled = serverConfig.isOptIn('codex_spark_enabled');
     if (sparkEnabled) {
@@ -1279,6 +1305,7 @@ async function handleSmartSubmitTask(args) {
       logger.info('[SmartRouting] Test task already on Codex → assigning Spark model');
     }
   }
+  const modBefore = selectedProvider;
   const modResult = await resolveModificationRouting(task, files, routingResult, {
     selectedProvider,
     override_provider,
@@ -1293,6 +1320,14 @@ async function handleSmartSubmitTask(args) {
   // modification helper had no opinion (returned null).
   if (modResult.taskModel != null) taskModel = modResult.taskModel;
   modRoutingReason = modResult.modRoutingReason;
+  if (modBefore !== selectedProvider && modResult.modRoutingReason) {
+    recordRoutingDecision(routingTrace, {
+      stage: ROUTING_TRACE_STAGES.MODIFICATION,
+      from: modBefore,
+      to: selectedProvider,
+      reason: modResult.modRoutingReason,
+    });
+  }
 
   // P71: Multi-host load distribution with smart model fallback
   // When the primary model's host is busy, try next-ranked models from
@@ -1363,6 +1398,12 @@ async function handleSmartSubmitTask(args) {
     }
     modRoutingReason = `${prevProvider || 'null'} disabled → ${selectedProvider}${taskModel ? ' Spark' : ''} (provider disabled)`;
     logger.info(`[SmartRouting] ${modRoutingReason}`);
+    recordRoutingDecision(routingTrace, {
+      stage: ROUTING_TRACE_STAGES.HEALTH_GATE,
+      from: prevProvider,
+      to: selectedProvider,
+      reason: `Provider ${prevProvider} disabled — fell back to default ${selectedProvider}`,
+    });
   }
 
   // Guard: deprioritize unhealthy cloud providers (skip when user explicitly chose the provider)
@@ -1430,6 +1471,12 @@ async function handleSmartSubmitTask(args) {
         source: healthGateSource,
       };
       logger.info(`[SmartRouting] Health gate: ${modRoutingReason}`);
+      recordRoutingDecision(routingTrace, {
+        stage: ROUTING_TRACE_STAGES.HEALTH_GATE,
+        from: prevProvider,
+        to: selectedProvider,
+        reason: `Health gate: ${prevProvider} unhealthy — swapped to ${selectedProvider} (${healthGateSource})`,
+      });
     } else {
       logger.warn(`[SmartRouting] Provider ${selectedProvider} is unhealthy but no healthy alternative available`);
     }
@@ -1466,6 +1513,12 @@ async function handleSmartSubmitTask(args) {
       // appropriate for the lane-allowed provider.
       taskModel = null;
       modRoutingReason = `lane-policy swap from ${swappedFrom} → ${laneTarget}`;
+      recordRoutingDecision(routingTrace, {
+        stage: ROUTING_TRACE_STAGES.LANE_POLICY,
+        from: swappedFrom,
+        to: laneTarget,
+        reason: `Lane policy: project disallows ${swappedFrom} — swapped to ${laneTarget}`,
+      });
     }
   }
 
@@ -1541,6 +1594,12 @@ async function handleSmartSubmitTask(args) {
     routing_rule: routingResult.rule ? routingResult.rule.name : null,
     routing_reason: effectiveRoutingReason,
     routing_health_gate: healthGateDecision || undefined,
+    // Full routing decision trace — every stage that contributed to or
+    // overrode the provider selection. The dashboard renders this as
+    // a vertical timeline at the top of the task detail drawer so
+    // operators can answer "who moved my task and why?" without
+    // grepping logs. Persisted as JSON in task metadata.
+    routing_decision_trace: routingTrace.length > 0 ? routingTrace : undefined,
     complexity: complexity,
     routing_mode: codexExhausted ? 'codex_exhausted' : (!providerRoutingCore.hasHealthyOllamaHost() ? 'local_offline' : 'normal'),
     tuning_overrides: Object.keys(tuningOverrides).length > 0 ? tuningOverrides : null,
@@ -1597,6 +1656,8 @@ async function handleSmartSubmitTask(args) {
         routing_rule: routingResult.rule ? routingResult.rule.name : null,
         routing_reason: effectiveRoutingReason,
         routing_health_gate: healthGateDecision || undefined,
+        // See identical comment in the slot-pull metadata branch above.
+        routing_decision_trace: routingTrace.length > 0 ? routingTrace : undefined,
         complexity: complexity,
         routing_mode: codexExhausted ? 'codex_exhausted' : (!providerRoutingCore.hasHealthyOllamaHost() ? 'local_offline' : 'normal'),
         tuning_overrides: Object.keys(tuningOverrides).length > 0 ? tuningOverrides : null,

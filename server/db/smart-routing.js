@@ -9,6 +9,11 @@ const { prependResumeContextToPrompt } = require('../utils/resume-context');
 const capabilities = require('./provider-capabilities');
 const perfTracker = require('./provider-performance');
 const eventBus = require('../event-bus');
+const {
+  KNOWN_STAGES: TRACE_STAGES,
+  createTrace,
+  recordRoutingDecision,
+} = require('../utils/routing-trace');
 
 let categoryClassifier = null;
 let templateStore = null;
@@ -107,6 +112,7 @@ function resolveRoutingTemplate(taskDescription, files, options, deps) {
     hostManagementFns,
     maybeApplyFallback,
     rankProviderCandidatesByScore,
+    trace,
   } = deps;
 
   if (!categoryClassifier || !templateStore) {
@@ -263,13 +269,30 @@ function resolveRoutingTemplate(taskDescription, files, options, deps) {
       true
     );
     if (taskTemplateResult) {
+      recordRoutingDecision(trace, {
+        stage: TRACE_STAGES.TEMPLATE_PER_TASK,
+        from: null,
+        to: taskTemplateResult.provider,
+        reason: taskTemplateResult.reason,
+        rule: taskTemplate?.name || taskTemplateName,
+      });
       return taskTemplateResult;
     }
   }
 
   const explicitTemplateId = templateStore.getExplicitActiveTemplateId();
   const activeTemplate = explicitTemplateId ? templateStore.getTemplate(explicitTemplateId) : null;
-  return tryResolvedTemplate(activeTemplate, `Template '${activeTemplate?.name}'`, true, 'chain fallback ->', true);
+  const activeResult = tryResolvedTemplate(activeTemplate, `Template '${activeTemplate?.name}'`, true, 'chain fallback ->', true);
+  if (activeResult) {
+    recordRoutingDecision(trace, {
+      stage: TRACE_STAGES.TEMPLATE_ACTIVE,
+      from: null,
+      to: activeResult.provider,
+      reason: activeResult.reason,
+      rule: activeTemplate?.name || null,
+    });
+  }
+  return activeResult;
 }
 
 function matchProviderByPattern(taskDescription, files, deps) {
@@ -448,6 +471,20 @@ function analyzeTaskForRouting(taskDescription, workingDirectory, files = [], op
   const taskMetadata = options?.taskMetadata || {};
   const hasRoutingTemplateIntent = typeof taskMetadata._routing_template === 'string' && taskMetadata._routing_template.trim() !== '';
 
+  // Routing decision trace — accept caller-provided trace or create one.
+  // Each significant decision point appends an entry so operators can see
+  // the full lineage of how a task ended up at its provider, instead of
+  // having to reverse-engineer behavior from a single `routing_reason`
+  // string. The trace is attached to the returned result and persisted
+  // on the task row by handleSmartSubmitTask.
+  const trace = Array.isArray(options?.trace) ? options.trace : createTrace();
+  const attachTrace = (result) => {
+    if (result && typeof result === 'object') {
+      result.trace = trace;
+    }
+    return result;
+  };
+
   const getDatabaseConfig = _deps.getDatabaseConfig;
   const getProvider = _deps.getProvider;
   const getDefaultProvider = _deps.getDefaultProvider;
@@ -492,11 +529,18 @@ function analyzeTaskForRouting(taskDescription, workingDirectory, files = [], op
   // Check if smart routing is enabled
   const smartRoutingEnabled = getDatabaseConfig('smart_routing_enabled') === '1';
   if (!smartRoutingEnabled) {
-    return applyProviderSafetyNet({
+    const disabledResult = applyProviderSafetyNet({
       provider: getDefaultProvider(),
       rule: null,
       reason: 'Smart routing disabled'
     });
+    recordRoutingDecision(trace, {
+      stage: TRACE_STAGES.DEFAULT_PROVIDER,
+      from: null,
+      to: disabledResult?.provider || null,
+      reason: 'Smart routing disabled — using default provider',
+    });
+    return attachTrace(disabledResult);
   }
 
   // Check Ollama health from cache
@@ -508,7 +552,9 @@ function analyzeTaskForRouting(taskDescription, workingDirectory, files = [], op
     if (ollamaHealthy !== false) {
       const providerConfig = getProvider('ollama');
       if (providerConfig && providerConfig.enabled) {
-        return applyProviderSafetyNet({ provider: 'ollama', rule: null, reason: 'Free routing: local Ollama (ollama)', complexity: 'normal' });
+        const r = applyProviderSafetyNet({ provider: 'ollama', rule: null, reason: 'Free routing: local Ollama (ollama)', complexity: 'normal' });
+        recordRoutingDecision(trace, { stage: TRACE_STAGES.PATTERN_MATCH, from: null, to: r.provider, reason: r.reason, rule: 'prefer_free' });
+        return attachTrace(r);
       }
     }
     // Fallback to cloud free tiers
@@ -518,7 +564,9 @@ function analyzeTaskForRouting(taskDescription, workingDirectory, files = [], op
       if (!apiKey) continue;
       const pConfig = getProvider(p);
       if (pConfig && pConfig.enabled) {
-        return applyProviderSafetyNet({ provider: p, rule: null, reason: `Free routing: cloud free tier (${p})`, complexity: 'normal' });
+        const r = applyProviderSafetyNet({ provider: p, rule: null, reason: `Free routing: cloud free tier (${p})`, complexity: 'normal' });
+        recordRoutingDecision(trace, { stage: TRACE_STAGES.PATTERN_MATCH, from: null, to: r.provider, reason: r.reason, rule: 'prefer_free' });
+        return attachTrace(r);
       }
     }
     // No free providers available — fall through to normal routing with a warning
@@ -554,13 +602,20 @@ function analyzeTaskForRouting(taskDescription, workingDirectory, files = [], op
         logger.info(`[SmartRouting] Ollama unhealthy but explicit intent requested ${result.provider} — preserving intent (TDA-01)`);
         return applyProviderSafetyNet(result);
       }
-      return applyProviderSafetyNet({
+      const sw = applyProviderSafetyNet({
         provider: ollamaFallbackProvider,
         rule: result.rule,
         reason: `${result.reason} [Ollama unavailable - falling back to ${ollamaFallbackProvider}]`,
         originalProvider: result.provider,
         fallbackApplied: true
       });
+      recordRoutingDecision(trace, {
+        stage: TRACE_STAGES.FALLBACK,
+        from: result.provider,
+        to: sw.provider,
+        reason: `Ollama unhealthy — fell back to ${sw.provider}`,
+      });
+      return sw;
     }
 
     // Context overflow guard: estimate prompt size and reroute if it would exceed
@@ -577,7 +632,7 @@ function analyzeTaskForRouting(taskDescription, workingDirectory, files = [], op
       // Reroute if estimated tokens would exceed 70% of context (leave room for response)
       if (estimatedTotal > localCtxLimit * 0.7) {
         logger.info(`[SmartRouting] Context overflow guard: ~${estimatedTotal} estimated tokens exceeds 70% of ${localCtxLimit} limit for ${result.provider} — rerouting to ${ollamaFallbackProvider}`);
-        return applyProviderSafetyNet({
+        const sw = applyProviderSafetyNet({
           provider: ollamaFallbackProvider,
           rule: result.rule,
           reason: `${result.reason} [context overflow: ~${estimatedTotal} tokens > ${localCtxLimit} limit, rerouted to ${ollamaFallbackProvider}]`,
@@ -585,6 +640,13 @@ function analyzeTaskForRouting(taskDescription, workingDirectory, files = [], op
           fallbackApplied: true,
           contextOverflow: true,
         });
+        recordRoutingDecision(trace, {
+          stage: TRACE_STAGES.FALLBACK,
+          from: result.provider,
+          to: sw.provider,
+          reason: `Context overflow ~${estimatedTotal}>${localCtxLimit} — rerouted to ${sw.provider}`,
+        });
+        return sw;
       }
     }
 
@@ -595,13 +657,20 @@ function analyzeTaskForRouting(taskDescription, workingDirectory, files = [], op
       const fbChain = getFallbackChain(result.provider);
       for (const fb of fbChain) {
         if (cb.allowRequest(fb) && getProvider(fb)?.enabled) {
-          return applyProviderSafetyNet({
+          const sw = applyProviderSafetyNet({
             ...result,
             provider: fb,
             originalProvider: result.provider,
             reason: `${result.reason} [circuit breaker: ${result.provider} tripped, rerouted to ${fb}]`,
             fallbackApplied: true,
           });
+          recordRoutingDecision(trace, {
+            stage: TRACE_STAGES.FALLBACK,
+            from: result.provider,
+            to: sw.provider,
+            reason: `Circuit breaker open for ${result.provider} — rerouted to ${sw.provider}`,
+          });
+          return sw;
         }
       }
       // All fallbacks also tripped — let it through and fail honestly
@@ -630,8 +699,9 @@ function analyzeTaskForRouting(taskDescription, workingDirectory, files = [], op
     maybeApplyFallback,
     rankProviderCandidatesByScore: _deps.rankProviderCandidatesByScore,
     getCircuitBreaker,
+    trace,
   });
-  if (templateResult) return templateResult;
+  if (templateResult) return attachTrace(templateResult);
 
   // ─── 3. Hard-coded API provider routing ────────────────────────────────
   // Pattern-based routing to cloud providers when no template is active.
@@ -643,7 +713,15 @@ function analyzeTaskForRouting(taskDescription, workingDirectory, files = [], op
     applyProviderSafetyNet,
     isUserOverride
   });
-  if (patternResult) return patternResult;
+  if (patternResult) {
+    recordRoutingDecision(trace, {
+      stage: TRACE_STAGES.PATTERN_MATCH,
+      from: null,
+      to: patternResult.provider,
+      reason: patternResult.reason,
+    });
+    return attachTrace(patternResult);
+  }
 
   // PRIMARY: Complexity-based routing (Claude workflow)
   // - Simple tasks → Laptop WSL (default host)
@@ -654,7 +732,15 @@ function analyzeTaskForRouting(taskDescription, workingDirectory, files = [], op
     maybeApplyFallback,
     isOllamaProvider
   });
-  if (complexityResult) return complexityResult;
+  if (complexityResult) {
+    recordRoutingDecision(trace, {
+      stage: TRACE_STAGES.COMPLEXITY,
+      from: null,
+      to: complexityResult.provider,
+      reason: complexityResult.reason,
+    });
+    return attachTrace(complexityResult);
+  }
 
   // FALLBACK: Legacy keyword/extension rules
   const db = _deps.getDb();
@@ -686,22 +772,26 @@ function analyzeTaskForRouting(taskDescription, workingDirectory, files = [], op
       // Check if any keyword pattern matches the description
       for (const pattern of patterns) {
         if (descLower.includes(pattern)) {
-          return maybeApplyFallback({
+          const r = maybeApplyFallback({
             provider: rule.target_provider,
             rule: rule,
             reason: `Matched keyword rule '${rule.name}': pattern '${pattern}'`
           });
+          recordRoutingDecision(trace, { stage: TRACE_STAGES.LEGACY_RULE, from: null, to: r.provider, reason: r.reason, rule: rule.name });
+          return attachTrace(r);
         }
       }
     } else if (rule.rule_type === 'extension') {
       // Check if any file extension matches
       for (const pattern of patterns) {
         if (fileExtensions.has(pattern)) {
-          return maybeApplyFallback({
+          const r = maybeApplyFallback({
             provider: rule.target_provider,
             rule: rule,
             reason: `Matched extension rule '${rule.name}': extension '${pattern}'`
           });
+          recordRoutingDecision(trace, { stage: TRACE_STAGES.LEGACY_RULE, from: null, to: r.provider, reason: r.reason, rule: rule.name });
+          return attachTrace(r);
         }
       }
     } else if (rule.rule_type === 'regex') {
@@ -713,11 +803,13 @@ function analyzeTaskForRouting(taskDescription, workingDirectory, files = [], op
         }
         const regex = new RegExp(rule.pattern, 'i');
         if (regex.test(taskDescription)) {
-          return maybeApplyFallback({
+          const r = maybeApplyFallback({
             provider: rule.target_provider,
             rule: rule,
             reason: `Matched regex rule '${rule.name}'`
           });
+          recordRoutingDecision(trace, { stage: TRACE_STAGES.LEGACY_RULE, from: null, to: r.provider, reason: r.reason, rule: rule.name });
+          return attachTrace(r);
         }
       } catch {
         // Invalid regex, skip
@@ -731,6 +823,12 @@ function analyzeTaskForRouting(taskDescription, workingDirectory, files = [], op
     provider: defaultSmartProvider,
     rule: null,
     reason: `No rule matched, using smart routing default: ${defaultSmartProvider}`
+  });
+  recordRoutingDecision(trace, {
+    stage: TRACE_STAGES.DEFAULT_PROVIDER,
+    from: null,
+    to: result?.provider || null,
+    reason: result?.reason || `default ${defaultSmartProvider}`,
   });
 
   if (options && options.tierList) {
@@ -748,11 +846,20 @@ function analyzeTaskForRouting(taskDescription, workingDirectory, files = [], op
   }
 
   if (options && options.isUserOverride && options.overrideProvider) {
+    const overrideFrom = result.provider;
     result.eligible_providers = [options.overrideProvider];
     result.provider = options.overrideProvider;
+    if (overrideFrom !== options.overrideProvider) {
+      recordRoutingDecision(trace, {
+        stage: TRACE_STAGES.USER_OVERRIDE,
+        from: overrideFrom,
+        to: options.overrideProvider,
+        reason: 'User explicitly requested provider via override_provider',
+      });
+    }
   }
 
-  return applyProviderSafetyNet(result);
+  return attachTrace(applyProviderSafetyNet(result));
 }
 
 /**
