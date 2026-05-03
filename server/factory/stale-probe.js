@@ -7,7 +7,7 @@ const { DEFAULT_PROMOTION_CONFIG } = require('./promotion-policy');
 
 const PROBE_TIMEOUT_MS = 3000;
 
-function defaultGitRunner(cwd, args) {
+function defaultGitRunner(cwd, args, { timeoutMs } = {}) {
   return new Promise((resolve, reject) => {
     // Use execFile rather than spawn. spawn('git', ...) on Windows can
     // emit spurious errors because it doesn't auto-resolve git.exe /
@@ -20,16 +20,32 @@ function defaultGitRunner(cwd, args) {
     const cleanEnv = Object.fromEntries(
       Object.entries(process.env).filter(([k]) => !k.startsWith('GIT_')),
     );
-    childProcess.execFile('git', args, {
+    // execFile's `timeout` option SIGKILLs the child when exceeded — without
+    // it, the previous Promise.race-based wrapper would reject the JS-side
+    // promise on timeout but leave the git child process running and
+    // accumulating across probes. Each probe runs frequently in the
+    // factory tick, so the leak compounded under repeated timeouts.
+    const execOpts = {
       cwd,
       windowsHide: true,
       maxBuffer: 1024 * 1024,
       encoding: 'utf8',
       env: cleanEnv,
-    }, (err, stdout, stderr) => {
+    };
+    if (Number.isFinite(timeoutMs) && timeoutMs > 0) {
+      execOpts.timeout = timeoutMs;
+      execOpts.killSignal = 'SIGKILL';
+    }
+    childProcess.execFile('git', args, execOpts, (err, stdout, stderr) => {
       if (err) {
         if (err.code === 'ENOENT') {
           reject(err);
+          return;
+        }
+        if (err.killed && err.signal === 'SIGKILL') {
+          const t = new Error('probe_timeout');
+          t.code = 'PROBE_TIMEOUT';
+          reject(t);
           return;
         }
         const wrapped = new Error(`git exited: ${err.message}; stderr=${String(stderr || '').trim()}`);
@@ -40,16 +56,6 @@ function defaultGitRunner(cwd, args) {
       resolve({ stdout: String(stdout || ''), stderr: String(stderr || '') });
     });
   });
-}
-
-function withTimeout(promise, ms) {
-  let timer;
-  return Promise.race([
-    promise,
-    new Promise((_, reject) => {
-      timer = setTimeout(() => reject(new Error('probe_timeout')), ms);
-    }),
-  ]).finally(() => clearTimeout(timer));
 }
 
 async function probeStaleness(item, {
@@ -101,19 +107,16 @@ async function probeStaleness(item, {
 
   let stdout = '';
   try {
-    const result = await withTimeout(
-      Promise.resolve(gitRunner(projectPath, [
-        'log',
-        `--since=${scanTs}`,
-        '--pretty=format:%H',
-        '--',
-        targetFile,
-      ])),
-      PROBE_TIMEOUT_MS,
-    );
+    const result = await gitRunner(projectPath, [
+      'log',
+      `--since=${scanTs}`,
+      '--pretty=format:%H',
+      '--',
+      targetFile,
+    ], { timeoutMs: PROBE_TIMEOUT_MS });
     stdout = String(result?.stdout || '');
   } catch (err) {
-    if (err && err.message === 'probe_timeout') {
+    if (err && (err.message === 'probe_timeout' || err.code === 'PROBE_TIMEOUT')) {
       return makeResult({ reason: 'probe_timeout' });
     }
     if (err && err.code === 'ENOENT') {

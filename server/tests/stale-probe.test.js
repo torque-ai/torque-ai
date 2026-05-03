@@ -98,10 +98,26 @@ describe('stale-probe.probeStaleness', () => {
   it('git timeout -> not stale (fail-open)', async () => {
     fs.writeFileSync(path.join(tmpDir, 'foo.js'), 'content');
     const item = mkScoutItem({ origin: { target_file: 'foo.js', severity: 'HIGH', variant: 'security' } });
-    const slowRunner = () => new Promise((resolve) => setTimeout(() => resolve({ stdout: '' }), 5000));
-    const out = await probeStaleness(item, { projectPath: tmpDir, gitRunner: slowRunner });
+    // The runner is now responsible for honoring timeoutMs and rejecting
+    // with code 'PROBE_TIMEOUT' (defaultGitRunner does this via execFile's
+    // own timeout option, which SIGKILLs the child rather than leaking it).
+    const timeoutRunner = vi.fn().mockImplementation((_cwd, _args, opts) => {
+      const timeoutMs = opts && opts.timeoutMs;
+      const err = new Error('probe_timeout');
+      err.code = 'PROBE_TIMEOUT';
+      err.killed = true;
+      err.signal = 'SIGKILL';
+      err.timeoutMs = timeoutMs;
+      return Promise.reject(err);
+    });
+    const out = await probeStaleness(item, { projectPath: tmpDir, gitRunner: timeoutRunner });
     expect(out.stale).toBe(false);
     expect(out.reason).toBe('probe_timeout');
+    expect(timeoutRunner).toHaveBeenCalledWith(
+      tmpDir,
+      expect.any(Array),
+      expect.objectContaining({ timeoutMs: expect.any(Number) }),
+    );
   });
 
   it('git throws ENOENT -> git_unavailable, not stale', async () => {
