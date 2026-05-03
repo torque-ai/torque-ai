@@ -22,6 +22,10 @@ const {
   appendRollbackReport,
   rollbackAgenticTaskChanges,
 } = require('../execution/agentic-orphan-rollback');
+const {
+  COMPLETION_GRACE_MS,
+  COMPLETION_GRACE_CODEX_MS,
+} = require('../constants');
 
 // ---- Injected dependencies (set via init()) ----
 let db = null;
@@ -99,6 +103,10 @@ const PROVIDER_STALL_CONFIG_KEYS = {
   'google-ai': 'stall_threshold_google_ai',
   'openrouter': 'stall_threshold_openrouter',
 };
+
+function getCompletionGraceMs(provider) {
+  return provider === 'codex' ? COMPLETION_GRACE_CODEX_MS : COMPLETION_GRACE_MS;
+}
 
 // Track tasks that have already received a stall warning (prevent duplicates)
 const _stallWarningEmitted = new Set();
@@ -524,6 +532,20 @@ async function checkZombieProcesses() {
         }
       } catch {
         // DB query failed — skip this check, other checks will catch it
+      }
+
+      // Check 6: output completion grace missed — process-streams schedules a
+      // force-close timer when output proves the provider finished. If that
+      // timer is lost or delayed, the task can stay DB-running forever even
+      // though Codex already committed and wrote its final answer.
+      if (proc.completionDetected) {
+        const completionIdleMs = Date.now() - (proc.lastOutputAt || proc.startTime || Date.now());
+        const graceMs = getCompletionGraceMs(proc.provider);
+        if (completionIdleMs > graceMs + 30 * 1000) {
+          logger.info(`[Zombie Check] Task ${taskId} completion detected ${Math.round(completionIdleMs / 1000)}s ago but task is still running. Emitting synthetic successful close.`);
+          proc.process.emit('close', 0);
+          continue;
+        }
       }
 
       // Check 7: Short-output completion — tasks with very short output that contain completion

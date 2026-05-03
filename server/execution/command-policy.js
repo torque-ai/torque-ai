@@ -343,6 +343,10 @@ function validateAllowlistedShellChain(request, profile) {
       return { allowed: false, reason: `Shell metacharacter '${metacharacter}' is not allowed for profile '${profile}'` };
     }
 
+    if (isSafeDirectoryChange(segment)) {
+      continue;
+    }
+
     const matchesProfile = rules.some((rule) => rule.match(segment.cmd, segment.args));
     if (!matchesProfile) {
       return { allowed: false, reason: `Command '${describeCommand(segment.cmd, segment.args)}' is not allowed for profile '${profile}'` };
@@ -350,6 +354,24 @@ function validateAllowlistedShellChain(request, profile) {
   }
 
   return { allowed: true };
+}
+
+function isSafeDirectoryChange(segment) {
+  if (!isExecutable(segment.cmd, 'cd') || segment.args.length !== 1) {
+    return false;
+  }
+
+  const target = segment.args[0];
+  if (!target || path.isAbsolute(target)) {
+    return false;
+  }
+
+  const normalized = target.replace(/\\/g, '/');
+  if (normalized.split('/').some((part) => part === '..')) {
+    return false;
+  }
+
+  return /^[A-Za-z0-9._/-]+$/.test(normalized);
 }
 
 function describeCommand(cmd, args) {

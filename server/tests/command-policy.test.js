@@ -54,6 +54,8 @@ describe('command-policy', () => {
         .toEqual({ allowed: true });
       expect(validateCommand('cmd', ['/c', 'py -3.12 -m pytest tests/ -q']))
         .toEqual({ allowed: true });
+      expect(validateCommand('cmd', ['/c', 'cd server && npx vitest run tests/openapi-generator.test.js tests/api-openapi-spec.test.js']))
+        .toEqual({ allowed: true });
 
       const unsafeShell = validateCommand('cmd', ['/c', 'dotnet test App.Tests.csproj || git status --short']);
       expect(unsafeShell.allowed).toBe(false);
@@ -70,6 +72,14 @@ describe('command-policy', () => {
       const nestedShell = validateCommand('cmd', ['/c', 'cmd /c dotnet test App.Tests.csproj']);
       expect(nestedShell.allowed).toBe(false);
       expect(nestedShell.reason).toContain('Nested shell wrappers');
+
+      const parentDirectory = validateCommand('cmd', ['/c', 'cd .. && npx vitest run tests/openapi-generator.test.js']);
+      expect(parentDirectory.allowed).toBe(false);
+      expect(parentDirectory.reason).toContain("Command 'cd ..' is not allowed");
+
+      const absoluteDirectory = validateCommand('cmd', ['/c', 'cd C:\\Users && npx vitest run tests/openapi-generator.test.js']);
+      expect(absoluteDirectory.allowed).toBe(false);
+      expect(absoluteDirectory.reason).toContain("Command 'cd C:\\Users' is not allowed");
     });
 
     it('allows advanced_shell commands when dangerous is true', () => {

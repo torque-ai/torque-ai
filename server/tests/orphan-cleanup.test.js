@@ -402,6 +402,54 @@ describe('Orphan Cleanup', () => {
 
   // ── checkStaleRunningTasks ────────────────────────────────
 
+  describe('checkZombieProcesses', () => {
+    it('emits successful close for completed Codex output that outlives completion grace', async () => {
+      const runningProcesses = new Map();
+      const processRef = {
+        pid: null,
+        exitCode: null,
+        killed: false,
+        signalCode: null,
+        emit: vi.fn(),
+      };
+      runningProcesses.set('task-completed-output', {
+        provider: 'codex',
+        process: processRef,
+        completionDetected: true,
+        startTime: Date.now() - 3 * 60 * 1000,
+        lastOutputAt: Date.now() - 2 * 60 * 1000,
+      });
+      const logger = { info: vi.fn(), warn: vi.fn() };
+
+      vi.spyOn(process, 'kill').mockImplementation(() => {});
+
+      orphanCleanup.init({
+        db: {
+          getConfig: vi.fn().mockReturnValue('0'),
+          getTask: vi.fn().mockReturnValue({ id: 'task-completed-output', status: 'running' }),
+          reconcileHostTaskCounts: vi.fn(),
+          getRunningTasksLightweight: vi.fn().mockReturnValue([]),
+        },
+        dashboard: { notifyTaskUpdated: vi.fn() },
+        logger,
+        runningProcesses,
+        stallRecoveryAttempts: new Map(),
+        TASK_TIMEOUTS: { PROCESS_QUERY: 5000 },
+        cancelTask: vi.fn(),
+        processQueue: vi.fn(),
+        tryLocalFirstFallback: vi.fn(),
+        getTaskActivity: vi.fn(),
+        tryStallRecovery: vi.fn(),
+        safeConfigInt: vi.fn(),
+      });
+
+      await orphanCleanup.checkZombieProcesses();
+
+      expect(processRef.emit).toHaveBeenCalledWith('close', 0);
+      expect(logger.info).toHaveBeenCalledWith(expect.stringContaining('completion detected'));
+    });
+  });
+
   describe('checkStaleRunningTasks', () => {
     let mockDb, mockCancelTask, mockProcessQueue, mockIsInstanceAlive, mockGetMcpInstanceId, mockGetTaskActivity, mockReportRuntimeProblem, runningProcesses;
 
