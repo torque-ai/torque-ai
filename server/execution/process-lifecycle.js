@@ -23,6 +23,7 @@ const logger = require('../logger').child({ component: 'process-lifecycle' });
 const { redactCommandArgs } = require('../utils/sanitize');
 const { buildCombinedProcessOutput, detectSuccessFromOutput } = require('../validation/completion-detection');
 const { extractModifiedFiles } = require('../utils/file-resolution');
+const { resolveActivityAwareTimeoutDecision } = require('../utils/activity-timeout');
 
 const MIN_TIMEOUT_RESCHEDULE_MS = 1000;
 
@@ -780,16 +781,21 @@ function spawnAndTrackProcess(taskId, task, {
           if (!proc) {
             return;
           }
-          const rescheduleDelayMs = computeActivityAwareTimeoutDelay(proc, timeoutMs);
-          if (rescheduleDelayMs > 0) {
-            const idleSeconds = Math.round((Date.now() - (proc.lastOutputAt || proc.startTime || Date.now())) / 1000);
+          const decision = resolveActivityAwareTimeoutDecision({
+            proc, timeoutMs, metadata: proc.metadata, now: Date.now(),
+          });
+          if (decision.action === 'extend') {
+            const idleSeconds = Math.round(decision.idleMs / 1000);
             logger.info(
-              `[TaskManager] Task ${taskId} exceeded ${boundedTimeout}min wall time but had activity ${idleSeconds}s ago; extending timeout window`
+              `[TaskManager] Task ${taskId} exceeded ${boundedTimeout}min wall time but had activity ${idleSeconds}s ago (elapsed ${Math.round(decision.elapsedMs / 1000)}s); extending timeout window`
             );
-            scheduleTimeoutCheck(rescheduleDelayMs);
+            scheduleTimeoutCheck(decision.delayMs);
             return;
           }
 
+          logger.info(
+            `[TaskManager] Task ${taskId} timed out: reason=${decision.reason}, idle=${Math.round(decision.idleMs / 1000)}s, elapsed=${Math.round(decision.elapsedMs / 1000)}s`
+          );
           deps.cancelTask(taskId, 'Timeout exceeded', { cancel_reason: 'timeout' });
         } catch (err) {
           logger.info(`[TaskManager] Error in timeout callback for ${taskId}: ${err.message}`);

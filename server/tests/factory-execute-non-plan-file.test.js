@@ -463,8 +463,18 @@ describe('factory loop-controller EXECUTE for non-plan-file work items', () => {
       task_metadata: expect.objectContaining({
         kind: 'plan_generation',
         work_item_id: workItem.id,
+        activity_timeout_policy: {
+          kind: 'plan_generation',
+          timeout_minutes: 30,
+          max_wall_clock_minutes: expect.any(Number),
+        },
       }),
     }));
+    // Wall-clock cap formula: min(max(timeout*2, timeout+15), 120) → min(max(60,45),120) = 60
+    const callArgs = routingModule.handleSmartSubmitTask.mock.calls[0][0];
+    expect(callArgs.task_metadata.activity_timeout_policy.max_wall_clock_minutes).toBe(
+      Math.min(Math.max(30 * 2, 30 + 15), 120)
+    );
     expect(awaitModule.handleAwaitTask).toHaveBeenCalledWith({
       task_id: 'plan-gen-task',
       timeout_minutes: 30,
