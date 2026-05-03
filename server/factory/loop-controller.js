@@ -792,7 +792,7 @@ function getDeferredRemainingPlanTaskNumber(deferral) {
   );
 }
 
-function getNextExecutablePlanTask(parsedPlan, workingDirectory) {
+async function getNextExecutablePlanTask(parsedPlan, workingDirectory) {
   const tasks = Array.isArray(parsedPlan?.tasks) ? parsedPlan.tasks : [];
   if (tasks.length === 0) {
     return null;
@@ -807,7 +807,7 @@ function getNextExecutablePlanTask(parsedPlan, workingDirectory) {
 
   for (const task of tasks) {
     if (task.completed && typeof verifyCompletedTaskArtifacts === 'function') {
-      const verification = verifyCompletedTaskArtifacts(task, workingDirectory);
+      const verification = await verifyCompletedTaskArtifacts(task, workingDirectory);
       if (verification.trust) {
         continue;
       }
@@ -819,7 +819,7 @@ function getNextExecutablePlanTask(parsedPlan, workingDirectory) {
   return null;
 }
 
-function inspectExecuteDeferredResume({
+async function inspectExecuteDeferredResume({
   project,
   workItem,
   batchId,
@@ -890,7 +890,7 @@ function inspectExecuteDeferredResume({
     };
   }
 
-  const nextExecutableTask = getNextExecutablePlanTask(parsedPlan, workingDirectory);
+  const nextExecutableTask = await getNextExecutablePlanTask(parsedPlan, workingDirectory);
   const nextExecutablePlanTaskNumber = normalizePlanTaskNumber(nextExecutableTask?.task_number);
   if (!nextExecutablePlanTaskNumber) {
     return {
@@ -8207,7 +8207,7 @@ async function executePlanFileStage(project, instance, workItem) {
   })();
 
   if (resumedDeferredExecute) {
-    const deferredResumeInspection = inspectExecuteDeferredResume({
+    const deferredResumeInspection = await inspectExecuteDeferredResume({
       project,
       workItem: targetItem,
       batchId: executeLogBatchId,

@@ -50,41 +50,41 @@ describe('Phase X7: branch-state gate for [x] trust', () => {
   });
 
   describe('countCommitsAheadOfBase', () => {
-    it('returns 0 for a fresh branch with no commits ahead of base', () => {
+    it('returns 0 for a fresh branch with no commits ahead of base', async () => {
       setupRepo(dir);
       git(dir, ['checkout', '--quiet', '-b', 'feat/empty']);
-      expect(countCommitsAheadOfBase(dir, 'master')).toBe(0);
+      await expect(countCommitsAheadOfBase(dir, 'master')).resolves.toBe(0);
     });
 
-    it('returns >0 when the branch has commits ahead of base', () => {
+    it('returns >0 when the branch has commits ahead of base', async () => {
       setupRepo(dir);
       git(dir, ['checkout', '--quiet', '-b', 'feat/work']);
       fs.writeFileSync(path.join(dir, 'work.txt'), 'work\n');
       git(dir, ['add', 'work.txt']);
       git(dir, ['commit', '--quiet', '-m', 'add work']);
-      expect(countCommitsAheadOfBase(dir, 'master')).toBe(1);
+      await expect(countCommitsAheadOfBase(dir, 'master')).resolves.toBe(1);
     });
 
-    it('returns null when the directory is not a git repo', () => {
+    it('returns null when the directory is not a git repo', async () => {
       // dir is a fresh tmpdir, no `git init`
-      expect(countCommitsAheadOfBase(dir, 'master')).toBe(null);
+      await expect(countCommitsAheadOfBase(dir, 'master')).resolves.toBe(null);
     });
 
-    it('returns null when baseBranch is missing', () => {
+    it('returns null when baseBranch is missing', async () => {
       setupRepo(dir);
-      expect(countCommitsAheadOfBase(dir, '')).toBe(null);
-      expect(countCommitsAheadOfBase(dir, null)).toBe(null);
+      await expect(countCommitsAheadOfBase(dir, '')).resolves.toBe(null);
+      await expect(countCommitsAheadOfBase(dir, null)).resolves.toBe(null);
     });
 
-    it('returns null when baseBranch does not exist', () => {
+    it('returns null when baseBranch does not exist', async () => {
       setupRepo(dir);
       // 'nonexistent' isn't a ref → git rev-list errors out
-      expect(countCommitsAheadOfBase(dir, 'nonexistent')).toBe(null);
+      await expect(countCommitsAheadOfBase(dir, 'nonexistent')).resolves.toBe(null);
     });
   });
 
   describe('verifyCompletedTaskArtifacts with baseBranch', () => {
-    it('refuses trust when branch has 0 commits ahead, even when cited files exist', () => {
+    it('refuses trust when branch has 0 commits ahead, even when cited files exist', async () => {
       setupRepo(dir);
       git(dir, ['checkout', '--quiet', '-b', 'feat/empty']);
       // Cited file exists in the working dir (e.g., as repo boilerplate)
@@ -92,7 +92,7 @@ describe('Phase X7: branch-state gate for [x] trust', () => {
       fs.writeFileSync(path.join(dir, 'src', 'app.js'), 'existing\n');
       const task = makeTaskWithEditTarget('src/app.js');
 
-      const v = verifyCompletedTaskArtifacts(task, dir, 'master');
+      const v = await verifyCompletedTaskArtifacts(task, dir, 'master');
 
       expect(v.trust).toBe(false);
       expect(v.reason).toBe('branch_no_commits_ahead');
@@ -100,7 +100,7 @@ describe('Phase X7: branch-state gate for [x] trust', () => {
       expect(v.baseBranch).toBe('master');
     });
 
-    it('trusts when branch has commits ahead and cited files exist', () => {
+    it('trusts when branch has commits ahead and cited files exist', async () => {
       setupRepo(dir);
       git(dir, ['checkout', '--quiet', '-b', 'feat/work']);
       fs.mkdirSync(path.join(dir, 'src'), { recursive: true });
@@ -109,13 +109,13 @@ describe('Phase X7: branch-state gate for [x] trust', () => {
       git(dir, ['commit', '--quiet', '-m', 'real work']);
       const task = makeTaskWithEditTarget('src/app.js');
 
-      const v = verifyCompletedTaskArtifacts(task, dir, 'master');
+      const v = await verifyCompletedTaskArtifacts(task, dir, 'master');
 
       expect(v.trust).toBe(true);
       expect(v.reason).toBe('all_artifacts_present');
     });
 
-    it('refuses trust when branch has commits but cited files are missing', () => {
+    it('refuses trust when branch has commits but cited files are missing', async () => {
       setupRepo(dir);
       git(dir, ['checkout', '--quiet', '-b', 'feat/work']);
       // Add some unrelated commit so branch has commits ahead
@@ -124,40 +124,40 @@ describe('Phase X7: branch-state gate for [x] trust', () => {
       git(dir, ['commit', '--quiet', '-m', 'unrelated']);
       const task = makeTaskWithEditTarget('src/app.js');
 
-      const v = verifyCompletedTaskArtifacts(task, dir, 'master');
+      const v = await verifyCompletedTaskArtifacts(task, dir, 'master');
 
       expect(v.trust).toBe(false);
       expect(v.reason).toBe('no_artifacts_present');
     });
 
-    it('falls through to path check when baseBranch is null (back-compat)', () => {
+    it('falls through to path check when baseBranch is null (back-compat)', async () => {
       // No git init, no baseBranch — the gate is skipped entirely.
       fs.mkdirSync(path.join(dir, 'src'), { recursive: true });
       fs.writeFileSync(path.join(dir, 'src', 'app.js'), 'exists\n');
       const task = makeTaskWithEditTarget('src/app.js');
 
-      const v = verifyCompletedTaskArtifacts(task, dir, null);
+      const v = await verifyCompletedTaskArtifacts(task, dir, null);
 
       expect(v.trust).toBe(true);
       expect(v.reason).toBe('all_artifacts_present');
     });
 
-    it('falls through when baseBranch is set but the dir is not a git repo', () => {
+    it('falls through when baseBranch is set but the dir is not a git repo', async () => {
       // Plain tmpdir, baseBranch passed but no git → git fails → null →
       // fall through to path check.
       fs.mkdirSync(path.join(dir, 'src'), { recursive: true });
       fs.writeFileSync(path.join(dir, 'src', 'app.js'), 'exists\n');
       const task = makeTaskWithEditTarget('src/app.js');
 
-      const v = verifyCompletedTaskArtifacts(task, dir, 'master');
+      const v = await verifyCompletedTaskArtifacts(task, dir, 'master');
 
       expect(v.trust).toBe(true);
       expect(v.reason).toBe('all_artifacts_present');
     });
 
-    it('returns trust=true when no working_directory is provided', () => {
+    it('returns trust=true when no working_directory is provided', async () => {
       const task = makeTaskWithEditTarget('src/app.js');
-      const v = verifyCompletedTaskArtifacts(task, null, 'master');
+      const v = await verifyCompletedTaskArtifacts(task, null, 'master');
       expect(v.trust).toBe(true);
       expect(v.reason).toBe('no_working_directory');
     });

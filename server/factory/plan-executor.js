@@ -182,28 +182,55 @@ function extractEditTargetPaths(task) {
 // or null when git fails (not a repo, baseBranch missing, git error). The
 // null case lets callers fall through to other trust signals instead of
 // hard-failing on environments that aren't git-tracked (tests, dry-runs).
+//
+// Uses async child_process.spawn rather than spawnSync because the test
+// harness (server/tests/worker-setup.js) intercepts spawnSync('git', ...)
+// with a stub that returns empty strings — making any rev-list invocation
+// look like NaN → null and the gate inert. spawn() is intercepted for
+// agent CLIs only; git passes through to real git in tests, which is what
+// we need for the gate's behaviour to be testable.
 function countCommitsAheadOfBase(working_directory, baseBranch) {
-  if (!working_directory || !baseBranch) return null;
-  try {
-    const result = childProcess.spawnSync(
-      'git',
-      ['rev-list', '--count', `HEAD`, `^${baseBranch}`],
-      {
-        cwd: working_directory,
-        encoding: 'utf8',
-        windowsHide: true,
-        timeout: 10000,
-      }
-    );
-    if (result.status !== 0) return null;
-    const n = Number.parseInt(String(result.stdout || '').trim(), 10);
-    return Number.isFinite(n) ? n : null;
-  } catch (_e) {
-    return null;
-  }
+  if (!working_directory || !baseBranch) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    let stdout = '';
+    let settled = false;
+    const finish = (value) => {
+      if (settled) return;
+      settled = true;
+      resolve(value);
+    };
+    let child;
+    try {
+      child = childProcess.spawn(
+        'git',
+        ['rev-list', '--count', 'HEAD', `^${baseBranch}`],
+        {
+          cwd: working_directory,
+          windowsHide: true,
+          stdio: ['ignore', 'pipe', 'pipe'],
+        }
+      );
+    } catch (_err) {
+      finish(null);
+      return;
+    }
+    const timer = setTimeout(() => {
+      try { child.kill('SIGKILL'); } catch { /* ignore */ }
+      finish(null);
+    }, 10000);
+    if (typeof timer.unref === 'function') timer.unref();
+    child.stdout.on('data', (chunk) => { stdout += chunk.toString('utf8'); });
+    child.on('error', () => { clearTimeout(timer); finish(null); });
+    child.on('close', (code) => {
+      clearTimeout(timer);
+      if (code !== 0) return finish(null);
+      const n = Number.parseInt(stdout.trim(), 10);
+      finish(Number.isFinite(n) ? n : null);
+    });
+  });
 }
 
-function verifyCompletedTaskArtifacts(task, working_directory, baseBranch = null) {
+async function verifyCompletedTaskArtifacts(task, working_directory, baseBranch = null) {
   // Trust-but-verify: a [x]-marked task should have produced artifacts.
   // If every TARGET path (not every cited path) is missing from the
   // working directory, the [x] is almost certainly stale (carried over
@@ -235,7 +262,7 @@ function verifyCompletedTaskArtifacts(task, working_directory, baseBranch = null
     return { trust: true, reason: 'no_working_directory' };
   }
   if (baseBranch) {
-    const aheadCount = countCommitsAheadOfBase(working_directory, baseBranch);
+    const aheadCount = await countCommitsAheadOfBase(working_directory, baseBranch);
     if (aheadCount === 0) {
       return {
         trust: false,
@@ -411,7 +438,7 @@ function createPlanExecutor({ submit, awaitTask, findReusableTask = null, projec
 
     for (const task of parsed.tasks) {
       if (task.completed) {
-        const verification = verifyCompletedTaskArtifacts(task, working_directory, baseBranch);
+        const verification = await verifyCompletedTaskArtifacts(task, working_directory, baseBranch);
         if (!verification.trust) {
           logger.warn(`task ${task.task_number} is marked [x] but its artifacts are missing — treating as incomplete (likely stale from prior corrupted run)`, {
             plan_path,
@@ -515,7 +542,7 @@ function createPlanExecutor({ submit, awaitTask, findReusableTask = null, projec
         : null;
 
       if (reusableTask?.task_id && reusableTask.status === 'completed') {
-        const verification = verifyCompletedTaskArtifacts(task, working_directory, baseBranch);
+        const verification = await verifyCompletedTaskArtifacts(task, working_directory, baseBranch);
         if (verification.trust) {
           logger.info(`reusing completed task ${reusableTask.task_id} for already-landed plan task ${task.task_number}`);
           tickTaskInFile(plan_path, task.task_number);
