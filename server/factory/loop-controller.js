@@ -9354,12 +9354,85 @@ async function attemptSilentRerun({
   };
 }
 
+// Phase X8 (2026-05-02): test-stack detection for verify-fix prompt.
+// Generic verify-fix guidance is too vague for ollama (qwen3-coder:30b) on
+// dotnet projects: it tries broad refactors instead of reading the failing
+// test source to find the specific assert. This helper identifies the
+// stack from the verify command + output so buildVerifyFixPrompt can
+// append targeted, stack-aware instructions.
+function detectVerifyStack({ verifyCommand, verifyOutput }) {
+  const cmd = String(verifyCommand || '').toLowerCase();
+  const out = String(verifyOutput || '');
+
+  if (
+    /\bdotnet\s+test\b/.test(cmd)
+    || /\bAssert\.(That|AreEqual|IsTrue|IsFalse|IsNull|NotNull|Throws)\b/.test(out)
+    || /\bExpected:.*\n\s*But was:/m.test(out)
+    || /\bNUnit\b|\bxUnit\b|\bMicrosoft\.NET\.Test\.Sdk\b/.test(out)
+    || /\bTest\s+(?:Run|Assembly)\s+Failed\b/i.test(out)
+  ) return 'dotnet';
+
+  if (/\bpytest\b|\bpython\s+-m\s+pytest\b/.test(cmd) || /\bAssertionError\b/.test(out)) {
+    return 'pytest';
+  }
+
+  if (/\bvitest\b|\bjest\b|\bnpm\s+(?:run\s+)?test\b/.test(cmd)) {
+    return 'jstest';
+  }
+
+  return null;
+}
+
+const DOTNET_VERIFY_FIX_GUIDANCE = [
+  '',
+  '---',
+  'Dotnet test guidance (this verify uses dotnet test):',
+  '- Identify the FIRST failing test in the verify output. Look for `Failed!` summary lines and the `Expected:` / `But was:` lines just above them.',
+  '- Use `read_file` to open the failing test file FIRST, not the production code. The test\'s assert tells you what behavior the production code must satisfy.',
+  '- Then use `read_file` on the production file mentioned in the test\'s arrange/act block.',
+  '- Make the SMALLEST change that turns the assert green — usually a one-line patch in the production code (return value, branch, missing case).',
+  '- For NUnit/xUnit: an `Assert.Throws<T>` failure usually means the production code throws a different exception type — fix the throw type, do not catch & rethrow.',
+  '- For `Expected: not equal to <X>` / `But was: <X>` failures: the production code is returning the SAME thing as the unwanted value — change the production code, not the test.',
+  '- If the failing test references a public enum member that doesn\'t exist (e.g. `StartupFailureReason.LanSocketSendFailed`), add the missing enum member to the production enum file. Enums need members listed in source order — append new members at the end of the enum body.',
+  '- If a classifier / mapper method is missing a case, the test usually looks like `Assert.That(Classify(input), Is.EqualTo(expectedReason))`. Read the existing `Classify` method, add the missing case for `input`, return `expectedReason`.',
+  '- Do NOT run `dotnet test` yourself; the host will re-run verify after your edits.',
+].join('\n');
+
+const PYTEST_VERIFY_FIX_GUIDANCE = [
+  '',
+  '---',
+  'Pytest guidance (this verify uses pytest):',
+  '- Find the failing test in the verify output (look for `FAILED` lines and the `AssertionError` / `assert <expr>` line).',
+  '- Read the failing test source first to understand what behavior is being asserted.',
+  '- Most pytest failures mean the production code returns a value that differs from the assert — patch the production code to match the assert\'s expectation, unless the test is clearly out of date.',
+  '- Do NOT run `pytest` yourself; the host will re-run verify after your edits.',
+].join('\n');
+
+const JSTEST_VERIFY_FIX_GUIDANCE = [
+  '',
+  '---',
+  'JS test guidance (this verify uses vitest/jest/npm test):',
+  '- Find the failing test (look for `FAIL` file lines, `expect(...).toBe(...)` mismatches with `Expected:` / `Received:`).',
+  '- Read the failing test source first; the assert is the spec.',
+  '- Most failures mean the production code\'s return value differs from `expect(...)`. Patch the production code unless the test is clearly out of date.',
+  '- Do NOT run `vitest` / `jest` / `npm test` yourself; the host will re-run verify after your edits.',
+].join('\n');
+
+function getVerifyStackGuidance(stack) {
+  if (stack === 'dotnet') return DOTNET_VERIFY_FIX_GUIDANCE;
+  if (stack === 'pytest') return PYTEST_VERIFY_FIX_GUIDANCE;
+  if (stack === 'jstest') return JSTEST_VERIFY_FIX_GUIDANCE;
+  return '';
+}
+
 function buildVerifyFixPrompt({
   planPath, planTitle, branch, verifyCommand, verifyOutput,
   priorAttempts, verifyOutputPrev,
 }) {
   const tail = stripAnsi(String(verifyOutput || '')).slice(-VERIFY_FIX_PROMPT_TAIL_BUDGET);
   const priorBlock = buildPriorAttemptsBlock(priorAttempts, verifyOutputPrev, verifyOutput);
+  const stack = detectVerifyStack({ verifyCommand, verifyOutput });
+  const stackGuidance = getVerifyStackGuidance(stack);
   const lines = [
     `Plan: ${planTitle || '(unknown)'}`,
     planPath ? `Plan path: ${planPath}` : null,
@@ -9387,6 +9460,7 @@ function buildVerifyFixPrompt({
     '    (b) filenames that appear in the verify error stack trace (the \'verify output tail\' above).',
     '- Do NOT create new files unless a new file is explicitly named in the plan.',
     '- If you believe no code fix is warranted (the failing test is broken, the baseline is wrong, or the diff is unrelated), exit with no changes. Do NOT add unrelated refactors, cleanup, or new features.',
+    stackGuidance || null,
     '',
     'After making the edits, stop.',
   ].filter((x) => x !== null && x !== undefined);
@@ -9401,6 +9475,7 @@ async function submitVerifyFixTask({
   verifyCommand,
   verifyOutput,
   attempt,
+  forceProvider = null,
 }) {
   const { handleSmartSubmitTask } = require('../handlers/integration/routing');
   const { handleAwaitTask } = require('../handlers/workflow/await');
@@ -9619,6 +9694,17 @@ async function submitVerifyFixTask({
     batch_id,
   });
 
+  // Phase X8 (2026-05-02): when forceProvider is set (caller chose to
+  // escalate this retry off the lane), drop the project's lane policy
+  // metadata so smart_submit_task honors the explicit provider. With the
+  // lane policy still attached, the chain filter would block codex on an
+  // ollama-locked project. The 2026-04-29 #2097 lesson (lane policy
+  // protects against accidental leaks) still holds — escalation is an
+  // INTENTIONAL override only, gated by attempt + stack heuristics in
+  // the caller.
+  const baseMetadata = forceProvider
+    ? {}
+    : buildProviderLaneTaskMetadata(project || {});
   let submission;
   try {
     submission = await handleSmartSubmitTask({
@@ -9626,6 +9712,7 @@ async function submitVerifyFixTask({
       project: project?.name,
       working_directory: worktreeRecord.worktreePath,
       tags,
+      ...(forceProvider ? { provider: forceProvider } : {}),
       task_metadata: {
         // Inject the project's provider_lane_policy so verify auto-retries
         // stay on the project's allowed providers. Without this spread,
@@ -9639,12 +9726,13 @@ async function submitVerifyFixTask({
         // commit landed, so by the time codex was running, the diff was
         // already done — both retries no-opped (auto_commit_skipped_clean)
         // and tripped the zero_diff short-circuit.
-        ...buildProviderLaneTaskMetadata(project || {}),
+        ...baseMetadata,
         plan_path: planPath,
         plan_title: planTitle,
-        plan_task_title: `verify auto-retry #${attempt}`,
+        plan_task_title: `verify auto-retry #${attempt}${forceProvider ? ` (escalated to ${forceProvider})` : ''}`,
         factory_retry_attempt: attempt,
         factory_batch_id: batch_id,
+        ...(forceProvider ? { factory_verify_retry_escalated_provider: forceProvider } : {}),
       },
     });
   } catch (err) {
@@ -10578,6 +10666,45 @@ async function executeVerifyStage(project_id, batch_id, instance = null) {
           return { status: 'passed', reason: 'auto_rejected_after_max_retries' };
         }
         retryAttempt += 1;
+        // Phase X8 (2026-05-02): escalate verify retries to codex when an
+        // ollama-locked project has a dotnet test verify and the first
+        // ollama attempt didn't converge. qwen3-coder:30b can write code
+        // but reliably struggles to read NUnit/xUnit failures and patch
+        // the right one-line in production code. Live evidence: DLPhone
+        // items 2096, 876, 2082 each got past the build gate but never
+        // turned dotnet tests green across 3 ollama retries. Escalating
+        // attempts >= 2 to codex preserves cost on the first try while
+        // giving the harder retries a model that can actually reason
+        // about test failures.
+        const retryProject = factoryHealth.getProject(project_id);
+        const laneProvider = getEffectiveProjectProvider(retryProject);
+        const verifyStack = detectVerifyStack({
+          verifyCommand,
+          verifyOutput: res.output,
+        });
+        const shouldEscalate = (
+          retryAttempt >= 2
+          && laneProvider === 'ollama'
+          && verifyStack === 'dotnet'
+        );
+        const forceProvider = shouldEscalate ? 'codex' : null;
+        if (shouldEscalate) {
+          safeLogDecision({
+            project_id,
+            stage: LOOP_STATES.VERIFY,
+            action: 'verify_retry_escalated_to_codex',
+            reasoning: `Verify retry #${retryAttempt} escalated from ollama to codex: dotnet test failures rarely converge on local model after a first attempt. Lane policy is preserved for EXECUTE; only this retry submission is escalated.`,
+            inputs: {
+              attempt: retryAttempt,
+              lane_provider: laneProvider,
+              verify_stack: verifyStack,
+              branch: worktreeRecord.branch,
+            },
+            outcome: { forced_provider: forceProvider },
+            confidence: 1,
+            batch_id,
+          });
+        }
         const retryResult = await submitVerifyFixTask({
           project_id,
           batch_id,
@@ -10586,6 +10713,7 @@ async function executeVerifyStage(project_id, batch_id, instance = null) {
           verifyCommand,
           verifyOutput: res.output,
           attempt: retryAttempt,
+          forceProvider,
         });
 
         // Fix 4: classify the retry result.
@@ -12661,6 +12789,8 @@ module.exports = {
   DEFAULT_PLAN_GENERATION_TIMEOUT_MINUTES,
   DEFAULT_STALE_PENDING_PLAN_GENERATION_MS,
   buildVerifyFixPrompt,
+  detectVerifyStack,
+  getVerifyStackGuidance,
   VERIFY_FIX_PROMPT_TAIL_BUDGET,
   isProjectStatusPaused,
   countPriorVerifyRetryTasksForBatch,
