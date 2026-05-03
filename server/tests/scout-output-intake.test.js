@@ -33,6 +33,23 @@ describe('scout output intake', () => {
         scope: 'Factory starvation recovery scout. The project reached STARVED.',
       },
     })).toBe(true);
+
+    expect(isStarvationRecoveryScoutTask({
+      metadata: JSON.stringify({
+        mode: 'scout',
+        reason: 'factory_starvation_recovery',
+        project_id: 'project-1',
+      }),
+    })).toBe(true);
+
+    expect(() => isStarvationRecoveryScoutTask({ metadata: '{not valid json' })).not.toThrow();
+    expect(isStarvationRecoveryScoutTask({ metadata: '{not valid json' })).toBe(false);
+
+    const arrayMetadata = [];
+    arrayMetadata.mode = 'scout';
+    arrayMetadata.reason = 'factory_starvation_recovery';
+    expect(() => isStarvationRecoveryScoutTask({ metadata: arrayMetadata })).not.toThrow();
+    expect(isStarvationRecoveryScoutTask({ metadata: arrayMetadata })).toBe(false);
   });
 
   it('extracts patterns_ready signals from scout output', () => {
@@ -74,11 +91,11 @@ describe('scout output intake', () => {
     const result = intake.promoteTask({
       id: 'task-1',
       status: 'completed',
-      metadata: {
+      metadata: JSON.stringify({
         mode: 'scout',
         reason: 'factory_starvation_recovery',
         project_id: 'project-1',
-      },
+      }),
       output: [
         '__PATTERNS_READY__',
         JSON.stringify({
