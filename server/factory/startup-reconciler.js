@@ -44,6 +44,29 @@ function getProjectConfig(project) {
   }
 }
 
+function hasOperatorPauseIntent(project) {
+  const cfg = getProjectConfig(project);
+  return cfg?.loop?.operator_paused === true;
+}
+
+function shouldSkipForOperatorPause(projectId, logger) {
+  const fresh = factoryHealth.getProject(projectId);
+  if (!fresh || !hasOperatorPauseIntent(fresh)) {
+    return false;
+  }
+  if (fresh.status !== 'paused') {
+    try {
+      factoryHealth.updateProject(fresh.id, { status: 'paused' });
+    } catch (_err) {
+      void _err;
+    }
+  }
+  safeLog(logger, 'info', 'startup reconciler skipped operator-paused project', {
+    project_id: projectId,
+  });
+  return true;
+}
+
 function getLoopState(loopRecord) {
   const raw = loopRecord && loopRecord.loop_state ? loopRecord.loop_state : LOOP_STATES.IDLE;
   return String(raw).toUpperCase();
@@ -81,6 +104,9 @@ function countRunningOrQueuedTasksForBatch(batchId, logger = defaultLogger) {
 function scheduleStart(projectId, logger) {
   setImmediate(() => {
     try {
+      if (shouldSkipForOperatorPause(projectId, logger)) {
+        return;
+      }
       loopController.startLoopAutoAdvance(projectId);
     } catch (err) {
       safeLog(logger, 'debug', 'startup reconciler start failed', {
@@ -94,6 +120,9 @@ function scheduleStart(projectId, logger) {
 function scheduleAdvance(projectId, instance, state, logger) {
   setImmediate(() => {
     try {
+      if (shouldSkipForOperatorPause(projectId, logger)) {
+        return;
+      }
       loopController.advanceLoopAsync(instance.id, { autoAdvance: true });
     } catch (err) {
       safeLog(logger, 'debug', 'startup reconciler advance failed', {
@@ -217,6 +246,10 @@ function reconcileFactoryProjectsOnStartup({ logger = defaultLogger } = {}) {
 
   for (const project of projects) {
     actions.projects_scanned += 1;
+    if (shouldSkipForOperatorPause(project.id, logger)) {
+      actions.skipped += 1;
+      continue;
+    }
     const preSyncState = {
       loop_state: project.loop_state,
       loop_batch_id: project.loop_batch_id,

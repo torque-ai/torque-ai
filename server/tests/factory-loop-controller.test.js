@@ -406,6 +406,24 @@ describe('factory loop-controller EXECUTE modes', () => {
     expect(factoryLoopInstances.listInstances({ project_id: project.id, active_only: true })).toHaveLength(0);
   });
 
+  it('does not start when operator pause intent remains after a stale status flip', () => {
+    const { project } = registerPlanProject();
+    const cfg = project.config_json ? JSON.parse(project.config_json) : {};
+    cfg.loop = {
+      ...(cfg.loop || {}),
+      operator_paused: true,
+      operator_paused_at: new Date().toISOString(),
+    };
+    factoryHealth.updateProject(project.id, {
+      status: 'running',
+      config_json: JSON.stringify(cfg),
+    });
+
+    expect(() => loopController.startLoopForProject(project.id)).toThrow(/paused project/);
+    expect(factoryHealth.getProject(project.id)).toMatchObject({ status: 'paused' });
+    expect(factoryLoopInstances.listInstances({ project_id: project.id, active_only: true })).toHaveLength(0);
+  });
+
   it('does not restore an unactionable item from the decision log on a fresh loop', async () => {
     const { project, workItem, planPath } = registerPlanProject();
     factoryIntake.updateWorkItem(workItem.id, {
@@ -2379,6 +2397,53 @@ Edit server/factory/plan-executor.js and make the requested behavior change. Kee
         error: null,
       });
     });
+  });
+
+  it('does not recycle LEARN to SENSE when the project is operator-paused mid-stage', async () => {
+    const { project } = registerPlanProject({
+      config: { loop: { auto_continue: true } },
+    });
+    const started = loopController.startLoopForProject(project.id);
+    factoryLoopInstances.updateInstance(started.instance_id, {
+      loop_state: LOOP_STATES.LEARN,
+      paused_at_stage: null,
+      batch_id: 'factory-learn-pause-test',
+      last_action_at: new Date().toISOString(),
+    });
+
+    const cfg = project.config_json ? JSON.parse(project.config_json) : {};
+    cfg.loop = {
+      ...(cfg.loop || {}),
+      operator_paused: true,
+      operator_paused_at: new Date().toISOString(),
+    };
+
+    loopController.__testing__.setExecuteLearnStageForTests(async () => {
+      factoryHealth.updateProject(project.id, {
+        status: 'paused',
+        config_json: JSON.stringify(cfg),
+      });
+      return {
+        status: 'ok',
+        summary: 'learn completed after operator pause',
+      };
+    });
+
+    try {
+      const result = await loopController.advanceLoop(started.instance_id);
+
+      expect(result).toMatchObject({
+        new_state: LOOP_STATES.IDLE,
+        reason: 'project_paused_after_learn',
+      });
+      expect(factoryLoopInstances.getInstance(started.instance_id)).toMatchObject({
+        loop_state: LOOP_STATES.IDLE,
+        terminated_at: expect.any(String),
+      });
+      expect(factoryHealth.getProject(project.id)).toMatchObject({ status: 'paused' });
+    } finally {
+      loopController.__testing__.setExecuteLearnStageForTests(null);
+    }
   });
 
   it('awaitFactoryLoop returns timeout when nothing changes', async () => {

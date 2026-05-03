@@ -142,6 +142,34 @@ function parseProjectConfig(projectConfigJson) {
   }
 }
 
+function markOperatorPausedConfig(project, args = {}) {
+  const cfg = parseProjectConfig(project?.config_json);
+  const loop = cfg.loop && typeof cfg.loop === 'object' ? { ...cfg.loop } : {};
+  loop.operator_paused = true;
+  loop.operator_paused_at = nowIso();
+  const reason = args.reason || args.pause_reason || null;
+  if (reason) {
+    loop.operator_pause_reason = reason;
+  } else {
+    delete loop.operator_pause_reason;
+  }
+  cfg.loop = loop;
+  return JSON.stringify(cfg);
+}
+
+function clearOperatorPausedConfig(project) {
+  const cfg = parseProjectConfig(project?.config_json);
+  if (!cfg.loop || typeof cfg.loop !== 'object') {
+    return project?.config_json || null;
+  }
+  const loop = { ...cfg.loop };
+  delete loop.operator_paused;
+  delete loop.operator_paused_at;
+  delete loop.operator_pause_reason;
+  cfg.loop = loop;
+  return JSON.stringify(cfg);
+}
+
 function getBaselineResumeJobsByProject(projectId) {
   let jobs = baselineResumeJobs.get(projectId);
   if (!jobs) {
@@ -1191,7 +1219,10 @@ async function handleSetFactoryTrustLevel(args) {
 async function handlePauseProject(args) {
   const project = resolveProject(args.project);
   const previous_status = project.status;
-  const updated = factoryHealth.updateProject(project.id, { status: 'paused' });
+  const updated = factoryHealth.updateProject(project.id, {
+    status: 'paused',
+    config_json: markOperatorPausedConfig(project, args),
+  });
   try {
     factoryAudit.recordAuditEvent({
       project_id: updated.id,
@@ -1219,7 +1250,10 @@ async function handlePauseProject(args) {
 async function handleResumeProject(args) {
   const project = resolveProject(args.project);
   const previous_status = project.status;
-  const updated = factoryHealth.updateProject(project.id, { status: 'running' });
+  const updated = factoryHealth.updateProject(project.id, {
+    status: 'running',
+    config_json: clearOperatorPausedConfig(project),
+  });
   try {
     factoryAudit.recordAuditEvent({
       project_id: updated.id,
@@ -1289,7 +1323,10 @@ function resumeProjectRowForFactoryAction(project, args = {}, reason = 'factory_
   }
 
   const previous_status = project.status;
-  const updated = factoryHealth.updateProject(project.id, { status: 'running' });
+  const updated = factoryHealth.updateProject(project.id, {
+    status: 'running',
+    config_json: clearOperatorPausedConfig(project),
+  });
   try {
     factoryAudit.recordAuditEvent({
       project_id: updated.id,
@@ -2079,6 +2116,11 @@ async function executeBaselineResumeProbe({
     cfg.baseline_broken_evidence = null;
     cfg.baseline_broken_probe_attempts = 0;
     cfg.baseline_broken_tick_count = 0;
+    if (cfg.loop && typeof cfg.loop === 'object') {
+      delete cfg.loop.operator_paused;
+      delete cfg.loop.operator_paused_at;
+      delete cfg.loop.operator_pause_reason;
+    }
     factoryHealth.updateProject(projectRow.id, {
       status: 'running',
       config_json: JSON.stringify(cfg),

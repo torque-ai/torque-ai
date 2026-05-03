@@ -72,6 +72,33 @@ function getProjectConfig(project) {
   try { return JSON.parse(project.config_json); } catch (_e) { void _e; return {}; }
 }
 
+function hasOperatorPauseIntent(project) {
+  const cfg = getProjectConfig(project);
+  return cfg?.loop?.operator_paused === true;
+}
+
+function enforceOperatorPause(project, reason) {
+  if (!project || !hasOperatorPauseIntent(project)) {
+    return false;
+  }
+  if (project.status !== 'paused') {
+    try {
+      factoryHealth.updateProject(project.id, { status: 'paused' });
+      logger.warn('Factory tick restored operator-paused project status', {
+        project_id: project.id,
+        previous_status: project.status || null,
+        reason,
+      });
+    } catch (err) {
+      logger.debug('Factory tick could not restore operator pause status', {
+        project_id: project.id,
+        err: err.message,
+      });
+    }
+  }
+  return true;
+}
+
 function logBaselineRequeueDecision({ project, result, trigger }) {
   if (!project?.id || !result?.requeued) {
     return;
@@ -247,6 +274,9 @@ function getVerifyBatchWaitState(projectId, instance) {
 
 function hasPausedVerifyBatchWait(project) {
   if (!project?.id || project.status !== 'paused') {
+    return false;
+  }
+  if (hasOperatorPauseIntent(project)) {
     return false;
   }
 
@@ -672,6 +702,9 @@ function maybeStartAutoAdvanceLoop(projectId, reason = 'tick') {
   if (!projectBeforeAutoStart || projectBeforeAutoStart.status !== 'running') {
     return false;
   }
+  if (enforceOperatorPause(projectBeforeAutoStart, `auto_start:${reason}`)) {
+    return false;
+  }
   const cfg = getProjectConfig(projectBeforeAutoStart);
   const activeInstances = factoryLoopInstances.listInstances({
     project_id: projectId,
@@ -703,6 +736,9 @@ function maybeStartAutoAdvanceLoop(projectId, reason = 'tick') {
 async function tickProject(project) {
   try {
     const freshProject = factoryHealth.getProject(project.id);
+    if (enforceOperatorPause(freshProject, 'tick_start')) {
+      return;
+    }
 
     // Baseline probe phase — for projects paused by the verify-review
     // classifier when a baseline (main) was already broken. Task 9 sets
@@ -1210,7 +1246,9 @@ function initFactoryTicks() {
     for (const project of projects) {
       const cfg = getProjectConfig(project);
       const shouldTick = project.status === 'running'
-        || (project.status === 'paused' && (cfg?.baseline_broken_since || hasPausedVerifyBatchWait(project)));
+        || (project.status === 'paused'
+          && !hasOperatorPauseIntent(project)
+          && (cfg?.baseline_broken_since || hasPausedVerifyBatchWait(project)));
       if (!shouldTick) continue;
       const intervalMs = cfg?.loop?.tick_interval_ms || DEFAULT_TICK_INTERVAL_MS;
       startTick(project, intervalMs);
@@ -1235,5 +1273,6 @@ module.exports = {
     resolveUnrecoverableVerifyLoop,
     maybeStartAutoAdvanceLoop,
     hasPausedVerifyBatchWait,
+    hasOperatorPauseIntent,
   },
 };

@@ -199,6 +199,27 @@ function elapsedMsSince(value) {
   return parsed == null ? null : Date.now() - parsed;
 }
 
+function parseProjectConfigObject(project) {
+  if (project?.config && typeof project.config === 'object') {
+    return project.config;
+  }
+  try {
+    return project?.config_json ? JSON.parse(project.config_json) : {};
+  } catch (_err) {
+    void _err;
+    return {};
+  }
+}
+
+function hasOperatorPauseIntent(project) {
+  const cfg = parseProjectConfigObject(project);
+  return cfg?.loop?.operator_paused === true;
+}
+
+function isProjectPauseActive(project) {
+  return project?.status === 'paused' || hasOperatorPauseIntent(project);
+}
+
 /**
  * Read the project's effective provider intent from its lane policy.
  * Returns the lowercase expected_provider when present, or null when no
@@ -208,9 +229,7 @@ function elapsedMsSince(value) {
  */
 function getEffectiveProjectProvider(project) {
   try {
-    const cfg = project?.config && typeof project.config === 'object'
-      ? project.config
-      : (project?.config_json ? JSON.parse(project.config_json) : {});
+    const cfg = parseProjectConfigObject(project);
     const policy = cfg?.provider_lane_policy || cfg?.provider_lane;
     const expected = policy && typeof policy === 'object' ? policy.expected_provider : null;
     return typeof expected === 'string' && expected.trim() ? expected.trim().toLowerCase() : null;
@@ -221,15 +240,7 @@ function getEffectiveProjectProvider(project) {
 }
 
 function getProjectConfigForPlanGate(project) {
-  if (project?.config && typeof project.config === 'object') {
-    return project.config;
-  }
-  try {
-    return project?.config_json ? JSON.parse(project.config_json) : {};
-  } catch (_err) {
-    void _err;
-    return {};
-  }
+  return parseProjectConfigObject(project);
 }
 
 // Phase G: small local models (qwen3-coder:30b) consistently exceed the
@@ -613,7 +624,14 @@ function isProjectStatusPaused(project_id) {
   try {
     refreshFactoryDbHandles();
     const project = factoryHealth.getProject(project_id);
-    return project?.status === 'paused';
+    if (hasOperatorPauseIntent(project) && project?.status !== 'paused') {
+      try {
+        factoryHealth.updateProject(project.id, { status: 'paused' });
+      } catch (_err) {
+        void _err;
+      }
+    }
+    return isProjectPauseActive(project);
   } catch {
     return false;
   }
@@ -1251,9 +1269,11 @@ function deriveInstanceStateFromLegacyProject(project) {
 
 function backfillLegacyProjectLoopInstance(project_id) {
   const project = getProjectOrThrow(project_id);
-  if (project.status === 'paused') {
+  if (isProjectPauseActive(project)) {
     logger.info('Backfill skipped for paused factory project', {
       project_id: project.id,
+      status: project.status || null,
+      operator_paused: hasOperatorPauseIntent(project),
       loop_state: project.loop_state || LOOP_STATES.IDLE,
     });
     return null;
@@ -10681,6 +10701,19 @@ async function runExecuteVerifyStage(project_id, batch_id, instance = null) {
   return executeVerifyStage(project_id, batch_id, instance);
 }
 
+let executeLearnStageForTests = null;
+
+function setExecuteLearnStageForTests(fn) {
+  executeLearnStageForTests = typeof fn === 'function' ? fn : null;
+}
+
+async function runExecuteLearnStage(project_id, batch_id, instance = null) {
+  if (executeLearnStageForTests) {
+    return executeLearnStageForTests(project_id, batch_id, instance);
+  }
+  return executeLearnStage(project_id, batch_id, instance);
+}
+
 async function executeLearnStage(project_id, batch_id, instance) {
   try {
     const feedback = require('./feedback');
@@ -10816,7 +10849,14 @@ function scheduleLoop(project_id, interval_minutes) {
 
 function startLoop(project_id) {
   const project = getProjectOrThrow(project_id);
-  if (project.status === 'paused') {
+  if (isProjectPauseActive(project)) {
+    if (hasOperatorPauseIntent(project) && project.status !== 'paused') {
+      try {
+        factoryHealth.updateProject(project.id, { status: 'paused' });
+      } catch (_err) {
+        void _err;
+      }
+    }
     safeLogDecision({
       project_id: project.id,
       stage: LOOP_STATES.SENSE,
@@ -10824,6 +10864,7 @@ function startLoop(project_id) {
       reasoning: 'Factory loop start was refused because the project row is paused. Resume the project before starting the loop.',
       inputs: {
         current_status: project.status,
+        operator_paused: hasOperatorPauseIntent(project),
         previous_state: getCurrentLoopState(project),
       },
       outcome: {
@@ -11582,7 +11623,7 @@ async function runAdvanceLoop(instance_id) {
     }
 
     case LOOP_STATES.LEARN: {
-      stageResult = await executeLearnStage(project.id, instance.batch_id, instance);
+      stageResult = await runExecuteLearnStage(project.id, instance.batch_id, instance);
       if (stageResult?.shipping_result?.status === 'paused') {
         instance = updateInstanceAndSync(instance.id, {
           paused_at_stage: stageResult.shipping_result.pause_at_stage || LOOP_STATES.LEARN,
@@ -11591,7 +11632,25 @@ async function runAdvanceLoop(instance_id) {
         transitionReason = stageResult.shipping_result.reason || 'shipping_paused';
         break;
       }
-      const cfg = project.config_json ? (() => { try { return JSON.parse(project.config_json); } catch { return {}; } })() : {};
+      const latestProject = getProjectOrThrow(project.id);
+      if (isProjectPauseActive(latestProject)) {
+        const lastActionAt = instance.last_action_at || null;
+        terminateInstanceAndSync(instance.id);
+        recordFactoryIdleIfExhausted(project.id, {
+          last_action_at: lastActionAt,
+          reason: 'project_paused_after_learn',
+        });
+        return {
+          project_id: project.id,
+          instance_id,
+          previous_state: previousState,
+          new_state: LOOP_STATES.IDLE,
+          paused_at_stage: null,
+          stage_result: stageResult,
+          reason: 'project_paused_after_learn',
+        };
+      }
+      const cfg = parseProjectConfigObject(latestProject);
       if (cfg && cfg.loop && cfg.loop.auto_continue === true) {
         const moveToSense = tryMoveInstanceToStage(instance, LOOP_STATES.SENSE, {
           batch_id: null,
@@ -12483,6 +12542,7 @@ module.exports = {
     attemptSilentRerun,
     isFactoryFeatureEnabled,
     setExecuteVerifyStageForTests,
+    setExecuteLearnStageForTests,
     extractScopeEnvelopeFiles,
     computeScopeEnvelope,
     isOutOfScope,

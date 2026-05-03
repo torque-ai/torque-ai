@@ -65,6 +65,20 @@ describe('factory pause enforcement', () => {
     return factoryHealth.updateProject(project.id, { status });
   }
 
+  function markOperatorPaused(project, reason = 'test pause') {
+    const cfg = project.config_json ? JSON.parse(project.config_json) : {};
+    cfg.loop = {
+      ...(cfg.loop || {}),
+      operator_paused: true,
+      operator_paused_at: new Date().toISOString(),
+      operator_pause_reason: reason,
+    };
+    return factoryHealth.updateProject(project.id, {
+      status: 'paused',
+      config_json: JSON.stringify(cfg),
+    });
+  }
+
   it('tick against a project paused before instance advance produces zero submissions', async () => {
     const project = registerFactoryProject({ status: 'running', autoContinue: true });
     factoryLoopInstances.createInstance({ project_id: project.id });
@@ -847,6 +861,54 @@ describe('factory pause enforcement', () => {
     expect(afterTick.paused_at_stage).toBeNull();
   });
 
+  it('does not auto-clear an operator-paused VERIFY batch wait when the batch becomes terminal', async () => {
+    const decisionLog = require('../factory/decision-log');
+    const factoryDecisions = require('../db/factory-decisions');
+    factoryDecisions.setDb(db);
+
+    const project = markOperatorPaused(registerFactoryProject({ status: 'running', autoContinue: true }));
+    const batchId = `test-batch-operator-paused-${Date.now()}`;
+    const instance = factoryLoopInstances.createInstance({
+      project_id: project.id,
+      batch_id: batchId,
+    });
+    factoryLoopInstances.updateInstance(instance.id, {
+      loop_state: LOOP_STATES.VERIFY,
+      paused_at_stage: LOOP_STATES.VERIFY,
+    });
+
+    db.prepare(`
+      INSERT INTO tasks (id, task_description, provider, status, tags, working_directory, created_at)
+      VALUES (?, 'batch-task-1', 'ollama', 'completed', ?, ?, datetime('now'))
+    `).run('operator-paused-project-batch-task-1', JSON.stringify([`factory:batch_id=${batchId}`]), project.path);
+
+    decisionLog.logDecision({
+      project_id: project.id,
+      stage: 'verify',
+      actor: 'auto-recovery',
+      action: 'paused_at_gate',
+      reasoning: 'Loop paused awaiting batch task completion for VERIFY.',
+      inputs: { previous_state: 'VERIFY', trust_level: 'dark' },
+      outcome: {
+        from_state: 'VERIFY',
+        to_state: 'PAUSED',
+        gate_stage: 'VERIFY',
+        reason: 'batch_tasks_not_terminal',
+      },
+      confidence: 1,
+      batch_id: batchId,
+    });
+
+    const approveSpy = vi.spyOn(loopController, 'approveGateForProject');
+
+    await factoryTick.tickProject(factoryHealth.getProject(project.id));
+
+    expect(approveSpy).not.toHaveBeenCalled();
+    expect(factoryHealth.getProject(project.id).status).toBe('paused');
+    const afterTick = factoryLoopInstances.getInstance(instance.id);
+    expect(afterTick.paused_at_stage).toBe(LOOP_STATES.VERIFY);
+  });
+
   it('starts ticks for paused project-row VERIFY batch waits on startup', () => {
     vi.useFakeTimers();
     const decisionLog = require('../factory/decision-log');
@@ -889,6 +951,54 @@ describe('factory pause enforcement', () => {
 
       expect(factoryTick._internalForTests.hasPausedVerifyBatchWait(factoryHealth.getProject(project.id))).toBe(true);
       expect(factoryTick.initFactoryTicks()).toBe(1);
+    } finally {
+      factoryTick.stopAll();
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not start ticks for operator-paused VERIFY batch waits on startup', () => {
+    vi.useFakeTimers();
+    const decisionLog = require('../factory/decision-log');
+    const factoryDecisions = require('../db/factory-decisions');
+    factoryDecisions.setDb(db);
+
+    try {
+      const project = markOperatorPaused(registerFactoryProject({ status: 'running', autoContinue: true }));
+      const batchId = `test-batch-startup-operator-paused-${Date.now()}`;
+      const instance = factoryLoopInstances.createInstance({
+        project_id: project.id,
+        batch_id: batchId,
+      });
+      factoryLoopInstances.updateInstance(instance.id, {
+        loop_state: LOOP_STATES.VERIFY,
+        paused_at_stage: LOOP_STATES.VERIFY,
+      });
+
+      db.prepare(`
+        INSERT INTO tasks (id, task_description, provider, status, tags, working_directory, created_at)
+        VALUES (?, 'batch-task-1', 'ollama', 'running', ?, ?, datetime('now'))
+      `).run('startup-operator-paused-project-batch-task-1', JSON.stringify([`factory:batch_id=${batchId}`]), project.path);
+
+      decisionLog.logDecision({
+        project_id: project.id,
+        stage: 'verify',
+        actor: 'auto-recovery',
+        action: 'paused_at_gate',
+        reasoning: 'Loop paused awaiting batch task completion for VERIFY.',
+        inputs: { previous_state: 'VERIFY', trust_level: 'dark' },
+        outcome: {
+          from_state: 'VERIFY',
+          to_state: 'PAUSED',
+          gate_stage: 'VERIFY',
+          reason: 'batch_tasks_not_terminal',
+        },
+        confidence: 1,
+        batch_id: batchId,
+      });
+
+      expect(factoryTick._internalForTests.hasPausedVerifyBatchWait(factoryHealth.getProject(project.id))).toBe(false);
+      expect(factoryTick.initFactoryTicks()).toBe(0);
     } finally {
       factoryTick.stopAll();
       vi.useRealTimers();
