@@ -9037,14 +9037,26 @@ function isOutOfScope(diffFiles, scopeEnvelope) {
   });
 }
 
+// `git diff --name-only HEAD~1 HEAD` is fast on a healthy repo (<1s). With
+// no timeout, an index-locked or wedged-filesystem state would leave the
+// Promise unresolved and stall the verify-retry scope-envelope check that
+// sits inside the auto-recovery loop. 15s is generous and matches the cap
+// in verify-review.getModifiedFiles.
+const VERIFY_RETRY_DIFF_TIMEOUT_MS = 15_000;
+
 async function getVerifyRetryDiffFiles(workingDirectory) {
   if (!workingDirectory) return [];
   return new Promise((resolve) => {
     let stdout = '';
     let settled = false;
+    let timeoutHandle = null;
     const finish = (files) => {
       if (settled) return;
       settled = true;
+      if (timeoutHandle) {
+        clearTimeout(timeoutHandle);
+        timeoutHandle = null;
+      }
       resolve(files);
     };
 
@@ -9059,6 +9071,12 @@ async function getVerifyRetryDiffFiles(workingDirectory) {
       finish([]);
       return;
     }
+
+    timeoutHandle = setTimeout(() => {
+      try { child.kill('SIGKILL'); } catch { /* ignore */ }
+      finish([]);
+    }, VERIFY_RETRY_DIFF_TIMEOUT_MS);
+    timeoutHandle.unref?.();
 
     child.stdout.on('data', (c) => { stdout += c.toString('utf8'); });
     child.on('error', () => finish([]));

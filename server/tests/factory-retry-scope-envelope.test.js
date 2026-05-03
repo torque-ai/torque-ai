@@ -278,3 +278,57 @@ describe('loop-controller exports the retry-scope-envelope helpers via __testing
     expect(typeof enforceVerifyRetryScopeEnvelope).toBe('function');
   });
 });
+
+describe('getVerifyRetryDiffFiles — timeout safety', () => {
+  const { EventEmitter } = require('events');
+  const child_process = require('node:child_process');
+
+  function makeFakeChild() {
+    const child = new EventEmitter();
+    child.stdout = new EventEmitter();
+    child.kill = vi.fn();
+    return child;
+  }
+
+  it('returns [] without spawning when workingDirectory is missing', async () => {
+    const spawnSpy = vi.spyOn(child_process, 'spawn');
+    expect(await getVerifyRetryDiffFiles('')).toEqual([]);
+    expect(await getVerifyRetryDiffFiles(null)).toEqual([]);
+    expect(spawnSpy).not.toHaveBeenCalled();
+    spawnSpy.mockRestore();
+  });
+
+  it('returns parsed file list on git exit 0', async () => {
+    const child = makeFakeChild();
+    const spawnSpy = vi.spyOn(child_process, 'spawn').mockReturnValue(child);
+    const promise = getVerifyRetryDiffFiles('/tmp/repo');
+    child.stdout.emit('data', Buffer.from('a.js\nb.js\n'));
+    child.emit('close', 0);
+    expect(await promise).toEqual(['a.js', 'b.js']);
+    spawnSpy.mockRestore();
+  });
+
+  it('SIGKILLs the child and resolves [] when git hangs past the timeout', async () => {
+    vi.useFakeTimers();
+    try {
+      const child = makeFakeChild();
+      const spawnSpy = vi.spyOn(child_process, 'spawn').mockReturnValue(child);
+      const promise = getVerifyRetryDiffFiles('/tmp/repo');
+      // No close/error emitted — drive past the 15s timeout.
+      await vi.advanceTimersByTimeAsync(20_000);
+      expect(child.kill).toHaveBeenCalledWith('SIGKILL');
+      expect(await promise).toEqual([]);
+      spawnSpy.mockRestore();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('returns [] when spawn itself throws', async () => {
+    const spawnSpy = vi.spyOn(child_process, 'spawn').mockImplementation(() => {
+      throw new Error('ENOENT');
+    });
+    expect(await getVerifyRetryDiffFiles('/tmp/repo')).toEqual([]);
+    spawnSpy.mockRestore();
+  });
+});
