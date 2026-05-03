@@ -463,6 +463,12 @@ describe('factory loop-controller EXECUTE for non-plan-file work items', () => {
       task_metadata: expect.objectContaining({
         kind: 'plan_generation',
         work_item_id: workItem.id,
+        activity_timeout_policy: {
+          kind: 'plan_generation',
+          timeout_minutes: 30,
+          max_wall_clock_minutes: 60,
+          overrun_intake_problem: 'timeout_overrun_active',
+        },
       }),
     }));
     expect(awaitModule.handleAwaitTask).toHaveBeenCalledWith({
@@ -504,6 +510,14 @@ describe('factory loop-controller EXECUTE for non-plan-file work items', () => {
 
     expect(routingModule.handleSmartSubmitTask).toHaveBeenCalledWith(expect.objectContaining({
       timeout_minutes: 45,
+      task_metadata: expect.objectContaining({
+        activity_timeout_policy: {
+          kind: 'plan_generation',
+          timeout_minutes: 45,
+          max_wall_clock_minutes: 90,
+          overrun_intake_problem: 'timeout_overrun_active',
+        },
+      }),
     }));
     expect(awaitModule.handleAwaitTask).toHaveBeenCalledWith({
       task_id: 'plan-gen-task',

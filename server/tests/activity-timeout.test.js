@@ -1,6 +1,10 @@
 'use strict';
 
-const { createActivityTimeout, normalizeTimeoutMs } = require('../utils/activity-timeout');
+const {
+  createActivityTimeout,
+  normalizeTimeoutMs,
+  resolveActivityAwareTimeoutDecision,
+} = require('../utils/activity-timeout');
 
 // Focused unit tests for the activity-aware timeout helper introduced in
 // d4a8bda1 ("fix(verify): keep streaming commands from timing out"). The
@@ -28,6 +32,129 @@ describe('normalizeTimeoutMs', () => {
 
   it('coerces numeric strings', () => {
     expect(normalizeTimeoutMs('250')).toBe(250);
+  });
+});
+
+describe('resolveActivityAwareTimeoutDecision', () => {
+  const minuteMs = 60 * 1000;
+  const timeoutMs = 30 * minuteMs;
+
+  function planGenerationMetadata(maxWallClockMinutes = 60) {
+    return {
+      factory_internal: true,
+      kind: 'plan_generation',
+      activity_timeout_policy: {
+        kind: 'plan_generation',
+        timeout_minutes: 30,
+        max_wall_clock_minutes: maxWallClockMinutes,
+        overrun_intake_problem: 'timeout_overrun_active',
+      },
+    };
+  }
+
+  it('extends active factory plan-generation tasks before the hard cap', () => {
+    const decision = resolveActivityAwareTimeoutDecision({
+      proc: { startTime: 0, lastOutputAt: 35 * minuteMs },
+      timeoutMs,
+      metadata: planGenerationMetadata(60),
+      now: 36 * minuteMs,
+    });
+
+    expect(decision).toEqual({
+      action: 'extend',
+      delayMs: 24 * minuteMs,
+      idleMs: minuteMs,
+      elapsedMs: 36 * minuteMs,
+    });
+  });
+
+  it('times out active factory plan-generation tasks at the hard cap', () => {
+    const decision = resolveActivityAwareTimeoutDecision({
+      proc: { startTime: 0, lastOutputAt: 59 * minuteMs },
+      timeoutMs,
+      metadata: planGenerationMetadata(60),
+      now: 60 * minuteMs,
+    });
+
+    expect(decision).toEqual({
+      action: 'timeout',
+      idleMs: minuteMs,
+      elapsedMs: 60 * minuteMs,
+      reason: 'factory_plan_generation_hard_cap',
+    });
+  });
+
+  it('keeps ordinary task activity-aware extension behavior', () => {
+    const decision = resolveActivityAwareTimeoutDecision({
+      proc: { startTime: 0, lastOutputAt: 35 * minuteMs },
+      timeoutMs,
+      metadata: {
+        factory_internal: false,
+        kind: 'verify',
+      },
+      now: 36 * minuteMs,
+    });
+
+    expect(decision).toEqual({
+      action: 'extend',
+      delayMs: 29 * minuteMs,
+      idleMs: minuteMs,
+      elapsedMs: 36 * minuteMs,
+    });
+  });
+
+  it('returns timeout decisions for invalid timeout input', () => {
+    expect(resolveActivityAwareTimeoutDecision({
+      proc: { startTime: 0, lastOutputAt: 0 },
+      timeoutMs: 0,
+      now: minuteMs,
+    })).toEqual({
+      action: 'timeout',
+      idleMs: 0,
+      elapsedMs: 0,
+      reason: 'invalid_timeout',
+    });
+  });
+
+  it('treats missing metadata as an ordinary activity-aware timeout', () => {
+    const decision = resolveActivityAwareTimeoutDecision({
+      proc: { startTime: 0, lastOutputAt: 35 * minuteMs },
+      timeoutMs,
+      now: 36 * minuteMs,
+    });
+
+    expect(decision).toEqual({
+      action: 'extend',
+      delayMs: 29 * minuteMs,
+      idleMs: minuteMs,
+      elapsedMs: 36 * minuteMs,
+    });
+  });
+
+  it('returns timeout decisions for missing process records', () => {
+    expect(resolveActivityAwareTimeoutDecision({
+      proc: null,
+      timeoutMs,
+      now: minuteMs,
+    })).toEqual({
+      action: 'timeout',
+      idleMs: 0,
+      elapsedMs: 0,
+      reason: 'missing_process',
+    });
+  });
+
+  it('returns timeout decisions for missing process start time', () => {
+    expect(resolveActivityAwareTimeoutDecision({
+      proc: { lastOutputAt: 0 },
+      timeoutMs,
+      now: minuteMs,
+    })).toEqual({
+      action: 'timeout',
+      idleMs: 0,
+      elapsedMs: 0,
+      reason: 'missing_start_time',
+    });
   });
 });
 

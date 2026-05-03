@@ -23,8 +23,7 @@ const logger = require('../logger').child({ component: 'process-lifecycle' });
 const { redactCommandArgs } = require('../utils/sanitize');
 const { buildCombinedProcessOutput, detectSuccessFromOutput } = require('../validation/completion-detection');
 const { extractModifiedFiles } = require('../utils/file-resolution');
-
-const MIN_TIMEOUT_RESCHEDULE_MS = 1000;
+const { resolveActivityAwareTimeoutDecision } = require('../utils/activity-timeout');
 
 // Dependencies injected via init() from task-manager.js
 let deps = null;
@@ -99,15 +98,18 @@ function logTaskkillFailureIfAlive(pid, message) {
 }
 
 function computeActivityAwareTimeoutDelay(proc, timeoutMs, now = Date.now()) {
-  if (!proc || !Number.isFinite(timeoutMs) || timeoutMs <= 0) {
-    return 0;
-  }
-  const lastActivity = proc.lastOutputAt || proc.startTime || now;
-  const idleMs = Math.max(0, now - lastActivity);
-  if (idleMs >= timeoutMs) {
-    return 0;
-  }
-  return Math.max(MIN_TIMEOUT_RESCHEDULE_MS, timeoutMs - idleMs);
+  const decision = resolveActivityAwareTimeoutDecision({ proc, timeoutMs, now });
+  return decision.action === 'extend' ? decision.delayMs : 0;
+}
+
+function describeTimeoutDecisionReason(reason) {
+  return reason === 'factory_plan_generation_hard_cap'
+    ? 'factory plan-generation hard cap'
+    : 'idle timeout';
+}
+
+function formatElapsedMinutes(ms) {
+  return (Math.max(0, ms) / 60000).toFixed(1);
 }
 
 /**
@@ -780,16 +782,26 @@ function spawnAndTrackProcess(taskId, task, {
           if (!proc) {
             return;
           }
-          const rescheduleDelayMs = computeActivityAwareTimeoutDelay(proc, timeoutMs);
-          if (rescheduleDelayMs > 0) {
-            const idleSeconds = Math.round((Date.now() - (proc.lastOutputAt || proc.startTime || Date.now())) / 1000);
+          const decision = resolveActivityAwareTimeoutDecision({
+            proc,
+            timeoutMs,
+            task,
+            metadata: taskMetadata,
+            now: Date.now(),
+          });
+          if (decision.action === 'extend') {
+            const idleSeconds = Math.round(decision.idleMs / 1000);
+            const nextDelaySeconds = Math.round(decision.delayMs / 1000);
             logger.info(
-              `[TaskManager] Task ${taskId} exceeded ${boundedTimeout}min wall time but had activity ${idleSeconds}s ago; extending timeout window`
+              `[TaskManager] Task ${taskId} exceeded ${boundedTimeout}min timeout budget but had activity ${idleSeconds}s ago; elapsed=${formatElapsedMinutes(decision.elapsedMs)}min next_delay=${nextDelaySeconds}s`
             );
-            scheduleTimeoutCheck(rescheduleDelayMs);
+            scheduleTimeoutCheck(decision.delayMs);
             return;
           }
 
+          logger.info(
+            `[TaskManager] Task ${taskId} timeout decision: ${describeTimeoutDecisionReason(decision.reason)}; elapsed=${formatElapsedMinutes(decision.elapsedMs)}min idle=${Math.round(decision.idleMs / 1000)}s`
+          );
           deps.cancelTask(taskId, 'Timeout exceeded', { cancel_reason: 'timeout' });
         } catch (err) {
           logger.info(`[TaskManager] Error in timeout callback for ${taskId}: ${err.message}`);

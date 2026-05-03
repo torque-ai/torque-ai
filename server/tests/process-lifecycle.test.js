@@ -1561,6 +1561,57 @@ describe('process-lifecycle', () => {
       expect(deps.cancelTask).toHaveBeenCalledWith(taskId, 'Timeout exceeded', { cancel_reason: 'timeout' });
     });
 
+    it('cancels active factory plan-generation tasks at the hard wall-clock cap', async () => {
+      const taskId = 'task-timeout-plan-hard-cap';
+      const child = createLifecycleChild();
+      const loggerState = createLifecycleLoggerMock();
+      const taskMetadata = {
+        factory_internal: true,
+        kind: 'plan_generation',
+        activity_timeout_policy: {
+          kind: 'plan_generation',
+          timeout_minutes: 1,
+          max_wall_clock_minutes: 2,
+          overrun_intake_problem: 'timeout_overrun_active',
+        },
+      };
+      const { subject, loggerMock } = loadLifecycleSubject({
+        dbMock: createLifecycleDbMock([createTaskRecord(taskId, { timeout_minutes: 1 })]),
+        loggerMock: loggerState,
+        spawnImpl: () => child,
+      });
+      const deps = createSpawnDeps();
+      subject.init(deps);
+
+      subject.spawnAndTrackProcess(taskId, createTaskRecord(taskId, { timeout_minutes: 1 }), {
+        cliPath: 'codex',
+        finalArgs: [],
+        stdinPrompt: null,
+        options: { cwd: 'C:/repo/task', env: {}, shell: false, stdio: ['pipe', 'pipe', 'pipe'] },
+        provider: 'codex',
+        selectedOllamaHostId: null,
+        usedEditFormat: null,
+        taskMetadata,
+        taskType: 'code',
+        contextTokenEstimate: null,
+        baselineCommit: null,
+      });
+
+      await vi.advanceTimersByTimeAsync(59000);
+      child.stdout.write('still working');
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(deps.cancelTask).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(58000);
+      child.stdout.write('still active near cap');
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(deps.cancelTask).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(loggerMock.info).toHaveBeenCalledWith(expect.stringContaining('factory plan-generation hard cap'));
+      expect(deps.cancelTask).toHaveBeenCalledWith(taskId, 'Timeout exceeded', { cancel_reason: 'timeout' });
+    });
+
     it('falls back to safeUpdateTaskStatus when timeout cancellation throws and enforces the max timeout bound', async () => {
       const taskId = 'task-timeout-max';
       const child = createLifecycleChild();

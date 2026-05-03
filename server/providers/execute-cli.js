@@ -21,6 +21,7 @@ const serverConfig = require('../config');
 const { applyStudyContextPrompt } = require('../integrations/codebase-study-engine');
 const { resolveCodexNativeBinary } = require('../execution/codex-native-resolve');
 const { classifyReasoningEffort } = require('../execution/codex-reasoning-effort');
+const { resolveActivityAwareTimeoutDecision } = require('../utils/activity-timeout');
 
 // Subprocess exit-code sentinels for cases where there is no real exit code
 // (the subprocess either never ran, was torn down before tracking, or the
@@ -31,18 +32,20 @@ const { classifyReasoningEffort } = require('../execution/codex-reasoning-effort
 const EXIT_SPAWN_INSTANT_EXIT = -101;   // proc entry gone but task row still running
 const EXIT_CLOSE_HANDLER_EXCEPTION = -102; // close handler itself threw
 const EXIT_SPAWN_ERROR = -103;          // child.on('error') fired (ENOENT, EACCES, etc.)
-const MIN_TIMEOUT_RESCHEDULE_MS = 1000;
 
 function computeActivityAwareTimeoutDelay(proc, timeoutMs, now = Date.now()) {
-  if (!proc || !Number.isFinite(timeoutMs) || timeoutMs <= 0) {
-    return 0;
-  }
-  const lastActivity = proc.lastOutputAt || proc.startTime || now;
-  const idleMs = Math.max(0, now - lastActivity);
-  if (idleMs >= timeoutMs) {
-    return 0;
-  }
-  return Math.max(MIN_TIMEOUT_RESCHEDULE_MS, timeoutMs - idleMs);
+  const decision = resolveActivityAwareTimeoutDecision({ proc, timeoutMs, now });
+  return decision.action === 'extend' ? decision.delayMs : 0;
+}
+
+function describeTimeoutDecisionReason(reason) {
+  return reason === 'factory_plan_generation_hard_cap'
+    ? 'factory plan-generation hard cap'
+    : 'idle timeout';
+}
+
+function formatElapsedMinutes(ms) {
+  return (Math.max(0, ms) / 60000).toFixed(1);
 }
 
 /**
@@ -485,6 +488,7 @@ function spawnAndTrackProcess(taskId, task, cmdSpec, provider) {
     ollamaHostId: selectedOllamaHostId,
     model: task.model,
     provider: provider,
+    metadata: task.metadata || task.task_metadata || null,
     editFormat: usedEditFormat,
     completionDetected: false,
     completionGraceHandle: null,
@@ -1112,16 +1116,26 @@ function spawnAndTrackProcess(taskId, task, cmdSpec, provider) {
         if (!proc) {
           return;
         }
-        const rescheduleDelayMs = computeActivityAwareTimeoutDelay(proc, timeoutMs);
-        if (rescheduleDelayMs > 0) {
-          const idleSeconds = Math.round((Date.now() - (proc.lastOutputAt || proc.startTime || Date.now())) / 1000);
+        const decision = resolveActivityAwareTimeoutDecision({
+          proc,
+          timeoutMs,
+          task,
+          metadata: task.metadata,
+          now: Date.now(),
+        });
+        if (decision.action === 'extend') {
+          const idleSeconds = Math.round(decision.idleMs / 1000);
+          const nextDelaySeconds = Math.round(decision.delayMs / 1000);
           logger.info(
-            `[TaskManager] Task ${taskId} exceeded ${boundedTimeout}min wall time but had activity ${idleSeconds}s ago; extending timeout window`
+            `[TaskManager] Task ${taskId} exceeded ${boundedTimeout}min timeout budget but had activity ${idleSeconds}s ago; elapsed=${formatElapsedMinutes(decision.elapsedMs)}min next_delay=${nextDelaySeconds}s`
           );
-          scheduleTimeoutCheck(rescheduleDelayMs);
+          scheduleTimeoutCheck(decision.delayMs);
           return;
         }
-        _helpers.cancelTask(taskId, 'Timeout exceeded');
+        logger.info(
+          `[TaskManager] Task ${taskId} timeout decision: ${describeTimeoutDecisionReason(decision.reason)}; elapsed=${formatElapsedMinutes(decision.elapsedMs)}min idle=${Math.round(decision.idleMs / 1000)}s`
+        );
+        _helpers.cancelTask(taskId, 'Timeout exceeded', { cancel_reason: 'timeout' });
       }, delayMs);
     };
     scheduleTimeoutCheck(timeoutMs);

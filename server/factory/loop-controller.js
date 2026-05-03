@@ -276,6 +276,22 @@ function resolvePlanGenerationTimeoutMinutes(project) {
   return DEFAULT_PLAN_GENERATION_TIMEOUT_MINUTES;
 }
 
+function buildPlanGenerationActivityTimeoutPolicy(timeoutMinutes) {
+  const numeric = Number(timeoutMinutes);
+  const boundedTimeoutMinutes = Number.isFinite(numeric) && numeric > 0
+    ? Math.min(Math.max(Math.ceil(numeric), 1), 120)
+    : DEFAULT_PLAN_GENERATION_TIMEOUT_MINUTES;
+  return {
+    kind: 'plan_generation',
+    timeout_minutes: boundedTimeoutMinutes,
+    max_wall_clock_minutes: Math.min(
+      Math.max(boundedTimeoutMinutes * 2, boundedTimeoutMinutes + 15),
+      120
+    ),
+    overrun_intake_problem: 'timeout_overrun_active',
+  };
+}
+
 function getTaskAgeMs(task) {
   if (!task) return null;
   // provider_switched_at takes precedence so failover-requeued tasks reset the
@@ -6693,6 +6709,9 @@ async function executeNonPlanFileStage(project, instance, workItem) {
   const planGenerationFiles = collectArchitectScopeFiles(targetItem);
   let generationTaskId = getStoredPlanGenerationTaskId(targetItem);
   const planGenerationTimeoutMinutes = resolvePlanGenerationTimeoutMinutes(project);
+  const planGenerationActivityTimeoutPolicy = buildPlanGenerationActivityTimeoutPolicy(
+    planGenerationTimeoutMinutes
+  );
   const stalePendingMs = planGenerationTimeoutMinutes * 60 * 1000;
 
   try {
@@ -6783,6 +6802,9 @@ async function executeNonPlanFileStage(project, instance, workItem) {
         context_stuff: false,
         study_context: false,
         timeout_minutes: planGenerationTimeoutMinutes,
+        extra_metadata: {
+          activity_timeout_policy: planGenerationActivityTimeoutPolicy,
+        },
       });
 
       generationTaskId = task_id;
@@ -7136,6 +7158,9 @@ async function executeNonPlanFileStage(project, instance, workItem) {
             context_stuff: false,
             study_context: false,
             timeout_minutes: planGenerationTimeoutMinutes,
+            extra_metadata: {
+              activity_timeout_policy: planGenerationActivityTimeoutPolicy,
+            },
           });
           reTaskId = reSubmit?.task_id || null;
         } catch (err) {
@@ -13065,6 +13090,7 @@ module.exports = {
   normalizeRejectionReasonForShape,
   SAME_SHAPE_THRESHOLD,
   resolvePlanGenerationTimeoutMinutes,
+  buildPlanGenerationActivityTimeoutPolicy,
   getEffectiveProjectProvider,
   OLLAMA_PLAN_GENERATION_TIMEOUT_MINUTES,
   DEFAULT_PLAN_GENERATION_TIMEOUT_MINUTES,
