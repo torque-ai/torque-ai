@@ -475,11 +475,13 @@ function analyzeTaskForRouting(taskDescription, workingDirectory, files = [], op
   // Each significant decision point appends an entry so operators can see
   // the full lineage of how a task ended up at its provider, instead of
   // having to reverse-engineer behavior from a single `routing_reason`
-  // string. The trace is attached to the returned result and persisted
-  // on the task row by handleSmartSubmitTask.
+  // string. Submit paths pass their own array and persist it separately;
+  // keep the public return shape stable unless a caller explicitly asks for
+  // the trace on the result object.
   const trace = Array.isArray(options?.trace) ? options.trace : createTrace();
+  const shouldAttachTrace = options?.includeTrace === true;
   const attachTrace = (result) => {
-    if (result && typeof result === 'object') {
+    if (shouldAttachTrace && result && typeof result === 'object') {
       result.trace = trace;
     }
     return result;

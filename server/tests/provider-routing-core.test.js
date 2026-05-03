@@ -536,6 +536,57 @@ describe('provider-routing-core', () => {
       });
     });
 
+    it('populates caller-provided routing trace without changing the default return shape', () => {
+      const { core } = loadCore({
+        db: {
+          config: {
+            smart_routing_enabled: '0',
+            default_provider: 'claude-cli',
+          },
+        },
+      });
+      const trace = [];
+
+      const result = core.analyzeTaskForRouting('Write docs', 'C:/repo', [], { trace });
+
+      expect(result).toEqual({
+        provider: 'claude-cli',
+        rule: null,
+        reason: 'Smart routing disabled',
+      });
+      expect(trace).toEqual([
+        expect.objectContaining({
+          stage: 'default_provider',
+          to: 'claude-cli',
+        }),
+      ]);
+    });
+
+    it('attaches routing trace only when includeTrace is requested', () => {
+      const { core } = loadCore({
+        db: {
+          config: {
+            smart_routing_enabled: '0',
+            default_provider: 'claude-cli',
+          },
+        },
+      });
+      const trace = [];
+
+      const result = core.analyzeTaskForRouting('Write docs', 'C:/repo', [], {
+        trace,
+        includeTrace: true,
+      });
+
+      expect(result).toEqual({
+        provider: 'claude-cli',
+        rule: null,
+        reason: 'Smart routing disabled',
+        trace,
+      });
+      expect(result.trace).toBe(trace);
+    });
+
     it('falls back to the first enabled provider when smart routing is disabled and the default is disabled', () => {
       const { core, loggerChild } = loadCore({
         db: {
