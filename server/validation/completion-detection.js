@@ -125,6 +125,7 @@ function detectSuccessFromOutput(output, provider) {
     const transcriptWriteSignals = [
       /\b(?:has been )?written to:/i,
       /\bwriting to\b/i,
+      /^patched\s+\[[^\]\n]+\]\([^)]+\)/im,
       /\b(?:created|modified|wrote|updated|edited)\s+(?:file\s+)?[`']?([^`'\n]+)[`']?/i,
       /^diff --git a\/.+ b\/.+/m
     ];

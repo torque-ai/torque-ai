@@ -448,6 +448,60 @@ describe('Orphan Cleanup', () => {
       expect(processRef.emit).toHaveBeenCalledWith('close', 0);
       expect(logger.info).toHaveBeenCalledWith(expect.stringContaining('completion detected'));
     });
+
+    it('force-completes idle short Codex patched final answers missed by stream detection', async () => {
+      const runningProcesses = new Map();
+      const processRef = {
+        pid: null,
+        exitCode: null,
+        killed: false,
+        signalCode: null,
+        emit: vi.fn(),
+      };
+      const output = [
+        'Patched [server/factory/scorers/debt-ratio.js](C:/workspace/torque-public/.worktrees/fea-08597001/server/factory/scorers/debt-ratio.js:18).',
+        '',
+        'The scorer now keeps todos.count as the authoritative total when present.'
+      ].join('\n');
+
+      runningProcesses.set('task-patched-final', {
+        provider: 'codex',
+        process: processRef,
+        output,
+        completionDetected: false,
+        startTime: Date.now() - 4 * 60 * 1000,
+        lastOutputAt: Date.now() - 3 * 60 * 1000,
+      });
+      const logger = { info: vi.fn(), warn: vi.fn() };
+
+      vi.spyOn(process, 'kill').mockImplementation(() => {});
+
+      orphanCleanup.init({
+        db: {
+          getConfig: vi.fn().mockReturnValue('0'),
+          getTask: vi.fn().mockReturnValue({ id: 'task-patched-final', status: 'running' }),
+          reconcileHostTaskCounts: vi.fn(),
+          getRunningTasksLightweight: vi.fn().mockReturnValue([]),
+        },
+        dashboard: { notifyTaskUpdated: vi.fn() },
+        logger,
+        runningProcesses,
+        stallRecoveryAttempts: new Map(),
+        TASK_TIMEOUTS: { PROCESS_QUERY: 5000 },
+        cancelTask: vi.fn(),
+        processQueue: vi.fn(),
+        tryLocalFirstFallback: vi.fn(),
+        getTaskActivity: vi.fn(),
+        tryStallRecovery: vi.fn(),
+        safeConfigInt: vi.fn(),
+        detectOutputCompletion: () => false,
+      });
+
+      await orphanCleanup.checkZombieProcesses();
+
+      expect(processRef.emit).toHaveBeenCalledWith('close', 0);
+      expect(runningProcesses.get('task-patched-final').completionDetected).toBe(true);
+    });
   });
 
   describe('checkStaleRunningTasks', () => {

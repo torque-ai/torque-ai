@@ -436,6 +436,7 @@ function extractModifiedFiles(output) {
     /written to:\s*(?:\r?\n\s*)?([^\n]+)/gi,
     /saved to:\s*(?:\r?\n\s*)?([^\n]+)/gi,
     /File:\s+([^\n]+)/gi,
+    /(?:Patched|Created|Modified|Wrote|Updated|Edited)\s+\[([^\]\n]+)\]\([^)]+\)/gi,
     // Aider-specific patterns - handle both same-line and next-line file paths
     /Applied edit to\s+(\S+\.(?:cs|ts|js|py|java|go|rs|cpp|c|h|hpp|xaml|json|yaml|yml|md|txt|csproj|sln|xml))/gi,
     /Applied edit to\s*\n\s*(\S+\.(?:cs|ts|js|py|java|go|rs|cpp|c|h|hpp|xaml|json|yaml|yml|md|txt|csproj|sln|xml))/gi,

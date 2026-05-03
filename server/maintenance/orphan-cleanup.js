@@ -567,6 +567,7 @@ async function checkZombieProcesses() {
             /test run successful/,
             /tests? passed,\s*0 failed/,
             /applied edit to\s+\S+/,
+            /^patched\s+\[[^\]\n]+\]\([^)]+\)/im,
             /completed?\./i,
             /done\./i,
           ];

@@ -92,6 +92,16 @@ describe('completion-detection', () => {
       expect(detectSuccessFromOutput('Running apply_patch to fix the issue', 'codex')).toBe(true);
     });
 
+    it('detects Codex markdown-link patched final answers', () => {
+      const output = [
+        'Patched [server/factory/scorers/debt-ratio.js](C:/workspace/torque-public/.worktrees/fea-08597001/server/factory/scorers/debt-ratio.js:18).',
+        '',
+        'The scorer now keeps todos.count as the authoritative total when present.'
+      ].join('\n');
+
+      expect(detectSuccessFromOutput(output, 'codex')).toBe(true);
+    });
+
     // Failure rejection
     it('rejects output with API error', () => {
       const output = 'x'.repeat(3000) + '\nERROR: {"detail": "rate limited"}\ntest passed';
