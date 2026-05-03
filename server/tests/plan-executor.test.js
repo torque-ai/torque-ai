@@ -273,6 +273,31 @@ torque-remote dotnet test tests/Foo.csproj --verbosity normal
     expect(submitMock).toHaveBeenCalledTimes(1);
   });
 
+  it('submits when a diagnostic verify output fence mentions heavy command names', async () => {
+    const PLAN_WITH_VERIFY_OUTPUT = `# Retry from verify output
+
+## Task 1: fix scorer behavior
+
+- [ ] **Step 1: inspect previous output**
+
+Verify output (tail):
+\`\`\`
+server/tests/factory-scorers-behavioral.test.js > fallback heuristic
+passes: counts dotnet test projects and C# test files in the fallback heuristic 4ms
+\`\`\`
+
+Update \`server/factory/scorers.js\` based on the failure context.
+`;
+    fs.writeFileSync(planPath, PLAN_WITH_VERIFY_OUTPUT);
+    fs.mkdirSync(path.join(dir, 'server', 'factory'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'server', 'factory', 'scorers.js'), 'module.exports = {};\n');
+    fs.mkdirSync(path.join(dir, 'server', 'tests'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'server', 'tests', 'factory-scorers-behavioral.test.js'), 'test.todo("fixture");\n');
+    await exec.execute({ plan_path: planPath, project: 'p', working_directory: dir });
+
+    expect(submitMock).toHaveBeenCalledTimes(1);
+  });
+
   it('refuses on bare dotnet build and pwsh scripts/build.ps1 too', async () => {
     const PLAN_BUILD = `# Bare dotnet build
 

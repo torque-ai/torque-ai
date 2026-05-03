@@ -1083,7 +1083,9 @@ function evaluateFactoryWorktreeHeavyValidationGuard(task, provider) {
     return null;
   }
 
-  const detectedCommand = findHeavyLocalValidationCommand(task?.task_description || '');
+  const detectedCommand = findHeavyLocalValidationCommand(task?.task_description || '', {
+    ignoreDiagnosticFencedBlocks: true,
+  });
   if (!detectedCommand) {
     return null;
   }

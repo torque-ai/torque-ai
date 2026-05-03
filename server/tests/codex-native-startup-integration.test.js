@@ -183,6 +183,24 @@ describe('evaluateFactoryWorktreeHeavyValidationGuard', () => {
     expect(result).toMatchObject({ blocked: true });
   });
 
+  it('ignores heavy command names that only appear inside verify output diagnostics', () => {
+    const result = evaluateFactoryWorktreeHeavyValidationGuard({
+      task_description: [
+        'You are retrying a failed verify task. Review this output and fix the failing behavior.',
+        '',
+        'Verify output (tail):',
+        '```',
+        'server/tests/factory-scorers-behavioral.test.js > fallback heuristic',
+        'passes: counts dotnet test projects and C# test files in the fallback heuristic 4ms',
+        '```',
+      ].join('\n'),
+      working_directory: 'C:\\Users\\FactoryUser\\Projects\\torque-public\\.worktrees\\fea-1234',
+      metadata: { kind: 'execute', factory_internal: true },
+    }, 'codex');
+
+    expect(result).toBeNull();
+  });
+
   it('parses metadata when stored as a JSON string (db round-trip shape)', () => {
     const result = evaluateFactoryWorktreeHeavyValidationGuard({
       task_description: 'You are a quality reviewer. Verification: dotnet test ...',

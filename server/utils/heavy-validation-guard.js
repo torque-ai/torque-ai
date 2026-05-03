@@ -7,6 +7,10 @@ const HEAVY_LOCAL_VALIDATION_PATTERNS = Object.freeze([
   { label: 'bash scripts/build.sh', re: /\b(?:bash|sh)\s+(?:\.?[\\/])?scripts[\\/](?:build|test)\.sh\b/i },
 ]);
 
+const DIAGNOSTIC_FENCE_HEADER_RE = /^\s*(?:verify\s+(?:command\s+)?output|verify\s+output|previous\s+verify\s+output)(?:\s*\([^)]*\))?\s*:\s*$/i;
+const FENCE_RE = /^\s*```/;
+const DIAGNOSTIC_FENCE_LOOKAHEAD_LINES = 8;
+
 function normalizeCommandText(value) {
   return String(value || '')
     .toLowerCase()
@@ -15,6 +19,49 @@ function normalizeCommandText(value) {
     .replace(/(^|\s)\.\//g, '$1')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+function stripDiagnosticFencedBlocks(text) {
+  const lines = String(text || '').split(/\r?\n/);
+  const kept = [];
+
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i];
+    if (!DIAGNOSTIC_FENCE_HEADER_RE.test(line)) {
+      kept.push(line);
+      continue;
+    }
+
+    kept.push(line);
+
+    let cursor = i + 1;
+    const intervening = [];
+    let scanned = 0;
+    while (
+      cursor < lines.length
+      && scanned < DIAGNOSTIC_FENCE_LOOKAHEAD_LINES
+      && !FENCE_RE.test(lines[cursor])
+    ) {
+      intervening.push(lines[cursor]);
+      cursor += 1;
+      scanned += 1;
+    }
+
+    if (cursor >= lines.length || !FENCE_RE.test(lines[cursor])) {
+      kept.push(...intervening);
+      i = cursor - 1;
+      continue;
+    }
+
+    kept.push(...intervening);
+    cursor += 1;
+    while (cursor < lines.length && !FENCE_RE.test(lines[cursor])) {
+      cursor += 1;
+    }
+    i = cursor < lines.length ? cursor : lines.length - 1;
+  }
+
+  return kept.join('\n');
 }
 
 function isCommandRoutedRemotely(line, commandIndex) {
@@ -52,8 +99,11 @@ function findFirstUnroutedCommand(text, commands) {
   return null;
 }
 
-function findHeavyLocalValidationCommand(text) {
-  const lines = String(text || '').split(/\r?\n/);
+function findHeavyLocalValidationCommand(text, options = {}) {
+  const source = options?.ignoreDiagnosticFencedBlocks
+    ? stripDiagnosticFencedBlocks(text)
+    : String(text || '');
+  const lines = source.split(/\r?\n/);
   for (const rawLine of lines) {
     const line = normalizeCommandText(rawLine);
     if (!line) continue;
@@ -78,4 +128,5 @@ function findHeavyLocalValidationCommand(text) {
 module.exports = {
   findFirstUnroutedCommand,
   findHeavyLocalValidationCommand,
+  stripDiagnosticFencedBlocks,
 };
