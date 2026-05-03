@@ -9183,6 +9183,73 @@ function batchHasAutoCommittedTask(project_id, batch_id, { limit = 50 } = {}) {
   return recent.some((d) => d.batch_id === batch_id && d.action === 'auto_committed_task');
 }
 
+/**
+ * Detect when an EXECUTE batch's branch has commits ahead of its base ref.
+ *
+ * 2026-05-03 (bitsy WI 470 fix): Phase E's batchHasAutoCommittedTask only
+ * advances the loop when the FACTORY's auto-commit logic logged an
+ * auto_committed_task decision (worktree had dirty state, factory captured
+ * it). It misses the case where a coding agent (claude-cli, codex) commits
+ * its own work via `git commit` inside the plan task. In that path no
+ * auto_committed_task decision fires — the worktree is clean BECAUSE the
+ * agent already committed, not because no work was done.
+ *
+ * Live evidence: bitsy work item #470 ("Add type stubs and py.typed
+ * marker"). Codex generated a 4-task plan; claude-cli executed each task
+ * and committed inside the worktree (3f2ecf5, 2e69d25, 43a6cd3, e355132 —
+ * 337 lines, py.typed marker + 4 .pyi stubs + pyproject package-data + 2
+ * mypy-running tests). After 4 auto_commit_skipped_clean decisions (each
+ * meaning "agent committed cleanly, factory had nothing extra to
+ * auto-commit"), the short-circuit fired and marked WI 470 unactionable
+ * with reason zero_diff_across_retries — even though the work had landed
+ * cleanly on the feature branch. Operator manually merged feat/factory-470
+ * to bitsy main as 350ccad to recover the work.
+ *
+ * This helper closes the gap by asking git directly: does the active
+ * worktree's branch have any commits the merge target doesn't have? If
+ * yes, the no-op cleans are benign — agent self-commits did the work.
+ *
+ * Designed to be safe-by-default: any failure (no worktree row, no base
+ * branch recorded, git error, missing repo) returns false so the existing
+ * unactionable path still runs. We never advance VERIFY on speculation —
+ * only on positive evidence of commits ahead.
+ */
+function batchBranchHasCommitsAhead(project_id, batch_id) {
+  if (!project_id || !batch_id) return false;
+  let row;
+  try {
+    row = factoryWorktrees.getActiveWorktreeByBatch(batch_id);
+  } catch (error) {
+    logger.debug('batchBranchHasCommitsAhead: getActiveWorktreeByBatch threw', {
+      project_id, batch_id, err: error?.message,
+    });
+    return false;
+  }
+  if (!row) return false;
+  const worktreePath = row.worktreePath || row.worktree_path;
+  const baseBranch = row.baseBranch || row.base_branch;
+  if (!worktreePath || !baseBranch) return false;
+  try {
+    const out = childProcess.execFileSync('git', [
+      'rev-list', '--count', `${baseBranch}..HEAD`,
+    ], {
+      cwd: worktreePath,
+      encoding: 'utf8',
+      windowsHide: true,
+      timeout: 10000,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    const count = Number.parseInt(String(out || '').trim(), 10);
+    return Number.isFinite(count) && count > 0;
+  } catch (error) {
+    logger.debug('batchBranchHasCommitsAhead: git rev-list threw', {
+      project_id, batch_id, worktree_path: worktreePath,
+      base_branch: baseBranch, err: error?.message,
+    });
+    return false;
+  }
+}
+
 function maybeShortCircuitZeroDiffExecute({ project, instance, workItem, batchId }) {
   if (!project?.id || !workItem?.id || !batchId) return null;
   const zeroDiffAttempts = countConsecutiveAutoCommitSkippedClean(project.id, batchId);
@@ -9219,6 +9286,42 @@ function maybeShortCircuitZeroDiffExecute({ project, instance, workItem, batchId
       stage_result: {
         status: 'completed',
         reason: 'execute_completed_after_no_op_retries',
+        zero_diff_attempts: zeroDiffAttempts,
+      },
+    };
+  }
+
+  // 2026-05-03 (bitsy WI 470 fix): Phase E only catches factory-driven
+  // auto_committed_task decisions. When a coding agent commits via its
+  // own git tooling, no auto_committed_task fires but the branch still
+  // has commits ahead of master. Ask git directly before rejecting so
+  // we don't lose real work.
+  if (batchBranchHasCommitsAhead(project.id, batchId)) {
+    safeLogDecision({
+      project_id: project.id,
+      stage: LOOP_STATES.EXECUTE,
+      action: 'execute_completed_with_agent_self_commits',
+      reasoning: `Batch branch has commits ahead of base ref despite ${zeroDiffAttempts} consecutive auto_commit_skipped_clean — coding agent committed via its own git tooling. Advancing to VERIFY.`,
+      inputs: {
+        ...getWorkItemDecisionContext(workItem),
+        zero_diff_attempts: zeroDiffAttempts,
+      },
+      outcome: {
+        work_item_id: workItem.id,
+        instance_id: instance?.id || null,
+        zero_diff_attempts: zeroDiffAttempts,
+        next_state: LOOP_STATES.VERIFY,
+      },
+      confidence: 1,
+      batch_id: batchId,
+    });
+    return {
+      reason: 'execute_completed_with_agent_self_commits',
+      work_item: workItem,
+      advance_to_verify: true,
+      stage_result: {
+        status: 'completed',
+        reason: 'execute_completed_with_agent_self_commits',
         zero_diff_attempts: zeroDiffAttempts,
       },
     };
@@ -12693,6 +12796,8 @@ module.exports = {
     renderProgression,
     maybeShipNoop,
     countConsecutiveAutoCommitSkippedClean,
+    batchHasAutoCommittedTask,
+    batchBranchHasCommitsAhead,
     maybeShortCircuitZeroDiffExecute,
     attemptSilentRerun,
     isFactoryFeatureEnabled,
