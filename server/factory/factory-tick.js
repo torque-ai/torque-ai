@@ -1202,6 +1202,14 @@ function startTick(project, intervalMs = DEFAULT_TICK_INTERVAL_MS) {
   if (activeTimers.has(project.id)) return; // already ticking
 
   const timer = setInterval(() => { void tickProject(project); }, intervalMs);
+  // Don't keep the event loop alive on the tick alone — gracefulShutdown
+  // schedules its own deadline and process.exit, but without unref() the
+  // tick can fire one more time during the shutdown grace window and run
+  // tickProject against a half-closed DB. unref() lets node exit naturally
+  // once everything else has wound down. Other recurring timers in the
+  // codebase (orphan-cleanup, instance-manager, coord/reaper) follow the
+  // same pattern.
+  if (typeof timer.unref === 'function') timer.unref();
   activeTimers.set(project.id, timer);
   logger.info('Factory tick started', {
     project_id: project.id,
