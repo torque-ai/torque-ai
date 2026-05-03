@@ -291,8 +291,54 @@ function resolveRoutingTemplate(taskDescription, files, options, deps) {
       reason: activeResult.reason,
       rule: activeTemplate?.name || null,
     });
+    return activeResult;
   }
-  return activeResult;
+
+  // Legacy-fallback preset: a tail template seeded from
+  // server/routing/templates/legacy-fallback.json that mirrors the
+  // historical hardcoded matchProviderByPattern routing for
+  // security / xaml_wpf / architectural / reasoning / large_code_gen.
+  // Operators see and edit it like any other template; running it
+  // here (after the explicit active template, before the hardcoded
+  // pattern matcher) preserves the old behavior with full visibility.
+  // Categories with empty chains (documentation, simple_generation,
+  // plan_generation, targeted_file_edit, default) intentionally fall
+  // through to the next stage. Pass includeDefaultFallback=false so
+  // an empty chain doesn't get rescued by the preset's empty
+  // `default` chain.
+  //
+  // Wrapped in try/catch because template-store's getTemplate hits the
+  // routing_templates SQL table, which may not exist in mock test
+  // DBs or freshly-initialized databases. Failure here just falls
+  // through to the hardcoded matchProviderByPattern safety net below
+  // — matches the prior behavior in those environments.
+  let legacyFallbackTemplate = null;
+  try {
+    legacyFallbackTemplate = templateStore.getTemplate('preset-legacy-fallback');
+  } catch (_err) {
+    legacyFallbackTemplate = null;
+  }
+  if (legacyFallbackTemplate) {
+    const legacyResult = tryResolvedTemplate(
+      legacyFallbackTemplate,
+      `Legacy fallback preset '${legacyFallbackTemplate.name}'`,
+      false,
+      'chain to',
+      true
+    );
+    if (legacyResult) {
+      recordRoutingDecision(trace, {
+        stage: TRACE_STAGES.TEMPLATE_LEGACY_FALLBACK,
+        from: null,
+        to: legacyResult.provider,
+        reason: legacyResult.reason,
+        rule: legacyFallbackTemplate.name || 'Legacy Fallback (auto)',
+      });
+      return legacyResult;
+    }
+  }
+
+  return null;
 }
 
 function matchProviderByPattern(taskDescription, files, deps) {
@@ -303,6 +349,28 @@ function matchProviderByPattern(taskDescription, files, deps) {
     applyProviderSafetyNet,
     isUserOverride,
   } = deps;
+
+  // 2026-05-03: the security / xaml_wpf / architectural / reasoning /
+  // large_code_gen rules below were ALSO promoted into the
+  // `legacy-fallback` preset template
+  // (server/routing/templates/legacy-fallback.json), which runs in the
+  // template stage of analyzeTaskForRouting BEFORE this function
+  // fires. In normal production the preset wins and the rules below
+  // never execute — operators read, edit, and disable them from the
+  // dashboard like any other template.
+  //
+  // The hardcoded versions are intentionally kept here as a
+  // defense-in-depth safety net for environments where the preset
+  // isn't available: fresh databases that haven't run seedPresets,
+  // mock databases in unit tests, or cases where the preset was
+  // edited into a state with all-disabled providers and we still
+  // want a sane default. Once confidence builds, this block can be
+  // deleted in a follow-up.
+  //
+  // The documentation / simple_generation → groq gate at the bottom
+  // is NOT in the preset because it needs a "skip when files > 1"
+  // constraint that templates can't yet express; that's staged for
+  // Phase B (capability_constraints).
 
   const groqApiKey = serverConfig.getApiKey('groq');
 
