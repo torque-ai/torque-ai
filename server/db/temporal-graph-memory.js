@@ -237,9 +237,6 @@ function createTemporalGraphMemoryStore({ db, now = Date.now } = {}) {
       AND subject_entity_type = @subject_entity_type
       AND subject_entity_id = @subject_entity_id
       AND edge_type = @edge_type
-      AND COALESCE(object_entity_type, '') = COALESCE(@object_entity_type, '')
-      AND COALESCE(object_entity_id, '') = COALESCE(@object_entity_id, '')
-      AND COALESCE(value_json, '') = COALESCE(@value_json, '')
       AND valid_from <= @valid_from
       AND (valid_to IS NULL OR valid_to > @valid_from)
   `);
