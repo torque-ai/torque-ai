@@ -174,6 +174,8 @@ function createFactoryTables(db) {
       tags TEXT,
       provider TEXT,
       model TEXT,
+      working_directory TEXT,
+      archived INTEGER DEFAULT 0,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       started_at TEXT,
       completed_at TEXT
@@ -238,6 +240,7 @@ describe('factory loop-controller EXECUTE modes', () => {
     factoryLoopInstances.setDb(db);
     factoryDecisions.setDb(db);
     factoryWorktrees.setDb(db);
+    taskCore.setDb(db);
     originalGetDbInstance = database.getDbInstance;
     database.getDbInstance = () => db;
     tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'factory-loop-controller-'));
@@ -258,6 +261,7 @@ describe('factory loop-controller EXECUTE modes', () => {
     factoryLoopInstances.setDb(null);
     factoryDecisions.setDb(null);
     factoryWorktrees.setDb(null);
+    taskCore.setDb(null);
     routingModule.handleSmartSubmitTask = originalHandleSmartSubmitTask;
     awaitModule.handleAwaitTask = originalHandleAwaitTask;
     taskCore.getTask = originalGetTask;
@@ -1860,6 +1864,82 @@ Edit server/factory/plan-executor.js and make the requested behavior change. Kee
     expect(skipped.outcome.stale_age_ms).toBeGreaterThan(60 * 60 * 1000);
     expect(skipped.outcome.owner_age_ms).toBeGreaterThanOrEqual(0);
     expect(skipped.outcome.owner_age_ms).toBeLessThan(10 * 60 * 1000);
+  });
+
+  it('does not pre-reclaim a worktree used by a restart-cloned live replacement task', async () => {
+    const { project, workItem } = registerPlanProject();
+    db.prepare('ALTER TABLE factory_worktrees ADD COLUMN owning_task_id TEXT').run();
+    const targetBranch = `feat/factory-${workItem.id}-dry-run-plan-item`;
+    const batchId = `factory-${project.id}-${workItem.id}`;
+    const worktreePath = path.join(project.path, '.worktrees', 'feat-restart-cloned-owner');
+    fs.mkdirSync(worktreePath, { recursive: true });
+    const existing = factoryWorktrees.recordWorktree({
+      project_id: project.id,
+      work_item_id: workItem.id,
+      batch_id: batchId,
+      vc_worktree_id: 'vc-orphaned-owner',
+      branch: targetBranch,
+      worktree_path: worktreePath,
+    });
+    factoryWorktrees.setOwningTask(existing.id, 'task-orphaned-owner');
+    db.prepare(`
+      INSERT INTO tasks (id, status, tags, working_directory, started_at)
+      VALUES (?, ?, ?, ?, ?)
+    `).run(
+      'task-restart-clone',
+      'running',
+      JSON.stringify([
+        `factory:batch_id=${batchId}`,
+        `factory:work_item_id=${workItem.id}`,
+        'factory:plan_task_number=1',
+        'project:torque-public',
+      ]),
+      worktreePath,
+      new Date().toISOString(),
+    );
+    taskCore.getTask = vi.fn((taskId) => ({
+      id: taskId,
+      status: taskId === 'task-orphaned-owner' ? 'failed' : 'completed',
+      error_output: null,
+    }));
+
+    const worktreeRunner = {
+      createForBatch: vi.fn(),
+      verify: vi.fn(),
+      mergeToMain: vi.fn(),
+      abandon: vi.fn(),
+    };
+    loopController.setWorktreeRunnerForTests(worktreeRunner);
+
+    await advanceSupervisedPlanProject(project.id);
+    const executeAdvance = await loopController.advanceLoopForProject(project.id);
+
+    expect(worktreeRunner.createForBatch).not.toHaveBeenCalled();
+    expect(worktreeRunner.abandon).not.toHaveBeenCalled();
+    expect(routingModule.handleSmartSubmitTask).not.toHaveBeenCalled();
+    expect(executeAdvance.new_state).toBe(LOOP_STATES.EXECUTE);
+    expect(executeAdvance.paused_at_stage).toBeNull();
+    expect(executeAdvance.stage_result).toMatchObject({
+      status: 'waiting',
+      reason: 'active_worktree_owner_running',
+      factory_worktree_id: existing.id,
+      owning_task_id: 'task-restart-clone',
+      owning_status: 'running',
+      owner_source: 'replacement_task_same_worktree',
+      retry_after: expect.any(String),
+    });
+    expect(db.prepare('SELECT status FROM factory_worktrees WHERE id = ?').get(existing.id).status).toBe('active');
+
+    const decisions = listDecisionRows(db, project.id);
+    const skipped = decisions.find((d) => d.action === 'worktree_reclaim_skipped_live_owner');
+    expect(skipped).toBeTruthy();
+    expect(skipped.outcome).toMatchObject({
+      stale_factory_worktree_id: existing.id,
+      owning_task_id: 'task-restart-clone',
+      owning_status: 'running',
+      owner_source: 'replacement_task_same_worktree',
+      retry_after: expect.any(String),
+    });
   });
 
   it('reuses an active worktree owned by a completed task instead of reclaiming it', async () => {

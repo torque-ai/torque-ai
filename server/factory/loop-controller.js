@@ -427,6 +427,70 @@ function getWorktreeDirtyStatus(worktreePath) {
   }
 }
 
+function normalizeWorktreePathForCompare(worktreePath) {
+  if (typeof worktreePath !== 'string' || worktreePath.trim() === '') {
+    return null;
+  }
+  try {
+    return path.resolve(worktreePath).replace(/\\/g, '/').toLowerCase();
+  } catch (_err) {
+    return String(worktreePath).trim().replace(/\\/g, '/').toLowerCase();
+  }
+}
+
+function taskHasFactoryTag(task, tag) {
+  return normalizeTaskTags(task).includes(tag);
+}
+
+function findLiveReplacementWorktreeOwner({
+  projectId,
+  workItemId,
+  batchId,
+  worktreePath,
+  excludeTaskId = null,
+}) {
+  const normalizedPath = normalizeWorktreePathForCompare(worktreePath);
+  if (!normalizedPath || !workItemId) {
+    return null;
+  }
+
+  try {
+    const taskCore = require('../db/task-core');
+    if (!taskCore || typeof taskCore.listTasks !== 'function') {
+      return null;
+    }
+
+    const lookupTags = [`factory:work_item_id=${workItemId}`];
+    if (batchId) lookupTags.push(`factory:batch_id=${batchId}`);
+
+    const candidates = taskCore.listTasks({
+      statuses: Array.from(LIVE_WORKTREE_OWNER_STATUSES),
+      tags: lookupTags,
+      columns: ['id', 'status', 'working_directory', 'tags', 'created_at', 'started_at'],
+      limit: 1000,
+      includeArchived: true,
+    });
+
+    for (const candidate of candidates) {
+      if (!candidate || candidate.id === excludeTaskId) continue;
+      if (!taskHasFactoryTag(candidate, `factory:work_item_id=${workItemId}`)) continue;
+      if (batchId && !taskHasFactoryTag(candidate, `factory:batch_id=${batchId}`)) continue;
+      if (normalizeWorktreePathForCompare(candidate.working_directory) !== normalizedPath) continue;
+      return candidate;
+    }
+  } catch (error) {
+    logger.warn('factory worktree: replacement owner lookup failed before reclaim guard', {
+      project_id: projectId,
+      work_item_id: workItemId,
+      batch_id: batchId || null,
+      worktree_path: worktreePath,
+      err: error && error.message,
+    });
+  }
+
+  return null;
+}
+
 class StageOccupiedError extends Error {
   constructor(project_id, stage) {
     super(`Stage ${stage} is already occupied for project ${project_id}`);
@@ -7905,15 +7969,33 @@ async function executePlanFileStage(project, instance, workItem) {
         } catch (_cfgErr) {
           void _cfgErr;
         }
-        const staleAgeMs = elapsedMsSince(stale.created_at || stale.createdAt);
-        const ownerAgeMs = getTaskAgeMs(owning);
         const staleWorktreePath = stale.worktreePath || stale.worktree_path || null;
+        let effectiveOwning = owning;
+        let effectiveOwningStatus = String(owningStatus || '').toLowerCase();
+        let effectiveOwnerSource = 'factory_worktree_row';
+        if (!(effectiveOwning && LIVE_WORKTREE_OWNER_STATUSES.has(effectiveOwningStatus))) {
+          const replacementOwner = findLiveReplacementWorktreeOwner({
+            projectId: project.id,
+            workItemId: targetItem.id,
+            batchId: stale.batch_id || executeLogBatchId,
+            worktreePath: staleWorktreePath,
+            excludeTaskId: stale.owningTaskId || null,
+          });
+          const replacementStatus = String(replacementOwner?.status || '').toLowerCase();
+          if (replacementOwner && LIVE_WORKTREE_OWNER_STATUSES.has(replacementStatus)) {
+            effectiveOwning = replacementOwner;
+            effectiveOwningStatus = replacementStatus;
+            effectiveOwnerSource = 'replacement_task_same_worktree';
+          }
+        }
+        const staleAgeMs = elapsedMsSince(stale.created_at || stale.createdAt);
+        const ownerAgeMs = getTaskAgeMs(effectiveOwning);
         const dirtyStatus = getWorktreeDirtyStatus(staleWorktreePath);
         const withinReclaimGrace = staleAgeMs === null || staleAgeMs < reclaimGraceMs;
         const ownerWithinReclaimGrace = ownerAgeMs === null || ownerAgeMs < reclaimGraceMs;
         if (
-          owning
-          && LIVE_WORKTREE_OWNER_STATUSES.has(owningStatus)
+          effectiveOwning
+          && LIVE_WORKTREE_OWNER_STATUSES.has(effectiveOwningStatus)
           && (withinReclaimGrace || ownerWithinReclaimGrace || dirtyStatus.dirty)
         ) {
           const retryAfter = new Date(Date.now() + AUTO_ADVANCE_DEFERRED_FALLBACK_DELAY_MS).toISOString();
@@ -7923,8 +8005,9 @@ async function executePlanFileStage(project, instance, workItem) {
             branch: targetBranch,
             stale_factory_worktree_id: stale.id,
             stale_batch_id: stale.batch_id,
-            owning_task_id: stale.owningTaskId,
-            owning_status: owningStatus,
+            owning_task_id: effectiveOwning.id,
+            owning_status: effectiveOwningStatus,
+            owner_source: effectiveOwnerSource,
             stale_age_ms: staleAgeMs,
             owner_age_ms: ownerAgeMs,
             reclaim_grace_ms: reclaimGraceMs,
@@ -7935,7 +8018,9 @@ async function executePlanFileStage(project, instance, workItem) {
             project_id: project.id,
             stage: LOOP_STATES.EXECUTE,
             action: 'worktree_reclaim_skipped_live_owner',
-            reasoning: dirtyStatus.dirty
+            reasoning: effectiveOwnerSource === 'replacement_task_same_worktree'
+              ? 'Skipped pre-reclaim because a restart-cloned live task is using the same factory worktree path.'
+              : dirtyStatus.dirty
               ? 'Skipped pre-reclaim because the branch is still owned by a live task with dirty worktree changes.'
               : 'Skipped pre-reclaim because the branch is still owned by a recent live task.',
             inputs: { ...getWorkItemDecisionContext(targetItem) },
@@ -7943,8 +8028,9 @@ async function executePlanFileStage(project, instance, workItem) {
               stale_factory_worktree_id: stale.id,
               stale_batch_id: stale.batch_id,
               branch: targetBranch,
-              owning_task_id: stale.owningTaskId,
-              owning_status: owningStatus,
+              owning_task_id: effectiveOwning.id,
+              owning_status: effectiveOwningStatus,
+              owner_source: effectiveOwnerSource,
               stale_age_ms: staleAgeMs,
               owner_age_ms: ownerAgeMs,
               reclaim_grace_ms: reclaimGraceMs,
@@ -7965,8 +8051,9 @@ async function executePlanFileStage(project, instance, workItem) {
               status: 'waiting',
               reason: 'active_worktree_owner_running',
               factory_worktree_id: stale.id,
-              owning_task_id: stale.owningTaskId,
-              owning_status: owningStatus,
+              owning_task_id: effectiveOwning.id,
+              owning_status: effectiveOwningStatus,
+              owner_source: effectiveOwnerSource,
               stale_age_ms: staleAgeMs,
               owner_age_ms: ownerAgeMs,
               worktree_dirty: dirtyStatus.dirty,
