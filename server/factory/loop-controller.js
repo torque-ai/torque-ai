@@ -216,7 +216,10 @@ function hasOperatorPauseIntent(project) {
   return cfg?.loop?.operator_paused === true;
 }
 
-function isProjectPauseActive(project) {
+function isProjectPauseActive(project, { includeStatus = true } = {}) {
+  if (!includeStatus) {
+    return hasOperatorPauseIntent(project);
+  }
   return project?.status === 'paused' || hasOperatorPauseIntent(project);
 }
 
@@ -1269,11 +1272,18 @@ function deriveInstanceStateFromLegacyProject(project) {
 
 function backfillLegacyProjectLoopInstance(project_id) {
   const project = getProjectOrThrow(project_id);
-  if (isProjectPauseActive(project)) {
+  if (hasOperatorPauseIntent(project)) {
+    if (project.status !== 'paused') {
+      try {
+        factoryHealth.updateProject(project.id, { status: 'paused' });
+      } catch (_err) {
+        void _err;
+      }
+    }
     logger.info('Backfill skipped for paused factory project', {
       project_id: project.id,
       status: project.status || null,
-      operator_paused: hasOperatorPauseIntent(project),
+      operator_paused: true,
       loop_state: project.loop_state || LOOP_STATES.IDLE,
     });
     return null;
@@ -2078,6 +2088,90 @@ function findExistingPlanTaskSubmission(taskCore, {
   const completed = prioritized.find((candidate) => candidate.status === 'completed');
   if (completed) {
     return { task_id: completed.id, status: completed.status };
+  }
+
+  return null;
+}
+
+const ACTIVE_PLAN_GENERATION_TASK_STATUSES = Object.freeze([
+  'pending',
+  'pending_approval',
+  'pending_provider_switch',
+  'queued',
+  'retry_scheduled',
+  'running',
+  'waiting',
+  'blocked',
+]);
+
+function findActivePlanGenerationTask(taskCore, {
+  projectId,
+  workingDirectory,
+  workItemId,
+  stalePendingMs = DEFAULT_STALE_PENDING_PLAN_GENERATION_MS,
+}) {
+  if (!taskCore || typeof taskCore.listTasks !== 'function') {
+    return null;
+  }
+
+  const normalizedWorkItemId = normalizeWorkItemId(workItemId);
+  const normalizedProjectId = projectId == null ? null : String(projectId).trim();
+  if (!normalizedProjectId || !normalizedWorkItemId) {
+    return null;
+  }
+
+  const workItemTag = `factory:work_item_id=${normalizedWorkItemId}`;
+  const baseQuery = {
+    tag: workItemTag,
+    statuses: ACTIVE_PLAN_GENERATION_TASK_STATUSES,
+    orderBy: 'created_at',
+    orderDir: 'desc',
+    limit: 50,
+    columns: ['id', 'status', 'tags', 'metadata', 'created_at', 'started_at', 'error_output'],
+  };
+  const candidateQueries = [
+    ...(workingDirectory ? [{ ...baseQuery, workingDirectory }] : []),
+    baseQuery,
+  ];
+
+  const seen = new Set();
+  for (const query of candidateQueries) {
+    let candidates = [];
+    try {
+      candidates = taskCore.listTasks(query);
+    } catch (error) {
+      logger.debug('Unable to query active plan-generation tasks', {
+        err: error.message,
+        project_id: normalizedProjectId,
+        work_item_id: normalizedWorkItemId,
+      });
+      continue;
+    }
+
+    for (const candidate of Array.isArray(candidates) ? candidates : []) {
+      if (!candidate?.id || seen.has(candidate.id)) continue;
+      seen.add(candidate.id);
+      if (!isSchedulerOwnedPlanGenerationTask(candidate, {
+        projectId: normalizedProjectId,
+        workItemId: normalizedWorkItemId,
+      })) {
+        continue;
+      }
+      if (retireStalePendingPlanGenerationTask(taskCore, candidate, {
+        projectId: normalizedProjectId,
+        workItemId: normalizedWorkItemId,
+        staleAfterMs: stalePendingMs,
+        reason: 'duplicate_plan_generation_scan',
+        requireSchedulerOwned: true,
+      })) {
+        continue;
+      }
+
+      const status = String(candidate.status || '').toLowerCase();
+      if (ACTIVE_PLAN_GENERATION_TASK_STATUSES.includes(status)) {
+        return candidate;
+      }
+    }
   }
 
   return null;
@@ -6581,6 +6675,27 @@ async function executeNonPlanFileStage(project, instance, workItem) {
     }
 
     if (!generationTaskId) {
+      const activeGenerationTask = findActivePlanGenerationTask(taskCore, {
+        projectId: project.id,
+        workingDirectory: project.path || process.cwd(),
+        workItemId: targetItem.id,
+        stalePendingMs,
+      });
+      if (activeGenerationTask?.id) {
+        generationTaskId = activeGenerationTask.id;
+        const activeWait = getPlanGenerationWait(activeGenerationTask) || { reason: 'task_still_running' };
+        return buildPlanGenerationDeferredResult({
+          project,
+          instance,
+          targetItem,
+          planPath,
+          generationTaskId,
+          generationTask: activeGenerationTask,
+          wait: activeWait,
+          reason: 'found existing active plan-generation task for work item',
+        });
+      }
+
       const { task_id } = await submitFactoryInternalTask({
         task: prompt,
         project: 'factory-architect',
@@ -6970,6 +7085,21 @@ async function executeNonPlanFileStage(project, instance, workItem) {
           };
         }
 
+        const replanOrigin = {
+          ...origin,
+          plan_path: origin.plan_path || planPath,
+          plan_generation_task_id: reTaskId,
+          plan_generation_status: 'submitted',
+          plan_generation_updated_at: nowIso(),
+        };
+        for (const key of Object.keys(origin)) {
+          delete origin[key];
+        }
+        Object.assign(origin, replanOrigin);
+        factoryIntake.updateWorkItem(updatedWorkItem.id, {
+          origin_json: JSON.stringify(origin),
+        });
+
         let reTask = null;
         try {
           await handleAwaitTask({
@@ -6987,6 +7117,20 @@ async function executeNonPlanFileStage(project, instance, workItem) {
           });
         }
         if (!reTask || reTask.status !== 'completed') {
+          const reWait = getPlanGenerationWait(reTask);
+          if (isPlanGenerationTaskPending(reTask) && reWait) {
+            return buildPlanGenerationDeferredResult({
+              project,
+              instance,
+              targetItem: updatedWorkItem,
+              planPath: origin.plan_path || planPath,
+              generationTaskId: reTaskId,
+              generationTask: reTask,
+              wait: reWait,
+              reason: reTask?.error_output || 're-plan generation task is still active',
+            });
+          }
+
           // Phase X4: timeout or failure on re-plan task. Route to
           // needs_replan — codex queue might be congested transiently.
           const routed = routeWorkItemToNeedsReplan(updatedWorkItem, {
@@ -7025,6 +7169,17 @@ async function executeNonPlanFileStage(project, instance, workItem) {
         // Write to the same plan path.
         try {
           fs.writeFileSync(origin.plan_path || planPath, rePlanMarkdown, 'utf8');
+          const readyOrigin = clearPlanGenerationWaitFields({
+            ...origin,
+            plan_path: origin.plan_path || planPath,
+          });
+          for (const key of Object.keys(origin)) {
+            delete origin[key];
+          }
+          Object.assign(origin, readyOrigin);
+          factoryIntake.updateWorkItem(updatedWorkItem.id, {
+            origin_json: JSON.stringify(origin),
+          });
         } catch (err) {
           logger.warn('plan-quality-gate re-plan writeFile failed', {
             project_id: project.id,
@@ -10849,8 +11004,8 @@ function scheduleLoop(project_id, interval_minutes) {
 
 function startLoop(project_id) {
   const project = getProjectOrThrow(project_id);
-  if (isProjectPauseActive(project)) {
-    if (hasOperatorPauseIntent(project) && project.status !== 'paused') {
+  if (isProjectPauseActive(project, { includeStatus: false })) {
+    if (project.status !== 'paused') {
       try {
         factoryHealth.updateProject(project.id, { status: 'paused' });
       } catch (_err) {
@@ -10861,15 +11016,15 @@ function startLoop(project_id) {
       project_id: project.id,
       stage: LOOP_STATES.SENSE,
       action: 'start_loop_blocked_project_paused',
-      reasoning: 'Factory loop start was refused because the project row is paused. Resume the project before starting the loop.',
+      reasoning: 'Factory loop start was refused because the project has an operator pause marker. Resume the project before starting the loop.',
       inputs: {
         current_status: project.status,
-        operator_paused: hasOperatorPauseIntent(project),
+        operator_paused: true,
         previous_state: getCurrentLoopState(project),
       },
       outcome: {
         started: false,
-        status: project.status,
+        status: 'paused',
       },
       confidence: 1,
       batch_id: null,

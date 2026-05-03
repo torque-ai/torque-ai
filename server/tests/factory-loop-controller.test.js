@@ -397,13 +397,13 @@ describe('factory loop-controller EXECUTE modes', () => {
     expect(factoryLoopInstances.listInstances({ project_id: project.id, active_only: true })).toHaveLength(1);
   });
 
-  it('does not start or resume a paused project', () => {
+  it('startLoop can resume a legacy paused row without an operator pause marker', () => {
     const { project } = registerPlanProject();
     factoryHealth.updateProject(project.id, { status: 'paused' });
 
-    expect(() => loopController.startLoopForProject(project.id)).toThrow(/paused project/);
-    expect(factoryHealth.getProject(project.id)).toMatchObject({ status: 'paused' });
-    expect(factoryLoopInstances.listInstances({ project_id: project.id, active_only: true })).toHaveLength(0);
+    expect(() => loopController.startLoopForProject(project.id)).not.toThrow();
+    expect(factoryHealth.getProject(project.id)).toMatchObject({ status: 'running' });
+    expect(factoryLoopInstances.listInstances({ project_id: project.id, active_only: true })).toHaveLength(1);
   });
 
   it('does not start when operator pause intent remains after a stale status flip', () => {

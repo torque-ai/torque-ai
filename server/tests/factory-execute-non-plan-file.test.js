@@ -30,6 +30,7 @@ const { LOOP_STATES } = require('../factory/loop-states');
 const originalHandleSmartSubmitTask = routingModule.handleSmartSubmitTask;
 const originalHandleAwaitTask = awaitModule.handleAwaitTask;
 const originalGetTask = taskCore.getTask;
+const originalListTasks = taskCore.listTasks;
 const originalUpdateTaskStatus = taskCore.updateTaskStatus;
 
 function createFactoryTables(db) {
@@ -231,6 +232,7 @@ describe('factory loop-controller EXECUTE for non-plan-file work items', () => {
     }));
     routingModule.handleSmartSubmitTask = vi.fn(async () => ({ task_id: 'plan-gen-task' }));
     awaitModule.handleAwaitTask = vi.fn(async () => ({ content: [{ type: 'text', text: 'awaited' }] }));
+    taskCore.listTasks = vi.fn(() => []);
     taskCore.getTask = vi.fn((taskId) => ({
       id: taskId,
       status: 'completed',
@@ -248,6 +250,7 @@ describe('factory loop-controller EXECUTE for non-plan-file work items', () => {
     routingModule.handleSmartSubmitTask = originalHandleSmartSubmitTask;
     awaitModule.handleAwaitTask = originalHandleAwaitTask;
     taskCore.getTask = originalGetTask;
+    taskCore.listTasks = originalListTasks;
     taskCore.updateTaskStatus = originalUpdateTaskStatus;
     loopController.setWorktreeRunnerForTests(null);
     if (tempDir && fs.existsSync(tempDir)) {
@@ -741,6 +744,61 @@ describe('factory loop-controller EXECUTE for non-plan-file work items', () => {
       }),
     });
     expect(decisions.find((row) => row.action === 'cannot_generate_plan')).toBeUndefined();
+  });
+
+  it('defers an active plan-generation task discovered by work-item tags before submitting a duplicate', async () => {
+    const { project, workItem } = registerExecuteProject({
+      description: 'Add coverage for active plan generation without origin metadata.',
+    });
+    const activeTask = {
+      id: 'active-plan-gen-task',
+      status: 'running',
+      tags: planGenerationTags(project.id, workItem.id),
+      metadata: JSON.stringify(planGenerationMetadata(project.id, workItem.id)),
+      created_at: new Date().toISOString(),
+      started_at: new Date().toISOString(),
+      output: '',
+      error_output: '',
+    };
+    taskCore.listTasks = vi.fn(() => [activeTask]);
+    taskCore.getTask = vi.fn((taskId) => (taskId === activeTask.id ? activeTask : null));
+
+    const executeAdvance = await loopController.advanceLoopForProject(project.id);
+    const updatedWorkItem = factoryIntake.getWorkItem(workItem.id);
+
+    expect(executeAdvance).toMatchObject({
+      new_state: LOOP_STATES.EXECUTE,
+      paused_at_stage: null,
+      reason: 'plan generation deferred while task remains active',
+      stage_result: {
+        status: 'deferred',
+        reason: 'task_still_running',
+        generation_task_id: activeTask.id,
+        task_status: 'running',
+      },
+    });
+    expect(updatedWorkItem).toMatchObject({
+      id: workItem.id,
+      status: 'planned',
+      reject_reason: null,
+      origin: expect.objectContaining({
+        plan_generation_task_id: activeTask.id,
+        plan_generation_wait_reason: 'task_still_running',
+      }),
+    });
+    expect(routingModule.handleSmartSubmitTask).not.toHaveBeenCalled();
+    expect(awaitModule.handleAwaitTask).not.toHaveBeenCalled();
+
+    const decisions = listDecisionRows(db, project.id);
+    expect(decisions.find((row) => row.action === 'plan_generation_deferred_running')).toMatchObject({
+      stage: 'execute',
+      outcome: expect.objectContaining({
+        reason: 'task_still_running',
+        generation_task_id: activeTask.id,
+        task_status: 'running',
+        work_item_id: workItem.id,
+      }),
+    });
   });
 
   it('replaces a scheduler-owned stored plan-generation task that stayed pending without starting', async () => {

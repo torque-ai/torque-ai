@@ -294,6 +294,58 @@ describe('executeNonPlanFileStage plan-quality-gate — reject paths', () => {
     expect(origin.plan_gen_attempts).toBe(2);
   });
 
+  it('defers an active intra-batch re-plan task and records it on the work item', async () => {
+    const loopController = require('../factory/loop-controller');
+    const planGate = require('../factory/plan-quality-gate');
+
+    const { projectId, workItemId } = seedProjectAndItem(db, { trust: 'autonomous' });
+    vi.spyOn(planGate, 'evaluatePlan')
+      .mockResolvedValueOnce({
+        passed: false,
+        hardFails: [{ rule: 'task_has_file_reference', taskNumber: 1, detail: 'no file' }],
+        warnings: [],
+        llmCritique: null,
+        feedbackPrompt: '## Prior plan rejected\n\n- [task_has_file_reference] Task 1: no file',
+      });
+
+    vi.spyOn(require('../factory/internal-task-submit'), 'submitFactoryInternalTask')
+      .mockResolvedValueOnce({ task_id: 'initial-plan-task' })
+      .mockResolvedValueOnce({ task_id: 'active-replan-task' });
+    vi.spyOn(require('../handlers/workflow/await'), 'handleAwaitTask').mockResolvedValue({ status: 'running' });
+    vi.spyOn(require('../db/task-core'), 'getTask').mockImplementation((taskId) => {
+      if (taskId === 'initial-plan-task') {
+        return { id: taskId, status: 'completed', output: HIGH_QUALITY_PLAN, error_output: null };
+      }
+      if (taskId === 'active-replan-task') {
+        return { id: taskId, status: 'running', output: '', error_output: null };
+      }
+      return null;
+    });
+
+    const project = db.prepare('SELECT * FROM factory_projects WHERE id = ?').get(projectId);
+    const instance = { id: 'inst-replan-active', project_id: projectId, batch_id: 'batch-replan-active' };
+    const workItem = db.prepare('SELECT * FROM factory_work_items WHERE id = ?').get(workItemId);
+
+    const result = await loopController.executeNonPlanFileStage(project, instance, workItem);
+
+    expect(result).toMatchObject({
+      stop_execution: true,
+      next_state: 'EXECUTE',
+      stage_result: {
+        status: 'deferred',
+        reason: 'task_still_running',
+        generation_task_id: 'active-replan-task',
+        task_status: 'running',
+      },
+    });
+
+    const after = db.prepare('SELECT status, origin_json FROM factory_work_items WHERE id = ?').get(workItemId);
+    const origin = JSON.parse(after.origin_json);
+    expect(after.status).toBe('executing');
+    expect(origin.plan_generation_task_id).toBe('active-replan-task');
+    expect(origin.plan_generation_wait_reason).toBe('task_still_running');
+  });
+
   it('returns a structurally valid but vague generated plan to PRIORITIZE with threshold details', async () => {
     const loopController = require('../factory/loop-controller');
     const planGate = require('../factory/plan-quality-gate');
