@@ -11,6 +11,7 @@ describe('Activity Monitoring - Stall Threshold Multipliers', () => {
   let processActivity;
 
   beforeEach(() => {
+    vi.restoreAllMocks();
     activityMonitoring = require('../utils/activity-monitoring');
     processActivity = require('../utils/process-activity');
     processActivity.clearActivityCache();
@@ -23,6 +24,10 @@ describe('Activity Monitoring - Stall Threshold Multipliers', () => {
       safeConfigInt: vi.fn(),
       getSkipGitInCloseHandler: () => false,
     });
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
   it('applies large-context and long-running multipliers plus metadata multiplier', () => {
