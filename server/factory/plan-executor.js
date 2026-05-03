@@ -473,7 +473,10 @@ function createPlanExecutor({ submit, awaitTask, findReusableTask = null, projec
         if (livePreSubmitChecked || mode !== 'live') return null;
         livePreSubmitChecked = true;
 
-        const detectedCommand = findHeavyLocalValidationCommand(prompt);
+        const heavyValidationGuardSource = task.raw_markdown || prompt;
+        const detectedCommand = findHeavyLocalValidationCommand(heavyValidationGuardSource, {
+          ignoreDiagnosticFencedBlocks: true,
+        });
         if (detectedCommand) {
           logger.warn(`task ${task.task_number} blocked at materialization — heavy local validation present`, {
             plan_path,

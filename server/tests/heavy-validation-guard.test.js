@@ -96,6 +96,47 @@ describe('findHeavyLocalValidationCommand', () => {
     });
   });
 
+  describe('diagnostic fenced blocks', () => {
+    it('can ignore verify output fences that mention heavy command names in test output', () => {
+      const text = [
+        'Verify output (tail):',
+        '```',
+        'passes: counts dotnet test projects and C# test files in the fallback heuristic 4ms',
+        '```',
+      ].join('\n');
+
+      expect(findHeavyLocalValidationCommand(text, { ignoreDiagnosticFencedBlocks: true }))
+        .toBeNull();
+    });
+
+    it('still flags bare heavy commands outside diagnostic fences', () => {
+      const text = [
+        'Verify output (tail):',
+        '```',
+        'passes: counts dotnet test projects and C# test files in the fallback heuristic 4ms',
+        '```',
+        '',
+        'Now run dotnet test app.sln locally.',
+      ].join('\n');
+
+      expect(findHeavyLocalValidationCommand(text, { ignoreDiagnosticFencedBlocks: true }))
+        .toBe('Now run dotnet test app.sln locally.');
+    });
+
+    it('ignores the next nearby diagnostic fence when parser notes separate it from the header', () => {
+      const text = [
+        'Verify output (tail):',
+        'Update `server/factory/scorers.js` based on the failure context.',
+        '```',
+        'passes: counts dotnet test projects and C# test files in the fallback heuristic 4ms',
+        '```',
+      ].join('\n');
+
+      expect(findHeavyLocalValidationCommand(text, { ignoreDiagnosticFencedBlocks: true }))
+        .toBeNull();
+    });
+  });
+
   describe('non-matches', () => {
     it('returns null for empty / whitespace input', () => {
       expect(findHeavyLocalValidationCommand('')).toBeNull();
