@@ -28,6 +28,7 @@ const {
 } = require('../../contracts/peek');
 const { safeLimit, MAX_BATCH_SIZE, MAX_TASK_LENGTH, ErrorCodes, makeError, isPathTraversalSafe, checkProviderAvailability, requireTask } = require('../shared');
 const { formatTime, calculateDuration } = require('./utils');
+const { summarizeTaskError } = require('../../utils/error-summary');
 const { CONTEXT_STUFFING_PROVIDERS } = require('../../utils/context-stuffing');
 const { resolveContextFiles } = require('../../utils/smart-scan');
 const { buildTaskStudyContextEnvelope } = require('../../integrations/codebase-study-engine');
@@ -219,6 +220,14 @@ function formatTaskStatus(task, progress) {
   }
   if (task.exit_code !== null) {
     result += `**Exit Code:** ${task.exit_code}\n`;
+  }
+  // For terminal failures, append a one-line "Why" so the operator
+  // doesn't have to flip to get_result to see what went wrong.
+  if (task.status === 'failed' || task.status === 'cancelled') {
+    const summary = summarizeTaskError(task);
+    if (summary && summary.summary) {
+      result += `**Why:** ${summary.summary}\n`;
+    }
   }
   return result;
 }
@@ -896,6 +905,9 @@ function handleCheckStatus(args) {
           exit_code: task.exit_code != null ? task.exit_code : null,
           elapsed_seconds: progress?.elapsedSeconds || null,
           description: (task.task_description || '').slice(0, 200),
+          error_summary: (task.status === 'failed' || task.status === 'cancelled')
+            ? (summarizeTaskError(task) || null)
+            : null,
         },
       },
     };
@@ -1027,6 +1039,14 @@ function handleGetResult(args) {
 
   let result = `## Task Result: ${args.task_id}\n\n`;
   result += `**Status:** ${task.status}\n`;
+  // Surface a one-line "Why it failed" summary at the top so operators
+  // don't have to scroll through kilobytes of prompt-echoed stderr to
+  // find the cause. The summarizer is a heuristic — if it produces
+  // nothing useful, we silently skip it.
+  const errorSummary = summarizeTaskError(task);
+  if (errorSummary && errorSummary.summary) {
+    result += `**Why:** ${errorSummary.summary}\n`;
+  }
   if (task.provider) {
     result += `**Provider:** ${task.provider}\n`;
   }
@@ -1107,6 +1127,7 @@ function handleGetResult(args) {
       duration_seconds: durationSeconds,
       output: task.output || null,
       error_output: task.error_output || null,
+      error_summary: errorSummary || null,
       files_modified: filesModified,
     },
   };

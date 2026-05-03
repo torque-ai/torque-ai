@@ -236,6 +236,51 @@ describe('TaskDetailDrawer', () => {
     });
   });
 
+  it('renders the "Why it failed" summary callout for failed tasks', async () => {
+    // Failed tasks return an error_summary alongside error_output. The
+    // dashboard surfaces the heuristic 1-2 line summary at the top of
+    // the overview so operators don't have to scroll through kilobytes
+    // of prompt-echoed stderr.
+    tasksApi.get.mockResolvedValueOnce({
+      ...mockTask,
+      status: 'failed',
+      exit_code: 1,
+      error_output: 'long stderr buffer with prompt echo and exec calls',
+      error_summary: {
+        summary: 'Codex network/transport error (retry 1/2 - Network error)',
+        category: 'codex_network',
+        evidence: '[Retry 1/2 - Network error]',
+      },
+    });
+
+    renderWithProviders(<TaskDetailDrawer taskId="task-1" onClose={vi.fn()} />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('task-error-summary')).toBeInTheDocument();
+    });
+    expect(screen.getByTestId('task-error-summary')).toHaveTextContent(
+      /Codex network\/transport error/
+    );
+    expect(screen.getByTestId('task-error-summary')).toHaveTextContent(/Why it failed:/);
+  });
+
+  it('does not render the summary callout when error_summary is absent', async () => {
+    tasksApi.get.mockResolvedValueOnce({
+      ...mockTask,
+      status: 'failed',
+      exit_code: 1,
+      error_output: 'some stderr',
+      error_summary: null,
+    });
+
+    renderWithProviders(<TaskDetailDrawer taskId="task-1" onClose={vi.fn()} />);
+
+    await waitFor(() => {
+      expect(screen.getByText(/Test task description/i)).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId('task-error-summary')).not.toBeInTheDocument();
+  });
+
   it('renders v2 stderr content in the output tab', async () => {
     taskLogs.get.mockResolvedValueOnce({
       task_id: 'task-1',

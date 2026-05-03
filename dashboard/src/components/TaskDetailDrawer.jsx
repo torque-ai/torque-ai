@@ -580,9 +580,20 @@ export default function TaskDetailDrawer({ taskId, onClose, subscribe, unsubscri
                     </div>
                   )}
 
+                  {/* Why it failed — heuristic 1-2 line summary at the top */}
+                  {task.error_summary && task.error_summary.summary && (
+                    <div
+                      data-testid="task-error-summary"
+                      className="bg-red-900/40 border border-red-700/60 rounded-lg p-3 text-red-100 text-sm flex items-start gap-2"
+                    >
+                      <span className="font-semibold shrink-0">Why it failed:</span>
+                      <span className="break-words">{task.error_summary.summary}</span>
+                    </div>
+                  )}
+
                   {/* Error output */}
                   {task.error_output && (
-                    <CollapsibleSection title="Error" defaultOpen={true}>
+                    <CollapsibleSection title="Error (full stderr)" defaultOpen={!task.error_summary}>
                       <pre className="bg-red-950/30 border border-red-900/50 rounded-lg p-3 text-red-300 text-xs overflow-x-auto whitespace-pre-wrap max-h-48 overflow-y-auto">
                         {task.error_output}
                       </pre>

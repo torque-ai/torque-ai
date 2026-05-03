@@ -11,6 +11,7 @@ const { randomUUID } = require('crypto');
 const costTracking = require('../db/cost-tracking');
 const { sendJson } = require('./middleware');
 const { safeJsonParse } = require('../utils/json');
+const { summarizeTaskError } = require('../utils/error-summary');
 
 // ─── Response Envelope ────────────────────────────────────────────────────
 
@@ -142,6 +143,11 @@ function buildTaskDetailResponse(task) {
     study_context_summary: studyContextSummary,
     output: task.output || null,
     error_output: task.error_output || null,
+    // Heuristic 1-2 line "Why it failed" for failed/cancelled tasks.
+    // Surfaced at the top of the dashboard task detail drawer so
+    // operators don't have to scroll through kilobytes of prompt-echoed
+    // stderr to find the cause. Null for healthy tasks.
+    error_summary: summarizeTaskError(task),
   };
 }
 
