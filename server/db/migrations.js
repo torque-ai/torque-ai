@@ -1239,6 +1239,31 @@ const MIGRATIONS = [
       'DROP INDEX IF EXISTS idx_maintenance_schedule_next_run_at',
     ].join('; '),
   },
+  {
+    version: 55,
+    name: 'add_routing_templates_capability_constraints',
+    // Phase B of the routing-templates fold-in arc: templates can now
+    // declare capability constraints (max_files per provider,
+    // greenfield_provider, modification_oversize_provider) so
+    // hardcoded routing logic in db/smart-routing.js
+    // matchProviderByPattern and handlers/integration/routing.js
+    // resolveModificationRouting can be replaced with data-driven
+    // template lookups. Stored as a JSON blob alongside rules_json.
+    up: function(sqliteDb) {
+      const hasTable = sqliteDb.prepare(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='routing_templates'"
+      ).get();
+      if (!hasTable) return;
+      const cols = sqliteDb.prepare("PRAGMA table_info(routing_templates)").all();
+      const hasColumn = cols.some((c) => c.name === 'capability_constraints_json');
+      if (!hasColumn) {
+        sqliteDb.prepare(
+          'ALTER TABLE routing_templates ADD COLUMN capability_constraints_json TEXT'
+        ).run();
+      }
+    },
+    // No down — column drops on SQLite require table rebuild; not worth it for an additive migration.
+  },
 ];
 
 function ensureMigrationTable(sqliteDb) {

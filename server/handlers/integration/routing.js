@@ -466,6 +466,44 @@ async function resolveModificationRouting(task, files, routingResult, opts) {
   let modRoutingReason = null;
   const estimatedTokens = routingResult?.estimatedTokens || Math.max(1, Math.ceil(task.length / 4));
 
+  // Phase B: capability_constraints from the active routing template.
+  // Templates can declare which provider should handle greenfield work
+  // (when ollama can't create files) and which provider should handle
+  // modifications that exceed the selected provider's max_safe_edit_
+  // lines. Falls back to the historical "codex" default when no
+  // template is active or the constraint isn't set.
+  //
+  // Wrapped in try/catch because templateStore may not be available
+  // in mock test DBs that don't include the routing_templates table.
+  let activeConstraints = null;
+  try {
+    const templateStore = require('../../routing/template-store');
+    const explicitTemplateId = templateStore.getExplicitActiveTemplateId
+      ? templateStore.getExplicitActiveTemplateId()
+      : null;
+    const activeTemplate = explicitTemplateId ? templateStore.getTemplate(explicitTemplateId) : null;
+    activeConstraints = activeTemplate && activeTemplate.capability_constraints
+      ? activeTemplate.capability_constraints
+      : null;
+    // If no explicit active template, fall through to the legacy-fallback preset's
+    // constraints — that's where the historical hardcoded EXP1/P83 "codex"
+    // default lives once it's promoted into the data-driven system.
+    if (!activeConstraints) {
+      const legacyTemplate = templateStore.getTemplate('preset-legacy-fallback');
+      activeConstraints = legacyTemplate && legacyTemplate.capability_constraints
+        ? legacyTemplate.capability_constraints
+        : null;
+    }
+  } catch (_err) {
+    activeConstraints = null;
+  }
+  const greenfieldProvider = (activeConstraints && typeof activeConstraints.greenfield_provider === 'string')
+    ? activeConstraints.greenfield_provider
+    : 'codex';
+  const oversizeProvider = (activeConstraints && typeof activeConstraints.modification_oversize_provider === 'string')
+    ? activeConstraints.modification_oversize_provider
+    : 'codex';
+
   // Modification + greenfield routing for the local Ollama provider.
   // Ollama cannot create new files safely, so the greenfield guard applies.
   const _isLocalOllamaProvider = selectedProvider === 'ollama';
@@ -539,16 +577,17 @@ async function resolveModificationRouting(task, files, routingResult, opts) {
       modRoutingReason = `Modification task (${maxFileLines} lines < ${modSafeLineLimit} limit) → local model (safe)`;
       logger.info(`[SmartRouting] R104: ${modRoutingReason}`);
     } else if (isModificationTask && codexEnabled && !override_provider && !codexExhausted) {
-      // Large files or unknown size → Codex (surgical patches, any file size)
+      // Large files or unknown size → modification_oversize_provider
+      // (defaults to codex from the legacy-fallback preset).
       const sparkEnabled = serverConfig.isOptIn('codex_spark_enabled');
-      selectedProvider = 'codex';
-      if (sparkEnabled && (complexity === 'simple' || complexity === 'normal')) {
+      selectedProvider = oversizeProvider;
+      if (selectedProvider === 'codex' && sparkEnabled && (complexity === 'simple' || complexity === 'normal')) {
         taskModel = 'gpt-5.3-codex-spark';
         modRoutingReason = `Modification task (${fileSizeKnown ? maxFileLines + ' lines' : 'unknown size'}) → Codex Spark (fast, ${complexity})`;
         logger.info(`[SmartRouting] Spark: ${modRoutingReason}`);
       } else {
         taskModel = null;
-        modRoutingReason = `Modification task (${fileSizeKnown ? maxFileLines + ' lines' : 'unknown size'}) → Codex (safe for any size)`;
+        modRoutingReason = `Modification task (${fileSizeKnown ? maxFileLines + ' lines' : 'unknown size'}) → ${selectedProvider} (template oversize provider)`;
         logger.info(`[SmartRouting] P83: ${modRoutingReason}`);
       }
     } else if (isModificationTask && !codexEnabled && !override_provider) {
@@ -572,18 +611,19 @@ async function resolveModificationRouting(task, files, routingResult, opts) {
       }
     } else if (!isModificationTask && codexEnabled && !override_provider && !codexExhausted) {
       // --- Greenfield routing ---
-      // EXP1: Ollama CANNOT create new files — all greenfield tasks must go to Codex.
-      // Experiment 1 showed 3/3 Ollama greenfield tasks silently fell back to Codex
-      // or stalled. Route directly to avoid the fallback latency penalty (~2x slower).
+      // EXP1: Ollama CANNOT create new files. Route to the active
+      // template's greenfield_provider (defaults to codex from the
+      // legacy-fallback preset). Experiment 1 showed 3/3 Ollama
+      // greenfield tasks silently fell back to Codex or stalled, so
+      // routing directly avoids the fallback latency penalty (~2x slower).
       const sparkEnabled = serverConfig.isOptIn('codex_spark_enabled');
-      if (sparkEnabled && complexity !== 'complex') {
-        selectedProvider = 'codex';
+      selectedProvider = greenfieldProvider;
+      if (selectedProvider === 'codex' && sparkEnabled && complexity !== 'complex') {
         taskModel = 'gpt-5.3-codex-spark';
         modRoutingReason = `${complexity} greenfield → Codex Spark (Ollama cannot create files)`;
       } else {
-        selectedProvider = 'codex';
         taskModel = null;
-        modRoutingReason = `${complexity} greenfield → Codex (Ollama cannot create files)`;
+        modRoutingReason = `${complexity} greenfield → ${selectedProvider} (template greenfield_provider — Ollama cannot create files)`;
       }
       logger.info(`[SmartRouting] EXP1: ${modRoutingReason}`);
     } else {
