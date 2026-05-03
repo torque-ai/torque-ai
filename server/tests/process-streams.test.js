@@ -650,5 +650,27 @@ describe('process-streams', () => {
         Object.defineProperty(process, 'platform', { value: origPlatform, writable: true });
       }
     });
+
+    it('emits synthetic close when process tracking disappears after completion grace', () => {
+      const child = makeChild();
+      const processEmitter = new EventEmitter();
+      processEmitter.pid = 1234;
+      processEmitter.kill = vi.fn();
+      const emitSpy = vi.spyOn(processEmitter, 'emit');
+      const proc = makeProc({ process: processEmitter });
+      deps.db.getTask = vi.fn().mockReturnValue({ id: 't1', status: 'running' });
+      deps.runningProcesses.set('t1', proc);
+      deps.detectOutputCompletion.mockReturnValue(true);
+
+      processStreams.setupStdoutHandler(child, 't1', 's1', 'ollama');
+      child.stdout.emit('data', Buffer.from('done'));
+      deps.runningProcesses.delete('t1');
+
+      vi.advanceTimersByTime(16000);
+
+      expect(emitSpy).toHaveBeenCalledWith('close', 0);
+      expect(proc._completionSyntheticCloseEmitted).toBe(true);
+      expect(deps.killProcessGraceful).not.toHaveBeenCalled();
+    });
   });
 });

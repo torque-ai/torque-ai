@@ -69,6 +69,33 @@ function getOrCreateOutputBuffer(taskId, fallbackProc = null) {
   return proc._outputBuffer;
 }
 
+function isTaskRowStillRunning(taskId) {
+  try {
+    if (!deps.db || typeof deps.db.getTask !== 'function') {
+      return false;
+    }
+    const task = deps.db.getTask(taskId);
+    return task && task.status === 'running';
+  } catch (err) {
+    logger.info(`[Completion] Failed to read task ${taskId} during grace reconciliation: ${err.message}`);
+    return false;
+  }
+}
+
+function emitSyntheticCloseAfterCompletion(taskId, proc, reason) {
+  if (!proc || !proc.process || typeof proc.process.emit !== 'function') {
+    return false;
+  }
+  if (proc._completionSyntheticCloseEmitted) {
+    return false;
+  }
+
+  proc._completionSyntheticCloseEmitted = true;
+  logger.info(`[Completion] Task ${taskId} ${reason}. Emitting synthetic close.`);
+  proc.process.emit('close', 0);
+  return true;
+}
+
 /**
  * Attach stdout handler to child process — output buffering, progress estimation,
  * completion detection, streaming, breakpoints, and step mode.
@@ -167,6 +194,11 @@ function setupStdoutHandler(child, taskId, streamId) {
           } else {
             deps.killProcessGraceful(stillRunning, taskId, 5000, 'Completion');
           }
+          return;
+        }
+
+        if (!stillRunning && capturedProc.completionDetected && isTaskRowStillRunning(taskId)) {
+          emitSyntheticCloseAfterCompletion(taskId, capturedProc, 'process tracking disappeared after completion grace');
         }
       }, graceMs);
     }
