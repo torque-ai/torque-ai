@@ -1403,6 +1403,58 @@ jobs:
       ]);
     });
 
+    test('ignores debt-ratio self-reference markers when scoring and finding real marker debt', () => {
+      const result = debtRatioScorer.score('/unused', {
+        summary: { totalFiles: 100 },
+        todos: {
+          count: 2,
+          items: [
+            { type: 'HACK', text: 'HACK: temporary path to avoid deadlock in debt scan', file: 'server\\factory\\scorers\\debt-ratio.js' },
+            { type: 'FIXME', text: 'FIXME: tighten provider lifecycle transitions', file: 'server/task-manager.js' },
+          ],
+        },
+      }, null);
+
+      expect(result.score).toBe(90);
+      expect(result.details).toEqual({
+        source: 'scan_project',
+        todoCount: 1,
+        totalFiles: 100,
+        density: 0.01,
+      });
+      expect(result.findings).toEqual([
+        {
+          severity: 'medium',
+          title: 'FIXME: FIXME: tighten provider lifecycle transitions',
+          file: 'server/task-manager.js',
+        },
+      ]);
+    });
+
+    test('filters debt-ratio self-reference TODO/HACK/FIXME/XXX items to zero debt before penalties', () => {
+      const result = debtRatioScorer.score('/unused', {
+        summary: { totalFiles: 40 },
+        todos: {
+          count: 4,
+          items: [
+            { type: 'HACK', text: 'HACK: temporary path for scanner', file: 'server/factory/scorers/debt-ratio.js' },
+            { type: 'FIXME', text: 'FIXME: scan project tuning comment', file: 'server/factory/scorers/debt-ratio.js' },
+            { type: 'XXX', text: 'XXX: old debt marker while migrating', file: 'server/factory/scorers/debt-ratio.js' },
+            { type: 'TODO', text: 'TODO: remove temporary scanner scaffolding', file: 'server/factory/scorers/debt-ratio.js' },
+          ],
+        },
+      }, null);
+
+      expect(result.score).toBe(95);
+      expect(result.details).toEqual({
+        source: 'scan_project',
+        todoCount: 0,
+        totalFiles: 40,
+        density: 0,
+      });
+      expect(result.findings).toEqual([]);
+    });
+
     test('drops as TODO density and HACK/FIXME markers increase', () => {
       const lightDebt = debtRatioScorer.score('/unused', {
         summary: { totalFiles: 50 },
