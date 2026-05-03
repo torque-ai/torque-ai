@@ -1629,6 +1629,14 @@ describe('classifyError', () => {
     expect(result).toEqual({ retryable: false, reason: 'Long unknown error treated as non-retryable' });
   });
 
+  it('classifies Windows native process crashes as retryable even with long inherited output', () => {
+    const result = classifyError('x'.repeat(600), 3221226505);
+    expect(result).toEqual({
+      retryable: true,
+      reason: 'Windows native process crash (0xC0000409 STATUS_STACK_BUFFER_OVERRUN)',
+    });
+  });
+
   it('treats empty output as retryable', () => {
     const result = classifyError('');
     expect(result.retryable).toBe(true);

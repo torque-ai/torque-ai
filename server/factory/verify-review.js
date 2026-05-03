@@ -521,16 +521,17 @@ function isReviewerModelReachable(model) {
   return !REVIEWER_TIER_RESTRICTED_MODELS.has(model.trim());
 }
 
-function resolveReviewerModel() {
+function normalizeReviewerProvider(provider) {
+  if (typeof provider !== 'string') return null;
+  const trimmed = provider.trim().toLowerCase();
+  return trimmed || null;
+}
+
+function resolveReviewerModel(reviewerProvider) {
   const envOverride = readReviewerModelOverride();
   // Empty string env value opts back into the routing template's choice
   // (envOverride === null) — preserve that escape hatch.
   if (envOverride === null) return null;
-  // llama3.1-8b is the smallest cerebras model that's reliably available
-  // on the free tier and handles JSON-mode short verdicts cleanly.
-  // zai-glm-4.7 and gpt-oss-120b appear in /v1/models but 404 on chat
-  // completions for tier-1 keys.
-  if (envOverride === undefined) return REVIEWER_FALLBACK_MODEL;
   if (!isReviewerModelReachable(envOverride)) {
     // Don't honor env overrides that are known to 404 for the typical
     // free-tier key. Operators on paid tiers who actually want
@@ -538,7 +539,17 @@ function resolveReviewerModel() {
     // (where the per-task choice happens after this guard).
     return REVIEWER_FALLBACK_MODEL;
   }
-  return envOverride;
+  if (envOverride !== undefined) return envOverride;
+  // The default fallback model is Cerebras-specific. When provider
+  // selection is deferred to a target project's lane policy, leave the
+  // model unset so Codex/Claude/Ollama lanes cannot receive a Cerebras
+  // model name such as llama3.1-8b.
+  if (normalizeReviewerProvider(reviewerProvider) !== 'cerebras') return null;
+  // llama3.1-8b is the smallest cerebras model that's reliably available
+  // on the free tier and handles JSON-mode short verdicts cleanly.
+  // zai-glm-4.7 and gpt-oss-120b appear in /v1/models but 404 on chat
+  // completions for tier-1 keys.
+  return REVIEWER_FALLBACK_MODEL;
 }
 
 // Reinforces the JSON-shape contract when the first attempt produced
@@ -742,7 +753,7 @@ function shouldRetryTiebreakWithRouting(result, reviewerProvider) {
 async function runLlmTiebreak({ failingTests, modifiedFiles, workItem, project, workingDirectory, verifyOutput, timeoutMs = LLM_TIMEOUT_MS }) {
   const prompt = buildTiebreakPrompt({ failingTests, modifiedFiles, workItem, verifyOutput });
   const reviewerProvider = resolveReviewerProvider(project);
-  const reviewerModel = resolveReviewerModel();
+  const reviewerModel = resolveReviewerModel(reviewerProvider);
   let args = { workingDirectory, project, workItem, timeoutMs, reviewerProvider, reviewerModel };
 
   let first = await module.exports.submitAndParseTiebreak({ ...args, prompt });

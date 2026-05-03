@@ -1,6 +1,7 @@
 'use strict';
 
 const { isSafeRegex } = require('../utils/safe-regex');
+const { getWindowsNativeCrashExitReason } = require('../utils/process-exit-codes');
 
 const STANDARD_STEPS = ['types', 'data', 'events', 'system', 'tests', 'wire'];
 
@@ -76,6 +77,19 @@ const ERROR_PATTERNS = [
  */
 function fallbackDiagnose({ error_output, provider, exit_code, config }) {
   const output = error_output || '';
+
+  const windowsCrashReason = getWindowsNativeCrashExitReason(exit_code);
+  if (windowsCrashReason) {
+    return {
+      action: 'switch_provider',
+      reason: `Provider process crashed with Windows native exit code ${windowsCrashReason}`,
+      suggested_provider: provider === 'deepinfra' ? 'codex' : 'deepinfra',
+      original_provider: provider,
+      exit_code,
+      source: 'deterministic',
+      confidence: 0.75,
+    };
+  }
 
   // Check user-defined custom patterns first
   const customPatterns = config?.diagnose?.custom_patterns || [];

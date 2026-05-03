@@ -17,6 +17,7 @@ const { CLOUD_PROVIDERS, getProviderFallbackChain } = require('../db/provider-ro
 const serverConfig = require('../config');
 const { resolveOllamaModel } = require('../providers/ollama-shared');
 const { normalizeMetadata } = require('../utils/normalize-metadata');
+const { getWindowsNativeCrashExitReason } = require('../utils/process-exit-codes');
 const { buildResumeContext, prependResumeContextToPrompt } = require('../utils/resume-context');
 
 const BASE_RETRY_DELAY_MS = 5000;   // 5 seconds for first retry
@@ -922,6 +923,11 @@ function classifyError(errorOutput, exitCode) {
     if (retryAfterSeconds === null) return { retryable, reason };
     return { retryable, reason, retryAfterSeconds };
   };
+
+  const windowsCrashReason = getWindowsNativeCrashExitReason(exitCode);
+  if (windowsCrashReason) {
+    return makeResult(true, `Windows native process crash (${windowsCrashReason})`);
+  }
 
   if (isCodexStartupBannerOnlyOutput(errorText)) {
     return makeResult(true, 'Codex startup banner only - no task output captured');

@@ -56,6 +56,13 @@ describe('deterministic-fallbacks', () => {
       const result = fallbackDiagnose({ error_output: 'something completely unexpected happened', provider: 'codex', exit_code: 1 });
       expect(result.action).toBe('escalate');
     });
+
+    it('recommends provider switch for Windows native process crashes', () => {
+      const result = fallbackDiagnose({ error_output: '', provider: 'claude-cli', exit_code: 3221226505 });
+      expect(result.action).toBe('switch_provider');
+      expect(result.reason).toContain('0xC0000409');
+      expect(result.suggested_provider).toBe('deepinfra');
+    });
   });
 
   describe('fallbackReview', () => {

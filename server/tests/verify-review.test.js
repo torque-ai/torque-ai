@@ -766,6 +766,7 @@ describe('runLlmTiebreak', () => {
       });
       const call = submit.mock.calls[0][0];
       expect(call.provider).toBeUndefined();
+      expect(call.model).toBeUndefined();
       expect(submit).toHaveBeenCalledWith(expect.objectContaining({
         kind: 'verify_review',
         prefer_free: true,
@@ -952,7 +953,7 @@ describe('runLlmTiebreak', () => {
     expect(r.taskId).toBe('t-empty-2');
   });
 
-  it('passes a reviewerModel override (default llama3.1-8b) into the submit', async () => {
+  it('passes the Cerebras reviewerModel default into direct Cerebras submits', async () => {
     const submit = vi.fn().mockResolvedValue({ task_id: 't-model' });
     installMocks({
       submit,
