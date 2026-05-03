@@ -12,6 +12,7 @@ const EXEC_OPTIONS = Object.freeze({
 });
 
 const activityCache = new Map();
+const cumulativeCpuBaseline = new Map();
 const optionalCpuModules = {
   loaded: false,
   pidtree: null,
@@ -456,11 +457,121 @@ function getProcessTreeCpu(pid) {
 
 function clearActivityCache() {
   activityCache.clear();
+  cumulativeCpuBaseline.clear();
   windowsProcessCpuQuerySupported = null;
   windowsPerfCpuQuerySupported = null;
   optionalCpuModules.loaded = false;
   optionalCpuModules.pidtree = null;
   optionalCpuModules.pidusage = null;
+}
+
+function parseHundredNanoToMs(value) {
+  const num = Number.parseFloat(String(value).trim());
+  if (!Number.isFinite(num) || num < 0) return 0;
+  return num / 10000;
+}
+
+function parsePosixCputimeToMs(value) {
+  const text = String(value || '').trim();
+  if (!text) return 0;
+  let days = 0;
+  let rest = text;
+  const dashIdx = rest.indexOf('-');
+  if (dashIdx > 0) {
+    days = Number.parseInt(rest.slice(0, dashIdx), 10) || 0;
+    rest = rest.slice(dashIdx + 1);
+  }
+  const parts = rest.split(':');
+  if (!parts.every((p) => /^[0-9.]+$/.test(p))) return 0;
+  let h = 0;
+  let m = 0;
+  let s = 0;
+  if (parts.length === 3) {
+    [h, m, s] = parts.map(Number);
+  } else if (parts.length === 2) {
+    [m, s] = parts.map(Number);
+  } else if (parts.length === 1) {
+    s = Number(parts[0]);
+  }
+  const totalSec = days * 86400 + (h || 0) * 3600 + (m || 0) * 60 + (s || 0);
+  return Number.isFinite(totalSec) ? totalSec * 1000 : 0;
+}
+
+function sampleWindowsCumulativeCpuMs(rootPid) {
+  try {
+    const rows = parseCsvRows(runCommand('wmic', [
+      'process',
+      'where',
+      `ProcessId=${rootPid}`,
+      'get',
+      'KernelModeTime,UserModeTime',
+      '/FORMAT:CSV',
+    ]));
+    if (!rows.length) return null;
+    let totalMs = 0;
+    let foundAny = false;
+    for (const row of rows) {
+      if (!row.KernelModeTime && !row.UserModeTime) continue;
+      foundAny = true;
+      totalMs += parseHundredNanoToMs(row.KernelModeTime || 0);
+      totalMs += parseHundredNanoToMs(row.UserModeTime || 0);
+    }
+    return foundAny ? totalMs : null;
+  } catch {
+    return null;
+  }
+}
+
+function samplePosixCumulativeCpuMs(rootPid) {
+  try {
+    const out = String(runCommand('ps', ['-o', 'cputime=', '-p', String(rootPid)]) || '').trim();
+    if (!out) return null;
+    return parsePosixCputimeToMs(out);
+  } catch {
+    return null;
+  }
+}
+
+function defaultCumulativeSampler(rootPid) {
+  if (!isProcessAlive(rootPid)) return null;
+  return process.platform === 'win32'
+    ? sampleWindowsCumulativeCpuMs(rootPid)
+    : samplePosixCumulativeCpuMs(rootPid);
+}
+
+/**
+ * Sample cumulative CPU time for a process and report whether it advanced
+ * since the previous call. Unlike getProcessTreeCpu (instantaneous %), this
+ * detects work over a window — important for agent providers (codex,
+ * claude-cli) that idle at 0% CPU while waiting on network responses but
+ * still accrue user-time across the wait.
+ *
+ * @param {number} rootPid - Root process ID
+ * @param {Function} [sampler] - Optional injected sampler that returns
+ *   cumulative CPU time in ms, or null when the process is gone. Used in
+ *   tests to avoid spawning real processes.
+ * @returns {{ deltaMs: number, isAdvancing: boolean, hasBaseline: boolean }}
+ *   isAdvancing is false on the first call (baseline only) and false when
+ *   the sampler returns null. deltaMs is the increase since the previous
+ *   sample, or 0.
+ */
+function getProcessTreeCpuDelta(rootPid, sampler) {
+  const normalizedPid = normalizePid(rootPid);
+  if (!normalizedPid) {
+    return { deltaMs: 0, isAdvancing: false, hasBaseline: false };
+  }
+  const sample = (typeof sampler === 'function' ? sampler : defaultCumulativeSampler)(normalizedPid);
+  if (sample === null || sample === undefined || !Number.isFinite(sample)) {
+    cumulativeCpuBaseline.delete(normalizedPid);
+    return { deltaMs: 0, isAdvancing: false, hasBaseline: false };
+  }
+  const prev = cumulativeCpuBaseline.get(normalizedPid);
+  cumulativeCpuBaseline.set(normalizedPid, sample);
+  if (typeof prev !== 'number') {
+    return { deltaMs: 0, isAdvancing: false, hasBaseline: false };
+  }
+  const deltaMs = Math.max(0, sample - prev);
+  return { deltaMs, isAdvancing: deltaMs > 0, hasBaseline: true };
 }
 
 module.exports = {
@@ -481,5 +592,8 @@ module.exports = {
   getPosixChildRecords,
   collectPosixProcessTree,
   getProcessTreeCpu,
+  getProcessTreeCpuDelta,
+  parsePosixCputimeToMs,
+  parseHundredNanoToMs,
   clearActivityCache,
 };

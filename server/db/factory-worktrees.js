@@ -311,6 +311,44 @@ function clearOwningTask(id) {
   return setOwningTask(id, null);
 }
 
+/**
+ * Reset the pre-reclaim grace window for whichever active row currently
+ * owns a given task_id. Used by stall recovery, which keeps the same
+ * task_id but starts a fresh attempt — without bumping created_at, the
+ * loop-controller pre-reclaim sweep would see the row as old, decide the
+ * owner has overstayed its welcome, and cancel the in-flight retry
+ * (pre_reclaim_before_create). Returns the refreshed row, or null when
+ * no active row matches.
+ */
+function refreshGraceForOwningTask(task_id) {
+  try {
+    const taskId = requireText(task_id, 'task_id');
+    const result = getDb().prepare(`
+      UPDATE factory_worktrees
+      SET created_at = datetime('now')
+      WHERE owning_task_id = ?
+        AND status = 'active'
+    `).run(taskId);
+    if (result.changes === 0) {
+      return null;
+    }
+    const row = getDb().prepare(`
+      SELECT *
+      FROM factory_worktrees
+      WHERE owning_task_id = ?
+        AND status = 'active'
+      ORDER BY created_at DESC, id DESC
+      LIMIT 1
+    `).get(taskId);
+    return parseWorktree(row);
+  } catch (error) {
+    if (isMissingTableError(error)) {
+      return null;
+    }
+    throw error;
+  }
+}
+
 function getLatestWorktreeForWorkItem(project_id, work_item_id) {
   try {
     const row = getDb().prepare(`
@@ -390,4 +428,5 @@ module.exports = {
   pruneAbandonedWorktrees,
   setOwningTask,
   clearOwningTask,
+  refreshGraceForOwningTask,
 };
