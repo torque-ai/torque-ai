@@ -233,6 +233,107 @@ describe('auto-recovery-core day-one rules', () => {
     expect(r.suggested_strategies[0]).toBe('retry_with_fresh_session');
   });
 
+  it('classifies LEARN merge_target_dirty as await_self_heal with empty strategies', () => {
+    // Regression for bitsy WI 732 (2026-05-03): main had uncommitted
+    // .gitignore + tests/test_ci_parity.py from a prior factory run; the
+    // LEARN merge check fired merge_target_dirty + paused_at_gate. Without
+    // a rule, recovery's retry strategy approveGate-cleared the pause every
+    // cycle, the next tick re-fired the dirty check, and the project burned
+    // all 5 attempts before exhausting. Empty strategies routes through the
+    // 'no_strategy' branch so the engine marks exhausted=1 without touching
+    // the project; operator commits main → next tick passes the check →
+    // advance_from_learn → rearm.
+    const direct = classifier.classify({
+      stage: 'learn',
+      action: 'merge_target_dirty',
+      reasoning: 'Merge target /repo has uncommitted or untracked files; pausing project.',
+      outcome: { paused_at_stage: 'LEARN', next_state: 'PAUSED', dirty_files: ['.gitignore'] },
+    });
+    expect(direct.matched_rule).toBe('learn_merge_target_dirty');
+    expect(direct.category).toBe('await_self_heal');
+    expect(direct.suggested_strategies).toEqual([]);
+
+    const conflictDirect = classifier.classify({
+      stage: 'learn',
+      action: 'merge_target_in_conflict_state',
+      reasoning: 'Merge target /repo is mid-rebase; pausing project.',
+      outcome: { op: 'rebase', paused_at_stage: 'LEARN' },
+    });
+    expect(conflictDirect.matched_rule).toBe('learn_merge_target_dirty');
+
+    const gate = classifier.classify({
+      stage: 'learn',
+      action: 'paused_at_gate',
+      reasoning: 'Merge target /repo has uncommitted or untracked files; pausing project.',
+      outcome: { reason: 'merge_target_dirty', from_state: 'LEARN', to_state: 'PAUSED' },
+    });
+    expect(gate.matched_rule).toBe('learn_merge_target_dirty');
+    expect(gate.suggested_strategies).toEqual([]);
+  });
+
+  it('does NOT match learn_merge_target_dirty on unrelated learn pauses', () => {
+    const r = classifier.classify({
+      stage: 'learn',
+      action: 'paused_at_gate',
+      reasoning: 'Loop paused awaiting approval for LEARN.',
+      outcome: { reason: 'manual_review_required' },
+    });
+    expect(r.matched_rule).not.toBe('learn_merge_target_dirty');
+  });
+
+  it('classifies plan_generation_retry_unusable_output as plan_failure with fallback_provider first', () => {
+    // Regression for bitsy WI 470 (2026-05-03): claude-cli's plan_generation
+    // returned a summary string ("The plan has been written to plan.md...")
+    // because Claude Code is a tool-using agent and treated "Return Markdown
+    // only" as "do work and produce a file". The factory's parser rejected
+    // the output (no `## Task N:` sections). Without this rule, recovery's
+    // retry chain re-runs the SAME provider on the SAME prompt — same output
+    // shape, same parse failure. fallback_provider switches to the next
+    // provider in the chain (e.g. claude-cli → codex) so a new agent can
+    // produce inline markdown.
+    const r = classifier.classify({
+      stage: 'execute',
+      action: 'plan_generation_retry_unusable_output',
+      reasoning: 'plan-generation task completed without executable plan markdown',
+      outcome: {
+        reason: 'unusable_plan_generation_output',
+        plan_path: 'C:/repo/docs/plans/470-x.md',
+        generation_task_id: 'task-uuid',
+        retry_count: 1,
+      },
+    });
+    expect(r.matched_rule).toBe('plan_generation_unusable_output');
+    expect(r.category).toBe('plan_failure');
+    expect(r.suggested_strategies[0]).toBe('fallback_provider');
+    expect(r.suggested_strategies).toContain('retry_plan_generation');
+  });
+
+  it('classifies execute_zero_diff_short_circuit as transient with retry first', () => {
+    // Regression for bitsy WI 2170 (2026-05-03): work item was already
+    // shipped via a prior gitignore commit; both EXECUTE attempts produced
+    // zero-diff (auto_commit_skipped_clean), the short-circuit fired and
+    // marked WI unactionable, and the loop transitioned to IDLE. Without
+    // this rule, the default unknown-classification picked retry, which hit
+    // "Loop not started for this project" because the IDLE transition had
+    // already terminated the loop instance. retry's advanceLoop branch is
+    // the right move here; naming the rule keeps the decision log honest.
+    const r = classifier.classify({
+      stage: 'execute',
+      action: 'execute_zero_diff_short_circuit',
+      reasoning: 'Work item produced 2 consecutive zero-diff executes; skipping VERIFY and marking it unactionable.',
+      outcome: {
+        work_item_id: 2170,
+        reject_reason: 'zero_diff_across_retries',
+        zero_diff_attempts: 2,
+        next_state: 'IDLE',
+      },
+    });
+    expect(r.matched_rule).toBe('execute_zero_diff_short_circuit');
+    expect(r.category).toBe('transient');
+    expect(r.suggested_strategies[0]).toBe('retry');
+    expect(r.suggested_strategies).toContain('reject_and_advance');
+  });
+
   it('every rule suggests strategies known to the plugin', () => {
     const strategyNames = new Set(plugin.recoveryStrategies.map(s => s.name));
     for (const rule of plugin.classifierRules) {

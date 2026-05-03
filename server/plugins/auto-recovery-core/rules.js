@@ -218,6 +218,107 @@ module.exports = [
     suggested_strategies: ['retry_with_fresh_session', 'reject_and_advance', 'escalate'],
   },
   {
+    // LEARN paused because the merge target (typically the project's main
+    // branch) has uncommitted/untracked files OR is mid-merge/rebase. Auto-
+    // recovery cannot fix this — the operator must inspect the target repo
+    // and commit, stash, or remove the dirty state before any factory
+    // worktree can land on it.
+    //
+    // Default unknown-classification routes ['retry', 'escalate']. The retry
+    // path approves the gate, the next tick re-enters LEARN, the merge check
+    // fails the same way, the loop pauses again, and recovery rearms — a
+    // cycle that pays no progress dividend and burns the budget. We route
+    // through the 'no_strategy' branch (empty strategies) so the engine
+    // marks auto_recovery_exhausted=1 without touching the project. The
+    // factory tick keeps running; once the operator cleans main, the next
+    // LEARN attempt's merge check passes, logs advance_from_learn, and
+    // rearm fires (via 'new_real_decision').
+    //
+    // Live evidence 2026-05-03: bitsy WI 732 paused at LEARN for
+    // merge_target_dirty (uncommitted .gitignore + tests/test_ci_parity.py
+    // from a prior factory run). Without this rule, recovery's retry
+    // strategy approveGate-cleared the pause every cycle, the next tick
+    // re-fired the dirty check, and the project burned all 5 attempts
+    // before exhausting and being escalation-paused.
+    name: 'learn_merge_target_dirty',
+    category: 'await_self_heal',
+    priority: 85,
+    confidence: 0.95,
+    match_fn: (d) => {
+      if (!d) return false;
+      if (d.action === 'merge_target_dirty' || d.action === 'merge_target_in_conflict_state') {
+        return true;
+      }
+      if (d.stage === 'learn' && d.action === 'paused_at_gate') {
+        const reasoning = String(d.reasoning || '');
+        const outcomeText = JSON.stringify(d.outcome || {});
+        return /uncommitted or untracked|merge target.*conflict|mid-merge|mid-rebase/i.test(reasoning)
+          || /merge_target_dirty|merge_target_in_conflict_state/.test(outcomeText);
+      }
+      return false;
+    },
+    suggested_strategies: [],
+  },
+  {
+    // EXECUTE retried because the plan-generation task returned output the
+    // parser could not extract `## Task N:` sections from. Common shape:
+    // a coding agent (claude-cli especially) treats "Return Markdown only"
+    // as "do work and produce a markdown file", writes the plan to a file
+    // in the worktree, and returns a summary string instead of the inline
+    // plan markdown the factory expects.
+    //
+    // Default unknown-classification picks `retry`. Re-running the SAME
+    // provider on the SAME prompt produces the same shape of output and
+    // the same parse failure — an infinite loop. The right move is
+    // `fallback_provider`: switch providers (e.g. claude-cli → codex) so
+    // the next attempt comes from an agent that returns inline markdown
+    // without filesystem side-effects.
+    //
+    // Live evidence 2026-05-03: bitsy WI 470 plan-generation on claude-cli
+    // returned "The plan has been written to plan.md..." instead of inline
+    // markdown; the loop logged plan_generation_retry_unusable_output and
+    // recovery's retry chain hit max_attempts without unblocking. Routing-
+    // template fix (claude-cli → codex for plan_generation) made codex the
+    // primary; this rule is the resilience layer for any future agent that
+    // exhibits the same pattern.
+    name: 'plan_generation_unusable_output',
+    category: 'plan_failure',
+    priority: 80,
+    confidence: 0.85,
+    match: { stage: 'execute', action: 'plan_generation_retry_unusable_output' },
+    suggested_strategies: ['fallback_provider', 'retry_plan_generation'],
+  },
+  {
+    // EXECUTE zero-diff short-circuit fired — the work item already
+    // produced N consecutive auto_commit_skipped_clean retries with no
+    // commits ahead of base, so the safety net marked it `unactionable`
+    // with reason zero_diff_across_retries (loop-controller.js
+    // maybeShortCircuitZeroDiffExecute). The work item is ALREADY in a
+    // terminal state by the time this decision fires; the loop's only
+    // remaining task is to advance to the next work item.
+    //
+    // Without this rule the default unknown-classification picks `retry`,
+    // which calls approveGate on a project paused at EXECUTE — and may
+    // throw "Loop not started for this project" if the short-circuit's
+    // IDLE transition already terminated the loop instance. The retry
+    // budget exhausts, escalate fires, and the project pauses on
+    // `auto_recovery_exhausted` even though the underlying state is
+    // benign and just needs a loop tick. `retry` IS the right strategy
+    // here; naming the rule keeps the decision log honest and routes
+    // retry's advanceLoop branch correctly.
+    //
+    // Live evidence 2026-05-03: bitsy WI 2170 (already-shipped via prior
+    // gitignore commit) zero-diffed twice, short-circuit fired, and the
+    // unknown-classification recovery exhausted because retry hit "Loop
+    // not started for this project".
+    name: 'execute_zero_diff_short_circuit',
+    category: 'transient',
+    priority: 78,
+    confidence: 0.9,
+    match: { stage: 'execute', action: 'execute_zero_diff_short_circuit' },
+    suggested_strategies: ['retry', 'reject_and_advance'],
+  },
+  {
     // VERIFY paused because the reviewer returned an ambiguous (low-
     // confidence) verdict. Most often this means the failing-tests
     // parser returned [] AND the modified-files set was [] — the
