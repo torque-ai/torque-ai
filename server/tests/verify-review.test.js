@@ -433,11 +433,27 @@ const modulePath = path.resolve(__dirname, '../factory/verify-review.js');
 describe('runLlmTiebreak', () => {
   const savedCache = new Map();
 
-  function installMocks({ submit, await: awaitFn, task, listTasks }) {
+  function installMocks({ submit, await: awaitFn, task, listTasks, providers }) {
+    const providerMap = new Map(Object.entries(providers || {
+      cerebras: { provider: 'cerebras', enabled: false },
+      groq: { provider: 'groq', enabled: true },
+    }).map(([provider, config]) => [provider.trim().toLowerCase(), {
+      provider: provider.trim().toLowerCase(),
+      ...config,
+    }]));
     [
       { path: require.resolve('../factory/internal-task-submit'), exports: { submitFactoryInternalTask: submit } },
       { path: require.resolve('../handlers/workflow/await'), exports: { handleAwaitTask: awaitFn } },
       { path: require.resolve('../db/task-core'), exports: { getTask: task, ...(listTasks ? { listTasks } : {}) } },
+      {
+        path: require.resolve('../db/provider-routing-core'),
+        exports: {
+          getProvider: vi.fn((provider) => {
+            const key = typeof provider === 'string' ? provider.trim().toLowerCase() : '';
+            return providerMap.get(key) || null;
+          }),
+        },
+      },
     ].forEach(({ path, exports }) => {
       savedCache.set(path, require.cache[path]);
       require.cache[path] = { id: path, filename: path, loaded: true, exports, children: [], paths: [] };
@@ -702,7 +718,7 @@ describe('runLlmTiebreak', () => {
     expect(submittedPrompt.length).toBeLessThan(longDescription.length);
   });
 
-  it('routes verify_review with cerebras + prefer_free + context_stuff:false by default', async () => {
+  it('defers verify_review provider selection when the default reviewer provider is disabled', async () => {
     const submit = vi.fn().mockResolvedValue({ task_id: 't-fast' });
     installMocks({
       submit,
@@ -711,6 +727,46 @@ describe('runLlmTiebreak', () => {
         status: 'completed',
         output: '{"verdict":"go","critique":"ok"}',
       }),
+      providers: {
+        cerebras: { provider: 'cerebras', enabled: false },
+      },
+    });
+    const original = process.env.TORQUE_VERIFY_REVIEWER_PROVIDER;
+    delete process.env.TORQUE_VERIFY_REVIEWER_PROVIDER;
+    try {
+      const { runLlmTiebreak } = require('../factory/verify-review');
+      await runLlmTiebreak({
+        failingTests: ['tests/foo.py'],
+        modifiedFiles: ['src/bar.ts'],
+        workItem: { id: 1, title: 'w', description: 'd' },
+        project: { id: 'p', path: '/tmp/p' },
+      });
+      const call = submit.mock.calls[0][0];
+      expect(call.provider).toBeUndefined();
+      expect(call.model).toBeUndefined();
+      expect(submit).toHaveBeenCalledWith(expect.objectContaining({
+        kind: 'verify_review',
+        prefer_free: true,
+        context_stuff: false,
+      }));
+    } finally {
+      if (original === undefined) delete process.env.TORQUE_VERIFY_REVIEWER_PROVIDER;
+      else process.env.TORQUE_VERIFY_REVIEWER_PROVIDER = original;
+    }
+  });
+
+  it('routes verify_review with enabled cerebras + prefer_free + context_stuff:false by default', async () => {
+    const submit = vi.fn().mockResolvedValue({ task_id: 't-fast-cerebras' });
+    installMocks({
+      submit,
+      await: vi.fn().mockResolvedValue({ status: 'completed' }),
+      task: vi.fn().mockReturnValue({
+        status: 'completed',
+        output: '{"verdict":"go","critique":"ok"}',
+      }),
+      providers: {
+        cerebras: { provider: 'cerebras', enabled: true },
+      },
     });
     const original = process.env.TORQUE_VERIFY_REVIEWER_PROVIDER;
     delete process.env.TORQUE_VERIFY_REVIEWER_PROVIDER;
@@ -725,6 +781,7 @@ describe('runLlmTiebreak', () => {
       expect(submit).toHaveBeenCalledWith(expect.objectContaining({
         kind: 'verify_review',
         provider: 'cerebras',
+        model: 'llama3.1-8b',
         prefer_free: true,
         context_stuff: false,
       }));
@@ -743,6 +800,9 @@ describe('runLlmTiebreak', () => {
         status: 'completed',
         output: '{"verdict":"go","critique":"ok"}',
       }),
+      providers: {
+        cerebras: { provider: 'cerebras', enabled: true },
+      },
     });
     const original = process.env.TORQUE_VERIFY_REVIEWER_PROVIDER;
     delete process.env.TORQUE_VERIFY_REVIEWER_PROVIDER;
@@ -807,10 +867,8 @@ describe('runLlmTiebreak', () => {
     }
   });
 
-  it('falls back to routed reviewer selection when the default reviewer provider is disabled', async () => {
-    const submit = vi.fn()
-      .mockRejectedValueOnce(new Error('smart_submit_task failed [PROVIDER_ERROR]: Provider cerebras is disabled. Enable it or choose a different provider.'))
-      .mockResolvedValueOnce({ task_id: 't-routed' });
+  it('does not submit a disabled env reviewer provider', async () => {
+    const submit = vi.fn().mockResolvedValue({ task_id: 't-routed' });
     installMocks({
       submit,
       await: vi.fn().mockResolvedValue({ status: 'completed' }),
@@ -818,10 +876,13 @@ describe('runLlmTiebreak', () => {
         status: 'completed',
         output: '{"verdict":"no-go","critique":"unrelated baseline"}',
       }),
+      providers: {
+        cerebras: { provider: 'cerebras', enabled: false },
+      },
     });
     const originalProvider = process.env.TORQUE_VERIFY_REVIEWER_PROVIDER;
     const originalModel = process.env.TORQUE_VERIFY_REVIEWER_MODEL;
-    delete process.env.TORQUE_VERIFY_REVIEWER_PROVIDER;
+    process.env.TORQUE_VERIFY_REVIEWER_PROVIDER = 'cerebras';
     delete process.env.TORQUE_VERIFY_REVIEWER_MODEL;
     try {
       const { runLlmTiebreak } = require('../factory/verify-review');
@@ -831,14 +892,10 @@ describe('runLlmTiebreak', () => {
         workItem: { id: 519, title: 'Split loop controller', description: 'Extract helpers' },
         project: { id: 'p', path: '/tmp/p' },
       });
-      expect(submit).toHaveBeenCalledTimes(2);
-      expect(submit.mock.calls[0][0]).toEqual(expect.objectContaining({
-        provider: 'cerebras',
-        model: 'llama3.1-8b',
-      }));
-      expect(submit.mock.calls[1][0].provider).toBeUndefined();
-      expect(submit.mock.calls[1][0].model).toBeUndefined();
-      expect(submit.mock.calls[1][0].prefer_free).toBe(true);
+      expect(submit).toHaveBeenCalledTimes(1);
+      expect(submit.mock.calls[0][0].provider).toBeUndefined();
+      expect(submit.mock.calls[0][0].model).toBeUndefined();
+      expect(submit.mock.calls[0][0].prefer_free).toBe(true);
       expect(result.verdict).toBe('no-go');
       expect(result.status).toBe('completed');
     } finally {
@@ -846,6 +903,43 @@ describe('runLlmTiebreak', () => {
       else process.env.TORQUE_VERIFY_REVIEWER_PROVIDER = originalProvider;
       if (originalModel === undefined) delete process.env.TORQUE_VERIFY_REVIEWER_MODEL;
       else process.env.TORQUE_VERIFY_REVIEWER_MODEL = originalModel;
+    }
+  });
+
+  it('retries with routed reviewer selection if an enabled reviewer provider fails at submit', async () => {
+    const submit = vi.fn()
+      .mockRejectedValueOnce(new Error('smart_submit_task failed [PROVIDER_ERROR]: Provider groq is not responding.'))
+      .mockResolvedValueOnce({ task_id: 't-routed-after-failure' });
+    installMocks({
+      submit,
+      await: vi.fn().mockResolvedValue({ status: 'completed' }),
+      task: vi.fn().mockReturnValue({
+        status: 'completed',
+        output: '{"verdict":"no-go","critique":"unrelated baseline"}',
+      }),
+      providers: {
+        groq: { provider: 'groq', enabled: true },
+      },
+    });
+    const originalProvider = process.env.TORQUE_VERIFY_REVIEWER_PROVIDER;
+    process.env.TORQUE_VERIFY_REVIEWER_PROVIDER = 'groq';
+    try {
+      const { runLlmTiebreak } = require('../factory/verify-review');
+      const result = await runLlmTiebreak({
+        failingTests: ['plugins/codegraph/tests/search.test.js'],
+        modifiedFiles: ['server/factory/loop-controller.js'],
+        workItem: { id: 519, title: 'Split loop controller', description: 'Extract helpers' },
+        project: { id: 'p', path: '/tmp/p' },
+      });
+      expect(submit).toHaveBeenCalledTimes(2);
+      expect(submit.mock.calls[0][0].provider).toBe('groq');
+      expect(submit.mock.calls[1][0].provider).toBeUndefined();
+      expect(submit.mock.calls[1][0].model).toBeUndefined();
+      expect(result.verdict).toBe('no-go');
+      expect(result.status).toBe('completed');
+    } finally {
+      if (originalProvider === undefined) delete process.env.TORQUE_VERIFY_REVIEWER_PROVIDER;
+      else process.env.TORQUE_VERIFY_REVIEWER_PROVIDER = originalProvider;
     }
   });
 
@@ -962,6 +1056,9 @@ describe('runLlmTiebreak', () => {
         status: 'completed',
         output: '{"verdict":"go","critique":"ok"}',
       }),
+      providers: {
+        cerebras: { provider: 'cerebras', enabled: true },
+      },
     });
     const original = process.env.TORQUE_VERIFY_REVIEWER_MODEL;
     delete process.env.TORQUE_VERIFY_REVIEWER_MODEL;
@@ -995,6 +1092,9 @@ describe('runLlmTiebreak', () => {
         status: 'completed',
         output: '{"verdict":"go","critique":"ok"}',
       }),
+      providers: {
+        cerebras: { provider: 'cerebras', enabled: true },
+      },
     });
     const original = process.env.TORQUE_VERIFY_REVIEWER_MODEL;
     process.env.TORQUE_VERIFY_REVIEWER_MODEL = 'zai-glm-4.7';
@@ -1046,7 +1146,43 @@ describe('runLlmTiebreak', () => {
     }
   });
 
-  it('honors TORQUE_VERIFY_REVIEWER_MODEL env override', async () => {
+  it('does not pass a reviewer model override when provider selection is deferred', async () => {
+    const submit = vi.fn().mockResolvedValue({ task_id: 't-model-deferred' });
+    installMocks({
+      submit,
+      await: vi.fn().mockResolvedValue({ status: 'completed' }),
+      task: vi.fn().mockReturnValue({
+        status: 'completed',
+        output: '{"verdict":"go","critique":"ok"}',
+      }),
+      providers: {
+        cerebras: { provider: 'cerebras', enabled: false },
+      },
+    });
+    const originalProvider = process.env.TORQUE_VERIFY_REVIEWER_PROVIDER;
+    const originalModel = process.env.TORQUE_VERIFY_REVIEWER_MODEL;
+    delete process.env.TORQUE_VERIFY_REVIEWER_PROVIDER;
+    process.env.TORQUE_VERIFY_REVIEWER_MODEL = 'llama3.1-8b';
+    try {
+      const { runLlmTiebreak } = require('../factory/verify-review');
+      await runLlmTiebreak({
+        failingTests: ['tests/foo.py'],
+        modifiedFiles: ['src/bar.ts'],
+        workItem: { id: 1, title: 'w', description: 'd' },
+        project: { id: 'p', path: '/tmp/p' },
+      });
+      const submitArgs = submit.mock.calls[0][0];
+      expect(submitArgs.provider).toBeUndefined();
+      expect(submitArgs.model).toBeUndefined();
+    } finally {
+      if (originalProvider === undefined) delete process.env.TORQUE_VERIFY_REVIEWER_PROVIDER;
+      else process.env.TORQUE_VERIFY_REVIEWER_PROVIDER = originalProvider;
+      if (originalModel === undefined) delete process.env.TORQUE_VERIFY_REVIEWER_MODEL;
+      else process.env.TORQUE_VERIFY_REVIEWER_MODEL = originalModel;
+    }
+  });
+
+  it('honors TORQUE_VERIFY_REVIEWER_MODEL env override when the reviewer provider is pinned', async () => {
     const submit = vi.fn().mockResolvedValue({ task_id: 't-model-env' });
     installMocks({
       submit,
@@ -1055,8 +1191,13 @@ describe('runLlmTiebreak', () => {
         status: 'completed',
         output: '{"verdict":"go","critique":"ok"}',
       }),
+      providers: {
+        groq: { provider: 'groq', enabled: true },
+      },
     });
-    const original = process.env.TORQUE_VERIFY_REVIEWER_MODEL;
+    const originalProvider = process.env.TORQUE_VERIFY_REVIEWER_PROVIDER;
+    const originalModel = process.env.TORQUE_VERIFY_REVIEWER_MODEL;
+    process.env.TORQUE_VERIFY_REVIEWER_PROVIDER = 'groq';
     process.env.TORQUE_VERIFY_REVIEWER_MODEL = 'llama3.1-8b';
     try {
       const { runLlmTiebreak } = require('../factory/verify-review');
@@ -1067,11 +1208,14 @@ describe('runLlmTiebreak', () => {
         project: { id: 'p', path: '/tmp/p' },
       });
       expect(submit).toHaveBeenCalledWith(expect.objectContaining({
+        provider: 'groq',
         model: 'llama3.1-8b',
       }));
     } finally {
-      if (original === undefined) delete process.env.TORQUE_VERIFY_REVIEWER_MODEL;
-      else process.env.TORQUE_VERIFY_REVIEWER_MODEL = original;
+      if (originalProvider === undefined) delete process.env.TORQUE_VERIFY_REVIEWER_PROVIDER;
+      else process.env.TORQUE_VERIFY_REVIEWER_PROVIDER = originalProvider;
+      if (originalModel === undefined) delete process.env.TORQUE_VERIFY_REVIEWER_MODEL;
+      else process.env.TORQUE_VERIFY_REVIEWER_MODEL = originalModel;
     }
   });
 

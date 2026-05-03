@@ -6,12 +6,12 @@ describe('auto-recovery-core day-one rules', () => {
   const plugin = createPlugin();
   const classifier = createClassifier({ rules: plugin.classifierRules });
 
-  it('classifies the SpudgetBooks sourcelink file-lock as transient', () => {
+  it('classifies the example-project sourcelink file-lock as transient', () => {
     const decision = {
       stage: 'verify', action: 'worktree_verify_failed',
       reasoning: 'Worktree remote verify FAILED ... pausing loop at VERIFY_FAIL.',
       outcome: {
-        output_preview: `error : Error writing to source link file 'obj\\Debug\\net8.0\\SpudgetBooks.Application.Tests.sourcelink.json' ... because it is being used by another process.`,
+        output_preview: `error : Error writing to source link file 'obj\\Debug\\net8.0\\example-project.Application.Tests.sourcelink.json' ... because it is being used by another process.`,
         retry_attempts: 1,
       },
     };

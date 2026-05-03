@@ -2,7 +2,7 @@
 
 const childProcess = require('node:child_process');
 const { createHash } = require('node:crypto');
-const { getProviderLanePolicyFromProject } = require('./provider-lane-policy');
+const { getProviderLanePolicyFromProject, specializePolicyForKind } = require('./provider-lane-policy');
 const logger = require('../logger').child({ component: 'verify-review' });
 
 // Register built-in dep-resolver adapters on module load. Idempotent —
@@ -475,18 +475,6 @@ function readReviewerProviderOverride() {
   return trimmed.length > 0 ? trimmed : null;
 }
 
-function resolveReviewerProvider(project) {
-  const envOverride = readReviewerProviderOverride();
-  if (envOverride !== undefined) return envOverride;
-
-  const lanePolicy = getProviderLanePolicyFromProject(project || {});
-  if (lanePolicy?.expected_provider) {
-    return null;
-  }
-
-  return 'cerebras';
-}
-
 // The reviewer is a yes/no JSON verdict task — it does not need a 235B
 // MoE model. Empirically, qwen-3-235b returns null output for short
 // structured prompts even with JSON mode (observed on StateTrace
@@ -527,24 +515,76 @@ function normalizeReviewerProvider(provider) {
   return trimmed || null;
 }
 
+function isReviewerProviderEnabled(provider) {
+  const normalized = normalizeReviewerProvider(provider);
+  if (!normalized) return false;
+
+  try {
+    const providerRoutingCore = require('../db/provider-routing-core');
+    if (typeof providerRoutingCore.getProvider !== 'function') return false;
+    const providerConfig = providerRoutingCore.getProvider(normalized);
+    return Boolean(providerConfig && providerConfig.enabled);
+  } catch (error) {
+    logger.debug('verify-review: provider enabled lookup failed', {
+      provider: normalized,
+      error: error?.message || String(error),
+    });
+    return false;
+  }
+}
+
+function resolveReviewerProvider(project) {
+  const envOverride = readReviewerProviderOverride();
+  if (envOverride !== undefined) {
+    const normalizedOverride = normalizeReviewerProvider(envOverride);
+    if (!normalizedOverride) return null;
+    if (isReviewerProviderEnabled(normalizedOverride)) return normalizedOverride;
+    logger.warn('verify-review: configured reviewer provider is disabled; deferring to routing', {
+      provider: normalizedOverride,
+      source: 'TORQUE_VERIFY_REVIEWER_PROVIDER',
+    });
+    return null;
+  }
+
+  const lanePolicy = specializePolicyForKind(
+    getProviderLanePolicyFromProject(project || {}),
+    'verify_review'
+  );
+  if (lanePolicy?.expected_provider) {
+    return null;
+  }
+
+  const defaultProvider = 'cerebras';
+  if (isReviewerProviderEnabled(defaultProvider)) return defaultProvider;
+  logger.warn('verify-review: default reviewer provider is disabled; deferring to routing', {
+    provider: defaultProvider,
+  });
+  return null;
+}
+
 function resolveReviewerModel(reviewerProvider) {
+  const normalizedProvider = normalizeReviewerProvider(reviewerProvider);
   const envOverride = readReviewerModelOverride();
   // Empty string env value opts back into the routing template's choice
   // (envOverride === null) — preserve that escape hatch.
   if (envOverride === null) return null;
+  // A model override without a provider override is usually a provider-specific
+  // model name leaking into smart routing. Leave model selection to the chosen
+  // provider unless this helper is also pinning the provider.
+  if (!normalizedProvider) return null;
   if (!isReviewerModelReachable(envOverride)) {
     // Don't honor env overrides that are known to 404 for the typical
     // free-tier key. Operators on paid tiers who actually want
     // zai-glm-4.7/gpt-oss-120b can set it via a routing template
     // (where the per-task choice happens after this guard).
-    return REVIEWER_FALLBACK_MODEL;
+    return normalizedProvider === 'cerebras' ? REVIEWER_FALLBACK_MODEL : null;
   }
   if (envOverride !== undefined) return envOverride;
   // The default fallback model is Cerebras-specific. When provider
   // selection is deferred to a target project's lane policy, leave the
   // model unset so Codex/Claude/Ollama lanes cannot receive a Cerebras
   // model name such as llama3.1-8b.
-  if (normalizeReviewerProvider(reviewerProvider) !== 'cerebras') return null;
+  if (normalizedProvider !== 'cerebras') return null;
   // llama3.1-8b is the smallest cerebras model that's reliably available
   // on the free tier and handles JSON-mode short verdicts cleanly.
   // zai-glm-4.7 and gpt-oss-120b appear in /v1/models but 404 on chat
@@ -590,16 +630,13 @@ async function submitAndParseTiebreak({ prompt, workingDirectory, project, workI
         // model focuses on the verdict instead of re-deriving it from
         // scanned project files.
         context_stuff: false,
-        // prefer_free=true gives cerebras → groq → google-ai → openrouter
-        // fallback if the primary provider is unhealthy. Avoids paying
-        // Codex prices for what a fast free model handles in seconds.
+        // prefer_free=true lets smart routing pick an enabled free provider
+        // when this helper is not pinning a known-enabled reviewer provider.
+        // Avoids paying Codex prices for what a fast free model handles in seconds.
         prefer_free: true,
         ...(reviewerProvider ? { provider: reviewerProvider } : {}),
-        // Pin the reviewer model — the routing template's free-agentic
-        // preset specifies qwen-3-235b for plan_generation, which would
-        // override the cerebras adapter's structured-output model
-        // selection. llama3.1-8b handles short JSON-mode prompts in <1s
-        // and is reliably available on tier-1 cerebras keys.
+        // Pin the reviewer model only when the reviewer provider is pinned
+        // too; otherwise model selection belongs to smart routing.
         ...(reviewerModel ? { model: reviewerModel } : {}),
         extra_tags: [`factory:verify_review_hash=${reviewHash}`],
         // Structured-output hint: the cerebras adapter (and any future
