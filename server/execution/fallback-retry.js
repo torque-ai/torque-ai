@@ -884,6 +884,27 @@ function selectHashlineFormat(model, task) {
 // Error classification for retry logic
 // ---------------------------------------------------------------------------
 
+function isCodexStartupBannerOnlyOutput(errorOutput) {
+  const text = String(errorOutput || '')
+    .replace(/\u001b\[[0-9;]*m/g, '')
+    .trim();
+  if (!/\bOpenAI Codex\b/i.test(text)) {
+    return false;
+  }
+  const lines = text.split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  if (lines.length === 0) {
+    return false;
+  }
+  const isBannerLine = (line) => (
+    /^[-=]{3,}$/.test(line)
+    || /^OpenAI Codex\b/i.test(line)
+    || /^(workdir|cwd|model|provider|approval|sandbox|reasoning effort|reasoning summaries|session id):/i.test(line)
+  );
+  return lines.every(isBannerLine);
+}
+
 /**
  * Classify an error as retryable (transient) or non-retryable (permanent).
  * Used by the close handler to decide whether to retry a failed task.
@@ -901,6 +922,14 @@ function classifyError(errorOutput, exitCode) {
     if (retryAfterSeconds === null) return { retryable, reason };
     return { retryable, reason, retryAfterSeconds };
   };
+
+  if (isCodexStartupBannerOnlyOutput(errorText)) {
+    return makeResult(true, 'Codex startup banner only - no task output captured');
+  }
+
+  if (/no heartbeat.*stale session cleanup|stale session cleanup.*no heartbeat/i.test(errorText)) {
+    return makeResult(true, 'Stale session cleanup after no heartbeat');
+  }
 
   // === NON-RETRYABLE ERRORS (permanent failures) ===
   const matchesPattern = (text, pattern) => {

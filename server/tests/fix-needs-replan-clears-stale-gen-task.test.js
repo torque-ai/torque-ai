@@ -106,4 +106,37 @@ describe('routeWorkItemToNeedsReplan clears stale plan-generation fields', () =>
     expect(after.origin?.plan_description_quality_rejection_count).toBe(2);
     expect(after.origin?.scout_pattern).toBe('something useful');
   });
+
+  it('persists fresh plan-quality feedback supplied with the routing details', () => {
+    const item = factoryIntake.createWorkItem({
+      project_id: 'p1', source: 'plan_file', title: 'Pre-written feedback test',
+    });
+    const feedback = {
+      code: 'plan_quality_gate_failed',
+      missing_specificity_signals: ['task_avoids_local_heavy_validation'],
+      reasons: ['Task 1 includes heavyweight local validation.'],
+      failing_tasks: [{
+        task_index: 0,
+        missing_specificity_signals: ['task_avoids_local_heavy_validation'],
+        reasons: ['Task 1 includes heavyweight local validation.'],
+      }],
+    };
+
+    const after = routeWorkItemToNeedsReplan(
+      factoryIntake.getWorkItem(item.id),
+      {
+        reason: 'pre_written_plan_rejected_by_quality_gate',
+        details: {
+          hardFails: ['task_avoids_local_heavy_validation'],
+          last_plan_description_quality_rejection: feedback,
+          last_gate_feedback: 'Use torque-remote instead of local dotnet test.',
+        },
+      },
+    );
+
+    expect(after.status).toBe('needs_replan');
+    expect(after.origin?.last_plan_description_quality_rejection).toEqual(feedback);
+    expect(after.origin?.last_gate_feedback).toBe('Use torque-remote instead of local dotnet test.');
+    expect(after.origin?.escalation_history.at(-1).missing_signals).toEqual(['task_avoids_local_heavy_validation']);
+  });
 });
