@@ -896,6 +896,14 @@ async function start(options = {}) {
       broadcastStatsUpdate();
     }
   }, 60000);
+  // Don't keep the event loop alive on the stats broadcast alone. stop()
+  // clears the interval on graceful shutdown, but if dashboard.start() is
+  // called and stop() is never reached (e.g. uncaughtException →
+  // SHUTDOWN_TIMEOUT → process.exit), the interval can tick once during
+  // the grace window and call broadcastStatsUpdate against half-closed
+  // websockets. unref() lets node exit naturally; matches the pattern
+  // used by orphan-cleanup, sleep-watchdog, event-dispatch, factory-tick.
+  if (typeof statsInterval.unref === 'function') statsInterval.unref();
 
   // Store interval for cleanup
   httpServer.statsInterval = statsInterval;
