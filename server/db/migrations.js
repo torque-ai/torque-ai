@@ -1264,6 +1264,63 @@ const MIGRATIONS = [
     },
     // No down — column drops on SQLite require table rebuild; not worth it for an additive migration.
   },
+  {
+    version: 56,
+    name: 'add_task_subprocess_recovery_columns',
+    // Phase A of the subprocess-detachment arc (see
+    // docs/design/2026-05-03-subprocess-detachment-codex-spike.md).
+    // These columns are the persistent anchors that let a fresh TORQUE
+    // instance re-adopt a running subprocess after a restart instead
+    // of marking it cancelled via the startup-task-reconciler:
+    //
+    //   subprocess_pid       — OS PID of the spawned CLI (codex, etc.)
+    //   output_log_path      — absolute path to the on-disk stdout log
+    //   error_log_path       — absolute path to the on-disk stderr log
+    //   output_log_offset    — bytes of stdout already consumed by the
+    //                          output handler; the tailer resumes from
+    //                          this byte after re-adoption
+    //   error_log_offset     — same, for stderr
+    //   last_activity_at     — wall-clock timestamp of the most recent
+    //                          chunk-or-write the runner saw, persisted
+    //                          at a throttled cadence so stall
+    //                          detection has a recent floor after a
+    //                          restart
+    //
+    // Phase A only adds the schema; no caller writes to these columns
+    // yet. The detached spawn path that populates them ships in Phase
+    // B behind a feature flag (TORQUE_DETACHED_SUBPROCESSES).
+    up: function(sqliteDb) {
+      const hasTable = sqliteDb.prepare(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='tasks'"
+      ).get();
+      if (!hasTable) return;
+      const cols = sqliteDb.prepare("PRAGMA table_info(tasks)").all();
+      const has = (name) => cols.some((c) => c.name === name);
+      const adds = [
+        ['subprocess_pid', 'INTEGER'],
+        ['output_log_path', 'TEXT'],
+        ['error_log_path', 'TEXT'],
+        ['output_log_offset', 'INTEGER DEFAULT 0'],
+        ['error_log_offset', 'INTEGER DEFAULT 0'],
+        ['last_activity_at', 'TEXT'],
+      ];
+      for (const [name, type] of adds) {
+        if (!has(name)) {
+          // eslint-disable-next-line torque/no-prepare-in-loop -- one-shot DDL; each ALTER TABLE is unique SQL run exactly once when this migration applies, so PreparedStatement caching has no benefit
+          sqliteDb.prepare(`ALTER TABLE tasks ADD COLUMN ${name} ${type}`).run();
+        }
+      }
+      // Partial index — most tasks never have a subprocess_pid (queued,
+      // already finalized, or non-CLI providers), so a partial index
+      // keeps the on-disk size minimal while still covering the
+      // re-adoption hot path: SELECT WHERE status IN ('running','claimed')
+      //                        AND subprocess_pid IS NOT NULL.
+      sqliteDb.prepare(
+        'CREATE INDEX IF NOT EXISTS idx_tasks_subprocess_pid ON tasks(subprocess_pid) WHERE subprocess_pid IS NOT NULL'
+      ).run();
+    },
+    down: 'DROP INDEX IF EXISTS idx_tasks_subprocess_pid',
+  },
 ];
 
 function ensureMigrationTable(sqliteDb) {

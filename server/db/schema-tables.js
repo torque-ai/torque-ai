@@ -519,7 +519,21 @@ function createTables(db, logger) {
         git_before_sha TEXT,
         git_after_sha TEXT,
         git_stash_ref TEXT,
-        resume_context TEXT
+        resume_context TEXT,
+        -- Subprocess re-adoption anchors (migration 56). Fresh DBs get
+        -- these here; existing DBs pick them up via the migration. See
+        -- docs/design/2026-05-03-subprocess-detachment-codex-spike.md
+        -- for the design. Phase A only allocates the columns; no caller
+        -- writes to them until the detached spawn path lands in Phase B.
+        -- The partial index over subprocess_pid is created by migration
+        -- 56 itself (CREATE INDEX IF NOT EXISTS), idempotent on both
+        -- fresh and migrated databases.
+        subprocess_pid INTEGER,
+        output_log_path TEXT,
+        error_log_path TEXT,
+        output_log_offset INTEGER DEFAULT 0,
+        error_log_offset INTEGER DEFAULT 0,
+        last_activity_at TEXT
       )
     `);
   try {
