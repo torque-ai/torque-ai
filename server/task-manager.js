@@ -161,7 +161,7 @@ const _fallbackRetryModule = require('./execution/fallback-retry');
 const _workflowRuntimeModule = require('./execution/workflow-runtime');
 const _outputSafeguards = require('./validation/output-safeguards');
 const _orphanCleanup = require('./maintenance/orphan-cleanup');
-const _instanceManager = require('./coordination/instance-manager');
+const _instanceManager = require('./maintenance/instance-manager');
 
 // Phase 7-10 extracted modules
 const _promptsModule = require('./providers/prompts');

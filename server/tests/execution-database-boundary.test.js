@@ -413,7 +413,7 @@ function installTaskManagerBoundaryMocks() {
   installMock('../execution/workflow-runtime', workflowRuntime);
   installMock('../validation/output-safeguards', outputSafeguards);
   installMock('../maintenance/orphan-cleanup', orphanCleanup);
-  installMock('../coordination/instance-manager', instanceManager);
+  installMock('../maintenance/instance-manager', instanceManager);
   installMock('../providers/prompts', prompts);
   installMock('../validation/close-phases', closePhases);
   installMock('../validation/auto-verify-retry', autoVerifyRetry);

@@ -27,7 +27,7 @@ const mockModules = {
     getAllTaskActivity: vi.fn(() => []),
     canAcceptTask: vi.fn(() => true),
   },
-  '../coordination/instance-manager': {
+  '../maintenance/instance-manager': {
     registerInstance: vi.fn(),
     startInstanceHeartbeat: vi.fn(),
     stopInstanceHeartbeat: vi.fn(),
@@ -211,13 +211,13 @@ describe('task-manager-delegations', () => {
     ['getAllTaskActivity', '../utils/activity-monitoring'],
     ['canAcceptTask', '../utils/activity-monitoring'],
     // instance-manager
-    ['registerInstance', '../coordination/instance-manager'],
-    ['startInstanceHeartbeat', '../coordination/instance-manager'],
-    ['stopInstanceHeartbeat', '../coordination/instance-manager'],
-    ['unregisterInstance', '../coordination/instance-manager'],
-    ['updateInstanceInfo', '../coordination/instance-manager'],
-    ['isInstanceAlive', '../coordination/instance-manager'],
-    ['getMcpInstanceId', '../coordination/instance-manager'],
+    ['registerInstance', '../maintenance/instance-manager'],
+    ['startInstanceHeartbeat', '../maintenance/instance-manager'],
+    ['stopInstanceHeartbeat', '../maintenance/instance-manager'],
+    ['unregisterInstance', '../maintenance/instance-manager'],
+    ['updateInstanceInfo', '../maintenance/instance-manager'],
+    ['isInstanceAlive', '../maintenance/instance-manager'],
+    ['getMcpInstanceId', '../maintenance/instance-manager'],
     // post-task
     ['cleanupJunkFiles', '../validation/post-task'],
     ['getFileChangesForValidation', '../validation/post-task'],

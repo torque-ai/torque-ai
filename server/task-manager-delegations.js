@@ -19,7 +19,7 @@ const _fallbackRetryModule = require('./execution/fallback-retry');
 const _workflowRuntimeModule = require('./execution/workflow-runtime');
 const _outputSafeguards = require('./validation/output-safeguards');
 const _orphanCleanup = require('./maintenance/orphan-cleanup');
-const _instanceManager = require('./coordination/instance-manager');
+const _instanceManager = require('./maintenance/instance-manager');
 const _promptsModule = require('./providers/prompts');
 const _hashlineVerify = require('./validation/hashline-verify');
 const _closePhases = require('./validation/close-phases');
@@ -57,7 +57,7 @@ function getTaskActivity(...args) { return activityMonitoring.getTaskActivity(..
 function getAllTaskActivity() { return activityMonitoring.getAllTaskActivity(); }
 function canAcceptTask() { return activityMonitoring.canAcceptTask(); }
 
-// ─── coordination/instance-manager.js ─────────────────────────────────────
+// ─── maintenance/instance-manager.js ─────────────────────────────────────
 function registerInstance() { return _instanceManager.registerInstance(); }
 function startInstanceHeartbeat() { return _instanceManager.startInstanceHeartbeat(); }
 function stopInstanceHeartbeat() { return _instanceManager.stopInstanceHeartbeat(); }
