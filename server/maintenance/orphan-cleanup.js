@@ -1017,9 +1017,24 @@ function init(deps) {
   serverConfig.init({ db: deps.db });
   dashboard = deps.dashboard;
   logger = deps.logger;
-  runningProcesses = deps.runningProcesses;
-  finalizingTasks = deps.finalizingTasks || null;
-  stallRecoveryAttempts = deps.stallRecoveryAttempts;
+
+  // The three shared-state maps (running processes, finalizing markers,
+  // stall recovery state) are owned by the DI container — pull them from
+  // there so callers don't have to thread the same instance through
+  // init() every time. Test fixtures that pass bare Maps via deps still
+  // win, so the legacy override path is preserved.
+  const { defaultContainer } = require('../container');
+  const processTracker = deps.runningProcesses
+    || defaultContainer.peek('processTracker')
+    || null;
+  runningProcesses = processTracker;
+  stallRecoveryAttempts = deps.stallRecoveryAttempts
+    || (processTracker && processTracker.stallAttempts)
+    || null;
+  finalizingTasks = deps.finalizingTasks
+    || defaultContainer.peek('finalizationTracker')
+    || null;
+
   TASK_TIMEOUTS = deps.TASK_TIMEOUTS;
   cancelTask = deps.cancelTask;
   processQueue = deps.processQueue;

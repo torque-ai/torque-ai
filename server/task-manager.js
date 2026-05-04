@@ -297,7 +297,17 @@ const {
 // the close handler (which includes auto-verify) is still running async.
 // Values carry a heartbeat so a leaked or wedged finalizer marker can be
 // recovered instead of leaving a DB row stuck as running forever.
-const finalizingTasks = new Map();
+//
+// Owned by the DI container (server/container.js registerValue
+// 'finalizationTracker') so process-lifecycle.js and orphan-cleanup.js
+// reach the same instance via the container. Extends Map, so the
+// existing .set/.get/.has/.delete consumer contract is unchanged;
+// .start/.touch/.idleMs/.getMarker are the preferred new entry points.
+const FinalizationTracker = require('./execution/finalization-tracker');
+const finalizingTasks = defaultContainer.peek('finalizationTracker');
+if (!(finalizingTasks instanceof FinalizationTracker)) {
+  throw new Error('container missing finalizationTracker registration — server/container.js must registerValue it before task-manager.js loads');
+}
 
 // Test mode flag: when true, getActualModifiedFiles() returns null immediately,
 // preventing git process spawning in close handlers during E2E tests with mock processes.
@@ -949,9 +959,9 @@ _orphanCleanup.init({
   db,
   dashboard: getDashboardBroadcaster(),
   logger,
-  runningProcesses,
-  finalizingTasks,
-  stallRecoveryAttempts,
+  // runningProcesses, finalizingTasks, and stallRecoveryAttempts now
+  // default to the container values — orphan-cleanup peeks
+  // processTracker + finalizationTracker on init() unless deps override.
   TASK_TIMEOUTS,
   cancelTask,
   processQueue,
@@ -1104,7 +1114,7 @@ _processLifecycle.init({
   safeUpdateTaskStatus,
   setupStdoutHandler: _processStreams.setupStdoutHandler,
   setupStderrHandler: _processStreams.setupStderrHandler,
-  closeHandlerState: _closeHandlerState.createCloseHandlerStateAccessor(),
+  closeHandlerState: defaultContainer.peek('closeHandlerState'),
 });
 } // end initSubModules
 

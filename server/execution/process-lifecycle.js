@@ -44,6 +44,9 @@ let deps = null;
 
 function setFinalizingMarker(taskId, marker) {
   if (!deps.finalizingTasks) return;
+  // FinalizationTracker (preferred) extends Map, so .set still works.
+  // The fallback Set.add path is preserved for any consumer that still
+  // injects a bare Set during tests.
   if (typeof deps.finalizingTasks.set === 'function') {
     deps.finalizingTasks.set(taskId, marker);
     return;
@@ -55,8 +58,15 @@ function setFinalizingMarker(taskId, marker) {
 
 function touchFinalizingMarker(taskId, stage) {
   if (!deps.finalizingTasks) return;
-  const now = Date.now();
+  // Prefer the domain method when available (FinalizationTracker provides
+  // it). Falls through to the prior inline get/set logic when injected
+  // with a bare Map for legacy/test compatibility.
+  if (typeof deps.finalizingTasks.touch === 'function') {
+    deps.finalizingTasks.touch(taskId, stage);
+    return;
+  }
   if (typeof deps.finalizingTasks.get === 'function' && typeof deps.finalizingTasks.set === 'function') {
+    const now = Date.now();
     const existing = deps.finalizingTasks.get(taskId);
     if (existing && typeof existing === 'object') {
       existing.lastActivityAt = now;

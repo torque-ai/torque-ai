@@ -35,6 +35,7 @@ const { createTurnClassifier } = require('./routing/turn-classifier');
 const { createRoutedOrchestrator } = require('./routing/routed-orchestrator');
 const { createTestRunnerRegistry } = require('./test-runner-registry');
 const ProcessTracker = require('./execution/process-tracker');
+const FinalizationTracker = require('./execution/finalization-tracker');
 
 /**
  * Topological sort using Kahn's algorithm.
@@ -339,6 +340,25 @@ _defaultContainer.register('actionRegistry', [], () => createActionRegistry());
 // where task-manager constructed it and distributed it via init({runningProcesses})
 // to every consumer.
 _defaultContainer.registerValue('processTracker', new ProcessTracker());
+// FinalizationTracker is the single source of truth for tasks currently
+// inside the close-handler pipeline (after process exit, while async
+// work like auto-verify is in flight). process-lifecycle.js writes
+// markers; orphan-cleanup.js reads them to skip live finalizers; both
+// reach the same instance via the container instead of receiving a
+// shared Map by reference through init({finalizingTasks}).
+_defaultContainer.registerValue('finalizationTracker', new FinalizationTracker());
+// CloseHandlerState owns the pending-close-handler counter + drain
+// resolvers. The accessor returned by createCloseHandlerStateAccessor is
+// a thin facade over module-level state in tasks/close-handler-state.js,
+// so creating multiple accessors all hit the same underlying counter —
+// but registering one here means every consumer can container.peek/get
+// it instead of either constructing a fresh accessor or destructuring
+// the singleton module. Replaces the prior pattern where task-manager.js
+// called createCloseHandlerStateAccessor() and passed the result via DI.
+_defaultContainer.registerValue(
+  'closeHandlerState',
+  require('./tasks/close-handler-state').createCloseHandlerStateAccessor()
+);
 // Singleton TestRunnerRegistry. The remote-agents plugin retrieves this from
 // the container during install() and calls .register() to install
 // remote-routing overrides. Constructing fresh registries elsewhere bypasses
