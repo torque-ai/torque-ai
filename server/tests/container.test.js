@@ -121,4 +121,54 @@ describe('container', () => {
       expect(container.list().sort()).toEqual(['a', 'b']);
     });
   });
+
+  describe('override', () => {
+    it('replaces a service before boot — dependents resolve the override', () => {
+      container.register('db', [], () => ({ real: true }));
+      container.register('store', ['db'], ({ db }) => ({ db }));
+      container.override('db', { mock: true });
+      container.boot();
+      expect(container.get('store').db).toEqual({ mock: true });
+      expect(container.get('db')).toEqual({ mock: true });
+    });
+
+    it('replaces a cached instance after boot for subsequent get() calls', () => {
+      container.register('db', [], () => ({ real: true }));
+      container.boot();
+      expect(container.get('db')).toEqual({ real: true });
+      container.override('db', { mock: true });
+      expect(container.get('db')).toEqual({ mock: true });
+    });
+
+    it('does not re-resolve dependents that already resolved before override', () => {
+      // Documented behavior: post-boot override only affects subsequent
+      // get(name) calls. Dependents that captured `db` via closure during
+      // boot keep the original reference. Tests that need late-binding
+      // should look up the dep via container.get(...) inside their methods.
+      container.register('db', [], () => ({ real: true }));
+      container.register('store', ['db'], ({ db }) => ({
+        getDb: () => db, // captures via closure
+      }));
+      container.boot();
+      const store = container.get('store');
+      container.override('db', { mock: true });
+      expect(store.getDb()).toEqual({ real: true });
+      expect(container.get('db')).toEqual({ mock: true });
+    });
+
+    it('refuses to override after freeze()', () => {
+      container.boot();
+      container.freeze();
+      expect(() => container.override('x', { mock: true })).toThrow(/freeze/i);
+    });
+
+    it('can introduce a brand-new name pre-boot for tests', () => {
+      // Useful pattern: a test sets up a mock for a name the production
+      // container hasn't registered yet (e.g. while a feature is being
+      // migrated). The override seeds it as a pre-built value.
+      container.override('experimentalThing', { ok: true });
+      container.boot();
+      expect(container.get('experimentalThing')).toEqual({ ok: true });
+    });
+  });
 });

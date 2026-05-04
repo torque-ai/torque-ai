@@ -17,6 +17,7 @@
  *   .list()             — list all registered service names
  *   .resetForTest()     — reset to pre-boot state (keeps registrations)
  *   .freeze()           — explicit freeze (must be called after boot)
+ *   .override(name, v)  — inject a value for tests (pre- or post-boot)
  */
 
 const logger = require('./logger').child({ component: 'container' });
@@ -200,7 +201,35 @@ function createContainer() {
     _frozen = false;
   }
 
-  return { register, registerValue, boot, get, has, list, peek, freeze, resetForTest };
+  /**
+   * Inject a value for `name`, replacing any existing registration or
+   * instance. Designed for tests: replaces `vi.mock(modulePath, …)` and
+   * `installCjsModuleMock(…)` patterns with a typed, registration-keyed
+   * substitution that does not mutate `require.cache`.
+   *
+   * Behavior:
+   *   - Pre-boot: registers `value` so dependents resolve it during boot().
+   *   - Post-boot: replaces the cached instance immediately. Dependents
+   *     that already resolved are NOT re-resolved — override post-boot is
+   *     for late-binding test cases where you want subsequent get(name)
+   *     calls to return the new value.
+   *   - Refuses if the container is frozen (post-freeze() call). Tests
+   *     should not freeze; production should not override.
+   *
+   * @param {string} name - Service name to override.
+   * @param {*} value - The replacement value.
+   */
+  function override(name, value) {
+    if (_frozen) {
+      throw new Error(`Container: cannot override '${name}' after freeze()`);
+    }
+    _registry.set(name, { deps: [], factory: null, value });
+    if (_booted) {
+      _instances.set(name, value);
+    }
+  }
+
+  return { register, registerValue, boot, get, has, list, peek, freeze, resetForTest, override };
 }
 
 // ── Legacy compatibility ────────────────────────────────────────────────────
