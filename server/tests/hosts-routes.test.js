@@ -224,6 +224,88 @@ describe('peek host and credential routes', () => {
     expect(host.credentials[0]).not.toHaveProperty('encrypted_value');
   });
 
+  it('redacts unsafe credential fields when list endpoints receive unsanitized rows', () => {
+    const hostName = nextHostName('route-list-unsafe');
+    db.registerPeekHost(hostName, 'http://10.0.0.70:9876', null, false, 'windows');
+
+    const originalListCredentials = hostCreds.listCredentials;
+    hostCreds.listCredentials = vi.fn(() => ([{
+      id: 'unsafe-id',
+      host_name: hostName,
+      host_type: 'peek',
+      credential_type: 'ssh',
+      label: 'Unsafe SSH',
+      created_at: '2026-01-01T00:00:00.000Z',
+      updated_at: '2026-01-01T00:00:00.000Z',
+      encrypted_value: 'ciphertext',
+      iv: 'iv-bytes',
+      auth_tag: 'auth-tag',
+      value: { token: 'unsafe-token', password: 'unsafe-password' },
+      token: 'unsafe-token',
+      password: 'unsafe-password',
+      secret: 'unsafe-secret',
+      username: 'unsafe-user',
+      user: 'unsafe-user',
+      key_path: '/unsafe/key',
+      private_key: 'unsafe-private-key',
+    }]));
+
+    try {
+      const listRes = createMockRes();
+      hostsRoutes.handleListCredentials(null, listRes.res, {}, hostName);
+      const listBody = parseJsonBody(listRes.res.body)[0];
+
+      expect(listBody).toMatchObject({
+        credential_type: 'ssh',
+        label: 'Unsafe SSH',
+      });
+
+      for (const field of [
+        'encrypted_value',
+        'iv',
+        'auth_tag',
+        'value',
+        'token',
+        'password',
+        'secret',
+        'username',
+        'user',
+        'key_path',
+        'private_key',
+      ]) {
+        expect(listBody).not.toHaveProperty(field);
+      }
+
+      const peekRes = createMockRes();
+      hostsRoutes.handleListPeekHosts(null, peekRes.res);
+      const host = parseJsonBody(peekRes.res.body).find((entry) => entry.name === hostName);
+      expect(host).toBeDefined();
+      expect(host.credentials).toHaveLength(1);
+      expect(host.credentials[0]).toMatchObject({
+        credential_type: 'ssh',
+        label: 'Unsafe SSH',
+      });
+
+      for (const field of [
+        'encrypted_value',
+        'iv',
+        'auth_tag',
+        'value',
+        'token',
+        'password',
+        'secret',
+        'username',
+        'user',
+        'key_path',
+        'private_key',
+      ]) {
+        expect(host.credentials[0]).not.toHaveProperty(field);
+      }
+    } finally {
+      hostCreds.listCredentials = originalListCredentials;
+    }
+  });
+
   it('creates a new peek host through the route handler', async () => {
     const hostName = nextHostName('route-create');
     const req = createMockReq({

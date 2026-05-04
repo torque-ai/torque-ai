@@ -917,6 +917,65 @@ describe('api/v2-infrastructure-handlers', () => {
       });
     });
 
+    it('redacts unsafe credential fields in peek host lists', async () => {
+      const originalListCredentials = mockHostManagement.listCredentials.getMockImplementation();
+      const unsafeCredentials = [{
+        id: 'unsafe-id',
+        host_name: 'peek-unsafe',
+        host_type: 'peek',
+        credential_type: 'ssh',
+        label: 'Unsafe SSH',
+        created_at: '2026-01-01T00:00:00.000Z',
+        updated_at: '2026-01-01T00:00:00.000Z',
+        encrypted_value: 'ciphertext',
+        iv: 'iv-bytes',
+        auth_tag: 'auth-tag',
+        value: { token: 'unsafe-token', password: 'unsafe-password' },
+        token: 'unsafe-token',
+        password: 'unsafe-password',
+        secret: 'unsafe-secret',
+        username: 'unsafe-user',
+        user: 'unsafe-user',
+        key_path: '/unsafe/key',
+        private_key: 'unsafe-private-key',
+      }];
+
+      try {
+        seedPeekHost({ name: 'peek-unsafe', url: 'http://peek-unsafe:8080' });
+        mockHostManagement.listCredentials.mockImplementation((name) => (
+          name === 'peek-unsafe' ? unsafeCredentials : []
+        ));
+
+        const res = createMockRes();
+
+        await handlers.handleListPeekHosts(createReq(), res);
+
+        expectList(res, {
+          items: [
+            {
+              name: 'peek-unsafe',
+              url: 'http://peek-unsafe:8080',
+              enabled: 1,
+              platform: null,
+              ssh: null,
+              is_default: 0,
+              credentials: [
+                {
+                  host_name: 'peek-unsafe',
+                  host_type: 'peek',
+                  credential_type: 'ssh',
+                  label: 'Unsafe SSH',
+                },
+              ],
+            },
+          ],
+          total: 1,
+        });
+      } finally {
+        mockHostManagement.listCredentials.mockImplementation(originalListCredentials);
+      }
+    });
+
     it('returns an empty list when there are no peek hosts', async () => {
       const res = createMockRes();
 
@@ -1163,6 +1222,56 @@ describe('api/v2-infrastructure-handlers', () => {
         items: [{ host_name: 'peek-a', host_type: 'peek', credential_type: 'ssh', label: 'Peek SSH' }],
         total: 1,
       });
+    });
+
+    it('redacts unsafe fields from listCredentials output', async () => {
+      const originalListCredentials = mockHostManagement.listCredentials.getMockImplementation();
+      const unsafeCredentials = [{
+        id: 'unsafe-id',
+        host_name: 'peek-unsafe',
+        host_type: 'peek',
+        credential_type: 'ssh',
+        label: 'Unsafe SSH',
+        created_at: '2026-01-01T00:00:00.000Z',
+        updated_at: '2026-01-01T00:00:00.000Z',
+        encrypted_value: 'ciphertext',
+        iv: 'iv-bytes',
+        auth_tag: 'auth-tag',
+        value: { token: 'unsafe-token', password: 'unsafe-password' },
+        token: 'unsafe-token',
+        password: 'unsafe-password',
+        secret: 'unsafe-secret',
+        username: 'unsafe-user',
+        user: 'unsafe-user',
+        key_path: '/unsafe/key',
+        private_key: 'unsafe-private-key',
+      }];
+
+      try {
+        mockHostManagement.listCredentials.mockImplementation((name) => (
+          name === 'peek-unsafe' ? unsafeCredentials : []
+        ));
+
+        seedPeekHost({ name: 'peek-unsafe', url: 'http://peek-unsafe:9876' });
+        const res = createMockRes();
+
+        await handlers.handleListCredentials(
+          createReq({ params: { host_name: 'peek-unsafe' } }),
+          res,
+        );
+
+        expectList(res, {
+          items: [{
+            host_name: 'peek-unsafe',
+            host_type: 'peek',
+            credential_type: 'ssh',
+            label: 'Unsafe SSH',
+          }],
+          total: 1,
+        });
+      } finally {
+        mockHostManagement.listCredentials.mockImplementation(originalListCredentials);
+      }
     });
 
     it('returns credentials for an ollama host', async () => {

@@ -24,11 +24,42 @@ const { parseBody } = require('./middleware');
 let _taskManager = null;
 let _remoteAgentRegistry = null;
 
+const CREDENTIAL_DENYLIST_FIELDS = [
+  'encrypted_value',
+  'iv',
+  'auth_tag',
+  'value',
+  'token',
+  'password',
+  'secret',
+  'username',
+  'user',
+  'key_path',
+  'private_key',
+];
+
+const CREDENTIAL_PUBLIC_FIELDS = [
+  'host_name',
+  'host_type',
+  'credential_type',
+  'label',
+];
+
 function redactCredential(credential) {
-  const safe = { ...(credential || {}) };
-  delete safe.encrypted_value;
-  delete safe.iv;
-  delete safe.auth_tag;
+  if (!credential || typeof credential !== 'object' || Array.isArray(credential)) {
+    return credential;
+  }
+
+  const safe = {};
+  for (const field of CREDENTIAL_PUBLIC_FIELDS) {
+    if (Object.prototype.hasOwnProperty.call(credential, field)) {
+      safe[field] = credential[field];
+    }
+  }
+
+  for (const field of CREDENTIAL_DENYLIST_FIELDS) {
+    delete safe[field];
+  }
   return safe;
 }
 

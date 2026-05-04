@@ -35,13 +35,52 @@ function handleListHosts(req, res) {
   return sendJson(res, hosts);
 }
 
+const CREDENTIAL_DENYLIST_FIELDS = [
+  'encrypted_value',
+  'iv',
+  'auth_tag',
+  'value',
+  'token',
+  'password',
+  'secret',
+  'username',
+  'user',
+  'key_path',
+  'private_key',
+];
+
+const CREDENTIAL_PUBLIC_FIELDS = [
+  'host_name',
+  'host_type',
+  'credential_type',
+  'label',
+];
+
+function redactCredential(credential) {
+  if (!credential || typeof credential !== 'object' || Array.isArray(credential)) {
+    return credential;
+  }
+
+  const safe = {};
+  for (const field of CREDENTIAL_PUBLIC_FIELDS) {
+    if (Object.prototype.hasOwnProperty.call(credential, field)) {
+      safe[field] = credential[field];
+    }
+  }
+
+  for (const field of CREDENTIAL_DENYLIST_FIELDS) {
+    delete safe[field];
+  }
+  return safe;
+}
+
 /**
  * GET /api/peek-hosts - List all registered peek hosts with credential metadata
  */
 function handleListPeekHosts(req, res) {
   const hosts = hostManagement.listPeekHosts().map((host) => ({
     ...host,
-    credentials: hostManagement.listCredentials(host.name, 'peek'),
+    credentials: (hostManagement.listCredentials(host.name, 'peek') || []).map(redactCredential),
   }));
   return sendJson(res, hosts);
 }
@@ -137,7 +176,7 @@ function handleListCredentials(req, res, query, hostName) {
   const hostType = resolveHostType(hostName);
   if (!hostType) return sendError(res, 'Host not found', 404);
 
-  return sendJson(res, hostManagement.listCredentials(hostName, hostType));
+  return sendJson(res, (hostManagement.listCredentials(hostName, hostType) || []).map(redactCredential));
 }
 
 /**
