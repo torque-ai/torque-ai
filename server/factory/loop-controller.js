@@ -10683,7 +10683,7 @@ function detectVerifyStack({ verifyCommand, verifyOutput }) {
 // matching) would catch lines like "Dotnet test guidance (this verify uses
 // dotnet test):" and "Do NOT run `dotnet test` yourself…" and reject the
 // codex auto-verify-fix submission with a 0s governance failure (observed
-// live 2026-05-04 on DLPhone tasks 586d6c7f, 1cee406f, fca0050e).
+// live 2026-05-04 on example-project tasks 586d6c7f, 1cee406f, fca0050e).
 const DOTNET_VERIFY_FIX_GUIDANCE = [
   '',
   '---',
