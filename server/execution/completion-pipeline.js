@@ -23,8 +23,11 @@ const { safeJsonParse } = require('../utils/json');
 const childProcess = require('child_process');
 const { randomUUID } = require('crypto');
 
+// ── Legacy module-level state, written only by init() (deprecated) ─────────
+// Phase 3 of the universal-DI migration. Coexistence pattern: factory below.
 let deps = {};
 
+/** @deprecated Use createCompletionPipeline(deps) or container.get('completionPipeline'). */
 function init(nextDeps = {}) {
   deps = { ...deps, ...nextDeps };
 }
@@ -552,7 +555,45 @@ async function handlePostCompletion(ctx) {
   }
 }
 
+// ── New factory shape (preferred) ─────────────────────────────────────────
+function createCompletionPipeline(localDeps = {}) {
+  function withLocalDeps(fn) {
+    const prev = deps;
+    deps = localDeps;
+    try { return fn(); } finally { deps = prev; }
+  }
+  return {
+    fireTerminalTaskHook: (...args) => withLocalDeps(() => fireTerminalTaskHook(...args)),
+    recordModelOutcome: (...args) => withLocalDeps(() => recordModelOutcome(...args)),
+    recordProviderHealth: (...args) => withLocalDeps(() => recordProviderHealth(...args)),
+    handlePostCompletion: (...args) => withLocalDeps(() => handlePostCompletion(...args)),
+  };
+}
+
+/**
+ * Register with a DI container under the name 'completionPipeline'.
+ * Declared deps come from reading the function bodies' references to deps.X:
+ * db (and rawDb), parseTaskMetadata, handleWorkflowTermination,
+ * handleProjectDependencyResolution, handlePipelineStepCompletion,
+ * runOutputSafeguards.
+ */
+function register(container) {
+  container.register(
+    'completionPipeline',
+    [
+      'db', 'parseTaskMetadata', 'handleWorkflowTermination',
+      'handleProjectDependencyResolution', 'handlePipelineStepCompletion',
+      'runOutputSafeguards',
+    ],
+    (resolved) => createCompletionPipeline(resolved)
+  );
+}
+
 module.exports = {
+  // New shape (preferred)
+  createCompletionPipeline,
+  register,
+  // Legacy shape (kept until task-manager.js migrates)
   init,
   fireTerminalTaskHook,
   recordModelOutcome,

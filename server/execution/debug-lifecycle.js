@@ -13,6 +13,9 @@ const { pauseProcess } = require('./process-lifecycle');
 const { copyWorkspaceToSandbox } = require('../sandbox/workspace-sync');
 
 // DI slots — set via init()
+// ── Legacy module-level state, written only by init() (deprecated) ─────────
+// Phase 3 of the universal-DI migration. Replaces the prior stub
+// createDebugLifecycle factory with one that actually closes over deps.
 let _runningProcesses = null;
 let _startTask = null;
 let _estimateProgress = null;
@@ -26,6 +29,7 @@ let _sandboxManager = null;
  * @param {Function} deps.startTaskFn - task-manager.startTask
  * @param {Function} deps.estimateProgressFn - task-manager.estimateProgress
  */
+/** @deprecated Use createDebugLifecycle(deps) or container.get('debugLifecycle'). */
 function init({ runningProcesses, startTaskFn, estimateProgressFn }) {
   if (runningProcesses) _runningProcesses = runningProcesses;
   if (startTaskFn) _startTask = startTaskFn;
@@ -403,22 +407,49 @@ function stepExecution(taskId, stepMode = 'continue', count = 1) {
   }
 }
 
-// ── Factory (DI Phase 3) ─────────────────────────────────────────────────
-
-function createDebugLifecycle(_deps) {
-  // _deps reserved for dependency-boundary follow-up
+// ── New factory shape (preferred) ─────────────────────────────────────────
+// Replaces the prior placeholder createDebugLifecycle stub with one that
+// actually closes over deps.
+function createDebugLifecycle(deps = {}) {
+  const local = {
+    _runningProcesses: deps.runningProcesses,
+    _startTask: deps.startTaskFn || deps.startTask,
+    _estimateProgress: deps.estimateProgressFn || deps.estimateProgress,
+    _sandboxManager: deps.sandboxManager || null,
+  };
+  function withLocalDeps(fn) {
+    const prev = { _runningProcesses, _startTask, _estimateProgress, _sandboxManager };
+    _runningProcesses = local._runningProcesses;
+    _startTask = local._startTask;
+    _estimateProgress = local._estimateProgress;
+    _sandboxManager = local._sandboxManager;
+    try { return fn(); }
+    finally { ({ _runningProcesses, _startTask, _estimateProgress, _sandboxManager } = prev); }
+  }
   return {
-    init,
-    pauseTask,
-    resumeTask,
+    pauseTask: (...args) => withLocalDeps(() => pauseTask(...args)),
+    resumeTask: (...args) => withLocalDeps(() => resumeTask(...args)),
+    checkBreakpoints: (...args) => withLocalDeps(() => checkBreakpoints(...args)),
+    pauseTaskForDebug: (...args) => withLocalDeps(() => pauseTaskForDebug(...args)),
+    stepExecution: (...args) => withLocalDeps(() => stepExecution(...args)),
+    // Pure helper — exposed without state-swap
     isSafeRegexPattern,
-    checkBreakpoints,
-    pauseTaskForDebug,
-    stepExecution,
   };
 }
 
+function register(container) {
+  container.register(
+    'debugLifecycle',
+    ['runningProcesses', 'startTask', 'estimateProgress', 'sandboxManager'],
+    (deps) => createDebugLifecycle(deps)
+  );
+}
+
 module.exports = {
+  // New shape (preferred)
+  createDebugLifecycle,
+  register,
+  // Legacy shape (kept until task-manager.js migrates)
   init,
   pauseTask,
   resumeTask,
@@ -426,5 +457,4 @@ module.exports = {
   checkBreakpoints,
   pauseTaskForDebug,
   stepExecution,
-  createDebugLifecycle,
 };

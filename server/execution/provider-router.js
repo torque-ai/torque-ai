@@ -18,6 +18,9 @@ const { getEffectiveGlobalMaxConcurrent: sharedGetEffective } = require('./effec
 // Module-level constant: never re-allocated per routing call
 const PAID_PROVIDERS = new Set(['anthropic', 'groq', 'codex', 'claude-cli']);
 
+// ── Legacy module-level state, written only by init() (deprecated) ─────────
+// Phase 3 of the universal-DI migration. Replaces the prior stub
+// createProviderRouter factory with one that actually closes over deps.
 let _db = null;
 let _serverConfig = null;
 let _providerRegistry = null;
@@ -26,6 +29,7 @@ let _safeUpdateTaskStatus = null;
 let _defaultContainer = null;
 let _execFile = defaultExecFile;
 
+/** @deprecated Use createProviderRouter(deps) or container.get('providerRouter'). */
 function init(deps = {}) {
   if (deps.db) _db = deps.db;
   if (deps.serverConfig) _serverConfig = deps.serverConfig;
@@ -501,25 +505,68 @@ function getEffectiveGlobalMaxConcurrent() {
   });
 }
 
-// ── Factory (DI Phase 3) ─────────────────────────────────────────────────
-
-function createProviderRouter(_deps) {
-  // _deps reserved for dependency-boundary follow-up
+// ── New factory shape (preferred) ─────────────────────────────────────────
+// Replaces the prior placeholder createProviderRouter stub with one that
+// actually closes over deps.
+function createProviderRouter(deps = {}) {
+  const local = {
+    _db: deps.db,
+    _serverConfig: deps.serverConfig,
+    _providerRegistry: deps.providerRegistry,
+    _parseTaskMetadata: deps.parseTaskMetadata,
+    _safeUpdateTaskStatus: deps.safeUpdateTaskStatus,
+    _defaultContainer: deps.defaultContainer,
+    _runner: deps.execFile || defaultExecFile,
+  };
+  function withLocalDeps(fn) {
+    const prev = {
+      _db, _serverConfig, _providerRegistry, _parseTaskMetadata,
+      _safeUpdateTaskStatus, _defaultContainer, _execFile,
+    };
+    _db = local._db;
+    _serverConfig = local._serverConfig;
+    _providerRegistry = local._providerRegistry;
+    _parseTaskMetadata = local._parseTaskMetadata;
+    _safeUpdateTaskStatus = local._safeUpdateTaskStatus;
+    _defaultContainer = local._defaultContainer;
+    _execFile = local._runner;
+    try { return fn(); }
+    finally {
+      ({
+        _db, _serverConfig, _providerRegistry, _parseTaskMetadata,
+        _safeUpdateTaskStatus, _defaultContainer, _execFile,
+      } = prev);
+    }
+  }
   return {
-    init,
-    safeConfigInt,
-    tryReserveHostSlotWithFallback,
-    tryCreateAutoPR,
-    buildProviderDecisionTrace,
-    resolveProviderRouting,
-    normalizeProviderOverride,
-    failTaskForInvalidProvider,
-    getProviderSlotLimits,
-    getEffectiveGlobalMaxConcurrent,
+    safeConfigInt: (...args) => withLocalDeps(() => safeConfigInt(...args)),
+    tryReserveHostSlotWithFallback: (...args) => withLocalDeps(() => tryReserveHostSlotWithFallback(...args)),
+    tryCreateAutoPR: (...args) => withLocalDeps(() => tryCreateAutoPR(...args)),
+    buildProviderDecisionTrace: (...args) => withLocalDeps(() => buildProviderDecisionTrace(...args)),
+    resolveProviderRouting: (...args) => withLocalDeps(() => resolveProviderRouting(...args)),
+    normalizeProviderOverride: (...args) => withLocalDeps(() => normalizeProviderOverride(...args)),
+    failTaskForInvalidProvider: (...args) => withLocalDeps(() => failTaskForInvalidProvider(...args)),
+    getProviderSlotLimits: (...args) => withLocalDeps(() => getProviderSlotLimits(...args)),
+    getEffectiveGlobalMaxConcurrent: (...args) => withLocalDeps(() => getEffectiveGlobalMaxConcurrent(...args)),
   };
 }
 
+function register(container) {
+  container.register(
+    'providerRouter',
+    [
+      'db', 'serverConfig', 'providerRegistry', 'parseTaskMetadata',
+      'safeUpdateTaskStatus', 'defaultContainer', 'execFile',
+    ],
+    (deps) => createProviderRouter(deps)
+  );
+}
+
 module.exports = {
+  // New shape (preferred)
+  createProviderRouter,
+  register,
+  // Legacy shape (kept until task-manager.js migrates)
   PAID_PROVIDERS,
   init,
   safeConfigInt,
@@ -531,5 +578,4 @@ module.exports = {
   failTaskForInvalidProvider,
   getProviderSlotLimits,
   getEffectiveGlobalMaxConcurrent,
-  createProviderRouter,
 };

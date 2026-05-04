@@ -12,7 +12,8 @@ const { OutputBuffer } = require('./output-buffer');
 const { normalizeMetadata } = require('../utils/normalize-metadata');
 const { buildCombinedProcessOutput } = require('../validation/completion-detection');
 
-// Dependencies injected via init()
+// ── Legacy module-level state, written only by init() (deprecated) ─────────
+// Phase 3 of the universal-DI migration. Coexistence pattern: factory below.
 let deps = null;
 
 /**
@@ -34,6 +35,7 @@ let deps = null;
  * @param {Function} d.killProcessGraceful - Graceful process kill
  * @param {number}   d.MAX_OUTPUT_BUFFER - Max output buffer size
  */
+/** @deprecated Use createProcessStreams(deps) or container.get('processStreams'). */
 function init(d) {
   deps = d;
 }
@@ -336,7 +338,38 @@ function setupStderrHandler(child, taskId, streamId) {
   });
 }
 
+// ── New factory shape (preferred) ─────────────────────────────────────────
+function createProcessStreams(localDeps = {}) {
+  function withLocalDeps(fn) {
+    const prev = deps;
+    deps = localDeps;
+    try { return fn(); } finally { deps = prev; }
+  }
+  return {
+    setupStdoutHandler: (...args) => withLocalDeps(() => setupStdoutHandler(...args)),
+    setupStderrHandler: (...args) => withLocalDeps(() => setupStderrHandler(...args)),
+  };
+}
+
+function register(container) {
+  container.register(
+    'processStreams',
+    [
+      'db', 'dashboard', 'runningProcesses', 'stallRecoveryAttempts',
+      'estimateProgress', 'detectOutputCompletion', 'checkBreakpoints',
+      'pauseTaskForDebug', 'pauseTask', 'extractModifiedFiles',
+      'safeUpdateTaskStatus', 'safeDecrementHostSlot', 'killProcessGraceful',
+      'MAX_OUTPUT_BUFFER',
+    ],
+    (deps) => createProcessStreams(deps)
+  );
+}
+
 module.exports = {
+  // New shape (preferred)
+  createProcessStreams,
+  register,
+  // Legacy shape (kept until task-manager.js migrates)
   init,
   setupStdoutHandler,
   setupStderrHandler,
