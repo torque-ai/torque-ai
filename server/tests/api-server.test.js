@@ -258,8 +258,12 @@ describe('API Server endpoints', () => {
     // Spy on database and tools before loading api-server
     getConfigSpy = vi.spyOn(configCore, 'getConfig').mockReturnValue(null);
     countTasksSpy = vi.spyOn(taskCore, 'countTasks').mockReturnValue(0);
-    // Mock DB instance check for probeDatabase() — return truthy so probes see DB as initialized
-    vi.spyOn(db, 'getDbInstance').mockReturnValue({});
+    // Mock DB instance check for probeDatabase(). The db-accessor's
+    // hasRawDbHandleShape() validates the handle has either `prepare()` or
+    // `open: true` — `{}` no longer satisfies it, which made /healthz and
+    // /readyz return 500 instead of the expected 200/503. `{ open: true }`
+    // matches the shape api-health-probes.test.js uses.
+    vi.spyOn(db, 'getDbInstance').mockReturnValue({ open: true });
     handleToolCallSpy = vi.spyOn(tools, 'handleToolCall').mockResolvedValue({
       content: [{ type: 'text', text: 'ok' }],
     });
