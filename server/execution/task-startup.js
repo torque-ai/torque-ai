@@ -22,7 +22,11 @@ const { PreflightError, isPreflightError } = require('./preflight-error');
 const { isRestartBarrierActive } = require('./restart-barrier');
 const { findHeavyLocalValidationCommand } = require('../utils/heavy-validation-guard');
 
-// ── Injected Dependencies ──────────────────────────────────────────────────
+// ── Legacy module-level state, written only by init() (deprecated) ─────────
+// Phase 3 of the universal-DI migration. The factory below provides the
+// new createTaskStartup(deps) shape with module-state-swap isolation.
+// Largest module in execution/ (2017 LOC, 28 deps) — the factory mechanically
+// shadows all 28 lets via a single withLocalDeps helper.
 let db;
 let dashboard;
 let serverConfig;
@@ -276,6 +280,7 @@ async function buildExecutionDescriptionWithMentions(task, taskId) {
 /**
  * Initialize with dependencies. Called from task-manager.js initSubModules().
  */
+/** @deprecated Use createTaskStartup(deps) or container.get('taskStartup'). */
 function init(deps) {
   db = deps.db;
   dashboard = deps.dashboard;
@@ -1982,7 +1987,116 @@ function getSkipGitInCloseHandler() { return skipGitInCloseHandler; }
 
 // ── Exports ────────────────────────────────────────────────────────────────
 
+// ── New factory shape (preferred) ─────────────────────────────────────────
+// 28-dep state-swap factory. Every dep written by init() above gets shadowed
+// here; restored after the call. Functions on the returned object route
+// through withLocalDeps so they read the per-instance closure values.
+function createTaskStartup(localDeps = {}) {
+  function withLocalDeps(fn) {
+    const prev = {
+      db, dashboard, serverConfig, providerRegistry, gpuMetrics, runningProcesses,
+      pendingRetryTimeouts, parseTaskMetadata, getTaskContextTokenEstimate,
+      safeUpdateTaskStatus, resolveProviderRouting, failTaskForInvalidProvider,
+      getProviderSlotLimits, getEffectiveGlobalMaxConcurrent, spawnAndTrackProcess,
+      buildClaudeCliCommand, buildCodexCommand, buildFileContext, resolveFileReferences,
+      executeOllamaTask, executeApiProvider, evaluateTaskPreExecutePolicy,
+      getPolicyBlockReason, cancelTask, processQueue, sanitizeTaskOutput,
+      detectOutputCompletion, QUEUE_LOCK_HOLDER_ID,
+    };
+    if (localDeps.db !== undefined) db = localDeps.db;
+    if (localDeps.dashboard !== undefined) dashboard = localDeps.dashboard;
+    if (localDeps.serverConfig !== undefined) serverConfig = localDeps.serverConfig;
+    if (localDeps.providerRegistry !== undefined) providerRegistry = localDeps.providerRegistry;
+    if (localDeps.gpuMetrics !== undefined) gpuMetrics = localDeps.gpuMetrics;
+    if (localDeps.runningProcesses !== undefined) runningProcesses = localDeps.runningProcesses;
+    if (localDeps.pendingRetryTimeouts !== undefined) pendingRetryTimeouts = localDeps.pendingRetryTimeouts;
+    if (localDeps.parseTaskMetadata !== undefined) parseTaskMetadata = localDeps.parseTaskMetadata;
+    if (localDeps.getTaskContextTokenEstimate !== undefined) getTaskContextTokenEstimate = localDeps.getTaskContextTokenEstimate;
+    if (localDeps.safeUpdateTaskStatus !== undefined) safeUpdateTaskStatus = localDeps.safeUpdateTaskStatus;
+    if (localDeps.resolveProviderRouting !== undefined) resolveProviderRouting = localDeps.resolveProviderRouting;
+    if (localDeps.failTaskForInvalidProvider !== undefined) failTaskForInvalidProvider = localDeps.failTaskForInvalidProvider;
+    if (localDeps.getProviderSlotLimits !== undefined) getProviderSlotLimits = localDeps.getProviderSlotLimits;
+    if (localDeps.getEffectiveGlobalMaxConcurrent !== undefined) getEffectiveGlobalMaxConcurrent = localDeps.getEffectiveGlobalMaxConcurrent;
+    if (localDeps.spawnAndTrackProcess !== undefined) spawnAndTrackProcess = localDeps.spawnAndTrackProcess;
+    if (localDeps.buildClaudeCliCommand !== undefined) buildClaudeCliCommand = localDeps.buildClaudeCliCommand;
+    if (localDeps.buildCodexCommand !== undefined) buildCodexCommand = localDeps.buildCodexCommand;
+    if (localDeps.buildFileContext !== undefined) buildFileContext = localDeps.buildFileContext;
+    if (localDeps.resolveFileReferences !== undefined) resolveFileReferences = localDeps.resolveFileReferences;
+    if (localDeps.executeOllamaTask !== undefined) executeOllamaTask = localDeps.executeOllamaTask;
+    if (localDeps.executeApiProvider !== undefined) executeApiProvider = localDeps.executeApiProvider;
+    if (localDeps.evaluateTaskPreExecutePolicy !== undefined) evaluateTaskPreExecutePolicy = localDeps.evaluateTaskPreExecutePolicy;
+    if (localDeps.getPolicyBlockReason !== undefined) getPolicyBlockReason = localDeps.getPolicyBlockReason;
+    if (localDeps.cancelTask !== undefined) cancelTask = localDeps.cancelTask;
+    if (localDeps.processQueue !== undefined) processQueue = localDeps.processQueue;
+    if (localDeps.sanitizeTaskOutput !== undefined) sanitizeTaskOutput = localDeps.sanitizeTaskOutput;
+    if (localDeps.detectOutputCompletion !== undefined) detectOutputCompletion = localDeps.detectOutputCompletion;
+    if (localDeps.QUEUE_LOCK_HOLDER_ID !== undefined) QUEUE_LOCK_HOLDER_ID = localDeps.QUEUE_LOCK_HOLDER_ID;
+    try { return fn(); }
+    finally {
+      ({
+        db, dashboard, serverConfig, providerRegistry, gpuMetrics, runningProcesses,
+        pendingRetryTimeouts, parseTaskMetadata, getTaskContextTokenEstimate,
+        safeUpdateTaskStatus, resolveProviderRouting, failTaskForInvalidProvider,
+        getProviderSlotLimits, getEffectiveGlobalMaxConcurrent, spawnAndTrackProcess,
+        buildClaudeCliCommand, buildCodexCommand, buildFileContext, resolveFileReferences,
+        executeOllamaTask, executeApiProvider, evaluateTaskPreExecutePolicy,
+        getPolicyBlockReason, cancelTask, processQueue, sanitizeTaskOutput,
+        detectOutputCompletion, QUEUE_LOCK_HOLDER_ID,
+      } = prev);
+    }
+  }
+  return {
+    startTask: (...args) => withLocalDeps(() => startTask(...args)),
+    runPreflightChecks: (...args) => withLocalDeps(() => runPreflightChecks(...args)),
+    runSafeguardPreChecks: (...args) => withLocalDeps(() => runSafeguardPreChecks(...args)),
+    recordTaskStartedAuditEvent: (...args) => withLocalDeps(() => recordTaskStartedAuditEvent(...args)),
+    createTaskStartupResourceLifecycle: (...args) => withLocalDeps(() => createTaskStartupResourceLifecycle(...args)),
+    evaluateClaimedStartupPolicy: (...args) => withLocalDeps(() => evaluateClaimedStartupPolicy(...args)),
+    evaluateFactoryWorktreeHeavyValidationGuard: (...args) => withLocalDeps(() => evaluateFactoryWorktreeHeavyValidationGuard(...args)),
+    buildProviderStartupCommand: (...args) => withLocalDeps(() => buildProviderStartupCommand(...args)),
+    buildProviderStartupEnv: (...args) => withLocalDeps(() => buildProviderStartupEnv(...args)),
+    attemptTaskStart: (...args) => withLocalDeps(() => attemptTaskStart(...args)),
+    safeStartTask: (...args) => withLocalDeps(() => safeStartTask(...args)),
+    estimateProgress: (...args) => withLocalDeps(() => estimateProgress(...args)),
+    getActualModifiedFiles: (...args) => withLocalDeps(() => getActualModifiedFiles(...args)),
+    getTaskProgress: (...args) => withLocalDeps(() => getTaskProgress(...args)),
+    getRunningTaskCount: (...args) => withLocalDeps(() => getRunningTaskCount(...args)),
+    hasRunningProcess: (...args) => withLocalDeps(() => hasRunningProcess(...args)),
+    cleanupOrphanedRetryTimeouts: (...args) => withLocalDeps(() => cleanupOrphanedRetryTimeouts(...args)),
+    // Pure helpers — no deps to swap
+    getNvmNodePath,
+    resolveWindowsCmdToNode,
+    setSkipGitInCloseHandler,
+    getSkipGitInCloseHandler,
+    NVM_NODE_PATH,
+    MAX_OUTPUT_BUFFER,
+    FILE_LOCK_REQUEUE_DELAY_MS,
+  };
+}
+
+function register(container) {
+  container.register(
+    'taskStartup',
+    [
+      'db', 'dashboard', 'serverConfig', 'providerRegistry', 'gpuMetrics',
+      'runningProcesses', 'pendingRetryTimeouts',
+      'parseTaskMetadata', 'getTaskContextTokenEstimate', 'safeUpdateTaskStatus',
+      'resolveProviderRouting', 'failTaskForInvalidProvider', 'getProviderSlotLimits',
+      'getEffectiveGlobalMaxConcurrent', 'spawnAndTrackProcess',
+      'buildClaudeCliCommand', 'buildCodexCommand', 'buildFileContext', 'resolveFileReferences',
+      'executeOllamaTask', 'executeApiProvider', 'evaluateTaskPreExecutePolicy',
+      'getPolicyBlockReason', 'cancelTask', 'processQueue', 'sanitizeTaskOutput',
+      'detectOutputCompletion', 'QUEUE_LOCK_HOLDER_ID',
+    ],
+    (deps) => createTaskStartup(deps)
+  );
+}
+
 module.exports = {
+  // New shape (preferred)
+  createTaskStartup,
+  register,
+  // Legacy shape (kept until task-manager.js migrates)
   init,
   // Startup pipeline
   startTask,

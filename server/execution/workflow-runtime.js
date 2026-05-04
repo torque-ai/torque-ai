@@ -23,6 +23,9 @@ const eventBus = require('../event-bus');
 // Dependency injection
 // ---------------------------------------------------------------------------
 
+// ── Legacy module-level state, written only by init() (deprecated) ─────────
+// Phase 3 of the universal-DI migration. Replaces the prior stub
+// createWorkflowRuntime factory with one that actually closes over deps.
 let db = null;
 let _startTask = null;
 let _cancelTask = null;
@@ -71,6 +74,7 @@ function scheduleWorkflowBundleBuild(workflowId) {
  * @param {Function} deps.processQueue - Process the task queue
  * @param {Object} deps.dashboard    - Dashboard server (notifyTaskUpdated)
  */
+/** @deprecated Use createWorkflowRuntime(deps) or container.get('workflowRuntime'). */
 function init(deps) {
   db = deps.db;
   serverConfig.init({ db: deps.db });
@@ -1823,31 +1827,49 @@ function maybeFinalizeAuditRun(workflowId, finalStatus) {
 // Exports
 // ---------------------------------------------------------------------------
 
-// ── Factory (DI Phase 3) ─────────────────────────────────────────────────
-
-function createWorkflowRuntime(_deps) {
-  // _deps reserved for dependency-boundary follow-up
+// ── New factory shape (preferred) ─────────────────────────────────────────
+// Replaces the prior placeholder with one that actually closes over deps.
+function createWorkflowRuntime(localDeps = {}) {
+  function withLocalDeps(fn) {
+    const prev = { db, _startTask, _cancelTask, _processQueue, _dashboard };
+    if (localDeps.db) db = localDeps.db;
+    if (localDeps.startTask) _startTask = localDeps.startTask;
+    if (localDeps.cancelTask) _cancelTask = localDeps.cancelTask;
+    if (localDeps.processQueue) _processQueue = localDeps.processQueue;
+    if (localDeps.dashboard) _dashboard = localDeps.dashboard;
+    try { return fn(); }
+    finally {
+      ({ db, _startTask, _cancelTask, _processQueue, _dashboard } = prev);
+    }
+  }
   return {
-    init,
-    handlePlanProjectTaskCompletion,
-    handlePlanProjectTaskFailure,
-    generatePipelineDocumentation,
-    handlePipelineStepCompletion,
-    reconcileWorkflowsOnStartup,
-    handleWorkflowTermination,
-    evaluateWorkflowDependencies,
-    unblockTask,
-    applyFailureAction,
-    cancelDependentTasks,
-    checkWorkflowCompletion,
-    injectDependencyOutputs,
-    applyContextFrom,
-    applyOutputInjection,
-    buildDepTasksMap,
-    buildTaskBlockerSnapshot,
-    refreshWorkflowBlockerSnapshots,
+    handlePlanProjectTaskCompletion: (...args) => withLocalDeps(() => handlePlanProjectTaskCompletion(...args)),
+    handlePlanProjectTaskFailure: (...args) => withLocalDeps(() => handlePlanProjectTaskFailure(...args)),
+    generatePipelineDocumentation: (...args) => withLocalDeps(() => generatePipelineDocumentation(...args)),
+    handlePipelineStepCompletion: (...args) => withLocalDeps(() => handlePipelineStepCompletion(...args)),
+    reconcileWorkflowsOnStartup: (...args) => withLocalDeps(() => reconcileWorkflowsOnStartup(...args)),
+    handleWorkflowTermination: (...args) => withLocalDeps(() => handleWorkflowTermination(...args)),
+    evaluateWorkflowDependencies: (...args) => withLocalDeps(() => evaluateWorkflowDependencies(...args)),
+    unblockTask: (...args) => withLocalDeps(() => unblockTask(...args)),
+    applyFailureAction: (...args) => withLocalDeps(() => applyFailureAction(...args)),
+    cancelDependentTasks: (...args) => withLocalDeps(() => cancelDependentTasks(...args)),
+    checkWorkflowCompletion: (...args) => withLocalDeps(() => checkWorkflowCompletion(...args)),
+    injectDependencyOutputs: (...args) => withLocalDeps(() => injectDependencyOutputs(...args)),
+    applyContextFrom: (...args) => withLocalDeps(() => applyContextFrom(...args)),
+    applyOutputInjection: (...args) => withLocalDeps(() => applyOutputInjection(...args)),
+    buildDepTasksMap: (...args) => withLocalDeps(() => buildDepTasksMap(...args)),
+    buildTaskBlockerSnapshot: (...args) => withLocalDeps(() => buildTaskBlockerSnapshot(...args)),
+    refreshWorkflowBlockerSnapshots: (...args) => withLocalDeps(() => refreshWorkflowBlockerSnapshots(...args)),
     OUTPUT_CAP_BYTES,
   };
+}
+
+function register(container) {
+  container.register(
+    'workflowRuntime',
+    ['db', 'startTask', 'cancelTask', 'processQueue', 'dashboard'],
+    (deps) => createWorkflowRuntime(deps)
+  );
 }
 
 module.exports = {
@@ -1871,5 +1893,7 @@ module.exports = {
   buildTaskBlockerSnapshot,
   refreshWorkflowBlockerSnapshots,
   OUTPUT_CAP_BYTES,
+  // New shape (preferred)
   createWorkflowRuntime,
+  register,
 };
