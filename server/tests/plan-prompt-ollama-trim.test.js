@@ -15,7 +15,7 @@ const {
 
 const ollamaProject = {
   id: 'p-ollama',
-  name: 'DLPhone',
+  name: 'example-project',
   path: '/proj',
   brief: 'Mobile RTS.',
   config_json: JSON.stringify({
@@ -218,7 +218,7 @@ describe('Phase G: resolvePlanGenerationTimeoutMinutes', () => {
     }));
   });
 
-  it('keeps the DLPhone ollama timeout tight while leaving a hard-cap overrun window', () => {
+  it('keeps the example-project ollama timeout tight while leaving a hard-cap overrun window', () => {
     const policy = buildPlanGenerationActivityTimeoutPolicy(
       resolvePlanGenerationTimeoutMinutes(ollamaProject)
     );
@@ -244,7 +244,7 @@ describe('Phase G: buildStarvationRecoveryScope — concrete-item bias', () => {
     // "strongly prefer" / "concrete is preferred" phrasings were replaced
     // with direct prescriptive language.
     const scope = buildStarvationRecoveryScope({
-      project: { name: 'DLPhone', brief: 'Mobile RTS.' },
+      project: { name: 'example-project', brief: 'Mobile RTS.' },
       noYieldScoutCount: 0,
     });
     expect(scope).toContain('Output format');
@@ -266,7 +266,7 @@ describe('Phase G: buildStarvationRecoveryScope — concrete-item bias', () => {
 
   it('keeps the existing evidence-requirement and scope-bounds sections', () => {
     const scope = buildStarvationRecoveryScope({
-      project: { name: 'DLPhone', brief: 'Mobile RTS.' },
+      project: { name: 'example-project', brief: 'Mobile RTS.' },
       noYieldScoutCount: 2,
     });
     expect(scope).toContain('## Evidence requirement');
@@ -276,7 +276,7 @@ describe('Phase G: buildStarvationRecoveryScope — concrete-item bias', () => {
 
   it('allows empty patterns AND empty concrete_factory_work_items as a valid signal', () => {
     const scope = buildStarvationRecoveryScope({
-      project: { name: 'DLPhone', brief: 'Mobile RTS.' },
+      project: { name: 'example-project', brief: 'Mobile RTS.' },
       noYieldScoutCount: 0,
     });
     expect(scope).toMatch(/empty `concrete_factory_work_items` array/i);

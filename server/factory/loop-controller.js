@@ -11970,7 +11970,7 @@ async function executeVerifyStage(project_id, batch_id, instance = null) {
         // ollama-locked project has a dotnet test verify and the first
         // ollama attempt didn't converge. qwen3-coder:30b can write code
         // but reliably struggles to read NUnit/xUnit failures and patch
-        // the right one-line in production code. Live evidence: DLPhone
+        // the right one-line in production code. Live evidence: example-project
         // items 2096, 876, 2082 each got past the build gate but never
         // turned dotnet tests green across 3 ollama retries. Escalating
         // attempts >= 2 to codex preserves cost on the first try while
