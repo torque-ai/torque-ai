@@ -313,4 +313,31 @@ describe('summarizeTaskError', () => {
     expect(result.summary.length).toBeLessThanOrEqual(280);
     expect(result.summary).toMatch(/…$|\.\.\.$|x{20,}/);
   });
+
+  it('finds the structured exit line in a 5MB tail-of-buffer scenario without OOM/slowness', () => {
+    // Synthesize a multi-megabyte error_output where the actionable signal
+    // lives in the final ~200 bytes. This is the worst case for the old
+    // `text.split(/\r?\n/)` approach (materializes the whole array of
+    // ~250K lines) and the case that motivated the tailLines refactor.
+    // Use a fixed buffer so the test isn't sensitive to V8 allocator quirks.
+    const noiseLine = 'exec ["pwsh","-Command","..."] in C:\\\\some\\\\path\n';
+    const repeats = Math.ceil((5 * 1024 * 1024) / noiseLine.length);
+    const noise = noiseLine.repeat(repeats);
+    const exitLine = '[process-exit] code=137 signal=SIGKILL duration_ms=600000 provider=codex model=gpt-5.5';
+    const start = Date.now();
+    const result = summarizeTaskError({
+      status: 'failed',
+      provider: 'codex',
+      exit_code: 137,
+      error_output: noise + exitLine + '\n',
+    });
+    const elapsed = Date.now() - start;
+    expect(result).not.toBeNull();
+    expect(result.category).toBe('signal_kill');
+    expect(result.summary).toMatch(/Killed by SIGKILL/);
+    // 5MB worth of split + array allocation took ~150-300ms on the
+    // remote test machine; the tail-only walk should finish in < 50ms.
+    // Generous 1500ms ceiling so we don't false-fail on a slow CI/AV scan.
+    expect(elapsed).toBeLessThan(1500);
+  });
 });

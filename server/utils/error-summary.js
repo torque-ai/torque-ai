@@ -182,6 +182,26 @@ function truncate(text, maxLen) {
   return t.slice(0, maxLen - 1) + '…';
 }
 
+// Walk from the end of `text` and collect up to `count` lines, in original
+// (top-down) order. Avoids splitting the full string when error_output is
+// multi-megabyte but only the tail is interesting. The summarizer only ever
+// inspects the last 50–200 lines of error_output so a full-text split is
+// pure overhead.
+function tailLines(text, count) {
+  if (!text) return [];
+  const collected = [];
+  let end = text.length;
+  while (collected.length < count && end > 0) {
+    const idx = text.lastIndexOf('\n', end - 1);
+    const line = text.slice(idx + 1, end);
+    // Strip trailing \r so this matches text.split(/\r?\n/).
+    collected.push(line.endsWith('\r') ? line.slice(0, -1) : line);
+    if (idx < 0) break;
+    end = idx;
+  }
+  return collected.reverse();
+}
+
 // Cancel reason: the close handler / cancel path injects lines like:
 //   `[failed] pre_reclaim_before_create`
 //   `[failed] stalled_no_progress`
@@ -190,9 +210,9 @@ function truncate(text, maxLen) {
 // Returns { reason, scope, line } or null.
 function findCancelReason(text) {
   if (!text) return null;
-  const lines = text.split(/\r?\n/);
+  const lines = tailLines(text, 50);
   // Walk backward — cancel reasons are appended at finalization time.
-  for (let i = lines.length - 1; i >= Math.max(0, lines.length - 50); i--) {
+  for (let i = lines.length - 1; i >= 0; i--) {
     const line = lines[i].trim();
     if (!line) continue;
     let m = line.match(/^\[failed\]\s+(.+)$/);
@@ -254,7 +274,9 @@ function humanizeReason(rawReason) {
 //   Structured: `[process-exit] code=1 signal=none duration_ms=135000 provider=codex model=gpt-5.5`
 function parseStructuredExitLine(text) {
   if (!text) return null;
-  const lines = text.split(/\r?\n/);
+  // The structured exit line is one of the last lines emitted before close,
+  // so 50 tail lines is plenty even on noisy buffers.
+  const lines = tailLines(text, 50);
   for (let i = lines.length - 1; i >= 0; i--) {
     const line = lines[i].trim();
     if (!line) continue;
@@ -349,9 +371,8 @@ function detectCodexError(text) {
 // the final error over earlier transient ones.
 function findLastErrorLine(text) {
   if (!text) return null;
-  const lines = text.split(/\r?\n/);
-  const SCAN = Math.min(200, lines.length);
-  for (let i = lines.length - 1; i >= lines.length - SCAN; i--) {
+  const lines = tailLines(text, 200);
+  for (let i = lines.length - 1; i >= 0; i--) {
     const line = lines[i] && lines[i].trim();
     if (!line) continue;
     // Skip codex-banner-noise lines.
