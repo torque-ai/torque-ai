@@ -25,7 +25,9 @@ const { buildCombinedProcessOutput, detectSuccessFromOutput } = require('../vali
 const { extractModifiedFiles } = require('../utils/file-resolution');
 const { resolveActivityAwareTimeoutDecision } = require('../utils/activity-timeout');
 
-// Dependencies injected via init() from task-manager.js
+// ── Legacy module-level state, written only by init() (deprecated) ─────────
+// Phase 3 of the universal-DI migration. Replaces the prior stub
+// createProcessLifecycle factory with one that actually closes over deps.
 let deps = null;
 
 function setFinalizingMarker(taskId, marker) {
@@ -74,6 +76,7 @@ function touchFinalizingMarker(taskId, stage) {
  * @param {Function} d.setupStderrHandler - Stderr handler attachment
  * @param {Object}   d.closeHandlerState - Mutable counter { count, resolvers, drain }
  */
+/** @deprecated Use createProcessLifecycle(deps) or container.get('processLifecycle'). */
 function init(d) {
   deps = d;
 }
@@ -910,29 +913,54 @@ function spawnAndTrackProcess(taskId, task, {
   return { queued: false, task: taskCoreDb.getTask(taskId) };
 }
 
-// ── Factory (DI Phase 3) ─────────────────────────────────────────────────
-
-function createProcessLifecycle(_deps) {
-  // _deps reserved for dependency-boundary follow-up
+// ── New factory shape (preferred) ─────────────────────────────────────────
+// Replaces the prior placeholder with one that actually closes over deps.
+function createProcessLifecycle(localDeps = {}) {
+  function withLocalDeps(fn) {
+    const prev = deps;
+    deps = localDeps;
+    try { return fn(); } finally { deps = prev; }
+  }
   return {
-    init,
-    clearProcTimeouts,
-    safeDecrementHostSlot,
-    killProcessGraceful,
-    killOrphanByPid,
-    pauseProcess,
-    safeTriggerWebhook,
-    cleanupProcessTracking,
-    cleanupChildProcessListeners,
-    handleCloseCleanup,
-    spawnAndTrackProcess,
+    clearProcTimeouts: (...args) => withLocalDeps(() => clearProcTimeouts(...args)),
+    safeDecrementHostSlot: (...args) => withLocalDeps(() => safeDecrementHostSlot(...args)),
+    killProcessGraceful: (...args) => withLocalDeps(() => killProcessGraceful(...args)),
+    killOrphanByPid: (...args) => withLocalDeps(() => killOrphanByPid(...args)),
+    pauseProcess: (...args) => withLocalDeps(() => pauseProcess(...args)),
+    safeTriggerWebhook: (...args) => withLocalDeps(() => safeTriggerWebhook(...args)),
+    cleanupProcessTracking: (...args) => withLocalDeps(() => cleanupProcessTracking(...args)),
+    cleanupChildProcessListeners: (...args) => withLocalDeps(() => cleanupChildProcessListeners(...args)),
+    computeActivityAwareTimeoutDelay: (...args) => withLocalDeps(() => computeActivityAwareTimeoutDelay(...args)),
+    handleCloseCleanup: (...args) => withLocalDeps(() => handleCloseCleanup(...args)),
+    spawnAndTrackProcess: (...args) => withLocalDeps(() => spawnAndTrackProcess(...args)),
   };
 }
 
+/**
+ * Register with a DI container under the name 'processLifecycle'.
+ * Declared deps come from reading the function bodies' references to deps.X:
+ * dashboard, runningProcesses, finalizingTasks, finalizeTask, cancelTask,
+ * processQueue, markTaskCleanedUp, safeUpdateTaskStatus, setupStdoutHandler,
+ * setupStderrHandler, closeHandlerState.
+ */
+function register(container) {
+  container.register(
+    'processLifecycle',
+    [
+      'dashboard', 'runningProcesses', 'finalizingTasks', 'finalizeTask',
+      'cancelTask', 'processQueue', 'markTaskCleanedUp', 'safeUpdateTaskStatus',
+      'setupStdoutHandler', 'setupStderrHandler', 'closeHandlerState',
+    ],
+    (resolved) => createProcessLifecycle(resolved)
+  );
+}
+
 module.exports = {
-  // Init
+  // New shape (preferred)
+  createProcessLifecycle,
+  register,
+  // Legacy shape (kept until task-manager.js migrates)
   init,
-  // Original helpers
   clearProcTimeouts,
   safeDecrementHostSlot,
   killProcessGraceful,
@@ -942,8 +970,6 @@ module.exports = {
   cleanupProcessTracking,
   cleanupChildProcessListeners,
   computeActivityAwareTimeoutDelay,
-  // D4.3: Spawn + handler lifecycle
   handleCloseCleanup,
   spawnAndTrackProcess,
-  createProcessLifecycle,
 };

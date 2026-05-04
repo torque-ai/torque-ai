@@ -25,6 +25,12 @@ const debugLifecycle = require('./debug-lifecycle');
 const providerRouter = require('./provider-router');
 const completionPipeline = require('./completion-pipeline');
 const slotPullScheduler = require('./slot-pull-scheduler');
+const processLifecycle = require('./process-lifecycle');
+const fallbackRetry = require('./fallback-retry');
+const taskFinalizer = require('./task-finalizer');
+const queueScheduler = require('./queue-scheduler');
+const workflowRuntime = require('./workflow-runtime');
+const taskStartup = require('./task-startup');
 
 function register(container) {
   planProjectResolver.register(container);
@@ -37,13 +43,15 @@ function register(container) {
   providerRouter.register(container);
   completionPipeline.register(container);
   slotPullScheduler.register(container);
-  // TODO(phase 3 cont.): register the remaining execution modules
-  //   - process-lifecycle.js        (949 LOC)
-  //   - fallback-retry.js          (1132 LOC)
-  //   - task-finalizer.js          (1364 LOC)
-  //   - queue-scheduler.js         (1570 LOC)
-  //   - workflow-runtime.js        (1875 LOC)
-  //   - task-startup.js            (2017 LOC)
+  processLifecycle.register(container);
+  fallbackRetry.register(container);
+  taskFinalizer.register(container);
+  queueScheduler.register(container);
+  workflowRuntime.register(container);
+  taskStartup.register(container);
+  // All 16 execution/ modules registered. Phase 3 of universal-DI
+  // migration is now feature-complete; consumers (task-manager.js)
+  // can migrate to container.get('execution-name') at their own pace.
 }
 
 module.exports = { register };

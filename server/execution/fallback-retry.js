@@ -104,6 +104,7 @@ function withResumeContextPrompt(task, fields = {}) {
  * @param {Map} deps.stallRecoveryAttempts - Map tracking stall recovery state
  * @param {Map} deps.runningProcesses - Map tracking running processes
  */
+/** @deprecated Use createFallbackRetry(deps) or container.get('fallbackRetry'). */
 function init(deps) {
   db = deps.db;
   if (deps.db) serverConfig.init({ db: deps.db });
@@ -1091,29 +1092,84 @@ function classifyError(errorOutput, exitCode) {
   return makeResult(true, 'Unknown error - attempting retry');
 }
 
-// ── Factory (DI Phase 3) ─────────────────────────────────────────────────
-
-function createFallbackRetry(_deps) {
-  // deps reserved for dependency-boundary follow-up
+// ── New factory shape (preferred) ─────────────────────────────────────────
+// Replaces the prior placeholder createFallbackRetry stub with one that
+// actually closes over deps via the established module-state-swap pattern.
+function createFallbackRetry(localDeps = {}) {
+  const local = {
+    db: localDeps.db,
+    dashboard: localDeps.dashboard,
+    _processQueue: localDeps.processQueue,
+    _cancelTask: localDeps.cancelTask,
+    _stopTaskForRestart: localDeps.stopTaskForRestart,
+    _markTaskCleanedUp: localDeps.markTaskCleanedUp,
+    _stallRecoveryAttempts: localDeps.stallRecoveryAttempts,
+    _runningProcesses: localDeps.runningProcesses,
+    _getFreeQuotaTracker: localDeps.getFreeQuotaTracker,
+  };
+  function withLocalDeps(fn) {
+    const prev = {
+      db, dashboard, _processQueue, _cancelTask, _stopTaskForRestart,
+      _markTaskCleanedUp, _stallRecoveryAttempts, _runningProcesses,
+      _getFreeQuotaTracker,
+    };
+    db = local.db;
+    dashboard = local.dashboard;
+    _processQueue = local._processQueue;
+    _cancelTask = local._cancelTask;
+    _stopTaskForRestart = local._stopTaskForRestart;
+    _markTaskCleanedUp = local._markTaskCleanedUp;
+    _stallRecoveryAttempts = local._stallRecoveryAttempts;
+    _runningProcesses = local._runningProcesses;
+    _getFreeQuotaTracker = local._getFreeQuotaTracker;
+    try { return fn(); }
+    finally {
+      ({
+        db, dashboard, _processQueue, _cancelTask, _stopTaskForRestart,
+        _markTaskCleanedUp, _stallRecoveryAttempts, _runningProcesses,
+        _getFreeQuotaTracker,
+      } = prev);
+    }
+  }
   return {
-    init,
-    setFreeQuotaTracker,
-    tryOllamaCloudFallback,
-    tryLocalFirstFallback,
-    tryStallRecovery,
-    findLargerAvailableModel,
-    isHashlineCapableModel,
-    findNextHashlineModel,
-    tryHashlineTieredFallback,
-    selectHashlineFormat,
-    classifyError,
+    setFreeQuotaTracker,  // pure setter on module-state
+    tryOllamaCloudFallback: (...args) => withLocalDeps(() => tryOllamaCloudFallback(...args)),
+    tryLocalFirstFallback: (...args) => withLocalDeps(() => tryLocalFirstFallback(...args)),
+    tryStallRecovery: (...args) => withLocalDeps(() => tryStallRecovery(...args)),
+    findLargerAvailableModel: (...args) => withLocalDeps(() => findLargerAvailableModel(...args)),
+    isHashlineCapableModel,  // pure
+    findNextHashlineModel: (...args) => withLocalDeps(() => findNextHashlineModel(...args)),
+    tryHashlineTieredFallback: (...args) => withLocalDeps(() => tryHashlineTieredFallback(...args)),
+    selectHashlineFormat: (...args) => withLocalDeps(() => selectHashlineFormat(...args)),
+    classifyError,  // pure
     BASE_RETRY_DELAY_MS,
     MAX_RETRY_DELAY_MS,
     getRetryDelayMs,
   };
 }
 
+/**
+ * Register with a DI container under the name 'fallbackRetry'.
+ * getFreeQuotaTracker is optional (the module's setFreeQuotaTracker
+ * setter wires it lazily for legacy callers).
+ */
+function register(container) {
+  container.register(
+    'fallbackRetry',
+    [
+      'db', 'dashboard', 'processQueue', 'cancelTask', 'stopTaskForRestart',
+      'markTaskCleanedUp', 'stallRecoveryAttempts', 'runningProcesses',
+      'getFreeQuotaTracker',
+    ],
+    (deps) => createFallbackRetry(deps)
+  );
+}
+
 module.exports = {
+  // New shape (preferred)
+  createFallbackRetry,
+  register,
+  // Legacy shape (kept until task-manager.js migrates)
   init,
   setFreeQuotaTracker,
   tryOllamaCloudFallback,
@@ -1128,5 +1184,4 @@ module.exports = {
   BASE_RETRY_DELAY_MS,
   MAX_RETRY_DELAY_MS,
   getRetryDelayMs,
-  createFallbackRetry,
 };
