@@ -453,6 +453,20 @@ function extractSmartSubmitInputs(args) {
   };
 }
 
+function isFactoryPlanGenerationSubmission({ tags, taskMetadata } = {}) {
+  const kind = typeof taskMetadata?.kind === 'string'
+    ? taskMetadata.kind.trim().toLowerCase()
+    : '';
+  if (kind === 'plan_generation') {
+    return true;
+  }
+
+  const tagList = Array.isArray(tags)
+    ? tags
+    : (typeof tags === 'string' ? [tags] : []);
+  return tagList.some((tag) => String(tag || '').trim() === 'factory:plan_generation');
+}
+
 async function resolveModificationRouting(task, files, routingResult, opts) {
   const {
     selectedProvider: initialSelectedProvider,
@@ -703,6 +717,10 @@ async function handleSmartSubmitTask(args) {
     __sessionId,
   } = inputs;
   let effectiveRoutingTemplate = routing_template || null;
+  const isFactoryPlanGeneration = isFactoryPlanGenerationSubmission({
+    tags,
+    taskMetadata: userTaskMetadata,
+  });
 
   if (!effectiveRoutingTemplate) {
     try {
@@ -1325,7 +1343,7 @@ async function handleSmartSubmitTask(args) {
   // rule without overriding tool-capable cloud adapters such as ollama-cloud.
   const testTaskPattern = /\b(write|create|add|generate|replace .+ with)\b.{0,30}\b(tests?|specs?|\.test\.|\.spec\.)/i;
   const explicitTestTaskPattern = /\b(?:test|testing)\s+task\b/i;
-  const isTestTask = !override_provider && !model &&
+  const isTestTask = !isFactoryPlanGeneration && !override_provider && !model &&
     (testTaskPattern.test(task) || explicitTestTaskPattern.test(task));
   const routingModel = model || routingResult?.model || taskModel || null;
   const selectedProviderSupportsTests = providerSupportsRepoWriteTasks(selectedProvider, routingModel);
@@ -1350,28 +1368,30 @@ async function handleSmartSubmitTask(args) {
       logger.info('[SmartRouting] Test task already on Codex → assigning Spark model');
     }
   }
-  const modBefore = selectedProvider;
-  const modResult = await resolveModificationRouting(task, files, routingResult, {
-    selectedProvider,
-    override_provider,
-    model,
-    complexity,
-    working_directory: workingDirectory,
-    codexExhausted,
-  });
-  if (modResult.error) return modResult.error;
-  selectedProvider = modResult.selectedProvider;
-  // Preserve a previously-set taskModel (e.g. from test-writing promotion) when the
-  // modification helper had no opinion (returned null).
-  if (modResult.taskModel != null) taskModel = modResult.taskModel;
-  modRoutingReason = modResult.modRoutingReason;
-  if (modBefore !== selectedProvider && modResult.modRoutingReason) {
-    recordRoutingDecision(routingTrace, {
-      stage: ROUTING_TRACE_STAGES.MODIFICATION,
-      from: modBefore,
-      to: selectedProvider,
-      reason: modResult.modRoutingReason,
+  if (!isFactoryPlanGeneration) {
+    const modBefore = selectedProvider;
+    const modResult = await resolveModificationRouting(task, files, routingResult, {
+      selectedProvider,
+      override_provider,
+      model,
+      complexity,
+      working_directory: workingDirectory,
+      codexExhausted,
     });
+    if (modResult.error) return modResult.error;
+    selectedProvider = modResult.selectedProvider;
+    // Preserve a previously-set taskModel (e.g. from test-writing promotion) when the
+    // modification helper had no opinion (returned null).
+    if (modResult.taskModel != null) taskModel = modResult.taskModel;
+    modRoutingReason = modResult.modRoutingReason;
+    if (modBefore !== selectedProvider && modResult.modRoutingReason) {
+      recordRoutingDecision(routingTrace, {
+        stage: ROUTING_TRACE_STAGES.MODIFICATION,
+        from: modBefore,
+        to: selectedProvider,
+        reason: modResult.modRoutingReason,
+      });
+    }
   }
 
   // P71: Multi-host load distribution with smart model fallback

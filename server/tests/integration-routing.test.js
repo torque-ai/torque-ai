@@ -976,6 +976,42 @@ describe('integration routing handlers', () => {
       expect(textOf(result)).toContain('Codex Spark');
     });
 
+    it('does not let modification heuristics override factory plan-generation routing', async () => {
+      mockDb.analyzeTaskForRouting.mockReturnValueOnce(baseRoutingResult({
+        provider: 'ollama',
+        complexity: 'normal',
+        reason: "Template 'Codex Primary': plan_generation -> cerebras (unavailable), chain fallback -> ollama",
+        chain: [
+          { provider: 'ollama', model: null },
+        ],
+      }));
+      vi.spyOn(fs.promises, 'readFile').mockResolvedValue(makeLineCountText(400));
+
+      const result = await routing.handleSmartSubmitTask({
+        task: 'You are generating an execution plan for a single factory work item. Implement workflow runtime entrypoint in server/db/workflow-engine.js.',
+        files: ['server/db/workflow-engine.js'],
+        working_directory: process.cwd(),
+        disable_decomposition: true,
+        tags: ['factory:internal', 'factory:plan_generation'],
+        task_metadata: {
+          kind: 'plan_generation',
+          factory_internal: true,
+          work_item_id: 190,
+        },
+      });
+
+      const task = taskFromResult(result);
+      expect(task.provider).toBe('ollama');
+      expect(task.metadata.kind).toBe('plan_generation');
+      expect(task.metadata.routing_reason).toContain('plan_generation');
+      expect(task.metadata.routing_decision_trace || []).not.toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ stage: 'modification' }),
+        ])
+      );
+      expect(textOf(result)).not.toContain('Codex Spark');
+    });
+
     it('routes modifications to claude-cli when Codex is disabled', async () => {
       setMockDbConfig({ codex_enabled: '0' });
       mockDb.analyzeTaskForRouting.mockReturnValueOnce(baseRoutingResult({
