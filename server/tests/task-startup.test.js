@@ -60,6 +60,7 @@ function createDeps({ task = createTask(), depOverrides = {} } = {}) {
     }),
     requeueTaskAfterAttemptedStart: vi.fn(),
     acquireFileLock: vi.fn(() => ({ acquired: true })),
+    releaseFileLock: vi.fn(),
     resolveTaskId: vi.fn((taskId) => taskId),
   };
 
@@ -404,6 +405,73 @@ describe('task-startup', () => {
         delete require.cache[sharedPath];
       }
     }
+  });
+
+  it('releases startup file locks after in-process Ollama execution finishes', async () => {
+    const task = createTask({
+      id: 'ollama-direct-lock-release',
+      task_description: 'Review server/db/workflow-engine.js',
+      provider: 'ollama',
+      model: 'qwen3-coder:30b',
+    });
+    const ctx = loadTaskStartup({ task });
+    ctx.deps.resolveFileReferences.mockReturnValue({
+      resolved: [
+        { actual: 'server/db/workflow-engine.js' },
+        { actual: 'server/handlers/task/index.js' },
+      ],
+    });
+    ctx.deps.executeOllamaTask.mockResolvedValue({ queued: false, started: true, provider: 'ollama' });
+
+    const result = await ctx.module.startTask(task.id);
+
+    expect(result).toEqual({ queued: false, started: true, provider: 'ollama' });
+    expect(ctx.deps.db.releaseFileLock).toHaveBeenCalledWith(
+      'server/handlers/task/index.js',
+      'C:/repo',
+      task.id,
+    );
+    expect(ctx.deps.db.releaseFileLock).toHaveBeenCalledWith(
+      'server/db/workflow-engine.js',
+      'C:/repo',
+      task.id,
+    );
+  });
+
+  it('releases startup file locks after direct API provider execution finishes', async () => {
+    const task = createTask({
+      id: 'api-direct-lock-release',
+      task_description: 'Review server/db/workflow-engine.js',
+      provider: 'groq',
+    });
+    const providerInstance = { name: 'groq' };
+    const ctx = loadTaskStartup({
+      task,
+      depOverrides: {
+        providerRegistry: {
+          isKnownProvider: vi.fn(() => true),
+          isApiProvider: vi.fn((provider) => provider === 'groq'),
+          getProviderInstance: vi.fn(() => providerInstance),
+        },
+        executeApiProvider: vi.fn().mockResolvedValue({ queued: false, started: true, provider: 'groq' }),
+      },
+    });
+    ctx.deps.resolveFileReferences.mockReturnValue({
+      resolved: [{ actual: 'server/db/workflow-engine.js' }],
+    });
+
+    const result = await ctx.module.startTask(task.id);
+
+    expect(result).toEqual({ queued: false, started: true, provider: 'groq' });
+    expect(ctx.deps.executeApiProvider).toHaveBeenCalledWith(
+      expect.objectContaining({ id: task.id }),
+      providerInstance,
+    );
+    expect(ctx.deps.db.releaseFileLock).toHaveBeenCalledWith(
+      'server/db/workflow-engine.js',
+      'C:/repo',
+      task.id,
+    );
   });
 
   it('startTask fails gracefully when runPreflightChecks rejects the task', async () => {

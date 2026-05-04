@@ -1571,9 +1571,23 @@ function spawnStartupProcess(taskId, task, startupCommand) {
   return spawnAndTrackProcess(taskId, task, spawnConfig);
 }
 
-function executeStartupCommand(taskId, task, provider, startupCommand) {
+function releaseDirectProviderLocksAfterCompletion(resultOrPromise, startupResources) {
+  if (resultOrPromise && typeof resultOrPromise.finally === 'function') {
+    return resultOrPromise.finally(() => {
+      startupResources.releaseAcquiredFileLocks();
+    });
+  }
+
+  startupResources.releaseAcquiredFileLocks();
+  return resultOrPromise;
+}
+
+function executeStartupCommand(taskId, task, provider, startupCommand, startupResources) {
   if (startupCommand.mode === 'ollama') {
-    return executeOllamaTask(startupCommand.executionTask);
+    return releaseDirectProviderLocksAfterCompletion(
+      executeOllamaTask(startupCommand.executionTask),
+      startupResources,
+    );
   }
 
   recordTaskStartedAuditEvent(task, taskId, provider);
@@ -1652,7 +1666,12 @@ async function startTask(taskId) {
       maxConcurrent: preClaim.maxConcurrent,
       startupResources: claimed.startupResources,
     });
-    if (providerExecution.completed) return providerExecution.value;
+    if (providerExecution.completed) {
+      return releaseDirectProviderLocksAfterCompletion(
+        providerExecution.value,
+        claimed.startupResources,
+      );
+    }
 
     provider = providerExecution.provider;
     providerConfig = providerExecution.providerConfig;
@@ -1673,7 +1692,7 @@ async function startTask(taskId) {
       contextTokenEstimate: preClaim.contextTokenEstimate,
     });
 
-    return executeStartupCommand(taskId, task, provider, startupCommand);
+    return executeStartupCommand(taskId, task, provider, startupCommand, claimed.startupResources);
   } catch (err) {
     cleanupFailedStartupResources(claimed.startupResources, err);
     throw err;
