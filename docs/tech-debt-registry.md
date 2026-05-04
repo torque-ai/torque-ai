@@ -25,11 +25,10 @@ but represent opportunities for future cleanup sprints.
 | `server/providers/adapters/google-chat.js` | 37 | JSDoc `@param {Object} [params.options]` marked "currently unused" — param never wired |
 | `server/db/migrations.js` | 17 | Migration named `remove_unused_notification_templates` — migration function may be orphaned if templates are gone |
 | `server/db/code-analysis.js` | 119 | `type: 'unused_function'` detected by code analysis — ironic that the analyzer itself has unreachable paths in its result-building logic |
-| `server/task-manager-delegations.js` | 131 | `fireTerminalTaskHook` imported but not re-exported — external callers get `undefined` |
 | `server/providers/execute-hashline.js` | 414 | `resolvedFiles` passed to `parseAndApplyEdits` but parameter not accepted — silently ignored |
 | `dashboard/src/components/Onboarding.jsx` | 1 | Unused `import React` with modern JSX transform |
 | `cli/commands.js` | 35 | Unused `context` parameter in `handleStatus` and similar handlers |
-| `server/coordination/instance-manager.js` | 81 | Redundant null check in `stopInstanceHeartbeat()` |
+| `server/maintenance/instance-manager.js` | 81 | Redundant null check in `stopInstanceHeartbeat()` |
 | `server/policy-engine/shadow-enforcer.js` | 4 | `void logger` — logger imported but immediately voided, never used |
 | `server/api/routes.js` | 124 | Comment "removed because they shadowed the CP routes" — tombstone comment with no code left |
 | `server/db/scheduling-automation.js` | 91 | `safeJsonParse` local copy flagged "avoids importing from database.js" — circular dep should be resolved at module level instead |

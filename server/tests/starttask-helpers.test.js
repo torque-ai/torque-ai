@@ -857,19 +857,22 @@ describe('resolveProviderRouting (via startTask)', () => {
       limit: 50.00,
     });
 
-    const delegationsPath = require.resolve('../task-manager-delegations');
+    // executeOllamaTask used to flow through task-manager-delegations.js;
+    // it is now destructured directly from providers/execution at
+    // task-manager.js module load. Mock the underlying module instead.
+    const executionPath = require.resolve('../providers/execution');
     const taskManagerPath = require.resolve('../task-manager');
-    const originalDelegations = require.cache[delegationsPath];
+    const originalExecution = require.cache[executionPath];
     const originalTaskManager = require.cache[taskManagerPath];
-    const actualDelegations = require('../task-manager-delegations');
+    const actualExecution = require('../providers/execution');
     const executeOllamaSpy = vi.fn((task) => ({
       started: true,
       task,
     }));
 
     try {
-      installCjsModuleMock('../task-manager-delegations', {
-        ...actualDelegations,
+      installCjsModuleMock('../providers/execution', {
+        ...actualExecution,
         executeOllamaTask: executeOllamaSpy,
       });
       delete require.cache[taskManagerPath];
@@ -918,10 +921,10 @@ describe('resolveProviderRouting (via startTask)', () => {
       ]));
     } finally {
       budgetSpy.mockRestore();
-      if (originalDelegations) {
-        require.cache[delegationsPath] = originalDelegations;
+      if (originalExecution) {
+        require.cache[executionPath] = originalExecution;
       } else {
-        delete require.cache[delegationsPath];
+        delete require.cache[executionPath];
       }
       if (originalTaskManager) {
         require.cache[taskManagerPath] = originalTaskManager;

@@ -97,37 +97,10 @@ function createInitModuleMock(extra = {}) {
   };
 }
 
-function createTaskManagerDelegationsMock() {
-  const names = [
-    'computeLineHash', 'lineSimilarity',
-    'isShellSafe', 'extractTargetFilesFromDescription',
-    'buildFileIndex', 'extractFileReferencesExpanded', 'resolveFileReferences',
-    'isValidFilePath', 'extractModifiedFiles',
-    'isModelLoadedOnHost', 'getHostActivity', 'pollHostActivity',
-    'probeLocalGpuMetrics', 'probeRemoteGpuMetrics',
-    'getTaskActivity', 'getAllTaskActivity', 'canAcceptTask',
-    'registerInstance', 'startInstanceHeartbeat', 'stopInstanceHeartbeat',
-    'unregisterInstance', 'updateInstanceInfo', 'isInstanceAlive', 'getMcpInstanceId',
-    'cleanupJunkFiles', 'getFileChangesForValidation', 'findPlaceholderArtifacts',
-    'checkFileQuality', 'checkDuplicateFiles', 'checkSyntax', 'runLLMSafeguards',
-    'runBuildVerification', 'runTestVerification', 'runStyleCheck',
-    'rollbackTaskChanges', 'revertScopedFiles', 'scopedRollback',
-    'detectTaskTypes', 'getInstructionTemplate', 'wrapWithInstructions',
-    'executeApiProvider', 'executeOllamaTask',
-    'tryOllamaCloudFallback', 'tryLocalFirstFallback', 'classifyError',
-    'handlePipelineStepCompletion', 'handleWorkflowTermination',
-    'evaluateWorkflowDependencies', 'unblockTask', 'applyFailureAction',
-    'cancelDependentTasks', 'checkWorkflowCompletion',
-    'runOutputSafeguards',
-    'handleSandboxRevertDetection',
-    'handleAutoValidation', 'handleBuildTestStyleCommit', 'handleProviderFailover',
-    'recordModelOutcome', 'recordProviderHealth', 'handlePostCompletion',
-    'finalizeTask',
-    'categorizeQueuedTasks', 'processQueueInternal',
-    'cleanupOrphanedHostTasks', 'getStallThreshold',
-  ];
-
-  return Object.fromEntries(names.map((name) => [name, vi.fn()]));
+// hashline-handlers is now imported directly by task-manager.js (was previously
+// hidden behind task-manager-delegations.js, which has been removed).
+function createHashlineHandlersMock() {
+  return { computeLineHash: vi.fn(), lineSimilarity: vi.fn() };
 }
 
 function createProcessTrackerMock() {
@@ -435,7 +408,7 @@ function installTaskManagerBoundaryMocks() {
   installMock('../execution/process-tracker', createProcessTrackerMock());
   installMock('../execution/task-startup', taskStartup);
   installMock('../providers/codex-intelligence', createInitModuleMock());
-  installMock('../task-manager-delegations', createTaskManagerDelegationsMock());
+  installMock('../handlers/hashline-handlers', createHashlineHandlersMock());
   installMock('../maintenance/sleep-watchdog', {
     start: vi.fn(),
     stop: vi.fn(),
