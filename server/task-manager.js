@@ -12,43 +12,11 @@ const taskCore = require('./db/task-core');
 const coordination = require('./db/coordination');
 const providerRoutingCore = require('./db/provider/routing-core');
 const _sleepWatchdog = require('./maintenance/sleep-watchdog');
-let _dashboard = null;
-function getDashboard() {
-  if (!_dashboard) _dashboard = require('./dashboard/server');
-  return _dashboard;
-}
-let _dashboardBroadcaster = null;
-const DASHBOARD_BROADCAST_METHODS = [
-  'broadcastUpdate',
-  'broadcastTaskUpdate',
-  'broadcastTaskOutput',
-  'broadcastStatsUpdate',
-  'notifyTaskCreated',
-  'notifyTaskUpdated',
-  'notifyTaskOutput',
-  'notifyTaskDeleted',
-  'notifyHostActivityUpdated',
-  'notifyTaskEvent',
-];
-function getDashboardBroadcaster() {
-  if (_dashboardBroadcaster) return _dashboardBroadcaster;
-
-  _dashboardBroadcaster = {};
-  for (const methodName of DASHBOARD_BROADCAST_METHODS) {
-    _dashboardBroadcaster[methodName] = (...args) => {
-      const dashboard = getDashboard();
-      const method = dashboard && dashboard[methodName];
-      if (typeof method !== 'function') return undefined;
-      return method.apply(dashboard, args);
-    };
-  }
-  return _dashboardBroadcaster;
-}
+const { getDashboardBroadcaster } = require('./tasks/dashboard-bridge');
 const logger = require('./logger').child({ component: 'task-manager' });
 const providerRegistry = require('./providers/registry');
 const providerCfg = require('./providers/config');
 const serverConfig = require('./config');
-const FreeQuotaTracker = require('./free-quota-tracker');
 const gpuMetrics = require('./scripts/gpu-metrics-server');
 const eventBus = require('./event-bus');
 
@@ -96,21 +64,13 @@ function initEarlyDeps() {
   if (!db || !db.isReady || !db.isReady()) return;
   _earlyDepsInitialized = true;
 
-  // Register provider classes for lazy initialization via registry
   providerRegistry.init({ db });
   providerCfg.init({ db });
   serverConfig.init({ db });
-  providerRegistry.registerProviderClass('codex', require('./providers/v2-cli-providers').CodexCliProvider);
-  providerRegistry.registerProviderClass('claude-code-sdk', require('./providers/claude-code-sdk'));
-  providerRegistry.registerProviderClass('claude-ollama', require('./providers/claude-ollama'));
-  providerRegistry.registerProviderClass('anthropic', require('./providers/anthropic'));
-  providerRegistry.registerProviderClass('groq', require('./providers/groq'));
-  providerRegistry.registerProviderClass('hyperbolic', require('./providers/hyperbolic'));
-  providerRegistry.registerProviderClass('deepinfra', require('./providers/deepinfra'));
-  providerRegistry.registerProviderClass('ollama-cloud', require('./providers/ollama-cloud'));
-  providerRegistry.registerProviderClass('cerebras', require('./providers/cerebras'));
-  providerRegistry.registerProviderClass('google-ai', require('./providers/google-ai'));
-  providerRegistry.registerProviderClass('openrouter', require('./providers/openrouter'));
+  // Register the 11 built-in provider classes (codex, claude-*, anthropic,
+  // groq, hyperbolic, deepinfra, ollama-cloud, cerebras, google-ai, openrouter).
+  const { registerBuiltinProviders } = require('./providers/builtin-providers');
+  registerBuiltinProviders(providerRegistry);
 }
 const { TASK_TIMEOUTS, PROVIDER_DEFAULT_TIMEOUTS
 } = require('./constants');
@@ -285,46 +245,10 @@ function parseTaskMetadata(...args) { return _taskUtils.parseTaskMetadata(...arg
 function getTaskContextTokenEstimate(...args) { return _taskUtils.getTaskContextTokenEstimate(...args); }
 
 
-// Provider instances now managed by providerRegistry.getProviderInstance()
-// Legacy getters below delegate to registry for backward compatibility
-let freeQuotaTracker = null;
-
-const DEFAULT_FREE_PROVIDER_RATE_LIMITS = Object.freeze([
-  { provider: 'groq', rpm_limit: 30, rpd_limit: 14400, tpm_limit: 6000, tpd_limit: 500000, daily_reset_hour: 0, daily_reset_tz: 'UTC' },
-  { provider: 'cerebras', rpm_limit: 30, rpd_limit: 14400, tpm_limit: 64000, tpd_limit: 1000000, daily_reset_hour: 0, daily_reset_tz: 'UTC' },
-  { provider: 'google-ai', rpm_limit: 10, rpd_limit: 250, tpm_limit: 250000, tpd_limit: null, daily_reset_hour: 0, daily_reset_tz: 'America/Los_Angeles' },
-  { provider: 'openrouter', rpm_limit: 20, rpd_limit: 50, tpm_limit: null, tpd_limit: null, daily_reset_hour: 0, daily_reset_tz: 'UTC' },
-  { provider: 'ollama-cloud', rpm_limit: 10, rpd_limit: 500, tpm_limit: 100000, tpd_limit: null, daily_reset_hour: 0, daily_reset_tz: 'UTC' },
-  { provider: 'ollama', rpm_limit: null, rpd_limit: null, tpm_limit: null, tpd_limit: null, daily_reset_hour: 0, daily_reset_tz: 'UTC' },
-]);
-
-function mergeDefaultFreeProviderRateLimits(limits = []) {
-  const byProvider = new Map();
-  for (const limit of DEFAULT_FREE_PROVIDER_RATE_LIMITS) {
-    byProvider.set(limit.provider, { ...limit, is_free_tier: 1 });
-  }
-  for (const limit of Array.isArray(limits) ? limits : []) {
-    if (!limit?.provider) continue;
-    byProvider.set(limit.provider, { ...byProvider.get(limit.provider), ...limit, is_free_tier: 1 });
-  }
-  return Array.from(byProvider.values());
-}
-
-// NOTE: getFreeQuotaTracker uses a lazy singleton. Node.js is single-threaded
-// so there is no concurrent-init race in the event loop, but if this function
-// is ever called from multiple worker threads the `if (!freeQuotaTracker)`
-// check would not be atomic. Currently safe — only called from the main thread.
-function getFreeQuotaTracker() {
-  if (!freeQuotaTracker) {
-    const limits = mergeDefaultFreeProviderRateLimits(db.getProviderRateLimits ? db.getProviderRateLimits() : []);
-    freeQuotaTracker = new FreeQuotaTracker(limits);
-    // Wire DB module so daily snapshots persist when quota windows reset
-    if (db.recordDailySnapshot) {
-      freeQuotaTracker.setDb(db);
-    }
-  }
-  return freeQuotaTracker;
-}
+// Free-tier provider quota tracker — singleton lives in tasks/free-quota-tracker-singleton.js
+const _freeQuotaSingleton = require('./tasks/free-quota-tracker-singleton');
+_freeQuotaSingleton.init({ db });
+const { getFreeQuotaTracker } = _freeQuotaSingleton;
 
 if (executeApi.setFreeQuotaTracker) executeApi.setFreeQuotaTracker(getFreeQuotaTracker);
 
@@ -350,11 +274,14 @@ let _processQueueTimer = null;
 let _processQueuePending = false;
 let _lastProcessQueueCall = 0;
 
-// Track pending close handlers to allow tests to wait for all async work to finish.
-// On Windows, vitest kills worker forks without propagating signals, so any
-// in-flight execFileSync('git', ...) calls inside the close handler become orphans.
-let pendingCloseHandlers = 0;
-let closeHandlerResolvers = []; // Callbacks to notify when pendingCloseHandlers hits 0
+// Pending close-handler bookkeeping (counter + drain + waitForPendingHandlers)
+// lives in tasks/close-handler-state.js. The lifecycle module mutates the
+// counter through the accessor passed via DI in initSubModules.
+const _closeHandlerState = require('./tasks/close-handler-state');
+const {
+  drainCloseHandlerResolvers,
+  waitForPendingHandlers,
+} = _closeHandlerState;
 
 // Tasks currently in the finalization pipeline (close handler running).
 // The orphan checker must skip active finalizers — the process has exited but
@@ -366,34 +293,6 @@ const finalizingTasks = new Map();
 // Test mode flag: when true, getActualModifiedFiles() returns null immediately,
 // preventing git process spawning in close handlers during E2E tests with mock processes.
 let skipGitInCloseHandler = false;
-
-/** Resolve any promises waiting for close handlers to finish. */
-function drainCloseHandlerResolvers() {
-  if (pendingCloseHandlers <= 0) {
-    pendingCloseHandlers = 0; // clamp
-    const resolvers = closeHandlerResolvers;
-    closeHandlerResolvers = [];
-    for (const resolve of resolvers) resolve();
-  }
-}
-
-/**
- * Wait for all in-flight close handlers to complete.
- * Returns immediately if none are pending.
- * @param {number} timeout - Max wait time in ms (default 15000)
- */
-function waitForPendingHandlers(timeout = 15000) {
-  if (pendingCloseHandlers <= 0) return Promise.resolve();
-  return new Promise((resolve) => {
-    const timer = setTimeout(() => {
-      // Remove ourselves from the list if we time out
-      closeHandlerResolvers = closeHandlerResolvers.filter(r => r !== wrappedResolve);
-      resolve(); // Don't reject — just stop waiting
-    }, timeout);
-    const wrappedResolve = () => { clearTimeout(timer); resolve(); };
-    closeHandlerResolvers.push(wrappedResolve);
-  });
-}
 
 // File index cache moved to utils/file-resolution.js
 
@@ -1196,11 +1095,7 @@ _processLifecycle.init({
   safeUpdateTaskStatus,
   setupStdoutHandler: _processStreams.setupStdoutHandler,
   setupStderrHandler: _processStreams.setupStderrHandler,
-  closeHandlerState: {
-    get count() { return pendingCloseHandlers; },
-    set count(v) { pendingCloseHandlers = v; },
-    drain: drainCloseHandlerResolvers,
-  },
+  closeHandlerState: _closeHandlerState.createCloseHandlerStateAccessor(),
 });
 } // end initSubModules
 
@@ -1340,8 +1235,7 @@ Object.assign(module.exports, {
       _processQueuePending = false;
       _lastProcessQueueCall = 0;
       runningProcesses.resetAll();
-      pendingCloseHandlers = 0;
-      closeHandlerResolvers = [];
+      _closeHandlerState._resetForTest();
       isShuttingDown = false;
       skipGitInCloseHandler = false;
       _taskStartup.setSkipGitInCloseHandler(false);
@@ -1355,108 +1249,7 @@ Object.assign(module.exports, {
   initEarlyDeps,
   initSubModules,
   startQueuePoll,
-  // DI factory (Phase 3) - deps reserved for dependency-boundary follow-up
-  createTaskManager,
 });
-
-function createTaskManager(_deps) {
-  return {
-    startTask,
-    cancelTask,
-    processQueue,
-    getTaskProgress,
-    getRunningTaskCount,
-    getTaskActivity,
-    getAllTaskActivity,
-    getStallThreshold,
-    checkStalledTasks,
-    tryStallRecovery,
-    cleanupOrphanedHostTasks,
-    canAcceptTask,
-    shutdown,
-    pauseTask,
-    resumeTask,
-    checkBreakpoints,
-    pauseTaskForDebug,
-    stepExecution,
-    evaluateWorkflowDependencies,
-    unblockTask,
-    applyFailureAction,
-    cancelDependentTasks,
-    checkWorkflowCompletion,
-    cleanupJunkFiles,
-    runLLMSafeguards,
-    checkFileQuality,
-    checkDuplicateFiles,
-    checkSyntax,
-    DEFAULT_INSTRUCTION_TEMPLATES,
-    getInstructionTemplate,
-    wrapWithInstructions,
-    PROVIDER_DEFAULT_TIMEOUTS,
-    hasRunningProcess,
-    buildFileIndex,
-    resolveFileReferences,
-    buildFileContext,
-    extractFileReferencesExpanded,
-    extractJsFunctionBoundaries,
-    getHostActivity,
-    isModelLoadedOnHost,
-    pollHostActivity,
-    probeLocalGpuMetrics,
-    probeRemoteGpuMetrics,
-    getMcpInstanceId,
-    registerInstance,
-    unregisterInstance,
-    isInstanceAlive,
-    startInstanceHeartbeat,
-    stopInstanceHeartbeat,
-    updateInstanceInfo,
-    getFreeQuotaTracker,
-    buildPolicyTaskData,
-    evaluateTaskSubmissionPolicy,
-    evaluateTaskPreExecutePolicy,
-    fireTaskCompletionPolicyHook,
-    computeLineHash,
-    detectTaskTypes,
-    lineSimilarity,
-    tryLocalFirstFallback,
-    tryOllamaCloudFallback,
-    parseModelSizeB,
-    isSmallModel,
-    isThinkingModel,
-    getModelSizeCategory,
-    isLargeModelBlockedOnHost,
-    attemptTaskStart,
-    safeStartTask,
-    categorizeQueuedTasks,
-    triggerCancellationWebhook,
-    buildClaudeCliCommand,
-    buildCodexCommand,
-    revertScopedFiles,
-    scopedRollback,
-    handleCloseCleanup,
-    handleRetryLogic,
-    handleSafeguardChecks,
-    handleFuzzyRepair,
-    handleNoFileChangeDetection,
-    handleSandboxRevertDetection,
-    handleAutoValidation,
-    handleBuildTestStyleCommit,
-    handleProviderFailover,
-    handlePostCompletion,
-    handleProjectDependencyResolution,
-    detectOutputCompletion,
-    detectSuccessFromOutput,
-    CONVERSATIONAL_REFUSAL_PATTERN,
-    recordModelOutcome,
-    recordProviderHealth,
-    createTaskStartupResourceLifecycle,
-    evaluateClaimedStartupPolicy,
-    initEarlyDeps,
-    initSubModules,
-    startQueuePoll,
-  };
-}
 
 // Backward compatibility: auto-init early deps if db is already ready when this module loads.
 // This handles test files that require('./task-manager') after db.init() without calling initEarlyDeps().
