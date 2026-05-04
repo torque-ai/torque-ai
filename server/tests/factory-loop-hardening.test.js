@@ -47,7 +47,12 @@ describe('buildVerifyFixPrompt', () => {
     const preambleMatches = (prompt.match(/COLLECT_PREAMBLE_LINE_THAT_MUST_BE_DROPPED/g) || []).length;
     expect(preambleMatches).toBeLessThan(500);
     // And the tail-clip budget bounds the embedded section length.
-    const codeFenceBody = prompt.split('```')[1] || '';
+    // Two fenced blocks now: [1] is the verify-command echo (small),
+    // [3] is the verify-output tail. Find the tail block by header.
+    const tailIdx = prompt.indexOf('Verify output (tail):');
+    expect(tailIdx).toBeGreaterThan(-1);
+    const afterTailHeader = prompt.slice(tailIdx);
+    const codeFenceBody = afterTailHeader.split('```')[1] || '';
     expect(codeFenceBody.length).toBeLessThanOrEqual(loopController.VERIFY_FIX_PROMPT_TAIL_BUDGET + 2);
   });
 
@@ -75,6 +80,31 @@ describe('buildVerifyFixPrompt', () => {
     });
     expect(prompt).toContain(realError);
     expect(prompt).not.toContain('\u001b[');
+  });
+
+  it('wraps verifyCommand in a fenced diagnostic block so the heavy-validation guard ignores it', () => {
+    // Regression for DLPhone WI #749 (2026-05-04): codex auto-verify-retry
+    // tasks failed via [Governance] heavy local validation rule because
+    // `Verify command: dotnet test ...` was emitted bare on a single line,
+    // which the guard's regex caught. Wrapping in a fenced block under a
+    // recognized diagnostic header (matched by DIAGNOSTIC_FENCE_HEADER_RE)
+    // keeps the command informational without tripping the guard.
+    const { findHeavyLocalValidationCommand } = require('../utils/heavy-validation-guard');
+    const verifyCommand = 'dotnet test simtests/SimCore.DotNet.Tests.csproj -c Release --filter "Category!=RequiresAndroidBuild"';
+    const prompt = loopController.buildVerifyFixPrompt({
+      planPath: '/plans/foo.md',
+      planTitle: 'WI 749',
+      branch: 'feat/factory-749',
+      verifyCommand,
+      verifyOutput: 'AssertionError: expected 1, got 2',
+    });
+
+    // Without the fenced wrap, this returns a non-null detection and the
+    // governance rule blocks the codex submission with a 0s failure.
+    expect(findHeavyLocalValidationCommand(prompt, { ignoreDiagnosticFencedBlocks: true })).toBeNull();
+    // The verify command must still appear in the prompt for the model
+    // to know what runs after it edits.
+    expect(prompt).toContain(verifyCommand);
   });
 });
 
