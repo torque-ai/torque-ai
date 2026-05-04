@@ -14,13 +14,18 @@ const serverConfig = require('../config');
 const logger = require('../logger').child({ component: 'output-safeguards' });
 const piiGuard = require('../utils/pii-guard');
 
-// ─── Injected dependencies ──────────────────────────────────────────────────
+// ─── Legacy module-level state, written only by init() (deprecated) ────────
+// Phase 2c of the universal-DI migration: this module exposes both the new
+// createOutputSafeguards factory + register(container) shape and the legacy
+// init({…}) shape. Legacy state is removed when task-manager.js migrates
+// to consume via container.
 let db = null;
 let _getFileChangesForValidation = null;
 let _checkFileQuality = null;
 let _cleanupJunkFiles = null;
 let _findPlaceholderArtifacts = null;
 
+/** @deprecated Use createOutputSafeguards(deps) or container.get('outputSafeguards'). */
 function init(deps) {
   if (deps.db) db = deps.db;
   if (deps.getFileChangesForValidation) _getFileChangesForValidation = deps.getFileChangesForValidation;
@@ -856,7 +861,77 @@ async function runOutputSafeguards(taskId, status, task) {
   }
 }
 
+// ── New factory shape (preferred) ─────────────────────────────────────────
+/**
+ * Build an outputSafeguards service that closes over its deps.
+ * Uses the same module-state-swap pattern as the rest of the validation/
+ * Phase 2 cohort: temporarily binds legacy state for each call, restores
+ * after. Legacy state is deleted in Phase 5 when consumers migrate.
+ *
+ * Note: only `runOutputSafeguards` reads from the legacy state; the other
+ * exported functions (sanitizeOutputForCondition, truncateOptionalText,
+ * shouldSkipOutputSafeguards, patchTaskSafeguardMetadata) are pure and
+ * the constants are static, so they are exposed directly.
+ */
+function createOutputSafeguards(deps = {}) {
+  const local = {
+    db: deps.db,
+    _getFileChangesForValidation: deps.getFileChangesForValidation,
+    _checkFileQuality: deps.checkFileQuality,
+    _cleanupJunkFiles: deps.cleanupJunkFiles,
+    _findPlaceholderArtifacts: deps.findPlaceholderArtifacts,
+  };
+
+  return {
+    runOutputSafeguards(...args) {
+      const prev = {
+        db, _getFileChangesForValidation, _checkFileQuality,
+        _cleanupJunkFiles, _findPlaceholderArtifacts,
+      };
+      db = local.db;
+      _getFileChangesForValidation = local._getFileChangesForValidation;
+      _checkFileQuality = local._checkFileQuality;
+      _cleanupJunkFiles = local._cleanupJunkFiles;
+      _findPlaceholderArtifacts = local._findPlaceholderArtifacts;
+      try {
+        return runOutputSafeguards(...args);
+      } finally {
+        ({
+          db, _getFileChangesForValidation, _checkFileQuality,
+          _cleanupJunkFiles, _findPlaceholderArtifacts,
+        } = prev);
+      }
+    },
+    // Pure functions — no deps to swap
+    sanitizeOutputForCondition,
+    truncateOptionalText,
+    shouldSkipOutputSafeguards,
+    patchTaskSafeguardMetadata,
+  };
+}
+
+/**
+ * Register with a DI container under the name 'outputSafeguards'.
+ */
+function register(container) {
+  container.register(
+    'outputSafeguards',
+    [
+      'db',
+      'getFileChangesForValidation',
+      'checkFileQuality',
+      'cleanupJunkFiles',
+      'findPlaceholderArtifacts',
+    ],
+    (deps) => createOutputSafeguards(deps)
+  );
+}
+
 module.exports = {
+  // New shape (preferred)
+  createOutputSafeguards,
+  register,
+  // Legacy shape (kept until task-manager.js migrates)
   init,
   runOutputSafeguards,
   sanitizeOutputForCondition,

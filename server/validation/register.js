@@ -27,6 +27,7 @@ const hashlineVerify = require('./hashline-verify');
 const buildVerification = require('./build-verification');
 const closePhases = require('./close-phases');
 const autoVerifyRetry = require('./auto-verify-retry');
+const outputSafeguards = require('./output-safeguards');
 
 function register(container) {
   safeguardGates.register(container);
@@ -34,9 +35,9 @@ function register(container) {
   buildVerification.register(container);
   closePhases.register(container);
   autoVerifyRetry.register(container);
-  // TODO(phase 2c cont.): register the remaining validation modules
-  //   - validation/output-safeguards.js    (separate session — 868 LOC)
-  //   - validation/post-task.js            (separate session — 1494 LOC)
+  outputSafeguards.register(container);
+  // TODO(phase 2c cont.): register the last validation module
+  //   - validation/post-task.js            (1494 LOC; finish validation/ migration)
 }
 
 module.exports = { register };
