@@ -300,6 +300,18 @@ async function runAgenticLoop({
   // and then answer as if the user asked them to create files.
   let readOnlyRefusalRetried = false;
 
+  // Incomplete-task nudge: track how many times the "you read but didn't write"
+  // nudge has fired for THIS task. Previously this reused emptySummaryRetried,
+  // which collided with the empty-summary and empty-first-response retries —
+  // when either fired, the nudge couldn't fire. Now it has its own counter,
+  // and we allow up to 2 nudges before declaring the task a hard failure.
+  // This catches the qwen3-coder:30b "I'll first check…" false-completion
+  // pattern observed live 2026-05-04 on DLPhone task 8347e0a6 (38s, 2 reads,
+  // 0 writes, exit 0). Without the second nudge + hard-fail, models that
+  // ignore the first nudge get marked completed despite producing nothing.
+  let incompleteTaskNudgeCount = 0;
+  const MAX_INCOMPLETE_TASK_NUDGES = 2;
+
   // Early termination flag — set inside inner loops to break the outer loop
   let earlyStop = false;
 
@@ -554,22 +566,49 @@ async function runAgenticLoop({
       // This catches the explore-without-write pattern: model gathers context exhaustively
       // then "summarizes" instead of editing. Observed live 2026-04-26 on qwen3-coder:30b
       // — a DLPhone task did 24 read-only calls, then went silent for 13 min, finished
-      // with 0 files changed. The previous version of this nudge had a `<= 3` cap that
-      // skipped exactly this case.
+      // with 0 files changed. Then again 2026-05-04 on task 8347e0a6 (38s, 2 reads, 0
+      // writes, exit 0) where the previous flag-collision-guarded one-shot nudge was
+      // suppressed by an earlier emptySummaryRetried fire.
+      //
+      // 2026-05-04 hardening:
+      //   1. Use a dedicated counter (incompleteTaskNudgeCount) instead of reusing
+      //      emptySummaryRetried — that flag also fires for empty-content retries and
+      //      its earlier set could short-circuit this nudge entirely.
+      //   2. Allow up to MAX_INCOMPLETE_TASK_NUDGES (2) escalating nudges before
+      //      hard-failing the task. The first nudge is informational; the second is
+      //      explicit ("admit you can't" branch). After the second, exit with stop
+      //      reason `no_edits_after_nudge` so execution.js classifies this as a
+      //      genuine task failure (not a happy "model_finished" exit).
       const WRITE_TOOLS = ['write_file', 'edit_file', 'replace_lines', 'run_command'];
       const hasWriteTools = toolLog.some(t => WRITE_TOOLS.includes(t.name));
       // Broaden the verb match — modification verbs beyond pure creation. The
       // `taskExpectsModification` regex above already covers this set; reuse it
       // to avoid drift between detectors.
-      if (!proposalOutputMode && !hasWriteTools && taskExpectsModification && toolLog.length > 0 && !emptySummaryRetried) {
-        logger.info(`[Agentic] Task expects modification but only read-only tools used (${toolLog.length} calls) — nudging to complete`);
+      if (!proposalOutputMode && !hasWriteTools && taskExpectsModification && toolLog.length > 0
+          && incompleteTaskNudgeCount < MAX_INCOMPLETE_TASK_NUDGES) {
+        incompleteTaskNudgeCount += 1;
+        const isFinalNudge = incompleteTaskNudgeCount >= MAX_INCOMPLETE_TASK_NUDGES;
+        logger.info(`[Agentic] Task expects modification but only read-only tools used (${toolLog.length} calls) — nudge ${incompleteTaskNudgeCount}/${MAX_INCOMPLETE_TASK_NUDGES}${isFinalNudge ? ' (final)' : ''}`);
         messages.push({ role: 'assistant', content });
         messages.push({
           role: 'user',
-          content: 'You have read enough context. The task description told you what to change; use edit_file or replace_lines now to make the changes. If you read a file once, do NOT re-read it — make the edit. Do not describe what you would do — call the write tool.',
+          content: isFinalNudge
+            ? 'STOP analyzing. The task description tells you what to edit and you have already read the relevant files. Either (a) call edit_file, replace_lines, or write_file now to make the change, OR (b) explicitly say "I cannot complete this task" with one sentence on what is missing. Any other response (analysis, planning, "let me check…", summaries) is a failure. This is your final attempt.'
+            : 'You have read enough context. The task description told you what to change; use edit_file or replace_lines now to make the changes. If you read a file once, do NOT re-read it — make the edit. Do not describe what you would do — call the write tool.',
         });
-        emptySummaryRetried = true; // reuse flag to prevent infinite nudge loop
         continue;
+      }
+
+      // No-edits-after-nudge hard fail: if we've already nudged the maximum
+      // number of times and the model STILL produced text instead of writes,
+      // exit with a structured failure reason. execution.js maps this to
+      // exit_code=1 + status=failed via HARD_FAIL_AGENTIC_STOP_REASONS.
+      if (!proposalOutputMode && !hasWriteTools && taskExpectsModification && toolLog.length > 0
+          && incompleteTaskNudgeCount >= MAX_INCOMPLETE_TASK_NUDGES) {
+        finalOutput = `Task stopped: model expected to modify files but produced ${toolLog.length} read-only tool call(s) and 0 writes after ${incompleteTaskNudgeCount} corrective nudges.`;
+        stopReason = 'no_edits_after_nudge';
+        logger.warn(`[Agentic] No edits after ${incompleteTaskNudgeCount} nudges — failing task`);
+        break;
       }
 
       finalOutput = content;

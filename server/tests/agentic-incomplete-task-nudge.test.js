@@ -1,101 +1,176 @@
 /**
- * Tests for the incomplete task nudge heuristic in the agentic loop.
+ * Tests for the incomplete-task-nudge + no-edits-after-nudge heuristic in
+ * the ollama agentic loop (server/providers/ollama-agentic.js).
  *
- * When an LLM calls only read-only tools (list_directory, read_file) and then
- * responds with text describing what it would create — but doesn't actually
- * call write_file — the loop should nudge it to complete the work.
+ * 2026-05-04 hardening:
+ *   - Counter (incompleteTaskNudgeCount) replaces the emptySummaryRetried
+ *     flag-collision guard so the nudge fires reliably even when the empty-
+ *     summary retry already burned its single shot.
+ *   - Up to MAX_INCOMPLETE_TASK_NUDGES corrective nudges are emitted; after
+ *     that the loop exits with stopReason='no_edits_after_nudge' which
+ *     execution.js maps to a hard-fail (exit_code=1, status=failed) via
+ *     HARD_FAIL_AGENTIC_STOP_REASONS.
+ *
+ * The loop has too many runtime dependencies to invoke directly here, so
+ * the test mirrors the production decision logic in a tight inline helper
+ * and verifies each branch. The contract under test:
+ *
+ *   action = 'nudge' | 'hard_fail' | 'pass_through'
+ *
+ *   pre: !proposalOutputMode && !hasWriteTools && taskExpectsModification
+ *        && toolLog.length > 0
+ *
+ *   if pre && nudgeCount < MAX_NUDGES        → 'nudge' (count++)
+ *   else if pre && nudgeCount >= MAX_NUDGES  → 'hard_fail' (no_edits_after_nudge)
+ *   else                                      → 'pass_through' (model_finished)
  */
 import { describe, it, expect } from 'vitest';
 
-// Inline mock of the agentic loop's nudge logic
-// (testing the condition, not the full loop — the loop has too many deps)
+const MAX_INCOMPLETE_TASK_NUDGES = 2;
 
-describe('Incomplete task nudge heuristic', () => {
-  function shouldNudge({ toolLog, taskPrompt, hasWriteTools, emptySummaryRetried }) {
-    const taskMentionsCreation = /\b(create|add|write|implement|generate)\b/i.test(taskPrompt);
-    return (
-      !hasWriteTools &&
-      taskMentionsCreation &&
-      toolLog.length > 0 &&
-      toolLog.length <= 3 &&
-      !emptySummaryRetried
-    );
+function decideNudgeAction({
+  toolLog,
+  hasWriteTools,
+  taskExpectsModification,
+  proposalOutputMode,
+  incompleteTaskNudgeCount,
+}) {
+  const pre = !proposalOutputMode
+    && !hasWriteTools
+    && taskExpectsModification
+    && toolLog.length > 0;
+  if (pre && incompleteTaskNudgeCount < MAX_INCOMPLETE_TASK_NUDGES) {
+    const next = incompleteTaskNudgeCount + 1;
+    return {
+      action: 'nudge',
+      isFinalNudge: next >= MAX_INCOMPLETE_TASK_NUDGES,
+      newCount: next,
+    };
   }
+  if (pre && incompleteTaskNudgeCount >= MAX_INCOMPLETE_TASK_NUDGES) {
+    return { action: 'hard_fail', stopReason: 'no_edits_after_nudge' };
+  }
+  return { action: 'pass_through', stopReason: 'model_finished' };
+}
 
-  it('nudges when task says create but only list_directory was called', () => {
-    expect(shouldNudge({
-      toolLog: [{ name: 'list_directory' }],
-      taskPrompt: 'Create a RecurringExpenseTests.cs file with xUnit tests',
+describe('incomplete-task-nudge — first nudge (counter=0)', () => {
+  it('nudges when modification task has only read-only tools', () => {
+    const r = decideNudgeAction({
+      toolLog: [{ name: 'read_file' }, { name: 'read_file' }],
       hasWriteTools: false,
-      emptySummaryRetried: false,
-    })).toBe(true);
+      taskExpectsModification: true,
+      proposalOutputMode: false,
+      incompleteTaskNudgeCount: 0,
+    });
+    expect(r.action).toBe('nudge');
+    expect(r.isFinalNudge).toBe(false);
+    expect(r.newCount).toBe(1);
   });
 
-  it('does not nudge when write_file was called', () => {
-    expect(shouldNudge({
-      toolLog: [{ name: 'list_directory' }, { name: 'write_file' }],
-      taskPrompt: 'Create a RecurringExpenseTests.cs file',
+  it('does not nudge when a write tool was used', () => {
+    const r = decideNudgeAction({
+      toolLog: [{ name: 'read_file' }, { name: 'write_file' }],
       hasWriteTools: true,
-      emptySummaryRetried: false,
-    })).toBe(false);
+      taskExpectsModification: true,
+      proposalOutputMode: false,
+      incompleteTaskNudgeCount: 0,
+    });
+    expect(r.action).toBe('pass_through');
+    expect(r.stopReason).toBe('model_finished');
   });
 
-  it('does not nudge when task does not mention creation', () => {
-    expect(shouldNudge({
-      toolLog: [{ name: 'list_directory' }],
-      taskPrompt: 'Review the existing test files for correctness',
-      hasWriteTools: false,
-      emptySummaryRetried: false,
-    })).toBe(false);
-  });
-
-  it('does not nudge when no tools were called', () => {
-    expect(shouldNudge({
-      toolLog: [],
-      taskPrompt: 'Create a new test file',
-      hasWriteTools: false,
-      emptySummaryRetried: false,
-    })).toBe(false);
-  });
-
-  it('does not nudge when already retried (prevents infinite loop)', () => {
-    expect(shouldNudge({
-      toolLog: [{ name: 'list_directory' }],
-      taskPrompt: 'Add a new RecurringExpense entity',
-      hasWriteTools: false,
-      emptySummaryRetried: true,
-    })).toBe(false);
-  });
-
-  it('does not nudge when many tools were called (model explored thoroughly)', () => {
-    expect(shouldNudge({
-      toolLog: [
-        { name: 'list_directory' },
-        { name: 'read_file' },
-        { name: 'read_file' },
-        { name: 'search_files' },
-      ],
-      taskPrompt: 'Create a new service class',
-      hasWriteTools: false,
-      emptySummaryRetried: false,
-    })).toBe(false);
-  });
-
-  it('nudges for "add" keyword', () => {
-    expect(shouldNudge({
+  it('does not nudge when task is a pure inspection (no modification verbs)', () => {
+    const r = decideNudgeAction({
       toolLog: [{ name: 'read_file' }],
-      taskPrompt: 'Add a RecurrenceFrequency enum to Domain/Budgeting/',
       hasWriteTools: false,
-      emptySummaryRetried: false,
-    })).toBe(true);
+      taskExpectsModification: false,
+      proposalOutputMode: false,
+      incompleteTaskNudgeCount: 0,
+    });
+    expect(r.action).toBe('pass_through');
   });
 
-  it('nudges for "implement" keyword', () => {
-    expect(shouldNudge({
-      toolLog: [{ name: 'list_directory' }, { name: 'read_file' }],
-      taskPrompt: 'Implement the RecurringExpenseService class',
+  it('does not nudge when no tools were called (different code path: empty_toolless)', () => {
+    const r = decideNudgeAction({
+      toolLog: [],
       hasWriteTools: false,
-      emptySummaryRetried: false,
-    })).toBe(true);
+      taskExpectsModification: true,
+      proposalOutputMode: false,
+      incompleteTaskNudgeCount: 0,
+    });
+    expect(r.action).toBe('pass_through');
+  });
+
+  it('does not nudge in proposalOutputMode (a different correction prompt fires)', () => {
+    const r = decideNudgeAction({
+      toolLog: [{ name: 'read_file' }],
+      hasWriteTools: false,
+      taskExpectsModification: true,
+      proposalOutputMode: true,
+      incompleteTaskNudgeCount: 0,
+    });
+    expect(r.action).toBe('pass_through');
+  });
+});
+
+describe('incomplete-task-nudge — second nudge (counter=1) marks final', () => {
+  it('emits a second nudge that is flagged as final', () => {
+    const r = decideNudgeAction({
+      toolLog: [{ name: 'read_file' }, { name: 'read_file' }, { name: 'read_file' }],
+      hasWriteTools: false,
+      taskExpectsModification: true,
+      proposalOutputMode: false,
+      incompleteTaskNudgeCount: 1,
+    });
+    expect(r.action).toBe('nudge');
+    expect(r.isFinalNudge).toBe(true);
+    expect(r.newCount).toBe(2);
+  });
+});
+
+describe('no-edits-after-nudge — hard fail (counter>=MAX)', () => {
+  it('exits with no_edits_after_nudge after both nudges were ignored', () => {
+    const r = decideNudgeAction({
+      toolLog: [{ name: 'read_file' }],
+      hasWriteTools: false,
+      taskExpectsModification: true,
+      proposalOutputMode: false,
+      incompleteTaskNudgeCount: 2,
+    });
+    expect(r.action).toBe('hard_fail');
+    expect(r.stopReason).toBe('no_edits_after_nudge');
+  });
+
+  it('does not hard-fail if the model finally wrote between nudges (counter still high but writes present)', () => {
+    const r = decideNudgeAction({
+      toolLog: [{ name: 'read_file' }, { name: 'edit_file' }],
+      hasWriteTools: true,
+      taskExpectsModification: true,
+      proposalOutputMode: false,
+      incompleteTaskNudgeCount: 2,
+    });
+    expect(r.action).toBe('pass_through');
+    expect(r.stopReason).toBe('model_finished');
+  });
+});
+
+describe('flag-decoupling regression — DLPhone task 8347e0a6 (2026-05-04)', () => {
+  // Pre-hardening this case fell through to model_finished because the
+  // incomplete-task-nudge gate was guarded by !emptySummaryRetried, which
+  // could be set by an earlier empty-summary retry without the model
+  // actually finishing the work. Now the nudge has its own counter and
+  // fires regardless of any earlier flag state.
+  it('still nudges even if a prior unrelated retry fired (counter is independent)', () => {
+    // Simulating the post-hardening world: there is no `emptySummaryRetried`
+    // input to decideNudgeAction at all. The contract is: counter alone
+    // gates the nudge.
+    const r = decideNudgeAction({
+      toolLog: [{ name: 'read_file' }, { name: 'read_file' }],
+      hasWriteTools: false,
+      taskExpectsModification: true,
+      proposalOutputMode: false,
+      incompleteTaskNudgeCount: 0,
+    });
+    expect(r.action).toBe('nudge');
   });
 });

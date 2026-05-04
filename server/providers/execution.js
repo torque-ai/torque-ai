@@ -653,6 +653,11 @@ const HARD_FAIL_AGENTIC_STOP_REASONS = new Set([
   'consecutive_tool_errors',
   'empty_final_output',
   'missing_tool_evidence',
+  // Set by ollama-agentic.js when a modification task produced read-only
+  // tool calls only after MAX_INCOMPLETE_TASK_NUDGES corrective nudges.
+  // Without this, the loop falls through to stopReason='model_finished'
+  // and the task is reported completed exit_code=0 despite zero edits.
+  'no_edits_after_nudge',
 ]);
 
 function inspectHardFailAgenticStopReason(task, workingDir, agenticPolicy, result) {
@@ -676,7 +681,9 @@ function inspectHardFailAgenticStopReason(task, workingDir, agenticPolicy, resul
     ? 'stopped without required repository tool evidence'
     : stopReason === 'empty_final_output'
       ? 'stopped without a final answer after repository tool use'
-      : 'stopped after repeated tool execution errors';
+      : stopReason === 'no_edits_after_nudge'
+        ? 'stopped because the model produced read-only tool calls and no edits after corrective nudges'
+        : 'stopped after repeated tool execution errors';
 
   return {
     message: `Agentic ${taskKind} task ${reason} (${stopReason}).`,
@@ -697,7 +704,23 @@ function isNonConvergedAgenticResult(result) {
 }
 
 function shouldEscalateNoOpAgenticResult(task, result) {
-  if (!taskLikelyRequiresFileChanges(task)) return false;
+  // Structural check (#4 in 2026-05-04 hardening): factory batch execution
+  // tasks ALWAYS expect file changes unless the metadata explicitly marks
+  // them read-only. The original gate via taskLikelyRequiresFileChanges
+  // depends on a regex over task.task_description that misses some
+  // legitimate modification descriptions ("Capture observable…", "Detect
+  // X…"), and the gate also short-circuits on factory_internal=true. For
+  // factory plan-task executions we want the no-op escalation to fire
+  // even if the description regex misses — the tag `factory:batch_id=*`
+  // is the authoritative signal.
+  const metadata = normalizeTaskMetadata(task);
+  const isFactoryBatchTask = isFactoryExecutionTask(task, metadata);
+  const explicitlyReadOnly = taskExplicitlyReadOnly(String(task?.task_description || ''), metadata);
+  const requiresChanges = isFactoryBatchTask
+    ? !explicitlyReadOnly
+    : taskLikelyRequiresFileChanges(task);
+
+  if (!requiresChanges) return false;
 
   const toolCount = Array.isArray(result?.toolLog) ? result.toolLog.length : 0;
   const changedFileCount = Array.isArray(result?.changedFiles) ? result.changedFiles.length : 0;
@@ -4434,4 +4457,7 @@ module.exports = {
   // Exported for tests
   shouldRequireToolEvidence,
   buildAgenticSystemPrompt,
+  shouldEscalateNoOpAgenticResult,
+  inspectHardFailAgenticStopReason,
+  HARD_FAIL_AGENTIC_STOP_REASONS,
 };
