@@ -24,7 +24,11 @@ describe('shouldUseDetachedPath — Phase F dispatch routing', () => {
   let serverConfigGetSpy;
 
   beforeEach(() => {
-    delete process.env.TORQUE_DETACHED_SUBPROCESSES;
+    // Phase G default-on: explicit opt-out via '0' so each test starts
+    // from a known-disabled baseline. The describe blocks below flip
+    // the flag back on as needed. Empty / unset would now mean "enabled"
+    // and break the "flag off" assertions below.
+    process.env.TORQUE_DETACHED_SUBPROCESSES = '0';
     // Default the cli_worktree_isolation read to '0' (off); individual
     // tests rebind the spy to flip it on.
     serverConfigGetSpy = vi.spyOn(serverConfig, 'get').mockImplementation((key) => {
@@ -52,10 +56,17 @@ describe('shouldUseDetachedPath — Phase F dispatch routing', () => {
     });
   }
 
-  it('returns false when TORQUE_DETACHED_SUBPROCESSES is unset (flag off — default)', () => {
+  it('returns false when TORQUE_DETACHED_SUBPROCESSES=0 (explicit opt-out)', () => {
     expect(shouldUseDetachedPath({ provider: 'codex', task: {} })).toBe(false);
     expect(shouldUseDetachedPath({ provider: 'codex-spark', task: {} })).toBe(false);
     expect(shouldUseDetachedPath({ provider: 'claude-cli', task: {} })).toBe(false);
+  });
+
+  it('returns true when env var is unset (Phase G default-on)', () => {
+    delete process.env.TORQUE_DETACHED_SUBPROCESSES;
+    expect(shouldUseDetachedPath({ provider: 'codex', task: {} })).toBe(true);
+    expect(shouldUseDetachedPath({ provider: 'codex-spark', task: {} })).toBe(true);
+    expect(shouldUseDetachedPath({ provider: 'claude-cli', task: {} })).toBe(true);
   });
 
   describe('with TORQUE_DETACHED_SUBPROCESSES=1', () => {
