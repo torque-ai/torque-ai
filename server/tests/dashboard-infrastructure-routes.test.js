@@ -602,6 +602,59 @@ describe('dashboard/routes/infrastructure', () => {
       ]);
     });
 
+    it('redacts unsafe credential fields returned by listCredentials', () => {
+      const originalListCredentials = currentModules.hostManagement.listCredentials;
+      const unsafeCredentials = [{
+        id: 'unsafe-id',
+        host_name: 'peek-unsafe',
+        host_type: 'peek',
+        credential_type: 'ssh',
+        label: 'Unsafe SSH',
+        created_at: '2026-01-01T00:00:00.000Z',
+        updated_at: '2026-01-01T00:00:00.000Z',
+        encrypted_value: 'ciphertext',
+        iv: 'iv-bytes',
+        auth_tag: 'auth-tag',
+        value: { token: 'unsafe-token', password: 'unsafe-password' },
+        token: 'unsafe-token',
+        password: 'unsafe-password',
+        secret: 'unsafe-secret',
+        username: 'unsafe-user',
+        user: 'unsafe-user',
+        key_path: '/unsafe/key',
+        private_key: 'unsafe-private-key',
+      }];
+
+      try {
+        seedPeekHost({ name: 'peek-unsafe', url: 'http://peek-unsafe:9876' });
+        currentModules.hostManagement.listCredentials = vi.fn((name) => (name === 'peek-unsafe' ? unsafeCredentials : []));
+
+        const res = createRes();
+        handlers.handleListPeekHosts(createReq(), res);
+
+        expectSuccess(res, [
+          {
+            name: 'peek-unsafe',
+            url: 'http://peek-unsafe:9876',
+            ssh: null,
+            enabled: 1,
+            platform: null,
+            is_default: 0,
+            credentials: [
+              {
+                host_name: 'peek-unsafe',
+                host_type: 'peek',
+                credential_type: 'ssh',
+                label: 'Unsafe SSH',
+              },
+            ],
+          },
+        ]);
+      } finally {
+        currentModules.hostManagement.listCredentials = originalListCredentials;
+      }
+    });
+
     it('returns an empty array when no peek hosts are registered', () => {
       const res = createRes();
 

@@ -82,6 +82,77 @@ describe('host-credentials', () => {
     }
   });
 
+  it('listCredentials redacts sensitive fields even when rows contain them', () => {
+    const hostName = 'test-omen-unsafe';
+    const originalPrepare = db.prepare;
+    const unsafeRows = [{
+      id: 'unsafe-id',
+      host_name: hostName,
+      host_type: 'peek',
+      credential_type: 'ssh',
+      label: 'Unsafe credentials',
+      created_at: '2026-01-01T00:00:00.000Z',
+      updated_at: '2026-01-01T00:00:00.000Z',
+      encrypted_value: 'ciphertext',
+      iv: 'iv-bytes',
+      auth_tag: 'auth-tag',
+      value: {
+        token: 'unsafe-token',
+        password: 'unsafe-password',
+      },
+      token: 'unsafe-token',
+      password: 'unsafe-password',
+      secret: 'unsafe-secret',
+      username: 'unsafe-user',
+      user: 'unsafe-user',
+      key_path: '/unsafe/key',
+      private_key: 'unsafe-private-key',
+    }];
+
+    const unsafePrepare = vi.spyOn(db, 'prepare').mockImplementation((query) => {
+      if (typeof query === 'string' && query.includes('SELECT * FROM host_credentials WHERE host_name = ? AND host_type = ?')) {
+        return {
+          all: () => unsafeRows,
+        };
+      }
+
+      return originalPrepare(query);
+    });
+
+    try {
+      const list = hostCreds.listCredentials(hostName, 'peek');
+
+      expect(list).toHaveLength(1);
+      expect(list[0]).toEqual({
+        id: 'unsafe-id',
+        host_name: hostName,
+        host_type: 'peek',
+        credential_type: 'ssh',
+        label: 'Unsafe credentials',
+        created_at: '2026-01-01T00:00:00.000Z',
+        updated_at: '2026-01-01T00:00:00.000Z',
+      });
+
+      for (const field of [
+        'encrypted_value',
+        'iv',
+        'auth_tag',
+        'value',
+        'token',
+        'password',
+        'secret',
+        'username',
+        'user',
+        'key_path',
+        'private_key',
+      ]) {
+        expect(list[0]).not.toHaveProperty(field);
+      }
+    } finally {
+      unsafePrepare.mockRestore();
+    }
+  });
+
   it('deletes a credential', () => {
     hostCreds.saveCredential('test-omen', 'peek', 'windows', 'Win creds', {
       username: 'admin',

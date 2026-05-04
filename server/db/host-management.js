@@ -1044,10 +1044,33 @@ function getCredential(hostName, hostType, credentialType) {
   }
 }
 
+const CREDENTIAL_METADATA_FIELDS = [
+  'id',
+  'host_name',
+  'host_type',
+  'credential_type',
+  'label',
+  'created_at',
+  'updated_at',
+];
+
+function sanitizeCredentialMetadata(credential) {
+  if (!credential || typeof credential !== 'object') {
+    return credential;
+  }
+
+  return CREDENTIAL_METADATA_FIELDS.reduce((acc, field) => {
+    acc[field] = credential[field];
+    return acc;
+  }, {});
+}
+
 function listCredentials(hostName, hostType) {
-  return db.prepare(
-    'SELECT id, host_name, host_type, credential_type, label, created_at, updated_at FROM host_credentials WHERE host_name = ? AND host_type = ?'
+  const rows = db.prepare(
+    'SELECT * FROM host_credentials WHERE host_name = ? AND host_type = ?'
   ).all(hostName, hostType);
+
+  return rows.map(sanitizeCredentialMetadata);
 }
 
 function deleteCredential(hostName, hostType, credentialType) {
