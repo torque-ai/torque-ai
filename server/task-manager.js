@@ -959,9 +959,9 @@ _orphanCleanup.init({
   db,
   dashboard: getDashboardBroadcaster(),
   logger,
-  runningProcesses,
-  finalizingTasks,
-  stallRecoveryAttempts,
+  // runningProcesses, finalizingTasks, and stallRecoveryAttempts now
+  // default to the container values — orphan-cleanup peeks
+  // processTracker + finalizationTracker on init() unless deps override.
   TASK_TIMEOUTS,
   cancelTask,
   processQueue,
