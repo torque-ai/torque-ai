@@ -62,6 +62,28 @@ describe('routeWorkItemToNeedsReplan also deletes stale plan file from disk', ()
     expect(fs.existsSync(planPath)).toBe(false);
   });
 
+  it('preserves source plan_file documents and keeps their origin plan_path', () => {
+    const planPath = path.join(tmpDir, '2026-04-11-fabro-63-persistent-threads.md');
+    fs.writeFileSync(planPath, '# Persistent threads Plan\n\n## Task 1: Implement threads\n');
+
+    const item = factoryIntake.createWorkItem({
+      project_id: 'p1', source: 'plan_file', title: 'Source plan should persist',
+    });
+    factoryIntake.updateWorkItem(item.id, {
+      origin_json: { plan_path: planPath, plan_generation_task_id: 'old-task-id' },
+    });
+
+    const after = routeWorkItemToNeedsReplan(
+      factoryIntake.getWorkItem(item.id),
+      { reason: 'pre_written_plan_rejected_by_quality_gate' },
+    );
+
+    expect(after.status).toBe('needs_replan');
+    expect(after.origin?.plan_path).toBe(planPath);
+    expect(after.origin?.plan_generation_task_id).toBeUndefined();
+    expect(fs.existsSync(planPath)).toBe(true);
+  });
+
   it('does not throw when plan_path is missing or file does not exist', () => {
     const item = factoryIntake.createWorkItem({
       project_id: 'p1', source: 'scout', title: 'No plan path',
