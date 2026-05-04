@@ -180,14 +180,30 @@ async function cleanupOrphanedDotnetProcesses() {
     }
 
     // Filter out PIDs that are tracked in our runningProcesses map
-    // These are legitimate running tasks, not orphans
+    // These are legitimate running tasks, not orphans. Critically, we
+    // also expand each tracked PID's *descendant* tree: TORQUE-tracked
+    // tasks routinely spawn `dotnet test` as a grandchild (codex.exe →
+    // dotnet, or bash → dotnet), and trackedPids only holds the
+    // immediate child PID. Without this expansion, a 5-min orphan sweep
+    // running mid-verify would taskkill /T the dotnet PID and the
+    // verify command "fails" with no useful diagnosis.
     const trackedPids = new Set();
     for (const [_taskId, proc] of runningProcesses.entries()) {
-      if (proc.process && proc.process.pid) {
-        trackedPids.add(proc.process.pid);
-      }
+      const pid = proc?.process?.pid;
+      if (pid) trackedPids.add(pid);
     }
-    const orphanedPids = dotnetPids.filter(pid => !trackedPids.has(pid));
+    const safePids = new Set(trackedPids);
+    try {
+      const { collectWindowsProcessTree, collectPosixProcessTree } = require('../utils/process-activity');
+      const collectTree = process.platform === 'win32' ? collectWindowsProcessTree : collectPosixProcessTree;
+      for (const rootPid of trackedPids) {
+        try {
+          const { processIds } = collectTree(rootPid) || { processIds: new Set() };
+          for (const descendantPid of processIds) safePids.add(descendantPid);
+        } catch { /* tree walk failed for one root — skip it, fall back to parent-only */ }
+      }
+    } catch { /* process-activity not available — fall back to parent-only filter */ }
+    const orphanedPids = dotnetPids.filter(pid => !safePids.has(pid));
 
     if (orphanedPids.length > 0) {
       logger.info(`[Cleanup] Found ${orphanedPids.length} orphaned dotnet process(es): ${orphanedPids.join(', ')}`);
