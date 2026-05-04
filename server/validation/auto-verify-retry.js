@@ -48,7 +48,11 @@ const NON_CODE_EXTENSIONS = new Set([
   '.toml',
 ]);
 
-// Dependency injection
+// ── Legacy module-level state, written only by init() (deprecated) ─────────
+// Phase 2c of the universal-DI migration: this module now exposes both the
+// new createAutoVerifyRetry factory + register(container) shape and the
+// legacy init({…}) shape. The legacy state below is removed in the same
+// commit that migrates task-manager.js to consume via container.
 let _db = null;
 let _startTask = null;
 let _processQueue = null;
@@ -70,10 +74,7 @@ function isRetryTask(task) {
   return false;
 }
 
-/**
- * Initialize dependencies for this module.
- * @param {Object} deps
- */
+/** @deprecated Use createAutoVerifyRetry(deps) or container.get('autoVerifyRetry'). */
 function init(deps) {
   if (deps.db) _db = deps.db;
   serverConfig.init({ db: deps.db || _db });
@@ -723,7 +724,60 @@ async function handleAutoVerifyRetry(ctx) {
   }
 }
 
+// ── New factory shape (preferred) ─────────────────────────────────────────
+/**
+ * Build an autoVerifyRetry service that closes over its deps.
+ * Module-state-swap pattern (matches hashline-verify, build-verification,
+ * close-phases): temporarily binds legacy state to per-instance deps for
+ * each call. Cleaned up in Phase 5 once consumers migrate.
+ */
+function createAutoVerifyRetry(deps = {}) {
+  const local = {
+    _db: deps.db,
+    _startTask: deps.startTask,
+    _processQueue: deps.processQueue,
+    _testRunnerRegistry: deps.testRunnerRegistry || null,
+    _sandboxManager: Object.prototype.hasOwnProperty.call(deps, 'sandboxManager')
+      ? (deps.sandboxManager || null)
+      : null,
+  };
+
+  return {
+    handleAutoVerifyRetry(...args) {
+      const prev = { _db, _startTask, _processQueue, _testRunnerRegistry, _sandboxManager };
+      _db = local._db;
+      _startTask = local._startTask;
+      _processQueue = local._processQueue;
+      _testRunnerRegistry = local._testRunnerRegistry;
+      _sandboxManager = local._sandboxManager;
+      try {
+        return handleAutoVerifyRetry(...args);
+      } finally {
+        ({ _db, _startTask, _processQueue, _testRunnerRegistry, _sandboxManager } = prev);
+      }
+    },
+  };
+}
+
+/**
+ * Register with a DI container under the name 'autoVerifyRetry'.
+ * Declared deps map to container service names; sandboxManager is optional
+ * (the module tolerates a null/undefined sandbox by falling through to
+ * local-process verification).
+ */
+function register(container) {
+  container.register(
+    'autoVerifyRetry',
+    ['db', 'startTask', 'processQueue', 'testRunnerRegistry', 'sandboxManager'],
+    (deps) => createAutoVerifyRetry(deps)
+  );
+}
+
 module.exports = {
+  // New shape (preferred)
+  createAutoVerifyRetry,
+  register,
+  // Legacy shape (kept until task-manager.js migrates)
   init,
   handleAutoVerifyRetry,
 };
