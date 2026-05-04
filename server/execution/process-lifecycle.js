@@ -356,6 +356,20 @@ function cleanupProcessTracking(proc, taskId, runningProcesses, stallRecoveryAtt
     proc._outputBuffer = null;
   }
   safeDecrementHostSlot(proc);
+  // Drop the per-PID activity-tracking cache entries so they don't
+  // accumulate across the server's lifetime. Both Maps in
+  // utils/process-activity (activityCache, cumulativeCpuBaseline) are
+  // keyed by PID and only self-prune when a sampler returns null on a
+  // later call — which never happens for a PID we stop querying once
+  // the task ends. ~100 bytes per entry × thousands of tasks per week
+  // adds up.
+  const pid = proc.process?.pid || proc.pid;
+  if (pid) {
+    try {
+      const { forgetPid } = require('../utils/process-activity');
+      forgetPid(pid);
+    } catch { /* best effort — module not loaded yet, etc. */ }
+  }
   runningProcesses.delete(taskId);
   stallRecoveryAttempts.delete(taskId);
 }

@@ -465,6 +465,20 @@ function clearActivityCache() {
   optionalCpuModules.pidusage = null;
 }
 
+// Drop the cached entries for a specific PID. Called from process lifecycle
+// when a tracked task ends, so the per-PID Maps don't grow unboundedly over
+// the server's lifetime. activityCache and cumulativeCpuBaseline are keyed
+// by PID; without an explicit forget, entries only clear when their sampler
+// returns null on a later call — which never happens for a PID we stop
+// querying. Each leaked entry is small (~100 bytes), but TORQUE runs for
+// weeks across thousands of tasks, so the Maps gradually accumulate.
+function forgetPid(pid) {
+  const normalizedPid = normalizePid(pid);
+  if (!normalizedPid) return;
+  activityCache.delete(normalizedPid);
+  cumulativeCpuBaseline.delete(normalizedPid);
+}
+
 function parseHundredNanoToMs(value) {
   const num = Number.parseFloat(String(value).trim());
   if (!Number.isFinite(num) || num < 0) return 0;
@@ -604,4 +618,5 @@ module.exports = {
   parsePosixCputimeToMs,
   parseHundredNanoToMs,
   clearActivityCache,
+  forgetPid,
 };
