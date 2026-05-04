@@ -1783,6 +1783,181 @@ async function finalizeDetachedTask({ taskId, task, provider, isCodexProvider })
   }
 }
 
+/**
+ * Re-adopt a still-alive detached subprocess after a TORQUE restart.
+ *
+ * When Phase B's detached spawn path persisted `subprocess_pid` +
+ * `output_log_path` + `error_log_path` for a task and the parent process
+ * has now restarted, the subprocess is still running but the in-memory
+ * `runningProcesses` map is empty. This function rebuilds that entry —
+ * `process: null`, `subprocessPid` set, Tail watchers attached at the
+ * persisted log offsets, PID-liveness watcher polling — so the new
+ * parent can drive the same chunk handlers + finalize pipeline as the
+ * original spawn did.
+ *
+ * Caller (startup-task-reconciler) is responsible for verifying
+ * `isPidAlive(pid)` and the log-mtime PID-reuse defense before invoking
+ * us. If we get here, those checks already passed.
+ *
+ * @param {string} taskId
+ * @param {Object} persistedTask - the row read from the tasks table; we
+ *   read subprocess_pid, output_log_path, error_log_path,
+ *   output_log_offset, error_log_offset, provider, model,
+ *   working_directory, ollama_host_id, started_at, metadata,
+ *   task_metadata, baseline_commit (may be undefined).
+ * @returns {boolean} true on success; false if dependencies missing
+ *   (init not run yet, or persisted state incomplete).
+ */
+function reAdoptDetachedSubprocess(taskId, persistedTask) {
+  if (!runningProcesses || !db || !dashboard) {
+    logger.info(`[Detached] re-adopt declined for task ${taskId}: execute-cli not initialized`);
+    return false;
+  }
+  if (runningProcesses.has(taskId)) {
+    // Already tracked (defensive — should not happen on cold startup).
+    return true;
+  }
+  const subprocessPid = Number(persistedTask?.subprocess_pid);
+  const stdoutPath = persistedTask?.output_log_path;
+  const stderrPath = persistedTask?.error_log_path;
+  if (!Number.isFinite(subprocessPid) || subprocessPid <= 0 || !stdoutPath || !stderrPath) {
+    return false;
+  }
+
+  const startOutputOffset = Number.isFinite(Number(persistedTask?.output_log_offset))
+    ? Number(persistedTask.output_log_offset)
+    : 0;
+  const startErrorOffset = Number.isFinite(Number(persistedTask?.error_log_offset))
+    ? Number(persistedTask.error_log_offset)
+    : 0;
+
+  const provider = persistedTask?.provider || 'codex';
+  const isCodexProvider = (provider === 'codex' || provider === 'codex-spark');
+  const startTime = persistedTask?.started_at
+    ? new Date(persistedTask.started_at).getTime() || Date.now()
+    : Date.now();
+
+  const procEntry = {
+    process: null,
+    output: '',
+    errorOutput: '',
+    startTime,
+    lastOutputAt: Date.now(),
+    stallWarned: false,
+    timeoutHandle: null,
+    startupTimeoutHandle: null,
+    streamErrorCount: 0,
+    streamErrorWarned: false,
+    ollamaHostId: persistedTask?.ollama_host_id || null,
+    model: persistedTask?.model || null,
+    provider,
+    metadata: persistedTask?.metadata || persistedTask?.task_metadata || null,
+    editFormat: null,
+    completionDetected: false,
+    completionGraceHandle: null,
+    lastProgress: 0,
+    baselineCommit: persistedTask?.baseline_commit || null,
+    workingDirectory: persistedTask?.working_directory || null,
+    lastFsFingerprint: null,
+    worktreeInfo: null,
+    originalWorkingDirectory: null,
+    detached: true,
+    reAdopted: true,
+    subprocessPid,
+    outputLogPath: stdoutPath,
+    errorLogPath: stderrPath,
+    outputTail: null,
+    errorTail: null,
+    livenessHandle: null,
+    finalizing: false,
+  };
+  runningProcesses.set(taskId, procEntry);
+
+  const taskShape = {
+    id: taskId,
+    task_description: persistedTask?.task_description || '',
+    working_directory: persistedTask?.working_directory || null,
+    metadata: persistedTask?.metadata || persistedTask?.task_metadata || null,
+    timeout_minutes: persistedTask?.timeout_minutes,
+    model: persistedTask?.model,
+  };
+
+  const streamId = db.getOrCreateTaskStream(taskId, 'output');
+  const offsetPersistThrottleMs = 2000;
+  let lastStdoutPersistAt = 0;
+  let lastStderrPersistAt = 0;
+
+  const outputTail = new Tail(stdoutPath, { startOffset: startOutputOffset, pollIntervalMs: 250 });
+  outputTail.on('chunk', (text, newOffset) => {
+    processStdoutChunk(taskId, text, streamId);
+    const now = Date.now();
+    if (now - lastStdoutPersistAt >= offsetPersistThrottleMs) {
+      lastStdoutPersistAt = now;
+      try {
+        db.updateTaskStatus(taskId, 'running', {
+          output_log_offset: newOffset,
+          last_activity_at: new Date(now).toISOString(),
+        });
+      } catch { /* best-effort */ }
+    }
+  });
+  outputTail.on('error', (err) => {
+    if (err && err.code === 'ENOENT') return;
+    logger.info(`[Tail] re-adopted stdout error for task ${taskId}: ${err.message}`);
+  });
+
+  const errorTail = new Tail(stderrPath, { startOffset: startErrorOffset, pollIntervalMs: 250 });
+  errorTail.on('chunk', (text, newOffset) => {
+    processStderrChunk(taskId, text, streamId);
+    const now = Date.now();
+    if (now - lastStderrPersistAt >= offsetPersistThrottleMs) {
+      lastStderrPersistAt = now;
+      try {
+        db.updateTaskStatus(taskId, 'running', {
+          error_log_offset: newOffset,
+          last_activity_at: new Date(now).toISOString(),
+        });
+      } catch { /* best-effort */ }
+    }
+  });
+  errorTail.on('error', (err) => {
+    if (err && err.code === 'ENOENT') return;
+    logger.info(`[Tail] re-adopted stderr error for task ${taskId}: ${err.message}`);
+  });
+
+  outputTail.start();
+  errorTail.start();
+  procEntry.outputTail = outputTail;
+  procEntry.errorTail = errorTail;
+
+  const triggerFinalize = () => {
+    if (procEntry.finalizing) return;
+    procEntry.finalizing = true;
+    if (procEntry.livenessHandle) {
+      clearInterval(procEntry.livenessHandle);
+      procEntry.livenessHandle = null;
+    }
+    setTimeout(() => {
+      void finalizeDetachedTask({ taskId, task: taskShape, provider, isCodexProvider })
+        .catch((err) => {
+          logger.info(`[Detached] re-adopted finalize failed for task ${taskId}: ${err.message}`);
+        });
+    }, DETACHED_FINAL_DRAIN_MS);
+  };
+  procEntry.livenessHandle = setInterval(() => {
+    if (procEntry.finalizing) return;
+    if (!isPidAlive(subprocessPid)) {
+      logger.info(`[Detached] re-adopted task ${taskId} pid ${subprocessPid} no longer alive — finalizing`);
+      triggerFinalize();
+    }
+  }, DETACHED_LIVENESS_POLL_MS);
+
+  try { dashboard.notifyTaskUpdated(taskId); } catch { /* non-critical */ }
+
+  logger.info(`[Detached] re-adopted task ${taskId} pid=${subprocessPid} stdout_offset=${startOutputOffset} stderr_offset=${startErrorOffset}`);
+  return true;
+}
+
 module.exports = {
   init,
   buildClaudeCliCommand,
@@ -1790,6 +1965,7 @@ module.exports = {
   spawnAndTrackProcess,
   spawnAndTrackProcessDetached,
   finalizeDetachedTask,
+  reAdoptDetachedSubprocess,
   computeActivityAwareTimeoutDelay,
   parseProcessExitAnnotation,
   EXIT_SPAWN_INSTANT_EXIT,

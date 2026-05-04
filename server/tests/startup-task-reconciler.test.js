@@ -2,10 +2,16 @@ import { describe, test, expect, beforeEach, afterEach, vi } from 'vitest';
 
 const { randomUUID } = require('crypto');
 const Database = require('better-sqlite3');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
 const { setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
 const taskCore = require('../db/task-core');
 const serverConfig = require('../config');
-const { reconcileOrphanedTasksOnStartup } = require('../execution/startup-task-reconciler');
+const {
+  reconcileOrphanedTasksOnStartup,
+  tryReAdoptDetachedSubprocess,
+} = require('../execution/startup-task-reconciler');
 
 let db;
 let logger;
@@ -49,6 +55,14 @@ const TASK_COLUMNS = [
   'stall_timeout_seconds',
   'resume_context',
   'server_epoch',
+  // Subprocess-detachment Phase A columns — Phase C uses these to
+  // re-adopt still-alive detached subprocesses on startup.
+  'subprocess_pid',
+  'output_log_path',
+  'error_log_path',
+  'output_log_offset',
+  'error_log_offset',
+  'last_activity_at',
 ];
 
 function createSchema(sqliteDb) {
@@ -91,7 +105,13 @@ function createSchema(sqliteDb) {
       provider_switched_at TEXT,
       stall_timeout_seconds INTEGER,
       resume_context TEXT,
-      server_epoch INTEGER
+      server_epoch INTEGER,
+      subprocess_pid INTEGER,
+      output_log_path TEXT,
+      error_log_path TEXT,
+      output_log_offset INTEGER DEFAULT 0,
+      error_log_offset INTEGER DEFAULT 0,
+      last_activity_at TEXT
     );
 
     CREATE TABLE workflows (
@@ -174,6 +194,12 @@ function insertTask(overrides = {}) {
     stall_timeout_seconds: null,
     resume_context: null,
     server_epoch: 0,
+    subprocess_pid: null,
+    output_log_path: null,
+    error_log_path: null,
+    output_log_offset: 0,
+    error_log_offset: 0,
+    last_activity_at: null,
     ...overrides,
   };
 
@@ -840,5 +866,191 @@ describe('startup-task-reconciler — retry_scheduled orphans', () => {
     expect(result.actions.retry_requeued).toBe(0);
     const after = taskCore.getTask(id);
     expect(after.status).toBe('retry_scheduled');
+  });
+});
+
+// ============================================================
+// Subprocess-detachment Phase C: re-adoption of detached subprocesses.
+// Verifies the new tryReAdoptDetachedSubprocess helper and the
+// reconciler's flow-through to it before the cancel-and-clone path.
+// ============================================================
+
+describe('startup-task-reconciler — Phase C re-adoption', () => {
+  let tmpRoot;
+
+  beforeEach(() => {
+    tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'torque-readopt-'));
+  });
+
+  afterEach(() => {
+    try { fs.rmSync(tmpRoot, { recursive: true, force: true }); } catch { /* ignore */ }
+  });
+
+  function makeLogPaths(taskId) {
+    const dir = path.join(tmpRoot, taskId);
+    fs.mkdirSync(dir, { recursive: true });
+    const stdoutPath = path.join(dir, 'stdout.log');
+    const stderrPath = path.join(dir, 'stderr.log');
+    fs.writeFileSync(stdoutPath, 'fresh stdout\n');
+    fs.writeFileSync(stderrPath, 'fresh stderr\n');
+    return { stdoutPath, stderrPath };
+  }
+
+  function backdateLogs({ stdoutPath, stderrPath }, ageMs) {
+    const past = (Date.now() - ageMs) / 1000;
+    fs.utimesSync(stdoutPath, past, past);
+    fs.utimesSync(stderrPath, past, past);
+  }
+
+  test('tryReAdoptDetachedSubprocess returns false when subprocess_pid is missing', () => {
+    const executeCli = { reAdoptDetachedSubprocess: vi.fn(() => true) };
+    const ok = tryReAdoptDetachedSubprocess(
+      { id: 'task-1', subprocess_pid: null, output_log_path: '/tmp/a', error_log_path: '/tmp/b' },
+      executeCli,
+      { logger },
+    );
+    expect(ok).toBe(false);
+    expect(executeCli.reAdoptDetachedSubprocess).not.toHaveBeenCalled();
+  });
+
+  test('tryReAdoptDetachedSubprocess returns false when log paths are missing', () => {
+    const executeCli = { reAdoptDetachedSubprocess: vi.fn(() => true) };
+    const ok = tryReAdoptDetachedSubprocess(
+      { id: 'task-1', subprocess_pid: process.pid, output_log_path: null, error_log_path: null },
+      executeCli,
+      { logger },
+    );
+    expect(ok).toBe(false);
+    expect(executeCli.reAdoptDetachedSubprocess).not.toHaveBeenCalled();
+  });
+
+  test('tryReAdoptDetachedSubprocess returns false when PID is not alive', () => {
+    const executeCli = { reAdoptDetachedSubprocess: vi.fn(() => true) };
+    const paths = makeLogPaths('task-dead');
+    // PID 999999999 is virtually guaranteed not to exist.
+    const ok = tryReAdoptDetachedSubprocess(
+      {
+        id: 'task-dead',
+        subprocess_pid: 999999999,
+        output_log_path: paths.stdoutPath,
+        error_log_path: paths.stderrPath,
+      },
+      executeCli,
+      { logger },
+    );
+    expect(ok).toBe(false);
+    expect(executeCli.reAdoptDetachedSubprocess).not.toHaveBeenCalled();
+  });
+
+  test('tryReAdoptDetachedSubprocess returns false when log mtime is stale (PID-reuse defense)', () => {
+    const executeCli = { reAdoptDetachedSubprocess: vi.fn(() => true) };
+    const paths = makeLogPaths('task-stale');
+    // Make logs 10 minutes old; default staleMs is 5 min.
+    backdateLogs(paths, 10 * 60 * 1000);
+    const ok = tryReAdoptDetachedSubprocess(
+      {
+        id: 'task-stale',
+        subprocess_pid: process.pid, // alive
+        output_log_path: paths.stdoutPath,
+        error_log_path: paths.stderrPath,
+      },
+      executeCli,
+      { logger },
+    );
+    expect(ok).toBe(false);
+    expect(executeCli.reAdoptDetachedSubprocess).not.toHaveBeenCalled();
+  });
+
+  test('tryReAdoptDetachedSubprocess delegates to executeCli when all guards pass', () => {
+    const executeCli = { reAdoptDetachedSubprocess: vi.fn(() => true) };
+    const paths = makeLogPaths('task-fresh');
+    const ok = tryReAdoptDetachedSubprocess(
+      {
+        id: 'task-fresh',
+        subprocess_pid: process.pid,
+        output_log_path: paths.stdoutPath,
+        error_log_path: paths.stderrPath,
+      },
+      executeCli,
+      { logger },
+    );
+    expect(ok).toBe(true);
+    expect(executeCli.reAdoptDetachedSubprocess).toHaveBeenCalledTimes(1);
+    expect(executeCli.reAdoptDetachedSubprocess).toHaveBeenCalledWith(
+      'task-fresh',
+      expect.objectContaining({ subprocess_pid: process.pid }),
+    );
+  });
+
+  test('tryReAdoptDetachedSubprocess returns false when executeCli throws', () => {
+    const executeCli = {
+      reAdoptDetachedSubprocess: vi.fn(() => { throw new Error('runningProcesses missing'); }),
+    };
+    const paths = makeLogPaths('task-throws');
+    const ok = tryReAdoptDetachedSubprocess(
+      {
+        id: 'task-throws',
+        subprocess_pid: process.pid,
+        output_log_path: paths.stdoutPath,
+        error_log_path: paths.stderrPath,
+      },
+      executeCli,
+      { logger },
+    );
+    expect(ok).toBe(false);
+  });
+
+  test('reconciler re-adopts a live detached row before the cancel/clone path', () => {
+    const paths = makeLogPaths('task-readopt');
+    insertTask({
+      id: 'task-readopt',
+      subprocess_pid: process.pid,
+      output_log_path: paths.stdoutPath,
+      error_log_path: paths.stderrPath,
+    });
+    const reAdoptSpy = vi.fn(() => true);
+    const result = runReconciler({
+      executeCli: { reAdoptDetachedSubprocess: reAdoptSpy },
+    });
+
+    expect(result.actions.re_adopted).toBe(1);
+    expect(result.actions.cancelled).toBe(0);
+    expect(result.actions.cloned).toBe(0);
+    expect(reAdoptSpy).toHaveBeenCalledTimes(1);
+
+    // Original row remains running — re-adoption must NOT mark it cancelled.
+    const row = getTaskRow('task-readopt');
+    expect(row.status).toBe('running');
+  });
+
+  test('reconciler falls through to cancel when the persisted PID is dead', () => {
+    const paths = makeLogPaths('task-pid-dead');
+    insertTask({
+      id: 'task-pid-dead',
+      subprocess_pid: 999999999,
+      output_log_path: paths.stdoutPath,
+      error_log_path: paths.stderrPath,
+    });
+    const reAdoptSpy = vi.fn(() => true);
+    const result = runReconciler({
+      executeCli: { reAdoptDetachedSubprocess: reAdoptSpy },
+    });
+
+    expect(result.actions.re_adopted).toBe(0);
+    expect(result.actions.cancelled).toBe(1);
+    expect(reAdoptSpy).not.toHaveBeenCalled();
+    expect(getTaskRow('task-pid-dead').status).toBe('cancelled');
+  });
+
+  test('reconciler ignores rows without subprocess_pid (pipe-path tasks)', () => {
+    insertTask({ id: 'task-pipe' }); // no subprocess columns set
+    const reAdoptSpy = vi.fn(() => true);
+    const result = runReconciler({
+      executeCli: { reAdoptDetachedSubprocess: reAdoptSpy },
+    });
+
+    expect(result.actions.re_adopted).toBe(0);
+    expect(reAdoptSpy).not.toHaveBeenCalled();
+    expect(result.actions.cancelled).toBe(1);
   });
 });

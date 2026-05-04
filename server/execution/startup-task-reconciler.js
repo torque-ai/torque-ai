@@ -13,6 +13,15 @@ const {
   rollbackAgenticTaskChanges,
 } = require('./agentic-orphan-rollback');
 
+// Subprocess-detachment Phase C: PID-reuse defense window. If a row's
+// subprocess_pid is still alive but the on-disk log file hasn't been
+// written to in this window, treat the PID as recycled (a different
+// process now owns it) and fall through to the normal orphan path.
+// 5 min default — tuned against codex's typical idle-output cadence
+// (sub-banner → tool output every 1-3 min for active work). Override via
+// TORQUE_READOPT_LOG_STALE_MS.
+const READOPT_LOG_STALE_MS_DEFAULT = 5 * 60 * 1000;
+
 function getDbHandle(db) {
   if (db && typeof db.getDbInstance === 'function') {
     return db.getDbInstance();
@@ -367,6 +376,71 @@ function createClone({ original, metadata, resumeContext, taskCore, rawDb }) {
   return newId;
 }
 
+/**
+ * Subprocess-detachment Phase C: try to re-adopt a still-alive detached
+ * subprocess instead of treating it as an orphan to cancel + clone.
+ *
+ * Three guards must all pass before we hand off to execute-cli:
+ *   1. Persisted state — the row must have subprocess_pid + both log
+ *      paths set. Tasks that ran under the legacy pipe path (no
+ *      detachment) won't have these and will fall through.
+ *   2. PID liveness — process.kill(pid, 0) returns true (or EPERM).
+ *      A non-existent PID means the subprocess actually died with the
+ *      previous parent.
+ *   3. Log freshness — the subprocess wrote to its stdout/stderr log
+ *      within READOPT_LOG_STALE_MS. If the PID is alive but the log is
+ *      stale, the OS has likely recycled the PID for an unrelated
+ *      process and we'd be re-adopting the wrong subprocess.
+ *
+ * Returns true on a successful re-adoption (caller should skip the
+ * cancel-and-clone path); false otherwise.
+ */
+function tryReAdoptDetachedSubprocess(original, executeCli, options = {}) {
+  if (!original || !executeCli || typeof executeCli.reAdoptDetachedSubprocess !== 'function') {
+    return false;
+  }
+  const subprocessPid = Number(original.subprocess_pid);
+  const stdoutPath = original.output_log_path;
+  const stderrPath = original.error_log_path;
+  if (!Number.isFinite(subprocessPid) || subprocessPid <= 0 || !stdoutPath || !stderrPath) {
+    return false;
+  }
+  if (!isPidAlive(subprocessPid)) {
+    return false;
+  }
+
+  const staleMs = Number.isFinite(options.staleMs) && options.staleMs > 0
+    ? options.staleMs
+    : (Number(process.env.TORQUE_READOPT_LOG_STALE_MS) || READOPT_LOG_STALE_MS_DEFAULT);
+  // PID-reuse defense: log mtime must be within the freshness window
+  // for the PID to be plausibly the same process that owned the row.
+  let newestMtimeMs = 0;
+  for (const candidatePath of [stdoutPath, stderrPath]) {
+    try {
+      const stat = fs.statSync(candidatePath);
+      if (stat && stat.mtimeMs && stat.mtimeMs > newestMtimeMs) {
+        newestMtimeMs = stat.mtimeMs;
+      }
+    } catch {
+      // Missing or unreadable log file — treat as stale.
+    }
+  }
+  if (!newestMtimeMs || (Date.now() - newestMtimeMs) > staleMs) {
+    return false;
+  }
+
+  try {
+    return Boolean(executeCli.reAdoptDetachedSubprocess(original.id, original));
+  } catch (err) {
+    safeLog(options.logger, 'warn', 'Re-adopt of detached subprocess threw', {
+      task_id: original.id,
+      pid: subprocessPid,
+      error: err.message,
+    });
+    return false;
+  }
+}
+
 function reconcileOrphanedTasksOnStartup({
   db,
   taskCore,
@@ -374,9 +448,21 @@ function reconcileOrphanedTasksOnStartup({
   isInstanceAlive,
   logger = defaultLogger,
   eligibleOnly = false,
+  executeCli = null,
+  staleMs = null,
 } = {}) {
   if (!db) throw new Error('db is required');
   if (!taskCore) throw new Error('taskCore is required');
+
+  // Lazy-resolve the execute-cli module so tests can inject a mock and
+  // production gets the real DI'd singleton without circular imports.
+  const resolvedExecuteCli = executeCli || (() => {
+    try {
+      return require('../providers/execute-cli');
+    } catch {
+      return null;
+    }
+  })();
 
   const rawDb = getDbHandle(db);
   const currentInstanceId = typeof getMcpInstanceId === 'function' ? getMcpInstanceId() : null;
@@ -392,6 +478,7 @@ function reconcileOrphanedTasksOnStartup({
     retry_exhausted_failed: 0,
     completed_from_output: 0,
     missing_workdir_failed: 0,
+    re_adopted: 0,
     errors: 0,
   };
 
@@ -457,6 +544,21 @@ function reconcileOrphanedTasksOnStartup({
         : null;
       if (pointedTask && pointedTask.status !== 'cancelled') {
         actions.skipped++;
+        continue;
+      }
+
+      // Subprocess-detachment Phase C: a row carrying subprocess_pid +
+      // log paths from the previous parent might still own a live
+      // subprocess if it was spawned via spawnAndTrackProcessDetached.
+      // Try to re-adopt it before we cancel and clone — re-adoption
+      // attaches a fresh Tail watcher + PID-liveness loop so the new
+      // parent can finish it normally.
+      if (tryReAdoptDetachedSubprocess(original, resolvedExecuteCli, { staleMs, logger })) {
+        actions.re_adopted++;
+        safeLog(logger, 'info', `Startup task reconciler re-adopted detached subprocess for task ${original.id}`, {
+          task_id: original.id,
+          subprocess_pid: original.subprocess_pid,
+        });
         continue;
       }
 
@@ -560,11 +662,18 @@ function reconcileOrphanedTasksOnStartup({
   }
 
   return {
-    reconciled: actions.cancelled > 0 || actions.cloned > 0 || actions.constraint_skipped > 0 || actions.completed_from_output > 0 || actions.missing_workdir_failed > 0,
+    reconciled:
+      actions.cancelled > 0
+      || actions.cloned > 0
+      || actions.constraint_skipped > 0
+      || actions.completed_from_output > 0
+      || actions.missing_workdir_failed > 0
+      || actions.re_adopted > 0,
     actions,
   };
 }
 
 module.exports = {
   reconcileOrphanedTasksOnStartup,
+  tryReAdoptDetachedSubprocess,
 };
