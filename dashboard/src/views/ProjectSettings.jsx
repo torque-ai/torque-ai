@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { budget as budgetApi, requestV2, routingTemplates } from '../api';
+import { budget as budgetApi, factory as factoryApi, requestV2, routingTemplates } from '../api';
 import ProjectSelector from '../components/ProjectSelector';
 import { parseMarkdownTable } from '../components/ProjectSelector.helpers';
 import { useToast } from '../components/Toast';
@@ -52,6 +52,112 @@ function FormField({ label, children, hint, id }) {
   );
 }
 
+// Read-only display of the project's factory provider_lane_policy. The
+// underlying field lives in factory_projects.config_json and drives
+// per-kind routing decisions (scout/architect_cycle/plan_generation/
+// verify_review/execute) — it overrides the active routing template at
+// the project level. Without this surface, by_kind overrides were
+// invisible and operators had no way to tell why a project was ignoring
+// a globally-active template (live failure 2026-05-04: DLPhone shadowed
+// "All Local" with codex for 4 kinds, blew through tokens silently).
+//
+// Editing is delegated to the existing set_factory_trust_level path
+// (PUT /api/v2/factory/projects/{id}/trust). A small inline form would
+// be a follow-up — for now the operator gets visibility plus a link to
+// the API surface.
+const FACTORY_KINDS = ['scout', 'architect_cycle', 'plan_generation', 'verify_review', 'execute'];
+
+function FactoryLanePolicyPanel({ lanePolicy, factoryProjectId }) {
+  const expectedProvider = lanePolicy?.expected_provider || '(none)';
+  const allowed = Array.isArray(lanePolicy?.allowed_providers) && lanePolicy.allowed_providers.length > 0
+    ? lanePolicy.allowed_providers.join(', ')
+    : '(any)';
+  const fallback = Array.isArray(lanePolicy?.allowed_fallback_providers) && lanePolicy.allowed_fallback_providers.length > 0
+    ? lanePolicy.allowed_fallback_providers.join(', ')
+    : '(none)';
+  const enforce = lanePolicy?.enforce_handoffs === true;
+  const byKind = isObject(lanePolicy?.by_kind) ? lanePolicy.by_kind : {};
+  const overrideRows = FACTORY_KINDS.map((kind) => ({
+    kind,
+    provider: byKind[kind] || null,
+  }));
+
+  return (
+    <div className="glass-card p-5">
+      <div className="mb-4 flex items-start justify-between gap-4">
+        <div>
+          <h2 className="text-lg font-semibold text-white">Factory Lane Policy</h2>
+          <p className="mt-1 text-sm text-slate-500">
+            Per-project provider routing. Per-kind overrides shadow the active routing
+            template. Edit via <code className="rounded bg-slate-800 px-1.5 py-0.5 text-xs text-slate-300">set_factory_trust_level</code>
+            {factoryProjectId
+              ? <> or <code className="rounded bg-slate-800 px-1.5 py-0.5 text-xs text-slate-300">PUT /api/v2/factory/projects/{factoryProjectId.slice(0, 8)}…/trust</code></>
+              : null}.
+          </p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 mb-5">
+        <div>
+          <div className="text-xs text-slate-400 mb-1">Expected provider</div>
+          <div className="text-sm text-white">{expectedProvider}</div>
+        </div>
+        <div>
+          <div className="text-xs text-slate-400 mb-1">Enforce handoffs</div>
+          <div className="text-sm text-white">{enforce ? 'Yes' : 'No'}</div>
+        </div>
+        <div>
+          <div className="text-xs text-slate-400 mb-1">Allowed providers</div>
+          <div className="text-sm text-white">{allowed}</div>
+        </div>
+        <div>
+          <div className="text-xs text-slate-400 mb-1">Allowed fallback providers</div>
+          <div className="text-sm text-white">{fallback}</div>
+        </div>
+      </div>
+
+      <div>
+        <h3 className="text-sm font-semibold text-white mb-2">Per-kind overrides</h3>
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-sm">
+            <thead>
+              <tr className="border-b border-slate-700 text-left text-xs uppercase tracking-wider text-slate-500">
+                <th scope="col" className="px-3 py-2 font-medium">Task kind</th>
+                <th scope="col" className="px-3 py-2 font-medium">Provider</th>
+                <th scope="col" className="px-3 py-2 font-medium">Source</th>
+              </tr>
+            </thead>
+            <tbody>
+              {overrideRows.map((row) => (
+                <tr key={row.kind} className="border-b border-slate-800/80 text-slate-300 last:border-0">
+                  <td className="px-3 py-2 font-mono text-slate-200">{row.kind}</td>
+                  <td className="px-3 py-2">
+                    {row.provider ? (
+                      <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-xs text-amber-200">
+                        {row.provider}
+                      </span>
+                    ) : (
+                      <span className="text-slate-500 text-xs">(default)</span>
+                    )}
+                  </td>
+                  <td className="px-3 py-2 text-xs text-slate-500">
+                    {row.provider ? 'Project override (shadows template)' : 'Active routing template'}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <p className="mt-3 text-xs text-slate-500">
+          A project override in the by_kind block silently bypasses the active routing
+          template for that kind. Use it sparingly — for example, to pin
+          plan_generation to a stronger model than execute.
+        </p>
+      </div>
+    </div>
+  );
+}
+
 function toBoolean(value) {
   if (typeof value === 'boolean') return value;
   if (typeof value === 'number') return value !== 0;
@@ -64,6 +170,11 @@ function toBoolean(value) {
 
 function isObject(value) {
   return value != null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function safeParseJson(value) {
+  if (typeof value !== 'string') return null;
+  try { return JSON.parse(value); } catch { return null; }
 }
 
 function extractObjectPayload(payload) {
@@ -232,6 +343,12 @@ export default function ProjectSettings({ project: projectProp = '' }) {
   const [savingConfig, setSavingConfig] = useState(false);
   const [savingRouting, setSavingRouting] = useState(false);
   const [loadError, setLoadError] = useState('');
+  // Factory provider_lane_policy lives in factory_projects.config_json
+  // (separate from project_config). Surfaced read-only here so operators
+  // can see by_kind overrides without an API call. Edit via the
+  // set_factory_trust_level MCP tool / PUT /api/v2/factory/projects/{id}/trust.
+  const [lanePolicy, setLanePolicy] = useState(null);
+  const [factoryProjectId, setFactoryProjectId] = useState('');
 
   useEffect(() => () => {
     mountedRef.current = false;
@@ -314,11 +431,36 @@ export default function ProjectSettings({ project: projectProp = '' }) {
       routingTemplates.list(),
       loadOptionalProviderScores(),
       loadOptionalBudgetStatus(),
+      factoryApi.projects().catch(() => null),
     ]);
 
     if (!mountedRef.current) return;
 
-    const [configResult, templatesResult] = results;
+    const [configResult, templatesResult, , , factoryResult] = results;
+
+    // Factory project entry holds provider_lane_policy in config_json.
+    // Resolve by name match — falls back to null when project isn't a
+    // factory project (i.e. no factory loop registered for it).
+    if (factoryResult && factoryResult.status === 'fulfilled') {
+      const factoryProjects = factoryResult.value?.data?.projects
+        || factoryResult.value?.projects
+        || [];
+      const match = Array.isArray(factoryProjects)
+        ? factoryProjects.find((p) => p?.name === projectName)
+        : null;
+      if (match) {
+        setFactoryProjectId(match.id || '');
+        const lane = match.config?.provider_lane_policy
+          || (match.config_json ? safeParseJson(match.config_json)?.provider_lane_policy : null);
+        setLanePolicy(lane || null);
+      } else {
+        setFactoryProjectId('');
+        setLanePolicy(null);
+      }
+    } else {
+      setFactoryProjectId('');
+      setLanePolicy(null);
+    }
 
     const templateList = templatesResult.status === 'fulfilled'
       ? sortTemplates(
@@ -677,6 +819,13 @@ export default function ProjectSettings({ project: projectProp = '' }) {
               </button>
             </div>
           </div>
+
+          {lanePolicy ? (
+            <FactoryLanePolicyPanel
+              lanePolicy={lanePolicy}
+              factoryProjectId={factoryProjectId}
+            />
+          ) : null}
 
           {hasBudgetStatus && budgetSummary ? (
             <div className="glass-card p-5">
