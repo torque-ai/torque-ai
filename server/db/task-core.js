@@ -40,7 +40,12 @@ const ALLOWED_TASK_COLUMNS = new Set([
   'workflow_node_id', 'claimed_by_agent', 'required_capabilities', 'ollama_host_id',
   'provider', 'model', 'original_provider', 'provider_switched_at',
   'mcp_instance_id', 'complexity', 'metadata', 'task_metadata',
-  'partial_output', 'resume_context'
+  'partial_output', 'resume_context',
+  // Subprocess-detachment arc — Phase A schema columns. Populated by the
+  // detached spawn path so a TORQUE restart can re-adopt living children
+  // (PID liveness check + log-file replay from saved offsets).
+  'subprocess_pid', 'output_log_path', 'error_log_path',
+  'output_log_offset', 'error_log_offset', 'last_activity_at',
 ]);
 
 const TERMINAL_TASK_STATUSES = new Set(['completed', 'failed', 'cancelled', 'skipped']);
