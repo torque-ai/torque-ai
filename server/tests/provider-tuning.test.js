@@ -6,7 +6,7 @@
 
 const { TEST_MODELS } = require('./test-helpers');
 const configCore = require('../db/config-core');
-const hostManagement = require('../db/host-management');
+const hostManagement = require('../db/host/management');
 const handlers = require('../handlers/provider-tuning');
 
 describe('provider-tuning handlers', () => {

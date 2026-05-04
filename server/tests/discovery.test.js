@@ -451,7 +451,7 @@ describe('Bonjour Discovery Host Identities', () => {
   beforeAll(() => {
     setupTestDb('discovery-mdns');
     configCore = require('../db/config-core');
-    hostManagement = require('../db/host-management');
+    hostManagement = require('../db/host/management');
   });
 
   afterAll(() => {

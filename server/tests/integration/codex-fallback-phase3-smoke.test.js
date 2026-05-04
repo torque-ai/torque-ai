@@ -164,7 +164,7 @@ function augmentPlanMarkdown(planMarkdown, projectConfig, logger) {
 function decomposeBeforePark({ db: _db, projectId: _projectId, workItem, projectConfig }) {
   void _db; void _projectId; // read-only — no DB writes needed
   try {
-    const { decomposeTask } = require('../../db/host-complexity');
+    const { decomposeTask } = require('../../db/host/complexity');
     const { classify } = require('../../routing/eligibility-classifier');
 
     const description = workItem?.title || workItem?.description || '';

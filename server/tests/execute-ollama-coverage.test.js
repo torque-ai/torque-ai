@@ -16,7 +16,7 @@ vi.mock('../integrations/codebase-study-engine', () => ({
 }));
 
 const { randomUUID } = require('crypto');
-const hostManagement = require('../db/host-management');
+const hostManagement = require('../db/host/management');
 const { setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
 
 let testDir;

@@ -6,8 +6,8 @@ const Database = require('better-sqlite3');
 const { setupTestDbOnly, teardownTestDb, rawDb, resetTables } = require('./vitest-setup');
 const { TEST_MODELS } = require('./test-helpers');
 
-const SUBJECT_PATH = '../db/host-selection';
-const BENCHMARKING_PATH = '../db/host-benchmarking';
+const SUBJECT_PATH = '../db/host/selection';
+const BENCHMARKING_PATH = '../db/host/benchmarking';
 const RESET_TABLES = ['ollama_hosts', 'config'];
 
 let db;
@@ -148,7 +148,7 @@ function insertRegistryModel(modelName, parameterSizeB, overrides = {}) {
   );
 }
 
-describe('db/host-selection (real DB)', () => {
+describe('db/host/selection (real DB)', () => {
   beforeAll(() => {
     ({ db } = setupTestDbOnly('db-host-sel'));
     ensureColumn('ollama_hosts', 'memory_limit_mb', 'memory_limit_mb INTEGER');

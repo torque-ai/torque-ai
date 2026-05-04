@@ -8,7 +8,7 @@ const HANDLER_MODULE_PATHS = [
   '../database',
   '../db/config-core',
   '../db/file-tracking',
-  '../db/host-management',
+  '../db/host/management',
   '../db/project-config-core',
   '../db/provider/routing-core',
   '../db/scheduling-automation',
@@ -213,7 +213,7 @@ function loadHandlers(providerRoutingCore) {
   installCjsModuleMock('../database', currentModules.db);
   installCjsModuleMock('../db/config-core', currentModules.db);
   installCjsModuleMock('../db/file-tracking', currentModules.db);
-  installCjsModuleMock('../db/host-management', currentModules.db);
+  installCjsModuleMock('../db/host/management', currentModules.db);
   installCjsModuleMock('../db/project-config-core', currentModules.db);
   installCjsModuleMock('../db/provider/routing-core', providerRoutingCore);
   installCjsModuleMock('../db/scheduling-automation', currentModules.db);

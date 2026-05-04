@@ -426,7 +426,7 @@ const INTEGRATION_MODULES = [
   '../db/backup-core',
   '../db/config-core',
   '../db/email-peek',
-  '../db/host-management',
+  '../db/host/management',
   '../db/provider/routing-core',
   '../logger',
   '../config',
@@ -473,7 +473,7 @@ function loadIntegrationHandlers() {
   installCjsModuleMock('../db/backup-core', {});
   installCjsModuleMock('../db/config-core', mockDb);
   installCjsModuleMock('../db/email-peek', {});
-  installCjsModuleMock('../db/host-management', {});
+  installCjsModuleMock('../db/host/management', {});
   installCjsModuleMock('../db/provider/routing-core', {});
   installCjsModuleMock('../logger', mockLogger);
   installCjsModuleMock('../config', mockConfig);

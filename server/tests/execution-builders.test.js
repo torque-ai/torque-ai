@@ -60,7 +60,7 @@ function initExecution(overrides = {}) {
 
 function setup() {
   ({ db, testDir } = setupTestDbOnly('execution-builders'));
-  hostMgmt = require('../db/host-management');
+  hostMgmt = require('../db/host/management');
   const dbHandle = db.getDb ? db.getDb() : db.getDbInstance();
   hostMgmt.setDb(dbHandle);
   mod = require('../providers/execution');

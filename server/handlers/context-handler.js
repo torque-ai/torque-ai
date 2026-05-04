@@ -1,7 +1,7 @@
 'use strict';
 
 const taskCore = require('../db/task-core');
-const hostManagement = require('../db/host-management');
+const hostManagement = require('../db/host/management');
 const workflowEngine = require('../db/workflow-engine');
 const taskManager = require('../task-manager');
 const { getTaskInfoPressureLevel } = require('./task/core');

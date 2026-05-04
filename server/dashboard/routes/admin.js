@@ -5,7 +5,7 @@
  */
 const taskCore = require('../../db/task-core');
 const coordination = require('../../db/coordination');
-const hostManagement = require('../../db/host-management');
+const hostManagement = require('../../db/host/management');
 const projectConfigCore = require('../../db/project-config-core');
 const schedulingAutomation = require('../../db/scheduling-automation');
 const validationRules = require('../../db/validation-rules');

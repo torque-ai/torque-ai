@@ -10,7 +10,7 @@ const MODULE_PATHS = [
   '../db/config-core',
   '../db/cost-tracking',
   '../db/task-core',
-  '../db/host-management',
+  '../db/host/management',
   '../db/project-config-core',
   '../db/provider/routing-core',
   '../db/scheduling-automation',
@@ -162,7 +162,7 @@ const currentModules = {
 vi.mock('../db/config-core', () => currentModules.db);
 vi.mock('../db/cost-tracking', () => currentModules.db);
 vi.mock('../db/task-core', () => currentModules.db);
-vi.mock('../db/host-management', () => currentModules.db);
+vi.mock('../db/host/management', () => currentModules.db);
 vi.mock('../db/project-config-core', () => currentModules.db);
 vi.mock('../db/provider/routing-core', () => currentModules.db);
 vi.mock('../db/scheduling-automation', () => currentModules.db);
@@ -248,7 +248,7 @@ function loadHandlers() {
   installCjsModuleMock('../db/config-core', currentModules.db);
   installCjsModuleMock('../db/cost-tracking', currentModules.db);
   installCjsModuleMock('../db/task-core', currentModules.db);
-  installCjsModuleMock('../db/host-management', currentModules.db);
+  installCjsModuleMock('../db/host/management', currentModules.db);
   installCjsModuleMock('../db/project-config-core', currentModules.db);
   installCjsModuleMock('../db/provider/routing-core', currentModules.db);
   installCjsModuleMock('../db/scheduling-automation', currentModules.db);

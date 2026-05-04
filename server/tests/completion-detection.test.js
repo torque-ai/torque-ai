@@ -186,7 +186,7 @@ describe('completion-detection', () => {
         'Message: `fix(security): redact credential list responses`',
         '',
         'Implemented:',
-        '- `server/db/host-management.js`: added credential metadata sanitizer',
+        '- `server/db/host/management.js`: added credential metadata sanitizer',
       ].join('\n');
 
       expect(detectSuccessFromOutput(output, 'codex')).toBe(true);

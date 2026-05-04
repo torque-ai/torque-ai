@@ -19,7 +19,7 @@ function setup() {
   schedulingMod.setGetPipeline((id) => projectConfigCore.getPipeline(id));
   schedulingMod.setCreatePipeline((...args) => projectConfigCore.createPipeline(...args));
 
-  hostMod = require('../db/host-management');
+  hostMod = require('../db/host/management');
   hostMod.setDb(db.getDb ? db.getDb() : db.getDbInstance());
   hostMod.setGetTask((id) => taskCore.getTask(id));
   hostMod.setGetProjectRoot((dir) => dir);

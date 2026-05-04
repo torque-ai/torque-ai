@@ -97,7 +97,7 @@ beforeAll(async () => {
 
   const env = setupTestDbOnly('hosts-routes');
   db = env.db;
-  hostCreds = require('../db/host-management');
+  hostCreds = require('../db/host/management');
   emailPeek = require('../db/email-peek');
   Object.assign(hostCreds, {
     registerPeekHost: emailPeek.registerPeekHost,

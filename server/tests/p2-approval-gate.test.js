@@ -24,7 +24,7 @@ function setup() {
     try { conn.prepare(`DELETE FROM ${table}`).run(); } catch { /* ignore */ }
   }
   schedulingAutomation = require('../db/scheduling-automation');
-  hostManagement = require('../db/host-management');
+  hostManagement = require('../db/host/management');
   taskCore = require('../db/task-core');
 
   delete require.cache[require.resolve('../execution/queue-scheduler')];

@@ -9,7 +9,7 @@ const SHARED_MODULE = '../handlers/shared';
 const TASK_CORE_MODULE = '../db/task-core';
 const WORKFLOW_ENGINE_MODULE = '../db/workflow-engine';
 const PROVIDER_ROUTING_CORE_MODULE = '../db/provider/routing-core';
-const HOST_MANAGEMENT_MODULE = '../db/host-management';
+const HOST_MANAGEMENT_MODULE = '../db/host/management';
 const MODULE_PATHS = [
   SHARED_MODULE,
   TASK_CORE_MODULE,

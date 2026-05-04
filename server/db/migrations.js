@@ -841,7 +841,7 @@ const MIGRATIONS = [
   {
     version: 39,
     name: 'add_benchmark_results_host_id_index',
-    // server/db/host-benchmarking.js runs five host-scoped queries against
+    // server/db/host/benchmarking.js runs five host-scoped queries against
     // benchmark_results, each filtering on `WHERE host_id = ?` (with
     // additional predicates on model/success/tokens_per_second). The
     // table only had `id INTEGER PRIMARY KEY`, so every host-stats lookup
@@ -1044,7 +1044,7 @@ const MIGRATIONS = [
   {
     version: 48,
     name: 'add_tasks_review_status_index',
-    // server/db/host-management.js#getTasksNeedingCorrection runs
+    // server/db/host/management.js#getTasksNeedingCorrection runs
     // `SELECT * FROM tasks WHERE review_status = 'needs_correction'`
     // for the dashboard's correction-queue widget. The tasks table
     // is the largest in the deployment (one row per submitted task),

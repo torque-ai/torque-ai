@@ -79,7 +79,7 @@ const DASHBOARD_SERVER_MODULES = [
   '../dashboard/server',
   '../database',
   '../db/task-core',
-  '../db/host-management',
+  '../db/host/management',
   '../dashboard/router',
   '../dashboard/utils',
   '../api/v2-dispatch',
@@ -169,7 +169,7 @@ function loadDashboardServer({ existsSyncImpl, readFileImpl, statImpl }) {
     countTasksByStatus: vi.fn(() => ({ running: 0, queued: 0, completed: 0, failed: 0 })),
     getTask: vi.fn(() => null),
   });
-  installMock('../db/host-management', { listOllamaHosts: vi.fn(() => []) });
+  installMock('../db/host/management', { listOllamaHosts: vi.fn(() => []) });
   installMock('../dashboard/router', { dispatch: vi.fn(async () => {}) });
   installMock('../dashboard/utils', {
     sendError,

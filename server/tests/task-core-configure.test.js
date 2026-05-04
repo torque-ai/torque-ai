@@ -6,7 +6,7 @@ const MODULE_PATHS = [
   '../db/config-core',
   '../db/cost-tracking',
   '../db/task-core',
-  '../db/host-management',
+  '../db/host/management',
   '../db/project-config-core',
   '../db/provider/routing-core',
   '../db/scheduling-automation',
@@ -219,7 +219,7 @@ function loadHandlers() {
   installMock('../db/config-core', mockDb);
   installMock('../db/cost-tracking', mockCostTracking);
   installMock('../db/task-core', mockTaskCoreDb);
-  installMock('../db/host-management', mockHostManagement);
+  installMock('../db/host/management', mockHostManagement);
   installMock('../db/project-config-core', mockProjectConfigCore);
   installMock('../db/provider/routing-core', mockProviderRoutingCore);
   installMock('../db/scheduling-automation', mockSchedulingAutomation);

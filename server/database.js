@@ -34,7 +34,7 @@ const _LAZY_MODULE_DEFINITIONS = [
   { name: 'migrations', path: './db/migrations' },
   { name: 'codeAnalysis', path: './db/code-analysis' },
   { name: 'costTracking', path: './db/cost-tracking' },
-  { name: 'hostManagement', path: './db/host-management' },
+  { name: 'hostManagement', path: './db/host/management' },
   { name: 'workflowEngine', path: './db/workflow-engine' },
   { name: 'fileTracking', path: './db/file-tracking' },
   { name: 'schedulingAutomation', path: './db/scheduling-automation' },

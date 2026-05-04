@@ -459,7 +459,7 @@ describe('startup task reconciler', () => {
         'Message: `fix(security): redact credential list responses`',
         '',
         'Implemented:',
-        '- `server/db/host-management.js`: added credential metadata sanitizer',
+        '- `server/db/host/management.js`: added credential metadata sanitizer',
       ].join('\n'),
     });
 

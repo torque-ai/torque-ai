@@ -3,7 +3,7 @@ const https = require('https');
 const { EventEmitter } = require('events');
 const childProcess = require('child_process');
 
-const hostManagement = require('../db/host-management');
+const hostManagement = require('../db/host/management');
 const { TEST_MODELS } = require('./test-helpers');
 
 let db;

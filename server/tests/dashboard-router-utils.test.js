@@ -5,7 +5,7 @@ const { TEST_MODELS } = require('./test-helpers');
 
 const UTILS_MODULES = [
   '../dashboard/utils',
-  '../db/host-management',
+  '../db/host/management',
   '../task-manager',
 ];
 
@@ -126,7 +126,7 @@ const mockTaskManager = {
 
 function loadUtils() {
   clearModules(UTILS_MODULES);
-  installMock('../db/host-management', mockHostManagement);
+  installMock('../db/host/management', mockHostManagement);
   installMock('../task-manager', mockTaskManager);
   return require('../dashboard/utils');
 }

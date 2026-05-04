@@ -11,7 +11,7 @@ const { TEST_MODELS } = require('./test-helpers');
 
 function setup() {
   ({ db, testDir } = setupTestDbOnly('host-mgmt-'));
-  mod = require('../db/host-management');
+  mod = require('../db/host/management');
   mod.setDb(db.getDbInstance());
   mod.setGetTask((id) => taskCore.getTask(id));
   mod.setGetProjectRoot((dir) => dir); // identity for tests
@@ -1223,7 +1223,7 @@ describe('ensureLocalHostEnabled', () => {
     try { delete require.cache[require.resolve('../database')]; } catch {}
     db2 = require('../database');
     db2.init();
-    mod2 = require('../db/host-management');
+    mod2 = require('../db/host/management');
     mod2.setDb(db2.getDb ? db2.getDb() : db2.getDbInstance());
     mod2.setGetTask((id) => db2.getTask(id));
     mod2.setGetProjectRoot((dir) => dir);

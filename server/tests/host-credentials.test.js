@@ -16,7 +16,7 @@ beforeAll(() => {
 
   const env = setupTestDbOnly('host-credentials');
   db = env.db;
-  hostCreds = require('../db/host-management');
+  hostCreds = require('../db/host/management');
   db.registerPeekHost('test-omen', 'http://192.0.2.100:9876', null, true, 'windows');
 });
 

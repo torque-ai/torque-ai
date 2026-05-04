@@ -15,7 +15,7 @@
 const childProcess = require('child_process');
 // Lazy-load to survive test-time module cache resets (setupTestDb)
 function getTaskCore() { return require('../db/task-core'); }
-function getHostManagement() { return require('../db/host-management'); }
+function getHostManagement() { return require('../db/host/management'); }
 function getTaskMetadata() { return require('../db/task-metadata'); }
 function getWebhooksStreaming() { return require('../db/webhooks-streaming'); }
 function getProviderRoutingCore() { return require('../db/provider/routing-core'); }

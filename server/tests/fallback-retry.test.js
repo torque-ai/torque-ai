@@ -34,7 +34,7 @@ function setup() {
   ({ db, testDir } = setupTestDbOnly('fallback-retry'));
   taskCore = require('../db/task-core');
   configCore = require('../db/config-core');
-  hostManagement = require('../db/host-management');
+  hostManagement = require('../db/host/management');
   providerRoutingCore = require('../db/provider/routing-core');
 
   // Remove auto-created 'default' host to prevent test contamination

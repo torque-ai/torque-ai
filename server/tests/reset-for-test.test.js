@@ -29,7 +29,7 @@ beforeAll(() => {
   taskCore = require('../db/task-core');
   configCore = require('../db/config-core');
   db.init();
-  hostManagement = require('../db/host-management');
+  hostManagement = require('../db/host/management');
   workflowEngine = require('../db/workflow-engine');
 
   // Remove seeded hosts

@@ -180,7 +180,7 @@ function getSubmittedTask(result) {
 beforeAll(() => {
   const env = setupTestDbOnly('smart-routing-integration');
   db = env.db;
-  hostManagement = require('../db/host-management');
+  hostManagement = require('../db/host/management');
   templateBuffer = fs.readFileSync(TEMPLATE_BUF_PATH);
 
   taskManager = {

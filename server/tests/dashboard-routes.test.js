@@ -347,7 +347,7 @@ describe('route handlers with mock db', () => {
   const eventTracking = require('../db/event-tracking');
   const costTracking = require('../db/cost-tracking');
   const workflowEngine = require('../db/workflow-engine');
-  const hostManagement = require('../db/host-management');
+  const hostManagement = require('../db/host/management');
   const projectConfigCore = require('../db/project-config-core');
 
   // Mock db methods used by route handlers

@@ -22,7 +22,7 @@ let coordination;
 function setupDb() {
   ({ db, testDir } = setupTestDbOnly('chaos'));
   taskCore = require('../db/task-core');
-  hostManagement = require('../db/host-management');
+  hostManagement = require('../db/host/management');
   workflowEngine = require('../db/workflow-engine');
   coordination = require('../db/coordination');
   return db;

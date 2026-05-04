@@ -17,11 +17,11 @@ const logger = require('../logger').child({ component: 'host-management' });
 const { randomUUID } = require('crypto');
 const { getOrCreateKey, encrypt, decrypt } = require('../utils/credential-crypto');
 const { safeJsonParse } = require('../utils/json');
-const hostSelection = require('./host-selection');
-const hostBenchmarking = require('./host-benchmarking');
-const modelCapabilities = require('./model-capabilities');
-const hostComplexity = require('./host-complexity');
-const hostCapacity = require('./host-capacity');
+const hostSelection = require('./selection');
+const hostBenchmarking = require('./benchmarking');
+const modelCapabilities = require('../model-capabilities');
+const hostComplexity = require('./complexity');
+const hostCapacity = require('./capacity');
 
 let db;
 let getTaskFn;
@@ -30,7 +30,7 @@ const getDatabaseConfig = (...args) => {
   if (typeof db?.getConfig === 'function') {
     return db.getConfig(...args);
   }
-  return require('./config-core').getConfig(...args);
+  return require('../config-core').getConfig(...args);
 };
 
 // Throttled log helpers — canonical implementation in host-benchmarking.js

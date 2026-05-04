@@ -10,7 +10,7 @@
 const logger = require('../logger').child({ component: 'v2-infrastructure-handlers' });
 
 const emailPeek = require('../db/email-peek');
-const hostManagement = require('../db/host-management');
+const hostManagement = require('../db/host/management');
 const coordination = require('../db/coordination');
 const taskCore = require('../db/task-core');
 const {

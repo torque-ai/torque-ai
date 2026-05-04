@@ -17,7 +17,7 @@ let db;
 let taskCore;
 let executeOllama;
 let executeApi;
-const hostManagement = require('../db/host-management');
+const hostManagement = require('../db/host/management');
 const { TEST_MODELS } = require('./test-helpers');
 const { setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
 

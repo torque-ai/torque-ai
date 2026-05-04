@@ -1,6 +1,6 @@
 'use strict';
 
-const hostComplexity = require('../db/host-complexity');
+const hostComplexity = require('../db/host/complexity');
 const { DEFAULT_FALLBACK_MODEL } = require('../constants');
 
 function createMockDb() {

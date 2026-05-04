@@ -8,7 +8,7 @@ const { TEST_MODELS } = require('./test-helpers');
 function setup() {
   ({ db } = setupTestDbOnly('tier-pref-'));
   const taskCore = require('../db/task-core');
-  mod = require('../db/host-management');
+  mod = require('../db/host/management');
   mod.setDb(db.getDb ? db.getDb() : db.getDbInstance());
   mod.setGetTask((id) => taskCore.getTask(id));
   mod.setGetProjectRoot((dir) => dir);

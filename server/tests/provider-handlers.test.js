@@ -128,7 +128,7 @@ function loadHandlers() {
   installMock('../db/file-tracking', {
     detectProviderDegradation: mockDb.detectProviderDegradation,
   });
-  installMock('../db/host-management', {
+  installMock('../db/host/management', {
     getModelLeaderboard: mockDb.getModelLeaderboard,
   });
   installMock('../db/provider/routing-core', {

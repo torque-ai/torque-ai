@@ -16,7 +16,7 @@ const MODULE_PATHS = [
   '../logger',
   '../config',
   '../db/config-core',
-  '../db/host-management',
+  '../db/host/management',
   '../db/project-config-core',
   '../db/provider/routing-core',
   '../db/task-core',
@@ -234,7 +234,7 @@ function loadHandler() {
   installCjsModuleMock('../logger', mockLogger);
   installCjsModuleMock('../config', createConfigModuleMock());
   installCjsModuleMock('../db/config-core', mockDb);
-  installCjsModuleMock('../db/host-management', mockDb);
+  installCjsModuleMock('../db/host/management', mockDb);
   installCjsModuleMock('../db/project-config-core', mockDb);
   installCjsModuleMock('../db/provider/routing-core', mockDb);
   installCjsModuleMock('../db/task-core', mockDb);

@@ -109,7 +109,7 @@ vi.mock('../db/analytics', () => ({
   },
 }));
 
-vi.mock('../db/host-management', () => ({
+vi.mock('../db/host/management', () => ({
   setTaskReviewStatus() {},
   getTasksPendingReview() { return []; },
   getTasksNeedingCorrection() { return []; },
@@ -138,7 +138,7 @@ const webhooksStreaming = require('../db/webhooks-streaming');
 const taskMetadata = require('../db/task-metadata');
 const schedulingAutomation = require('../db/scheduling-automation');
 const analytics = require('../db/analytics');
-const hostManagement = require('../db/host-management');
+const hostManagement = require('../db/host/management');
 const taskManager = require('../task-manager');
 const handlers = require('../handlers/task/intelligence');
 const shared = require('../handlers/shared');

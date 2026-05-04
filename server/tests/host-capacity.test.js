@@ -5,7 +5,7 @@ const require = createRequire(import.meta.url);
 
 const { setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
 
-const HOST_CAPACITY_MODULE = '../db/host-capacity';
+const HOST_CAPACITY_MODULE = '../db/host/capacity';
 const WORKSTATION_MODEL_MODULE = '../workstation/model';
 const MODULE_PATHS = [
   HOST_CAPACITY_MODULE,
@@ -150,7 +150,7 @@ function insertHost(overrides = {}) {
   return readHost(values.id);
 }
 
-describe('db/host-capacity', () => {
+describe('db/host/capacity', () => {
   beforeEach(() => {
     ({ db: dbModule } = setupTestDbOnly('host-capacity'));
     db = dbModule.getDbInstance();

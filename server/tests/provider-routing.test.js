@@ -1278,7 +1278,7 @@ describe('provider-routing module', () => {
     beforeEach(() => {
       clearHosts();
       // Wire host management so hasHealthyOllamaHost can use listOllamaHosts
-      const hostMgmt = require('../db/host-management');
+      const hostMgmt = require('../db/host/management');
       hostMgmt.setDb(rawDb());
       mod.setHostManagement(hostMgmt);
     });

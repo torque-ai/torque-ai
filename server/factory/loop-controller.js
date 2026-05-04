@@ -13983,7 +13983,7 @@ function decideCodexFallbackAction({ db, projectId, workItemId, breaker }) {
 function decomposeBeforePark({ db, projectId, workItem, projectConfig }) {
   void db; void projectId; // read-only — no DB writes needed
   try {
-    const { decomposeTask } = require('../db/host-complexity');
+    const { decomposeTask } = require('../db/host/complexity');
     const { classify } = require('../routing/eligibility-classifier');
 
     const description = workItem?.title || workItem?.description || '';

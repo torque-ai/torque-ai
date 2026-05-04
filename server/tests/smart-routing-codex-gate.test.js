@@ -43,7 +43,7 @@ function setup() {
 
   // Wire host management for hasHealthyOllamaHost
   const providerRouting = require('../db/provider/routing-core');
-  const hostManagement = require('../db/host-management');
+  const hostManagement = require('../db/host/management');
   const dbHandle = rawDb();
   hostManagement.setDb(dbHandle);
   providerRouting.setHostManagement(hostManagement);
