@@ -171,6 +171,7 @@ function createFactoryTables(db) {
     CREATE TABLE IF NOT EXISTS tasks (
       id TEXT PRIMARY KEY,
       status TEXT NOT NULL DEFAULT 'pending',
+      pid INTEGER,
       tags TEXT,
       provider TEXT,
       model TEXT,
@@ -2072,6 +2073,90 @@ Edit server/factory/plan-executor.js and make the requested behavior change. Kee
       owner_source: 'replacement_task_same_worktree',
       retry_after: expect.any(String),
     });
+  });
+
+  it('reuses a worktree used by a completed restart-cloned replacement task', async () => {
+    const { project, workItem } = registerPlanProject();
+    db.prepare('ALTER TABLE factory_worktrees ADD COLUMN owning_task_id TEXT').run();
+    const targetBranch = `feat/factory-${workItem.id}-dry-run-plan-item`;
+    const batchId = `factory-${project.id}-${workItem.id}`;
+    const worktreePath = path.join(project.path, '.worktrees', 'feat-completed-restart-clone');
+    fs.mkdirSync(worktreePath, { recursive: true });
+    const existing = factoryWorktrees.recordWorktree({
+      project_id: project.id,
+      work_item_id: workItem.id,
+      batch_id: batchId,
+      vc_worktree_id: 'vc-orphaned-completed-owner',
+      branch: targetBranch,
+      worktree_path: worktreePath,
+    });
+    factoryWorktrees.setOwningTask(existing.id, 'task-orphaned-owner');
+    db.prepare(`
+      INSERT INTO tasks (id, status, tags, working_directory, started_at, completed_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run(
+      'task-completed-restart-clone',
+      'completed',
+      JSON.stringify([
+        `factory:batch_id=${batchId}`,
+        `factory:work_item_id=${workItem.id}`,
+        'factory:plan_task_number=1',
+        'project:torque-public',
+      ]),
+      worktreePath,
+      new Date(Date.now() - 60_000).toISOString(),
+      new Date().toISOString(),
+    );
+    taskCore.getTask = vi.fn((taskId) => ({
+      id: taskId,
+      status: taskId === 'task-orphaned-owner' ? 'cancelled' : 'completed',
+      error_output: null,
+    }));
+
+    const worktreeRunner = {
+      createForBatch: vi.fn(),
+      verify: vi.fn(async () => ({
+        passed: true,
+        output: 'ok',
+        durationMs: 12,
+      })),
+      mergeToMain: vi.fn(),
+      abandon: vi.fn(),
+    };
+    loopController.setWorktreeRunnerForTests(worktreeRunner);
+
+    await advanceSupervisedPlanProject(project.id);
+    const executeAdvance = await loopController.advanceLoopForProject(project.id);
+
+    expect(worktreeRunner.createForBatch).not.toHaveBeenCalled();
+    expect(worktreeRunner.abandon).not.toHaveBeenCalled();
+    expect(routingModule.handleSmartSubmitTask).toHaveBeenCalledWith(expect.objectContaining({
+      working_directory: worktreePath,
+    }));
+    expect(executeAdvance.new_state).toBe(LOOP_STATES.VERIFY);
+    expect(db.prepare('SELECT status FROM factory_worktrees WHERE id = ?').get(existing.id).status).toBe('active');
+
+    const decisions = listDecisionRows(db, project.id);
+    const reused = decisions.find((d) => d.action === 'worktree_reused_completed_replacement_owner');
+    expect(reused).toBeTruthy();
+    expect(reused.outcome).toMatchObject({
+      factory_worktree_id: existing.id,
+      owning_task_id: 'task-completed-restart-clone',
+      owning_status: 'completed',
+      owner_source: 'replacement_task_same_worktree',
+      worktree_path: worktreePath,
+    });
+    expect(decisions.find((d) => d.action === 'worktree_reclaimed')).toBeFalsy();
+  });
+
+  it('does not treat a dead-PID running replacement task as a live worktree owner', async () => {
+    const { isLiveWorktreeOwner } = loopController._internalForTests;
+
+    expect(isLiveWorktreeOwner({
+      id: 'dead-running-task',
+      status: 'running',
+      pid: 99999999,
+    })).toBe(false);
   });
 
   it('reuses an active worktree owned by a completed task instead of reclaiming it', async () => {

@@ -37,6 +37,10 @@ const { createWorktreeManager } = require('../plugins/version-control/worktree-m
 const eventBus = require('../event-bus');
 const baselineRequeue = require('./baseline-requeue');
 const logger = require('../logger').child({ component: 'loop-controller' });
+const {
+  isProcessAlive,
+  queryWindowsProcessExists,
+} = require('../utils/process-activity');
 
 const PLAN_GENERATOR_LABEL = 'auto-router';
 const DEFAULT_PLAN_GENERATION_TIMEOUT_MINUTES = 30;
@@ -175,6 +179,10 @@ const PENDING_APPROVAL_SUCCESS_TASK_STATUSES = new Set(['completed', 'shipped'])
 const PENDING_APPROVAL_FAILURE_TASK_STATUSES = new Set(['failed', 'cancelled']);
 const LIVE_WORKTREE_OWNER_STATUSES = new Set(['queued', 'running', 'pending', 'retry_scheduled']);
 const REUSABLE_WORKTREE_OWNER_STATUSES = new Set(['completed']);
+const REPLACEMENT_WORKTREE_OWNER_STATUSES = new Set([
+  ...LIVE_WORKTREE_OWNER_STATUSES,
+  ...REUSABLE_WORKTREE_OWNER_STATUSES,
+]);
 const EXECUTION_TERMINAL_DECISION_ACTIONS = Object.freeze([
   'completed_execution',
   'execution_failed',
@@ -309,6 +317,39 @@ function getTaskAgeMs(task) {
       || task.created_at
       || task.createdAt,
   );
+}
+
+function isTaskPidAlive(task) {
+  const parsedPid = Number.parseInt(String(task?.pid || ''), 10);
+  if (!Number.isInteger(parsedPid) || parsedPid <= 0) {
+    return true;
+  }
+
+  try {
+    return process.platform === 'win32'
+      ? queryWindowsProcessExists(parsedPid)
+      : isProcessAlive(parsedPid);
+  } catch (error) {
+    logger.debug({
+      task_id: task?.id || null,
+      pid: parsedPid,
+      err: error && error.message,
+    }, 'Unable to verify worktree owner PID liveness; treating owner as live');
+    return true;
+  }
+}
+
+function isLiveWorktreeOwner(task, status = task?.status) {
+  const normalizedStatus = String(status || '').toLowerCase();
+  if (!task || !LIVE_WORKTREE_OWNER_STATUSES.has(normalizedStatus)) {
+    return false;
+  }
+  return isTaskPidAlive(task);
+}
+
+function isReusableWorktreeOwner(task, status = task?.status) {
+  const normalizedStatus = String(status || '').toLowerCase();
+  return Boolean(task && REUSABLE_WORKTREE_OWNER_STATUSES.has(normalizedStatus));
 }
 
 function normalizeTaskTags(task) {
@@ -458,12 +499,13 @@ function taskHasFactoryTag(task, tag) {
   return normalizeTaskTags(task).includes(tag);
 }
 
-function findLiveReplacementWorktreeOwner({
+function findReplacementWorktreeOwner({
   projectId,
   workItemId,
   batchId,
   worktreePath,
   excludeTaskId = null,
+  statuses = REPLACEMENT_WORKTREE_OWNER_STATUSES,
 }) {
   const normalizedPath = normalizeWorktreePathForCompare(worktreePath);
   if (!normalizedPath || !workItemId) {
@@ -479,10 +521,11 @@ function findLiveReplacementWorktreeOwner({
     const lookupTags = [`factory:work_item_id=${workItemId}`];
     if (batchId) lookupTags.push(`factory:batch_id=${batchId}`);
 
+    const queryStatuses = Array.from(statuses || REPLACEMENT_WORKTREE_OWNER_STATUSES);
     const candidates = taskCore.listTasks({
-      statuses: Array.from(LIVE_WORKTREE_OWNER_STATUSES),
+      statuses: queryStatuses,
       tags: lookupTags,
-      columns: ['id', 'status', 'working_directory', 'tags', 'created_at', 'started_at'],
+      columns: ['id', 'status', 'pid', 'working_directory', 'tags', 'created_at', 'started_at'],
       limit: 1000,
       includeArchived: true,
     });
@@ -492,7 +535,12 @@ function findLiveReplacementWorktreeOwner({
       if (!taskHasFactoryTag(candidate, `factory:work_item_id=${workItemId}`)) continue;
       if (batchId && !taskHasFactoryTag(candidate, `factory:batch_id=${batchId}`)) continue;
       if (normalizeWorktreePathForCompare(candidate.working_directory) !== normalizedPath) continue;
-      return candidate;
+      if (isLiveWorktreeOwner(candidate) || isReusableWorktreeOwner(candidate)) {
+        return candidate;
+      }
+      if (String(candidate.status || '').toLowerCase() === 'pending_approval') {
+        return candidate;
+      }
     }
   } catch (error) {
     logger.warn('factory worktree: replacement owner lookup failed before reclaim guard', {
@@ -505,6 +553,88 @@ function findLiveReplacementWorktreeOwner({
   }
 
   return null;
+}
+
+function findLiveReplacementWorktreeOwner(args) {
+  const candidate = findReplacementWorktreeOwner({
+    ...args,
+    statuses: LIVE_WORKTREE_OWNER_STATUSES,
+  });
+  return isLiveWorktreeOwner(candidate) ? candidate : null;
+}
+
+function findReusableReplacementWorktreeOwner(args) {
+  const candidate = findReplacementWorktreeOwner({
+    ...args,
+    statuses: REUSABLE_WORKTREE_OWNER_STATUSES,
+  });
+  return isReusableWorktreeOwner(candidate) ? candidate : null;
+}
+
+function maybeReuseCompletedWorktreeOwner({
+  owner,
+  ownerStatus,
+  ownerSource,
+  stale,
+  staleWorktreePath,
+  targetBranch,
+  project,
+  targetItem,
+  executeLogBatchId,
+}) {
+  if (!isReusableWorktreeOwner(owner, ownerStatus) || !staleWorktreePath || !fs.existsSync(staleWorktreePath)) {
+    return null;
+  }
+
+  try {
+    if (ownerSource === 'replacement_task_same_worktree' && stale?.id && owner?.id) {
+      factoryWorktrees.setOwningTask(stale.id, owner.id);
+    }
+  } catch (ownErr) {
+    logger.warn('factory worktree: failed to adopt completed replacement owner before reuse', {
+      factory_worktree_id: stale?.id || null,
+      owning_task_id: owner?.id || null,
+      err: ownErr && ownErr.message,
+    });
+  }
+
+  logger.info('factory worktree: reusing active worktree with completed owner before create', {
+    project_id: project.id,
+    work_item_id: targetItem.id,
+    branch: targetBranch,
+    factory_worktree_id: stale.id,
+    owning_task_id: owner.id,
+    owning_status: String(ownerStatus || owner.status || '').toLowerCase(),
+    owner_source: ownerSource,
+    worktree_path: staleWorktreePath,
+  });
+  safeLogDecision({
+    project_id: project.id,
+    stage: LOOP_STATES.EXECUTE,
+    action: ownerSource === 'replacement_task_same_worktree'
+      ? 'worktree_reused_completed_replacement_owner'
+      : 'worktree_reused_completed_owner',
+    reasoning: ownerSource === 'replacement_task_same_worktree'
+      ? 'Reused the active factory worktree because a completed restart-cloned task used the same path; reclaiming here would discard completed task output.'
+      : 'Reused the active factory worktree because its owning task completed; reclaiming here would discard completed task output.',
+    inputs: { ...getWorkItemDecisionContext(targetItem) },
+    outcome: {
+      factory_worktree_id: stale.id,
+      stale_batch_id: stale.batch_id,
+      branch: targetBranch,
+      owning_task_id: owner.id,
+      owning_status: String(ownerStatus || owner.status || '').toLowerCase(),
+      owner_source: ownerSource,
+      worktree_path: staleWorktreePath,
+    },
+    confidence: 1,
+    batch_id: executeLogBatchId,
+  });
+
+  return {
+    worktreeRecord: stale,
+    executionWorkingDirectory: staleWorktreePath,
+  };
 }
 
 class StageOccupiedError extends Error {
@@ -2553,7 +2683,7 @@ function maybeClearCompletedExecuteOwnerWait(project, instance) {
   }
 
   const owningStatus = String(owningTask?.status || '').toLowerCase();
-  if (owningTask && LIVE_WORKTREE_OWNER_STATUSES.has(owningStatus)) {
+  if (isLiveWorktreeOwner(owningTask, owningStatus)) {
     return {
       waiting: true,
       owning_task_id: owningTaskId,
@@ -8011,7 +8141,7 @@ async function executePlanFileStage(project, instance, workItem) {
         // (codex was still in exploration phase) and the 10-minute grace
         // had just expired. Net loss: 10 minutes of codex work and a
         // failed work-item attempt that the loop then had to retry.
-        const ownerIsLive = owning && LIVE_WORKTREE_OWNER_STATUSES.has(owningStatus);
+        const ownerIsLive = isLiveWorktreeOwner(owning, owningStatus);
         const sameWorkItem = stale.workItemId != null
           && targetItem
           && stale.workItemId === targetItem.id;
@@ -8091,7 +8221,7 @@ async function executePlanFileStage(project, instance, workItem) {
         let effectiveOwning = owning;
         let effectiveOwningStatus = String(owningStatus || '').toLowerCase();
         let effectiveOwnerSource = 'factory_worktree_row';
-        if (!(effectiveOwning && LIVE_WORKTREE_OWNER_STATUSES.has(effectiveOwningStatus))) {
+        if (!isLiveWorktreeOwner(effectiveOwning, effectiveOwningStatus)) {
           const replacementOwner = findLiveReplacementWorktreeOwner({
             projectId: project.id,
             workItemId: targetItem.id,
@@ -8100,7 +8230,7 @@ async function executePlanFileStage(project, instance, workItem) {
             excludeTaskId: stale.owningTaskId || null,
           });
           const replacementStatus = String(replacementOwner?.status || '').toLowerCase();
-          if (replacementOwner && LIVE_WORKTREE_OWNER_STATUSES.has(replacementStatus)) {
+          if (isLiveWorktreeOwner(replacementOwner, replacementStatus)) {
             effectiveOwning = replacementOwner;
             effectiveOwningStatus = replacementStatus;
             effectiveOwnerSource = 'replacement_task_same_worktree';
@@ -8113,7 +8243,7 @@ async function executePlanFileStage(project, instance, workItem) {
         const ownerWithinReclaimGrace = ownerAgeMs === null || ownerAgeMs < reclaimGraceMs;
         if (
           effectiveOwning
-          && LIVE_WORKTREE_OWNER_STATUSES.has(effectiveOwningStatus)
+          && isLiveWorktreeOwner(effectiveOwning, effectiveOwningStatus)
           && (withinReclaimGrace || ownerWithinReclaimGrace || dirtyStatus.dirty)
         ) {
           const retryAfter = new Date(Date.now() + AUTO_ADVANCE_DEFERRED_FALLBACK_DELAY_MS).toISOString();
@@ -8179,35 +8309,38 @@ async function executePlanFileStage(project, instance, workItem) {
             },
           };
         }
-        if (owning && REUSABLE_WORKTREE_OWNER_STATUSES.has(owningStatus) && staleWorktreePath && fs.existsSync(staleWorktreePath)) {
-          worktreeRecord = stale;
-          executionWorkingDirectory = staleWorktreePath;
-          logger.info('factory worktree: reusing active worktree with completed owner before create', {
-            project_id: project.id,
-            work_item_id: targetItem.id,
-            branch: targetBranch,
-            factory_worktree_id: stale.id,
-            owning_task_id: stale.owningTaskId,
-            owning_status: owningStatus,
-            worktree_path: staleWorktreePath,
+        let reusableOwner = owning;
+        let reusableOwnerStatus = String(owningStatus || '').toLowerCase();
+        let reusableOwnerSource = 'factory_worktree_row';
+        if (!isReusableWorktreeOwner(reusableOwner, reusableOwnerStatus)) {
+          const replacementOwner = findReusableReplacementWorktreeOwner({
+            projectId: project.id,
+            workItemId: targetItem.id,
+            batchId: stale.batch_id || executeLogBatchId,
+            worktreePath: staleWorktreePath,
+            excludeTaskId: stale.owningTaskId || null,
           });
-          safeLogDecision({
-            project_id: project.id,
-            stage: LOOP_STATES.EXECUTE,
-            action: 'worktree_reused_completed_owner',
-            reasoning: 'Reused the active factory worktree because its owning task completed; reclaiming here would discard completed task output.',
-            inputs: { ...getWorkItemDecisionContext(targetItem) },
-            outcome: {
-              factory_worktree_id: stale.id,
-              stale_batch_id: stale.batch_id,
-              branch: targetBranch,
-              owning_task_id: stale.owningTaskId,
-              owning_status: owningStatus,
-              worktree_path: staleWorktreePath,
-            },
-            confidence: 1,
-            batch_id: executeLogBatchId,
-          });
+          const replacementStatus = String(replacementOwner?.status || '').toLowerCase();
+          if (isReusableWorktreeOwner(replacementOwner, replacementStatus)) {
+            reusableOwner = replacementOwner;
+            reusableOwnerStatus = replacementStatus;
+            reusableOwnerSource = 'replacement_task_same_worktree';
+          }
+        }
+        const reuse = maybeReuseCompletedWorktreeOwner({
+          owner: reusableOwner,
+          ownerStatus: reusableOwnerStatus,
+          ownerSource: reusableOwnerSource,
+          stale,
+          staleWorktreePath,
+          targetBranch,
+          project,
+          targetItem,
+          executeLogBatchId,
+        });
+        if (reuse) {
+          worktreeRecord = reuse.worktreeRecord;
+          executionWorkingDirectory = reuse.executionWorkingDirectory;
         }
         if (!worktreeRecord) logger.warn('factory worktree: pre-reclaiming stale active row before create', {
           project_id: project.id,
@@ -13177,6 +13310,8 @@ module.exports = {
     isStaleNeverStartedPendingPlanGenerationTask,
     getAutoAdvanceDelayMs,
     getTaskAgeMs,
+    isLiveWorktreeOwner,
+    isTaskPidAlive,
     scheduleAutoAdvanceForTests: (instance_id, delay_ms, onAdvance) => scheduleAutoAdvance(instance_id, delay_ms, { onAdvance }),
     clearScheduledAutoAdvanceForTests: clearScheduledAutoAdvance,
     getScheduledAutoAdvanceForTests: (instance_id) => {
