@@ -367,7 +367,7 @@ describe('openrouter-scout', () => {
       }],
     });
 
-    const providerModelScores = require('../db/provider-model-scores');
+    const providerModelScores = require('../db/provider/model-scores');
     providerModelScores.recordModelTaskOutcome({
       provider: 'openrouter',
       modelName: 'busy/free:free',

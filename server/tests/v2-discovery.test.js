@@ -1,6 +1,6 @@
 const taskCore = require('../db/task-core');
 const configCore = require('../db/config-core');
-const providerRoutingCore = require('../db/provider-routing-core');
+const providerRoutingCore = require('../db/provider/routing-core');
 const { PROVIDER_DEFAULT_TIMEOUTS } = require('../constants');
 const adapterRegistry = require('../providers/adapter-registry');
 const { createV2Router } = require('../api/v2-router');

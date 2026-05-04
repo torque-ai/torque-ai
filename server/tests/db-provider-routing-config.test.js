@@ -2,7 +2,7 @@ const os = require('os');
 
 const { setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
 
-const configMod = require('../db/provider-routing-core');
+const configMod = require('../db/provider/routing-core');
 
 let db;
 let seq = 0;

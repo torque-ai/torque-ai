@@ -13,7 +13,7 @@ function installMock(modulePath, exportsValue) {
 }
 
 const MODULE_PATH = require.resolve('../utils/agent-discovery');
-const PROVIDER_ROUTING_CORE_MODULE_PATH = require.resolve('../db/provider-routing-core');
+const PROVIDER_ROUTING_CORE_MODULE_PATH = require.resolve('../db/provider/routing-core');
 const originalProviderRoutingCoreCache = require.cache[PROVIDER_ROUTING_CORE_MODULE_PATH];
 const mockProviderRoutingCore = {
   getProvider: vi.fn(),
@@ -33,7 +33,7 @@ function unloadAgentDiscovery() {
 
 function loadAgentDiscovery() {
   unloadAgentDiscovery();
-  installMock('../db/provider-routing-core', mockProviderRoutingCore);
+  installMock('../db/provider/routing-core', mockProviderRoutingCore);
   return require('../utils/agent-discovery');
 }
 

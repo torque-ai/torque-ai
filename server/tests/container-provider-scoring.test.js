@@ -24,7 +24,7 @@ describe('defaultContainer — provider-scoring registration', () => {
     // raw module (no createProviderScoring invocation), which breaks the
     // db-injected behaviour. We spot-check by requiring the module directly
     // and confirming it exports a factory rather than a bound singleton.
-    const mod = require('../db/provider-scoring');
+    const mod = require('../db/provider/scoring');
     expect(typeof mod.createProviderScoring).toBe('function');
   });
 });

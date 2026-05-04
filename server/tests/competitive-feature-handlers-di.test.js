@@ -46,7 +46,7 @@ describe('competitive feature handler DI', () => {
         if (request === '../database') {
           throw new Error('competitive feature handlers should not require database facade');
         }
-        if (request === '../db/provider-scoring') {
+        if (request === '../db/provider/scoring') {
           return scoring;
         }
       }
@@ -99,7 +99,7 @@ describe('competitive feature handler DI', () => {
         if (request === '../container') {
           return noDbContainer;
         }
-        if (request === '../db/provider-scoring') {
+        if (request === '../db/provider/scoring') {
           return scoring;
         }
       }

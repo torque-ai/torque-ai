@@ -101,7 +101,7 @@ let shared;
 
 const taskCoreModulePath = require.resolve('../db/task-core');
 const eventTrackingModulePath = require.resolve('../db/event-tracking');
-const providerRoutingCoreModulePath = require.resolve('../db/provider-routing-core');
+const providerRoutingCoreModulePath = require.resolve('../db/provider/routing-core');
 const schedulingAutomationModulePath = require.resolve('../db/scheduling-automation');
 const workflowEngineModulePath = require.resolve('../db/workflow-engine');
 const taskManagerModulePath = require.resolve('../task-manager');

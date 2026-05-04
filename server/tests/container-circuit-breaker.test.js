@@ -15,7 +15,7 @@ describe('container — circuit breaker wiring', () => {
   });
 
   it('providerCircuitBreakerStore module exports a factory function', () => {
-    const mod = require('../db/provider-circuit-breaker-store');
+    const mod = require('../db/provider/circuit-breaker-store');
     expect(typeof mod.createProviderCircuitBreakerStore).toBe('function');
   });
 
@@ -47,7 +47,7 @@ describe('container — circuit breaker wiring', () => {
       container.registerValue('eventBus', { emit() {} });
 
       container.register('providerCircuitBreakerStore', ['db'], ({ db }) => {
-        const { createProviderCircuitBreakerStore } = require('../db/provider-circuit-breaker-store');
+        const { createProviderCircuitBreakerStore } = require('../db/provider/circuit-breaker-store');
         return createProviderCircuitBreakerStore({ db });
       });
       container.register(

@@ -23,7 +23,7 @@ let runningProcesses;
 
 const FALLBACK_RETRY_MODULE_PATH = require.resolve('../execution/fallback-retry');
 const LOGGER_MODULE_PATH = require.resolve('../logger');
-const ROUTING_CORE_MODULE_PATH = require.resolve('../db/provider-routing-core');
+const ROUTING_CORE_MODULE_PATH = require.resolve('../db/provider/routing-core');
 const ORIGINAL_FALLBACK_RETRY_CACHE = require.cache[FALLBACK_RETRY_MODULE_PATH];
 const ORIGINAL_LOGGER_CACHE = require.cache[LOGGER_MODULE_PATH];
 const ORIGINAL_ROUTING_CORE_CACHE = require.cache[ROUTING_CORE_MODULE_PATH];
@@ -35,7 +35,7 @@ function setup() {
   taskCore = require('../db/task-core');
   configCore = require('../db/config-core');
   hostManagement = require('../db/host-management');
-  providerRoutingCore = require('../db/provider-routing-core');
+  providerRoutingCore = require('../db/provider/routing-core');
 
   // Remove auto-created 'default' host to prevent test contamination
   // (migrateToMultiHost creates it from the seeded ollama_host config)
@@ -183,7 +183,7 @@ function loadFallbackRetryWithMocks({
 
   delete require.cache[FALLBACK_RETRY_MODULE_PATH];
   installMock('../logger', loggerModule);
-  installMock('../db/provider-routing-core', {
+  installMock('../db/provider/routing-core', {
     CLOUD_PROVIDERS: cloudProviders,
     getProviderFallbackChain: vi.fn(() => chain),
   });

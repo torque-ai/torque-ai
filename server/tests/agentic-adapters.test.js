@@ -598,7 +598,7 @@ describe('openai-chat adapter — chatCompletion', () => {
   });
 
   it('records provider cooldown telemetry on 429 responses', async () => {
-    const { getQuotaStore } = require('../db/provider-quotas');
+    const { getQuotaStore } = require('../db/provider/quotas');
     requestHandler = (_req, res) => {
       res.writeHead(429, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({

@@ -1,7 +1,7 @@
 'use strict';
 
 const logger = require('../logger').child({ component: 'openrouter-scout' });
-const providerModelScores = require('../db/provider-model-scores');
+const providerModelScores = require('../db/provider/model-scores');
 const { parseToolCalls } = require('../providers/ollama-tools');
 
 const PROVIDER = 'openrouter';

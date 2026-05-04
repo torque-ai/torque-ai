@@ -12,7 +12,7 @@ const HANDLER_FILE = require.resolve(HANDLER_MODULE);
 const MOCKED_MODULE_PATHS = [
   HANDLER_MODULE,
   '../database',
-  '../db/provider-routing-core',
+  '../db/provider/routing-core',
   '../task-manager',
   '../utils/credential-crypto',
   '../logger',
@@ -395,7 +395,7 @@ async function loadProviderCrudHandlers(overrides = {}) {
 
   vi.resetModules();
   vi.doMock('../database', () => currentModules.database);
-  vi.doMock('../db/provider-routing-core', () => currentModules.providerRoutingCore);
+  vi.doMock('../db/provider/routing-core', () => currentModules.providerRoutingCore);
   vi.doMock('../task-manager', () => currentModules.taskManager);
   vi.doMock('../utils/credential-crypto', () => currentModules.credentialCrypto);
   vi.doMock('../logger', () => currentModules.logger);
@@ -405,7 +405,7 @@ async function loadProviderCrudHandlers(overrides = {}) {
   vi.doMock('../utils/sensitive-keys', () => currentModules.sensitiveKeys);
 
   installCjsModuleMock('../database', currentModules.database);
-  installCjsModuleMock('../db/provider-routing-core', currentModules.providerRoutingCore);
+  installCjsModuleMock('../db/provider/routing-core', currentModules.providerRoutingCore);
   installCjsModuleMock('../task-manager', currentModules.taskManager);
   installCjsModuleMock('../utils/credential-crypto', currentModules.credentialCrypto);
   installCjsModuleMock('../logger', currentModules.logger);

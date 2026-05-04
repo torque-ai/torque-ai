@@ -243,11 +243,11 @@ _defaultContainer.register('runDirManager', ['db'], ({ db }) => {
   });
 });
 _defaultContainer.register('providerScoring', ['db'], ({ db }) => {
-  const { createProviderScoring } = require('./db/provider-scoring');
+  const { createProviderScoring } = require('./db/provider/scoring');
   return createProviderScoring({ db: unwrapDb(db) });
 });
 _defaultContainer.register('providerCircuitBreakerStore', ['db'], ({ db }) => {
-  const { createProviderCircuitBreakerStore } = require('./db/provider-circuit-breaker-store');
+  const { createProviderCircuitBreakerStore } = require('./db/provider/circuit-breaker-store');
   return createProviderCircuitBreakerStore({ db: unwrapDb(db) });
 });
 _defaultContainer.register(

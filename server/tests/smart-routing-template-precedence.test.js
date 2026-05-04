@@ -1,7 +1,7 @@
 'use strict';
 
-const providerScoring = require('../db/provider-scoring');
-const providerRoutingCore = require('../db/provider-routing-core');
+const providerScoring = require('../db/provider/scoring');
+const providerRoutingCore = require('../db/provider/routing-core');
 const templateStore = require('../routing/template-store');
 const { setupTestDbOnly, teardownTestDb, rawDb } = require('./vitest-setup');
 

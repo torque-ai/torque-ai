@@ -92,7 +92,7 @@ function loadHandlers() {
   installCjsModuleMock('uuid', { v4: mockUuidV4 });
   installCjsModuleMock('../database', mockDb);
   installCjsModuleMock('../db/task-core', mockDb);
-  installCjsModuleMock('../db/provider-routing-core', mockDb);
+  installCjsModuleMock('../db/provider/routing-core', mockDb);
   installCjsModuleMock('../db/file-tracking', mockDb);
   installCjsModuleMock('../db/webhooks-streaming', mockWebhooksStreaming);
   installCjsModuleMock('../config', mockConfig);

@@ -45,7 +45,7 @@ function loadProviderHandlers() {
   installCjsModuleMock('../db/event-tracking', {});
   installCjsModuleMock('../db/file-tracking', {});
   installCjsModuleMock('../db/host-management', {});
-  installCjsModuleMock('../db/provider-routing-core', {
+  installCjsModuleMock('../db/provider/routing-core', {
     getHealthTrend: mockDb.getHealthTrend,
     listProviders: mockDb.listProviders,
   });

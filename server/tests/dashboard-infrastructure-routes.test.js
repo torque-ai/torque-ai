@@ -12,8 +12,8 @@ const MODULE_PATHS = [
   '../db/coordination',
   '../db/file-tracking',
   '../db/host-management',
-  '../db/provider-routing-core',
-  '../db/provider-scoring',
+  '../db/provider/routing-core',
+  '../db/provider/scoring',
   '../dashboard/utils',
   '../task-manager',
   '../discovery',
@@ -31,7 +31,7 @@ vi.mock('../db/task-core', () => currentModules.taskCore);
 vi.mock('../db/coordination', () => currentModules.coordination);
 vi.mock('../db/file-tracking', () => currentModules.fileTracking);
 vi.mock('../db/host-management', () => currentModules.hostManagement);
-vi.mock('../db/provider-routing-core', () => currentModules.providerRoutingCore);
+vi.mock('../db/provider/routing-core', () => currentModules.providerRoutingCore);
 vi.mock('../dashboard/utils', () => currentModules.utils);
 vi.mock('../task-manager', () => currentModules.taskManager);
 vi.mock('../discovery', () => currentModules.discovery);
@@ -470,8 +470,8 @@ function loadHandlers() {
   installCjsModuleMock('../db/coordination', currentModules.coordination);
   installCjsModuleMock('../db/file-tracking', currentModules.fileTracking);
   installCjsModuleMock('../db/host-management', currentModules.hostManagement);
-  installCjsModuleMock('../db/provider-routing-core', currentModules.providerRoutingCore);
-  installCjsModuleMock('../db/provider-scoring', currentModules.providerScoring);
+  installCjsModuleMock('../db/provider/routing-core', currentModules.providerRoutingCore);
+  installCjsModuleMock('../db/provider/scoring', currentModules.providerScoring);
   installCjsModuleMock('../dashboard/utils', currentModules.utils);
   installCjsModuleMock('../task-manager', currentModules.taskManager);
   installCjsModuleMock('../discovery', currentModules.discovery);

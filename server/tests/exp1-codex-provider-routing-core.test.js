@@ -1,6 +1,6 @@
 'use strict';
 
-const core = require('../db/provider-routing-core');
+const core = require('../db/provider/routing-core');
 const serverConfig = require('../config');
 const { TEST_MODELS } = require('./test-helpers');
 
@@ -206,8 +206,8 @@ describe('exp1-codex provider-routing-core analyzeTaskForRouting', () => {
       },
     });
 
-    const taskDescription = 'Add JSDoc comments to src/db/provider-routing-core.js';
-    const files = ['src/db/provider-routing-core.js'];
+    const taskDescription = 'Add JSDoc comments to src/db/provider/routing-core.js';
+    const files = ['src/db/provider/routing-core.js'];
     const result = core.analyzeTaskForRouting(taskDescription, 'C:/repo', files);
 
     expect(determineTaskComplexity).toHaveBeenCalledWith(taskDescription, files);

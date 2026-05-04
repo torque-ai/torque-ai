@@ -1,6 +1,6 @@
 'use strict';
 
-const CORE_MODULE_PATH = require.resolve('../db/provider-routing-core');
+const CORE_MODULE_PATH = require.resolve('../db/provider/routing-core');
 const SCHEDULER_MODULE_PATH = require.resolve('../execution/queue-scheduler');
 const LOGGER_MODULE_PATH = require.resolve('../logger');
 const CONFIG_MODULE_PATH = require.resolve('../config');
@@ -126,7 +126,7 @@ function loadCore(overrides = {}) {
   serverConfig.init({ db });
   installCjsModuleMock('../config', serverConfig);
 
-  const core = require('../db/provider-routing-core');
+  const core = require('../db/provider/routing-core');
   core.setDb(db);
 
   return { core, loggerChild };

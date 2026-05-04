@@ -19,7 +19,7 @@ const MODULE_PATHS = [
   '../db/config-core',
   '../db/file-tracking',
   '../db/host-management',
-  '../db/provider-routing-core',
+  '../db/provider/routing-core',
   '../db/task-core',
   '../db/webhooks-streaming',
   '../handlers/policy-handlers',
@@ -130,7 +130,7 @@ function loadHandlers() {
   installMock('../db/config-core', mockDb);
   installMock('../db/file-tracking', mockDb);
   installMock('../db/host-management', mockDb);
-  installMock('../db/provider-routing-core', mockDb);
+  installMock('../db/provider/routing-core', mockDb);
   installMock('../db/task-core', mockDb);
   installMock('../db/webhooks-streaming', mockDb);
   installMock('../api/middleware', mockMiddleware);

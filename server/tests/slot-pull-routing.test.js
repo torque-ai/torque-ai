@@ -1,11 +1,11 @@
 'use strict';
 
-const CORE_MODULE_PATH = require.resolve('../db/provider-routing-core');
+const CORE_MODULE_PATH = require.resolve('../db/provider/routing-core');
 const LOGGER_MODULE_PATH = require.resolve('../logger');
 const DATABASE_MODULE_PATH = require.resolve('../database');
 const CONFIG_MODULE_PATH = require.resolve('../config');
-const PROVIDER_CAPABILITIES_MODULE_PATH = require.resolve('../db/provider-capabilities');
-const PROVIDER_PERFORMANCE_MODULE_PATH = require.resolve('../db/provider-performance');
+const PROVIDER_CAPABILITIES_MODULE_PATH = require.resolve('../db/provider/capabilities');
+const PROVIDER_PERFORMANCE_MODULE_PATH = require.resolve('../db/provider/performance');
 
 function installCjsModuleMock(modulePath, exportsValue) {
   const resolved = require.resolve(modulePath);
@@ -204,7 +204,7 @@ function loadCore(overrides = {}) {
   serverConfigMock.init({ db });
   installCjsModuleMock('../config', serverConfigMock);
 
-  const core = require('../db/provider-routing-core');
+  const core = require('../db/provider/routing-core');
   core.setDb(db);
   core.setGetTask(() => null);
   core.setHostManagement(overrides.hostManagement || null);

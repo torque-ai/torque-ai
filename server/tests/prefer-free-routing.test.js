@@ -32,7 +32,7 @@ describe('COST_FREE_PROVIDERS constant', () => {
 });
 
 describe('prefer_free routing in analyzeTaskForRouting', () => {
-  const providerRoutingCore = require('../db/provider-routing-core');
+  const providerRoutingCore = require('../db/provider/routing-core');
 
   // Mock DB that returns provider_config rows via prepare().get()
   const makeProviderRow = (name) => ({

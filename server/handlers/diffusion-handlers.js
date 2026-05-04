@@ -44,7 +44,7 @@ const COMPUTE_CAPABLE_PROVIDERS = [
 
 function autoSelectComputeProvider() {
   try {
-    const providerRoutingCore = require('../db/provider-routing-core');
+    const providerRoutingCore = require('../db/provider/routing-core');
     const allProviders = providerRoutingCore.listProviders();
 
     const enabledSet = new Set(
@@ -89,7 +89,7 @@ function autoSelectComputeProvider() {
  */
 function autoSelectApplyProviders() {
   try {
-    const providerRoutingCore = require('../db/provider-routing-core');
+    const providerRoutingCore = require('../db/provider/routing-core');
     const allProviders = providerRoutingCore.listProviders();
 
     const enabledMap = new Map(

@@ -141,7 +141,7 @@ function getOutcomeBreakdown(provider, days = 30) {
 
 beforeEach(() => {
   ({ db } = setupTestDbOnly('provider-routing-stats'));
-  statsMod = require('../db/provider-routing-core');
+  statsMod = require('../db/provider/routing-core');
   seq = 0;
   vi.useFakeTimers();
   vi.setSystemTime(FIXED_NOW);

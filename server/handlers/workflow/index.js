@@ -6,7 +6,7 @@
 const { v4: uuidv4 } = require('uuid');
 const { defaultContainer } = require('../../container');
 const coordination = require('../../db/coordination');
-const providerRoutingCore = require('../../db/provider-routing-core');
+const providerRoutingCore = require('../../db/provider/routing-core');
 const taskCore = require('../../db/task-core');
 const workflowEngine = require('../../db/workflow-engine');
 const serverConfig = require('../../config');

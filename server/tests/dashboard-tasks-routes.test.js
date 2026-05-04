@@ -7,7 +7,7 @@ const MODULE_PATHS = [
   ROUTE_MODULE,
   '../db/task-core',
   '../db/file-tracking',
-  '../db/provider-routing-core',
+  '../db/provider/routing-core',
   '../db/webhooks-streaming',
   '../dashboard/utils',
   '../task-manager',
@@ -92,7 +92,7 @@ function loadHandlers() {
   clearLoadedModules();
   installMock('../db/task-core', mockDb);
   installMock('../db/file-tracking', mockFileTracking);
-  installMock('../db/provider-routing-core', mockProviderRoutingCore);
+  installMock('../db/provider/routing-core', mockProviderRoutingCore);
   installMock('../db/webhooks-streaming', mockWebhooksStreaming);
   installMock('../dashboard/utils', mockUtils);
   installMock('../task-manager', mockTaskManager);

@@ -45,7 +45,7 @@ function installCjsModuleMock(modulePath, exportsValue) {
 
 function loadProviderHandlers() {
   delete require.cache[require.resolve('../handlers/provider-handlers')];
-  installCjsModuleMock('../db/provider-routing-core', mockRoutingCore);
+  installCjsModuleMock('../db/provider/routing-core', mockRoutingCore);
   installCjsModuleMock('../db/file-tracking', mockFileTracking);
   installCjsModuleMock('../task-manager', mockTaskManager);
   installCjsModuleMock('../dashboard/server', mockDashboard);
@@ -54,7 +54,7 @@ function loadProviderHandlers() {
   return require('../handlers/provider-handlers');
 }
 
-vi.mock('../db/provider-routing-core', () => mockRoutingCore);
+vi.mock('../db/provider/routing-core', () => mockRoutingCore);
 vi.mock('../db/file-tracking', () => mockFileTracking);
 vi.mock('../task-manager', () => mockTaskManager);
 vi.mock('../dashboard/server', () => mockDashboard);

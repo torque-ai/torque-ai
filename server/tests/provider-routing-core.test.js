@@ -4,7 +4,7 @@ const { EventEmitter } = require('events');
 const { TEST_MODELS } = require('./test-helpers');
 const http = require('http');
 
-const CORE_MODULE_PATH = require.resolve('../db/provider-routing-core');
+const CORE_MODULE_PATH = require.resolve('../db/provider/routing-core');
 const LOGGER_MODULE_PATH = require.resolve('../logger');
 const CONFIG_MODULE_PATH = require.resolve('../config');
 const CONFIG_CORE_MODULE_PATH = require.resolve('../db/config-core');
@@ -12,7 +12,7 @@ const SMART_ROUTING_MODULE_PATH = require.resolve('../db/smart-routing');
 const OLLAMA_HEALTH_MODULE_PATH = require.resolve('../db/ollama-health');
 const CATEGORY_CLASSIFIER_MODULE_PATH = require.resolve('../routing/category-classifier');
 const TEMPLATE_STORE_MODULE_PATH = require.resolve('../routing/template-store');
-const PROVIDER_QUOTAS_MODULE_PATH = require.resolve('../db/provider-quotas');
+const PROVIDER_QUOTAS_MODULE_PATH = require.resolve('../db/provider/quotas');
 
 function installCjsModuleMock(modulePath, exportsValue) {
   const resolved = require.resolve(modulePath);
@@ -366,7 +366,7 @@ function loadCore(overrides = {}) {
     installCjsModuleMock(modulePath, exportsValue);
   }
 
-  const core = require('../db/provider-routing-core');
+  const core = require('../db/provider/routing-core');
   core.setDb(db);
   core.setGetTask((taskId) => cloneValue(state.tasks.get(taskId)) || null);
   core.setHostManagement(overrides.hostManagement || null);
@@ -966,7 +966,7 @@ describe('provider-routing-core', () => {
     });
 
     it('skips quota-exhausted providers in active template fallback chains', () => {
-      const { createQuotaStore } = require('../db/provider-quotas');
+      const { createQuotaStore } = require('../db/provider/quotas');
       const quotaStore = createQuotaStore();
       quotaStore.updateFromHeaders('cerebras', {
         'x-ratelimit-limit-requests': '30',
@@ -1003,7 +1003,7 @@ describe('provider-routing-core', () => {
         moduleMocks: {
           '../routing/category-classifier': categoryClassifierMock,
           '../routing/template-store': templateStoreMock,
-          '../db/provider-quotas': { getQuotaStore: () => quotaStore },
+          '../db/provider/quotas': { getQuotaStore: () => quotaStore },
         },
       });
 

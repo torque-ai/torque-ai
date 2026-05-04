@@ -1,6 +1,6 @@
 'use strict';
 
-const { createQuotaStore } = require('../db/provider-quotas');
+const { createQuotaStore } = require('../db/provider/quotas');
 
 describe('provider-quotas', () => {
   let store;
@@ -308,7 +308,7 @@ describe('provider-quotas', () => {
     it('returns the same singleton instance on repeated calls', () => {
       vi.resetModules();
 
-      const quotaModule = require('../db/provider-quotas');
+      const quotaModule = require('../db/provider/quotas');
       const first = quotaModule.getQuotaStore();
 
       first.updateFromHeaders('groq', { 'x-ratelimit-remaining-requests': '12' });

@@ -1,5 +1,5 @@
 const { setupE2eDb, resetE2eDb, teardownE2eDb } = require('./e2e-helpers');
-const healthHistory = require('../db/provider-routing-core');
+const healthHistory = require('../db/provider/routing-core');
 
 const FIXED_NOW = new Date('2026-03-08T12:00:00.000Z');
 
@@ -61,7 +61,7 @@ afterAll(async () => {
   }
 });
 
-describe('db/provider-health-history', () => {
+describe('db/provider/health-history', () => {
   it('persistHealthWindow inserts a health window record', () => {
     const inserted = persistWindow('codex', 6, {
       total_checks: 20,

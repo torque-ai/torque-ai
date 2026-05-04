@@ -1,8 +1,8 @@
 'use strict';
 
 const { setupE2eDb, teardownE2eDb } = require('./e2e-helpers');
-const providerCapabilities = require('../db/provider-capabilities');
-const providerPerformance = require('../db/provider-performance');
+const providerCapabilities = require('../db/provider/capabilities');
+const providerPerformance = require('../db/provider/performance');
 
 const MODULE_PATH = require.resolve('../execution/slot-pull-scheduler');
 const FIXED_NOW = new Date('2026-03-13T12:00:00.000Z');

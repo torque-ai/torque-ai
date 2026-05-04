@@ -6,7 +6,7 @@ const MOCKED_MODULES = [
   '../database',
   '../db/task-core',
   '../db/event-tracking',
-  '../db/provider-routing-core',
+  '../db/provider/routing-core',
   '../db/scheduling-automation',
   '../db/workflow-engine',
   '../task-manager',
@@ -198,7 +198,7 @@ function loadHandlers() {
   installMock('../database', mockDb);
   installMock('../db/task-core', mockDb);
   installMock('../db/event-tracking', mockDb);
-  installMock('../db/provider-routing-core', mockDb);
+  installMock('../db/provider/routing-core', mockDb);
   installMock('../db/scheduling-automation', mockDb);
   installMock('../db/workflow-engine', mockDb);
   installMock('../task-manager', mockTaskManager);

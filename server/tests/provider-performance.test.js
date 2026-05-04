@@ -1,7 +1,7 @@
 'use strict';
 
 const { setupE2eDb, teardownE2eDb } = require('./e2e-helpers');
-const providerPerformance = require('../db/provider-performance');
+const providerPerformance = require('../db/provider/performance');
 
 const FIXED_NOW = new Date('2026-03-13T12:00:00.000Z');
 
@@ -23,7 +23,7 @@ function recordOutcome(overrides = {}) {
   });
 }
 
-describe('db/provider-performance', () => {
+describe('db/provider/performance', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.setSystemTime(FIXED_NOW);

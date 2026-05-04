@@ -6125,7 +6125,7 @@ async function awaitTaskToStructuredResult(handleAwaitTask, taskCore, args) {
 
 function getPlanReviewProvidersHealth() {
   try {
-    const providerRoutingCore = require('../db/provider-routing-core');
+    const providerRoutingCore = require('../db/provider/routing-core');
     const serverConfig = require('../config');
     const providerNames = ['claude-cli', 'anthropic', 'deepinfra'];
 

@@ -1,4 +1,4 @@
-const providerRoutingCore = require('../db/provider-routing-core');
+const providerRoutingCore = require('../db/provider/routing-core');
 const { setupTestDb, teardownTestDb, safeTool, getText, resetTables } = require('./vitest-setup');
 
 describe('Webhook Handlers', () => {

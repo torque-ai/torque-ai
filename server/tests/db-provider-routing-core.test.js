@@ -86,7 +86,7 @@ beforeAll(() => {
   ({ db } = setupTestDbOnly('db-provider-routing-core'));
   taskCore = require('../db/task-core');
   configCore = require('../db/config-core');
-  core = require('../db/provider-routing-core');
+  core = require('../db/provider/routing-core');
   const serverConfig = require('../config');
   serverConfig.init({ db });
   bindCore();
@@ -106,7 +106,7 @@ afterAll(() => {
   teardownTestDb();
 });
 
-describe('db/provider-routing-core', () => {
+describe('db/provider/routing-core', () => {
   describe('provider CRUD and normalization', () => {
     it('enrichProviderRow falls back to empty quota_error_patterns for invalid JSON', () => {
       const enriched = core.enrichProviderRow({

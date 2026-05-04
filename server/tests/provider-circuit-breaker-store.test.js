@@ -33,7 +33,7 @@ describe('provider_circuit_breaker schema', () => {
   });
 });
 
-const { createProviderCircuitBreakerStore } = require('../db/provider-circuit-breaker-store');
+const { createProviderCircuitBreakerStore } = require('../db/provider/circuit-breaker-store');
 
 describe('createProviderCircuitBreakerStore', () => {
   let db;

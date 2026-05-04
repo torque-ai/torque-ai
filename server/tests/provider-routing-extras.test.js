@@ -68,7 +68,7 @@ beforeAll(() => {
   dbHandle = db.getDbInstance();
   dbHandle.exec(FALLBACK_SCHEMA);
 
-  providerRoutingExtras = require('../db/provider-routing-extras');
+  providerRoutingExtras = require('../db/provider/routing-extras');
   providerRoutingExtras.setDb(dbHandle);
 });
 
@@ -76,7 +76,7 @@ afterAll(() => {
   teardownTestDb();
 });
 
-describe('server/db/provider-routing-extras', () => {
+describe('server/db/provider/routing-extras', () => {
   it('createTaskReplay + getTaskReplay round-trip a replay record', () => {
     const replayId = randomUUID();
     const originalTaskId = insertTask();

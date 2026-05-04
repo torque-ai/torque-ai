@@ -449,7 +449,7 @@ describe('factory scorer behavioral coverage', () => {
           missing: 8,
           total: 10,
           coveragePercent: 20,
-          missingFiles: [{ file: 'server/db/provider-routing-core.js', lines: 250 }],
+          missingFiles: [{ file: 'server/db/provider/routing-core.js', lines: 250 }],
         },
       }, null);
 
@@ -459,7 +459,7 @@ describe('factory scorer behavioral coverage', () => {
           missing: 2,
           total: 10,
           coveragePercent: 80,
-          missingFiles: [{ file: 'server/db/provider-routing-core.js', lines: 250 }],
+          missingFiles: [{ file: 'server/db/provider/routing-core.js', lines: 250 }],
         },
       }, null);
 
@@ -1378,7 +1378,7 @@ jobs:
             { type: 'HACK', text: 'HACK: temporary queue shortcut for flaky retries', file: 'server/execution/queue-scheduler.js' },
             { type: 'FIXME', text: 'FIXME: restore lifecycle ownership after restart', file: 'server/task-manager.js' },
             { type: 'XXX', text: 'XXX: delete fallback code after migration is complete', file: 'server/db/workflow-engine.js' },
-            { type: 'HACK', text: 'HACK: suppress noisy provider health warnings for now', file: 'server/db/provider-health-history.js' },
+            { type: 'HACK', text: 'HACK: suppress noisy provider health warnings for now', file: 'server/db/provider/health-history.js' },
           ],
         },
       }, null);
@@ -1461,7 +1461,7 @@ jobs:
         todos: {
           count: 1,
           items: [
-            { type: 'TODO', text: 'TODO: tighten provider selection', file: 'server/db/provider-routing-core.js' },
+            { type: 'TODO', text: 'TODO: tighten provider selection', file: 'server/db/provider/routing-core.js' },
           ],
         },
       }, null);

@@ -91,7 +91,7 @@ console.log();
 console.log('=== 8. PROVIDER SCORING ===');
 const Database = require('better-sqlite3');
 const db = new Database(':memory:');
-const scoring = require('../db/provider-scoring');
+const scoring = require('../db/provider/scoring');
 scoring.init(db);
 for (let i = 0; i < 6; i++) scoring.recordTaskCompletion({ provider: 'test-codex', success: i < 5, durationMs: 3000, costUsd: 0.02, qualityScore: 0.8 });
 const score = scoring.getProviderScore('test-codex');

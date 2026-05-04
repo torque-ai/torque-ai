@@ -9,7 +9,7 @@
 const crypto = require('crypto');
 const { safeJsonParse } = require('../../db/event-tracking');
 const coordinationDb = require('../../db/coordination');
-const { getPrometheusMetrics, setRateLimit, setTaskQuota, getRoutingRules } = require('../../db/provider-routing-core');
+const { getPrometheusMetrics, setRateLimit, setTaskQuota, getRoutingRules } = require('../../db/provider/routing-core');
 const serverConfig = require('../../config');
 const { buildHandoffToolName, registerHandoffAgent, getHandoffHistory: getRecordedHandoffHistory } = require('../../crew/handoff');
 const { normalizeMetadata } = require('../../utils/normalize-metadata');

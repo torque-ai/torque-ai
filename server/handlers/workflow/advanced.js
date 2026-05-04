@@ -5,7 +5,7 @@
 const { v4: uuidv4 } = require('uuid');
 const taskCore = require('../../db/task-core');
 const eventTracking = require('../../db/event-tracking');
-const providerRoutingCore = require('../../db/provider-routing-core');
+const providerRoutingCore = require('../../db/provider/routing-core');
 const schedulingAutomation = require('../../db/scheduling-automation');
 const workflowEngine = require('../../db/workflow-engine');
 const taskManager = require('../../task-manager');

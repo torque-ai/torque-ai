@@ -13,7 +13,7 @@
 const logger = require('../logger').child({ component: 'fallback-retry' });
 const { STALL_REQUEUE_DEBOUNCE_MS, DEFAULT_FALLBACK_MODEL } = require('../constants');
 const modelRoles = require('../db/model-roles');
-const { CLOUD_PROVIDERS, getProviderFallbackChain } = require('../db/provider-routing-core');
+const { CLOUD_PROVIDERS, getProviderFallbackChain } = require('../db/provider/routing-core');
 const serverConfig = require('../config');
 const { resolveOllamaModel } = require('../providers/ollama-shared');
 const { normalizeMetadata } = require('../utils/normalize-metadata');

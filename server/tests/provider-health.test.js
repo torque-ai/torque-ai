@@ -5,7 +5,7 @@ describe('Provider Health Scoring', () => {
 
   beforeAll(() => {
     // provider-routing.js exports functions directly, no DB needed for health scoring
-    mod = require('../db/provider-routing-core');
+    mod = require('../db/provider/routing-core');
   });
 
   beforeEach(() => {

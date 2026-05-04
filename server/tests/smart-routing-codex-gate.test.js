@@ -42,7 +42,7 @@ function setup() {
   };
 
   // Wire host management for hasHealthyOllamaHost
-  const providerRouting = require('../db/provider-routing-core');
+  const providerRouting = require('../db/provider/routing-core');
   const hostManagement = require('../db/host-management');
   const dbHandle = rawDb();
   hostManagement.setDb(dbHandle);
@@ -114,14 +114,14 @@ describe('Smart Routing — Codex Exhaustion Gate & Local-First Routing', () => 
   // Mock checkOllamaHealth to avoid network calls
   let originalCheckOllamaHealth;
   beforeAll(() => {
-    const providerRouting = require('../db/provider-routing-core');
+    const providerRouting = require('../db/provider/routing-core');
     originalCheckOllamaHealth = providerRouting.checkOllamaHealth;
     // Replace with a no-op that returns true
     providerRouting.checkOllamaHealth = async () => true;
   });
   afterAll(() => {
     if (originalCheckOllamaHealth) {
-      const providerRouting = require('../db/provider-routing-core');
+      const providerRouting = require('../db/provider/routing-core');
       providerRouting.checkOllamaHealth = originalCheckOllamaHealth;
     }
   });

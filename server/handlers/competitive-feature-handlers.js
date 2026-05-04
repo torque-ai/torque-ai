@@ -136,7 +136,7 @@ async function handleListProjectTemplates(_args) {
 // ─── Provider Scores ─────────────────────────────────────────────────────
 
 async function handleGetProviderScores(args) {
-  const scoring = require('../db/provider-scoring');
+  const scoring = require('../db/provider/scoring');
   const inst = getRawDbDependency();
   if (!inst) return { content: [{ type: 'text', text: 'Database not available' }], isError: true };
   scoring.init(inst);

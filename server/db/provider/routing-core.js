@@ -8,17 +8,17 @@ const {
   createSharedFactoryStore,
   deriveLearningScope,
   DEFAULT_PROVIDER_FAILURE_SIGNAL_TYPE,
-} = require('./shared-factory-store');
+} = require('../shared-factory-store');
 const {
   computeSharedLearningPenalty,
   SHARED_LEARNING_MIN_CONFIDENCE,
   SHARED_LEARNING_MIN_SAMPLES,
   SHARED_LEARNING_MAX_PENALTY,
-} = require('./provider-scoring');
+} = require('./scoring');
 
 // Extracted modules
-const smartRouting = require('./smart-routing');
-const ollamaHealth = require('./ollama-health');
+const smartRouting = require('../smart-routing');
+const ollamaHealth = require('../ollama-health');
 
 let templateStore = null;
 try {
@@ -47,7 +47,7 @@ const getDatabaseConfig = (...args) => {
   if (typeof db?.getConfig === 'function') {
     return db.getConfig(...args);
   }
-  return require('./config-core').getConfig(...args);
+  return require('../config-core').getConfig(...args);
 };
 
 const DEFAULT_GLOBAL_MAX_CONCURRENT = 20;
@@ -107,7 +107,7 @@ function _getProviderScoringService() {
   try {
     // Lazy fallback covers legacy database bootstrap paths that do not use the
     // DI container but still initialize provider-routing-core directly.
-    const scoring = require('./provider-scoring');
+    const scoring = require('./scoring');
     if (db && typeof scoring.init === 'function') {
       scoring.init(db);
     }
@@ -1326,7 +1326,7 @@ function deleteTemplateCondition(id) {
 // ============================================================
 // Task Replay + Workflow Forks (extracted to provider-routing-extras.js)
 // ============================================================
-const providerRoutingExtras = require('./provider-routing-extras');
+const providerRoutingExtras = require('./routing-extras');
 
 const { createTaskReplay, getTaskReplay, listTaskReplays,
   createWorkflowFork, getWorkflowFork, listWorkflowForks, updateWorkflowForkStatus } = providerRoutingExtras;
@@ -1812,7 +1812,7 @@ function deleteRoutingRule(idOrName) {
 // ============================================================
 // Provider Health History (extracted to provider-health-history.js)
 // ============================================================
-const providerHealthHistory = require('./provider-health-history');
+const providerHealthHistory = require('./health-history');
 
 const { persistHealthWindow, getHealthHistory, getHealthTrend, pruneHealthHistory } = providerHealthHistory;
 

@@ -131,7 +131,7 @@ function loadHandlers() {
   installMock('../db/host-management', {
     getModelLeaderboard: mockDb.getModelLeaderboard,
   });
-  installMock('../db/provider-routing-core', {
+  installMock('../db/provider/routing-core', {
     approveProviderSwitch: mockDb.approveProviderSwitch,
     rejectProviderSwitch: mockDb.rejectProviderSwitch,
     listProviders: mockDb.listProviders,

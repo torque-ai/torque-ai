@@ -17,7 +17,7 @@ const MODULE_PATHS = [
   '../config',
   '../db/config-core',
   '../db/host-management',
-  '../db/provider-routing-core',
+  '../db/provider/routing-core',
   '../db/task-core',
   '../db/workflow-engine',
   '../db/model-roles',
@@ -230,7 +230,7 @@ function loadHandler() {
   installCjsModuleMock('../config', createConfigModuleMock());
   installCjsModuleMock('../db/config-core', mockDb);
   installCjsModuleMock('../db/host-management', mockDb);
-  installCjsModuleMock('../db/provider-routing-core', mockDb);
+  installCjsModuleMock('../db/provider/routing-core', mockDb);
   installCjsModuleMock('../db/task-core', mockDb);
   installCjsModuleMock('../db/workflow-engine', mockDb);
   installCjsModuleMock('../db/model-roles', mockModelRoles);

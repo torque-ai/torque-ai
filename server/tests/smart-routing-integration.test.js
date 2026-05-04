@@ -334,7 +334,7 @@ function expectInvalidParamOrNoOutOfRootRead(result, readSpy, workDir) {
 }
 
 function forceOllamaRouting() {
-  vi.spyOn(require('../db/provider-routing-core'), 'analyzeTaskForRouting').mockReturnValue({
+  vi.spyOn(require('../db/provider/routing-core'), 'analyzeTaskForRouting').mockReturnValue({
     provider: 'ollama',
     complexity: 'normal',
     reason: 'Forced Ollama routing for modification file-size tests',
@@ -379,7 +379,7 @@ describe('handleSmartSubmitTask end-to-end (mocked task submission)', () => {
   });
 
   it('adds needs_review metadata for complex smart-routed tasks only', async () => {
-    vi.spyOn(require('../db/provider-routing-core'), 'analyzeTaskForRouting').mockReturnValue({
+    vi.spyOn(require('../db/provider/routing-core'), 'analyzeTaskForRouting').mockReturnValue({
       provider: 'codex',
       complexity: 'complex',
       reason: 'Complex task',
@@ -396,7 +396,7 @@ describe('handleSmartSubmitTask end-to-end (mocked task submission)', () => {
     expect(complexTask).toBeTruthy();
     expect(getTaskMetadata(complexTask)).toMatchObject({ smart_routing: true, needs_review: true, complexity: 'complex' });
 
-    vi.spyOn(require('../db/provider-routing-core'), 'analyzeTaskForRouting').mockReturnValue({
+    vi.spyOn(require('../db/provider/routing-core'), 'analyzeTaskForRouting').mockReturnValue({
       provider: 'codex',
       complexity: 'normal',
       reason: 'Normal task',
@@ -416,7 +416,7 @@ describe('handleSmartSubmitTask end-to-end (mocked task submission)', () => {
   });
 
   it('adds split_advisory metadata only for complex smart-routed tasks with 3+ files', async () => {
-    vi.spyOn(require('../db/provider-routing-core'), 'analyzeTaskForRouting').mockReturnValue({
+    vi.spyOn(require('../db/provider/routing-core'), 'analyzeTaskForRouting').mockReturnValue({
       provider: 'codex',
       complexity: 'complex',
       reason: 'Complex task',
@@ -451,7 +451,7 @@ describe('handleSmartSubmitTask end-to-end (mocked task submission)', () => {
   });
 
   it('returns actionable workflow subscription metadata when smart submit auto-decomposes', async () => {
-    vi.spyOn(require('../db/provider-routing-core'), 'analyzeTaskForRouting').mockReturnValue({
+    vi.spyOn(require('../db/provider/routing-core'), 'analyzeTaskForRouting').mockReturnValue({
       provider: 'ollama',
       complexity: 'complex',
       reason: 'Complex C# task',

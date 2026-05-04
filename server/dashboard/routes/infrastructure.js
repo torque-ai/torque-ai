@@ -9,8 +9,8 @@ const taskCore = require('../../db/task-core');
 const coordination = require('../../db/coordination');
 const fileTracking = require('../../db/file-tracking');
 const hostManagement = require('../../db/host-management');
-const providerRoutingCore = require('../../db/provider-routing-core');
-const providerScoring = require('../../db/provider-scoring');
+const providerRoutingCore = require('../../db/provider/routing-core');
+const providerScoring = require('../../db/provider/scoring');
 const { sendJson, sendError, parseBody, safeDecodeParam, formatUptime } = require('../utils');
 
 const SECURITY_WARNING_MESSAGE = 'TORQUE is running without authentication. Run configure to set an API key.';
@@ -550,7 +550,7 @@ function handleListProviders(req, res, query) {
  */
 function handleProviderQuotas(req, res) {
   try {
-    const quotas = require('../../db/provider-quotas').getQuotaStore().getAllQuotas();
+    const quotas = require('../../db/provider/quotas').getQuotaStore().getAllQuotas();
     sendJson(res, quotas);
   } catch (err) {
     sendError(res, err.message, 500);

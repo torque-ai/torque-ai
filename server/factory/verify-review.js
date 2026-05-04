@@ -520,7 +520,7 @@ function isReviewerProviderEnabled(provider) {
   if (!normalized) return false;
 
   try {
-    const providerRoutingCore = require('../db/provider-routing-core');
+    const providerRoutingCore = require('../db/provider/routing-core');
     if (typeof providerRoutingCore.getProvider !== 'function') return false;
     const providerConfig = providerRoutingCore.getProvider(normalized);
     return Boolean(providerConfig && providerConfig.enabled);

@@ -6,7 +6,7 @@
 const os = require('os');
 const configCore = require('../db/config-core');
 const hostManagement = require('../db/host-management');
-const providerRoutingCore = require('../db/provider-routing-core');
+const providerRoutingCore = require('../db/provider/routing-core');
 const taskManager = require('../task-manager');
 const logger = require('../logger').child({ component: 'provider-ollama-hosts' });
 const { TASK_TIMEOUTS } = require('../constants');

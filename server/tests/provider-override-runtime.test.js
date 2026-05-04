@@ -80,7 +80,7 @@ async function setup(options = {}) {
   db = ctx.db;
   taskCore = require('../db/task-core');
   configCore = require('../db/config-core');
-  providerRoutingCore = require('../db/provider-routing-core');
+  providerRoutingCore = require('../db/provider/routing-core');
   tm = ctx.tm;
 
   configCore.setConfig('max_concurrent', '10');

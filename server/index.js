@@ -1298,7 +1298,7 @@ function init() {
   // The live registration inside the defunct initModules() never ran.
   try {
     if (defaultContainer.has('providerScoring')) {
-      const providerRoutingCore = require('./db/provider-routing-core');
+      const providerRoutingCore = require('./db/provider/routing-core');
       if (typeof providerRoutingCore.setProviderScoring === 'function') {
         providerRoutingCore.setProviderScoring(defaultContainer.get('providerScoring'));
         logger.info('[startup] provider-scoring wired into provider-routing-core');

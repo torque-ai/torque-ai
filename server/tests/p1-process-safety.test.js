@@ -15,7 +15,7 @@ const childProcess = require('child_process');
 const { randomUUID } = require('crypto');
 
 const taskManager = require('../task-manager');
-const providerRoutingCore = require('../db/provider-routing-core');
+const providerRoutingCore = require('../db/provider/routing-core');
 const { setupTestDbOnly, teardownTestDb, getText } = require('./vitest-setup');
 
 // Use real modules for index and routing tests, with temporary DB roots per test.

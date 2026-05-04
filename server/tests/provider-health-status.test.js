@@ -1,6 +1,6 @@
 'use strict';
 
-const providerRoutingCore = require('../db/provider-routing-core');
+const providerRoutingCore = require('../db/provider/routing-core');
 const { getProviderHealthStatus } = require('../utils/provider-health-status');
 
 describe('provider-health-status', () => {
