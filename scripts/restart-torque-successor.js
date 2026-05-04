@@ -96,6 +96,123 @@ function runNpm(npm, npmArgs, options) {
   return run(npm.command, [...npm.argsPrefix, ...npmArgs], options);
 }
 
+const UNLOCK_POLL_BUDGET_MS = Number.parseInt(process.env.RESTART_HELPER_UNLOCK_BUDGET_MS || '30000', 10);
+const UNLOCK_POLL_INTERVAL_MS = Number.parseInt(process.env.RESTART_HELPER_UNLOCK_INTERVAL_MS || '1000', 10);
+const REBUILD_MAX_ATTEMPTS = Number.parseInt(process.env.RESTART_HELPER_REBUILD_ATTEMPTS || '2', 10);
+
+function getBetterSqliteBinaryPath(serverDir) {
+  return path.join(
+    serverDir,
+    'node_modules',
+    'better-sqlite3',
+    'build',
+    'Release',
+    'better_sqlite3.node',
+  );
+}
+
+// Try to load better-sqlite3 in a fresh child Node process. Spawn a child
+// rather than `require()`-ing in the helper itself so we never hold an open
+// handle on the .node binary — that would extend the file lock and pessimize
+// the rebuild path if we needed to fall through to it.
+function tryLoadBetterSqlite3(nodeExec, serverDir, env) {
+  const probeScript = `
+    try {
+      require(${JSON.stringify(path.join(serverDir, 'node_modules', 'better-sqlite3'))});
+      process.exit(0);
+    } catch (err) {
+      process.stderr.write(String(err && err.message ? err.message : err) + '\\n');
+      process.exit(1);
+    }
+  `;
+  const result = childProcess.spawnSync(nodeExec, ['-e', probeScript], {
+    cwd: serverDir,
+    env,
+    stdio: ['ignore', 'ignore', 'pipe'],
+    windowsHide: true,
+    timeout: 15000,
+  });
+  if (result.status === 0) return { loaded: true };
+  const stderr = result.stderr ? String(result.stderr).trim() : '';
+  return { loaded: false, error: stderr || `status=${result.status} signal=${result.signal || 'none'}` };
+}
+
+// Poll until the .node binary can be opened r+ (i.e. nothing else holds an
+// exclusive handle on it). Returns true if the file opens within the budget;
+// returns false on timeout but the caller proceeds with the rebuild anyway —
+// we'd rather try and fail loudly than introduce a new "never returns" path.
+async function waitForFileUnlock(filepath, budgetMs, intervalMs) {
+  if (!fs.existsSync(filepath)) {
+    // No binary on disk at all — rebuild needs to create it from prebuild
+    // anyway, so there's no lock to wait for.
+    return true;
+  }
+  const deadline = Date.now() + budgetMs;
+  let attempts = 0;
+  while (Date.now() < deadline) {
+    attempts += 1;
+    try {
+      const fd = fs.openSync(filepath, 'r+');
+      fs.closeSync(fd);
+      log(`waitForFileUnlock: ${path.basename(filepath)} unlocked after ${attempts} attempt(s)`);
+      return true;
+    } catch (err) {
+      if (err && err.code === 'ENOENT') return true;
+      await wait(intervalMs);
+    }
+  }
+  log(`waitForFileUnlock: ${path.basename(filepath)} still locked after ${attempts} attempt(s); proceeding anyway`);
+  return false;
+}
+
+async function ensureBetterSqliteUsable(npm, serverDir, env, opts = {}) {
+  const cwd = opts.cwd || serverDir;
+  const probe = tryLoadBetterSqlite3(process.execPath, serverDir, env);
+  if (probe.loaded) {
+    log('better-sqlite3 loads cleanly; skipping rebuild');
+    return { rebuilt: false, usable: true };
+  }
+  log(`better-sqlite3 load failed (${probe.error}); will attempt rebuild`);
+
+  const binary = getBetterSqliteBinaryPath(serverDir);
+  for (let attempt = 1; attempt <= REBUILD_MAX_ATTEMPTS; attempt += 1) {
+    await waitForFileUnlock(binary, UNLOCK_POLL_BUDGET_MS, UNLOCK_POLL_INTERVAL_MS);
+    log(`rebuilding better-sqlite3 (attempt ${attempt}/${REBUILD_MAX_ATTEMPTS})`);
+    const ok = runNpm(npm, ['--prefix', serverDir, 'rebuild', 'better-sqlite3'], {
+      cwd,
+      env,
+      label: `npm rebuild better-sqlite3 attempt ${attempt}`,
+    });
+    if (ok) {
+      const recheck = tryLoadBetterSqlite3(process.execPath, serverDir, env);
+      if (recheck.loaded) {
+        log(`rebuild attempt ${attempt} succeeded and binary loads`);
+        return { rebuilt: true, usable: true };
+      }
+      log(`rebuild attempt ${attempt} reported success but binary still fails to load: ${recheck.error}`);
+    }
+  }
+
+  // Last-ditch: full npm install in case node_modules is genuinely corrupted
+  // (rather than just a file-lock symptom). Then re-probe.
+  log('all rebuild attempts failed; trying npm install --prefer-offline as last resort');
+  const installOk = runNpm(npm, ['--prefix', serverDir, 'install', '--prefer-offline', '--no-audit', '--no-fund'], {
+    cwd,
+    env,
+    label: 'npm install (last resort)',
+  });
+  if (installOk) {
+    const recheck = tryLoadBetterSqlite3(process.execPath, serverDir, env);
+    if (recheck.loaded) {
+      log('npm install fixed better-sqlite3');
+      return { rebuilt: true, usable: true };
+    }
+    log(`npm install ran but binary still fails to load: ${recheck.error}`);
+  }
+
+  return { rebuilt: false, usable: false };
+}
+
 async function main() {
   if (!serverScript || !repoRoot) {
     throw new Error('Missing --server-script or --repo-root');
@@ -113,32 +230,18 @@ async function main() {
   await waitForParentExit(parentPid);
   log(`parent PID ${parentPid} exited`);
 
-  const npm = npmCommand(process.execPath);
   if (fs.existsSync(path.join(serverDir, 'package.json'))) {
-    log('rebuilding better-sqlite3');
-    let ok = runNpm(npm, ['--prefix', serverDir, 'rebuild', 'better-sqlite3'], {
-      cwd: repoRoot,
-      env,
-      label: 'npm rebuild better-sqlite3',
-    });
-    if (!ok) {
-      log('better-sqlite3 rebuild failed, running npm install');
-      ok = runNpm(npm, ['--prefix', serverDir, 'install', '--prefer-offline', '--no-audit', '--no-fund'], {
-        cwd: repoRoot,
-        env,
-        label: 'npm install',
-      });
-      if (!ok) {
-        throw new Error('npm install failed after better-sqlite3 rebuild failure');
-      }
-      ok = runNpm(npm, ['--prefix', serverDir, 'rebuild', 'better-sqlite3'], {
-        cwd: repoRoot,
-        env,
-        label: 'npm rebuild better-sqlite3 after install',
-      });
-      if (!ok) {
-        throw new Error('better-sqlite3 rebuild failed after npm install');
-      }
+    const npm = npmCommand(process.execPath);
+    const result = await ensureBetterSqliteUsable(npm, serverDir, env, { cwd: repoRoot });
+    if (!result.usable) {
+      // Spawn anyway. A truly broken binary will produce a loud, fast,
+      // debuggable startup crash on first Database.open() — strictly
+      // better than "TORQUE never came back" silent failure that looks
+      // identical to a successful restart from the outside. On Windows,
+      // EBUSY-from-Defender is the dominant failure mode and the existing
+      // binary almost always works; refusing to spawn would extend a
+      // 2-second AV scan into a permanent outage.
+      log('WARNING: better-sqlite3 is not loading and rebuild attempts failed; spawning server anyway. If TORQUE crashes on startup, run `cd server && npm install` manually.');
     }
   }
 
@@ -153,7 +256,16 @@ async function main() {
   log(`started TORQUE successor PID ${child.pid}`);
 }
 
-main().catch((error) => {
-  log(`ERROR: ${error && error.message ? error.message : String(error)}`);
-  process.exit(1);
-});
+if (require.main === module) {
+  main().catch((error) => {
+    log(`ERROR: ${error && error.message ? error.message : String(error)}`);
+    process.exit(1);
+  });
+}
+
+module.exports = {
+  tryLoadBetterSqlite3,
+  waitForFileUnlock,
+  ensureBetterSqliteUsable,
+  getBetterSqliteBinaryPath,
+};
