@@ -10,7 +10,7 @@
  * Uses setHostFns() to receive host CRUD helpers (avoids circular require).
  */
 
-const logger = require('../logger').child({ component: 'host-capacity' });
+const logger = require('../../logger').child({ component: 'host-capacity' });
 
 let db;
 
@@ -84,7 +84,7 @@ function findWorkstationForOllamaHost(hostId) {
     const cachedId = _wsHostCache.get(hostId);
     if (cachedId === null) return null;
     try {
-      const wsModel = require('../workstation/model');
+      const wsModel = require('../../workstation/model');
       return wsModel.getWorkstation(cachedId);
     } catch { return null; }
   }
@@ -104,7 +104,7 @@ function findWorkstationForOllamaHost(hostId) {
   }
 
   try {
-    const wsModel = require('../workstation/model');
+    const wsModel = require('../../workstation/model');
     const workstations = wsModel.listWorkstations({});
     const match = workstations.find(ws => ws.host === hostname);
     if (match) {
@@ -268,7 +268,7 @@ function tryReserveHostSlot(hostId, requestedModel) {
   // Workstation max_concurrent gate (fallback when VRAM info unavailable or no model specified)
   if (ws && !requestedModel) {
     try {
-      const wsModel = require('../workstation/model');
+      const wsModel = require('../../workstation/model');
       const wsResult = wsModel.tryReserveSlot(ws.id);
       if (!wsResult.acquired) {
         logger.info(`[HostSlot] Workstation '${ws.name}' at capacity (${wsResult.currentLoad}/${wsResult.maxCapacity}) — blocking ollama_host ${hostId}`);
@@ -282,7 +282,7 @@ function tryReserveHostSlot(hostId, requestedModel) {
   // Reserve workstation slot for VRAM-gated tasks that passed
   if (ws && requestedModel) {
     try {
-      const wsModel = require('../workstation/model');
+      const wsModel = require('../../workstation/model');
       const wsResult = wsModel.tryReserveSlot(ws.id);
       if (!wsResult.acquired) {
         logger.info(`[HostSlot] Workstation '${ws.name}' at capacity (${wsResult.currentLoad}/${wsResult.maxCapacity})`);
@@ -316,7 +316,7 @@ function tryReserveHostSlot(hostId, requestedModel) {
     // Ollama host is full — roll back the workstation slot we reserved
     if (ws) {
       try {
-        const wsModel = require('../workstation/model');
+        const wsModel = require('../../workstation/model');
         wsModel.releaseSlot(ws.id);
       } catch { /* ignore */ }
     }
@@ -337,7 +337,7 @@ function releaseHostSlot(hostId) {
   const ws = findWorkstationForOllamaHost(hostId);
   if (ws) {
     try {
-      const wsModel = require('../workstation/model');
+      const wsModel = require('../../workstation/model');
       wsModel.releaseSlot(ws.id);
     } catch { /* ignore — workstation module may not be initialized */ }
   }
@@ -355,7 +355,7 @@ function decrementHostTasks(hostId) {
   const ws = findWorkstationForOllamaHost(hostId);
   if (ws) {
     try {
-      const wsModel = require('../workstation/model');
+      const wsModel = require('../../workstation/model');
       wsModel.releaseSlot(ws.id);
     } catch { /* ignore */ }
   }

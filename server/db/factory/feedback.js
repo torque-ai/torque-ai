@@ -1,6 +1,6 @@
 'use strict';
 
-const logger = require('../logger').child({ component: 'factory-feedback' });
+const logger = require('../../logger').child({ component: 'factory-feedback' });
 
 let db = null;
 

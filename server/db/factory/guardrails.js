@@ -1,6 +1,6 @@
 'use strict';
 
-const logger = require('../logger').child({ component: 'factory-guardrails' });
+const logger = require('../../logger').child({ component: 'factory-guardrails' });
 
 const VALID_STATUSES = new Set(['pass', 'warn', 'fail']);
 const GUARDRAIL_CATEGORIES = ['scope', 'quality', 'resource', 'silent_failure', 'security', 'conflict', 'control'];
@@ -39,7 +39,7 @@ function getDb() {
   let instance = resolveDbHandle(db);
   if (!instance) {
     try {
-      const { defaultContainer } = require('../container');
+      const { defaultContainer } = require('../../container');
       if (defaultContainer && defaultContainer.has && defaultContainer.has('db')) {
         instance = resolveDbHandle(defaultContainer.get('db'));
       }

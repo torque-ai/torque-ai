@@ -12,11 +12,11 @@
  */
 
 const os = require('os');
-const logger = require('../logger').child({ component: 'host-management' });
+const logger = require('../../logger').child({ component: 'host-management' });
 
 const { randomUUID } = require('crypto');
-const { getOrCreateKey, encrypt, decrypt } = require('../utils/credential-crypto');
-const { safeJsonParse } = require('../utils/json');
+const { getOrCreateKey, encrypt, decrypt } = require('../../utils/credential-crypto');
+const { safeJsonParse } = require('../../utils/json');
 const hostSelection = require('./selection');
 const hostBenchmarking = require('./benchmarking');
 const modelCapabilities = require('../model-capabilities');
@@ -51,7 +51,7 @@ function setDb(dbInstance) {
     getDatabaseConfig,
   });
   try {
-    const wsModel = require('../workstation/model');
+    const wsModel = require('../../workstation/model');
     wsModel.setDb(dbInstance);
   } catch (err) {
     logger.debug('Workstation model init deferred: ' + err.message);
@@ -772,7 +772,7 @@ function reconcileHostTaskCounts() {
 
   let workstationsReconciled = 0;
   try {
-    const wsModel = require('../workstation/model');
+    const wsModel = require('../../workstation/model');
     const workstations = wsModel.listWorkstations({});
     const workstationByHost = new Map(
       workstations

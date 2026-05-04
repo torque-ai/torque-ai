@@ -7,7 +7,7 @@
  * provider stats, build checks, rate limits, output limits, audit, and task complexity.
  */
 
-const { TASK_TIMEOUTS } = require('../constants');
+const { TASK_TIMEOUTS } = require('../../constants');
 
 let db;
 let _getTaskFn;

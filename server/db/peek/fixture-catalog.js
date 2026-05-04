@@ -7,8 +7,8 @@ const {
   WIN32_FIXTURE,
   WINFORMS_FIXTURE,
   WPF_FIXTURE,
-} = require('../contracts/peek-fixtures');
-const { safeJsonParse } = require('../utils/json');
+} = require('../../contracts/peek-fixtures');
+const { safeJsonParse } = require('../../utils/json');
 
 let db;
 

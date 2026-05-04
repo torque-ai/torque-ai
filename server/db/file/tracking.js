@@ -20,13 +20,13 @@
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
-const { TASK_TIMEOUTS } = require('../constants');
+const { TASK_TIMEOUTS } = require('../../constants');
 const codeAnalysis = require('../code-analysis');
 const costTracking = require('../cost-tracking');
 const fileBaselines = require('./baselines');
 const fileQuality = require('./quality');
 const fileTrackingScans = require('./tracking-scans');
-const conflictLogger = require('../logger').child({ component: 'file-conflict-tracking' });
+const conflictLogger = require('../../logger').child({ component: 'file-conflict-tracking' });
 
 const {
   captureFileBaseline,
@@ -243,7 +243,7 @@ function runSecurityScan(taskId, filePath, content) {
 
   const issues = [];
 
-  const { isSafeRegex } = require('../utils/safe-regex');
+  const { isSafeRegex } = require('../../utils/safe-regex');
 
   for (const rule of rules) {
     try {
@@ -650,7 +650,7 @@ function _conflictEnsureDb() {
 }
 
 function _getSnapshotDir() {
-  const root = _conflictDataDir || require('../data-dir').getDataDir();
+  const root = _conflictDataDir || require('../../data-dir').getDataDir();
   const snapshotDir = path.join(root, 'task-file-write-snapshots');
   fs.mkdirSync(snapshotDir, { recursive: true });
   return snapshotDir;
@@ -845,7 +845,7 @@ function getWorkflowFileWrites(workflowId, filePath) {
 function createFileTracking({ db: dbInstance, taskCore, dataDir }) {
   setDb(dbInstance);
   setGetTask(taskCore?.getTask || (() => null));
-  setDataDir(dataDir || require('../data-dir').getDataDir());
+  setDataDir(dataDir || require('../../data-dir').getDataDir());
   return {
     ...fileBaselines,
     ...fileQuality,
