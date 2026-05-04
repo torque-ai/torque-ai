@@ -1114,7 +1114,7 @@ _processLifecycle.init({
   safeUpdateTaskStatus,
   setupStdoutHandler: _processStreams.setupStdoutHandler,
   setupStderrHandler: _processStreams.setupStderrHandler,
-  closeHandlerState: _closeHandlerState.createCloseHandlerStateAccessor(),
+  closeHandlerState: defaultContainer.peek('closeHandlerState'),
 });
 } // end initSubModules
 

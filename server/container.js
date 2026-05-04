@@ -347,6 +347,18 @@ _defaultContainer.registerValue('processTracker', new ProcessTracker());
 // reach the same instance via the container instead of receiving a
 // shared Map by reference through init({finalizingTasks}).
 _defaultContainer.registerValue('finalizationTracker', new FinalizationTracker());
+// CloseHandlerState owns the pending-close-handler counter + drain
+// resolvers. The accessor returned by createCloseHandlerStateAccessor is
+// a thin facade over module-level state in tasks/close-handler-state.js,
+// so creating multiple accessors all hit the same underlying counter —
+// but registering one here means every consumer can container.peek/get
+// it instead of either constructing a fresh accessor or destructuring
+// the singleton module. Replaces the prior pattern where task-manager.js
+// called createCloseHandlerStateAccessor() and passed the result via DI.
+_defaultContainer.registerValue(
+  'closeHandlerState',
+  require('./tasks/close-handler-state').createCloseHandlerStateAccessor()
+);
 // Singleton TestRunnerRegistry. The remote-agents plugin retrieves this from
 // the container during install() and calls .register() to install
 // remote-routing overrides. Constructing fresh registries elsewhere bypasses
