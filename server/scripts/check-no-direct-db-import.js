@@ -46,7 +46,6 @@ const ALLOWED = new Set([
   'api-server.core.js',              // broad facade usage, Phase 5 final migration
   'dashboard-server.js',             // broad facade usage, Phase 5 final migration
   'task-manager.js',                 // heaviest consumer — uses everything
-  'api/health-probes.js',            // getDbInstance, isDbClosed, countTasks
   'api/v2-analytics-handlers.js',    // getDbInstance for raw SQL + facade functions
   'api/v2-infrastructure-handlers.js', // getDbInstance for raw SQL
   'dashboard/routes/analytics.js',   // getDbInstance for raw SQL
