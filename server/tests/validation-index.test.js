@@ -118,7 +118,7 @@ beforeAll(() => {
   setupTestDbOnly('validation-index');
   rawDb().pragma('foreign_keys = OFF');
   taskCore = require('../db/task-core');
-  fileTracking = require('../db/file-tracking');
+  fileTracking = require('../db/file/tracking');
   validationRules = require('../db/validation-rules');
   costTracking = require('../db/cost-tracking');
   validationModule = require('../handlers/validation');

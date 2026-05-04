@@ -1,5 +1,5 @@
 /**
- * Tests for server/db/file-baselines.js
+ * Tests for server/db/file/baselines.js
  *
  * Covers: baselines, backups, locks, rollbacks, auto-rollbacks,
  * expected output paths, file changes, location anomalies,
@@ -13,7 +13,7 @@ const { setupTestDbModule, teardownTestDb, rawDb, resetTables } = require('./vit
 let mod, testDir;
 
 beforeAll(() => {
-  ({ mod, testDir } = setupTestDbModule('../db/file-baselines', 'file-baselines'));
+  ({ mod, testDir } = setupTestDbModule('../db/file/baselines', 'file-baselines'));
   // Disable FK enforcement — tests use bare task IDs without inserting task rows
   rawDb().pragma('foreign_keys = OFF');
 });

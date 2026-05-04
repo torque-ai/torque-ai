@@ -21,11 +21,11 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const { TASK_TIMEOUTS } = require('../constants');
-const codeAnalysis = require('./code-analysis');
-const costTracking = require('./cost-tracking');
-const fileBaselines = require('./file-baselines');
-const fileQuality = require('./file-quality');
-const fileTrackingScans = require('./file-tracking-scans');
+const codeAnalysis = require('../code-analysis');
+const costTracking = require('../cost-tracking');
+const fileBaselines = require('./baselines');
+const fileQuality = require('./quality');
+const fileTrackingScans = require('./tracking-scans');
 const conflictLogger = require('../logger').child({ component: 'file-conflict-tracking' });
 
 const {
@@ -587,7 +587,7 @@ function markTimeoutAlertNotified(alertId) {
   db.prepare('UPDATE timeout_alerts SET notified = 1 WHERE id = ?').run(alertId);
 }
 
-// Delegated to db/file-tracking-scans.js
+// Delegated to db/file/tracking-scans.js
 const {
   runVulnerabilityScan,
   getVulnerabilityScanResults,

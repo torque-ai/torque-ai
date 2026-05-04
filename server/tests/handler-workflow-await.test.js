@@ -7,7 +7,7 @@ vi.mock('../hooks/event-dispatch', () => {
 
 const workflowEngine = require('../db/workflow-engine');
 const taskCore = require('../db/task-core');
-const fileTracking = require('../db/file-tracking');
+const fileTracking = require('../db/file/tracking');
 const handlers = require('../handlers/workflow/await');
 const shellPolicy = require('../utils/shell-policy');
 const preCommitReviewer = require('../review/pre-commit-reviewer');

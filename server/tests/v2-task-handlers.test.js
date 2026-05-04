@@ -93,7 +93,7 @@ function loadHandlers() {
   installCjsModuleMock('../database', mockDb);
   installCjsModuleMock('../db/task-core', mockDb);
   installCjsModuleMock('../db/provider/routing-core', mockDb);
-  installCjsModuleMock('../db/file-tracking', mockDb);
+  installCjsModuleMock('../db/file/tracking', mockDb);
   installCjsModuleMock('../db/webhooks-streaming', mockWebhooksStreaming);
   installCjsModuleMock('../config', mockConfig);
   installCjsModuleMock('../constants', mockConstants);

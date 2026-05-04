@@ -3,7 +3,7 @@
 const path = require('path');
 
 const taskCore = require('../db/task-core');
-const fileTracking = require('../db/file-tracking');
+const fileTracking = require('../db/file/tracking');
 const validationRules = require('../db/validation-rules');
 const logger = require('../logger').child({ component: 'approval-gate' });
 const { TASK_TIMEOUTS } = require('../constants');

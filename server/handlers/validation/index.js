@@ -10,7 +10,7 @@
  */
 
 const costTracking = require('../../db/cost-tracking');
-const fileTracking = require('../../db/file-tracking');
+const fileTracking = require('../../db/file/tracking');
 const validationRules = require('../../db/validation-rules');
 const configCore = require('../../db/config-core');
 const path = require('path');

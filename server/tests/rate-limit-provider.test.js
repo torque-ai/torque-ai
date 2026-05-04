@@ -20,7 +20,7 @@ function insertRunningTask(id, provider) {
 }
 
 beforeAll(() => {
-  ({ mod } = setupTestDbModule('../db/file-quality', 'rate-limit-provider'));
+  ({ mod } = setupTestDbModule('../db/file/quality', 'rate-limit-provider'));
 });
 
 afterAll(() => teardownTestDb());

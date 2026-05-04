@@ -315,7 +315,7 @@ beforeEach(() => {
 
   installCjsModuleMock('../database', mocks.db);
   installCjsModuleMock('../db/task-core', mocks.db);
-  installCjsModuleMock('../db/file-tracking', mocks.db);
+  installCjsModuleMock('../db/file/tracking', mocks.db);
   installCjsModuleMock('../db/workflow-engine', mocks.db);
   installCjsModuleMock('../db/task-metadata', {
     listArtifacts: mocks.db.listArtifacts,

@@ -43,7 +43,7 @@ function loadProviderHandlers() {
   delete require.cache[require.resolve('../handlers/provider-handlers')];
   installCjsModuleMock('../db/task-core', {});
   installCjsModuleMock('../db/event-tracking', {});
-  installCjsModuleMock('../db/file-tracking', {});
+  installCjsModuleMock('../db/file/tracking', {});
   installCjsModuleMock('../db/host/management', {});
   installCjsModuleMock('../db/provider/routing-core', {
     getHealthTrend: mockDb.getHealthTrend,

@@ -14,7 +14,7 @@ let fileTracking;
 describe('Integration: Safeguard Cascades', () => {
   beforeAll(() => {
     ({ db, testDir } = setupTestDbOnly('integration-safeguards'));
-    fileTracking = require('../db/file-tracking');
+    fileTracking = require('../db/file/tracking');
     fileTracking.setDb(db.getDb ? db.getDb() : db.getDbInstance());
     tm = require('../task-manager');
   });

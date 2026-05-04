@@ -125,7 +125,7 @@ function loadHandlers() {
     getBestFormatForModel: mockDb.getBestFormatForModel,
     getFormatSuccessRatesSummary: mockDb.getFormatSuccessRatesSummary,
   });
-  installMock('../db/file-tracking', {
+  installMock('../db/file/tracking', {
     detectProviderDegradation: mockDb.detectProviderDegradation,
   });
   installMock('../db/host/management', {

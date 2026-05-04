@@ -867,7 +867,7 @@ const MIGRATIONS = [
   {
     version: 40,
     name: 'add_quality_scores_scored_at_index',
-    // server/db/file-quality.js runs two stats queries against
+    // server/db/file/quality.js runs two stats queries against
     // quality_scores filtering on `WHERE scored_at >= ?` (overall stats
     // and per-provider stats since timestamp). The table only carried
     // task_id and provider indexes — every stats roll-up was a full
@@ -889,7 +889,7 @@ const MIGRATIONS = [
   {
     version: 41,
     name: 'add_validation_results_validated_at_severity_index',
-    // server/db/file-quality.js#getValidationFailureRate runs two
+    // server/db/file/quality.js#getValidationFailureRate runs two
     // queries on validation_results filtering on `WHERE validated_at >= ?`
     // (and one with an additional `severity IN ('error', 'critical')`).
     // The table only had task_id and status indexes — every dashboard
@@ -1020,7 +1020,7 @@ const MIGRATIONS = [
   {
     version: 47,
     name: 'add_file_locks_released_at_index',
-    // server/db/file-baselines.js#getActiveFileLocks (no-task-id case)
+    // server/db/file/baselines.js#getActiveFileLocks (no-task-id case)
     // and #releaseExpiredFileLocks both filter on
     // `WHERE released_at IS NULL AND (expires_at IS NULL OR expires_at > ?)`
     // — the active-lock sweep used by every file-baseline open. The

@@ -65,7 +65,7 @@ function hasCompletedOutput(task) {
 
 function releaseCompletionSideEffects(taskId, logger) {
   try {
-    const fileBaselines = require('../db/file-baselines');
+    const fileBaselines = require('../db/file/baselines');
     fileBaselines.releaseAllFileLocks(taskId);
   } catch (err) {
     safeLog(logger, 'debug', 'Startup task reconciler could not release file locks for completed orphan', {

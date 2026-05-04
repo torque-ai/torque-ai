@@ -5,7 +5,7 @@
 
 const taskCore = require('../db/task-core');
 const eventTracking = require('../db/event-tracking');
-const fileTracking = require('../db/file-tracking');
+const fileTracking = require('../db/file/tracking');
 const hostManagement = require('../db/host/management');
 const providerRoutingCore = require('../db/provider/routing-core');
 const taskManager = require('../task-manager');

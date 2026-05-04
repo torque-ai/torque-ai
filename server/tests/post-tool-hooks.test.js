@@ -11,7 +11,7 @@ const advIntelligence = require('../handlers/advanced/intelligence');
 const postToolHooks = require('../hooks/post-tool-hooks');
 const taskManager = require('../task-manager');
 const taskCore = require('../db/task-core');
-const fileTracking = require('../db/file-tracking');
+const fileTracking = require('../db/file/tracking');
 const validationRules = require('../db/validation-rules');
 
 const { setupTestDb, teardownTestDb, safeTool } = vitestSetup;

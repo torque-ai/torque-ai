@@ -7,7 +7,7 @@ const require = createRequire(import.meta.url);
 const fs = require('fs');
 const childProcess = require('child_process');
 const { setupTestDbOnly, teardownTestDb, mkTask } = require('./vitest-setup');
-const scans = require('../db/file-tracking-scans');
+const scans = require('../db/file/tracking-scans');
 
 let dbModule;
 let db;
@@ -201,7 +201,7 @@ function createMockProcess({ stdout = '', stderr = '', closeCode, exitCode, erro
   return proc;
 }
 
-describe('db/file-tracking-scans', () => {
+describe('db/file/tracking-scans', () => {
   beforeAll(() => {
     ({ db: dbModule, testDir } = setupTestDbOnly('file-tracking-scans'));
     db = dbModule.getDbInstance();

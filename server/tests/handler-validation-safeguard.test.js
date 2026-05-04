@@ -45,14 +45,14 @@ function installCjsModuleMock(modulePath, exportsValue) {
 
 function loadHandlers() {
   delete require.cache[require.resolve('../handlers/validation/safeguard')];
-  installCjsModuleMock('../db/file-tracking', mockDb);
+  installCjsModuleMock('../db/file/tracking', mockDb);
   installCjsModuleMock('../db/config-core', mockConfigCore);
   installCjsModuleMock('../db/task-core', mockTaskCore);
   installCjsModuleMock('../constants', mockConstants);
   return require('../handlers/validation/safeguard');
 }
 
-vi.mock('../db/file-tracking', () => mockDb);
+vi.mock('../db/file/tracking', () => mockDb);
 vi.mock('../db/config-core', () => mockConfigCore);
 vi.mock('../db/task-core', () => mockTaskCore);
 vi.mock('../constants', () => mockConstants);

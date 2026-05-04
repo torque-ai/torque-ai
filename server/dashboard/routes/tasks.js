@@ -5,7 +5,7 @@
  * where context = { broadcastTaskUpdate, clients, serverPort }.
  */
 const taskCore = require('../../db/task-core');
-const fileTracking = require('../../db/file-tracking');
+const fileTracking = require('../../db/file/tracking');
 const providerRoutingCore = require('../../db/provider/routing-core');
 const webhooksStreaming = require('../../db/webhooks-streaming');
 const { sendJson, sendError, parseBody, enrichTaskWithHostName } = require('../utils');

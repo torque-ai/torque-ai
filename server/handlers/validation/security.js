@@ -3,7 +3,7 @@
  * Extracted from validation-handlers.js
  */
 
-const fileTracking = require('../../db/file-tracking');
+const fileTracking = require('../../db/file/tracking');
 const { requireTask, ErrorCodes, makeError } = require('../shared');
 
 /**

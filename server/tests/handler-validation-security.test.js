@@ -29,12 +29,12 @@ function installCjsModuleMock(modulePath, exportsValue) {
 
 function loadHandlers() {
   delete require.cache[require.resolve('../handlers/validation/security')];
-  installCjsModuleMock('../db/file-tracking', mockDb);
+  installCjsModuleMock('../db/file/tracking', mockDb);
   installCjsModuleMock('../db/task-core', mockTaskCore);
   return require('../handlers/validation/security');
 }
 
-vi.mock('../db/file-tracking', () => mockDb);
+vi.mock('../db/file/tracking', () => mockDb);
 vi.mock('../db/task-core', () => mockTaskCore);
 
 function resetMockDefaults() {

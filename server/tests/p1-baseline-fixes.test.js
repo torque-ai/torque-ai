@@ -13,7 +13,7 @@ const { setupTestDbModule, teardownTestDb, rawDb, resetTables } = require('./vit
 let mod, testDir;
 
 beforeAll(() => {
-  ({ mod, testDir } = setupTestDbModule('../db/file-baselines', 'p1-baseline-fixes'));
+  ({ mod, testDir } = setupTestDbModule('../db/file/baselines', 'p1-baseline-fixes'));
 });
 
 afterAll(() => teardownTestDb());

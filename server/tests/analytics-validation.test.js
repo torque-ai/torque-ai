@@ -8,7 +8,7 @@
 
 const crypto = require('crypto');
 const { setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
-const fileQuality = require('../db/file-quality');
+const fileQuality = require('../db/file/quality');
 
 let db;
 

@@ -1,5 +1,5 @@
 const taskCore = require('../db/task-core');
-const fileTracking = require('../db/file-tracking');
+const fileTracking = require('../db/file/tracking');
 const handlers = require('../handlers/validation/analysis');
 
 function getText(result) {

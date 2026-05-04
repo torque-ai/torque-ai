@@ -2,7 +2,7 @@ describe('file-risk-patterns', () => {
   let scoreFilePath;
 
   beforeEach(() => {
-    const { scoreFileByPath } = require('../db/file-risk-patterns');
+    const { scoreFileByPath } = require('../db/file/risk-patterns');
     scoreFilePath = scoreFileByPath;
   });
 
@@ -69,7 +69,7 @@ describe('file-risk-patterns', () => {
 
   describe('scoreFiles batch', () => {
     it('scores multiple files and returns per-file results', () => {
-      const { scoreFilesByPath } = require('../db/file-risk-patterns');
+      const { scoreFilesByPath } = require('../db/file/risk-patterns');
       const results = scoreFilesByPath([
         'auth/session.js',
         'src/utils/format.js',

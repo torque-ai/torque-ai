@@ -25,7 +25,7 @@ const serverConfig = require('../config');
 const taskCore = require('../db/task-core');
 const workflowEngine = require('../db/workflow-engine');
 const taskMetadata = require('../db/task-metadata');
-const fileTracking = require('../db/file-tracking');
+const fileTracking = require('../db/file/tracking');
 const hostMonitoring = require('../utils/host-monitoring');
 let handlers;
 

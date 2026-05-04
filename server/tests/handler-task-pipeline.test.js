@@ -3,7 +3,7 @@ const eventTracking = require('../db/event-tracking');
 const taskCore = require('../db/task-core');
 const projectConfigCore = require('../db/project-config-core');
 const taskMetadata = require('../db/task-metadata');
-const fileTracking = require('../db/file-tracking');
+const fileTracking = require('../db/file/tracking');
 const taskManager = require('../task-manager');
 const handlers = require('../handlers/task/pipeline');
 
