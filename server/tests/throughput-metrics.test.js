@@ -3,24 +3,11 @@
 const Database = require('better-sqlite3');
 
 const FIXED_NOW = new Date('2026-03-13T12:00:00.000Z');
-const DATABASE_MODULE = require.resolve('../database');
 const THROUGHPUT_MODULE = require.resolve('../db/throughput-metrics');
 
 let db;
 let mod;
-let mockGetDbInstance;
 let taskCounter = 0;
-
-function installDatabaseMock() {
-  require.cache[DATABASE_MODULE] = {
-    id: DATABASE_MODULE,
-    filename: DATABASE_MODULE,
-    loaded: true,
-    exports: {
-      getDbInstance: mockGetDbInstance,
-    },
-  };
-}
 
 function rawDb() {
   if (!db) {
@@ -150,16 +137,17 @@ describe('throughput metrics db module', () => {
 
     db = new Database(':memory:');
     createSchema();
-    mockGetDbInstance = vi.fn(() => db);
     delete require.cache[THROUGHPUT_MODULE];
-    installDatabaseMock();
     mod = require('../db/throughput-metrics');
+    mod.setDb(db);
     taskCounter = 0;
   });
 
   afterEach(() => {
+    if (mod && typeof mod.setDb === 'function') {
+      mod.setDb(null);
+    }
     delete require.cache[THROUGHPUT_MODULE];
-    delete require.cache[DATABASE_MODULE];
 
     if (db) {
       db.close();
@@ -266,6 +254,29 @@ describe('throughput metrics db module', () => {
       averageDuration: {
         overall: 0,
         byProvider: {},
+      },
+    });
+  });
+
+  it('throws a database-unavailable error when no db is injected', () => {
+    mod.setDb(null);
+
+    expect(() => mod.getTasksPerHour(1)).toThrow('Database instance is not available');
+  });
+
+  it('restores metric reads after re-injecting a db', () => {
+    seedThroughputFixture();
+    mod.setDb(null);
+
+    expect(() => mod.getTasksPerHour(1)).toThrow('Database instance is not available');
+
+    mod.setDb(db);
+    expect(mod.getTasksPerHour(1)).toEqual({
+      total: 5,
+      perHour: 5,
+      byProvider: {
+        codex: 3,
+        ollama: 2,
       },
     });
   });
