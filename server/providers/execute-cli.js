@@ -612,19 +612,31 @@ function buildCodexCommand(task, resolvedFileContext, providerConfig, opts = {})
  * @returns {{ queued: boolean, task: Object }}
  */
 function spawnAndTrackProcess(taskId, task, cmdSpec, provider) {
-  // --- Subprocess-detachment dispatch (Phase B, flag-gated) ---
-  // When TORQUE_DETACHED_SUBPROCESSES=1 AND the provider is codex/codex-spark,
-  // delegate to the new detached spawn path that (a) writes stdio to per-task
-  // log files instead of pipes and (b) uses PID-liveness polling instead of
-  // child.on('close'). Result: a TORQUE restart no longer kills the in-flight
-  // codex subprocess. See docs/design/2026-05-03-subprocess-detachment-codex-spike.md
-  // §4 for the full design and §8 phase plan.
+  // --- Subprocess-detachment dispatch (Phase B + F, flag-gated) ---
+  // When TORQUE_DETACHED_SUBPROCESSES=1 AND the provider is one of the
+  // detachment-eligible CLI providers, delegate to the detached spawn
+  // path that (a) writes stdio to per-task log files instead of pipes
+  // and (b) uses PID-liveness polling instead of child.on('close').
+  // Result: a TORQUE restart no longer kills the in-flight subprocess.
   //
-  // Non-codex providers and the flag-off case keep the legacy pipe path below
-  // unchanged. Phase F extends detachment to claude-cli / ollama-agentic /
-  // claude-code-sdk; Phase G flips the default; Phase H deletes this branch.
-  const isCodexProviderDispatch = (provider === 'codex' || provider === 'codex-spark');
-  if (isCodexProviderDispatch && isSubprocessDetachmentEnabled()) {
+  // Phase B added codex / codex-spark. Phase F extends to claude-cli —
+  // its prompt-via-stdin shape and process-exit semantics match the
+  // wrapper's contract (process-exit-wrapper.js streams stdin from
+  // TORQUE_PEW_STDIN_FILE; claude-cli's `-p` print mode reads stdin
+  // the same way codex's `exec -` does).
+  //
+  // Skipped on purpose:
+  //   - ollama-agentic — HTTP-based loop, no subprocess to detach.
+  //   - claude-code-sdk — its result is the resolution of a Promise
+  //     that streams JSONL events back over the parent's stdio pipe
+  //     and resolves on a final assistant message. Detaching would
+  //     require restructuring the entire result-collection flow to
+  //     read incremental state from disk on re-adoption — separate arc.
+  //
+  // Non-eligible providers and the flag-off case keep the legacy pipe
+  // path below unchanged. Phase G flips the default; Phase H deletes
+  // this branch and the legacy pipe path.
+  if (shouldUseDetachedPath({ provider, task })) {
     return spawnAndTrackProcessDetached(taskId, task, cmdSpec, provider);
   }
 
@@ -1307,6 +1319,41 @@ const DETACHED_LIVENESS_POLL_MS = 2000;
 const DETACHED_FINAL_DRAIN_MS = 1500; // give Tail a couple more polls after PID death
 
 /**
+ * Phase B + F dispatch decision: should this provider+task pair take
+ * the detached spawn path instead of the legacy pipe path?
+ *
+ * Eligible providers: codex, codex-spark (Phase B), claude-cli (Phase F).
+ * Skipped: ollama-agentic (HTTP-based, no subprocess), claude-code-sdk
+ * (promise-coupled result-collection — separate arc).
+ *
+ * Worktree-isolation guard: claude-cli + cli_worktree_isolation=1 must
+ * keep using the pipe path because the detached spawn doesn't set up
+ * worktrees. Codex/codex-spark don't use worktrees regardless. Pulling
+ * this into a helper makes the routing testable without spinning up
+ * the full execute-cli init.
+ *
+ * @param {Object} args
+ * @param {string} args.provider
+ * @param {Object} [args.task] - read-only; we only care about working_directory
+ * @returns {boolean}
+ */
+function shouldUseDetachedPath({ provider, task }) {
+  if (!isSubprocessDetachmentEnabled()) return false;
+  const detachable = provider === 'codex'
+    || provider === 'codex-spark'
+    || provider === 'claude-cli';
+  if (!detachable) return false;
+  if (provider === 'claude-cli'
+      && task
+      && task.working_directory
+      && gitWorktree.isGitRepo(task.working_directory)
+      && serverConfig.get('cli_worktree_isolation') === '1') {
+    return false;
+  }
+  return true;
+}
+
+/**
  * Spawn a codex / codex-spark subprocess in detached mode. The TORQUE
  * parent does NOT hold a stdio pipe to the child; instead, stdout and
  * stderr are redirected to per-task log files under
@@ -1983,6 +2030,7 @@ module.exports = {
   reAdoptDetachedSubprocess,
   computeActivityAwareTimeoutDelay,
   parseProcessExitAnnotation,
+  shouldUseDetachedPath,
   EXIT_SPAWN_INSTANT_EXIT,
   EXIT_CLOSE_HANDLER_EXCEPTION,
   EXIT_SPAWN_ERROR,
