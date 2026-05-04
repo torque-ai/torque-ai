@@ -39,6 +39,7 @@ const eventBus = require('../event-bus');
 const { handleRetryFactoryVerify } = require('../handlers/factory-handlers');
 const loopController = require('./loop-controller');
 const { detectStuckLoops } = require('./stuck-loop-detector');
+const { sweepStrandedNeedsReviewForProject } = require('./sweep-stranded-needs-review');
 const { runRejectedRecoverySweep } = require('./rejected-recovery');
 const { recoverStalledVerifyLoops, resetRecoveryAttempts } = require('./verify-stall-recovery');
 const { reconcileProject: reconcileOrphanWorktrees } = require('./worktree-reconcile');
@@ -920,6 +921,47 @@ async function tickProject(project) {
       logger.debug('Factory tick: worktree reconcile failed', {
         project_id: project.id,
         err: err.message,
+      });
+    }
+
+    // Self-resolve sweep — auto-classify needs_review work items stranded
+    // by historical false-positive zero-diff rejections. Without this,
+    // pre-fix items pile up in needs_review forever (operator-only).
+    // High-confidence shipped-detector match → shipped_stale; no match →
+    // needs_replan so PRIORITIZE re-picks under the fixed engine.
+    try {
+      const sweepLogger = (decision) => {
+        try {
+          factoryDecisions.setDb(resolveDatabase());
+          factoryDecisions.recordDecision({
+            project_id: decision.project_id,
+            stage: decision.stage || 'sense',
+            actor: 'sweep-stranded-needs-review',
+            action: decision.action,
+            reasoning: decision.reasoning,
+            inputs: decision.inputs || null,
+            outcome: decision.outcome || null,
+            confidence: decision.confidence ?? 1,
+            batch_id: null,
+          });
+        } catch (logErr) {
+          logger.debug('sweep-stranded-needs-review: log failed', { err: logErr?.message });
+        }
+      };
+      const sweepSummary = sweepStrandedNeedsReviewForProject(project, {
+        logger,
+        safeLogDecision: sweepLogger,
+      });
+      if (sweepSummary.scanned > 0) {
+        logger.info('Factory tick: stranded-needs-review sweep', {
+          project_id: project.id,
+          ...sweepSummary,
+        });
+      }
+    } catch (err) {
+      logger.debug('Factory tick: sweep-stranded-needs-review failed', {
+        project_id: project.id,
+        err: err?.message,
       });
     }
 
