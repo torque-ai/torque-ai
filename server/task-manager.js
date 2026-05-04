@@ -274,11 +274,14 @@ let _processQueueTimer = null;
 let _processQueuePending = false;
 let _lastProcessQueueCall = 0;
 
-// Track pending close handlers to allow tests to wait for all async work to finish.
-// On Windows, vitest kills worker forks without propagating signals, so any
-// in-flight execFileSync('git', ...) calls inside the close handler become orphans.
-let pendingCloseHandlers = 0;
-let closeHandlerResolvers = []; // Callbacks to notify when pendingCloseHandlers hits 0
+// Pending close-handler bookkeeping (counter + drain + waitForPendingHandlers)
+// lives in tasks/close-handler-state.js. The lifecycle module mutates the
+// counter through the accessor passed via DI in initSubModules.
+const _closeHandlerState = require('./tasks/close-handler-state');
+const {
+  drainCloseHandlerResolvers,
+  waitForPendingHandlers,
+} = _closeHandlerState;
 
 // Tasks currently in the finalization pipeline (close handler running).
 // The orphan checker must skip active finalizers — the process has exited but
@@ -290,34 +293,6 @@ const finalizingTasks = new Map();
 // Test mode flag: when true, getActualModifiedFiles() returns null immediately,
 // preventing git process spawning in close handlers during E2E tests with mock processes.
 let skipGitInCloseHandler = false;
-
-/** Resolve any promises waiting for close handlers to finish. */
-function drainCloseHandlerResolvers() {
-  if (pendingCloseHandlers <= 0) {
-    pendingCloseHandlers = 0; // clamp
-    const resolvers = closeHandlerResolvers;
-    closeHandlerResolvers = [];
-    for (const resolve of resolvers) resolve();
-  }
-}
-
-/**
- * Wait for all in-flight close handlers to complete.
- * Returns immediately if none are pending.
- * @param {number} timeout - Max wait time in ms (default 15000)
- */
-function waitForPendingHandlers(timeout = 15000) {
-  if (pendingCloseHandlers <= 0) return Promise.resolve();
-  return new Promise((resolve) => {
-    const timer = setTimeout(() => {
-      // Remove ourselves from the list if we time out
-      closeHandlerResolvers = closeHandlerResolvers.filter(r => r !== wrappedResolve);
-      resolve(); // Don't reject — just stop waiting
-    }, timeout);
-    const wrappedResolve = () => { clearTimeout(timer); resolve(); };
-    closeHandlerResolvers.push(wrappedResolve);
-  });
-}
 
 // File index cache moved to utils/file-resolution.js
 
@@ -1120,11 +1095,7 @@ _processLifecycle.init({
   safeUpdateTaskStatus,
   setupStdoutHandler: _processStreams.setupStdoutHandler,
   setupStderrHandler: _processStreams.setupStderrHandler,
-  closeHandlerState: {
-    get count() { return pendingCloseHandlers; },
-    set count(v) { pendingCloseHandlers = v; },
-    drain: drainCloseHandlerResolvers,
-  },
+  closeHandlerState: _closeHandlerState.createCloseHandlerStateAccessor(),
 });
 } // end initSubModules
 
@@ -1264,8 +1235,7 @@ Object.assign(module.exports, {
       _processQueuePending = false;
       _lastProcessQueueCall = 0;
       runningProcesses.resetAll();
-      pendingCloseHandlers = 0;
-      closeHandlerResolvers = [];
+      _closeHandlerState._resetForTest();
       isShuttingDown = false;
       skipGitInCloseHandler = false;
       _taskStartup.setSkipGitInCloseHandler(false);
