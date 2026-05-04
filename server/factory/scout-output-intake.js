@@ -514,11 +514,11 @@ function promoteScoutTaskOutputToIntake(task, deps = {}) {
     return { created: [], skipped: [], reason: 'not_starvation_recovery_scout' };
   }
 
-  const factoryIntake = deps.factoryIntake || require('../db/factory-intake');
+  const factoryIntake = deps.factoryIntake || require('../db/factory/intake');
   const logger = deps.logger || console;
   const resolveProjectId = deps.resolveProjectId || ((candidateTask) => {
     try {
-      const factoryHealth = deps.factoryHealth || require('../db/factory-health');
+      const factoryHealth = deps.factoryHealth || require('../db/factory/health');
       return factoryHealth.getProjectByPath(candidateTask?.working_directory)?.id || null;
     } catch {
       return null;

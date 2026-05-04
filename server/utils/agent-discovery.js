@@ -87,7 +87,7 @@ function extractVersion(value) {
 
 function getProviderRoutingCore() {
   try {
-    return require('../db/provider-routing-core');
+    return require('../db/provider/routing-core');
   } catch {
     return null;
   }

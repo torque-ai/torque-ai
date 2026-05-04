@@ -1,8 +1,8 @@
 'use strict';
 
 const Database = require('better-sqlite3');
-const fixtureCatalog = require('../db/peek-fixture-catalog');
-const { createTables } = require('../db/schema-tables');
+const fixtureCatalog = require('../db/peek/fixture-catalog');
+const { createTables } = require('../db/schema/tables');
 const {
   FIXTURE_CATALOG,
   QT_FIXTURE,

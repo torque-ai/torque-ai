@@ -115,7 +115,7 @@ describe('isProjectStatusPaused', () => {
   beforeEach(() => {
     // eslint-disable-next-line torque/no-reset-modules-in-each -- requires factory-health and loop-controller fresh each run
     vi.resetModules();
-    factoryHealth = require('../db/factory-health');
+    factoryHealth = require('../db/factory/health');
     loopController = require('../factory/loop-controller');
   });
 

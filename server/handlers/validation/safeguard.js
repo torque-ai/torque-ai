@@ -5,7 +5,7 @@
  */
 
 const configCore = require('../../db/config-core');
-const fileTracking = require('../../db/file-tracking');
+const fileTracking = require('../../db/file/tracking');
 const { SOURCE_EXTENSIONS, UI_EXTENSIONS } = require('../../constants');
 const { ErrorCodes, makeError, requireTask } = require('../shared');
 

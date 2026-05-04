@@ -457,7 +457,7 @@ async function handlePostCompletion(ctx) {
     // (The async safeguard chain also releases locks, but that races with event dispatch.)
     if (ctx.status === 'completed' || ctx.status === 'failed' || ctx.status === 'cancelled') {
       try {
-        const fileBaselines = require('../db/file-baselines');
+        const fileBaselines = require('../db/file/baselines');
         const released = fileBaselines.releaseAllFileLocks(taskId);
         if (released > 0) {
           logger.info(`[FileLock] Released ${released} lock(s) for ${taskId} (pre-dispatch)`);

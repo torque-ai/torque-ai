@@ -63,7 +63,7 @@ vi.mock('../db/task-metadata', () => ({
   getTasksWithCommits() { return []; },
 }));
 
-vi.mock('../db/file-tracking', () => ({
+vi.mock('../db/file/tracking', () => ({
   createRollback() { return 'rollback-123'; },
 }));
 vi.mock('../task-manager', () => ({
@@ -81,7 +81,7 @@ const eventTracking = require('../db/event-tracking');
 const schedulingAutomation = require('../db/scheduling-automation');
 const projectConfigCore = require('../db/project-config-core');
 const taskMetadata = require('../db/task-metadata');
-const fileTracking = require('../db/file-tracking');
+const fileTracking = require('../db/file/tracking');
 const taskManager = require('../task-manager');
 const handlers = require('../handlers/task/pipeline');
 const shared = require('../handlers/shared');

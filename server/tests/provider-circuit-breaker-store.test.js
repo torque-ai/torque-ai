@@ -2,7 +2,7 @@
 /* global describe, it, expect, beforeEach */
 
 const Database = require('better-sqlite3');
-const { createTables: ensureSchema } = require('../db/schema-tables');
+const { createTables: ensureSchema } = require('../db/schema/tables');
 
 describe('provider_circuit_breaker schema', () => {
   let db;
@@ -33,7 +33,7 @@ describe('provider_circuit_breaker schema', () => {
   });
 });
 
-const { createProviderCircuitBreakerStore } = require('../db/provider-circuit-breaker-store');
+const { createProviderCircuitBreakerStore } = require('../db/provider/circuit-breaker-store');
 
 describe('createProviderCircuitBreakerStore', () => {
   let db;

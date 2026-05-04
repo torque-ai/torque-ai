@@ -2,7 +2,7 @@
 
 const path = require('path');
 const Database = require('better-sqlite3');
-const factoryHealth = require('../db/factory-health');
+const factoryHealth = require('../db/factory/health');
 
 function createFactoryTables(db) {
   db.exec(`

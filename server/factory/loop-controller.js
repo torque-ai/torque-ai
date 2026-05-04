@@ -12,11 +12,11 @@ const {
   getGatesForTrustLevel,
 } = require('./loop-states');
 const database = require('../database');
-const factoryDecisions = require('../db/factory-decisions');
-const factoryHealth = require('../db/factory-health');
-const factoryIntake = require('../db/factory-intake');
-const factoryLoopInstances = require('../db/factory-loop-instances');
-const factoryWorktrees = require('../db/factory-worktrees');
+const factoryDecisions = require('../db/factory/decisions');
+const factoryHealth = require('../db/factory/health');
+const factoryIntake = require('../db/factory/intake');
+const factoryLoopInstances = require('../db/factory/loop-instances');
+const factoryWorktrees = require('../db/factory/worktrees');
 const architectRunner = require('../factory/architect-runner');
 const guardrailRunner = require('../factory/guardrail-runner');
 const { findHeavyLocalValidationCommand } = require('../utils/heavy-validation-guard');
@@ -6125,7 +6125,7 @@ async function awaitTaskToStructuredResult(handleAwaitTask, taskCore, args) {
 
 function getPlanReviewProvidersHealth() {
   try {
-    const providerRoutingCore = require('../db/provider-routing-core');
+    const providerRoutingCore = require('../db/provider/routing-core');
     const serverConfig = require('../config');
     const providerNames = ['claude-cli', 'anthropic', 'deepinfra'];
 
@@ -8576,7 +8576,7 @@ async function handlePrioritizeTransition({ project, instance, currentState }) {
       } catch (_decompErr) { void _decompErr; }
 
       try {
-        const { parkWorkItemForCodex } = require('../db/factory-intake');
+        const { parkWorkItemForCodex } = require('../db/factory/intake');
         parkWorkItemForCodex({
           db: database.getDbInstance(),
           workItemId: transitionWorkItem.id,
@@ -10242,7 +10242,7 @@ async function maybeShipNoop({ project_id, batch_id, work_item_id }) {
   // EXECUTE -> VERIFY transition. If attempt-history is unreachable
   // (missing schema, closed db, etc.) treat it as "no prior row" and
   // fall through to today's behavior.
-  const attemptHistory = require('../db/factory-attempt-history');
+  const attemptHistory = require('../db/factory/attempt-history');
   let latest;
   try {
     latest = attemptHistory.getLatestForBatch(batch_id);
@@ -10563,7 +10563,7 @@ async function attemptSilentRerun({
   priorVerifyOutput, runVerify,
 }) {
   const { verifySignature } = require('./verify-signature');
-  const instances = require('../db/factory-loop-instances');
+  const instances = require('../db/factory/loop-instances');
 
   if (!isFactoryFeatureEnabled(project_id, 'verify_silent_rerun_enabled')) {
     return { kind: 'flag_off' };
@@ -10927,7 +10927,7 @@ async function submitVerifyFixTask({
   const planPath = workItem?.origin?.plan_path || null;
   const planTitle = workItem?.title || workItem?.origin?.title || null;
 
-  const attemptHistory = require('../db/factory-attempt-history');
+  const attemptHistory = require('../db/factory/attempt-history');
   const workItemIdStr = String((workItem && workItem.id) || '');
   // Defensive read — if attempt-history is unreachable, the retry
   // prompt just falls back to today's shape (no prior-attempts block).
@@ -13945,7 +13945,7 @@ function decideCodexFallbackAction({ db, projectId, workItemId, breaker }) {
   }
   if (!codexOpen) return { action: 'proceed' };
 
-  const { getCodexFallbackPolicy } = require('../db/factory-intake');
+  const { getCodexFallbackPolicy } = require('../db/factory/intake');
   let policy;
   try {
     policy = getCodexFallbackPolicy({ db, projectId });
@@ -13983,7 +13983,7 @@ function decideCodexFallbackAction({ db, projectId, workItemId, breaker }) {
 function decomposeBeforePark({ db, projectId, workItem, projectConfig }) {
   void db; void projectId; // read-only — no DB writes needed
   try {
-    const { decomposeTask } = require('../db/host-complexity');
+    const { decomposeTask } = require('../db/host/complexity');
     const { classify } = require('../routing/eligibility-classifier');
 
     const description = workItem?.title || workItem?.description || '';

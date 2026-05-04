@@ -4,7 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const Database = require('better-sqlite3');
-const factoryIntake = require('../db/factory-intake');
+const factoryIntake = require('../db/factory/intake');
 const { createPlanFileIntake } = require('../factory/plan-file-intake');
 
 function createFactoryTables(db) {

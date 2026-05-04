@@ -6,8 +6,8 @@ const path = require('path');
 const Database = require('better-sqlite3');
 
 const finalizer = require('../execution/task-finalizer');
-const providerScoring = require('../db/provider-scoring');
-const providerRoutingCore = require('../db/provider-routing-core');
+const providerScoring = require('../db/provider/scoring');
+const providerRoutingCore = require('../db/provider/routing-core');
 const {
   createSharedFactoryStore,
   deriveLearningScope,

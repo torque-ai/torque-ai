@@ -6,7 +6,7 @@ const SANITIZE_PATH = require.resolve('../utils/sanitize');
 const CONTEXT_STUFFING_PATH = require.resolve('../utils/context-stuffing');
 const STUDY_ENGINE_PATH = require.resolve('../integrations/codebase-study-engine');
 const MODEL_ROLES_PATH = require.resolve('../db/model-roles');
-const PROVIDER_MODEL_SCORES_PATH = require.resolve('../db/provider-model-scores');
+const PROVIDER_MODEL_SCORES_PATH = require.resolve('../db/provider/model-scores');
 
 const ORIGINAL_CACHE_ENTRIES = new Map([
   [LOGGER_PATH, require.cache[LOGGER_PATH]],

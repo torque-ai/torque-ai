@@ -6,7 +6,7 @@ const { randomUUID } = require('crypto');
 const { spawn, spawnSync } = require('child_process');
 
 const BaseProvider = require('./base');
-const providerRoutingCore = require('../db/provider-routing-core');
+const providerRoutingCore = require('../db/provider/routing-core');
 const { getDataDir } = require('../data-dir');
 const { EventType } = require('../streaming/event-types');
 const { buildSafeEnv } = require('../utils/safe-env');

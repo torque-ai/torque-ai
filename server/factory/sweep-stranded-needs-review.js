@@ -27,7 +27,7 @@
  */
 
 const fs = require('fs');
-const factoryIntake = require('../db/factory-intake');
+const factoryIntake = require('../db/factory/intake');
 
 const TARGETED_REJECT_REASONS = new Set([
   'zero_diff_across_retries',

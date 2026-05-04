@@ -10,8 +10,8 @@ const MODULE_PATHS = [
   '../db/task-core',
   '../db/cost-tracking',
   '../db/event-tracking',
-  '../db/file-tracking',
-  '../db/provider-routing-core',
+  '../db/file/tracking',
+  '../db/provider/routing-core',
   '../db/webhooks-streaming',
   '../hooks/event-dispatch',
   '../mcp-sse',
@@ -101,8 +101,8 @@ function loadHandlers() {
   installCjsModuleMock('../db/task-core', mockDb);
   installCjsModuleMock('../db/cost-tracking', mockDb);
   installCjsModuleMock('../db/event-tracking', mockDb);
-  installCjsModuleMock('../db/file-tracking', mockDb);
-  installCjsModuleMock('../db/provider-routing-core', mockDb);
+  installCjsModuleMock('../db/file/tracking', mockDb);
+  installCjsModuleMock('../db/provider/routing-core', mockDb);
   installCjsModuleMock('../db/webhooks-streaming', mockDb);
   installCjsModuleMock('../api/middleware', mockMiddleware);
   installCjsModuleMock('../hooks/event-dispatch', mockEventDispatch);

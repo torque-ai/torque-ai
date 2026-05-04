@@ -183,7 +183,7 @@ function insertLegacyRow(overrides = {}) {
 }
 
 beforeAll(() => {
-  ({ mod: audit } = setupTestDbModule('../db/peek-policy-audit', 'db-peek-policy-audit'));
+  ({ mod: audit } = setupTestDbModule('../db/peek/policy-audit', 'db-peek-policy-audit'));
 });
 
 afterAll(() => {
@@ -199,7 +199,7 @@ afterEach(() => {
   audit.setDb(rawDb());
 });
 
-describe('db/peek-policy-audit', () => {
+describe('db/peek/policy-audit', () => {
   describe('setDb', () => {
     it('throws when the database handle has not been initialized', () => {
       audit.setDb(null);

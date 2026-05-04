@@ -449,7 +449,7 @@ describe('factory scorer behavioral coverage', () => {
           missing: 8,
           total: 10,
           coveragePercent: 20,
-          missingFiles: [{ file: 'server/db/provider-routing-core.js', lines: 250 }],
+          missingFiles: [{ file: 'server/db/provider/routing-core.js', lines: 250 }],
         },
       }, null);
 
@@ -459,7 +459,7 @@ describe('factory scorer behavioral coverage', () => {
           missing: 2,
           total: 10,
           coveragePercent: 80,
-          missingFiles: [{ file: 'server/db/provider-routing-core.js', lines: 250 }],
+          missingFiles: [{ file: 'server/db/provider/routing-core.js', lines: 250 }],
         },
       }, null);
 
@@ -1192,7 +1192,7 @@ jobs:
         '2026-04-12-performance-scan.md': findingsMarkdown([
           { severity: 'high', title: 'Queue drain path spins CPU during retries', file: 'server/execution/queue-scheduler.js' },
           { severity: 'critical', title: 'Resolved cache-thrashing incident', file: 'server/db/task-core.js', status: 'RESOLVED' },
-          { severity: 'medium', title: 'Planner query misses an index', file: 'server/db/factory-architect.js' },
+          { severity: 'medium', title: 'Planner query misses an index', file: 'server/db/factory/architect.js' },
         ]),
       });
 
@@ -1209,7 +1209,7 @@ jobs:
         {
           severity: 'medium',
           title: 'Planner query misses an index',
-          file: 'server/db/factory-architect.js',
+          file: 'server/db/factory/architect.js',
         },
       ]);
     });
@@ -1256,7 +1256,7 @@ jobs:
           { severity: 'medium', title: 'Audit report flags one slow aggregation query', file: 'server/db/task-core.js' },
         ]),
         [latestReport]: findingsMarkdown([
-          { severity: 'medium', title: 'Sweep report flags the final slow warm-path query', file: 'server/db/factory-architect.js' },
+          { severity: 'medium', title: 'Sweep report flags the final slow warm-path query', file: 'server/db/factory/architect.js' },
         ]),
       });
 
@@ -1272,7 +1272,7 @@ jobs:
         {
           severity: 'medium',
           title: 'Sweep report flags the final slow warm-path query',
-          file: 'server/db/factory-architect.js',
+          file: 'server/db/factory/architect.js',
         },
       ]);
     });
@@ -1378,7 +1378,7 @@ jobs:
             { type: 'HACK', text: 'HACK: temporary queue shortcut for flaky retries', file: 'server/execution/queue-scheduler.js' },
             { type: 'FIXME', text: 'FIXME: restore lifecycle ownership after restart', file: 'server/task-manager.js' },
             { type: 'XXX', text: 'XXX: delete fallback code after migration is complete', file: 'server/db/workflow-engine.js' },
-            { type: 'HACK', text: 'HACK: suppress noisy provider health warnings for now', file: 'server/db/provider-health-history.js' },
+            { type: 'HACK', text: 'HACK: suppress noisy provider health warnings for now', file: 'server/db/provider/health-history.js' },
           ],
         },
       }, null);
@@ -1461,7 +1461,7 @@ jobs:
         todos: {
           count: 1,
           items: [
-            { type: 'TODO', text: 'TODO: tighten provider selection', file: 'server/db/provider-routing-core.js' },
+            { type: 'TODO', text: 'TODO: tighten provider selection', file: 'server/db/provider/routing-core.js' },
           ],
         },
       }, null);

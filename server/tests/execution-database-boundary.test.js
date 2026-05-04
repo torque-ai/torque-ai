@@ -336,7 +336,7 @@ function installTaskManagerBoundaryMocks() {
   installMock('../container', container);
   installMock('../db/task-core', taskCore);
   installMock('../db/coordination', coordination);
-  installMock('../db/provider-routing-core', providerRoutingCore);
+  installMock('../db/provider/routing-core', providerRoutingCore);
   installMock('../logger', createLoggerMock());
   installMock('../providers/registry', providerRegistry);
   installMock('../providers/config', providerCfg);
@@ -507,7 +507,7 @@ describe('execution database import boundary', () => {
     const modulePath = '../execution/task-finalizer';
     expectNoDirectDatabaseImport(modulePath);
     installCommonBoundaryMocks();
-    const perfTracker = installMock('../db/provider-performance', {
+    const perfTracker = installMock('../db/provider/performance', {
       setDb: vi.fn(),
       recordTaskOutcome: vi.fn(),
       inferTaskType: vi.fn(() => 'general'),

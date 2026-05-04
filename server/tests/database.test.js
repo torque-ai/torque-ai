@@ -25,7 +25,7 @@ function setupDb() {
   ({ db, testDir } = setupTestDbOnly('database'));
   taskCore = require('../db/task-core');
   configCore = require('../db/config-core');
-  fileTracking = require('../db/file-tracking');
+  fileTracking = require('../db/file/tracking');
   codeAnalysis = require('../db/code-analysis');
   eventTracking = require('../db/event-tracking');
   return db;

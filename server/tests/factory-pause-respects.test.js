@@ -5,9 +5,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const fs = require('node:fs');
 const path = require('node:path');
 const { setupTestDbOnly, teardownTestDb, rawDb } = require('./vitest-setup');
-const factoryHealth = require('../db/factory-health');
-const factoryIntake = require('../db/factory-intake');
-const factoryLoopInstances = require('../db/factory-loop-instances');
+const factoryHealth = require('../db/factory/health');
+const factoryIntake = require('../db/factory/intake');
+const factoryLoopInstances = require('../db/factory/loop-instances');
 const taskCore = require('../db/task-core');
 const routingModule = require('../handlers/integration/routing');
 const factoryHandlers = require('../handlers/factory-handlers');
@@ -767,7 +767,7 @@ describe('factory pause enforcement', () => {
 
   it('auto-clears a VERIFY gate paused with reason=batch_tasks_not_terminal when the batch becomes terminal', async () => {
     const decisionLog = require('../factory/decision-log');
-    const factoryDecisions = require('../db/factory-decisions');
+    const factoryDecisions = require('../db/factory/decisions');
     factoryDecisions.setDb(db);
 
     const project = registerFactoryProject({ status: 'running', autoContinue: true });
@@ -815,7 +815,7 @@ describe('factory pause enforcement', () => {
 
   it('auto-clears a paused project-row VERIFY batch wait when the batch becomes terminal', async () => {
     const decisionLog = require('../factory/decision-log');
-    const factoryDecisions = require('../db/factory-decisions');
+    const factoryDecisions = require('../db/factory/decisions');
     factoryDecisions.setDb(db);
 
     const project = registerFactoryProject({ status: 'paused', autoContinue: true });
@@ -863,7 +863,7 @@ describe('factory pause enforcement', () => {
 
   it('does not auto-clear an operator-paused VERIFY batch wait when the batch becomes terminal', async () => {
     const decisionLog = require('../factory/decision-log');
-    const factoryDecisions = require('../db/factory-decisions');
+    const factoryDecisions = require('../db/factory/decisions');
     factoryDecisions.setDb(db);
 
     const project = markOperatorPaused(registerFactoryProject({ status: 'running', autoContinue: true }));
@@ -912,7 +912,7 @@ describe('factory pause enforcement', () => {
   it('starts ticks for paused project-row VERIFY batch waits on startup', () => {
     vi.useFakeTimers();
     const decisionLog = require('../factory/decision-log');
-    const factoryDecisions = require('../db/factory-decisions');
+    const factoryDecisions = require('../db/factory/decisions');
     factoryDecisions.setDb(db);
 
     try {
@@ -960,7 +960,7 @@ describe('factory pause enforcement', () => {
   it('does not start ticks for operator-paused VERIFY batch waits on startup', () => {
     vi.useFakeTimers();
     const decisionLog = require('../factory/decision-log');
-    const factoryDecisions = require('../db/factory-decisions');
+    const factoryDecisions = require('../db/factory/decisions');
     factoryDecisions.setDb(db);
 
     try {
@@ -1007,7 +1007,7 @@ describe('factory pause enforcement', () => {
 
   it('auto-clears a VERIFY gate when batch tasks are all skipped', async () => {
     const decisionLog = require('../factory/decision-log');
-    const factoryDecisions = require('../db/factory-decisions');
+    const factoryDecisions = require('../db/factory/decisions');
     factoryDecisions.setDb(db);
 
     const project = registerFactoryProject({ status: 'running', autoContinue: true });
@@ -1058,7 +1058,7 @@ describe('factory pause enforcement', () => {
 
   it('does not treat VERIFY batch waits with retry_scheduled tasks as unrecoverable stalls', async () => {
     const decisionLog = require('../factory/decision-log');
-    const factoryDecisions = require('../db/factory-decisions');
+    const factoryDecisions = require('../db/factory/decisions');
     factoryDecisions.setDb(db);
 
     const project = registerFactoryProject({ status: 'running', autoContinue: true });
@@ -1137,7 +1137,7 @@ describe('factory pause enforcement', () => {
 
   it('does not auto-clear a VERIFY gate when a batch task is still non-terminal', async () => {
     const decisionLog = require('../factory/decision-log');
-    const factoryDecisions = require('../db/factory-decisions');
+    const factoryDecisions = require('../db/factory/decisions');
     factoryDecisions.setDb(db);
 
     const project = registerFactoryProject({ status: 'running', autoContinue: true });

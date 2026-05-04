@@ -44,7 +44,7 @@ const COMPUTE_CAPABLE_PROVIDERS = [
 
 function autoSelectComputeProvider() {
   try {
-    const providerRoutingCore = require('../db/provider-routing-core');
+    const providerRoutingCore = require('../db/provider/routing-core');
     const allProviders = providerRoutingCore.listProviders();
 
     const enabledSet = new Set(
@@ -89,7 +89,7 @@ function autoSelectComputeProvider() {
  */
 function autoSelectApplyProviders() {
   try {
-    const providerRoutingCore = require('../db/provider-routing-core');
+    const providerRoutingCore = require('../db/provider/routing-core');
     const allProviders = providerRoutingCore.listProviders();
 
     const enabledMap = new Map(
@@ -240,7 +240,7 @@ function handleSubmitScout(args) {
     // starvation_recovery scouts) showed up with no project label because
     // task.project is null AND no target_project tag is set.
     try {
-      const factoryHealth = require('../db/factory-health');
+      const factoryHealth = require('../db/factory/health');
       const project = factoryHealth.getProject(project_id);
       if (project?.name) {
         tags.push(`factory:target_project=${project.name}`);

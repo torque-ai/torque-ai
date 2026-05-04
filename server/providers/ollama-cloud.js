@@ -8,7 +8,7 @@
 const BaseProvider = require('./base');
 const { MAX_STREAMING_OUTPUT } = require('../constants');
 const { isJsonModeRequested } = require('./shared');
-const { getQuotaStore } = require('../db/provider-quotas');
+const { getQuotaStore } = require('../db/provider/quotas');
 
 // Session-limit cooldown is far longer than burst-rate cooldown.
 // `weremittens has reached your session usage limit` resets daily on

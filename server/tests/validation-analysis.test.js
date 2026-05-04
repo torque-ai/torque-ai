@@ -56,7 +56,7 @@ function loadHandlers() {
   delete require.cache[require.resolve('../handlers/validation/analysis')];
   installMock('../database', mockDb);
   installMock('../db/task-core', mockDb);
-  installMock('../db/file-tracking', mockDb);
+  installMock('../db/file/tracking', mockDb);
   installMock('../task-manager', mockTaskManager);
   installMock('../logger', mockLogger);
   installMock('../constants', mockConstants);

@@ -446,7 +446,7 @@ describe('runLlmTiebreak', () => {
       { path: require.resolve('../handlers/workflow/await'), exports: { handleAwaitTask: awaitFn } },
       { path: require.resolve('../db/task-core'), exports: { getTask: task, ...(listTasks ? { listTasks } : {}) } },
       {
-        path: require.resolve('../db/provider-routing-core'),
+        path: require.resolve('../db/provider/routing-core'),
         exports: {
           getProvider: vi.fn((provider) => {
             const key = typeof provider === 'string' ? provider.trim().toLowerCase() : '';

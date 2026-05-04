@@ -29,7 +29,7 @@ function setup() {
 
   taskCore = require('../db/task-core');
   projectConfigCore = require('../db/project-config-core');
-  fileTracking = require('../db/file-tracking');
+  fileTracking = require('../db/file/tracking');
 
   saveBuildResultSpy = vi.fn((...args) => fileTracking.saveBuildResult(...args));
 

@@ -13,7 +13,7 @@ let mod, testDir;
 
 describe('file size threshold constants and compare behavior', () => {
   beforeAll(() => {
-    ({ mod, testDir } = setupTestDbModule('../db/file-baselines', 'p2-file-thresholds'));
+    ({ mod, testDir } = setupTestDbModule('../db/file/baselines', 'p2-file-thresholds'));
   });
 
   afterAll(() => teardownTestDb());

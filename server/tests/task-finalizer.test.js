@@ -8,10 +8,10 @@ const childProcess = require('child_process');
 
 const finalizer = require('../execution/task-finalizer');
 const { createAdversarialReviewStage } = require('../execution/adversarial-review-stage');
-const providerScoring = require('../db/provider-scoring');
+const providerScoring = require('../db/provider/scoring');
 const budgetWatcher = require('../db/budget-watcher');
 const modelCapabilities = require('../db/model-capabilities');
-const providerPerformance = require('../db/provider-performance');
+const providerPerformance = require('../db/provider/performance');
 const resumeContext = require('../utils/resume-context');
 const { createMockChild } = require('./mocks/process-mock');
 const { TEST_MODELS } = require('./test-helpers');

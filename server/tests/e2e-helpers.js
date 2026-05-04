@@ -14,7 +14,7 @@
 const path = require('path');
 const os = require('os');
 const fs = require('fs');
-const hostManagement = require('../db/host-management');
+const hostManagement = require('../db/host/management');
 const { ensureTestSchema } = require('./vitest-setup');
 
 const TEMPLATE_DIR = path.join(os.tmpdir(), 'torque-vitest-template');

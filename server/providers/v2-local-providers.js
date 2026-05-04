@@ -11,7 +11,7 @@ const http = require('http');
 const https = require('https');
 const BaseProvider = require('./base');
 const configCore = require('../db/config-core');
-const hostManagement = require('../db/host-management');
+const hostManagement = require('../db/host/management');
 const logger = require('../logger').child({ component: 'v2-local-providers' });
 const { DEFAULT_FALLBACK_MODEL, MAX_STREAMING_OUTPUT, TASK_TIMEOUTS, PROVIDER_DEFAULT_TIMEOUTS } = require('../constants');
 

@@ -3,9 +3,9 @@
 const fs = require('node:fs');
 const path = require('node:path');
 
-const factoryHealth = require('../db/factory-health');
-const factoryIntake = require('../db/factory-intake');
-const factoryArchitect = require('../db/factory-architect');
+const factoryHealth = require('../db/factory/health');
+const factoryIntake = require('../db/factory/intake');
+const factoryArchitect = require('../db/factory/architect');
 const { buildArchitectPrompt } = require('./architect-prompt');
 const { lintPlanContent } = require('./plan-lint');
 const { createScoutFindingsIntake } = require('./scout-findings-intake');
@@ -1097,7 +1097,7 @@ async function runArchitectCycle(project_id, trigger = 'manual') {
   // Load human corrections for architect calibration
   let corrections = [];
   try {
-    const factoryFeedback = require('../db/factory-feedback');
+    const factoryFeedback = require('../db/factory/feedback');
     const feedbackRecords = factoryFeedback.listFeedback ? factoryFeedback.listFeedback(project_id, 10) : [];
     corrections = feedbackRecords
       .filter(r => r.human_corrections_json)

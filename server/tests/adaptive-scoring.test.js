@@ -6,7 +6,7 @@ const { TEST_MODELS } = require('./test-helpers');
 let mod, modelCaps;
 
 function setup() {
-  ({ mod } = setupTestDbModule('../db/host-management', 'adaptive'));
+  ({ mod } = setupTestDbModule('../db/host/management', 'adaptive'));
   modelCaps = require('../db/model-capabilities');
 }
 

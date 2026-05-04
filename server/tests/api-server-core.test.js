@@ -14,7 +14,7 @@ const http = require('http');
 const { OPENAPI_VERSION, API_TITLE } = require('../api/openapi-generator');
 const taskCore = require('../db/task-core');
 const costTracking = require('../db/cost-tracking');
-const providerRoutingCore = require('../db/provider-routing-core');
+const providerRoutingCore = require('../db/provider/routing-core');
 
 const { setupTestDb, teardownTestDb } = require('./vitest-setup');
 
@@ -615,7 +615,7 @@ describe('captured request handler dispatch', () => {
   });
 
   it('returns provider quota data for GET /api/provider-quotas', async () => {
-    const quotaStore = require('../db/provider-quotas').getQuotaStore();
+    const quotaStore = require('../db/provider/quotas').getQuotaStore();
     quotaStore.updateFromInference('google-ai', { tasksLastHour: 4, tokensLastHour: 120 }, { rpm: 15 });
 
     const response = await dispatchRequest(requestHandler, {

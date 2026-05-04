@@ -34,7 +34,7 @@ function recordProvider429(providerName) {
   }
 
   try {
-    const { getQuotaStore } = require('../../db/provider-quotas');
+    const { getQuotaStore } = require('../../db/provider/quotas');
     getQuotaStore().record429(providerName);
   } catch {
     // Quota telemetry is best-effort.
@@ -140,12 +140,12 @@ function chatCompletion({ host, apiKey, model, providerName: _providerName, mess
                   if (parentPort) {
                     parentPort.postMessage({ type: 'quotaHeaders', provider: providerName, headers });
                   } else {
-                    const { getQuotaStore } = require('../../db/provider-quotas');
+                    const { getQuotaStore } = require('../../db/provider/quotas');
                     getQuotaStore().updateFromHeaders(providerName, headers);
                   }
                 } catch {
                   // Not in worker thread — update directly
-                  const { getQuotaStore } = require('../../db/provider-quotas');
+                  const { getQuotaStore } = require('../../db/provider/quotas');
                   getQuotaStore().updateFromHeaders(providerName, headers);
                 }
               }

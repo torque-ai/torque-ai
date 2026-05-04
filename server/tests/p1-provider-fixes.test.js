@@ -43,7 +43,7 @@ function makeDeps(overrides = {}) {
 function setup() {
   ({ db, testDir } = setupTestDbOnly('provider-fixes-'));
   if (!db.getDb && db.getDbInstance) db.getDb = db.getDbInstance;
-  hostMgmt = require('../db/host-management');
+  hostMgmt = require('../db/host/management');
   hostMgmt.setDb(db.getDb());
   ollamaMod = require('../providers/execute-ollama');
 }

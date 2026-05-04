@@ -6,7 +6,7 @@ let mod;
 
 describe('Task Classification', () => {
   beforeAll(() => {
-    ({ mod } = setupTestDbModule('../db/host-management', 'task-class'));
+    ({ mod } = setupTestDbModule('../db/host/management', 'task-class'));
   });
   afterAll(() => teardownTestDb());
 

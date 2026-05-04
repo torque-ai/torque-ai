@@ -1,5 +1,5 @@
 /**
- * Tests for server/db/file-quality.js
+ * Tests for server/db/file/quality.js
  *
  * Pure database tests — no child_process, no spawning.
  * Uses vitest-setup template buffer for schema; dependency injection via setDb().
@@ -21,7 +21,7 @@ function ensureTask(id) {
 }
 
 beforeAll(() => {
-  ({ mod } = setupTestDbModule('../db/file-quality', 'file-quality'));
+  ({ mod } = setupTestDbModule('../db/file/quality', 'file-quality'));
 });
 
 afterAll(() => teardownTestDb());

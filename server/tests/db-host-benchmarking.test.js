@@ -6,7 +6,7 @@ const Database = require('better-sqlite3');
 const { TEST_MODELS } = require('./test-helpers');
 const { setupTestDbOnly, teardownTestDb, rawDb, resetTables } = require('./vitest-setup');
 
-const SUBJECT_PATH = '../db/host-benchmarking';
+const SUBJECT_PATH = '../db/host/benchmarking';
 const RESET_TABLES = ['benchmark_results', 'ollama_hosts'];
 
 let _db;
@@ -189,7 +189,7 @@ async function waitFor(predicate, { timeoutMs = 2000, intervalMs = 20 } = {}) {
   throw new Error('Timed out waiting for async condition');
 }
 
-describe('db/host-benchmarking (real DB)', () => {
+describe('db/host/benchmarking (real DB)', () => {
   beforeAll(() => {
     ({ db: _db } = setupTestDbOnly('db-host-bench'));
     ensureColumn('ollama_hosts', 'memory_limit_mb', 'memory_limit_mb INTEGER');

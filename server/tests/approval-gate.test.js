@@ -9,7 +9,7 @@ function installMock(modulePath, exports) {
 
 const SUBJECT_MODULE = '../hooks/approval-gate';
 const TASK_CORE_MODULE = '../db/task-core';
-const FILE_TRACKING_MODULE = '../db/file-tracking';
+const FILE_TRACKING_MODULE = '../db/file/tracking';
 const VALIDATION_RULES_MODULE = '../db/validation-rules';
 const LOGGER_MODULE = '../logger';
 const CONSTANTS_MODULE = '../constants';

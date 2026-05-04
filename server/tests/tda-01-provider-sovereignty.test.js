@@ -65,7 +65,7 @@ describe('TDA-01: analyzeTaskForRouting — health fallback sovereignty', () => 
     // eslint-disable-next-line torque/no-reset-modules-in-each -- dynamic import re-loads provider-routing-core fresh each run
     vi.resetModules();
     // Re-import to get fresh module state
-    const routingCore = await import('../../server/db/provider-routing-core.js');
+    const routingCore = await import('../../server/db/provider/routing-core.js');
     analyzeTaskForRouting = routingCore.analyzeTaskForRouting || routingCore.default?.analyzeTaskForRouting;
   });
 
@@ -336,7 +336,7 @@ describe('TDA-01: Movement narrative on auto-routed reroute', () => {
     vi.clearAllMocks();
 
     try {
-      const routingCore = await import('../../server/db/provider-routing-core.js');
+      const routingCore = await import('../../server/db/provider/routing-core.js');
       const analyzeTaskForRouting = routingCore.analyzeTaskForRouting || routingCore.default?.analyzeTaskForRouting;
       if (!analyzeTaskForRouting) return;
 
@@ -364,7 +364,7 @@ describe('TDA-01: Movement narrative on auto-routed reroute', () => {
     vi.clearAllMocks();
 
     try {
-      const routingCore = await import('../../server/db/provider-routing-core.js');
+      const routingCore = await import('../../server/db/provider/routing-core.js');
       const analyzeTaskForRouting = routingCore.analyzeTaskForRouting || routingCore.default?.analyzeTaskForRouting;
       if (!analyzeTaskForRouting) return;
 

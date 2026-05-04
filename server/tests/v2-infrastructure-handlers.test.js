@@ -11,7 +11,7 @@ const MODULE_PATHS = [
   '../database',
   '../db/email-peek',
   '../db/task-core',
-  '../db/host-management',
+  '../db/host/management',
   '../db/coordination',
   '../workstation/model',
   '../handlers/workstation-handlers',
@@ -495,7 +495,7 @@ function loadHandlers() {
   installCjsModuleMock('../database', mockDb);
   installCjsModuleMock('../db/email-peek', mockDb);
   installCjsModuleMock('../db/task-core', mockDb);
-  installCjsModuleMock('../db/host-management', mockHostManagement);
+  installCjsModuleMock('../db/host/management', mockHostManagement);
   installCjsModuleMock('../db/coordination', mockCoordination);
   installCjsModuleMock('../workstation/model', mockWorkstationModel);
   installCjsModuleMock('../handlers/workstation-handlers', mockWorkstationHandlers);

@@ -2,7 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const { randomUUID } = require('crypto');
 
-const fileBaselines = require('../db/file-baselines');
+const fileBaselines = require('../db/file/baselines');
 const { setupTestDb, teardownTestDb, safeTool, getText } = require('./vitest-setup');
 
 let db;

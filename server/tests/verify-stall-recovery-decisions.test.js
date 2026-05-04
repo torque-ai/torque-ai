@@ -8,7 +8,7 @@ describe('verify-stall-recovery decision log entries', () => {
 
   beforeEach(() => {
     ({ db } = setupTestDbOnly('verify-stall-recovery-decisions'));
-    factoryDecisions = require('../db/factory-decisions');
+    factoryDecisions = require('../db/factory/decisions');
     ({ recoverStalledVerifyLoops } = require('../factory/verify-stall-recovery'));
   });
   afterEach(() => { teardownTestDb(); vi.restoreAllMocks(); });

@@ -1,13 +1,13 @@
 'use strict';
 
 const path = require('path');
-const { FILE_SIZE_TRUNCATION_THRESHOLD } = require('../constants');
-const logger = require('../logger').child({ component: 'schema' });
+const { FILE_SIZE_TRUNCATION_THRESHOLD } = require('../../constants');
+const logger = require('../../logger').child({ component: 'schema' });
 // Lazy require to avoid circular dependency (database.js imports this module)
-function _getSafeAddColumn() { return require('../database').safeAddColumn; }
-const { createTables } = require('./schema-tables');
-const { seedDefaults } = require('./schema-seeds');
-const { runMigrations } = require('./schema-migrations');
+function _getSafeAddColumn() { return require('../../database').safeAddColumn; }
+const { createTables } = require('./tables');
+const { seedDefaults } = require('./seeds');
+const { runMigrations } = require('./status-validation');
 
 function applyPolicyOverrideTrackingSchema(db, safeAddColumn) {
   safeAddColumn('policy_overrides', 'task_id TEXT');

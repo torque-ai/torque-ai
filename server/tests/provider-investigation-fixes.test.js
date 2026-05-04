@@ -155,8 +155,8 @@ describe('Item 22: buildRetryMetadata provider override preservation', () => {
 
   vi.mock('uuid', () => ({ v4: mockUuidV4 }));
   vi.mock('../db/task-core', () => mockTaskCore);
-  vi.mock('../db/provider-routing-core', () => mockProviderRoutingCore);
-  vi.mock('../db/file-tracking', () => mockFileTracking);
+  vi.mock('../db/provider/routing-core', () => mockProviderRoutingCore);
+  vi.mock('../db/file/tracking', () => mockFileTracking);
   vi.mock('../config', () => mockConfig);
   vi.mock('../constants', () => mockConstants);
   vi.mock('../api/v2-control-plane', () => mockControlPlane);
@@ -178,8 +178,8 @@ describe('Item 22: buildRetryMetadata provider override preservation', () => {
     delete require.cache[require.resolve('../api/v2-task-handlers')];
     installCjsModuleMock('uuid', { v4: mockUuidV4 });
     installCjsModuleMock('../db/task-core', mockTaskCore);
-    installCjsModuleMock('../db/provider-routing-core', mockProviderRoutingCore);
-    installCjsModuleMock('../db/file-tracking', mockFileTracking);
+    installCjsModuleMock('../db/provider/routing-core', mockProviderRoutingCore);
+    installCjsModuleMock('../db/file/tracking', mockFileTracking);
     installCjsModuleMock('../config', mockConfig);
     installCjsModuleMock('../constants', mockConstants);
     installCjsModuleMock('../api/v2-control-plane', mockControlPlane);

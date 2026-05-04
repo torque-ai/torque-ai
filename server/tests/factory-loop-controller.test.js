@@ -7,12 +7,12 @@ const os = require('os');
 const path = require('path');
 const Database = require('better-sqlite3');
 const database = require('../database');
-const factoryDecisions = require('../db/factory-decisions');
-const factoryGuardrails = require('../db/factory-guardrails');
-const factoryHealth = require('../db/factory-health');
-const factoryIntake = require('../db/factory-intake');
-const factoryLoopInstances = require('../db/factory-loop-instances');
-const factoryWorktrees = require('../db/factory-worktrees');
+const factoryDecisions = require('../db/factory/decisions');
+const factoryGuardrails = require('../db/factory/guardrails');
+const factoryHealth = require('../db/factory/health');
+const factoryIntake = require('../db/factory/intake');
+const factoryLoopInstances = require('../db/factory/loop-instances');
+const factoryWorktrees = require('../db/factory/worktrees');
 const routingModule = require('../handlers/integration/routing');
 const awaitModule = require('../handlers/workflow/await');
 const taskCore = require('../db/task-core');
@@ -211,9 +211,9 @@ async function advanceSupervisedPlanProject(projectId) {
 }
 
 function loadFreshFactoryWorktrees() {
-  const modulePath = require.resolve('../db/factory-worktrees');
+  const modulePath = require.resolve('../db/factory/worktrees');
   delete require.cache[modulePath];
-  return require('../db/factory-worktrees');
+  return require('../db/factory/worktrees');
 }
 
 function insertBatchTask(db, { taskId, batchId, status }) {

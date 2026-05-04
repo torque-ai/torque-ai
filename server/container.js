@@ -243,11 +243,11 @@ _defaultContainer.register('runDirManager', ['db'], ({ db }) => {
   });
 });
 _defaultContainer.register('providerScoring', ['db'], ({ db }) => {
-  const { createProviderScoring } = require('./db/provider-scoring');
+  const { createProviderScoring } = require('./db/provider/scoring');
   return createProviderScoring({ db: unwrapDb(db) });
 });
 _defaultContainer.register('providerCircuitBreakerStore', ['db'], ({ db }) => {
-  const { createProviderCircuitBreakerStore } = require('./db/provider-circuit-breaker-store');
+  const { createProviderCircuitBreakerStore } = require('./db/provider/circuit-breaker-store');
   return createProviderCircuitBreakerStore({ db: unwrapDb(db) });
 });
 _defaultContainer.register(
@@ -352,8 +352,8 @@ _defaultContainer.register('autoRecoveryServices', ['db', 'eventBus', 'logger'],
     ({ handleRetryFactoryVerify } = require('./handlers/factory-handlers'));
   } catch (_e) { void _e; }
   try {
-    factoryIntake = require('./db/factory-intake');
-    factoryHealth = require('./db/factory-health');
+    factoryIntake = require('./db/factory/intake');
+    factoryHealth = require('./db/factory/health');
     loopController = require('./factory/loop-controller');
   } catch (_e) { void _e; }
   return createAutoRecoveryServices({
@@ -422,9 +422,9 @@ _defaultContainer.register(
     const { getProviderLanePolicyFromProject } = require('./factory/provider-lane-policy');
     const { createScoutProviderResolver } = require('./factory/scout-provider-resolver');
     const { handleSubmitScout } = require('./handlers/diffusion-handlers');
-    const factoryHealth = require('./db/factory-health');
-    const factoryIntake = require('./db/factory-intake');
-    const factoryLoopInstances = require('./db/factory-loop-instances');
+    const factoryHealth = require('./db/factory/health');
+    const factoryIntake = require('./db/factory/intake');
+    const factoryLoopInstances = require('./db/factory/loop-instances');
     const recoveryLogger = log?.child
       ? log.child({ component: 'starvation-recovery' })
       : log;

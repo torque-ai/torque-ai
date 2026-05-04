@@ -41,7 +41,7 @@ function loadHandlers() {
   delete require.cache[require.resolve('../handlers/validation/safeguard')];
   installMock('../database', mockDb);
   installMock('../db/config-core', mockDb);
-  installMock('../db/file-tracking', mockDb);
+  installMock('../db/file/tracking', mockDb);
   installMock('../db/task-core', mockDb);
   installMock('../constants', mockConstants);
   installMock('../handlers/shared', realShared);

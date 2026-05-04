@@ -40,7 +40,7 @@ async function handleGetQuotaStatus(_req, res, _context = {}) {
 
 async function handleGetProviderQuotas(req, res, _context = {}) {
   try {
-    const quotas = require('../../db/provider-quotas').getQuotaStore().getAllQuotas();
+    const quotas = require('../../db/provider/quotas').getQuotaStore().getAllQuotas();
     sendJson(res, quotas, 200, req);
   } catch (err) {
     sendJson(res, { error: err.message }, 500, req);

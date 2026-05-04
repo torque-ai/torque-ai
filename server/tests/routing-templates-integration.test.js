@@ -8,7 +8,7 @@ describe('analyzeTaskForRouting with routing templates', () => {
 
   beforeAll(() => {
     ({ db } = setupTestDbOnly('routing-templates-integration'));
-    providerRouting = require('../db/provider-routing-core');
+    providerRouting = require('../db/provider/routing-core');
     templateStore = require('../routing/template-store');
 
     // Enable smart routing

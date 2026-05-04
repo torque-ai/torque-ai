@@ -23,8 +23,8 @@ const PROVIDER_CONFIG_PATH = require.resolve('../providers/config');
 const OLLAMA_SHARED_PATH = require.resolve('../providers/ollama-shared');
 const REGISTRY_PATH = require.resolve('../models/registry');
 const MODEL_ROLES_PATH = require.resolve('../db/model-roles');
-const ROUTING_CORE_PATH = require.resolve('../db/provider-routing-core');
-const PROVIDER_MODEL_SCORES_PATH = require.resolve('../db/provider-model-scores');
+const ROUTING_CORE_PATH = require.resolve('../db/provider/routing-core');
+const PROVIDER_MODEL_SCORES_PATH = require.resolve('../db/provider/model-scores');
 const OLLAMA_AGENTIC_PATH = require.resolve('../providers/ollama-agentic');
 const HOST_MUTEX_PATH = require.resolve('../providers/host-mutex');
 

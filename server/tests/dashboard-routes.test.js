@@ -342,12 +342,12 @@ describe('route handlers with mock db', () => {
   const db = require('../database');
   const taskCore = require('../db/task-core');
   const webhooksStreaming = require('../db/webhooks-streaming');
-  const fileTracking = require('../db/file-tracking');
-  const providerRoutingCore = require('../db/provider-routing-core');
+  const fileTracking = require('../db/file/tracking');
+  const providerRoutingCore = require('../db/provider/routing-core');
   const eventTracking = require('../db/event-tracking');
   const costTracking = require('../db/cost-tracking');
   const workflowEngine = require('../db/workflow-engine');
-  const hostManagement = require('../db/host-management');
+  const hostManagement = require('../db/host/management');
   const projectConfigCore = require('../db/project-config-core');
 
   // Mock db methods used by route handlers

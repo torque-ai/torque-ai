@@ -10,7 +10,7 @@
 
 const logger = require('../logger').child({ component: 'task-finalizer' });
 const modelCapabilities = require('../db/model-capabilities');
-const perfTracker = require('../db/provider-performance');
+const perfTracker = require('../db/provider/performance');
 const { recordStudyTaskCompleted } = require('../db/study-telemetry');
 const { smartDiagnosisStage } = require('./smart-diagnosis-stage');
 const { strategicReviewStage } = require('./strategic-review-stage');
@@ -174,7 +174,7 @@ function getProviderScoringService() {
   if (deps.providerScoring && typeof deps.providerScoring.recordTaskCompletion === 'function') {
     return deps.providerScoring;
   }
-  return require('../db/provider-scoring');
+  return require('../db/provider/scoring');
 }
 
 function getRawDbInstance() {
@@ -1203,7 +1203,7 @@ async function finalizeTask(taskId, options = {}) {
         if (check && check.thresholdBreached === 'downgrade') {
           try { require('../logger').info('[budget] ' + task.provider + ' at ' + check.spendPercent + '% — activating Cost Saver template'); } catch {}
           try {
-            const routing = require('../db/provider-routing-core');
+            const routing = require('../db/provider/routing-core');
             if (typeof routing.activateRoutingTemplate === 'function') {
               routing.activateRoutingTemplate('Cost Saver');
             }

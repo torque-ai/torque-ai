@@ -1,7 +1,7 @@
 'use strict';
 
 const path = require('path');
-const factoryHealth = require('../db/factory-health');
+const factoryHealth = require('../db/factory/health');
 
 const DEFAULT_REPO_ROOT = process.env.TORQUE_REPO_ROOT || path.resolve(__dirname, '..', '..');
 

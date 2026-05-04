@@ -8,7 +8,7 @@ const MOCKED_MODULES = [
   '../task-manager',
   '../logger',
   '../db/coordination',
-  '../db/provider-routing-core',
+  '../db/provider/routing-core',
   '../db/workflow-engine',
   '../policy-engine/task-hooks',
   '../policy-engine/engine',
@@ -375,7 +375,7 @@ function createTestContext() {
   installCjsModuleMock('../task-manager', taskManager);
   installCjsModuleMock('../logger', logger);
   installCjsModuleMock('../db/coordination', coordination);
-  installCjsModuleMock('../db/provider-routing-core', providerRoutingCore);
+  installCjsModuleMock('../db/provider/routing-core', providerRoutingCore);
   installCjsModuleMock('../db/workflow-engine', db);
   installCjsModuleMock('../policy-engine/task-hooks', taskPolicyHooks);
   installCjsModuleMock('../policy-engine/engine', policyEngine);

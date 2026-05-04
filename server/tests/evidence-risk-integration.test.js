@@ -34,7 +34,7 @@ describe('evidence-risk integration', () => {
       );
     `);
 
-    const { createFileRisk } = require('../db/file-risk');
+    const { createFileRisk } = require('../db/file/risk');
     fileRisk = createFileRisk({ db });
 
     const { createVerificationLedger } = require('../db/verification-ledger');

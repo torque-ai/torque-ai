@@ -9,7 +9,7 @@ const os = require('os');
 const path = require('path');
 const Database = require('better-sqlite3');
 
-const { createTables } = require('../db/schema-tables');
+const { createTables } = require('../db/schema/tables');
 const { runMigrations } = require('../db/migrations');
 const { createRepoRegistry } = require('../repo-graph/repo-registry');
 

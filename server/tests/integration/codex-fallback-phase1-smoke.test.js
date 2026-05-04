@@ -2,15 +2,15 @@
 /* global describe, it, expect, beforeEach */
 
 const Database = require('better-sqlite3');
-const { createTables: ensureSchema } = require('../../db/schema-tables');
+const { createTables: ensureSchema } = require('../../db/schema/tables');
 const { createCircuitBreaker } = require('../../execution/circuit-breaker');
-const { createProviderCircuitBreakerStore } = require('../../db/provider-circuit-breaker-store');
+const { createProviderCircuitBreakerStore } = require('../../db/provider/circuit-breaker-store');
 const { createParkResumeHandler } = require('../../factory/park-resume-handler');
 const {
   parkWorkItemForCodex,
   setCodexFallbackPolicy,
   getCodexFallbackPolicy,
-} = require('../../db/factory-intake');
+} = require('../../db/factory/intake');
 
 // NOTE: decideCodexFallbackAction lives in factory/loop-controller.js but that
 // module pulls in many heavy server-level dependencies (database singleton,

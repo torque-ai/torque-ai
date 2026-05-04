@@ -1,7 +1,7 @@
 'use strict';
 
 const { defaultContainer } = require('../container');
-const hostManagement = require('../db/host-management');
+const hostManagement = require('../db/host/management');
 
 function response(message) {
   return {

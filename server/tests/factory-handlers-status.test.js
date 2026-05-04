@@ -1,6 +1,6 @@
 const path = require('path');
 const { rawDb, resetTables, safeTool, setupTestDb, teardownTestDb } = require('./vitest-setup');
-const factoryIntake = require('../db/factory-intake');
+const factoryIntake = require('../db/factory/intake');
 const notifications = require('../factory/notifications');
 
 function insertActiveLoopInstance(db, {

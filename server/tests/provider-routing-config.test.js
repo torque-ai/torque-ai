@@ -1,8 +1,8 @@
 'use strict';
 
 const { TEST_MODELS } = require('./test-helpers');
-const CONFIG_MODULE_PATH = require.resolve('../db/provider-routing-core');
-const CORE_MODULE_PATH = require.resolve('../db/provider-routing-core');
+const CONFIG_MODULE_PATH = require.resolve('../db/provider/routing-core');
+const CORE_MODULE_PATH = require.resolve('../db/provider/routing-core');
 const DATABASE_MODULE_PATH = require.resolve('../database');
 const LOGGER_MODULE_PATH = require.resolve('../logger');
 
@@ -621,7 +621,7 @@ function loadConfigWithDb(db) {
     getDb: () => db,
   });
 
-  const mod = require('../db/provider-routing-core');
+  const mod = require('../db/provider/routing-core');
   mod.setDb(db);
   return mod;
 }
@@ -643,7 +643,7 @@ function loadCoreWithDb(db) {
   };
   installCjsModuleMock('../logger', loggerMock);
 
-  const core = require('../db/provider-routing-core');
+  const core = require('../db/provider/routing-core');
   core.setDb(db);
   core.setGetTask(() => null);
   core.setHostManagement(null);

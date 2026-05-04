@@ -1,6 +1,6 @@
 const workflowEngine = require('../db/workflow-engine');
 const taskCore = require('../db/task-core');
-const providerRoutingCore = require('../db/provider-routing-core');
+const providerRoutingCore = require('../db/provider/routing-core');
 const schedulingAutomation = require('../db/scheduling-automation');
 const eventTracking = require('../db/event-tracking');
 const taskManager = require('../task-manager');

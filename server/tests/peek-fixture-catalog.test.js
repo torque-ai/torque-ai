@@ -1,8 +1,8 @@
 'use strict';
 
 const Database = require('better-sqlite3');
-const fixtureCatalog = require('../db/peek-fixture-catalog');
-const { createTables } = require('../db/schema-tables');
+const fixtureCatalog = require('../db/peek/fixture-catalog');
+const { createTables } = require('../db/schema/tables');
 
 function createLogger() {
   return {
@@ -13,7 +13,7 @@ function createLogger() {
   };
 }
 
-describe('db/peek-fixture-catalog', () => {
+describe('db/peek/fixture-catalog', () => {
   let db;
 
   beforeEach(() => {

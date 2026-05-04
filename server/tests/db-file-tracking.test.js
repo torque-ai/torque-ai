@@ -2,7 +2,7 @@ const { randomUUID } = require('crypto');
 const path = require('path');
 const os = require('os');
 const fs = require('fs');
-const fileTracking = require('../db/file-tracking');
+const fileTracking = require('../db/file/tracking');
 const { setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
 const taskCore = require('../db/task-core');
 
@@ -66,7 +66,7 @@ function createFile(dir, relativePath, content) {
   return fullPath;
 }
 
-describe('db/file-tracking module', () => {
+describe('db/file/tracking module', () => {
   it('captures and compares file baselines', () => {
     const task = createTask();
     const workDir = nextTaskDir(task.id);

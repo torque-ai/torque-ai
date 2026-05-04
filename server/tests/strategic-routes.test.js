@@ -8,8 +8,8 @@
 const { setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
 const { TEST_MODELS } = require('./test-helpers');
 const taskCore = require('../db/task-core');
-const providerRoutingCore = require('../db/provider-routing-core');
-const fileTracking = require('../db/file-tracking');
+const providerRoutingCore = require('../db/provider/routing-core');
+const fileTracking = require('../db/file/tracking');
 const strategic = require('../dashboard/routes/analytics');
 
 let db;

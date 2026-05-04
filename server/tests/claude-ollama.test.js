@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 const ClaudeOllamaProvider = require('../providers/claude-ollama');
 const child_process = require('child_process');
-const hostManagement = require('../db/host-management');
+const hostManagement = require('../db/host/management');
 
 describe('ClaudeOllamaProvider — construction', () => {
   it('has provider name "claude-ollama"', () => {

@@ -40,9 +40,9 @@ function installCjsModuleMock(modulePath, exportsValue) {
 
 vi.mock('../db/task-core', () => mockTaskCore);
 vi.mock('../db/event-tracking', () => mockEventTracking);
-vi.mock('../db/file-tracking', () => mockFileTracking);
-vi.mock('../db/host-management', () => mockHostManagement);
-vi.mock('../db/provider-routing-core', () => mockProviderRoutingCore);
+vi.mock('../db/file/tracking', () => mockFileTracking);
+vi.mock('../db/host/management', () => mockHostManagement);
+vi.mock('../db/provider/routing-core', () => mockProviderRoutingCore);
 vi.mock('../task-manager', () => mockTaskManager);
 vi.mock('../dashboard/server', () => mockDashboardServer);
 vi.mock('../providers/registry', () => mockProviderRegistry);
@@ -73,9 +73,9 @@ function loadProviderHandlers() {
   vi.resetModules();
   vi.doMock('../db/task-core', () => mockTaskCore);
   vi.doMock('../db/event-tracking', () => mockEventTracking);
-  vi.doMock('../db/file-tracking', () => mockFileTracking);
-  vi.doMock('../db/host-management', () => mockHostManagement);
-  vi.doMock('../db/provider-routing-core', () => mockProviderRoutingCore);
+  vi.doMock('../db/file/tracking', () => mockFileTracking);
+  vi.doMock('../db/host/management', () => mockHostManagement);
+  vi.doMock('../db/provider/routing-core', () => mockProviderRoutingCore);
   vi.doMock('../task-manager', () => mockTaskManager);
   vi.doMock('../dashboard/server', () => mockDashboardServer);
   vi.doMock('../providers/registry', () => mockProviderRegistry);
@@ -83,9 +83,9 @@ function loadProviderHandlers() {
   vi.doMock('../handlers/provider-tuning', () => ({}));
   installCjsModuleMock('../db/task-core', mockTaskCore);
   installCjsModuleMock('../db/event-tracking', mockEventTracking);
-  installCjsModuleMock('../db/file-tracking', mockFileTracking);
-  installCjsModuleMock('../db/host-management', mockHostManagement);
-  installCjsModuleMock('../db/provider-routing-core', mockProviderRoutingCore);
+  installCjsModuleMock('../db/file/tracking', mockFileTracking);
+  installCjsModuleMock('../db/host/management', mockHostManagement);
+  installCjsModuleMock('../db/provider/routing-core', mockProviderRoutingCore);
   installCjsModuleMock('../task-manager', mockTaskManager);
   installCjsModuleMock('../dashboard/server', mockDashboardServer);
   installCjsModuleMock('../providers/registry', mockProviderRegistry);

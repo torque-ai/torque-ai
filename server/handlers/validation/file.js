@@ -1,7 +1,7 @@
 'use strict';
 
 const path = require('path');
-const fileTracking = require('../../db/file-tracking');
+const fileTracking = require('../../db/file/tracking');
 const { ErrorCodes, makeError, requireTask } = require('../shared');
 
 function resolveTaskWorkingDirectory(task, workingDirectory) {

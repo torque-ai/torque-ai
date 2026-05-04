@@ -2,7 +2,7 @@
 
 const { randomUUID } = require('crypto');
 const database = require('../database');
-const providerRoutingCore = require('../db/provider-routing-core');
+const providerRoutingCore = require('../db/provider/routing-core');
 const taskManager = require('../task-manager');
 const { normalizeProviderTransport } = providerRoutingCore;
 const { ErrorCodes, makeError } = require('./error-codes');

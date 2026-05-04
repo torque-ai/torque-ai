@@ -7,8 +7,8 @@ vi.mock('../handlers/webhook-handlers', () => ({
 
 const Database = require('better-sqlite3');
 const { runMigrations } = require('../db/migrations');
-const factoryDecisions = require('../db/factory-decisions');
-const factoryHealth = require('../db/factory-health');
+const factoryDecisions = require('../db/factory/decisions');
+const factoryHealth = require('../db/factory/health');
 const { logDecision, getAuditTrail, getDecisionStats } = require('../factory/decision-log');
 const notifications = require('../factory/notifications');
 

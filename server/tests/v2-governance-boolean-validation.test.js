@@ -7,10 +7,10 @@ const HANDLER_MODULE_PATHS = [
   '../api/v2-control-plane',
   '../database',
   '../db/config-core',
-  '../db/file-tracking',
-  '../db/host-management',
+  '../db/file/tracking',
+  '../db/host/management',
   '../db/project-config-core',
-  '../db/provider-routing-core',
+  '../db/provider/routing-core',
   '../db/scheduling-automation',
   '../db/task-core',
   '../db/validation-rules',
@@ -19,13 +19,13 @@ const HANDLER_MODULE_PATHS = [
   '../tools',
 ];
 const PROVIDER_CORE_MODULE_PATHS = [
-  '../db/provider-routing-core',
+  '../db/provider/routing-core',
   '../logger',
   '../db/smart-routing',
   '../db/ollama-health',
   '../routing/template-store',
-  '../db/provider-routing-extras',
-  '../db/provider-health-history',
+  '../db/provider/routing-extras',
+  '../db/provider/health-history',
 ];
 const FIXED_TIMESTAMP = '2026-03-10T12:34:56.789Z';
 
@@ -212,10 +212,10 @@ function loadHandlers(providerRoutingCore) {
 
   installCjsModuleMock('../database', currentModules.db);
   installCjsModuleMock('../db/config-core', currentModules.db);
-  installCjsModuleMock('../db/file-tracking', currentModules.db);
-  installCjsModuleMock('../db/host-management', currentModules.db);
+  installCjsModuleMock('../db/file/tracking', currentModules.db);
+  installCjsModuleMock('../db/host/management', currentModules.db);
   installCjsModuleMock('../db/project-config-core', currentModules.db);
-  installCjsModuleMock('../db/provider-routing-core', providerRoutingCore);
+  installCjsModuleMock('../db/provider/routing-core', providerRoutingCore);
   installCjsModuleMock('../db/scheduling-automation', currentModules.db);
   installCjsModuleMock('../db/task-core', currentModules.db);
   installCjsModuleMock('../db/validation-rules', currentModules.db);
@@ -351,14 +351,14 @@ function loadRealProviderRoutingCore(initialProvider = {}) {
   installCjsModuleMock('../routing/template-store', {
     setDb: vi.fn(),
   });
-  installCjsModuleMock('../db/provider-routing-extras', {
+  installCjsModuleMock('../db/provider/routing-extras', {
     setDb: vi.fn(),
     createWorkflowFork: vi.fn(),
     getWorkflowFork: vi.fn(),
     listWorkflowForks: vi.fn(),
     updateWorkflowForkStatus: vi.fn(),
   });
-  installCjsModuleMock('../db/provider-health-history', {
+  installCjsModuleMock('../db/provider/health-history', {
     setDb: vi.fn(),
     persistHealthWindow: vi.fn(),
     getHealthHistory: vi.fn(() => []),
@@ -366,7 +366,7 @@ function loadRealProviderRoutingCore(initialProvider = {}) {
     pruneHealthHistory: vi.fn(),
   });
 
-  const core = require('../db/provider-routing-core');
+  const core = require('../db/provider/routing-core');
   core.setDb(db);
   core.setGetTask(() => null);
   core.setHostManagement(null);

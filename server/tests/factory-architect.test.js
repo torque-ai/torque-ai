@@ -1,9 +1,9 @@
 'use strict';
 
 const Database = require('better-sqlite3');
-const factoryHealth = require('../db/factory-health');
-const factoryIntake = require('../db/factory-intake');
-const factoryArchitect = require('../db/factory-architect');
+const factoryHealth = require('../db/factory/health');
+const factoryIntake = require('../db/factory/intake');
+const factoryArchitect = require('../db/factory/architect');
 const { buildArchitectPrompt } = require('../factory/architect-prompt');
 const { runArchitectCycle, prioritizeByHealth } = require('../factory/architect-runner');
 const handlers = require('../handlers/factory-handlers');

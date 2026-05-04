@@ -52,7 +52,7 @@ function writeFile(rootDir, relativePath, content) {
 
 describe('db/file-conflict-tracking', () => {
   beforeAll(() => {
-    ({ mod, testDir } = setupTestDbModule('../db/file-tracking', 'file-conflict-tracking'));
+    ({ mod, testDir } = setupTestDbModule('../db/file/tracking', 'file-conflict-tracking'));
   });
 
   afterAll(() => teardownTestDb());

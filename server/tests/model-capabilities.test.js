@@ -7,7 +7,7 @@ let mod;
 
 describe('Model Capabilities Registry', () => {
   beforeAll(() => {
-    ({ mod } = setupTestDbModule('../db/host-management', 'model-caps'));
+    ({ mod } = setupTestDbModule('../db/host/management', 'model-caps'));
     mod.upsertModelCapabilities(TEST_MODELS.QUALITY, {
       score_code_gen: 0.9,
       score_refactoring: 0.85,

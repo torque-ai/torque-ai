@@ -1,5 +1,5 @@
 'use strict';
-const { scoreFilesByPath } = require('../../db/file-risk-patterns');
+const { scoreFilesByPath } = require('../../db/file/risk-patterns');
 
 function createFileRiskAdapter({ db: _db, fileRisk, customPatterns = {} }) {
   function scoreAndPersist(filePaths, workingDirectory, taskId) {

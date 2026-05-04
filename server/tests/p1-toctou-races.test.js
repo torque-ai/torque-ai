@@ -11,7 +11,7 @@ function setup() {
   taskCore = require('../db/task-core');
   if (!db.getDb && db.getDbInstance) db.getDb = db.getDbInstance;
 
-  mod = require('../db/provider-routing-core');
+  mod = require('../db/provider/routing-core');
   mod.setDb(db.getDb());
 }
 

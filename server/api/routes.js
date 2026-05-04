@@ -1,7 +1,7 @@
 'use strict';
 const logger = require('../logger').child({ component: 'routes' });
 
-const providerRoutingCore = require('../db/provider-routing-core');
+const providerRoutingCore = require('../db/provider/routing-core');
 const { validateInferenceRequest } = require('./v2-schemas');
 const { requestId, validateRequest } = require('./v2-middleware');
 const { COORD_ROUTES } = require('./routes/coord-routes');

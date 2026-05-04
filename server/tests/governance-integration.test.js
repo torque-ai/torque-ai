@@ -200,10 +200,10 @@ describe('governance integration', () => {
     governanceLogger = createLoggerMock();
     currentGovernanceHooks = createGovernanceHooks({ governanceRules, logger: governanceLogger });
 
-    providerRoutingCore = require('../db/provider-routing-core');
+    providerRoutingCore = require('../db/provider/routing-core');
     configCore = require('../db/config-core');
     costTracking = require('../db/cost-tracking');
-    hostManagement = require('../db/host-management');
+    hostManagement = require('../db/host/management');
     schedulingAutomation = require('../db/scheduling-automation');
     eventTracking = require('../db/event-tracking');
     webhooksStreaming = require('../db/webhooks-streaming');

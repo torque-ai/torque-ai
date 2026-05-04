@@ -106,9 +106,9 @@ function seedParents(db) {
 }
 
 function loadFreshFactoryWorktrees() {
-  const modulePath = require.resolve('../db/factory-worktrees');
+  const modulePath = require.resolve('../db/factory/worktrees');
   delete require.cache[modulePath];
-  return require('../db/factory-worktrees');
+  return require('../db/factory/worktrees');
 }
 
 describe('factory worktrees persistence', () => {

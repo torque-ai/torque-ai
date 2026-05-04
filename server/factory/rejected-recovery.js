@@ -1,7 +1,7 @@
 'use strict';
 
-const factoryDecisions = require('../db/factory-decisions');
-const factoryIntake = require('../db/factory-intake');
+const factoryDecisions = require('../db/factory/decisions');
+const factoryIntake = require('../db/factory/intake');
 const {
   REJECT_RECOVERY_CONFIG_DEFAULTS,
   getRejectRecoveryConfig,

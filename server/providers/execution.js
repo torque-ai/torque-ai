@@ -122,7 +122,7 @@ function init(deps) {
 
   // Import recordProviderOutcome from provider-routing-core if available
   try {
-    const routingCore = require('../db/provider-routing-core');
+    const routingCore = require('../db/provider/routing-core');
     _recordProviderOutcome = routingCore.recordProviderOutcome;
   } catch { /* module may not be ready */ }
 
@@ -353,7 +353,7 @@ function getTopScoredOpenRouterFallbackModels(limit = OPENROUTER_FALLBACK_SCORE_
   const hasSqliteHandle = typeof agenticDb.exec === 'function';
 
   try {
-    const providerModelScores = require('../db/provider-model-scores');
+    const providerModelScores = require('../db/provider/model-scores');
     if (hasSqliteHandle && typeof providerModelScores.init === 'function') {
       try {
         providerModelScores.init(agenticDb);
@@ -2303,13 +2303,13 @@ function spawnAgenticWorker(config, callbacks = {}) {
         case 'log': if (onLog) onLog(msg); break;
         case 'quotaHeaders':
           try {
-            const { getQuotaStore } = require('../db/provider-quotas');
+            const { getQuotaStore } = require('../db/provider/quotas');
             getQuotaStore().updateFromHeaders(msg.provider, msg.headers);
           } catch { /* non-critical */ }
           break;
         case 'quota429':
           try {
-            const { getQuotaStore } = require('../db/provider-quotas');
+            const { getQuotaStore } = require('../db/provider/quotas');
             getQuotaStore().record429(msg.provider);
           } catch { /* non-critical */ }
           break;
@@ -4089,7 +4089,7 @@ function recordOpenRouterModelTaskOutcome({
   if (!modelName) return;
 
   try {
-    const providerModelScores = require('../db/provider-model-scores');
+    const providerModelScores = require('../db/provider/model-scores');
     const db = _agenticDeps?.db;
     if (db && typeof providerModelScores.init === 'function') {
       providerModelScores.init(db);

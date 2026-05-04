@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 
 const Database = require('better-sqlite3');
-const attemptHistory = require('../db/factory-attempt-history');
+const attemptHistory = require('../db/factory/attempt-history');
 const { createMinimalSchema } = require('./helpers/factory-attempt-history-schema');
 
 describe('factory-attempt-history DB accessor', () => {

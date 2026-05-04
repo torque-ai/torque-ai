@@ -11,11 +11,11 @@ function resolveDatabase() {
     return require('../database');
   }
 }
-const factoryDecisions = require('../db/factory-decisions');
-const attemptHistory = require('../db/factory-attempt-history');
+const factoryDecisions = require('../db/factory/decisions');
+const attemptHistory = require('../db/factory/attempt-history');
 const { classifyZeroDiff } = require('./completion-rationale');
-const factoryHealth = require('../db/factory-health');
-const factoryWorktrees = require('../db/factory-worktrees');
+const factoryHealth = require('../db/factory/health');
+const factoryWorktrees = require('../db/factory/worktrees');
 const taskCore = require('../db/task-core');
 const { logDecision } = require('./decision-log');
 const { taskEvents } = require('../hooks/event-dispatch');

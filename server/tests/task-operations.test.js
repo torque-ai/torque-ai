@@ -105,7 +105,7 @@ vi.mock('../db/event-tracking', () => ({
   importData() { return {}; },
 }));
 
-vi.mock('../db/provider-routing-core', () => ({
+vi.mock('../db/provider/routing-core', () => ({
   getHealthHistory() { return []; },
 }));
 
@@ -145,7 +145,7 @@ const projectConfigCore = require('../db/project-config-core');
 const schedulingAutomation = require('../db/scheduling-automation');
 const configCore = require('../db/config-core');
 const eventTracking = require('../db/event-tracking');
-const providerRoutingCore = require('../db/provider-routing-core');
+const providerRoutingCore = require('../db/provider/routing-core');
 const taskManager = require('../task-manager');
 const fs = require('fs');
 const childProcess = require('node:child_process');
@@ -370,7 +370,7 @@ describe('task-operations handlers', () => {
 
     it('includes provider routing health details in the result payload', () => {
       vi.spyOn(projectConfigCore, 'recordHealthCheck').mockReturnValue(undefined);
-      const providerRoutingCore = require('../db/provider-routing-core');
+      const providerRoutingCore = require('../db/provider/routing-core');
       vi.spyOn(providerRoutingCore, 'getProvider').mockReturnValue({ provider: 'codex', enabled: true });
       vi.spyOn(providerRoutingCore, 'getProviderHealth').mockReturnValue({
         successes: 5,

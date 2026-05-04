@@ -316,7 +316,7 @@ function startCoordinationScheduler() {
 }
 
 function runProviderQuotaInferenceCycle() {
-  const quotaStore = require('../db/provider-quotas').getQuotaStore();
+  const quotaStore = require('../db/provider/quotas').getQuotaStore();
   const rawDb = typeof db.getDbInstance === 'function' ? db.getDbInstance() : null;
   if (!rawDb || typeof rawDb.prepare !== 'function') return;
 

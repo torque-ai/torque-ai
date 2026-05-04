@@ -101,14 +101,14 @@ class CerebrasProvider extends BaseProvider {
       });
 
       try {
-        const { getQuotaStore } = require('../db/provider-quotas');
+        const { getQuotaStore } = require('../db/provider/quotas');
         getQuotaStore().updateFromHeaders('cerebras', response.headers);
       } catch (e) { logger.debug('[cerebras] quota header tracking error:', e.message); }
 
       if (!response.ok) {
         if (response.status === 429) {
           try {
-            const { getQuotaStore } = require('../db/provider-quotas');
+            const { getQuotaStore } = require('../db/provider/quotas');
             getQuotaStore().record429('cerebras');
           } catch (e) { logger.debug('[cerebras] quota 429 tracking error:', e.message); }
         }
@@ -184,14 +184,14 @@ class CerebrasProvider extends BaseProvider {
       });
 
       try {
-        const { getQuotaStore } = require('../db/provider-quotas');
+        const { getQuotaStore } = require('../db/provider/quotas');
         getQuotaStore().updateFromHeaders('cerebras', response.headers);
       } catch (e) { logger.debug('[cerebras] quota header tracking error:', e.message); }
 
       if (!response.ok) {
         if (response.status === 429) {
           try {
-            const { getQuotaStore } = require('../db/provider-quotas');
+            const { getQuotaStore } = require('../db/provider/quotas');
             getQuotaStore().record429('cerebras');
           } catch (e) { logger.debug('[cerebras] quota 429 tracking error:', e.message); }
         }

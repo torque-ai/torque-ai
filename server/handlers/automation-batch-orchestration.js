@@ -20,7 +20,7 @@ const autoCommitBatch = require('./auto-commit-batch');
 let _taskCore;
 function taskCore() { return _taskCore || (_taskCore = require('../db/task-core')); }
 let _fileTracking;
-function fileTracking() { return _fileTracking || (_fileTracking = require('../db/file-tracking')); }
+function fileTracking() { return _fileTracking || (_fileTracking = require('../db/file/tracking')); }
 let _projectConfigCore;
 function projectConfigCore() { return _projectConfigCore || (_projectConfigCore = require('../db/project-config-core')); }
 let _workflowEngine;

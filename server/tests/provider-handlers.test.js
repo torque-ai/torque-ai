@@ -125,13 +125,13 @@ function loadHandlers() {
     getBestFormatForModel: mockDb.getBestFormatForModel,
     getFormatSuccessRatesSummary: mockDb.getFormatSuccessRatesSummary,
   });
-  installMock('../db/file-tracking', {
+  installMock('../db/file/tracking', {
     detectProviderDegradation: mockDb.detectProviderDegradation,
   });
-  installMock('../db/host-management', {
+  installMock('../db/host/management', {
     getModelLeaderboard: mockDb.getModelLeaderboard,
   });
-  installMock('../db/provider-routing-core', {
+  installMock('../db/provider/routing-core', {
     approveProviderSwitch: mockDb.approveProviderSwitch,
     rejectProviderSwitch: mockDb.rejectProviderSwitch,
     listProviders: mockDb.listProviders,

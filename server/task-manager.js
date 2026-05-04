@@ -10,7 +10,7 @@ const crypto = require('crypto');
 const { getModule: getContainerModule } = require('./container');
 const taskCore = require('./db/task-core');
 const coordination = require('./db/coordination');
-const providerRoutingCore = require('./db/provider-routing-core');
+const providerRoutingCore = require('./db/provider/routing-core');
 const _sleepWatchdog = require('./maintenance/sleep-watchdog');
 let _dashboard = null;
 function getDashboard() {

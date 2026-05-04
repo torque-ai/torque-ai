@@ -2,8 +2,8 @@
 /* global describe, it, expect, beforeEach */
 
 const Database = require('better-sqlite3');
-const { createTables: ensureSchema } = require('../db/schema-tables');
-const { setCodexFallbackPolicy } = require('../db/factory-intake');
+const { createTables: ensureSchema } = require('../db/schema/tables');
+const { setCodexFallbackPolicy } = require('../db/factory/intake');
 const {
   decideCodexFallbackAction,
   markInstanceFallbackRouting,

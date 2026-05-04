@@ -31,7 +31,7 @@ describe('file-risk', () => {
     db.exec('CREATE INDEX idx_risk_scores_level ON file_risk_scores(risk_level)');
     db.exec('CREATE INDEX idx_risk_scores_path ON file_risk_scores(file_path)');
 
-    const { createFileRisk } = require('../db/file-risk');
+    const { createFileRisk } = require('../db/file/risk');
     fileRisk = createFileRisk({ db });
   });
 

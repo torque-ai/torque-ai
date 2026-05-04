@@ -3,7 +3,7 @@
 
 const Database = require('better-sqlite3');
 
-const hostComplexity = require('../db/host-complexity');
+const hostComplexity = require('../db/host/complexity');
 const { setupTestDbOnly, teardownTestDb, rawDb, resetTables } = require('./vitest-setup');
 const { DEFAULT_FALLBACK_MODEL } = require('../constants');
 
@@ -23,7 +23,7 @@ function createAlternateDb(config = {}) {
   return conn;
 }
 
-describe('db/host-complexity (real DB)', () => {
+describe('db/host/complexity (real DB)', () => {
   beforeAll(() => {
     setupTestDbOnly('db-host-cx');
     hostComplexity.setDb(rawDb());

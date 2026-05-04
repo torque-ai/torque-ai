@@ -35,7 +35,7 @@ const STATEMENTS = [
   )`,
   // Matches migration #13 (add_factory_decisions) column layout —
   // actor and action are NOT NULL, and logDecision() in
-  // server/db/factory-decisions.js binds values for actor,
+  // server/db/factory/decisions.js binds values for actor,
   // inputs_json, and confidence on every insert. Omitting these
   // columns makes the insert silently fail and the tests that
   // assert on row existence see undefined.

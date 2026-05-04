@@ -41,7 +41,7 @@ function getTaskForScope(taskId) {
   }
 
   try {
-    const taskCore = require('./task-core');
+    const taskCore = require('../task-core');
     return typeof taskCore?.getTask === 'function' ? taskCore.getTask(taskId) : null;
   } catch {
     return null;

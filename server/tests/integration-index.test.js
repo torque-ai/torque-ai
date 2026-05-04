@@ -5,7 +5,7 @@ const { EventEmitter } = require('events');
 const { randomUUID } = require('crypto');
 
 const { setupTestDbOnly, teardownTestDb, getText } = require('./vitest-setup');
-const providerRoutingCore = require('../db/provider-routing-core');
+const providerRoutingCore = require('../db/provider/routing-core');
 const taskManager = require('../task-manager');
 const { gitSync, cleanupRepo } = require('./git-test-utils');
 const {

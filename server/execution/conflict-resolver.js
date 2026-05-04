@@ -6,7 +6,7 @@ const os = require('os');
 const path = require('path');
 const { safeGitExec } = require('../utils/git');
 const workflowEngine = require('../db/workflow-engine');
-const fileTracking = require('../db/file-tracking');
+const fileTracking = require('../db/file/tracking');
 const logger = require('../logger').child({ component: 'conflict-resolver' });
 
 function isAbsolutePath(filePath) {

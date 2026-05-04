@@ -32,7 +32,7 @@ describe('file-risk policy adapter', () => {
       )
     `);
 
-    const { createFileRisk } = require('../db/file-risk');
+    const { createFileRisk } = require('../db/file/risk');
     fileRisk = createFileRisk({ db });
 
     const { createFileRiskAdapter } = require('../policy-engine/adapters/file-risk');

@@ -500,7 +500,7 @@ describe('tool-output-schemas', () => {
     // --- check_ollama_health ---
     it('check_ollama_health returns structuredData with health counts', async () => {
       const { randomUUID } = require('crypto');
-      const hostManagement = require('../db/host-management');
+      const hostManagement = require('../db/host/management');
       const { handleCheckOllamaHealth } = require('../handlers/provider-ollama-hosts');
       const hostId = randomUUID();
 

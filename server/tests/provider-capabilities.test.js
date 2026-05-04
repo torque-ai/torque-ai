@@ -1,6 +1,6 @@
 'use strict';
 
-const providerCapabilities = require('../db/provider-capabilities');
+const providerCapabilities = require('../db/provider/capabilities');
 
 describe('provider-capabilities', () => {
   beforeEach(() => {

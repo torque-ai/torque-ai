@@ -6,10 +6,10 @@ const path = require('path');
 const Database = require('better-sqlite3');
 const childProcess = require('child_process');
 const database = require('../database');
-const attemptHistory = require('../db/factory-attempt-history');
-const factoryDecisions = require('../db/factory-decisions');
-const factoryHealth = require('../db/factory-health');
-const factoryWorktrees = require('../db/factory-worktrees');
+const attemptHistory = require('../db/factory/attempt-history');
+const factoryDecisions = require('../db/factory/decisions');
+const factoryHealth = require('../db/factory/health');
+const factoryWorktrees = require('../db/factory/worktrees');
 const taskCore = require('../db/task-core');
 const { taskEvents } = require('../hooks/event-dispatch');
 

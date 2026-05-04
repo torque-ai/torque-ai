@@ -64,7 +64,7 @@ function loadHandlersWithMockedTick(project) {
   installCjsModuleMock('../factory/factory-tick', tickMock);
   delete require.cache[factoryHandlersPath];
 
-  const actualFactoryHealth = require('../db/factory-health');
+  const actualFactoryHealth = require('../db/factory/health');
   const projectState = { ...project };
   const mockFactoryHealth = {
     ...actualFactoryHealth,
@@ -76,8 +76,8 @@ function loadHandlersWithMockedTick(project) {
       return { ...projectState };
     }),
   };
-  vi.doMock('../db/factory-health', () => mockFactoryHealth);
-  installCjsModuleMock('../db/factory-health', mockFactoryHealth);
+  vi.doMock('../db/factory/health', () => mockFactoryHealth);
+  installCjsModuleMock('../db/factory/health', mockFactoryHealth);
 
   return require('../handlers/factory-handlers');
 }
@@ -85,7 +85,7 @@ function loadHandlersWithMockedTick(project) {
 beforeEach(() => {
   vi.restoreAllMocks();
   vi.doUnmock('../factory/factory-tick');
-  vi.doUnmock('../db/factory-health');
+  vi.doUnmock('../db/factory/health');
   // eslint-disable-next-line torque/no-reset-modules-in-each -- re-requires factory-tick and factory-handlers fresh each run
   vi.resetModules();
 
@@ -93,7 +93,7 @@ beforeEach(() => {
   createBaseTables(db);
   runMigrations(db);
 
-  factoryHealth = require('../db/factory-health');
+  factoryHealth = require('../db/factory/health');
   factoryHealth.setDb(db);
   db.prepare('DELETE FROM factory_projects').run();
   projectId = factoryHealth.registerProject({
@@ -107,7 +107,7 @@ afterEach(() => {
     factoryHealth.setDb(null);
   }
   vi.doUnmock('../factory/factory-tick');
-  vi.doUnmock('../db/factory-health');
+  vi.doUnmock('../db/factory/health');
   vi.restoreAllMocks();
   vi.resetModules();
   delete require.cache[factoryTickPath];

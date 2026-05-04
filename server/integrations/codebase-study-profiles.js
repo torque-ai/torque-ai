@@ -408,7 +408,7 @@ const TORQUE_PROFILE = Object.freeze({
         {
           label: 'Capability and health data',
           description: 'Track provider health, scores, and capabilities.',
-          files: ['server/db/provider-scoring.js', 'server/db/provider-health-history.js', 'server/db/provider-capabilities.js'],
+          files: ['server/db/provider/scoring.js', 'server/db/provider/health-history.js', 'server/db/provider/capabilities.js'],
         },
         {
           label: 'Routing',
@@ -515,7 +515,7 @@ const TORQUE_PROFILE = Object.freeze({
         {
           label: 'Opaque provider choice',
           symptoms: 'Tasks land on surprising providers with no clear health or capability rationale.',
-          investigate_first: ['server/db/provider-scoring.js', 'server/db/provider-capabilities.js', 'server/execution/provider-router.js'],
+          investigate_first: ['server/db/provider/scoring.js', 'server/db/provider/capabilities.js', 'server/execution/provider-router.js'],
         },
         {
           label: 'Fallback duplication',

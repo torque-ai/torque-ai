@@ -1,8 +1,8 @@
 'use strict';
 
 const Database = require('better-sqlite3');
-const providerScoring = require('../db/provider-scoring');
-const providerRoutingCore = require('../db/provider-routing-core');
+const providerScoring = require('../db/provider/scoring');
+const providerRoutingCore = require('../db/provider/routing-core');
 
 const DEFAULT_WEIGHTS = {
   cost: 0.15,
@@ -113,7 +113,7 @@ function insertRoutingTemplate(name, rules) {
   );
 }
 
-describe('db/provider-scoring', () => {
+describe('db/provider/scoring', () => {
   beforeEach(() => {
     db = new Database(':memory:');
     db.exec(`

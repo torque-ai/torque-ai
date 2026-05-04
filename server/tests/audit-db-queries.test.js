@@ -257,7 +257,7 @@ describe('scripts/audit-db-queries', () => {
 
     it('reads CREATE TABLE blocks across every server/db/*.js file', () => {
       // Per-feature db modules carry their own schema (factory_decisions
-      // in db/migrations.js, factory_worktrees in db/factory-worktrees.js,
+      // in db/migrations.js, factory_worktrees in db/factory/worktrees.js,
       // etc.). The original audit only loaded schema-tables.js + schema.js,
       // so those tables looked schema-less and every WHERE against them
       // was reported as a full scan.

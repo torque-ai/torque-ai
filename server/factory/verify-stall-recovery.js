@@ -1,6 +1,6 @@
 'use strict';
 
-const factoryDecisions = require('../db/factory-decisions');
+const factoryDecisions = require('../db/factory/decisions');
 const decisionLog = require('./decision-log');
 const { isWithinCooldown } = require('./auto-recovery/backoff');
 

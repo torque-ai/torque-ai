@@ -267,7 +267,7 @@ function loadHandlers(overrides = {}) {
   installCjsModuleMock('../database', currentModules.db);
   installCjsModuleMock('../db/task-core', currentModules.taskCoreModule);
   installCjsModuleMock('../db/event-tracking', currentModules.eventTrackingModule);
-  installCjsModuleMock('../db/file-tracking', currentModules.fileTrackingModule);
+  installCjsModuleMock('../db/file/tracking', currentModules.fileTrackingModule);
   installCjsModuleMock('../db/project-config-core', currentModules.projectConfigCoreModule);
   installCjsModuleMock('../db/scheduling-automation', currentModules.schedulingAutomationModule);
   installCjsModuleMock('../db/task-metadata', currentModules.taskMetadataModule);

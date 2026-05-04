@@ -4,7 +4,7 @@
  * Provides request parsing, response helpers, and task enrichment
  * used across all route modules.
  */
-const hostManagement = require('../db/host-management');
+const hostManagement = require('../db/host/management');
 
 /**
  * Standard security headers applied to all responses

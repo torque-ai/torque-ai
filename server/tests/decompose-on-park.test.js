@@ -2,7 +2,7 @@
 /* global describe, it, expect, beforeEach */
 
 const Database = require('better-sqlite3');
-const { createTables: ensureSchema } = require('../db/schema-tables');
+const { createTables: ensureSchema } = require('../db/schema/tables');
 const { decomposeBeforePark } = require('../factory/loop-controller');
 
 const LOGGER_STUB = { debug() {}, info() {}, warn() {}, error() {} };

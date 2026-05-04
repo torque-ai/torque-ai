@@ -4,8 +4,8 @@ const fs = require('fs');
 const path = require('path');
 
 const { setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
-const factoryHealth = require('../db/factory-health');
-const factoryIntake = require('../db/factory-intake');
+const factoryHealth = require('../db/factory/health');
+const factoryIntake = require('../db/factory/intake');
 const {
   createScoutFindingsIntake,
   parseFindings,

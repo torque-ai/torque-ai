@@ -23,7 +23,7 @@ let runningProcesses;
 
 const FALLBACK_RETRY_MODULE_PATH = require.resolve('../execution/fallback-retry');
 const LOGGER_MODULE_PATH = require.resolve('../logger');
-const ROUTING_CORE_MODULE_PATH = require.resolve('../db/provider-routing-core');
+const ROUTING_CORE_MODULE_PATH = require.resolve('../db/provider/routing-core');
 const ORIGINAL_FALLBACK_RETRY_CACHE = require.cache[FALLBACK_RETRY_MODULE_PATH];
 const ORIGINAL_LOGGER_CACHE = require.cache[LOGGER_MODULE_PATH];
 const ORIGINAL_ROUTING_CORE_CACHE = require.cache[ROUTING_CORE_MODULE_PATH];
@@ -34,8 +34,8 @@ function setup() {
   ({ db, testDir } = setupTestDbOnly('fallback-retry'));
   taskCore = require('../db/task-core');
   configCore = require('../db/config-core');
-  hostManagement = require('../db/host-management');
-  providerRoutingCore = require('../db/provider-routing-core');
+  hostManagement = require('../db/host/management');
+  providerRoutingCore = require('../db/provider/routing-core');
 
   // Remove auto-created 'default' host to prevent test contamination
   // (migrateToMultiHost creates it from the seeded ollama_host config)
@@ -183,7 +183,7 @@ function loadFallbackRetryWithMocks({
 
   delete require.cache[FALLBACK_RETRY_MODULE_PATH];
   installMock('../logger', loggerModule);
-  installMock('../db/provider-routing-core', {
+  installMock('../db/provider/routing-core', {
     CLOUD_PROVIDERS: cloudProviders,
     getProviderFallbackChain: vi.fn(() => chain),
   });
@@ -804,8 +804,8 @@ describe('fallback-retry module', () => {
       // in-flight retry with reason pre_reclaim_before_create. The fix
       // calls refreshGraceForOwningTask on requeue so the grace window is
       // reset to "now."
-      const factoryWorktreesPath = require.resolve('../db/factory-worktrees');
-      const factoryWorktrees = require('../db/factory-worktrees');
+      const factoryWorktreesPath = require.resolve('../db/factory/worktrees');
+      const factoryWorktrees = require('../db/factory/worktrees');
       const refreshSpy = vi.spyOn(factoryWorktrees, 'refreshGraceForOwningTask').mockReturnValue({ id: 1 });
       try {
         const task = createTask({ provider: 'ollama', model: TEST_MODELS.DEFAULT });
@@ -824,7 +824,7 @@ describe('fallback-retry module', () => {
     it('does not abort requeue when refreshGraceForOwningTask throws', () => {
       // Defensive: a worktree-grace bump is best-effort; failure must not
       // promote a transient DB error into a failed task.
-      const factoryWorktrees = require('../db/factory-worktrees');
+      const factoryWorktrees = require('../db/factory/worktrees');
       const refreshSpy = vi.spyOn(factoryWorktrees, 'refreshGraceForOwningTask').mockImplementation(() => {
         throw new Error('worktrees table missing');
       });

@@ -7,9 +7,9 @@ const path = require('path');
 const fs = require('fs');
 const fsPromises = require('node:fs/promises');
 const configCore = require('../../db/config-core');
-const hostManagement = require('../../db/host-management');
+const hostManagement = require('../../db/host/management');
 const projectConfigCore = require('../../db/project-config-core');
-const providerRoutingCore = require('../../db/provider-routing-core');
+const providerRoutingCore = require('../../db/provider/routing-core');
 const taskCore = require('../../db/task-core');
 const workflowEngine = require('../../db/workflow-engine');
 const taskManager = require('../../task-manager');
@@ -29,7 +29,7 @@ const {
 } = require('../../factory/provider-lane-policy');
 const modelRoles = require('../../db/model-roles');
 const modelCaps = require('../../db/model-capabilities');
-const { getProviderCapabilitySet } = require('../../db/provider-capabilities');
+const { getProviderCapabilitySet } = require('../../db/provider/capabilities');
 const { isAgenticCapable } = require('../../providers/agentic-capability');
 const {
   KNOWN_STAGES: ROUTING_TRACE_STAGES,

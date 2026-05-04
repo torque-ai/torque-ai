@@ -17,10 +17,10 @@ let lifecycle;
 
 const PROCESS_LIFECYCLE_MODULE = '../execution/process-lifecycle';
 const TASK_CORE_MODULE = '../db/task-core';
-const HOST_MANAGEMENT_MODULE = '../db/host-management';
+const HOST_MANAGEMENT_MODULE = '../db/host/management';
 const TASK_METADATA_MODULE = '../db/task-metadata';
 const WEBHOOK_STREAMING_MODULE = '../db/webhooks-streaming';
-const PROVIDER_ROUTING_CORE_MODULE = '../db/provider-routing-core';
+const PROVIDER_ROUTING_CORE_MODULE = '../db/provider/routing-core';
 const LOGGER_MODULE = '../logger';
 const SANITIZE_MODULE = '../utils/sanitize';
 const COMPLETION_MODULE = '../validation/completion-detection';

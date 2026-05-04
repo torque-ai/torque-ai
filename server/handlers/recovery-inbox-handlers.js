@@ -1,7 +1,7 @@
 'use strict';
 
-const factoryIntake = require('../db/factory-intake');
-const factoryDecisions = require('../db/factory-decisions');
+const factoryIntake = require('../db/factory/intake');
+const factoryDecisions = require('../db/factory/decisions');
 const decisionLog = require('../factory/decision-log');
 const { defaultContainer } = require('../container');
 

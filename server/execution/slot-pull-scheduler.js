@@ -15,8 +15,8 @@
 const os = require('os');
 const path = require('path');
 const logger = require('../logger').child({ component: 'slot-pull-scheduler' });
-const capabilities = require('../db/provider-capabilities');
-const perfTracker = require('../db/provider-performance');
+const capabilities = require('../db/provider/capabilities');
+const perfTracker = require('../db/provider/performance');
 const { normalizeMetadata } = require('../utils/normalize-metadata');
 const { isRestartBarrierActive } = require('./restart-barrier');
 const { promotePendingRestartResubmissions } = require('./restart-resubmit-queue');

@@ -1,6 +1,6 @@
 'use strict';
 
-const providerRoutingCore = require('../db/provider-routing-core');
+const providerRoutingCore = require('../db/provider/routing-core');
 
 function normalizeRuntimeHealth(runtimeHealth) {
   const successes = Number(runtimeHealth?.successes ?? runtimeHealth?.successful_tasks) || 0;

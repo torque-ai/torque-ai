@@ -12,7 +12,7 @@ let workDir;
 function setup() {
   ctx = setupE2eDb('file-tracking');
   db = ctx.db;
-  fileTracking = require('../db/file-tracking');
+  fileTracking = require('../db/file/tracking');
   workDir = path.join(ctx.testDir, 'workspace');
   fs.mkdirSync(workDir, { recursive: true });
 }

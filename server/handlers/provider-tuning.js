@@ -4,7 +4,7 @@
  */
 
 const configCore = require('../db/config-core');
-const hostManagement = require('../db/host-management');
+const hostManagement = require('../db/host/management');
 const serverConfig = require('../config');
 const { ErrorCodes, makeError } = require('./error-codes');
 

@@ -1,8 +1,8 @@
 'use strict';
 
 const Database = require('better-sqlite3');
-const factoryHealth = require('../db/factory-health');
-const factoryLoopInstances = require('../db/factory-loop-instances');
+const factoryHealth = require('../db/factory/health');
+const factoryLoopInstances = require('../db/factory/loop-instances');
 const { LOOP_STATES } = require('../factory/loop-states');
 const loopController = require('../factory/loop-controller');
 // vitest globals (describe/it/beforeEach/afterEach/expect) are injected by the test runner.

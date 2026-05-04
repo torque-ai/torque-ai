@@ -5,7 +5,7 @@
 
 const path = require('path');
 const taskCore = require('../../db/task-core');
-const fileTracking = require('../../db/file-tracking');
+const fileTracking = require('../../db/file/tracking');
 const taskMetadata = require('../../db/task-metadata');
 const workflowEngine = require('../../db/workflow-engine');
 const {

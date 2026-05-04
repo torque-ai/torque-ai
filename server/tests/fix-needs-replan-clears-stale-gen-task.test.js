@@ -6,8 +6,8 @@
 // clear the stale plan_generation_task_id from origin_json.
 
 const Database = require('better-sqlite3');
-const factoryIntake = require('../db/factory-intake');
-const factoryHealth = require('../db/factory-health');
+const factoryIntake = require('../db/factory/intake');
+const factoryHealth = require('../db/factory/health');
 const { routeWorkItemToNeedsReplan } = require('../factory/loop-controller');
 
 function createMinimalSchema(database) {

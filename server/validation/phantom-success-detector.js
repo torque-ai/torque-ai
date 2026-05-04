@@ -1,6 +1,6 @@
 'use strict';
 
-const factoryDecisions = require('../db/factory-decisions');
+const factoryDecisions = require('../db/factory/decisions');
 const decisionLog = require('../factory/decision-log');
 const logger = require('../logger').child({ component: 'phantom-success-detector' });
 

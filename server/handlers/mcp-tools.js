@@ -2283,7 +2283,7 @@ async function handleReplayFromTranscript(args = {}) {
 
     const replayTaskId = randomUUID();
     const taskCore = require('../db/task-core');
-    const providerRoutingCore = require('../db/provider-routing-core');
+    const providerRoutingCore = require('../db/provider/routing-core');
     const taskManager = require('../task-manager');
 
     const replayMetadata = {

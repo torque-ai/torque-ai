@@ -1,6 +1,6 @@
 'use strict';
 
-const factoryIntake = require('../db/factory-intake');
+const factoryIntake = require('../db/factory/intake');
 const logger = require('../logger').child({ component: 'factory-github-intake' });
 
 const GITHUB_API_BASE_URL = 'https://api.github.com';

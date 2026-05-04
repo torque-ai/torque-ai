@@ -10,7 +10,7 @@ let mod;
 let seq = 0;
 
 function setup() {
-  ({ db, mod, testDir } = setupTestDbModule('../db/provider-routing-core', 'provrouting'));
+  ({ db, mod, testDir } = setupTestDbModule('../db/provider/routing-core', 'provrouting'));
   taskCore = require('../db/task-core');
   configCore = require('../db/config-core');
 }
@@ -55,8 +55,8 @@ function loadFreshProviderRouting() {
   // Clear cached module to get truly fresh module state
   delete require.cache[require.resolve('../db/ollama-health')];
   delete require.cache[require.resolve('../db/smart-routing')];
-  delete require.cache[require.resolve('../db/provider-routing-core')];
-  const fresh = require('../db/provider-routing-core');
+  delete require.cache[require.resolve('../db/provider/routing-core')];
+  const fresh = require('../db/provider/routing-core');
   fresh.setDb(rawDb());
   if (fresh.setGetTask) fresh.setGetTask(taskCore.getTask);
   return fresh;
@@ -1278,7 +1278,7 @@ describe('provider-routing module', () => {
     beforeEach(() => {
       clearHosts();
       // Wire host management so hasHealthyOllamaHost can use listOllamaHosts
-      const hostMgmt = require('../db/host-management');
+      const hostMgmt = require('../db/host/management');
       hostMgmt.setDb(rawDb());
       mod.setHostManagement(hostMgmt);
     });

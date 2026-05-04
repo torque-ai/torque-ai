@@ -3,7 +3,7 @@ import { createRequire } from 'module';
 
 const require = createRequire(import.meta.url);
 const { setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
-const providerHealthHistory = require('../db/provider-health-history');
+const providerHealthHistory = require('../db/provider/health-history');
 
 const FIXED_NOW = new Date('2026-03-10T12:00:00.000Z');
 
@@ -11,7 +11,7 @@ function isoDaysAgo(days, hours = 0) {
   return new Date(FIXED_NOW.getTime() - (((days * 24) + hours) * 60 * 60 * 1000)).toISOString();
 }
 
-describe('db/provider-health-history', () => {
+describe('db/provider/health-history', () => {
   let dbModule;
   let db;
 

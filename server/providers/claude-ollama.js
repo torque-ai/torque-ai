@@ -5,7 +5,7 @@ const { randomUUID } = require('crypto');
 const child_process = require('child_process');
 
 const BaseProvider = require('./base');
-const hostManagement = require('../db/host-management');
+const hostManagement = require('../db/host/management');
 const { getDataDir } = require('../data-dir');
 const { EventType } = require('../streaming/event-types');
 const { buildSafeEnv } = require('../utils/safe-env');

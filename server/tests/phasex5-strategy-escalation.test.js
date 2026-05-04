@@ -1,8 +1,8 @@
 'use strict';
 
 const Database = require('better-sqlite3');
-const factoryIntake = require('../db/factory-intake');
-const factoryHealth = require('../db/factory-health');
+const factoryIntake = require('../db/factory/intake');
+const factoryHealth = require('../db/factory/health');
 const {
   routeWorkItemToNeedsReplan,
   detectSameShapeEscalation,

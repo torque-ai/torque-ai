@@ -77,7 +77,7 @@ function readFactoryProject(project_id) {
   }
 
   try {
-    const factoryHealth = require('../db/factory-health');
+    const factoryHealth = require('../db/factory/health');
     return factoryHealth.getProject(project_id) || null;
   } catch (_error) {
     return null;

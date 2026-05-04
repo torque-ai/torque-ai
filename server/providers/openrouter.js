@@ -331,14 +331,14 @@ class OpenRouterProvider extends BaseProvider {
       });
 
       try {
-        const { getQuotaStore } = require('../db/provider-quotas');
+        const { getQuotaStore } = require('../db/provider/quotas');
         getQuotaStore().updateFromHeaders('openrouter', response.headers);
       } catch (e) { logger.debug('[openrouter] quota header tracking error:', e.message); }
 
       if (!response.ok) {
         if (response.status === 429) {
           try {
-            const { getQuotaStore } = require('../db/provider-quotas');
+            const { getQuotaStore } = require('../db/provider/quotas');
             getQuotaStore().record429('openrouter');
           } catch (e) { logger.debug('[openrouter] quota 429 tracking error:', e.message); }
         }
@@ -428,14 +428,14 @@ class OpenRouterProvider extends BaseProvider {
       });
 
       try {
-        const { getQuotaStore } = require('../db/provider-quotas');
+        const { getQuotaStore } = require('../db/provider/quotas');
         getQuotaStore().updateFromHeaders('openrouter', response.headers);
       } catch (e) { logger.debug('[openrouter] quota header tracking error:', e.message); }
 
       if (!response.ok) {
         if (response.status === 429) {
           try {
-            const { getQuotaStore } = require('../db/provider-quotas');
+            const { getQuotaStore } = require('../db/provider/quotas');
             getQuotaStore().record429('openrouter');
           } catch (e) { logger.debug('[openrouter] quota 429 tracking error:', e.message); }
         }

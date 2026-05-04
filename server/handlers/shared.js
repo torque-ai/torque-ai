@@ -849,8 +849,8 @@ function probeOllamaEndpoint(hostUrl, timeoutMs) {
  */
 function checkProviderAvailability(options = {}) {
   if (options.hasExplicitProvider) return null;
-  const providerRoutingCore = require('../db/provider-routing-core');
-  const hostManagement = require('../db/host-management');
+  const providerRoutingCore = require('../db/provider/routing-core');
+  const hostManagement = require('../db/host/management');
   if (!providerRoutingCore.isCodexExhausted() || hostManagement.hasHealthyOllamaHost()) return null;
   return {
     error: makeError(ErrorCodes.NO_HOSTS_AVAILABLE,

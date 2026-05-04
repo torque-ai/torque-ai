@@ -89,7 +89,7 @@ function createPlugin() {
 
       let listHosts;
       try {
-        const hostMgmt = require('../../db/host-management');
+        const hostMgmt = require('../../db/host/management');
         listHosts = () => hostMgmt.listOllamaHosts({ enabled: true }) || [];
       } catch {
         listHosts = () => [];

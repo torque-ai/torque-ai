@@ -5,8 +5,8 @@ const MODULE_PATHS = [
   '../db/task-core',
   '../db/cost-tracking',
   '../db/event-tracking',
-  '../db/file-tracking',
-  '../db/provider-routing-core',
+  '../db/file/tracking',
+  '../db/provider/routing-core',
   '../db/webhooks-streaming',
   '../db/workflow-engine',
   '../config',
@@ -150,8 +150,8 @@ function loadAnalytics() {
   installMock('../db/task-core', mockTaskCore);
   installMock('../db/cost-tracking', mockCostTracking);
   installMock('../db/event-tracking', mockEventTracking);
-  installMock('../db/file-tracking', mockFileTracking);
-  installMock('../db/provider-routing-core', mockProviderRoutingCore);
+  installMock('../db/file/tracking', mockFileTracking);
+  installMock('../db/provider/routing-core', mockProviderRoutingCore);
   installMock('../db/webhooks-streaming', mockWebhooksStreaming);
   installMock('../db/workflow-engine', mockWorkflowEngine);
   installMock('../config', mockConfig);

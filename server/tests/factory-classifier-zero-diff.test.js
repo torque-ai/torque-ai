@@ -3,7 +3,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
-const factoryDecisions = require('../db/factory-decisions');
+const factoryDecisions = require('../db/factory/decisions');
 const verifyReview = require('../factory/verify-review');
 
 function ensureClassifierTables(dbHandle) {

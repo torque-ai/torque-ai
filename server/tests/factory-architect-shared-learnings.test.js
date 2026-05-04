@@ -7,9 +7,9 @@ const path = require('path');
 const Database = require('better-sqlite3');
 
 const finalizer = require('../execution/task-finalizer');
-const factoryHealth = require('../db/factory-health');
-const factoryIntake = require('../db/factory-intake');
-const factoryArchitect = require('../db/factory-architect');
+const factoryHealth = require('../db/factory/health');
+const factoryIntake = require('../db/factory/intake');
+const factoryArchitect = require('../db/factory/architect');
 const { buildArchitectPrompt } = require('../factory/architect-prompt');
 const {
   createSharedFactoryStore,

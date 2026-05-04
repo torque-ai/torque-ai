@@ -2,7 +2,7 @@
 /* global describe, it, expect, beforeEach, afterEach, vi */
 
 const Database = require('better-sqlite3');
-const { createTables } = require('../db/schema-tables');
+const { createTables } = require('../db/schema/tables');
 const { createCircuitBreaker } = require('../execution/circuit-breaker');
 
 const SILENT_LOGGER = { info: () => {}, warn: () => {}, error: () => {}, debug: () => {} };

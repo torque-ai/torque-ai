@@ -7,7 +7,7 @@ const MODULE_PATHS = [
   ROUTE_MODULE,
   V2_DISPATCH_MODULE,
   '../database',
-  '../db/provider-routing-core',
+  '../db/provider/routing-core',
   '../task-manager',
   '../api/v2-schemas',
   '../api/v2-middleware',
@@ -185,7 +185,7 @@ let handleToolCall;
 let specialHandlers;
 
 vi.mock('../database', () => currentModules.db);
-vi.mock('../db/provider-routing-core', () => currentModules.db);
+vi.mock('../db/provider/routing-core', () => currentModules.db);
 vi.mock('../task-manager', () => currentModules.taskManager);
 vi.mock('../api/v2-schemas', () => currentModules.v2Schemas);
 vi.mock('../api/v2-middleware', () => currentModules.v2Middleware);
@@ -470,7 +470,7 @@ function createModules() {
 
 function installModuleMocks() {
   installCjsModuleMock('../database', currentModules.db);
-  installCjsModuleMock('../db/provider-routing-core', currentModules.db);
+  installCjsModuleMock('../db/provider/routing-core', currentModules.db);
   installCjsModuleMock('../task-manager', currentModules.taskManager);
   installCjsModuleMock('../api/v2-schemas', currentModules.v2Schemas);
   installCjsModuleMock('../api/v2-middleware', currentModules.v2Middleware);

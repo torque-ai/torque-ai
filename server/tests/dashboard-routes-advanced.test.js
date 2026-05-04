@@ -5,7 +5,7 @@ const { EventEmitter } = require('events');
 
 const taskCore = require('../db/task-core');
 const configCore = require('../db/config-core');
-const hostManagement = require('../db/host-management');
+const hostManagement = require('../db/host/management');
 const coordination = require('../db/coordination');
 const taskManager = require('../task-manager');
 const utils = require('../dashboard/utils');

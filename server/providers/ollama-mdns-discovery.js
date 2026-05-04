@@ -41,7 +41,7 @@ function getConfigCore() {
 }
 function getHostManagement() {
   if (!_hostManagement) {
-    _hostManagement = require('../db/host-management');
+    _hostManagement = require('../db/host/management');
   }
   return _hostManagement;
 }

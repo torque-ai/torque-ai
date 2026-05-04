@@ -140,7 +140,7 @@ function getTopScoredOpenRouterFallbackModels(options = {}) {
 
   const limit = Math.max(1, Number.isFinite(Number(options.limit)) ? Number(options.limit) : OPENROUTER_FALLBACK_SCORE_LIMIT);
   try {
-    const providerModelScores = require('../db/provider-model-scores');
+    const providerModelScores = require('../db/provider/model-scores');
     if (hasSqliteHandle && typeof providerModelScores.init === 'function') {
       try {
         providerModelScores.init(db);

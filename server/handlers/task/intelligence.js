@@ -17,7 +17,7 @@
 
 const taskCore = require('../../db/task-core');
 const analytics = require('../../db/analytics');
-const hostManagement = require('../../db/host-management');
+const hostManagement = require('../../db/host/management');
 const schedulingAutomation = require('../../db/scheduling-automation');
 const taskMetadata = require('../../db/task-metadata');
 const webhooksStreaming = require('../../db/webhooks-streaming');

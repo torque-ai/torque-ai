@@ -1,7 +1,7 @@
 'use strict';
 
-const factoryDecisions = require('../db/factory-decisions');
-const factoryIntake = require('../db/factory-intake');
+const factoryDecisions = require('../db/factory/decisions');
+const factoryIntake = require('../db/factory/intake');
 const decisionLog = require('./decision-log');
 const { defaultRegistry } = require('./recovery-strategies/registry');
 
@@ -224,7 +224,7 @@ function createDispatcher({
   eventBus = null,
   instanceId = `replan-${Math.random().toString(16).slice(2)}`,
 }) {
-  const fH = factoryHealth || require('../db/factory-health');
+  const fH = factoryHealth || require('../db/factory/health');
   const aR = architectRunner || require('./architect-runner');
 
   async function runSweep({ config, nowMs = Date.now() }) {

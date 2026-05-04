@@ -2,7 +2,7 @@
 
 const logger = require('../logger').child({ component: 'guardrail-runner' });
 const guardrails = require('./guardrails');
-const guardrailDb = require('../db/factory-guardrails');
+const guardrailDb = require('../db/factory/guardrails');
 
 function recordAndCollect(project_id, category, check_name, result, batch_id) {
   guardrailDb.recordEvent({

@@ -1,7 +1,7 @@
 'use strict';
 
 const Database = require('better-sqlite3');
-const providerModelScores = require('../db/provider-model-scores');
+const providerModelScores = require('../db/provider/model-scores');
 
 describe('provider-model-scores live outcomes', () => {
   let db;

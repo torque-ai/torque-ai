@@ -11,7 +11,7 @@
 
 const cp = require('child_process');
 const fs = require('fs');
-const providerPerformance = require('../db/provider-performance');
+const providerPerformance = require('../db/provider/performance');
 
 // Save originals for child_process (destructured at load time)
 const _origExecFileSync = cp.execFileSync;

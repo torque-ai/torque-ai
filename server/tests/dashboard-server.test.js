@@ -102,7 +102,7 @@ const DASHBOARD_SERVER_TEST_MODULES = [
   '../dashboard/server',
   '../database',
   '../db/task-core',
-  '../db/host-management',
+  '../db/host/management',
   '../dashboard/router',
   '../dashboard/utils',
   '../task-manager',
@@ -240,7 +240,7 @@ function loadDashboardServer({
 
   // Load the real database facade against mocked task/host sub-modules.
   installMock('../db/task-core', mockTaskCore);
-  installMock('../db/host-management', mockHostManagement);
+  installMock('../db/host/management', mockHostManagement);
 
   // dashboard/router: replace with dispatch mock
   installMock('../dashboard/router', { dispatch: dispatchMock });
@@ -785,7 +785,7 @@ describe('dashboard router/utils helpers', () => {
   beforeEach(() => {
     // Clear require.cache entries that were monkey-patched by dashboard-server tests
     for (const mod of [
-      '../db/host-management',
+      '../db/host/management',
       '../dashboard/router',
       '../dashboard/utils',
       '../dashboard/routes/tasks',
@@ -819,7 +819,7 @@ describe('dashboard router/utils helpers', () => {
       },
     });
 
-    installMock('../db/host-management', hostManagementMock);
+    installMock('../db/host/management', hostManagementMock);
     installMock('../dashboard/routes/tasks', createRouteModuleMock());
     installMock('../dashboard/routes/infrastructure', createRouteModuleMock());
     installMock('../dashboard/routes/analytics', createRouteModuleMock());
@@ -829,7 +829,7 @@ describe('dashboard router/utils helpers', () => {
   afterEach(() => {
     vi.restoreAllMocks();
     for (const mod of [
-      '../db/host-management',
+      '../db/host/management',
       '../dashboard/router',
       '../dashboard/utils',
       '../dashboard/routes/tasks',
@@ -928,7 +928,7 @@ describe('dashboard router/utils helpers', () => {
   });
 
   it('enrichTaskWithHostName adds computed host name', () => {
-    const hostMgmt = require('../db/host-management');
+    const hostMgmt = require('../db/host/management');
     const utils = require('../dashboard/utils');
 
     vi.spyOn(hostMgmt, 'getOllamaHost').mockReturnValue({ id: 'host-1', name: 'GPU Host 1' });
@@ -944,7 +944,7 @@ describe('dashboard router/utils helpers', () => {
   });
 
   it('enrichTaskWithHostName falls back to host id when lookup fails', () => {
-    const hostMgmt = require('../db/host-management');
+    const hostMgmt = require('../db/host/management');
     const utils = require('../dashboard/utils');
 
     vi.spyOn(hostMgmt, 'getOllamaHost').mockImplementation(() => {

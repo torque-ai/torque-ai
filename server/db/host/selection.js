@@ -4,7 +4,7 @@
  * Host Selection and Routing helpers.
  */
 const logger = require('../logger').child({ component: 'host-selection' });
-const hostBenchmarking = require('./host-benchmarking');
+const hostBenchmarking = require('./benchmarking');
 
 let wsAdapters = null;
 function getWsAdapters() {

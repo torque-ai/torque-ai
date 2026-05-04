@@ -1,7 +1,7 @@
 'use strict';
 
-const factoryHealth = require('../db/factory-health');
-const factoryIntake = require('../db/factory-intake');
+const factoryHealth = require('../db/factory/health');
+const factoryIntake = require('../db/factory/intake');
 const configCore = require('../db/config-core');
 const factoryTick = require('../factory/factory-tick');
 const {

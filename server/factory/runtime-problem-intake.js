@@ -190,9 +190,9 @@ function reportRuntimeTaskProblem({
   problem,
   details = {},
   logger,
-  factoryIntake = require('../db/factory-intake'),
-  factoryHealth = require('../db/factory-health'),
-  factoryDecisions = require('../db/factory-decisions'),
+  factoryIntake = require('../db/factory/intake'),
+  factoryHealth = require('../db/factory/health'),
+  factoryDecisions = require('../db/factory/decisions'),
 } = {}) {
   if (!task || !task.id || !PROBLEM_DEFINITIONS[problem]) {
     return { reported: false, reason: 'invalid_input' };

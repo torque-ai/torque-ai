@@ -1,6 +1,6 @@
 'use strict';
 
-const fileTracking = require('../../db/file-tracking');
+const fileTracking = require('../../db/file/tracking');
 const { requireString } = require('../shared');
 
 /**

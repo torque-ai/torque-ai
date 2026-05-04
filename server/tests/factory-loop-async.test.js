@@ -5,10 +5,10 @@ const os = require('node:os');
 vi.mock('../event-bus', () => ({ emitTaskEvent: vi.fn() }));
 
 const database = require('../database');
-const factoryDecisions = require('../db/factory-decisions');
-const factoryHealth = require('../db/factory-health');
-const factoryIntake = require('../db/factory-intake');
-const factoryLoopInstances = require('../db/factory-loop-instances');
+const factoryDecisions = require('../db/factory/decisions');
+const factoryHealth = require('../db/factory/health');
+const factoryIntake = require('../db/factory/intake');
+const factoryLoopInstances = require('../db/factory/loop-instances');
 const architectRunner = require('../factory/architect-runner');
 const loopController = require('../factory/loop-controller');
 const { LOOP_STATES } = require('../factory/loop-states');

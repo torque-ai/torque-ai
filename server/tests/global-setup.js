@@ -118,7 +118,7 @@ module.exports = async function setup() {
   // Clear module cache to ensure fresh init
   delete require.cache[require.resolve('../database')];
   const db = require('../database');
-  const hostManagement = require('../db/host-management');
+  const hostManagement = require('../db/host/management');
   db.init();
 
   // Remove seeded hosts to prevent real Ollama probes in tests

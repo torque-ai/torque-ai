@@ -2,12 +2,12 @@
 /* global describe, it, expect, beforeEach */
 
 const Database = require('better-sqlite3');
-const { createTables: ensureSchema } = require('../db/schema-tables');
+const { createTables: ensureSchema } = require('../db/schema/tables');
 const {
   getCodexFallbackPolicy,
   setCodexFallbackPolicy,
   CODEX_FALLBACK_POLICIES,
-} = require('../db/factory-intake');
+} = require('../db/factory/intake');
 
 const INSERT_PROJECT = `INSERT INTO factory_projects (id, name, path, brief, trust_level, status, config_json)
                        VALUES (?, ?, ?, ?, ?, ?, ?)`;

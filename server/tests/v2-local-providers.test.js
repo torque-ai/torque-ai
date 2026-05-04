@@ -86,12 +86,12 @@ function loadProviders(overrides = {}) {
 
   vi.resetModules();
   delete require.cache[require.resolve('../db/config-core')];
-  delete require.cache[require.resolve('../db/host-management')];
+  delete require.cache[require.resolve('../db/host/management')];
   delete require.cache[require.resolve('../constants')];
   delete require.cache[require.resolve('../logger')];
   delete require.cache[providersPath];
   installCjsModuleMock('../db/config-core', configCoreMock);
-  installCjsModuleMock('../db/host-management', hostManagementMock);
+  installCjsModuleMock('../db/host/management', hostManagementMock);
   installCjsModuleMock('../constants', constantsMock);
   installCjsModuleMock('../logger', loggerMock);
 
