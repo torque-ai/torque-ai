@@ -392,7 +392,6 @@ function init(deps) {
   if (deps.db) db = deps.db;
   if (deps.db) serverConfig.init({ db: deps.db });
   if (deps.dashboard) dashboard = deps.dashboard;
-  if (deps.runningProcesses) runningProcesses = deps.runningProcesses;
   if (deps.tryReserveHostSlotWithFallback) _tryReserveHostSlotWithFallback = deps.tryReserveHostSlotWithFallback;
   if (deps.markTaskCleanedUp) _markTaskCleanedUp = deps.markTaskCleanedUp;
   if (deps.tryOllamaCloudFallback) _tryOllamaCloudFallback = deps.tryOllamaCloudFallback;
@@ -404,10 +403,35 @@ function init(deps) {
   if (deps.NVM_NODE_PATH !== undefined) _NVM_NODE_PATH = deps.NVM_NODE_PATH;
   if (deps.QUEUE_LOCK_HOLDER_ID) _QUEUE_LOCK_HOLDER_ID = deps.QUEUE_LOCK_HOLDER_ID;
   if (deps.MAX_OUTPUT_BUFFER) _MAX_OUTPUT_BUFFER = deps.MAX_OUTPUT_BUFFER;
+
+  // Container-owned shared state. The four absorbed concerns
+  // (runningProcesses, pendingRetryTimeouts, taskCleanupGuard,
+  // stallRecoveryAttempts) all live on the ProcessTracker singleton —
+  // peek it as default so callers don't have to thread the same maps
+  // through init() every time. Tests that inject bare Maps for any
+  // single concern still win via the explicit dep paths below; the
+  // accessor presence guard prevents a bare Map injected as
+  // runningProcesses from clobbering the module-level Map defaults
+  // for the absorbed concerns it doesn't carry.
+  const { defaultContainer } = require('../container');
+  const trackerCandidate = deps.runningProcesses
+    || defaultContainer.peek('processTracker')
+    || null;
+  if (trackerCandidate) {
+    runningProcesses = trackerCandidate;
+    if (!deps.pendingRetryTimeouts && trackerCandidate.retryTimeouts) {
+      _pendingRetryTimeouts = trackerCandidate.retryTimeouts;
+    }
+    if (!deps.taskCleanupGuard && trackerCandidate.cleanupGuard) {
+      _taskCleanupGuard = trackerCandidate.cleanupGuard;
+    }
+    if (!deps.stallRecoveryAttempts && trackerCandidate.stallAttempts) {
+      stallRecoveryAttempts = trackerCandidate.stallAttempts;
+    }
+  }
   if (deps.pendingRetryTimeouts) _pendingRetryTimeouts = deps.pendingRetryTimeouts;
   if (deps.taskCleanupGuard) _taskCleanupGuard = deps.taskCleanupGuard;
   if (deps.stallRecoveryAttempts) stallRecoveryAttempts = deps.stallRecoveryAttempts;
-
 }
 
 // Proxy helpers

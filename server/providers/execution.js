@@ -160,10 +160,16 @@ function init(deps) {
    //   QUEUE_LOCK_HOLDER_ID, MAX_OUTPUT_BUFFER, pendingRetryTimeouts, taskCleanupGuard,
    //   finalizeTask,
    //   stallRecoveryAttempts
+  // runningProcesses / pendingRetryTimeouts / taskCleanupGuard /
+  // stallRecoveryAttempts default to the container's processTracker
+  // value when omitted (execute-cli's init() peeks the container).
+  // We only forward them here when an explicit override was supplied
+  // by the caller — keeps the legacy push path available for tests
+  // and existing callsites without forcing every caller to thread
+  // the same instances every time.
   _executeCliModule.init({
     db: deps.db,
     dashboard: deps.dashboard,
-    runningProcesses: deps.runningProcesses,
     safeUpdateTaskStatus: deps.safeUpdateTaskStatus,
     tryReserveHostSlotWithFallback: deps.tryReserveHostSlotWithFallback,
     markTaskCleanedUp: deps.markTaskCleanedUp,
@@ -178,10 +184,12 @@ function init(deps) {
     NVM_NODE_PATH: deps.NVM_NODE_PATH,
     QUEUE_LOCK_HOLDER_ID: deps.QUEUE_LOCK_HOLDER_ID,
     MAX_OUTPUT_BUFFER: deps.MAX_OUTPUT_BUFFER,
-    pendingRetryTimeouts: deps.pendingRetryTimeouts,
-    taskCleanupGuard: deps.taskCleanupGuard,
     finalizeTask: deps.finalizeTask,
-    stallRecoveryAttempts: deps.stallRecoveryAttempts,
+    // Forward the four absorbed-state keys only when explicitly provided.
+    ...(deps.runningProcesses ? { runningProcesses: deps.runningProcesses } : {}),
+    ...(deps.pendingRetryTimeouts ? { pendingRetryTimeouts: deps.pendingRetryTimeouts } : {}),
+    ...(deps.taskCleanupGuard ? { taskCleanupGuard: deps.taskCleanupGuard } : {}),
+    ...(deps.stallRecoveryAttempts ? { stallRecoveryAttempts: deps.stallRecoveryAttempts } : {}),
   });
 }
 
