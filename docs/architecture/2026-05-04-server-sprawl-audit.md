@@ -137,6 +137,15 @@ brain toolkit, distinct from the `execution/` task lifecycle and the
 dispatch,orchestrator}`) would make that obvious. But this is opinion-heavy
 work — discuss before moving anything.
 
+> **Update during execution:** verifying the import graph showed this claim
+> was wrong. `actions/` is used only by `handlers/mcp-tools.js`, not by
+> `orchestrator/`. `dispatch/` is wired into the DI container (`container.js`)
+> as a top-level service alongside other infrastructure, not as part of any
+> orchestrator subsystem. `orchestrator/` (the LLM strategic brain) consumes
+> none of `actions/` or `dispatch/`. Folding them under one umbrella would
+> have invented a layer that doesn't exist in the code. The three directories
+> stay where they are; the original recommendation in this doc is withdrawn.
+
 ### 4.2 `db/` is flat with 84 files
 
 All sibling files, no sub-grouping. Natural clusters visible:
@@ -200,7 +209,53 @@ what's safe to delete.
 
 ---
 
+## Status — what landed in this branch
+
+This audit was written on 2026-05-04 and the branch `feat/server-sprawl-audit`
+executed sequence items 1, 2, and 4 directly. Status as of branch tip:
+
+- **§1 Trivial cleanups + §2 naming-collision moves** — landed. 7 commits:
+  audit doc; delete `check_retry.js`; collapse `api-server.js` shim; drop
+  single-file `tools/` dir; rename `tool-registry.js` → `tool-metadata.js`;
+  move `mcp-protocol.js` + `mcp-sse.js` into `mcp/`; move `dashboard-server.js`
+  into `dashboard/server.js`; move `discovery.js` to
+  `providers/ollama-mdns-discovery.js`; merge single-file `coordination/`
+  into `maintenance/`. (`chunked-review.js` was kept after verification —
+  it is wired through `handlers/integration/index.js` and exposed as the
+  `submit_chunked_review` MCP tool plus a REST route.)
+
+- **§3.1 task-manager-delegations.js** — landed. 188 lines of pure pass-through
+  stubs replaced with direct destructured imports from each underlying module
+  (handlers/hashline-handlers, utils/file-resolution, utils/host-monitoring,
+  utils/activity-monitoring, maintenance/instance-manager, validation/post-task,
+  providers/prompts, providers/execution, execution/fallback-retry,
+  execution/workflow-runtime, validation/output-safeguards,
+  execution/sandbox-revert-detection, validation/close-phases,
+  execution/completion-pipeline, execution/task-finalizer,
+  execution/queue-scheduler, maintenance/orphan-cleanup). Test mocks at
+  the delegations boundary repointed to the underlying modules.
+
+- **§4.1 strategic/ grouping** — withdrawn (see updated text above; the
+  layering claim was wrong on inspection).
+
+- **§5 runtime pollution** — deferred. The .vitest-* dirs are gitignored
+  test caches; their visual clutter has zero functional impact and the
+  source of creation isn't pinpoint-able without dedicated investigation.
+
+- **§3.2 DB facade migration**, **§4.2 db/ subgrouping**,
+  **§3.3 task-manager.js decompose** — deferred. Each is large enough to
+  warrant its own session/branch and (in the case of §4.2 with ~458
+  importer files) likely the TORQUE team pipeline rather than direct edits.
+
+- **§6 documentation drift (auto-memory)** — landed. Both
+  `MEMORY.md`'s entry and `project_di_migration_complete.md` revised to
+  reflect that ~46 source files still use the legacy facade by allowlist
+  policy; the migration arc is closed but the facade is load-bearing.
+
+---
+
 ## Files referenced
 
-Counts and line numbers as of 2026-05-04 on `main`. Re-run before acting on
-any cluster — concurrent sessions move fast in this repo.
+Counts and line numbers as of 2026-05-04 on `main` at audit time. Re-run
+before acting on any deferred cluster — concurrent sessions move fast in
+this repo.
