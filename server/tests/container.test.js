@@ -122,6 +122,42 @@ describe('container', () => {
     });
   });
 
+  describe('boot({ failFast })', () => {
+    it('throws synchronously by default when a factory fails', () => {
+      container.register('bad', [], () => { throw new Error('boom'); });
+      expect(() => container.boot()).toThrow(/boom/);
+    });
+
+    it('with failFast=false, logs and continues; returns failed names', () => {
+      container.register('good', [], () => ({ ok: true }));
+      container.register('bad', [], () => { throw new Error('boom'); });
+      const result = container.boot({ failFast: false });
+      expect(result.failed).toEqual(['bad']);
+      expect(container.get('good')).toEqual({ ok: true });
+      // The failed service has no instance — get() throws.
+      expect(() => container.get('bad')).toThrow(/not registered/i);
+    });
+
+    it('with failFast=false, dependents of a failed service receive undefined dep', () => {
+      // Documented behavior: a dependent of a failed factory will see
+      // `undefined` for its missing dep. If the dependent's own factory
+      // crashes as a result, it gets logged + reported in `failed` too.
+      container.register('bad', [], () => { throw new Error('boom'); });
+      container.register('depends', ['bad'], ({ bad }) => {
+        if (!bad) throw new Error('missing dep');
+        return { bad };
+      });
+      const result = container.boot({ failFast: false });
+      expect(result.failed.sort()).toEqual(['bad', 'depends']);
+    });
+
+    it('clean boot returns empty failed array', () => {
+      container.register('a', [], () => ({}));
+      const result = container.boot();
+      expect(result.failed).toEqual([]);
+    });
+  });
+
   describe('override', () => {
     it('replaces a service before boot — dependents resolve the override', () => {
       container.register('db', [], () => ({ real: true }));
