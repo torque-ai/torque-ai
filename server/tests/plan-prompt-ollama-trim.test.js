@@ -106,10 +106,13 @@ describe('Phase G: ollama-friendly architect prompt', () => {
       origin: { exemplar_files: ['simtests/Foo.cs'] },
     });
     expect(out).toContain('Project context:');
-    expect(out).toContain('Files in scope');
+    expect(out).toContain('Verified existing files in scope');
     expect(out).toContain('`simtests/Foo.cs`');
     expect(out).toContain('A test work item description.');
     expect(out).toContain('Use `## Task N:` headings');
+    expect(out).toContain('Do not create analysis-only tasks');
+    expect(out).toContain('Do not include commit steps');
+    expect(out).not.toContain('git commit -m');
   });
 
   it('reads provider from a parsed `config` object as well as `config_json`', () => {
