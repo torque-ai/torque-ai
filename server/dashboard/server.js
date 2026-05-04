@@ -77,8 +77,16 @@ const DEFAULT_WS_TOPICS = [
 
 const STATIC_FILE_CACHE_MAX_BYTES = 1024 * 1024;
 const staticFileCache = new Map();
-const REACT_DASHBOARD_DIR = path.resolve(__dirname, '..', 'dashboard', 'dist');
-const STATIC_DASHBOARD_DIR = path.resolve(__dirname, 'dashboard');
+// `__dirname` is server/dashboard/, so climb two levels to reach the repo
+// root before descending into dashboard/dist (the React build artifact).
+// The legacy fallback static files live alongside this server.js, so the
+// static dir is __dirname itself. Both constants shifted when
+// server/dashboard-server.js was moved into server/dashboard/server.js
+// (commit 56689fbe) without updating the relative paths; the breakage
+// stayed latent because the restart-helper bug prevented full restart-
+// from-disk until 5f7102fa landed and exposed it.
+const REACT_DASHBOARD_DIR = path.resolve(__dirname, '..', '..', 'dashboard', 'dist');
+const STATIC_DASHBOARD_DIR = __dirname;
 // Probe for dist/index.html once. If a build appears or disappears later, the
 // selected static root remains stable for this server process.
 const DASHBOARD_STATIC_DIR = fs.existsSync(path.join(REACT_DASHBOARD_DIR, 'index.html'))
