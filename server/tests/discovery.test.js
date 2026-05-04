@@ -486,7 +486,7 @@ describe('Bonjour Discovery Host Identities', () => {
     }
   }
 
-  function mockLocalNetwork(address = '192.168.50.10') {
+  function mockLocalNetwork(address = '192.0.2.10') {
     vi.spyOn(os, 'hostname').mockReturnValue('alpha');
     vi.spyOn(os, 'networkInterfaces').mockReturnValue({
       Ethernet: [
@@ -535,7 +535,7 @@ describe('Bonjour Discovery Host Identities', () => {
       txt: expect.objectContaining({
         id: 'alpha-22434',
         name: 'alpha Ollama',
-        url: 'http://192.168.50.10:22434',
+        url: 'http://192.0.2.10:22434',
       }),
     }));
     expect(find).not.toHaveBeenCalled();

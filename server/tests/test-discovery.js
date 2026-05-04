@@ -15,9 +15,9 @@ describe('Ollama Discovery & Failover', () => {
 
   describe('Private subnet detection', () => {
     it.each([
-      ['10/8', '10.42.7.9', '10.42.7'],
-      ['172.16/12', '172.20.15.200', '172.20.15'],
-      ['192.168/16', '192.168.50.7', '192.168.50'],
+      ['10/8', '10.0.0.9', '10.42.7'],
+      ['172.16/12', '172.16.0.200', '172.20.15'],
+      ['192.168/16', '192.0.2.7', '192.168.50'],
     ])('includes %s addresses in local subnet discovery', (_range, address, subnet) => {
       vi.spyOn(os, 'networkInterfaces').mockReturnValue({
         Ethernet: [

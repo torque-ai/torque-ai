@@ -137,7 +137,7 @@ describe('MCP SSE session cap', () => {
       method: 'GET',
       url: '/sse',
       headers: { host: 'localhost:3458' },
-      remoteAddress: '10.99.99.99',
+      remoteAddress: '10.0.0.99',
     });
 
     expect(overflow.response.statusCode).toBe(503);
