@@ -28,6 +28,7 @@ const buildVerification = require('./build-verification');
 const closePhases = require('./close-phases');
 const autoVerifyRetry = require('./auto-verify-retry');
 const outputSafeguards = require('./output-safeguards');
+const postTask = require('./post-task');
 
 function register(container) {
   safeguardGates.register(container);
@@ -36,8 +37,10 @@ function register(container) {
   closePhases.register(container);
   autoVerifyRetry.register(container);
   outputSafeguards.register(container);
-  // TODO(phase 2c cont.): register the last validation module
-  //   - validation/post-task.js            (1494 LOC; finish validation/ migration)
+  postTask.register(container);
+  // All validation/ modules registered. The container path is now ready
+  // for consumers; task-manager.js still uses the legacy init() shape and
+  // migrates in Phase 3 (execution/ subsystem).
 }
 
 module.exports = { register };

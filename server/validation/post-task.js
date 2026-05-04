@@ -56,22 +56,18 @@ function parseCommand(cmdString) {
   };
 }
 
-// Dependency injection
+// ── Legacy module-level state, written only by init() (deprecated) ─────────
+// Phase 2c of the universal-DI migration: this module exposes both the new
+// createPostTask factory + register(container) shape and the legacy
+// init({…}) shape. Legacy state is removed when task-manager.js migrates
+// to consume via container.
 let db = null;
 let _getModifiedFiles = null;  // from utils/git
 let _parseGitStatusLine = null;  // from utils/git
 let _sanitizeLLMOutput = null;
 let _testRunnerRegistry = null;
 
-/**
- * Initialize dependencies for this module.
- * Must be called before any other function.
- * @param {Object} deps
- * @param {Object} deps.db - Database module (getProjectFromPath, getProjectConfig, saveBuildResult)
- * @param {Function} deps.getModifiedFiles - From utils/git
- * @param {Function} deps.parseGitStatusLine - From utils/git
- * @param {Function} deps.sanitizeLLMOutput - From utils/sanitize
- */
+/** @deprecated Use createPostTask(deps) or container.get('postTask'). */
 function init(deps) {
   if (deps.db) db = deps.db;
   serverConfig.init({ db: deps.db });
@@ -1474,7 +1470,101 @@ function rollbackTaskChanges(taskId, workingDir) {
   }
 }
 
+// ── New factory shape (preferred) ─────────────────────────────────────────
+/**
+ * Build a postTask service that closes over its deps.
+ *
+ * Largest validation/ migration: 1494 lines, 16 exported functions. Most
+ * read from module-level state, so we use the same module-state-swap
+ * pattern as the rest of the validation/ Phase 2 cohort. Pure helpers
+ * (parseCommand, extractBuildErrorFiles) don't read from state and are
+ * exposed directly.
+ *
+ * Side note: post-task's legacy init() also forwards deps to
+ * buildVerification.init(...) — that forwarding is preserved here too
+ * (called inside the state-swap context) so that any internal call chain
+ * post-task → buildVerification still resolves correctly under the
+ * factory shape. Once both modules' legacy shapes are removed in Phase
+ * 5, this side-channel forwarding goes away (each container resolves
+ * buildVerification independently).
+ */
+function createPostTask(deps = {}) {
+  const local = {
+    db: deps.db,
+    _getModifiedFiles: deps.getModifiedFiles,
+    _parseGitStatusLine: deps.parseGitStatusLine,
+    _sanitizeLLMOutput: deps.sanitizeLLMOutput,
+    _testRunnerRegistry: deps.testRunnerRegistry || null,
+  };
+
+  function withLocalDeps(fn) {
+    const prev = {
+      db, _getModifiedFiles, _parseGitStatusLine,
+      _sanitizeLLMOutput, _testRunnerRegistry,
+    };
+    db = local.db;
+    _getModifiedFiles = local._getModifiedFiles;
+    _parseGitStatusLine = local._parseGitStatusLine;
+    _sanitizeLLMOutput = local._sanitizeLLMOutput;
+    _testRunnerRegistry = local._testRunnerRegistry;
+    // Forward to buildVerification (matches legacy init's side effect)
+    buildVerification.init({
+      db,
+      parseCommand,
+      extractBuildErrorFiles,
+      testRunnerRegistry: _testRunnerRegistry,
+    });
+    try { return fn(); }
+    finally {
+      ({
+        db, _getModifiedFiles, _parseGitStatusLine,
+        _sanitizeLLMOutput, _testRunnerRegistry,
+      } = prev);
+    }
+  }
+
+  return {
+    cleanupJunkFiles: (...args) => withLocalDeps(() => cleanupJunkFiles(...args)),
+    getFileChangesForValidation: (...args) => withLocalDeps(() => getFileChangesForValidation(...args)),
+    checkFileQuality: (...args) => withLocalDeps(() => checkFileQuality(...args)),
+    findPlaceholderArtifacts: (...args) => withLocalDeps(() => findPlaceholderArtifacts(...args)),
+    checkDuplicateFiles: (...args) => withLocalDeps(() => checkDuplicateFiles(...args)),
+    checkSyntax: (...args) => withLocalDeps(() => checkSyntax(...args)),
+    runLLMSafeguards: (...args) => withLocalDeps(() => runLLMSafeguards(...args)),
+    runBuildVerification: (...args) => withLocalDeps(() => runBuildVerification(...args)),
+    runTestVerification: (...args) => withLocalDeps(() => runTestVerification(...args)),
+    runStyleCheck: (...args) => withLocalDeps(() => runStyleCheck(...args)),
+    revertScopedFiles: (...args) => withLocalDeps(() => revertScopedFiles(...args)),
+    scopedRollback: (...args) => withLocalDeps(() => scopedRollback(...args)),
+    rollbackTaskChanges: (...args) => withLocalDeps(() => rollbackTaskChanges(...args)),
+    // Pure helpers — no deps to swap
+    extractBuildErrorFiles,
+    parseCommand,
+  };
+}
+
+/**
+ * Register with a DI container under the name 'postTask'.
+ */
+function register(container) {
+  container.register(
+    'postTask',
+    [
+      'db',
+      'getModifiedFiles',
+      'parseGitStatusLine',
+      'sanitizeLLMOutput',
+      'testRunnerRegistry',
+    ],
+    (deps) => createPostTask(deps)
+  );
+}
+
 module.exports = {
+  // New shape (preferred)
+  createPostTask,
+  register,
+  // Legacy shape (kept until task-manager.js migrates)
   init,
   cleanupJunkFiles,
   getFileChangesForValidation,
