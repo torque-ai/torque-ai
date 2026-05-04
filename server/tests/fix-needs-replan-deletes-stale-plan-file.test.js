@@ -6,8 +6,8 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const Database = require('better-sqlite3');
-const factoryIntake = require('../db/factory-intake');
-const factoryHealth = require('../db/factory-health');
+const factoryIntake = require('../db/factory/intake');
+const factoryHealth = require('../db/factory/health');
 const { routeWorkItemToNeedsReplan } = require('../factory/loop-controller');
 
 function createMinimalSchema(database) {

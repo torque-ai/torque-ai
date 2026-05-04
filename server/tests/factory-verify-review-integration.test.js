@@ -8,12 +8,12 @@ const os = require('node:os');
 
 const { setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
 
-const factoryArchitect = require('../db/factory-architect');
-const factoryDecisions = require('../db/factory-decisions');
-const factoryHealth = require('../db/factory-health');
-const factoryIntake = require('../db/factory-intake');
-const factoryLoopInstances = require('../db/factory-loop-instances');
-const factoryWorktrees = require('../db/factory-worktrees');
+const factoryArchitect = require('../db/factory/architect');
+const factoryDecisions = require('../db/factory/decisions');
+const factoryHealth = require('../db/factory/health');
+const factoryIntake = require('../db/factory/intake');
+const factoryLoopInstances = require('../db/factory/loop-instances');
+const factoryWorktrees = require('../db/factory/worktrees');
 
 function ensureFactoryTables(dbHandle) {
   dbHandle.exec(`

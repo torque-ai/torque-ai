@@ -45,9 +45,9 @@ installCjsModuleMock('../factory/internal-task-submit', {
 });
 
 const { setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
-const factoryArchitect = require('../db/factory-architect');
-const factoryHealth = require('../db/factory-health');
-const factoryIntake = require('../db/factory-intake');
+const factoryArchitect = require('../db/factory/architect');
+const factoryHealth = require('../db/factory/health');
+const factoryIntake = require('../db/factory/intake');
 const { runArchitectCycle } = require('../factory/architect-runner');
 
 let dbModule;

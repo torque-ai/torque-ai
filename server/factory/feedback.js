@@ -1,8 +1,8 @@
 'use strict';
 
-const factoryHealth = require('../db/factory-health');
-const factoryFeedback = require('../db/factory-feedback');
-const guardrailDb = require('../db/factory-guardrails');
+const factoryHealth = require('../db/factory/health');
+const factoryFeedback = require('../db/factory/feedback');
+const guardrailDb = require('../db/factory/guardrails');
 const logger = require('../logger').child({ component: 'factory-feedback-analysis' });
 
 const VALID_CORRECTION_TYPES = new Set([

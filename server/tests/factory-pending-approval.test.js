@@ -7,10 +7,10 @@ const {
   resetTables,
 } = require('./vitest-setup');
 const database = require('../database');
-const factoryGuardrails = require('../db/factory-guardrails');
-const factoryHealth = require('../db/factory-health');
-const factoryIntake = require('../db/factory-intake');
-const factoryLoopInstances = require('../db/factory-loop-instances');
+const factoryGuardrails = require('../db/factory/guardrails');
+const factoryHealth = require('../db/factory/health');
+const factoryIntake = require('../db/factory/intake');
+const factoryLoopInstances = require('../db/factory/loop-instances');
 const routingModule = require('../handlers/integration/routing');
 const awaitModule = require('../handlers/workflow/await');
 const taskCore = require('../db/task-core');

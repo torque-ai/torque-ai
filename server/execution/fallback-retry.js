@@ -545,7 +545,7 @@ function tryStallRecovery(taskId, activity) {
   // (pre_reclaim_before_create) — the exact death-spiral that turned stall
   // recovery into task-killer.
   try {
-    const factoryWorktrees = require('../db/factory-worktrees');
+    const factoryWorktrees = require('../db/factory/worktrees');
     if (typeof factoryWorktrees.refreshGraceForOwningTask === 'function') {
       factoryWorktrees.refreshGraceForOwningTask(taskId);
     }

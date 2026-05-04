@@ -74,7 +74,7 @@ function listRows() {
 function loadHandlersWithMockedFactoryHealth(project) {
   vi.resetModules();
 
-  const actualFactoryHealth = require('../db/factory-health');
+  const actualFactoryHealth = require('../db/factory/health');
   const projectState = { ...project };
   const mockFactoryHealth = {
     ...actualFactoryHealth,
@@ -89,11 +89,11 @@ function loadHandlersWithMockedFactoryHealth(project) {
     }),
   };
 
-  vi.doMock('../db/factory-health', () => mockFactoryHealth);
-  installCjsModuleMock('../db/factory-health', mockFactoryHealth);
+  vi.doMock('../db/factory/health', () => mockFactoryHealth);
+  installCjsModuleMock('../db/factory/health', mockFactoryHealth);
   delete require.cache[factoryHandlersPath];
 
-  const freshFactoryAudit = require('../db/factory-audit');
+  const freshFactoryAudit = require('../db/factory/audit');
   freshFactoryAudit.setDb(db);
 
   return {
@@ -104,7 +104,7 @@ function loadHandlersWithMockedFactoryHealth(project) {
 
 beforeEach(() => {
   vi.restoreAllMocks();
-  vi.doUnmock('../db/factory-health');
+  vi.doUnmock('../db/factory/health');
   // eslint-disable-next-line torque/no-reset-modules-in-each -- re-requires factory-audit and factory-health fresh each run
   vi.resetModules();
 
@@ -112,8 +112,8 @@ beforeEach(() => {
   createBaseTables(db);
   runMigrations(db);
 
-  factoryAudit = require('../db/factory-audit');
-  factoryHealth = require('../db/factory-health');
+  factoryAudit = require('../db/factory/audit');
+  factoryHealth = require('../db/factory/health');
   factoryAudit.setDb(db);
   factoryHealth.setDb(db);
 
@@ -130,7 +130,7 @@ afterEach(() => {
   if (factoryHealth && typeof factoryHealth.setDb === 'function') {
     factoryHealth.setDb(null);
   }
-  vi.doUnmock('../db/factory-health');
+  vi.doUnmock('../db/factory/health');
   vi.restoreAllMocks();
   vi.resetModules();
   db.close();

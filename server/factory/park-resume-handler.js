@@ -1,6 +1,6 @@
 'use strict';
 
-const { resumeAllCodexParked } = require('../db/factory-intake');
+const { resumeAllCodexParked } = require('../db/factory/intake');
 
 function createParkResumeHandler({ db, eventBus, logger }) {
   if (!db) throw new Error('createParkResumeHandler requires db');

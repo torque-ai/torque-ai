@@ -7,7 +7,7 @@ const {
   getCodexFallbackPolicy,
   setCodexFallbackPolicy,
   CODEX_FALLBACK_POLICIES,
-} = require('../db/factory-intake');
+} = require('../db/factory/intake');
 
 const INSERT_PROJECT = `INSERT INTO factory_projects (id, name, path, brief, trust_level, status, config_json)
                        VALUES (?, ?, ?, ?, ?, ?, ?)`;

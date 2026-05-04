@@ -1,7 +1,7 @@
 'use strict';
 
-const factoryHealth = require('../db/factory-health');
-const factoryIntake = require('../db/factory-intake');
+const factoryHealth = require('../db/factory/health');
+const factoryIntake = require('../db/factory/intake');
 const { rawDb, setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
 const handlers = require('../handlers/recovery-inbox-handlers');
 

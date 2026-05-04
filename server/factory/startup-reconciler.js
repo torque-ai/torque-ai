@@ -8,8 +8,8 @@ function resolveDatabase() {
     return require('../database');
   }
 }
-const factoryHealth = require('../db/factory-health');
-const factoryLoopInstances = require('../db/factory-loop-instances');
+const factoryHealth = require('../db/factory/health');
+const factoryLoopInstances = require('../db/factory/loop-instances');
 const taskCore = require('../db/task-core');
 const eventBus = require('../event-bus');
 const defaultLogger = require('../logger').child({ component: 'factory-startup-reconciler' });

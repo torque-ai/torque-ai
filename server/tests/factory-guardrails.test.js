@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
 
 const Database = require('better-sqlite3');
 const { runMigrations } = require('../db/migrations');
-const guardrailDb = require('../db/factory-guardrails');
+const guardrailDb = require('../db/factory/guardrails');
 const guardrails = require('../factory/guardrails');
 const {
   runPreBatchChecks,
@@ -10,7 +10,7 @@ const {
   runPreShipChecks,
   getGuardrailSummary,
 } = require('../factory/guardrail-runner');
-const factoryHealth = require('../db/factory-health');
+const factoryHealth = require('../db/factory/health');
 
 let db;
 let projectId;

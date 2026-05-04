@@ -1,6 +1,6 @@
 'use strict';
 
-const factoryIntake = require('../db/factory-intake');
+const factoryIntake = require('../db/factory/intake');
 const { normalizeVerifyCommand } = require('./plan-parser');
 
 const REQUEUEABLE_STATUSES = new Set(['rejected', 'unactionable']);

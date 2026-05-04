@@ -2,10 +2,10 @@
 
 const Database = require('better-sqlite3');
 const loopController = require('../factory/loop-controller');
-const factoryDecisions = require('../db/factory-decisions');
-const factoryHealth = require('../db/factory-health');
-const factoryIntake = require('../db/factory-intake');
-const factoryLoopInstances = require('../db/factory-loop-instances');
+const factoryDecisions = require('../db/factory/decisions');
+const factoryHealth = require('../db/factory/health');
+const factoryIntake = require('../db/factory/intake');
+const factoryLoopInstances = require('../db/factory/loop-instances');
 const { LOOP_STATES } = require('../factory/loop-states');
 
 function createFactoryTables(db) {

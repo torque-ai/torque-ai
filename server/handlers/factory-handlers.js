@@ -38,16 +38,16 @@ function getTestRunnerRegistry() {
   } catch { /* fall through to pre-boot fallback */ }
   return require('../test-runner-registry').createTestRunnerRegistry();
 }
-const factoryDecisions = require('../db/factory-decisions');
-const factoryAudit = require('../db/factory-audit');
-const factoryArchitect = require('../db/factory-architect');
-const factoryHealth = require('../db/factory-health');
-const factoryIntake = require('../db/factory-intake');
-const factoryLoopInstances = require('../db/factory-loop-instances');
+const factoryDecisions = require('../db/factory/decisions');
+const factoryAudit = require('../db/factory/audit');
+const factoryArchitect = require('../db/factory/architect');
+const factoryHealth = require('../db/factory/health');
+const factoryIntake = require('../db/factory/intake');
+const factoryLoopInstances = require('../db/factory/loop-instances');
 const { runArchitectCycle } = require('../factory/architect-runner');
 const { scoreAll, resolveHealthScanSourceDirs } = require('../factory/scorer-registry');
 const { runPreBatchChecks, runPostBatchChecks, runPreShipChecks, getGuardrailSummary } = require('../factory/guardrail-runner');
-const guardrailDb = require('../db/factory-guardrails');
+const guardrailDb = require('../db/factory/guardrails');
 const loopController = require('../factory/loop-controller');
 const baselineRequeue = require('../factory/baseline-requeue');
 const { pollGitHubIssues } = require('../factory/github-intake');

@@ -1,8 +1,8 @@
 'use strict';
 
 const Database = require('better-sqlite3');
-const factoryHealth = require('../db/factory-health');
-const factoryLoopInstances = require('../db/factory-loop-instances');
+const factoryHealth = require('../db/factory/health');
+const factoryLoopInstances = require('../db/factory/loop-instances');
 const handlers = require('../handlers/factory-handlers');
 
 // Create factory tables directly — runMigrations requires the full base schema

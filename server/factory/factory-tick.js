@@ -8,10 +8,10 @@
 // Registered via timer-registry so it's tracked alongside other server timers.
 // Starts when a project has status=running, stops on pause/stop.
 
-const factoryHealth = require('../db/factory-health');
-const factoryIntake = require('../db/factory-intake');
-const factoryLoopInstances = require('../db/factory-loop-instances');
-const factoryDecisions = require('../db/factory-decisions');
+const factoryHealth = require('../db/factory/health');
+const factoryIntake = require('../db/factory/intake');
+const factoryLoopInstances = require('../db/factory/loop-instances');
+const factoryDecisions = require('../db/factory/decisions');
 const { getRejectRecoveryConfig } = require('../db/config-core');
 function resolveDatabase() {
   try {

@@ -210,7 +210,7 @@ describe('handleSubmitScout', () => {
     // The kanban renders a "→ <project>" badge from factory:target_project,
     // which makes scout tasks identifiable on the board the same way
     // architect/plan-gen tasks already are.
-    installCjsModuleMock('../db/factory-health', {
+    installCjsModuleMock('../db/factory/health', {
       getProject: (id) => (id === 'project-1' ? { id, name: 'DLPhone' } : null),
     });
     const fresh = require(HANDLER_MODULE);
@@ -226,7 +226,7 @@ describe('handleSubmitScout', () => {
   });
 
   it('omits factory:target_project tag when factoryHealth has no record', () => {
-    installCjsModuleMock('../db/factory-health', {
+    installCjsModuleMock('../db/factory/health', {
       getProject: () => null,
     });
     const fresh = require(HANDLER_MODULE);

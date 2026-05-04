@@ -3,7 +3,7 @@
 
 const Database = require('better-sqlite3');
 const { createTables: ensureSchema } = require('../db/schema-tables');
-const { parkWorkItemForCodex } = require('../db/factory-intake');
+const { parkWorkItemForCodex } = require('../db/factory/intake');
 const { createParkResumeHandler } = require('../factory/park-resume-handler');
 
 const INSERT_PROJECT = `INSERT INTO factory_projects (id, name, path, brief, trust_level, status)

@@ -8,8 +8,8 @@ const Database = require('better-sqlite3');
 const { defaultContainer } = require('../container');
 const database = require('../database');
 const providerRegistry = require('../providers/registry');
-const factoryHealth = require('../db/factory-health');
-const factoryIntake = require('../db/factory-intake');
+const factoryHealth = require('../db/factory/health');
+const factoryIntake = require('../db/factory/intake');
 const { EXTENDED_TOOL_NAMES } = require('../core-tools');
 const { TOOLS, handleToolCall } = require('../tools');
 

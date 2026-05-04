@@ -4,7 +4,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const Database = require('better-sqlite3');
-const factoryIntake = require('../db/factory-intake');
+const factoryIntake = require('../db/factory/intake');
 const {
   buildCandidateFromHealthFinding,
   createHealthFindingSeed,

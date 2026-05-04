@@ -1,7 +1,7 @@
 'use strict';
 
-const factoryIntake = require('../db/factory-intake');
-const factoryHealth = require('../db/factory-health');
+const factoryIntake = require('../db/factory/intake');
+const factoryHealth = require('../db/factory/health');
 const { rawDb, setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
 const { cleanupStaleReplanClaims } = require('../factory/replan-recovery');
 

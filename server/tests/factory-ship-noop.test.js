@@ -1,9 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 
 const Database = require('better-sqlite3');
-const attemptHistory = require('../db/factory-attempt-history');
-const factoryHealth = require('../db/factory-health');
-const factoryDecisions = require('../db/factory-decisions');
+const attemptHistory = require('../db/factory/attempt-history');
+const factoryHealth = require('../db/factory/health');
+const factoryDecisions = require('../db/factory/decisions');
 const loopController = require('../factory/loop-controller');
 const { createMinimalSchema } = require('./helpers/factory-attempt-history-schema');
 

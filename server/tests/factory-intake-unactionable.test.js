@@ -1,8 +1,8 @@
 'use strict';
 
 const Database = require('better-sqlite3');
-const factoryHealth = require('../db/factory-health');
-const factoryIntake = require('../db/factory-intake');
+const factoryHealth = require('../db/factory/health');
+const factoryIntake = require('../db/factory/intake');
 
 const EXPECTED_REJECT_REASONS = [
   'meta_task_no_code_output',

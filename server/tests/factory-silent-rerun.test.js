@@ -2,9 +2,9 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 const Database = require('better-sqlite3');
 const loopController = require('../factory/loop-controller');
-const instances = require('../db/factory-loop-instances');
-const factoryHealth = require('../db/factory-health');
-const factoryDecisions = require('../db/factory-decisions');
+const instances = require('../db/factory/loop-instances');
+const factoryHealth = require('../db/factory/health');
+const factoryDecisions = require('../db/factory/decisions');
 const { createMinimalSchema } = require('./helpers/factory-attempt-history-schema');
 
 describe('loop-controller — verify silent-rerun', () => {

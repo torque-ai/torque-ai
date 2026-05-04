@@ -5,8 +5,8 @@ const os = require('os');
 const path = require('path');
 const Database = require('better-sqlite3');
 const database = require('../database');
-const factoryHealth = require('../db/factory-health');
-const factoryIntake = require('../db/factory-intake');
+const factoryHealth = require('../db/factory/health');
+const factoryIntake = require('../db/factory/intake');
 const loopController = require('../factory/loop-controller');
 
 function createFactoryTables(db) {

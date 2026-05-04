@@ -11,11 +11,11 @@ vi.mock('../factory/architect-runner', () => ({
 
 const Database = require('better-sqlite3');
 const database = require('../database');
-const factoryArchitect = require('../db/factory-architect');
-const factoryDecisions = require('../db/factory-decisions');
-const factoryHealth = require('../db/factory-health');
-const factoryIntake = require('../db/factory-intake');
-const factoryLoopInstances = require('../db/factory-loop-instances');
+const factoryArchitect = require('../db/factory/architect');
+const factoryDecisions = require('../db/factory/decisions');
+const factoryHealth = require('../db/factory/health');
+const factoryIntake = require('../db/factory/intake');
+const factoryLoopInstances = require('../db/factory/loop-instances');
 const loopController = require('../factory/loop-controller');
 const { LOOP_STATES } = require('../factory/loop-states');
 const { handleDecisionLog } = require('../handlers/factory-handlers');

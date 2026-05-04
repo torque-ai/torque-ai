@@ -12,7 +12,7 @@ const {
   checkProviderAllowed,
   shouldEscalate,
 } = require('../factory/policy-engine');
-const factoryHealth = require('../db/factory-health');
+const factoryHealth = require('../db/factory/health');
 const handlers = require('../handlers/factory-handlers');
 
 function createFactoryTables(db) {

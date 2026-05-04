@@ -973,7 +973,7 @@ async function reviewVerifyFailure({
 
   if (modifiedFiles.length === 0 && batch_id) {
     try {
-      const factoryDecisions = require('../db/factory-decisions');
+      const factoryDecisions = require('../db/factory/decisions');
       const priorDecisions = factoryDecisions.listDecisions(project?.id || null, { stage: 'execute', limit: 20 });
       const priorSkippedClean = priorDecisions.filter((d) => d.batch_id === batch_id && d.action === 'auto_commit_skipped_clean');
       if (priorSkippedClean.length >= 1) {

@@ -804,8 +804,8 @@ describe('fallback-retry module', () => {
       // in-flight retry with reason pre_reclaim_before_create. The fix
       // calls refreshGraceForOwningTask on requeue so the grace window is
       // reset to "now."
-      const factoryWorktreesPath = require.resolve('../db/factory-worktrees');
-      const factoryWorktrees = require('../db/factory-worktrees');
+      const factoryWorktreesPath = require.resolve('../db/factory/worktrees');
+      const factoryWorktrees = require('../db/factory/worktrees');
       const refreshSpy = vi.spyOn(factoryWorktrees, 'refreshGraceForOwningTask').mockReturnValue({ id: 1 });
       try {
         const task = createTask({ provider: 'ollama', model: TEST_MODELS.DEFAULT });
@@ -824,7 +824,7 @@ describe('fallback-retry module', () => {
     it('does not abort requeue when refreshGraceForOwningTask throws', () => {
       // Defensive: a worktree-grace bump is best-effort; failure must not
       // promote a transient DB error into a failed task.
-      const factoryWorktrees = require('../db/factory-worktrees');
+      const factoryWorktrees = require('../db/factory/worktrees');
       const refreshSpy = vi.spyOn(factoryWorktrees, 'refreshGraceForOwningTask').mockImplementation(() => {
         throw new Error('worktrees table missing');
       });

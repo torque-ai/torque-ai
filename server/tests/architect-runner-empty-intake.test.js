@@ -1,9 +1,9 @@
 'use strict';
 
 const architectRunner = require('../factory/architect-runner');
-const factoryIntake = require('../db/factory-intake');
-const factoryArchitect = require('../db/factory-architect');
-const factoryHealth = require('../db/factory-health');
+const factoryIntake = require('../db/factory/intake');
+const factoryArchitect = require('../db/factory/architect');
+const factoryHealth = require('../db/factory/health');
 
 describe('runArchitectCycle empty-intake guard', () => {
   beforeEach(() => {

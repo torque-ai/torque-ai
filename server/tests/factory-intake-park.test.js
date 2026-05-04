@@ -8,7 +8,7 @@ const {
   resumeAllCodexParked,
   isParkedStatus,
   PARK_STATUSES,
-} = require('../db/factory-intake');
+} = require('../db/factory/intake');
 
 const INSERT_PROJECT = `INSERT INTO factory_projects (id, name, path, brief, trust_level, status)
                        VALUES (?, ?, ?, ?, ?, ?)`;

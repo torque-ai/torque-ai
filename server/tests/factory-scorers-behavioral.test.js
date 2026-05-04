@@ -1192,7 +1192,7 @@ jobs:
         '2026-04-12-performance-scan.md': findingsMarkdown([
           { severity: 'high', title: 'Queue drain path spins CPU during retries', file: 'server/execution/queue-scheduler.js' },
           { severity: 'critical', title: 'Resolved cache-thrashing incident', file: 'server/db/task-core.js', status: 'RESOLVED' },
-          { severity: 'medium', title: 'Planner query misses an index', file: 'server/db/factory-architect.js' },
+          { severity: 'medium', title: 'Planner query misses an index', file: 'server/db/factory/architect.js' },
         ]),
       });
 
@@ -1209,7 +1209,7 @@ jobs:
         {
           severity: 'medium',
           title: 'Planner query misses an index',
-          file: 'server/db/factory-architect.js',
+          file: 'server/db/factory/architect.js',
         },
       ]);
     });
@@ -1256,7 +1256,7 @@ jobs:
           { severity: 'medium', title: 'Audit report flags one slow aggregation query', file: 'server/db/task-core.js' },
         ]),
         [latestReport]: findingsMarkdown([
-          { severity: 'medium', title: 'Sweep report flags the final slow warm-path query', file: 'server/db/factory-architect.js' },
+          { severity: 'medium', title: 'Sweep report flags the final slow warm-path query', file: 'server/db/factory/architect.js' },
         ]),
       });
 
@@ -1272,7 +1272,7 @@ jobs:
         {
           severity: 'medium',
           title: 'Sweep report flags the final slow warm-path query',
-          file: 'server/db/factory-architect.js',
+          file: 'server/db/factory/architect.js',
         },
       ]);
     });

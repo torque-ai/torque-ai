@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, test } from 'vitest';
 const path = require('path');
 const Database = require('better-sqlite3');
 const { setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
-const factoryHealth = require('../db/factory-health');
+const factoryHealth = require('../db/factory/health');
 
 let testDir;
 

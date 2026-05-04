@@ -53,7 +53,7 @@ describe('factory_projects auto-recovery columns', () => {
 
 describe('factory-decisions VALID_ACTORS', () => {
   it('accepts auto-recovery as a valid actor', () => {
-    const { recordDecision, setDb } = require('../db/factory-decisions');
+    const { recordDecision, setDb } = require('../db/factory/decisions');
     const db = new Database(':memory:');
     db.prepare(`CREATE TABLE factory_decisions (
       id INTEGER PRIMARY KEY AUTOINCREMENT,

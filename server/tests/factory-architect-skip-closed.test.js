@@ -3,9 +3,9 @@ import { describe, test, expect, beforeEach, afterEach, vi } from 'vitest';
 vi.mock('../task-manager', () => ({}));
 
 const Database = require('better-sqlite3');
-const factoryHealth = require('../db/factory-health');
-const factoryIntake = require('../db/factory-intake');
-const factoryArchitect = require('../db/factory-architect');
+const factoryHealth = require('../db/factory/health');
+const factoryIntake = require('../db/factory/intake');
+const factoryArchitect = require('../db/factory/architect');
 const {
   runArchitectCycle,
   updateBacklogWorkItemStatuses,

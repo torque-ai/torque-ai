@@ -1,6 +1,6 @@
 'use strict';
 const Database = require('better-sqlite3');
-const factoryIntake = require('../db/factory-intake');
+const factoryIntake = require('../db/factory/intake');
 const {
   sweepStrandedNeedsReviewForProject,
   isTargetedReason,

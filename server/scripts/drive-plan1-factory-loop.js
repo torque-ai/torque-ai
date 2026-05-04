@@ -171,9 +171,9 @@ async function main() {
   const options = parseArgs(process.argv.slice(2));
   process.env.TORQUE_DATA_DIR = options.dataDir;
 
-  const factoryHealth = require('../db/factory-health');
-  const factoryIntake = require('../db/factory-intake');
-  const factoryDecisions = require('../db/factory-decisions');
+  const factoryHealth = require('../db/factory/health');
+  const factoryIntake = require('../db/factory/intake');
+  const factoryDecisions = require('../db/factory/decisions');
   const loopStates = require('../factory/loop-states');
   const { logDecision } = require('../factory/decision-log');
   const {

@@ -2,9 +2,9 @@ import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
 
 const Database = require('better-sqlite3');
 const { runMigrations } = require('../db/migrations');
-const factoryFeedback = require('../db/factory-feedback');
-const factoryHealth = require('../db/factory-health');
-const guardrailDb = require('../db/factory-guardrails');
+const factoryFeedback = require('../db/factory/feedback');
+const factoryHealth = require('../db/factory/health');
+const guardrailDb = require('../db/factory/guardrails');
 const feedbackAnalysis = require('../factory/feedback');
 const { analyzeBatch, detectDrift, recordHumanCorrection } = feedbackAnalysis;
 

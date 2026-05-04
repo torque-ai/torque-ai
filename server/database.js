@@ -63,13 +63,13 @@ const _LAZY_MODULE_DEFINITIONS = [
   { name: 'providerModelScores', path: './db/provider-model-scores' },
   { name: 'taskCore', path: './db/task-core' },
   { name: 'configCore', path: './db/config-core' },
-  { name: 'factoryHealth', path: './db/factory-health' },
-  { name: 'factoryIntake', path: './db/factory-intake' },
-  { name: 'factoryArchitect', path: './db/factory-architect' },
-  { name: 'factoryFeedback', path: './db/factory-feedback' },
-  { name: 'factoryAudit', path: './db/factory-audit' },
-  { name: 'factoryLoopInstances', path: './db/factory-loop-instances' },
-  { name: 'factoryWorktrees', path: './db/factory-worktrees' },
+  { name: 'factoryHealth', path: './db/factory/health' },
+  { name: 'factoryIntake', path: './db/factory/intake' },
+  { name: 'factoryArchitect', path: './db/factory/architect' },
+  { name: 'factoryFeedback', path: './db/factory/feedback' },
+  { name: 'factoryAudit', path: './db/factory/audit' },
+  { name: 'factoryLoopInstances', path: './db/factory/loop-instances' },
+  { name: 'factoryWorktrees', path: './db/factory/worktrees' },
 ];
 
 const _LAZY_MODULES_BY_NAME = new Map(_LAZY_MODULE_DEFINITIONS.map((definition) => [definition.name, definition]));

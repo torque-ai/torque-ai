@@ -1,6 +1,6 @@
 'use strict';
 
-const factoryDecisions = require('../db/factory-decisions');
+const factoryDecisions = require('../db/factory/decisions');
 const eventBus = require('../event-bus');
 const logger = require('../logger').child({ component: 'decision-log' });
 

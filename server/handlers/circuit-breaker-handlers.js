@@ -91,7 +91,7 @@ async function handleConfigureCodexPolicy(args) {
     if (!args.mode) {
       return { isError: true, content: [{ type: 'text', text: 'mode is required' }] };
     }
-    const { setCodexFallbackPolicy } = require('../db/factory-intake');
+    const { setCodexFallbackPolicy } = require('../db/factory/intake');
     const dbDep = defaultContainer.get('db');
     const dbInstance = dbDep && typeof dbDep.getDbInstance === 'function'
       ? dbDep.getDbInstance()

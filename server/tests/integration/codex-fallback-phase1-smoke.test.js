@@ -10,7 +10,7 @@ const {
   parkWorkItemForCodex,
   setCodexFallbackPolicy,
   getCodexFallbackPolicy,
-} = require('../../db/factory-intake');
+} = require('../../db/factory/intake');
 
 // NOTE: decideCodexFallbackAction lives in factory/loop-controller.js but that
 // module pulls in many heavy server-level dependencies (database singleton,

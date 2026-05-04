@@ -934,7 +934,7 @@ const MIGRATIONS = [
   {
     version: 43,
     name: 'add_factory_worktrees_batch_id_index',
-    // server/db/factory-worktrees.js#getActiveWorktreeByBatch is on the
+    // server/db/factory/worktrees.js#getActiveWorktreeByBatch is on the
     // factory-tick hot path — when a stage reuses a worktree for the
     // same batch it queries `WHERE batch_id = ? AND status = 'active'`.
     // The table already had an index on (project_id, status) but
