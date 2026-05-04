@@ -20,6 +20,10 @@ const workflowResume = require('./workflow-resume');
 const retryFramework = require('./retry-framework');
 const commandBuilders = require('./command-builders');
 const fileContextBuilder = require('./file-context-builder');
+const processStreams = require('./process-streams');
+const debugLifecycle = require('./debug-lifecycle');
+const providerRouter = require('./provider-router');
+const completionPipeline = require('./completion-pipeline');
 
 function register(container) {
   planProjectResolver.register(container);
@@ -27,11 +31,11 @@ function register(container) {
   retryFramework.register(container);
   commandBuilders.register(container);
   fileContextBuilder.register(container);
+  processStreams.register(container);
+  debugLifecycle.register(container);
+  providerRouter.register(container);
+  completionPipeline.register(container);
   // TODO(phase 3 cont.): register the remaining execution modules
-  //   - process-streams.js          (343 LOC)
-  //   - debug-lifecycle.js          (430 LOC)
-  //   - provider-router.js          (535 LOC)
-  //   - completion-pipeline.js      (561 LOC)
   //   - slot-pull-scheduler.js      (645 LOC)
   //   - process-lifecycle.js        (949 LOC)
   //   - fallback-retry.js          (1132 LOC)
