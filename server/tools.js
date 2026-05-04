@@ -918,6 +918,20 @@ async function handleToolCall(name, args) {
       return handleRestartServerBarrier(args);
     case 'restart_status':
       return handleRestartStatus();
+    case 'get_task_log_disk_usage': {
+      const { getTaskLogDiskUsage } = require('./utils/task-log-retention');
+      const retentionDays = serverConfig.getInt('task_log_retention_days', 30);
+      const usage = getTaskLogDiskUsage({ retentionDays });
+      const summary = `Task-log disk usage: ${usage.task_count} task dir(s), ${usage.total_bytes} bytes`
+        + (usage.oldest_log_age_days !== null
+          ? `, oldest log ${usage.oldest_log_age_days} days old`
+          : '')
+        + ` (retention: ${usage.retention_days} days; configurable via task_log_retention_days).`;
+      return {
+        content: [{ type: 'text', text: summary }],
+        structuredData: usage,
+      };
+    }
     case 'unlock_all_tools':
       return { __unlock_all_tools: true, content: [{ type: 'text', text: 'All TORQUE tools are now unlocked (Tier 3). The tools list has been refreshed.' }] };
     case 'get_tool_schema': {

@@ -139,6 +139,41 @@ function startMaintenanceScheduler(opts = {}) {
         debugLog(`Task output purge error: ${purgeErr.message}`);
       }
 
+      // Phase E / §2.5.2 — prune the per-task log directories under
+      // <data-dir>/task-logs/<taskId>/ after `task_log_retention_days`.
+      // Independent of `task_output_retention_days` (which is a DB
+      // column purge): logs live on disk, can grow large on long-tail
+      // detached subprocesses, and are usually wanted for forensics
+      // longer than the in-DB output blobs.
+      try {
+        const logRetentionDays = serverConfig.getInt('task_log_retention_days', 30);
+        if (logRetentionDays > 0) {
+          const { pruneOldTaskLogs } = require('../utils/task-log-retention');
+          const result = pruneOldTaskLogs(logRetentionDays);
+          if (result.deleted.length > 0 || result.errors > 0) {
+            const deletedBytes = result.deleted.reduce((acc, d) => acc + d.bytes, 0);
+            debugLog(`Task-log prune: deleted ${result.deleted.length} dir(s) totaling ${deletedBytes} bytes (retention: ${logRetentionDays} days; kept ${result.kept}; errors ${result.errors})`);
+            // Forensics: write a per-delete event row so an operator
+            // can reconstruct what was removed weeks later. Best-effort
+            // — never let a failed audit row block the prune.
+            if (typeof db.recordEvent === 'function') {
+              for (const entry of result.deleted) {
+                try {
+                  db.recordEvent('task_log_pruned', {
+                    task_id: entry.taskId,
+                    age_days: entry.age_days,
+                    bytes: entry.bytes,
+                    retention_days: logRetentionDays,
+                  });
+                } catch { /* non-fatal */ }
+              }
+            }
+          }
+        }
+      } catch (logPruneErr) {
+        debugLog(`Task-log prune error: ${logPruneErr.message}`);
+      }
+
       // C-2: Execute due user cron scheduled tasks
       try {
         const dueSchedules = db.getDueScheduledTasks();

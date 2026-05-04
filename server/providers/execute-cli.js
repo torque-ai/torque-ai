@@ -1774,6 +1774,21 @@ async function finalizeDetachedTask({ taskId, task, provider, isCodexProvider })
     });
     queueManaged = queueManaged || Boolean(result?.queueManaged);
   } finally {
+    // Phase E / §2.5.2 — compress task logs on finalize. Always runs
+    // regardless of exit code: success and failure both benefit from
+    // the ~10× space win, and the originals stay raw on disk only as
+    // long as the subprocess was active. Failures here are non-fatal
+    // (the maintenance prune scheduler will catch the un-gzipped
+    // stragglers on its next sweep).
+    try {
+      const { compressTaskLogs } = require('../utils/task-log-retention');
+      const summary = compressTaskLogs(taskId);
+      if (summary.compressed.length > 0) {
+        logger.info(`[Detached] task ${taskId} compressed logs: ${summary.compressed.join(', ')}`);
+      }
+    } catch (gzErr) {
+      logger.info(`[Detached] log compression failed for task ${taskId}: ${gzErr.message}`);
+    }
     try { dashboard.notifyTaskUpdated(taskId); } catch { /* non-critical */ }
     if (!queueManaged) {
       try { processQueue(); } catch (queueErr) {

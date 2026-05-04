@@ -41,6 +41,11 @@ const tools = [
     inputSchema: { type: 'object', properties: {} },
   },
   {
+    name: 'get_task_log_disk_usage',
+    description: 'Phase E / §2.5.2 — operator-visible status surface for the per-task log directory under <data-dir>/task-logs/. Returns { total_bytes, task_count, oldest_log_age_days, retention_days }. Use to decide when to extend `task_log_retention_days` before the maintenance prune sweep starts deleting forensically interesting logs.',
+    inputSchema: { type: 'object', properties: {} },
+  },
+  {
     name: 'await_restart',
     description: 'Submit a restart barrier task (or attach to an existing one) and block until the pipeline drains and restart triggers. Returns heartbeat progress snapshots at configurable intervals. Equivalent to calling restart_server + await_task on the barrier task.',
     inputSchema: {
