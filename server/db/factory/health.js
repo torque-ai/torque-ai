@@ -2,7 +2,7 @@
 
 const nodePath = require('path');
 const { v4: uuidv4 } = require('uuid');
-const { validatePolicy, mergeWithDefaults } = require('../factory/policy-engine');
+const { validatePolicy, mergeWithDefaults } = require('../../factory/policy-engine');
 
 const VALID_TRUST_LEVELS = new Set(['supervised', 'guided', 'autonomous', 'dark']);
 const VALID_STATUSES = new Set(['paused', 'running', 'idle']);
@@ -43,7 +43,7 @@ function getDb() {
   let instance = resolveDbHandle(db);
   if (!instance) {
     try {
-      const { defaultContainer } = require('../container');
+      const { defaultContainer } = require('../../container');
       if (defaultContainer && typeof defaultContainer.has === 'function' && defaultContainer.has('db')) {
         instance = resolveDbHandle(defaultContainer.get('db'));
       }
@@ -56,7 +56,7 @@ function getDb() {
   // container hasn't been wired (the "module handle cleared" path).
   if (!instance) {
     try {
-      const database = require('../database');
+      const database = require('../../database');
       instance = resolveDbHandle(database);
     } catch {
       // Let the explicit error below surface if no active DB is available.

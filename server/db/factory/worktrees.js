@@ -28,7 +28,7 @@ function getDb() {
   let instance = resolveDbHandle(db);
   if (!instance) {
     try {
-      const { defaultContainer } = require('../container');
+      const { defaultContainer } = require('../../container');
       if (defaultContainer && typeof defaultContainer.has === 'function' && defaultContainer.has('db')) {
         instance = resolveDbHandle(defaultContainer.get('db'));
       }
@@ -38,7 +38,7 @@ function getDb() {
   }
   if (!instance) {
     try {
-      const database = require('../database');
+      const database = require('../../database');
       instance = resolveDbHandle(database);
     } catch {
       // Let the explicit error below surface if no active DB is available.

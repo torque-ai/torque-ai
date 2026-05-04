@@ -11,8 +11,8 @@ const {
   BASELINE_EXTENSIONS,
   FILE_SIZE_TRUNCATION_THRESHOLD,
   FILE_SIZE_SHRINK_THRESHOLD,
-} = require('../constants');
-const { safeJsonParse } = require('../utils/json');
+} = require('../../constants');
+const { safeJsonParse } = require('../../utils/json');
 
 let db;
 let _getTaskFn;

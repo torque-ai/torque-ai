@@ -16,7 +16,7 @@ function getDb() {
   let instance = resolveDbHandle(db);
   if (!instance) {
     try {
-      const { defaultContainer } = require('../container');
+      const { defaultContainer } = require('../../container');
       if (defaultContainer && typeof defaultContainer.has === 'function' && defaultContainer.has('db')) {
         instance = resolveDbHandle(defaultContainer.get('db'));
       }

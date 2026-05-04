@@ -7,8 +7,8 @@
  */
 const http = require('http');
 const https = require('https');
-const logger = require('../logger').child({ component: 'host-benchmarking' });
-const { safeJsonParse } = require('../utils/json');
+const logger = require('../../logger').child({ component: 'host-benchmarking' });
+const { safeJsonParse } = require('../../utils/json');
 
 let db;
 

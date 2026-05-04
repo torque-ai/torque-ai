@@ -13,7 +13,7 @@
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
-const { TASK_TIMEOUTS } = require('../constants');
+const { TASK_TIMEOUTS } = require('../../constants');
 
 let db;
 

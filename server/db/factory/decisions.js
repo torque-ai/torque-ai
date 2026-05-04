@@ -1,6 +1,6 @@
 'use strict';
 
-const logger = require('../logger').child({ component: 'factory-decisions' });
+const logger = require('../../logger').child({ component: 'factory-decisions' });
 
 const VALID_STAGES = new Set(['sense', 'prioritize', 'plan', 'execute', 'verify', 'learn', 'ship']);
 const VALID_ACTORS = new Set(['health_model', 'architect', 'planner', 'executor', 'verifier', 'human', 'auto-recovery']);
@@ -31,7 +31,7 @@ function getDb() {
   let instance = resolveDbHandle(db);
   if (!instance) {
     try {
-      const { defaultContainer } = require('../container');
+      const { defaultContainer } = require('../../container');
       if (defaultContainer && typeof defaultContainer.has === 'function' && defaultContainer.has('db')) {
         instance = resolveDbHandle(defaultContainer.get('db'));
       }

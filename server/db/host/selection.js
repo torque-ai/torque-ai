@@ -3,13 +3,13 @@
 /**
  * Host Selection and Routing helpers.
  */
-const logger = require('../logger').child({ component: 'host-selection' });
+const logger = require('../../logger').child({ component: 'host-selection' });
 const hostBenchmarking = require('./benchmarking');
 
 let wsAdapters = null;
 function getWsAdapters() {
   if (!wsAdapters) {
-    try { wsAdapters = require('../workstation/adapters'); } catch { return null; }
+    try { wsAdapters = require('../../workstation/adapters'); } catch { return null; }
   }
   return wsAdapters;
 }
@@ -89,7 +89,7 @@ function selectOllamaHostForModel(modelName = null, options = {}) {
         'SELECT parameter_size_b FROM model_registry WHERE model_name = ? LIMIT 1'
       ).get(modelName);
       if (row && row.parameter_size_b) {
-        const { suggestRole } = require('../discovery/family-classifier');
+        const { suggestRole } = require('../../discovery/family-classifier');
         modelTier = suggestRole(row.parameter_size_b);
       }
     } catch { /* registry not available */ }

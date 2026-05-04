@@ -198,8 +198,8 @@ function determineTaskComplexity(taskDescription, files = []) {
  * @returns {{ tier: string, modelConfig: string, description: string }}
  */
 function getModelTierForComplexity(complexity) {
-  const { resolveOllamaModel } = require('../providers/ollama-shared');
-  const { DEFAULT_FALLBACK_MODEL } = require('../constants');
+  const { resolveOllamaModel } = require('../../providers/ollama-shared');
+  const { DEFAULT_FALLBACK_MODEL } = require('../../constants');
   const modelFallback = resolveOllamaModel(null, null) || DEFAULT_FALLBACK_MODEL;
   const fastModel = getConfig('ollama_fast_model') || modelFallback;
   const balancedModel = getConfig('ollama_balanced_model') || modelFallback;
