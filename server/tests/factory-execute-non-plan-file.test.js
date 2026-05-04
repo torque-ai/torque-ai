@@ -1177,6 +1177,64 @@ describe('factory loop-controller EXECUTE for non-plan-file work items', () => {
     expect(decisions.find((row) => row.action === 'cannot_generate_plan')).toBeUndefined();
   });
 
+  it('does not immediately reselect a claimed needs_replan item during cooldown', async () => {
+    const { project, workItem } = registerExecuteProject({
+      description: 'Create a focused plan for a cooling needs_replan claim.',
+    });
+    const instance = factoryLoopInstances.createInstance({
+      project_id: project.id,
+      work_item_id: workItem.id,
+      batch_id: null,
+    });
+    factoryLoopInstances.updateInstance(instance.id, {
+      loop_state: LOOP_STATES.PRIORITIZE,
+      work_item_id: workItem.id,
+    });
+    const selected = factoryIntake.updateWorkItem(workItem.id, {
+      status: 'needs_replan',
+      claimed_by_instance_id: instance.id,
+      reject_reason: 'cannot_generate_plan: unusable output',
+    });
+    const nextItem = factoryIntake.createWorkItem({
+      project_id: project.id,
+      source: 'scout',
+      title: 'Handle independent fresh work item',
+      description: 'Fresh work should run while the prior needs_replan item cools down.',
+      priority: 50,
+      requestor: 'test',
+    });
+    db.prepare('UPDATE factory_work_items SET updated_at = ? WHERE id = ?')
+      .run('2026-05-04 07:19:43', selected.id);
+
+    const dateNowSpy = vi.spyOn(Date, 'now')
+      .mockReturnValue(Date.parse('2026-05-04T07:20:00.000Z'));
+    const originalExecutePlanStage = loopController._internalForTests.executePlanStage;
+    loopController._internalForTests.executePlanStage = vi.fn(async (_project, _instance, selectedWorkItem) => ({
+      reason: 'architect cycle completed',
+      work_item: selectedWorkItem,
+    }));
+    try {
+      const result = await loopController._internalForTests.handlePrioritizeTransition({
+        project,
+        instance: factoryLoopInstances.getInstance(instance.id),
+        currentState: LOOP_STATES.PRIORITIZE,
+      });
+
+      expect(result.transitionWorkItem.id).toBe(nextItem.id);
+      expect(result.nextState).toBe(LOOP_STATES.PLAN);
+      expect(factoryIntake.getWorkItem(selected.id)).toMatchObject({
+        status: 'needs_replan',
+        claimed_by_instance_id: null,
+      });
+      expect(factoryIntake.getWorkItem(nextItem.id)).toMatchObject({
+        claimed_by_instance_id: instance.id,
+      });
+    } finally {
+      loopController._internalForTests.executePlanStage = originalExecutePlanStage;
+      dateNowSpy.mockRestore();
+    }
+  });
+
   it('normalizes file_edits JSON from plan generation into executable Markdown', async () => {
     const { project, workItem, projectDir } = registerExecuteProject({
       description: 'Add typed LAN startup failure reasons to the Unity coordinator.',

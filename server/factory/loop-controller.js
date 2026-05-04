@@ -75,6 +75,35 @@ const WORK_ITEM_STATUS_ORDER = Object.freeze([
 // rejection in the dashboard before the next attempt fires.
 const NEEDS_REPLAN_COOLDOWN_MS = 5 * 60 * 1000;
 
+const SQLITE_UTC_TIMESTAMP_PATTERN = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?$/;
+
+function parseFactoryTimestampMs(value) {
+  if (!value) return Number.NaN;
+  if (value instanceof Date) return value.getTime();
+  const text = String(value).trim();
+  if (!text) return Number.NaN;
+  const normalized = SQLITE_UTC_TIMESTAMP_PATTERN.test(text)
+    ? `${text.replace(' ', 'T')}Z`
+    : text;
+  return Date.parse(normalized);
+}
+
+function getNeedsReplanCooldownInfo(item, nowMs = Date.now()) {
+  if (!item || item.status !== 'needs_replan') {
+    return { active: false, updatedAtMs: Number.NaN, remainingMs: 0 };
+  }
+  const updatedAtMs = parseFactoryTimestampMs(item.updated_at);
+  if (!Number.isFinite(updatedAtMs)) {
+    return { active: false, updatedAtMs, remainingMs: 0 };
+  }
+  const remainingMs = NEEDS_REPLAN_COOLDOWN_MS - (nowMs - updatedAtMs);
+  return {
+    active: remainingMs > 0,
+    updatedAtMs,
+    remainingMs: Math.max(0, remainingMs),
+  };
+}
+
 const DECISION_STAGE_ACTORS = Object.freeze({
   sense: 'health_model',
   prioritize: 'architect',
@@ -4183,22 +4212,20 @@ async function claimNextWorkItemForInstance(project_id, instance_id) {
 
   for (const item of orderedCandidates) {
     if (!item) continue;
-    if (item.claimed_by_instance_id === instance_id) {
-      return { openItems: survivors, workItem: item };
-    }
-    if (item.claimed_by_instance_id) continue;
 
     // Phase X1: needs_replan cooldown. An item that was just rejected
     // for plan quality must not be re-picked on the next tick — that
     // would race the architect against itself with no chance for fresh
     // context. Skip if we're inside the cooldown window; PRIORITIZE will
     // try again on a subsequent tick once the cooldown expires.
-    if (item.status === 'needs_replan') {
-      const updatedAtMs = item.updated_at ? Date.parse(item.updated_at) : NaN;
-      if (Number.isFinite(updatedAtMs) && (Date.now() - updatedAtMs) < NEEDS_REPLAN_COOLDOWN_MS) {
-        continue;
-      }
+    if (getNeedsReplanCooldownInfo(item).active) {
+      continue;
     }
+
+    if (item.claimed_by_instance_id === instance_id) {
+      return { openItems: survivors, workItem: item };
+    }
+    if (item.claimed_by_instance_id) continue;
 
     // Stale probe — non-scout items Gate-1-out immediately in probeStaleness,
     // so it is safe to run for every candidate.
@@ -4298,7 +4325,7 @@ function didPromoteScoutAhead(originalSurvivors, ranked) {
 }
 
 function getCreatedAtValue(item) {
-  const createdAt = item?.created_at ? Date.parse(item.created_at) : Number.NaN;
+  const createdAt = item?.created_at ? parseFactoryTimestampMs(item.created_at) : Number.NaN;
   if (Number.isFinite(createdAt)) {
     return createdAt;
   }
@@ -4365,6 +4392,25 @@ function scoreWorkItemForPrioritize(workItem, openItems = []) {
 }
 
 async function executePrioritizeStage(project, instance, selectedWorkItem = null) {
+  if (selectedWorkItem && getNeedsReplanCooldownInfo(selectedWorkItem).active) {
+    try {
+      clearSelectedWorkItem(instance.id);
+      factoryIntake.releaseClaimForInstance(instance.id);
+      updateInstanceAndSync(instance.id, {
+        work_item_id: null,
+        last_action_at: nowIso(),
+      });
+    } catch (err) {
+      logger.warn('PRIORITIZE: failed to release cooling needs_replan selection', {
+        project_id: project.id,
+        instance_id: instance.id,
+        work_item_id: selectedWorkItem.id,
+        err: err && err.message,
+      });
+    }
+    selectedWorkItem = null;
+  }
+
   const claimResult = selectedWorkItem
     ? { openItems: factoryIntake.listOpenWorkItems({ project_id: project.id, limit: 100 }), workItem: selectedWorkItem }
     : await claimNextWorkItemForInstance(project.id, instance.id);
@@ -4404,7 +4450,7 @@ async function executePrioritizeStage(project, instance, selectedWorkItem = null
   // so PRIORITIZE doesn't re-pick the same wedged item every cycle.
   if (workItem.status === 'executing') {
     const STUCK_THRESHOLD_MS = 60 * 60 * 1000; // 1h
-    const updatedAtMs = workItem.updated_at ? Date.parse(workItem.updated_at) : NaN;
+    const updatedAtMs = workItem.updated_at ? parseFactoryTimestampMs(workItem.updated_at) : NaN;
     if (Number.isFinite(updatedAtMs) && (Date.now() - updatedAtMs) > STUCK_THRESHOLD_MS) {
       const stalledMinutes = Math.round((Date.now() - updatedAtMs) / 60000);
       try {
@@ -13303,6 +13349,8 @@ module.exports = {
   },
   _internalForTests: {
     claimNextWorkItemForInstance,
+    parseFactoryTimestampMs,
+    getNeedsReplanCooldownInfo,
     handlePrioritizeTransition,
     executeSenseStage,
     executePlanStage,
