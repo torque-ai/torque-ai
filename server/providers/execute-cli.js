@@ -80,6 +80,63 @@ function extractCodexDiffs(output) {
   });
 }
 
+function readDetachedLogRemainder(logPath, offset) {
+  if (!logPath || typeof logPath !== 'string') {
+    return { text: '', offset: Number(offset) || 0 };
+  }
+
+  let stat;
+  try {
+    stat = fs.statSync(logPath);
+  } catch {
+    return { text: '', offset: Number(offset) || 0 };
+  }
+
+  const start = Math.max(0, Math.min(Number(offset) || 0, stat.size));
+  if (stat.size <= start) {
+    return { text: '', offset: stat.size };
+  }
+
+  let fd;
+  try {
+    fd = fs.openSync(logPath, 'r');
+    const buffer = Buffer.alloc(stat.size - start);
+    fs.readSync(fd, buffer, 0, buffer.length, start);
+    return { text: buffer.toString('utf8'), offset: stat.size };
+  } catch (err) {
+    logger.info(`[Detached] Failed to flush log remainder ${logPath}: ${err.message}`);
+    return { text: '', offset: start };
+  } finally {
+    if (fd !== undefined) {
+      try { fs.closeSync(fd); } catch { /* ignore */ }
+    }
+  }
+}
+
+function flushDetachedLogRemainders(taskId, proc, streamId) {
+  if (!proc) return;
+
+  const stdoutFlush = readDetachedLogRemainder(proc.outputLogPath, proc.outputLogOffset);
+  if (stdoutFlush.text) {
+    processStdoutChunk(taskId, stdoutFlush.text, streamId);
+  }
+  proc.outputLogOffset = stdoutFlush.offset;
+
+  const stderrFlush = readDetachedLogRemainder(proc.errorLogPath, proc.errorLogOffset);
+  if (stderrFlush.text) {
+    processStderrChunk(taskId, stderrFlush.text, streamId);
+  }
+  proc.errorLogOffset = stderrFlush.offset;
+
+  try {
+    db.updateTaskStatus(taskId, 'running', {
+      output_log_offset: proc.outputLogOffset,
+      error_log_offset: proc.errorLogOffset,
+      last_activity_at: new Date().toISOString(),
+    });
+  } catch { /* best-effort flush bookkeeping */ }
+}
+
 /**
  * Force-terminate the subprocess associated with `taskId` after the
  * completion-grace window expired without a natural exit. Works for both
@@ -1428,6 +1485,8 @@ function spawnAndTrackProcessDetached(taskId, task, cmdSpec, provider) {
     subprocessPid,
     outputLogPath: stdoutPath,
     errorLogPath: stderrPath,
+    outputLogOffset: 0,
+    errorLogOffset: 0,
     outputTail: null,
     errorTail: null,
     livenessHandle: null,
@@ -1446,6 +1505,7 @@ function spawnAndTrackProcessDetached(taskId, task, cmdSpec, provider) {
   const outputTail = new Tail(stdoutPath, { startOffset: 0, pollIntervalMs: 250 });
   outputTail.on('chunk', (text, newOffset) => {
     processStdoutChunk(taskId, text, streamId);
+    procEntry.outputLogOffset = newOffset;
     const now = Date.now();
     if (now - lastStdoutPersistAt >= offsetPersistThrottleMs) {
       lastStdoutPersistAt = now;
@@ -1465,6 +1525,7 @@ function spawnAndTrackProcessDetached(taskId, task, cmdSpec, provider) {
   const errorTail = new Tail(stderrPath, { startOffset: 0, pollIntervalMs: 250 });
   errorTail.on('chunk', (text, newOffset) => {
     processStderrChunk(taskId, text, streamId);
+    procEntry.errorLogOffset = newOffset;
     const now = Date.now();
     if (now - lastStderrPersistAt >= offsetPersistThrottleMs) {
       lastStderrPersistAt = now;
@@ -1594,6 +1655,8 @@ async function finalizeDetachedTask({ taskId, task, provider, isCodexProvider })
       clearInterval(proc.livenessHandle);
       proc.livenessHandle = null;
     }
+    const streamId = db.getOrCreateTaskStream(taskId, 'output');
+    flushDetachedLogRemainders(taskId, proc, streamId);
     if (proc.outputTail) {
       try { proc.outputTail.stop(); } catch { /* ignore */ }
     }

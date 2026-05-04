@@ -12,6 +12,7 @@
 'use strict';
 
 const path = require('path');
+const fs = require('fs');
 const { randomUUID } = require('crypto');
 const { setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
 const hostManagement = require('../db/host-management');
@@ -854,6 +855,60 @@ describe('execute-cli.js', () => {
       const finalizeArgs = finalizeTaskSpy.mock.calls[0][1];
       expect(finalizeArgs.exitCode).toBe(0);
       expect(finalizeArgs.errorOutput || '').not.toMatch(/\[process-exit\]/);
+    });
+
+    it('flushes detached log bytes before finalizing the task output', async () => {
+      const logDir = path.join(testDir, 'detached-flush');
+      fs.mkdirSync(logDir, { recursive: true });
+      const stdoutPath = path.join(logDir, 'stdout.log');
+      const stderrPath = path.join(logDir, 'stderr.log');
+      fs.writeFileSync(stdoutPath, '# Captured Plan\n**Source:** auto-generated from work_item #999\n\n## Task 1: Do the focused work\n', 'utf8');
+      fs.writeFileSync(stderrPath, '[process-exit] code=0 signal=none duration_ms=25 provider=codex\n', 'utf8');
+
+      const runningProcesses = new Map();
+      const finalizeTaskSpy = vi.fn(async () => ({ finalized: true, queueManaged: false }));
+      const deps = makeDeps({ runningProcesses, finalizeTask: finalizeTaskSpy });
+      mod.init(deps);
+
+      const taskId = randomUUID();
+      taskCore.createTask({
+        id: taskId,
+        task_description: 'Detached flush test',
+        status: 'running',
+        provider: 'codex',
+        working_directory: testDir,
+      });
+      runningProcesses.set(taskId, {
+        output: '',
+        errorOutput: '',
+        outputLogPath: stdoutPath,
+        errorLogPath: stderrPath,
+        outputLogOffset: 0,
+        errorLogOffset: 0,
+        outputTail: { stop: vi.fn() },
+        errorTail: { stop: vi.fn() },
+        provider: 'codex',
+        model: 'gpt-5.5',
+        startTime: Date.now(),
+        completionDetected: false,
+      });
+
+      await mod.finalizeDetachedTask({
+        taskId,
+        task: { id: taskId, task_description: 'Detached flush test' },
+        provider: 'codex',
+        isCodexProvider: false,
+      });
+
+      expect(finalizeTaskSpy).toHaveBeenCalledWith(
+        taskId,
+        expect.objectContaining({
+          exitCode: 0,
+          output: expect.stringContaining('# Captured Plan'),
+          errorOutput: expect.stringContaining('[process-exit] code=0'),
+        })
+      );
+      expect(runningProcesses.has(taskId)).toBe(false);
     });
   });
 });
