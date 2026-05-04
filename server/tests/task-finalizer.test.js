@@ -816,6 +816,13 @@ describe('task-finalizer', () => {
     vi.useFakeTimers();
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'task-finalizer-stream-'));
     const originalPlatform = Object.getOwnPropertyDescriptor(process, 'platform');
+    // This case drives execute-cli's legacy pipe-path body to verify the
+    // exit-vs-close race interlock. Phase G's default-on flip would
+    // otherwise route 'codex' through the detached wrapper-spawn path,
+    // which has its own different finalize flow. Pin flag off for the
+    // duration of this test.
+    const ORIG_DETACH_FLAG = process.env.TORQUE_DETACHED_SUBPROCESSES;
+    process.env.TORQUE_DETACHED_SUBPROCESSES = '0';
     try {
       Object.defineProperty(process, 'platform', { value: 'linux' });
       const spawnMock = vi.fn();
@@ -887,6 +894,8 @@ describe('task-finalizer', () => {
       if (originalPlatform) {
         Object.defineProperty(process, 'platform', originalPlatform);
       }
+      if (ORIG_DETACH_FLAG === undefined) delete process.env.TORQUE_DETACHED_SUBPROCESSES;
+      else process.env.TORQUE_DETACHED_SUBPROCESSES = ORIG_DETACH_FLAG;
       try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch { /* ignore */ }
     }
   });

@@ -419,6 +419,21 @@ describe('execute-cli.js', () => {
 
   describe('spawnAndTrackProcess', () => {
     const { createMockChild, simulateSuccess, simulateFailure } = require('./mocks/process-mock');
+    // These tests drive execute-cli.spawnAndTrackProcess's legacy pipe-path
+    // body (the inline branch that the dispatch helper short-circuits past
+    // when the detachment flag is on). Phase G's default-on flip routes
+    // codex / codex-spark / claude-cli through the wrapper-spawn path
+    // instead, which doesn't use the mocked child_process.spawn the same
+    // way these tests assume. Pin the flag off so the suite keeps testing
+    // the legacy pipe path that's still in execute-cli.js. When Phase H
+    // proper deletes the legacy pipe-path body, this describe block can
+    // either be deleted or migrated to test the detached path.
+    const ORIG_DETACH_FLAG = process.env.TORQUE_DETACHED_SUBPROCESSES;
+    beforeAll(() => { process.env.TORQUE_DETACHED_SUBPROCESSES = '0'; });
+    afterAll(() => {
+      if (ORIG_DETACH_FLAG === undefined) delete process.env.TORQUE_DETACHED_SUBPROCESSES;
+      else process.env.TORQUE_DETACHED_SUBPROCESSES = ORIG_DETACH_FLAG;
+    });
 
     beforeEach(() => {
       resetConfigs();
