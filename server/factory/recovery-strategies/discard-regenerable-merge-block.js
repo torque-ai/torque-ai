@@ -69,36 +69,70 @@ function parsePorcelainLine(line) {
   return { status, path: normalizedPath };
 }
 
-function listDirtyFiles(repoRoot) {
-  if (!repoRoot) return null;
-  try {
-    // --untracked-files=all expands untracked directories into individual
-    // files. Without it, `git status --porcelain` reports `?? docs/`
-    // for an entirely-untracked directory and our path matcher can't
-    // tell whether docs/superpowers/plans/auto-generated/* is the only
-    // thing inside.
-    const result = childProcess.spawnSync(
-      'git',
-      ['status', '--porcelain', '--untracked-files=all'],
-      {
-        cwd: repoRoot,
-        encoding: 'utf8',
+// Async git wrapper using spawn (not spawnSync) — vitest's worker-setup
+// stubs spawnSync('git', ...) for orphan-process safety, but leaves
+// child_process.spawn() git calls passing through to real git. Without
+// this, the strategy reads "" from the stub and falsely returns "clean
+// repo" in tests. Same pattern as branch-freshness.js:runGit and the
+// Phase X7 countCommitsAheadOfBase fix.
+function spawnGit(args, options = {}) {
+  return new Promise((resolve) => {
+    let stdout = '';
+    let stderr = '';
+    let settled = false;
+    const finish = (value) => {
+      if (settled) return;
+      settled = true;
+      resolve(value);
+    };
+    let child;
+    try {
+      child = childProcess.spawn('git', args, {
+        cwd: options.cwd,
         windowsHide: true,
-        timeout: 10000,
         stdio: ['ignore', 'pipe', 'pipe'],
-      }
-    );
-    if (result.status !== 0) return null;
-    const lines = String(result.stdout || '').split('\n');
-    const entries = [];
-    for (const line of lines) {
-      const parsed = parsePorcelainLine(line);
-      if (parsed) entries.push(parsed);
+      });
+    } catch (err) {
+      finish({ status: 1, stdout: '', stderr: err.message });
+      return;
     }
-    return entries;
-  } catch (_err) {
-    return null;
+    const timer = setTimeout(() => {
+      try { child.kill('SIGKILL'); } catch { /* ignore */ }
+      finish({ status: 1, stdout, stderr: stderr || `git ${args.join(' ')} timed out` });
+    }, options.timeout || 10000);
+    if (typeof timer.unref === 'function') timer.unref();
+    child.stdout.on('data', (chunk) => { stdout += chunk.toString('utf8'); });
+    child.stderr.on('data', (chunk) => { stderr += chunk.toString('utf8'); });
+    child.on('error', (err) => {
+      clearTimeout(timer);
+      finish({ status: 1, stdout, stderr: stderr || err.message });
+    });
+    child.on('close', (code) => {
+      clearTimeout(timer);
+      finish({ status: code, stdout, stderr });
+    });
+  });
+}
+
+async function listDirtyFiles(repoRoot) {
+  if (!repoRoot) return null;
+  // --untracked-files=all expands untracked directories into individual
+  // files. Without it, `git status --porcelain` reports `?? docs/` for
+  // an entirely-untracked directory and our path matcher can't tell
+  // whether docs/superpowers/plans/auto-generated/* is the only thing
+  // inside.
+  const result = await spawnGit(
+    ['status', '--porcelain', '--untracked-files=all'],
+    { cwd: repoRoot }
+  );
+  if (result.status !== 0) return null;
+  const lines = String(result.stdout || '').split('\n');
+  const entries = [];
+  for (const line of lines) {
+    const parsed = parsePorcelainLine(line);
+    if (parsed) entries.push(parsed);
   }
+  return entries;
 }
 
 function classifyDirtyEntries(entries) {
@@ -121,7 +155,7 @@ function classifyDirtyEntries(entries) {
   return { allowlisted, blockers, unhandledStatus };
 }
 
-function discardEntries(repoRoot, entries) {
+async function discardEntries(repoRoot, entries) {
   const restored = [];
   const removed = [];
   const failures = [];
@@ -138,17 +172,8 @@ function discardEntries(repoRoot, entries) {
         }
       } else {
         // Tracked modification or deletion — restore from HEAD.
-        const result = childProcess.spawnSync(
-          'git',
-          ['checkout', '--', entry.path],
-          {
-            cwd: repoRoot,
-            encoding: 'utf8',
-            windowsHide: true,
-            timeout: 10000,
-            stdio: ['ignore', 'pipe', 'pipe'],
-          }
-        );
+        // Async spawn to bypass vitest's git stub (same reasoning as listDirtyFiles).
+        const result = await spawnGit(['checkout', '--', entry.path], { cwd: repoRoot });
         if (result.status !== 0) {
           failures.push({ path: entry.path, stderr: String(result.stderr || '').trim() });
         } else {
@@ -175,7 +200,7 @@ async function replan({ workItem, history, deps }) {
     };
   }
 
-  const dirtyEntries = listDirtyFiles(repoRoot);
+  const dirtyEntries = await listDirtyFiles(repoRoot);
   if (dirtyEntries === null) {
     return {
       outcome: 'unrecoverable',
@@ -228,7 +253,7 @@ async function replan({ workItem, history, deps }) {
 
   // All dirty entries are allowlisted regenerable paths with safe status
   // codes. Discard them.
-  const result = discardEntries(repoRoot, classified.allowlisted);
+  const result = await discardEntries(repoRoot, classified.allowlisted);
   if (result.failures.length > 0) {
     if (logger?.warn) {
       logger.warn('discard-regenerable-merge-block: some discards failed', {
