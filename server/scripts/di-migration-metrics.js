@@ -7,6 +7,11 @@
  * Counts:
  *   - Modules registered with the container
  *     (`<container>.register(name, deps, factory)` calls in source)
+ *   - Modules **actually wired** at boot — i.e. their register() function
+ *     is reached from container.js (directly or via a subsystem aggregator
+ *     that calls container.register on them). The gap between "registered
+ *     in source" and "wired at boot" is the work still pending consumer
+ *     migration / dep-list cleanup. See spec §6 (Phase 6 consumer migration).
  *   - Modules still using the imperative pattern
  *     (export `init` AND have `let _<name>` at module scope)
  *   - Source files still importing database.js directly
@@ -81,8 +86,36 @@ function scan() {
     }
   });
 
+  // Probe live boot to count what's actually wired vs only registered in
+  // source. Uses a fresh container with stubbed deps so we don't disturb
+  // module state — we only need the topology to resolve.
+  let wiredCount = 0;
+  let wiredServices = [];
+  try {
+    const { createContainer } = require('../container');
+    const probe = createContainer();
+    probe.registerValue('db', { prepare: () => ({ get: () => null, all: () => [] }), getDbInstance() { return this; } });
+    probe.registerValue('eventBus', { on: () => {}, emit: () => {} });
+    probe.registerValue('logger', { info: () => {}, warn: () => {}, error: () => {}, debug: () => {}, child() { return this; } });
+    probe.registerValue('serverConfig', { get: () => null });
+    probe.registerValue('dashboard', { broadcast: () => {} });
+    require('../validation/register').register(probe);
+    require('../execution/register').register(probe);
+    require('../factory/register').register(probe);
+    require('../mcp/protocol').register(probe);
+    require('../providers/agentic-capability').register(probe);
+    probe.boot({ failFast: false });
+    const stubs = new Set(['db', 'eventBus', 'logger', 'serverConfig', 'dashboard']);
+    wiredServices = probe.list().filter((n) => !stubs.has(n)).sort();
+    wiredCount = wiredServices.length;
+  } catch (err) {
+    wiredServices = [`<probe failed: ${err.message}>`];
+  }
+
   return {
     registerCalls,
+    wiredCount,
+    wiredServices,
     imperativeFiles: imperativeFiles.sort(),
     databaseImporters: databaseImporters.sort(),
   };
@@ -92,6 +125,8 @@ function emit(metrics, asJson) {
   if (asJson) {
     process.stdout.write(JSON.stringify({
       register_calls: metrics.registerCalls,
+      wired_at_boot: metrics.wiredCount,
+      wired_services: metrics.wiredServices,
       imperative_init_modules: metrics.imperativeFiles.length,
       direct_database_importers: metrics.databaseImporters.length,
       imperative_init_files: metrics.imperativeFiles,
@@ -103,11 +138,19 @@ function emit(metrics, asJson) {
   console.log('\nUniversal DI migration — progress metrics');
   console.log('=========================================\n');
   console.log(`  container.register() calls in source:        ${metrics.registerCalls}`);
+  console.log(`  Subsystem services wired at boot:            ${metrics.wiredCount}`);
   console.log(`  Modules using imperative init({…}) pattern:  ${metrics.imperativeFiles.length}`);
   console.log(`  Source files importing database.js directly: ${metrics.databaseImporters.length}`);
   console.log();
-  console.log('Goal: register-call count rises, imperative-init count falls to 0,');
-  console.log('database-importer count falls to 0 (then database.js gets deleted).\n');
+  console.log('Goal: wired-at-boot count converges with register-call count, then');
+  console.log('imperative-init falls to 0 and database-importer falls to 0 (then');
+  console.log('database.js gets deleted).\n');
+
+  if (metrics.wiredServices.length > 0 && metrics.wiredServices.length < 30) {
+    console.log('Wired services:');
+    for (const s of metrics.wiredServices) console.log(`  ${s}`);
+    console.log();
+  }
 
   if (metrics.imperativeFiles.length > 0 && metrics.imperativeFiles.length < 80) {
     console.log('Imperative-init files:');
