@@ -4,6 +4,8 @@ const SERVER_INFO = { name: 'torque', version: '1.0.0' };
 const DEFAULT_PROTOCOL_VERSION = '2024-11-05';
 const SECURITY_WARNING_MESSAGE = 'TORQUE is running without authentication. Run configure to set an API key.';
 
+// ── Legacy module-level state, written only by init() (deprecated) ────────────
+// Phase 4 of the universal-DI migration. Coexistence pattern.
 let _tools = [];
 let _coreToolNames = [];
 let _extendedToolNames = [];
@@ -12,6 +14,8 @@ let _onInitialize = null;
 let _isAuthConfigured = null;
 
 /**
+ * @deprecated Use createMcpProtocol(deps) or container.get('mcpProtocol').
+ *
  * Initialize the protocol handler with tool registry and dispatch function.
  *
  * @param {object} opts
@@ -167,4 +171,63 @@ async function _handleToolCallInternal(params, session) {
   }
 }
 
-module.exports = { init, handleRequest, SERVER_INFO, DEFAULT_PROTOCOL_VERSION, SECURITY_WARNING_MESSAGE };
+// ── New factory shape (preferred) ─────────────────────────────────────────────
+function createMcpProtocol(deps = {}) {
+  const local = {
+    _tools: deps.tools,
+    _coreToolNames: deps.coreToolNames,
+    _extendedToolNames: deps.extendedToolNames,
+    _handleToolCall: deps.handleToolCall,
+    _onInitialize: deps.onInitialize,
+    _isAuthConfigured: deps.isAuthConfigured,
+  };
+  function withLocalDeps(fn) {
+    const prev = {
+      _tools, _coreToolNames, _extendedToolNames,
+      _handleToolCall, _onInitialize, _isAuthConfigured,
+    };
+    if (local._tools !== undefined) _tools = local._tools || [];
+    if (local._coreToolNames !== undefined) _coreToolNames = local._coreToolNames || [];
+    if (local._extendedToolNames !== undefined) _extendedToolNames = local._extendedToolNames || [];
+    if (local._handleToolCall !== undefined) _handleToolCall = local._handleToolCall;
+    if (local._onInitialize !== undefined) _onInitialize = local._onInitialize || null;
+    if (local._isAuthConfigured !== undefined) {
+      _isAuthConfigured = typeof local._isAuthConfigured === 'function' ? local._isAuthConfigured : null;
+    }
+    try { return fn(); } finally {
+      _tools = prev._tools;
+      _coreToolNames = prev._coreToolNames;
+      _extendedToolNames = prev._extendedToolNames;
+      _handleToolCall = prev._handleToolCall;
+      _onInitialize = prev._onInitialize;
+      _isAuthConfigured = prev._isAuthConfigured;
+    }
+  }
+  return {
+    handleRequest: (...args) => withLocalDeps(() => handleRequest(...args)),
+    SERVER_INFO,
+    DEFAULT_PROTOCOL_VERSION,
+    SECURITY_WARNING_MESSAGE,
+  };
+}
+
+function register(container) {
+  // The MCP protocol's deps are non-DI service references (tools, handleToolCall),
+  // wired by the boot path in server/index.js. We register a no-arg factory so
+  // consumers can resolve the module shape, but boot still calls
+  // mcpProtocol.init({...}) for the legacy in-place wiring during the
+  // coexistence window.
+  container.register('mcpProtocol', [], () => createMcpProtocol());
+}
+
+module.exports = {
+  // New shape (preferred)
+  createMcpProtocol,
+  register,
+  // Legacy shape (kept until server/index.js boot wires deps via container)
+  init,
+  handleRequest,
+  SERVER_INFO,
+  DEFAULT_PROTOCOL_VERSION,
+  SECURITY_WARNING_MESSAGE,
+};

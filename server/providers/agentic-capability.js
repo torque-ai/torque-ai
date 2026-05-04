@@ -59,12 +59,14 @@ const PROMPT_INJECTION_PREFIXES = [
   // Note: mistral-large-3 supports native tools on ollama-cloud (tested 2026-03-18)
 ];
 
-// ── Module-level state (dependency injection) ─────────────────────────────────
-
+// ── Legacy module-level state, written only by init() (deprecated) ────────────
+// Phase 4 of the universal-DI migration. Coexistence pattern.
 let _db = null;
 let _serverConfig = null;
 
 /**
+ * @deprecated Use createAgenticCapability(deps) or container.get('agenticCapability').
+ *
  * Inject dependencies. Call once at startup.
  * @param {{ db?: object, serverConfig?: object }} deps
  */
@@ -189,4 +191,42 @@ function needsPromptInjection(model) {
   });
 }
 
-module.exports = { init, isAgenticCapable, needsPromptInjection, EXCLUDED_PROVIDERS, CLOUD_TOOL_CAPABLE, WHITELIST_PREFIXES, PROMPT_INJECTION_PREFIXES };
+// ── New factory shape (preferred) ─────────────────────────────────────────────
+function createAgenticCapability(deps = {}) {
+  const local = { _db: deps.db, _serverConfig: deps.serverConfig };
+  function withLocalDeps(fn) {
+    const prev = { _db, _serverConfig };
+    if (local._db !== undefined) _db = local._db;
+    if (local._serverConfig !== undefined) _serverConfig = local._serverConfig;
+    try { return fn(); } finally {
+      _db = prev._db;
+      _serverConfig = prev._serverConfig;
+    }
+  }
+  return {
+    isAgenticCapable: (...args) => withLocalDeps(() => isAgenticCapable(...args)),
+    needsPromptInjection: (...args) => needsPromptInjection(...args),
+    EXCLUDED_PROVIDERS,
+    CLOUD_TOOL_CAPABLE,
+    WHITELIST_PREFIXES,
+    PROMPT_INJECTION_PREFIXES,
+  };
+}
+
+function register(container) {
+  container.register('agenticCapability', ['db', 'serverConfig'], (deps) => createAgenticCapability(deps));
+}
+
+module.exports = {
+  // New shape (preferred)
+  createAgenticCapability,
+  register,
+  // Legacy shape (kept until consumers migrate)
+  init,
+  isAgenticCapable,
+  needsPromptInjection,
+  EXCLUDED_PROVIDERS,
+  CLOUD_TOOL_CAPABLE,
+  WHITELIST_PREFIXES,
+  PROMPT_INJECTION_PREFIXES,
+};
