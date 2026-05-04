@@ -383,7 +383,7 @@ async function handleHostActivity(req, res) {
  */
 async function handleHostScan(req, res) {
   try {
-    const discovery = require('../../discovery');
+    const discovery = require('../../providers/ollama-mdns-discovery');
     const result = await discovery.scanNetworkForOllama({ autoAdd: true });
     // Map to shape the dashboard expects (hosts_found / found)
     return sendJson(res, { ...result, found: result.totalFound || 0 });

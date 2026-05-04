@@ -20,6 +20,14 @@ function git(cwd, args) {
       ...process.env,
       GIT_AUTHOR_NAME: 'T', GIT_AUTHOR_EMAIL: 'noreply@example.invalid',
       GIT_COMMITTER_NAME: 'T', GIT_COMMITTER_EMAIL: 'noreply@example.invalid',
+      // Force LF on checkout regardless of OS / user gitconfig — the
+      // 'tracked-modified allowlisted files via git checkout' test
+      // round-trips committed content through git checkout and expects
+      // the literal '\n' it wrote in. Windows default core.autocrlf=true
+      // would deliver '\r\n' and fail the assertion.
+      GIT_CONFIG_COUNT: '1',
+      GIT_CONFIG_KEY_0: 'core.autocrlf',
+      GIT_CONFIG_VALUE_0: 'input',
     },
   });
   if (r.status !== 0) {
