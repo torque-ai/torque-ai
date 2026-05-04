@@ -1,10 +1,15 @@
 'use strict';
 
-const database = require('../database');   // getDbInstance, isDbClosed (raw DB access)
 const taskCore = require('../db/task-core');
 const { handleToolCall } = require('../tools');
 const { sendJson } = require('./middleware');
 const { isRestartBarrierActive } = require('../execution/restart-barrier');
+const { defaultContainer } = require('../container');
+const {
+  unwrapDbHandle,
+  isDbServiceClosed,
+  resolveContainerDbService,
+} = require('../utils/db-accessor');
 
 // Track server start time for readiness check
 const serverStartTime = Date.now();
@@ -14,10 +19,9 @@ const serverStartTime = Date.now();
  * Used by readiness and health probes.
  * @returns {{ initialized: boolean, accessible: boolean, status: string, reason?: string }}
  */
-function probeDatabase() {
-  const hasDbInstance = typeof database.getDbInstance === 'function' && Boolean(database.getDbInstance());
-  const isDbClosed = typeof database.isDbClosed === 'function' ? database.isDbClosed() : false;
-  const initialized = hasDbInstance && !isDbClosed;
+function probeDatabase(dbService) {
+  const dbHandle = unwrapDbHandle(dbService);
+  const initialized = Boolean(dbHandle) && !isDbServiceClosed(dbService);
 
   if (!initialized) {
     return {
@@ -49,10 +53,15 @@ function probeDatabase() {
  * - Optional dependency: Ollama (reports degraded, but remains 200)
  * Includes Ollama health check with a 5-second timeout to prevent hanging.
  */
-async function handleHealthz(req, res, _context = {}) {
+async function handleHealthz(
+  req,
+  res,
+  _context = {},
+  getDbService = () => resolveContainerDbService(defaultContainer),
+) {
   void _context;
   const uptimeSeconds = Math.round(process.uptime());
-  const databaseState = probeDatabase();
+  const databaseState = probeDatabase(getDbService());
   let ollamaStatus = 'unknown';
   try {
     const healthPromise = handleToolCall('check_ollama_health', { force_check: false });
@@ -111,11 +120,16 @@ async function handleHealthz(req, res, _context = {}) {
  * "Can this instance accept traffic right now?"
  * Fails during startup warm-up and when DB is not initialized/accessible.
  */
-function handleReadyz(req, res, _context = {}) {
+function handleReadyz(
+  req,
+  res,
+  _context = {},
+  getDbService = () => resolveContainerDbService(defaultContainer),
+) {
   void _context;
   const uptimeMs = Date.now() - serverStartTime;
   const minUptimeMs = 5000;
-  const databaseState = probeDatabase();
+  const databaseState = probeDatabase(getDbService());
   const restartBarrier = isRestartBarrierActive(taskCore);
 
   if (databaseState.accessible && uptimeMs >= minUptimeMs && !restartBarrier) {
@@ -140,8 +154,29 @@ function handleLivez(req, res, _context = {}) {
   sendJson(res, { status: 'ok', uptime: process.uptime() }, 200, req);
 }
 
-function createHealthProbes(_deps) {
-  return { handleHealthz, handleReadyz, handleLivez };
+function createDbServiceResolver(deps = {}) {
+  const hasInjectedDb = Object.prototype.hasOwnProperty.call(deps, 'db');
+  if (hasInjectedDb) {
+    return () => deps.db;
+  }
+
+  const container = Object.prototype.hasOwnProperty.call(deps, 'container')
+    ? deps.container
+    : defaultContainer;
+  return () => resolveContainerDbService(container);
+}
+
+function createHealthProbes(deps = {}) {
+  const getDbService = createDbServiceResolver(deps || {});
+  return {
+    handleHealthz(req, res, context = {}) {
+      return handleHealthz(req, res, context, getDbService);
+    },
+    handleReadyz(req, res, context = {}) {
+      return handleReadyz(req, res, context, getDbService);
+    },
+    handleLivez,
+  };
 }
 
 module.exports = {

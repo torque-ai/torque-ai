@@ -4,7 +4,7 @@
  * Merged from: hosts.js, providers.js, agents.js, system.js
  * All handlers follow the signature: (req, res, query, ...captures, context)
  */
-const database = require('../../database');   // getDbInstance (raw SQL for agents)
+const configCore = require('../../db/config-core');
 const taskCore = require('../../db/task-core');
 const coordination = require('../../db/coordination');
 const fileTracking = require('../../db/file-tracking');
@@ -943,7 +943,7 @@ function handleSystemStatus(req, res, query, context) {
   const instanceId = taskManager.getMcpInstanceId();
   let authConfigured = false;
   try {
-    authConfigured = Boolean(database.getConfig('api_key'));
+    authConfigured = Boolean(configCore.getConfig('api_key'));
   } catch {
     authConfigured = false;
   }

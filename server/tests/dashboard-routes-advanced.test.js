@@ -4,6 +4,7 @@
 const { EventEmitter } = require('events');
 
 const taskCore = require('../db/task-core');
+const configCore = require('../db/config-core');
 const hostManagement = require('../db/host-management');
 const coordination = require('../db/coordination');
 const taskManager = require('../task-manager');
@@ -11,6 +12,8 @@ const utils = require('../dashboard/utils');
 const benchmarks = require('../dashboard/routes/admin');
 const systemRoutes = require('../dashboard/routes/infrastructure');
 const tuningRoutes = require('../dashboard/routes/admin');
+
+const SECURITY_WARNING_MESSAGE = 'TORQUE is running without authentication. Run configure to set an API key.';
 
 function createMockReq({ body, chunks, throwError, headers = {} } = {}) {
   const req = new EventEmitter();
@@ -286,6 +289,7 @@ describe('dashboard/routes/system', () => {
       if (status === 'queued') return queued;
       return 0;
     });
+    vi.spyOn(configCore, 'getConfig').mockReturnValue(null);
   }
 
   it('handleSystemStatus returns healthy status for safe heap usage', () => {
@@ -344,6 +348,36 @@ describe('dashboard/routes/system', () => {
     expect(body.instance.shortId).toBe('fedcba');
     expect(body.instance.pid).toBe(process.pid);
     expect(body.instance.port).toBe(5000);
+  });
+
+  it('handleSystemStatus reports unauthenticated warning when api key is absent', () => {
+    mockSystemMemoryAndCounts({});
+    vi.spyOn(taskManager, 'getMcpInstanceId').mockReturnValue('instance-no-auth');
+    const res = createMockRes();
+    systemRoutes.handleSystemStatus(null, res, {}, { clients: new Set(), serverPort: 3000 });
+    const body = parseJson(res.body);
+    expect(configCore.getConfig).toHaveBeenCalledWith('api_key');
+    expect(body.security).toEqual({
+      auth_configured: false,
+      warning: SECURITY_WARNING_MESSAGE,
+    });
+    expect(body.security_warning).toBe(SECURITY_WARNING_MESSAGE);
+  });
+
+  it('handleSystemStatus reports unauthenticated warning when api key lookup throws', () => {
+    mockSystemMemoryAndCounts({});
+    vi.spyOn(configCore, 'getConfig').mockImplementation(() => {
+      throw new Error('config unavailable');
+    });
+    vi.spyOn(taskManager, 'getMcpInstanceId').mockReturnValue('instance-auth-error');
+    const res = createMockRes();
+    systemRoutes.handleSystemStatus(null, res, {}, { clients: new Set(), serverPort: 3000 });
+    const body = parseJson(res.body);
+    expect(body.security).toEqual({
+      auth_configured: false,
+      warning: SECURITY_WARNING_MESSAGE,
+    });
+    expect(body.security_warning).toBe(SECURITY_WARNING_MESSAGE);
   });
 
   it('handleSystemStatus propagates db errors as thrown', () => {

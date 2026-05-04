@@ -485,8 +485,8 @@ describe('route handlers with mock db', () => {
     });
 
     it('handleModelStats clamps days to safe range and returns requested period', () => {
-      const prepare = vi.fn().mockReturnValue({ all: () => [] });
-      vi.spyOn(db, 'getDbInstance').mockReturnValue({ prepare });
+      vi.spyOn(taskCore, 'getModelUsageStats').mockReturnValue([]);
+      vi.spyOn(taskCore, 'getModelDailyUsageSeries').mockReturnValue([]);
 
       const invalid = createMockRes();
       stats.handleModelStats(null, invalid.res, { days: 'n/a' });
@@ -550,6 +550,21 @@ describe('route handlers with mock db', () => {
       expect(body.task_count).toBe(15);
       expect(body.by_provider).toEqual({ codex: 1.00, 'claude-cli': 0.50 });
       expect(body.daily).toEqual([{ date: '2026-03-01', cost: 0.25 }]);
+    });
+
+    it('handleBudgetSummary returns empty daily rows when period costs are unavailable', () => {
+      vi.spyOn(costTracking, 'getCostSummary').mockReturnValue([
+        { provider: 'codex', task_count: 3, total_cost: 0.75 },
+      ]);
+      vi.spyOn(costTracking, 'getCostByPeriod').mockReturnValue([]);
+
+      const { res } = createMockRes();
+      budget.handleBudgetSummary(null, res, { days: '7' });
+
+      const body = parseJsonBody(res.end.mock.calls[0][0]);
+      expect(body.total_cost).toBe(0.75);
+      expect(body.task_count).toBe(3);
+      expect(body.daily).toEqual([]);
     });
 
     it('handleBudgetStatus returns limit and used', () => {

@@ -6,14 +6,14 @@ import { createRequire } from 'module';
 const require = createRequire(import.meta.url);
 
 const HEALTH_PROBES_MODULE = '../api/health-probes';
-const DATABASE_MODULE = '../database';
+const CONTAINER_MODULE = '../container';
 const TASK_CORE_MODULE = '../db/task-core';
 const TOOLS_MODULE = '../tools';
 const MIDDLEWARE_MODULE = '../api/middleware';
 const RESTART_BARRIER_MODULE = '../execution/restart-barrier';
 const MODULE_PATHS = [
   HEALTH_PROBES_MODULE,
-  DATABASE_MODULE,
+  CONTAINER_MODULE,
   TASK_CORE_MODULE,
   TOOLS_MODULE,
   MIDDLEWARE_MODULE,
@@ -21,6 +21,7 @@ const MODULE_PATHS = [
 ];
 
 let mockDb;
+let mockContainerModule;
 let mockTaskCore;
 let mockTools;
 let mockMiddleware;
@@ -54,6 +55,19 @@ function createMockDb() {
   return {
     getDbInstance: vi.fn(() => ({ open: true })),
     isDbClosed: vi.fn(() => false),
+  };
+}
+
+function createMockContainerModule() {
+  return {
+    defaultContainer: {
+      has: vi.fn((name) => name === 'db'),
+      get: vi.fn((name) => {
+        if (name === 'db') return mockDb;
+        throw new Error(`unexpected container service: ${name}`);
+      }),
+      peek: vi.fn((name) => (name === 'db' ? mockDb : undefined)),
+    },
   };
 }
 
@@ -94,7 +108,7 @@ function createMockRestartBarrier() {
 
 function loadHealthProbes() {
   clearModules();
-  installCjsModuleMock(DATABASE_MODULE, mockDb);
+  installCjsModuleMock(CONTAINER_MODULE, mockContainerModule);
   installCjsModuleMock(TASK_CORE_MODULE, mockTaskCore);
   installCjsModuleMock(TOOLS_MODULE, mockTools);
   installCjsModuleMock(MIDDLEWARE_MODULE, mockMiddleware);
@@ -132,6 +146,7 @@ function freezeNow(startMs = 1_000_000) {
 beforeEach(() => {
   vi.useRealTimers();
   mockDb = createMockDb();
+  mockContainerModule = createMockContainerModule();
   mockTaskCore = createMockTaskCore();
   mockTools = createMockTools();
   mockMiddleware = createMockMiddleware();
