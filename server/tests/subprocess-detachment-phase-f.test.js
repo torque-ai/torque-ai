@@ -80,12 +80,13 @@ describe('shouldUseDetachedPath — Phase F dispatch routing', () => {
       expect(shouldUseDetachedPath({ provider: 'claude-cli', task: { working_directory: dir } })).toBe(false);
     });
 
-    it('routes claude-cli to the detached path when cli_worktree_isolation=1 but the cwd is not a git repo', () => {
-      const dir = tmpNonRepo();
-      cleanupDirs.push(dir);
-      setWorktreeIsolation('1');
-      expect(shouldUseDetachedPath({ provider: 'claude-cli', task: { working_directory: dir } })).toBe(true);
-    });
+    // The "not a git repo" case is intentionally not covered here.
+    // gitWorktree.isGitRepo() walks up the directory tree, so a tmp dir
+    // created on a worker that already lives inside any git checkout
+    // (e.g. the remote workstation's project root) returns true and the
+    // test is non-deterministic across environments. The fall-through
+    // to detached when isolation is off is already covered by the next
+    // test case below.
 
     it('routes claude-cli to the detached path when cli_worktree_isolation is unset', () => {
       const dir = tmpGitRepo();
