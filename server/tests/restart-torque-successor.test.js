@@ -65,20 +65,27 @@ describe('waitForFileUnlock', () => {
   });
 
   it('respects the budget and returns false when the file never unlocks', async () => {
-    // Simulate a perpetually-locked file by pointing at a path we can't open r+
-    // (a directory). On Windows, opening a directory r+ fails with EPERM/EISDIR;
-    // on POSIX it's EISDIR. Either way the loop never satisfies and we exit on
-    // budget — verifying we don't infinite-loop.
+    // Simulate a perpetually-locked file by creating a regular file and
+    // chmod'ing it read-only. fs.openSync(path, 'r+') needs write access,
+    // so it fails with EACCES/EPERM on both POSIX and Windows. The earlier
+    // version pointed at a directory, but Windows happily opens directories
+    // r+ which made waitForFileUnlock return true after one attempt — flaky
+    // on Windows, working on POSIX.
     const tmp = mktmp('unlock-locked');
+    const f = path.join(tmp, 'readonly.node');
     try {
+      fs.writeFileSync(f, Buffer.from([0]));
+      fs.chmodSync(f, 0o444);  // read-only — r+ open fails with EPERM/EACCES
       const start = Date.now();
       // budget=300ms, interval=100ms — should bail in ~300-400ms
-      const ok = await waitForFileUnlock(tmp, 300, 100);
+      const ok = await waitForFileUnlock(f, 300, 100);
       const elapsed = Date.now() - start;
       expect(ok).toBe(false);
       expect(elapsed).toBeGreaterThanOrEqual(250);
       expect(elapsed).toBeLessThan(2000);
     } finally {
+      // Restore writable bit so rmSync can delete the file on Windows.
+      try { fs.chmodSync(f, 0o644); } catch { /* may not exist if writeFile failed */ }
       fs.rmSync(tmp, { recursive: true, force: true });
     }
   });
