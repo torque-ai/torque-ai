@@ -101,6 +101,25 @@ function touchFinalizingMarker(taskId, stage) {
 /** @deprecated Use createProcessLifecycle(deps) or container.get('processLifecycle'). */
 function init(d) {
   deps = d;
+  // Container-owned shared state. ProcessTracker carries
+  // runningProcesses; FinalizationTracker is the canonical
+  // finalizingTasks; closeHandlerState is the singleton counter
+  // accessor. Fill in any missing slots from the container so callers
+  // don't have to thread them through every init() call. Test fixtures
+  // win via the explicit dep paths.
+  const { defaultContainer } = require('../container');
+  if (!deps.runningProcesses) {
+    const tracker = defaultContainer.peek('processTracker');
+    if (tracker) deps.runningProcesses = tracker;
+  }
+  if (!deps.finalizingTasks) {
+    const finalization = defaultContainer.peek('finalizationTracker');
+    if (finalization) deps.finalizingTasks = finalization;
+  }
+  if (!deps.closeHandlerState) {
+    const chs = defaultContainer.peek('closeHandlerState');
+    if (chs) deps.closeHandlerState = chs;
+  }
 }
 
 /**

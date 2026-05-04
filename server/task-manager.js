@@ -825,11 +825,10 @@ _taskStartup.init({
   providerRegistry,
   providerCfg,
   gpuMetrics,
-  runningProcesses,
-  apiAbortControllers,
-  pendingRetryTimeouts,
-  stallRecoveryAttempts,
-  taskCleanupGuard,
+  // runningProcesses + pendingRetryTimeouts default to container's
+  // processTracker — task-startup peeks it on init() unless overridden.
+  // apiAbortControllers / stallRecoveryAttempts / taskCleanupGuard
+  // aren't read by task-startup directly; dropped from the wiring.
   parseTaskMetadata,
   getTaskContextTokenEstimate,
   safeUpdateTaskStatus,
@@ -1089,8 +1088,9 @@ try { _queueScheduler.resolveCodexPendingTasks(); } catch { /* ignore */ }
 _processStreams.init({
   db,
   dashboard: getDashboardBroadcaster(),
-  runningProcesses,
-  stallRecoveryAttempts,
+  // runningProcesses + stallRecoveryAttempts default to container's
+  // processTracker — process-streams peeks it on init() unless
+  // overridden.
   estimateProgress,
   detectOutputCompletion,
   checkBreakpoints,
@@ -1105,8 +1105,9 @@ _processStreams.init({
 
 _processLifecycle.init({
   dashboard: getDashboardBroadcaster(),
-  runningProcesses,
-  finalizingTasks,
+  // runningProcesses, finalizingTasks, closeHandlerState default to the
+  // container values — process-lifecycle peeks them on init() unless
+  // overridden.
   finalizeTask,
   cancelTask,
   processQueue,
@@ -1114,7 +1115,6 @@ _processLifecycle.init({
   safeUpdateTaskStatus,
   setupStdoutHandler: _processStreams.setupStdoutHandler,
   setupStderrHandler: _processStreams.setupStderrHandler,
-  closeHandlerState: defaultContainer.peek('closeHandlerState'),
 });
 } // end initSubModules
 

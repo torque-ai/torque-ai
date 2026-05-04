@@ -38,6 +38,25 @@ let deps = null;
 /** @deprecated Use createProcessStreams(deps) or container.get('processStreams'). */
 function init(d) {
   deps = d;
+  // Container-owned shared state: ProcessTracker carries both
+  // runningProcesses and stallAttempts. Fill in missing slots from
+  // the container singleton so callers don't have to thread the same
+  // maps through every init() call. Test fixtures that pass bare
+  // Maps via deps.runningProcesses still win — the accessor presence
+  // guard prevents a bare Map from clobbering the absorbed-concern
+  // slot it doesn't carry.
+  if (!deps.runningProcesses || !deps.stallRecoveryAttempts) {
+    const { defaultContainer } = require('../container');
+    const trackerCandidate = deps.runningProcesses
+      || defaultContainer.peek('processTracker')
+      || null;
+    if (trackerCandidate) {
+      if (!deps.runningProcesses) deps.runningProcesses = trackerCandidate;
+      if (!deps.stallRecoveryAttempts && trackerCandidate.stallAttempts) {
+        deps.stallRecoveryAttempts = trackerCandidate.stallAttempts;
+      }
+    }
+  }
 }
 
 function getOrCreateOutputBuffer(taskId, fallbackProc = null) {
