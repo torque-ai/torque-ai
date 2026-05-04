@@ -3,11 +3,11 @@
 const { spawnSync } = require('child_process');
 const path = require('path');
 
-describe('tool-registry cold-import', () => {
+describe('tool-metadata cold-import', () => {
   it('imports in under 200ms (no handler modules loaded)', () => {
     const script = `
       const start = Date.now();
-      require(${JSON.stringify(path.resolve(__dirname, '..', 'tool-registry'))});
+      require(${JSON.stringify(path.resolve(__dirname, '..', 'tool-metadata'))});
       const elapsed = Date.now() - start;
       process.stdout.write(String(elapsed) + '\\n');
     `;
@@ -24,23 +24,23 @@ describe('tool-registry cold-import', () => {
   });
 
   it('exports TOOLS as an array', () => {
-    const reg = require('../tool-registry');
+    const reg = require('../tool-metadata');
     expect(Array.isArray(reg.TOOLS)).toBe(true);
     expect(reg.TOOLS.length).toBeGreaterThan(0);
   });
 
   it('exports schemaMap as a Map', () => {
-    const reg = require('../tool-registry');
+    const reg = require('../tool-metadata');
     expect(reg.schemaMap instanceof Map).toBe(true);
   });
 
   it('exports routeMap as a Map', () => {
-    const reg = require('../tool-registry');
+    const reg = require('../tool-metadata');
     expect(reg.routeMap instanceof Map).toBe(true);
   });
 
   it('exports decorateToolDefinition as a function', () => {
-    const reg = require('../tool-registry');
+    const reg = require('../tool-metadata');
     expect(typeof reg.decorateToolDefinition).toBe('function');
   });
 });

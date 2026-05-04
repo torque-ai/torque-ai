@@ -51,11 +51,11 @@ module.exports = {
     type: 'problem',
     docs: {
       description:
-        'Disallow top-level require() of heavy modules (tools, task-manager, database, dashboard-server) from test files. Use tool-registry or lazy-require instead.',
+        'Disallow top-level require() of heavy modules (tools, task-manager, database, dashboard-server) from test files. Use tool-metadata or lazy-require instead.',
     },
     messages: {
       heavyImport:
-        '"{{module}}" is a heavy module (~335ms+ cold-import). Import tool-registry instead (for metadata), or move the require() inside the test/beforeEach that needs it. If this file genuinely needs handleToolCall, add it to the no-heavy-test-imports allowlist in eslint.config.js.',
+        '"{{module}}" is a heavy module (~335ms+ cold-import). Import tool-metadata instead, or move the require() inside the test/beforeEach that needs it. If this file genuinely needs handleToolCall, add it to the no-heavy-test-imports allowlist in eslint.config.js.',
     },
     schema: [
       {

@@ -29,8 +29,8 @@ tester.run('no-heavy-test-imports', rule, {
       options: [{ allowlist: ['my-test.test.js'] }],
       filename: '/srv/server/tests/my-test.test.js',
     },
-    // Non-heavy tool-registry import is fine.
-    "const { TOOLS } = require('../tool-registry');",
+    // Non-heavy tool-metadata import is fine.
+    "const { TOOLS } = require('../tool-metadata');",
   ],
   invalid: [
     // Top-level require('../tools') without allowlist.

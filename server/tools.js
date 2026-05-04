@@ -2,8 +2,8 @@
  * MCP Tools definitions and handlers for TORQUE
  *
  * Thin metadata (TOOLS, schemaMap, routeMap, decorateToolDefinition) lives in
- * ./tool-registry.js and is imported here. Handler modules are loaded below.
- * Callers that only need metadata should import tool-registry directly.
+ * ./tool-metadata.js and is imported here. Handler modules are loaded below.
+ * Callers that only need metadata should import tool-metadata directly.
  */
 
 const path = require('path');
@@ -18,13 +18,13 @@ const symbolIndexerHandlers = require('./handlers/symbol-indexer-handlers');
 const templateHandlers = require('./handlers/template-handlers');
 const { CORE_TOOL_NAMES, EXTENDED_TOOL_NAMES } = require('./core-tools');
 
-// Re-export thin metadata from tool-registry (no handler loading).
+// Re-export thin metadata from tool-metadata (no handler loading).
 const {
   TOOLS,
   schemaMap: _registrySchemaMap,
   decorateToolDefinition,
   populateRouteMap,
-} = require('./tool-registry');
+} = require('./tool-metadata');
 
 // ── Merge MCP tool annotations (Phase: MCP ecosystem improvements) ──
 const { validateCoverage } = require('./tool-annotations');
@@ -162,7 +162,7 @@ const HANDLER_MODULES = [
 ];
 
 // ── Schema lookup map (tool name → inputSchema) ──
-// Comes from tool-registry.js; re-use directly to avoid rebuilding.
+// Comes from tool-metadata.js; re-use directly to avoid rebuilding.
 const schemaMap = _registrySchemaMap;
 
 // ── Centralized JSON Schema validation ──
@@ -326,8 +326,8 @@ routeMap.set('get_governance_rules', governanceHandlers.handleGetGovernanceRules
 routeMap.set('set_governance_rule_mode', governanceHandlers.handleSetGovernanceRuleMode);
 routeMap.set('toggle_governance_rule', governanceHandlers.handleToggleGovernanceRule);
 
-// Sync the populated routeMap back into tool-registry.js so tests that
-// import tool-registry directly (after tools.js has run) see the full table.
+// Sync the populated routeMap back into tool-metadata.js so tests that
+// import tool-metadata directly (after tools.js has run) see the full table.
 populateRouteMap(routeMap);
 
 function getRemoteAgentPluginDefs() {

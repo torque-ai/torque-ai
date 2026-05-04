@@ -12,7 +12,7 @@ const path = require('path');
 
 const VARIANT_PATHS = {
   tools: path.resolve(__dirname, '..', '..', 'tools.js'),
-  'tool-registry': path.resolve(__dirname, '..', '..', 'tool-registry.js'),
+  'tool-metadata': path.resolve(__dirname, '..', '..', 'tool-metadata.js'),
   'task-manager': path.resolve(__dirname, '..', '..', 'task-manager.js'),
   database: path.resolve(__dirname, '..', '..', 'database.js'),
   'db-task-core': path.resolve(__dirname, '..', '..', 'db', 'task-core.js')
@@ -48,6 +48,6 @@ module.exports = {
   units: 'ms',
   warmup: 1,
   runs: 10,
-  variants: ['tools', 'tool-registry', 'task-manager', 'database', 'db-task-core'],
+  variants: ['tools', 'tool-metadata', 'task-manager', 'database', 'db-task-core'],
   run
 };
