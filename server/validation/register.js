@@ -24,12 +24,13 @@
 
 const safeguardGates = require('./safeguard-gates');
 const hashlineVerify = require('./hashline-verify');
+const buildVerification = require('./build-verification');
 
 function register(container) {
   safeguardGates.register(container);
   hashlineVerify.register(container);
+  buildVerification.register(container);
   // TODO(phase 2b cont.): register the remaining validation modules
-  //   - validation/build-verification.js   (this branch — coming up)
   //   - validation/close-phases.js         (this branch — coming up)
   //   - validation/auto-verify-retry.js    (separate session — 729 LOC)
   //   - validation/output-safeguards.js    (separate session — 868 LOC)

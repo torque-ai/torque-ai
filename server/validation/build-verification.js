@@ -20,11 +20,17 @@ const { createTestRunnerRegistry } = require('../test-runner-registry');
 
 const CODEX_PROVIDERS = new Set(['codex', 'codex-spark']);
 
+// ── Legacy module-level state, written only by init() (deprecated) ─────────
+// Phase 2b of the universal-DI migration: this module now exposes both the
+// new createBuildVerification factory + register(container) pattern and
+// the legacy init({…}) shape. The legacy state below is removed in the
+// same commit that migrates task-manager.js to consume via container.
 let db;
 let parseCommand;
 let extractBuildErrorFiles;
 let _testRunnerRegistry = null;
 
+/** @deprecated Use createBuildVerification(deps) or container.get('buildVerification'). */
 function init(deps) {
   if (deps.db) db = deps.db;
   if (deps.parseCommand) parseCommand = deps.parseCommand;
@@ -343,7 +349,58 @@ async function runBuildVerification(taskId, task, workingDir, taskModifiedFiles)
   }
 }
 
+// ── New factory shape (preferred) ─────────────────────────────────────────
+/**
+ * Build a buildVerification service that closes over its deps.
+ * No persistent module-level state — temporarily swaps the legacy state
+ * for the duration of each call and restores after. (Same pattern as
+ * hashline-verify; cleaned up in Phase 5 once consumers migrate and the
+ * legacy state is deleted.)
+ */
+function createBuildVerification(deps = {}) {
+  const localDb = deps.db;
+  const localParseCommand = deps.parseCommand;
+  const localExtractBuildErrorFiles = deps.extractBuildErrorFiles;
+  const localTestRunnerRegistry = deps.testRunnerRegistry || null;
+
+  return {
+    runBuildVerification(...args) {
+      const prevDb = db;
+      const prevParse = parseCommand;
+      const prevExtract = extractBuildErrorFiles;
+      const prevRegistry = _testRunnerRegistry;
+      db = localDb;
+      parseCommand = localParseCommand;
+      extractBuildErrorFiles = localExtractBuildErrorFiles;
+      _testRunnerRegistry = localTestRunnerRegistry;
+      try {
+        return runBuildVerification(...args);
+      } finally {
+        db = prevDb;
+        parseCommand = prevParse;
+        extractBuildErrorFiles = prevExtract;
+        _testRunnerRegistry = prevRegistry;
+      }
+    },
+  };
+}
+
+/**
+ * Register with a DI container under the name 'buildVerification'.
+ */
+function register(container) {
+  container.register(
+    'buildVerification',
+    ['db', 'parseCommand', 'extractBuildErrorFiles', 'testRunnerRegistry'],
+    (deps) => createBuildVerification(deps)
+  );
+}
+
 module.exports = {
+  // New shape (preferred)
+  createBuildVerification,
+  register,
+  // Legacy shape (kept until task-manager.js migrates)
   init,
   runBuildVerification,
 };
