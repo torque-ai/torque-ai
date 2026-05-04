@@ -15,7 +15,7 @@ const MODULE_PATHS = [
   '../db/coordination',
   '../workstation/model',
   '../handlers/workstation-handlers',
-  '../discovery',
+  '../providers/ollama-mdns-discovery',
   '../utils/host-monitoring',
 ];
 
@@ -500,7 +500,7 @@ function loadHandlers() {
   installCjsModuleMock('../workstation/model', mockWorkstationModel);
   installCjsModuleMock('../handlers/workstation-handlers', mockWorkstationHandlers);
   installCjsModuleMock('../api/middleware', mockMiddleware);
-  installCjsModuleMock('../discovery', mockDiscovery);
+  installCjsModuleMock('../providers/ollama-mdns-discovery', mockDiscovery);
   installCjsModuleMock('../utils/host-monitoring', mockHostMonitoring);
   require(CONTROL_PLANE_MODULE);
   return require(HANDLER_MODULE);

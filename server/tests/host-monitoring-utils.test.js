@@ -774,7 +774,7 @@ describe('host-monitoring utility module', () => {
   });
 
   describe('initializeDiscovery', () => {
-    const discoveryModulePath = require.resolve('../discovery');
+    const discoveryModulePath = require.resolve('../providers/ollama-mdns-discovery');
     let discoveryBackup;
 
     function withFakeDiscovery(disabled, callback) {

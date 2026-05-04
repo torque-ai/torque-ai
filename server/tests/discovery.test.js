@@ -434,7 +434,7 @@ function installMock(modulePath, exports) {
 }
 
 function loadDiscoveryWithBonjour(mockBonjour) {
-  delete require.cache[require.resolve('../discovery')];
+  delete require.cache[require.resolve('../providers/ollama-mdns-discovery')];
   installMock('bonjour-service', {
     Bonjour: vi.fn(function MockBonjour() {
       return mockBonjour;
@@ -467,7 +467,7 @@ describe('Bonjour Discovery Host Identities', () => {
       loadedDiscovery.shutdownDiscovery();
       loadedDiscovery = null;
     }
-    delete require.cache[require.resolve('../discovery')];
+    delete require.cache[require.resolve('../providers/ollama-mdns-discovery')];
     delete require.cache[require.resolve('bonjour-service')];
     vi.restoreAllMocks();
   });

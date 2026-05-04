@@ -7,7 +7,7 @@ const require = createRequire(import.meta.url);
 
 const TRANSPORT_MODULE = '../transports/streamable-http';
 const LOGGER_MODULE = '../logger';
-const MCP_PROTOCOL_MODULE = '../mcp-protocol';
+const MCP_PROTOCOL_MODULE = '../mcp/protocol';
 const JSONRPC_VALIDATION_MODULE = '../utils/jsonrpc-validation';
 const SSE_PROTOCOL_MODULE = '../transports/sse/protocol';
 const MODULE_PATHS = [

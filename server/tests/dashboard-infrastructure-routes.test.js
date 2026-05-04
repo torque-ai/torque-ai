@@ -16,7 +16,7 @@ const MODULE_PATHS = [
   '../db/provider/scoring',
   '../dashboard/utils',
   '../task-manager',
-  '../discovery',
+  '../providers/ollama-mdns-discovery',
 ];
 
 const originalHttpGet = realHttp.get;
@@ -34,7 +34,7 @@ vi.mock('../db/host/management', () => currentModules.hostManagement);
 vi.mock('../db/provider/routing-core', () => currentModules.providerRoutingCore);
 vi.mock('../dashboard/utils', () => currentModules.utils);
 vi.mock('../task-manager', () => currentModules.taskManager);
-vi.mock('../discovery', () => currentModules.discovery);
+vi.mock('../providers/ollama-mdns-discovery', () => currentModules.discovery);
 vi.mock('http', () => currentModules.http);
 vi.mock('https', () => currentModules.https);
 
@@ -474,7 +474,7 @@ function loadHandlers() {
   installCjsModuleMock('../db/provider/scoring', currentModules.providerScoring);
   installCjsModuleMock('../dashboard/utils', currentModules.utils);
   installCjsModuleMock('../task-manager', currentModules.taskManager);
-  installCjsModuleMock('../discovery', currentModules.discovery);
+  installCjsModuleMock('../providers/ollama-mdns-discovery', currentModules.discovery);
   realHttp.get = currentModules.http.get;
   realHttps.get = currentModules.https.get;
   return require(ROUTE_MODULE);
