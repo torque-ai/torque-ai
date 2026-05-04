@@ -54,6 +54,7 @@ const _LAZY_MODULE_DEFINITIONS = [
   { name: 'peekPolicyAudit', path: './db/peek-policy-audit' },
   { name: 'peekRecoveryApprovals', path: './db/peek-recovery-approvals' },
   { name: 'recoveryMetrics', path: './db/recovery-metrics' },
+  { name: 'throughputMetrics', path: './db/throughput-metrics' },
   { name: 'policyProfileStore', path: './policy-engine/profile-store' },
   { name: 'policyEvaluationStore', path: './policy-engine/evaluation-store' },
   { name: 'auditStore', path: './db/audit-store' },
@@ -135,6 +136,7 @@ const packRegistry = _lazyModule('packRegistry');
 const peekPolicyAudit = _lazyModule('peekPolicyAudit');
 const peekRecoveryApprovals = _lazyModule('peekRecoveryApprovals');
 const recoveryMetrics = _lazyModule('recoveryMetrics');
+const throughputMetrics = _lazyModule('throughputMetrics');
 const policyProfileStore = _lazyModule('policyProfileStore');
 const policyEvaluationStore = _lazyModule('policyEvaluationStore');
 const auditStore = _lazyModule('auditStore');
@@ -375,6 +377,7 @@ function _wireAllModules() {
   peekPolicyAudit.createPeekPolicyAudit({ db });
   peekRecoveryApprovals.createPeekRecoveryApprovals({ db });
   recoveryMetrics.createRecoveryMetrics({ db });
+  throughputMetrics.setDb(db);
   inboundWebhooks.createInboundWebhooks({ db });
   ciCache.createCiCache({ db });
   modelRoles.createModelRoles({ db });

@@ -1,6 +1,6 @@
 'use strict';
 
-// DI: receives db instance via setDb() — avoids circular require('../database')
+// DI: receives db instance via setDb()
 let _dbInstance = null;
 
 function setDb(dbInst) { _dbInstance = dbInst; }
@@ -9,20 +9,11 @@ const PROVIDER_TABLES = ['provider_config', 'providers'];
 const PROVIDER_SQL = `COALESCE(NULLIF(LOWER(TRIM(provider)), ''), 'unknown')`;
 
 function getDbInstanceOrThrow() {
-  // Try DI-injected instance first, fall back to lazy require
-  let instance = _dbInstance;
-  if (!instance) {
-    try {
-      const db = require('../database');
-      instance = typeof db.getDbInstance === 'function' ? db.getDbInstance() : null;
-    } catch { /* ok */ }
-  }
-
-  if (!instance || typeof instance.prepare !== 'function') {
+  if (!_dbInstance || typeof _dbInstance.prepare !== 'function') {
     throw new Error('Database instance is not available');
   }
 
-  return instance;
+  return _dbInstance;
 }
 
 function normalizeWindowHours(windowHours, defaultValue) {
