@@ -167,10 +167,19 @@ describe('restart_server drain watchdog reverted', () => {
     expect(src).not.toMatch(/noProgressElapsed/);
   });
 
-  it('still honors the full drainTimeoutMinutes budget', () => {
+  it('still honors the full configured drain budget', () => {
     // The only drain-failure path left should be the user-set timeout,
-    // bounded by drainTimeoutMinutes (default 60min, configurable).
+    // bounded by `drainTimeoutMs` (resolved from drain_timeout_ms |
+    // drain_timeout_minutes | timeout_minutes per Phase D §2.5.3,
+    // default 60_000 ms).
     expect(src).toMatch(/elapsed\s*>=\s*drainTimeoutMs/);
-    expect(src).toMatch(/drainTimeoutMs\s*=\s*drainTimeoutMinutes\s*\*\s*60\s*\*\s*1000/);
+    // Phase D resolves drainTimeoutMs at the top of the function from
+    // any of three operator inputs. We pin the resolution surface
+    // (canonical drain_timeout_ms arg + sub-minute-default literal)
+    // rather than the old `drainTimeoutMinutes * 60 * 1000` math, which
+    // is gone after the refactor. The regression-guard intent is
+    // preserved: the only failure path is still the user-set timeout.
+    expect(src).toMatch(/drain_timeout_ms/);
+    expect(src).toMatch(/DEFAULT_DRAIN_TIMEOUT_MS\s*=\s*60_?000/);
   });
 });

@@ -1844,7 +1844,14 @@ describe('task-core handlers', () => {
       });
 
       expect(result.isError).toBeUndefined();
-      expect(mockTaskManager.cancelTask).toHaveBeenCalledWith('cancel-confirmed', 'No longer needed');
+      // Phase D added an options object as the third arg ({ force, abandon })
+      // so the operator's mode lands in cancel_reason for forensics. The
+      // default mode passes both flags as false.
+      expect(mockTaskManager.cancelTask).toHaveBeenCalledWith(
+        'cancel-confirmed',
+        'No longer needed',
+        { force: false, abandon: false },
+      );
       expect(textOf(result)).toContain('Task cancel-confirmed cancelled.');
     });
 
