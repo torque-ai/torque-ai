@@ -8970,8 +8970,21 @@ async function executePlanFileStage(project, instance, workItem) {
     const rejectReason = violationRule
       ? `${violationRule}: task_${result.failed_task}`
       : `task_${result.failed_task}_failed`;
+    // 2026-05-04 (bitsy WI 849 fix): use needs_replan instead of in_progress.
+    // in_progress is NOT in CLOSED_STATUSES and has no PRIORITIZE cooldown,
+    // so the next factory tick re-picks the same WI immediately, runs the
+    // same plan, hits the same task failure, and the loop thrashes forever
+    // (live: bitsy WI 849 produced 8+ execution_failed decisions in 2.5h
+    // with zero auto-recovery firings — recovery only fires for paused
+    // projects, but the executor returns IDLE here, so the recovery rule
+    // never gets a chance). needs_replan was introduced exactly for this
+    // shape (Phase X1 2026-05-01): non-terminal but with cooldown so
+    // PRIORITIZE doesn't re-pick the item until the architect can replan.
+    // The reject_reason carries the failure-mode signature (task_N_failed
+    // or violation_rule:task_N) so Phase P's replan-recovery routing can
+    // pick a failure-mode-specific strategy on the next attempt.
     factoryIntake.updateWorkItem(targetItem.id, {
-      status: 'in_progress',
+      status: 'needs_replan',
       reject_reason: rejectReason,
     });
     logger.warn('EXECUTE stage: plan executor stopped on failed task', {
