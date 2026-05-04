@@ -140,6 +140,47 @@ describe('plan-file-intake', () => {
     expect(secondResult.skipped[0].reason).toBe('duplicate');
   });
 
+  it('repairs an active duplicate plan_file work item that lost origin.plan_path', () => {
+    const planPath = path.join(dir, 'plan-repair.md');
+    fs.writeFileSync(planPath, [
+      '# Repair Plan',
+      '',
+      '**Goal:** Keep source plan paths connected.',
+      '',
+      '## Task 1: x',
+      '- [ ] step one',
+    ].join('\n'));
+
+    const firstScan = scanPlans();
+    const workItemId = firstScan.created[0].id;
+    factoryIntake.updateWorkItem(workItemId, {
+      status: 'needs_replan',
+      origin_json: {
+        content_hash: getOrigin(firstScan.created[0]).content_hash,
+        previous_hash: null,
+        task_count: 1,
+        step_count: 1,
+      },
+    });
+
+    const secondScan = scanPlans();
+    const repaired = factoryIntake.getWorkItem(workItemId);
+
+    expect(secondScan.created).toHaveLength(0);
+    expect(secondScan.skipped).toContainEqual(expect.objectContaining({
+      plan_path: planPath,
+      reason: 'duplicate_repaired_origin',
+      work_item_id: workItemId,
+      repaired: true,
+    }));
+    expect(getOrigin(repaired)).toMatchObject({
+      plan_path: planPath,
+      task_count: 1,
+      step_count: 1,
+      goal: 'Keep source plan paths connected.',
+    });
+  });
+
   it('re-ingests when content hash changes after the prior item closes', () => {
     const filePath = path.join(dir, 'plan-c.md');
     fs.writeFileSync(filePath, '# C\n## Task 1: x\n- [ ] v1\n');

@@ -60,6 +60,47 @@ function createPlanFileIntake({ db, factoryIntake, shippedDetector }) {
     `).run(project_id, plan_path, content_hash, work_item_id, new Date().toISOString());
   }
 
+  function repairActivePlanFileWorkItem({ project_id, plan_path, content_hash, parsed, work_item_id, reason, skipped }) {
+    if (!work_item_id || typeof factoryIntake.getWorkItem !== 'function' || typeof factoryIntake.updateWorkItem !== 'function') {
+      return false;
+    }
+
+    const item = factoryIntake.getWorkItem(work_item_id);
+    if (!item || item.project_id !== project_id || item.source !== 'plan_file') {
+      return false;
+    }
+
+    const CLOSED = factoryIntake.CLOSED_STATUSES || new Set(['completed', 'rejected', 'shipped']);
+    if (item.status && CLOSED.has(item.status)) {
+      return false;
+    }
+
+    const origin = item.origin && typeof item.origin === 'object'
+      ? item.origin
+      : (item.origin_json ? JSON.parse(item.origin_json) : {});
+    const needsRepair = origin.plan_path !== plan_path
+      || origin.content_hash !== content_hash
+      || origin.task_count !== parsed.task_count
+      || origin.step_count !== parsed.step_count;
+    if (!needsRepair) {
+      return false;
+    }
+
+    factoryIntake.updateWorkItem(item.id, {
+      origin_json: {
+        ...origin,
+        plan_path,
+        content_hash,
+        task_count: parsed.task_count,
+        step_count: parsed.step_count,
+        goal: parsed.goal,
+        tech_stack: parsed.tech_stack,
+      },
+    });
+    skipped.push({ plan_path, reason, work_item_id: item.id, repaired: true });
+    return true;
+  }
+
   function scan({ project_id, plans_dir, filter = /\.md$/i }) {
     if (!project_id) throw new Error('project_id required');
     if (!fs.existsSync(plans_dir)) throw new Error(`plans_dir not found: ${plans_dir}`);
@@ -87,6 +128,17 @@ function createPlanFileIntake({ db, factoryIntake, shippedDetector }) {
       const hash = sha256(content);
       const previous = findPrevious(project_id, filePath);
       if (previous && previous.content_hash === hash) {
+        if (repairActivePlanFileWorkItem({
+          project_id,
+          plan_path: filePath,
+          content_hash: hash,
+          parsed,
+          work_item_id: previous.work_item_id,
+          reason: 'duplicate_repaired_origin',
+          skipped,
+        })) {
+          continue;
+        }
         skipped.push({ plan_path: filePath, reason: 'duplicate', work_item_id: previous.work_item_id });
         continue;
       }
@@ -96,6 +148,17 @@ function createPlanFileIntake({ db, factoryIntake, shippedDetector }) {
       // reverted). Short-circuit to avoid a UNIQUE collision in SENSE.
       const reverted = findByContentHash(project_id, filePath, hash);
       if (reverted) {
+        if (repairActivePlanFileWorkItem({
+          project_id,
+          plan_path: filePath,
+          content_hash: hash,
+          parsed,
+          work_item_id: reverted.work_item_id,
+          reason: 'reverted_to_prior_hash_repaired_origin',
+          skipped,
+        })) {
+          continue;
+        }
         skipped.push({ plan_path: filePath, reason: 'reverted_to_prior_hash', work_item_id: reverted.work_item_id });
         continue;
       }
