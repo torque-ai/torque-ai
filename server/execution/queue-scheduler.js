@@ -35,6 +35,9 @@ const { isRestartBarrierActive } = require('./restart-barrier');
 const { promotePendingRestartResubmissions } = require('./restart-resubmit-queue');
 
 // Dependency injection
+// ── Legacy module-level state, written only by init() (deprecated) ─────────
+// Phase 3 of the universal-DI migration. Replaces the prior stub
+// createQueueScheduler factory with one that actually closes over deps.
 let db = null;
 let _attemptTaskStart = null;
 let _safeStartTask = null;
@@ -123,10 +126,7 @@ function notifyDashboard(taskId, updates = {}) {
   }
 }
 
-/**
- * Initialize dependencies for this module.
- * @param {Object} deps
- */
+/** @deprecated Use createQueueScheduler(deps) or container.get('queueScheduler'). */
 function init(deps) {
   if (deps.db) db = deps.db;
   if (deps.db) serverConfig.init({ db: deps.db });
@@ -1518,33 +1518,75 @@ function resolveCodexPendingTasks() {
   }
 }
 
-// ── Factory (DI Phase 3) ─────────────────────────────────────────────────
-
-function createQueueScheduler(_deps) {
-  // _deps reserved for dependency-boundary follow-up
+// ── New factory shape (preferred) ─────────────────────────────────────────
+// Replaces the prior placeholder with one that actually closes over deps.
+// Note: queue-scheduler also has process-wide state (event listeners, debounce
+// timers, _stopped flag, _lastAutoScaleActivation) that intentionally stays
+// at module scope — the queue is a singleton resource, not a per-instance one.
+function createQueueScheduler(localDeps = {}) {
+  function withLocalDeps(fn) {
+    const prev = {
+      db, _attemptTaskStart, _safeStartTask, _safeConfigInt,
+      _isLargeModelBlockedOnHost, _getProviderInstance, _getFreeQuotaTracker,
+      _cleanupOrphanedRetryTimeouts, _notifyDashboard, _analyzeTaskForRouting,
+    };
+    if (localDeps.db) db = localDeps.db;
+    if (localDeps.attemptTaskStart) _attemptTaskStart = localDeps.attemptTaskStart;
+    if (localDeps.safeStartTask) _safeStartTask = localDeps.safeStartTask;
+    if (localDeps.safeConfigInt) _safeConfigInt = localDeps.safeConfigInt;
+    if (localDeps.isLargeModelBlockedOnHost) _isLargeModelBlockedOnHost = localDeps.isLargeModelBlockedOnHost;
+    if (localDeps.getProviderInstance) _getProviderInstance = localDeps.getProviderInstance;
+    if (localDeps.getFreeQuotaTracker) _getFreeQuotaTracker = localDeps.getFreeQuotaTracker;
+    if (localDeps.cleanupOrphanedRetryTimeouts) _cleanupOrphanedRetryTimeouts = localDeps.cleanupOrphanedRetryTimeouts;
+    if (localDeps.notifyDashboard) _notifyDashboard = localDeps.notifyDashboard;
+    if (localDeps.analyzeTaskForRouting) _analyzeTaskForRouting = localDeps.analyzeTaskForRouting;
+    try { return fn(); }
+    finally {
+      ({
+        db, _attemptTaskStart, _safeStartTask, _safeConfigInt,
+        _isLargeModelBlockedOnHost, _getProviderInstance, _getFreeQuotaTracker,
+        _cleanupOrphanedRetryTimeouts, _notifyDashboard, _analyzeTaskForRouting,
+      } = prev);
+    }
+  }
   return {
     FREE_PROVIDERS,
     COST_FREE_PROVIDERS,
-    init,
-    normalizeTaskStartOutcome,
-    attemptTaskStart,
-    stop,
-    resolveEffectiveProvider,
-    categorizeQueuedTasks,
-    filterSupersededFactoryInternalTasks,
-    filterPausedFactoryProjectTasks,
-    loadRecentFactorySupersessionSignals,
-    shouldSkipTaskForApproval,
-    shouldSkipTaskForFileLockWait,
-    prioritizeCodexProjectWork,
-    processQueueInternal,
-    resolveCodexPendingTasks,
+    normalizeTaskStartOutcome,  // pure
+    attemptTaskStart: (...args) => withLocalDeps(() => attemptTaskStart(...args)),
+    stop,  // operates on process-wide state intentionally
+    resolveEffectiveProvider: (...args) => withLocalDeps(() => resolveEffectiveProvider(...args)),
+    categorizeQueuedTasks: (...args) => withLocalDeps(() => categorizeQueuedTasks(...args)),
+    filterSupersededFactoryInternalTasks: (...args) => withLocalDeps(() => filterSupersededFactoryInternalTasks(...args)),
+    filterPausedFactoryProjectTasks: (...args) => withLocalDeps(() => filterPausedFactoryProjectTasks(...args)),
+    loadRecentFactorySupersessionSignals: (...args) => withLocalDeps(() => loadRecentFactorySupersessionSignals(...args)),
+    shouldSkipTaskForApproval: (...args) => withLocalDeps(() => shouldSkipTaskForApproval(...args)),
+    shouldSkipTaskForFileLockWait: (...args) => withLocalDeps(() => shouldSkipTaskForFileLockWait(...args)),
+    prioritizeCodexProjectWork: (...args) => withLocalDeps(() => prioritizeCodexProjectWork(...args)),
+    processQueueInternal: (...args) => withLocalDeps(() => processQueueInternal(...args)),
+    resolveCodexPendingTasks: (...args) => withLocalDeps(() => resolveCodexPendingTasks(...args)),
     _getLastAutoScaleActivation: () => _lastAutoScaleActivation,
     _resetAutoScaleCooldown: () => { _lastAutoScaleActivation = 0; },
   };
 }
 
+function register(container) {
+  container.register(
+    'queueScheduler',
+    [
+      'db', 'attemptTaskStart', 'safeStartTask', 'safeConfigInt',
+      'isLargeModelBlockedOnHost', 'getProviderInstance', 'getFreeQuotaTracker',
+      'cleanupOrphanedRetryTimeouts', 'notifyDashboard', 'analyzeTaskForRouting',
+    ],
+    (deps) => createQueueScheduler(deps)
+  );
+}
+
 module.exports = {
+  // New shape (preferred)
+  createQueueScheduler,
+  register,
+  // Legacy shape (kept until task-manager.js migrates)
   FREE_PROVIDERS,
   COST_FREE_PROVIDERS,
   GPU_SHARING_PROVIDERS,
@@ -1566,5 +1608,4 @@ module.exports = {
   // Exposed for testing auto-scale cooldown
   _getLastAutoScaleActivation: () => _lastAutoScaleActivation,
   _resetAutoScaleCooldown: () => { _lastAutoScaleActivation = 0; },
-  createQueueScheduler,
 };

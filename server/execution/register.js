@@ -27,6 +27,8 @@ const completionPipeline = require('./completion-pipeline');
 const slotPullScheduler = require('./slot-pull-scheduler');
 const processLifecycle = require('./process-lifecycle');
 const fallbackRetry = require('./fallback-retry');
+const taskFinalizer = require('./task-finalizer');
+const queueScheduler = require('./queue-scheduler');
 
 function register(container) {
   planProjectResolver.register(container);
@@ -41,9 +43,9 @@ function register(container) {
   slotPullScheduler.register(container);
   processLifecycle.register(container);
   fallbackRetry.register(container);
-  // TODO(phase 3 cont.): register the remaining execution modules
-  //   - task-finalizer.js          (1364 LOC)
-  //   - queue-scheduler.js         (1570 LOC)
+  taskFinalizer.register(container);
+  queueScheduler.register(container);
+  // TODO(phase 3 cont.): register the last 2 execution modules
   //   - workflow-runtime.js        (1875 LOC)
   //   - task-startup.js            (2017 LOC)
 }

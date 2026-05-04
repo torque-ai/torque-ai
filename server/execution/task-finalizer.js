@@ -31,6 +31,9 @@ const {
 } = require('../db/shared-factory-store');
 const { v4: uuidv4 } = require('uuid');
 
+// ── Legacy module-level state, written only by init() (deprecated) ─────────
+// Phase 3 of the universal-DI migration. Replaces the prior stub
+// createTaskFinalizer factory with one that actually closes over deps.
 let deps = {};
 let handleVerificationLedger = null;
 let handleAdversarialReview = null;
@@ -48,6 +51,7 @@ function resetForTest() {
   finalizationLocks.clear();
 }
 
+/** @deprecated Use createTaskFinalizer(deps) or container.get('taskFinalizer'). */
 function init(nextDeps = {}) {
   deps = { ...deps, ...nextDeps };
   if (deps.db && typeof deps.db.getDbInstance === 'function') {
@@ -1333,32 +1337,69 @@ async function finalizeTask(taskId, options = {}) {
   }
 }
 
-// ── Factory (DI Phase 3) ─────────────────────────────────────────────────
-
-function createTaskFinalizer(_deps) {
-  // _deps reserved for dependency-boundary follow-up
+// ── New factory shape (preferred) ─────────────────────────────────────────
+// Replaces the prior placeholder with one that actually closes over deps.
+// finalizationLocks is a process-wide singleton (intentional — prevents
+// concurrent finalize() calls for the same taskId across the entire process)
+// and stays at module scope. handleVerificationLedger / handleAdversarialReview
+// state-swap so per-instance overrides work in tests.
+function createTaskFinalizer(localDeps = {}) {
+  function withLocalDeps(fn) {
+    const prevDeps = deps;
+    const prevVL = handleVerificationLedger;
+    const prevAR = handleAdversarialReview;
+    deps = { ...deps, ...localDeps };
+    if (typeof localDeps.handleVerificationLedger === 'function') {
+      handleVerificationLedger = localDeps.handleVerificationLedger;
+    }
+    if (typeof localDeps.handleAdversarialReview === 'function') {
+      handleAdversarialReview = localDeps.handleAdversarialReview;
+    }
+    try { return fn(); }
+    finally {
+      deps = prevDeps;
+      handleVerificationLedger = prevVL;
+      handleAdversarialReview = prevAR;
+    }
+  }
   return {
-    init,
-    finalizeTask,
+    finalizeTask: (...args) => withLocalDeps(() => finalizeTask(...args)),
     _testing: {
-      get finalizationLocks() {
-        return finalizationLocks;
-      },
+      get finalizationLocks() { return finalizationLocks; },
       categorizeFailure,
       resetForTest,
     },
   };
 }
 
+function register(container) {
+  // Declared deps are read off `deps.*` inside finalizeTask: db, plus the
+  // many handler functions task-manager.js currently passes through init.
+  // Listed conservatively — extras don't hurt; missing ones do.
+  container.register(
+    'taskFinalizer',
+    [
+      'db', 'safeUpdateTaskStatus', 'sanitizeTaskOutput', 'extractModifiedFiles',
+      'handleRetryLogic', 'handleSafeguardChecks', 'handleFuzzyRepair',
+      'handleNoFileChangeDetection', 'handleSandboxRevertDetection',
+      'handleAutoValidation', 'handleBuildTestStyleCommit', 'handleAutoVerifyRetry',
+      'handleProviderFailover', 'handlePostCompletion',
+      'handleVerificationLedger', 'handleAdversarialReview',
+    ],
+    (resolved) => createTaskFinalizer(resolved)
+  );
+}
+
 module.exports = {
+  // New shape (preferred)
+  createTaskFinalizer,
+  register,
+  // Legacy shape (kept until task-manager.js migrates)
   init,
   finalizeTask,
   _testing: {
-    get finalizationLocks() {
-      return finalizationLocks;
-    },
+    get finalizationLocks() { return finalizationLocks; },
     categorizeFailure,
     resetForTest,
   },
-  createTaskFinalizer,
 };
