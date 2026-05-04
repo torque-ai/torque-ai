@@ -34,6 +34,7 @@ const { createSpecialistStorage } = require('./routing/specialist-storage');
 const { createTurnClassifier } = require('./routing/turn-classifier');
 const { createRoutedOrchestrator } = require('./routing/routed-orchestrator');
 const { createTestRunnerRegistry } = require('./test-runner-registry');
+const ProcessTracker = require('./execution/process-tracker');
 
 /**
  * Topological sort using Kahn's algorithm.
@@ -329,6 +330,15 @@ function unwrapDb(db) {
 }
 _defaultContainer.register('familyTemplates', ['db'], ({ db }) => createFamilyTemplates({ db: unwrapDb(db) }));
 _defaultContainer.register('actionRegistry', [], () => createActionRegistry());
+// ProcessTracker is the single source of truth for running-process state
+// (process records + stallAttempts + abortControllers + retryTimeouts +
+// cleanupGuard, all encapsulated). Construction lives here so the container
+// owns the instance; task-manager.js and other consumers retrieve it via
+// container.peek('processTracker') at module load (pre-boot) or
+// container.get('processTracker') post-boot. Replaces the prior pattern
+// where task-manager constructed it and distributed it via init({runningProcesses})
+// to every consumer.
+_defaultContainer.registerValue('processTracker', new ProcessTracker());
 // Singleton TestRunnerRegistry. The remote-agents plugin retrieves this from
 // the container during install() and calls .register() to install
 // remote-routing overrides. Constructing fresh registries elsewhere bypasses

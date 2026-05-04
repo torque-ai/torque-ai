@@ -254,8 +254,17 @@ if (executeApi.setFreeQuotaTracker) executeApi.setFreeQuotaTracker(getFreeQuotaT
 
 // Provider getters removed — queue-scheduler uses providerRegistry.getProviderInstance() directly
 
-// Track running processes by task ID
-const runningProcesses = new ProcessTracker();
+// Track running processes by task ID. The instance is owned by the DI
+// container (server/container.js registerValue('processTracker', ...)) so
+// every consumer reaches the same registry via the container instead of
+// receiving it through init({runningProcesses}) distribution. peek()
+// works pre-boot for registered values, which matches task-manager's
+// module-load timing.
+const { defaultContainer } = require('./container');
+const runningProcesses = defaultContainer.peek('processTracker');
+if (!(runningProcesses instanceof ProcessTracker)) {
+  throw new Error('container missing processTracker registration — server/container.js must registerValue it before task-manager.js loads');
+}
 
 // All process-tracking Maps are now consolidated inside ProcessTracker:
 //   runningProcesses (the Map itself)     — process records

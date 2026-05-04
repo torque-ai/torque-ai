@@ -59,12 +59,14 @@ function walkJs(dir, visitor) {
 // Heuristic patterns. They favor recall over precision — over-counting is
 // fine for a progress metric.
 const REGISTER_CALL = /\b\w+\.register\(\s*['"][a-zA-Z][\w-]*['"]\s*,\s*\[/g;
+const REGISTER_VALUE_CALL = /\b\w+\.registerValue\(\s*['"]([a-zA-Z][\w-]*)['"]/g;
 const INIT_EXPORT = /module\.exports\s*=\s*\{[^}]*\binit\b|module\.exports\.init\s*=/;
 const UNDERSCORE_LET_AT_MODULE_SCOPE = /^let\s+_[a-zA-Z]/m;
 const DB_IMPORT = /require\(\s*['"]\..*database['"]\s*\)/;
 
 function scan() {
   let registerCalls = 0;
+  const valueRegistrations = new Set();
   const imperativeFiles = [];
   const databaseImporters = [];
 
@@ -74,6 +76,11 @@ function scan() {
     // Count container.register('name', [deps], …) calls
     const matches = content.match(REGISTER_CALL);
     if (matches) registerCalls += matches.length;
+
+    // Collect container.registerValue('name', …) names (instance-style)
+    for (const m of content.matchAll(REGISTER_VALUE_CALL)) {
+      valueRegistrations.add(m[1]);
+    }
 
     // Imperative init pattern
     if (INIT_EXPORT.test(content) && UNDERSCORE_LET_AT_MODULE_SCOPE.test(content)) {
@@ -116,6 +123,7 @@ function scan() {
     registerCalls,
     wiredCount,
     wiredServices,
+    valueRegistrations: [...valueRegistrations].sort(),
     imperativeFiles: imperativeFiles.sort(),
     databaseImporters: databaseImporters.sort(),
   };
@@ -127,6 +135,7 @@ function emit(metrics, asJson) {
       register_calls: metrics.registerCalls,
       wired_at_boot: metrics.wiredCount,
       wired_services: metrics.wiredServices,
+      value_registrations: metrics.valueRegistrations,
       imperative_init_modules: metrics.imperativeFiles.length,
       direct_database_importers: metrics.databaseImporters.length,
       imperative_init_files: metrics.imperativeFiles,
@@ -139,6 +148,7 @@ function emit(metrics, asJson) {
   console.log('=========================================\n');
   console.log(`  container.register() calls in source:        ${metrics.registerCalls}`);
   console.log(`  Subsystem services wired at boot:            ${metrics.wiredCount}`);
+  console.log(`  Container values registered (instances):     ${metrics.valueRegistrations.length}`);
   console.log(`  Modules using imperative init({…}) pattern:  ${metrics.imperativeFiles.length}`);
   console.log(`  Source files importing database.js directly: ${metrics.databaseImporters.length}`);
   console.log();
@@ -146,8 +156,14 @@ function emit(metrics, asJson) {
   console.log('imperative-init falls to 0 and database-importer falls to 0 (then');
   console.log('database.js gets deleted).\n');
 
+  if (metrics.valueRegistrations.length > 0 && metrics.valueRegistrations.length < 30) {
+    console.log('Container values (registerValue):');
+    for (const s of metrics.valueRegistrations) console.log(`  ${s}`);
+    console.log();
+  }
+
   if (metrics.wiredServices.length > 0 && metrics.wiredServices.length < 30) {
-    console.log('Wired services:');
+    console.log('Wired services (factory boot):');
     for (const s of metrics.wiredServices) console.log(`  ${s}`);
     console.log();
   }
