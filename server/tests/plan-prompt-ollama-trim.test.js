@@ -7,6 +7,7 @@ const {
   getEffectiveProjectProvider,
   OLLAMA_PLAN_GENERATION_TIMEOUT_MINUTES,
   DEFAULT_PLAN_GENERATION_TIMEOUT_MINUTES,
+  PLAN_GENERATION_HARD_CAP_EXTENSION_MINUTES,
 } = require('../factory/loop-controller');
 const {
   buildStarvationRecoveryScope,
@@ -193,8 +194,12 @@ describe('Phase G: resolvePlanGenerationTimeoutMinutes', () => {
     expect(resolvePlanGenerationTimeoutMinutes(p)).toBe(25);
   });
 
-  it('builds bounded runtime policy evidence from the resolved timeout', () => {
-    expect(buildPlanGenerationActivityTimeoutPolicy(30)).toEqual({
+  it('builds bounded runtime policy evidence from the codex/default timeout', () => {
+    const policy = buildPlanGenerationActivityTimeoutPolicy(
+      resolvePlanGenerationTimeoutMinutes(codexProject)
+    );
+
+    expect(policy).toEqual({
       kind: 'plan_generation',
       timeout_minutes: 30,
       max_wall_clock_minutes: 60,
@@ -208,6 +213,23 @@ describe('Phase G: resolvePlanGenerationTimeoutMinutes', () => {
       timeout_minutes: 75,
       max_wall_clock_minutes: 120,
     }));
+  });
+
+  it('keeps the DLPhone ollama timeout tight while leaving a hard-cap overrun window', () => {
+    const policy = buildPlanGenerationActivityTimeoutPolicy(
+      resolvePlanGenerationTimeoutMinutes(ollamaProject)
+    );
+
+    expect(policy).toEqual({
+      kind: 'plan_generation',
+      timeout_minutes: OLLAMA_PLAN_GENERATION_TIMEOUT_MINUTES,
+      max_wall_clock_minutes: 25,
+      overrun_intake_problem: 'timeout_overrun_active',
+    });
+    expect(PLAN_GENERATION_HARD_CAP_EXTENSION_MINUTES).toBe(15);
+    expect(policy.max_wall_clock_minutes).toBeGreaterThanOrEqual(
+      policy.timeout_minutes + PLAN_GENERATION_HARD_CAP_EXTENSION_MINUTES
+    );
   });
 });
 

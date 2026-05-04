@@ -1601,14 +1601,22 @@ describe('process-lifecycle', () => {
       child.stdout.write('still working');
       await vi.advanceTimersByTimeAsync(1000);
       expect(deps.cancelTask).not.toHaveBeenCalled();
+      let infoMessages = loggerMock.info.mock.calls.map(([message]) => String(message));
+      expect(infoMessages.some((message) => message.includes('had activity'))).toBe(true);
+      expect(infoMessages.some((message) => message.includes('timeout decision'))).toBe(false);
 
       await vi.advanceTimersByTimeAsync(58000);
       child.stdout.write('still active near cap');
       await vi.advanceTimersByTimeAsync(1000);
       expect(deps.cancelTask).not.toHaveBeenCalled();
+      infoMessages = loggerMock.info.mock.calls.map(([message]) => String(message));
+      const activeExtensionMessages = infoMessages.filter((message) => message.includes('had activity'));
+      expect(activeExtensionMessages.length).toBeGreaterThanOrEqual(2);
+      expect(activeExtensionMessages.every((message) => !/fail|timeout decision/i.test(message))).toBe(true);
+      expect(infoMessages.some((message) => message.includes('factory plan-generation hard cap'))).toBe(false);
 
       await vi.advanceTimersByTimeAsync(1000);
-      expect(loggerMock.info).toHaveBeenCalledWith(expect.stringContaining('factory plan-generation hard cap'));
+      expect(loggerMock.info).toHaveBeenCalledWith(expect.stringContaining('timeout decision: factory plan-generation hard cap'));
       expect(deps.cancelTask).toHaveBeenCalledWith(taskId, 'Timeout exceeded', { cancel_reason: 'timeout' });
     });
 

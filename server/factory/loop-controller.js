@@ -44,6 +44,7 @@ const {
 
 const PLAN_GENERATOR_LABEL = 'auto-router';
 const DEFAULT_PLAN_GENERATION_TIMEOUT_MINUTES = 30;
+const PLAN_GENERATION_HARD_CAP_EXTENSION_MINUTES = 15;
 const DEFAULT_STALE_PENDING_PLAN_GENERATION_MS = DEFAULT_PLAN_GENERATION_TIMEOUT_MINUTES * 60 * 1000;
 const AUTO_ADVANCE_DEFAULT_DELAY_MS = 100;
 const AUTO_ADVANCE_DEFERRED_MIN_DELAY_MS = 2500;
@@ -289,11 +290,13 @@ function buildPlanGenerationActivityTimeoutPolicy(timeoutMinutes) {
   const boundedTimeoutMinutes = Number.isFinite(numeric) && numeric > 0
     ? Math.min(Math.max(Math.ceil(numeric), 1), 120)
     : DEFAULT_PLAN_GENERATION_TIMEOUT_MINUTES;
+  const minimumHardCapMinutes = boundedTimeoutMinutes + PLAN_GENERATION_HARD_CAP_EXTENSION_MINUTES;
+  const doubledActivityBudgetMinutes = boundedTimeoutMinutes * 2;
   return {
     kind: 'plan_generation',
     timeout_minutes: boundedTimeoutMinutes,
     max_wall_clock_minutes: Math.min(
-      Math.max(boundedTimeoutMinutes * 2, boundedTimeoutMinutes + 15),
+      Math.max(doubledActivityBudgetMinutes, minimumHardCapMinutes),
       120
     ),
     overrun_intake_problem: 'timeout_overrun_active',
@@ -13247,6 +13250,7 @@ module.exports = {
   getEffectiveProjectProvider,
   OLLAMA_PLAN_GENERATION_TIMEOUT_MINUTES,
   DEFAULT_PLAN_GENERATION_TIMEOUT_MINUTES,
+  PLAN_GENERATION_HARD_CAP_EXTENSION_MINUTES,
   DEFAULT_STALE_PENDING_PLAN_GENERATION_MS,
   buildVerifyFixPrompt,
   detectVerifyStack,
