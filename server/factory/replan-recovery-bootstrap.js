@@ -45,7 +45,14 @@ function bootstrapReplanRecovery() {
   const rewrite = require('./recovery-strategies/rewrite-description');
   const decompose = require('./recovery-strategies/decompose');
   const escalate = require('./recovery-strategies/escalate-architect');
-  for (const s of [rewrite, decompose, escalate]) {
+  // Phase 3 (2026-05-03): merge_target_dirty wasn't matched by any
+  // strategy; auto-recovery would log auto_recovery_no_strategy and
+  // park the project at READY_FOR_LEARN forever. The discard-strategy
+  // checks the dirty paths against an allowlist of regenerable files
+  // (auto-generated plans, .codex-temp, etc.) and either discards +
+  // signals retry, or refuses cleanly so the operator-pause path stands.
+  const discardMergeBlock = require('./recovery-strategies/discard-regenerable-merge-block');
+  for (const s of [rewrite, decompose, escalate, discardMergeBlock]) {
     const existing = defaultRegistry.list().find((x) => x.name === s.name);
     if (!existing) defaultRegistry.register(s);
   }
