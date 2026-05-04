@@ -109,9 +109,12 @@ function sweepStrandedNeedsReviewForProject(project, deps = {}) {
 
     if (detection?.shipped && detection.confidence !== 'low') {
       try {
+        // factoryIntake.updateWorkItem auto-clears reject_reason when
+        // transitioning to a success status (shipped/shipped_stale/completed).
+        // Skip the reject_reason field — the decision log below captures
+        // the auto-resolution context for audit.
         factoryIntake.updateWorkItem(wi.id, {
           status: 'shipped_stale',
-          reject_reason: `auto_resolved_post_zero_diff_fix_b29e672b: ${detection.confidence} confidence match`,
         });
         summary.auto_shipped += 1;
         if (typeof safeLogDecision === 'function') {

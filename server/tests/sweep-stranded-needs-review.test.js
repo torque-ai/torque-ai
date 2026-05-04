@@ -101,9 +101,14 @@ describe('sweepStrandedNeedsReviewForProject', () => {
     expect(summary).toEqual({ scanned: 1, auto_shipped: 1, auto_replanned: 0, errors: 0 });
     const wi = factoryIntake.getWorkItem(10);
     expect(wi.status).toBe('shipped_stale');
-    expect(String(wi.reject_reason)).toMatch(/auto_resolved_post_zero_diff_fix/);
+    // factoryIntake.updateWorkItem clears reject_reason when transitioning
+    // to a success status (shipped/shipped_stale/completed) — that's by design;
+    // closed-success items shouldn't carry rejection context. The audit trail
+    // for the auto-resolution lives in the decision log instead.
+    expect(wi.reject_reason).toBeNull();
     expect(decisions).toHaveLength(1);
     expect(decisions[0].action).toBe('auto_resolved_stranded_needs_review_shipped');
+    expect(decisions[0].reasoning).toMatch(/high confidence/);
   });
 
   it('transitions unmatched zero_diff WI to needs_replan when detector says low/none', () => {
