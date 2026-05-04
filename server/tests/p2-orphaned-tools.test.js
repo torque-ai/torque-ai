@@ -14,6 +14,9 @@ const INLINE_TOOL_HANDLERS = new Set([
   // tools.js dispatches coord_status via a switch case to coord-poller's
   // getActiveLocks (no routeMap entry, no plugin handler).
   'coord_status',
+  // Phase E (subprocess-detachment) added an inline switch case in tools.js
+  // that returns task-log disk usage from utils/task-log-retention.
+  'get_task_log_disk_usage',
 ]);
 const EXPECTED_UNMAPPED_TOOLS = new Set([
   // Tool-def names differ from handler route names (set_provider_api_key vs set_api_key)

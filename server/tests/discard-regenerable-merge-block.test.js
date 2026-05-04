@@ -5,10 +5,16 @@ const os = require('node:os');
 const path = require('node:path');
 const childProcess = require('node:child_process');
 
+// worker-setup.js patches childProcess.spawnSync to stub all git calls
+// (orphan-git defense for Windows vitest forks). This test needs real git
+// to set up a repo + commits + dirty files for the strategy to inspect.
+// Reach for the saved original. Same pattern as git-test-utils.js.
+const realSpawnSync = childProcess._realSpawnSync || childProcess.spawnSync;
+
 const strategy = require('../factory/recovery-strategies/discard-regenerable-merge-block');
 
 function git(cwd, args) {
-  const r = childProcess.spawnSync('git', args, {
+  const r = realSpawnSync('git', args, {
     cwd, encoding: 'utf8', windowsHide: true,
     env: {
       ...process.env,
