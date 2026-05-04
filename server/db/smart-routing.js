@@ -6,8 +6,8 @@ const serverConfig = require('../config');
 const { safeJsonParse } = require('../utils/json');
 const { isSafeRegex } = require('../utils/safe-regex');
 const { prependResumeContextToPrompt } = require('../utils/resume-context');
-const capabilities = require('./provider-capabilities');
-const perfTracker = require('./provider-performance');
+const capabilities = require('./provider/capabilities');
+const perfTracker = require('./provider/performance');
 const eventBus = require('../event-bus');
 const {
   KNOWN_STAGES: TRACE_STAGES,
@@ -27,7 +27,7 @@ try {
 
 let _scoringModuleLocal = null, _smLocalLoaded = false;
 function getScoringModuleLocal() {
-  if (!_smLocalLoaded) { _smLocalLoaded = true; try { _scoringModuleLocal = require('./provider-scoring'); } catch { _scoringModuleLocal = null; } }
+  if (!_smLocalLoaded) { _smLocalLoaded = true; try { _scoringModuleLocal = require('./provider/scoring'); } catch { _scoringModuleLocal = null; } }
   return _scoringModuleLocal;
 }
 
@@ -35,7 +35,7 @@ let _quotaStore = null;
 function getQuotaStoreIfAvailable() {
   if (!_quotaStore) {
     try {
-      _quotaStore = require('./provider-quotas').getQuotaStore();
+      _quotaStore = require('./provider/quotas').getQuotaStore();
     } catch {}
   }
   return _quotaStore;
