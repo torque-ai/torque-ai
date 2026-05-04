@@ -23,16 +23,19 @@
  */
 
 const safeguardGates = require('./safeguard-gates');
+const hashlineVerify = require('./hashline-verify');
+const buildVerification = require('./build-verification');
+const closePhases = require('./close-phases');
 
 function register(container) {
   safeguardGates.register(container);
-  // TODO(phase 2 follow-up): register the remaining validation modules
-  //   - validation/post-task.js
-  //   - validation/output-safeguards.js
-  //   - validation/close-phases.js
-  //   - validation/build-verification.js
-  //   - validation/auto-verify-retry.js
-  //   - validation/hashline-verify.js
+  hashlineVerify.register(container);
+  buildVerification.register(container);
+  closePhases.register(container);
+  // TODO(phase 2b cont.): register the remaining validation modules
+  //   - validation/auto-verify-retry.js    (separate session — 729 LOC)
+  //   - validation/output-safeguards.js    (separate session — 868 LOC)
+  //   - validation/post-task.js            (separate session — 1494 LOC)
 }
 
 module.exports = { register };
