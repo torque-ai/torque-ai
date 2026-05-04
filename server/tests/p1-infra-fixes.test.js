@@ -6,7 +6,7 @@ const configCore = require('../db/config-core');
 const taskCore = require('../db/task-core');
 const dbCoord = require('../db/coordination');
 const eventDispatch = require('../hooks/event-dispatch');
-const mcpSse = require('../mcp-sse');
+const mcpSse = require('../mcp/sse');
 
 const { setupTestDbOnly, teardownTestDb, rawDb: _rawDb } = require('./vitest-setup');
 

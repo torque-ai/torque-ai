@@ -18,7 +18,7 @@ async function sample(sessionOrId, params) {
     session = sessionOrId;
   } else if (typeof sessionOrId === 'string') {
     try {
-      const { getSession } = require('../mcp-sse');
+      const { getSession } = require('./sse');
       session = getSession(sessionOrId);
     } catch {
       // mcp-sse not available
@@ -36,7 +36,7 @@ async function sample(sessionOrId, params) {
   }
 
   try {
-    const { sendClientRequest } = require('../mcp-sse');
+    const { sendClientRequest } = require('./sse');
     const result = await sendClientRequest(
       session.__sessionId || session.sessionId,
       'sampling/createMessage',

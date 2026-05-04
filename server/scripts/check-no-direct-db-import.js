@@ -29,7 +29,7 @@ const ALLOWED = new Set([
   'db/factory-worktrees.js',  // DB module — lazy fallback for factory worktree persistence
   'eslint-rules/no-heavy-test-imports.test.js', // ESLint rule fixture — strings inside test cases, not real requires
   // Files that use facade-only core functions (getDbInstance, safeAddColumn, countTasks, isDbClosed)
-  'mcp-sse.js',                       // getDbInstance — raw DB for subscription persistence
+  'mcp/sse.js',                       // getDbInstance — raw DB for subscription persistence
   'config.js',                        // getDbInstance — raw DB for encrypted API key lookup
   'handlers/experiment-handlers.js',  // getDbInstance — raw DB for SQLite transactions
   'plugins/snapscope/handlers/compliance.js', // getDbInstance — raw DB for direct SQL audit queries

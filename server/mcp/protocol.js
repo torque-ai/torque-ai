@@ -151,7 +151,7 @@ async function _handleToolCallInternal(params, session) {
 
     // Promote structuredData → structuredContent for tools with outputSchema
     if (result && result.structuredData && !result.isError) {
-      const { getOutputSchema } = require('./tool-output-schemas');
+      const { getOutputSchema } = require('../tool-output-schemas');
       if (getOutputSchema(name)) {
         result.structuredContent = result.structuredData;
       }

@@ -109,7 +109,7 @@ describe('MCP streamable HTTP transport', () => {
       return mockServer;
     });
 
-    mcpSse = require('../mcp-sse');
+    mcpSse = require('../mcp/sse');
     await mcpSse.start({ port: 0 });
   });
 

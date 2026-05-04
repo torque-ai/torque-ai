@@ -191,7 +191,7 @@ const TORQUE_PROFILE = Object.freeze({
       label: 'Tool and MCP surface',
       description: 'Tool catalog, schemas, dispatch, protocol transport, and MCP-facing integration points.',
       prefixes: ['server/tool-defs/', 'server/mcp/'],
-      exact: ['server/tools.js', 'server/core-tools.js', 'server/mcp-protocol.js', 'server/mcp-sse.js'],
+      exact: ['server/tools.js', 'server/core-tools.js'],
     },
     {
       id: 'persistence-scheduling',
@@ -395,7 +395,7 @@ const TORQUE_PROFILE = Object.freeze({
         {
           label: 'Transport',
           description: 'Expose tools over MCP and server transports.',
-          files: ['server/mcp/index.js', 'server/mcp-protocol.js', 'server/mcp-sse.js'],
+          files: ['server/mcp/index.js', 'server/mcp/protocol.js', 'server/mcp/sse.js'],
         },
       ],
     },

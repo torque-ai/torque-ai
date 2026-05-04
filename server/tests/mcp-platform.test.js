@@ -190,7 +190,7 @@ function loadIndex(tempDir) {
   const dashboardServer = require('../dashboard-server');
   const apiServer = require('../api-server');
   const mcpGateway = require('../mcp');
-  const mcpSse = require('../mcp-sse');
+  const mcpSse = require('../mcp/sse');
   const gpuMetricsServer = require('../scripts/gpu-metrics-server');
   vi.spyOn(dashboardServer, 'start').mockResolvedValue({ success: false });
   vi.spyOn(dashboardServer, 'stop').mockImplementation(() => {});

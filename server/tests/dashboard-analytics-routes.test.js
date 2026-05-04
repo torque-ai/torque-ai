@@ -14,7 +14,7 @@ const MODULE_PATHS = [
   '../handlers/orchestrator-handlers',
   '../handlers/shared',
   '../hooks/event-dispatch',
-  '../mcp-sse',
+  '../mcp/sse',
   '../execution/queue-scheduler',
 ];
 

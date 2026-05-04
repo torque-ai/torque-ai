@@ -17,15 +17,15 @@
 
 const http = require('http');
 const { createHash, randomUUID, timingSafeEqual } = require('crypto');
-const serverConfig = require('./config');
-const logger = require('./logger').child({ component: 'mcp-sse' });
-const { validateJsonRpcRequest } = require('./utils/jsonrpc-validation');
-const eventBus = require('./event-bus');
+const serverConfig = require('../config');
+const logger = require('../logger').child({ component: 'mcp-sse' });
+const { validateJsonRpcRequest } = require('../utils/jsonrpc-validation');
+const eventBus = require('../event-bus');
 
 // Extracted modules
-const sessionMod = require('./transports/sse/session');
-const protocolMod = require('./transports/sse/protocol');
-const streamableHttpMod = require('./transports/streamable-http');
+const sessionMod = require('../transports/sse/session');
+const protocolMod = require('../transports/sse/protocol');
+const streamableHttpMod = require('../transports/streamable-http');
 
 // Re-export shared state for backward compatibility
 const {
@@ -488,7 +488,7 @@ async function handleSseConnection(req, res, url, requestId) {
 
     // Auto-register session as coordination agent
     try {
-      const coord = require('./db/coordination');
+      const coord = require('../db/coordination');
       coord.registerAgent({
         id: sessionId,
         name: 'claude-code@unknown',
@@ -519,7 +519,7 @@ async function handleSseConnection(req, res, url, requestId) {
   // Replay missed events from DB if client provides lastEventId
   if (lastEventId > 0) {
     try {
-      const { getTaskEvents } = require('./hooks/event-dispatch');
+      const { getTaskEvents } = require('../hooks/event-dispatch');
       const missedEvents = getTaskEvents({
         sinceId: lastEventId,
         limit: Math.max(1, Math.min(Number(url.searchParams.get('limit')) || 100, 1000))
@@ -579,7 +579,7 @@ async function handleSseConnection(req, res, url, requestId) {
       }
       // Mark coordination agent offline
       try {
-        const coord = require('./db/coordination');
+        const coord = require('../db/coordination');
         coord.updateAgent(sessionId, { status: 'offline' });
         coord.recordCoordinationEvent('session_disconnected', sessionId, null, null);
       } catch {

@@ -81,7 +81,7 @@ function handleStatsOverview(req, res) {
   let sseSubscribers = 0;
   let ssePendingEvents = 0;
   try {
-    const mcpSse = require('../../mcp-sse');
+    const mcpSse = require('../../mcp/sse');
     sseSubscribers = mcpSse.getActiveSessionCount();
     for (const [, session] of mcpSse.sessions) {
       ssePendingEvents += session.pendingEvents ? session.pendingEvents.length : 0;
@@ -367,7 +367,7 @@ function handleFormatSuccess(req, res) {
  */
 function handleNotificationStats(req, res) {
   try {
-    const { sessions, getActiveSessionCount, notificationMetrics } = require('../../mcp-sse');
+    const { sessions, getActiveSessionCount, notificationMetrics } = require('../../mcp/sse');
     const sessionCount = getActiveSessionCount();
     const sessionDetails = [];
     let totalPending = 0;

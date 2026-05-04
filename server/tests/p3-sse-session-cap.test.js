@@ -94,7 +94,7 @@ describe('MCP SSE session cap', () => {
       },
     };
 
-    mcpSse = require('../mcp-sse');
+    mcpSse = require('../mcp/sse');
 
     vi.spyOn(configCore, 'getConfig').mockReturnValue(null);
     vi.spyOn(http, 'createServer').mockImplementation((handler) => {

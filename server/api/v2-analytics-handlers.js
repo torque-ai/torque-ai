@@ -348,7 +348,7 @@ async function handleWebhookStats(req, res) {
 async function handleNotificationStats(req, res) {
   const requestId = resolveRequestId(req);
   try {
-    const { sessions, getActiveSessionCount, notificationMetrics } = require('../mcp-sse');
+    const { sessions, getActiveSessionCount, notificationMetrics } = require('../mcp/sse');
     const sessionCount = getActiveSessionCount();
     const sessionDetails = [];
     let totalPending = 0;

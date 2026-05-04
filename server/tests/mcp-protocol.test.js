@@ -1,6 +1,6 @@
 'use strict';
 
-const { init, handleRequest, SERVER_INFO } = require('../mcp-protocol');
+const { init, handleRequest, SERVER_INFO } = require('../mcp/protocol');
 
 // ---------------------------------------------------------------------------
 // Helpers

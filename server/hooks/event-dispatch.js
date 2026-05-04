@@ -282,7 +282,7 @@ function dispatchTaskEvent(eventName, task) {
       return;
     }
 
-    const { notifySubscribedSessions } = require('../mcp-sse');
+    const { notifySubscribedSessions } = require('../mcp/sse');
 
     notifySubscribedSessions(payload.eventName, payload);
 

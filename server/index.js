@@ -33,11 +33,11 @@ function getTools() { return require('./tools').TOOLS; }
 function callTool(name, args) { return require('./tools').handleToolCall(name, args); }
 const discovery = require('./discovery');
 const gpuMetricsServer = require('./scripts/gpu-metrics-server');
-const mcpSse = require('./mcp-sse');
+const mcpSse = require('./mcp/sse');
 const { MCPPlatform, isPlatformEnabled } = require('./mcp/platform');
 const { CORE_TOOL_NAMES, EXTENDED_TOOL_NAMES } = require('./core-tools');
 const logger = require('./logger').child({ component: 'mcp-stdio' });
-const mcpProtocol = require('./mcp-protocol');
+const mcpProtocol = require('./mcp/protocol');
 const timerRegistry = require('./timer-registry');
 const eventBus = require('./event-bus');
 const maintenanceScheduler = require('./maintenance/scheduler');

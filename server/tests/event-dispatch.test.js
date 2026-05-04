@@ -9,7 +9,7 @@
 // Module-level setup — require once, stop background timers
 // ──────────────────────────────────────────────────────────────
 
-const mcpSse = require('../mcp-sse');
+const mcpSse = require('../mcp/sse');
 const eventDispatch = require('../hooks/event-dispatch');
 const db = require('../database');
 const configCore = require('../db/config-core');
