@@ -22,7 +22,11 @@ const { failoverBackoffMs } = require('../utils/backoff');
 const { buildResumeContext, prependResumeContextToPrompt } = require('../utils/resume-context');
 const { GIT_SAFE_ENV, cleanupStaleGitStatusProcesses } = require('../utils/git');
 
-// Dependency injection
+// ── Legacy module-level state, written only by init() (deprecated) ─────────
+// Phase 2b of the universal-DI migration: this module exposes both the new
+// createClosePhases factory + register(container) shape and the legacy
+// init({…}) shape. The legacy state below is removed in the same commit
+// that migrates task-manager.js to consume via container.
 let db = null;
 let dashboard = null;
 let _checkFileQuality = null;
@@ -39,10 +43,7 @@ let _safeUpdateTaskStatus = null;
 let _tryLocalFirstFallback = null;
 let _processQueue = null;
 
-/**
- * Initialize dependencies for this module.
- * @param {Object} deps
- */
+/** @deprecated Use createClosePhases(deps) or container.get('closePhases'). */
 function init(deps) {
   if (deps.db) db = deps.db;
   serverConfig.init({ db: deps.db });
@@ -423,7 +424,104 @@ function handleProviderFailover(ctx) {
   }
 }
 
+// ── New factory shape (preferred) ─────────────────────────────────────────
+/**
+ * Build a closePhases service that closes over its deps.
+ * Same module-state-swap pattern as hashline-verify and build-verification:
+ * temporarily binds the legacy state to the per-instance deps for the
+ * duration of each call. Cleaned up in Phase 5 once consumers migrate
+ * and the legacy state can be deleted.
+ */
+function createClosePhases(deps = {}) {
+  const local = {
+    db: deps.db,
+    dashboard: deps.dashboard,
+    _checkFileQuality: deps.checkFileQuality,
+    _scopedRollback: deps.scopedRollback,
+    _runBuildVerification: deps.runBuildVerification,
+    _runTestVerification: deps.runTestVerification,
+    _runStyleCheck: deps.runStyleCheck,
+    _tryCreateAutoPR: deps.tryCreateAutoPR,
+    _extractModifiedFiles: deps.extractModifiedFiles,
+    _isValidFilePath: deps.isValidFilePath,
+    _isShellSafe: deps.isShellSafe,
+    _sanitizeTaskOutput: deps.sanitizeTaskOutput,
+    _safeUpdateTaskStatus: deps.safeUpdateTaskStatus,
+    _tryLocalFirstFallback: deps.tryLocalFirstFallback,
+    _processQueue: deps.processQueue,
+  };
+
+  function withLocalDeps(fn) {
+    const prev = {
+      db, dashboard,
+      _checkFileQuality, _scopedRollback, _runBuildVerification,
+      _runTestVerification, _runStyleCheck, _tryCreateAutoPR,
+      _extractModifiedFiles, _isValidFilePath, _isShellSafe,
+      _sanitizeTaskOutput, _safeUpdateTaskStatus,
+      _tryLocalFirstFallback, _processQueue,
+    };
+    db = local.db;
+    dashboard = local.dashboard;
+    _checkFileQuality = local._checkFileQuality;
+    _scopedRollback = local._scopedRollback;
+    _runBuildVerification = local._runBuildVerification;
+    _runTestVerification = local._runTestVerification;
+    _runStyleCheck = local._runStyleCheck;
+    _tryCreateAutoPR = local._tryCreateAutoPR;
+    _extractModifiedFiles = local._extractModifiedFiles;
+    _isValidFilePath = local._isValidFilePath;
+    _isShellSafe = local._isShellSafe;
+    _sanitizeTaskOutput = local._sanitizeTaskOutput;
+    _safeUpdateTaskStatus = local._safeUpdateTaskStatus;
+    _tryLocalFirstFallback = local._tryLocalFirstFallback;
+    _processQueue = local._processQueue;
+    try { return fn(); }
+    finally {
+      ({
+        db, dashboard,
+        _checkFileQuality, _scopedRollback, _runBuildVerification,
+        _runTestVerification, _runStyleCheck, _tryCreateAutoPR,
+        _extractModifiedFiles, _isValidFilePath, _isShellSafe,
+        _sanitizeTaskOutput, _safeUpdateTaskStatus,
+        _tryLocalFirstFallback, _processQueue,
+      } = prev);
+    }
+  }
+
+  return {
+    handleAutoValidation: (...args) => withLocalDeps(() => handleAutoValidation(...args)),
+    handleBuildTestStyleCommit: (...args) => withLocalDeps(() => handleBuildTestStyleCommit(...args)),
+    handleProviderFailover: (...args) => withLocalDeps(() => handleProviderFailover(...args)),
+  };
+}
+
+/**
+ * Register with a DI container under the name 'closePhases'.
+ * 15 deps total — the largest validation/ module so far. Most resolve to
+ * services that aren't yet container-resident (extractModifiedFiles,
+ * sanitizeTaskOutput, etc. live in task-manager.js); those become real
+ * registrations as their owners migrate (Phase 3 — execution/, etc.).
+ */
+function register(container) {
+  container.register(
+    'closePhases',
+    [
+      'db', 'dashboard',
+      'checkFileQuality', 'scopedRollback', 'runBuildVerification',
+      'runTestVerification', 'runStyleCheck', 'tryCreateAutoPR',
+      'extractModifiedFiles', 'isValidFilePath', 'isShellSafe',
+      'sanitizeTaskOutput', 'safeUpdateTaskStatus',
+      'tryLocalFirstFallback', 'processQueue',
+    ],
+    (deps) => createClosePhases(deps)
+  );
+}
+
 module.exports = {
+  // New shape (preferred)
+  createClosePhases,
+  register,
+  // Legacy shape (kept until task-manager.js migrates)
   init,
   handleAutoValidation,
   handleBuildTestStyleCommit,
