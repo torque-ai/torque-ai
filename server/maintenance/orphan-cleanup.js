@@ -26,6 +26,10 @@ const {
   COMPLETION_GRACE_MS,
   COMPLETION_GRACE_CODEX_MS,
 } = require('../constants');
+const {
+  resolveActivityAwareTimeoutDecision,
+  resolvePlanGenerationHardCapMs,
+} = require('../utils/activity-timeout');
 
 // ---- Injected dependencies (set via init()) ----
 let db = null;
@@ -227,23 +231,37 @@ function resolveTaskTimeoutMinutes(task) {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 480;
 }
 
+function buildTrackedTaskTimeoutProc(task, proc) {
+  const taskStartedAtMs = new Date(task?.started_at).getTime();
+  return {
+    ...proc,
+    startTime: Number.isFinite(taskStartedAtMs) ? taskStartedAtMs : proc?.startTime,
+  };
+}
+
 function getTrackedTaskIdleState(task, timeoutMs) {
   if (!runningProcesses || !runningProcesses.has(task.id)) {
-    return { tracked: false, active: false, idleMs: null };
+    return { tracked: false, active: false, idleMs: null, timeoutDecision: null, hardCapMs: 0 };
   }
 
   const proc = runningProcesses.get(task.id);
-  const now = Date.now();
-  let lastActivity = proc?.lastOutputAt || proc?.startTime || now;
-  let idleMs = Math.max(0, now - lastActivity);
+  const resolveDecision = () => resolveActivityAwareTimeoutDecision({
+    proc: buildTrackedTaskTimeoutProc(task, proc),
+    timeoutMs,
+    task,
+    metadata: proc?.metadata,
+    now: Date.now(),
+  });
+  let timeoutDecision = resolveDecision();
+  let idleMs = timeoutDecision.idleMs;
 
   if (idleMs >= timeoutMs && typeof getTaskActivity === 'function') {
     try {
       // Lets filesystem/CPU activity rescue active agent tasks before stale
       // timeout enforcement decides they are dead.
       getTaskActivity(task.id);
-      lastActivity = proc?.lastOutputAt || proc?.startTime || now;
-      idleMs = Math.max(0, Date.now() - lastActivity);
+      timeoutDecision = resolveDecision();
+      idleMs = timeoutDecision.idleMs;
     } catch (activityErr) {
       logger?.info?.(`[Stale Check] Activity probe failed for ${task.id}: ${activityErr.message}`);
     }
@@ -251,8 +269,10 @@ function getTrackedTaskIdleState(task, timeoutMs) {
 
   return {
     tracked: true,
-    active: idleMs < timeoutMs,
+    active: timeoutDecision.action === 'extend',
     idleMs,
+    timeoutDecision,
+    hardCapMs: resolvePlanGenerationHardCapMs(proc?.metadata, task?.metadata, task?.task_metadata),
   };
 }
 
@@ -415,15 +435,29 @@ function checkStaleRunningTasks() {
           const elapsedMin = Math.round(elapsedMs / 60000);
           const idleMin = Math.round(idleState.idleMs / 60000);
           logger.info(`[Stale Check] Task ${task.id} has been running for ${elapsedMin}min (timeout: ${timeoutMinutes}min) but had activity ${idleMin}min ago - leaving running`);
-          maybeReportRuntimeProblem(task, 'timeout_overrun_active', {
-            timeoutMinutes,
-            elapsedMinutes: elapsedMin,
-            idleMinutes: idleMin,
-          });
+          if (idleState.hardCapMs > 0) {
+            const hardCapMin = Math.round(idleState.hardCapMs / 60000);
+            logger.info(`[Stale Check] Factory plan-generation task ${task.id} remains active before hard cap (${hardCapMin}min) - suppressing timeout_overrun_active intake`);
+          } else {
+            maybeReportRuntimeProblem(task, 'timeout_overrun_active', {
+              timeoutMinutes,
+              elapsedMinutes: elapsedMin,
+              idleMinutes: idleMin,
+            });
+          }
           continue;
         }
 
         const elapsedMin = Math.round(elapsedMs / 60000);
+        if (idleState.tracked && idleState.timeoutDecision?.reason === 'factory_plan_generation_hard_cap') {
+          maybeReportRuntimeProblem(task, 'timeout_overrun_active', {
+            timeoutMinutes,
+            elapsedMinutes: elapsedMin,
+            idleMinutes: Math.round((idleState.idleMs || 0) / 60000),
+            hardCapMinutes: Math.round((idleState.hardCapMs || 0) / 60000),
+            reason: idleState.timeoutDecision.reason,
+          });
+        }
         logger.info(`[Stale Check] Task ${task.id} has been running for ${elapsedMin}min (timeout: ${timeoutMinutes}min) - failing`);
 
         // Fail via cancelTask if process is tracked, otherwise update DB directly.

@@ -506,6 +506,20 @@ describe('Orphan Cleanup', () => {
 
   describe('checkStaleRunningTasks', () => {
     let mockDb, mockCancelTask, mockProcessQueue, mockIsInstanceAlive, mockGetMcpInstanceId, mockGetTaskActivity, mockReportRuntimeProblem, runningProcesses;
+    const minuteMs = 60 * 1000;
+
+    function planGenerationMetadata(maxWallClockMinutes = 25) {
+      return {
+        factory_internal: true,
+        kind: 'plan_generation',
+        activity_timeout_policy: {
+          kind: 'plan_generation',
+          timeout_minutes: 10,
+          max_wall_clock_minutes: maxWallClockMinutes,
+          overrun_intake_problem: 'timeout_overrun_active',
+        },
+      };
+    }
 
     beforeEach(() => {
       runningProcesses = new Map();
@@ -600,6 +614,57 @@ describe('Orphan Cleanup', () => {
         problem: 'timeout_overrun_active',
         details: expect.objectContaining({ timeoutMinutes: 30 }),
       }));
+    });
+
+    it('does not report active factory plan-generation soft timeout overruns before the hard cap', () => {
+      const now = Date.now();
+      const pastTime = new Date(now - 12 * minuteMs).toISOString();
+      runningProcesses.set('task-plan-active-soft', {
+        process: { pid: 123 },
+        startTime: now - 12 * minuteMs,
+        lastOutputAt: now - 2 * minuteMs,
+        metadata: planGenerationMetadata(25),
+      });
+      mockDb.getRunningTasksLightweight.mockReturnValue([
+        { id: 'task-plan-active-soft', started_at: pastTime, timeout_minutes: 10, provider: 'codex' },
+      ]);
+
+      orphanCleanup.checkStaleRunningTasks();
+
+      expect(mockCancelTask).not.toHaveBeenCalled();
+      expect(mockDb.updateTaskStatus).not.toHaveBeenCalled();
+      expect(mockReportRuntimeProblem).not.toHaveBeenCalled();
+    });
+
+    it('reports and cancels active factory plan-generation tasks at the hard cap', () => {
+      const now = Date.now();
+      const pastTime = new Date(now - 25 * minuteMs).toISOString();
+      runningProcesses.set('task-plan-hard-cap', {
+        process: { pid: 123 },
+        startTime: now - 25 * minuteMs,
+        lastOutputAt: now - 2 * minuteMs,
+        metadata: JSON.stringify(planGenerationMetadata(25)),
+      });
+      mockDb.getRunningTasksLightweight.mockReturnValue([
+        { id: 'task-plan-hard-cap', started_at: pastTime, timeout_minutes: 10, provider: 'codex' },
+      ]);
+
+      orphanCleanup.checkStaleRunningTasks();
+
+      expect(mockReportRuntimeProblem).toHaveBeenCalledWith(expect.objectContaining({
+        db: mockDb,
+        task: expect.objectContaining({ id: 'task-plan-hard-cap' }),
+        problem: 'timeout_overrun_active',
+        details: expect.objectContaining({
+          hardCapMinutes: 25,
+          reason: 'factory_plan_generation_hard_cap',
+        }),
+      }));
+      expect(mockCancelTask).toHaveBeenCalledWith(
+        'task-plan-hard-cap',
+        expect.stringContaining('Timeout'),
+        { cancel_reason: 'timeout' },
+      );
     });
 
     it('lets filesystem or CPU activity rescue a tracked task before stale timeout cancellation', () => {

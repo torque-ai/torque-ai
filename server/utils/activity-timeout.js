@@ -32,7 +32,8 @@ function firstMetadataObject(...candidates) {
   return null;
 }
 
-function resolvePlanGenerationHardCapMs(metadata) {
+function resolvePlanGenerationHardCapMs(...metadataCandidates) {
+  const metadata = firstMetadataObject(...metadataCandidates);
   if (!metadata || metadata.factory_internal !== true || metadata.kind !== 'plan_generation') {
     return 0;
   }
@@ -148,13 +149,12 @@ function resolveActivityAwareTimeoutDecision({
   const lastActivity = Number.isFinite(lastOutputAt) ? lastOutputAt : startTime;
   const idleMs = Math.max(0, currentTime - lastActivity);
   const elapsedMs = Math.max(0, currentTime - startTime);
-  const effectiveMetadata = firstMetadataObject(
+  const hardCapMs = resolvePlanGenerationHardCapMs(
     metadata,
     proc.metadata,
     task?.metadata,
     task?.task_metadata
   );
-  const hardCapMs = resolvePlanGenerationHardCapMs(effectiveMetadata);
 
   if (hardCapMs > 0 && elapsedMs >= hardCapMs) {
     return {
@@ -179,6 +179,9 @@ function resolveActivityAwareTimeoutDecision({
 
 module.exports = {
   createActivityTimeout,
+  firstMetadataObject,
   normalizeTimeoutMs,
+  parseMetadataObject,
   resolveActivityAwareTimeoutDecision,
+  resolvePlanGenerationHardCapMs,
 };
