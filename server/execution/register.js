@@ -25,6 +25,8 @@ const debugLifecycle = require('./debug-lifecycle');
 const providerRouter = require('./provider-router');
 const completionPipeline = require('./completion-pipeline');
 const slotPullScheduler = require('./slot-pull-scheduler');
+const processLifecycle = require('./process-lifecycle');
+const fallbackRetry = require('./fallback-retry');
 
 function register(container) {
   planProjectResolver.register(container);
@@ -37,9 +39,9 @@ function register(container) {
   providerRouter.register(container);
   completionPipeline.register(container);
   slotPullScheduler.register(container);
+  processLifecycle.register(container);
+  fallbackRetry.register(container);
   // TODO(phase 3 cont.): register the remaining execution modules
-  //   - process-lifecycle.js        (949 LOC)
-  //   - fallback-retry.js          (1132 LOC)
   //   - task-finalizer.js          (1364 LOC)
   //   - queue-scheduler.js         (1570 LOC)
   //   - workflow-runtime.js        (1875 LOC)
