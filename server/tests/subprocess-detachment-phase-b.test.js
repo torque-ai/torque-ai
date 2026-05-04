@@ -15,36 +15,45 @@ function tmpDir(prefix) {
 const WRAPPER = path.resolve(__dirname, '..', 'utils', 'process-exit-wrapper.js');
 
 describe('isSubprocessDetachmentEnabled', () => {
+  // Phase G flipped the default to ON. The env var is now an opt-OUT
+  // hatch (set to 0 / false / no / off to revert to legacy pipe path).
   const ORIG = process.env.TORQUE_DETACHED_SUBPROCESSES;
   afterEach(() => {
     if (ORIG === undefined) delete process.env.TORQUE_DETACHED_SUBPROCESSES;
     else process.env.TORQUE_DETACHED_SUBPROCESSES = ORIG;
   });
 
-  it('returns false when env var is unset', () => {
+  it('returns true when env var is unset (Phase G default-on)', () => {
     delete process.env.TORQUE_DETACHED_SUBPROCESSES;
-    expect(isSubprocessDetachmentEnabled()).toBe(false);
-  });
-
-  it('returns true for "1"', () => {
-    process.env.TORQUE_DETACHED_SUBPROCESSES = '1';
     expect(isSubprocessDetachmentEnabled()).toBe(true);
   });
 
-  it('returns true for "true" (case insensitive)', () => {
-    process.env.TORQUE_DETACHED_SUBPROCESSES = 'TRUE';
+  it('returns true when env var is empty string (treat as unset)', () => {
+    process.env.TORQUE_DETACHED_SUBPROCESSES = '';
+    expect(isSubprocessDetachmentEnabled()).toBe(true);
+  });
+
+  it('still returns true for the historical opt-in values "1" / "true"', () => {
+    process.env.TORQUE_DETACHED_SUBPROCESSES = '1';
     expect(isSubprocessDetachmentEnabled()).toBe(true);
     process.env.TORQUE_DETACHED_SUBPROCESSES = 'true';
     expect(isSubprocessDetachmentEnabled()).toBe(true);
+    process.env.TORQUE_DETACHED_SUBPROCESSES = 'TRUE';
+    expect(isSubprocessDetachmentEnabled()).toBe(true);
   });
 
-  it('returns false for anything else (defensive default)', () => {
-    process.env.TORQUE_DETACHED_SUBPROCESSES = '0';
-    expect(isSubprocessDetachmentEnabled()).toBe(false);
-    process.env.TORQUE_DETACHED_SUBPROCESSES = 'yes';
-    expect(isSubprocessDetachmentEnabled()).toBe(false);
-    process.env.TORQUE_DETACHED_SUBPROCESSES = '';
-    expect(isSubprocessDetachmentEnabled()).toBe(false);
+  it('returns false for the explicit opt-out values 0 / false / no / off (case-insensitive)', () => {
+    for (const v of ['0', 'false', 'FALSE', 'False', 'no', 'NO', 'off', 'OFF']) {
+      process.env.TORQUE_DETACHED_SUBPROCESSES = v;
+      expect(isSubprocessDetachmentEnabled(), `value ${JSON.stringify(v)} should disable`).toBe(false);
+    }
+  });
+
+  it('returns true for any other unrecognized value (default-on wins; never silently revert)', () => {
+    for (const v of ['yes', 'on', 'maybe', 'banana', '2', 'any-string']) {
+      process.env.TORQUE_DETACHED_SUBPROCESSES = v;
+      expect(isSubprocessDetachmentEnabled(), `value ${JSON.stringify(v)} should keep default-on`).toBe(true);
+    }
   });
 });
 
