@@ -747,7 +747,7 @@ function initializeDiscovery() {
         return;
       }
 
-      const discovery = require('../discovery');
+      const discovery = require('../providers/ollama-mdns-discovery');
       discovery.initDiscovery();
 
       // Initialize auto-scan if enabled in config

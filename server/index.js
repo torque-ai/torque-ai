@@ -31,7 +31,7 @@ const mcpGateway = require('./mcp');
 // Use dynamic accessors so hot-reload can refresh tools without full restart
 function getTools() { return require('./tools').TOOLS; }
 function callTool(name, args) { return require('./tools').handleToolCall(name, args); }
-const discovery = require('./discovery');
+const discovery = require('./providers/ollama-mdns-discovery');
 const gpuMetricsServer = require('./scripts/gpu-metrics-server');
 const mcpSse = require('./mcp/sse');
 const { MCPPlatform, isPlatformEnabled } = require('./mcp/platform');

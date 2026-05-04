@@ -6,7 +6,7 @@
 const os = require('os');
 const { execSync } = require('child_process');
 const Bonjour = require('bonjour-service').Bonjour;
-const logger = require('./logger').child({ component: 'discovery' });
+const logger = require('../logger').child({ component: 'discovery' });
 
 const PRIVATE_172_RANGE_REGEX = /^172\.(1[6-9]|2[0-9]|3[01])\./;
 const BONJOUR_NAME_COLLISION_MESSAGE = 'Service name is already in use on the network';
@@ -35,13 +35,13 @@ let _configCore = null;
 let _hostManagement = null;
 function getConfigCore() {
   if (!_configCore) {
-    _configCore = require('./db/config-core');
+    _configCore = require('../db/config-core');
   }
   return _configCore;
 }
 function getHostManagement() {
   if (!_hostManagement) {
-    _hostManagement = require('./db/host-management');
+    _hostManagement = require('../db/host-management');
   }
   return _hostManagement;
 }
