@@ -29,7 +29,7 @@ const ALLOWED = new Set([
   'db/factory-worktrees.js',  // DB module — lazy fallback for factory worktree persistence
   'eslint-rules/no-heavy-test-imports.test.js', // ESLint rule fixture — strings inside test cases, not real requires
   // Files that use facade-only core functions (getDbInstance, safeAddColumn, countTasks, isDbClosed)
-  'mcp-sse.js',                       // getDbInstance — raw DB for subscription persistence
+  'mcp/sse.js',                       // getDbInstance — raw DB for subscription persistence
   'config.js',                        // getDbInstance — raw DB for encrypted API key lookup
   'handlers/experiment-handlers.js',  // getDbInstance — raw DB for SQLite transactions
   'plugins/snapscope/handlers/compliance.js', // getDbInstance — raw DB for direct SQL audit queries
@@ -43,8 +43,8 @@ const ALLOWED = new Set([
   'handlers/competitive-feature-handlers.js', // getDbInstance for scoring/indexer
   'handlers/automation-handlers.js',  // safeAddColumn — schema migrations
   // Core infrastructure — heaviest facade consumers, migrate last
-  'api-server.core.js',              // broad facade usage, Phase 5 final migration
-  'dashboard-server.js',             // broad facade usage, Phase 5 final migration
+  'api-server.js',                   // broad facade usage, Phase 5 final migration
+  'dashboard/server.js',             // broad facade usage, Phase 5 final migration
   'task-manager.js',                 // heaviest consumer — uses everything
   'api/v2-analytics-handlers.js',    // getDbInstance for raw SQL + facade functions
   'api/v2-infrastructure-handlers.js', // getDbInstance for raw SQL

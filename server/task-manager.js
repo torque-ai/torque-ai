@@ -14,7 +14,7 @@ const providerRoutingCore = require('./db/provider-routing-core');
 const _sleepWatchdog = require('./maintenance/sleep-watchdog');
 let _dashboard = null;
 function getDashboard() {
-  if (!_dashboard) _dashboard = require('./dashboard-server');
+  if (!_dashboard) _dashboard = require('./dashboard/server');
   return _dashboard;
 }
 let _dashboardBroadcaster = null;
@@ -161,7 +161,7 @@ const _fallbackRetryModule = require('./execution/fallback-retry');
 const _workflowRuntimeModule = require('./execution/workflow-runtime');
 const _outputSafeguards = require('./validation/output-safeguards');
 const _orphanCleanup = require('./maintenance/orphan-cleanup');
-const _instanceManager = require('./coordination/instance-manager');
+const _instanceManager = require('./maintenance/instance-manager');
 
 // Phase 7-10 extracted modules
 const _promptsModule = require('./providers/prompts');
@@ -187,36 +187,53 @@ const ProcessTracker = require('./execution/process-tracker');
 const _taskStartup = require('./execution/task-startup');
 const codexIntelligence = require('./providers/codex-intelligence');
 
-// Phase D3: All pure pass-through delegation stubs extracted to task-manager-delegations.js
+// Sub-module function imports — these used to flow through task-manager-delegations.js
+// (Phase D3 extraction), but the indirection added no value: every entry was a pure
+// pass-through. Now bound directly to the underlying modules.
+const { computeLineHash, lineSimilarity } = require('./handlers/hashline-handlers');
 const {
-  computeLineHash, lineSimilarity,
   isShellSafe, extractTargetFilesFromDescription,
   buildFileIndex, extractFileReferencesExpanded, resolveFileReferences,
   isValidFilePath, extractModifiedFiles,
+} = _fileResolution;
+const {
   isModelLoadedOnHost, getHostActivity, pollHostActivity,
   probeLocalGpuMetrics, probeRemoteGpuMetrics,
-  getTaskActivity, getAllTaskActivity, canAcceptTask,
+} = hostMonitoring;
+const { getTaskActivity, getAllTaskActivity, canAcceptTask } = activityMonitoring;
+const {
   registerInstance, startInstanceHeartbeat, stopInstanceHeartbeat,
   unregisterInstance, updateInstanceInfo, isInstanceAlive, getMcpInstanceId,
+} = _instanceManager;
+const {
   cleanupJunkFiles, getFileChangesForValidation, findPlaceholderArtifacts,
   checkFileQuality, checkDuplicateFiles, checkSyntax, runLLMSafeguards,
   runBuildVerification, runTestVerification, runStyleCheck,
   rollbackTaskChanges, revertScopedFiles, scopedRollback,
-  detectTaskTypes, getInstructionTemplate, wrapWithInstructions,
-  executeApiProvider, executeOllamaTask,
+} = _postTaskModule;
+const { detectTaskTypes, getInstructionTemplate, wrapWithInstructions } = _promptsModule;
+const { executeApiProvider, executeOllamaTask } = _executionModule;
+const {
   tryOllamaCloudFallback, tryLocalFirstFallback, classifyError,
+} = _fallbackRetryModule;
+const {
   handlePipelineStepCompletion, handleWorkflowTermination,
   evaluateWorkflowDependencies, unblockTask, applyFailureAction,
   cancelDependentTasks, checkWorkflowCompletion,
-  runOutputSafeguards,
-  handleSandboxRevertDetection,
+} = _workflowRuntimeModule;
+const { runOutputSafeguards } = _outputSafeguards;
+// detectSandboxReverts was historically aliased to handleSandboxRevertDetection;
+// the alias is preserved here to avoid touching every call site.
+const { detectSandboxReverts: handleSandboxRevertDetection } = _sandboxRevertDetection;
+const {
   handleAutoValidation, handleBuildTestStyleCommit, handleProviderFailover,
-  recordModelOutcome, recordProviderHealth,
-  handlePostCompletion,
-  finalizeTask,
-  categorizeQueuedTasks, processQueueInternal,
-  cleanupOrphanedHostTasks, getStallThreshold,
-} = require('./task-manager-delegations');
+} = _closePhases;
+const {
+  recordModelOutcome, recordProviderHealth, handlePostCompletion,
+} = _completionPipeline;
+const { finalizeTask } = _taskFinalizer;
+const { categorizeQueuedTasks, processQueueInternal } = _queueScheduler;
+const { cleanupOrphanedHostTasks, getStallThreshold } = _orphanCleanup;
 
 const WORKFLOW_TERMINAL_STATUSES = new Set(['completed', 'failed', 'cancelled', 'skipped']);
 

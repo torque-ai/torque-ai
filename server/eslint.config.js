@@ -231,7 +231,7 @@ module.exports = [
       'governance/**/*.js',
       'audit/**/*.js',
       'api/**/*.js',
-      'dashboard-server.js',
+      'dashboard/server.js',
       'queue-scheduler*.js',
       'maintenance/orphan-cleanup.js',
     ],

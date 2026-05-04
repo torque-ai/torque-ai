@@ -16,7 +16,7 @@ const routes = require('./routes');
 const { normalizeError } = require('./v2-middleware');
 const { sendJson, validateJsonDepth } = require('./middleware');
 
-// V2 handler modules (initialized by api-server.core.js in the same process)
+// V2 handler modules (initialized by api-server.js in the same process)
 const v2TaskHandlers = require('./v2-task-handlers');
 const v2WorkflowHandlers = require('./v2-workflow-handlers');
 const v2GovernanceHandlers = require('./v2-governance-handlers');
@@ -733,7 +733,7 @@ async function dispatchV2(req, res) {
         if (!shouldContinue) return true;
       }
 
-      // Call the handler with the same signature as api-server.core.js
+      // Call the handler with the same signature as api-server.js
       await route.handler(req, res, {
         requestId: req.requestId,
         params: req.params,

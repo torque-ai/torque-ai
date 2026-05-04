@@ -9,7 +9,7 @@
 // Module-level setup — require once, stop background timers
 // ──────────────────────────────────────────────────────────────
 
-const mcpSse = require('../mcp-sse');
+const mcpSse = require('../mcp/sse');
 const eventDispatch = require('../hooks/event-dispatch');
 const db = require('../database');
 const configCore = require('../db/config-core');
@@ -195,7 +195,7 @@ describe('dispatchTaskEvent', () => {
     const session = makeSession();
     sessions.set('s1', session);
 
-    const dashboardServer = require('../dashboard-server');
+    const dashboardServer = require('../dashboard/server');
     const spy = vi.spyOn(dashboardServer, 'notifyTaskEvent').mockImplementation(() => {});
 
     dispatchTaskEvent('completed', makeTask({ id: 'alias-1', exitCode: 7 }));
@@ -216,7 +216,7 @@ describe('dispatchTaskEvent', () => {
     const session = makeSession({ eventFilter: ['timeout'] });
     sessions.set('s1', session);
 
-    const dashboardServer = require('../dashboard-server');
+    const dashboardServer = require('../dashboard/server');
     const spy = vi.spyOn(dashboardServer, 'notifyTaskEvent').mockImplementation(() => {});
 
     dispatchTaskEvent('timeout', makeTask({ id: 'timeout-status', status: 'cancelled' }));
@@ -239,7 +239,7 @@ describe('dispatchTaskEvent', () => {
     const session = makeSession();
     sessions.set('s1', session);
 
-    const dashboardServer = require('../dashboard-server');
+    const dashboardServer = require('../dashboard/server');
     const spy = vi.spyOn(dashboardServer, 'notifyTaskEvent').mockImplementation(() => {});
 
     expect(() => dispatchTaskEvent('completed', { id: 'partial-1' })).not.toThrow();
@@ -983,7 +983,7 @@ describe('dashboard event feed wiring', () => {
 
   it('dispatchTaskEvent calls dashboard notifyTaskEvent', () => {
     // Mock dashboard-server
-    const dashboardServer = require('../dashboard-server');
+    const dashboardServer = require('../dashboard/server');
     const spy = vi.spyOn(dashboardServer, 'notifyTaskEvent').mockImplementation(() => {});
 
     dispatchTaskEvent('completed', makeTask({ id: 'dash-1' }));
@@ -996,7 +996,7 @@ describe('dashboard event feed wiring', () => {
   });
 
   it('dashboard feed is non-fatal if dashboard-server not loaded', () => {
-    const dashPath = require.resolve('../dashboard-server');
+    const dashPath = require.resolve('../dashboard/server');
     const cached = require.cache[dashPath];
 
     // Should not throw

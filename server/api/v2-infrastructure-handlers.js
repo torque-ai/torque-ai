@@ -411,7 +411,7 @@ async function handleDeleteHost(req, res) {
 async function handleHostScan(req, res) {
   const requestId = resolveRequestId(req);
   try {
-    const discovery = require('../discovery');
+    const discovery = require('../providers/ollama-mdns-discovery');
     const result = await discovery.scanNetworkForOllama({ autoAdd: true });
     sendSuccess(res, requestId, { ...result, found: result.totalFound || 0 }, 200, req);
   } catch (err) {

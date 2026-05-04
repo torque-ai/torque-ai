@@ -3,7 +3,7 @@
 const assert = require('assert/strict');
 
 const { CORE_TOOL_NAMES, EXTENDED_TOOL_NAMES } = require('../core-tools');
-const mcpProtocol = require('../mcp-protocol');
+const mcpProtocol = require('../mcp/protocol');
 const { OVERRIDES, getAnnotations } = require('../tool-annotations');
 const { TOOLS, handleToolCall, routeMap } = require('../tools');
 

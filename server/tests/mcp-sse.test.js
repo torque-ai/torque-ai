@@ -105,7 +105,7 @@ describe('MCP SSE Transport', () => {
     });
 
     // Now load mcp-sse
-    mcpSse = require('../mcp-sse');
+    mcpSse = require('../mcp/sse');
   });
 
   afterAll(() => {

@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * tool-registry.js — thin metadata module.
+ * tool-metadata.js — thin metadata module.
  *
  * Exports TOOLS (tool-def array), schemaMap, routeMap (populated by tools.js),
  * and decorateToolDefinition — WITHOUT loading any handler modules.
@@ -10,11 +10,15 @@
  *
  * tools.js re-exports everything from here and additionally builds routeMap
  * by iterating over HANDLER_MODULES. It calls populateRouteMap() below to
- * store the result so tests that import tool-registry.js after tools.js has
+ * store the result so tests that import tool-metadata.js after tools.js has
  * run will see the complete map.
+ *
+ * Distinct from mcp/tool-registry.js, which is the MCP-protocol-namespaced
+ * tools/list builder used by the SSE gateway. Both refer to "registries" in
+ * different senses; this one is the JS-side metadata/route map.
  */
 
-const { applyBehavioralTags } = require('./tools/behavioral-tags');
+const { applyBehavioralTags } = require('./tool-behavioral-tags');
 const { getAnnotations } = require('./tool-annotations');
 const { getOutputSchema } = require('./tool-output-schemas');
 
@@ -140,14 +144,14 @@ for (const def of TOOLS) {
 }
 
 // Route map — populated by tools.js after it builds the handler dispatch table.
-// Tests that import tool-registry.js directly (without tools.js having run)
+// Tests that import tool-metadata.js directly (without tools.js having run)
 // will see an empty Map. That is intentional: this thin module does not load handlers.
 const routeMap = new Map();
 
 /**
  * Called by tools.js after it builds routeMap from HANDLER_MODULES.
  * Transfers all entries into this shared Map so callers that imported
- * tool-registry.js before tools.js also see the complete route table.
+ * tool-metadata.js before tools.js also see the complete route table.
  */
 function populateRouteMap(sourceMap) {
   for (const [key, value] of sourceMap) {

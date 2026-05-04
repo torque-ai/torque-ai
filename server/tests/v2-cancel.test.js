@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * Tests for handleV2TaskCancel in api-server.core.js.
+ * Tests for handleV2TaskCancel in api-server.js.
  *
  * Verifies:
  * 1. Cancelling a running task calls taskManager.cancelTask(), not just db.updateTaskStatus()

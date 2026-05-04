@@ -64,7 +64,7 @@ function createToolsSubject(options = {}) {
     ...(options.database || {}),
   };
 
-  const realToolRegistry = REQUIRE_FROM_TOOLS('./tool-registry');
+  const realToolRegistry = REQUIRE_FROM_TOOLS('./tool-metadata');
   const stubbedToolRegistry = {
     ...realToolRegistry,
     schemaMap: new Map(),
@@ -76,7 +76,7 @@ function createToolsSubject(options = {}) {
     './utils/logger': collisionLogger,
     './task-manager': taskManager,
     './database': database,
-    './tool-registry': stubbedToolRegistry,
+    './tool-metadata': stubbedToolRegistry,
   };
 
   for (const request of TOOL_DEF_REQUESTS) {

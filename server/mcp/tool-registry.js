@@ -2,7 +2,7 @@
 
 const { isSafeRegex } = require('../utils/safe-regex');
 const { getAnnotations } = require('../tool-annotations');
-const { applyBehavioralTags } = require('../tools/behavioral-tags');
+const { applyBehavioralTags } = require('../tool-behavioral-tags');
 
 const VALID_NAMESPACES = new Set(['task', 'workflow', 'provider', 'system']);
 

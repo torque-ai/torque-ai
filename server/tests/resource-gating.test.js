@@ -96,10 +96,13 @@ async function setupTaskManagerHarness({
   vi.resetModules();
   const loggerModule = require('../logger');
   const warnSpy = vi.spyOn(loggerModule.Logger.prototype, 'warn').mockImplementation(() => {});
-  const actualDelegations = await vi.importActual('../task-manager-delegations');
+  // executeOllamaTask is now destructured directly from providers/execution
+  // at task-manager.js module load (was previously routed through the
+  // task-manager-delegations.js indirection, which has been removed).
+  const actualExecution = await vi.importActual('../providers/execution');
   const executeOllamaTaskMock = vi.fn((task) => ({ queued: false, task }));
-  vi.doMock('../task-manager-delegations', () => ({
-    ...actualDelegations,
+  vi.doMock('../providers/execution', () => ({
+    ...actualExecution,
     executeOllamaTask: executeOllamaTaskMock,
   }));
 

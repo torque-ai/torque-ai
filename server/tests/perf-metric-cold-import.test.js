@@ -7,7 +7,7 @@ describe('metric: cold-import', () => {
     expect(metric.id).toBe('cold-import');
     expect(metric.category).toBe('test-infra');
     expect(metric.units).toBe('ms');
-    expect(metric.variants).toEqual(['tools', 'tool-registry', 'task-manager', 'database', 'db-task-core']);
+    expect(metric.variants).toEqual(['tools', 'tool-metadata', 'task-manager', 'database', 'db-task-core']);
     expect(metric.runs).toBeGreaterThanOrEqual(5);
     expect(metric.warmup).toBeGreaterThanOrEqual(0);
   });

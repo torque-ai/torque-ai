@@ -1,5 +1,5 @@
 /**
- * Unit Tests: coordination/instance-manager.js
+ * Unit Tests: maintenance/instance-manager.js
  *
  * Tests multi-session instance registration, heartbeat, lifecycle.
  */
@@ -9,8 +9,8 @@ describe('Instance Manager', () => {
   let mockDb;
 
   beforeEach(() => {
-    delete require.cache[require.resolve('../coordination/instance-manager')];
-    instanceManager = require('../coordination/instance-manager');
+    delete require.cache[require.resolve('../maintenance/instance-manager')];
+    instanceManager = require('../maintenance/instance-manager');
 
     mockDb = {
       acquireLock: vi.fn().mockReturnValue({ acquired: true }),
@@ -196,7 +196,7 @@ describe('Instance Manager', () => {
     });
 
     it('does not start heartbeat if dependencies are not initialized', () => {
-      const uninitializedManager = require('../coordination/instance-manager');
+      const uninitializedManager = require('../maintenance/instance-manager');
       const uninitDb = {
         acquireLock: vi.fn().mockReturnValue({ acquired: true }),
         releaseLock: vi.fn(),
@@ -279,7 +279,7 @@ describe('Instance Manager', () => {
     });
 
     it('calling init twice does not leave a stale heartbeat interval', () => {
-      const reinitManager = require('../coordination/instance-manager');
+      const reinitManager = require('../maintenance/instance-manager');
       const reinitDb1 = {
         acquireLock: vi.fn().mockReturnValue({ acquired: true }),
         releaseLock: vi.fn(),

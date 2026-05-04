@@ -170,7 +170,7 @@ const TORQUE_PROFILE = Object.freeze({
       label: 'Control-plane API',
       description: 'HTTP and transport surfaces that expose TORQUE task, provider, workflow, and governance operations.',
       prefixes: ['server/api/'],
-      exact: ['server/index.js', 'server/api-server.js', 'server/api-server.core.js'],
+      exact: ['server/index.js', 'server/api-server.js'],
     },
     {
       id: 'workflow-orchestration',
@@ -191,7 +191,7 @@ const TORQUE_PROFILE = Object.freeze({
       label: 'Tool and MCP surface',
       description: 'Tool catalog, schemas, dispatch, protocol transport, and MCP-facing integration points.',
       prefixes: ['server/tool-defs/', 'server/mcp/'],
-      exact: ['server/tools.js', 'server/core-tools.js', 'server/mcp-protocol.js', 'server/mcp-sse.js'],
+      exact: ['server/tools.js', 'server/core-tools.js'],
     },
     {
       id: 'persistence-scheduling',
@@ -395,7 +395,7 @@ const TORQUE_PROFILE = Object.freeze({
         {
           label: 'Transport',
           description: 'Expose tools over MCP and server transports.',
-          files: ['server/mcp/index.js', 'server/mcp-protocol.js', 'server/mcp-sse.js'],
+          files: ['server/mcp/index.js', 'server/mcp/protocol.js', 'server/mcp/sse.js'],
         },
       ],
     },

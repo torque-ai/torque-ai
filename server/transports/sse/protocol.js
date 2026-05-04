@@ -7,7 +7,7 @@
  * Extracted from mcp-sse.js to keep the transport module under 1000 lines.
  */
 
-const mcpProtocol = require('../../mcp-protocol');
+const mcpProtocol = require('../../mcp/protocol');
 const { TOOLS, handleToolCall } = require('../../tools');
 const { CORE_TOOL_NAMES, EXTENDED_TOOL_NAMES } = require('../../core-tools');
 function resolveDb() {

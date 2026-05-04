@@ -6,7 +6,7 @@ const path = require('path');
 const REST_ROUTE_FILES = [
   path.join('server', 'api', 'routes.js'),
   path.join('server', 'api', 'routes-passthrough.js'),
-  path.join('server', 'api-server.core.js'),
+  path.join('server', 'api-server.js'),
 ];
 
 const API_DOC_PATHS = [

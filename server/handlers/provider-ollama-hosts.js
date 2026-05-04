@@ -924,7 +924,7 @@ function handleGetMemoryProtectionStatus(_args) {
 function handleGetDiscoveryStatus(_args) {
   let discovery;
   try {
-    discovery = require('../discovery');
+    discovery = require('../providers/ollama-mdns-discovery');
   } catch (err) {
     return {
       ...makeError(ErrorCodes.OPERATION_FAILED, `## Discovery Status\n\n**Error:** Discovery module not available: ${err.message}`)
@@ -1020,7 +1020,7 @@ async function handleScanNetworkForOllama(args) {
   try {
   let discovery;
   try {
-    discovery = require('../discovery');
+    discovery = require('../providers/ollama-mdns-discovery');
   } catch (err) {
     return {
       ...makeError(ErrorCodes.OPERATION_FAILED, `## Network Scan\n\n**Error:** Discovery module not available: ${err.message}`)
@@ -1101,7 +1101,7 @@ async function handleScanNetworkForOllama(args) {
 function handleConfigureAutoScan(args) {
   let discovery;
   try {
-    discovery = require('../discovery');
+    discovery = require('../providers/ollama-mdns-discovery');
   } catch (err) {
     return {
       ...makeError(ErrorCodes.OPERATION_FAILED, `## Auto-Scan\n\n**Error:** Discovery module not available: ${err.message}`)

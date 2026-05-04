@@ -50,7 +50,7 @@ function loadProviderHandlers() {
     listProviders: mockDb.listProviders,
   });
   installCjsModuleMock('../task-manager', mockTaskManager);
-  installCjsModuleMock('../dashboard-server', mockDashboard);
+  installCjsModuleMock('../dashboard/server', mockDashboard);
   installCjsModuleMock('../handlers/provider-ollama-hosts', {});
   installCjsModuleMock('../handlers/provider-tuning', {});
   return require('../handlers/provider-handlers');

@@ -29,8 +29,8 @@ tester.run('no-heavy-test-imports', rule, {
       options: [{ allowlist: ['my-test.test.js'] }],
       filename: '/srv/server/tests/my-test.test.js',
     },
-    // Non-heavy tool-registry import is fine.
-    "const { TOOLS } = require('../tool-registry');",
+    // Non-heavy tool-metadata import is fine.
+    "const { TOOLS } = require('../tool-metadata');",
   ],
   invalid: [
     // Top-level require('../tools') without allowlist.
@@ -48,10 +48,10 @@ tester.run('no-heavy-test-imports', rule, {
       code: "const db = require('../database');",
       errors: [{ messageId: 'heavyImport', data: { module: '../database' } }],
     },
-    // Top-level require('../dashboard-server').
+    // Top-level require('../dashboard/server').
     {
-      code: "const dash = require('../dashboard-server');",
-      errors: [{ messageId: 'heavyImport', data: { module: '../dashboard-server' } }],
+      code: "const dash = require('../dashboard/server');",
+      errors: [{ messageId: 'heavyImport', data: { module: '../dashboard/server' } }],
     },
   ],
 });

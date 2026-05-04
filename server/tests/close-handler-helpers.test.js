@@ -12,7 +12,7 @@ const { setupE2eDb, teardownE2eDb, registerMockHost } = require('./e2e-helpers')
 const { gitSync, cleanupRepo } = require('./git-test-utils');
 
 // vi.mock for mcp-sse — prevents slow module loading from dispatchTaskEvent path
-vi.mock('../mcp-sse', () => ({
+vi.mock('../mcp/sse', () => ({
   notifySubscribedSessions: vi.fn(),
   getActiveSessionCount: vi.fn().mockReturnValue(0),
   sessions: new Map(),

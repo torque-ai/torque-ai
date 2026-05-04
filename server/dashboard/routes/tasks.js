@@ -166,7 +166,7 @@ async function handleTaskAction(req, res, query, taskId, action, context) {
       try {
         taskCore.deleteTask(taskId);
         try {
-          const dashboard = require('../../dashboard-server');
+          const dashboard = require('../server');
           dashboard.notifyTaskDeleted(taskId);
         } catch (_) { /* dashboard may not be running */ }
         sendJson(res, { success: true, message: 'Task removed' });

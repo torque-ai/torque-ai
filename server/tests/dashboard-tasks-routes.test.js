@@ -12,7 +12,7 @@ const MODULE_PATHS = [
   '../dashboard/utils',
   '../task-manager',
   '../tools',
-  '../dashboard-server',
+  '../dashboard/server',
 ];
 
 const mockDb = {
@@ -97,7 +97,7 @@ function loadHandlers() {
   installMock('../dashboard/utils', mockUtils);
   installMock('../task-manager', mockTaskManager);
   installMock('../tools', mockTools);
-  installMock('../dashboard-server', mockDashboardServer);
+  installMock('../dashboard/server', mockDashboardServer);
   return require(ROUTE_MODULE);
 }
 

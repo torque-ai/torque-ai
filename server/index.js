@@ -24,20 +24,20 @@ const serverConfig = require('./config');
 const taskManager = require('./task-manager');
 const { TASK_TIMEOUTS } = require('./constants');
 const { createTestRunnerRegistry } = require('./test-runner-registry');
-const dashboard = require('./dashboard-server');
+const dashboard = require('./dashboard/server');
 const ciWatcher = require('./ci/watcher');
 const apiServer = require('./api-server');
 const mcpGateway = require('./mcp');
 // Use dynamic accessors so hot-reload can refresh tools without full restart
 function getTools() { return require('./tools').TOOLS; }
 function callTool(name, args) { return require('./tools').handleToolCall(name, args); }
-const discovery = require('./discovery');
+const discovery = require('./providers/ollama-mdns-discovery');
 const gpuMetricsServer = require('./scripts/gpu-metrics-server');
-const mcpSse = require('./mcp-sse');
+const mcpSse = require('./mcp/sse');
 const { MCPPlatform, isPlatformEnabled } = require('./mcp/platform');
 const { CORE_TOOL_NAMES, EXTENDED_TOOL_NAMES } = require('./core-tools');
 const logger = require('./logger').child({ component: 'mcp-stdio' });
-const mcpProtocol = require('./mcp-protocol');
+const mcpProtocol = require('./mcp/protocol');
 const timerRegistry = require('./timer-registry');
 const eventBus = require('./event-bus');
 const maintenanceScheduler = require('./maintenance/scheduler');
@@ -1667,9 +1667,8 @@ function init() {
   }
 
   // Wire quota quota tracker to REST API and dashboard routes
-  const apiServerCore = require('./api-server.core');
-  if (apiServerCore.setQuotaTrackerGetter && taskManager.getFreeQuotaTracker) {
-    apiServerCore.setQuotaTrackerGetter(taskManager.getFreeQuotaTracker);
+  if (apiServer.setQuotaTrackerGetter && taskManager.getFreeQuotaTracker) {
+    apiServer.setQuotaTrackerGetter(taskManager.getFreeQuotaTracker);
   }
   try {
     const v2AnalyticsHandlers = require('./api/v2-analytics-handlers');

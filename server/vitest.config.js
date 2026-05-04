@@ -45,12 +45,12 @@ module.exports = {
       include: [
         'api/**/*.js',
         'ci/**/*.js',
-        'coordination/**/*.js',
         'db/**/*.js',
         'economy/**/*.js',
         'execution/**/*.js',
         'handlers/**/*.js',
         'hooks/**/*.js',
+        'maintenance/**/*.js',
         'mcp/**/*.js',
         'orchestrator/**/*.js',
         'policy-engine/**/*.js',

@@ -12,7 +12,7 @@ const ciCache = require('../db/ci-cache');
 // Lazy require to break circular dependency: mcp-sse → tools → ci-handlers → watcher → mcp-sse
 let _mcpSse;
 function getMcpSse() {
-  if (!_mcpSse) _mcpSse = require('../mcp-sse');
+  if (!_mcpSse) _mcpSse = require('../mcp/sse');
   return _mcpSse;
 }
 

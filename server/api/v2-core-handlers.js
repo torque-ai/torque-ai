@@ -5,7 +5,7 @@
  * provider listing/capabilities/detail/models/health handlers,
  * and remote execution handlers.
  *
- * Extracted from api-server.core.js to reduce file size.
+ * Extracted from api-server.js to reduce file size.
  */
 
 const { randomUUID } = require('crypto');

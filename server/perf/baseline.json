@@ -109,7 +109,7 @@
           "p95": 958.322,
           "runs": 10
         },
-        "tool-registry": {
+        "tool-metadata": {
           "median": 62.333,
           "p95": 67.294,
           "runs": 10

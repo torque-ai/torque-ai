@@ -133,7 +133,7 @@ describe('Security: MCP SSE CORS and dashboard API auth/CSRF', () => {
       handleHttpRequest = handler;
       return mockServer;
     });
-    mcpSse = require('../mcp-sse');
+    mcpSse = require('../mcp/sse');
   });
 
   afterAll(() => {

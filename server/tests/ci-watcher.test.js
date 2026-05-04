@@ -9,7 +9,7 @@ const {
   shutdownAll,
   getActiveWatches,
 } = require('../ci/watcher');
-const mcpSse = require('../mcp-sse');
+const mcpSse = require('../mcp/sse');
 
 describe('ci watcher', () => {
   let originalPushNotification;

@@ -102,7 +102,7 @@ describe('MCP SSE workflow auto-subscribe', () => {
       return mockServer;
     });
 
-    mcpSse = require('../mcp-sse');
+    mcpSse = require('../mcp/sse');
     await mcpSse.start({ port: 0 });
   });
 

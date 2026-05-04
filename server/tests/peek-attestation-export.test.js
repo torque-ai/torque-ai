@@ -262,7 +262,7 @@ describe('peek attestation export api', () => {
 
   beforeAll(async () => {
     ({ db } = setupTestDbOnly('peek-attestation-export'));
-    api = require('../api-server.core');
+    api = require('../api-server');
 
     const mockServer = {
       on: vi.fn(),

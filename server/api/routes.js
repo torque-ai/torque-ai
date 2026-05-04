@@ -163,7 +163,7 @@ const routes = [
   {
     // NOTE: A second GET /api/v2/providers entry exists below as
     // handleV2CpListProviders (dashboard convergence CP handler).
-    // The api-server.core.js dispatcher resolves handler names, so both
+    // The api-server.js dispatcher resolves handler names, so both
     // entries exist to serve legacy (inference API) and CP (dashboard) callers
     // via their respective handler names. This duplication is intentional.
     method: 'GET',

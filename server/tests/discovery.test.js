@@ -440,7 +440,7 @@ function loadDiscoveryWithBonjour(mockBonjour) {
       return mockBonjour;
     }),
   });
-  return require('../discovery');
+  return require('../providers/ollama-mdns-discovery');
 }
 
 describe('Bonjour Discovery Host Identities', () => {

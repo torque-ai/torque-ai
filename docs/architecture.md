@@ -71,7 +71,7 @@ All three transports converge on a single dispatcher.
 |-----------|------|------|---------|
 | **MCP stdio** | stdin/stdout | `server/index.js` | Claude Code direct connection |
 | **MCP SSE** | 3458 | `server/mcp-sse.js` | Browser/remote MCP clients |
-| **REST API** | 3457 | `server/api-server.core.js` | Dashboard, scripts, external tools |
+| **REST API** | 3457 | `server/api-server.js` | Dashboard, scripts, external tools |
 
 ### Dispatch Path
 
@@ -427,7 +427,7 @@ database.js (facade)
 |-----------|------|-------|
 | MCP stdio entry | `server/index.js` | ~1,300 |
 | MCP SSE entry | `server/mcp-sse.js` | ~1,600 |
-| REST API | `server/api-server.core.js` | ~2,650 |
+| REST API | `server/api-server.js` | ~2,650 |
 | Tool dispatch | `server/tools.js` | ~820, 582 built-in |
 | Tool definitions | `server/tool-defs/` | 44 files |
 | Handlers | `server/handlers/` | 22 files |

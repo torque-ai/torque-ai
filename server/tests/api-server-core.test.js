@@ -120,7 +120,7 @@ beforeAll(() => {
   handleToolCallSpy = vi.spyOn(tools, 'handleToolCall').mockResolvedValue({
     content: [{ type: 'text', text: 'healthy' }],
   });
-  api = require('../api-server.core');
+  api = require('../api-server');
 });
 
 beforeEach(() => {
@@ -156,7 +156,7 @@ afterAll(() => {
   vi.restoreAllMocks();
 });
 
-describe('api-server.core helpers', () => {
+describe('api-server helpers', () => {
   it('reuses the first non-empty request id header', () => {
     const requestId = api.resolveRequestId(createMockRequest({
       headers: {

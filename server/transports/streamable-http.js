@@ -2,7 +2,7 @@
 
 const { randomUUID } = require('crypto');
 const logger = require('../logger').child({ component: 'mcp-streamable-http' });
-const mcpProtocol = require('../mcp-protocol');
+const mcpProtocol = require('../mcp/protocol');
 const { validateJsonRpcRequest } = require('../utils/jsonrpc-validation');
 const { parseBody } = require('./sse/protocol');
 

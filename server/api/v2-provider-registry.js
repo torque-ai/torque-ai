@@ -3,7 +3,7 @@
 /**
  * api/v2-provider-registry.js — Single source of truth for V2 provider metadata.
  *
- * Extracted from api-server.core.js and api/v2-router.js where it was
+ * Extracted from api-server.js and api/v2-router.js where it was
  * duplicated (and drifting). Contains provider capabilities, transport
  * types, rate limits, and feature flags for the V2 API layer.
  */

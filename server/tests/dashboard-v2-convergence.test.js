@@ -132,29 +132,29 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-describe('dashboard-server v2 convergence', () => {
+describe('dashboard server v2 convergence', () => {
   it('imports v2-dispatch module', () => {
     // Verify the module is importable (the mock is installed)
     const dispatch = require('../api/v2-dispatch');
     expect(typeof dispatch.dispatchV2).toBe('function');
   });
 
-  it('dashboard-server.js requires v2-dispatch', () => {
+  it('dashboard/server.js requires v2-dispatch', () => {
     // Read the actual source to verify the import exists
     const fs = require('fs');
     const path = require('path');
     const source = fs.readFileSync(
-      path.join(__dirname, '..', 'dashboard-server.js'),
+      path.join(__dirname, '..', 'dashboard', 'server.js'),
       'utf8'
     );
-    expect(source).toContain("require('./api/v2-dispatch')");
+    expect(source).toContain("require('../api/v2-dispatch')");
   });
 
-  it('dashboard-server.js checks /api/v2/ before legacy dispatch in request handler', () => {
+  it('dashboard/server.js checks /api/v2/ before legacy dispatch in request handler', () => {
     const fs = require('fs');
     const path = require('path');
     const source = fs.readFileSync(
-      path.join(__dirname, '..', 'dashboard-server.js'),
+      path.join(__dirname, '..', 'dashboard', 'server.js'),
       'utf8'
     );
 
@@ -178,11 +178,11 @@ describe('dashboard-server v2 convergence', () => {
     expect(v2CheckPos).toBeLessThan(legacyCheckPos);
   });
 
-  it('dashboard-server.js falls through to legacy dispatch when v2 does not match', () => {
+  it('dashboard/server.js falls through to legacy dispatch when v2 does not match', () => {
     const fs = require('fs');
     const path = require('path');
     const source = fs.readFileSync(
-      path.join(__dirname, '..', 'dashboard-server.js'),
+      path.join(__dirname, '..', 'dashboard', 'server.js'),
       'utf8'
     );
 

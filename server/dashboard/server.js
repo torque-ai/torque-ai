@@ -10,7 +10,7 @@
  *
  * Dashboard port (3456) binds to 127.0.0.1 only (see httpServer.listen below)
  * and is intended for local browser access. The API port (3457) is handled by
- * api-server.core.js for separate programmatic access.
+ * api-server.js for separate programmatic access.
  */
 
 const http = require('http');
@@ -18,22 +18,22 @@ const path = require('path');
 const fs = require('fs');
 const { WebSocketServer } = require('ws');
 const { execFile } = require('child_process');
-const { WS_MSG_RATE_LIMIT, WS_MSG_RATE_WINDOW_MS } = require('./constants');
-const { redactSecrets } = require('./utils/sanitize');
-const db = require('./database');
-const taskCore = require('./db/task-core');
-const hostManagement = require('./db/host-management');
-const serverConfig = require('./config');
-const { dispatch } = require('./dashboard/router');
-const { sendError, isLocalhostOrigin } = require('./dashboard/utils');
+const { WS_MSG_RATE_LIMIT, WS_MSG_RATE_WINDOW_MS } = require('../constants');
+const { redactSecrets } = require('../utils/sanitize');
+const db = require('../database');
+const taskCore = require('../db/task-core');
+const hostManagement = require('../db/host-management');
+const serverConfig = require('../config');
+const { dispatch } = require('./router');
+const { sendError, isLocalhostOrigin } = require('./utils');
 const {
   dispatchV2,
   init: initV2Dispatch,
   MAX_BODY_SIZE: MAX_V2_BODY_SIZE,
   validateJsonDepth,
-} = require('./api/v2-dispatch');
-const eventBus = require('./event-bus');
-const dashboardLogger = require('./logger').child({ component: 'dashboard-server' });
+} = require('../api/v2-dispatch');
+const eventBus = require('../event-bus');
+const dashboardLogger = require('../logger').child({ component: 'dashboard-server' });
 
 
 // Server state
@@ -510,7 +510,7 @@ function handleWebSocket(ws, req) {
   clients.add(ws);
 
   // Send initial connection success with instance identity
-  const taskManager = require('./task-manager');
+  const taskManager = require('../task-manager');
   const instanceId = taskManager.getMcpInstanceId();
   ws.send(JSON.stringify({
     event: 'connected',
@@ -1014,7 +1014,7 @@ function notifyTaskDeleted(taskId) {
  */
 function notifyHostActivityUpdated() {
   if (!isRunning || clients.size === 0) return;
-  const taskManager = require('./task-manager');
+  const taskManager = require('../task-manager');
   const hostActivity = taskManager.getHostActivity();
 
   // Merge memory_limit_mb so dashboard can show VRAM bars for remote hosts

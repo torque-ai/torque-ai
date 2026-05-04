@@ -44,7 +44,7 @@ vi.mock('../db/file-tracking', () => mockFileTracking);
 vi.mock('../db/host-management', () => mockHostManagement);
 vi.mock('../db/provider-routing-core', () => mockProviderRoutingCore);
 vi.mock('../task-manager', () => mockTaskManager);
-vi.mock('../dashboard-server', () => mockDashboardServer);
+vi.mock('../dashboard/server', () => mockDashboardServer);
 vi.mock('../providers/registry', () => mockProviderRegistry);
 vi.mock('../handlers/provider-ollama-hosts', () => ({}));
 vi.mock('../handlers/provider-tuning', () => ({}));
@@ -77,7 +77,7 @@ function loadProviderHandlers() {
   vi.doMock('../db/host-management', () => mockHostManagement);
   vi.doMock('../db/provider-routing-core', () => mockProviderRoutingCore);
   vi.doMock('../task-manager', () => mockTaskManager);
-  vi.doMock('../dashboard-server', () => mockDashboardServer);
+  vi.doMock('../dashboard/server', () => mockDashboardServer);
   vi.doMock('../providers/registry', () => mockProviderRegistry);
   vi.doMock('../handlers/provider-ollama-hosts', () => ({}));
   vi.doMock('../handlers/provider-tuning', () => ({}));
@@ -87,7 +87,7 @@ function loadProviderHandlers() {
   installCjsModuleMock('../db/host-management', mockHostManagement);
   installCjsModuleMock('../db/provider-routing-core', mockProviderRoutingCore);
   installCjsModuleMock('../task-manager', mockTaskManager);
-  installCjsModuleMock('../dashboard-server', mockDashboardServer);
+  installCjsModuleMock('../dashboard/server', mockDashboardServer);
   installCjsModuleMock('../providers/registry', mockProviderRegistry);
   installCjsModuleMock('../handlers/provider-ollama-hosts', {});
   installCjsModuleMock('../handlers/provider-tuning', {});

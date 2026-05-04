@@ -44,7 +44,7 @@ let _claudeEventLog;
 describe('Claude Code hook bridge', () => {
   beforeEach(() => {
     setupTestDbOnly('claude-event-hooks');
-    const core = require('../api-server.core');
+    const core = require('../api-server');
     handleClaudeEvent = core._testing.handleClaudeEvent;
     handleClaudeFiles = core._testing.handleClaudeFiles;
     _claudeEventLog = core._testing._claudeEventLog;

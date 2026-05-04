@@ -18,7 +18,7 @@ async function elicit(sessionOrId, params) {
   } else if (typeof sessionOrId === 'string') {
     // Look up live session from SSE sessions Map
     try {
-      const { getSession } = require('../mcp-sse');
+      const { getSession } = require('./sse');
       session = getSession(sessionOrId);
     } catch {
       // mcp-sse not available (e.g., stdio-only mode)
@@ -36,7 +36,7 @@ async function elicit(sessionOrId, params) {
   }
 
   try {
-    const { sendClientRequest } = require('../mcp-sse');
+    const { sendClientRequest } = require('./sse');
     const result = await sendClientRequest(session.__sessionId || session.sessionId, 'elicitation/create', {
       message: params.message,
       requestedSchema: params.requestedSchema,

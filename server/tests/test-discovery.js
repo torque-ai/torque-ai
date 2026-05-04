@@ -3,7 +3,7 @@
  */
 
 const os = require('os');
-const discovery = require('../discovery');
+const discovery = require('../providers/ollama-mdns-discovery');
 const { setupTestDb, teardownTestDb, safeTool } = require('./vitest-setup');
 
 describe('Ollama Discovery & Failover', () => {
