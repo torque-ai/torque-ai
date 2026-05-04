@@ -11,6 +11,9 @@ const { makeError, ErrorCodes } = require('./error-codes');
 let _inboundWebhooks;
 function inboundWebhooks() { return _inboundWebhooks || (_inboundWebhooks = require('../db/inbound-webhooks')); }
 
+let _webhookApi;
+function webhookApi() { return _webhookApi || (_webhookApi = require('../api/webhooks')); }
+
 // ============================================
 // INBOUND WEBHOOK HANDLERS
 // ============================================
@@ -188,26 +191,12 @@ function handleTestInboundWebhook(args) {
     message: 'Test commit message',
   };
 
-  // Apply {{payload.*}} variable substitution
-  let resolvedDescription = actionConfig.task_description || '(no task_description in action_config)';
-  resolvedDescription = resolvedDescription.replace(/\{\{payload\.([^}]+)\}\}/g, (match, key) => {
-    // Support nested keys like payload.repository.name via dot notation
-    const parts = key.split('.');
-    let value = testPayload;
-    for (const part of parts) {
-      if (value && typeof value === 'object') {
-        if (!Object.prototype.hasOwnProperty.call(value, part)) {
-          value = undefined;
-          break;
-        }
-        value = value[part];
-      } else {
-        value = undefined;
-        break;
-      }
-    }
-    return value !== undefined ? String(value) : match;
-  });
+  // Apply the same sanitized {{payload.*}} substitution as the production webhook path.
+  const { substitutePayload } = webhookApi();
+  const resolvedDescription = substitutePayload(
+    actionConfig.task_description || '(no task_description in action_config)',
+    testPayload,
+  );
 
   const lines = [
     '## Inbound Webhook Test (Dry Run)',

@@ -78,6 +78,11 @@ function signPayload(secret, body) {
   return `sha256=${digest}`;
 }
 
+function getResolvedTaskDescription(text) {
+  const match = text.match(/### Resolved Task Description\n```\n([\s\S]*?)\n```/);
+  return match ? match[1] : '';
+}
+
 beforeAll(async () => {
   const tools = require('../tools');
 
@@ -192,6 +197,51 @@ describe('inbound webhook handlers', () => {
     const result = await safeTool('delete_inbound_webhook', { name: 'missing-hook' });
     expect(result.isError).toBe(true);
     expect(getText(result)).toContain('not found');
+  });
+
+  it('truncates long substituted payload values in dry-run output', async () => {
+    await safeTool('create_inbound_webhook', {
+      name: 'truncate-hook',
+      source_type: 'generic',
+      task_description: 'Deploy {{payload.longValue}} from {{payload.repository.name}} missing {{payload.missing}}',
+    });
+    toolsHandleSpy.mockClear();
+
+    const result = await safeTool('test_inbound_webhook', {
+      webhook_name: 'truncate-hook',
+      payload: {
+        longValue: 'x'.repeat(550),
+        repository: { name: 'torque' },
+      },
+    });
+
+    expect(result.isError).toBeFalsy();
+    expect(getResolvedTaskDescription(getText(result))).toBe(
+      `Deploy ${'x'.repeat(500)} from torque missing {{payload.missing}}`,
+    );
+    expect(toolsHandleSpy).not.toHaveBeenCalledWith('smart_submit_task', expect.any(Object));
+  });
+
+  it('strips control characters from substituted payload values in dry-run output', async () => {
+    await safeTool('create_inbound_webhook', {
+      name: 'sanitize-hook',
+      source_type: 'generic',
+      task_description: 'Message {{payload.message}} missing {{payload.missing}}',
+    });
+    toolsHandleSpy.mockClear();
+
+    const result = await safeTool('test_inbound_webhook', {
+      webhook_name: 'sanitize-hook',
+      payload: {
+        message: 'line\nnext\twith\x7Fdel',
+      },
+    });
+
+    const resolved = getResolvedTaskDescription(getText(result));
+    expect(result.isError).toBeFalsy();
+    expect(resolved).toBe('Message linenextwithdel missing {{payload.missing}}');
+    expect(resolved).not.toMatch(/[\n\t\x7F]/);
+    expect(toolsHandleSpy).not.toHaveBeenCalledWith('smart_submit_task', expect.any(Object));
   });
 });
 
