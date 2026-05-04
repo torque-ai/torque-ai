@@ -7,7 +7,7 @@ const HEAVY_LOCAL_VALIDATION_PATTERNS = Object.freeze([
   { label: 'bash scripts/build.sh', re: /\b(?:bash|sh)\s+(?:\.?[\\/])?scripts[\\/](?:build|test)\.sh\b/i },
 ]);
 
-const DIAGNOSTIC_FENCE_HEADER_RE = /^\s*(?:verify\s+(?:command\s+)?output|verify\s+output|previous\s+verify\s+output)(?:\s*\([^)]*\))?\s*:\s*$/i;
+const DIAGNOSTIC_FENCE_HEADER_RE = /^\s*(?:verify\s+(?:command\s+)?output|verify\s+output|previous\s+verify\s+output|verify\s+command)(?:\s*\([^)]*\))?\s*:\s*$/i;
 const FENCE_RE = /^\s*```/;
 const DIAGNOSTIC_FENCE_LOOKAHEAD_LINES = 8;
 
