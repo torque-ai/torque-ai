@@ -4733,7 +4733,112 @@ function collectWorkItemDescriptionFiles(workItem) {
   return extractPlanDescriptionFilePaths(`${workItem?.title || ''}\n${workItem?.description || ''}`);
 }
 
-function collectArchitectScopeFiles(workItem) {
+const PLAN_RELATED_FILE_EXT_RE = /\.(?:cjs|mjs|js|ts|tsx|jsx|json|ya?ml|md|ps1|py|cs|csproj|sln)$/i;
+const PLAN_RELATED_SKIP_DIRS = new Set([
+  '.git',
+  '.worktrees',
+  'node_modules',
+  'coverage',
+  'dist',
+  'build',
+  '.next',
+  '.cache',
+  'tmp',
+  'temp',
+]);
+const PLAN_RELATED_STOP_WORDS = new Set([
+  'about',
+  'acceptance',
+  'adding',
+  'after',
+  'against',
+  'before',
+  'build',
+  'command',
+  'concrete',
+  'cover',
+  'create',
+  'criteria',
+  'current',
+  'debug',
+  'does',
+  'done',
+  'edge',
+  'ensure',
+  'existing',
+  'expected',
+  'factory',
+  'failure',
+  'from',
+  'function',
+  'handle',
+  'implementation',
+  'instead',
+  'invalid',
+  'issue',
+  'logic',
+  'missing',
+  'module',
+  'nearest',
+  'node',
+  'only',
+  'package',
+  'pass',
+  'path',
+  'paths',
+  'project',
+  'provided',
+  'requested',
+  'return',
+  'runner',
+  'slice',
+  'small',
+  'task',
+  'tests',
+  'that',
+  'this',
+  'typed',
+  'unit',
+  'update',
+  'uses',
+  'valid',
+  'verify',
+  'with',
+  'work',
+  'yaml',
+]);
+
+function normalizePlanProjectRelativePath(filePath, projectPath = null) {
+  const raw = String(filePath || '').trim().replace(/^`|`$/g, '');
+  if (!raw) return null;
+  if (!projectPath) return raw.replace(/\\/g, '/');
+  if (!/[\\/]/.test(raw) && /^[A-Z][A-Za-z0-9_-]*\.(?:js|ts|py|cs)$/i.test(raw)) {
+    return null;
+  }
+
+  const root = path.resolve(projectPath);
+  const absolute = path.isAbsolute(raw)
+    ? path.resolve(raw)
+    : path.resolve(root, raw);
+  const rel = path.relative(root, absolute);
+  if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) {
+    return null;
+  }
+  return rel.replace(/\\/g, '/');
+}
+
+function projectFileExists(projectPath, filePath) {
+  const rel = normalizePlanProjectRelativePath(filePath, projectPath);
+  if (!rel || !projectPath) return false;
+  return fs.existsSync(path.resolve(projectPath, rel));
+}
+
+function addNormalizedPlanPath(out, filePath, projectPath = null) {
+  const normalized = normalizePlanProjectRelativePath(filePath, projectPath);
+  if (normalized) out.add(normalized);
+}
+
+function collectOriginScopeFiles(workItem) {
   const out = new Set();
   const push = (value) => {
     if (typeof value === 'string' && value.trim()) {
@@ -4746,7 +4851,6 @@ function collectArchitectScopeFiles(workItem) {
 
   const origin = getWorkItemOriginObject(workItem);
   pushAll(origin.exemplar_files);
-  pushAll(collectWorkItemDescriptionFiles(workItem));
   pushAll(collectArchitectHardScopeFiles(workItem));
   if (Array.isArray(origin.shared_dependencies)) {
     for (const dep of origin.shared_dependencies) {
@@ -4761,14 +4865,264 @@ function collectArchitectScopeFiles(workItem) {
   return Array.from(out);
 }
 
+function collectArchitectScopeDetails(workItem, projectPath = null) {
+  const originFiles = collectOriginScopeFiles(workItem);
+  const descriptionFiles = collectWorkItemDescriptionFiles(workItem);
+  const hardScopeFiles = collectArchitectHardScopeFiles(workItem);
+  const verified = new Set();
+  const candidates = new Set();
+  const hardScope = new Set();
+
+  for (const file of hardScopeFiles) {
+    addNormalizedPlanPath(hardScope, file, projectPath);
+  }
+
+  const addScopeFile = (file, trustExisting = false) => {
+    const normalized = normalizePlanProjectRelativePath(file, projectPath);
+    if (!normalized) return;
+    if (!projectPath || trustExisting || projectFileExists(projectPath, normalized)) {
+      verified.add(normalized);
+    } else {
+      candidates.add(normalized);
+    }
+  };
+
+  for (const file of originFiles) addScopeFile(file, true);
+  for (const file of descriptionFiles) addScopeFile(file, false);
+
+  const relatedFiles = discoverRelatedProjectFiles(projectPath, workItem, [
+    ...verified,
+    ...candidates,
+  ]).filter((file) => !verified.has(file));
+
+  return {
+    scopeFiles: Array.from(verified),
+    candidateFiles: Array.from(candidates),
+    hardScopeFiles: Array.from(hardScope),
+    relatedFiles,
+  };
+}
+
+function collectArchitectScopeFiles(workItem, projectPath = null) {
+  return collectArchitectScopeDetails(workItem, projectPath).scopeFiles;
+}
+
+function tokenizePlannerSearchText(value) {
+  return String(value || '')
+    .toLowerCase()
+    .split(/[^a-z0-9]+/g)
+    .map((token) => token.trim())
+    .filter((token) => token.length >= 4 && !PLAN_RELATED_STOP_WORDS.has(token));
+}
+
+function buildPlannerFileSearchTokens(workItem, seedFiles = []) {
+  const tokens = new Set(tokenizePlannerSearchText(`${workItem?.title || ''}\n${workItem?.description || ''}`));
+  for (const file of seedFiles || []) {
+    for (const token of tokenizePlannerSearchText(file)) {
+      tokens.add(token);
+    }
+  }
+  return Array.from(tokens);
+}
+
+function discoverRelatedProjectFiles(projectPath, workItem, seedFiles = [], limit = 8) {
+  if (!projectPath) return [];
+  const root = path.resolve(projectPath);
+  if (!fs.existsSync(root)) return [];
+
+  const tokens = buildPlannerFileSearchTokens(workItem, seedFiles);
+  if (tokens.length === 0) return [];
+
+  const workText = `${workItem?.title || ''}\n${workItem?.description || ''}`.toLowerCase();
+  const scored = [];
+  let visited = 0;
+
+  const walk = (dir) => {
+    if (visited > 12000) return;
+    let entries;
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch (_err) {
+      return;
+    }
+
+    for (const entry of entries) {
+      if (PLAN_RELATED_SKIP_DIRS.has(entry.name)) continue;
+      const absolute = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        walk(absolute);
+        continue;
+      }
+      visited += 1;
+      if (!PLAN_RELATED_FILE_EXT_RE.test(entry.name)) continue;
+
+      const rel = path.relative(root, absolute).replace(/\\/g, '/');
+      const relLower = rel.toLowerCase();
+      const baseLower = path.basename(relLower);
+      let score = 0;
+      for (const token of tokens) {
+        if (relLower.includes(token)) score += baseLower.includes(token) ? 6 : 3;
+      }
+      if (workText.includes('workflow') && workText.includes('runtime')
+        && relLower.includes('workflow') && relLower.includes('runtime')) {
+        score += 20;
+      }
+      if (workText.includes('debugger') && relLower.includes('debugger')) score += 10;
+      if (workText.includes('protocol') && relLower.includes('protocol')) score += 8;
+      if (/(?:test|coverage|vitest|jest)/.test(workText) && /(?:^|\/)(?:tests?|__tests__)\//.test(relLower)) {
+        score += 8;
+      }
+      if (/(?:runtime|runner|execution)/.test(workText) && /(?:^|\/)execution\//.test(relLower)) {
+        score += 10;
+      }
+      if (score > 0) {
+        scored.push({ file: rel, score });
+      }
+    }
+  };
+
+  walk(root);
+  return scored
+    .sort((a, b) => b.score - a.score || a.file.localeCompare(b.file))
+    .map((entry) => entry.file)
+    .filter((file, index, arr) => arr.indexOf(file) === index)
+    .slice(0, limit);
+}
+
+function escapeRegExpLiteral(value) {
+  return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function isPlanTestPath(filePath) {
+  return /(?:^|\/)(?:tests?|__tests__)\//i.test(filePath)
+    || /\.(?:test|spec)\.[cm]?[jt]sx?$/i.test(filePath);
+}
+
+function chooseRelatedReplacementFile(originalFile, relatedFiles = [], workItem = null) {
+  const original = String(originalFile || '').replace(/\\/g, '/');
+  const originalLower = original.toLowerCase();
+  const workText = `${workItem?.title || ''}\n${workItem?.description || ''}`.toLowerCase();
+  const originalIsTest = isPlanTestPath(originalLower);
+  const originalExt = path.extname(originalLower);
+  const candidates = relatedFiles
+    .map((file) => String(file || '').replace(/\\/g, '/'))
+    .filter((file) => file && file.toLowerCase() !== originalLower);
+
+  const sameKind = candidates.filter((file) => isPlanTestPath(file) === originalIsTest);
+  const sameExtension = sameKind.filter((file) => !originalExt || path.extname(file).toLowerCase() === originalExt);
+  let pool = sameExtension.length > 0 ? sameExtension : sameKind;
+  if (pool.length === 0) {
+    pool = originalIsTest
+      ? candidates.filter((file) => isPlanTestPath(file))
+      : candidates.filter((file) => !isPlanTestPath(file));
+  }
+  if (pool.length === 0) pool = candidates;
+  if (pool.length === 0) return null;
+
+  return pool
+    .map((file) => {
+      const lower = file.toLowerCase();
+      let score = 0;
+      if (workText.includes('workflow') && lower.includes('workflow')) score += 5;
+      if (workText.includes('runtime') && lower.includes('runtime')) score += 12;
+      if (/(?:runtime|runner|execution)/.test(workText) && /(?:^|\/)execution\//.test(lower)) score += 8;
+      if (workText.includes('debugger') && lower.includes('debugger')) score += 6;
+      if (workText.includes('protocol') && lower.includes('protocol')) score += 6;
+      if (originalIsTest && isPlanTestPath(lower)) score += 8;
+      if (!originalIsTest && !isPlanTestPath(lower)) score += 4;
+      return { file, score };
+    })
+    .sort((a, b) => b.score - a.score || a.file.localeCompare(b.file))[0]?.file || null;
+}
+
+function hasPlanPathCreationContext(planText, filePath) {
+  const text = String(planText || '');
+  const raw = String(filePath || '');
+  const variants = [...new Set([raw, raw.replace(/\//g, '\\'), raw.replace(/\\/g, '/')])].filter(Boolean);
+  for (const variant of variants) {
+    let index = text.indexOf(variant);
+    while (index >= 0) {
+      const context = text.slice(Math.max(0, index - 160), Math.min(text.length, index + variant.length + 160));
+      if (/\b(?:add|create|new|scaffold|introduce|define|write)\b/i.test(context)) {
+        return true;
+      }
+      index = text.indexOf(variant, index + variant.length);
+    }
+  }
+  return false;
+}
+
+function shouldReplaceExistingPlanPath(originalFile, replacementFile, workItem, hardScopeFiles = []) {
+  const originalLower = String(originalFile || '').replace(/\\/g, '/').toLowerCase();
+  const replacementLower = String(replacementFile || '').replace(/\\/g, '/').toLowerCase();
+  const hardScope = new Set((hardScopeFiles || []).map((file) => String(file || '').replace(/\\/g, '/').toLowerCase()));
+  if (!originalLower || !replacementLower || hardScope.has(originalLower)) return false;
+
+  const workText = `${workItem?.title || ''}\n${workItem?.description || ''}`.toLowerCase();
+  if (/(?:runtime|runner|execution)/.test(workText)
+    && !/(?:runtime|runner|execution)/.test(originalLower)
+    && /(?:runtime|execution)/.test(replacementLower)) {
+    return true;
+  }
+  if (originalLower.includes('/db/')
+    && replacementLower.includes('/execution/')
+    && workText.includes('workflow')) {
+    return true;
+  }
+  return false;
+}
+
+function replacePlanPathLiteral(planText, originalFile, replacementFile) {
+  let out = String(planText || '');
+  const original = String(originalFile || '').replace(/\\/g, '/');
+  const replacement = String(replacementFile || '').replace(/\\/g, '/');
+  const variants = [...new Set([original, original.replace(/\//g, '\\')])].filter(Boolean);
+  for (const variant of variants) {
+    out = out.replace(new RegExp(escapeRegExpLiteral(variant), 'g'), replacement);
+  }
+  return out;
+}
+
+function normalizeGeneratedPlanFileReferences(taskSection, workItem, project) {
+  const projectPath = project?.path;
+  if (!projectPath) return taskSection;
+
+  const rawPaths = extractPlanDescriptionFilePaths(taskSection);
+  if (rawPaths.length === 0) return taskSection;
+
+  let out = String(taskSection || '');
+  const details = collectArchitectScopeDetails(workItem, projectPath);
+  const hardScopeFiles = details.hardScopeFiles || [];
+  const relatedPool = discoverRelatedProjectFiles(projectPath, workItem, rawPaths, 12)
+    .concat(details.relatedFiles || [])
+    .filter((file, index, arr) => file && arr.indexOf(file) === index);
+  for (const rawPath of [...new Set(rawPaths)]) {
+    const normalized = normalizePlanProjectRelativePath(rawPath, projectPath);
+    if (!normalized) continue;
+    const exists = projectFileExists(projectPath, normalized);
+    const replacement = chooseRelatedReplacementFile(normalized, relatedPool, workItem);
+    if (!replacement || replacement === normalized) continue;
+
+    const creationContext = hasPlanPathCreationContext(out, rawPath);
+    const shouldReplace = exists
+      ? shouldReplaceExistingPlanPath(normalized, replacement, workItem, hardScopeFiles)
+      : (!creationContext || (isPlanTestPath(normalized) && isPlanTestPath(replacement)));
+    if (!shouldReplace) continue;
+
+    out = replacePlanPathLiteral(out, rawPath, replacement);
+  }
+
+  return out;
+}
+
 function buildAutoGeneratedPlanPrompt(project, workItem, priorFeedback = null) {
   const projectBrief = typeof project?.brief === 'string' && project.brief.trim()
     ? project.brief.trim()
     : 'No project brief provided.';
   const description = String(workItem?.description || '').trim();
   const techStack = inferAutoGeneratedPlanTechStack(project?.path);
-  const scopeFiles = collectArchitectScopeFiles(workItem);
-  const hardScopeFiles = collectArchitectHardScopeFiles(workItem);
+  const scopeDetails = collectArchitectScopeDetails(workItem, project?.path);
+  const { scopeFiles, candidateFiles, hardScopeFiles, relatedFiles } = scopeDetails;
   const effectiveProvider = getEffectiveProjectProvider(project);
   // Phase G: small local models (qwen3-coder:30b on the ollama lane)
   // can't drive the cg_* MCP tools effectively and timeout trying. Skip
@@ -4848,9 +5202,20 @@ function buildAutoGeneratedPlanPrompt(project, workItem, priorFeedback = null) {
     `- Title: ${workItem?.title || 'Untitled work item'}`,
     ...(scopeFiles.length > 0 ? [
       '',
-      'Files in scope (cite these in task bodies — they satisfy the "explicit file paths" signal):',
+      'Verified existing files in scope (cite these in task bodies when they match the requested implementation area):',
       ...scopeFiles.map((f) => `- \`${f}\``),
-      'These paths come from the scout pattern (`exemplar_files`, `shared_dependencies`) or the work-item constraints. They are verified to exist in the project tree. Plan tasks that edit, test, or extend these files; do NOT invent unrelated paths.',
+      'These paths were verified under the project tree or came from trusted work-item scope. Prefer them over guessed paths from prose.',
+    ] : []),
+    ...(candidateFiles.length > 0 ? [
+      '',
+      'Candidate paths mentioned by the work item but not currently present in the project tree:',
+      ...candidateFiles.map((f) => `- \`${f}\``),
+      'Treat these as creation targets only when the work item explicitly asks to create them. Otherwise resolve to the nearest verified existing file below.',
+    ] : []),
+    ...(relatedFiles.length > 0 ? [
+      '',
+      'Existing repository files related to this work item (use these to resolve "expected near" or "nearest existing" wording):',
+      ...relatedFiles.map((f) => `- \`${f}\``),
     ] : []),
     ...(hardScopeFiles.length > 0 ? [
       '',
@@ -5378,7 +5743,12 @@ function normalizeAutoGeneratedPlanMarkdown(markdown, workItem, project) {
   const titleMatch = raw.match(/^#\s+(.+)$/m);
   const goalMatch = raw.match(/\*\*Goal:\*\*\s*([^\n]+)/i);
   const techStackMatch = raw.match(/\*\*Tech Stack:\*\*\s*([^\n]+)/i);
-  let taskSection = qualifyAutoGeneratedVaguePlanLanguage(trimPromptEchoTail(raw.slice(taskMatch.index).trim()), workItem);
+  let taskSection = normalizeGeneratedPlanFileReferences(
+    trimPromptEchoTail(raw.slice(taskMatch.index).trim()),
+    workItem,
+    project
+  );
+  taskSection = qualifyAutoGeneratedVaguePlanLanguage(taskSection, workItem);
   taskSection = routeHeavyValidationCommands(taskSection);
   taskSection = routeHeavyValidationCommands(augmentAutoGeneratedTaskSpecificity(taskSection, workItem, project));
   const lines = [
@@ -6977,7 +7347,7 @@ async function executeNonPlanFileStage(project, instance, workItem) {
   const priorRejection = priorRejectionOrigin?.last_plan_description_quality_rejection || null;
   const priorFeedback = buildPriorRejectionFeedbackPrompt(priorRejection);
   const prompt = buildAutoGeneratedPlanPrompt(project, targetItem, priorFeedback);
-  const planGenerationFiles = collectArchitectScopeFiles(targetItem);
+  const planGenerationFiles = collectArchitectScopeFiles(targetItem, project.path || process.cwd());
   let generationTaskId = getStoredPlanGenerationTaskId(targetItem);
   const planGenerationTimeoutMinutes = resolvePlanGenerationTimeoutMinutes(project);
   const planGenerationActivityTimeoutPolicy = buildPlanGenerationActivityTimeoutPolicy(
