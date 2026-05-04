@@ -168,18 +168,46 @@ describe('restart_server drain watchdog reverted', () => {
   });
 
   it('still honors the full configured drain budget', () => {
-    // The only drain-failure path left should be the user-set timeout,
-    // bounded by `drainTimeoutMs` (resolved from drain_timeout_ms |
-    // drain_timeout_minutes | timeout_minutes per Phase D §2.5.3,
-    // default 60_000 ms).
+    // The only drain-bound left should be the user-set timeout, bounded by
+    // `drainTimeoutMs` (resolved from drain_timeout_ms | drain_timeout_minutes
+    // | timeout_minutes per Phase D §2.5.3, default 60_000 ms). Hitting that
+    // bound no longer fails the barrier — it triggers a restart-with-survivors
+    // path (see "drain timeout proceeds with restart" guard below). The
+    // resolution surface is what we pin here.
     expect(src).toMatch(/elapsed\s*>=\s*drainTimeoutMs/);
     // Phase D resolves drainTimeoutMs at the top of the function from
     // any of three operator inputs. We pin the resolution surface
     // (canonical drain_timeout_ms arg + sub-minute-default literal)
     // rather than the old `drainTimeoutMinutes * 60 * 1000` math, which
-    // is gone after the refactor. The regression-guard intent is
-    // preserved: the only failure path is still the user-set timeout.
+    // is gone after the refactor.
     expect(src).toMatch(/drain_timeout_ms/);
     expect(src).toMatch(/DEFAULT_DRAIN_TIMEOUT_MS\s*=\s*60_?000/);
+  });
+
+  it('drain timeout proceeds with restart (not abort) — Phase D survivor re-adoption', () => {
+    // Phase D §2.5.3: drain timeout is a UX preference, not a correctness
+    // gate. When the budget is exhausted with tasks still running, the
+    // barrier mirrors the clean-drain handoff path — stage handoff, emit
+    // shutdown, let the successor instance complete the barrier and
+    // re-adopt detached subprocesses on boot. Earlier behavior marked the
+    // barrier `failed` and called `clearRestartIntent()`, which left
+    // operators stuck on old code and forced a manual cutover re-run.
+    const timeoutBranch = src.match(
+      /if\s*\(\s*elapsed\s*>=\s*drainTimeoutMs\s*\)\s*\{[\s\S]*?\n\s{4}\}/
+    );
+    expect(timeoutBranch, 'timeout branch not found in tools.js').toBeTruthy();
+    const branchSrc = timeoutBranch[0];
+    // Mirrors the clean-drain handoff sequence
+    expect(branchSrc).toMatch(/stageRestartHandoff\(/);
+    expect(branchSrc).toMatch(/persistRestartIntent\(/);
+    expect(branchSrc).toMatch(/_torqueRestartPending\s*=\s*true/);
+    expect(branchSrc).toMatch(/eventBus\.emitShutdown/);
+    // Barrier stays non-terminal (status='running' with output update);
+    // the successor instance flips it to completed after startup.
+    expect(branchSrc).toMatch(/updateTaskStatus\(\s*barrierId\s*,\s*'running'/);
+    // Regression guard: must NOT mark failed or clear the restart intent —
+    // those were the symptoms of the abort-on-timeout behavior.
+    expect(branchSrc).not.toMatch(/updateTaskStatus\(\s*barrierId\s*,\s*'failed'/);
+    expect(branchSrc).not.toMatch(/clearRestartIntent\(/);
   });
 });

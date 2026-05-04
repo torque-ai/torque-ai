@@ -724,19 +724,37 @@ async function handleRestartServerBarrier(args) {
     const elapsed = Date.now() - drainStarted;
     if (elapsed >= drainTimeoutMs) {
       clearInterval(drainPoll);
-      logger.info(`[Restart] Drain timeout — ${running} task(s) still running after ${drainTimeoutMs} ms. Cancelling barrier.`);
       const elapsedSummary = drainTimeoutMs >= 60_000
         ? `${(drainTimeoutMs / 60_000).toFixed(1)} min`
         : `${drainTimeoutMs} ms`;
-      taskCore.updateTaskStatus(barrierId, 'failed', {
-        error_output: `Drain timed out: ${running} task(s) still running after ${elapsedSummary}`,
-        completed_at: new Date().toISOString(),
+      // Phase D / §2.5.3: drain timeout is a UX preference, not a correctness
+      // gate. With detached subprocesses (codex/codex-spark/claude-cli) and
+      // the startup-task-reconciler's re-adoption path, surviving work is
+      // picked back up by the new instance. HTTP-based providers (ollama)
+      // get reset by the same reconciler. Earlier behavior — mark barrier
+      // failed and leave the server running on old code — defeated the
+      // documented design and forced operators to re-run the cutover.
+      // Mirror the clean-drain handoff path: stage the handoff, emit
+      // shutdown, and let the successor instance complete the barrier
+      // after it boots.
+      logger.info(`[Restart] Drain timeout — ${running} task(s) still running after ${elapsedSummary}. Proceeding with restart; survivors will be re-adopted on next startup.`);
+      process._torqueRestartPending = true;
+      persistRestartIntent({
+        phase: 'handoff_staged',
+        running_count: running,
+        queued_held_count: 0,
+        drain_timed_out_at: new Date().toISOString(),
+        survivor_count: running,
       });
-      clearRestartIntent();
-      try {
-        const { dispatchTaskEvent } = require('./hooks/event-dispatch');
-        dispatchTaskEvent('failed', taskCore.getTask(barrierId));
-      } catch { /* non-fatal */ }
+      stageRestartHandoff({ barrierId, reason });
+      taskCore.updateTaskStatus(barrierId, 'running', {
+        output: `Drain timed out after ${elapsedSummary}; restart proceeding with ${running} surviving task(s) — startup reconciler will re-adopt detached subprocesses and reset HTTP-based survivors.`,
+      });
+      // Same grace as the clean-drain path: let awaiters see the handoff
+      // event before shutdown.
+      setTimeout(() => {
+        eventBus.emitShutdown(`restart (drain timeout, ${running} survivor${running === 1 ? '' : 's'}): ${reason}`);
+      }, RESTART_RESPONSE_GRACE_MS);
       return;
     }
 
