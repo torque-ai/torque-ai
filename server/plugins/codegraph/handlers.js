@@ -19,7 +19,7 @@ function requireString(args, key) {
   return args[key];
 }
 
-// MCP tool response envelope. The REST passthrough at api-server.core.js reads
+// MCP tool response envelope. The REST passthrough at api-server.js reads
 // result.content[0].text — bare object returns surface as empty `result: ""`.
 function asToolResult(payload) {
   return {

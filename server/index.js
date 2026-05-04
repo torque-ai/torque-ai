@@ -1667,9 +1667,8 @@ function init() {
   }
 
   // Wire quota quota tracker to REST API and dashboard routes
-  const apiServerCore = require('./api-server.core');
-  if (apiServerCore.setQuotaTrackerGetter && taskManager.getFreeQuotaTracker) {
-    apiServerCore.setQuotaTrackerGetter(taskManager.getFreeQuotaTracker);
+  if (apiServer.setQuotaTrackerGetter && taskManager.getFreeQuotaTracker) {
+    apiServer.setQuotaTrackerGetter(taskManager.getFreeQuotaTracker);
   }
   try {
     const v2AnalyticsHandlers = require('./api/v2-analytics-handlers');

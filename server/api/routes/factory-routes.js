@@ -183,7 +183,7 @@ const FACTORY_V2_ROUTES = [
       factoryHandlers.handleAwaitFactoryLoop,
       async () => {
         // NOTE: custom-handler routes do NOT auto-parse the body (see
-        // api-server.core.js line 359) — we must parse it ourselves, otherwise
+        // api-server.js line 359) — we must parse it ourselves, otherwise
         // req.body is undefined and every param silently falls back to default.
         const body = await readFactoryBody(req);
         return {

@@ -194,7 +194,7 @@ function seedEvaluation(overrides = {}) {
 
 beforeAll(async () => {
   ({ db } = setupTestDbOnly('api-v2-policy'));
-  api = require('../api-server.core');
+  api = require('../api-server');
 
   const mockServer = {
     on: vi.fn(),
@@ -358,7 +358,7 @@ describe('api v2 policy routes', () => {
         target_type: 'task',
         target_id: 'task-123',
         project_id: 'Torque',
-        changed_files: ['server/api-server.core.js'],
+        changed_files: ['server/api-server.js'],
         provider: 'codex',
       },
     });

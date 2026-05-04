@@ -10,7 +10,7 @@
  *
  * Dashboard port (3456) binds to 127.0.0.1 only (see httpServer.listen below)
  * and is intended for local browser access. The API port (3457) is handled by
- * api-server.core.js for separate programmatic access.
+ * api-server.js for separate programmatic access.
  */
 
 const http = require('http');

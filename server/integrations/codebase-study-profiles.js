@@ -170,7 +170,7 @@ const TORQUE_PROFILE = Object.freeze({
       label: 'Control-plane API',
       description: 'HTTP and transport surfaces that expose TORQUE task, provider, workflow, and governance operations.',
       prefixes: ['server/api/'],
-      exact: ['server/index.js', 'server/api-server.js', 'server/api-server.core.js'],
+      exact: ['server/index.js', 'server/api-server.js'],
     },
     {
       id: 'workflow-orchestration',

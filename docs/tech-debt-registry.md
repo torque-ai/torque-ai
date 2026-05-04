@@ -19,7 +19,7 @@ but represent opportunities for future cleanup sprints.
 
 | File | Line | Description |
 |------|------|-------------|
-| `server/api-server.core.js` | 9 | Commented-out `require('https')` — removed but comment left in place |
+| `server/api-server.js` | 9 | Commented-out `require('https')` — removed but comment left in place |
 | `server/task-manager.js` | 390 | Comment block "Secret sanitization constants moved to output-safeguards.js (unused here)" — remove dead comment |
 | `server/task-manager.js` | 1155 | Large comment block `/* ---- REMOVED: buildAiderCommand body ... ----` — leftover tombstone |
 | `server/providers/adapters/google-chat.js` | 37 | JSDoc `@param {Object} [params.options]` marked "currently unused" — param never wired |
@@ -57,7 +57,7 @@ but represent opportunities for future cleanup sprints.
 | `server/handlers/task/core.js` | 369 | Double metadata parse in same function — parses `taskRow2.metadata` then `taskRow.metadata` independently |
 | `server/handlers/task/core.js` | 382 | Second metadata parse in same function (see line 369) |
 | `server/api/v2-analytics-handlers.js` | 556 | Inline try/catch in `.filter()` callback — one-liner with silenced error |
-| `server/api-server.core.js` | 2208 | Same inline try/catch in `.filter()` callback — copy of above |
+| `server/api-server.js` | 2208 | Same inline try/catch in `.filter()` callback — copy of above |
 | `server/dashboard/routes/analytics.js` | 703 | Third copy of the inline try/catch `.filter()` pattern |
 | `server/db/analytics.js` | 968 | `WHERE enabled = 1 AND ? LIKE '%' || error_pattern || '%'` — reversed LIKE (searching for value that contains pattern); confusing intent |
 | `server/api/v2-control-plane.js` | 54 | Metadata parse without try/catch — unprotected JSON.parse |
@@ -80,7 +80,7 @@ but represent opportunities for future cleanup sprints.
 | `server/tool-defs/advanced-defs.js` | 131 | Description "Auto-approve **Codex** actions" — duplicate of task-management-defs naming issue |
 | `server/tool-defs/provider-defs.js` | 11 | Description "switching a task from its current provider (e.g., **Codex**) to an alternative" — fine as example but naming pattern inconsistent across tool descriptions |
 | `server/api/v2-analytics-handlers.js` | 556 | `m?.intended_provider === 'codex'` — lowercase string used directly instead of provider constant |
-| `server/api-server.core.js` | 2208 | Same `intended_provider === 'codex'` — string literal instead of constant |
+| `server/api-server.js` | 2208 | Same `intended_provider === 'codex'` — string literal instead of constant |
 | `server/dashboard/routes/analytics.js` | 703 | Third occurrence of `intended_provider === 'codex'` string literal |
 | `server/handlers/ci-handlers.js` | 63 | Accepts both `args.poll_interval_ms` and `args.pollIntervalMs` — camelCase/snake_case dual-accept pattern |
 | `server/ci/watcher.js` | 382 | `options.pollIntervalMs || options.poll_interval_ms` — same dual-accept pattern in watcher |
@@ -310,8 +310,8 @@ but represent opportunities for future cleanup sprints.
 | `server/api/v2-governance-handlers.js` | 652 | `s + (r.total_tasks || 0)` in reduce — same `|| 0` where `?? 0` is correct |
 | `server/api/v2-governance-handlers.js` | 660 | `s + (r.total_cost || 0)` — same |
 | `server/api/v2-governance-handlers.js` | 765 | `entry[...] = dayData.total || 0` — day's total tasks could be 0 |
-| `server/api-server.core.js` | 365 | `(health?.successes || 0) + (health?.failures || 0)` — both could be 0 for new providers |
-| `server/api-server.core.js` | 379 | `Number(provider?.max_concurrent) || 0` — 0 means "unlimited" here; `|| 0` overwrites null with 0 which changes semantics |
+| `server/api-server.js` | 365 | `(health?.successes || 0) + (health?.failures || 0)` — both could be 0 for new providers |
+| `server/api-server.js` | 379 | `Number(provider?.max_concurrent) || 0` — 0 means "unlimited" here; `|| 0` overwrites null with 0 which changes semantics |
 | `server/api/health-probes.js` | 73 | `db.countTasks({ status: 'queued' }) || 0` — `countTasks` returns 0 on empty, not null; `|| 0` is redundant |
 | `server/api/health-probes.js` | 74 | `db.countTasks({ status: 'running' }) || 0` — same |
 | `server/benchmark.js` | 192 | `response.prompt_eval_count || 0` — token count could be 0 for cached responses |

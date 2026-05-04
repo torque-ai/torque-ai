@@ -1102,7 +1102,7 @@ async function dispatch(req, res, context) {
 
     // No dashboard route matched — forward unmatched /api/v2/ requests to the
     // main API server (port 3457) so the dashboard origin (3456) can reach
-    // endpoints defined in api-server.core.js (e.g. /api/v2/factory/*).
+    // endpoints defined in api-server.js (e.g. /api/v2/factory/*).
     // Non-v2 /api/ routes stay local and 404 when no dashboard route matches.
     if (url.startsWith('/api/v2/')) {
       return await proxyToMainApi(req, res);

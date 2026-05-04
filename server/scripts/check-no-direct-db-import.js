@@ -43,7 +43,7 @@ const ALLOWED = new Set([
   'handlers/competitive-feature-handlers.js', // getDbInstance for scoring/indexer
   'handlers/automation-handlers.js',  // safeAddColumn — schema migrations
   // Core infrastructure — heaviest facade consumers, migrate last
-  'api-server.core.js',              // broad facade usage, Phase 5 final migration
+  'api-server.js',                   // broad facade usage, Phase 5 final migration
   'dashboard-server.js',             // broad facade usage, Phase 5 final migration
   'task-manager.js',                 // heaviest consumer — uses everything
   'api/v2-analytics-handlers.js',    // getDbInstance for raw SQL + facade functions

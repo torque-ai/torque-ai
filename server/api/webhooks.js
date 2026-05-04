@@ -8,7 +8,7 @@ const { sendJson } = require('./middleware');
 const RAW_WEBHOOK_BODY_LIMIT_BYTES = 10 * 1024 * 1024; // 10MB
 const BODY_PARSE_TIMEOUT_MS = 30000;
 
-// Dependency-injected getter for FreeQuotaTracker (set by api-server.core.js)
+// Dependency-injected getter for FreeQuotaTracker (set by api-server.js)
 let _quotaTrackerGetter = null;
 function setQuotaTrackerGetter(getter) { _quotaTrackerGetter = getter; }
 

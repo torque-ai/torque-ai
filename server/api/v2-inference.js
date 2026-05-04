@@ -3,7 +3,7 @@
 /**
  * api/v2-inference.js — V2 provider inference execution engine.
  *
- * Extracted from api-server.core.js (Phase 4: Big File Decomposition).
+ * Extracted from api-server.js (Phase 4: Big File Decomposition).
  * Contains the sync/stream/async inference pipeline and all supporting helpers.
  */
 

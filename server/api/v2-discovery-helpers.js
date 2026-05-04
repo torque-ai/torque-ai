@@ -4,7 +4,7 @@
  * Provider descriptor building, model resolution, health payloads,
  * and response envelope helpers for the V2 REST API.
  *
- * Extracted from api-server.core.js to reduce file size.
+ * Extracted from api-server.js to reduce file size.
  */
 
 const serverConfig = require('../config');
