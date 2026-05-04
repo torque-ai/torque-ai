@@ -382,10 +382,45 @@ function setDataDir(dir) {
   _dataDir = dir || null;
 }
 
+/**
+ * Resolve the per-task log directory used by the subprocess-detachment
+ * arc (Phase A — see
+ * docs/design/2026-05-03-subprocess-detachment-codex-spike.md §2.5.1).
+ *
+ * Path shape: <data-dir>/task-logs/<sanitized-task-id>/
+ *
+ * Same convention as snapscope captures and the codegraph index — a
+ * single Docker volume mount or backup snapshot covers torque.db plus
+ * all task artifacts.
+ *
+ * The taskId is sanitized to a conservative cross-platform safe set
+ * (alphanumeric, dot, dash, underscore) so a malformed id can never
+ * traverse out of the task-logs directory. Anything else collapses to
+ * underscores; a fully-empty result rejects with an Error so callers
+ * fail fast instead of writing logs into the parent task-logs/ root.
+ *
+ * @param {string} taskId
+ * @returns {string} absolute path to the per-task log directory
+ *                   (the directory itself is NOT created — caller
+ *                   does fs.mkdirSync(..., { recursive: true })
+ *                   when it actually opens the log files).
+ */
+function getTaskLogDir(taskId) {
+  if (typeof taskId !== 'string' || taskId.length === 0) {
+    throw new Error('getTaskLogDir requires a non-empty taskId string');
+  }
+  const safe = taskId.replace(/[^A-Za-z0-9._-]/g, '_');
+  if (safe.length === 0 || safe === '.' || safe === '..') {
+    throw new Error(`getTaskLogDir: taskId sanitized to an unsafe value: ${JSON.stringify(taskId)}`);
+  }
+  return path.join(getDataDir(), 'task-logs', safe);
+}
+
 module.exports = {
   ensureWritableDir,
   getDataDir,
   setDataDir,
+  getTaskLogDir,
   migrateLegacyProviderConfigs,
   HOME_DATA_DIR,
   LEGACY_DATA_DIR,

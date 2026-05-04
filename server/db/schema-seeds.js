@@ -461,6 +461,18 @@ function seedDefaults(db, logger, safeAddColumn, extras = {}) {
   setConfigDefault('output_limits_enabled', '1');
   setConfigDefault('audit_trail_enabled', '1');
   setConfigDefault('task_output_retention_days', '30');
+  // Subprocess-detachment Phase A defaults (see
+  // docs/design/2026-05-03-subprocess-detachment-codex-spike.md §2.5.2):
+  // - task_log_retention_days: maintenance scheduler prunes per-task
+  //   log directories older than this. Defaults to 30 days, matching
+  //   task_output_retention_days. Operators can extend (compliance) or
+  //   shorten (disk pressure) without a code change.
+  // - task_log_max_bytes: per-task hard cap. When the on-disk log
+  //   exceeds this size, the tailer truncates from the head with an
+  //   in-place rewrite. 100 MB is 10x the in-memory _MAX_OUTPUT_BUFFER,
+  //   enough headroom for the longest healthy codex runs.
+  setConfigDefault('task_log_retention_days', '30');
+  setConfigDefault('task_log_max_bytes', String(100 * 1024 * 1024));
   safeAddColumn('rate_limits', 'provider TEXT');
   safeAddColumn('rate_limits', 'enabled INTEGER DEFAULT 1');
   const insertWindowRateLimit = db.prepare(`

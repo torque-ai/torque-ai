@@ -173,7 +173,14 @@ const VALID_CONFIG_KEYS = new Set([
   'v2_auth_mode',
   'v2_rate_limit',
   'v2_rate_policy',
-  'workflow_retention_days'
+  'workflow_retention_days',
+  // Subprocess-detachment phase A — task log retention + per-task cap.
+  // See docs/design/2026-05-03-subprocess-detachment-codex-spike.md §2.5.2.
+  // The detached spawn path that writes to per-task log files lands in
+  // Phase B; the keys are registered now so Phase B has a stable surface
+  // and operators can see them immediately in the dashboard.
+  'task_log_retention_days',
+  'task_log_max_bytes'
 ]);
 
 module.exports = { VALID_CONFIG_KEYS };
