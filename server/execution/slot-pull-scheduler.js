@@ -22,6 +22,9 @@ const { isRestartBarrierActive } = require('./restart-barrier');
 const { promotePendingRestartResubmissions } = require('./restart-resubmit-queue');
 const { createSharedFactoryStore } = require('../db/shared-factory-store');
 
+// ── Legacy module-level state, written only by init() (deprecated) ─────────
+// Phase 3 of the universal-DI migration. Replaces the prior stub
+// createSlotPullScheduler factory with one that actually closes over deps.
 let _db = null;
 let _startTask = null;
 let _dashboard = null;
@@ -38,6 +41,7 @@ const CODEX_PROVIDER = 'codex';
 // Ollama tasks share host VRAM and must respect host-level max_concurrent.
 const OLLAMA_PROVIDERS = new Set(['ollama']);
 
+/** @deprecated Use createSlotPullScheduler(deps) or container.get('slotPullScheduler'). */
 function init(deps) {
   stopHeartbeat(); // clear any existing interval before re-initializing
   if (deps.db) { _db = deps.db; capabilities.setDb(deps.db); perfTracker.setDb(deps.db); }
@@ -622,24 +626,61 @@ function stopHeartbeat() {
   if (_heartbeatInterval) { clearInterval(_heartbeatInterval); _heartbeatInterval = null; }
 }
 
-// ── Factory (DI Phase 3) ─────────────────────────────────────────────────
-
-function createSlotPullScheduler(_deps) {
-  // _deps reserved for dependency-boundary follow-up
+// ── New factory shape (preferred) ─────────────────────────────────────────
+// Replaces the prior placeholder createSlotPullScheduler stub with one that
+// actually closes over deps via the established module-state-swap pattern.
+function createSlotPullScheduler(deps = {}) {
+  const local = {
+    _db: deps.db,
+    _startTask: deps.startTask,
+    _dashboard: deps.dashboard,
+    _sharedFactoryStore: deps.sharedFactoryStore || null,
+    _projectContextOverride: {
+      projectId: deps.projectId || null,
+      projectName: deps.projectName || null,
+    },
+  };
+  function withLocalDeps(fn) {
+    const prev = { _db, _startTask, _dashboard, _sharedFactoryStore, _projectContextOverride };
+    _db = local._db;
+    _startTask = local._startTask;
+    _dashboard = local._dashboard;
+    _sharedFactoryStore = local._sharedFactoryStore;
+    _projectContextOverride = local._projectContextOverride;
+    try { return fn(); }
+    finally { ({ _db, _startTask, _dashboard, _sharedFactoryStore, _projectContextOverride } = prev); }
+  }
   return {
-    init, findBestTaskForProvider, claimTask, runSlotPullPass,
-    requeueAfterFailure, onSlotFreed, startHeartbeat, stopHeartbeat,
-    hasOllamaHostCapacity, getMaxRetries,
-    publishLocalCodexDemand, acquireSharedCodexClaim,
-    STARVATION_THRESHOLD_MS, OLLAMA_PROVIDERS,
+    findBestTaskForProvider: (...args) => withLocalDeps(() => findBestTaskForProvider(...args)),
+    claimTask: (...args) => withLocalDeps(() => claimTask(...args)),
+    runSlotPullPass: (...args) => withLocalDeps(() => runSlotPullPass(...args)),
+    requeueAfterFailure: (...args) => withLocalDeps(() => requeueAfterFailure(...args)),
+    onSlotFreed: (...args) => withLocalDeps(() => onSlotFreed(...args)),
+    startHeartbeat: (...args) => withLocalDeps(() => startHeartbeat(...args)),
+    stopHeartbeat: (...args) => withLocalDeps(() => stopHeartbeat(...args)),
+    hasOllamaHostCapacity: (...args) => withLocalDeps(() => hasOllamaHostCapacity(...args)),
+    getMaxRetries: (...args) => withLocalDeps(() => getMaxRetries(...args)),
+    publishLocalCodexDemand: (...args) => withLocalDeps(() => publishLocalCodexDemand(...args)),
+    acquireSharedCodexClaim: (...args) => withLocalDeps(() => acquireSharedCodexClaim(...args)),
   };
 }
 
+function register(container) {
+  container.register(
+    'slotPullScheduler',
+    ['db', 'startTask', 'dashboard', 'sharedFactoryStore', 'projectId', 'projectName'],
+    (deps) => createSlotPullScheduler(deps)
+  );
+}
+
 module.exports = {
+  // New shape (preferred)
+  createSlotPullScheduler,
+  register,
+  // Legacy shape (kept until task-manager.js migrates)
   init, findBestTaskForProvider, claimTask, runSlotPullPass,
   requeueAfterFailure, onSlotFreed, startHeartbeat, stopHeartbeat,
   hasOllamaHostCapacity, getMaxRetries,
   publishLocalCodexDemand, acquireSharedCodexClaim,
   STARVATION_THRESHOLD_MS, OLLAMA_PROVIDERS,
-  createSlotPullScheduler,
 };
