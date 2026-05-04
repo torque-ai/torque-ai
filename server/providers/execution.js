@@ -514,7 +514,23 @@ function taskExplicitlyReadOnly(taskDescription, metadata) {
     return true;
   }
 
-  return /\bread[-\s]?only\b/i.test(taskDescription)
+  // Description-level read-only detection. The unhyphenated "read only"
+  // form (with whitespace) collides with instructional prose like
+  // "use read_file with start_line/end_line to read only the relevant
+  // 30-50 lines" — the Phase O ollama-edit-guidance attached to all
+  // DLPhone tasks via factory `expected_provider:ollama`. That false
+  // positive made every such task evaluate as read-only, which set
+  // taskExpectsModification=false in runAgenticLoop and made
+  // shouldEscalateNoOpAgenticResult return false — so qwen3-coder:30b
+  // tasks that produced 0 edits silently completed exit_code=0.
+  // Live evidence (2026-05-04): DLPhone task fca0050e (1m 56s, 7 reads,
+  // 0 writes, exit 0) bypassed the no-op defense via this path.
+  //
+  // Restrict to the unambiguous adjectival forms — hyphenated "read-only"
+  // or conjoined "readonly". Tasks that need read-only intent without one
+  // of these spellings should set the metadata.read_only flag explicitly,
+  // not rely on instructional prose containing "read only".
+  return /\b(?:read-only|readonly)\b/i.test(taskDescription)
     || /\b(?:do not|don't)\s+(?:edit|create|delete|modify|write|move|format|change|update)\b[^.!\n\r]*\bfiles?\b/i.test(taskDescription)
     || /\bno\s+(?:file\s+)?(?:edits?|changes?|writes?|modifications?)\b/i.test(taskDescription);
 }
