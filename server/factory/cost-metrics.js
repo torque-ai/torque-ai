@@ -17,8 +17,11 @@ const EMPTY_TASK_COST_DATA = Object.freeze({
 
 const BATCH_TAG_PREFIXES = Object.freeze(['', 'batch:', 'factory:', 'workflow:']);
 
+// ── Legacy module-level state, written only by init() (deprecated) ─────────
+// Phase 4 of the universal-DI migration. Coexistence pattern.
 let _db = null;
 
+/** @deprecated Use createCostMetrics(deps) or container.get('costMetrics'). */
 function init(deps = {}) {
   if (deps.db) {
     _db = deps.db;
@@ -305,7 +308,31 @@ function roundMetric(value) {
   return Math.round(normalized * 10000) / 10000;
 }
 
+// ── New factory shape (preferred) ─────────────────────────────────────────
+function createCostMetrics(deps = {}) {
+  const local = { _db: deps.db };
+  function withLocalDeps(fn) {
+    const prev = { _db };
+    if (local._db !== undefined) _db = local._db;
+    try { return fn(); } finally { _db = prev._db; }
+  }
+  return {
+    getCostPerCycle: (...args) => withLocalDeps(() => getCostPerCycle(...args)),
+    getCostPerHealthPoint: (...args) => withLocalDeps(() => getCostPerHealthPoint(...args)),
+    getProviderEfficiency: (...args) => withLocalDeps(() => getProviderEfficiency(...args)),
+    buildProjectCostSummary: (...args) => withLocalDeps(() => buildProjectCostSummary(...args)),
+  };
+}
+
+function register(container) {
+  container.register('costMetrics', ['db'], (deps) => createCostMetrics(deps));
+}
+
 module.exports = {
+  // New shape (preferred)
+  createCostMetrics,
+  register,
+  // Legacy shape (kept until task-manager.js migrates)
   init,
   getCostPerCycle,
   getCostPerHealthPoint,

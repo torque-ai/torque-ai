@@ -12,8 +12,11 @@ const VALID_CORRECTION_TYPES = new Set([
   'trust_adjustment',
 ]);
 
+// ── Legacy module-level state, written only by init() (deprecated) ─────────
+// Phase 4 of the universal-DI migration. Coexistence pattern.
 let _db = null;
 
+/** @deprecated Use createFeedback(deps) or container.get('factoryFeedback'). */
 function init(deps = {}) {
   if (deps.db) {
     _db = deps.db;
@@ -458,7 +461,32 @@ function formatCurrency(value) {
   return `$${toNumber(value).toFixed(2)}`;
 }
 
+// ── New factory shape (preferred) ─────────────────────────────────────────
+function createFeedback(deps = {}) {
+  const local = { _db: deps.db };
+  function withLocalDeps(fn) {
+    const prev = { _db };
+    if (local._db !== undefined) _db = local._db;
+    try { return fn(); } finally { _db = prev._db; }
+  }
+  return {
+    analyzeBatch: (...args) => withLocalDeps(() => analyzeBatch(...args)),
+    detectDrift: (...args) => withLocalDeps(() => detectDrift(...args)),
+    recordHumanCorrection: (...args) => withLocalDeps(() => recordHumanCorrection(...args)),
+  };
+}
+
+// Registered as 'factoryFeedback' to keep the container namespace clean
+// from any future generic 'feedback' service.
+function register(container) {
+  container.register('factoryFeedback', ['db'], (deps) => createFeedback(deps));
+}
+
 module.exports = {
+  // New shape (preferred)
+  createFeedback,
+  register,
+  // Legacy shape (kept until task-manager.js migrates)
   init,
   analyzeBatch,
   detectDrift,
