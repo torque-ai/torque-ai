@@ -30,6 +30,55 @@ The 10 cancellations on 2026-05-03 traced exactly to this path.
 
 Spawn codex with `detached: true` and stdio routed to **on-disk log files**, not in-memory pipes. Persist `subprocess_pid`, `output_log_path`, `error_log_path`, `output_log_offset`, `error_log_offset`, and `last_activity_at` on the task row. Output handlers become file-tailers (read from offset, advance offset) instead of pipe consumers. On TORQUE startup, read `tasks WHERE status IN ('running','claimed')`, liveness-check each PID, and either re-adopt (re-attach a tailer, restore stall-detection state) or reconcile (mark cancelled — same as today). Restart no longer kills work; the only lost time is the seconds between TORQUE exiting and the new TORQUE re-adopting the tailer.
 
+## 2.5. Policy decisions (resolved 2026-05-03)
+
+Four operator-visible behaviors got decided up front so the implementation doesn't end up baking in defaults that can't be tuned later. The unifying principle: **make everything configurable with sensible defaults, never bake operator preferences into code**.
+
+### 2.5.1 Log location: server data dir
+
+Per-task log directories live at `<server-data-dir>/task-logs/<task_id>/` resolved via the existing `data-dir.js` helper. Same convention as snapscope captures and the codegraph index. One volume mount in Docker covers everything; one backup snapshot is consistent across `torque.db` + logs; matches the existing operator mental model. (Rejected: `~/.torque/task-logs/` — bakes in a "user home" assumption that breaks under containerization, multi-user enterprise mode, and any non-standard deployment.)
+
+### 2.5.2 Retention: configurable, gzip on finalize
+
+Two-step retention, both controlled by config keys with sensible defaults:
+
+- **Compress on finalize.** Always. Log text gzips ~10× (irreversible win), runs once per task, costs nothing for live operations. Not configurable — there's no reason to keep logs uncompressed once the task is done.
+- **Prune after `task_log_retention_days`.** DB config key, default `30`. Maintenance scheduler runs the prune; emits an audit row per delete so forensics can reconstruct what was removed. Operator-visible status surface (`get_task_log_disk_usage`) reports total bytes and oldest log age so operators know when to extend retention.
+
+This is the **actual** future-proofing move: literal day-counts will always be wrong for somebody, but a config key with a default and a maintenance scheduler that respects it is correct for everyone.
+
+### 2.5.3 Drain barrier: UX-tunable, not a correctness mechanism
+
+Once re-adoption works, the drain barrier no longer prevents data loss — re-adoption does. The drain becomes a **UX preference**: should awaiters and dashboard sessions see results before the new instance loads, or is restart latency more important?
+
+Make it a parameter on `restart_server`:
+
+```js
+restart_server({ drain_timeout_ms: 60000 })   // default 60s — graceful awaiter window
+restart_server({ drain_timeout_ms: 0 })       // immediate restart; re-adoption catches survivors
+restart_server({ drain_timeout_ms: 600000 })  // slow restart for awaiter-sensitive operations
+```
+
+Default drops from "minutes-long drain" to **60 seconds**. The cutover script (`scripts/worktree-cutover.sh`) gains a `--graceful` flag that passes a 10-min drain (today's default behavior); without it, restarts are fast and re-adoption catches everything.
+
+The change is conceptual, not just numeric: today's drain is "wait until safe to shutdown"; the new drain is "give awaiters time to finish reporting before the control plane reshuffles."
+
+### 2.5.4 Cancel verbs: one verb, progressive force levels
+
+Today's `cancel_task` does graceful kill. With detached subprocesses, the parent has less control over the child, and there are real operational gaps that need explicit modes — but a separate `force_kill_task` verb doubles the API surface and splits the audit trail.
+
+Extend `cancel_task` with two flags:
+
+```js
+cancel_task({ task_id })                  // default — graceful: SIGTERM, 30s wait, SIGKILL if still alive
+cancel_task({ task_id, force: true })     // immediate SIGKILL — for stuck-in-tight-loop cases like c8ba9257
+cancel_task({ task_id, abandon: true })   // mark cancelled in DB but leave subprocess alive
+                                          //   → reconciler picks it up next tick
+                                          //   → escape hatch for "let codex finish naturally"
+```
+
+The mode lands in the decision log (`cancel_reason: 'graceful' | 'force' | 'abandon'`) so forensics can distinguish without needing separate verbs. `abandon` is the genuinely-new escape hatch — today there's no way to detach a task from TORQUE while leaving the subprocess to finish; with detached subprocesses there's now a clean path for it.
+
 ## 3. Today's codex execution pipeline (file-by-file)
 
 Mapped from `server/providers/execute-cli.js` plus its callers:
@@ -89,13 +138,15 @@ Reads `proc.lastOutputAt` from the in-memory map. If the gap exceeds the configu
 
 ```js
 const fs = require('fs');
-const path = require('path');
+const { getTaskLogDir } = require('../utils/data-dir'); // new helper, §2.5.1
 
-// Resolve a per-task log directory: <data-dir>/task-logs/<taskId>/
-const logDir = path.join(getDataDir(), 'task-logs', taskId);
+// Per-task log directory under the server data dir, alongside torque.db
+// and snapscope/codegraph artifacts. One volume mount covers all three
+// in Docker; backup snapshots stay consistent.
+const logDir = getTaskLogDir(taskId);
 fs.mkdirSync(logDir, { recursive: true });
-const stdoutPath = path.join(logDir, 'stdout.log');
-const stderrPath = path.join(logDir, 'stderr.log');
+const stdoutPath = `${logDir}/stdout.log`;
+const stderrPath = `${logDir}/stderr.log`;
 
 const stdoutFd = fs.openSync(stdoutPath, 'a');
 const stderrFd = fs.openSync(stderrPath, 'a');
@@ -372,11 +423,12 @@ Today's worktree merge runs in the close handler, which means it runs AFTER the 
 
 ### 6.5 Disk space
 
-Per-task logs grow unbounded today (the in-memory cap doesn't apply to disk). A typical codex task writes 50KB-2MB of stderr; a runaway one could write GB. Mitigations:
+Per-task logs grow unbounded today (the in-memory cap doesn't apply to disk). A typical codex task writes 50KB-2MB of stderr; a runaway one could write GB. Mitigations are governed by §2.5.2's configurable retention:
 
-- After finalization, gzip the per-task log dir into the existing run-dir archive (already exists for codex artifacts).
-- Stream-truncate the `task_stream_chunks` table for completed tasks via the existing maintenance scheduler (already exists).
-- Set a per-task hard cap (e.g. 100 MB) and have the tailer truncate from the head when exceeded. Logs longer than 100 MB are unreadable anyway.
+- **Always gzip on finalize.** ~10× compression on log text; runs once per task. Not configurable.
+- **Prune after `task_log_retention_days`** (default `30`, DB config key). Maintenance scheduler runs the prune and emits an audit row per delete.
+- **Per-task hard cap** to bound runaway tasks: `task_log_max_bytes` (default `100 * 1024 * 1024` = 100 MB). When the tailer detects the file size has exceeded the cap, it truncates from the head with a single in-place rewrite. Logs longer than 100 MB are unreadable anyway and 100 MB exceeds the in-memory `_MAX_OUTPUT_BUFFER` (10 MB) by 10× so existing buffer-size assumptions still hold.
+- **Operator-visible disk usage**: `get_task_log_disk_usage` MCP tool reports total bytes, oldest log age, and largest tasks. Lets operators decide when to extend retention before the prune fires.
 
 ### 6.6 Cross-restart `runningProcesses` reconstruction
 
@@ -423,14 +475,16 @@ A scratch codex task that runs 5 min on a small file. Trigger a TORQUE restart a
 
 Behind a feature flag — `TORQUE_DETACHED_SUBPROCESSES=1` (env var, opt-in). Default off for one release.
 
-1. **Phase A — schema + utilities** (1 day). Migration adds the new columns + index. Add `file-tail.js`, `is-pid-alive.js` utilities. No behavior change. No flag required.
-2. **Phase B — codex spawn under flag** (3 days). When flag is set, codex spawns detached with file-redirected stdio and uses tailer-based handlers. When flag is off, behavior is unchanged. New `runningProcesses` entries carry `output_log_path` / `pid` for re-adoption.
-3. **Phase C — re-adoption** (2 days). Add `reAdoptRunningTasks` to startup. Only applies to flagged tasks. Existing reconciler still runs for non-flagged.
-4. **Phase D — soak + extend to other providers** (1 week). Run with the flag on for codex only. Once verified across 3+ restarts with no orphan-cancel rows, replicate the pattern for claude-cli, ollama-agentic, claude-code-sdk.
-5. **Phase E — flip the default** (0.5 day). Flag default flips to on. The legacy pipe-based path is kept as `TORQUE_LEGACY_PIPE_SUBPROCESSES=1` for a release.
-6. **Phase F — delete legacy** (0.5 day). Remove the pipe-based code path. Update `startup-task-reconciler.js` to expect re-adoption to handle most cases; only PID-dead orphans go through the cancel path.
+1. **Phase A — schema + utilities + config keys** (1 day). Migration adds the new task columns + index. Add `file-tail.js`, `pid-liveness.js`, `data-dir.js#getTaskLogDir`. Register `task_log_retention_days` (default 30) and `task_log_max_bytes` (default 100 MB) config keys per §2.5.2. No behavior change. No flag required.
+2. **Phase B — codex spawn under flag** (3 days). When `TORQUE_DETACHED_SUBPROCESSES=1`, codex spawns detached with file-redirected stdio and uses tailer-based handlers. Without the flag, behavior is unchanged. New `runningProcesses` entries carry `output_log_path` / `pid` for re-adoption. Add the codex shell wrapper that emits `[process-exit] code=$?` per §6.2.
+3. **Phase C — re-adoption** (2 days). Add `reAdoptRunningTasks` to startup, BEFORE the existing reconciler. Only applies to flagged tasks. The epoch-orphan path in `await.js` becomes a no-op for tasks with valid `subprocess_pid` per Appendix A.
+4. **Phase D — drain + cancel_task surface** (1 day). Wire `restart_server({ drain_timeout_ms })` per §2.5.3 (default 60 s, replacing the hardcoded `drainTimeoutMinutes`). Wire `cancel_task({ force, abandon })` per §2.5.4. Add the `--graceful` flag to `scripts/worktree-cutover.sh`. These are independent of the detached-subprocess flag — they ship live.
+5. **Phase E — log retention scheduler + disk-usage tool** (0.5 day). Add the maintenance job that gzips on finalize and prunes after `task_log_retention_days`. Add the `get_task_log_disk_usage` MCP tool surface.
+6. **Phase F — soak + extend to other providers** (1 week). Run with `TORQUE_DETACHED_SUBPROCESSES=1` for codex only. Once verified across 3+ restarts with no orphan-cancel rows, replicate the pattern for claude-cli, ollama-agentic, claude-code-sdk.
+7. **Phase G — flip the default** (0.5 day). Flag default flips to on. The legacy pipe-based path is kept as `TORQUE_LEGACY_PIPE_SUBPROCESSES=1` for a release.
+8. **Phase H — delete legacy** (0.5 day). Remove the pipe-based code path. Update `startup-task-reconciler.js` to expect re-adoption to handle most cases; only PID-dead orphans go through the cancel path.
 
-Total: ~8 working days for codex; ~4 more for the other three providers in Phase D.
+Total: ~8 working days for codex (Phases A–E + G–H); ~5 more for the other three providers in Phase F. Phases D and E ship independently of the subprocess-detachment flag, so the operator-visible config surfaces (`drain_timeout_ms`, `cancel_task.force`/`abandon`, `task_log_retention_days`, `get_task_log_disk_usage`) land before any behavior change to subprocess management.
 
 ## 9. Risks
 
@@ -454,9 +508,10 @@ Phases B–F are an architectural change to the most performance-sensitive code 
 |---|---|
 | `server/db/migrations.js` | New migration: add `subprocess_pid`, `output_log_path`, `error_log_path`, `output_log_offset`, `error_log_offset`, `last_activity_at` columns + PID index |
 | `server/db/schema-tables.js` | Mirror columns for fresh DBs |
+| `server/db/config-core.js` | Register `task_log_retention_days` (default 30) and `task_log_max_bytes` (default 100 MB) config keys per §2.5.2 |
 | `server/utils/file-tail.js` | NEW — poller-based file tailer (§4.6) |
 | `server/utils/pid-liveness.js` | NEW — `isPidAlive` cross-platform helper (§4.4) |
-| `server/utils/data-dir.js` | Add `getTaskLogDir(taskId)` helper |
+| `server/utils/data-dir.js` | NEW helper `getTaskLogDir(taskId)` returning `<data-dir>/task-logs/<taskId>/` per §2.5.1 |
 | `server/providers/execute-cli.js` | `spawnAndTrackProcess` gains a flag-gated detached path that uses files + tailers |
 | `server/providers/execute-cli.js` | `child.on('close')` replaced with liveness-watcher + delayed exit handler in detached mode |
 | `server/providers/execute-cli.js` | Add a small shell wrapper around the codex command to emit `[process-exit] code=$?` to stderr (§6.2) |
@@ -464,18 +519,25 @@ Phases B–F are an architectural change to the most performance-sensitive code 
 | `server/utils/activity-monitoring.js` | Restore `proc.lastOutputAt` from `task.last_activity_at` on re-adoption |
 | `server/execution/startup-task-reconciler.js` | Add `reAdoptRunningTasks()` step before the existing reconciliation loop |
 | `server/index.js` | Wire `reAdoptRunningTasks()` into startup, BEFORE the reconciler |
-| `server/handlers/task/core.js` | `cancelTask` uses `proc.killSubprocess(signal)` (works for both pipe-children and detached PIDs) |
+| `server/handlers/task/core.js` | `cancelTask` gains `force` and `abandon` flags per §2.5.4: graceful default (SIGTERM, 30s wait, SIGKILL); `force` skips the wait; `abandon` marks DB cancelled but leaves the subprocess. Mode lands on `task.cancel_reason` for forensics |
+| `server/tool-defs/integration-defs.js` (or wherever `cancel_task` is declared) | Extend the JSON schema with `force` (boolean) and `abandon` (boolean) fields |
+| `server/tools.js` | `restart_server` accepts a `drain_timeout_ms` parameter per §2.5.3; default `60000`. The hardcoded `drainTimeoutMinutes` constant is replaced with the parameter |
+| `scripts/worktree-cutover.sh` | New `--graceful` flag passes `drain_timeout_ms=600000` to `restart_server`; without it, the cutover uses the new fast default |
 | `server/maintenance/orphan-cleanup.js` | Audit — any remaining `mcp_instance_id`-based cleanup paths should defer to PID liveness |
+| `server/maintenance/scheduler.js` | New maintenance job that prunes task logs older than `task_log_retention_days` and emits audit rows |
 | `server/handlers/workflow/await.js` | The epoch-orphan-cancel path (`Task orphaned — server epoch ...`) becomes a no-op for tasks with valid `subprocess_pid` |
-| `server/tools.js` | Drain barrier becomes optional for correctness; can be shortened to "wait for handoff staging then shutdown immediately" |
+| `server/handlers/get-task-log-disk-usage.js` (NEW) | MCP tool surface for §2.5.2's operator-visible disk usage report |
 | `server/tests/...` | New tests per §7 |
 
-## Appendix B — open questions for the user
+## Appendix B — resolved decisions (2026-05-03)
 
-1. **Disk location for task logs.** `~/.torque/task-logs/<taskId>/` (consistent with run-dirs) vs. `<server-data-dir>/task-logs/<taskId>/`. Same place as today's run artifacts? Different? Operator preference matters because backups and disk-quota rules differ.
+The four open questions from this doc's first draft were resolved in the same session. The full reasoning lives in §2.5 of this doc; this appendix is the executive summary so operators reading the appendix without scrolling up can see the conclusions.
 
-2. **Log retention policy.** Today's `task_stream_chunks` table is pruned by the maintenance scheduler. Per-task log files should be archived on completion and deleted after N days. What's N? 30? 7?
+| # | Question | Decision | Rationale (short) | Section |
+|---|---|---|---|---|
+| 1 | Disk location for task logs | `<server-data-dir>/task-logs/<task_id>/` via `data-dir.js` | One volume mount in Docker; one backup snapshot covers DB + logs; same convention as snapscope/codegraph | §2.5.1 |
+| 2 | Log retention policy | Always gzip on finalize; prune after `task_log_retention_days` (default 30, configurable); per-task hard cap `task_log_max_bytes` (default 100 MB) | The future-proof move is making the day-count and byte-cap configurable, not picking the "right" hardcoded value | §2.5.2 |
+| 3 | Drain barrier role | UX-tunable `drain_timeout_ms` parameter on `restart_server`; default 60 s; cutover script gains `--graceful` flag for 10-min drain | Re-adoption replaces drain's correctness role; remaining role is awaiter UX; operators choose | §2.5.3 |
+| 4 | Force-kill verb | Extend `cancel_task` with `force` (immediate SIGKILL) and `abandon` (mark DB cancelled, leave subprocess alive) flags | One verb keeps the API narrow; flags expose all three modes; mode lands in `cancel_reason` for forensics; `abandon` is the genuinely-new escape hatch | §2.5.4 |
 
-3. **Should the drain barrier still wait?** With re-adoption, drain becomes a UX preference (let awaiters see results before the new instance loads) rather than a correctness requirement. Default could become "shorter drain timeout, e.g. 30s, then restart anyway because re-adoption catches the survivors." Or keep the current minutes-long drain for graceful behavior. Either is fine; depends on how aggressive you want restarts to be.
-
-4. **Force-kill escape hatch.** Today an operator can `cancel_task` to kill stuck work. With detached subprocesses, the parent has less control over the child — the cancel path becomes "send SIGTERM via PID, wait, send SIGKILL." Need an explicit operator-visible "force kill" verb separate from "graceful cancel" so stuck tasks (like today's `c8ba9257` Git recovery loop) can still be cleared without restart. Confirms the existing `cancel_task` tool is sufficient or warrants a `force_kill_task`.
+The unifying principle: **make everything configurable with sensible defaults, never bake operator preferences into code**. Concrete config-key extension points: `task_log_retention_days`, `task_log_max_bytes`, `drain_timeout_ms` (per-call), `cancel_task.force` / `cancel_task.abandon` (per-call). Future operators can tune behavior via DB config or per-call args without a code change.
