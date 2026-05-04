@@ -39,7 +39,7 @@
  */
 
 const Database = require('better-sqlite3');
-const { createTables: ensureSchema } = require('../../db/schema-tables');
+const { createTables: ensureSchema } = require('../../db/schema/tables');
 
 // ---------------------------------------------------------------------------
 // Inline: hasAcceptanceCriterion + deterministicVerify + augment

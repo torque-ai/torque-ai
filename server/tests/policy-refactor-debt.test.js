@@ -205,7 +205,7 @@ describe('policy refactor debt adapter', () => {
     createTask('task-history-1');
     createTask('task-history-2');
     createTask('task-history-3');
-    const hotspotId = buildHotspotId('Torque', 'server/db/schema-tables.js');
+    const hotspotId = buildHotspotId('Torque', 'server/db/schema/tables.js');
     rawDb().prepare(`
       INSERT INTO refactor_hotspots (
         id, project, file_path, complexity_score, change_frequency, trend, created_at, updated_at
@@ -213,7 +213,7 @@ describe('policy refactor debt adapter', () => {
     `).run(
       hotspotId,
       'Torque',
-      'server/db/schema-tables.js',
+      'server/db/schema/tables.js',
       18,
       2,
       'stable',
@@ -222,21 +222,21 @@ describe('policy refactor debt adapter', () => {
     );
     seedComplexityMetric({
       taskId: 'task-history-1',
-      filePath: 'server/db/schema-tables.js',
+      filePath: 'server/db/schema/tables.js',
       cyclomatic: 6,
       cognitive: 12,
       analyzedAt: '2026-03-08T09:00:00.000Z',
     });
     seedComplexityMetric({
       taskId: 'task-history-2',
-      filePath: 'server/db/schema-tables.js',
+      filePath: 'server/db/schema/tables.js',
       cyclomatic: 7,
       cognitive: 14,
       analyzedAt: '2026-03-09T09:00:00.000Z',
     });
     seedComplexityMetric({
       taskId: 'task-history-3',
-      filePath: 'server/db/schema-tables.js',
+      filePath: 'server/db/schema/tables.js',
       cyclomatic: 10,
       cognitive: 19,
       analyzedAt: '2026-03-10T09:00:00.000Z',
@@ -244,7 +244,7 @@ describe('policy refactor debt adapter', () => {
 
     const evidence = refactorDebtAdapter.collectEvidence(
       { id: 'task-history-3', project: 'Torque' },
-      ['server/db/schema-tables.js'],
+      ['server/db/schema/tables.js'],
     );
     const hotspot = rawDb().prepare(`
       SELECT trend, change_frequency, last_worsened_at, complexity_score
@@ -252,7 +252,7 @@ describe('policy refactor debt adapter', () => {
       WHERE project = ? AND file_path = ?
       ORDER BY updated_at DESC, id DESC
       LIMIT 1
-    `).get('Torque', 'server/db/schema-tables.js');
+    `).get('Torque', 'server/db/schema/tables.js');
 
     expect(evidence.hotspots_worsened).toHaveLength(1);
     expect(evidence.hotspots_worsened[0]).toMatchObject({

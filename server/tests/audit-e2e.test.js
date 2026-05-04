@@ -19,7 +19,7 @@ const auditStore = require('../db/audit-store');
 
 // --- In-memory SQLite setup ---
 const Database = require('better-sqlite3');
-const { createTables } = require('../db/schema-tables');
+const { createTables } = require('../db/schema/tables');
 
 let rawDb;
 

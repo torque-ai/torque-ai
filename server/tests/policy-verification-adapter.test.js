@@ -64,7 +64,7 @@ describe('policy verification adapter', () => {
       value: [
         'server/policy-engine/engine.js',
         'server/tests/policy-verification-adapter.test.js',
-        'server/db/schema-migrations.js',
+        'server/db/schema/status-validation.js',
         'docs/policies.md',
         'server/package.json',
       ],
@@ -73,13 +73,13 @@ describe('policy verification adapter', () => {
     expect(changedFilesEvidence.categories.code).toEqual(expect.arrayContaining([
       'server/policy-engine/engine.js',
       'server/tests/policy-verification-adapter.test.js',
-      'server/db/schema-migrations.js',
+      'server/db/schema/status-validation.js',
     ]));
     expect(changedFilesEvidence.categories.test).toEqual(expect.arrayContaining([
       'server/tests/policy-verification-adapter.test.js',
     ]));
     expect(changedFilesEvidence.categories.schema).toEqual(expect.arrayContaining([
-      'server/db/schema-migrations.js',
+      'server/db/schema/status-validation.js',
     ]));
     expect(changedFilesEvidence.categories.docs).toEqual(expect.arrayContaining([
       'docs/policies.md',
@@ -95,7 +95,7 @@ describe('policy verification adapter', () => {
         verification_passed: true,
         build_passed: true,
       },
-      changed_files: ['server/db/schema-migrations.js'],
+      changed_files: ['server/db/schema/status-validation.js'],
     });
 
     expect(getEvidence(evidence, 'test_command_passed')).toEqual({
@@ -109,7 +109,7 @@ describe('policy verification adapter', () => {
       satisfied: true,
     });
     expect(getEvidence(evidence, 'changed_files_classified').categories.schema).toEqual([
-      'server/db/schema-migrations.js',
+      'server/db/schema/status-validation.js',
     ]);
   });
 });

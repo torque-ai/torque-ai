@@ -149,7 +149,7 @@ beforeEach(() => {
   // prepares statements at boot (e.g. providerCircuitBreakerStore queries
   // the provider_circuit_breaker table) finds its table. createFactoryTables
   // alone is not enough — it covers factory_* only.
-  require('../db/schema-tables').createTables(db, { debug: () => {}, info: () => {}, warn: () => {} });
+  require('../db/schema/tables').createTables(db, { debug: () => {}, info: () => {}, warn: () => {} });
   originalGetDbInstance = database.getDbInstance;
   database.getDbInstance = () => db;
 

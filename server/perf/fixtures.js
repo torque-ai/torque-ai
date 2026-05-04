@@ -8,7 +8,7 @@
 // module-scope path) coordinate via lazy-load + cached singleton.
 
 const Database = require('better-sqlite3');
-const { createTables } = require('../db/schema-tables');
+const { createTables } = require('../db/schema/tables');
 
 // Tiny seedable PRNG so fixtures are deterministic across runs.
 function mulberry32(seed) {

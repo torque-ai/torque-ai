@@ -2,8 +2,8 @@ const path = require('path');
 const fs = require('fs');
 const Database = require('better-sqlite3');
 
-const { createTables } = require('../db/schema-tables');
-const { seedDefaults } = require('../db/schema-seeds');
+const { createTables } = require('../db/schema/tables');
+const { seedDefaults } = require('../db/schema/seeds');
 
 const logger = {
   debug: () => {},
@@ -110,7 +110,7 @@ function getConfigValue(db, key) {
   return row ? row.value : null;
 }
 
-describe('db/schema-seeds', () => {
+describe('db/schema/seeds', () => {
   let db;
   let safeAddColumn;
   let setConfigDefault;

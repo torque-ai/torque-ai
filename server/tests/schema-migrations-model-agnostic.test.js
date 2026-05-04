@@ -6,7 +6,7 @@
  */
 
 const Database = require('better-sqlite3');
-const { migrateModelAgnostic } = require('../db/schema-migrations');
+const { migrateModelAgnostic } = require('../db/schema/status-validation');
 
 function makeDb() {
   const db = new Database(':memory:');

@@ -3773,7 +3773,7 @@ function createTables(db, logger) {
     logger.debug(`Schema migration (provider_circuit_breaker): ${e.message}`);
   }
 
-  const peekFixtureCatalog = require('./peek/fixture-catalog');
+  const peekFixtureCatalog = require('../peek/fixture-catalog');
   peekFixtureCatalog.setDb(db);
   peekFixtureCatalog.seedDefaultFixtures();
 }

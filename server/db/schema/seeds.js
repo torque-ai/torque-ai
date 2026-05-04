@@ -1,9 +1,9 @@
 'use strict';
 
 const path = require('path');
-const { FILE_SIZE_TRUNCATION_THRESHOLD } = require('../constants');
-const { REJECT_RECOVERY_CONFIG_DEFAULTS } = require('./config-core');
-const { seedBuiltinGovernanceRules } = require('./governance-rules');
+const { FILE_SIZE_TRUNCATION_THRESHOLD } = require('../../constants');
+const { REJECT_RECOVERY_CONFIG_DEFAULTS } = require('../config-core');
+const { seedBuiltinGovernanceRules } = require('../governance-rules');
 
 function seedDefaults(db, logger, safeAddColumn, extras = {}) {
   const { DATA_DIR, truncationThreshold, setConfigDefault } = extras;
@@ -555,7 +555,7 @@ function seedDefaults(db, logger, safeAddColumn, extras = {}) {
 
   // Seed routing template presets
   try {
-    const templateStore = require('../routing/template-store');
+    const templateStore = require('../../routing/template-store');
     templateStore.setDb(db);
     templateStore.ensureTable();
     templateStore.seedPresets();
@@ -565,7 +565,7 @@ function seedDefaults(db, logger, safeAddColumn, extras = {}) {
 
   // Seed default model roles if none exist for ollama
   try {
-    const modelRoles = require('./model-roles');
+    const modelRoles = require('../model-roles');
     modelRoles.setDb(db);
     const existingRoles = modelRoles.listModelRoles('ollama');
     if (existingRoles.length === 0) {

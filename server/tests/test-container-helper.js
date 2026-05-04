@@ -98,8 +98,8 @@ function createTestContainer() {
   const statelessModules = {
     configKeys: require('../db/config-keys'),
     queryFilters: require('../db/query-filters'),
-    schemaSeeds: require('../db/schema-seeds'),
-    schemaMigrations: require('../db/schema-migrations'),
+    schemaSeeds: require('../db/schema/seeds'),
+    schemaMigrations: require('../db/schema/status-validation'),
     analyticsMetrics: require('../db/analytics-metrics'),
   };
 

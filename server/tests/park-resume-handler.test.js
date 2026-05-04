@@ -2,7 +2,7 @@
 /* global describe, it, expect, beforeEach, vi */
 
 const Database = require('better-sqlite3');
-const { createTables: ensureSchema } = require('../db/schema-tables');
+const { createTables: ensureSchema } = require('../db/schema/tables');
 const { parkWorkItemForCodex } = require('../db/factory/intake');
 const { createParkResumeHandler } = require('../factory/park-resume-handler');
 

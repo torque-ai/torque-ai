@@ -205,7 +205,7 @@ beforeEach(() => {
   // the provider_circuit_breaker table) finds its table. createFactoryTables
   // alone is not enough — it covers factory_* only, not the rest of the
   // server schema that container.boot() depends on.
-  require('../db/schema-tables').createTables(db, { debug: () => {}, info: () => {}, warn: () => {} });
+  require('../db/schema/tables').createTables(db, { debug: () => {}, info: () => {}, warn: () => {} });
   factoryHealth.setDb(db);
   factoryFeedback.setDb(db);
   factoryIntake.setDb(db);

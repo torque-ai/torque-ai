@@ -775,7 +775,7 @@ function runMigrations(db, logger, safeAddColumn, extras = {}) {
 
   // Phase 2: Migrate existing host data to workstations
   try {
-    const { migrateExistingHostsToWorkstations } = require('../workstation/migration');
+    const { migrateExistingHostsToWorkstations } = require('../../workstation/migration');
     migrateExistingHostsToWorkstations(db);
   } catch (e) {
     logger.debug(`Schema migration (workstation data migration): ${e.message}`);

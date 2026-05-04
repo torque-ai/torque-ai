@@ -1,5 +1,5 @@
 const Database = require('better-sqlite3');
-const { createTables, ensureAuditLogChainColumns, ensureTableColumns } = require('../db/schema-tables');
+const { createTables, ensureAuditLogChainColumns, ensureTableColumns } = require('../db/schema/tables');
 
 const EXPECTED_TABLES = [
   "tasks",
@@ -448,7 +448,7 @@ const EXPECTED_INDEXES = [
   "idx_recovery_metrics_risk"
 ];
 
-describe('db/schema-tables', () => {
+describe('db/schema/tables', () => {
   let db;
   let logger;
 

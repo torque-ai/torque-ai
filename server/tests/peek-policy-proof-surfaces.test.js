@@ -6,7 +6,7 @@ const path = require('path');
 const Database = require('better-sqlite3');
 
 const { PROOF_SURFACE_CATALOG } = require('../contracts/peek');
-const { createTables } = require('../db/schema-tables');
+const { createTables } = require('../db/schema/tables');
 const policyProofAudit = require('../db/peek/policy-audit');
 
 const DATABASE_MODULE_PATH = path.resolve(__dirname, '..', 'database.js');

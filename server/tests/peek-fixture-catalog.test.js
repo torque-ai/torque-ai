@@ -2,7 +2,7 @@
 
 const Database = require('better-sqlite3');
 const fixtureCatalog = require('../db/peek/fixture-catalog');
-const { createTables } = require('../db/schema-tables');
+const { createTables } = require('../db/schema/tables');
 
 function createLogger() {
   return {

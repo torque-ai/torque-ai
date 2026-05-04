@@ -9,7 +9,7 @@
  * unconditionally overwriting them.
  */
 
-const { runMigrations } = require('../db/schema-migrations');
+const { runMigrations } = require('../db/schema/status-validation');
 
 /**
  * Build a minimal in-memory config store with getConfig/setConfig.

@@ -33,7 +33,7 @@
 const fs = require('fs');
 const path = require('path');
 const Database = require('better-sqlite3');
-const { createTables } = require('../../db/schema-tables');
+const { createTables } = require('../../db/schema/tables');
 const { createCircuitBreaker } = require('../../execution/circuit-breaker');
 const { createProviderCircuitBreakerStore } = require('../../db/provider/circuit-breaker-store');
 const { createFailoverActivator } = require('../../routing/failover-activator');
