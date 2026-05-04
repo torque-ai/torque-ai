@@ -14,12 +14,15 @@ const path = require('path');
 const fs = require('fs');
 const logger = require('../logger').child({ component: 'file-context-builder' });
 
+// ── Legacy module-level state, written only by init() (deprecated) ─────────
+// Phase 3 of the universal-DI migration. Coexistence pattern.
 let _serverConfig = null;
 let _providerCfg = null;
 let _contextEnrichment = null;
 let _computeLineHash = null;
 let _db = null;
 
+/** @deprecated Use createFileContextBuilder(deps) or container.get('fileContextBuilder'). */
 function init(deps = {}) {
   if (deps.serverConfig) _serverConfig = deps.serverConfig;
   if (deps.providerCfg) _providerCfg = deps.providerCfg;
@@ -312,7 +315,45 @@ async function ensureTargetFilesExist(workingDir, filePaths) {
   return resolvedPaths;
 }
 
+// ── New factory shape (preferred) ─────────────────────────────────────────
+function createFileContextBuilder(deps = {}) {
+  const local = {
+    _serverConfig: deps.serverConfig,
+    _providerCfg: deps.providerCfg,
+    _contextEnrichment: deps.contextEnrichment,
+    _computeLineHash: deps.computeLineHash,
+    _db: deps.db,
+  };
+  function withLocalDeps(fn) {
+    const prev = { _serverConfig, _providerCfg, _contextEnrichment, _computeLineHash, _db };
+    _serverConfig = local._serverConfig;
+    _providerCfg = local._providerCfg;
+    _contextEnrichment = local._contextEnrichment;
+    _computeLineHash = local._computeLineHash;
+    _db = local._db;
+    try { return fn(); }
+    finally { ({ _serverConfig, _providerCfg, _contextEnrichment, _computeLineHash, _db } = prev); }
+  }
+  return {
+    buildFileContext: (...args) => withLocalDeps(() => buildFileContext(...args)),
+    extractJsFunctionBoundaries: (...args) => withLocalDeps(() => extractJsFunctionBoundaries(...args)),
+    ensureTargetFilesExist: (...args) => withLocalDeps(() => ensureTargetFilesExist(...args)),
+  };
+}
+
+function register(container) {
+  container.register(
+    'fileContextBuilder',
+    ['serverConfig', 'providerCfg', 'contextEnrichment', 'computeLineHash', 'db'],
+    (deps) => createFileContextBuilder(deps)
+  );
+}
+
 module.exports = {
+  // New shape (preferred)
+  createFileContextBuilder,
+  register,
+  // Legacy shape (kept until task-manager.js migrates)
   init,
   buildFileContext,
   extractJsFunctionBoundaries,

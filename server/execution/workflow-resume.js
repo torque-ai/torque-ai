@@ -10,10 +10,13 @@ const TERMINAL_WORKFLOW_STATUSES = new Set([
 const TERMINAL_TASK_STATUSES = new Set(['completed', 'failed', 'cancelled', 'skipped']);
 const UNBLOCKING_DEPENDENCY_STATUSES = new Set(['completed', 'skipped']);
 
+// ── Legacy module-level state, written only by init() (deprecated) ─────────
+// Phase 3 of the universal-DI migration. Coexistence pattern.
 let db = null;
 let eventBus = { emitQueueChanged: () => {} };
 let logger = { info: () => {} };
 
+/** @deprecated Use createWorkflowResume(deps) or container.get('workflowResume'). */
 function init(deps = {}) {
   if (deps.db) db = deps.db;
   if (deps.eventBus) eventBus = deps.eventBus;
@@ -150,7 +153,37 @@ function resumeAllRunningWorkflows() {
   return { workflows_evaluated: evaluated, tasks_unblocked: totalUnblocked };
 }
 
+// ── New factory shape (preferred) ─────────────────────────────────────────
+function createWorkflowResume(deps = {}) {
+  const local = {
+    db: deps.db,
+    eventBus: deps.eventBus || { emitQueueChanged: () => {} },
+    logger: deps.logger || { info: () => {} },
+  };
+  function withLocalDeps(fn) {
+    const prev = { db, eventBus, logger };
+    db = local.db; eventBus = local.eventBus; logger = local.logger;
+    try { return fn(); } finally { ({ db, eventBus, logger } = prev); }
+  }
+  return {
+    resumeWorkflow: (...args) => withLocalDeps(() => resumeWorkflow(...args)),
+    resumeAllRunningWorkflows: (...args) => withLocalDeps(() => resumeAllRunningWorkflows(...args)),
+  };
+}
+
+function register(container) {
+  container.register(
+    'workflowResume',
+    ['db', 'eventBus', 'logger'],
+    (deps) => createWorkflowResume(deps)
+  );
+}
+
 module.exports = {
+  // New shape (preferred)
+  createWorkflowResume,
+  register,
+  // Legacy shape (kept until task-manager.js migrates)
   init,
   resumeWorkflow,
   resumeAllRunningWorkflows,

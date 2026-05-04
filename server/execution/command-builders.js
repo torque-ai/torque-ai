@@ -67,6 +67,8 @@ function resolveSandboxWritableRoots(workingDirectory) {
   }
 }
 
+// ── Legacy module-level state, written only by init() (deprecated) ─────────
+// Phase 3 of the universal-DI migration. Coexistence pattern.
 let _wrapWithInstructions = null;
 let _providerCfg = null;
 let _contextEnrichment = null;
@@ -80,6 +82,7 @@ function getExecutionDescription(task) {
     : task.task_description;
 }
 
+/** @deprecated Use createCommandBuilders(deps) or container.get('commandBuilders'). */
 function init({ wrapWithInstructions, providerCfg, contextEnrichment, codexIntelligence, db, nvmNodePath }) {
   if (!wrapWithInstructions) throw new Error('command-builders: wrapWithInstructions is required');
   if (!providerCfg) throw new Error('command-builders: providerCfg is required');
@@ -298,7 +301,48 @@ async function buildCodexCommand(task, providerConfig, resolvedFileContext, reso
   }
 }
 
+// ── New factory shape (preferred) ─────────────────────────────────────────
+function createCommandBuilders(deps = {}) {
+  if (!deps.wrapWithInstructions) throw new Error('command-builders: wrapWithInstructions is required');
+  if (!deps.providerCfg) throw new Error('command-builders: providerCfg is required');
+  const local = {
+    _wrapWithInstructions: deps.wrapWithInstructions,
+    _providerCfg: deps.providerCfg,
+    _contextEnrichment: deps.contextEnrichment,
+    _codexIntelligence: deps.codexIntelligence,
+    _db: deps.db,
+    _nvmNodePath: deps.nvmNodePath,
+  };
+  function withLocalDeps(fn) {
+    const prev = { _wrapWithInstructions, _providerCfg, _contextEnrichment, _codexIntelligence, _db, _nvmNodePath };
+    _wrapWithInstructions = local._wrapWithInstructions;
+    _providerCfg = local._providerCfg;
+    _contextEnrichment = local._contextEnrichment;
+    _codexIntelligence = local._codexIntelligence;
+    _db = local._db;
+    _nvmNodePath = local._nvmNodePath;
+    try { return fn(); }
+    finally { ({ _wrapWithInstructions, _providerCfg, _contextEnrichment, _codexIntelligence, _db, _nvmNodePath } = prev); }
+  }
+  return {
+    buildClaudeCliCommand: (...args) => withLocalDeps(() => buildClaudeCliCommand(...args)),
+    buildCodexCommand: (...args) => withLocalDeps(() => buildCodexCommand(...args)),
+  };
+}
+
+function register(container) {
+  container.register(
+    'commandBuilders',
+    ['wrapWithInstructions', 'providerCfg', 'contextEnrichment', 'codexIntelligence', 'db', 'nvmNodePath'],
+    (deps) => createCommandBuilders(deps)
+  );
+}
+
 module.exports = {
+  // New shape (preferred)
+  createCommandBuilders,
+  register,
+  // Legacy shape (kept until task-manager.js migrates)
   init,
   buildClaudeCliCommand,
   buildCodexCommand,
