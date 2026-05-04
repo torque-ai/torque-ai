@@ -18,6 +18,7 @@
  *   .resetForTest()     — reset to pre-boot state (keeps registrations)
  *   .freeze()           — explicit freeze (must be called after boot)
  *   .override(name, v)  — inject a value for tests (pre- or post-boot)
+ *   .dispose()          — async, runs service.dispose() in reverse-topo order
  */
 
 const logger = require('./logger').child({ component: 'container' });
@@ -102,6 +103,7 @@ function topoSort(graph) {
 function createContainer() {
   const _registry = new Map();
   const _instances = new Map();
+  let _bootOrder = []; // topological order from the most recent boot()
   let _booted = false;
   let _frozen = false;
 
@@ -154,6 +156,7 @@ function createContainer() {
     }
 
     const order = topoSort(graph);
+    _bootOrder = order;
     const failed = [];
 
     for (const name of order) {
@@ -222,8 +225,63 @@ function createContainer() {
 
   function resetForTest() {
     _instances.clear();
+    _bootOrder = [];
     _booted = false;
     _frozen = false;
+  }
+
+  /**
+   * Run dispose() on every service that exposes one, in reverse
+   * topological order (dependents shut down before their deps).
+   *
+   * Mirrors the boot lifecycle: a service that wants graceful cleanup
+   * returns an object whose `dispose()` method handles its own teardown
+   * (clearInterval, close handles, flush buffers). The container
+   * orchestrates the order; the service owns the actual work.
+   *
+   * Errors thrown by individual dispose calls are logged and swallowed
+   * — one bad disposer does not block the rest of the shutdown. Returns
+   * the names that errored.
+   *
+   * After dispose:
+   *   - All instances are cleared
+   *   - The container returns to pre-boot state (registrations preserved)
+   *   - `freeze()` is lifted; you can re-boot if needed
+   *
+   * Async by design: dispose handlers may need to await close() on a
+   * socket or DB handle. Callers can await or fire-and-forget.
+   *
+   * @returns {Promise<{ errored: string[] }>}
+   */
+  async function dispose() {
+    if (!_booted) return { errored: [] };
+
+    const errored = [];
+    // Reverse topological order: services that depend on others shut down first
+    const order = [..._bootOrder].reverse();
+
+    for (const name of order) {
+      const service = _instances.get(name);
+      if (!service || typeof service.dispose !== 'function') continue;
+      try {
+        await service.dispose();
+      } catch (err) {
+        logger.error(`Container: dispose() for '${name}' threw: ${err.message}`);
+        errored.push(name);
+      }
+    }
+
+    _instances.clear();
+    _bootOrder = [];
+    _booted = false;
+    _frozen = false;
+
+    if (errored.length > 0) {
+      logger.warn(`Container: disposed ${order.length} services (${errored.length} dispose error(s): ${errored.join(', ')})`);
+    } else {
+      logger.info(`Container: disposed ${order.length} services`);
+    }
+    return { errored };
   }
 
   /**
@@ -254,7 +312,7 @@ function createContainer() {
     }
   }
 
-  return { register, registerValue, boot, get, has, list, peek, freeze, resetForTest, override };
+  return { register, registerValue, boot, get, has, list, peek, freeze, resetForTest, override, dispose };
 }
 
 // ── Legacy compatibility ────────────────────────────────────────────────────

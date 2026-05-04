@@ -122,6 +122,100 @@ describe('container', () => {
     });
   });
 
+  describe('dispose', () => {
+    it('runs dispose() on services in reverse-topo order', async () => {
+      const order = [];
+      container.register('a', [], () => ({
+        dispose: () => { order.push('a-disposed'); },
+      }));
+      container.register('b', ['a'], () => ({
+        dispose: () => { order.push('b-disposed'); },
+      }));
+      container.register('c', ['b'], () => ({
+        dispose: () => { order.push('c-disposed'); },
+      }));
+      container.boot();
+
+      await container.dispose();
+      // Reverse topo: dependents (c) shut down before their deps (a)
+      expect(order).toEqual(['c-disposed', 'b-disposed', 'a-disposed']);
+    });
+
+    it('skips services that do not expose a dispose method', async () => {
+      container.register('plain', [], () => ({ value: 1 })); // no dispose
+      let withDisposeCalled = false;
+      container.register('withDispose', [], () => ({
+        dispose: () => { withDisposeCalled = true; },
+      }));
+      container.boot();
+      await container.dispose();
+      expect(withDisposeCalled).toBe(true);
+    });
+
+    it('awaits async dispose handlers', async () => {
+      let asyncDoneAt = 0;
+      container.register('async', [], () => ({
+        dispose: () => new Promise((resolve) => {
+          setTimeout(() => { asyncDoneAt = Date.now(); resolve(); }, 10);
+        }),
+      }));
+      container.boot();
+      const start = Date.now();
+      await container.dispose();
+      expect(asyncDoneAt).toBeGreaterThanOrEqual(start);
+    });
+
+    it('continues after a dispose throws; reports errored names', async () => {
+      const calls = [];
+      container.register('a', [], () => ({
+        dispose: () => { calls.push('a'); },
+      }));
+      container.register('b', ['a'], () => ({
+        dispose: () => { calls.push('b-throws'); throw new Error('boom'); },
+      }));
+      container.register('c', ['b'], () => ({
+        dispose: () => { calls.push('c'); },
+      }));
+      container.boot();
+
+      const result = await container.dispose();
+      expect(result.errored).toEqual(['b']);
+      // All three were attempted, in reverse-topo order
+      expect(calls).toEqual(['c', 'b-throws', 'a']);
+    });
+
+    it('returns container to pre-boot state — re-boot works', async () => {
+      let count = 0;
+      container.register('svc', [], () => {
+        count += 1;
+        return { generation: count };
+      });
+      container.boot();
+      expect(container.get('svc').generation).toBe(1);
+
+      await container.dispose();
+
+      container.boot();
+      expect(container.get('svc').generation).toBe(2);
+    });
+
+    it('lifts a previous freeze() so dispose + re-boot pattern works', async () => {
+      container.register('svc', [], () => ({}));
+      container.boot();
+      container.freeze();
+      await container.dispose();
+      // After dispose, container is unfrozen and re-bootable
+      container.register('svc2', [], () => ({ ok: true }));
+      container.boot();
+      expect(container.get('svc2')).toEqual({ ok: true });
+    });
+
+    it('is a no-op when called before boot()', async () => {
+      const result = await container.dispose();
+      expect(result.errored).toEqual([]);
+    });
+  });
+
   describe('boot({ failFast })', () => {
     it('throws synchronously by default when a factory fails', () => {
       container.register('bad', [], () => { throw new Error('boom'); });
