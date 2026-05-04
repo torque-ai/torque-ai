@@ -4,6 +4,7 @@ const {
   createActivityTimeout,
   normalizeTimeoutMs,
   resolveActivityAwareTimeoutDecision,
+  resolvePlanGenerationHardCapMs,
 } = require('../utils/activity-timeout');
 
 // Focused unit tests for the activity-aware timeout helper introduced in
@@ -51,6 +52,17 @@ describe('resolveActivityAwareTimeoutDecision', () => {
       },
     };
   }
+
+  it('resolves factory plan-generation hard caps from object metadata', () => {
+    expect(resolvePlanGenerationHardCapMs(planGenerationMetadata(25))).toBe(25 * minuteMs);
+  });
+
+  it('resolves factory plan-generation hard caps from JSON-string metadata', () => {
+    const metadata = planGenerationMetadata(25);
+    metadata.activity_timeout_policy = JSON.stringify(metadata.activity_timeout_policy);
+
+    expect(resolvePlanGenerationHardCapMs(JSON.stringify(metadata))).toBe(25 * minuteMs);
+  });
 
   it('extends active factory plan-generation tasks before the hard cap', () => {
     const decision = resolveActivityAwareTimeoutDecision({

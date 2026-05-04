@@ -188,12 +188,13 @@ function planGenerationTags(projectId, workItemId) {
   ];
 }
 
-function planGenerationMetadata(projectId, workItemId) {
+function planGenerationMetadata(projectId, workItemId, timeoutMinutes = 30) {
   return {
     factory_internal: true,
     kind: 'plan_generation',
     project_id: projectId,
     work_item_id: workItemId,
+    activity_timeout_policy: loopController.buildPlanGenerationActivityTimeoutPolicy(timeoutMinutes),
   };
 }
 
@@ -437,9 +438,16 @@ describe('factory loop-controller EXECUTE for non-plan-file work items', () => {
     });
   });
 
-  it('uses the extended default plan-generation timeout for submit and await', async () => {
+  it('uses the codex/default plan-generation timeout as an activity-aware submit and await budget', async () => {
     const { project, workItem } = registerExecuteProject({
       description: 'Create a focused plan for delayed factory plan generation coverage.',
+      config: {
+        provider_lane_policy: {
+          expected_provider: 'codex',
+          allowed_providers: ['codex'],
+          enforce_handoffs: true,
+        },
+      },
     });
     taskCore.getTask = vi.fn((taskId) => ({
       id: taskId,
@@ -471,6 +479,9 @@ describe('factory loop-controller EXECUTE for non-plan-file work items', () => {
         },
       }),
     }));
+    const submittedPlanGeneration = routingModule.handleSmartSubmitTask.mock.calls[0][0];
+    expect(submittedPlanGeneration.task_metadata.activity_timeout_policy.max_wall_clock_minutes)
+      .toBeGreaterThanOrEqual(submittedPlanGeneration.timeout_minutes + 15);
     expect(awaitModule.handleAwaitTask).toHaveBeenCalledWith({
       task_id: 'plan-gen-task',
       timeout_minutes: 30,
