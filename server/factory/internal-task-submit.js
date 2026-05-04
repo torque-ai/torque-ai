@@ -333,6 +333,7 @@ async function submitFactoryInternalTask({
     ...(context_stuff !== undefined ? { context_stuff } : {}),
     ...(context_depth !== undefined ? { context_depth } : {}),
     ...(study_context !== undefined ? { study_context } : {}),
+    ...(resolvedKind === 'plan_generation' ? { disable_decomposition: true } : {}),
     ...(Array.isArray(files) ? { files } : {}),
     timeout_minutes: timeout_minutes ?? 10,
     version_intent: 'internal',

@@ -1281,6 +1281,28 @@ describe('integration routing handlers', () => {
       expect(textOf(result)).toContain('### Subscribe');
     });
 
+    it('does not auto-decompose when caller disables decomposition', async () => {
+      vi.spyOn(fs.promises, 'readFile').mockResolvedValue(makeLineCountText(1600));
+      mockTaskManager.extractJsFunctionBoundaries.mockReturnValueOnce([
+        { name: 'alpha', startLine: 1, endLine: 80, lineCount: 80 },
+        { name: 'beta', startLine: 81, endLine: 160, lineCount: 80 },
+        { name: 'gamma', startLine: 161, endLine: 240, lineCount: 80 },
+        { name: 'delta', startLine: 241, endLine: 320, lineCount: 80 },
+      ]);
+
+      const result = await routing.handleSmartSubmitTask({
+        task: 'You are generating an execution plan. Mention src/app.js but return one Markdown plan.',
+        files: ['src/app.js'],
+        working_directory: process.cwd(),
+        disable_decomposition: true,
+      });
+
+      expect(result.workflow_id).toBeUndefined();
+      expect(result.task_id).toBeTruthy();
+      expect(mockDb.createWorkflow).not.toHaveBeenCalled();
+      expect(textOf(result)).not.toContain('Auto-Decomposed');
+    });
+
     it('stores split suggestions for complex multi-file tasks', async () => {
       mockDb.analyzeTaskForRouting.mockReturnValueOnce(baseRoutingResult({
         provider: 'codex',

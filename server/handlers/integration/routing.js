@@ -367,6 +367,7 @@ function extractSmartSubmitInputs(args) {
     context_stuff,
     context_depth,
     study_context,
+    disable_decomposition,
     prefer_free,
     routing_template,
     version_intent,
@@ -443,6 +444,7 @@ function extractSmartSubmitInputs(args) {
     context_stuff,
     context_depth,
     study_context,
+    disable_decomposition,
     prefer_free,
     routing_template,
     version_intent,
@@ -693,6 +695,7 @@ async function handleSmartSubmitTask(args) {
     context_stuff,
     context_depth,
     study_context,
+    disable_decomposition,
     prefer_free,
     routing_template,
     version_intent,
@@ -982,10 +985,12 @@ async function handleSmartSubmitTask(args) {
   // AUTO-DECOMPOSE: Use task-decomposition module to decide whether to split
   // shouldDecompose checks provider class (agentic/guided/prompt-only), complexity,
   // and task patterns — replaces the old inline C# and JS/TS decomposition blocks.
-  const decomposeDecision = shouldDecompose(
-    { task_description: task, complexity, files },
-    routingResult
-  );
+  const decomposeDecision = disable_decomposition === true
+    ? { decompose: false, type: null, reason: 'Decomposition disabled by caller' }
+    : shouldDecompose(
+        { task_description: task, complexity, files },
+        routingResult
+      );
 
   if (decomposeDecision.decompose && decomposeDecision.type === 'csharp') {
     // C# decomposition: use hostManagement templates to generate subtask descriptions

@@ -202,6 +202,7 @@ describe('submitFactoryInternalTask', () => {
       working_directory: '/repo',
       timeout_minutes: 7,
       version_intent: 'internal',
+      disable_decomposition: true,
       tags: [
         'factory:internal',
         'factory:plan_generation',
