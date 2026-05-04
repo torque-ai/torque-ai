@@ -84,8 +84,48 @@ describe('host-credentials', () => {
 
   it('listCredentials redacts sensitive fields even when rows contain them', () => {
     const hostName = 'test-omen-unsafe';
-    const originalPrepare = db.prepare;
-    const unsafeRows = [{
+    const rawDb = db.getDbInstance();
+    const existingColumns = new Set(
+      rawDb.prepare('PRAGMA table_info(host_credentials)').all().map(column => column.name)
+    );
+    for (const column of ['value', 'token', 'password', 'secret', 'username', 'user', 'key_path', 'private_key']) {
+      if (!existingColumns.has(column)) {
+        rawDb.prepare(`ALTER TABLE host_credentials ADD COLUMN ${column} TEXT`).run();
+      }
+    }
+    rawDb.prepare('DELETE FROM host_credentials WHERE host_name = ? AND host_type = ?').run(hostName, 'peek');
+    rawDb.prepare(`
+      INSERT INTO host_credentials (
+        id, host_name, host_type, credential_type, label,
+        encrypted_value, iv, auth_tag, created_at, updated_at,
+        value, token, password, secret, username, user, key_path, private_key
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      'unsafe-id',
+      hostName,
+      'peek',
+      'ssh',
+      'Unsafe credentials',
+      'ciphertext',
+      'iv-bytes',
+      'auth-tag',
+      '2026-01-01T00:00:00.000Z',
+      '2026-01-01T00:00:00.000Z',
+      JSON.stringify({ token: 'unsafe-token', password: 'unsafe-password' }),
+      'unsafe-token',
+      'unsafe-password',
+      'unsafe-secret',
+      'unsafe-user',
+      'unsafe-user',
+      '/unsafe/key',
+      'unsafe-private-key',
+    );
+
+    const list = hostCreds.listCredentials(hostName, 'peek');
+
+    expect(list).toHaveLength(1);
+    expect(list[0]).toEqual({
       id: 'unsafe-id',
       host_name: hostName,
       host_type: 'peek',
@@ -93,63 +133,22 @@ describe('host-credentials', () => {
       label: 'Unsafe credentials',
       created_at: '2026-01-01T00:00:00.000Z',
       updated_at: '2026-01-01T00:00:00.000Z',
-      encrypted_value: 'ciphertext',
-      iv: 'iv-bytes',
-      auth_tag: 'auth-tag',
-      value: {
-        token: 'unsafe-token',
-        password: 'unsafe-password',
-      },
-      token: 'unsafe-token',
-      password: 'unsafe-password',
-      secret: 'unsafe-secret',
-      username: 'unsafe-user',
-      user: 'unsafe-user',
-      key_path: '/unsafe/key',
-      private_key: 'unsafe-private-key',
-    }];
-
-    const unsafePrepare = vi.spyOn(db, 'prepare').mockImplementation((query) => {
-      if (typeof query === 'string' && query.includes('SELECT * FROM host_credentials WHERE host_name = ? AND host_type = ?')) {
-        return {
-          all: () => unsafeRows,
-        };
-      }
-
-      return originalPrepare(query);
     });
 
-    try {
-      const list = hostCreds.listCredentials(hostName, 'peek');
-
-      expect(list).toHaveLength(1);
-      expect(list[0]).toEqual({
-        id: 'unsafe-id',
-        host_name: hostName,
-        host_type: 'peek',
-        credential_type: 'ssh',
-        label: 'Unsafe credentials',
-        created_at: '2026-01-01T00:00:00.000Z',
-        updated_at: '2026-01-01T00:00:00.000Z',
-      });
-
-      for (const field of [
-        'encrypted_value',
-        'iv',
-        'auth_tag',
-        'value',
-        'token',
-        'password',
-        'secret',
-        'username',
-        'user',
-        'key_path',
-        'private_key',
-      ]) {
-        expect(list[0]).not.toHaveProperty(field);
-      }
-    } finally {
-      unsafePrepare.mockRestore();
+    for (const field of [
+      'encrypted_value',
+      'iv',
+      'auth_tag',
+      'value',
+      'token',
+      'password',
+      'secret',
+      'username',
+      'user',
+      'key_path',
+      'private_key',
+    ]) {
+      expect(list[0]).not.toHaveProperty(field);
     }
   });
 

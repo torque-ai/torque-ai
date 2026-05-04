@@ -49,12 +49,25 @@ const CREDENTIAL_DENYLIST_FIELDS = [
   'private_key',
 ];
 
+const CREDENTIAL_PUBLIC_FIELDS = [
+  'host_name',
+  'host_type',
+  'credential_type',
+  'label',
+];
+
 function redactCredential(credential) {
   if (!credential || typeof credential !== 'object' || Array.isArray(credential)) {
     return credential;
   }
 
-  const safe = { ...credential };
+  const safe = {};
+  for (const field of CREDENTIAL_PUBLIC_FIELDS) {
+    if (Object.prototype.hasOwnProperty.call(credential, field)) {
+      safe[field] = credential[field];
+    }
+  }
+
   for (const field of CREDENTIAL_DENYLIST_FIELDS) {
     delete safe[field];
   }
