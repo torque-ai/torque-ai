@@ -14,7 +14,7 @@ const MODULE_PATHS = [
   '../db/provider/routing-core',
   '../db/webhooks-streaming',
   '../hooks/event-dispatch',
-  '../mcp-sse',
+  '../mcp/sse',
   '../handlers/orchestrator-handlers',
   '../config',
   '../tools',
@@ -106,7 +106,7 @@ function loadHandlers() {
   installCjsModuleMock('../db/webhooks-streaming', mockDb);
   installCjsModuleMock('../api/middleware', mockMiddleware);
   installCjsModuleMock('../hooks/event-dispatch', mockEventDispatch);
-  installCjsModuleMock('../mcp-sse', mockMcpSse);
+  installCjsModuleMock('../mcp/sse', mockMcpSse);
   installCjsModuleMock('../handlers/orchestrator-handlers', mockOrchestratorHandlers);
   installCjsModuleMock('../config', mockServerConfig);
   installCjsModuleMock('../tools', mockTools);
@@ -987,11 +987,11 @@ describe('api/v2-analytics-handlers', () => {
     it('returns empty notification stats when the mcp-sse module is unavailable', async () => {
       const res = createMockRes();
 
-      installCjsModuleMock('../mcp-sse', undefined);
+      installCjsModuleMock('../mcp/sse', undefined);
       try {
         await handlers.handleNotificationStats(createReq(), res);
       } finally {
-        installCjsModuleMock('../mcp-sse', mockMcpSse);
+        installCjsModuleMock('../mcp/sse', mockMcpSse);
       }
 
       expect(expectSuccess(res)).toEqual({

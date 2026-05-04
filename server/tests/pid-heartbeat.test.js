@@ -109,7 +109,7 @@ function registerStartupDependencyMocks() {
   vi.doMock('../api-server', () => mockApiServer);
   vi.doMock('../discovery', () => mockDiscovery);
   vi.doMock('../scripts/gpu-metrics-server', () => mockGpuMetricsServer);
-  vi.doMock('../mcp-sse', () => mockMcpSse);
+  vi.doMock('../mcp/sse', () => mockMcpSse);
   vi.doMock('../mcp', () => mockMcp);
   vi.doMock('../validation/auto-verify-retry', () => mockAutoVerifyRetry);
   vi.doMock('../execution/workflow-runtime', () => mockWorkflowRuntime);
@@ -123,7 +123,7 @@ vi.mock('../dashboard/server', () => mockDashboardServer);
 vi.mock('../api-server', () => mockApiServer);
 vi.mock('../discovery', () => mockDiscovery);
 vi.mock('../scripts/gpu-metrics-server', () => mockGpuMetricsServer);
-vi.mock('../mcp-sse', () => mockMcpSse);
+vi.mock('../mcp/sse', () => mockMcpSse);
 vi.mock('../mcp', () => mockMcp);
 vi.mock('../validation/auto-verify-retry', () => mockAutoVerifyRetry);
 vi.mock('../execution/workflow-runtime', () => mockWorkflowRuntime);

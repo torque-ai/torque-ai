@@ -15,7 +15,7 @@ vi.mock('../task-manager', () => currentIndexModules.taskManager);
 vi.mock('../dashboard/server', () => currentIndexModules.dashboardServer);
 vi.mock('../api-server', () => currentIndexModules.apiServer);
 vi.mock('../mcp', () => currentIndexModules.mcpGateway);
-vi.mock('../mcp-sse', () => currentIndexModules.mcpSse);
+vi.mock('../mcp/sse', () => currentIndexModules.mcpSse);
 vi.mock('../tools', () => currentIndexModules.tools);
 vi.mock('../mcp-protocol', () => currentIndexModules.mcpProtocol);
 vi.mock('../plugins/loader', () => currentIndexModules.pluginsLoader);
@@ -161,7 +161,7 @@ function createIndexMocks(tempDir) {
   vi.doMock('../dashboard/server', () => currentIndexModules.dashboardServer);
   vi.doMock('../api-server', () => currentIndexModules.apiServer);
   vi.doMock('../mcp', () => currentIndexModules.mcpGateway);
-  vi.doMock('../mcp-sse', () => currentIndexModules.mcpSse);
+  vi.doMock('../mcp/sse', () => currentIndexModules.mcpSse);
   vi.doMock('../tools', () => currentIndexModules.tools);
   vi.doMock('../mcp-protocol', () => currentIndexModules.mcpProtocol);
   vi.doMock('../plugins/loader', () => currentIndexModules.pluginsLoader);

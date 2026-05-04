@@ -282,7 +282,7 @@ describe('dispatchTaskEvent', () => {
   });
 
   it('handles errors gracefully (does not throw)', () => {
-    const mcpSsePath = require.resolve('../mcp-sse');
+    const mcpSsePath = require.resolve('../mcp/sse');
     const cached = require.cache[mcpSsePath];
 
     // Should not throw

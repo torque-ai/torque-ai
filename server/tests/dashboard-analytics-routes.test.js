@@ -159,7 +159,7 @@ function loadAnalytics() {
   installMock('../handlers/orchestrator-handlers', mockOrchestratorHandlers);
   installMock('../handlers/shared', mockShared);
   installMock('../hooks/event-dispatch', mockEventDispatch);
-  installMock('../mcp-sse', mockMcpSse);
+  installMock('../mcp/sse', mockMcpSse);
   installMock('../execution/queue-scheduler', mockQueueScheduler);
   return require('../dashboard/routes/analytics');
 }
