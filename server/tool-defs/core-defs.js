@@ -18,7 +18,7 @@ const tools = [
   },
   {
     name: 'restart_server',
-    description: 'Restart the TORQUE MCP server. Creates a barrier task that blocks the queue scheduler from starting new work, waits for all running tasks to drain, then triggers a graceful shutdown. The MCP client will automatically reconnect with fresh code. The barrier task is cancellable — use cancel_task to abort.',
+    description: 'Restart the TORQUE MCP server. Creates a barrier task that blocks the queue scheduler from starting new work, optionally waits for running tasks to drain, then triggers a graceful shutdown. The MCP client will automatically reconnect with fresh code. The barrier task is cancellable — use cancel_task to abort.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -26,7 +26,12 @@ const tools = [
           type: 'string',
           description: 'Optional reason for restart (logged and stored in task metadata)'
         },
-        timeout_minutes: { type: 'number', description: 'Maximum minutes to wait for pipeline to drain (default: 30). If exceeded, the restart task fails and the queue resumes.' },
+        drain_timeout_ms: {
+          type: 'number',
+          description: 'Maximum milliseconds to wait for the pipeline to drain (default: 60000 — 60 s). 0 = immediate restart with no drain (re-adoption catches survivors when subprocess detachment is enabled). 600000 = 10-min graceful drain (today\'s cutover --graceful behavior). Subprocess-detachment design §2.5.3.'
+        },
+        drain_timeout_minutes: { type: 'number', description: 'Legacy: drain timeout in minutes. Honored only when drain_timeout_ms is unset.' },
+        timeout_minutes: { type: 'number', description: 'Legacy alias for drain_timeout_minutes.' },
       }
     }
   },

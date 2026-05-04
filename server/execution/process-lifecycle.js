@@ -149,15 +149,43 @@ function formatElapsedMinutes(ms) {
  *
  * @param {Object} proc - runningProcesses entry (needs proc.process)
  * @param {string} taskId - For logging
- * @param {number} [killDelayMs=5000] - Delay before SIGKILL
+ * @param {number} [killDelayMs=5000] - Delay before SIGKILL. Ignored when
+ *   `options.force` is true.
  * @param {string} [label=''] - Log prefix (e.g. 'StallRecovery')
+ * @param {Object} [options]
+ * @param {boolean} [options.force=false] - Phase D / §2.5.4 escalation:
+ *   skip the SIGTERM grace period and go straight to SIGKILL (POSIX) or
+ *   `taskkill /F /T /PID` (Windows). Used by `cancel_task({ force: true })`
+ *   for runaway subprocesses (e.g. tight loops, hung syscalls). The
+ *   forensics value of going straight to a hard kill is that the failure
+ *   reason in the decision log is unambiguously "operator chose force"
+ *   rather than "graceful timed out".
  */
-function killProcessGraceful(proc, taskId, killDelayMs = 5000, label = '') {
+function killProcessGraceful(proc, taskId, killDelayMs = 5000, label = '', options = {}) {
   if (!proc || !proc.process) return;
+  const force = Boolean(options && options.force);
   const prefix = label ? `[${label}] ` : '';
   const pid = Number(proc.process.pid);
 
   if (process.platform === 'win32') {
+    if (force) {
+      if (Number.isFinite(pid) && pid > 0) {
+        try {
+          const { execFileSync } = require('child_process');
+          // eslint-disable-next-line torque/no-sync-fs-on-hot-paths -- Windows process kill — operator-initiated force-cancel, not request hot-path.
+          execFileSync('taskkill', ['/F', '/T', '/PID', String(pid)], { timeout: 5000, windowsHide: true, stdio: 'ignore' });
+        } catch (err) {
+          logTaskkillFailureIfAlive(pid, `${prefix}Failed to force-kill task ${taskId}: ${err.message}`);
+        }
+      }
+      try { proc.process.kill('SIGKILL'); } catch (err) {
+        if (err.code !== 'ESRCH') {
+          logger.info(`${prefix}Failed to SIGKILL task ${taskId}: ${err.message}`);
+        }
+      }
+      return null;
+    }
+
     if (Number.isFinite(pid) && pid > 0) {
       try {
         const { execFileSync } = require('child_process');
@@ -201,6 +229,15 @@ function killProcessGraceful(proc, taskId, killDelayMs = 5000, label = '') {
       proc.process.once('exit', () => clearTimeout(forceHandle));
     }
     return forceHandle;
+  }
+
+  if (force) {
+    try { proc.process.kill('SIGKILL'); } catch (err) {
+      if (err.code !== 'ESRCH') {
+        logger.info(`${prefix}Failed to SIGKILL task ${taskId}: ${err.message}`);
+      }
+    }
+    return null;
   }
 
   try {

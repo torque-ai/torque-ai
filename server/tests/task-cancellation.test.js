@@ -113,7 +113,7 @@ describe('task-cancellation', () => {
       const result = handler.cancelTask('full-task-id');
 
       expect(result).toBe(true);
-      expect(deps.killProcessGraceful).toHaveBeenCalledWith(fakeProc, fullId, 5000);
+      expect(deps.killProcessGraceful).toHaveBeenCalledWith(fakeProc, fullId, 5000, '', { force: false });
       expect(deps.db.updateTaskStatus).toHaveBeenCalledWith(fullId, 'cancelled', {
         output: 'sanitized output',
         error_output: 'some error\n[cancelled] Cancelled by user',
@@ -484,6 +484,109 @@ describe('task-cancellation', () => {
       expect(deps.safeTriggerWebhook).toHaveBeenCalled();
       expect(deps.handleWorkflowTermination).toHaveBeenCalled();
       expect(deps.processQueue).toHaveBeenCalled();
+    });
+  });
+
+  // ---------------------------------------------------------------
+  // Phase D / §2.5.4 — force + abandon flags
+  // ---------------------------------------------------------------
+  describe('cancelTask — force / abandon flags (Phase D)', () => {
+    it('force=true forwards { force: true } to killProcessGraceful and records cancel_reason="force"', () => {
+      const fullId = 'task-force';
+      deps.db.resolveTaskId.mockReturnValue(fullId);
+      const fakeProc = { process: { pid: 7777 }, output: '', errorOutput: '' };
+      deps.runningProcesses.set(fullId, fakeProc);
+      deps.db.getTask.mockReturnValue({ id: fullId, status: 'running' });
+
+      const result = handler.cancelTask(fullId, 'manual force', { force: true });
+
+      expect(result).toBe(true);
+      expect(deps.killProcessGraceful).toHaveBeenCalledWith(fakeProc, fullId, 5000, '', { force: true });
+      const updateCall = deps.db.updateTaskStatus.mock.calls[0];
+      expect(updateCall[1]).toBe('cancelled');
+      expect(updateCall[2]).toMatchObject({ cancel_reason: 'force' });
+    });
+
+    it('abandon=true skips the kill entirely, stops tail/liveness handles, and records cancel_reason="abandon"', () => {
+      const fullId = 'task-abandon';
+      deps.db.resolveTaskId.mockReturnValue(fullId);
+      const outputTail = { stop: vi.fn() };
+      const errorTail = { stop: vi.fn() };
+      const livenessHandle = setInterval(() => {}, 100_000);
+      const fakeProc = {
+        process: null,
+        detached: true,
+        subprocessPid: 9999,
+        output: '',
+        errorOutput: '',
+        outputTail,
+        errorTail,
+        livenessHandle,
+      };
+      deps.runningProcesses.set(fullId, fakeProc);
+      deps.db.getTask.mockReturnValue({ id: fullId, status: 'running' });
+
+      const result = handler.cancelTask(fullId, 'graceful detach', { abandon: true });
+
+      expect(result).toBe(true);
+      // Critical: NO kill is sent to the subprocess.
+      expect(deps.killProcessGraceful).not.toHaveBeenCalled();
+      // Tails get stopped so the parent stops accumulating state.
+      expect(outputTail.stop).toHaveBeenCalled();
+      expect(errorTail.stop).toHaveBeenCalled();
+      // livenessHandle is cleared (we set it to null after clearInterval).
+      expect(fakeProc.livenessHandle).toBeNull();
+      // No child handle to clean up either.
+      expect(deps.cleanupChildProcessListeners).not.toHaveBeenCalled();
+      // But process tracking IS released so a new task can take the slot.
+      expect(deps.cleanupProcessTracking).toHaveBeenCalled();
+      const updateCall = deps.db.updateTaskStatus.mock.calls[0];
+      expect(updateCall[1]).toBe('cancelled');
+      expect(updateCall[2]).toMatchObject({ cancel_reason: 'abandon' });
+    });
+
+    it('abandon=true on a non-detached proc still skips the kill (best-effort detach)', () => {
+      const fullId = 'task-abandon-pipe';
+      deps.db.resolveTaskId.mockReturnValue(fullId);
+      const fakeProc = { process: { pid: 5555 }, detached: false, output: '', errorOutput: '' };
+      deps.runningProcesses.set(fullId, fakeProc);
+      deps.db.getTask.mockReturnValue({ id: fullId, status: 'running' });
+
+      const result = handler.cancelTask(fullId, 'best-effort abandon', { abandon: true });
+
+      expect(result).toBe(true);
+      expect(deps.killProcessGraceful).not.toHaveBeenCalled();
+      // Logger should explain that the child may exit on stream close.
+      const messages = deps.logger.info.mock.calls.map((c) => c[0]);
+      expect(messages.some((m) => m.includes('non-detached child may exit on stream close'))).toBe(true);
+      expect(deps.db.updateTaskStatus.mock.calls[0][2]).toMatchObject({ cancel_reason: 'abandon' });
+    });
+
+    it('abandon=true wins over force=true when both are passed (abandon is the higher-leverage instruction)', () => {
+      const fullId = 'task-both';
+      deps.db.resolveTaskId.mockReturnValue(fullId);
+      const fakeProc = { process: { pid: 6666 }, detached: true, subprocessPid: 6666, output: '', errorOutput: '' };
+      deps.runningProcesses.set(fullId, fakeProc);
+      deps.db.getTask.mockReturnValue({ id: fullId, status: 'running' });
+
+      handler.cancelTask(fullId, 'both flags', { force: true, abandon: true });
+
+      // Subprocess is left alive — abandon takes precedence.
+      expect(deps.killProcessGraceful).not.toHaveBeenCalled();
+      expect(deps.db.updateTaskStatus.mock.calls[0][2]).toMatchObject({ cancel_reason: 'abandon' });
+    });
+
+    it('default mode (neither flag) preserves existing graceful behavior + cancel_reason="user"', () => {
+      const fullId = 'task-graceful';
+      deps.db.resolveTaskId.mockReturnValue(fullId);
+      const fakeProc = { process: { pid: 4444 }, output: '', errorOutput: '' };
+      deps.runningProcesses.set(fullId, fakeProc);
+      deps.db.getTask.mockReturnValue({ id: fullId, status: 'running' });
+
+      handler.cancelTask(fullId);
+
+      expect(deps.killProcessGraceful).toHaveBeenCalledWith(fakeProc, fullId, 5000, '', { force: false });
+      expect(deps.db.updateTaskStatus.mock.calls[0][2]).toMatchObject({ cancel_reason: 'user' });
     });
   });
 });

@@ -112,7 +112,20 @@ function createCancellationHandler({
 
   function cancelTask(taskId, reason = 'Cancelled by user', options = {}) {
     const isTimeout = isTimeoutReason(reason);
-    const cancelReason = options.cancel_reason || (isTimeout ? 'timeout' : 'user');
+    // Phase D / §2.5.4 — cancel modes:
+    //   default → graceful (SIGTERM, 5s wait, SIGKILL); cancel_reason='user'
+    //   force   → immediate SIGKILL (or taskkill /F /T); cancel_reason='force'
+    //   abandon → leave subprocess alive, mark DB cancelled; cancel_reason='abandon'
+    // The mode lands in cancel_reason for forensics. `force` and `abandon`
+    // are independent: passing both is treated as `abandon` (the row is
+    // marked cancelled and the kill is skipped — abandon wins because it's
+    // the higher-leverage instruction).
+    const force = Boolean(options.force);
+    const abandon = Boolean(options.abandon);
+    const modeReason = abandon ? 'abandon' : (force ? 'force' : null);
+    const cancelReason = options.cancel_reason
+      || modeReason
+      || (isTimeout ? 'timeout' : 'user');
     const terminalStatus = resolveCancellationTerminalState(cancelReason, reason, options);
     const fullId = db.resolveTaskId(taskId);
     if (!fullId) {
@@ -130,7 +143,37 @@ function createCancellationHandler({
     }
 
     if (proc) {
-      killProcessGraceful(proc, fullId, 5000);
+      if (abandon) {
+        // Abandon path — leave the OS subprocess running and just unhook
+        // it from TORQUE's tracking. Only meaningful for detached
+        // subprocesses (Phase B+); for legacy pipe-based children the
+        // parent owning the stdio pipes means "leave alive" is best-effort
+        // — the child will eventually SIGPIPE when we close its stream
+        // listeners. The decision log entry (cancel_reason='abandon')
+        // makes the operator's intent visible regardless.
+        if (proc.detached) {
+          logger.info(`[Cancel] Task ${fullId} abandoned — leaving detached subprocess pid=${proc.subprocessPid || 'unknown'} alive`);
+        } else {
+          logger.info(`[Cancel] Task ${fullId} abandoned — non-detached child may exit on stream close`);
+        }
+        // Stop our re-adoption / tail / liveness handles so the parent
+        // stops accumulating state for a row we're walking away from.
+        if (proc.outputTail) {
+          try { proc.outputTail.stop(); } catch { /* ignore */ }
+        }
+        if (proc.errorTail) {
+          try { proc.errorTail.stop(); } catch { /* ignore */ }
+        }
+        if (proc.livenessHandle) {
+          clearInterval(proc.livenessHandle);
+          proc.livenessHandle = null;
+        }
+        if (proc.timeoutHandle) clearTimeout(proc.timeoutHandle);
+        if (proc.startupTimeoutHandle) clearTimeout(proc.startupTimeoutHandle);
+        if (proc.completionGraceHandle) clearTimeout(proc.completionGraceHandle);
+      } else {
+        killProcessGraceful(proc, fullId, 5000, '', { force });
+      }
 
       try {
         db.updateTaskStatus(fullId, terminalStatus, {
@@ -142,7 +185,13 @@ function createCancellationHandler({
         logger.info(`Failed to update task ${fullId} status:`, dbErr.message);
       }
 
-      cleanupChildProcessListeners(proc.process);
+      // For the abandon path we deliberately skip cleanupChildProcessListeners
+      // because there is no child handle (or we want the subprocess to keep
+      // running uninterrupted). Process tracking and host slot bookkeeping
+      // still need to be released so a new task can occupy the slot.
+      if (!abandon) {
+        cleanupChildProcessListeners(proc.process);
+      }
       cleanupProcessTracking(proc, fullId, runningProcesses, stallRecoveryAttempts);
       releaseFileLocksForCancel(fullId);
 

@@ -503,10 +503,32 @@ const RESTART_COOLDOWN_MS = Number.isFinite(Number(process.env.TORQUE_RESTART_CO
 // handleAwaitRestart awaits this barrier task via the standard await_task path.
 async function handleRestartServerBarrier(args) {
   const reason = args.reason || 'Manual restart requested';
-  // Default drain budget. 60 min absorbs typical long-running Codex factory
-  // batches (8-hour tasks with mid-run checkpoints) without blocking cutover
-  // indefinitely. Callers can override via drain_timeout_minutes/timeout_minutes.
-  const drainTimeoutMinutes = args.drain_timeout_minutes || args.timeout_minutes || 60;
+  // Drain budget. The new canonical parameter is `drain_timeout_ms`
+  // (Phase D, §2.5.3 of the subprocess-detachment design): once Phase C
+  // re-adoption is in place, the drain becomes a UX preference (give
+  // awaiters time to flush) rather than a correctness mechanism (avoid
+  // killing in-flight subprocesses). Default 60_000 ms (60 s) — a fast
+  // restart that re-adoption catches.
+  //   `drain_timeout_ms = 0`        → immediate restart
+  //   `drain_timeout_ms = 600_000`  → 10-min graceful drain (cutover
+  //                                   --graceful), today's behavior
+  //   `drain_timeout_ms = 3_600_000`→ 60-min drain (legacy default)
+  // Backward compat: `drain_timeout_minutes` and the older
+  // `timeout_minutes` arg are still honored when `drain_timeout_ms` is
+  // not provided. Caller-supplied 0 is treated as a real choice (no drain),
+  // not as missing — this is the operator's "skip drain entirely" knob.
+  const DEFAULT_DRAIN_TIMEOUT_MS = 60_000;
+  let drainTimeoutMs;
+  if (Number.isFinite(Number(args.drain_timeout_ms))) {
+    drainTimeoutMs = Math.max(0, Number(args.drain_timeout_ms));
+  } else if (Number.isFinite(Number(args.drain_timeout_minutes))) {
+    drainTimeoutMs = Math.max(0, Number(args.drain_timeout_minutes)) * 60_000;
+  } else if (Number.isFinite(Number(args.timeout_minutes))) {
+    drainTimeoutMs = Math.max(0, Number(args.timeout_minutes)) * 60_000;
+  } else {
+    drainTimeoutMs = DEFAULT_DRAIN_TIMEOUT_MS;
+  }
+  const drainTimeoutMinutes = drainTimeoutMs / 60_000;
   const taskCore = require('./db/task-core');
   const {
     clearRestartIntent,
@@ -587,7 +609,11 @@ async function handleRestartServerBarrier(args) {
     model: null,
     status: 'queued',
     working_directory: process.cwd(),
-    timeout_minutes: drainTimeoutMinutes,
+    // The barrier task's own timeout still uses minutes; round up so a
+    // sub-minute drain_timeout_ms (e.g. the 60_000 ms default) doesn't
+    // result in timeout_minutes: 0 — the queue scheduler treats 0 as
+    // "no enforcement" which is the wrong default for a barrier.
+    timeout_minutes: Math.max(1, Math.ceil(drainTimeoutMinutes)),
   });
   try {
     writeRestartIntent({
@@ -596,6 +622,7 @@ async function handleRestartServerBarrier(args) {
       phase: 'created',
       running_count: runningTasks,
       queued_held_count: queuedHeld,
+      drain_timeout_ms: drainTimeoutMs,
       drain_timeout_minutes: drainTimeoutMinutes,
     });
   } catch (err) {
@@ -632,8 +659,8 @@ async function handleRestartServerBarrier(args) {
     };
   }
 
-  // Pipeline has active work — start drain watcher
-  logger.info(`[Restart] Drain mode: ${runningTasks} running, ${queuedHeld} queued held until restart (timeout: ${drainTimeoutMinutes}min)`);
+  // Pipeline has active work — start drain watcher.
+  logger.info(`[Restart] Drain mode: ${runningTasks} running, ${queuedHeld} queued held until restart (timeout: ${drainTimeoutMs} ms / ${drainTimeoutMinutes.toFixed(2)} min)`);
   taskCore.updateTaskStatus(barrierId, 'running', { started_at: new Date().toISOString() });
   persistRestartIntent({
     phase: 'draining',
@@ -642,7 +669,7 @@ async function handleRestartServerBarrier(args) {
     drain_started_at: new Date().toISOString(),
   });
 
-  const drainTimeoutMs = drainTimeoutMinutes * 60 * 1000;
+  // drainTimeoutMs already resolved at the top of the function.
   const drainStarted = Date.now();
 
   // Require running=0 across two consecutive polls before triggering shutdown.
@@ -697,9 +724,12 @@ async function handleRestartServerBarrier(args) {
     const elapsed = Date.now() - drainStarted;
     if (elapsed >= drainTimeoutMs) {
       clearInterval(drainPoll);
-      logger.info(`[Restart] Drain timeout — ${running} task(s) still running. Cancelling barrier.`);
+      logger.info(`[Restart] Drain timeout — ${running} task(s) still running after ${drainTimeoutMs} ms. Cancelling barrier.`);
+      const elapsedSummary = drainTimeoutMs >= 60_000
+        ? `${(drainTimeoutMs / 60_000).toFixed(1)} min`
+        : `${drainTimeoutMs} ms`;
       taskCore.updateTaskStatus(barrierId, 'failed', {
-        error_output: `Drain timed out: ${running} task(s) still running after ${drainTimeoutMinutes}min`,
+        error_output: `Drain timed out: ${running} task(s) still running after ${elapsedSummary}`,
         completed_at: new Date().toISOString(),
       });
       clearRestartIntent();
@@ -723,13 +753,17 @@ async function handleRestartServerBarrier(args) {
     logger.info(`[Restart] Drain: ${running} running, ${heldNow} queued held (${Math.round(elapsed / 1000)}s elapsed)`);
   }, 10000);
 
+  const timeoutSummary = drainTimeoutMs >= 60_000
+    ? `${(drainTimeoutMs / 60_000).toFixed(1)} min`
+    : `${drainTimeoutMs} ms`;
   return {
     success: true,
     task_id: barrierId,
     status: 'drain_started',
     running_count: runningTasks,
     queued_held_count: queuedHeld,
-    content: [{ type: 'text', text: `Pipeline drain started — barrier ${barrierId.slice(0, 8)} blocks new work. Waiting for ${runningTasks} running task(s) to finish (${queuedHeld} queued held until after restart). Timeout: ${drainTimeoutMinutes}min.\n\nTo block until the restart fires: call await_restart (with heartbeats) or await_task { task_id: "${barrierId}" }. To check drain state without blocking: call restart_status.` }],
+    drain_timeout_ms: drainTimeoutMs,
+    content: [{ type: 'text', text: `Pipeline drain started — barrier ${barrierId.slice(0, 8)} blocks new work. Waiting for ${runningTasks} running task(s) to finish (${queuedHeld} queued held until after restart). Timeout: ${timeoutSummary}.\n\nTo block until the restart fires: call await_restart (with heartbeats) or await_task { task_id: "${barrierId}" }. To check drain state without blocking: call restart_status.` }],
   };
 }
 

@@ -728,6 +728,63 @@ describe('process-lifecycle', () => {
         }
       });
     }
+
+    // ── Phase D / §2.5.4: force option skips SIGTERM grace ──
+    if (process.platform !== 'win32') {
+      it('with options.force=true sends SIGKILL immediately and skips SIGTERM (POSIX)', () => {
+        const kill = vi.fn();
+        const proc = { process: { kill } };
+        const handle = lifecycle.killProcessGraceful(proc, 'task-force', 5000, '', { force: true });
+        expect(kill).toHaveBeenCalledTimes(1);
+        expect(kill).toHaveBeenCalledWith('SIGKILL');
+        // No setTimeout should be returned — there is no grace period.
+        expect(handle).toBeNull();
+        // Advancing time must not trigger a second kill — the grace timer
+        // is skipped entirely under force=true, so the kill count stays
+        // pinned to exactly the immediate SIGKILL.
+        vi.advanceTimersByTime(60_000);
+        expect(kill).toHaveBeenCalledTimes(1);
+      });
+
+      it('with options.force=true swallows ESRCH from the immediate SIGKILL', () => {
+        const kill = vi.fn().mockImplementation(() => {
+          const err = new Error('No such process');
+          err.code = 'ESRCH';
+          throw err;
+        });
+        const proc = { process: { kill } };
+        expect(() => lifecycle.killProcessGraceful(proc, 'task-force-esrch', 5000, '', { force: true })).not.toThrow();
+        expect(kill).toHaveBeenCalledWith('SIGKILL');
+      });
+    }
+
+    if (process.platform === 'win32') {
+      it('with options.force=true uses taskkill /F /T immediately and no SIGTERM (Windows)', () => {
+        const kill = vi.fn();
+        const proc = { process: { pid: 12345, kill, once: vi.fn() } };
+        const cp = require('child_process');
+        const execFileSyncSpy = vi.spyOn(cp, 'execFileSync').mockImplementation(() => '');
+        try {
+          lifecycle.killProcessGraceful(proc, 'task-force-win', 5000, '', { force: true });
+          // Direct /F /T — no preliminary /T then setTimeout.
+          expect(execFileSyncSpy).toHaveBeenCalledWith(
+            'taskkill',
+            ['/F', '/T', '/PID', '12345'],
+            expect.objectContaining({ timeout: 5000, windowsHide: true }),
+          );
+          // SIGTERM should NOT have been sent.
+          const sentSignals = kill.mock.calls.map((c) => c[0]);
+          expect(sentSignals).not.toContain('SIGTERM');
+          // Advancing time must not produce a second taskkill — the grace
+          // window is skipped entirely under force.
+          execFileSyncSpy.mockClear();
+          vi.advanceTimersByTime(60_000);
+          expect(execFileSyncSpy).not.toHaveBeenCalled();
+        } finally {
+          execFileSyncSpy.mockRestore();
+        }
+      });
+    }
   });
 
   // ── safeTriggerWebhook ──

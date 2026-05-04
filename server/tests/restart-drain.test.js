@@ -79,6 +79,54 @@ describe('restart_server barrier mode', () => {
     }
   });
 
+  // Phase D / §2.5.3 — drain_timeout_ms parameter
+  it('honors drain_timeout_ms in the response and surfaces it in seconds when ≥ 60s', async () => {
+    taskCore.createTask({
+      id: 'drain-ms-pin',
+      task_description: 'pin drain',
+      provider: 'codex',
+      working_directory: process.cwd(),
+    });
+    taskCore.updateTaskStatus('drain-ms-pin', 'queued', {});
+    taskCore.updateTaskStatus('drain-ms-pin', 'running', { started_at: new Date().toISOString() });
+
+    const result = await tools.handleToolCall('restart_server', { reason: 'fast', drain_timeout_ms: 30_000 });
+    expect(result.status).toBe('drain_started');
+    expect(result.drain_timeout_ms).toBe(30_000);
+    // 30 s falls below the "render in minutes" threshold; copy uses ms.
+    const text = result.content?.[0]?.text || '';
+    expect(text).toContain('30000 ms');
+  });
+
+  it('falls back to drain_timeout_minutes when drain_timeout_ms is unset', async () => {
+    taskCore.createTask({
+      id: 'drain-min-pin',
+      task_description: 'pin',
+      provider: 'codex',
+      working_directory: process.cwd(),
+    });
+    taskCore.updateTaskStatus('drain-min-pin', 'queued', {});
+    taskCore.updateTaskStatus('drain-min-pin', 'running', { started_at: new Date().toISOString() });
+
+    const result = await tools.handleToolCall('restart_server', { reason: 'legacy', drain_timeout_minutes: 5 });
+    expect(result.status).toBe('drain_started');
+    expect(result.drain_timeout_ms).toBe(5 * 60_000);
+  });
+
+  it('defaults to 60_000 ms when no drain timeout is provided', async () => {
+    taskCore.createTask({
+      id: 'drain-default-pin',
+      task_description: 'pin',
+      provider: 'codex',
+      working_directory: process.cwd(),
+    });
+    taskCore.updateTaskStatus('drain-default-pin', 'queued', {});
+    taskCore.updateTaskStatus('drain-default-pin', 'running', { started_at: new Date().toISOString() });
+
+    const result = await tools.handleToolCall('restart_server', { reason: 'default' });
+    expect(result.drain_timeout_ms).toBe(60_000);
+  });
+
   it('rejects second restart when barrier already exists', async () => {
     // Park a running task so the first barrier stays queued for drain instead
     // of completing instantly. Without this, the beforeEach cooldown='0'

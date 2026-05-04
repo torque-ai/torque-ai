@@ -1,9 +1,40 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Parse flags. The new --graceful flag (subprocess-detachment design §2.5.3
+# Phase D) extends the drain window to 10 min for awaiter-sensitive
+# operations; without it, the cutover uses TORQUE's new fast 60-second
+# default. Operators who relied on today's long drain (60 min) can still
+# pin the legacy behavior via `BARRIER_TIMEOUT_MIN=60 cutover ...`.
+GRACEFUL_DRAIN=0
+POSITIONAL=()
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --graceful)
+      GRACEFUL_DRAIN=1
+      shift
+      ;;
+    --)
+      shift
+      while [ $# -gt 0 ]; do POSITIONAL+=("$1"); shift; done
+      break
+      ;;
+    -*)
+      echo "Unknown flag: $1"
+      echo "Usage: scripts/worktree-cutover.sh [--graceful] <feature-name>"
+      exit 1
+      ;;
+    *)
+      POSITIONAL+=("$1")
+      shift
+      ;;
+  esac
+done
+set -- "${POSITIONAL[@]:-}"
+
 FEATURE_NAME="${1:-}"
 if [ -z "$FEATURE_NAME" ]; then
-  echo "Usage: scripts/worktree-cutover.sh <feature-name>"
+  echo "Usage: scripts/worktree-cutover.sh [--graceful] <feature-name>"
   exit 1
 fi
 
@@ -352,13 +383,28 @@ summarize_running_blockers() {
 # restarts itself. No external kill required.
 
 if [ "$TORQUE_RUNNING" = "true" ]; then
-  # Cutover drain budget. Observed 2026-04-21: a 30-minute timeout is too
-  # short when a factory batch carries an 8-hour Codex worktree task in
-  # flight — the barrier expires before the task can finish cooperatively,
-  # forcing restart while real work is still running. A full hour absorbs
-  # the common long-task shapes without blocking cutover indefinitely; the
-  # user can still override by exporting BARRIER_TIMEOUT_MIN before running.
-  BARRIER_TIMEOUT_MIN=${BARRIER_TIMEOUT_MIN:-60}
+  # Cutover drain budget. Subprocess-detachment design §2.5.3 (Phase D)
+  # reframes the drain from a correctness mechanism (don't kill running
+  # tasks) to a UX preference (give awaiters time to flush). With Phase C
+  # re-adoption in place, surviving codex subprocesses are picked back up
+  # by the new instance, so a fast restart is safe.
+  #
+  # --graceful — 10-minute drain (awaiter-sensitive cutovers). Use when
+  #              dashboards / await_task callers need to see results
+  #              before the control plane reshuffles.
+  # default —    fast restart (60-second drain — TORQUE's new default).
+  # legacy —     export BARRIER_TIMEOUT_MIN=60 to pin the previous
+  #              60-minute drain for environments that haven't enabled
+  #              detachment yet.
+  if [ "$GRACEFUL_DRAIN" = "1" ]; then
+    BARRIER_TIMEOUT_MIN=${BARRIER_TIMEOUT_MIN:-10}
+    DRAIN_TIMEOUT_MS=$((BARRIER_TIMEOUT_MIN * 60 * 1000))
+  elif [ -n "${BARRIER_TIMEOUT_MIN:-}" ]; then
+    DRAIN_TIMEOUT_MS=$((BARRIER_TIMEOUT_MIN * 60 * 1000))
+  else
+    BARRIER_TIMEOUT_MIN=1
+    DRAIN_TIMEOUT_MS=60000
+  fi
 
   # --- Dry-run support ---
   # Set CUTOVER_DRY_RUN=1 to print the intended API calls without executing.
@@ -403,7 +449,7 @@ if [ "$TORQUE_RUNNING" = "true" ]; then
       RESTART_RESP=$(curl -s --max-time 10 \
         -X POST "${TORQUE_API}/api/v2/system/restart-server" \
         -H "Content-Type: application/json" \
-        -d "{\"reason\":\"Cutover to ${FEATURE_NAME}\",\"timeout_minutes\":${BARRIER_TIMEOUT_MIN}}" \
+        -d "{\"reason\":\"Cutover to ${FEATURE_NAME}\",\"drain_timeout_ms\":${DRAIN_TIMEOUT_MS}}" \
         2>/dev/null || echo "")
 
       if [ -z "$RESTART_RESP" ]; then

@@ -1308,6 +1308,9 @@ function handleCancelTask(args) {
   const { task, error: taskErr } = requireTask(args.task_id);
   if (taskErr) return taskErr;
 
+  const force = Boolean(args.force);
+  const abandon = Boolean(args.abandon);
+
   // For running, queued, or retry_scheduled tasks, require explicit confirm=true
   // This gives the caller a chance to see what they're cancelling
   if ((task.status === 'running' || task.status === 'queued' || task.status === 'retry_scheduled') && !args.confirm) {
@@ -1315,6 +1318,9 @@ function handleCancelTask(args) {
     const age = task.created_at ? Math.round((Date.now() - new Date(task.created_at).getTime()) / 60000) : '?';
     const project = task.project || 'unknown';
     const provider = task.provider || 'unknown';
+    const modeNote = abandon
+      ? '\n**Mode:** abandon — TORQUE will mark this task cancelled but leave the subprocess running.'
+      : (force ? '\n**Mode:** force — immediate SIGKILL (no SIGTERM grace).' : '');
     return {
       content: [{ type: 'text', text:
         `## Cancel Safety Check\n\n` +
@@ -1323,7 +1329,7 @@ function handleCancelTask(args) {
         `**Project:** ${project}\n` +
         `**Provider:** ${provider}\n` +
         `**Age:** ${age} minutes\n` +
-        `**Description:** ${desc}${(task.description || '').length > 300 ? '...' : ''}\n\n` +
+        `**Description:** ${desc}${(task.description || '').length > 300 ? '...' : ''}${modeNote}\n\n` +
         `⚠️ **This task is ${task.status}. Cancellation is irreversible.**\n\n` +
         `To confirm, call again with \`confirm: true\`. ` +
         `To inspect further, use \`check_status\` or \`get_progress\`.`
@@ -1333,7 +1339,11 @@ function handleCancelTask(args) {
 
   let success;
   try {
-    success = taskManager.cancelTask(args.task_id, args.reason || 'Cancelled by user');
+    success = taskManager.cancelTask(
+      args.task_id,
+      args.reason || 'Cancelled by user',
+      { force, abandon },
+    );
   } catch {
     // cancelTask throws when task not found by prefix match
     if (task) {
@@ -1344,8 +1354,11 @@ function handleCancelTask(args) {
 
   if (success) {
     const desc = (task.description || '').substring(0, 200);
+    const modeSuffix = abandon
+      ? ' (abandoned — subprocess left alive)'
+      : (force ? ' (force — immediate kill)' : '');
     return {
-      content: [{ type: 'text', text: `Task ${args.task_id} cancelled.\n\n**Was:** ${desc}` }]
+      content: [{ type: 'text', text: `Task ${args.task_id} cancelled${modeSuffix}.\n\n**Was:** ${desc}` }]
     };
   }
 

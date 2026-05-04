@@ -146,7 +146,7 @@ module.exports = [
   },
   {
     "name": "cancel_task",
-    "description": "Cancel a running or queued task. SAFETY: For running/queued tasks, first call returns task details for review. Call again with confirm=true to actually cancel. Cancellation is irreversible.",
+    "description": "Cancel a running or queued task. SAFETY: For running/queued tasks, first call returns task details for review. Call again with confirm=true to actually cancel. Cancellation is irreversible. Use `force` for immediate SIGKILL on stuck subprocesses; use `abandon` to release the TORQUE slot while leaving a detached subprocess running.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -162,6 +162,16 @@ module.exports = [
           "type": "boolean",
           "default": false,
           "description": "Set to true to confirm cancellation after reviewing task details. First call without confirm returns task info for review."
+        },
+        "force": {
+          "type": "boolean",
+          "default": false,
+          "description": "Skip the SIGTERM grace period and go straight to SIGKILL (POSIX) or `taskkill /F /T` (Windows). Use for subprocesses stuck in tight loops or hung syscalls. Logged as `cancel_reason='force'` for forensics."
+        },
+        "abandon": {
+          "type": "boolean",
+          "default": false,
+          "description": "Mark the task cancelled in the DB but leave the subprocess running. Only meaningful for detached subprocesses (Phase B+); for legacy pipe-based tasks the child may still exit when stdio closes. Logged as `cancel_reason='abandon'`. Use as an escape hatch when you want to release a TORQUE slot without disrupting an in-flight cloud-API call."
         }
       },
       "required": [
