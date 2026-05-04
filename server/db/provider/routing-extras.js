@@ -7,7 +7,7 @@
  * Uses dependency injection for the database instance.
  */
 
-const { safeJsonParse } = require('../utils/json');
+const { safeJsonParse } = require('../../utils/json');
 
 let db;
 

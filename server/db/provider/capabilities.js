@@ -1,7 +1,7 @@
 'use strict';
 
-const { safeJsonParse } = require('../utils/json');
-const perfCounters = require('../operations-perf-counters');
+const { safeJsonParse } = require('../../utils/json');
+const perfCounters = require('../../operations-perf-counters');
 
 const DEFAULT_CAPABILITIES = {
   codex: { capabilities: ['file_creation', 'file_edit', 'multi_file', 'reasoning'], band: 'A' },

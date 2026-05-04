@@ -69,10 +69,10 @@ function ensureInitialized() {
   if (!currentDb) {
     let database;
     try {
-      const { defaultContainer } = require('../container');
+      const { defaultContainer } = require('../../container');
       database = defaultContainer.get('db');
     } catch {
-      database = require('../database');
+      database = require('../../database');
     }
     currentDb = resolveDbHandle(database);
   }

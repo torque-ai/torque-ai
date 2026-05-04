@@ -1,9 +1,9 @@
 'use strict';
 
-const logger = require('../logger').child({ component: 'provider-routing' });
-const { safeJsonParse } = require('../utils/json');
-const serverConfig = require('../config');
-const providerRegistry = require('../providers/registry');
+const logger = require('../../logger').child({ component: 'provider-routing' });
+const { safeJsonParse } = require('../../utils/json');
+const serverConfig = require('../../config');
+const providerRegistry = require('../../providers/registry');
 const {
   createSharedFactoryStore,
   deriveLearningScope,
@@ -22,7 +22,7 @@ const ollamaHealth = require('../ollama-health');
 
 let templateStore = null;
 try {
-  templateStore = require('../routing/template-store');
+  templateStore = require('../../routing/template-store');
 } catch {
   templateStore = null;
 }
@@ -145,7 +145,7 @@ function _getSharedFactoryStore() {
   if (sharedFactoryStore) return sharedFactoryStore;
 
   try {
-    const { defaultContainer } = require('../container');
+    const { defaultContainer } = require('../../container');
     if (
       defaultContainer
       && typeof defaultContainer.has === 'function'
