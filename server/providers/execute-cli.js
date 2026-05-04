@@ -1521,6 +1521,20 @@ function spawnAndTrackProcessDetached(taskId, task, cmdSpec, providerArg) {
   const startTime = Date.now();
   const nowIso = new Date(startTime).toISOString();
 
+  // Guard: task may have been cancelled between submit and the wrapper
+  // actually spawning. The legacy pipe path has the same guard before
+  // its updateTaskStatus call (process-lifecycle.js spawnAndTrackProcess —
+  // cancelled→running throws under the v37+ transition validator and
+  // surfaces as an unhandled rejection that fails the gate). Kill the
+  // detached child, drop the empty log dir, and bail.
+  const currentTaskBeforeRunning = db.getTask(taskId);
+  if (currentTaskBeforeRunning && currentTaskBeforeRunning.status === 'cancelled') {
+    logger.info(`[TaskManager] Task ${taskId} was cancelled before detached spawn completed — skipping status update`);
+    try { child.kill(); } catch { /* best-effort */ }
+    try { fs.rmSync(logDir, { recursive: true, force: true }); } catch { /* ignore */ }
+    return { queued: false, task: currentTaskBeforeRunning };
+  }
+
   // 5) Persist subprocess identity to the task row immediately so a
   // parent crash between here and the next status update still leaves
   // enough breadcrumbs for re-adoption.
