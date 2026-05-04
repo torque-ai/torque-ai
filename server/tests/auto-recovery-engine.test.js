@@ -145,6 +145,168 @@ describe('auto-recovery engine.tick', () => {
     ]);
   });
 
+  it('skips benign-flow decisions without consuming retry budget or pausing the project', async () => {
+    // Regression for the bitsy 2026-05-03 unknown-classification cascade.
+    // When a concurrent session interrupts the loop (cancel_task, peer
+    // restart, etc.), the project may end up paused while the LATEST real
+    // decision is a forward-progress signal (advance_from_prioritize,
+    // started_loop, scanned_plans, etc.). Pre-fix: the engine classified
+    // the success signal as 'unknown', picked retry+escalate, exhausted
+    // the budget, and pauseProject entrenched the pause — triggering peer
+    // sessions to cancel the next attempt's task. Post-fix: skip recovery
+    // entirely, log auto_recovery_skipped_benign, leave exhausted=0 so the
+    // project keeps ticking. The factory tick naturally re-runs when a
+    // real decision lands (advance, fail, or otherwise).
+    db.prepare(`INSERT INTO factory_projects
+                (id, status, loop_state, loop_paused_at_stage, loop_last_action_at, auto_recovery_attempts, auto_recovery_exhausted)
+                VALUES ('p-benign', 'paused', 'PAUSED', 'READY_FOR_PLAN', '2026-04-21T03:00:00Z', 0, 0)`).run();
+    db.prepare(`INSERT INTO factory_decisions
+                (project_id, stage, actor, action, reasoning, batch_id, created_at)
+                VALUES ('p-benign', 'prioritize', 'orchestrator', 'advance_from_prioritize',
+                        'Loop advanced from PRIORITIZE to PLAN.', 'batch-x', '2026-04-21T03:00:00Z')`).run();
+
+    const ran = [];
+    const engine = createAutoRecoveryEngine({
+      db, logger, eventBus: { emit: () => {} },
+      rules: [{ name: 'any', category: 'unknown', priority: 1, match: {}, suggested_strategies: ['retry'] }],
+      strategies: [{
+        name: 'retry',
+        applicable_categories: ['unknown', 'any'],
+        async run(ctx) { ran.push(ctx.project.id); return { success: true, next_action: 'retry' }; },
+      }],
+      nowMs: () => Date.parse('2026-04-21T13:00:00Z'),
+    });
+
+    const summary = await engine.tick();
+
+    expect(summary).toEqual(expect.objectContaining({ candidates: 1, attempts: 0 }));
+    expect(ran).toEqual([]);
+
+    const project = db.prepare(`
+      SELECT auto_recovery_attempts, auto_recovery_exhausted, auto_recovery_last_strategy, auto_recovery_last_action_at
+      FROM factory_projects
+      WHERE id = 'p-benign'
+    `).get();
+    // Crucially: NOT marked exhausted, NO strategy attempted, attempts unchanged.
+    // last_action_at IS bumped so rearm doesn't treat the skip as fresh progress.
+    expect(project.auto_recovery_attempts).toBe(0);
+    expect(project.auto_recovery_exhausted).toBe(0);
+    expect(project.auto_recovery_last_strategy).toBeNull();
+    expect(project.auto_recovery_last_action_at).toBeTruthy();
+
+    const actions = db.prepare(`
+      SELECT action FROM factory_decisions
+      WHERE actor = 'auto-recovery'
+      ORDER BY id
+    `).all().map((row) => row.action);
+    expect(actions).toEqual(['auto_recovery_skipped_benign']);
+  });
+
+  it('skips multiple benign-flow shapes (advance_*, started_*, lifecycle, post-cancel routing)', async () => {
+    // Confirms the categorizer covers the empirically-observed benign
+    // shapes that previously fell through as 'unknown'. Each scenario
+    // logs one auto_recovery_skipped_benign and keeps exhausted=0.
+    const benignShapes = [
+      ['advance_from_sense', 'sense'],
+      ['started_loop', 'sense'],
+      ['scanned_plans', 'sense'],
+      ['selected_work_item', 'prioritize'],
+      ['scored_work_item', 'prioritize'],
+      ['auto_shipped_at_prioritize', 'prioritize'],
+      ['skipped_for_plan_file', 'plan'],
+      ['generated_plan', 'plan'],
+      ['plan_quality_passed', 'plan'],
+      ['worktree_created', 'execute'],
+      ['worktree_reused_completed_owner', 'execute'],
+      ['auto_committed_task', 'execute'],
+      ['auto_commit_skipped_clean', 'execute'],
+      ['completed_execution', 'execute'],
+      ['execute_completed_with_agent_self_commits', 'execute'],
+      ['verified_batch', 'verify'],
+      ['worktree_verify_passed', 'verify'],
+      ['verify_empty_branch_routed_to_needs_replan', 'verify'],
+      ['cannot_generate_plan_routed_to_needs_replan', 'execute'],
+      ['learned', 'learn'],
+      ['worktree_merged', 'learn'],
+      ['shipped_work_item', 'learn'],
+      ['gate_approved', 'learn'],
+    ];
+
+    for (let i = 0; i < benignShapes.length; i++) {
+      const [action, stage] = benignShapes[i];
+      const pid = `p-benign-${i}`;
+      db.prepare(`INSERT INTO factory_projects
+                  (id, status, loop_state, loop_paused_at_stage, loop_last_action_at, auto_recovery_attempts, auto_recovery_exhausted)
+                  VALUES (?, 'paused', 'PAUSED', 'READY_FOR_VERIFY', '2026-04-21T03:00:00Z', 0, 0)`).run(pid);
+      db.prepare(`INSERT INTO factory_decisions
+                  (project_id, stage, actor, action, reasoning, batch_id, created_at)
+                  VALUES (?, ?, 'orchestrator', ?, 'benign signal', 'batch-1', '2026-04-21T03:00:00Z')`).run(pid, stage, action);
+    }
+
+    const engine = createAutoRecoveryEngine({
+      db, logger, eventBus: { emit: () => {} },
+      rules: [{ name: 'any', category: 'unknown', priority: 1, match: {}, suggested_strategies: ['retry'] }],
+      strategies: [{
+        name: 'retry',
+        applicable_categories: ['unknown', 'any'],
+        async run() { throw new Error('strategy must NOT run for benign decisions'); },
+      }],
+      nowMs: () => Date.parse('2026-04-21T13:00:00Z'),
+    });
+
+    await engine.tick();
+
+    const exhaustedCount = db.prepare(`SELECT COUNT(*) AS c FROM factory_projects WHERE auto_recovery_exhausted = 1`).get().c;
+    expect(exhaustedCount).toBe(0);
+    const skipped = db.prepare(`SELECT COUNT(*) AS c FROM factory_decisions WHERE action = 'auto_recovery_skipped_benign'`).get().c;
+    expect(skipped).toBe(benignShapes.length);
+  });
+
+  it('does NOT skip failure-shaped decisions (paused_at_gate, *_failed, baseline_broken) — recovery still fires', async () => {
+    // Counterpart to the benign-skip test: real failure shapes must still
+    // route through the classifier and strategies. This guards against
+    // an over-broad benign list silently disabling recovery.
+    const failureShapes = [
+      ['paused_at_gate', 'execute'],
+      ['merge_target_dirty', 'learn'],
+      ['execution_failed', 'execute'],
+      ['worktree_verify_failed', 'verify'],
+      ['plan_generation_retry_unusable_output', 'execute'],
+      ['execute_zero_diff_short_circuit', 'execute'],
+      ['worktree_creation_failed', 'execute'],
+      ['verify_reviewed_baseline_broken', 'verify'],
+    ];
+
+    for (let i = 0; i < failureShapes.length; i++) {
+      const [action, stage] = failureShapes[i];
+      const pid = `p-fail-${i}`;
+      db.prepare(`INSERT INTO factory_projects
+                  (id, status, loop_state, loop_paused_at_stage, loop_last_action_at, auto_recovery_attempts, auto_recovery_exhausted)
+                  VALUES (?, 'paused', 'PAUSED', 'EXECUTE', '2026-04-21T03:00:00Z', 0, 0)`).run(pid);
+      db.prepare(`INSERT INTO factory_decisions
+                  (project_id, stage, actor, action, reasoning, batch_id, created_at)
+                  VALUES (?, ?, 'orchestrator', ?, 'failure signal', 'batch-1', '2026-04-21T03:00:00Z')`).run(pid, stage, action);
+    }
+
+    const ran = [];
+    const engine = createAutoRecoveryEngine({
+      db, logger, eventBus: { emit: () => {} },
+      rules: [{ name: 'any', category: 'unknown', priority: 1, match: {}, suggested_strategies: ['retry'] }],
+      strategies: [{
+        name: 'retry',
+        applicable_categories: ['unknown', 'any'],
+        async run(ctx) { ran.push(ctx.project.id); return { success: true, next_action: 'retry' }; },
+      }],
+      nowMs: () => Date.parse('2026-04-21T13:00:00Z'),
+    });
+
+    await engine.tick();
+
+    const skipped = db.prepare(`SELECT COUNT(*) AS c FROM factory_decisions WHERE action = 'auto_recovery_skipped_benign'`).get().c;
+    expect(skipped).toBe(0);
+    expect(ran.length).toBe(failureShapes.length);
+  });
+
   it('marks exhausted after MAX_ATTEMPTS and logs _exhausted', async () => {
     db.prepare(`INSERT INTO factory_projects
                 (id, status, loop_state, loop_paused_at_stage, loop_last_action_at, auto_recovery_attempts)

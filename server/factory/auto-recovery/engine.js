@@ -128,6 +128,72 @@ function isTerminalRealDecision(decision) {
   return ['rejected', 'closed', 'completed', 'shipped'].includes(status);
 }
 
+// Benign-flow decisions are normal-progression signals (loop stage advances,
+// item selection, worktree lifecycle, success/no-op execution outcomes,
+// post-cancel routing). When the project is paused but the latest decision
+// is a benign-flow signal, auto-recovery has nothing to recover FROM —
+// trying to recover a successful advance burns the budget and lands the
+// project on `pauseProject` via the default escalate strategy, entrenching
+// the pause instead of unsticking it.
+//
+// Live evidence (bitsy 2026-05-03): repeated cycles where a concurrent
+// session's `cancel_task` interrupted a running plan_generation, the
+// factory routed it to needs_replan, the project paused while the
+// LATEST decision was `prioritize/advance_from_prioritize` (a SUCCESS
+// signal). Auto-recovery classified that as `unknown`, picked retry,
+// exhausted, escalated, paused. Five new "unknown classification"
+// cascades emerged in 24h, each with a different benign latest-decision
+// shape. Adding rules per shape is whack-a-mole; categorizing benign
+// signals at the engine level neutralizes the entire bug class.
+//
+// IMPORTANT: this set must be empirically maintained as `success` signals
+// only. Anything that COULD indicate a stuck condition (paused_at_gate,
+// merge_target_dirty, *_failed, *_rejected, *_unusable_*, *_blocked_*,
+// *_exhausted, *_short_circuit, baseline_broken) is NOT benign — the
+// classifier rules continue to handle those.
+const BENIGN_FLOW_ACTION_PREFIXES = [
+  'advance_from_',           // SENSE→PRIORITIZE→PLAN→EXECUTE→VERIFY→LEARN transitions
+  'started_loop',            // first SENSE entry of a fresh instance
+  'started_execution',       // entered EXECUTE
+  'starting',                 // generic stage-started signal
+];
+const BENIGN_FLOW_ACTION_EXACT = new Set([
+  'scanned_plans',           // SENSE scanned the plans directory
+  'selected_work_item',      // PRIORITIZE picked a WI
+  'scored_work_item',        // PRIORITIZE rescored a WI before planning
+  'auto_shipped_at_prioritize',  // shipped-detector matched existing commits
+  'pre_written_plan_quality_passed',
+  'skipped_for_plan_file',   // PLAN bypassed because a pre-written plan exists
+  'generated_plan',          // architect cycle completed with a plan
+  'plan_quality_passed',     // plan-quality gate accepted the plan
+  'worktree_created',        // EXECUTE created an isolated worktree
+  'worktree_reused_completed_owner',  // benign reuse, owner already done
+  'worktree_reclaimed',      // pre-reclaim of a stale row before fresh create
+  'auto_committed_task',     // factory auto-committed leftover dirty state
+  'auto_commit_skipped_clean',  // task committed cleanly; nothing extra to capture
+  'completed_execution',     // plan executor finished (success path)
+  'execute_completed_after_no_op_retries',  // Phase E benign no-op cluster
+  'execute_completed_with_agent_self_commits',  // 2026-05-03 self-commits fix
+  'verified_batch',          // VERIFY guardrails passed
+  'worktree_verify_passed',  // verify_command passed remotely
+  'verify_empty_branch_routed_to_needs_replan',  // factory-level routing decision
+  'cannot_generate_plan_routed_to_needs_replan',  // post-cancel routing
+  'learned',                 // LEARN analyzed post-batch feedback
+  'worktree_merged',         // LEARN merged the feature branch
+  'shipped_work_item',       // LEARN marked the WI shipped
+  'gate_approved',           // recovery's prior approval cleared a pause
+]);
+
+function isBenignFlowDecision(decision) {
+  if (!decision) return false;
+  const action = String(decision.action || '');
+  if (BENIGN_FLOW_ACTION_EXACT.has(action)) return true;
+  for (const prefix of BENIGN_FLOW_ACTION_PREFIXES) {
+    if (action.startsWith(prefix)) return true;
+  }
+  return false;
+}
+
 function listProjectsToRearm(db) {
   return db.prepare(`
     SELECT id, name, status, loop_state, loop_batch_id, loop_paused_at_stage, auto_recovery_last_action_at
@@ -257,6 +323,39 @@ function createAutoRecoveryEngine({
       });
       markExhausted(project.id, 'terminal_decision');
       return { attempted: false, strategy: null, skipped: 'terminal_decision' };
+    }
+
+    // 2026-05-03: skip recovery when the latest decision is a benign
+    // forward-progress signal. The project may be paused for a reason
+    // unrelated to the loop's logical state (concurrent cutover killed a
+    // task subprocess, a peer session called pauseProject, etc.). Trying
+    // to recover a successful advance burns the budget on no-op retries
+    // and culminates in escalate's pauseProject — entrenching the pause
+    // and triggering peer-session "leaked task" cancellations on the next
+    // attempt. The factory tick will naturally re-tick when pause-cause
+    // resolves. Log a deterministic skip action so the decision log shows
+    // recovery's reasoning instead of a silent no-op.
+    if (isBenignFlowDecision(decision)) {
+      logDecision(db, {
+        project_id: project.id,
+        stage: decision?.stage || 'verify',
+        action: 'auto_recovery_skipped_benign',
+        reasoning: `Latest real decision ${decision.action} is a benign forward-progress signal; auto-recovery has nothing to recover from. Project will resume on the next tick when the pause-cause clears.`,
+        outcome: {
+          latest_decision_action: decision.action,
+          latest_decision_stage: decision.stage || null,
+        },
+        confidence: 1,
+        batch_id: decision?.batch_id || null,
+      });
+      // Bump last_action_at without touching the exhausted flag so rearm's
+      // "newer real decision" check does not treat this skip as fresh
+      // progress. The project keeps its current exhausted status; it is
+      // not paused, not exhausted, just deferred to the next tick.
+      db.prepare(`UPDATE factory_projects
+                  SET auto_recovery_last_action_at = ?
+                  WHERE id = ?`).run(new Date().toISOString(), project.id);
+      return { attempted: false, strategy: null, skipped: 'benign_flow_decision' };
     }
 
     const classifyInput = decision
