@@ -456,6 +456,22 @@ init calls.
 **Estimated effort:** 2 sessions (one for the migration, one for tests +
 review).
 
+**Pilot learning (2026-05-04, safeguard-gates.js — first migrated module):**
+The migration cannot be fully atomic at module granularity. When you
+migrate `safeguard-gates.js` to the factory shape, `task-manager.js` is
+still importing it via `const _safeguardGates = require('./validation/
+safeguard-gates'); const { handleSafeguardChecks } = _safeguardGates;`
+at module-load time. The factory pattern returns the service at boot
+time, not module-load time, so simply renaming `init` to `createXxx`
+breaks the destructure.
+
+**Conclusion adopted:** each migrated module exposes BOTH shapes during
+the transition — the new `createXxx({…}) + register(container)` for new
+consumers and the old `init({…}) + named exports` for the still-imperative
+consumers. The legacy shape is removed in the same commit that migrates
+the last consumer, not before. This is the only kind of coexistence the
+spec endorses — short-lived, per-module, with a clear delete-by point.
+
 **Decision gate:** if the pilot reveals fundamental problems with the new
 shape, we revisit the design before continuing. The pilot is the safety
 valve for the rest of the arc.
