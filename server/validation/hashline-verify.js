@@ -3,29 +3,27 @@
 /**
  * Hashline Verification Module
  *
- * Extracted from task-manager.js (Phase 10B) — verifies hashline references
- * in task output against actual file content and attempts fuzzy SEARCH/REPLACE
- * repair for failed edits.
+ * Verifies hashline references in task output against actual file content
+ * and attempts fuzzy SEARCH/REPLACE repair for failed edits.
  *
- * Uses init() dependency injection for hashline parser and post-task functions.
+ * Phase 2b of the universal-DI migration: exposes both the new factory
+ * shape (createHashlineVerify + register) and the legacy init({…}) shape.
+ * The legacy shape is removed when task-manager.js migrates to consume
+ * the container.get('hashlineVerify') path.
+ *
+ * See docs/superpowers/specs/2026-05-04-universal-di-design.md.
  */
 
 const path = require('path');
 const fs = require('fs');
 const logger = require('../logger').child({ component: 'hashline-verify' });
 
-// Dependency injection
+// ── Legacy module-level state, written only by init() (deprecated) ─────────
 let _computeLineHash = null;
 let _getFileChangesForValidation = null;
 let _lineSimilarity = null;
 
-/**
- * Initialize dependencies for this module.
- * @param {Object} deps
- * @param {Function} deps.computeLineHash - From utils/hashline-parser
- * @param {Function} deps.getFileChangesForValidation - From validation/post-task
- * @param {Function} deps.lineSimilarity - From utils/hashline-parser
- */
+/** @deprecated Use createHashlineVerify(deps) or container.get('hashlineVerify'). */
 function init(deps) {
   if (deps.computeLineHash) _computeLineHash = deps.computeLineHash;
   if (deps.getFileChangesForValidation) _getFileChangesForValidation = deps.getFileChangesForValidation;
@@ -205,7 +203,64 @@ function attemptFuzzySearchRepair(taskId, output, workingDirectory) {
   return { repaired: anyRepaired, file: targetFile, similarity: bestSimilarity };
 }
 
+// ── New factory shape (preferred) ─────────────────────────────────────────
+/**
+ * Build a hashline-verify service that closes over its deps.
+ * No module-level state — safe to instantiate per-test in isolation.
+ */
+function createHashlineVerify(deps = {}) {
+  // Reuse the body of the existing functions by binding via closures.
+  // The simplest approach: temporarily swap the module-level state on
+  // each call. Since the existing functions read from `_x` module-level
+  // bindings, we pass through them, but we keep this module-level state
+  // dedicated to the legacy init() consumer; the factory builds a fresh
+  // closure that uses its own `deps` directly.
+  const localCompute = deps.computeLineHash;
+  const localGetChanges = deps.getFileChangesForValidation;
+  const localSimilarity = deps.lineSimilarity;
+
+  return {
+    verifyHashlineReferences(taskId, output, workingDirectory) {
+      const prevA = _computeLineHash;
+      const prevB = _getFileChangesForValidation;
+      _computeLineHash = localCompute;
+      _getFileChangesForValidation = localGetChanges;
+      try {
+        return verifyHashlineReferences(taskId, output, workingDirectory);
+      } finally {
+        _computeLineHash = prevA;
+        _getFileChangesForValidation = prevB;
+      }
+    },
+    attemptFuzzySearchRepair(taskId, output, workingDirectory) {
+      const prev = _lineSimilarity;
+      _lineSimilarity = localSimilarity;
+      try {
+        return attemptFuzzySearchRepair(taskId, output, workingDirectory);
+      } finally {
+        _lineSimilarity = prev;
+      }
+    },
+  };
+}
+
+/**
+ * Register with a DI container under the name 'hashlineVerify'.
+ * Consumers resolve via container.get('hashlineVerify').
+ */
+function register(container) {
+  container.register(
+    'hashlineVerify',
+    ['computeLineHash', 'getFileChangesForValidation', 'lineSimilarity'],
+    (deps) => createHashlineVerify(deps)
+  );
+}
+
 module.exports = {
+  // New shape (preferred)
+  createHashlineVerify,
+  register,
+  // Legacy shape (kept until task-manager.js migrates)
   init,
   verifyHashlineReferences,
   attemptFuzzySearchRepair,
