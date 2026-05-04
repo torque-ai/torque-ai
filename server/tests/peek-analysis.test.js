@@ -28,7 +28,7 @@ const mockContracts = {
   formatPeekArtifactReferenceSection: vi.fn(),
   getPeekBundleContractSummary: vi.fn(),
   validatePeekInvestigationBundleEnvelope: vi.fn(),
-  // Constants required by peek-fixtures.js (loaded transitively via db/peek-fixture-catalog.js)
+  // Constants required by peek-fixtures.js (loaded transitively via db/peek/fixture-catalog.js)
   PEEK_AUTHORITATIVE_PACKAGE_ROOT: 'tools/peek-server',
   PEEK_CAPABILITIES_ROUTES: Object.freeze({ health: '/health', investigation_bundle: '/diagnose' }),
   PEEK_FIRST_SLICE_NAME: 'first',
@@ -195,7 +195,7 @@ function createDiagnoseIntegrationHarness(tempRoot, overrides = {}) {
     '../../../db/task-core': dbMock,
     '../../../db/task-metadata': dbMock,
     '../../../db/workflow-engine': dbMock,
-    '../../../db/peek-policy-audit': dbMock,
+    '../../../db/peek/policy-audit': dbMock,
     '../../../logger': loggerModule,
     './shared': sharedModule,
   });

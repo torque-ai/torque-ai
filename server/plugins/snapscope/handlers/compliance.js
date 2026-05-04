@@ -2,7 +2,7 @@
 
 const crypto = require('crypto');
 const dbModule = require('../../../database'); // getDbInstance (raw DB handle for direct SQL queries)
-const peekPolicyAudit = require('../../../db/peek-policy-audit');
+const peekPolicyAudit = require('../../../db/peek/policy-audit');
 const { fireWebhookForEvent } = require('./webhook-outbound');
 const { classifyActionRisk } = require('./rollback');
 const logger = require('../../../logger').child({ component: 'peek-compliance' });

@@ -259,7 +259,7 @@ function createRecoveryHandlerSubject({ fireWebhookForEvent = vi.fn(() => Promis
     './webhook-outbound': { fireWebhookForEvent },
     '../../../logger': logger.module,
     '../../../db/config-core': database,
-    '../../../db/peek-recovery-approvals': database,
+    '../../../db/peek/recovery-approvals': database,
     '../../../db/recovery-metrics': database,
   });
 
@@ -313,7 +313,7 @@ function createArtifactsHandlerSubject({ fireWebhookForEvent = vi.fn(() => Promi
     '../../../db/task-core': database,
     '../../../db/task-metadata': database,
     '../../../db/workflow-engine': database,
-    '../../../db/peek-policy-audit': database,
+    '../../../db/peek/policy-audit': database,
     '../../../contracts/peek': contracts,
     './shared': shared,
     './webhook-outbound': { fireWebhookForEvent },

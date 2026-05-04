@@ -15,7 +15,7 @@ let currentModules = {};
 
 vi.mock('../database', () => currentModules.db);
 vi.mock('../db/config-core', () => currentModules.db);
-vi.mock('../db/peek-recovery-approvals', () => currentModules.db);
+vi.mock('../db/peek/recovery-approvals', () => currentModules.db);
 vi.mock('../db/recovery-metrics', () => currentModules.db);
 vi.mock('../plugins/snapscope/handlers/shared', () => currentModules.peekShared);
 vi.mock('../plugins/snapscope/handlers/rollback', () => currentModules.rollback);
@@ -194,7 +194,7 @@ function loadHandlers() {
 
   vi.doMock('../database', () => currentModules.db);
   vi.doMock('../db/config-core', () => currentModules.db);
-  vi.doMock('../db/peek-recovery-approvals', () => currentModules.db);
+  vi.doMock('../db/peek/recovery-approvals', () => currentModules.db);
   vi.doMock('../db/recovery-metrics', () => currentModules.db);
   vi.doMock('../plugins/snapscope/handlers/shared', () => currentModules.peekShared);
   vi.doMock('../plugins/snapscope/handlers/rollback', () => currentModules.rollback);
@@ -205,7 +205,7 @@ function loadHandlers() {
 
   installMock('../database', currentModules.db);
   installMock('../db/config-core', currentModules.db);
-  installMock('../db/peek-recovery-approvals', currentModules.db);
+  installMock('../db/peek/recovery-approvals', currentModules.db);
   installMock('../db/recovery-metrics', currentModules.db);
   installMock('../plugins/snapscope/handlers/shared', currentModules.peekShared);
   installMock('../plugins/snapscope/handlers/rollback', currentModules.rollback);

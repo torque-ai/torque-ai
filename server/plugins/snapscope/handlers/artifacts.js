@@ -2,7 +2,7 @@ const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
 const taskCore = require('../../../db/task-core');
-const peekPolicyAudit = require('../../../db/peek-policy-audit');
+const peekPolicyAudit = require('../../../db/peek/policy-audit');
 const { storeArtifact } = require('../../../db/task-metadata');
 const { getWorkflow, updateWorkflow } = require('../../../db/workflow-engine');
 const {

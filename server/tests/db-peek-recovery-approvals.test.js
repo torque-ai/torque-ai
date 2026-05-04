@@ -89,7 +89,7 @@ function listStoredApprovals() {
 }
 
 beforeAll(() => {
-  ({ mod: approvals } = setupTestDbModule('../db/peek-recovery-approvals', 'db-peek-recovery-approvals'));
+  ({ mod: approvals } = setupTestDbModule('../db/peek/recovery-approvals', 'db-peek-recovery-approvals'));
 });
 
 afterAll(() => {
@@ -105,7 +105,7 @@ afterEach(() => {
   approvals.setDb(rawDb());
 });
 
-describe('db/peek-recovery-approvals', () => {
+describe('db/peek/recovery-approvals', () => {
   describe('setDb and database guards', () => {
     it('throws when the database handle is not initialized', () => {
       approvals.setDb(null);

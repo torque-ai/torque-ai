@@ -70,7 +70,7 @@ installMockFrom(artifactsDir, '../../../database', dbMock);
 installMockFrom(artifactsDir, '../../../db/task-core', dbMock);
 installMockFrom(artifactsDir, '../../../db/task-metadata', dbMock);
 installMockFrom(artifactsDir, '../../../db/workflow-engine', dbMock);
-installMockFrom(artifactsDir, '../../../db/peek-policy-audit', dbMock);
+installMockFrom(artifactsDir, '../../../db/peek/policy-audit', dbMock);
 installMockFrom(artifactsDir, '../../../contracts/peek', contractsMock);
 installMockFrom(artifactsDir, './shared', sharedMock);
 installMockFrom(artifactsDir, '../../../logger', loggerMock);

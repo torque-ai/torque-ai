@@ -424,7 +424,7 @@ async function resolveHighRiskApproval(action, args = {}, taskContext = null) {
   }
 
   try {
-    const peekRecoveryApprovals = require('../../../db/peek-recovery-approvals');
+    const peekRecoveryApprovals = require('../../../db/peek/recovery-approvals');
     if (
       typeof peekRecoveryApprovals.getApprovalForAction !== 'function'
       || typeof peekRecoveryApprovals.requestApproval !== 'function'

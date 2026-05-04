@@ -345,7 +345,7 @@ async function handlePeekUi(args) {
 
     if (args?.policyProof) {
       try {
-        const peekPolicyAudit = require('../../../db/peek-policy-audit');
+        const peekPolicyAudit = require('../../../db/peek/policy-audit');
         const recordPolicyProof = typeof peekPolicyAudit.formatPolicyProof === 'function'
           ? peekPolicyAudit.formatPolicyProof
           : peekPolicyAudit.recordPolicyProofAudit;
