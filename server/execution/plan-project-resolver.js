@@ -10,9 +10,14 @@
  * Uses init() dependency injection.
  */
 
+// ── Legacy module-level state, written only by init() (deprecated) ─────────
+// Phase 3 of the universal-DI migration: this module exposes both the new
+// createPlanProjectResolver factory + register(container) and the legacy
+// init({…}) shape. Legacy state removed when task-manager.js migrates.
 let _db = null;
 let _dashboard = null;
 
+/** @deprecated Use createPlanProjectResolver(deps) or container.get('planProjectResolver'). */
 function init(deps = {}) {
   if (deps.db) _db = deps.db;
   if (deps.dashboard) _dashboard = deps.dashboard;
@@ -127,7 +132,34 @@ function handlePlanProjectTaskFailure(taskId) {
   return handleProjectDependencyResolution(taskId, 'failed');
 }
 
+// ── New factory shape (preferred) ─────────────────────────────────────────
+function createPlanProjectResolver(deps = {}) {
+  const local = { _db: deps.db, _dashboard: deps.dashboard };
+  function withLocalDeps(fn) {
+    const prev = { _db, _dashboard };
+    _db = local._db; _dashboard = local._dashboard;
+    try { return fn(); } finally { ({ _db, _dashboard } = prev); }
+  }
+  return {
+    handleProjectDependencyResolution: (...args) => withLocalDeps(() => handleProjectDependencyResolution(...args)),
+    handlePlanProjectTaskCompletion: (...args) => withLocalDeps(() => handlePlanProjectTaskCompletion(...args)),
+    handlePlanProjectTaskFailure: (...args) => withLocalDeps(() => handlePlanProjectTaskFailure(...args)),
+  };
+}
+
+function register(container) {
+  container.register(
+    'planProjectResolver',
+    ['db', 'dashboard'],
+    (deps) => createPlanProjectResolver(deps)
+  );
+}
+
 module.exports = {
+  // New shape (preferred)
+  createPlanProjectResolver,
+  register,
+  // Legacy shape (kept until task-manager.js migrates)
   init,
   handleProjectDependencyResolution,
   handlePlanProjectTaskCompletion,

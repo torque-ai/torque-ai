@@ -19,8 +19,13 @@ const {
   prependResumeContextToPrompt,
 } = require('../utils/resume-context');
 
+// ── Legacy module-level state, written only by init() (deprecated) ─────────
+// Phase 3 of the universal-DI migration. retry-framework uses a slightly
+// different shape than its peers — a single `deps` object as state — but
+// the same coexistence pattern applies.
 let deps = {};
 
+/** @deprecated Use createRetryFramework(deps) or container.get('retryFramework'). */
 function init(nextDeps = {}) {
   deps = { ...deps, ...nextDeps };
 }
@@ -169,4 +174,40 @@ function handleRetryLogic(ctx) {
   ctx.earlyExit = true;
 }
 
-module.exports = { init, handleRetryLogic };
+// ── New factory shape (preferred) ─────────────────────────────────────────
+function createRetryFramework(localDeps = {}) {
+  function withLocalDeps(fn) {
+    const prev = deps;
+    deps = localDeps;
+    try { return fn(); } finally { deps = prev; }
+  }
+  return {
+    handleRetryLogic: (...args) => withLocalDeps(() => handleRetryLogic(...args)),
+  };
+}
+
+/**
+ * Register with a DI container under the name 'retryFramework'.
+ * Declared deps are the function signatures retry-framework reads off
+ * its `deps` object: db, classifyError, sanitizeTaskOutput, taskCleanupGuard,
+ * pendingRetryTimeouts, startTask, processQueue.
+ */
+function register(container) {
+  container.register(
+    'retryFramework',
+    [
+      'db', 'classifyError', 'sanitizeTaskOutput', 'taskCleanupGuard',
+      'pendingRetryTimeouts', 'startTask', 'processQueue',
+    ],
+    (resolved) => createRetryFramework(resolved)
+  );
+}
+
+module.exports = {
+  // New shape (preferred)
+  createRetryFramework,
+  register,
+  // Legacy shape (kept until task-manager.js migrates)
+  init,
+  handleRetryLogic,
+};
