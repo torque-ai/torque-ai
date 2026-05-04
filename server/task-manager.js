@@ -544,10 +544,9 @@ function startTask(taskId) { return _taskStartup.startTask(taskId); }
 
 const { cancelTask, triggerCancellationWebhook } = createCancellationHandler({
   db,
-  runningProcesses,
-  apiAbortControllers,
-  pendingRetryTimeouts,
-  stallRecoveryAttempts,
+  // runningProcesses / apiAbortControllers / pendingRetryTimeouts /
+  // stallRecoveryAttempts default to container's processTracker —
+  // task-cancellation peeks it on construct unless overridden.
   logger,
   sanitizeTaskOutput,
   safeTriggerWebhook,
@@ -663,8 +662,9 @@ const {
   tryStallRecovery
 } = createStallDetectionHandler({
   db,
-  runningProcesses,
-  stallRecoveryAttempts,
+  // runningProcesses + stallRecoveryAttempts were silently dropped at
+  // the destructure of createStallDetectionHandler — neither is used
+  // there. Removed to make the actual surface explicit.
   safeConfigInt,
   parseModelSizeB,
   logger,
@@ -825,11 +825,10 @@ _taskStartup.init({
   providerRegistry,
   providerCfg,
   gpuMetrics,
-  runningProcesses,
-  apiAbortControllers,
-  pendingRetryTimeouts,
-  stallRecoveryAttempts,
-  taskCleanupGuard,
+  // runningProcesses + pendingRetryTimeouts default to container's
+  // processTracker — task-startup peeks it on init() unless overridden.
+  // apiAbortControllers / stallRecoveryAttempts / taskCleanupGuard
+  // aren't read by task-startup directly; dropped from the wiring.
   parseTaskMetadata,
   getTaskContextTokenEstimate,
   safeUpdateTaskStatus,
@@ -920,8 +919,8 @@ _fallbackRetryModule.init({
   cancelTask,
   stopTaskForRestart,
   markTaskCleanedUp,
-  stallRecoveryAttempts,
-  runningProcesses,
+  // stallRecoveryAttempts + runningProcesses default to the container's
+  // processTracker — fallback-retry peeks it on init() unless overridden.
 });
 
 _workflowRuntimeModule.init({
@@ -1089,8 +1088,9 @@ try { _queueScheduler.resolveCodexPendingTasks(); } catch { /* ignore */ }
 _processStreams.init({
   db,
   dashboard: getDashboardBroadcaster(),
-  runningProcesses,
-  stallRecoveryAttempts,
+  // runningProcesses + stallRecoveryAttempts default to container's
+  // processTracker — process-streams peeks it on init() unless
+  // overridden.
   estimateProgress,
   detectOutputCompletion,
   checkBreakpoints,
@@ -1105,8 +1105,9 @@ _processStreams.init({
 
 _processLifecycle.init({
   dashboard: getDashboardBroadcaster(),
-  runningProcesses,
-  finalizingTasks,
+  // runningProcesses, finalizingTasks, closeHandlerState default to the
+  // container values — process-lifecycle peeks them on init() unless
+  // overridden.
   finalizeTask,
   cancelTask,
   processQueue,
@@ -1114,7 +1115,6 @@ _processLifecycle.init({
   safeUpdateTaskStatus,
   setupStdoutHandler: _processStreams.setupStdoutHandler,
   setupStderrHandler: _processStreams.setupStderrHandler,
-  closeHandlerState: defaultContainer.peek('closeHandlerState'),
 });
 } // end initSubModules
 

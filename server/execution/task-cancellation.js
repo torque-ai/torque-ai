@@ -4,22 +4,40 @@
 
 'use strict';
 
-function createCancellationHandler({
-  db,
-  runningProcesses,
-  apiAbortControllers,
-  pendingRetryTimeouts,
-  stallRecoveryAttempts,
-  logger,
-  sanitizeTaskOutput,
-  safeTriggerWebhook,
-  killProcessGraceful,
-  cleanupChildProcessListeners,
-  cleanupProcessTracking,
-  safeDecrementHostSlot,
-  handleWorkflowTermination,
-  processQueue
-}) {
+function createCancellationHandler(deps) {
+  const {
+    db,
+    logger,
+    sanitizeTaskOutput,
+    safeTriggerWebhook,
+    killProcessGraceful,
+    cleanupChildProcessListeners,
+    cleanupProcessTracking,
+    safeDecrementHostSlot,
+    handleWorkflowTermination,
+    processQueue,
+  } = deps;
+
+  // Container-owned shared state. ProcessTracker carries all four of
+  // the absorbed-concern maps (runningProcesses, abortControllers,
+  // retryTimeouts, stallAttempts) — peek the singleton as default
+  // when the caller doesn't pass overrides. The accessor presence
+  // guard prevents a bare Map from clobbering the slots it doesn't
+  // carry.
+  const { defaultContainer } = require('../container');
+  const trackerCandidate = deps.runningProcesses
+    || defaultContainer.peek('processTracker')
+    || null;
+  const runningProcesses = deps.runningProcesses || trackerCandidate;
+  const apiAbortControllers = deps.apiAbortControllers
+    || (trackerCandidate && trackerCandidate.abortControllers)
+    || null;
+  const pendingRetryTimeouts = deps.pendingRetryTimeouts
+    || (trackerCandidate && trackerCandidate.retryTimeouts)
+    || null;
+  const stallRecoveryAttempts = deps.stallRecoveryAttempts
+    || (trackerCandidate && trackerCandidate.stallAttempts)
+    || null;
   function isTimeoutReason(reason) {
     const timeoutPattern = /\b(?:timeout|timed\s*out|timing\s*out|time\s*out|timed-out|timedout)\b/i;
     return timeoutPattern.test(String(reason || ''));

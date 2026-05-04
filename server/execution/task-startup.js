@@ -287,8 +287,21 @@ function init(deps) {
   serverConfig = deps.serverConfig;
   providerRegistry = deps.providerRegistry;
   gpuMetrics = deps.gpuMetrics;
-  runningProcesses = deps.runningProcesses;
-  pendingRetryTimeouts = deps.pendingRetryTimeouts;
+
+  // Container-owned shared state. ProcessTracker carries
+  // runningProcesses + retryTimeouts; peek the singleton as default
+  // when the caller doesn't pass overrides. Test fixtures that pass
+  // bare Maps win via the explicit assignments below.
+  const { defaultContainer } = require('../container');
+  const trackerCandidate = deps.runningProcesses
+    || defaultContainer.peek('processTracker')
+    || null;
+  runningProcesses = trackerCandidate;
+  pendingRetryTimeouts = deps.pendingRetryTimeouts
+    || (trackerCandidate && trackerCandidate.retryTimeouts)
+    || undefined;
+  if (deps.runningProcesses) runningProcesses = deps.runningProcesses;
+  if (deps.pendingRetryTimeouts) pendingRetryTimeouts = deps.pendingRetryTimeouts;
   parseTaskMetadata = deps.parseTaskMetadata;
   getTaskContextTokenEstimate = deps.getTaskContextTokenEstimate;
   safeUpdateTaskStatus = deps.safeUpdateTaskStatus;
