@@ -5,6 +5,7 @@ const childProcess = require('child_process');
 
 const {
   clearActivityCache,
+  forgetPid,
   getProcessTreeCpu,
   getProcessTreeCpuDelta,
   isProcessAlive,
@@ -125,6 +126,34 @@ describe('utils/process-activity', () => {
       expect(fresh.isAdvancing).toBe(true);
       expect(fresh.deltaMs).toBe(100);
       expect(fresh.hasBaseline).toBe(true);
+    });
+  });
+
+  describe('forgetPid', () => {
+    it('clears the cumulative-CPU baseline so the next sample looks like a first call', () => {
+      const cumulative = { value: 1000 };
+      // Seed baseline.
+      getProcessTreeCpuDelta(54321, () => cumulative.value);
+      cumulative.value = 1500;
+      const advanced = getProcessTreeCpuDelta(54321, () => cumulative.value);
+      expect(advanced.hasBaseline).toBe(true);
+      expect(advanced.deltaMs).toBe(500);
+
+      forgetPid(54321);
+
+      cumulative.value = 9999;
+      const afterForget = getProcessTreeCpuDelta(54321, () => cumulative.value);
+      expect(afterForget.hasBaseline).toBe(false);
+      expect(afterForget.deltaMs).toBe(0);
+      expect(afterForget.isAdvancing).toBe(false);
+    });
+
+    it('is a no-op for non-numeric or zero/negative pids', () => {
+      expect(() => forgetPid(null)).not.toThrow();
+      expect(() => forgetPid(undefined)).not.toThrow();
+      expect(() => forgetPid(0)).not.toThrow();
+      expect(() => forgetPid(-5)).not.toThrow();
+      expect(() => forgetPid('abc')).not.toThrow();
     });
   });
 });
