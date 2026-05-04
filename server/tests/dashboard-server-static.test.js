@@ -76,7 +76,7 @@ function installMock(modulePath, exportsValue) {
 }
 
 const DASHBOARD_SERVER_MODULES = [
-  '../dashboard-server',
+  '../dashboard/server',
   '../database',
   '../db/task-core',
   '../db/host-management',
@@ -194,7 +194,7 @@ function loadDashboardServer({ existsSyncImpl, readFileImpl, statImpl }) {
   const readFile = vi.spyOn(fs, 'readFile').mockImplementation(readFileImpl);
   const stat = vi.spyOn(fs.promises, 'stat').mockImplementation(statImpl);
 
-  const dashboardServer = require('../dashboard-server');
+  const dashboardServer = require('../dashboard/server');
   activeDashboardServer = dashboardServer;
 
   return {

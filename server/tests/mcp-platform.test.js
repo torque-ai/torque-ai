@@ -12,7 +12,7 @@ vi.mock('../database', () => currentIndexModules.db);
 vi.mock('../container', () => currentIndexModules.container);
 vi.mock('../config', () => currentIndexModules.config);
 vi.mock('../task-manager', () => currentIndexModules.taskManager);
-vi.mock('../dashboard-server', () => currentIndexModules.dashboardServer);
+vi.mock('../dashboard/server', () => currentIndexModules.dashboardServer);
 vi.mock('../api-server', () => currentIndexModules.apiServer);
 vi.mock('../mcp', () => currentIndexModules.mcpGateway);
 vi.mock('../mcp-sse', () => currentIndexModules.mcpSse);
@@ -158,7 +158,7 @@ function createIndexMocks(tempDir) {
   vi.doMock('../container', () => currentIndexModules.container);
   vi.doMock('../config', () => currentIndexModules.config);
   vi.doMock('../task-manager', () => currentIndexModules.taskManager);
-  vi.doMock('../dashboard-server', () => currentIndexModules.dashboardServer);
+  vi.doMock('../dashboard/server', () => currentIndexModules.dashboardServer);
   vi.doMock('../api-server', () => currentIndexModules.apiServer);
   vi.doMock('../mcp', () => currentIndexModules.mcpGateway);
   vi.doMock('../mcp-sse', () => currentIndexModules.mcpSse);
@@ -187,7 +187,7 @@ function loadIndex(tempDir) {
   vi.spyOn(process, 'on').mockImplementation(() => process);
   vi.spyOn(process, 'exit').mockImplementation(() => {});
   vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
-  const dashboardServer = require('../dashboard-server');
+  const dashboardServer = require('../dashboard/server');
   const apiServer = require('../api-server');
   const mcpGateway = require('../mcp');
   const mcpSse = require('../mcp/sse');

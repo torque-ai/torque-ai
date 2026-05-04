@@ -48,10 +48,10 @@ tester.run('no-heavy-test-imports', rule, {
       code: "const db = require('../database');",
       errors: [{ messageId: 'heavyImport', data: { module: '../database' } }],
     },
-    // Top-level require('../dashboard-server').
+    // Top-level require('../dashboard/server').
     {
-      code: "const dash = require('../dashboard-server');",
-      errors: [{ messageId: 'heavyImport', data: { module: '../dashboard-server' } }],
+      code: "const dash = require('../dashboard/server');",
+      errors: [{ messageId: 'heavyImport', data: { module: '../dashboard/server' } }],
     },
   ],
 });

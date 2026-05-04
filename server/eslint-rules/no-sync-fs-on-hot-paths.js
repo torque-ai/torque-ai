@@ -7,7 +7,7 @@ const HOT_PATH_PATTERNS = [
   'server/governance/',
   'server/audit/',
   'server/api/',
-  'server/dashboard-server.js',
+  'server/dashboard/server.js',
   'server/queue-scheduler',
   'server/maintenance/orphan-cleanup.js',
 ];

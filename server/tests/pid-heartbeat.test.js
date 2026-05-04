@@ -105,7 +105,7 @@ function registerStartupDependencyMocks() {
   vi.doMock('../logger', () => mockLogger);
   vi.doMock('../database', () => mockDb);
   vi.doMock('../task-manager', () => mockTaskManager);
-  vi.doMock('../dashboard-server', () => mockDashboardServer);
+  vi.doMock('../dashboard/server', () => mockDashboardServer);
   vi.doMock('../api-server', () => mockApiServer);
   vi.doMock('../discovery', () => mockDiscovery);
   vi.doMock('../scripts/gpu-metrics-server', () => mockGpuMetricsServer);
@@ -119,7 +119,7 @@ function registerStartupDependencyMocks() {
 vi.mock('../logger', () => mockLogger);
 vi.mock('../database', () => mockDb);
 vi.mock('../task-manager', () => mockTaskManager);
-vi.mock('../dashboard-server', () => mockDashboardServer);
+vi.mock('../dashboard/server', () => mockDashboardServer);
 vi.mock('../api-server', () => mockApiServer);
 vi.mock('../discovery', () => mockDiscovery);
 vi.mock('../scripts/gpu-metrics-server', () => mockGpuMetricsServer);

@@ -9,7 +9,7 @@ const fileTracking = require('../db/file-tracking');
 const hostManagement = require('../db/host-management');
 const providerRoutingCore = require('../db/provider-routing-core');
 const taskManager = require('../task-manager');
-const dashboard = require('../dashboard-server');
+const dashboard = require('../dashboard/server');
 const { ErrorCodes, makeError } = require('./error-codes');
 const providerRegistry = require('../providers/registry');
 

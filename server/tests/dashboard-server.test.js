@@ -99,7 +99,7 @@ function clearModuleCache(modulePaths) {
 }
 
 const DASHBOARD_SERVER_TEST_MODULES = [
-  '../dashboard-server',
+  '../dashboard/server',
   '../database',
   '../db/task-core',
   '../db/host-management',
@@ -266,7 +266,7 @@ function loadDashboardServer({
   }
 
   // Now load dashboard-server fresh — it will pick up all our mocked modules
-  const dashboardServer = require('../dashboard-server');
+  const dashboardServer = require('../dashboard/server');
   activeDashboardServer = dashboardServer;
 
   return {

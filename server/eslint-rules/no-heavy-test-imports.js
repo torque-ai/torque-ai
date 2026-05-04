@@ -4,7 +4,7 @@
  * torque/no-heavy-test-imports
  *
  * Disallows top-level (module-scope) require() of heavy modules from test files.
- * Heavy modules: ../tools, ../task-manager, ../database, ../dashboard-server.
+ * Heavy modules: ../tools, ../task-manager, ../database, ../dashboard/server.
  *
  * Exception: files on the `allowlist` option array (basenames only, no path).
  * Inline suppression: // eslint-disable-next-line torque/no-heavy-test-imports -- <reason>
@@ -14,7 +14,7 @@ const HEAVY_MODULES = new Set([
   '../tools',
   '../task-manager',
   '../database',
-  '../dashboard-server',
+  '../dashboard/server',
 ]);
 
 const path = require('path');
@@ -51,7 +51,7 @@ module.exports = {
     type: 'problem',
     docs: {
       description:
-        'Disallow top-level require() of heavy modules (tools, task-manager, database, dashboard-server) from test files. Use tool-metadata or lazy-require instead.',
+        'Disallow top-level require() of heavy modules (tools, task-manager, database, dashboard/server) from test files. Use tool-metadata or lazy-require instead.',
     },
     messages: {
       heavyImport:

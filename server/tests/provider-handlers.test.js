@@ -145,7 +145,7 @@ function loadHandlers() {
     resetProviderHealth: mockDb.resetProviderHealth,
   });
   installMock('../task-manager', mockTaskManager);
-  installMock('../dashboard-server', mockDashboard);
+  installMock('../dashboard/server', mockDashboard);
   installMock('../providers/registry', mockProviderRegistry);
   installMock('../handlers/error-codes', realErrorCodes);
   installMock('../handlers/provider-ollama-hosts', {});

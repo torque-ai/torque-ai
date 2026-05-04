@@ -14,7 +14,7 @@ const providerRoutingCore = require('./db/provider-routing-core');
 const _sleepWatchdog = require('./maintenance/sleep-watchdog');
 let _dashboard = null;
 function getDashboard() {
-  if (!_dashboard) _dashboard = require('./dashboard-server');
+  if (!_dashboard) _dashboard = require('./dashboard/server');
   return _dashboard;
 }
 let _dashboardBroadcaster = null;

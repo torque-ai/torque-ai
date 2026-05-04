@@ -1,7 +1,7 @@
 const Module = require('module');
 
 const TASK_MANAGER_PATH = require.resolve('../task-manager');
-const DASHBOARD_SERVER_PATH = require.resolve('../dashboard-server');
+const DASHBOARD_SERVER_PATH = require.resolve('../dashboard/server');
 const V2_DISPATCH_PATH = require.resolve('../api/v2-dispatch');
 const DASHBOARD_ROUTER_PATH = require.resolve('../dashboard/router');
 const WS_PATH = require.resolve('ws');

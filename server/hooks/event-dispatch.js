@@ -288,7 +288,7 @@ function dispatchTaskEvent(eventName, task) {
 
     // Also push to dashboard WebSocket clients for live event feed
     try {
-      const dashboard = require('../dashboard-server');
+      const dashboard = require('../dashboard/server');
       dashboard.notifyTaskEvent(payload);
     } catch {
       // Dashboard may not be running — non-fatal
