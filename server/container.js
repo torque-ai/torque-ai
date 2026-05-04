@@ -690,6 +690,22 @@ _defaultContainer.register(
   }
 );
 
+// ── Subsystem aggregator wiring ──────────────────────────────────────────────
+// Each subsystem's register.js exposes a `register(container)` function that
+// activates the modules whose declared deps are fully container-managed. Modules
+// whose dep lists still include task-manager-owned closures or utility-function
+// helpers stay registered in source (their factory shape is callable via direct
+// require + createXxx) but are NOT activated here — see each register.js header
+// for the deferral rationale and the unblock conditions.
+require('./validation/register').register(_defaultContainer);   // 0/7 active (all deferred)
+require('./execution/register').register(_defaultContainer);    // 2/16 active: planProjectResolver, workflowResume
+require('./factory/register').register(_defaultContainer);      // 2/2 active: costMetrics, factoryFeedback
+
+// Two outlier modules with full container-managed dep lists, registered
+// directly because each lives alone in its subsystem (no aggregator yet).
+require('./mcp/protocol').register(_defaultContainer);          // mcpProtocol (no deps)
+require('./providers/agentic-capability').register(_defaultContainer); // agenticCapability [db, serverConfig]
+
 
 function getModule(name) {
   try {
