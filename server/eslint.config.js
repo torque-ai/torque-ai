@@ -6,6 +6,7 @@ const noSyncFsOnHotPathsRule = require('./eslint-rules/no-sync-fs-on-hot-paths')
 const noHeavyTestImportsRule = require('./eslint-rules/no-heavy-test-imports');
 const noResetModulesInEachRule = require('./eslint-rules/no-reset-modules-in-each');
 const noPrepareInLoopRule = require('./eslint-rules/no-prepare-in-loop');
+const noImperativeInitRule = require('./eslint-rules/no-imperative-init');
 
 // Single torque plugin definition. ESLint flat config requires that a plugin
 // name resolve to one and only one object across the entire config — defining
@@ -18,6 +19,7 @@ const torquePlugin = {
     'no-reset-modules-in-each': noResetModulesInEachRule,
     'no-sync-fs-on-hot-paths': noSyncFsOnHotPathsRule,
     'no-prepare-in-loop': noPrepareInLoopRule,
+    'no-imperative-init': noImperativeInitRule,
   },
 };
 
@@ -243,6 +245,27 @@ module.exports = [
     files: ['db/**/*.js', 'handlers/**/*.js', 'factory/**/*.js'],
     rules: {
       'torque/no-prepare-in-loop': 'error',
+    },
+  },
+  // Universal-DI migration — Phase 1 advisory wiring.
+  // The torque/no-imperative-init rule discourages the
+  //   `let _x = null; function init({…}) { _x = … } module.exports = { init, … }`
+  // pattern in favor of factory + register(container). It is wired at
+  // 'warn' severity so existing offenders don't break CI; the migration
+  // arc shrinks the offender count phase by phase. Phase 5 raises this
+  // to 'error' and removes any remaining allowlist entries.
+  // See docs/superpowers/specs/2026-05-04-universal-di-design.md.
+  {
+    files: ['**/*.js'],
+    ignores: [
+      'tests/**',
+      'node_modules/**',
+      'eslint-rules/**',
+      'scripts/**',
+      'dashboard/**',
+    ],
+    rules: {
+      'torque/no-imperative-init': ['warn', { allowlist: [] }],
     },
   },
   {

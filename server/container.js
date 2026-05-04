@@ -11,12 +11,14 @@
  *   createContainer()   → new container instance
  *   .register(name, deps, factory)  — register a factory
  *   .registerValue(name, value)     — register a pre-built value
- *   .boot()             — resolve deps, run factories
+ *   .boot({ failFast = true })      — resolve deps, run factories
  *   .get(name)          — retrieve an instantiated service
  *   .has(name)          — check if a service is registered
  *   .list()             — list all registered service names
  *   .resetForTest()     — reset to pre-boot state (keeps registrations)
  *   .freeze()           — explicit freeze (must be called after boot)
+ *   .override(name, v)  — inject a value for tests (pre- or post-boot)
+ *   .dispose()          — async, runs service.dispose() in reverse-topo order
  */
 
 const logger = require('./logger').child({ component: 'container' });
@@ -101,6 +103,7 @@ function topoSort(graph) {
 function createContainer() {
   const _registry = new Map();
   const _instances = new Map();
+  let _bootOrder = []; // topological order from the most recent boot()
   let _booted = false;
   let _frozen = false;
 
@@ -123,10 +126,28 @@ function createContainer() {
     _registry.set(name, { deps: [], factory: null, value });
   }
 
-  function boot() {
+  /**
+   * Resolve the dependency graph and instantiate every registered service
+   * in topological order.
+   *
+   * @param {object} [opts]
+   * @param {boolean} [opts.failFast=true]
+   *   When true (default): a factory throw aborts boot and re-throws.
+   *   When false: logs the error, leaves the failed service un-instantiated,
+   *     and continues with the remaining services. Dependents of the failed
+   *     service will subsequently fail at boot when they receive `undefined`
+   *     for the missing dep — but the boot itself returns a partial state
+   *     instead of crashing the whole startup. Use this only for degraded-
+   *     mode startup paths (e.g. running with a corrupt database to repair
+   *     it). Returns an array of names that failed to instantiate.
+   * @returns {{ failed: string[] }} `failed` is empty on a clean boot; populated
+   *   only when `failFast: false` and at least one factory threw.
+   */
+  function boot(opts = {}) {
+    const { failFast = true } = opts;
     if (_booted) {
       logger.warn('Container: boot() called multiple times — skipping');
-      return;
+      return { failed: [] };
     }
 
     const graph = new Map();
@@ -135,6 +156,8 @@ function createContainer() {
     }
 
     const order = topoSort(graph);
+    _bootOrder = order;
+    const failed = [];
 
     for (const name of order) {
       const entry = _registry.get(name);
@@ -148,7 +171,8 @@ function createContainer() {
         } catch (err) {
           const depNames = entry.deps.join(', ') || 'none';
           logger.error(`Container: factory for '${name}' threw (deps: ${depNames}): ${err.message}`);
-          throw err;
+          if (failFast) throw err;
+          failed.push(name);
         }
       } else {
         _instances.set(name, entry.value);
@@ -156,7 +180,12 @@ function createContainer() {
     }
 
     _booted = true;
-    logger.info(`Container: booted ${_instances.size} services`);
+    if (failed.length > 0) {
+      logger.warn(`Container: booted ${_instances.size} services (degraded; ${failed.length} factory failure(s): ${failed.join(', ')})`);
+    } else {
+      logger.info(`Container: booted ${_instances.size} services`);
+    }
+    return { failed };
   }
 
   function get(name) {
@@ -196,11 +225,94 @@ function createContainer() {
 
   function resetForTest() {
     _instances.clear();
+    _bootOrder = [];
     _booted = false;
     _frozen = false;
   }
 
-  return { register, registerValue, boot, get, has, list, peek, freeze, resetForTest };
+  /**
+   * Run dispose() on every service that exposes one, in reverse
+   * topological order (dependents shut down before their deps).
+   *
+   * Mirrors the boot lifecycle: a service that wants graceful cleanup
+   * returns an object whose `dispose()` method handles its own teardown
+   * (clearInterval, close handles, flush buffers). The container
+   * orchestrates the order; the service owns the actual work.
+   *
+   * Errors thrown by individual dispose calls are logged and swallowed
+   * — one bad disposer does not block the rest of the shutdown. Returns
+   * the names that errored.
+   *
+   * After dispose:
+   *   - All instances are cleared
+   *   - The container returns to pre-boot state (registrations preserved)
+   *   - `freeze()` is lifted; you can re-boot if needed
+   *
+   * Async by design: dispose handlers may need to await close() on a
+   * socket or DB handle. Callers can await or fire-and-forget.
+   *
+   * @returns {Promise<{ errored: string[] }>}
+   */
+  async function dispose() {
+    if (!_booted) return { errored: [] };
+
+    const errored = [];
+    // Reverse topological order: services that depend on others shut down first
+    const order = [..._bootOrder].reverse();
+
+    for (const name of order) {
+      const service = _instances.get(name);
+      if (!service || typeof service.dispose !== 'function') continue;
+      try {
+        await service.dispose();
+      } catch (err) {
+        logger.error(`Container: dispose() for '${name}' threw: ${err.message}`);
+        errored.push(name);
+      }
+    }
+
+    _instances.clear();
+    _bootOrder = [];
+    _booted = false;
+    _frozen = false;
+
+    if (errored.length > 0) {
+      logger.warn(`Container: disposed ${order.length} services (${errored.length} dispose error(s): ${errored.join(', ')})`);
+    } else {
+      logger.info(`Container: disposed ${order.length} services`);
+    }
+    return { errored };
+  }
+
+  /**
+   * Inject a value for `name`, replacing any existing registration or
+   * instance. Designed for tests: replaces `vi.mock(modulePath, …)` and
+   * `installCjsModuleMock(…)` patterns with a typed, registration-keyed
+   * substitution that does not mutate `require.cache`.
+   *
+   * Behavior:
+   *   - Pre-boot: registers `value` so dependents resolve it during boot().
+   *   - Post-boot: replaces the cached instance immediately. Dependents
+   *     that already resolved are NOT re-resolved — override post-boot is
+   *     for late-binding test cases where you want subsequent get(name)
+   *     calls to return the new value.
+   *   - Refuses if the container is frozen (post-freeze() call). Tests
+   *     should not freeze; production should not override.
+   *
+   * @param {string} name - Service name to override.
+   * @param {*} value - The replacement value.
+   */
+  function override(name, value) {
+    if (_frozen) {
+      throw new Error(`Container: cannot override '${name}' after freeze()`);
+    }
+    _registry.set(name, { deps: [], factory: null, value });
+    if (_booted) {
+      _instances.set(name, value);
+    }
+  }
+
+  return { register, registerValue, boot, get, has, list, peek, freeze, resetForTest, override, dispose };
 }
 
 // ── Legacy compatibility ────────────────────────────────────────────────────

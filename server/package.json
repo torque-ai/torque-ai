@@ -29,7 +29,8 @@
     "test:watch": "vitest",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
-    "lint:di": "node scripts/check-no-direct-db-import.js"
+    "lint:di": "node scripts/check-no-direct-db-import.js",
+    "metrics:di": "node scripts/di-migration-metrics.js"
   },
   "dependencies": {
     "@iarna/toml": "^2.2.5",
