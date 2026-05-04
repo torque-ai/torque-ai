@@ -65,21 +65,13 @@ function initEarlyDeps() {
   if (!db || !db.isReady || !db.isReady()) return;
   _earlyDepsInitialized = true;
 
-  // Register provider classes for lazy initialization via registry
   providerRegistry.init({ db });
   providerCfg.init({ db });
   serverConfig.init({ db });
-  providerRegistry.registerProviderClass('codex', require('./providers/v2-cli-providers').CodexCliProvider);
-  providerRegistry.registerProviderClass('claude-code-sdk', require('./providers/claude-code-sdk'));
-  providerRegistry.registerProviderClass('claude-ollama', require('./providers/claude-ollama'));
-  providerRegistry.registerProviderClass('anthropic', require('./providers/anthropic'));
-  providerRegistry.registerProviderClass('groq', require('./providers/groq'));
-  providerRegistry.registerProviderClass('hyperbolic', require('./providers/hyperbolic'));
-  providerRegistry.registerProviderClass('deepinfra', require('./providers/deepinfra'));
-  providerRegistry.registerProviderClass('ollama-cloud', require('./providers/ollama-cloud'));
-  providerRegistry.registerProviderClass('cerebras', require('./providers/cerebras'));
-  providerRegistry.registerProviderClass('google-ai', require('./providers/google-ai'));
-  providerRegistry.registerProviderClass('openrouter', require('./providers/openrouter'));
+  // Register the 11 built-in provider classes (codex, claude-*, anthropic,
+  // groq, hyperbolic, deepinfra, ollama-cloud, cerebras, google-ai, openrouter).
+  const { registerBuiltinProviders } = require('./providers/builtin-providers');
+  registerBuiltinProviders(providerRegistry);
 }
 const { TASK_TIMEOUTS, PROVIDER_DEFAULT_TIMEOUTS
 } = require('./constants');
