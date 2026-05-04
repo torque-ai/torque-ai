@@ -113,8 +113,24 @@ function init(deps) {
   if (deps.cancelTask) _cancelTask = deps.cancelTask;
   if (deps.stopTaskForRestart) _stopTaskForRestart = deps.stopTaskForRestart;
   if (deps.markTaskCleanedUp) _markTaskCleanedUp = deps.markTaskCleanedUp;
+
+  // Container-owned shared state. ProcessTracker carries both
+  // runningProcesses and stallAttempts; peek the singleton as default
+  // when the caller doesn't pass overrides. The accessor presence
+  // guard prevents a bare Map injected as runningProcesses from
+  // clobbering the absorbed-concern slot it doesn't carry.
+  const { defaultContainer } = require('../container');
+  const trackerCandidate = deps.runningProcesses
+    || defaultContainer.peek('processTracker')
+    || null;
+  if (trackerCandidate) {
+    _runningProcesses = trackerCandidate;
+    if (!deps.stallRecoveryAttempts && trackerCandidate.stallAttempts) {
+      _stallRecoveryAttempts = trackerCandidate.stallAttempts;
+    }
+  }
   if (deps.stallRecoveryAttempts) _stallRecoveryAttempts = deps.stallRecoveryAttempts;
-  if (deps.runningProcesses) _runningProcesses = deps.runningProcesses;
+
   // Clear any pending debounce timer from previous init (prevents stale timer leaks in tests)
   if (_pendingProcessQueueTimer) {
     clearTimeout(_pendingProcessQueueTimer);

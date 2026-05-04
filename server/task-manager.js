@@ -920,8 +920,8 @@ _fallbackRetryModule.init({
   cancelTask,
   stopTaskForRestart,
   markTaskCleanedUp,
-  stallRecoveryAttempts,
-  runningProcesses,
+  // stallRecoveryAttempts + runningProcesses default to the container's
+  // processTracker — fallback-retry peeks it on init() unless overridden.
 });
 
 _workflowRuntimeModule.init({
