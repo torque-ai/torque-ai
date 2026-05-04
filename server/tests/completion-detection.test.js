@@ -177,6 +177,21 @@ describe('completion-detection', () => {
       expect(detectSuccessFromOutput(output, 'codex')).toBe(true);
     });
 
+    it('detects codex committed final answers', () => {
+      const output = [
+        'x'.repeat(600),
+        'Done. I completed the security redaction changes and committed them.',
+        '',
+        'Commit: `a3960d0b`',
+        'Message: `fix(security): redact credential list responses`',
+        '',
+        'Implemented:',
+        '- `server/db/host-management.js`: added credential metadata sanitizer',
+      ].join('\n');
+
+      expect(detectSuccessFromOutput(output, 'codex')).toBe(true);
+    });
+
     it('detects codex "Validation run: passed" pattern', () => {
       const output = 'x'.repeat(600) + '\nValidation run: passed';
       expect(detectSuccessFromOutput(output, 'codex')).toBe(true);

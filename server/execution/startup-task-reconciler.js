@@ -3,6 +3,10 @@
 const fs = require('fs');
 const { randomUUID } = require('crypto');
 const { buildResumeContext, prependResumeContextToPrompt } = require('../utils/resume-context');
+const {
+  buildCombinedProcessOutput,
+  detectSuccessFromOutput,
+} = require('../validation/completion-detection');
 const defaultLogger = require('../logger').child({ component: 'startup-task-reconciler' });
 const {
   appendRollbackReport,
@@ -26,6 +30,78 @@ function safeLog(logger, level, message, meta) {
   } catch {
     // Startup reconciliation must never fail because logging failed.
   }
+}
+
+function isPidAlive(pid) {
+  const normalizedPid = Number(pid);
+  if (!Number.isFinite(normalizedPid) || normalizedPid <= 0) {
+    return false;
+  }
+
+  try {
+    process.kill(normalizedPid, 0);
+    return true;
+  } catch (err) {
+    return err?.code === 'EPERM';
+  }
+}
+
+function hasCompletedOutput(task) {
+  const combinedOutput = buildCombinedProcessOutput(task?.output || '', task?.error_output || '');
+  if (!/^Commit:\s*`?[0-9a-f]{7,40}`?/im.test(combinedOutput)) {
+    return false;
+  }
+  return detectSuccessFromOutput(combinedOutput, task?.provider || 'default');
+}
+
+function releaseCompletionSideEffects(taskId, logger) {
+  try {
+    const fileBaselines = require('../db/file-baselines');
+    fileBaselines.releaseAllFileLocks(taskId);
+  } catch (err) {
+    safeLog(logger, 'debug', 'Startup task reconciler could not release file locks for completed orphan', {
+      task_id: taskId,
+      error: err.message,
+    });
+  }
+
+  try {
+    const coordination = require('../db/coordination');
+    const claims = coordination.listClaims({ task_id: taskId, status: 'active' });
+    for (const claim of claims) {
+      coordination.releaseTaskClaim(claim.id);
+    }
+  } catch (err) {
+    safeLog(logger, 'debug', 'Startup task reconciler could not release coordination claims for completed orphan', {
+      task_id: taskId,
+      error: err.message,
+    });
+  }
+}
+
+function completeFinishedOrphan({ original, taskCore, logger }) {
+  if (original?.status !== 'running') {
+    return false;
+  }
+  if (isPidAlive(original.pid)) {
+    return false;
+  }
+  if (!hasCompletedOutput(original)) {
+    return false;
+  }
+
+  taskCore.updateTaskStatus(original.id, 'completed', {
+    exit_code: 0,
+    pid: null,
+    ollama_host_id: null,
+    mcp_instance_id: null,
+  });
+  releaseCompletionSideEffects(original.id, logger);
+  safeLog(logger, 'info', 'Startup task reconciler marked dead-PID task completed from persisted final output', {
+    task_id: original.id,
+    provider: original.provider || null,
+  });
+  return true;
 }
 
 function parseMetadata(rawMetadata) {
@@ -314,6 +390,7 @@ function reconcileOrphanedTasksOnStartup({
     constraint_skipped: 0,
     retry_requeued: 0,
     retry_exhausted_failed: 0,
+    completed_from_output: 0,
     missing_workdir_failed: 0,
     errors: 0,
   };
@@ -380,6 +457,11 @@ function reconcileOrphanedTasksOnStartup({
         : null;
       if (pointedTask && pointedTask.status !== 'cancelled') {
         actions.skipped++;
+        continue;
+      }
+
+      if (completeFinishedOrphan({ original, taskCore, logger })) {
+        actions.completed_from_output++;
         continue;
       }
 
@@ -478,7 +560,7 @@ function reconcileOrphanedTasksOnStartup({
   }
 
   return {
-    reconciled: actions.cancelled > 0 || actions.cloned > 0 || actions.constraint_skipped > 0 || actions.missing_workdir_failed > 0,
+    reconciled: actions.cancelled > 0 || actions.cloned > 0 || actions.constraint_skipped > 0 || actions.completed_from_output > 0 || actions.missing_workdir_failed > 0,
     actions,
   };
 }

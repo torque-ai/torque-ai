@@ -10,6 +10,7 @@ const logger = require('../logger').child({ component: 'process-streams' });
 const { COMPLETION_GRACE_MS, COMPLETION_GRACE_CODEX_MS } = require('../constants');
 const { OutputBuffer } = require('./output-buffer');
 const { normalizeMetadata } = require('../utils/normalize-metadata');
+const { buildCombinedProcessOutput } = require('../validation/completion-detection');
 
 // Dependencies injected via init()
 let deps = null;
@@ -96,6 +97,56 @@ function emitSyntheticCloseAfterCompletion(taskId, proc, reason) {
   return true;
 }
 
+function armCompletionGraceIfDetected(taskId, proc) {
+  if (!proc || proc.completionDetected) {
+    return;
+  }
+
+  const combinedOutput = buildCombinedProcessOutput(proc.output, proc.errorOutput);
+  if (!deps.detectOutputCompletion(combinedOutput, proc.provider)) {
+    return;
+  }
+
+  proc.completionDetected = true;
+  const graceMs = proc.provider === 'codex' ? COMPLETION_GRACE_CODEX_MS : COMPLETION_GRACE_MS;
+  logger.info(`[Completion] Task ${taskId} output indicates work is complete (provider: ${proc.provider}). Starting ${graceMs / 1000}s grace period for natural exit.`);
+
+  const capturedProc = proc;
+  proc.completionGraceHandle = setTimeout(() => {
+    const stillRunning = deps.runningProcesses.get(taskId);
+    if (stillRunning && stillRunning === capturedProc) {
+      logger.info(`[Completion] Task ${taskId} process still alive after grace period. Force-completing.`);
+      const pid = stillRunning.process.pid;
+      if (process.platform === 'win32' && pid) {
+        logger.info(`[Completion] Task ${taskId} using taskkill /F /T /PID ${pid}`);
+        const { execFile } = require('child_process');
+        execFile('taskkill', ['/F', '/T', '/PID', String(pid)], { windowsHide: true }, (err) => {
+          if (err) {
+            logger.info(`[Completion] taskkill failed for task ${taskId}: ${err.message}`);
+          }
+          // RB-013: Emit synthetic close event so the close-phase pipeline
+          // handles validation, build checks, and status terminalization.
+          // The markTaskCleanedUp guard in the close handler prevents double-fire.
+          setTimeout(() => {
+            const yetRunning = deps.runningProcesses.get(taskId);
+            if (yetRunning && yetRunning === capturedProc && yetRunning.completionDetected) {
+              logger.info(`[Completion] Task ${taskId} emitting synthetic close after taskkill.`);
+              capturedProc.process.emit('close', 0);
+            }
+          }, 2000);
+        });
+      } else {
+        deps.killProcessGraceful(stillRunning, taskId, 5000, 'Completion');
+      }
+      return;
+    }
+
+    if (!stillRunning && capturedProc.completionDetected && isTaskRowStillRunning(taskId)) {
+      emitSyntheticCloseAfterCompletion(taskId, capturedProc, 'process tracking disappeared after completion grace');
+    }
+  }, graceMs);
+}
+
 /**
  * Attach stdout handler to child process — output buffering, progress estimation,
  * completion detection, streaming, breakpoints, and step mode.
@@ -162,46 +213,7 @@ function setupStdoutHandler(child, taskId, streamId) {
     // On Windows, Codex processes often fail to emit 'exit'/'close' events reliably,
     // so completion detection is enabled for ALL providers. Provider-aware thresholds
     // in detectOutputCompletion() prevent false matches on prompt echo / banner text.
-    if (!proc.completionDetected && deps.detectOutputCompletion(proc.output, proc.provider)) {
-      proc.completionDetected = true;
-      const graceMs = proc.provider === 'codex' ? COMPLETION_GRACE_CODEX_MS : COMPLETION_GRACE_MS;
-      logger.info(`[Completion] Task ${taskId} output indicates work is complete (provider: ${proc.provider}). Starting ${graceMs / 1000}s grace period for natural exit.`);
-
-      const capturedProc = proc;
-      proc.completionGraceHandle = setTimeout(() => {
-        const stillRunning = deps.runningProcesses.get(taskId);
-        if (stillRunning && stillRunning === capturedProc) {
-          logger.info(`[Completion] Task ${taskId} process still alive after grace period. Force-completing.`);
-          const pid = stillRunning.process.pid;
-          if (process.platform === 'win32' && pid) {
-            logger.info(`[Completion] Task ${taskId} using taskkill /F /T /PID ${pid}`);
-            const { execFile } = require('child_process');
-            execFile('taskkill', ['/F', '/T', '/PID', String(pid)], { windowsHide: true }, (err) => {
-              if (err) {
-                logger.info(`[Completion] taskkill failed for task ${taskId}: ${err.message}`);
-              }
-              // RB-013: Emit synthetic close event so the close-phase pipeline
-              // handles validation, build checks, and status terminalization.
-              // The markTaskCleanedUp guard in the close handler prevents double-fire.
-              setTimeout(() => {
-                const yetRunning = deps.runningProcesses.get(taskId);
-                if (yetRunning && yetRunning === capturedProc && yetRunning.completionDetected) {
-                  logger.info(`[Completion] Task ${taskId} emitting synthetic close after taskkill.`);
-                  capturedProc.process.emit('close', 0);
-                }
-              }, 2000);
-            });
-          } else {
-            deps.killProcessGraceful(stillRunning, taskId, 5000, 'Completion');
-          }
-          return;
-        }
-
-        if (!stillRunning && capturedProc.completionDetected && isTaskRowStillRunning(taskId)) {
-          emitSyntheticCloseAfterCompletion(taskId, capturedProc, 'process tracking disappeared after completion grace');
-        }
-      }, graceMs);
-    }
+    armCompletionGraceIfDetected(taskId, proc);
 
     try {
       deps.db.addStreamChunk(streamId, text, 'stdout');
@@ -266,7 +278,9 @@ function setupStderrHandler(child, taskId, streamId) {
     // which is NOT real output. If we keep resetting lastOutputAt on banner lines, the
     // zombie checker's 10-minute inactivity timeout never fires for stuck Codex processes.
     const isCodexBanner = (proc.provider === 'codex') &&
-      /^(OpenAI Codex|[-]{4,}|workdir:|model:|provider:|approval:|sandbox:|reasoning|session id:|\s*$)/m.test(text);
+      text.split(/\r?\n/).every(line =>
+        /^(?:OpenAI Codex|[-]{4,}|(?:workdir|model|provider|approval|sandbox|reasoning|session id):.*|\s*)$/i.test(line)
+      );
     if (!isCodexBanner) {
       proc.lastOutputAt = Date.now();
     }
@@ -282,6 +296,10 @@ function setupStderrHandler(child, taskId, streamId) {
       } catch (err) {
         logger.info(`[Streams] stderr progress update error for task ${taskId}: ${err.message}`);
       }
+    }
+
+    if (!isCodexBanner) {
+      armCompletionGraceIfDetected(taskId, proc);
     }
 
     try {

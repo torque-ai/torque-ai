@@ -27,6 +27,8 @@ const TASK_COLUMNS = [
   'started_at',
   'completed_at',
   'cancel_reason',
+  'exit_code',
+  'pid',
   'retry_count',
   'max_retries',
   'depends_on',
@@ -68,6 +70,8 @@ function createSchema(sqliteDb) {
       started_at TEXT,
       completed_at TEXT,
       cancel_reason TEXT,
+      exit_code INTEGER,
+      pid INTEGER,
       retry_count INTEGER DEFAULT 0,
       max_retries INTEGER DEFAULT 2,
       depends_on TEXT,
@@ -148,6 +152,8 @@ function insertTask(overrides = {}) {
     started_at: now,
     completed_at: null,
     cancel_reason: null,
+    exit_code: null,
+    pid: null,
     retry_count: 0,
     max_retries: 2,
     depends_on: null,
@@ -410,6 +416,40 @@ describe('startup task reconciler', () => {
     expect(resumeContext.commandsRun).toContain('npm run test');
     expect(resumeContext.errorDetails).toContain('failed after parser update');
     expect(resumeContext.durationMs).toBe(0);
+  });
+
+  test('Dead-PID running task with committed Codex final output -> completed and not cloned', () => {
+    insertTask({
+      id: 'task-dead-pid-completed-output',
+      task_description: 'do not repeat completed committed work',
+      provider: 'codex',
+      pid: 999999999,
+      metadata: { auto_resubmit_on_restart: true },
+      output: [
+        'x'.repeat(600),
+        'Done. I completed the security redaction changes and committed them.',
+        '',
+        'Commit: `a3960d0b`',
+        'Message: `fix(security): redact credential list responses`',
+        '',
+        'Implemented:',
+        '- `server/db/host-management.js`: added credential metadata sanitizer',
+      ].join('\n'),
+    });
+
+    const result = runReconciler();
+
+    expect(result.reconciled).toBe(true);
+    expect(result.actions.completed_from_output).toBe(1);
+    expect(result.actions.cancelled).toBe(0);
+    expect(result.actions.cloned).toBe(0);
+
+    const original = getTaskRow('task-dead-pid-completed-output');
+    expect(original.status).toBe('completed');
+    expect(original.completed_at).toBeTruthy();
+    expect(original.exit_code).toBe(0);
+    expect(original.pid).toBeNull();
+    expect(cloneRowsFor('task-dead-pid-completed-output')).toHaveLength(0);
   });
 
   test('Resubmit cap restart_resubmit_count=3 -> cancelled, not cloned', () => {

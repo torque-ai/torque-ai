@@ -535,6 +535,23 @@ describe('process-streams', () => {
       expect(proc.lastOutputAt).toBeGreaterThan(123);
     });
 
+    it('detects codex completion from combined stderr output and arms grace timeout', () => {
+      const child = makeChild();
+      const proc = makeProc({ provider: 'codex', output: 'stdout context\n' });
+      deps.runningProcesses.set('t1', proc);
+      deps.detectOutputCompletion.mockImplementation(output => output.includes('Commit: `a3960d0b`'));
+
+      processStreams.setupStderrHandler(child, 't1', 's1');
+      child.stderr.emit('data', Buffer.from('Done.\nCommit: `a3960d0b`\n'));
+
+      expect(proc.completionDetected).toBe(true);
+      expect(proc.completionGraceHandle).not.toBeNull();
+      expect(deps.detectOutputCompletion).toHaveBeenCalledWith(
+        'stdout context\n\nDone.\nCommit: `a3960d0b`\n',
+        'codex',
+      );
+    });
+
     it('handles breakpoints on stderr', () => {
       const child = makeChild();
       const proc = makeProc();

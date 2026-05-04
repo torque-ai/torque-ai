@@ -48,6 +48,7 @@ const SHARED_COMPLETION_PATTERNS = [
  */
 const PROVIDER_COMPLETION_PATTERNS = {
   'codex': [
+    /^Commit:\s*`?[0-9a-f]{7,40}`?/im,                 // Codex final answer with a committed SHA
     /implemented\s+\S+/i,                              // "Implemented RB-155 in..."
     /changes made:/i,                                  // "Changes made:\n-..."
     /validation\s+(run:?|passed|check)/i,              // "Validation run: passed"
