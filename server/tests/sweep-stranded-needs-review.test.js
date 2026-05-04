@@ -101,7 +101,7 @@ describe('sweepStrandedNeedsReviewForProject', () => {
     expect(summary).toEqual({ scanned: 1, auto_shipped: 1, auto_replanned: 0, errors: 0 });
     const wi = factoryIntake.getWorkItem(10);
     expect(wi.status).toBe('shipped_stale');
-    expect(wi.reject_reason).toMatch(/auto_resolved_post_zero_diff_fix/);
+    expect(String(wi.reject_reason)).toMatch(/auto_resolved_post_zero_diff_fix/);
     expect(decisions).toHaveLength(1);
     expect(decisions[0].action).toBe('auto_resolved_stranded_needs_review_shipped');
   });
@@ -124,7 +124,7 @@ describe('sweepStrandedNeedsReviewForProject', () => {
     expect(summary).toEqual({ scanned: 1, auto_shipped: 0, auto_replanned: 1, errors: 0 });
     const wi = factoryIntake.getWorkItem(20);
     expect(wi.status).toBe('needs_replan');
-    expect(wi.reject_reason).toMatch(/auto_replan_post_zero_diff_fix/);
+    expect(String(wi.reject_reason)).toMatch(/auto_replan_post_zero_diff_fix/);
     expect(decisions).toHaveLength(1);
     expect(decisions[0].action).toBe('auto_resolved_stranded_needs_review_replan');
   });
