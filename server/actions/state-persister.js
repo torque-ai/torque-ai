@@ -94,14 +94,39 @@ function validateAppLookup({ app_id, partition_key }) {
   }
 }
 
+function safeParseJson(value, fieldName, row) {
+  if (value === null || value === undefined) return null;
+  try {
+    return JSON.parse(value);
+  } catch (err) {
+    const e = new Error(
+      `statePersister: corrupt ${fieldName} for app_id=${row.app_id} `
+      + `partition_key=${row.partition_key} sequence_id=${row.sequence_id}: ${err.message}`,
+    );
+    e.code = 'CORRUPT_SNAPSHOT';
+    e.app_id = row.app_id;
+    e.partition_key = row.partition_key;
+    e.sequence_id = row.sequence_id;
+    throw e;
+  }
+}
+
+// hydrate may throw CORRUPT_SNAPSHOT if a snapshot row's state_json or
+// result_json is malformed (storage corruption, partial write before a
+// crash, or a buggy writer landing pre-validation). The thrown error is
+// labelled so callers can distinguish it from a generic JSON SyntaxError
+// and surface a useful message ("snapshot corrupted") rather than the
+// raw `Unexpected token … in JSON at position …`. Untrapped, the bare
+// SyntaxError bubbles up through MCP handlers as INVALID_PARAM, which
+// is misleading — there is no parameter problem; the row on disk is bad.
 function hydrate(row) {
   return {
     app_id: row.app_id,
     partition_key: row.partition_key,
     sequence_id: row.sequence_id,
     action_name: row.action_name,
-    state: JSON.parse(row.state_json),
-    result: row.result_json === null ? null : JSON.parse(row.result_json),
+    state: safeParseJson(row.state_json, 'state_json', row),
+    result: safeParseJson(row.result_json, 'result_json', row),
     created_at: row.created_at,
   };
 }
