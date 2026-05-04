@@ -544,10 +544,9 @@ function startTask(taskId) { return _taskStartup.startTask(taskId); }
 
 const { cancelTask, triggerCancellationWebhook } = createCancellationHandler({
   db,
-  runningProcesses,
-  apiAbortControllers,
-  pendingRetryTimeouts,
-  stallRecoveryAttempts,
+  // runningProcesses / apiAbortControllers / pendingRetryTimeouts /
+  // stallRecoveryAttempts default to container's processTracker —
+  // task-cancellation peeks it on construct unless overridden.
   logger,
   sanitizeTaskOutput,
   safeTriggerWebhook,
@@ -663,8 +662,9 @@ const {
   tryStallRecovery
 } = createStallDetectionHandler({
   db,
-  runningProcesses,
-  stallRecoveryAttempts,
+  // runningProcesses + stallRecoveryAttempts were silently dropped at
+  // the destructure of createStallDetectionHandler — neither is used
+  // there. Removed to make the actual surface explicit.
   safeConfigInt,
   parseModelSizeB,
   logger,
