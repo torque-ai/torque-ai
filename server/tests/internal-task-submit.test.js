@@ -364,7 +364,7 @@ describe('submitFactoryInternalTask', () => {
     }));
   });
 
-  it('inherits the target project default provider when no routing template is configured', async () => {
+  it('inherits the target project default provider for non-plan-generation manager tasks', async () => {
     const database = require('../database');
     const projectConfigCore = require('../db/project-config-core');
     vi.spyOn(database, 'getDbInstance').mockReturnValue({
@@ -390,9 +390,9 @@ describe('submitFactoryInternalTask', () => {
     mockHandleSmartSubmitTask.mockResolvedValue({ task_id: 'plan-task-2' });
 
     await submitFactoryInternalTask({
-      task: 'generate plan',
+      task: 'review verify failure',
       working_directory: 'C:/Projects/StateTrace',
-      kind: 'plan_generation',
+      kind: 'verify_review',
       project_id: 'project-99',
     });
 
@@ -405,6 +405,51 @@ describe('submitFactoryInternalTask', () => {
         inherited_provider_from_project: 'StateTrace',
       }),
     }));
+  });
+
+  it('defers pure plan generation to routing templates instead of inheriting project default provider', async () => {
+    const database = require('../database');
+    const projectConfigCore = require('../db/project-config-core');
+    vi.spyOn(database, 'getDbInstance').mockReturnValue({
+      prepare: vi.fn(() => ({
+        get: vi.fn(() => ({
+          id: 'project-100',
+          name: 'TorquePublic',
+          path: 'C:/Projects/TorquePublic',
+          status: 'running',
+        })),
+      })),
+    });
+    vi.spyOn(projectConfigCore, 'getProjectDefaults').mockImplementation((candidate) => {
+      if (candidate !== 'TorquePublic') return null;
+      return {
+        project: 'TorquePublic',
+        routing_template_id: null,
+        default_provider: 'codex',
+        default_model: 'gpt-5.4',
+      };
+    });
+    const { submitFactoryInternalTask } = loadSubject();
+    mockHandleSmartSubmitTask.mockResolvedValue({ task_id: 'plan-task-routed' });
+
+    await submitFactoryInternalTask({
+      task: 'generate execution plan',
+      working_directory: 'C:/Projects/TorquePublic',
+      kind: 'plan_generation',
+      project_id: 'project-100',
+    });
+
+    const submitted = mockHandleSmartSubmitTask.mock.calls[0][0];
+    expect(submitted.provider).toBeUndefined();
+    expect(submitted.model).toBeUndefined();
+    expect(submitted.routing_template).toBeUndefined();
+    expect(submitted.task_metadata).toEqual(expect.objectContaining({
+      target_project: 'TorquePublic',
+      deferred_provider_inheritance: true,
+      deferred_provider_inheritance_from_project: 'TorquePublic',
+      deferred_provider_inheritance_reason: 'plan_generation_uses_routing_template',
+    }));
+    expect(submitted.task_metadata).not.toHaveProperty('inherited_provider');
   });
 
   it('inherits a strict provider-lane expected provider when no routing defaults are configured', async () => {

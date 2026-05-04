@@ -150,6 +150,10 @@ function resolveInheritedRoutingIntent({
     ? normalizeOptionalString(lanePolicy?.expected_provider)
     : null;
   const defaults = resolveTargetProjectDefaults(targetProject, workingDirectory);
+  const deferProjectDefaultProvider = kind === 'plan_generation'
+    && !requestedProvider
+    && !requestedRoutingTemplate
+    && !laneProvider;
   if (!defaults) {
     return {
       defaults: null,
@@ -157,6 +161,7 @@ function resolveInheritedRoutingIntent({
       routingTemplate: null,
       model: null,
       providerSource: laneProvider ? 'provider_lane_policy' : null,
+      deferredDefaultProvider: false,
     };
   }
 
@@ -164,7 +169,7 @@ function resolveInheritedRoutingIntent({
     ? null
     : normalizeOptionalString(defaults.routing_template_id);
   const defaultProvider = normalizeOptionalString(defaults.default_provider);
-  const provider = requestedProvider || requestedRoutingTemplate || routingTemplate
+  const provider = requestedProvider || requestedRoutingTemplate || routingTemplate || deferProjectDefaultProvider
     ? null
     : (laneProvider || defaultProvider);
   const model = provider && provider === defaultProvider
@@ -179,6 +184,7 @@ function resolveInheritedRoutingIntent({
     providerSource: provider
       ? (laneProvider && provider === laneProvider ? 'provider_lane_policy' : 'project_defaults')
       : null,
+    deferredDefaultProvider: deferProjectDefaultProvider && Boolean(defaultProvider),
   };
 }
 
@@ -305,6 +311,11 @@ async function submitFactoryInternalTask({
       inherited_provider_from_project: inheritedIntent.defaults?.project || targetProject?.name || null,
       inherited_provider_source: inheritedIntent.providerSource || 'project_defaults',
       user_provider_override: false,
+    } : {}),
+    ...(!requestedProvider && inheritedIntent.deferredDefaultProvider ? {
+      deferred_provider_inheritance: true,
+      deferred_provider_inheritance_from_project: inheritedIntent.defaults?.project || targetProject?.name || null,
+      deferred_provider_inheritance_reason: 'plan_generation_uses_routing_template',
     } : {}),
     ...buildProviderLaneTaskMetadata(targetProject || {}, resolvedKind),
     ...(extra_metadata || {}),
