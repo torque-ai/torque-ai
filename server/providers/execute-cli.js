@@ -1374,8 +1374,21 @@ function shouldUseDetachedPath({ provider, task }) {
  * entry. On startup re-adoption (Phase C) the same persisted state is
  * what makes attaching a new Tail to a still-alive PID safe.
  */
-function spawnAndTrackProcessDetached(taskId, task, cmdSpec, provider) {
-  const { cliPath, finalArgs, stdinPrompt, envExtras, selectedOllamaHostId, usedEditFormat } = cmdSpec;
+function spawnAndTrackProcessDetached(taskId, task, cmdSpec, providerArg) {
+  // Accept two cmdSpec shapes:
+  //   • Legacy/test shape: { cliPath, finalArgs, stdinPrompt, envExtras,
+  //     selectedOllamaHostId, usedEditFormat } + provider as 4th positional arg.
+  //   • Production shape: { cliPath, finalArgs, stdinPrompt, options, provider,
+  //     selectedOllamaHostId, usedEditFormat, baselineCommit, ... } — `options`
+  //     carries pre-built env (already sanitized by buildSafeEnv upstream) and
+  //     cwd; we layer the TORQUE_PEW_* wrapper env on top instead of rebuilding.
+  const {
+    cliPath, finalArgs, stdinPrompt,
+    envExtras, options: providedOptions,
+    selectedOllamaHostId, usedEditFormat,
+    baselineCommit: providedBaselineCommit,
+  } = cmdSpec;
+  const provider = providerArg || cmdSpec.provider;
   const isCodexProvider = (provider === 'codex' || provider === 'codex-spark');
 
   // 1) Per-task log directory + open append handles for stdout / stderr.
@@ -1398,47 +1411,68 @@ function spawnAndTrackProcessDetached(taskId, task, cmdSpec, provider) {
     fs.writeFileSync(promptFilePath, stdinPrompt);
   }
 
-  // 3) PATH + env construction — mirrors the pipe path so the bundled
-  // codex.exe vendor `path/` directory still resolves rg.exe etc.
-  const envPath = process.env.PATH || '';
-  let updatedPath = (_NVM_NODE_PATH && !envPath.includes(_NVM_NODE_PATH))
-    ? `${_NVM_NODE_PATH}:${envPath}`
-    : envPath;
-  const baseEnvExtras = { ...(envExtras || {}) };
-  const nativeVendorPath = baseEnvExtras.__TORQUE_CODEX_VENDOR_PATH || '';
-  delete baseEnvExtras.__TORQUE_CODEX_VENDOR_PATH;
-  if (nativeVendorPath && !updatedPath.split(path.delimiter).includes(nativeVendorPath)) {
-    updatedPath = `${nativeVendorPath}${path.delimiter}${updatedPath}`;
+  // 3) Env construction.
+  //
+  // Production shape: `providedOptions.env` was built upstream by
+  // task-startup → buildSafeEnv. It already includes PATH, GIT_CEILING_*,
+  // TORQUE_TASK_ID, FORCE_COLOR, etc. and any provider-specific extras
+  // (e.g. CODEX_MANAGED_BY_NPM). We just layer the wrapper-only env on
+  // top — TORQUE_PEW_* are stripped by the wrapper before it execs the
+  // real CLI.
+  //
+  // Legacy/test shape: build env from envExtras the same way the original
+  // detached path did, so existing tests keep passing without changes.
+  let envVars;
+  if (providedOptions && providedOptions.env) {
+    envVars = {
+      ...providedOptions.env,
+      TORQUE_PEW_PROGRAM: cliPath,
+      TORQUE_PEW_ARGS: JSON.stringify(finalArgs),
+      TORQUE_PEW_PROVIDER: provider,
+      TORQUE_PEW_MODEL: task.model || '',
+      ...(promptFilePath ? { TORQUE_PEW_STDIN_FILE: promptFilePath } : {}),
+    };
+  } else {
+    const envPath = process.env.PATH || '';
+    let updatedPath = (_NVM_NODE_PATH && !envPath.includes(_NVM_NODE_PATH))
+      ? `${_NVM_NODE_PATH}:${envPath}`
+      : envPath;
+    const baseEnvExtras = { ...(envExtras || {}) };
+    const nativeVendorPath = baseEnvExtras.__TORQUE_CODEX_VENDOR_PATH || '';
+    delete baseEnvExtras.__TORQUE_CODEX_VENDOR_PATH;
+    if (nativeVendorPath && !updatedPath.split(path.delimiter).includes(nativeVendorPath)) {
+      updatedPath = `${nativeVendorPath}${path.delimiter}${updatedPath}`;
+    }
+    const gitCeiling = task.working_directory ? path.dirname(task.working_directory) : undefined;
+    envVars = buildSafeEnv(provider, {
+      PATH: updatedPath,
+      FORCE_COLOR: '0',
+      NO_COLOR: '1',
+      TERM: 'dumb',
+      CI: '1',
+      CODEX_NON_INTERACTIVE: '1',
+      CLAUDE_NON_INTERACTIVE: '1',
+      TORQUE_TASK_ID: taskId,
+      TORQUE_WORKFLOW_ID: task.workflow_id || '',
+      TORQUE_WORKFLOW_NODE_ID: task.workflow_node_id || '',
+      GIT_TERMINAL_PROMPT: '0',
+      GIT_CONFIG_COUNT: '1',
+      GIT_CONFIG_KEY_0: 'core.autocrlf',
+      GIT_CONFIG_VALUE_0: 'input',
+      PYTHONIOENCODING: 'utf-8',
+      ...(gitCeiling ? { GIT_CEILING_DIRECTORIES: gitCeiling } : {}),
+      ...baseEnvExtras,
+      // Wrapper-only env vars — stripped by the wrapper before it execs codex.
+      TORQUE_PEW_PROGRAM: cliPath,
+      TORQUE_PEW_ARGS: JSON.stringify(finalArgs),
+      TORQUE_PEW_PROVIDER: provider,
+      TORQUE_PEW_MODEL: task.model || '',
+      ...(promptFilePath ? { TORQUE_PEW_STDIN_FILE: promptFilePath } : {}),
+    });
   }
-  const gitCeiling = task.working_directory ? path.dirname(task.working_directory) : undefined;
-  const envVars = buildSafeEnv(provider, {
-    PATH: updatedPath,
-    FORCE_COLOR: '0',
-    NO_COLOR: '1',
-    TERM: 'dumb',
-    CI: '1',
-    CODEX_NON_INTERACTIVE: '1',
-    CLAUDE_NON_INTERACTIVE: '1',
-    TORQUE_TASK_ID: taskId,
-    TORQUE_WORKFLOW_ID: task.workflow_id || '',
-    TORQUE_WORKFLOW_NODE_ID: task.workflow_node_id || '',
-    GIT_TERMINAL_PROMPT: '0',
-    GIT_CONFIG_COUNT: '1',
-    GIT_CONFIG_KEY_0: 'core.autocrlf',
-    GIT_CONFIG_VALUE_0: 'input',
-    PYTHONIOENCODING: 'utf-8',
-    ...(gitCeiling ? { GIT_CEILING_DIRECTORIES: gitCeiling } : {}),
-    ...baseEnvExtras,
-    // Wrapper-only env vars — stripped by the wrapper before it execs codex.
-    TORQUE_PEW_PROGRAM: cliPath,
-    TORQUE_PEW_ARGS: JSON.stringify(finalArgs),
-    TORQUE_PEW_PROVIDER: provider,
-    TORQUE_PEW_MODEL: task.model || '',
-    ...(promptFilePath ? { TORQUE_PEW_STDIN_FILE: promptFilePath } : {}),
-  });
 
   const wrapperPath = path.join(__dirname, '..', 'utils', 'process-exit-wrapper.js');
-  const effectiveCwd = task.working_directory || process.cwd();
+  const effectiveCwd = (providedOptions && providedOptions.cwd) || task.working_directory || process.cwd();
   const spawnOptions = {
     cwd: effectiveCwd,
     env: envVars,
@@ -1448,14 +1482,18 @@ function spawnAndTrackProcessDetached(taskId, task, cmdSpec, provider) {
     detached: true,
   };
 
-  // Capture baseline HEAD SHA before spawning (parity with pipe path).
-  let baselineCommit = null;
-  try {
-    baselineCommit = execFileSync('git', ['rev-parse', 'HEAD'], {
-      cwd: effectiveCwd, encoding: 'utf-8', timeout: 15000, windowsHide: true,
-    }).trim();
-  } catch (e) {
-    logger.info(`[TaskManager] Could not capture baseline HEAD for task ${taskId}: ${e.message}`);
+  // Baseline HEAD SHA: production passes it in (task-startup captured it
+  // already during preflight); legacy/test path falls back to capturing
+  // it here for parity with the pipe path.
+  let baselineCommit = providedBaselineCommit ?? null;
+  if (baselineCommit == null) {
+    try {
+      baselineCommit = execFileSync('git', ['rev-parse', 'HEAD'], {
+        cwd: effectiveCwd, encoding: 'utf-8', timeout: 15000, windowsHide: true,
+      }).trim();
+    } catch (e) {
+      logger.info(`[TaskManager] Could not capture baseline HEAD for task ${taskId}: ${e.message}`);
+    }
   }
 
   logger.info(`[TaskManager] Spawning DETACHED via wrapper: ${process.execPath} ${wrapperPath} (real: ${cliPath} ${redactCommandArgs(finalArgs).join(' ')})`);

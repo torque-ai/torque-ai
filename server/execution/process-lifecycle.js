@@ -19,11 +19,23 @@ function getHostManagement() { return require('../db/host/management'); }
 function getTaskMetadata() { return require('../db/task-metadata'); }
 function getWebhooksStreaming() { return require('../db/webhooks-streaming'); }
 function getProviderRoutingCore() { return require('../db/provider/routing-core'); }
+// Lazy-required to break the require cycle: execute-cli requires
+// process-lifecycle indirectly via the providers/execution.js init chain,
+// and execute-cli's detached path gets called from inside our spawn fn.
+function getExecuteCli() { return require('../providers/execute-cli'); }
 const logger = require('../logger').child({ component: 'process-lifecycle' });
 const { redactCommandArgs } = require('../utils/sanitize');
 const { buildCombinedProcessOutput, detectSuccessFromOutput } = require('../validation/completion-detection');
 const { extractModifiedFiles } = require('../utils/file-resolution');
 const { resolveActivityAwareTimeoutDecision } = require('../utils/activity-timeout');
+const { isSubprocessDetachmentEnabled } = require('../utils/subprocess-detachment');
+
+// Providers eligible for the detached spawn path (Phases B + F).
+// ollama / ollama-agentic / claude-code-sdk stay on the pipe path —
+// the first two are HTTP-based, the third is promise-coupled (its
+// result resolves through parent stdio), neither has a subprocess
+// shape that the wrapper can drive.
+const DETACHABLE_PROVIDERS = new Set(['codex', 'codex-spark', 'claude-cli']);
 
 // ── Legacy module-level state, written only by init() (deprecated) ─────────
 // Phase 3 of the universal-DI migration. Replaces the prior stub
@@ -512,11 +524,33 @@ function handleCloseCleanup(taskId, code) {
  * @param {string|null} config.baselineCommit - HEAD SHA before task started
  * @returns {{ queued: boolean, task?: Object }}
  */
-function spawnAndTrackProcess(taskId, task, {
-  cliPath, finalArgs, stdinPrompt, options, provider,
-  selectedOllamaHostId, usedEditFormat, taskMetadata,
-  taskType, contextTokenEstimate, baselineCommit
-}) {
+function spawnAndTrackProcess(taskId, task, spawnConfig) {
+  const {
+    cliPath, finalArgs, stdinPrompt, options, provider,
+    selectedOllamaHostId, usedEditFormat, taskMetadata,
+    taskType, contextTokenEstimate, baselineCommit,
+  } = spawnConfig;
+
+  // Subprocess-detachment dispatch (Phases B + F, default-on at Phase G).
+  //
+  // For codex / codex-spark / claude-cli with the flag enabled, hand off
+  // to executeCli.spawnAndTrackProcessDetached. That path:
+  //   1. Wraps the real CLI in process-exit-wrapper.js, redirects stdio
+  //      to per-task log files, and sets `detached: true` so the child
+  //      survives a TORQUE parent crash / restart.
+  //   2. Persists subprocess_pid + log paths so startup-task-reconciler's
+  //      Phase C re-adoption can re-attach the child after restart.
+  //   3. Uses Tail watchers on the log files (instead of pipes) and a
+  //      PID-liveness loop (instead of child.on('close')) for completion.
+  //
+  // ollama / ollama-agentic / claude-code-sdk are intentionally NOT in
+  // DETACHABLE_PROVIDERS — they don't have a subprocess shape the
+  // wrapper can drive. Flag-off (TORQUE_DETACHED_SUBPROCESSES=0) also
+  // falls through to the pipe path below for operational rollback.
+  if (DETACHABLE_PROVIDERS.has(provider) && isSubprocessDetachmentEnabled()) {
+    return getExecuteCli().spawnAndTrackProcessDetached(taskId, task, spawnConfig);
+  }
+
   const taskCoreDb = getTaskCore();
   const taskMetaDb = getTaskMetadata();
   const streamDb = getWebhooksStreaming();

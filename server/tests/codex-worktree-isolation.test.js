@@ -125,6 +125,19 @@ describe('Codex worktree isolation integration', () => {
   let runningProcesses;
   let finalizeMock;
   let processQueueMock;
+  // These tests drive execute-cli.spawnAndTrackProcess's legacy pipe-path
+  // body (the worktree-merge / cleanup branches). Phase G flipped the
+  // detachment default ON, which routes codex through the wrapper-spawn
+  // path and skips the worktree code entirely. Pin the flag off so this
+  // suite continues to exercise the worktree-isolation behaviour. When
+  // Phase H proper deletes the worktree-isolation feature, this whole
+  // file should be removed alongside it.
+  const ORIG_DETACH_FLAG = process.env.TORQUE_DETACHED_SUBPROCESSES;
+  beforeAll(() => { process.env.TORQUE_DETACHED_SUBPROCESSES = '0'; });
+  afterAll(() => {
+    if (ORIG_DETACH_FLAG === undefined) delete process.env.TORQUE_DETACHED_SUBPROCESSES;
+    else process.env.TORQUE_DETACHED_SUBPROCESSES = ORIG_DETACH_FLAG;
+  });
 
   beforeEach(() => {
     origOpenAIKey = process.env.OPENAI_API_KEY;

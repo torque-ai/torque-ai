@@ -494,6 +494,19 @@ function loadLifecycleSubject({
 }
 
 describe('process-lifecycle', () => {
+  // The existing pipe-path tests below were written before the
+  // subprocess-detachment dispatch landed in spawnAndTrackProcess. They
+  // assert spawn() is called directly, bypassing the wrapper. Pin the
+  // flag off so they keep exercising the pipe path; the dedicated
+  // 'spawnAndTrackProcess detachment dispatch' describe below restores
+  // the default-on behavior to verify the dispatch itself.
+  const ORIG_DETACH_FLAG = process.env.TORQUE_DETACHED_SUBPROCESSES;
+  beforeAll(() => { process.env.TORQUE_DETACHED_SUBPROCESSES = '0'; });
+  afterAll(() => {
+    if (ORIG_DETACH_FLAG === undefined) delete process.env.TORQUE_DETACHED_SUBPROCESSES;
+    else process.env.TORQUE_DETACHED_SUBPROCESSES = ORIG_DETACH_FLAG;
+  });
+
   beforeEach(() => {
     vi.useFakeTimers();
   });
