@@ -12,38 +12,7 @@ const taskCore = require('./db/task-core');
 const coordination = require('./db/coordination');
 const providerRoutingCore = require('./db/provider/routing-core');
 const _sleepWatchdog = require('./maintenance/sleep-watchdog');
-let _dashboard = null;
-function getDashboard() {
-  if (!_dashboard) _dashboard = require('./dashboard/server');
-  return _dashboard;
-}
-let _dashboardBroadcaster = null;
-const DASHBOARD_BROADCAST_METHODS = [
-  'broadcastUpdate',
-  'broadcastTaskUpdate',
-  'broadcastTaskOutput',
-  'broadcastStatsUpdate',
-  'notifyTaskCreated',
-  'notifyTaskUpdated',
-  'notifyTaskOutput',
-  'notifyTaskDeleted',
-  'notifyHostActivityUpdated',
-  'notifyTaskEvent',
-];
-function getDashboardBroadcaster() {
-  if (_dashboardBroadcaster) return _dashboardBroadcaster;
-
-  _dashboardBroadcaster = {};
-  for (const methodName of DASHBOARD_BROADCAST_METHODS) {
-    _dashboardBroadcaster[methodName] = (...args) => {
-      const dashboard = getDashboard();
-      const method = dashboard && dashboard[methodName];
-      if (typeof method !== 'function') return undefined;
-      return method.apply(dashboard, args);
-    };
-  }
-  return _dashboardBroadcaster;
-}
+const { getDashboardBroadcaster } = require('./tasks/dashboard-bridge');
 const logger = require('./logger').child({ component: 'task-manager' });
 const providerRegistry = require('./providers/registry');
 const providerCfg = require('./providers/config');
