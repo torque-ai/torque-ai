@@ -1,6 +1,6 @@
 'use strict';
 
-const { applyBehavioralTags, filterByTags, BEHAVIORAL_TAG_KEYS } = require('../tools/behavioral-tags');
+const { applyBehavioralTags, filterByTags, BEHAVIORAL_TAG_KEYS } = require('../tool-behavioral-tags');
 
 describe('behavioralTags', () => {
   it('applyBehavioralTags fills defaults for missing hints', () => {

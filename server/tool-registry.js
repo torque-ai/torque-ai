@@ -14,7 +14,7 @@
  * run will see the complete map.
  */
 
-const { applyBehavioralTags } = require('./tools/behavioral-tags');
+const { applyBehavioralTags } = require('./tool-behavioral-tags');
 const { getAnnotations } = require('./tool-annotations');
 const { getOutputSchema } = require('./tool-output-schemas');
 
