@@ -509,13 +509,34 @@ function getEffectiveGlobalMaxConcurrent() {
 // Replaces the prior placeholder createProviderRouter stub with one that
 // actually closes over deps.
 function createProviderRouter(deps = {}) {
+  // Resolve providerRegistry + parseTaskMetadata via require() when
+  // not overridden; bind safeUpdateTaskStatus from registered
+  // taskManager value; the defaultContainer dep is the container itself
+  // (used for lazy lookups inside the factory) and gets resolved by
+  // require('../container').defaultContainer if not passed explicitly.
+  const tm = deps.taskManager || null;
+  const providerRegistry = deps.providerRegistry || (() => {
+    try { return require('../providers/registry'); } catch { return null; }
+  })();
+  const parseTaskMetadata = deps.parseTaskMetadata || (() => {
+    try { return require('./task-utils').parseTaskMetadata; } catch { return null; }
+  })();
+  const safeUpdateTaskStatus = deps.safeUpdateTaskStatus
+    || (tm && typeof tm.safeUpdateTaskStatus === 'function'
+      ? tm.safeUpdateTaskStatus.bind(tm)
+      : null);
+  const containerHandle = deps.defaultContainer || (() => {
+    try { return require('../container').defaultContainer; } catch { return null; }
+  })();
   const local = {
     _db: deps.db,
-    _serverConfig: deps.serverConfig,
-    _providerRegistry: deps.providerRegistry,
-    _parseTaskMetadata: deps.parseTaskMetadata,
-    _safeUpdateTaskStatus: deps.safeUpdateTaskStatus,
-    _defaultContainer: deps.defaultContainer,
+    _serverConfig: deps.serverConfig || (() => {
+      try { return require('../config'); } catch { return null; }
+    })(),
+    _providerRegistry: providerRegistry,
+    _parseTaskMetadata: parseTaskMetadata,
+    _safeUpdateTaskStatus: safeUpdateTaskStatus,
+    _defaultContainer: containerHandle,
     _runner: deps.execFile || defaultExecFile,
   };
   function withLocalDeps(fn) {
@@ -552,12 +573,12 @@ function createProviderRouter(deps = {}) {
 }
 
 function register(container) {
+  // providerRegistry, parseTaskMetadata, defaultContainer, execFile
+  // resolve via require() inside the factory; safeUpdateTaskStatus binds
+  // from taskManager. Only db + serverConfig are real container deps.
   container.register(
     'providerRouter',
-    [
-      'db', 'serverConfig', 'providerRegistry', 'parseTaskMetadata',
-      'safeUpdateTaskStatus', 'defaultContainer', 'execFile',
-    ],
+    ['db', 'serverConfig', 'taskManager'],
     (deps) => createProviderRouter(deps)
   );
 }
