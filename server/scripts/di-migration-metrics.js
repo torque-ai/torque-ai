@@ -106,13 +106,19 @@ function scan() {
     probe.registerValue('logger', { info: () => {}, warn: () => {}, error: () => {}, debug: () => {}, child() { return this; } });
     probe.registerValue('serverConfig', { get: () => null });
     probe.registerValue('dashboard', { broadcast: () => {} });
+    // taskManager exposes the closures wired modules (workflowRuntime,
+    // fallbackRetry, retryFramework) extract for startTask/cancelTask/etc.
+    probe.registerValue('taskManager', {
+      startTask: () => {}, cancelTask: () => {}, processQueue: () => {},
+      stopTaskForRestart: () => {}, markTaskCleanedUp: () => {},
+    });
     require('../validation/register').register(probe);
     require('../execution/register').register(probe);
     require('../factory/register').register(probe);
     require('../mcp/protocol').register(probe);
     require('../providers/agentic-capability').register(probe);
     probe.boot({ failFast: false });
-    const stubs = new Set(['db', 'eventBus', 'logger', 'serverConfig', 'dashboard']);
+    const stubs = new Set(['db', 'eventBus', 'logger', 'serverConfig', 'dashboard', 'taskManager']);
     wiredServices = probe.list().filter((n) => !stubs.has(n)).sort();
     wiredCount = wiredServices.length;
   } catch (err) {

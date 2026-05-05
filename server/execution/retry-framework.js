@@ -28,6 +28,23 @@ let deps = {};
 /** @deprecated Use createRetryFramework(deps) or container.get('retryFramework'). */
 function init(nextDeps = {}) {
   deps = { ...deps, ...nextDeps };
+  // Container-owned shared state. ProcessTracker carries both
+  // retryTimeouts and cleanupGuard; default from the singleton when
+  // the caller doesn't pass overrides. Test fixtures with bare-Map
+  // mocks still win, and the accessor presence guard prevents a bare
+  // Map injected as taskCleanupGuard from clobbering the other slot.
+  if (!deps.taskCleanupGuard || !deps.pendingRetryTimeouts) {
+    const { defaultContainer } = require('../container');
+    const tracker = defaultContainer.peek('processTracker');
+    if (tracker) {
+      if (!deps.taskCleanupGuard && tracker.cleanupGuard) {
+        deps.taskCleanupGuard = tracker.cleanupGuard;
+      }
+      if (!deps.pendingRetryTimeouts && tracker.retryTimeouts) {
+        deps.pendingRetryTimeouts = tracker.retryTimeouts;
+      }
+    }
+  }
 }
 
 function getRetryAttemptDurationMs(task) {
@@ -176,9 +193,37 @@ function handleRetryLogic(ctx) {
 
 // ── New factory shape (preferred) ─────────────────────────────────────────
 function createRetryFramework(localDeps = {}) {
+  // Resolve task-manager closures, processTracker maps, and pure
+  // utility functions from container values + module requires when
+  // explicit overrides aren't supplied. Test fixtures still win via
+  // localDeps overrides.
+  const tm = localDeps.taskManager || null;
+  const tmMethod = (name) => (tm && typeof tm[name] === 'function' ? tm[name].bind(tm) : null);
+  const trackerCandidate = localDeps.runningProcesses
+    || (() => {
+      try {
+        const { defaultContainer } = require('../container');
+        return defaultContainer.peek('processTracker');
+      } catch { return null; }
+    })()
+    || null;
+  const resolved = {
+    ...localDeps,
+    db: localDeps.db,
+    classifyError: localDeps.classifyError || require('./fallback-retry').classifyError,
+    sanitizeTaskOutput: localDeps.sanitizeTaskOutput || require('./task-utils').sanitizeTaskOutput,
+    taskCleanupGuard: localDeps.taskCleanupGuard
+      || (trackerCandidate && trackerCandidate.cleanupGuard)
+      || null,
+    pendingRetryTimeouts: localDeps.pendingRetryTimeouts
+      || (trackerCandidate && trackerCandidate.retryTimeouts)
+      || null,
+    startTask: localDeps.startTask || tmMethod('startTask'),
+    processQueue: localDeps.processQueue || tmMethod('processQueue'),
+  };
   function withLocalDeps(fn) {
     const prev = deps;
-    deps = localDeps;
+    deps = resolved;
     try { return fn(); } finally { deps = prev; }
   }
   return {
@@ -188,17 +233,15 @@ function createRetryFramework(localDeps = {}) {
 
 /**
  * Register with a DI container under the name 'retryFramework'.
- * Declared deps are the function signatures retry-framework reads off
- * its `deps` object: db, classifyError, sanitizeTaskOutput, taskCleanupGuard,
- * pendingRetryTimeouts, startTask, processQueue.
+ * classifyError/sanitizeTaskOutput resolve via require() inside the
+ * factory; taskCleanupGuard/pendingRetryTimeouts resolve from the
+ * container's processTracker; startTask/processQueue resolve from
+ * the registered taskManager handle.
  */
 function register(container) {
   container.register(
     'retryFramework',
-    [
-      'db', 'classifyError', 'sanitizeTaskOutput', 'taskCleanupGuard',
-      'pendingRetryTimeouts', 'startTask', 'processQueue',
-    ],
+    ['db', 'taskManager'],
     (resolved) => createRetryFramework(resolved)
   );
 }

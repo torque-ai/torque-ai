@@ -164,6 +164,16 @@ let _legacyService = null;
 /** @deprecated Use createSafeguardGates(deps) or container.get('safeguardGates'). */
 function init(nextDeps = {}) {
   _legacyDeps = { ..._legacyDeps, ...nextDeps };
+  // Container-owned shared state. taskCleanupGuard lives on the
+  // ProcessTracker singleton; default from the container when the
+  // caller doesn't pass an override. Test fixtures still win.
+  if (!_legacyDeps.taskCleanupGuard) {
+    const { defaultContainer } = require('../container');
+    const tracker = defaultContainer.peek('processTracker');
+    if (tracker && tracker.cleanupGuard) {
+      _legacyDeps.taskCleanupGuard = tracker.cleanupGuard;
+    }
+  }
   _legacyService = createSafeguardGates(_legacyDeps);
 }
 

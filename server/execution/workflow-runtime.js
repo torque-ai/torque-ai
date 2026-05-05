@@ -1829,13 +1829,27 @@ function maybeFinalizeAuditRun(workflowId, finalStatus) {
 
 // ── New factory shape (preferred) ─────────────────────────────────────────
 // Replaces the prior placeholder with one that actually closes over deps.
+//
+// startTask, cancelTask, processQueue are task-manager methods. The
+// container registers `taskManager` as a value at startup, so the
+// factory accepts a taskManager handle and extracts the methods. Direct
+// startTask/cancelTask/processQueue overrides via localDeps still win,
+// preserving the test override path.
 function createWorkflowRuntime(localDeps = {}) {
+  const tm = localDeps.taskManager || null;
+  const localStartTask = localDeps.startTask
+    || (tm && typeof tm.startTask === 'function' ? tm.startTask.bind(tm) : null);
+  const localCancelTask = localDeps.cancelTask
+    || (tm && typeof tm.cancelTask === 'function' ? tm.cancelTask.bind(tm) : null);
+  const localProcessQueue = localDeps.processQueue
+    || (tm && typeof tm.processQueue === 'function' ? tm.processQueue.bind(tm) : null);
+
   function withLocalDeps(fn) {
     const prev = { db, _startTask, _cancelTask, _processQueue, _dashboard };
     if (localDeps.db) db = localDeps.db;
-    if (localDeps.startTask) _startTask = localDeps.startTask;
-    if (localDeps.cancelTask) _cancelTask = localDeps.cancelTask;
-    if (localDeps.processQueue) _processQueue = localDeps.processQueue;
+    if (localStartTask) _startTask = localStartTask;
+    if (localCancelTask) _cancelTask = localCancelTask;
+    if (localProcessQueue) _processQueue = localProcessQueue;
     if (localDeps.dashboard) _dashboard = localDeps.dashboard;
     try { return fn(); }
     finally {
@@ -1865,9 +1879,11 @@ function createWorkflowRuntime(localDeps = {}) {
 }
 
 function register(container) {
+  // startTask/cancelTask/processQueue are extracted from the taskManager
+  // container value inside the factory — no need to declare them here.
   container.register(
     'workflowRuntime',
-    ['db', 'startTask', 'cancelTask', 'processQueue', 'dashboard'],
+    ['db', 'dashboard', 'taskManager'],
     (deps) => createWorkflowRuntime(deps)
   );
 }

@@ -1112,15 +1112,32 @@ function classifyError(errorOutput, exitCode) {
 // Replaces the prior placeholder createFallbackRetry stub with one that
 // actually closes over deps via the established module-state-swap pattern.
 function createFallbackRetry(localDeps = {}) {
+  // Resolve task-manager closures from the registered taskManager value
+  // when explicit overrides aren't supplied. Same pattern workflow-runtime
+  // uses — the taskManager handle exposes the methods this factory
+  // previously received as separate deps. Test fixtures with explicit
+  // method overrides still win.
+  const tm = localDeps.taskManager || null;
+  const tmMethod = (name) => (tm && typeof tm[name] === 'function' ? tm[name].bind(tm) : null);
+  const trackerCandidate = localDeps.runningProcesses
+    || (() => {
+      try {
+        const { defaultContainer } = require('../container');
+        return defaultContainer.peek('processTracker');
+      } catch { return null; }
+    })()
+    || null;
   const local = {
     db: localDeps.db,
     dashboard: localDeps.dashboard,
-    _processQueue: localDeps.processQueue,
-    _cancelTask: localDeps.cancelTask,
-    _stopTaskForRestart: localDeps.stopTaskForRestart,
-    _markTaskCleanedUp: localDeps.markTaskCleanedUp,
-    _stallRecoveryAttempts: localDeps.stallRecoveryAttempts,
-    _runningProcesses: localDeps.runningProcesses,
+    _processQueue: localDeps.processQueue || tmMethod('processQueue'),
+    _cancelTask: localDeps.cancelTask || tmMethod('cancelTask'),
+    _stopTaskForRestart: localDeps.stopTaskForRestart || tmMethod('stopTaskForRestart'),
+    _markTaskCleanedUp: localDeps.markTaskCleanedUp || tmMethod('markTaskCleanedUp'),
+    _stallRecoveryAttempts: localDeps.stallRecoveryAttempts
+      || (trackerCandidate && trackerCandidate.stallAttempts)
+      || null,
+    _runningProcesses: trackerCandidate,
     _getFreeQuotaTracker: localDeps.getFreeQuotaTracker,
   };
   function withLocalDeps(fn) {
@@ -1170,13 +1187,15 @@ function createFallbackRetry(localDeps = {}) {
  * setter wires it lazily for legacy callers).
  */
 function register(container) {
+  // Task-manager closures (processQueue/cancelTask/stopTaskForRestart/
+  // markTaskCleanedUp) and the absorbed-state maps (stallRecoveryAttempts/
+  // runningProcesses) are resolved inside the factory from the registered
+  // taskManager + processTracker singletons. getFreeQuotaTracker is a
+  // setter binding; when not registered it'll come in via setFreeQuotaTracker
+  // at startup like before.
   container.register(
     'fallbackRetry',
-    [
-      'db', 'dashboard', 'processQueue', 'cancelTask', 'stopTaskForRestart',
-      'markTaskCleanedUp', 'stallRecoveryAttempts', 'runningProcesses',
-      'getFreeQuotaTracker',
-    ],
+    ['db', 'dashboard', 'taskManager'],
     (deps) => createFallbackRetry(deps)
   );
 }
