@@ -478,10 +478,35 @@ function checkViolations(findings, indexMap) {
 
 function readAllDbSchema(dir) {
   if (!fs.existsSync(dir)) return '';
-  return fs.readdirSync(dir)
-    .filter((f) => f.endsWith('.js'))
-    .map((f) => fs.readFileSync(path.join(dir, f), 'utf8'))
-    .join('\n');
+  // Walk db/ recursively. The schema reorg (server/db/schema/) moved
+  // CREATE TABLE statements into db/schema/tables.js plus migrations
+  // into db/migrations.js — both must be visible to the audit so its
+  // index extraction can find PK / UNIQUE / CREATE INDEX statements.
+  // Without the recursion, every PK lookup (id TEXT PRIMARY KEY etc.)
+  // looks un-indexed and the audit floods with false positives
+  // (~419 entries, 2026-05-04).
+  const out = [];
+  const stack = [dir];
+  while (stack.length > 0) {
+    const current = stack.pop();
+    let entries;
+    try {
+      entries = fs.readdirSync(current, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      const full = path.join(current, entry.name);
+      if (entry.isDirectory()) {
+        stack.push(full);
+      } else if (entry.isFile() && entry.name.endsWith('.js')) {
+        try {
+          out.push(fs.readFileSync(full, 'utf8'));
+        } catch { /* ignore unreadable */ }
+      }
+    }
+  }
+  return out.join('\n');
 }
 
 /**
