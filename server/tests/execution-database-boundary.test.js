@@ -3,6 +3,14 @@
 const fs = require('fs');
 const Module = require('module');
 
+// task-manager.js peeks the container for processTracker and
+// finalizationTracker at module load and runs duck-type checks against
+// them (Map subclass + branded method). The container mocks below must
+// return real instances so task-manager.js loads under the test's
+// mocked '../container'.
+const ProcessTracker = require('../execution/process-tracker');
+const FinalizationTracker = require('../execution/finalization-tracker');
+
 const DATABASE_MODULE_PATH = require.resolve('../database');
 const DIRECT_DATABASE_IMPORT = /require\s*\(\s*['"](?:\.\.\/)+database(?:\.js)?['"]\s*\)/;
 
@@ -72,12 +80,19 @@ function createConfigMock() {
 }
 
 function createContainerMock() {
+  const processTracker = new ProcessTracker();
+  const finalizationTracker = new FinalizationTracker();
   return {
     getModule: vi.fn(() => null),
     defaultContainer: {
       has: vi.fn(() => false),
       get: vi.fn(() => null),
-      peek: vi.fn(() => null),
+      peek: vi.fn((name) => {
+        if (name === 'processTracker') return processTracker;
+        if (name === 'finalizationTracker') return finalizationTracker;
+        return null;
+      }),
+      registerValue: vi.fn(),
     },
   };
 }
@@ -140,12 +155,19 @@ function installTaskManagerBoundaryMocks() {
     getRunningTasksForHost: vi.fn(() => []),
   };
 
+  const containerProcessTracker = new ProcessTracker();
+  const containerFinalizationTracker = new FinalizationTracker();
   const container = {
     getModule: vi.fn((name) => (name === 'db' ? db : null)),
     defaultContainer: {
       has: vi.fn(() => false),
       get: vi.fn(() => null),
-      peek: vi.fn(() => null),
+      peek: vi.fn((name) => {
+        if (name === 'processTracker') return containerProcessTracker;
+        if (name === 'finalizationTracker') return containerFinalizationTracker;
+        return null;
+      }),
+      registerValue: vi.fn(),
     },
   };
 

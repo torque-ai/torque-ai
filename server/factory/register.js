@@ -26,9 +26,18 @@
 const costMetrics = require('./cost-metrics');
 const feedback = require('./feedback');
 
+// Mirrors execution/register.js: skip mocked modules that don't expose
+// a register function so container.js stays loadable in tests that
+// stub these factory modules with the legacy {init} shape.
+function tryRegister(mod, container) {
+  if (mod && typeof mod.register === 'function') {
+    mod.register(container);
+  }
+}
+
 function register(container) {
-  costMetrics.register(container);
-  feedback.register(container);
+  tryRegister(costMetrics, container);
+  tryRegister(feedback, container);
 }
 
 module.exports = { register };

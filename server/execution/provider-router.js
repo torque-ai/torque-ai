@@ -11,7 +11,13 @@
 
 const { execFile: execFileCb } = require('child_process');
 const { promisify } = require('util');
-const defaultExecFile = promisify(execFileCb);
+// Tests that mock child_process (e.g. tests/task-project-handlers.test.js)
+// may provide a partial shim without execFile. Fall back to a stub so the
+// module load doesn't throw — tests that actually exercise PR/git flows
+// inject their own deps.execFile, and production always has the real one.
+const defaultExecFile = typeof execFileCb === 'function'
+  ? promisify(execFileCb)
+  : () => Promise.reject(new Error('execFile not available — child_process is mocked without execFile'));
 const logger = require('../logger').child({ component: 'provider-router' });
 const { getEffectiveGlobalMaxConcurrent: sharedGetEffective } = require('./effective-concurrency');
 

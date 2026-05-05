@@ -59,26 +59,39 @@ const taskFinalizer = require('./task-finalizer');                  // [db, task
 // promotes their utility-function deps to container values.
 require('./task-startup');
 
+// Tests that mock individual execution modules (e.g. with the legacy
+// {init: vi.fn()} shape that predates the universal-DI register()
+// export) end up loading container.js with mock objects that lack a
+// register function. Skip those instead of throwing — production
+// modules all export register and are unaffected; test mocks no longer
+// need to add a register: vi.fn() shim just to keep container.js
+// loadable.
+function tryRegister(mod, container) {
+  if (mod && typeof mod.register === 'function') {
+    mod.register(container);
+  }
+}
+
 function register(container) {
   // Activate only the modules whose deps are fully container-managed.
   // The remaining modules' register() functions are defined and ready;
   // they're simply not called until their consumer-side blockers clear.
-  planProjectResolver.register(container);
-  workflowResume.register(container);
-  workflowRuntime.register(container);
-  fallbackRetry.register(container);
-  retryFramework.register(container);
-  commandBuilders.register(container);
-  fileContextBuilder.register(container);
-  processStreams.register(container);
-  processLifecycle.register(container);
-  debugLifecycle.register(container);
-  completionPipeline.register(container);
-  slotPullScheduler.register(container);
-  queueScheduler.register(container);
-  providerRouter.register(container);
-  taskCancellation.register(container);
-  taskFinalizer.register(container);
+  tryRegister(planProjectResolver, container);
+  tryRegister(workflowResume, container);
+  tryRegister(workflowRuntime, container);
+  tryRegister(fallbackRetry, container);
+  tryRegister(retryFramework, container);
+  tryRegister(commandBuilders, container);
+  tryRegister(fileContextBuilder, container);
+  tryRegister(processStreams, container);
+  tryRegister(processLifecycle, container);
+  tryRegister(debugLifecycle, container);
+  tryRegister(completionPipeline, container);
+  tryRegister(slotPullScheduler, container);
+  tryRegister(queueScheduler, container);
+  tryRegister(providerRouter, container);
+  tryRegister(taskCancellation, container);
+  tryRegister(taskFinalizer, container);
 }
 
 module.exports = { register };
