@@ -105,7 +105,19 @@ function acquireStartupLock() {
         } catch {
           // Lock holder is dead — stale lock, remove and continue
           process.stderr.write(`[TORQUE] Removing stale startup lock (PID ${lockPid} is dead)\n`);
-          try { fs.unlinkSync(LOCK_FILE); } catch { /* ignore */ }
+          try {
+            fs.rmSync(LOCK_FILE, { force: true, maxRetries: 5, retryDelay: 50 });
+          } catch (unlinkErr) {
+            process.stderr.write(`[TORQUE] Startup lock stale removal failed: ${unlinkErr.message}\n`);
+          }
+          if (fs.existsSync(LOCK_FILE)) {
+            const currentContent = fs.readFileSync(LOCK_FILE, 'utf8').trim();
+            if (currentContent === String(lockPid)) {
+              fs.writeFileSync(LOCK_FILE, String(process.pid), { flag: 'w' });
+              process.stderr.write(`[TORQUE] Claimed stale startup lock from dead PID ${lockPid}\n`);
+              return true;
+            }
+          }
         }
       }
     }
