@@ -1524,6 +1524,49 @@ function resolveCodexPendingTasks() {
 // timers, _stopped flag, _lastAutoScaleActivation) that intentionally stays
 // at module scope — the queue is a singleton resource, not a per-instance one.
 function createQueueScheduler(localDeps = {}) {
+  // Resolve task-manager closures from registered taskManager,
+  // utility functions via require() from their source modules,
+  // and notifyDashboard via the registered eventBus. Test fixtures
+  // with explicit overrides via localDeps still win.
+  const tm = localDeps.taskManager || null;
+  const tmMethod = (name) => (tm && typeof tm[name] === 'function' ? tm[name].bind(tm) : null);
+  const eventBus = localDeps.eventBus || (() => {
+    try { return require('../container').defaultContainer.peek('eventBus'); }
+    catch { return null; }
+  })();
+  const providerRegistry = localDeps.providerRegistry || (() => {
+    try { return require('../providers/registry'); }
+    catch { return null; }
+  })();
+  const resolved = {
+    attemptTaskStart: localDeps.attemptTaskStart || tmMethod('attemptTaskStart'),
+    safeStartTask: localDeps.safeStartTask || tmMethod('safeStartTask'),
+    isLargeModelBlockedOnHost: localDeps.isLargeModelBlockedOnHost || tmMethod('isLargeModelBlockedOnHost'),
+    safeConfigInt: localDeps.safeConfigInt || (() => {
+      try { return require('./provider-router').safeConfigInt; } catch { return null; }
+    })(),
+    cleanupOrphanedRetryTimeouts: localDeps.cleanupOrphanedRetryTimeouts || (() => {
+      try { return require('./task-startup').cleanupOrphanedRetryTimeouts; } catch { return null; }
+    })(),
+    analyzeTaskForRouting: localDeps.analyzeTaskForRouting || (() => {
+      try { return require('../db/smart-routing').analyzeTaskForRouting; } catch { return null; }
+    })(),
+    getProviderInstance: localDeps.getProviderInstance
+      || (providerRegistry && typeof providerRegistry.getProviderInstance === 'function'
+        ? (name) => providerRegistry.getProviderInstance(name)
+        : null),
+    getFreeQuotaTracker: localDeps.getFreeQuotaTracker || (() => {
+      try { return require('./fallback-retry').getFreeQuotaTracker; } catch { return null; }
+    })(),
+    notifyDashboard: localDeps.notifyDashboard || (eventBus && typeof eventBus.emitTaskUpdated === 'function'
+      ? (taskId, updates = {}) => {
+          if (!taskId) return;
+          const payload = updates && typeof updates === 'object' ? updates : {};
+          eventBus.emitTaskUpdated({ taskId, ...payload });
+        }
+      : null),
+  };
+
   function withLocalDeps(fn) {
     const prev = {
       db, _attemptTaskStart, _safeStartTask, _safeConfigInt,
@@ -1531,15 +1574,15 @@ function createQueueScheduler(localDeps = {}) {
       _cleanupOrphanedRetryTimeouts, _notifyDashboard, _analyzeTaskForRouting,
     };
     if (localDeps.db) db = localDeps.db;
-    if (localDeps.attemptTaskStart) _attemptTaskStart = localDeps.attemptTaskStart;
-    if (localDeps.safeStartTask) _safeStartTask = localDeps.safeStartTask;
-    if (localDeps.safeConfigInt) _safeConfigInt = localDeps.safeConfigInt;
-    if (localDeps.isLargeModelBlockedOnHost) _isLargeModelBlockedOnHost = localDeps.isLargeModelBlockedOnHost;
-    if (localDeps.getProviderInstance) _getProviderInstance = localDeps.getProviderInstance;
-    if (localDeps.getFreeQuotaTracker) _getFreeQuotaTracker = localDeps.getFreeQuotaTracker;
-    if (localDeps.cleanupOrphanedRetryTimeouts) _cleanupOrphanedRetryTimeouts = localDeps.cleanupOrphanedRetryTimeouts;
-    if (localDeps.notifyDashboard) _notifyDashboard = localDeps.notifyDashboard;
-    if (localDeps.analyzeTaskForRouting) _analyzeTaskForRouting = localDeps.analyzeTaskForRouting;
+    if (resolved.attemptTaskStart) _attemptTaskStart = resolved.attemptTaskStart;
+    if (resolved.safeStartTask) _safeStartTask = resolved.safeStartTask;
+    if (resolved.safeConfigInt) _safeConfigInt = resolved.safeConfigInt;
+    if (resolved.isLargeModelBlockedOnHost) _isLargeModelBlockedOnHost = resolved.isLargeModelBlockedOnHost;
+    if (resolved.getProviderInstance) _getProviderInstance = resolved.getProviderInstance;
+    if (resolved.getFreeQuotaTracker) _getFreeQuotaTracker = resolved.getFreeQuotaTracker;
+    if (resolved.cleanupOrphanedRetryTimeouts) _cleanupOrphanedRetryTimeouts = resolved.cleanupOrphanedRetryTimeouts;
+    if (resolved.notifyDashboard) _notifyDashboard = resolved.notifyDashboard;
+    if (resolved.analyzeTaskForRouting) _analyzeTaskForRouting = resolved.analyzeTaskForRouting;
     try { return fn(); }
     finally {
       ({
@@ -1571,13 +1614,12 @@ function createQueueScheduler(localDeps = {}) {
 }
 
 function register(container) {
+  // task-manager closures via taskManager; utility functions via
+  // require() inside the factory; notifyDashboard via eventBus.
+  // Only db + taskManager + eventBus are real container deps.
   container.register(
     'queueScheduler',
-    [
-      'db', 'attemptTaskStart', 'safeStartTask', 'safeConfigInt',
-      'isLargeModelBlockedOnHost', 'getProviderInstance', 'getFreeQuotaTracker',
-      'cleanupOrphanedRetryTimeouts', 'notifyDashboard', 'analyzeTaskForRouting',
-    ],
+    ['db', 'taskManager', 'eventBus'],
     (deps) => createQueueScheduler(deps)
   );
 }
