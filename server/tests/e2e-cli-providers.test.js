@@ -19,6 +19,23 @@ let origOpenAIKey;
 let origAnthropicKey;
 
 describe('E2E: CLI provider execution', () => {
+  // These tests drive the legacy pipe-path close-handler flow:
+  // simulateSuccess(child, ...) emits 'close' on the mock child, which
+  // process-lifecycle.spawnAndTrackProcess's child.on('close') consumes.
+  // Phase H wiring (origin/main, 2026-05-04, 01c2cfec) routes codex /
+  // codex-spark / claude-cli through executeCli.spawnAndTrackProcessDetached
+  // when TORQUE_DETACHED_SUBPROCESSES is enabled (default ON post-Phase G).
+  // The detached path uses Tail watchers + PID-liveness polling instead of
+  // 'close', so the simulateSuccess emission never reaches the finalizer
+  // and the task stays in 'retry_scheduled' until the test times out.
+  // Pin the flag off so the suite continues to exercise the pipe path.
+  const ORIG_DETACH_FLAG = process.env.TORQUE_DETACHED_SUBPROCESSES;
+  beforeAll(() => { process.env.TORQUE_DETACHED_SUBPROCESSES = '0'; });
+  afterAll(() => {
+    if (ORIG_DETACH_FLAG === undefined) delete process.env.TORQUE_DETACHED_SUBPROCESSES;
+    else process.env.TORQUE_DETACHED_SUBPROCESSES = ORIG_DETACH_FLAG;
+  });
+
   beforeEach(async () => {
     origOpenAIKey = process.env.OPENAI_API_KEY;
     origAnthropicKey = process.env.ANTHROPIC_API_KEY;
