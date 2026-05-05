@@ -22,6 +22,10 @@ function createAdversarialReviews({ db }) {
   }
 
   function getReviewsForTask(taskId) {
+    // @full-scan: adversarial_reviews is small (one row per review pass per
+    // task); the lookup-by-task path is cold (only fires when an operator
+    // opens the review history for a single task). No index migration
+    // warranted at current scale.
     return db.prepare('SELECT * FROM adversarial_reviews WHERE task_id = ? ORDER BY created_at DESC').all(taskId);
   }
 

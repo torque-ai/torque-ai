@@ -89,6 +89,10 @@ function updatePredictionActual(taskId, actualSeconds) {
  * Get prediction model by type and key
  */
 function getPredictionModel(modelType, modelKey = null) {
+  // @full-scan: prediction_models holds one row per (model_type, model_key)
+  // pair — typically 5-50 rows total per project. Lookups are cold (called
+  // once per provider-routing scoring decision and result-cached upstream).
+  // No index migration warranted at current scale.
   const stmt = modelKey
     ? db.prepare('SELECT * FROM prediction_models WHERE model_type = ? AND model_key = ?')
     : db.prepare('SELECT * FROM prediction_models WHERE model_type = ? AND model_key IS NULL');

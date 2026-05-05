@@ -50,7 +50,7 @@ describe('policy verification adapter', () => {
       changed_files: [
         'server/policy-engine/engine.js',
         'server/tests/policy-verification-adapter.test.js',
-        'server\\db\\schema-migrations.js',
+        'server\\db\\schema\\status-validation.js',
         'docs/policies.md',
         'server/package.json',
       ],

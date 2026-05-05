@@ -225,7 +225,7 @@ describe('REST control-plane parity', () => {
   describe('dashboard convergence', () => {
     it('dashboard-server.js imports v2-dispatch', () => {
       const source = fs.readFileSync(
-        path.join(__dirname, '..', 'dashboard-server.js'),
+        path.join(__dirname, '..', 'dashboard', 'server.js'),
         'utf8'
       );
       expect(source).toContain("require('./api/v2-dispatch')");
@@ -233,7 +233,7 @@ describe('REST control-plane parity', () => {
 
     it('dashboard-server.js intercepts /api/v2/ before legacy router', () => {
       const source = fs.readFileSync(
-        path.join(__dirname, '..', 'dashboard-server.js'),
+        path.join(__dirname, '..', 'dashboard', 'server.js'),
         'utf8'
       );
       const handlerSection = source.slice(source.indexOf('http.createServer'));
