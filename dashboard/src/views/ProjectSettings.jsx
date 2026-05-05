@@ -800,12 +800,14 @@ export default function ProjectSettings({ project: projectProp = '' }) {
           config: { provider_lane_policy: nextPolicy },
         }),
       });
+      if (!mountedRef.current) return;
       setLaneSaveStatus('saved');
       saveStatusClearRef.current = setTimeout(() => {
         saveStatusClearRef.current = null;
         setLaneSaveStatus('idle');
       }, 2000);
     } catch (error) {
+      if (!mountedRef.current) return;
       setLanePolicy(previous);
       setLaneSaveStatus('error');
       toast.error(`Failed to save lane policy: ${getErrorMessage(error)}`);

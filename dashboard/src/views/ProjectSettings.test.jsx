@@ -548,7 +548,7 @@ describe('FactoryLanePolicyPanel — editor controls', () => {
     const baseFetch = globalThis.fetch;
     globalThis.fetch = vi.fn((url, options = {}) => {
       if (url === '/api/v2/factory/projects/fp-1/trust' && String(options.method).toUpperCase() === 'PUT') {
-        return new Promise((r) => { resolve = () => r(createResponse({ data: { ok: true } }).then((v) => v)); });
+        return new Promise((r) => { resolve = () => r(createResponse({ data: { ok: true } })); });
       }
       return baseFetch(url, options);
     });
