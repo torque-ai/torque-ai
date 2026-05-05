@@ -80,15 +80,19 @@ describe('smart routing template precedence', () => {
     expect(result.reason).not.toContain('score-ranked');
   });
 
-  it('keeps plan generation on text providers under the Codex Primary template', () => {
+  it('routes plan generation through the Codex Primary chain (codex first, text providers as fallback)', () => {
+    // Codex Primary's plan_generation rule (server/routing/templates/codex-primary.json)
+    // leads with codex per commit e79ca7a9 — "Codex for hard problems" guards
+    // against the SpudgetBooks regression where ollama-led plan_generation
+    // produced unusable plans. The chain is: codex → cerebras → groq → ollama,
+    // and routing should pick the first eligible link.
     const result = providerRoutingCore.analyzeTaskForRouting(
       'You are generating an execution plan for a single factory work item. Return ## Task N: sections only.',
       process.cwd(),
       [],
     );
 
-    expect(['cerebras', 'groq', 'ollama']).toContain(result.provider);
-    expect(['codex', 'claude-cli', 'claude-code-sdk']).not.toContain(result.provider);
+    expect(result.provider).toBe('codex');
     expect(result.reason).toContain('plan_generation');
   });
 });

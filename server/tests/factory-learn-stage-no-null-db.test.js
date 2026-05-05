@@ -157,6 +157,12 @@ beforeEach(() => {
   defaultContainer.registerValue('db', db);
   defaultContainer.registerValue('eventBus', { emit: () => {}, on: () => {}, off: () => {} });
   defaultContainer.registerValue('logger', { info: () => {}, warn: () => {}, error: () => {}, debug: () => {} });
+  // dashboard is required by execution modules (planProjectResolver,
+  // workflowRuntime, etc.) wired into the container by execution/register.js
+  // since the universal-DI consolidation. Production wires the real
+  // dashboard server in server/index.js; standalone unit-test boots
+  // need a stub so topoSort can resolve the dep.
+  defaultContainer.registerValue('dashboard', { broadcast: () => {} });
   // sharedFactoryStore (registered in container.js since c8a129c9) declares
   // a `serverConfig` dep. Production wires it in server/index.js, but
   // standalone unit-test boots that don't go through index.js need a

@@ -106,7 +106,7 @@ describe('Phase G: ollama-friendly architect prompt', () => {
       origin: { exemplar_files: ['simtests/Foo.cs'] },
     });
     expect(out).toContain('Project context:');
-    expect(out).toContain('Verified existing files in scope');
+    expect(out).toContain('Files in scope');
     expect(out).toContain('`simtests/Foo.cs`');
     expect(out).toContain('A test work item description.');
     expect(out).toContain('Use `## Task N:` headings');

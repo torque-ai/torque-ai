@@ -3,6 +3,13 @@
 const fs = require('fs');
 const Module = require('module');
 
+// task-manager.js peeks the container for processTracker at module load
+// (server/task-manager.js:264) and throws if it's not a ProcessTracker
+// instance. The container mocks below must return a real instance for
+// peek('processTracker') so task-manager loads successfully under the
+// test's mocked '../container'.
+const ProcessTracker = require('../execution/process-tracker');
+
 const DATABASE_MODULE_PATH = require.resolve('../database');
 const DIRECT_DATABASE_IMPORT = /require\s*\(\s*['"](?:\.\.\/)+database(?:\.js)?['"]\s*\)/;
 
@@ -72,12 +79,13 @@ function createConfigMock() {
 }
 
 function createContainerMock() {
+  const processTracker = new ProcessTracker();
   return {
     getModule: vi.fn(() => null),
     defaultContainer: {
       has: vi.fn(() => false),
       get: vi.fn(() => null),
-      peek: vi.fn(() => null),
+      peek: vi.fn((name) => (name === 'processTracker' ? processTracker : null)),
     },
   };
 }
@@ -140,12 +148,13 @@ function installTaskManagerBoundaryMocks() {
     getRunningTasksForHost: vi.fn(() => []),
   };
 
+  const containerProcessTracker = new ProcessTracker();
   const container = {
     getModule: vi.fn((name) => (name === 'db' ? db : null)),
     defaultContainer: {
       has: vi.fn(() => false),
       get: vi.fn(() => null),
-      peek: vi.fn(() => null),
+      peek: vi.fn((name) => (name === 'processTracker' ? containerProcessTracker : null)),
     },
   };
 
