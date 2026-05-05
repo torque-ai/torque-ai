@@ -303,13 +303,20 @@ async function buildCodexCommand(task, providerConfig, resolvedFileContext, reso
 
 // ── New factory shape (preferred) ─────────────────────────────────────────
 function createCommandBuilders(deps = {}) {
-  if (!deps.wrapWithInstructions) throw new Error('command-builders: wrapWithInstructions is required');
-  if (!deps.providerCfg) throw new Error('command-builders: providerCfg is required');
+  // Resolve utility deps from their source modules when not explicitly
+  // overridden. Test fixtures with explicit overrides still win.
+  const wrapWithInstructions = deps.wrapWithInstructions
+    || require('../providers/prompts').wrapWithInstructions;
+  const providerCfg = deps.providerCfg || require('../providers/config');
+  const contextEnrichment = deps.contextEnrichment || require('../utils/context-enrichment');
+  const codexIntelligence = deps.codexIntelligence || require('../providers/codex-intelligence');
+  if (!wrapWithInstructions) throw new Error('command-builders: wrapWithInstructions is required');
+  if (!providerCfg) throw new Error('command-builders: providerCfg is required');
   const local = {
-    _wrapWithInstructions: deps.wrapWithInstructions,
-    _providerCfg: deps.providerCfg,
-    _contextEnrichment: deps.contextEnrichment,
-    _codexIntelligence: deps.codexIntelligence,
+    _wrapWithInstructions: wrapWithInstructions,
+    _providerCfg: providerCfg,
+    _contextEnrichment: contextEnrichment,
+    _codexIntelligence: codexIntelligence,
     _db: deps.db,
     _nvmNodePath: deps.nvmNodePath,
   };
@@ -331,9 +338,13 @@ function createCommandBuilders(deps = {}) {
 }
 
 function register(container) {
+  // wrapWithInstructions, providerCfg, contextEnrichment, codexIntelligence
+  // are resolved via require() inside the factory. nvmNodePath is a startup
+  // constant; if needed, the factory accepts it via localDeps from the
+  // existing init() path. Only db is a true container service here.
   container.register(
     'commandBuilders',
-    ['wrapWithInstructions', 'providerCfg', 'contextEnrichment', 'codexIntelligence', 'db', 'nvmNodePath'],
+    ['db'],
     (deps) => createCommandBuilders(deps)
   );
 }

@@ -41,13 +41,13 @@ const workflowResume = require('./workflow-resume');                // [db, even
 const workflowRuntime = require('./workflow-runtime');              // [db, dashboard, taskManager]
 const fallbackRetry = require('./fallback-retry');                  // [db, dashboard, taskManager]
 const retryFramework = require('./retry-framework');                // [db, taskManager]
+const commandBuilders = require('./command-builders');              // [db]
+const fileContextBuilder = require('./file-context-builder');       // [db]
 
 // ── Deferred (deps include task-manager-owned closures / utilities) ──
 // Required for side effects (each module's register() function is
 // available on its export) but NOT called until consumer migration
 // promotes their utility-function deps to container values.
-require('./command-builders');
-require('./file-context-builder');
 require('./process-streams');
 require('./debug-lifecycle');
 require('./provider-router');
@@ -67,6 +67,8 @@ function register(container) {
   workflowRuntime.register(container);
   fallbackRetry.register(container);
   retryFramework.register(container);
+  commandBuilders.register(container);
+  fileContextBuilder.register(container);
 }
 
 module.exports = { register };

@@ -317,11 +317,12 @@ async function ensureTargetFilesExist(workingDir, filePaths) {
 
 // ── New factory shape (preferred) ─────────────────────────────────────────
 function createFileContextBuilder(deps = {}) {
+  // Resolve utility/config deps via require() when not overridden.
   const local = {
-    _serverConfig: deps.serverConfig,
-    _providerCfg: deps.providerCfg,
-    _contextEnrichment: deps.contextEnrichment,
-    _computeLineHash: deps.computeLineHash,
+    _serverConfig: deps.serverConfig || require('../config'),
+    _providerCfg: deps.providerCfg || require('../providers/config'),
+    _contextEnrichment: deps.contextEnrichment || require('../utils/context-enrichment'),
+    _computeLineHash: deps.computeLineHash || require('../handlers/hashline-handlers').computeLineHash,
     _db: deps.db,
   };
   function withLocalDeps(fn) {
@@ -342,9 +343,12 @@ function createFileContextBuilder(deps = {}) {
 }
 
 function register(container) {
+  // serverConfig + providerCfg + contextEnrichment + computeLineHash all
+  // resolve via require() inside the factory; only db is a true container
+  // service here.
   container.register(
     'fileContextBuilder',
-    ['serverConfig', 'providerCfg', 'contextEnrichment', 'computeLineHash', 'db'],
+    ['db'],
     (deps) => createFileContextBuilder(deps)
   );
 }
