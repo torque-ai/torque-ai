@@ -45,12 +45,12 @@ const commandBuilders = require('./command-builders');              // [db]
 const fileContextBuilder = require('./file-context-builder');       // [db]
 const processStreams = require('./process-streams');                // [db, dashboard, taskManager]
 const processLifecycle = require('./process-lifecycle');            // [dashboard, taskManager]
+const debugLifecycle = require('./debug-lifecycle');                // [taskManager]
 
 // ── Deferred (deps include task-manager-owned closures / utilities) ──
 // Required for side effects (each module's register() function is
 // available on its export) but NOT called until consumer migration
 // promotes their utility-function deps to container values.
-require('./debug-lifecycle');
 require('./provider-router');
 require('./completion-pipeline');
 require('./slot-pull-scheduler');
@@ -71,6 +71,7 @@ function register(container) {
   fileContextBuilder.register(container);
   processStreams.register(container);
   processLifecycle.register(container);
+  debugLifecycle.register(container);
 }
 
 module.exports = { register };

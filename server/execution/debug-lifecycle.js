@@ -411,11 +411,36 @@ function stepExecution(taskId, stepMode = 'continue', count = 1) {
 // Replaces the prior placeholder createDebugLifecycle stub with one that
 // actually closes over deps.
 function createDebugLifecycle(deps = {}) {
+  // Resolve absorbed-state from container's processTracker; bind
+  // task-manager methods from registered taskManager value;
+  // estimateProgress comes from task-startup module. sandboxManager
+  // is optional — null if no plugin registered it.
+  let runningProcesses = deps.runningProcesses;
+  let estimateProgress = deps.estimateProgressFn || deps.estimateProgress;
+  let sandboxManager = deps.sandboxManager;
+  try {
+    const { defaultContainer } = require('../container');
+    if (!runningProcesses) {
+      const tracker = defaultContainer.peek('processTracker');
+      if (tracker) runningProcesses = tracker;
+    }
+    if (sandboxManager === undefined && defaultContainer.has && defaultContainer.has('sandboxManager')) {
+      try { sandboxManager = defaultContainer.get('sandboxManager'); } catch { /* not booted */ }
+    }
+  } catch { /* container not available */ }
+  const tm = deps.taskManager || null;
+  const startTask = deps.startTaskFn
+    || deps.startTask
+    || (tm && typeof tm.startTask === 'function' ? tm.startTask.bind(tm) : null);
+  if (!estimateProgress) {
+    try { estimateProgress = require('./task-startup').estimateProgress; }
+    catch { /* fall through */ }
+  }
   const local = {
-    _runningProcesses: deps.runningProcesses,
-    _startTask: deps.startTaskFn || deps.startTask,
-    _estimateProgress: deps.estimateProgressFn || deps.estimateProgress,
-    _sandboxManager: deps.sandboxManager || null,
+    _runningProcesses: runningProcesses,
+    _startTask: startTask,
+    _estimateProgress: estimateProgress,
+    _sandboxManager: sandboxManager || null,
   };
   function withLocalDeps(fn) {
     const prev = { _runningProcesses, _startTask, _estimateProgress, _sandboxManager };
@@ -438,9 +463,13 @@ function createDebugLifecycle(deps = {}) {
 }
 
 function register(container) {
+  // runningProcesses → processTracker singleton; estimateProgress →
+  // require('./task-startup'); startTask → taskManager.startTask;
+  // sandboxManager → optional container service (lazy peek).
+  // taskManager is the only container value the boot graph needs.
   container.register(
     'debugLifecycle',
-    ['runningProcesses', 'startTask', 'estimateProgress', 'sandboxManager'],
+    ['taskManager'],
     (deps) => createDebugLifecycle(deps)
   );
 }
