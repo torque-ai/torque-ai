@@ -452,6 +452,10 @@ describe('FactoryLanePolicyPanel — editor controls', () => {
         },
       },
     });
+
+    // Post-condition: the optimistic update is also visible after the PUT resolved
+    // (guards against a future refactor that delays setLanePolicy until after the await)
+    expect(screen.getByLabelText('Provider for plan_generation').value).toBe('codex');
   });
 
   it('selecting — use default — deletes the by_kind key', async () => {

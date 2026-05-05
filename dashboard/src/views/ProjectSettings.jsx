@@ -770,6 +770,9 @@ export default function ProjectSettings({ project: projectProp = '' }) {
 
   const handleLanePolicyChange = useCallback(async (nextPolicy) => {
     if (!factoryProjectId) return;
+    // TODO(Task 5): this snapshot is not safe under concurrent edits — Task 5
+    // adds debounce-and-collapse to coalesce in-flight saves. Until then, two
+    // rapid changes can race and the loser's revert can clobber the winner's state.
     const previous = lanePolicy;
     setLanePolicy(nextPolicy);
     try {
