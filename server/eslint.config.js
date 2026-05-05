@@ -7,6 +7,7 @@ const noHeavyTestImportsRule = require('./eslint-rules/no-heavy-test-imports');
 const noResetModulesInEachRule = require('./eslint-rules/no-reset-modules-in-each');
 const noPrepareInLoopRule = require('./eslint-rules/no-prepare-in-loop');
 const noImperativeInitRule = require('./eslint-rules/no-imperative-init');
+const noUtilityDepsInRegisterRule = require('./eslint-rules/no-utility-deps-in-register');
 
 // Single torque plugin definition. ESLint flat config requires that a plugin
 // name resolve to one and only one object across the entire config — defining
@@ -20,6 +21,7 @@ const torquePlugin = {
     'no-sync-fs-on-hot-paths': noSyncFsOnHotPathsRule,
     'no-prepare-in-loop': noPrepareInLoopRule,
     'no-imperative-init': noImperativeInitRule,
+    'no-utility-deps-in-register': noUtilityDepsInRegisterRule,
   },
 };
 
@@ -266,6 +268,13 @@ module.exports = [
     ],
     rules: {
       'torque/no-imperative-init': ['warn', { allowlist: [] }],
+      // torque/no-utility-deps-in-register fires when a register() declaration
+      // lists deps that look like utility functions (parseCommand,
+      // sanitizeOutput, …) or constants (MAX_OUTPUT_BUFFER) instead of true
+      // container services. The cleanup arc replaced these with require()s
+      // inside the factory and resolveMethod() for capability methods. See
+      // server/ARCHITECTURE.md.
+      'torque/no-utility-deps-in-register': ['warn', { allowlist: [] }],
     },
   },
   {
