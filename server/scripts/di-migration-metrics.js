@@ -111,14 +111,20 @@ function scan() {
     probe.registerValue('taskManager', {
       startTask: () => {}, cancelTask: () => {}, processQueue: () => {},
       stopTaskForRestart: () => {}, markTaskCleanedUp: () => {},
+      attemptTaskStart: () => {}, safeStartTask: () => {},
+      isLargeModelBlockedOnHost: () => ({ blocked: false }),
+      safeUpdateTaskStatus: () => {}, finalizeTask: () => {},
+      pauseTask: () => {}, pauseTaskForDebug: () => {}, checkBreakpoints: () => {},
     });
+    // sharedFactoryStore is a registered service — slotPullScheduler depends on it.
+    probe.registerValue('sharedFactoryStore', { get: () => null, set: () => {} });
     require('../validation/register').register(probe);
     require('../execution/register').register(probe);
     require('../factory/register').register(probe);
     require('../mcp/protocol').register(probe);
     require('../providers/agentic-capability').register(probe);
     probe.boot({ failFast: false });
-    const stubs = new Set(['db', 'eventBus', 'logger', 'serverConfig', 'dashboard', 'taskManager']);
+    const stubs = new Set(['db', 'eventBus', 'logger', 'serverConfig', 'dashboard', 'taskManager', 'sharedFactoryStore']);
     wiredServices = probe.list().filter((n) => !stubs.has(n)).sort();
     wiredCount = wiredServices.length;
   } catch (err) {
