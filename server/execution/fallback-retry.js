@@ -19,6 +19,7 @@ const { resolveOllamaModel } = require('../providers/ollama-shared');
 const { normalizeMetadata } = require('../utils/normalize-metadata');
 const { getWindowsNativeCrashExitReason } = require('../utils/process-exit-codes');
 const { buildResumeContext, prependResumeContextToPrompt } = require('../utils/resume-context');
+const { resolveMethod } = require('./capability-resolver');
 
 const BASE_RETRY_DELAY_MS = 5000;   // 5 seconds for first retry
 const MAX_RETRY_DELAY_MS = 120000;  // 2 minutes max
@@ -1119,17 +1120,16 @@ function createFallbackRetry(localDeps = {}) {
   // method overrides still win.
   const tm = localDeps.taskManager || null;
   const tmMethod = (name) => (tm && typeof tm[name] === 'function' ? tm[name].bind(tm) : null);
-  // Capability decomposition: cancelTask prefers the registered
-  // taskCanceller capability service over taskManager.cancelTask.
-  const taskCanceller = localDeps.taskCanceller || (() => {
-    try {
-      const { defaultContainer } = require('../container');
-      return defaultContainer.has?.('taskCanceller') ? defaultContainer.get('taskCanceller') : null;
-    } catch { return null; }
-  })();
-  const tcCancelTask = taskCanceller && typeof taskCanceller.cancelTask === 'function'
-    ? taskCanceller.cancelTask.bind(taskCanceller)
-    : null;
+  // Lazy capability resolution: cancelTask resolves at each call to the
+  // currently-registered taskCanceller capability, falling back to
+  // taskManager.cancelTask. See execution/capability-resolver.js for the
+  // pattern documentation.
+  const lazyCancelTask = resolveMethod(localDeps, {
+    capability: 'taskCanceller',
+    method: 'cancelTask',
+    legacyHandle: 'taskManager',
+    legacyKey: 'cancelTask',
+  });
   const trackerCandidate = localDeps.runningProcesses
     || (() => {
       try {
@@ -1142,7 +1142,7 @@ function createFallbackRetry(localDeps = {}) {
     db: localDeps.db,
     dashboard: localDeps.dashboard,
     _processQueue: localDeps.processQueue || tmMethod('processQueue'),
-    _cancelTask: localDeps.cancelTask || tcCancelTask || tmMethod('cancelTask'),
+    _cancelTask: lazyCancelTask,
     _stopTaskForRestart: localDeps.stopTaskForRestart || tmMethod('stopTaskForRestart'),
     _markTaskCleanedUp: localDeps.markTaskCleanedUp || tmMethod('markTaskCleanedUp'),
     _stallRecoveryAttempts: localDeps.stallRecoveryAttempts
