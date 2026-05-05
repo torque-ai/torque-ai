@@ -244,4 +244,62 @@ describe('ProjectSettings', () => {
     expect(screen.queryByText('Budget Status')).toBeNull();
     expect(screen.getByText('Routing Template')).toBeInTheDocument();
   });
+
+  it('fetches provider list and captures factory trust_level on load', async () => {
+    let providersFetched = false;
+    let factoryFetched = false;
+
+    globalThis.fetch = vi.fn((url) => {
+      if (url === '/api/v2/tasks/list-projects') {
+        return createResponse({ data: [{ name: 'alpha', task_count: 1, last_active: '2026-01-15T10:30:00Z' }] });
+      }
+      if (url === '/api/v2/tasks/list-project-configs') {
+        return createResponse({ data: [{ project: 'alpha' }] });
+      }
+      if (url === '/api/v2/project-config?project=alpha') {
+        return createResponse({
+          data: {
+            default_provider: 'ollama', default_model: 'qwen3-coder:30b',
+            verify_command: '', routing_template_id: null,
+            auto_fix_enabled: 0, default_timeout: 30,
+          },
+        });
+      }
+      if (url === '/api/v2/routing/templates') return createResponse({ data: [] });
+      if (url === '/api/v2/provider-scores') return createResponse([]);
+      if (url === '/api/v2/cost-budgets') return createResponse([]);
+      if (url === '/api/v2/factory/projects') {
+        factoryFetched = true;
+        return createResponse({
+          data: {
+            projects: [{
+              id: 'fp-1', name: 'alpha', trust_level: 'guided',
+              config_json: JSON.stringify({
+                provider_lane_policy: {
+                  expected_provider: 'ollama',
+                  allowed_providers: ['ollama'],
+                  allowed_fallback_providers: [],
+                  by_kind: { architect_cycle: 'codex' },
+                  enforce_handoffs: true,
+                },
+              }),
+            }],
+          },
+        });
+      }
+      if (url === '/api/v2/providers') {
+        providersFetched = true;
+        return createResponse({
+          data: { items: [{ name: 'ollama' }, { name: 'codex' }, { name: 'codex-spark' }] },
+        });
+      }
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    renderWithProviders(<ProjectSettings />, { route: '/settings?project=alpha' });
+
+    await screen.findByText('Factory Lane Policy');
+    await waitFor(() => expect(providersFetched).toBe(true));
+    await waitFor(() => expect(factoryFetched).toBe(true));
+  });
 });

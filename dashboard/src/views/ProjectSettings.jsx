@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { budget as budgetApi, factory as factoryApi, requestV2, routingTemplates } from '../api';
+import { budget as budgetApi, factory as factoryApi, providers as providersApi, requestV2, routingTemplates } from '../api';
 import ProjectSelector from '../components/ProjectSelector';
 import { parseMarkdownTable } from '../components/ProjectSelector.helpers';
 import { useToast } from '../components/Toast';
@@ -349,6 +349,8 @@ export default function ProjectSettings({ project: projectProp = '' }) {
   // set_factory_trust_level MCP tool / PUT /api/v2/factory/projects/{id}/trust.
   const [lanePolicy, setLanePolicy] = useState(null);
   const [factoryProjectId, setFactoryProjectId] = useState('');
+  const [trustLevel, setTrustLevel] = useState('');
+  const [providers, setProviders] = useState([]);
 
   useEffect(() => () => {
     mountedRef.current = false;
@@ -373,6 +375,25 @@ export default function ProjectSettings({ project: projectProp = '' }) {
   useEffect(() => {
     loadConfiguredProjects();
   }, [loadConfiguredProjects]);
+
+  useEffect(() => {
+    let cancelled = false;
+    providersApi.list()
+      .then((items) => {
+        if (cancelled || !mountedRef.current) return;
+        const names = Array.isArray(items)
+          ? items.map((p) => (typeof p === 'string' ? p : p?.name)).filter(Boolean)
+          : [];
+        setProviders(names);
+      })
+      .catch(() => {
+        // Fallback (baseline + toast) is wired in Task 7. For Task 1, leave the
+        // list empty on failure; dropdowns will show no options when we add them.
+        if (cancelled || !mountedRef.current) return;
+        setProviders([]);
+      });
+    return () => { cancelled = true; };
+  }, []);
 
   const loadOptionalProviderScores = useCallback(async () => {
     try {
@@ -450,15 +471,18 @@ export default function ProjectSettings({ project: projectProp = '' }) {
         : null;
       if (match) {
         setFactoryProjectId(match.id || '');
+        setTrustLevel(match.trust_level || '');
         const lane = match.config?.provider_lane_policy
           || (match.config_json ? safeParseJson(match.config_json)?.provider_lane_policy : null);
         setLanePolicy(lane || null);
       } else {
         setFactoryProjectId('');
+        setTrustLevel('');
         setLanePolicy(null);
       }
     } else {
       setFactoryProjectId('');
+      setTrustLevel('');
       setLanePolicy(null);
     }
 
