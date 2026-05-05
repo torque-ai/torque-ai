@@ -51,12 +51,12 @@ const slotPullScheduler = require('./slot-pull-scheduler');         // [db, dash
 const queueScheduler = require('./queue-scheduler');                // [db, taskManager, eventBus]
 const providerRouter = require('./provider-router');                // [db, serverConfig, taskManager]
 const taskCancellation = require('./task-cancellation');            // [db, logger, taskManager] — taskCanceller capability
+const taskFinalizer = require('./task-finalizer');                  // [db, taskManager]
 
 // ── Deferred (deps include task-manager-owned closures / utilities) ──
 // Required for side effects (each module's register() function is
 // available on its export) but NOT called until consumer migration
 // promotes their utility-function deps to container values.
-require('./task-finalizer');
 require('./task-startup');
 
 function register(container) {
@@ -78,6 +78,7 @@ function register(container) {
   queueScheduler.register(container);
   providerRouter.register(container);
   taskCancellation.register(container);
+  taskFinalizer.register(container);
 }
 
 module.exports = { register };
