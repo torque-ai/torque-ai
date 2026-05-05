@@ -154,7 +154,12 @@ function installTaskManagerBoundaryMocks() {
     defaultContainer: {
       has: vi.fn(() => false),
       get: vi.fn(() => null),
-      peek: vi.fn((name) => (name === 'processTracker' ? containerProcessTracker : null)),
+      peek: vi.fn((name) => {
+        // eslint-disable-next-line no-console
+        console.log('[debug] container.peek called with:', name);
+        if (name === 'processTracker') return containerProcessTracker;
+        return null;
+      }),
     },
   };
 
