@@ -727,9 +727,9 @@ _defaultContainer.register(
 // helpers stay registered in source (their factory shape is callable via direct
 // require + createXxx) but are NOT activated here — see each register.js header
 // for the deferral rationale and the unblock conditions.
-require('./validation/register').register(_defaultContainer);   // 0/7 active (all deferred)
-require('./execution/register').register(_defaultContainer);    // 2/16 active: planProjectResolver, workflowResume
-require('./factory/register').register(_defaultContainer);      // 2/2 active: costMetrics, factoryFeedback
+require('./validation/register').register(_defaultContainer);   // 7/7 active
+require('./execution/register').register(_defaultContainer);    // 17/17 active
+require('./factory/register').register(_defaultContainer);      // 2/2 active
 
 // Two outlier modules with full container-managed dep lists, registered
 // directly because each lives alone in its subsystem (no aggregator yet).

@@ -1489,12 +1489,28 @@ function rollbackTaskChanges(taskId, workingDir) {
  * buildVerification independently).
  */
 function createPostTask(deps = {}) {
+  // Resolve utility deps via require() from their canonical modules.
+  // Test fixtures with explicit overrides still win.
+  const resolved = { ...deps };
+  if (resolved.getModifiedFiles === undefined) {
+    try { resolved.getModifiedFiles = require('../utils/git').getModifiedFiles; }
+    catch { /* fall through */ }
+  }
+  if (resolved.parseGitStatusLine === undefined) {
+    try { resolved.parseGitStatusLine = require('../utils/git').parseGitStatusLine; }
+    catch { /* fall through */ }
+  }
+  if (resolved.sanitizeLLMOutput === undefined) {
+    try { resolved.sanitizeLLMOutput = require('../utils/sanitize').sanitizeLLMOutput; }
+    catch { /* fall through */ }
+  }
+
   const local = {
-    db: deps.db,
-    _getModifiedFiles: deps.getModifiedFiles,
-    _parseGitStatusLine: deps.parseGitStatusLine,
-    _sanitizeLLMOutput: deps.sanitizeLLMOutput,
-    _testRunnerRegistry: deps.testRunnerRegistry || null,
+    db: resolved.db,
+    _getModifiedFiles: resolved.getModifiedFiles,
+    _parseGitStatusLine: resolved.parseGitStatusLine,
+    _sanitizeLLMOutput: resolved.sanitizeLLMOutput,
+    _testRunnerRegistry: resolved.testRunnerRegistry || null,
   };
 
   function withLocalDeps(fn) {
@@ -1549,13 +1565,7 @@ function createPostTask(deps = {}) {
 function register(container) {
   container.register(
     'postTask',
-    [
-      'db',
-      'getModifiedFiles',
-      'parseGitStatusLine',
-      'sanitizeLLMOutput',
-      'testRunnerRegistry',
-    ],
+    ['db', 'testRunnerRegistry'],
     (deps) => createPostTask(deps)
   );
 }

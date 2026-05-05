@@ -148,11 +148,31 @@ describe('safeguard-gates — factory shape (createSafeguardGates)', () => {
 });
 
 describe('safeguard-gates — container registration', () => {
+  // Post-DI-cleanup, safeguard-gates declares only [db, dashboard, taskManager];
+  // utility deps resolve via require() inside the factory and taskManager-bound
+  // methods bind from the registered taskManager handle. Override semantics
+  // for the swapped-in utilities are exercised directly via createSafeguardGates
+  // in the factory-shape describe block above.
+  function makeContainerDeps(overrides = {}) {
+    return {
+      db: {
+        getProjectConfig: vi.fn(() => null),
+        getProjectFromPath: vi.fn(() => 'test-project'),
+      },
+      dashboard: { notifyTaskUpdated: vi.fn() },
+      taskManager: {
+        getActualModifiedFiles: vi.fn(() => []),
+        safeUpdateTaskStatus: vi.fn(),
+        processQueue: vi.fn(),
+      },
+      ...overrides,
+    };
+  }
+
   it('registers safeguardGates with declared deps', () => {
     const container = createContainer();
-    const deps = makeDeps();
+    const deps = makeContainerDeps();
 
-    // Stand in container values for every declared dep
     for (const [k, v] of Object.entries(deps)) {
       container.registerValue(k, v);
     }
@@ -164,22 +184,29 @@ describe('safeguard-gates — container registration', () => {
     expect(typeof svc.handleSafeguardChecks).toBe('function');
   });
 
-  it('container.override replaces a dep at boot time', () => {
-    const container = createContainer();
-    const deps = makeDeps();
-
-    for (const [k, v] of Object.entries(deps)) {
-      container.registerValue(k, v);
-    }
-
-    // Override runLLMSafeguards before boot
+  it('createSafeguardGates respects an explicit deps override', () => {
+    // The override pathway is the explicit `deps` object passed to the
+    // factory: utility-function overrides win over the require() fallbacks,
+    // and method overrides win over the taskManager-bound methods.
     const customSafeguards = vi.fn(() => ({ passed: false, issues: ['custom'] }));
-    container.override('runLLMSafeguards', customSafeguards);
+    const customGetModified = vi.fn(() => ['a.js']);
+    const safeUpdate = vi.fn();
+    const processQueue = vi.fn();
+    const deps = {
+      db: {
+        getProjectConfig: vi.fn(() => null),
+        getProjectFromPath: vi.fn(() => 'p'),
+      },
+      dashboard: { notifyTaskUpdated: vi.fn() },
+      runLLMSafeguards: customSafeguards,
+      getActualModifiedFiles: customGetModified,
+      scopedRollback: vi.fn(() => ({ reverted: [] })),
+      safeUpdateTaskStatus: safeUpdate,
+      processQueue,
+      taskCleanupGuard: new Map(),
+    };
 
-    register(container);
-    container.boot();
-
-    const svc = container.get('safeguardGates');
+    const svc = createSafeguardGates(deps);
     svc.handleSafeguardChecks({
       taskId: 't',
       status: 'completed',

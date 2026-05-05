@@ -27,8 +27,36 @@ const { buildResumeContext, prependResumeContextToPrompt } = require('../utils/r
 /**
  * Factory shape — preferred for new code.
  * Closes over `deps` so there is no module-level mutable state.
+ *
+ * Utility deps (getActualModifiedFiles, runLLMSafeguards, scopedRollback)
+ * resolve via require() from their canonical modules. taskManager-bound
+ * methods (safeUpdateTaskStatus, processQueue) and the processTracker
+ * cleanupGuard resolve via the container/taskManager handle. Test
+ * fixtures with explicit overrides via `deps` still win.
  */
 function createSafeguardGates(deps = {}) {
+  deps = { ...deps };
+  if (deps.runLLMSafeguards === undefined) {
+    try { deps.runLLMSafeguards = require('./post-task').runLLMSafeguards; }
+    catch { /* fall through */ }
+  }
+  if (deps.scopedRollback === undefined) {
+    try { deps.scopedRollback = require('./post-task').scopedRollback; }
+    catch { /* fall through */ }
+  }
+  const tm = deps.taskManager || null;
+  const tmMethod = (name) => (tm && typeof tm[name] === 'function' ? tm[name].bind(tm) : null);
+  if (deps.getActualModifiedFiles === undefined) deps.getActualModifiedFiles = tmMethod('getActualModifiedFiles');
+  if (deps.safeUpdateTaskStatus === undefined) deps.safeUpdateTaskStatus = tmMethod('safeUpdateTaskStatus');
+  if (deps.processQueue === undefined) deps.processQueue = tmMethod('processQueue');
+  if (deps.taskCleanupGuard === undefined) {
+    try {
+      const { defaultContainer } = require('../container');
+      const tracker = defaultContainer.peek('processTracker');
+      if (tracker && tracker.cleanupGuard) deps.taskCleanupGuard = tracker.cleanupGuard;
+    } catch { /* fall through */ }
+  }
+
   function handleSafeguardChecks(ctx) {
     if (!deps?.db) return { approved: true, reason: 'No db available' };
     const { taskId, task, proc } = ctx;
@@ -143,16 +171,7 @@ function createSafeguardGates(deps = {}) {
 function register(container) {
   container.register(
     'safeguardGates',
-    [
-      'db',
-      'dashboard',
-      'getActualModifiedFiles',
-      'runLLMSafeguards',
-      'scopedRollback',
-      'safeUpdateTaskStatus',
-      'taskCleanupGuard',
-      'processQueue',
-    ],
+    ['db', 'dashboard', 'taskManager'],
     (deps) => createSafeguardGates(deps)
   );
 }

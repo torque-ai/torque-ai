@@ -207,17 +207,28 @@ function attemptFuzzySearchRepair(taskId, output, workingDirectory) {
 /**
  * Build a hashline-verify service that closes over its deps.
  * No module-level state — safe to instantiate per-test in isolation.
+ *
+ * Utility deps resolve via require() from their canonical modules.
+ * Test fixtures with explicit overrides via `deps` still win.
  */
 function createHashlineVerify(deps = {}) {
-  // Reuse the body of the existing functions by binding via closures.
-  // The simplest approach: temporarily swap the module-level state on
-  // each call. Since the existing functions read from `_x` module-level
-  // bindings, we pass through them, but we keep this module-level state
-  // dedicated to the legacy init() consumer; the factory builds a fresh
-  // closure that uses its own `deps` directly.
-  const localCompute = deps.computeLineHash;
-  const localGetChanges = deps.getFileChangesForValidation;
-  const localSimilarity = deps.lineSimilarity;
+  const resolved = { ...deps };
+  if (resolved.computeLineHash === undefined) {
+    try { resolved.computeLineHash = require('../handlers/hashline-handlers').computeLineHash; }
+    catch { /* fall through */ }
+  }
+  if (resolved.lineSimilarity === undefined) {
+    try { resolved.lineSimilarity = require('../handlers/hashline-handlers').lineSimilarity; }
+    catch { /* fall through */ }
+  }
+  if (resolved.getFileChangesForValidation === undefined) {
+    try { resolved.getFileChangesForValidation = require('./post-task').getFileChangesForValidation; }
+    catch { /* fall through */ }
+  }
+
+  const localCompute = resolved.computeLineHash;
+  const localGetChanges = resolved.getFileChangesForValidation;
+  const localSimilarity = resolved.lineSimilarity;
 
   return {
     verifyHashlineReferences(taskId, output, workingDirectory) {
@@ -246,13 +257,14 @@ function createHashlineVerify(deps = {}) {
 
 /**
  * Register with a DI container under the name 'hashlineVerify'.
- * Consumers resolve via container.get('hashlineVerify').
+ * Consumers resolve via container.get('hashlineVerify'). Utility deps
+ * resolve inside the factory; no container deps are declared.
  */
 function register(container) {
   container.register(
     'hashlineVerify',
-    ['computeLineHash', 'getFileChangesForValidation', 'lineSimilarity'],
-    (deps) => createHashlineVerify(deps)
+    [],
+    () => createHashlineVerify()
   );
 }
 

@@ -358,6 +358,18 @@ async function runBuildVerification(taskId, task, workingDir, taskModifiedFiles)
  * legacy state is deleted.)
  */
 function createBuildVerification(deps = {}) {
+  // Resolve utility deps via require() from validation/post-task (their
+  // canonical export point). Test fixtures with explicit overrides win.
+  deps = { ...deps };
+  if (deps.parseCommand === undefined) {
+    try { deps.parseCommand = require('./post-task').parseCommand; }
+    catch { /* fall through */ }
+  }
+  if (deps.extractBuildErrorFiles === undefined) {
+    try { deps.extractBuildErrorFiles = require('./post-task').extractBuildErrorFiles; }
+    catch { /* fall through */ }
+  }
+
   const localDb = deps.db;
   const localParseCommand = deps.parseCommand;
   const localExtractBuildErrorFiles = deps.extractBuildErrorFiles;
@@ -391,7 +403,7 @@ function createBuildVerification(deps = {}) {
 function register(container) {
   container.register(
     'buildVerification',
-    ['db', 'parseCommand', 'extractBuildErrorFiles', 'testRunnerRegistry'],
+    ['db', 'testRunnerRegistry'],
     (deps) => createBuildVerification(deps)
   );
 }
