@@ -359,9 +359,55 @@ function setupStderrHandler(child, taskId, streamId) {
 
 // ── New factory shape (preferred) ─────────────────────────────────────────
 function createProcessStreams(localDeps = {}) {
+  // Resolve absorbed-state from container's processTracker; bind
+  // task-manager closures from the registered taskManager value;
+  // resolve utility functions via require() in their source modules.
+  // Test fixtures with explicit dep overrides still win.
+  const resolved = { ...localDeps };
+  if (!resolved.runningProcesses || !resolved.stallRecoveryAttempts) {
+    try {
+      const { defaultContainer } = require('../container');
+      const tracker = defaultContainer.peek('processTracker');
+      if (tracker) {
+        if (!resolved.runningProcesses) resolved.runningProcesses = tracker;
+        if (!resolved.stallRecoveryAttempts && tracker.stallAttempts) {
+          resolved.stallRecoveryAttempts = tracker.stallAttempts;
+        }
+      }
+    } catch { /* container not available — leave undefined */ }
+  }
+  const tm = localDeps.taskManager || null;
+  const tmMethod = (name) => (tm && typeof tm[name] === 'function' ? tm[name].bind(tm) : null);
+  if (!resolved.pauseTask) resolved.pauseTask = tmMethod('pauseTask');
+  if (!resolved.pauseTaskForDebug) resolved.pauseTaskForDebug = tmMethod('pauseTaskForDebug');
+  if (!resolved.checkBreakpoints) resolved.checkBreakpoints = tmMethod('checkBreakpoints');
+  if (!resolved.estimateProgress) {
+    try { resolved.estimateProgress = require('./task-startup').estimateProgress; }
+    catch { /* fall through to whatever localDeps provides */ }
+  }
+  if (!resolved.detectOutputCompletion) {
+    try { resolved.detectOutputCompletion = require('../validation/completion-detection').detectOutputCompletion; }
+    catch { /* fall through */ }
+  }
+  if (!resolved.extractModifiedFiles) {
+    try { resolved.extractModifiedFiles = require('../utils/file-resolution').extractModifiedFiles; }
+    catch { /* fall through */ }
+  }
+  if (!resolved.safeUpdateTaskStatus) resolved.safeUpdateTaskStatus = tmMethod('safeUpdateTaskStatus');
+  if (!resolved.safeDecrementHostSlot) {
+    try { resolved.safeDecrementHostSlot = require('./process-lifecycle').safeDecrementHostSlot; }
+    catch { /* fall through */ }
+  }
+  if (!resolved.killProcessGraceful) {
+    try { resolved.killProcessGraceful = require('./process-lifecycle').killProcessGraceful; }
+    catch { /* fall through */ }
+  }
+  if (resolved.MAX_OUTPUT_BUFFER == null) {
+    resolved.MAX_OUTPUT_BUFFER = 10 * 1024 * 1024;
+  }
   function withLocalDeps(fn) {
     const prev = deps;
-    deps = localDeps;
+    deps = resolved;
     try { return fn(); } finally { deps = prev; }
   }
   return {
@@ -371,15 +417,11 @@ function createProcessStreams(localDeps = {}) {
 }
 
 function register(container) {
+  // Most deps are utility/closure references resolved inside the factory.
+  // Only db, dashboard, taskManager need to come from the container.
   container.register(
     'processStreams',
-    [
-      'db', 'dashboard', 'runningProcesses', 'stallRecoveryAttempts',
-      'estimateProgress', 'detectOutputCompletion', 'checkBreakpoints',
-      'pauseTaskForDebug', 'pauseTask', 'extractModifiedFiles',
-      'safeUpdateTaskStatus', 'safeDecrementHostSlot', 'killProcessGraceful',
-      'MAX_OUTPUT_BUFFER',
-    ],
+    ['db', 'dashboard', 'taskManager'],
     (deps) => createProcessStreams(deps)
   );
 }
