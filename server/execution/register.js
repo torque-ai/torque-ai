@@ -44,6 +44,7 @@ const retryFramework = require('./retry-framework');                // [db, task
 const commandBuilders = require('./command-builders');              // [db]
 const fileContextBuilder = require('./file-context-builder');       // [db]
 const processStreams = require('./process-streams');                // [db, dashboard, taskManager]
+const processLifecycle = require('./process-lifecycle');            // [dashboard, taskManager]
 
 // ── Deferred (deps include task-manager-owned closures / utilities) ──
 // Required for side effects (each module's register() function is
@@ -53,7 +54,6 @@ require('./debug-lifecycle');
 require('./provider-router');
 require('./completion-pipeline');
 require('./slot-pull-scheduler');
-require('./process-lifecycle');
 require('./task-finalizer');
 require('./queue-scheduler');
 require('./task-startup');
@@ -70,6 +70,7 @@ function register(container) {
   commandBuilders.register(container);
   fileContextBuilder.register(container);
   processStreams.register(container);
+  processLifecycle.register(container);
 }
 
 module.exports = { register };

@@ -979,9 +979,45 @@ function spawnAndTrackProcess(taskId, task, spawnConfig) {
 // ── New factory shape (preferred) ─────────────────────────────────────────
 // Replaces the prior placeholder with one that actually closes over deps.
 function createProcessLifecycle(localDeps = {}) {
+  // Resolve absorbed-state from container singletons; bind task-manager
+  // closures from registered taskManager value; require() utility
+  // functions and stream handlers from their source modules. Test
+  // fixtures with explicit dep overrides still win.
+  const resolved = { ...localDeps };
+  try {
+    const { defaultContainer } = require('../container');
+    if (!resolved.runningProcesses) {
+      const tracker = defaultContainer.peek('processTracker');
+      if (tracker) resolved.runningProcesses = tracker;
+    }
+    if (!resolved.finalizingTasks) {
+      const finalization = defaultContainer.peek('finalizationTracker');
+      if (finalization) resolved.finalizingTasks = finalization;
+    }
+    if (!resolved.closeHandlerState) {
+      const chs = defaultContainer.peek('closeHandlerState');
+      if (chs) resolved.closeHandlerState = chs;
+    }
+  } catch { /* container not available */ }
+  const tm = localDeps.taskManager || null;
+  const tmMethod = (name) => (tm && typeof tm[name] === 'function' ? tm[name].bind(tm) : null);
+  if (!resolved.finalizeTask) resolved.finalizeTask = tmMethod('finalizeTask');
+  if (!resolved.cancelTask) resolved.cancelTask = tmMethod('cancelTask');
+  if (!resolved.processQueue) resolved.processQueue = tmMethod('processQueue');
+  if (!resolved.markTaskCleanedUp) resolved.markTaskCleanedUp = tmMethod('markTaskCleanedUp');
+  if (!resolved.safeUpdateTaskStatus) resolved.safeUpdateTaskStatus = tmMethod('safeUpdateTaskStatus');
+  if (!resolved.setupStdoutHandler) {
+    try { resolved.setupStdoutHandler = require('./process-streams').setupStdoutHandler; }
+    catch { /* fall through */ }
+  }
+  if (!resolved.setupStderrHandler) {
+    try { resolved.setupStderrHandler = require('./process-streams').setupStderrHandler; }
+    catch { /* fall through */ }
+  }
+
   function withLocalDeps(fn) {
     const prev = deps;
-    deps = localDeps;
+    deps = resolved;
     try { return fn(); } finally { deps = prev; }
   }
   return {
@@ -1007,13 +1043,14 @@ function createProcessLifecycle(localDeps = {}) {
  * setupStderrHandler, closeHandlerState.
  */
 function register(container) {
+  // Most deps resolve inside the factory: absorbed state from
+  // processTracker/finalizationTracker/closeHandlerState singletons,
+  // task-manager methods from the taskManager value, stream handlers
+  // via require(). Only dashboard + taskManager are actual container
+  // entries the boot graph needs.
   container.register(
     'processLifecycle',
-    [
-      'dashboard', 'runningProcesses', 'finalizingTasks', 'finalizeTask',
-      'cancelTask', 'processQueue', 'markTaskCleanedUp', 'safeUpdateTaskStatus',
-      'setupStdoutHandler', 'setupStderrHandler', 'closeHandlerState',
-    ],
+    ['dashboard', 'taskManager'],
     (resolved) => createProcessLifecycle(resolved)
   );
 }
