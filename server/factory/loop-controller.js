@@ -395,6 +395,10 @@ function normalizeTaskTags(task) {
     : [];
 }
 
+function taskHasFactoryTag(task, tag) {
+  return normalizeTaskTags(task).includes(tag);
+}
+
 function hasPlanGenerationFileLockWaitEvidence(task) {
   const wait = getTaskMetadataObject(task).file_lock_wait;
   if (wait && typeof wait === 'object' && !Array.isArray(wait)) {
@@ -408,12 +412,26 @@ function hasPlanGenerationFileLockWaitEvidence(task) {
 
 function isSchedulerOwnedPlanGenerationTask(task, { projectId = null, workItemId = null } = {}) {
   const metadata = getTaskMetadataObject(task);
+  const normalizedProjectId = projectId == null ? null : String(projectId).trim();
+  const normalizedWorkItemId = workItemId == null ? null : String(workItemId).trim();
   if (metadata.kind === 'plan_generation' && metadata.factory_internal === true) {
+    if (
+      normalizedProjectId
+      && String(metadata.project_id || '').trim() !== normalizedProjectId
+      && !taskHasFactoryTag(task, `factory:project_id=${normalizedProjectId}`)
+    ) {
+      return false;
+    }
+    if (
+      normalizedWorkItemId
+      && String(metadata.work_item_id || '').trim() !== normalizedWorkItemId
+      && !taskHasFactoryTag(task, `factory:work_item_id=${normalizedWorkItemId}`)
+    ) {
+      return false;
+    }
     return true;
   }
 
-  const normalizedProjectId = projectId == null ? null : String(projectId).trim();
-  const normalizedWorkItemId = workItemId == null ? null : String(workItemId).trim();
   if (!normalizedProjectId || !normalizedWorkItemId) {
     return false;
   }
@@ -2430,6 +2448,152 @@ function findActivePlanGenerationTask(taskCore, {
   }
 
   return null;
+}
+
+function getPlanGenerationTaskWorkItemId(task) {
+  const metadata = getTaskMetadataObject(task);
+  const fromMetadata = normalizeWorkItemId(metadata.work_item_id);
+  if (fromMetadata) {
+    return fromMetadata;
+  }
+
+  for (const tag of normalizeTaskTags(task)) {
+    const match = /^factory:work_item_id=(.+)$/i.exec(tag);
+    if (match) {
+      return normalizeWorkItemId(match[1]);
+    }
+  }
+
+  return null;
+}
+
+function findActiveProjectPlanGenerationTask(taskCore, {
+  projectId,
+  workingDirectory,
+  excludeWorkItemId = null,
+  stalePendingMs = DEFAULT_STALE_PENDING_PLAN_GENERATION_MS,
+}) {
+  if (!taskCore || typeof taskCore.listTasks !== 'function') {
+    return null;
+  }
+
+  const normalizedProjectId = projectId == null ? null : String(projectId).trim();
+  if (!normalizedProjectId) {
+    return null;
+  }
+
+  const excludedWorkItemId = normalizeWorkItemId(excludeWorkItemId);
+  const projectTag = `factory:project_id=${normalizedProjectId}`;
+  const baseQuery = {
+    tag: projectTag,
+    statuses: ACTIVE_PLAN_GENERATION_TASK_STATUSES,
+    orderBy: 'created_at',
+    orderDir: 'desc',
+    limit: 50,
+    columns: ['id', 'status', 'tags', 'metadata', 'created_at', 'started_at', 'error_output'],
+  };
+  const candidateQueries = [
+    ...(workingDirectory ? [{ ...baseQuery, workingDirectory }] : []),
+    baseQuery,
+  ];
+
+  const seen = new Set();
+  for (const query of candidateQueries) {
+    let candidates = [];
+    try {
+      candidates = taskCore.listTasks(query);
+    } catch (error) {
+      logger.debug('Unable to query active project plan-generation tasks', {
+        err: error.message,
+        project_id: normalizedProjectId,
+      });
+      continue;
+    }
+
+    for (const candidate of Array.isArray(candidates) ? candidates : []) {
+      if (!candidate?.id || seen.has(candidate.id)) continue;
+      seen.add(candidate.id);
+      if (!isSchedulerOwnedPlanGenerationTask(candidate, { projectId: normalizedProjectId })) {
+        continue;
+      }
+      if (retireStalePendingPlanGenerationTask(taskCore, candidate, {
+        projectId: normalizedProjectId,
+        staleAfterMs: stalePendingMs,
+        reason: 'project_plan_generation_scan',
+        requireSchedulerOwned: true,
+      })) {
+        continue;
+      }
+
+      const taskWorkItemId = getPlanGenerationTaskWorkItemId(candidate);
+      if (excludedWorkItemId && taskWorkItemId === excludedWorkItemId) {
+        continue;
+      }
+
+      const status = String(candidate.status || '').toLowerCase();
+      if (ACTIVE_PLAN_GENERATION_TASK_STATUSES.includes(status)) {
+        return {
+          ...candidate,
+          factory_work_item_id: taskWorkItemId,
+        };
+      }
+    }
+  }
+
+  return null;
+}
+
+function buildProjectPlanGenerationBusyResult({
+  project,
+  instance,
+  targetItem,
+  planPath,
+  activeTask,
+}) {
+  const activeWorkItemId = getPlanGenerationTaskWorkItemId(activeTask);
+  const status = activeTask?.status || 'running';
+  logger.info('EXECUTE stage: deferred plan generation because another project plan task is active', {
+    project_id: project.id,
+    work_item_id: targetItem.id,
+    active_work_item_id: activeWorkItemId,
+    generation_task_id: activeTask?.id || null,
+    task_status: status,
+  });
+  safeLogDecision({
+    project_id: project.id,
+    stage: LOOP_STATES.EXECUTE,
+    action: 'plan_generation_deferred_project_active',
+    reasoning: 'Another factory plan-generation task is already active for this project.',
+    inputs: {
+      ...getWorkItemDecisionContext(targetItem),
+    },
+    outcome: {
+      reason: 'project_plan_generation_active',
+      plan_path: planPath,
+      generation_task_id: activeTask?.id || null,
+      blocking_work_item_id: activeWorkItemId,
+      task_status: status,
+      ...getWorkItemDecisionContext(targetItem),
+    },
+    confidence: 1,
+    batch_id: getDecisionBatchId(project, targetItem, null, instance),
+  });
+
+  return {
+    reason: 'plan generation deferred while another project plan task is active',
+    work_item: targetItem,
+    stop_execution: true,
+    next_state: LOOP_STATES.EXECUTE,
+    paused_at_stage: null,
+    stage_result: {
+      status: 'deferred',
+      reason: 'project_plan_generation_active',
+      plan_path: planPath,
+      generation_task_id: activeTask?.id || null,
+      blocking_work_item_id: activeWorkItemId,
+      task_status: status,
+    },
+  };
 }
 
 function normalizeWorkItemId(value) {
@@ -5399,6 +5563,29 @@ function extractTextContent(value) {
   return '';
 }
 
+function looksLikeCodexTranscript(value) {
+  const trimmed = String(value || '').trimStart();
+  return /^OpenAI Codex\b/i.test(trimmed)
+    || /^-{8,}\r?\nworkdir:/im.test(trimmed)
+    || /(?:^|\r?\n)user\r?\n## Task(?:\r?\n|$)/i.test(trimmed);
+}
+
+function startsWithPlanMarkdown(value) {
+  const trimmed = String(value || '').trim();
+  return /^#\s+\S/.test(trimmed) || /^##\s+Task\s+\d+\s*[:.—-]/.test(trimmed);
+}
+
+function looksLikeDirectPlanMarkdown(value) {
+  const trimmed = String(value || '').trim();
+  if (!trimmed || looksLikeCodexTranscript(trimmed)) {
+    return false;
+  }
+
+  const hasPlanStart = /^#\s+\S/m.test(trimmed) || /^##\s+Task\s+\d+\s*[:.—-]/m.test(trimmed);
+  const hasNumberedTask = /^##\s+Task\s+\d+\s*[:.—-]/m.test(trimmed);
+  return hasPlanStart && hasNumberedTask;
+}
+
 function extractCodexFinalAnswerFromTranscript(value) {
   const text = String(value || '');
   if (!text.trim()) return '';
@@ -5428,15 +5615,24 @@ function extractCodexFinalAnswerFromTranscript(value) {
   }
 
   const trimmed = candidate.trim();
-  return /^#\s+/m.test(trimmed) || /^#{2,3}\s+Task\s+\d+\s*[:.—-]/m.test(trimmed)
-    ? trimmed
-    : '';
+  return startsWithPlanMarkdown(trimmed) && looksLikeDirectPlanMarkdown(trimmed) ? trimmed : '';
+}
+
+function extractPlanMarkdownCandidate(value) {
+  const text = extractTextContent(value).trim();
+  if (!text) {
+    return '';
+  }
+  if (looksLikeDirectPlanMarkdown(text)) {
+    return text;
+  }
+  return extractCodexFinalAnswerFromTranscript(text);
 }
 
 function extractPlanGenerationRawMarkdown(generationTask, awaitResult = null) {
-  return extractTextContent(generationTask?.output).trim()
+  return extractPlanMarkdownCandidate(generationTask?.output)
     || extractCodexFinalAnswerFromTranscript(generationTask?.error_output)
-    || extractTextContent(awaitResult).trim();
+    || extractPlanMarkdownCandidate(awaitResult);
 }
 
 function unwrapWholeMarkdownFence(value) {
@@ -7806,6 +8002,22 @@ async function executeNonPlanFileStage(project, instance, workItem) {
           generationTask: activeGenerationTask,
           wait: activeWait,
           reason: 'found existing active plan-generation task for work item',
+        });
+      }
+
+      const activeProjectGenerationTask = findActiveProjectPlanGenerationTask(taskCore, {
+        projectId: project.id,
+        workingDirectory: project.path || process.cwd(),
+        excludeWorkItemId: targetItem.id,
+        stalePendingMs,
+      });
+      if (activeProjectGenerationTask?.id) {
+        return buildProjectPlanGenerationBusyResult({
+          project,
+          instance,
+          targetItem,
+          planPath,
+          activeTask: activeProjectGenerationTask,
         });
       }
 

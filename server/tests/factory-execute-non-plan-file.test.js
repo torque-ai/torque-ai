@@ -342,6 +342,44 @@ describe('factory loop-controller EXECUTE for non-plan-file work items', () => {
       .toContain('## Task 1: Add durable regression');
   });
 
+  it('extracts Codex final plan markdown from stdout transcript without accepting prompt echo', () => {
+    const transcript = [
+      'OpenAI Codex v0.125.0 (research preview)',
+      '--------',
+      'workdir: C:\\Projects\\torque-public',
+      '--------',
+      'user',
+      '## Task',
+      '',
+      '# Prompt Echo Plan',
+      '',
+      '## Task 1: <task title>',
+      '',
+      'Template text that must never become the generated plan.',
+      'codex',
+      '# Real Stdout Generated Plan',
+      '**Source:** auto-generated from work_item #123',
+      '**Tech Stack:** Node.js',
+      '',
+      '## Task 1: Add stdout transcript extraction',
+      '',
+      '- [ ] **Step 1: Patch output extraction**',
+      '',
+      '    Edit `server/factory/loop-controller.js`. Acceptance criteria: transcript stdout is stripped before parsing.',
+      'tokens used',
+      '123',
+    ].join('\n');
+
+    const extracted = loopController._internalForTests.extractPlanGenerationRawMarkdown({
+      output: transcript,
+      error_output: '',
+    });
+
+    expect(extracted).toContain('# Real Stdout Generated Plan');
+    expect(extracted).toContain('## Task 1: Add stdout transcript extraction');
+    expect(extracted).not.toContain('# Prompt Echo Plan');
+  });
+
   it('does not extract a plan from prompt-only Codex stderr', () => {
     const promptOnly = [
       'OpenAI Codex v0.125.0 (research preview)',
@@ -357,6 +395,32 @@ describe('factory loop-controller EXECUTE for non-plan-file work items', () => {
     expect(loopController._internalForTests.extractPlanGenerationRawMarkdown({
       output: '',
       error_output: promptOnly,
+    })).toBe('');
+  });
+
+  it('does not extract a plan from transcript stdout that only contains prompt and tool output headings', () => {
+    const transcriptOnly = [
+      'OpenAI Codex v0.125.0 (research preview)',
+      '--------',
+      'user',
+      '## Task',
+      '',
+      '# Prompt Echo Plan',
+      '',
+      '## Task 1: <task title>',
+      '',
+      'codex',
+      'I will inspect the repository before drafting the plan.',
+      'exec',
+      '"pwsh.exe" -Command "Get-Content docs/plan.md"',
+      '# Existing Documentation Heading',
+      '',
+      '## Task 9: Historical docs content',
+    ].join('\n');
+
+    expect(loopController._internalForTests.extractPlanGenerationRawMarkdown({
+      output: transcriptOnly,
+      error_output: '',
     })).toBe('');
   });
 
@@ -561,6 +625,47 @@ describe('factory loop-controller EXECUTE for non-plan-file work items', () => {
       plan_generation_task_id: 'plan-gen-task',
       plan_generation_wait_reason: 'task_still_running',
     });
+  });
+
+  it('defers instead of submitting a second plan generator while another project plan task is active', async () => {
+    const { project, workItem } = registerExecuteProject({
+      description: 'Create a focused plan while another work item is already generating a plan.',
+    });
+    const blockingWorkItemId = workItem.id + 1000;
+    taskCore.listTasks = vi.fn((query) => {
+      if (query?.tag === `factory:work_item_id=${workItem.id}`) {
+        return [];
+      }
+      if (query?.tag === `factory:project_id=${project.id}`) {
+        return [{
+          id: 'other-plan-gen-task',
+          status: 'running',
+          tags: planGenerationTags(project.id, blockingWorkItemId),
+          metadata: planGenerationMetadata(project.id, blockingWorkItemId),
+          error_output: 'still running',
+        }];
+      }
+      return [];
+    });
+
+    const executeAdvance = await loopController.advanceLoopForProject(project.id);
+    const updatedWorkItem = factoryIntake.getWorkItem(workItem.id);
+
+    expect(routingModule.handleSmartSubmitTask).not.toHaveBeenCalled();
+    expect(awaitModule.handleAwaitTask).not.toHaveBeenCalled();
+    expect(executeAdvance).toMatchObject({
+      new_state: LOOP_STATES.EXECUTE,
+      paused_at_stage: null,
+      reason: 'plan generation deferred while another project plan task is active',
+      stage_result: {
+        status: 'deferred',
+        reason: 'project_plan_generation_active',
+        generation_task_id: 'other-plan-gen-task',
+        blocking_work_item_id: blockingWorkItemId,
+        task_status: 'running',
+      },
+    });
+    expect(updatedWorkItem.origin?.plan_generation_task_id).toBeUndefined();
   });
 
   it('uses project plan_generation_timeout_minutes when configured', async () => {
