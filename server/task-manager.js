@@ -270,13 +270,13 @@ if (!(runningProcesses instanceof ProcessTracker)) {
 //   runningProcesses (the Map itself)     — process records
 //   runningProcesses.abortControllers     — API task abort controllers
 //   runningProcesses.retryTimeouts        — pending retry timeout handles
-//   runningProcesses.stallAttempts         — stall recovery state
+//   runningProcesses.stallAttempts        — stall recovery state
 //   runningProcesses.cleanupGuard         — double-cleanup prevention with TTL
-// Backward-compatible aliases for DI consumers:
-const apiAbortControllers = runningProcesses.abortControllers;
-const pendingRetryTimeouts = runningProcesses.retryTimeouts;
-const stallRecoveryAttempts = runningProcesses.stallAttempts;
-const taskCleanupGuard = runningProcesses.cleanupGuard;
+// Internal uses access these as accessors on the tracker directly;
+// the four shadow aliases the file used to maintain (apiAbortControllers,
+// pendingRetryTimeouts, stallRecoveryAttempts, taskCleanupGuard) have
+// been inlined now that consumer modules pull from the container default
+// instead of being threaded the maps via init({…}).
 
 const PROCESS_QUEUE_DEBOUNCE_MS = 15;
 let _processQueueTimer = null;
@@ -686,7 +686,7 @@ function stopTaskForRestart(taskId, reason) {
 
   killProcessGraceful(proc, taskId, 3000, 'StallRecovery');
   cleanupChildProcessListeners(proc.process);
-  cleanupProcessTracking(proc, taskId, runningProcesses, stallRecoveryAttempts);
+  cleanupProcessTracking(proc, taskId, runningProcesses, runningProcesses.stallAttempts);
 }
 
 /**
@@ -701,14 +701,14 @@ function shutdown(options = {}) {
   isShuttingDown = true;
 
   // Clear all pending retry timeouts first
-  for (const [taskId, timeoutHandle] of pendingRetryTimeouts.entries()) {
+  for (const [taskId, timeoutHandle] of runningProcesses.retryTimeouts.entries()) {
     clearTimeout(timeoutHandle);
     logger.info(`Cancelled pending retry for task ${taskId} (shutdown)`);
   }
-  pendingRetryTimeouts.clear();
+  runningProcesses.retryTimeouts.clear();
 
   // Clear cleanup guard to release memory
-  taskCleanupGuard.clear();
+  runningProcesses.cleanupGuard.clear();
 
   // Only cancel running tasks if explicitly requested
   // When MCP connection drops (stdin-close), tasks should continue running
@@ -855,7 +855,10 @@ _taskStartup.init({
 });
 
 _executionModule.init({
-  db, dashboard: getDashboardBroadcaster(), runningProcesses, apiAbortControllers,
+  db, dashboard: getDashboardBroadcaster(),
+  // runningProcesses + apiAbortControllers default to container's
+  // processTracker — providers/execution.js peeks it on init() unless
+  // overridden.
   safeUpdateTaskStatus,
   recordTaskStartedAuditEvent,
   tryReserveHostSlotWithFallback,
@@ -900,7 +903,7 @@ _executionModule.init({
     cancelTask,
   },
   finalizeTask,
-  stallRecoveryAttempts,
+  // stallRecoveryAttempts defaults to container's processTracker.stallAttempts.
 });
 
 _postTaskModule.init({
@@ -1019,8 +1022,8 @@ _retryFramework.init({
   db,
   classifyError,
   sanitizeTaskOutput,
-  taskCleanupGuard,
-  pendingRetryTimeouts,
+  // taskCleanupGuard + pendingRetryTimeouts default to container's
+  // processTracker — retry-framework peeks it on init() unless overridden.
   startTask,
   processQueue,
 });
@@ -1030,7 +1033,7 @@ _safeguardGates.init({
   runLLMSafeguards,
   scopedRollback,
   safeUpdateTaskStatus,
-  taskCleanupGuard,
+  // taskCleanupGuard defaults to container's processTracker.cleanupGuard.
   dashboard: getDashboardBroadcaster(),
   processQueue,
 });
@@ -1236,10 +1239,10 @@ Object.assign(module.exports, {
   // Internal state (exported for testing only)
   _testing: {
     get runningProcesses() { return runningProcesses; },
-    get apiAbortControllers() { return apiAbortControllers; },
-    get stallRecoveryAttempts() { return stallRecoveryAttempts; },
-    get pendingRetryTimeouts() { return pendingRetryTimeouts; },
-    get taskCleanupGuard() { return taskCleanupGuard; },
+    get apiAbortControllers() { return runningProcesses.abortControllers; },
+    get stallRecoveryAttempts() { return runningProcesses.stallAttempts; },
+    get pendingRetryTimeouts() { return runningProcesses.retryTimeouts; },
+    get taskCleanupGuard() { return runningProcesses.cleanupGuard; },
     get queuePollInterval() { return _queuePollInterval; },
     resetForTest() {
       if (_processQueueTimer) {

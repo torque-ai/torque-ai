@@ -109,14 +109,25 @@ function init(deps) {
   // Issue #6 fix: include apiAbortControllers so _agenticDeps.apiAbortControllers is defined.
   // Without this, cancelTask() cannot abort in-flight agentic API requests — it falls back to
   // _executeApiModule._apiAbortControllers, but that only works if the module ref is live.
+  //
+  // runningProcesses + apiAbortControllers default to the container's
+  // processTracker — caller doesn't have to thread them through.
+  // Accessor presence guard preserves bare-Map mocks injected via deps.
+  const { defaultContainer } = require('../container');
+  const trackerCandidate = deps.runningProcesses
+    || defaultContainer.peek('processTracker')
+    || null;
+  const agenticAbortControllers = deps.apiAbortControllers
+    || (trackerCandidate && trackerCandidate.abortControllers)
+    || null;
   _agenticDeps = {
     db: deps.db,
     dashboard: deps.dashboard,
-    runningProcesses: deps.runningProcesses,
+    runningProcesses: trackerCandidate,
     safeUpdateTaskStatus: deps.safeUpdateTaskStatus,
     processQueue: deps.processQueue,
     handleWorkflowTermination: deps.handleWorkflowTermination,
-    apiAbortControllers: deps.apiAbortControllers,
+    apiAbortControllers: agenticAbortControllers,
     getFreeQuotaTracker: deps.getFreeQuotaTracker,
   };
 
@@ -130,10 +141,12 @@ function init(deps) {
   initCapability({ db: deps.db, serverConfig: require('../config') });
 
   // execute-api.js needs: db, dashboard, apiAbortControllers, processQueue, handleWorkflowTermination
+  // (apiAbortControllers defaults to processTracker.abortControllers via the
+  // resolution above; only forward an explicit override.)
   _executeApiModule.init({
     db: deps.db,
     dashboard: deps.dashboard,
-    apiAbortControllers: deps.apiAbortControllers,
+    apiAbortControllers: agenticAbortControllers,
     processQueue: deps.processQueue,
     recordTaskStartedAuditEvent: deps.recordTaskStartedAuditEvent,
     handleWorkflowTermination: deps.handleWorkflowTermination,

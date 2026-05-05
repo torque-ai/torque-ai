@@ -28,6 +28,23 @@ let deps = {};
 /** @deprecated Use createRetryFramework(deps) or container.get('retryFramework'). */
 function init(nextDeps = {}) {
   deps = { ...deps, ...nextDeps };
+  // Container-owned shared state. ProcessTracker carries both
+  // retryTimeouts and cleanupGuard; default from the singleton when
+  // the caller doesn't pass overrides. Test fixtures with bare-Map
+  // mocks still win, and the accessor presence guard prevents a bare
+  // Map injected as taskCleanupGuard from clobbering the other slot.
+  if (!deps.taskCleanupGuard || !deps.pendingRetryTimeouts) {
+    const { defaultContainer } = require('../container');
+    const tracker = defaultContainer.peek('processTracker');
+    if (tracker) {
+      if (!deps.taskCleanupGuard && tracker.cleanupGuard) {
+        deps.taskCleanupGuard = tracker.cleanupGuard;
+      }
+      if (!deps.pendingRetryTimeouts && tracker.retryTimeouts) {
+        deps.pendingRetryTimeouts = tracker.retryTimeouts;
+      }
+    }
+  }
 }
 
 function getRetryAttemptDurationMs(task) {
