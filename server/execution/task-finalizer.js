@@ -1343,17 +1343,83 @@ async function finalizeTask(taskId, options = {}) {
 // concurrent finalize() calls for the same taskId across the entire process)
 // and stays at module scope. handleVerificationLedger / handleAdversarialReview
 // state-swap so per-instance overrides work in tests.
+//
+// Stage-handler resolution: most close-handler-pipeline stages live in
+// their own modules (validation/close-phases, validation/auto-verify-retry,
+// execution/retry-framework, validation/safeguard-gates, etc.). Resolve
+// them via require() inside this factory so register() only needs to
+// declare true container services. Test fixtures with explicit method
+// overrides via localDeps still win.
 function createTaskFinalizer(localDeps = {}) {
+  const resolved = { ...localDeps };
+
+  // Stage handlers resolved from their canonical modules.
+  if (!resolved.handleRetryLogic) {
+    try { resolved.handleRetryLogic = require('./retry-framework').handleRetryLogic; }
+    catch { /* fall through */ }
+  }
+  if (!resolved.handleSafeguardChecks) {
+    try { resolved.handleSafeguardChecks = require('../validation/safeguard-gates').handleSafeguardChecks; }
+    catch { /* fall through */ }
+  }
+  if (!resolved.handleAutoValidation || !resolved.handleBuildTestStyleCommit || !resolved.handleProviderFailover) {
+    try {
+      const closePhases = require('../validation/close-phases');
+      if (!resolved.handleAutoValidation) resolved.handleAutoValidation = closePhases.handleAutoValidation;
+      if (!resolved.handleBuildTestStyleCommit) resolved.handleBuildTestStyleCommit = closePhases.handleBuildTestStyleCommit;
+      if (!resolved.handleProviderFailover) resolved.handleProviderFailover = closePhases.handleProviderFailover;
+    } catch { /* fall through */ }
+  }
+  if (!resolved.handleAutoVerifyRetry) {
+    try { resolved.handleAutoVerifyRetry = require('../validation/auto-verify-retry').handleAutoVerifyRetry; }
+    catch { /* fall through */ }
+  }
+  if (!resolved.handlePostCompletion) {
+    try { resolved.handlePostCompletion = require('./completion-pipeline').handlePostCompletion; }
+    catch { /* fall through */ }
+  }
+  if (!resolved.handleSandboxRevertDetection) {
+    try { resolved.handleSandboxRevertDetection = require('./sandbox-revert-detection').detectSandboxReverts; }
+    catch { /* fall through */ }
+  }
+  // Legacy phases that are now no-ops; the close-handler pipeline still
+  // calls them positionally so they need to exist as functions.
+  if (typeof resolved.handleFuzzyRepair !== 'function') {
+    resolved.handleFuzzyRepair = () => { /* no-op (legacy phase removed) */ };
+  }
+  if (typeof resolved.handleNoFileChangeDetection !== 'function') {
+    resolved.handleNoFileChangeDetection = () => { /* no-op (legacy phase removed) */ };
+  }
+
+  // Utility functions resolved from their source modules.
+  if (!resolved.sanitizeTaskOutput) {
+    try { resolved.sanitizeTaskOutput = require('./task-utils').sanitizeTaskOutput; }
+    catch { /* fall through */ }
+  }
+  if (!resolved.extractModifiedFiles) {
+    try { resolved.extractModifiedFiles = require('../utils/file-resolution').extractModifiedFiles; }
+    catch { /* fall through */ }
+  }
+
+  // safeUpdateTaskStatus binds from taskManager (still owned there until
+  // the taskStatusUpdater capability extraction lands).
+  if (!resolved.safeUpdateTaskStatus) {
+    const tm = localDeps.taskManager;
+    if (tm && typeof tm.safeUpdateTaskStatus === 'function') {
+      resolved.safeUpdateTaskStatus = tm.safeUpdateTaskStatus.bind(tm);
+    }
+  }
+
   function withLocalDeps(fn) {
     const prevDeps = deps;
     const prevVL = handleVerificationLedger;
     const prevAR = handleAdversarialReview;
-    deps = { ...deps, ...localDeps };
-    if (typeof localDeps.handleVerificationLedger === 'function') {
-      handleVerificationLedger = localDeps.handleVerificationLedger;
+    deps = { ...deps, ...resolved };
+    if (typeof resolved.handleVerificationLedger === 'function') {
+      handleVerificationLedger = resolved.handleVerificationLedger;
     }
-    if (typeof localDeps.handleAdversarialReview === 'function') {
-      handleAdversarialReview = localDeps.handleAdversarialReview;
+    if (typeof resolved.handleAdversarialReview === 'function') {
+      handleAdversarialReview = resolved.handleAdversarialReview;
     }
     try { return fn(); }
     finally {
@@ -1373,19 +1439,14 @@ function createTaskFinalizer(localDeps = {}) {
 }
 
 function register(container) {
-  // Declared deps are read off `deps.*` inside finalizeTask: db, plus the
-  // many handler functions task-manager.js currently passes through init.
-  // Listed conservatively — extras don't hurt; missing ones do.
+  // Stage handlers resolve via require() inside the factory; safeUpdateTaskStatus
+  // binds from taskManager. Only db + taskManager are real container deps.
+  // handleVerificationLedger / handleAdversarialReview also resolve from
+  // optional container services (verificationLedger, adversarialReviews) when
+  // those plugins register them — see the lazy-init logic in this file's init().
   container.register(
     'taskFinalizer',
-    [
-      'db', 'safeUpdateTaskStatus', 'sanitizeTaskOutput', 'extractModifiedFiles',
-      'handleRetryLogic', 'handleSafeguardChecks', 'handleFuzzyRepair',
-      'handleNoFileChangeDetection', 'handleSandboxRevertDetection',
-      'handleAutoValidation', 'handleBuildTestStyleCommit', 'handleAutoVerifyRetry',
-      'handleProviderFailover', 'handlePostCompletion',
-      'handleVerificationLedger', 'handleAdversarialReview',
-    ],
+    ['db', 'taskManager'],
     (resolved) => createTaskFinalizer(resolved)
   );
 }
