@@ -92,6 +92,7 @@ function createContainerMock() {
         if (name === 'finalizationTracker') return finalizationTracker;
         return null;
       }),
+      registerValue: vi.fn(),
     },
   };
 }
@@ -166,6 +167,7 @@ function installTaskManagerBoundaryMocks() {
         if (name === 'finalizationTracker') return containerFinalizationTracker;
         return null;
       }),
+      registerValue: vi.fn(),
     },
   };
 
