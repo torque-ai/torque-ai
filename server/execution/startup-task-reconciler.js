@@ -360,6 +360,14 @@ function createClone({ original, metadata, resumeContext, taskCore, rawDb }) {
     id: newId,
     status: 'queued',
     task_description: prependResumeContextToPrompt(original.task_description, resumeContext),
+    // Preserve the original task's project so dashboard kanban cards
+    // keep the project chip on every restart-resubmit. Without this,
+    // task-core.createTask sees no top-level `project`, persists null,
+    // and the chip silently disappears from clones — even though the
+    // `project:<name>` tag is still on the row (via tags pass-through).
+    // Live observation 2026-05-05: 10bc5f57 cloned from bde04606 lost
+    // its `project:torque-public` chip after restart-resubmit cycles.
+    project: original.project || undefined,
     provider: original.original_provider || original.provider,
     model: original.model,
     working_directory: original.working_directory,
