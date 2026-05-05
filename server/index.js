@@ -646,9 +646,16 @@ function recordRestartProcessExit(event, details = {}) {
  * For stdin-close (MCP connection loss), keeps server alive to monitor running tasks
  */
 async function gracefulShutdown(signal) {
+  // Mirror to torque.log so post-mortems don't have to reconstruct intent
+  // from missing pre-shutdown backups. debugLog goes to stderr only — when
+  // the successor is spawned with stdio:'ignore' that signal is invisible.
+  // This info-level entry survives in the structured log no matter how the
+  // process was launched.
+  try { logger.info(`gracefulShutdown received signal: ${signal}`, { component: 'shutdown', signal }); } catch { /* ok */ }
   debugLog(`gracefulShutdown called with signal: ${signal}`);
 
   if (shutdownState === 'shutting-down' || shutdownState === 'done') {
+    try { logger.info(`Shutdown already in progress (received ${signal})`, { component: 'shutdown', signal }); } catch { /* ok */ }
     debugLog(`Shutdown already in progress (received ${signal})`);
     return;
   }
@@ -772,6 +779,10 @@ async function gracefulShutdown(signal) {
         const backupCore = require('./db/backup-core');
         backupCore.takePreShutdownBackup();
       } catch (backupErr) {
+        // Mirror to torque.log: silent backup failures used to be invisible
+        // because debugLog only writes stderr. That made shutdowns look
+        // identical-from-outside whether they cleanly captured state or not.
+        try { logger.error(`Pre-shutdown backup error (non-fatal): ${backupErr.message}`, { component: 'shutdown', error: backupErr.message }); } catch { /* ok */ }
         debugLog(`Pre-shutdown backup error (non-fatal): ${backupErr.message}`);
       }
 

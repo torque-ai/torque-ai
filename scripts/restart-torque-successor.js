@@ -245,15 +245,50 @@ async function main() {
     }
   }
 
+  // Capture successor stdio to a log file so a post-startup crash leaves a
+  // trail. Without this, gracefulShutdown's debugLog (stderr-only) and any
+  // uncaught exception output are lost — leaving the operator staring at a
+  // dead PID with no clue why it died. Live failure pattern observed
+  // 2026-05-04/05: successors spawn cleanly, listen on :3457, then exit
+  // silently; torque.log shows the new instance booted but nothing about
+  // its death because the kill signal / unhandled rejection / EBUSY-stale-
+  // worktree-cleanup-throw landed on stderr that went to /dev/null.
+  //
+  // The successor.log file lives next to torque.log under ~/.torque so it's
+  // easy to correlate. We append (flag 'a') so multiple restarts accumulate
+  // in one file; each spawn logs a marker so you can tell where one run's
+  // output ends and the next begins.
+  const successorLogPath = path.join(logDir, 'successor.log');
+  let stdoutFd = 'ignore';
+  let stderrFd = 'ignore';
+  try {
+    fs.appendFileSync(
+      successorLogPath,
+      `\n=== ${new Date().toISOString()} successor spawn (parent ${parentPid}, helper ${process.pid}) ===\n`,
+    );
+    stdoutFd = fs.openSync(successorLogPath, 'a');
+    stderrFd = fs.openSync(successorLogPath, 'a');
+  } catch (err) {
+    log(`could not open successor log ${successorLogPath} for capture: ${err.message}`);
+  }
+
   const child = childProcess.spawn(process.execPath, [serverScript], {
     cwd: serverDir,
     detached: true,
-    stdio: 'ignore',
+    stdio: ['ignore', stdoutFd, stderrFd],
     windowsHide: true,
     env,
   });
   child.unref();
-  log(`started TORQUE successor PID ${child.pid}`);
+  // Close our copies of the FDs once the spawn has duplicated them — keeps
+  // the helper from holding write handles after the child takes over.
+  if (typeof stdoutFd === 'number') {
+    try { fs.closeSync(stdoutFd); } catch { /* already closed */ }
+  }
+  if (typeof stderrFd === 'number' && stderrFd !== stdoutFd) {
+    try { fs.closeSync(stderrFd); } catch { /* already closed */ }
+  }
+  log(`started TORQUE successor PID ${child.pid} (stdio → ${successorLogPath})`);
 }
 
 if (require.main === module) {
