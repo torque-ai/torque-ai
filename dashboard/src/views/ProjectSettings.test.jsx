@@ -409,4 +409,122 @@ describe('FactoryLanePolicyPanel — editor controls', () => {
       expect(screen.queryByRole('listbox', { name: 'Allowed providers' })).toBeNull();
     });
   });
+
+  function captureSaveBody() {
+    let posted = null;
+    const baseFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn((url, options = {}) => {
+      if (url === '/api/v2/factory/projects/fp-1/trust' && String(options.method).toUpperCase() === 'PUT') {
+        posted = JSON.parse(options.body);
+        return createResponse({ data: { ok: true } });
+      }
+      return baseFetch(url, options);
+    });
+    return () => posted;
+  }
+
+  it('saves a per-kind dropdown change as a full-policy PUT', async () => {
+    mountWithLanePolicy({
+      lanePolicy: {
+        expected_provider: 'ollama',
+        allowed_providers: ['ollama'],
+        allowed_fallback_providers: [],
+        by_kind: { architect_cycle: 'codex' },
+        enforce_handoffs: true,
+      },
+    });
+    await screen.findByText('Factory Lane Policy');
+    const getPosted = captureSaveBody();
+
+    fireEvent.change(screen.getByLabelText('Provider for plan_generation'), { target: { value: 'codex' } });
+
+    await waitFor(() => expect(getPosted()).not.toBeNull());
+
+    expect(getPosted()).toEqual({
+      trust_level: 'guided',
+      config: {
+        provider_lane_policy: {
+          expected_provider: 'ollama',
+          allowed_providers: ['ollama'],
+          allowed_fallback_providers: [],
+          by_kind: { architect_cycle: 'codex', plan_generation: 'codex' },
+          enforce_handoffs: true,
+        },
+      },
+    });
+  });
+
+  it('selecting — use default — deletes the by_kind key', async () => {
+    mountWithLanePolicy({
+      lanePolicy: {
+        expected_provider: 'ollama',
+        allowed_providers: ['ollama'],
+        allowed_fallback_providers: [],
+        by_kind: { architect_cycle: 'codex' },
+        enforce_handoffs: false,
+      },
+    });
+    await screen.findByText('Factory Lane Policy');
+    const getPosted = captureSaveBody();
+
+    fireEvent.change(screen.getByLabelText('Provider for architect_cycle'), { target: { value: '' } });
+
+    await waitFor(() => expect(getPosted()).not.toBeNull());
+    expect(getPosted().config.provider_lane_policy.by_kind).toEqual({});
+  });
+
+  it('toggling allowed_providers checkbox round-trips the PUT', async () => {
+    mountWithLanePolicy({
+      lanePolicy: {
+        expected_provider: 'ollama',
+        allowed_providers: ['ollama'],
+        allowed_fallback_providers: [],
+        by_kind: {},
+        enforce_handoffs: false,
+      },
+    });
+    await screen.findByText('Factory Lane Policy');
+    const getPosted = captureSaveBody();
+
+    // Open the multi-select (the button has aria-label="Allowed providers")
+    fireEvent.click(screen.getAllByLabelText('Allowed providers')[0]);
+
+    // Click the codex checkbox inside the popped listbox
+    const listbox = await screen.findByRole('listbox', { name: 'Allowed providers' });
+    const codexBox = Array.from(listbox.querySelectorAll('label'))
+      .find((l) => l.textContent.includes('codex'))
+      .querySelector('input[type="checkbox"]');
+    fireEvent.click(codexBox);
+
+    await waitFor(() => expect(getPosted()).not.toBeNull());
+    expect(getPosted().config.provider_lane_policy.allowed_providers).toEqual(['ollama', 'codex']);
+  });
+
+  it('reverts optimistic state when the PUT fails', async () => {
+    mountWithLanePolicy({
+      lanePolicy: {
+        expected_provider: 'ollama',
+        allowed_providers: ['ollama'],
+        allowed_fallback_providers: [],
+        by_kind: {},
+        enforce_handoffs: false,
+      },
+    });
+    await screen.findByText('Factory Lane Policy');
+
+    const baseFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn((url, options = {}) => {
+      if (url === '/api/v2/factory/projects/fp-1/trust' && String(options.method).toUpperCase() === 'PUT') {
+        return createResponse({ error: { message: 'boom' } }, { status: 500 });
+      }
+      return baseFetch(url, options);
+    });
+
+    fireEvent.change(screen.getByLabelText('Expected provider'), { target: { value: 'codex' } });
+
+    // Wait until select reverts to ollama (revert path) — give microtasks time.
+    await waitFor(() => {
+      expect(screen.getByLabelText('Expected provider').value).toBe('ollama');
+    });
+  });
 });

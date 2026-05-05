@@ -124,7 +124,7 @@ function SaveStatusIndicator({ status }) {
   return null;
 }
 
-// Read-only display of the project's factory provider_lane_policy. The
+// Editable display of the project's factory provider_lane_policy. The
 // underlying field lives in factory_projects.config_json and drives
 // per-kind routing decisions (scout/architect_cycle/plan_generation/
 // verify_review/execute) — it overrides the active routing template at
@@ -133,10 +133,13 @@ function SaveStatusIndicator({ status }) {
 // a globally-active template (live failure 2026-05-04: DLPhone shadowed
 // "All Local" with codex for 4 kinds, blew through tokens silently).
 //
-// Editing is delegated to the existing set_factory_trust_level path
-// (PUT /api/v2/factory/projects/{id}/trust). A small inline form would
-// be a follow-up — for now the operator gets visibility plus a link to
-// the API surface.
+// Saves go through PUT /api/v2/factory/projects/{id}/trust → the
+// set_factory_trust_level MCP tool. trust_level is required by that
+// tool's schema, so we capture it from the factory project record on
+// load and echo it back unchanged on every save. Each editor change
+// fires a full-policy PUT (the server merges shallowly, so partial
+// policies would replace the whole field). Failed saves revert the
+// optimistic state and toast the error.
 const FACTORY_KINDS = ['scout', 'architect_cycle', 'plan_generation', 'verify_review', 'execute'];
 
 function FactoryLanePolicyPanel({
@@ -476,9 +479,11 @@ export default function ProjectSettings({ project: projectProp = '' }) {
   const [savingRouting, setSavingRouting] = useState(false);
   const [loadError, setLoadError] = useState('');
   // Factory provider_lane_policy lives in factory_projects.config_json
-  // (separate from project_config). Surfaced read-only here so operators
-  // can see by_kind overrides without an API call. Edit via the
-  // set_factory_trust_level MCP tool / PUT /api/v2/factory/projects/{id}/trust.
+  // (separate from project_config). Surfaced editable here so operators
+  // can adjust by_kind overrides directly. Saves go through PUT
+  // /api/v2/factory/projects/{id}/trust → the set_factory_trust_level
+  // MCP tool, which requires trust_level — we echo back the value we
+  // captured on load.
   const [lanePolicy, setLanePolicy] = useState(null);
   const [factoryProjectId, setFactoryProjectId] = useState('');
   const [trustLevel, setTrustLevel] = useState('');
@@ -763,6 +768,25 @@ export default function ProjectSettings({ project: projectProp = '' }) {
     }
   }, [activeProject, loadConfiguredProjects, loadData, selectedTemplateId, toast]);
 
+  const handleLanePolicyChange = useCallback(async (nextPolicy) => {
+    if (!factoryProjectId) return;
+    const previous = lanePolicy;
+    setLanePolicy(nextPolicy);
+    try {
+      await requestV2(`/factory/projects/${encodeURIComponent(factoryProjectId)}/trust`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          trust_level: trustLevel,
+          config: { provider_lane_policy: nextPolicy },
+        }),
+      });
+    } catch (error) {
+      // Revert optimistic change.
+      setLanePolicy(previous);
+      toast.error(`Failed to save lane policy: ${getErrorMessage(error)}`);
+    }
+  }, [factoryProjectId, lanePolicy, trustLevel, toast]);
+
   return (
     <div className="p-6 space-y-6">
       <div>
@@ -981,7 +1005,7 @@ export default function ProjectSettings({ project: projectProp = '' }) {
               lanePolicy={lanePolicy}
               factoryProjectId={factoryProjectId}
               providers={providers}
-              onLanePolicyChange={() => {}}     // wired in Task 3
+              onLanePolicyChange={handleLanePolicyChange}
               saveStatus="idle"                 // wired in Task 4
               disabled={!factoryProjectId}
             />
