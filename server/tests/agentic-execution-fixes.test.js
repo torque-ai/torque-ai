@@ -27,6 +27,7 @@ const ROUTING_CORE_PATH = require.resolve('../db/provider/routing-core');
 const PROVIDER_MODEL_SCORES_PATH = require.resolve('../db/provider/model-scores');
 const OLLAMA_AGENTIC_PATH = require.resolve('../providers/ollama-agentic');
 const HOST_MUTEX_PATH = require.resolve('../providers/host-mutex');
+const CONTAINER_PATH = require.resolve('../container');
 
 const TRACKED_CACHE_PATHS = [
   SUBJECT_PATH,
@@ -49,6 +50,7 @@ const TRACKED_CACHE_PATHS = [
   PROVIDER_MODEL_SCORES_PATH,
   OLLAMA_AGENTIC_PATH,
   HOST_MUTEX_PATH,
+  CONTAINER_PATH,
 ];
 
 const ORIGINAL_CACHE_ENTRIES = new Map(
@@ -193,8 +195,16 @@ function loadSubject(overrides = {}) {
     getTopModelScores: vi.fn(() => []),
     recordModelTaskOutcome: vi.fn(),
   };
+  const containerMock = overrides.containerMock || {
+    defaultContainer: {
+      peek: vi.fn(() => null),
+      has: vi.fn(() => false),
+      get: vi.fn(() => null),
+    },
+  };
 
   installMock(LOGGER_PATH, loggerMock);
+  installMock(CONTAINER_PATH, containerMock);
   installMock(CONFIG_PATH, configMock);
   installMock(GIT_SAFETY_PATH, gitSafetyMock);
   installMock(EXECUTE_API_PATH, executeApiMock);
@@ -2091,6 +2101,77 @@ describe('providers/execution agentic fixes', () => {
         output: 'done',
         exit_code: 0,
       }),
+    );
+  });
+
+  it('requeues local Ollama no-edit completion failures through cloud fallback instead of terminal failure', async () => {
+    const { mod } = loadSubject();
+    const host = { id: 'host-1', url: 'http://ollama-host:11434' };
+    const task = {
+      id: 'task-ollama-no-edits',
+      provider: 'ollama',
+      model: TEST_MODELS.DEFAULT,
+      task_description: 'Fix the bug in src/fixed.js',
+      working_directory: 'C:/repo',
+      timeout_minutes: 1,
+      status: 'running',
+      metadata: JSON.stringify({}),
+    };
+    const db = {
+      listOllamaHosts: vi.fn(() => [host]),
+      selectOllamaHostForModel: vi.fn(() => ({ host })),
+      tryReserveHostSlot: vi.fn(() => ({ acquired: true })),
+      releaseHostSlot: vi.fn(),
+      decrementHostTasks: vi.fn(),
+      updateTaskStatus: vi.fn(),
+      getOrCreateTaskStream: vi.fn(() => 'stream-1'),
+      getTask: vi.fn(() => ({ ...task })),
+      addStreamChunk: vi.fn(),
+    };
+    const cloudFallback = vi.fn(() => true);
+    const deps = {
+      db,
+      dashboard: {
+        notifyTaskUpdated: vi.fn(),
+        notifyTaskOutput: vi.fn(),
+      },
+      safeUpdateTaskStatus: vi.fn(),
+      tryOllamaCloudFallback: cloudFallback,
+      processQueue: vi.fn(),
+      handleWorkflowTermination: vi.fn(),
+    };
+
+    mod.init(deps);
+
+    vi.spyOn(require('worker_threads'), 'Worker').mockImplementation(
+      createWorkerCtor([
+        {
+          type: 'result',
+          output: 'Task stopped: model expected to modify files but produced read-only tool calls.',
+          stopReason: 'no_edits_after_nudge',
+          toolLog: [{ name: 'read_file', error: false }, { name: 'read_file', error: false }],
+          tokenUsage: { prompt_tokens: 30, completion_tokens: 10 },
+          changedFiles: [],
+          iterations: 3,
+        },
+      ])
+    );
+
+    await mod.executeOllamaTask(task);
+
+    expect(cloudFallback).toHaveBeenCalledWith(
+      task.id,
+      expect.objectContaining({
+        provider: 'ollama',
+        output: expect.stringContaining('read-only tool calls'),
+        error_output: expect.stringContaining('no_edits_after_nudge'),
+      }),
+      expect.stringContaining('Local Ollama agentic completion failed'),
+    );
+    expect(deps.safeUpdateTaskStatus).not.toHaveBeenCalledWith(
+      task.id,
+      'failed',
+      expect.any(Object),
     );
   });
 

@@ -750,6 +750,17 @@ function runStartupPreflight({
   return { maxConcurrent, usedEditFormat: null };
 }
 
+function runPreExecutionPreflight(task, taskId, provider) {
+  try {
+    runPreflightChecks(task);
+  } catch (err) {
+    if (isPreflightError(err)) {
+      logger.info(`[startTask] Pre-execution preflight failed for ${taskId.slice(0, 8)} (${provider || task?.provider || 'unknown'}): ${err.code || 'PREFLIGHT_FAILED'} ${err.message}`);
+    }
+    throw err;
+  }
+}
+
 function resolveStartupProvider({
   task,
   taskId,
@@ -1654,6 +1665,8 @@ async function startTask(taskId) {
     const unavailable = requeueIfClaimedProviderDisabled(taskId, provider, providerConfig);
     if (unavailable) return unavailable;
 
+    runPreExecutionPreflight(task, taskId, provider);
+
     const runContext = prepareStartupRunDirectory({
       task,
       taskId,
@@ -1694,6 +1707,8 @@ async function startTask(taskId) {
     provider = providerExecution.provider;
     providerConfig = providerExecution.providerConfig;
     executionTask = providerExecution.executionTask;
+
+    runPreExecutionPreflight(task, taskId, provider);
 
     const startupCommand = await constructStartupCommand({
       taskId,

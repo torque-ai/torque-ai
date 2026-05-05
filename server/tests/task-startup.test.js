@@ -323,6 +323,38 @@ describe('task-startup', () => {
     );
   });
 
+  it('rechecks working_directory after slot claim so stale factory worktrees fail before provider spawn', async () => {
+    const task = createTask({ id: 'stale-worktree', working_directory: 'C:/repo/.worktrees/fea-gone' });
+    const ctx = loadTaskStartup({ task });
+    ctx.mockFs.statSync
+      .mockImplementationOnce(() => ({ isDirectory: () => true }))
+      .mockImplementationOnce(() => {
+        const err = new Error('not found');
+        err.code = 'ENOENT';
+        throw err;
+      });
+    ctx.deps.safeUpdateTaskStatus.mockImplementation((taskId, status, patch = {}) => (
+      ctx.deps.db.updateTaskStatus(taskId, status, patch)
+    ));
+
+    await expect(ctx.module.startTask(task.id)).rejects.toThrow('Working directory does not exist: C:/repo/.worktrees/fea-gone');
+
+    expect(ctx.deps.db.tryClaimTaskSlot).toHaveBeenCalledTimes(1);
+    expect(ctx.deps.spawnAndTrackProcess).not.toHaveBeenCalled();
+    expect(ctx.deps.safeUpdateTaskStatus).toHaveBeenCalledWith(task.id, 'failed', expect.objectContaining({
+      error_output: 'Working directory does not exist: C:/repo/.worktrees/fea-gone',
+      pid: null,
+      mcp_instance_id: null,
+      ollama_host_id: null,
+    }));
+    expect(ctx.tasks.get(task.id)).toEqual(expect.objectContaining({
+      status: 'failed',
+      pid: null,
+      mcp_instance_id: null,
+      ollama_host_id: null,
+    }));
+  });
+
   it('parks direct start attempts behind an active restart barrier', async () => {
     const task = createTask({ status: 'queued', provider: 'codex' });
     const ctx = loadTaskStartup({ task });

@@ -125,6 +125,7 @@ function init(deps) {
     dashboard: deps.dashboard,
     runningProcesses: trackerCandidate,
     safeUpdateTaskStatus: deps.safeUpdateTaskStatus,
+    tryOllamaCloudFallback: deps.tryOllamaCloudFallback,
     processQueue: deps.processQueue,
     handleWorkflowTermination: deps.handleWorkflowTermination,
     apiAbortControllers: agenticAbortControllers,
@@ -686,6 +687,15 @@ const NON_CONVERGED_AGENTIC_STOP_REASONS = new Set([
   'stuck_loop',
 ]);
 
+const LOCAL_AGENTIC_COMPLETION_FALLBACK_STOP_REASONS = new Set([
+  'actionless_iterations',
+  'max_iterations',
+  'no_edits_after_nudge',
+  'no_progress',
+  'output_limit',
+  'stuck_loop',
+]);
+
 const HARD_FAIL_AGENTIC_STOP_REASONS = new Set([
   'consecutive_tool_errors',
   'empty_final_output',
@@ -768,6 +778,39 @@ function shouldEscalateNoOpAgenticResult(task, result) {
     ['write_file', 'edit_file', 'replace_lines'].includes(entry?.name)
     && entry?.error !== true
   );
+}
+
+function shouldFallbackLocalAgenticCompletionFailure(task, result, completionFailure) {
+  if (!completionFailure) return false;
+  if (normalizeProviderName(task?.provider || 'ollama') !== 'ollama') return false;
+
+  const stopReason = String(result?.stopReason || '').trim();
+  if (LOCAL_AGENTIC_COMPLETION_FALLBACK_STOP_REASONS.has(stopReason)) {
+    return true;
+  }
+
+  if (shouldEscalateNoOpAgenticResult(task, result)) {
+    return true;
+  }
+
+  const message = String(completionFailure?.message || '');
+  return /Agentic no-op|no_edits_after_nudge|no_progress|read-only tool calls and no edits/i.test(message);
+}
+
+function tryLocalAgenticCompletionFallback(taskId, task, result, failureMessage) {
+  if (!_agenticDeps || typeof _agenticDeps.tryOllamaCloudFallback !== 'function') {
+    return false;
+  }
+
+  const fallbackTask = {
+    ...(task || {}),
+    output: result?.output || task?.output || '',
+    error_output: failureMessage || task?.error_output || '',
+  };
+  const reason = failureMessage
+    ? `Local Ollama agentic completion failed: ${failureMessage}`
+    : 'Local Ollama agentic completion failed without making progress';
+  return Boolean(_agenticDeps.tryOllamaCloudFallback(taskId, fallbackTask, reason));
 }
 
 function buildIncompleteAgenticFailure(task, workingDir, agenticPolicy, result, maxIterations, provider, model) {
@@ -3234,6 +3277,15 @@ async function executeOllamaTaskWithAgentic(task) {
       appendAgenticOutputSection(result, 'Framework Session Log', `Failed to append ${sessionLogResult.relativePath}: ${sessionLogResult.error}`);
     }
     if (completionFailure || (sessionLogTarget && sessionLogResult?.error)) {
+      const currentTask = db.getTask(taskId) || task;
+      if (
+        shouldFallbackLocalAgenticCompletionFailure(currentTask, result, completionFailure)
+        && tryLocalAgenticCompletionFallback(taskId, currentTask, result, failureMessage)
+      ) {
+        logger.info(`[Agentic] Ollama task ${taskId} requeued via cloud fallback after local completion review failure: ${failureMessage}`);
+        return;
+      }
+
       safeUpdateTaskStatus(taskId, 'failed', {
         output: result.output,
         error_output: failureMessage,
@@ -4495,6 +4547,8 @@ module.exports = {
   shouldRequireToolEvidence,
   buildAgenticSystemPrompt,
   shouldEscalateNoOpAgenticResult,
+  shouldFallbackLocalAgenticCompletionFailure,
   inspectHardFailAgenticStopReason,
   HARD_FAIL_AGENTIC_STOP_REASONS,
+  LOCAL_AGENTIC_COMPLETION_FALLBACK_STOP_REASONS,
 };
