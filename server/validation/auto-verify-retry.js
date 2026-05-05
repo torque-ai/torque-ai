@@ -732,6 +732,14 @@ async function handleAutoVerifyRetry(ctx) {
  * each call. Cleaned up in Phase 5 once consumers migrate.
  */
 function createAutoVerifyRetry(deps = {}) {
+  // Bind taskManager methods (startTask, processQueue) from the registered
+  // taskManager handle. Test fixtures with explicit overrides via `deps` win.
+  deps = { ...deps };
+  const tm = deps.taskManager || null;
+  const tmMethod = (name) => (tm && typeof tm[name] === 'function' ? tm[name].bind(tm) : null);
+  if (deps.startTask === undefined) deps.startTask = tmMethod('startTask');
+  if (deps.processQueue === undefined) deps.processQueue = tmMethod('processQueue');
+
   const local = {
     _db: deps.db,
     _startTask: deps.startTask,
@@ -768,7 +776,7 @@ function createAutoVerifyRetry(deps = {}) {
 function register(container) {
   container.register(
     'autoVerifyRetry',
-    ['db', 'startTask', 'processQueue', 'testRunnerRegistry', 'sandboxManager'],
+    ['db', 'taskManager', 'testRunnerRegistry', 'sandboxManager'],
     (deps) => createAutoVerifyRetry(deps)
   );
 }

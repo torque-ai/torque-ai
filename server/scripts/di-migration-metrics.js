@@ -121,13 +121,16 @@ function scan() {
     // providerRegistry + gpuMetrics — taskStartup depends on them.
     probe.registerValue('providerRegistry', { getProviderInstance: () => null });
     probe.registerValue('gpuMetrics', { probe: () => ({}) });
+    // testRunnerRegistry + sandboxManager — buildVerification, postTask, autoVerifyRetry depend on them.
+    probe.registerValue('testRunnerRegistry', { resolve: () => null, getRunner: () => null });
+    probe.registerValue('sandboxManager', { isAvailable: () => false });
     require('../validation/register').register(probe);
     require('../execution/register').register(probe);
     require('../factory/register').register(probe);
     require('../mcp/protocol').register(probe);
     require('../providers/agentic-capability').register(probe);
     probe.boot({ failFast: false });
-    const stubs = new Set(['db', 'eventBus', 'logger', 'serverConfig', 'dashboard', 'taskManager', 'sharedFactoryStore', 'providerRegistry', 'gpuMetrics']);
+    const stubs = new Set(['db', 'eventBus', 'logger', 'serverConfig', 'dashboard', 'taskManager', 'sharedFactoryStore', 'providerRegistry', 'gpuMetrics', 'testRunnerRegistry', 'sandboxManager']);
     wiredServices = probe.list().filter((n) => !stubs.has(n)).sort();
     wiredCount = wiredServices.length;
   } catch (err) {

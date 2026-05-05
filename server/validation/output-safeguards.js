@@ -874,6 +874,26 @@ async function runOutputSafeguards(taskId, status, task) {
  * the constants are static, so they are exposed directly.
  */
 function createOutputSafeguards(deps = {}) {
+  // Resolve utility deps via require() from validation/post-task. Test
+  // fixtures with explicit overrides via `deps` still win.
+  deps = { ...deps };
+  if (deps.getFileChangesForValidation === undefined) {
+    try { deps.getFileChangesForValidation = require('./post-task').getFileChangesForValidation; }
+    catch { /* fall through */ }
+  }
+  if (deps.checkFileQuality === undefined) {
+    try { deps.checkFileQuality = require('./post-task').checkFileQuality; }
+    catch { /* fall through */ }
+  }
+  if (deps.cleanupJunkFiles === undefined) {
+    try { deps.cleanupJunkFiles = require('./post-task').cleanupJunkFiles; }
+    catch { /* fall through */ }
+  }
+  if (deps.findPlaceholderArtifacts === undefined) {
+    try { deps.findPlaceholderArtifacts = require('./post-task').findPlaceholderArtifacts; }
+    catch { /* fall through */ }
+  }
+
   const local = {
     db: deps.db,
     _getFileChangesForValidation: deps.getFileChangesForValidation,
@@ -916,13 +936,7 @@ function createOutputSafeguards(deps = {}) {
 function register(container) {
   container.register(
     'outputSafeguards',
-    [
-      'db',
-      'getFileChangesForValidation',
-      'checkFileQuality',
-      'cleanupJunkFiles',
-      'findPlaceholderArtifacts',
-    ],
+    ['db'],
     (deps) => createOutputSafeguards(deps)
   );
 }

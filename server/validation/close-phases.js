@@ -433,6 +433,60 @@ function handleProviderFailover(ctx) {
  * and the legacy state can be deleted.
  */
 function createClosePhases(deps = {}) {
+  // Resolve utility deps via require() from their canonical modules.
+  // taskManager-bound methods (safeUpdateTaskStatus, processQueue) bind
+  // through the container-registered taskManager handle. Test fixtures
+  // with explicit overrides via `deps` still win.
+  deps = { ...deps };
+  if (deps.checkFileQuality === undefined) {
+    try { deps.checkFileQuality = require('./post-task').checkFileQuality; }
+    catch { /* fall through */ }
+  }
+  if (deps.scopedRollback === undefined) {
+    try { deps.scopedRollback = require('./post-task').scopedRollback; }
+    catch { /* fall through */ }
+  }
+  if (deps.runBuildVerification === undefined) {
+    try { deps.runBuildVerification = require('./post-task').runBuildVerification; }
+    catch { /* fall through */ }
+  }
+  if (deps.runTestVerification === undefined) {
+    try { deps.runTestVerification = require('./post-task').runTestVerification; }
+    catch { /* fall through */ }
+  }
+  if (deps.runStyleCheck === undefined) {
+    try { deps.runStyleCheck = require('./post-task').runStyleCheck; }
+    catch { /* fall through */ }
+  }
+  if (deps.tryCreateAutoPR === undefined) {
+    try { deps.tryCreateAutoPR = require('../execution/provider-router').tryCreateAutoPR; }
+    catch { /* fall through */ }
+  }
+  if (deps.extractModifiedFiles === undefined) {
+    try { deps.extractModifiedFiles = require('../utils/file-resolution').extractModifiedFiles; }
+    catch { /* fall through */ }
+  }
+  if (deps.isValidFilePath === undefined) {
+    try { deps.isValidFilePath = require('../utils/file-resolution').isValidFilePath; }
+    catch { /* fall through */ }
+  }
+  if (deps.isShellSafe === undefined) {
+    try { deps.isShellSafe = require('../utils/file-resolution').isShellSafe; }
+    catch { /* fall through */ }
+  }
+  if (deps.sanitizeTaskOutput === undefined) {
+    try { deps.sanitizeTaskOutput = require('../execution/task-utils').sanitizeTaskOutput; }
+    catch { /* fall through */ }
+  }
+  if (deps.tryLocalFirstFallback === undefined) {
+    try { deps.tryLocalFirstFallback = require('../execution/fallback-retry').tryLocalFirstFallback; }
+    catch { /* fall through */ }
+  }
+  const tm = deps.taskManager || null;
+  const tmMethod = (name) => (tm && typeof tm[name] === 'function' ? tm[name].bind(tm) : null);
+  if (deps.safeUpdateTaskStatus === undefined) deps.safeUpdateTaskStatus = tmMethod('safeUpdateTaskStatus');
+  if (deps.processQueue === undefined) deps.processQueue = tmMethod('processQueue');
+
   const local = {
     db: deps.db,
     dashboard: deps.dashboard,
@@ -505,14 +559,7 @@ function createClosePhases(deps = {}) {
 function register(container) {
   container.register(
     'closePhases',
-    [
-      'db', 'dashboard',
-      'checkFileQuality', 'scopedRollback', 'runBuildVerification',
-      'runTestVerification', 'runStyleCheck', 'tryCreateAutoPR',
-      'extractModifiedFiles', 'isValidFilePath', 'isShellSafe',
-      'sanitizeTaskOutput', 'safeUpdateTaskStatus',
-      'tryLocalFirstFallback', 'processQueue',
-    ],
+    ['db', 'dashboard', 'taskManager'],
     (deps) => createClosePhases(deps)
   );
 }
