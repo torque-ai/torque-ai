@@ -490,6 +490,8 @@ export default function ProjectSettings({ project: projectProp = '' }) {
   const [providers, setProviders] = useState([]);
   const [laneSaveStatus, setLaneSaveStatus] = useState('idle');
   const saveStatusClearRef = useRef(null);
+  const inFlightRef = useRef(false);
+  const pendingPolicyRef = useRef(null);
 
   useEffect(() => () => {
     mountedRef.current = false;
@@ -777,21 +779,8 @@ export default function ProjectSettings({ project: projectProp = '' }) {
     }
   }, [activeProject, loadConfiguredProjects, loadData, selectedTemplateId, toast]);
 
-  const handleLanePolicyChange = useCallback(async (nextPolicy) => {
-    if (!factoryProjectId) return;
-
-    if (saveStatusClearRef.current) {
-      clearTimeout(saveStatusClearRef.current);
-      saveStatusClearRef.current = null;
-    }
-
-    // TODO(Task 5): this snapshot is not safe under concurrent edits — Task 5
-    // adds debounce-and-collapse to coalesce in-flight saves. Until then, two
-    // rapid changes can race and the loser's revert can clobber the winner's state.
-    const previous = lanePolicy;
-    setLanePolicy(nextPolicy);
+  const performLanePolicySave = useCallback(async (nextPolicy) => {
     setLaneSaveStatus('saving');
-
     try {
       await requestV2(`/factory/projects/${encodeURIComponent(factoryProjectId)}/trust`, {
         method: 'PUT',
@@ -800,19 +789,74 @@ export default function ProjectSettings({ project: projectProp = '' }) {
           config: { provider_lane_policy: nextPolicy },
         }),
       });
-      if (!mountedRef.current) return;
-      setLaneSaveStatus('saved');
-      saveStatusClearRef.current = setTimeout(() => {
-        saveStatusClearRef.current = null;
-        setLaneSaveStatus('idle');
-      }, 2000);
+      return { ok: true };
     } catch (error) {
-      if (!mountedRef.current) return;
-      setLanePolicy(previous);
-      setLaneSaveStatus('error');
-      toast.error(`Failed to save lane policy: ${getErrorMessage(error)}`);
+      return { ok: false, error };
     }
-  }, [factoryProjectId, lanePolicy, trustLevel, toast]);
+  }, [factoryProjectId, trustLevel]);
+
+  const handleLanePolicyChange = useCallback((nextPolicy) => {
+    if (!factoryProjectId) return;
+
+    // Optimistic local update is always immediate.
+    const previous = lanePolicy;
+    setLanePolicy(nextPolicy);
+
+    // If a save is in flight, queue the latest state and bail. The
+    // running save's drain loop will pick it up.
+    if (inFlightRef.current) {
+      pendingPolicyRef.current = nextPolicy;
+      return;
+    }
+
+    // Otherwise fire a save and drain the queue when it settles.
+    (async () => {
+      inFlightRef.current = true;
+      let lastSent = nextPolicy;
+      let revertTo = previous;
+      if (saveStatusClearRef.current) {
+        clearTimeout(saveStatusClearRef.current);
+        saveStatusClearRef.current = null;
+      }
+
+      while (true) {
+        const result = await performLanePolicySave(lastSent);
+        if (!mountedRef.current) {
+          inFlightRef.current = false;
+          return;
+        }
+        if (!result.ok) {
+          // Revert to whatever was committed before this batch started.
+          setLanePolicy(revertTo);
+          setLaneSaveStatus('error');
+          toast.error(`Failed to save lane policy: ${getErrorMessage(result.error)}`);
+          pendingPolicyRef.current = null;
+          break;
+        }
+
+        // If a queued change accumulated, flush it. Track lastSent as
+        // the new revert baseline so a subsequent failure reverts to
+        // the most recently persisted state, not all the way to the
+        // original.
+        if (pendingPolicyRef.current && pendingPolicyRef.current !== lastSent) {
+          revertTo = lastSent;
+          lastSent = pendingPolicyRef.current;
+          pendingPolicyRef.current = null;
+          continue;
+        }
+
+        pendingPolicyRef.current = null;
+        setLaneSaveStatus('saved');
+        saveStatusClearRef.current = setTimeout(() => {
+          saveStatusClearRef.current = null;
+          setLaneSaveStatus('idle');
+        }, 2000);
+        break;
+      }
+
+      inFlightRef.current = false;
+    })();
+  }, [factoryProjectId, lanePolicy, performLanePolicySave, toast]);
 
   return (
     <div className="p-6 space-y-6">

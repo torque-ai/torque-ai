@@ -587,4 +587,51 @@ describe('FactoryLanePolicyPanel — editor controls', () => {
 
     await screen.findByText('Save failed — retry');
   });
+
+  it('coalesces rapid changes into one final PUT', async () => {
+    mountWithLanePolicy({
+      lanePolicy: {
+        expected_provider: 'ollama',
+        allowed_providers: [],
+        allowed_fallback_providers: [],
+        by_kind: {},
+        enforce_handoffs: false,
+      },
+    });
+    await screen.findByText('Factory Lane Policy');
+
+    const posts = [];
+    let resolveFirst;
+    const baseFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn((url, options = {}) => {
+      if (url === '/api/v2/factory/projects/fp-1/trust' && String(options.method).toUpperCase() === 'PUT') {
+        posts.push(JSON.parse(options.body));
+        if (posts.length === 1) {
+          return new Promise((r) => { resolveFirst = () => r(createResponse({ data: { ok: true } })); });
+        }
+        return createResponse({ data: { ok: true } });
+      }
+      return baseFetch(url, options);
+    });
+
+    // Fire three changes while the first save is still in flight.
+    fireEvent.change(screen.getByLabelText('Provider for scout'), { target: { value: 'codex' } });
+    fireEvent.change(screen.getByLabelText('Provider for plan_generation'), { target: { value: 'codex' } });
+    fireEvent.change(screen.getByLabelText('Provider for verify_review'), { target: { value: 'codex' } });
+
+    // First PUT in flight, others should be queued.
+    await waitFor(() => expect(posts.length).toBe(1));
+    resolveFirst();
+
+    // After the first resolves, exactly ONE more PUT should fire with the
+    // final state (all three by_kind entries).
+    await waitFor(() => expect(posts.length).toBe(2));
+    expect(posts[1].config.provider_lane_policy.by_kind).toEqual({
+      scout: 'codex', plan_generation: 'codex', verify_review: 'codex',
+    });
+
+    // No third PUT.
+    await new Promise((r) => setTimeout(r, 50));
+    expect(posts.length).toBe(2);
+  });
 });
