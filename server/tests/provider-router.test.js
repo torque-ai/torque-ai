@@ -575,8 +575,11 @@ describe('provider-router', () => {
   describe('createProviderRouter', () => {
     it('returns object with all expected methods', () => {
       const router = providerRouter.createProviderRouter();
+      // The DI factory takes deps via createProviderRouter(deps) — no
+      // separate init() method on the returned router. Module-level
+      // init() (legacy) still exists in module.exports for callers that
+      // use the imported namespace, but the factory return is per-instance.
       const expectedKeys = [
-        'init',
         'safeConfigInt',
         'tryReserveHostSlotWithFallback',
         'tryCreateAutoPR',

@@ -227,7 +227,7 @@ describe('cross-workflow priority', () => {
 
   describe('source guards', () => {
     it('declares workflow priority in schema tables and indexes it', () => {
-      const schemaSource = readServerFile('db', 'schema-tables.js');
+      const schemaSource = readServerFile('db', 'schema', 'tables.js');
 
       expect(schemaSource).toMatch(/CREATE TABLE IF NOT EXISTS workflows[\s\S]*priority INTEGER DEFAULT 0/);
       expect(schemaSource).toContain('CREATE INDEX IF NOT EXISTS idx_workflows_priority ON workflows(priority);');
@@ -235,7 +235,7 @@ describe('cross-workflow priority', () => {
     });
 
     it('adds workflow priority safely in schema migrations', () => {
-      const migrationSource = readServerFile('db', 'schema-migrations.js');
+      const migrationSource = readServerFile('db', 'migrations.js');
 
       expect(migrationSource).toContain("safeAddColumn('workflows', 'priority INTEGER DEFAULT 0');");
       expect(migrationSource).toContain('CREATE INDEX IF NOT EXISTS idx_workflows_priority ON workflows(priority)');

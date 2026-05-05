@@ -176,7 +176,13 @@ describe('discard-regenerable-merge-block', () => {
 
       expect(result.outcome).toBe('unblocked');
       expect(result.details.restored).toContain(planPath);
-      expect(fs.readFileSync(path.join(dir, planPath), 'utf8')).toBe('committed content\n');
+      // Normalize CRLF→LF — Windows git's autocrlf default may convert
+      // committed-LF to working-tree-CRLF on checkout regardless of the
+      // GIT_CONFIG_KEY_0 override (system gitconfig wins in some setups).
+      // The test cares that the strategy restored the committed bytes,
+      // not what line-ending git chose to deliver them as.
+      const restored = fs.readFileSync(path.join(dir, planPath), 'utf8').replace(/\r\n/g, '\n');
+      expect(restored).toBe('committed content\n');
     });
 
     it('refuses when non-regenerable files are dirty', async () => {
