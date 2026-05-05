@@ -118,13 +118,16 @@ function scan() {
     });
     // sharedFactoryStore is a registered service — slotPullScheduler depends on it.
     probe.registerValue('sharedFactoryStore', { get: () => null, set: () => {} });
+    // providerRegistry + gpuMetrics — taskStartup depends on them.
+    probe.registerValue('providerRegistry', { getProviderInstance: () => null });
+    probe.registerValue('gpuMetrics', { probe: () => ({}) });
     require('../validation/register').register(probe);
     require('../execution/register').register(probe);
     require('../factory/register').register(probe);
     require('../mcp/protocol').register(probe);
     require('../providers/agentic-capability').register(probe);
     probe.boot({ failFast: false });
-    const stubs = new Set(['db', 'eventBus', 'logger', 'serverConfig', 'dashboard', 'taskManager', 'sharedFactoryStore']);
+    const stubs = new Set(['db', 'eventBus', 'logger', 'serverConfig', 'dashboard', 'taskManager', 'sharedFactoryStore', 'providerRegistry', 'gpuMetrics']);
     wiredServices = probe.list().filter((n) => !stubs.has(n)).sort();
     wiredCount = wiredServices.length;
   } catch (err) {

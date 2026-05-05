@@ -52,12 +52,13 @@ const queueScheduler = require('./queue-scheduler');                // [db, task
 const providerRouter = require('./provider-router');                // [db, serverConfig, taskManager]
 const taskCancellation = require('./task-cancellation');            // [db, logger, taskManager] — taskCanceller capability
 const taskFinalizer = require('./task-finalizer');                  // [db, taskManager]
+const taskStartup = require('./task-startup');                      // [db, dashboard, serverConfig, providerRegistry, gpuMetrics, taskManager]
 
 // ── Deferred (deps include task-manager-owned closures / utilities) ──
-// Required for side effects (each module's register() function is
-// available on its export) but NOT called until consumer migration
-// promotes their utility-function deps to container values.
-require('./task-startup');
+// Empty — all execution/ modules are now wired. The "deferred" bucket
+// existed during the universal-DI migration; if a future module needs
+// to land deferred again, add the require() here so its register()
+// function is loaded as a side effect without being activated.
 
 function register(container) {
   // Activate only the modules whose deps are fully container-managed.
@@ -79,6 +80,7 @@ function register(container) {
   providerRouter.register(container);
   taskCancellation.register(container);
   taskFinalizer.register(container);
+  taskStartup.register(container);
 }
 
 module.exports = { register };

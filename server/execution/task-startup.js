@@ -2020,6 +2020,118 @@ function getSkipGitInCloseHandler() { return skipGitInCloseHandler; }
 // here; restored after the call. Functions on the returned object route
 // through withLocalDeps so they read the per-instance closure values.
 function createTaskStartup(localDeps = {}) {
+  // Resolve all deps once at construction. Utility functions come from
+  // their canonical modules via require(). State maps come from the
+  // processTracker singleton. Task-manager methods bind from the
+  // registered taskManager value (cancelTask prefers the taskCanceller
+  // capability if registered). Test fixtures with explicit overrides
+  // via localDeps still win — the spread + presence checks below
+  // preserve the override path.
+  const resolved = { ...localDeps };
+  const tm = localDeps.taskManager || null;
+  const tmMethod = (name) => (tm && typeof tm[name] === 'function' ? tm[name].bind(tm) : null);
+  try {
+    const { defaultContainer } = require('../container');
+    const tracker = defaultContainer.peek('processTracker');
+    if (tracker) {
+      if (resolved.runningProcesses === undefined) resolved.runningProcesses = tracker;
+      if (resolved.pendingRetryTimeouts === undefined && tracker.retryTimeouts) {
+        resolved.pendingRetryTimeouts = tracker.retryTimeouts;
+      }
+    }
+  } catch { /* container unavailable */ }
+  // Pure-function require()s for utility deps.
+  if (resolved.parseTaskMetadata === undefined) {
+    try { resolved.parseTaskMetadata = require('./task-utils').parseTaskMetadata; }
+    catch { /* fall through */ }
+  }
+  if (resolved.getTaskContextTokenEstimate === undefined) {
+    try { resolved.getTaskContextTokenEstimate = require('./task-utils').getTaskContextTokenEstimate; }
+    catch { /* fall through */ }
+  }
+  if (resolved.sanitizeTaskOutput === undefined) {
+    try { resolved.sanitizeTaskOutput = require('./task-utils').sanitizeTaskOutput; }
+    catch { /* fall through */ }
+  }
+  if (resolved.detectOutputCompletion === undefined) {
+    try { resolved.detectOutputCompletion = require('../validation/completion-detection').detectOutputCompletion; }
+    catch { /* fall through */ }
+  }
+  if (resolved.resolveFileReferences === undefined) {
+    try { resolved.resolveFileReferences = require('../utils/file-resolution').resolveFileReferences; }
+    catch { /* fall through */ }
+  }
+  // Provider-router methods.
+  if (resolved.resolveProviderRouting === undefined
+      || resolved.failTaskForInvalidProvider === undefined
+      || resolved.getProviderSlotLimits === undefined
+      || resolved.getEffectiveGlobalMaxConcurrent === undefined) {
+    try {
+      const pr = require('./provider-router');
+      if (resolved.resolveProviderRouting === undefined) resolved.resolveProviderRouting = pr.resolveProviderRouting;
+      if (resolved.failTaskForInvalidProvider === undefined) resolved.failTaskForInvalidProvider = pr.failTaskForInvalidProvider;
+      if (resolved.getProviderSlotLimits === undefined) resolved.getProviderSlotLimits = pr.getProviderSlotLimits;
+      if (resolved.getEffectiveGlobalMaxConcurrent === undefined) resolved.getEffectiveGlobalMaxConcurrent = pr.getEffectiveGlobalMaxConcurrent;
+    } catch { /* fall through */ }
+  }
+  // Command builders.
+  if (resolved.buildClaudeCliCommand === undefined || resolved.buildCodexCommand === undefined) {
+    try {
+      const cb = require('./command-builders');
+      if (resolved.buildClaudeCliCommand === undefined) resolved.buildClaudeCliCommand = cb.buildClaudeCliCommand;
+      if (resolved.buildCodexCommand === undefined) resolved.buildCodexCommand = cb.buildCodexCommand;
+    } catch { /* fall through */ }
+  }
+  if (resolved.buildFileContext === undefined) {
+    try { resolved.buildFileContext = require('./file-context-builder').buildFileContext; }
+    catch { /* fall through */ }
+  }
+  // process-lifecycle's spawnAndTrackProcess.
+  if (resolved.spawnAndTrackProcess === undefined) {
+    try { resolved.spawnAndTrackProcess = require('./process-lifecycle').spawnAndTrackProcess; }
+    catch { /* fall through */ }
+  }
+  // providers/execution exports.
+  if (resolved.executeOllamaTask === undefined || resolved.executeApiProvider === undefined) {
+    try {
+      const exec = require('../providers/execution');
+      if (resolved.executeOllamaTask === undefined) resolved.executeOllamaTask = exec.executeOllamaTask;
+      if (resolved.executeApiProvider === undefined) resolved.executeApiProvider = exec.executeApiProvider;
+    } catch { /* fall through */ }
+  }
+  // policy-engine hooks.
+  if (resolved.evaluateTaskPreExecutePolicy === undefined || resolved.getPolicyBlockReason === undefined) {
+    try {
+      const hooks = require('../policy-engine/task-execution-hooks');
+      if (resolved.evaluateTaskPreExecutePolicy === undefined) resolved.evaluateTaskPreExecutePolicy = hooks.evaluateTaskPreExecutePolicy;
+      if (resolved.getPolicyBlockReason === undefined) resolved.getPolicyBlockReason = hooks.getPolicyBlockReason;
+    } catch { /* fall through */ }
+  }
+  // Task-manager methods. cancelTask prefers the taskCanceller capability.
+  if (resolved.cancelTask === undefined) {
+    try {
+      const { defaultContainer } = require('../container');
+      if (defaultContainer.has?.('taskCanceller')) {
+        const tc = defaultContainer.get('taskCanceller');
+        if (tc && typeof tc.cancelTask === 'function') {
+          resolved.cancelTask = tc.cancelTask.bind(tc);
+        }
+      }
+    } catch { /* fall through */ }
+    if (resolved.cancelTask === undefined) resolved.cancelTask = tmMethod('cancelTask');
+  }
+  if (resolved.processQueue === undefined) resolved.processQueue = tmMethod('processQueue');
+  if (resolved.safeUpdateTaskStatus === undefined) resolved.safeUpdateTaskStatus = tmMethod('safeUpdateTaskStatus');
+  // QUEUE_LOCK_HOLDER_ID is a process-unique constant. Reuse task-manager's
+  // when accessible; fall back to a fresh per-instance one if not.
+  if (resolved.QUEUE_LOCK_HOLDER_ID === undefined && tm && tm.QUEUE_LOCK_HOLDER_ID) {
+    resolved.QUEUE_LOCK_HOLDER_ID = tm.QUEUE_LOCK_HOLDER_ID;
+  }
+  if (resolved.QUEUE_LOCK_HOLDER_ID === undefined) {
+    const crypto = require('node:crypto');
+    resolved.QUEUE_LOCK_HOLDER_ID = `task-startup-${process.pid}-${crypto.randomUUID().slice(0, 8)}`;
+  }
+
   function withLocalDeps(fn) {
     const prev = {
       db, dashboard, serverConfig, providerRegistry, gpuMetrics, runningProcesses,
@@ -2031,34 +2143,34 @@ function createTaskStartup(localDeps = {}) {
       getPolicyBlockReason, cancelTask, processQueue, sanitizeTaskOutput,
       detectOutputCompletion, QUEUE_LOCK_HOLDER_ID,
     };
-    if (localDeps.db !== undefined) db = localDeps.db;
-    if (localDeps.dashboard !== undefined) dashboard = localDeps.dashboard;
-    if (localDeps.serverConfig !== undefined) serverConfig = localDeps.serverConfig;
-    if (localDeps.providerRegistry !== undefined) providerRegistry = localDeps.providerRegistry;
-    if (localDeps.gpuMetrics !== undefined) gpuMetrics = localDeps.gpuMetrics;
-    if (localDeps.runningProcesses !== undefined) runningProcesses = localDeps.runningProcesses;
-    if (localDeps.pendingRetryTimeouts !== undefined) pendingRetryTimeouts = localDeps.pendingRetryTimeouts;
-    if (localDeps.parseTaskMetadata !== undefined) parseTaskMetadata = localDeps.parseTaskMetadata;
-    if (localDeps.getTaskContextTokenEstimate !== undefined) getTaskContextTokenEstimate = localDeps.getTaskContextTokenEstimate;
-    if (localDeps.safeUpdateTaskStatus !== undefined) safeUpdateTaskStatus = localDeps.safeUpdateTaskStatus;
-    if (localDeps.resolveProviderRouting !== undefined) resolveProviderRouting = localDeps.resolveProviderRouting;
-    if (localDeps.failTaskForInvalidProvider !== undefined) failTaskForInvalidProvider = localDeps.failTaskForInvalidProvider;
-    if (localDeps.getProviderSlotLimits !== undefined) getProviderSlotLimits = localDeps.getProviderSlotLimits;
-    if (localDeps.getEffectiveGlobalMaxConcurrent !== undefined) getEffectiveGlobalMaxConcurrent = localDeps.getEffectiveGlobalMaxConcurrent;
-    if (localDeps.spawnAndTrackProcess !== undefined) spawnAndTrackProcess = localDeps.spawnAndTrackProcess;
-    if (localDeps.buildClaudeCliCommand !== undefined) buildClaudeCliCommand = localDeps.buildClaudeCliCommand;
-    if (localDeps.buildCodexCommand !== undefined) buildCodexCommand = localDeps.buildCodexCommand;
-    if (localDeps.buildFileContext !== undefined) buildFileContext = localDeps.buildFileContext;
-    if (localDeps.resolveFileReferences !== undefined) resolveFileReferences = localDeps.resolveFileReferences;
-    if (localDeps.executeOllamaTask !== undefined) executeOllamaTask = localDeps.executeOllamaTask;
-    if (localDeps.executeApiProvider !== undefined) executeApiProvider = localDeps.executeApiProvider;
-    if (localDeps.evaluateTaskPreExecutePolicy !== undefined) evaluateTaskPreExecutePolicy = localDeps.evaluateTaskPreExecutePolicy;
-    if (localDeps.getPolicyBlockReason !== undefined) getPolicyBlockReason = localDeps.getPolicyBlockReason;
-    if (localDeps.cancelTask !== undefined) cancelTask = localDeps.cancelTask;
-    if (localDeps.processQueue !== undefined) processQueue = localDeps.processQueue;
-    if (localDeps.sanitizeTaskOutput !== undefined) sanitizeTaskOutput = localDeps.sanitizeTaskOutput;
-    if (localDeps.detectOutputCompletion !== undefined) detectOutputCompletion = localDeps.detectOutputCompletion;
-    if (localDeps.QUEUE_LOCK_HOLDER_ID !== undefined) QUEUE_LOCK_HOLDER_ID = localDeps.QUEUE_LOCK_HOLDER_ID;
+    if (resolved.db !== undefined) db = resolved.db;
+    if (resolved.dashboard !== undefined) dashboard = resolved.dashboard;
+    if (resolved.serverConfig !== undefined) serverConfig = resolved.serverConfig;
+    if (resolved.providerRegistry !== undefined) providerRegistry = resolved.providerRegistry;
+    if (resolved.gpuMetrics !== undefined) gpuMetrics = resolved.gpuMetrics;
+    if (resolved.runningProcesses !== undefined) runningProcesses = resolved.runningProcesses;
+    if (resolved.pendingRetryTimeouts !== undefined) pendingRetryTimeouts = resolved.pendingRetryTimeouts;
+    if (resolved.parseTaskMetadata !== undefined) parseTaskMetadata = resolved.parseTaskMetadata;
+    if (resolved.getTaskContextTokenEstimate !== undefined) getTaskContextTokenEstimate = resolved.getTaskContextTokenEstimate;
+    if (resolved.safeUpdateTaskStatus !== undefined) safeUpdateTaskStatus = resolved.safeUpdateTaskStatus;
+    if (resolved.resolveProviderRouting !== undefined) resolveProviderRouting = resolved.resolveProviderRouting;
+    if (resolved.failTaskForInvalidProvider !== undefined) failTaskForInvalidProvider = resolved.failTaskForInvalidProvider;
+    if (resolved.getProviderSlotLimits !== undefined) getProviderSlotLimits = resolved.getProviderSlotLimits;
+    if (resolved.getEffectiveGlobalMaxConcurrent !== undefined) getEffectiveGlobalMaxConcurrent = resolved.getEffectiveGlobalMaxConcurrent;
+    if (resolved.spawnAndTrackProcess !== undefined) spawnAndTrackProcess = resolved.spawnAndTrackProcess;
+    if (resolved.buildClaudeCliCommand !== undefined) buildClaudeCliCommand = resolved.buildClaudeCliCommand;
+    if (resolved.buildCodexCommand !== undefined) buildCodexCommand = resolved.buildCodexCommand;
+    if (resolved.buildFileContext !== undefined) buildFileContext = resolved.buildFileContext;
+    if (resolved.resolveFileReferences !== undefined) resolveFileReferences = resolved.resolveFileReferences;
+    if (resolved.executeOllamaTask !== undefined) executeOllamaTask = resolved.executeOllamaTask;
+    if (resolved.executeApiProvider !== undefined) executeApiProvider = resolved.executeApiProvider;
+    if (resolved.evaluateTaskPreExecutePolicy !== undefined) evaluateTaskPreExecutePolicy = resolved.evaluateTaskPreExecutePolicy;
+    if (resolved.getPolicyBlockReason !== undefined) getPolicyBlockReason = resolved.getPolicyBlockReason;
+    if (resolved.cancelTask !== undefined) cancelTask = resolved.cancelTask;
+    if (resolved.processQueue !== undefined) processQueue = resolved.processQueue;
+    if (resolved.sanitizeTaskOutput !== undefined) sanitizeTaskOutput = resolved.sanitizeTaskOutput;
+    if (resolved.detectOutputCompletion !== undefined) detectOutputCompletion = resolved.detectOutputCompletion;
+    if (resolved.QUEUE_LOCK_HOLDER_ID !== undefined) QUEUE_LOCK_HOLDER_ID = resolved.QUEUE_LOCK_HOLDER_ID;
     try { return fn(); }
     finally {
       ({
@@ -2103,19 +2215,14 @@ function createTaskStartup(localDeps = {}) {
 }
 
 function register(container) {
+  // Most deps resolve inside the factory: utility functions via require()
+  // from their canonical modules; runningProcesses + pendingRetryTimeouts
+  // from processTracker; cancelTask/processQueue/safeUpdateTaskStatus from
+  // taskManager (cancelTask preferring the registered taskCanceller
+  // capability). Only the true container services need to be declared.
   container.register(
     'taskStartup',
-    [
-      'db', 'dashboard', 'serverConfig', 'providerRegistry', 'gpuMetrics',
-      'runningProcesses', 'pendingRetryTimeouts',
-      'parseTaskMetadata', 'getTaskContextTokenEstimate', 'safeUpdateTaskStatus',
-      'resolveProviderRouting', 'failTaskForInvalidProvider', 'getProviderSlotLimits',
-      'getEffectiveGlobalMaxConcurrent', 'spawnAndTrackProcess',
-      'buildClaudeCliCommand', 'buildCodexCommand', 'buildFileContext', 'resolveFileReferences',
-      'executeOllamaTask', 'executeApiProvider', 'evaluateTaskPreExecutePolicy',
-      'getPolicyBlockReason', 'cancelTask', 'processQueue', 'sanitizeTaskOutput',
-      'detectOutputCompletion', 'QUEUE_LOCK_HOLDER_ID',
-    ],
+    ['db', 'dashboard', 'serverConfig', 'providerRegistry', 'gpuMetrics', 'taskManager'],
     (deps) => createTaskStartup(deps)
   );
 }
