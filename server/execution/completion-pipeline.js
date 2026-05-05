@@ -557,9 +557,40 @@ async function handlePostCompletion(ctx) {
 
 // ── New factory shape (preferred) ─────────────────────────────────────────
 function createCompletionPipeline(localDeps = {}) {
+  // Resolve handler functions from container services + utility
+  // requires when explicit overrides aren't supplied. Test fixtures
+  // with explicit dep overrides still win.
+  const resolved = { ...localDeps };
+  if (!resolved.parseTaskMetadata) {
+    try { resolved.parseTaskMetadata = require('./task-utils').parseTaskMetadata; }
+    catch { /* fall through */ }
+  }
+  if (!resolved.runOutputSafeguards) {
+    try { resolved.runOutputSafeguards = require('../validation/output-safeguards').runOutputSafeguards; }
+    catch { /* fall through */ }
+  }
+  try {
+    const { defaultContainer } = require('../container');
+    if (!resolved.handleWorkflowTermination && defaultContainer.has?.('workflowRuntime')) {
+      try {
+        const wf = defaultContainer.get('workflowRuntime');
+        resolved.handleWorkflowTermination = wf.handleWorkflowTermination;
+        if (!resolved.handlePipelineStepCompletion) {
+          resolved.handlePipelineStepCompletion = wf.handlePipelineStepCompletion;
+        }
+      } catch { /* not booted yet */ }
+    }
+    if (!resolved.handleProjectDependencyResolution && defaultContainer.has?.('planProjectResolver')) {
+      try {
+        const ppr = defaultContainer.get('planProjectResolver');
+        resolved.handleProjectDependencyResolution = ppr.handleProjectDependencyResolution;
+      } catch { /* not booted yet */ }
+    }
+  } catch { /* container not available */ }
+
   function withLocalDeps(fn) {
     const prev = deps;
-    deps = localDeps;
+    deps = resolved;
     try { return fn(); } finally { deps = prev; }
   }
   return {
@@ -578,13 +609,13 @@ function createCompletionPipeline(localDeps = {}) {
  * runOutputSafeguards.
  */
 function register(container) {
+  // parseTaskMetadata + runOutputSafeguards via require(); handler
+  // functions resolved from workflowRuntime + planProjectResolver
+  // container services inside the factory. Only db is a true container
+  // dep here.
   container.register(
     'completionPipeline',
-    [
-      'db', 'parseTaskMetadata', 'handleWorkflowTermination',
-      'handleProjectDependencyResolution', 'handlePipelineStepCompletion',
-      'runOutputSafeguards',
-    ],
+    ['db'],
     (resolved) => createCompletionPipeline(resolved)
   );
 }
