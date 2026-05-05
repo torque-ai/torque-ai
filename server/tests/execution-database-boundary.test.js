@@ -3,12 +3,13 @@
 const fs = require('fs');
 const Module = require('module');
 
-// task-manager.js peeks the container for processTracker at module load
-// (server/task-manager.js:264) and throws if it's not a ProcessTracker
-// instance. The container mocks below must return a real instance for
-// peek('processTracker') so task-manager loads successfully under the
-// test's mocked '../container'.
+// task-manager.js peeks the container for processTracker and
+// finalizationTracker at module load and runs duck-type checks against
+// them (Map subclass + branded method). The container mocks below must
+// return real instances so task-manager.js loads under the test's
+// mocked '../container'.
 const ProcessTracker = require('../execution/process-tracker');
+const FinalizationTracker = require('../execution/finalization-tracker');
 
 const DATABASE_MODULE_PATH = require.resolve('../database');
 const DIRECT_DATABASE_IMPORT = /require\s*\(\s*['"](?:\.\.\/)+database(?:\.js)?['"]\s*\)/;
@@ -80,12 +81,17 @@ function createConfigMock() {
 
 function createContainerMock() {
   const processTracker = new ProcessTracker();
+  const finalizationTracker = new FinalizationTracker();
   return {
     getModule: vi.fn(() => null),
     defaultContainer: {
       has: vi.fn(() => false),
       get: vi.fn(() => null),
-      peek: vi.fn((name) => (name === 'processTracker' ? processTracker : null)),
+      peek: vi.fn((name) => {
+        if (name === 'processTracker') return processTracker;
+        if (name === 'finalizationTracker') return finalizationTracker;
+        return null;
+      }),
     },
   };
 }
@@ -149,15 +155,15 @@ function installTaskManagerBoundaryMocks() {
   };
 
   const containerProcessTracker = new ProcessTracker();
+  const containerFinalizationTracker = new FinalizationTracker();
   const container = {
     getModule: vi.fn((name) => (name === 'db' ? db : null)),
     defaultContainer: {
       has: vi.fn(() => false),
       get: vi.fn(() => null),
       peek: vi.fn((name) => {
-        // eslint-disable-next-line no-console
-        console.log('[debug] container.peek called with:', name);
         if (name === 'processTracker') return containerProcessTracker;
+        if (name === 'finalizationTracker') return containerFinalizationTracker;
         return null;
       }),
     },

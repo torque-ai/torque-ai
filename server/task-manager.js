@@ -262,7 +262,13 @@ if (executeApi.setFreeQuotaTracker) executeApi.setFreeQuotaTracker(getFreeQuotaT
 // module-load timing.
 const { defaultContainer } = require('./container');
 const runningProcesses = defaultContainer.peek('processTracker');
-if (!(runningProcesses instanceof ProcessTracker)) {
+// Duck-type check: instanceof ProcessTracker fails under vitest module
+// isolation when the test's ProcessTracker class identity differs from
+// task-manager's. ProcessTracker is a Map subclass with markCleanedUp;
+// checking against the global Map (identity-stable across module
+// boundaries) plus the domain-specific method is robust to test mocks
+// while still catching real registration bugs.
+if (!(runningProcesses instanceof Map) || typeof runningProcesses.markCleanedUp !== 'function') {
   throw new Error('container missing processTracker registration — server/container.js must registerValue it before task-manager.js loads');
 }
 
@@ -305,7 +311,10 @@ const {
 // .start/.touch/.idleMs/.getMarker are the preferred new entry points.
 const FinalizationTracker = require('./execution/finalization-tracker');
 const finalizingTasks = defaultContainer.peek('finalizationTracker');
-if (!(finalizingTasks instanceof FinalizationTracker)) {
+// Duck-type check (same rationale as processTracker above): FinalizationTracker
+// extends Map and exposes .start/.touch/.idleMs/.getMarker. Check Map +
+// one branded method to stay robust to vitest module isolation.
+if (!(finalizingTasks instanceof Map) || typeof finalizingTasks.start !== 'function') {
   throw new Error('container missing finalizationTracker registration — server/container.js must registerValue it before task-manager.js loads');
 }
 
