@@ -50,6 +50,7 @@ const completionPipeline = require('./completion-pipeline');        // [db]
 const slotPullScheduler = require('./slot-pull-scheduler');         // [db, dashboard, sharedFactoryStore, taskManager]
 const queueScheduler = require('./queue-scheduler');                // [db, taskManager, eventBus]
 const providerRouter = require('./provider-router');                // [db, serverConfig, taskManager]
+const taskCancellation = require('./task-cancellation');            // [db, logger, taskManager] — taskCanceller capability
 
 // ── Deferred (deps include task-manager-owned closures / utilities) ──
 // Required for side effects (each module's register() function is
@@ -76,6 +77,7 @@ function register(container) {
   slotPullScheduler.register(container);
   queueScheduler.register(container);
   providerRouter.register(container);
+  taskCancellation.register(container);
 }
 
 module.exports = { register };

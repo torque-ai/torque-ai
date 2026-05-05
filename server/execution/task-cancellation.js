@@ -308,4 +308,56 @@ function createCancellationHandler(deps) {
   };
 }
 
+/**
+ * Register taskCanceller as a container service. The factory accepts
+ * deps directly via the resolved container values; utility-function
+ * deps (sanitizeTaskOutput, safeTriggerWebhook, kill/cleanup helpers)
+ * resolve via require() inside this register factory. processQueue
+ * binds from registered taskManager. handleWorkflowTermination binds
+ * from registered workflowRuntime container service.
+ *
+ * Pilot for the taskManager-decomposition arc: the wired modules
+ * (workflowRuntime, fallbackRetry, processLifecycle) currently call
+ * taskManager.cancelTask directly. After this lands they can declare
+ * `taskCanceller` in their register() deps and call its .cancelTask
+ * instead — reducing taskManager surface area.
+ */
+function register(container) {
+  container.register(
+    'taskCanceller',
+    ['db', 'logger', 'taskManager'],
+    (deps) => {
+      const tm = deps.taskManager || null;
+      const tmMethod = (name) => (tm && typeof tm[name] === 'function' ? tm[name].bind(tm) : null);
+      const lifecycle = (() => {
+        try { return require('./process-lifecycle'); } catch { return {}; }
+      })();
+      const taskUtils = (() => {
+        try { return require('./task-utils'); } catch { return {}; }
+      })();
+      let handleWorkflowTermination = null;
+      try {
+        const { defaultContainer } = require('../container');
+        if (defaultContainer.has?.('workflowRuntime')) {
+          const wf = defaultContainer.get('workflowRuntime');
+          handleWorkflowTermination = wf?.handleWorkflowTermination || null;
+        }
+      } catch { /* not booted */ }
+      return createCancellationHandler({
+        db: deps.db,
+        logger: deps.logger,
+        sanitizeTaskOutput: taskUtils.sanitizeTaskOutput,
+        safeTriggerWebhook: lifecycle.safeTriggerWebhook,
+        killProcessGraceful: lifecycle.killProcessGraceful,
+        cleanupChildProcessListeners: lifecycle.cleanupChildProcessListeners,
+        cleanupProcessTracking: lifecycle.cleanupProcessTracking,
+        safeDecrementHostSlot: lifecycle.safeDecrementHostSlot,
+        handleWorkflowTermination,
+        processQueue: tmMethod('processQueue'),
+      });
+    }
+  );
+}
+
 module.exports = createCancellationHandler;
+module.exports.register = register;

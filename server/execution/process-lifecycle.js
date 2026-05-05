@@ -1002,7 +1002,20 @@ function createProcessLifecycle(localDeps = {}) {
   const tm = localDeps.taskManager || null;
   const tmMethod = (name) => (tm && typeof tm[name] === 'function' ? tm[name].bind(tm) : null);
   if (!resolved.finalizeTask) resolved.finalizeTask = tmMethod('finalizeTask');
-  if (!resolved.cancelTask) resolved.cancelTask = tmMethod('cancelTask');
+  if (!resolved.cancelTask) {
+    // Capability decomposition: prefer registered taskCanceller over
+    // taskManager.cancelTask when available.
+    try {
+      const { defaultContainer } = require('../container');
+      if (defaultContainer.has?.('taskCanceller')) {
+        const tc = defaultContainer.get('taskCanceller');
+        if (tc && typeof tc.cancelTask === 'function') {
+          resolved.cancelTask = tc.cancelTask.bind(tc);
+        }
+      }
+    } catch { /* not booted */ }
+    if (!resolved.cancelTask) resolved.cancelTask = tmMethod('cancelTask');
+  }
   if (!resolved.processQueue) resolved.processQueue = tmMethod('processQueue');
   if (!resolved.markTaskCleanedUp) resolved.markTaskCleanedUp = tmMethod('markTaskCleanedUp');
   if (!resolved.safeUpdateTaskStatus) resolved.safeUpdateTaskStatus = tmMethod('safeUpdateTaskStatus');

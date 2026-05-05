@@ -1119,6 +1119,17 @@ function createFallbackRetry(localDeps = {}) {
   // method overrides still win.
   const tm = localDeps.taskManager || null;
   const tmMethod = (name) => (tm && typeof tm[name] === 'function' ? tm[name].bind(tm) : null);
+  // Capability decomposition: cancelTask prefers the registered
+  // taskCanceller capability service over taskManager.cancelTask.
+  const taskCanceller = localDeps.taskCanceller || (() => {
+    try {
+      const { defaultContainer } = require('../container');
+      return defaultContainer.has?.('taskCanceller') ? defaultContainer.get('taskCanceller') : null;
+    } catch { return null; }
+  })();
+  const tcCancelTask = taskCanceller && typeof taskCanceller.cancelTask === 'function'
+    ? taskCanceller.cancelTask.bind(taskCanceller)
+    : null;
   const trackerCandidate = localDeps.runningProcesses
     || (() => {
       try {
@@ -1131,7 +1142,7 @@ function createFallbackRetry(localDeps = {}) {
     db: localDeps.db,
     dashboard: localDeps.dashboard,
     _processQueue: localDeps.processQueue || tmMethod('processQueue'),
-    _cancelTask: localDeps.cancelTask || tmMethod('cancelTask'),
+    _cancelTask: localDeps.cancelTask || tcCancelTask || tmMethod('cancelTask'),
     _stopTaskForRestart: localDeps.stopTaskForRestart || tmMethod('stopTaskForRestart'),
     _markTaskCleanedUp: localDeps.markTaskCleanedUp || tmMethod('markTaskCleanedUp'),
     _stallRecoveryAttempts: localDeps.stallRecoveryAttempts

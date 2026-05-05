@@ -1835,11 +1835,24 @@ function maybeFinalizeAuditRun(workflowId, finalStatus) {
 // factory accepts a taskManager handle and extracts the methods. Direct
 // startTask/cancelTask/processQueue overrides via localDeps still win,
 // preserving the test override path.
+//
+// Capability decomposition (2026-05-05): cancelTask prefers the
+// registered `taskCanceller` capability when available, falling back
+// to taskManager.cancelTask for legacy/test contexts. This is the
+// pilot for moving each capability into its own focused service so
+// consumers don't depend on the entire taskManager surface.
 function createWorkflowRuntime(localDeps = {}) {
   const tm = localDeps.taskManager || null;
+  const taskCanceller = localDeps.taskCanceller || (() => {
+    try {
+      const { defaultContainer } = require('../container');
+      return defaultContainer.has?.('taskCanceller') ? defaultContainer.get('taskCanceller') : null;
+    } catch { return null; }
+  })();
   const localStartTask = localDeps.startTask
     || (tm && typeof tm.startTask === 'function' ? tm.startTask.bind(tm) : null);
   const localCancelTask = localDeps.cancelTask
+    || (taskCanceller && typeof taskCanceller.cancelTask === 'function' ? taskCanceller.cancelTask.bind(taskCanceller) : null)
     || (tm && typeof tm.cancelTask === 'function' ? tm.cancelTask.bind(tm) : null);
   const localProcessQueue = localDeps.processQueue
     || (tm && typeof tm.processQueue === 'function' ? tm.processQueue.bind(tm) : null);
