@@ -26,6 +26,7 @@ function getExecuteCli() { return require('../providers/execute-cli'); }
 const logger = require('../logger').child({ component: 'process-lifecycle' });
 const { redactCommandArgs } = require('../utils/sanitize');
 const { buildCombinedProcessOutput, detectSuccessFromOutput } = require('../validation/completion-detection');
+const { resolveMethod } = require('./capability-resolver');
 const { extractModifiedFiles } = require('../utils/file-resolution');
 const { resolveActivityAwareTimeoutDecision } = require('../utils/activity-timeout');
 const { isSubprocessDetachmentEnabled } = require('../utils/subprocess-detachment');
@@ -1003,18 +1004,15 @@ function createProcessLifecycle(localDeps = {}) {
   const tmMethod = (name) => (tm && typeof tm[name] === 'function' ? tm[name].bind(tm) : null);
   if (!resolved.finalizeTask) resolved.finalizeTask = tmMethod('finalizeTask');
   if (!resolved.cancelTask) {
-    // Capability decomposition: prefer registered taskCanceller over
-    // taskManager.cancelTask when available.
-    try {
-      const { defaultContainer } = require('../container');
-      if (defaultContainer.has?.('taskCanceller')) {
-        const tc = defaultContainer.get('taskCanceller');
-        if (tc && typeof tc.cancelTask === 'function') {
-          resolved.cancelTask = tc.cancelTask.bind(tc);
-        }
-      }
-    } catch { /* not booted */ }
-    if (!resolved.cancelTask) resolved.cancelTask = tmMethod('cancelTask');
+    // Lazy capability resolution: each call resolves to the currently-
+    // registered taskCanceller capability, falling back to
+    // taskManager.cancelTask. See execution/capability-resolver.js.
+    resolved.cancelTask = resolveMethod(localDeps, {
+      capability: 'taskCanceller',
+      method: 'cancelTask',
+      legacyHandle: 'taskManager',
+      legacyKey: 'cancelTask',
+    });
   }
   if (!resolved.processQueue) resolved.processQueue = tmMethod('processQueue');
   if (!resolved.markTaskCleanedUp) resolved.markTaskCleanedUp = tmMethod('markTaskCleanedUp');

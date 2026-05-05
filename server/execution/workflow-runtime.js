@@ -12,6 +12,7 @@ const fs = require('fs');
 const path = require('path');
 const { v4: uuidv4 } = require('uuid');
 const logger = require('../logger').child({ component: 'workflow-runtime' });
+const { resolveMethod } = require('./capability-resolver');
 const serverConfig = require('../config');
 const { resolveWorkflowConflicts } = require('./conflict-resolver');
 const { safeJsonParse } = require('../utils/json');
@@ -1836,24 +1837,23 @@ function maybeFinalizeAuditRun(workflowId, finalStatus) {
 // startTask/cancelTask/processQueue overrides via localDeps still win,
 // preserving the test override path.
 //
-// Capability decomposition (2026-05-05): cancelTask prefers the
-// registered `taskCanceller` capability when available, falling back
-// to taskManager.cancelTask for legacy/test contexts. This is the
-// pilot for moving each capability into its own focused service so
-// consumers don't depend on the entire taskManager surface.
+// Lazy capability resolution (2026-05-05): cancelTask now resolves at
+// each call rather than once at construction. This eliminates the
+// dual-path failure mode where factories built before container.boot()
+// permanently miss the registered capability and route through the
+// fallback. The resolution priority is documented inside
+// capability-resolver.js. Tests can `container.registerValue(name, mock)`
+// at any time and the next call will see the mock.
 function createWorkflowRuntime(localDeps = {}) {
   const tm = localDeps.taskManager || null;
-  const taskCanceller = localDeps.taskCanceller || (() => {
-    try {
-      const { defaultContainer } = require('../container');
-      return defaultContainer.has?.('taskCanceller') ? defaultContainer.get('taskCanceller') : null;
-    } catch { return null; }
-  })();
   const localStartTask = localDeps.startTask
     || (tm && typeof tm.startTask === 'function' ? tm.startTask.bind(tm) : null);
-  const localCancelTask = localDeps.cancelTask
-    || (taskCanceller && typeof taskCanceller.cancelTask === 'function' ? taskCanceller.cancelTask.bind(taskCanceller) : null)
-    || (tm && typeof tm.cancelTask === 'function' ? tm.cancelTask.bind(tm) : null);
+  const localCancelTask = resolveMethod(localDeps, {
+    capability: 'taskCanceller',
+    method: 'cancelTask',
+    legacyHandle: 'taskManager',
+    legacyKey: 'cancelTask',
+  });
   const localProcessQueue = localDeps.processQueue
     || (tm && typeof tm.processQueue === 'function' ? tm.processQueue.bind(tm) : null);
 
