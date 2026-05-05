@@ -28,17 +28,42 @@ const path = require('path');
 const Database = require(path.join(__dirname, '..', 'server', 'node_modules', 'better-sqlite3'));
 const { getDataDir } = require(path.join(__dirname, '..', 'server', 'data-dir'));
 
+// Built-in alias map: pre-canonicalize legacy/short project names so the
+// backfill produces the same value the dashboard kanban filter expects.
+// `torque` was the original name for the torque-public project before
+// the repo got renamed; one row (a7839664, cwd=...\torque-public) still
+// carries the old tag. Pass --alias from=to to add or override entries.
+const DEFAULT_ALIASES = Object.freeze({
+  torque: 'torque-public',
+});
+
 function parseArgs(argv) {
-  const args = { apply: false, limit: 0, verbose: false };
+  const args = { apply: false, limit: 0, verbose: false, aliases: { ...DEFAULT_ALIASES } };
   const rest = argv.slice(2);
   for (let i = 0; i < rest.length; i++) {
     const a = rest[i];
     if (a === '--apply') { args.apply = true; continue; }
     if (a === '--verbose' || a === '-v') { args.verbose = true; continue; }
+    if (a === '--no-alias') { args.aliases = {}; continue; }
     if (a === '--limit') { args.limit = parseInt(rest[++i] || '0', 10) || 0; continue; }
     if (a.startsWith('--limit=')) { args.limit = parseInt(a.split('=')[1] || '0', 10) || 0; continue; }
+    if (a === '--alias') { applyAliasArg(args.aliases, rest[++i] || ''); continue; }
+    if (a.startsWith('--alias=')) { applyAliasArg(args.aliases, a.split('=').slice(1).join('=')); continue; }
   }
   return args;
+}
+
+function applyAliasArg(target, raw) {
+  if (typeof raw !== 'string' || !raw.includes('=')) return;
+  const [from, to] = raw.split('=').map((s) => s.trim());
+  if (!from || !to) return;
+  target[from] = to;
+}
+
+function canonicalizeProject(name, aliases) {
+  if (!name) return name;
+  if (aliases && Object.prototype.hasOwnProperty.call(aliases, name)) return aliases[name];
+  return name;
 }
 
 function parseTags(raw) {
@@ -82,6 +107,10 @@ function main() {
   console.log(`  db path  : ${dbPath}`);
   console.log(`  mode     : ${args.apply ? 'APPLY (writes)' : 'DRY-RUN (no writes)'}`);
   if (args.limit > 0) console.log(`  limit    : ${args.limit} row(s)`);
+  const aliasEntries = Object.entries(args.aliases || {});
+  if (aliasEntries.length > 0) {
+    console.log(`  aliases  : ${aliasEntries.map(([f, t]) => `${f} → ${t}`).join(', ')}`);
+  }
   console.log('');
 
   const db = new Database(dbPath, { fileMustExist: true });
@@ -99,9 +128,12 @@ function main() {
 
   const candidates = [];
   const skipped = { no_project_tag: 0, batch_id_tag: 0 };
+  let aliased = 0;
   for (const row of rows) {
     const tags = parseTags(row.tags);
-    const project = extractProjectFromTags(tags);
+    const rawProject = extractProjectFromTags(tags);
+    const project = canonicalizeProject(rawProject, args.aliases);
+    if (rawProject && project !== rawProject) aliased += 1;
     if (!project) {
       // Tag value was empty, 'unassigned', or factory-<uuid>. Track
       // separately so the operator can tell the difference between
@@ -119,6 +151,7 @@ function main() {
   console.log(`  skipped:`);
   console.log(`    no project tag  : ${skipped.no_project_tag}`);
   console.log(`    batch-id tag    : ${skipped.batch_id_tag}`);
+  if (aliased > 0) console.log(`  aliased (raw → canonical): ${aliased}`);
   console.log('');
 
   if (candidates.length === 0) {
@@ -177,4 +210,6 @@ if (require.main === module) {
 module.exports = {
   parseTags,
   extractProjectFromTags,
+  canonicalizeProject,
+  DEFAULT_ALIASES,
 };
