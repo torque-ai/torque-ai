@@ -375,6 +375,42 @@ summarize_running_blockers() {
   ' <<< "$resp" 2>/dev/null || true
 }
 
+# Count running tasks whose provider is NOT on the subprocess re-adoption
+# allowlist. Source of truth: server/execution/process-lifecycle.js
+# (DETACHABLE_PROVIDERS = codex / codex-spark / claude-cli). Anything else
+# (ollama, ollama-agentic, anthropic, deepinfra, hyperbolic, groq, cerebras,
+# google-ai, openrouter, claude-ollama, ollama-cloud, claude-code-sdk, etc.)
+# loses its in-flight progress on every TORQUE restart because the startup
+# reconciler can only re-adopt PID-detached subprocesses. The fast 60s default
+# drain throws away that work; we extend it automatically so non-detachable
+# tasks finish naturally before the barrier flips.
+count_nondetachable_running() {
+  local resp
+  resp=$(curl -s --max-time 5 "${TORQUE_API}/api/v2/tasks?status=running&limit=50" 2>/dev/null || echo "")
+  if [ -z "$resp" ]; then
+    echo "0"
+    return 0
+  fi
+  node -e '
+    let input = "";
+    process.stdin.on("data", chunk => { input += chunk; });
+    process.stdin.on("end", () => {
+      let parsed;
+      try { parsed = JSON.parse(input); } catch { console.log("0"); return; }
+      const items = parsed?.data?.items || parsed?.items || parsed?.tasks || [];
+      const detachable = new Set(["codex", "codex-spark", "claude-cli"]);
+      const count = items.filter(task => (
+        task
+        && task.status === "running"
+        && task.provider
+        && task.provider !== "system"
+        && !detachable.has(String(task.provider))
+      )).length;
+      console.log(String(count));
+    });
+  ' <<< "$resp" 2>/dev/null || echo "0"
+}
+
 # --- Restart via barrier primitive ---
 # Instead of cooperative drain + stop-torque.sh (which races with factory
 # auto_advance), we use the restart barrier: POST /api/v2/system/restart-server
@@ -396,11 +432,26 @@ if [ "$TORQUE_RUNNING" = "true" ]; then
   # legacy —     export BARRIER_TIMEOUT_MIN=60 to pin the previous
   #              60-minute drain for environments that haven't enabled
   #              detachment yet.
+  # Auto-extend the drain when non-detachable providers are running (ollama,
+  # cloud-API providers, etc.). The fast 60s default is correct for the
+  # codex-only world Phase D was designed against, but anything outside
+  # DETACHABLE_PROVIDERS gets killed by the startup reconciler on restart
+  # — losing whatever progress it had accumulated. Bumping to 30 min lets a
+  # mid-flight ollama agentic task finish naturally. Set CUTOVER_NONDETACH_MIN
+  # to override (e.g. 0 to disable, 60 for an hour).
+  NONDETACH_RUNNING=$(count_nondetachable_running)
+  AUTO_EXTEND_MIN=${CUTOVER_NONDETACH_MIN:-30}
+
   if [ "$GRACEFUL_DRAIN" = "1" ]; then
     BARRIER_TIMEOUT_MIN=${BARRIER_TIMEOUT_MIN:-10}
     DRAIN_TIMEOUT_MS=$((BARRIER_TIMEOUT_MIN * 60 * 1000))
   elif [ -n "${BARRIER_TIMEOUT_MIN:-}" ]; then
     DRAIN_TIMEOUT_MS=$((BARRIER_TIMEOUT_MIN * 60 * 1000))
+  elif [ "${NONDETACH_RUNNING:-0}" -gt 0 ] && [ "${AUTO_EXTEND_MIN:-0}" -gt 0 ]; then
+    BARRIER_TIMEOUT_MIN=$AUTO_EXTEND_MIN
+    DRAIN_TIMEOUT_MS=$((BARRIER_TIMEOUT_MIN * 60 * 1000))
+    echo "  ${NONDETACH_RUNNING} non-detachable running task(s) detected — extending drain to ${BARRIER_TIMEOUT_MIN}m so they finish before restart."
+    echo "  (Override with CUTOVER_NONDETACH_MIN=<minutes> or BARRIER_TIMEOUT_MIN=<minutes>; set CUTOVER_NONDETACH_MIN=0 to disable.)"
   else
     BARRIER_TIMEOUT_MIN=1
     DRAIN_TIMEOUT_MS=60000
