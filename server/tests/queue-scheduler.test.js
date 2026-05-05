@@ -552,6 +552,37 @@ describe('Queue Scheduler', () => {
       expect(filtered.map(task => task.id)).toEqual(['new-architect']);
     });
 
+    it('keeps only the newest queued same-project plan-generation task', () => {
+      const queued = [
+        makeTask({
+          id: 'old-plan',
+          status: 'queued',
+          created_at: '2026-05-01T20:00:00.000Z',
+          provider: 'codex',
+          tags: JSON.stringify([
+            'factory:internal',
+            'factory:plan_generation',
+            'factory:project_id=project-a',
+          ]),
+        }),
+        makeTask({
+          id: 'new-plan',
+          status: 'queued',
+          created_at: '2026-05-01T21:00:00.000Z',
+          provider: 'codex',
+          tags: JSON.stringify([
+            'factory:internal',
+            'factory:plan_generation',
+            'factory:project_id=project-a',
+          ]),
+        }),
+      ];
+
+      const filtered = scheduler.filterSupersededFactoryInternalTasks(queued, []);
+
+      expect(filtered.map(task => task.id)).toEqual(['new-plan']);
+    });
+
     it('defers queued same-project maintenance when one of the same kind is already running', () => {
       const queued = [
         makeTask({
@@ -575,6 +606,39 @@ describe('Queue Scheduler', () => {
           tags: JSON.stringify([
             'factory:internal',
             'factory:architect_cycle',
+            'factory:project_id=project-a',
+          ]),
+        }),
+      ];
+
+      const filtered = scheduler.filterSupersededFactoryInternalTasks(queued, running);
+
+      expect(filtered).toEqual([]);
+    });
+
+    it('defers queued same-project plan-generation when one is already running', () => {
+      const queued = [
+        makeTask({
+          id: 'queued-plan',
+          status: 'queued',
+          created_at: '2026-05-01T21:00:00.000Z',
+          provider: 'codex',
+          tags: JSON.stringify([
+            'factory:internal',
+            'factory:plan_generation',
+            'factory:project_id=project-a',
+          ]),
+        }),
+      ];
+      const running = [
+        makeTask({
+          id: 'running-plan',
+          status: 'running',
+          created_at: '2026-05-01T20:00:00.000Z',
+          provider: 'codex',
+          tags: JSON.stringify([
+            'factory:internal',
+            'factory:plan_generation',
             'factory:project_id=project-a',
           ]),
         }),
@@ -718,6 +782,62 @@ describe('Queue Scheduler', () => {
       expect(mocks.safeStartTask).not.toHaveBeenCalled();
       expect(mockDb.updateTaskStatus).toHaveBeenCalledWith(
         'old-architect',
+        'cancelled',
+        expect.objectContaining({
+          cancel_reason: 'superseded_factory_internal',
+          error_output: expect.stringContaining('newer same-project work'),
+        }),
+      );
+    });
+
+    it('cancels superseded factory plan-generation tasks before file-lock wait deferral', () => {
+      const now = Date.parse('2026-05-01T22:00:00.000Z');
+      vi.spyOn(Date, 'now').mockReturnValue(now);
+      const waitingPlan = makeTask({
+        id: 'queued-plan',
+        status: 'queued',
+        provider: 'codex',
+        created_at: '2026-05-01T21:00:00.000Z',
+        tags: JSON.stringify([
+          'factory:internal',
+          'factory:plan_generation',
+          'factory:project_id=project-a',
+        ]),
+        metadata: JSON.stringify({
+          kind: 'plan_generation',
+          project_id: 'project-a',
+          file_lock_wait: {
+            retry_after: new Date(now + 120000).toISOString(),
+          },
+        }),
+      });
+      const runningPlan = makeTask({
+        id: 'running-plan',
+        status: 'running',
+        provider: 'codex',
+        created_at: '2026-05-01T20:00:00.000Z',
+        tags: JSON.stringify([
+          'factory:internal',
+          'factory:plan_generation',
+          'factory:project_id=project-a',
+        ]),
+        metadata: JSON.stringify({
+          kind: 'plan_generation',
+          project_id: 'project-a',
+        }),
+      });
+
+      mockDb.listTasks.mockImplementation(({ status }) => {
+        if (status === 'queued') return [waitingPlan];
+        if (status === 'running') return [runningPlan];
+        return [];
+      });
+
+      scheduler.processQueueInternal();
+
+      expect(mocks.safeStartTask).not.toHaveBeenCalled();
+      expect(mockDb.updateTaskStatus).toHaveBeenCalledWith(
+        'queued-plan',
         'cancelled',
         expect.objectContaining({
           cancel_reason: 'superseded_factory_internal',

@@ -186,39 +186,131 @@ function tagsContainFactory(tags) {
   return String(tags || '').includes('factory');
 }
 
-function getFactoryProjectIdFromTask(task) {
-  const tags = getTaskTags(task);
-  const projectTag = tags.find(tag => typeof tag === 'string' && tag.startsWith('factory:project_id='));
-  if (projectTag) {
-    const projectId = projectTag.slice('factory:project_id='.length).trim();
-    if (projectId) return projectId;
-  }
+function normalizeNonEmptyString(value) {
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
 
-  const batchTag = tags.find(tag => typeof tag === 'string' && tag.startsWith('factory:batch_id='));
-  if (batchTag) {
-    const batchId = batchTag.slice('factory:batch_id='.length).trim();
+function getTaskTagValue(task, prefix) {
+  const tags = getTaskTags(task);
+  const tag = tags.find(item => typeof item === 'string' && item.startsWith(prefix));
+  const value = tag ? tag.slice(prefix.length).trim() : '';
+  return value || null;
+}
+
+function getFactoryProjectIdFromTask(task) {
+  const direct = getTaskTagValue(task, 'factory:project_id=');
+  if (direct) return direct;
+
+  const batchId = getTaskTagValue(task, 'factory:batch_id=');
+  if (batchId) {
     const match = batchId.match(/^factory-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})-/i);
     if (match) return match[1];
   }
+
+  const metadata = parseMetadata(task?.metadata);
+  const metadataProjectId = normalizeNonEmptyString(metadata.project_id);
+  if (metadataProjectId) return metadataProjectId;
 
   return null;
 }
 
 function getFactoryTargetProjectName(task) {
-  const tags = getTaskTags(task);
-  const targetTag = tags.find(tag => typeof tag === 'string' && tag.startsWith('factory:target_project='));
-  if (targetTag) {
-    const targetName = targetTag.slice('factory:target_project='.length).trim();
-    if (targetName) return targetName;
-  }
+  const targetName = getTaskTagValue(task, 'factory:target_project=');
+  if (targetName) return targetName;
 
+  const tags = getTaskTags(task);
   const projectTag = tags.find(tag => typeof tag === 'string' && tag.startsWith('project:'));
   if (projectTag) {
     const projectName = projectTag.slice('project:'.length).trim();
     if (projectName && !projectName.startsWith('factory-')) return projectName;
   }
 
+  const metadata = parseMetadata(task?.metadata);
+  const metadataTargetProject = normalizeNonEmptyString(metadata.target_project);
+  if (metadataTargetProject) return metadataTargetProject;
+
   return null;
+}
+
+function isFactoryPlanGenerationTask(task, metadata = parseMetadata(task?.metadata)) {
+  if (metadata.kind === 'plan_generation') return true;
+  return getTaskTags(task).includes('factory:plan_generation');
+}
+
+function getFactoryPlanGenerationProjectKey(task, metadata = parseMetadata(task?.metadata)) {
+  if (!isFactoryPlanGenerationTask(task, metadata)) return null;
+
+  const projectId = normalizeNonEmptyString(metadata.project_id) || getFactoryProjectIdFromTask(task);
+  if (projectId) return `project_id:${projectId.toLowerCase()}`;
+
+  const targetProject = normalizeNonEmptyString(metadata.target_project) || getFactoryTargetProjectName(task);
+  if (targetProject) return `target_project:${targetProject.toLowerCase()}`;
+
+  const workingDirectory = normalizeNonEmptyString(metadata.working_directory)
+    || normalizeNonEmptyString(task?.working_directory);
+  if (workingDirectory) return `working_directory:${workingDirectory.toLowerCase()}`;
+
+  return null;
+}
+
+function findActiveFactoryPlanGenerationForProject(rawDb, original, metadata, excludeIds = new Set()) {
+  const projectKey = getFactoryPlanGenerationProjectKey(original, metadata);
+  if (!projectKey || !rawDb || typeof rawDb.prepare !== 'function') return null;
+
+  let rows = [];
+  try {
+    rows = rawDb.prepare(`
+      SELECT *
+      FROM tasks
+      WHERE status IN ('pending','queued','running','claimed','waiting','retry_scheduled','pending_provider_switch')
+        AND (
+          tags LIKE '%factory:plan_generation%'
+          OR json_extract(metadata, '$.kind') = 'plan_generation'
+        )
+      ORDER BY
+        CASE status
+          WHEN 'running' THEN 0
+          WHEN 'claimed' THEN 1
+          WHEN 'queued' THEN 2
+          WHEN 'pending' THEN 3
+          ELSE 4
+        END,
+        created_at DESC
+      LIMIT 200
+    `).all();
+  } catch {
+    return null;
+  }
+
+  return rows.find((row) => {
+    if (!row?.id || row.id === original.id || excludeIds.has(row.id)) return false;
+    const rowMetadata = parseMetadata(row.metadata);
+    return getFactoryPlanGenerationProjectKey(row, rowMetadata) === projectKey;
+  }) || null;
+}
+
+function markFactoryPlanGenerationDuplicate({
+  original,
+  metadata,
+  taskCore,
+  rawDb,
+  logger,
+  supersededByTaskId,
+  reason,
+}) {
+  const nextMetadata = {
+    ...metadata,
+    reconciler: 'startup',
+    restart_resubmit_skipped: reason,
+    superseded_by_task_id: supersededByTaskId,
+    resubmitted_as: supersededByTaskId,
+  };
+  patchOriginalMetadata(taskCore, rawDb, original.id, nextMetadata);
+  safeLog(logger, 'info', `Startup task reconciler skipped duplicate factory plan-generation task ${original.id}`, {
+    task_id: original.id,
+    superseded_by_task_id: supersededByTaskId,
+    reason,
+  });
 }
 
 function isFactoryProjectPaused(task, rawDb) {
@@ -377,6 +469,9 @@ function createClone({ original, metadata, resumeContext, taskCore, rawDb }) {
     resubmitted_from: original.id,
     reconciler: 'startup',
   };
+  delete cloneMetadata.resubmitted_as;
+  delete cloneMetadata.restart_resubmit_skipped;
+  delete cloneMetadata.superseded_by_task_id;
 
   taskCore.createTask({
     id: newId,
@@ -509,6 +604,7 @@ function reconcileOrphanedTasksOnStartup({
     completed_from_output: 0,
     missing_workdir_failed: 0,
     re_adopted: 0,
+    deduped: 0,
     errors: 0,
   };
 
@@ -517,6 +613,7 @@ function reconcileOrphanedTasksOnStartup({
       SELECT * FROM tasks
       WHERE status IN ('running','claimed','retry_scheduled')
          OR (status = 'cancelled' AND cancel_reason = 'server_restart')
+      ORDER BY created_at DESC
     `)
     .all();
   actions.scanned = orphanedOrDrainCancelled.length;
@@ -525,6 +622,8 @@ function reconcileOrphanedTasksOnStartup({
     isCandidateOwnedByDeadOrRestartedInstance(task, currentInstanceId, isInstanceAlive)
   ));
   actions.candidates = candidates.length;
+  const candidateIds = new Set(candidates.map(task => task.id).filter(Boolean));
+  const handledFactoryPlanKeys = new Map();
 
   for (const original of candidates) {
     try {
@@ -648,6 +747,39 @@ function reconcileOrphanedTasksOnStartup({
         continue;
       }
 
+      const factoryPlanKey = getFactoryPlanGenerationProjectKey(original, metadata);
+      if (factoryPlanKey && handledFactoryPlanKeys.has(factoryPlanKey)) {
+        const supersededByTaskId = handledFactoryPlanKeys.get(factoryPlanKey);
+        markFactoryPlanGenerationDuplicate({
+          original,
+          metadata,
+          taskCore,
+          rawDb,
+          logger,
+          supersededByTaskId,
+          reason: 'duplicate_factory_plan_generation_restart_candidate',
+        });
+        actions.deduped++;
+        continue;
+      }
+
+      const activeFactoryPlan = factoryPlanKey
+        ? findActiveFactoryPlanGenerationForProject(rawDb, original, metadata, candidateIds)
+        : null;
+      if (activeFactoryPlan) {
+        markFactoryPlanGenerationDuplicate({
+          original,
+          metadata,
+          taskCore,
+          rawDb,
+          logger,
+          supersededByTaskId: activeFactoryPlan.id,
+          reason: 'active_factory_plan_generation_exists',
+        });
+        actions.deduped++;
+        continue;
+      }
+
       const resumeContext = buildResumeContext(
         original.output || '',
         original.error_output || '',
@@ -681,6 +813,9 @@ function reconcileOrphanedTasksOnStartup({
         ...metadata,
         resubmitted_as: newId,
       });
+      if (factoryPlanKey) {
+        handledFactoryPlanKeys.set(factoryPlanKey, newId);
+      }
       rewireWorkflowDependencies(rawDb, original, newId);
       actions.cloned++;
       safeLog(logger, 'info', `Startup task reconciler cloned orphaned task ${original.id}`, {
@@ -703,7 +838,8 @@ function reconcileOrphanedTasksOnStartup({
       || actions.constraint_skipped > 0
       || actions.completed_from_output > 0
       || actions.missing_workdir_failed > 0
-      || actions.re_adopted > 0,
+      || actions.re_adopted > 0
+      || actions.deduped > 0,
     actions,
   };
 }

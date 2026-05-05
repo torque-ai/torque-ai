@@ -338,7 +338,8 @@ function isFactoryMaintenanceTask(task) {
   if (!hasFactoryInternalTag(task)) return false;
   const kind = getFactoryKind(task);
   return FACTORY_ARCHITECT_MAINTENANCE_KINDS.has(kind)
-    || FACTORY_REPLAN_MAINTENANCE_KINDS.has(kind);
+    || FACTORY_REPLAN_MAINTENANCE_KINDS.has(kind)
+    || FACTORY_PLAN_SIGNAL_KINDS.has(kind);
 }
 
 function isActiveFactoryMaintenanceTask(task) {
@@ -1148,32 +1149,17 @@ function processQueueInternal(options = {}) {
     : db.listTasks({ status: 'queued', limit: 1000 });
   if (queuedTasks.length === 0) return;
 
-  // Queue-age telemetry: compute max and average queue wait times
   const now = Date.now();
-  const runnableQueuedTasks = queuedTasks.filter(task => !shouldSkipTaskForFileLockWait(task, now));
-  if (runnableQueuedTasks.length === 0) return;
-
-  const queueAges = runnableQueuedTasks
-    .filter(t => t.created_at)
-    .map(t => (now - new Date(t.created_at).getTime()) / 1000);
-  if (queueAges.length > 0) {
-    const maxAge = Math.max(...queueAges);
-    const avgAge = queueAges.reduce((a, b) => a + b, 0) / queueAges.length;
-    if (maxAge > 60) {
-      logger.info(`[Scheduler] Queue telemetry: ${queueAges.length} queued, max_age=${Math.round(maxAge)}s, avg_age=${Math.round(avgAge)}s`);
-    }
-  }
-
-  // Get current host capacity
   // Check if codex execution is enabled (config: codex_enabled = '1')
   const codexEnabled = serverConfig.isOptIn('codex_enabled');
 
   // Independent concurrency limits per provider type
   const runningTasks = db.listTasks({ status: 'running', limit: 200 });
   const runningAll = Array.isArray(runningTasks) ? runningTasks : (runningTasks.tasks || []);
-  const pauseFilteredQueuedTasks = filterPausedFactoryProjectTasks(runnableQueuedTasks);
+
+  const pauseFilteredQueuedTasks = filterPausedFactoryProjectTasks(queuedTasks);
   cancelFilteredQueuedFactoryTasks(
-    runnableQueuedTasks,
+    queuedTasks,
     pauseFilteredQueuedTasks,
     'factory_project_paused',
     'Queued factory task cancelled because its target project is paused.',
@@ -1193,8 +1179,23 @@ function processQueueInternal(options = {}) {
   );
   if (schedulableQueuedTasks.length === 0) return;
 
+  const runnableQueuedTasks = schedulableQueuedTasks.filter(task => !shouldSkipTaskForFileLockWait(task, now));
+  if (runnableQueuedTasks.length === 0) return;
+
+  // Queue-age telemetry: compute max and average queue wait times
+  const queueAges = runnableQueuedTasks
+    .filter(t => t.created_at)
+    .map(t => (now - new Date(t.created_at).getTime()) / 1000);
+  if (queueAges.length > 0) {
+    const maxAge = Math.max(...queueAges);
+    const avgAge = queueAges.reduce((a, b) => a + b, 0) / queueAges.length;
+    if (maxAge > 60) {
+      logger.info(`[Scheduler] Queue telemetry: ${queueAges.length} queued, max_age=${Math.round(maxAge)}s, avg_age=${Math.round(avgAge)}s`);
+    }
+  }
+
   // Separate tasks by provider type
-  const { ollamaTasks, codexTasks, apiTasks, invalidTasks } = categorizeQueuedTasks(schedulableQueuedTasks, codexEnabled);
+  const { ollamaTasks, codexTasks, apiTasks, invalidTasks } = categorizeQueuedTasks(runnableQueuedTasks, codexEnabled);
 
   for (const task of invalidTasks) {
     const providerLabel = typeof task?.provider === 'string' && task.provider.trim()

@@ -320,6 +320,109 @@ describe('startup task reconciler', () => {
     expect(cloneRowsFor('task-factory')).toHaveLength(1);
   });
 
+  test('Factory plan-generation restart candidates are deduped by project', () => {
+    const planTags = [
+      'factory:internal',
+      'factory:plan_generation',
+      'factory:project_id=project-a',
+      'factory:target_project=ProjectA',
+    ];
+    const planMetadata = {
+      kind: 'plan_generation',
+      factory_internal: true,
+      project_id: 'project-a',
+      target_project: 'ProjectA',
+    };
+    insertTask({
+      id: 'old-plan',
+      created_at: '2026-05-01T20:00:00.000Z',
+      tags: planTags,
+      metadata: { ...planMetadata, work_item_id: 101 },
+    });
+    insertTask({
+      id: 'new-plan',
+      created_at: '2026-05-01T21:00:00.000Z',
+      tags: planTags,
+      metadata: { ...planMetadata, work_item_id: 202 },
+    });
+
+    const result = runReconciler();
+
+    expect(result.actions.cancelled).toBe(2);
+    expect(result.actions.cloned).toBe(1);
+    expect(result.actions.deduped).toBe(1);
+
+    const newPlan = getTaskRow('new-plan');
+    const cloneId = parseMetadata(newPlan).resubmitted_as;
+    expect(cloneId).toBeTruthy();
+    expect(parseMetadata(getTaskRow(cloneId)).resubmitted_from).toBe('new-plan');
+    expect(cloneRowsFor('old-plan')).toHaveLength(0);
+    expect(parseMetadata(getTaskRow('old-plan'))).toMatchObject({
+      restart_resubmit_skipped: 'duplicate_factory_plan_generation_restart_candidate',
+      resubmitted_as: cloneId,
+      superseded_by_task_id: cloneId,
+    });
+  });
+
+  test('Factory plan-generation restart candidate is not cloned when project already has an active plan task', () => {
+    const planTags = [
+      'factory:internal',
+      'factory:plan_generation',
+      'factory:project_id=project-a',
+      'factory:target_project=ProjectA',
+    ];
+    insertTask({
+      id: 'running-plan',
+      status: 'running',
+      tags: planTags,
+      metadata: {
+        kind: 'plan_generation',
+        factory_internal: true,
+        project_id: 'project-a',
+        target_project: 'ProjectA',
+      },
+    });
+    insertTask({
+      id: 'queued-plan',
+      status: 'queued',
+      tags: planTags,
+      metadata: {
+        kind: 'plan_generation',
+        factory_internal: true,
+        project_id: 'project-a',
+        target_project: 'ProjectA',
+      },
+    });
+
+    const result = runReconciler();
+
+    expect(result.actions.cancelled).toBe(1);
+    expect(result.actions.cloned).toBe(0);
+    expect(result.actions.deduped).toBe(1);
+    expect(cloneRowsFor('running-plan')).toHaveLength(0);
+    expect(parseMetadata(getTaskRow('running-plan'))).toMatchObject({
+      restart_resubmit_skipped: 'active_factory_plan_generation_exists',
+      resubmitted_as: 'queued-plan',
+      superseded_by_task_id: 'queued-plan',
+    });
+  });
+
+  test('Restart clone clears stale resubmitted_as metadata from prior attempts', () => {
+    insertTask({
+      id: 'task-stale-pointer',
+      metadata: {
+        auto_resubmit_on_restart: true,
+        resubmitted_as: 'old-cancelled-clone',
+      },
+    });
+
+    const result = runReconciler();
+
+    expect(result.actions.cloned).toBe(1);
+    const clone = cloneRowsFor('task-stale-pointer')[0];
+    expect(parseMetadata(clone)).not.toHaveProperty('resubmitted_as');
+  });
+
   test('Factory orphan for paused project -> cancelled AND cloned (queued, will defer until resume)', () => {
     // Pre-2026-05-05 the reconciler refused to clone orphans whose
     // project was paused at boot — that lost partial output for no
