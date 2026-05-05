@@ -994,6 +994,46 @@ async function reviewVerifyFailure({
     }
   }
 
+  // Plan-already-satisfied short-circuit: if EXECUTE reported submitted_tasks=[]
+  // (Phase E success-aware noticed the plan was already done in prior commits)
+  // AND the test parser found no failing tests, the LLM judge has nothing
+  // useful to reason about. Calling it anyway burns a Torque submission and
+  // — worse — risks the model fabricating a baseline failure to justify a
+  // verdict. Live failure 2026-05-04: DLPhone WI #783 looped 7 times in 6h
+  // because qwen3-coder:30b kept hallucinating an XML error in a provably
+  // valid .csproj, triggering verify_reviewed_baseline_broken every cycle.
+  if (batch_id && failingTests.length === 0) {
+    try {
+      const factoryDecisions = require('../db/factory/decisions');
+      const priorDecisions = factoryDecisions.listDecisions(project?.id || null, { stage: 'execute', limit: 20 });
+      const planAlreadySatisfied = priorDecisions.some((d) => {
+        if (d.batch_id !== batch_id) return false;
+        if (d.action !== 'completed_execution') return false;
+        let outcome = d.outcome;
+        if (!outcome && typeof d.outcome_json === 'string') {
+          try { outcome = JSON.parse(d.outcome_json); } catch { outcome = null; }
+        }
+        if (!outcome || typeof outcome !== 'object') return false;
+        return Array.isArray(outcome.submitted_tasks) && outcome.submitted_tasks.length === 0;
+      });
+      if (planAlreadySatisfied) {
+        return {
+          classification: 'plan_already_satisfied',
+          confidence: 'high',
+          modifiedFiles,
+          failingTests,
+          intersection,
+          environmentSignals: [],
+          llmVerdict: null,
+          llmCritique: null,
+          suggestedRejectReason: 'plan_already_satisfied_no_new_work',
+        };
+      }
+    } catch (_e) {
+      // factory-decisions lookup failed; fall through to existing logic
+    }
+  }
+
   if (intersection.length > 0) {
     return {
       classification: 'task_caused',

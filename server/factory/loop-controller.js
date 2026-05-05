@@ -11463,6 +11463,45 @@ async function executeVerifyStage(project_id, batch_id, instance = null) {
             };
           }
 
+          // plan_already_satisfied: EXECUTE reported submitted_tasks=[] (Phase E
+          // success-aware) AND verify produced no failing tests. The plan was
+          // already fulfilled by prior commits; running the LLM judge against
+          // an empty signal repeatedly produces hallucinated baseline failures
+          // (DLPhone WI #783, qwen3-coder:30b, 2026-05-04). Mark unactionable
+          // so the factory advances instead of looping.
+          if (review?.classification === 'plan_already_satisfied') {
+            safeLogDecision({
+              project_id,
+              stage: LOOP_STATES.VERIFY,
+              action: 'verify_skipped_plan_already_satisfied',
+              reasoning: 'EXECUTE reported submitted_tasks=[] and verify produced no failing tests; plan already fulfilled by prior commits — short-circuiting LLM judge to prevent false-positive baseline rejections.',
+              outcome: {
+                reject_reason: 'plan_already_satisfied_no_new_work',
+                work_item_id: instance?.work_item_id,
+              },
+              confidence: 1,
+              batch_id,
+            });
+            if (instance?.work_item_id) {
+              try {
+                factoryIntake.rejectWorkItemUnactionable(instance.work_item_id, 'plan_already_satisfied_no_new_work');
+              } catch (err) {
+                logger.warn('verify plan-already-satisfied: failed to mark work item unactionable', {
+                  project_id,
+                  work_item_id: instance.work_item_id,
+                  err: err.message,
+                });
+              }
+            }
+            return {
+              status: 'unactionable',
+              reason: 'plan_already_satisfied_no_new_work',
+              pause_at_stage: null,
+              branch: worktreeRecord.branch,
+              worktree_path: worktreeRecord.worktreePath,
+            };
+          }
+
           // missing_dep branch: submit a Codex resolver task, await, re-verify.
           // Cap cascade at 3 per batch. On resolver failure, escalate once; on
           // escalation pause, treat as baseline_broken and pause the project.
