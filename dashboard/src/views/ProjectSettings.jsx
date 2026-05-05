@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { budget as budgetApi, factory as factoryApi, requestV2, routingTemplates } from '../api';
+import { budget as budgetApi, factory as factoryApi, providers as providersApi, requestV2, routingTemplates } from '../api';
 import ProjectSelector from '../components/ProjectSelector';
 import { parseMarkdownTable } from '../components/ProjectSelector.helpers';
 import { useToast } from '../components/Toast';
@@ -52,7 +52,79 @@ function FormField({ label, children, hint, id }) {
   );
 }
 
-// Read-only display of the project's factory provider_lane_policy. The
+function MultiSelectDropdown({ label, options, selected, onChange, disabled }) {
+  const [open, setOpen] = useState(false);
+  const wrapperRef = useRef(null);
+  const selectedSet = new Set(selected);
+
+  // Close on click outside — mirrors the pattern from Layout.jsx,
+  // HealthBar.jsx, SessionSwitcher.jsx, and Kanban.jsx so multiple lane
+  // policy dropdowns don't stack open and overlap.
+  useEffect(() => {
+    if (!open) return;
+    function handleClick(e) {
+      if (wrapperRef.current && !wrapperRef.current.contains(e.target)) setOpen(false);
+    }
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [open]);
+
+  function toggle(value) {
+    const next = new Set(selectedSet);
+    if (next.has(value)) next.delete(value); else next.add(value);
+    onChange(Array.from(next));
+  }
+
+  const summary = selected.length === 0
+    ? '(none)'
+    : selected.length <= 3
+      ? selected.join(', ')
+      : `${selected.length} selected`;
+
+  return (
+    <div ref={wrapperRef} className="relative">
+      <button
+        type="button"
+        aria-label={label}
+        aria-expanded={open}
+        disabled={disabled}
+        onClick={() => setOpen((v) => !v)}
+        className="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-left text-sm text-white focus:outline-none focus:border-blue-500 disabled:opacity-50"
+      >
+        {summary}
+      </button>
+      {open ? (
+        <div
+          role="listbox"
+          aria-label={label}
+          className="absolute z-10 mt-1 max-h-60 w-full overflow-auto rounded-lg border border-slate-700 bg-slate-900 p-2 shadow-lg"
+        >
+          {options.length === 0 ? (
+            <div className="px-2 py-1 text-xs text-slate-500">No providers available</div>
+          ) : options.map((opt) => (
+            <label key={opt} className="flex cursor-pointer items-center gap-2 px-2 py-1 text-sm text-slate-200 hover:bg-slate-800">
+              <input
+                type="checkbox"
+                checked={selectedSet.has(opt)}
+                onChange={() => toggle(opt)}
+              />
+              <span className="font-mono">{opt}</span>
+            </label>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function SaveStatusIndicator({ status }) {
+  if (status === 'saving') return <span className="text-xs text-slate-400">Saving…</span>;
+  if (status === 'saved') return <span className="text-xs text-green-400">Saved ✓</span>;
+  if (status === 'error') return <span className="text-xs text-red-400">Save failed — retry</span>;
+  return null;
+}
+
+// Editable display of the project's factory provider_lane_policy. The
 // underlying field lives in factory_projects.config_json and drives
 // per-kind routing decisions (scout/architect_cycle/plan_generation/
 // verify_review/execute) — it overrides the active routing template at
@@ -61,26 +133,66 @@ function FormField({ label, children, hint, id }) {
 // a globally-active template (live failure 2026-05-04: DLPhone shadowed
 // "All Local" with codex for 4 kinds, blew through tokens silently).
 //
-// Editing is delegated to the existing set_factory_trust_level path
-// (PUT /api/v2/factory/projects/{id}/trust). A small inline form would
-// be a follow-up — for now the operator gets visibility plus a link to
-// the API surface.
+// Saves go through PUT /api/v2/factory/projects/{id}/trust → the
+// set_factory_trust_level MCP tool. trust_level is required by that
+// tool's schema, so we capture it from the factory project record on
+// load and echo it back unchanged on every save. Each editor change
+// fires a full-policy PUT (the server merges shallowly, so partial
+// policies would replace the whole field). Failed saves revert the
+// optimistic state and toast the error.
 const FACTORY_KINDS = ['scout', 'architect_cycle', 'plan_generation', 'verify_review', 'execute'];
 
-function FactoryLanePolicyPanel({ lanePolicy, factoryProjectId }) {
-  const expectedProvider = lanePolicy?.expected_provider || '(none)';
-  const allowed = Array.isArray(lanePolicy?.allowed_providers) && lanePolicy.allowed_providers.length > 0
-    ? lanePolicy.allowed_providers.join(', ')
-    : '(any)';
-  const fallback = Array.isArray(lanePolicy?.allowed_fallback_providers) && lanePolicy.allowed_fallback_providers.length > 0
-    ? lanePolicy.allowed_fallback_providers.join(', ')
-    : '(none)';
-  const enforce = lanePolicy?.enforce_handoffs === true;
-  const byKind = isObject(lanePolicy?.by_kind) ? lanePolicy.by_kind : {};
-  const overrideRows = FACTORY_KINDS.map((kind) => ({
-    kind,
-    provider: byKind[kind] || null,
-  }));
+const BASELINE_PROVIDERS = Object.freeze([
+  'ollama', 'codex', 'codex-spark', 'claude-cli', 'claude-ollama',
+  'anthropic', 'deepinfra', 'hyperbolic', 'groq', 'cerebras',
+  'google-ai', 'openrouter', 'ollama-cloud',
+]);
+
+function FactoryLanePolicyPanel({
+  lanePolicy,
+  factoryProjectId,
+  providers,
+  onLanePolicyChange,   // (nextPolicy) => void   — Task 3 wires this
+  saveStatus,           // 'idle' | 'saving' | 'saved' | 'error'  — Task 4 wires this
+  disabled,
+}) {
+  const policy = lanePolicy || {
+    expected_provider: null,
+    allowed_providers: [],
+    allowed_fallback_providers: [],
+    by_kind: {},
+    enforce_handoffs: false,
+  };
+
+  const byKind = isObject(policy.by_kind) ? policy.by_kind : {};
+  const allowedProviders = Array.isArray(policy.allowed_providers) ? policy.allowed_providers : [];
+  const allowedFallback = Array.isArray(policy.allowed_fallback_providers) ? policy.allowed_fallback_providers : [];
+
+  function handleByKindChange(kind, value) {
+    const nextByKind = { ...byKind };
+    if (!value) {
+      delete nextByKind[kind];
+    } else {
+      nextByKind[kind] = value;
+    }
+    onLanePolicyChange?.({ ...policy, by_kind: nextByKind });
+  }
+
+  function handleExpectedChange(value) {
+    onLanePolicyChange?.({ ...policy, expected_provider: value || null });
+  }
+
+  function handleEnforceChange(value) {
+    onLanePolicyChange?.({ ...policy, enforce_handoffs: Boolean(value) });
+  }
+
+  function handleAllowedChange(next) {
+    onLanePolicyChange?.({ ...policy, allowed_providers: next });
+  }
+
+  function handleFallbackChange(next) {
+    onLanePolicyChange?.({ ...policy, allowed_fallback_providers: next });
+  }
 
   return (
     <div className="glass-card p-5">
@@ -88,32 +200,54 @@ function FactoryLanePolicyPanel({ lanePolicy, factoryProjectId }) {
         <div>
           <h2 className="text-lg font-semibold text-white">Factory Lane Policy</h2>
           <p className="mt-1 text-sm text-slate-500">
-            Per-project provider routing. Per-kind overrides shadow the active routing
-            template. Edit via <code className="rounded bg-slate-800 px-1.5 py-0.5 text-xs text-slate-300">set_factory_trust_level</code>
-            {factoryProjectId
-              ? <> or <code className="rounded bg-slate-800 px-1.5 py-0.5 text-xs text-slate-300">PUT /api/v2/factory/projects/{factoryProjectId.slice(0, 8)}…/trust</code></>
-              : null}.
+            Per-project provider routing. Per-kind overrides shadow the active routing template.
           </p>
         </div>
+        <SaveStatusIndicator status={saveStatus} />
       </div>
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 mb-5">
-        <div>
-          <div className="text-xs text-slate-400 mb-1">Expected provider</div>
-          <div className="text-sm text-white">{expectedProvider}</div>
-        </div>
-        <div>
-          <div className="text-xs text-slate-400 mb-1">Enforce handoffs</div>
-          <div className="text-sm text-white">{enforce ? 'Yes' : 'No'}</div>
-        </div>
-        <div>
-          <div className="text-xs text-slate-400 mb-1">Allowed providers</div>
-          <div className="text-sm text-white">{allowed}</div>
-        </div>
-        <div>
-          <div className="text-xs text-slate-400 mb-1">Allowed fallback providers</div>
-          <div className="text-sm text-white">{fallback}</div>
-        </div>
+        <FormField label="Expected provider" id="lane-expected">
+          <select
+            id="lane-expected"
+            aria-label="Expected provider"
+            disabled={disabled}
+            value={policy.expected_provider || ''}
+            onChange={(e) => handleExpectedChange(e.target.value)}
+            className="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500 disabled:opacity-50"
+          >
+            <option value="">— none —</option>
+            {providers.map((p) => <option key={p} value={p}>{p}</option>)}
+          </select>
+        </FormField>
+
+        <FormField label="Enforce handoffs" id="lane-enforce">
+          <ToggleSwitch
+            checked={Boolean(policy.enforce_handoffs)}
+            onChange={handleEnforceChange}
+            label="Enforce handoffs"
+          />
+        </FormField>
+
+        <FormField label="Allowed providers" id="lane-allowed">
+          <MultiSelectDropdown
+            label="Allowed providers"
+            options={providers}
+            selected={allowedProviders}
+            onChange={handleAllowedChange}
+            disabled={disabled}
+          />
+        </FormField>
+
+        <FormField label="Allowed fallback providers" id="lane-fallback">
+          <MultiSelectDropdown
+            label="Allowed fallback providers"
+            options={providers}
+            selected={allowedFallback}
+            onChange={handleFallbackChange}
+            disabled={disabled}
+          />
+        </FormField>
       </div>
 
       <div>
@@ -128,20 +262,23 @@ function FactoryLanePolicyPanel({ lanePolicy, factoryProjectId }) {
               </tr>
             </thead>
             <tbody>
-              {overrideRows.map((row) => (
-                <tr key={row.kind} className="border-b border-slate-800/80 text-slate-300 last:border-0">
-                  <td className="px-3 py-2 font-mono text-slate-200">{row.kind}</td>
+              {FACTORY_KINDS.map((kind) => (
+                <tr key={kind} className="border-b border-slate-800/80 text-slate-300 last:border-0">
+                  <td className="px-3 py-2 font-mono text-slate-200">{kind}</td>
                   <td className="px-3 py-2">
-                    {row.provider ? (
-                      <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-xs text-amber-200">
-                        {row.provider}
-                      </span>
-                    ) : (
-                      <span className="text-slate-500 text-xs">(default)</span>
-                    )}
+                    <select
+                      aria-label={`Provider for ${kind}`}
+                      disabled={disabled}
+                      value={byKind[kind] || ''}
+                      onChange={(e) => handleByKindChange(kind, e.target.value)}
+                      className="rounded-lg border border-slate-700 bg-slate-800 px-2 py-1 text-xs text-white focus:outline-none focus:border-blue-500 disabled:opacity-50"
+                    >
+                      <option value="">— use default —</option>
+                      {providers.map((p) => <option key={p} value={p}>{p}</option>)}
+                    </select>
                   </td>
                   <td className="px-3 py-2 text-xs text-slate-500">
-                    {row.provider ? 'Project override (shadows template)' : 'Active routing template'}
+                    {byKind[kind] ? 'Project override (shadows template)' : 'Active routing template'}
                   </td>
                 </tr>
               ))}
@@ -149,10 +286,14 @@ function FactoryLanePolicyPanel({ lanePolicy, factoryProjectId }) {
           </table>
         </div>
         <p className="mt-3 text-xs text-slate-500">
-          A project override in the by_kind block silently bypasses the active routing
-          template for that kind. Use it sparingly — for example, to pin
-          plan_generation to a stronger model than execute.
+          A project override silently bypasses the active routing template for that kind.
+          Use it sparingly — for example, to pin plan_generation to a stronger model than execute.
         </p>
+        {!factoryProjectId ? (
+          <p className="mt-3 text-xs text-amber-400">
+            Project not registered with the factory — register it to enable editing.
+          </p>
+        ) : null}
       </div>
     </div>
   );
@@ -344,14 +485,29 @@ export default function ProjectSettings({ project: projectProp = '' }) {
   const [savingRouting, setSavingRouting] = useState(false);
   const [loadError, setLoadError] = useState('');
   // Factory provider_lane_policy lives in factory_projects.config_json
-  // (separate from project_config). Surfaced read-only here so operators
-  // can see by_kind overrides without an API call. Edit via the
-  // set_factory_trust_level MCP tool / PUT /api/v2/factory/projects/{id}/trust.
+  // (separate from project_config). Surfaced editable here so operators
+  // can adjust by_kind overrides directly. Saves go through PUT
+  // /api/v2/factory/projects/{id}/trust → the set_factory_trust_level
+  // MCP tool, which requires trust_level — we echo back the value we
+  // captured on load.
   const [lanePolicy, setLanePolicy] = useState(null);
   const [factoryProjectId, setFactoryProjectId] = useState('');
+  const [trustLevel, setTrustLevel] = useState('');
+  const [providers, setProviders] = useState([]);
+  const [laneSaveStatus, setLaneSaveStatus] = useState('idle');
+  const saveStatusClearRef = useRef(null);
+  const inFlightRef = useRef(false);
+  const pendingPolicyRef = useRef(null);
 
   useEffect(() => () => {
     mountedRef.current = false;
+  }, []);
+
+  useEffect(() => () => {
+    if (saveStatusClearRef.current) {
+      clearTimeout(saveStatusClearRef.current);
+      saveStatusClearRef.current = null;
+    }
   }, []);
 
   useEffect(() => {
@@ -373,6 +529,29 @@ export default function ProjectSettings({ project: projectProp = '' }) {
   useEffect(() => {
     loadConfiguredProjects();
   }, [loadConfiguredProjects]);
+
+  useEffect(() => {
+    let cancelled = false;
+    providersApi.list()
+      .then((items) => {
+        if (cancelled || !mountedRef.current) return;
+        const names = Array.isArray(items)
+          ? items.map((p) => (typeof p === 'string' ? p : p?.name)).filter(Boolean)
+          : [];
+        if (names.length === 0) {
+          setProviders([...BASELINE_PROVIDERS]);
+          toast.warning('Provider list unavailable, using defaults');
+        } else {
+          setProviders(names);
+        }
+      })
+      .catch(() => {
+        if (cancelled || !mountedRef.current) return;
+        setProviders([...BASELINE_PROVIDERS]);
+        toast.warning('Provider list unavailable, using defaults');
+      });
+    return () => { cancelled = true; };
+  }, [toast]);
 
   const loadOptionalProviderScores = useCallback(async () => {
     try {
@@ -450,15 +629,18 @@ export default function ProjectSettings({ project: projectProp = '' }) {
         : null;
       if (match) {
         setFactoryProjectId(match.id || '');
+        setTrustLevel(match.trust_level || '');
         const lane = match.config?.provider_lane_policy
           || (match.config_json ? safeParseJson(match.config_json)?.provider_lane_policy : null);
         setLanePolicy(lane || null);
       } else {
         setFactoryProjectId('');
+        setTrustLevel('');
         setLanePolicy(null);
       }
     } else {
       setFactoryProjectId('');
+      setTrustLevel('');
       setLanePolicy(null);
     }
 
@@ -606,6 +788,85 @@ export default function ProjectSettings({ project: projectProp = '' }) {
       if (mountedRef.current) setSavingRouting(false);
     }
   }, [activeProject, loadConfiguredProjects, loadData, selectedTemplateId, toast]);
+
+  const performLanePolicySave = useCallback(async (nextPolicy) => {
+    setLaneSaveStatus('saving');
+    try {
+      await requestV2(`/factory/projects/${encodeURIComponent(factoryProjectId)}/trust`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          trust_level: trustLevel,
+          config: { provider_lane_policy: nextPolicy },
+        }),
+      });
+      return { ok: true };
+    } catch (error) {
+      return { ok: false, error };
+    }
+  }, [factoryProjectId, trustLevel]);
+
+  const handleLanePolicyChange = useCallback((nextPolicy) => {
+    if (!factoryProjectId) return;
+
+    // Optimistic local update is always immediate.
+    const previous = lanePolicy;
+    setLanePolicy(nextPolicy);
+
+    // If a save is in flight, queue the latest state and bail. The
+    // running save's drain loop will pick it up.
+    if (inFlightRef.current) {
+      pendingPolicyRef.current = nextPolicy;
+      return;
+    }
+
+    // Otherwise fire a save and drain the queue when it settles.
+    (async () => {
+      inFlightRef.current = true;
+      let lastSent = nextPolicy;
+      let revertTo = previous;
+      if (saveStatusClearRef.current) {
+        clearTimeout(saveStatusClearRef.current);
+        saveStatusClearRef.current = null;
+      }
+
+      while (true) {
+        const result = await performLanePolicySave(lastSent);
+        if (!mountedRef.current) {
+          inFlightRef.current = false;
+          return;
+        }
+        if (!result.ok) {
+          // Revert to whatever was committed before this batch started.
+          setLanePolicy(revertTo);
+          setLaneSaveStatus('error');
+          toast.error(`Failed to save lane policy: ${getErrorMessage(result.error)}`);
+          pendingPolicyRef.current = null;
+          break;
+        }
+
+        // If a queued change accumulated, flush it. Track lastSent as
+        // the new revert baseline so a subsequent failure reverts to
+        // the most recently persisted state, not all the way to the
+        // original.
+        if (pendingPolicyRef.current && pendingPolicyRef.current !== lastSent) {
+          revertTo = lastSent;
+          lastSent = pendingPolicyRef.current;
+          pendingPolicyRef.current = null;
+          continue;
+        }
+
+        pendingPolicyRef.current = null;
+        setLaneSaveStatus('saved');
+        saveStatusClearRef.current = setTimeout(() => {
+          saveStatusClearRef.current = null;
+          setLaneSaveStatus('idle');
+        }, 2000);
+        break;
+      }
+
+      inFlightRef.current = false;
+    })();
+  }, [factoryProjectId, lanePolicy, performLanePolicySave, toast]);
 
   return (
     <div className="p-6 space-y-6">
@@ -820,10 +1081,14 @@ export default function ProjectSettings({ project: projectProp = '' }) {
             </div>
           </div>
 
-          {lanePolicy ? (
+          {factoryProjectId || lanePolicy ? (
             <FactoryLanePolicyPanel
               lanePolicy={lanePolicy}
               factoryProjectId={factoryProjectId}
+              providers={providers}
+              onLanePolicyChange={handleLanePolicyChange}
+              saveStatus={laneSaveStatus}
+              disabled={!factoryProjectId}
             />
           ) : null}
 

@@ -244,4 +244,517 @@ describe('ProjectSettings', () => {
     expect(screen.queryByText('Budget Status')).toBeNull();
     expect(screen.getByText('Routing Template')).toBeInTheDocument();
   });
+
+  it('fetches provider list and captures factory trust_level on load', async () => {
+    let providersFetched = false;
+    let factoryFetched = false;
+
+    globalThis.fetch = vi.fn((url) => {
+      if (url === '/api/v2/tasks/list-projects') {
+        return createResponse({ data: [{ name: 'alpha', task_count: 1, last_active: '2026-01-15T10:30:00Z' }] });
+      }
+      if (url === '/api/v2/tasks/list-project-configs') {
+        return createResponse({ data: [{ project: 'alpha' }] });
+      }
+      if (url === '/api/v2/project-config?project=alpha') {
+        return createResponse({
+          data: {
+            default_provider: 'ollama', default_model: 'qwen3-coder:30b',
+            verify_command: '', routing_template_id: null,
+            auto_fix_enabled: 0, default_timeout: 30,
+          },
+        });
+      }
+      if (url === '/api/v2/routing/templates') return createResponse({ data: [] });
+      if (url === '/api/v2/provider-scores') return createResponse([]);
+      if (url === '/api/v2/cost-budgets') return createResponse([]);
+      if (url === '/api/v2/factory/projects') {
+        factoryFetched = true;
+        return createResponse({
+          data: {
+            projects: [{
+              id: 'fp-1', name: 'alpha', trust_level: 'guided',
+              config_json: JSON.stringify({
+                provider_lane_policy: {
+                  expected_provider: 'ollama',
+                  allowed_providers: ['ollama'],
+                  allowed_fallback_providers: [],
+                  by_kind: { architect_cycle: 'codex' },
+                  enforce_handoffs: true,
+                },
+              }),
+            }],
+          },
+        });
+      }
+      if (url === '/api/v2/providers') {
+        providersFetched = true;
+        return createResponse({
+          data: { items: [{ name: 'ollama' }, { name: 'codex' }, { name: 'codex-spark' }] },
+        });
+      }
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    renderWithProviders(<ProjectSettings />, { route: '/settings?project=alpha' });
+
+    await screen.findByText('Factory Lane Policy');
+    await waitFor(() => expect(providersFetched).toBe(true));
+    await waitFor(() => expect(factoryFetched).toBe(true));
+  });
+});
+
+describe('FactoryLanePolicyPanel — editor controls', () => {
+  let originalFetch;
+
+  beforeEach(() => { originalFetch = globalThis.fetch; });
+  afterEach(() => { globalThis.fetch = originalFetch; vi.restoreAllMocks(); });
+
+  function mountWithLanePolicy({ lanePolicy, providers = ['ollama', 'codex', 'codex-spark'] } = {}) {
+    globalThis.fetch = vi.fn((url) => {
+      if (url === '/api/v2/tasks/list-projects') {
+        return createResponse({ data: [{ name: 'alpha', task_count: 1, last_active: '2026-01-15T10:30:00Z' }] });
+      }
+      if (url === '/api/v2/tasks/list-project-configs') return createResponse({ data: [{ project: 'alpha' }] });
+      if (url === '/api/v2/project-config?project=alpha') {
+        return createResponse({ data: { default_provider: 'ollama', default_model: '', verify_command: '', routing_template_id: null, auto_fix_enabled: 0, default_timeout: 30 } });
+      }
+      if (url === '/api/v2/routing/templates') return createResponse({ data: [] });
+      if (url === '/api/v2/provider-scores') return createResponse([]);
+      if (url === '/api/v2/cost-budgets') return createResponse([]);
+      if (url === '/api/v2/factory/projects') {
+        return createResponse({
+          data: { projects: [{
+            id: 'fp-1', name: 'alpha', trust_level: 'guided',
+            config_json: JSON.stringify({ provider_lane_policy: lanePolicy }),
+          }] },
+        });
+      }
+      if (url === '/api/v2/providers') {
+        return createResponse({ data: { items: providers.map((n) => ({ name: n })) } });
+      }
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    renderWithProviders(<ProjectSettings />, { route: '/settings?project=alpha' });
+  }
+
+  it('renders editable per-kind dropdowns with sentinel option', async () => {
+    mountWithLanePolicy({
+      lanePolicy: {
+        expected_provider: 'ollama',
+        allowed_providers: ['ollama'],
+        allowed_fallback_providers: [],
+        by_kind: { architect_cycle: 'codex' },
+        enforce_handoffs: true,
+      },
+    });
+
+    await screen.findByText('Factory Lane Policy');
+
+    const architectSelect = await screen.findByLabelText('Provider for architect_cycle');
+    expect(architectSelect.tagName).toBe('SELECT');
+    expect(architectSelect.value).toBe('codex');
+
+    expect(architectSelect.querySelector('option[value=""]')).not.toBeNull();
+    expect(architectSelect.querySelector('option[value=""]').textContent).toContain('use default');
+
+    expect(architectSelect.querySelector('option[value="codex"]')).not.toBeNull();
+    expect(architectSelect.querySelector('option[value="ollama"]')).not.toBeNull();
+
+    const executeSelect = await screen.findByLabelText('Provider for execute');
+    expect(executeSelect.value).toBe('');
+  });
+
+  it('renders editable expected_provider with — none — sentinel', async () => {
+    mountWithLanePolicy({
+      lanePolicy: {
+        expected_provider: 'ollama',
+        allowed_providers: [],
+        allowed_fallback_providers: [],
+        by_kind: {},
+        enforce_handoffs: false,
+      },
+    });
+
+    await screen.findByText('Factory Lane Policy');
+    const expectedSelect = await screen.findByLabelText('Expected provider');
+    expect(expectedSelect.tagName).toBe('SELECT');
+    expect(expectedSelect.value).toBe('ollama');
+    expect(expectedSelect.querySelector('option[value=""]').textContent).toContain('none');
+  });
+
+  it('closes the multi-select when the user clicks outside', async () => {
+    mountWithLanePolicy({
+      lanePolicy: {
+        expected_provider: 'ollama',
+        allowed_providers: [],
+        allowed_fallback_providers: [],
+        by_kind: {},
+        enforce_handoffs: false,
+      },
+    });
+    await screen.findByText('Factory Lane Policy');
+
+    // Open the Allowed providers multi-select.
+    const button = screen.getAllByLabelText('Allowed providers')[0];
+    fireEvent.click(button);
+    expect(await screen.findByRole('listbox', { name: 'Allowed providers' })).toBeInTheDocument();
+
+    // Click on a non-listbox region (the panel header).
+    fireEvent.mouseDown(screen.getByText('Factory Lane Policy'));
+
+    // Listbox should no longer be in the DOM.
+    await waitFor(() => {
+      expect(screen.queryByRole('listbox', { name: 'Allowed providers' })).toBeNull();
+    });
+  });
+
+  function captureSaveBody() {
+    let posted = null;
+    const baseFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn((url, options = {}) => {
+      if (url === '/api/v2/factory/projects/fp-1/trust' && String(options.method).toUpperCase() === 'PUT') {
+        posted = JSON.parse(options.body);
+        return createResponse({ data: { ok: true } });
+      }
+      return baseFetch(url, options);
+    });
+    return () => posted;
+  }
+
+  it('saves a per-kind dropdown change as a full-policy PUT', async () => {
+    mountWithLanePolicy({
+      lanePolicy: {
+        expected_provider: 'ollama',
+        allowed_providers: ['ollama'],
+        allowed_fallback_providers: [],
+        by_kind: { architect_cycle: 'codex' },
+        enforce_handoffs: true,
+      },
+    });
+    await screen.findByText('Factory Lane Policy');
+    const getPosted = captureSaveBody();
+
+    fireEvent.change(screen.getByLabelText('Provider for plan_generation'), { target: { value: 'codex' } });
+
+    await waitFor(() => expect(getPosted()).not.toBeNull());
+
+    expect(getPosted()).toEqual({
+      trust_level: 'guided',
+      config: {
+        provider_lane_policy: {
+          expected_provider: 'ollama',
+          allowed_providers: ['ollama'],
+          allowed_fallback_providers: [],
+          by_kind: { architect_cycle: 'codex', plan_generation: 'codex' },
+          enforce_handoffs: true,
+        },
+      },
+    });
+
+    // Post-condition: the optimistic update is also visible after the PUT resolved
+    // (guards against a future refactor that delays setLanePolicy until after the await)
+    expect(screen.getByLabelText('Provider for plan_generation').value).toBe('codex');
+  });
+
+  it('selecting — use default — deletes the by_kind key', async () => {
+    mountWithLanePolicy({
+      lanePolicy: {
+        expected_provider: 'ollama',
+        allowed_providers: ['ollama'],
+        allowed_fallback_providers: [],
+        by_kind: { architect_cycle: 'codex' },
+        enforce_handoffs: false,
+      },
+    });
+    await screen.findByText('Factory Lane Policy');
+    const getPosted = captureSaveBody();
+
+    fireEvent.change(screen.getByLabelText('Provider for architect_cycle'), { target: { value: '' } });
+
+    await waitFor(() => expect(getPosted()).not.toBeNull());
+    expect(getPosted().config.provider_lane_policy.by_kind).toEqual({});
+  });
+
+  it('toggling allowed_providers checkbox round-trips the PUT', async () => {
+    mountWithLanePolicy({
+      lanePolicy: {
+        expected_provider: 'ollama',
+        allowed_providers: ['ollama'],
+        allowed_fallback_providers: [],
+        by_kind: {},
+        enforce_handoffs: false,
+      },
+    });
+    await screen.findByText('Factory Lane Policy');
+    const getPosted = captureSaveBody();
+
+    // Open the multi-select (the button has aria-label="Allowed providers")
+    fireEvent.click(screen.getAllByLabelText('Allowed providers')[0]);
+
+    // Click the codex checkbox inside the popped listbox
+    const listbox = await screen.findByRole('listbox', { name: 'Allowed providers' });
+    const codexBox = Array.from(listbox.querySelectorAll('label'))
+      .find((l) => l.textContent.includes('codex'))
+      .querySelector('input[type="checkbox"]');
+    fireEvent.click(codexBox);
+
+    await waitFor(() => expect(getPosted()).not.toBeNull());
+    expect(getPosted().config.provider_lane_policy.allowed_providers).toEqual(['ollama', 'codex']);
+  });
+
+  it('reverts optimistic state when the PUT fails', async () => {
+    mountWithLanePolicy({
+      lanePolicy: {
+        expected_provider: 'ollama',
+        allowed_providers: ['ollama'],
+        allowed_fallback_providers: [],
+        by_kind: {},
+        enforce_handoffs: false,
+      },
+    });
+    await screen.findByText('Factory Lane Policy');
+
+    const baseFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn((url, options = {}) => {
+      if (url === '/api/v2/factory/projects/fp-1/trust' && String(options.method).toUpperCase() === 'PUT') {
+        return createResponse({ error: { message: 'boom' } }, { status: 500 });
+      }
+      return baseFetch(url, options);
+    });
+
+    fireEvent.change(screen.getByLabelText('Expected provider'), { target: { value: 'codex' } });
+
+    // Wait until select reverts to ollama (revert path) — give microtasks time.
+    await waitFor(() => {
+      expect(screen.getByLabelText('Expected provider').value).toBe('ollama');
+    });
+  });
+
+  it('shows Saving… then Saved ✓ on success', async () => {
+    mountWithLanePolicy({
+      lanePolicy: {
+        expected_provider: 'ollama',
+        allowed_providers: [],
+        allowed_fallback_providers: [],
+        by_kind: {},
+        enforce_handoffs: false,
+      },
+    });
+    await screen.findByText('Factory Lane Policy');
+
+    let resolve;
+    const baseFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn((url, options = {}) => {
+      if (url === '/api/v2/factory/projects/fp-1/trust' && String(options.method).toUpperCase() === 'PUT') {
+        return new Promise((r) => { resolve = () => r(createResponse({ data: { ok: true } })); });
+      }
+      return baseFetch(url, options);
+    });
+
+    fireEvent.change(screen.getByLabelText('Expected provider'), { target: { value: 'codex' } });
+
+    // While in flight, indicator says Saving…
+    await screen.findByText('Saving…');
+
+    // Resolve and expect Saved ✓
+    resolve();
+    await screen.findByText('Saved ✓');
+  });
+
+  it('shows Save failed — retry on error', async () => {
+    mountWithLanePolicy({
+      lanePolicy: {
+        expected_provider: 'ollama',
+        allowed_providers: [],
+        allowed_fallback_providers: [],
+        by_kind: {},
+        enforce_handoffs: false,
+      },
+    });
+    await screen.findByText('Factory Lane Policy');
+
+    const baseFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn((url, options = {}) => {
+      if (url === '/api/v2/factory/projects/fp-1/trust' && String(options.method).toUpperCase() === 'PUT') {
+        return createResponse({ error: { message: 'boom' } }, { status: 500 });
+      }
+      return baseFetch(url, options);
+    });
+
+    fireEvent.change(screen.getByLabelText('Expected provider'), { target: { value: 'codex' } });
+
+    await screen.findByText('Save failed — retry');
+  });
+
+  it('coalesces rapid changes into one final PUT', async () => {
+    mountWithLanePolicy({
+      lanePolicy: {
+        expected_provider: 'ollama',
+        allowed_providers: [],
+        allowed_fallback_providers: [],
+        by_kind: {},
+        enforce_handoffs: false,
+      },
+    });
+    await screen.findByText('Factory Lane Policy');
+
+    const posts = [];
+    let resolveFirst;
+    const baseFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn((url, options = {}) => {
+      if (url === '/api/v2/factory/projects/fp-1/trust' && String(options.method).toUpperCase() === 'PUT') {
+        posts.push(JSON.parse(options.body));
+        if (posts.length === 1) {
+          return new Promise((r) => { resolveFirst = () => r(createResponse({ data: { ok: true } })); });
+        }
+        return createResponse({ data: { ok: true } });
+      }
+      return baseFetch(url, options);
+    });
+
+    // Fire three changes while the first save is still in flight.
+    fireEvent.change(screen.getByLabelText('Provider for scout'), { target: { value: 'codex' } });
+    fireEvent.change(screen.getByLabelText('Provider for plan_generation'), { target: { value: 'codex' } });
+    fireEvent.change(screen.getByLabelText('Provider for verify_review'), { target: { value: 'codex' } });
+
+    // First PUT in flight, others should be queued.
+    await waitFor(() => expect(posts.length).toBe(1));
+    resolveFirst();
+
+    // After the first resolves, exactly ONE more PUT should fire with the
+    // final state (all three by_kind entries).
+    await waitFor(() => expect(posts.length).toBe(2));
+    expect(posts[1].config.provider_lane_policy.by_kind).toEqual({
+      scout: 'codex', plan_generation: 'codex', verify_review: 'codex',
+    });
+
+    // No third PUT.
+    await new Promise((r) => setTimeout(r, 50));
+    expect(posts.length).toBe(2);
+  });
+
+  it('renders an empty editor when the project has no lane policy yet', async () => {
+    globalThis.fetch = vi.fn((url) => {
+      if (url === '/api/v2/tasks/list-projects') return createResponse({ data: [{ name: 'alpha', task_count: 1, last_active: '2026-01-15T10:30:00Z' }] });
+      if (url === '/api/v2/tasks/list-project-configs') return createResponse({ data: [{ project: 'alpha' }] });
+      if (url === '/api/v2/project-config?project=alpha') {
+        return createResponse({ data: { default_provider: 'ollama', default_model: '', verify_command: '', routing_template_id: null, auto_fix_enabled: 0, default_timeout: 30 } });
+      }
+      if (url === '/api/v2/routing/templates') return createResponse({ data: [] });
+      if (url === '/api/v2/provider-scores') return createResponse([]);
+      if (url === '/api/v2/cost-budgets') return createResponse([]);
+      if (url === '/api/v2/factory/projects') {
+        return createResponse({
+          data: { projects: [{
+            id: 'fp-1', name: 'alpha', trust_level: 'guided',
+            config_json: JSON.stringify({}), // no provider_lane_policy
+          }] },
+        });
+      }
+      if (url === '/api/v2/providers') {
+        return createResponse({ data: { items: [{ name: 'ollama' }, { name: 'codex' }] } });
+      }
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    renderWithProviders(<ProjectSettings />, { route: '/settings?project=alpha' });
+
+    await screen.findByText('Factory Lane Policy');
+
+    // Expected provider defaults to — none —
+    expect(screen.getByLabelText('Expected provider').value).toBe('');
+
+    // Per-kind selects all show — use default —
+    for (const kind of ['scout', 'architect_cycle', 'plan_generation', 'verify_review', 'execute']) {
+      expect(screen.getByLabelText(`Provider for ${kind}`).value).toBe('');
+    }
+  });
+
+  it('first edit on an empty policy PUTs the seeded shape', async () => {
+    globalThis.fetch = vi.fn((url, options = {}) => {
+      if (url === '/api/v2/tasks/list-projects') return createResponse({ data: [{ name: 'alpha', task_count: 1, last_active: '2026-01-15T10:30:00Z' }] });
+      if (url === '/api/v2/tasks/list-project-configs') return createResponse({ data: [{ project: 'alpha' }] });
+      if (url === '/api/v2/project-config?project=alpha') {
+        return createResponse({ data: { default_provider: 'ollama', default_model: '', verify_command: '', routing_template_id: null, auto_fix_enabled: 0, default_timeout: 30 } });
+      }
+      if (url === '/api/v2/routing/templates') return createResponse({ data: [] });
+      if (url === '/api/v2/provider-scores') return createResponse([]);
+      if (url === '/api/v2/cost-budgets') return createResponse([]);
+      if (url === '/api/v2/factory/projects') {
+        return createResponse({
+          data: { projects: [{
+            id: 'fp-1', name: 'alpha', trust_level: 'guided',
+            config_json: JSON.stringify({}),
+          }] },
+        });
+      }
+      if (url === '/api/v2/providers') {
+        return createResponse({ data: { items: [{ name: 'ollama' }, { name: 'codex' }] } });
+      }
+      if (url === '/api/v2/factory/projects/fp-1/trust' && String(options.method).toUpperCase() === 'PUT') {
+        return createResponse({ data: { ok: true } });
+      }
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    renderWithProviders(<ProjectSettings />, { route: '/settings?project=alpha' });
+    await screen.findByText('Factory Lane Policy');
+
+    fireEvent.change(screen.getByLabelText('Provider for plan_generation'), { target: { value: 'codex' } });
+
+    // Verify a PUT was fired with the seeded structure plus the new override.
+    await waitFor(() => {
+      const calls = globalThis.fetch.mock.calls.filter((c) => c[0] === '/api/v2/factory/projects/fp-1/trust');
+      expect(calls.length).toBeGreaterThanOrEqual(1);
+      const body = JSON.parse(calls[0][1].body);
+      expect(body).toEqual({
+        trust_level: 'guided',
+        config: {
+          provider_lane_policy: {
+            expected_provider: null,
+            allowed_providers: [],
+            allowed_fallback_providers: [],
+            by_kind: { plan_generation: 'codex' },
+            enforce_handoffs: false,
+          },
+        },
+      });
+    });
+  });
+
+  it('falls back to a baseline provider list when /api/v2/providers fails', async () => {
+    globalThis.fetch = vi.fn((url) => {
+      if (url === '/api/v2/tasks/list-projects') return createResponse({ data: [{ name: 'alpha', task_count: 1, last_active: '2026-01-15T10:30:00Z' }] });
+      if (url === '/api/v2/tasks/list-project-configs') return createResponse({ data: [{ project: 'alpha' }] });
+      if (url === '/api/v2/project-config?project=alpha') {
+        return createResponse({ data: { default_provider: 'ollama', default_model: '', verify_command: '', routing_template_id: null, auto_fix_enabled: 0, default_timeout: 30 } });
+      }
+      if (url === '/api/v2/routing/templates') return createResponse({ data: [] });
+      if (url === '/api/v2/provider-scores') return createResponse([]);
+      if (url === '/api/v2/cost-budgets') return createResponse([]);
+      if (url === '/api/v2/factory/projects') {
+        return createResponse({
+          data: { projects: [{
+            id: 'fp-1', name: 'alpha', trust_level: 'guided',
+            config_json: JSON.stringify({ provider_lane_policy: { expected_provider: 'ollama', allowed_providers: [], allowed_fallback_providers: [], by_kind: {}, enforce_handoffs: false } }),
+          }] },
+        });
+      }
+      if (url === '/api/v2/providers') {
+        return createResponse({ error: { message: 'not found' } }, { status: 404 });
+      }
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    renderWithProviders(<ProjectSettings />, { route: '/settings?project=alpha' });
+    await screen.findByText('Factory Lane Policy');
+
+    // The expected_provider <select> should still have option list — including codex from the baseline.
+    const expectedSelect = screen.getByLabelText('Expected provider');
+    expect(expectedSelect.querySelector('option[value="codex"]')).not.toBeNull();
+    expect(expectedSelect.querySelector('option[value="ollama"]')).not.toBeNull();
+    expect(expectedSelect.querySelector('option[value="deepinfra"]')).not.toBeNull();
+  });
 });
