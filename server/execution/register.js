@@ -39,6 +39,7 @@
 const planProjectResolver = require('./plan-project-resolver');     // [db, dashboard]
 const workflowResume = require('./workflow-resume');                // [db, eventBus, logger]
 const workflowRuntime = require('./workflow-runtime');              // [db, dashboard, taskManager]
+const fallbackRetry = require('./fallback-retry');                  // [db, dashboard, taskManager]
 
 // ── Deferred (deps include task-manager-owned closures / utilities) ──
 // Required for side effects (each module's register() function is
@@ -53,7 +54,6 @@ require('./provider-router');
 require('./completion-pipeline');
 require('./slot-pull-scheduler');
 require('./process-lifecycle');
-require('./fallback-retry');
 require('./task-finalizer');
 require('./queue-scheduler');
 require('./task-startup');
@@ -65,6 +65,7 @@ function register(container) {
   planProjectResolver.register(container);
   workflowResume.register(container);
   workflowRuntime.register(container);
+  fallbackRetry.register(container);
 }
 
 module.exports = { register };
