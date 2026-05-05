@@ -542,7 +542,24 @@ function spawnAndTrackProcess(taskId, task, config) {
 // startTask — delegated to execution/task-startup.js
 function startTask(taskId) { return _taskStartup.startTask(taskId); }
 
-const { cancelTask, triggerCancellationWebhook } = createCancellationHandler({
+// ── taskCanceller capability: single registration, single instance ──
+//
+// Construct the cancellation handler once and register it as the
+// canonical `taskCanceller` container value, overriding the deferred
+// factory entry registered by execution/register.js. This eliminates
+// the dual-handler concern from the taskCanceller pilot: the inline
+// construction here and the factory registration there used to produce
+// two independently-built handlers that happened to share state via
+// processTracker. After this change, every consumer — task-manager's
+// own export, workflow-runtime, fallback-retry, process-lifecycle, and
+// any future caller of defaultContainer.get('taskCanceller') — sees the
+// same instance.
+//
+// The execution/register.js factory still exists as a fallback for
+// isolated tests that boot the container without loading task-manager;
+// the override path runs whenever task-manager.js is in the require
+// graph (production + most integration tests).
+const _cancellationHandler = createCancellationHandler({
   db,
   // runningProcesses / apiAbortControllers / pendingRetryTimeouts /
   // stallRecoveryAttempts default to container's processTracker —
@@ -557,6 +574,8 @@ const { cancelTask, triggerCancellationWebhook } = createCancellationHandler({
   handleWorkflowTermination,
   processQueue,
 });
+const { cancelTask, triggerCancellationWebhook } = _cancellationHandler;
+defaultContainer.registerValue('taskCanceller', _cancellationHandler);
 
 /**
  * Process the queue - start next queued task if possible
