@@ -5599,6 +5599,21 @@ function getTaskSpecificityFilePaths(task, workItem, planFilePaths = []) {
 }
 
 function buildTaskScopeDetail(task, workItem, planFilePaths = [], score = null) {
+  // Workitem-level hard constraints (allowed_files + max_files) take
+  // precedence: when the workitem says "up to 1 file, limited to X",
+  // the lint-pass test for ollama-canary plans expects that exact phrasing
+  // even when the task body also names the file directly. Falling through
+  // to score.file_paths or task-extracted paths would emit "centered on"
+  // instead of "limited to" and lose the constraint signal.
+  const constraints = getWorkItemConstraintsObject(workItem);
+  const hasHardConstraints = Number(constraints.max_files) > 0
+    && Array.isArray(constraints.allowed_files)
+    && constraints.allowed_files.length > 0;
+  if (hasHardConstraints) {
+    const constraintDetail = buildWorkItemScopeDetail(workItem);
+    if (constraintDetail) return constraintDetail;
+  }
+
   const directPaths = Array.isArray(score?.file_paths) ? score.file_paths : [];
   if (directPaths.length > 0) {
     return `${directPaths.length} file${directPaths.length === 1 ? '' : 's'}, centered on ${formatPlanDescriptionFileList(directPaths)}`;

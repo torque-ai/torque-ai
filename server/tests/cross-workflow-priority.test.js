@@ -235,7 +235,7 @@ describe('cross-workflow priority', () => {
     });
 
     it('adds workflow priority safely in schema migrations', () => {
-      const migrationSource = readServerFile('db', 'migrations.js');
+      const migrationSource = readServerFile('db', 'schema', 'status-validation.js');
 
       expect(migrationSource).toContain("safeAddColumn('workflows', 'priority INTEGER DEFAULT 0');");
       expect(migrationSource).toContain('CREATE INDEX IF NOT EXISTS idx_workflows_priority ON workflows(priority)');
