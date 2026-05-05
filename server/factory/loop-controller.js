@@ -5723,10 +5723,17 @@ function getPrimaryAllowedFile(workItem) {
 }
 
 function getPrimaryPlanReferenceFile(value, workItem) {
-  const fromPlan = extractPlanDescriptionFilePaths(value)[0];
-  if (fromPlan) return fromPlan;
+  // When the work item has an explicit constraints.allowed_files list,
+  // prefer that as the canonical "where this work happens" path. Plan
+  // text frequently references the bare filename (e.g. "Foo.cs" pulled
+  // from the task title) which extractPlanDescriptionFilePaths returns
+  // ahead of the full repo-relative path; without this preference the
+  // qualify replacements emit `Foo.cs` instead of `subdir/Foo.cs` and
+  // break test assertions plus actual prompt usefulness.
   const fromAllowed = getPrimaryAllowedFile(workItem);
   if (fromAllowed) return fromAllowed;
+  const fromPlan = extractPlanDescriptionFilePaths(value)[0];
+  if (fromPlan) return fromPlan;
   return collectArchitectScopeFiles(workItem)[0] || null;
 }
 
