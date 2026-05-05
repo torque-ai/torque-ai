@@ -47,13 +47,13 @@ const processStreams = require('./process-streams');                // [db, dash
 const processLifecycle = require('./process-lifecycle');            // [dashboard, taskManager]
 const debugLifecycle = require('./debug-lifecycle');                // [taskManager]
 const completionPipeline = require('./completion-pipeline');        // [db]
+const slotPullScheduler = require('./slot-pull-scheduler');         // [db, dashboard, sharedFactoryStore, taskManager]
 
 // ── Deferred (deps include task-manager-owned closures / utilities) ──
 // Required for side effects (each module's register() function is
 // available on its export) but NOT called until consumer migration
 // promotes their utility-function deps to container values.
 require('./provider-router');
-require('./slot-pull-scheduler');
 require('./task-finalizer');
 require('./queue-scheduler');
 require('./task-startup');
@@ -73,6 +73,7 @@ function register(container) {
   processLifecycle.register(container);
   debugLifecycle.register(container);
   completionPipeline.register(container);
+  slotPullScheduler.register(container);
 }
 
 module.exports = { register };

@@ -630,9 +630,16 @@ function stopHeartbeat() {
 // Replaces the prior placeholder createSlotPullScheduler stub with one that
 // actually closes over deps via the established module-state-swap pattern.
 function createSlotPullScheduler(deps = {}) {
+  // Bind startTask from registered taskManager if not explicitly
+  // provided. projectId/projectName are optional context — null is
+  // a valid value (the scheduler runs at the global level when no
+  // project scope is set).
+  const tm = deps.taskManager || null;
+  const startTask = deps.startTask
+    || (tm && typeof tm.startTask === 'function' ? tm.startTask.bind(tm) : null);
   const local = {
     _db: deps.db,
-    _startTask: deps.startTask,
+    _startTask: startTask,
     _dashboard: deps.dashboard,
     _sharedFactoryStore: deps.sharedFactoryStore || null,
     _projectContextOverride: {
@@ -666,9 +673,13 @@ function createSlotPullScheduler(deps = {}) {
 }
 
 function register(container) {
+  // startTask binds from taskManager inside the factory.
+  // projectId/projectName are optional runtime context (the scheduler
+  // operates at the global level when unset) and are passed through
+  // localDeps when factory loops construct project-scoped instances.
   container.register(
     'slotPullScheduler',
-    ['db', 'startTask', 'dashboard', 'sharedFactoryStore', 'projectId', 'projectName'],
+    ['db', 'dashboard', 'sharedFactoryStore', 'taskManager'],
     (deps) => createSlotPullScheduler(deps)
   );
 }
