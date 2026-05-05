@@ -723,4 +723,38 @@ describe('FactoryLanePolicyPanel — editor controls', () => {
       });
     });
   });
+
+  it('falls back to a baseline provider list when /api/v2/providers fails', async () => {
+    globalThis.fetch = vi.fn((url) => {
+      if (url === '/api/v2/tasks/list-projects') return createResponse({ data: [{ name: 'alpha', task_count: 1, last_active: '2026-01-15T10:30:00Z' }] });
+      if (url === '/api/v2/tasks/list-project-configs') return createResponse({ data: [{ project: 'alpha' }] });
+      if (url === '/api/v2/project-config?project=alpha') {
+        return createResponse({ data: { default_provider: 'ollama', default_model: '', verify_command: '', routing_template_id: null, auto_fix_enabled: 0, default_timeout: 30 } });
+      }
+      if (url === '/api/v2/routing/templates') return createResponse({ data: [] });
+      if (url === '/api/v2/provider-scores') return createResponse([]);
+      if (url === '/api/v2/cost-budgets') return createResponse([]);
+      if (url === '/api/v2/factory/projects') {
+        return createResponse({
+          data: { projects: [{
+            id: 'fp-1', name: 'alpha', trust_level: 'guided',
+            config_json: JSON.stringify({ provider_lane_policy: { expected_provider: 'ollama', allowed_providers: [], allowed_fallback_providers: [], by_kind: {}, enforce_handoffs: false } }),
+          }] },
+        });
+      }
+      if (url === '/api/v2/providers') {
+        return createResponse({ error: { message: 'not found' } }, { status: 404 });
+      }
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    renderWithProviders(<ProjectSettings />, { route: '/settings?project=alpha' });
+    await screen.findByText('Factory Lane Policy');
+
+    // The expected_provider <select> should still have option list — including codex from the baseline.
+    const expectedSelect = screen.getByLabelText('Expected provider');
+    expect(expectedSelect.querySelector('option[value="codex"]')).not.toBeNull();
+    expect(expectedSelect.querySelector('option[value="ollama"]')).not.toBeNull();
+    expect(expectedSelect.querySelector('option[value="deepinfra"]')).not.toBeNull();
+  });
 });

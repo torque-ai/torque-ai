@@ -142,6 +142,12 @@ function SaveStatusIndicator({ status }) {
 // optimistic state and toast the error.
 const FACTORY_KINDS = ['scout', 'architect_cycle', 'plan_generation', 'verify_review', 'execute'];
 
+const BASELINE_PROVIDERS = Object.freeze([
+  'ollama', 'codex', 'codex-spark', 'claude-cli', 'claude-ollama',
+  'anthropic', 'deepinfra', 'hyperbolic', 'groq', 'cerebras',
+  'google-ai', 'openrouter', 'ollama-cloud',
+]);
+
 function FactoryLanePolicyPanel({
   lanePolicy,
   factoryProjectId,
@@ -532,16 +538,20 @@ export default function ProjectSettings({ project: projectProp = '' }) {
         const names = Array.isArray(items)
           ? items.map((p) => (typeof p === 'string' ? p : p?.name)).filter(Boolean)
           : [];
-        setProviders(names);
+        if (names.length === 0) {
+          setProviders([...BASELINE_PROVIDERS]);
+          toast.warning('Provider list unavailable, using defaults');
+        } else {
+          setProviders(names);
+        }
       })
       .catch(() => {
-        // Fallback (baseline + toast) is wired in Task 7. For Task 1, leave the
-        // list empty on failure; dropdowns will show no options when we add them.
         if (cancelled || !mountedRef.current) return;
-        setProviders([]);
+        setProviders([...BASELINE_PROVIDERS]);
+        toast.warning('Provider list unavailable, using defaults');
       });
     return () => { cancelled = true; };
-  }, []);
+  }, [toast]);
 
   const loadOptionalProviderScores = useCallback(async () => {
     try {
