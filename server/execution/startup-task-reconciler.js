@@ -22,6 +22,22 @@ const {
 // TORQUE_READOPT_LOG_STALE_MS.
 const READOPT_LOG_STALE_MS_DEFAULT = 5 * 60 * 1000;
 
+// Restart-resubmit cap. The original 3 was tuned for the codex-only
+// world where most providers re-adopt their subprocess on restart —
+// non-detachable providers (ollama, ollama-agentic, anthropic, etc.)
+// burn through the cap quickly because they get cloned anew on every
+// restart. With multiple cutovers per hour observed in practice, 3
+// caused real ollama-agentic work to be abandoned (DLPhone WI #161
+// 10bc5f57 was at restart_resubmit_count=3 on 2026-05-05).
+// Override via TORQUE_RESTART_RESUBMIT_CAP. Detachable subprocesses
+// (codex/codex-spark/claude-cli) don't increment the counter at all
+// — they re-adopt via PID-liveness, no clone needed — so this cap
+// only governs HTTP/agentic providers.
+const RESTART_RESUBMIT_CAP = (() => {
+  const parsed = Number.parseInt(process.env.TORQUE_RESTART_RESUBMIT_CAP || '', 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 6;
+})();
+
 function getDbHandle(db) {
   if (db && typeof db.getDbInstance === 'function') {
     return db.getDbInstance();
@@ -234,7 +250,13 @@ function getRestartResubmitCount(metadata) {
 }
 
 function isEligibleForClone(original, metadata, db, rawDb) {
-  if (isFactoryProjectPaused(original, rawDb)) return false;
+  // Project being paused is the right gate for accepting NEW work, not
+  // for preserving in-flight work that was already running when the
+  // restart hit. The clone lands in `queued` and the queue scheduler
+  // already refuses to promote queued tasks for paused projects, so we
+  // can safely clone now and let the gate fire later when the project
+  // actually resumes. Skipping the clone here loses the prior partial
+  // output for no benefit.
   if (metadata.auto_resubmit_on_restart === true) return true;
   if (tagsContainFactory(original.tags)) return true;
   if (original.workflow_id != null) {
@@ -616,11 +638,12 @@ function reconcileOrphanedTasksOnStartup({
       }
 
       const restartCount = getRestartResubmitCount(metadata);
-      if (restartCount >= 3) {
+      if (restartCount >= RESTART_RESUBMIT_CAP) {
         actions.capped++;
         safeLog(logger, 'warn', `Startup task reconciler skipped resubmit cap for ${original.id}`, {
           task_id: original.id,
           restart_resubmit_count: restartCount,
+          cap: RESTART_RESUBMIT_CAP,
         });
         continue;
       }
@@ -632,6 +655,10 @@ function reconcileOrphanedTasksOnStartup({
           task_description: original.task_description,
           provider: original.provider,
           duration_ms: null,
+          // Pass cancel_reason so the resume-context formatter switches
+          // from "(failed)" to "(interrupted by server restart)" — keeps
+          // the model in resume mode rather than fix-the-bug mode.
+          cancel_reason: 'server_restart',
         },
       );
 

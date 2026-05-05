@@ -320,7 +320,13 @@ describe('startup task reconciler', () => {
     expect(cloneRowsFor('task-factory')).toHaveLength(1);
   });
 
-  test('Factory orphan for paused project -> cancelled and not cloned', () => {
+  test('Factory orphan for paused project -> cancelled AND cloned (queued, will defer until resume)', () => {
+    // Pre-2026-05-05 the reconciler refused to clone orphans whose
+    // project was paused at boot — that lost partial output for no
+    // benefit. The clone now lands `queued` and the queue scheduler
+    // refuses to promote queued tasks while the project is paused, so
+    // state stays correct and the work is preserved for when the
+    // operator resumes the project. Test the new behavior.
     db.prepare("INSERT INTO factory_projects (id, name, status) VALUES (?, ?, 'paused')")
       .run('paused-project', 'PausedProject');
     insertTask({
@@ -336,9 +342,11 @@ describe('startup task reconciler', () => {
     const result = runReconciler();
 
     expect(result.actions.cancelled).toBe(1);
-    expect(result.actions.cloned).toBe(0);
+    expect(result.actions.cloned).toBe(1);
     expect(getTaskRow('task-paused-factory').status).toBe('cancelled');
-    expect(cloneRowsFor('task-paused-factory')).toHaveLength(0);
+    const clones = cloneRowsFor('task-paused-factory');
+    expect(clones).toHaveLength(1);
+    expect(clones[0].status).toBe('queued');
   });
 
   test('Eligible orphan with missing working_directory -> failed and not cloned', () => {
@@ -478,12 +486,15 @@ describe('startup task reconciler', () => {
     expect(cloneRowsFor('task-dead-pid-completed-output')).toHaveLength(0);
   });
 
-  test('Resubmit cap restart_resubmit_count=3 -> cancelled, not cloned', () => {
+  test('Resubmit cap (default 6) -> cancelled, not cloned at the cap', () => {
+    // Default cap is 6 (raised from 3 on 2026-05-05 — non-detachable
+    // providers burn restart-resubmits faster than codex re-adoption).
+    // Override via TORQUE_RESTART_RESUBMIT_CAP. Test the boundary.
     insertTask({
       id: 'task-capped',
       metadata: {
         auto_resubmit_on_restart: true,
-        restart_resubmit_count: 3,
+        restart_resubmit_count: 6,
       },
     });
 
@@ -495,6 +506,24 @@ describe('startup task reconciler', () => {
     expect(getTaskRow('task-capped').status).toBe('cancelled');
     expect(getTaskRow('task-capped').cancel_reason).toBe('server_restart');
     expect(cloneRowsFor('task-capped')).toHaveLength(0);
+  });
+
+  test('Resubmit count below cap -> still cloned (regression: 3 used to cap)', () => {
+    // Pre-2026-05-05 the cap was 3; verifies the bump is wired through
+    // and a count of 3 still allows another clone under the new default.
+    insertTask({
+      id: 'task-just-under-cap',
+      metadata: {
+        auto_resubmit_on_restart: true,
+        restart_resubmit_count: 3,
+      },
+    });
+
+    const result = runReconciler();
+
+    expect(result.actions.cancelled).toBe(1);
+    expect(result.actions.capped).toBe(0);
+    expect(result.actions.cloned).toBe(1);
   });
 
   test('Unique index race -> SQLITE_CONSTRAINT is skipped gracefully', () => {
@@ -593,7 +622,10 @@ describe('startup-task-reconciler — drain-cancelled tasks', () => {
     expect(clone.status).toBe('queued');
     expect(clone.workflow_id).toBe(wfId);
     expect(clone.workflow_node_id).toBe('feature_x');
-    expect(clone.task_description.startsWith('## Previous Attempt (failed)')).toBe(true);
+    // Reconciler sets cancel_reason=server_restart in the resume-context
+    // metadata so the heading switches to (interrupted) — keeps the
+    // model from misframing a restart casualty as a real failure.
+    expect(clone.task_description.startsWith('## Previous Attempt (interrupted by server restart)')).toBe(true);
     expect(clone.task_description).toContain('Implement feature X');
   });
 

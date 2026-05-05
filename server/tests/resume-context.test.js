@@ -86,6 +86,10 @@ describe('resume-context', () => {
       approachTaken: '',
       durationMs: 0,
       provider: 'unknown',
+      // cancelReason added 2026-05-05 to drive heading switch between
+      // "(failed)" and "(interrupted by server restart)" — null when
+      // no metadata.cancel_reason was provided.
+      cancelReason: null,
     });
   });
 

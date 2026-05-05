@@ -290,6 +290,62 @@ function ensureProjectRegistered(projectName) {
   return normalizedProject;
 }
 
+// Resolve a project name from a working_directory by matching against
+// registered factory_projects.path. Two-step:
+//   1. Exact match — task.working_directory === factory_projects.path
+//   2. Worktree-parent match — factory_projects.path is an ancestor of
+//      task.working_directory (handles `<project>/.worktrees/<feat>` paths
+//      that the factory pipeline routinely uses)
+// Returns null on any miss / error so callers can fall back to the
+// `project: null` default. Best-effort — never throws.
+function deriveProjectFromWorkingDirectory(dbHandle, workingDirectory) {
+  if (!dbHandle || typeof workingDirectory !== 'string' || !workingDirectory.trim()) {
+    return null;
+  }
+  let normalizedWd;
+  try {
+    normalizedWd = path.normalize(workingDirectory.trim());
+  } catch {
+    return null;
+  }
+
+  let rows;
+  try {
+    rows = dbHandle.prepare('SELECT name, path FROM factory_projects WHERE path IS NOT NULL').all();
+  } catch {
+    // Table missing in test fixtures — fall back to null.
+    return null;
+  }
+  if (!Array.isArray(rows) || rows.length === 0) return null;
+
+  // Windows is case-insensitive on path comparisons; Unix is sensitive.
+  // Use case-insensitive on Win32 to match how the rest of the code
+  // treats path keys.
+  const winCaseFold = process.platform === 'win32';
+  const wdKey = winCaseFold ? normalizedWd.toLowerCase() : normalizedWd;
+
+  let bestMatch = null;
+  let bestMatchLen = -1;
+  for (const row of rows) {
+    if (!row || typeof row.path !== 'string' || !row.name) continue;
+    let projectPath;
+    try { projectPath = path.normalize(row.path.trim()); } catch { continue; }
+    if (!projectPath) continue;
+    const projectKey = winCaseFold ? projectPath.toLowerCase() : projectPath;
+
+    if (wdKey === projectKey) return row.name;
+
+    const ancestor = projectKey.endsWith(path.sep) ? projectKey : projectKey + path.sep;
+    if (wdKey.startsWith(ancestor) && projectKey.length > bestMatchLen) {
+      // Pick the LONGEST matching ancestor — `/foo` and `/foo-bar` both
+      // ancestor `/foo-bar/baz`, but `/foo-bar` is the right project.
+      bestMatch = row.name;
+      bestMatchLen = projectKey.length;
+    }
+  }
+  return bestMatch;
+}
+
 function createTask(task) {
   if (dbClosed || !db) throw new Error('Database is closed');
   const serverConfig = require('../config');
@@ -330,7 +386,15 @@ function createTask(task) {
   }
 
   const explicitProject = typeof task.project === 'string' ? task.project.trim() : '';
-  const project = explicitProject || null;
+  // Auto-derive from working_directory when caller didn't set project
+  // explicitly. Looks up factory_projects by exact path match, then by
+  // worktree-parent path (matches `<repo>/.worktrees/<feat>` to its
+  // factory project). Eliminates the "forgot to pass project" bug class
+  // — internal task submitters that copy a parent task's working_directory
+  // but not its project would silently land null otherwise (live failure
+  // observed in clone path before 3e625b29).
+  const derivedProject = explicitProject ? null : deriveProjectFromWorkingDirectory(db, task.working_directory);
+  const project = explicitProject || derivedProject || null;
   const tags = Array.isArray(task.tags) ? [...task.tags] : [];
   if (project && project !== 'unassigned') {
     const projectTag = `project:${project}`;

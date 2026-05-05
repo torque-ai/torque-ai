@@ -65,7 +65,17 @@ function isBusyDeleteError(err) {
     || message.includes('ebusy')
     || message.includes('eperm')
     || message.includes('resource busy')
-    || message.includes('device or resource busy');
+    || message.includes('device or resource busy')
+    // Windows cmd.exe rmdir /s /q error message when the file is held
+    // by another process (Defender scanning, indexer holding handles,
+    // git running in a peer worktree, etc.). Without this match, the
+    // shell-fallback step gets classified as `error` instead of `busy`,
+    // which drives forceRmDir into the quarantine fallback path and
+    // logs warn-level spam at every boot — even though the dir will
+    // sweep cleanly once the AV/indexer releases the handle.
+    || message.includes('the process cannot access the file because it is being used by another process')
+    // PowerShell variant of the same condition.
+    || message.includes('cannot access the file because it is being used');
 }
 
 function parseGitPorcelainPath(rawPath) {

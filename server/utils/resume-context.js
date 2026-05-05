@@ -6,7 +6,13 @@ const MAX_APPROACH_LENGTH = 500;
 const MAX_COMMANDS = 20;
 const MAX_FILES = 50;
 const RESUME_CONTEXT_HEADING = '## Previous Attempt (failed)';
+const RESUME_CONTEXT_HEADING_INTERRUPTED = '## Previous Attempt (interrupted by server restart)';
+// Heading prefixes that strip-existing-preamble must recognize; new
+// headings should be added here so re-clones don't accumulate stale
+// preambles when the cancel-reason changed between attempts.
+const RESUME_CONTEXT_HEADINGS = [RESUME_CONTEXT_HEADING, RESUME_CONTEXT_HEADING_INTERRUPTED];
 const RESUME_CONTEXT_INSTRUCTION = 'Do not repeat the same approach. Fix the error and complete the task.';
+const RESUME_CONTEXT_INSTRUCTION_INTERRUPTED = 'Your prior session was interrupted (not failed). Resume from where you left off — keep the same approach unless the partial output reveals a real bug.';
 
 const FILE_ACTION_PATTERN = /\b(?:Wrote|Created|Modified|Updated|Edited)\b(?:\s+(?:file|path))?\s*[:-]?\s*(.+)$/i;
 const MARKDOWN_LINK_PATTERN = /\[([^\]\r\n]+\.[A-Za-z0-9]{1,16})\](?:\([^)]+\))?/g;
@@ -174,6 +180,13 @@ function buildResumeContext(taskOutput, errorOutput, metadata) {
   const normalizedTaskOutput = toText(taskOutput);
   const normalizedErrorOutput = toText(errorOutput);
   const outputBeforeError = extractTaskOutputBeforeError(normalizedTaskOutput);
+  // cancelReason comes from the task row's cancel_reason column. The
+  // formatter uses 'server_restart' to switch from "(failed)" to
+  // "(interrupted by server restart)" so the model doesn't think a real
+  // failure happened when it was just process death — that misframing
+  // sends the model into "fix the bug" mode instead of "resume from
+  // where you left off."
+  const cancelReason = toText(safeMetadata.cancel_reason).trim() || null;
 
   return {
     goal: getGoal(safeMetadata),
@@ -184,6 +197,7 @@ function buildResumeContext(taskOutput, errorOutput, metadata) {
     approachTaken: firstChars(normalizedTaskOutput, MAX_APPROACH_LENGTH),
     durationMs: getDurationMs(safeMetadata),
     provider: toText(safeMetadata.provider).trim() || 'unknown',
+    cancelReason,
   };
 }
 
@@ -198,15 +212,23 @@ function formatResumeContextForPrompt(resumeContext) {
     ? resumeContext.filesModified.map(normalizePath).filter(Boolean)
     : [];
 
+  // Server-restart casualties get a different heading + instruction so
+  // the model treats it as "resume" not "fix the bug." Real failures
+  // keep the original "(failed)" framing.
+  const interrupted = toText(resumeContext.cancelReason).trim() === 'server_restart';
+  const heading = interrupted ? RESUME_CONTEXT_HEADING_INTERRUPTED : RESUME_CONTEXT_HEADING;
+  const errorLabel = interrupted ? '**Last status:**' : '**Error:**';
+  const instruction = interrupted ? RESUME_CONTEXT_INSTRUCTION_INTERRUPTED : RESUME_CONTEXT_INSTRUCTION;
+
   return [
-    '## Previous Attempt (failed)',
+    heading,
     `**Provider:** ${provider} | **Duration:** ${durationMs / 1000}s`,
     `**Files modified:** ${filesModified.length > 0 ? filesModified.join(', ') : 'none'}`,
     `**Progress:** ${toText(resumeContext.progressSummary)}`,
-    `**Error:** ${toText(resumeContext.errorDetails)}`,
+    `${errorLabel} ${toText(resumeContext.errorDetails)}`,
     `**Approach taken:** ${toText(resumeContext.approachTaken)}`,
     '',
-    RESUME_CONTEXT_INSTRUCTION,
+    instruction,
   ].join('\n');
 }
 
@@ -231,23 +253,28 @@ function stripExistingResumeContextPreamble(prompt) {
   const leadingLength = leadingWhitespaceMatch ? leadingWhitespaceMatch[0].length : 0;
   const body = normalized.slice(leadingLength);
 
-  if (!body.startsWith(RESUME_CONTEXT_HEADING)) {
+  // Match either heading variant so re-clones whose cancel-reason
+  // changed dont accumulate stale preambles.
+  const matchedHeading = RESUME_CONTEXT_HEADINGS.find((h) => body.startsWith(h));
+  if (!matchedHeading) {
     return normalized;
   }
 
-  const delimiterMatch = /\r?\n\r?\n---\r?\n\r?\n/.exec(body);
+  const delimiterRegex = /\r?\n\r?\n---\r?\n\r?\n/;
+  const delimiterMatch = delimiterRegex.exec(body);
   if (delimiterMatch) {
     return body.slice(delimiterMatch.index + delimiterMatch[0].length);
   }
 
-  const instructionIndex = body.indexOf(RESUME_CONTEXT_INSTRUCTION);
-  if (instructionIndex < 0) {
-    return normalized;
+  // Try both instruction variants whichever the prior preamble used.
+  const candidates = [RESUME_CONTEXT_INSTRUCTION, RESUME_CONTEXT_INSTRUCTION_INTERRUPTED];
+  for (const instruction of candidates) {
+    const idx = body.indexOf(instruction);
+    if (idx >= 0) {
+      return body.slice(idx + instruction.length).replace(/^\s+/, '');
+    }
   }
-
-  return body
-    .slice(instructionIndex + RESUME_CONTEXT_INSTRUCTION.length)
-    .replace(/^\s+/, '');
+  return normalized;
 }
 
 function prependResumeContextToPrompt(prompt, resumeContext, options = {}) {
