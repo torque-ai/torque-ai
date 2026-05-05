@@ -112,6 +112,8 @@ Plan:   `docs/superpowers/plans/2026-04-21-intake-plan-pipeline.md`
 
 ## Auto-Recovery Decision Actions
 
+> **See also:** [`docs/recovery-decisions.md`](recovery-decisions.md) for the canonical reference covering the three recovery subsystems (auto-recovery engine, replan/rejected sweeps, execution-layer retry/fallback) and the precedence between them. The table below covers the **observability** view — the named decisions emitted into the `factory_decisions` log. The reference doc covers the **rule registry** view — what triggers each path and where to add new rules.
+
 The factory emits named decisions for each auto-recovery path so stuck loops are diagnosable from the decision log alone. When debugging a stalled project, query the decisions endpoint first:
 
 | Action | Stage | Triggered by | What it means |

@@ -651,5 +651,7 @@ When a loop is stuck, query decisions first: `GET /api/v2/factory/projects/<id>/
 
 Full factory runbook — auto-advance/tick/startup-resume, auto-ship detection, worktree lifecycle, plan intake dedup, and the complete auto-recovery decision action table — lives in `docs/factory.md`.
 
+When adding a recovery rule, classification, or strategy, consult `docs/recovery-decisions.md` first — it is the canonical reference for the three recovery subsystems (auto-recovery engine, replan/rejected sweeps, execution-layer retry/fallback) and tells you which subsystem your change belongs in.
+
 ---
 *Full safeguard documentation: see `docs/safeguards.md`*
