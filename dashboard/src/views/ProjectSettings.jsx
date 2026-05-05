@@ -54,7 +54,20 @@ function FormField({ label, children, hint, id }) {
 
 function MultiSelectDropdown({ label, options, selected, onChange, disabled }) {
   const [open, setOpen] = useState(false);
+  const wrapperRef = useRef(null);
   const selectedSet = new Set(selected);
+
+  // Close on click outside — mirrors the pattern from Layout.jsx,
+  // HealthBar.jsx, SessionSwitcher.jsx, and Kanban.jsx so multiple lane
+  // policy dropdowns don't stack open and overlap.
+  useEffect(() => {
+    if (!open) return;
+    function handleClick(e) {
+      if (wrapperRef.current && !wrapperRef.current.contains(e.target)) setOpen(false);
+    }
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [open]);
 
   function toggle(value) {
     const next = new Set(selectedSet);
@@ -69,7 +82,7 @@ function MultiSelectDropdown({ label, options, selected, onChange, disabled }) {
       : `${selected.length} selected`;
 
   return (
-    <div className="relative">
+    <div ref={wrapperRef} className="relative">
       <button
         type="button"
         aria-label={label}

@@ -383,4 +383,30 @@ describe('FactoryLanePolicyPanel — editor controls', () => {
     expect(expectedSelect.value).toBe('ollama');
     expect(expectedSelect.querySelector('option[value=""]').textContent).toContain('none');
   });
+
+  it('closes the multi-select when the user clicks outside', async () => {
+    mountWithLanePolicy({
+      lanePolicy: {
+        expected_provider: 'ollama',
+        allowed_providers: [],
+        allowed_fallback_providers: [],
+        by_kind: {},
+        enforce_handoffs: false,
+      },
+    });
+    await screen.findByText('Factory Lane Policy');
+
+    // Open the Allowed providers multi-select.
+    const button = screen.getAllByLabelText('Allowed providers')[0];
+    fireEvent.click(button);
+    expect(await screen.findByRole('listbox', { name: 'Allowed providers' })).toBeInTheDocument();
+
+    // Click on a non-listbox region (the panel header).
+    fireEvent.mouseDown(screen.getByText('Factory Lane Policy'));
+
+    // Listbox should no longer be in the DOM.
+    await waitFor(() => {
+      expect(screen.queryByRole('listbox', { name: 'Allowed providers' })).toBeNull();
+    });
+  });
 });
