@@ -303,3 +303,84 @@ describe('ProjectSettings', () => {
     await waitFor(() => expect(factoryFetched).toBe(true));
   });
 });
+
+describe('FactoryLanePolicyPanel — editor controls', () => {
+  let originalFetch;
+
+  beforeEach(() => { originalFetch = globalThis.fetch; });
+  afterEach(() => { globalThis.fetch = originalFetch; vi.restoreAllMocks(); });
+
+  function mountWithLanePolicy({ lanePolicy, providers = ['ollama', 'codex', 'codex-spark'] } = {}) {
+    globalThis.fetch = vi.fn((url) => {
+      if (url === '/api/v2/tasks/list-projects') {
+        return createResponse({ data: [{ name: 'alpha', task_count: 1, last_active: '2026-01-15T10:30:00Z' }] });
+      }
+      if (url === '/api/v2/tasks/list-project-configs') return createResponse({ data: [{ project: 'alpha' }] });
+      if (url === '/api/v2/project-config?project=alpha') {
+        return createResponse({ data: { default_provider: 'ollama', default_model: '', verify_command: '', routing_template_id: null, auto_fix_enabled: 0, default_timeout: 30 } });
+      }
+      if (url === '/api/v2/routing/templates') return createResponse({ data: [] });
+      if (url === '/api/v2/provider-scores') return createResponse([]);
+      if (url === '/api/v2/cost-budgets') return createResponse([]);
+      if (url === '/api/v2/factory/projects') {
+        return createResponse({
+          data: { projects: [{
+            id: 'fp-1', name: 'alpha', trust_level: 'guided',
+            config_json: JSON.stringify({ provider_lane_policy: lanePolicy }),
+          }] },
+        });
+      }
+      if (url === '/api/v2/providers') {
+        return createResponse({ data: { items: providers.map((n) => ({ name: n })) } });
+      }
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    renderWithProviders(<ProjectSettings />, { route: '/settings?project=alpha' });
+  }
+
+  it('renders editable per-kind dropdowns with sentinel option', async () => {
+    mountWithLanePolicy({
+      lanePolicy: {
+        expected_provider: 'ollama',
+        allowed_providers: ['ollama'],
+        allowed_fallback_providers: [],
+        by_kind: { architect_cycle: 'codex' },
+        enforce_handoffs: true,
+      },
+    });
+
+    await screen.findByText('Factory Lane Policy');
+
+    const architectSelect = await screen.findByLabelText('Provider for architect_cycle');
+    expect(architectSelect.tagName).toBe('SELECT');
+    expect(architectSelect.value).toBe('codex');
+
+    expect(architectSelect.querySelector('option[value=""]')).not.toBeNull();
+    expect(architectSelect.querySelector('option[value=""]').textContent).toContain('use default');
+
+    expect(architectSelect.querySelector('option[value="codex"]')).not.toBeNull();
+    expect(architectSelect.querySelector('option[value="ollama"]')).not.toBeNull();
+
+    const executeSelect = await screen.findByLabelText('Provider for execute');
+    expect(executeSelect.value).toBe('');
+  });
+
+  it('renders editable expected_provider with — none — sentinel', async () => {
+    mountWithLanePolicy({
+      lanePolicy: {
+        expected_provider: 'ollama',
+        allowed_providers: [],
+        allowed_fallback_providers: [],
+        by_kind: {},
+        enforce_handoffs: false,
+      },
+    });
+
+    await screen.findByText('Factory Lane Policy');
+    const expectedSelect = await screen.findByLabelText('Expected provider');
+    expect(expectedSelect.tagName).toBe('SELECT');
+    expect(expectedSelect.value).toBe('ollama');
+    expect(expectedSelect.querySelector('option[value=""]').textContent).toContain('none');
+  });
+});
