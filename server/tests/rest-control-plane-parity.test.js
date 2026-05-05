@@ -228,7 +228,9 @@ describe('REST control-plane parity', () => {
         path.join(__dirname, '..', 'dashboard', 'server.js'),
         'utf8'
       );
-      expect(source).toContain("require('./api/v2-dispatch')");
+      // dashboard-server.js was moved into server/dashboard/server.js,
+      // so the relative require became one level deeper.
+      expect(source).toContain("require('../api/v2-dispatch')");
     });
 
     it('dashboard-server.js intercepts /api/v2/ before legacy router', () => {

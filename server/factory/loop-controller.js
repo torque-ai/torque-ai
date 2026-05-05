@@ -4939,7 +4939,11 @@ function normalizePlanProjectRelativePath(filePath, projectPath = null) {
   const raw = String(filePath || '').trim().replace(/^`|`$/g, '');
   if (!raw) return null;
   if (!projectPath) return raw.replace(/\\/g, '/');
-  if (!/[\\/]/.test(raw) && /^[A-Z][A-Za-z0-9_-]*\.(?:js|ts|py|cs)$/i.test(raw)) {
+  // Filter out PascalCase module-style names mentioned in prose (e.g.
+  // "FooBar.js", "MyService.ts") that aren't repo-relative paths. Drop
+  // the /i flag — lowercase filenames like "fix-me.js" or "config.ts"
+  // are real files relative to the project root and must NOT be filtered.
+  if (!/[\\/]/.test(raw) && /^[A-Z][A-Za-z0-9_-]*\.(?:js|ts|py|cs)$/.test(raw)) {
     return null;
   }
 
