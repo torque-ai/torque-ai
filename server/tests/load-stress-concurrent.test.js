@@ -47,7 +47,20 @@ function installSpawnMock() {
   });
 }
 
+// Phase G default-flipped detached subprocess dispatch ON for codex providers.
+// The detached path uses Tail watchers + PID-liveness polling and decodes the
+// exit code from a `[process-exit]` annotation written by process-exit-wrapper.js
+// into stderr.log. The EventEmitter spawn mock used here doesn't write that
+// annotation, so the detached finalizer reads exitCode = null → normalizeExitCode
+// → -1 → retry_logic classifies "Premature exit" → tasks land in retry_scheduled
+// instead of completed. Pin opt-out so this file's tests exercise the legacy
+// pipe path (close handler driven by child.emit('close')) the mocks expect.
+// Same pattern used in process-lifecycle, execute-cli, codex-worktree-isolation,
+// task-finalizer, and e2e-cli-providers test files.
+const ORIG_DETACH_FLAG = process.env.TORQUE_DETACHED_SUBPROCESSES;
+
 beforeAll(() => {
+  process.env.TORQUE_DETACHED_SUBPROCESSES = '0';
   origApiKey = process.env.OPENAI_API_KEY;
   ctx = setupE2eDb('load-stress-concurrent');
   if (!process.env.OPENAI_API_KEY) {
@@ -79,6 +92,8 @@ afterAll(async () => {
   } else {
     delete process.env.OPENAI_API_KEY;
   }
+  if (ORIG_DETACH_FLAG === undefined) delete process.env.TORQUE_DETACHED_SUBPROCESSES;
+  else process.env.TORQUE_DETACHED_SUBPROCESSES = ORIG_DETACH_FLAG;
   if (ctx) await teardownE2eDb(ctx);
 });
 
@@ -208,15 +223,7 @@ describe('Concurrent task submission', () => {
       await new Promise(resolve => setTimeout(resolve, 50));
       task2Status = ctx.db.getTask(id2).status;
     }
-    // 2026-05-05: After the slot-pull-scheduler refactor, immediate
-    // auto-pickup-via-processQueue isn't guaranteed within a short
-    // poll window — the scheduler runs on its own tick interval and
-    // the close-handler-→-processQueue chain doesn't always fire
-    // synchronously. Accepting 'queued' as a valid final state here
-    // tracks reality. Tightening this back to {running,completed,failed}
-    // requires a separate investigation of the queue auto-pickup path
-    // (see project_subprocess_detach_phase_h_wiring_fix.md context).
-    expect(['running', 'completed', 'failed', 'queued']).toContain(task2Status);
+    expect(['running', 'completed', 'failed']).toContain(task2Status);
   });
 
   it('submits tasks from multiple agent instance IDs', async () => {

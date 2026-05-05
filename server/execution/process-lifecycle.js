@@ -669,12 +669,22 @@ function spawnAndTrackProcess(taskId, task, spawnConfig) {
     }
   }
 
+  // closeEventFired is set true by the 'close' handler below. Hoisted above
+  // the instant-exit watchdog so the watchdog can short-circuit when close
+  // already fired but finalizeTask is still in flight (the close handler
+  // deletes proc immediately in handleCloseCleanup, then runs finalizeTask
+  // which may take >2s — without this guard the watchdog races and overwrites
+  // a legitimate completion path with a synthetic exit-code -1 finalize).
+  let closeEventFired = false;
+
   // Detect instant-exit: if the process entry is gone within 2 s yet the DB
   // status is still 'running', the close/error handler did not fire (or was
-  // skipped). Guard: we only act when proc is absent AND status hasn't moved,
-  // so a normal fast exit that the close handler already finalized is ignored.
+  // skipped). Guard: we only act when proc is absent AND status hasn't moved
+  // AND no close event has been observed — otherwise a slow close handler
+  // (e.g., long auto-verify) trips this watchdog and forces a fake failure.
   setTimeout(() => {
     try {
+      if (closeEventFired) return;
       const proc = deps.runningProcesses.get(taskId);
       if (!proc) {
         // Already cleaned up by close/error handler - check DB status
@@ -720,8 +730,7 @@ function spawnAndTrackProcess(taskId, task, spawnConfig) {
   // Guard: closeEventFired ensures the synthetic 'close' emit from the 'exit'
   // handler and the real 'close' event don't both drive finalization. The real
   // 'close' handler sets closeEventFired=true, so the setTimeout no-ops after
-  // the normal path completes.
-  let closeEventFired = false;
+  // the normal path completes. (Hoisted above the 2 s instant-exit watchdog.)
   child.on('exit', (exitCode) => {
     setTimeout(() => {
       if (!closeEventFired) {
