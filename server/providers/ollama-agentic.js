@@ -258,7 +258,15 @@ async function runAgenticLoop({
   // Read-only spin detection: if model does N iterations with only read-only tools
   // (read_file, list_directory, search_files) and no writes, it's going in circles.
   // Only applies to tasks that expect modification — pure analysis/search tasks are allowed to be read-only.
-  const inferredTaskExpectsModification = /\b(create|add|write|implement|generate|edit|modify|change|update|refactor|rename|fix|remove|delete|replace)\b/i.test(taskPrompt);
+  // Same negation patterns as the readOnlyInspectionTask detector below
+  // — task prompts like "Read-only repository inspection. Do not create,
+  // edit, write, or delete files." would otherwise match the modification
+  // verb regex via the negated clause and trigger the no-edits-after-nudge
+  // hard-fail inappropriately.
+  const taskExplicitlyReadOnly = /\bread[- ]only\b/i.test(taskPrompt)
+    || /\bdo not (?:create|modify|edit|write|delete|change)\b/i.test(taskPrompt);
+  const inferredTaskExpectsModification = !taskExplicitlyReadOnly
+    && /\b(create|add|write|implement|generate|edit|modify|change|update|refactor|rename|fix|remove|delete|replace)\b/i.test(taskPrompt);
   const taskExpectsModification = typeof taskExpectsModificationOverride === 'boolean'
     ? taskExpectsModificationOverride
     : inferredTaskExpectsModification;
