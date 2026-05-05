@@ -263,4 +263,123 @@ describe('discard-regenerable-merge-block', () => {
       expect(matches('something_else')).toBe(false);
     });
   });
+
+  // A-side (auto-recovery engine) wrapper. Same core logic as B1, different
+  // contract: receives { project, decision, services } and returns
+  // { success, next_action, outcome }. On success it approves the LEARN
+  // gate so the next factory tick re-enters LEARN's merge check against
+  // the now-clean target.
+  describe('A-side strategy wrapper', () => {
+    const aStrategy = require('../plugins/auto-recovery-core/strategies/discard-regenerable-merge-block');
+
+    function makeServices(approveGateImpl) {
+      return {
+        logger: { info: () => {}, warn: () => {} },
+        approveGate: approveGateImpl || (() => Promise.resolve()),
+      };
+    }
+
+    it('exports A-strategy shape', () => {
+      expect(aStrategy.name).toBe('discard-regenerable-merge-block');
+      expect(aStrategy.applicable_categories).toEqual(
+        expect.arrayContaining(['await_self_heal', 'transient'])
+      );
+      expect(typeof aStrategy.run).toBe('function');
+      expect(aStrategy.max_attempts_per_project).toBe(1);
+    });
+
+    it('discards regenerable files and approves the LEARN gate', async () => {
+      setupRepo(dir);
+      fs.mkdirSync(path.join(dir, 'docs/superpowers/plans/auto-generated'), { recursive: true });
+      fs.writeFileSync(
+        path.join(dir, 'docs/superpowers/plans/auto-generated/100.md'),
+        '# stale plan\n'
+      );
+
+      const approveCalls = [];
+      const services = makeServices(async (args) => { approveCalls.push(args); });
+
+      const result = await aStrategy.run({
+        project: { id: 'proj-A1', path: dir },
+        decision: { stage: 'learn', batch_id: 'b1', outcome: { paused_at_stage: 'LEARN' } },
+        services,
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.next_action).toBe('retry');
+      expect(result.outcome.strategy).toBe('discard-regenerable-merge-block');
+      expect(result.outcome.mode).toBe('discarded');
+      expect(approveCalls).toEqual([{ project_id: 'proj-A1', stage: 'LEARN' }]);
+      expect(fs.existsSync(path.join(dir, 'docs/superpowers/plans/auto-generated/100.md'))).toBe(false);
+    });
+
+    it('refuses cleanly when non-regenerable files dirty (success=false)', async () => {
+      setupRepo(dir);
+      fs.writeFileSync(path.join(dir, 'real.js'), 'work\n');
+
+      const approveCalls = [];
+      const services = makeServices(async (args) => { approveCalls.push(args); });
+
+      const result = await aStrategy.run({
+        project: { id: 'proj-A2', path: dir },
+        decision: { stage: 'learn', outcome: { paused_at_stage: 'LEARN' } },
+        services,
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.next_action).toBe('refused');
+      expect(result.outcome.reason).toMatch(/non-regenerable file/);
+      expect(approveCalls).toEqual([]);
+      expect(fs.existsSync(path.join(dir, 'real.js'))).toBe(true);
+    });
+
+    it('signals success on already-clean merge target (race against natural cleanup)', async () => {
+      setupRepo(dir);
+
+      const approveCalls = [];
+      const services = makeServices(async (args) => { approveCalls.push(args); });
+
+      const result = await aStrategy.run({
+        project: { id: 'proj-A3', path: dir },
+        decision: { stage: 'learn', outcome: { paused_at_stage: 'LEARN' } },
+        services,
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.outcome.mode).toBe('clean');
+      expect(approveCalls).toEqual([{ project_id: 'proj-A3', stage: 'LEARN' }]);
+    });
+
+    it('returns success=false when project has no repo path', async () => {
+      const result = await aStrategy.run({
+        project: { id: 'proj-A4' },
+        decision: { stage: 'learn' },
+        services: makeServices(),
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.next_action).toBe('no_repo_root');
+    });
+
+    it('treats approveGate failure as non-fatal after successful discard', async () => {
+      setupRepo(dir);
+      fs.mkdirSync(path.join(dir, '.codex-temp'), { recursive: true });
+      fs.writeFileSync(path.join(dir, '.codex-temp/scratch.txt'), 'tmp\n');
+
+      const services = makeServices(async () => {
+        throw new Error('gate already approved by another tick');
+      });
+
+      const result = await aStrategy.run({
+        project: { id: 'proj-A5', path: dir },
+        decision: { stage: 'learn', outcome: { paused_at_stage: 'LEARN' } },
+        services,
+      });
+
+      // Discard happened; approveGate failure is logged and swallowed.
+      expect(result.success).toBe(true);
+      expect(result.outcome.mode).toBe('discarded');
+      expect(fs.existsSync(path.join(dir, '.codex-temp/scratch.txt'))).toBe(false);
+    });
+  });
 });

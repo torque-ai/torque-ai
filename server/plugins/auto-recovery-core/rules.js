@@ -219,27 +219,47 @@ module.exports = [
   },
   {
     // LEARN paused because the merge target (typically the project's main
-    // branch) has uncommitted/untracked files OR is mid-merge/rebase. Auto-
-    // recovery cannot fix this — the operator must inspect the target repo
-    // and commit, stash, or remove the dirty state before any factory
-    // worktree can land on it.
+    // branch) has uncommitted/untracked files OR is mid-merge/rebase.
     //
-    // Default unknown-classification routes ['retry', 'escalate']. The retry
-    // path approves the gate, the next tick re-enters LEARN, the merge check
-    // fails the same way, the loop pauses again, and recovery rearms — a
-    // cycle that pays no progress dividend and burns the budget. We route
-    // through the 'no_strategy' branch (empty strategies) so the engine
-    // marks auto_recovery_exhausted=1 without touching the project. The
-    // factory tick keeps running; once the operator cleans main, the next
-    // LEARN attempt's merge check passes, logs advance_from_learn, and
-    // rearm fires (via 'new_real_decision').
+    // History (2026-05-03 → 2026-05-05):
+    //   1. Original commit 3f36337c: rule introduced with empty
+    //      `suggested_strategies` and category `await_self_heal`. Rationale
+    //      claimed the operator would clean main, the next LEARN attempt's
+    //      merge check would pass and log `advance_from_learn`, and the
+    //      project would rearm via the `new_real_decision` path. This
+    //      avoided the alternative — default `['retry', 'escalate']`
+    //      cycling approveGate against a dirty target every tick.
+    //   2. Live evidence 2026-05-04 (DLPhone WI #762, memory entry
+    //      `project_factory_recovery_rule_overrides_strategy.md`): the
+    //      rearm path didn't actually fire — `auto_recovery_exhausted=1`
+    //      parked the project at READY_FOR_LEARN, and even after the
+    //      operator cleaned main the project sat there until manual
+    //      `POST .../loop/approve {stage: "LEARN"}`. Three regenerable
+    //      auto-generated plan files were sitting dirty; the
+    //      discard-regenerable-merge-block strategy in
+    //      `server/factory/recovery-strategies/` was registered and would
+    //      have classified them as allowlisted and cleaned them, but that
+    //      strategy is reachable only via reasonPattern match in
+    //      replan-recovery (work-item rejection sweep). The
+    //      `merge_target_dirty` signal is a project-level pause action,
+    //      never set as a work-item reject_reason — so B1's strategy was
+    //      architecturally unreachable.
+    //   3. 2026-05-05: A-side strategy `discard-regenerable-merge-block`
+    //      added in `plugins/auto-recovery-core/strategies/` so the
+    //      auto-recovery engine can run the discard logic directly. The
+    //      strategy is conservative: it refuses cleanly when any dirty
+    //      file is outside the regenerable allowlist (real operator work),
+    //      and the rule's chain falls through to `escalate` after one
+    //      attempt. Category stays `await_self_heal` so existing telemetry
+    //      and decision-log queries keep working; the strategy declares
+    //      `applicable_categories: ['await_self_heal', 'transient']`.
     //
-    // Live evidence 2026-05-03: bitsy WI 732 paused at LEARN for
-    // merge_target_dirty (uncommitted .gitignore + tests/test_ci_parity.py
-    // from a prior factory run). Without this rule, recovery's retry
-    // strategy approveGate-cleared the pause every cycle, the next tick
-    // re-fired the dirty check, and the project burned all 5 attempts
-    // before exhausting and being escalation-paused.
+    // Original 2026-05-03 evidence (bitsy WI 732): paused at LEARN with
+    // uncommitted .gitignore + tests/test_ci_parity.py from a prior
+    // factory run. With the new strategy, those non-regenerable files
+    // would trigger the `refused` branch and the chain would fall through
+    // to `escalate` — same effective outcome (operator pause) but via a
+    // legible "we tried and refused" decision instead of silent no_strategy.
     name: 'learn_merge_target_dirty',
     category: 'await_self_heal',
     priority: 85,
@@ -257,7 +277,7 @@ module.exports = [
       }
       return false;
     },
-    suggested_strategies: [],
+    suggested_strategies: ['discard-regenerable-merge-block', 'escalate'],
   },
   {
     // EXECUTE retried because the plan-generation task returned output the

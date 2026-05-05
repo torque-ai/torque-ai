@@ -233,16 +233,19 @@ describe('auto-recovery-core day-one rules', () => {
     expect(r.suggested_strategies[0]).toBe('retry_with_fresh_session');
   });
 
-  it('classifies LEARN merge_target_dirty as await_self_heal with empty strategies', () => {
-    // Regression for bitsy WI 732 (2026-05-03): main had uncommitted
-    // .gitignore + tests/test_ci_parity.py from a prior factory run; the
-    // LEARN merge check fired merge_target_dirty + paused_at_gate. Without
-    // a rule, recovery's retry strategy approveGate-cleared the pause every
-    // cycle, the next tick re-fired the dirty check, and the project burned
-    // all 5 attempts before exhausting. Empty strategies routes through the
-    // 'no_strategy' branch so the engine marks exhausted=1 without touching
-    // the project; operator commits main → next tick passes the check →
-    // advance_from_learn → rearm.
+  it('classifies LEARN merge_target_dirty as await_self_heal with discard + escalate chain', () => {
+    // Regression for bitsy WI 732 (2026-05-03) AND DLPhone WI #762
+    // (2026-05-04): LEARN's merge check fires merge_target_dirty when main
+    // has dirty files. Originally (3f36337c) the rule used empty strategies
+    // assuming operator-driven self-heal would fire the rearm path; live
+    // evidence on DLPhone showed `auto_recovery_exhausted=1` parked the
+    // project at READY_FOR_LEARN and rearm did NOT fire even after the
+    // operator cleaned main — manual approveGate was always required.
+    //
+    // 2026-05-05 fix: A-side strategy `discard-regenerable-merge-block`
+    // added so the engine can run the discard logic directly. Strategy is
+    // conservative — refuses when any dirty file is non-regenerable
+    // (real operator work) and the chain falls through to `escalate`.
     const direct = classifier.classify({
       stage: 'learn',
       action: 'merge_target_dirty',
@@ -251,7 +254,7 @@ describe('auto-recovery-core day-one rules', () => {
     });
     expect(direct.matched_rule).toBe('learn_merge_target_dirty');
     expect(direct.category).toBe('await_self_heal');
-    expect(direct.suggested_strategies).toEqual([]);
+    expect(direct.suggested_strategies).toEqual(['discard-regenerable-merge-block', 'escalate']);
 
     const conflictDirect = classifier.classify({
       stage: 'learn',
@@ -268,7 +271,7 @@ describe('auto-recovery-core day-one rules', () => {
       outcome: { reason: 'merge_target_dirty', from_state: 'LEARN', to_state: 'PAUSED' },
     });
     expect(gate.matched_rule).toBe('learn_merge_target_dirty');
-    expect(gate.suggested_strategies).toEqual([]);
+    expect(gate.suggested_strategies).toEqual(['discard-regenerable-merge-block', 'escalate']);
   });
 
   it('does NOT match learn_merge_target_dirty on unrelated learn pauses', () => {

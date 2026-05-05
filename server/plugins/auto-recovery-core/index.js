@@ -9,6 +9,7 @@ const retryPlanGeneration = require('./strategies/retry-plan-generation');
 const freshWorktree = require('./strategies/fresh-worktree');
 const rejectAndAdvance = require('./strategies/reject-and-advance');
 const escalate = require('./strategies/escalate');
+const discardRegenerableMergeBlock = require('./strategies/discard-regenerable-merge-block');
 
 const PLUGIN_NAME = 'auto-recovery-core';
 const PLUGIN_VERSION = '1.0.0';
@@ -25,6 +26,7 @@ function createPlugin() {
     recoveryStrategies: [
       retry, cleanAndRetry, retryWithFreshSession, fallbackProvider,
       retryPlanGeneration, freshWorktree, rejectAndAdvance, escalate,
+      discardRegenerableMergeBlock,
     ],
   };
 }

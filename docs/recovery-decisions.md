@@ -148,13 +148,11 @@ task fails
 
 These are real ambiguities surfaced by this audit. Each one is worth resolving before adding more rules to that area.
 
-### 1. `learn_merge_target_dirty` empty strategies — intentional or stale?
+### 1. ~~`learn_merge_target_dirty` empty strategies — intentional or stale?~~ ✅ RESOLVED 2026-05-05
 
-**Claim in code** ([rules.js comment](../server/plugins/auto-recovery-core/rules.js)): `suggested_strategies: []` is intentional. The engine marks exhausted; factory tick keeps running; once the operator cleans main, the next LEARN attempt's merge check passes, logs `advance_from_learn`, and rearm fires. **No strategy needed; the system is self-healing through operator action.**
+**Resolution**: factory-self-heal won. The original "operator-self-heal" claim was disproven by live evidence (DLPhone WI #762, 2026-05-04): `auto_recovery_exhausted=1` parked the project at READY_FOR_LEARN and rearm did **not** fire even after the operator cleaned main — manual `approveGate({stage:"LEARN"})` was always required. Separately, the discard strategy in B1 was architecturally unreachable because `merge_target_dirty` is emitted only as a project-level pause action (`safeLogDecision({ stage: LEARN, action: 'merge_target_dirty', ... })` in loop-controller.js), never as a work-item `reject_reason`.
 
-**Claim in memory** (`project_factory_recovery_rule_overrides_strategy.md`): this rule should populate `suggested_strategies: ['discard-regenerable-merge-block']` so the strategy actually fires.
-
-These cannot both be right. The `discard-regenerable-merge-block` strategy lives in B1 (`recovery-strategies/`), but A's empty-strategies path *bypasses* B entirely. If the strategy is intended to auto-clean the merge target, the rule must own it explicitly. **Action item:** decide whether merge-target-dirty is "operator-self-heal" (current code) or "factory-self-heal" (memory-claimed) — the answer is one in-line strategy edit either way.
+**Fix landed**: A-side strategy `discard-regenerable-merge-block` added in `server/plugins/auto-recovery-core/strategies/`, sharing core logic with the B1 strategy via the new `server/factory/recovery-strategies/discard-regenerable-merge-block-core.js`. The rule now suggests `['discard-regenerable-merge-block', 'escalate']`. The strategy is conservative — refuses when any dirty file is non-regenerable (falls through to `escalate` so the operator still gets notified for genuine work-in-progress on main). B1 strategy stays registered as defense-in-depth in case a future codepath sets `merge_target_dirty` as a `reject_reason`.
 
 ### 2. Provider escalation in two places
 
