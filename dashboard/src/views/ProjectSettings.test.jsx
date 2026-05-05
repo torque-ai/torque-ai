@@ -531,4 +531,60 @@ describe('FactoryLanePolicyPanel — editor controls', () => {
       expect(screen.getByLabelText('Expected provider').value).toBe('ollama');
     });
   });
+
+  it('shows Saving… then Saved ✓ on success', async () => {
+    mountWithLanePolicy({
+      lanePolicy: {
+        expected_provider: 'ollama',
+        allowed_providers: [],
+        allowed_fallback_providers: [],
+        by_kind: {},
+        enforce_handoffs: false,
+      },
+    });
+    await screen.findByText('Factory Lane Policy');
+
+    let resolve;
+    const baseFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn((url, options = {}) => {
+      if (url === '/api/v2/factory/projects/fp-1/trust' && String(options.method).toUpperCase() === 'PUT') {
+        return new Promise((r) => { resolve = () => r(createResponse({ data: { ok: true } }).then((v) => v)); });
+      }
+      return baseFetch(url, options);
+    });
+
+    fireEvent.change(screen.getByLabelText('Expected provider'), { target: { value: 'codex' } });
+
+    // While in flight, indicator says Saving…
+    await screen.findByText('Saving…');
+
+    // Resolve and expect Saved ✓
+    resolve();
+    await screen.findByText('Saved ✓');
+  });
+
+  it('shows Save failed — retry on error', async () => {
+    mountWithLanePolicy({
+      lanePolicy: {
+        expected_provider: 'ollama',
+        allowed_providers: [],
+        allowed_fallback_providers: [],
+        by_kind: {},
+        enforce_handoffs: false,
+      },
+    });
+    await screen.findByText('Factory Lane Policy');
+
+    const baseFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn((url, options = {}) => {
+      if (url === '/api/v2/factory/projects/fp-1/trust' && String(options.method).toUpperCase() === 'PUT') {
+        return createResponse({ error: { message: 'boom' } }, { status: 500 });
+      }
+      return baseFetch(url, options);
+    });
+
+    fireEvent.change(screen.getByLabelText('Expected provider'), { target: { value: 'codex' } });
+
+    await screen.findByText('Save failed — retry');
+  });
 });

@@ -488,9 +488,18 @@ export default function ProjectSettings({ project: projectProp = '' }) {
   const [factoryProjectId, setFactoryProjectId] = useState('');
   const [trustLevel, setTrustLevel] = useState('');
   const [providers, setProviders] = useState([]);
+  const [laneSaveStatus, setLaneSaveStatus] = useState('idle');
+  const saveStatusClearRef = useRef(null);
 
   useEffect(() => () => {
     mountedRef.current = false;
+  }, []);
+
+  useEffect(() => () => {
+    if (saveStatusClearRef.current) {
+      clearTimeout(saveStatusClearRef.current);
+      saveStatusClearRef.current = null;
+    }
   }, []);
 
   useEffect(() => {
@@ -770,11 +779,19 @@ export default function ProjectSettings({ project: projectProp = '' }) {
 
   const handleLanePolicyChange = useCallback(async (nextPolicy) => {
     if (!factoryProjectId) return;
+
+    if (saveStatusClearRef.current) {
+      clearTimeout(saveStatusClearRef.current);
+      saveStatusClearRef.current = null;
+    }
+
     // TODO(Task 5): this snapshot is not safe under concurrent edits — Task 5
     // adds debounce-and-collapse to coalesce in-flight saves. Until then, two
     // rapid changes can race and the loser's revert can clobber the winner's state.
     const previous = lanePolicy;
     setLanePolicy(nextPolicy);
+    setLaneSaveStatus('saving');
+
     try {
       await requestV2(`/factory/projects/${encodeURIComponent(factoryProjectId)}/trust`, {
         method: 'PUT',
@@ -783,9 +800,14 @@ export default function ProjectSettings({ project: projectProp = '' }) {
           config: { provider_lane_policy: nextPolicy },
         }),
       });
+      setLaneSaveStatus('saved');
+      saveStatusClearRef.current = setTimeout(() => {
+        saveStatusClearRef.current = null;
+        setLaneSaveStatus('idle');
+      }, 2000);
     } catch (error) {
-      // Revert optimistic change.
       setLanePolicy(previous);
+      setLaneSaveStatus('error');
       toast.error(`Failed to save lane policy: ${getErrorMessage(error)}`);
     }
   }, [factoryProjectId, lanePolicy, trustLevel, toast]);
@@ -1009,7 +1031,7 @@ export default function ProjectSettings({ project: projectProp = '' }) {
               factoryProjectId={factoryProjectId}
               providers={providers}
               onLanePolicyChange={handleLanePolicyChange}
-              saveStatus="idle"                 // wired in Task 4
+              saveStatus={laneSaveStatus}
               disabled={!factoryProjectId}
             />
           ) : null}
