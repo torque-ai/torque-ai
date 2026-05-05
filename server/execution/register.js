@@ -38,6 +38,7 @@
 // ── Wired (deps fully container-managed) ─────────────────────────────
 const planProjectResolver = require('./plan-project-resolver');     // [db, dashboard]
 const workflowResume = require('./workflow-resume');                // [db, eventBus, logger]
+const workflowRuntime = require('./workflow-runtime');              // [db, dashboard, taskManager]
 
 // ── Deferred (deps include task-manager-owned closures / utilities) ──
 // Required for side effects (each module's register() function is
@@ -55,15 +56,15 @@ require('./process-lifecycle');
 require('./fallback-retry');
 require('./task-finalizer');
 require('./queue-scheduler');
-require('./workflow-runtime');
 require('./task-startup');
 
 function register(container) {
   // Activate only the modules whose deps are fully container-managed.
-  // The remaining 14 modules' register() functions are defined and ready;
+  // The remaining modules' register() functions are defined and ready;
   // they're simply not called until their consumer-side blockers clear.
   planProjectResolver.register(container);
   workflowResume.register(container);
+  workflowRuntime.register(container);
 }
 
 module.exports = { register };
