@@ -26,6 +26,7 @@ function getExecuteCli() { return require('../providers/execute-cli'); }
 const logger = require('../logger').child({ component: 'process-lifecycle' });
 const { redactCommandArgs } = require('../utils/sanitize');
 const { buildCombinedProcessOutput, detectSuccessFromOutput } = require('../validation/completion-detection');
+const { shouldUseOutputCompletionDetection } = require('./completion-policy');
 const { resolveMethod } = require('./capability-resolver');
 const { extractModifiedFiles } = require('../utils/file-resolution');
 const { resolveActivityAwareTimeoutDecision } = require('../utils/activity-timeout');
@@ -510,7 +511,7 @@ function handleCloseCleanup(taskId, code) {
     }
 
     // Check combined stdout+stderr — Codex CLI writes summaries to stderr
-    if (!proc.completionDetected) {
+    if (shouldUseOutputCompletionDetection(proc) && !proc.completionDetected) {
       const combinedOutput = buildCombinedProcessOutput(proc.output, proc.errorOutput);
       if (combinedOutput) {
         proc.completionDetected = detectSuccessFromOutput(combinedOutput, proc.provider);

@@ -22,6 +22,7 @@ const serverConfig = require('../config');
 const { applyStudyContextPrompt } = require('../integrations/codebase-study-engine');
 const { resolveCodexNativeBinary } = require('../execution/codex-native-resolve');
 const { classifyReasoningEffort } = require('../execution/codex-reasoning-effort');
+const { shouldUseOutputCompletionDetection } = require('../execution/completion-policy');
 const { resolveActivityAwareTimeoutDecision } = require('../utils/activity-timeout');
 const { isSubprocessDetachmentEnabled } = require('../utils/subprocess-detachment');
 const { getTaskLogDir } = require('../data-dir');
@@ -259,7 +260,11 @@ function processStdoutChunk(taskId, text, streamId) {
   const progress = _helpers.estimateProgress(proc.output, proc.provider);
   db.updateTaskProgress(taskId, progress, text);
 
-  if (!proc.completionDetected && _helpers.detectOutputCompletion(proc.output, proc.provider)) {
+  if (
+    shouldUseOutputCompletionDetection(proc)
+    && !proc.completionDetected
+    && _helpers.detectOutputCompletion(proc.output, proc.provider)
+  ) {
     proc.completionDetected = true;
     const graceMs = proc.provider === 'codex' ? COMPLETION_GRACE_CODEX_MS : COMPLETION_GRACE_MS;
     logger.info(`[Completion] Task ${taskId} output indicates work is complete (provider: ${proc.provider}). Starting ${graceMs / 1000}s grace period for natural exit.`);
@@ -327,7 +332,11 @@ function processStderrChunk(taskId, text, streamId) {
       proc.lastProgress = progress;
       db.updateTaskProgress(taskId, progress, text);
     }
-    if (!proc.completionDetected && _helpers.detectOutputCompletion(combinedOutput, proc.provider)) {
+    if (
+      shouldUseOutputCompletionDetection(proc)
+      && !proc.completionDetected
+      && _helpers.detectOutputCompletion(combinedOutput, proc.provider)
+    ) {
       proc.completionDetected = true;
       const graceMs = proc.provider === 'codex' ? COMPLETION_GRACE_CODEX_MS : COMPLETION_GRACE_MS;
       logger.info(`[Completion] Task ${taskId} stderr indicates work complete (provider: ${proc.provider}). Starting ${graceMs / 1000}s grace period.`);
@@ -937,7 +946,7 @@ function spawnAndTrackProcess(taskId, task, cmdSpec, provider) {
       if (proc.completionGraceHandle) clearTimeout(proc.completionGraceHandle);
 
       // Check combined stdout+stderr for completion — Codex writes summaries to stderr
-      if (!proc.completionDetected) {
+      if (shouldUseOutputCompletionDetection(proc) && !proc.completionDetected) {
         const combinedOutput = (proc.output || '') + (proc.errorOutput || '');
         if (combinedOutput) {
           proc.completionDetected = _helpers.detectOutputCompletion(combinedOutput, proc.provider);
@@ -1787,7 +1796,7 @@ async function finalizeDetachedTask({ taskId, task, provider, isCodexProvider })
       try { proc.errorTail.stop(); } catch { /* ignore */ }
     }
 
-    if (!proc.completionDetected) {
+    if (shouldUseOutputCompletionDetection(proc) && !proc.completionDetected) {
       const combinedOutput = (proc.output || '') + (proc.errorOutput || '');
       if (combinedOutput) {
         proc.completionDetected = _helpers.detectOutputCompletion(combinedOutput, proc.provider);

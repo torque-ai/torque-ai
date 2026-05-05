@@ -11,6 +11,7 @@ const { COMPLETION_GRACE_MS, COMPLETION_GRACE_CODEX_MS } = require('../constants
 const { OutputBuffer } = require('./output-buffer');
 const { normalizeMetadata } = require('../utils/normalize-metadata');
 const { buildCombinedProcessOutput } = require('../validation/completion-detection');
+const { shouldUseOutputCompletionDetection } = require('./completion-policy');
 
 // ── Legacy module-level state, written only by init() (deprecated) ─────────
 // Phase 3 of the universal-DI migration. Coexistence pattern: factory below.
@@ -119,7 +120,7 @@ function emitSyntheticCloseAfterCompletion(taskId, proc, reason) {
 }
 
 function armCompletionGraceIfDetected(taskId, proc) {
-  if (!proc || proc.completionDetected) {
+  if (!proc || proc.completionDetected || !shouldUseOutputCompletionDetection(proc)) {
     return;
   }
 

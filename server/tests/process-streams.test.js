@@ -179,6 +179,26 @@ describe('process-streams', () => {
       expect(proc.completionGraceHandle).not.toBeNull();
     });
 
+    it('does not arm completion grace for factory plan-generation prompt echoes', () => {
+      const child = makeChild();
+      const proc = makeProc({
+        provider: 'codex',
+        metadata: {
+          factory_internal: true,
+          kind: 'plan_generation',
+        },
+      });
+      deps.runningProcesses.set('t1', proc);
+      deps.detectOutputCompletion.mockReturnValue(true);
+
+      processStreams.setupStdoutHandler(child, 't1', 's1', 'codex');
+      child.stdout.emit('data', Buffer.from('prompt echo that happens to look complete'));
+
+      expect(proc.completionDetected).toBe(false);
+      expect(proc.completionGraceHandle).toBeNull();
+      expect(deps.detectOutputCompletion).not.toHaveBeenCalled();
+    });
+
     it('streams chunks via addStreamChunk and notifyTaskOutput', () => {
       const child = makeChild();
       const proc = makeProc();
@@ -550,6 +570,26 @@ describe('process-streams', () => {
         'stdout context\n\nDone.\nCommit: `a3960d0b`\n',
         'codex',
       );
+    });
+
+    it('does not arm stderr completion grace for factory structured-output tasks', () => {
+      const child = makeChild();
+      const proc = makeProc({
+        provider: 'codex',
+        metadata: JSON.stringify({
+          factory_internal: true,
+          kind: 'plan_generation',
+        }),
+      });
+      deps.runningProcesses.set('t1', proc);
+      deps.detectOutputCompletion.mockReturnValue(true);
+
+      processStreams.setupStderrHandler(child, 't1', 's1');
+      child.stderr.emit('data', Buffer.from('mcp: codex/list_mcp_resources (completed)\n'));
+
+      expect(proc.completionDetected).toBe(false);
+      expect(proc.completionGraceHandle).toBeNull();
+      expect(deps.detectOutputCompletion).not.toHaveBeenCalled();
     });
 
     it('handles breakpoints on stderr', () => {

@@ -302,6 +302,64 @@ describe('factory loop-controller EXECUTE for non-plan-file work items', () => {
     return { project: runningProject, workItem: plannedWorkItem, projectDir };
   }
 
+  it('extracts Codex final plan markdown from stderr transcript without reusing the echoed prompt', () => {
+    const transcript = [
+      'OpenAI Codex v0.125.0 (research preview)',
+      '--------',
+      'user',
+      '# Prompt Echo Plan',
+      '',
+      '## Task 1: <task title>',
+      '',
+      'Template text that must never become the generated plan.',
+      'codex',
+      '# Real Generated Plan',
+      '**Source:** auto-generated from work_item #123',
+      '**Tech Stack:** Node.js',
+      '',
+      '## Task 1: Add durable regression',
+      '',
+      '- [ ] **Step 1: Patch one helper**',
+      '',
+      '    Edit `server/execution/completion-policy.js`. Acceptance criteria: the helper disables prompt-trace completion for plan generation.',
+      '',
+      '- [ ] **Step 2: Validate targeted change**',
+      '',
+      '    Run `npx vitest run server/tests/completion-policy.test.js --config server/vitest.config.js`; it should pass.',
+      'tokens used',
+      '123',
+      '[process-exit] code=0 signal=none duration_ms=1 provider=codex',
+    ].join('\n');
+
+    expect(loopController._internalForTests.extractCodexFinalAnswerFromTranscript(transcript))
+      .toContain('# Real Generated Plan');
+    expect(loopController._internalForTests.extractCodexFinalAnswerFromTranscript(transcript))
+      .not.toContain('# Prompt Echo Plan');
+    expect(loopController._internalForTests.extractPlanGenerationRawMarkdown({
+      output: '',
+      error_output: transcript,
+    }, { content: [{ type: 'text', text: 'generic await response' }] }))
+      .toContain('## Task 1: Add durable regression');
+  });
+
+  it('does not extract a plan from prompt-only Codex stderr', () => {
+    const promptOnly = [
+      'OpenAI Codex v0.125.0 (research preview)',
+      'user',
+      '# Prompt Echo Plan',
+      '',
+      '## Task 1: <task title>',
+      '',
+      'mcp: codex/list_mcp_resources (completed)',
+    ].join('\n');
+
+    expect(loopController._internalForTests.extractCodexFinalAnswerFromTranscript(promptOnly)).toBe('');
+    expect(loopController._internalForTests.extractPlanGenerationRawMarkdown({
+      output: '',
+      error_output: promptOnly,
+    })).toBe('');
+  });
+
   // TODO: mock setup for the happy path doesn't currently let the implementation
   // see a valid plan markdown back from the awaitTask stub. The "no description"
   // guard test below covers the functional safety case. Re-enable after wiring
