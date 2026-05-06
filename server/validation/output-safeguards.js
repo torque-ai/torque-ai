@@ -14,19 +14,34 @@ const serverConfig = require('../config');
 const logger = require('../logger').child({ component: 'output-safeguards' });
 const piiGuard = require('../utils/pii-guard');
 
-// ─── Legacy module-level state, written only by init() (deprecated) ────────
-// Phase 2c of the universal-DI migration: this module exposes both the new
-// createOutputSafeguards factory + register(container) shape and the legacy
-// init({…}) shape. Legacy state is removed when task-manager.js migrates
-// to consume via container.
+// ─── Module-level deps ────────────────────────────────────────────────────
+// Utility deps (getFileChangesForValidation, checkFileQuality, cleanupJunkFiles,
+// findPlaceholderArtifacts) resolve at module load via require() from
+// validation/post-task. They remain `let` so the factory's per-instance swap
+// (createOutputSafeguards) can override them transiently for tests.
+// `db` lazy-resolves through the container at first use.
 let db = null;
-let _getFileChangesForValidation = null;
-let _checkFileQuality = null;
-let _cleanupJunkFiles = null;
-let _findPlaceholderArtifacts = null;
+let _getFileChangesForValidation = require('./post-task').getFileChangesForValidation;
+let _checkFileQuality = require('./post-task').checkFileQuality;
+let _cleanupJunkFiles = require('./post-task').cleanupJunkFiles;
+let _findPlaceholderArtifacts = require('./post-task').findPlaceholderArtifacts;
 
-/** @deprecated Use createOutputSafeguards(deps) or container.get('outputSafeguards'). */
+function ensureDb() {
+  if (db) return db;
+  try {
+    db = require('../container').defaultContainer.peek('db');
+  } catch { /* container not yet available */ }
+  return db;
+}
+
+/**
+ * @internal — test-only override path. Production code self-bootstraps via
+ * require()s at module load and lazy container peek for db. Tests that mock
+ * post-task helpers / db use this entry point until they migrate to
+ * createOutputSafeguards(deps).
+ */
 function init(deps) {
+  if (!deps) return;
   if (deps.db) db = deps.db;
   if (deps.getFileChangesForValidation) _getFileChangesForValidation = deps.getFileChangesForValidation;
   if (deps.checkFileQuality) _checkFileQuality = deps.checkFileQuality;
@@ -116,6 +131,7 @@ function getTaskTags(task) {
 }
 
 function patchTaskSafeguardMetadata(taskId, updates) {
+  ensureDb();
   if (!db || typeof db.getTask !== 'function' || typeof db.patchTaskMetadata !== 'function') {
     return false;
   }
@@ -304,6 +320,7 @@ function detectStubImplementations(taskId, status, task) {
 
 async function runOutputSafeguards(taskId, status, task) {
   try {
+    ensureDb();
     if (shouldSkipOutputSafeguards(task)) {
       logger.info(`[Safeguard] Skipping output safeguards for non-mutating factory-internal task ${taskId}`);
       return;
@@ -942,11 +959,14 @@ function register(container) {
 }
 
 module.exports = {
-  // New shape (preferred)
   createOutputSafeguards,
   register,
-  // Legacy shape (kept until task-manager.js migrates)
+  // @internal — test-only override path (see init() jsdoc)
   init,
+  // Raw exports — task-manager.js destructures runOutputSafeguards and
+  // task-finalizer requires patchTaskSafeguardMetadata directly. Self-
+  // bootstraps utility deps via require() at module load; db lazy-resolves
+  // through the container.
   runOutputSafeguards,
   sanitizeOutputForCondition,
   truncateOptionalText,

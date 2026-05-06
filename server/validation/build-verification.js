@@ -20,18 +20,43 @@ const { createTestRunnerRegistry } = require('../test-runner-registry');
 
 const CODEX_PROVIDERS = new Set(['codex', 'codex-spark']);
 
-// ── Legacy module-level state, written only by init() (deprecated) ─────────
-// Phase 2b of the universal-DI migration: this module now exposes both the
-// new createBuildVerification factory + register(container) pattern and
-// the legacy init({…}) shape. The legacy state below is removed in the
-// same commit that migrates task-manager.js to consume via container.
+// ── Module-level deps ──────────────────────────────────────────────────────
+// Utility deps (parseCommand, extractBuildErrorFiles) lazy-resolve from
+// validation/post-task on first use — post-task ↔ build-verification is a
+// circular require, so reading the export at module-load time would catch
+// post-task mid-evaluation and return undefined. They remain `let` so the
+// factory's per-instance swap (createBuildVerification) and the test-only
+// init() shim can override them transiently. `db` and `_testRunnerRegistry`
+// resolve lazily through the container.
 let db;
 let parseCommand;
 let extractBuildErrorFiles;
 let _testRunnerRegistry = null;
 
-/** @deprecated Use createBuildVerification(deps) or container.get('buildVerification'). */
+function ensureUtilities() {
+  if (!parseCommand || !extractBuildErrorFiles) {
+    const pt = require('./post-task');
+    if (!parseCommand) parseCommand = pt.parseCommand;
+    if (!extractBuildErrorFiles) extractBuildErrorFiles = pt.extractBuildErrorFiles;
+  }
+}
+
+function ensureDb() {
+  if (db) return db;
+  try {
+    db = require('../container').defaultContainer.peek('db');
+  } catch { /* container not yet available */ }
+  return db;
+}
+
+/**
+ * @internal — test-only override path. Production code self-bootstraps via
+ * require()s at module load. Tests that mock parseCommand /
+ * extractBuildErrorFiles / db / testRunnerRegistry use this entry point
+ * until they migrate to createBuildVerification(deps).
+ */
 function init(deps) {
+  if (!deps) return;
   if (deps.db) db = deps.db;
   if (deps.parseCommand) parseCommand = deps.parseCommand;
   if (deps.extractBuildErrorFiles) extractBuildErrorFiles = deps.extractBuildErrorFiles;
@@ -40,6 +65,13 @@ function init(deps) {
 
 function getRouter() {
   if (_testRunnerRegistry) return _testRunnerRegistry;
+  try {
+    const fromContainer = require('../container').defaultContainer.peek('testRunnerRegistry');
+    if (fromContainer) {
+      _testRunnerRegistry = fromContainer;
+      return _testRunnerRegistry;
+    }
+  } catch { /* container not ready */ }
   _testRunnerRegistry = createTestRunnerRegistry();
   return _testRunnerRegistry;
 }
@@ -49,6 +81,8 @@ function getRouter() {
  * @returns {{ buildCommand: string|null, projectConfig: object|null, project: string|null }}
  */
 function detectBuildCommand(task, workingDir) {
+  ensureDb();
+  ensureUtilities();
   const project = task.project || db.getProjectFromPath(workingDir);
   if (!project) {
     return { buildCommand: null, projectConfig: null, project: null, skipReason: 'no_project' };
@@ -107,6 +141,7 @@ function detectBuildCommand(task, workingDir) {
 function checkScopedBuildErrors(taskId, buildCommand, workingDir, taskModifiedFiles, stdout, stderr, exitCode, startTime) {
   if (!taskModifiedFiles || taskModifiedFiles.length === 0) return null;
 
+  ensureUtilities();
   const combinedOutput = (stderr || '') + '\n' + (stdout || '');
   const errorFilePaths = extractBuildErrorFiles(combinedOutput, workingDir);
 
@@ -409,10 +444,12 @@ function register(container) {
 }
 
 module.exports = {
-  // New shape (preferred)
   createBuildVerification,
   register,
-  // Legacy shape (kept until task-manager.js migrates)
+  // @internal — test-only override path (see init() jsdoc)
   init,
+  // Raw export — used directly by validation/post-task.js's
+  // runBuildVerification re-export. Self-bootstraps utility deps via
+  // require() at module load; db lazy-resolves through the container.
   runBuildVerification,
 };

@@ -56,35 +56,58 @@ function parseCommand(cmdString) {
   };
 }
 
-// ── Legacy module-level state, written only by init() (deprecated) ─────────
-// Phase 2c of the universal-DI migration: this module exposes both the new
-// createPostTask factory + register(container) shape and the legacy
-// init({…}) shape. Legacy state is removed when task-manager.js migrates
-// to consume via container.
+// ── Module-level deps ──────────────────────────────────────────────────────
+// Utility deps (getModifiedFiles, parseGitStatusLine, sanitizeLLMOutput)
+// resolve at module load via require(). They remain `let` so the factory's
+// per-instance swap (createPostTask) can override them transiently for tests.
+// `db` and `_testRunnerRegistry` resolve lazily through the container at
+// first use — they're not yet registered when this module loads.
 let db = null;
-let _getModifiedFiles = null;  // from utils/git
-let _parseGitStatusLine = null;  // from utils/git
-let _sanitizeLLMOutput = null;
+let _getModifiedFiles = require('../utils/git').getModifiedFiles;
+let _parseGitStatusLine = require('../utils/git').parseGitStatusLine;
+let _sanitizeLLMOutput = require('../utils/sanitize').sanitizeLLMOutput;
 let _testRunnerRegistry = null;
 
-/** @deprecated Use createPostTask(deps) or container.get('postTask'). */
+function ensureDb() {
+  if (db) return db;
+  try {
+    db = require('../container').defaultContainer.peek('db');
+  } catch { /* container not yet available */ }
+  return db;
+}
+
+/**
+ * @internal — test-only override path. Production code self-bootstraps via
+ * require()s at module load and lazy container peek for db. Tests that mock
+ * git/sanitize utilities can override the legacy module-level state through
+ * this entry point until they migrate to createPostTask(deps). Forwards
+ * the same overrides to validation/build-verification so the runBuild path
+ * (which post-task re-exports) sees the same test fixtures.
+ */
 function init(deps) {
+  if (!deps) return;
   if (deps.db) db = deps.db;
-  serverConfig.init({ db: deps.db });
   if (deps.getModifiedFiles) _getModifiedFiles = deps.getModifiedFiles;
   if (deps.parseGitStatusLine) _parseGitStatusLine = deps.parseGitStatusLine;
   if (deps.sanitizeLLMOutput) _sanitizeLLMOutput = deps.sanitizeLLMOutput;
   if (deps.testRunnerRegistry) _testRunnerRegistry = deps.testRunnerRegistry;
   buildVerification.init({
-    db,
+    db: deps.db,
     parseCommand,
     extractBuildErrorFiles,
-    testRunnerRegistry: _testRunnerRegistry,
+    testRunnerRegistry: deps.testRunnerRegistry,
   });
 }
 
 function getRouter() {
   if (_testRunnerRegistry) return _testRunnerRegistry;
+  try {
+    const fromContainer = require('../container').defaultContainer.peek('testRunnerRegistry');
+    if (fromContainer) {
+      _testRunnerRegistry = fromContainer;
+      return _testRunnerRegistry;
+    }
+  } catch { /* container not ready */ }
   _testRunnerRegistry = createTestRunnerRegistry();
   return _testRunnerRegistry;
 }
@@ -256,6 +279,7 @@ function revertScopedFiles(workingDir, files, label = 'ScopedRollback') {
 }
 
 function scopedRollback(taskId, workingDir = null, label = 'ScopedRollback') {
+  ensureDb();
   if (!db || typeof db.getTaskFileChanges !== 'function') {
     logger.info(`[${label}] Task ${taskId}: task file change tracking is unavailable`);
     return { reverted: [], skipped: [] };
@@ -1149,6 +1173,7 @@ function runBuildVerification(taskId, task, workingDir, taskModifiedFiles) {
  * Detect the test command for a project, either from config or auto-detection.
  */
 function detectTestCommand(task, workingDir) {
+  ensureDb();
   const project = task.project || db.getProjectFromPath(workingDir);
   if (!project) {
     return { testCommand: null, projectConfig: null, skipReason: 'no_project' };
@@ -1319,6 +1344,7 @@ async function runTestVerification(taskId, task, workingDir) {
  * @returns {Object} Style check result with success, output, error, skipped, durationSeconds fields
  */
 function runStyleCheck(taskId, task, workingDir) {
+  ensureDb();
   const project = task.project || db.getProjectFromPath(workingDir);
   if (!project) {
     return { success: true, output: '', error: '', skipped: true, reason: 'no_project' };
@@ -1571,11 +1597,16 @@ function register(container) {
 }
 
 module.exports = {
-  // New shape (preferred)
+  // Container-resolved factory shape
   createPostTask,
   register,
-  // Legacy shape (kept until task-manager.js migrates)
+  // @internal — test-only override path (see init() jsdoc)
   init,
+  // Raw helper exports — used directly by task-manager.js and as the
+  // canonical require() target by sibling validation modules
+  // (build-verification, output-safeguards, close-phases) that resolve
+  // their utility deps through this module. Self-bootstraps deps via
+  // require() at module load; db lazy-resolves through the container.
   cleanupJunkFiles,
   getFileChangesForValidation,
   checkFileQuality,

@@ -18,16 +18,24 @@ const path = require('path');
 const fs = require('fs');
 const logger = require('../logger').child({ component: 'hashline-verify' });
 
-// ── Legacy module-level state, written only by init() (deprecated) ─────────
-let _computeLineHash = null;
-let _getFileChangesForValidation = null;
-let _lineSimilarity = null;
+// ── Module-level deps ──────────────────────────────────────────────────────
+// Utility deps resolve at module load via require() from canonical sources.
+// They remain `let` so the factory's per-instance swap (createHashlineVerify)
+// can override them transiently for tests.
+let _computeLineHash = require('../handlers/hashline-handlers').computeLineHash;
+let _lineSimilarity = require('../handlers/hashline-handlers').lineSimilarity;
+let _getFileChangesForValidation = require('./post-task').getFileChangesForValidation;
 
-/** @deprecated Use createHashlineVerify(deps) or container.get('hashlineVerify'). */
+/**
+ * @internal — test-only override path. Production code self-bootstraps via
+ * require()s at module load. Tests that mock individual utilities use this
+ * entry point until they migrate to createHashlineVerify(deps).
+ */
 function init(deps) {
+  if (!deps) return;
   if (deps.computeLineHash) _computeLineHash = deps.computeLineHash;
-  if (deps.getFileChangesForValidation) _getFileChangesForValidation = deps.getFileChangesForValidation;
   if (deps.lineSimilarity) _lineSimilarity = deps.lineSimilarity;
+  if (deps.getFileChangesForValidation) _getFileChangesForValidation = deps.getFileChangesForValidation;
 }
 
 /**
@@ -269,11 +277,11 @@ function register(container) {
 }
 
 module.exports = {
-  // New shape (preferred)
   createHashlineVerify,
   register,
-  // Legacy shape (kept until task-manager.js migrates)
+  // @internal — test-only override path (see init() jsdoc)
   init,
+  // Raw exports — self-bootstrap utility deps via require() at module load.
   verifyHashlineReferences,
   attemptFuzzySearchRepair,
 };
