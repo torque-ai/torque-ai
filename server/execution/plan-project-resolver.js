@@ -17,7 +17,10 @@
 let _db = null;
 let _dashboard = null;
 
-/** @deprecated Use createPlanProjectResolver(deps) or container.get('planProjectResolver'). */
+/**
+ * @internal — test-only override path. Production resolves via
+ * createPlanProjectResolver(localDeps) inside the container factory.
+ */
 function init(deps = {}) {
   if (deps.db) _db = deps.db;
   if (deps.dashboard) _dashboard = deps.dashboard;
@@ -156,10 +159,9 @@ function register(container) {
 }
 
 module.exports = {
-  // New shape (preferred)
   createPlanProjectResolver,
   register,
-  // Legacy shape (kept until task-manager.js migrates)
+  // @internal — test-only override path (see init() jsdoc)
   init,
   handleProjectDependencyResolution,
   handlePlanProjectTaskCompletion,

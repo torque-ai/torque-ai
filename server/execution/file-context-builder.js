@@ -14,15 +14,31 @@ const path = require('path');
 const fs = require('fs');
 const logger = require('../logger').child({ component: 'file-context-builder' });
 
-// ── Legacy module-level state, written only by init() (deprecated) ─────────
-// Phase 3 of the universal-DI migration. Coexistence pattern.
+// ── Module-level deps ──────────────────────────────────────────────────────
+// Utility deps resolve at module load via require() from canonical sources.
+// They remain `let` so the factory's per-instance swap (createFileContextBuilder)
+// and the test-only init() shim can override them transiently.
+// `_db` and `_serverConfig` lazy-resolve through the container at first use.
 let _serverConfig = null;
-let _providerCfg = null;
-let _contextEnrichment = null;
-let _computeLineHash = null;
+let _providerCfg = require('../providers/config');
+let _contextEnrichment = require('../utils/context-enrichment');
+let _computeLineHash = require('../handlers/hashline-handlers').computeLineHash;
 let _db = null;
 
-/** @deprecated Use createFileContextBuilder(deps) or container.get('fileContextBuilder'). */
+function ensureContainerDeps() {
+  if (!_db || !_serverConfig) {
+    try {
+      const { defaultContainer } = require('../container');
+      if (!_db) _db = defaultContainer.peek('db') || null;
+      if (!_serverConfig) _serverConfig = defaultContainer.peek('serverConfig') || null;
+    } catch { /* container not yet available */ }
+  }
+}
+
+/**
+ * @internal — test-only override path. Production resolves via
+ * createFileContextBuilder(localDeps) inside the container factory.
+ */
 function init(deps = {}) {
   if (deps.serverConfig) _serverConfig = deps.serverConfig;
   if (deps.providerCfg) _providerCfg = deps.providerCfg;
@@ -50,6 +66,7 @@ function isInsideWorkingDirectory(workingDir, targetPath) {
  */
 function trySymbolLevelContext(resolvedFiles, workingDirectory, maxBytes, taskDescription) {
   try {
+    ensureContainerDeps();
     const symbolIndexer = require('../utils/symbol-indexer');
     if (!_db) return null;
     const dbInst = typeof _db.getDbInstance === 'function' ? _db.getDbInstance() : _db;
@@ -111,6 +128,8 @@ function trySymbolLevelContext(resolvedFiles, workingDirectory, maxBytes, taskDe
 
 async function buildFileContext(resolvedFiles, workingDirectory, maxBytes = 30000, taskDescription = '') {
   if (!resolvedFiles || resolvedFiles.length === 0) return '';
+
+  ensureContainerDeps();
 
   // Try symbol-level context first (90%+ token savings when index exists)
   const symbolContext = trySymbolLevelContext(resolvedFiles, workingDirectory, maxBytes, taskDescription);
@@ -354,10 +373,9 @@ function register(container) {
 }
 
 module.exports = {
-  // New shape (preferred)
   createFileContextBuilder,
   register,
-  // Legacy shape (kept until task-manager.js migrates)
+  // @internal — test-only override path (see init() jsdoc)
   init,
   buildFileContext,
   extractJsFunctionBoundaries,

@@ -132,10 +132,7 @@ const _queueScheduler = require('./execution/queue-scheduler');
 const _taskFinalizer = require('./execution/task-finalizer');
 const _sandboxRevertDetection = require('./execution/sandbox-revert-detection');
 const _completionPipeline = require('./execution/completion-pipeline');
-const _fileContextBuilder = require('./execution/file-context-builder');
-const _providerRouter = require('./execution/provider-router');
 const _taskUtils = require('./execution/task-utils');
-const _planProjectResolver = require('./execution/plan-project-resolver');
 const _processLifecycle = require('./execution/process-lifecycle');
 const { safeDecrementHostSlot, killProcessGraceful, safeTriggerWebhook, cleanupProcessTracking, cleanupChildProcessListeners } = _processLifecycle;
 const debugLifecycle = require('./execution/debug-lifecycle');
@@ -392,7 +389,7 @@ function safeUpdateTaskStatus(taskId, status, fields = {}) {
  * Atomically try to reserve a host slot with proper race handling.
  * Delegated to execution/provider-router.js
  */
-function tryReserveHostSlotWithFallback(...args) { return _providerRouter.tryReserveHostSlotWithFallback(...args); }
+function tryReserveHostSlotWithFallback(...args) { return defaultContainer.get('providerRouter').tryReserveHostSlotWithFallback(...args); }
 
 // Retry cleanup delegated to execution/task-startup.js
 
@@ -404,13 +401,13 @@ function tryReserveHostSlotWithFallback(...args) { return _providerRouter.tryRes
  * Extract function boundaries from a JS/TS file.
  * Delegated to execution/file-context-builder.js
  */
-function extractJsFunctionBoundaries(...args) { return _fileContextBuilder.extractJsFunctionBoundaries(...args); }
+function extractJsFunctionBoundaries(...args) { return defaultContainer.get('fileContextBuilder').extractJsFunctionBoundaries(...args); }
 
 /**
  * Ensure target files exist on disk (create stubs if needed).
  * Delegated to execution/file-context-builder.js
  */
-function ensureTargetFilesExist(...args) { return _fileContextBuilder.ensureTargetFilesExist(...args); }
+function ensureTargetFilesExist(...args) { return defaultContainer.get('fileContextBuilder').ensureTargetFilesExist(...args); }
 
 
 // ============================================================
@@ -421,7 +418,7 @@ function ensureTargetFilesExist(...args) { return _fileContextBuilder.ensureTarg
  * Build formatted file context block from resolved files.
  * Delegated to execution/file-context-builder.js
  */
-function buildFileContext(...args) { return _fileContextBuilder.buildFileContext(...args); }
+function buildFileContext(...args) { return defaultContainer.get('fileContextBuilder').buildFileContext(...args); }
 
 
 // Delegated to providers/prompts.js (Phase 7A)
@@ -437,7 +434,7 @@ const DEFAULT_INSTRUCTION_TEMPLATES = _promptsModule.DEFAULT_INSTRUCTION_TEMPLAT
  * Try to create an automatic PR after successful task completion.
  * Delegated to execution/provider-router.js
  */
-function tryCreateAutoPR(...args) { return _providerRouter.tryCreateAutoPR(...args); }
+function tryCreateAutoPR(...args) { return defaultContainer.get('providerRouter').tryCreateAutoPR(...args); }
 
 // cleanupOrphanedRetryTimeouts delegated to execution/task-startup.js
 function cleanupOrphanedRetryTimeouts() { return _taskStartup.cleanupOrphanedRetryTimeouts(); }
@@ -454,7 +451,7 @@ function resolveWindowsCmdToNode(...args) { return _taskStartup.resolveWindowsCm
  * Safely parse config integer value with bounds checking.
  * Delegated to execution/provider-router.js
  */
-function safeConfigInt(...args) { return _providerRouter.safeConfigInt(...args); }
+function safeConfigInt(...args) { return defaultContainer.get('providerRouter').safeConfigInt(...args); }
 
 /**
  * Resolve plan project dependencies after a task reaches a terminal state.
@@ -465,9 +462,9 @@ function safeConfigInt(...args) { return _providerRouter.safeConfigInt(...args);
  * @returns {void}
  */
 // Plan project dependency resolution — delegated to execution/plan-project-resolver.js
-function handleProjectDependencyResolution(...args) { return _planProjectResolver.handleProjectDependencyResolution(...args); }
-function handlePlanProjectTaskCompletion(...args) { return _planProjectResolver.handlePlanProjectTaskCompletion(...args); }
-function handlePlanProjectTaskFailure(...args) { return _planProjectResolver.handlePlanProjectTaskFailure(...args); }
+function handleProjectDependencyResolution(...args) { return defaultContainer.get('planProjectResolver').handleProjectDependencyResolution(...args); }
+function handlePlanProjectTaskCompletion(...args) { return defaultContainer.get('planProjectResolver').handlePlanProjectTaskCompletion(...args); }
+function handlePlanProjectTaskFailure(...args) { return defaultContainer.get('planProjectResolver').handlePlanProjectTaskFailure(...args); }
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Close-handler helpers (extracted from startTask's child.on('close', ...))
@@ -535,11 +532,11 @@ function evaluateClaimedStartupPolicy(...args) { return _taskStartup.evaluateCla
 function buildProviderStartupCommand(...args) { return _taskStartup.buildProviderStartupCommand(...args); }
 
 // Provider routing — delegated to execution/provider-router.js
-function resolveProviderRouting(...args) { return _providerRouter.resolveProviderRouting(...args); }
-function normalizeProviderOverride(...args) { return _providerRouter.normalizeProviderOverride(...args); }
-function failTaskForInvalidProvider(...args) { return _providerRouter.failTaskForInvalidProvider(...args); }
-function getProviderSlotLimits(...args) { return _providerRouter.getProviderSlotLimits(...args); }
-function getEffectiveGlobalMaxConcurrent(...args) { return _providerRouter.getEffectiveGlobalMaxConcurrent(...args); }
+function resolveProviderRouting(...args) { return defaultContainer.get('providerRouter').resolveProviderRouting(...args); }
+function normalizeProviderOverride(...args) { return defaultContainer.get('providerRouter').normalizeProviderOverride(...args); }
+function failTaskForInvalidProvider(...args) { return defaultContainer.get('providerRouter').failTaskForInvalidProvider(...args); }
+function getProviderSlotLimits(...args) { return defaultContainer.get('providerRouter').getProviderSlotLimits(...args); }
+function getEffectiveGlobalMaxConcurrent(...args) { return defaultContainer.get('providerRouter').getEffectiveGlobalMaxConcurrent(...args); }
 
 // Delegated to execution/process-lifecycle.js (D4.3)
 function spawnAndTrackProcess(taskId, task, config) {
@@ -826,23 +823,20 @@ function initSubModules() {
 
 _taskExecutionHooks.init({ db });
 
-_planProjectResolver.init({ db, dashboard: getDashboardBroadcaster() });
+// execution/plan-project-resolver.js: db + dashboard come from the container
+// at boot via createPlanProjectResolver. Production resolves via
+// defaultContainer.get('planProjectResolver').
 
-_fileContextBuilder.init({
-  db,
-  serverConfig,
-  providerCfg,
-  contextEnrichment,
-  computeLineHash,
-});
+// execution/file-context-builder.js: utility deps (providerCfg,
+// contextEnrichment, computeLineHash) resolve at module load via require();
+// db + serverConfig lazy-resolve through defaultContainer.peek() in
+// ensureContainerDeps(). Production resolves the service via
+// defaultContainer.get('fileContextBuilder').
 
-_providerRouter.init({
-  db,
-  serverConfig,
-  providerRegistry,
-  parseTaskMetadata,
-  safeUpdateTaskStatus,
-});
+// execution/provider-router.js: utility deps (parseTaskMetadata) resolve at
+// module load via require(); db / serverConfig / providerRegistry /
+// safeUpdateTaskStatus lazy-resolve through the container in ensureDeps().
+// Production resolves the service via defaultContainer.get('providerRouter').
 
 _taskStartup.init({
   db,
