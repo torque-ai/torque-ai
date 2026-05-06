@@ -249,13 +249,20 @@ module.exports = [
       'torque/no-prepare-in-loop': 'error',
     },
   },
-  // Universal-DI migration — Phase 1 advisory wiring.
+  // Universal-DI migration — Phase 5 enforcement wiring.
   // The torque/no-imperative-init rule discourages the
   //   `let _x = null; function init({…}) { _x = … } module.exports = { init, … }`
-  // pattern in favor of factory + register(container). It is wired at
-  // 'warn' severity so existing offenders don't break CI; the migration
-  // arc shrinks the offender count phase by phase. Phase 5 raises this
-  // to 'error' and removes any remaining allowlist entries.
+  // pattern in favor of factory + register(container). After the
+  // consumer-migration arc closed at 18/18, the rule is promoted from
+  // 'warn' to 'error' to prevent regression: every new module must follow
+  // the factory + register(container) pattern.
+  //
+  // The current 47-file allowlist below grandfathers existing offenders.
+  // Each module on the list still exports init({…}) paired with module-
+  // level let _state, but production no longer drives any of those init()
+  // calls (per the 18/18 consumer-migration arc) — the legacy shape is
+  // only kept as test-only @internal back-compat. The allowlist will
+  // shrink as those test-only shims get refactored to createXxx(deps).
   // See docs/superpowers/specs/2026-05-04-universal-di-design.md.
   {
     files: ['**/*.js'],
@@ -267,14 +274,67 @@ module.exports = [
       'dashboard/**',
     ],
     rules: {
-      'torque/no-imperative-init': ['warn', { allowlist: [] }],
+      'torque/no-imperative-init': ['error', {
+        allowlist: [
+          'activity-monitoring.js',
+          'agentic-capability.js',
+          'audit-handlers.js',
+          'auto-commit-batch.js',
+          'auto-verify-retry.js',
+          'build-verification.js',
+          'close-phases.js',
+          'codebase-study-handlers.js',
+          'codex-intelligence.js',
+          'command-builders.js',
+          'config.js',
+          'cost-metrics.js',
+          'debug-lifecycle.js',
+          'execute-api.js',
+          'execute-cli.js',
+          'execute-ollama.js',
+          'execution.js',
+          'fallback-retry.js',
+          'feature-workflow.js',
+          'feedback.js',
+          'file-context-builder.js',
+          'free-quota-tracker-singleton.js',
+          'hashline-verify.js',
+          'index.js',
+          'model-registry-handlers.js',
+          'ollama-health.js',
+          'orchestrator.js',
+          'output-safeguards.js',
+          'plan-project-resolver.js',
+          'post-task.js',
+          'prompts.js',
+          'protocol.js',
+          'provider-router.js',
+          'queue-scheduler.js',
+          'resource-health.js',
+          'slot-pull-scheduler.js',
+          'smart-routing.js',
+          'study-telemetry.js',
+          'symbol-indexer.js',
+          'task-execution-hooks.js',
+          'v2-audit-handlers.js',
+          'v2-dispatch.js',
+          'v2-governance-handlers.js',
+          'v2-infrastructure-handlers.js',
+          'v2-task-handlers.js',
+          'v2-workflow-handlers.js',
+          'workflow-runtime.js',
+        ],
+      }],
       // torque/no-utility-deps-in-register fires when a register() declaration
       // lists deps that look like utility functions (parseCommand,
       // sanitizeOutput, …) or constants (MAX_OUTPUT_BUFFER) instead of true
       // container services. The cleanup arc replaced these with require()s
       // inside the factory and resolveMethod() for capability methods. See
       // server/ARCHITECTURE.md.
-      'torque/no-utility-deps-in-register': ['warn', { allowlist: [] }],
+      //
+      // Promoted to 'error' with empty allowlist — the cleanup arc closed at
+      // 0 findings, so this rule has nothing to grandfather.
+      'torque/no-utility-deps-in-register': ['error', { allowlist: [] }],
     },
   },
   {
