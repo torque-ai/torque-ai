@@ -13880,6 +13880,23 @@ function approveGate(instance_id, stage) {
   assertValidGateStage(stage);
   assertPausedAtStage(instance, stage);
 
+  // Project-wide operator pause supersedes gate approval. Without this guard,
+  // approveGate clears `paused_at_stage` but the next advance still returns
+  // early via `isProjectStatusPaused()`, leaving the operator wondering why
+  // the loop didn't resume after they "approved" it. Same shape as
+  // startFactoryLoop's pre-flight check (line ~12795) — be consistent: both
+  // operator entry points to resuming the loop require the project to not
+  // be paused. Auto-recovery's retry strategy (which calls services.approveGate
+  // for non-VERIFY paused stages — see plugins/auto-recovery-core/strategies/
+  // retry.js:54) inherits this guard, so recovery cannot silently fight an
+  // operator pause either.
+  if (isProjectStatusPaused(project.id)) {
+    throw new Error(
+      `Cannot approve gate on paused project ${project.id}; call resume_project first. `
+      + 'Project status="paused" causes advanceLoop() to return early even after the gate clears.'
+    );
+  }
+
   const updated = updateInstanceAndSync(instance.id, {
     paused_at_stage: null,
     last_action_at: nowIso(),
