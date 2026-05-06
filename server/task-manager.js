@@ -137,7 +137,6 @@ const _processLifecycle = require('./execution/process-lifecycle');
 const { safeDecrementHostSlot, killProcessGraceful, safeTriggerWebhook, cleanupProcessTracking, cleanupChildProcessListeners } = _processLifecycle;
 const debugLifecycle = require('./execution/debug-lifecycle');
 const _processStreams = require('./execution/process-streams');
-const _commandBuilders = require('./execution/command-builders');
 const ProcessTracker = require('./execution/process-tracker');
 const codexIntelligence = require('./providers/codex-intelligence');
 
@@ -523,8 +522,8 @@ function handleNoFileChangeDetection(_ctx) {
  * @returns {{ cliPath: string, finalArgs: string[], stdinPrompt: string }}
  */
 // D4.1: Delegated to execution/command-builders.js
-function buildClaudeCliCommand(...args) { return _commandBuilders.buildClaudeCliCommand(...args); }
-function buildCodexCommand(...args) { return _commandBuilders.buildCodexCommand(...args); }
+function buildClaudeCliCommand(...args) { return defaultContainer.get('commandBuilders').buildClaudeCliCommand(...args); }
+function buildCodexCommand(...args) { return defaultContainer.get('commandBuilders').buildCodexCommand(...args); }
 
 // === startTask phase helpers — delegated to execution/task-startup.js ===
 function recordTaskStartedAuditEvent(...args) { return defaultContainer.get('taskStartup').recordTaskStartedAuditEvent(...args); }
@@ -974,14 +973,11 @@ _instanceManager.init({
 // Phase 7-10 module initialization
 _promptsModule.init({ db });
 codexIntelligence.init({ db, prompts: _promptsModule });
-_commandBuilders.init({
-  wrapWithInstructions,
-  providerCfg,
-  contextEnrichment,
-  codexIntelligence,
-  db,
-  nvmNodePath: NVM_NODE_PATH,
-});
+// execution/command-builders.js: utility deps (wrapWithInstructions,
+// providerCfg, contextEnrichment, codexIntelligence) resolve at module load
+// via require() from canonical sources; nvmNodePath comes from
+// task-startup at module load. Production resolves the service via
+// defaultContainer.get('commandBuilders').
 // validation/close-phases.js: utility deps (checkFileQuality, scopedRollback,
 // runBuildVerification, runTestVerification, runStyleCheck, tryCreateAutoPR,
 // extractModifiedFiles, isValidFilePath, isShellSafe, sanitizeTaskOutput,

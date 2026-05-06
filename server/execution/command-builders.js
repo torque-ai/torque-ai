@@ -67,14 +67,26 @@ function resolveSandboxWritableRoots(workingDirectory) {
   }
 }
 
-// ── Legacy module-level state, written only by init() (deprecated) ─────────
-// Phase 3 of the universal-DI migration. Coexistence pattern.
-let _wrapWithInstructions = null;
-let _providerCfg = null;
-let _contextEnrichment = null;
-let _codexIntelligence = null;
+// ── Module-level deps ──────────────────────────────────────────────────────
+// Utility deps resolve at module load via require() from canonical sources.
+// They remain `let` so the factory's per-instance swap (createCommandBuilders)
+// and the test-only init() shim can override them. `_db` and `_nvmNodePath`
+// lazy-resolve through the container at first use (db) and via require()
+// from task-startup (nvmNodePath).
+let _wrapWithInstructions = require('../providers/prompts').wrapWithInstructions;
+let _providerCfg = require('../providers/config');
+let _contextEnrichment = require('../utils/context-enrichment');
+let _codexIntelligence = require('../providers/codex-intelligence');
 let _db = null;
-let _nvmNodePath = null;
+let _nvmNodePath = require('./task-startup').NVM_NODE_PATH;
+
+function ensureDb() {
+  if (_db) return _db;
+  try {
+    _db = require('../container').defaultContainer.peek('db') || null;
+  } catch { /* container not yet available */ }
+  return _db;
+}
 
 function getExecutionDescription(task) {
   return typeof task?.execution_description === 'string' && task.execution_description.trim()
@@ -82,16 +94,17 @@ function getExecutionDescription(task) {
     : task.task_description;
 }
 
-/** @deprecated Use createCommandBuilders(deps) or container.get('commandBuilders'). */
-function init({ wrapWithInstructions, providerCfg, contextEnrichment, codexIntelligence, db, nvmNodePath }) {
-  if (!wrapWithInstructions) throw new Error('command-builders: wrapWithInstructions is required');
-  if (!providerCfg) throw new Error('command-builders: providerCfg is required');
-  _wrapWithInstructions = wrapWithInstructions;
-  _providerCfg = providerCfg;
-  _contextEnrichment = contextEnrichment;
-  _codexIntelligence = codexIntelligence;
-  _db = db;
-  _nvmNodePath = nvmNodePath;
+/**
+ * @internal — test-only override path. Production resolves via
+ * createCommandBuilders(localDeps) inside the container factory.
+ */
+function init({ wrapWithInstructions, providerCfg, contextEnrichment, codexIntelligence, db, nvmNodePath } = {}) {
+  if (wrapWithInstructions) _wrapWithInstructions = wrapWithInstructions;
+  if (providerCfg) _providerCfg = providerCfg;
+  if (contextEnrichment) _contextEnrichment = contextEnrichment;
+  if (codexIntelligence) _codexIntelligence = codexIntelligence;
+  if (db) _db = db;
+  if (nvmNodePath) _nvmNodePath = nvmNodePath;
 }
 
 /**
@@ -350,10 +363,9 @@ function register(container) {
 }
 
 module.exports = {
-  // New shape (preferred)
   createCommandBuilders,
   register,
-  // Legacy shape (kept until task-manager.js migrates)
+  // @internal — test-only override path (see init() jsdoc)
   init,
   buildClaudeCliCommand,
   buildCodexCommand,
