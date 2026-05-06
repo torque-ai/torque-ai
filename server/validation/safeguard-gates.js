@@ -171,6 +171,20 @@ function handleSafeguardChecks(ctx) {
   } catch {
     containerDeps = {};
   }
+  // Fallback: tests (and any code path that doesn't go through
+  // server/index.js startup) won't have taskManager registered in
+  // the container. require it directly so utility-method deps
+  // (getActualModifiedFiles, safeUpdateTaskStatus, processQueue)
+  // resolve. Production calls registerValue('taskManager') in
+  // index.js:1117, so the peek above wins there.
+  if (!containerDeps.taskManager) {
+    try { containerDeps.taskManager = require('../task-manager'); }
+    catch { /* fall through with null taskManager */ }
+  }
+  if (!containerDeps.db) {
+    try { containerDeps.db = require('../database'); }
+    catch { /* fall through */ }
+  }
   return createSafeguardGates(containerDeps).handleSafeguardChecks(ctx);
 }
 
