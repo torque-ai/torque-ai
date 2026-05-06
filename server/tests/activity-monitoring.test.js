@@ -30,6 +30,54 @@ describe('Activity Monitoring - Stall Threshold Multipliers', () => {
     vi.restoreAllMocks();
   });
 
+  it('uses activity timeout policy as a stall threshold floor', () => {
+    getStallThreshold.mockReturnValue(180);
+    const now = Date.now();
+    runningProcesses.set('task-plan-generation', {
+      process: {},
+      model: 'gpt-5.5',
+      provider: 'codex',
+      metadata: JSON.stringify({
+        activity_timeout_policy: {
+          kind: 'plan_generation',
+          timeout_minutes: 30,
+        },
+      }),
+      lastOutputAt: now - 600 * 1000,
+      output: '',
+      errorOutput: '',
+      lastFsFingerprint: null,
+    });
+
+    const activity = activityMonitoring.getTaskActivity('task-plan-generation');
+    expect(activity.stallThreshold).toBe(1800);
+    expect(activity.isStalled).toBe(false);
+  });
+
+  it('keeps stall detection disabled when provider threshold is null', () => {
+    getStallThreshold.mockReturnValue(null);
+    const now = Date.now();
+    runningProcesses.set('task-provider-disabled', {
+      process: {},
+      model: 'gpt-5.5',
+      provider: 'codex',
+      metadata: {
+        activity_timeout_policy: {
+          kind: 'plan_generation',
+          timeout_minutes: 30,
+        },
+      },
+      lastOutputAt: now - 3600 * 1000,
+      output: '',
+      errorOutput: '',
+      lastFsFingerprint: null,
+    });
+
+    const activity = activityMonitoring.getTaskActivity('task-provider-disabled');
+    expect(activity.stallThreshold).toBeNull();
+    expect(activity.isStalled).toBe(false);
+  });
+
   it('applies large-context and long-running multipliers plus metadata multiplier', () => {
     getStallThreshold.mockReturnValue(100);
     const now = Date.now();

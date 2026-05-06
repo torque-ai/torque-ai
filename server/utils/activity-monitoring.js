@@ -117,6 +117,47 @@ function getContextTokenEstimate(proc) {
 }
 
 /**
+ * Read per-task activity timeout policy from task metadata.
+ *
+ * Factory tasks can carry an activity_timeout_policy that is more specific
+ * than the provider-wide stall threshold. Treat it as a lower bound so global
+ * config cannot cancel slow plan/verification tasks before their own policy.
+ *
+ * @param {Object} metadata - Parsed task metadata
+ * @returns {number|null} Timeout in seconds if available
+ */
+function getActivityTimeoutPolicySeconds(metadata) {
+  if (!metadata || typeof metadata !== 'object') return null;
+
+  const policy = parseTaskMetadata(metadata.activity_timeout_policy);
+  const secondCandidates = [
+    metadata.activity_timeout_seconds,
+    metadata.activityTimeoutSeconds,
+    policy.timeout_seconds,
+    policy.timeoutSeconds,
+  ];
+
+  for (const value of secondCandidates) {
+    const seconds = parsePositiveNumber(value);
+    if (seconds) return seconds;
+  }
+
+  const minuteCandidates = [
+    metadata.activity_timeout_minutes,
+    metadata.activityTimeoutMinutes,
+    policy.timeout_minutes,
+    policy.timeoutMinutes,
+  ];
+
+  for (const value of minuteCandidates) {
+    const minutes = parsePositiveNumber(value);
+    if (minutes) return minutes * 60;
+  }
+
+  return null;
+}
+
+/**
  * Initialize dependencies for this module.
  * @param {Object} deps
  * @param {Map} deps.runningProcesses - Map of running task processes
@@ -204,6 +245,11 @@ function getTaskActivity(taskId, opts = {}) {
 
   // Apply multiplier-based stall grace to reduce false positives for slow tasks.
   if (threshold !== null && Number.isFinite(threshold)) {
+    const activityTimeoutSeconds = getActivityTimeoutPolicySeconds(metadata);
+    if (activityTimeoutSeconds) {
+      threshold = Math.max(threshold, activityTimeoutSeconds);
+    }
+
     let multiplier = 1;
 
     // Tasks with explicit multiplier override in metadata
