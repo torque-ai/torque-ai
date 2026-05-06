@@ -17,6 +17,7 @@ const logger = require('../logger').child({ component: 'activity-monitoring' });
 // without necessarily producing stdout. Stall detection must check the
 // filesystem before declaring these providers stalled.
 const AGENT_PROVIDERS = new Set(['codex', 'claude-cli', 'claude-code-sdk']);
+const FACTORY_INTERNAL_ACTIVITY_TIMEOUT_SECONDS = 30 * 60;
 
 // Dependency injection
 let _runningProcesses = null;
@@ -157,6 +158,24 @@ function getActivityTimeoutPolicySeconds(metadata) {
   return null;
 }
 
+function isFactoryInternalTask(proc, metadata) {
+  if (metadata?.factory_internal === true) return true;
+  if (typeof metadata?.kind === 'string' && metadata.kind.length > 0) return true;
+  const project = proc?.project || metadata?.project || metadata?.internal_project;
+  return project === 'factory-architect' || project === 'factory-plan';
+}
+
+function getEffectiveActivityTimeoutPolicySeconds(proc, metadata) {
+  const explicitSeconds = getActivityTimeoutPolicySeconds(metadata);
+  if (explicitSeconds) return explicitSeconds;
+
+  if (isFactoryInternalTask(proc, metadata)) {
+    return FACTORY_INTERNAL_ACTIVITY_TIMEOUT_SECONDS;
+  }
+
+  return null;
+}
+
 /**
  * Initialize dependencies for this module.
  * @param {Object} deps
@@ -245,7 +264,7 @@ function getTaskActivity(taskId, opts = {}) {
 
   // Apply multiplier-based stall grace to reduce false positives for slow tasks.
   if (threshold !== null && Number.isFinite(threshold)) {
-    const activityTimeoutSeconds = getActivityTimeoutPolicySeconds(metadata);
+    const activityTimeoutSeconds = getEffectiveActivityTimeoutPolicySeconds(proc, metadata);
     if (activityTimeoutSeconds) {
       threshold = Math.max(threshold, activityTimeoutSeconds);
     }

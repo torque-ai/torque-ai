@@ -78,6 +78,29 @@ describe('Activity Monitoring - Stall Threshold Multipliers', () => {
     expect(activity.isStalled).toBe(false);
   });
 
+  it('uses a default factory-internal timeout floor for legacy architect tasks', () => {
+    getStallThreshold.mockReturnValue(180);
+    const now = Date.now();
+    runningProcesses.set('task-legacy-architect', {
+      process: {},
+      model: 'gpt-5.5',
+      provider: 'codex',
+      project: 'factory-architect',
+      metadata: {
+        factory_internal: true,
+        kind: 'architect_cycle',
+      },
+      lastOutputAt: now - 600 * 1000,
+      output: '',
+      errorOutput: '',
+      lastFsFingerprint: null,
+    });
+
+    const activity = activityMonitoring.getTaskActivity('task-legacy-architect');
+    expect(activity.stallThreshold).toBe(1800);
+    expect(activity.isStalled).toBe(false);
+  });
+
   it('applies large-context and long-running multipliers plus metadata multiplier', () => {
     getStallThreshold.mockReturnValue(100);
     const now = Date.now();
