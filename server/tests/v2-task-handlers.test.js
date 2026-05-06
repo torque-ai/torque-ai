@@ -1664,6 +1664,7 @@ describe('api/v2-task-handlers.handleTaskProgress', () => {
       phase: 'execute',
       elapsed_seconds: 12,
       output_length: 1024,
+      error_output_length: 16695,
       last_output_at: '2026-03-10T18:00:00.000Z',
     });
 
@@ -1679,6 +1680,7 @@ describe('api/v2-task-handlers.handleTaskProgress', () => {
         phase: 'execute',
         elapsed_seconds: 12,
         output_bytes: 1024,
+        error_output_bytes: 16695,
         last_output_at: '2026-03-10T18:00:00.000Z',
       },
       status: 200,

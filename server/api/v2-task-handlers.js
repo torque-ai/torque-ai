@@ -1143,6 +1143,11 @@ async function handleTaskProgress(req, res) {
     phase: progress.phase || null,
     elapsed_seconds: progress.elapsed_seconds || 0,
     output_bytes: progress.output_length || 0,
+    // Codex / codex-spark / claude-cli emit tool traces to stderr while
+    // stdout stays empty until final answer. Without error_output_bytes
+    // here, the dashboard reads "0 bytes" and looks idle even when the
+    // task is actively writing tens of KB of stderr activity.
+    error_output_bytes: progress.error_output_length || 0,
     last_output_at: progress.last_output_at || null,
   }, 200, req);
 }

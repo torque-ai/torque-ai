@@ -759,33 +759,41 @@ else
 fi
 
 echo "  Cleaning up worktree..."
-# Retry rm -rf 3x with backoff. On Windows, AV/indexer processes
-# (Defender, WSearch) routinely hold open handles to files in
-# node_modules/ for a few seconds after the worktree's bash session
-# closes. The naive `... || rm -rf "$WORKTREE_DIR"` printed the
-# infamous `rm: cannot remove ... Device or resource busy` and left
-# the dir on disk — over time, dozens of orphan worktree dirs
-# accumulated. Same retry pattern as torque-remote's cleanup_temp_dirs.
-worktree_cleanup_ok=0
-if git worktree remove "$WORKTREE_DIR" --force 2>/dev/null; then
-  worktree_cleanup_ok=1
-else
-  for cleanup_attempt in 1 2 3; do
+# Retry rm -rf with exponential backoff. On Windows, AV/indexer processes
+# (Defender, WSearch) routinely hold open handles to files in node_modules/
+# for several seconds after the worktree's bash session closes. The naive
+# `... || rm -rf "$WORKTREE_DIR"` printed the infamous `rm: cannot remove
+# ... Device or resource busy` and left the dir on disk. The previous 3x1s
+# retry budget (3s total) was reliably too short — every cutover today left
+# an orphan that the post-prune sweep also raced and missed. The exponential
+# backoff (1+2+4+8+16 = 31s) gives Windows AV time to release.
+remove_worktree_dir() {
+  if git worktree remove "$WORKTREE_DIR" --force 2>/dev/null; then
+    return 0
+  fi
+  local delay=1
+  for cleanup_attempt in 1 2 3 4 5; do
     if rm -rf "$WORKTREE_DIR" 2>/dev/null; then
-      worktree_cleanup_ok=1
       git worktree prune 2>/dev/null || true
-      break
+      return 0
     fi
-    sleep 1
+    sleep "$delay"
+    delay=$((delay * 2))
   done
+  return 1
+}
+
+worktree_cleanup_ok=0
+if remove_worktree_dir; then
+  worktree_cleanup_ok=1
 fi
 if [ "$worktree_cleanup_ok" -eq 1 ]; then
   echo "[ok] Worktree removed"
 else
-  echo "[warn] Could not remove $WORKTREE_DIR after retries — likely Windows file lock."
-  echo "       The branch is merged; the dir is now an orphan. Run"
-  echo "       'bash scripts/prune-merged-worktrees.sh --apply' once the"
-  echo "       AV/indexer releases its handles to clean it up."
+  echo "[warn] Could not remove $WORKTREE_DIR after exponential-backoff retries (~31s)."
+  echo "       Will give it one more shot after the prune sweep below; if that"
+  echo "       also fails, run 'bash scripts/prune-merged-worktrees.sh --apply'"
+  echo "       once the AV/indexer releases its handles."
 fi
 
 git branch -d "$BRANCH" 2>/dev/null || git branch -D "$BRANCH" 2>/dev/null || true
@@ -793,10 +801,24 @@ echo "[ok] Branch ${BRANCH} deleted"
 
 # Sweep up any older orphan worktrees whose branches are already merged.
 # Best-effort, never blocks the cutover. The retry above handles THIS
-# worktree; this catches the dozens of historical orphans from prior
-# cutovers that lost the race to AV file locks.
+# worktree; this catches historical orphans from prior cutovers that lost
+# the race to AV file locks.
 if [ -x "${REPO_ROOT}/scripts/prune-merged-worktrees.sh" ]; then
   bash "${REPO_ROOT}/scripts/prune-merged-worktrees.sh" --apply --keep-factory 2>&1 | sed 's/^/  /' || true
+fi
+
+# If our just-cut worktree dir is still there, give it one final retry.
+# By now the prune sweep has done its own filesystem work, the post-prune
+# wrappers (install-userbin) are about to run, and the AV/indexer has had
+# another ~5-10s to release handles. This catches the common case where
+# the 31s backoff above was *almost* enough.
+if [ "$worktree_cleanup_ok" -ne 1 ] && [ -d "$WORKTREE_DIR" ]; then
+  if remove_worktree_dir; then
+    worktree_cleanup_ok=1
+    echo "[ok] Worktree removed (post-prune retry)"
+  else
+    echo "[warn] $WORKTREE_DIR still locked after final retry — leaving as orphan."
+  fi
 fi
 
 # Refresh user-bin wrappers from the freshly-merged repo source. Without
