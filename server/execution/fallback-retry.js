@@ -34,7 +34,13 @@ function getRetryDelayMs(task) {
 }
 
 
-// Dependency injection
+// Dependency injection — production paths reach the wrapped functions
+// through createFallbackRetry (driven by container.get('fallbackRetry'))
+// which fills these slots via withLocalDeps for each call. Sibling modules
+// that require() the raw exports (executionModule, orphanCleanup,
+// stall-detection) cause the raw path to fire; those exports invoke
+// ensureDeps() at the top to lazy-resolve from the container + canonical
+// require()s. Tests still drive raw exports via init().
 let db = null;
 let dashboard = null;
 let _processQueue = null;
@@ -45,6 +51,46 @@ let _stallRecoveryAttempts = null;
 let _runningProcesses = null;
 let _pendingProcessQueueTimer = null;
 let _getFreeQuotaTracker = null;
+
+function ensureDeps() {
+  let container = null;
+  try { container = require('../container').defaultContainer; } catch { /* not available */ }
+  if (container) {
+    if (!db) db = container.peek('db') || null;
+    if (!dashboard) dashboard = container.peek('dashboard') || null;
+    if (!_runningProcesses || !_stallRecoveryAttempts) {
+      const tracker = container.peek('processTracker');
+      if (tracker) {
+        if (!_runningProcesses) _runningProcesses = tracker;
+        if (!_stallRecoveryAttempts && tracker.stallAttempts) _stallRecoveryAttempts = tracker.stallAttempts;
+      }
+    }
+    const tm = container.peek('taskManager');
+    if (tm) {
+      if (!_processQueue && typeof tm.processQueue === 'function') _processQueue = tm.processQueue.bind(tm);
+      if (!_cancelTask) {
+        // Prefer taskCanceller capability when registered; fall back to taskManager.cancelTask.
+        if (container.has?.('taskCanceller')) {
+          try {
+            const tc = container.get('taskCanceller');
+            if (tc && typeof tc.cancelTask === 'function') _cancelTask = tc.cancelTask.bind(tc);
+          } catch { /* not booted */ }
+        }
+        if (!_cancelTask && typeof tm.cancelTask === 'function') _cancelTask = tm.cancelTask.bind(tm);
+      }
+      if (!_stopTaskForRestart && typeof tm.stopTaskForRestart === 'function') {
+        _stopTaskForRestart = tm.stopTaskForRestart.bind(tm);
+      }
+      if (!_markTaskCleanedUp && typeof tm.markTaskCleanedUp === 'function') {
+        _markTaskCleanedUp = tm.markTaskCleanedUp.bind(tm);
+      }
+    }
+  }
+  if (!_getFreeQuotaTracker) {
+    try { _getFreeQuotaTracker = require('../tasks/free-quota-tracker-singleton').getFreeQuotaTracker; }
+    catch { /* fall through */ }
+  }
+}
 
 function setFreeQuotaTracker(getter) {
   _getFreeQuotaTracker = getter;
@@ -112,10 +158,13 @@ function withResumeContextPrompt(task, fields = {}) {
  * @param {Map} deps.stallRecoveryAttempts - Map tracking stall recovery state
  * @param {Map} deps.runningProcesses - Map tracking running processes
  */
-/** @deprecated Use createFallbackRetry(deps) or container.get('fallbackRetry'). */
-function init(deps) {
-  db = deps.db;
-  if (deps.db) serverConfig.init({ db: deps.db });
+/**
+ * @internal — test-only override path. Production raw exports lazy-resolve
+ * deps via ensureDeps(); production factory consumers go through
+ * createFallbackRetry(localDeps) inside the container.
+ */
+function init(deps = {}) {
+  if (deps.db) db = deps.db;
   if (deps.dashboard) dashboard = deps.dashboard;
   if (deps.processQueue) _processQueue = deps.processQueue;
   if (deps.cancelTask) _cancelTask = deps.cancelTask;
@@ -175,6 +224,7 @@ function getRawDbInstance() {
  * @returns {boolean} True if task was requeued to a cloud provider
  */
 function tryOllamaCloudFallback(taskId, task, errorMsg) {
+  ensureDeps();
   // Use canonical fallback chain from provider-routing-core (respects user-configured chains).
   // Append remaining CLOUD_PROVIDERS not in chain as safety net — this function's intent is
   // "try ANY available cloud provider", broader than normal fallback.
@@ -280,6 +330,7 @@ function _isGreenfieldTask(desc) {
  * @returns {boolean} True if task was requeued
  */
 function tryLocalFirstFallback(taskId, task, errorMsg, options = {}) {
+  ensureDeps();
   const maxLocalRetries = serverConfig.getInt('max_local_retries', 3);
 
   // Use metadata counter as the authoritative local attempt count.
@@ -441,6 +492,7 @@ function tryLocalFirstFallback(taskId, task, errorMsg, options = {}) {
  * @returns {boolean} True if recovery was attempted
  */
 function tryStallRecovery(taskId, activity) {
+  ensureDeps();
   const maxAttempts = serverConfig.getInt('stall_recovery_max_attempts', 3);
   const recovery = _stallRecoveryAttempts.get(taskId) || { attempts: 0, lastStrategy: null };
 
@@ -727,6 +779,7 @@ function findNextHashlineModel(currentModel, priorErrors) {
  * @returns {boolean} True if task was requeued
  */
 function tryHashlineTieredFallback(taskId, task, reason) {
+  ensureDeps();
   // Guard: don't requeue tasks that are already in a terminal state
   try {
     const freshTask = db.getTask(taskId);
