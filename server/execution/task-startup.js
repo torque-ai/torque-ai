@@ -2086,7 +2086,26 @@ function createTaskStartup(localDeps = {}) {
   // preserve the override path.
   const resolved = { ...localDeps };
   const tm = localDeps.taskManager || null;
-  const tmMethod = (name) => (tm && typeof tm[name] === 'function' ? tm[name].bind(tm) : null);
+  const resolveTaskManager = () => {
+    if (tm) return tm;
+    try {
+      const { defaultContainer } = require('../container');
+      return defaultContainer.peek?.('taskManager') || null;
+    } catch {
+      return null;
+    }
+  };
+  const tmMethod = (name) => {
+    const current = resolveTaskManager();
+    return current && typeof current[name] === 'function' ? current[name].bind(current) : null;
+  };
+  const lazyTmMethod = (name) => (...args) => {
+    const method = tmMethod(name);
+    if (typeof method !== 'function') {
+      throw new Error(`taskManager.${name} is not available`);
+    }
+    return method(...args);
+  };
   try {
     const { defaultContainer } = require('../container');
     const tracker = defaultContainer.peek('processTracker');
@@ -2175,10 +2194,10 @@ function createTaskStartup(localDeps = {}) {
         }
       }
     } catch { /* fall through */ }
-    if (resolved.cancelTask === undefined) resolved.cancelTask = tmMethod('cancelTask');
+    if (resolved.cancelTask === undefined) resolved.cancelTask = lazyTmMethod('cancelTask');
   }
-  if (resolved.processQueue === undefined) resolved.processQueue = tmMethod('processQueue');
-  if (resolved.safeUpdateTaskStatus === undefined) resolved.safeUpdateTaskStatus = tmMethod('safeUpdateTaskStatus');
+  if (resolved.processQueue === undefined) resolved.processQueue = lazyTmMethod('processQueue');
+  if (resolved.safeUpdateTaskStatus === undefined) resolved.safeUpdateTaskStatus = lazyTmMethod('safeUpdateTaskStatus');
   // QUEUE_LOCK_HOLDER_ID is a process-unique constant. Reuse task-manager's
   // when accessible; fall back to a fresh per-instance one if not.
   if (resolved.QUEUE_LOCK_HOLDER_ID === undefined && tm && tm.QUEUE_LOCK_HOLDER_ID) {
@@ -2228,8 +2247,7 @@ function createTaskStartup(localDeps = {}) {
     if (resolved.sanitizeTaskOutput !== undefined) sanitizeTaskOutput = resolved.sanitizeTaskOutput;
     if (resolved.detectOutputCompletion !== undefined) detectOutputCompletion = resolved.detectOutputCompletion;
     if (resolved.QUEUE_LOCK_HOLDER_ID !== undefined) QUEUE_LOCK_HOLDER_ID = resolved.QUEUE_LOCK_HOLDER_ID;
-    try { return fn(); }
-    finally {
+    const restore = () => {
       ({
         db, dashboard, serverConfig, providerRegistry, gpuMetrics, runningProcesses,
         pendingRetryTimeouts, parseTaskMetadata, getTaskContextTokenEstimate,
@@ -2240,6 +2258,18 @@ function createTaskStartup(localDeps = {}) {
         getPolicyBlockReason, cancelTask, processQueue, sanitizeTaskOutput,
         detectOutputCompletion, QUEUE_LOCK_HOLDER_ID,
       } = prev);
+    };
+
+    try {
+      const result = fn();
+      if (result && typeof result.then === 'function') {
+        return result.finally(restore);
+      }
+      restore();
+      return result;
+    } catch (err) {
+      restore();
+      throw err;
     }
   }
   return {
