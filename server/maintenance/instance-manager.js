@@ -24,6 +24,23 @@ let QUEUE_LOCK_HOLDER_ID = null;
 let INSTANCE_LOCK_NAME = null;
 const INSTANCE_LOCK_LEASE_SECONDS = 60;
 
+function readTaskManagerHolderId(tm) {
+  if (!tm) return null;
+  if (typeof tm.queueLockHolderId === 'string' && tm.queueLockHolderId) {
+    return tm.queueLockHolderId;
+  }
+  if (typeof tm.QUEUE_LOCK_HOLDER_ID === 'string' && tm.QUEUE_LOCK_HOLDER_ID) {
+    return tm.QUEUE_LOCK_HOLDER_ID;
+  }
+  return null;
+}
+
+function setInstanceId(instanceId) {
+  if (!instanceId) return;
+  QUEUE_LOCK_HOLDER_ID = instanceId;
+  INSTANCE_LOCK_NAME = `mcp_instance:${QUEUE_LOCK_HOLDER_ID}`;
+}
+
 function ensureDeps() {
   if (db && logger && QUEUE_LOCK_HOLDER_ID) return;
   try {
@@ -31,13 +48,14 @@ function ensureDeps() {
     if (!db) db = defaultContainer.peek('db') || null;
     if (!logger) logger = defaultContainer.peek('logger') || null;
     if (!QUEUE_LOCK_HOLDER_ID) {
-      const tm = defaultContainer.peek('taskManager');
-      if (tm && typeof tm.queueLockHolderId === 'string') {
-        QUEUE_LOCK_HOLDER_ID = tm.queueLockHolderId;
-        INSTANCE_LOCK_NAME = `mcp_instance:${QUEUE_LOCK_HOLDER_ID}`;
-      }
+      setInstanceId(readTaskManagerHolderId(defaultContainer.peek('taskManager')));
     }
   } catch { /* container not yet available */ }
+  if (!QUEUE_LOCK_HOLDER_ID) {
+    try {
+      setInstanceId(readTaskManagerHolderId(require('../task-manager')));
+    } catch { /* task-manager may still be initializing */ }
+  }
 }
 
 // ---- Timer handle ----
@@ -180,8 +198,7 @@ function init(deps = {}) {
   if (deps.db) db = deps.db;
   if (deps.logger) logger = deps.logger;
   if (deps.instanceId) {
-    QUEUE_LOCK_HOLDER_ID = deps.instanceId;
-    INSTANCE_LOCK_NAME = `mcp_instance:${QUEUE_LOCK_HOLDER_ID}`;
+    setInstanceId(deps.instanceId);
   }
 }
 

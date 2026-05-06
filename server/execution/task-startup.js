@@ -2254,8 +2254,8 @@ function createTaskStartup(localDeps = {}) {
   if (resolved.safeUpdateTaskStatus === undefined) resolved.safeUpdateTaskStatus = lazyTmMethod('safeUpdateTaskStatus');
   // QUEUE_LOCK_HOLDER_ID is a process-unique constant. Reuse task-manager's
   // when accessible; fall back to a fresh per-instance one if not.
-  if (resolved.QUEUE_LOCK_HOLDER_ID === undefined && tm && tm.QUEUE_LOCK_HOLDER_ID) {
-    resolved.QUEUE_LOCK_HOLDER_ID = tm.QUEUE_LOCK_HOLDER_ID;
+  if (resolved.QUEUE_LOCK_HOLDER_ID === undefined && tm) {
+    resolved.QUEUE_LOCK_HOLDER_ID = tm.QUEUE_LOCK_HOLDER_ID || tm.queueLockHolderId;
   }
   if (resolved.QUEUE_LOCK_HOLDER_ID === undefined) {
     const crypto = require('node:crypto');

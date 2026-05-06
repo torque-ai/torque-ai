@@ -114,6 +114,47 @@ describe('Instance Manager', () => {
         else delete require.cache[containerPath];
       }
     });
+
+    it('falls back to taskManager module export when container has no taskManager value', () => {
+      const containerPath = require.resolve('../container');
+      const taskManagerPath = require.resolve('../task-manager');
+      const instanceManagerPath = require.resolve('../maintenance/instance-manager');
+      const originalContainer = require.cache[containerPath];
+      const originalTaskManager = require.cache[taskManagerPath];
+      delete require.cache[instanceManagerPath];
+
+      const lazyDb = {
+        acquireLock: vi.fn().mockReturnValue({ acquired: true }),
+      };
+      const lazyLogger = { info: vi.fn(), warn: vi.fn() };
+      const lazyContainer = {
+        peek: vi.fn((key) => {
+          if (key === 'db') return lazyDb;
+          if (key === 'logger') return lazyLogger;
+          return null;
+        }),
+      };
+
+      try {
+        installMock('../container', { defaultContainer: lazyContainer });
+        installMock('../task-manager', { QUEUE_LOCK_HOLDER_ID: 'mcp-module-5678' });
+        const lazyInstanceManager = require('../maintenance/instance-manager');
+
+        expect(lazyInstanceManager.registerInstance()).toEqual({ acquired: true });
+        expect(lazyDb.acquireLock).toHaveBeenCalledWith(
+          'mcp_instance:mcp-module-5678',
+          'mcp-module-5678',
+          60,
+          expect.stringContaining('"pid"')
+        );
+      } finally {
+        delete require.cache[instanceManagerPath];
+        if (originalContainer) require.cache[containerPath] = originalContainer;
+        else delete require.cache[containerPath];
+        if (originalTaskManager) require.cache[taskManagerPath] = originalTaskManager;
+        else delete require.cache[taskManagerPath];
+      }
+    });
   });
 
   // ── heartbeatInstance ─────────────────────────────────────
