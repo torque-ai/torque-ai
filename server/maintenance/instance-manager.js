@@ -14,6 +14,8 @@
 const { INSTANCE_HEARTBEAT_INTERVAL_MS } = require('../constants');
 
 // ---- Injected dependencies ----
+// Lazy-resolve db + logger via container, and QUEUE_LOCK_HOLDER_ID via the
+// registered taskManager value (which exposes it as queueLockHolderId).
 let db = null;
 let logger = null;
 
@@ -21,6 +23,22 @@ let logger = null;
 let QUEUE_LOCK_HOLDER_ID = null;
 let INSTANCE_LOCK_NAME = null;
 const INSTANCE_LOCK_LEASE_SECONDS = 60;
+
+function ensureDeps() {
+  if (db && logger && QUEUE_LOCK_HOLDER_ID) return;
+  try {
+    const { defaultContainer } = require('../container');
+    if (!db) db = defaultContainer.peek('db') || null;
+    if (!logger) logger = defaultContainer.peek('logger') || null;
+    if (!QUEUE_LOCK_HOLDER_ID) {
+      const tm = defaultContainer.peek('taskManager');
+      if (tm && typeof tm.queueLockHolderId === 'string') {
+        QUEUE_LOCK_HOLDER_ID = tm.queueLockHolderId;
+        INSTANCE_LOCK_NAME = `mcp_instance:${QUEUE_LOCK_HOLDER_ID}`;
+      }
+    }
+  } catch { /* container not yet available */ }
+}
 
 // ---- Timer handle ----
 let instanceHeartbeatInterval = null;
@@ -30,6 +48,7 @@ let instanceHeartbeatInterval = null;
  * Called during server init after db.init().
  */
 function registerInstance() {
+  ensureDeps();
   try {
     const result = db.acquireLock(INSTANCE_LOCK_NAME, QUEUE_LOCK_HOLDER_ID, INSTANCE_LOCK_LEASE_SECONDS, JSON.stringify({
       pid: process.pid,
@@ -49,6 +68,7 @@ function registerInstance() {
  * Renew instance lock lease (called every 10s).
  */
 function heartbeatInstance() {
+  ensureDeps();
   try {
     // Re-acquire extends the lease since we already hold it
     db.acquireLock(INSTANCE_LOCK_NAME, QUEUE_LOCK_HOLDER_ID, INSTANCE_LOCK_LEASE_SECONDS);
@@ -62,6 +82,7 @@ function heartbeatInstance() {
  * Start the heartbeat interval for this instance.
  */
 function startInstanceHeartbeat() {
+  ensureDeps();
   if (!db || !logger) {
     return;
   }
@@ -89,6 +110,7 @@ function stopInstanceHeartbeat() {
  * Called during clean shutdown (not orphan mode).
  */
 function unregisterInstance() {
+  ensureDeps();
   try {
     stopInstanceHeartbeat();
     db.releaseLock(INSTANCE_LOCK_NAME, QUEUE_LOCK_HOLDER_ID);
@@ -104,6 +126,7 @@ function unregisterInstance() {
  * @param {Object} info - Fields to merge (e.g. { port: 3457 })
  */
 function updateInstanceInfo(info) {
+  ensureDeps();
   try {
     // Read current holder_info
     const lock = db.checkLock(INSTANCE_LOCK_NAME);
@@ -126,6 +149,7 @@ function updateInstanceInfo(info) {
  * @returns {boolean}
  */
 function isInstanceAlive(instanceId) {
+  ensureDeps();
   try {
     const lockName = `mcp_instance:${instanceId}`;
     const staleCheck = db.isLockHeartbeatStale(lockName, 30000); // 30s threshold
@@ -142,22 +166,23 @@ function isInstanceAlive(instanceId) {
  * @returns {string}
  */
 function getMcpInstanceId() {
+  ensureDeps();
   return QUEUE_LOCK_HOLDER_ID;
 }
 
 /**
- * Initialize the instance manager with dependencies.
- * @param {Object} deps
- * @param {Object} deps.db - Database module
- * @param {Object} deps.logger - Logger instance
- * @param {string} deps.instanceId - The QUEUE_LOCK_HOLDER_ID from task-manager
+ * @internal — test-only override path. Production lazy-resolves db,
+ * logger via the DI container and QUEUE_LOCK_HOLDER_ID via the registered
+ * taskManager value (queueLockHolderId field) inside ensureDeps().
  */
-function init(deps) {
+function init(deps = {}) {
   stopInstanceHeartbeat();
-  db = deps.db;
-  logger = deps.logger;
-  QUEUE_LOCK_HOLDER_ID = deps.instanceId;
-  INSTANCE_LOCK_NAME = `mcp_instance:${QUEUE_LOCK_HOLDER_ID}`;
+  if (deps.db) db = deps.db;
+  if (deps.logger) logger = deps.logger;
+  if (deps.instanceId) {
+    QUEUE_LOCK_HOLDER_ID = deps.instanceId;
+    INSTANCE_LOCK_NAME = `mcp_instance:${QUEUE_LOCK_HOLDER_ID}`;
+  }
 }
 
 module.exports = {

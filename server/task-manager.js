@@ -986,11 +986,9 @@ _orphanCleanup.startTimers();
 // Sleep watchdog — detects system sleep/wake and shields tasks from false timeouts
 _sleepWatchdog.start({ db, runningProcesses, logger });
 
-_instanceManager.init({
-  db,
-  logger,
-  instanceId: QUEUE_LOCK_HOLDER_ID,
-});
+// maintenance/instance-manager.js: db, logger, and QUEUE_LOCK_HOLDER_ID
+// (via taskManager.queueLockHolderId) lazy-resolve through the container in
+// ensureDeps(). No imperative init() needed.
 
 // providers/prompts.js: serverConfig is initialized by index.js; the legacy
 // _db slot in prompts is unused in production code paths.
