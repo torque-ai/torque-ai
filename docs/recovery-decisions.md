@@ -154,12 +154,21 @@ These are real ambiguities surfaced by this audit. Each one is worth resolving b
 
 **Fix landed**: A-side strategy `discard-regenerable-merge-block` added in `server/plugins/auto-recovery-core/strategies/`, sharing core logic with the B1 strategy via the new `server/factory/recovery-strategies/discard-regenerable-merge-block-core.js`. The rule now suggests `['discard-regenerable-merge-block', 'escalate']`. The strategy is conservative — refuses when any dirty file is non-regenerable (falls through to `escalate` so the operator still gets notified for genuine work-in-progress on main). B1 strategy stays registered as defense-in-depth in case a future codepath sets `merge_target_dirty` as a `reject_reason`.
 
-### 2. Provider escalation in two places
+### 2. ~~Provider escalation in two places~~ ✅ RESOLVED 2026-05-05 (reframed: B1-vs-X5, not C2-vs-B1)
 
-- **C2** (`fallback-retry.js`): `tryOllamaCloudFallback`, `tryLocalFirstFallback` — task-level provider swaps.
-- **B1** (`recovery-strategies/escalate-architect.js`): bumps `provider_chain_json` index, sets `architect_provider_override` constraint — work-item-level escalation.
+**Resolution**: the audit's original framing was off. C2 and B1 are not actually duplicating provider escalation — they operate at different scopes with separate state:
 
-Both consume `provider_chain_json`. Neither is aware of the other's increments. A task failing on cerebras can fall back to codex in C2, the task fails again, B1 then "escalates" the architect provider — but the architect is a different role from the executor. **Action item:** document which counter authoritatively tracks "provider attempt" — task-scoped or work-item-scoped — and gate B1 on the post-C2 state.
+- **C2** (`fallback-retry.js tryOllamaCloudFallback / tryLocalFirstFallback`) — **task-scoped**: swaps `task.provider`, increments `task.metadata.local_first_attempts` and `task.retry_count`. Requeues the SAME task with a different provider. Uses the task-execution fallback chain (`getProviderFallbackChain` + `CLOUD_PROVIDERS` + `serverConfig.ollama_fallback_provider`).
+- **B1** (`recovery-strategies/escalate-architect.js`) — **work-item-scoped**: writes `constraints.architect_provider_override` so the next task spawned for this work item gets a different architect. Uses the project's `provider_chain_json` (the architect-escalation chain — a separate concept from C2's fallback chain).
+
+These don't conflict — they're two separate provider chains for two different concerns.
+
+**The actual conflict surfaced during this investigation** was between two same-shape escalation paths that DO share state:
+
+- **B1** (`recovery-strategies/escalate-architect.js`) — was reading `constraints.last_used_provider`, but `last_used_provider` is **never written by any production code path** (only the test fixture set it). On second escalation, `lastUsed=null` → `lastIdx=0` → bump to `chain[1]` again — looped on the same provider. The recovery would never advance past `chain[1]`.
+- **X5** (`loop-controller.js routeWorkItemToNeedsReplan` ~line 7331) — reads `constraints.architect_provider_override`, the field both X5 and B1 actually write. Works correctly.
+
+**Fix landed**: aligned B1 to read `architect_provider_override` (same field X5 reads). Single state model now drives both same-shape escalation paths. Added regression tests covering second/third escalation cycles plus a "ignores legacy `last_used_provider`" no-op test. The legacy field can be deleted from any older fixtures or seeds without behavioral effect.
 
 ### 3. ~~Resume-context double-prepend~~ ✅ RESOLVED 2026-05-05 (verified, no bug)
 
