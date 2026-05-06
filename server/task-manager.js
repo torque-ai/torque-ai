@@ -958,27 +958,14 @@ registerTaskStatusTransitionListener();
 // module load via require() from validation/post-task; db lazy-resolves
 // through defaultContainer.peek('db'). No imperative init() needed.
 
-_orphanCleanup.init({
-  db,
-  dashboard: getDashboardBroadcaster(),
-  logger,
-  // runningProcesses, finalizingTasks, and stallRecoveryAttempts now
-  // default to the container values — orphan-cleanup peeks
-  // processTracker + finalizationTracker on init() unless deps override.
-  TASK_TIMEOUTS,
-  cancelTask,
-  processQueue,
-  tryLocalFirstFallback,
-  getTaskActivity,
-  tryStallRecovery,
-  isInstanceAlive,
-  getMcpInstanceId,
-  safeConfigInt,
-  detectOutputCompletion,
-  COMPLETION_OUTPUT_THRESHOLDS,
-  SHARED_COMPLETION_PATTERNS,
-  PROVIDER_COMPLETION_PATTERNS,
-});
+// maintenance/orphan-cleanup.js: every dep lazy-resolves via ensureDeps() —
+// db/dashboard/logger/processTracker maps from the container; cancelTask,
+// processQueue, getTaskActivity, isInstanceAlive, getMcpInstanceId,
+// tryStallRecovery from the registered taskManager value (cancelTask
+// preferring the taskCanceller capability); tryLocalFirstFallback ←
+// fallback-retry; detectOutputCompletion ← validation/completion-detection;
+// reportRuntimeTaskProblem ← factory/runtime-problem-intake;
+// TASK_TIMEOUTS ← constants. No imperative init() needed.
 _orphanCleanup.startTimers();
 
 // Sleep watchdog — detects system sleep/wake and shields tasks from false timeouts

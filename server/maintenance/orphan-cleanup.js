@@ -145,6 +145,7 @@ let zombieCheckCycle = 0;
  * Only kills processes NOT tracked in our runningProcesses map
  */
 async function cleanupOrphanedDotnetProcesses() {
+  ensureDeps();
   try {
     let dotnetPids = [];
 
@@ -358,6 +359,7 @@ function maybeReportRuntimeProblem(task, problem, details = {}) {
  * which significantly improves performance under load
  */
 function checkStaleRunningTasks() {
+  ensureDeps();
   if (!db || (typeof db.isReady === 'function' && !db.isReady())) return;
   // Skip during post-wake grace period — sleep inflates elapsed times
   try {
@@ -522,6 +524,7 @@ function checkStaleRunningTasks() {
  * Also detects tasks whose output signals completion but the process lingers.
  */
 async function checkZombieProcesses() {
+  ensureDeps();
   zombieCheckCycle++;
   try {
     if (!runningProcesses) return;
@@ -727,6 +730,7 @@ async function checkZombieProcesses() {
  * @returns {Array} Array of stalled task IDs
  */
 function checkStalledTasks(autoCancel = false) {
+  ensureDeps();
   // Skip during post-wake grace period — sleep inflates lastActivitySeconds
   try {
     const { isInSleepGracePeriod } = require('./sleep-watchdog');
@@ -844,6 +848,7 @@ function checkStalledTasks(autoCancel = false) {
  * @returns {void}
  */
 function cleanupOrphanedHostTasks(hostId, hostName) {
+  ensureDeps();
   try {
     const orphanedTasks = db.getRunningTasksForHost(hostId);
     if (!orphanedTasks || orphanedTasks.length === 0) {
@@ -960,6 +965,7 @@ function getStallThreshold(model, provider) {
  * Called from task-manager init() after dependencies are available.
  */
 function startTimers() {
+  ensureDeps();
   if (timersStarted) return;
   timersStarted = true;
 
@@ -1062,39 +1068,75 @@ function shouldSkipFinalizingTask(task) {
   return false;
 }
 
-function init(deps) {
-  db = deps.db;
-  serverConfig.init({ db: deps.db });
-  dashboard = deps.dashboard;
-  logger = deps.logger;
+function ensureDeps() {
+  let container = null;
+  try { container = require('../container').defaultContainer; } catch { /* not available */ }
+  if (container) {
+    if (!db) db = container.peek('db') || null;
+    if (!dashboard) dashboard = container.peek('dashboard') || null;
+    if (!logger) logger = container.peek('logger') || null;
+    if (!runningProcesses || !stallRecoveryAttempts) {
+      const tracker = container.peek('processTracker');
+      if (tracker) {
+        if (!runningProcesses) runningProcesses = tracker;
+        if (!stallRecoveryAttempts && tracker.stallAttempts) stallRecoveryAttempts = tracker.stallAttempts;
+      }
+    }
+    if (!finalizingTasks) finalizingTasks = container.peek('finalizationTracker') || null;
+    const tm = container.peek('taskManager');
+    if (tm) {
+      if (!cancelTask) {
+        if (container.has?.('taskCanceller')) {
+          try {
+            const tc = container.get('taskCanceller');
+            if (tc && typeof tc.cancelTask === 'function') cancelTask = tc.cancelTask.bind(tc);
+          } catch { /* not booted */ }
+        }
+        if (!cancelTask && typeof tm.cancelTask === 'function') cancelTask = tm.cancelTask.bind(tm);
+      }
+      if (!processQueue && typeof tm.processQueue === 'function') processQueue = tm.processQueue.bind(tm);
+      if (!getTaskActivity && typeof tm.getTaskActivity === 'function') getTaskActivity = tm.getTaskActivity.bind(tm);
+      if (!isInstanceAlive && typeof tm.isInstanceAlive === 'function') isInstanceAlive = tm.isInstanceAlive.bind(tm);
+      if (!getMcpInstanceId && typeof tm.getMcpInstanceId === 'function') getMcpInstanceId = tm.getMcpInstanceId.bind(tm);
+      if (!tryStallRecovery && typeof tm.tryStallRecovery === 'function') tryStallRecovery = tm.tryStallRecovery.bind(tm);
+    }
+  }
+  if (!TASK_TIMEOUTS) {
+    try { TASK_TIMEOUTS = require('../constants').TASK_TIMEOUTS; } catch { /* fall through */ }
+  }
+  if (!tryLocalFirstFallback) {
+    try { tryLocalFirstFallback = require('../execution/fallback-retry').tryLocalFirstFallback; } catch { /* fall through */ }
+  }
+  if (!detectOutputCompletion) {
+    try { detectOutputCompletion = require('../validation/completion-detection').detectOutputCompletion; } catch { /* fall through */ }
+  }
+  if (!reportRuntimeTaskProblem) {
+    try { reportRuntimeTaskProblem = require('../factory/runtime-problem-intake').reportRuntimeTaskProblem; } catch { /* fall through */ }
+  }
+}
 
-  // The three shared-state maps (running processes, finalizing markers,
-  // stall recovery state) are owned by the DI container — pull them from
-  // there so callers don't have to thread the same instance through
-  // init() every time. Test fixtures that pass bare Maps via deps still
-  // win, so the legacy override path is preserved.
-  const { defaultContainer } = require('../container');
-  const processTracker = deps.runningProcesses
-    || defaultContainer.peek('processTracker')
-    || null;
-  runningProcesses = processTracker;
-  stallRecoveryAttempts = deps.stallRecoveryAttempts
-    || (processTracker && processTracker.stallAttempts)
-    || null;
-  finalizingTasks = deps.finalizingTasks
-    || defaultContainer.peek('finalizationTracker')
-    || null;
-
-  TASK_TIMEOUTS = deps.TASK_TIMEOUTS;
-  cancelTask = deps.cancelTask;
-  processQueue = deps.processQueue;
-  tryLocalFirstFallback = deps.tryLocalFirstFallback;
-  getTaskActivity = deps.getTaskActivity;
-  tryStallRecovery = deps.tryStallRecovery;
-  detectOutputCompletion = deps.detectOutputCompletion;
-  isInstanceAlive = deps.isInstanceAlive;
-  getMcpInstanceId = deps.getMcpInstanceId;
-  reportRuntimeTaskProblem = deps.reportRuntimeTaskProblem || null;
+/**
+ * @internal — test-only override path. Production lazy-resolves all deps via
+ * ensureDeps() called from each public function (timer-driven cleanups +
+ * cleanupOrphanedHostTasks).
+ */
+function init(deps = {}) {
+  if (deps.db) db = deps.db;
+  if (deps.dashboard) dashboard = deps.dashboard;
+  if (deps.logger) logger = deps.logger;
+  if (deps.runningProcesses) runningProcesses = deps.runningProcesses;
+  if (deps.stallRecoveryAttempts) stallRecoveryAttempts = deps.stallRecoveryAttempts;
+  if (deps.finalizingTasks) finalizingTasks = deps.finalizingTasks;
+  if (deps.TASK_TIMEOUTS) TASK_TIMEOUTS = deps.TASK_TIMEOUTS;
+  if (deps.cancelTask) cancelTask = deps.cancelTask;
+  if (deps.processQueue) processQueue = deps.processQueue;
+  if (deps.tryLocalFirstFallback) tryLocalFirstFallback = deps.tryLocalFirstFallback;
+  if (deps.getTaskActivity) getTaskActivity = deps.getTaskActivity;
+  if (deps.tryStallRecovery) tryStallRecovery = deps.tryStallRecovery;
+  if (deps.detectOutputCompletion) detectOutputCompletion = deps.detectOutputCompletion;
+  if (deps.isInstanceAlive) isInstanceAlive = deps.isInstanceAlive;
+  if (deps.getMcpInstanceId) getMcpInstanceId = deps.getMcpInstanceId;
+  if (deps.reportRuntimeTaskProblem) reportRuntimeTaskProblem = deps.reportRuntimeTaskProblem;
 }
 
 module.exports = {
