@@ -1,12 +1,19 @@
 'use strict';
 
-const { createContainer } = require('../container');
+const { createContainer, defaultContainer } = require('../container');
 
 describe('container', () => {
   let container;
 
   beforeEach(() => {
     container = createContainer();
+  });
+
+  describe('default registrations', () => {
+    it('registers task startup singleton services before boot', () => {
+      expect(defaultContainer.has('providerRegistry')).toBe(true);
+      expect(defaultContainer.has('gpuMetrics')).toBe(true);
+    });
   });
 
   describe('register + get', () => {
