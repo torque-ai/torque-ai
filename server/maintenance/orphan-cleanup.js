@@ -510,6 +510,7 @@ function checkStaleRunningTasks() {
 async function checkZombieProcesses() {
   zombieCheckCycle++;
   try {
+    if (!runningProcesses) return;
     const count = runningProcesses.size;
     // P105: Heartbeat log every 10th cycle (5 minutes) to confirm checker is running
     if (zombieCheckCycle % 10 === 0) {
@@ -517,155 +518,166 @@ async function checkZombieProcesses() {
     }
 
     for (const [taskId, proc] of runningProcesses) {
-      // Check 1: Process exited but close event didn't fire
-      // On Windows, .cmd wrappers can orphan — process.killed or exitCode being set
-      // means the process is gone but Node didn't emit 'close'.
-      if (proc.process.exitCode !== null && proc.process.exitCode !== undefined) {
-        logger.info(`[Zombie Check] Task ${taskId} process has exitCode ${proc.process.exitCode} but is still tracked. Forcing cleanup.`);
-        proc.process.emit('close', proc.process.exitCode);
+      if (!proc || !proc.process || typeof proc.process.emit !== 'function') {
+        logger?.info?.(`[Zombie Check] Task ${taskId} has a malformed process tracker entry. Removing it from local tracking.`);
+        runningProcesses.delete(taskId);
+        stallRecoveryAttempts?.delete?.(taskId);
         continue;
       }
 
-      // Check 2: Process killed or signalCode set (Node knows it's dead)
-      if (proc.process.killed || proc.process.signalCode) {
-        logger.info(`[Zombie Check] Task ${taskId} process killed=${proc.process.killed} signal=${proc.process.signalCode} but still tracked. Forcing cleanup.`);
-        proc.process.emit('close', proc.process.exitCode || 1);
-        continue;
-      }
-
-      // Check 3: POSIX signal check — works on Linux, unreliable on Windows
-      // On Windows, process.kill(pid, 0) can succeed for dead processes because
-      // Node.js holds an open process handle. Handle ALL error codes, not just ESRCH.
-      if (proc.process.pid) {
-        try {
-          process.kill(proc.process.pid, 0);
-        } catch (err) {
-          logger.info(`[Zombie Check] Task ${taskId} PID ${proc.process.pid} signal check failed (${err.code}). Forcing cleanup.`);
-          const exitCode = proc.completionDetected ? 0 : 1;
-          proc.process.emit('close', exitCode);
+      try {
+        // Check 1: Process exited but close event didn't fire
+        // On Windows, .cmd wrappers can orphan — process.killed or exitCode being set
+        // means the process is gone but Node didn't emit 'close'.
+        if (proc.process.exitCode !== null && proc.process.exitCode !== undefined) {
+          logger.info(`[Zombie Check] Task ${taskId} process has exitCode ${proc.process.exitCode} but is still tracked. Forcing cleanup.`);
+          proc.process.emit('close', proc.process.exitCode);
           continue;
         }
-      }
 
-      // Check 4 (P105): Windows-specific — use tasklist to verify PID actually exists.
-      // process.kill(pid, 0) can succeed on Windows even for dead processes because
-      // Node.js holds an open handle. tasklist queries the OS kernel directly.
-      if (process.platform === 'win32' && proc.process.pid) {
-        try {
-          const { stdout: result } = await execFileAsync(
-            'tasklist',
-            ['/FI', `PID eq ${proc.process.pid}`, '/NH', '/FO', 'CSV'],
-            { encoding: 'utf8', timeout: TASK_TIMEOUTS.PROCESS_QUERY, windowsHide: true }
-          );
-          // tasklist returns a CSV line with the PID if found, or "INFO: No tasks..." if not
-          if (!result.includes(String(proc.process.pid))) {
-            logger.info(`[Zombie Check] Task ${taskId} PID ${proc.process.pid} not found in tasklist. Process is dead. Forcing cleanup.`);
+        // Check 2: Process killed or signalCode set (Node knows it's dead)
+        if (proc.process.killed || proc.process.signalCode) {
+          logger.info(`[Zombie Check] Task ${taskId} process killed=${proc.process.killed} signal=${proc.process.signalCode} but still tracked. Forcing cleanup.`);
+          proc.process.emit('close', proc.process.exitCode || 1);
+          continue;
+        }
+
+        // Check 3: POSIX signal check — works on Linux, unreliable on Windows
+        // On Windows, process.kill(pid, 0) can succeed for dead processes because
+        // Node.js holds an open process handle. Handle ALL error codes, not just ESRCH.
+        if (proc.process.pid) {
+          try {
+            process.kill(proc.process.pid, 0);
+          } catch (err) {
+            logger.info(`[Zombie Check] Task ${taskId} PID ${proc.process.pid} signal check failed (${err.code}). Forcing cleanup.`);
             const exitCode = proc.completionDetected ? 0 : 1;
             proc.process.emit('close', exitCode);
             continue;
           }
-        } catch (err) {
-          // tasklist failed — log but don't force cleanup
-          logger.info(`[Zombie Check] Task ${taskId} tasklist check failed: ${err.message}`);
         }
-      }
 
-      // Check 5: DB-status mismatch — task cancelled/failed/completed in DB but still tracked.
-      // Catches zombie processes left behind by batch_cancel or external DB updates that
-      // only changed the status without killing the child process.
-      try {
-        const dbTask = db.getTask(taskId);
-        if (dbTask && dbTask.status !== 'running') {
-          logger.info(`[Zombie Check] Task ${taskId} is '${dbTask.status}' in DB but still tracked in runningProcesses. Killing process and cleaning up.`);
-          killProcessGraceful(proc, taskId, 5000, 'ZombieCheck');
+        // Check 4 (P105): Windows-specific — use tasklist to verify PID actually exists.
+        // process.kill(pid, 0) can succeed on Windows even for dead processes because
+        // Node.js holds an open handle. tasklist queries the OS kernel directly.
+        if (process.platform === 'win32' && proc.process.pid) {
+          try {
+            const { stdout: result } = await execFileAsync(
+              'tasklist',
+              ['/FI', `PID eq ${proc.process.pid}`, '/NH', '/FO', 'CSV'],
+              { encoding: 'utf8', timeout: TASK_TIMEOUTS.PROCESS_QUERY, windowsHide: true }
+            );
+            // tasklist returns a CSV line with the PID if found, or "INFO: No tasks..." if not
+            if (!result.includes(String(proc.process.pid))) {
+              logger.info(`[Zombie Check] Task ${taskId} PID ${proc.process.pid} not found in tasklist. Process is dead. Forcing cleanup.`);
+              const exitCode = proc.completionDetected ? 0 : 1;
+              proc.process.emit('close', exitCode);
+              continue;
+            }
+          } catch (err) {
+            // tasklist failed — log but don't force cleanup
+            logger.info(`[Zombie Check] Task ${taskId} tasklist check failed: ${err.message}`);
+          }
+        }
+
+        // Check 5: DB-status mismatch — task cancelled/failed/completed in DB but still tracked.
+        // Catches zombie processes left behind by batch_cancel or external DB updates that
+        // only changed the status without killing the child process.
+        try {
+          const dbTask = db.getTask(taskId);
+          if (dbTask && dbTask.status !== 'running') {
+            logger.info(`[Zombie Check] Task ${taskId} is '${dbTask.status}' in DB but still tracked in runningProcesses. Killing process and cleaning up.`);
+            killProcessGraceful(proc, taskId, 5000, 'ZombieCheck');
+            setTimeout(() => {
+              const stillRunning = runningProcesses.get(taskId);
+              if (stillRunning && stillRunning === proc) {
+                proc.process.emit('close', proc.process.exitCode || 1);
+              }
+            }, 5000);
+            continue;
+          }
+        } catch {
+          // DB query failed — skip this check, other checks will catch it
+        }
+
+        // Check 6: output completion grace missed — process-streams schedules a
+        // force-close timer when output proves the provider finished. If that
+        // timer is lost or delayed, the task can stay DB-running forever even
+        // though Codex already committed and wrote its final answer.
+        if (proc.completionDetected) {
+          const completionIdleMs = Date.now() - (proc.lastOutputAt || proc.startTime || Date.now());
+          const graceMs = getCompletionGraceMs(proc.provider);
+          if (completionIdleMs > graceMs + 30 * 1000) {
+            logger.info(`[Zombie Check] Task ${taskId} completion detected ${Math.round(completionIdleMs / 1000)}s ago but task is still running. Emitting synthetic successful close.`);
+            proc.process.emit('close', 0);
+            continue;
+          }
+        }
+
+        // Check 7: Short-output completion — tasks with very short output that contain completion
+        // patterns but never triggered detectOutputCompletion (which requires 1KB minimum).
+        // If output is short, idle for 2+ minutes, and contains completion patterns, treat
+        // as completed. This catches edge-case tasks with minimal output (e.g., "no changes needed").
+        if (!proc.completionDetected && detectOutputCompletion) {
+          const output = proc.output || '';
+          const shortOutputIdleMs = Date.now() - (proc.lastOutputAt || proc.startTime || Date.now());
+          const SHORT_OUTPUT_IDLE_THRESHOLD_MS = 2 * 60 * 1000; // 2 minutes
+          if (output.length > 20 && output.length < 1000 && shortOutputIdleMs > SHORT_OUTPUT_IDLE_THRESHOLD_MS) {
+            // Run completion patterns without the 8KB guard — check last 2000 chars
+            const tail = output.slice(-2000).toLowerCase();
+            const shortCompletionPatterns = [
+              /no changes needed/,
+              /no changes (are )?(needed|required)/,
+              /(?:file|feature|implementation) already (exists?|implemented|up[- ]to[- ]date)/,
+              /all \d+ tests?\s+(pass|passing|passed)/,
+              /test run successful/,
+              /tests? passed,\s*0 failed/,
+              /applied edit to\s+\S+/,
+              /^patched\s+\[[^\]\n]+\]\([^)]+\)/im,
+              /completed?\./i,
+              /done\./i,
+            ];
+            for (const pattern of shortCompletionPatterns) {
+              if (pattern.test(tail)) {
+                logger.info(`[Zombie Check] Task ${taskId} has short output (${output.length} bytes) idle for ${Math.round(shortOutputIdleMs / 1000)}s with completion pattern. Force-completing.`);
+                proc.completionDetected = true;
+                proc.process.emit('close', 0);
+                break;
+              }
+            }
+            if (proc.completionDetected) continue;
+          }
+        }
+
+        // Check 6 (P105): Inactivity timeout — if no output for 10 minutes, force cleanup.
+        // Catches cases where the process is alive but stuck (e.g., waiting for dead Ollama).
+        const lastActivity = proc.lastOutputAt || proc.startTime || Date.now();
+        const inactiveMs = Date.now() - lastActivity;
+        const INACTIVITY_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
+        if (inactiveMs > INACTIVITY_TIMEOUT_MS) {
+          if (typeof getTaskActivity === 'function') {
+            try {
+              getTaskActivity(taskId);
+              const refreshedLastActivity = proc.lastOutputAt || proc.startTime || Date.now();
+              const refreshedInactiveMs = Date.now() - refreshedLastActivity;
+              if (refreshedInactiveMs <= INACTIVITY_TIMEOUT_MS) {
+                logger.info(`[Zombie Check] Task ${taskId} appeared inactive for ${Math.round(inactiveMs / 60000)} minutes but has fresh activity; leaving running.`);
+                continue;
+              }
+            } catch (activityErr) {
+              logger.info(`[Zombie Check] Activity probe failed for ${taskId}: ${activityErr.message}`);
+            }
+          }
+          logger.info(`[Zombie Check] Task ${taskId} has been inactive for ${Math.round(inactiveMs / 60000)} minutes. Forcing cleanup.`);
+          killProcessGraceful(proc, taskId, 5000, 'Inactivity');
           setTimeout(() => {
             const stillRunning = runningProcesses.get(taskId);
             if (stillRunning && stillRunning === proc) {
-              proc.process.emit('close', proc.process.exitCode || 1);
+              proc.process.emit('close', 1);
             }
           }, 5000);
-          continue;
         }
-      } catch {
-        // DB query failed — skip this check, other checks will catch it
-      }
-
-      // Check 6: output completion grace missed — process-streams schedules a
-      // force-close timer when output proves the provider finished. If that
-      // timer is lost or delayed, the task can stay DB-running forever even
-      // though Codex already committed and wrote its final answer.
-      if (proc.completionDetected) {
-        const completionIdleMs = Date.now() - (proc.lastOutputAt || proc.startTime || Date.now());
-        const graceMs = getCompletionGraceMs(proc.provider);
-        if (completionIdleMs > graceMs + 30 * 1000) {
-          logger.info(`[Zombie Check] Task ${taskId} completion detected ${Math.round(completionIdleMs / 1000)}s ago but task is still running. Emitting synthetic successful close.`);
-          proc.process.emit('close', 0);
-          continue;
-        }
-      }
-
-      // Check 7: Short-output completion — tasks with very short output that contain completion
-      // patterns but never triggered detectOutputCompletion (which requires 1KB minimum).
-      // If output is short, idle for 2+ minutes, and contains completion patterns, treat
-      // as completed. This catches edge-case tasks with minimal output (e.g., "no changes needed").
-      if (!proc.completionDetected && detectOutputCompletion) {
-        const output = proc.output || '';
-        const shortOutputIdleMs = Date.now() - (proc.lastOutputAt || proc.startTime || Date.now());
-        const SHORT_OUTPUT_IDLE_THRESHOLD_MS = 2 * 60 * 1000; // 2 minutes
-        if (output.length > 20 && output.length < 1000 && shortOutputIdleMs > SHORT_OUTPUT_IDLE_THRESHOLD_MS) {
-          // Run completion patterns without the 8KB guard — check last 2000 chars
-          const tail = output.slice(-2000).toLowerCase();
-          const shortCompletionPatterns = [
-            /no changes needed/,
-            /no changes (are )?(needed|required)/,
-            /(?:file|feature|implementation) already (exists?|implemented|up[- ]to[- ]date)/,
-            /all \d+ tests?\s+(pass|passing|passed)/,
-            /test run successful/,
-            /tests? passed,\s*0 failed/,
-            /applied edit to\s+\S+/,
-            /^patched\s+\[[^\]\n]+\]\([^)]+\)/im,
-            /completed?\./i,
-            /done\./i,
-          ];
-          for (const pattern of shortCompletionPatterns) {
-            if (pattern.test(tail)) {
-              logger.info(`[Zombie Check] Task ${taskId} has short output (${output.length} bytes) idle for ${Math.round(shortOutputIdleMs / 1000)}s with completion pattern. Force-completing.`);
-              proc.completionDetected = true;
-              proc.process.emit('close', 0);
-              break;
-            }
-          }
-          if (proc.completionDetected) continue;
-        }
-      }
-
-      // Check 6 (P105): Inactivity timeout — if no output for 10 minutes, force cleanup.
-      // Catches cases where the process is alive but stuck (e.g., waiting for dead Ollama).
-      const lastActivity = proc.lastOutputAt || proc.startTime || Date.now();
-      const inactiveMs = Date.now() - lastActivity;
-      const INACTIVITY_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
-      if (inactiveMs > INACTIVITY_TIMEOUT_MS) {
-        if (typeof getTaskActivity === 'function') {
-          try {
-            getTaskActivity(taskId);
-            const refreshedLastActivity = proc.lastOutputAt || proc.startTime || Date.now();
-            const refreshedInactiveMs = Date.now() - refreshedLastActivity;
-            if (refreshedInactiveMs <= INACTIVITY_TIMEOUT_MS) {
-              logger.info(`[Zombie Check] Task ${taskId} appeared inactive for ${Math.round(inactiveMs / 60000)} minutes but has fresh activity; leaving running.`);
-              continue;
-            }
-          } catch (activityErr) {
-            logger.info(`[Zombie Check] Activity probe failed for ${taskId}: ${activityErr.message}`);
-          }
-        }
-        logger.info(`[Zombie Check] Task ${taskId} has been inactive for ${Math.round(inactiveMs / 60000)} minutes. Forcing cleanup.`);
-        killProcessGraceful(proc, taskId, 5000, 'Inactivity');
-        setTimeout(() => {
-          const stillRunning = runningProcesses.get(taskId);
-          if (stillRunning && stillRunning === proc) {
-            proc.process.emit('close', 1);
-          }
-        }, 5000);
+      } catch (entryErr) {
+        logger?.info?.(`[Zombie Check] Task ${taskId} check failed: ${entryErr.message}`);
       }
     }
   } catch (err) {
