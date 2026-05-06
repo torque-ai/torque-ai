@@ -574,6 +574,25 @@ describe('Orphan Cleanup', () => {
       }));
     });
 
+    it('does not fail restart barriers at the drain timeout boundary', () => {
+      const pastTime = new Date(Date.now() - 2 * 60 * 1000).toISOString();
+      mockDb.getRunningTasksLightweight.mockReturnValue([
+        {
+          id: 'restart-barrier',
+          provider: 'system',
+          task_description: 'Restart barrier: Cutover to feature',
+          started_at: pastTime,
+          timeout_minutes: 1,
+        },
+      ]);
+
+      orphanCleanup.checkStaleRunningTasks();
+
+      expect(mockCancelTask).not.toHaveBeenCalled();
+      expect(mockDb.updateTaskStatus).not.toHaveBeenCalled();
+      expect(mockReportRuntimeProblem).not.toHaveBeenCalled();
+    });
+
     it('uses cancelTask for tasks in runningProcesses map', () => {
       const pastTime = new Date(Date.now() - 35 * 60 * 1000).toISOString();
       runningProcesses.set('task-tracked', {

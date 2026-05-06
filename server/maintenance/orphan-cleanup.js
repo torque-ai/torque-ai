@@ -231,6 +231,11 @@ function resolveTaskTimeoutMinutes(task) {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 480;
 }
 
+function isRestartBarrierTask(task) {
+  return task?.provider === 'system'
+    || String(task?.task_description || '').startsWith('Restart barrier:');
+}
+
 function buildTrackedTaskTimeoutProc(task, proc) {
   const taskStartedAtMs = new Date(task?.started_at).getTime();
   return {
@@ -362,6 +367,7 @@ function checkStaleRunningTasks() {
 
     for (const task of runningTasks) {
       if (!task.started_at) continue;
+      if (isRestartBarrierTask(task)) continue;
 
       // Skip tasks whose close handler is still running (auto-verify can take 90s+).
       // The process exited (no longer in runningProcesses) but finalization is in progress.
