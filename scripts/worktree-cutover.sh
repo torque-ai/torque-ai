@@ -428,17 +428,22 @@ if [ "$TORQUE_RUNNING" = "true" ]; then
   # --graceful — 10-minute drain (awaiter-sensitive cutovers). Use when
   #              dashboards / await_task callers need to see results
   #              before the control plane reshuffles.
-  # default —    fast restart (60-second drain — TORQUE's new default).
-  # legacy —     export BARRIER_TIMEOUT_MIN=60 to pin the previous
+  # default —    5-minute drain (TORQUE's current default, bumped from 60s
+  #              on 2026-05-06 — 60s reliably hit drain timeout mid-codex-
+  #              call, and the parent-death + re-adoption cycle is
+  #              disruptive even when it succeeds).
+  # fast —       export BARRIER_TIMEOUT_MIN=1 to pin the legacy 60s behavior
+  #              for fast iteration during TORQUE-itself development.
+  # legacy —     export BARRIER_TIMEOUT_MIN=60 to pin the original
   #              60-minute drain for environments that haven't enabled
   #              detachment yet.
   # Auto-extend the drain when non-detachable providers are running (ollama,
-  # cloud-API providers, etc.). The fast 60s default is correct for the
-  # codex-only world Phase D was designed against, but anything outside
-  # DETACHABLE_PROVIDERS gets killed by the startup reconciler on restart
-  # — losing whatever progress it had accumulated. Bumping to 30 min lets a
-  # mid-flight ollama agentic task finish naturally. Set CUTOVER_NONDETACH_MIN
-  # to override (e.g. 0 to disable, 60 for an hour).
+  # cloud-API providers, etc.). The 5-min default is sized for typical
+  # codex calls, but anything outside DETACHABLE_PROVIDERS gets killed by
+  # the startup reconciler on restart — losing whatever progress it had
+  # accumulated. Bumping to 30 min lets a mid-flight ollama agentic task
+  # finish naturally. Set CUTOVER_NONDETACH_MIN to override (e.g. 0 to
+  # disable, 60 for an hour).
   NONDETACH_RUNNING=$(count_nondetachable_running)
   AUTO_EXTEND_MIN=${CUTOVER_NONDETACH_MIN:-30}
 
@@ -453,8 +458,8 @@ if [ "$TORQUE_RUNNING" = "true" ]; then
     echo "  ${NONDETACH_RUNNING} non-detachable running task(s) detected — extending drain to ${BARRIER_TIMEOUT_MIN}m so they finish before restart."
     echo "  (Override with CUTOVER_NONDETACH_MIN=<minutes> or BARRIER_TIMEOUT_MIN=<minutes>; set CUTOVER_NONDETACH_MIN=0 to disable.)"
   else
-    BARRIER_TIMEOUT_MIN=1
-    DRAIN_TIMEOUT_MS=60000
+    BARRIER_TIMEOUT_MIN=5
+    DRAIN_TIMEOUT_MS=300000
   fi
 
   # --- Dry-run support ---
