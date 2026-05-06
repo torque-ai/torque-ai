@@ -2174,6 +2174,16 @@ function main() {
 
   process.on('unhandledRejection', (reason) => {
     debugLog(`Unhandled Promise Rejection: ${reason}`);
+    // Mirror to torque.log so individual rejections are visible in the
+    // post-mortem (debugLog → logger.debug is filtered out at default
+    // log level). Use warn (not error) to avoid alarm — most rejections
+    // are recoverable; the burst threshold below escalates to fatal.
+    try {
+      const reasonObj = reason instanceof Error
+        ? { message: reason.message, stack: reason.stack, name: reason.name, code: reason.code }
+        : { message: String(reason) };
+      logger.warn('Unhandled promise rejection', { component: 'shutdown', ...reasonObj });
+    } catch { /* ignore */ }
 
     // Track timestamps and purge entries outside the rolling window
     const now = Date.now();
@@ -2188,14 +2198,47 @@ function main() {
       // Burst of unhandled rejections — something is systematically wrong.
       // Trigger graceful restart so the next session gets a clean slate.
       debugLog(`[FATAL] ${recentCount} unhandled rejections in last 60s — triggering graceful restart`);
+      try {
+        logger.error('Unhandled rejection burst — graceful restart', {
+          component: 'shutdown',
+          recent_count: recentCount,
+          window_ms: UNHANDLED_REJECTION_WINDOW_MS,
+        });
+      } catch { /* ignore */ }
       process.stderr.write(`[TORQUE] ${recentCount} unhandled rejections in 60s — restarting for stability\n`);
+      // Arm auto-restart for the same reason as uncaughtException above.
+      if (!process.env.TORQUE_NO_RESTART_ON_CRASH) {
+        process._torqueRestartPending = true;
+      }
       gracefulShutdown('unhandled-rejection-burst');
     }
     // Below threshold: log but don't crash — let the server continue handling other requests
   });
 
   process.on('uncaughtException', (err) => {
+    // Mirror to torque.log so the actual error/stack is visible in
+    // post-mortem. Previously we logged via debugLog → logger.debug,
+    // which is filtered out of torque.log at default log level — every
+    // crash today (3 in one operator session) showed only
+    // "gracefulShutdown received signal: uncaughtException" with NO
+    // stack, NO message, leaving the operator blind to root cause.
+    try {
+      logger.error('Uncaught exception — preparing graceful shutdown', {
+        component: 'shutdown',
+        error_message: err?.message || String(err),
+        error_code: err?.code,
+        error_name: err?.name,
+        stack: err?.stack,
+      });
+    } catch {
+      // Logger may itself be the source of the exception — fall through
+      // to stderr write so the message is at least captured by the
+      // process supervisor's stdio capture (~/.torque/successor.log).
+    }
     debugLog(`Uncaught Exception: ${err.message}\nStack: ${err.stack}`);
+    try {
+      process.stderr.write(`[TORQUE FATAL] uncaughtException: ${err?.message || err}\n${err?.stack || ''}\n`);
+    } catch { /* stderr may already be closed */ }
 
     // Check if this is a recoverable error that shouldn't crash the server
     const recoverableErrors = [
@@ -2223,7 +2266,33 @@ function main() {
 
     if (isRecoverable) {
       debugLog(`Recoverable network error - continuing operation`);
+      try {
+        logger.warn('Uncaught exception classified as recoverable — continuing', {
+          component: 'shutdown',
+          error_message: err?.message || String(err),
+          error_code: err?.code,
+        });
+      } catch { /* ignore */ }
       return; // Don't shutdown for network errors
+    }
+
+    // Fatal: arm the auto-restart path before shutdown. Without this,
+    // crashes left TORQUE down indefinitely — gracefulShutdown's spawn
+    // block at the end of performShutdown() is gated on
+    // `process._torqueRestartPending`, which is only set by the explicit
+    // /api/v2/system/restart-server (cutover) path. Three uncaught
+    // exceptions in one session today, three operator-driven cold
+    // starts. Crashes should ALWAYS auto-restart so the system is
+    // self-healing for the routine "single bad task crashed the parent"
+    // failure mode. Operator can suppress via TORQUE_NO_RESTART_ON_CRASH=1
+    // for diagnostic sessions where you want the body to remain.
+    if (!process.env.TORQUE_NO_RESTART_ON_CRASH) {
+      process._torqueRestartPending = true;
+      try {
+        logger.info('Crash auto-restart armed (set TORQUE_NO_RESTART_ON_CRASH=1 to disable)', {
+          component: 'shutdown',
+        });
+      } catch { /* ignore */ }
     }
 
     // For truly fatal exceptions, shutdown gracefully
