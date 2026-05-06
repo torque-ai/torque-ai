@@ -948,6 +948,12 @@ const LIST_TASKS_ALLOWED_COLUMNS = new Set([
   'workflow_id', 'stall_timeout_seconds', 'workflow_node_id', 'claimed_by_agent',
   'required_capabilities', 'model', 'complexity', 'review_status', 'review_notes',
   'reviewed_at', 'metadata', 'archived', 'task_metadata', 'partial_output', 'resume_context',
+  // cancel_reason was missing from this whitelist (separate from the
+  // ALLOWED_TASK_COLUMNS used for general SQL writes), so a caller passing
+  // 'cancel_reason' in options.columns had it silently dropped — the LIST
+  // endpoint returned cancel_reason: null even though the DB column was
+  // populated, defeating the dashboard's cancellation-reason badge.
+  'cancel_reason',
 ]);
 
 // Shared column projections for dashboard/REST callers. Using named sets keeps the
