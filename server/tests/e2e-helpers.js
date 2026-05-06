@@ -71,8 +71,31 @@ function setupE2eDb(suiteName) {
     tm._testing.resetForTest();
     tm._testing.skipGitInCloseHandler = true;
   }
+  // Production registers taskManager into the container at server/index.js:1117
+  // so close-handler / safeguard / fallback-retry modules can resolve their
+  // taskManager-bound methods via container.peek('taskManager'). E2E tests
+  // bypass index.js, so without this register the peek returns null and
+  // utility-method deps (markTaskCleanedUp, finalizeTask, processQueue, etc.)
+  // resolve to null — close handlers then crash with "is not a function" the
+  // moment they fire. Match production's wiring here instead of asking every
+  // consumer module to fall back via require().
+  registerTaskManagerInContainer(tm);
 
   return { db, tm, testDir, origDataDir };
+}
+
+function registerTaskManagerInContainer(tm) {
+  try {
+    const { defaultContainer } = require('../container');
+    const existing = defaultContainer.peek && defaultContainer.peek('taskManager');
+    if (existing === tm) return;
+    if (typeof defaultContainer.override === 'function') {
+      defaultContainer.override('taskManager', tm);
+    } else if (typeof defaultContainer.registerValue === 'function') {
+      // First-time registration — registerValue throws on duplicate, so guard.
+      if (!existing) defaultContainer.registerValue('taskManager', tm);
+    }
+  } catch { /* container not available — leave deps to fall through to require() */ }
 }
 
 /**
@@ -106,6 +129,9 @@ function resetE2eDb() {
     tm._testing.resetForTest();
     tm._testing.skipGitInCloseHandler = true;
   }
+  // Same container-registration as setupE2eDb — keeps the taskManager
+  // handle reachable to consumers that peek the container after a reset.
+  registerTaskManagerInContainer(tm);
 }
 
 /**
