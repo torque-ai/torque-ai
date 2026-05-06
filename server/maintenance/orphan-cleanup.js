@@ -134,10 +134,11 @@ function getTerminalTaskProcessCandidates(limit = 200) {
   const rawDb = typeof db.getDbInstance === 'function' ? db.getDbInstance() : null;
   if (!rawDb || typeof rawDb.prepare !== 'function') return [];
   return rawDb.prepare(`
-    SELECT id, status, provider, subprocess_pid, pid, completed_at
+    SELECT id, status, provider, subprocess_pid, pid, completed_at, cancel_reason
     FROM tasks
     WHERE status IN ('cancelled', 'failed', 'completed')
       AND COALESCE(subprocess_pid, pid) IS NOT NULL
+      AND COALESCE(cancel_reason, '') != 'server_restart'
     ORDER BY COALESCE(completed_at, created_at) DESC
     LIMIT ?
   `).all(limit);
@@ -159,6 +160,10 @@ async function cleanupTerminalTaskSubprocesses() {
   for (const task of candidates) {
     const pid = Number(task.subprocess_pid || task.pid);
     if (!Number.isFinite(pid) || pid <= 0 || trackedPids.has(pid)) continue;
+    // Honor the abandon-detached contract (a8f05279): rows cancelled by
+    // shutdown for re-adoption keep their PID alive on purpose. The successor
+    // reconciler is the only owner allowed to decide their fate.
+    if (task.cancel_reason === 'server_restart') continue;
     if (!isProcessAlive(pid)) continue;
 
     const commandLine = await getProcessCommandLineFn(pid);
