@@ -1413,7 +1413,7 @@ function createTaskFinalizer(localDeps = {}) {
     }
   }
 
-  function withLocalDeps(fn) {
+  async function withLocalDeps(fn) {
     const prevDeps = deps;
     const prevVL = handleVerificationLedger;
     const prevAR = handleAdversarialReview;
@@ -1424,7 +1424,7 @@ function createTaskFinalizer(localDeps = {}) {
     if (typeof resolved.handleAdversarialReview === 'function') {
       handleAdversarialReview = resolved.handleAdversarialReview;
     }
-    try { return fn(); }
+    try { return await fn(); }
     finally {
       deps = prevDeps;
       handleVerificationLedger = prevVL;
