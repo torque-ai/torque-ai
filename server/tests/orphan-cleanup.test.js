@@ -564,6 +564,46 @@ describe('Orphan Cleanup', () => {
       expect(stallRecoveryAttempts.has('task-cancelled-detached')).toBe(false);
     });
 
+    it('kills untracked terminal detached subprocesses that remain alive', async () => {
+      const runningProcesses = new Map();
+      const killOrphanByPid = vi.fn();
+      const getProcessCommandLine = vi.fn().mockResolvedValue('node server/utils/process-exit-wrapper.js');
+      const logger = { info: vi.fn(), warn: vi.fn() };
+
+      vi.spyOn(process, 'kill').mockImplementation(() => {});
+
+      orphanCleanup.init({
+        db: {
+          getConfig: vi.fn().mockReturnValue('0'),
+          getTask: vi.fn(),
+          reconcileHostTaskCounts: vi.fn(),
+          getRunningTasksLightweight: vi.fn().mockReturnValue([]),
+          getTerminalTaskProcessCandidates: vi.fn().mockReturnValue([
+            { id: 'terminal-task', status: 'cancelled', provider: 'codex', subprocess_pid: 45678 },
+          ]),
+        },
+        dashboard: { notifyTaskUpdated: vi.fn() },
+        logger,
+        runningProcesses,
+        stallRecoveryAttempts: new Map(),
+        TASK_TIMEOUTS: { PROCESS_QUERY: 5000 },
+        cancelTask: vi.fn(),
+        processQueue: vi.fn(),
+        tryLocalFirstFallback: vi.fn(),
+        getTaskActivity: vi.fn(),
+        tryStallRecovery: vi.fn(),
+        safeConfigInt: vi.fn(),
+        killOrphanByPid,
+        getProcessCommandLine,
+      });
+
+      await orphanCleanup.checkZombieProcesses();
+
+      expect(getProcessCommandLine).toHaveBeenCalledWith(45678);
+      expect(killOrphanByPid).toHaveBeenCalledWith(45678, 'terminal-task', 5000, 'ZombieCheck');
+      expect(logger.info).toHaveBeenCalledWith(expect.stringContaining("Terminal task terminal-task is 'cancelled'"));
+    });
+
     it('emits successful close for completed Codex output that outlives completion grace', async () => {
       const runningProcesses = new Map();
       const processRef = {

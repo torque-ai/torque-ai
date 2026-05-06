@@ -48,6 +48,7 @@ let isInstanceAlive = null;
 let getMcpInstanceId = null;
 let reportRuntimeTaskProblem = null;
 let killOrphanByPidFn = killOrphanByPid;
+let getProcessCommandLineFn = getProcessCommandLine;
 
 // ---- Timer handles ----
 let dotnetCleanupInterval = null;
@@ -79,6 +80,94 @@ function getDetachedSubprocessPid(proc) {
   return Number.isFinite(pid) && pid > 0 ? pid : null;
 }
 
+async function getProcessCommandLine(pid) {
+  const normalizedPid = Number(pid);
+  if (!Number.isFinite(normalizedPid) || normalizedPid <= 0) return '';
+
+  if (process.platform === 'win32') {
+    try {
+      const { stdout } = await execFileAsync(
+        'wmic',
+        ['process', 'where', `ProcessId=${normalizedPid}`, 'get', 'CommandLine', '/format:list'],
+        { encoding: 'utf8', timeout: TASK_TIMEOUTS.PROCESS_QUERY, windowsHide: true }
+      );
+      const match = String(stdout || '').match(/CommandLine=(.*)/s);
+      return match ? match[1].trim() : '';
+    } catch {
+      try {
+        const { stdout } = await execFileAsync(
+          'powershell',
+          ['-NoProfile', '-Command', `(Get-CimInstance Win32_Process -Filter "ProcessId=${normalizedPid}").CommandLine`],
+          { encoding: 'utf8', timeout: TASK_TIMEOUTS.PROCESS_QUERY, windowsHide: true }
+        );
+        return String(stdout || '').trim();
+      } catch {
+        return '';
+      }
+    }
+  }
+
+  try {
+    const { stdout } = await execFileAsync(
+      'ps',
+      ['-p', String(normalizedPid), '-o', 'command='],
+      { encoding: 'utf8', timeout: TASK_TIMEOUTS.PROCESS_QUERY }
+    );
+    return String(stdout || '').trim();
+  } catch {
+    return '';
+  }
+}
+
+function isTorqueDetachedCommand(commandLine) {
+  const normalized = String(commandLine || '').toLowerCase();
+  return normalized.includes('process-exit-wrapper.js')
+    || (normalized.includes('codex') && normalized.includes(' exec '));
+}
+
+function getTerminalTaskProcessCandidates(limit = 200) {
+  if (!db) return [];
+  if (typeof db.getTerminalTaskProcessCandidates === 'function') {
+    return db.getTerminalTaskProcessCandidates(limit) || [];
+  }
+  const rawDb = typeof db.getDbInstance === 'function' ? db.getDbInstance() : null;
+  if (!rawDb || typeof rawDb.prepare !== 'function') return [];
+  return rawDb.prepare(`
+    SELECT id, status, provider, subprocess_pid, pid, completed_at
+    FROM tasks
+    WHERE status IN ('cancelled', 'failed', 'completed')
+      AND COALESCE(subprocess_pid, pid) IS NOT NULL
+    ORDER BY COALESCE(completed_at, created_at) DESC
+    LIMIT ?
+  `).all(limit);
+}
+
+function getTrackedProcessPids() {
+  const tracked = new Set();
+  if (!runningProcesses) return tracked;
+  for (const proc of runningProcesses.values()) {
+    const pid = Number(proc?.process?.pid || proc?.subprocessPid || proc?.subprocess_pid);
+    if (Number.isFinite(pid) && pid > 0) tracked.add(pid);
+  }
+  return tracked;
+}
+
+async function cleanupTerminalTaskSubprocesses() {
+  const trackedPids = getTrackedProcessPids();
+  const candidates = getTerminalTaskProcessCandidates();
+  for (const task of candidates) {
+    const pid = Number(task.subprocess_pid || task.pid);
+    if (!Number.isFinite(pid) || pid <= 0 || trackedPids.has(pid)) continue;
+    if (!isProcessAlive(pid)) continue;
+
+    const commandLine = await getProcessCommandLineFn(pid);
+    if (!isTorqueDetachedCommand(commandLine)) continue;
+
+    logger.info(`[Zombie Check] Terminal task ${task.id} is '${task.status}' but PID ${pid} is still alive. Killing orphaned detached process.`);
+    killOrphanByPidFn(pid, task.id, 5000, 'ZombieCheck');
+  }
+}
+
 function stopDetachedTrackers(proc) {
   if (!proc) return;
   if (proc.livenessHandle) {
@@ -87,6 +176,25 @@ function stopDetachedTrackers(proc) {
   }
   try { proc.outputTail?.stop?.(); } catch { /* best-effort cleanup */ }
   try { proc.errorTail?.stop?.(); } catch { /* best-effort cleanup */ }
+}
+
+function abandonDetachedTracker(proc) {
+  if (!proc) return;
+  proc.finalizing = true;
+  proc.stopTailProcessing = true;
+  stopDetachedTrackers(proc);
+  if (proc.timeoutHandle) {
+    clearTimeout(proc.timeoutHandle);
+    proc.timeoutHandle = null;
+  }
+  if (proc.startupTimeoutHandle) {
+    clearTimeout(proc.startupTimeoutHandle);
+    proc.startupTimeoutHandle = null;
+  }
+  if (proc.completionGraceHandle) {
+    clearTimeout(proc.completionGraceHandle);
+    proc.completionGraceHandle = null;
+  }
 }
 
 // ---- Stall detection constants ----
@@ -543,7 +651,7 @@ async function checkZombieProcesses() {
           if (dbTask && dbTask.status !== 'running') {
             logger.info(`[Zombie Check] Detached task ${taskId} is '${dbTask.status}' in DB but still tracked. Killing PID ${detachedPid} and cleaning up.`);
             killOrphanByPidFn(detachedPid, taskId, 5000, 'ZombieCheck');
-            stopDetachedTrackers(proc);
+            abandonDetachedTracker(proc);
             runningProcesses.delete(taskId);
             stallRecoveryAttempts?.delete?.(taskId);
           }
@@ -716,6 +824,7 @@ async function checkZombieProcesses() {
         logger?.info?.(`[Zombie Check] Task ${taskId} check failed: ${entryErr.message}`);
       }
     }
+    await cleanupTerminalTaskSubprocesses();
   } catch (err) {
     logger.info(`[Zombie Check] Error: ${err.message}`);
   }
@@ -1139,6 +1248,7 @@ function init(deps = {}) {
   if (deps.getMcpInstanceId) getMcpInstanceId = deps.getMcpInstanceId;
   if (deps.reportRuntimeTaskProblem) reportRuntimeTaskProblem = deps.reportRuntimeTaskProblem;
   if (deps.killOrphanByPid) killOrphanByPidFn = deps.killOrphanByPid;
+  if (deps.getProcessCommandLine) getProcessCommandLineFn = deps.getProcessCommandLine;
 }
 
 module.exports = {
