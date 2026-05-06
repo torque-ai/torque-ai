@@ -176,9 +176,60 @@ These don't conflict — they're two separate provider chains for two different 
 
 **What landed**: in-line comments at both consumer call sites pointing to the strip-first contract; both helpers exported for testability; three new integration tests in `server/tests/resume-context.test.js` that exercise sequential cross-call-site prepend cycles (fallback → retry, fallback → retry → fallback) and assert exactly one preamble at the end. 19/19 tests pass. Strip-first contract is now codified — a future regression that flips either consumer to `replaceExisting: false` would fail the integration test.
 
-### 4. `task-finalizer.js` stage proliferation
+### 4. ~~`task-finalizer.js` stage proliferation~~ ✅ RESOLVED 2026-05-06 (catalog written + 1 real bug fixed)
 
-13+ stages in one file, each a `runStage` gate with its own enable predicate. No documented order rationale for the chain. Several stages produce signals that feed into A's classifier (e.g., `phantom_success_detection` → `codex_phantom_success` rule), but the producer-consumer link is implicit. **Action item:** document the producer-consumer pairs (which stage emits which decision shape) — this is the layer where an unintended new stage can silently change A's rule firings.
+**Real bug uncovered during investigation**: `phantom_success_detection` (server/validation/phantom-success-detector.js) emits `action: 'phantom_completion_detected'`, but the matching A-side rule `codex_phantom_success` (server/plugins/auto-recovery-core/rules.js) was looking for `action: 'cannot_generate_plan'` — a different action emitted by loop-controller.js's plan-generation gate. The rule never fired on phantom-detector decisions. Phantom completions fell through to `UNKNOWN_CLASSIFICATION` → `['retry', 'escalate']`; plain `retry` re-spawned the same task on the same provider that had just phantom-succeeded.
+
+**Fix**: added a new rule `phantom_completion_detected` (priority 150, category `sandbox_interrupt`) that matches `stage: 'execute', action: 'phantom_completion_detected'` and routes through `[retry_with_fresh_session, fallback_provider, escalate]` — same cure as `codex_phantom_success`, but for the post-execution phantom shape rather than the plan-generation shape.
+
+#### Stage catalog
+
+The 17 stages of `finalizeTask` (`server/execution/task-finalizer.js` ~line 998–1090), in execution order:
+
+| # | Stage | Enable predicate | Handler location | Can flip ctx.status? |
+|---|---|---|---|---|
+| 1 | `retry_logic` | `ctx.code !== 0` | `retry-framework.js handleRetryLogic` | sets `earlyExit` (skips 2–17) on retry |
+| 2 | `safeguard_checks` | `typeof deps.handleSafeguardChecks === 'function'` | `validation/safeguard-gates.js` | sets `earlyExit` |
+| 3 | `diffusion_signal_detection` | `ctx.code === 0` | inline (handleDiffusionSignalDetection) | no |
+| 4 | `compute_apply_creation` | `ctx.code === 0` | inline (handleComputeApplyCreation) | yes — schema error → failed |
+| 5 | `fuzzy_repair` | `typeof deps.handleFuzzyRepair === 'function'` | legacy no-op | no |
+| 6 | `no_file_change_detection` | `typeof deps.handleNoFileChangeDetection === 'function'` | legacy no-op | no |
+| 7 | `phantom_success_detection` | `ctx.status === 'completed'` | `validation/phantom-success-detector.js` | yes — completed → failed (emits decision) |
+| 8 | `codex_banner_only_detection` | `ctx.status === 'failed' \|\| 'cancelled'` | `validation/phantom-success-detector.js` | no (rewrites errorOutput only) |
+| 9 | `sandbox_revert_detection` | `typeof deps.handleSandboxRevertDetection === 'function'` | `execution/sandbox-revert-detection.js` | yes |
+| 10 | `auto_validation` | `typeof deps.handleAutoValidation === 'function'` | `validation/close-phases.js` | yes |
+| 11 | `build_test_style_commit` | `typeof deps.handleBuildTestStyleCommit === 'function'` | `validation/close-phases.js` | yes |
+| 12 | `auto_verify_retry` | `typeof deps.handleAutoVerifyRetry === 'function'` | `validation/auto-verify-retry.js` | sets `earlyExit` on auto-resubmit |
+| 13 | `verification_ledger` | `typeof handleVerificationLedger === 'function'` | `execution/verification-ledger-stage.js` | yes |
+| 14 | `adversarial_review` | `... && ctx.status === 'completed'` | `execution/adversarial-review-stage.js` | yes |
+| 15 | `smart_diagnosis` | `ctx.status === 'failed'` | `execution/smart-diagnosis-stage.js` | no (writes `metadata.suggested_provider`) |
+| 16 | `strategic_review` | `ctx.status === 'completed'` | `execution/strategic-review-stage.js` | yes |
+| 17 | `provider_failover` | `... && !ctx.pipelineError` | `validation/close-phases.js` | sets `earlyExit` on provider swap |
+
+**Stages that emit `factory_decisions` rows** (the decisions A-side classifier rules can match): only `phantom_success_detection` (action `phantom_completion_detected`). All other stages either set `ctx` fields, write task metadata, or update task status without logging a project-level decision row.
+
+**Stages whose status flip changes downstream gating**: 4, 7, 9, 10, 11, 13, 14, 16. Stage 14 (adversarial_review, line ~1071) requires `ctx.status === 'completed'`; stage 15 (smart_diagnosis, line ~1075) requires `ctx.status === 'failed'`; stage 16 (strategic_review, line ~1079) requires `ctx.status === 'completed'`. So a stage 4–13 flip from completed → failed makes 14/16 skip and 15 fire instead.
+
+**Soft-dependency silent-skip stages** (run only if their handler is wired into DI; otherwise no-op): 2, 5, 6, 9, 10, 11, 12, 13, 17. If `createTaskFinalizer` is constructed without one of these handlers, that stage becomes a silent skip — no error, no log. Worth keeping in mind when tracing why a validation stage didn't fire.
+
+#### Producer-consumer table
+
+| Producer (stage) | Signal emitted | Where | Consumer | Consumer subsystem |
+|---|---|---|---|---|
+| `phantom_success_detection` | `action: 'phantom_completion_detected'` | factory_decisions | `phantom_completion_detected` rule (added 2026-05-06) | A — auto-recovery engine |
+| `smart_diagnosis` | `metadata.suggested_provider` | task row | `provider_failover` stage (stage 17 in same pipeline) | C — execution-layer fallback |
+| `smart_diagnosis` | `metadata.needs_escalation` | task row | B-side recovery (replan/rejected sweeps) on terminal failure | B — work-item recovery |
+| `auto_validation` / `build_test_style_commit` | `ctx.validationStages` entries | ctx (in-memory) | `strategic_review` stage (stage 16 in same pipeline) | C — execution-layer validation |
+| `verification_ledger` | DB ledger rows | DB | future task routing heuristics | (informational only) |
+
+**Stages with no downstream auto-recovery consumer** (observability / orchestration only): `codex_banner_only_detection`, `diffusion_signal_detection`, `compute_apply_creation`, `fuzzy_repair`, `no_file_change_detection`, `sandbox_revert_detection`, `verification_ledger`, `adversarial_review`, `strategic_review`. These can fail tasks (set `ctx.status='failed'`), which feeds into stages 15/17 in the same pipeline and may trigger B-side recovery on terminal rejection — but they don't emit decisions A-side rules match against.
+
+#### When adding a new stage
+
+If your stage emits a `factory_decisions` row, the rule registry in `server/plugins/auto-recovery-core/rules.js` MUST have a matching rule — otherwise the decision routes to UNKNOWN classification with default `['retry', 'escalate']`, which often loops on the same provider. Two checks before merging:
+
+1. Does your stage call `logFactoryDecision({ stage, action, ... })`? If yes, identify or add a matching rule.
+2. Does your stage flip `ctx.status` mid-pipeline? If yes, walk stages 14–17 to confirm the new ordering is intentional (stages with `ctx.status === 'completed'` predicates will skip; `=== 'failed'` will fire).
 
 ### 5. Two reject-reason regex registries
 
