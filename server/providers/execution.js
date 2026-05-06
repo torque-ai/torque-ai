@@ -97,114 +97,87 @@ function dedupeValues(values) {
   });
 }
 
-// ── Deps captured at init time for the agentic wrapper ────────────────
+// ── Deps captured at first use for the agentic wrapper ────────────────
 let _agenticDeps = null;
 
+function ensureAgenticDeps() {
+  if (_agenticDeps && _agenticDeps.db) return _agenticDeps;
+  const r = _agenticDeps || {};
+  let container = null;
+  try { container = require('../container').defaultContainer; } catch { /* not available */ }
+  if (container) {
+    if (!r.db) r.db = container.peek('db') || null;
+    if (!r.dashboard) r.dashboard = container.peek('dashboard') || null;
+    if (!r.runningProcesses) {
+      const tracker = container.peek('processTracker');
+      if (tracker) {
+        r.runningProcesses = tracker;
+        if (!r.apiAbortControllers) r.apiAbortControllers = tracker.abortControllers || null;
+      }
+    }
+    const tm = container.peek('taskManager');
+    if (tm) {
+      if (!r.safeUpdateTaskStatus && typeof tm.safeUpdateTaskStatus === 'function') {
+        r.safeUpdateTaskStatus = tm.safeUpdateTaskStatus.bind(tm);
+      }
+      if (!r.processQueue && typeof tm.processQueue === 'function') r.processQueue = tm.processQueue.bind(tm);
+    }
+    if (!r.handleWorkflowTermination && container.has?.('workflowRuntime')) {
+      try {
+        const wf = container.get('workflowRuntime');
+        if (wf && typeof wf.handleWorkflowTermination === 'function') {
+          r.handleWorkflowTermination = wf.handleWorkflowTermination;
+        }
+      } catch { /* not booted yet */ }
+    }
+  }
+  // Thunks — defer fallback-retry / free-quota requires to call time. Pairs
+  // with the routing-core lazy-resolve fix in fallback-retry.js (commit
+  // 0ab8f244) so test mocks installed before the helpers fire still take
+  // effect.
+  if (!r.tryOllamaCloudFallback) {
+    r.tryOllamaCloudFallback = (...args) => require('../execution/fallback-retry').tryOllamaCloudFallback(...args);
+  }
+  if (!r.getFreeQuotaTracker) {
+    r.getFreeQuotaTracker = (...args) => require('../tasks/free-quota-tracker-singleton').getFreeQuotaTracker(...args);
+  }
+  if (!_recordProviderOutcome) {
+    try {
+      const routingCore = require('../db/provider/routing-core');
+      _recordProviderOutcome = routingCore.recordProviderOutcome;
+    } catch { /* module may not be ready */ }
+  }
+  if (r.db) {
+    try { initCapability({ db: r.db, serverConfig: require('../config') }); }
+    catch { /* fall through */ }
+  }
+  _agenticDeps = r;
+  return _agenticDeps;
+}
+
 /**
- * Initialize all sub-modules with dependencies from task-manager.js.
- * Accepts the same deps object as the original monolithic init().
+ * @internal — test-only override path. Production lazy-resolves all deps
+ * via ensureAgenticDeps() and per-sub-module ensureDeps() helpers.
  */
-function init(deps) {
-  // Capture deps for the agentic wrapper
-  // Issue #6 fix: include apiAbortControllers so _agenticDeps.apiAbortControllers is defined.
-  // Without this, cancelTask() cannot abort in-flight agentic API requests — it falls back to
-  // _executeApiModule._apiAbortControllers, but that only works if the module ref is live.
-  //
-  // runningProcesses + apiAbortControllers default to the container's
-  // processTracker — caller doesn't have to thread them through.
-  // Accessor presence guard preserves bare-Map mocks injected via deps.
-  const { defaultContainer } = require('../container');
-  const trackerCandidate = deps.runningProcesses
-    || defaultContainer.peek('processTracker')
-    || null;
-  const agenticAbortControllers = deps.apiAbortControllers
-    || (trackerCandidate && trackerCandidate.abortControllers)
-    || null;
-  _agenticDeps = {
-    db: deps.db,
-    dashboard: deps.dashboard,
-    runningProcesses: trackerCandidate,
-    safeUpdateTaskStatus: deps.safeUpdateTaskStatus,
-    tryOllamaCloudFallback: deps.tryOllamaCloudFallback,
-    processQueue: deps.processQueue,
-    handleWorkflowTermination: deps.handleWorkflowTermination,
-    apiAbortControllers: agenticAbortControllers,
-    getFreeQuotaTracker: deps.getFreeQuotaTracker,
-  };
+function init(deps = {}) {
+  // Recompute agentic deps from explicit overrides + container defaults.
+  _agenticDeps = null;
+  ensureAgenticDeps();
+  if (deps.db) _agenticDeps.db = deps.db;
+  if (deps.dashboard) _agenticDeps.dashboard = deps.dashboard;
+  if (deps.runningProcesses) _agenticDeps.runningProcesses = deps.runningProcesses;
+  if (deps.apiAbortControllers) _agenticDeps.apiAbortControllers = deps.apiAbortControllers;
+  if (deps.safeUpdateTaskStatus) _agenticDeps.safeUpdateTaskStatus = deps.safeUpdateTaskStatus;
+  if (deps.tryOllamaCloudFallback) _agenticDeps.tryOllamaCloudFallback = deps.tryOllamaCloudFallback;
+  if (deps.processQueue) _agenticDeps.processQueue = deps.processQueue;
+  if (deps.handleWorkflowTermination) _agenticDeps.handleWorkflowTermination = deps.handleWorkflowTermination;
+  if (deps.getFreeQuotaTracker) _agenticDeps.getFreeQuotaTracker = deps.getFreeQuotaTracker;
 
-  // Import recordProviderOutcome from provider-routing-core if available
-  try {
-    const routingCore = require('../db/provider/routing-core');
-    _recordProviderOutcome = routingCore.recordProviderOutcome;
-  } catch { /* module may not be ready */ }
-
-  // Initialize capability detection with DB + serverConfig
-  initCapability({ db: deps.db, serverConfig: require('../config') });
-
-  // execute-api.js needs: db, dashboard, apiAbortControllers, processQueue, handleWorkflowTermination
-  // (apiAbortControllers defaults to processTracker.abortControllers via the
-  // resolution above; only forward an explicit override.)
-  _executeApiModule.init({
-    db: deps.db,
-    dashboard: deps.dashboard,
-    apiAbortControllers: agenticAbortControllers,
-    processQueue: deps.processQueue,
-    recordTaskStartedAuditEvent: deps.recordTaskStartedAuditEvent,
-    handleWorkflowTermination: deps.handleWorkflowTermination,
-  });
-
-  // execute-ollama.js needs: db, dashboard, safeUpdateTaskStatus, tryReserveHostSlotWithFallback,
-  //   tryOllamaCloudFallback, isLargeModelBlockedOnHost, buildFileContext, processQueue
-  _executeOllamaModule.init({
-    db: deps.db,
-    dashboard: deps.dashboard,
-    safeUpdateTaskStatus: deps.safeUpdateTaskStatus,
-    recordTaskStartedAuditEvent: deps.recordTaskStartedAuditEvent,
-    tryReserveHostSlotWithFallback: deps.tryReserveHostSlotWithFallback,
-    tryOllamaCloudFallback: deps.tryOllamaCloudFallback,
-    isLargeModelBlockedOnHost: deps.isLargeModelBlockedOnHost,
-    buildFileContext: deps.buildFileContext,
-    processQueue: deps.processQueue,
-  });
-
-   // execute-cli.js needs: db, dashboard, runningProcesses, safeUpdateTaskStatus,
-   //   tryReserveHostSlotWithFallback, markTaskCleanedUp, tryOllamaCloudFallback,
-   //   tryLocalFirstFallback, attemptFuzzySearchRepair, tryHashlineTieredFallback,
-   //   shellEscape, processQueue, isLargeModelBlockedOnHost, helpers, NVM_NODE_PATH,
-   //   QUEUE_LOCK_HOLDER_ID, MAX_OUTPUT_BUFFER, pendingRetryTimeouts, taskCleanupGuard,
-   //   finalizeTask,
-   //   stallRecoveryAttempts
-  // runningProcesses / pendingRetryTimeouts / taskCleanupGuard /
-  // stallRecoveryAttempts default to the container's processTracker
-  // value when omitted (execute-cli's init() peeks the container).
-  // We only forward them here when an explicit override was supplied
-  // by the caller — keeps the legacy push path available for tests
-  // and existing callsites without forcing every caller to thread
-  // the same instances every time.
-  _executeCliModule.init({
-    db: deps.db,
-    dashboard: deps.dashboard,
-    safeUpdateTaskStatus: deps.safeUpdateTaskStatus,
-    tryReserveHostSlotWithFallback: deps.tryReserveHostSlotWithFallback,
-    markTaskCleanedUp: deps.markTaskCleanedUp,
-    tryOllamaCloudFallback: deps.tryOllamaCloudFallback,
-    tryLocalFirstFallback: deps.tryLocalFirstFallback,
-    attemptFuzzySearchRepair: deps.attemptFuzzySearchRepair,
-    tryHashlineTieredFallback: deps.tryHashlineTieredFallback,
-    shellEscape: deps.shellEscape,
-    processQueue: deps.processQueue,
-    isLargeModelBlockedOnHost: deps.isLargeModelBlockedOnHost,
-    helpers: deps.helpers,
-    NVM_NODE_PATH: deps.NVM_NODE_PATH,
-    QUEUE_LOCK_HOLDER_ID: deps.QUEUE_LOCK_HOLDER_ID,
-    MAX_OUTPUT_BUFFER: deps.MAX_OUTPUT_BUFFER,
-    finalizeTask: deps.finalizeTask,
-    // Forward the four absorbed-state keys only when explicitly provided.
-    ...(deps.runningProcesses ? { runningProcesses: deps.runningProcesses } : {}),
-    ...(deps.pendingRetryTimeouts ? { pendingRetryTimeouts: deps.pendingRetryTimeouts } : {}),
-    ...(deps.taskCleanupGuard ? { taskCleanupGuard: deps.taskCleanupGuard } : {}),
-    ...(deps.stallRecoveryAttempts ? { stallRecoveryAttempts: deps.stallRecoveryAttempts } : {}),
-  });
+  // Forward to sub-module test shims so explicit overrides propagate.
+  // Production paths use the sub-modules' own ensureDeps().
+  _executeApiModule.init(deps);
+  _executeOllamaModule.init(deps);
+  _executeCliModule.init(deps);
 }
 
 // ============================================================
@@ -2852,6 +2825,7 @@ async function runAgenticPipeline({
  * Falls back to legacy /api/generate via executeOllamaTask otherwise.
  */
 async function executeOllamaTaskWithAgentic(task) {
+  ensureAgenticDeps();
   const serverConfig = require('../config');
   const provider = task.provider || 'ollama';
 
@@ -3376,6 +3350,7 @@ async function executeOllamaTaskWithAgentic(task) {
  * Falls back to the standard API provider execution otherwise.
  */
 async function executeApiProviderWithAgentic(task, providerInstance) {
+  ensureAgenticDeps();
   const serverConfig = require('../config');
   const provider = task.provider || '';
   const model = resolveApiProviderModel(provider, task.model);

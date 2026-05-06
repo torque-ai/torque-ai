@@ -309,7 +309,43 @@ async function submitWithRetry(task, provider, model, options, maxAttempts = 3) 
  * @param {Map} deps.apiAbortControllers - Map of taskId → AbortController
  * @param {Function} deps.processQueue - Queue drain function
  */
-function init(deps) {
+function ensureDeps() {
+  let container = null;
+  try { container = require('../container').defaultContainer; } catch { /* not available */ }
+  if (container) {
+    if (!db) db = container.peek('db') || null;
+    if (!dashboard) dashboard = container.peek('dashboard') || null;
+    if (!apiAbortControllers) {
+      const tracker = container.peek('processTracker');
+      if (tracker && tracker.abortControllers) apiAbortControllers = tracker.abortControllers;
+    }
+    const tm = container.peek('taskManager');
+    if (tm) {
+      if (!processQueue && typeof tm.processQueue === 'function') processQueue = tm.processQueue.bind(tm);
+      if (!_recordTaskStartedAuditEvent && typeof tm.recordTaskStartedAuditEvent === 'function') {
+        _recordTaskStartedAuditEvent = tm.recordTaskStartedAuditEvent.bind(tm);
+      }
+    }
+    if (!_handleWorkflowTermination && container.has?.('workflowRuntime')) {
+      try {
+        const wf = container.get('workflowRuntime');
+        if (wf && typeof wf.handleWorkflowTermination === 'function') {
+          _handleWorkflowTermination = wf.handleWorkflowTermination;
+        }
+      } catch { /* not booted yet */ }
+    }
+  }
+  if (!_getFreeQuotaTracker) {
+    // Thunk — defers free-quota-tracker-singleton load to call time.
+    _getFreeQuotaTracker = (...args) => require('../tasks/free-quota-tracker-singleton').getFreeQuotaTracker(...args);
+  }
+}
+
+/**
+ * @internal — test-only override path. Production lazy-resolves all deps via
+ * ensureDeps() called from each public entry point.
+ */
+function init(deps = {}) {
   if (deps.db) db = deps.db;
   if (deps.dashboard) dashboard = deps.dashboard;
   if (deps.apiAbortControllers) apiAbortControllers = deps.apiAbortControllers;
@@ -585,6 +621,7 @@ async function enrichTaskDescription(task) {
  * @param {import('./providers/base')} provider - Provider instance
  */
 async function executeApiProvider(task, provider) {
+  ensureDeps();
   const taskId = task.id;
   let model = task.model || null;
   const controller = new AbortController();

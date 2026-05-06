@@ -867,57 +867,17 @@ function initSubModules() {
 // registered taskCanceller capability). Production resolves the service via
 // defaultContainer.get('taskStartup').
 
-_executionModule.init({
-  db, dashboard: getDashboardBroadcaster(),
-  // runningProcesses + apiAbortControllers default to container's
-  // processTracker — providers/execution.js peeks it on init() unless
-  // overridden.
-  safeUpdateTaskStatus,
-  recordTaskStartedAuditEvent,
-  tryReserveHostSlotWithFallback,
-  markTaskCleanedUp,
-  tryOllamaCloudFallback: _fallbackRetryModule.tryOllamaCloudFallback,
-  tryLocalFirstFallback: _fallbackRetryModule.tryLocalFirstFallback,
-  shellEscape,
-  processQueue,
-  handleWorkflowTermination,
-  getFreeQuotaTracker,
-  isLargeModelBlockedOnHost,
-  buildFileContext,
-  helpers: {
-    wrapWithInstructions,
-    detectTaskTypes,
-    extractTargetFilesFromDescription,
-    ensureTargetFilesExist,
-    isLargeModelBlockedOnHost,
-    resolveWindowsCmdToNode,
-    estimateProgress,
-    detectOutputCompletion,
-    checkBreakpoints,
-    pauseTaskForDebug,
-    pauseTask,
-    classifyError,
-    sanitizeTaskOutput,
-    startTask,
-    getActualModifiedFiles,
-    runLLMSafeguards,
-    scopedRollback,
-    checkFileQuality,
-    runBuildVerification,
-    runTestVerification,
-    runStyleCheck,
-    isValidFilePath,
-    isShellSafe,
-    tryCreateAutoPR,
-    handlePlanProjectTaskCompletion,
-    handlePlanProjectTaskFailure,
-    handlePipelineStepCompletion,
-    runOutputSafeguards,
-    cancelTask,
-  },
-  finalizeTask,
-  // stallRecoveryAttempts defaults to container's processTracker.stallAttempts.
-});
+// providers/execution.js + sub-modules (execute-api, execute-ollama, execute-cli):
+// agentic deps and per-sub-module deps lazy-resolve at first call. db / dashboard /
+// processTracker maps come from the container; safeUpdateTaskStatus / processQueue /
+// isLargeModelBlockedOnHost / recordTaskStartedAuditEvent / markTaskCleanedUp /
+// helpers tree bind through the registered taskManager value;
+// tryReserveHostSlotWithFallback ← providerRouter; finalizeTask ← taskFinalizer;
+// buildFileContext ← fileContextBuilder; tryOllamaCloudFallback /
+// tryLocalFirstFallback ← fallback-retry (via thunks, paired with the routing-core
+// load-order fix in 0ab8f244); handleWorkflowTermination ← workflowRuntime;
+// getFreeQuotaTracker ← free-quota-tracker-singleton; shellEscape + NVM_NODE_PATH
+// resolve at module load via require(). No imperative init() needed.
 
 // validation/post-task.js: utility deps (getModifiedFiles, parseGitStatusLine,
 // sanitizeLLMOutput) resolve at module load via require(); db lazy-resolves
