@@ -454,6 +454,52 @@ describe('Orphan Cleanup', () => {
       expect(logger.info).not.toHaveBeenCalledWith(expect.stringContaining('[Zombie Check] Error:'));
     });
 
+    it('keeps detached subprocess tracker entries with process null', async () => {
+      const runningProcesses = new Map();
+      const stallRecoveryAttempts = new Map([['task-detached', 1]]);
+      const outputTail = { stop: vi.fn() };
+      const errorTail = { stop: vi.fn() };
+      runningProcesses.set('task-detached', {
+        provider: 'codex',
+        detached: true,
+        subprocessPid: 12345,
+        process: null,
+        outputTail,
+        errorTail,
+        startTime: Date.now(),
+        lastOutputAt: Date.now(),
+      });
+      const logger = { info: vi.fn(), warn: vi.fn() };
+
+      orphanCleanup.init({
+        db: {
+          getConfig: vi.fn().mockReturnValue('0'),
+          getTask: vi.fn().mockReturnValue({ id: 'task-detached', status: 'running' }),
+          reconcileHostTaskCounts: vi.fn(),
+          getRunningTasksLightweight: vi.fn().mockReturnValue([]),
+        },
+        dashboard: { notifyTaskUpdated: vi.fn() },
+        logger,
+        runningProcesses,
+        stallRecoveryAttempts,
+        TASK_TIMEOUTS: { PROCESS_QUERY: 5000 },
+        cancelTask: vi.fn(),
+        processQueue: vi.fn(),
+        tryLocalFirstFallback: vi.fn(),
+        getTaskActivity: vi.fn(),
+        tryStallRecovery: vi.fn(),
+        safeConfigInt: vi.fn(),
+      });
+
+      await orphanCleanup.checkZombieProcesses();
+
+      expect(runningProcesses.has('task-detached')).toBe(true);
+      expect(stallRecoveryAttempts.has('task-detached')).toBe(true);
+      expect(outputTail.stop).not.toHaveBeenCalled();
+      expect(errorTail.stop).not.toHaveBeenCalled();
+      expect(logger.info).not.toHaveBeenCalledWith(expect.stringContaining('malformed process tracker entry'));
+    });
+
     it('emits successful close for completed Codex output that outlives completion grace', async () => {
       const runningProcesses = new Map();
       const processRef = {

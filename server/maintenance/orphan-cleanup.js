@@ -72,6 +72,22 @@ function isProcessAlive(pid) {
   }
 }
 
+function getDetachedSubprocessPid(proc) {
+  if (!proc || proc.detached !== true) return null;
+  const pid = Number(proc.subprocessPid || proc.subprocess_pid);
+  return Number.isFinite(pid) && pid > 0 ? pid : null;
+}
+
+function stopDetachedTrackers(proc) {
+  if (!proc) return;
+  if (proc.livenessHandle) {
+    clearInterval(proc.livenessHandle);
+    proc.livenessHandle = null;
+  }
+  try { proc.outputTail?.stop?.(); } catch { /* best-effort cleanup */ }
+  try { proc.errorTail?.stop?.(); } catch { /* best-effort cleanup */ }
+}
+
 // ---- Stall detection constants ----
 
 /**
@@ -518,6 +534,24 @@ async function checkZombieProcesses() {
     }
 
     for (const [taskId, proc] of runningProcesses) {
+      const detachedPid = getDetachedSubprocessPid(proc);
+      if (detachedPid !== null && (!proc.process || typeof proc.process.emit !== 'function')) {
+        try {
+          const dbTask = db.getTask(taskId);
+          if (dbTask && dbTask.status !== 'running') {
+            logger.info(`[Zombie Check] Detached task ${taskId} is '${dbTask.status}' in DB but still tracked. Killing PID ${detachedPid} and cleaning up.`);
+            killOrphanByPid(detachedPid, taskId, 5000, 'ZombieCheck');
+            stopDetachedTrackers(proc);
+            runningProcesses.delete(taskId);
+            stallRecoveryAttempts?.delete?.(taskId);
+          }
+        } catch {
+          // DB query failed — keep the detached tracker. Its liveness watcher
+          // owns subprocess finalization and should not be discarded.
+        }
+        continue;
+      }
+
       if (!proc || !proc.process || typeof proc.process.emit !== 'function') {
         logger?.info?.(`[Zombie Check] Task ${taskId} has a malformed process tracker entry. Removing it from local tracking.`);
         runningProcesses.delete(taskId);
