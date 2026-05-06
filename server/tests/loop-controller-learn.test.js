@@ -231,6 +231,12 @@ beforeEach(() => {
     runningProcesses: new Map(),
   });
   defaultContainer.registerValue('sharedFactoryStore', { get: () => null, set: () => {} });
+  // sandboxManager is required by validation/auto-verify-retry which got
+  // wired into the container by validation/register.js since commit
+  // 6af290b5. Production resolves it from the container at startup; unit
+  // tests use a minimal isAvailable=false stub (matches the pattern in
+  // scripts/di-migration-metrics.js).
+  defaultContainer.registerValue('sandboxManager', { isAvailable: () => false });
   // sharedFactoryStore (registered in container.js since c8a129c9) declares
   // a `serverConfig` dep. Production wires it in server/index.js, but
   // standalone unit-test boots that don't go through index.js need a
