@@ -113,7 +113,12 @@ describe('restart_server barrier mode', () => {
     expect(result.drain_timeout_ms).toBe(5 * 60_000);
   });
 
-  it('defaults to 60_000 ms when no drain timeout is provided', async () => {
+  it('defaults to 300_000 ms (5 min) when no drain timeout is provided', async () => {
+    // Default bumped from 60_000 → 300_000 on 2026-05-06 — 60s reliably
+    // hit drain timeout mid-codex-call, and the parent-death + re-adoption
+    // cycle is disruptive even when it succeeds. 5 min covers a typical
+    // model API roundtrip plus a brief commit/cleanup tail. Operators who
+    // want fast restart can pass drain_timeout_ms: 60_000 explicitly.
     taskCore.createTask({
       id: 'drain-default-pin',
       task_description: 'pin',
@@ -124,7 +129,7 @@ describe('restart_server barrier mode', () => {
     taskCore.updateTaskStatus('drain-default-pin', 'running', { started_at: new Date().toISOString() });
 
     const result = await tools.handleToolCall('restart_server', { reason: 'default' });
-    expect(result.drain_timeout_ms).toBe(60_000);
+    expect(result.drain_timeout_ms).toBe(300_000);
   });
 
   it('rejects second restart when barrier already exists', async () => {
@@ -177,11 +182,12 @@ describe('restart_server drain watchdog reverted', () => {
     expect(src).toMatch(/elapsed\s*>=\s*drainTimeoutMs/);
     // Phase D resolves drainTimeoutMs at the top of the function from
     // any of three operator inputs. We pin the resolution surface
-    // (canonical drain_timeout_ms arg + sub-minute-default literal)
-    // rather than the old `drainTimeoutMinutes * 60 * 1000` math, which
-    // is gone after the refactor.
+    // (canonical drain_timeout_ms arg + 5-min default literal — bumped
+    // from 60s on 2026-05-06; see the "defaults to 300_000 ms" test above
+    // for context) rather than the old `drainTimeoutMinutes * 60 * 1000`
+    // math, which is gone after the refactor.
     expect(src).toMatch(/drain_timeout_ms/);
-    expect(src).toMatch(/DEFAULT_DRAIN_TIMEOUT_MS\s*=\s*60_?000/);
+    expect(src).toMatch(/DEFAULT_DRAIN_TIMEOUT_MS\s*=\s*300_?000/);
   });
 
   it('drain timeout proceeds with restart (not abort) — Phase D survivor re-adoption', () => {
