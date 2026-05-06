@@ -302,6 +302,34 @@ describe('loop-controller', () => {
       .toThrow(`Loop is paused at ${LOOP_STATES.PRIORITIZE}, not ${LOOP_STATES.LEARN}`);
   });
 
+  it('approveGate refuses on operator-paused project (status=paused supersedes)', async () => {
+    // Without this guard, approveGate clears `paused_at_stage` but the next
+    // advance still returns early via isProjectStatusPaused() — leaving the
+    // operator wondering why the loop didn't resume after they "approved" it.
+    // Mirrors startFactoryLoop's pre-flight check. Auto-recovery's retry
+    // strategy (plugins/auto-recovery-core/strategies/retry.js) inherits the
+    // same guard via services.approveGate, so recovery cannot silently fight
+    // an operator pause either.
+    const supervisedProject = factoryHealth.registerProject({
+      name: 'OperatorPausedProject',
+      path: '/test/op-paused-' + Date.now(),
+      trust_level: 'supervised',
+    });
+
+    loopController.startLoopForProject(supervisedProject.id);
+    await loopController.advanceLoopForProject(supervisedProject.id);
+    // Now paused at PRIORITIZE gate. Operator separately pauses the project.
+    factoryHealth.updateProject(supervisedProject.id, { status: 'paused' });
+
+    expect(() => loopController.approveGateForProject(supervisedProject.id, LOOP_STATES.PRIORITIZE))
+      .toThrow(/Cannot approve gate on paused project[^]*resume_project first/);
+
+    // Confirm the gate was NOT cleared by the failed call.
+    expect(loopController.getLoopStateForProject(supervisedProject.id)).toMatchObject({
+      loop_paused_at_stage: LOOP_STATES.PRIORITIZE,
+    });
+  });
+
   it('rejectGate stops the loop', async () => {
     const supervisedProject = factoryHealth.registerProject({
       name: 'SupervisedProject',

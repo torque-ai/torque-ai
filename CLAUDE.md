@@ -653,5 +653,7 @@ Full factory runbook — auto-advance/tick/startup-resume, auto-ship detection, 
 
 When adding a recovery rule, classification, or strategy, consult `docs/recovery-decisions.md` first — it is the canonical reference for the three recovery subsystems (auto-recovery engine, replan/rejected sweeps, execution-layer retry/fallback) and tells you which subsystem your change belongs in.
 
+When changing the factory loop's state machine — adding a state, a transition, a new pause variant, or a new `factory_decisions` action — consult `docs/factory-loop-states.md` first. It is the canonical reference for the 10 declared states + the pseudo-states the implementation uses (`READY_FOR_<stage>`, `VERIFY_FAIL`), the pause-variant table, the transition catalog, and the decision-action emission map. Pair every new emission with a classifier rule (or add it to `isBenignFlowDecision`) — silent UNKNOWN routing is the most common bug class in the recovery-decisions audit.
+
 ---
 *Full safeguard documentation: see `docs/safeguards.md`*
