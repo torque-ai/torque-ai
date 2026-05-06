@@ -25,17 +25,38 @@ const { getEffectiveGlobalMaxConcurrent: sharedGetEffective } = require('./effec
 const PAID_PROVIDERS = new Set(['anthropic', 'groq', 'codex', 'claude-cli']);
 
 // ── Legacy module-level state, written only by init() (deprecated) ─────────
-// Phase 3 of the universal-DI migration. Replaces the prior stub
-// createProviderRouter factory with one that actually closes over deps.
+// ── Module-level deps ──────────────────────────────────────────────────────
+// Utility deps (parseTaskMetadata) resolve at module load via require().
+// Service-shaped deps (db, serverConfig, providerRegistry) and taskManager
+// methods (safeUpdateTaskStatus) lazy-resolve through the container at
+// first use. They remain `let` so the factory's per-instance swap
+// (createProviderRouter) and the test-only init() shim can override them.
 let _db = null;
 let _serverConfig = null;
 let _providerRegistry = null;
-let _parseTaskMetadata = null;
+let _parseTaskMetadata = require('./task-utils').parseTaskMetadata;
 let _safeUpdateTaskStatus = null;
 let _defaultContainer = null;
 let _execFile = defaultExecFile;
 
-/** @deprecated Use createProviderRouter(deps) or container.get('providerRouter'). */
+function ensureDeps() {
+  const container = getDefaultContainer();
+  if (!container) return;
+  if (!_db) _db = container.peek('db') || null;
+  if (!_serverConfig) _serverConfig = container.peek('serverConfig') || null;
+  if (!_providerRegistry) _providerRegistry = container.peek('providerRegistry') || null;
+  if (!_safeUpdateTaskStatus) {
+    const tm = container.peek('taskManager');
+    if (tm && typeof tm.safeUpdateTaskStatus === 'function') {
+      _safeUpdateTaskStatus = tm.safeUpdateTaskStatus.bind(tm);
+    }
+  }
+}
+
+/**
+ * @internal — test-only override path. Production resolves via
+ * createProviderRouter(localDeps) inside the container factory.
+ */
 function init(deps = {}) {
   if (deps.db) _db = deps.db;
   if (deps.serverConfig) _serverConfig = deps.serverConfig;
@@ -84,6 +105,7 @@ function getCircuitBreaker() {
  * default of 0 gets clamped through the default minVal=1.
  */
 function safeConfigInt(configKey, defaultVal, minVal = 1, maxVal = 1000) {
+  ensureDeps();
   const rawValue = _serverConfig && _serverConfig.get(configKey);
   if (rawValue === null || rawValue === undefined) return defaultVal;
   const parsed = parseInt(rawValue, 10);
@@ -99,6 +121,7 @@ function safeConfigInt(configKey, defaultVal, minVal = 1, maxVal = 1000) {
  * @returns {{ success: boolean, requeue?: boolean, reason?: string }}
  */
 function tryReserveHostSlotWithFallback(hostId, taskId) {
+  ensureDeps();
   // Look up the task's model for VRAM-aware gating
   let requestedModel = null;
   try {
@@ -143,6 +166,7 @@ function tryReserveHostSlotWithFallback(hostId, taskId) {
  * @param {object} projectConfig - Project configuration
  */
 async function tryCreateAutoPR(taskId, task, workingDir, projectConfig) {
+  ensureDeps();
   try {
     const baseBranch = projectConfig.auto_pr_base_branch || 'main';
     const gitOpts = { cwd: workingDir, encoding: 'utf8', windowsHide: true };
@@ -295,6 +319,7 @@ function buildProviderDecisionTrace(task, taskMeta, requestedProvider, chosenPro
  * @returns {{ provider: string, switchReason: string|null, decisionTrace: object }}
  */
 function resolveProviderRouting(task, taskId) {
+  ensureDeps();
   // Deferred assignment: when provider is null, read intended_provider from metadata
   const taskMeta = _parseTaskMetadata(task.metadata);
   const requestedProvider = task.provider || taskMeta.intended_provider || _db.getDefaultProvider() || 'codex';
@@ -435,6 +460,7 @@ function resolveProviderRouting(task, taskId) {
 }
 
 function normalizeProviderOverride(task, requestedProvider, taskId) {
+  ensureDeps();
   if (typeof requestedProvider !== 'string') {
     logger.warn(`[Routing] Non-string provider for task ${taskId}: ${typeof requestedProvider} (${requestedProvider})`);
     return _db.getDefaultProvider() || 'codex';
@@ -453,6 +479,7 @@ function normalizeProviderOverride(task, requestedProvider, taskId) {
 }
 
 function failTaskForInvalidProvider(taskId, provider, message = null) {
+  ensureDeps();
   const providerLabel = typeof provider === 'string' && provider.trim()
     ? provider.trim()
     : '(missing)';
@@ -468,6 +495,7 @@ function failTaskForInvalidProvider(taskId, provider, message = null) {
  * @returns {{ providerLimit: number|null, providerGroup: string[], categoryLimit: number|null, categoryProviderGroup: string[] }}
  */
 function getProviderSlotLimits(provider, providerConfig = null) {
+  ensureDeps();
   const parsedProviderLimit = Number.parseInt(providerConfig?.max_concurrent, 10);
   const providerLimit = Number.isFinite(parsedProviderLimit) && parsedProviderLimit > 0
     ? parsedProviderLimit
@@ -503,6 +531,7 @@ function getProviderSlotLimits(provider, providerConfig = null) {
 }
 
 function getEffectiveGlobalMaxConcurrent() {
+  ensureDeps();
   return sharedGetEffective({
     safeConfigInt,
     serverConfig: _serverConfig,
@@ -590,11 +619,10 @@ function register(container) {
 }
 
 module.exports = {
-  // New shape (preferred)
   createProviderRouter,
   register,
-  // Legacy shape (kept until task-manager.js migrates)
   PAID_PROVIDERS,
+  // @internal — test-only override path (see init() jsdoc)
   init,
   safeConfigInt,
   tryReserveHostSlotWithFallback,

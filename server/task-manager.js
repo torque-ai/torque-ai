@@ -127,23 +127,17 @@ const _instanceManager = require('./maintenance/instance-manager');
 const _promptsModule = require('./providers/prompts');
 const _closePhases = require('./validation/close-phases');
 const _autoVerifyRetry = require('./validation/auto-verify-retry');
-const _retryFramework = require('./execution/retry-framework');
 const completionDetection = require('./validation/completion-detection');
 const _queueScheduler = require('./execution/queue-scheduler');
 const _taskFinalizer = require('./execution/task-finalizer');
 const _sandboxRevertDetection = require('./execution/sandbox-revert-detection');
 const _completionPipeline = require('./execution/completion-pipeline');
-const _fileContextBuilder = require('./execution/file-context-builder');
-const _providerRouter = require('./execution/provider-router');
 const _taskUtils = require('./execution/task-utils');
-const _planProjectResolver = require('./execution/plan-project-resolver');
 const _processLifecycle = require('./execution/process-lifecycle');
 const { safeDecrementHostSlot, killProcessGraceful, safeTriggerWebhook, cleanupProcessTracking, cleanupChildProcessListeners } = _processLifecycle;
 const debugLifecycle = require('./execution/debug-lifecycle');
 const _processStreams = require('./execution/process-streams');
-const _commandBuilders = require('./execution/command-builders');
 const ProcessTracker = require('./execution/process-tracker');
-const _taskStartup = require('./execution/task-startup');
 const codexIntelligence = require('./providers/codex-intelligence');
 
 // Sub-module function imports — these used to flow through task-manager-delegations.js
@@ -393,7 +387,7 @@ function safeUpdateTaskStatus(taskId, status, fields = {}) {
  * Atomically try to reserve a host slot with proper race handling.
  * Delegated to execution/provider-router.js
  */
-function tryReserveHostSlotWithFallback(...args) { return _providerRouter.tryReserveHostSlotWithFallback(...args); }
+function tryReserveHostSlotWithFallback(...args) { return defaultContainer.get('providerRouter').tryReserveHostSlotWithFallback(...args); }
 
 // Retry cleanup delegated to execution/task-startup.js
 
@@ -405,13 +399,13 @@ function tryReserveHostSlotWithFallback(...args) { return _providerRouter.tryRes
  * Extract function boundaries from a JS/TS file.
  * Delegated to execution/file-context-builder.js
  */
-function extractJsFunctionBoundaries(...args) { return _fileContextBuilder.extractJsFunctionBoundaries(...args); }
+function extractJsFunctionBoundaries(...args) { return defaultContainer.get('fileContextBuilder').extractJsFunctionBoundaries(...args); }
 
 /**
  * Ensure target files exist on disk (create stubs if needed).
  * Delegated to execution/file-context-builder.js
  */
-function ensureTargetFilesExist(...args) { return _fileContextBuilder.ensureTargetFilesExist(...args); }
+function ensureTargetFilesExist(...args) { return defaultContainer.get('fileContextBuilder').ensureTargetFilesExist(...args); }
 
 
 // ============================================================
@@ -422,7 +416,7 @@ function ensureTargetFilesExist(...args) { return _fileContextBuilder.ensureTarg
  * Build formatted file context block from resolved files.
  * Delegated to execution/file-context-builder.js
  */
-function buildFileContext(...args) { return _fileContextBuilder.buildFileContext(...args); }
+function buildFileContext(...args) { return defaultContainer.get('fileContextBuilder').buildFileContext(...args); }
 
 
 // Delegated to providers/prompts.js (Phase 7A)
@@ -438,16 +432,18 @@ const DEFAULT_INSTRUCTION_TEMPLATES = _promptsModule.DEFAULT_INSTRUCTION_TEMPLAT
  * Try to create an automatic PR after successful task completion.
  * Delegated to execution/provider-router.js
  */
-function tryCreateAutoPR(...args) { return _providerRouter.tryCreateAutoPR(...args); }
+function tryCreateAutoPR(...args) { return defaultContainer.get('providerRouter').tryCreateAutoPR(...args); }
 
 // cleanupOrphanedRetryTimeouts delegated to execution/task-startup.js
-function cleanupOrphanedRetryTimeouts() { return _taskStartup.cleanupOrphanedRetryTimeouts(); }
+function cleanupOrphanedRetryTimeouts() { return defaultContainer.get('taskStartup').cleanupOrphanedRetryTimeouts(); }
 
-// MAX_OUTPUT_BUFFER, getNvmNodePath, NVM_NODE_PATH, resolveWindowsCmdToNode
-// delegated to execution/task-startup.js
-const MAX_OUTPUT_BUFFER = _taskStartup.MAX_OUTPUT_BUFFER;
-const NVM_NODE_PATH = _taskStartup.NVM_NODE_PATH;
-function resolveWindowsCmdToNode(...args) { return _taskStartup.resolveWindowsCmdToNode(...args); }
+// MAX_OUTPUT_BUFFER, NVM_NODE_PATH are static constants — pull from the raw
+// module export at module-load time (the container isn't booted yet).
+// resolveWindowsCmdToNode is a pure utility — same pattern.
+const _taskStartupConsts = require('./execution/task-startup');
+const MAX_OUTPUT_BUFFER = _taskStartupConsts.MAX_OUTPUT_BUFFER;
+const NVM_NODE_PATH = _taskStartupConsts.NVM_NODE_PATH;
+function resolveWindowsCmdToNode(...args) { return _taskStartupConsts.resolveWindowsCmdToNode(...args); }
 
 // PROVIDER_DEFAULT_TIMEOUTS imported from ./constants.js
 
@@ -455,7 +451,7 @@ function resolveWindowsCmdToNode(...args) { return _taskStartup.resolveWindowsCm
  * Safely parse config integer value with bounds checking.
  * Delegated to execution/provider-router.js
  */
-function safeConfigInt(...args) { return _providerRouter.safeConfigInt(...args); }
+function safeConfigInt(...args) { return defaultContainer.get('providerRouter').safeConfigInt(...args); }
 
 /**
  * Resolve plan project dependencies after a task reaches a terminal state.
@@ -466,9 +462,9 @@ function safeConfigInt(...args) { return _providerRouter.safeConfigInt(...args);
  * @returns {void}
  */
 // Plan project dependency resolution — delegated to execution/plan-project-resolver.js
-function handleProjectDependencyResolution(...args) { return _planProjectResolver.handleProjectDependencyResolution(...args); }
-function handlePlanProjectTaskCompletion(...args) { return _planProjectResolver.handlePlanProjectTaskCompletion(...args); }
-function handlePlanProjectTaskFailure(...args) { return _planProjectResolver.handlePlanProjectTaskFailure(...args); }
+function handleProjectDependencyResolution(...args) { return defaultContainer.get('planProjectResolver').handleProjectDependencyResolution(...args); }
+function handlePlanProjectTaskCompletion(...args) { return defaultContainer.get('planProjectResolver').handlePlanProjectTaskCompletion(...args); }
+function handlePlanProjectTaskFailure(...args) { return defaultContainer.get('planProjectResolver').handlePlanProjectTaskFailure(...args); }
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Close-handler helpers (extracted from startTask's child.on('close', ...))
@@ -480,9 +476,9 @@ function handleCloseCleanup(taskId, code) {
   return _processLifecycle.handleCloseCleanup(taskId, code);
 }
 
-// Phase 1: Retry logic — delegated to execution/retry-framework.js
+// Phase 1: Retry logic — resolved from the DI container.
 function handleRetryLogic(ctx) {
-  return _retryFramework.handleRetryLogic(ctx);
+  return defaultContainer.get('retryFramework').handleRetryLogic(ctx);
 }
 
 // Phase 2: Safeguard checks — resolved from the DI container.
@@ -533,21 +529,21 @@ function handleNoFileChangeDetection(_ctx) {
  * @returns {{ cliPath: string, finalArgs: string[], stdinPrompt: string }}
  */
 // D4.1: Delegated to execution/command-builders.js
-function buildClaudeCliCommand(...args) { return _commandBuilders.buildClaudeCliCommand(...args); }
-function buildCodexCommand(...args) { return _commandBuilders.buildCodexCommand(...args); }
+function buildClaudeCliCommand(...args) { return defaultContainer.get('commandBuilders').buildClaudeCliCommand(...args); }
+function buildCodexCommand(...args) { return defaultContainer.get('commandBuilders').buildCodexCommand(...args); }
 
 // === startTask phase helpers — delegated to execution/task-startup.js ===
-function recordTaskStartedAuditEvent(...args) { return _taskStartup.recordTaskStartedAuditEvent(...args); }
-function createTaskStartupResourceLifecycle(...args) { return _taskStartup.createTaskStartupResourceLifecycle(...args); }
-function evaluateClaimedStartupPolicy(...args) { return _taskStartup.evaluateClaimedStartupPolicy(...args); }
-function buildProviderStartupCommand(...args) { return _taskStartup.buildProviderStartupCommand(...args); }
+function recordTaskStartedAuditEvent(...args) { return defaultContainer.get('taskStartup').recordTaskStartedAuditEvent(...args); }
+function createTaskStartupResourceLifecycle(...args) { return defaultContainer.get('taskStartup').createTaskStartupResourceLifecycle(...args); }
+function evaluateClaimedStartupPolicy(...args) { return defaultContainer.get('taskStartup').evaluateClaimedStartupPolicy(...args); }
+function buildProviderStartupCommand(...args) { return defaultContainer.get('taskStartup').buildProviderStartupCommand(...args); }
 
 // Provider routing — delegated to execution/provider-router.js
-function resolveProviderRouting(...args) { return _providerRouter.resolveProviderRouting(...args); }
-function normalizeProviderOverride(...args) { return _providerRouter.normalizeProviderOverride(...args); }
-function failTaskForInvalidProvider(...args) { return _providerRouter.failTaskForInvalidProvider(...args); }
-function getProviderSlotLimits(...args) { return _providerRouter.getProviderSlotLimits(...args); }
-function getEffectiveGlobalMaxConcurrent(...args) { return _providerRouter.getEffectiveGlobalMaxConcurrent(...args); }
+function resolveProviderRouting(...args) { return defaultContainer.get('providerRouter').resolveProviderRouting(...args); }
+function normalizeProviderOverride(...args) { return defaultContainer.get('providerRouter').normalizeProviderOverride(...args); }
+function failTaskForInvalidProvider(...args) { return defaultContainer.get('providerRouter').failTaskForInvalidProvider(...args); }
+function getProviderSlotLimits(...args) { return defaultContainer.get('providerRouter').getProviderSlotLimits(...args); }
+function getEffectiveGlobalMaxConcurrent(...args) { return defaultContainer.get('providerRouter').getEffectiveGlobalMaxConcurrent(...args); }
 
 // Delegated to execution/process-lifecycle.js (D4.3)
 function spawnAndTrackProcess(taskId, task, config) {
@@ -555,7 +551,7 @@ function spawnAndTrackProcess(taskId, task, config) {
 }
 
 // startTask — delegated to execution/task-startup.js
-function startTask(taskId) { return _taskStartup.startTask(taskId); }
+function startTask(taskId) { return defaultContainer.get('taskStartup').startTask(taskId); }
 
 // ── taskCanceller capability: single registration, single instance ──
 //
@@ -666,12 +662,12 @@ function processQueue() {
 }
 
 // attemptTaskStart, safeStartTask — delegated to execution/task-startup.js
-function attemptTaskStart(taskId, label) { return _taskStartup.attemptTaskStart(taskId, label); }
-function safeStartTask(taskId, label) { return _taskStartup.safeStartTask(taskId, label); }
+function attemptTaskStart(taskId, label) { return defaultContainer.get('taskStartup').attemptTaskStart(taskId, label); }
+function safeStartTask(taskId, label) { return defaultContainer.get('taskStartup').safeStartTask(taskId, label); }
 
 
 // estimateProgress — delegated to execution/task-startup.js
-function estimateProgress(output, provider) { return _taskStartup.estimateProgress(output, provider); }
+function estimateProgress(output, provider) { return defaultContainer.get('taskStartup').estimateProgress(output, provider); }
 
 // Delegated to validation/completion-detection.js
 const {
@@ -683,12 +679,12 @@ const {
 } = completionDetection;
 
 // getActualModifiedFiles — delegated to execution/task-startup.js
-function getActualModifiedFiles(workingDir) { return _taskStartup.getActualModifiedFiles(workingDir); }
+function getActualModifiedFiles(workingDir) { return defaultContainer.get('taskStartup').getActualModifiedFiles(workingDir); }
 
 // getTaskProgress, getRunningTaskCount, hasRunningProcess — delegated to execution/task-startup.js
-function getTaskProgress(taskId) { return _taskStartup.getTaskProgress(taskId); }
-function getRunningTaskCount() { return _taskStartup.getRunningTaskCount(); }
-function hasRunningProcess(taskId) { return _taskStartup.hasRunningProcess(taskId); }
+function getTaskProgress(taskId) { return defaultContainer.get('taskStartup').getTaskProgress(taskId); }
+function getRunningTaskCount() { return defaultContainer.get('taskStartup').getRunningTaskCount(); }
+function hasRunningProcess(taskId) { return defaultContainer.get('taskStartup').hasRunningProcess(taskId); }
 
 const {
   isLargeModelBlockedOnHost,
@@ -834,59 +830,27 @@ function initSubModules() {
 
 _taskExecutionHooks.init({ db });
 
-_planProjectResolver.init({ db, dashboard: getDashboardBroadcaster() });
+// execution/plan-project-resolver.js: db + dashboard come from the container
+// at boot via createPlanProjectResolver. Production resolves via
+// defaultContainer.get('planProjectResolver').
 
-_fileContextBuilder.init({
-  db,
-  serverConfig,
-  providerCfg,
-  contextEnrichment,
-  computeLineHash,
-});
+// execution/file-context-builder.js: utility deps (providerCfg,
+// contextEnrichment, computeLineHash) resolve at module load via require();
+// db + serverConfig lazy-resolve through defaultContainer.peek() in
+// ensureContainerDeps(). Production resolves the service via
+// defaultContainer.get('fileContextBuilder').
 
-_providerRouter.init({
-  db,
-  serverConfig,
-  providerRegistry,
-  parseTaskMetadata,
-  safeUpdateTaskStatus,
-});
+// execution/provider-router.js: utility deps (parseTaskMetadata) resolve at
+// module load via require(); db / serverConfig / providerRegistry /
+// safeUpdateTaskStatus lazy-resolve through the container in ensureDeps().
+// Production resolves the service via defaultContainer.get('providerRouter').
 
-_taskStartup.init({
-  db,
-  dashboard: getDashboardBroadcaster(),
-  serverConfig,
-  providerRegistry,
-  providerCfg,
-  gpuMetrics,
-  // runningProcesses + pendingRetryTimeouts default to container's
-  // processTracker — task-startup peeks it on init() unless overridden.
-  // apiAbortControllers / stallRecoveryAttempts / taskCleanupGuard
-  // aren't read by task-startup directly; dropped from the wiring.
-  parseTaskMetadata,
-  getTaskContextTokenEstimate,
-  safeUpdateTaskStatus,
-  resolveProviderRouting,
-  normalizeProviderOverride,
-  failTaskForInvalidProvider,
-  getProviderSlotLimits,
-  getEffectiveGlobalMaxConcurrent,
-  spawnAndTrackProcess,
-  buildClaudeCliCommand,
-  buildCodexCommand,
-  buildFileContext,
-  resolveFileReferences,
-  executeOllamaTask,
-  executeApiProvider,
-  evaluateTaskPreExecutePolicy,
-  getPolicyBlockReason,
-  cancelTask,
-  processQueue,
-  sanitizeTaskOutput,
-  detectOutputCompletion,
-  shellEscape,
-  QUEUE_LOCK_HOLDER_ID,
-});
+// execution/task-startup.js: 28 deps resolve inside createTaskStartup —
+// utility functions via require() from canonical modules; runningProcesses +
+// pendingRetryTimeouts via processTracker peek; cancelTask / processQueue /
+// safeUpdateTaskStatus via taskManager binding (cancelTask preferring the
+// registered taskCanceller capability). Production resolves the service via
+// defaultContainer.get('taskStartup').
 
 _executionModule.init({
   db, dashboard: getDashboardBroadcaster(),
@@ -957,13 +921,9 @@ _fallbackRetryModule.init({
   // processTracker — fallback-retry peeks it on init() unless overridden.
 });
 
-_workflowRuntimeModule.init({
-  db,
-  startTask,
-  cancelTask,
-  processQueue,
-  dashboard: getDashboardBroadcaster(),
-});
+// execution/workflow-runtime.js: db / dashboard / startTask / cancelTask /
+// processQueue all lazy-resolve through the container in ensureDeps().
+// Production resolves the service via defaultContainer.get('workflowRuntime').
 try {
   const workflowResume = require('./execution/workflow-resume');
   workflowResume.init({
@@ -1020,14 +980,11 @@ _instanceManager.init({
 // Phase 7-10 module initialization
 _promptsModule.init({ db });
 codexIntelligence.init({ db, prompts: _promptsModule });
-_commandBuilders.init({
-  wrapWithInstructions,
-  providerCfg,
-  contextEnrichment,
-  codexIntelligence,
-  db,
-  nvmNodePath: NVM_NODE_PATH,
-});
+// execution/command-builders.js: utility deps (wrapWithInstructions,
+// providerCfg, contextEnrichment, codexIntelligence) resolve at module load
+// via require() from canonical sources; nvmNodePath comes from
+// task-startup at module load. Production resolves the service via
+// defaultContainer.get('commandBuilders').
 // validation/close-phases.js: utility deps (checkFileQuality, scopedRollback,
 // runBuildVerification, runTestVerification, runStyleCheck, tryCreateAutoPR,
 // extractModifiedFiles, isValidFilePath, isShellSafe, sanitizeTaskOutput,
@@ -1035,15 +992,11 @@ _commandBuilders.init({
 // canonical sources; db, dashboard, and taskManager-bound methods
 // (safeUpdateTaskStatus, processQueue) lazy-resolve through the container.
 
-_retryFramework.init({
-  db,
-  classifyError,
-  sanitizeTaskOutput,
-  // taskCleanupGuard + pendingRetryTimeouts default to container's
-  // processTracker — retry-framework peeks it on init() unless overridden.
-  startTask,
-  processQueue,
-});
+// execution/retry-framework.js: classifyError + sanitizeTaskOutput resolve
+// at module load via require() (from fallback-retry / task-utils);
+// taskCleanupGuard + pendingRetryTimeouts come from processTracker;
+// startTask + processQueue bind from the registered taskManager handle.
+// Production no longer calls retryFramework.init().
 // safeguardGates: now resolved via defaultContainer.get('safeguardGates').
 // register() declares [db, dashboard, taskManager]; the factory resolves
 // utility deps (runLLMSafeguards, scopedRollback) via require() from
@@ -1128,6 +1081,54 @@ _processLifecycle.init({
   setupStdoutHandler: _processStreams.setupStdoutHandler,
   setupStderrHandler: _processStreams.setupStderrHandler,
 });
+
+// Boot the container so DI-resolved subsystem services (taskStartup,
+// commandBuilders, providerRouter, retryFramework, etc.) are reachable via
+// defaultContainer.get(...) from this module's wrappers. Production paths
+// boot via index.js → bootContainer(); this is the secondary boot for test
+// fixtures and any caller that drives initSubModules without going through
+// index.js. failFast:false keeps boot tolerant of missing optional deps.
+try {
+  // Register taskManager's own module.exports as the container value before
+  // boot — services that declare a 'taskManager' dep need it present at
+  // boot. In production index.js does this; in tests that drive only
+  // initSubModules we register it here.
+  if (!defaultContainer.has('taskManager')) {
+    defaultContainer.registerValue('taskManager', module.exports);
+  }
+  // Same for serverConfig + dashboard + testRunnerRegistry + sandboxManager
+  // + providerRegistry + gpuMetrics + sharedFactoryStore — services that
+  // depend on these need stubs at boot for the test path. Production paths
+  // register the real values.
+  if (!defaultContainer.has('eventBus')) {
+    defaultContainer.registerValue('eventBus', eventBus);
+  }
+  if (!defaultContainer.has('logger')) {
+    defaultContainer.registerValue('logger', logger);
+  }
+  if (!defaultContainer.has('serverConfig')) {
+    defaultContainer.registerValue('serverConfig', serverConfig);
+  }
+  if (!defaultContainer.has('dashboard')) {
+    defaultContainer.registerValue('dashboard', { broadcast: () => {}, notifyTaskUpdated: () => {} });
+  }
+  if (!defaultContainer.has('testRunnerRegistry')) {
+    defaultContainer.registerValue('testRunnerRegistry', { resolve: () => null, getRunner: () => null });
+  }
+  if (!defaultContainer.has('sandboxManager')) {
+    defaultContainer.registerValue('sandboxManager', { isAvailable: () => false });
+  }
+  if (!defaultContainer.has('providerRegistry')) {
+    defaultContainer.registerValue('providerRegistry', { getProviderInstance: () => null });
+  }
+  if (!defaultContainer.has('gpuMetrics')) {
+    defaultContainer.registerValue('gpuMetrics', { probe: () => ({}) });
+  }
+  if (!defaultContainer.has('sharedFactoryStore')) {
+    defaultContainer.registerValue('sharedFactoryStore', { get: () => null, set: () => {} });
+  }
+  defaultContainer.boot({ failFast: false });
+} catch (err) { logger.warn(`[task-manager] container boot in initSubModules failed: ${err.message}`); }
 } // end initSubModules
 
 // Use Object.assign to preserve the original module.exports reference.
@@ -1273,11 +1274,11 @@ Object.assign(module.exports, {
       _closeHandlerState._resetForTest();
       isShuttingDown = false;
       skipGitInCloseHandler = false;
-      _taskStartup.setSkipGitInCloseHandler(false);
+      defaultContainer.get('taskStartup').setSkipGitInCloseHandler(false);
     },
     waitForPendingHandlers,
     getDashboardBroadcaster,
-    set skipGitInCloseHandler(v) { skipGitInCloseHandler = v; _taskStartup.setSkipGitInCloseHandler(v); },
+    set skipGitInCloseHandler(v) { skipGitInCloseHandler = v; defaultContainer.get('taskStartup').setSkipGitInCloseHandler(v); },
     get skipGitInCloseHandler() { return skipGitInCloseHandler; },
   },
   // Explicit initialization functions (previously module-level side effects)

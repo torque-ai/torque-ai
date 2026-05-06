@@ -13,8 +13,11 @@ const { normalizeMetadata } = require('../utils/normalize-metadata');
 const { buildCombinedProcessOutput } = require('../validation/completion-detection');
 const { shouldUseOutputCompletionDetection } = require('./completion-policy');
 
-// ── Legacy module-level state, written only by init() (deprecated) ─────────
-// Phase 3 of the universal-DI migration. Coexistence pattern: factory below.
+// ── Module-level deps slot ─────────────────────────────────────────────────
+// Production callers reach the wrapped functions through createProcessStreams
+// (driven by container.get('processStreams')) which fills this slot via
+// withLocalDeps for each call. Tests that still drive raw exports populate it
+// through init().
 let deps = null;
 
 /**
@@ -36,7 +39,10 @@ let deps = null;
  * @param {Function} d.killProcessGraceful - Graceful process kill
  * @param {number}   d.MAX_OUTPUT_BUFFER - Max output buffer size
  */
-/** @deprecated Use createProcessStreams(deps) or container.get('processStreams'). */
+/**
+ * @internal — test-only override path. Production resolves via
+ * createProcessStreams(localDeps) inside the container factory.
+ */
 function init(d) {
   deps = d;
   // Container-owned shared state: ProcessTracker carries both
