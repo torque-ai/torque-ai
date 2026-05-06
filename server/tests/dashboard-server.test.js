@@ -407,6 +407,27 @@ describe('dashboard-server', () => {
     dashboardServer.stop();
   });
 
+  it('handles WebSocket connections when instance identity is unavailable', async () => {
+    const { dashboardServer } = await loadDashboardServer({ instanceId: null });
+
+    await dashboardServer.start({ port: 4570, openBrowser: false });
+
+    const wss = wsInstances[wsInstances.length - 1];
+    const ws = createMockWsClient();
+
+    expect(() => wss.handlers.connection(ws)).not.toThrow();
+    expect(sentEvents(ws)[0]).toEqual(expect.objectContaining({
+      event: 'connected',
+      data: expect.objectContaining({
+        instanceId: 'unknown',
+        shortId: 'nknown',
+        port: 4570,
+      }),
+    }));
+
+    dashboardServer.stop();
+  });
+
   it('broadcasts task-created message to all connected clients', async () => {
     const { dashboardServer } = await loadDashboardServer();
 
