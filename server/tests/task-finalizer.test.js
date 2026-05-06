@@ -222,6 +222,41 @@ describe('task-finalizer', () => {
     expect(handlePostCompletion).toHaveBeenCalledWith(expect.objectContaining({ status: 'completed' }));
   });
 
+  it('keeps createTaskFinalizer dependencies active across async finalization awaits', async () => {
+    const dbBundle = createTaskDb();
+    const { db } = dbBundle;
+    const safeUpdateTaskStatus = vi.fn((...args) => db.updateTaskStatus(...args));
+    const scopedFinalizer = finalizer.createTaskFinalizer({
+      db,
+      safeUpdateTaskStatus,
+      sanitizeTaskOutput: (value) => value || '',
+      extractModifiedFiles: vi.fn(() => []),
+      handleRetryLogic: vi.fn(),
+      handleSafeguardChecks: vi.fn(),
+      handleFuzzyRepair: vi.fn(),
+      handleNoFileChangeDetection: vi.fn(),
+      handleAutoValidation: vi.fn(),
+      handleBuildTestStyleCommit: vi.fn(),
+      handleAutoVerifyRetry: vi.fn(async () => {}),
+      handleProviderFailover: vi.fn(),
+      handlePostCompletion: vi.fn(),
+    });
+
+    const result = await scopedFinalizer.finalizeTask(dbBundle.taskId, {
+      exitCode: 0,
+      output: 'done after await',
+      errorOutput: '',
+    });
+
+    expect(result.finalized).toBe(true);
+    expect(dbBundle.getStoredTask().status).toBe('completed');
+    expect(safeUpdateTaskStatus).toHaveBeenCalledWith(
+      dbBundle.taskId,
+      'completed',
+      expect.objectContaining({ output: 'done after await' })
+    );
+  });
+
   it('marks the task failed when validation flips a successful exit', async () => {
     const dbBundle = createTaskDb();
     const handlePostCompletion = vi.fn();
