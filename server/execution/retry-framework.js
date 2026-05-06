@@ -19,20 +19,22 @@ const {
   prependResumeContextToPrompt,
 } = require('../utils/resume-context');
 
-// ── Legacy module-level state, written only by init() (deprecated) ─────────
-// Phase 3 of the universal-DI migration. retry-framework uses a slightly
-// different shape than its peers — a single `deps` object as state — but
-// the same coexistence pattern applies.
+// ── Module-level deps slot ─────────────────────────────────────────────────
+// Production callers reach handleRetryLogic through createRetryFramework's
+// per-instance withLocalDeps swap (driven by container.get('retryFramework')),
+// so this slot stays empty at runtime in normal flows. Tests that still
+// drive the raw export populate it through init().
 let deps = {};
 
-/** @deprecated Use createRetryFramework(deps) or container.get('retryFramework'). */
+/**
+ * @internal — test-only override path. Production resolves all deps via
+ * createRetryFramework(localDeps) inside the container factory and reaches
+ * handleRetryLogic through its swap wrapper. Test fixtures that still call
+ * the raw module export use this entry point until they migrate to
+ * createRetryFramework(deps).
+ */
 function init(nextDeps = {}) {
   deps = { ...deps, ...nextDeps };
-  // Container-owned shared state. ProcessTracker carries both
-  // retryTimeouts and cleanupGuard; default from the singleton when
-  // the caller doesn't pass overrides. Test fixtures with bare-Map
-  // mocks still win, and the accessor presence guard prevents a bare
-  // Map injected as taskCleanupGuard from clobbering the other slot.
   if (!deps.taskCleanupGuard || !deps.pendingRetryTimeouts) {
     const { defaultContainer } = require('../container');
     const tracker = defaultContainer.peek('processTracker');
@@ -254,10 +256,9 @@ function register(container) {
 }
 
 module.exports = {
-  // New shape (preferred)
   createRetryFramework,
   register,
-  // Legacy shape (kept until task-manager.js migrates)
+  // @internal — test-only override path (see init() jsdoc)
   init,
   handleRetryLogic,
   // Exposed for cross-call-site integration tests (resume-context strip-first

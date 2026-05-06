@@ -127,7 +127,6 @@ const _instanceManager = require('./maintenance/instance-manager');
 const _promptsModule = require('./providers/prompts');
 const _closePhases = require('./validation/close-phases');
 const _autoVerifyRetry = require('./validation/auto-verify-retry');
-const _retryFramework = require('./execution/retry-framework');
 const completionDetection = require('./validation/completion-detection');
 const _queueScheduler = require('./execution/queue-scheduler');
 const _taskFinalizer = require('./execution/task-finalizer');
@@ -480,9 +479,9 @@ function handleCloseCleanup(taskId, code) {
   return _processLifecycle.handleCloseCleanup(taskId, code);
 }
 
-// Phase 1: Retry logic — delegated to execution/retry-framework.js
+// Phase 1: Retry logic — resolved from the DI container.
 function handleRetryLogic(ctx) {
-  return _retryFramework.handleRetryLogic(ctx);
+  return defaultContainer.get('retryFramework').handleRetryLogic(ctx);
 }
 
 // Phase 2: Safeguard checks — resolved from the DI container.
@@ -1028,15 +1027,11 @@ _commandBuilders.init({
 // canonical sources; db, dashboard, and taskManager-bound methods
 // (safeUpdateTaskStatus, processQueue) lazy-resolve through the container.
 
-_retryFramework.init({
-  db,
-  classifyError,
-  sanitizeTaskOutput,
-  // taskCleanupGuard + pendingRetryTimeouts default to container's
-  // processTracker — retry-framework peeks it on init() unless overridden.
-  startTask,
-  processQueue,
-});
+// execution/retry-framework.js: classifyError + sanitizeTaskOutput resolve
+// at module load via require() (from fallback-retry / task-utils);
+// taskCleanupGuard + pendingRetryTimeouts come from processTracker;
+// startTask + processQueue bind from the registered taskManager handle.
+// Production no longer calls retryFramework.init().
 // safeguardGates: now resolved via defaultContainer.get('safeguardGates').
 // register() declares [db, dashboard, taskManager]; the factory resolves
 // utility deps (runLLMSafeguards, scopedRollback) via require() from
