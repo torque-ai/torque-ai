@@ -157,7 +157,12 @@ function init(deps) {
     if (!_debounceTimer) {
       _debounceTimer = setTimeout(() => {
         _debounceTimer = null;
-        if (!_stopped) processQueueInternal({ fromQueueChangedEvent: true });
+        if (_stopped) return;
+        try {
+          processQueueInternal({ fromQueueChangedEvent: true });
+        } catch (err) {
+          logger.info(`[Queue] queue-changed processQueue error: ${err?.message || err}`);
+        }
       }, 15);
     }
   };
@@ -1550,6 +1555,17 @@ function createQueueScheduler(localDeps = {}) {
       try { return require('./provider-router').safeConfigInt; } catch { return null; }
     })(),
     cleanupOrphanedRetryTimeouts: localDeps.cleanupOrphanedRetryTimeouts || (() => {
+      try {
+        const { defaultContainer } = require('../container');
+        const taskStartup = defaultContainer.has?.('taskStartup')
+          ? defaultContainer.get('taskStartup')
+          : null;
+        if (taskStartup && typeof taskStartup.cleanupOrphanedRetryTimeouts === 'function') {
+          return taskStartup.cleanupOrphanedRetryTimeouts.bind(taskStartup);
+        }
+      } catch {
+        // Fall back to the legacy module path below for isolated tests.
+      }
       try { return require('./task-startup').cleanupOrphanedRetryTimeouts; } catch { return null; }
     })(),
     analyzeTaskForRouting: localDeps.analyzeTaskForRouting || (() => {

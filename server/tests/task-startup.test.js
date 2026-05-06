@@ -189,6 +189,11 @@ function loadTaskStartup(options = {}) {
     defaultContainer: {
       has: vi.fn((name) => name === 'mentionResolver' && Boolean(mentionResolver)),
       get: vi.fn((name) => (name === 'mentionResolver' ? mentionResolver : null)),
+      peek: vi.fn((name) => {
+        if (name === 'processTracker') return options.processTracker || null;
+        if (name === 'db') return options.containerDb || null;
+        return null;
+      }),
     },
   };
 
@@ -890,6 +895,32 @@ describe('task-startup', () => {
     expect(clearTimeoutSpy).toHaveBeenCalledTimes(2);
     expect(pendingRetryTimeouts.has('completed-task')).toBe(false);
     expect(pendingRetryTimeouts.has('missing-task')).toBe(false);
+    expect(pendingRetryTimeouts.has('queued-task')).toBe(true);
+  });
+
+  it('cleanupOrphanedRetryTimeouts falls back to processTracker retry timeouts', async () => {
+    const clearTimeoutSpy = vi.spyOn(global, 'clearTimeout').mockImplementation(() => {});
+    const pendingRetryTimeouts = new Map([
+      ['completed-task', { id: 1 }],
+      ['queued-task', { id: 2 }],
+    ]);
+    const processTracker = { retryTimeouts: pendingRetryTimeouts };
+    const ctx = loadTaskStartup({
+      processTracker,
+      depOverrides: {
+        pendingRetryTimeouts: undefined,
+      },
+    });
+
+    ctx.deps.db.getTask.mockImplementation((taskId) => {
+      if (taskId === 'queued-task') return { id: taskId, status: 'queued' };
+      return { id: taskId, status: 'completed' };
+    });
+
+    ctx.module.cleanupOrphanedRetryTimeouts();
+
+    expect(clearTimeoutSpy).toHaveBeenCalledTimes(1);
+    expect(pendingRetryTimeouts.has('completed-task')).toBe(false);
     expect(pendingRetryTimeouts.has('queued-task')).toBe(true);
   });
 

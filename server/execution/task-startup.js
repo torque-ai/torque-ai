@@ -75,6 +75,44 @@ const FILE_LOCK_WAIT_METADATA_KEY = 'file_lock_wait';
 const FACTORY_WORKTREE_RE = /(^|[\\/])\.worktrees([\\/]|$)/i;
 const VISIBLE_SHELL_PROVIDERS = new Set(['claude-cli', 'codex', 'codex-spark']);
 
+function resolvePendingRetryTimeouts() {
+  if (pendingRetryTimeouts && typeof pendingRetryTimeouts.entries === 'function') {
+    return pendingRetryTimeouts;
+  }
+
+  try {
+    const { defaultContainer } = require('../container');
+    const tracker = defaultContainer.peek?.('processTracker') || null;
+    if (tracker?.retryTimeouts && typeof tracker.retryTimeouts.entries === 'function') {
+      pendingRetryTimeouts = tracker.retryTimeouts;
+      return pendingRetryTimeouts;
+    }
+  } catch {
+    // Container may be unavailable in isolated tests; no retry cleanup needed.
+  }
+
+  return null;
+}
+
+function resolveTaskDbForRetryCleanup() {
+  if (db && typeof db.getTask === 'function') {
+    return db;
+  }
+
+  try {
+    const { defaultContainer } = require('../container');
+    const containerDb = defaultContainer.peek?.('db') || null;
+    if (containerDb && typeof containerDb.getTask === 'function') {
+      db = containerDb;
+      return db;
+    }
+  } catch {
+    // Container may be unavailable in isolated tests; skip cleanup.
+  }
+
+  return null;
+}
+
 function getTaskMetadataObject(task) {
   try {
     if (typeof parseTaskMetadata === 'function') {
@@ -2056,13 +2094,22 @@ function cleanupOrphanedRetryTimeouts() {
   }
   lastRetryCleanupTime = now;
 
+  const retryTimeouts = resolvePendingRetryTimeouts();
+  if (!retryTimeouts) {
+    return;
+  }
+  const taskDb = resolveTaskDbForRetryCleanup();
+  if (!taskDb) {
+    return;
+  }
+
   let cleaned = 0;
-  for (const [taskId, timeoutHandle] of pendingRetryTimeouts.entries()) {
-    const task = db.getTask(taskId);
+  for (const [taskId, timeoutHandle] of retryTimeouts.entries()) {
+    const task = taskDb.getTask(taskId);
     // Clean up if task doesn't exist or is no longer in a retryable state
     if (!task || !['pending', 'queued'].includes(task.status)) {
       clearTimeout(timeoutHandle);
-      pendingRetryTimeouts.delete(taskId);
+      retryTimeouts.delete(taskId);
       cleaned++;
     }
   }

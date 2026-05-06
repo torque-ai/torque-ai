@@ -138,6 +138,22 @@ describe('Queue Scheduler', () => {
       }
     });
 
+    it('logs queue-changed processing errors instead of throwing from the timer', () => {
+      vi.useFakeTimers();
+      try {
+        mocks.cleanupOrphanedRetryTimeouts.mockImplementation(() => {
+          throw new Error("Cannot read properties of undefined (reading 'entries')");
+        });
+
+        process.emit('torque:queue-changed');
+
+        expect(() => vi.advanceTimersByTime(100)).not.toThrow();
+        expect(mocks.cleanupOrphanedRetryTimeouts).toHaveBeenCalledTimes(1);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
     it('replaces stale torque:queue-changed listeners across module reloads', () => {
       const baselineListenerCount = process.listenerCount('torque:queue-changed');
       const modPath = require.resolve('../execution/queue-scheduler');
