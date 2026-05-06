@@ -606,6 +606,61 @@ Edit server/factory/plan-executor.js and make the requested behavior change. Kee
     expect(decisions.find((d) => d.action === 'pre_written_plan_quality_rejected_before_execute')).toBeTruthy();
   });
 
+  it('clears generated plan files before replanning a needs_replan item', async () => {
+    const { project } = registerPlanProject();
+    const planPath = path.join(tempDir, `generated-plan-${Date.now()}.md`);
+    fs.writeFileSync(planPath, `# Generated stale plan
+
+**Tech Stack:** Node.js, vitest.
+
+## Task 1: Stale task
+
+- [ ] **Step 1: Implement the stale helper**
+
+    Edit server/factory/plan-executor.js to add a stale helper that should never run in this regression. Acceptance criterion: the test verifies the generated plan path is removed before execution starts.
+`);
+    const workItem = factoryIntake.createWorkItem({
+      project_id: project.id,
+      source: 'architect',
+      title: 'Generated stale plan item',
+      description: 'Exercise needs_replan stale plan clearing.',
+      requestor: 'test',
+      origin: { plan_path: planPath },
+    });
+    const routedWorkItem = factoryIntake.updateWorkItem(workItem.id, {
+      status: 'needs_replan',
+      reject_reason: 'task_targets_missing_files: task_3',
+    });
+    const batchId = `factory-${project.id}-${workItem.id}`;
+    const instance = factoryLoopInstances.createInstance({
+      project_id: project.id,
+      work_item_id: workItem.id,
+      batch_id: batchId,
+    });
+
+    const result = await loopController._internalForTests.executePlanStage(project, instance, routedWorkItem);
+
+    expect(result).toMatchObject({
+      stop_execution: true,
+      next_state: LOOP_STATES.PRIORITIZE,
+      stage_result: {
+        status: 'needs_replan',
+        reason: 'stale_generated_plan_before_replan',
+        work_item_id: workItem.id,
+        plan_path: planPath,
+      },
+    });
+    const after = factoryIntake.getWorkItem(workItem.id);
+    expect(after.status).toBe('needs_replan');
+    expect(after.origin?.plan_path).toBeUndefined();
+    expect(after.origin?.last_rejection_reason).toBe('stale_generated_plan_before_replan');
+    expect(fs.existsSync(planPath)).toBe(false);
+    expect(routingModule.handleSmartSubmitTask).not.toHaveBeenCalled();
+
+    const decisions = listDecisionRows(db, project.id);
+    expect(decisions.find((d) => d.action === 'stale_generated_plan_cleared_before_replan')).toBeTruthy();
+  });
+
   it('keeps pure suppression available when config.execute_mode is suppress', async () => {
     const { project, workItem, planPath } = registerPlanProject({
       config: { execute_mode: 'suppress' },

@@ -7616,6 +7616,53 @@ async function executePlanStage(project, instance, selectedWorkItem = null) {
   }
 
   if (workItem?.origin?.plan_path && fs.existsSync(workItem.origin.plan_path)) {
+    if (workItem.status === 'needs_replan' && shouldDeletePlanPathForNeedsReplan(workItem, workItem.origin.plan_path)) {
+      const stalePlanPath = workItem.origin.plan_path;
+      const routed = routeWorkItemToNeedsReplan(workItem, {
+        reason: 'stale_generated_plan_before_replan',
+        details: { plan_path: stalePlanPath },
+      });
+      if (instance?.id) {
+        rememberSelectedWorkItem(instance.id, routed);
+        updateInstanceAndSync(instance.id, { work_item_id: routed.id });
+      }
+      logger.info('PLAN stage: removed stale generated plan before needs_replan architect pass', {
+        project_id: project.id,
+        work_item_id: routed.id,
+        plan_path: stalePlanPath,
+      });
+      safeLogDecision({
+        project_id: project.id,
+        stage: LOOP_STATES.PLAN,
+        action: 'stale_generated_plan_cleared_before_replan',
+        reasoning: 'needs_replan work item had a generated plan file; cleared it so the architect must produce a fresh plan.',
+        inputs: {
+          ...getWorkItemDecisionContext(workItem),
+          plan_path: stalePlanPath,
+        },
+        outcome: {
+          next_status: routed.status,
+          next_state: LOOP_STATES.PRIORITIZE,
+          plan_path_cleared: true,
+          ...getWorkItemDecisionContext(routed),
+        },
+        confidence: 1,
+        batch_id: getDecisionBatchId(project, routed, null, instance),
+      });
+      return {
+        reason: 'stale generated plan cleared before replan',
+        work_item: routed,
+        stop_execution: true,
+        next_state: LOOP_STATES.PRIORITIZE,
+        stage_result: {
+          status: routed.status,
+          reason: 'stale_generated_plan_before_replan',
+          work_item_id: routed.id,
+          plan_path: stalePlanPath,
+        },
+      };
+    }
+
     // Bug D fix: pre-written plans previously bypassed plan-quality-gate
     // entirely, so plans containing bare `dotnet test` (and other heavy local
     // validation that governance rejects at execution time) reached EXECUTE
@@ -10078,16 +10125,22 @@ async function executePlanFileStage(project, instance, workItem) {
     // The reject_reason carries the failure-mode signature (task_N_failed
     // or violation_rule:task_N) so Phase P's replan-recovery routing can
     // pick a failure-mode-specific strategy on the next attempt.
-    factoryIntake.updateWorkItem(targetItem.id, {
-      status: 'needs_replan',
-      reject_reason: rejectReason,
+    const originalPlanPath = targetItem.origin?.plan_path || null;
+    const routed = routeWorkItemToNeedsReplan(targetItem, {
+      reason: rejectReason,
+      details: {
+        failed_task: result.failed_task,
+        violation_rule: violationRule,
+        plan_path: originalPlanPath,
+      },
     });
     logger.warn('EXECUTE stage: plan executor stopped on failed task', {
       project_id: project.id,
       work_item_id: targetItem.id,
       failed_task: result.failed_task,
       violation_rule: violationRule,
-      plan_path: targetItem.origin.plan_path,
+      plan_path: originalPlanPath,
+      routed_status: routed.status,
     });
     safeLogDecision({
       project_id: project.id,
@@ -10100,7 +10153,8 @@ async function executePlanFileStage(project, instance, workItem) {
       outcome: {
         failed_task: result.failed_task,
         final_state: LOOP_STATES.IDLE,
-        plan_path: targetItem.origin.plan_path,
+        plan_path: originalPlanPath,
+        next_status: routed.status,
       },
       confidence: 1,
       batch_id: decisionBatchId,
@@ -10110,7 +10164,7 @@ async function executePlanFileStage(project, instance, workItem) {
       paused_at_stage: null,
       reason: `task ${result.failed_task} failed`,
       stage_result: result,
-      work_item: targetItem,
+      work_item: routed,
     };
   }
 
