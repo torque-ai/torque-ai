@@ -319,8 +319,17 @@ function processStderrChunk(taskId, text, streamId) {
     proc.errorOutput = '[...truncated...]\n' + proc.errorOutput.slice(-_MAX_OUTPUT_BUFFER / 2);
   }
 
+  // Codex banner check: a chunk is "banner only" iff EVERY line matches the
+  // banner pattern (or is blank). The previous regex used `/m.test(text)`,
+  // which returns true if ANY line matches — including the trailing blank
+  // line that almost every chunk has. That misclassified mixed chunks
+  // (banner line + real exec output) as banner-only and froze
+  // `proc.lastOutputAt` at spawn time, so the dashboard's last_output_at
+  // never advanced for any codex task on the detached spawn path.
   const isCodexBanner = (proc.provider === 'codex') &&
-    /^(OpenAI Codex|[-]{4,}|workdir:|model:|provider:|approval:|sandbox:|reasoning|session id:|\s*$)/m.test(text);
+    text.split(/\r?\n/).every(line =>
+      /^(?:OpenAI Codex|[-]{4,}|(?:workdir|model|provider|approval|sandbox|reasoning|session id):.*|\s*)$/i.test(line)
+    );
   if (!isCodexBanner) {
     proc.lastOutputAt = Date.now();
   }
@@ -2116,6 +2125,9 @@ module.exports = {
   computeActivityAwareTimeoutDelay,
   parseProcessExitAnnotation,
   shouldUseDetachedPath,
+  // Exported for regression coverage of stderr banner classification.
+  processStdoutChunk,
+  processStderrChunk,
   EXIT_SPAWN_INSTANT_EXIT,
   EXIT_CLOSE_HANDLER_EXCEPTION,
   EXIT_SPAWN_ERROR,

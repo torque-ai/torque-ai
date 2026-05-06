@@ -926,4 +926,81 @@ describe('execute-cli.js', () => {
       expect(runningProcesses.has(taskId)).toBe(false);
     });
   });
+
+  // ── processStderrChunk: codex banner classification ─────────────
+  // Regression for the bug where a `/m` regex with `\s*$` matched any
+  // chunk containing a blank line as banner-only, which froze
+  // proc.lastOutputAt at spawn time for every codex task on the
+  // detached spawn path. The dashboard's last_output_at then never
+  // advanced even while codex wrote tens of KB of tool traces.
+  describe('processStderrChunk codex banner classification', () => {
+    function setupProc({ provider = 'codex', initialLastOutputAt = 1000 } = {}) {
+      const runningProcesses = new Map();
+      const deps = makeDeps({ runningProcesses });
+      mod.init(deps);
+      const taskId = 'banner-test';
+      runningProcesses.set(taskId, {
+        process: null,
+        output: '',
+        errorOutput: '',
+        startTime: Date.now() - 10_000,
+        lastOutputAt: initialLastOutputAt,
+        provider,
+        model: 'codex',
+        startupTimeoutHandle: null,
+        completionDetected: false,
+        completionGraceHandle: null,
+        lastProgress: 0,
+        streamErrorCount: 0,
+        streamErrorWarned: false,
+      });
+      return { runningProcesses, taskId };
+    }
+
+    it('does NOT advance lastOutputAt for pure banner chunks', () => {
+      const { runningProcesses, taskId } = setupProc({ initialLastOutputAt: 1000 });
+      const before = runningProcesses.get(taskId).lastOutputAt;
+      const bannerChunk = [
+        'OpenAI Codex',
+        '----',
+        'workdir: /repo',
+        'model: gpt-5-codex',
+        'provider: codex',
+        '',
+      ].join('\n');
+      mod.processStderrChunk(taskId, bannerChunk, 'stream-1');
+      expect(runningProcesses.get(taskId).lastOutputAt).toBe(before);
+    });
+
+    it('DOES advance lastOutputAt for mixed banner + real-content chunks', () => {
+      const { runningProcesses, taskId } = setupProc({ initialLastOutputAt: 1000 });
+      const before = runningProcesses.get(taskId).lastOutputAt;
+      // The bug: this chunk contains a banner-pattern line ("model: ...") AND
+      // a real-content line ("exec rg ..."). The buggy /m regex matched the
+      // banner line and froze lastOutputAt. The fixed `every()` logic sees
+      // the non-matching exec line and correctly classifies the chunk as
+      // active output.
+      const mixedChunk = [
+        'model: gpt-5-codex',
+        'exec rg --files docs',
+        '',
+      ].join('\n');
+      mod.processStderrChunk(taskId, mixedChunk, 'stream-1');
+      expect(runningProcesses.get(taskId).lastOutputAt).toBeGreaterThan(before);
+    });
+
+    it('DOES advance lastOutputAt for pure non-banner chunks', () => {
+      const { runningProcesses, taskId } = setupProc({ initialLastOutputAt: 1000 });
+      const before = runningProcesses.get(taskId).lastOutputAt;
+      mod.processStderrChunk(taskId, 'exec rg --files docs\n', 'stream-1');
+      expect(runningProcesses.get(taskId).lastOutputAt).toBeGreaterThan(before);
+    });
+
+    it('always advances lastOutputAt for non-codex providers', () => {
+      const { runningProcesses, taskId } = setupProc({ provider: 'claude-cli', initialLastOutputAt: 1000 });
+      const before = runningProcesses.get(taskId).lastOutputAt;
+      mod.processStderrChunk(taskId, 'OpenAI Codex\nworkdir: /repo\n', 'stream-1');
+      expect(runningProcesses.get(taskId).lastOutputAt).toBeGreaterThan(before);
+    });
+  });
 });
