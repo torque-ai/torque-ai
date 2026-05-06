@@ -797,6 +797,36 @@ describe('fallback-retry module', () => {
       expect(updated.error_output).toContain('[STALL RECOVERY] Attempt 1: switch_edit_format');
     });
 
+    it('skips stall recovery instead of throwing when stopTaskForRestart is unavailable', () => {
+      const task = createTask({
+        provider: 'ollama',
+        model: TEST_MODELS.DEFAULT,
+      });
+      runningProcesses.set(task.id, { editFormat: 'diff' });
+      mod.init({
+        db,
+        dashboard: {
+          broadcast: () => {},
+          notifyTaskUpdated: (taskId) => notifyCalls.push(taskId),
+        },
+        processQueue: () => { processQueueCalls++; },
+        cancelTask: (taskId, reason) => {
+          cancelCalls.push({ taskId, reason });
+          return { status: 'cancelled' };
+        },
+        stopTaskForRestart: null,
+        stallRecoveryAttempts,
+        runningProcesses,
+      });
+
+      const ok = mod.tryStallRecovery(task.id, { lastActivitySeconds: 360 });
+
+      expect(ok).toBe(false);
+      expect(restartCalls).toHaveLength(0);
+      expect(stallRecoveryAttempts.has(task.id)).toBe(false);
+      expect(taskCore.getTask(task.id).status).toBe('running');
+    });
+
     it('refreshes factory-worktrees grace window when requeuing', () => {
       // Regression: stall recovery requeues the SAME task_id but the
       // factory_worktrees row keeps its original created_at — on the next

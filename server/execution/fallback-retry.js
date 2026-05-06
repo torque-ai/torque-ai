@@ -168,7 +168,9 @@ function init(deps = {}) {
   if (deps.dashboard) dashboard = deps.dashboard;
   if (deps.processQueue) _processQueue = deps.processQueue;
   if (deps.cancelTask) _cancelTask = deps.cancelTask;
-  if (deps.stopTaskForRestart) _stopTaskForRestart = deps.stopTaskForRestart;
+  if (Object.prototype.hasOwnProperty.call(deps, 'stopTaskForRestart')) {
+    _stopTaskForRestart = typeof deps.stopTaskForRestart === 'function' ? deps.stopTaskForRestart : null;
+  }
   if (deps.markTaskCleanedUp) _markTaskCleanedUp = deps.markTaskCleanedUp;
 
   // Container-owned shared state. ProcessTracker carries both
@@ -493,10 +495,25 @@ function tryLocalFirstFallback(taskId, task, errorMsg, options = {}) {
  */
 function tryStallRecovery(taskId, activity) {
   ensureDeps();
+
+  if (
+    !_stallRecoveryAttempts
+    || typeof _stallRecoveryAttempts.get !== 'function'
+    || typeof _stallRecoveryAttempts.set !== 'function'
+    || typeof _stallRecoveryAttempts.delete !== 'function'
+  ) {
+    logger.warn(`[StallRecovery] Recovery state unavailable for task ${taskId}; skipping stall recovery`);
+    return false;
+  }
+
   const maxAttempts = serverConfig.getInt('stall_recovery_max_attempts', 3);
   const recovery = _stallRecoveryAttempts.get(taskId) || { attempts: 0, lastStrategy: null };
 
   if (recovery.attempts >= maxAttempts) {
+    if (typeof _cancelTask !== 'function') {
+      logger.warn(`[StallRecovery] cancelTask unavailable for exhausted task ${taskId}; skipping cancellation`);
+      return false;
+    }
     logger.info(`[StallRecovery] Task ${taskId} exceeded max recovery attempts (${maxAttempts}) - stall recovery exhausted`);
     _stallRecoveryAttempts.delete(taskId);
     _cancelTask(
@@ -509,12 +526,23 @@ function tryStallRecovery(taskId, activity) {
 
   const task = db.getTask(taskId);
   if (!task) {
+    if (typeof _cancelTask !== 'function') {
+      logger.warn(`[StallRecovery] cancelTask unavailable for missing task ${taskId}; skipping cancellation`);
+      return false;
+    }
     logger.info(`[StallRecovery] Task ${taskId} not found in database - cancelling`);
     _cancelTask(taskId, 'Task not found', { cancel_reason: 'task_not_found' });
     return false;
   }
 
-  const proc = _runningProcesses.get(taskId);
+  if (typeof _stopTaskForRestart !== 'function') {
+    logger.warn(`[StallRecovery] stopTaskForRestart unavailable for task ${taskId}; skipping stall recovery`);
+    return false;
+  }
+
+  const proc = _runningProcesses && typeof _runningProcesses.get === 'function'
+    ? _runningProcesses.get(taskId)
+    : null;
   const currentEditFormat = proc?.editFormat || serverConfig.get('aider_edit_format') || 'diff';
   let currentModel = task.model;
   if (!currentModel) {

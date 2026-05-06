@@ -1094,6 +1094,8 @@ try {
 Object.assign(module.exports, {
   startTask,
   cancelTask,
+  stopTaskForRestart,
+  markTaskCleanedUp,
   processQueue,
   getTaskProgress,
   getRunningTaskCount,
