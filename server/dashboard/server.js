@@ -520,12 +520,13 @@ function handleWebSocket(ws, req) {
   // Send initial connection success with instance identity
   const taskManager = require('../task-manager');
   const instanceId = taskManager.getMcpInstanceId();
+  const instanceIdText = typeof instanceId === 'string' ? instanceId : 'unknown';
   ws.send(JSON.stringify({
     event: 'connected',
     data: {
       clients: clients.size,
-      instanceId,
-      shortId: instanceId.slice(-6),
+      instanceId: instanceIdText,
+      shortId: instanceIdText.slice(-6),
       port: serverPort
     }
   }));
