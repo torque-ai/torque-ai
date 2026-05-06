@@ -133,8 +133,14 @@ const _taskFinalizer = require('./execution/task-finalizer');
 const _sandboxRevertDetection = require('./execution/sandbox-revert-detection');
 const _completionPipeline = require('./execution/completion-pipeline');
 const _taskUtils = require('./execution/task-utils');
-const _processLifecycle = require('./execution/process-lifecycle');
-const { safeDecrementHostSlot, killProcessGraceful, safeTriggerWebhook, cleanupProcessTracking, cleanupChildProcessListeners } = _processLifecycle;
+// execution/process-lifecycle.js: production accesses methods through
+// defaultContainer.get('processLifecycle'). The factory self-bootstraps deps
+// (taskManager methods + process-streams handlers + container singletons).
+function safeDecrementHostSlot(...args) { return defaultContainer.get('processLifecycle').safeDecrementHostSlot(...args); }
+function killProcessGraceful(...args) { return defaultContainer.get('processLifecycle').killProcessGraceful(...args); }
+function safeTriggerWebhook(...args) { return defaultContainer.get('processLifecycle').safeTriggerWebhook(...args); }
+function cleanupProcessTracking(...args) { return defaultContainer.get('processLifecycle').cleanupProcessTracking(...args); }
+function cleanupChildProcessListeners(...args) { return defaultContainer.get('processLifecycle').cleanupChildProcessListeners(...args); }
 const debugLifecycle = require('./execution/debug-lifecycle');
 const _processStreams = require('./execution/process-streams');
 const ProcessTracker = require('./execution/process-tracker');
@@ -473,7 +479,7 @@ function handlePlanProjectTaskFailure(...args) { return defaultContainer.get('pl
 
 // Phase 0: Race guard + cleanup — delegated to execution/process-lifecycle.js
 function handleCloseCleanup(taskId, code) {
-  return _processLifecycle.handleCloseCleanup(taskId, code);
+  return defaultContainer.get('processLifecycle').handleCloseCleanup(taskId, code);
 }
 
 // Phase 1: Retry logic — resolved from the DI container.
@@ -547,7 +553,7 @@ function getEffectiveGlobalMaxConcurrent(...args) { return defaultContainer.get(
 
 // Delegated to execution/process-lifecycle.js (D4.3)
 function spawnAndTrackProcess(taskId, task, config) {
-  return _processLifecycle.spawnAndTrackProcess(taskId, task, config);
+  return defaultContainer.get('processLifecycle').spawnAndTrackProcess(taskId, task, config);
 }
 
 // startTask — delegated to execution/task-startup.js
@@ -1069,19 +1075,11 @@ _processStreams.init({
   MAX_OUTPUT_BUFFER,
 });
 
-_processLifecycle.init({
-  dashboard: getDashboardBroadcaster(),
-  // runningProcesses, finalizingTasks, closeHandlerState default to the
-  // container values — process-lifecycle peeks them on init() unless
-  // overridden.
-  finalizeTask,
-  cancelTask,
-  processQueue,
-  markTaskCleanedUp,
-  safeUpdateTaskStatus,
-  setupStdoutHandler: _processStreams.setupStdoutHandler,
-  setupStderrHandler: _processStreams.setupStderrHandler,
-});
+// execution/process-lifecycle.js: dashboard / finalizeTask / cancelTask /
+// processQueue / markTaskCleanedUp / safeUpdateTaskStatus / setupStdoutHandler /
+// setupStderrHandler all resolve inside createProcessLifecycle via container
+// peek + taskManager binding + require()s. Production resolves the service
+// via defaultContainer.get('processLifecycle').
 
 // Boot the container so DI-resolved subsystem services (taskStartup,
 // commandBuilders, providerRouter, retryFramework, etc.) are reachable via

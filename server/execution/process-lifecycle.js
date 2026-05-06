@@ -100,7 +100,10 @@ function touchFinalizingMarker(taskId, stage) {
  * @param {Function} d.setupStderrHandler - Stderr handler attachment
  * @param {Object}   d.closeHandlerState - Mutable counter { count, resolvers, drain }
  */
-/** @deprecated Use createProcessLifecycle(deps) or container.get('processLifecycle'). */
+/**
+ * @internal — test-only override path. Production resolves via
+ * createProcessLifecycle(localDeps) inside the container factory.
+ */
 function init(d) {
   deps = d;
   // Container-owned shared state. ProcessTracker carries
