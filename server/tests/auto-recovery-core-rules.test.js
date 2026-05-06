@@ -29,6 +29,29 @@ describe('auto-recovery-core day-one rules', () => {
     expect(['plan_failure', 'sandbox_interrupt']).toContain(r.category);
   });
 
+  it('classifies phantom_completion_detected as sandbox_interrupt with fresh-session retry first', () => {
+    // Regression for recovery-decisions.md conflict #4 (2026-05-06):
+    // task-finalizer's phantom_success_detection stage emits
+    // `action: 'phantom_completion_detected'` (server/validation/phantom-success-detector.js:170)
+    // when codex returns exit-0 but produced empty/sandbox-truncated output. Before this rule,
+    // those decisions fell through to UNKNOWN_CLASSIFICATION → ['retry', 'escalate']; the plain
+    // retry re-spawned the same task on the same provider that had just phantom-succeeded.
+    const r = classifier.classify({
+      stage: 'execute',
+      action: 'phantom_completion_detected',
+      reasoning: 'Codex exit 0 but output empty / sandbox-truncated',
+      outcome: { task_id: 'tsk-abc', final_status: 'failed', raw_exit_code: 0 },
+    });
+    expect(r.matched_rule).toBe('phantom_completion_detected');
+    expect(r.category).toBe('sandbox_interrupt');
+    expect(r.suggested_strategies[0]).toBe('retry_with_fresh_session');
+    expect(r.suggested_strategies).toEqual([
+      'retry_with_fresh_session',
+      'fallback_provider',
+      'escalate',
+    ]);
+  });
+
   it('classifies execute worktree creation failures as structural failures', () => {
     const r = classifier.classify({
       stage: 'execute',

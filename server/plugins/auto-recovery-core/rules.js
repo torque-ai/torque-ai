@@ -25,6 +25,34 @@ module.exports = [
     suggested_strategies: ['retry_with_fresh_session', 'fallback_provider', 'escalate'],
   },
   {
+    // Phantom-completion: codex returned exit-0 but task-finalizer's
+    // phantom_success_detection stage caught that the output was empty/sandbox-
+    // truncated (not a real success). The detector flips ctx.status from
+    // completed→failed and emits action `phantom_completion_detected` (see
+    // server/validation/phantom-success-detector.js:170 — safeLogFactoryDecision).
+    //
+    // This is a different shape from `codex_phantom_success` above (which fires
+    // on cannot_generate_plan + sandbox-regex during PLAN stage, emitted from
+    // loop-controller). They share the same cure — clear the codex session,
+    // try a different provider, or escalate — but they emit at different
+    // pipeline points and have separate action names.
+    //
+    // Live evidence (recovery-decisions.md conflict #4 audit, 2026-05-06):
+    // before this rule, phantom_completion_detected decisions fell through to
+    // UNKNOWN_CLASSIFICATION → ['retry', 'escalate']. The plain retry
+    // re-spawned the same task on the same provider that had just phantom-
+    // succeeded — typically reproducing the same sandbox kill. With this rule,
+    // recovery routes through retry_with_fresh_session first (which cancels
+    // the active codex session and re-spawns on a new one), then provider
+    // fallback, then operator escalate.
+    name: 'phantom_completion_detected',
+    category: 'sandbox_interrupt',
+    priority: 150,
+    confidence: 0.85,
+    match: { stage: 'execute', action: 'phantom_completion_detected' },
+    suggested_strategies: ['retry_with_fresh_session', 'fallback_provider', 'escalate'],
+  },
+  {
     name: 'plan_generation_failed',
     category: 'plan_failure',
     priority: 100,
