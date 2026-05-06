@@ -13,7 +13,13 @@
 const logger = require('../logger').child({ component: 'fallback-retry' });
 const { STALL_REQUEUE_DEBOUNCE_MS, DEFAULT_FALLBACK_MODEL } = require('../constants');
 const modelRoles = require('../db/model-roles');
-const { CLOUD_PROVIDERS, getProviderFallbackChain } = require('../db/provider/routing-core');
+// Reference the routing-core module without destructuring at load time.
+// Reading CLOUD_PROVIDERS / getProviderFallbackChain off the module at call
+// time keeps fallback-retry tolerant of routing-core's `...smartRouting`
+// spread observing a half-loaded smart-routing during circular-require
+// resolution or test mock installation. Tests that install a routing-core
+// stub before fallback-retry's helpers fire will see their stub.
+const _routingCore = require('../db/provider/routing-core');
 const serverConfig = require('../config');
 const { resolveOllamaModel } = require('../providers/ollama-shared');
 const { normalizeMetadata } = require('../utils/normalize-metadata');
@@ -231,9 +237,9 @@ function tryOllamaCloudFallback(taskId, task, errorMsg) {
   // Append remaining CLOUD_PROVIDERS not in chain as safety net — this function's intent is
   // "try ANY available cloud provider", broader than normal fallback.
   const sourceProvider = task.provider || 'ollama';
-  const chain = getProviderFallbackChain(sourceProvider, { cloudOnly: true });
+  const chain = _routingCore.getProviderFallbackChain(sourceProvider, { cloudOnly: true });
   const chainSet = new Set(chain);
-  const tail = CLOUD_PROVIDERS.filter(p => !chainSet.has(p));
+  const tail = _routingCore.CLOUD_PROVIDERS.filter(p => !chainSet.has(p));
 
   // If user configured a specific fallback provider, move it to the head of the chain
   const configuredFallback = serverConfig.get('ollama_fallback_provider');
