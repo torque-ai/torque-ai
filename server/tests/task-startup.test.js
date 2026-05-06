@@ -859,4 +859,71 @@ describe('task-startup', () => {
     ctx.module.setSkipGitInCloseHandler(false);
     expect(ctx.module.getSkipGitInCloseHandler()).toBe(false);
   });
+
+  // getTaskProgress prefers Tail-watcher offsets over in-memory buffer
+  // length on the detached spawn path, so the dashboard sees total bytes
+  // ever written to the log files instead of "bytes since re-adoption".
+  // Without this, error_output_bytes visibly "shrinks" on every restart
+  // cycle (in-memory rebuilds from offset 0 while disk total keeps growing).
+  describe('getTaskProgress detached-path byte counts', () => {
+    it('reports errorLogOffset when it exceeds in-memory errorOutput length', () => {
+      const ctx = loadTaskStartup();
+      const taskId = 'task-detached';
+      ctx.deps.runningProcesses.set(taskId, {
+        process: null,
+        startTime: Date.now() - 60 * 1000,
+        lastOutputAt: Date.now() - 5 * 1000,
+        provider: 'codex',
+        output: 'recent stdout',                 // 13 bytes in-memory
+        errorOutput: 'recent stderr chunk\n',    // 20 bytes in-memory
+        outputLogOffset: 1024,                    // 1KB total stdout on disk
+        errorLogOffset: 7_500_000,                // 7.5MB total stderr on disk
+      });
+
+      const progress = ctx.module.getTaskProgress(taskId);
+      expect(progress).not.toBeNull();
+      expect(progress.output_length).toBe(1024);
+      expect(progress.error_output_length).toBe(7_500_000);
+    });
+
+    it('falls back to in-memory length when offsets are missing (pipe path)', () => {
+      const ctx = loadTaskStartup();
+      const taskId = 'task-pipe';
+      ctx.deps.runningProcesses.set(taskId, {
+        process: { pid: 1234 },
+        startTime: Date.now() - 60 * 1000,
+        lastOutputAt: Date.now() - 5 * 1000,
+        provider: 'ollama',
+        output: 'short stdout',                  // 12 bytes
+        errorOutput: 'short stderr',             // 12 bytes
+        // No outputLogOffset / errorLogOffset (pipe path doesn't track them)
+      });
+
+      const progress = ctx.module.getTaskProgress(taskId);
+      expect(progress).not.toBeNull();
+      expect(progress.output_length).toBe(12);
+      expect(progress.error_output_length).toBe(12);
+    });
+
+    it('falls back to in-memory length when offsets are smaller (early in re-adoption)', () => {
+      // Edge case: re-adoption just started; the new tail has read more
+      // recent bytes into in-memory than the old persisted offset
+      // covered. Use whichever is greater so the count never decreases.
+      const ctx = loadTaskStartup();
+      const taskId = 'task-readopt-early';
+      ctx.deps.runningProcesses.set(taskId, {
+        process: null,
+        startTime: Date.now() - 60 * 1000,
+        lastOutputAt: Date.now() - 5 * 1000,
+        provider: 'codex',
+        output: '',
+        errorOutput: 'a'.repeat(100),  // 100 bytes accumulated post-readopt
+        outputLogOffset: 0,
+        errorLogOffset: 50,             // smaller than in-memory length
+      });
+
+      const progress = ctx.module.getTaskProgress(taskId);
+      expect(progress.error_output_length).toBe(100);
+    });
+  });
 });

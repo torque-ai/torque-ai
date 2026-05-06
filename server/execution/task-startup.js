@@ -1966,13 +1966,27 @@ function getTaskProgress(taskId) {
     const lastOutputAt = proc.lastOutputAt
       ? new Date(proc.lastOutputAt).toISOString()
       : null;
+    // Detached spawn path keeps a Tail watcher that updates errorLogOffset
+    // to the current stderr.log read position (≈ total stderr bytes ever
+    // produced by the codex subprocess). The in-memory `proc.errorOutput`
+    // gets reset to '' on re-adoption (it rebuilds from the persisted
+    // offset, so its length is "bytes since re-adoption", not total).
+    // Reporting in-memory length here makes the dashboard see error_output
+    // visibly "shrink" across restart cycles. Prefer the offset when it
+    // exceeds the in-memory length so the operator gets the honest total.
+    const stdoutTotal = (typeof proc.outputLogOffset === 'number' && proc.outputLogOffset > stdout.length)
+      ? proc.outputLogOffset
+      : stdout.length;
+    const stderrTotal = (typeof proc.errorLogOffset === 'number' && proc.errorLogOffset > stderr.length)
+      ? proc.errorLogOffset
+      : stderr.length;
     return {
       running: true,
       status: 'running',
       output: sanitizeTaskOutput(proc.output),
       errorOutput: stderr,
-      output_length: stdout.length,
-      error_output_length: stderr.length,
+      output_length: stdoutTotal,
+      error_output_length: stderrTotal,
       last_output_at: lastOutputAt,
       phase: null,
       elapsedSeconds: Math.round(elapsedMs / 1000),

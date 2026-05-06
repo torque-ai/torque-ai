@@ -162,3 +162,99 @@ describe('Activity Monitoring - Stall Threshold Multipliers', () => {
     expect(deltaSpy).not.toHaveBeenCalled();
   });
 });
+
+// Max-task-lifetime cap: defense-in-depth against tasks that ARE making
+// activity (so the layered stall rescues keep saving them) but never
+// converging — e.g., a codex run that loops endlessly through tool calls.
+// Disabled by default (config 0); operator opts in by setting
+// `max_task_lifetime_seconds`. Bypasses CPU + filesystem rescues at the
+// limit because at that age the task is stuck regardless of activity.
+describe('Activity Monitoring - max-task-lifetime cap', () => {
+  let activityMonitoring;
+  let runningProcesses;
+  let getStallThreshold;
+  let safeConfigInt;
+  let processActivity;
+
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    activityMonitoring = require('../utils/activity-monitoring');
+    processActivity = require('../utils/process-activity');
+    processActivity.clearActivityCache();
+    runningProcesses = new Map();
+    getStallThreshold = vi.fn();
+    safeConfigInt = vi.fn();
+
+    activityMonitoring.init({
+      runningProcesses,
+      getStallThreshold,
+      safeConfigInt,
+      getSkipGitInCloseHandler: () => false,
+    });
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  function setupCodexProc(taskId, { ageSeconds, lastOutputSecondsAgo = 5 }) {
+    const now = Date.now();
+    runningProcesses.set(taskId, {
+      process: {},
+      pid: undefined,
+      model: 'gpt-5.5',
+      provider: 'codex',
+      metadata: {},
+      startTime: now - ageSeconds * 1000,
+      lastOutputAt: now - lastOutputSecondsAgo * 1000,
+      output: '',
+      errorOutput: '',
+      lastFsFingerprint: null,
+    });
+  }
+
+  it('does NOT trip when max_task_lifetime_seconds is 0 (disabled, default)', () => {
+    getStallThreshold.mockReturnValue(120);
+    safeConfigInt.mockImplementation((key, def) => (key === 'max_task_lifetime_seconds' ? 0 : def));
+    setupCodexProc('task-no-cap', { ageSeconds: 99999, lastOutputSecondsAgo: 5 });
+    const activity = activityMonitoring.getTaskActivity('task-no-cap');
+    expect(activity.isStalled).toBe(false);
+    expect(activity.stallReason).toBeNull();
+  });
+
+  it('does NOT trip when task age is below the cap', () => {
+    getStallThreshold.mockReturnValue(120);
+    safeConfigInt.mockImplementation((key, def) => (key === 'max_task_lifetime_seconds' ? 14400 : def));
+    setupCodexProc('task-young', { ageSeconds: 3600, lastOutputSecondsAgo: 5 });
+    const activity = activityMonitoring.getTaskActivity('task-young');
+    expect(activity.isStalled).toBe(false);
+    expect(activity.stallReason).toBeNull();
+  });
+
+  it('trips when task age exceeds the cap, even with fresh activity', () => {
+    // The bug class this catches: codex emitting periodic stderr (so
+    // lastActivitySeconds is small and would normally not be stalled),
+    // but the task has been running for 5+ hours and is clearly stuck
+    // in some loop. Without the cap, stall detection would never fire.
+    getStallThreshold.mockReturnValue(120);
+    safeConfigInt.mockImplementation((key, def) => (key === 'max_task_lifetime_seconds' ? 14400 : def));
+    setupCodexProc('task-overrun', { ageSeconds: 18000, lastOutputSecondsAgo: 5 });
+    const activity = activityMonitoring.getTaskActivity('task-overrun');
+    expect(activity.isStalled).toBe(true);
+    expect(activity.stallReason).toBe('max_lifetime_exceeded');
+  });
+
+  it('caps at upper limit (86400s = 24h) and trips a 25h-old task', () => {
+    getStallThreshold.mockReturnValue(120);
+    safeConfigInt.mockImplementation((key, def, _min, _max) => {
+      if (key !== 'max_task_lifetime_seconds') return def;
+      // Caller asks for 999999, safeConfigInt clamps to max=86400. We
+      // simulate the actual signature by returning the clamped value.
+      return Math.min(999999, 86400);
+    });
+    setupCodexProc('task-very-old', { ageSeconds: 90000, lastOutputSecondsAgo: 5 });
+    const activity = activityMonitoring.getTaskActivity('task-very-old');
+    expect(activity.isStalled).toBe(true);
+    expect(activity.stallReason).toBe('max_lifetime_exceeded');
+  });
+});

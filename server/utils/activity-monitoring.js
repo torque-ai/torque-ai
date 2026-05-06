@@ -295,6 +295,31 @@ function getTaskActivity(taskId, opts = {}) {
     } catch { /* process-activity module not available or errored — ignore */ }
   }
 
+  // Max-task-lifetime cap: defense-in-depth against tasks that ARE making
+  // activity (so the rescues above keep saving them from stall) but never
+  // converging — e.g., a codex run that loops endlessly through tool calls.
+  // Bypasses the activity-based rescues: at this age the task is stuck
+  // regardless of CPU / filesystem / stderr signals. proc.startTime is the
+  // original task start, preserved across re-adoption (see
+  // resolveReAdoptLastOutputAt's sibling logic in execute-cli.js).
+  // Default 0 means disabled; operator opts in by setting
+  // `max_task_lifetime_seconds` (e.g. 14400 = 4h for codex/claude-cli).
+  const maxLifetimeSec = _safeConfigInt
+    ? _safeConfigInt('max_task_lifetime_seconds', 0, 0, 86400)
+    : 0;
+  let stallReason = null;
+  if (maxLifetimeSec > 0) {
+    const taskAgeSeconds = Math.floor((now - proc.startTime) / 1000);
+    if (taskAgeSeconds > maxLifetimeSec) {
+      if (!isStalled || !proc.stallWarned) {
+        logger.info(`[Heartbeat] Task ${taskId} exceeded max-task-lifetime (${taskAgeSeconds}s > ${maxLifetimeSec}s) — forcing stall regardless of activity rescues`);
+      }
+      isStalled = true;
+      stallReason = 'max_lifetime_exceeded';
+      proc.stallWarned = true;
+    }
+  }
+
   // Warn once when a task becomes stalled (after filesystem check)
   if (isStalled && !proc.stallWarned) {
     proc.stallWarned = true;
@@ -309,6 +334,7 @@ function getTaskActivity(taskId, opts = {}) {
     stalled: isStalled,
     cpuRescued,
     stallThreshold: threshold,
+    stallReason,
     model: proc.model,
     provider: proc.provider,
     startTime: proc.startTime,
