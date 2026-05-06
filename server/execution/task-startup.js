@@ -1857,18 +1857,41 @@ function safeStartTask(taskId, label) {
 
 // ── Task Progress & Status Queries ─────────────────────────────────────────
 
+// Providers that emit tool-trace activity to stderr while stdout stays empty
+// until the model produces final output. Without this list, a long codex run
+// reads as 0%/no-output for many minutes because we only counted stdout.
+const STDERR_DRIVEN_PROGRESS_PROVIDERS = new Set([
+  'codex',
+  'codex-spark',
+  'claude-cli',
+]);
+
 /**
- * Estimate progress based on output patterns
+ * Estimate progress based on output patterns.
+ *
+ * For codex / codex-spark / claude-cli, tool traces stream to stderr while
+ * stdout stays empty until the final answer. Counting only stdout makes
+ * progress sit at 0% during long context-gathering / model-thinking phases.
+ * Pass `errorOutput` so the heuristic can see real activity.
  */
-function estimateProgress(output, provider) {
+function estimateProgress(output, provider, errorOutput = '') {
+  const stdout = typeof output === 'string' ? output : '';
+  const stderr = typeof errorOutput === 'string' ? errorOutput : '';
+
   // Check for completion patterns first — these indicate the task is done
-  // even if the process hasn't exited yet (common with claude-cli on Windows)
-  if (detectOutputCompletion(output, provider)) {
-    return 95; // Task is effectively done, process just hasn't exited
+  // even if the process hasn't exited yet (common with claude-cli on Windows).
+  // Codex emits its completion markers on stderr, so check both streams.
+  if (detectOutputCompletion(stdout, provider)) return 95;
+  if (stderr && detectOutputCompletion(stderr, provider)) return 95;
+
+  // Pick the activity stream. For stderr-driven providers, prefer stderr
+  // when stdout is empty so activity actually moves the needle.
+  let activityText = stdout;
+  if (!stdout && stderr && STDERR_DRIVEN_PROGRESS_PROVIDERS.has(provider)) {
+    activityText = stderr;
   }
 
-  // Look for common progress indicators
-  const lines = output.split('\n');
+  const lines = activityText.split('\n');
   const totalLines = lines.length;
 
   // Simple heuristic: more output = more progress
@@ -1936,12 +1959,24 @@ function getTaskProgress(taskId) {
 
   const proc = runningProcesses.get(fullId);
   if (proc) {
+    const stdout = proc.output || '';
+    const stderr = proc.errorOutput || '';
+    const elapsedMs = Date.now() - proc.startTime;
+    const lastOutputAt = proc.lastOutputAt
+      ? new Date(proc.lastOutputAt).toISOString()
+      : null;
     return {
       running: true,
+      status: 'running',
       output: sanitizeTaskOutput(proc.output),
-      errorOutput: proc.errorOutput,
-      elapsedSeconds: Math.round((Date.now() - proc.startTime) / 1000),
-      progress: estimateProgress(proc.output, proc.provider)
+      errorOutput: stderr,
+      output_length: stdout.length,
+      error_output_length: stderr.length,
+      last_output_at: lastOutputAt,
+      phase: null,
+      elapsedSeconds: Math.round(elapsedMs / 1000),
+      elapsed_seconds: Math.round(elapsedMs / 1000),
+      progress: estimateProgress(stdout, proc.provider, stderr),
     };
   }
 
@@ -1949,11 +1984,18 @@ function getTaskProgress(taskId) {
   if (task) {
     // If DB says 'running' but process is not in memory, it's an orphan — report accurately
     const isRunning = task.status === 'running';
+    const stdout = task.output || '';
+    const stderr = task.error_output || '';
     return {
       running: isRunning,
-      output: task.output || '',
-      errorOutput: task.error_output || '',
-      progress: isRunning ? 0 : task.progress_percent
+      status: isRunning ? 'running' : (task.status || 'finished'),
+      output: stdout,
+      errorOutput: stderr,
+      output_length: stdout.length,
+      error_output_length: stderr.length,
+      last_output_at: task.last_activity_at || null,
+      phase: null,
+      progress: isRunning ? 0 : task.progress_percent,
     };
   }
 

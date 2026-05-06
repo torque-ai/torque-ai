@@ -1460,6 +1460,22 @@ function handleGetProgress(args) {
   const outputLines = outputText.split('\n');
   const tailOutput = outputLines.slice(-tailLines).join('\n');
 
+  // Codex (and friends) write tool traces to stderr while stdout stays empty
+  // until the model emits final output. If we only render stdout, the operator
+  // sees "(no output yet)" while the task is mid-thinking — a UI lie. Surface
+  // stderr length and a tail so the activity is visible.
+  const errorOutputText = progress.errorOutput || '';
+  const errorOutputLength = typeof progress.error_output_length === 'number'
+    ? progress.error_output_length
+    : errorOutputText.length;
+  const stderrTail = errorOutputText
+    ? errorOutputText.split('\n').slice(-tailLines).join('\n')
+    : '';
+  const emptyStdout = !tailOutput;
+  const emptyStdoutPlaceholder = errorOutputLength > 0
+    ? `(stdout empty — ${errorOutputLength} bytes on stderr; tool traces in progress)`
+    : '(no output yet)';
+
   let result = `## Task Progress: ${(args.task_id || '').slice(0, 8)}...\n\n`;
   result += `**Status:** ${progress.running ? 'running' : 'finished'}\n`;
   result += `**Progress:** ${progress.progress}%\n`;
@@ -1468,7 +1484,11 @@ function handleGetProgress(args) {
     result += `**Elapsed:** ${progress.elapsedSeconds}s\n`;
   }
 
-  result += `\n### Latest Output (last ${tailLines} lines)\n\`\`\`\n${tailOutput || '(no output yet)'}\n\`\`\`\n`;
+  result += `\n### Latest Output (last ${tailLines} lines)\n\`\`\`\n${tailOutput || emptyStdoutPlaceholder}\n\`\`\`\n`;
+
+  if (emptyStdout && stderrTail) {
+    result += `\n### Latest Stderr (last ${tailLines} lines)\n\`\`\`\n${stderrTail}\n\`\`\`\n`;
+  }
 
   return {
     content: [{ type: 'text', text: result }],
@@ -1478,6 +1498,8 @@ function handleGetProgress(args) {
       progress: progress.progress || 0,
       elapsed_seconds: progress.elapsedSeconds || null,
       output_tail: tailOutput || null,
+      error_output_bytes: errorOutputLength,
+      last_output_at: progress.last_output_at || null,
     },
   };
 }
