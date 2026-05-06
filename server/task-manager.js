@@ -128,7 +128,6 @@ const _promptsModule = require('./providers/prompts');
 const _closePhases = require('./validation/close-phases');
 const _autoVerifyRetry = require('./validation/auto-verify-retry');
 const _retryFramework = require('./execution/retry-framework');
-const _safeguardGates = require('./validation/safeguard-gates');
 const completionDetection = require('./validation/completion-detection');
 const _queueScheduler = require('./execution/queue-scheduler');
 const _taskFinalizer = require('./execution/task-finalizer');
@@ -486,9 +485,9 @@ function handleRetryLogic(ctx) {
   return _retryFramework.handleRetryLogic(ctx);
 }
 
-// Phase 2: Safeguard checks — delegated to validation/safeguard-gates.js
+// Phase 2: Safeguard checks — resolved from the DI container.
 function handleSafeguardChecks(ctx) {
-  return _safeguardGates.handleSafeguardChecks(ctx);
+  return defaultContainer.get('safeguardGates').handleSafeguardChecks(ctx);
 }
 
 /**
@@ -1055,16 +1054,11 @@ _retryFramework.init({
   startTask,
   processQueue,
 });
-_safeguardGates.init({
-  db,
-  getActualModifiedFiles,
-  runLLMSafeguards,
-  scopedRollback,
-  safeUpdateTaskStatus,
-  // taskCleanupGuard defaults to container's processTracker.cleanupGuard.
-  dashboard: getDashboardBroadcaster(),
-  processQueue,
-});
+// safeguardGates: now resolved via defaultContainer.get('safeguardGates').
+// register() declares [db, dashboard, taskManager]; the factory resolves
+// utility deps (runLLMSafeguards, scopedRollback) via require() from
+// validation/post-task and binds taskManager methods (getActualModifiedFiles,
+// safeUpdateTaskStatus, processQueue) from the registered taskManager handle.
 _autoVerifyRetry.init({
   db,
   startTask: safeStartTask,
@@ -1248,6 +1242,10 @@ Object.assign(module.exports, {
   handleCloseCleanup,
   handleRetryLogic,
   handleSafeguardChecks,
+  // Capability methods consumed by registered services that bind through
+  // the taskManager handle (safeguardGates, closePhases, etc.).
+  safeUpdateTaskStatus,
+  getActualModifiedFiles,
   handleFuzzyRepair,
   handleNoFileChangeDetection,
   handleSandboxRevertDetection,

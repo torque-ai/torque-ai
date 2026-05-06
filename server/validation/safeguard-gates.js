@@ -9,14 +9,12 @@
  *   - Scoped rollback on safeguard failure
  *   - Auto-retry on safeguard failure (if retries remain)
  *
- * Phase 2 of the universal-DI migration: this module exposes both shapes
- * during the transition.
- *   NEW (preferred): createSafeguardGates(deps) → { handleSafeguardChecks }
- *                    register(container) wires it into the DI container
- *   OLD (deprecated): module.exports.init(deps) + module.exports.handleSafeguardChecks
- *
- * The OLD shape is preserved while task-manager.js still hand-passes deps;
- * once task-manager.js migrates (Phase 3+), the OLD shape can be deleted.
+ * Container-resolved factory shape. Consumers call
+ * `defaultContainer.get('safeguardGates').handleSafeguardChecks(ctx)`.
+ * The factory resolves utility deps (runLLMSafeguards, scopedRollback)
+ * via require() from validation/post-task and binds taskManager-owned
+ * methods (getActualModifiedFiles, safeUpdateTaskStatus, processQueue)
+ * via the registered taskManager handle.
  *
  * See docs/superpowers/specs/2026-05-04-universal-di-design.md.
  */
@@ -154,19 +152,12 @@ function createSafeguardGates(deps = {}) {
 }
 
 /**
- * Register this service with a container. Phase 2+ consumers resolve
- * via `container.get('safeguardGates').handleSafeguardChecks`.
+ * Register this service with a container. Consumers resolve via
+ * `container.get('safeguardGates').handleSafeguardChecks`.
  *
- * Declared deps map directly to container service names; the migration
- * spec (Open Question Q-naming) standardized camelCase, no hyphens.
- *
- * `getActualModifiedFiles`, `runLLMSafeguards`, `scopedRollback`,
- * `safeUpdateTaskStatus`, `taskCleanupGuard`, `processQueue`,
- * `dashboard` — these are not yet registered as container services
- * (they live in task-manager.js or its sub-modules). Until those
- * migrate (Phase 3 — execution/), task-manager.js bridges them via
- * container.override(...) so this module can be the first migrated
- * citizen without waiting on its consumers.
+ * Declared deps are the true container services [db, dashboard,
+ * taskManager]; utility-fn deps are resolved via require() inside the
+ * factory and taskManager-method deps bind from the taskManager handle.
  */
 function register(container) {
   container.register(
@@ -176,41 +167,7 @@ function register(container) {
   );
 }
 
-// ── Legacy imperative shape (deprecated; remove when task-manager.js migrates) ──
-let _legacyDeps = {};
-let _legacyService = null;
-
-/** @deprecated Use createSafeguardGates(deps) or container.get('safeguardGates'). */
-function init(nextDeps = {}) {
-  _legacyDeps = { ..._legacyDeps, ...nextDeps };
-  // Container-owned shared state. taskCleanupGuard lives on the
-  // ProcessTracker singleton; default from the container when the
-  // caller doesn't pass an override. Test fixtures still win.
-  if (!_legacyDeps.taskCleanupGuard) {
-    const { defaultContainer } = require('../container');
-    const tracker = defaultContainer.peek('processTracker');
-    if (tracker && tracker.cleanupGuard) {
-      _legacyDeps.taskCleanupGuard = tracker.cleanupGuard;
-    }
-  }
-  _legacyService = createSafeguardGates(_legacyDeps);
-}
-
-/** @deprecated Use container.get('safeguardGates').handleSafeguardChecks. */
-function handleSafeguardChecks(ctx) {
-  if (!_legacyService) {
-    // Fall back to a deps-less call so the no-db early return fires
-    // gracefully if a consumer forgot to call init().
-    return createSafeguardGates({}).handleSafeguardChecks(ctx);
-  }
-  return _legacyService.handleSafeguardChecks(ctx);
-}
-
 module.exports = {
-  // New shape (preferred)
   createSafeguardGates,
   register,
-  // Legacy shape (kept until task-manager.js is migrated; spec §3-5 path)
-  init,
-  handleSafeguardChecks,
 };

@@ -4,11 +4,10 @@ const { createSafeguardGates, register } = require('../validation/safeguard-gate
 const { createContainer } = require('../container');
 
 /**
- * safeguard-gates is the universal-DI pilot module (spec §3, Phase 2).
- * The new tests exercise the factory shape and the container registration.
- * The legacy shape (init + handleSafeguardChecks on the module) remains
- * tested via the bottom describe block while task-manager.js still uses it;
- * those tests delete when the legacy shape is removed.
+ * safeguard-gates: container-resolved factory shape. Tests cover the
+ * direct factory (createSafeguardGates) and the container registration.
+ * The legacy init({...}) shape was removed once task-manager.js migrated
+ * to defaultContainer.get('safeguardGates').
  */
 
 function makeDeps(overrides = {}) {
@@ -224,17 +223,3 @@ describe('safeguard-gates — container registration', () => {
   });
 });
 
-describe('safeguard-gates — legacy init() shape (DEPRECATED, kept until task-manager.js migrates)', () => {
-  // These tests preserve coverage on the old shape during the universal-DI
-  // migration. They get deleted in the same commit that removes init() from
-  // safeguard-gates.js (after task-manager.js is fully migrated).
-  const safeguardGates = require('../validation/safeguard-gates');
-
-  it('init + handleSafeguardChecks works as before', () => {
-    const deps = makeDeps();
-    safeguardGates.init(deps);
-    const ctx = { taskId: 't1', status: 'failed', task: { provider: 'ollama' } };
-    safeguardGates.handleSafeguardChecks(ctx);
-    expect(deps.runLLMSafeguards).not.toHaveBeenCalled();
-  });
-});
