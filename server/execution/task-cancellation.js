@@ -169,6 +169,13 @@ function createCancellationHandler(deps) {
         // — the child will eventually SIGPIPE when we close its stream
         // listeners. The decision log entry (cancel_reason='abandon')
         // makes the operator's intent visible regardless.
+        //
+        // Full contract is documented in docs/cancellation-cleanup.md →
+        // "Abandon mode contract". Key invariants:
+        //   - No signal sent to the subprocess (runs until self-exit).
+        //   - No successor TORQUE instance will re-adopt this PID.
+        //   - Operator owns subsequent monitoring/reaping.
+        //   - `force: true` + `abandon: true` resolves to `abandon`.
         if (proc.detached) {
           logger.info(`[Cancel] Task ${fullId} abandoned — leaving detached subprocess pid=${proc.subprocessPid || 'unknown'} alive`);
         } else {

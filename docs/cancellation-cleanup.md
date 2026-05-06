@@ -113,6 +113,45 @@ Edge case still possible: close handler crashes with finalizingTasks marker leak
 
 ---
 
+## Abandon mode contract
+
+`cancelTask(id, reason, { abandon: true })` is one of three cancel modes (default / `force` / `abandon`). It is a deliberate operator opt-in to **release the TORQUE slot while leaving the OS subprocess running**. The contract is precise — abandon does NOT mean "best-effort kill" or "kill if possible." It means "TORQUE walks away."
+
+### What abandon does
+
+- **DB**: Task row marked `status='cancelled'`, `cancel_reason='abandon'` (forensic trail).
+- **OS subprocess**: Left alive. No SIGTERM, no SIGKILL, no taskkill. The process runs until it exits on its own (or you kill it manually).
+- **Process tracking**: Tail watchers, PID-liveness loops, stall-detection, finalization markers, host-slot reservation — all released. TORQUE has no further visibility into the process.
+- **Stdout/stderr**: For detached subprocesses (`spawnAndTrackProcessDetached` — codex/codex-spark/claude-cli on Phase D+), output continues writing to the persisted log files. For pipe-based children (legacy non-detached spawn), the parent stops reading; the child eventually SIGPIPEs when its buffer fills.
+- **Webhooks**: Cancellation webhook fires with `cancel_reason='abandon'` so external observers know.
+
+### What abandon does NOT do
+
+- It does NOT guarantee the subprocess will eventually finish. A hung/looping subprocess will keep running indefinitely. **The operator is on the hook** for noticing and killing it via OS-level tools.
+- It does NOT hand the subprocess off to a successor TORQUE process. After abandon, no TORQUE instance will ever re-adopt or reap that subprocess.
+- It does NOT clean up the worktree the subprocess might be writing into. The factory's `worktree-reconcile` sweep eventually catches abandoned worktrees, but if the abandoned subprocess is still actively writing files into one, sweep will skip it (live-in-use detection) and quarantine layer will eventually fire.
+- It does NOT play well with `force: true` — passing both is treated as `abandon` (abandon wins because it's the higher-leverage instruction). The kill is skipped.
+
+### When to use abandon vs force vs default
+
+| Mode | Use when | What happens to subprocess |
+|---|---|---|
+| **default** (`{}`) | Normal cancellation | SIGTERM, 5s grace, then SIGKILL (or taskkill /F /T on Windows) |
+| **force** (`{ force: true }`) | Subprocess wedged, SIGTERM not working | Immediate SIGKILL — no grace |
+| **abandon** (`{ abandon: true }`) | "I want my slot back; the subprocess will exit eventually OR I'll handle it manually" | Subprocess left alive; no signal sent |
+
+### Operator responsibility
+
+After abandoning a task, **monitor the subprocess yourself**. On Linux: `ps -ef | grep <pid>` or `cat /proc/<pid>/status`. On Windows: `Get-Process -Id <pid>` or `tasklist /FI "PID eq <pid>"`. If you intend the subprocess to keep producing useful output, also tail the log file — TORQUE will not surface it after abandon.
+
+### Where this is wired
+
+- `server/execution/task-cancellation.js:133-220` — abandon branch (logs `[Cancel] Task <id> abandoned — leaving detached subprocess pid=<pid> alive` for detached, or `non-detached child may exit on stream close` for pipe-based).
+- `server/handlers/task/core.js:1310-1363` — MCP `cancel_task` tool surfaces the option, pre-flight modeNote, and post-cancel suffix `(abandoned — subprocess left alive)`.
+- `server/tool-defs/task-management-defs.js:148-149` — tool description says "use `abandon` to release the TORQUE slot while leaving a detached subprocess running."
+
+---
+
 ## Open questions / risks
 
 These are real ambiguities the audit surfaced. Each is worth addressing the next time their area comes up.
@@ -147,9 +186,9 @@ If DB insert is delayed (contention, fsync), the reconciler's `ORPHAN_DIR_MIN_AG
 
 `stallRecoveryAttempts[taskId]` is deleted on terminal paths but not reset when a task switches providers via fallback-retry. Each provider's stall history is isolated, but logs combining them can be misleading. **Action:** Track per-(taskId, provider) attempts if cross-provider analysis matters; benign otherwise.
 
-### 8. Abandon path leaves detached process unmonitored
+### 8. ✅ ~~Abandon path leaves detached process unmonitored~~ RESOLVED 2026-05-06
 
-`cancelTask(..., { abandon: true })` unhooks tracking but leaves the subprocess alive. Tail watchers + liveness loops are stopped, so the process runs to completion (or stalls) without TORQUE knowing. **Action:** Document the abandon contract more loudly — operator opts into "I'll watch this manually" semantics.
+Documented in the "Abandon mode contract" section above. Covers: what abandon does (DB row, subprocess left alive, tracking released, log files keep accumulating), what it does NOT do (no kill guarantee, no successor handoff, no worktree cleanup), the three-mode comparison table (default/force/abandon), explicit operator responsibility (`ps`/`tasklist` on the PID after the call), and the three wiring sites (`task-cancellation.js`, MCP tool handler, tool def description).
 
 ### 9. Finalization-marker idle timeout vs factory hard-cap mismatch
 
