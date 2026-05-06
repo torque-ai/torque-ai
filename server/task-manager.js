@@ -128,7 +128,6 @@ const _promptsModule = require('./providers/prompts');
 const _closePhases = require('./validation/close-phases');
 const _autoVerifyRetry = require('./validation/auto-verify-retry');
 const completionDetection = require('./validation/completion-detection');
-const _queueScheduler = require('./execution/queue-scheduler');
 const _sandboxRevertDetection = require('./execution/sandbox-revert-detection');
 const _taskUtils = require('./execution/task-utils');
 // execution/process-lifecycle.js: production accesses methods through
@@ -197,7 +196,11 @@ function handlePostCompletion(...args) { return defaultContainer.get('completion
 // Factory self-bootstraps stage handlers via require() (handleSafeguardChecks,
 // handleAutoValidation, etc.) and binds taskManager methods.
 function finalizeTask(...args) { return defaultContainer.get('taskFinalizer').finalizeTask(...args); }
-const { categorizeQueuedTasks, processQueueInternal } = _queueScheduler;
+// execution/queue-scheduler.js: factory self-bootstraps deps (taskManager
+// methods, eventBus, providerRegistry, safeConfigInt, analyzeTaskForRouting,
+// cleanupOrphanedRetryTimeouts, getFreeQuotaTracker).
+function categorizeQueuedTasks(...args) { return defaultContainer.get('queueScheduler').categorizeQueuedTasks(...args); }
+function processQueueInternal(...args) { return defaultContainer.get('queueScheduler').processQueueInternal(...args); }
 const { cleanupOrphanedHostTasks, getStallThreshold } = _orphanCleanup;
 
 const WORKFLOW_TERMINAL_STATUSES = new Set(['completed', 'failed', 'cancelled', 'skipped']);
@@ -1028,28 +1031,18 @@ codexIntelligence.init({ db, prompts: _promptsModule });
 // handleAutoVerifyRetry, handleProviderFailover, handlePostCompletion) all
 // resolve via require() inside createTaskFinalizer; safeUpdateTaskStatus +
 // sanitizeTaskOutput bind from the taskManager value. No imperative init().
-_queueScheduler.init({
-  db,
-  attemptTaskStart,
-  safeStartTask,
-  safeConfigInt,
-  isLargeModelBlockedOnHost,
-  getProviderInstance: (name) => providerRegistry.getProviderInstance(name),
-  getFreeQuotaTracker,
-  cleanupOrphanedRetryTimeouts,
-  analyzeTaskForRouting: providerRoutingCore.analyzeTaskForRouting,
-  notifyDashboard: (taskId, updates = {}) => {
-    if (!taskId) return;
-    const payload = updates && typeof updates === 'object' ? updates : {};
-    eventBus.emitTaskUpdated({ taskId, ...payload });
-  },
-});
+// execution/queue-scheduler.js: factory self-resolves all deps —
+// attemptTaskStart, safeStartTask, isLargeModelBlockedOnHost via taskManager
+// binding; safeConfigInt ← provider-router; cleanupOrphanedRetryTimeouts ←
+// task-startup; analyzeTaskForRouting ← db/smart-routing; getProviderInstance
+// ← providers/registry; getFreeQuotaTracker ← fallback-retry; notifyDashboard
+// from the registered eventBus value. No imperative init() needed.
 // Register queue-scheduler cleanup on DB close (prevents timer leaks in tests)
 if (typeof db.onClose === 'function') {
-  db.onClose(() => _queueScheduler.stop());
+  db.onClose(() => defaultContainer.get('queueScheduler').stop());
 }
 // RB-035: Resolve any tasks stuck in codex-pending dead state on startup
-try { _queueScheduler.resolveCodexPendingTasks(); } catch { /* ignore */ }
+try { defaultContainer.get('queueScheduler').resolveCodexPendingTasks(); } catch { /* ignore */ }
 _processStreams.init({
   db,
   dashboard: getDashboardBroadcaster(),
