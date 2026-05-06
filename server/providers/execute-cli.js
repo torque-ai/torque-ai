@@ -1940,6 +1940,32 @@ async function finalizeDetachedTask({ taskId, task, provider, isCodexProvider })
 }
 
 /**
+ * Resolve the `proc.lastOutputAt` timestamp for a re-adopted detached
+ * subprocess. Stall detection in activity-monitoring.js keys on
+ * `(Date.now() - proc.lastOutputAt) > stallThreshold`. If re-adoption
+ * unconditionally sets lastOutputAt to Date.now(), every server restart
+ * resets the stall clock — a task that was genuinely silent for 30+
+ * minutes before the restart looks "fresh" after, and stall recovery
+ * won't fire until threshold seconds AFTER boot. With multiple restarts
+ * in a day this effectively defeats stall recovery for long-running
+ * codex tasks. Prefer the persisted `last_activity_at` (updated on each
+ * tail chunk via the throttled offset persistence, ≤2s lag), so
+ * re-adoption resumes the stall timer at the genuine last activity time.
+ * Falls back to Date.now() when the column is missing or unparseable
+ * (older rows pre-detached-spawn, malformed timestamps).
+ *
+ * @param {Object} persistedTask - tasks-table row; we read last_activity_at
+ * @returns {number} epoch ms suitable for proc.lastOutputAt
+ */
+function resolveReAdoptLastOutputAt(persistedTask) {
+  const raw = persistedTask?.last_activity_at;
+  if (!raw) return Date.now();
+  const ms = new Date(raw).getTime();
+  if (!Number.isFinite(ms) || ms <= 0) return Date.now();
+  return ms;
+}
+
+/**
  * Re-adopt a still-alive detached subprocess after a TORQUE restart.
  *
  * When Phase B's detached spawn path persisted `subprocess_pid` +
@@ -1993,12 +2019,14 @@ function reAdoptDetachedSubprocess(taskId, persistedTask) {
     ? new Date(persistedTask.started_at).getTime() || Date.now()
     : Date.now();
 
+  const lastOutputAt = resolveReAdoptLastOutputAt(persistedTask);
+
   const procEntry = {
     process: null,
     output: '',
     errorOutput: '',
     startTime,
-    lastOutputAt: Date.now(),
+    lastOutputAt,
     stallWarned: false,
     timeoutHandle: null,
     startupTimeoutHandle: null,
@@ -2122,6 +2150,7 @@ module.exports = {
   spawnAndTrackProcessDetached,
   finalizeDetachedTask,
   reAdoptDetachedSubprocess,
+  resolveReAdoptLastOutputAt,
   computeActivityAwareTimeoutDelay,
   parseProcessExitAnnotation,
   shouldUseDetachedPath,

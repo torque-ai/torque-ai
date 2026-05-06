@@ -1003,4 +1003,57 @@ describe('execute-cli.js', () => {
       expect(runningProcesses.get(taskId).lastOutputAt).toBeGreaterThan(before);
     });
   });
+
+  // ── resolveReAdoptLastOutputAt: stall-clock preservation ────────
+  // Regression for the bug where reAdoptDetachedSubprocess set
+  // proc.lastOutputAt = Date.now() unconditionally, resetting the stall
+  // clock on every server restart. With multiple restarts in a day this
+  // effectively defeated stall recovery for long-running codex tasks —
+  // a task could go 12+ hours of cycle between server restarts and never
+  // be flagged stalled.
+  describe('resolveReAdoptLastOutputAt', () => {
+    it('returns persisted last_activity_at as ms epoch when valid', () => {
+      const persistedIso = '2026-05-06T07:30:00.000Z';
+      const result = mod.resolveReAdoptLastOutputAt({ last_activity_at: persistedIso });
+      expect(result).toBe(new Date(persistedIso).getTime());
+    });
+
+    it('falls back to Date.now() when last_activity_at is missing', () => {
+      const before = Date.now();
+      const result = mod.resolveReAdoptLastOutputAt({ /* no last_activity_at */ });
+      const after = Date.now();
+      expect(result).toBeGreaterThanOrEqual(before);
+      expect(result).toBeLessThanOrEqual(after);
+    });
+
+    it('falls back to Date.now() when last_activity_at is unparseable', () => {
+      const before = Date.now();
+      const result = mod.resolveReAdoptLastOutputAt({ last_activity_at: 'not-a-timestamp' });
+      const after = Date.now();
+      expect(result).toBeGreaterThanOrEqual(before);
+      expect(result).toBeLessThanOrEqual(after);
+    });
+
+    it('falls back to Date.now() when persistedTask is null', () => {
+      const before = Date.now();
+      const result = mod.resolveReAdoptLastOutputAt(null);
+      const after = Date.now();
+      expect(result).toBeGreaterThanOrEqual(before);
+      expect(result).toBeLessThanOrEqual(after);
+    });
+
+    it('preserves a 30-minute-old timestamp (proves stall clock is NOT reset)', () => {
+      // The genuine bug scenario: task was last active 30 min ago,
+      // server restarted, re-adoption fires. With the bug, lastOutputAt
+      // would jump to Date.now(); the fix preserves the 30-min-old time
+      // so the activity-monitoring stall threshold trips immediately.
+      const thirtyMinutesAgo = Date.now() - 30 * 60 * 1000;
+      const result = mod.resolveReAdoptLastOutputAt({
+        last_activity_at: new Date(thirtyMinutesAgo).toISOString(),
+      });
+      const ageMs = Date.now() - result;
+      expect(ageMs).toBeGreaterThanOrEqual(29 * 60 * 1000);
+      expect(ageMs).toBeLessThanOrEqual(31 * 60 * 1000);
+    });
+  });
 });
