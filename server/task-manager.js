@@ -139,7 +139,6 @@ const debugLifecycle = require('./execution/debug-lifecycle');
 const _processStreams = require('./execution/process-streams');
 const _commandBuilders = require('./execution/command-builders');
 const ProcessTracker = require('./execution/process-tracker');
-const _taskStartup = require('./execution/task-startup');
 const codexIntelligence = require('./providers/codex-intelligence');
 
 // Sub-module function imports — these used to flow through task-manager-delegations.js
@@ -437,13 +436,15 @@ const DEFAULT_INSTRUCTION_TEMPLATES = _promptsModule.DEFAULT_INSTRUCTION_TEMPLAT
 function tryCreateAutoPR(...args) { return defaultContainer.get('providerRouter').tryCreateAutoPR(...args); }
 
 // cleanupOrphanedRetryTimeouts delegated to execution/task-startup.js
-function cleanupOrphanedRetryTimeouts() { return _taskStartup.cleanupOrphanedRetryTimeouts(); }
+function cleanupOrphanedRetryTimeouts() { return defaultContainer.get('taskStartup').cleanupOrphanedRetryTimeouts(); }
 
-// MAX_OUTPUT_BUFFER, getNvmNodePath, NVM_NODE_PATH, resolveWindowsCmdToNode
-// delegated to execution/task-startup.js
-const MAX_OUTPUT_BUFFER = _taskStartup.MAX_OUTPUT_BUFFER;
-const NVM_NODE_PATH = _taskStartup.NVM_NODE_PATH;
-function resolveWindowsCmdToNode(...args) { return _taskStartup.resolveWindowsCmdToNode(...args); }
+// MAX_OUTPUT_BUFFER, NVM_NODE_PATH are static constants — pull from the raw
+// module export at module-load time (the container isn't booted yet).
+// resolveWindowsCmdToNode is a pure utility — same pattern.
+const _taskStartupConsts = require('./execution/task-startup');
+const MAX_OUTPUT_BUFFER = _taskStartupConsts.MAX_OUTPUT_BUFFER;
+const NVM_NODE_PATH = _taskStartupConsts.NVM_NODE_PATH;
+function resolveWindowsCmdToNode(...args) { return _taskStartupConsts.resolveWindowsCmdToNode(...args); }
 
 // PROVIDER_DEFAULT_TIMEOUTS imported from ./constants.js
 
@@ -526,10 +527,10 @@ function buildClaudeCliCommand(...args) { return _commandBuilders.buildClaudeCli
 function buildCodexCommand(...args) { return _commandBuilders.buildCodexCommand(...args); }
 
 // === startTask phase helpers — delegated to execution/task-startup.js ===
-function recordTaskStartedAuditEvent(...args) { return _taskStartup.recordTaskStartedAuditEvent(...args); }
-function createTaskStartupResourceLifecycle(...args) { return _taskStartup.createTaskStartupResourceLifecycle(...args); }
-function evaluateClaimedStartupPolicy(...args) { return _taskStartup.evaluateClaimedStartupPolicy(...args); }
-function buildProviderStartupCommand(...args) { return _taskStartup.buildProviderStartupCommand(...args); }
+function recordTaskStartedAuditEvent(...args) { return defaultContainer.get('taskStartup').recordTaskStartedAuditEvent(...args); }
+function createTaskStartupResourceLifecycle(...args) { return defaultContainer.get('taskStartup').createTaskStartupResourceLifecycle(...args); }
+function evaluateClaimedStartupPolicy(...args) { return defaultContainer.get('taskStartup').evaluateClaimedStartupPolicy(...args); }
+function buildProviderStartupCommand(...args) { return defaultContainer.get('taskStartup').buildProviderStartupCommand(...args); }
 
 // Provider routing — delegated to execution/provider-router.js
 function resolveProviderRouting(...args) { return defaultContainer.get('providerRouter').resolveProviderRouting(...args); }
@@ -544,7 +545,7 @@ function spawnAndTrackProcess(taskId, task, config) {
 }
 
 // startTask — delegated to execution/task-startup.js
-function startTask(taskId) { return _taskStartup.startTask(taskId); }
+function startTask(taskId) { return defaultContainer.get('taskStartup').startTask(taskId); }
 
 // ── taskCanceller capability: single registration, single instance ──
 //
@@ -655,12 +656,12 @@ function processQueue() {
 }
 
 // attemptTaskStart, safeStartTask — delegated to execution/task-startup.js
-function attemptTaskStart(taskId, label) { return _taskStartup.attemptTaskStart(taskId, label); }
-function safeStartTask(taskId, label) { return _taskStartup.safeStartTask(taskId, label); }
+function attemptTaskStart(taskId, label) { return defaultContainer.get('taskStartup').attemptTaskStart(taskId, label); }
+function safeStartTask(taskId, label) { return defaultContainer.get('taskStartup').safeStartTask(taskId, label); }
 
 
 // estimateProgress — delegated to execution/task-startup.js
-function estimateProgress(output, provider) { return _taskStartup.estimateProgress(output, provider); }
+function estimateProgress(output, provider) { return defaultContainer.get('taskStartup').estimateProgress(output, provider); }
 
 // Delegated to validation/completion-detection.js
 const {
@@ -672,12 +673,12 @@ const {
 } = completionDetection;
 
 // getActualModifiedFiles — delegated to execution/task-startup.js
-function getActualModifiedFiles(workingDir) { return _taskStartup.getActualModifiedFiles(workingDir); }
+function getActualModifiedFiles(workingDir) { return defaultContainer.get('taskStartup').getActualModifiedFiles(workingDir); }
 
 // getTaskProgress, getRunningTaskCount, hasRunningProcess — delegated to execution/task-startup.js
-function getTaskProgress(taskId) { return _taskStartup.getTaskProgress(taskId); }
-function getRunningTaskCount() { return _taskStartup.getRunningTaskCount(); }
-function hasRunningProcess(taskId) { return _taskStartup.hasRunningProcess(taskId); }
+function getTaskProgress(taskId) { return defaultContainer.get('taskStartup').getTaskProgress(taskId); }
+function getRunningTaskCount() { return defaultContainer.get('taskStartup').getRunningTaskCount(); }
+function hasRunningProcess(taskId) { return defaultContainer.get('taskStartup').hasRunningProcess(taskId); }
 
 const {
   isLargeModelBlockedOnHost,
@@ -838,41 +839,12 @@ _taskExecutionHooks.init({ db });
 // safeUpdateTaskStatus lazy-resolve through the container in ensureDeps().
 // Production resolves the service via defaultContainer.get('providerRouter').
 
-_taskStartup.init({
-  db,
-  dashboard: getDashboardBroadcaster(),
-  serverConfig,
-  providerRegistry,
-  providerCfg,
-  gpuMetrics,
-  // runningProcesses + pendingRetryTimeouts default to container's
-  // processTracker — task-startup peeks it on init() unless overridden.
-  // apiAbortControllers / stallRecoveryAttempts / taskCleanupGuard
-  // aren't read by task-startup directly; dropped from the wiring.
-  parseTaskMetadata,
-  getTaskContextTokenEstimate,
-  safeUpdateTaskStatus,
-  resolveProviderRouting,
-  normalizeProviderOverride,
-  failTaskForInvalidProvider,
-  getProviderSlotLimits,
-  getEffectiveGlobalMaxConcurrent,
-  spawnAndTrackProcess,
-  buildClaudeCliCommand,
-  buildCodexCommand,
-  buildFileContext,
-  resolveFileReferences,
-  executeOllamaTask,
-  executeApiProvider,
-  evaluateTaskPreExecutePolicy,
-  getPolicyBlockReason,
-  cancelTask,
-  processQueue,
-  sanitizeTaskOutput,
-  detectOutputCompletion,
-  shellEscape,
-  QUEUE_LOCK_HOLDER_ID,
-});
+// execution/task-startup.js: 28 deps resolve inside createTaskStartup —
+// utility functions via require() from canonical modules; runningProcesses +
+// pendingRetryTimeouts via processTracker peek; cancelTask / processQueue /
+// safeUpdateTaskStatus via taskManager binding (cancelTask preferring the
+// registered taskCanceller capability). Production resolves the service via
+// defaultContainer.get('taskStartup').
 
 _executionModule.init({
   db, dashboard: getDashboardBroadcaster(),
@@ -943,13 +915,9 @@ _fallbackRetryModule.init({
   // processTracker — fallback-retry peeks it on init() unless overridden.
 });
 
-_workflowRuntimeModule.init({
-  db,
-  startTask,
-  cancelTask,
-  processQueue,
-  dashboard: getDashboardBroadcaster(),
-});
+// execution/workflow-runtime.js: db / dashboard / startTask / cancelTask /
+// processQueue all lazy-resolve through the container in ensureDeps().
+// Production resolves the service via defaultContainer.get('workflowRuntime').
 try {
   const workflowResume = require('./execution/workflow-resume');
   workflowResume.init({
@@ -1255,11 +1223,11 @@ Object.assign(module.exports, {
       _closeHandlerState._resetForTest();
       isShuttingDown = false;
       skipGitInCloseHandler = false;
-      _taskStartup.setSkipGitInCloseHandler(false);
+      defaultContainer.get('taskStartup').setSkipGitInCloseHandler(false);
     },
     waitForPendingHandlers,
     getDashboardBroadcaster,
-    set skipGitInCloseHandler(v) { skipGitInCloseHandler = v; _taskStartup.setSkipGitInCloseHandler(v); },
+    set skipGitInCloseHandler(v) { skipGitInCloseHandler = v; defaultContainer.get('taskStartup').setSkipGitInCloseHandler(v); },
     get skipGitInCloseHandler() { return skipGitInCloseHandler; },
   },
   // Explicit initialization functions (previously module-level side effects)

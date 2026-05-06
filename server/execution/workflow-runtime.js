@@ -25,13 +25,31 @@ const eventBus = require('../event-bus');
 // ---------------------------------------------------------------------------
 
 // ── Legacy module-level state, written only by init() (deprecated) ─────────
-// Phase 3 of the universal-DI migration. Replaces the prior stub
-// createWorkflowRuntime factory with one that actually closes over deps.
+// ── Module-level deps ──────────────────────────────────────────────────────
+// Service-shaped deps (db, dashboard) and taskManager methods (startTask,
+// cancelTask, processQueue) lazy-resolve through the container at first use.
+// They remain `let` so the factory's per-instance swap (createWorkflowRuntime)
+// and the test-only init() shim can override them transiently.
 let db = null;
 let _startTask = null;
 let _cancelTask = null;
 let _processQueue = null;
 let _dashboard = null;
+
+function ensureDeps() {
+  let container = null;
+  try { container = require('../container').defaultContainer; } catch { return; }
+  if (!db) db = container.peek('db') || null;
+  if (!_dashboard) _dashboard = container.peek('dashboard') || null;
+  if (!_startTask || !_cancelTask || !_processQueue) {
+    const tm = container.peek('taskManager');
+    if (tm) {
+      if (!_startTask && typeof tm.startTask === 'function') _startTask = tm.startTask.bind(tm);
+      if (!_cancelTask && typeof tm.cancelTask === 'function') _cancelTask = tm.cancelTask.bind(tm);
+      if (!_processQueue && typeof tm.processQueue === 'function') _processQueue = tm.processQueue.bind(tm);
+    }
+  }
+}
 const terminalGuards = new Map(); // workflowId -> boolean
 const terminalPending = new Map(); // workflowId -> Set of taskIds waiting for re-evaluation
 const WORKFLOW_BLOCKER_CONTEXT_KEY = 'workflow_blocker';
@@ -75,10 +93,12 @@ function scheduleWorkflowBundleBuild(workflowId) {
  * @param {Function} deps.processQueue - Process the task queue
  * @param {Object} deps.dashboard    - Dashboard server (notifyTaskUpdated)
  */
-/** @deprecated Use createWorkflowRuntime(deps) or container.get('workflowRuntime'). */
+/**
+ * @internal — test-only override path. Production resolves via
+ * createWorkflowRuntime(localDeps) inside the container factory.
+ */
 function init(deps) {
-  db = deps.db;
-  serverConfig.init({ db: deps.db });
+  if (deps.db) db = deps.db;
   if (deps.startTask) _startTask = deps.startTask;
   if (deps.cancelTask) _cancelTask = deps.cancelTask;
   if (deps.processQueue) _processQueue = deps.processQueue;
@@ -451,6 +471,7 @@ async function generatePipelineDocumentation(pipelineId, finalStatus) {
  * @param {string} status - Task status ('completed' or 'failed')
  */
 function handlePipelineStepCompletion(taskId, status) {
+  ensureDeps();
   const task = db.getTask(taskId);
 
   if (!task || !task.context || !task.context.pipeline_id) {
@@ -1339,6 +1360,7 @@ function reconcileWorkflowsOnStartup(options = {}) {
  * @param {string} taskId - Task ID that reached terminal state
  */
 function handleWorkflowTermination(taskId) {
+  ensureDeps();
   let workflowId;
   try {
     const task = db.getTask(taskId);
@@ -1396,6 +1418,7 @@ function handleWorkflowTermination(taskId) {
  * @param {string} workflowId - Workflow ID
  */
 function evaluateWorkflowDependencies(taskId, workflowId, _skipDepth = 0) {
+  ensureDeps();
   const workflow = db.getWorkflow(workflowId);
   if (!workflow || ['completed', 'failed', 'cancelled'].includes(workflow.status)) {
     return;
@@ -1507,6 +1530,7 @@ function evaluateWorkflowDependencies(taskId, workflowId, _skipDepth = 0) {
  * @returns {boolean} True if the task was unblocked
  */
 function unblockTask(taskId) {
+  ensureDeps();
   const task = db.getTask(taskId);
   // Handle both 'blocked' and 'waiting' statuses (waiting is used by auto-decomposed tasks)
   if (!task || !['blocked', 'waiting'].includes(task.status)) return false;
@@ -1535,6 +1559,7 @@ function unblockTask(taskId) {
  * @param {string} workflowId - Workflow ID
  */
 function applyFailureAction(taskId, action, alternateTaskId, workflowId, _skipDepth = 0) {
+  ensureDeps();
   switch (action) {
     case 'cancel':
       // Fail this task and propagate the dependency failure to all dependents.
@@ -1605,6 +1630,7 @@ function applyFailureAction(taskId, action, alternateTaskId, workflowId, _skipDe
  * @param {string} reason - Cancellation reason
  */
 function cancelDependentTasks(taskId, workflowId, reason, visited = new Set()) {
+  ensureDeps();
   if (visited.has(taskId)) return;
   visited.add(taskId);
 
@@ -1648,6 +1674,7 @@ function cancelDependentTasks(taskId, workflowId, reason, visited = new Set()) {
  * @param {string} workflowId - Workflow ID
  */
 function checkWorkflowCompletion(workflowId) {
+  ensureDeps();
   const workflow = db.getWorkflow(workflowId);
   if (!workflow || workflow.status === 'completed' || workflow.status === 'completed_with_errors' || workflow.status === 'failed' || workflow.status === 'cancelled') {
     return;
@@ -1902,6 +1929,7 @@ function register(container) {
 }
 
 module.exports = {
+  // @internal — test-only override path (see init() jsdoc)
   init,
   handlePlanProjectTaskCompletion,
   handlePlanProjectTaskFailure,

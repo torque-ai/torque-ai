@@ -278,9 +278,10 @@ async function buildExecutionDescriptionWithMentions(task, taskId) {
 }
 
 /**
- * Initialize with dependencies. Called from task-manager.js initSubModules().
+ * @internal — test-only override path. Production resolves all deps via
+ * createTaskStartup(localDeps) inside the container factory and reaches
+ * the wrapped methods through its withLocalDeps swap.
  */
-/** @deprecated Use createTaskStartup(deps) or container.get('taskStartup'). */
 function init(deps) {
   db = deps.db;
   dashboard = deps.dashboard;
