@@ -759,8 +759,33 @@ function shutdown(options = {}) {
   // Only cancel running tasks if explicitly requested
   // When MCP connection drops (stdin-close), tasks should continue running
   if (cancelTasks) {
+    // Phase D §2.5.3 contract: detached subprocesses (codex, codex-spark,
+    // claude-cli) survive parent restart and get re-adopted by the
+    // successor's startup-task-reconciler. Killing them in shutdown
+    // defeats that — every cutover lost the in-flight subprocess and
+    // the reconciler had to clone the task to start over (resulting in
+    // visible cancel_reason='server_restart' rows in the dashboard for
+    // tasks that should have transparently continued).
+    //
+    // For each running task we therefore choose mode based on detachment:
+    //   detached → abandon (leave subprocess alive, drop in-memory
+    //              tracking; reconciler picks it up via PID + log-mtime
+    //              freshness check).
+    //   pipe path → graceful kill (the legacy behavior — the child has
+    //              its stdio piped to us, so it'd SIGPIPE on close
+    //              anyway; an explicit graceful kill is cleaner).
+    //
+    // Both paths still mark the row cancel_reason='server_restart' so
+    // the reconciler's scan picks them up. The reconciler then either
+    // re-adopts (detached, alive, fresh log) or clones (pipe path,
+    // detached-but-pid-dead, or stale log).
     for (const taskId of runningProcesses.keys()) {
-      cancelTask(taskId, 'Server shutdown', { cancel_reason: 'server_restart' });
+      const proc = runningProcesses.get(taskId);
+      const abandon = Boolean(proc?.detached);
+      cancelTask(taskId, 'Server shutdown', {
+        cancel_reason: 'server_restart',
+        abandon,
+      });
     }
   } else {
     const runningCount = runningProcesses.size;
