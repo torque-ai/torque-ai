@@ -58,6 +58,8 @@ let sanitizeTaskOutput;
 let detectOutputCompletion;
 let QUEUE_LOCK_HOLDER_ID;
 
+const DEP_SCOPE_PROMISE = Symbol('taskStartupDependencyScopePromise');
+
 // State
 let skipGitInCloseHandler = false;
 
@@ -1809,7 +1811,7 @@ function attemptTaskStart(taskId, label) {
     }
     const maybePromise = startTask(taskId);
     if (maybePromise && typeof maybePromise.catch === 'function') {
-      maybePromise.catch((asyncErr) => {
+      const scopedPromise = maybePromise.catch((asyncErr) => {
         logger.error(`processQueue: async failure for ${label} task ${taskId}`, { error: asyncErr.message });
         if (isPreflightError(asyncErr) && asyncErr.deterministic) {
           try {
@@ -1835,7 +1837,12 @@ function attemptTaskStart(taskId, label) {
           logger.info(`processQueue: failed to revert async-start task ${taskId.slice(0, 8)}: ${revertErr.message}`);
         }
       });
-      return { started: false, queued: false, pendingAsync: true };
+      return {
+        started: false,
+        queued: false,
+        pendingAsync: true,
+        [DEP_SCOPE_PROMISE]: scopedPromise,
+      };
     }
     if (maybePromise && typeof maybePromise === 'object' && maybePromise.queued === true) {
       return { started: false, queued: true, pendingAsync: false };
@@ -2264,6 +2271,11 @@ function createTaskStartup(localDeps = {}) {
       const result = fn();
       if (result && typeof result.then === 'function') {
         return result.finally(restore);
+      }
+      const scopedPromise = result?.[DEP_SCOPE_PROMISE];
+      if (scopedPromise && typeof scopedPromise.finally === 'function') {
+        scopedPromise.finally(restore).catch(() => {});
+        return result;
       }
       restore();
       return result;

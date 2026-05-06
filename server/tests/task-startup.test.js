@@ -278,6 +278,36 @@ describe('task-startup', () => {
     expect(deps.spawnAndTrackProcess).toHaveBeenCalledTimes(1);
   });
 
+  it('keeps createTaskStartup dependencies active for pending async attemptTaskStart', async () => {
+    const wrongPolicy = vi.fn(() => {
+      throw new Error('wrong dependency scope');
+    });
+    const ctx = loadTaskStartup({
+      depOverrides: {
+        evaluateTaskPreExecutePolicy: wrongPolicy,
+      },
+    });
+    const task = createTask({ id: 'attempt-task' });
+    const { deps } = createDeps({ task });
+    const startup = ctx.module.createTaskStartup(deps);
+
+    const result = startup.attemptTaskStart(task.id, 'codex');
+
+    expect(result).toMatchObject({
+      started: false,
+      queued: false,
+      pendingAsync: true,
+    });
+    await vi.waitFor(() => {
+      expect(deps.spawnAndTrackProcess).toHaveBeenCalledTimes(1);
+    });
+    expect(wrongPolicy).not.toHaveBeenCalled();
+    expect(deps.evaluateTaskPreExecutePolicy).toHaveBeenCalledWith(expect.objectContaining({
+      id: task.id,
+      provider: 'codex',
+    }));
+  });
+
   it('lazily resolves taskManager methods assigned after createTaskStartup construction', async () => {
     const ctx = loadTaskStartup();
     const task = createTask({ id: 'lazy-task' });
