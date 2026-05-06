@@ -503,6 +503,9 @@ async function handleListTasks(req, res) {
       'timeout_minutes', 'progress_percent', 'ollama_host_id',
       'files_modified', 'created_at', 'started_at', 'completed_at',
       'original_provider', 'project', 'tags', 'metadata',
+      // Surfaced on the dashboard as a badge for cancelled tasks so
+      // operators can distinguish supersession from real failure.
+      'cancel_reason',
     ],
   });
   const items = tasks.map(buildTaskResponse).filter(Boolean);
