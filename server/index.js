@@ -46,6 +46,7 @@ const {
   appendRollbackReport,
   rollbackAgenticTaskChanges,
 } = require('./execution/agentic-orphan-rollback');
+const { isRestartBarrierTask } = require('./execution/restart-barrier');
 
 // Stored handler ref for shutdown listener deduplication across init() calls
 let _shutdownHandler = null;
@@ -1567,6 +1568,9 @@ function init() {
     };
 
     for (const task of runningTasks) {
+      if (isRestartBarrierTask(task)) {
+        continue;
+      }
       const cloneWithResumeContext = shouldCloneStartupOrphan(task);
       const startedAt = task.started_at ? new Date(task.started_at).getTime() : 0;
       const runningTime = now - startedAt;

@@ -2,6 +2,31 @@
 
 const { readRestartHandoff } = require('./restart-handoff');
 
+function parseTaskMetadata(task) {
+  if (!task || !task.metadata) return {};
+  if (typeof task.metadata === 'object' && !Array.isArray(task.metadata)) {
+    return task.metadata;
+  }
+  if (typeof task.metadata !== 'string') return {};
+  try {
+    const parsed = JSON.parse(task.metadata);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function isRestartBarrierTask(task) {
+  if (!task) return false;
+  if (task.provider === 'system') return true;
+  if (task.original_provider === 'system') return true;
+  if (String(task.task_description || '').startsWith('Restart barrier:')) return true;
+
+  const metadata = parseTaskMetadata(task);
+  return metadata.requested_provider === 'system'
+    || metadata.original_requested_provider === 'system';
+}
+
 /**
  * Shared restart-barrier check used by both the legacy queue scheduler and the
  * slot-pull scheduler. A barrier task is a task with `provider = 'system'` in
@@ -79,4 +104,7 @@ function isRestartBarrierActive(db) {
   return null;
 }
 
-module.exports = { isRestartBarrierActive };
+module.exports = {
+  isRestartBarrierActive,
+  isRestartBarrierTask,
+};

@@ -12,6 +12,7 @@ const {
   appendRollbackReport,
   rollbackAgenticTaskChanges,
 } = require('./agentic-orphan-rollback');
+const { isRestartBarrierTask } = require('./restart-barrier');
 
 // Subprocess-detachment Phase C: PID-reuse defense window. If a row's
 // subprocess_pid is still alive but the on-disk log file hasn't been
@@ -619,7 +620,8 @@ function reconcileOrphanedTasksOnStartup({
   actions.scanned = orphanedOrDrainCancelled.length;
 
   const candidates = orphanedOrDrainCancelled.filter(task => (
-    isCandidateOwnedByDeadOrRestartedInstance(task, currentInstanceId, isInstanceAlive)
+    !isRestartBarrierTask(task)
+    && isCandidateOwnedByDeadOrRestartedInstance(task, currentInstanceId, isInstanceAlive)
   ));
   actions.candidates = candidates.length;
   const candidateIds = new Set(candidates.map(task => task.id).filter(Boolean));

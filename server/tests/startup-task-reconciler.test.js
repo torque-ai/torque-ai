@@ -265,6 +265,27 @@ describe('startup task reconciler', () => {
     expect(db.prepare('SELECT COUNT(*) as count FROM tasks').get().count).toBe(0);
   });
 
+  test('restart barrier rows are left for restart handoff instead of cancelled or cloned', () => {
+    insertTask({
+      id: 'restart-barrier-row',
+      task_description: 'Restart barrier: Cutover to feature',
+      provider: null,
+      original_provider: 'system',
+      metadata: { requested_provider: 'system' },
+      mcp_instance_id: null,
+    });
+
+    const result = runReconciler();
+
+    expect(result.actions.scanned).toBe(1);
+    expect(result.actions.candidates).toBe(0);
+    expect(result.actions.cancelled).toBe(0);
+    expect(result.actions.cloned).toBe(0);
+    const row = getTaskRow('restart-barrier-row');
+    expect(row.status).toBe('running');
+    expect(row.provider).toBeNull();
+  });
+
   test('Orphan with metadata.auto_resubmit_on_restart=true -> cancelled and cloned with resume_context', () => {
     insertTask({
       id: 'task-auto',
