@@ -152,6 +152,29 @@ function createSafeguardGates(deps = {}) {
 }
 
 /**
+ * Legacy direct handler used by task-finalizer fallback paths.
+ *
+ * This must not require `defaultContainer.get('safeguardGates')`: if another
+ * optional service breaks boot, finalization still needs safeguard checks to
+ * degrade gracefully instead of converting successful provider output into a
+ * failed task with "called before boot".
+ */
+function handleSafeguardChecks(ctx) {
+  let containerDeps = {};
+  try {
+    const { defaultContainer } = require('../container');
+    containerDeps = {
+      db: defaultContainer.peek('db') || null,
+      dashboard: defaultContainer.peek('dashboard') || null,
+      taskManager: defaultContainer.peek('taskManager') || null,
+    };
+  } catch {
+    containerDeps = {};
+  }
+  return createSafeguardGates(containerDeps).handleSafeguardChecks(ctx);
+}
+
+/**
  * Register this service with a container. Consumers resolve via
  * `container.get('safeguardGates').handleSafeguardChecks`.
  *
@@ -169,5 +192,6 @@ function register(container) {
 
 module.exports = {
   createSafeguardGates,
+  handleSafeguardChecks,
   register,
 };
