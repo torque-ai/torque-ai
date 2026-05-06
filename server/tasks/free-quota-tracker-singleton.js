@@ -46,14 +46,27 @@ function mergeDefaultFreeProviderRateLimits(limits = []) {
 let _db = null;
 let _tracker = null;
 
-function init({ db }) {
-  _db = db;
+/**
+ * @internal — test-only override path. Production lazy-resolves _db via
+ * defaultContainer.peek('db') inside getFreeQuotaTracker.
+ */
+function init({ db } = {}) {
+  if (db) _db = db;
+}
+
+function ensureDb() {
+  if (_db) return _db;
+  try {
+    _db = require('../container').defaultContainer.peek('db') || null;
+  } catch { /* container not yet available */ }
+  return _db;
 }
 
 function getFreeQuotaTracker() {
   if (!_tracker) {
+    ensureDb();
     if (!_db) {
-      throw new Error('free-quota-tracker-singleton: init({ db }) must be called before getFreeQuotaTracker()');
+      throw new Error('free-quota-tracker-singleton: db not available — register a db value in the DI container before calling getFreeQuotaTracker()');
     }
     const limits = mergeDefaultFreeProviderRateLimits(
       _db.getProviderRateLimits ? _db.getProviderRateLimits() : []

@@ -27,7 +27,10 @@ const { randomUUID } = require('crypto');
 // Phase 3 of the universal-DI migration. Coexistence pattern: factory below.
 let deps = {};
 
-/** @deprecated Use createCompletionPipeline(deps) or container.get('completionPipeline'). */
+/**
+ * @internal — test-only override path. Production resolves via
+ * createCompletionPipeline(localDeps) inside the container factory.
+ */
 function init(nextDeps = {}) {
   deps = { ...deps, ...nextDeps };
 }

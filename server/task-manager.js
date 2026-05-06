@@ -128,15 +128,17 @@ const _promptsModule = require('./providers/prompts');
 const _closePhases = require('./validation/close-phases');
 const _autoVerifyRetry = require('./validation/auto-verify-retry');
 const completionDetection = require('./validation/completion-detection');
-const _queueScheduler = require('./execution/queue-scheduler');
-const _taskFinalizer = require('./execution/task-finalizer');
 const _sandboxRevertDetection = require('./execution/sandbox-revert-detection');
-const _completionPipeline = require('./execution/completion-pipeline');
 const _taskUtils = require('./execution/task-utils');
-const _processLifecycle = require('./execution/process-lifecycle');
-const { safeDecrementHostSlot, killProcessGraceful, safeTriggerWebhook, cleanupProcessTracking, cleanupChildProcessListeners } = _processLifecycle;
+// execution/process-lifecycle.js: production accesses methods through
+// defaultContainer.get('processLifecycle'). The factory self-bootstraps deps
+// (taskManager methods + process-streams handlers + container singletons).
+function safeDecrementHostSlot(...args) { return defaultContainer.get('processLifecycle').safeDecrementHostSlot(...args); }
+function killProcessGraceful(...args) { return defaultContainer.get('processLifecycle').killProcessGraceful(...args); }
+function safeTriggerWebhook(...args) { return defaultContainer.get('processLifecycle').safeTriggerWebhook(...args); }
+function cleanupProcessTracking(...args) { return defaultContainer.get('processLifecycle').cleanupProcessTracking(...args); }
+function cleanupChildProcessListeners(...args) { return defaultContainer.get('processLifecycle').cleanupChildProcessListeners(...args); }
 const debugLifecycle = require('./execution/debug-lifecycle');
-const _processStreams = require('./execution/process-streams');
 const ProcessTracker = require('./execution/process-tracker');
 const codexIntelligence = require('./providers/codex-intelligence');
 
@@ -181,11 +183,23 @@ const { detectSandboxReverts: handleSandboxRevertDetection } = _sandboxRevertDet
 const {
   handleAutoValidation, handleBuildTestStyleCommit, handleProviderFailover,
 } = _closePhases;
-const {
-  recordModelOutcome, recordProviderHealth, handlePostCompletion,
-} = _completionPipeline;
-const { finalizeTask } = _taskFinalizer;
-const { categorizeQueuedTasks, processQueueInternal } = _queueScheduler;
+// execution/completion-pipeline.js: production accesses methods via the
+// container. Factory self-bootstraps utility deps (parseTaskMetadata ←
+// task-utils; runOutputSafeguards ← output-safeguards) and handler
+// functions (handleWorkflowTermination ← workflowRuntime;
+// handleProjectDependencyResolution ← planProjectResolver).
+function recordModelOutcome(...args) { return defaultContainer.get('completionPipeline').recordModelOutcome(...args); }
+function recordProviderHealth(...args) { return defaultContainer.get('completionPipeline').recordProviderHealth(...args); }
+function handlePostCompletion(...args) { return defaultContainer.get('completionPipeline').handlePostCompletion(...args); }
+// execution/task-finalizer.js: production accesses methods via the container.
+// Factory self-bootstraps stage handlers via require() (handleSafeguardChecks,
+// handleAutoValidation, etc.) and binds taskManager methods.
+function finalizeTask(...args) { return defaultContainer.get('taskFinalizer').finalizeTask(...args); }
+// execution/queue-scheduler.js: factory self-bootstraps deps (taskManager
+// methods, eventBus, providerRegistry, safeConfigInt, analyzeTaskForRouting,
+// cleanupOrphanedRetryTimeouts, getFreeQuotaTracker).
+function categorizeQueuedTasks(...args) { return defaultContainer.get('queueScheduler').categorizeQueuedTasks(...args); }
+function processQueueInternal(...args) { return defaultContainer.get('queueScheduler').processQueueInternal(...args); }
 const { cleanupOrphanedHostTasks, getStallThreshold } = _orphanCleanup;
 
 const WORKFLOW_TERMINAL_STATUSES = new Set(['completed', 'failed', 'cancelled', 'skipped']);
@@ -238,9 +252,9 @@ function parseTaskMetadata(...args) { return _taskUtils.parseTaskMetadata(...arg
 function getTaskContextTokenEstimate(...args) { return _taskUtils.getTaskContextTokenEstimate(...args); }
 
 
-// Free-tier provider quota tracker — singleton lives in tasks/free-quota-tracker-singleton.js
+// Free-tier provider quota tracker — singleton lives in tasks/free-quota-tracker-singleton.js.
+// Lazy-resolves db via defaultContainer.peek('db') in ensureDb() inside getFreeQuotaTracker.
 const _freeQuotaSingleton = require('./tasks/free-quota-tracker-singleton');
-_freeQuotaSingleton.init({ db });
 const { getFreeQuotaTracker } = _freeQuotaSingleton;
 
 if (executeApi.setFreeQuotaTracker) executeApi.setFreeQuotaTracker(getFreeQuotaTracker);
@@ -473,7 +487,7 @@ function handlePlanProjectTaskFailure(...args) { return defaultContainer.get('pl
 
 // Phase 0: Race guard + cleanup — delegated to execution/process-lifecycle.js
 function handleCloseCleanup(taskId, code) {
-  return _processLifecycle.handleCloseCleanup(taskId, code);
+  return defaultContainer.get('processLifecycle').handleCloseCleanup(taskId, code);
 }
 
 // Phase 1: Retry logic — resolved from the DI container.
@@ -547,7 +561,7 @@ function getEffectiveGlobalMaxConcurrent(...args) { return defaultContainer.get(
 
 // Delegated to execution/process-lifecycle.js (D4.3)
 function spawnAndTrackProcess(taskId, task, config) {
-  return _processLifecycle.spawnAndTrackProcess(taskId, task, config);
+  return defaultContainer.get('processLifecycle').spawnAndTrackProcess(taskId, task, config);
 }
 
 // startTask — delegated to execution/task-startup.js
@@ -828,7 +842,8 @@ function initSubModules() {
   if (_subModulesInitialized) return;
   _subModulesInitialized = true;
 
-_taskExecutionHooks.init({ db });
+// policy-engine/task-execution-hooks.js: db lazy-resolves via container peek
+// in ensureDb() inside buildPolicyTaskData. No imperative init() needed.
 
 // execution/plan-project-resolver.js: db + dashboard come from the container
 // at boot via createPlanProjectResolver. Production resolves via
@@ -971,14 +986,12 @@ _orphanCleanup.startTimers();
 // Sleep watchdog — detects system sleep/wake and shields tasks from false timeouts
 _sleepWatchdog.start({ db, runningProcesses, logger });
 
-_instanceManager.init({
-  db,
-  logger,
-  instanceId: QUEUE_LOCK_HOLDER_ID,
-});
+// maintenance/instance-manager.js: db, logger, and QUEUE_LOCK_HOLDER_ID
+// (via taskManager.queueLockHolderId) lazy-resolve through the container in
+// ensureDeps(). No imperative init() needed.
 
-// Phase 7-10 module initialization
-_promptsModule.init({ db });
+// providers/prompts.js: serverConfig is initialized by index.js; the legacy
+// _db slot in prompts is unused in production code paths.
 codexIntelligence.init({ db, prompts: _promptsModule });
 // execution/command-builders.js: utility deps (wrapWithInstructions,
 // providerCfg, contextEnrichment, codexIntelligence) resolve at module load
@@ -1004,83 +1017,39 @@ codexIntelligence.init({ db, prompts: _promptsModule });
 // safeUpdateTaskStatus, processQueue) from the registered taskManager handle.
 // validation/auto-verify-retry.js: db / startTask / processQueue / sandboxManager /
 // testRunnerRegistry all lazy-resolve through the container at first call.
-_completionPipeline.init({
-  db,
-  parseTaskMetadata,
-  handleWorkflowTermination,
-  handleProjectDependencyResolution,
-  handlePipelineStepCompletion,
-  runOutputSafeguards,
-});
-_taskFinalizer.init({
-  db,
-  safeUpdateTaskStatus,
-  sanitizeTaskOutput,
-  extractModifiedFiles,
-  handleRetryLogic,
-  handleSafeguardChecks,
-  handleFuzzyRepair,
-  handleNoFileChangeDetection,
-  handleSandboxRevertDetection,
-  handleAutoValidation,
-  handleBuildTestStyleCommit,
-  handleAutoVerifyRetry: _autoVerifyRetry.handleAutoVerifyRetry,
-  handleProviderFailover,
-  handlePostCompletion,
-});
-_queueScheduler.init({
-  db,
-  attemptTaskStart,
-  safeStartTask,
-  safeConfigInt,
-  isLargeModelBlockedOnHost,
-  getProviderInstance: (name) => providerRegistry.getProviderInstance(name),
-  getFreeQuotaTracker,
-  cleanupOrphanedRetryTimeouts,
-  analyzeTaskForRouting: providerRoutingCore.analyzeTaskForRouting,
-  notifyDashboard: (taskId, updates = {}) => {
-    if (!taskId) return;
-    const payload = updates && typeof updates === 'object' ? updates : {};
-    eventBus.emitTaskUpdated({ taskId, ...payload });
-  },
-});
+// execution/completion-pipeline.js: db comes from the container at boot;
+// parseTaskMetadata + runOutputSafeguards via require() inside the factory;
+// handleWorkflowTermination + handleProjectDependencyResolution +
+// handlePipelineStepCompletion resolved from the workflowRuntime and
+// planProjectResolver container services. No imperative init() needed.
+// execution/task-finalizer.js: stage handlers (handleRetryLogic,
+// handleSafeguardChecks, handleFuzzyRepair, handleNoFileChangeDetection,
+// handleSandboxRevertDetection, handleAutoValidation, handleBuildTestStyleCommit,
+// handleAutoVerifyRetry, handleProviderFailover, handlePostCompletion) all
+// resolve via require() inside createTaskFinalizer; safeUpdateTaskStatus +
+// sanitizeTaskOutput bind from the taskManager value. No imperative init().
+// execution/queue-scheduler.js: factory self-resolves all deps —
+// attemptTaskStart, safeStartTask, isLargeModelBlockedOnHost via taskManager
+// binding; safeConfigInt ← provider-router; cleanupOrphanedRetryTimeouts ←
+// task-startup; analyzeTaskForRouting ← db/smart-routing; getProviderInstance
+// ← providers/registry; getFreeQuotaTracker ← fallback-retry; notifyDashboard
+// from the registered eventBus value. No imperative init() needed.
 // Register queue-scheduler cleanup on DB close (prevents timer leaks in tests)
 if (typeof db.onClose === 'function') {
-  db.onClose(() => _queueScheduler.stop());
+  db.onClose(() => defaultContainer.get('queueScheduler').stop());
 }
 // RB-035: Resolve any tasks stuck in codex-pending dead state on startup
-try { _queueScheduler.resolveCodexPendingTasks(); } catch { /* ignore */ }
-_processStreams.init({
-  db,
-  dashboard: getDashboardBroadcaster(),
-  // runningProcesses + stallRecoveryAttempts default to container's
-  // processTracker — process-streams peeks it on init() unless
-  // overridden.
-  estimateProgress,
-  detectOutputCompletion,
-  checkBreakpoints,
-  pauseTaskForDebug,
-  pauseTask,
-  extractModifiedFiles,
-  safeUpdateTaskStatus,
-  safeDecrementHostSlot,
-  killProcessGraceful,
-  MAX_OUTPUT_BUFFER,
-});
+try { defaultContainer.get('queueScheduler').resolveCodexPendingTasks(); } catch { /* ignore */ }
+// execution/process-streams.js: raw setupStdoutHandler/setupStderrHandler
+// exports lazy-resolve their deps via ensureDeps() at call time. The
+// container service createProcessStreams self-bootstraps the same deps for
+// callers that go through defaultContainer.get('processStreams').
 
-_processLifecycle.init({
-  dashboard: getDashboardBroadcaster(),
-  // runningProcesses, finalizingTasks, closeHandlerState default to the
-  // container values — process-lifecycle peeks them on init() unless
-  // overridden.
-  finalizeTask,
-  cancelTask,
-  processQueue,
-  markTaskCleanedUp,
-  safeUpdateTaskStatus,
-  setupStdoutHandler: _processStreams.setupStdoutHandler,
-  setupStderrHandler: _processStreams.setupStderrHandler,
-});
+// execution/process-lifecycle.js: dashboard / finalizeTask / cancelTask /
+// processQueue / markTaskCleanedUp / safeUpdateTaskStatus / setupStdoutHandler /
+// setupStderrHandler all resolve inside createProcessLifecycle via container
+// peek + taskManager binding + require()s. Production resolves the service
+// via defaultContainer.get('processLifecycle').
 
 // Boot the container so DI-resolved subsystem services (taskStartup,
 // commandBuilders, providerRouter, retryFramework, etc.) are reachable via

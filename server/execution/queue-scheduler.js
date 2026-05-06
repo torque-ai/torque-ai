@@ -126,7 +126,10 @@ function notifyDashboard(taskId, updates = {}) {
   }
 }
 
-/** @deprecated Use createQueueScheduler(deps) or container.get('queueScheduler'). */
+/**
+ * @internal — test-only override path. Production resolves via
+ * createQueueScheduler(localDeps) inside the container factory.
+ */
 function init(deps) {
   if (deps.db) db = deps.db;
   if (deps.db) serverConfig.init({ db: deps.db });

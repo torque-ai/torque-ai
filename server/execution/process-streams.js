@@ -16,9 +16,46 @@ const { shouldUseOutputCompletionDetection } = require('./completion-policy');
 // ── Module-level deps slot ─────────────────────────────────────────────────
 // Production callers reach the wrapped functions through createProcessStreams
 // (driven by container.get('processStreams')) which fills this slot via
-// withLocalDeps for each call. Tests that still drive raw exports populate it
-// through init().
+// withLocalDeps for each call. Sibling modules that require() the raw exports
+// (notably process-lifecycle's createProcessLifecycle factory) cause the raw
+// path to fire — those functions invoke ensureDeps() at the top to lazy-
+// resolve the slot from the container + canonical require()s. Tests that still
+// drive raw exports may populate this slot through init().
 let deps = null;
+
+function resolveDepsFromContainer() {
+  const r = {};
+  try {
+    const { defaultContainer } = require('../container');
+    if (defaultContainer.has?.('db')) r.db = defaultContainer.peek('db');
+    if (defaultContainer.has?.('dashboard')) r.dashboard = defaultContainer.peek('dashboard');
+    const tracker = defaultContainer.peek('processTracker');
+    if (tracker) {
+      r.runningProcesses = tracker;
+      if (tracker.stallAttempts) r.stallRecoveryAttempts = tracker.stallAttempts;
+    }
+    const tm = defaultContainer.peek('taskManager');
+    if (tm) {
+      const bind = (name) => (typeof tm[name] === 'function' ? tm[name].bind(tm) : null);
+      if (bind('pauseTask')) r.pauseTask = bind('pauseTask');
+      if (bind('pauseTaskForDebug')) r.pauseTaskForDebug = bind('pauseTaskForDebug');
+      if (bind('checkBreakpoints')) r.checkBreakpoints = bind('checkBreakpoints');
+      if (bind('safeUpdateTaskStatus')) r.safeUpdateTaskStatus = bind('safeUpdateTaskStatus');
+    }
+  } catch { /* container not available */ }
+  try { r.estimateProgress = require('./task-startup').estimateProgress; } catch { /* fall through */ }
+  try { r.detectOutputCompletion = require('../validation/completion-detection').detectOutputCompletion; } catch { /* fall through */ }
+  try { r.extractModifiedFiles = require('../utils/file-resolution').extractModifiedFiles; } catch { /* fall through */ }
+  try { r.safeDecrementHostSlot = require('./process-lifecycle').safeDecrementHostSlot; } catch { /* fall through */ }
+  try { r.killProcessGraceful = require('./process-lifecycle').killProcessGraceful; } catch { /* fall through */ }
+  try { r.MAX_OUTPUT_BUFFER = require('./task-startup').MAX_OUTPUT_BUFFER; } catch { /* fall through */ }
+  return r;
+}
+
+function ensureDeps() {
+  if (deps) return;
+  deps = resolveDepsFromContainer();
+}
 
 /**
  * Initialize module with dependencies from task-manager.js context.
@@ -185,6 +222,7 @@ function armCompletionGraceIfDetected(taskId, proc) {
  * @param {string} provider - Execution provider name
  */
 function setupStdoutHandler(child, taskId, streamId) {
+  ensureDeps();
   const proc = deps.runningProcesses.get(taskId);
   getOrCreateOutputBuffer(taskId, proc);
 
@@ -284,6 +322,7 @@ function setupStdoutHandler(child, taskId, streamId) {
  * @param {string} streamId - Stream ID for chunk persistence
  */
 function setupStderrHandler(child, taskId, streamId) {
+  ensureDeps();
   child.stderr.on('error', (err) => {
     logger.info(`[TaskManager] stderr error for task ${taskId}: ${err.message}`);
   });
