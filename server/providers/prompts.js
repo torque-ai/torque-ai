@@ -81,13 +81,12 @@ const TIER_CONTEXT_CAPS = {
 let _db = null;
 
 /**
- * Initialize dependencies for this module.
- * @param {Object} deps
- * @param {Object} deps.db - Database module (getConfig)
+ * @internal — test-only override path. Production reads serverConfig directly
+ * (initialized by index.js); _db is retained for legacy callers but not
+ * used in the module body.
  */
-function init(deps) {
+function init(deps = {}) {
   if (deps.db) _db = deps.db;
-  serverConfig.init({ db: deps.db });
 }
 
 /**

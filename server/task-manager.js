@@ -238,9 +238,9 @@ function parseTaskMetadata(...args) { return _taskUtils.parseTaskMetadata(...arg
 function getTaskContextTokenEstimate(...args) { return _taskUtils.getTaskContextTokenEstimate(...args); }
 
 
-// Free-tier provider quota tracker — singleton lives in tasks/free-quota-tracker-singleton.js
+// Free-tier provider quota tracker — singleton lives in tasks/free-quota-tracker-singleton.js.
+// Lazy-resolves db via defaultContainer.peek('db') in ensureDb() inside getFreeQuotaTracker.
 const _freeQuotaSingleton = require('./tasks/free-quota-tracker-singleton');
-_freeQuotaSingleton.init({ db });
 const { getFreeQuotaTracker } = _freeQuotaSingleton;
 
 if (executeApi.setFreeQuotaTracker) executeApi.setFreeQuotaTracker(getFreeQuotaTracker);
@@ -828,7 +828,8 @@ function initSubModules() {
   if (_subModulesInitialized) return;
   _subModulesInitialized = true;
 
-_taskExecutionHooks.init({ db });
+// policy-engine/task-execution-hooks.js: db lazy-resolves via container peek
+// in ensureDb() inside buildPolicyTaskData. No imperative init() needed.
 
 // execution/plan-project-resolver.js: db + dashboard come from the container
 // at boot via createPlanProjectResolver. Production resolves via
@@ -977,8 +978,8 @@ _instanceManager.init({
   instanceId: QUEUE_LOCK_HOLDER_ID,
 });
 
-// Phase 7-10 module initialization
-_promptsModule.init({ db });
+// providers/prompts.js: serverConfig is initialized by index.js; the legacy
+// _db slot in prompts is unused in production code paths.
 codexIntelligence.init({ db, prompts: _promptsModule });
 // execution/command-builders.js: utility deps (wrapWithInstructions,
 // providerCfg, contextEnrichment, codexIntelligence) resolve at module load

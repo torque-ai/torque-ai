@@ -15,8 +15,20 @@ const taskHooks = require('./task-hooks');
 
 let _db = null;
 
+/**
+ * @internal — test-only override path. Production lazy-resolves _db via
+ * defaultContainer.peek('db') inside buildPolicyTaskData.
+ */
 function init(deps = {}) {
   if (deps.db) _db = deps.db;
+}
+
+function ensureDb() {
+  if (_db) return _db;
+  try {
+    _db = require('../container').defaultContainer.peek('db') || null;
+  } catch { /* container not yet available */ }
+  return _db;
 }
 
 /**
@@ -32,11 +44,14 @@ function buildPolicyTaskData(taskData = {}, overrides = {}) {
   const workingDirectory = merged.working_directory || merged.workingDirectory || null;
   let project = merged.project || merged.project_id || merged.projectId || null;
 
-  if (!project && workingDirectory && _db && typeof _db.getProjectFromPath === 'function') {
-    try {
-      project = _db.getProjectFromPath(workingDirectory);
-    } catch (err) {
-      logger.info(`[Policy] Failed to resolve project for ${workingDirectory}: ${err.message}`);
+  if (!project && workingDirectory) {
+    const db = ensureDb();
+    if (db && typeof db.getProjectFromPath === 'function') {
+      try {
+        project = db.getProjectFromPath(workingDirectory);
+      } catch (err) {
+        logger.info(`[Policy] Failed to resolve project for ${workingDirectory}: ${err.message}`);
+      }
     }
   }
 
