@@ -32,14 +32,23 @@ const autoVerifyRetry = require('./auto-verify-retry');        // [db, taskManag
 const outputSafeguards = require('./output-safeguards');       // [db]
 const postTask = require('./post-task');                       // [db, testRunnerRegistry]
 
+// Mirrors execution/register.js + factory/register.js: skip mocked
+// modules that lack a register function so container.js stays loadable
+// in tests that stub these modules with the legacy {init} shape.
+function tryRegister(mod, container) {
+  if (mod && typeof mod.register === 'function') {
+    mod.register(container);
+  }
+}
+
 function register(container) {
-  safeguardGates.register(container);
-  hashlineVerify.register(container);
-  buildVerification.register(container);
-  closePhases.register(container);
-  autoVerifyRetry.register(container);
-  outputSafeguards.register(container);
-  postTask.register(container);
+  tryRegister(safeguardGates, container);
+  tryRegister(hashlineVerify, container);
+  tryRegister(buildVerification, container);
+  tryRegister(closePhases, container);
+  tryRegister(autoVerifyRetry, container);
+  tryRegister(outputSafeguards, container);
+  tryRegister(postTask, container);
 }
 
 module.exports = { register };
