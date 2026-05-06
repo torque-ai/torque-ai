@@ -254,6 +254,70 @@ describe('task-startup', () => {
     expect(ctx.module.getRunningTaskCount()).toBe(2);
   });
 
+  it('keeps createTaskStartup dependencies active until async startTask settles', async () => {
+    const wrongPolicy = vi.fn(() => {
+      throw new Error('wrong dependency scope');
+    });
+    const ctx = loadTaskStartup({
+      depOverrides: {
+        evaluateTaskPreExecutePolicy: wrongPolicy,
+      },
+    });
+    const task = createTask({ id: 'factory-task' });
+    const { deps } = createDeps({ task });
+    const startup = ctx.module.createTaskStartup(deps);
+
+    const result = await startup.startTask(task.id);
+
+    expect(result).toEqual({ queued: false, started: true });
+    expect(wrongPolicy).not.toHaveBeenCalled();
+    expect(deps.evaluateTaskPreExecutePolicy).toHaveBeenCalledWith(expect.objectContaining({
+      id: task.id,
+      provider: 'codex',
+    }));
+    expect(deps.spawnAndTrackProcess).toHaveBeenCalledTimes(1);
+  });
+
+  it('lazily resolves taskManager methods assigned after createTaskStartup construction', async () => {
+    const ctx = loadTaskStartup();
+    const task = createTask({ id: 'lazy-task' });
+    const taskManager = {};
+    const { deps } = createDeps({
+      task,
+      depOverrides: {
+        taskManager,
+        cancelTask: undefined,
+        processQueue: undefined,
+        safeUpdateTaskStatus: undefined,
+        evaluateTaskPreExecutePolicy: vi.fn(() => ({
+          blocked: true,
+          results: [{ outcome: 'fail', reason: 'blocked by test policy' }],
+        })),
+      },
+    });
+    const startup = ctx.module.createTaskStartup(deps);
+    taskManager.cancelTask = vi.fn((taskId, reason) => {
+      deps.db.updateTaskStatus(taskId, 'cancelled', { error_output: reason });
+      return true;
+    });
+    taskManager.processQueue = vi.fn();
+    taskManager.safeUpdateTaskStatus = vi.fn((...args) => deps.db.updateTaskStatus(...args));
+
+    const result = await startup.startTask(task.id);
+
+    expect(result).toMatchObject({
+      queued: false,
+      blocked: true,
+      failed: true,
+    });
+    expect(taskManager.cancelTask).toHaveBeenCalledWith(
+      task.id,
+      expect.stringContaining('policy blocked'),
+      { cancel_reason: 'policy_block' },
+    );
+    expect(taskManager.processQueue).toHaveBeenCalledTimes(1);
+  });
+
   it('injects resolved mention context into the execution prompt and tags unresolved mentions', async () => {
     const mentionResolver = {
       resolve: vi.fn(async () => ([
