@@ -1143,6 +1143,7 @@ Object.assign(module.exports, {
   probeLocalGpuMetrics,
   probeRemoteGpuMetrics,
   // Multi-session instance management
+  queueLockHolderId: QUEUE_LOCK_HOLDER_ID,
   getMcpInstanceId,
   registerInstance,
   unregisterInstance,

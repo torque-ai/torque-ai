@@ -8,6 +8,16 @@ describe('Instance Manager', () => {
   let instanceManager;
   let mockDb;
 
+  function installMock(modulePath, exportsValue) {
+    const resolved = require.resolve(modulePath);
+    require.cache[resolved] = {
+      id: resolved,
+      filename: resolved,
+      loaded: true,
+      exports: exportsValue,
+    };
+  }
+
   beforeEach(() => {
     delete require.cache[require.resolve('../maintenance/instance-manager')];
     instanceManager = require('../maintenance/instance-manager');
@@ -65,6 +75,44 @@ describe('Instance Manager', () => {
       const holderInfo = JSON.parse(mockDb.acquireLock.mock.calls[0][3]);
       expect(holderInfo.pid).toBe(process.pid);
       expect(holderInfo.startedAt).toBeDefined();
+    });
+
+    it('lazy-resolves holder ID from taskManager container export', () => {
+      const containerPath = require.resolve('../container');
+      const instanceManagerPath = require.resolve('../maintenance/instance-manager');
+      const originalContainer = require.cache[containerPath];
+      delete require.cache[instanceManagerPath];
+
+      const lazyDb = {
+        acquireLock: vi.fn().mockReturnValue({ acquired: true }),
+      };
+      const lazyLogger = { info: vi.fn(), warn: vi.fn() };
+      const lazyContainer = {
+        peek: vi.fn((key) => {
+          if (key === 'db') return lazyDb;
+          if (key === 'logger') return lazyLogger;
+          if (key === 'taskManager') return { queueLockHolderId: 'mcp-container-1234' };
+          return null;
+        }),
+      };
+
+      try {
+        installMock('../container', { defaultContainer: lazyContainer });
+        const lazyInstanceManager = require('../maintenance/instance-manager');
+
+        expect(lazyInstanceManager.registerInstance()).toEqual({ acquired: true });
+        expect(lazyDb.acquireLock).toHaveBeenCalledWith(
+          'mcp_instance:mcp-container-1234',
+          'mcp-container-1234',
+          60,
+          expect.stringContaining('"pid"')
+        );
+        expect(lazyInstanceManager.getMcpInstanceId()).toBe('mcp-container-1234');
+      } finally {
+        delete require.cache[instanceManagerPath];
+        if (originalContainer) require.cache[containerPath] = originalContainer;
+        else delete require.cache[containerPath];
+      }
     });
   });
 
