@@ -375,24 +375,13 @@ function sanitizeTaskOutput(...args) { return _taskUtils.sanitizeTaskOutput(...a
  * @param {object} fields - Additional fields to update
  * @returns {object|null} The updated task, or null if update was skipped
  */
+// Delegated to execution/task-status-updater.js — extracted as a focused
+// container capability (same pattern as taskCanceller). Production paths
+// reach this through `defaultContainer.get('taskStatusUpdater').safeUpdateTaskStatus`;
+// the wrapper here keeps task-manager's existing export shape stable for
+// callers that still bind via taskManager.safeUpdateTaskStatus.
 function safeUpdateTaskStatus(taskId, status, fields = {}) {
-  try {
-    // Use softFail mode to gracefully handle terminal state conflicts
-    return taskCore.updateTaskStatus(taskId, status, { ...fields, _softFail: true });
-  } catch (err) {
-    // Even with softFail, some errors may still occur (db corruption, etc.)
-    if (err.message.includes('Cannot transition')) {
-      logger.info(`[SafeUpdate] State conflict for ${taskId}: ${err.message.slice(0, 80)}`);
-      try {
-        return taskCore.getTask(taskId);
-      } catch {
-        return null;
-      }
-    }
-    // Log but don't crash for other errors
-    logger.info(`[SafeUpdate] Error updating ${taskId}: ${err.message}`);
-    return null;
-  }
+  return defaultContainer.get('taskStatusUpdater').safeUpdateTaskStatus(taskId, status, fields);
 }
 
 // execFileSync moved to execution/task-startup.js
@@ -601,6 +590,19 @@ const _cancellationHandler = createCancellationHandler({
 });
 const { cancelTask, triggerCancellationWebhook } = _cancellationHandler;
 defaultContainer.registerValue('taskCanceller', _cancellationHandler);
+
+// ── taskStatusUpdater capability: single registration, single instance ──
+//
+// Same pattern as taskCanceller — construct once, register as the canonical
+// container value, override the deferred factory entry registered by
+// execution/register.js. Consumers that previously bound
+// `taskManager.safeUpdateTaskStatus` should now resolve
+// `defaultContainer.get('taskStatusUpdater').safeUpdateTaskStatus`.
+const _taskStatusUpdaterHandler = require('./execution/task-status-updater').createTaskStatusUpdater({
+  db,
+  taskCore,
+});
+defaultContainer.registerValue('taskStatusUpdater', _taskStatusUpdaterHandler);
 
 /**
  * Process the queue - start next queued task if possible

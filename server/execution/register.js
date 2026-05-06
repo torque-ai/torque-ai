@@ -51,6 +51,7 @@ const slotPullScheduler = require('./slot-pull-scheduler');         // [db, dash
 const queueScheduler = require('./queue-scheduler');                // [db, taskManager, eventBus]
 const providerRouter = require('./provider-router');                // [db, serverConfig, taskManager]
 const taskCancellation = require('./task-cancellation');            // [db, logger, taskManager] — taskCanceller capability
+const taskStatusUpdater = require('./task-status-updater');         // [] — capability, lazy-resolves db
 const taskFinalizer = require('./task-finalizer');                  // [db, taskManager]
 const taskStartup = require('./task-startup');                      // [db, dashboard, serverConfig, providerRegistry, gpuMetrics, taskManager]
 
@@ -92,6 +93,7 @@ function register(container) {
   tryRegister(queueScheduler, container);
   tryRegister(providerRouter, container);
   tryRegister(taskCancellation, container);
+  tryRegister(taskStatusUpdater, container);
   tryRegister(taskFinalizer, container);
   tryRegister(taskStartup, container);
 }
