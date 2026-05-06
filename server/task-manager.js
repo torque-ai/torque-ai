@@ -1097,6 +1097,15 @@ Object.assign(module.exports, {
   stopTaskForRestart,
   markTaskCleanedUp,
   processQueue,
+  // stopTaskForRestart was MIA from the export block prior to 2026-05-06 even
+  // though fallback-retry.js's ensureDeps() resolves it via
+  // tm.stopTaskForRestart. Without the export, tm[name] === undefined and
+  // _stopTaskForRestart stayed null in fallback-retry. The first periodic
+  // checkStalledTasks tick after every server start (5min interval) hit
+  // _stopTaskForRestart(taskId, ...) — TypeError → uncaughtException →
+  // gracefulShutdown. With the auto-restart fix landed earlier on 2026-05-06,
+  // the system loop-crashed every 5min indefinitely until this export.
+  stopTaskForRestart,
   getTaskProgress,
   getRunningTaskCount,
   getTaskActivity,
