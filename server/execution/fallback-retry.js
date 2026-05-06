@@ -80,6 +80,13 @@ function getResumeContextForFallback(task, fields = {}) {
 function withResumeContextPrompt(task, fields = {}) {
   try {
     const resumeContext = getResumeContextForFallback(task, fields);
+    // prependResumeContextToPrompt strips any existing `## Previous Attempt`
+    // preamble before re-prepending (default options.replaceExisting=true).
+    // This is the contract that prevents fallback + retry-framework's
+    // buildRetryResumeFields from stacking preambles when both fire in the
+    // same task lifetime (recovery-decisions.md conflict #3) — both call
+    // sites pass the same task.task_description and rely on the strip-first
+    // behavior in server/utils/resume-context.js.
     const taskDescription = prependResumeContextToPrompt(task?.task_description, resumeContext);
     if (taskDescription && taskDescription !== task?.task_description) {
       return { ...fields, resume_context: resumeContext, task_description: taskDescription };
@@ -1230,4 +1237,8 @@ module.exports = {
   BASE_RETRY_DELAY_MS,
   MAX_RETRY_DELAY_MS,
   getRetryDelayMs,
+  // Exposed for cross-call-site integration tests (resume-context strip-first
+  // contract — recovery-decisions.md conflict #3).
+  withResumeContextPrompt,
+  getResumeContextForFallback,
 };

@@ -161,9 +161,11 @@ These are real ambiguities surfaced by this audit. Each one is worth resolving b
 
 Both consume `provider_chain_json`. Neither is aware of the other's increments. A task failing on cerebras can fall back to codex in C2, the task fails again, B1 then "escalates" the architect provider — but the architect is a different role from the executor. **Action item:** document which counter authoritatively tracks "provider attempt" — task-scoped or work-item-scoped — and gate B1 on the post-C2 state.
 
-### 3. Resume-context double-prepend
+### 3. ~~Resume-context double-prepend~~ ✅ RESOLVED 2026-05-05 (verified, no bug)
 
-`fallback-retry.js` builds resume context for cloud fallback. `retry-framework.js` builds resume context on retry-delay-fire. If a task hits both paths in one lifetime (cloud-fallback then retry), the next attempt's task description gets two prepends. **Action item:** verify or add a guard.
+**Resolution**: not actually a bug. `prependResumeContextToPrompt` in `server/utils/resume-context.js` defaults to `options.replaceExisting=true`, which calls `stripExistingResumeContextPreamble` to strip any existing `## Previous Attempt` block (recognizing both `(failed)` and `(interrupted by server restart)` heading variants) before re-prepending. Both consumers (`fallback-retry.js withResumeContextPrompt` and `retry-framework.js buildRetryResumeFields`) use the default options, so the second call replaces the first preamble — never stacks.
+
+**What landed**: in-line comments at both consumer call sites pointing to the strip-first contract; both helpers exported for testability; three new integration tests in `server/tests/resume-context.test.js` that exercise sequential cross-call-site prepend cycles (fallback → retry, fallback → retry → fallback) and assert exactly one preamble at the end. 19/19 tests pass. Strip-first contract is now codified — a future regression that flips either consumer to `replaceExisting: false` would fail the integration test.
 
 ### 4. `task-finalizer.js` stage proliferation
 
