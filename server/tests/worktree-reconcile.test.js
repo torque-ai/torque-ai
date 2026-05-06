@@ -15,6 +15,14 @@ const {
   RECONCILE_FAILURE_WARN_INTERVAL_MS,
   RECLAIMABLE_STATUSES,
   FACTORY_LEAF_PREFIX,
+  auditQuarantineDir,
+  shouldLogDeletePendingWarn,
+  resetDeletePendingWarnLogStateForTests,
+  readDeletePendingThresholds,
+  DELETE_PENDING_WARN_INTERVAL_MS,
+  DELETE_PENDING_SIZE_WARN_BYTES_DEFAULT,
+  DELETE_PENDING_AGE_WARN_MS_DEFAULT,
+  QUARANTINE_DIR_NAME,
 } = require('../factory/worktree-reconcile');
 
 let dbModule;
@@ -614,5 +622,222 @@ describe('reconcile failure logging', () => {
     expect(first).toMatchObject({ log: true, suppressed_count: 0 });
     expect(second).toMatchObject({ log: false, suppressed_count: 1 });
     expect(third).toMatchObject({ log: true, suppressed_count: 1 });
+  });
+});
+
+describe('auditQuarantineDir', () => {
+  let auditDir;
+
+  beforeEach(() => {
+    auditDir = fs.mkdtempSync(path.join(testDir, 'qaudit-'));
+  });
+
+  afterEach(() => {
+    try { fs.rmSync(auditDir, { recursive: true, force: true }); } catch { /* best effort */ }
+  });
+
+  it('returns null when .torque-delete-pending does not exist', () => {
+    expect(auditQuarantineDir(auditDir)).toBeNull();
+  });
+
+  it('returns zeros when quarantine dir is empty', () => {
+    fs.mkdirSync(path.join(auditDir, QUARANTINE_DIR_NAME));
+    const r = auditQuarantineDir(auditDir);
+    expect(r).toMatchObject({
+      entry_count: 0,
+      total_bytes: 0,
+      oldest_mtime_ms: null,
+      oldest_age_ms: null,
+      scan_capped: false,
+    });
+  });
+
+  it('sums bytes recursively and tracks oldest mtime', () => {
+    const quarantine = path.join(auditDir, QUARANTINE_DIR_NAME);
+    const leaf = path.join(quarantine, 'feat-foo-123-456-0');
+    const subdir = path.join(leaf, 'nested');
+    fs.mkdirSync(subdir, { recursive: true });
+    fs.writeFileSync(path.join(leaf, 'a.txt'), 'x'.repeat(1000));
+    fs.writeFileSync(path.join(subdir, 'b.txt'), 'y'.repeat(2000));
+    const r = auditQuarantineDir(auditDir);
+    expect(r.entry_count).toBe(1);
+    expect(r.total_bytes).toBe(3000);
+    expect(r.oldest_mtime_ms).not.toBeNull();
+    expect(r.oldest_age_ms).toBeGreaterThanOrEqual(0);
+    expect(r.scan_capped).toBe(false);
+  });
+
+  it('does not follow symlinks (security: no escape from quarantine root)', () => {
+    if (process.platform === 'win32') {
+      // Symlink creation on Windows requires SeCreateSymbolicLinkPrivilege.
+      // Most CI/dev sessions don't have it; skip rather than fail.
+      try {
+        const probe = path.join(auditDir, 'symlink-probe');
+        fs.symlinkSync(auditDir, probe, 'dir');
+        fs.unlinkSync(probe);
+      } catch {
+        return;
+      }
+    }
+    const quarantine = path.join(auditDir, QUARANTINE_DIR_NAME);
+    fs.mkdirSync(quarantine, { recursive: true });
+    // 1MB file outside the quarantine; symlink points to it. The audit must
+    // count the link itself, not follow it.
+    const target = path.join(auditDir, 'outside-target');
+    fs.mkdirSync(target);
+    fs.writeFileSync(path.join(target, 'big.bin'), 'z'.repeat(1024 * 1024));
+    fs.symlinkSync(target, path.join(quarantine, 'evil-link'), 'dir');
+    const r = auditQuarantineDir(auditDir);
+    expect(r.total_bytes).toBe(0); // didn't traverse into outside-target
+  });
+
+  it('handles unreadable quarantine root by returning null', () => {
+    // Simulate by pointing at a path that doesn't exist
+    const result = auditQuarantineDir(path.join(auditDir, 'missing'));
+    expect(result).toBeNull();
+  });
+});
+
+describe('shouldLogDeletePendingWarn (15-min suppressor)', () => {
+  beforeEach(() => {
+    resetDeletePendingWarnLogStateForTests();
+  });
+
+  it('logs the first call, suppresses follow-ups within the interval, then logs again after expiry', () => {
+    const first = shouldLogDeletePendingWarn('proj-A', 1_000);
+    const second = shouldLogDeletePendingWarn('proj-A', 2_000);
+    const third = shouldLogDeletePendingWarn(
+      'proj-A',
+      1_000 + DELETE_PENDING_WARN_INTERVAL_MS + 1
+    );
+    expect(first).toMatchObject({ log: true, suppressed_count: 0 });
+    expect(second).toMatchObject({ log: false, suppressed_count: 1 });
+    expect(third).toMatchObject({ log: true, suppressed_count: 1 });
+  });
+
+  it('tracks suppression independently per project_id', () => {
+    shouldLogDeletePendingWarn('proj-A', 1_000);
+    const otherProj = shouldLogDeletePendingWarn('proj-B', 1_000);
+    expect(otherProj).toMatchObject({ log: true, suppressed_count: 0 });
+  });
+});
+
+describe('readDeletePendingThresholds', () => {
+  afterEach(() => {
+    delete process.env.TORQUE_DELETE_PENDING_SIZE_WARN_BYTES;
+    delete process.env.TORQUE_DELETE_PENDING_AGE_WARN_MS;
+  });
+
+  it('returns built-in defaults when env vars are unset', () => {
+    delete process.env.TORQUE_DELETE_PENDING_SIZE_WARN_BYTES;
+    delete process.env.TORQUE_DELETE_PENDING_AGE_WARN_MS;
+    const t = readDeletePendingThresholds();
+    expect(t.sizeBytes).toBe(DELETE_PENDING_SIZE_WARN_BYTES_DEFAULT);
+    expect(t.ageMs).toBe(DELETE_PENDING_AGE_WARN_MS_DEFAULT);
+  });
+
+  it('honors numeric env-var overrides', () => {
+    process.env.TORQUE_DELETE_PENDING_SIZE_WARN_BYTES = '2048';
+    process.env.TORQUE_DELETE_PENDING_AGE_WARN_MS = '60000';
+    const t = readDeletePendingThresholds();
+    expect(t.sizeBytes).toBe(2048);
+    expect(t.ageMs).toBe(60000);
+  });
+
+  it('falls back to defaults on garbage env values', () => {
+    process.env.TORQUE_DELETE_PENDING_SIZE_WARN_BYTES = 'not-a-number';
+    process.env.TORQUE_DELETE_PENDING_AGE_WARN_MS = '-1';
+    const t = readDeletePendingThresholds();
+    expect(t.sizeBytes).toBe(DELETE_PENDING_SIZE_WARN_BYTES_DEFAULT);
+    // Negative is rejected by `>= 0` predicate; falls back.
+    expect(t.ageMs).toBe(DELETE_PENDING_AGE_WARN_MS_DEFAULT);
+  });
+});
+
+describe('reconcileProject — quarantine audit integration', () => {
+  beforeEach(() => {
+    resetDeletePendingWarnLogStateForTests();
+  });
+
+  afterEach(() => {
+    delete process.env.TORQUE_DELETE_PENDING_SIZE_WARN_BYTES;
+    delete process.env.TORQUE_DELETE_PENDING_AGE_WARN_MS;
+  });
+
+  it('returns quarantineAudit:null when .worktrees does not exist', () => {
+    const projectPath = path.join(testDir, `proj-noworktrees-${Date.now()}`);
+    fs.mkdirSync(projectPath, { recursive: true });
+    childProcess.execFileSync('git', ['init', projectPath], { stdio: 'ignore' });
+    const result = reconcileProject({
+      db: dbHandle,
+      project_id: 'proj-noworktrees',
+      project_path: projectPath,
+    });
+    // .worktrees doesn't exist → audit looks for .torque-delete-pending which also doesn't exist → null
+    expect(result.quarantineAudit).toBeNull();
+  });
+
+  it('reports breached: true and breach reason when size threshold exceeded', () => {
+    const projectPath = path.join(testDir, `proj-breach-size-${Date.now()}`);
+    fs.mkdirSync(projectPath, { recursive: true });
+    childProcess.execFileSync('git', ['init', projectPath], { stdio: 'ignore' });
+    const worktreesRoot = path.join(projectPath, '.worktrees');
+    const quarantine = path.join(worktreesRoot, QUARANTINE_DIR_NAME);
+    const leaf = path.join(quarantine, 'feat-foo-1-1-0');
+    fs.mkdirSync(leaf, { recursive: true });
+    fs.writeFileSync(path.join(leaf, 'fat.bin'), 'q'.repeat(4096));
+    process.env.TORQUE_DELETE_PENDING_SIZE_WARN_BYTES = '1024';
+    const result = reconcileProject({
+      db: dbHandle,
+      project_id: 'proj-breach-size',
+      project_path: projectPath,
+    });
+    expect(result.quarantineAudit).toMatchObject({
+      breached: true,
+      size_breached: true,
+      total_bytes: 4096,
+      threshold_size_bytes: 1024,
+    });
+  });
+
+  it('reports breached: false when both thresholds are under limit', () => {
+    const projectPath = path.join(testDir, `proj-noBreach-${Date.now()}`);
+    fs.mkdirSync(projectPath, { recursive: true });
+    childProcess.execFileSync('git', ['init', projectPath], { stdio: 'ignore' });
+    const worktreesRoot = path.join(projectPath, '.worktrees');
+    const quarantine = path.join(worktreesRoot, QUARANTINE_DIR_NAME);
+    fs.mkdirSync(quarantine, { recursive: true });
+    fs.writeFileSync(path.join(quarantine, 'tiny.txt'), 'x');
+    const result = reconcileProject({
+      db: dbHandle,
+      project_id: 'proj-noBreach',
+      project_path: projectPath,
+    });
+    expect(result.quarantineAudit).toMatchObject({
+      breached: false,
+      total_bytes: 1,
+    });
+  });
+
+  it('runs audit on the early-return path (no worktree dirs but quarantine exists)', () => {
+    const projectPath = path.join(testDir, `proj-early-${Date.now()}`);
+    fs.mkdirSync(projectPath, { recursive: true });
+    childProcess.execFileSync('git', ['init', projectPath], { stdio: 'ignore' });
+    const worktreesRoot = path.join(projectPath, '.worktrees');
+    const quarantine = path.join(worktreesRoot, QUARANTINE_DIR_NAME);
+    fs.mkdirSync(quarantine, { recursive: true });
+    fs.writeFileSync(path.join(quarantine, 'a.bin'), 'q'.repeat(2048));
+    process.env.TORQUE_DELETE_PENDING_SIZE_WARN_BYTES = '1024';
+    const result = reconcileProject({
+      db: dbHandle,
+      project_id: 'proj-early',
+      project_path: projectPath,
+    });
+    // dirs.length === 0 but quarantine has 2KB → still audited
+    expect(result.scanned).toBe(0);
+    expect(result.quarantineAudit).toMatchObject({
+      breached: true,
+      size_breached: true,
+    });
   });
 });

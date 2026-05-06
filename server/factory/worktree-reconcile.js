@@ -13,6 +13,15 @@ const RECONCILE_FAILURE_WARN_INTERVAL_MS = 15 * 60 * 1000;
 const FACTORY_HEAD_PREFIX = /^feat[-/]factory-/;
 const reconcileFailureLogState = new Map();
 
+// .torque-delete-pending quarantine accumulates indefinitely if AV/indexer
+// permanently locks files. Operational alert thresholds are env-configurable.
+const QUARANTINE_DIR_NAME = '.torque-delete-pending';
+const DELETE_PENDING_WARN_INTERVAL_MS = 15 * 60 * 1000;
+const DELETE_PENDING_SIZE_WARN_BYTES_DEFAULT = 10 * 1024 * 1024 * 1024; // 10 GB
+const DELETE_PENDING_AGE_WARN_MS_DEFAULT = 24 * 60 * 60 * 1000; // 24 h
+const DELETE_PENDING_SCAN_ENTRY_CAP = 100_000;
+const deletePendingWarnLogState = new Map();
+
 function safeGitEnv() {
   const env = { ...process.env };
   delete env.GIT_DIR;
@@ -271,6 +280,137 @@ function shouldLogReconcileFailure(failure, nowMs = Date.now()) {
 
 function resetReconcileFailureLogStateForTests() {
   reconcileFailureLogState.clear();
+}
+
+function readDeletePendingThresholds() {
+  const sizeRaw = process.env.TORQUE_DELETE_PENDING_SIZE_WARN_BYTES;
+  const ageRaw = process.env.TORQUE_DELETE_PENDING_AGE_WARN_MS;
+  const sizeParsed = sizeRaw !== undefined ? Number(sizeRaw) : NaN;
+  const ageParsed = ageRaw !== undefined ? Number(ageRaw) : NaN;
+  return {
+    sizeBytes: Number.isFinite(sizeParsed) && sizeParsed >= 0
+      ? sizeParsed
+      : DELETE_PENDING_SIZE_WARN_BYTES_DEFAULT,
+    ageMs: Number.isFinite(ageParsed) && ageParsed >= 0
+      ? ageParsed
+      : DELETE_PENDING_AGE_WARN_MS_DEFAULT,
+  };
+}
+
+// Returns { entry_count, total_bytes, oldest_mtime_ms, oldest_path, scan_capped }
+// or null when the quarantine dir does not exist or is unreadable. Walks the
+// tree with a hard entry cap so a runaway quarantine doesn't stall the tick.
+function auditQuarantineDir(parentDir, nowMs = Date.now()) {
+  const quarantineRoot = path.join(parentDir, QUARANTINE_DIR_NAME);
+  let topEntries;
+  try {
+    topEntries = fs.readdirSync(quarantineRoot, { withFileTypes: true });
+  } catch {
+    return null;
+  }
+  if (topEntries.length === 0) {
+    return {
+      entry_count: 0,
+      total_bytes: 0,
+      oldest_mtime_ms: null,
+      oldest_path: null,
+      scan_capped: false,
+      oldest_age_ms: null,
+    };
+  }
+
+  let totalBytes = 0;
+  let oldestMtimeMs = null;
+  let oldestPath = null;
+  let scanned = 0;
+  let scanCapped = false;
+
+  const stack = topEntries.map(e => path.join(quarantineRoot, e.name));
+  while (stack.length > 0) {
+    if (scanned >= DELETE_PENDING_SCAN_ENTRY_CAP) {
+      scanCapped = true;
+      break;
+    }
+    const current = stack.pop();
+    scanned += 1;
+    let stat;
+    try {
+      stat = fs.lstatSync(current);
+    } catch {
+      continue;
+    }
+    if (stat.isSymbolicLink()) {
+      // Don't follow symlinks — they could escape the quarantine root or
+      // create cycles. Count the link itself, age it by its own mtime.
+      const mtimeMs = stat.mtimeMs;
+      if (oldestMtimeMs === null || mtimeMs < oldestMtimeMs) {
+        oldestMtimeMs = mtimeMs;
+        oldestPath = current;
+      }
+      continue;
+    }
+    if (stat.isDirectory()) {
+      const mtimeMs = stat.mtimeMs;
+      if (oldestMtimeMs === null || mtimeMs < oldestMtimeMs) {
+        oldestMtimeMs = mtimeMs;
+        oldestPath = current;
+      }
+      let children;
+      try {
+        children = fs.readdirSync(current, { withFileTypes: true });
+      } catch {
+        continue;
+      }
+      for (const child of children) {
+        stack.push(path.join(current, child.name));
+      }
+      continue;
+    }
+    if (stat.isFile()) {
+      totalBytes += stat.size;
+      const mtimeMs = stat.mtimeMs;
+      if (oldestMtimeMs === null || mtimeMs < oldestMtimeMs) {
+        oldestMtimeMs = mtimeMs;
+        oldestPath = current;
+      }
+    }
+  }
+
+  return {
+    entry_count: topEntries.length,
+    total_bytes: totalBytes,
+    oldest_mtime_ms: oldestMtimeMs,
+    oldest_path: oldestPath,
+    scan_capped: scanCapped,
+    oldest_age_ms: oldestMtimeMs !== null ? Math.max(0, nowMs - oldestMtimeMs) : null,
+  };
+}
+
+function shouldLogDeletePendingWarn(projectId, nowMs = Date.now()) {
+  const key = String(projectId || '');
+  const existing = deletePendingWarnLogState.get(key);
+  if (!existing || nowMs >= existing.nextLogAt) {
+    const suppressedCount = existing?.suppressedCount || 0;
+    deletePendingWarnLogState.set(key, {
+      nextLogAt: nowMs + DELETE_PENDING_WARN_INTERVAL_MS,
+      suppressedCount: 0,
+    });
+    return {
+      log: true,
+      suppressed_count: suppressedCount,
+      next_log_at: new Date(nowMs + DELETE_PENDING_WARN_INTERVAL_MS).toISOString(),
+    };
+  }
+  existing.suppressedCount += 1;
+  return {
+    log: false,
+    suppressed_count: existing.suppressedCount,
+    next_log_at: new Date(existing.nextLogAt).toISOString(),
+  };
+}
+
+function resetDeletePendingWarnLogStateForTests() {
+  deletePendingWarnLogState.clear();
 }
 
 // Recursively clear read-only attributes so a subsequent rmSync can succeed.
@@ -830,6 +970,10 @@ function reconcileProject({ db, project_id, project_path, worktree_dir = DEFAULT
     orphanSweep.swept = sweepResult.swept;
     orphanSweep.deferred_busy = sweepResult.deferred_busy;
     orphanSweep.errored = sweepResult.errored;
+    const quarantineAudit = auditAndAlertQuarantine({
+      project_id,
+      parent_dir: root,
+    });
     return {
       root,
       scanned: 0,
@@ -838,6 +982,7 @@ function reconcileProject({ db, project_id, project_path, worktree_dir = DEFAULT
       failed,
       abandonedRows,
       orphanSweep,
+      quarantineAudit,
     };
   }
 
@@ -927,6 +1072,11 @@ function reconcileProject({ db, project_id, project_path, worktree_dir = DEFAULT
   orphanSweep.deferred_busy = sweepResult.deferred_busy;
   orphanSweep.errored = sweepResult.errored;
 
+  const quarantineAudit = auditAndAlertQuarantine({
+    project_id,
+    parent_dir: root,
+  });
+
   return {
     root,
     scanned: dirs.length,
@@ -935,6 +1085,49 @@ function reconcileProject({ db, project_id, project_path, worktree_dir = DEFAULT
     failed,
     abandonedRows,
     orphanSweep,
+    quarantineAudit,
+  };
+}
+
+function auditAndAlertQuarantine({ project_id, parent_dir }) {
+  const audit = auditQuarantineDir(parent_dir);
+  if (!audit) {
+    return null;
+  }
+  const thresholds = readDeletePendingThresholds();
+  const sizeBreached = audit.total_bytes >= thresholds.sizeBytes;
+  const ageBreached = audit.oldest_age_ms !== null && audit.oldest_age_ms >= thresholds.ageMs;
+  const breached = sizeBreached || ageBreached;
+  if (!breached) {
+    return { ...audit, breached: false, threshold_size_bytes: thresholds.sizeBytes, threshold_age_ms: thresholds.ageMs };
+  }
+  const decision = shouldLogDeletePendingWarn(project_id);
+  if (decision.log) {
+    logger.warn('.torque-delete-pending quarantine threshold breached', {
+      project_id,
+      total_bytes: audit.total_bytes,
+      threshold_size_bytes: thresholds.sizeBytes,
+      size_breached: sizeBreached,
+      oldest_age_ms: audit.oldest_age_ms,
+      threshold_age_ms: thresholds.ageMs,
+      age_breached: ageBreached,
+      entry_count: audit.entry_count,
+      oldest_path: audit.oldest_path,
+      scan_capped: audit.scan_capped,
+      suppressed_count: decision.suppressed_count,
+      next_log_at: decision.next_log_at,
+    });
+  }
+  return {
+    ...audit,
+    breached: true,
+    size_breached: sizeBreached,
+    age_breached: ageBreached,
+    threshold_size_bytes: thresholds.sizeBytes,
+    threshold_age_ms: thresholds.ageMs,
+    log_suppressed: !decision.log,
+    suppressed_count: decision.suppressed_count,
+    next_log_at: decision.next_log_at,
   };
 }
 
@@ -950,7 +1143,15 @@ module.exports = {
   quarantineDir,
   shouldLogReconcileFailure,
   resetReconcileFailureLogStateForTests,
+  auditQuarantineDir,
+  shouldLogDeletePendingWarn,
+  resetDeletePendingWarnLogStateForTests,
+  readDeletePendingThresholds,
   RECONCILE_FAILURE_WARN_INTERVAL_MS,
+  DELETE_PENDING_WARN_INTERVAL_MS,
+  DELETE_PENDING_SIZE_WARN_BYTES_DEFAULT,
+  DELETE_PENDING_AGE_WARN_MS_DEFAULT,
+  QUARANTINE_DIR_NAME,
   RECLAIMABLE_STATUSES,
   FACTORY_LEAF_PREFIX,
   parseGitWorktreeList,

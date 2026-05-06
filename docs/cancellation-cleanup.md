@@ -121,9 +121,9 @@ These are real ambiguities the audit surfaced. Each is worth addressing the next
 
 retry-framework's setTimeout callback only bailed on `cancelled`; other terminal statuses (`failed`, `completed`, `shipped`, `unactionable`, `escalation_exhausted`) silently flipped back to `queued`. Fixed: gate on `status === 'retry_scheduled'`.
 
-### 2. `.torque-delete-pending` has no size budget or operator alert
+### 2. ✅ ~~`.torque-delete-pending` has no size budget or operator alert~~ RESOLVED 2026-05-06
 
-Directories quarantined under Layer 4 accumulate indefinitely if AV permanently locks files. No quota, no dashboard warning, no cleanup policy — just retry-on-next-sweep with a 15-minute log-spam suppressor. **Action:** Add periodic alert if `.torque-delete-pending` size exceeds threshold (e.g., 10GB) or if any quarantined entry is >24h old.
+`worktree-reconcile.js` now runs `auditQuarantineDir` on every `reconcileProject` call (per-project, every factory tick) and emits a single `warn` log via a 15-min suppressor (`shouldLogDeletePendingWarn`) when total bytes exceed `TORQUE_DELETE_PENDING_SIZE_WARN_BYTES` (default 10 GB) or any entry's age exceeds `TORQUE_DELETE_PENDING_AGE_WARN_MS` (default 24 h). The audit traverses the quarantine tree with a 100k-entry cap; symlinks are NOT followed (security: prevents counting outside-quarantine state). The audit result is included in `reconcileProject`'s return as `quarantineAudit` so callers can surface it in dashboards if needed. Pinned by 11 regression tests in `tests/worktree-reconcile.test.js` covering missing-dir / empty / sums-recursively / symlink-non-follow / suppressor-interval / per-project-isolation / env-overrides / breach-via-size / no-breach / early-return-path.
 
 ### 3. cleanup-guard TTL (60s) << finalizingTasks stale-check (15min)
 
