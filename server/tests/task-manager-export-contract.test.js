@@ -50,4 +50,19 @@ describe('task-manager export contract', () => {
     // (Update this assertion if the access pattern changes.)
     expect(typeof tm.markTaskCleanedUp === 'function' || tm.markTaskCleanedUp === undefined).toBe(true);
   });
+
+  // execute-cli.js's ensureDeps() binds `_helpers = require('../task-manager')`
+  // and calls `_helpers.estimateProgress(output, provider)` on every output
+  // chunk. Same export-shape bug class as stopTaskForRestart: missing export
+  // → undefined() at runtime. Logs showed 31-48 occurrences per session of
+  // `_helpers.estimateProgress is not a function` before fix landed 2026-05-06.
+  const EXECUTE_CLI_HELPERS_REQUIRED = [
+    'estimateProgress',
+  ];
+
+  for (const name of EXECUTE_CLI_HELPERS_REQUIRED) {
+    it(`exports ${name} (execute-cli._helpers binding depends on it)`, () => {
+      expect(typeof tm[name]).toBe('function');
+    });
+  }
 });

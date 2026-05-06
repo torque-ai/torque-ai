@@ -604,6 +604,58 @@ describe('Orphan Cleanup', () => {
       expect(logger.info).toHaveBeenCalledWith(expect.stringContaining("Terminal task terminal-task is 'cancelled'"));
     });
 
+    // Regression: shutdown-abandon contract (a8f05279) marks rows
+    // cancel_reason='server_restart' so the successor reconciler can
+    // re-adopt their detached subprocess. The zombie sweep must not kill
+    // those PIDs first, or it defeats re-adoption — every cutover would
+    // resurrect the wave of cancellations the abandon path was meant to
+    // eliminate.
+    it("skips kills for cancel_reason='server_restart' rows (re-adoption contract)", async () => {
+      const runningProcesses = new Map();
+      const killOrphanByPid = vi.fn();
+      const getProcessCommandLine = vi.fn().mockResolvedValue('node server/utils/process-exit-wrapper.js');
+      const logger = { info: vi.fn(), warn: vi.fn() };
+
+      vi.spyOn(process, 'kill').mockImplementation(() => {});
+
+      orphanCleanup.init({
+        db: {
+          getConfig: vi.fn().mockReturnValue('0'),
+          getTask: vi.fn(),
+          reconcileHostTaskCounts: vi.fn(),
+          getRunningTasksLightweight: vi.fn().mockReturnValue([]),
+          getTerminalTaskProcessCandidates: vi.fn().mockReturnValue([
+            {
+              id: 'restart-abandoned',
+              status: 'cancelled',
+              provider: 'codex',
+              subprocess_pid: 45678,
+              cancel_reason: 'server_restart',
+            },
+          ]),
+        },
+        dashboard: { notifyTaskUpdated: vi.fn() },
+        logger,
+        runningProcesses,
+        stallRecoveryAttempts: new Map(),
+        TASK_TIMEOUTS: { PROCESS_QUERY: 5000 },
+        cancelTask: vi.fn(),
+        processQueue: vi.fn(),
+        tryLocalFirstFallback: vi.fn(),
+        getTaskActivity: vi.fn(),
+        tryStallRecovery: vi.fn(),
+        safeConfigInt: vi.fn(),
+        killOrphanByPid,
+        getProcessCommandLine,
+      });
+
+      await orphanCleanup.checkZombieProcesses();
+
+      expect(killOrphanByPid).not.toHaveBeenCalled();
+      expect(getProcessCommandLine).not.toHaveBeenCalled();
+      expect(logger.info).not.toHaveBeenCalledWith(expect.stringContaining("Terminal task restart-abandoned"));
+    });
+
     it('emits successful close for completed Codex output that outlives completion grace', async () => {
       const runningProcesses = new Map();
       const processRef = {

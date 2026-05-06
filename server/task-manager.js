@@ -1093,6 +1093,14 @@ Object.assign(module.exports, {
   // gracefulShutdown. With the auto-restart fix landed earlier on 2026-05-06,
   // the system loop-crashed every 5min indefinitely until this export.
   stopTaskForRestart,
+  // estimateProgress was MIA from the export block: execute-cli.js's
+  // ensureDeps() resolves _helpers = require('../task-manager') and calls
+  // _helpers.estimateProgress(...) on each output chunk. Without the export
+  // the call is `undefined(...)` → TypeError. Logs showed 31-48 occurrences
+  // of `_helpers.estimateProgress is not a function` per session before
+  // the fix landed on 2026-05-06. Same export-shape bug class as
+  // stopTaskForRestart above.
+  estimateProgress,
   getTaskProgress,
   getRunningTaskCount,
   getTaskActivity,
