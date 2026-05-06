@@ -130,9 +130,12 @@ function validateTemplate(data) {
           errors.push(`rules.${key} must be non-empty`);
         }
       } else if (Array.isArray(value)) {
-        if (value.length === 0) {
-          errors.push(`rules.${key} chain must have at least one entry`);
-        } else if (value.length > 7) {
+        // Empty array is an intentional "fall through to next template tier"
+        // marker — same effect as the resolver gets for undefined. The
+        // legacy-fallback preset uses this for plan_generation /
+        // targeted_file_edit / default. resolveProvider returns null on
+        // empty chains, which the caller treats as fall-through.
+        if (value.length > 7) {
           errors.push(`rules.${key} chain exceeds maximum length of 7`);
         }
         for (const entry of value) {
@@ -159,9 +162,9 @@ function validateTemplate(data) {
             errors.push(`complexity_overrides.${cat}.${level} must be non-empty`);
           }
         } else if (Array.isArray(value)) {
-          if (value.length === 0) {
-            errors.push(`complexity_overrides.${cat}.${level} chain must have at least one entry`);
-          } else if (value.length > 7) {
+          // Empty arrays mean "fall through to base rule" — same contract as
+          // rules.<category> = []. The resolver handles this correctly.
+          if (value.length > 7) {
             errors.push(`complexity_overrides.${cat}.${level} chain exceeds maximum length of 7`);
           }
           for (const entry of value) {

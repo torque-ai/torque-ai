@@ -27,11 +27,6 @@
       {"provider": "groq", "model": "openai/gpt-oss-120b"},
       {"provider": "google-ai", "model": "gemini-2.5-flash"}
     ],
-    "tests": [
-      {"provider": "cerebras", "model": "qwen-3-235b-a22b-instruct-2507"},
-      {"provider": "google-ai", "model": "gemini-2.5-flash"},
-      {"provider": "openrouter", "model": "moonshotai/kimi-k2-instruct"}
-    ],
     "architectural": [
       {"provider": "ollama-cloud", "model": "kimi-k2:1t"},
       {"provider": "google-ai", "model": "gemini-2.5-pro"},
