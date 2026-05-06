@@ -880,6 +880,34 @@ describe('Orphan Cleanup', () => {
       expect(mockProcessQueue).toHaveBeenCalled();
     });
 
+    it('does not requeue locally tracked tasks whose persisted owner is stale', () => {
+      const recentTime = new Date(Date.now() - 2 * 60 * 1000).toISOString();
+      mockIsInstanceAlive.mockReturnValue(false);
+      runningProcesses.set('task-local-live-dead-owner', {
+        process: null,
+        detached: true,
+        subprocessPid: 12345,
+        startTime: Date.now() - 2 * 60 * 1000,
+        lastOutputAt: Date.now(),
+      });
+      mockDb.getRunningTasksLightweight.mockReturnValue([
+        {
+          id: 'task-local-live-dead-owner',
+          started_at: recentTime,
+          timeout_minutes: 30,
+          retry_count: 0,
+          max_retries: 2,
+          mcp_instance_id: 'task-startup-dead-owner',
+          ollama_host_id: null,
+        },
+      ]);
+
+      orphanCleanup.checkStaleRunningTasks();
+
+      expect(mockDb.updateTaskStatus).not.toHaveBeenCalled();
+      expect(mockProcessQueue).not.toHaveBeenCalled();
+    });
+
     it('requeues tasks owned by this instance when no local process is tracked', () => {
       const recentTime = new Date(Date.now() - 2 * 60 * 1000).toISOString();
       mockDb.getRunningTasksLightweight.mockReturnValue([

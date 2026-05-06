@@ -432,12 +432,10 @@ function checkStaleRunningTasks() {
         recoveredOrphans++;
       };
 
-      if (task.mcp_instance_id) {
+      if (task.mcp_instance_id && !isTrackedLocally) {
         if (currentInstanceId && task.mcp_instance_id === currentInstanceId) {
-          if (!isTrackedLocally) {
-            requeueOrFailDeadOwner(`Task orphaned — current instance ${task.mcp_instance_id} has no tracked process`);
-            continue;
-          }
+          requeueOrFailDeadOwner(`Task orphaned — current instance ${task.mcp_instance_id} has no tracked process`);
+          continue;
         } else if (typeof isInstanceAlive === 'function' && !isInstanceAlive(task.mcp_instance_id)) {
           requeueOrFailDeadOwner(`Task orphaned — owning instance ${task.mcp_instance_id} is no longer alive`);
           continue;
