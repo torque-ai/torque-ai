@@ -36,6 +36,8 @@ const { createRoutedOrchestrator } = require('./routing/routed-orchestrator');
 const { createTestRunnerRegistry } = require('./test-runner-registry');
 const ProcessTracker = require('./execution/process-tracker');
 const FinalizationTracker = require('./execution/finalization-tracker');
+const providerRegistry = require('./providers/registry');
+const gpuMetrics = require('./scripts/gpu-metrics-server');
 
 /**
  * Topological sort using Kahn's algorithm.
@@ -359,6 +361,12 @@ _defaultContainer.registerValue(
   'closeHandlerState',
   require('./tasks/close-handler-state').createCloseHandlerStateAccessor()
 );
+// ProviderRegistry and GPU metrics are long-lived module singletons consumed by
+// task startup. Register them here so container boot can satisfy taskStartup in
+// every entrypoint, including MCP stdio processes that do not pass through
+// task-manager's legacy init() path first.
+_defaultContainer.registerValue('providerRegistry', providerRegistry);
+_defaultContainer.registerValue('gpuMetrics', gpuMetrics);
 // Singleton TestRunnerRegistry. The remote-agents plugin retrieves this from
 // the container during install() and calls .register() to install
 // remote-routing overrides. Constructing fresh registries elsewhere bypasses
