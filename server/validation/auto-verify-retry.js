@@ -48,16 +48,51 @@ const NON_CODE_EXTENSIONS = new Set([
   '.toml',
 ]);
 
-// ── Legacy module-level state, written only by init() (deprecated) ─────────
-// Phase 2c of the universal-DI migration: this module now exposes both the
-// new createAutoVerifyRetry factory + register(container) shape and the
-// legacy init({…}) shape. The legacy state below is removed in the same
-// commit that migrates task-manager.js to consume via container.
+// ── Module-level deps ──────────────────────────────────────────────────────
+// All deps lazy-resolve through the container at first use. They remain
+// `let` so the factory's per-instance swap (createAutoVerifyRetry) can
+// override them transiently for tests.
 let _db = null;
 let _startTask = null;
 let _processQueue = null;
 let _testRunnerRegistry = null;
 let _sandboxManager = null;
+
+function ensureDeps() {
+  let container = null;
+  try { container = require('../container').defaultContainer; } catch { return; }
+  if (!_db) _db = container.peek('db') || null;
+  if (!_startTask || !_processQueue) {
+    const tm = container.peek('taskManager');
+    if (tm) {
+      // Prefer safeStartTask — the retry/error-handling wrapper that the
+      // legacy init() bridged in. Fall back to startTask if not exposed.
+      if (!_startTask) {
+        if (typeof tm.safeStartTask === 'function') _startTask = tm.safeStartTask.bind(tm);
+        else if (typeof tm.startTask === 'function') _startTask = tm.startTask.bind(tm);
+      }
+      if (!_processQueue && typeof tm.processQueue === 'function') _processQueue = tm.processQueue.bind(tm);
+    }
+  }
+  if (!_sandboxManager) _sandboxManager = container.peek('sandboxManager') || null;
+}
+
+/**
+ * @internal — test-only override path. Production code self-bootstraps all
+ * deps via container peek inside ensureDeps(). Tests that mock db /
+ * startTask / processQueue / testRunnerRegistry / sandboxManager use this
+ * entry point until they migrate to createAutoVerifyRetry(deps).
+ */
+function init(deps) {
+  if (!deps) return;
+  if (deps.db) _db = deps.db;
+  if (deps.startTask) _startTask = deps.startTask;
+  if (deps.processQueue) _processQueue = deps.processQueue;
+  if (deps.testRunnerRegistry) _testRunnerRegistry = deps.testRunnerRegistry;
+  if (Object.prototype.hasOwnProperty.call(deps, 'sandboxManager')) {
+    _sandboxManager = deps.sandboxManager || null;
+  }
+}
 
 function tryParseJson(value) {
   if (!value || typeof value !== 'string') return null;
@@ -74,20 +109,15 @@ function isRetryTask(task) {
   return false;
 }
 
-/** @deprecated Use createAutoVerifyRetry(deps) or container.get('autoVerifyRetry'). */
-function init(deps) {
-  if (deps.db) _db = deps.db;
-  serverConfig.init({ db: deps.db || _db });
-  if (deps.startTask) _startTask = deps.startTask;
-  if (deps.processQueue) _processQueue = deps.processQueue;
-  if (deps.testRunnerRegistry) _testRunnerRegistry = deps.testRunnerRegistry;
-  if (Object.prototype.hasOwnProperty.call(deps, 'sandboxManager')) {
-    _sandboxManager = deps.sandboxManager || null;
-  }
-}
-
 function getRouter() {
   if (_testRunnerRegistry) return _testRunnerRegistry;
+  try {
+    const fromContainer = require('../container').defaultContainer.peek('testRunnerRegistry');
+    if (fromContainer) {
+      _testRunnerRegistry = fromContainer;
+      return _testRunnerRegistry;
+    }
+  } catch { /* container not ready */ }
   _testRunnerRegistry = createTestRunnerRegistry();
   return _testRunnerRegistry;
 }
@@ -249,6 +279,9 @@ async function handleAutoVerifyRetry(ctx) {
   // Guard: only completed tasks
   if (ctx.status !== 'completed') return;
 
+  // Lazy-resolve module deps from the container at first use.
+  ensureDeps();
+
   // Guard: skip internal factory tasks (architect cycles, plan generation).
   // Those produce structured text output (JSON, markdown) and never modify
   // code — running verify on them produces meaningless tests:fail:N tags
@@ -267,7 +300,10 @@ async function handleAutoVerifyRetry(ctx) {
   const isAutoVerifyProvider = AUTO_VERIFY_PROVIDERS.has(provider);
 
   // Look up project config
-  if (!_db) throw new Error('auto-verify-retry: module not initialized — call init() first');
+  if (!_db) {
+    logger.warn(`[auto-verify] Task ${taskId}: db unavailable from container — skipping verify`);
+    return;
+  }
   // Phase M (2026-04-30): factory worktree paths (e.g.
   // C:\...\DLPhone\.worktrees\fea-d44fc570) have their own .git
   // gitdir-pointer file, so getProjectFromPath's findProjectRoot stops at
@@ -782,10 +818,12 @@ function register(container) {
 }
 
 module.exports = {
-  // New shape (preferred)
   createAutoVerifyRetry,
   register,
-  // Legacy shape (kept until task-manager.js migrates)
+  // @internal — test-only override path (see init() jsdoc)
   init,
+  // Raw export — task-manager wraps this through container.get('autoVerifyRetry')
+  // for production use; the raw export is here for sibling modules that still
+  // require() it directly. Self-bootstraps deps via ensureDeps() at first use.
   handleAutoVerifyRetry,
 };

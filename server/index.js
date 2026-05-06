@@ -1434,10 +1434,10 @@ function init() {
   if (!testRunnerRegistry) {
     testRunnerRegistry = createTestRunnerRegistry();
   }
-  require('./validation/auto-verify-retry').init({ testRunnerRegistry, sandboxManager });
   require('./execution/debug-lifecycle').init({ sandboxManager });
-  require('./validation/post-task').init({ testRunnerRegistry });
-  require('./validation/build-verification').init({ testRunnerRegistry });
+  // post-task + build-verification: testRunnerRegistry resolves lazily via
+  //   defaultContainer.peek('testRunnerRegistry') inside getRouter().
+  // auto-verify-retry: same pattern (peek testRunnerRegistry + sandboxManager).
 
   // Register this MCP instance for multi-session coordination
   taskManager.registerInstance();

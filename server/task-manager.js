@@ -933,12 +933,9 @@ _executionModule.init({
   // stallRecoveryAttempts defaults to container's processTracker.stallAttempts.
 });
 
-_postTaskModule.init({
-  db,
-  getModifiedFiles,
-  parseGitStatusLine,
-  sanitizeLLMOutput,
-});
+// validation/post-task.js: utility deps (getModifiedFiles, parseGitStatusLine,
+// sanitizeLLMOutput) resolve at module load via require(); db lazy-resolves
+// through defaultContainer.peek('db'). No imperative init() needed.
 
 tsserverClient.init({ db, logger });
 
@@ -976,13 +973,10 @@ try {
 }
 registerTaskStatusTransitionListener();
 
-_outputSafeguards.init({
-  db,
-  getFileChangesForValidation,
-  checkFileQuality,
-  findPlaceholderArtifacts,
-  cleanupJunkFiles,
-});
+// validation/output-safeguards.js: utility deps (getFileChangesForValidation,
+// checkFileQuality, findPlaceholderArtifacts, cleanupJunkFiles) resolve at
+// module load via require() from validation/post-task; db lazy-resolves
+// through defaultContainer.peek('db'). No imperative init() needed.
 
 _orphanCleanup.init({
   db,
@@ -1027,24 +1021,13 @@ _commandBuilders.init({
   db,
   nvmNodePath: NVM_NODE_PATH,
 });
-_closePhases.init({
-  db,
-  dashboard: getDashboardBroadcaster(),
-  checkFileQuality,
-  scopedRollback,
-  runBuildVerification,
-  rollbackTaskChanges,
-  runTestVerification,
-  runStyleCheck,
-  tryCreateAutoPR,
-  extractModifiedFiles,
-  isValidFilePath,
-  isShellSafe,
-  sanitizeTaskOutput,
-  safeUpdateTaskStatus,
-  tryLocalFirstFallback,
-  processQueue,
-});
+// validation/close-phases.js: utility deps (checkFileQuality, scopedRollback,
+// runBuildVerification, runTestVerification, runStyleCheck, tryCreateAutoPR,
+// extractModifiedFiles, isValidFilePath, isShellSafe, sanitizeTaskOutput,
+// tryLocalFirstFallback) resolve at module load via require() from their
+// canonical sources; db, dashboard, and taskManager-bound methods
+// (safeUpdateTaskStatus, processQueue) lazy-resolve through the container.
+
 _retryFramework.init({
   db,
   classifyError,
@@ -1059,11 +1042,8 @@ _retryFramework.init({
 // utility deps (runLLMSafeguards, scopedRollback) via require() from
 // validation/post-task and binds taskManager methods (getActualModifiedFiles,
 // safeUpdateTaskStatus, processQueue) from the registered taskManager handle.
-_autoVerifyRetry.init({
-  db,
-  startTask: safeStartTask,
-  processQueue,
-});
+// validation/auto-verify-retry.js: db / startTask / processQueue / sandboxManager /
+// testRunnerRegistry all lazy-resolve through the container at first call.
 _completionPipeline.init({
   db,
   parseTaskMetadata,

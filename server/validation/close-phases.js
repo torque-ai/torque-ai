@@ -22,31 +22,55 @@ const { failoverBackoffMs } = require('../utils/backoff');
 const { buildResumeContext, prependResumeContextToPrompt } = require('../utils/resume-context');
 const { GIT_SAFE_ENV, cleanupStaleGitStatusProcesses } = require('../utils/git');
 
-// ── Legacy module-level state, written only by init() (deprecated) ─────────
-// Phase 2b of the universal-DI migration: this module exposes both the new
-// createClosePhases factory + register(container) shape and the legacy
-// init({…}) shape. The legacy state below is removed in the same commit
-// that migrates task-manager.js to consume via container.
+// ── Module-level deps ──────────────────────────────────────────────────────
+// Utility deps resolve at module load via require() from canonical sources.
+// They remain `let` so the factory's per-instance swap (createClosePhases)
+// can override them transiently for tests. Service-shaped deps (db,
+// dashboard) and taskManager-bound methods (safeUpdateTaskStatus,
+// processQueue) lazy-resolve through the container at first use.
 let db = null;
 let dashboard = null;
-let _checkFileQuality = null;
-let _scopedRollback = null;
-let _runBuildVerification = null;
-let _runTestVerification = null;
-let _runStyleCheck = null;
-let _tryCreateAutoPR = null;
-let _extractModifiedFiles = null;
-let _isValidFilePath = null;
-let _isShellSafe = null;
-let _sanitizeTaskOutput = null;
+let _checkFileQuality = require('./post-task').checkFileQuality;
+let _scopedRollback = require('./post-task').scopedRollback;
+let _runBuildVerification = require('./post-task').runBuildVerification;
+let _runTestVerification = require('./post-task').runTestVerification;
+let _runStyleCheck = require('./post-task').runStyleCheck;
+let _tryCreateAutoPR = require('../execution/provider-router').tryCreateAutoPR;
+let _extractModifiedFiles = require('../utils/file-resolution').extractModifiedFiles;
+let _isValidFilePath = require('../utils/file-resolution').isValidFilePath;
+let _isShellSafe = require('../utils/file-resolution').isShellSafe;
+let _sanitizeTaskOutput = require('../execution/task-utils').sanitizeTaskOutput;
+let _tryLocalFirstFallback = require('../execution/fallback-retry').tryLocalFirstFallback;
 let _safeUpdateTaskStatus = null;
-let _tryLocalFirstFallback = null;
 let _processQueue = null;
 
-/** @deprecated Use createClosePhases(deps) or container.get('closePhases'). */
+function ensureDeps() {
+  let container = null;
+  try { container = require('../container').defaultContainer; } catch { return; }
+  if (!db) db = container.peek('db') || null;
+  if (!dashboard) dashboard = container.peek('dashboard') || null;
+  if (!_safeUpdateTaskStatus || !_processQueue) {
+    const tm = container.peek('taskManager');
+    if (tm) {
+      if (!_safeUpdateTaskStatus && typeof tm.safeUpdateTaskStatus === 'function') {
+        _safeUpdateTaskStatus = tm.safeUpdateTaskStatus.bind(tm);
+      }
+      if (!_processQueue && typeof tm.processQueue === 'function') {
+        _processQueue = tm.processQueue.bind(tm);
+      }
+    }
+  }
+}
+
+/**
+ * @internal — test-only override path. Production code self-bootstraps via
+ * require()s at module load and lazy container peek for service-shaped
+ * deps. Tests that mock individual utilities / db / dashboard use this
+ * entry point until they migrate to createClosePhases(deps).
+ */
 function init(deps) {
+  if (!deps) return;
   if (deps.db) db = deps.db;
-  serverConfig.init({ db: deps.db });
   if (deps.dashboard) dashboard = deps.dashboard;
   if (deps.checkFileQuality) _checkFileQuality = deps.checkFileQuality;
   if (deps.scopedRollback) _scopedRollback = deps.scopedRollback;
@@ -100,6 +124,7 @@ function handleAutoValidation(ctx) {
  * Async — build and test verification may route to a remote workstation.
  */
 async function handleBuildTestStyleCommit(ctx) {
+  ensureDeps();
   const { taskId, task } = ctx;
   if (ctx.status !== 'completed' || !task) return;
 
@@ -244,6 +269,7 @@ async function handleBuildTestStyleCommit(ctx) {
  * Sets ctx.earlyExit = true if provider switch happens.
  */
 function handleProviderFailover(ctx) {
+  ensureDeps();
   const { taskId, code, proc, task } = ctx;
   const filesModified = recoverModifiedFiles(ctx);
   const schedulingMode = db.getConfig ? (db.getConfig('scheduling_mode') || 'legacy') : 'legacy';
@@ -565,11 +591,13 @@ function register(container) {
 }
 
 module.exports = {
-  // New shape (preferred)
   createClosePhases,
   register,
-  // Legacy shape (kept until task-manager.js migrates)
+  // @internal — test-only override path (see init() jsdoc)
   init,
+  // Raw exports — task-manager.js destructures these directly. Self-
+  // bootstraps utility deps via require() at module load; db / dashboard /
+  // taskManager-bound methods lazy-resolve through the container.
   handleAutoValidation,
   handleBuildTestStyleCommit,
   handleProviderFailover,
