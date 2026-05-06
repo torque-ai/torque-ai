@@ -2000,6 +2000,35 @@ describe('task-core handlers', () => {
       expect(text).toContain('last 1 lines');
       expect(text).toContain('(no output yet)');
     });
+
+    it('surfaces stderr activity when stdout is empty (codex mid-thinking)', () => {
+      const stderrTrace = 'reading docs/file.md\nrg --files docs\nlisting artifacts';
+      mockTaskManager.getTaskProgress.mockReturnValue({
+        running: true,
+        progress: 7,
+        elapsedSeconds: 42,
+        output: '',
+        errorOutput: stderrTrace,
+        error_output_length: stderrTrace.length,
+        last_output_at: '2026-05-05T20:00:00.000Z',
+      });
+
+      const result = handlers.handleGetProgress({
+        task_id: 'task-codex-thinking',
+        tail_lines: 50,
+      });
+      const text = textOf(result);
+
+      expect(result.isError).toBeUndefined();
+      expect(text).not.toContain('(no output yet)');
+      expect(text).toContain(`stdout empty — ${stderrTrace.length} bytes on stderr`);
+      expect(text).toContain('### Latest Stderr');
+      expect(text).toContain('rg --files docs');
+      expect(result.structuredData).toMatchObject({
+        error_output_bytes: stderrTrace.length,
+        last_output_at: '2026-05-05T20:00:00.000Z',
+      });
+    });
   });
 
   describe('handleShareContext', () => {
