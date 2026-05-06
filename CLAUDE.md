@@ -659,5 +659,7 @@ When changing cancellation or cleanup paths — adding to `cancelTask`, `batch_c
 
 When changing routing templates — adding a preset, editing chains, adding/renaming categories — consult `docs/routing-templates.md` first. It catalogs the 11 presets, the 10 canonical categories, the schema, and the validator-vs-resolver coordination. Two regression tests in `tests/routing-templates.test.js` pin presets to the canonical category set and to validator-passes; both must stay green. Validator silently accepts extra category keys outside `CATEGORIES` — the coverage test is the only line of defense.
 
+When changing `bin/torque-remote`, `bin/torque-remote-guard`, or `server/plugins/remote-agents/` — consult `docs/torque-remote.md` first. It catalogs the 5-layer config stack, full lifecycle of an SSH transport invocation, lock semantics + the chronic friction shape, fallback chain, concurrent-session protection layers, exit-code map, and 12 open questions/risks. Lock semantics in particular have a documented "preserve local-host-scoped reap rule" and "preserve trailing-whitespace strip" rule that two prior bugs hit; don't regress them.
+
 ---
 *Full safeguard documentation: see `docs/safeguards.md`*
