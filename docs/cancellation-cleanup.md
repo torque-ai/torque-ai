@@ -133,9 +133,11 @@ If close handler runs >60s, `cleanupGuard` expires before finalization marker. M
 
 `checkZombieProcesses` runs Check 4 (Windows tasklist) only on Windows. POSIX falls back to `process.kill(pid, 0)` which can report false-alive after exit. **Action:** Add a Linux-equivalent kernel check (e.g., `/proc/<pid>` existence) for parity.
 
-### 5. Tracker cleanup on shutdown is best-effort
+### 5. Tracker cleanup on shutdown is best-effort — **VERIFIED SAFE 2026-05-06**
 
-`cleanupAll()` is called explicitly on shutdown but not on crash. After restart, `cleanupStaleRestartBarriers` clears barrier tasks, but **per-task retry timeouts from prior process aren't cleared explicitly** — they vanish with the dead process, but if the new process re-adopts a task, both worlds' retry counts could collide. **Action:** Audit startup re-adoption to confirm pending retry counts/timers from the prior incarnation are reconciled, not re-armed.
+`cleanupAll()` is called explicitly on shutdown but not on crash. After restart, `cleanupStaleRestartBarriers` clears barrier tasks; per-task retry timeouts from the prior process vanish with the dead process. **The reconciler closes the gap on the DB side**: `startup-task-reconciler.js:612-669` queries rows with `status IN ('running','claimed','retry_scheduled')` and the `retry_scheduled` branch (lines 632-669) re-queues or fails based on `retry_count vs max_retries`. The bba865d8 (2026-05-03) fix enforces the same `>` boundary as `shouldRetry`'s `<=` — a final retry whose timer was lost to a restart still gets its run instead of being marked failed. There is no in-memory state to reconcile because the timer handle dies with the process; the DB row is the only authority, and the reconciler reads it correctly.
+
+**Test coverage** (`server/tests/startup-task-reconciler.test.js:865-1026`): 5 regression tests pin the behavior — re-queue with budget remaining, fail with budget exhausted, re-queue at boundary (count==max, the bba865d8 case), conservative re-queue with null retry fields, and skip when owner instance is still alive. Open question resolved with verified-safe status.
 
 ### 6. Worktree reconciler 1-min "fresh dir" age check can race with slow vc_worktrees insert
 
