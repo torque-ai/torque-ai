@@ -500,6 +500,70 @@ describe('Orphan Cleanup', () => {
       expect(logger.info).not.toHaveBeenCalledWith(expect.stringContaining('malformed process tracker entry'));
     });
 
+    it('abandons cancelled detached tracker entries before killing their subprocess', async () => {
+      const runningProcesses = new Map();
+      const stallRecoveryAttempts = new Map([['task-cancelled-detached', 1]]);
+      const outputTail = { stop: vi.fn() };
+      const errorTail = { stop: vi.fn() };
+      const livenessHandle = setInterval(() => {}, 99999);
+      const timeoutHandle = setTimeout(() => {}, 99999);
+      const startupTimeoutHandle = setTimeout(() => {}, 99999);
+      const completionGraceHandle = setTimeout(() => {}, 99999);
+      livenessHandle.unref?.();
+      timeoutHandle.unref?.();
+      startupTimeoutHandle.unref?.();
+      completionGraceHandle.unref?.();
+      const proc = {
+        provider: 'codex',
+        detached: true,
+        subprocessPid: 12345,
+        process: null,
+        outputTail,
+        errorTail,
+        livenessHandle,
+        timeoutHandle,
+        startupTimeoutHandle,
+        completionGraceHandle,
+      };
+      runningProcesses.set('task-cancelled-detached', proc);
+      const killOrphanByPid = vi.fn();
+
+      orphanCleanup.init({
+        db: {
+          getConfig: vi.fn().mockReturnValue('0'),
+          getTask: vi.fn().mockReturnValue({ id: 'task-cancelled-detached', status: 'cancelled' }),
+          reconcileHostTaskCounts: vi.fn(),
+          getRunningTasksLightweight: vi.fn().mockReturnValue([]),
+        },
+        dashboard: { notifyTaskUpdated: vi.fn() },
+        logger: { info: vi.fn(), warn: vi.fn() },
+        runningProcesses,
+        stallRecoveryAttempts,
+        TASK_TIMEOUTS: { PROCESS_QUERY: 5000 },
+        cancelTask: vi.fn(),
+        processQueue: vi.fn(),
+        tryLocalFirstFallback: vi.fn(),
+        getTaskActivity: vi.fn(),
+        tryStallRecovery: vi.fn(),
+        safeConfigInt: vi.fn(),
+        killOrphanByPid,
+      });
+
+      await orphanCleanup.checkZombieProcesses();
+
+      expect(proc.finalizing).toBe(true);
+      expect(proc.stopTailProcessing).toBe(true);
+      expect(proc.livenessHandle).toBeNull();
+      expect(proc.timeoutHandle).toBeNull();
+      expect(proc.startupTimeoutHandle).toBeNull();
+      expect(proc.completionGraceHandle).toBeNull();
+      expect(outputTail.stop).toHaveBeenCalled();
+      expect(errorTail.stop).toHaveBeenCalled();
+      expect(killOrphanByPid).toHaveBeenCalledWith(12345, 'task-cancelled-detached', 5000, 'ZombieCheck');
+      expect(runningProcesses.has('task-cancelled-detached')).toBe(false);
+      expect(stallRecoveryAttempts.has('task-cancelled-detached')).toBe(false);
+    });
+
     it('emits successful close for completed Codex output that outlives completion grace', async () => {
       const runningProcesses = new Map();
       const processRef = {

@@ -47,6 +47,7 @@ let detectOutputCompletion = null;
 let isInstanceAlive = null;
 let getMcpInstanceId = null;
 let reportRuntimeTaskProblem = null;
+let killOrphanByPidFn = killOrphanByPid;
 
 // ---- Timer handles ----
 let dotnetCleanupInterval = null;
@@ -86,6 +87,25 @@ function stopDetachedTrackers(proc) {
   }
   try { proc.outputTail?.stop?.(); } catch { /* best-effort cleanup */ }
   try { proc.errorTail?.stop?.(); } catch { /* best-effort cleanup */ }
+}
+
+function abandonDetachedTracker(proc) {
+  if (!proc) return;
+  proc.finalizing = true;
+  proc.stopTailProcessing = true;
+  if (proc.timeoutHandle) {
+    clearTimeout(proc.timeoutHandle);
+    proc.timeoutHandle = null;
+  }
+  if (proc.startupTimeoutHandle) {
+    clearTimeout(proc.startupTimeoutHandle);
+    proc.startupTimeoutHandle = null;
+  }
+  if (proc.completionGraceHandle) {
+    clearTimeout(proc.completionGraceHandle);
+    proc.completionGraceHandle = null;
+  }
+  stopDetachedTrackers(proc);
 }
 
 // ---- Stall detection constants ----
@@ -538,8 +558,8 @@ async function checkZombieProcesses() {
           const dbTask = db.getTask(taskId);
           if (dbTask && dbTask.status !== 'running') {
             logger.info(`[Zombie Check] Detached task ${taskId} is '${dbTask.status}' in DB but still tracked. Killing PID ${detachedPid} and cleaning up.`);
-            killOrphanByPid(detachedPid, taskId, 5000, 'ZombieCheck');
-            stopDetachedTrackers(proc);
+            abandonDetachedTracker(proc);
+            killOrphanByPidFn(detachedPid, taskId, 5000, 'ZombieCheck');
             runningProcesses.delete(taskId);
             stallRecoveryAttempts?.delete?.(taskId);
           }
@@ -1095,6 +1115,7 @@ function init(deps) {
   isInstanceAlive = deps.isInstanceAlive;
   getMcpInstanceId = deps.getMcpInstanceId;
   reportRuntimeTaskProblem = deps.reportRuntimeTaskProblem || null;
+  killOrphanByPidFn = deps.killOrphanByPid || killOrphanByPid;
 }
 
 module.exports = {

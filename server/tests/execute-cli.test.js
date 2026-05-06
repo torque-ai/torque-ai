@@ -1002,6 +1002,19 @@ describe('execute-cli.js', () => {
       mod.processStderrChunk(taskId, 'OpenAI Codex\nworkdir: /repo\n', 'stream-1');
       expect(runningProcesses.get(taskId).lastOutputAt).toBeGreaterThan(before);
     });
+
+    it('ignores tail chunks after detached tracker processing is stopped', () => {
+      const { runningProcesses, taskId } = setupProc({ initialLastOutputAt: 1000 });
+      const proc = runningProcesses.get(taskId);
+      proc.stopTailProcessing = true;
+
+      mod.processStdoutChunk(taskId, 'stdout after cancellation\n', 'stream-1');
+      mod.processStderrChunk(taskId, 'stderr after cancellation\n', 'stream-1');
+
+      expect(proc.output).toBe('');
+      expect(proc.errorOutput).toBe('');
+      expect(proc.lastOutputAt).toBe(1000);
+    });
   });
 
   // ── resolveReAdoptLastOutputAt: stall-clock preservation ────────

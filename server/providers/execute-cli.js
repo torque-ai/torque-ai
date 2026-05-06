@@ -247,6 +247,7 @@ function forceCompleteAfterGrace(taskId, capturedProc, source) {
 function processStdoutChunk(taskId, text, streamId) {
   const proc = runningProcesses.get(taskId);
   if (!proc) return;
+  if (proc.stopTailProcessing) return;
 
   if (proc.startupTimeoutHandle) {
     clearTimeout(proc.startupTimeoutHandle);
@@ -309,6 +310,7 @@ function processStdoutChunk(taskId, text, streamId) {
 function processStderrChunk(taskId, text, streamId) {
   const proc = runningProcesses.get(taskId);
   if (!proc) return;
+  if (proc.stopTailProcessing) return;
 
   if (proc.startupTimeoutHandle) {
     clearTimeout(proc.startupTimeoutHandle);
@@ -1645,17 +1647,23 @@ function spawnAndTrackProcessDetached(taskId, task, cmdSpec, providerArg) {
 
   const outputTail = new Tail(stdoutPath, { startOffset: 0, pollIntervalMs: 250 });
   outputTail.on('chunk', (text, newOffset) => {
-    processStdoutChunk(taskId, text, streamId);
-    procEntry.outputLogOffset = newOffset;
-    const now = Date.now();
-    if (now - lastStdoutPersistAt >= offsetPersistThrottleMs) {
-      lastStdoutPersistAt = now;
-      try {
-        db.updateTaskStatus(taskId, 'running', {
-          output_log_offset: newOffset,
-          last_activity_at: new Date(now).toISOString(),
-        });
-      } catch { /* offset persistence is best-effort */ }
+    try {
+      if (procEntry.stopTailProcessing || runningProcesses.get(taskId) !== procEntry) return;
+      processStdoutChunk(taskId, text, streamId);
+      if (procEntry.stopTailProcessing || runningProcesses.get(taskId) !== procEntry) return;
+      procEntry.outputLogOffset = newOffset;
+      const now = Date.now();
+      if (now - lastStdoutPersistAt >= offsetPersistThrottleMs) {
+        lastStdoutPersistAt = now;
+        try {
+          db.updateTaskStatus(taskId, 'running', {
+            output_log_offset: newOffset,
+            last_activity_at: new Date(now).toISOString(),
+          });
+        } catch { /* offset persistence is best-effort */ }
+      }
+    } catch (err) {
+      logger.info(`[Tail] stdout chunk handler failed for task ${taskId}: ${err.message}`);
     }
   });
   outputTail.on('error', (err) => {
@@ -1665,17 +1673,23 @@ function spawnAndTrackProcessDetached(taskId, task, cmdSpec, providerArg) {
 
   const errorTail = new Tail(stderrPath, { startOffset: 0, pollIntervalMs: 250 });
   errorTail.on('chunk', (text, newOffset) => {
-    processStderrChunk(taskId, text, streamId);
-    procEntry.errorLogOffset = newOffset;
-    const now = Date.now();
-    if (now - lastStderrPersistAt >= offsetPersistThrottleMs) {
-      lastStderrPersistAt = now;
-      try {
-        db.updateTaskStatus(taskId, 'running', {
-          error_log_offset: newOffset,
-          last_activity_at: new Date(now).toISOString(),
-        });
-      } catch { /* best-effort */ }
+    try {
+      if (procEntry.stopTailProcessing || runningProcesses.get(taskId) !== procEntry) return;
+      processStderrChunk(taskId, text, streamId);
+      if (procEntry.stopTailProcessing || runningProcesses.get(taskId) !== procEntry) return;
+      procEntry.errorLogOffset = newOffset;
+      const now = Date.now();
+      if (now - lastStderrPersistAt >= offsetPersistThrottleMs) {
+        lastStderrPersistAt = now;
+        try {
+          db.updateTaskStatus(taskId, 'running', {
+            error_log_offset: newOffset,
+            last_activity_at: new Date(now).toISOString(),
+          });
+        } catch { /* best-effort */ }
+      }
+    } catch (err) {
+      logger.info(`[Tail] stderr chunk handler failed for task ${taskId}: ${err.message}`);
     }
   });
   errorTail.on('error', (err) => {
@@ -2073,16 +2087,22 @@ function reAdoptDetachedSubprocess(taskId, persistedTask) {
 
   const outputTail = new Tail(stdoutPath, { startOffset: startOutputOffset, pollIntervalMs: 250 });
   outputTail.on('chunk', (text, newOffset) => {
-    processStdoutChunk(taskId, text, streamId);
-    const now = Date.now();
-    if (now - lastStdoutPersistAt >= offsetPersistThrottleMs) {
-      lastStdoutPersistAt = now;
-      try {
-        db.updateTaskStatus(taskId, 'running', {
-          output_log_offset: newOffset,
-          last_activity_at: new Date(now).toISOString(),
-        });
-      } catch { /* best-effort */ }
+    try {
+      if (procEntry.stopTailProcessing || runningProcesses.get(taskId) !== procEntry) return;
+      processStdoutChunk(taskId, text, streamId);
+      if (procEntry.stopTailProcessing || runningProcesses.get(taskId) !== procEntry) return;
+      const now = Date.now();
+      if (now - lastStdoutPersistAt >= offsetPersistThrottleMs) {
+        lastStdoutPersistAt = now;
+        try {
+          db.updateTaskStatus(taskId, 'running', {
+            output_log_offset: newOffset,
+            last_activity_at: new Date(now).toISOString(),
+          });
+        } catch { /* best-effort */ }
+      }
+    } catch (err) {
+      logger.info(`[Tail] re-adopted stdout chunk handler failed for task ${taskId}: ${err.message}`);
     }
   });
   outputTail.on('error', (err) => {
@@ -2092,16 +2112,22 @@ function reAdoptDetachedSubprocess(taskId, persistedTask) {
 
   const errorTail = new Tail(stderrPath, { startOffset: startErrorOffset, pollIntervalMs: 250 });
   errorTail.on('chunk', (text, newOffset) => {
-    processStderrChunk(taskId, text, streamId);
-    const now = Date.now();
-    if (now - lastStderrPersistAt >= offsetPersistThrottleMs) {
-      lastStderrPersistAt = now;
-      try {
-        db.updateTaskStatus(taskId, 'running', {
-          error_log_offset: newOffset,
-          last_activity_at: new Date(now).toISOString(),
-        });
-      } catch { /* best-effort */ }
+    try {
+      if (procEntry.stopTailProcessing || runningProcesses.get(taskId) !== procEntry) return;
+      processStderrChunk(taskId, text, streamId);
+      if (procEntry.stopTailProcessing || runningProcesses.get(taskId) !== procEntry) return;
+      const now = Date.now();
+      if (now - lastStderrPersistAt >= offsetPersistThrottleMs) {
+        lastStderrPersistAt = now;
+        try {
+          db.updateTaskStatus(taskId, 'running', {
+            error_log_offset: newOffset,
+            last_activity_at: new Date(now).toISOString(),
+          });
+        } catch { /* best-effort */ }
+      }
+    } catch (err) {
+      logger.info(`[Tail] re-adopted stderr chunk handler failed for task ${taskId}: ${err.message}`);
     }
   });
   errorTail.on('error', (err) => {
