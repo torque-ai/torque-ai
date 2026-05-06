@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const { createSafeguardGates, register } = require('../validation/safeguard-gates');
+const { createSafeguardGates, handleSafeguardChecks, register } = require('../validation/safeguard-gates');
+const validationRegister = require('../validation/register');
 const { createContainer } = require('../container');
 
 /**
@@ -183,6 +184,35 @@ describe('safeguard-gates — container registration', () => {
     expect(typeof svc.handleSafeguardChecks).toBe('function');
   });
 
+  it('validation register boots without optional sandboxManager', () => {
+    const container = createContainer();
+    const deps = makeContainerDeps({
+      testRunnerRegistry: {
+        runVerifyCommand: vi.fn(),
+        runRemoteOrLocal: vi.fn(),
+      },
+    });
+
+    for (const [k, v] of Object.entries(deps)) {
+      container.registerValue(k, v);
+    }
+
+    validationRegister.register(container);
+    expect(() => container.boot()).not.toThrow();
+    expect(typeof container.get('autoVerifyRetry').handleAutoVerifyRetry).toBe('function');
+  });
+
+  it('legacy direct handler does not require a booted default container', () => {
+    const result = handleSafeguardChecks({
+      taskId: 'fallback-safeguard',
+      status: 'completed',
+      task: { provider: 'ollama', working_directory: '/repo' },
+      proc: { output: 'done' },
+    });
+
+    expect(result).toEqual({ approved: true, reason: 'No db available' });
+  });
+
   it('createSafeguardGates respects an explicit deps override', () => {
     // The override pathway is the explicit `deps` object passed to the
     // factory: utility-function overrides win over the require() fallbacks,
@@ -222,4 +252,3 @@ describe('safeguard-gates — container registration', () => {
     expect(customSafeguards).toHaveBeenCalled();
   });
 });
-

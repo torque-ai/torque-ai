@@ -28,7 +28,7 @@ const safeguardGates = require('./safeguard-gates');           // [db, dashboard
 const hashlineVerify = require('./hashline-verify');           // []
 const buildVerification = require('./build-verification');     // [db, testRunnerRegistry]
 const closePhases = require('./close-phases');                 // [db, dashboard, taskManager]
-const autoVerifyRetry = require('./auto-verify-retry');        // [db, taskManager, testRunnerRegistry, sandboxManager]
+const autoVerifyRetry = require('./auto-verify-retry');        // [db, taskManager, testRunnerRegistry]
 const outputSafeguards = require('./output-safeguards');       // [db]
 const postTask = require('./post-task');                       // [db, testRunnerRegistry]
 

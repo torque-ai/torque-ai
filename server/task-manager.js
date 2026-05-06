@@ -487,7 +487,14 @@ function handleRetryLogic(ctx) {
 
 // Phase 2: Safeguard checks — resolved from the DI container.
 function handleSafeguardChecks(ctx) {
-  return defaultContainer.get('safeguardGates').handleSafeguardChecks(ctx);
+  try {
+    return defaultContainer.get('safeguardGates').handleSafeguardChecks(ctx);
+  } catch (err) {
+    if (!/called before boot|not registered/i.test(String(err?.message || err))) {
+      throw err;
+    }
+    return require('./validation/safeguard-gates').handleSafeguardChecks(ctx);
+  }
 }
 
 /**

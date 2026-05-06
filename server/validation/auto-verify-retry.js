@@ -805,14 +805,14 @@ function createAutoVerifyRetry(deps = {}) {
 
 /**
  * Register with a DI container under the name 'autoVerifyRetry'.
- * Declared deps map to container service names; sandboxManager is optional
- * (the module tolerates a null/undefined sandbox by falling through to
- * local-process verification).
+ * Declared deps map to required container service names. sandboxManager is
+ * intentionally not declared here because it is optional: ensureDeps() peeks it
+ * at call time when present and otherwise falls through to local verification.
  */
 function register(container) {
   container.register(
     'autoVerifyRetry',
-    ['db', 'taskManager', 'testRunnerRegistry', 'sandboxManager'],
+    ['db', 'taskManager', 'testRunnerRegistry'],
     (deps) => createAutoVerifyRetry(deps)
   );
 }
