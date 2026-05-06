@@ -352,6 +352,34 @@ describe('retry-framework', () => {
     expect(scenario.deps.pendingRetryTimeouts.has(scenario.taskId)).toBe(false);
   });
 
+  // Regression: pre-2026-05-06 the retry callback only checked for 'cancelled'.
+  // If orphan-cleanup's stale-check (maintenance/orphan-cleanup.js
+  // requeueOrFailDeadOwner) marked a retry-scheduled task `failed` when
+  // max_retries was exhausted, the retry timer would fire and reset the task
+  // back to `queued`, resurrecting a deliberately-failed task.
+  it.each(['failed', 'completed', 'shipped', 'unactionable', 'escalation_exhausted'])(
+    'does not resurrect a task that was moved to %s during the retry delay',
+    async (terminalStatus) => {
+      scenario = createScenario();
+
+      retryFramework.handleRetryLogic(scenario.ctx);
+      scenario.state.task = { ...scenario.state.task, status: terminalStatus };
+
+      await vi.runOnlyPendingTimersAsync();
+
+      expect(scenario.deps.startTask).not.toHaveBeenCalled();
+      expect(scenario.deps.pendingRetryTimeouts.has(scenario.taskId)).toBe(false);
+      // The bug was: status got reset to 'queued'. Confirm it didn't.
+      expect(scenario.state.task.status).toBe(terminalStatus);
+      // Specifically: no updateTaskStatus call to 'queued' beyond the initial
+      // 'retry_scheduled' write that handleRetryLogic itself made.
+      const queuedCalls = scenario.deps.db.updateTaskStatus.mock.calls.filter(
+        ([, status]) => status === 'queued'
+      );
+      expect(queuedCalls).toHaveLength(0);
+    }
+  );
+
   it('handles async startTask failures without overwriting the pending retry state', async () => {
     const asyncFailure = Promise.reject(new Error('async boom'));
     asyncFailure.catch(() => {});

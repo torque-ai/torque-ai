@@ -158,8 +158,24 @@ function handleRetryLogic(ctx) {
   const retryTimeoutHandle = setTimeout(() => {
     deps.pendingRetryTimeouts.delete(taskId);
     const currentTask = deps.db.getTask(taskId);
-    if (!currentTask || currentTask.status === 'cancelled') {
-      logger.info(`Retry cancelled for task ${taskId} - task was cancelled during retry delay`);
+    if (!currentTask) {
+      logger.info(`Retry cancelled for task ${taskId} - task no longer exists`);
+      return;
+    }
+    // Only resume retry if the task is still parked at retry_scheduled. If
+    // any other code path (stale-check requeue/fail in orphan-cleanup,
+    // batch_cancel, factory-tick rejection sweep, manual API cancel, etc.)
+    // has moved the task to a different status, do NOT resurrect it.
+    //
+    // Pre-2026-05-06 this only checked for `cancelled` — so a task that
+    // orphan-cleanup marked `failed` after maxRetries exhaustion (line ~532
+    // in maintenance/orphan-cleanup.js) would get reset to `queued` and
+    // re-run when the retry timer fired. Same shape applies to `completed`
+    // / `shipped` / `unactionable` / `escalation_exhausted` / etc.
+    if (currentTask.status !== 'retry_scheduled') {
+      logger.info(
+        `Retry skipped for task ${taskId} - task moved to '${currentTask.status}' during retry delay (no longer eligible to resume)`
+      );
       return;
     }
     // Transition from retry_scheduled → queued now that the delay has fired
