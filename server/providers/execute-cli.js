@@ -408,9 +408,76 @@ let stallRecoveryAttempts = new Map();
  * Initialize dependencies for this module.
  * @param {Object} deps
  */
-function init(deps) {
+function ensureDeps() {
+  let container = null;
+  try { container = require('../container').defaultContainer; } catch { /* not available */ }
+  if (container) {
+    if (!db) db = container.peek('db') || null;
+    if (!dashboard) dashboard = container.peek('dashboard') || null;
+    if (!runningProcesses) {
+      const tracker = container.peek('processTracker');
+      if (tracker) {
+        runningProcesses = tracker;
+        if (tracker.retryTimeouts) _pendingRetryTimeouts = tracker.retryTimeouts;
+        if (tracker.cleanupGuard) _taskCleanupGuard = tracker.cleanupGuard;
+        if (tracker.stallAttempts) stallRecoveryAttempts = tracker.stallAttempts;
+      }
+    }
+    const tm = container.peek('taskManager');
+    if (tm) {
+      if (!_markTaskCleanedUp && typeof tm.markTaskCleanedUp === 'function') {
+        _markTaskCleanedUp = tm.markTaskCleanedUp.bind(tm);
+      }
+      if (!_processQueue && typeof tm.processQueue === 'function') _processQueue = tm.processQueue.bind(tm);
+      if (!_isLargeModelBlockedOnHost && typeof tm.isLargeModelBlockedOnHost === 'function') {
+        _isLargeModelBlockedOnHost = tm.isLargeModelBlockedOnHost.bind(tm);
+      }
+      // Bind helpers from taskManager exports — execute-cli uses many
+      // closures (wrapWithInstructions, detectTaskTypes, classifyError,
+      // sanitizeTaskOutput, getActualModifiedFiles, etc.) and the
+      // taskManager value re-exports them all.
+      if (!_helpers || Object.keys(_helpers).length === 0) {
+        _helpers = tm;
+      }
+      if (!_QUEUE_LOCK_HOLDER_ID && typeof tm.queueLockHolderId === 'string') {
+        _QUEUE_LOCK_HOLDER_ID = tm.queueLockHolderId;
+      }
+    }
+    if (!_tryReserveHostSlotWithFallback && container.has?.('providerRouter')) {
+      try {
+        const pr = container.get('providerRouter');
+        if (pr && typeof pr.tryReserveHostSlotWithFallback === 'function') {
+          _tryReserveHostSlotWithFallback = pr.tryReserveHostSlotWithFallback;
+        }
+      } catch { /* not booted */ }
+    }
+    if (!_finalizeTask && container.has?.('taskFinalizer')) {
+      try {
+        const tf = container.get('taskFinalizer');
+        if (tf && typeof tf.finalizeTask === 'function') _finalizeTask = tf.finalizeTask;
+      } catch { /* not booted */ }
+    }
+  }
+  if (!_tryOllamaCloudFallback) {
+    // Thunk — defers fallback-retry require until call time.
+    _tryOllamaCloudFallback = (...args) => require('../execution/fallback-retry').tryOllamaCloudFallback(...args);
+  }
+  if (!_shellEscape) {
+    try { _shellEscape = require('../utils/shell-escape').shellEscape; }
+    catch { /* fall through */ }
+  }
+  if (!_NVM_NODE_PATH) {
+    try { _NVM_NODE_PATH = require('../execution/task-startup').NVM_NODE_PATH; }
+    catch { /* fall through */ }
+  }
+}
+
+/**
+ * @internal — test-only override path. Production lazy-resolves all deps via
+ * ensureDeps() called from each public entry point.
+ */
+function init(deps = {}) {
   if (deps.db) db = deps.db;
-  if (deps.db) serverConfig.init({ db: deps.db });
   if (deps.dashboard) dashboard = deps.dashboard;
   if (deps.tryReserveHostSlotWithFallback) _tryReserveHostSlotWithFallback = deps.tryReserveHostSlotWithFallback;
   if (deps.markTaskCleanedUp) _markTaskCleanedUp = deps.markTaskCleanedUp;
@@ -423,32 +490,7 @@ function init(deps) {
   if (deps.NVM_NODE_PATH !== undefined) _NVM_NODE_PATH = deps.NVM_NODE_PATH;
   if (deps.QUEUE_LOCK_HOLDER_ID) _QUEUE_LOCK_HOLDER_ID = deps.QUEUE_LOCK_HOLDER_ID;
   if (deps.MAX_OUTPUT_BUFFER) _MAX_OUTPUT_BUFFER = deps.MAX_OUTPUT_BUFFER;
-
-  // Container-owned shared state. The four absorbed concerns
-  // (runningProcesses, pendingRetryTimeouts, taskCleanupGuard,
-  // stallRecoveryAttempts) all live on the ProcessTracker singleton —
-  // peek it as default so callers don't have to thread the same maps
-  // through init() every time. Tests that inject bare Maps for any
-  // single concern still win via the explicit dep paths below; the
-  // accessor presence guard prevents a bare Map injected as
-  // runningProcesses from clobbering the module-level Map defaults
-  // for the absorbed concerns it doesn't carry.
-  const { defaultContainer } = require('../container');
-  const trackerCandidate = deps.runningProcesses
-    || defaultContainer.peek('processTracker')
-    || null;
-  if (trackerCandidate) {
-    runningProcesses = trackerCandidate;
-    if (!deps.pendingRetryTimeouts && trackerCandidate.retryTimeouts) {
-      _pendingRetryTimeouts = trackerCandidate.retryTimeouts;
-    }
-    if (!deps.taskCleanupGuard && trackerCandidate.cleanupGuard) {
-      _taskCleanupGuard = trackerCandidate.cleanupGuard;
-    }
-    if (!deps.stallRecoveryAttempts && trackerCandidate.stallAttempts) {
-      stallRecoveryAttempts = trackerCandidate.stallAttempts;
-    }
-  }
+  if (deps.runningProcesses) runningProcesses = deps.runningProcesses;
   if (deps.pendingRetryTimeouts) _pendingRetryTimeouts = deps.pendingRetryTimeouts;
   if (deps.taskCleanupGuard) _taskCleanupGuard = deps.taskCleanupGuard;
   if (deps.stallRecoveryAttempts) stallRecoveryAttempts = deps.stallRecoveryAttempts;
@@ -656,6 +698,7 @@ function buildCodexCommand(task, resolvedFileContext, providerConfig, opts = {})
  * @returns {{ queued: boolean, task: Object }}
  */
 function spawnAndTrackProcess(taskId, task, cmdSpec, provider) {
+  ensureDeps();
   // --- Subprocess-detachment dispatch (Phase B + F, flag-gated) ---
   // When TORQUE_DETACHED_SUBPROCESSES=1 AND the provider is one of the
   // detachment-eligible CLI providers, delegate to the detached spawn
@@ -1419,6 +1462,7 @@ function shouldUseDetachedPath({ provider, task }) {
  * what makes attaching a new Tail to a still-alive PID safe.
  */
 function spawnAndTrackProcessDetached(taskId, task, cmdSpec, providerArg) {
+  ensureDeps();
   // Accept two cmdSpec shapes:
   //   • Legacy/test shape: { cliPath, finalArgs, stdinPrompt, envExtras,
   //     selectedOllamaHostId, usedEditFormat } + provider as 4th positional arg.

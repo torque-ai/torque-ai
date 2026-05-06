@@ -43,11 +43,63 @@ let _recordTaskStartedAuditEvent = null;
  * Initialize dependencies for this module.
  * @param {Object} deps
  */
-function init(deps) {
-  if (deps.db) db = deps.db;
-  serverConfig.init({ db: deps.db });
-  ollamaShared.init(deps);
-  providerConfig.init(deps);
+function ensureDeps() {
+  let container = null;
+  try { container = require('../container').defaultContainer; } catch { /* not available */ }
+  if (container) {
+    if (!db) {
+      db = container.peek('db') || null;
+      if (db) {
+        // Forward to sub-sub-modules that still use legacy init().
+        try { providerConfig.init({ db }); } catch { /* fall through */ }
+        try { ollamaShared.init({ db }); } catch { /* fall through */ }
+      }
+    }
+    if (!dashboard) dashboard = container.peek('dashboard') || null;
+    const tm = container.peek('taskManager');
+    if (tm) {
+      if (!_safeUpdateTaskStatus && typeof tm.safeUpdateTaskStatus === 'function') {
+        _safeUpdateTaskStatus = tm.safeUpdateTaskStatus.bind(tm);
+      }
+      if (!_isLargeModelBlockedOnHost && typeof tm.isLargeModelBlockedOnHost === 'function') {
+        _isLargeModelBlockedOnHost = tm.isLargeModelBlockedOnHost.bind(tm);
+      }
+      if (!_processQueue && typeof tm.processQueue === 'function') _processQueue = tm.processQueue.bind(tm);
+      if (!_recordTaskStartedAuditEvent && typeof tm.recordTaskStartedAuditEvent === 'function') {
+        _recordTaskStartedAuditEvent = tm.recordTaskStartedAuditEvent.bind(tm);
+      }
+    }
+    if (!_tryReserveHostSlotWithFallback && container.has?.('providerRouter')) {
+      try {
+        const pr = container.get('providerRouter');
+        if (pr && typeof pr.tryReserveHostSlotWithFallback === 'function') {
+          _tryReserveHostSlotWithFallback = pr.tryReserveHostSlotWithFallback;
+        }
+      } catch { /* not booted */ }
+    }
+    if (!_buildFileContext && container.has?.('fileContextBuilder')) {
+      try {
+        const fcb = container.get('fileContextBuilder');
+        if (fcb && typeof fcb.buildFileContext === 'function') _buildFileContext = fcb.buildFileContext;
+      } catch { /* not booted */ }
+    }
+  }
+  if (!_tryOllamaCloudFallback) {
+    // Thunk — defers fallback-retry require until call time.
+    _tryOllamaCloudFallback = (...args) => require('../execution/fallback-retry').tryOllamaCloudFallback(...args);
+  }
+}
+
+/**
+ * @internal — test-only override path. Production lazy-resolves all deps via
+ * ensureDeps() called from each public entry point.
+ */
+function init(deps = {}) {
+  if (deps.db) {
+    db = deps.db;
+    try { providerConfig.init({ db: deps.db }); } catch { /* fall through */ }
+    try { ollamaShared.init({ db: deps.db }); } catch { /* fall through */ }
+  }
   if (deps.dashboard) dashboard = deps.dashboard;
   if (deps.safeUpdateTaskStatus) _safeUpdateTaskStatus = deps.safeUpdateTaskStatus;
   if (deps.tryReserveHostSlotWithFallback) _tryReserveHostSlotWithFallback = deps.tryReserveHostSlotWithFallback;
@@ -193,6 +245,7 @@ function estimateRequiredContext(taskDescription, files = []) {
 }
 
 async function executeOllamaTask(task) {
+  ensureDeps();
   const taskId = task.id;
   let selectedHostId = null;
 

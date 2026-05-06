@@ -219,7 +219,15 @@ function loadSubject(overrides = {}) {
   installMock(OLLAMA_SHARED_PATH, ollamaSharedMock);
   installMock(REGISTRY_PATH, registryMock);
   installMock(MODEL_ROLES_PATH, modelRolesMock);
-  installMock(ROUTING_CORE_PATH, { recordProviderOutcome: vi.fn() });
+  installMock(ROUTING_CORE_PATH, {
+    recordProviderOutcome: vi.fn(),
+    // CLOUD_PROVIDERS + getProviderFallbackChain are read by fallback-retry
+    // at call time (lazy-resolve, see commit 0ab8f244). Stubs default to
+    // "no extra providers" + "user-configured chain only" so tests don't
+    // accidentally hit cloud providers they didn't expect.
+    CLOUD_PROVIDERS: [],
+    getProviderFallbackChain: vi.fn(() => []),
+  });
   installMock(PROVIDER_MODEL_SCORES_PATH, providerModelScoresMock);
   installMock(OLLAMA_AGENTIC_PATH, { runAgenticLoop: vi.fn() });
   installMock(HOST_MUTEX_PATH, overrides.hostMutexMock || { acquireHostLock: vi.fn(async () => vi.fn()) });
