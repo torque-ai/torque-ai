@@ -51,7 +51,10 @@ function resetForTest() {
   finalizationLocks.clear();
 }
 
-/** @deprecated Use createTaskFinalizer(deps) or container.get('taskFinalizer'). */
+/**
+ * @internal — test-only override path. Production resolves via
+ * createTaskFinalizer(localDeps) inside the container factory.
+ */
 function init(nextDeps = {}) {
   deps = { ...deps, ...nextDeps };
   if (deps.db && typeof deps.db.getDbInstance === 'function') {

@@ -129,9 +129,7 @@ const _closePhases = require('./validation/close-phases');
 const _autoVerifyRetry = require('./validation/auto-verify-retry');
 const completionDetection = require('./validation/completion-detection');
 const _queueScheduler = require('./execution/queue-scheduler');
-const _taskFinalizer = require('./execution/task-finalizer');
 const _sandboxRevertDetection = require('./execution/sandbox-revert-detection');
-const _completionPipeline = require('./execution/completion-pipeline');
 const _taskUtils = require('./execution/task-utils');
 // execution/process-lifecycle.js: production accesses methods through
 // defaultContainer.get('processLifecycle'). The factory self-bootstraps deps
@@ -187,10 +185,18 @@ const { detectSandboxReverts: handleSandboxRevertDetection } = _sandboxRevertDet
 const {
   handleAutoValidation, handleBuildTestStyleCommit, handleProviderFailover,
 } = _closePhases;
-const {
-  recordModelOutcome, recordProviderHealth, handlePostCompletion,
-} = _completionPipeline;
-const { finalizeTask } = _taskFinalizer;
+// execution/completion-pipeline.js: production accesses methods via the
+// container. Factory self-bootstraps utility deps (parseTaskMetadata ←
+// task-utils; runOutputSafeguards ← output-safeguards) and handler
+// functions (handleWorkflowTermination ← workflowRuntime;
+// handleProjectDependencyResolution ← planProjectResolver).
+function recordModelOutcome(...args) { return defaultContainer.get('completionPipeline').recordModelOutcome(...args); }
+function recordProviderHealth(...args) { return defaultContainer.get('completionPipeline').recordProviderHealth(...args); }
+function handlePostCompletion(...args) { return defaultContainer.get('completionPipeline').handlePostCompletion(...args); }
+// execution/task-finalizer.js: production accesses methods via the container.
+// Factory self-bootstraps stage handlers via require() (handleSafeguardChecks,
+// handleAutoValidation, etc.) and binds taskManager methods.
+function finalizeTask(...args) { return defaultContainer.get('taskFinalizer').finalizeTask(...args); }
 const { categorizeQueuedTasks, processQueueInternal } = _queueScheduler;
 const { cleanupOrphanedHostTasks, getStallThreshold } = _orphanCleanup;
 
@@ -1011,30 +1017,17 @@ codexIntelligence.init({ db, prompts: _promptsModule });
 // safeUpdateTaskStatus, processQueue) from the registered taskManager handle.
 // validation/auto-verify-retry.js: db / startTask / processQueue / sandboxManager /
 // testRunnerRegistry all lazy-resolve through the container at first call.
-_completionPipeline.init({
-  db,
-  parseTaskMetadata,
-  handleWorkflowTermination,
-  handleProjectDependencyResolution,
-  handlePipelineStepCompletion,
-  runOutputSafeguards,
-});
-_taskFinalizer.init({
-  db,
-  safeUpdateTaskStatus,
-  sanitizeTaskOutput,
-  extractModifiedFiles,
-  handleRetryLogic,
-  handleSafeguardChecks,
-  handleFuzzyRepair,
-  handleNoFileChangeDetection,
-  handleSandboxRevertDetection,
-  handleAutoValidation,
-  handleBuildTestStyleCommit,
-  handleAutoVerifyRetry: _autoVerifyRetry.handleAutoVerifyRetry,
-  handleProviderFailover,
-  handlePostCompletion,
-});
+// execution/completion-pipeline.js: db comes from the container at boot;
+// parseTaskMetadata + runOutputSafeguards via require() inside the factory;
+// handleWorkflowTermination + handleProjectDependencyResolution +
+// handlePipelineStepCompletion resolved from the workflowRuntime and
+// planProjectResolver container services. No imperative init() needed.
+// execution/task-finalizer.js: stage handlers (handleRetryLogic,
+// handleSafeguardChecks, handleFuzzyRepair, handleNoFileChangeDetection,
+// handleSandboxRevertDetection, handleAutoValidation, handleBuildTestStyleCommit,
+// handleAutoVerifyRetry, handleProviderFailover, handlePostCompletion) all
+// resolve via require() inside createTaskFinalizer; safeUpdateTaskStatus +
+// sanitizeTaskOutput bind from the taskManager value. No imperative init().
 _queueScheduler.init({
   db,
   attemptTaskStart,
