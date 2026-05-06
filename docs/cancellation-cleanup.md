@@ -129,9 +129,9 @@ retry-framework's setTimeout callback only bailed on `cancelled`; other terminal
 
 If close handler runs >60s, `cleanupGuard` expires before finalization marker. Mitigated by `finalizingTasks` heartbeat in normal operation. Edge case: close-handler crash with leaked marker → 15min window where stale-check could fire but guard already expired. Realistic exposure: hung webhook + close-handler exception. **Action:** Consider raising cleanup-guard TTL to match finalization-marker timeout, or tying both to a shared config knob.
 
-### 4. POSIX zombie detection weaker than Windows
+### 4. ✅ ~~POSIX zombie detection weaker than Windows~~ RESOLVED 2026-05-06
 
-`checkZombieProcesses` runs Check 4 (Windows tasklist) only on Windows. POSIX falls back to `process.kill(pid, 0)` which can report false-alive after exit. **Action:** Add a Linux-equivalent kernel check (e.g., `/proc/<pid>` existence) for parity.
+`server/utils/proc-status.js` adds `checkProcStatusLinux(pid, opts)` which reads `/proc/<pid>/status` and parses the `State:` field. Returns `'alive' | 'zombie' | 'dead' | 'unknown'`. `Z` (zombie) and `X` (transitional dead) both classify as `zombie`; ENOENT classifies as `dead`; non-Linux platforms (macOS, Windows, BSD) return `unknown` (conservative skip). `checkZombieProcesses` Check 4b wires this in next to the Windows tasklist Check 4 — only force-cleanup on definitive `dead` or `zombie` verdicts; `unknown` preserves prior (Check 3 / process.kill) behavior. Pinned by 12 regression tests using a fake `/proc` tmpdir tree (R/S/D alive, Z/X zombie, missing-dir dead, unparseable unknown, non-Linux unknown, invalid PIDs, EISDIR unknown).
 
 ### 5. Tracker cleanup on shutdown is best-effort — **VERIFIED SAFE 2026-05-06**
 

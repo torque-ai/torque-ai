@@ -30,6 +30,7 @@ const {
   resolveActivityAwareTimeoutDecision,
   resolvePlanGenerationHardCapMs,
 } = require('../utils/activity-timeout');
+const { checkProcStatusLinux } = require('../utils/proc-status');
 
 // ---- Injected dependencies (set via init()) ----
 let db = null;
@@ -720,6 +721,23 @@ async function checkZombieProcesses() {
           } catch (err) {
             // tasklist failed — log but don't force cleanup
             logger.info(`[Zombie Check] Task ${taskId} tasklist check failed: ${err.message}`);
+          }
+        }
+
+        // Check 4b: Linux — query /proc/<pid>/status to detect zombies and dead PIDs.
+        // process.kill(pid, 0) returns success on Linux zombies (Z state) because the
+        // kernel still has a process table entry awaiting parent's waitpid. /proc is
+        // authoritative — missing dir means the kernel has no record, 'Z'/'X' state
+        // means the process is dead awaiting reap. Mirrors Windows tasklist parity.
+        // Returns 'unknown' on non-Linux or when /proc isn't available; we only force
+        // cleanup on definitive 'dead' or 'zombie' verdicts.
+        if (process.platform === 'linux' && proc.process.pid) {
+          const procStatus = checkProcStatusLinux(proc.process.pid);
+          if (procStatus === 'dead' || procStatus === 'zombie') {
+            logger.info(`[Zombie Check] Task ${taskId} PID ${proc.process.pid} /proc check: ${procStatus}. Forcing cleanup.`);
+            const exitCode = proc.completionDetected ? 0 : 1;
+            proc.process.emit('close', exitCode);
+            continue;
           }
         }
 
