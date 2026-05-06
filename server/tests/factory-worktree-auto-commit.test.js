@@ -178,6 +178,25 @@ function createDb() {
       verify_output_tail TEXT,
       created_at TEXT NOT NULL
     );
+
+    -- project_config is queried by db/task-core.js:ensureProjectRegistered
+    -- when taskCore.createTask runs; the auto-commit listener tests call
+    -- createTask through the helper at line 374. Without this table the
+    -- verify_retry attempt-history test (and any other test that exercises
+    -- createTask) errors with "no such table: project_config".
+    CREATE TABLE IF NOT EXISTS project_config (
+      project TEXT PRIMARY KEY,
+      max_concurrent INTEGER DEFAULT 0,
+      max_daily_cost REAL DEFAULT 0,
+      max_daily_tokens INTEGER DEFAULT 0,
+      default_timeout INTEGER DEFAULT 30,
+      default_priority INTEGER DEFAULT 0,
+      auto_approve INTEGER DEFAULT 0,
+      enabled INTEGER DEFAULT 1,
+      routing_template_id TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
   `);
   return db;
 }
