@@ -181,6 +181,61 @@ describe('submitFactoryInternalTask', () => {
     }));
   });
 
+  it('adds a default activity timeout policy to factory architect tasks', async () => {
+    const { submitFactoryInternalTask } = loadSubject();
+    mockHandleSmartSubmitTask.mockResolvedValue({ task_id: 'architect-task' });
+
+    await submitFactoryInternalTask({
+      task: 'architect work',
+      working_directory: '/repo',
+      kind: 'architect_cycle',
+      project_id: 'project-42',
+      timeout_minutes: 0,
+    });
+
+    expect(mockHandleSmartSubmitTask).toHaveBeenCalledWith(expect.objectContaining({
+      timeout_minutes: 0,
+      task_metadata: expect.objectContaining({
+        kind: 'architect_cycle',
+        activity_timeout_policy: {
+          kind: 'architect_cycle',
+          timeout_minutes: 30,
+          max_wall_clock_minutes: 60,
+          overrun_intake_problem: 'factory_internal_timeout_overrun_active',
+        },
+      }),
+    }));
+  });
+
+  it('lets caller-provided activity timeout policy override the default', async () => {
+    const { submitFactoryInternalTask } = loadSubject();
+    mockHandleSmartSubmitTask.mockResolvedValue({ task_id: 'review-task' });
+
+    await submitFactoryInternalTask({
+      task: 'review plan quality',
+      working_directory: '/repo',
+      kind: 'plan_quality_review',
+      project_id: 'project-42',
+      timeout_minutes: 5,
+      extra_metadata: {
+        activity_timeout_policy: {
+          kind: 'custom_review',
+          timeout_minutes: 45,
+        },
+      },
+    });
+
+    expect(mockHandleSmartSubmitTask).toHaveBeenCalledWith(expect.objectContaining({
+      task_metadata: expect.objectContaining({
+        kind: 'plan_quality_review',
+        activity_timeout_policy: {
+          kind: 'custom_review',
+          timeout_minutes: 45,
+        },
+      }),
+    }));
+  });
+
   it('builds tags and passes internal metadata to the submitter', async () => {
     const { submitFactoryInternalTask } = loadSubject();
     mockHandleSmartSubmitTask.mockResolvedValue({ task_id: 'plan-task-1' });

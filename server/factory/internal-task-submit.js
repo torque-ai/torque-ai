@@ -24,6 +24,15 @@ const PROJECT_BY_KIND = Object.freeze({
   verify_review: 'factory-plan',
 });
 
+const DEFAULT_ACTIVITY_TIMEOUT_MINUTES_BY_KIND = Object.freeze({
+  architect_cycle: 30,
+  architect_json: 30,
+  replan_decompose: 30,
+  replan_rewrite: 30,
+  plan_quality_review: 15,
+  verify_review: 15,
+});
+
 function requireWorkingDirectory(working_directory) {
   if (typeof working_directory !== 'string' || working_directory.trim() === '') {
     throw new Error('working_directory is required for factory-internal tasks');
@@ -236,6 +245,24 @@ function boundFactoryInternalTaskDescription(task, maxLength = MAX_TASK_LENGTH) 
   };
 }
 
+function buildDefaultActivityTimeoutPolicy(kind, timeout_minutes) {
+  if (kind === 'plan_generation') return null;
+  const explicit = Number(timeout_minutes);
+  const defaultMinutes = DEFAULT_ACTIVITY_TIMEOUT_MINUTES_BY_KIND[kind];
+  const timeoutMinutes = Number.isFinite(explicit) && explicit > 0
+    ? Math.min(Math.max(Math.ceil(explicit), 1), 120)
+    : defaultMinutes;
+
+  if (!timeoutMinutes) return null;
+
+  return {
+    kind,
+    timeout_minutes: timeoutMinutes,
+    max_wall_clock_minutes: Math.min(Math.max(timeoutMinutes * 2, timeoutMinutes + 15), 120),
+    overrun_intake_problem: 'factory_internal_timeout_overrun_active',
+  };
+}
+
 async function submitFactoryInternalTask({
   task,
   working_directory,
@@ -277,6 +304,7 @@ async function submitFactoryInternalTask({
   const requestedModel = normalizeOptionalString(model);
   const effectiveModel = requestedModel || inheritedIntent.model;
   const boundedTask = boundFactoryInternalTaskDescription(task);
+  const defaultActivityTimeoutPolicy = buildDefaultActivityTimeoutPolicy(resolvedKind, timeout_minutes);
   const tags = [
     'factory:internal',
     `factory:${resolvedKind}`,
@@ -318,6 +346,7 @@ async function submitFactoryInternalTask({
       deferred_provider_inheritance_reason: 'plan_generation_uses_routing_template',
     } : {}),
     ...buildProviderLaneTaskMetadata(targetProject || {}, resolvedKind),
+    ...(defaultActivityTimeoutPolicy ? { activity_timeout_policy: defaultActivityTimeoutPolicy } : {}),
     ...(extra_metadata || {}),
   };
 
