@@ -139,7 +139,6 @@ function safeTriggerWebhook(...args) { return defaultContainer.get('processLifec
 function cleanupProcessTracking(...args) { return defaultContainer.get('processLifecycle').cleanupProcessTracking(...args); }
 function cleanupChildProcessListeners(...args) { return defaultContainer.get('processLifecycle').cleanupChildProcessListeners(...args); }
 const debugLifecycle = require('./execution/debug-lifecycle');
-const _processStreams = require('./execution/process-streams');
 const ProcessTracker = require('./execution/process-tracker');
 const codexIntelligence = require('./providers/codex-intelligence');
 
@@ -1043,23 +1042,10 @@ if (typeof db.onClose === 'function') {
 }
 // RB-035: Resolve any tasks stuck in codex-pending dead state on startup
 try { defaultContainer.get('queueScheduler').resolveCodexPendingTasks(); } catch { /* ignore */ }
-_processStreams.init({
-  db,
-  dashboard: getDashboardBroadcaster(),
-  // runningProcesses + stallRecoveryAttempts default to container's
-  // processTracker — process-streams peeks it on init() unless
-  // overridden.
-  estimateProgress,
-  detectOutputCompletion,
-  checkBreakpoints,
-  pauseTaskForDebug,
-  pauseTask,
-  extractModifiedFiles,
-  safeUpdateTaskStatus,
-  safeDecrementHostSlot,
-  killProcessGraceful,
-  MAX_OUTPUT_BUFFER,
-});
+// execution/process-streams.js: raw setupStdoutHandler/setupStderrHandler
+// exports lazy-resolve their deps via ensureDeps() at call time. The
+// container service createProcessStreams self-bootstraps the same deps for
+// callers that go through defaultContainer.get('processStreams').
 
 // execution/process-lifecycle.js: dashboard / finalizeTask / cancelTask /
 // processQueue / markTaskCleanedUp / safeUpdateTaskStatus / setupStdoutHandler /
