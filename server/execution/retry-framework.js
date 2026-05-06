@@ -72,6 +72,13 @@ function buildRetryResumeFields(task, proc, sanitizedOutput) {
         provider: task.provider,
       },
     );
+    // prependResumeContextToPrompt strips any existing `## Previous Attempt`
+    // preamble before re-prepending (default options.replaceExisting=true).
+    // This is the contract that prevents this call from stacking on top of
+    // fallback-retry.js's withResumeContextPrompt when both fire in the same
+    // task lifetime (recovery-decisions.md conflict #3). Both consumers pass
+    // the same task.task_description and rely on the strip-first behavior in
+    // server/utils/resume-context.js.
     const taskDescription = prependResumeContextToPrompt(task.task_description, resumeContext);
     return {
       resume_context: resumeContext,
@@ -253,4 +260,7 @@ module.exports = {
   // Legacy shape (kept until task-manager.js migrates)
   init,
   handleRetryLogic,
+  // Exposed for cross-call-site integration tests (resume-context strip-first
+  // contract — recovery-decisions.md conflict #3).
+  buildRetryResumeFields,
 };

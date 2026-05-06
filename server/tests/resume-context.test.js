@@ -193,3 +193,119 @@ describe('resume-context', () => {
     expect(second).toContain('\n\n---\n\nRetry the task');
   });
 });
+
+// recovery-decisions.md conflict #3 — cross-call-site integration. The
+// fallback-retry path (server/execution/fallback-retry.js withResumeContextPrompt)
+// and the retry-framework path (server/execution/retry-framework.js
+// buildRetryResumeFields) both prepend a resume preamble onto
+// task.task_description. Audit doc flagged the "possible context duplication
+// if fallback + retry both fire in same task lifetime." These tests prove
+// they don't stack — the strip-first contract in
+// server/utils/resume-context.js ensures the second call replaces the first
+// preamble even when the consumers are different modules and the task row
+// has been written/re-read between calls.
+describe('resume-context cross-call-site (fallback + retry sequencing)', () => {
+  const fallbackRetry = require('../execution/fallback-retry');
+  const retryFramework = require('../execution/retry-framework');
+
+  it('fallback-retry then retry-framework writes one preamble (no stacking)', () => {
+    // Phase 1: task fails on local provider; fallback writes a preamble
+    // pointing at the cloud retry attempt.
+    const initialTask = {
+      id: 'tsk-123',
+      task_description: 'Fix the auth bug in routes/login.js',
+      provider: 'ollama',
+      output: '$ npm run lint\n3 errors found',
+      error_output: 'Lint failed',
+      started_at: new Date(Date.now() - 30000).toISOString(),
+    };
+
+    const fallbackFields = fallbackRetry.withResumeContextPrompt(initialTask, {});
+
+    expect(fallbackFields.task_description).toBeTruthy();
+    expect(fallbackFields.task_description.match(/## Previous Attempt \(failed\)/g))
+      .toHaveLength(1);
+    expect(fallbackFields.task_description).toContain('Fix the auth bug in routes/login.js');
+
+    // Phase 2: the cloud retry runs and also fails. retry-framework now
+    // builds its own resume context using the task row that fallback already
+    // wrote. The second prepend should REPLACE the first preamble, not stack.
+    const taskAfterFallback = {
+      ...initialTask,
+      task_description: fallbackFields.task_description,
+      resume_context: fallbackFields.resume_context,
+      provider: 'deepinfra',
+    };
+
+    const retryFields = retryFramework.buildRetryResumeFields(
+      taskAfterFallback,
+      { output: '$ npm run lint\n5 errors found', errorOutput: 'Lint failed worse' },
+      '$ npm run lint\n5 errors found'
+    );
+
+    expect(retryFields.task_description).toBeTruthy();
+    // Exactly one preamble — the strip-first behavior held across modules.
+    expect(retryFields.task_description.match(/## Previous Attempt \(failed\)/g))
+      .toHaveLength(1);
+    // Original task description is preserved at the bottom (not duplicated).
+    expect(retryFields.task_description.match(/Fix the auth bug in routes\/login\.js/g))
+      .toHaveLength(1);
+    // The latest preamble references the latest provider (deepinfra), not
+    // the prior one (ollama).
+    expect(retryFields.task_description).toContain('**Provider:** deepinfra');
+    expect(retryFields.task_description).not.toContain('**Provider:** ollama');
+  });
+
+  it('three sequential prepends (fallback → retry → fallback) stay at one preamble', () => {
+    let task = {
+      id: 'tsk-456',
+      task_description: 'Add an integration test for the worker pool',
+      provider: 'codex',
+      output: 'made some progress',
+      error_output: 'first failure',
+      started_at: new Date(Date.now() - 10000).toISOString(),
+    };
+
+    // First fallback
+    let fields = fallbackRetry.withResumeContextPrompt(task, {});
+    task = { ...task, ...fields };
+
+    // Retry framework sees a description with 1 preamble
+    fields = retryFramework.buildRetryResumeFields(
+      task,
+      { output: 'still progressing', errorOutput: 'second failure' },
+      'still progressing'
+    );
+    task = { ...task, ...fields };
+
+    // Another fallback (e.g., post-retry the task hits cloud overflow)
+    fields = fallbackRetry.withResumeContextPrompt(task, {
+      output: 'progress 3',
+      error_output: 'third failure',
+    });
+    task = { ...task, ...fields };
+
+    // After three prepend cycles, exactly one preamble.
+    expect(task.task_description.match(/## Previous Attempt \(failed\)/g))
+      .toHaveLength(1);
+    expect(task.task_description.match(/Add an integration test for the worker pool/g))
+      .toHaveLength(1);
+  });
+
+  it('preserves original description through fallback when no resumable state exists', () => {
+    // Empty output + empty error + no resume_context ⇒ no preamble added.
+    const task = {
+      id: 'tsk-789',
+      task_description: 'Simple task with no failure history',
+      provider: 'ollama',
+      output: '',
+      error_output: '',
+    };
+
+    const fields = fallbackRetry.withResumeContextPrompt(task, {});
+
+    // No preamble means the helper returns the original fields untouched.
+    expect(fields.task_description).toBeUndefined();
+    expect(fields.resume_context).toBeUndefined();
+  });
+});
