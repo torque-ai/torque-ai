@@ -1,7 +1,10 @@
 'use strict';
 
 const { setupE2eDb, teardownE2eDb } = require('./e2e-helpers');
-const { isRestartBarrierActive } = require('../execution/restart-barrier');
+const {
+  isRestartBarrierActive,
+  isRestartBarrierTask,
+} = require('../execution/restart-barrier');
 const restartHandoff = require('../execution/restart-handoff');
 
 const SLOT_PULL_PATH = require.resolve('../execution/slot-pull-scheduler');
@@ -158,6 +161,32 @@ describe('isRestartBarrierActive (helper)', () => {
     expect(isRestartBarrierActive(db)).toBeTruthy();
     delete process._torqueRestartPending;
     expect(isRestartBarrierActive(db)).toBeNull();
+  });
+
+  it('recognizes restart barrier rows after provider was cleared by startup cleanup', () => {
+    expect(isRestartBarrierTask({
+      provider: null,
+      original_provider: null,
+      task_description: 'Restart barrier: Cutover to feature',
+      metadata: '{}',
+    })).toBe(true);
+  });
+
+  it('recognizes persisted system provider intent in metadata', () => {
+    expect(isRestartBarrierTask({
+      provider: null,
+      task_description: 'startup handoff',
+      metadata: JSON.stringify({ requested_provider: 'system' }),
+    })).toBe(true);
+  });
+
+  it('does not classify normal routed work as a restart barrier', () => {
+    expect(isRestartBarrierTask({
+      provider: 'codex',
+      original_provider: 'codex',
+      task_description: 'factory plan',
+      metadata: JSON.stringify({ requested_provider: 'codex' }),
+    })).toBe(false);
   });
 });
 
