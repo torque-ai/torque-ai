@@ -657,5 +657,7 @@ When changing the factory loop's state machine — adding a state, a transition,
 
 When changing cancellation or cleanup paths — adding to `cancelTask`, `batch_cancel`, orphan-cleanup sweeps, worktree GC, or any setTimeout callback that resumes a task — consult `docs/cancellation-cleanup.md` first. It catalogs the 9 distinct cleanup concerns, the state-map currency they share, and the well-known retry-vs-fail race shape. Key rule for status-gated callbacks: gate on `status === 'expected_state'` (allow-list), not `status !== 'unwanted_state'` (deny-list) — the latter is how the retry-framework callback resurrected terminal-status tasks.
 
+When changing routing templates — adding a preset, editing chains, adding/renaming categories — consult `docs/routing-templates.md` first. It catalogs the 11 presets, the 10 canonical categories, the schema, and the validator-vs-resolver coordination. Two regression tests in `tests/routing-templates.test.js` pin presets to the canonical category set and to validator-passes; both must stay green. Validator silently accepts extra category keys outside `CATEGORIES` — the coverage test is the only line of defense.
+
 ---
 *Full safeguard documentation: see `docs/safeguards.md`*

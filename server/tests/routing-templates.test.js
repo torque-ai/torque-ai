@@ -246,6 +246,61 @@ describe('seedPresets', () => {
     const countAfter = mod.listTemplates().filter(t => t.preset).length;
     expect(countAfter).toBe(countBefore);
   });
+
+  // Regression: pre-2026-05-06, codex-down-failover.json had a `tests`
+  // category that the resolver never reads (CATEGORIES in
+  // routing/category-classifier.js doesn't include `tests`). The validator
+  // accepts extra keys silently — they pass validation but are dead config.
+  // This test pins every preset to the canonical category set so future drift
+  // (extra category, missing required category) surfaces as a test failure.
+  it('every preset declares exactly the canonical category set (no extra, no missing)', () => {
+    const fs = require('node:fs');
+    const path = require('node:path');
+    const { CATEGORIES } = require('../routing/category-classifier');
+    const required = new Set(CATEGORIES);
+
+    const templateDir = path.join(__dirname, '..', 'routing', 'templates');
+    const files = fs.readdirSync(templateDir).filter((f) => f.endsWith('.json'));
+
+    expect(files.length).toBeGreaterThan(0);
+
+    for (const file of files) {
+      const data = JSON.parse(fs.readFileSync(path.join(templateDir, file), 'utf8'));
+      const ruleKeys = new Set(Object.keys(data.rules || {}));
+
+      const missing = [...required].filter((c) => !ruleKeys.has(c));
+      const extra = [...ruleKeys].filter((c) => !required.has(c));
+
+      expect(missing, `${file} is missing required categories: ${missing.join(', ')}`)
+        .toEqual([]);
+      expect(extra, `${file} has extra categories the resolver never reads: ${extra.join(', ')}`)
+        .toEqual([]);
+    }
+  });
+
+  // Regression: seedPresets bypasses validateTemplate entirely, so drift in
+  // preset JSONs only surfaces if a USER tries to clone the same shape via
+  // createTemplate. That used to mean legacy-fallback's intentional empty
+  // chains failed validation when copied (validator was stricter than the
+  // resolver, which treats empty arrays as "fall through to next tier").
+  // 2026-05-06: validator loosened to accept empty arrays. This test pins
+  // every preset to validator-passes so future drift between presets and
+  // user-shape is caught at test time, not at runtime.
+  it('every preset passes validateTemplate (no validator-vs-resolver drift)', () => {
+    const fs = require('node:fs');
+    const path = require('node:path');
+
+    const templateDir = path.join(__dirname, '..', 'routing', 'templates');
+    const files = fs.readdirSync(templateDir).filter((f) => f.endsWith('.json'));
+    expect(files.length).toBeGreaterThan(0);
+
+    for (const file of files) {
+      const data = JSON.parse(fs.readFileSync(path.join(templateDir, file), 'utf8'));
+      const result = mod.validateTemplate(data);
+      expect(result.valid, `${file} validation errors: ${(result.errors || []).join('; ')}`)
+        .toBe(true);
+    }
+  });
 });
 
 // ============================================
