@@ -964,6 +964,13 @@ const TASK_LIST_COLUMNS = Object.freeze([
   'timeout_minutes', 'progress_percent', 'ollama_host_id',
   'files_modified', 'created_at', 'started_at', 'completed_at',
   'original_provider', 'provider_switched_at', 'project', 'tags', 'metadata',
+  // cancel_reason is the structured cancellation category (e.g.
+  // 'superseded_factory_internal', 'factory_project_paused',
+  // 'server_restart'). Surfaced on the dashboard as a badge so the
+  // operator can tell at a glance why a cancelled-column entry is
+  // there — most are the queue-scheduler superseding stale duplicates,
+  // not failures. ~30 bytes per row, dwarfed by tags/metadata.
+  'cancel_reason',
 ]);
 const TASK_TIMING_COLUMNS = Object.freeze(['id', 'completed_at', 'started_at']);
 const TASK_HOST_COLUMNS = Object.freeze(['id', 'ollama_host_id', 'model']);

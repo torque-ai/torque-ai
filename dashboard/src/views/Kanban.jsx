@@ -371,6 +371,42 @@ const TaskCard = memo(function TaskCard({
               Batch {batchId}
             </span>
           )}
+          {task.status === 'cancelled' && task.cancel_reason && (() => {
+            // Render a badge with a friendly label for the cancellation
+            // category. The structured cancel_reason values come from
+            // server-side cancellation paths: queue-scheduler supersession
+            // and paused-project, execute-cli server_restart, recovery
+            // auto-cancel, etc. Use distinct color hints — supersession is
+            // routine churn, paused/restart is contextual, others are
+            // closer to a real failure shape.
+            const labels = {
+              superseded_factory_internal: { label: 'superseded', tone: 'slate' },
+              factory_project_paused:      { label: 'paused-project', tone: 'sky' },
+              server_restart:              { label: 'restart-cancel', tone: 'amber' },
+              max_lifetime_exceeded:       { label: 'lifetime-cap', tone: 'rose' },
+              stall_recovery:              { label: 'stalled', tone: 'rose' },
+              user_cancelled:              { label: 'user', tone: 'slate' },
+              api_cancel:                  { label: 'api', tone: 'slate' },
+            };
+            const info = labels[task.cancel_reason] || {
+              label: task.cancel_reason,
+              tone: 'slate',
+            };
+            const tones = {
+              slate: 'border-slate-500/30 bg-slate-500/10 text-slate-300',
+              sky:   'border-sky-500/30 bg-sky-500/10 text-sky-200',
+              amber: 'border-amber-500/30 bg-amber-500/10 text-amber-200',
+              rose:  'border-rose-500/30 bg-rose-500/10 text-rose-200',
+            };
+            return (
+              <span
+                className={`max-w-[160px] truncate rounded border px-1.5 py-0.5 text-[10px] ${tones[info.tone]}`}
+                title={`Cancelled: ${task.cancel_reason}`}
+              >
+                {info.label}
+              </span>
+            );
+          })()}
           {task.quality_score != null && (
             <span className={`px-1.5 py-0.5 rounded text-[10px] ${
               task.quality_score >= 80 ? 'text-green-300 bg-green-600/30' :

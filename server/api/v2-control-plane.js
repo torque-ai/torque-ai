@@ -124,6 +124,11 @@ function buildTaskResponse(task) {
     project: task.project || null,
     tags: (() => { try { return typeof task.tags === 'string' ? JSON.parse(task.tags) : (task.tags || []); } catch { return []; } })(),
     metadata: summaryMetadata,
+    // Structured cancellation category. Populated by cancelQueuedFactoryTask
+    // (queue-scheduler) for supersession + paused-project, by execute-cli for
+    // server_restart, etc. Dashboard renders a badge on cancelled tasks so the
+    // operator can distinguish supersession from a real failure at a glance.
+    cancel_reason: task.cancel_reason || null,
   };
 }
 
