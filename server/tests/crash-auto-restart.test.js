@@ -23,6 +23,33 @@ const path = require('path');
 
 const SERVER_INDEX = path.resolve(__dirname, '..', 'index.js');
 
+/**
+ * Extract a `process.on(eventName, ...)` handler body using brace
+ * counting so we don't get tripped up by nested try/catch blocks (which
+ * was the early bug — `indexOf('});', start)` returned the first inner
+ * `});` from a nested try/catch, clipping the body before the
+ * restart-arming logic).
+ */
+function extractProcessOnBody(source, eventName) {
+  const start = source.indexOf(`process.on('${eventName}'`);
+  if (start === -1) return '';
+  // Walk forward to the first `{` (handler body open).
+  let i = source.indexOf('{', start);
+  if (i === -1) return '';
+  let depth = 1;
+  i++;
+  while (i < source.length && depth > 0) {
+    const ch = source[i];
+    if (ch === '{') depth++;
+    else if (ch === '}') depth--;
+    i++;
+  }
+  // i now points just past the closing `}` of the handler arrow function;
+  // the `process.on(...)` call closes with `);` shortly after. Slice
+  // from start to i is the handler body inclusive.
+  return source.slice(start, i);
+}
+
 describe('crash auto-restart + observability', () => {
   let source = '';
 
@@ -35,11 +62,8 @@ describe('crash auto-restart + observability', () => {
       // The previous code used only debugLog() which goes to logger.debug
       // and is filtered out at default level. The fix calls logger.error
       // with the error fields BEFORE the recoverable check.
-      const handlerIdx = source.indexOf("process.on('uncaughtException'");
-      expect(handlerIdx).toBeGreaterThan(-1);
-      const handlerEndIdx = source.indexOf('});', handlerIdx);
-      const handlerBody = source.slice(handlerIdx, handlerEndIdx);
-
+      const handlerBody = extractProcessOnBody(source, 'uncaughtException');
+      expect(handlerBody).not.toBe('');
       expect(handlerBody).toContain("logger.error('Uncaught exception");
       expect(handlerBody).toContain('error_message:');
       expect(handlerBody).toContain('stack:');
@@ -49,10 +73,7 @@ describe('crash auto-restart + observability', () => {
       // The spawn-successor block at the end of performShutdown() reads
       // process._torqueRestartPending. If we don't set it, the server
       // exits without spawning a successor — the bug the user hit.
-      const handlerIdx = source.indexOf("process.on('uncaughtException'");
-      const handlerEndIdx = source.indexOf('});', handlerIdx);
-      const handlerBody = source.slice(handlerIdx, handlerEndIdx);
-
+      const handlerBody = extractProcessOnBody(source, 'uncaughtException');
       const flagIdx = handlerBody.indexOf('process._torqueRestartPending = true');
       const shutdownIdx = handlerBody.indexOf("gracefulShutdown('uncaughtException')");
       expect(flagIdx).toBeGreaterThan(-1);
@@ -63,20 +84,14 @@ describe('crash auto-restart + observability', () => {
     it('respects TORQUE_NO_RESTART_ON_CRASH escape hatch for diagnostic sessions', () => {
       // Operators investigating crash root cause may want the body to
       // remain instead of auto-restarting. Set the env var to suppress.
-      const handlerIdx = source.indexOf("process.on('uncaughtException'");
-      const handlerEndIdx = source.indexOf('});', handlerIdx);
-      const handlerBody = source.slice(handlerIdx, handlerEndIdx);
-
+      const handlerBody = extractProcessOnBody(source, 'uncaughtException');
       expect(handlerBody).toContain('TORQUE_NO_RESTART_ON_CRASH');
     });
 
     it('does NOT arm restart for recoverable errors (network/transition)', () => {
       // Recoverable errors return early — the restart-arm block must
       // sit AFTER the early-return so it never fires for those.
-      const handlerIdx = source.indexOf("process.on('uncaughtException'");
-      const handlerEndIdx = source.indexOf('});', handlerIdx);
-      const handlerBody = source.slice(handlerIdx, handlerEndIdx);
-
+      const handlerBody = extractProcessOnBody(source, 'uncaughtException');
       const recoverableReturnIdx = handlerBody.indexOf('return; // Don');
       const flagIdx = handlerBody.indexOf('process._torqueRestartPending = true');
       expect(recoverableReturnIdx).toBeGreaterThan(-1);
@@ -87,18 +102,13 @@ describe('crash auto-restart + observability', () => {
 
   describe('unhandledRejection burst handler', () => {
     it('logs individual rejections via logger.warn (visible in torque.log)', () => {
-      const handlerIdx = source.indexOf("process.on('unhandledRejection'");
-      expect(handlerIdx).toBeGreaterThan(-1);
-      const handlerEndIdx = source.indexOf('});', handlerIdx);
-      const handlerBody = source.slice(handlerIdx, handlerEndIdx);
-
+      const handlerBody = extractProcessOnBody(source, 'unhandledRejection');
+      expect(handlerBody).not.toBe('');
       expect(handlerBody).toContain("logger.warn('Unhandled promise rejection'");
     });
 
     it('arms process._torqueRestartPending on burst threshold', () => {
-      const handlerIdx = source.indexOf("process.on('unhandledRejection'");
-      const handlerEndIdx = source.indexOf('});', handlerIdx);
-      const handlerBody = source.slice(handlerIdx, handlerEndIdx);
+      const handlerBody = extractProcessOnBody(source, 'unhandledRejection');
 
       // The burst path should also set the flag before gracefulShutdown.
       const burstShutdownIdx = handlerBody.indexOf("gracefulShutdown('unhandled-rejection-burst')");
