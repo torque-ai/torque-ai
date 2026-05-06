@@ -175,13 +175,14 @@ beforeEach(() => {
   // tests use a minimal isAvailable=false stub (matches the pattern in
   // scripts/di-migration-metrics.js).
   defaultContainer.registerValue('sandboxManager', { isAvailable: () => false });
-  // providerRegistry is required by execution/task-startup wired in
-  // commit 4641dfb0. Tests don't actually start tasks; a minimal stub
-  // satisfies topoSort.
+  // providerRegistry + gpuMetrics are required by execution/task-startup
+  // wired in commit 4641dfb0. Tests don't actually start tasks; minimal
+  // stubs satisfy topoSort.
   defaultContainer.registerValue('providerRegistry', {
     init: () => {}, registerProviderClass: () => {}, resetInstances: () => {},
     getProviderInstance: () => null,
   });
+  defaultContainer.registerValue('gpuMetrics', { sample: () => null, getLatest: () => null });
   // sharedFactoryStore (registered in container.js since c8a129c9) declares
   // a `serverConfig` dep. Production wires it in server/index.js, but
   // standalone unit-test boots that don't go through index.js need a
