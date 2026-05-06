@@ -146,7 +146,7 @@ task fails
 
 ## Open questions / known conflicts
 
-These are real ambiguities surfaced by this audit. Each one is worth resolving before adding more rules to that area.
+These are real ambiguities surfaced by this audit. Each one is worth resolving before adding more rules to that area. **All five conflicts are now resolved (2026-05-05 → 2026-05-06).** Three of them turned out to mask real bugs (#1 merge-target-dirty unreachable strategy; #2 B1 reading a never-written field; #4 phantom-detector emitting an action no rule matched). The other two were doc/test gaps. Section preserved as a record of the audit→fix arc.
 
 ### 1. ~~`learn_merge_target_dirty` empty strategies — intentional or stale?~~ ✅ RESOLVED 2026-05-05
 
@@ -231,12 +231,30 @@ If your stage emits a `factory_decisions` row, the rule registry in `server/plug
 1. Does your stage call `logFactoryDecision({ stage, action, ... })`? If yes, identify or add a matching rule.
 2. Does your stage flip `ctx.status` mid-pipeline? If yes, walk stages 14–17 to confirm the new ordering is intentional (stages with `ctx.status === 'completed'` predicates will skip; `=== 'failed'` will fire).
 
-### 5. Two reject-reason regex registries
+### 5. ~~Two reject-reason regex registries~~ ✅ RESOLVED 2026-05-06
 
-- B1's `recovery-strategies/registry.js` does pattern lookup on `reject_reason`.
-- B2's `rejected-recovery.js` does pattern lookup on `reject_reason`.
+**Resolution**: documented the partition + made the cross-registry disjointness check use a single source of truth.
 
-Different patterns, different actions. A new reject_reason added by some other layer (e.g., a new task-finalizer stage) needs to be tested against both. **Action item:** consolidate or document the split (B1 = "modify the item", B2 = "reopen the item").
+**The pattern partition (now codified):**
+
+| Set | Lives in | Action on match |
+|---|---|---|
+| **B1** strategy `reasonPatterns` (4 strategies — rewrite-description, decompose, escalate-architect, discard-regenerable-merge-block) | `factory/recovery-strategies/*.js` | **Modify the work item** — rewrite, split, escalate provider, discard files. |
+| **B2 AUTO** (`AUTO_REJECT_REASON_PATTERNS` + `AUTO_UNACTIONABLE_REASON_PATTERNS`) | `factory/rejected-recovery.js` | **Reopen the work item** — reset status to pending. |
+| **NON_RECOVERABLE** (`NON_RECOVERABLE_REJECT_REASON_PATTERNS`) | `factory/rejected-recovery.js` | **B2-veto list** — `matchesRecoverableReason` checks NON_RECOVERABLE first and returns false (B2 will not auto-reopen). It does NOT prevent B1 from acting. |
+
+**Disjointness contract** (enforced at startup by `bootstrapReplanRecovery → assertDisjointReasonPatterns`, in `factory/replan-recovery-bootstrap.js`):
+
+- `B1 ∩ B2 = ∅` — hard requirement. Overlap would double-dispatch (a single tick both rewrites AND reopens the same work item).
+- `B2 AUTO ∩ NON_RECOVERABLE = ∅` — code hygiene. NON_RECOVERABLE is checked first, so an AUTO entry that overlaps it is dead. Throw to flag the redundant listing.
+- `B1 ∩ NON_RECOVERABLE` is **allowed and expected** — `rewrite-description` (B1) intentionally matches `cannot_generate_plan:` (which is in NON_RECOVERABLE) because rewriting the description is the right cure. The two paths cooperate: B1 fixes the cause; if B1 declines or is unavailable, B2's veto keeps the item rejected so the operator owns it.
+
+**What landed**:
+
+- `rejected-recovery.js` now exports the three pattern arrays (`AUTO_REJECT_REASON_PATTERNS`, `AUTO_UNACTIONABLE_REASON_PATTERNS`, `NON_RECOVERABLE_REJECT_REASON_PATTERNS`).
+- `replan-recovery-bootstrap.js` imports those arrays as the live source of truth instead of maintaining a hand-rolled copy of `REJECTED_RECOVERY_PATTERNS`. A new B2 pattern automatically participates in the disjointness check on next bootstrap; nothing to wire by hand.
+- `assertDisjointReasonPatterns` extended with the B2 AUTO ∩ NON_RECOVERABLE redundant-listing check.
+- New `tests/replan-recovery-bootstrap.test.js` exercises: live patterns are disjoint (regression guard), B1 ∩ B2 overlap throws, B1 ∩ NON_RECOVERABLE overlap is allowed, B2 AUTO ∩ NON_RECOVERABLE overlap throws, every B2 AUTO pattern would block a colliding B1 strategy (coverage proof).
 
 ---
 

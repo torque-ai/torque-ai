@@ -450,4 +450,14 @@ module.exports = {
   runRejectedRecoverySweep,
   isAutoRejectedReason,
   resetRejectedRecoverySweepStateForTests,
+  // Exposed so `replan-recovery-bootstrap.js`'s assertDisjointReasonPatterns
+  // can use this module as the single source of truth for B2 (rejected-recovery
+  // sweep) reject_reason patterns, instead of maintaining a hand-rolled copy.
+  // Recovery-decisions.md conflict #5 — reject_reason routing is a 3-way
+  // partition: B1 strategies (modify the item), B2 sweeps (reopen the item),
+  // or NON_RECOVERABLE (operator-owned). The first two must stay disjoint or
+  // a single reject_reason would double-dispatch.
+  AUTO_REJECT_REASON_PATTERNS,
+  AUTO_UNACTIONABLE_REASON_PATTERNS,
+  NON_RECOVERABLE_REJECT_REASON_PATTERNS,
 };
