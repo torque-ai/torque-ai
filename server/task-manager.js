@@ -1074,6 +1074,54 @@ _processLifecycle.init({
   setupStdoutHandler: _processStreams.setupStdoutHandler,
   setupStderrHandler: _processStreams.setupStderrHandler,
 });
+
+// Boot the container so DI-resolved subsystem services (taskStartup,
+// commandBuilders, providerRouter, retryFramework, etc.) are reachable via
+// defaultContainer.get(...) from this module's wrappers. Production paths
+// boot via index.js → bootContainer(); this is the secondary boot for test
+// fixtures and any caller that drives initSubModules without going through
+// index.js. failFast:false keeps boot tolerant of missing optional deps.
+try {
+  // Register taskManager's own module.exports as the container value before
+  // boot — services that declare a 'taskManager' dep need it present at
+  // boot. In production index.js does this; in tests that drive only
+  // initSubModules we register it here.
+  if (!defaultContainer.has('taskManager')) {
+    defaultContainer.registerValue('taskManager', module.exports);
+  }
+  // Same for serverConfig + dashboard + testRunnerRegistry + sandboxManager
+  // + providerRegistry + gpuMetrics + sharedFactoryStore — services that
+  // depend on these need stubs at boot for the test path. Production paths
+  // register the real values.
+  if (!defaultContainer.has('eventBus')) {
+    defaultContainer.registerValue('eventBus', eventBus);
+  }
+  if (!defaultContainer.has('logger')) {
+    defaultContainer.registerValue('logger', logger);
+  }
+  if (!defaultContainer.has('serverConfig')) {
+    defaultContainer.registerValue('serverConfig', serverConfig);
+  }
+  if (!defaultContainer.has('dashboard')) {
+    defaultContainer.registerValue('dashboard', { broadcast: () => {}, notifyTaskUpdated: () => {} });
+  }
+  if (!defaultContainer.has('testRunnerRegistry')) {
+    defaultContainer.registerValue('testRunnerRegistry', { resolve: () => null, getRunner: () => null });
+  }
+  if (!defaultContainer.has('sandboxManager')) {
+    defaultContainer.registerValue('sandboxManager', { isAvailable: () => false });
+  }
+  if (!defaultContainer.has('providerRegistry')) {
+    defaultContainer.registerValue('providerRegistry', { getProviderInstance: () => null });
+  }
+  if (!defaultContainer.has('gpuMetrics')) {
+    defaultContainer.registerValue('gpuMetrics', { probe: () => ({}) });
+  }
+  if (!defaultContainer.has('sharedFactoryStore')) {
+    defaultContainer.registerValue('sharedFactoryStore', { get: () => null, set: () => {} });
+  }
+  defaultContainer.boot({ failFast: false });
+} catch (err) { logger.warn(`[task-manager] container boot in initSubModules failed: ${err.message}`); }
 } // end initSubModules
 
 // Use Object.assign to preserve the original module.exports reference.
