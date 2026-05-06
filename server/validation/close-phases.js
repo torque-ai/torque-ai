@@ -50,7 +50,15 @@ function ensureDeps() {
   if (!db) db = container.peek('db') || null;
   if (!dashboard) dashboard = container.peek('dashboard') || null;
   if (!_safeUpdateTaskStatus || !_processQueue) {
-    const tm = container.peek('taskManager');
+    // Container path first (production): peek('taskManager') after
+    // server/index.js:1117 has registered it. Test/standalone path
+    // falls back to require('../task-manager') so the same handler
+    // still works when index.js startup hasn't run.
+    let tm = container.peek('taskManager');
+    if (!tm) {
+      try { tm = require('../task-manager'); }
+      catch { /* leave tm null — _processQueue stays null and call sites guard */ }
+    }
     if (tm) {
       if (!_safeUpdateTaskStatus && typeof tm.safeUpdateTaskStatus === 'function') {
         _safeUpdateTaskStatus = tm.safeUpdateTaskStatus.bind(tm);

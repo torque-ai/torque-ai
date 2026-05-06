@@ -171,6 +171,22 @@ function handleSafeguardChecks(ctx) {
   } catch {
     containerDeps = {};
   }
+  // Fallback: tests (and any code path that doesn't go through
+  // server/index.js startup) won't have taskManager registered in
+  // the container. require it directly so utility-method deps
+  // (getActualModifiedFiles, safeUpdateTaskStatus, processQueue)
+  // resolve. Production calls registerValue('taskManager') in
+  // index.js:1117, so the peek above wins there.
+  //
+  // We do NOT fall back on `db` — when the container has no booted db
+  // value, createSafeguardGates short-circuits with
+  // {approved: true, reason: 'No db available'}, which is the
+  // contract tested by safeguard-gates.test.js's "legacy direct handler
+  // does not require a booted default container" case.
+  if (!containerDeps.taskManager) {
+    try { containerDeps.taskManager = require('../task-manager'); }
+    catch { /* fall through with null taskManager */ }
+  }
   return createSafeguardGates(containerDeps).handleSafeguardChecks(ctx);
 }
 
