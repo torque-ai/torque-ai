@@ -246,13 +246,17 @@ describe('validateTemplate — chain format', () => {
     expect(result.errors.some(e => /chain entry must have a provider string/i.test(e))).toBe(true);
   });
 
-  it('rejects empty chain array', () => {
+  it('accepts empty chain array as fall-through marker', () => {
+    // Empty array is an intentional "fall through to next template tier"
+    // marker (template-store.js validateTemplate, see comment at the
+    // chain-shape branch). resolveProvider returns null for an empty
+    // chain and the caller treats that as fall-through.
     const result = validateTemplate({
       name: 'Empty Chain',
       rules: validRules({ security: [] }),
     });
-    expect(result.valid).toBe(false);
-    expect(result.errors.some(e => /chain must have at least one entry/i.test(e))).toBe(true);
+    expect(result.valid).toBe(true);
+    expect(result.errors).toHaveLength(0);
   });
 
   it('rejects non-string, non-array values in rules', () => {
@@ -292,7 +296,10 @@ describe('validateTemplate — chain format', () => {
     expect(result.errors.some(e => /chain entry must have a provider string/i.test(e))).toBe(true);
   });
 
-  it('rejects empty chain in complexity_overrides', () => {
+  it('accepts empty chain in complexity_overrides as fall-through marker', () => {
+    // Same contract as rules.<category> = []: empty array means fall
+    // through to the base rule. See template-store.js complexity_overrides
+    // chain-shape branch comment.
     const result = validateTemplate({
       name: 'Empty Override Chain',
       rules: validRules(),
@@ -300,8 +307,8 @@ describe('validateTemplate — chain format', () => {
         security: { complex: [] },
       },
     });
-    expect(result.valid).toBe(false);
-    expect(result.errors.some(e => /chain must have at least one entry/i.test(e))).toBe(true);
+    expect(result.valid).toBe(true);
+    expect(result.errors).toHaveLength(0);
   });
 });
 

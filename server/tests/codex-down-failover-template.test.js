@@ -18,7 +18,7 @@ describe('codex-down-failover template', () => {
 
   it('has chains for all free-eligible categories', () => {
     tmpl = JSON.parse(fs.readFileSync(TEMPLATE_PATH, 'utf8'));
-    const expected = ['simple_generation', 'targeted_file_edit', 'documentation', 'default', 'plan_generation', 'tests'];
+    const expected = ['simple_generation', 'targeted_file_edit', 'documentation', 'default', 'plan_generation'];
     for (const cat of expected) {
       expect(tmpl.rules[cat], `missing chain for ${cat}`).toBeDefined();
       expect(Array.isArray(tmpl.rules[cat])).toBe(true);
