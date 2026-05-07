@@ -753,4 +753,51 @@ describe('TaskDetailDrawer', () => {
     expect(screen.getByText('task-two.js')).toBeInTheDocument();
     expect(screen.queryByText('task-one.js')).toBeNull();
   });
+
+  // subprocess-detachment.md #10 — "Detached" badge in task detail.
+  // Operator question: "will this task survive a TORQUE restart?"
+  // Answer comes from `subprocess_pid IS NOT NULL`.
+  describe('detached subprocess badge', () => {
+    it('shows the badge with PID when task is on the detached path', async () => {
+      tasksApi.get.mockResolvedValue({
+        ...mockTask,
+        subprocess_pid: 54321,
+      });
+
+      renderWithProviders(<TaskDetailDrawer taskId="task-1" onClose={vi.fn()} />);
+
+      await waitFor(() => {
+        expect(screen.getByText('Subprocess')).toBeInTheDocument();
+      });
+      expect(
+        screen.getByText(/Detached \(pid 54321\) — survives restart/),
+      ).toBeInTheDocument();
+    });
+
+    it('hides the badge when subprocess_pid is null (pipe-path task)', async () => {
+      tasksApi.get.mockResolvedValue({
+        ...mockTask,
+        subprocess_pid: null,
+      });
+
+      renderWithProviders(<TaskDetailDrawer taskId="task-1" onClose={vi.fn()} />);
+
+      await waitFor(() => {
+        // wait for any meta to render so we know the drawer mounted
+        expect(screen.getByText('Status')).toBeInTheDocument();
+      });
+      expect(screen.queryByText('Subprocess')).toBeNull();
+    });
+
+    it('hides the badge when subprocess_pid is absent (pre-detachment task)', async () => {
+      tasksApi.get.mockResolvedValue({ ...mockTask });
+
+      renderWithProviders(<TaskDetailDrawer taskId="task-1" onClose={vi.fn()} />);
+
+      await waitFor(() => {
+        expect(screen.getByText('Status')).toBeInTheDocument();
+      });
+      expect(screen.queryByText('Subprocess')).toBeNull();
+    });
+  });
 });

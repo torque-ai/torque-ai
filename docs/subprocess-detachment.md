@@ -259,9 +259,20 @@ Performance note: only the first 64KB of stderr.log is scanned, so the check is 
 
 Wrapper now forwards `SIGTERM`, `SIGINT`, `SIGHUP`, `SIGQUIT`, `SIGBREAK` (Ctrl+Break on Windows). Each registration is wrapped in try/catch so Node throwing on unsupported-signal platforms (e.g. `SIGHUP` on older Windows) doesn't crash the wrapper. The actual `child.kill(sig)` is also try-wrapped (child may have already exited between signal arrival and forward). `SIGKILL` deliberately NOT forwarded — uncatchable, shouldn't be in the list.
 
-### 10. No dashboard surface for "is this task on the detached path?"
+### 10. ✅ ~~No dashboard surface for "is this task on the detached path?"~~ RESOLVED 2026-05-07
 
-Operators viewing a running task on the dashboard can't tell whether a restart will preserve it. The `subprocess_pid` column would answer but isn't exposed in the dashboard's task detail. **Action:** Add a "detached: yes/no" badge to dashboard task detail; wire from `subprocess_pid IS NOT NULL`.
+`TaskDetailDrawer.jsx` renders a `Subprocess` MetaItem just below `Host` when `task.subprocess_pid` is truthy:
+
+> Subprocess: Detached (pid 54321) — survives restart
+
+Pipe-path tasks (`subprocess_pid IS NULL`) don't render the row, keeping the meta grid uncluttered for the 90% case. The API surface needed no change — `getTask` already does `SELECT *` and `resolveV2Task` returns the row unfiltered, so `subprocess_pid` flows through to the React layer.
+
+3 unit tests in `TaskDetailDrawer.test.jsx`:
+1. Visible + correct text when `subprocess_pid: 54321`
+2. Hidden when `subprocess_pid: null` (pipe-path task)
+3. Hidden when column absent (pre-detachment task)
+
+This closes the last subprocess-detachment audit question. **All 12 questions now resolved.**
 
 ### 11. ✅ ~~Re-adoption logging is sparse~~ RESOLVED 2026-05-07
 

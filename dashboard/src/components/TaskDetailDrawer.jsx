@@ -522,6 +522,16 @@ export default function TaskDetailDrawer({ taskId, onClose, subscribe, unsubscri
                     <MetaItem label="Provider" value={task.provider || 'codex'} />
                     <MetaItem label="Model" value={getRelevantModel(task.provider, task.model) || '-'} />
                     <MetaItem label="Host" value={taskHostLabel || '-'} />
+                    {/* Detached subprocess badge — closes subprocess-detachment.md #10.
+                        Only shown when the task is on the detached spawn path
+                        (codex/codex-spark/claude-cli with detachment enabled). Tells
+                        the operator "this task will survive a TORQUE restart." */}
+                    {task.subprocess_pid ? (
+                      <MetaItem
+                        label="Subprocess"
+                        value={`Detached (pid ${task.subprocess_pid}) — survives restart`}
+                      />
+                    ) : null}
                     {task.status === 'running' && hasGpuStatus && (
                       <MetaItem
                         label="GPU"
