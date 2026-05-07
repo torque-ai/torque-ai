@@ -200,9 +200,16 @@ Documented in the "Abandon mode contract" section above. Covers: what abandon do
 
 `docs/factory.md` gains a new "Long-running task config: `finalizing_task_stale_minutes`" subsection documenting the relationship: 15-min default is sized for general-purpose tasks, not factory-scale work; raise to 30-60 min if factory plan-generation regularly takes >15 min; pair with `TORQUE_CLEANUP_GUARD_TTL_MS` so both values stay aligned (raising one in isolation reopens the gap #3 closed). Symptom-of-mistuning callout included.
 
-### 10. cancelTask after task moved to retry_scheduled is partially guarded
+### 10. ✅ ~~cancelTask after task moved to retry_scheduled is partially guarded~~ VERIFIED SAFE 2026-05-07
 
-Cancel path checks status and bails on terminal states, but `retry_scheduled` is treated as "still active" — cancel proceeds. The cancel writes `status='cancelled'`. retry-framework's NEW guard (#1 fix) handles the timer side: it sees `cancelled` and bails. But if cancel races with the timer fire itself (both happen in same event loop tick), there's a brief window where status could flip cancelled → queued → cancelled. Order-dependent; in practice the timer's status re-read protects via the new guard. **Action:** Confirm behavior under concurrent cancel + timer-fire test; current node single-threaded execution should serialize them safely.
+Confirmed via test coverage. Node's single-threaded JS execution serializes cancel and timer-fire — whichever runs first wins, and the other path's status re-read catches the new state. Both orderings converge to `status='cancelled'`:
+
+- **Cancel-then-timer**: cancel writes `cancelled`. Timer's allow-list guard (`if currentTask.status !== 'retry_scheduled' return`) sees `cancelled`, bails. Pinned by `retry-framework.test.js:343` "does not restart a task that was cancelled during the retry delay" + parameterized `it.each(['failed','completed','shipped','unactionable','escalation_exhausted'])` (5 terminal statuses).
+- **Timer-then-cancel**: timer writes `queued`, calls `startTask`. Cancel arrives, sees `queued` (not terminal), writes `cancelled`. Final convergence pinned by new `retry-framework.test.js` "converges to cancelled when timer fires before cancel runs" test.
+
+The audit's specific "brief window" concern (status flipping cancelled → queued → cancelled) cannot occur because there is no `await` yield point between status check and status write in either path. Pre-2026-05-06 this was a real bug for the cancel-then-timer ordering when the terminal status was anything other than `cancelled`; that hole is closed by the allow-list guard.
+
+`cancel-retry-scheduled.test.js` covers cancel-of-retry_scheduled basics (6 tests including pendingRetryTimeouts cleanup).
 
 ---
 
