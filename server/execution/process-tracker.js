@@ -363,7 +363,15 @@ class ProcessTracker extends Map {
    * @private
    */
   _cleanupGuard = new Map();
-  _cleanupGuardTtlMs = 60000;
+  // 15 minutes — aligned with finalizing_task_stale_minutes (orphan-cleanup.js
+  // default 15min). Prior 60s TTL expired before the long-line finalizingTasks
+  // stale-check could fire, leaving a 14-min window where double-finalize was
+  // possible if the close handler crashed with the marker leaked. Operators
+  // can tune via TORQUE_CLEANUP_GUARD_TTL_MS (must be a positive integer).
+  _cleanupGuardTtlMs = (() => {
+    const raw = parseInt(process.env.TORQUE_CLEANUP_GUARD_TTL_MS, 10);
+    return Number.isFinite(raw) && raw > 0 ? raw : 900000;
+  })();
   _cleanupSweepIntervalMs = 30000;
   _lastCleanupSweep = 0;
 

@@ -164,9 +164,9 @@ retry-framework's setTimeout callback only bailed on `cancelled`; other terminal
 
 `worktree-reconcile.js` now runs `auditQuarantineDir` on every `reconcileProject` call (per-project, every factory tick) and emits a single `warn` log via a 15-min suppressor (`shouldLogDeletePendingWarn`) when total bytes exceed `TORQUE_DELETE_PENDING_SIZE_WARN_BYTES` (default 10 GB) or any entry's age exceeds `TORQUE_DELETE_PENDING_AGE_WARN_MS` (default 24 h). The audit traverses the quarantine tree with a 100k-entry cap; symlinks are NOT followed (security: prevents counting outside-quarantine state). The audit result is included in `reconcileProject`'s return as `quarantineAudit` so callers can surface it in dashboards if needed. Pinned by 11 regression tests in `tests/worktree-reconcile.test.js` covering missing-dir / empty / sums-recursively / symlink-non-follow / suppressor-interval / per-project-isolation / env-overrides / breach-via-size / no-breach / early-return-path.
 
-### 3. cleanup-guard TTL (60s) << finalizingTasks stale-check (15min)
+### 3. ✅ ~~cleanup-guard TTL (60s) << finalizingTasks stale-check (15min)~~ RESOLVED 2026-05-07
 
-If close handler runs >60s, `cleanupGuard` expires before finalization marker. Mitigated by `finalizingTasks` heartbeat in normal operation. Edge case: close-handler crash with leaked marker → 15min window where stale-check could fire but guard already expired. Realistic exposure: hung webhook + close-handler exception. **Action:** Consider raising cleanup-guard TTL to match finalization-marker timeout, or tying both to a shared config knob.
+`ProcessTracker._cleanupGuardTtlMs` default raised from 60s to 900000ms (15 min) to align with `finalizing_task_stale_minutes` default. The two TTLs now both reach the long-line stale-check window, eliminating the prior 14-min gap where a close-handler crash with leaked finalizingTasks marker could lead to double-finalize. Operators can tune via `TORQUE_CLEANUP_GUARD_TTL_MS` (positive integer, ms).
 
 ### 4. ✅ ~~POSIX zombie detection weaker than Windows~~ RESOLVED 2026-05-06
 
