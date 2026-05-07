@@ -326,9 +326,42 @@ Stale-check parses the inline owner block (no extra SSH). Per stale-check round,
 
 `start_remote_sync_lock_heartbeat` spawns a detached subshell that touches `<LOCK_DIR>\heartbeat.epoch` on the remote every `TORQUE_REMOTE_SYNC_LOCK_HEARTBEAT_SECS` (default 60s). `stop_remote_sync_lock_heartbeat` kills the subshell on `release_remote_sync_lock`. The coalesced acquire-loop probe (#9) was extended to fetch heartbeat.epoch alongside owner.env via a `---HB---` separator. Waiters parse heartbeat age; if it exceeds `TORQUE_REMOTE_SYNC_LOCK_HEARTBEAT_STALE_SECS` (default 300s = 5min), emit a single `warn` per acquire wait — informational only, never auto-reap (TTL #2 owns reap). Distinguishes "holder is actively syncing" from "holder is stuck mid-sync" without changing reap semantics.
 
-### 12. Plugin and bash script duplicate remote-execution logic
+### 12. ✅ ~~Plugin and bash script duplicate remote-execution logic~~ DOCUMENTED 2026-05-07
 
-`server/plugins/remote-agents/` issues `run_remote_command` SSH calls without sync/lock/drift/bundle layers. TORQUE's auto-verify-retry path runs through the plugin; manual `torque-remote` invocations run through the bash script. They share config but not behavior — a project that requires sync (e.g. wants local commits applied for verify_command) gets it from the bash path but not the plugin path. **Action:** Audit which plugin call sites actually need the bash-script's sync chain semantics. Either elevate the plugin to a richer impl or document the divergence and the resulting capability matrix.
+Investigated. The two implementations have substantially different capabilities; **elevating the plugin to match would be a major refactor** with unclear value for the plugin's current callers. Documented divergence below; future work that needs sync semantics from a plugin call site should explicitly route through `torque-remote` via shell or implement the missing pieces.
+
+**Capability matrix** — what each path provides:
+
+| Capability | `bin/torque-remote` (operator-invoked) | `server/plugins/remote-agents/` (TORQUE-internal) |
+|---|---|---|
+| **Transport** | SSH + CMD | HTTP to agent-server.js on remote |
+| **Mutual exclusion** | `mkdir`-mutex sync lock at sibling path | None — concurrent `/sync` calls race |
+| **Lock owner.env** | host + pid + started_at_epoch | N/A |
+| **Stale-reap** | Same-host PID-dead + TTL (cross-host) | N/A |
+| **Heartbeat** | Yes (60s default; warn on stale) | N/A |
+| **Sync command** | `fetch --prune <ref> && checkout --force [--detach] <ref> && reset --hard <ref> && clean -fd` | `fetch origin && checkout <branch>` (no `--prune`, no reset, no clean) |
+| **Drift detection** | `git diff --quiet HEAD` after reset → exit 99 | None |
+| **Local-state overlay** | committed.patch + worktree.patch + untracked.tar via SSH stdin | None — uses HEAD of the remote branch as-is |
+| **HEAD-mismatch guard (runner.sh)** | exit 98 on concurrent-session clobber | N/A — no inner runner |
+| **npm install hints** | Yes (root, server, dashboard) | None |
+| **Sync timeout wrapper** | run_with_timeout (default 600s) | Per-call HTTP timeout (300s default) |
+| **Fallback to local** | 6-step chain (transport, config, ssh, load, lock, sync) | "remote unavailable" only — no overload check, no lock backpressure |
+| **Per-session sync log** | `/tmp/torque-remote-sync.<pid>.<epoch>.log` | None — agent-server's own logs |
+| **Decision log** | `~/.torque/torque-remote-decisions.jsonl` | None |
+| **Fallback log** | `~/.torque/torque-remote-fallback.log` | None |
+| **Failsafe remote cleanup** | Reset + clean on exit 124/255 | None |
+| **Bundle cleanup retries** | 5× exponential backoff | N/A — no bundle |
+
+**Why plugin is thinner.** The plugin agent runs locally on the remote workstation and operates inside its `projectsDir`. Concurrent `/sync` calls against different `project` keys are naturally serialized at the filesystem layer (different dirs); same-project concurrency is rare in practice (one verify_command per task) and tolerated by the agent's checkout idempotency. The plugin path was designed for "TORQUE wants a fresh-ish working tree to run vitest" — not "operator wants their dirty local state applied as a patch."
+
+**When to use which.** TORQUE's auto-verify-retry uses the plugin (HTTP path) for verify_command; pre-push gates and manual `torque-remote` shell invocations use the bash script. The plugin is correct for its scope; the bash script is correct for its scope. The divergence is intentional, not a bug.
+
+**If you need sync semantics from a plugin call site.** Three options, in order of effort:
+1. **Shell out to torque-remote.** Plugin handler invokes `bin/torque-remote bash -c '<cmd>'` — gets sync, lock, drift, bundle, fallback log for free. ~1-line change in the call site.
+2. **Add a new agent-server endpoint** (e.g. `/sync-with-overlay`) that mirrors the bash script's sync chain. ~200 LOC; requires agent-server redeploy.
+3. **Unify both into a shared transport library.** ~1000 LOC refactor; hard because bash and Node need different sync abstractions.
+
+(1) is the recommended path when the divergence shows up in a real bug.
 
 ---
 
