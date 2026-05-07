@@ -175,8 +175,14 @@ reset_stub_env() {
   unset SSH_EXEC_OUTPUT SSH_EXEC_EXIT_CODE
   unset SSH_LOCK_ACQUIRE_SEQUENCE SSH_LOCK_ACQUIRE_EXIT_CODE
   unset SSH_LOCK_OWNER_OUTPUT SSH_LOCK_OWNER_READ_EXIT_CODE SSH_LOCK_OWNER_WRITE_EXIT_CODE
-  unset SSH_LOCK_REAP_EXIT_CODE TORQUE_REMOTE_SYNC_LOCK_STALE_CHECK_SECS
+  unset SSH_LOCK_REAP_EXIT_CODE TORQUE_REMOTE_SYNC_LOCK_STALE_CHECK_SECS TORQUE_REMOTE_LANE_STALE_CHECK_SECS
   unset TORQUE_REMOTE_TEST_WORKTREE_SUFFIX
+  unset TORQUE_REMOTE_LANE_COUNT TORQUE_REMOTE_LANES_CLI
+  unset TORQUE_REMOTE_LANE
+  unset TORQUE_REMOTE_LANE_STALE_TTL_SECS TORQUE_REMOTE_LANE_TIMEOUT_SECS
+  unset SSH_LANE_GIT_EXISTS_OUTPUT TORQUE_REMOTE_LANE_PROVISION_FROM
+  unset SSH_MIGRATION_MARKER_OUTPUT SSH_LEGACY_GIT_EXISTS_OUTPUT
+  unset SSH_STATUS_PROBE_OUTPUT
 }
 
 write_stub_argv_dump() {
@@ -314,6 +320,13 @@ if [[ "$#" -ge 4 && "$1" == "ls-remote" && "$2" == "--heads" ]]; then
   exit "${GIT_LS_REMOTE_EXIT_CODE:-0}"
 fi
 
+if [[ "$#" -ge 3 && "$1" == "remote" && "$2" == "get-url" && "$3" == "origin" ]]; then
+  # Default to a fake origin URL so provision_lane_workspace_if_needed can
+  # exercise the origin-clone fallback path. Override via GIT_REMOTE_URL.
+  printf '%s\n' "${GIT_REMOTE_URL:-https://example.invalid/fake.git}"
+  exit "${GIT_REMOTE_URL_EXIT_CODE:-0}"
+fi
+
 exit "${GIT_DEFAULT_EXIT_CODE:-0}"
 EOF
 }
@@ -376,25 +389,35 @@ next_lock_ack() {
   printf '%s\n' "$ack"
 }
 
-if [[ "$remote_cmd" == *".torque-remote-sync.lock"* && "$remote_cmd" == *"mkdir"* && "$remote_cmd" == *"echo ACQUIRED"* ]]; then
+if [[ "$remote_cmd" == "@echo off"* ]] && [[ "$remote_cmd" == *"echo lane-"* ]]; then
+  # --status probe: "@echo off & if exist "...\lane-N" (echo lane-N HELD ...) else (echo lane-N FREE) ..."
+  # Must come BEFORE the generic .torque-remote-lanes + owner.env + type branch to avoid false match.
+  if [[ "${SSH_STATUS_PROBE_OUTPUT+x}" == "x" && -n "$SSH_STATUS_PROBE_OUTPUT" ]]; then
+    printf '%s\n' "$SSH_STATUS_PROBE_OUTPUT"
+  fi
+  exit 0
+fi
+
+if [[ ( "$remote_cmd" == *".torque-remote-lanes"* || "$remote_cmd" == *".torque-remote-sync.lock"* ) && "$remote_cmd" == *"mkdir"* && "$remote_cmd" == *"echo ACQUIRED"* ]]; then
   next_lock_ack
   exit "${SSH_LOCK_ACQUIRE_EXIT_CODE:-0}"
 fi
 
-if [[ "$remote_cmd" == *".torque-remote-sync.lock\\owner.env"* && "$remote_cmd" == *"echo host="* ]]; then
+if [[ ( "$remote_cmd" == *".torque-remote-lanes"* || "$remote_cmd" == *".torque-remote-sync.lock"* ) && "$remote_cmd" == *"owner.env"* && "$remote_cmd" == *"echo host="* ]]; then
   exit "${SSH_LOCK_OWNER_WRITE_EXIT_CODE:-0}"
 fi
 
-if [[ "$remote_cmd" == *".torque-remote-sync.lock\\owner.env"* && "$remote_cmd" == *"type"* ]]; then
+if [[ ( "$remote_cmd" == *".torque-remote-lanes"* || "$remote_cmd" == *".torque-remote-sync.lock"* ) && "$remote_cmd" == *"owner.env"* && "$remote_cmd" == *"type"* ]]; then
+  # Production now uses `type file 2>nul` which prints empty on missing file.
+  # The stub mirrors this — empty stdout when no owner output is set, so the
+  # empty-owner code path in remote_lane_lock_is_stale gets exercised correctly.
   if [[ "${SSH_LOCK_OWNER_OUTPUT+x}" == "x" && -n "$SSH_LOCK_OWNER_OUTPUT" ]]; then
     printf '%s\n' "$SSH_LOCK_OWNER_OUTPUT"
-  else
-    printf 'NO_OWNER\n'
   fi
   exit "${SSH_LOCK_OWNER_READ_EXIT_CODE:-0}"
 fi
 
-if [[ "$remote_cmd" == *".torque-remote-sync.lock"* && "$remote_cmd" == *"rmdir /s /q"* ]]; then
+if [[ ( "$remote_cmd" == *".torque-remote-lanes"* || "$remote_cmd" == *".torque-remote-sync.lock"* ) && "$remote_cmd" == *"rmdir /s /q"* ]]; then
   exit "${SSH_LOCK_REAP_EXIT_CODE:-0}"
 fi
 
@@ -405,6 +428,48 @@ if [[ "$remote_cmd" == "wmic cpu get loadpercentage /value" ]]; then
     printf 'LoadPercentage=10\n'
   fi
   exit "${SSH_WMIC_EXIT_CODE:-0}"
+fi
+
+if [[ "$remote_cmd" == "if exist "* && "$remote_cmd" == *"migrated.flag"* && "$remote_cmd" == *"(echo YES) else (echo NO)" ]]; then
+  # Migration marker probe: "if exist "<parent>\.torque-remote-lanes\migrated.flag" (echo YES) else (echo NO)"
+  printf '%s\n' "${SSH_MIGRATION_MARKER_OUTPUT:-YES}"
+  exit 0
+fi
+
+if [[ "$remote_cmd" == "if exist "* && "$remote_cmd" == *"(echo YES) else (echo NO)" && "$remote_cmd" != *"git worktree"* && "$remote_cmd" != *"lane-"* ]]; then
+  # Legacy base .git probe: "if exist "<base>\.git" (echo YES) else (echo NO)"
+  # This path has no lane-N suffix — it is the pre-lane workspace.
+  printf '%s\n' "${SSH_LEGACY_GIT_EXISTS_OUTPUT:-NO}"
+  exit 0
+fi
+
+if [[ "$remote_cmd" == "if exist "* && "$remote_cmd" == *"(echo YES) else (echo NO)" && "$remote_cmd" != *"git worktree"* ]]; then
+  # Provision probe: "if exist "<path>\.git" (echo YES) else (echo NO)"
+  # Extract lane index from path (e.g. "...lane-3\.git" → "lane-3").
+  lane_key=""
+  if [[ "$remote_cmd" =~ lane-([0-9]+) ]]; then
+    lane_key="lane-${BASH_REMATCH[1]}"
+  fi
+  git_exists_map="${SSH_LANE_GIT_EXISTS_OUTPUT:-}"
+  result="YES"
+  if [[ -n "$git_exists_map" && -n "$lane_key" ]]; then
+    # Parse "lane-K:yes|no" comma-separated entries.
+    IFS=',' read -r -a entries <<< "$git_exists_map"
+    for entry in "${entries[@]}"; do
+      key="${entry%%:*}"
+      val="${entry##*:}"
+      if [[ "$key" == "$lane_key" ]]; then
+        if [[ "${val,,}" == "no" ]]; then
+          result="NO"
+        else
+          result="YES"
+        fi
+        break
+      fi
+    done
+  fi
+  printf '%s\n' "$result"
+  exit 0
 fi
 
 if [[ "$remote_cmd" == *"git rev-parse --verify origin/"* ]]; then
@@ -560,7 +625,10 @@ test_default_syncs_main() {
 
   expect_eq "exit code is 0" "0" "$RUN_EXIT"
   expect_file_contains "local branch detection runs" "$tmp/calls.log" "git [rev-parse] [--abbrev-ref] [HEAD]"
-  expect_file_contains "ssh sync checks out main" "$tmp/calls.log" "git checkout --force main"
+  # After lane path wiring, the workspace is always a lane-suffixed sibling
+  # (<base>-lane-1), which differs from REMOTE_PROJECT_PATH — so sync always
+  # uses the detached-HEAD path (same as the worktree bootstrap path).
+  expect_file_contains "ssh sync checks out main detached" "$tmp/calls.log" "git checkout --force --detach origin/main"
   expect_file_contains "ssh sync resets origin/main" "$tmp/calls.log" "git reset --hard origin/main"
   expect_file_contains "remote execute uses git bash" "$tmp/calls.log" "C:\\progra~1\\Git\\bin\\bash.exe"
 
@@ -583,7 +651,10 @@ test_branch_flag_syncs_override() {
   expect_eq "exit code is 0" "0" "$RUN_EXIT"
   expect_file_not_contains "branch override skips local branch detection" "$tmp/calls.log" "git [rev-parse] [--abbrev-ref] [HEAD]"
   expect_file_not_contains "branch override skips local bundle diff" "$tmp/calls.log" "git [diff] [--binary]"
-  expect_file_contains "ssh sync checks out override branch" "$tmp/calls.log" "git checkout --force wip/foo"
+  # After lane path wiring, the workspace is always a lane-suffixed sibling
+  # (<base>-lane-1), which differs from REMOTE_PROJECT_PATH — so sync always
+  # uses the detached-HEAD path (same as the worktree bootstrap path).
+  expect_file_contains "ssh sync checks out override branch detached" "$tmp/calls.log" "git checkout --force --detach origin/wip/foo"
   expect_file_contains "ssh sync resets origin override branch" "$tmp/calls.log" "git reset --hard origin/wip/foo"
 
   finish_test "test_branch_flag_syncs_override"
@@ -723,7 +794,8 @@ test_config_parses_without_jq() {
 
   expect_eq "exit code is 0" "0" "$RUN_EXIT"
   expect_file_not_contains "jq is not invoked" "$tmp/calls.log" "jq ["
-  expect_file_contains "config still routes over ssh" "$tmp/calls.log" "git checkout --force main"
+  # After lane path wiring, sync always uses detached HEAD mode.
+  expect_file_contains "config still routes over ssh" "$tmp/calls.log" "git checkout --force --detach origin/main"
 
   finish_test "test_config_parses_without_jq"
 }
@@ -817,7 +889,7 @@ test_sync_log_path_is_env_overridable() {
 test_sync_lock_writes_owner_metadata_and_removes_nonempty_lock() {
   local tmp
 
-  echo "Test: sync lock writes owner metadata and removes non-empty lock dir"
+  echo "Test: lane lock writes owner metadata and removes non-empty lock dir"
   TEST_ERRORS=()
   reset_stub_env
 
@@ -828,9 +900,10 @@ test_sync_lock_writes_owner_metadata_and_removes_nonempty_lock() {
   run_torque_remote "$tmp" echo hi
 
   expect_eq "exit code is 0" "0" "$RUN_EXIT"
-  expect_contains "owner metadata file is written" "$RUN_REMOTE_COMMANDS" ".torque-remote-sync.lock\\owner.env"
+  expect_contains "owner metadata file is written under lane lock dir" "$RUN_REMOTE_COMMANDS" ".torque-remote-lanes\.locks\lane-1\owner.env"
   expect_contains "owner host is written" "$RUN_REMOTE_COMMANDS" "echo host="
   expect_contains "owner pid is written" "$RUN_REMOTE_COMMANDS" "echo pid="
+  expect_contains "owner lane_index is written" "$RUN_REMOTE_COMMANDS" "echo lane_index=1"
   expect_contains "non-empty lock dir is removed recursively" "$RUN_REMOTE_COMMANDS" "rmdir /s /q"
 
   finish_test "test_sync_lock_writes_owner_metadata_and_removes_nonempty_lock"
@@ -839,7 +912,7 @@ test_sync_lock_writes_owner_metadata_and_removes_nonempty_lock() {
 test_stale_sync_lock_is_reaped_and_retried() {
   local tmp owner_host acquire_count
 
-  echo "Test: stale sync lock is reaped and retried"
+  echo "Test: stale lane lock is reaped and retried"
   TEST_ERRORS=()
   reset_stub_env
 
@@ -848,16 +921,16 @@ test_stale_sync_lock_is_reaped_and_retried() {
   export GIT_REV_PARSE_OUTPUT="main"
   export SSH_LOCK_ACQUIRE_SEQUENCE="HELD,ACQUIRED"
   owner_host="$(printf '%s' "${COMPUTERNAME:-$(hostname 2>/dev/null || echo unknown)}" | tr '[:upper:]' '[:lower:]' | tr -cd '[:alnum:]_.:-')"
-  export SSH_LOCK_OWNER_OUTPUT=$'host='"$owner_host"$'\npid=99999999\nstarted_at_epoch=1'
-  export TORQUE_REMOTE_SYNC_LOCK_STALE_CHECK_SECS=1
+  export SSH_LOCK_OWNER_OUTPUT=$'host='"$owner_host"$'\npid=99999999\nstarted_at_epoch=1\nlane_index=1'
+  export TORQUE_REMOTE_LANE_STALE_CHECK_SECS=1
 
   run_torque_remote "$tmp" echo hi
 
   acquire_count="$(grep -F "echo ACQUIRED" "$tmp/remote-commands.log" | wc -l | tr -d '[:space:]')"
   expect_eq "exit code is 0" "0" "$RUN_EXIT"
-  expect_contains "stderr reports stale lock reap" "$RUN_STDERR" "Remote sync lock appears stale"
+  expect_contains "stderr reports stale lock reap" "$RUN_STDERR" "Remote lane lock appears stale"
   expect_contains "stale lock is removed recursively" "$RUN_REMOTE_COMMANDS" "rmdir /s /q"
-  expect_contains "owner metadata is read before reaping" "$RUN_REMOTE_COMMANDS" ".torque-remote-sync.lock\\owner.env"
+  expect_contains "owner metadata is read before reaping" "$RUN_REMOTE_COMMANDS" ".torque-remote-lanes\.locks\lane-1\owner.env"
   if [[ "$acquire_count" -lt 2 ]]; then
     record_failure "lock acquisition was not retried after reap (expected at least 2 attempts, got $acquire_count)"
   fi
@@ -1050,7 +1123,10 @@ EOF
   # exists on the remote (a fresh feature branch was never set up there). The
   # fix derives PROJECT_NAME from the main repo so the path stays stable across
   # branches: C:\trt\torque-public.
-  expect_contains "remote path uses main-repo basename" "$RUN_RUNNER_SH" 'C:\trt\torque-public'
+  # Active workspace gets the lane-1 suffix; base dep path stays un-suffixed.
+  # Asserting the full -lane-1 path (not the prefix) so a future regression
+  # that drops the lane suffix can't pass via substring match.
+  expect_contains "remote path uses main-repo basename + lane-1 suffix" "$RUN_RUNNER_SH" 'C:\trt\torque-public-lane-1'
   expect_contains "base dependency path uses effective worktree root" "$RUN_RUNNER_SH" "TORQUE_REMOTE_BASE_PROJECT_PATH='C:\trt\torque-public'"
   expect_not_contains "remote path does NOT use worktree dir name" "$RUN_RUNNER_SH" 'C:\trt\feat-x'
 
@@ -1072,10 +1148,12 @@ test_worktree_suffix_uses_sibling_path_and_lock() {
   run_torque_remote "$tmp" echo hi
 
   expect_eq "exit code is 0" "0" "$RUN_EXIT"
-  expect_contains "runner uses suffixed project path" "$RUN_RUNNER_SH" "/fake-pre-push-gate"
+  # Active workspace = <base><worktree-suffix><lane-suffix>. Asserting the full
+  # path so a regression that drops the lane suffix can't pass via substring.
+  expect_contains "runner uses suffixed+lane project path" "$RUN_RUNNER_SH" "/fake-pre-push-gate-lane-1"
   expect_contains "base dependency path stays unsuffixed" "$RUN_RUNNER_SH" "TORQUE_REMOTE_BASE_PROJECT_PATH='/fake'"
-  expect_contains "sync lock uses suffixed project path" "$RUN_REMOTE_COMMANDS" "/fake-pre-push-gate.torque-remote-sync.lock"
-  expect_not_contains "sync lock does not use default project path" "$RUN_REMOTE_COMMANDS" "/fake.torque-remote-sync.lock"
+  expect_contains "lane lock is acquired" "$RUN_REMOTE_COMMANDS" ".torque-remote-lanes\.locks\lane-1"
+  expect_not_contains "old sync.lock path is not used" "$RUN_REMOTE_COMMANDS" ".torque-remote-sync.lock"
 
   finish_test "test_worktree_suffix_uses_sibling_path_and_lock"
 }
@@ -1201,6 +1279,408 @@ test_timeout_style_failure_triggers_failsafe_cleanup_round_trip() {
   finish_test "test_timeout_style_failure_triggers_failsafe_cleanup_round_trip"
 }
 
+test_lane_count_resolves_default_to_1() {
+  echo "Test: lane count defaults to 1 when no config provided"
+  TEST_ERRORS=()
+  reset_stub_env
+  unset TORQUE_REMOTE_LANE_COUNT
+
+  make_test_env
+  local tmp="$LAST_TEST_ENV"
+  export GIT_REV_PARSE_OUTPUT="main"
+
+  run_torque_remote "$tmp" --__internal-print-lane-count
+
+  expect_eq "exit code is 0" "0" "$RUN_EXIT"
+  expect_eq "lane count is 1" "1" "$(printf '%s' "$RUN_STDOUT" | tr -d '[:space:]')"
+
+  finish_test "test_lane_count_resolves_default_to_1"
+}
+
+test_lane_count_env_var_overrides_default() {
+  echo "Test: TORQUE_REMOTE_LANE_COUNT env var sets the count"
+  TEST_ERRORS=()
+  reset_stub_env
+
+  make_test_env
+  local tmp="$LAST_TEST_ENV"
+  export GIT_REV_PARSE_OUTPUT="main"
+  export TORQUE_REMOTE_LANE_COUNT=8
+
+  run_torque_remote "$tmp" --__internal-print-lane-count
+
+  expect_eq "exit code is 0" "0" "$RUN_EXIT"
+  expect_eq "lane count is 8" "8" "$(printf '%s' "$RUN_STDOUT" | tr -d '[:space:]')"
+
+  finish_test "test_lane_count_env_var_overrides_default"
+}
+
+test_lane_count_cli_flag_beats_env() {
+  echo "Test: --lanes flag beats TORQUE_REMOTE_LANE_COUNT"
+  TEST_ERRORS=()
+  reset_stub_env
+
+  make_test_env
+  local tmp="$LAST_TEST_ENV"
+  export GIT_REV_PARSE_OUTPUT="main"
+  export TORQUE_REMOTE_LANE_COUNT=4
+
+  run_torque_remote "$tmp" --lanes 12 --__internal-print-lane-count
+
+  expect_eq "exit code is 0" "0" "$RUN_EXIT"
+  expect_eq "lane count is 12 (cli wins)" "12" "$(printf '%s' "$RUN_STDOUT" | tr -d '[:space:]')"
+
+  finish_test "test_lane_count_cli_flag_beats_env"
+}
+
+test_lane_workspace_path_appends_suffix() {
+  echo "Test: lane workspace path appends -lane-N suffix to base"
+  TEST_ERRORS=()
+  reset_stub_env
+
+  make_test_env
+  local tmp="$LAST_TEST_ENV"
+  export GIT_REV_PARSE_OUTPUT="main"
+
+  run_torque_remote "$tmp" --__internal-print-lane-paths "C:\\trt\\torque-public" 3
+
+  expect_eq "exit code is 0" "0" "$RUN_EXIT"
+  expect_contains "workspace path includes -lane-3 suffix" "$RUN_STDOUT" "C:\\trt\\torque-public-lane-3"
+  expect_contains "lock dir is sibling at .torque-remote-lanes" "$RUN_STDOUT" "C:\\trt\\.torque-remote-lanes\\.locks\\lane-3"
+
+  finish_test "test_lane_workspace_path_appends_suffix"
+}
+
+test_lane_workspace_path_lane_1_is_distinct_from_legacy() {
+  echo "Test: lane-1 path is distinct from the legacy single-workspace path"
+  TEST_ERRORS=()
+  reset_stub_env
+
+  make_test_env
+  local tmp="$LAST_TEST_ENV"
+  export GIT_REV_PARSE_OUTPUT="main"
+
+  run_torque_remote "$tmp" --__internal-print-lane-paths "C:\\trt\\torque-public" 1
+
+  expect_eq "exit code is 0" "0" "$RUN_EXIT"
+  expect_contains "lane-1 workspace path appends suffix" "$RUN_STDOUT" "C:\\trt\\torque-public-lane-1"
+
+  finish_test "test_lane_workspace_path_lane_1_is_distinct_from_legacy"
+}
+
+test_multi_lane_probes_lanes_in_order() {
+  echo "Test: with N=4, probes lane-1, lane-2, ... and claims first free"
+  TEST_ERRORS=()
+  reset_stub_env
+
+  make_test_env
+  local tmp="$LAST_TEST_ENV"
+  export GIT_REV_PARSE_OUTPUT="main"
+  export TORQUE_REMOTE_LANE_COUNT=4
+  # Lanes 1 and 2 are HELD; lane 3 is free.
+  export SSH_LOCK_ACQUIRE_SEQUENCE="HELD,HELD,ACQUIRED"
+  local owner_host
+  owner_host="$(printf '%s' "${COMPUTERNAME:-$(hostname 2>/dev/null || echo unknown)}" | tr '[:upper:]' '[:lower:]' | tr -cd '[:alnum:]_.:-')"
+  # Owner metadata says lane is held by a live PID, so stale-reap doesn't fire.
+  export SSH_LOCK_OWNER_OUTPUT=$'host='"$owner_host"$'\npid=1\nstarted_at_epoch=9999999999\nlane_index=1'
+
+  run_torque_remote "$tmp" echo hi
+
+  expect_eq "exit code is 0" "0" "$RUN_EXIT"
+  expect_contains "lane-1 was probed" "$RUN_REMOTE_COMMANDS" ".torque-remote-lanes\.locks\lane-1"
+  expect_contains "lane-2 was probed" "$RUN_REMOTE_COMMANDS" ".torque-remote-lanes\.locks\lane-2"
+  expect_contains "lane-3 was claimed" "$RUN_REMOTE_COMMANDS" ".torque-remote-lanes\.locks\lane-3"
+  expect_contains "owner metadata records lane_index=3" "$RUN_REMOTE_COMMANDS" "echo lane_index=3"
+
+  finish_test "test_multi_lane_probes_lanes_in_order"
+}
+
+test_multi_lane_n_equals_1_skips_probe() {
+  echo "Test: with N=1, probes only lane-1 and never lane-2+"
+  TEST_ERRORS=()
+  reset_stub_env
+
+  make_test_env
+  local tmp="$LAST_TEST_ENV"
+  export GIT_REV_PARSE_OUTPUT="main"
+  unset TORQUE_REMOTE_LANE_COUNT
+
+  run_torque_remote "$tmp" echo hi
+
+  expect_eq "exit code is 0" "0" "$RUN_EXIT"
+  expect_contains "lane-1 was probed" "$RUN_REMOTE_COMMANDS" ".torque-remote-lanes\.locks\lane-1"
+  expect_not_contains "lane-2 was NOT probed" "$RUN_REMOTE_COMMANDS" ".torque-remote-lanes\.locks\lane-2"
+
+  finish_test "test_multi_lane_n_equals_1_skips_probe"
+}
+
+test_explicit_lane_skips_probe_and_fails_fast_when_held() {
+  echo "Test: TORQUE_REMOTE_LANE=K targets only lane K and falls back locally when held"
+  TEST_ERRORS=()
+  reset_stub_env
+
+  make_test_env
+  local tmp="$LAST_TEST_ENV"
+  export GIT_REV_PARSE_OUTPUT="main"
+  export TORQUE_REMOTE_LANE_COUNT=4
+  export TORQUE_REMOTE_LANE=2
+  # Lane 2 is held; lane 3 would be free, but explicit mode must NOT try it.
+  # The explicit-lane fail-fast skips other lanes and falls back to local (same
+  # as the sync_lock_timeout path). Echo exits 0 on the local fallback.
+  export SSH_LOCK_ACQUIRE_SEQUENCE="HELD"
+  local owner_host
+  owner_host="$(printf '%s' "${COMPUTERNAME:-$(hostname 2>/dev/null || echo unknown)}" | tr '[:upper:]' '[:lower:]' | tr -cd '[:alnum:]_.:-')"
+  export SSH_LOCK_OWNER_OUTPUT=$'host='"$owner_host"$'\npid=1\nstarted_at_epoch=9999999999\nlane_index=2'
+
+  run_torque_remote "$tmp" echo hi
+
+  # Fail-fast means no wait-loop and no fallback to other lanes — NOT a
+  # non-zero exit. The command still runs locally (same as lock-timeout path).
+  expect_eq "exit code is 0 (local fallback runs)" "0" "$RUN_EXIT"
+  expect_contains "lane-2 was probed" "$RUN_REMOTE_COMMANDS" ".torque-remote-lanes\.locks\lane-2"
+  expect_not_contains "lane-1 was NOT probed" "$RUN_REMOTE_COMMANDS" ".torque-remote-lanes\.locks\lane-1"
+  expect_not_contains "lane-3 was NOT probed" "$RUN_REMOTE_COMMANDS" ".torque-remote-lanes\.locks\lane-3"
+  expect_contains "stderr explains explicit-lane refusal" "$RUN_STDERR" "Explicit lane 2 is held"
+  expect_contains "stderr warns about local fallback" "$RUN_STDERR" "falling back to local"
+
+  finish_test "test_explicit_lane_skips_probe_and_fails_fast_when_held"
+}
+
+test_explicit_lane_claims_lane_when_free() {
+  echo "Test: TORQUE_REMOTE_LANE=K claims only lane K when free"
+  TEST_ERRORS=()
+  reset_stub_env
+
+  make_test_env
+  local tmp="$LAST_TEST_ENV"
+  export GIT_REV_PARSE_OUTPUT="main"
+  export TORQUE_REMOTE_LANE_COUNT=4
+  export TORQUE_REMOTE_LANE=3
+  export SSH_LOCK_ACQUIRE_SEQUENCE="ACQUIRED"
+
+  run_torque_remote "$tmp" echo hi
+
+  expect_eq "exit code is 0" "0" "$RUN_EXIT"
+  expect_contains "lane-3 was claimed" "$RUN_REMOTE_COMMANDS" ".torque-remote-lanes\.locks\lane-3"
+  expect_not_contains "lane-1 was NOT probed" "$RUN_REMOTE_COMMANDS" ".torque-remote-lanes\.locks\lane-1"
+  expect_not_contains "lane-2 was NOT probed" "$RUN_REMOTE_COMMANDS" ".torque-remote-lanes\.locks\lane-2"
+  expect_contains "owner metadata records lane_index=3" "$RUN_REMOTE_COMMANDS" "echo lane_index=3"
+
+  finish_test "test_explicit_lane_claims_lane_when_free"
+}
+
+test_cross_host_lane_lock_reaps_via_ttl() {
+  echo "Test: cross-host owner past TTL is reaped"
+  TEST_ERRORS=()
+  reset_stub_env
+
+  make_test_env
+  local tmp="$LAST_TEST_ENV"
+  export GIT_REV_PARSE_OUTPUT="main"
+  export SSH_LOCK_ACQUIRE_SEQUENCE="HELD,ACQUIRED"
+  # Owner host is some other machine; started_at_epoch is far in the past.
+  export SSH_LOCK_OWNER_OUTPUT=$'host=somefarhost\npid=12345\nstarted_at_epoch=1\nlane_index=1'
+  export TORQUE_REMOTE_LANE_STALE_CHECK_SECS=1
+  export TORQUE_REMOTE_LANE_STALE_TTL_SECS=60
+
+  run_torque_remote "$tmp" echo hi
+
+  expect_eq "exit code is 0" "0" "$RUN_EXIT"
+  expect_contains "stderr reports cross-host TTL reap" "$RUN_STDERR" "cross-host owner exceeded TTL"
+  expect_contains "stale lock removed" "$RUN_REMOTE_COMMANDS" "rmdir /s /q"
+
+  finish_test "test_cross_host_lane_lock_reaps_via_ttl"
+}
+
+test_cross_host_lane_lock_within_ttl_is_not_reaped() {
+  echo "Test: cross-host owner within TTL is left alone"
+  TEST_ERRORS=()
+  reset_stub_env
+
+  make_test_env
+  local tmp="$LAST_TEST_ENV"
+  export GIT_REV_PARSE_OUTPUT="main"
+  export TORQUE_REMOTE_LANE_TIMEOUT_SECS=2  # quick fail
+  export TORQUE_REMOTE_LANE_STALE_CHECK_SECS=1
+  export TORQUE_REMOTE_LANE_STALE_TTL_SECS=86400
+  # Owner is fresh — started 5 seconds ago.
+  local now
+  now="$(date +%s)"
+  local recent=$((now - 5))
+  export SSH_LOCK_ACQUIRE_SEQUENCE="HELD,HELD,HELD,HELD"
+  export SSH_LOCK_OWNER_OUTPUT=$'host=somefarhost\npid=12345\nstarted_at_epoch='"$recent"$'\nlane_index=1'
+
+  run_torque_remote "$tmp" echo hi
+
+  # The lane lock failure path falls back to local execution (per Task 5
+  # finding) — exit 0 because the local "echo hi" succeeded. So this test
+  # verifies the absence of the TTL reap message rather than the exit code.
+  expect_not_contains "no TTL reap message" "$RUN_STDERR" "cross-host owner exceeded TTL"
+
+  finish_test "test_cross_host_lane_lock_within_ttl_is_not_reaped"
+}
+
+test_default_workspace_path_targets_lane_1() {
+  echo "Test: default N=1 routes commands to <base>-lane-1 workspace"
+  TEST_ERRORS=()
+  reset_stub_env
+
+  make_test_env
+  local tmp="$LAST_TEST_ENV"
+  export GIT_REV_PARSE_OUTPUT="main"
+
+  run_torque_remote "$tmp" echo hi
+
+  expect_eq "exit code is 0" "0" "$RUN_EXIT"
+  expect_contains "remote sync targets lane-1 path" "$RUN_REMOTE_COMMANDS" "/fake-lane-1"
+
+  finish_test "test_default_workspace_path_targets_lane_1"
+}
+
+test_cold_start_provisions_from_sibling_lane_1() {
+  echo "Test: claiming lane-3 with no .git provisions from lane-1 sibling clone"
+  TEST_ERRORS=()
+  reset_stub_env
+
+  make_test_env
+  local tmp="$LAST_TEST_ENV"
+  export GIT_REV_PARSE_OUTPUT="main"
+  export TORQUE_REMOTE_LANE_COUNT=4
+  export SSH_LOCK_ACQUIRE_SEQUENCE="HELD,HELD,ACQUIRED"
+  local owner_host
+  owner_host="$(printf '%s' "${COMPUTERNAME:-$(hostname 2>/dev/null || echo unknown)}" | tr '[:upper:]' '[:lower:]' | tr -cd '[:alnum:]_.:-')"
+  export SSH_LOCK_OWNER_OUTPUT=$'host='"$owner_host"$'\npid=1\nstarted_at_epoch=9999999999\nlane_index=1'
+  # Stub: lane-3 .git does NOT exist; lane-1 .git DOES.
+  export SSH_LANE_GIT_EXISTS_OUTPUT="lane-3:no,lane-1:yes"
+
+  run_torque_remote "$tmp" echo hi
+
+  expect_eq "exit code is 0" "0" "$RUN_EXIT"
+  expect_contains "provision command clones from lane-1 sibling" "$RUN_REMOTE_COMMANDS" "git clone --local"
+  expect_contains "provision target is lane-3" "$RUN_REMOTE_COMMANDS" "/fake-lane-3"
+  expect_contains "provision source is lane-1" "$RUN_REMOTE_COMMANDS" "/fake-lane-1"
+
+  finish_test "test_cold_start_provisions_from_sibling_lane_1"
+}
+
+test_cold_start_falls_back_to_origin_when_no_sibling() {
+  echo "Test: when lane-1 .git doesn't exist either, clone from origin"
+  TEST_ERRORS=()
+  reset_stub_env
+
+  make_test_env
+  local tmp="$LAST_TEST_ENV"
+  export GIT_REV_PARSE_OUTPUT="main"
+  export TORQUE_REMOTE_LANE_COUNT=2
+  export SSH_LOCK_ACQUIRE_SEQUENCE="ACQUIRED"
+  # Lane-1 .git missing; no warm sibling.
+  export SSH_LANE_GIT_EXISTS_OUTPUT="lane-1:no"
+
+  run_torque_remote "$tmp" echo hi
+
+  expect_eq "exit code is 0" "0" "$RUN_EXIT"
+  expect_contains "provision falls back to origin clone" "$RUN_REMOTE_COMMANDS" "git clone "
+  expect_not_contains "no --local flag (clone is from origin)" "$RUN_REMOTE_COMMANDS" "git clone --local"
+
+  finish_test "test_cold_start_falls_back_to_origin_when_no_sibling"
+}
+
+test_multi_lane_each_command_targets_claimed_lane_path() {
+  echo "Test: claimed lane K routes commands to <base>-lane-K workspace"
+  TEST_ERRORS=()
+  reset_stub_env
+
+  make_test_env
+  local tmp="$LAST_TEST_ENV"
+  export GIT_REV_PARSE_OUTPUT="main"
+  export TORQUE_REMOTE_LANE_COUNT=4
+  export SSH_LOCK_ACQUIRE_SEQUENCE="HELD,HELD,ACQUIRED"
+  local owner_host
+  owner_host="$(printf '%s' "${COMPUTERNAME:-$(hostname 2>/dev/null || echo unknown)}" | tr '[:upper:]' '[:lower:]' | tr -cd '[:alnum:]_.:-')"
+  export SSH_LOCK_OWNER_OUTPUT=$'host='"$owner_host"$'\npid=1\nstarted_at_epoch=9999999999\nlane_index=1'
+
+  run_torque_remote "$tmp" echo hi
+
+  expect_eq "exit code is 0" "0" "$RUN_EXIT"
+  expect_contains "remote sync targets lane-3 path" "$RUN_REMOTE_COMMANDS" "/fake-lane-3"
+
+  finish_test "test_multi_lane_each_command_targets_claimed_lane_path"
+}
+
+test_migration_renames_legacy_workspace_to_lane_1() {
+  echo "Test: first boot renames legacy <base> workspace to <base>-lane-1"
+  TEST_ERRORS=()
+  reset_stub_env
+
+  make_test_env
+  local tmp="$LAST_TEST_ENV"
+  # Override remote_project_path to a realistic Windows-style path that
+  # includes the project name so we can assert on it in the rename command.
+  cat > "$tmp/.torque-remote.local.json" <<'EOJSON'
+{
+  "host": "fakehost",
+  "user": "fakeuser",
+  "remote_project_path": "C:\\trt\\torque-public"
+}
+EOJSON
+  export GIT_REV_PARSE_OUTPUT="main"
+  # Stub: marker missing, legacy <base>\.git exists, lane-1\.git does NOT.
+  export SSH_MIGRATION_MARKER_OUTPUT="NO"
+  export SSH_LEGACY_GIT_EXISTS_OUTPUT="YES"
+  export SSH_LANE_GIT_EXISTS_OUTPUT="lane-1:no"
+
+  run_torque_remote "$tmp" echo hi
+
+  expect_eq "exit code is 0" "0" "$RUN_EXIT"
+  expect_contains "migration renames legacy path" "$RUN_REMOTE_COMMANDS" "move "
+  expect_contains "rename target is lane-1" "$RUN_REMOTE_COMMANDS" "torque-public-lane-1"
+  expect_contains "marker file is written" "$RUN_REMOTE_COMMANDS" "migrated.flag"
+
+  finish_test "test_migration_renames_legacy_workspace_to_lane_1"
+}
+
+test_migration_skips_when_marker_present() {
+  echo "Test: subsequent boots skip migration when marker exists"
+  TEST_ERRORS=()
+  reset_stub_env
+
+  make_test_env
+  local tmp="$LAST_TEST_ENV"
+  export GIT_REV_PARSE_OUTPUT="main"
+  export SSH_MIGRATION_MARKER_OUTPUT="YES"
+
+  run_torque_remote "$tmp" echo hi
+
+  expect_eq "exit code is 0" "0" "$RUN_EXIT"
+  expect_not_contains "no rename command" "$RUN_REMOTE_COMMANDS" "move "
+
+  finish_test "test_migration_skips_when_marker_present"
+}
+
+test_status_flag_lists_lane_states() {
+  echo "Test: --status prints lane states with lock info"
+  TEST_ERRORS=()
+  reset_stub_env
+
+  make_test_env
+  local tmp="$LAST_TEST_ENV"
+  export GIT_REV_PARSE_OUTPUT="main"
+  export TORQUE_REMOTE_LANE_COUNT=3
+  # Stub: lane-1 held, lane-2 free, lane-3 held with cross-host owner.
+  export SSH_STATUS_PROBE_OUTPUT=$'lane-1 HELD owner=hostA pid=123 started=1000\nlane-2 FREE\nlane-3 HELD owner=hostB pid=456 started=2000'
+
+  run_torque_remote "$tmp" --status
+
+  expect_eq "exit code is 0" "0" "$RUN_EXIT"
+  expect_contains "lists lane-1 status" "$RUN_STDOUT" "lane-1"
+  expect_contains "lists lane-1 owner host" "$RUN_STDOUT" "hostA"
+  expect_contains "lists lane-2 as free" "$RUN_STDOUT" "lane-2"
+  expect_contains "lane-2 marked FREE" "$RUN_STDOUT" "FREE"
+  expect_contains "lists lane-3 owner pid" "$RUN_STDOUT" "456"
+
+  finish_test "test_status_flag_lists_lane_states"
+}
+
 main() {
   if [[ ! -f "$SCRIPT_UNDER_TEST" ]]; then
     echo "torque-remote script not found: $SCRIPT_UNDER_TEST" >&2
@@ -1230,6 +1710,24 @@ main() {
   test_sync_failure_falls_back_to_local
   test_unknown_leading_flag_errors
   test_timeout_style_failure_triggers_failsafe_cleanup_round_trip
+  test_lane_count_resolves_default_to_1
+  test_lane_count_env_var_overrides_default
+  test_lane_count_cli_flag_beats_env
+  test_lane_workspace_path_appends_suffix
+  test_lane_workspace_path_lane_1_is_distinct_from_legacy
+  test_multi_lane_probes_lanes_in_order
+  test_multi_lane_n_equals_1_skips_probe
+  test_explicit_lane_skips_probe_and_fails_fast_when_held
+  test_explicit_lane_claims_lane_when_free
+  test_cross_host_lane_lock_reaps_via_ttl
+  test_cross_host_lane_lock_within_ttl_is_not_reaped
+  test_default_workspace_path_targets_lane_1
+  test_multi_lane_each_command_targets_claimed_lane_path
+  test_cold_start_provisions_from_sibling_lane_1
+  test_cold_start_falls_back_to_origin_when_no_sibling
+  test_migration_renames_legacy_workspace_to_lane_1
+  test_migration_skips_when_marker_present
+  test_status_flag_lists_lane_states
 
   echo ""
   echo "=============================="

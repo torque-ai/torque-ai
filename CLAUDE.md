@@ -316,6 +316,8 @@ If the remote is unreachable or overloaded, `torque-remote` falls back to local 
 
 **If no remote is configured** (transport: "local" or no config), commands run locally as before.
 
+**Lanes:** `torque-remote` supports parallel invocations on the same remote workstation via numbered lane workspaces. Default `TORQUE_REMOTE_LANE_COUNT=1` is identical to today's single-workspace behavior. Bump to `8` (or whatever) so N concurrent invocations each claim their own lane workspace and run in parallel without contention. Use `torque-remote --status` to see lane states. See `docs/torque-remote.md` for the full lane semantics (configuration, lifecycle, stale reap, migration, disk footprint).
+
 ## Testing workflow
 
 Pre-push checks are two-tier:

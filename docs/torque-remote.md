@@ -100,23 +100,97 @@ A `TORQUE_REMOTE_TEST_WORKTREE_SUFFIX` env var appends a per-invocation suffix (
 
 ---
 
+## Lanes
+
+`torque-remote` supports parallel invocations on the same remote workstation via numbered lane workspaces. Each lane is a self-contained checkout at `<base>-lane-K`, gated by an atomic-mkdir lock at `<base-parent>\.torque-remote-lanes\.locks\lane-K`.
+
+### Configuration
+
+Single primary knob: `TORQUE_REMOTE_LANE_COUNT`. Default `1` (today's behavior — one active workspace, single lock).
+
+Precedence (highest first):
+1. `--lanes <N>` CLI flag
+2. `TORQUE_REMOTE_LANE_COUNT` env var
+3. `lane_count` in `.torque-remote.json` / `~/.torque-remote.local.json` / `~/.torque-remote.json` (project > personal > global)
+4. Default = 1
+
+Other env vars:
+
+| Var | Default | Purpose |
+|---|---|---|
+| `TORQUE_REMOTE_LANE` | unset | Explicit lane index, fail-fast if held (no fallback to other lanes) |
+| `TORQUE_REMOTE_LANE_TIMEOUT_SECS` | 1800 | Claim wait timeout |
+| `TORQUE_REMOTE_LANE_STALE_CHECK_SECS` | 10 | Stale-detection poll cadence |
+| `TORQUE_REMOTE_LANE_STALE_TTL_SECS` | 14400 | Cross-host TTL for stale reap |
+| `TORQUE_REMOTE_LANE_PROVISION_FROM` | `sibling` | Cold-start clone source (`sibling` \| `origin`) |
+
+The legacy `TORQUE_REMOTE_SYNC_LOCK_*` env vars are honored as fallbacks during the transition.
+
+### Lifecycle
+
+Each `torque-remote` invocation:
+1. Resolves the lane count (1..N) and optional explicit lane.
+2. Runs first-boot migration (rename legacy `<base>` → `<base>-lane-1` once, marker file at `<parent>\.torque-remote-lanes\migrated.flag`).
+3. Probes lanes 1..N (or only the explicit lane) for an unheld lock dir.
+4. Claims the first free lane via atomic `mkdir`.
+5. Rewrites `EFFECTIVE_REMOTE_PROJECT_PATH` to `<base>-lane-K` so all downstream commands target the claimed workspace.
+6. Cold-start: if `<lane-path>\.git` is missing, clones from sibling lane-1 (`git clone --local`) or origin.
+7. Runs the sync chain inside the claimed lane.
+8. Releases the lane lock on exit (via `trap`).
+
+Lock metadata format (newline-delimited):
+
+```
+host=<owner-machine-hostname>
+pid=<owner-pid-on-that-machine>
+started_at_epoch=<unix-seconds>
+lane_index=<integer>
+```
+
+### Stale reap
+
+- **Same-host owner** (`host` matches local): if the PID's numeric and `kill -0 pid` shows it's dead, reap.
+- **Cross-host owner**: TTL-based fallback (default 4h). Cannot remotely PID-check.
+- Never reap on missing/empty `host` (b9cfac9d invariant) or empty owner metadata (TOCTOU between mkdir-ACQUIRED and owner-write must remain safe).
+
+### Diagnostics
+
+```
+torque-remote --status
+```
+
+Single SSH round-trip. Lists each lane 1..N with HELD/FREE state, owner host, PID, and start time.
+
+### Disk footprint
+
+Each lane workspace includes `.git`, `node_modules`, and build artifacts — roughly 1-3 GB per lane. With N=8, plan for ~16-24 GB resident on the remote.
+
+### Failure isolation
+
+Lock-acquire timeout (all lanes held past `TORQUE_REMOTE_LANE_TIMEOUT_SECS`) falls back to local execution — same contract as the pre-lane sync-lock timeout. Lock failure does NOT hard-die.
+
+---
+
 ## Lock semantics (the chronic friction point)
 
-Lock dir lives at a **sibling** path of the worktree: `<EFFECTIVE_REMOTE_PROJECT_PATH>.torque-remote-sync.lock/`.
+The pre-lane lock at `<EFFECTIVE_REMOTE_PROJECT_PATH>.torque-remote-sync.lock/` was replaced by per-lane locks at `<base-parent>\.torque-remote-lanes\.locks\lane-K`. The same hard-won invariants apply:
 
-**Why sibling, not inside:** the sync chain runs `git clean -fd` inside the worktree, which would remove an in-worktree lock dir mid-sync. The 2026-04-29 commit that moved the lock to a sibling path closed a real race where a concurrent torque-remote could acquire mid-run and clobber HEAD between this script's sync and runner.sh.
+**Why sibling, not inside:** the sync chain runs `git clean -fd` inside the worktree, which would remove an in-worktree lock dir mid-sync. The 2026-04-29 fix moving locks to a sibling path closed a real race where a concurrent torque-remote could acquire mid-run and clobber HEAD between this script's sync and runner.sh. Lane locks live at `<base-parent>\.torque-remote-lanes\.locks\lane-K` — outside any lane workspace, immune to `git clean` from any single lane.
 
-**Acquire algorithm:**
+**Acquire algorithm (per lane):**
 
 1. Try `mkdir <LOCK_DIR>` on remote (atomic at directory-entry level).
-2. If success → write `owner.env` with `host=`, `pid=`, `started_at_epoch=`. Return acquired.
-3. If fail → log "Waiting for remote sync lock..." (only on first iteration).
-4. Every `TORQUE_REMOTE_SYNC_LOCK_STALE_CHECK_SECS` (default 10s), check `is_stale`:
+2. If success → write `owner.env` with `host=`, `pid=`, `started_at_epoch=`, `lane_index=`. Return acquired.
+3. If fail → multi-lane probe loop tries the next lane; explicit-lane mode fails fast.
+4. If all N lanes held → log "Waiting..." (first iteration), sweep stale via `is_stale`, retry round.
+5. `is_stale` checks (every `TORQUE_REMOTE_LANE_STALE_CHECK_SECS`, default 10s):
    - Read `owner.env` from remote.
+   - Empty/unreadable → NOT stale (TOCTOU safe; see Stale reap above).
    - Strip trailing whitespace from values (CMD's `echo X>file` writes a literal trailing space — broke comparison until 2026-04-29 fix b9cfac9d).
-   - If `owner_host` ≠ local host → not stale (don't reap cross-host locks; the other machine knows).
-   - If `owner_pid` is numeric AND `kill -0 <pid>` fails → STALE → `rmdir /s /q` and retry.
-5. Sleep 2s, repeat until `TORQUE_REMOTE_SYNC_LOCK_TIMEOUT_SECS` (default 1800s = 30 min).
+   - Empty `owner_host` → NOT stale (b9cfac9d invariant).
+   - Same-host: `kill -0 <numeric-pid>` fails → STALE.
+   - Cross-host: `now - started_at_epoch > TTL` → STALE.
+6. Sleep 2s, repeat until `TORQUE_REMOTE_LANE_TIMEOUT_SECS` (default 1800s = 30 min).
 
 **Lock states observed in this session:**
 

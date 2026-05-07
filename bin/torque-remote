@@ -376,7 +376,7 @@ cleanup_remote_exec() {
 }
 
 cleanup_on_exit() {
-  release_remote_sync_lock
+  release_remote_lane_lock
   cleanup_remote_exec
   cleanup_temp_dirs
   sweep_old_orphans
@@ -401,144 +401,189 @@ cleanup_on_exit() {
 # Implementation: `mkdir` is atomic on Windows and posix. The directory
 # exists ⇒ someone holds the lock. Held across the whole script via the
 # EXIT trap.
-REMOTE_SYNC_LOCK_HELD=0
-REMOTE_SYNC_LOCK_DIR=""
-REMOTE_SYNC_LOCK_OWNER_FILE="owner.env"
-REMOTE_SYNC_LOCK_HEARTBEAT_FILE="heartbeat.epoch"
-REMOTE_SYNC_LOCK_STALE_REASON=""
-REMOTE_SYNC_LOCK_HEARTBEAT_PID=""
-# Set by acquire_remote_sync_lock when a stale-heartbeat warn has fired
-# during the current wait, so the warn is one-shot per invocation.
-REMOTE_SYNC_LOCK_HEARTBEAT_WARNED=0
+REMOTE_LANE_LOCK_HELD=0
+REMOTE_LANE_LOCK_DIR=""
+REMOTE_LANE_INDEX=""
+REMOTE_LANE_WORKSPACE_BASE=""
+REMOTE_LANE_LOCK_OWNER_FILE="owner.env"
+REMOTE_LANE_LOCK_STALE_REASON=""
+# Heartbeat plumbing (lane-aware port of main's remote-sync-lock heartbeat).
+# A held lane spawns a detached subshell that touches heartbeat.epoch every
+# TORQUE_REMOTE_LANE_LOCK_HEARTBEAT_SECS (legacy: TORQUE_REMOTE_SYNC_LOCK_HEARTBEAT_SECS,
+# default 60). Waiters use heartbeat-age as a "holder hung but not dead" signal —
+# informational warn only; TTL remains the sole reap mechanism.
+REMOTE_LANE_LOCK_HEARTBEAT_FILE="heartbeat.epoch"
+REMOTE_LANE_LOCK_HEARTBEAT_PID=""
+# Set by acquire_any_remote_lane when a stale-heartbeat warn has fired during
+# the current wait so the warn is one-shot per invocation.
+REMOTE_LANE_LOCK_HEARTBEAT_WARNED=0
 
-remote_sync_lock_local_host() {
-  local host
-  host="${COMPUTERNAME:-}"
-  if [[ -z "$host" ]]; then
-    host="$(hostname 2>/dev/null || echo unknown)"
-  fi
-  host="$(printf '%s\n' "$host" | tr '[:upper:]' '[:lower:]')"
-  if [[ -z "$host" ]]; then
-    host="unknown"
-  fi
-  printf '%s\n' "$host"
+remote_lane_lock_local_host() {
+  local raw="${COMPUTERNAME:-$(hostname 2>/dev/null || echo unknown)}"
+  printf '%s' "$raw" | tr '[:upper:]' '[:lower:]' | tr -cd '[:alnum:]_.:-'
 }
 
-remote_sync_lock_safe_value() {
-  # Keep owner metadata command-safe for cmd.exe redirection.
+remote_lane_lock_safe_value() {
   printf '%s' "$1" | tr -cd '[:alnum:]_.:-'
 }
 
-write_remote_sync_lock_owner() {
-  local owner_file owner_host owner_pid owner_started
-  owner_file="${REMOTE_SYNC_LOCK_DIR}\\${REMOTE_SYNC_LOCK_OWNER_FILE}"
-  owner_host="$(remote_sync_lock_safe_value "$(remote_sync_lock_local_host)")"
-  owner_pid="$(remote_sync_lock_safe_value "$$")"
-  owner_started="$(remote_sync_lock_safe_value "$(date +%s 2>/dev/null || echo 0)")"
-
+write_remote_lane_lock_owner() {
+  local owner_file owner_host owner_pid owner_started owner_lane
+  owner_file="${REMOTE_LANE_LOCK_DIR}\\${REMOTE_LANE_LOCK_OWNER_FILE}"
+  owner_host="$(remote_lane_lock_safe_value "$(remote_lane_lock_local_host)")"
+  owner_pid="$(remote_lane_lock_safe_value "$$")"
+  owner_started="$(remote_lane_lock_safe_value "$(date +%s 2>/dev/null || echo 0)")"
+  owner_lane="$(remote_lane_lock_safe_value "${REMOTE_LANE_INDEX:-0}")"
   ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" \
-    "echo host=$owner_host>\"$owner_file\" && echo pid=$owner_pid>>\"$owner_file\" && echo started_at_epoch=$owner_started>>\"$owner_file\"" \
+    "(echo host=$owner_host && echo pid=$owner_pid && echo started_at_epoch=$owner_started && echo lane_index=$owner_lane) > \"$owner_file\"" \
     >/dev/null 2>&1
 }
 
-read_remote_sync_lock_owner() {
+read_remote_lane_lock_owner() {
   local owner_file
-  owner_file="${REMOTE_SYNC_LOCK_DIR}\\${REMOTE_SYNC_LOCK_OWNER_FILE}"
+  owner_file="${REMOTE_LANE_LOCK_DIR}\\${REMOTE_LANE_LOCK_OWNER_FILE}"
   ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" \
-    "if exist \"$owner_file\" (type \"$owner_file\") else (echo NO_OWNER)" \
+    "type \"$owner_file\" 2>nul" \
     2>/dev/null | tr -d '\r'
 }
 
 owner_field() {
-  local owner="$1" key="$2"
-  # Strip trailing whitespace (including the space CMD's `echo X>file` writes
-  # before the newline). owner.env values otherwise read back with a literal
-  # trailing space, which causes the owner_host == local_host comparison in
-  # remote_sync_lock_is_stale to fail and the auto-reap path never fires for
-  # crashed sessions.
-  printf '%s\n' "$owner" | sed -n "s/^${key}=//p" | head -n 1 | sed 's/[[:space:]]*$//'
+  local owner_text="$1"
+  local field="$2"
+  # Trailing-whitespace strip preserved from b9cfac9d — CMD echo emits a
+  # trailing space that broke owner_host comparisons.
+  printf '%s' "$owner_text" | awk -F= -v f="$field" '$1 == f { sub(/[[:space:]]+$/, "", $2); print $2; exit }'
 }
 
-remote_sync_lock_is_stale() {
-  local owner
-  REMOTE_SYNC_LOCK_STALE_REASON=""
+remote_lane_lock_is_stale() {
+  local owner host_field pid_field started_field local_host now ttl
+  REMOTE_LANE_LOCK_STALE_REASON=""
+  owner="$(read_remote_lane_lock_owner)"
+  if [[ -z "$owner" ]]; then
+    # Conservative: an empty/unreadable owner file is NOT proof of staleness.
+    # Could be (a) a TOCTOU race window between mkdir-ACQUIRED and the owner
+    # write, (b) a transient SSH read failure, or (c) `type file 2>nul` on a
+    # file that exists but is being concurrently written. Reaping in any of
+    # those cases would silently destroy a fresh lock. The b9cfac9d invariant
+    # ("never reap when owner info is ambiguous") applies here too.
+    return 1
+  fi
+  host_field="$(owner_field "$owner" host)"
+  pid_field="$(owner_field "$owner" pid)"
+  started_field="$(owner_field "$owner" started_at_epoch)"
+  local_host="$(remote_lane_lock_local_host)"
 
-  owner="$(read_remote_sync_lock_owner || true)"
-  if [[ -z "$owner" || "$owner" == *"NO_OWNER"* ]]; then
+  if [[ -z "$host_field" ]]; then
+    return 1   # never reap on missing owner_host (b9cfac9d preserved rule)
+  fi
+
+  if [[ "$host_field" == "$local_host" ]]; then
+    # Numeric guard required: a non-numeric or partially-written pid_field
+    # would make `kill -0 "abc"` return non-zero, falsely tripping reap.
+    if [[ "$pid_field" =~ ^[0-9]+$ ]] && ! kill -0 "$pid_field" 2>/dev/null; then
+      REMOTE_LANE_LOCK_STALE_REASON="local owner pid $pid_field is dead"
+      return 0
+    fi
     return 1
   fi
 
-  remote_sync_lock_check_owner_block "$owner"
+  ttl="${TORQUE_REMOTE_LANE_STALE_TTL_SECS:-${TORQUE_REMOTE_SYNC_LOCK_STALE_TTL_SECS:-14400}}"
+  now="$(date +%s 2>/dev/null || echo 0)"
+  if [[ -n "$started_field" && "$started_field" =~ ^[0-9]+$ && "$now" =~ ^[0-9]+$ ]]; then
+    if (( now - started_field > ttl )); then
+      REMOTE_LANE_LOCK_STALE_REASON="cross-host owner exceeded TTL (${ttl}s)"
+      return 0
+    fi
+  fi
+  return 1
 }
 
-# Shared stale-check for an in-memory owner block (parsed metadata). Used
-# by both `remote_sync_lock_is_stale` (which reads owner.env first) and the
-# coalesced acquire-loop path (which gets the block inline with the lock
-# probe). Returns 0 (stale) and sets REMOTE_SYNC_LOCK_STALE_REASON, or 1.
+# Shared stale-check for an in-memory owner block (parsed metadata). Used by
+# the coalesced acquire-loop path (the probe returns owner-block inline with
+# the lock state, so a re-read SSH round-trip would be wasted). Mirrors the
+# semantics of `remote_lane_lock_is_stale` but takes the metadata as an
+# argument instead of fetching it. Returns 0 (stale) and sets
+# REMOTE_LANE_LOCK_STALE_REASON, or 1.
 #
 # Two stale conditions:
 #   1. Same-host owner with a dead PID (kill -0 fails). Specific to the
 #      local workstation; reaps abandoned-by-crash locks immediately.
-#   2. TTL exceeded (now - started_at_epoch > TORQUE_REMOTE_SYNC_LOCK_TTL_SECS,
-#      default 4h). Applies to ANY host. Reclaims locks from crashed remote
-#      workstations or sessions whose PID we can't probe — the operator
-#      previously had to manually `rmdir` these.
-remote_sync_lock_check_owner_block() {
-  local owner="$1" owner_host owner_pid owner_started local_host now
-  REMOTE_SYNC_LOCK_STALE_REASON=""
+#   2. TTL exceeded (now - started_at_epoch > ttl, default 4h). Applies to
+#      ANY host. Reclaims locks from crashed remote workstations or sessions
+#      whose PID we can't probe.
+#
+# Invariants preserved:
+#   - Empty/missing owner_block ⇒ NOT stale (b9cfac9d "ambiguous metadata
+#     means keep waiting").
+#   - Numeric PID guard before `kill -0`.
+#   - Owner-host scope rule: never reap on missing/empty host_field.
+remote_lane_lock_check_owner_block() {
+  local owner="$1" host_field pid_field started_field local_host now ttl
+  REMOTE_LANE_LOCK_STALE_REASON=""
 
-  owner_host="$(owner_field "$owner" host | tr '[:upper:]' '[:lower:]')"
-  owner_pid="$(owner_field "$owner" pid)"
-  owner_started="$(owner_field "$owner" started_at_epoch)"
-  local_host="$(remote_sync_lock_local_host)"
-
-  # Same-host PID-dead check (existing behavior).
-  if [[ -n "$owner_host" && "$owner_host" == "$local_host" \
-        && "$owner_pid" =~ ^[0-9]+$ ]] \
-     && ! kill -0 "$owner_pid" 2>/dev/null; then
-    REMOTE_SYNC_LOCK_STALE_REASON="owner ${owner_host} pid ${owner_pid} is no longer running"
-    return 0
+  if [[ -z "$owner" ]]; then
+    return 1
   fi
 
-  # TTL-based reap (new). Applies regardless of host so cross-host crashes
-  # don't strand locks indefinitely. Default 4h is longer than any legitimate
-  # run we've measured (longest known: factory codex-spark batch, ~30 min).
-  local ttl="${TORQUE_REMOTE_SYNC_LOCK_TTL_SECS:-14400}"
-  if [[ "$ttl" =~ ^[0-9]+$ ]] && (( ttl > 0 )) \
-     && [[ "$owner_started" =~ ^[0-9]+$ ]]; then
-    now="$(date +%s 2>/dev/null || echo 0)"
-    if [[ "$now" =~ ^[0-9]+$ ]] && (( now > 0 )); then
-      local age=$((now - owner_started))
-      if (( age > ttl )); then
-        REMOTE_SYNC_LOCK_STALE_REASON="owner ${owner_host:-unknown} (started_at_epoch=${owner_started}) exceeded TTL ${ttl}s (age=${age}s)"
-        return 0
-      fi
+  host_field="$(owner_field "$owner" host | tr '[:upper:]' '[:lower:]')"
+  pid_field="$(owner_field "$owner" pid)"
+  started_field="$(owner_field "$owner" started_at_epoch)"
+  local_host="$(remote_lane_lock_local_host)"
+
+  if [[ -z "$host_field" ]]; then
+    # Never reap on missing owner_host (b9cfac9d preserved rule). The mkdir
+    # → owner-write window is a TOCTOU; an empty host means we may have
+    # raced a fresh acquire that hasn't written metadata yet.
+    return 1
+  fi
+
+  if [[ "$host_field" == "$local_host" ]]; then
+    # Numeric guard: a non-numeric or partially-written pid_field would make
+    # `kill -0 "abc"` return non-zero, falsely tripping reap.
+    if [[ "$pid_field" =~ ^[1-9][0-9]*$ ]] && ! kill -0 "$pid_field" 2>/dev/null; then
+      REMOTE_LANE_LOCK_STALE_REASON="local owner pid $pid_field is dead"
+      return 0
+    fi
+    return 1
+  fi
+
+  ttl="${TORQUE_REMOTE_LANE_STALE_TTL_SECS:-${TORQUE_REMOTE_SYNC_LOCK_STALE_TTL_SECS:-14400}}"
+  now="$(date +%s 2>/dev/null || echo 0)"
+  if [[ -n "$started_field" && "$started_field" =~ ^[0-9]+$ && "$now" =~ ^[0-9]+$ ]]; then
+    if (( now - started_field > ttl )); then
+      REMOTE_LANE_LOCK_STALE_REASON="cross-host owner exceeded TTL (${ttl}s)"
+      return 0
     fi
   fi
-
   return 1
 }
 
-# Spawn a background updater that touches heartbeat.epoch in the lock dir
-# every $TORQUE_REMOTE_SYNC_LOCK_HEARTBEAT_SECS seconds (default 60).
-# Waiters detect "no heartbeat in N seconds" as a proxy for hung-but-alive
-# holders — distinguishes "actively syncing" from "stuck mid-sync."
+# Spawn a background updater that touches heartbeat.epoch in the held lane's
+# lock dir every TORQUE_REMOTE_LANE_LOCK_HEARTBEAT_SECS (legacy fallback:
+# TORQUE_REMOTE_SYNC_LOCK_HEARTBEAT_SECS, default 60). Waiters detect
+# "no heartbeat in N seconds" as a "holder hung but not dead" proxy —
+# distinguishes "actively syncing" from "stuck mid-sync."
 #
-# Best-effort: SSH failures are swallowed. The lock TTL (#2) remains the
+# Best-effort: SSH failures are swallowed. The lane TTL remains the
 # definitive cross-host reap mechanism; heartbeat is informational (warn
 # only, never auto-reap).
-start_remote_sync_lock_heartbeat() {
-  if [[ -z "${REMOTE_SYNC_LOCK_DIR:-}" || -z "${SSH_USER:-}" || -z "${SSH_HOST:-}" ]]; then
+#
+# CRITICAL: must be paired with stop_remote_lane_lock_heartbeat BEFORE the
+# rmdir in release_remote_lane_lock. A mid-flight `echo > heartbeat.epoch`
+# from this subshell could otherwise recreate the lock dir as a side-effect
+# of the redirect, leaving an orphan lock for the next torque-remote.
+start_remote_lane_lock_heartbeat() {
+  if [[ -z "${REMOTE_LANE_LOCK_DIR:-}" || -z "${SSH_USER:-}" || -z "${SSH_HOST:-}" ]]; then
     return 0
   fi
-  local interval="${TORQUE_REMOTE_SYNC_LOCK_HEARTBEAT_SECS:-60}"
+  local interval="${TORQUE_REMOTE_LANE_LOCK_HEARTBEAT_SECS:-${TORQUE_REMOTE_SYNC_LOCK_HEARTBEAT_SECS:-60}}"
   if ! [[ "$interval" =~ ^[0-9]+$ ]] || (( interval <= 0 )); then
     return 0
   fi
-  local hb_file="${REMOTE_SYNC_LOCK_DIR}\\${REMOTE_SYNC_LOCK_HEARTBEAT_FILE}"
-  # Detached subshell: writes initial heartbeat then loops. Each SSH is
-  # silenced; failures don't propagate. The loop exits when the parent kills
-  # this subshell on release.
+  local hb_file="${REMOTE_LANE_LOCK_DIR}\\${REMOTE_LANE_LOCK_HEARTBEAT_FILE}"
+  # Detached subshell: writes a heartbeat then loops. Each SSH is silenced;
+  # failures don't propagate. The loop exits when the parent kills it on
+  # release.
   (
     while :; do
       ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" \
@@ -547,144 +592,458 @@ start_remote_sync_lock_heartbeat() {
       sleep "$interval"
     done
   ) </dev/null >/dev/null 2>&1 &
-  REMOTE_SYNC_LOCK_HEARTBEAT_PID=$!
+  REMOTE_LANE_LOCK_HEARTBEAT_PID=$!
   disown 2>/dev/null || true
 }
 
-stop_remote_sync_lock_heartbeat() {
-  if [[ -n "${REMOTE_SYNC_LOCK_HEARTBEAT_PID:-}" ]]; then
-    kill "$REMOTE_SYNC_LOCK_HEARTBEAT_PID" 2>/dev/null || true
+stop_remote_lane_lock_heartbeat() {
+  if [[ -n "${REMOTE_LANE_LOCK_HEARTBEAT_PID:-}" ]]; then
+    kill "$REMOTE_LANE_LOCK_HEARTBEAT_PID" 2>/dev/null || true
     # Reap the subshell so it doesn't show up in `ps` after exit.
-    wait "$REMOTE_SYNC_LOCK_HEARTBEAT_PID" 2>/dev/null || true
-    REMOTE_SYNC_LOCK_HEARTBEAT_PID=""
+    wait "$REMOTE_LANE_LOCK_HEARTBEAT_PID" 2>/dev/null || true
+    REMOTE_LANE_LOCK_HEARTBEAT_PID=""
   fi
 }
 
-reap_remote_sync_lock() {
+reap_remote_lane_lock() {
   local reason="$1"
-  warn "Remote sync lock appears stale (${reason}); removing $REMOTE_SYNC_LOCK_DIR"
+  warn "Remote lane lock appears stale (${reason}); removing $REMOTE_LANE_LOCK_DIR"
   ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" \
-    "rmdir /s /q \"$REMOTE_SYNC_LOCK_DIR\" 2>nul" \
-    >/dev/null 2>&1
+    "rmdir /s /q \"$REMOTE_LANE_LOCK_DIR\" 2>nul" \
+    >/dev/null 2>&1 || true
 }
 
-acquire_remote_sync_lock() {
-  if [[ -z "${SSH_USER:-}" || -z "${SSH_HOST:-}" || -z "${EFFECTIVE_REMOTE_PROJECT_PATH:-}" ]]; then
+# Read the lane count from configured sources, returning a positive integer.
+# Precedence (highest first):
+#   1. --lanes <N> CLI flag (consumed by the flag-parsing loop before this is called)
+#   2. TORQUE_REMOTE_LANE_COUNT env var
+#   3. .torque-remote.json (project) / .torque-remote.local.json (personal) / .torque-remote.json (global) "lane_count" key
+#   4. Default = 1
+resolve_lane_count() {
+  local cli="${TORQUE_REMOTE_LANES_CLI:-}"
+  local env="${TORQUE_REMOTE_LANE_COUNT:-}"
+  local config_value=""
+  local count
+
+  if [[ -n "$cli" ]]; then
+    count="$cli"
+  elif [[ -n "$env" ]]; then
+    count="$env"
+  else
+    config_value="$(read_lane_count_from_configs)"
+    count="${config_value:-1}"
+  fi
+
+  if ! [[ "$count" =~ ^[1-9][0-9]*$ ]]; then
+    count=1
+  fi
+  printf '%s\n' "$count"
+}
+
+# Walk the same JSON config files that the transport stack reads and return
+# the first positive-integer "lane_count" found. Empty string if nothing configured.
+# Precedence: project (.torque-remote.json at PROJECT_ROOT) > personal
+# (~/.torque-remote.local.json) > global (~/.torque-remote.json).
+read_lane_count_from_configs() {
+  local config_path
+  for config_path in \
+    "${PROJECT_CONFIG:-}" \
+    "${GLOBAL_LOCAL:-}" \
+    "${GLOBAL_CONFIG:-}"; do
+    [[ -z "$config_path" || ! -f "$config_path" ]] && continue
+    local value
+    value="$(json_get "$config_path" '.lane_count' 2>/dev/null || true)"
+    if [[ "$value" =~ ^[1-9][0-9]*$ ]]; then
+      printf '%s\n' "$value"
+      return 0
+    fi
+  done
+  printf ''
+}
+
+# Read TORQUE_REMOTE_LANE for explicit-lane mode. Empty string if unset.
+resolve_explicit_lane() {
+  local raw="${TORQUE_REMOTE_LANE:-}"
+  if [[ "$raw" =~ ^[1-9][0-9]*$ ]]; then
+    printf '%s\n' "$raw"
+  fi
+}
+
+# Compute the per-lane workspace path. base is the legacy single-workspace
+# path (e.g., "C:\trt\torque-public"); index is 1-based.
+compute_lane_workspace_path() {
+  local base="$1"
+  local index="$2"
+  printf '%s-lane-%s\n' "$base" "$index"
+}
+
+# After a lane is claimed, ensure the lane workspace has a .git directory.
+# If missing, clone from the sibling lane-1 (warm — fastest, hardlinks where
+# possible) or fall back to cloning from origin.
+provision_lane_workspace_if_needed() {
+  local lane_path="$1"
+  local source_pref="${TORQUE_REMOTE_LANE_PROVISION_FROM:-sibling}"
+
+  # Self-guard: only meaningful when SSH transport is configured. Mirrors
+  # attempt_lane_claim's no-ssh early-return so the function is safe for
+  # reuse from any code path.
+  if [[ -z "${SSH_USER:-}" || -z "${SSH_HOST:-}" ]]; then
     return 0
   fi
 
-  # Lock dir lives at a SIBLING path next to the worktree, not inside it.
-  # The sync chain runs `git clean -fd` after `git reset --hard`, and
-  # `git clean -fd` removes any untracked dir under the worktree —
-  # including a lock dir at "$WORKTREE/.torque-remote-sync.lock". That
-  # self-clobber lets a concurrent torque-remote acquire the lock
-  # mid-run and reset HEAD between this script's sync and runner.sh,
-  # which the exit-98 guard then surfaces as "concurrent torque-remote
-  # session likely clobbered the checkout". Verified live 2026-04-29:
-  # the prior in-worktree path silently disappeared on every sync
-  # whose .git already existed (i.e., every sync after the first).
-  # Sibling path is naturally invisible to any git operation scoped
-  # to the worktree.
-  REMOTE_SYNC_LOCK_DIR="${EFFECTIVE_REMOTE_PROJECT_PATH}.torque-remote-sync.lock"
-  local timeout="${TORQUE_REMOTE_SYNC_LOCK_TIMEOUT_SECS:-1800}"
-  local stale_check_interval="${TORQUE_REMOTE_SYNC_LOCK_STALE_CHECK_SECS:-10}"
-  local elapsed=0
-  local poll=2
-  if ! [[ "$stale_check_interval" =~ ^[0-9]+$ ]]; then
-    stale_check_interval=10
+  # Quick check: if lane_path\.git exists on remote, skip.
+  local probe_result
+  probe_result=$(ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" \
+    "if exist \"$lane_path\\.git\" (echo YES) else (echo NO)" \
+    2>/dev/null | tr -d '\r' | tail -1)
+  if [[ "$probe_result" == "YES" ]]; then
+    return 0
   fi
-  local last_stale_check=$((0 - stale_check_interval))
-  local probe_response state owner_block hb_block
-  local owner_file="${REMOTE_SYNC_LOCK_DIR}\\${REMOTE_SYNC_LOCK_OWNER_FILE}"
-  local hb_file="${REMOTE_SYNC_LOCK_DIR}\\${REMOTE_SYNC_LOCK_HEARTBEAT_FILE}"
-  REMOTE_SYNC_LOCK_HEARTBEAT_WARNED=0
-  while true; do
-    # CMD-compatible single-shot probe — coalesces "is the lock held?",
-    # "what does owner.env contain?", AND "what's the latest heartbeat?"
-    # so polling loops don't pay multiple SSH round-trips when stale-check
-    # fires. Output shape:
-    #   ACQUIRED                                 — directory created; we own the lock
-    #   HELD\n<owner-block>\n---HB---\n<hb-block> — held; metadata + heartbeat inline
-    # owner-block is `host=...\npid=...\nstarted_at_epoch=...` or `NO_OWNER`.
-    # hb-block is the heartbeat epoch (or `NO_HB` when the file is absent).
-    # mkdir is atomic at directory-entry level; concurrent races resolve
-    # to "first writer ACQUIRED, others HELD".
-    probe_response=$(ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" \
-      "if not exist \"$REMOTE_SYNC_LOCK_DIR\" (mkdir \"$REMOTE_SYNC_LOCK_DIR\" 2>nul && echo ACQUIRED) else (echo HELD && (if exist \"$owner_file\" (type \"$owner_file\") else (echo NO_OWNER)) && echo ---HB--- && (if exist \"$hb_file\" (type \"$hb_file\") else (echo NO_HB)))" \
-      2>/dev/null | tr -d '\r')
-    state=$(printf '%s\n' "$probe_response" | head -n 1)
-    if [[ "$state" == "ACQUIRED" ]]; then
-      REMOTE_SYNC_LOCK_HELD=1
-      if ! write_remote_sync_lock_owner; then
-        warn "Acquired remote sync lock but failed to write owner metadata; releasing lock"
-        release_remote_sync_lock
-        return 1
-      fi
-      start_remote_sync_lock_heartbeat
+
+  info "Cold-start: provisioning lane workspace at $lane_path"
+  local sibling_path
+  sibling_path="$(compute_lane_workspace_path "$REMOTE_LANE_WORKSPACE_BASE" 1)"
+
+  local sibling_has_git="NO"
+  if [[ "$source_pref" == "sibling" && "$lane_path" != "$sibling_path" ]]; then
+    sibling_has_git=$(ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" \
+      "if exist \"$sibling_path\\.git\" (echo YES) else (echo NO)" \
+      2>/dev/null | tr -d '\r' | tail -1)
+  fi
+
+  local clone_cmd
+  if [[ "$sibling_has_git" == "YES" ]]; then
+    clone_cmd="git clone --local \"$sibling_path\" \"$lane_path\""
+  else
+    if [[ -z "${REMOTE_LANE_ORIGIN_URL:-}" ]]; then
+      warn "Cannot provision lane $lane_path from origin: no 'origin' remote in local project (set one or pre-provision a sibling lane)"
       return 0
     fi
-    # Split owner-block from heartbeat-block at the ---HB--- separator.
-    # awk runs once per probe; awk's missing-separator path leaves
-    # owner_block as full body, hb_block empty.
-    owner_block=$(printf '%s\n' "$probe_response" | awk '/^---HB---$/{exit} NR>1{print}')
-    hb_block=$(printf '%s\n' "$probe_response" | awk 'p{print} /^---HB---$/{p=1}')
-    if (( elapsed == 0 )); then
-      info "Waiting for remote sync lock at $EFFECTIVE_REMOTE_PROJECT_PATH (held by another torque-remote invocation)..."
+    # Origin clone — let the existing sync chain handle the ref selection.
+    clone_cmd="git clone \"$REMOTE_LANE_ORIGIN_URL\" \"$lane_path\""
+  fi
+
+  ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" "$clone_cmd" >/dev/null 2>&1 || \
+    warn "Provisioning clone failed for $lane_path; sync chain will retry"
+}
+
+# Compute the per-lane lock dir. Lock dirs live in a sibling directory next
+# to the workspace base, NOT inside any lane workspace, so `git clean -fd`
+# cannot self-clobber.
+#   base="C:\trt\torque-public" → "C:\trt\.torque-remote-lanes\.locks\lane-3"
+compute_lane_lock_dir() {
+  local base="$1"
+  local index="$2"
+  # Strip the trailing leaf from base to get the parent directory.
+  local parent="${base%\\*}"
+  if [[ "$parent" == "$base" ]]; then
+    parent="${base%/*}"
+  fi
+  printf '%s\\.torque-remote-lanes\\.locks\\lane-%s\n' "$parent" "$index"
+}
+
+# Per-call caches populated by `attempt_lane_claim` from the coalesced probe
+# response so the wait loop can do stale-sweeps and heartbeat warns without
+# spending an extra SSH round-trip per lane. Index keys are the lane number
+# (1..N). `acquire_any_remote_lane` resets these at the top of each call.
+declare -A REMOTE_LANE_LAST_PROBE_OWNER=()
+declare -A REMOTE_LANE_LAST_PROBE_HB=()
+
+# Single-lane non-blocking attempt — coalesced atomic mkdir + owner-read +
+# heartbeat-read in one SSH round-trip. Output shape from the probe:
+#   ACQUIRED                                          — directory created; we own the lock
+#   HELD\n<owner-block>\n---HB---\n<hb-block>          — held; metadata + heartbeat inline
+# owner-block is `host=...\npid=...\nstarted_at_epoch=...\nlane_index=...`
+# (or `NO_OWNER` when owner.env is missing).
+# hb-block is the heartbeat epoch string (or `NO_HB` when the file is absent).
+#
+# On ACQUIRED: writes owner metadata, starts the heartbeat updater, returns 0.
+# On HELD: caches owner_block + hb_block under REMOTE_LANE_LAST_PROBE_*[index]
+# and returns 1. Sets REMOTE_LANE_INDEX, REMOTE_LANE_LOCK_DIR on any call.
+attempt_lane_claim() {
+  local index="$1"
+  if [[ -z "${SSH_USER:-}" || -z "${SSH_HOST:-}" || -z "${REMOTE_LANE_WORKSPACE_BASE:-}" ]]; then
+    REMOTE_LANE_INDEX="$index"
+    REMOTE_LANE_LOCK_HELD=1
+    return 0
+  fi
+
+  REMOTE_LANE_INDEX="$index"
+  REMOTE_LANE_LOCK_DIR="$(compute_lane_lock_dir "$REMOTE_LANE_WORKSPACE_BASE" "$index")"
+
+  local owner_file="${REMOTE_LANE_LOCK_DIR}\\${REMOTE_LANE_LOCK_OWNER_FILE}"
+  local hb_file="${REMOTE_LANE_LOCK_DIR}\\${REMOTE_LANE_LOCK_HEARTBEAT_FILE}"
+  local probe_response state owner_block hb_block
+  # CMD-compatible single-shot probe — coalesces "is the lock held?",
+  # "what does owner.env contain?", AND "what's the latest heartbeat?"
+  # so the polling loop doesn't pay multiple SSH round-trips per lane when
+  # stale-check fires. mkdir is atomic at the directory-entry level; if two
+  # acquires race, only one's mkdir succeeds, the other reports HELD.
+  probe_response=$(ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" \
+    "if not exist \"$REMOTE_LANE_LOCK_DIR\" (mkdir \"$REMOTE_LANE_LOCK_DIR\" 2>nul && echo ACQUIRED) else (echo HELD && (if exist \"$owner_file\" (type \"$owner_file\") else (echo NO_OWNER)) && echo ---HB--- && (if exist \"$hb_file\" (type \"$hb_file\") else (echo NO_HB)))" \
+    2>/dev/null | tr -d '\r')
+  state=$(printf '%s\n' "$probe_response" | head -n 1)
+
+  if [[ "$state" == "ACQUIRED" ]]; then
+    REMOTE_LANE_LOCK_HELD=1
+    if ! write_remote_lane_lock_owner; then
+      warn "Acquired remote lane $index but failed to write owner metadata; releasing"
+      release_remote_lane_lock
+      return 1
     fi
-    if (( stale_check_interval > 0 && elapsed - last_stale_check >= stale_check_interval )); then
+    start_remote_lane_lock_heartbeat
+    # Clear any cached probe data for this lane — we own it now.
+    unset 'REMOTE_LANE_LAST_PROBE_OWNER[$index]' 2>/dev/null || true
+    unset 'REMOTE_LANE_LAST_PROBE_HB[$index]' 2>/dev/null || true
+    return 0
+  fi
+
+  # HELD: split owner-block from heartbeat-block at the ---HB--- separator.
+  # awk runs twice per probe response (small, single-line strings); awk's
+  # missing-separator path leaves owner_block as the full body and hb_block
+  # empty.
+  owner_block=$(printf '%s\n' "$probe_response" | awk '/^---HB---$/{exit} NR>1{print}')
+  hb_block=$(printf '%s\n' "$probe_response" | awk 'p{print} /^---HB---$/{p=1}')
+  REMOTE_LANE_LAST_PROBE_OWNER[$index]="$owner_block"
+  REMOTE_LANE_LAST_PROBE_HB[$index]="$hb_block"
+  return 1
+}
+
+# Inspect each held lane and reap stale ones. Called between probe rounds.
+# Prefers cached owner-block from the most recent attempt_lane_claim probe
+# so a sweep round costs zero SSH round-trips when probes already saw HELD;
+# falls back to the legacy read-then-check path when no cache is present
+# (e.g., the very first sweep after timeout, or a TOCTOU corner where the
+# lane became free + re-claimed between probes).
+sweep_remote_lane_locks_for_stale() {
+  local count="$1"
+  local index owner_block
+  for index in $(seq 1 "$count"); do
+    REMOTE_LANE_LOCK_DIR="$(compute_lane_lock_dir "$REMOTE_LANE_WORKSPACE_BASE" "$index")"
+    owner_block="${REMOTE_LANE_LAST_PROBE_OWNER[$index]:-}"
+    if [[ -n "$owner_block" && "$owner_block" != *"NO_OWNER"* ]]; then
+      # Reuse the coalesced-probe owner block — no extra SSH.
+      if remote_lane_lock_check_owner_block "$owner_block"; then
+        reap_remote_lane_lock "lane $index: $REMOTE_LANE_LOCK_STALE_REASON" || true
+        unset 'REMOTE_LANE_LAST_PROBE_OWNER[$index]' 2>/dev/null || true
+        unset 'REMOTE_LANE_LAST_PROBE_HB[$index]' 2>/dev/null || true
+      fi
+    elif [[ "$owner_block" == *"NO_OWNER"* ]]; then
+      # Cached owner_block says NO_OWNER (b9cfac9d invariant: ambiguous owner
+      # info means "not stale, keep waiting"). Skip without re-reading.
+      continue
+    else
+      # No cached probe data for this lane — fall back to the legacy direct
+      # read path. Preserves correctness across paths that may not have run
+      # an attempt_lane_claim immediately before.
+      if remote_lane_lock_is_stale; then
+        reap_remote_lane_lock "lane $index: $REMOTE_LANE_LOCK_STALE_REASON" || true
+      fi
+    fi
+  done
+  REMOTE_LANE_LOCK_DIR=""
+}
+
+# Single warn (per acquire_any_remote_lane invocation) when the holding lane's
+# heartbeat is older than TORQUE_REMOTE_LANE_LOCK_HEARTBEAT_STALE_SECS (legacy:
+# TORQUE_REMOTE_SYNC_LOCK_HEARTBEAT_STALE_SECS, default 300). Informational
+# only — TTL stays the sole reap mechanism. Mutates
+# REMOTE_LANE_LOCK_HEARTBEAT_WARNED so subsequent rounds stay quiet.
+maybe_warn_lane_heartbeat_stale() {
+  local count="$1"
+  if (( REMOTE_LANE_LOCK_HEARTBEAT_WARNED != 0 )); then
+    return 0
+  fi
+  local hb_stale_secs="${TORQUE_REMOTE_LANE_LOCK_HEARTBEAT_STALE_SECS:-${TORQUE_REMOTE_SYNC_LOCK_HEARTBEAT_STALE_SECS:-300}}"
+  if ! [[ "$hb_stale_secs" =~ ^[0-9]+$ ]] || (( hb_stale_secs <= 0 )); then
+    return 0
+  fi
+  local index hb_block hb_epoch hb_now hb_age
+  for index in $(seq 1 "$count"); do
+    hb_block="${REMOTE_LANE_LAST_PROBE_HB[$index]:-}"
+    if [[ -z "$hb_block" || "$hb_block" == *"NO_HB"* ]]; then
+      continue
+    fi
+    hb_epoch=$(printf '%s\n' "$hb_block" | head -n 1 | sed 's/[[:space:]]*$//')
+    if ! [[ "$hb_epoch" =~ ^[0-9]+$ ]]; then
+      continue
+    fi
+    hb_now="$(date +%s 2>/dev/null || echo 0)"
+    if ! [[ "$hb_now" =~ ^[0-9]+$ ]] || (( hb_now <= 0 )); then
+      continue
+    fi
+    hb_age=$((hb_now - hb_epoch))
+    if (( hb_age > hb_stale_secs )); then
+      local ttl_disp="${TORQUE_REMOTE_LANE_STALE_TTL_SECS:-${TORQUE_REMOTE_SYNC_LOCK_STALE_TTL_SECS:-14400}}"
+      warn "Lane $index holder heartbeat stale (${hb_age}s; threshold ${hb_stale_secs}s) — holder may be hung but not dead. Will continue waiting; TTL ${ttl_disp}s will reap if exceeded."
+      REMOTE_LANE_LOCK_HEARTBEAT_WARNED=1
+      return 0
+    fi
+  done
+}
+
+# Run a one-time idempotent migration: if the legacy <base> workspace
+# exists and the marker file does not, rename <base> to <base>-lane-1
+# and write the marker.
+migrate_legacy_workspace_if_needed() {
+  if [[ -z "${SSH_USER:-}" || -z "${SSH_HOST:-}" || -z "${REMOTE_LANE_WORKSPACE_BASE:-}" ]]; then
+    return 0
+  fi
+
+  local base="$REMOTE_LANE_WORKSPACE_BASE"
+  local parent="${base%\\*}"
+  if [[ "$parent" == "$base" ]]; then
+    parent="${base%/*}"
+  fi
+  local marker="${parent}\\.torque-remote-lanes\\migrated.flag"
+
+  local marker_present
+  marker_present=$(ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" \
+    "if exist \"$marker\" (echo YES) else (echo NO)" \
+    2>/dev/null | tr -d '\r' | tail -1)
+  if [[ "$marker_present" == "YES" ]]; then
+    return 0
+  fi
+
+  local legacy_git_present
+  legacy_git_present=$(ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" \
+    "if exist \"$base\\.git\" (echo YES) else (echo NO)" \
+    2>/dev/null | tr -d '\r' | tail -1)
+
+  local lane_1_path
+  lane_1_path="$(compute_lane_workspace_path "$base" 1)"
+
+  if [[ "$legacy_git_present" == "YES" ]]; then
+    info "Migration: renaming legacy workspace $base → $lane_1_path"
+    ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" \
+      "if not exist \"$parent\\.torque-remote-lanes\" (mkdir \"$parent\\.torque-remote-lanes\") && move \"$base\" \"$lane_1_path\"" \
+      >/dev/null 2>&1 || \
+      warn "Legacy workspace rename failed; lane-1 will be lazy-provisioned from origin"
+  fi
+
+  # Write the marker regardless — even if there was no legacy workspace,
+  # we don't want to re-probe forever.
+  ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" \
+    "if not exist \"$parent\\.torque-remote-lanes\" (mkdir \"$parent\\.torque-remote-lanes\") && type nul > \"$marker\"" \
+    >/dev/null 2>&1 || true
+}
+
+# Probe lanes 1..N until one is acquired or wait-timeout hits.
+# Sets REMOTE_LANE_INDEX on success.
+#
+# Lock dirs live in a SIBLING directory next to any lane workspace, not
+# inside it.  The sync chain runs `git clean -fd` after `git reset --hard`,
+# and `git clean -fd` removes any untracked dir under the worktree.
+# Sibling path is naturally invisible to any git operation scoped to the
+# worktree.  (Prior bug fixed 2026-04-29; see commit b9cfac9d / sibling-path
+# history in docs/torque-remote.md.)
+acquire_any_remote_lane() {
+  local count="${1:-1}"
+  local explicit="${2:-}"
+  local timeout="${TORQUE_REMOTE_LANE_TIMEOUT_SECS:-${TORQUE_REMOTE_SYNC_LOCK_TIMEOUT_SECS:-1800}}"
+  local stale_check="${TORQUE_REMOTE_LANE_STALE_CHECK_SECS:-${TORQUE_REMOTE_SYNC_LOCK_STALE_CHECK_SECS:-10}}"
+  if ! [[ "$stale_check" =~ ^[1-9][0-9]*$ ]]; then
+    stale_check=10
+  fi
+  local poll=2
+  local elapsed=0
+  local last_stale_check=$((0 - stale_check))
+  # Reset per-call probe caches and one-shot heartbeat warn flag so a fresh
+  # acquire starts with no stale data carried in from a prior invocation.
+  REMOTE_LANE_LAST_PROBE_OWNER=()
+  REMOTE_LANE_LAST_PROBE_HB=()
+  REMOTE_LANE_LOCK_HEARTBEAT_WARNED=0
+
+  if [[ -n "$explicit" ]]; then
+    # Explicit lane mode: try only that lane and fail-fast if held.
+    if attempt_lane_claim "$explicit"; then
+      return 0
+    fi
+    warn "Explicit lane $explicit is held; refusing fallback"
+    return 1
+  fi
+
+  while true; do
+    local index
+    for index in $(seq 1 "$count"); do
+      if attempt_lane_claim "$index"; then
+        return 0
+      fi
+    done
+    # All lanes held. Sweep for stale ones every TORQUE_REMOTE_LANE_STALE_CHECK_SECS
+    # (default 10s) — sweeping each round (every 2s) burns N SSH round-trips per
+    # lane unnecessarily.
+    if (( elapsed == 0 )); then
+      info "All $count remote lane(s) held; waiting for a free lane..."
+    fi
+    if (( elapsed - last_stale_check >= stale_check )); then
+      sweep_remote_lane_locks_for_stale "$count"
       last_stale_check=$elapsed
-      # Reuse owner_block from the coalesced probe — no extra SSH needed.
-      # remote_sync_lock_check_owner_block applies both same-host PID-dead
-      # AND TTL-based reap rules; sets REMOTE_SYNC_LOCK_STALE_REASON.
-      if [[ -n "$owner_block" && "$owner_block" != *"NO_OWNER"* ]] \
-         && remote_sync_lock_check_owner_block "$owner_block"; then
-        reap_remote_sync_lock "$REMOTE_SYNC_LOCK_STALE_REASON" || true
-        continue
-      fi
-      # Heartbeat staleness — informational warn (never auto-reap; TTL is
-      # the only reap rule). Fires at most once per acquire wait so log
-      # spam doesn't drown the operator.
-      if (( REMOTE_SYNC_LOCK_HEARTBEAT_WARNED == 0 )); then
-        local hb_stale_secs="${TORQUE_REMOTE_SYNC_LOCK_HEARTBEAT_STALE_SECS:-300}"
-        if [[ "$hb_stale_secs" =~ ^[0-9]+$ ]] && (( hb_stale_secs > 0 )) \
-           && [[ -n "$hb_block" ]] && [[ "$hb_block" != *"NO_HB"* ]]; then
-          local hb_epoch hb_now hb_age
-          hb_epoch=$(printf '%s\n' "$hb_block" | head -n 1 | sed 's/[[:space:]]*$//')
-          if [[ "$hb_epoch" =~ ^[0-9]+$ ]]; then
-            hb_now="$(date +%s 2>/dev/null || echo 0)"
-            if [[ "$hb_now" =~ ^[0-9]+$ ]] && (( hb_now > 0 )); then
-              hb_age=$((hb_now - hb_epoch))
-              if (( hb_age > hb_stale_secs )); then
-                warn "Lock holder heartbeat stale (${hb_age}s; threshold ${hb_stale_secs}s) — holder may be hung but not dead. Will continue waiting; TTL ${TORQUE_REMOTE_SYNC_LOCK_TTL_SECS:-14400}s will reap if exceeded."
-                REMOTE_SYNC_LOCK_HEARTBEAT_WARNED=1
-              fi
-            fi
-          fi
-        fi
-      fi
+      # Heartbeat-stale warn is informational only (TTL is the sole reap
+      # mechanism) and fires at most once per acquire_any_remote_lane call.
+      maybe_warn_lane_heartbeat_stale "$count"
     fi
     sleep "$poll"
     elapsed=$((elapsed + poll))
     if (( elapsed >= timeout )); then
-      warn "Sync lock wait exceeded ${timeout}s; refusing remote sync to avoid worktree contamination"
+      warn "All $count lanes held after ${timeout}s; refusing remote sync"
       return 1
     fi
   done
 }
 
-release_remote_sync_lock() {
-  if [[ "${REMOTE_SYNC_LOCK_HELD:-0}" != "1" || -z "${REMOTE_SYNC_LOCK_DIR:-}" ]]; then
+release_remote_lane_lock() {
+  if [[ "${REMOTE_LANE_LOCK_HELD:-0}" != "1" || -z "${REMOTE_LANE_LOCK_DIR:-}" ]]; then
     return 0
   fi
   # Stop the heartbeat updater BEFORE removing the lock dir so a
   # mid-flight `echo > heartbeat.epoch` doesn't recreate the dir as a
   # side-effect of the redirect.
-  stop_remote_sync_lock_heartbeat
+  stop_remote_lane_lock_heartbeat
   ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" \
-    "rmdir /s /q \"$REMOTE_SYNC_LOCK_DIR\" 2>nul" \
+    "rmdir /s /q \"$REMOTE_LANE_LOCK_DIR\" 2>nul" \
     >/dev/null 2>&1 || true
-  REMOTE_SYNC_LOCK_HELD=0
-  REMOTE_SYNC_LOCK_DIR=""
+  REMOTE_LANE_LOCK_HELD=0
+  REMOTE_LANE_LOCK_DIR=""
+  REMOTE_LANE_INDEX=""
+}
+
+# Diagnostic: print lane lock state for each lane 1..N.
+# Single SSH round-trip — emits one line per lane.
+print_lane_status() {
+  if [[ -z "${SSH_USER:-}" || -z "${SSH_HOST:-}" ]]; then
+    printf 'No remote configured.\n'
+    return 0
+  fi
+
+  local count
+  count="$(resolve_lane_count)"
+
+  # Build SSH options locally — mirrors what the ssh transport block does but
+  # without requiring the full transport path to have run first.
+  local status_ssh_opts=(-o ConnectTimeout=5 -o BatchMode=yes)
+  if [[ -n "${SSH_KEY_PATH:-}" && "$SSH_KEY_PATH" != "null" ]]; then
+    status_ssh_opts+=(-i "$SSH_KEY_PATH")
+  fi
+
+  # Resolve the workspace base (same way as the normal sync path) so the
+  # lock dir computation matches what acquire_any_remote_lane uses.
+  REMOTE_LANE_WORKSPACE_BASE="$EFFECTIVE_REMOTE_PROJECT_PATH"
+
+  local parent="${REMOTE_LANE_WORKSPACE_BASE%\\*}"
+  if [[ "$parent" == "$REMOTE_LANE_WORKSPACE_BASE" ]]; then
+    parent="${REMOTE_LANE_WORKSPACE_BASE%/*}"
+  fi
+
+  # Build a single CMD command that loops 1..N and emits a status line per lane.
+  local probe_cmd="@echo off"
+  local i
+  for i in $(seq 1 "$count"); do
+    local lock_dir="${parent}\\.torque-remote-lanes\\.locks\\lane-$i"
+    probe_cmd+=" & if exist \"$lock_dir\" (echo lane-$i HELD & type \"$lock_dir\\owner.env\" 2^>nul) else (echo lane-$i FREE)"
+  done
+
+  ssh "${status_ssh_opts[@]}" "$SSH_USER@$SSH_HOST" "$probe_cmd" 2>/dev/null
 }
 
 resolve_sync_ref() {
@@ -751,18 +1110,35 @@ create_local_state_bundle() {
   printf '%s\n%s\n' "$bundle_tar" "$has_local_state"
 }
 
-# Skip the cleanup-on-exit trap for the routing-mode fast-path. That code
-# path creates no temp dirs and exits immediately after a curl probe — but
-# the trap also fires sweep_old_orphans, which on Windows runs
-# `find /tmp -exec rm -rf` against accumulated torque-remote.* dirs. Under
-# Defender real-time scan that sweep takes 10+ seconds, blowing past the
-# 5s spawnSync timeout in tests/coord-torque-remote-routing.test.js even
-# though the routing decision itself returns in <1s.
-if [[ "${1:-}" != "--__internal-print-routing-mode" ]]; then
+# Skip the cleanup-and-decision-log traps for internal fast-path flags.
+# Those paths create no temp dirs and exit immediately — but the EXIT trap
+# also fires sweep_old_orphans, which on Windows runs `find /tmp -exec rm -rf`
+# against accumulated torque-remote.* dirs. Under Defender real-time scan that
+# sweep takes 10+ seconds, blowing past the 5s spawnSync timeout in
+# tests/coord-torque-remote-routing.test.js even though the decision itself
+# returns in <1s. The lane status / lane count / lane paths fast paths are
+# read-only diagnostics and need the same skip.
+_is_internal_fast_path=0
+for _arg in "$@"; do
+  if [[ "$_arg" == "--__internal-print-routing-mode" \
+     || "$_arg" == "--__internal-print-lane-count" \
+     || "$_arg" == "--__internal-print-lane-paths" \
+     || "$_arg" == "--status" ]]; then
+    _is_internal_fast_path=1
+    break
+  fi
+done
+if [[ "$_is_internal_fast_path" -eq 0 ]]; then
   DECISION_START_EPOCH="$(date +%s 2>/dev/null || echo 0)"
+  # cleanup_on_exit handles release_remote_lane_lock, cleanup_remote_exec,
+  # cleanup_temp_dirs, sweep_old_orphans. record_decision_on_exit appends one
+  # JSONL line per invocation. trap_chain_add dispatches handlers in LIFO
+  # order, so record_decision_on_exit runs first (capturing the original $?)
+  # and cleanup_on_exit runs second.
   trap_chain_add cleanup_on_exit
   trap_chain_add record_decision_on_exit
 fi
+unset _arg _is_internal_fast_path
 
 # ---- Prerequisites ----
 
@@ -836,6 +1212,8 @@ coord_select_routing_mode() {
 
 BRANCH_OVERRIDE=""
 SUITE="${TORQUE_REMOTE_DEFAULT_SUITE:-custom}"
+TORQUE_REMOTE_LANES_CLI="${TORQUE_REMOTE_LANES_CLI:-}"
+STATUS_REQUESTED=0
 while [[ "${1:-}" == --* ]]; do
   case "$1" in
     --__internal-print-routing-mode)
@@ -846,6 +1224,21 @@ while [[ "${1:-}" == --* ]]; do
       echo "$COORD_ROUTING_MODE"
       exit 0
       ;;
+    --__internal-print-lane-count)
+      # Test-only fast-path: print the resolved lane count and exit.
+      # Lets tests assert lane count resolution (CLI/env/config/default) without
+      # paying for a full sync. Not a public API.
+      resolve_lane_count
+      exit 0
+      ;;
+    --__internal-print-lane-paths)
+      # Test-only fast-path: print "<workspace>\n<lock-dir>\n" for the given base+index.
+      # Args: --__internal-print-lane-paths <base> <index>
+      [[ $# -lt 3 ]] && die "Invalid --__internal-print-lane-paths args (need <base> <index>)"
+      printf '%s\n' "$(compute_lane_workspace_path "$2" "$3")"
+      printf '%s\n' "$(compute_lane_lock_dir "$2" "$3")"
+      exit 0
+      ;;
     --branch)
       [[ $# -lt 2 ]] && die "Invalid --branch value: "
       BRANCH_OVERRIDE="$2"
@@ -854,21 +1247,35 @@ while [[ "${1:-}" == --* ]]; do
       fi
       shift 2
       ;;
+    --lanes)
+      [[ $# -lt 2 ]] && die "Invalid --lanes value: "
+      TORQUE_REMOTE_LANES_CLI="$2"
+      if ! [[ "$TORQUE_REMOTE_LANES_CLI" =~ ^[1-9][0-9]*$ ]]; then
+        die "Invalid --lanes value: $TORQUE_REMOTE_LANES_CLI (must be a positive integer)"
+      fi
+      shift 2
+      ;;
     --suite)
       [[ $# -lt 2 ]] && die "Invalid --suite value: "
       SUITE="$2"
       shift 2
       ;;
+    --status)
+      # Diagnostic: print lane lock states. Single SSH round-trip.
+      # Config loading runs below; deferred call fires after EFFECTIVE_REMOTE_PROJECT_PATH is set.
+      STATUS_REQUESTED=1
+      shift
+      ;;
     *)
       die "Unknown torque-remote flag: $1
-torque-remote supports --branch <ref> and --suite <name>. If $1 is meant for
+torque-remote supports --branch <ref>, --lanes <N>, --suite <name>, and --status. If $1 is meant for
 your inner command, place it after the command name, e.g.:
   torque-remote npx vitest run $1 ..."
       ;;
   esac
 done
 
-if [[ $# -eq 0 ]]; then
+if [[ $# -eq 0 && "${STATUS_REQUESTED:-0}" != "1" ]]; then
   cat >&2 << 'USAGE'
 Usage: torque-remote [--branch <ref>] <command...>
 
@@ -1057,6 +1464,12 @@ fi
 BASE_EFFECTIVE_REMOTE_PROJECT_PATH="$EFFECTIVE_REMOTE_PROJECT_PATH"
 if [[ -n "$REMOTE_TEST_WORKTREE_SUFFIX" && -n "$EFFECTIVE_REMOTE_PROJECT_PATH" ]]; then
   EFFECTIVE_REMOTE_PROJECT_PATH="${EFFECTIVE_REMOTE_PROJECT_PATH}${REMOTE_TEST_WORKTREE_SUFFIX}"
+fi
+
+# ---- --status diagnostic (deferred until config is loaded) ----
+if [[ "${STATUS_REQUESTED:-0}" == "1" ]]; then
+  print_lane_status
+  exit 0
 fi
 
 # ---- Command to run ----
@@ -1369,9 +1782,13 @@ case "$TRANSPORT" in
       # Acquire exclusive worktree lock BEFORE sync so concurrent
       # torque-remote invocations against the same remote project path
       # serialize. Released in cleanup_on_exit.
-      if ! acquire_remote_sync_lock; then
+      LANE_COUNT="$(resolve_lane_count)"
+      EXPLICIT_LANE="$(resolve_explicit_lane)"
+      REMOTE_LANE_WORKSPACE_BASE="$EFFECTIVE_REMOTE_PROJECT_PATH"
+      migrate_legacy_workspace_if_needed
+      if ! acquire_any_remote_lane "$LANE_COUNT" "$EXPLICIT_LANE"; then
         warn "Remote sync lock unavailable — falling back to local execution instead of risking remote worktree contamination"
-        record_fallback "sync_lock_timeout" "timeout_secs=${TORQUE_REMOTE_SYNC_LOCK_TIMEOUT_SECS:-1800}"
+        record_fallback "sync_lock_timeout" "timeout_secs=${TORQUE_REMOTE_LANE_TIMEOUT_SECS:-${TORQUE_REMOTE_SYNC_LOCK_TIMEOUT_SECS:-1800}}"
         cd "$PROJECT_ROOT"
         set +e
         "${COMMAND_ARGS[@]}"
@@ -1379,6 +1796,16 @@ case "$TRANSPORT" in
         set -e
         exit $exit_code
       fi
+
+      # Lane claimed — rewrite the workspace path so all downstream commands
+      # (sync chain, cd targets, TORQUE_REMOTE_PROJECT_PATH export) target the
+      # claimed lane's workspace.
+      EFFECTIVE_REMOTE_PROJECT_PATH="$(compute_lane_workspace_path "$REMOTE_LANE_WORKSPACE_BASE" "$REMOTE_LANE_INDEX")"
+
+      # Cold-start provisioning: if the claimed lane has no .git, clone it from
+      # the warm sibling lane-1 (fast, local hardlinks) or from origin.
+      REMOTE_LANE_ORIGIN_URL="$(git remote get-url origin 2>/dev/null || true)"
+      provision_lane_workspace_if_needed "$EFFECTIVE_REMOTE_PROJECT_PATH"
 
       if [[ -n "$BRANCH_OVERRIDE" ]]; then
         if [[ ! "$BRANCH_OVERRIDE" =~ ^[a-zA-Z0-9_./-]+$ ]]; then
