@@ -104,7 +104,7 @@ The existing sync chain runs unchanged, scoped to the claimed lane:
 
 Configurable via `TORQUE_REMOTE_LANE_PROVISION_FROM=sibling|origin` (default `sibling`).
 
-**Dirty-tree overlay ref name:** Today's overlay pushes to `refs/torque-remote-overlay/<sha>-<localhost>`. With lanes, two sessions overlaying simultaneously would collide on the same ref. New format: `refs/torque-remote-overlay/<sha>-<localhost>-<lane>`. Single per-lane overlay ref per remote machine prevents collision.
+**Dirty-tree overlay delivery:** Today's overlay is a tar bundle (`committed.patch` + `worktree.patch` + `untracked.tar` + `runner.sh`) delivered over SSH stdin and extracted into a fresh `mktemp -d` on the remote, then `git apply`'d inside `EFFECTIVE_REMOTE_PROJECT_PATH`. With lanes, the same bundle just gets applied inside the claimed lane's workspace instead of the legacy single workspace. No ref-naming concern — there are no shared refs in the overlay path.
 
 **Pre-push gate:** No special handling. The pre-push gate stages on `pre-push-gate/<sha>` on origin and runs through `torque-remote`, claiming a lane like any other invocation.
 
@@ -198,5 +198,5 @@ Stealth migration. The code path changes; behavior does not until `N` is bumped.
 - **Migration `move`-vs-orphan choice:** Lean toward `move` for simplicity, but document the orphan-fallback path so an operator can pick it if `move` fails on a busy FS.
 - **`git clone --local` semantics on Windows:** Hardlinks may degrade to file copies on some Windows configurations. First multi-lane provision could be slower than expected. Mitigated by being a one-time per-lane cost.
 - **`--status` SSH cost at high N:** A single round-trip listing N locks scales linearly. Fine for N=8; reconsider if N grows past ~32.
-- **Disposable overlay ref proliferation:** Per-lane overlay refs accumulate on origin. Today's single-overlay-per-host model already creates these; the new format multiplies by lane count. Existing GC (overlay refs older than 7 days) needs to handle the new naming.
+- **Pre-push gate ref proliferation:** Pre-push gate stages on `pre-push-gate/<sha>` on origin (separate from torque-remote's overlay path). With lanes, a single `pre-push-gate/<sha>` ref is still pushed once per push attempt; the lane only affects which workspace runs the staged commits. No multiplier effect on origin refs from lanes themselves.
 - **Cross-host claim conflict:** Two different operator machines claiming lanes on the same remote workstation is supported by design (different `owner_host` values). Confirm the existing `owner_host` propagation through SSH is correct in the lane case (it is for the sync-lock today).
