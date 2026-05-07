@@ -183,6 +183,24 @@ describe('execute-cli.js', () => {
       expect(result.finalArgs).not.toContain('--full-auto');
     });
 
+    it('disables Codex Windows sandbox feature flags on Windows', () => {
+      const task = {
+        id: randomUUID(),
+        provider: 'codex',
+        task_description: 'Test',
+        auto_approve: 0,
+      };
+      const result = mod.buildCodexCommand(task, '', null);
+
+      if (process.platform === 'win32') {
+        expect(result.finalArgs).toContain('experimental_windows_sandbox');
+        expect(result.finalArgs).toContain('elevated_windows_sandbox');
+      } else {
+        expect(result.finalArgs).not.toContain('experimental_windows_sandbox');
+        expect(result.finalArgs).not.toContain('elevated_windows_sandbox');
+      }
+    });
+
     it('includes working directory with -C flag', () => {
       const task = {
         id: randomUUID(),

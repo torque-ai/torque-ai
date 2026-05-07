@@ -67,6 +67,14 @@ function resolveSandboxWritableRoots(workingDirectory) {
   }
 }
 
+function getWindowsCodexSandboxFeatureDisables() {
+  if (process.platform !== 'win32') return [];
+  return [
+    '--disable', 'experimental_windows_sandbox',
+    '--disable', 'elevated_windows_sandbox',
+  ];
+}
+
 // ── Module-level deps ──────────────────────────────────────────────────────
 // Utility deps resolve at module load via require() from canonical sources.
 // They remain `let` so the factory's per-instance swap (createCommandBuilders)
@@ -79,14 +87,6 @@ let _contextEnrichment = require('../utils/context-enrichment');
 let _codexIntelligence = require('../providers/codex-intelligence');
 let _db = null;
 let _nvmNodePath = require('./task-startup').NVM_NODE_PATH;
-
-function ensureDb() {
-  if (_db) return _db;
-  try {
-    _db = require('../container').defaultContainer.peek('db') || null;
-  } catch { /* container not yet available */ }
-  return _db;
-}
 
 function getExecutionDescription(task) {
   return typeof task?.execution_description === 'string' && task.execution_description.trim()
@@ -214,6 +214,7 @@ async function buildCodexCommand(task, providerConfig, resolvedFileContext, reso
   } else {
     codexArgs.push('--full-auto');
   }
+  codexArgs.push(...getWindowsCodexSandboxFeatureDisables());
 
   // Pick the right reasoning_effort for this task. Centralized in
   // server/execution/codex-reasoning-effort.js so the rules stay in sync
