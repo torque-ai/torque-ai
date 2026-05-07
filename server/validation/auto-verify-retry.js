@@ -26,6 +26,7 @@ const { elicit } = require('../mcp/elicitation');
 const { copyWorkspaceToSandbox } = require('../sandbox/workspace-sync');
 const { inspectPostTaskDiff } = require('./codegraph-diff-validator');
 const { enrichFixPromptWithCodegraph } = require('../utils/codegraph-fix-enrichment');
+const { isScoutStructuredOutputTask } = require('../execution/completion-policy');
 
 // Providers that get auto-verify by default.
 // Built via character join to avoid the repo's PII scrub, which case-
@@ -128,6 +129,20 @@ function getTaskMetadata(task) {
     return {};
   }
   return metadata;
+}
+
+function getTaskTags(task) {
+  if (Array.isArray(task?.tags)) return task.tags;
+  const parsed = tryParseJson(task?.tags);
+  return Array.isArray(parsed) ? parsed : [];
+}
+
+function isReadOnlyFactoryScoutTask(task) {
+  const tags = getTaskTags(task).map(tag => String(tag || '').trim()).filter(Boolean);
+  return tags.includes('factory:scout')
+    || tags.includes('factory:starvation_recovery')
+    || tags.includes('factory:reason=factory_starvation_recovery')
+    || isScoutStructuredOutputTask(getTaskMetadata(task));
 }
 
 function pickFirstString(...values) {
@@ -286,9 +301,13 @@ async function handleAutoVerifyRetry(ctx) {
   // Those produce structured text output (JSON, markdown) and never modify
   // code — running verify on them produces meaningless tests:fail:N tags
   // and burns compute on unrelated test suites.
-  const tags = Array.isArray(task?.tags) ? task.tags : [];
+  const tags = getTaskTags(task);
   if (tags.includes('factory:internal')) {
     logger.info(`[auto-verify] Task ${taskId}: skipping verify — factory:internal task`);
+    return;
+  }
+  if (isReadOnlyFactoryScoutTask(task)) {
+    logger.info(`[auto-verify] Task ${taskId}: skipping verify — factory scout task`);
     return;
   }
 

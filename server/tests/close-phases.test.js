@@ -241,6 +241,31 @@ describe('Close Phases', () => {
       expect(mocks.runBuildVerification).not.toHaveBeenCalled();
     });
 
+    it('skips build/test/style for read-only factory scout tasks', async () => {
+      const ctx = makeCtx({
+        task: makeTask({
+          provider: 'codex',
+          tags: JSON.stringify([
+            'factory:scout',
+            'factory:reason=factory_starvation_recovery',
+            'project:bitsy',
+          ]),
+          metadata: JSON.stringify({
+            mode: 'scout',
+            reason: 'factory_starvation_recovery',
+          }),
+        }),
+      });
+
+      await closePhases.handleBuildTestStyleCommit(ctx);
+
+      expect(ctx.status).toBe('completed');
+      expect(mocks.runBuildVerification).not.toHaveBeenCalled();
+      expect(mocks.runTestVerification).not.toHaveBeenCalled();
+      expect(mocks.runStyleCheck).not.toHaveBeenCalled();
+      expect(mocks.tryCreateAutoPR).not.toHaveBeenCalled();
+    });
+
     it('marks failed on build failure', async () => {
       mocks.runBuildVerification.mockReturnValue({
         skipped: false,
