@@ -182,9 +182,15 @@ retry-framework's setTimeout callback only bailed on `cancelled`; other terminal
 
 `ORPHAN_DIR_MIN_AGE_MS` raised from 60s to 5min. Slow inserts (DB contention, fsync, antivirus stat) had a much wider window before the orphan sweep would reclaim. 5min is well past any observed insert delay while still reclaiming actually-orphaned dirs within a single factory tick window. Operators can tune via `TORQUE_ORPHAN_DIR_MIN_AGE_MS` (positive integer ms). The audit's "explicit ready_for_reconcile flag" alternative (schema change) was deferred — wall-clock grace is simpler and the new 5min default is conservative enough to make the race vanishingly rare in practice.
 
-### 7. Stall-recovery attempt counter never resets on provider fallback
+### 7. Stall-recovery attempt counter never resets on provider fallback — **VERIFIED SAFE 2026-05-07**
 
-`stallRecoveryAttempts[taskId]` is deleted on terminal paths but not reset when a task switches providers via fallback-retry. Each provider's stall history is isolated, but logs combining them can be misleading. **Action:** Track per-(taskId, provider) attempts if cross-provider analysis matters; benign otherwise.
+Investigated. The counter-persistence is intentional: `stallRecoveryAttempts[taskId]` measures **total stalls on this task across all providers**, not per-provider. A task that consistently stalls regardless of which provider executes it is genuinely problematic; capping at `stall_recovery_max_attempts` (default 3) across the union prevents resource burn.
+
+Resetting on provider fallback would multiply effective attempts by N providers (3×3=9 stalls before exhaustion) — that's strictly worse for the operator's resource bill.
+
+The audit's "misleading logs" concern is real but is an observability issue, not a correctness issue. Per-provider attempt breakdown can be reconstructed from existing log lines (`[StallRecovery] Task X: Attempt N — strategy Y`); no code change needed.
+
+`fallback-retry.js:516` reads existing recovery state, increments, and stores back. Counter is deleted only on terminal paths (`stallRecoveryAttempts.delete(taskId)`) when recovery is exhausted or task transitions to terminal status. This is the correct contract.
 
 ### 8. ✅ ~~Abandon path leaves detached process unmonitored~~ RESOLVED 2026-05-06
 
