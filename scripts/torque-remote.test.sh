@@ -1293,6 +1293,52 @@ test_lane_workspace_path_lane_1_is_distinct_from_legacy() {
   finish_test "test_lane_workspace_path_lane_1_is_distinct_from_legacy"
 }
 
+test_multi_lane_probes_lanes_in_order() {
+  echo "Test: with N=4, probes lane-1, lane-2, ... and claims first free"
+  TEST_ERRORS=()
+  reset_stub_env
+
+  make_test_env
+  local tmp="$LAST_TEST_ENV"
+  export GIT_REV_PARSE_OUTPUT="main"
+  export TORQUE_REMOTE_LANE_COUNT=4
+  # Lanes 1 and 2 are HELD; lane 3 is free.
+  export SSH_LOCK_ACQUIRE_SEQUENCE="HELD,HELD,ACQUIRED"
+  local owner_host
+  owner_host="$(printf '%s' "${COMPUTERNAME:-$(hostname 2>/dev/null || echo unknown)}" | tr '[:upper:]' '[:lower:]' | tr -cd '[:alnum:]_.:-')"
+  # Owner metadata says lane is held by a live PID, so stale-reap doesn't fire.
+  export SSH_LOCK_OWNER_OUTPUT=$'host='"$owner_host"$'\npid=1\nstarted_at_epoch=9999999999\nlane_index=1'
+
+  run_torque_remote "$tmp" echo hi
+
+  expect_eq "exit code is 0" "0" "$RUN_EXIT"
+  expect_contains "lane-1 was probed" "$RUN_REMOTE_COMMANDS" ".torque-remote-lanes\.locks\lane-1"
+  expect_contains "lane-2 was probed" "$RUN_REMOTE_COMMANDS" ".torque-remote-lanes\.locks\lane-2"
+  expect_contains "lane-3 was claimed" "$RUN_REMOTE_COMMANDS" ".torque-remote-lanes\.locks\lane-3"
+  expect_contains "owner metadata records lane_index=3" "$RUN_REMOTE_COMMANDS" "echo lane_index=3"
+
+  finish_test "test_multi_lane_probes_lanes_in_order"
+}
+
+test_multi_lane_n_equals_1_skips_probe() {
+  echo "Test: with N=1, probes only lane-1 and never lane-2+"
+  TEST_ERRORS=()
+  reset_stub_env
+
+  make_test_env
+  local tmp="$LAST_TEST_ENV"
+  export GIT_REV_PARSE_OUTPUT="main"
+  unset TORQUE_REMOTE_LANE_COUNT
+
+  run_torque_remote "$tmp" echo hi
+
+  expect_eq "exit code is 0" "0" "$RUN_EXIT"
+  expect_contains "lane-1 was probed" "$RUN_REMOTE_COMMANDS" ".torque-remote-lanes\.locks\lane-1"
+  expect_not_contains "lane-2 was NOT probed" "$RUN_REMOTE_COMMANDS" ".torque-remote-lanes\.locks\lane-2"
+
+  finish_test "test_multi_lane_n_equals_1_skips_probe"
+}
+
 main() {
   if [[ ! -f "$SCRIPT_UNDER_TEST" ]]; then
     echo "torque-remote script not found: $SCRIPT_UNDER_TEST" >&2
@@ -1327,6 +1373,8 @@ main() {
   test_lane_count_cli_flag_beats_env
   test_lane_workspace_path_appends_suffix
   test_lane_workspace_path_lane_1_is_distinct_from_legacy
+  test_multi_lane_probes_lanes_in_order
+  test_multi_lane_n_equals_1_skips_probe
 
   echo ""
   echo "=============================="

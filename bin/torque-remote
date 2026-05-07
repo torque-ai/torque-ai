@@ -431,64 +431,94 @@ compute_lane_lock_dir() {
   printf '%s\\.torque-remote-lanes\\.locks\\lane-%s\n' "$parent" "$index"
 }
 
-# Attempt to acquire the lane lock for $1 (lane index). On success, sets
-# REMOTE_LANE_LOCK_HELD=1, REMOTE_LANE_LOCK_DIR, REMOTE_LANE_INDEX, and
-# REMOTE_LANE_WORKSPACE_BASE. Honors stale-reap and timeout.
-#
-# Lock dir lives in a SIBLING directory next to any lane workspace, not
-# inside it.  The sync chain runs `git clean -fd` after `git reset --hard`,
-# and `git clean -fd` removes any untracked dir under the worktree.
-# Sibling path is naturally invisible to any git operation scoped to the
-# worktree.  (Prior bug fixed 2026-04-29; see commit b9cfac9d / sibling-path
-# history in docs/torque-remote.md.)
-acquire_remote_lane_lock() {
+# Single-lane non-blocking attempt — atomic mkdir, owner write, no wait.
+# Sets REMOTE_LANE_INDEX, REMOTE_LANE_LOCK_DIR on any call.
+# Returns 0 on claim, 1 on held.
+attempt_lane_claim() {
   local index="$1"
   if [[ -z "${SSH_USER:-}" || -z "${SSH_HOST:-}" || -z "${REMOTE_LANE_WORKSPACE_BASE:-}" ]]; then
+    REMOTE_LANE_INDEX="$index"
+    REMOTE_LANE_LOCK_HELD=1
     return 0
   fi
 
   REMOTE_LANE_INDEX="$index"
   REMOTE_LANE_LOCK_DIR="$(compute_lane_lock_dir "$REMOTE_LANE_WORKSPACE_BASE" "$index")"
 
-  local timeout="${TORQUE_REMOTE_LANE_TIMEOUT_SECS:-${TORQUE_REMOTE_SYNC_LOCK_TIMEOUT_SECS:-1800}}"
-  local stale_check_interval="${TORQUE_REMOTE_LANE_STALE_CHECK_SECS:-${TORQUE_REMOTE_SYNC_LOCK_STALE_CHECK_SECS:-10}}"
-  local elapsed=0
-  local poll=2
-  if ! [[ "$stale_check_interval" =~ ^[0-9]+$ ]]; then
-    stale_check_interval=10
-  fi
-  local last_stale_check=$((0 - stale_check_interval))
   local ack
-  while true; do
-    # CMD-compatible: `if not exist DIR (mkdir DIR && echo ACQUIRED) else (echo HELD)`.
-    # mkdir on Windows is atomic at the directory-entry level; if two
-    # acquires race, only one's mkdir succeeds, the other reports HELD.
-    ack=$(ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" \
-      "if not exist \"$REMOTE_LANE_LOCK_DIR\" (mkdir \"$REMOTE_LANE_LOCK_DIR\" 2>nul && echo ACQUIRED) else (echo HELD)" \
-      2>/dev/null | tr -d '\r' | tail -1)
-    if [[ "$ack" == "ACQUIRED" ]]; then
-      REMOTE_LANE_LOCK_HELD=1
-      if ! write_remote_lane_lock_owner; then
-        warn "Acquired remote lane lock but failed to write owner metadata; releasing lock"
-        release_remote_lane_lock
-        return 1
-      fi
+  # CMD-compatible: `if not exist DIR (mkdir DIR && echo ACQUIRED) else (echo HELD)`.
+  # mkdir on Windows is atomic at the directory-entry level; if two
+  # acquires race, only one's mkdir succeeds, the other reports HELD.
+  ack=$(ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" \
+    "if not exist \"$REMOTE_LANE_LOCK_DIR\" (mkdir \"$REMOTE_LANE_LOCK_DIR\" 2>nul && echo ACQUIRED) else (echo HELD)" \
+    2>/dev/null | tr -d '\r' | tail -1)
+
+  if [[ "$ack" == "ACQUIRED" ]]; then
+    REMOTE_LANE_LOCK_HELD=1
+    if ! write_remote_lane_lock_owner; then
+      warn "Acquired remote lane $index but failed to write owner metadata; releasing"
+      release_remote_lane_lock
+      return 1
+    fi
+    return 0
+  fi
+  return 1
+}
+
+# Inspect each held lane and reap stale ones. Called between probe rounds.
+sweep_remote_lane_locks_for_stale() {
+  local count="$1"
+  local index
+  for index in $(seq 1 "$count"); do
+    REMOTE_LANE_LOCK_DIR="$(compute_lane_lock_dir "$REMOTE_LANE_WORKSPACE_BASE" "$index")"
+    if remote_lane_lock_is_stale; then
+      reap_remote_lane_lock "lane $index: $REMOTE_LANE_LOCK_STALE_REASON" || true
+    fi
+  done
+  REMOTE_LANE_LOCK_DIR=""
+}
+
+# Probe lanes 1..N until one is acquired or wait-timeout hits.
+# Sets REMOTE_LANE_INDEX on success.
+#
+# Lock dirs live in a SIBLING directory next to any lane workspace, not
+# inside it.  The sync chain runs `git clean -fd` after `git reset --hard`,
+# and `git clean -fd` removes any untracked dir under the worktree.
+# Sibling path is naturally invisible to any git operation scoped to the
+# worktree.  (Prior bug fixed 2026-04-29; see commit b9cfac9d / sibling-path
+# history in docs/torque-remote.md.)
+acquire_any_remote_lane() {
+  local count="${1:-1}"
+  local explicit="${2:-}"
+  local timeout="${TORQUE_REMOTE_LANE_TIMEOUT_SECS:-${TORQUE_REMOTE_SYNC_LOCK_TIMEOUT_SECS:-1800}}"
+  local poll=2
+  local elapsed=0
+
+  if [[ -n "$explicit" ]]; then
+    # Explicit lane mode: try only that lane and fail-fast if held.
+    if attempt_lane_claim "$explicit"; then
       return 0
     fi
-    if (( elapsed == 0 )); then
-      info "Waiting for remote lane lock at lane $index (held by another torque-remote invocation)..."
-    fi
-    if (( stale_check_interval > 0 && elapsed - last_stale_check >= stale_check_interval )); then
-      last_stale_check=$elapsed
-      if remote_lane_lock_is_stale; then
-        reap_remote_lane_lock "$REMOTE_LANE_LOCK_STALE_REASON" || true
-        continue
+    warn "Explicit lane $explicit is held; refusing fallback"
+    return 1
+  fi
+
+  while true; do
+    local index
+    for index in $(seq 1 "$count"); do
+      if attempt_lane_claim "$index"; then
+        return 0
       fi
+    done
+    # All lanes held — sweep for stale ones, then retry the round.
+    if (( elapsed == 0 )); then
+      info "All $count remote lane(s) held; waiting for a free lane..."
     fi
+    sweep_remote_lane_locks_for_stale "$count"
     sleep "$poll"
     elapsed=$((elapsed + poll))
     if (( elapsed >= timeout )); then
-      warn "Lane lock wait exceeded ${timeout}s on lane $index; refusing remote sync to avoid worktree contamination"
+      warn "All $count lanes held after ${timeout}s; refusing remote sync"
       return 1
     fi
   done
@@ -1202,8 +1232,10 @@ case "$TRANSPORT" in
       # Acquire exclusive worktree lock BEFORE sync so concurrent
       # torque-remote invocations against the same remote project path
       # serialize. Released in cleanup_on_exit.
+      LANE_COUNT="$(resolve_lane_count)"
+      EXPLICIT_LANE="$(resolve_explicit_lane)"
       REMOTE_LANE_WORKSPACE_BASE="$EFFECTIVE_REMOTE_PROJECT_PATH"
-      if ! acquire_remote_lane_lock 1; then
+      if ! acquire_any_remote_lane "$LANE_COUNT" "$EXPLICIT_LANE"; then
         warn "Remote sync lock unavailable — falling back to local execution instead of risking remote worktree contamination"
         record_fallback "sync_lock_timeout" "timeout_secs=${TORQUE_REMOTE_LANE_TIMEOUT_SECS:-${TORQUE_REMOTE_SYNC_LOCK_TIMEOUT_SECS:-1800}}"
         cd "$PROJECT_ROOT"
