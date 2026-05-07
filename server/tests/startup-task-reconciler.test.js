@@ -1156,6 +1156,103 @@ describe('startup-task-reconciler — Phase C re-adoption', () => {
     expect(ok).toBe(false);
   });
 
+  // Audit doc open question #1: cover the four-corner combinations explicitly.
+  // PID-alive × log-fresh and PID-alive × log-stale are above; the dead-PID
+  // path short-circuits before checking logs, so we capture both dead-PID
+  // combinations in one parameterized test for coverage completeness.
+  test.each([
+    { name: 'PID dead + fresh logs (recent death)', backdate: 0 },
+    { name: 'PID dead + stale logs (long-dead)', backdate: 10 * 60 * 1000 },
+  ])('tryReAdoptDetachedSubprocess: $name → false', ({ backdate }) => {
+    const executeCli = { reAdoptDetachedSubprocess: vi.fn(() => true) };
+    const paths = makeLogPaths(`task-dead-${backdate}`);
+    if (backdate > 0) backdateLogs(paths, backdate);
+    const ok = tryReAdoptDetachedSubprocess(
+      {
+        id: `task-dead-${backdate}`,
+        subprocess_pid: 999999999,
+        output_log_path: paths.stdoutPath,
+        error_log_path: paths.stderrPath,
+      },
+      executeCli,
+      { logger },
+    );
+    expect(ok).toBe(false);
+    expect(executeCli.reAdoptDetachedSubprocess).not.toHaveBeenCalled();
+  });
+
+  // Pins the structured log-line contract added by audit doc #11. Any
+  // future contributor who removes a log line breaks this test, forcing
+  // an explicit "yes I'm intentionally removing the operator-visible
+  // re-adoption signal" decision.
+  test('emits structured decision logs with reason for each path', () => {
+    const captured = [];
+    const captureLogger = {
+      info: (msg, meta) => captured.push({ level: 'info', msg, reason: meta?.reason }),
+      warn: (msg, meta) => captured.push({ level: 'warn', msg, reason: meta?.reason }),
+      error: (msg, meta) => captured.push({ level: 'error', msg, reason: meta?.reason }),
+    };
+
+    // 1. Missing detached state → reason: missing_detached_state
+    captured.length = 0;
+    tryReAdoptDetachedSubprocess({ id: 't1' }, {}, { logger: captureLogger });
+    expect(captured.some((l) => l.reason === 'no_re_adopt_function')).toBe(true);
+
+    captured.length = 0;
+    tryReAdoptDetachedSubprocess(
+      { id: 't2' },
+      { reAdoptDetachedSubprocess: vi.fn() },
+      { logger: captureLogger },
+    );
+    expect(captured.some((l) => l.reason === 'missing_detached_state')).toBe(true);
+
+    // 2. PID dead → reason: pid_dead
+    captured.length = 0;
+    const paths = makeLogPaths('t3');
+    tryReAdoptDetachedSubprocess(
+      {
+        id: 't3',
+        subprocess_pid: 999999999,
+        output_log_path: paths.stdoutPath,
+        error_log_path: paths.stderrPath,
+      },
+      { reAdoptDetachedSubprocess: vi.fn() },
+      { logger: captureLogger },
+    );
+    expect(captured.some((l) => l.reason === 'pid_dead')).toBe(true);
+
+    // 3. Logs stale → reason: log_mtime_stale
+    captured.length = 0;
+    const stalePaths = makeLogPaths('t4');
+    backdateLogs(stalePaths, 10 * 60 * 1000);
+    tryReAdoptDetachedSubprocess(
+      {
+        id: 't4',
+        subprocess_pid: process.pid,
+        output_log_path: stalePaths.stdoutPath,
+        error_log_path: stalePaths.stderrPath,
+      },
+      { reAdoptDetachedSubprocess: vi.fn() },
+      { logger: captureLogger },
+    );
+    expect(captured.some((l) => l.reason === 'log_mtime_stale')).toBe(true);
+
+    // 4. Successful adoption → reason: adopted
+    captured.length = 0;
+    const okPaths = makeLogPaths('t5');
+    tryReAdoptDetachedSubprocess(
+      {
+        id: 't5',
+        subprocess_pid: process.pid,
+        output_log_path: okPaths.stdoutPath,
+        error_log_path: okPaths.stderrPath,
+      },
+      { reAdoptDetachedSubprocess: vi.fn(() => true) },
+      { logger: captureLogger },
+    );
+    expect(captured.some((l) => l.reason === 'adopted')).toBe(true);
+  });
+
   test('reconciler re-adopts a live detached row before the cancel/clone path', () => {
     const paths = makeLogPaths('task-readopt');
     insertTask({

@@ -188,13 +188,20 @@ DB config keys (via `set_project_defaults` or direct):
 
 These surfaced during the audit. Each is bounded enough to address in a follow-up commit.
 
-### 1. Re-adoption test coverage is asymmetric
+### 1. ✅ ~~Re-adoption test coverage is asymmetric~~ RESOLVED 2026-05-07
 
-`startup-task-reconciler.test.js` has 5 tests for `retry_scheduled` orphans (cancellation-cleanup #5) but `tryReAdoptDetachedSubprocess` itself isn't directly tested at the reconciler level. Coverage exists in `subprocess-detachment-dispatch.test.js` but doesn't exercise the PID-liveness + mtime-staleness combinations. **Action:** Add reconciler-level tests for re-adopt scenarios: PID alive + fresh logs, PID alive + stale logs (PID reuse), PID dead + fresh logs (PID died very recently), PID dead + stale logs.
+Audit was based on a partial read. `startup-task-reconciler.test.js` already had 7 reconciler-level tests for `tryReAdoptDetachedSubprocess` covering missing-state, missing-paths, PID-dead, stale-logs, happy-path, executeCli-throws, and the integration "re-adopts before cancel" path. Two combinatorial gaps closed in this commit:
 
-### 2. claude-ollama is in an awkward middle ground
+1. **`PID dead + log mtime combinations`** — parameterized test covering both fresh-logs (recent death) and stale-logs (long-dead) with dead PID. Verifies the dead-PID short-circuit fires regardless of log freshness (no false-readopt window).
+2. **Structured-log contract pin** — new test asserts each decision branch (`no_re_adopt_function`, `missing_detached_state`, `pid_dead`, `log_mtime_stale`, `adopted`) emits a log line with the documented `reason` field. Forces explicit acknowledgment when removing operator-visible re-adoption signal.
 
-claude-ollama uses claude-cli wrapped around an ollama backend. The `ollama` HTTP endpoint shouldn't go through detached spawn (no subprocess), but the `claude-cli` part technically should. Currently the whole provider is on the legacy pipe path. **Action:** Investigate whether claude-ollama's claude-cli component would benefit from detachment; if yes, route just that subprocess; if no, document why.
+### 2. claude-ollama investigation — **VERIFIED SAFE 2026-05-07**
+
+Audit was based on a misread of the provider. `claude-ollama` is its own provider (`server/providers/claude-ollama.js:34`) that spawns the `ollama` binary directly (line 246) with pipe stdio. There is no claude-cli subprocess to detach — claude-cli appears in the provider name as a brand reference (claude-style tool-loop on top of ollama), not as an actual CLI wrapper.
+
+Because claude-ollama doesn't go through `execute-cli`'s `spawnAndTrackProcess` pipeline at all, `shouldUseDetachedPath` is never consulted for it. The provider has its own session loop, its own host-mutex coordination, and its own stdout/stderr pipe handlers. Detachment doesn't apply.
+
+No code change. Mark verified.
 
 ### 3. `last_activity_at` is updated optimistically per-chunk — **VERIFIED SAFE 2026-05-07**
 
