@@ -269,9 +269,9 @@ Default sync log path is now `/tmp/torque-remote-sync.<pid>.<epoch>.log` (per-se
 - `tail -100 ~/.torque/torque-remote-fallback.log | jq -r '.reason' | sort | uniq -c` — recent fallback distribution
 - `jq 'select(.timestamp > "2026-05-07")' ~/.torque/torque-remote-fallback.log` — fallbacks today
 
-### 5. `wmic cpu get loadpercentage` is deprecated
+### 5. ✅ ~~`wmic cpu get loadpercentage` is deprecated~~ RESOLVED 2026-05-07
 
-wmic was removed-by-default in Windows 11 24H2 (re-enable feature optional through Windows 12). Future Windows updates will silently break the load check, causing torque-remote to ALWAYS proceed (bug in the load-pct match: empty `load_pct` skips the threshold check, so deprecation = always pass). **Action:** Switch to `Get-CimInstance Win32_PerfFormattedData_PerfOS_Processor` via PowerShell, or accept that load-throttling is best-effort and consider removing.
+Load-check probe order is now PowerShell `Get-CimInstance Win32_Processor` first (future-proof; the supported replacement on Windows 10+), wmic second (legacy fallback for older Windows), `/proc/loadavg` third (Linux). Empty `load_pct` after all three skips the threshold check (graceful degrade, matches original fail-open behavior).
 
 ### 6. Bundle-cleanup retries don't address active AV scan
 

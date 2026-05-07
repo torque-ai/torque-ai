@@ -1044,14 +1044,28 @@ case "$TRANSPORT" in
       exit $exit_code
     fi
 
-    # Load check (Windows: wmic, Linux: /proc/loadavg)
+    # Load check — three probes in order of preference:
+    #   1. PowerShell Get-CimInstance (Windows 10+, future-proof). wmic was
+    #      removed-by-default in Windows 11 24H2; PowerShell's CIM cmdlets
+    #      are the supported replacement.
+    #   2. wmic (legacy Windows; still works on most current installs).
+    #   3. /proc/loadavg (Linux remote workstations).
+    # Empty load_pct after all three probes => threshold check is skipped
+    # (graceful degrade, fail-open like the original behavior).
     load_pct=""
-    load_output=$(ssh -o ConnectTimeout=2 "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" "wmic cpu get loadpercentage /value" 2>/dev/null || true)
-    if [[ -n "$load_output" ]]; then
-      load_pct=$(echo "$load_output" | grep -oP 'LoadPercentage=\K[0-9]+' 2>/dev/null || true)
+    load_output=$(ssh -o ConnectTimeout=2 "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" \
+      "powershell -NoProfile -NonInteractive -Command \"(Get-CimInstance -ClassName Win32_Processor -ErrorAction SilentlyContinue | Measure-Object -Property LoadPercentage -Average).Average\"" \
+      2>/dev/null | tr -d '\r' || true)
+    if [[ -n "$load_output" && "$load_output" =~ ^[0-9]+$ ]]; then
+      load_pct="$load_output"
     fi
     if [[ -z "$load_pct" ]]; then
-      # Try Linux
+      load_output=$(ssh -o ConnectTimeout=2 "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" "wmic cpu get loadpercentage /value" 2>/dev/null || true)
+      if [[ -n "$load_output" ]]; then
+        load_pct=$(echo "$load_output" | grep -oP 'LoadPercentage=\K[0-9]+' 2>/dev/null || true)
+      fi
+    fi
+    if [[ -z "$load_pct" ]]; then
       load_output=$(ssh -o ConnectTimeout=2 "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" "cat /proc/loadavg" 2>/dev/null || true)
       if [[ -n "$load_output" ]]; then
         load_1m=$(echo "$load_output" | awk '{print $1}')
