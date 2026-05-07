@@ -204,9 +204,9 @@ Every Tail-watcher chunk write updates `last_activity_at` on the row. For high-o
 
 `server/utils/process-exit-format.js` is the single source of truth for the `[process-exit]` annotation contract — exports `PROCESS_EXIT_PREFIX`, `PROCESS_EXIT_LINE_REGEX`, `formatProcessExitLine` (writer), `parseProcessExitLine` (reader), and `findLastProcessExitAnnotation` (multi-line buffer scan). Both ends now use it: `process-exit-wrapper.js` calls `formatProcessExitLine` instead of building the line inline, and `parseProcessExitAnnotation` in `execute-cli.js` delegates to `findLastProcessExitAnnotation`. New regression test (`tests/process-exit-format.test.js`) round-trips 4 representative cases (0+null, 137+SIGKILL, null+SIGTERM, with/without model) — any future contributor who edits one side without the other will break the test.
 
-### 5. `task-logs/<taskId>/` directory cleanup is tied to task retention only
+### 5. `task-logs/<taskId>/` directory cleanup — **VERIFIED SAFE 2026-05-07**
 
-Phase E gzips on finalize and prunes via `task_log_retention_days`. But the per-task DIRECTORY is not deleted — only the contents. After many tasks, `<data-dir>/task-logs/` accumulates empty dirs. **Action:** Extend the prune scheduler to remove the directory after the last log inside it is removed.
+Audit was incorrect. `pruneOldTaskLogs` (`server/utils/task-log-retention.js:154-200`) already handles empty-dir reaping at lines 178-183: when `dirSizeBytes` reports `entryCount === 0` or `newestMtimeMs === 0`, the dir is `rmSync`-ed without being counted as a delete. So the prune cycle reaps both contents-deleted dirs and dirs that were already empty for any reason. No code change needed.
 
 ### 6. Re-adoption doesn't preserve `completionDetected` flag
 
