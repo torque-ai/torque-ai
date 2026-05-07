@@ -2,6 +2,7 @@
 
 const {
   isFactoryStructuredOutputTask,
+  isScoutStructuredOutputTask,
   shouldUseOutputCompletionDetection,
 } = require('../execution/completion-policy');
 
@@ -25,6 +26,30 @@ describe('completion-policy', () => {
       metadata: JSON.stringify({
         factory_internal: true,
         kind: 'architect_cycle',
+      }),
+    })).toBe(false);
+  });
+
+  it('disables output-completion grace for starvation recovery scouts', () => {
+    const metadata = {
+      mode: 'scout',
+      diffusion: true,
+      reason: 'factory_starvation_recovery',
+    };
+
+    expect(isScoutStructuredOutputTask(metadata)).toBe(true);
+    expect(shouldUseOutputCompletionDetection({
+      provider: 'codex',
+      metadata,
+    })).toBe(false);
+  });
+
+  it('disables output-completion grace for factory scout kind metadata', () => {
+    expect(shouldUseOutputCompletionDetection({
+      provider: 'codex',
+      metadata: JSON.stringify({
+        factory_internal: true,
+        kind: 'scout',
       }),
     })).toBe(false);
   });
