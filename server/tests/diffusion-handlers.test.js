@@ -199,6 +199,9 @@ describe('handleSubmitScout', () => {
     const task = mockTaskCore.createTask.mock.calls.at(-1)[0];
     expect(task.task_description).toContain('bounded work-item scout');
     expect(task.task_description).toContain('inspect at most 20 candidate files');
+    expect(task.task_description).toContain('Windows command guard');
+    expect(task.task_description).toContain('Do not use PowerShell pipelines');
+    expect(task.task_description).toContain('Get-ChildItem -Name');
     expect(task.task_description).toContain('exactly one `__SCOUT_COMPLETE__`');
     expect(task.task_description).toContain('concrete_factory_work_items');
     expect(task.task_description).not.toContain('__PATTERNS_READY__');
