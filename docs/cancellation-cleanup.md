@@ -178,9 +178,9 @@ retry-framework's setTimeout callback only bailed on `cancelled`; other terminal
 
 **Test coverage** (`server/tests/startup-task-reconciler.test.js:865-1026`): 5 regression tests pin the behavior — re-queue with budget remaining, fail with budget exhausted, re-queue at boundary (count==max, the bba865d8 case), conservative re-queue with null retry fields, and skip when owner instance is still alive. Open question resolved with verified-safe status.
 
-### 6. Worktree reconciler 1-min "fresh dir" age check can race with slow vc_worktrees insert
+### 6. ✅ ~~Worktree reconciler 1-min "fresh dir" age check can race with slow vc_worktrees insert~~ RESOLVED 2026-05-07
 
-If DB insert is delayed (contention, fsync), the reconciler's `ORPHAN_DIR_MIN_AGE_MS` could allow reclamation of a worktree mid-creation. **Action:** Add an explicit `ready_for_reconcile` flag or grace period tied to creation acknowledgement, not wall-clock age.
+`ORPHAN_DIR_MIN_AGE_MS` raised from 60s to 5min. Slow inserts (DB contention, fsync, antivirus stat) had a much wider window before the orphan sweep would reclaim. 5min is well past any observed insert delay while still reclaiming actually-orphaned dirs within a single factory tick window. Operators can tune via `TORQUE_ORPHAN_DIR_MIN_AGE_MS` (positive integer ms). The audit's "explicit ready_for_reconcile flag" alternative (schema change) was deferred — wall-clock grace is simpler and the new 5min default is conservative enough to make the race vanishingly rare in practice.
 
 ### 7. Stall-recovery attempt counter never resets on provider fallback
 

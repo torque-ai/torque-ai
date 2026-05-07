@@ -722,7 +722,16 @@ function parseGitWorktreeList(projectPath) {
 // miss the row-in-flight and reclaim the dir. Ages are cheap to compute
 // from the .git redirect file's mtime; a truly abandoned dir will survive
 // this window and get reclaimed on the next tick.
-const ORPHAN_DIR_MIN_AGE_MS = 60 * 1000;
+// Default raised from 60s → 5min on 2026-05-07: 60s was occasionally racing
+// slow vc_worktrees inserts (DB contention, fsync, antivirus stat) and
+// reclaiming a worktree mid-creation. 5min is well past any observed insert
+// delay while still reclaiming actually-orphaned dirs within a single factory
+// tick window. Operators can tune via TORQUE_ORPHAN_DIR_MIN_AGE_MS (positive
+// integer ms).
+const ORPHAN_DIR_MIN_AGE_MS = (() => {
+  const raw = parseInt(process.env.TORQUE_ORPHAN_DIR_MIN_AGE_MS, 10);
+  return Number.isFinite(raw) && raw > 0 ? raw : 5 * 60 * 1000;
+})();
 
 // An `active` factory_worktrees row is assumed to be owned by a live loop.
 // Trust that ownership for up to STALE_ACTIVE_ROW_MAX_AGE_MS; past that,
