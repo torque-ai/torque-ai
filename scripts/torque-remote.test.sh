@@ -178,6 +178,7 @@ reset_stub_env() {
   unset SSH_LOCK_REAP_EXIT_CODE TORQUE_REMOTE_SYNC_LOCK_STALE_CHECK_SECS TORQUE_REMOTE_LANE_STALE_CHECK_SECS
   unset TORQUE_REMOTE_TEST_WORKTREE_SUFFIX
   unset TORQUE_REMOTE_LANE_COUNT TORQUE_REMOTE_LANES_CLI
+  unset TORQUE_REMOTE_LANE
 }
 
 write_stub_argv_dump() {
@@ -1339,6 +1340,61 @@ test_multi_lane_n_equals_1_skips_probe() {
   finish_test "test_multi_lane_n_equals_1_skips_probe"
 }
 
+test_explicit_lane_skips_probe_and_fails_fast_when_held() {
+  echo "Test: TORQUE_REMOTE_LANE=K targets only lane K and falls back locally when held"
+  TEST_ERRORS=()
+  reset_stub_env
+
+  make_test_env
+  local tmp="$LAST_TEST_ENV"
+  export GIT_REV_PARSE_OUTPUT="main"
+  export TORQUE_REMOTE_LANE_COUNT=4
+  export TORQUE_REMOTE_LANE=2
+  # Lane 2 is held; lane 3 would be free, but explicit mode must NOT try it.
+  # The explicit-lane fail-fast skips other lanes and falls back to local (same
+  # as the sync_lock_timeout path). Echo exits 0 on the local fallback.
+  export SSH_LOCK_ACQUIRE_SEQUENCE="HELD"
+  local owner_host
+  owner_host="$(printf '%s' "${COMPUTERNAME:-$(hostname 2>/dev/null || echo unknown)}" | tr '[:upper:]' '[:lower:]' | tr -cd '[:alnum:]_.:-')"
+  export SSH_LOCK_OWNER_OUTPUT=$'host='"$owner_host"$'\npid=1\nstarted_at_epoch=9999999999\nlane_index=2'
+
+  run_torque_remote "$tmp" echo hi
+
+  # Fail-fast means no wait-loop and no fallback to other lanes — NOT a
+  # non-zero exit. The command still runs locally (same as lock-timeout path).
+  expect_eq "exit code is 0 (local fallback runs)" "0" "$RUN_EXIT"
+  expect_contains "lane-2 was probed" "$RUN_REMOTE_COMMANDS" ".torque-remote-lanes\.locks\lane-2"
+  expect_not_contains "lane-1 was NOT probed" "$RUN_REMOTE_COMMANDS" ".torque-remote-lanes\.locks\lane-1"
+  expect_not_contains "lane-3 was NOT probed" "$RUN_REMOTE_COMMANDS" ".torque-remote-lanes\.locks\lane-3"
+  expect_contains "stderr explains explicit-lane refusal" "$RUN_STDERR" "Explicit lane 2 is held"
+  expect_contains "stderr warns about local fallback" "$RUN_STDERR" "falling back to local"
+
+  finish_test "test_explicit_lane_skips_probe_and_fails_fast_when_held"
+}
+
+test_explicit_lane_claims_lane_when_free() {
+  echo "Test: TORQUE_REMOTE_LANE=K claims only lane K when free"
+  TEST_ERRORS=()
+  reset_stub_env
+
+  make_test_env
+  local tmp="$LAST_TEST_ENV"
+  export GIT_REV_PARSE_OUTPUT="main"
+  export TORQUE_REMOTE_LANE_COUNT=4
+  export TORQUE_REMOTE_LANE=3
+  export SSH_LOCK_ACQUIRE_SEQUENCE="ACQUIRED"
+
+  run_torque_remote "$tmp" echo hi
+
+  expect_eq "exit code is 0" "0" "$RUN_EXIT"
+  expect_contains "lane-3 was claimed" "$RUN_REMOTE_COMMANDS" ".torque-remote-lanes\.locks\lane-3"
+  expect_not_contains "lane-1 was NOT probed" "$RUN_REMOTE_COMMANDS" ".torque-remote-lanes\.locks\lane-1"
+  expect_not_contains "lane-2 was NOT probed" "$RUN_REMOTE_COMMANDS" ".torque-remote-lanes\.locks\lane-2"
+  expect_contains "owner metadata records lane_index=3" "$RUN_REMOTE_COMMANDS" "echo lane_index=3"
+
+  finish_test "test_explicit_lane_claims_lane_when_free"
+}
+
 main() {
   if [[ ! -f "$SCRIPT_UNDER_TEST" ]]; then
     echo "torque-remote script not found: $SCRIPT_UNDER_TEST" >&2
@@ -1375,6 +1431,8 @@ main() {
   test_lane_workspace_path_lane_1_is_distinct_from_legacy
   test_multi_lane_probes_lanes_in_order
   test_multi_lane_n_equals_1_skips_probe
+  test_explicit_lane_skips_probe_and_fails_fast_when_held
+  test_explicit_lane_claims_lane_when_free
 
   echo ""
   echo "=============================="
