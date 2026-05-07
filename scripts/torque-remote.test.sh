@@ -175,7 +175,7 @@ reset_stub_env() {
   unset SSH_EXEC_OUTPUT SSH_EXEC_EXIT_CODE
   unset SSH_LOCK_ACQUIRE_SEQUENCE SSH_LOCK_ACQUIRE_EXIT_CODE
   unset SSH_LOCK_OWNER_OUTPUT SSH_LOCK_OWNER_READ_EXIT_CODE SSH_LOCK_OWNER_WRITE_EXIT_CODE
-  unset SSH_LOCK_REAP_EXIT_CODE TORQUE_REMOTE_SYNC_LOCK_STALE_CHECK_SECS
+  unset SSH_LOCK_REAP_EXIT_CODE TORQUE_REMOTE_SYNC_LOCK_STALE_CHECK_SECS TORQUE_REMOTE_LANE_STALE_CHECK_SECS
   unset TORQUE_REMOTE_TEST_WORKTREE_SUFFIX
   unset TORQUE_REMOTE_LANE_COUNT TORQUE_REMOTE_LANES_CLI
 }
@@ -377,16 +377,16 @@ next_lock_ack() {
   printf '%s\n' "$ack"
 }
 
-if [[ "$remote_cmd" == *".torque-remote-sync.lock"* && "$remote_cmd" == *"mkdir"* && "$remote_cmd" == *"echo ACQUIRED"* ]]; then
+if [[ ( "$remote_cmd" == *".torque-remote-lanes"* || "$remote_cmd" == *".torque-remote-sync.lock"* ) && "$remote_cmd" == *"mkdir"* && "$remote_cmd" == *"echo ACQUIRED"* ]]; then
   next_lock_ack
   exit "${SSH_LOCK_ACQUIRE_EXIT_CODE:-0}"
 fi
 
-if [[ "$remote_cmd" == *".torque-remote-sync.lock\\owner.env"* && "$remote_cmd" == *"echo host="* ]]; then
+if [[ ( "$remote_cmd" == *".torque-remote-lanes"* || "$remote_cmd" == *".torque-remote-sync.lock"* ) && "$remote_cmd" == *"owner.env"* && "$remote_cmd" == *"echo host="* ]]; then
   exit "${SSH_LOCK_OWNER_WRITE_EXIT_CODE:-0}"
 fi
 
-if [[ "$remote_cmd" == *".torque-remote-sync.lock\\owner.env"* && "$remote_cmd" == *"type"* ]]; then
+if [[ ( "$remote_cmd" == *".torque-remote-lanes"* || "$remote_cmd" == *".torque-remote-sync.lock"* ) && "$remote_cmd" == *"owner.env"* && "$remote_cmd" == *"type"* ]]; then
   if [[ "${SSH_LOCK_OWNER_OUTPUT+x}" == "x" && -n "$SSH_LOCK_OWNER_OUTPUT" ]]; then
     printf '%s\n' "$SSH_LOCK_OWNER_OUTPUT"
   else
@@ -395,7 +395,7 @@ if [[ "$remote_cmd" == *".torque-remote-sync.lock\\owner.env"* && "$remote_cmd" 
   exit "${SSH_LOCK_OWNER_READ_EXIT_CODE:-0}"
 fi
 
-if [[ "$remote_cmd" == *".torque-remote-sync.lock"* && "$remote_cmd" == *"rmdir /s /q"* ]]; then
+if [[ ( "$remote_cmd" == *".torque-remote-lanes"* || "$remote_cmd" == *".torque-remote-sync.lock"* ) && "$remote_cmd" == *"rmdir /s /q"* ]]; then
   exit "${SSH_LOCK_REAP_EXIT_CODE:-0}"
 fi
 
@@ -818,7 +818,7 @@ test_sync_log_path_is_env_overridable() {
 test_sync_lock_writes_owner_metadata_and_removes_nonempty_lock() {
   local tmp
 
-  echo "Test: sync lock writes owner metadata and removes non-empty lock dir"
+  echo "Test: lane lock writes owner metadata and removes non-empty lock dir"
   TEST_ERRORS=()
   reset_stub_env
 
@@ -829,9 +829,10 @@ test_sync_lock_writes_owner_metadata_and_removes_nonempty_lock() {
   run_torque_remote "$tmp" echo hi
 
   expect_eq "exit code is 0" "0" "$RUN_EXIT"
-  expect_contains "owner metadata file is written" "$RUN_REMOTE_COMMANDS" ".torque-remote-sync.lock\\owner.env"
+  expect_contains "owner metadata file is written under lane lock dir" "$RUN_REMOTE_COMMANDS" ".torque-remote-lanes\.locks\lane-1\owner.env"
   expect_contains "owner host is written" "$RUN_REMOTE_COMMANDS" "echo host="
   expect_contains "owner pid is written" "$RUN_REMOTE_COMMANDS" "echo pid="
+  expect_contains "owner lane_index is written" "$RUN_REMOTE_COMMANDS" "echo lane_index=1"
   expect_contains "non-empty lock dir is removed recursively" "$RUN_REMOTE_COMMANDS" "rmdir /s /q"
 
   finish_test "test_sync_lock_writes_owner_metadata_and_removes_nonempty_lock"
@@ -840,7 +841,7 @@ test_sync_lock_writes_owner_metadata_and_removes_nonempty_lock() {
 test_stale_sync_lock_is_reaped_and_retried() {
   local tmp owner_host acquire_count
 
-  echo "Test: stale sync lock is reaped and retried"
+  echo "Test: stale lane lock is reaped and retried"
   TEST_ERRORS=()
   reset_stub_env
 
@@ -849,16 +850,16 @@ test_stale_sync_lock_is_reaped_and_retried() {
   export GIT_REV_PARSE_OUTPUT="main"
   export SSH_LOCK_ACQUIRE_SEQUENCE="HELD,ACQUIRED"
   owner_host="$(printf '%s' "${COMPUTERNAME:-$(hostname 2>/dev/null || echo unknown)}" | tr '[:upper:]' '[:lower:]' | tr -cd '[:alnum:]_.:-')"
-  export SSH_LOCK_OWNER_OUTPUT=$'host='"$owner_host"$'\npid=99999999\nstarted_at_epoch=1'
-  export TORQUE_REMOTE_SYNC_LOCK_STALE_CHECK_SECS=1
+  export SSH_LOCK_OWNER_OUTPUT=$'host='"$owner_host"$'\npid=99999999\nstarted_at_epoch=1\nlane_index=1'
+  export TORQUE_REMOTE_LANE_STALE_CHECK_SECS=1
 
   run_torque_remote "$tmp" echo hi
 
   acquire_count="$(grep -F "echo ACQUIRED" "$tmp/remote-commands.log" | wc -l | tr -d '[:space:]')"
   expect_eq "exit code is 0" "0" "$RUN_EXIT"
-  expect_contains "stderr reports stale lock reap" "$RUN_STDERR" "Remote sync lock appears stale"
+  expect_contains "stderr reports stale lock reap" "$RUN_STDERR" "Remote lane lock appears stale"
   expect_contains "stale lock is removed recursively" "$RUN_REMOTE_COMMANDS" "rmdir /s /q"
-  expect_contains "owner metadata is read before reaping" "$RUN_REMOTE_COMMANDS" ".torque-remote-sync.lock\\owner.env"
+  expect_contains "owner metadata is read before reaping" "$RUN_REMOTE_COMMANDS" ".torque-remote-lanes\.locks\lane-1\owner.env"
   if [[ "$acquire_count" -lt 2 ]]; then
     record_failure "lock acquisition was not retried after reap (expected at least 2 attempts, got $acquire_count)"
   fi
@@ -1075,8 +1076,8 @@ test_worktree_suffix_uses_sibling_path_and_lock() {
   expect_eq "exit code is 0" "0" "$RUN_EXIT"
   expect_contains "runner uses suffixed project path" "$RUN_RUNNER_SH" "/fake-pre-push-gate"
   expect_contains "base dependency path stays unsuffixed" "$RUN_RUNNER_SH" "TORQUE_REMOTE_BASE_PROJECT_PATH='/fake'"
-  expect_contains "sync lock uses suffixed project path" "$RUN_REMOTE_COMMANDS" "/fake-pre-push-gate.torque-remote-sync.lock"
-  expect_not_contains "sync lock does not use default project path" "$RUN_REMOTE_COMMANDS" "/fake.torque-remote-sync.lock"
+  expect_contains "lane lock is acquired" "$RUN_REMOTE_COMMANDS" ".torque-remote-lanes\.locks\lane-1"
+  expect_not_contains "old sync.lock path is not used" "$RUN_REMOTE_COMMANDS" ".torque-remote-sync.lock"
 
   finish_test "test_worktree_suffix_uses_sibling_path_and_lock"
 }
