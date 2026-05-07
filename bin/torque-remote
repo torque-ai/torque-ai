@@ -1190,7 +1190,18 @@ case "$TRANSPORT" in
       # `(...)` so a missing subdir doesn't break the && chain — cmd's
       # `if not exist` returns 0 even when the condition was false.
       sync_status=0
-      sync_log_path="${TORQUE_REMOTE_SYNC_LOG:-/tmp/torque-remote-sync.log}"
+      # Per-session sync log path — concurrent torque-remote invocations no
+      # longer interleave their `tee`'d sync output. Prior global default
+      # `/tmp/torque-remote-sync.log` made debugging "which session
+      # failed?" impossible because lines from parallel sessions
+      # interleaved. The new default keys on pid + epoch so each session
+      # owns its log. Operators can still override with TORQUE_REMOTE_SYNC_LOG
+      # for tooling that expects a fixed path.
+      #
+      # Discovery: most recent log is the head of `ls -t /tmp/torque-remote-sync.*.log`.
+      # All session logs match that glob — older runs accumulate until the OS
+      # prunes /tmp.
+      sync_log_path="${TORQUE_REMOTE_SYNC_LOG:-/tmp/torque-remote-sync.$$.$(date +%s 2>/dev/null || echo unknown).log}"
       # `git clean -fd` (no -x) was `-fdx` until 2026-04-27. The -x flag
       # removes gitignored files — including node_modules. On Windows, that
       # tear-down/rebuild churn cost ~15s per sync (Defender re-scans tens

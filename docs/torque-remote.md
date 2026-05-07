@@ -248,9 +248,9 @@ Exported to the user's command on remote:
 
 These surfaced during the audit. Each is bounded enough to address in a follow-up commit.
 
-### 1. `/tmp/torque-remote-sync.log` is global; concurrent sessions interleave
+### 1. ✅ ~~`/tmp/torque-remote-sync.log` is global; concurrent sessions interleave~~ RESOLVED 2026-05-07
 
-Multiple concurrent torque-remote invocations all `tee -a` to the same path. Lines from different sessions interleave by line, but log readers can't tell sessions apart and grep results are misleading when debugging "which session failed?". **Action:** Per-session log path (e.g. `/tmp/torque-remote-sync.<pid>.log`) with optional symlink to `/tmp/torque-remote-sync.log` for backwards compatibility.
+Default sync log path is now `/tmp/torque-remote-sync.<pid>.<epoch>.log` (per-session). Each torque-remote invocation owns its log; concurrent sessions no longer interleave. `TORQUE_REMOTE_SYNC_LOG` env var still wins for tooling/operators that expect a fixed path. **Discovery:** `ls -t /tmp/torque-remote-sync.*.log | head -1` returns the most recent session's log.
 
 ### 2. Lock auto-reap is local-host scoped only
 
