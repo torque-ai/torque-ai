@@ -260,9 +260,14 @@ Multiple concurrent torque-remote invocations all `tee -a` to the same path. Lin
 
 `run_with_timeout TIMEOUT_SECONDS` only wraps the SSH **inner-command** invocation. Sync (steps 11-12) has no timeout. A stalled SSH mid-fetch could hang torque-remote for hours. **Action:** Wrap sync in `run_with_timeout` with separate `TORQUE_REMOTE_SYNC_TIMEOUT_SECS` (default 600s). Falling back to local on sync timeout matches existing semantics.
 
-### 4. No fallback-cause telemetry
+### 4. ✅ ~~No fallback-cause telemetry~~ RESOLVED 2026-05-07
 
-When sync fails, drift triggers, lock unavailable, etc., the script falls back to local without recording WHY in any structured form. Operator can't tell "lock contention" from "remote down" from "drift detected" without scraping log files. **Action:** Single line written to `/tmp/torque-remote-fallback.log` per fallback with `<ts>\t<reason>\t<command>` — cheap, queryable.
+`record_fallback(reason, detail)` helper appends a single JSONL line to `~/.torque/torque-remote-fallback.log` (path overridable via `TORQUE_REMOTE_FALLBACK_LOG` / `TORQUE_REMOTE_FALLBACK_LOG_DIR`) every time torque-remote falls back to local execution. Wired into 4 fallback sites: `ssh_unreachable`, `remote_overloaded`, `sync_lock_timeout`, `sync_failed`. JSONL fields: `timestamp`, `project`, `sync_ref`, `host`, `pid`, `reason`, `detail`, `command`. Best-effort: any error (mkdir, append, missing HOME) is swallowed so telemetry cannot block the fallback path.
+
+**Operator queries:**
+- `grep -c '"reason":"sync_lock_timeout"' ~/.torque/torque-remote-fallback.log` — 24h lock-contention rate
+- `tail -100 ~/.torque/torque-remote-fallback.log | jq -r '.reason' | sort | uniq -c` — recent fallback distribution
+- `jq 'select(.timestamp > "2026-05-07")' ~/.torque/torque-remote-fallback.log` — fallbacks today
 
 ### 5. `wmic cpu get loadpercentage` is deprecated
 
