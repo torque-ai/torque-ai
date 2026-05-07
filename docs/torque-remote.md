@@ -217,6 +217,7 @@ Operator-controllable knobs:
 | `TORQUE_REMOTE_COORD_SHA` | derived | Override the SHA reported to coord (used by pre-push gate for staging refs) |
 | `TORQUE_REMOTE_SYNC_LOCK_TIMEOUT_SECS` | `1800` (30 min) | Hard timeout before fall-back-to-local |
 | `TORQUE_REMOTE_SYNC_LOCK_STALE_CHECK_SECS` | `10` | How often to probe owner.env for stale-host PID |
+| `TORQUE_REMOTE_SYNC_TIMEOUT_SECS` | `600` (10 min) | Sync chain timeout — kills SSH if fetch/checkout/reset hangs |
 | `TORQUE_REMOTE_SYNC_LOG` | `/tmp/torque-remote-sync.log` | Sync output log path |
 | `TORQUE_REMOTE_TEST_WORKTREE_SUFFIX` | (unset) | Per-invocation suffix appended to EFFECTIVE_REMOTE_PROJECT_PATH (pre-push-gate sibling worktree) |
 | `TORQUE_COORD_PROBE_URL` | `http://127.0.0.1:9395/health` | Test-only override to redirect daemon probe |
@@ -256,9 +257,9 @@ Default sync log path is now `/tmp/torque-remote-sync.<pid>.<epoch>.log` (per-se
 
 `remote_sync_lock_is_stale` only reaps when `owner_host == local_host`. A workstation that crashed mid-run leaves a lock that NO other machine will reap (out of caution — can't probe a remote host's PIDs). Manual cleanup required. **Action:** TTL on `started_at_epoch` (default 4 hours: longer than any legitimate run, shorter than "abandoned forever"). Reap based on age regardless of owner host.
 
-### 3. No timeout wrapping on the sync chain itself
+### 3. ✅ ~~No timeout wrapping on the sync chain itself~~ RESOLVED 2026-05-07
 
-`run_with_timeout TIMEOUT_SECONDS` only wraps the SSH **inner-command** invocation. Sync (steps 11-12) has no timeout. A stalled SSH mid-fetch could hang torque-remote for hours. **Action:** Wrap sync in `run_with_timeout` with separate `TORQUE_REMOTE_SYNC_TIMEOUT_SECS` (default 600s). Falling back to local on sync timeout matches existing semantics.
+Sync chain is now wrapped in `run_with_timeout "$sync_timeout_secs"` via a `_torque_remote_sync_pipeline` helper function (defined inline so it inherits the outer scope's SSH_OPTS / SYNC_BOOTSTRAP / sync_log_path). Default timeout `600s` (10 min) is generous for large repos; tune via `TORQUE_REMOTE_SYNC_TIMEOUT_SECS`. On timeout, sync_status=124 triggers `sync_failed` fallback with explicit "Sync timed out after Ns" warning; behavior matches the existing sync-failure path.
 
 ### 4. ✅ ~~No fallback-cause telemetry~~ RESOLVED 2026-05-07
 
