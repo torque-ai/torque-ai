@@ -220,9 +220,9 @@ If `<data-dir>` runs out of disk mid-task, log writes start failing (EIO/ENOSPC)
 
 Re-adoption's "fresh log mtime" check (`TORQUE_READOPT_LOG_STALE_MS`, default 5 min) catches PID-reuse where the new owner of the recycled PID didn't write to TORQUE's log file. But if a PID is reused by ANOTHER torque-spawned subprocess (rare but possible after rapid restart cycles), both PIDs' logs may be fresh and the wrong subprocess gets re-adopted. **Action:** Add a startup-marker line to each log file (e.g. `[torque-spawn] taskId=<id> wrapper-pid=<pid>`); re-adoption verifies the marker matches the row's taskId before adopting.
 
-### 9. process-exit-wrapper bash signal forwarding is incomplete
+### 9. ✅ ~~process-exit-wrapper bash signal forwarding is incomplete~~ RESOLVED 2026-05-07
 
-Wrapper handles SIGTERM and SIGINT (`['SIGTERM', 'SIGINT'].forEach(...)`) but not SIGHUP, SIGQUIT, or Windows-specific termination signals. If the parent gets SIGHUP and forwards it, the wrapper doesn't pass it on to codex. **Action:** Forward all standard termination signals; document which ones are POSIX-only.
+Wrapper now forwards `SIGTERM`, `SIGINT`, `SIGHUP`, `SIGQUIT`, `SIGBREAK` (Ctrl+Break on Windows). Each registration is wrapped in try/catch so Node throwing on unsupported-signal platforms (e.g. `SIGHUP` on older Windows) doesn't crash the wrapper. The actual `child.kill(sig)` is also try-wrapped (child may have already exited between signal arrival and forward). `SIGKILL` deliberately NOT forwarded — uncatchable, shouldn't be in the list.
 
 ### 10. No dashboard surface for "is this task on the detached path?"
 

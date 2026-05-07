@@ -98,8 +98,22 @@ child.on('close', (code, signal) => {
   process.exit(typeof code === 'number' ? code : (signal ? 128 : 0));
 });
 
-['SIGTERM', 'SIGINT'].forEach((sig) => {
-  process.on(sig, () => {
-    try { child.kill(sig); } catch { /* ignore */ }
-  });
-});
+// Forward standard termination signals to the child so cancel_task,
+// SIGHUP from terminal disconnect, and Windows-specific termination all
+// reach the real binary. Only POSIX signals are forwarded; SIGKILL can't
+// be caught and shouldn't be forwarded explicitly. SIGBREAK is Windows-
+// specific (Ctrl+Break in cmd.exe / PowerShell). Each signal is registered
+// in a try block because Node throws on platforms that don't support it
+// (e.g. SIGHUP on Windows pre-0.10), and we'd rather skip than crash the
+// wrapper. The actual `child.kill(sig)` is also wrapped in try because
+// the child may have already exited between signal arrival and forward.
+const FORWARDED_SIGNALS = ['SIGTERM', 'SIGINT', 'SIGHUP', 'SIGQUIT', 'SIGBREAK'];
+for (const sig of FORWARDED_SIGNALS) {
+  try {
+    process.on(sig, () => {
+      try { child.kill(sig); } catch { /* ignore */ }
+    });
+  } catch {
+    // Platform doesn't support this signal — skip silently.
+  }
+}
