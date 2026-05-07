@@ -218,6 +218,8 @@ Operator-controllable knobs:
 | `TORQUE_REMOTE_SYNC_LOCK_TIMEOUT_SECS` | `1800` (30 min) | Hard timeout before fall-back-to-local |
 | `TORQUE_REMOTE_SYNC_LOCK_STALE_CHECK_SECS` | `10` | How often to probe owner.env for stale-host PID |
 | `TORQUE_REMOTE_SYNC_LOCK_TTL_SECS` | `14400` (4 h) | Max lock age before TTL-based reap fires (regardless of owner host); `0` disables |
+| `TORQUE_REMOTE_SYNC_LOCK_HEARTBEAT_SECS` | `60` | Holder updates heartbeat.epoch on remote every N seconds; `0` disables |
+| `TORQUE_REMOTE_SYNC_LOCK_HEARTBEAT_STALE_SECS` | `300` (5 min) | Waiters warn (one-shot) if heartbeat age exceeds this; informational only, no auto-reap |
 | `TORQUE_REMOTE_SYNC_TIMEOUT_SECS` | `600` (10 min) | Sync chain timeout — kills SSH if fetch/checkout/reset hangs |
 | `TORQUE_REMOTE_DECISION_LOG` / `_LOG_DIR` | `~/.torque/torque-remote-decisions.jsonl` | Per-invocation outcome log (success/fallback, transport, elapsed) |
 | `TORQUE_REMOTE_FALLBACK_LOG` / `_LOG_DIR` | `~/.torque/torque-remote-fallback.log` | Per-fallback reason log (only fires on fallback) |
@@ -285,9 +287,18 @@ Load-check probe order is now PowerShell `Get-CimInstance Win32_Processor` first
 
 `cleanup_temp_dirs` now retries 5× with exponential backoff (1, 2, 4, 8, 16 → 31s total budget) instead of 3× with 1s. Covers the Defender full-file scan window for 4GB local-state.tar/untracked.tar without making fast-path cleanup feel slow (single rm typically completes in <100ms). The 60-min `sweep_old_orphans` backstop still catches anything that survives the 31s budget.
 
-### 7. CMD-shell-quoted sync chain is one massive line; hard to test in isolation
+### 7. ✅ ~~CMD-shell-quoted sync chain is one massive line; hard to test in isolation~~ RESOLVED 2026-05-07
 
-The sync chain is ~10 chained CMD-shell statements with `^&^&` escapes, `2>nul`, `if not exist`, all on one line passed as a single SSH argument. Two real bugs (extra outer parens around if-blocks 2026-04-29; `git clean -fdx` removing node_modules pre-2026-04-27) hit production because there's no unit test for the assembled command. **Action:** Extract sync command assembly into a function with discrete steps; add a test that asserts the assembled string passes a CMD lexer (could use `cmd.exe /c "echo <assembled>"` smoke check).
+`build_remote_sync_command(eff_path, fetch_cmd, sync_checkout, sync_ref, bootstrap)` extracts the assembly into a function. `_torque_remote_sync_pipeline` captures the result into `SYNC_SSH_CMD` and passes it to ssh. `server/tests/torque-remote-source.test.js` gains a `build_remote_sync_command runtime invariants` describe block with 7 unit tests asserting the assembled output (sources the function from the real script via regex extract + bash `-c`):
+- `git clean -fd` (NOT `-fdx`)
+- `exit 99` drift detection present
+- fetch → checkout → reset chain order
+- 3 outer-paren-wrapped if-not-exist hint blocks
+- escaped `^&^&` inside echo strings
+- non-empty SYNC_BOOTSTRAP prefix honored
+- `cd` before any git operation
+
+Both 2026-04-27 (`-fdx` regression) and 2026-04-29 (bare `if X (block)` regression) would have been caught by these tests at commit time.
 
 ### 8. ✅ ~~Coord-mode trap chain is single-slot; custom user traps would break cleanup~~ RESOLVED 2026-05-07
 
@@ -311,9 +322,9 @@ Stale-check parses the inline owner block (no extra SSH). Per stale-check round,
 - `jq 'select(.timestamp_start > "2026-05-06") | .elapsed_secs' .../torque-remote-decisions.jsonl | python -c 'import sys,statistics; print(statistics.median(map(int, sys.stdin)))'` — median elapsed last 24h
 - `jq 'select(.outcome == "fallback") | .fallback_reason' .../torque-remote-decisions.jsonl | sort | uniq -c` — fallback distribution by reason
 
-### 11. The 30-min lock timeout has no visibility into "is the holder making progress?"
+### 11. ✅ ~~The 30-min lock timeout has no visibility into "is the holder making progress?"~~ RESOLVED 2026-05-07
 
-If the holding session is genuinely working (slow vitest run on remote with 1000s of tests), 30 min is reasonable. If it's stalled, 30 min of wait is wasted. **Action:** Add a heartbeat file inside the lock dir that the holder touches every 30s; waiters can detect "no heartbeat in 5 minutes" as a proxy for hung-but-not-dead sessions and trigger a softer escalation (warn-only, not auto-reap).
+`start_remote_sync_lock_heartbeat` spawns a detached subshell that touches `<LOCK_DIR>\heartbeat.epoch` on the remote every `TORQUE_REMOTE_SYNC_LOCK_HEARTBEAT_SECS` (default 60s). `stop_remote_sync_lock_heartbeat` kills the subshell on `release_remote_sync_lock`. The coalesced acquire-loop probe (#9) was extended to fetch heartbeat.epoch alongside owner.env via a `---HB---` separator. Waiters parse heartbeat age; if it exceeds `TORQUE_REMOTE_SYNC_LOCK_HEARTBEAT_STALE_SECS` (default 300s = 5min), emit a single `warn` per acquire wait — informational only, never auto-reap (TTL #2 owns reap). Distinguishes "holder is actively syncing" from "holder is stuck mid-sync" without changing reap semantics.
 
 ### 12. Plugin and bash script duplicate remote-execution logic
 

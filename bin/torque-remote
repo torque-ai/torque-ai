@@ -404,7 +404,12 @@ cleanup_on_exit() {
 REMOTE_SYNC_LOCK_HELD=0
 REMOTE_SYNC_LOCK_DIR=""
 REMOTE_SYNC_LOCK_OWNER_FILE="owner.env"
+REMOTE_SYNC_LOCK_HEARTBEAT_FILE="heartbeat.epoch"
 REMOTE_SYNC_LOCK_STALE_REASON=""
+REMOTE_SYNC_LOCK_HEARTBEAT_PID=""
+# Set by acquire_remote_sync_lock when a stale-heartbeat warn has fired
+# during the current wait, so the warn is one-shot per invocation.
+REMOTE_SYNC_LOCK_HEARTBEAT_WARNED=0
 
 remote_sync_lock_local_host() {
   local host
@@ -514,6 +519,47 @@ remote_sync_lock_check_owner_block() {
   return 1
 }
 
+# Spawn a background updater that touches heartbeat.epoch in the lock dir
+# every $TORQUE_REMOTE_SYNC_LOCK_HEARTBEAT_SECS seconds (default 60).
+# Waiters detect "no heartbeat in N seconds" as a proxy for hung-but-alive
+# holders — distinguishes "actively syncing" from "stuck mid-sync."
+#
+# Best-effort: SSH failures are swallowed. The lock TTL (#2) remains the
+# definitive cross-host reap mechanism; heartbeat is informational (warn
+# only, never auto-reap).
+start_remote_sync_lock_heartbeat() {
+  if [[ -z "${REMOTE_SYNC_LOCK_DIR:-}" || -z "${SSH_USER:-}" || -z "${SSH_HOST:-}" ]]; then
+    return 0
+  fi
+  local interval="${TORQUE_REMOTE_SYNC_LOCK_HEARTBEAT_SECS:-60}"
+  if ! [[ "$interval" =~ ^[0-9]+$ ]] || (( interval <= 0 )); then
+    return 0
+  fi
+  local hb_file="${REMOTE_SYNC_LOCK_DIR}\\${REMOTE_SYNC_LOCK_HEARTBEAT_FILE}"
+  # Detached subshell: writes initial heartbeat then loops. Each SSH is
+  # silenced; failures don't propagate. The loop exits when the parent kills
+  # this subshell on release.
+  (
+    while :; do
+      ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" \
+        "echo $(date +%s 2>/dev/null || echo 0)>\"$hb_file\"" \
+        >/dev/null 2>&1 || true
+      sleep "$interval"
+    done
+  ) </dev/null >/dev/null 2>&1 &
+  REMOTE_SYNC_LOCK_HEARTBEAT_PID=$!
+  disown 2>/dev/null || true
+}
+
+stop_remote_sync_lock_heartbeat() {
+  if [[ -n "${REMOTE_SYNC_LOCK_HEARTBEAT_PID:-}" ]]; then
+    kill "$REMOTE_SYNC_LOCK_HEARTBEAT_PID" 2>/dev/null || true
+    # Reap the subshell so it doesn't show up in `ps` after exit.
+    wait "$REMOTE_SYNC_LOCK_HEARTBEAT_PID" 2>/dev/null || true
+    REMOTE_SYNC_LOCK_HEARTBEAT_PID=""
+  fi
+}
+
 reap_remote_sync_lock() {
   local reason="$1"
   warn "Remote sync lock appears stale (${reason}); removing $REMOTE_SYNC_LOCK_DIR"
@@ -548,22 +594,25 @@ acquire_remote_sync_lock() {
     stale_check_interval=10
   fi
   local last_stale_check=$((0 - stale_check_interval))
-  local probe_response state owner_block
+  local probe_response state owner_block hb_block
   local owner_file="${REMOTE_SYNC_LOCK_DIR}\\${REMOTE_SYNC_LOCK_OWNER_FILE}"
+  local hb_file="${REMOTE_SYNC_LOCK_DIR}\\${REMOTE_SYNC_LOCK_HEARTBEAT_FILE}"
+  REMOTE_SYNC_LOCK_HEARTBEAT_WARNED=0
   while true; do
-    # CMD-compatible single-shot probe — coalesces "is the lock held?" with
-    # "what does owner.env contain?" so polling loops don't pay an extra
-    # SSH round-trip when stale-check fires. Output shape:
-    #   ACQUIRED                        — directory created; we own the lock
-    #   HELD\nNO_OWNER                  — held but no owner.env yet (race)
-    #   HELD\nhost=...\npid=...\n...    — held with owner metadata inline
+    # CMD-compatible single-shot probe — coalesces "is the lock held?",
+    # "what does owner.env contain?", AND "what's the latest heartbeat?"
+    # so polling loops don't pay multiple SSH round-trips when stale-check
+    # fires. Output shape:
+    #   ACQUIRED                                 — directory created; we own the lock
+    #   HELD\n<owner-block>\n---HB---\n<hb-block> — held; metadata + heartbeat inline
+    # owner-block is `host=...\npid=...\nstarted_at_epoch=...` or `NO_OWNER`.
+    # hb-block is the heartbeat epoch (or `NO_HB` when the file is absent).
     # mkdir is atomic at directory-entry level; concurrent races resolve
     # to "first writer ACQUIRED, others HELD".
     probe_response=$(ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" \
-      "if not exist \"$REMOTE_SYNC_LOCK_DIR\" (mkdir \"$REMOTE_SYNC_LOCK_DIR\" 2>nul && echo ACQUIRED) else (echo HELD && (if exist \"$owner_file\" (type \"$owner_file\") else (echo NO_OWNER)))" \
+      "if not exist \"$REMOTE_SYNC_LOCK_DIR\" (mkdir \"$REMOTE_SYNC_LOCK_DIR\" 2>nul && echo ACQUIRED) else (echo HELD && (if exist \"$owner_file\" (type \"$owner_file\") else (echo NO_OWNER)) && echo ---HB--- && (if exist \"$hb_file\" (type \"$hb_file\") else (echo NO_HB)))" \
       2>/dev/null | tr -d '\r')
     state=$(printf '%s\n' "$probe_response" | head -n 1)
-    owner_block=$(printf '%s\n' "$probe_response" | tail -n +2)
     if [[ "$state" == "ACQUIRED" ]]; then
       REMOTE_SYNC_LOCK_HELD=1
       if ! write_remote_sync_lock_owner; then
@@ -571,8 +620,14 @@ acquire_remote_sync_lock() {
         release_remote_sync_lock
         return 1
       fi
+      start_remote_sync_lock_heartbeat
       return 0
     fi
+    # Split owner-block from heartbeat-block at the ---HB--- separator.
+    # awk runs once per probe; awk's missing-separator path leaves
+    # owner_block as full body, hb_block empty.
+    owner_block=$(printf '%s\n' "$probe_response" | awk '/^---HB---$/{exit} NR>1{print}')
+    hb_block=$(printf '%s\n' "$probe_response" | awk 'p{print} /^---HB---$/{p=1}')
     if (( elapsed == 0 )); then
       info "Waiting for remote sync lock at $EFFECTIVE_REMOTE_PROJECT_PATH (held by another torque-remote invocation)..."
     fi
@@ -585,6 +640,27 @@ acquire_remote_sync_lock() {
          && remote_sync_lock_check_owner_block "$owner_block"; then
         reap_remote_sync_lock "$REMOTE_SYNC_LOCK_STALE_REASON" || true
         continue
+      fi
+      # Heartbeat staleness — informational warn (never auto-reap; TTL is
+      # the only reap rule). Fires at most once per acquire wait so log
+      # spam doesn't drown the operator.
+      if (( REMOTE_SYNC_LOCK_HEARTBEAT_WARNED == 0 )); then
+        local hb_stale_secs="${TORQUE_REMOTE_SYNC_LOCK_HEARTBEAT_STALE_SECS:-300}"
+        if [[ "$hb_stale_secs" =~ ^[0-9]+$ ]] && (( hb_stale_secs > 0 )) \
+           && [[ -n "$hb_block" ]] && [[ "$hb_block" != *"NO_HB"* ]]; then
+          local hb_epoch hb_now hb_age
+          hb_epoch=$(printf '%s\n' "$hb_block" | head -n 1 | sed 's/[[:space:]]*$//')
+          if [[ "$hb_epoch" =~ ^[0-9]+$ ]]; then
+            hb_now="$(date +%s 2>/dev/null || echo 0)"
+            if [[ "$hb_now" =~ ^[0-9]+$ ]] && (( hb_now > 0 )); then
+              hb_age=$((hb_now - hb_epoch))
+              if (( hb_age > hb_stale_secs )); then
+                warn "Lock holder heartbeat stale (${hb_age}s; threshold ${hb_stale_secs}s) — holder may be hung but not dead. Will continue waiting; TTL ${TORQUE_REMOTE_SYNC_LOCK_TTL_SECS:-14400}s will reap if exceeded."
+                REMOTE_SYNC_LOCK_HEARTBEAT_WARNED=1
+              fi
+            fi
+          fi
+        fi
       fi
     fi
     sleep "$poll"
@@ -600,6 +676,10 @@ release_remote_sync_lock() {
   if [[ "${REMOTE_SYNC_LOCK_HELD:-0}" != "1" || -z "${REMOTE_SYNC_LOCK_DIR:-}" ]]; then
     return 0
   fi
+  # Stop the heartbeat updater BEFORE removing the lock dir so a
+  # mid-flight `echo > heartbeat.epoch` doesn't recreate the dir as a
+  # side-effect of the redirect.
+  stop_remote_sync_lock_heartbeat
   ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" \
     "rmdir /s /q \"$REMOTE_SYNC_LOCK_DIR\" 2>nul" \
     >/dev/null 2>&1 || true
