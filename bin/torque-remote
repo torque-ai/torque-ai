@@ -103,6 +103,41 @@ TEMP_DIRS=()
 REMOTE_CLEANUP_COMMAND=""
 REMOTE_CLEANUP_REQUIRED="false"
 
+# bash's `trap ... EXIT` is single-slot; installing a second trap replaces
+# the first. Prior code installed `cleanup_on_exit` first, then later
+# overwrote it with `coord_release_on_exit` which manually called
+# `cleanup_on_exit` to chain. That worked but a third future contributor
+# adding their own `trap ... EXIT` would silently break the chain — the
+# leak surface (orphan temp dirs, abandoned coord locks) was real.
+#
+# `trap_chain_add` installs handlers into an array dispatched on EXIT in
+# LIFO order (latest registered runs first), so adding a new handler can't
+# accidentally clobber prior cleanup.
+#
+# Handlers are invoked with the original `$?` as `$1` so they can capture
+# the script's real exit code regardless of what later handlers do. Each
+# handler's failures are swallowed via `|| true` so one handler's bug
+# can't block the chain.
+TRAP_CHAIN_HANDLERS=()
+TRAP_CHAIN_INSTALLED=0
+
+trap_chain_dispatch() {
+  local _trap_exit_code=$?
+  local i
+  for ((i=${#TRAP_CHAIN_HANDLERS[@]}-1; i>=0; i--)); do
+    "${TRAP_CHAIN_HANDLERS[$i]}" "$_trap_exit_code" || true
+  done
+  exit "$_trap_exit_code"
+}
+
+trap_chain_add() {
+  TRAP_CHAIN_HANDLERS+=("$1")
+  if [[ "$TRAP_CHAIN_INSTALLED" -ne 1 ]]; then
+    trap trap_chain_dispatch EXIT
+    TRAP_CHAIN_INSTALLED=1
+  fi
+}
+
 cleanup_temp_dirs() {
   local dir attempt sleep_secs
   for dir in "${TEMP_DIRS[@]}"; do
@@ -540,7 +575,7 @@ create_local_state_bundle() {
 # 5s spawnSync timeout in tests/coord-torque-remote-routing.test.js even
 # though the routing decision itself returns in <1s.
 if [[ "${1:-}" != "--__internal-print-routing-mode" ]]; then
-  trap cleanup_on_exit EXIT
+  trap_chain_add cleanup_on_exit
 fi
 
 # ---- Prerequisites ----
@@ -985,7 +1020,13 @@ coord_begin() {
 }
 
 coord_release_on_exit() {
-  local final_exit=$?
+  # Prefer the exit code passed by trap_chain_dispatch (arg $1); fall back
+  # to $? for back-compat if invoked directly. trap_chain_dispatch invokes
+  # registered handlers in LIFO order, so coord-release runs BEFORE
+  # cleanup_on_exit when both are registered — preserves the original
+  # "release coord lock first, then local cleanup" sequence without the
+  # manual `cleanup_on_exit` call this function used to make.
+  local final_exit="${1:-$?}"
   if [[ "$COORD_ACQUIRED" -eq 1 && -n "$COORD_LOCK_ID" ]]; then
     # Hashes were captured by coord_begin and travel with the lock —
     # no extra `node lock-hashes` spawn here.
@@ -1006,12 +1047,6 @@ coord_release_on_exit() {
   if [[ -n "$COORD_OUTPUT_LOG" && -f "$COORD_OUTPUT_LOG" ]]; then
     rm -f "$COORD_OUTPUT_LOG" 2>/dev/null || true
   fi
-  # Chain through to the original cleanup. bash's trap is single-slot, so
-  # installing this trap REPLACED the pre-existing `trap cleanup_on_exit EXIT`
-  # at line ~264. Without this call, every coord-mode run skips temp-dir
-  # cleanup, the orphan-tarball sweep, and remote-side cleanup — re-introducing
-  # the documented 150 GB orphan accumulation regression.
-  cleanup_on_exit
 }
 
 # COORD_OUTPUT_LOG is the tempfile we tee inner-command stdout/stderr into so
@@ -1026,7 +1061,7 @@ coord_select_routing_mode
 
 if [[ "$SUITE" != "custom" ]]; then
   COORD_SHA="$(resolve_coord_sha)"
-  trap coord_release_on_exit EXIT
+  trap_chain_add coord_release_on_exit
   # Single node spawn handles lock-hashes + results + acquire (+ cache-hit
   # comparison + queued-retry). Prior bash flow paid 3-5 separate ~9s node
   # cold-starts on Windows under Defender; this collapses to 1 (+ wait/retry

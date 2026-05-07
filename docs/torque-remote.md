@@ -287,9 +287,9 @@ Load-check probe order is now PowerShell `Get-CimInstance Win32_Processor` first
 
 The sync chain is ~10 chained CMD-shell statements with `^&^&` escapes, `2>nul`, `if not exist`, all on one line passed as a single SSH argument. Two real bugs (extra outer parens around if-blocks 2026-04-29; `git clean -fdx` removing node_modules pre-2026-04-27) hit production because there's no unit test for the assembled command. **Action:** Extract sync command assembly into a function with discrete steps; add a test that asserts the assembled string passes a CMD lexer (could use `cmd.exe /c "echo <assembled>"` smoke check).
 
-### 8. Coord-mode trap chain is single-slot; custom user traps would break cleanup
+### 8. ✅ ~~Coord-mode trap chain is single-slot; custom user traps would break cleanup~~ RESOLVED 2026-05-07
 
-`bash`'s `trap ... EXIT` is single-slot. The script installs `trap cleanup_on_exit EXIT`, then later REPLACES it with `trap coord_release_on_exit EXIT` (which chains through to cleanup_on_exit manually). If a user's child env installs an additional trap, the chain could be broken silently. **Action:** Use `trap_chain` helper that accumulates handlers and dispatches in order — small bash idiom, prevents future mistakes when adding a fourth cleanup concern.
+`trap_chain_add <handler>` helper accumulates handlers into an array dispatched on EXIT in LIFO order (latest registered runs first). Exit code passed to handlers as `$1` (with `$?` fallback for back-compat). The two existing trap installs (`cleanup_on_exit`, `coord_release_on_exit`) now use the helper; coord_release_on_exit no longer needs its manual `cleanup_on_exit` chain-back call. Adding a new cleanup concern is now `trap_chain_add new_handler` — can't accidentally clobber prior handlers.
 
 ### 9. ✅ ~~Lock-acquire poll burns SSH round-trips~~ RESOLVED 2026-05-07
 
