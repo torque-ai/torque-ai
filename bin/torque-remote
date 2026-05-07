@@ -37,6 +37,13 @@ info() { echo "[torque-remote] $*" >&2; }
 #       $3=command (optional override; defaults to current COMMAND_DISPLAY).
 record_fallback() {
   local reason="${1:-unknown}" detail="${2:-}" cmd="${3:-${COMMAND_DISPLAY:-}}"
+  # Stash the reason for the per-invocation decision log so the EXIT-time
+  # summary records WHY this run fell back. First fallback wins (downstream
+  # cascading fallbacks shouldn't overwrite the root cause).
+  if [[ -z "${DECISION_FALLBACK_REASON:-}" ]]; then
+    DECISION_FALLBACK_REASON="$reason"
+    DECISION_FALLBACK_DETAIL="$detail"
+  fi
   local log_dir="${TORQUE_REMOTE_FALLBACK_LOG_DIR:-${HOME}/.torque}"
   local log_path="${TORQUE_REMOTE_FALLBACK_LOG:-${log_dir}/torque-remote-fallback.log}"
   local ts project sync_ref host
@@ -58,6 +65,76 @@ record_fallback() {
     mkdir -p "$log_dir" 2>/dev/null || return 0
     printf '{"timestamp":"%s","project":"%s","sync_ref":"%s","host":"%s","pid":%s,"reason":"%s","detail":"%s","command":"%s"}\n' \
       "$ts" "$esc_project" "$esc_sync_ref" "$esc_host" "$$" "$esc_reason" "$esc_detail" "$esc_cmd" \
+      >> "$log_path" 2>/dev/null || true
+  } >/dev/null 2>&1
+  return 0
+}
+
+# Per-invocation decision log — appends one JSONL record at script exit
+# regardless of outcome (success, fallback, or remote-executed). Distinct
+# from the fallback log (which only fires on fallback). Lets operators
+# answer "fallback rate over the last 24h?" or "median elapsed for SSH
+# transport?" with one query against ~/.torque/torque-remote-decisions.jsonl.
+#
+# Globals consumed:
+#   DECISION_START_EPOCH       — set once near script start
+#   DECISION_TRANSPORT         — "local" or "ssh", set at transport branch
+#   DECISION_FALLBACK_REASON   — set by record_fallback's first call
+#   DECISION_FALLBACK_DETAIL   — set by record_fallback's first call
+#   PROJECT_NAME, SYNC_REF, SSH_HOST, COMMAND_DISPLAY — captured during
+#                                                       normal flow
+#
+# Best-effort: errors swallowed, exit handler must not block.
+DECISION_START_EPOCH=""
+DECISION_TRANSPORT=""
+DECISION_FALLBACK_REASON=""
+DECISION_FALLBACK_DETAIL=""
+
+record_decision_on_exit() {
+  local exit_code="${1:-$?}"
+  local log_dir="${TORQUE_REMOTE_DECISION_LOG_DIR:-${HOME}/.torque}"
+  local log_path="${TORQUE_REMOTE_DECISION_LOG:-${log_dir}/torque-remote-decisions.jsonl}"
+  local ts_start ts_end elapsed now project sync_ref host transport outcome reason detail cmd
+  now="$(date +%s 2>/dev/null || echo 0)"
+  if [[ "${DECISION_START_EPOCH:-}" =~ ^[0-9]+$ ]] && [[ "$now" =~ ^[0-9]+$ ]] && (( now > 0 )); then
+    elapsed=$((now - DECISION_START_EPOCH))
+    ts_start="$(date -u -d "@${DECISION_START_EPOCH}" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null \
+                || date -u -r "${DECISION_START_EPOCH}" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null \
+                || echo unknown)"
+  else
+    elapsed=0
+    ts_start="unknown"
+  fi
+  ts_end="$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo unknown)"
+  project="${PROJECT_NAME:-unknown}"
+  sync_ref="${SYNC_REF:-unknown}"
+  host="${SSH_HOST:-unknown}"
+  transport="${DECISION_TRANSPORT:-unknown}"
+  cmd="${COMMAND_DISPLAY:-}"
+  reason="${DECISION_FALLBACK_REASON:-}"
+  detail="${DECISION_FALLBACK_DETAIL:-}"
+  if [[ -n "$reason" ]]; then
+    outcome="fallback"
+  else
+    outcome="success"
+  fi
+  local esc_project esc_sync_ref esc_host esc_transport esc_outcome esc_reason esc_detail esc_cmd
+  esc_project="$(printf '%s' "$project" | sed 's/\\/\\\\/g; s/"/\\"/g')"
+  esc_sync_ref="$(printf '%s' "$sync_ref" | sed 's/\\/\\\\/g; s/"/\\"/g')"
+  esc_host="$(printf '%s' "$host" | sed 's/\\/\\\\/g; s/"/\\"/g')"
+  esc_transport="$(printf '%s' "$transport" | sed 's/\\/\\\\/g; s/"/\\"/g')"
+  esc_outcome="$(printf '%s' "$outcome" | sed 's/\\/\\\\/g; s/"/\\"/g')"
+  esc_reason="$(printf '%s' "$reason" | sed 's/\\/\\\\/g; s/"/\\"/g')"
+  esc_detail="$(printf '%s' "$detail" | sed 's/\\/\\\\/g; s/"/\\"/g')"
+  esc_cmd="$(printf '%s' "$cmd" | sed 's/\\/\\\\/g; s/"/\\"/g')"
+  local reason_field='null'
+  [[ -n "$reason" ]] && reason_field="\"$esc_reason\""
+  local detail_field='null'
+  [[ -n "$detail" ]] && detail_field="\"$esc_detail\""
+  {
+    mkdir -p "$log_dir" 2>/dev/null || return 0
+    printf '{"timestamp_start":"%s","timestamp_end":"%s","elapsed_secs":%s,"project":"%s","sync_ref":"%s","host":"%s","pid":%s,"transport":"%s","outcome":"%s","fallback_reason":%s,"fallback_detail":%s,"exit_code":%s,"command":"%s"}\n' \
+      "$ts_start" "$ts_end" "$elapsed" "$esc_project" "$esc_sync_ref" "$esc_host" "$$" "$esc_transport" "$esc_outcome" "$reason_field" "$detail_field" "$exit_code" "$esc_cmd" \
       >> "$log_path" 2>/dev/null || true
   } >/dev/null 2>&1
   return 0
@@ -575,7 +652,9 @@ create_local_state_bundle() {
 # 5s spawnSync timeout in tests/coord-torque-remote-routing.test.js even
 # though the routing decision itself returns in <1s.
 if [[ "${1:-}" != "--__internal-print-routing-mode" ]]; then
+  DECISION_START_EPOCH="$(date +%s 2>/dev/null || echo 0)"
   trap_chain_add cleanup_on_exit
+  trap_chain_add record_decision_on_exit
 fi
 
 # ---- Prerequisites ----
@@ -1078,6 +1157,7 @@ fi
 case "$TRANSPORT" in
 
   local)
+    DECISION_TRANSPORT="local"
     info "Running locally: $COMMAND_DISPLAY"
     cd "$PROJECT_ROOT"
     set +e
@@ -1104,6 +1184,7 @@ case "$TRANSPORT" in
     ;;
 
   ssh)
+    DECISION_TRANSPORT="ssh"
     cd "$PROJECT_ROOT"
 
     # Validate connection details

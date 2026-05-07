@@ -219,6 +219,8 @@ Operator-controllable knobs:
 | `TORQUE_REMOTE_SYNC_LOCK_STALE_CHECK_SECS` | `10` | How often to probe owner.env for stale-host PID |
 | `TORQUE_REMOTE_SYNC_LOCK_TTL_SECS` | `14400` (4 h) | Max lock age before TTL-based reap fires (regardless of owner host); `0` disables |
 | `TORQUE_REMOTE_SYNC_TIMEOUT_SECS` | `600` (10 min) | Sync chain timeout — kills SSH if fetch/checkout/reset hangs |
+| `TORQUE_REMOTE_DECISION_LOG` / `_LOG_DIR` | `~/.torque/torque-remote-decisions.jsonl` | Per-invocation outcome log (success/fallback, transport, elapsed) |
+| `TORQUE_REMOTE_FALLBACK_LOG` / `_LOG_DIR` | `~/.torque/torque-remote-fallback.log` | Per-fallback reason log (only fires on fallback) |
 | `TORQUE_REMOTE_SYNC_LOG` | `/tmp/torque-remote-sync.log` | Sync output log path |
 | `TORQUE_REMOTE_TEST_WORKTREE_SUFFIX` | (unset) | Per-invocation suffix appended to EFFECTIVE_REMOTE_PROJECT_PATH (pre-push-gate sibling worktree) |
 | `TORQUE_COORD_PROBE_URL` | `http://127.0.0.1:9395/health` | Test-only override to redirect daemon probe |
@@ -300,9 +302,14 @@ Probes are now coalesced — one SSH per poll iteration returns lock state + own
 
 Stale-check parses the inline owner block (no extra SSH). Per stale-check round, this halves the SSH round-trip count from 2 to 1; on a 30-min timeout that's up to 900 fewer SSH calls.
 
-### 10. No structured emission of the sync-vs-fallback decision
+### 10. ✅ ~~No structured emission of the sync-vs-fallback decision~~ RESOLVED 2026-05-07
 
-Every cutover that falls back silently has a verification gap. Currently the only signal is the `[torque-remote] WARN/ERROR` lines on stderr. **Action:** Add an opt-in JSON line emitted to `~/.torque/torque-remote-decisions.jsonl` per invocation with: timestamp, project, sync_ref, transport_used (local/ssh), fallback_reason (or null on success), elapsed. Operator can grep for "fallback rate over last 24h" with one query.
+`record_decision_on_exit` (registered via `trap_chain_add`) appends a JSONL line to `~/.torque/torque-remote-decisions.jsonl` for **every** invocation regardless of outcome (distinct from the fallback-only log under #4). Fields: `timestamp_start`, `timestamp_end`, `elapsed_secs`, `project`, `sync_ref`, `host`, `pid`, `transport` (local/ssh), `outcome` (success/fallback), `fallback_reason` (null when success), `fallback_detail`, `exit_code`, `command`. Path overridable via `TORQUE_REMOTE_DECISION_LOG` / `TORQUE_REMOTE_DECISION_LOG_DIR`.
+
+**Operator queries unlocked:**
+- `jq -s 'group_by(.outcome) | map({outcome: .[0].outcome, count: length})' ~/.torque/torque-remote-decisions.jsonl` — fallback rate over all time
+- `jq 'select(.timestamp_start > "2026-05-06") | .elapsed_secs' .../torque-remote-decisions.jsonl | python -c 'import sys,statistics; print(statistics.median(map(int, sys.stdin)))'` — median elapsed last 24h
+- `jq 'select(.outcome == "fallback") | .fallback_reason' .../torque-remote-decisions.jsonl | sort | uniq -c` — fallback distribution by reason
 
 ### 11. The 30-min lock timeout has no visibility into "is the holder making progress?"
 
