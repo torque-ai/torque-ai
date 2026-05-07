@@ -217,6 +217,7 @@ Operator-controllable knobs:
 | `TORQUE_REMOTE_COORD_SHA` | derived | Override the SHA reported to coord (used by pre-push gate for staging refs) |
 | `TORQUE_REMOTE_SYNC_LOCK_TIMEOUT_SECS` | `1800` (30 min) | Hard timeout before fall-back-to-local |
 | `TORQUE_REMOTE_SYNC_LOCK_STALE_CHECK_SECS` | `10` | How often to probe owner.env for stale-host PID |
+| `TORQUE_REMOTE_SYNC_LOCK_TTL_SECS` | `14400` (4 h) | Max lock age before TTL-based reap fires (regardless of owner host); `0` disables |
 | `TORQUE_REMOTE_SYNC_TIMEOUT_SECS` | `600` (10 min) | Sync chain timeout — kills SSH if fetch/checkout/reset hangs |
 | `TORQUE_REMOTE_SYNC_LOG` | `/tmp/torque-remote-sync.log` | Sync output log path |
 | `TORQUE_REMOTE_TEST_WORKTREE_SUFFIX` | (unset) | Per-invocation suffix appended to EFFECTIVE_REMOTE_PROJECT_PATH (pre-push-gate sibling worktree) |
@@ -253,9 +254,13 @@ These surfaced during the audit. Each is bounded enough to address in a follow-u
 
 Default sync log path is now `/tmp/torque-remote-sync.<pid>.<epoch>.log` (per-session). Each torque-remote invocation owns its log; concurrent sessions no longer interleave. `TORQUE_REMOTE_SYNC_LOG` env var still wins for tooling/operators that expect a fixed path. **Discovery:** `ls -t /tmp/torque-remote-sync.*.log | head -1` returns the most recent session's log.
 
-### 2. Lock auto-reap is local-host scoped only
+### 2. ✅ ~~Lock auto-reap is local-host scoped only~~ RESOLVED 2026-05-07
 
-`remote_sync_lock_is_stale` only reaps when `owner_host == local_host`. A workstation that crashed mid-run leaves a lock that NO other machine will reap (out of caution — can't probe a remote host's PIDs). Manual cleanup required. **Action:** TTL on `started_at_epoch` (default 4 hours: longer than any legitimate run, shorter than "abandoned forever"). Reap based on age regardless of owner host.
+Stale-check now applies two rules (via shared `remote_sync_lock_check_owner_block` helper):
+1. **Same-host PID-dead reap** (existing): if `owner_host == local_host` and `kill -0 owner_pid` fails, reap immediately.
+2. **TTL-based reap** (new): if `now - started_at_epoch > TORQUE_REMOTE_SYNC_LOCK_TTL_SECS` (default 14400s = 4h), reap regardless of host.
+
+Default 4h is longer than any measured legitimate run (longest known: ~30 min for a factory codex-spark batch). `TORQUE_REMOTE_SYNC_LOCK_TTL_SECS=0` disables the TTL path (preserves pre-fix same-host-only behavior). Cross-host crashes no longer strand locks indefinitely.
 
 ### 3. ✅ ~~No timeout wrapping on the sync chain itself~~ RESOLVED 2026-05-07
 

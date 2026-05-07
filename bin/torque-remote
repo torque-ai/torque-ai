@@ -311,7 +311,7 @@ owner_field() {
 }
 
 remote_sync_lock_is_stale() {
-  local owner owner_host owner_pid local_host
+  local owner
   REMOTE_SYNC_LOCK_STALE_REASON=""
 
   owner="$(read_remote_sync_lock_owner || true)"
@@ -319,19 +319,52 @@ remote_sync_lock_is_stale() {
     return 1
   fi
 
+  remote_sync_lock_check_owner_block "$owner"
+}
+
+# Shared stale-check for an in-memory owner block (parsed metadata). Used
+# by both `remote_sync_lock_is_stale` (which reads owner.env first) and the
+# coalesced acquire-loop path (which gets the block inline with the lock
+# probe). Returns 0 (stale) and sets REMOTE_SYNC_LOCK_STALE_REASON, or 1.
+#
+# Two stale conditions:
+#   1. Same-host owner with a dead PID (kill -0 fails). Specific to the
+#      local workstation; reaps abandoned-by-crash locks immediately.
+#   2. TTL exceeded (now - started_at_epoch > TORQUE_REMOTE_SYNC_LOCK_TTL_SECS,
+#      default 4h). Applies to ANY host. Reclaims locks from crashed remote
+#      workstations or sessions whose PID we can't probe — the operator
+#      previously had to manually `rmdir` these.
+remote_sync_lock_check_owner_block() {
+  local owner="$1" owner_host owner_pid owner_started local_host now
+  REMOTE_SYNC_LOCK_STALE_REASON=""
+
   owner_host="$(owner_field "$owner" host | tr '[:upper:]' '[:lower:]')"
   owner_pid="$(owner_field "$owner" pid)"
+  owner_started="$(owner_field "$owner" started_at_epoch)"
   local_host="$(remote_sync_lock_local_host)"
 
-  # Only reap locks created by this workstation. A lock owned by another
-  # machine may be healthy even if its PID is meaningless locally.
-  if [[ -z "$owner_host" || "$owner_host" != "$local_host" ]]; then
-    return 1
-  fi
-
-  if [[ "$owner_pid" =~ ^[0-9]+$ ]] && ! kill -0 "$owner_pid" 2>/dev/null; then
+  # Same-host PID-dead check (existing behavior).
+  if [[ -n "$owner_host" && "$owner_host" == "$local_host" \
+        && "$owner_pid" =~ ^[0-9]+$ ]] \
+     && ! kill -0 "$owner_pid" 2>/dev/null; then
     REMOTE_SYNC_LOCK_STALE_REASON="owner ${owner_host} pid ${owner_pid} is no longer running"
     return 0
+  fi
+
+  # TTL-based reap (new). Applies regardless of host so cross-host crashes
+  # don't strand locks indefinitely. Default 4h is longer than any legitimate
+  # run we've measured (longest known: factory codex-spark batch, ~30 min).
+  local ttl="${TORQUE_REMOTE_SYNC_LOCK_TTL_SECS:-14400}"
+  if [[ "$ttl" =~ ^[0-9]+$ ]] && (( ttl > 0 )) \
+     && [[ "$owner_started" =~ ^[0-9]+$ ]]; then
+    now="$(date +%s 2>/dev/null || echo 0)"
+    if [[ "$now" =~ ^[0-9]+$ ]] && (( now > 0 )); then
+      local age=$((now - owner_started))
+      if (( age > ttl )); then
+        REMOTE_SYNC_LOCK_STALE_REASON="owner ${owner_host:-unknown} (started_at_epoch=${owner_started}) exceeded TTL ${ttl}s (age=${age}s)"
+        return 0
+      fi
+    fi
   fi
 
   return 1
@@ -402,19 +435,12 @@ acquire_remote_sync_lock() {
     if (( stale_check_interval > 0 && elapsed - last_stale_check >= stale_check_interval )); then
       last_stale_check=$elapsed
       # Reuse owner_block from the coalesced probe — no extra SSH needed.
-      REMOTE_SYNC_LOCK_STALE_REASON=""
-      if [[ -n "$owner_block" && "$owner_block" != *"NO_OWNER"* ]]; then
-        local owner_host owner_pid local_host
-        owner_host="$(owner_field "$owner_block" host | tr '[:upper:]' '[:lower:]')"
-        owner_pid="$(owner_field "$owner_block" pid)"
-        local_host="$(remote_sync_lock_local_host)"
-        if [[ -n "$owner_host" && "$owner_host" == "$local_host" \
-              && "$owner_pid" =~ ^[0-9]+$ ]] \
-           && ! kill -0 "$owner_pid" 2>/dev/null; then
-          REMOTE_SYNC_LOCK_STALE_REASON="owner ${owner_host} pid ${owner_pid} is no longer running"
-          reap_remote_sync_lock "$REMOTE_SYNC_LOCK_STALE_REASON" || true
-          continue
-        fi
+      # remote_sync_lock_check_owner_block applies both same-host PID-dead
+      # AND TTL-based reap rules; sets REMOTE_SYNC_LOCK_STALE_REASON.
+      if [[ -n "$owner_block" && "$owner_block" != *"NO_OWNER"* ]] \
+         && remote_sync_lock_check_owner_block "$owner_block"; then
+        reap_remote_sync_lock "$REMOTE_SYNC_LOCK_STALE_REASON" || true
+        continue
       fi
     fi
     sleep "$poll"
