@@ -1062,7 +1062,10 @@ EOF
   # exists on the remote (a fresh feature branch was never set up there). The
   # fix derives PROJECT_NAME from the main repo so the path stays stable across
   # branches: C:\trt\torque-public.
-  expect_contains "remote path uses main-repo basename" "$RUN_RUNNER_SH" 'C:\trt\torque-public'
+  # Active workspace gets the lane-1 suffix; base dep path stays un-suffixed.
+  # Asserting the full -lane-1 path (not the prefix) so a future regression
+  # that drops the lane suffix can't pass via substring match.
+  expect_contains "remote path uses main-repo basename + lane-1 suffix" "$RUN_RUNNER_SH" 'C:\trt\torque-public-lane-1'
   expect_contains "base dependency path uses effective worktree root" "$RUN_RUNNER_SH" "TORQUE_REMOTE_BASE_PROJECT_PATH='C:\trt\torque-public'"
   expect_not_contains "remote path does NOT use worktree dir name" "$RUN_RUNNER_SH" 'C:\trt\feat-x'
 
@@ -1084,7 +1087,9 @@ test_worktree_suffix_uses_sibling_path_and_lock() {
   run_torque_remote "$tmp" echo hi
 
   expect_eq "exit code is 0" "0" "$RUN_EXIT"
-  expect_contains "runner uses suffixed project path" "$RUN_RUNNER_SH" "/fake-pre-push-gate"
+  # Active workspace = <base><worktree-suffix><lane-suffix>. Asserting the full
+  # path so a regression that drops the lane suffix can't pass via substring.
+  expect_contains "runner uses suffixed+lane project path" "$RUN_RUNNER_SH" "/fake-pre-push-gate-lane-1"
   expect_contains "base dependency path stays unsuffixed" "$RUN_RUNNER_SH" "TORQUE_REMOTE_BASE_PROJECT_PATH='/fake'"
   expect_contains "lane lock is acquired" "$RUN_REMOTE_COMMANDS" ".torque-remote-lanes\.locks\lane-1"
   expect_not_contains "old sync.lock path is not used" "$RUN_REMOTE_COMMANDS" ".torque-remote-sync.lock"
