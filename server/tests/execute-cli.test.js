@@ -84,6 +84,7 @@ function makeDeps(overrides = {}) {
     runningProcesses: overrides.runningProcesses || new Map(),
     safeUpdateTaskStatus: overrides.safeUpdateTaskStatus || vi.fn(),
     finalizeTask: overrides.finalizeTask || vi.fn(async () => ({ finalized: true, queueManaged: false })),
+    finalizingTasks: overrides.finalizingTasks || new Map(),
     tryReserveHostSlotWithFallback: overrides.tryReserveHostSlotWithFallback || vi.fn(() => ({ success: true })),
     markTaskCleanedUp: overrides.markTaskCleanedUp || vi.fn(() => true),
     tryOllamaCloudFallback: overrides.tryOllamaCloudFallback || vi.fn(() => false),
@@ -180,6 +181,24 @@ describe('execute-cli.js', () => {
       const result = mod.buildCodexCommand(task, '', null);
       expect(result.finalArgs).toContain('--dangerously-bypass-approvals-and-sandbox');
       expect(result.finalArgs).not.toContain('--full-auto');
+    });
+
+    it('disables Codex Windows sandbox feature flags on Windows', () => {
+      const task = {
+        id: randomUUID(),
+        provider: 'codex',
+        task_description: 'Test',
+        auto_approve: 0,
+      };
+      const result = mod.buildCodexCommand(task, '', null);
+
+      if (process.platform === 'win32') {
+        expect(result.finalArgs).toContain('experimental_windows_sandbox');
+        expect(result.finalArgs).toContain('elevated_windows_sandbox');
+      } else {
+        expect(result.finalArgs).not.toContain('experimental_windows_sandbox');
+        expect(result.finalArgs).not.toContain('elevated_windows_sandbox');
+      }
     });
 
     it('includes working directory with -C flag', () => {
@@ -925,6 +944,73 @@ describe('execute-cli.js', () => {
       );
       expect(runningProcesses.has(taskId)).toBe(false);
     });
+
+    it('marks detached tasks as finalizing while process tracking is removed', async () => {
+      const logDir = path.join(testDir, 'detached-finalizing-marker');
+      fs.mkdirSync(logDir, { recursive: true });
+      const stdoutPath = path.join(logDir, 'stdout.log');
+      const stderrPath = path.join(logDir, 'stderr.log');
+      fs.writeFileSync(stdoutPath, 'done\n', 'utf8');
+      fs.writeFileSync(stderrPath, '[process-exit] code=0 signal=none duration_ms=25 provider=codex\n', 'utf8');
+
+      const runningProcesses = new Map();
+      const finalizingTasks = new Map();
+      let resolveFinalize;
+      const finalizeTaskSpy = vi.fn(() => new Promise((resolve) => {
+        resolveFinalize = () => resolve({ finalized: true, queueManaged: false });
+      }));
+      const deps = makeDeps({ runningProcesses, finalizingTasks, finalizeTask: finalizeTaskSpy });
+      mod.init(deps);
+
+      const taskId = randomUUID();
+      taskCore.createTask({
+        id: taskId,
+        task_description: 'Detached finalizing marker test',
+        status: 'running',
+        provider: 'codex',
+        working_directory: testDir,
+      });
+      runningProcesses.set(taskId, {
+        output: '',
+        errorOutput: '',
+        outputLogPath: stdoutPath,
+        errorLogPath: stderrPath,
+        outputLogOffset: 0,
+        errorLogOffset: 0,
+        outputTail: { stop: vi.fn() },
+        errorTail: { stop: vi.fn() },
+        provider: 'codex',
+        model: 'gpt-5.5',
+        startTime: Date.now(),
+        completionDetected: false,
+      });
+
+      const finalizing = mod.finalizeDetachedTask({
+        taskId,
+        task: { id: taskId, task_description: 'Detached finalizing marker test' },
+        provider: 'codex',
+        isCodexProvider: false,
+      });
+      await vi.waitFor(() => expect(finalizeTaskSpy).toHaveBeenCalled());
+
+      expect(runningProcesses.has(taskId)).toBe(false);
+      expect(finalizingTasks.get(taskId)).toEqual(expect.objectContaining({
+        stage: 'detached_finalize:finalize_task',
+        provider: 'codex',
+      }));
+      const finalizeOptions = finalizeTaskSpy.mock.calls[0][1];
+      expect(finalizeOptions.finalizationHeartbeat).toEqual(expect.any(Function));
+
+      finalizeOptions.finalizationHeartbeat('test:heartbeat');
+      expect(finalizingTasks.get(taskId)).toEqual(expect.objectContaining({
+        stage: 'test:heartbeat',
+      }));
+
+      resolveFinalize();
+      await finalizing;
+
+      expect(finalizingTasks.has(taskId)).toBe(false);
+    });
   });
 
   // ── processStderrChunk: codex banner classification ─────────────
@@ -1067,6 +1153,50 @@ describe('execute-cli.js', () => {
       const ageMs = Date.now() - result;
       expect(ageMs).toBeGreaterThanOrEqual(29 * 60 * 1000);
       expect(ageMs).toBeLessThanOrEqual(31 * 60 * 1000);
+    });
+  });
+
+  // ── resolveReAdoptCompletionDetectedAt: completion-flag persistence ──
+  // Closes subprocess-detachment.md open question #6. After
+  // process-streams.js arms the completion grace window for a task, it
+  // persists the moment to tasks.completion_detected_at. On restart,
+  // re-adoption restores both the boolean flag (presence implies true)
+  // and the timestamp so the grace-window math is computed against the
+  // original detection moment rather than the re-adoption moment.
+  describe('resolveReAdoptCompletionDetectedAt', () => {
+    it('returns ms-epoch number when completion_detected_at is a valid ISO timestamp', () => {
+      const persistedIso = '2026-05-07T10:15:00.000Z';
+      const result = mod.resolveReAdoptCompletionDetectedAt({ completion_detected_at: persistedIso });
+      expect(result).toBe(Date.parse(persistedIso));
+    });
+
+    it('returns null when completion_detected_at is missing (start cold)', () => {
+      expect(mod.resolveReAdoptCompletionDetectedAt({ /* unset */ })).toBeNull();
+    });
+
+    it('returns null when persistedTask is null', () => {
+      expect(mod.resolveReAdoptCompletionDetectedAt(null)).toBeNull();
+    });
+
+    it('returns null when completion_detected_at is empty string', () => {
+      expect(mod.resolveReAdoptCompletionDetectedAt({ completion_detected_at: '' })).toBeNull();
+    });
+
+    it('returns null when completion_detected_at is unparseable', () => {
+      expect(mod.resolveReAdoptCompletionDetectedAt({ completion_detected_at: 'garbage' })).toBeNull();
+    });
+
+    it('preserves a 5-minute-old detection timestamp across restart', () => {
+      // The genuine scenario: task detected completion 5 min ago, grace
+      // window is 30s/60s, server restarted. With the persistence:
+      // re-adoption gets the 5-min-old timestamp → grace window has
+      // long since elapsed, so the next completion check force-stops
+      // immediately rather than re-arming a fresh 30s window.
+      const fiveMinAgo = Date.now() - 5 * 60 * 1000;
+      const result = mod.resolveReAdoptCompletionDetectedAt({
+        completion_detected_at: new Date(fiveMinAgo).toISOString(),
+      });
+      expect(result).toBeCloseTo(fiveMinAgo, -2); // within 100ms
     });
   });
 });

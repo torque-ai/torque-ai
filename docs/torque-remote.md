@@ -291,6 +291,12 @@ Operator-controllable knobs:
 | `TORQUE_REMOTE_COORD_SHA` | derived | Override the SHA reported to coord (used by pre-push gate for staging refs) |
 | `TORQUE_REMOTE_SYNC_LOCK_TIMEOUT_SECS` | `1800` (30 min) | Hard timeout before fall-back-to-local |
 | `TORQUE_REMOTE_SYNC_LOCK_STALE_CHECK_SECS` | `10` | How often to probe owner.env for stale-host PID |
+| `TORQUE_REMOTE_SYNC_LOCK_TTL_SECS` | `14400` (4 h) | Max lock age before TTL-based reap fires (regardless of owner host); `0` disables |
+| `TORQUE_REMOTE_SYNC_LOCK_HEARTBEAT_SECS` | `60` | Holder updates heartbeat.epoch on remote every N seconds; `0` disables |
+| `TORQUE_REMOTE_SYNC_LOCK_HEARTBEAT_STALE_SECS` | `300` (5 min) | Waiters warn (one-shot) if heartbeat age exceeds this; informational only, no auto-reap |
+| `TORQUE_REMOTE_SYNC_TIMEOUT_SECS` | `600` (10 min) | Sync chain timeout — kills SSH if fetch/checkout/reset hangs |
+| `TORQUE_REMOTE_DECISION_LOG` / `_LOG_DIR` | `~/.torque/torque-remote-decisions.jsonl` | Per-invocation outcome log (success/fallback, transport, elapsed) |
+| `TORQUE_REMOTE_FALLBACK_LOG` / `_LOG_DIR` | `~/.torque/torque-remote-fallback.log` | Per-fallback reason log (only fires on fallback) |
 | `TORQUE_REMOTE_SYNC_LOG` | `/tmp/torque-remote-sync.log` | Sync output log path |
 | `TORQUE_REMOTE_TEST_WORKTREE_SUFFIX` | (unset) | Per-invocation suffix appended to EFFECTIVE_REMOTE_PROJECT_PATH (pre-push-gate sibling worktree) |
 | `TORQUE_COORD_PROBE_URL` | `http://127.0.0.1:9395/health` | Test-only override to redirect daemon probe |
@@ -326,13 +332,17 @@ These surfaced during the audit. Each is bounded enough to address in a follow-u
 
 Default sync log path is now `/tmp/torque-remote-sync.<pid>.<epoch>.log` (per-session). Each torque-remote invocation owns its log; concurrent sessions no longer interleave. `TORQUE_REMOTE_SYNC_LOG` env var still wins for tooling/operators that expect a fixed path. **Discovery:** `ls -t /tmp/torque-remote-sync.*.log | head -1` returns the most recent session's log.
 
-### 2. Lock auto-reap is local-host scoped only
+### 2. ✅ ~~Lock auto-reap is local-host scoped only~~ RESOLVED 2026-05-07
 
-`remote_sync_lock_is_stale` only reaps when `owner_host == local_host`. A workstation that crashed mid-run leaves a lock that NO other machine will reap (out of caution — can't probe a remote host's PIDs). Manual cleanup required. **Action:** TTL on `started_at_epoch` (default 4 hours: longer than any legitimate run, shorter than "abandoned forever"). Reap based on age regardless of owner host.
+Stale-check now applies two rules (via shared `remote_sync_lock_check_owner_block` helper):
+1. **Same-host PID-dead reap** (existing): if `owner_host == local_host` and `kill -0 owner_pid` fails, reap immediately.
+2. **TTL-based reap** (new): if `now - started_at_epoch > TORQUE_REMOTE_SYNC_LOCK_TTL_SECS` (default 14400s = 4h), reap regardless of host.
 
-### 3. No timeout wrapping on the sync chain itself
+Default 4h is longer than any measured legitimate run (longest known: ~30 min for a factory codex-spark batch). `TORQUE_REMOTE_SYNC_LOCK_TTL_SECS=0` disables the TTL path (preserves pre-fix same-host-only behavior). Cross-host crashes no longer strand locks indefinitely.
 
-`run_with_timeout TIMEOUT_SECONDS` only wraps the SSH **inner-command** invocation. Sync (steps 11-12) has no timeout. A stalled SSH mid-fetch could hang torque-remote for hours. **Action:** Wrap sync in `run_with_timeout` with separate `TORQUE_REMOTE_SYNC_TIMEOUT_SECS` (default 600s). Falling back to local on sync timeout matches existing semantics.
+### 3. ✅ ~~No timeout wrapping on the sync chain itself~~ RESOLVED 2026-05-07
+
+Sync chain is now wrapped in `run_with_timeout "$sync_timeout_secs"` via a `_torque_remote_sync_pipeline` helper function (defined inline so it inherits the outer scope's SSH_OPTS / SYNC_BOOTSTRAP / sync_log_path). Default timeout `600s` (10 min) is generous for large repos; tune via `TORQUE_REMOTE_SYNC_TIMEOUT_SECS`. On timeout, sync_status=124 triggers `sync_failed` fallback with explicit "Sync timed out after Ns" warning; behavior matches the existing sync-failure path.
 
 ### 4. ✅ ~~No fallback-cause telemetry~~ RESOLVED 2026-05-07
 
@@ -343,37 +353,89 @@ Default sync log path is now `/tmp/torque-remote-sync.<pid>.<epoch>.log` (per-se
 - `tail -100 ~/.torque/torque-remote-fallback.log | jq -r '.reason' | sort | uniq -c` — recent fallback distribution
 - `jq 'select(.timestamp > "2026-05-07")' ~/.torque/torque-remote-fallback.log` — fallbacks today
 
-### 5. `wmic cpu get loadpercentage` is deprecated
+### 5. ✅ ~~`wmic cpu get loadpercentage` is deprecated~~ RESOLVED 2026-05-07
 
-wmic was removed-by-default in Windows 11 24H2 (re-enable feature optional through Windows 12). Future Windows updates will silently break the load check, causing torque-remote to ALWAYS proceed (bug in the load-pct match: empty `load_pct` skips the threshold check, so deprecation = always pass). **Action:** Switch to `Get-CimInstance Win32_PerfFormattedData_PerfOS_Processor` via PowerShell, or accept that load-throttling is best-effort and consider removing.
+Load-check probe order is now PowerShell `Get-CimInstance Win32_Processor` first (future-proof; the supported replacement on Windows 10+), wmic second (legacy fallback for older Windows), `/proc/loadavg` third (Linux). Empty `load_pct` after all three skips the threshold check (graceful degrade, matches original fail-open behavior).
 
-### 6. Bundle-cleanup retries don't address active AV scan
+### 6. ✅ ~~Bundle-cleanup retries don't address active AV scan~~ RESOLVED 2026-05-07
 
-`cleanup_temp_dirs` retries 3× with 1s sleep. Defender's full-file scan on a 4GB tar can take 5-10s on the first pass. The 60-min sweep is the real backstop, but the warn message ("leaked, AV likely held handles") fires on every cutover under load. **Action:** Extend retries to 10× with backoff (1, 2, 4, 8, 16 → 30s budget) or use `mv` to a designated quarantine dir + lazy delete.
+`cleanup_temp_dirs` now retries 5× with exponential backoff (1, 2, 4, 8, 16 → 31s total budget) instead of 3× with 1s. Covers the Defender full-file scan window for 4GB local-state.tar/untracked.tar without making fast-path cleanup feel slow (single rm typically completes in <100ms). The 60-min `sweep_old_orphans` backstop still catches anything that survives the 31s budget.
 
-### 7. CMD-shell-quoted sync chain is one massive line; hard to test in isolation
+### 7. ✅ ~~CMD-shell-quoted sync chain is one massive line; hard to test in isolation~~ RESOLVED 2026-05-07
 
-The sync chain is ~10 chained CMD-shell statements with `^&^&` escapes, `2>nul`, `if not exist`, all on one line passed as a single SSH argument. Two real bugs (extra outer parens around if-blocks 2026-04-29; `git clean -fdx` removing node_modules pre-2026-04-27) hit production because there's no unit test for the assembled command. **Action:** Extract sync command assembly into a function with discrete steps; add a test that asserts the assembled string passes a CMD lexer (could use `cmd.exe /c "echo <assembled>"` smoke check).
+`build_remote_sync_command(eff_path, fetch_cmd, sync_checkout, sync_ref, bootstrap)` extracts the assembly into a function. `_torque_remote_sync_pipeline` captures the result into `SYNC_SSH_CMD` and passes it to ssh. `server/tests/torque-remote-source.test.js` gains a `build_remote_sync_command runtime invariants` describe block with 7 unit tests asserting the assembled output (sources the function from the real script via regex extract + bash `-c`):
+- `git clean -fd` (NOT `-fdx`)
+- `exit 99` drift detection present
+- fetch → checkout → reset chain order
+- 3 outer-paren-wrapped if-not-exist hint blocks
+- escaped `^&^&` inside echo strings
+- non-empty SYNC_BOOTSTRAP prefix honored
+- `cd` before any git operation
 
-### 8. Coord-mode trap chain is single-slot; custom user traps would break cleanup
+Both 2026-04-27 (`-fdx` regression) and 2026-04-29 (bare `if X (block)` regression) would have been caught by these tests at commit time.
 
-`bash`'s `trap ... EXIT` is single-slot. The script installs `trap cleanup_on_exit EXIT`, then later REPLACES it with `trap coord_release_on_exit EXIT` (which chains through to cleanup_on_exit manually). If a user's child env installs an additional trap, the chain could be broken silently. **Action:** Use `trap_chain` helper that accumulates handlers and dispatches in order — small bash idiom, prevents future mistakes when adding a fourth cleanup concern.
+### 8. ✅ ~~Coord-mode trap chain is single-slot; custom user traps would break cleanup~~ RESOLVED 2026-05-07
 
-### 9. Lock-acquire poll burns SSH round-trips
+`trap_chain_add <handler>` helper accumulates handlers into an array dispatched on EXIT in LIFO order (latest registered runs first). Exit code passed to handlers as `$1` (with `$?` fallback for back-compat). The two existing trap installs (`cleanup_on_exit`, `coord_release_on_exit`) now use the helper; coord_release_on_exit no longer needs its manual `cleanup_on_exit` chain-back call. Adding a new cleanup concern is now `trap_chain_add new_handler` — can't accidentally clobber prior handlers.
 
-Every 2s, `acquire_remote_sync_lock` SSHes to test `if not exist <lock> mkdir`. Every 10s, it SSHes again to read `owner.env`. On a slow connection, that's an SSH round-trip every 1-2s. With 30-min timeout, that's up to 1800 SSH round-trips for one stuck wait. **Action:** Coalesce probes: single SSH command that returns both lock state and owner metadata. Reduces round-trips by ~half.
+### 9. ✅ ~~Lock-acquire poll burns SSH round-trips~~ RESOLVED 2026-05-07
 
-### 10. No structured emission of the sync-vs-fallback decision
+Probes are now coalesced — one SSH per poll iteration returns lock state + owner metadata together. CMD output shape:
+- `ACQUIRED` — created the dir, we own the lock
+- `HELD\nNO_OWNER` — held but no owner.env (rare race)
+- `HELD\nhost=...\npid=...\nstarted_at_epoch=...` — held with metadata inline
 
-Every cutover that falls back silently has a verification gap. Currently the only signal is the `[torque-remote] WARN/ERROR` lines on stderr. **Action:** Add an opt-in JSON line emitted to `~/.torque/torque-remote-decisions.jsonl` per invocation with: timestamp, project, sync_ref, transport_used (local/ssh), fallback_reason (or null on success), elapsed. Operator can grep for "fallback rate over last 24h" with one query.
+Stale-check parses the inline owner block (no extra SSH). Per stale-check round, this halves the SSH round-trip count from 2 to 1; on a 30-min timeout that's up to 900 fewer SSH calls.
 
-### 11. The 30-min lock timeout has no visibility into "is the holder making progress?"
+### 10. ✅ ~~No structured emission of the sync-vs-fallback decision~~ RESOLVED 2026-05-07
 
-If the holding session is genuinely working (slow vitest run on remote with 1000s of tests), 30 min is reasonable. If it's stalled, 30 min of wait is wasted. **Action:** Add a heartbeat file inside the lock dir that the holder touches every 30s; waiters can detect "no heartbeat in 5 minutes" as a proxy for hung-but-not-dead sessions and trigger a softer escalation (warn-only, not auto-reap).
+`record_decision_on_exit` (registered via `trap_chain_add`) appends a JSONL line to `~/.torque/torque-remote-decisions.jsonl` for **every** invocation regardless of outcome (distinct from the fallback-only log under #4). Fields: `timestamp_start`, `timestamp_end`, `elapsed_secs`, `project`, `sync_ref`, `host`, `pid`, `transport` (local/ssh), `outcome` (success/fallback), `fallback_reason` (null when success), `fallback_detail`, `exit_code`, `command`. Path overridable via `TORQUE_REMOTE_DECISION_LOG` / `TORQUE_REMOTE_DECISION_LOG_DIR`.
 
-### 12. Plugin and bash script duplicate remote-execution logic
+**Operator queries unlocked:**
+- `jq -s 'group_by(.outcome) | map({outcome: .[0].outcome, count: length})' ~/.torque/torque-remote-decisions.jsonl` — fallback rate over all time
+- `jq 'select(.timestamp_start > "2026-05-06") | .elapsed_secs' .../torque-remote-decisions.jsonl | python -c 'import sys,statistics; print(statistics.median(map(int, sys.stdin)))'` — median elapsed last 24h
+- `jq 'select(.outcome == "fallback") | .fallback_reason' .../torque-remote-decisions.jsonl | sort | uniq -c` — fallback distribution by reason
 
-`server/plugins/remote-agents/` issues `run_remote_command` SSH calls without sync/lock/drift/bundle layers. TORQUE's auto-verify-retry path runs through the plugin; manual `torque-remote` invocations run through the bash script. They share config but not behavior — a project that requires sync (e.g. wants local commits applied for verify_command) gets it from the bash path but not the plugin path. **Action:** Audit which plugin call sites actually need the bash-script's sync chain semantics. Either elevate the plugin to a richer impl or document the divergence and the resulting capability matrix.
+### 11. ✅ ~~The 30-min lock timeout has no visibility into "is the holder making progress?"~~ RESOLVED 2026-05-07
+
+`start_remote_sync_lock_heartbeat` spawns a detached subshell that touches `<LOCK_DIR>\heartbeat.epoch` on the remote every `TORQUE_REMOTE_SYNC_LOCK_HEARTBEAT_SECS` (default 60s). `stop_remote_sync_lock_heartbeat` kills the subshell on `release_remote_sync_lock`. The coalesced acquire-loop probe (#9) was extended to fetch heartbeat.epoch alongside owner.env via a `---HB---` separator. Waiters parse heartbeat age; if it exceeds `TORQUE_REMOTE_SYNC_LOCK_HEARTBEAT_STALE_SECS` (default 300s = 5min), emit a single `warn` per acquire wait — informational only, never auto-reap (TTL #2 owns reap). Distinguishes "holder is actively syncing" from "holder is stuck mid-sync" without changing reap semantics.
+
+### 12. ✅ ~~Plugin and bash script duplicate remote-execution logic~~ DOCUMENTED 2026-05-07
+
+Investigated. The two implementations have substantially different capabilities; **elevating the plugin to match would be a major refactor** with unclear value for the plugin's current callers. Documented divergence below; future work that needs sync semantics from a plugin call site should explicitly route through `torque-remote` via shell or implement the missing pieces.
+
+**Capability matrix** — what each path provides:
+
+| Capability | `bin/torque-remote` (operator-invoked) | `server/plugins/remote-agents/` (TORQUE-internal) |
+|---|---|---|
+| **Transport** | SSH + CMD | HTTP to agent-server.js on remote |
+| **Mutual exclusion** | `mkdir`-mutex sync lock at sibling path | None — concurrent `/sync` calls race |
+| **Lock owner.env** | host + pid + started_at_epoch | N/A |
+| **Stale-reap** | Same-host PID-dead + TTL (cross-host) | N/A |
+| **Heartbeat** | Yes (60s default; warn on stale) | N/A |
+| **Sync command** | `fetch --prune <ref> && checkout --force [--detach] <ref> && reset --hard <ref> && clean -fd` | `fetch origin && checkout <branch>` (no `--prune`, no reset, no clean) |
+| **Drift detection** | `git diff --quiet HEAD` after reset → exit 99 | None |
+| **Local-state overlay** | committed.patch + worktree.patch + untracked.tar via SSH stdin | None — uses HEAD of the remote branch as-is |
+| **HEAD-mismatch guard (runner.sh)** | exit 98 on concurrent-session clobber | N/A — no inner runner |
+| **npm install hints** | Yes (root, server, dashboard) | None |
+| **Sync timeout wrapper** | run_with_timeout (default 600s) | Per-call HTTP timeout (300s default) |
+| **Fallback to local** | 6-step chain (transport, config, ssh, load, lock, sync) | "remote unavailable" only — no overload check, no lock backpressure |
+| **Per-session sync log** | `/tmp/torque-remote-sync.<pid>.<epoch>.log` | None — agent-server's own logs |
+| **Decision log** | `~/.torque/torque-remote-decisions.jsonl` | None |
+| **Fallback log** | `~/.torque/torque-remote-fallback.log` | None |
+| **Failsafe remote cleanup** | Reset + clean on exit 124/255 | None |
+| **Bundle cleanup retries** | 5× exponential backoff | N/A — no bundle |
+
+**Why plugin is thinner.** The plugin agent runs locally on the remote workstation and operates inside its `projectsDir`. Concurrent `/sync` calls against different `project` keys are naturally serialized at the filesystem layer (different dirs); same-project concurrency is rare in practice (one verify_command per task) and tolerated by the agent's checkout idempotency. The plugin path was designed for "TORQUE wants a fresh-ish working tree to run vitest" — not "operator wants their dirty local state applied as a patch."
+
+**When to use which.** TORQUE's auto-verify-retry uses the plugin (HTTP path) for verify_command; pre-push gates and manual `torque-remote` shell invocations use the bash script. The plugin is correct for its scope; the bash script is correct for its scope. The divergence is intentional, not a bug.
+
+**If you need sync semantics from a plugin call site.** Three options, in order of effort:
+1. **Shell out to torque-remote.** Plugin handler invokes `bin/torque-remote bash -c '<cmd>'` — gets sync, lock, drift, bundle, fallback log for free. ~1-line change in the call site.
+2. **Add a new agent-server endpoint** (e.g. `/sync-with-overlay`) that mirrors the bash script's sync chain. ~200 LOC; requires agent-server redeploy.
+3. **Unify both into a shared transport library.** ~1000 LOC refactor; hard because bash and Node need different sync abstractions.
+
+(1) is the recommended path when the divergence shows up in a real bug.
 
 ---
 

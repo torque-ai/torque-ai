@@ -21,6 +21,7 @@ const perfTracker = require('../db/provider/performance');
 const { failoverBackoffMs } = require('../utils/backoff');
 const { buildResumeContext, prependResumeContextToPrompt } = require('../utils/resume-context');
 const { GIT_SAFE_ENV, cleanupStaleGitStatusProcesses } = require('../utils/git');
+const { isScoutStructuredOutputTask } = require('../execution/completion-policy');
 
 // ── Module-level deps ──────────────────────────────────────────────────────
 // Utility deps resolve at module load via require() from canonical sources.
@@ -106,6 +107,33 @@ function getCombinedTaskOutput(ctx) {
   return stdout || stderr || '';
 }
 
+function tryParseJson(value) {
+  if (!value || typeof value !== 'string') return null;
+  try { return JSON.parse(value); } catch { return null; }
+}
+
+function getTaskMetadata(task) {
+  if (task?.metadata && typeof task.metadata === 'object' && !Array.isArray(task.metadata)) {
+    return task.metadata;
+  }
+  const parsed = tryParseJson(task?.metadata);
+  return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+}
+
+function getTaskTags(task) {
+  if (Array.isArray(task?.tags)) return task.tags;
+  const parsed = tryParseJson(task?.tags);
+  return Array.isArray(parsed) ? parsed : [];
+}
+
+function isReadOnlyFactoryScoutTask(task) {
+  const tags = getTaskTags(task).map(tag => String(tag || '').trim()).filter(Boolean);
+  return tags.includes('factory:scout')
+    || tags.includes('factory:starvation_recovery')
+    || tags.includes('factory:reason=factory_starvation_recovery')
+    || isScoutStructuredOutputTask(getTaskMetadata(task));
+}
+
 function recoverModifiedFiles(ctx) {
   if (Array.isArray(ctx.filesModified) && ctx.filesModified.length > 0) {
     return ctx.filesModified;
@@ -135,6 +163,10 @@ async function handleBuildTestStyleCommit(ctx) {
   ensureDeps();
   const { taskId, task } = ctx;
   if (ctx.status !== 'completed' || !task) return;
+  if (isReadOnlyFactoryScoutTask(task)) {
+    logger.info(`[Build Verification] Task ${taskId}: skipping build/test/style — factory scout task`);
+    return;
+  }
 
   const workingDir = task.working_directory || process.cwd();
   const recoveredFiles = recoverModifiedFiles(ctx);

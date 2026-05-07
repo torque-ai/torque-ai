@@ -589,7 +589,15 @@ const _cancellationHandler = createCancellationHandler({
   processQueue,
 });
 const { cancelTask, triggerCancellationWebhook } = _cancellationHandler;
-defaultContainer.registerValue('taskCanceller', _cancellationHandler);
+// Use override() instead of registerValue() because task-manager.js may be
+// re-imported after the container has booted (vitest worker reuse, e2e
+// test fixtures that resetForTest then re-require). registerValue throws
+// on a booted container; override is the supported pre+post-boot path.
+if (typeof defaultContainer.override === 'function') {
+  defaultContainer.override('taskCanceller', _cancellationHandler);
+} else {
+  defaultContainer.registerValue('taskCanceller', _cancellationHandler);
+}
 
 // ── taskStatusUpdater capability: single registration, single instance ──
 //
@@ -602,7 +610,12 @@ const _taskStatusUpdaterHandler = require('./execution/task-status-updater').cre
   db,
   taskCore,
 });
-defaultContainer.registerValue('taskStatusUpdater', _taskStatusUpdaterHandler);
+// Same rationale as taskCanceller above — override() is safe pre+post-boot.
+if (typeof defaultContainer.override === 'function') {
+  defaultContainer.override('taskStatusUpdater', _taskStatusUpdaterHandler);
+} else {
+  defaultContainer.registerValue('taskStatusUpdater', _taskStatusUpdaterHandler);
+}
 
 /**
  * Process the queue - start next queued task if possible

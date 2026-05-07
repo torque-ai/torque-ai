@@ -164,9 +164,9 @@ retry-framework's setTimeout callback only bailed on `cancelled`; other terminal
 
 `worktree-reconcile.js` now runs `auditQuarantineDir` on every `reconcileProject` call (per-project, every factory tick) and emits a single `warn` log via a 15-min suppressor (`shouldLogDeletePendingWarn`) when total bytes exceed `TORQUE_DELETE_PENDING_SIZE_WARN_BYTES` (default 10 GB) or any entry's age exceeds `TORQUE_DELETE_PENDING_AGE_WARN_MS` (default 24 h). The audit traverses the quarantine tree with a 100k-entry cap; symlinks are NOT followed (security: prevents counting outside-quarantine state). The audit result is included in `reconcileProject`'s return as `quarantineAudit` so callers can surface it in dashboards if needed. Pinned by 11 regression tests in `tests/worktree-reconcile.test.js` covering missing-dir / empty / sums-recursively / symlink-non-follow / suppressor-interval / per-project-isolation / env-overrides / breach-via-size / no-breach / early-return-path.
 
-### 3. cleanup-guard TTL (60s) << finalizingTasks stale-check (15min)
+### 3. ✅ ~~cleanup-guard TTL (60s) << finalizingTasks stale-check (15min)~~ RESOLVED 2026-05-07
 
-If close handler runs >60s, `cleanupGuard` expires before finalization marker. Mitigated by `finalizingTasks` heartbeat in normal operation. Edge case: close-handler crash with leaked marker → 15min window where stale-check could fire but guard already expired. Realistic exposure: hung webhook + close-handler exception. **Action:** Consider raising cleanup-guard TTL to match finalization-marker timeout, or tying both to a shared config knob.
+`ProcessTracker._cleanupGuardTtlMs` default raised from 60s to 900000ms (15 min) to align with `finalizing_task_stale_minutes` default. The two TTLs now both reach the long-line stale-check window, eliminating the prior 14-min gap where a close-handler crash with leaked finalizingTasks marker could lead to double-finalize. Operators can tune via `TORQUE_CLEANUP_GUARD_TTL_MS` (positive integer, ms).
 
 ### 4. ✅ ~~POSIX zombie detection weaker than Windows~~ RESOLVED 2026-05-06
 
@@ -178,25 +178,38 @@ If close handler runs >60s, `cleanupGuard` expires before finalization marker. M
 
 **Test coverage** (`server/tests/startup-task-reconciler.test.js:865-1026`): 5 regression tests pin the behavior — re-queue with budget remaining, fail with budget exhausted, re-queue at boundary (count==max, the bba865d8 case), conservative re-queue with null retry fields, and skip when owner instance is still alive. Open question resolved with verified-safe status.
 
-### 6. Worktree reconciler 1-min "fresh dir" age check can race with slow vc_worktrees insert
+### 6. ✅ ~~Worktree reconciler 1-min "fresh dir" age check can race with slow vc_worktrees insert~~ RESOLVED 2026-05-07
 
-If DB insert is delayed (contention, fsync), the reconciler's `ORPHAN_DIR_MIN_AGE_MS` could allow reclamation of a worktree mid-creation. **Action:** Add an explicit `ready_for_reconcile` flag or grace period tied to creation acknowledgement, not wall-clock age.
+`ORPHAN_DIR_MIN_AGE_MS` raised from 60s to 5min. Slow inserts (DB contention, fsync, antivirus stat) had a much wider window before the orphan sweep would reclaim. 5min is well past any observed insert delay while still reclaiming actually-orphaned dirs within a single factory tick window. Operators can tune via `TORQUE_ORPHAN_DIR_MIN_AGE_MS` (positive integer ms). The audit's "explicit ready_for_reconcile flag" alternative (schema change) was deferred — wall-clock grace is simpler and the new 5min default is conservative enough to make the race vanishingly rare in practice.
 
-### 7. Stall-recovery attempt counter never resets on provider fallback
+### 7. Stall-recovery attempt counter never resets on provider fallback — **VERIFIED SAFE 2026-05-07**
 
-`stallRecoveryAttempts[taskId]` is deleted on terminal paths but not reset when a task switches providers via fallback-retry. Each provider's stall history is isolated, but logs combining them can be misleading. **Action:** Track per-(taskId, provider) attempts if cross-provider analysis matters; benign otherwise.
+Investigated. The counter-persistence is intentional: `stallRecoveryAttempts[taskId]` measures **total stalls on this task across all providers**, not per-provider. A task that consistently stalls regardless of which provider executes it is genuinely problematic; capping at `stall_recovery_max_attempts` (default 3) across the union prevents resource burn.
+
+Resetting on provider fallback would multiply effective attempts by N providers (3×3=9 stalls before exhaustion) — that's strictly worse for the operator's resource bill.
+
+The audit's "misleading logs" concern is real but is an observability issue, not a correctness issue. Per-provider attempt breakdown can be reconstructed from existing log lines (`[StallRecovery] Task X: Attempt N — strategy Y`); no code change needed.
+
+`fallback-retry.js:516` reads existing recovery state, increments, and stores back. Counter is deleted only on terminal paths (`stallRecoveryAttempts.delete(taskId)`) when recovery is exhausted or task transitions to terminal status. This is the correct contract.
 
 ### 8. ✅ ~~Abandon path leaves detached process unmonitored~~ RESOLVED 2026-05-06
 
 Documented in the "Abandon mode contract" section above. Covers: what abandon does (DB row, subprocess left alive, tracking released, log files keep accumulating), what it does NOT do (no kill guarantee, no successor handoff, no worktree cleanup), the three-mode comparison table (default/force/abandon), explicit operator responsibility (`ps`/`tasklist` on the PID after the call), and the three wiring sites (`task-cancellation.js`, MCP tool handler, tool def description).
 
-### 9. Finalization-marker idle timeout vs factory hard-cap mismatch
+### 9. ✅ ~~Finalization-marker idle timeout vs factory hard-cap mismatch~~ RESOLVED 2026-05-07
 
-Factory plan generation can legitimately run 30-60min. If close handler is doing post-task work tied to that, the finalization marker's 15min default could go stale. Config `finalizing_task_stale_minutes` exists but isn't documented as factory-correlated. **Action:** Document the relationship in `docs/factory.md` or add a derived-config helper.
+`docs/factory.md` gains a new "Long-running task config: `finalizing_task_stale_minutes`" subsection documenting the relationship: 15-min default is sized for general-purpose tasks, not factory-scale work; raise to 30-60 min if factory plan-generation regularly takes >15 min; pair with `TORQUE_CLEANUP_GUARD_TTL_MS` so both values stay aligned (raising one in isolation reopens the gap #3 closed). Symptom-of-mistuning callout included.
 
-### 10. cancelTask after task moved to retry_scheduled is partially guarded
+### 10. ✅ ~~cancelTask after task moved to retry_scheduled is partially guarded~~ VERIFIED SAFE 2026-05-07
 
-Cancel path checks status and bails on terminal states, but `retry_scheduled` is treated as "still active" — cancel proceeds. The cancel writes `status='cancelled'`. retry-framework's NEW guard (#1 fix) handles the timer side: it sees `cancelled` and bails. But if cancel races with the timer fire itself (both happen in same event loop tick), there's a brief window where status could flip cancelled → queued → cancelled. Order-dependent; in practice the timer's status re-read protects via the new guard. **Action:** Confirm behavior under concurrent cancel + timer-fire test; current node single-threaded execution should serialize them safely.
+Confirmed via test coverage. Node's single-threaded JS execution serializes cancel and timer-fire — whichever runs first wins, and the other path's status re-read catches the new state. Both orderings converge to `status='cancelled'`:
+
+- **Cancel-then-timer**: cancel writes `cancelled`. Timer's allow-list guard (`if currentTask.status !== 'retry_scheduled' return`) sees `cancelled`, bails. Pinned by `retry-framework.test.js:343` "does not restart a task that was cancelled during the retry delay" + parameterized `it.each(['failed','completed','shipped','unactionable','escalation_exhausted'])` (5 terminal statuses).
+- **Timer-then-cancel**: timer writes `queued`, calls `startTask`. Cancel arrives, sees `queued` (not terminal), writes `cancelled`. Final convergence pinned by new `retry-framework.test.js` "converges to cancelled when timer fires before cancel runs" test.
+
+The audit's specific "brief window" concern (status flipping cancelled → queued → cancelled) cannot occur because there is no `await` yield point between status check and status write in either path. Pre-2026-05-06 this was a real bug for the cancel-then-timer ordering when the terminal status was anything other than `cancelled`; that hole is closed by the allow-list guard.
+
+`cancel-retry-scheduled.test.js` covers cancel-of-retry_scheduled basics (6 tests including pendingRetryTimeouts cleanup).
 
 ---
 

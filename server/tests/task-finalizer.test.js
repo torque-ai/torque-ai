@@ -257,6 +257,41 @@ describe('task-finalizer', () => {
     );
   });
 
+  it('uses the DI completion pipeline service for post-completion hooks', async () => {
+    const dbBundle = createTaskDb();
+    const { db } = dbBundle;
+    const safeUpdateTaskStatus = vi.fn((...args) => db.updateTaskStatus(...args));
+    const handlePostCompletion = vi.fn(async () => {});
+    const scopedFinalizer = finalizer.createTaskFinalizer({
+      db,
+      safeUpdateTaskStatus,
+      completionPipeline: { handlePostCompletion },
+      sanitizeTaskOutput: (value) => value || '',
+      extractModifiedFiles: vi.fn(() => []),
+      handleRetryLogic: vi.fn(),
+      handleSafeguardChecks: vi.fn(),
+      handleFuzzyRepair: vi.fn(),
+      handleNoFileChangeDetection: vi.fn(),
+      handleAutoValidation: vi.fn(),
+      handleBuildTestStyleCommit: vi.fn(),
+      handleAutoVerifyRetry: vi.fn(async () => {}),
+      handleProviderFailover: vi.fn(),
+    });
+
+    const result = await scopedFinalizer.finalizeTask(dbBundle.taskId, {
+      exitCode: 0,
+      output: 'done through DI pipeline',
+      errorOutput: '',
+    });
+
+    expect(result.finalized).toBe(true);
+    expect(handlePostCompletion).toHaveBeenCalledTimes(1);
+    expect(handlePostCompletion).toHaveBeenCalledWith(expect.objectContaining({
+      status: 'completed',
+      taskId: dbBundle.taskId,
+    }));
+  });
+
   it('marks the task failed when validation flips a successful exit', async () => {
     const dbBundle = createTaskDb();
     const handlePostCompletion = vi.fn();

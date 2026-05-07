@@ -35,6 +35,16 @@ Enable continuous cycling and dark trust (no gates) via `set_factory_trust_level
 | `retry_factory_verify` | Resume from VERIFY_FAIL after operator fixes the issue |
 | `approve_factory_gate` / `reject_factory_gate` | Gate approval for supervised/guided trust levels |
 
+### Long-running task config: `finalizing_task_stale_minutes`
+
+Factory plan generation and verify steps can legitimately run 30–60 minutes for large repos. The close-handler / finalization pipeline tracks whether a task is mid-finalize via the `finalizingTasks` heartbeat; idle longer than `finalizing_task_stale_minutes` (default 15 min) triggers stale-task abandonment.
+
+**The 15-min default is sized for general-purpose Codex/Claude tasks, not factory-scale work.** If your factory regularly runs plan-generation tasks longer than 15 minutes (large impact-set, slow remote, expensive Codex sessions), raise `finalizing_task_stale_minutes` to comfortably exceed your longest expected finalization. A typical factory-friendly value is `30` (30 min) or `60` (60 min); the upper bound is "longer than any legitimate run, shorter than 'abandoned forever'."
+
+**Symptom of too-low value**: tasks that legitimately finished work get marked failed because their close handler took >15 min to run (e.g. auto-verify-retry on a slow remote test suite). The close handler proceeds normally on its next heartbeat, but the stale-check has already beat it to the DB update.
+
+**Related cleanup TTL**: `TORQUE_CLEANUP_GUARD_TTL_MS` (default 900000ms = 15 min) governs the in-memory cleanupGuard window inside ProcessTracker. Both default to the same 15 min by design — they together protect against double-finalize for long-line close handlers. Raising `finalizing_task_stale_minutes` while leaving cleanupGuard at 15 min reopens the gap that #3 closed; raise both to the same target value when tuning for factory workloads.
+
 ## Factory Status Coherence
 
 `factory_status` reports `loop_state` from the active `factory_loop_instances` row, not from the legacy project cache. It also reports:

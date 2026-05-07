@@ -37,6 +37,13 @@ info() { echo "[torque-remote] $*" >&2; }
 #       $3=command (optional override; defaults to current COMMAND_DISPLAY).
 record_fallback() {
   local reason="${1:-unknown}" detail="${2:-}" cmd="${3:-${COMMAND_DISPLAY:-}}"
+  # Stash the reason for the per-invocation decision log so the EXIT-time
+  # summary records WHY this run fell back. First fallback wins (downstream
+  # cascading fallbacks shouldn't overwrite the root cause).
+  if [[ -z "${DECISION_FALLBACK_REASON:-}" ]]; then
+    DECISION_FALLBACK_REASON="$reason"
+    DECISION_FALLBACK_DETAIL="$detail"
+  fi
   local log_dir="${TORQUE_REMOTE_FALLBACK_LOG_DIR:-${HOME}/.torque}"
   local log_path="${TORQUE_REMOTE_FALLBACK_LOG:-${log_dir}/torque-remote-fallback.log}"
   local ts project sync_ref host
@@ -58,6 +65,76 @@ record_fallback() {
     mkdir -p "$log_dir" 2>/dev/null || return 0
     printf '{"timestamp":"%s","project":"%s","sync_ref":"%s","host":"%s","pid":%s,"reason":"%s","detail":"%s","command":"%s"}\n' \
       "$ts" "$esc_project" "$esc_sync_ref" "$esc_host" "$$" "$esc_reason" "$esc_detail" "$esc_cmd" \
+      >> "$log_path" 2>/dev/null || true
+  } >/dev/null 2>&1
+  return 0
+}
+
+# Per-invocation decision log — appends one JSONL record at script exit
+# regardless of outcome (success, fallback, or remote-executed). Distinct
+# from the fallback log (which only fires on fallback). Lets operators
+# answer "fallback rate over the last 24h?" or "median elapsed for SSH
+# transport?" with one query against ~/.torque/torque-remote-decisions.jsonl.
+#
+# Globals consumed:
+#   DECISION_START_EPOCH       — set once near script start
+#   DECISION_TRANSPORT         — "local" or "ssh", set at transport branch
+#   DECISION_FALLBACK_REASON   — set by record_fallback's first call
+#   DECISION_FALLBACK_DETAIL   — set by record_fallback's first call
+#   PROJECT_NAME, SYNC_REF, SSH_HOST, COMMAND_DISPLAY — captured during
+#                                                       normal flow
+#
+# Best-effort: errors swallowed, exit handler must not block.
+DECISION_START_EPOCH=""
+DECISION_TRANSPORT=""
+DECISION_FALLBACK_REASON=""
+DECISION_FALLBACK_DETAIL=""
+
+record_decision_on_exit() {
+  local exit_code="${1:-$?}"
+  local log_dir="${TORQUE_REMOTE_DECISION_LOG_DIR:-${HOME}/.torque}"
+  local log_path="${TORQUE_REMOTE_DECISION_LOG:-${log_dir}/torque-remote-decisions.jsonl}"
+  local ts_start ts_end elapsed now project sync_ref host transport outcome reason detail cmd
+  now="$(date +%s 2>/dev/null || echo 0)"
+  if [[ "${DECISION_START_EPOCH:-}" =~ ^[0-9]+$ ]] && [[ "$now" =~ ^[0-9]+$ ]] && (( now > 0 )); then
+    elapsed=$((now - DECISION_START_EPOCH))
+    ts_start="$(date -u -d "@${DECISION_START_EPOCH}" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null \
+                || date -u -r "${DECISION_START_EPOCH}" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null \
+                || echo unknown)"
+  else
+    elapsed=0
+    ts_start="unknown"
+  fi
+  ts_end="$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo unknown)"
+  project="${PROJECT_NAME:-unknown}"
+  sync_ref="${SYNC_REF:-unknown}"
+  host="${SSH_HOST:-unknown}"
+  transport="${DECISION_TRANSPORT:-unknown}"
+  cmd="${COMMAND_DISPLAY:-}"
+  reason="${DECISION_FALLBACK_REASON:-}"
+  detail="${DECISION_FALLBACK_DETAIL:-}"
+  if [[ -n "$reason" ]]; then
+    outcome="fallback"
+  else
+    outcome="success"
+  fi
+  local esc_project esc_sync_ref esc_host esc_transport esc_outcome esc_reason esc_detail esc_cmd
+  esc_project="$(printf '%s' "$project" | sed 's/\\/\\\\/g; s/"/\\"/g')"
+  esc_sync_ref="$(printf '%s' "$sync_ref" | sed 's/\\/\\\\/g; s/"/\\"/g')"
+  esc_host="$(printf '%s' "$host" | sed 's/\\/\\\\/g; s/"/\\"/g')"
+  esc_transport="$(printf '%s' "$transport" | sed 's/\\/\\\\/g; s/"/\\"/g')"
+  esc_outcome="$(printf '%s' "$outcome" | sed 's/\\/\\\\/g; s/"/\\"/g')"
+  esc_reason="$(printf '%s' "$reason" | sed 's/\\/\\\\/g; s/"/\\"/g')"
+  esc_detail="$(printf '%s' "$detail" | sed 's/\\/\\\\/g; s/"/\\"/g')"
+  esc_cmd="$(printf '%s' "$cmd" | sed 's/\\/\\\\/g; s/"/\\"/g')"
+  local reason_field='null'
+  [[ -n "$reason" ]] && reason_field="\"$esc_reason\""
+  local detail_field='null'
+  [[ -n "$detail" ]] && detail_field="\"$esc_detail\""
+  {
+    mkdir -p "$log_dir" 2>/dev/null || return 0
+    printf '{"timestamp_start":"%s","timestamp_end":"%s","elapsed_secs":%s,"project":"%s","sync_ref":"%s","host":"%s","pid":%s,"transport":"%s","outcome":"%s","fallback_reason":%s,"fallback_detail":%s,"exit_code":%s,"command":"%s"}\n' \
+      "$ts_start" "$ts_end" "$elapsed" "$esc_project" "$esc_sync_ref" "$esc_host" "$$" "$esc_transport" "$esc_outcome" "$reason_field" "$detail_field" "$exit_code" "$esc_cmd" \
       >> "$log_path" 2>/dev/null || true
   } >/dev/null 2>&1
   return 0
@@ -103,21 +180,88 @@ TEMP_DIRS=()
 REMOTE_CLEANUP_COMMAND=""
 REMOTE_CLEANUP_REQUIRED="false"
 
+# bash's `trap ... EXIT` is single-slot; installing a second trap replaces
+# the first. Prior code installed `cleanup_on_exit` first, then later
+# overwrote it with `coord_release_on_exit` which manually called
+# `cleanup_on_exit` to chain. That worked but a third future contributor
+# adding their own `trap ... EXIT` would silently break the chain — the
+# leak surface (orphan temp dirs, abandoned coord locks) was real.
+#
+# `trap_chain_add` installs handlers into an array dispatched on EXIT in
+# LIFO order (latest registered runs first), so adding a new handler can't
+# accidentally clobber prior cleanup.
+#
+# Handlers are invoked with the original `$?` as `$1` so they can capture
+# the script's real exit code regardless of what later handlers do. Each
+# handler's failures are swallowed via `|| true` so one handler's bug
+# can't block the chain.
+TRAP_CHAIN_HANDLERS=()
+TRAP_CHAIN_INSTALLED=0
+
+trap_chain_dispatch() {
+  local _trap_exit_code=$?
+  local i
+  for ((i=${#TRAP_CHAIN_HANDLERS[@]}-1; i>=0; i--)); do
+    "${TRAP_CHAIN_HANDLERS[$i]}" "$_trap_exit_code" || true
+  done
+  exit "$_trap_exit_code"
+}
+
+trap_chain_add() {
+  TRAP_CHAIN_HANDLERS+=("$1")
+  if [[ "$TRAP_CHAIN_INSTALLED" -ne 1 ]]; then
+    trap trap_chain_dispatch EXIT
+    TRAP_CHAIN_INSTALLED=1
+  fi
+}
+
+# Assemble the SSH-CMD sync command. Extracted as a function so the
+# (very long) assembled string can be asserted against in
+# `server/tests/torque-remote-source.test.js`. Two prior production regressions
+# in this command would have been caught at test time:
+#   - 2026-04-27: `git clean -fdx` was wiping node_modules every sync.
+#   - 2026-04-29: a bare `if not exist X (block)` (without outer parens around
+#     the if) silently swallowed the trailing `&& chain` when X already
+#     existed, leaving fetch/checkout/reset/drift-check unrun for 3 days.
+#
+# Args:
+#   $1 effective remote project path (the path to cd into on remote)
+#   $2 FETCH_COMMAND (full `git fetch ...` string)
+#   $3 SYNC_CHECKOUT (full `git checkout ...` string; `--detach` for worktree)
+#   $4 SYNC_REF (e.g. origin/main)
+#   $5 SYNC_BOOTSTRAP (worktree-add-if-missing prefix; may be empty)
+#
+# The assembled command runs in CMD on Windows (no posix tools), so all
+# control flow uses CMD primitives:
+#   - `if not exist DIR (block)` — wrap in outer `(...)` so trailing `&&`
+#     chain runs even when block is skipped.
+#   - `^&^&` to escape `&&` inside `if exist X echo "...^&^& Y"` strings.
+#   - `2>nul` to silence stderr.
+build_remote_sync_command() {
+  local eff_path="$1" fetch_cmd="$2" sync_checkout="$3" sync_ref="$4" bootstrap="${5:-}"
+  printf '%s' "${bootstrap}cd \"${eff_path}\" && ${fetch_cmd} && ${sync_checkout} && git reset --hard ${sync_ref} && (git clean -fd || true) && (git diff --quiet HEAD || (echo \"[torque-remote-sync] drift after reset — file locks (Defender/Search/AV) may have prevented checkout from updating tracked files\" 1>&2 && exit 99)) && (if exist package.json if not exist node_modules echo [torque-remote-sync] HINT: ./package.json has no node_modules at ${eff_path} — run: npm install 1>&2) && (if exist server\\package.json if not exist server\\node_modules echo [torque-remote-sync] HINT: server/package.json has no node_modules — run: cd server ^&^& npm install 1>&2) && (if exist dashboard\\package.json if not exist dashboard\\node_modules echo [torque-remote-sync] HINT: dashboard/package.json has no node_modules — run: cd dashboard ^&^& npm install 1>&2)"
+}
+
 cleanup_temp_dirs() {
-  local dir attempt
+  local dir attempt sleep_secs
   for dir in "${TEMP_DIRS[@]}"; do
     [[ -z "$dir" || ! -d "$dir" ]] && continue
-    # Retry rm -rf up to 3x with backoff. On Windows, Defender (and other
-    # AV/indexers) routinely hold open handles to large files like
-    # local-state.tar (~4GB) and untracked.tar (~4GB) for a few seconds
-    # after the bash process closes them. The first rm -rf often races
-    # those handles and silently leaves the dir on disk — that's how this
-    # script accumulated ~150GB of orphans before this hardening landed.
-    for attempt in 1 2 3; do
+    # Retry rm -rf with exponential backoff (1, 2, 4, 8, 16 → 31s total budget).
+    # On Windows, Defender (and other AV/indexers) routinely hold open handles
+    # to large files like local-state.tar (~4GB) and untracked.tar (~4GB) for
+    # several seconds after the bash process closes them. The prior 3×1s budget
+    # raced AV scans on big bundles, leaving orphans that piled up to ~150GB
+    # on the original report. The 60-min sweep_old_orphans path catches these
+    # eventually, but the WARN-spam-per-cutover was loud enough to be noise.
+    # 31s budget covers the common Defender lock window without making
+    # fast-path cleanup feel slow (single rm typically completes in <100ms).
+    sleep_secs=1
+    for attempt in 1 2 3 4 5; do
       if rm -rf "$dir" 2>/dev/null; then
         break
       fi
-      sleep 1
+      sleep "$sleep_secs"
+      sleep_secs=$((sleep_secs * 2))
     done
     if [[ -d "$dir" ]]; then
       # Loud signal so a future operator can grep for these instead of
@@ -263,6 +407,16 @@ REMOTE_LANE_INDEX=""
 REMOTE_LANE_WORKSPACE_BASE=""
 REMOTE_LANE_LOCK_OWNER_FILE="owner.env"
 REMOTE_LANE_LOCK_STALE_REASON=""
+# Heartbeat plumbing (lane-aware port of main's remote-sync-lock heartbeat).
+# A held lane spawns a detached subshell that touches heartbeat.epoch every
+# TORQUE_REMOTE_LANE_LOCK_HEARTBEAT_SECS (legacy: TORQUE_REMOTE_SYNC_LOCK_HEARTBEAT_SECS,
+# default 60). Waiters use heartbeat-age as a "holder hung but not dead" signal —
+# informational warn only; TTL remains the sole reap mechanism.
+REMOTE_LANE_LOCK_HEARTBEAT_FILE="heartbeat.epoch"
+REMOTE_LANE_LOCK_HEARTBEAT_PID=""
+# Set by acquire_any_remote_lane when a stale-heartbeat warn has fired during
+# the current wait so the warn is one-shot per invocation.
+REMOTE_LANE_LOCK_HEARTBEAT_WARNED=0
 
 remote_lane_lock_local_host() {
   local raw="${COMPUTERNAME:-$(hostname 2>/dev/null || echo unknown)}"
@@ -342,6 +496,113 @@ remote_lane_lock_is_stale() {
     fi
   fi
   return 1
+}
+
+# Shared stale-check for an in-memory owner block (parsed metadata). Used by
+# the coalesced acquire-loop path (the probe returns owner-block inline with
+# the lock state, so a re-read SSH round-trip would be wasted). Mirrors the
+# semantics of `remote_lane_lock_is_stale` but takes the metadata as an
+# argument instead of fetching it. Returns 0 (stale) and sets
+# REMOTE_LANE_LOCK_STALE_REASON, or 1.
+#
+# Two stale conditions:
+#   1. Same-host owner with a dead PID (kill -0 fails). Specific to the
+#      local workstation; reaps abandoned-by-crash locks immediately.
+#   2. TTL exceeded (now - started_at_epoch > ttl, default 4h). Applies to
+#      ANY host. Reclaims locks from crashed remote workstations or sessions
+#      whose PID we can't probe.
+#
+# Invariants preserved:
+#   - Empty/missing owner_block ⇒ NOT stale (b9cfac9d "ambiguous metadata
+#     means keep waiting").
+#   - Numeric PID guard before `kill -0`.
+#   - Owner-host scope rule: never reap on missing/empty host_field.
+remote_lane_lock_check_owner_block() {
+  local owner="$1" host_field pid_field started_field local_host now ttl
+  REMOTE_LANE_LOCK_STALE_REASON=""
+
+  if [[ -z "$owner" ]]; then
+    return 1
+  fi
+
+  host_field="$(owner_field "$owner" host | tr '[:upper:]' '[:lower:]')"
+  pid_field="$(owner_field "$owner" pid)"
+  started_field="$(owner_field "$owner" started_at_epoch)"
+  local_host="$(remote_lane_lock_local_host)"
+
+  if [[ -z "$host_field" ]]; then
+    # Never reap on missing owner_host (b9cfac9d preserved rule). The mkdir
+    # → owner-write window is a TOCTOU; an empty host means we may have
+    # raced a fresh acquire that hasn't written metadata yet.
+    return 1
+  fi
+
+  if [[ "$host_field" == "$local_host" ]]; then
+    # Numeric guard: a non-numeric or partially-written pid_field would make
+    # `kill -0 "abc"` return non-zero, falsely tripping reap.
+    if [[ "$pid_field" =~ ^[1-9][0-9]*$ ]] && ! kill -0 "$pid_field" 2>/dev/null; then
+      REMOTE_LANE_LOCK_STALE_REASON="local owner pid $pid_field is dead"
+      return 0
+    fi
+    return 1
+  fi
+
+  ttl="${TORQUE_REMOTE_LANE_STALE_TTL_SECS:-${TORQUE_REMOTE_SYNC_LOCK_STALE_TTL_SECS:-14400}}"
+  now="$(date +%s 2>/dev/null || echo 0)"
+  if [[ -n "$started_field" && "$started_field" =~ ^[0-9]+$ && "$now" =~ ^[0-9]+$ ]]; then
+    if (( now - started_field > ttl )); then
+      REMOTE_LANE_LOCK_STALE_REASON="cross-host owner exceeded TTL (${ttl}s)"
+      return 0
+    fi
+  fi
+  return 1
+}
+
+# Spawn a background updater that touches heartbeat.epoch in the held lane's
+# lock dir every TORQUE_REMOTE_LANE_LOCK_HEARTBEAT_SECS (legacy fallback:
+# TORQUE_REMOTE_SYNC_LOCK_HEARTBEAT_SECS, default 60). Waiters detect
+# "no heartbeat in N seconds" as a "holder hung but not dead" proxy —
+# distinguishes "actively syncing" from "stuck mid-sync."
+#
+# Best-effort: SSH failures are swallowed. The lane TTL remains the
+# definitive cross-host reap mechanism; heartbeat is informational (warn
+# only, never auto-reap).
+#
+# CRITICAL: must be paired with stop_remote_lane_lock_heartbeat BEFORE the
+# rmdir in release_remote_lane_lock. A mid-flight `echo > heartbeat.epoch`
+# from this subshell could otherwise recreate the lock dir as a side-effect
+# of the redirect, leaving an orphan lock for the next torque-remote.
+start_remote_lane_lock_heartbeat() {
+  if [[ -z "${REMOTE_LANE_LOCK_DIR:-}" || -z "${SSH_USER:-}" || -z "${SSH_HOST:-}" ]]; then
+    return 0
+  fi
+  local interval="${TORQUE_REMOTE_LANE_LOCK_HEARTBEAT_SECS:-${TORQUE_REMOTE_SYNC_LOCK_HEARTBEAT_SECS:-60}}"
+  if ! [[ "$interval" =~ ^[0-9]+$ ]] || (( interval <= 0 )); then
+    return 0
+  fi
+  local hb_file="${REMOTE_LANE_LOCK_DIR}\\${REMOTE_LANE_LOCK_HEARTBEAT_FILE}"
+  # Detached subshell: writes a heartbeat then loops. Each SSH is silenced;
+  # failures don't propagate. The loop exits when the parent kills it on
+  # release.
+  (
+    while :; do
+      ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" \
+        "echo $(date +%s 2>/dev/null || echo 0)>\"$hb_file\"" \
+        >/dev/null 2>&1 || true
+      sleep "$interval"
+    done
+  ) </dev/null >/dev/null 2>&1 &
+  REMOTE_LANE_LOCK_HEARTBEAT_PID=$!
+  disown 2>/dev/null || true
+}
+
+stop_remote_lane_lock_heartbeat() {
+  if [[ -n "${REMOTE_LANE_LOCK_HEARTBEAT_PID:-}" ]]; then
+    kill "$REMOTE_LANE_LOCK_HEARTBEAT_PID" 2>/dev/null || true
+    # Reap the subshell so it doesn't show up in `ps` after exit.
+    wait "$REMOTE_LANE_LOCK_HEARTBEAT_PID" 2>/dev/null || true
+    REMOTE_LANE_LOCK_HEARTBEAT_PID=""
+  fi
 }
 
 reap_remote_lane_lock() {
@@ -481,9 +742,24 @@ compute_lane_lock_dir() {
   printf '%s\\.torque-remote-lanes\\.locks\\lane-%s\n' "$parent" "$index"
 }
 
-# Single-lane non-blocking attempt — atomic mkdir, owner write, no wait.
-# Sets REMOTE_LANE_INDEX, REMOTE_LANE_LOCK_DIR on any call.
-# Returns 0 on claim, 1 on held.
+# Per-call caches populated by `attempt_lane_claim` from the coalesced probe
+# response so the wait loop can do stale-sweeps and heartbeat warns without
+# spending an extra SSH round-trip per lane. Index keys are the lane number
+# (1..N). `acquire_any_remote_lane` resets these at the top of each call.
+declare -A REMOTE_LANE_LAST_PROBE_OWNER=()
+declare -A REMOTE_LANE_LAST_PROBE_HB=()
+
+# Single-lane non-blocking attempt — coalesced atomic mkdir + owner-read +
+# heartbeat-read in one SSH round-trip. Output shape from the probe:
+#   ACQUIRED                                          — directory created; we own the lock
+#   HELD\n<owner-block>\n---HB---\n<hb-block>          — held; metadata + heartbeat inline
+# owner-block is `host=...\npid=...\nstarted_at_epoch=...\nlane_index=...`
+# (or `NO_OWNER` when owner.env is missing).
+# hb-block is the heartbeat epoch string (or `NO_HB` when the file is absent).
+#
+# On ACQUIRED: writes owner metadata, starts the heartbeat updater, returns 0.
+# On HELD: caches owner_block + hb_block under REMOTE_LANE_LAST_PROBE_*[index]
+# and returns 1. Sets REMOTE_LANE_INDEX, REMOTE_LANE_LOCK_DIR on any call.
 attempt_lane_claim() {
   local index="$1"
   if [[ -z "${SSH_USER:-}" || -z "${SSH_HOST:-}" || -z "${REMOTE_LANE_WORKSPACE_BASE:-}" ]]; then
@@ -495,37 +771,115 @@ attempt_lane_claim() {
   REMOTE_LANE_INDEX="$index"
   REMOTE_LANE_LOCK_DIR="$(compute_lane_lock_dir "$REMOTE_LANE_WORKSPACE_BASE" "$index")"
 
-  local ack
-  # CMD-compatible: `if not exist DIR (mkdir DIR && echo ACQUIRED) else (echo HELD)`.
-  # mkdir on Windows is atomic at the directory-entry level; if two
+  local owner_file="${REMOTE_LANE_LOCK_DIR}\\${REMOTE_LANE_LOCK_OWNER_FILE}"
+  local hb_file="${REMOTE_LANE_LOCK_DIR}\\${REMOTE_LANE_LOCK_HEARTBEAT_FILE}"
+  local probe_response state owner_block hb_block
+  # CMD-compatible single-shot probe — coalesces "is the lock held?",
+  # "what does owner.env contain?", AND "what's the latest heartbeat?"
+  # so the polling loop doesn't pay multiple SSH round-trips per lane when
+  # stale-check fires. mkdir is atomic at the directory-entry level; if two
   # acquires race, only one's mkdir succeeds, the other reports HELD.
-  ack=$(ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" \
-    "if not exist \"$REMOTE_LANE_LOCK_DIR\" (mkdir \"$REMOTE_LANE_LOCK_DIR\" 2>nul && echo ACQUIRED) else (echo HELD)" \
-    2>/dev/null | tr -d '\r' | tail -1)
+  probe_response=$(ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" \
+    "if not exist \"$REMOTE_LANE_LOCK_DIR\" (mkdir \"$REMOTE_LANE_LOCK_DIR\" 2>nul && echo ACQUIRED) else (echo HELD && (if exist \"$owner_file\" (type \"$owner_file\") else (echo NO_OWNER)) && echo ---HB--- && (if exist \"$hb_file\" (type \"$hb_file\") else (echo NO_HB)))" \
+    2>/dev/null | tr -d '\r')
+  state=$(printf '%s\n' "$probe_response" | head -n 1)
 
-  if [[ "$ack" == "ACQUIRED" ]]; then
+  if [[ "$state" == "ACQUIRED" ]]; then
     REMOTE_LANE_LOCK_HELD=1
     if ! write_remote_lane_lock_owner; then
       warn "Acquired remote lane $index but failed to write owner metadata; releasing"
       release_remote_lane_lock
       return 1
     fi
+    start_remote_lane_lock_heartbeat
+    # Clear any cached probe data for this lane — we own it now.
+    unset 'REMOTE_LANE_LAST_PROBE_OWNER[$index]' 2>/dev/null || true
+    unset 'REMOTE_LANE_LAST_PROBE_HB[$index]' 2>/dev/null || true
     return 0
   fi
+
+  # HELD: split owner-block from heartbeat-block at the ---HB--- separator.
+  # awk runs twice per probe response (small, single-line strings); awk's
+  # missing-separator path leaves owner_block as the full body and hb_block
+  # empty.
+  owner_block=$(printf '%s\n' "$probe_response" | awk '/^---HB---$/{exit} NR>1{print}')
+  hb_block=$(printf '%s\n' "$probe_response" | awk 'p{print} /^---HB---$/{p=1}')
+  REMOTE_LANE_LAST_PROBE_OWNER[$index]="$owner_block"
+  REMOTE_LANE_LAST_PROBE_HB[$index]="$hb_block"
   return 1
 }
 
 # Inspect each held lane and reap stale ones. Called between probe rounds.
+# Prefers cached owner-block from the most recent attempt_lane_claim probe
+# so a sweep round costs zero SSH round-trips when probes already saw HELD;
+# falls back to the legacy read-then-check path when no cache is present
+# (e.g., the very first sweep after timeout, or a TOCTOU corner where the
+# lane became free + re-claimed between probes).
 sweep_remote_lane_locks_for_stale() {
   local count="$1"
-  local index
+  local index owner_block
   for index in $(seq 1 "$count"); do
     REMOTE_LANE_LOCK_DIR="$(compute_lane_lock_dir "$REMOTE_LANE_WORKSPACE_BASE" "$index")"
-    if remote_lane_lock_is_stale; then
-      reap_remote_lane_lock "lane $index: $REMOTE_LANE_LOCK_STALE_REASON" || true
+    owner_block="${REMOTE_LANE_LAST_PROBE_OWNER[$index]:-}"
+    if [[ -n "$owner_block" && "$owner_block" != *"NO_OWNER"* ]]; then
+      # Reuse the coalesced-probe owner block — no extra SSH.
+      if remote_lane_lock_check_owner_block "$owner_block"; then
+        reap_remote_lane_lock "lane $index: $REMOTE_LANE_LOCK_STALE_REASON" || true
+        unset 'REMOTE_LANE_LAST_PROBE_OWNER[$index]' 2>/dev/null || true
+        unset 'REMOTE_LANE_LAST_PROBE_HB[$index]' 2>/dev/null || true
+      fi
+    elif [[ "$owner_block" == *"NO_OWNER"* ]]; then
+      # Cached owner_block says NO_OWNER (b9cfac9d invariant: ambiguous owner
+      # info means "not stale, keep waiting"). Skip without re-reading.
+      continue
+    else
+      # No cached probe data for this lane — fall back to the legacy direct
+      # read path. Preserves correctness across paths that may not have run
+      # an attempt_lane_claim immediately before.
+      if remote_lane_lock_is_stale; then
+        reap_remote_lane_lock "lane $index: $REMOTE_LANE_LOCK_STALE_REASON" || true
+      fi
     fi
   done
   REMOTE_LANE_LOCK_DIR=""
+}
+
+# Single warn (per acquire_any_remote_lane invocation) when the holding lane's
+# heartbeat is older than TORQUE_REMOTE_LANE_LOCK_HEARTBEAT_STALE_SECS (legacy:
+# TORQUE_REMOTE_SYNC_LOCK_HEARTBEAT_STALE_SECS, default 300). Informational
+# only — TTL stays the sole reap mechanism. Mutates
+# REMOTE_LANE_LOCK_HEARTBEAT_WARNED so subsequent rounds stay quiet.
+maybe_warn_lane_heartbeat_stale() {
+  local count="$1"
+  if (( REMOTE_LANE_LOCK_HEARTBEAT_WARNED != 0 )); then
+    return 0
+  fi
+  local hb_stale_secs="${TORQUE_REMOTE_LANE_LOCK_HEARTBEAT_STALE_SECS:-${TORQUE_REMOTE_SYNC_LOCK_HEARTBEAT_STALE_SECS:-300}}"
+  if ! [[ "$hb_stale_secs" =~ ^[0-9]+$ ]] || (( hb_stale_secs <= 0 )); then
+    return 0
+  fi
+  local index hb_block hb_epoch hb_now hb_age
+  for index in $(seq 1 "$count"); do
+    hb_block="${REMOTE_LANE_LAST_PROBE_HB[$index]:-}"
+    if [[ -z "$hb_block" || "$hb_block" == *"NO_HB"* ]]; then
+      continue
+    fi
+    hb_epoch=$(printf '%s\n' "$hb_block" | head -n 1 | sed 's/[[:space:]]*$//')
+    if ! [[ "$hb_epoch" =~ ^[0-9]+$ ]]; then
+      continue
+    fi
+    hb_now="$(date +%s 2>/dev/null || echo 0)"
+    if ! [[ "$hb_now" =~ ^[0-9]+$ ]] || (( hb_now <= 0 )); then
+      continue
+    fi
+    hb_age=$((hb_now - hb_epoch))
+    if (( hb_age > hb_stale_secs )); then
+      local ttl_disp="${TORQUE_REMOTE_LANE_STALE_TTL_SECS:-${TORQUE_REMOTE_SYNC_LOCK_STALE_TTL_SECS:-14400}}"
+      warn "Lane $index holder heartbeat stale (${hb_age}s; threshold ${hb_stale_secs}s) — holder may be hung but not dead. Will continue waiting; TTL ${ttl_disp}s will reap if exceeded."
+      REMOTE_LANE_LOCK_HEARTBEAT_WARNED=1
+      return 0
+    fi
+  done
 }
 
 # Run a one-time idempotent migration: if the legacy <base> workspace
@@ -594,6 +948,11 @@ acquire_any_remote_lane() {
   local poll=2
   local elapsed=0
   local last_stale_check=$((0 - stale_check))
+  # Reset per-call probe caches and one-shot heartbeat warn flag so a fresh
+  # acquire starts with no stale data carried in from a prior invocation.
+  REMOTE_LANE_LAST_PROBE_OWNER=()
+  REMOTE_LANE_LAST_PROBE_HB=()
+  REMOTE_LANE_LOCK_HEARTBEAT_WARNED=0
 
   if [[ -n "$explicit" ]]; then
     # Explicit lane mode: try only that lane and fail-fast if held.
@@ -620,6 +979,9 @@ acquire_any_remote_lane() {
     if (( elapsed - last_stale_check >= stale_check )); then
       sweep_remote_lane_locks_for_stale "$count"
       last_stale_check=$elapsed
+      # Heartbeat-stale warn is informational only (TTL is the sole reap
+      # mechanism) and fires at most once per acquire_any_remote_lane call.
+      maybe_warn_lane_heartbeat_stale "$count"
     fi
     sleep "$poll"
     elapsed=$((elapsed + poll))
@@ -634,6 +996,10 @@ release_remote_lane_lock() {
   if [[ "${REMOTE_LANE_LOCK_HELD:-0}" != "1" || -z "${REMOTE_LANE_LOCK_DIR:-}" ]]; then
     return 0
   fi
+  # Stop the heartbeat updater BEFORE removing the lock dir so a
+  # mid-flight `echo > heartbeat.epoch` doesn't recreate the dir as a
+  # side-effect of the redirect.
+  stop_remote_lane_lock_heartbeat
   ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" \
     "rmdir /s /q \"$REMOTE_LANE_LOCK_DIR\" 2>nul" \
     >/dev/null 2>&1 || true
@@ -744,22 +1110,33 @@ create_local_state_bundle() {
   printf '%s\n%s\n' "$bundle_tar" "$has_local_state"
 }
 
-# Skip the cleanup-on-exit trap for internal fast-path flags. Those paths
-# create no temp dirs and exit immediately — but the trap also fires
-# sweep_old_orphans, which on Windows runs `find /tmp -exec rm -rf` against
-# accumulated torque-remote.* dirs. Under Defender real-time scan that sweep
-# takes 10+ seconds, blowing past the 5s spawnSync timeout in
+# Skip the cleanup-and-decision-log traps for internal fast-path flags.
+# Those paths create no temp dirs and exit immediately — but the EXIT trap
+# also fires sweep_old_orphans, which on Windows runs `find /tmp -exec rm -rf`
+# against accumulated torque-remote.* dirs. Under Defender real-time scan that
+# sweep takes 10+ seconds, blowing past the 5s spawnSync timeout in
 # tests/coord-torque-remote-routing.test.js even though the decision itself
-# returns in <1s.
+# returns in <1s. The lane status / lane count / lane paths fast paths are
+# read-only diagnostics and need the same skip.
 _is_internal_fast_path=0
 for _arg in "$@"; do
-  if [[ "$_arg" == "--__internal-print-routing-mode" || "$_arg" == "--__internal-print-lane-count" || "$_arg" == "--__internal-print-lane-paths" || "$_arg" == "--status" ]]; then
+  if [[ "$_arg" == "--__internal-print-routing-mode" \
+     || "$_arg" == "--__internal-print-lane-count" \
+     || "$_arg" == "--__internal-print-lane-paths" \
+     || "$_arg" == "--status" ]]; then
     _is_internal_fast_path=1
     break
   fi
 done
 if [[ "$_is_internal_fast_path" -eq 0 ]]; then
-  trap cleanup_on_exit EXIT
+  DECISION_START_EPOCH="$(date +%s 2>/dev/null || echo 0)"
+  # cleanup_on_exit handles release_remote_lane_lock, cleanup_remote_exec,
+  # cleanup_temp_dirs, sweep_old_orphans. record_decision_on_exit appends one
+  # JSONL line per invocation. trap_chain_add dispatches handlers in LIFO
+  # order, so record_decision_on_exit runs first (capturing the original $?)
+  # and cleanup_on_exit runs second.
+  trap_chain_add cleanup_on_exit
+  trap_chain_add record_decision_on_exit
 fi
 unset _arg _is_internal_fast_path
 
@@ -1242,7 +1619,13 @@ coord_begin() {
 }
 
 coord_release_on_exit() {
-  local final_exit=$?
+  # Prefer the exit code passed by trap_chain_dispatch (arg $1); fall back
+  # to $? for back-compat if invoked directly. trap_chain_dispatch invokes
+  # registered handlers in LIFO order, so coord-release runs BEFORE
+  # cleanup_on_exit when both are registered — preserves the original
+  # "release coord lock first, then local cleanup" sequence without the
+  # manual `cleanup_on_exit` call this function used to make.
+  local final_exit="${1:-$?}"
   if [[ "$COORD_ACQUIRED" -eq 1 && -n "$COORD_LOCK_ID" ]]; then
     # Hashes were captured by coord_begin and travel with the lock —
     # no extra `node lock-hashes` spawn here.
@@ -1263,12 +1646,6 @@ coord_release_on_exit() {
   if [[ -n "$COORD_OUTPUT_LOG" && -f "$COORD_OUTPUT_LOG" ]]; then
     rm -f "$COORD_OUTPUT_LOG" 2>/dev/null || true
   fi
-  # Chain through to the original cleanup. bash's trap is single-slot, so
-  # installing this trap REPLACED the pre-existing `trap cleanup_on_exit EXIT`
-  # at line ~264. Without this call, every coord-mode run skips temp-dir
-  # cleanup, the orphan-tarball sweep, and remote-side cleanup — re-introducing
-  # the documented 150 GB orphan accumulation regression.
-  cleanup_on_exit
 }
 
 # COORD_OUTPUT_LOG is the tempfile we tee inner-command stdout/stderr into so
@@ -1283,7 +1660,7 @@ coord_select_routing_mode
 
 if [[ "$SUITE" != "custom" ]]; then
   COORD_SHA="$(resolve_coord_sha)"
-  trap coord_release_on_exit EXIT
+  trap_chain_add coord_release_on_exit
   # Single node spawn handles lock-hashes + results + acquire (+ cache-hit
   # comparison + queued-retry). Prior bash flow paid 3-5 separate ~9s node
   # cold-starts on Windows under Defender; this collapses to 1 (+ wait/retry
@@ -1300,6 +1677,7 @@ fi
 case "$TRANSPORT" in
 
   local)
+    DECISION_TRANSPORT="local"
     info "Running locally: $COMMAND_DISPLAY"
     cd "$PROJECT_ROOT"
     set +e
@@ -1326,6 +1704,7 @@ case "$TRANSPORT" in
     ;;
 
   ssh)
+    DECISION_TRANSPORT="ssh"
     cd "$PROJECT_ROOT"
 
     # Validate connection details
@@ -1351,14 +1730,28 @@ case "$TRANSPORT" in
       exit $exit_code
     fi
 
-    # Load check (Windows: wmic, Linux: /proc/loadavg)
+    # Load check — three probes in order of preference:
+    #   1. PowerShell Get-CimInstance (Windows 10+, future-proof). wmic was
+    #      removed-by-default in Windows 11 24H2; PowerShell's CIM cmdlets
+    #      are the supported replacement.
+    #   2. wmic (legacy Windows; still works on most current installs).
+    #   3. /proc/loadavg (Linux remote workstations).
+    # Empty load_pct after all three probes => threshold check is skipped
+    # (graceful degrade, fail-open like the original behavior).
     load_pct=""
-    load_output=$(ssh -o ConnectTimeout=2 "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" "wmic cpu get loadpercentage /value" 2>/dev/null || true)
-    if [[ -n "$load_output" ]]; then
-      load_pct=$(echo "$load_output" | grep -oP 'LoadPercentage=\K[0-9]+' 2>/dev/null || true)
+    load_output=$(ssh -o ConnectTimeout=2 "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" \
+      "powershell -NoProfile -NonInteractive -Command \"(Get-CimInstance -ClassName Win32_Processor -ErrorAction SilentlyContinue | Measure-Object -Property LoadPercentage -Average).Average\"" \
+      2>/dev/null | tr -d '\r' || true)
+    if [[ -n "$load_output" && "$load_output" =~ ^[0-9]+$ ]]; then
+      load_pct="$load_output"
     fi
     if [[ -z "$load_pct" ]]; then
-      # Try Linux
+      load_output=$(ssh -o ConnectTimeout=2 "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" "wmic cpu get loadpercentage /value" 2>/dev/null || true)
+      if [[ -n "$load_output" ]]; then
+        load_pct=$(echo "$load_output" | grep -oP 'LoadPercentage=\K[0-9]+' 2>/dev/null || true)
+      fi
+    fi
+    if [[ -z "$load_pct" ]]; then
       load_output=$(ssh -o ConnectTimeout=2 "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" "cat /proc/loadavg" 2>/dev/null || true)
       if [[ -n "$load_output" ]]; then
         load_1m=$(echo "$load_output" | awk '{print $1}')
@@ -1523,6 +1916,12 @@ case "$TRANSPORT" in
       # All session logs match that glob — older runs accumulate until the OS
       # prunes /tmp.
       sync_log_path="${TORQUE_REMOTE_SYNC_LOG:-/tmp/torque-remote-sync.$$.$(date +%s 2>/dev/null || echo unknown).log}"
+      # Sync timeout: the inner SSH command runs the entire fetch+checkout+
+      # reset+drift-check chain. A network stall mid-fetch could otherwise
+      # hang indefinitely (only the post-sync user command was previously
+      # wrapped in run_with_timeout). 600s default is generous enough for
+      # large repos with cold caches; tune via TORQUE_REMOTE_SYNC_TIMEOUT_SECS.
+      sync_timeout_secs="${TORQUE_REMOTE_SYNC_TIMEOUT_SECS:-600}"
       # `git clean -fd` (no -x) was `-fdx` until 2026-04-27. The -x flag
       # removes gitignored files — including node_modules. On Windows, that
       # tear-down/rebuild churn cost ~15s per sync (Defender re-scans tens
@@ -1543,21 +1942,48 @@ case "$TRANSPORT" in
       # checks on every `git worktree add`. After pruning, the metric
       # dropped to 131ms (better than the original baseline). --prune adds
       # no measurable overhead to fetch itself.
+      # Build sync command via tested helper (see build_remote_sync_command
+      # near the top). The assembled string is one big CMD-shell line passed
+      # to ssh; extracting the assembly into a function makes it unit-testable
+      # so future regressions of the kind that hit production previously
+      # (e.g. `git clean -fdx` wiping node_modules every sync, missing outer
+      # parens around `if not exist` blocks breaking `&& chain`) get caught
+      # by `tests/torque-remote-source.test.js` instead of by an operator.
+      SYNC_SSH_CMD="$(build_remote_sync_command \
+        "$EFFECTIVE_REMOTE_PROJECT_PATH" \
+        "$FETCH_COMMAND" \
+        "$SYNC_CHECKOUT" \
+        "$SYNC_REF" \
+        "$SYNC_BOOTSTRAP")"
+      # Define the sync pipeline as a function so run_with_timeout can wrap
+      # it as a single command. Function inherits SSH_OPTS, SSH_USER,
+      # SSH_HOST, sync_log_path, SYNC_SSH_CMD from outer scope. Returns
+      # SSH's exit status (PIPESTATUS[0]) — tee/grep are stdout transformers
+      # that should not mask SSH failures.
+      _torque_remote_sync_pipeline() {
+        ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" "$SYNC_SSH_CMD" \
+          2>&1 | tee -a "$sync_log_path" | (grep -v 'Unable to persist credentials\|credential store\|aka.ms/gcm' || true)
+        return "${PIPESTATUS[0]}"
+      }
       set +e
-      ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" \
-        "${SYNC_BOOTSTRAP}cd \"$EFFECTIVE_REMOTE_PROJECT_PATH\" && $FETCH_COMMAND && $SYNC_CHECKOUT && git reset --hard $SYNC_REF && (git clean -fd || true) && (git diff --quiet HEAD || (echo \"[torque-remote-sync] drift after reset — file locks (Defender/Search/AV) may have prevented checkout from updating tracked files\" 1>&2 && exit 99)) && (if exist package.json if not exist node_modules echo [torque-remote-sync] HINT: ./package.json has no node_modules at $EFFECTIVE_REMOTE_PROJECT_PATH — run: npm install 1>&2) && (if exist server\\package.json if not exist server\\node_modules echo [torque-remote-sync] HINT: server/package.json has no node_modules — run: cd server ^&^& npm install 1>&2) && (if exist dashboard\\package.json if not exist dashboard\\node_modules echo [torque-remote-sync] HINT: dashboard/package.json has no node_modules — run: cd dashboard ^&^& npm install 1>&2)" \
-        2>&1 | tee -a "$sync_log_path" | (grep -v 'Unable to persist credentials\|credential store\|aka.ms/gcm' || true)
-      sync_status="${PIPESTATUS[0]}"
+      run_with_timeout "$sync_timeout_secs" _torque_remote_sync_pipeline
+      sync_status=$?
       set -e
       if [[ "$sync_status" -ne 0 ]]; then
         # Sync failed — falling back to local execution rather than running
-        # against stale or wrong-base remote state. The drift-detection exit
-        # 99 (file lock during checkout) and any other non-zero ssh exit both
-        # land here. Live regression 2026-04-25: torque-public's remote test
-        # worktree silently stayed at an old commit for 24h because sync
-        # warned but proceeded; the LLM verify-reviewer then hallucinated
-        # "patch overlay conflicts" against the stale state.
-        warn "Sync failed (status=$sync_status) — falling back to local (see $sync_log_path)"
+        # against stale or wrong-base remote state. Possible exit shapes:
+        #   - 99: drift detection (file lock during checkout)
+        #   - 124: run_with_timeout killed (sync chain hung past sync_timeout_secs)
+        #   - other non-zero: SSH-level error, fetch failure, etc.
+        # Live regression 2026-04-25: torque-public's remote test worktree
+        # silently stayed at an old commit for 24h because sync warned but
+        # proceeded; the LLM verify-reviewer then hallucinated "patch overlay
+        # conflicts" against the stale state.
+        if [[ "$sync_status" -eq 124 ]]; then
+          warn "Sync timed out after ${sync_timeout_secs}s — falling back to local (see $sync_log_path)"
+        else
+          warn "Sync failed (status=$sync_status) — falling back to local (see $sync_log_path)"
+        fi
         record_fallback "sync_failed" "status=$sync_status sync_log=$sync_log_path"
         cd "$PROJECT_ROOT"
         set +e

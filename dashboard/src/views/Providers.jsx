@@ -409,10 +409,14 @@ export default function Providers({ statsVersion, tasksTick: _tasksTick }) {
   // away mid-wait leaves the timers firing into a no-op (mountedRef guards
   // the loadData call, but the timer itself isn't reaped).
   const reloadTimersRef = useRef(new Set());
-  useEffect(() => () => {
-    mountedRef.current = false;
-    for (const id of reloadTimersRef.current) clearTimeout(id);
-    reloadTimersRef.current.clear();
+  useEffect(() => {
+    mountedRef.current = true;
+    const reloadTimers = reloadTimersRef.current;
+    return () => {
+      mountedRef.current = false;
+      for (const id of reloadTimers) clearTimeout(id);
+      reloadTimers.clear();
+    };
   }, []);
   const [providersList, setProvidersList] = useState([]);
   const [timeSeries, setTimeSeries] = useState([]);

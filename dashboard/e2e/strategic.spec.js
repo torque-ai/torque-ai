@@ -1,47 +1,36 @@
 // @ts-check
 import { test, expect } from '@playwright/test';
 
-// ---------------------------------------------------------------------------
-// Mock data — same shape as what the TORQUE API returns
-// ---------------------------------------------------------------------------
-
 const MOCK_STRATEGIC_STATUS = {
   provider: 'deepinfra',
   model: 'Qwen/Qwen2.5-72B-Instruct',
   confidence_threshold: 0.7,
   fallback_chain: ['deepinfra', 'hyperbolic', 'ollama'],
-  usage: {
-    total_calls: 42,
-    fallback_calls: 5,
-    total_tokens: 128500,
-  },
 };
 
-const MOCK_STRATEGIC_OPERATIONS = {
-  operations: [
-    {
-      id: 'op-1',
-      description: 'Decompose authentication module into subtasks',
-      status: 'completed',
-      provider: 'deepinfra',
-      created_at: new Date(Date.now() - 3600_000).toISOString(),
-    },
-    {
-      id: 'op-2',
-      description: 'Diagnose failing CI pipeline for database migration',
-      status: 'running',
-      provider: 'deepinfra',
-      created_at: new Date(Date.now() - 1800_000).toISOString(),
-    },
-    {
-      id: 'op-3',
-      description: 'Review code quality of WebSocket refactor',
-      status: 'failed',
-      provider: 'hyperbolic',
-      created_at: new Date(Date.now() - 7200_000).toISOString(),
-    },
-  ],
-};
+const MOCK_OPERATIONS = [
+  {
+    id: 'op-1',
+    description: 'Decompose authentication module into subtasks',
+    status: 'completed',
+    provider: 'deepinfra',
+    created_at: new Date(Date.now() - 3600_000).toISOString(),
+  },
+  {
+    id: 'op-2',
+    description: 'Diagnose failing CI pipeline for database migration',
+    status: 'running',
+    provider: 'deepinfra',
+    created_at: new Date(Date.now() - 1800_000).toISOString(),
+  },
+  {
+    id: 'op-3',
+    description: 'Review code quality of WebSocket refactor',
+    status: 'failed',
+    provider: 'hyperbolic',
+    created_at: new Date(Date.now() - 7200_000).toISOString(),
+  },
+];
 
 const MOCK_DECISIONS = [
   {
@@ -51,6 +40,7 @@ const MOCK_DECISIONS = [
     model: 'gpt-5.3-codex-spark',
     status: 'completed',
     description: 'Generate tests for auth module',
+    reason: 'Matched fast coding lane',
     created_at: new Date(Date.now() - 3600_000).toISOString(),
     fallback_used: false,
     needs_review: false,
@@ -63,342 +53,262 @@ const MOCK_PROVIDER_HEALTH = [
     provider: 'deepinfra',
     enabled: true,
     health_status: 'healthy',
-    success_rate_1h: 98,
     avg_duration_seconds: 45,
-    completed_today: 15,
-    failed_today: 1,
   },
   {
     provider: 'ollama',
     enabled: true,
     health_status: 'warning',
-    success_rate_1h: 85,
     avg_duration_seconds: 62,
-    completed_today: 22,
-    failed_today: 3,
   },
 ];
 
-// ---------------------------------------------------------------------------
-// Intercept API calls at the page level so no mock server is needed.
-//
-// The Strategic component uses two base URLs:
-//   - /api/v2/strategic/* for status, decisions, and provider-health (requestV2)
-//   - /api/strategic/*    for operations (request)
-//
-// V2 responses must be wrapped in { data: ... } envelope since requestV2 unwraps.
-// ---------------------------------------------------------------------------
+const MOCK_PROVIDER_STATS = [
+  {
+    provider: 'deepinfra',
+    enabled: true,
+    stats: {
+      total_tasks: 24,
+      completed_tasks: 22,
+      failed_tasks: 2,
+      success_rate: 92,
+      avg_duration_seconds: 45,
+    },
+  },
+  {
+    provider: 'ollama',
+    enabled: true,
+    stats: {
+      total_tasks: 10,
+      completed_tasks: 8,
+      failed_tasks: 2,
+      success_rate: 80,
+      avg_duration_seconds: 62,
+    },
+  },
+];
 
-test.beforeEach(async ({ page }) => {
-  await page.route('**/api/auth/status', (route) => {
-    route.fulfill({ json: { authenticated: true, mode: 'open' } });
-  });
-  // V2 endpoint: status
-  await page.route('**/api/v2/strategic/status', (route) => {
-    route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ data: MOCK_STRATEGIC_STATUS }),
-    });
-  });
-
-  // Legacy endpoint: operations
-  await page.route('**/api/strategic/operations*', (route) => {
-    route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify(MOCK_STRATEGIC_OPERATIONS),
-    });
-  });
-
-  // V2 endpoint: decisions
-  await page.route('**/api/v2/strategic/decisions*', (route) => {
-    route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ data: MOCK_DECISIONS }),
-    });
-  });
-
-  // V2 endpoint: provider-health
-  await page.route('**/api/v2/strategic/provider-health*', (route) => {
-    route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ data: MOCK_PROVIDER_HEALTH }),
-    });
-  });
-
-  // Catch-all for other API routes that the layout/shell might call
+async function mockApi(page) {
   await page.route('**/api/**', (route) => {
-    const url = route.request().url();
-    // Let strategic routes through (handled above)
-    if (url.includes('/strategic/')) {
-      route.fallback();
-      return;
-    }
     route.fulfill({
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({ data: {}, meta: {} }),
     });
   });
+
+  await page.route('**/api/auth/status', (route) => {
+    route.fulfill({ json: { authenticated: true, mode: 'open' } });
+  });
+
+  await page.route('**/api/v2/strategic/status', (route) => {
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ data: MOCK_STRATEGIC_STATUS }),
+    });
+  });
+
+  await page.route('**/api/v2/strategic/operations*', (route) => {
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ data: { operations: MOCK_OPERATIONS } }),
+    });
+  });
+
+  await page.route('**/api/v2/strategic/decisions*', (route) => {
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ data: { decisions: MOCK_DECISIONS } }),
+    });
+  });
+
+  await page.route('**/api/v2/strategic/provider-health*', (route) => {
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ data: { providers: MOCK_PROVIDER_HEALTH } }),
+    });
+  });
+
+  await page.route('**/api/v2/providers', (route) => {
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ data: { items: MOCK_PROVIDER_STATS } }),
+    });
+  });
+
+  await page.route('**/api/v2/budget/summary*', (route) => {
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ data: { total_cost: 4.52 } }),
+    });
+  });
+
+  await page.route(/\/api\/v2\/tasks\?/, (route) => {
+    const url = new URL(route.request().url());
+    const status = url.searchParams.get('status');
+    const total = status === 'queued' ? 3 : status === 'running' ? 1 : 0;
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ data: { items: [], total } }),
+    });
+  });
+
+  await page.route('**/api/v2/routing/active', (route) => {
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ data: { template: { id: 'free-agentic', name: 'All Free Agentic' } } }),
+    });
+  });
+}
+
+test.beforeEach(async ({ page }) => {
+  await mockApi(page);
 });
 
-// ---------------------------------------------------------------------------
-// 1. Page loads and shows heading
-// ---------------------------------------------------------------------------
-test('strategic brain page loads and shows heading', async ({ page }) => {
+test('strategy view loads under the operations routing tab', async ({ page }) => {
+  await page.goto('/operations#routing');
+
+  await expect(page.getByRole('heading', { name: 'Operations' })).toBeVisible({ timeout: 10000 });
+  await expect(page.getByRole('heading', { name: 'Strategy' })).toBeVisible();
+  await expect(page.getByText('Task routing, provider health, and queue status')).toBeVisible();
+});
+
+test('legacy strategy route redirects to the current operations tab', async ({ page }) => {
   await page.goto('/strategy');
-  await expect(page.locator('h2', { hasText: 'Strategic Brain' })).toBeVisible({ timeout: 10000 });
-  await expect(
-    page.locator('text=Routing decisions, provider health, and LLM-powered orchestration')
-  ).toBeVisible();
+
+  await expect(page).toHaveURL(/\/operations#routing$/);
+  await expect(page.getByRole('heading', { name: 'Strategy' })).toBeVisible({ timeout: 10000 });
 });
 
-// ---------------------------------------------------------------------------
-// 2. Active configuration section renders
-// ---------------------------------------------------------------------------
-test('active configuration section renders with provider and model', async ({ page }) => {
-  await page.goto('/strategy');
-  const configCard = page.locator('.glass-card', { hasText: 'Active Configuration' });
-  await expect(configCard).toBeVisible({ timeout: 10000 });
+test('active routing section renders provider and template', async ({ page }) => {
+  await page.goto('/operations#routing');
 
-  // Provider should show "deepinfra" within the config card
-  await expect(configCard.locator('text=deepinfra')).toBeVisible();
-
-  // Model should show the model name
-  await expect(configCard.locator('text=Qwen/Qwen2.5-72B-Instruct')).toBeVisible();
-
-  // Confidence threshold should show "70%"
-  await expect(configCard.locator('text=Confidence Threshold')).toBeVisible();
-  await expect(configCard.locator('text=70%')).toBeVisible();
+  const routingCard = page.locator('.glass-card', { hasText: 'Active Routing' });
+  await expect(routingCard).toBeVisible({ timeout: 10000 });
+  await expect(routingCard.getByText('All Free Agentic')).toBeVisible();
+  await expect(routingCard.getByText('deepinfra')).toBeVisible();
+  await expect(routingCard.getByText('Total Decisions')).toBeVisible();
 });
 
-// ---------------------------------------------------------------------------
-// 3. Stat cards render with usage numbers
-// ---------------------------------------------------------------------------
-test('stat cards render with usage values', async ({ page }) => {
-  await page.goto('/strategy');
-  await expect(page.locator('h3', { hasText: 'Active Configuration' })).toBeVisible({ timeout: 10000 });
+test('overview stat cards render current routing metrics', async ({ page }) => {
+  await page.goto('/operations#routing');
 
-  // StatCards: "Active Provider", "LLM Calls", "Fallback Rate", "Tokens Used",
-  //            "Providers Enabled", "Providers Healthy"
-  await expect(page.locator('text=LLM Calls')).toBeVisible();
-  await expect(page.locator('text=Fallback Rate')).toBeVisible();
-  await expect(page.locator('text=Tokens Used')).toBeVisible();
-  await expect(page.getByText('Active Provider', { exact: true })).toBeVisible();
+  const tasksStat = page.locator('div.rounded-xl', {
+    has: page.locator('p', { hasText: /^Tasks \(7d\)$/ }),
+  }).first();
+  await expect(tasksStat.getByText('34', { exact: true })).toBeVisible({ timeout: 10000 });
 
-  // Mock values: total_calls=42, total_tokens=128500
-  await expect(page.locator('text=42')).toBeVisible();
+  const successStat = page.locator('div.rounded-xl', {
+    has: page.locator('p', { hasText: /^Success Rate$/ }),
+  }).first();
+  await expect(successStat.getByText('88%', { exact: true })).toBeVisible();
 
-  // Tokens formatted with toLocaleString -> "128,500"
-  await expect(page.locator('text=128,500')).toBeVisible();
+  const queueStat = page.locator('div.rounded-xl', {
+    has: page.locator('p', { hasText: /^Queue$/ }),
+  }).first();
+  await expect(queueStat.getByText('4', { exact: true })).toBeVisible();
 
-  // Fallback rate: 5 / (42+5) * 100 = ~10.6% — use prefix match to tolerate rounding
-  await expect(page.locator('text=/10\\.\\d+%/')).toBeVisible();
+  const costStat = page.locator('div.rounded-xl', {
+    has: page.locator('p', { hasText: /^Cost \(7d\)$/ }),
+  }).first();
+  await expect(costStat.getByText('$4.52', { exact: true })).toBeVisible();
 });
 
-// ---------------------------------------------------------------------------
-// 4. Fallback chain renders
-// ---------------------------------------------------------------------------
 test('fallback chain renders with provider nodes', async ({ page }) => {
-  await page.goto('/strategy');
-  await expect(page.locator('h3', { hasText: 'Fallback Chain' })).toBeVisible({ timeout: 10000 });
+  await page.goto('/operations#routing');
 
-  // The chain should have deepinfra, hyperbolic, ollama
   const chainCard = page.locator('.glass-card', { hasText: 'Fallback Chain' });
-  await expect(chainCard.locator('text=deepinfra').first()).toBeVisible();
-  await expect(chainCard.locator('text=hyperbolic').first()).toBeVisible();
-  await expect(chainCard.locator('text=ollama').first()).toBeVisible();
-
-  // The active provider is shown in the explanation text
-  await expect(chainCard.locator('text=Active provider')).toBeVisible();
+  await expect(chainCard).toBeVisible({ timeout: 10000 });
+  await expect(chainCard.getByText('deepinfra').first()).toBeVisible();
+  await expect(chainCard.getByText('hyperbolic').first()).toBeVisible();
+  await expect(chainCard.getByText('ollama').first()).toBeVisible();
+  await expect(chainCard.getByText('Active provider')).toBeVisible();
 });
 
-// ---------------------------------------------------------------------------
-// 5. Operations table renders with task rows (behind Strategic Operations tab)
-// ---------------------------------------------------------------------------
+test('provider health grid renders provider statuses', async ({ page }) => {
+  await page.goto('/operations#routing');
+
+  const healthCard = page.locator('.glass-card', { hasText: 'Provider Health' });
+  await expect(healthCard).toBeVisible({ timeout: 10000 });
+  await expect(healthCard.getByText('deepinfra').first()).toBeVisible();
+  await expect(healthCard.getByText('healthy').first()).toBeVisible();
+  await expect(healthCard.getByText('warning').first()).toBeVisible();
+});
+
+test('decisions tab renders decision history', async ({ page }) => {
+  await page.goto('/operations#routing');
+
+  await page.getByRole('button', { name: 'Decisions' }).click();
+  await expect(page.getByRole('heading', { name: /Decision History/ })).toBeVisible({ timeout: 10000 });
+  await expect(page.getByText('Generate tests for auth module')).toBeVisible();
+  await expect(page.getByText('codex').first()).toBeVisible();
+});
+
 test('operations table renders with recent operations', async ({ page }) => {
-  await page.goto('/strategy');
-  // Wait for page to load
-  await expect(page.locator('h2', { hasText: 'Strategic Brain' })).toBeVisible({ timeout: 10000 });
+  await page.goto('/operations#routing');
 
-  // Click the "Strategic Operations" tab to reveal operations table
-  await page.locator('button', { hasText: 'Strategic Operations' }).click();
-
-  await expect(
-    page.locator('h3', { hasText: 'Recent Strategic Operations' })
-  ).toBeVisible({ timeout: 5000 });
-
-  // Check for operation descriptions
-  await expect(page.locator('text=Decompose authentication module into subtasks')).toBeVisible();
-  await expect(
-    page.locator('text=Diagnose failing CI pipeline for database migration')
-  ).toBeVisible();
-  await expect(page.locator('text=Review code quality of WebSocket refactor')).toBeVisible();
+  await page.getByRole('button', { name: 'Operations' }).click();
+  await expect(page.getByRole('heading', { name: 'Recent Strategic Operations' })).toBeVisible({ timeout: 10000 });
+  await expect(page.getByText('Decompose authentication module into subtasks')).toBeVisible();
+  await expect(page.getByText('Diagnose failing CI pipeline for database migration')).toBeVisible();
+  await expect(page.getByText('Review code quality of WebSocket refactor')).toBeVisible();
 });
 
-// ---------------------------------------------------------------------------
-// 6. Operations table shows status badges with correct colors
-// ---------------------------------------------------------------------------
 test('operations table shows status badges with correct colors', async ({ page }) => {
-  await page.goto('/strategy');
-  await expect(page.locator('h2', { hasText: 'Strategic Brain' })).toBeVisible({ timeout: 10000 });
+  await page.goto('/operations#routing');
 
-  // Click the "Strategic Operations" tab
-  await page.locator('button', { hasText: 'Strategic Operations' }).click();
-
-  await expect(
-    page.locator('h3', { hasText: 'Recent Strategic Operations' })
-  ).toBeVisible({ timeout: 5000 });
-
-  // Operation statuses: completed, running, failed
-  const opsSection = page.locator('.glass-card', { hasText: 'Recent Strategic Operations' });
-  const table = opsSection.locator('table');
-  await expect(table.locator('span', { hasText: 'completed' })).toBeVisible();
-  await expect(table.locator('span', { hasText: 'running' })).toBeVisible();
-  await expect(table.locator('span', { hasText: 'failed' })).toBeVisible();
-
-  // Verify color classes on status badges
-  const completedBadge = table.locator('span', { hasText: 'completed' });
-  await expect(completedBadge).toHaveClass(/bg-green-500/);
-
-  const runningBadge = table.locator('span', { hasText: 'running' });
-  await expect(runningBadge).toHaveClass(/bg-blue-500/);
-
-  const failedBadge = table.locator('span', { hasText: 'failed' });
-  await expect(failedBadge).toHaveClass(/bg-red-500/);
+  await page.getByRole('button', { name: 'Operations' }).click();
+  const table = page.locator('.glass-card', { hasText: 'Recent Strategic Operations' }).locator('table');
+  await expect(table.locator('span', { hasText: 'completed' })).toHaveClass(/bg-green-500/);
+  await expect(table.locator('span', { hasText: 'running' })).toHaveClass(/bg-blue-500/);
+  await expect(table.locator('span', { hasText: 'failed' })).toHaveClass(/bg-red-500/);
 });
 
-// ---------------------------------------------------------------------------
-// 7. Operations table shows provider column
-// ---------------------------------------------------------------------------
-test('operations table shows provider names', async ({ page }) => {
-  await page.goto('/strategy');
-  await expect(page.locator('h2', { hasText: 'Strategic Brain' })).toBeVisible({ timeout: 10000 });
+test('operations table has current column headers', async ({ page }) => {
+  await page.goto('/operations#routing');
 
-  // Click the "Strategic Operations" tab
-  await page.locator('button', { hasText: 'Strategic Operations' }).click();
-
-  await expect(
-    page.locator('h3', { hasText: 'Recent Strategic Operations' })
-  ).toBeVisible({ timeout: 5000 });
-
-  // Table header has "Provider" column
-  const opsSection = page.locator('.glass-card', { hasText: 'Recent Strategic Operations' });
-  const table = opsSection.locator('table');
-  await expect(table.locator('th', { hasText: 'Provider' })).toBeVisible();
-
-  // Provider values appear in table cells with the capitalize class
-  const providerCells = table.locator('td.capitalize');
-  const count = await providerCells.count();
-  expect(count).toBe(3);
-});
-
-// ---------------------------------------------------------------------------
-// 8. Refresh button triggers API re-fetch
-// ---------------------------------------------------------------------------
-test('refresh button triggers re-fetch', async ({ page }) => {
-  let apiCallCount = 0;
-  await page.route('**/api/v2/strategic/status', (route) => {
-    apiCallCount++;
-    route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ data: MOCK_STRATEGIC_STATUS }),
-    });
-  });
-
-  await page.goto('/strategy');
-  await expect(page.locator('h2', { hasText: 'Strategic Brain' })).toBeVisible({ timeout: 10000 });
-
-  const callsBefore = apiCallCount;
-  const refreshBtn = page.locator('button', { hasText: 'Refresh' });
-  await expect(refreshBtn).toBeVisible();
-  await refreshBtn.click();
-
-  // Wait for the API to be called again after refresh click
-  await page.waitForResponse(url => url.url().includes('/strategic/'), { timeout: 5000 });
-  expect(apiCallCount).toBeGreaterThan(callsBefore);
-});
-
-// ---------------------------------------------------------------------------
-// 9. Configuration labels are all present
-// ---------------------------------------------------------------------------
-test('configuration section shows all labels', async ({ page }) => {
-  await page.goto('/strategy');
-  await expect(page.locator('h3', { hasText: 'Active Configuration' })).toBeVisible({ timeout: 10000 });
-
-  await expect(page.locator('text=Provider').first()).toBeVisible();
-  await expect(page.locator('text=Model').first()).toBeVisible();
-  await expect(page.locator('text=Confidence Threshold')).toBeVisible();
-});
-
-// ---------------------------------------------------------------------------
-// 10. Auto-refresh does not crash the page
-// ---------------------------------------------------------------------------
-test('auto-refresh does not crash after initial load', async ({ page }) => {
-  let apiCallCount = 0;
-  await page.route('**/api/v2/strategic/status', (route) => {
-    apiCallCount++;
-    route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ data: MOCK_STRATEGIC_STATUS }),
-    });
-  });
-
-  await page.goto('/strategy');
-  await expect(page.locator('h2', { hasText: 'Strategic Brain' })).toBeVisible({ timeout: 10000 });
-
-  const initialCalls = apiCallCount;
-
-  // Wait for at least one auto-refresh cycle (Strategic interval is 15s)
-  await page.waitForRequest(url => url.url().includes('/strategic/'), { timeout: 20000 });
-
-  // Should have made additional calls
-  expect(apiCallCount).toBeGreaterThan(initialCalls);
-
-  // Page should still show content
-  await expect(page.locator('h2', { hasText: 'Strategic Brain' })).toBeVisible();
-
-  // Decision History is the default tab, so verify that's visible
-  await expect(
-    page.locator('h3', { hasText: 'Decision History' })
-  ).toBeVisible();
-});
-
-// ---------------------------------------------------------------------------
-// 11. Operations table has correct column headers
-// ---------------------------------------------------------------------------
-test('operations table has correct column headers', async ({ page }) => {
-  await page.goto('/strategy');
-  await expect(page.locator('h2', { hasText: 'Strategic Brain' })).toBeVisible({ timeout: 10000 });
-
-  // Click the "Strategic Operations" tab
-  await page.locator('button', { hasText: 'Strategic Operations' }).click();
-
-  await expect(
-    page.locator('h3', { hasText: 'Recent Strategic Operations' })
-  ).toBeVisible({ timeout: 5000 });
-
-  const opsSection = page.locator('.glass-card', { hasText: 'Recent Strategic Operations' });
-  const table = opsSection.locator('table');
+  await page.getByRole('button', { name: 'Operations' }).click();
+  const table = page.locator('.glass-card', { hasText: 'Recent Strategic Operations' }).locator('table');
   await expect(table.locator('th', { hasText: 'Task' })).toBeVisible();
   await expect(table.locator('th', { hasText: 'Status' })).toBeVisible();
   await expect(table.locator('th', { hasText: 'Provider' })).toBeVisible();
   await expect(table.locator('th', { hasText: 'Created' })).toBeVisible();
 });
 
-// ---------------------------------------------------------------------------
-// 12. Fallback chain explanation text is present
-// ---------------------------------------------------------------------------
-test('fallback chain shows explanation text', async ({ page }) => {
-  await page.goto('/strategy');
-  await expect(page.locator('h3', { hasText: 'Fallback Chain' })).toBeVisible({ timeout: 10000 });
+test('configuration tab shows strategic intelligence values', async ({ page }) => {
+  await page.goto('/operations#routing');
 
-  await expect(
-    page.locator('text=Chain walks left-to-right until a healthy provider with credentials is found.')
-  ).toBeVisible();
+  await page.getByRole('button', { name: 'Configuration' }).click();
+  const configCard = page.locator('.glass-card', { hasText: 'Strategic Intelligence' });
+  await expect(configCard).toBeVisible({ timeout: 10000 });
+  await expect(configCard.getByText('deepinfra')).toBeVisible();
+  await expect(configCard.getByText('Qwen/Qwen2.5-72B-Instruct')).toBeVisible();
+  await expect(configCard.getByText('70%')).toBeVisible();
+});
+
+test('refresh button triggers v2 strategic re-fetch', async ({ page }) => {
+  let statusCalls = 0;
+  await page.route('**/api/v2/strategic/status', (route) => {
+    statusCalls++;
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ data: MOCK_STRATEGIC_STATUS }),
+    });
+  });
+
+  await page.goto('/operations#routing');
+  await expect(page.getByRole('heading', { name: 'Strategy' })).toBeVisible({ timeout: 10000 });
+  const callsBefore = statusCalls;
+
+  await page.getByRole('button', { name: 'Refresh' }).click();
+  await expect.poll(() => statusCalls).toBeGreaterThan(callsBefore);
 });

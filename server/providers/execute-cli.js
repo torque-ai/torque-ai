@@ -395,6 +395,7 @@ let _shellEscape = null;
 let _processQueue = null;
 let _isLargeModelBlockedOnHost = null;
 let _finalizeTask = null;
+let _finalizingTasks = null;
 let _helpers = {};
 let _NVM_NODE_PATH = null;
 let _QUEUE_LOCK_HOLDER_ID = '';
@@ -422,6 +423,10 @@ function ensureDeps() {
         if (tracker.cleanupGuard) _taskCleanupGuard = tracker.cleanupGuard;
         if (tracker.stallAttempts) stallRecoveryAttempts = tracker.stallAttempts;
       }
+    }
+    if (!_finalizingTasks) {
+      const finalization = container.peek('finalizationTracker');
+      if (finalization) _finalizingTasks = finalization;
     }
     const tm = container.peek('taskManager');
     if (tm) {
@@ -486,6 +491,7 @@ function init(deps = {}) {
   if (deps.processQueue) _processQueue = deps.processQueue;
   if (deps.isLargeModelBlockedOnHost) _isLargeModelBlockedOnHost = deps.isLargeModelBlockedOnHost;
   if (deps.finalizeTask) _finalizeTask = deps.finalizeTask;
+  if (deps.finalizingTasks) _finalizingTasks = deps.finalizingTasks;
   if (deps.helpers) _helpers = deps.helpers;
   if (deps.NVM_NODE_PATH !== undefined) _NVM_NODE_PATH = deps.NVM_NODE_PATH;
   if (deps.QUEUE_LOCK_HOLDER_ID) _QUEUE_LOCK_HOLDER_ID = deps.QUEUE_LOCK_HOLDER_ID;
@@ -500,6 +506,41 @@ function init(deps = {}) {
 function markTaskCleanedUp(...args) { if (!_markTaskCleanedUp) throw new Error('execute-cli not initialized'); return _markTaskCleanedUp(...args); }
 function processQueue(...args) { return _processQueue ? _processQueue(...args) : undefined; }
 function finalizeTask(...args) { if (!_finalizeTask) throw new Error('execute-cli not initialized'); return _finalizeTask(...args); }
+
+function setFinalizingMarker(taskId, marker) {
+  if (!_finalizingTasks) return;
+  if (typeof _finalizingTasks.set === 'function') {
+    _finalizingTasks.set(taskId, marker);
+    return;
+  }
+  if (typeof _finalizingTasks.add === 'function') {
+    _finalizingTasks.add(taskId);
+  }
+}
+
+function touchFinalizingMarker(taskId, stage) {
+  if (!_finalizingTasks) return;
+  if (typeof _finalizingTasks.touch === 'function') {
+    _finalizingTasks.touch(taskId, stage);
+    return;
+  }
+  if (typeof _finalizingTasks.get === 'function' && typeof _finalizingTasks.set === 'function') {
+    const now = Date.now();
+    const existing = _finalizingTasks.get(taskId);
+    if (existing && typeof existing === 'object') {
+      existing.lastActivityAt = now;
+      existing.stage = stage;
+      existing.touches = (existing.touches || 0) + 1;
+    } else {
+      _finalizingTasks.set(taskId, {
+        startedAt: now,
+        lastActivityAt: now,
+        stage,
+        touches: 1,
+      });
+    }
+  }
+}
 
 /**
  * Build claude-cli command specification.
@@ -601,6 +642,12 @@ function buildCodexCommand(task, resolvedFileContext, providerConfig, opts = {})
       codexArgs.push('--dangerously-bypass-approvals-and-sandbox');
     } else {
       codexArgs.push('--full-auto');
+    }
+    if (process.platform === 'win32') {
+      codexArgs.push(
+        '--disable', 'experimental_windows_sandbox',
+        '--disable', 'elevated_windows_sandbox'
+      );
     }
 
     // Pick reasoning_effort via the centralized classifier. See
@@ -1381,25 +1428,12 @@ function spawnAndTrackProcess(taskId, task, cmdSpec, provider) {
  * @param {string} text
  * @returns {{code: number|null, signal: string|null, duration_ms: number|null}|null}
  */
+// Delegates to the shared format module so writer + reader cannot drift.
+// `findLastProcessExitAnnotation` returns the same {code, signal, duration_ms}
+// shape (plus optional provider/model) consumers expect.
 function parseProcessExitAnnotation(text) {
-  if (!text || typeof text !== 'string') return null;
-  const lines = text.split('\n');
-  for (let i = lines.length - 1; i >= 0; i--) {
-    const m = /^\[process-exit\] (.+)$/.exec(lines[i]);
-    if (!m) continue;
-    const fields = {};
-    for (const part of m[1].split(' ')) {
-      const eq = part.indexOf('=');
-      if (eq <= 0) continue;
-      fields[part.slice(0, eq)] = part.slice(eq + 1);
-    }
-    const codeRaw = fields.code;
-    const code = (codeRaw === 'null' || codeRaw === undefined) ? null : Number(codeRaw);
-    const signal = fields.signal === 'none' ? null : (fields.signal || null);
-    const dur = fields.duration_ms !== undefined ? Number(fields.duration_ms) : null;
-    return { code, signal, duration_ms: dur };
-  }
-  return null;
+  const { findLastProcessExitAnnotation } = require('../utils/process-exit-format');
+  return findLastProcessExitAnnotation(text);
 }
 
 const DETACHED_LIVENESS_POLL_MS = 2000;
@@ -1843,10 +1877,20 @@ function spawnAndTrackProcessDetached(taskId, task, cmdSpec, providerArg) {
  */
 async function finalizeDetachedTask({ taskId, task, provider, isCodexProvider }) {
   if (!markTaskCleanedUp(taskId)) return;
+  const finalizationStartedAt = Date.now();
+  setFinalizingMarker(taskId, {
+    startedAt: finalizationStartedAt,
+    lastActivityAt: finalizationStartedAt,
+    stage: 'detached_finalize',
+    provider,
+    touches: 0,
+  });
+  const finalizationHeartbeat = (stage = 'detached_finalize') => touchFinalizingMarker(taskId, stage);
   const proc = runningProcesses.get(taskId);
   let queueManaged = false;
 
   if (proc) {
+    finalizationHeartbeat('detached_finalize:flush_logs');
     if (proc.timeoutHandle) clearTimeout(proc.timeoutHandle);
     if (proc.startupTimeoutHandle) clearTimeout(proc.startupTimeoutHandle);
     if (proc.completionGraceHandle) clearTimeout(proc.completionGraceHandle);
@@ -1892,6 +1936,7 @@ async function finalizeDetachedTask({ taskId, task, provider, isCodexProvider })
   // isolation; see spawnAndTrackProcess top-comment).
   if (proc && isCodexProvider && code === 0 && task.working_directory) {
     try {
+      finalizationHeartbeat('detached_finalize:codex_autocommit');
       const workDir = task.working_directory;
       const statusOut = safeGitExec(['status', '--porcelain'], {
         cwd: workDir, encoding: 'utf-8', timeout: 10000,
@@ -1920,6 +1965,7 @@ async function finalizeDetachedTask({ taskId, task, provider, isCodexProvider })
   }
 
   try {
+    finalizationHeartbeat('detached_finalize:finalize_task');
     const currentTask = db.getTask(taskId);
     if (currentTask && currentTask.status === 'cancelled') {
       logger.info(`[Detached] Task ${taskId} finalize skipped because task is already cancelled`);
@@ -1951,10 +1997,12 @@ async function finalizeDetachedTask({ taskId, task, provider, isCodexProvider })
       filesModified: proc
         ? extractModifiedFiles((proc.output || '') + (proc.errorOutput || ''))
         : [],
+      finalizationHeartbeat,
     });
     queueManaged = Boolean(result?.queueManaged);
   } catch (err) {
     logger.info(`Critical error in detached finalize for task ${taskId}: ${err.message}`);
+    finalizationHeartbeat('detached_finalize:finalize_task_error');
     const result = await finalizeTask(taskId, {
       exitCode: (typeof code === 'number' && code !== 0) ? code : EXIT_CLOSE_HANDLER_EXCEPTION,
       output: proc?.output || '',
@@ -1970,6 +2018,7 @@ async function finalizeDetachedTask({ taskId, task, provider, isCodexProvider })
             detached: true,
           }
         : { provider, detached: true },
+      finalizationHeartbeat,
     });
     queueManaged = queueManaged || Boolean(result?.queueManaged);
   } finally {
@@ -1989,6 +2038,9 @@ async function finalizeDetachedTask({ taskId, task, provider, isCodexProvider })
       logger.info(`[Detached] log compression failed for task ${taskId}: ${gzErr.message}`);
     }
     try { dashboard.notifyTaskUpdated(taskId); } catch { /* non-critical */ }
+    if (_finalizingTasks) {
+      try { _finalizingTasks.delete?.(taskId); } catch { /* non-critical */ }
+    }
     if (!queueManaged) {
       try { processQueue(); } catch (queueErr) {
         logger.info('Failed to process queue:', queueErr.message);
@@ -2021,6 +2073,22 @@ function resolveReAdoptLastOutputAt(persistedTask) {
   const ms = new Date(raw).getTime();
   if (!Number.isFinite(ms) || ms <= 0) return Date.now();
   return ms;
+}
+
+// subprocess-detachment.md #6: parse the persisted completion-detection
+// timestamp into a ms-epoch number. Returns null when:
+//   - persistedTask is null/undefined
+//   - completion_detected_at column is unset or empty
+//   - the value isn't a parseable timestamp
+//
+// Callers (reAdoptDetachedSubprocess) treat null as "completion was not
+// previously detected; start cold" and a number as "restore the flag and
+// the original detection moment so the grace-window math is correct."
+function resolveReAdoptCompletionDetectedAt(persistedTask) {
+  const raw = persistedTask?.completion_detected_at;
+  if (!raw) return null;
+  const parsed = Date.parse(raw);
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 /**
@@ -2079,6 +2147,14 @@ function reAdoptDetachedSubprocess(taskId, persistedTask) {
 
   const lastOutputAt = resolveReAdoptLastOutputAt(persistedTask);
 
+  // Restore the persisted completion-detection moment so the new
+  // tracker doesn't re-arm the grace window from scratch
+  // (subprocess-detachment.md #6). If the column is null/missing/invalid,
+  // start cold (completionDetected=false) — re-detection on the next
+  // chunk will recover. Presence of a valid timestamp implies the flag
+  // was true.
+  const persistedCompletionAt = resolveReAdoptCompletionDetectedAt(persistedTask);
+
   const procEntry = {
     process: null,
     output: '',
@@ -2095,7 +2171,8 @@ function reAdoptDetachedSubprocess(taskId, persistedTask) {
     provider,
     metadata: persistedTask?.metadata || persistedTask?.task_metadata || null,
     editFormat: null,
-    completionDetected: false,
+    completionDetected: persistedCompletionAt !== null,
+    completionDetectedAt: persistedCompletionAt,
     completionGraceHandle: null,
     lastProgress: 0,
     baselineCommit: persistedTask?.baseline_commit || null,
@@ -2221,6 +2298,7 @@ module.exports = {
   finalizeDetachedTask,
   reAdoptDetachedSubprocess,
   resolveReAdoptLastOutputAt,
+  resolveReAdoptCompletionDetectedAt,
   computeActivityAwareTimeoutDelay,
   parseProcessExitAnnotation,
   shouldUseDetachedPath,

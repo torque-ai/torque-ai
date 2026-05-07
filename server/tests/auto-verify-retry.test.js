@@ -401,6 +401,36 @@ describe('handleAutoVerifyRetry — guards and init', () => {
     expect(ctx.status).toBe('completed');
   });
 
+  it('skips read-only factory scout tasks even when project verify is configured', async () => {
+    const db = createMockDb({
+      project: 'bitsy',
+      initialConfig: {
+        verify_command: 'py -3.12 -m pytest tests/ -q',
+        auto_verify_on_completion: 1,
+      },
+    });
+    const { handleAutoVerifyRetry } = loadModuleWithMocks({ db });
+    const ctx = makeCtx({
+      task: makeTask({
+        project: 'bitsy',
+        tags: JSON.stringify([
+          'factory:scout',
+          'factory:reason=factory_starvation_recovery',
+          'project:bitsy',
+        ]),
+        metadata: JSON.stringify({
+          mode: 'scout',
+          reason: 'factory_starvation_recovery',
+        }),
+      }),
+    });
+
+    await handleAutoVerifyRetry(ctx);
+
+    expect(mockRunVerifyCommand).not.toHaveBeenCalled();
+    expect(ctx.status).toBe('completed');
+  });
+
   it.each(['codex', 'codex-spark', 'ollama', 'claude-cli'])(
     'skips when auto_verify_on_completion is explicitly disabled for provider %s',
     async (provider) => {
