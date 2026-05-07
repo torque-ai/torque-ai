@@ -215,6 +215,33 @@ trap_chain_add() {
   fi
 }
 
+# Assemble the SSH-CMD sync command. Extracted as a function so the
+# (very long) assembled string can be asserted against in
+# `server/tests/torque-remote-source.test.js`. Two prior production regressions
+# in this command would have been caught at test time:
+#   - 2026-04-27: `git clean -fdx` was wiping node_modules every sync.
+#   - 2026-04-29: a bare `if not exist X (block)` (without outer parens around
+#     the if) silently swallowed the trailing `&& chain` when X already
+#     existed, leaving fetch/checkout/reset/drift-check unrun for 3 days.
+#
+# Args:
+#   $1 effective remote project path (the path to cd into on remote)
+#   $2 FETCH_COMMAND (full `git fetch ...` string)
+#   $3 SYNC_CHECKOUT (full `git checkout ...` string; `--detach` for worktree)
+#   $4 SYNC_REF (e.g. origin/main)
+#   $5 SYNC_BOOTSTRAP (worktree-add-if-missing prefix; may be empty)
+#
+# The assembled command runs in CMD on Windows (no posix tools), so all
+# control flow uses CMD primitives:
+#   - `if not exist DIR (block)` — wrap in outer `(...)` so trailing `&&`
+#     chain runs even when block is skipped.
+#   - `^&^&` to escape `&&` inside `if exist X echo "...^&^& Y"` strings.
+#   - `2>nul` to silence stderr.
+build_remote_sync_command() {
+  local eff_path="$1" fetch_cmd="$2" sync_checkout="$3" sync_ref="$4" bootstrap="${5:-}"
+  printf '%s' "${bootstrap}cd \"${eff_path}\" && ${fetch_cmd} && ${sync_checkout} && git reset --hard ${sync_ref} && (git clean -fd || true) && (git diff --quiet HEAD || (echo \"[torque-remote-sync] drift after reset — file locks (Defender/Search/AV) may have prevented checkout from updating tracked files\" 1>&2 && exit 99)) && (if exist package.json if not exist node_modules echo [torque-remote-sync] HINT: ./package.json has no node_modules at ${eff_path} — run: npm install 1>&2) && (if exist server\\package.json if not exist server\\node_modules echo [torque-remote-sync] HINT: server/package.json has no node_modules — run: cd server ^&^& npm install 1>&2) && (if exist dashboard\\package.json if not exist dashboard\\node_modules echo [torque-remote-sync] HINT: dashboard/package.json has no node_modules — run: cd dashboard ^&^& npm install 1>&2)"
+}
+
 cleanup_temp_dirs() {
   local dir attempt sleep_secs
   for dir in "${TEMP_DIRS[@]}"; do
@@ -1408,15 +1435,26 @@ case "$TRANSPORT" in
       # checks on every `git worktree add`. After pruning, the metric
       # dropped to 131ms (better than the original baseline). --prune adds
       # no measurable overhead to fetch itself.
+      # Build sync command via tested helper (see build_remote_sync_command
+      # near the top). The assembled string is one big CMD-shell line passed
+      # to ssh; extracting the assembly into a function makes it unit-testable
+      # so future regressions of the kind that hit production previously
+      # (e.g. `git clean -fdx` wiping node_modules every sync, missing outer
+      # parens around `if not exist` blocks breaking `&& chain`) get caught
+      # by `tests/torque-remote-source.test.js` instead of by an operator.
+      SYNC_SSH_CMD="$(build_remote_sync_command \
+        "$EFFECTIVE_REMOTE_PROJECT_PATH" \
+        "$FETCH_COMMAND" \
+        "$SYNC_CHECKOUT" \
+        "$SYNC_REF" \
+        "$SYNC_BOOTSTRAP")"
       # Define the sync pipeline as a function so run_with_timeout can wrap
       # it as a single command. Function inherits SSH_OPTS, SSH_USER,
-      # SSH_HOST, SYNC_BOOTSTRAP, EFFECTIVE_REMOTE_PROJECT_PATH, FETCH_COMMAND,
-      # SYNC_CHECKOUT, SYNC_REF, sync_log_path from outer scope. Returns
+      # SSH_HOST, sync_log_path, SYNC_SSH_CMD from outer scope. Returns
       # SSH's exit status (PIPESTATUS[0]) — tee/grep are stdout transformers
       # that should not mask SSH failures.
       _torque_remote_sync_pipeline() {
-        ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" \
-          "${SYNC_BOOTSTRAP}cd \"$EFFECTIVE_REMOTE_PROJECT_PATH\" && $FETCH_COMMAND && $SYNC_CHECKOUT && git reset --hard $SYNC_REF && (git clean -fd || true) && (git diff --quiet HEAD || (echo \"[torque-remote-sync] drift after reset — file locks (Defender/Search/AV) may have prevented checkout from updating tracked files\" 1>&2 && exit 99)) && (if exist package.json if not exist node_modules echo [torque-remote-sync] HINT: ./package.json has no node_modules at $EFFECTIVE_REMOTE_PROJECT_PATH — run: npm install 1>&2) && (if exist server\\package.json if not exist server\\node_modules echo [torque-remote-sync] HINT: server/package.json has no node_modules — run: cd server ^&^& npm install 1>&2) && (if exist dashboard\\package.json if not exist dashboard\\node_modules echo [torque-remote-sync] HINT: dashboard/package.json has no node_modules — run: cd dashboard ^&^& npm install 1>&2)" \
+        ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" "$SYNC_SSH_CMD" \
           2>&1 | tee -a "$sync_log_path" | (grep -v 'Unable to persist credentials\|credential store\|aka.ms/gcm' || true)
         return "${PIPESTATUS[0]}"
       }
