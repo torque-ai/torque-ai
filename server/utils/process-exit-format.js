@@ -59,10 +59,76 @@ function findLastProcessExitAnnotation(text) {
   return null;
 }
 
+// [torque-spawn] startup marker — PID-reuse defense.
+// Closes subprocess-detachment.md open question #8. The wrapper emits
+// this line on init; re-adoption verifies the embedded taskId matches
+// the row's id before adopting. Without it, a recycled PID owned by
+// ANOTHER torque-spawned subprocess could be silently re-adopted as
+// the wrong task — log-mtime defense alone doesn't help when both
+// PIDs' logs are fresh.
+//
+// Format: [torque-spawn] taskId=<id> wrapper-pid=<int> started_at_epoch=<int>
+
+const TORQUE_SPAWN_PREFIX = '[torque-spawn]';
+const TORQUE_SPAWN_LINE_REGEX = /^\[torque-spawn\] (.+)$/;
+
+function formatTorqueSpawnLine({ taskId, wrapperPid, startedAtEpoch }) {
+  const parts = [
+    `taskId=${taskId || 'unknown'}`,
+    `wrapper-pid=${typeof wrapperPid === 'number' ? wrapperPid : 0}`,
+    `started_at_epoch=${typeof startedAtEpoch === 'number' ? startedAtEpoch : 0}`,
+  ];
+  return `${TORQUE_SPAWN_PREFIX} ${parts.join(' ')}`;
+}
+
+function parseTorqueSpawnLine(line) {
+  if (typeof line !== 'string') return null;
+  const m = TORQUE_SPAWN_LINE_REGEX.exec(line);
+  if (!m) return null;
+  const fields = {};
+  for (const part of m[1].split(' ')) {
+    const eq = part.indexOf('=');
+    if (eq <= 0) continue;
+    const key = part.slice(0, eq);
+    const val = part.slice(eq + 1);
+    if (key === 'wrapper-pid') fields.wrapperPid = val;
+    else fields[key] = val;
+  }
+  const wrapperPid = fields.wrapperPid !== undefined ? Number(fields.wrapperPid) : null;
+  const startedAtEpoch = fields.started_at_epoch !== undefined
+    ? Number(fields.started_at_epoch)
+    : null;
+  return {
+    taskId: fields.taskId || null,
+    wrapperPid: Number.isFinite(wrapperPid) ? wrapperPid : null,
+    startedAtEpoch: Number.isFinite(startedAtEpoch) ? startedAtEpoch : null,
+  };
+}
+
+// Scan a multi-line buffer for the FIRST [torque-spawn] line. Wrapper
+// writes exactly one on startup; front-scan is correct + faster on long
+// logs. Returns null when absent — callers decide whether to treat that
+// as "pre-marker-rollout subprocess" (allow) or "definitely not ours"
+// (reject).
+function findFirstTorqueSpawnAnnotation(text) {
+  if (!text || typeof text !== 'string') return null;
+  const lines = text.split('\n');
+  for (let i = 0; i < lines.length; i++) {
+    const parsed = parseTorqueSpawnLine(lines[i]);
+    if (parsed) return parsed;
+  }
+  return null;
+}
+
 module.exports = {
   PROCESS_EXIT_PREFIX,
   PROCESS_EXIT_LINE_REGEX,
   formatProcessExitLine,
   parseProcessExitLine,
   findLastProcessExitAnnotation,
+  TORQUE_SPAWN_PREFIX,
+  TORQUE_SPAWN_LINE_REGEX,
+  formatTorqueSpawnLine,
+  parseTorqueSpawnLine,
+  findFirstTorqueSpawnAnnotation,
 };

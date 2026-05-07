@@ -1552,6 +1552,7 @@ function spawnAndTrackProcessDetached(taskId, task, cmdSpec, providerArg) {
       TORQUE_PEW_ARGS: JSON.stringify(finalArgs),
       TORQUE_PEW_PROVIDER: provider,
       TORQUE_PEW_MODEL: task.model || '',
+      TORQUE_PEW_TASK_ID: taskId || '',
       ...(promptFilePath ? { TORQUE_PEW_STDIN_FILE: promptFilePath } : {}),
     };
   } else {
@@ -1589,6 +1590,7 @@ function spawnAndTrackProcessDetached(taskId, task, cmdSpec, providerArg) {
       TORQUE_PEW_ARGS: JSON.stringify(finalArgs),
       TORQUE_PEW_PROVIDER: provider,
       TORQUE_PEW_MODEL: task.model || '',
+      TORQUE_PEW_TASK_ID: taskId || '',
       ...(promptFilePath ? { TORQUE_PEW_STDIN_FILE: promptFilePath } : {}),
     });
   }
@@ -2091,6 +2093,51 @@ function resolveReAdoptCompletionDetectedAt(persistedTask) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+// subprocess-detachment.md #8: PID-reuse defense via the [torque-spawn]
+// startup marker. process-exit-wrapper.js writes one line on init:
+//   [torque-spawn] taskId=<id> wrapper-pid=<int> started_at_epoch=<int>
+// Re-adoption reads the front of stderr.log and compares the embedded
+// taskId against the row we're about to adopt. Status codes:
+//   'verified' — marker present, taskId matches → adopt
+//   'mismatch' — marker present, taskId differs → REJECT (recycled PID)
+//   'unknown'  — marker present but taskId='unknown' (env var was empty
+//                at spawn time — pre-rollout subprocess) → adopt with warn
+//   'absent'   — no marker line in scanned head → adopt (older subprocess
+//                from before the marker shipped; log-mtime defense was
+//                the only protection back then and is still in effect)
+//   'unreadable' — fs.readSync threw (missing/permission) → adopt; the
+//                downstream Tail watcher will surface the same I/O error
+const MARKER_HEAD_BYTES = 64 * 1024;
+
+function verifyTorqueSpawnMarker(stderrPath, expectedTaskId) {
+  if (!stderrPath || typeof stderrPath !== 'string') {
+    return { status: 'unreadable', marker: null };
+  }
+  let head = '';
+  try {
+    const fd = fs.openSync(stderrPath, 'r');
+    try {
+      const buf = Buffer.alloc(MARKER_HEAD_BYTES);
+      const n = fs.readSync(fd, buf, 0, MARKER_HEAD_BYTES, 0);
+      head = buf.slice(0, n).toString('utf8');
+    } finally {
+      try { fs.closeSync(fd); } catch { /* ignore */ }
+    }
+  } catch {
+    return { status: 'unreadable', marker: null };
+  }
+  const { findFirstTorqueSpawnAnnotation } = require('../utils/process-exit-format');
+  const marker = findFirstTorqueSpawnAnnotation(head);
+  if (!marker) return { status: 'absent', marker: null };
+  if (!marker.taskId || marker.taskId === 'unknown') {
+    return { status: 'unknown', marker };
+  }
+  if (expectedTaskId && marker.taskId === expectedTaskId) {
+    return { status: 'verified', marker };
+  }
+  return { status: 'mismatch', marker };
+}
+
 /**
  * Re-adopt a still-alive detached subprocess after a TORQUE restart.
  *
@@ -2130,6 +2177,21 @@ function reAdoptDetachedSubprocess(taskId, persistedTask) {
   const stderrPath = persistedTask?.error_log_path;
   if (!Number.isFinite(subprocessPid) || subprocessPid <= 0 || !stdoutPath || !stderrPath) {
     return false;
+  }
+
+  // PID-reuse defense (subprocess-detachment.md #8). PID-liveness +
+  // log-mtime checks already passed by the time we get here, but they
+  // can't tell us "this PID belongs to ANOTHER torque-spawned task whose
+  // logs are also fresh." The wrapper writes a startup marker carrying
+  // its taskId; if the row's id and the marker's id disagree, the OS
+  // recycled this PID for a sibling task and we MUST NOT adopt.
+  const markerCheck = verifyTorqueSpawnMarker(stderrPath, taskId);
+  if (markerCheck.status === 'mismatch') {
+    logger.warn(`[Detached] re-adopt REJECTED for task ${taskId}: spawn-marker taskId=${markerCheck.marker?.taskId} does not match (PID reuse — pid=${subprocessPid})`);
+    return false;
+  }
+  if (markerCheck.status === 'unknown') {
+    logger.info(`[Detached] re-adopt for task ${taskId}: spawn-marker present but taskId=unknown (pre-marker spawn) — falling back to log-mtime defense`);
   }
 
   const startOutputOffset = Number.isFinite(Number(persistedTask?.output_log_offset))
@@ -2299,6 +2361,7 @@ module.exports = {
   reAdoptDetachedSubprocess,
   resolveReAdoptLastOutputAt,
   resolveReAdoptCompletionDetectedAt,
+  verifyTorqueSpawnMarker,
   computeActivityAwareTimeoutDelay,
   parseProcessExitAnnotation,
   shouldUseDetachedPath,

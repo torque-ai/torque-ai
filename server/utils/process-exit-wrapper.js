@@ -30,13 +30,20 @@
 
 const fs = require('fs');
 const { spawn } = require('child_process');
-const { formatProcessExitLine } = require('./process-exit-format');
+const {
+  formatProcessExitLine,
+  formatTorqueSpawnLine,
+} = require('./process-exit-format');
 
 const PROGRAM = process.env.TORQUE_PEW_PROGRAM;
 const ARGS_JSON = process.env.TORQUE_PEW_ARGS;
 const PROVIDER = process.env.TORQUE_PEW_PROVIDER || 'unknown';
 const MODEL = process.env.TORQUE_PEW_MODEL || '';
 const STDIN_FILE = process.env.TORQUE_PEW_STDIN_FILE || '';
+// PID-reuse defense (subprocess-detachment.md #8): spawner sets this to
+// the task UUID; wrapper emits it in the [torque-spawn] startup marker.
+// Re-adoption verifies the marker matches the row's id before adopting.
+const TASK_ID = process.env.TORQUE_PEW_TASK_ID || '';
 
 if (!PROGRAM || !ARGS_JSON) {
   process.stderr.write('[process-exit-wrapper] missing TORQUE_PEW_PROGRAM or TORQUE_PEW_ARGS\n');
@@ -58,6 +65,19 @@ delete childEnv.TORQUE_PEW_ARGS;
 delete childEnv.TORQUE_PEW_PROVIDER;
 delete childEnv.TORQUE_PEW_MODEL;
 delete childEnv.TORQUE_PEW_STDIN_FILE;
+delete childEnv.TORQUE_PEW_TASK_ID;
+
+// Emit the spawn marker BEFORE exec'ing the real binary so it lands at
+// the front of stderr.log. Re-adoption reads it from offset 0 to verify
+// the subprocess matches the persisted row's taskId. Empty TASK_ID
+// (older spawners that don't pass the env var) emits taskId=unknown,
+// which re-adoption treats as "pre-marker spawn — fall back to log
+// mtime defense."
+process.stderr.write(`${formatTorqueSpawnLine({
+  taskId: TASK_ID || 'unknown',
+  wrapperPid: process.pid,
+  startedAtEpoch: Math.floor(Date.now() / 1000),
+})}\n`);
 
 const stdinMode = STDIN_FILE ? 'pipe' : 'ignore';
 const start = Date.now();

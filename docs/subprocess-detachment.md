@@ -237,9 +237,23 @@ When `<data-dir>` runs out of disk mid-task, log writes start failing. The wrapp
 
 **Deferred from this commit** (still worth doing): periodic disk-space check that pauses new task admission when free space is below `task_log_disk_min_mb` config. Implementation requires `fs.statfs` (Linux/macOS) or `wmic logicaldisk` / PowerShell on Windows; not bundled here because the operator workaround above suffices for current scale.
 
-### 8. PID-reuse defense relies on log-mtime freshness
+### 8. ✅ ~~PID-reuse defense relies on log-mtime freshness~~ RESOLVED 2026-05-07
 
-Re-adoption's "fresh log mtime" check (`TORQUE_READOPT_LOG_STALE_MS`, default 5 min) catches PID-reuse where the new owner of the recycled PID didn't write to TORQUE's log file. But if a PID is reused by ANOTHER torque-spawned subprocess (rare but possible after rapid restart cycles), both PIDs' logs may be fresh and the wrong subprocess gets re-adopted. **Action:** Add a startup-marker line to each log file (e.g. `[torque-spawn] taskId=<id> wrapper-pid=<pid>`); re-adoption verifies the marker matches the row's taskId before adopting.
+`process-exit-wrapper.js` now writes a `[torque-spawn] taskId=<id> wrapper-pid=<pid> started_at_epoch=<sec>` line on init, before exec'ing the real CLI. The format helpers (`formatTorqueSpawnLine`, `parseTorqueSpawnLine`, `findFirstTorqueSpawnAnnotation`) live alongside `[process-exit]` in `server/utils/process-exit-format.js` so writer and reader can't drift.
+
+`reAdoptDetachedSubprocess` now invokes `verifyTorqueSpawnMarker(stderrPath, taskId)` after the PID/path validation but before the heavy Tail/liveness setup. Decision matrix:
+
+- `verified` — marker taskId matches → adopt
+- `mismatch` — marker taskId differs from row → REJECT (recycled PID); reconciler falls through to cancel-and-clone
+- `unknown` — marker present but taskId='unknown' (env var was empty when the wrapper spawned — pre-marker rollout subprocess) → adopt with WARN log
+- `absent` — no marker line in scanned head → adopt (older subprocess from before the marker shipped; log-mtime defense remains)
+- `unreadable` — fs read failed → adopt (downstream Tail watcher will surface the same I/O error)
+
+Spawner (`spawnAndTrackProcessDetached`) passes `TORQUE_PEW_TASK_ID: taskId` in both env-build branches; wrapper strips the env var before exec'ing the real CLI so the inner process can't see it.
+
+8 unit tests in `tests/execute-cli.test.js` cover the matrix (verified / mismatch / unknown / absent / unreadable / null path / leading banner before marker / 64KB head-window cutoff).
+
+Performance note: only the first 64KB of stderr.log is scanned, so the check is O(1) on log size. A pathologically slow startup that buffered >64KB before the wrapper line is treated as `absent` and falls back to log-mtime defense — the more dangerous failure mode (false reject) cannot happen.
 
 ### 9. ✅ ~~process-exit-wrapper bash signal forwarding is incomplete~~ RESOLVED 2026-05-07
 

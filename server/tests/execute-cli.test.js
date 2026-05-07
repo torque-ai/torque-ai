@@ -1199,4 +1199,98 @@ describe('execute-cli.js', () => {
       expect(result).toBeCloseTo(fiveMinAgo, -2); // within 100ms
     });
   });
+
+  // ── verifyTorqueSpawnMarker: PID-reuse defense (subprocess-detachment.md #8)
+  // Wrapper writes [torque-spawn] taskId=... at front of stderr.log on init.
+  // Re-adopt reads the head of the log and rejects mismatches before adopting.
+  describe('verifyTorqueSpawnMarker', () => {
+    const { formatTorqueSpawnLine } = require('../utils/process-exit-format');
+
+    function makeStderrLog(content) {
+      const p = path.join(testDir, `stderr-${randomUUID()}.log`);
+      fs.writeFileSync(p, content);
+      return p;
+    }
+
+    it("returns 'verified' when marker taskId matches expected", () => {
+      const taskId = 'task-abc-123';
+      const log = makeStderrLog(`${formatTorqueSpawnLine({
+        taskId,
+        wrapperPid: 12345,
+        startedAtEpoch: 1700000000,
+      })}\n`);
+      const result = mod.verifyTorqueSpawnMarker(log, taskId);
+      expect(result.status).toBe('verified');
+      expect(result.marker.taskId).toBe(taskId);
+      expect(result.marker.wrapperPid).toBe(12345);
+    });
+
+    it("returns 'mismatch' when marker taskId differs (recycled PID)", () => {
+      const log = makeStderrLog(`${formatTorqueSpawnLine({
+        taskId: 'task-OLD-999',
+        wrapperPid: 12345,
+        startedAtEpoch: 1700000000,
+      })}\n`);
+      const result = mod.verifyTorqueSpawnMarker(log, 'task-NEW-111');
+      expect(result.status).toBe('mismatch');
+      expect(result.marker.taskId).toBe('task-OLD-999');
+    });
+
+    it("returns 'unknown' when marker taskId is literal 'unknown'", () => {
+      const log = makeStderrLog(`${formatTorqueSpawnLine({
+        taskId: 'unknown',
+        wrapperPid: 12345,
+        startedAtEpoch: 1700000000,
+      })}\n`);
+      const result = mod.verifyTorqueSpawnMarker(log, 'task-abc-123');
+      expect(result.status).toBe('unknown');
+    });
+
+    it("returns 'absent' when log has no marker line", () => {
+      const log = makeStderrLog('regular stderr output\nno marker here\n');
+      const result = mod.verifyTorqueSpawnMarker(log, 'task-abc');
+      expect(result.status).toBe('absent');
+      expect(result.marker).toBeNull();
+    });
+
+    it("returns 'unreadable' when path doesn't exist", () => {
+      const result = mod.verifyTorqueSpawnMarker('/nonexistent/path/stderr.log', 'task-abc');
+      expect(result.status).toBe('unreadable');
+    });
+
+    it("returns 'unreadable' when path is null/undefined", () => {
+      expect(mod.verifyTorqueSpawnMarker(null, 'task-abc').status).toBe('unreadable');
+      expect(mod.verifyTorqueSpawnMarker(undefined, 'task-abc').status).toBe('unreadable');
+      expect(mod.verifyTorqueSpawnMarker('', 'task-abc').status).toBe('unreadable');
+    });
+
+    it('finds marker even when other stderr precedes it (front-scan within head)', () => {
+      // Marker is the FIRST line in practice but be tolerant of leading
+      // banner output that some CLIs may print before the wrapper line.
+      const log = makeStderrLog(
+        `some pre-launch banner text\n${formatTorqueSpawnLine({
+          taskId: 'task-x',
+          wrapperPid: 1,
+          startedAtEpoch: 1,
+        })}\n`,
+      );
+      const result = mod.verifyTorqueSpawnMarker(log, 'task-x');
+      expect(result.status).toBe('verified');
+    });
+
+    it("returns 'absent' when marker is past the 64KB head window", () => {
+      // Defends the perf assumption: we only scan the first 64KB so the
+      // re-adopt check is O(1) on log size. Subprocess that buffered
+      // 100KB before writing the marker is treated as 'absent' and
+      // falls back to log-mtime defense.
+      const padding = 'x'.repeat(70 * 1024);
+      const log = makeStderrLog(`${padding}\n${formatTorqueSpawnLine({
+        taskId: 'task-x',
+        wrapperPid: 1,
+        startedAtEpoch: 1,
+      })}\n`);
+      const result = mod.verifyTorqueSpawnMarker(log, 'task-x');
+      expect(result.status).toBe('absent');
+    });
+  });
 });
