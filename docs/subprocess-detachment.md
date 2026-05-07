@@ -228,9 +228,18 @@ Wrapper handles SIGTERM and SIGINT (`['SIGTERM', 'SIGINT'].forEach(...)`) but no
 
 Operators viewing a running task on the dashboard can't tell whether a restart will preserve it. The `subprocess_pid` column would answer but isn't exposed in the dashboard's task detail. **Action:** Add a "detached: yes/no" badge to dashboard task detail; wire from `subprocess_pid IS NOT NULL`.
 
-### 11. Re-adoption logging is sparse
+### 11. ✅ ~~Re-adoption logging is sparse~~ RESOLVED 2026-05-07
 
-`tryReAdoptDetachedSubprocess` returns true/false; the reconciler increments `actions.re_adopted++` on true. But there's no log line for the re-adoption decision itself ("re-adopted task X with PID Y, last activity Z minutes ago"). Forensic reconstruction of "what happened on the last restart" requires correlating multiple log lines. **Action:** Emit a single info-level log per re-adoption decision (success or skip) with reasoning.
+`tryReAdoptDetachedSubprocess` now emits a single info-level log line per decision with `task_id` + `reason`:
+- `no_re_adopt_function` — executeCli not wired
+- `missing_detached_state` — row lacks subprocess_pid / log paths
+- `pid_dead` — `kill -0` failed
+- `log_mtime_stale` — PID-reuse defense fired (includes age + threshold)
+- `adopted` — successful re-adoption (includes log age)
+- `adopter_returned_false` — `executeCli.reAdoptDetachedSubprocess` declined
+- `adopter_threw` (warn level) — exception during adopt
+
+Operators can now reconstruct "what happened on the last restart" with one grep: `grep '\[re-adopt\]' torque.log`.
 
 ### 12. Phase H wiring fix exposed pre-existing test debt
 
