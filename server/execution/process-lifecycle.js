@@ -44,7 +44,76 @@ const DETACHABLE_PROVIDERS = new Set(['codex', 'codex-spark', 'claude-cli']);
 // createProcessLifecycle factory with one that actually closes over deps.
 let deps = null;
 
+// Lazy bootstrap when a public function is called without init() having
+// run. Mirrors what task-manager.js's full init({...}) chain does in
+// production but pulls each piece from the container + require('../task-manager')
+// fallback so test paths (E2E helpers, anything that loads task-manager
+// without going through server/index.js startup) don't crash on
+// `deps.runningProcesses` / `deps.markTaskCleanedUp` etc.
+function ensureDeps() {
+  if (deps && deps.runningProcesses) return;
+  const seed = deps || {};
+  let container = null;
+  try { container = require('../container').defaultContainer; }
+  catch { /* container module not loadable — leave deps as-is */ }
+  if (container) {
+    if (!seed.runningProcesses) {
+      const tracker = container.peek('processTracker');
+      if (tracker) seed.runningProcesses = tracker;
+    }
+    if (!seed.finalizingTasks) {
+      const finalization = container.peek('finalizationTracker');
+      if (finalization) seed.finalizingTasks = finalization;
+    }
+    if (!seed.closeHandlerState) {
+      const chs = container.peek('closeHandlerState');
+      if (chs) seed.closeHandlerState = chs;
+    }
+    if (!seed.dashboard) {
+      const dash = container.peek('dashboard');
+      if (dash) seed.dashboard = dash;
+    }
+  }
+  let tm = container && container.peek('taskManager');
+  if (!tm) {
+    try { tm = require('../task-manager'); }
+    catch { tm = null; }
+  }
+  if (tm) {
+    const bind = (name) => (typeof tm[name] === 'function' ? tm[name].bind(tm) : null);
+    if (typeof seed.markTaskCleanedUp !== 'function') seed.markTaskCleanedUp = bind('markTaskCleanedUp');
+    if (typeof seed.safeUpdateTaskStatus !== 'function') seed.safeUpdateTaskStatus = bind('safeUpdateTaskStatus');
+    if (typeof seed.processQueue !== 'function') seed.processQueue = bind('processQueue');
+    if (typeof seed.cancelTask !== 'function') seed.cancelTask = bind('cancelTask');
+    if (typeof seed.finalizeTask !== 'function') seed.finalizeTask = bind('finalizeTask');
+  }
+  // finalizeTask is not on task-manager's module.exports — task-manager.js
+  // defines the wrapper at L197 but only as an internal helper. Production's
+  // createProcessLifecycle factory hits the same gap (`tmMethod('finalizeTask')`
+  // returns null) but production close-handler code goes through the
+  // taskFinalizer service directly. Mirror that fallback here so test paths
+  // that hit handleCloseCleanup don't crash.
+  if (typeof seed.finalizeTask !== 'function' && container) {
+    try {
+      const finalizer = container.peek('taskFinalizer');
+      if (finalizer && typeof finalizer.finalizeTask === 'function') {
+        seed.finalizeTask = finalizer.finalizeTask.bind(finalizer);
+      }
+    } catch { /* container miss — leave null */ }
+  }
+  if (typeof seed.setupStdoutHandler !== 'function') {
+    try { seed.setupStdoutHandler = require('./process-streams').setupStdoutHandler; }
+    catch { /* fall through */ }
+  }
+  if (typeof seed.setupStderrHandler !== 'function') {
+    try { seed.setupStderrHandler = require('./process-streams').setupStderrHandler; }
+    catch { /* fall through */ }
+  }
+  deps = seed;
+}
+
 function setFinalizingMarker(taskId, marker) {
+  ensureDeps();
   if (!deps.finalizingTasks) return;
   // FinalizationTracker (preferred) extends Map, so .set still works.
   // The fallback Set.add path is preserved for any consumer that still
@@ -59,6 +128,7 @@ function setFinalizingMarker(taskId, marker) {
 }
 
 function touchFinalizingMarker(taskId, stage) {
+  ensureDeps();
   if (!deps.finalizingTasks) return;
   // Prefer the domain method when available (FinalizationTracker provides
   // it). Falls through to the prior inline get/set logic when injected
@@ -500,6 +570,7 @@ function cleanupChildProcessListeners(child) {
  * @returns {{ shouldContinue: boolean, code?: number, proc?: Object }}
  */
 function handleCloseCleanup(taskId, code) {
+  ensureDeps();
   if (!deps.markTaskCleanedUp(taskId)) {
     return { shouldContinue: false };
   }
@@ -559,6 +630,7 @@ function handleCloseCleanup(taskId, code) {
  * @returns {{ queued: boolean, task?: Object }}
  */
 function spawnAndTrackProcess(taskId, task, spawnConfig) {
+  ensureDeps();
   const {
     cliPath, finalArgs, stdinPrompt, options, provider,
     selectedOllamaHostId, usedEditFormat, taskMetadata,
