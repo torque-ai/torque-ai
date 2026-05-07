@@ -182,6 +182,7 @@ reset_stub_env() {
   unset TORQUE_REMOTE_LANE_STALE_TTL_SECS TORQUE_REMOTE_LANE_TIMEOUT_SECS
   unset SSH_LANE_GIT_EXISTS_OUTPUT TORQUE_REMOTE_LANE_PROVISION_FROM
   unset SSH_MIGRATION_MARKER_OUTPUT SSH_LEGACY_GIT_EXISTS_OUTPUT
+  unset SSH_STATUS_PROBE_OUTPUT
 }
 
 write_stub_argv_dump() {
@@ -387,6 +388,15 @@ next_lock_ack() {
   fi
   printf '%s\n' "$ack"
 }
+
+if [[ "$remote_cmd" == "@echo off"* ]] && [[ "$remote_cmd" == *"echo lane-"* ]]; then
+  # --status probe: "@echo off & if exist "...\lane-N" (echo lane-N HELD ...) else (echo lane-N FREE) ..."
+  # Must come BEFORE the generic .torque-remote-lanes + owner.env + type branch to avoid false match.
+  if [[ "${SSH_STATUS_PROBE_OUTPUT+x}" == "x" && -n "$SSH_STATUS_PROBE_OUTPUT" ]]; then
+    printf '%s\n' "$SSH_STATUS_PROBE_OUTPUT"
+  fi
+  exit 0
+fi
 
 if [[ ( "$remote_cmd" == *".torque-remote-lanes"* || "$remote_cmd" == *".torque-remote-sync.lock"* ) && "$remote_cmd" == *"mkdir"* && "$remote_cmd" == *"echo ACQUIRED"* ]]; then
   next_lock_ack
@@ -1647,6 +1657,30 @@ test_migration_skips_when_marker_present() {
   finish_test "test_migration_skips_when_marker_present"
 }
 
+test_status_flag_lists_lane_states() {
+  echo "Test: --status prints lane states with lock info"
+  TEST_ERRORS=()
+  reset_stub_env
+
+  make_test_env
+  local tmp="$LAST_TEST_ENV"
+  export GIT_REV_PARSE_OUTPUT="main"
+  export TORQUE_REMOTE_LANE_COUNT=3
+  # Stub: lane-1 held, lane-2 free, lane-3 held with cross-host owner.
+  export SSH_STATUS_PROBE_OUTPUT=$'lane-1 HELD owner=hostA pid=123 started=1000\nlane-2 FREE\nlane-3 HELD owner=hostB pid=456 started=2000'
+
+  run_torque_remote "$tmp" --status
+
+  expect_eq "exit code is 0" "0" "$RUN_EXIT"
+  expect_contains "lists lane-1 status" "$RUN_STDOUT" "lane-1"
+  expect_contains "lists lane-1 owner host" "$RUN_STDOUT" "hostA"
+  expect_contains "lists lane-2 as free" "$RUN_STDOUT" "lane-2"
+  expect_contains "lane-2 marked FREE" "$RUN_STDOUT" "FREE"
+  expect_contains "lists lane-3 owner pid" "$RUN_STDOUT" "456"
+
+  finish_test "test_status_flag_lists_lane_states"
+}
+
 main() {
   if [[ ! -f "$SCRIPT_UNDER_TEST" ]]; then
     echo "torque-remote script not found: $SCRIPT_UNDER_TEST" >&2
@@ -1693,6 +1727,7 @@ main() {
   test_cold_start_falls_back_to_origin_when_no_sibling
   test_migration_renames_legacy_workspace_to_lane_1
   test_migration_skips_when_marker_present
+  test_status_flag_lists_lane_states
 
   echo ""
   echo "=============================="

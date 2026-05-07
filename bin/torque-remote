@@ -632,6 +632,44 @@ release_remote_lane_lock() {
   REMOTE_LANE_INDEX=""
 }
 
+# Diagnostic: print lane lock state for each lane 1..N.
+# Single SSH round-trip — emits one line per lane.
+print_lane_status() {
+  if [[ -z "${SSH_USER:-}" || -z "${SSH_HOST:-}" ]]; then
+    printf 'No remote configured.\n'
+    return 0
+  fi
+
+  local count
+  count="$(resolve_lane_count)"
+
+  # Build SSH options locally — mirrors what the ssh transport block does but
+  # without requiring the full transport path to have run first.
+  local status_ssh_opts=(-o ConnectTimeout=5 -o BatchMode=yes)
+  if [[ -n "${SSH_KEY_PATH:-}" && "$SSH_KEY_PATH" != "null" ]]; then
+    status_ssh_opts+=(-i "$SSH_KEY_PATH")
+  fi
+
+  # Resolve the workspace base (same way as the normal sync path) so the
+  # lock dir computation matches what acquire_any_remote_lane uses.
+  REMOTE_LANE_WORKSPACE_BASE="$EFFECTIVE_REMOTE_PROJECT_PATH"
+
+  local parent="${REMOTE_LANE_WORKSPACE_BASE%\\*}"
+  if [[ "$parent" == "$REMOTE_LANE_WORKSPACE_BASE" ]]; then
+    parent="${REMOTE_LANE_WORKSPACE_BASE%/*}"
+  fi
+
+  # Build a single CMD command that loops 1..N and emits a status line per lane.
+  local probe_cmd="@echo off"
+  local i
+  for i in $(seq 1 "$count"); do
+    local lock_dir="${parent}\\.torque-remote-lanes\\.locks\\lane-$i"
+    probe_cmd+=" & if exist \"$lock_dir\" (echo lane-$i HELD & type \"$lock_dir\\owner.env\" 2^>nul) else (echo lane-$i FREE)"
+  done
+
+  ssh "${status_ssh_opts[@]}" "$SSH_USER@$SSH_HOST" "$probe_cmd" 2>/dev/null
+}
+
 resolve_sync_ref() {
   local branch="$1"
 
@@ -705,7 +743,7 @@ create_local_state_bundle() {
 # returns in <1s.
 _is_internal_fast_path=0
 for _arg in "$@"; do
-  if [[ "$_arg" == "--__internal-print-routing-mode" || "$_arg" == "--__internal-print-lane-count" || "$_arg" == "--__internal-print-lane-paths" ]]; then
+  if [[ "$_arg" == "--__internal-print-routing-mode" || "$_arg" == "--__internal-print-lane-count" || "$_arg" == "--__internal-print-lane-paths" || "$_arg" == "--status" ]]; then
     _is_internal_fast_path=1
     break
   fi
@@ -788,6 +826,7 @@ coord_select_routing_mode() {
 BRANCH_OVERRIDE=""
 SUITE="${TORQUE_REMOTE_DEFAULT_SUITE:-custom}"
 TORQUE_REMOTE_LANES_CLI="${TORQUE_REMOTE_LANES_CLI:-}"
+STATUS_REQUESTED=0
 while [[ "${1:-}" == --* ]]; do
   case "$1" in
     --__internal-print-routing-mode)
@@ -834,16 +873,22 @@ while [[ "${1:-}" == --* ]]; do
       SUITE="$2"
       shift 2
       ;;
+    --status)
+      # Diagnostic: print lane lock states. Single SSH round-trip.
+      # Config loading runs below; deferred call fires after EFFECTIVE_REMOTE_PROJECT_PATH is set.
+      STATUS_REQUESTED=1
+      shift
+      ;;
     *)
       die "Unknown torque-remote flag: $1
-torque-remote supports --branch <ref>, --lanes <N>, and --suite <name>. If $1 is meant for
+torque-remote supports --branch <ref>, --lanes <N>, --suite <name>, and --status. If $1 is meant for
 your inner command, place it after the command name, e.g.:
   torque-remote npx vitest run $1 ..."
       ;;
   esac
 done
 
-if [[ $# -eq 0 ]]; then
+if [[ $# -eq 0 && "${STATUS_REQUESTED:-0}" != "1" ]]; then
   cat >&2 << 'USAGE'
 Usage: torque-remote [--branch <ref>] <command...>
 
@@ -1032,6 +1077,12 @@ fi
 BASE_EFFECTIVE_REMOTE_PROJECT_PATH="$EFFECTIVE_REMOTE_PROJECT_PATH"
 if [[ -n "$REMOTE_TEST_WORKTREE_SUFFIX" && -n "$EFFECTIVE_REMOTE_PROJECT_PATH" ]]; then
   EFFECTIVE_REMOTE_PROJECT_PATH="${EFFECTIVE_REMOTE_PROJECT_PATH}${REMOTE_TEST_WORKTREE_SUFFIX}"
+fi
+
+# ---- --status diagnostic (deferred until config is loaded) ----
+if [[ "${STATUS_REQUESTED:-0}" == "1" ]]; then
+  print_lane_status
+  exit 0
 fi
 
 # ---- Command to run ----
