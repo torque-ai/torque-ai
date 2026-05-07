@@ -181,6 +181,7 @@ reset_stub_env() {
   unset TORQUE_REMOTE_LANE
   unset TORQUE_REMOTE_LANE_STALE_TTL_SECS TORQUE_REMOTE_LANE_TIMEOUT_SECS
   unset SSH_LANE_GIT_EXISTS_OUTPUT TORQUE_REMOTE_LANE_PROVISION_FROM
+  unset SSH_MIGRATION_MARKER_OUTPUT SSH_LEGACY_GIT_EXISTS_OUTPUT
 }
 
 write_stub_argv_dump() {
@@ -417,6 +418,19 @@ if [[ "$remote_cmd" == "wmic cpu get loadpercentage /value" ]]; then
     printf 'LoadPercentage=10\n'
   fi
   exit "${SSH_WMIC_EXIT_CODE:-0}"
+fi
+
+if [[ "$remote_cmd" == "if exist "* && "$remote_cmd" == *"migrated.flag"* && "$remote_cmd" == *"(echo YES) else (echo NO)" ]]; then
+  # Migration marker probe: "if exist "<parent>\.torque-remote-lanes\migrated.flag" (echo YES) else (echo NO)"
+  printf '%s\n' "${SSH_MIGRATION_MARKER_OUTPUT:-YES}"
+  exit 0
+fi
+
+if [[ "$remote_cmd" == "if exist "* && "$remote_cmd" == *"(echo YES) else (echo NO)" && "$remote_cmd" != *"git worktree"* && "$remote_cmd" != *"lane-"* ]]; then
+  # Legacy base .git probe: "if exist "<base>\.git" (echo YES) else (echo NO)"
+  # This path has no lane-N suffix — it is the pre-lane workspace.
+  printf '%s\n' "${SSH_LEGACY_GIT_EXISTS_OUTPUT:-NO}"
+  exit 0
 fi
 
 if [[ "$remote_cmd" == "if exist "* && "$remote_cmd" == *"(echo YES) else (echo NO)" && "$remote_cmd" != *"git worktree"* ]]; then
@@ -1583,6 +1597,56 @@ test_multi_lane_each_command_targets_claimed_lane_path() {
   finish_test "test_multi_lane_each_command_targets_claimed_lane_path"
 }
 
+test_migration_renames_legacy_workspace_to_lane_1() {
+  echo "Test: first boot renames legacy <base> workspace to <base>-lane-1"
+  TEST_ERRORS=()
+  reset_stub_env
+
+  make_test_env
+  local tmp="$LAST_TEST_ENV"
+  # Override remote_project_path to a realistic Windows-style path that
+  # includes the project name so we can assert on it in the rename command.
+  cat > "$tmp/.torque-remote.local.json" <<'EOJSON'
+{
+  "host": "fakehost",
+  "user": "fakeuser",
+  "remote_project_path": "C:\\trt\\torque-public"
+}
+EOJSON
+  export GIT_REV_PARSE_OUTPUT="main"
+  # Stub: marker missing, legacy <base>\.git exists, lane-1\.git does NOT.
+  export SSH_MIGRATION_MARKER_OUTPUT="NO"
+  export SSH_LEGACY_GIT_EXISTS_OUTPUT="YES"
+  export SSH_LANE_GIT_EXISTS_OUTPUT="lane-1:no"
+
+  run_torque_remote "$tmp" echo hi
+
+  expect_eq "exit code is 0" "0" "$RUN_EXIT"
+  expect_contains "migration renames legacy path" "$RUN_REMOTE_COMMANDS" "move "
+  expect_contains "rename target is lane-1" "$RUN_REMOTE_COMMANDS" "torque-public-lane-1"
+  expect_contains "marker file is written" "$RUN_REMOTE_COMMANDS" "migrated.flag"
+
+  finish_test "test_migration_renames_legacy_workspace_to_lane_1"
+}
+
+test_migration_skips_when_marker_present() {
+  echo "Test: subsequent boots skip migration when marker exists"
+  TEST_ERRORS=()
+  reset_stub_env
+
+  make_test_env
+  local tmp="$LAST_TEST_ENV"
+  export GIT_REV_PARSE_OUTPUT="main"
+  export SSH_MIGRATION_MARKER_OUTPUT="YES"
+
+  run_torque_remote "$tmp" echo hi
+
+  expect_eq "exit code is 0" "0" "$RUN_EXIT"
+  expect_not_contains "no rename command" "$RUN_REMOTE_COMMANDS" "move "
+
+  finish_test "test_migration_skips_when_marker_present"
+}
+
 main() {
   if [[ ! -f "$SCRIPT_UNDER_TEST" ]]; then
     echo "torque-remote script not found: $SCRIPT_UNDER_TEST" >&2
@@ -1627,6 +1691,8 @@ main() {
   test_multi_lane_each_command_targets_claimed_lane_path
   test_cold_start_provisions_from_sibling_lane_1
   test_cold_start_falls_back_to_origin_when_no_sibling
+  test_migration_renames_legacy_workspace_to_lane_1
+  test_migration_skips_when_marker_present
 
   echo ""
   echo "=============================="

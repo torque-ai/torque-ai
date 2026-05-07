@@ -532,6 +532,52 @@ sweep_remote_lane_locks_for_stale() {
 # Sets REMOTE_LANE_INDEX on success.
 #
 # Lock dirs live in a SIBLING directory next to any lane workspace, not
+# Run a one-time idempotent migration: if the legacy <base> workspace
+# exists and the marker file does not, rename <base> to <base>-lane-1
+# and write the marker.
+migrate_legacy_workspace_if_needed() {
+  if [[ -z "${SSH_USER:-}" || -z "${SSH_HOST:-}" || -z "${REMOTE_LANE_WORKSPACE_BASE:-}" ]]; then
+    return 0
+  fi
+
+  local base="$REMOTE_LANE_WORKSPACE_BASE"
+  local parent="${base%\\*}"
+  if [[ "$parent" == "$base" ]]; then
+    parent="${base%/*}"
+  fi
+  local marker="${parent}\\.torque-remote-lanes\\migrated.flag"
+
+  local marker_present
+  marker_present=$(ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" \
+    "if exist \"$marker\" (echo YES) else (echo NO)" \
+    2>/dev/null | tr -d '\r' | tail -1)
+  if [[ "$marker_present" == "YES" ]]; then
+    return 0
+  fi
+
+  local legacy_git_present
+  legacy_git_present=$(ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" \
+    "if exist \"$base\\.git\" (echo YES) else (echo NO)" \
+    2>/dev/null | tr -d '\r' | tail -1)
+
+  local lane_1_path
+  lane_1_path="$(compute_lane_workspace_path "$base" 1)"
+
+  if [[ "$legacy_git_present" == "YES" ]]; then
+    info "Migration: renaming legacy workspace $base → $lane_1_path"
+    ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" \
+      "if not exist \"$parent\\.torque-remote-lanes\" (mkdir \"$parent\\.torque-remote-lanes\") && move \"$base\" \"$lane_1_path\"" \
+      >/dev/null 2>&1 || \
+      warn "Legacy workspace rename failed; lane-1 will be lazy-provisioned from origin"
+  fi
+
+  # Write the marker regardless — even if there was no legacy workspace,
+  # we don't want to re-probe forever.
+  ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" \
+    "if not exist \"$parent\\.torque-remote-lanes\" (mkdir \"$parent\\.torque-remote-lanes\") && type nul > \"$marker\"" \
+    >/dev/null 2>&1 || true
+}
+
 # inside it.  The sync chain runs `git clean -fd` after `git reset --hard`,
 # and `git clean -fd` removes any untracked dir under the worktree.
 # Sibling path is naturally invisible to any git operation scoped to the
@@ -1285,6 +1331,7 @@ case "$TRANSPORT" in
       LANE_COUNT="$(resolve_lane_count)"
       EXPLICIT_LANE="$(resolve_explicit_lane)"
       REMOTE_LANE_WORKSPACE_BASE="$EFFECTIVE_REMOTE_PROJECT_PATH"
+      migrate_legacy_workspace_if_needed
       if ! acquire_any_remote_lane "$LANE_COUNT" "$EXPLICIT_LANE"; then
         warn "Remote sync lock unavailable — falling back to local execution instead of risking remote worktree contamination"
         record_fallback "sync_lock_timeout" "timeout_secs=${TORQUE_REMOTE_LANE_TIMEOUT_SECS:-${TORQUE_REMOTE_SYNC_LOCK_TIMEOUT_SECS:-1800}}"
