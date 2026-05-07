@@ -1256,6 +1256,41 @@ test_lane_count_cli_flag_beats_env() {
   finish_test "test_lane_count_cli_flag_beats_env"
 }
 
+test_lane_workspace_path_appends_suffix() {
+  echo "Test: lane workspace path appends -lane-N suffix to base"
+  TEST_ERRORS=()
+  reset_stub_env
+
+  make_test_env
+  local tmp="$LAST_TEST_ENV"
+  export GIT_REV_PARSE_OUTPUT="main"
+
+  run_torque_remote "$tmp" --__internal-print-lane-paths "C:\\trt\\torque-public" 3
+
+  expect_eq "exit code is 0" "0" "$RUN_EXIT"
+  expect_contains "workspace path includes -lane-3 suffix" "$RUN_STDOUT" "C:\\trt\\torque-public-lane-3"
+  expect_contains "lock dir is sibling at .torque-remote-lanes" "$RUN_STDOUT" "C:\\trt\\.torque-remote-lanes\\.locks\\lane-3"
+
+  finish_test "test_lane_workspace_path_appends_suffix"
+}
+
+test_lane_workspace_path_lane_1_is_distinct_from_legacy() {
+  echo "Test: lane-1 path is distinct from the legacy single-workspace path"
+  TEST_ERRORS=()
+  reset_stub_env
+
+  make_test_env
+  local tmp="$LAST_TEST_ENV"
+  export GIT_REV_PARSE_OUTPUT="main"
+
+  run_torque_remote "$tmp" --__internal-print-lane-paths "C:\\trt\\torque-public" 1
+
+  expect_eq "exit code is 0" "0" "$RUN_EXIT"
+  expect_contains "lane-1 workspace path appends suffix" "$RUN_STDOUT" "C:\\trt\\torque-public-lane-1"
+
+  finish_test "test_lane_workspace_path_lane_1_is_distinct_from_legacy"
+}
+
 main() {
   if [[ ! -f "$SCRIPT_UNDER_TEST" ]]; then
     echo "torque-remote script not found: $SCRIPT_UNDER_TEST" >&2
@@ -1288,6 +1323,8 @@ main() {
   test_lane_count_resolves_default_to_1
   test_lane_count_env_var_overrides_default
   test_lane_count_cli_flag_beats_env
+  test_lane_workspace_path_appends_suffix
+  test_lane_workspace_path_lane_1_is_distinct_from_legacy
 
   echo ""
   echo "=============================="

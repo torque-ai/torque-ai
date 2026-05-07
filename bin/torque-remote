@@ -401,6 +401,29 @@ resolve_explicit_lane() {
   fi
 }
 
+# Compute the per-lane workspace path. base is the legacy single-workspace
+# path (e.g., "C:\trt\torque-public"); index is 1-based.
+compute_lane_workspace_path() {
+  local base="$1"
+  local index="$2"
+  printf '%s-lane-%s\n' "$base" "$index"
+}
+
+# Compute the per-lane lock dir. Lock dirs live in a sibling directory next
+# to the workspace base, NOT inside any lane workspace, so `git clean -fd`
+# cannot self-clobber.
+#   base="C:\trt\torque-public" → "C:\trt\.torque-remote-lanes\.locks\lane-3"
+compute_lane_lock_dir() {
+  local base="$1"
+  local index="$2"
+  # Strip the trailing leaf from base to get the parent directory.
+  local parent="${base%\\*}"
+  if [[ "$parent" == "$base" ]]; then
+    parent="${base%/*}"
+  fi
+  printf '%s\\.torque-remote-lanes\\.locks\\lane-%s\n' "$parent" "$index"
+}
+
 acquire_remote_sync_lock() {
   if [[ -z "${SSH_USER:-}" || -z "${SSH_HOST:-}" || -z "${EFFECTIVE_REMOTE_PROJECT_PATH:-}" ]]; then
     return 0
@@ -547,7 +570,7 @@ create_local_state_bundle() {
 # returns in <1s.
 _is_internal_fast_path=0
 for _arg in "$@"; do
-  if [[ "$_arg" == "--__internal-print-routing-mode" || "$_arg" == "--__internal-print-lane-count" ]]; then
+  if [[ "$_arg" == "--__internal-print-routing-mode" || "$_arg" == "--__internal-print-lane-count" || "$_arg" == "--__internal-print-lane-paths" ]]; then
     _is_internal_fast_path=1
     break
   fi
@@ -645,6 +668,14 @@ while [[ "${1:-}" == --* ]]; do
       # Lets tests assert lane count resolution (CLI/env/config/default) without
       # paying for a full sync. Not a public API.
       resolve_lane_count
+      exit 0
+      ;;
+    --__internal-print-lane-paths)
+      # Test-only fast-path: print "<workspace>\n<lock-dir>\n" for the given base+index.
+      # Args: --__internal-print-lane-paths <base> <index>
+      [[ $# -lt 3 ]] && die "Invalid --__internal-print-lane-paths args (need <base> <index>)"
+      printf '%s\n' "$(compute_lane_workspace_path "$2" "$3")"
+      printf '%s\n' "$(compute_lane_lock_dir "$2" "$3")"
       exit 0
       ;;
     --branch)
