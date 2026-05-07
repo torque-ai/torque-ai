@@ -7,6 +7,7 @@ const {
   getText,
   mkTask,
 } = require('./vitest-setup');
+const { getVitestTemplateBufferPath } = require('./vitest-template-paths');
 const {
   handleHashlineRead,
   handleHashlineEdit,
@@ -23,7 +24,7 @@ beforeAll(() => {
 });
 
 beforeEach(() => {
-  db.resetForTest(fs.readFileSync(path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf')));
+  db.resetForTest(fs.readFileSync(getVitestTemplateBufferPath()));
   outsideFilePath = path.join(
     tempDir,
     `hashline-outside-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.txt`

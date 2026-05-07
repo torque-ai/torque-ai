@@ -3,8 +3,9 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { getVitestTemplateBufferPath } = require('./vitest-template-paths');
 
-const TEMPLATE_BUF = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
+const TEMPLATE_BUF = getVitestTemplateBufferPath();
 
 function freshRequire(modulePath) {
   delete require.cache[require.resolve(modulePath)];

@@ -17,6 +17,7 @@ const { randomUUID } = require('crypto');
 const taskManager = require('../task-manager');
 const providerRoutingCore = require('../db/provider/routing-core');
 const { setupTestDbOnly, teardownTestDb, getText } = require('./vitest-setup');
+const { getVitestTemplateBufferPath } = require('./vitest-template-paths');
 
 // Use real modules for index and routing tests, with temporary DB roots per test.
 
@@ -66,7 +67,7 @@ describe('index.killStaleInstance process safety', () => {
         const tasksDb = path.join(path.dirname(pidFile), 'tasks.db');
         const needsSeed = !fs.existsSync(tasksDb) || fs.statSync(tasksDb).size === 0;
         if (needsSeed) {
-          const templateBuf = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
+          const templateBuf = getVitestTemplateBufferPath();
           if (fs.existsSync(templateBuf)) {
             fs.copyFileSync(templateBuf, tasksDb);
           }

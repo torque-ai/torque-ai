@@ -6,11 +6,12 @@ const costTracking = require('../db/cost-tracking');
 const workflowEngine = require('../db/workflow-engine');
 const { setupTestDbModule, teardownTestDb } = require('./vitest-setup');
 const taskCore = require('../db/task-core');
+const { getVitestTemplateBufferPath } = require('./vitest-template-paths');
 
 let db, templateBuffer;
 
 beforeAll(() => {
-  templateBuffer = fs.readFileSync(path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf'));
+  templateBuffer = fs.readFileSync(getVitestTemplateBufferPath());
   ({ db } = setupTestDbModule('../db/cost-tracking', 'db-cost-tracking'));
   costTracking.setGetTask((taskId) => taskCore.getTask(taskId));
 });

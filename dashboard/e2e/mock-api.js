@@ -447,7 +447,12 @@ function route(method, pathname, query) {
 
 let server = null;
 
-export function startMockApi(port = 3456) {
+function getDefaultMockApiPort() {
+  const configured = Number.parseInt(process.env.TORQUE_DASHBOARD_PORT || '', 10);
+  return Number.isFinite(configured) && configured > 0 ? configured : 3456;
+}
+
+export function startMockApi(port = getDefaultMockApiPort()) {
   return new Promise((resolve, reject) => {
     cancelledTaskIds = new Set();
 

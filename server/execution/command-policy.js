@@ -41,6 +41,10 @@ const COMMAND_PROFILES = {
       match: (cmd, args) => isExecutable(cmd, 'node') && matchesArg(args, 0, '--check'),
     },
     {
+      name: 'node scripts/test-lane.js',
+      match: (cmd, args) => isExecutable(cmd, 'node') && matchesPathArg(args, 0, 'scripts/test-lane.js'),
+    },
+    {
       name: 'git diff',
       match: (cmd, args) => isExecutable(cmd, 'git') && matchesArg(args, 0, 'diff'),
     },
@@ -219,6 +223,12 @@ function isPythonExecutable(command) {
 
 function matchesArg(args, index, expected) {
   return typeof args[index] === 'string' && args[index].toLowerCase() === expected;
+}
+
+function matchesPathArg(args, index, expected) {
+  if (typeof args[index] !== 'string') return false;
+  const actual = args[index].replace(/\\/g, '/').replace(/^\.\//, '').toLowerCase();
+  return actual === expected.toLowerCase();
 }
 
 function matchesPythonModule(args, expectedModule) {

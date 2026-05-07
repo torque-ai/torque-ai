@@ -4,6 +4,7 @@ const path = require('path');
 const { randomUUID } = require('crypto');
 
 const { setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
+const { getVitestTemplateBufferPath } = require('./vitest-template-paths');
 
 let db;
 let testDir;
@@ -15,7 +16,7 @@ let projectConfigCore;
 let featureWorkflow;
 
 beforeAll(() => {
-  templateBuffer = fs.readFileSync(path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf'));
+  templateBuffer = fs.readFileSync(getVitestTemplateBufferPath());
   ({ db, testDir } = setupTestDbOnly('adversarial-review-workflow'));
   taskCore = require('../db/task-core');
   workflowEngine = require('../db/workflow-engine');

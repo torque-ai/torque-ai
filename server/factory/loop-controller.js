@@ -27,6 +27,10 @@ const { createPlanFileIntake } = require('./plan-file-intake');
 const { createPlanReviewer, selectReviewers } = require('./plan-reviewer');
 const { createShippedDetector } = require('./shipped-detector');
 const { createWorktreeRunner, detectDefaultBranch } = require('./worktree-runner');
+const {
+  defaultVerifyCommandForProject,
+  wrapVerifyCommandForTestLane,
+} = require('./test-lane-verify');
 const { extractExplicitVerifyCommand, normalizeVerifyCommand, parsePlanFile } = require('./plan-parser');
 const {
   buildProviderLaneTaskMetadata,
@@ -544,10 +548,6 @@ function normalizeWorktreePathForCompare(worktreePath) {
   } catch (_err) {
     return String(worktreePath).trim().replace(/\\/g, '/').toLowerCase();
   }
-}
-
-function taskHasFactoryTag(task, tag) {
-  return normalizeTaskTags(task).includes(tag);
 }
 
 function findReplacementWorktreeOwner({
@@ -6999,20 +6999,30 @@ function readWorkItemPlanText(workItem) {
 
 function resolveProjectVerifyCommand(project) {
   const fromFactoryConfig = normalizeVerifyCommand(project?.config?.verify_command);
-  if (fromFactoryConfig) return { command: fromFactoryConfig, source: 'factory_project_config' };
+  if (fromFactoryConfig) {
+    return {
+      command: wrapVerifyCommandForTestLane(fromFactoryConfig, { projectPath: project?.path }),
+      source: 'factory_project_config',
+    };
+  }
 
   if (project && project.name) {
     try {
       const projectConfigCore = require('../db/project-config-core');
       const defaults = projectConfigCore.getProjectConfig(project.name);
       const fromDefaults = normalizeVerifyCommand(defaults?.verify_command);
-      if (fromDefaults) return { command: fromDefaults, source: 'project_defaults' };
+      if (fromDefaults) {
+        return {
+          command: wrapVerifyCommandForTestLane(fromDefaults, { projectPath: project?.path }),
+          source: 'project_defaults',
+        };
+      }
     } catch (_pccErr) {
       void _pccErr;
     }
   }
 
-  return { command: 'cd server && npx vitest run', source: 'fallback_default' };
+  return { command: defaultVerifyCommandForProject(project?.path), source: 'fallback_default' };
 }
 
 function resolveWorkItemVerifyCommand(workItem) {
@@ -7034,7 +7044,12 @@ function resolveWorkItemVerifyCommand(workItem) {
 
 function resolveFactoryVerifyCommand({ project, workItem } = {}) {
   const workItemCommand = resolveWorkItemVerifyCommand(workItem);
-  if (workItemCommand) return workItemCommand;
+  if (workItemCommand) {
+    return {
+      command: wrapVerifyCommandForTestLane(workItemCommand.command, { projectPath: project?.path }),
+      source: workItemCommand.source,
+    };
+  }
   return resolveProjectVerifyCommand(project);
 }
 

@@ -6,7 +6,8 @@ const fs = require('fs');
 const crypto = require('crypto');
 
 const { setupTestDb, teardownTestDb } = require('./vitest-setup');
-const TEMPLATE_BUF_PATH = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
+const { getVitestTemplateBufferPath } = require('./vitest-template-paths');
+const TEMPLATE_BUF_PATH = getVitestTemplateBufferPath();
 
 function createMockResponse() {
   let resolve;

@@ -24,12 +24,12 @@
  */
 
 const fs = require('fs');
-const os = require('os');
 const path = require('path');
 const Module = require('module');
 const { EventEmitter } = require('events');
 const { PassThrough } = require('stream');
 const childProcess = require('child_process');
+const { getVitestWorkerRoot } = require('./vitest-template-paths');
 
 function wireSharedServerNodeModules() {
   // Keep worker setup to path wiring only; importing high fan-out server modules here
@@ -46,7 +46,7 @@ function wireSharedServerNodeModules() {
 
 wireSharedServerNodeModules();
 
-const TEST_DATA_ROOT = path.join(os.tmpdir(), 'torque-vitest-workers');
+const TEST_DATA_ROOT = getVitestWorkerRoot();
 const workerId = process.env.VITEST_WORKER_ID || process.env.TEST_WORKER_ID || String(process.pid);
 const workerDataDir = path.join(TEST_DATA_ROOT, `worker-${workerId}`);
 

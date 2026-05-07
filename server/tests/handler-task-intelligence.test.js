@@ -1,5 +1,6 @@
 const { randomUUID } = require('crypto');
 const { setupTestDb, teardownTestDb, getText } = require('./vitest-setup');
+const { getVitestTemplateBufferPath } = require('./vitest-template-paths');
 
 vi.mock('../handlers/workflow-handlers', () => ({}));
 
@@ -45,7 +46,7 @@ beforeAll(() => {
 });
 
 beforeEach(() => {
-  db.resetForTest(require('fs').readFileSync(require('path').join(require('os').tmpdir(), 'torque-vitest-template', 'template.db.buf')));
+  db.resetForTest(require('fs').readFileSync(getVitestTemplateBufferPath()));
 });
 
 afterAll(() => {

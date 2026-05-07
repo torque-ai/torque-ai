@@ -13,6 +13,19 @@ These rules apply to future Codex sessions working in this repository:
 5) Docs-only changes may merge without a restart, but still use a worktree and state that no restart is required.
 6) Be patient with restart barriers. Some Codex/factory tasks normally run 30-60 minutes, so `await_restart` may need to hold the barrier for a long drain. Do not cancel, bypass, or declare the barrier stuck unless task status shows a real stall or the user approves an emergency override.
 
+## Parallel Test Lanes
+
+When multiple agents or shells need to run TORQUE tests at the same time, use the lane launcher instead of ad hoc parallel Vitest/Playwright commands:
+
+```powershell
+scripts/test-lane.ps1 -Lane 2 -Preset server-smoke
+scripts/test-lane.ps1 -Lane 3 -Preset server-file -File server/tests/api-server.test.js
+scripts/test-lane.ps1 -Lane 4 -Preset dashboard-e2e
+scripts/test-lane.ps1 -Lane auto -Preset server-smoke
+```
+
+The launcher isolates `TORQUE_DATA_DIR`, test sandbox roots, temp/cache paths, coverage/output folders, and Dashboard/API/MCP ports per lane. Use `-Lane auto` for factory-style verification so each run claims the first free lane. Factory verification wraps raw `verify_command` values through `scripts/test-lane.js --lane auto` when the project contains the launcher. See `docs/testing-lanes.md` for the lane map and env contract.
+
 ## task-reviewer
 
 name: task-reviewer

@@ -22,6 +22,12 @@ const inner = serverConfig.test || (serverConfig.default && serverConfig.default
 
 const SERVER_DIR = path.join(__dirname, 'server');
 
+function rebaseCoverageReportsDirectory(reportsDirectory) {
+  if (!reportsDirectory) return reportsDirectory;
+  if (path.isAbsolute(reportsDirectory)) return reportsDirectory;
+  return `${SERVER_DIR.replace(/\\/g, '/')}/${reportsDirectory}`;
+}
+
 function rebase(p) {
   if (!p) return p;
   if (path.isAbsolute(p)) return p;
@@ -60,9 +66,7 @@ module.exports = {
           ...inner.coverage,
           include: rebaseList(inner.coverage.include),
           exclude: rebaseList(inner.coverage.exclude),
-          reportsDirectory: inner.coverage.reportsDirectory
-            ? `${SERVER_DIR.replace(/\\/g, '/')}/${inner.coverage.reportsDirectory}`
-            : inner.coverage.reportsDirectory,
+          reportsDirectory: rebaseCoverageReportsDirectory(inner.coverage.reportsDirectory),
         }
       : inner.coverage,
   },

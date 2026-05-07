@@ -451,10 +451,11 @@ describe('Item 23: pending_provider_switch in workflow lifecycle', () => {
     const workflowEngine = require('../db/workflow-engine');
     const projectConfigCore = require('../db/project-config-core');
     const taskCore = require('../db/task-core');
+    const { getVitestTemplateBufferPath } = require('./vitest-template-paths');
 
     let testDir, origDataDir, db, mod;
     let startCalls, cancelCalls, queueCalls;
-    const TEMPLATE_BUF_PATH = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
+    const TEMPLATE_BUF_PATH = getVitestTemplateBufferPath();
     let templateBuffer;
 
     function setup() {

@@ -4,6 +4,7 @@ const configuredMaxWorkers = Number.parseInt(process.env.VITEST_MAX_WORKERS || '
 const workerCap = Number.isFinite(configuredMaxWorkers) && configuredMaxWorkers > 0
   ? configuredMaxWorkers
   : 8;
+const coverageDir = process.env.TORQUE_VITEST_COVERAGE_DIR || process.env.TORQUE_COVERAGE_DIR || './coverage';
 
 module.exports = {
   test: {
@@ -41,7 +42,7 @@ module.exports = {
     coverage: {
       provider: 'v8',
       reporter: ['text', 'text-summary', 'lcov'],
-      reportsDirectory: './coverage',
+      reportsDirectory: coverageDir,
       include: [
         'api/**/*.js',
         'ci/**/*.js',

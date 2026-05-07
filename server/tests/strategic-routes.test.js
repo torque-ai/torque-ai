@@ -11,6 +11,7 @@ const taskCore = require('../db/task-core');
 const providerRoutingCore = require('../db/provider/routing-core');
 const fileTracking = require('../db/file/tracking');
 const strategic = require('../dashboard/routes/analytics');
+const { getVitestTemplateBufferPath } = require('./vitest-template-paths');
 
 let db;
 function initDb() {
@@ -19,10 +20,8 @@ function initDb() {
 
 function resetDb() {
   // Re-init from template buffer for per-test isolation
-  const path = require('path');
-  const os = require('os');
   const fs = require('fs');
-  const TEMPLATE_BUF = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
+  const TEMPLATE_BUF = getVitestTemplateBufferPath();
   const buffer = fs.readFileSync(TEMPLATE_BUF);
   db.resetForTest(buffer);
 }

@@ -16,9 +16,9 @@ const os = require('os');
 const fs = require('fs');
 const hostManagement = require('../db/host/management');
 const { ensureTestSchema } = require('./vitest-setup');
+const { getVitestTemplateBufferPath } = require('./vitest-template-paths');
 
-const TEMPLATE_DIR = path.join(os.tmpdir(), 'torque-vitest-template');
-const TEMPLATE_BUF = path.join(TEMPLATE_DIR, 'template.db.buf');
+const TEMPLATE_BUF = getVitestTemplateBufferPath();
 
 let templateBuffer = null; // Loaded once per worker process
 
