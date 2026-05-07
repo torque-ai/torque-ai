@@ -347,9 +347,9 @@ reap_remote_sync_lock() {
 
 # Read the lane count from configured sources, returning a positive integer.
 # Precedence (highest first):
-#   1. --lanes <N> CLI flag (consumed by parse_lane_flags before this is called)
+#   1. --lanes <N> CLI flag (consumed by the flag-parsing loop before this is called)
 #   2. TORQUE_REMOTE_LANE_COUNT env var
-#   3. .torque-remote.json (project) / personal / global "lane_count" key
+#   3. .torque-remote.json (project) / .torque-remote.local.json (personal) / .torque-remote.json (global) "lane_count" key
 #   4. Default = 1
 resolve_lane_count() {
   local cli="${TORQUE_REMOTE_LANES_CLI:-}"
@@ -373,17 +373,19 @@ resolve_lane_count() {
 }
 
 # Walk the same JSON config files that the transport stack reads and return
-# the first numeric "lane_count" found. Empty string if nothing configured.
+# the first positive-integer "lane_count" found. Empty string if nothing configured.
+# Precedence: project (.torque-remote.json at PROJECT_ROOT) > personal
+# (~/.torque-remote.local.json) > global (~/.torque-remote.json).
 read_lane_count_from_configs() {
   local config_path
   for config_path in \
-    "${PROJECT_LOCAL_REMOTE_CONFIG:-}" \
-    "${PERSONAL_REMOTE_CONFIG:-}" \
-    "${GLOBAL_REMOTE_CONFIG:-}"; do
+    "${PROJECT_CONFIG:-}" \
+    "${GLOBAL_LOCAL:-}" \
+    "${GLOBAL_CONFIG:-}"; do
     [[ -z "$config_path" || ! -f "$config_path" ]] && continue
     local value
-    value="$(json_get "$config_path" "lane_count" 2>/dev/null || true)"
-    if [[ "$value" =~ ^[0-9]+$ ]]; then
+    value="$(json_get "$config_path" '.lane_count' 2>/dev/null || true)"
+    if [[ "$value" =~ ^[1-9][0-9]*$ ]]; then
       printf '%s\n' "$value"
       return 0
     fi
@@ -553,6 +555,7 @@ done
 if [[ "$_is_internal_fast_path" -eq 0 ]]; then
   trap cleanup_on_exit EXIT
 fi
+unset _arg _is_internal_fast_path
 
 # ---- Prerequisites ----
 
