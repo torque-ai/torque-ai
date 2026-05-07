@@ -179,6 +179,7 @@ reset_stub_env() {
   unset TORQUE_REMOTE_TEST_WORKTREE_SUFFIX
   unset TORQUE_REMOTE_LANE_COUNT TORQUE_REMOTE_LANES_CLI
   unset TORQUE_REMOTE_LANE
+  unset TORQUE_REMOTE_LANE_STALE_TTL_SECS TORQUE_REMOTE_LANE_TIMEOUT_SECS
 }
 
 write_stub_argv_dump() {
@@ -1395,6 +1396,57 @@ test_explicit_lane_claims_lane_when_free() {
   finish_test "test_explicit_lane_claims_lane_when_free"
 }
 
+test_cross_host_lane_lock_reaps_via_ttl() {
+  echo "Test: cross-host owner past TTL is reaped"
+  TEST_ERRORS=()
+  reset_stub_env
+
+  make_test_env
+  local tmp="$LAST_TEST_ENV"
+  export GIT_REV_PARSE_OUTPUT="main"
+  export SSH_LOCK_ACQUIRE_SEQUENCE="HELD,ACQUIRED"
+  # Owner host is some other machine; started_at_epoch is far in the past.
+  export SSH_LOCK_OWNER_OUTPUT=$'host=somefarhost\npid=12345\nstarted_at_epoch=1\nlane_index=1'
+  export TORQUE_REMOTE_LANE_STALE_CHECK_SECS=1
+  export TORQUE_REMOTE_LANE_STALE_TTL_SECS=60
+
+  run_torque_remote "$tmp" echo hi
+
+  expect_eq "exit code is 0" "0" "$RUN_EXIT"
+  expect_contains "stderr reports cross-host TTL reap" "$RUN_STDERR" "cross-host owner exceeded TTL"
+  expect_contains "stale lock removed" "$RUN_REMOTE_COMMANDS" "rmdir /s /q"
+
+  finish_test "test_cross_host_lane_lock_reaps_via_ttl"
+}
+
+test_cross_host_lane_lock_within_ttl_is_not_reaped() {
+  echo "Test: cross-host owner within TTL is left alone"
+  TEST_ERRORS=()
+  reset_stub_env
+
+  make_test_env
+  local tmp="$LAST_TEST_ENV"
+  export GIT_REV_PARSE_OUTPUT="main"
+  export TORQUE_REMOTE_LANE_TIMEOUT_SECS=2  # quick fail
+  export TORQUE_REMOTE_LANE_STALE_CHECK_SECS=1
+  export TORQUE_REMOTE_LANE_STALE_TTL_SECS=86400
+  # Owner is fresh — started 5 seconds ago.
+  local now
+  now="$(date +%s)"
+  local recent=$((now - 5))
+  export SSH_LOCK_ACQUIRE_SEQUENCE="HELD,HELD,HELD,HELD"
+  export SSH_LOCK_OWNER_OUTPUT=$'host=somefarhost\npid=12345\nstarted_at_epoch='"$recent"$'\nlane_index=1'
+
+  run_torque_remote "$tmp" echo hi
+
+  # The lane lock failure path falls back to local execution (per Task 5
+  # finding) — exit 0 because the local "echo hi" succeeded. So this test
+  # verifies the absence of the TTL reap message rather than the exit code.
+  expect_not_contains "no TTL reap message" "$RUN_STDERR" "cross-host owner exceeded TTL"
+
+  finish_test "test_cross_host_lane_lock_within_ttl_is_not_reaped"
+}
+
 main() {
   if [[ ! -f "$SCRIPT_UNDER_TEST" ]]; then
     echo "torque-remote script not found: $SCRIPT_UNDER_TEST" >&2
@@ -1433,6 +1485,8 @@ main() {
   test_multi_lane_n_equals_1_skips_probe
   test_explicit_lane_skips_probe_and_fails_fast_when_held
   test_explicit_lane_claims_lane_when_free
+  test_cross_host_lane_lock_reaps_via_ttl
+  test_cross_host_lane_lock_within_ttl_is_not_reaped
 
   echo ""
   echo "=============================="
