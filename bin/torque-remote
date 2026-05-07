@@ -23,6 +23,46 @@ die()  { echo "[torque-remote] ERROR: $*" >&2; exit 1; }
 warn() { echo "[torque-remote] WARNING: $*" >&2; }
 info() { echo "[torque-remote] $*" >&2; }
 
+# Append a single JSONL record to ~/.torque/torque-remote-fallback.log every
+# time torque-remote falls back to local execution. Lets operators ask
+# "which fallbacks happened in the last 24h, and why?" with one query
+# (`grep -c '"reason":"sync_lock_timeout"' ~/.torque/torque-remote-fallback.log`)
+# instead of scraping interleaved sync logs.
+#
+# Best-effort: any error (mkdir, append, missing HOME) is swallowed. The
+# fallback path itself MUST NOT be blocked by telemetry.
+#
+# Args: $1=reason (slug like sync_failed, ssh_unreachable),
+#       $2=detail (free-form short string, may be empty),
+#       $3=command (optional override; defaults to current COMMAND_DISPLAY).
+record_fallback() {
+  local reason="${1:-unknown}" detail="${2:-}" cmd="${3:-${COMMAND_DISPLAY:-}}"
+  local log_dir="${TORQUE_REMOTE_FALLBACK_LOG_DIR:-${HOME}/.torque}"
+  local log_path="${TORQUE_REMOTE_FALLBACK_LOG:-${log_dir}/torque-remote-fallback.log}"
+  local ts project sync_ref host
+  ts="$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo unknown)"
+  project="${PROJECT_NAME:-unknown}"
+  sync_ref="${SYNC_REF:-unknown}"
+  host="${SSH_HOST:-unknown}"
+  # Escape inner double quotes + backslashes for JSON safety. A printf-built
+  # JSONL line keeps the dependency surface to coreutils — no jq required
+  # on the local host (jq is a guard-only soft dependency).
+  local esc_reason esc_detail esc_cmd esc_project esc_sync_ref esc_host
+  esc_reason="$(printf '%s' "$reason" | sed 's/\\/\\\\/g; s/"/\\"/g')"
+  esc_detail="$(printf '%s' "$detail" | sed 's/\\/\\\\/g; s/"/\\"/g')"
+  esc_cmd="$(printf '%s' "$cmd" | sed 's/\\/\\\\/g; s/"/\\"/g')"
+  esc_project="$(printf '%s' "$project" | sed 's/\\/\\\\/g; s/"/\\"/g')"
+  esc_sync_ref="$(printf '%s' "$sync_ref" | sed 's/\\/\\\\/g; s/"/\\"/g')"
+  esc_host="$(printf '%s' "$host" | sed 's/\\/\\\\/g; s/"/\\"/g')"
+  {
+    mkdir -p "$log_dir" 2>/dev/null || return 0
+    printf '{"timestamp":"%s","project":"%s","sync_ref":"%s","host":"%s","pid":%s,"reason":"%s","detail":"%s","command":"%s"}\n' \
+      "$ts" "$esc_project" "$esc_sync_ref" "$esc_host" "$$" "$esc_reason" "$esc_detail" "$esc_cmd" \
+      >> "$log_path" 2>/dev/null || true
+  } >/dev/null 2>&1
+  return 0
+}
+
 json_get_without_jq() {
   local file="$1" field="$2" key raw
   key="${field#.}"
@@ -995,6 +1035,7 @@ case "$TRANSPORT" in
     # Connectivity check
     if ! ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" "echo ok" &>/dev/null; then
       warn "Remote $SSH_HOST unreachable — falling back to local"
+      record_fallback "ssh_unreachable" "host=$SSH_HOST"
       cd "$PROJECT_ROOT"
       set +e
       "${COMMAND_ARGS[@]}"
@@ -1021,6 +1062,7 @@ case "$TRANSPORT" in
 
     if [[ -n "$load_pct" ]] && (( load_pct > LOAD_THRESHOLD )); then
       warn "Remote $SSH_HOST is overloaded (${load_pct}% CPU, threshold ${LOAD_THRESHOLD}%) — falling back to local"
+      record_fallback "remote_overloaded" "load=${load_pct}%/threshold=${LOAD_THRESHOLD}%"
       cd "$PROJECT_ROOT"
       set +e
       "${COMMAND_ARGS[@]}"
@@ -1042,6 +1084,7 @@ case "$TRANSPORT" in
       # serialize. Released in cleanup_on_exit.
       if ! acquire_remote_sync_lock; then
         warn "Remote sync lock unavailable — falling back to local execution instead of risking remote worktree contamination"
+        record_fallback "sync_lock_timeout" "timeout_secs=${TORQUE_REMOTE_SYNC_LOCK_TIMEOUT_SECS:-1800}"
         cd "$PROJECT_ROOT"
         set +e
         "${COMMAND_ARGS[@]}"
@@ -1183,6 +1226,7 @@ case "$TRANSPORT" in
         # warned but proceeded; the LLM verify-reviewer then hallucinated
         # "patch overlay conflicts" against the stale state.
         warn "Sync failed (status=$sync_status) — falling back to local (see $sync_log_path)"
+        record_fallback "sync_failed" "status=$sync_status sync_log=$sync_log_path"
         cd "$PROJECT_ROOT"
         set +e
         "${COMMAND_ARGS[@]}"
