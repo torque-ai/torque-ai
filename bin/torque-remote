@@ -104,20 +104,25 @@ REMOTE_CLEANUP_COMMAND=""
 REMOTE_CLEANUP_REQUIRED="false"
 
 cleanup_temp_dirs() {
-  local dir attempt
+  local dir attempt sleep_secs
   for dir in "${TEMP_DIRS[@]}"; do
     [[ -z "$dir" || ! -d "$dir" ]] && continue
-    # Retry rm -rf up to 3x with backoff. On Windows, Defender (and other
-    # AV/indexers) routinely hold open handles to large files like
-    # local-state.tar (~4GB) and untracked.tar (~4GB) for a few seconds
-    # after the bash process closes them. The first rm -rf often races
-    # those handles and silently leaves the dir on disk — that's how this
-    # script accumulated ~150GB of orphans before this hardening landed.
-    for attempt in 1 2 3; do
+    # Retry rm -rf with exponential backoff (1, 2, 4, 8, 16 → 31s total budget).
+    # On Windows, Defender (and other AV/indexers) routinely hold open handles
+    # to large files like local-state.tar (~4GB) and untracked.tar (~4GB) for
+    # several seconds after the bash process closes them. The prior 3×1s budget
+    # raced AV scans on big bundles, leaving orphans that piled up to ~150GB
+    # on the original report. The 60-min sweep_old_orphans path catches these
+    # eventually, but the WARN-spam-per-cutover was loud enough to be noise.
+    # 31s budget covers the common Defender lock window without making
+    # fast-path cleanup feel slow (single rm typically completes in <100ms).
+    sleep_secs=1
+    for attempt in 1 2 3 4 5; do
       if rm -rf "$dir" 2>/dev/null; then
         break
       fi
-      sleep 1
+      sleep "$sleep_secs"
+      sleep_secs=$((sleep_secs * 2))
     done
     if [[ -d "$dir" ]]; then
       # Loud signal so a future operator can grep for these instead of

@@ -279,9 +279,9 @@ Sync chain is now wrapped in `run_with_timeout "$sync_timeout_secs"` via a `_tor
 
 Load-check probe order is now PowerShell `Get-CimInstance Win32_Processor` first (future-proof; the supported replacement on Windows 10+), wmic second (legacy fallback for older Windows), `/proc/loadavg` third (Linux). Empty `load_pct` after all three skips the threshold check (graceful degrade, matches original fail-open behavior).
 
-### 6. Bundle-cleanup retries don't address active AV scan
+### 6. ✅ ~~Bundle-cleanup retries don't address active AV scan~~ RESOLVED 2026-05-07
 
-`cleanup_temp_dirs` retries 3× with 1s sleep. Defender's full-file scan on a 4GB tar can take 5-10s on the first pass. The 60-min sweep is the real backstop, but the warn message ("leaked, AV likely held handles") fires on every cutover under load. **Action:** Extend retries to 10× with backoff (1, 2, 4, 8, 16 → 30s budget) or use `mv` to a designated quarantine dir + lazy delete.
+`cleanup_temp_dirs` now retries 5× with exponential backoff (1, 2, 4, 8, 16 → 31s total budget) instead of 3× with 1s. Covers the Defender full-file scan window for 4GB local-state.tar/untracked.tar without making fast-path cleanup feel slow (single rm typically completes in <100ms). The 60-min `sweep_old_orphans` backstop still catches anything that survives the 31s budget.
 
 ### 7. CMD-shell-quoted sync chain is one massive line; hard to test in isolation
 
