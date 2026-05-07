@@ -196,9 +196,9 @@ These surfaced during the audit. Each is bounded enough to address in a follow-u
 
 claude-ollama uses claude-cli wrapped around an ollama backend. The `ollama` HTTP endpoint shouldn't go through detached spawn (no subprocess), but the `claude-cli` part technically should. Currently the whole provider is on the legacy pipe path. **Action:** Investigate whether claude-ollama's claude-cli component would benefit from detachment; if yes, route just that subprocess; if no, document why.
 
-### 3. `last_activity_at` is updated optimistically per-chunk
+### 3. `last_activity_at` is updated optimistically per-chunk — **VERIFIED SAFE 2026-05-07**
 
-Every Tail-watcher chunk write updates `last_activity_at` on the row. For high-output tasks (verbose codex sessions), that's many DB writes per second. Probably fine because the writes go to WAL and the task is rare-write-many-read. **Action:** Audit DB query stats for `last_activity_at`-write throughput; if it's a hotspot, batch (write only every 5s, or only on stall-check tick).
+Audit was based on an incorrect read of the chunk handler. The actual code at `execute-cli.js:1722` (and the analog at line 2180) already throttles via `offsetPersistThrottleMs = 2000` — DB writes happen at most once every 2 seconds per stream. For a task with both stdout and stderr, that's max 60 writes/min/task. Already batched. No code change needed.
 
 ### 4. ✅ ~~Wrapper-detection in close-handler is regex-based~~ RESOLVED 2026-05-07
 
@@ -212,9 +212,21 @@ Audit was incorrect. `pruneOldTaskLogs` (`server/utils/task-log-retention.js:154
 
 `completionDetected` is in-memory state; restart loses it. After re-adoption, the new tracker starts with `completionDetected=false`. If the subprocess had already emitted completion patterns in its stdout, the new parent won't know. Consequence: stall detection may force-stop a task that's actually winding down post-completion. Realistic exposure: the wrapper's `[process-exit]` arrival at exit time still triggers normal finalize, so this is "minor cosmetic" not "data loss." **Action:** Persist a `completion_detected_at` column and restore on re-adopt.
 
-### 7. Disk pressure → log truncation contract
+### 7. Disk pressure → log truncation contract — **DOCUMENTED 2026-05-07**
 
-If `<data-dir>` runs out of disk mid-task, log writes start failing (EIO/ENOSPC). The wrapper's stdio = `inherit` means the failure happens inside the child's libc write, which behaves differently per platform. **Action:** Document the failure mode + add a periodic disk-space check that pauses new task admission when free space is below a threshold (e.g. `task_log_disk_min_mb` config).
+When `<data-dir>` runs out of disk mid-task, log writes start failing. The wrapper's `stdio: 'inherit'` means the EIO/ENOSPC happens inside the child's libc `write()` — TORQUE's parent never sees it directly. Behavior depends on the child:
+
+- **codex / codex-spark / claude-cli**: most CLIs treat write failure as fatal and exit non-zero. The wrapper's `child.on('close')` handler still emits the `[process-exit]` annotation (best-effort; if disk is truly full the wrapper's own write may also fail). The close-handler emulation reads what's there and finalizes the task as failed.
+- **stdout/stderr stream divergence**: if stdout fills first but stderr has space (rare with shared volume), the task may report partial output with no error message — operator sees "task completed but result is empty."
+- **`get_task_log_disk_usage` reports `total_bytes`**: operators monitoring the dashboard will see growth approaching disk capacity. No automatic admission gate yet.
+
+**Operator mitigations** (until #7's full action lands):
+- Periodically run `get_task_log_disk_usage` (MCP tool) to track total bytes vs. available disk.
+- Set `task_log_retention_days` aggressively (e.g. `7` for high-throughput environments).
+- Pre-allocate `<data-dir>` on a separate volume so disk pressure doesn't impact `torque.db`.
+- If disk fills, manually delete old `task-logs/<taskId>/` dirs; the next prune cycle will normalize state.
+
+**Deferred from this commit** (still worth doing): periodic disk-space check that pauses new task admission when free space is below `task_log_disk_min_mb` config. Implementation requires `fs.statfs` (Linux/macOS) or `wmic logicaldisk` / PowerShell on Windows; not bundled here because the operator workaround above suffices for current scale.
 
 ### 8. PID-reuse defense relies on log-mtime freshness
 
@@ -241,9 +253,9 @@ Operators viewing a running task on the dashboard can't tell whether a restart w
 
 Operators can now reconstruct "what happened on the last restart" with one grep: `grep '\[re-adopt\]' torque.log`.
 
-### 12. Phase H wiring fix exposed pre-existing test debt
+### 12. Phase H wiring fix exposed pre-existing test debt — **OUT OF SCOPE 2026-05-07**
 
-The Phase H commit pushed `--no-verify` because the full main gate had ~280 failing tests across 19 files (DI Phase 3/4/5 fallout, schema drift, refactored signatures from concurrent sessions). This isn't a detachment issue per se but it's the most recent point where the gate-cleanup arc became blocking. **Action:** Track the gate-cleanup arc as a separate priority; the audit-doc playbook may apply.
+Confirmed not a detachment issue. The ~280 failing tests at Phase H push time were tracked back to concurrent-session arcs (DI Phase 3/4/5 fallout, schema drift, refactored signatures) that pre-dated the subprocess-detachment work. The gate-cleanup arc is a separate priority and would benefit from its own audit doc + drainage; not bundled here. Closed as out-of-scope for the subprocess-detachment audit; future session can pick up "test-infra reliability" as a new audit candidate.
 
 ---
 
