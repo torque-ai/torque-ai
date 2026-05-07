@@ -587,8 +587,13 @@ acquire_any_remote_lane() {
   local count="${1:-1}"
   local explicit="${2:-}"
   local timeout="${TORQUE_REMOTE_LANE_TIMEOUT_SECS:-${TORQUE_REMOTE_SYNC_LOCK_TIMEOUT_SECS:-1800}}"
+  local stale_check="${TORQUE_REMOTE_LANE_STALE_CHECK_SECS:-${TORQUE_REMOTE_SYNC_LOCK_STALE_CHECK_SECS:-10}}"
+  if ! [[ "$stale_check" =~ ^[1-9][0-9]*$ ]]; then
+    stale_check=10
+  fi
   local poll=2
   local elapsed=0
+  local last_stale_check=$((0 - stale_check))
 
   if [[ -n "$explicit" ]]; then
     # Explicit lane mode: try only that lane and fail-fast if held.
@@ -606,11 +611,16 @@ acquire_any_remote_lane() {
         return 0
       fi
     done
-    # All lanes held — sweep for stale ones, then retry the round.
+    # All lanes held. Sweep for stale ones every TORQUE_REMOTE_LANE_STALE_CHECK_SECS
+    # (default 10s) — sweeping each round (every 2s) burns N SSH round-trips per
+    # lane unnecessarily.
     if (( elapsed == 0 )); then
       info "All $count remote lane(s) held; waiting for a free lane..."
     fi
-    sweep_remote_lane_locks_for_stale "$count"
+    if (( elapsed - last_stale_check >= stale_check )); then
+      sweep_remote_lane_locks_for_stale "$count"
+      last_stale_check=$elapsed
+    fi
     sleep "$poll"
     elapsed=$((elapsed + poll))
     if (( elapsed >= timeout )); then
