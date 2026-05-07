@@ -345,6 +345,60 @@ reap_remote_sync_lock() {
     >/dev/null 2>&1
 }
 
+# Read the lane count from configured sources, returning a positive integer.
+# Precedence (highest first):
+#   1. --lanes <N> CLI flag (consumed by parse_lane_flags before this is called)
+#   2. TORQUE_REMOTE_LANE_COUNT env var
+#   3. .torque-remote.json (project) / personal / global "lane_count" key
+#   4. Default = 1
+resolve_lane_count() {
+  local cli="${TORQUE_REMOTE_LANES_CLI:-}"
+  local env="${TORQUE_REMOTE_LANE_COUNT:-}"
+  local config_value=""
+  local count
+
+  if [[ -n "$cli" ]]; then
+    count="$cli"
+  elif [[ -n "$env" ]]; then
+    count="$env"
+  else
+    config_value="$(read_lane_count_from_configs)"
+    count="${config_value:-1}"
+  fi
+
+  if ! [[ "$count" =~ ^[1-9][0-9]*$ ]]; then
+    count=1
+  fi
+  printf '%s\n' "$count"
+}
+
+# Walk the same JSON config files that the transport stack reads and return
+# the first numeric "lane_count" found. Empty string if nothing configured.
+read_lane_count_from_configs() {
+  local config_path
+  for config_path in \
+    "${PROJECT_LOCAL_REMOTE_CONFIG:-}" \
+    "${PERSONAL_REMOTE_CONFIG:-}" \
+    "${GLOBAL_REMOTE_CONFIG:-}"; do
+    [[ -z "$config_path" || ! -f "$config_path" ]] && continue
+    local value
+    value="$(json_get "$config_path" "lane_count" 2>/dev/null || true)"
+    if [[ "$value" =~ ^[0-9]+$ ]]; then
+      printf '%s\n' "$value"
+      return 0
+    fi
+  done
+  printf ''
+}
+
+# Read TORQUE_REMOTE_LANE for explicit-lane mode. Empty string if unset.
+resolve_explicit_lane() {
+  local raw="${TORQUE_REMOTE_LANE:-}"
+  if [[ "$raw" =~ ^[1-9][0-9]*$ ]]; then
+    printf '%s\n' "$raw"
+  fi
+}
+
 acquire_remote_sync_lock() {
   if [[ -z "${SSH_USER:-}" || -z "${SSH_HOST:-}" || -z "${EFFECTIVE_REMOTE_PROJECT_PATH:-}" ]]; then
     return 0
@@ -482,14 +536,21 @@ create_local_state_bundle() {
   printf '%s\n%s\n' "$bundle_tar" "$has_local_state"
 }
 
-# Skip the cleanup-on-exit trap for the routing-mode fast-path. That code
-# path creates no temp dirs and exits immediately after a curl probe — but
-# the trap also fires sweep_old_orphans, which on Windows runs
-# `find /tmp -exec rm -rf` against accumulated torque-remote.* dirs. Under
-# Defender real-time scan that sweep takes 10+ seconds, blowing past the
-# 5s spawnSync timeout in tests/coord-torque-remote-routing.test.js even
-# though the routing decision itself returns in <1s.
-if [[ "${1:-}" != "--__internal-print-routing-mode" ]]; then
+# Skip the cleanup-on-exit trap for internal fast-path flags. Those paths
+# create no temp dirs and exit immediately — but the trap also fires
+# sweep_old_orphans, which on Windows runs `find /tmp -exec rm -rf` against
+# accumulated torque-remote.* dirs. Under Defender real-time scan that sweep
+# takes 10+ seconds, blowing past the 5s spawnSync timeout in
+# tests/coord-torque-remote-routing.test.js even though the decision itself
+# returns in <1s.
+_is_internal_fast_path=0
+for _arg in "$@"; do
+  if [[ "$_arg" == "--__internal-print-routing-mode" || "$_arg" == "--__internal-print-lane-count" ]]; then
+    _is_internal_fast_path=1
+    break
+  fi
+done
+if [[ "$_is_internal_fast_path" -eq 0 ]]; then
   trap cleanup_on_exit EXIT
 fi
 
@@ -565,6 +626,7 @@ coord_select_routing_mode() {
 
 BRANCH_OVERRIDE=""
 SUITE="${TORQUE_REMOTE_DEFAULT_SUITE:-custom}"
+TORQUE_REMOTE_LANES_CLI="${TORQUE_REMOTE_LANES_CLI:-}"
 while [[ "${1:-}" == --* ]]; do
   case "$1" in
     --__internal-print-routing-mode)
@@ -575,11 +637,26 @@ while [[ "${1:-}" == --* ]]; do
       echo "$COORD_ROUTING_MODE"
       exit 0
       ;;
+    --__internal-print-lane-count)
+      # Test-only fast-path: print the resolved lane count and exit.
+      # Lets tests assert lane count resolution (CLI/env/config/default) without
+      # paying for a full sync. Not a public API.
+      resolve_lane_count
+      exit 0
+      ;;
     --branch)
       [[ $# -lt 2 ]] && die "Invalid --branch value: "
       BRANCH_OVERRIDE="$2"
       if [[ ! "$BRANCH_OVERRIDE" =~ ^[a-zA-Z0-9_./-]+$ ]]; then
         die "Invalid --branch value: $BRANCH_OVERRIDE"
+      fi
+      shift 2
+      ;;
+    --lanes)
+      [[ $# -lt 2 ]] && die "Invalid --lanes value: "
+      TORQUE_REMOTE_LANES_CLI="$2"
+      if ! [[ "$TORQUE_REMOTE_LANES_CLI" =~ ^[1-9][0-9]*$ ]]; then
+        die "Invalid --lanes value: $TORQUE_REMOTE_LANES_CLI (must be a positive integer)"
       fi
       shift 2
       ;;
@@ -590,7 +667,7 @@ while [[ "${1:-}" == --* ]]; do
       ;;
     *)
       die "Unknown torque-remote flag: $1
-torque-remote supports --branch <ref> and --suite <name>. If $1 is meant for
+torque-remote supports --branch <ref>, --lanes <N>, and --suite <name>. If $1 is meant for
 your inner command, place it after the command name, e.g.:
   torque-remote npx vitest run $1 ..."
       ;;

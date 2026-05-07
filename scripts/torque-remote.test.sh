@@ -177,6 +177,7 @@ reset_stub_env() {
   unset SSH_LOCK_OWNER_OUTPUT SSH_LOCK_OWNER_READ_EXIT_CODE SSH_LOCK_OWNER_WRITE_EXIT_CODE
   unset SSH_LOCK_REAP_EXIT_CODE TORQUE_REMOTE_SYNC_LOCK_STALE_CHECK_SECS
   unset TORQUE_REMOTE_TEST_WORKTREE_SUFFIX
+  unset TORQUE_REMOTE_LANE_COUNT TORQUE_REMOTE_LANES_CLI
 }
 
 write_stub_argv_dump() {
@@ -1201,6 +1202,60 @@ test_timeout_style_failure_triggers_failsafe_cleanup_round_trip() {
   finish_test "test_timeout_style_failure_triggers_failsafe_cleanup_round_trip"
 }
 
+test_lane_count_resolves_default_to_1() {
+  echo "Test: lane count defaults to 1 when no config provided"
+  TEST_ERRORS=()
+  reset_stub_env
+  unset TORQUE_REMOTE_LANE_COUNT
+
+  make_test_env
+  local tmp="$LAST_TEST_ENV"
+  export GIT_REV_PARSE_OUTPUT="main"
+
+  run_torque_remote "$tmp" --__internal-print-lane-count
+
+  expect_eq "exit code is 0" "0" "$RUN_EXIT"
+  expect_eq "lane count is 1" "1" "$(printf '%s' "$RUN_STDOUT" | tr -d '[:space:]')"
+
+  finish_test "test_lane_count_resolves_default_to_1"
+}
+
+test_lane_count_env_var_overrides_default() {
+  echo "Test: TORQUE_REMOTE_LANE_COUNT env var sets the count"
+  TEST_ERRORS=()
+  reset_stub_env
+
+  make_test_env
+  local tmp="$LAST_TEST_ENV"
+  export GIT_REV_PARSE_OUTPUT="main"
+  export TORQUE_REMOTE_LANE_COUNT=8
+
+  run_torque_remote "$tmp" --__internal-print-lane-count
+
+  expect_eq "exit code is 0" "0" "$RUN_EXIT"
+  expect_eq "lane count is 8" "8" "$(printf '%s' "$RUN_STDOUT" | tr -d '[:space:]')"
+
+  finish_test "test_lane_count_env_var_overrides_default"
+}
+
+test_lane_count_cli_flag_beats_env() {
+  echo "Test: --lanes flag beats TORQUE_REMOTE_LANE_COUNT"
+  TEST_ERRORS=()
+  reset_stub_env
+
+  make_test_env
+  local tmp="$LAST_TEST_ENV"
+  export GIT_REV_PARSE_OUTPUT="main"
+  export TORQUE_REMOTE_LANE_COUNT=4
+
+  run_torque_remote "$tmp" --lanes 12 --__internal-print-lane-count
+
+  expect_eq "exit code is 0" "0" "$RUN_EXIT"
+  expect_eq "lane count is 12 (cli wins)" "12" "$(printf '%s' "$RUN_STDOUT" | tr -d '[:space:]')"
+
+  finish_test "test_lane_count_cli_flag_beats_env"
+}
+
 main() {
   if [[ ! -f "$SCRIPT_UNDER_TEST" ]]; then
     echo "torque-remote script not found: $SCRIPT_UNDER_TEST" >&2
@@ -1230,6 +1285,9 @@ main() {
   test_sync_failure_falls_back_to_local
   test_unknown_leading_flag_errors
   test_timeout_style_failure_triggers_failsafe_cleanup_round_trip
+  test_lane_count_resolves_default_to_1
+  test_lane_count_env_var_overrides_default
+  test_lane_count_cli_flag_beats_env
 
   echo ""
   echo "=============================="
