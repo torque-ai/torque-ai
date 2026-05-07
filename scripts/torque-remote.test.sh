@@ -564,7 +564,10 @@ test_default_syncs_main() {
 
   expect_eq "exit code is 0" "0" "$RUN_EXIT"
   expect_file_contains "local branch detection runs" "$tmp/calls.log" "git [rev-parse] [--abbrev-ref] [HEAD]"
-  expect_file_contains "ssh sync checks out main" "$tmp/calls.log" "git checkout --force main"
+  # After lane path wiring, the workspace is always a lane-suffixed sibling
+  # (<base>-lane-1), which differs from REMOTE_PROJECT_PATH — so sync always
+  # uses the detached-HEAD path (same as the worktree bootstrap path).
+  expect_file_contains "ssh sync checks out main detached" "$tmp/calls.log" "git checkout --force --detach origin/main"
   expect_file_contains "ssh sync resets origin/main" "$tmp/calls.log" "git reset --hard origin/main"
   expect_file_contains "remote execute uses git bash" "$tmp/calls.log" "C:\\progra~1\\Git\\bin\\bash.exe"
 
@@ -587,7 +590,10 @@ test_branch_flag_syncs_override() {
   expect_eq "exit code is 0" "0" "$RUN_EXIT"
   expect_file_not_contains "branch override skips local branch detection" "$tmp/calls.log" "git [rev-parse] [--abbrev-ref] [HEAD]"
   expect_file_not_contains "branch override skips local bundle diff" "$tmp/calls.log" "git [diff] [--binary]"
-  expect_file_contains "ssh sync checks out override branch" "$tmp/calls.log" "git checkout --force wip/foo"
+  # After lane path wiring, the workspace is always a lane-suffixed sibling
+  # (<base>-lane-1), which differs from REMOTE_PROJECT_PATH — so sync always
+  # uses the detached-HEAD path (same as the worktree bootstrap path).
+  expect_file_contains "ssh sync checks out override branch detached" "$tmp/calls.log" "git checkout --force --detach origin/wip/foo"
   expect_file_contains "ssh sync resets origin override branch" "$tmp/calls.log" "git reset --hard origin/wip/foo"
 
   finish_test "test_branch_flag_syncs_override"
@@ -727,7 +733,8 @@ test_config_parses_without_jq() {
 
   expect_eq "exit code is 0" "0" "$RUN_EXIT"
   expect_file_not_contains "jq is not invoked" "$tmp/calls.log" "jq ["
-  expect_file_contains "config still routes over ssh" "$tmp/calls.log" "git checkout --force main"
+  # After lane path wiring, sync always uses detached HEAD mode.
+  expect_file_contains "config still routes over ssh" "$tmp/calls.log" "git checkout --force --detach origin/main"
 
   finish_test "test_config_parses_without_jq"
 }
@@ -1447,6 +1454,45 @@ test_cross_host_lane_lock_within_ttl_is_not_reaped() {
   finish_test "test_cross_host_lane_lock_within_ttl_is_not_reaped"
 }
 
+test_default_workspace_path_targets_lane_1() {
+  echo "Test: default N=1 routes commands to <base>-lane-1 workspace"
+  TEST_ERRORS=()
+  reset_stub_env
+
+  make_test_env
+  local tmp="$LAST_TEST_ENV"
+  export GIT_REV_PARSE_OUTPUT="main"
+
+  run_torque_remote "$tmp" echo hi
+
+  expect_eq "exit code is 0" "0" "$RUN_EXIT"
+  expect_contains "remote sync targets lane-1 path" "$RUN_REMOTE_COMMANDS" "/fake-lane-1"
+
+  finish_test "test_default_workspace_path_targets_lane_1"
+}
+
+test_multi_lane_each_command_targets_claimed_lane_path() {
+  echo "Test: claimed lane K routes commands to <base>-lane-K workspace"
+  TEST_ERRORS=()
+  reset_stub_env
+
+  make_test_env
+  local tmp="$LAST_TEST_ENV"
+  export GIT_REV_PARSE_OUTPUT="main"
+  export TORQUE_REMOTE_LANE_COUNT=4
+  export SSH_LOCK_ACQUIRE_SEQUENCE="HELD,HELD,ACQUIRED"
+  local owner_host
+  owner_host="$(printf '%s' "${COMPUTERNAME:-$(hostname 2>/dev/null || echo unknown)}" | tr '[:upper:]' '[:lower:]' | tr -cd '[:alnum:]_.:-')"
+  export SSH_LOCK_OWNER_OUTPUT=$'host='"$owner_host"$'\npid=1\nstarted_at_epoch=9999999999\nlane_index=1'
+
+  run_torque_remote "$tmp" echo hi
+
+  expect_eq "exit code is 0" "0" "$RUN_EXIT"
+  expect_contains "remote sync targets lane-3 path" "$RUN_REMOTE_COMMANDS" "/fake-lane-3"
+
+  finish_test "test_multi_lane_each_command_targets_claimed_lane_path"
+}
+
 main() {
   if [[ ! -f "$SCRIPT_UNDER_TEST" ]]; then
     echo "torque-remote script not found: $SCRIPT_UNDER_TEST" >&2
@@ -1487,6 +1533,8 @@ main() {
   test_explicit_lane_claims_lane_when_free
   test_cross_host_lane_lock_reaps_via_ttl
   test_cross_host_lane_lock_within_ttl_is_not_reaped
+  test_default_workspace_path_targets_lane_1
+  test_multi_lane_each_command_targets_claimed_lane_path
 
   echo ""
   echo "=============================="

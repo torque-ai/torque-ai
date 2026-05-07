@@ -1246,6 +1246,11 @@ case "$TRANSPORT" in
         exit $exit_code
       fi
 
+      # Lane claimed — rewrite the workspace path so all downstream commands
+      # (sync chain, cd targets, TORQUE_REMOTE_PROJECT_PATH export) target the
+      # claimed lane's workspace.
+      EFFECTIVE_REMOTE_PROJECT_PATH="$(compute_lane_workspace_path "$REMOTE_LANE_WORKSPACE_BASE" "$REMOTE_LANE_INDEX")"
+
       if [[ -n "$BRANCH_OVERRIDE" ]]; then
         if [[ ! "$BRANCH_OVERRIDE" =~ ^[a-zA-Z0-9_./-]+$ ]]; then
           die "Branch '$BRANCH_OVERRIDE' contains unsafe characters"
