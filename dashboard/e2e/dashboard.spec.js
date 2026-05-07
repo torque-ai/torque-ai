@@ -102,6 +102,16 @@ const MOCK_OVERVIEW = {
   active: { running: 1, queued: 1 },
 };
 
+const MOCK_KANBAN_BUCKETS = {
+  pending_approval: { items: [], total: 0 },
+  queued: { items: MOCK_TASKS.filter((t) => t.status === 'queued'), total: 1 },
+  running: { items: MOCK_TASKS.filter((t) => t.status === 'running'), total: 1 },
+  pending_provider_switch: { items: [], total: 0 },
+  completed: { items: MOCK_TASKS.filter((t) => t.status === 'completed'), total: 2 },
+  failed: { items: MOCK_TASKS.filter((t) => t.status === 'failed'), total: 1 },
+  cancelled: { items: [], total: 0 },
+};
+
 const MOCK_TIMESERIES = [
   { date: new Date(Date.now() - 6 * 86400_000).toISOString().slice(0, 10), completed: 12, failed: 2 },
   { date: new Date(Date.now() - 5 * 86400_000).toISOString().slice(0, 10), completed: 15, failed: 1 },
@@ -161,6 +171,32 @@ async function interceptApi(page) {
         data: { items: MOCK_TASKS, total: MOCK_TASKS.length },
         meta: { page: 1, totalPages: 1 },
       }),
+    });
+  });
+
+  // -- V2: Batched Kanban summary --
+  await page.route('**/api/v2/tasks/kanban-summary', (route) => {
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ data: { buckets: MOCK_KANBAN_BUCKETS } }),
+    });
+  });
+
+  // -- V2: Project selectors used by the dashboard toolbar --
+  await page.route('**/api/v2/tasks/list-projects', (route) => {
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ data: [{ name: 'torque-public', task_count: 5 }] }),
+    });
+  });
+
+  await page.route('**/api/v2/projects', (route) => {
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ data: [{ name: 'torque-public', task_count: 5 }] }),
     });
   });
 
@@ -362,6 +398,15 @@ async function interceptApi(page) {
     });
   });
 
+  // -- V2: Factory paused banner --
+  await page.route('**/api/v2/factory/projects*', (route) => {
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ data: { projects: [] } }),
+    });
+  });
+
   // -- V2: Tuning --
   await page.route('**/api/v2/tuning*', (route) => {
     route.fulfill({
@@ -466,9 +511,9 @@ test.beforeEach(async ({ page }) => {
 test('dashboard loads and shows TORQUE title', async ({ page }) => {
   await page.goto('/');
   // The sidebar header contains "TORQUE"
-  await expect(page.locator('h1')).toContainText('TORQUE');
+  await expect(page.getByRole('heading', { name: 'TORQUE' })).toBeVisible();
   // The breadcrumb area also shows "TORQUE"
-  await expect(page.locator('text=TORQUE')).toBeVisible();
+  await expect(page.locator('main').getByText('TORQUE', { exact: true })).toBeVisible();
 });
 
 // ---------------------------------------------------------------------------
@@ -485,13 +530,13 @@ test('sidebar navigation updates the URL', async ({ page }) => {
   await page.locator('nav a', { hasText: 'Providers' }).click();
   await expect(page).toHaveURL(/\/providers/);
 
-  // Click "Hosts" nav link
-  await page.locator('nav a', { hasText: 'Hosts' }).click();
-  await expect(page).toHaveURL(/\/hosts/);
+  // Click "Infrastructure" nav link
+  await page.locator('nav a', { hasText: 'Infrastructure' }).click();
+  await expect(page).toHaveURL(/\/infrastructure/);
 
-  // Click "Budget" nav link
-  await page.locator('nav a', { hasText: 'Budget' }).click();
-  await expect(page).toHaveURL(/\/budget/);
+  // Click "Operations" nav link
+  await page.locator('nav a', { hasText: 'Operations' }).click();
+  await expect(page).toHaveURL(/\/operations/);
 
   // Click "Kanban" to go back home
   await page.locator('nav a', { hasText: 'Kanban' }).click();
@@ -653,9 +698,9 @@ test('kanban view renders stat cards', async ({ page }) => {
   // Wait for the "Today" label to appear (signals loading is complete).
   await expect(page.locator('text=Today').first()).toBeVisible({ timeout: 15000 });
 
-  // The overview mock returns today.total = 23
-  // Use exact match to avoid matching "TS2304" in task error text
-  await expect(page.getByText('23', { exact: true })).toBeVisible({ timeout: 5000 });
+  // The overview mock returns today.total = 23.
+  const todayCard = page.locator('.stat-gradient-blue', { hasText: 'Today' });
+  await expect(todayCard.getByText('23', { exact: true })).toBeVisible({ timeout: 5000 });
 
   // Check "Running" stat card appears (also used in Kanban column headers,
   // so use .first() to avoid ambiguity)
@@ -700,6 +745,6 @@ test('sidebar collapses at mobile viewport width', async ({ page }) => {
   await expect(page.locator('nav a', { hasText: 'History' })).toBeVisible();
 
   // Click a nav link -- sidebar should close on route change
-  await page.locator('nav a', { hasText: 'Hosts' }).click();
-  await expect(page).toHaveURL(/\/hosts/);
+  await page.locator('nav a', { hasText: 'Infrastructure' }).click();
+  await expect(page).toHaveURL(/\/infrastructure/);
 });
