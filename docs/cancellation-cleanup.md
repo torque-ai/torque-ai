@@ -196,9 +196,9 @@ The audit's "misleading logs" concern is real but is an observability issue, not
 
 Documented in the "Abandon mode contract" section above. Covers: what abandon does (DB row, subprocess left alive, tracking released, log files keep accumulating), what it does NOT do (no kill guarantee, no successor handoff, no worktree cleanup), the three-mode comparison table (default/force/abandon), explicit operator responsibility (`ps`/`tasklist` on the PID after the call), and the three wiring sites (`task-cancellation.js`, MCP tool handler, tool def description).
 
-### 9. Finalization-marker idle timeout vs factory hard-cap mismatch
+### 9. ✅ ~~Finalization-marker idle timeout vs factory hard-cap mismatch~~ RESOLVED 2026-05-07
 
-Factory plan generation can legitimately run 30-60min. If close handler is doing post-task work tied to that, the finalization marker's 15min default could go stale. Config `finalizing_task_stale_minutes` exists but isn't documented as factory-correlated. **Action:** Document the relationship in `docs/factory.md` or add a derived-config helper.
+`docs/factory.md` gains a new "Long-running task config: `finalizing_task_stale_minutes`" subsection documenting the relationship: 15-min default is sized for general-purpose tasks, not factory-scale work; raise to 30-60 min if factory plan-generation regularly takes >15 min; pair with `TORQUE_CLEANUP_GUARD_TTL_MS` so both values stay aligned (raising one in isolation reopens the gap #3 closed). Symptom-of-mistuning callout included.
 
 ### 10. cancelTask after task moved to retry_scheduled is partially guarded
 
