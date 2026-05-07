@@ -387,10 +387,11 @@ if [[ ( "$remote_cmd" == *".torque-remote-lanes"* || "$remote_cmd" == *".torque-
 fi
 
 if [[ ( "$remote_cmd" == *".torque-remote-lanes"* || "$remote_cmd" == *".torque-remote-sync.lock"* ) && "$remote_cmd" == *"owner.env"* && "$remote_cmd" == *"type"* ]]; then
+  # Production now uses `type file 2>nul` which prints empty on missing file.
+  # The stub mirrors this — empty stdout when no owner output is set, so the
+  # empty-owner code path in remote_lane_lock_is_stale gets exercised correctly.
   if [[ "${SSH_LOCK_OWNER_OUTPUT+x}" == "x" && -n "$SSH_LOCK_OWNER_OUTPUT" ]]; then
     printf '%s\n' "$SSH_LOCK_OWNER_OUTPUT"
-  else
-    printf 'NO_OWNER\n'
   fi
   exit "${SSH_LOCK_OWNER_READ_EXIT_CODE:-0}"
 fi
