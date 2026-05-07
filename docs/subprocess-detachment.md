@@ -200,9 +200,9 @@ claude-ollama uses claude-cli wrapped around an ollama backend. The `ollama` HTT
 
 Every Tail-watcher chunk write updates `last_activity_at` on the row. For high-output tasks (verbose codex sessions), that's many DB writes per second. Probably fine because the writes go to WAL and the task is rare-write-many-read. **Action:** Audit DB query stats for `last_activity_at`-write throughput; if it's a hotspot, batch (write only every 5s, or only on stall-check tick).
 
-### 4. Wrapper-detection in close-handler is regex-based
+### 4. ✅ ~~Wrapper-detection in close-handler is regex-based~~ RESOLVED 2026-05-07
 
-Close handler reads the last N bytes of stderr.log looking for the `[process-exit]` annotation regex. If the regex changes shape (someone updates `process-exit-wrapper.js`'s emit format), the handler silently misclassifies the exit. **Action:** Pin both ends (writer + reader) to the same constant; add a regression test that round-trips an exit event through the wrapper format.
+`server/utils/process-exit-format.js` is the single source of truth for the `[process-exit]` annotation contract — exports `PROCESS_EXIT_PREFIX`, `PROCESS_EXIT_LINE_REGEX`, `formatProcessExitLine` (writer), `parseProcessExitLine` (reader), and `findLastProcessExitAnnotation` (multi-line buffer scan). Both ends now use it: `process-exit-wrapper.js` calls `formatProcessExitLine` instead of building the line inline, and `parseProcessExitAnnotation` in `execute-cli.js` delegates to `findLastProcessExitAnnotation`. New regression test (`tests/process-exit-format.test.js`) round-trips 4 representative cases (0+null, 137+SIGKILL, null+SIGTERM, with/without model) — any future contributor who edits one side without the other will break the test.
 
 ### 5. `task-logs/<taskId>/` directory cleanup is tied to task retention only
 

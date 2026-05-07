@@ -30,6 +30,7 @@
 
 const fs = require('fs');
 const { spawn } = require('child_process');
+const { formatProcessExitLine } = require('./process-exit-format');
 
 const PROGRAM = process.env.TORQUE_PEW_PROGRAM;
 const ARGS_JSON = process.env.TORQUE_PEW_ARGS;
@@ -76,15 +77,14 @@ if (STDIN_FILE) {
 }
 
 function emitAnnotation(code, signal) {
-  const durationMs = Date.now() - start;
-  const parts = [
-    `code=${typeof code === 'number' ? code : 'null'}`,
-    `signal=${signal || 'none'}`,
-    `duration_ms=${durationMs}`,
-    `provider=${PROVIDER}`,
-  ];
-  if (MODEL) parts.push(`model=${MODEL}`);
-  process.stderr.write(`\n[process-exit] ${parts.join(' ')}\n`);
+  const line = formatProcessExitLine({
+    code,
+    signal,
+    durationMs: Date.now() - start,
+    provider: PROVIDER,
+    model: MODEL || undefined,
+  });
+  process.stderr.write(`\n${line}\n`);
 }
 
 child.on('error', (err) => {
