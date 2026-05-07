@@ -528,10 +528,6 @@ sweep_remote_lane_locks_for_stale() {
   REMOTE_LANE_LOCK_DIR=""
 }
 
-# Probe lanes 1..N until one is acquired or wait-timeout hits.
-# Sets REMOTE_LANE_INDEX on success.
-#
-# Lock dirs live in a SIBLING directory next to any lane workspace, not
 # Run a one-time idempotent migration: if the legacy <base> workspace
 # exists and the marker file does not, rename <base> to <base>-lane-1
 # and write the marker.
@@ -578,6 +574,10 @@ migrate_legacy_workspace_if_needed() {
     >/dev/null 2>&1 || true
 }
 
+# Probe lanes 1..N until one is acquired or wait-timeout hits.
+# Sets REMOTE_LANE_INDEX on success.
+#
+# Lock dirs live in a SIBLING directory next to any lane workspace, not
 # inside it.  The sync chain runs `git clean -fd` after `git reset --hard`,
 # and `git clean -fd` removes any untracked dir under the worktree.
 # Sibling path is naturally invisible to any git operation scoped to the
