@@ -34,7 +34,7 @@ Each lane is a full self-contained workspace on the remote. With `TORQUE_REMOTE_
 
 Lock dir is **outside** any lane workspace. This is a direct application of the 2026-04-29 lesson — `git clean -fd` inside a workspace removes any untracked dir under it, so locks must be a sibling, not a child.
 
-Each held lock contains an `owner.json`-shaped metadata blob (or simple newline-delimited fields):
+Each held lock contains owner metadata as newline-delimited `key=value` fields, mirroring the existing sync-lock format:
 
 ```
 owner_host=<hostname-of-claiming-machine>
@@ -99,7 +99,7 @@ The existing sync chain runs unchanged, scoped to the claimed lane:
 
 - Prefer cloning from `C:\trt\torque-public-lane-1` (warm sibling) using `git clone --local` — fastest, uses hardlinks where possible.
 - Fall back to cloning from `origin` over the network if no warm sibling exists.
-- After clone, run `npm ci` (or skip and let the first test command bootstrap).
+- After clone, defer dependency installation. The first test command in the new lane will hit a missing `node_modules` and fail; the operator runs the appropriate setup once. (Avoids guessing per-project install commands and avoids running `npm ci` on dashboards or other sub-trees that may not need it.)
 - Then run the normal sync chain.
 
 Configurable via `TORQUE_REMOTE_LANE_PROVISION_FROM=sibling|origin` (default `sibling`).
