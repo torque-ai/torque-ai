@@ -572,21 +572,36 @@ function createCompletionPipeline(localDeps = {}) {
     try { resolved.runOutputSafeguards = require('../validation/output-safeguards').runOutputSafeguards; }
     catch { /* fall through */ }
   }
+  if (resolved.workflowRuntime) {
+    const wf = resolved.workflowRuntime;
+    if (!resolved.handleWorkflowTermination && typeof wf.handleWorkflowTermination === 'function') {
+      resolved.handleWorkflowTermination = wf.handleWorkflowTermination.bind(wf);
+    }
+    if (!resolved.handlePipelineStepCompletion && typeof wf.handlePipelineStepCompletion === 'function') {
+      resolved.handlePipelineStepCompletion = wf.handlePipelineStepCompletion.bind(wf);
+    }
+  }
+  if (resolved.planProjectResolver) {
+    const ppr = resolved.planProjectResolver;
+    if (!resolved.handleProjectDependencyResolution && typeof ppr.handleProjectDependencyResolution === 'function') {
+      resolved.handleProjectDependencyResolution = ppr.handleProjectDependencyResolution.bind(ppr);
+    }
+  }
   try {
     const { defaultContainer } = require('../container');
     if (!resolved.handleWorkflowTermination && defaultContainer.has?.('workflowRuntime')) {
       try {
         const wf = defaultContainer.get('workflowRuntime');
-        resolved.handleWorkflowTermination = wf.handleWorkflowTermination;
+        resolved.handleWorkflowTermination = wf.handleWorkflowTermination.bind(wf);
         if (!resolved.handlePipelineStepCompletion) {
-          resolved.handlePipelineStepCompletion = wf.handlePipelineStepCompletion;
+          resolved.handlePipelineStepCompletion = wf.handlePipelineStepCompletion.bind(wf);
         }
       } catch { /* not booted yet */ }
     }
     if (!resolved.handleProjectDependencyResolution && defaultContainer.has?.('planProjectResolver')) {
       try {
         const ppr = defaultContainer.get('planProjectResolver');
-        resolved.handleProjectDependencyResolution = ppr.handleProjectDependencyResolution;
+        resolved.handleProjectDependencyResolution = ppr.handleProjectDependencyResolution.bind(ppr);
       } catch { /* not booted yet */ }
     }
   } catch { /* container not available */ }
@@ -613,12 +628,12 @@ function createCompletionPipeline(localDeps = {}) {
  */
 function register(container) {
   // parseTaskMetadata + runOutputSafeguards via require(); handler
-  // functions resolved from workflowRuntime + planProjectResolver
-  // container services inside the factory. Only db is a true container
-  // dep here.
+  // functions come from workflowRuntime + planProjectResolver container
+  // services. Declaring those deps avoids circular defaultContainer lookup
+  // during container boot.
   container.register(
     'completionPipeline',
-    ['db'],
+    ['db', 'workflowRuntime', 'planProjectResolver'],
     (resolved) => createCompletionPipeline(resolved)
   );
 }

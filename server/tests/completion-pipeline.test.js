@@ -61,6 +61,7 @@ installMock('../versioning/auto-release', {
 
 const { TEST_MODELS } = require('./test-helpers');
 const {
+  createCompletionPipeline,
   init,
   fireTerminalTaskHook,
   recordModelOutcome,
@@ -508,6 +509,44 @@ describe('completion-pipeline', () => {
           error_type: 'failure',
         }),
       );
+    });
+
+    it('uses DI workflow and project handlers during post-completion', async () => {
+      const updatedTask = {
+        ...baseTask,
+        workflow_id: 'workflow-100',
+        metadata: '{}',
+      };
+      const db = createMockDb({
+        getTask: vi.fn().mockReturnValue(updatedTask),
+      });
+      const workflowRuntime = {
+        handleWorkflowTermination: vi.fn(),
+        handlePipelineStepCompletion: vi.fn(),
+      };
+      const planProjectResolver = {
+        handleProjectDependencyResolution: vi.fn(),
+      };
+      const runOutputSafeguards = vi.fn().mockResolvedValue(undefined);
+      const service = createCompletionPipeline({
+        db,
+        workflowRuntime,
+        planProjectResolver,
+        parseTaskMetadata: vi.fn().mockReturnValue({}),
+        runOutputSafeguards,
+      });
+
+      await service.handlePostCompletion({
+        taskId: 'task-100',
+        code: 0,
+        task: updatedTask,
+        status: 'completed',
+      });
+
+      expect(workflowRuntime.handleWorkflowTermination).toHaveBeenCalledWith('task-100');
+      expect(planProjectResolver.handleProjectDependencyResolution).toHaveBeenCalledWith('task-100', 'completed');
+      expect(workflowRuntime.handlePipelineStepCompletion).toHaveBeenCalledWith('task-100', 'completed');
+      expect(runOutputSafeguards).toHaveBeenCalledWith('task-100', 'completed', updatedTask);
     });
 
     it('does not record provider health for orchestration failures', async () => {
