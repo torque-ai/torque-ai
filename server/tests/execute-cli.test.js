@@ -84,6 +84,7 @@ function makeDeps(overrides = {}) {
     runningProcesses: overrides.runningProcesses || new Map(),
     safeUpdateTaskStatus: overrides.safeUpdateTaskStatus || vi.fn(),
     finalizeTask: overrides.finalizeTask || vi.fn(async () => ({ finalized: true, queueManaged: false })),
+    finalizingTasks: overrides.finalizingTasks || new Map(),
     tryReserveHostSlotWithFallback: overrides.tryReserveHostSlotWithFallback || vi.fn(() => ({ success: true })),
     markTaskCleanedUp: overrides.markTaskCleanedUp || vi.fn(() => true),
     tryOllamaCloudFallback: overrides.tryOllamaCloudFallback || vi.fn(() => false),
@@ -924,6 +925,73 @@ describe('execute-cli.js', () => {
         })
       );
       expect(runningProcesses.has(taskId)).toBe(false);
+    });
+
+    it('marks detached tasks as finalizing while process tracking is removed', async () => {
+      const logDir = path.join(testDir, 'detached-finalizing-marker');
+      fs.mkdirSync(logDir, { recursive: true });
+      const stdoutPath = path.join(logDir, 'stdout.log');
+      const stderrPath = path.join(logDir, 'stderr.log');
+      fs.writeFileSync(stdoutPath, 'done\n', 'utf8');
+      fs.writeFileSync(stderrPath, '[process-exit] code=0 signal=none duration_ms=25 provider=codex\n', 'utf8');
+
+      const runningProcesses = new Map();
+      const finalizingTasks = new Map();
+      let resolveFinalize;
+      const finalizeTaskSpy = vi.fn(() => new Promise((resolve) => {
+        resolveFinalize = () => resolve({ finalized: true, queueManaged: false });
+      }));
+      const deps = makeDeps({ runningProcesses, finalizingTasks, finalizeTask: finalizeTaskSpy });
+      mod.init(deps);
+
+      const taskId = randomUUID();
+      taskCore.createTask({
+        id: taskId,
+        task_description: 'Detached finalizing marker test',
+        status: 'running',
+        provider: 'codex',
+        working_directory: testDir,
+      });
+      runningProcesses.set(taskId, {
+        output: '',
+        errorOutput: '',
+        outputLogPath: stdoutPath,
+        errorLogPath: stderrPath,
+        outputLogOffset: 0,
+        errorLogOffset: 0,
+        outputTail: { stop: vi.fn() },
+        errorTail: { stop: vi.fn() },
+        provider: 'codex',
+        model: 'gpt-5.5',
+        startTime: Date.now(),
+        completionDetected: false,
+      });
+
+      const finalizing = mod.finalizeDetachedTask({
+        taskId,
+        task: { id: taskId, task_description: 'Detached finalizing marker test' },
+        provider: 'codex',
+        isCodexProvider: false,
+      });
+      await vi.waitFor(() => expect(finalizeTaskSpy).toHaveBeenCalled());
+
+      expect(runningProcesses.has(taskId)).toBe(false);
+      expect(finalizingTasks.get(taskId)).toEqual(expect.objectContaining({
+        stage: 'detached_finalize:finalize_task',
+        provider: 'codex',
+      }));
+      const finalizeOptions = finalizeTaskSpy.mock.calls[0][1];
+      expect(finalizeOptions.finalizationHeartbeat).toEqual(expect.any(Function));
+
+      finalizeOptions.finalizationHeartbeat('test:heartbeat');
+      expect(finalizingTasks.get(taskId)).toEqual(expect.objectContaining({
+        stage: 'test:heartbeat',
+      }));
+
+      resolveFinalize();
+      await finalizing;
+
+      expect(finalizingTasks.has(taskId)).toBe(false);
     });
   });
 

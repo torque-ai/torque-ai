@@ -395,6 +395,7 @@ let _shellEscape = null;
 let _processQueue = null;
 let _isLargeModelBlockedOnHost = null;
 let _finalizeTask = null;
+let _finalizingTasks = null;
 let _helpers = {};
 let _NVM_NODE_PATH = null;
 let _QUEUE_LOCK_HOLDER_ID = '';
@@ -422,6 +423,10 @@ function ensureDeps() {
         if (tracker.cleanupGuard) _taskCleanupGuard = tracker.cleanupGuard;
         if (tracker.stallAttempts) stallRecoveryAttempts = tracker.stallAttempts;
       }
+    }
+    if (!_finalizingTasks) {
+      const finalization = container.peek('finalizationTracker');
+      if (finalization) _finalizingTasks = finalization;
     }
     const tm = container.peek('taskManager');
     if (tm) {
@@ -486,6 +491,7 @@ function init(deps = {}) {
   if (deps.processQueue) _processQueue = deps.processQueue;
   if (deps.isLargeModelBlockedOnHost) _isLargeModelBlockedOnHost = deps.isLargeModelBlockedOnHost;
   if (deps.finalizeTask) _finalizeTask = deps.finalizeTask;
+  if (deps.finalizingTasks) _finalizingTasks = deps.finalizingTasks;
   if (deps.helpers) _helpers = deps.helpers;
   if (deps.NVM_NODE_PATH !== undefined) _NVM_NODE_PATH = deps.NVM_NODE_PATH;
   if (deps.QUEUE_LOCK_HOLDER_ID) _QUEUE_LOCK_HOLDER_ID = deps.QUEUE_LOCK_HOLDER_ID;
@@ -500,6 +506,41 @@ function init(deps = {}) {
 function markTaskCleanedUp(...args) { if (!_markTaskCleanedUp) throw new Error('execute-cli not initialized'); return _markTaskCleanedUp(...args); }
 function processQueue(...args) { return _processQueue ? _processQueue(...args) : undefined; }
 function finalizeTask(...args) { if (!_finalizeTask) throw new Error('execute-cli not initialized'); return _finalizeTask(...args); }
+
+function setFinalizingMarker(taskId, marker) {
+  if (!_finalizingTasks) return;
+  if (typeof _finalizingTasks.set === 'function') {
+    _finalizingTasks.set(taskId, marker);
+    return;
+  }
+  if (typeof _finalizingTasks.add === 'function') {
+    _finalizingTasks.add(taskId);
+  }
+}
+
+function touchFinalizingMarker(taskId, stage) {
+  if (!_finalizingTasks) return;
+  if (typeof _finalizingTasks.touch === 'function') {
+    _finalizingTasks.touch(taskId, stage);
+    return;
+  }
+  if (typeof _finalizingTasks.get === 'function' && typeof _finalizingTasks.set === 'function') {
+    const now = Date.now();
+    const existing = _finalizingTasks.get(taskId);
+    if (existing && typeof existing === 'object') {
+      existing.lastActivityAt = now;
+      existing.stage = stage;
+      existing.touches = (existing.touches || 0) + 1;
+    } else {
+      _finalizingTasks.set(taskId, {
+        startedAt: now,
+        lastActivityAt: now,
+        stage,
+        touches: 1,
+      });
+    }
+  }
+}
 
 /**
  * Build claude-cli command specification.
@@ -1843,10 +1884,20 @@ function spawnAndTrackProcessDetached(taskId, task, cmdSpec, providerArg) {
  */
 async function finalizeDetachedTask({ taskId, task, provider, isCodexProvider }) {
   if (!markTaskCleanedUp(taskId)) return;
+  const finalizationStartedAt = Date.now();
+  setFinalizingMarker(taskId, {
+    startedAt: finalizationStartedAt,
+    lastActivityAt: finalizationStartedAt,
+    stage: 'detached_finalize',
+    provider,
+    touches: 0,
+  });
+  const finalizationHeartbeat = (stage = 'detached_finalize') => touchFinalizingMarker(taskId, stage);
   const proc = runningProcesses.get(taskId);
   let queueManaged = false;
 
   if (proc) {
+    finalizationHeartbeat('detached_finalize:flush_logs');
     if (proc.timeoutHandle) clearTimeout(proc.timeoutHandle);
     if (proc.startupTimeoutHandle) clearTimeout(proc.startupTimeoutHandle);
     if (proc.completionGraceHandle) clearTimeout(proc.completionGraceHandle);
@@ -1892,6 +1943,7 @@ async function finalizeDetachedTask({ taskId, task, provider, isCodexProvider })
   // isolation; see spawnAndTrackProcess top-comment).
   if (proc && isCodexProvider && code === 0 && task.working_directory) {
     try {
+      finalizationHeartbeat('detached_finalize:codex_autocommit');
       const workDir = task.working_directory;
       const statusOut = safeGitExec(['status', '--porcelain'], {
         cwd: workDir, encoding: 'utf-8', timeout: 10000,
@@ -1920,6 +1972,7 @@ async function finalizeDetachedTask({ taskId, task, provider, isCodexProvider })
   }
 
   try {
+    finalizationHeartbeat('detached_finalize:finalize_task');
     const currentTask = db.getTask(taskId);
     if (currentTask && currentTask.status === 'cancelled') {
       logger.info(`[Detached] Task ${taskId} finalize skipped because task is already cancelled`);
@@ -1951,10 +2004,12 @@ async function finalizeDetachedTask({ taskId, task, provider, isCodexProvider })
       filesModified: proc
         ? extractModifiedFiles((proc.output || '') + (proc.errorOutput || ''))
         : [],
+      finalizationHeartbeat,
     });
     queueManaged = Boolean(result?.queueManaged);
   } catch (err) {
     logger.info(`Critical error in detached finalize for task ${taskId}: ${err.message}`);
+    finalizationHeartbeat('detached_finalize:finalize_task_error');
     const result = await finalizeTask(taskId, {
       exitCode: (typeof code === 'number' && code !== 0) ? code : EXIT_CLOSE_HANDLER_EXCEPTION,
       output: proc?.output || '',
@@ -1970,6 +2025,7 @@ async function finalizeDetachedTask({ taskId, task, provider, isCodexProvider })
             detached: true,
           }
         : { provider, detached: true },
+      finalizationHeartbeat,
     });
     queueManaged = queueManaged || Boolean(result?.queueManaged);
   } finally {
@@ -1989,6 +2045,9 @@ async function finalizeDetachedTask({ taskId, task, provider, isCodexProvider })
       logger.info(`[Detached] log compression failed for task ${taskId}: ${gzErr.message}`);
     }
     try { dashboard.notifyTaskUpdated(taskId); } catch { /* non-critical */ }
+    if (_finalizingTasks) {
+      try { _finalizingTasks.delete?.(taskId); } catch { /* non-critical */ }
+    }
     if (!queueManaged) {
       try { processQueue(); } catch (queueErr) {
         logger.info('Failed to process queue:', queueErr.message);
