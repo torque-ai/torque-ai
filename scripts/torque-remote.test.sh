@@ -318,6 +318,13 @@ if [[ "$#" -ge 4 && "$1" == "ls-remote" && "$2" == "--heads" ]]; then
   exit "${GIT_LS_REMOTE_EXIT_CODE:-0}"
 fi
 
+if [[ "$#" -ge 3 && "$1" == "remote" && "$2" == "get-url" && "$3" == "origin" ]]; then
+  # Default to a fake origin URL so provision_lane_workspace_if_needed can
+  # exercise the origin-clone fallback path. Override via GIT_REMOTE_URL.
+  printf '%s\n' "${GIT_REMOTE_URL:-https://example.invalid/fake.git}"
+  exit "${GIT_REMOTE_URL_EXIT_CODE:-0}"
+fi
+
 exit "${GIT_DEFAULT_EXIT_CODE:-0}"
 EOF
 }

@@ -423,6 +423,13 @@ provision_lane_workspace_if_needed() {
   local lane_path="$1"
   local source_pref="${TORQUE_REMOTE_LANE_PROVISION_FROM:-sibling}"
 
+  # Self-guard: only meaningful when SSH transport is configured. Mirrors
+  # attempt_lane_claim's no-ssh early-return so the function is safe for
+  # reuse from any code path.
+  if [[ -z "${SSH_USER:-}" || -z "${SSH_HOST:-}" ]]; then
+    return 0
+  fi
+
   # Quick check: if lane_path\.git exists on remote, skip.
   local probe_result
   probe_result=$(ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" \
@@ -447,6 +454,10 @@ provision_lane_workspace_if_needed() {
   if [[ "$sibling_has_git" == "YES" ]]; then
     clone_cmd="git clone --local \"$sibling_path\" \"$lane_path\""
   else
+    if [[ -z "${REMOTE_LANE_ORIGIN_URL:-}" ]]; then
+      warn "Cannot provision lane $lane_path from origin: no 'origin' remote in local project (set one or pre-provision a sibling lane)"
+      return 0
+    fi
     # Origin clone — let the existing sync chain handle the ref selection.
     clone_cmd="git clone \"$REMOTE_LANE_ORIGIN_URL\" \"$lane_path\""
   fi
