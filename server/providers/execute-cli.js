@@ -1428,25 +1428,12 @@ function spawnAndTrackProcess(taskId, task, cmdSpec, provider) {
  * @param {string} text
  * @returns {{code: number|null, signal: string|null, duration_ms: number|null}|null}
  */
+// Delegates to the shared format module so writer + reader cannot drift.
+// `findLastProcessExitAnnotation` returns the same {code, signal, duration_ms}
+// shape (plus optional provider/model) consumers expect.
 function parseProcessExitAnnotation(text) {
-  if (!text || typeof text !== 'string') return null;
-  const lines = text.split('\n');
-  for (let i = lines.length - 1; i >= 0; i--) {
-    const m = /^\[process-exit\] (.+)$/.exec(lines[i]);
-    if (!m) continue;
-    const fields = {};
-    for (const part of m[1].split(' ')) {
-      const eq = part.indexOf('=');
-      if (eq <= 0) continue;
-      fields[part.slice(0, eq)] = part.slice(eq + 1);
-    }
-    const codeRaw = fields.code;
-    const code = (codeRaw === 'null' || codeRaw === undefined) ? null : Number(codeRaw);
-    const signal = fields.signal === 'none' ? null : (fields.signal || null);
-    const dur = fields.duration_ms !== undefined ? Number(fields.duration_ms) : null;
-    return { code, signal, duration_ms: dur };
-  }
-  return null;
+  const { findLastProcessExitAnnotation } = require('../utils/process-exit-format');
+  return findLastProcessExitAnnotation(text);
 }
 
 const DETACHED_LIVENESS_POLL_MS = 2000;

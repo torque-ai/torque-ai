@@ -200,13 +200,13 @@ claude-ollama uses claude-cli wrapped around an ollama backend. The `ollama` HTT
 
 Every Tail-watcher chunk write updates `last_activity_at` on the row. For high-output tasks (verbose codex sessions), that's many DB writes per second. Probably fine because the writes go to WAL and the task is rare-write-many-read. **Action:** Audit DB query stats for `last_activity_at`-write throughput; if it's a hotspot, batch (write only every 5s, or only on stall-check tick).
 
-### 4. Wrapper-detection in close-handler is regex-based
+### 4. ✅ ~~Wrapper-detection in close-handler is regex-based~~ RESOLVED 2026-05-07
 
-Close handler reads the last N bytes of stderr.log looking for the `[process-exit]` annotation regex. If the regex changes shape (someone updates `process-exit-wrapper.js`'s emit format), the handler silently misclassifies the exit. **Action:** Pin both ends (writer + reader) to the same constant; add a regression test that round-trips an exit event through the wrapper format.
+`server/utils/process-exit-format.js` is the single source of truth for the `[process-exit]` annotation contract — exports `PROCESS_EXIT_PREFIX`, `PROCESS_EXIT_LINE_REGEX`, `formatProcessExitLine` (writer), `parseProcessExitLine` (reader), and `findLastProcessExitAnnotation` (multi-line buffer scan). Both ends now use it: `process-exit-wrapper.js` calls `formatProcessExitLine` instead of building the line inline, and `parseProcessExitAnnotation` in `execute-cli.js` delegates to `findLastProcessExitAnnotation`. New regression test (`tests/process-exit-format.test.js`) round-trips 4 representative cases (0+null, 137+SIGKILL, null+SIGTERM, with/without model) — any future contributor who edits one side without the other will break the test.
 
-### 5. `task-logs/<taskId>/` directory cleanup is tied to task retention only
+### 5. `task-logs/<taskId>/` directory cleanup — **VERIFIED SAFE 2026-05-07**
 
-Phase E gzips on finalize and prunes via `task_log_retention_days`. But the per-task DIRECTORY is not deleted — only the contents. After many tasks, `<data-dir>/task-logs/` accumulates empty dirs. **Action:** Extend the prune scheduler to remove the directory after the last log inside it is removed.
+Audit was incorrect. `pruneOldTaskLogs` (`server/utils/task-log-retention.js:154-200`) already handles empty-dir reaping at lines 178-183: when `dirSizeBytes` reports `entryCount === 0` or `newestMtimeMs === 0`, the dir is `rmSync`-ed without being counted as a delete. So the prune cycle reaps both contents-deleted dirs and dirs that were already empty for any reason. No code change needed.
 
 ### 6. Re-adoption doesn't preserve `completionDetected` flag
 
@@ -220,17 +220,26 @@ If `<data-dir>` runs out of disk mid-task, log writes start failing (EIO/ENOSPC)
 
 Re-adoption's "fresh log mtime" check (`TORQUE_READOPT_LOG_STALE_MS`, default 5 min) catches PID-reuse where the new owner of the recycled PID didn't write to TORQUE's log file. But if a PID is reused by ANOTHER torque-spawned subprocess (rare but possible after rapid restart cycles), both PIDs' logs may be fresh and the wrong subprocess gets re-adopted. **Action:** Add a startup-marker line to each log file (e.g. `[torque-spawn] taskId=<id> wrapper-pid=<pid>`); re-adoption verifies the marker matches the row's taskId before adopting.
 
-### 9. process-exit-wrapper bash signal forwarding is incomplete
+### 9. ✅ ~~process-exit-wrapper bash signal forwarding is incomplete~~ RESOLVED 2026-05-07
 
-Wrapper handles SIGTERM and SIGINT (`['SIGTERM', 'SIGINT'].forEach(...)`) but not SIGHUP, SIGQUIT, or Windows-specific termination signals. If the parent gets SIGHUP and forwards it, the wrapper doesn't pass it on to codex. **Action:** Forward all standard termination signals; document which ones are POSIX-only.
+Wrapper now forwards `SIGTERM`, `SIGINT`, `SIGHUP`, `SIGQUIT`, `SIGBREAK` (Ctrl+Break on Windows). Each registration is wrapped in try/catch so Node throwing on unsupported-signal platforms (e.g. `SIGHUP` on older Windows) doesn't crash the wrapper. The actual `child.kill(sig)` is also try-wrapped (child may have already exited between signal arrival and forward). `SIGKILL` deliberately NOT forwarded — uncatchable, shouldn't be in the list.
 
 ### 10. No dashboard surface for "is this task on the detached path?"
 
 Operators viewing a running task on the dashboard can't tell whether a restart will preserve it. The `subprocess_pid` column would answer but isn't exposed in the dashboard's task detail. **Action:** Add a "detached: yes/no" badge to dashboard task detail; wire from `subprocess_pid IS NOT NULL`.
 
-### 11. Re-adoption logging is sparse
+### 11. ✅ ~~Re-adoption logging is sparse~~ RESOLVED 2026-05-07
 
-`tryReAdoptDetachedSubprocess` returns true/false; the reconciler increments `actions.re_adopted++` on true. But there's no log line for the re-adoption decision itself ("re-adopted task X with PID Y, last activity Z minutes ago"). Forensic reconstruction of "what happened on the last restart" requires correlating multiple log lines. **Action:** Emit a single info-level log per re-adoption decision (success or skip) with reasoning.
+`tryReAdoptDetachedSubprocess` now emits a single info-level log line per decision with `task_id` + `reason`:
+- `no_re_adopt_function` — executeCli not wired
+- `missing_detached_state` — row lacks subprocess_pid / log paths
+- `pid_dead` — `kill -0` failed
+- `log_mtime_stale` — PID-reuse defense fired (includes age + threshold)
+- `adopted` — successful re-adoption (includes log age)
+- `adopter_returned_false` — `executeCli.reAdoptDetachedSubprocess` declined
+- `adopter_threw` (warn level) — exception during adopt
+
+Operators can now reconstruct "what happened on the last restart" with one grep: `grep '\[re-adopt\]' torque.log`.
 
 ### 12. Phase H wiring fix exposed pre-existing test debt
 

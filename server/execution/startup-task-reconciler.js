@@ -522,16 +522,36 @@ function createClone({ original, metadata, resumeContext, taskCore, rawDb }) {
  * cancel-and-clone path); false otherwise.
  */
 function tryReAdoptDetachedSubprocess(original, executeCli, options = {}) {
+  // Re-adoption decision points each emit a single info-level log line
+  // so post-restart forensics ("which detached tasks survived? which got
+  // cancelled and why?") can be reconstructed from a single grep.
+  const taskId = original?.id;
   if (!original || !executeCli || typeof executeCli.reAdoptDetachedSubprocess !== 'function') {
+    safeLog(options.logger, 'info', '[re-adopt] skipped — no executeCli.reAdoptDetachedSubprocess available', {
+      task_id: taskId,
+      reason: 'no_re_adopt_function',
+    });
     return false;
   }
   const subprocessPid = Number(original.subprocess_pid);
   const stdoutPath = original.output_log_path;
   const stderrPath = original.error_log_path;
   if (!Number.isFinite(subprocessPid) || subprocessPid <= 0 || !stdoutPath || !stderrPath) {
+    safeLog(options.logger, 'info', '[re-adopt] skipped — row is missing detached state', {
+      task_id: taskId,
+      reason: 'missing_detached_state',
+      subprocess_pid: original.subprocess_pid,
+      has_stdout_path: Boolean(stdoutPath),
+      has_stderr_path: Boolean(stderrPath),
+    });
     return false;
   }
   if (!isPidAlive(subprocessPid)) {
+    safeLog(options.logger, 'info', '[re-adopt] skipped — PID is no longer alive', {
+      task_id: taskId,
+      reason: 'pid_dead',
+      pid: subprocessPid,
+    });
     return false;
   }
 
@@ -552,14 +572,31 @@ function tryReAdoptDetachedSubprocess(original, executeCli, options = {}) {
     }
   }
   if (!newestMtimeMs || (Date.now() - newestMtimeMs) > staleMs) {
+    safeLog(options.logger, 'info', '[re-adopt] skipped — log mtime is stale (PID-reuse defense)', {
+      task_id: taskId,
+      reason: 'log_mtime_stale',
+      pid: subprocessPid,
+      newest_log_age_ms: newestMtimeMs ? (Date.now() - newestMtimeMs) : null,
+      stale_threshold_ms: staleMs,
+    });
     return false;
   }
 
   try {
-    return Boolean(executeCli.reAdoptDetachedSubprocess(original.id, original));
+    const ok = Boolean(executeCli.reAdoptDetachedSubprocess(original.id, original));
+    safeLog(options.logger, 'info', ok
+      ? '[re-adopt] adopted detached subprocess'
+      : '[re-adopt] reAdoptDetachedSubprocess returned false', {
+      task_id: taskId,
+      reason: ok ? 'adopted' : 'adopter_returned_false',
+      pid: subprocessPid,
+      newest_log_age_ms: Date.now() - newestMtimeMs,
+    });
+    return ok;
   } catch (err) {
-    safeLog(options.logger, 'warn', 'Re-adopt of detached subprocess threw', {
-      task_id: original.id,
+    safeLog(options.logger, 'warn', '[re-adopt] threw — treating as failed', {
+      task_id: taskId,
+      reason: 'adopter_threw',
       pid: subprocessPid,
       error: err.message,
     });
