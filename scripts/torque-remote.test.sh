@@ -180,6 +180,7 @@ reset_stub_env() {
   unset TORQUE_REMOTE_LANE_COUNT TORQUE_REMOTE_LANES_CLI
   unset TORQUE_REMOTE_LANE
   unset TORQUE_REMOTE_LANE_STALE_TTL_SECS TORQUE_REMOTE_LANE_TIMEOUT_SECS
+  unset SSH_LANE_GIT_EXISTS_OUTPUT TORQUE_REMOTE_LANE_PROVISION_FROM
 }
 
 write_stub_argv_dump() {
@@ -409,6 +410,35 @@ if [[ "$remote_cmd" == "wmic cpu get loadpercentage /value" ]]; then
     printf 'LoadPercentage=10\n'
   fi
   exit "${SSH_WMIC_EXIT_CODE:-0}"
+fi
+
+if [[ "$remote_cmd" == "if exist "* && "$remote_cmd" == *"(echo YES) else (echo NO)" && "$remote_cmd" != *"git worktree"* ]]; then
+  # Provision probe: "if exist "<path>\.git" (echo YES) else (echo NO)"
+  # Extract lane index from path (e.g. "...lane-3\.git" → "lane-3").
+  lane_key=""
+  if [[ "$remote_cmd" =~ lane-([0-9]+) ]]; then
+    lane_key="lane-${BASH_REMATCH[1]}"
+  fi
+  git_exists_map="${SSH_LANE_GIT_EXISTS_OUTPUT:-}"
+  result="YES"
+  if [[ -n "$git_exists_map" && -n "$lane_key" ]]; then
+    # Parse "lane-K:yes|no" comma-separated entries.
+    IFS=',' read -r -a entries <<< "$git_exists_map"
+    for entry in "${entries[@]}"; do
+      key="${entry%%:*}"
+      val="${entry##*:}"
+      if [[ "$key" == "$lane_key" ]]; then
+        if [[ "${val,,}" == "no" ]]; then
+          result="NO"
+        else
+          result="YES"
+        fi
+        break
+      fi
+    done
+  fi
+  printf '%s\n' "$result"
+  exit 0
 fi
 
 if [[ "$remote_cmd" == *"git rev-parse --verify origin/"* ]]; then
@@ -1476,6 +1506,54 @@ test_default_workspace_path_targets_lane_1() {
   finish_test "test_default_workspace_path_targets_lane_1"
 }
 
+test_cold_start_provisions_from_sibling_lane_1() {
+  echo "Test: claiming lane-3 with no .git provisions from lane-1 sibling clone"
+  TEST_ERRORS=()
+  reset_stub_env
+
+  make_test_env
+  local tmp="$LAST_TEST_ENV"
+  export GIT_REV_PARSE_OUTPUT="main"
+  export TORQUE_REMOTE_LANE_COUNT=4
+  export SSH_LOCK_ACQUIRE_SEQUENCE="HELD,HELD,ACQUIRED"
+  local owner_host
+  owner_host="$(printf '%s' "${COMPUTERNAME:-$(hostname 2>/dev/null || echo unknown)}" | tr '[:upper:]' '[:lower:]' | tr -cd '[:alnum:]_.:-')"
+  export SSH_LOCK_OWNER_OUTPUT=$'host='"$owner_host"$'\npid=1\nstarted_at_epoch=9999999999\nlane_index=1'
+  # Stub: lane-3 .git does NOT exist; lane-1 .git DOES.
+  export SSH_LANE_GIT_EXISTS_OUTPUT="lane-3:no,lane-1:yes"
+
+  run_torque_remote "$tmp" echo hi
+
+  expect_eq "exit code is 0" "0" "$RUN_EXIT"
+  expect_contains "provision command clones from lane-1 sibling" "$RUN_REMOTE_COMMANDS" "git clone --local"
+  expect_contains "provision target is lane-3" "$RUN_REMOTE_COMMANDS" "/fake-lane-3"
+  expect_contains "provision source is lane-1" "$RUN_REMOTE_COMMANDS" "/fake-lane-1"
+
+  finish_test "test_cold_start_provisions_from_sibling_lane_1"
+}
+
+test_cold_start_falls_back_to_origin_when_no_sibling() {
+  echo "Test: when lane-1 .git doesn't exist either, clone from origin"
+  TEST_ERRORS=()
+  reset_stub_env
+
+  make_test_env
+  local tmp="$LAST_TEST_ENV"
+  export GIT_REV_PARSE_OUTPUT="main"
+  export TORQUE_REMOTE_LANE_COUNT=2
+  export SSH_LOCK_ACQUIRE_SEQUENCE="ACQUIRED"
+  # Lane-1 .git missing; no warm sibling.
+  export SSH_LANE_GIT_EXISTS_OUTPUT="lane-1:no"
+
+  run_torque_remote "$tmp" echo hi
+
+  expect_eq "exit code is 0" "0" "$RUN_EXIT"
+  expect_contains "provision falls back to origin clone" "$RUN_REMOTE_COMMANDS" "git clone "
+  expect_not_contains "no --local flag (clone is from origin)" "$RUN_REMOTE_COMMANDS" "git clone --local"
+
+  finish_test "test_cold_start_falls_back_to_origin_when_no_sibling"
+}
+
 test_multi_lane_each_command_targets_claimed_lane_path() {
   echo "Test: claimed lane K routes commands to <base>-lane-K workspace"
   TEST_ERRORS=()
@@ -1540,6 +1618,8 @@ main() {
   test_cross_host_lane_lock_within_ttl_is_not_reaped
   test_default_workspace_path_targets_lane_1
   test_multi_lane_each_command_targets_claimed_lane_path
+  test_cold_start_provisions_from_sibling_lane_1
+  test_cold_start_falls_back_to_origin_when_no_sibling
 
   echo ""
   echo "=============================="

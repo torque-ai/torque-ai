@@ -416,6 +416,45 @@ compute_lane_workspace_path() {
   printf '%s-lane-%s\n' "$base" "$index"
 }
 
+# After a lane is claimed, ensure the lane workspace has a .git directory.
+# If missing, clone from the sibling lane-1 (warm — fastest, hardlinks where
+# possible) or fall back to cloning from origin.
+provision_lane_workspace_if_needed() {
+  local lane_path="$1"
+  local source_pref="${TORQUE_REMOTE_LANE_PROVISION_FROM:-sibling}"
+
+  # Quick check: if lane_path\.git exists on remote, skip.
+  local probe_result
+  probe_result=$(ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" \
+    "if exist \"$lane_path\\.git\" (echo YES) else (echo NO)" \
+    2>/dev/null | tr -d '\r' | tail -1)
+  if [[ "$probe_result" == "YES" ]]; then
+    return 0
+  fi
+
+  info "Cold-start: provisioning lane workspace at $lane_path"
+  local sibling_path
+  sibling_path="$(compute_lane_workspace_path "$REMOTE_LANE_WORKSPACE_BASE" 1)"
+
+  local sibling_has_git="NO"
+  if [[ "$source_pref" == "sibling" && "$lane_path" != "$sibling_path" ]]; then
+    sibling_has_git=$(ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" \
+      "if exist \"$sibling_path\\.git\" (echo YES) else (echo NO)" \
+      2>/dev/null | tr -d '\r' | tail -1)
+  fi
+
+  local clone_cmd
+  if [[ "$sibling_has_git" == "YES" ]]; then
+    clone_cmd="git clone --local \"$sibling_path\" \"$lane_path\""
+  else
+    # Origin clone — let the existing sync chain handle the ref selection.
+    clone_cmd="git clone \"$REMOTE_LANE_ORIGIN_URL\" \"$lane_path\""
+  fi
+
+  ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" "$clone_cmd" >/dev/null 2>&1 || \
+    warn "Provisioning clone failed for $lane_path; sync chain will retry"
+}
+
 # Compute the per-lane lock dir. Lock dirs live in a sibling directory next
 # to the workspace base, NOT inside any lane workspace, so `git clean -fd`
 # cannot self-clobber.
@@ -1250,6 +1289,11 @@ case "$TRANSPORT" in
       # (sync chain, cd targets, TORQUE_REMOTE_PROJECT_PATH export) target the
       # claimed lane's workspace.
       EFFECTIVE_REMOTE_PROJECT_PATH="$(compute_lane_workspace_path "$REMOTE_LANE_WORKSPACE_BASE" "$REMOTE_LANE_INDEX")"
+
+      # Cold-start provisioning: if the claimed lane has no .git, clone it from
+      # the warm sibling lane-1 (fast, local hardlinks) or from origin.
+      REMOTE_LANE_ORIGIN_URL="$(git remote get-url origin 2>/dev/null || true)"
+      provision_lane_workspace_if_needed "$EFFECTIVE_REMOTE_PROJECT_PATH"
 
       if [[ -n "$BRANCH_OVERRIDE" ]]; then
         if [[ ! "$BRANCH_OVERRIDE" =~ ^[a-zA-Z0-9_./-]+$ ]]; then
