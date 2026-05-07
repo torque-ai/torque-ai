@@ -173,8 +173,20 @@ function armCompletionGraceIfDetected(taskId, proc) {
   }
 
   proc.completionDetected = true;
+  proc.completionDetectedAt = Date.now();
   const graceMs = proc.provider === 'codex' ? COMPLETION_GRACE_CODEX_MS : COMPLETION_GRACE_MS;
   logger.info(`[Completion] Task ${taskId} output indicates work is complete (provider: ${proc.provider}). Starting ${graceMs / 1000}s grace period for natural exit.`);
+  // Persist for re-adoption (subprocess-detachment.md #6 — closes the
+  // gap where a restart would lose the in-memory completionDetected
+  // flag and re-arm stall detection on a task already winding down).
+  // Best-effort write — DB unavailable in some test paths.
+  try {
+    if (deps?.db?.updateTaskStatus && typeof deps.db.updateTaskStatus === 'function') {
+      deps.db.updateTaskStatus(taskId, 'running', {
+        completion_detected_at: new Date(proc.completionDetectedAt).toISOString(),
+      });
+    }
+  } catch { /* best effort */ }
 
   const capturedProc = proc;
   proc.completionGraceHandle = setTimeout(() => {

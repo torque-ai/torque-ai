@@ -2075,6 +2075,22 @@ function resolveReAdoptLastOutputAt(persistedTask) {
   return ms;
 }
 
+// subprocess-detachment.md #6: parse the persisted completion-detection
+// timestamp into a ms-epoch number. Returns null when:
+//   - persistedTask is null/undefined
+//   - completion_detected_at column is unset or empty
+//   - the value isn't a parseable timestamp
+//
+// Callers (reAdoptDetachedSubprocess) treat null as "completion was not
+// previously detected; start cold" and a number as "restore the flag and
+// the original detection moment so the grace-window math is correct."
+function resolveReAdoptCompletionDetectedAt(persistedTask) {
+  const raw = persistedTask?.completion_detected_at;
+  if (!raw) return null;
+  const parsed = Date.parse(raw);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 /**
  * Re-adopt a still-alive detached subprocess after a TORQUE restart.
  *
@@ -2131,6 +2147,14 @@ function reAdoptDetachedSubprocess(taskId, persistedTask) {
 
   const lastOutputAt = resolveReAdoptLastOutputAt(persistedTask);
 
+  // Restore the persisted completion-detection moment so the new
+  // tracker doesn't re-arm the grace window from scratch
+  // (subprocess-detachment.md #6). If the column is null/missing/invalid,
+  // start cold (completionDetected=false) — re-detection on the next
+  // chunk will recover. Presence of a valid timestamp implies the flag
+  // was true.
+  const persistedCompletionAt = resolveReAdoptCompletionDetectedAt(persistedTask);
+
   const procEntry = {
     process: null,
     output: '',
@@ -2147,7 +2171,8 @@ function reAdoptDetachedSubprocess(taskId, persistedTask) {
     provider,
     metadata: persistedTask?.metadata || persistedTask?.task_metadata || null,
     editFormat: null,
-    completionDetected: false,
+    completionDetected: persistedCompletionAt !== null,
+    completionDetectedAt: persistedCompletionAt,
     completionGraceHandle: null,
     lastProgress: 0,
     baselineCommit: persistedTask?.baseline_commit || null,
@@ -2273,6 +2298,7 @@ module.exports = {
   finalizeDetachedTask,
   reAdoptDetachedSubprocess,
   resolveReAdoptLastOutputAt,
+  resolveReAdoptCompletionDetectedAt,
   computeActivityAwareTimeoutDelay,
   parseProcessExitAnnotation,
   shouldUseDetachedPath,

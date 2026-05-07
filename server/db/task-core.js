@@ -46,6 +46,9 @@ const ALLOWED_TASK_COLUMNS = new Set([
   // (PID liveness check + log-file replay from saved offsets).
   'subprocess_pid', 'output_log_path', 'error_log_path',
   'output_log_offset', 'error_log_offset', 'last_activity_at',
+  // subprocess-detachment.md #6 — persisted timestamp restores
+  // completionDetected flag + grace-window math after re-adoption.
+  'completion_detected_at',
 ]);
 
 const TERMINAL_TASK_STATUSES = new Set(['completed', 'failed', 'cancelled', 'skipped']);
@@ -954,6 +957,11 @@ const LIST_TASKS_ALLOWED_COLUMNS = new Set([
   // endpoint returned cancel_reason: null even though the DB column was
   // populated, defeating the dashboard's cancellation-reason badge.
   'cancel_reason',
+  // subprocess-detachment.md #6 — same silent-drop class as cancel_reason.
+  // Re-adoption reads this from getTask (full row), but dashboard list
+  // queries also need it to surface "task is winding down (completion
+  // detected at X)" badges without an extra SELECT.
+  'completion_detected_at',
 ]);
 
 // Shared column projections for dashboard/REST callers. Using named sets keeps the

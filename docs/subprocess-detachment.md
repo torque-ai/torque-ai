@@ -215,9 +215,11 @@ Audit was based on an incorrect read of the chunk handler. The actual code at `e
 
 Audit was incorrect. `pruneOldTaskLogs` (`server/utils/task-log-retention.js:154-200`) already handles empty-dir reaping at lines 178-183: when `dirSizeBytes` reports `entryCount === 0` or `newestMtimeMs === 0`, the dir is `rmSync`-ed without being counted as a delete. So the prune cycle reaps both contents-deleted dirs and dirs that were already empty for any reason. No code change needed.
 
-### 6. Re-adoption doesn't preserve `completionDetected` flag
+### 6. ✅ ~~Re-adoption doesn't preserve `completionDetected` flag~~ RESOLVED 2026-05-07
 
-`completionDetected` is in-memory state; restart loses it. After re-adoption, the new tracker starts with `completionDetected=false`. If the subprocess had already emitted completion patterns in its stdout, the new parent won't know. Consequence: stall detection may force-stop a task that's actually winding down post-completion. Realistic exposure: the wrapper's `[process-exit]` arrival at exit time still triggers normal finalize, so this is "minor cosmetic" not "data loss." **Action:** Persist a `completion_detected_at` column and restore on re-adopt.
+Migration v57 adds `tasks.completion_detected_at` (TEXT). `process-streams.js armCompletionGraceIfDetected` persists the moment when it sets `proc.completionDetected = true`. `reAdoptDetachedSubprocess` restores both the flag (presence implies true) and the original timestamp via the new `resolveReAdoptCompletionDetectedAt` helper, mirroring the `resolveReAdoptLastOutputAt` pattern. The grace-window math after re-adoption uses the original detection moment instead of restarting the 30s/60s clock from scratch.
+
+Column added to `ALLOWED_TASK_COLUMNS` (writes) and `LIST_TASKS_ALLOWED_COLUMNS` (reads — same silent-drop precedent as `cancel_reason`). 6 unit tests pin the parser (valid ISO, missing, null task, empty string, garbage, 5-min-old preservation).
 
 ### 7. Disk pressure → log truncation contract — **DOCUMENTED 2026-05-07**
 

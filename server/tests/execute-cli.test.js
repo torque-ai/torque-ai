@@ -1155,4 +1155,48 @@ describe('execute-cli.js', () => {
       expect(ageMs).toBeLessThanOrEqual(31 * 60 * 1000);
     });
   });
+
+  // ── resolveReAdoptCompletionDetectedAt: completion-flag persistence ──
+  // Closes subprocess-detachment.md open question #6. After
+  // process-streams.js arms the completion grace window for a task, it
+  // persists the moment to tasks.completion_detected_at. On restart,
+  // re-adoption restores both the boolean flag (presence implies true)
+  // and the timestamp so the grace-window math is computed against the
+  // original detection moment rather than the re-adoption moment.
+  describe('resolveReAdoptCompletionDetectedAt', () => {
+    it('returns ms-epoch number when completion_detected_at is a valid ISO timestamp', () => {
+      const persistedIso = '2026-05-07T10:15:00.000Z';
+      const result = mod.resolveReAdoptCompletionDetectedAt({ completion_detected_at: persistedIso });
+      expect(result).toBe(Date.parse(persistedIso));
+    });
+
+    it('returns null when completion_detected_at is missing (start cold)', () => {
+      expect(mod.resolveReAdoptCompletionDetectedAt({ /* unset */ })).toBeNull();
+    });
+
+    it('returns null when persistedTask is null', () => {
+      expect(mod.resolveReAdoptCompletionDetectedAt(null)).toBeNull();
+    });
+
+    it('returns null when completion_detected_at is empty string', () => {
+      expect(mod.resolveReAdoptCompletionDetectedAt({ completion_detected_at: '' })).toBeNull();
+    });
+
+    it('returns null when completion_detected_at is unparseable', () => {
+      expect(mod.resolveReAdoptCompletionDetectedAt({ completion_detected_at: 'garbage' })).toBeNull();
+    });
+
+    it('preserves a 5-minute-old detection timestamp across restart', () => {
+      // The genuine scenario: task detected completion 5 min ago, grace
+      // window is 30s/60s, server restarted. With the persistence:
+      // re-adoption gets the 5-min-old timestamp → grace window has
+      // long since elapsed, so the next completion check force-stops
+      // immediately rather than re-arming a fresh 30s window.
+      const fiveMinAgo = Date.now() - 5 * 60 * 1000;
+      const result = mod.resolveReAdoptCompletionDetectedAt({
+        completion_detected_at: new Date(fiveMinAgo).toISOString(),
+      });
+      expect(result).toBeCloseTo(fiveMinAgo, -2); // within 100ms
+    });
+  });
 });

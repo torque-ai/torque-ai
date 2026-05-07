@@ -1321,6 +1321,42 @@ const MIGRATIONS = [
     },
     down: 'DROP INDEX IF EXISTS idx_tasks_subprocess_pid',
   },
+  {
+    version: 57,
+    name: 'add_task_completion_detected_at',
+    // Closes subprocess-detachment.md open question #6.
+    //
+    // `completionDetected` lives in-memory on the runningProcesses entry
+    // (see process-streams.js:175 armCompletionGraceIfDetected). When a
+    // task's stdout/stderr matches a "work is done" pattern, the runner
+    // arms a grace-period timeout to force-stop if the subprocess doesn't
+    // exit on its own.
+    //
+    // Restart loses that flag. After re-adoption, the new tracker starts
+    // with completionDetected=false. Cosmetic on the happy path
+    // (the wrapper's `[process-exit]` annotation still triggers normal
+    // finalize at exit), but the stall-detection clock can mistakenly
+    // force-stop a task that's actually winding down post-completion.
+    //
+    // `completion_detected_at` persists the timestamp; re-adopt restores
+    // both the flag (presence implies true) and the original timestamp
+    // so the grace window math is computed against the original
+    // detection moment, not the re-adoption moment.
+    up: function(sqliteDb) {
+      const hasTable = sqliteDb.prepare(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='tasks'"
+      ).get();
+      if (!hasTable) return;
+      const cols = sqliteDb.prepare("PRAGMA table_info(tasks)").all();
+      const has = cols.some((c) => c.name === 'completion_detected_at');
+      if (!has) {
+        sqliteDb.prepare(
+          'ALTER TABLE tasks ADD COLUMN completion_detected_at TEXT'
+        ).run();
+      }
+    },
+    // No down — column drops on SQLite require table rebuild.
+  },
 ];
 
 function ensureMigrationTable(sqliteDb) {
