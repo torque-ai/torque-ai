@@ -371,15 +371,23 @@ acquire_remote_sync_lock() {
     stale_check_interval=10
   fi
   local last_stale_check=$((0 - stale_check_interval))
-  local ack
+  local probe_response state owner_block
+  local owner_file="${REMOTE_SYNC_LOCK_DIR}\\${REMOTE_SYNC_LOCK_OWNER_FILE}"
   while true; do
-    # CMD-compatible: `if not exist DIR (mkdir DIR && echo ACQUIRED) else (echo HELD)`.
-    # mkdir on Windows is atomic at the directory-entry level; if two
-    # acquires race, only one's mkdir succeeds, the other reports HELD.
-    ack=$(ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" \
-      "if not exist \"$REMOTE_SYNC_LOCK_DIR\" (mkdir \"$REMOTE_SYNC_LOCK_DIR\" 2>nul && echo ACQUIRED) else (echo HELD)" \
-      2>/dev/null | tr -d '\r' | tail -1)
-    if [[ "$ack" == "ACQUIRED" ]]; then
+    # CMD-compatible single-shot probe — coalesces "is the lock held?" with
+    # "what does owner.env contain?" so polling loops don't pay an extra
+    # SSH round-trip when stale-check fires. Output shape:
+    #   ACQUIRED                        — directory created; we own the lock
+    #   HELD\nNO_OWNER                  — held but no owner.env yet (race)
+    #   HELD\nhost=...\npid=...\n...    — held with owner metadata inline
+    # mkdir is atomic at directory-entry level; concurrent races resolve
+    # to "first writer ACQUIRED, others HELD".
+    probe_response=$(ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" \
+      "if not exist \"$REMOTE_SYNC_LOCK_DIR\" (mkdir \"$REMOTE_SYNC_LOCK_DIR\" 2>nul && echo ACQUIRED) else (echo HELD && (if exist \"$owner_file\" (type \"$owner_file\") else (echo NO_OWNER)))" \
+      2>/dev/null | tr -d '\r')
+    state=$(printf '%s\n' "$probe_response" | head -n 1)
+    owner_block=$(printf '%s\n' "$probe_response" | tail -n +2)
+    if [[ "$state" == "ACQUIRED" ]]; then
       REMOTE_SYNC_LOCK_HELD=1
       if ! write_remote_sync_lock_owner; then
         warn "Acquired remote sync lock but failed to write owner metadata; releasing lock"
@@ -393,9 +401,20 @@ acquire_remote_sync_lock() {
     fi
     if (( stale_check_interval > 0 && elapsed - last_stale_check >= stale_check_interval )); then
       last_stale_check=$elapsed
-      if remote_sync_lock_is_stale; then
-        reap_remote_sync_lock "$REMOTE_SYNC_LOCK_STALE_REASON" || true
-        continue
+      # Reuse owner_block from the coalesced probe — no extra SSH needed.
+      REMOTE_SYNC_LOCK_STALE_REASON=""
+      if [[ -n "$owner_block" && "$owner_block" != *"NO_OWNER"* ]]; then
+        local owner_host owner_pid local_host
+        owner_host="$(owner_field "$owner_block" host | tr '[:upper:]' '[:lower:]')"
+        owner_pid="$(owner_field "$owner_block" pid)"
+        local_host="$(remote_sync_lock_local_host)"
+        if [[ -n "$owner_host" && "$owner_host" == "$local_host" \
+              && "$owner_pid" =~ ^[0-9]+$ ]] \
+           && ! kill -0 "$owner_pid" 2>/dev/null; then
+          REMOTE_SYNC_LOCK_STALE_REASON="owner ${owner_host} pid ${owner_pid} is no longer running"
+          reap_remote_sync_lock "$REMOTE_SYNC_LOCK_STALE_REASON" || true
+          continue
+        fi
       fi
     fi
     sleep "$poll"

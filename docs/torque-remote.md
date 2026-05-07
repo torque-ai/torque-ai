@@ -286,9 +286,14 @@ The sync chain is ~10 chained CMD-shell statements with `^&^&` escapes, `2>nul`,
 
 `bash`'s `trap ... EXIT` is single-slot. The script installs `trap cleanup_on_exit EXIT`, then later REPLACES it with `trap coord_release_on_exit EXIT` (which chains through to cleanup_on_exit manually). If a user's child env installs an additional trap, the chain could be broken silently. **Action:** Use `trap_chain` helper that accumulates handlers and dispatches in order — small bash idiom, prevents future mistakes when adding a fourth cleanup concern.
 
-### 9. Lock-acquire poll burns SSH round-trips
+### 9. ✅ ~~Lock-acquire poll burns SSH round-trips~~ RESOLVED 2026-05-07
 
-Every 2s, `acquire_remote_sync_lock` SSHes to test `if not exist <lock> mkdir`. Every 10s, it SSHes again to read `owner.env`. On a slow connection, that's an SSH round-trip every 1-2s. With 30-min timeout, that's up to 1800 SSH round-trips for one stuck wait. **Action:** Coalesce probes: single SSH command that returns both lock state and owner metadata. Reduces round-trips by ~half.
+Probes are now coalesced — one SSH per poll iteration returns lock state + owner metadata together. CMD output shape:
+- `ACQUIRED` — created the dir, we own the lock
+- `HELD\nNO_OWNER` — held but no owner.env (rare race)
+- `HELD\nhost=...\npid=...\nstarted_at_epoch=...` — held with metadata inline
+
+Stale-check parses the inline owner block (no extra SSH). Per stale-check round, this halves the SSH round-trip count from 2 to 1; on a 30-min timeout that's up to 900 fewer SSH calls.
 
 ### 10. No structured emission of the sync-vs-fallback decision
 
