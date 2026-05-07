@@ -3,6 +3,7 @@
 const { randomUUID } = require('crypto');
 const { setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
 const taskCore = require('../db/task-core');
+const { getVitestTemplateBufferPath } = require('./vitest-template-paths');
 
 let testDir;
 let db;
@@ -12,10 +13,8 @@ let executeApi;
 function setup() {
   ({ db, testDir } = setupTestDbOnly('api-wt'));
   // Cache template buffer for beforeEach resets
-  const path = require('path');
-  const os = require('os');
   const fs = require('fs');
-  templateBuffer = fs.readFileSync(path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf'));
+  templateBuffer = fs.readFileSync(getVitestTemplateBufferPath());
   executeApi = require('../providers/execute-api');
 }
 

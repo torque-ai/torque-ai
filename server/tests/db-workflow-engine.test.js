@@ -5,11 +5,12 @@ const fs = require('fs');
 const workflowEngine = require('../db/workflow-engine');
 const { setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
 const taskCore = require('../db/task-core');
+const { getVitestTemplateBufferPath } = require('./vitest-template-paths');
 
 let db, templateBuffer;
 
 beforeAll(() => {
-  templateBuffer = fs.readFileSync(path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf'));
+  templateBuffer = fs.readFileSync(getVitestTemplateBufferPath());
   ({ db } = setupTestDbOnly('db-workflow-engine'));
 });
 

@@ -3,8 +3,9 @@ const os = require('os');
 const fs = require('fs');
 const { randomUUID } = require('crypto');
 const { setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
+const { getVitestTemplateBufferPath } = require('./vitest-template-paths');
 
-const TEMPLATE_BUF_PATH = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
+const TEMPLATE_BUF_PATH = getVitestTemplateBufferPath();
 let templateBuffer;
 
 let testDir;

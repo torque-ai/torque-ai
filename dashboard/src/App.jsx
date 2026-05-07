@@ -12,6 +12,8 @@ import ErrorBoundary from './components/ErrorBoundary';
 import { useTick } from './hooks/useTick';
 import Login from './components/Login';
 
+const E2E_AUTH_BYPASS = import.meta.env.VITE_TORQUE_E2E_AUTH_BYPASS === '1';
+
 // Code-split secondary routes — only loaded when visited
 const History = lazy(() => import('./views/History'));
 const Providers = lazy(() => import('./views/Providers'));
@@ -356,7 +358,7 @@ function AppInner() {
 
 function App() {
   // null = checking, true = authenticated, false = not authenticated
-  const [authenticated, setAuthenticated] = useState(null);
+  const [authenticated, setAuthenticated] = useState(E2E_AUTH_BYPASS ? true : null);
   const [needsSetup, setNeedsSetup] = useState(false);
 
   const checkAuth = useCallback(() => {
@@ -381,6 +383,7 @@ function App() {
   }, []);
 
   useEffect(() => {
+    if (E2E_AUTH_BYPASS) return;
     checkAuth();
   }, [checkAuth]);
 

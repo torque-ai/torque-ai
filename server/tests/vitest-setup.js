@@ -14,6 +14,7 @@ const path = require('path');
 const os = require('os');
 const fs = require('fs');
 const { randomUUID } = require('crypto');
+const { getVitestTemplateBufferPath } = require('./vitest-template-paths');
 
 // Lazy-required — task-core's transitive dependencies (DI container, plan
 // projects, workflow runtime, etc.) add ~50-100ms to import time, which
@@ -25,8 +26,7 @@ function getTaskCore() {
   if (!_taskCore) _taskCore = require('../db/task-core');
   return _taskCore;
 }
-const TEMPLATE_DIR = path.join(os.tmpdir(), 'torque-vitest-template');
-const TEMPLATE_BUF = path.join(TEMPLATE_DIR, 'template.db.buf');
+const TEMPLATE_BUF = getVitestTemplateBufferPath();
 
 let templateBuffer = null; // Loaded once per worker process
 let db;

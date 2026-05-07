@@ -9,14 +9,18 @@
  * but this teardown acts as a safety net for any that slip through.
  */
 const path = require('path');
-const os = require('os');
 const fs = require('fs');
 const Module = require('module');
 const { execFileSync } = require('child_process');
+const {
+  getVitestTemplateBufferPath,
+  getVitestTemplateDir,
+  getVitestTemplateStampPath,
+} = require('./vitest-template-paths');
 
-const TEMPLATE_DIR = path.join(os.tmpdir(), 'torque-vitest-template');
-const TEMPLATE_BUF = path.join(TEMPLATE_DIR, 'template.db.buf');
-const TEMPLATE_STAMP = path.join(TEMPLATE_DIR, '.ready');
+const TEMPLATE_DIR = getVitestTemplateDir();
+const TEMPLATE_BUF = getVitestTemplateBufferPath();
+const TEMPLATE_STAMP = getVitestTemplateStampPath();
 
 function wireSharedServerNodeModules() {
   const sharedServerNodeModules = path.resolve(__dirname, '..', '..', '..', '..', 'server', 'node_modules');

@@ -1074,15 +1074,14 @@ describe('MCP SSE Transport', () => {
   });
 
   describe('graceful shutdown', () => {
-    const os = require('os');
-    const path = require('path');
     const fs = require('fs');
     const db = require('../database');
+    const { getVitestTemplateBufferPath } = require('./vitest-template-paths');
     let templateBuffer;
 
     beforeAll(() => {
       templateBuffer = fs.readFileSync(
-        path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf'),
+        getVitestTemplateBufferPath(),
       );
     });
 

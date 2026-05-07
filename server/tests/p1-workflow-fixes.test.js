@@ -9,8 +9,9 @@ const {
   rawDb,
   safeTool,
 } = require('./vitest-setup');
+const { getVitestTemplateBufferPath } = require('./vitest-template-paths');
 
-const TEMPLATE_BUF_PATH = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
+const TEMPLATE_BUF_PATH = getVitestTemplateBufferPath();
 
 let resetForTest;
 let taskCore;

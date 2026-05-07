@@ -2,6 +2,7 @@ const path = require('path');
 const os = require('os');
 const fs = require('fs');
 const { setupTestDb, teardownTestDb, getText } = require('./vitest-setup');
+const { getVitestTemplateBufferPath } = require('./vitest-template-paths');
 
 let db, handleToolCall;
 let tempDir;
@@ -14,7 +15,7 @@ beforeAll(() => {
 });
 
 beforeEach(() => {
-  db.resetForTest(fs.readFileSync(path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf')));
+  db.resetForTest(fs.readFileSync(getVitestTemplateBufferPath()));
   tempFilePath = path.join(
     tempDir,
     `hashline-handler-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.txt`

@@ -1,5 +1,7 @@
 'use strict';
 
+const { wrapVerifyCommandForTestLane } = require('./test-lane-verify');
+
 const OUTPUT_TRUNCATE_BYTES = 4 * 1024;
 const DEFAULT_BASELINE_PROBE_TIMEOUT_MINUTES = 60;
 const MAX_BASELINE_PROBE_TIMEOUT_MINUTES = 240;
@@ -43,13 +45,14 @@ function resolveBaselineVerifyCommand({ cfg, defaults } = {}) {
 }
 
 async function probeProjectBaseline({ project, verifyCommand, runner, timeoutMs = DEFAULT_BASELINE_PROBE_TIMEOUT_MS }) {
-  if (!verifyCommand || !String(verifyCommand).trim()) {
+  const command = wrapVerifyCommandForTestLane(verifyCommand, { projectPath: project?.path });
+  if (!command || !String(command).trim()) {
     return { passed: false, exitCode: null, output: '', durationMs: 0, error: 'no_verify_command' };
   }
   let result;
   try {
     result = await runner({
-      command: verifyCommand,
+      command,
       cwd: project.path,
       timeoutMs,
     });

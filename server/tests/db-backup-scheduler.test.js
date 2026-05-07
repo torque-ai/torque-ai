@@ -5,8 +5,9 @@ const { randomUUID } = require('crypto');
 const { setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
 const backupCore = require('../db/backup-core');
 const dataDir = require('../data-dir');
+const { getVitestTemplateBufferPath } = require('./vitest-template-paths');
 
-const TEMPLATE_BUF = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
+const TEMPLATE_BUF = getVitestTemplateBufferPath();
 const PERIODIC_BACKUP_PATTERN = /^torque-\d{4}-\d{2}-\d{2}T.*\.db$/;
 
 describe('Database backup scheduler', () => {

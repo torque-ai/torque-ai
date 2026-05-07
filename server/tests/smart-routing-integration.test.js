@@ -6,6 +6,7 @@ const fs = require('fs');
 const fsPromises = require('node:fs/promises');
 const { setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
 const { TEST_MODELS } = require('./test-helpers');
+const { getVitestTemplateBufferPath } = require('./vitest-template-paths');
 
 let db;
 let handler;
@@ -13,7 +14,7 @@ let hostManagement;
 let taskManager;
 let templateBuffer;
 let processQueueSpy;
-const TEMPLATE_BUF_PATH = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
+const TEMPLATE_BUF_PATH = getVitestTemplateBufferPath();
 const tempDirs = [];
 
 function ensureModelCapabilitiesColumns() {

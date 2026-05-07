@@ -4,6 +4,10 @@ const fs = require('fs');
 const { spawn, execFileSync } = require('child_process');
 const { prepareLocalVerifyEnv } = require('../utils/local-verify-env');
 const { prepareWorktreeVerifyDependencies } = require('../utils/worktree-verify-deps');
+const {
+  defaultVerifyCommandForProject,
+  wrapVerifyCommandForTestLane,
+} = require('./test-lane-verify');
 
 const CHILD_CLOSE_GRACE_MS = 250;
 // Verify commands run up to 30 minutes (`dotnet test`, vitest, etc.) and can
@@ -449,8 +453,9 @@ function createWorktreeRunner({
 
   async function verify({ worktreePath, branch, verifyCommand, workingDirectory, baseBranch }) {
     if (!branch) throw new Error('verify requires branch');
-    const command = String(verifyCommand || 'cd server && npx vitest run').trim();
     const cwd = workingDirectory || worktreePath;
+    const rawCommand = String(verifyCommand || defaultVerifyCommandForProject(cwd)).trim();
+    const command = wrapVerifyCommandForTestLane(rawCommand, { projectPath: cwd });
     const resolvedBaseBranch = baseBranch || detectDefaultBranch(cwd);
     const start = Date.now();
 
