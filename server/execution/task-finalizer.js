@@ -1378,8 +1378,12 @@ function createTaskFinalizer(localDeps = {}) {
     catch { /* fall through */ }
   }
   if (!resolved.handlePostCompletion) {
-    try { resolved.handlePostCompletion = require('./completion-pipeline').handlePostCompletion; }
-    catch { /* fall through */ }
+    if (resolved.completionPipeline && typeof resolved.completionPipeline.handlePostCompletion === 'function') {
+      resolved.handlePostCompletion = resolved.completionPipeline.handlePostCompletion.bind(resolved.completionPipeline);
+    } else {
+      try { resolved.handlePostCompletion = require('./completion-pipeline').handlePostCompletion; }
+      catch { /* fall through */ }
+    }
   }
   if (!resolved.handleSandboxRevertDetection) {
     try { resolved.handleSandboxRevertDetection = require('./sandbox-revert-detection').detectSandboxReverts; }
@@ -1443,13 +1447,14 @@ function createTaskFinalizer(localDeps = {}) {
 
 function register(container) {
   // Stage handlers resolve via require() inside the factory; safeUpdateTaskStatus
-  // binds from taskManager. Only db + taskManager are real container deps.
+  // binds from taskManager. completionPipeline must come from the container so
+  // its module-scoped deps include db; the raw export is only a legacy fallback.
   // handleVerificationLedger / handleAdversarialReview also resolve from
   // optional container services (verificationLedger, adversarialReviews) when
   // those plugins register them — see the lazy-init logic in this file's init().
   container.register(
     'taskFinalizer',
-    ['db', 'taskManager'],
+    ['db', 'taskManager', 'completionPipeline'],
     (resolved) => createTaskFinalizer(resolved)
   );
 }
