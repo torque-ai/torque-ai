@@ -65,9 +65,6 @@ function initModule(overrides = {}) {
 
 // Helper to determine expected platform-dependent CLI path
 const isWin = process.platform === 'win32';
-const expectedWindowsCodexSandboxFlags = isWin
-  ? ['--disable', 'experimental_windows_sandbox', '--disable', 'elevated_windows_sandbox']
-  : [];
 
 describe('execution/command-builders', () => {
   beforeEach(() => {
@@ -375,20 +372,6 @@ describe('execution/command-builders', () => {
         expect(result.finalArgs).not.toContain('--full-auto');
       });
 
-      it('disables Codex Windows sandbox feature flags on Windows', async () => {
-        initModule();
-        const task = { task_description: 'test', auto_approve: 0 };
-        const result = await commandBuilders.buildCodexCommand(task, null, '', null);
-
-        if (isWin) {
-          expect(result.finalArgs).toContain('experimental_windows_sandbox');
-          expect(result.finalArgs).toContain('elevated_windows_sandbox');
-        } else {
-          expect(result.finalArgs).not.toContain('experimental_windows_sandbox');
-          expect(result.finalArgs).not.toContain('elevated_windows_sandbox');
-        }
-      });
-
       it('adds -C working_directory when present', async () => {
         initModule();
         const task = { task_description: 'test', working_directory: '/my/project' };
@@ -577,7 +560,6 @@ describe('execution/command-builders', () => {
           '--skip-git-repo-check',
           '-m', 'o3-pro',
           '--dangerously-bypass-approvals-and-sandbox',
-          ...expectedWindowsCodexSandboxFlags,
           '-C', '/project/root',
           '-',
         ]);
@@ -600,7 +582,6 @@ describe('execution/command-builders', () => {
           'exec',
           '--skip-git-repo-check',
           '--full-auto',
-          ...expectedWindowsCodexSandboxFlags,
           '-',
         ]);
       });

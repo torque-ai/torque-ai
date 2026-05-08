@@ -643,12 +643,6 @@ function buildCodexCommand(task, resolvedFileContext, providerConfig, opts = {})
     } else {
       codexArgs.push('--full-auto');
     }
-    if (process.platform === 'win32') {
-      codexArgs.push(
-        '--disable', 'experimental_windows_sandbox',
-        '--disable', 'elevated_windows_sandbox'
-      );
-    }
 
     // Pick reasoning_effort via the centralized classifier. See
     // server/execution/codex-reasoning-effort.js — kinds like
