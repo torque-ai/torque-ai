@@ -1957,3 +1957,98 @@ describe('fallback-retry isolated dependency mocks', () => {
     }));
   });
 });
+
+// ── stall-and-retry.md #12: unknown_error_retryable opt-in visibility ─
+// classifyError logs once per 5min when long-unknown errors trigger the
+// opt-in path. logUnknownErrorRetryableOptInState() is a separate boot
+// hook called from orphan-cleanup.startTimers().
+describe('unknown_error_retryable opt-in logging', () => {
+  // Uses the installMock pattern from the surrounding test file —
+  // fallback-retry captures `const logger = require('../logger').child(...)`
+  // at module load, so we must replace the logger module via require.cache
+  // BEFORE the require fires. vi.spyOn doesn't work here because vitest's
+  // module-resolution interaction with the existing top-level
+  // `require('../execution/fallback-retry')` import makes the spy too late.
+  function loadFallbackRetryWithMockLogger() {
+    const customLogger = {
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+      debug: vi.fn(),
+    };
+    const loggerModule = {
+      child: vi.fn(() => customLogger),
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+      debug: vi.fn(),
+    };
+    delete require.cache[require.resolve('../execution/fallback-retry')];
+    installMock('../logger', loggerModule);
+    const mod = require('../execution/fallback-retry');
+    const cfg = require('../config');
+    return { mod, logger: customLogger, cfg };
+  }
+
+  it('logUnknownErrorRetryableOptInState logs once when opt-in is ON', () => {
+    const { mod, logger, cfg } = loadFallbackRetryWithMockLogger();
+    vi.spyOn(cfg, 'isOptIn').mockImplementation((key) => key === 'unknown_error_retryable');
+
+    mod.logUnknownErrorRetryableOptInState();
+
+    const lines = logger.info.mock.calls.map((c) => c[0]);
+    expect(lines.some((s) => typeof s === 'string' && s.includes('unknown_error_retryable opt-in is ENABLED'))).toBe(true);
+  });
+
+  it('logUnknownErrorRetryableOptInState is silent when opt-in is OFF (default)', () => {
+    const { mod, logger, cfg } = loadFallbackRetryWithMockLogger();
+    vi.spyOn(cfg, 'isOptIn').mockReturnValue(false);
+
+    mod.logUnknownErrorRetryableOptInState();
+
+    const enabledLine = logger.info.mock.calls
+      .map((c) => c[0])
+      .find((s) => typeof s === 'string' && s.includes('unknown_error_retryable'));
+    expect(enabledLine).toBeUndefined();
+  });
+
+  it('does not throw when isOptIn throws', () => {
+    const { mod, cfg } = loadFallbackRetryWithMockLogger();
+    vi.spyOn(cfg, 'isOptIn').mockImplementation(() => { throw new Error('config not initialized'); });
+
+    expect(() => mod.logUnknownErrorRetryableOptInState()).not.toThrow();
+  });
+
+  it('classifyError logs trigger ONCE on consecutive >500-char unknown errors when opt-in is ON', () => {
+    const { mod, logger, cfg } = loadFallbackRetryWithMockLogger();
+    vi.spyOn(cfg, 'isOptIn').mockImplementation((key) => key === 'unknown_error_retryable');
+    const longErr = 'mystery error '.repeat(50); // > 500 chars, no match patterns
+
+    const a = mod.classifyError(longErr, 1);
+    const b = mod.classifyError(longErr, 1);
+    const c = mod.classifyError(longErr, 1);
+
+    expect(a.retryable).toBe(true);
+    expect(b.retryable).toBe(true);
+    expect(c.retryable).toBe(true);
+    const triggerLines = logger.info.mock.calls
+      .map((cc) => cc[0])
+      .filter((s) => typeof s === 'string' && s.includes('opt-in triggered'));
+    // Rate-limited to one per 5 min — three calls back-to-back collapse to one line
+    expect(triggerLines.length).toBe(1);
+  });
+
+  it('classifyError does not log when opt-in is OFF (default)', () => {
+    const { mod, logger, cfg } = loadFallbackRetryWithMockLogger();
+    vi.spyOn(cfg, 'isOptIn').mockReturnValue(false);
+    const longErr = 'mystery error '.repeat(50);
+
+    const result = mod.classifyError(longErr, 1);
+
+    expect(result.retryable).toBe(false); // default: long unknown is non-retryable
+    const triggerLines = logger.info.mock.calls
+      .map((c) => c[0])
+      .filter((s) => typeof s === 'string' && s.includes('opt-in triggered'));
+    expect(triggerLines.length).toBe(0);
+  });
+});

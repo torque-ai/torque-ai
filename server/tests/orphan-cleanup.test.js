@@ -1321,4 +1321,124 @@ describe('Orphan Cleanup', () => {
       clearTimeoutSpy.mockRestore();
     });
   });
+
+  // ── stall-and-retry.md #4: boot-time stall-detection audit ──────────
+  // logStallDetectionAudit() runs once from startTimers() at server boot.
+  // The behavior is "log what's disabled so the operator can see it" —
+  // no side effects, no mutation. Tests assert on logger.info content
+  // through a child-spy mock of the logger module.
+  describe('logStallDetectionAudit (stall-and-retry.md #4)', () => {
+    // The audit reads `serverConfig.get` / `getBool` and writes to the
+    // module-level `logger` ref (which is set via init/ensureDeps).
+    // Tests inject a fake logger via init and stub serverConfig methods
+    // directly — same pattern as the other orphan-cleanup tests.
+    function setupAudit() {
+      const customLogger = {
+        info: vi.fn(),
+        warn: vi.fn(),
+        error: vi.fn(),
+        debug: vi.fn(),
+      };
+      orphanCleanup.init({
+        db: { getConfig: vi.fn().mockReturnValue(null) },
+        dashboard: { notifyTaskUpdated: vi.fn() },
+        logger: customLogger,
+        runningProcesses: new Map(),
+        stallRecoveryAttempts: new Map(),
+        TASK_TIMEOUTS: { PROCESS_QUERY: 5000 },
+        cancelTask: vi.fn(),
+        processQueue: vi.fn(),
+        tryLocalFirstFallback: vi.fn(),
+        getTaskActivity: vi.fn(),
+        tryStallRecovery: vi.fn(),
+        safeConfigInt: vi.fn(),
+      });
+      return { mod: orphanCleanup, logger: customLogger, cfg: serverConfig };
+    }
+
+    it('names disabled providers when their config is unset', () => {
+      const { mod, logger, cfg } = setupAudit();
+      // No config set anywhere → every provider is disabled by default
+      vi.spyOn(cfg, 'get').mockReturnValue(null);
+      vi.spyOn(cfg, 'getBool').mockReturnValue(false);
+
+      mod.logStallDetectionAudit();
+
+      const lines = logger.info.mock.calls.map((c) => c[0]).join('\n');
+      expect(lines).toContain('[StallAudit] auto_cancel_stalled=OFF');
+      expect(lines).toContain('Stall detection DISABLED');
+      // codex/claude-cli/ollama all have NULL default config, so they
+      // appear in the disabled list (de-duped by config-key — anthropic
+      // shares stall_threshold_claude with claude-cli)
+      expect(lines).toContain('codex(stall_threshold_codex)');
+      expect(lines).toContain('claude-cli(stall_threshold_claude)');
+      expect(lines).toContain('ollama(stall_threshold_ollama)');
+    });
+
+    it('reports enabled providers separately when their threshold is set', () => {
+      const { mod, logger, cfg } = setupAudit();
+      vi.spyOn(cfg, 'get').mockImplementation((key) => {
+        if (key === 'stall_threshold_codex') return '180';
+        if (key === 'stall_threshold_ollama') return '120';
+        return null;
+      });
+      vi.spyOn(cfg, 'getBool').mockImplementation((key) => key === 'auto_cancel_stalled');
+
+      mod.logStallDetectionAudit();
+
+      const lines = logger.info.mock.calls.map((c) => c[0]).join('\n');
+      // No "auto_cancel_stalled=OFF" line because it's ON
+      expect(lines).not.toContain('auto_cancel_stalled=OFF');
+      // Enabled list contains codex + ollama with their thresholds
+      expect(lines).toContain('codex=180s');
+      expect(lines).toContain('ollama=120s');
+    });
+
+    it("treats 'null' string and '0' as disabled (matches getStallThreshold semantics)", () => {
+      const { mod, logger, cfg } = setupAudit();
+      vi.spyOn(cfg, 'get').mockImplementation((key) => {
+        if (key === 'stall_threshold_codex') return 'null';
+        if (key === 'stall_threshold_claude') return '0';
+        return null;
+      });
+      vi.spyOn(cfg, 'getBool').mockReturnValue(false);
+
+      mod.logStallDetectionAudit();
+
+      const lines = logger.info.mock.calls.map((c) => c[0]).join('\n');
+      expect(lines).toContain('codex(stall_threshold_codex)');
+      expect(lines).toContain('claude-cli(stall_threshold_claude)');
+    });
+
+    it('does not throw when serverConfig.get throws', () => {
+      const { mod, logger, cfg } = setupAudit();
+      vi.spyOn(cfg, 'get').mockImplementation(() => { throw new Error('config not initialized'); });
+      vi.spyOn(cfg, 'getBool').mockReturnValue(false);
+
+      expect(() => mod.logStallDetectionAudit()).not.toThrow();
+      // Best-effort log of the failure mode
+      const lines = logger.info.mock.calls.map((c) => c[0]).join('\n');
+      expect(lines).toContain('[StallAudit] Failed to compute stall-detection audit at boot');
+    });
+
+    it('de-duplicates providers that share a config key', () => {
+      // anthropic and claude-cli both map to 'stall_threshold_claude';
+      // groq and ollama both map to 'stall_threshold_ollama'. The audit
+      // should not list each twice — once per config key is the contract.
+      const { mod, logger, cfg } = setupAudit();
+      vi.spyOn(cfg, 'get').mockReturnValue(null);
+      vi.spyOn(cfg, 'getBool').mockReturnValue(false);
+
+      mod.logStallDetectionAudit();
+
+      const disabledLine = logger.info.mock.calls
+        .map((c) => c[0])
+        .find((s) => typeof s === 'string' && s.includes('Stall detection DISABLED'));
+      expect(disabledLine).toBeTruthy();
+      const claudeMatches = (disabledLine.match(/stall_threshold_claude/g) || []).length;
+      const ollamaMatches = (disabledLine.match(/stall_threshold_ollama\b/g) || []).length;
+      expect(claudeMatches).toBe(1);
+      expect(ollamaMatches).toBe(1);
+    });
+  });
 });

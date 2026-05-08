@@ -120,6 +120,19 @@ Plan-gen preemption: `architect-runner.js` now composes a plan-authoring guide f
 Design: `docs/superpowers/specs/2026-04-21-intake-plan-pipeline-design.md`
 Plan:   `docs/superpowers/plans/2026-04-21-intake-plan-pipeline.md`
 
+## Verify-Stall Recovery (peer subsystem)
+
+The factory has its own stall-recovery layer for projects whose verify loop has been pinned in `running` state for too long. It is **distinct from** the execution-layer stall recovery documented in [`docs/stall-and-retry.md`](stall-and-retry.md), and the two share no code beyond the conceptual pattern. When debugging "task stalled" issues, identify which layer is responsible before changing thresholds — they have separate config, separate attempt counters, and separate decision sets.
+
+| Layer | Owner | Trigger | Threshold | Counter | Doc |
+|-------|-------|---------|-----------|---------|-----|
+| **Execution-layer stall** | `server/maintenance/orphan-cleanup.js checkStalledTasks` | Subprocess produced no stdout/stderr for the configured per-provider window | `stall_threshold_<provider>` (default 120s for ollama-class; NULL for codex/claude-cli) | `tasks.stall_recovery_attempts` (persisted; max via `stall_recovery_max_attempts`, default 3) | [`stall-and-retry.md`](stall-and-retry.md) |
+| **Factory-loop verify-stall** | `server/factory/verify-stall-recovery.js recoverStalledVerifyLoops` | Factory loop pinned in verify-running for longer than `VERIFY_STALL_THRESHOLD_MS` | Hardcoded `45 * 60 * 1000` (45 min) in `verify-stall-recovery.js:7` | `factory_projects.verify_recovery_attempts` (when column present); `getRecoveryAttempts` reads it | this file + `verify-stall-recovery.js` |
+
+The execution layer fires every 60s on the per-task subprocess output stream. The factory layer fires on the loop-controller tick when the project is in a verify-running state. They can fire concurrently for different work items in the same project — they don't coordinate, and that's intentional: the execution layer protects single-task budgets; the factory layer protects whole-loop progress.
+
+**Don't add a third stall layer.** When the next "X is stalled" complaint comes in, ask which layer should own it before writing new code. If the execution layer's threshold is wrong for a provider, change it via `configure_stall_detection`. If the factory's 45-minute window is wrong, change `VERIFY_STALL_THRESHOLD_MS` in `verify-stall-recovery.js` (and add a config knob if it's worth making operator-tunable).
+
 ## Auto-Recovery Decision Actions
 
 > **See also:**

@@ -315,9 +315,15 @@ Strategy ladder is purely attempt-count-driven (`recovery.attempts === 0` → sw
 
 The PID-alive grace at `orphan-cleanup.js:887-902` extends the threshold by 50% in-place when the PID is alive. The session-monitor defer at lines 930-951 does NOT extend the threshold — just emits warning + skips this iteration. Result: a session-monitored stalled task with a live PID gets BOTH treatments (extended + deferred) silently. **Action:** Decide order — either monitor-defer should short-circuit BEFORE the alive-grace check (cheaper), or alive-grace should be skipped when monitored. Document the choice + add a regression test.
 
-### 4. `claude-cli` and `codex` excluded from stall detection by default
+### 4. ✅ ~~`claude-cli` and `codex` excluded from stall detection by default~~ RESOLVED 2026-05-07
 
-These are the most common providers and they're invisible to stall detection unless an operator explicitly sets `stall_threshold_claude` / `stall_threshold_codex`. Documented in CLAUDE.md "Stall Recovery" section (recommended 120-180s) but no startup-time warning if running with codex+default config + no threshold set. **Action:** Either ship a non-NULL default for codex (with caveat about 30+ minute runs being normal) OR emit a startup warning naming the providers that have stall detection disabled.
+`logStallDetectionAudit()` runs once from `orphan-cleanup.startTimers()` at server boot. It iterates `PROVIDER_STALL_CONFIG_KEYS` (de-duping shared config keys like anthropic↔claude-cli, groq↔ollama) and emits up to three info-level log lines:
+
+1. `[StallAudit] auto_cancel_stalled=OFF` — only when the master toggle is off (stall detection runs but won't act)
+2. `[StallAudit] Stall detection DISABLED for: codex(stall_threshold_codex), claude-cli(stall_threshold_claude)...` — names every provider whose threshold is unset/null/0; always names the config key so the operator can paste it into a `setConfig` call
+3. `[StallAudit] Stall detection enabled: ollama=120s, ollama-cloud=120s | recovery=ON` — confirms what IS being protected
+
+Default-config operators see disabled providers immediately on `tail -f torque.log` at boot. Doesn't change behavior — operators who *want* codex/claude-cli stall detection disabled can ignore the line.
 
 ### 5. `max_task_lifetime_seconds` is global, not per-provider
 
@@ -351,13 +357,17 @@ A stall-recovery requeue records `failover_events` row (RB-029); a Phase 1 retry
 
 `delay_used` recorded in `recordRetryAttempt` still reflects the calculator's value (base, not max) — that's a UX detail for retry analytics and the existing contract.
 
-### 11. `verify-stall-recovery.js` has its own attempt counter and threshold
+### 11. ✅ ~~`verify-stall-recovery.js` has its own attempt counter and threshold~~ RESOLVED 2026-05-07
 
-`VERIFY_STALL_THRESHOLD_MS = 45 * 60 * 1000` is hardcoded; `getRecoveryAttempts` uses an optional `verify_recovery_attempts` column. This is the FACTORY layer's own stall recovery — separate from execution-layer. The two share no code beyond the conceptual pattern. **Action:** Cross-reference here in stall-and-retry.md AND in factory.md so the next person looking for "stall recovery" finds both layers and doesn't accidentally add a 3rd.
+`docs/factory.md` now carries a `## Verify-Stall Recovery (peer subsystem)` section above the auto-recovery decision actions table. It explicitly contrasts the two layers (this doc owns execution-layer; factory.md owns factory-loop verify-stall) with a side-by-side table covering owner / trigger / threshold / counter / docs link. Closes the "next person looking for stall recovery accidentally adds a third layer" risk.
 
-### 12. `unknown_error_retryable` opt-in is silent
+### 12. ✅ ~~`unknown_error_retryable` opt-in is silent~~ RESOLVED 2026-05-07
 
-Default treats long unknown errors (>500 chars) as non-retryable. Operator can opt in via config but there's no warning at submit time, no logging at classification time other than the "Long unknown error treated as non-retryable" reason on the failure. Operators who flipped the opt-in for one project then forgot it can have all unknown errors silently retrying forever. **Action:** Log the opt-in state once at startup and again whenever a task exits non-zero with the unknown-error path triggered.
+Two visibility hooks added to `fallback-retry.js`:
+1. `logUnknownErrorRetryableOptInState()` is called from `orphan-cleanup.startTimers()` at server boot. Logs `[ClassifyError] unknown_error_retryable opt-in is ENABLED` once when the opt-in is set; silent when default-OFF.
+2. `_maybeLogUnknownErrorOptInTriggered()` fires from `classifyError` when the long-unknown path is hit AND opt-in is on. Rate-limited to one log per 5 minutes via `_unknownRetryOptInLastLogAt` so a flapping task can't spam.
+
+Operators flipping the opt-in for one project then forgetting it can now correlate "all unknown errors retrying forever" with the config flag in `torque.log` instead of grep'ing the DB.
 
 ---
 

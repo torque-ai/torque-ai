@@ -1097,10 +1097,60 @@ function getStallThreshold(model, provider) {
  * Start all periodic cleanup timers.
  * Called from task-manager init() after dependencies are available.
  */
+// stall-and-retry.md #4 — emit a one-line startup audit naming the
+// providers that have stall detection effectively disabled (config value
+// is null/'null'/0). Operators commonly hit "task stuck for 6 hours and
+// nothing happened" because they're running with default codex/claude-cli
+// thresholds (NULL by default) and never set `stall_threshold_codex` /
+// `stall_threshold_claude`. This makes the silent state visible at boot.
+function logStallDetectionAudit() {
+  try {
+    const allProviders = Object.keys(PROVIDER_STALL_CONFIG_KEYS);
+    const seen = new Set(); // dedupe providers that share a config key (anthropic↔claude-cli, groq↔ollama)
+    const disabled = [];
+    const enabled = [];
+    for (const provider of allProviders) {
+      const configKey = PROVIDER_STALL_CONFIG_KEYS[provider];
+      if (seen.has(configKey)) continue;
+      seen.add(configKey);
+      const v = serverConfig.get(configKey);
+      const isDisabled = !v || v === 'null' || v === '0';
+      if (isDisabled) disabled.push(`${provider}(${configKey})`);
+      else enabled.push(`${provider}=${v}s`);
+    }
+    const autoCancel = serverConfig.getBool('auto_cancel_stalled');
+    const recoveryEnabled = serverConfig.getBool('stall_recovery_enabled');
+    if (!autoCancel) {
+      logger.info(`[StallAudit] auto_cancel_stalled=OFF — stalled tasks will be detected but NOT auto-cancelled (set via configure_stall_detection)`);
+    }
+    if (disabled.length > 0) {
+      logger.info(`[StallAudit] Stall detection DISABLED for: ${disabled.join(', ')} — set their threshold via configure_stall_detection (recommended 120-180s) or accept that long stalls won't auto-recover`);
+    }
+    if (enabled.length > 0) {
+      logger.info(`[StallAudit] Stall detection enabled: ${enabled.join(', ')} | recovery=${recoveryEnabled ? 'ON' : 'OFF'}`);
+    }
+  } catch (err) {
+    // Best-effort — never crash startup over an audit log
+    logger.info(`[StallAudit] Failed to compute stall-detection audit at boot: ${err.message}`);
+  }
+}
+
 function startTimers() {
   ensureDeps();
   if (timersStarted) return;
   timersStarted = true;
+
+  // stall-and-retry.md #4 — boot-time visibility into per-provider stall config
+  logStallDetectionAudit();
+
+  // stall-and-retry.md #12 — boot-time visibility into the
+  // unknown_error_retryable opt-in (only logs when ON; silent when OFF
+  // since OFF is the default).
+  try {
+    require('../execution/fallback-retry').logUnknownErrorRetryableOptInState();
+  } catch (err) {
+    logger.info(`[StallAudit] Failed to log unknown_error_retryable state: ${err.message}`);
+  }
 
   // Run initial cleanups immediately
   cleanupOrphanedDotnetProcesses();
@@ -1286,6 +1336,8 @@ module.exports = {
   cleanupOrphanedHostTasks,
   // Stall threshold (used by getTaskActivity in task-manager.js)
   getStallThreshold,
+  // Boot-time audit (stall-and-retry.md #4)
+  logStallDetectionAudit,
   // Constants (exported for testing)
   BASE_STALL_THRESHOLD_SECONDS,
   PROVIDER_STALL_THRESHOLDS,

@@ -1239,9 +1239,46 @@ function classifyError(errorOutput, exitCode) {
   if (errorText.length > 500 && !retryUnknown) {
     return makeResult(false, 'Long unknown error treated as non-retryable');
   }
+  // stall-and-retry.md #12 — when opt-in is ON and we hit the long-unknown
+  // path, log it (rate-limited via _unknownRetryOptInLogged so a flapping
+  // task can't spam). Operators who flipped the opt-in for one project
+  // and forgot it can now correlate "all unknown errors retrying forever"
+  // with the config flag in the log.
+  if (errorText.length > 500 && retryUnknown) {
+    _maybeLogUnknownErrorOptInTriggered();
+  }
 
   // For longer errors without known patterns, be conservative
   return makeResult(true, 'Unknown error - attempting retry');
+}
+
+// ── stall-and-retry.md #12: opt-in visibility helpers ─────────────────
+let _unknownRetryOptInLogged = false;
+let _unknownRetryOptInLastLogAt = 0;
+const UNKNOWN_RETRY_OPT_IN_LOG_INTERVAL_MS = 5 * 60 * 1000; // 5 min
+
+function _maybeLogUnknownErrorOptInTriggered() {
+  const now = Date.now();
+  if (!_unknownRetryOptInLogged
+      || now - _unknownRetryOptInLastLogAt > UNKNOWN_RETRY_OPT_IN_LOG_INTERVAL_MS) {
+    _unknownRetryOptInLogged = true;
+    _unknownRetryOptInLastLogAt = now;
+    logger.info('[ClassifyError] unknown_error_retryable opt-in triggered: long unknown error (>500 chars) treated as RETRYABLE — disable via setConfig unknown_error_retryable=0');
+  }
+}
+
+// Boot-time visibility into the opt-in state. Called from server/index.js
+// startup banner. Default (off) is silent; opt-in ON gets a single log
+// line so the operator can see it in torque.log without grepping the DB.
+function logUnknownErrorRetryableOptInState() {
+  try {
+    const isOn = serverConfig.isOptIn('unknown_error_retryable');
+    if (isOn) {
+      logger.info('[ClassifyError] unknown_error_retryable opt-in is ENABLED — long unknown errors (>500 chars) will be retried instead of failing fast');
+    }
+  } catch {
+    // Best-effort — never crash startup over an audit log
+  }
 }
 
 // ── New factory shape (preferred) ─────────────────────────────────────────
@@ -1369,4 +1406,6 @@ module.exports = {
   // contract — recovery-decisions.md conflict #3).
   withResumeContextPrompt,
   getResumeContextForFallback,
+  // stall-and-retry.md #12 — opt-in visibility (called at boot from index.js)
+  logUnknownErrorRetryableOptInState,
 };
