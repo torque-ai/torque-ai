@@ -438,6 +438,14 @@ function createAutoRecoveryEngine({
     const classifyInput = decision
       ? decision
       : { action: 'never_started', stage: 'plan', outcome: {} };
+
+    // Recursion defense: classifying auto_recovery_unknown_action itself
+    // would loop endlessly through the unknown-action emission. Short-circuit
+    // before classify() runs.
+    if (classifyInput.action === 'auto_recovery_unknown_action') {
+      return { attempted: false, strategy: null, skipped: 'guard_self_reference' };
+    }
+
     const classification = classifier.classify(classifyInput);
 
     logDecision(db, {
@@ -448,6 +456,28 @@ function createAutoRecoveryEngine({
       confidence: classification.confidence,
       batch_id: decision?.batch_id || null,
     });
+
+    // Production guard: when the classifier returns unknown (matched_rule === null),
+    // emit auto_recovery_unknown_action so operators can grep factory_decisions
+    // for drift the static CI gate didn't catch (dynamic action names, etc.).
+    if (classification.matched_rule == null) {
+      logDecision(db, {
+        project_id: project.id,
+        stage: decision?.stage || 'verify',
+        action: 'auto_recovery_unknown_action',
+        reasoning: `Classifier returned unknown for action "${classifyInput.action}"; engine will fall back to default chain`,
+        outcome: {
+          original_action: classifyInput.action,
+          original_stage: decision?.stage || null,
+          outcome_keys: Object.keys(decision?.outcome || {}),
+          work_item_id: decision?.outcome?.work_item_id ?? null,
+          task_id: decision?.outcome?.task_id ?? null,
+          engine_decided_strategies: classification.suggested_strategies || ['retry', 'escalate'],
+        },
+        confidence: 1,
+        batch_id: decision?.batch_id || null,
+      });
+    }
 
     const recentAttempts = recentStrategyAttemptsForRule(db, project.id, classification.matched_rule);
     const strategy = typeof registry.pickWithBudget === 'function'

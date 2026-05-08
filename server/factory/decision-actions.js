@@ -768,6 +768,11 @@ const DECISION_ACTIONS = {
     classifier: 'engine',
     outcome: ['strategy', 'classification'],
   },
+  auto_recovery_unknown_action: {
+    stage: 'ANY',
+    classifier: 'engine',
+    outcome: ['original_action', 'original_stage', 'outcome_keys', 'work_item_id', 'task_id', 'engine_decided_strategies'],
+  },
 };
 
 module.exports = { DECISION_ACTIONS };
