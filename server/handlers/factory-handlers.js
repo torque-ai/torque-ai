@@ -883,9 +883,11 @@ const FACTORY_CYCLE_FAILURE_ACTIONS = new Set([
   'worktree_verify_failed',
 ]);
 const FACTORY_CYCLE_SUCCESS_ACTIONS = new Set([
-  'auto_shipped_at_prioritize',
-  'auto_shipped_at_verify_fail',
-  'auto_shipped_empty_branch',
+  // Unified shipped-detector action (replaced auto_shipped_at_prioritize,
+  // auto_shipped_at_verify_fail, auto_shipped_empty_branch in 2026-05-08).
+  // The reason discriminator (at_prioritize / empty_branch_merge_fail /
+  // at_verify_fail) lives in outcome.reason; this set checks success regardless.
+  'auto_shipped',
   'healed_already_shipped',
   'shipped_work_item',
   'verify_empty_branch_auto_shipped',

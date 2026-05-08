@@ -57,11 +57,6 @@ const DECISION_ACTIONS = {
     classifier: 'benign',
     outcome: ['reason', 'work_item_id', 'batch_id'],
   },
-  auto_shipped_at_prioritize: {
-    stage: 'PRIORITIZE',
-    classifier: 'terminal',
-    outcome: ['work_item_id', 'status'],
-  },
   healed_already_shipped: {
     stage: 'PRIORITIZE',
     classifier: 'benign',
@@ -567,11 +562,6 @@ const DECISION_ACTIONS = {
     rule_id: 'worktree_verify_errored',
     outcome: ['work_item_id', 'error'],
   },
-  auto_shipped_at_verify_fail: {
-    stage: 'VERIFY',
-    classifier: 'terminal',
-    outcome: ['work_item_id', 'reason'],
-  },
   factory_verify_unrecoverable: {
     stage: 'VERIFY',
     classifier: 'terminal',
@@ -681,11 +671,6 @@ const DECISION_ACTIONS = {
     classifier: 'b-side-reject',
     outcome: ['work_item_id', 'error'],
   },
-  auto_shipped_empty_branch: {
-    stage: 'LEARN',
-    classifier: 'terminal',
-    outcome: ['work_item_id', 'reason'],
-  },
   empty_branch_routed_to_needs_replan: {
     stage: 'LEARN',
     classifier: 'b-side-reject',
@@ -709,6 +694,11 @@ const DECISION_ACTIONS = {
 
   // ─── ANY (cross-stage) ────────────────────────────────────────────────────
 
+  auto_shipped: {
+    stage: 'ANY',
+    classifier: 'terminal',
+    outcome: ['work_item_id', 'confidence', 'signals', 'reason'],
+  },
   paused_at_gate: {
     stage: 'ANY',
     classifier: 'recovery-rule',
