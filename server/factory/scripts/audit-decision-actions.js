@@ -302,7 +302,11 @@ function prettyPrintReport(report, opts = {}) {
   if (report.rule_id_mismatch.length > 0) {
     lines.push(`rule_id_mismatch (${report.rule_id_mismatch.length}):`);
     for (const { action, catalog_rule_id } of report.rule_id_mismatch) {
-      lines.push(`  - ${action} -> rule_id "${catalog_rule_id}" not found in rules.js`);
+      if (catalog_rule_id === null) {
+        lines.push(`  - ${action} -> missing rule_id field (catalog malformation)`);
+      } else {
+        lines.push(`  - ${action} -> rule_id "${catalog_rule_id}" not found in rules.js`);
+      }
     }
     lines.push('');
   }
