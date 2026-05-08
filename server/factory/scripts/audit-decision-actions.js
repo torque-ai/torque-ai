@@ -8,14 +8,20 @@ const SOURCE_GLOBS = [
   'server/plugins/auto-recovery-core',
 ];
 
-// Match logDecision({ ... action: 'foo' ... }), logDecision(db, { ... action: 'foo' ... }),
-// and aliased forms like logDecisionFn(...) used in some emit sites. The \w*
-// suffix lets us catch `logDecisionFn` (loop-controller.js) without re-introducing
-// the `logDecision\s*\(` literal that triggered self-scan false positives.
-const EMIT_LITERAL_RE = /logDecision\w*\s*\(\s*(?:[a-zA-Z_$][\w$]*\s*,\s*)?\{[^}]*\baction\s*:\s*['"]([\w-]+)['"]/g;
+// Match every form of decision-log call observed in the codebase:
+//   logDecision({...})           — server/factory/decision-log.js
+//   logDecision(db, {...})       — server/factory/auto-recovery/engine.js
+//   logDecisionFn({...})         — alias binding in loop-controller.js (one site)
+//   safeLogDecision({...})       — wrapper in loop-controller.js + worktree-auto-commit.js (most calls)
+// The `(?:safeL|l)` alternation handles the case difference: `safeLogDecision`
+// has capital L after the `safe` prefix, while bare `logDecision` is lowercase.
+// `\w*` after `ogDecision` covers `logDecisionFn` and any future suffix variants.
+// Word boundary `\b` prevents accidental matches inside unrelated identifiers
+// like `MyLogDecision` or `pologDecision`.
+const EMIT_LITERAL_RE = /\b(?:safeL|l)ogDecision\w*\s*\(\s*(?:[a-zA-Z_$][\w$]*\s*,\s*)?\{[^}]*\baction\s*:\s*['"]([\w-]+)['"]/g;
 
-// Match logDecision*(...) calls where action: is followed by a non-string-literal expression.
-const EMIT_DYNAMIC_RE = /logDecision\w*\s*\(\s*(?:[a-zA-Z_$][\w$]*\s*,\s*)?\{[^}]*\baction\s*:\s*(?!['"])([^,}\n]+)/g;
+// Match the same call shapes where action: is followed by a non-string-literal expression.
+const EMIT_DYNAMIC_RE = /\b(?:safeL|l)ogDecision\w*\s*\(\s*(?:[a-zA-Z_$][\w$]*\s*,\s*)?\{[^}]*\baction\s*:\s*(?!['"])([^,}\n]+)/g;
 
 // Audit script's own filename — exclude from self-scan so doc-comment examples
 // don't get parsed as real emit sites.
