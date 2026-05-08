@@ -471,12 +471,23 @@ function withDatabaseModuleBlocked(callback) {
     return originalLoad.call(this, request, parent, isMain);
   };
 
+  let restoreNow = true;
   try {
     const result = callback();
+    if (result && typeof result.then === 'function') {
+      restoreNow = false;
+      return result.finally(() => {
+        try {
+          expect(databaseLoads).toEqual([]);
+        } finally {
+          Module._load = originalLoad;
+        }
+      });
+    }
     expect(databaseLoads).toEqual([]);
     return result;
   } finally {
-    Module._load = originalLoad;
+    if (restoreNow) Module._load = originalLoad;
   }
 }
 
@@ -634,51 +645,113 @@ describe('execution database import boundary', () => {
     });
   });
 
-  // Skipped: the task-manager.initSubModules contract this test enforces was
-  // dissolved by the DI migration. workflowRuntime / fallbackRetry / taskStartup
-  // / completionPipeline / taskFinalizer / queueScheduler are now resolved via
-  // defaultContainer.get(...) factory calls that lazy-bind their deps from the
-  // container at first use, rather than being wired up by an imperative init()
-  // call inside initSubModules. The boundary itself (no direct database.js
-  // import in execution/* modules) is still enforced by the other 4 tests in
-  // this file via expectNoDirectDatabaseImport. A new test that verifies the
-  // container resolves these factories with the db proxy would replace this.
-  it.skip('initializes task-manager runtime dependencies once against the injected db proxy', () => {
-    const modulePath = '../task-manager';
-    expectNoDirectDatabaseImport(modulePath);
-    const mocks = installTaskManagerBoundaryMocks();
+  it('resolves execution services from the container against the injected db proxy', async () => {
+    [
+      '../execution/workflow-runtime',
+      '../execution/fallback-retry',
+      '../execution/task-startup',
+      '../execution/completion-pipeline',
+      '../execution/task-finalizer',
+      '../execution/queue-scheduler',
+    ].forEach(expectNoDirectDatabaseImport);
 
-    withDatabaseModuleBlocked(() => {
-      clearModule(modulePath);
-      const subject = require(modulePath);
+    await withDatabaseModuleBlocked(async () => {
+      clearModule('../container');
+      clearModule('../execution/register');
+      const { createContainer } = require('../container');
+      const executionRegister = require('../execution/register');
+      const container = createContainer();
+      const db = {
+        __isTaskManagerDbProxy: true,
+        getTaskDependencies: vi.fn(() => []),
+        getWorkflowTasks: vi.fn(() => []),
+        getAggregatedModels: vi.fn(() => []),
+        resolveTaskId: vi.fn((taskId) => taskId),
+        getTask: vi.fn((taskId) => {
+          if (taskId === 'task-progress') {
+            return {
+              id: taskId,
+              status: 'completed',
+              output: '',
+              error_output: '',
+              progress_percent: 100,
+            };
+          }
+          return null;
+        }),
+        classifyTaskType: vi.fn(() => 'general'),
+        recordModelOutcome: vi.fn(),
+        listTasks: vi.fn(() => []),
+        isReady: vi.fn(() => true),
+        getProvider: vi.fn(() => ({ enabled: true })),
+        updateTaskStatus: vi.fn(),
+        getDbInstance: vi.fn(() => ({
+          prepare: vi.fn(() => ({
+            all: vi.fn(() => []),
+            get: vi.fn(() => null),
+            run: vi.fn(),
+          })),
+        })),
+      };
+      const taskManager = {
+        startTask: vi.fn(),
+        cancelTask: vi.fn(),
+        processQueue: vi.fn(),
+        safeUpdateTaskStatus: vi.fn(),
+        attemptTaskStart: vi.fn(() => ({ started: false, queued: false })),
+        safeStartTask: vi.fn(() => ({ started: false, queued: false })),
+      };
 
-      subject.initSubModules();
-      subject.initSubModules();
+      container.registerValue('db', db);
+      container.registerValue('dashboard', { notifyTaskUpdated: vi.fn(), broadcast: vi.fn() });
+      container.registerValue('taskManager', taskManager);
+      container.registerValue('eventBus', { emitTaskUpdated: vi.fn(), on: vi.fn(), off: vi.fn() });
+      container.registerValue('logger', createLoggerMock());
+      container.registerValue('serverConfig', {
+        get: vi.fn((_key, fallback = null) => fallback),
+        getBool: vi.fn(() => false),
+        getInt: vi.fn((_key, fallback = 0) => fallback),
+        isOptIn: vi.fn(() => false),
+      });
+      container.registerValue('sharedFactoryStore', { get: vi.fn(() => null), set: vi.fn() });
+      container.registerValue('providerRegistry', {
+        isKnownProvider: vi.fn(() => true),
+        isApiProvider: vi.fn(() => false),
+        getProviderInstance: vi.fn(() => null),
+      });
+      container.registerValue('gpuMetrics', { getPressureLevel: vi.fn(() => 'normal') });
 
-      expect(mocks.workflowRuntime.init).toHaveBeenCalledTimes(1);
-      expect(mocks.fallbackRetry.init).toHaveBeenCalledTimes(1);
-      expect(mocks.taskStartup.init).toHaveBeenCalledTimes(1);
-      expect(mocks.completionPipeline.init).toHaveBeenCalledTimes(1);
-      expect(mocks.taskFinalizer.init).toHaveBeenCalledTimes(1);
-      expect(mocks.queueScheduler.init).toHaveBeenCalledTimes(1);
-      expect(mocks.db.addTaskStatusTransitionListener).toHaveBeenCalledTimes(1);
+      executionRegister.register(container);
+      expect(container.boot({ failFast: true }).failed).toEqual([]);
 
-      const runtimeDeps = mocks.workflowRuntime.init.mock.calls[0][0];
-      const fallbackDeps = mocks.fallbackRetry.init.mock.calls[0][0];
-      const startupDeps = mocks.taskStartup.init.mock.calls[0][0];
-      const executionDeps = mocks.executionModule.init.mock.calls[0][0];
+      container.get('workflowRuntime').buildDepTasksMap('workflow-1', 'task-1');
+      container.get('fallbackRetry').findLargerAvailableModel('qwen2.5-coder:7b');
+      container.get('taskStartup').getTaskProgress('task-progress');
+      container.get('completionPipeline').recordModelOutcome({
+        provider: 'codex',
+        model: 'gpt-test',
+        task_description: 'Implement the feature',
+        started_at: '2026-05-08T00:00:00.000Z',
+        completed_at: '2026-05-08T00:00:01.000Z',
+        exit_code: 0,
+      }, true);
+      await container.get('taskFinalizer').finalizeTask('missing-task');
+      container.get('queueScheduler').resolveCodexPendingTasks();
 
-      expect(runtimeDeps.db.__isTaskManagerDbProxy).toBe(true);
-      expect(fallbackDeps.db).toBe(runtimeDeps.db);
-      expect(startupDeps.db).toBe(runtimeDeps.db);
-      expect(runtimeDeps.startTask).toBe(subject.startTask);
-      expect(runtimeDeps.cancelTask).toBe(subject.cancelTask);
-      expect(runtimeDeps.processQueue).toBe(subject.processQueue);
-      expect(fallbackDeps.processQueue).toBe(subject.processQueue);
-      expect(fallbackDeps.runningProcesses).toBe(startupDeps.runningProcesses);
-      expect(fallbackDeps.stallRecoveryAttempts).toBe(startupDeps.stallRecoveryAttempts);
-      expect(executionDeps.tryLocalFirstFallback).toBe(mocks.fallbackRetry.tryLocalFirstFallback);
-      expect(executionDeps.tryOllamaCloudFallback).toBe(mocks.fallbackRetry.tryOllamaCloudFallback);
+      expect(db.getTaskDependencies).toHaveBeenCalledWith('task-1');
+      expect(db.getWorkflowTasks).toHaveBeenCalledWith('workflow-1');
+      expect(db.getAggregatedModels).toHaveBeenCalled();
+      expect(db.resolveTaskId).toHaveBeenCalledWith('task-progress');
+      expect(db.getTask).toHaveBeenCalledWith('task-progress');
+      expect(db.classifyTaskType).toHaveBeenCalledWith('Implement the feature');
+      expect(db.recordModelOutcome).toHaveBeenCalledWith(
+        'gpt-test',
+        'general',
+        true,
+        expect.objectContaining({ provider: 'codex', exit_code: 0 }),
+      );
+      expect(db.getTask).toHaveBeenCalledWith('missing-task');
+      expect(db.listTasks).toHaveBeenCalledWith({ status: 'queued', limit: 100 });
     });
   });
 });
