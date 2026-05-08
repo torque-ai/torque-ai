@@ -121,6 +121,7 @@ function enumerateMcpTools() {
 const REST_FILES = [
   'server/api/routes.js',
   'server/api/routes-passthrough.js',
+  'server/api/routes-generated-supplement.js',
   'server/api/v2-router.js',
   'server/api/v2-task-handlers.js',
   'server/api/v2-workflow-handlers.js',
