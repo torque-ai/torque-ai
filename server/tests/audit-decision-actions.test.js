@@ -8,6 +8,7 @@ const {
   discoverClassifierRules,
   discoverBenignPatterns,
   runDecisionActionsAudit,
+  prettyPrintReport,
 } = require('../factory/scripts/audit-decision-actions');
 
 function makeFixtureDir(files) {
@@ -267,5 +268,52 @@ describe('runDecisionActionsAudit', () => {
     const report = runDecisionActionsAudit({ rootDir: dir, catalog });
     expect(report.emitted_no_classifier).toContain('typo_kind_action');
     expect(report.hasGaps).toBe(true);
+  });
+});
+
+describe('prettyPrintReport', () => {
+  it('summarizes a report with no gaps', () => {
+    const report = {
+      emitted_not_in_catalog: [],
+      emitted_no_classifier: [],
+      rule_id_mismatch: [],
+      catalog_not_emitted: [],
+      dynamic_action_sites: [],
+      literal_emissions: new Map([['scanned_plans', [{ file: 'foo.js', line: 10 }]]]),
+      hasGaps: false,
+    };
+    const out = prettyPrintReport(report);
+    expect(out).toMatch(/All gap categories empty/);
+    expect(out).toMatch(/Total literal emit sites: 1/);
+  });
+
+  it('lists gaps and hides per-site detail by default', () => {
+    const report = {
+      emitted_not_in_catalog: ['undocumented_x'],
+      emitted_no_classifier: [],
+      rule_id_mismatch: [],
+      catalog_not_emitted: [],
+      dynamic_action_sites: [],
+      literal_emissions: new Map([['undocumented_x', [{ file: 'foo.js', line: 42 }]]]),
+      hasGaps: true,
+    };
+    const out = prettyPrintReport(report);
+    expect(out).toMatch(/emitted_not_in_catalog \(1\):/);
+    expect(out).toMatch(/  - undocumented_x/);
+    expect(out).not.toMatch(/foo\.js:42/);
+  });
+
+  it('shows per-site detail when opts.detail is true', () => {
+    const report = {
+      emitted_not_in_catalog: ['undocumented_x'],
+      emitted_no_classifier: [],
+      rule_id_mismatch: [],
+      catalog_not_emitted: [],
+      dynamic_action_sites: [],
+      literal_emissions: new Map([['undocumented_x', [{ file: 'foo.js', line: 42 }]]]),
+      hasGaps: true,
+    };
+    const out = prettyPrintReport(report, { detail: true });
+    expect(out).toMatch(/foo\.js:42/);
   });
 });

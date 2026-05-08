@@ -267,10 +267,88 @@ function runDecisionActionsAudit({ rootDir, catalog }) {
   };
 }
 
+function prettyPrintReport(report, opts = {}) {
+  const lines = [];
+  lines.push('=== factory_decisions audit ===');
+  lines.push('');
+  lines.push(`Total literal emit sites: ${report.literal_emissions.size}`);
+  lines.push(`Dynamic-action sites: ${report.dynamic_action_sites.length}`);
+  lines.push('');
+
+  if (report.emitted_not_in_catalog.length > 0) {
+    lines.push(`emitted_not_in_catalog (${report.emitted_not_in_catalog.length}):`);
+    for (const action of report.emitted_not_in_catalog) {
+      lines.push(`  - ${action}`);
+      if (opts.detail) {
+        const sites = report.literal_emissions.get(action) || [];
+        for (const s of sites) lines.push(`      ${s.file}:${s.line}`);
+      }
+    }
+    lines.push('');
+  }
+
+  if (report.emitted_no_classifier.length > 0) {
+    lines.push(`emitted_no_classifier (${report.emitted_no_classifier.length}):`);
+    for (const action of report.emitted_no_classifier) {
+      lines.push(`  - ${action}`);
+      if (opts.detail) {
+        const sites = report.literal_emissions.get(action) || [];
+        for (const s of sites) lines.push(`      ${s.file}:${s.line}`);
+      }
+    }
+    lines.push('');
+  }
+
+  if (report.rule_id_mismatch.length > 0) {
+    lines.push(`rule_id_mismatch (${report.rule_id_mismatch.length}):`);
+    for (const { action, catalog_rule_id } of report.rule_id_mismatch) {
+      lines.push(`  - ${action} -> rule_id "${catalog_rule_id}" not found in rules.js`);
+    }
+    lines.push('');
+  }
+
+  if (report.catalog_not_emitted.length > 0) {
+    lines.push(`catalog_not_emitted (${report.catalog_not_emitted.length}):`);
+    for (const action of report.catalog_not_emitted) {
+      lines.push(`  - ${action}`);
+    }
+    lines.push('');
+  }
+
+  if (report.dynamic_action_sites.length > 0 && opts.detail) {
+    lines.push(`dynamic_action_sites (${report.dynamic_action_sites.length}):`);
+    for (const site of report.dynamic_action_sites) {
+      lines.push(`  - ${site.file}:${site.line}  ${site.snippet}`);
+    }
+    lines.push('');
+  }
+
+  if (!report.hasGaps) {
+    lines.push('All gap categories empty.');
+  }
+
+  return lines.join('\n');
+}
+
+if (require.main === module) {
+  const detail = process.argv.includes('--gap-detail');
+  const rootDir = process.cwd();
+  const catalogPath = path.join(rootDir, 'server/factory/decision-actions.js');
+  let catalog = {};
+  if (fs.existsSync(catalogPath)) {
+    // eslint-disable-next-line global-require
+    catalog = require(catalogPath).DECISION_ACTIONS || {};
+  }
+  const report = runDecisionActionsAudit({ rootDir, catalog });
+  process.stdout.write(prettyPrintReport(report, { detail }) + '\n');
+  process.exit(report.hasGaps ? 1 : 0);
+}
+
 module.exports = {
   discoverEmitSites,
   discoverClassifierRules,
   discoverBenignPatterns,
   runDecisionActionsAudit,
+  prettyPrintReport,
   __internals: { walkJsFiles, fileLineFromIndex },
 };
