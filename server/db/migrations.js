@@ -1357,6 +1357,42 @@ const MIGRATIONS = [
     },
     // No down — column drops on SQLite require table rebuild.
   },
+  {
+    version: 58,
+    name: 'add_task_stall_recovery_attempts',
+    // Closes stall-and-retry.md open question #2.
+    //
+    // `_stallRecoveryAttempts` lived as an in-memory Map on
+    // processTracker.stallAttempts. Each tryStallRecovery call read+wrote
+    // {attempts, lastStrategy} keyed by taskId. The Map was lost on every
+    // TORQUE restart, so a task that exhausted 2 of 3 strategies before
+    // restart looked "fresh" to the post-restart sweep and got 3 more.
+    //
+    // Combined with subprocess-detachment re-adoption (which preserves
+    // last_activity_at so the stall clock is honest across restart), this
+    // meant restart was the most reliable way to extend stall recovery
+    // beyond its configured cap.
+    //
+    // `stall_recovery_attempts` persists the integer count so re-adopt can
+    // restore the Map entry. Strategy ladder is purely attempt-count-driven
+    // (`recovery.attempts === 0` → switch_edit_format, etc.) so the integer
+    // alone is sufficient — `lastStrategy` was only used for log strings,
+    // not for routing decisions.
+    up: function(sqliteDb) {
+      const hasTable = sqliteDb.prepare(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='tasks'"
+      ).get();
+      if (!hasTable) return;
+      const cols = sqliteDb.prepare("PRAGMA table_info(tasks)").all();
+      const has = cols.some((c) => c.name === 'stall_recovery_attempts');
+      if (!has) {
+        sqliteDb.prepare(
+          'ALTER TABLE tasks ADD COLUMN stall_recovery_attempts INTEGER NOT NULL DEFAULT 0'
+        ).run();
+      }
+    },
+    // No down — column drops on SQLite require table rebuild.
+  },
 ];
 
 function ensureMigrationTable(sqliteDb) {

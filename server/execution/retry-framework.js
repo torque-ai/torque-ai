@@ -120,8 +120,23 @@ function handleRetryLogic(ctx) {
     logger.info(`Task ${taskId} not found during retry - skipping retry`);
     return;
   }
-  const delayMs = deps.db.calculateRetryDelay(task) * 1000;
+  // stall-and-retry.md #10 — when classifyError extracted a Retry-After
+  // hint from the error output (`retry_after_seconds=N`), honor it as a
+  // floor on the retry delay. Without this, a 429 with `Retry-After: 300`
+  // and a task at attempt 1 would retry in 5s (the exponential base),
+  // get rate-limited again, and burn through the retry budget. The
+  // exponential schedule is still respected for later attempts where it
+  // exceeds the server's hint.
+  const baseDelaySec = deps.db.calculateRetryDelay(task);
+  const retryAfterSec = Number.isFinite(errorClassification.retryAfterSeconds)
+    && errorClassification.retryAfterSeconds > 0
+    ? errorClassification.retryAfterSeconds
+    : 0;
+  const delayMs = Math.max(baseDelaySec, retryAfterSec) * 1000;
 
+  if (retryAfterSec > 0 && retryAfterSec > baseDelaySec) {
+    logger.info(`Task ${taskId} retry delay raised by Retry-After hint: ${baseDelaySec}s base → ${retryAfterSec}s server-suggested`);
+  }
   logger.info(`Task ${taskId} will retry in ${delayMs/1000}s (attempt ${retryInfo.retryCount}/${retryInfo.maxRetries}): ${errorClassification.reason}`);
   const sanitizedOutput = sanitizeOutput(proc.output);
 

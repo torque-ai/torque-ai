@@ -1065,6 +1065,111 @@ describe('fallback-retry module', () => {
         expect(taskCore.getTask(task.id).provider).toBe('codex');
       });
     });
+
+    // ── stall-and-retry.md #2: stall_recovery_attempts persistence ──────
+    // Map is the runtime cache; the DB column is the durable record. A
+    // TORQUE restart between tryStallRecovery invocations clears the Map
+    // but leaves the DB row, so the next sweep MUST seed from the column
+    // or the strategy ladder resets to 0 and the budget resets too.
+    describe('stall_recovery_attempts persistence', () => {
+      it('persists attempts to DB when the main re-queue fires', () => {
+        const task = createTask({
+          provider: 'ollama',
+          model: TEST_MODELS.DEFAULT,
+        });
+        runningProcesses.set(task.id, { editFormat: 'diff' });
+
+        const ok = mod.tryStallRecovery(task.id, { lastActivitySeconds: 360 });
+        expect(ok).toBe(true);
+
+        const updated = taskCore.getTask(task.id);
+        expect(updated.stall_recovery_attempts).toBe(1);
+        // Map and DB stay aligned
+        expect(stallRecoveryAttempts.get(task.id).attempts).toBe(1);
+      });
+
+      it('persists attempts to DB on the local-first early-return path (attempt 3+)', () => {
+        configCore.setConfig('max_local_retries', '3');
+        const task = createTask({
+          provider: 'ollama',
+          model: TEST_MODELS.DEFAULT,
+        });
+        runningProcesses.set(task.id, { editFormat: 'whole' });
+        stallRecoveryAttempts.set(task.id, { attempts: 2, lastStrategy: 'switch_model' });
+
+        withDbMethods({
+          getAggregatedModels: vi.fn(() => []),
+        }, () => {
+          const ok = mod.tryStallRecovery(task.id, { lastActivitySeconds: 480 });
+          expect(ok).toBe(true);
+          expect(taskCore.getTask(task.id).stall_recovery_attempts).toBe(3);
+        });
+      });
+
+      it('seeds recovery.attempts from persisted column when Map is empty (post-restart)', () => {
+        // Simulate post-restart state: DB row carries the prior count, but
+        // _stallRecoveryAttempts Map is empty (not re-adopted yet).
+        const task = createTask({
+          provider: 'ollama',
+          model: TEST_MODELS.DEFAULT,
+        });
+        runningProcesses.set(task.id, { editFormat: 'whole' });
+        // Seed DB to "task already exhausted attempt 1 (switch_edit_format)
+        // before restart"
+        db.getDbInstance().prepare('UPDATE tasks SET stall_recovery_attempts = ? WHERE id = ?')
+          .run(1, task.id);
+        // Map is empty (post-restart) — no _stallRecoveryAttempts.set() call
+        expect(stallRecoveryAttempts.has(task.id)).toBe(false);
+
+        const ok = mod.tryStallRecovery(task.id, { lastActivitySeconds: 360 });
+        expect(ok).toBe(true);
+        // Strategy ladder picked up at attempt 1 → next is attempt 2
+        // (switch_model for ollama with larger model OR
+        // local_first_fallback if no larger). Count is now 2 in DB.
+        expect(taskCore.getTask(task.id).stall_recovery_attempts).toBe(2);
+        expect(stallRecoveryAttempts.get(task.id).attempts).toBe(2);
+      });
+
+      it('exhausts via persisted count when Map is empty and DB is at max', () => {
+        // Worst case for the pre-fix behavior: DB shows the budget is
+        // already burned, but Map is empty. Without the seed, recovery
+        // would think attempts=0 and run the full ladder again.
+        configCore.setConfig('stall_recovery_max_attempts', '3');
+        const task = createTask({
+          provider: 'ollama',
+          model: TEST_MODELS.DEFAULT,
+        });
+        runningProcesses.set(task.id, { editFormat: 'whole' });
+        db.getDbInstance().prepare('UPDATE tasks SET stall_recovery_attempts = ? WHERE id = ?')
+          .run(3, task.id);
+        expect(stallRecoveryAttempts.has(task.id)).toBe(false);
+
+        const ok = mod.tryStallRecovery(task.id, { lastActivitySeconds: 999 });
+        expect(ok).toBe(false);
+        expect(cancelCalls).toHaveLength(1);
+        expect(cancelCalls[0].reason).toContain('Stall recovery exhausted');
+        expect(cancelCalls[0].reason).toContain('after 3 attempts');
+      });
+
+      it('takes max(persisted, memory) when both are present', () => {
+        // Defensive: a stale Map entry shouldn't underestimate the
+        // budget when the DB knows the count is higher (concurrent
+        // sweeps, race window between Map clear and DB write).
+        configCore.setConfig('stall_recovery_max_attempts', '3');
+        const task = createTask({
+          provider: 'ollama',
+          model: TEST_MODELS.DEFAULT,
+        });
+        runningProcesses.set(task.id, { editFormat: 'whole' });
+        stallRecoveryAttempts.set(task.id, { attempts: 1, lastStrategy: 'switch_edit_format' });
+        db.getDbInstance().prepare('UPDATE tasks SET stall_recovery_attempts = ? WHERE id = ?')
+          .run(3, task.id);
+
+        const ok = mod.tryStallRecovery(task.id, { lastActivitySeconds: 999 });
+        expect(ok).toBe(false);
+        expect(cancelCalls[0].reason).toContain('after 3 attempts');
+      });
+    });
   });
 
   describe('findLargerAvailableModel', () => {

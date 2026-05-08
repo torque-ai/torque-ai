@@ -49,6 +49,11 @@ const ALLOWED_TASK_COLUMNS = new Set([
   // subprocess-detachment.md #6 — persisted timestamp restores
   // completionDetected flag + grace-window math after re-adoption.
   'completion_detected_at',
+  // stall-and-retry.md #2 — persisted strategy-attempt count so a
+  // TORQUE restart between tryStallRecovery invocations doesn't reset
+  // the cap to 0 and let a stuck task burn through another full
+  // budget on the post-restart sweep.
+  'stall_recovery_attempts',
 ]);
 
 const TERMINAL_TASK_STATUSES = new Set(['completed', 'failed', 'cancelled', 'skipped']);
@@ -962,6 +967,10 @@ const LIST_TASKS_ALLOWED_COLUMNS = new Set([
   // queries also need it to surface "task is winding down (completion
   // detected at X)" badges without an extra SELECT.
   'completion_detected_at',
+  // stall-and-retry.md #2 — same silent-drop class. List queries need
+  // this to surface "stall recovery attempt N/M" indicators without a
+  // separate query. Re-adoption reads it via getTask (full row).
+  'stall_recovery_attempts',
 ]);
 
 // Shared column projections for dashboard/REST callers. Using named sets keeps the

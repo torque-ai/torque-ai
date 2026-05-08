@@ -504,4 +504,108 @@ describe('retry-framework', () => {
     expect(updateTaskStatus).toHaveBeenCalledTimes(3);
     expect(scenario.state.task.status).toBe('queued');
   });
+
+  // ── stall-and-retry.md #10: Retry-After hint honored as floor ────────
+  // classifyError extracts `retry_after_seconds=N` from error output. The
+  // delay computation must use Math.max(baseDelay, retryAfter) so a 429
+  // with `Retry-After: 300` doesn't get retried in 5s and burn the budget.
+  describe('Retry-After hint', () => {
+    it('raises delay to retryAfterSeconds when greater than exponential base', () => {
+      // retry_count=0 → baseDelay=1s; server hint=120s → use 120s
+      scenario = createScenario({
+        task: { retry_count: 0, max_retries: 4 },
+        deps: {
+          classifyError: vi.fn(() => ({
+            retryable: true,
+            reason: 'rate_limited',
+            retryAfterSeconds: 120,
+          })),
+        },
+      });
+      const timeoutSpy = vi.spyOn(globalThis, 'setTimeout');
+
+      retryFramework.handleRetryLogic(scenario.ctx);
+
+      expect(scenario.ctx.earlyExit).toBe(true);
+      expect(timeoutSpy).toHaveBeenLastCalledWith(expect.any(Function), 120 * 1000);
+      // delay_used recorded as the BASE delay (the calculator's value),
+      // not the inflated retryAfter — that's a UX detail; the actual
+      // setTimeout uses the higher value. If we wanted symmetry we'd
+      // record max here too, but the existing contract preserves
+      // calculator output.
+    });
+
+    it('keeps exponential delay when it exceeds retryAfterSeconds', () => {
+      // retry_count=4 → baseDelay=8s (capped); server hint=2s → use 8s
+      scenario = createScenario({
+        task: { retry_count: 4, max_retries: 6 },
+        db: {
+          incrementRetry: vi.fn(() => ({
+            retryCount: 5,
+            maxRetries: 6,
+            shouldRetry: true,
+          })),
+        },
+        deps: {
+          classifyError: vi.fn(() => ({
+            retryable: true,
+            reason: 'transient',
+            retryAfterSeconds: 2,
+          })),
+        },
+      });
+      const timeoutSpy = vi.spyOn(globalThis, 'setTimeout');
+
+      retryFramework.handleRetryLogic(scenario.ctx);
+
+      expect(scenario.ctx.earlyExit).toBe(true);
+      expect(timeoutSpy).toHaveBeenLastCalledWith(expect.any(Function), 8 * 1000);
+    });
+
+    it('is a no-op when classifyError did not extract a retryAfterSeconds', () => {
+      // No retryAfterSeconds key → falls back to base delay.
+      scenario = createScenario({
+        task: { retry_count: 1, max_retries: 4 },
+        db: {
+          incrementRetry: vi.fn(() => ({
+            retryCount: 2,
+            maxRetries: 4,
+            shouldRetry: true,
+          })),
+        },
+        deps: {
+          classifyError: vi.fn(() => ({
+            retryable: true,
+            reason: 'transient',
+            // no retryAfterSeconds field
+          })),
+        },
+      });
+      const timeoutSpy = vi.spyOn(globalThis, 'setTimeout');
+
+      retryFramework.handleRetryLogic(scenario.ctx);
+
+      // retry_count was 1 → baseDelay=2s (Math.min(2 ** 1, 8) = 2)
+      expect(timeoutSpy).toHaveBeenLastCalledWith(expect.any(Function), 2 * 1000);
+    });
+
+    it('treats invalid retryAfterSeconds as zero (no inflation)', () => {
+      scenario = createScenario({
+        task: { retry_count: 0, max_retries: 4 },
+        deps: {
+          classifyError: vi.fn(() => ({
+            retryable: true,
+            reason: 'transient',
+            retryAfterSeconds: -50, // non-positive → ignored
+          })),
+        },
+      });
+      const timeoutSpy = vi.spyOn(globalThis, 'setTimeout');
+
+      retryFramework.handleRetryLogic(scenario.ctx);
+
+      // retry_count=0 → baseDelay=1s; invalid hint ignored
+      expect(timeoutSpy).toHaveBeenLastCalledWith(expect.any(Function), 1 * 1000);
+    });
+  });
 });

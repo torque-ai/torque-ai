@@ -499,6 +499,24 @@ function tryLocalFirstFallback(taskId, task, errorMsg, options = {}) {
  * @param {Object} activity - Activity info from getTaskActivity
  * @returns {boolean} True if recovery was attempted
  */
+function persistStallRecoveryAttempts(taskId, attempts) {
+  // stall-and-retry.md #2 — persist the strategy-attempt count so a TORQUE
+  // restart between tryStallRecovery invocations doesn't reset the cap.
+  // Targeted UPDATE so we don't trigger updateTaskStatus's queued-side-effects
+  // (it clears `provider` for status='queued' transitions, which would race
+  // with this function's main re-queue path). Routes through getRawDbInstance
+  // because the injected `db` value is the wrapper module — prepare() lives on
+  // the underlying better-sqlite3 instance.
+  try {
+    const raw = getRawDbInstance();
+    if (!raw || typeof raw.prepare !== 'function') return;
+    raw.prepare('UPDATE tasks SET stall_recovery_attempts = ? WHERE id = ?')
+      .run(attempts, taskId);
+  } catch (err) {
+    logger.info(`[StallRecovery] Failed to persist attempts for ${taskId}: ${err.message}`);
+  }
+}
+
 function tryStallRecovery(taskId, activity) {
   ensureDeps();
 
@@ -513,7 +531,34 @@ function tryStallRecovery(taskId, activity) {
   }
 
   const maxAttempts = serverConfig.getInt('stall_recovery_max_attempts', 3);
-  const recovery = _stallRecoveryAttempts.get(taskId) || { attempts: 0, lastStrategy: null };
+
+  // Fetch task FIRST so we can seed recovery.attempts from the persisted
+  // column when the in-memory Map is empty (TORQUE restart between
+  // invocations — stall-and-retry.md #2).
+  const task = db.getTask(taskId);
+  if (!task) {
+    if (typeof _cancelTask !== 'function') {
+      logger.warn(`[StallRecovery] cancelTask unavailable for missing task ${taskId}; skipping cancellation`);
+      return false;
+    }
+    logger.info(`[StallRecovery] Task ${taskId} not found in database - cancelling`);
+    _cancelTask(taskId, 'Task not found', { cancel_reason: 'task_not_found' });
+    return false;
+  }
+
+  // Seed recovery state. Map is the runtime cache; the persisted column is
+  // the durable record. On a fresh post-restart sweep the Map is empty, so
+  // we must read from DB or the cap effectively resets to 0. When both are
+  // present (Map populated AND DB has prior count from earlier restart), we
+  // take the max so a stale Map entry can't underestimate the budget.
+  const persistedAttempts = Number.isFinite(Number(task.stall_recovery_attempts))
+    ? Number(task.stall_recovery_attempts)
+    : 0;
+  const memEntry = _stallRecoveryAttempts.get(taskId);
+  const recovery = memEntry || { attempts: persistedAttempts, lastStrategy: null };
+  if (memEntry && persistedAttempts > memEntry.attempts) {
+    recovery.attempts = persistedAttempts;
+  }
 
   if (recovery.attempts >= maxAttempts) {
     if (typeof _cancelTask !== 'function') {
@@ -527,17 +572,6 @@ function tryStallRecovery(taskId, activity) {
       `Stall recovery exhausted after ${recovery.attempts} attempts - no output for ${activity.lastActivitySeconds}s`,
       { cancel_reason: 'fallback_retry_exhausted' },
     );
-    return false;
-  }
-
-  const task = db.getTask(taskId);
-  if (!task) {
-    if (typeof _cancelTask !== 'function') {
-      logger.warn(`[StallRecovery] cancelTask unavailable for missing task ${taskId}; skipping cancellation`);
-      return false;
-    }
-    logger.info(`[StallRecovery] Task ${taskId} not found in database - cancelling`);
-    _cancelTask(taskId, 'Task not found', { cancel_reason: 'task_not_found' });
     return false;
   }
 
@@ -580,6 +614,7 @@ function tryStallRecovery(taskId, activity) {
       recovery.attempts++;
       recovery.lastStrategy = strategy;
       _stallRecoveryAttempts.set(taskId, recovery);
+      persistStallRecoveryAttempts(taskId, recovery.attempts);
       if (_markTaskCleanedUp) _markTaskCleanedUp(taskId);
       _stopTaskForRestart(taskId, `Stall recovery - ${strategy}`);
       tryLocalFirstFallback(taskId, task, `Stall recovery: no larger model available after ${activity.lastActivitySeconds}s stall`, { skipSameModel: true });
@@ -592,6 +627,7 @@ function tryStallRecovery(taskId, activity) {
     recovery.attempts++;
     recovery.lastStrategy = strategy;
     _stallRecoveryAttempts.set(taskId, recovery);
+    persistStallRecoveryAttempts(taskId, recovery.attempts);
     if (_markTaskCleanedUp) _markTaskCleanedUp(taskId);
     _stopTaskForRestart(taskId, `Stall recovery - ${strategy}`);
     tryLocalFirstFallback(taskId, task, `Stall recovery: attempt ${recovery.attempts} after ${activity.lastActivitySeconds}s stall`);
@@ -613,12 +649,17 @@ function tryStallRecovery(taskId, activity) {
   // Record structured failover event (RB-029)
   db.recordFailoverEvent({ task_id: taskId, from_provider: task.provider, to_provider: newSettings.provider || task.provider, from_model: task.model, to_model: newSettings.model || task.model, reason: `Stall: ${activity.lastActivitySeconds}s idle, strategy: ${strategy}`, failover_type: 'stall', attempt_num: recovery.attempts });
 
-  // Update task and re-queue with new settings
+  // Update task and re-queue with new settings.
+  // stall_recovery_attempts is folded into this UPDATE so the persisted
+  // count stays aligned with the in-memory Map for the main re-queue path
+  // (early-return paths above call persistStallRecoveryAttempts directly
+  // before tryLocalFirstFallback's own update fires).
   const updateFields = {
     status: 'queued',
     started_at: null,
     pid: null,
     progress_percent: 0,
+    stall_recovery_attempts: recovery.attempts,
     error_output: (task.error_output || '') + `\n[STALL RECOVERY] Attempt ${recovery.attempts}: ${strategy} after ${activity.lastActivitySeconds}s stall\n`
   };
 

@@ -298,9 +298,18 @@ These are the known soft spots — incremental fixes here without a unifying aud
 
 `_stallRecoveryAttempts` (in-memory) and `tasks.retry_count` (DB) are independent. A pathological task can consume `stall_recovery_max_attempts=3` strategies in tryStallRecovery, then exit non-zero, then consume `max_retries=N` retries in handleRetryLogic, then stall again on the new provider, then consume 3 more strategies, etc. **Action:** Either document the joint budget explicitly in CLAUDE.md + tool docs OR add a hard cap that sums both counters and refuses recovery once `stall + retry > combined_max`.
 
-### 2. `_stallRecoveryAttempts` Map is purely in-memory
+### 2. ✅ ~~`_stallRecoveryAttempts` Map is purely in-memory~~ RESOLVED 2026-05-07
 
-A TORQUE restart resets every task's stall recovery counter to 0. Combined with the re-adoption of detached subprocesses (subprocess-detachment.md) and the persisted `last_activity_at` (preserves stall clock across restart), this means a task that exhausted stall recovery before restart looks "fresh" to the post-restart sweep. **Action:** Persist `_stallRecoveryAttempts` to `tasks.stall_recovery_attempts INTEGER` column; restore on re-adoption mirror to the `last_activity_at` pattern.
+Migration v58 adds `tasks.stall_recovery_attempts INTEGER NOT NULL DEFAULT 0`. `tryStallRecovery` now seeds `recovery.attempts` from `task.stall_recovery_attempts` when the in-memory Map is empty (post-restart sweep) and takes `max(memEntry.attempts, persistedAttempts)` when both are present. Persisted on every Map write — folded into the main re-queue's `updateFields` and called via `persistStallRecoveryAttempts(taskId, attempts)` on the two early-return paths that call `tryLocalFirstFallback`. No re-adoption restore needed at the execute-cli layer — the read happens lazily on the next stall sweep, which fires every 60s.
+
+Strategy ladder is purely attempt-count-driven (`recovery.attempts === 0` → switch_edit_format, `<= 1 + ollama` → switch_model, else → local_first_fallback) so the integer alone is sufficient. `lastStrategy` was log-only and remains in-memory; not persisted.
+
+5 unit tests in `tests/fallback-retry.test.js` (`stall_recovery_attempts persistence` describe block):
+1. Persists on the main re-queue path (attempt 1 → DB shows 1)
+2. Persists on the local-first early-return path (attempt 3+ → DB shows 3)
+3. Seeds from persisted column when Map is empty (post-restart simulation: DB=1, Map empty → next attempt is 2)
+4. Exhausts via persisted count when Map is empty and DB is at max (DB=3, Map empty, max=3 → cancelled)
+5. Takes max(persisted, memory) when both are present (Map=1, DB=3, max=3 → cancelled)
 
 ### 3. PID-alive grace path inconsistent with session-monitor defer
 
@@ -330,9 +339,17 @@ Two different "delay before requeue" knobs in two different files. The first pro
 
 A stall-recovery requeue records `failover_events` row (RB-029); a Phase 1 retry of the same task does NOT. Operators querying failover events miss a major class of provider-switch behavior. **Action:** Have `handleRetryLogic` record a failover event when retrying with provider switch (it doesn't currently switch — only retries same-provider — but the event would still be useful for retry analytics).
 
-### 10. Retry-After header parsed but not always honored
+### 10. ✅ ~~Retry-After header parsed but not always honored~~ RESOLVED 2026-05-07
 
-`classifyError` extracts `retry_after_seconds` from `retry_after_seconds=N` patterns in error output and returns it on the result. `handleRetryLogic` does NOT consult `retryAfterSeconds` when computing `delayMs` — it uses `db.calculateRetryDelay(task)` based on attempt count only. Result: a 429 with `Retry-After: 300` and a task at attempt 1 retries in 5s instead of 300s, gets rate-limited again, and burns through retry budget. **Action:** Have `handleRetryLogic` use `Math.max(retryAfterSeconds * 1000, calculateRetryDelay)` when classifyError returned a `retryAfterSeconds`.
+`handleRetryLogic` now uses `Math.max(baseDelaySec, retryAfterSec) * 1000` for the `setTimeout` delay. The exponential schedule is preserved for later attempts where it exceeds the server's hint (e.g. retry_count=4 with hint=2s still sleeps 8s). When the hint exceeds the base delay, an info-level log line records the inflation: `retry delay raised by Retry-After hint: <base>s → <hint>s server-suggested`. Invalid hints (negative, zero, NaN, undefined) fall through cleanly — `Math.max(base, 0) === base`.
+
+4 unit tests in `tests/retry-framework.test.js` (`Retry-After hint` describe block):
+1. Hint 120s overrides 1s exponential base
+2. Hint 2s ignored when 8s base is higher
+3. No `retryAfterSeconds` field → falls back to base unchanged
+4. Negative hint treated as zero
+
+`delay_used` recorded in `recordRetryAttempt` still reflects the calculator's value (base, not max) — that's a UX detail for retry analytics and the existing contract.
 
 ### 11. `verify-stall-recovery.js` has its own attempt counter and threshold
 
