@@ -1713,7 +1713,7 @@ case "$TRANSPORT" in
     [[ -z "$REMOTE_PROJECT_PATH" ]] && die "Cannot derive remote project path. Set 'default_project_path' in ~/.torque-remote.local.json or 'remote_project_path' in project .torque-remote.local.json"
 
     # SSH options
-    SSH_OPTS=(-o ConnectTimeout=5 -o BatchMode=yes)
+    SSH_OPTS=(-o ConnectTimeout=5 -o BatchMode=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=120)
     if [[ -n "$SSH_KEY_PATH" && "$SSH_KEY_PATH" != "null" ]]; then
       SSH_OPTS+=(-i "$SSH_KEY_PATH")
     fi
