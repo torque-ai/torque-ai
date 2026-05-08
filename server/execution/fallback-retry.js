@@ -575,6 +575,35 @@ function tryStallRecovery(taskId, activity) {
     return false;
   }
 
+  // stall-and-retry.md #1 — opt-in joint cap. The two attempt counters
+  // (recovery.attempts here vs tasks.retry_count in handleRetryLogic) are
+  // independent by design. A pathological task can consume the full
+  // stall budget, exit non-zero, consume the full retry budget, stall
+  // again, and burn another full stall budget. When `combined_max_attempts`
+  // is set (>0), this is the hard ceiling on the SUM. Default 0 = disabled
+  // preserves existing behavior.
+  const combinedMax = serverConfig.getInt('combined_max_attempts', 0);
+  if (combinedMax > 0) {
+    const taskRetryCount = Number.isFinite(Number(task.retry_count))
+      ? Number(task.retry_count)
+      : 0;
+    const combined = recovery.attempts + taskRetryCount;
+    if (combined >= combinedMax) {
+      if (typeof _cancelTask !== 'function') {
+        logger.warn(`[StallRecovery] cancelTask unavailable for combined-cap task ${taskId}; skipping cancellation`);
+        return false;
+      }
+      logger.info(`[StallRecovery] Task ${taskId} hit combined attempt cap (stall=${recovery.attempts} + retry=${taskRetryCount} = ${combined} >= ${combinedMax})`);
+      _stallRecoveryAttempts.delete(taskId);
+      _cancelTask(
+        taskId,
+        `Combined attempt cap reached (stall=${recovery.attempts} + retry=${taskRetryCount} >= ${combinedMax})`,
+        { cancel_reason: 'combined_attempts_exhausted' },
+      );
+      return false;
+    }
+  }
+
   if (typeof _stopTaskForRestart !== 'function') {
     logger.warn(`[StallRecovery] stopTaskForRestart unavailable for task ${taskId}; skipping stall recovery`);
     return false;

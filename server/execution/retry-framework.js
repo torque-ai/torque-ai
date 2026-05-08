@@ -120,6 +120,42 @@ function handleRetryLogic(ctx) {
     logger.info(`Task ${taskId} not found during retry - skipping retry`);
     return;
   }
+  // stall-and-retry.md #1 — opt-in joint cap. When `combined_max_attempts`
+  // is set (>0), refuse to schedule a retry if the SUM of retry_count and
+  // stall_recovery_attempts meets it. Default 0 = disabled (preserves
+  // independent counters; existing budgets continue to apply unchanged).
+  // We check AFTER incrementRetry so retry_count reflects the just-bumped
+  // value; if cap is hit, the task falls through to normal failure
+  // handling (close handler marks it failed).
+  //
+  // Resolves serverConfig from deps when injected, otherwise lazy-requires
+  // the production module. The lazy path is best-effort: any error is
+  // logged once and the cap is treated as disabled so the test/legacy
+  // path never accidentally trips with an unconfigured 0 default.
+  try {
+    let combinedMax = 0;
+    if (deps.serverConfig && typeof deps.serverConfig.getInt === 'function') {
+      combinedMax = deps.serverConfig.getInt('combined_max_attempts', 0);
+    } else {
+      try {
+        combinedMax = require('../config').getInt('combined_max_attempts', 0);
+      } catch {
+        combinedMax = 0; // production config unavailable — default to disabled
+      }
+    }
+    if (combinedMax > 0) {
+      const stallAttempts = Number.isFinite(Number(task.stall_recovery_attempts))
+        ? Number(task.stall_recovery_attempts)
+        : 0;
+      const combined = (task.retry_count || 0) + stallAttempts;
+      if (combined >= combinedMax) {
+        logger.info(`Task ${taskId} retry refused: combined attempt cap reached (retry=${task.retry_count} + stall=${stallAttempts} = ${combined} >= ${combinedMax}) — falling through to failure`);
+        return; // close handler will mark failed
+      }
+    }
+  } catch (capErr) {
+    logger.info(`Task ${taskId} combined-cap check skipped: ${capErr.message}`);
+  }
   // stall-and-retry.md #10 — when classifyError extracted a Retry-After
   // hint from the error output (`retry_after_seconds=N`), honor it as a
   // floor on the retry delay. Without this, a 429 with `Retry-After: 300`

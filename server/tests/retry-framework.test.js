@@ -608,4 +608,114 @@ describe('retry-framework', () => {
       expect(timeoutSpy).toHaveBeenLastCalledWith(expect.any(Function), 1 * 1000);
     });
   });
+
+  // ── stall-and-retry.md #1: opt-in combined attempt cap ─────────────
+  // handleRetryLogic refuses to schedule a retry when retry_count + the
+  // task's stall_recovery_attempts column meets/exceeds combined_max_attempts.
+  // Default 0 = disabled (back-compat).
+  describe('combined_max_attempts opt-in cap', () => {
+    it('refuses retry when combined (retry + stall) reaches cap', () => {
+      // Stub serverConfig.getInt to return cap=5
+      const fakeServerConfig = {
+        getInt: vi.fn((key, fallback) => {
+          if (key === 'combined_max_attempts') return 5;
+          return fallback;
+        }),
+        isOptIn: vi.fn(() => false),
+        getBool: vi.fn(() => false),
+        get: vi.fn(() => null),
+      };
+      scenario = createScenario({
+        // After incrementRetry: retry_count=3; combined with stall=2 = 5 >= cap=5
+        task: { retry_count: 3, max_retries: 10, stall_recovery_attempts: 2 },
+        deps: {
+          serverConfig: fakeServerConfig,
+        },
+      });
+      const timeoutSpy = vi.spyOn(globalThis, 'setTimeout');
+
+      retryFramework.handleRetryLogic(scenario.ctx);
+
+      // No retry scheduled — earlyExit not set, no setTimeout for retry
+      expect(scenario.ctx.earlyExit).toBeUndefined();
+      // updateTaskStatus may be called for the increment, but no setTimeout
+      // wrapping a retry callback should fire from this path.
+      const retryDelayCalls = timeoutSpy.mock.calls.filter(
+        (call) => typeof call[1] === 'number' && call[1] >= 1000,
+      );
+      expect(retryDelayCalls).toHaveLength(0);
+    });
+
+    it('schedules normally when cap is unset (default 0)', () => {
+      // Explicit cap=0 stub so this test doesn't see DB-pollution from
+      // sibling test files writing combined_max_attempts in the same
+      // vitest worker (fallback-retry's combined_max_attempts tests
+      // setConfig values that persist within the worker's config table).
+      const fakeServerConfig = {
+        getInt: vi.fn((key, fallback) => {
+          if (key === 'combined_max_attempts') return 0;
+          return fallback;
+        }),
+        isOptIn: vi.fn(() => false),
+        getBool: vi.fn(() => false),
+        get: vi.fn(() => null),
+      };
+      scenario = createScenario({
+        task: { retry_count: 3, max_retries: 10, stall_recovery_attempts: 99 },
+        deps: { serverConfig: fakeServerConfig },
+      });
+      const timeoutSpy = vi.spyOn(globalThis, 'setTimeout');
+
+      retryFramework.handleRetryLogic(scenario.ctx);
+
+      expect(scenario.ctx.earlyExit).toBe(true);
+      expect(timeoutSpy).toHaveBeenCalled();
+    });
+
+    it('schedules normally when combined is below cap', () => {
+      const fakeServerConfig = {
+        getInt: vi.fn((key, fallback) => {
+          if (key === 'combined_max_attempts') return 100;
+          return fallback;
+        }),
+        isOptIn: vi.fn(() => false),
+        getBool: vi.fn(() => false),
+        get: vi.fn(() => null),
+      };
+      scenario = createScenario({
+        task: { retry_count: 1, max_retries: 10, stall_recovery_attempts: 2 },
+        deps: { serverConfig: fakeServerConfig },
+      });
+      const timeoutSpy = vi.spyOn(globalThis, 'setTimeout');
+
+      retryFramework.handleRetryLogic(scenario.ctx);
+
+      expect(scenario.ctx.earlyExit).toBe(true);
+      expect(timeoutSpy).toHaveBeenCalled();
+    });
+
+    it('treats missing stall_recovery_attempts as zero', () => {
+      const fakeServerConfig = {
+        getInt: vi.fn((key, fallback) => {
+          if (key === 'combined_max_attempts') return 5;
+          return fallback;
+        }),
+        isOptIn: vi.fn(() => false),
+        getBool: vi.fn(() => false),
+        get: vi.fn(() => null),
+      };
+      scenario = createScenario({
+        // No stall_recovery_attempts column — should be treated as 0
+        // retry_count=4 + 0 = 4 < cap=5 → schedules
+        task: { retry_count: 4, max_retries: 10 },
+        deps: { serverConfig: fakeServerConfig },
+      });
+      const timeoutSpy = vi.spyOn(globalThis, 'setTimeout');
+
+      retryFramework.handleRetryLogic(scenario.ctx);
+
+      expect(scenario.ctx.earlyExit).toBe(true);
+      expect(timeoutSpy).toHaveBeenCalled();
+    });
+  });
 });

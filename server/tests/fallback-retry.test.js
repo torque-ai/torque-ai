@@ -1170,6 +1170,69 @@ describe('fallback-retry module', () => {
         expect(cancelCalls[0].reason).toContain('after 3 attempts');
       });
     });
+
+    // ── stall-and-retry.md #1: opt-in combined attempt cap ──────────────
+    describe('combined_max_attempts opt-in cap', () => {
+      it('cancels when combined (stall + retry) reaches cap', () => {
+        configCore.setConfig('stall_recovery_max_attempts', '10'); // out of way
+        configCore.setConfig('combined_max_attempts', '5');
+        const task = createTask({
+          provider: 'ollama',
+          model: TEST_MODELS.DEFAULT,
+        });
+        runningProcesses.set(task.id, { editFormat: 'whole' });
+        // Seed Map and DB to trip the cap: stall=2 + retry=3 = 5 >= cap=5
+        stallRecoveryAttempts.set(task.id, { attempts: 2, lastStrategy: 'switch_model' });
+        db.getDbInstance()
+          .prepare('UPDATE tasks SET stall_recovery_attempts = ?, retry_count = ? WHERE id = ?')
+          .run(2, 3, task.id);
+
+        const ok = mod.tryStallRecovery(task.id, { lastActivitySeconds: 200 });
+        expect(ok).toBe(false);
+        expect(cancelCalls.length).toBeGreaterThanOrEqual(1);
+        const lastCancel = cancelCalls[cancelCalls.length - 1];
+        expect(lastCancel.reason).toContain('Combined attempt cap reached');
+        expect(lastCancel.reason).toContain('stall=2 + retry=3');
+        // reason text uniquely identifies the combined-cap path
+      });
+
+      it('does not interfere when combined_max_attempts=0 (default disabled)', () => {
+        configCore.setConfig('stall_recovery_max_attempts', '10');
+        configCore.setConfig('combined_max_attempts', '0');
+        const task = createTask({
+          provider: 'ollama',
+          model: TEST_MODELS.DEFAULT,
+        });
+        runningProcesses.set(task.id, { editFormat: 'diff' });
+        // High counts in both — would trip a non-zero cap, but cap is 0 = disabled
+        db.getDbInstance()
+          .prepare('UPDATE tasks SET retry_count = ? WHERE id = ?')
+          .run(99, task.id);
+
+        const ok = mod.tryStallRecovery(task.id, { lastActivitySeconds: 200 });
+        expect(ok).toBe(true);
+        const combinedCancels = cancelCalls.filter(
+          (c) => typeof c.reason === 'string' && c.reason.includes('Combined attempt cap reached'),
+        );
+        expect(combinedCancels).toHaveLength(0);
+      });
+
+      it('respects stall_recovery_max_attempts cap independently of combined', () => {
+        // Stall cap fires before combined cap is even checked
+        configCore.setConfig('stall_recovery_max_attempts', '2');
+        configCore.setConfig('combined_max_attempts', '100'); // way above
+        const task = createTask({
+          provider: 'ollama',
+          model: TEST_MODELS.DEFAULT,
+        });
+        stallRecoveryAttempts.set(task.id, { attempts: 2, lastStrategy: 'switch_model' });
+
+        const ok = mod.tryStallRecovery(task.id, { lastActivitySeconds: 999 });
+        expect(ok).toBe(false);
+        const lastCancel = cancelCalls[cancelCalls.length - 1];
+        expect(lastCancel.reason).toContain('Stall recovery exhausted');
+      });
+    });
   });
 
   describe('findLargerAvailableModel', () => {

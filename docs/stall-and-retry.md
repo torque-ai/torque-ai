@@ -294,9 +294,14 @@ If `getAllProviderScores({trustedOnly:true})` returns scores, the chain is stabl
 
 These are the known soft spots — incremental fixes here without a unifying audit are how this surface accreted. Address them before adding new strategies, classifier rules, or chain entries.
 
-### 1. Two independent attempt counters with no joint cap
+### 1. ✅ ~~Two independent attempt counters with no joint cap~~ RESOLVED 2026-05-07
 
-`_stallRecoveryAttempts` (in-memory) and `tasks.retry_count` (DB) are independent. A pathological task can consume `stall_recovery_max_attempts=3` strategies in tryStallRecovery, then exit non-zero, then consume `max_retries=N` retries in handleRetryLogic, then stall again on the new provider, then consume 3 more strategies, etc. **Action:** Either document the joint budget explicitly in CLAUDE.md + tool docs OR add a hard cap that sums both counters and refuses recovery once `stall + retry > combined_max`.
+Opt-in `combined_max_attempts` config (default `0` = disabled). When set to a positive integer, both `tryStallRecovery` and `handleRetryLogic` check `task.retry_count + task.stall_recovery_attempts >= combined_max_attempts` before allowing further recovery. On hit:
+
+- `tryStallRecovery` cancels the task with `cancel_reason='combined_attempts_exhausted'` and the reason string `Combined attempt cap reached (stall=N + retry=M >= K)`.
+- `handleRetryLogic` returns without setting `ctx.earlyExit`, so the close handler proceeds with normal failure handling. Log line records the cap hit so operators can see why no retry fired.
+
+Default unset preserves existing behavior — independent counters with worst-case `stall_max × (retry_max + 1)` total runs. Operators wanting a hard combined ceiling set the value via `configCore.setConfig('combined_max_attempts', '6')` or similar.
 
 ### 2. ✅ ~~`_stallRecoveryAttempts` Map is purely in-memory~~ RESOLVED 2026-05-07
 
@@ -311,9 +316,13 @@ Strategy ladder is purely attempt-count-driven (`recovery.attempts === 0` → sw
 4. Exhausts via persisted count when Map is empty and DB is at max (DB=3, Map empty, max=3 → cancelled)
 5. Takes max(persisted, memory) when both are present (Map=1, DB=3, max=3 → cancelled)
 
-### 3. PID-alive grace path inconsistent with session-monitor defer
+### 3. ✅ ~~PID-alive grace path inconsistent with session-monitor defer~~ RESOLVED 2026-05-07
 
-The PID-alive grace at `orphan-cleanup.js:887-902` extends the threshold by 50% in-place when the PID is alive. The session-monitor defer at lines 930-951 does NOT extend the threshold — just emits warning + skips this iteration. Result: a session-monitored stalled task with a live PID gets BOTH treatments (extended + deferred) silently. **Action:** Decide order — either monitor-defer should short-circuit BEFORE the alive-grace check (cheaper), or alive-grace should be skipped when monitored. Document the choice + add a regression test.
+The session-monitor defer (`isTaskMonitored`) now runs BEFORE the alive-grace threshold extension in `checkStalledTasks`. When a Claude session is monitoring a stalled task, the iteration emits `task:stall_warning` with `deferred_to_session: true` and continues — the alive-grace block (which would silently mutate `activity.stallThreshold` and clear `isStalled`) never fires. This matches the operator's mental model: the monitor is the source of truth for "what to do about stalls," not the alive-grace's silent threshold extension.
+
+Two reasons for short-circuiting first:
+1. **Cheaper** — no `isProcessAlive(pid)` syscall when the answer is "Claude handles it"
+2. **Honest** — the monitor's `task:stall_warning` event carries the actual configured threshold, not a silently-extended value the monitor didn't know about
 
 ### 4. ✅ ~~`claude-cli` and `codex` excluded from stall detection by default~~ RESOLVED 2026-05-07
 
@@ -329,9 +338,21 @@ Default-config operators see disabled providers immediately on `tail -f torque.l
 
 The hard cap fires regardless of provider. Codex tasks legitimately running 30-60 min would need the cap set high enough to cover them, which makes it useless as a watchdog for fast providers. **Action:** Make it per-provider (mirror the threshold map) OR document it as "codex-aware: should be set to 2× longest expected codex run."
 
-### 6. Auto-verify Phase 6.5 has no per-provider chain
+### 6. ✅ ~~Auto-verify Phase 6.5 has no per-provider chain~~ RESOLVED 2026-05-07
 
-If `verify_command` fails, the auto-submit fix task uses the same provider that just succeeded the original. A provider that succeeds the implementation but fails the test pattern (e.g. cerebras succeeding on simple files but failing on the test loop) will keep re-failing. **Action:** Allow `auto_verify_fix_provider` config to override the fix-task provider — or default the fix task to a more capable provider (codex-spark for codex originals).
+`handleAutoVerifyRetry` now reads `config.auto_verify_fix_provider` (per-project, set via `set_project_defaults`) and passes it as the `provider` field on the new fix task instead of `null`. Default unset = current behavior (smart routing picks). When set, the fix task is pinned to the override provider and `metadata.fix_provider_override` records the choice for audit.
+
+Use case: a provider that succeeds the implementation but fails the test-fix loop (cerebras succeeding simple files but looping on test failures) gets unstuck by routing fix tasks to codex-spark or codex.
+
+Config example:
+
+```js
+configCore.setProjectConfig('myproject', {
+  auto_verify_fix_provider: 'codex-spark',
+});
+```
+
+Log line `[auto-verify] Task X: routing fix task to override provider 'codex-spark' (auto_verify_fix_provider)` confirms the routing on each fix submission.
 
 ### 7. `tryHashlineTieredFallback` overlaps with chain-based fallback
 

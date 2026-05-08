@@ -883,10 +883,44 @@ function checkStalledTasks(autoCancel = false) {
     if (!activity) continue;
 
     let isStalled = activity.isStalled;
+    const proc = runningProcesses.get(taskId);
+
+    // stall-and-retry.md #3 — when a Claude session is monitoring this task
+    // (await_task / await_workflow / subscribe_task_events), defer to it
+    // BEFORE running the alive-grace threshold extension. The monitor expects
+    // to be the source of truth for "what to do about stalls" via heartbeat
+    // events, but the alive-grace path silently mutates `activity.stallThreshold`
+    // and clears `isStalled` — leaving the monitor unaware that the threshold
+    // was extended from 120s to 180s under the hood. Short-circuiting here
+    // also makes the path cheaper (no isProcessAlive() call) when the answer
+    // is "Claude handles it."
+    if (isStalled) {
+      let monitored = false;
+      try {
+        const { isTaskMonitored } = require('../transports/sse/session');
+        monitored = isTaskMonitored(taskId);
+      } catch (_) { /* SSE session module not available */ }
+
+      if (monitored) {
+        logger.info(`[Heartbeat] Task ${taskId} appears stalled (${activity.lastActivitySeconds}s) but has active session monitor — deferring to Claude`);
+        // Emit the warning event so Claude's heartbeat picks it up
+        try {
+          const { taskEvents } = require('../hooks/event-dispatch');
+          taskEvents.emit('task:stall_warning', {
+            taskId,
+            provider: proc?.provider || 'unknown',
+            elapsed: activity.lastActivitySeconds,
+            threshold: Math.round(activity.stallThreshold || 0),
+            description: proc?.description || '',
+            deferred_to_session: true,
+          });
+        } catch { /* non-fatal */ }
+        continue;
+      }
+    }
 
     // If the process is still alive, extend the threshold by 50% before aborting.
     // This catches long I/O waits or external blocking where PID is active.
-    const proc = runningProcesses.get(taskId);
     if (isStalled && proc && proc.process && typeof proc.process.pid !== 'undefined' && typeof activity.stallThreshold === 'number') {
       const aliveThreshold = activity.stallThreshold * 1.5;
       if (isProcessAlive(proc.process.pid) && activity.lastActivitySeconds <= aliveThreshold) {
@@ -922,34 +956,10 @@ function checkStalledTasks(autoCancel = false) {
       }
     }
 
-    // isStalled is false if threshold is null (provider excluded)
+    // isStalled is false if threshold is null (provider excluded), the
+    // session-monitor short-circuit fired (already continued), or the
+    // alive-grace extended the threshold above lastActivitySeconds.
     if (isStalled) {
-      // If a Claude session is actively monitoring this task (via await_task,
-      // await_workflow, or subscribe_task_events), defer stall handling to Claude.
-      // Claude receives heartbeat check-ins and can decide to cancel/resubmit itself.
-      let monitored = false;
-      try {
-        const { isTaskMonitored } = require('../transports/sse/session');
-        monitored = isTaskMonitored(taskId);
-      } catch (_) { /* SSE session module not available */ }
-
-      if (monitored) {
-        logger.info(`[Heartbeat] Task ${taskId} appears stalled (${activity.lastActivitySeconds}s) but has active session monitor — deferring to Claude`);
-        // Still emit the warning event so Claude's heartbeat picks it up
-        try {
-          const { taskEvents } = require('../hooks/event-dispatch');
-          taskEvents.emit('task:stall_warning', {
-            taskId,
-            provider: proc?.provider || 'unknown',
-            elapsed: activity.lastActivitySeconds,
-            threshold: Math.round(activity.stallThreshold || 0),
-            description: proc?.description || '',
-            deferred_to_session: true,
-          });
-        } catch { /* non-fatal */ }
-        continue;
-      }
-
       stalledTasks.push({
         taskId,
         lastActivitySeconds: activity.lastActivitySeconds

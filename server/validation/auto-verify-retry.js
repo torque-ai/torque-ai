@@ -715,6 +715,20 @@ async function handleAutoVerifyRetry(ctx) {
     logger.info(`[auto-verify] Task ${taskId}: cg enrichment failed: ${cgErr.message}`);
   }
 
+  // stall-and-retry.md #6 — operators can override the fix-task provider
+  // via `auto_verify_fix_provider` in project_defaults. Useful when the
+  // original provider is good at the implementation but bad at the
+  // test-fix loop (cerebras succeeds simple files but loops on test
+  // failures; pointing the fix task at codex-spark or codex unsticks it).
+  // Default unset → null, smart routing picks (existing behavior).
+  const fixProvider = (typeof config.auto_verify_fix_provider === 'string'
+    && config.auto_verify_fix_provider.trim().length > 0)
+    ? config.auto_verify_fix_provider.trim()
+    : null;
+  if (fixProvider) {
+    logger.info(`[auto-verify] Task ${taskId}: routing fix task to override provider '${fixProvider}' (auto_verify_fix_provider)`);
+  }
+
   // Create fix task
   const fixTaskId = randomUUID();
   try {
@@ -722,7 +736,7 @@ async function handleAutoVerifyRetry(ctx) {
       id: fixTaskId,
       task_description: fixDescription,
       working_directory: task.working_directory,
-      provider: null,  // deferred assignment — set by tryClaimTaskSlot when slot is available
+      provider: fixProvider,  // override or null (deferred — set by tryClaimTaskSlot when slot is available)
       model: task.model || null,
       priority: (task.priority || 0) + 1,
       max_retries: 0, // Fix task doesn't auto-retry further
@@ -731,7 +745,11 @@ async function handleAutoVerifyRetry(ctx) {
       status: 'queued',
       project: project,
       resume_context: resumeContextForPrompt || null,
-      metadata: JSON.stringify({ auto_verify_fix_for: taskId, intended_provider: task.provider }),
+      metadata: JSON.stringify({
+        auto_verify_fix_for: taskId,
+        intended_provider: task.provider,
+        ...(fixProvider ? { fix_provider_override: fixProvider } : {}),
+      }),
     });
 
     logger.info(`[auto-verify] Task ${taskId}: created fix task ${fixTaskId}`);
