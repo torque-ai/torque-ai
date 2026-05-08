@@ -1,6 +1,14 @@
 'use strict';
 
-const { renderTable } = require('../factory/scripts/render-decision-actions-doc');
+const fs = require('node:fs');
+const path = require('node:path');
+const {
+  renderTable,
+  spliceIntoDoc,
+  BEGIN_MARKER,
+  END_MARKER,
+} = require('../factory/scripts/render-decision-actions-doc');
+const { DECISION_ACTIONS } = require('../factory/decision-actions');
 
 describe('renderTable', () => {
   it('renders a markdown table with stage / action / classifier / outcome columns', () => {
@@ -27,5 +35,27 @@ describe('renderTable', () => {
     const linesIdx = (s) => md.indexOf(s);
     expect(linesIdx('| EXECUTE | `a`')).toBeLessThan(linesIdx('| SENSE | `b`'));
     expect(linesIdx('| SENSE | `b`')).toBeLessThan(linesIdx('| EXECUTE | `c`'));
+  });
+});
+
+describe('docs/factory-loop-states.md autogen sync', () => {
+  it('the autogen block content matches renderTable(DECISION_ACTIONS)', () => {
+    const docPath = path.resolve(__dirname, '../../docs/factory-loop-states.md');
+    const text = fs.readFileSync(docPath, 'utf8');
+
+    const beginIdx = text.indexOf(BEGIN_MARKER);
+    const endIdx = text.indexOf(END_MARKER);
+    expect(beginIdx).toBeGreaterThan(-1);
+    expect(endIdx).toBeGreaterThan(-1);
+
+    const expected = renderTable(DECISION_ACTIONS);
+    const actualBlock = text.slice(beginIdx + BEGIN_MARKER.length, endIdx).trim();
+    const expectedBlock = expected.trim();
+
+    if (actualBlock !== expectedBlock) {
+      throw new Error(
+        `docs/factory-loop-states.md autogen block is stale. Run:\n  node server/factory/scripts/render-decision-actions-doc.js --write\n  git add docs/factory-loop-states.md`,
+      );
+    }
   });
 });
