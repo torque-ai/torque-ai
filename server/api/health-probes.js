@@ -91,6 +91,23 @@ async function handleHealthz(
     }
   }
 
+  // plugin-contract.md #9 — aggregate per-plugin health() results
+  // when loadedPlugins was registered as a container value at boot.
+  // Plugins that don't implement health() don't contribute. Worst-case
+  // status across reporting plugins becomes the `plugins` summary, and
+  // any non-ok plugin status downgrades the overall response to at
+  // least 'degraded'.
+  let pluginsHealth = null;
+  try {
+    const loadedPlugins = defaultContainer.peek
+      ? defaultContainer.peek('loadedPlugins')
+      : null;
+    if (Array.isArray(loadedPlugins) && loadedPlugins.length > 0) {
+      const { aggregatePluginHealth } = require('../plugins/boot-helpers');
+      pluginsHealth = aggregatePluginHealth(loadedPlugins);
+    }
+  } catch { /* health aggregation is best-effort */ }
+
   let status = 'healthy';
   let httpStatus = 200;
   if (!databaseState.accessible) {
@@ -98,6 +115,14 @@ async function handleHealthz(
     httpStatus = 503;
   } else if (ollamaStatus !== 'healthy') {
     status = 'degraded';
+  }
+  if (pluginsHealth) {
+    if (pluginsHealth.overall === 'down') {
+      status = 'unhealthy';
+      httpStatus = 503;
+    } else if (pluginsHealth.overall === 'degraded' && status === 'healthy') {
+      status = 'degraded';
+    }
   }
 
   const response = {
@@ -110,6 +135,9 @@ async function handleHealthz(
   };
   if (databaseState.reason) {
     response.database_reason = databaseState.reason;
+  }
+  if (pluginsHealth) {
+    response.plugins = pluginsHealth;
   }
 
   sendJson(res, response, httpStatus, req);

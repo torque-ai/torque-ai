@@ -1393,6 +1393,31 @@ const MIGRATIONS = [
     },
     // No down — column drops on SQLite require table rebuild.
   },
+  {
+    version: 59,
+    name: 'add_plugin_migrations_table',
+    // Closes plugin-contract.md open question #11.
+    //
+    // Tracks per-plugin (name, applied_version, applied_at). Used by
+    // boot-helpers.applyPluginMigrations() to call plugin.migrate(prev,
+    // curr) only when the version has changed. On success, the row is
+    // upserted; on throw, the row is left at the prior version so the
+    // next boot retries.
+    //
+    // Use case: model-freshness ships a `migrate()` that re-arms
+    // scheduled scans when the schedule schema changes between plugin
+    // versions. Codegraph would benefit too once its schema evolves.
+    up: function(sqliteDb) {
+      sqliteDb.prepare([
+        'CREATE TABLE IF NOT EXISTS plugin_migrations (',
+        '  plugin_name TEXT PRIMARY KEY,',
+        '  applied_version TEXT NOT NULL,',
+        '  applied_at TEXT NOT NULL',
+        ')',
+      ].join('\n')).run();
+    },
+    down: 'DROP TABLE IF EXISTS plugin_migrations',
+  },
 ];
 
 function ensureMigrationTable(sqliteDb) {

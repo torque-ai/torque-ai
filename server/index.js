@@ -1375,6 +1375,8 @@ function init() {
     validatePluginConfigSchemas,
     getAllClassifierRules,
     getAllRecoveryStrategies,
+    uninstallAllPlugins,
+    applyPluginMigrations,
   } = require('./plugins/boot-helpers');
   const extraPluginNames = mergeExtraPluginNames(DEFAULT_PLUGIN_NAMES);
   if (extraPluginNames.length > 0) {
@@ -1423,6 +1425,35 @@ function init() {
     } catch (err) {
       logger.warn(`[plugin-loader] central registry registration failed: ${err.message}`);
     }
+    // plugin-contract.md #11 — apply plugin migrations. Uses the raw
+    // sqlite handle (db.getDbInstance()) since boot-helpers prepare()s
+    // its own statements. Best-effort: throws inside the helper are
+    // already logged, so wrap once defensively here.
+    try {
+      applyPluginMigrations(loadedPlugins, db.getDbInstance(), logger);
+    } catch (err) {
+      logger.warn(`[plugin-loader] applyPluginMigrations pass failed: ${err.message}`);
+    }
+    // plugin-contract.md #8 — register loaded plugins for shutdown
+    // uninstall. Uses eventBus.onShutdown so each plugin's uninstall()
+    // gets a chance to release resources before the process exits.
+    // Best-effort; subscribed once at boot, never resubscribed.
+    try {
+      eventBus.onShutdown(() => {
+        try {
+          uninstallAllPlugins(loadedPlugins, logger);
+        } catch (err) {
+          logger.warn(`[plugin-loader] uninstall pass failed: ${err.message}`);
+        }
+      });
+    } catch (err) {
+      logger.warn(`[plugin-loader] failed to subscribe uninstall to shutdown: ${err.message}`);
+    }
+    // Expose loadedPlugins to other consumers (notably the /healthz
+    // route) via container value. plugin-contract.md #9.
+    try {
+      defaultContainer.registerValue('loadedPlugins', loadedPlugins);
+    } catch { /* registerValue idempotent */ }
     logger.info(`[startup] plugins_loaded=${loadedPlugins.map((p) => p.name).join(',') || 'none'}`);
   } catch (err) {
     debugLog('Plugin loading failed: ' + err.message);

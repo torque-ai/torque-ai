@@ -249,6 +249,8 @@ Plugin tests do NOT cover the plugin → loader → install → mcpTools/middlew
 
 ## Open questions / risks
 
+> **All 12 questions resolved as of 2026-05-08.** This section is now a historical record of the audit drainage. Future work in this surface should append new questions below the existing 12 with their own dated resolution notes — preserve the full trail so the next operator can see the whole arc.
+
 These are the known soft spots — addressing them before adding the next plugin or changing the contract.
 
 ### 1. ✅ ~~`eventHandlers()` is contract-required but unused~~ RESOLVED 2026-05-08
@@ -340,21 +342,50 @@ The defensive check inside `install()` (`if (!isFeatureEnabled()) return`) remai
 
 Forward-looking: same pattern can migrate auth's enterprise gate out of `AUTH_MODE_PLUGIN_MAP` (`enabled: () => process.env.TORQUE_AUTH_MODE === 'enterprise'`) — left for a future batch.
 
-### 8. `uninstall()` is contract-required but not exercised in production
+### 8. ✅ ~~`uninstall()` is contract-required but not exercised in production~~ RESOLVED 2026-05-08
 
-Plugins ship `uninstall()` methods that tear down services / unsubscribe from events. **Tests call them; production never does.** The TORQUE process either runs forever or restarts via the barrier path (which exits the process entirely, no uninstall). **Action:** Either (a) wire uninstall into a graceful-shutdown path (preceding `eventBus.emitShutdown`), OR (b) demote it to optional and document that plugins shouldn't expect cleanup.
+`server/plugins/boot-helpers.js` exports `uninstallAllPlugins(plugins, logger)`. `server/index.js` subscribes it to `eventBus.onShutdown` so each plugin's `uninstall()` runs before the process exits. Reverse plugin-load order so dependents tear down before dependencies (mirrors the install-forward / uninstall-reverse convention).
 
-### 9. No plugin-level health endpoint
+Best-effort: throws are logged at warn but don't block shutdown of other plugins. Plugins still implementing only an empty `uninstall()` continue to work; the wire-up just makes the existing implementations actually fire.
 
-There's no `plugin.healthCheck()` method or equivalent. Operators wanting to know "is codegraph indexing falling behind?" or "is auth's rate-limiter overwhelmed?" must dig into per-plugin tools (`cg_index_status` for codegraph; nothing for auth's rate-limiter). **Action:** Add an optional `health()` method returning `{ status: 'ok'|'degraded'|'down', details: string }`. Aggregate at `/healthz` or expose via a new `plugin_health` MCP tool.
+3 unit tests in `tests/plugin-boot-helpers.test.js` (`uninstallAllPlugins` describe block).
 
-### 10. `validatePlugin` returns errors as a flat array; consumer can't tell required-missing from type-mismatch
+### 9. ✅ ~~No plugin-level health endpoint~~ RESOLVED 2026-05-08
 
-The validator emits strings like `"missing required field: name"` and `"name must be a string"`. The loader logs these as a comma-joined string. Operators debugging a plugin load failure see all errors at once but can't programmatically distinguish "this plugin is structurally broken" from "this plugin has a typo". **Action:** Emit structured error objects `{ field, expected, actual, kind }` and let the loader format the final log line. Or accept current state and document the diagnostic flow.
+The plugin contract gains an optional `health()` method returning `{ status: 'ok'|'degraded'|'down', details?: string }`. `server/plugins/boot-helpers.js` exports `aggregatePluginHealth(plugins)` returning `{ overall, perPlugin }` where `overall` is the worst-case status across reporting plugins. Plugins without `health()` don't contribute (no signal != bad signal).
 
-### 11. `model-freshness` schedules persist across restarts but plugin reload doesn't migrate them
+`server/api/health-probes.js` includes the aggregated result in `/healthz` responses under the `plugins` key. Any plugin reporting `down` downgrades the overall HTTP status to 503; `degraded` downgrades from 200 healthy to 200 degraded. `loadedPlugins` is registered as a container value at boot so the healthz route can read it via `defaultContainer.peek('loadedPlugins')`.
 
-When `model-freshness` install runs, it reads existing scheduled scans from the DB and re-arms them. If a plugin restart drops a schedule (uninstall → install with different code), there's no migration path. Schedules stick around in the DB even after their schema changes. **Action:** Add a `migrate()` method to the contract — runs once per `(pluginName, version)` pair via a `plugin_migrations` table. Codegraph would benefit too (its schema has changed across versions).
+Defensive: missing/throwing health() is treated as `unknown` so a broken plugin can't poison /healthz.
+
+7 unit tests in `tests/plugin-boot-helpers.test.js` (`aggregatePluginHealth` describe block).
+
+### 10. ✅ ~~`validatePlugin` returns errors as a flat array~~ RESOLVED 2026-05-08
+
+`validatePlugin(plugin)` now returns `{ valid, errors: [{ field, expected, actual, kind, message }] }` where `kind` is one of `'missing'`, `'type-mismatch'`, `'required-array'`, `'malformed-input'`. Tests and dashboards can triage by `kind` programmatically.
+
+`formatValidationErrors(errors)` is a back-compat helper that flattens the structured array into the prior comma-joined string format. The loader uses it to keep its existing warn-log line shape:
+> `[plugin-loader] Plugin "<name>" failed validation: missing required field: version, install must be a function`
+
+The formatter accepts mixed input — legacy string entries pass through unchanged — so any external consumer that hand-builds error arrays continues to work.
+
+6 unit tests in `tests/plugin-boot-helpers.test.js` (`validatePlugin (structured errors)` describe block).
+
+### 11. ✅ ~~`model-freshness` schedules persist across restarts but plugin reload doesn't migrate them~~ RESOLVED 2026-05-08
+
+The plugin contract gains an optional `migrate(prevVersion, currVersion)` method. Migration v59 adds a `plugin_migrations` table (`plugin_name PRIMARY KEY`, `applied_version`, `applied_at`). `server/plugins/boot-helpers.js` exports `applyPluginMigrations(plugins, dbReader, logger)` which:
+
+1. Looks up the plugin's last applied version from `plugin_migrations`
+2. Skips if `applied_version === plugin.version` (already migrated)
+3. Calls `plugin.migrate(prevVersion, currVersion)` (prevVersion is `null` on first install)
+4. On success, upserts the new version row
+5. **On throw, leaves the prior version in place** — next boot retries
+
+`server/index.js` calls the helper after the install pass with `db.getDbInstance()` as the dbReader.
+
+Use case: model-freshness can ship a `migrate()` that re-arms scheduled scans when the schedule schema changes between versions. Codegraph would benefit similarly.
+
+6 unit tests in `tests/plugin-boot-helpers.test.js` (`applyPluginMigrations` describe block) cover first-install, no-op-on-same-version, version-change, throw-no-record-update, missing-migrate-skip, db-unavailable.
 
 ### 12. ✅ ~~No way to add plugins without forking `DEFAULT_PLUGIN_NAMES`~~ RESOLVED 2026-05-08
 
