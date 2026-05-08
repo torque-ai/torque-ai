@@ -211,7 +211,7 @@ describe('factory decision-actions catalog', () => {
 
 ### Performance
 
-Parsing ~30 small JS files is fast — test runs in well under a second.
+Parsing the factory + recovery-core source tree is fast (regex pass over ~50-80 files); the test runs in well under a second. AST upgrade if pursued later would still be sub-second on this scope.
 
 ## Production guard
 
