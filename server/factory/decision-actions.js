@@ -353,7 +353,7 @@ const DECISION_ACTIONS = {
   auto_commit_failed: {
     stage: 'EXECUTE',
     classifier: 'recovery-rule',
-    rule_id: 'TODO_TRIAGE',
+    rule_id: 'auto_commit_failed',
     outcome: ['work_item_id', 'error'],
   },
   auto_commit_rejected_off_scope: {
@@ -377,7 +377,7 @@ const DECISION_ACTIONS = {
   verify_failed: {
     stage: 'VERIFY',
     classifier: 'recovery-rule',
-    rule_id: 'TODO_TRIAGE',
+    rule_id: 'verify_failed',
     outcome: ['work_item_id', 'error', 'retry_count'],
   },
   verify_retry_submitted: {
@@ -461,7 +461,7 @@ const DECISION_ACTIONS = {
   verify_retry_worktree_recovery_failed: {
     stage: 'VERIFY',
     classifier: 'recovery-rule',
-    rule_id: 'TODO_TRIAGE',
+    rule_id: 'verify_retry_worktree_recovery_failed',
     outcome: ['work_item_id', 'error', 'retry_count'],
   },
   auto_rejected_worktree_lost: {
@@ -476,14 +476,13 @@ const DECISION_ACTIONS = {
   },
   verify_retry_submission_failed: {
     stage: 'VERIFY',
-    classifier: 'recovery-rule',
-    rule_id: 'TODO_TRIAGE',
+    classifier: 'benign',
     outcome: ['work_item_id', 'error', 'retry_count'],
   },
   verify_retry_task_failed: {
     stage: 'VERIFY',
     classifier: 'recovery-rule',
-    rule_id: 'TODO_TRIAGE',
+    rule_id: 'verify_retry_task_failed',
     outcome: ['work_item_id', 'task_id', 'error', 'retry_count'],
   },
   verify_retry_task_completed: {
@@ -518,8 +517,7 @@ const DECISION_ACTIONS = {
   },
   branch_stale_rebase_conflict: {
     stage: 'VERIFY',
-    classifier: 'recovery-rule',
-    rule_id: 'TODO_TRIAGE',
+    classifier: 'b-side-reject',
     outcome: ['work_item_id', 'branch', 'error'],
   },
   branch_stale_detected_post_verify: {
@@ -534,8 +532,7 @@ const DECISION_ACTIONS = {
   },
   branch_stale_rebase_conflict_post_verify: {
     stage: 'VERIFY',
-    classifier: 'recovery-rule',
-    rule_id: 'TODO_TRIAGE',
+    classifier: 'b-side-reject',
     outcome: ['work_item_id', 'branch', 'error'],
   },
   retry_off_scope: {
@@ -567,7 +564,7 @@ const DECISION_ACTIONS = {
   worktree_verify_errored: {
     stage: 'VERIFY',
     classifier: 'recovery-rule',
-    rule_id: 'TODO_TRIAGE',
+    rule_id: 'worktree_verify_errored',
     outcome: ['work_item_id', 'error'],
   },
   auto_shipped_at_verify_fail: {
@@ -577,8 +574,7 @@ const DECISION_ACTIONS = {
   },
   factory_verify_unrecoverable: {
     stage: 'VERIFY',
-    classifier: 'recovery-rule',
-    rule_id: 'TODO_TRIAGE',
+    classifier: 'terminal',
     outcome: ['work_item_id', 'error', 'reason'],
   },
   factory_verify_auto_retry: {
@@ -603,8 +599,7 @@ const DECISION_ACTIONS = {
   },
   dep_resolver_cascade_exhausted: {
     stage: 'VERIFY',
-    classifier: 'recovery-rule',
-    rule_id: 'TODO_TRIAGE',
+    classifier: 'terminal',
     outcome: ['work_item_id', 'dep_type', 'attempts'],
   },
   dep_resolver_detected: {
@@ -614,8 +609,7 @@ const DECISION_ACTIONS = {
   },
   dep_resolver_escalated: {
     stage: 'VERIFY',
-    classifier: 'recovery-rule',
-    rule_id: 'TODO_TRIAGE',
+    classifier: 'benign',
     outcome: ['work_item_id', 'dep_type', 'reason'],
   },
   dep_resolver_escalation_retry: {
@@ -644,7 +638,7 @@ const DECISION_ACTIONS = {
   learn_failed: {
     stage: 'LEARN',
     classifier: 'recovery-rule',
-    rule_id: 'TODO_TRIAGE',
+    rule_id: 'learn_failed',
     outcome: ['batch_id', 'status', 'error'],
   },
   shipped_work_item: {
@@ -664,8 +658,7 @@ const DECISION_ACTIONS = {
   },
   worktree_path_missing_abandoned: {
     stage: 'LEARN',
-    classifier: 'recovery-rule',
-    rule_id: 'TODO_TRIAGE',
+    classifier: 'benign',
     outcome: ['work_item_id', 'worktree_path'],
   },
   auto_rejected_no_worktree: {
