@@ -251,9 +251,24 @@ Plugin tests do NOT cover the plugin → loader → install → mcpTools/middlew
 
 These are the known soft spots — addressing them before adding the next plugin or changing the contract.
 
-### 1. `eventHandlers()` is contract-required but unused
+### 1. ✅ ~~`eventHandlers()` is contract-required but unused~~ RESOLVED 2026-05-08
 
-The contract requires `eventHandlers: function`, `validatePlugin` enforces it, but `server/index.js` never invokes it during boot. Plugins that need event subscriptions register them manually inside `install()` via the container's eventBus. This means every plugin ships an empty `eventHandlers()` stub solely to pass validation. **Action:** Either wire the boot integration to call `plugin.eventHandlers()` and subscribe each handler to its named event (closing the documentation gap), OR demote `eventHandlers` from required to optional in the contract.
+`server/plugins/boot-helpers.js` exports `wirePluginEventHandlers(plugins, eventBus, logger)`. After the install pass in `server/index.js`, each plugin's `eventHandlers()` return map is subscribed to the eventBus via `eventBus.on(eventName, fn)`. Plugins can now declare:
+
+```js
+eventHandlers() {
+  return {
+    'task-event': (data) => { ... },
+    'queue-changed': () => { ... },
+  };
+}
+```
+
+instead of subscribing manually inside `install()`. The two patterns are additive — install-side subscription remains supported for back-compat, so existing plugins that use it continue working without changes.
+
+Defensive: missing/throwing `eventHandlers()`, non-object returns, and non-function values in the map are all logged at warn level and skipped. Successful subscriptions log `[plugin-loader] <plugin>: subscribed to events: ev1, ev2` so operators can verify wiring.
+
+6 unit tests in `tests/plugin-boot-helpers.test.js` (`wirePluginEventHandlers` describe block).
 
 ### 2. ✅ ~~Three different factory naming conventions in `createPluginInstance`~~ RESOLVED 2026-05-08
 
@@ -275,9 +290,15 @@ If `plugin.install(container)` throws, the boot code logs an error but leaves th
 
 `auto-recovery-core` exposes both arrays, but consumers (`server/factory/auto-recovery-engine.js`, `recovery-decisions.md` paths) iterate `loadedPlugins` directly looking for the properties. There's no central registry. A second plugin contributing `classifierRules` would be silently merged with no priority/conflict handling. **Action:** Add a `getAllClassifierRules(plugins)` / `getAllRecoveryStrategies(plugins)` helper exposing the merge contract explicitly. Document precedence (currently last-loaded wins for any rule with the same name; this is an accident, not a design).
 
-### 5. Tool-name dedup is asymmetric (built-ins win, plugins fight silently)
+### 5. ✅ ~~Tool-name dedup is asymmetric (built-ins win, plugins fight silently)~~ RESOLVED 2026-05-08
 
-Plugin tools shadowing built-in names are skipped with a debug log line. But two plugins each defining a tool with the same name? The later loader wins silently — no warn, no debug. **Action:** Track plugin tool names in a `Set` during pass 3; when a duplicate is detected, log the conflict and skip the second occurrence. This is forward-looking: today no plugin overlaps, but adding any new plugin makes it possible.
+`server/plugins/boot-helpers.js` exports `dedupPluginTools(plugins, builtInNames, logger, decorateFn)`. The helper tracks plugin tool ownership in a `Map<toolName, pluginName>`. First-plugin-wins; second plugin contributing a duplicate name gets a warn log naming both:
+
+> `[plugin-tools] DUPLICATE: tool "X" from plugin "B" already registered by plugin "A" — skipping`
+
+Replaces the previous silent-last-loaded-wins behavior in `server/index.js` pass 3. Returns both the deduped tool array and the ownership map so callers can audit who owns what.
+
+7 unit tests in `tests/plugin-boot-helpers.test.js` (`dedupPluginTools` describe block) cover collection, built-in shadowing, plugin-vs-plugin dedup with warn log, exception swallowing, optional decorate, non-array returns, and skipping invalid tool definitions.
 
 ### 6. `configSchema()` surfaces are documentation-only
 
@@ -315,9 +336,21 @@ The validator emits strings like `"missing required field: name"` and `"name mus
 
 When `model-freshness` install runs, it reads existing scheduled scans from the DB and re-arms them. If a plugin restart drops a schedule (uninstall → install with different code), there's no migration path. Schedules stick around in the DB even after their schema changes. **Action:** Add a `migrate()` method to the contract — runs once per `(pluginName, version)` pair via a `plugin_migrations` table. Codegraph would benefit too (its schema has changed across versions).
 
-### 12. No way to add plugins without forking `DEFAULT_PLUGIN_NAMES`
+### 12. ✅ ~~No way to add plugins without forking `DEFAULT_PLUGIN_NAMES`~~ RESOLVED 2026-05-08
 
-The list is `Object.freeze`d in `server/index.js`. Operators wanting a custom plugin must edit core source. **Action:** Read an additional `TORQUE_EXTRA_PLUGINS` env var (comma-separated names, looked up in `pluginDir`) and append to `DEFAULT_PLUGIN_NAMES` at boot. Or accept a `plugins.json` config file. This is the single biggest lift for plugin authorship — without it, "extensible via plugins" is more aspirational than real.
+`server/plugins/boot-helpers.js` exports `mergeExtraPluginNames(defaultNames, env)`. `server/index.js` calls it with `DEFAULT_PLUGIN_NAMES` and `process.env`; the result is appended to the loader's plugin list. Operators set:
+
+```bash
+TORQUE_EXTRA_PLUGINS=my-plugin,another-plugin
+```
+
+Each name is looked up in `pluginDir` (default: `server/plugins/`) and goes through the same load + validate + `enabled()` gate as built-ins. The loader's existing fault tolerance (warn-and-skip on missing/broken plugins) handles operator typos.
+
+The parser handles whitespace, deduplicates against `DEFAULT_PLUGIN_NAMES` (so an operator listing an already-built-in name doesn't break anything), dedupes within the env var itself, skips empty entries from trailing commas, and treats non-string env values as unset.
+
+8 unit tests in `tests/plugin-boot-helpers.test.js` (`mergeExtraPluginNames` describe block).
+
+This was the single biggest lift for plugin authorship. With it, "extensible via plugins" is no longer aspirational — operators can ship private plugins without forking core source.
 
 ---
 

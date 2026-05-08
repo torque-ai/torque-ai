@@ -1364,11 +1364,20 @@ function init() {
   }
 
   // Load built-in plugins plus any mode-specific plugins the loader adds.
+  // plugin-contract.md #12 — operator-extensible plugin list via
+  // TORQUE_EXTRA_PLUGINS env var. See plugins/boot-helpers.js for the
+  // parser; extras are appended to DEFAULT_PLUGIN_NAMES and go through
+  // the same load + validate + enabled() gate as built-ins.
+  const { mergeExtraPluginNames, wirePluginEventHandlers } = require('./plugins/boot-helpers');
+  const extraPluginNames = mergeExtraPluginNames(DEFAULT_PLUGIN_NAMES);
+  if (extraPluginNames.length > 0) {
+    logger.info(`[plugin-loader] TORQUE_EXTRA_PLUGINS adds: ${extraPluginNames.join(', ')}`);
+  }
   let loadedPlugins = [];
   try {
     const { loadPlugins } = require('./plugins/loader');
     loadedPlugins = loadPlugins({
-      plugins: DEFAULT_PLUGIN_NAMES,
+      plugins: [...DEFAULT_PLUGIN_NAMES, ...extraPluginNames],
       authMode: runtimeMode,
       logger,
     });
@@ -1380,6 +1389,11 @@ function init() {
         logger.error('[plugin-loader] Plugin install FAILED: ' + plugin.name + ' — ' + pluginErr.message);
       }
     }
+    // plugin-contract.md #1 — wire eventHandlers() into the eventBus
+    // via shared helper. install()-side direct subscription remains
+    // supported (back-compat) — the two patterns are additive, not
+    // exclusive.
+    wirePluginEventHandlers(loadedPlugins, eventBus, logger);
     logger.info(`[startup] plugins_loaded=${loadedPlugins.map((p) => p.name).join(',') || 'none'}`);
   } catch (err) {
     debugLog('Plugin loading failed: ' + err.message);
@@ -1910,29 +1924,22 @@ function init() {
   const toolsModule = require('./tools');
   const builtInTools = getTools();
   const builtInNames = new Set(builtInTools.map(t => t.name));
-  const pluginTools = [];
+  // plugin-contract.md #5 — collect plugin tools with built-in
+  // shadowing + plugin-vs-plugin name clash detection via shared helper.
+  // First-plugin-wins; second plugin gets a warn log naming both.
+  const { dedupPluginTools } = require('./plugins/boot-helpers');
+  const { tools: pluginTools } = dedupPluginTools(
+    loadedPlugins,
+    builtInNames,
+    logger,
+    toolsModule.decorateToolDefinition,
+  );
   const pluginTier1 = [];
   const pluginTier2 = [];
   toolsModule.setRuntimeRegisteredToolDefs([]);
+  // Tier collection retains the per-plugin loop because tierTools is a
+  // separate concern and runs alongside the dedup helper above.
   for (const plugin of loadedPlugins) {
-    let tools;
-    try {
-      tools = plugin.mcpTools();
-      logger.info(`[plugin-tools] ${plugin.name}: mcpTools() returned ${Array.isArray(tools) ? tools.length : typeof tools} tools`);
-    } catch (mcpErr) {
-      logger.error(`[plugin-tools] ${plugin.name}: mcpTools() threw: ${mcpErr.message}`);
-      continue;
-    }
-    if (Array.isArray(tools)) {
-      for (const tool of tools) {
-        if (builtInNames.has(tool.name)) {
-          debugLog(`Plugin "${plugin.name}" tool "${tool.name}" shadows built-in — skipping`);
-          continue;
-        }
-        pluginTools.push(toolsModule.decorateToolDefinition(tool));
-      }
-    }
-    // Collect tier membership from plugins
     if (typeof plugin.tierTools === 'function') {
       const tiers = plugin.tierTools();
       if (tiers && Array.isArray(tiers.tier1)) pluginTier1.push(...tiers.tier1);
