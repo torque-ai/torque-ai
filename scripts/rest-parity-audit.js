@@ -27,17 +27,62 @@ function listToolDefFiles() {
   const pluginsDir = path.join(SERVER, 'plugins');
   if (fs.existsSync(pluginsDir)) {
     for (const plugin of fs.readdirSync(pluginsDir)) {
-      const candidate = path.join(pluginsDir, plugin, 'tool-defs.js');
-      if (fs.existsSync(candidate)) files.push(candidate);
+      const pluginDir = path.join(pluginsDir, plugin);
+      if (!fs.statSync(pluginDir).isDirectory()) continue;
+      // Catch both `tool-defs.js` and `new-tool-defs.js` shapes (snapscope ships both).
+      for (const name of fs.readdirSync(pluginDir)) {
+        if (/(?:^|-)tool-defs(?:\.|$)/.test(name) && name.endsWith('.js')) {
+          files.push(path.join(pluginDir, name));
+        }
+      }
     }
   }
+  // SSE transport defines its own tool array (SSE_TOOLS) for session-scoped
+  // tools like `subscribe_task_events` and `check_notifications`. Same
+  // tool-def shape, just lives outside the tool-defs/ tree.
+  const sseProtocol = path.join(SERVER, 'transports', 'sse', 'protocol.js');
+  if (fs.existsSync(sseProtocol)) files.push(sseProtocol);
   return files;
+}
+
+// Tools that don't live in any tool-defs file but ARE registered by name
+// in `server/tools.js`'s inline switch dispatcher (the small set that the
+// server-level `handleToolCall` handles directly: ping, restart_server,
+// restart_status, get_task_log_disk_usage, unlock_all_tools, get_tool_schema,
+// unlock_tier, coord_status, …). Without this scan they'd appear as
+// "orphan routes" in the diff. We extract them via regex on the same
+// `case 'name':` shape the dispatcher uses, scoped to the dispatcher
+// function so we don't pick up unrelated string literals elsewhere in
+// the file.
+const INLINE_CASE_REGEX = /\bcase\s+['"`]([a-z_][a-z_0-9]*)['"`]\s*:/g;
+
+function extractInlineToolNames() {
+  const file = path.join(SERVER, 'tools.js');
+  if (!fs.existsSync(file)) return new Set();
+  const text = fs.readFileSync(file, 'utf8');
+  // Slice to the dispatcher body to avoid matching JSON-schema branches
+  // (`case 'string':`, `case 'number':`, etc.) that sit elsewhere in the file.
+  const dispatcherStart = text.indexOf('async function handleToolCall(');
+  if (dispatcherStart < 0) return new Set();
+  const dispatcherEnd = text.indexOf('\n}\n', dispatcherStart);
+  const region = dispatcherEnd > dispatcherStart
+    ? text.slice(dispatcherStart, dispatcherEnd)
+    : text.slice(dispatcherStart);
+  const names = new Set();
+  let m;
+  while ((m = INLINE_CASE_REGEX.exec(region)) !== null) names.add(m[1]);
+  return names;
 }
 
 // Tool defs are JS modules — easiest reliable extraction is regex on
 // `name: 'foo'` patterns, since they live inside object literals with
-// description/inputSchema. Tolerates single, double, and backtick quotes.
-const NAME_REGEX = /(?:^|[\s,{])name\s*:\s*['"`]([a-z_][a-z_0-9]*)['"`]/g;
+// description/inputSchema. Tolerates single/double/backtick value quotes
+// and both bare-key (`name:`) and JSON-style quoted-key shapes
+// (`"name":` / `'name':`) — task-management-defs / task-submission-defs
+// use the quoted-key shape, the rest use bare keys. The leading boundary
+// is `(?:^|[\s,{(])` so we match in object literals but not as a suffix
+// of identifiers like `clientName` or `pluginName`.
+const NAME_REGEX = /(?:^|[\s,{(])["']?name["']?\s*:\s*['"`]([a-z_][a-z_0-9]*)['"`]/g;
 
 function extractToolNamesFromFile(file) {
   const text = fs.readFileSync(file, 'utf8');
@@ -56,6 +101,16 @@ function enumerateMcpTools() {
     for (const name of names) {
       if (!allTools.has(name)) allTools.set(name, []);
       allTools.get(name).push(rel);
+    }
+  }
+  // Inline-dispatched tools in server/tools.js — count them as defined
+  // even if they don't have a tool-defs entry (most do, but the inline
+  // entry is what makes them dispatchable, so it's a valid source).
+  const inlineNames = extractInlineToolNames();
+  for (const name of inlineNames) {
+    if (!allTools.has(name)) allTools.set(name, []);
+    if (!allTools.get(name).includes('server/tools.js')) {
+      allTools.get(name).push('server/tools.js');
     }
   }
   return allTools;
