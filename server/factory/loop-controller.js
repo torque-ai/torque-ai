@@ -26,6 +26,7 @@ const branchFreshness = require('./branch-freshness');
 const { createPlanFileIntake } = require('./plan-file-intake');
 const { createPlanReviewer, selectReviewers } = require('./plan-reviewer');
 const { createShippedDetector } = require('./shipped-detector');
+const { emitAutoShipped, AUTO_SHIPPED_REASONS } = require('./auto-ship');
 const { createWorktreeRunner, detectDefaultBranch } = require('./worktree-runner');
 const {
   defaultVerifyCommandForProject,
@@ -3443,18 +3444,19 @@ async function maybeShipWorkItemAfterLearn(project_id, batch_id, instance) {
                 factoryIntake.getWorkItemForProject(project_id, workItem.id, { includeClosed: true })
               );
               factoryIntake.releaseClaimForInstance(instance.id);
-              safeLogDecision({
+              emitAutoShipped({
                 project_id,
                 stage: LOOP_STATES.LEARN,
-                action: 'auto_shipped_empty_branch',
-                reasoning: `Merge failed (no commits ahead) but shipped-detector found matching evidence on main (${detection.confidence} confidence). Marking shipped instead of leaving the loop stuck.`,
-                inputs: {
-                  batch_id: batch_id || null,
+                reason: AUTO_SHIPPED_REASONS.EMPTY_BRANCH_MERGE_FAIL,
+                work_item_id: workItem.id,
+                confidence: detection.confidence,
+                signals: detection.signals,
+                batch_id: shippingDecision.decision_batch_id || decisionBatchId,
+                extra: {
+                  ...sharedOutcome,
                   resolution_source: resolutionSource,
                 },
-                outcome: { ...sharedOutcome, work_item_id: workItem.id },
-                confidence: 1,
-                batch_id: shippingDecision.decision_batch_id || decisionBatchId,
+                reasoning: `Merge failed (no commits ahead) but shipped-detector found matching evidence on main (${detection.confidence} confidence). Marking shipped instead of leaving the loop stuck.`,
               });
               return {
                 status: 'passed',
@@ -4659,19 +4661,16 @@ async function executePrioritizeStage(project, instance, selectedWorkItem = null
     const detection = detector.detectShipped({ content: planContent, title: workItem.title });
     if (detection.shipped && detection.confidence !== 'low') {
       factoryIntake.updateWorkItem(workItem.id, { status: 'shipped' });
-      safeLogDecision({
+      emitAutoShipped({
         project_id: project.id,
         stage: LOOP_STATES.PRIORITIZE,
-        action: 'auto_shipped_at_prioritize',
-        reasoning: `Shipped-detector found existing commits matching "${workItem.title}" with ${detection.confidence} confidence — skipping to next item.`,
-        inputs: { ...getWorkItemDecisionContext(workItem) },
-        outcome: {
-          work_item_id: workItem.id,
-          confidence: detection.confidence,
-          signals: detection.signals,
-        },
-        confidence: 1,
+        reason: AUTO_SHIPPED_REASONS.AT_PRIORITIZE,
+        work_item_id: workItem.id,
+        confidence: detection.confidence,
+        signals: detection.signals,
         batch_id: getDecisionBatchId(project, workItem, null, instance),
+        extra: { ...getWorkItemDecisionContext(workItem) },
+        reasoning: `Shipped-detector found existing commits matching "${workItem.title}" with ${detection.confidence} confidence — skipping to next item.`,
       });
       logger.info('PRIORITIZE auto-shipped already-done item', {
         project_id: project.id,
@@ -12329,15 +12328,15 @@ async function executeVerifyStage(project_id, batch_id, instance = null) {
               });
               if (detection.shipped && detection.confidence !== 'low') {
                 factoryIntake.updateWorkItem(wi.id, { status: 'shipped' });
-                safeLogDecision({
+                emitAutoShipped({
                   project_id,
                   stage: LOOP_STATES.VERIFY,
-                  action: 'auto_shipped_at_verify_fail',
-                  reasoning: `Verify failed but shipped-detector found matching commits on main (${detection.confidence} confidence). Marking shipped instead of auto-rejecting.`,
-                  inputs: { work_item_id: wi.id },
-                  outcome: { confidence: detection.confidence, signals: detection.signals },
-                  confidence: 1,
+                  reason: AUTO_SHIPPED_REASONS.AT_VERIFY_FAIL,
+                  work_item_id: wi.id,
+                  confidence: detection.confidence,
+                  signals: detection.signals,
                   batch_id,
+                  reasoning: `Verify failed but shipped-detector found matching commits on main (${detection.confidence} confidence). Marking shipped instead of auto-rejecting.`,
                 });
                 return { status: 'passed', reason: 'auto_shipped_at_verify_fail' };
               }

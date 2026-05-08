@@ -157,7 +157,6 @@ Frequently-emitted actions, by stage:
 | PRIORITIZE | `selected_work_item` | `benign` | `work_item_id`, `priority`, `status`, `source`, `batch_id` |
 | PRIORITIZE | `scored_work_item` | `benign` | `work_item_id`, `score`, `factors` |
 | PRIORITIZE | `no_selected_work_item` | `benign` | `reason`, `work_item_id`, `batch_id` |
-| PRIORITIZE | `auto_shipped_at_prioritize` | `terminal` | `work_item_id`, `status` |
 | PRIORITIZE | `healed_already_shipped` | `benign` | `work_item_id`, `previous_status`, `new_status`, `factory_worktree_id`, `branch`, `merged_at` |
 | PRIORITIZE | `stale_probe_budget_exhausted` | `benign` | `skipped`, `max_repicks`, `fallback_work_item_id` |
 | PRIORITIZE | `skipped_stale_scout_item` | `benign` | `work_item_id`, `stale_reason`, `commits_since_scan`, `probe_ms` |
@@ -254,7 +253,6 @@ Frequently-emitted actions, by stage:
 | VERIFY | `worktree_verify_passed` | `benign` | `work_item_id`, `verify_output` |
 | VERIFY | `worktree_verify_failed` | `recovery-rule` (rule: `dotnet_sourcelink_file_lock`) | `work_item_id`, `output_preview`, `error` |
 | VERIFY | `worktree_verify_errored` | `recovery-rule` (rule: `worktree_verify_errored`) | `work_item_id`, `error` |
-| VERIFY | `auto_shipped_at_verify_fail` | `terminal` | `work_item_id`, `reason` |
 | VERIFY | `factory_verify_unrecoverable` | `terminal` | `work_item_id`, `error`, `reason` |
 | VERIFY | `factory_verify_auto_retry` | `benign` | `work_item_id`, `retry_count` |
 | VERIFY | `dep_resolver_no_adapter` | `benign` | `work_item_id`, `dep_type` |
@@ -276,11 +274,11 @@ Frequently-emitted actions, by stage:
 | LEARN | `worktree_merged` | `terminal` | `work_item_id`, `branch`, `merge_sha`, `factory_worktree_id` |
 | LEARN | `worktree_merged_cleanup_failed` | `benign` | `work_item_id`, `branch`, `error` |
 | LEARN | `worktree_merge_failed` | `b-side-reject` | `work_item_id`, `error` |
-| LEARN | `auto_shipped_empty_branch` | `terminal` | `work_item_id`, `reason` |
 | LEARN | `empty_branch_routed_to_needs_replan` | `b-side-reject` | `work_item_id`, `reason` |
 | LEARN | `auto_quarantined_empty_merges` | `b-side-reject` | `work_item_id`, `reason` |
 | LEARN | `auto_resolved_stranded_needs_review_shipped` | `terminal` | `work_item_id`, `batch_id`, `merge_status` |
 | LEARN | `auto_resolved_stranded_needs_review_replan` | `b-side-reject` | `work_item_id`, `reason` |
+| ANY | `auto_shipped` | `terminal` | `work_item_id`, `confidence`, `signals`, `reason` |
 | ANY | `paused_at_gate` | `recovery-rule` (rule: `execute_worktree_creation_fs_lock`) | `from_state`, `to_state`, `gate_stage`, `reason`, `work_item_id` |
 | ANY | `gate_approved` | `benign` | `approved_stage`, `from_state`, `to_state` |
 | ANY | `closed_work_item_loop_stopped` | `benign` | `work_item_id`, `work_item_status`, `reject_reason` |
