@@ -282,13 +282,25 @@ snapscope and auth both now export `createPlugin` aliased to their original fact
 
 Future cleanup: once external consumers (if any) confirm migration, the loader's two fallback branches can be removed and `createPluginInstance` simplified to a single check.
 
-### 3. Install failures don't unload the plugin
+### 3. ✅ ~~Install failures don't unload the plugin~~ RESOLVED 2026-05-08
 
-If `plugin.install(container)` throws, the boot code logs an error but leaves the plugin in `loadedPlugins`. The subsequent `mcpTools()` / `middleware()` / `tierTools()` passes still call into the broken plugin, possibly registering tools that have no working backing services. **Action:** On install throw, splice the plugin out of `loadedPlugins` so it doesn't contribute tools/middleware/tier data. OR mark it disabled with a flag and skip in subsequent passes.
+`server/plugins/boot-helpers.js` exports `installPluginsWithUnloadOnError(plugins, container, logger)`. Iterates loadedPlugins in reverse and splices out any plugin whose `install()` throws. Subsequent passes (eventHandlers wiring, mcpTools collection, tierTools merge) only see successful plugins. The error log carries an explicit `REMOVING` marker so operators see the unload happen:
 
-### 4. `classifierRules` / `recoveryStrategies` consumers are scattered
+> `[plugin-loader] Plugin install FAILED: <name> — <error> — REMOVING from loaded set so its tools/middleware/events do not register`
 
-`auto-recovery-core` exposes both arrays, but consumers (`server/factory/auto-recovery-engine.js`, `recovery-decisions.md` paths) iterate `loadedPlugins` directly looking for the properties. There's no central registry. A second plugin contributing `classifierRules` would be silently merged with no priority/conflict handling. **Action:** Add a `getAllClassifierRules(plugins)` / `getAllRecoveryStrategies(plugins)` helper exposing the merge contract explicitly. Document precedence (currently last-loaded wins for any rule with the same name; this is an accident, not a design).
+Returns a `failures` array (`{ name, error }[]`) for callers that want to expose the count or surface to telemetry. Reverse iteration is intentional — splicing during forward iteration would skip elements.
+
+4 unit tests in `tests/plugin-boot-helpers.test.js` (`installPluginsWithUnloadOnError` describe block).
+
+### 4. ✅ ~~`classifierRules` / `recoveryStrategies` consumers are scattered~~ RESOLVED 2026-05-08
+
+`server/plugins/boot-helpers.js` exports `getAllClassifierRules(plugins)` and `getAllRecoveryStrategies(plugins)`. After the install + eventHandlers passes complete, `server/index.js` calls these helpers and registers the merged arrays as container values `pluginClassifierRules` and `pluginRecoveryStrategies`. The autoRecoveryEngine container factory now prefers these merged values over its direct require of `auto-recovery-core` (back-compat: when the boot pass hasn't run, e.g. in tests that construct the engine directly, the factory falls back to the per-plugin direct-import).
+
+Merge contract: stable plugin-load order, first-plugin-wins on duplicate `name`/`id` field. Rules without a stable identifier just get appended (no dedup). Mirrors `dedupPluginTools`' first-wins rule.
+
+6 unit tests in `tests/plugin-boot-helpers.test.js` (`getAllClassifierRules` + `getAllRecoveryStrategies` describe blocks).
+
+Today only `auto-recovery-core` contributes — but the path is now open for future plugins to extend the recovery surface without forking `server/factory/auto-recovery`.
 
 ### 5. ✅ ~~Tool-name dedup is asymmetric (built-ins win, plugins fight silently)~~ RESOLVED 2026-05-08
 
@@ -300,9 +312,17 @@ Replaces the previous silent-last-loaded-wins behavior in `server/index.js` pass
 
 7 unit tests in `tests/plugin-boot-helpers.test.js` (`dedupPluginTools` describe block) cover collection, built-in shadowing, plugin-vs-plugin dedup with warn log, exception swallowing, optional decorate, non-array returns, and skipping invalid tool definitions.
 
-### 6. `configSchema()` surfaces are documentation-only
+### 6. ✅ ~~`configSchema()` surfaces are documentation-only~~ RESOLVED 2026-05-08
 
-Every plugin returns a JSON Schema describing its config but nothing reads these at runtime. **Action:** Either (a) build a config validator that runs at boot and warns when actual config doesn't match a plugin's schema, OR (b) demote `configSchema` from required to optional and let the dashboard config UI build its forms from a hand-curated list.
+`server/plugins/boot-helpers.js` exports `validatePluginConfigSchemas(plugins, configReader, logger)`. After install pass, `server/index.js` invokes it with `db.getConfig` as the configReader. For each plugin's `configSchema()`, it checks the schema's `required` array against actual config values and warns when any required field is unset/null/empty:
+
+> `[plugin-loader] <name>: configSchema requires fields not set in config: api_key, secret`
+
+Defensive: throwing `configSchema()` returns are logged at warn and skipped. Plugins without `configSchema` or with empty-required schemas contribute nothing.
+
+This is the lightweight Phase 1 implementation — Phase 2 (full JSON-schema validation against actual values, type coercion, default fill-in) is a future batch. Today's bar is "operators see a clear log when a plugin requires config they haven't set yet."
+
+6 unit tests in `tests/plugin-boot-helpers.test.js` (`validatePluginConfigSchemas` describe block).
 
 ### 7. ✅ ~~`codegraph` env-var opt-out is checked inside the plugin, not in the loader~~ RESOLVED 2026-05-08
 

@@ -151,8 +151,146 @@ function dedupPluginTools(plugins, builtInNames, logger, decorateFn) {
   return { tools, ownership };
 }
 
+/**
+ * plugin-contract.md #3 — install plugins and splice out any that throw.
+ * Mutates the input `plugins` array in place (removes failures) so
+ * subsequent boot passes (eventHandlers wiring, mcpTools collection)
+ * skip broken plugins. Pre-this-batch, a plugin whose install() threw
+ * still contributed tools and middleware that had no working backing
+ * services.
+ *
+ * @param {object[]} plugins - loadedPlugins array (MUTATED — failures spliced out)
+ * @param {object} container - DI container passed to plugin.install()
+ * @param {object} logger - object with info/error methods
+ * @returns {{ failures: Array<{name: string, error: string}> }}
+ */
+function installPluginsWithUnloadOnError(plugins, container, logger) {
+  const failures = [];
+  // Install in forward order so plugin-load order is preserved (matches
+  // DEFAULT_PLUGIN_NAMES). Collect failed indices, then splice in
+  // reverse so index shifting doesn't skip any element. Two-pass keeps
+  // install order correct and unload safe.
+  const failedIndices = [];
+  for (let i = 0; i < plugins.length; i++) {
+    const plugin = plugins[i];
+    try {
+      plugin.install(container);
+      if (logger && typeof logger.info === 'function') {
+        logger.info(`[plugin-loader] Plugin installed: ${plugin.name} v${plugin.version}`);
+      }
+    } catch (pluginErr) {
+      failures.push({ name: plugin.name, error: pluginErr.message });
+      failedIndices.push(i);
+      if (logger && typeof logger.error === 'function') {
+        logger.error(`[plugin-loader] Plugin install FAILED: ${plugin.name} — ${pluginErr.message} — REMOVING from loaded set so its tools/middleware/events do not register`);
+      }
+    }
+  }
+  // Splice in reverse so each removal doesn't shift the indices of the
+  // remaining failed positions.
+  for (let i = failedIndices.length - 1; i >= 0; i--) {
+    plugins.splice(failedIndices[i], 1);
+  }
+  return { failures };
+}
+
+/**
+ * plugin-contract.md #4 — central registry helpers for classifierRules
+ * and recoveryStrategies. Pre-this-batch, consumers iterated loadedPlugins
+ * directly looking for these properties with no priority/conflict
+ * handling. These helpers expose the merge contract: stable-merge in
+ * plugin-load order, first-plugin-wins on dedup keyed by `name`/`id`.
+ * Rules without a stable identifier just get appended (no dedup).
+ */
+function getAllClassifierRules(plugins) {
+  const merged = [];
+  const seen = new Set();
+  for (const plugin of plugins) {
+    const rules = plugin && plugin.classifierRules;
+    if (!Array.isArray(rules)) continue;
+    for (const rule of rules) {
+      const key = rule && (rule.name || rule.id);
+      if (key && seen.has(key)) continue;
+      if (key) seen.add(key);
+      merged.push(rule);
+    }
+  }
+  return merged;
+}
+
+function getAllRecoveryStrategies(plugins) {
+  const merged = [];
+  const seen = new Set();
+  for (const plugin of plugins) {
+    const strategies = plugin && plugin.recoveryStrategies;
+    if (!Array.isArray(strategies)) continue;
+    for (const strategy of strategies) {
+      const key = strategy && (strategy.name || strategy.id);
+      if (key && seen.has(key)) continue;
+      if (key) seen.add(key);
+      merged.push(strategy);
+    }
+  }
+  return merged;
+}
+
+/**
+ * plugin-contract.md #6 — runtime configSchema validation. At boot, each
+ * plugin's configSchema() return is checked against the actual config
+ * table. Today this is lightweight: warn when a schema declares
+ * `required` fields that are not present in the config db.
+ * Pre-this-batch, configSchema returns were documentation surface only
+ * with no validator running anywhere.
+ *
+ * @param {object[]} plugins
+ * @param {object} configReader - object with `get(key)` returning value/null
+ * @param {object} logger - object with info/warn methods
+ * @returns {{ warnings: Array<{plugin: string, missing: string[]}> }}
+ */
+function validatePluginConfigSchemas(plugins, configReader, logger) {
+  const warnings = [];
+  for (const plugin of plugins) {
+    let schema;
+    try {
+      schema = typeof plugin.configSchema === 'function' ? plugin.configSchema() : null;
+    } catch (err) {
+      if (logger && typeof logger.warn === 'function') {
+        logger.warn(`[plugin-loader] ${plugin.name}: configSchema() threw: ${err.message}`);
+      }
+      continue;
+    }
+    if (!schema || typeof schema !== 'object') continue;
+    const required = Array.isArray(schema.required) ? schema.required : [];
+    if (required.length === 0) continue;
+    const missing = [];
+    for (const fieldName of required) {
+      if (typeof fieldName !== 'string') continue;
+      let value = null;
+      try {
+        value = configReader && typeof configReader.get === 'function'
+          ? configReader.get(fieldName)
+          : null;
+      } catch { /* config read can't really fail but stay defensive */ }
+      if (value === null || value === undefined || value === '') {
+        missing.push(fieldName);
+      }
+    }
+    if (missing.length > 0) {
+      warnings.push({ plugin: plugin.name, missing });
+      if (logger && typeof logger.warn === 'function') {
+        logger.warn(`[plugin-loader] ${plugin.name}: configSchema requires fields not set in config: ${missing.join(', ')}`);
+      }
+    }
+  }
+  return { warnings };
+}
+
 module.exports = {
   mergeExtraPluginNames,
   wirePluginEventHandlers,
   dedupPluginTools,
+  installPluginsWithUnloadOnError,
+  getAllClassifierRules,
+  getAllRecoveryStrategies,
+  validatePluginConfigSchemas,
 };

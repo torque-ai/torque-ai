@@ -1368,7 +1368,14 @@ function init() {
   // TORQUE_EXTRA_PLUGINS env var. See plugins/boot-helpers.js for the
   // parser; extras are appended to DEFAULT_PLUGIN_NAMES and go through
   // the same load + validate + enabled() gate as built-ins.
-  const { mergeExtraPluginNames, wirePluginEventHandlers } = require('./plugins/boot-helpers');
+  const {
+    mergeExtraPluginNames,
+    wirePluginEventHandlers,
+    installPluginsWithUnloadOnError,
+    validatePluginConfigSchemas,
+    getAllClassifierRules,
+    getAllRecoveryStrategies,
+  } = require('./plugins/boot-helpers');
   const extraPluginNames = mergeExtraPluginNames(DEFAULT_PLUGIN_NAMES);
   if (extraPluginNames.length > 0) {
     logger.info(`[plugin-loader] TORQUE_EXTRA_PLUGINS adds: ${extraPluginNames.join(', ')}`);
@@ -1381,19 +1388,41 @@ function init() {
       authMode: runtimeMode,
       logger,
     });
-    for (const plugin of loadedPlugins) {
-      try {
-        plugin.install(defaultContainer);
-        logger.info('[plugin-loader] Plugin installed: ' + plugin.name + ' v' + plugin.version);
-      } catch (pluginErr) {
-        logger.error('[plugin-loader] Plugin install FAILED: ' + plugin.name + ' — ' + pluginErr.message);
-      }
-    }
+    // plugin-contract.md #3 — install-failure unload via shared helper.
+    // Mutates loadedPlugins in place to splice out failures.
+    installPluginsWithUnloadOnError(loadedPlugins, defaultContainer, logger);
     // plugin-contract.md #1 — wire eventHandlers() into the eventBus
     // via shared helper. install()-side direct subscription remains
     // supported (back-compat) — the two patterns are additive, not
     // exclusive.
     wirePluginEventHandlers(loadedPlugins, eventBus, logger);
+    // plugin-contract.md #6 — validate each plugin's configSchema()
+    // against the actual config table. Lightweight: warns when required
+    // fields are unset. Lets `configSchema()` returns drive operator-
+    // visible config-completeness checks instead of being documentation-
+    // only. Uses db (which exposes getConfig) as the configReader.
+    try {
+      validatePluginConfigSchemas(
+        loadedPlugins,
+        { get: (key) => db.getConfig(key) },
+        logger,
+      );
+    } catch (err) {
+      logger.warn(`[plugin-loader] configSchema validation pass failed: ${err.message}`);
+    }
+    // plugin-contract.md #4 — merge classifierRules + recoveryStrategies
+    // across ALL loaded plugins and register as container values. Today
+    // only `auto-recovery-core` contributes, but this opens the path for
+    // future plugins to extend the recovery surface without forking
+    // server/factory/auto-recovery. autoRecoveryEngine factory prefers
+    // these container values over its direct require() of the core
+    // plugin (back-compat).
+    try {
+      defaultContainer.registerValue('pluginClassifierRules', getAllClassifierRules(loadedPlugins));
+      defaultContainer.registerValue('pluginRecoveryStrategies', getAllRecoveryStrategies(loadedPlugins));
+    } catch (err) {
+      logger.warn(`[plugin-loader] central registry registration failed: ${err.message}`);
+    }
     logger.info(`[startup] plugins_loaded=${loadedPlugins.map((p) => p.name).join(',') || 'none'}`);
   } catch (err) {
     debugLog('Plugin loading failed: ' + err.message);

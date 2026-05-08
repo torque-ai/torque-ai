@@ -551,12 +551,32 @@ _defaultContainer.register(
   ['db', 'eventBus', 'logger', 'autoRecoveryServices'],
   ({ db, eventBus, logger: log, autoRecoveryServices }) => {
     const { createAutoRecoveryEngine } = require('./factory/auto-recovery/engine');
-    const { createPlugin } = require('./plugins/auto-recovery-core');
-    const plugin = createPlugin();
+    // plugin-contract.md #4 — prefer the merged plugin-loader registry
+    // values when present (collected by boot-helpers.getAllClassifierRules
+    // and getAllRecoveryStrategies across ALL loaded plugins, not just
+    // auto-recovery-core). Falls back to the direct require for tests
+    // and any environment where the boot pass hasn't run yet.
+    let rules;
+    let strategies;
+    try {
+      if (_defaultContainer.has && _defaultContainer.has('pluginClassifierRules')) {
+        rules = _defaultContainer.peek('pluginClassifierRules') || null;
+      }
+      if (_defaultContainer.has && _defaultContainer.has('pluginRecoveryStrategies')) {
+        strategies = _defaultContainer.peek('pluginRecoveryStrategies') || null;
+      }
+    } catch { /* container not booted */ }
+    if (!Array.isArray(rules) || rules.length === 0
+        || !Array.isArray(strategies) || strategies.length === 0) {
+      const { createPlugin } = require('./plugins/auto-recovery-core');
+      const plugin = createPlugin();
+      if (!Array.isArray(rules) || rules.length === 0) rules = plugin.classifierRules;
+      if (!Array.isArray(strategies) || strategies.length === 0) strategies = plugin.recoveryStrategies;
+    }
     return createAutoRecoveryEngine({
       db: unwrapDb(db), logger: log, eventBus,
-      rules: plugin.classifierRules,
-      strategies: plugin.recoveryStrategies,
+      rules,
+      strategies,
       services: autoRecoveryServices,
     });
   }

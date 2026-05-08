@@ -4,6 +4,10 @@ const {
   mergeExtraPluginNames,
   wirePluginEventHandlers,
   dedupPluginTools,
+  installPluginsWithUnloadOnError,
+  getAllClassifierRules,
+  getAllRecoveryStrategies,
+  validatePluginConfigSchemas,
 } = require('../plugins/boot-helpers');
 
 // ── plugin-contract.md #12: TORQUE_EXTRA_PLUGINS parser ──────────────
@@ -229,5 +233,220 @@ describe('dedupPluginTools', () => {
     const { logger } = makeLogger();
     const { tools } = dedupPluginTools(plugins, new Set(), logger);
     expect(tools.map((t) => t.name)).toEqual(['good']);
+  });
+});
+
+// ── plugin-contract.md #3: install-failure unload ──────────────────────
+describe('installPluginsWithUnloadOnError', () => {
+  function makeLogger() {
+    const lines = { info: [], error: [] };
+    return {
+      logger: {
+        info: (m) => lines.info.push(m),
+        error: (m) => lines.error.push(m),
+      },
+      lines,
+    };
+  }
+
+  it('keeps successfully-installed plugins in the array', () => {
+    const installed = [];
+    const plugins = [
+      { name: 'a', version: '1.0', install: () => installed.push('a') },
+      { name: 'b', version: '1.0', install: () => installed.push('b') },
+    ];
+    const { logger } = makeLogger();
+    const { failures } = installPluginsWithUnloadOnError(plugins, {}, logger);
+
+    expect(installed).toEqual(['a', 'b']);
+    expect(plugins.map((p) => p.name)).toEqual(['a', 'b']);
+    expect(failures).toEqual([]);
+  });
+
+  it('splices out plugins whose install() throws', () => {
+    const plugins = [
+      { name: 'good', version: '1.0', install: () => {} },
+      { name: 'bad', version: '1.0', install: () => { throw new Error('boom'); } },
+      { name: 'also-good', version: '1.0', install: () => {} },
+    ];
+    const { logger, lines } = makeLogger();
+    const { failures } = installPluginsWithUnloadOnError(plugins, {}, logger);
+
+    expect(plugins.map((p) => p.name)).toEqual(['good', 'also-good']);
+    expect(failures).toHaveLength(1);
+    expect(failures[0]).toEqual({ name: 'bad', error: 'boom' });
+    expect(lines.error.some((m) => m.includes('Plugin install FAILED: bad') && m.includes('REMOVING'))).toBe(true);
+  });
+
+  it('passes container to install()', () => {
+    const captured = [];
+    const plugins = [{ name: 'p', version: '1.0', install: (c) => captured.push(c) }];
+    const fakeContainer = { sentinel: true };
+    const { logger } = makeLogger();
+    installPluginsWithUnloadOnError(plugins, fakeContainer, logger);
+    expect(captured).toEqual([fakeContainer]);
+  });
+
+  it('handles all-fail without bailing', () => {
+    const plugins = [
+      { name: 'a', version: '1.0', install: () => { throw new Error('a-err'); } },
+      { name: 'b', version: '1.0', install: () => { throw new Error('b-err'); } },
+    ];
+    const { logger } = makeLogger();
+    const { failures } = installPluginsWithUnloadOnError(plugins, {}, logger);
+    expect(plugins).toEqual([]);
+    expect(failures.map((f) => f.name).sort()).toEqual(['a', 'b']);
+  });
+});
+
+// ── plugin-contract.md #4: central registry helpers ────────────────────
+describe('getAllClassifierRules', () => {
+  it('merges rules across plugins in plugin-load order', () => {
+    const plugins = [
+      { name: 'a', classifierRules: [{ name: 'r1' }, { name: 'r2' }] },
+      { name: 'b', classifierRules: [{ name: 'r3' }] },
+    ];
+    expect(getAllClassifierRules(plugins).map((r) => r.name)).toEqual(['r1', 'r2', 'r3']);
+  });
+
+  it('first-plugin-wins on duplicate rule name', () => {
+    const plugins = [
+      { name: 'a', classifierRules: [{ name: 'shared', tag: 'a' }] },
+      { name: 'b', classifierRules: [{ name: 'shared', tag: 'b' }] },
+    ];
+    const merged = getAllClassifierRules(plugins);
+    expect(merged).toHaveLength(1);
+    expect(merged[0].tag).toBe('a');
+  });
+
+  it('dedupe also keys on `id` field', () => {
+    const plugins = [
+      { name: 'a', classifierRules: [{ id: 'shared' }] },
+      { name: 'b', classifierRules: [{ id: 'shared' }] },
+    ];
+    expect(getAllClassifierRules(plugins)).toHaveLength(1);
+  });
+
+  it('rules without name/id just get appended', () => {
+    const plugins = [
+      { name: 'a', classifierRules: [{ pattern: 'x' }, { pattern: 'y' }] },
+    ];
+    expect(getAllClassifierRules(plugins)).toHaveLength(2);
+  });
+
+  it('skips plugins without classifierRules array', () => {
+    const plugins = [
+      { name: 'a' },
+      { name: 'b', classifierRules: 'not-an-array' },
+      { name: 'c', classifierRules: [{ name: 'r' }] },
+    ];
+    expect(getAllClassifierRules(plugins).map((r) => r.name)).toEqual(['r']);
+  });
+});
+
+describe('getAllRecoveryStrategies', () => {
+  it('merges strategies across plugins, first-plugin-wins on dupes', () => {
+    const plugins = [
+      { name: 'a', recoveryStrategies: [{ name: 'retry' }, { name: 'fallback' }] },
+      { name: 'b', recoveryStrategies: [{ name: 'retry', tag: 'b' }, { name: 'escalate' }] },
+    ];
+    const merged = getAllRecoveryStrategies(plugins);
+    expect(merged.map((s) => s.name)).toEqual(['retry', 'fallback', 'escalate']);
+    expect(merged[0].tag).toBeUndefined();
+  });
+});
+
+// ── plugin-contract.md #6: configSchema runtime validation ─────────────
+describe('validatePluginConfigSchemas', () => {
+  function makeLogger() {
+    const lines = { warn: [], info: [] };
+    return {
+      logger: {
+        warn: (m) => lines.warn.push(m),
+        info: (m) => lines.info.push(m),
+      },
+      lines,
+    };
+  }
+
+  it('warns when schema requires unset config field', () => {
+    const plugins = [{
+      name: 'p',
+      configSchema: () => ({ type: 'object', required: ['api_key'], properties: {} }),
+    }];
+    const { logger, lines } = makeLogger();
+    const { warnings } = validatePluginConfigSchemas(
+      plugins,
+      { get: () => null },
+      logger,
+    );
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toEqual({ plugin: 'p', missing: ['api_key'] });
+    expect(lines.warn.some((m) => m.includes('p: configSchema requires fields not set in config: api_key'))).toBe(true);
+  });
+
+  it('does not warn when required fields are present', () => {
+    const plugins = [{
+      name: 'p',
+      configSchema: () => ({ required: ['api_key'] }),
+    }];
+    const { logger } = makeLogger();
+    const { warnings } = validatePluginConfigSchemas(
+      plugins,
+      { get: (key) => (key === 'api_key' ? 'sk-secret' : null) },
+      logger,
+    );
+    expect(warnings).toEqual([]);
+  });
+
+  it('treats empty string as missing', () => {
+    const plugins = [{
+      name: 'p',
+      configSchema: () => ({ required: ['api_key'] }),
+    }];
+    const { logger } = makeLogger();
+    const { warnings } = validatePluginConfigSchemas(
+      plugins,
+      { get: () => '' },
+      logger,
+    );
+    expect(warnings).toHaveLength(1);
+  });
+
+  it('skips plugins without configSchema or empty schema', () => {
+    const plugins = [
+      { name: 'a' },
+      { name: 'b', configSchema: () => null },
+      { name: 'c', configSchema: () => ({ type: 'object' }) }, // no required
+    ];
+    const { logger } = makeLogger();
+    const { warnings } = validatePluginConfigSchemas(plugins, { get: () => null }, logger);
+    expect(warnings).toEqual([]);
+  });
+
+  it('catches throwing configSchema() with warn', () => {
+    const plugins = [{
+      name: 'broken',
+      configSchema: () => { throw new Error('schema is dead'); },
+    }];
+    const { logger, lines } = makeLogger();
+    const { warnings } = validatePluginConfigSchemas(plugins, { get: () => null }, logger);
+    expect(warnings).toEqual([]);
+    expect(lines.warn.some((m) => m.includes('broken: configSchema() threw: schema is dead'))).toBe(true);
+  });
+
+  it('reports multiple missing fields in one warning', () => {
+    const plugins = [{
+      name: 'p',
+      configSchema: () => ({ required: ['a', 'b', 'c'] }),
+    }];
+    const { logger } = makeLogger();
+    const { warnings } = validatePluginConfigSchemas(
+      plugins,
+      { get: (k) => (k === 'b' ? 'set' : null) },
+      logger,
+    );
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0].missing).toEqual(['a', 'c']);
   });
 });
