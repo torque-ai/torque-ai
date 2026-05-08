@@ -188,9 +188,84 @@ function discoverBenignPatterns(rootDir) {
   return { exact, prefixes };
 }
 
+function actionMatchedByBenign(action, benign) {
+  if (benign.exact.has(action)) return true;
+  for (const prefix of benign.prefixes) {
+    if (action.startsWith(prefix)) return true;
+  }
+  return false;
+}
+
+function actionMatchedByClassifier(action, classifier_rules) {
+  return classifier_rules.action_matchers.has(action);
+}
+
+function runDecisionActionsAudit({ rootDir, catalog }) {
+  const emit = discoverEmitSites(rootDir);
+  const classifier_rules = discoverClassifierRules(rootDir);
+  const benign = discoverBenignPatterns(rootDir);
+
+  const emittedSet = new Set(emit.literal_emissions.keys());
+  const catalogSet = new Set(Object.keys(catalog));
+
+  const emitted_not_in_catalog = [];
+  const emitted_no_classifier = [];
+  const rule_id_mismatch = [];
+  const catalog_not_emitted = [];
+
+  for (const action of emittedSet) {
+    if (!catalogSet.has(action)) emitted_not_in_catalog.push(action);
+  }
+
+  for (const action of emittedSet) {
+    const entry = catalog[action];
+    if (!entry) continue;
+    const kind = entry.classifier;
+    if (kind === 'benign') {
+      if (!actionMatchedByBenign(action, benign)) emitted_no_classifier.push(action);
+    } else if (kind === 'recovery-rule') {
+      if (!actionMatchedByClassifier(action, classifier_rules)) emitted_no_classifier.push(action);
+    } else if (kind === 'b-side-reject' || kind === 'terminal' || kind === 'engine') {
+      // No runtime classifier check required for these kinds — the catalog
+      // entry IS the contract.
+    } else {
+      emitted_no_classifier.push(action);
+    }
+  }
+
+  for (const [action, entry] of Object.entries(catalog)) {
+    if (entry.classifier === 'recovery-rule' && entry.rule_id) {
+      if (!classifier_rules.rule_ids.has(entry.rule_id)) {
+        rule_id_mismatch.push({ action, catalog_rule_id: entry.rule_id });
+      }
+    }
+  }
+
+  for (const action of catalogSet) {
+    if (!emittedSet.has(action)) catalog_not_emitted.push(action);
+  }
+
+  const hasGaps =
+    emitted_not_in_catalog.length > 0
+    || emitted_no_classifier.length > 0
+    || rule_id_mismatch.length > 0
+    || catalog_not_emitted.length > 0;
+
+  return {
+    emitted_not_in_catalog,
+    emitted_no_classifier,
+    rule_id_mismatch,
+    catalog_not_emitted,
+    dynamic_action_sites: emit.dynamic_action_sites,
+    literal_emissions: emit.literal_emissions,
+    hasGaps,
+  };
+}
+
 module.exports = {
   discoverEmitSites,
   discoverClassifierRules,
   discoverBenignPatterns,
+  runDecisionActionsAudit,
   __internals: { walkJsFiles, fileLineFromIndex },
 };

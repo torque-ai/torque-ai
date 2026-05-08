@@ -150,3 +150,85 @@ describe('discoverBenignPatterns', () => {
     expect(prefixes.has('completed_')).toBe(true);
   });
 });
+
+const { runDecisionActionsAudit } = require('../factory/scripts/audit-decision-actions');
+
+describe('runDecisionActionsAudit', () => {
+  it('reports emitted_not_in_catalog when emit site uses an action not in the catalog', () => {
+    const dir = makeFixtureDir({
+      'server/factory/foo.js': `logDecision({ action: 'undocumented_action', outcome: {} });`,
+      'server/plugins/auto-recovery-core/rules.js': `module.exports = [];`,
+      'server/factory/auto-recovery/engine.js': `
+        const BENIGN_FLOW_ACTION_EXACT = new Set([]);
+        const BENIGN_FLOW_ACTION_PREFIXES = [];
+      `,
+    });
+    const catalog = {};
+    const report = runDecisionActionsAudit({ rootDir: dir, catalog });
+    expect(report.emitted_not_in_catalog).toContain('undocumented_action');
+    expect(report.hasGaps).toBe(true);
+  });
+
+  it('reports emitted_no_classifier when emit site is in catalog but lacks classifier wiring', () => {
+    const dir = makeFixtureDir({
+      'server/factory/foo.js': `logDecision({ action: 'orphan_in_catalog', outcome: {} });`,
+      'server/plugins/auto-recovery-core/rules.js': `module.exports = [];`,
+      'server/factory/auto-recovery/engine.js': `
+        const BENIGN_FLOW_ACTION_EXACT = new Set([]);
+        const BENIGN_FLOW_ACTION_PREFIXES = [];
+      `,
+    });
+    const catalog = { orphan_in_catalog: { stage: 'EXECUTE', classifier: 'recovery-rule', rule_id: 'missing_rule' } };
+    const report = runDecisionActionsAudit({ rootDir: dir, catalog });
+    expect(report.emitted_no_classifier).toContain('orphan_in_catalog');
+    expect(report.hasGaps).toBe(true);
+  });
+
+  it('reports rule_id_mismatch when catalog references a rule_id not in rules.js', () => {
+    const dir = makeFixtureDir({
+      'server/factory/foo.js': `logDecision({ action: 'foo_failed', outcome: {} });`,
+      'server/plugins/auto-recovery-core/rules.js': `module.exports = [{ id: 'real_rule', match: () => false }];`,
+      'server/factory/auto-recovery/engine.js': `
+        const BENIGN_FLOW_ACTION_EXACT = new Set([]);
+        const BENIGN_FLOW_ACTION_PREFIXES = [];
+      `,
+    });
+    const catalog = { foo_failed: { stage: 'EXECUTE', classifier: 'recovery-rule', rule_id: 'phantom_rule' } };
+    const report = runDecisionActionsAudit({ rootDir: dir, catalog });
+    expect(report.rule_id_mismatch).toEqual([
+      expect.objectContaining({ action: 'foo_failed', catalog_rule_id: 'phantom_rule' }),
+    ]);
+  });
+
+  it('reports catalog_not_emitted when catalog has an entry with no emit site', () => {
+    const dir = makeFixtureDir({
+      'server/factory/foo.js': `// no logDecision calls`,
+      'server/plugins/auto-recovery-core/rules.js': `module.exports = [];`,
+      'server/factory/auto-recovery/engine.js': `
+        const BENIGN_FLOW_ACTION_EXACT = new Set([]);
+        const BENIGN_FLOW_ACTION_PREFIXES = [];
+      `,
+    });
+    const catalog = { dead_doc: { stage: 'EXECUTE', classifier: 'benign' } };
+    const report = runDecisionActionsAudit({ rootDir: dir, catalog });
+    expect(report.catalog_not_emitted).toContain('dead_doc');
+  });
+
+  it('hasGaps is false when all four categories are empty', () => {
+    const dir = makeFixtureDir({
+      'server/factory/foo.js': `logDecision({ action: 'good_action', outcome: {} });`,
+      'server/plugins/auto-recovery-core/rules.js': `module.exports = [{ id: 'good_rule', match: (d) => d.action === 'good_action' }];`,
+      'server/factory/auto-recovery/engine.js': `
+        const BENIGN_FLOW_ACTION_EXACT = new Set([]);
+        const BENIGN_FLOW_ACTION_PREFIXES = [];
+      `,
+    });
+    const catalog = { good_action: { stage: 'EXECUTE', classifier: 'recovery-rule', rule_id: 'good_rule' } };
+    const report = runDecisionActionsAudit({ rootDir: dir, catalog });
+    expect(report.emitted_not_in_catalog).toEqual([]);
+    expect(report.emitted_no_classifier).toEqual([]);
+    expect(report.rule_id_mismatch).toEqual([]);
+    expect(report.catalog_not_emitted).toEqual([]);
+    expect(report.hasGaps).toBe(false);
+  });
+});
