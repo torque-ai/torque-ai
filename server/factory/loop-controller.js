@@ -3768,6 +3768,10 @@ function isNonVerifyFailTerminalDecision(action) {
     || action === 'verify_reviewed_environment_failure'
     || action.startsWith('auto_rejected_')
     || action.startsWith('auto_quarantined_')
+    // Unified auto-ship action (no underscore suffix); legacy prefix kept
+    // for any historical auto_shipped_* names that still surface in tests
+    // or partially-migrated paths.
+    || action === 'auto_shipped'
     || action.startsWith('auto_shipped_');
 }
 

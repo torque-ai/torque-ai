@@ -165,7 +165,7 @@ const BENIGN_FLOW_ACTION_EXACT = new Set([
   // ── PRIORITIZE ──────────────────────────────────────────────────────────────
   'selected_work_item',      // PRIORITIZE picked a WI
   'scored_work_item',        // PRIORITIZE rescored a WI before planning
-  'auto_shipped_at_prioritize',  // shipped-detector matched existing commits
+  'auto_shipped',                // unified shipped-detector match (PRIORITIZE/LEARN/VERIFY); reason in outcome
   'no_selected_work_item',   // PRIORITIZE found nothing eligible; idle tick
   'healed_already_shipped',  // PRIORITIZE detected WI already shipped; marked
   'stale_probe_budget_exhausted', // stale-scout probe budget used up; move on
