@@ -180,6 +180,86 @@ module.exports = [
     suggested_strategies: ['retry', 'escalate'],
   },
   {
+    // EXECUTE auto-commit failed after a plan task completed. The task itself
+    // succeeded and the worktree is dirty, but the factory's git commit step
+    // threw (file lock, hook rejection, auth, EBUSY, etc.). Retrying the
+    // EXECUTE gate is the correct first step — the next factory tick will
+    // re-enter EXECUTE and re-run the commit against the same dirty state.
+    // reject_and_advance is the fallback if the commit consistently fails
+    // (e.g. a repo-side hook blocks the commit unconditionally).
+    name: 'auto_commit_failed',
+    category: 'transient',
+    priority: 72,
+    confidence: 0.8,
+    match: { stage: 'execute', action: 'auto_commit_failed' },
+    suggested_strategies: ['retry', 'reject_and_advance', 'escalate'],
+  },
+  {
+    // VERIFY guardrail runner threw an unhandled exception (not a test failure
+    // — the runner itself crashed). Common causes: DB unavailable, missing
+    // file reference, import error in a custom guardrail plugin. Retry lets
+    // the next tick re-run the guardrails from scratch; reject_and_advance
+    // is the fallback once the budget is exhausted.
+    name: 'verify_failed',
+    category: 'transient',
+    priority: 55,
+    confidence: 0.6,
+    match: { stage: 'verify', action: 'verify_failed' },
+    suggested_strategies: ['retry', 'reject_and_advance', 'escalate'],
+  },
+  {
+    // VERIFY auto-retry found the worktree directory missing AND the recovery
+    // attempt (branch re-checkout) failed. The loop returned cwd_missing for
+    // operator triage. Retrying once more may succeed if the recovery was
+    // interrupted; reject_and_advance moves on if it keeps failing.
+    name: 'verify_retry_worktree_recovery_failed',
+    category: 'transient',
+    priority: 58,
+    confidence: 0.6,
+    match: { stage: 'verify', action: 'verify_retry_worktree_recovery_failed' },
+    suggested_strategies: ['retry', 'reject_and_advance', 'escalate'],
+  },
+  {
+    // VERIFY auto-retry task was submitted but did not complete successfully
+    // (provider crash, await timeout, task cancelled). The verify loop pauses
+    // at VERIFY_FAIL. Retry lets the next tick attempt a fresh submission;
+    // reject_and_advance is the fallback when providers are consistently
+    // unavailable.
+    name: 'verify_retry_task_failed',
+    category: 'transient',
+    priority: 58,
+    confidence: 0.65,
+    match: { stage: 'verify', action: 'verify_retry_task_failed' },
+    suggested_strategies: ['retry', 'reject_and_advance', 'escalate'],
+  },
+  {
+    // VERIFY worktree runner threw an unhandled exception during verify_command
+    // execution. The error is caught by the outer try/catch and the loop pauses
+    // at VERIFY_FAIL. Unlike worktree_verify_failed (test runner returned
+    // non-zero), this action fires when the runner infrastructure itself threw.
+    // Retry is appropriate for transient I/O / process-spawn errors; escalate
+    // is the fallback for persistent infrastructure failures.
+    name: 'worktree_verify_errored',
+    category: 'transient',
+    priority: 55,
+    confidence: 0.6,
+    match: { stage: 'verify', action: 'worktree_verify_errored' },
+    suggested_strategies: ['retry', 'reject_and_advance', 'escalate'],
+  },
+  {
+    // LEARN stage analysis threw an unhandled exception. Common causes:
+    // DB write failure, shipping helper crash, merge conflict during the LEARN
+    // analysis pass. Retrying the LEARN gate re-runs the analysis from scratch;
+    // reject_and_advance moves the work item out of the way if LEARN consistently
+    // fails (e.g. a persistent repo-state issue).
+    name: 'learn_failed',
+    category: 'transient',
+    priority: 55,
+    confidence: 0.6,
+    match: { stage: 'learn', action: 'learn_failed' },
+    suggested_strategies: ['retry', 'reject_and_advance', 'escalate'],
+  },
+  {
     // VERIFY paused waiting on non-terminal batch tasks. With factory-tick
     // auto-clear (commit 5275d2c1) and the `skipped`-as-terminal fix
     // (commit fac72c3f), this normally heals on its own once the batch

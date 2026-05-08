@@ -158,14 +158,41 @@ const BENIGN_FLOW_ACTION_PREFIXES = [
   'starting',                 // generic stage-started signal
 ];
 const BENIGN_FLOW_ACTION_EXACT = new Set([
+  // ── SENSE ───────────────────────────────────────────────────────────────────
   'scanned_plans',           // SENSE scanned the plans directory
+  'start_loop_blocked_project_paused',  // SENSE found project paused; loop blocked (benign guard)
+
+  // ── PRIORITIZE ──────────────────────────────────────────────────────────────
   'selected_work_item',      // PRIORITIZE picked a WI
   'scored_work_item',        // PRIORITIZE rescored a WI before planning
   'auto_shipped_at_prioritize',  // shipped-detector matched existing commits
+  'no_selected_work_item',   // PRIORITIZE found nothing eligible; idle tick
+  'healed_already_shipped',  // PRIORITIZE detected WI already shipped; marked
+  'stale_probe_budget_exhausted', // stale-scout probe budget used up; move on
+  'skipped_stale_scout_item', // stale-scout item skipped (not yet probe-eligible)
+  'stale_probe_starvation',  // stale-scout starved; no eligible probe this tick
+  'scout_promoted',          // stale WI promoted back to eligible by scout
+  'decompose_would_yield_eligible', // decompose check found eligible subtasks
+  'parked_codex_unavailable', // WI parked because codex quota unavailable
+  'marked_for_failover_routing', // WI marked for provider failover routing
+
+  // ── PLAN ────────────────────────────────────────────────────────────────────
   'pre_written_plan_quality_passed',
   'skipped_for_plan_file',   // PLAN bypassed because a pre-written plan exists
   'generated_plan',          // architect cycle completed with a plan
+  'plan_generated',          // plan-generation task produced output
   'plan_quality_passed',     // plan-quality gate accepted the plan
+  'plan_review_started',     // plan review phase started
+  'plan_review_verdict',     // plan review emitted a per-reviewer verdict
+  'plan_review_aggregated',  // plan review aggregated all verdicts
+  'plan_lint_warnings',      // plan lint emitted warnings (non-blocking)
+  'plan_quality_gate_fail_open', // plan quality gate failed open (non-blocking)
+  'plan_quality_skipped_by_metadata', // plan quality check skipped by WI metadata
+  'plan_quality_soft_threshold_crossed', // plan quality soft threshold crossed (warn-only)
+  'stale_generated_plan_cleared_before_replan', // stale generated plan cleared before replan
+  'plan_generation_deferred_project_active', // plan generation deferred; project has active batch
+
+  // ── EXECUTE ──────────────────────────────────────────────────────────────────
   'worktree_created',        // EXECUTE created an isolated worktree
   'worktree_reused_completed_owner',  // benign reuse, owner already done
   'worktree_reclaimed',      // pre-reclaim of a stale row before fresh create
@@ -174,13 +201,63 @@ const BENIGN_FLOW_ACTION_EXACT = new Set([
   'completed_execution',     // plan executor finished (success path)
   'execute_completed_after_no_op_retries',  // Phase E benign no-op cluster
   'execute_completed_with_agent_self_commits',  // 2026-05-03 self-commits fix
+  'entered_from_execute',    // LEARN entered directly from EXECUTE (no separate VERIFY tick)
+  'execute_deferred_paused', // EXECUTE deferred because loop is paused
+  'execute_deferred_paused_stale_warning', // EXECUTE deferred with stale-warning
+  'execute_deferred_resumed', // EXECUTE deferred slot became available; resuming
+  'execute_deferred_worktree_reused', // EXECUTE deferred; worktree reused from prior run
+  'execute_wait_owner_completed', // EXECUTE waiting for owning task to complete
+  'worktree_reclaim_skipped_in_flight_same_wi', // reclaim skipped: same WI still in-flight
+  'worktree_reclaim_skipped_live_owner', // reclaim skipped: worktree has a live owner task
+  'dry_run_task',            // dry-run mode; task submission suppressed
+
+  // ── VERIFY ───────────────────────────────────────────────────────────────────
   'verified_batch',          // VERIFY guardrails passed
   'worktree_verify_passed',  // verify_command passed remotely
   'verify_empty_branch_routed_to_needs_replan',  // factory-level routing decision
   'cannot_generate_plan_routed_to_needs_replan',  // post-cancel routing
+  'verify_silent_rerun_started',  // verify silent re-run attempt started
+  'verify_silent_rerun_failed',   // verify silent re-run attempt failed (not final)
+  'verify_passed_on_silent_rerun', // verify passed on a silent re-run attempt
+  'verify_rerun_same_failure',    // verify re-run produced the same failure
+  'verify_rerun_different_failure', // verify re-run produced a different failure
+  'verify_retry_branch_recreated_from_origin', // branch recreated from origin during retry
+  'verify_retry_worktree_recovered', // worktree recovered during auto-retry
+  'verify_retry_submitted',  // auto-retry submission accepted; task queued
+  'verify_retry_submission_failed', // transient submission failure; attempt not counted
+  'verify_retry_task_completed', // auto-retry task completed (result evaluated separately)
+  'verify_retry_escalated_to_codex', // auto-retry escalated to codex provider
+  'verify_retry_suppressed_zero_diff', // auto-retry suppressed: zero diff detected
+  'verify_skipped_plan_already_satisfied', // verify skipped: plan already satisfied
+  'verify_reviewer_fail_open', // reviewer returned ambiguous verdict; failing open
+  'verify_aborted_project_paused', // verify aborted mid-run because project was paused
+  'skipped_verification',    // VERIFY skipped: no batch_id attached
+  'factory_verify_auto_retry', // verify stall recovery fired an auto-retry
+  'branch_stale_detected',   // branch detected as stale before retry
+  'branch_auto_rebased',     // branch automatically rebased onto base ref
+  'branch_stale_detected_post_verify', // branch detected stale after verify failure
+  'branch_auto_rebased_post_verify', // branch automatically rebased after verify failure
+  'retry_verify_requested',  // operator requested a verify retry
+  'dep_resolver_no_adapter', // dep resolver: no adapter available for package manager
+  'dep_resolver_pending_approval', // dep resolver: waiting for operator approval
+  'dep_resolver_disabled',   // dep resolver disabled for this project
+  'dep_resolver_detected',   // dep resolver: missing dep detected
+  'dep_resolver_escalated',  // dep resolver: escalation verdict recorded; processing continues
+  'dep_resolver_escalation_retry', // dep resolver: escalation retry outcome recorded
+  'dep_resolver_escalation_pause', // dep resolver: escalation paused; waiting for operator
+  'dep_resolver_reverify_passed', // dep resolver: re-verify after dep install passed
+
+  // ── LEARN ────────────────────────────────────────────────────────────────────
   'learned',                 // LEARN analyzed post-batch feedback
   'worktree_merged',         // LEARN merged the feature branch
   'shipped_work_item',       // LEARN marked the WI shipped
+  'worktree_path_missing_abandoned', // LEARN: missing worktree abandoned; falling through
+  'worktree_merged_cleanup_failed', // LEARN: post-merge cleanup failed (non-blocking)
+
+  // ── ANY/FLOW ──────────────────────────────────────────────────────────────────
+  'already_closed',          // WI already closed; skipping further processing
+  'skipped_shipping',        // shipping step skipped (WI already shipped or ineligible)
+  'closed_work_item_loop_stopped', // WI closed because loop stopped
   'gate_approved',           // recovery's prior approval cleared a pause
 ]);
 
@@ -361,6 +438,14 @@ function createAutoRecoveryEngine({
     const classifyInput = decision
       ? decision
       : { action: 'never_started', stage: 'plan', outcome: {} };
+
+    // Recursion defense: classifying auto_recovery_unknown_action itself
+    // would loop endlessly through the unknown-action emission. Short-circuit
+    // before classify() runs.
+    if (classifyInput.action === 'auto_recovery_unknown_action') {
+      return { attempted: false, strategy: null, skipped: 'guard_self_reference' };
+    }
+
     const classification = classifier.classify(classifyInput);
 
     logDecision(db, {
@@ -371,6 +456,28 @@ function createAutoRecoveryEngine({
       confidence: classification.confidence,
       batch_id: decision?.batch_id || null,
     });
+
+    // Production guard: when the classifier returns unknown (matched_rule === null),
+    // emit auto_recovery_unknown_action so operators can grep factory_decisions
+    // for drift the static CI gate didn't catch (dynamic action names, etc.).
+    if (classification.matched_rule == null) {
+      logDecision(db, {
+        project_id: project.id,
+        stage: decision?.stage || 'verify',
+        action: 'auto_recovery_unknown_action',
+        reasoning: `Classifier returned unknown for action "${classifyInput.action}"; engine will fall back to default chain`,
+        outcome: {
+          original_action: classifyInput.action,
+          original_stage: decision?.stage || null,
+          outcome_keys: Object.keys(decision?.outcome || {}),
+          work_item_id: decision?.outcome?.work_item_id ?? null,
+          task_id: decision?.outcome?.task_id ?? null,
+          engine_decided_strategies: classification.suggested_strategies || ['retry', 'escalate'],
+        },
+        confidence: 1,
+        batch_id: decision?.batch_id || null,
+      });
+    }
 
     const recentAttempts = recentStrategyAttemptsForRule(db, project.id, classification.matched_rule);
     const strategy = typeof registry.pickWithBudget === 'function'

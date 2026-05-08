@@ -147,45 +147,187 @@ Every `safeLogDecision({ action: '...', stage, outcome })` call site produces a 
 
 Frequently-emitted actions, by stage:
 
-| Stage | Action | Approx outcome shape | Matched by recovery rule? |
+<!-- BEGIN AUTOGEN: decision-actions-table -->
+| Stage | Action | Classifier | Outcome shape |
 |---|---|---|---|
-| SENSE | `scanned_plans` | `plans_dir, scanned, created_count, shipped_count` | Benign — skipped via `isBenignFlowDecision` |
-| PRIORITIZE | `selected_work_item` | `work_item_id, priority, status, source, batch_id` | Benign — `started_*` prefix |
-| PRIORITIZE | `no_selected_work_item` | `work_item_status` | Benign |
-| PRIORITIZE | `auto_shipped_at_prioritize` | `work_item_id, status` | Terminal — skipped (auto-ship is success path) |
-| PLAN | `generated_plan` | `work_item_id, plan_path, task_count, description_quality` | Benign |
-| PLAN | `cannot_generate_plan` | `work_item_id, error, attempt` | A: `codex_phantom_success` (with sandbox outcome) and `plan_generation_failed` (catch-all) |
-| PLAN | `plan_lint_rejected` | `work_item_id, reason, lint_errors` | B-side replan-recovery (`rewrite-description` strategy) |
-| PLAN | `plan_description_quality_rejected` | `work_item_id, quality_score, reason` | B-side |
-| EXECUTE | `started_execution` | `work_item_id, batch_id, trust_level` | Benign |
-| EXECUTE | `completed_execution` | `work_item_id, task_count, execution_time_ms` | Benign |
-| EXECUTE | `execute_zero_diff_short_circuit` | `work_item_id, reason` | A: `execute_zero_diff_short_circuit` rule |
-| EXECUTE | `execute_deferred_paused` | `work_item_id, plan_task_number, project_status` | Benign — informational |
-| EXECUTE | `auto_shipped_at_execute` | `work_item_id, reason` | Terminal |
-| EXECUTE | `phantom_completion_detected` | `task_id, final_status, raw_exit_code` | A: `phantom_completion_detected` rule (added 2026-05-06 — recovery-decisions.md conflict #4) |
-| EXECUTE | `execute_exception` | `work_item_id, error` | A: `execute_exception_unclassified` rule |
-| EXECUTE | `auto_commit_skipped_clean` | `work_item_id` | A: `execute_auto_commit_skipped_clean` rule |
-| EXECUTE | `execute_execution_failed` | `work_item_id` | A: `execute_execution_failed` rule |
-| EXECUTE | `plan_generation_retry_unusable_output` | `work_item_id, provider` | A: `plan_generation_unusable_output` rule |
-| VERIFY | `verified_batch` | `work_item_id, batch_id, verification_result` | Benign |
-| VERIFY | `verify_failed` | `work_item_id, error, retry_count` | A: `verify_fail_unclassified` rule (catch-all) |
-| VERIFY | `verify_retry_submitted` | `work_item_id, retry_count, feedback` | Benign |
-| VERIFY | `verify_passed_on_silent_rerun` | `work_item_id, first_failure, rerun_result` | Benign |
-| VERIFY | `verify_reviewer_timeout_paused` | `task_id, error` | A: `verify_reviewer_timeout` rule |
-| VERIFY | `verify_reviewed_ambiguous_paused` | `work_item_id, confidence` | A: `verify_reviewer_ambiguous` rule |
-| VERIFY | `waiting_for_batch_tasks` | `batch_id, task_count` | A: `verify_batch_tasks_not_terminal` rule |
-| VERIFY | `auto_rejected_verify_fail` | `work_item_id, retry_count` | B-side rejected-recovery |
-| LEARN | `learned`, `shipped_work_item` | `work_item_id, batch_id, merge_status, commit_sha` | Benign — terminal success |
-| LEARN | `merge_target_dirty` | `paused_at_stage, dirty_files, untracked_files` | A: `learn_merge_target_dirty` rule (with `discard-regenerable-merge-block` + `escalate` strategies — recovery-decisions.md conflict #1) |
-| LEARN | `merge_target_in_conflict_state` | `paused_at_stage, op` | A: same rule as merge_target_dirty |
-| LEARN | `worktree_merge_failed` | `work_item_id, error` | B-side replan-recovery |
-| Any | `paused_at_gate` | `from_state, to_state, gate_stage, trust_level` | A: many rules dispatch on this with `outcome.reason` |
-| Any | `gate_approved` | `approved_stage, from_state, to_state` | Benign |
-| Any | `auto_recovery_classified` | `category, matched_rule, suggested_strategies` | Engine-emitted; not consumed by rules |
-| Any | `auto_recovery_strategy_selected` / `auto_recovery_no_strategy` | `strategy, classification` | Engine-emitted |
-| Any | `auto_recovery_exhausted` / `auto_recovery_rearmed` | `reason` | Engine-emitted |
+| SENSE | `scanned_plans` | `benign` | `plans_dir`, `scanned`, `created_count`, `shipped_count` |
+| SENSE | `started_loop` | `benign` | `from_state`, `to_state`, `instance_id` |
+| SENSE | `starting` | `benign` | _(none)_ |
+| SENSE | `start_loop_blocked_project_paused` | `benign` | `started`, `status` |
+| PRIORITIZE | `selected_work_item` | `benign` | `work_item_id`, `priority`, `status`, `source`, `batch_id` |
+| PRIORITIZE | `scored_work_item` | `benign` | `work_item_id`, `score`, `factors` |
+| PRIORITIZE | `no_selected_work_item` | `benign` | `reason`, `work_item_id`, `batch_id` |
+| PRIORITIZE | `auto_shipped_at_prioritize` | `terminal` | `work_item_id`, `status` |
+| PRIORITIZE | `healed_already_shipped` | `benign` | `work_item_id`, `previous_status`, `new_status`, `factory_worktree_id`, `branch`, `merged_at` |
+| PRIORITIZE | `stale_probe_budget_exhausted` | `benign` | `skipped`, `max_repicks`, `fallback_work_item_id` |
+| PRIORITIZE | `skipped_stale_scout_item` | `benign` | `work_item_id`, `stale_reason`, `commits_since_scan`, `probe_ms` |
+| PRIORITIZE | `stale_probe_starvation` | `benign` | `skipped` |
+| PRIORITIZE | `scout_promoted` | `benign` | `work_item_id`, `scout_id` |
+| PRIORITIZE | `decompose_would_yield_eligible` | `benign` | `work_item_id`, `eligibleCount`, `subtaskCount`, `decomposed` |
+| PRIORITIZE | `parked_codex_unavailable` | `benign` | `work_item_id`, `reason` |
+| PRIORITIZE | `marked_for_failover_routing` | `benign` | `work_item_id`, `instance_id`, `fallback_template` |
+| PRIORITIZE | `auto_rejected_stuck_executing` | `b-side-reject` | `work_item_id`, `reason`, `stuck_since` |
+| PLAN | `generated_plan` | `benign` | `work_item_id`, `plan_path`, `task_count`, `description_quality` |
+| PLAN | `plan_generated` | `benign` | `work_item_id`, `plan_path`, `task_count` |
+| PLAN | `cannot_generate_plan` | `recovery-rule` (rule: `codex_phantom_success`) | `work_item_id`, `error`, `attempt` |
+| PLAN | `cannot_generate_plan_routed_to_needs_replan` | `benign` | `work_item_id`, `reason` |
+| PLAN | `skipped_for_plan_file` | `benign` | `work_item_id`, `plan_path` |
+| PLAN | `plan_review_started` | `benign` | `reviewers`, `reviewer_count` |
+| PLAN | `plan_review_verdict` | `benign` | `reviewer`, `provider`, `verdict`, `confidence`, `concerns`, `suggestions`, `task_id`, `reason` |
+| PLAN | `plan_review_aggregated` | `benign` | `overall`, `reviewer_count`, `has_warnings`, `blocked` |
+| PLAN | `plan_lint_rejected` | `b-side-reject` | `work_item_id`, `reason`, `lint_errors` |
+| PLAN | `plan_lint_warnings` | `benign` | `work_item_id`, `warnings` |
+| PLAN | `plan_description_quality_rejected` | `b-side-reject` | `work_item_id`, `quality_score`, `reason` |
+| PLAN | `plan_description_quality_routed_to_needs_replan` | `b-side-reject` | `work_item_id`, `quality_score`, `reason` |
+| PLAN | `plan_quality_passed` | `benign` | `work_item_id`, `quality_score` |
+| PLAN | `plan_quality_rejected_will_replan` | `b-side-reject` | `work_item_id`, `quality_score`, `reason`, `retry_count` |
+| PLAN | `plan_quality_routed_to_needs_replan_after_intrabatch_retries` | `b-side-reject` | `work_item_id`, `quality_score`, `retry_count` |
+| PLAN | `plan_quality_gate_fail_open` | `benign` | `work_item_id`, `reason` |
+| PLAN | `plan_quality_skipped_by_metadata` | `benign` | `work_item_id`, `reason` |
+| PLAN | `plan_quality_soft_threshold_crossed` | `benign` | `work_item_id`, `quality_score`, `threshold` |
+| PLAN | `resumed_plan_quality_rejected` | `b-side-reject` | `work_item_id`, `quality_score`, `reason` |
+| PLAN | `stale_generated_plan_cleared_before_replan` | `benign` | `work_item_id`, `plan_path` |
+| PLAN | `pre_written_plan_quality_rejected` | `b-side-reject` | `work_item_id`, `quality_score`, `reason` |
+| PLAN | `pre_written_plan_quality_rejected_before_execute` | `b-side-reject` | `work_item_id`, `quality_score`, `reason` |
+| EXECUTE | `plan_generation_deferred_project_active` | `benign` | `reason`, `plan_path`, `generation_task_id`, `blocking_work_item_id`, `task_status`, `work_item_id` |
+| EXECUTE | `plan_generation_retry_unusable_output` | `recovery-rule` (rule: `plan_generation_unusable_output`) | `work_item_id`, `provider` |
+| EXECUTE | `started_execution` | `benign` | `from_state`, `to_state`, `reason`, `batch_id`, `work_item_id` |
+| VERIFY | `entered_from_execute` | `benign` | `from_state`, `to_state`, `paused_at_stage`, `reason`, `batch_id` |
+| EXECUTE | `completed_execution` | `benign` | `work_item_id`, `task_count`, `execution_time_ms` |
+| EXECUTE | `execute_completed_after_no_op_retries` | `benign` | `work_item_id`, `retry_count` |
+| EXECUTE | `execute_completed_with_agent_self_commits` | `benign` | `work_item_id`, `commit_count` |
+| EXECUTE | `execute_deferred_paused` | `benign` | `work_item_id`, `plan_path`, `plan_task_number`, `remaining_plan_task_number`, `plan_task_title`, `project_status`, `next_state` |
+| EXECUTE | `execute_deferred_paused_stale_warning` | `benign` | `work_item_id`, `plan_task_number`, `deferred_at` |
+| EXECUTE | `execute_deferred_resumed` | `benign` | `work_item_id`, `plan_task_number`, `resumed_at` |
+| EXECUTE | `execute_deferred_worktree_reused` | `benign` | `factory_worktree_id`, `worktree_id`, `worktree_path`, `branch`, `batch_id` |
+| EXECUTE | `execute_exception` | `recovery-rule` (rule: `execute_exception_unclassified`) | `work_item_id`, `error` |
+| EXECUTE | `execute_wait_owner_completed` | `benign` | `owning_task_id`, `owning_status` |
+| EXECUTE | `execute_zero_diff_short_circuit` | `recovery-rule` (rule: `execute_zero_diff_short_circuit`) | `work_item_id`, `reason` |
+| EXECUTE | `execution_failed` | `recovery-rule` (rule: `execute_execution_failed`) | `work_item_id` |
+| EXECUTE | `intake_generation_meta_rejected` | `b-side-reject` | `title`, `reason` |
+| EXECUTE | `worktree_created` | `benign` | `factory_worktree_id`, `worktree_id`, `worktree_path`, `branch`, `batch_id` |
+| EXECUTE | `worktree_creation_failed` | `recovery-rule` (rule: `execute_worktree_creation_fs_lock`) | `work_item_id`, `error`, `reason` |
+| EXECUTE | `worktree_reclaimed` | `benign` | `work_item_id`, `factory_worktree_id`, `branch` |
+| EXECUTE | `worktree_reclaim_skipped_in_flight_same_wi` | `benign` | `work_item_id`, `factory_worktree_id` |
+| EXECUTE | `worktree_reclaim_skipped_live_owner` | `benign` | `work_item_id`, `factory_worktree_id`, `owning_task_id` |
+| EXECUTE | `auto_rejected_spin_loop` | `b-side-reject` | `starts_in_window`, `threshold`, `window_since`, `next_state` |
+| EXECUTE | `dry_run_task` | `benign` | `work_item_id`, `task_number`, `simulated`, `submitted_task_id`, `execution_mode` |
+| EXECUTE | `auto_commit_skipped_clean` | `recovery-rule` (rule: `execute_auto_commit_skipped_clean`) | `work_item_id` |
+| EXECUTE | `auto_commit_failed` | `recovery-rule` (rule: `auto_commit_failed`) | `work_item_id`, `error` |
+| EXECUTE | `auto_commit_rejected_off_scope` | `b-side-reject` | `work_item_id`, `off_scope_files` |
+| EXECUTE | `auto_committed_task` | `benign` | `work_item_id`, `commit_sha` |
+| VERIFY | `verified_batch` | `benign` | `work_item_id`, `batch_id`, `verification_result` |
+| VERIFY | `verify_failed` | `recovery-rule` (rule: `verify_failed`) | `work_item_id`, `error`, `retry_count` |
+| VERIFY | `verify_retry_submitted` | `benign` | `work_item_id`, `retry_count`, `feedback` |
+| VERIFY | `verify_passed_on_silent_rerun` | `benign` | `work_item_id`, `first_failure`, `rerun_result` |
+| VERIFY | `verify_reviewer_timeout_paused` | `recovery-rule` (rule: `verify_reviewer_timeout`) | `task_id`, `error` |
+| VERIFY | `verify_reviewed_ambiguous_paused` | `recovery-rule` (rule: `verify_reviewer_ambiguous`) | `work_item_id`, `confidence` |
+| VERIFY | `waiting_for_batch_tasks` | `recovery-rule` (rule: `verify_batch_tasks_not_terminal`) | `batch_id`, `task_count` |
+| VERIFY | `auto_rejected_verify_fail` | `b-side-reject` | `work_item_id`, `retry_count` |
+| VERIFY | `verify_empty_branch_routed_to_needs_replan` | `benign` | `work_item_id`, `reason` |
+| VERIFY | `verify_empty_branch_auto_shipped` | `terminal` | `work_item_id`, `reason` |
+| VERIFY | `verify_aborted_project_paused` | `benign` | `work_item_id`, `project_status` |
+| VERIFY | `verify_silent_rerun_started` | `benign` | `work_item_id`, `attempt` |
+| VERIFY | `verify_silent_rerun_failed` | `benign` | `work_item_id`, `error` |
+| VERIFY | `verify_rerun_same_failure` | `benign` | `work_item_id`, `failure_match` |
+| VERIFY | `verify_rerun_different_failure` | `benign` | `work_item_id`, `first_failure`, `second_failure` |
+| VERIFY | `verify_retry_branch_recreated_from_origin` | `benign` | `work_item_id`, `branch`, `retry_count` |
+| VERIFY | `verify_retry_worktree_recovered` | `benign` | `work_item_id`, `worktree_path`, `retry_count` |
+| VERIFY | `verify_retry_worktree_recovery_failed` | `recovery-rule` (rule: `verify_retry_worktree_recovery_failed`) | `work_item_id`, `error`, `retry_count` |
+| VERIFY | `auto_rejected_worktree_lost` | `b-side-reject` | `work_item_id`, `reason` |
+| VERIFY | `verify_retry_escalated_to_codex` | `benign` | `work_item_id`, `retry_count`, `provider` |
+| VERIFY | `verify_retry_submission_failed` | `benign` | `work_item_id`, `error`, `retry_count` |
+| VERIFY | `verify_retry_task_failed` | `recovery-rule` (rule: `verify_retry_task_failed`) | `work_item_id`, `task_id`, `error`, `retry_count` |
+| VERIFY | `verify_retry_task_completed` | `benign` | `work_item_id`, `task_id`, `retry_count` |
+| VERIFY | `verify_retry_suppressed_zero_diff` | `benign` | `work_item_id`, `reason` |
+| VERIFY | `verify_skipped_plan_already_satisfied` | `benign` | `work_item_id`, `reason` |
+| VERIFY | `verify_reviewer_fail_open` | `benign` | `work_item_id`, `reason` |
+| VERIFY | `branch_stale_detected` | `benign` | `work_item_id`, `branch`, `commits_behind` |
+| VERIFY | `branch_auto_rebased` | `benign` | `work_item_id`, `branch`, `commits_behind` |
+| VERIFY | `branch_stale_rebase_conflict` | `b-side-reject` | `work_item_id`, `branch`, `error` |
+| VERIFY | `branch_stale_detected_post_verify` | `benign` | `work_item_id`, `branch`, `commits_behind` |
+| VERIFY | `branch_auto_rebased_post_verify` | `benign` | `work_item_id`, `branch`, `commits_behind` |
+| VERIFY | `branch_stale_rebase_conflict_post_verify` | `b-side-reject` | `work_item_id`, `branch`, `error` |
+| VERIFY | `retry_off_scope` | `b-side-reject` | `off_scope_files`, `envelope` |
+| VERIFY | `retry_verify_requested` | `benign` | `work_item_id`, `retry_count` |
+| VERIFY | `skipped_verification` | `benign` | `work_item_id`, `reason` |
+| VERIFY | `worktree_verify_passed` | `benign` | `work_item_id`, `verify_output` |
+| VERIFY | `worktree_verify_failed` | `recovery-rule` (rule: `dotnet_sourcelink_file_lock`) | `work_item_id`, `output_preview`, `error` |
+| VERIFY | `worktree_verify_errored` | `recovery-rule` (rule: `worktree_verify_errored`) | `work_item_id`, `error` |
+| VERIFY | `auto_shipped_at_verify_fail` | `terminal` | `work_item_id`, `reason` |
+| VERIFY | `factory_verify_unrecoverable` | `terminal` | `work_item_id`, `error`, `reason` |
+| VERIFY | `factory_verify_auto_retry` | `benign` | `work_item_id`, `retry_count` |
+| VERIFY | `dep_resolver_no_adapter` | `benign` | `work_item_id`, `dep_type` |
+| VERIFY | `dep_resolver_pending_approval` | `benign` | `work_item_id`, `dep_type`, `dependency` |
+| VERIFY | `dep_resolver_disabled` | `benign` | `work_item_id`, `reason` |
+| VERIFY | `dep_resolver_cascade_exhausted` | `terminal` | `work_item_id`, `dep_type`, `attempts` |
+| VERIFY | `dep_resolver_detected` | `benign` | `work_item_id`, `dep_type`, `dependency` |
+| VERIFY | `dep_resolver_escalated` | `benign` | `work_item_id`, `dep_type`, `reason` |
+| VERIFY | `dep_resolver_escalation_retry` | `benign` | `work_item_id`, `dep_type`, `attempt` |
+| VERIFY | `dep_resolver_escalation_pause` | `benign` | `work_item_id`, `dep_type`, `reason` |
+| VERIFY | `dep_resolver_reverify_passed` | `benign` | `work_item_id`, `dep_type` |
+| LEARN | `learned` | `benign` | `feedback_id`, `summary` |
+| LEARN | `learn_failed` | `recovery-rule` (rule: `learn_failed`) | `batch_id`, `status`, `error` |
+| LEARN | `shipped_work_item` | `terminal` | `work_item_id`, `batch_id`, `merge_status`, `commit_sha` |
+| LEARN | `skipped_shipping` | `benign` | `work_item_id`, `work_item_status`, `reason`, `execution_action` |
+| LEARN | `already_closed` | `benign` | `work_item_id`, `work_item_status`, `reason` |
+| LEARN | `worktree_path_missing_abandoned` | `benign` | `work_item_id`, `worktree_path` |
+| LEARN | `auto_rejected_no_worktree` | `b-side-reject` | `work_item_id`, `reason` |
+| LEARN | `worktree_merged` | `terminal` | `work_item_id`, `branch`, `merge_sha`, `factory_worktree_id` |
+| LEARN | `worktree_merged_cleanup_failed` | `benign` | `work_item_id`, `branch`, `error` |
+| LEARN | `worktree_merge_failed` | `b-side-reject` | `work_item_id`, `error` |
+| LEARN | `auto_shipped_empty_branch` | `terminal` | `work_item_id`, `reason` |
+| LEARN | `empty_branch_routed_to_needs_replan` | `b-side-reject` | `work_item_id`, `reason` |
+| LEARN | `auto_quarantined_empty_merges` | `b-side-reject` | `work_item_id`, `reason` |
+| LEARN | `auto_resolved_stranded_needs_review_shipped` | `terminal` | `work_item_id`, `batch_id`, `merge_status` |
+| LEARN | `auto_resolved_stranded_needs_review_replan` | `b-side-reject` | `work_item_id`, `reason` |
+| ANY | `paused_at_gate` | `recovery-rule` (rule: `execute_worktree_creation_fs_lock`) | `from_state`, `to_state`, `gate_stage`, `reason`, `work_item_id` |
+| ANY | `gate_approved` | `benign` | `approved_stage`, `from_state`, `to_state` |
+| ANY | `closed_work_item_loop_stopped` | `benign` | `work_item_id`, `work_item_status`, `reject_reason` |
+| ANY | `auto_recovery_classified` | `engine` | `category`, `matched_rule`, `suggested_strategies` |
+| ANY | `auto_recovery_exhausted` | `engine` | `reason` |
+| ANY | `auto_recovery_rearmed` | `engine` | `reason` |
+| ANY | `auto_recovery_skipped_benign` | `engine` | `action` |
+| ANY | `auto_recovery_skipped_terminal` | `engine` | `action` |
+| ANY | `auto_recovery_strategy_failed` | `engine` | `strategy`, `error` |
+| ANY | `auto_recovery_strategy_selected` | `engine` | `strategy`, `classification` |
+| ANY | `auto_recovery_strategy_succeeded` | `engine` | `strategy`, `classification` |
+| ANY | `auto_recovery_unknown_action` | `engine` | `original_action`, `original_stage`, `outcome_keys`, `work_item_id`, `task_id`, `engine_decided_strategies` |
+<!-- END AUTOGEN: decision-actions-table -->
 
 **When adding a new decision action**: pair the emit site with a classifier rule. If the rule's strategy chain doesn't apply, at minimum add it to `isBenignFlowDecision` so recovery skips it. Pattern that keeps biting: a new action emitted with no matching rule routes to UNKNOWN → plain retry → re-spawn the same failing provider on the same task. Three of the five `recovery-decisions.md` conflicts were variations of this.
+
+---
+
+## Finding production drift
+
+The CI gate at `server/tests/factory-decision-actions-catalog.test.js` catches static-analysis-detectable drift — emit sites without catalog entries, catalog entries without classifier wiring, broken rule_id references. For dynamic action names and any change that landed without going through CI, the recovery engine emits `auto_recovery_unknown_action` whenever the classifier returns `matched_rule = null`. Query `factory_decisions` for these:
+
+```sql
+-- Anything that slipped past CI in the last 24h
+SELECT created_at,
+       json_extract(outcome, '$.original_action') AS original_action,
+       json_extract(outcome, '$.original_stage') AS original_stage
+FROM factory_decisions
+WHERE action = 'auto_recovery_unknown_action'
+  AND created_at > datetime('now', '-1 day')
+ORDER BY created_at DESC;
+
+-- Frequency by original_action — find the recurring offenders
+SELECT json_extract(outcome, '$.original_action') AS original_action,
+       COUNT(*) AS hits
+FROM factory_decisions
+WHERE action = 'auto_recovery_unknown_action'
+GROUP BY original_action
+ORDER BY hits DESC;
+```
+
+When you find a hit:
+
+1. Confirm the `original_action` is still emitted (`grep -rn "action: '<name>'" server/`).
+2. If the action is real and frequent: add it to `server/factory/decision-actions.js` with the appropriate classifier kind (see "When changing the loop" below).
+3. Pair the catalog entry with classifier wiring (rule, benign-skip, terminal, b-side-reject, or engine).
+4. The CI gate will pass once the catalog and wiring agree.
 
 ---
 
@@ -232,10 +374,20 @@ If you're adding a new state, transition, or decision action:
 
 1. **New state** — add to `LOOP_STATES` in `loop-states.js`. Decide whether it goes in `TRANSITIONS` (forward edge) or is a backward/parking edge (don't pollute the linear chain). Add to `APPROVAL_GATES` if it's gateable.
 2. **New transition** — add to `TRANSITIONS` if linear; otherwise document in this doc's transition table with the predicate. Make sure the source state's exit predicate covers your case.
-3. **New decision action** — emit via `safeLogDecision`. Decide which classifier path consumes it:
-   - Recovery action (retry, escalate, fallback) → add a rule in `server/plugins/auto-recovery-core/rules.js`. Use `recovery-decisions.md` conflict #4 stage-catalog as the checklist for paired emission + rule.
-   - Benign forward progress → add prefix/match to `isBenignFlowDecision` in `server/factory/auto-recovery/engine.js`.
-   - B-side reject reason → add pattern to `recovery-strategies/registry.js` (modify) or `rejected-recovery.js` (reopen) — see `recovery-decisions.md` conflict #5.
+3. **New decision action** — three-step contract:
+   1. Add an entry to `server/factory/decision-actions.js` (the canonical catalog) with `stage`, `classifier`, optional `rule_id`, and `outcome` keys. The five classifier kinds are: `benign`, `recovery-rule`, `b-side-reject`, `terminal`, `engine`.
+   2. Wire the classifier:
+      - `classifier: 'benign'` → add the action to `BENIGN_FLOW_ACTION_EXACT` or extend a prefix in `server/factory/auto-recovery/engine.js`.
+      - `classifier: 'recovery-rule'` → add a rule to `server/plugins/auto-recovery-core/rules.js` with the appropriate strategy chain. Set the catalog `rule_id` to match. Use `recovery-decisions.md` conflict #4 stage-catalog as the checklist.
+      - `classifier: 'b-side-reject'` → add a pattern in `server/factory/replan-recovery.js` or `rejected-recovery.js` — see `recovery-decisions.md` conflict #5.
+      - `classifier: 'terminal'` or `'engine'` → no further wiring; the catalog entry is the contract.
+   3. Emit at the call site via `safeLogDecision({ ..., action: 'X' })` (or `logDecision({...})` for engine-internal calls).
+
+   The CI gate at `server/tests/factory-decision-actions-catalog.test.js` will fail if any of the three steps is missing. The doc table above is auto-generated from the catalog; regenerate after adding entries:
+
+   ```
+   node server/factory/scripts/render-decision-actions-doc.js --write
+   ```
 4. **New pause variant** — pick an existing variant or add a new one. Document in the "Pause variants" table above. Cross-check with `approveGate` and `advanceLoop` to confirm the new variant's clear path is wired.
 5. **State machine drift check** — `tests/factory-loop.test.js` has assertions for `LOOP_STATES` and `TRANSITIONS` shape. Update them.
 
