@@ -681,8 +681,12 @@ function listWorktreeDirs(projectPath, worktreeDir = DEFAULT_WORKTREE_DIR) {
     logger.warn({ err, root }, 'readdir .worktrees failed');
     return { root, dirs: [] };
   }
+  // Exclude the quarantine dir — it's not a worktree, just where the
+  // reconciler parks pending deletes. Including it in dirs would make the
+  // early-return path (no real worktrees, but quarantine present) incorrectly
+  // route through the full scan loop and report scanned: 1.
   const dirs = entries
-    .filter((entry) => entry.isDirectory())
+    .filter((entry) => entry.isDirectory() && entry.name !== QUARANTINE_DIR_NAME)
     .map((entry) => path.join(root, entry.name));
   return { root, dirs };
 }

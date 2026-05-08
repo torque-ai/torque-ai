@@ -1268,6 +1268,15 @@ function ensureDeps() {
     if (!db) db = container.peek('db') || null;
     if (!dashboard) dashboard = container.peek('dashboard') || null;
     if (!logger) logger = container.peek('logger') || null;
+  }
+  // Fall back to the canonical logger when the container hasn't registered
+  // one (e.g. tests that drive initSubModules without a full container boot).
+  // logStallDetectionAudit unconditionally calls logger.info; without this,
+  // an unseeded container surfaces as "Cannot read properties of null".
+  if (!logger) {
+    try { logger = require('../logger'); } catch { /* logger module not available */ }
+  }
+  if (container) {
     if (!runningProcesses || !stallRecoveryAttempts) {
       const tracker = container.peek('processTracker');
       if (tracker) {

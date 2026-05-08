@@ -1249,11 +1249,24 @@ Object.assign(module.exports, {
       _closeHandlerState._resetForTest();
       isShuttingDown = false;
       skipGitInCloseHandler = false;
-      defaultContainer.get('taskStartup').setSkipGitInCloseHandler(false);
+      // Tests that exercise resetForTest() without booting the container
+      // (e.g. tests/reset-for-test.test.js) shouldn't crash here. peek()
+      // returns null pre-boot; only forward the flag when taskStartup is
+      // already instantiated.
+      const ts = defaultContainer.peek && defaultContainer.peek('taskStartup');
+      if (ts && typeof ts.setSkipGitInCloseHandler === 'function') {
+        ts.setSkipGitInCloseHandler(false);
+      }
     },
     waitForPendingHandlers,
     getDashboardBroadcaster,
-    set skipGitInCloseHandler(v) { skipGitInCloseHandler = v; defaultContainer.get('taskStartup').setSkipGitInCloseHandler(v); },
+    set skipGitInCloseHandler(v) {
+      skipGitInCloseHandler = v;
+      const ts = defaultContainer.peek && defaultContainer.peek('taskStartup');
+      if (ts && typeof ts.setSkipGitInCloseHandler === 'function') {
+        ts.setSkipGitInCloseHandler(v);
+      }
+    },
     get skipGitInCloseHandler() { return skipGitInCloseHandler; },
   },
   // Explicit initialization functions (previously module-level side effects)

@@ -33,6 +33,11 @@ describe('post-tool hooks', () => {
   beforeEach(() => {
     ({ testDir } = setupTestDb('post-tool-hooks'));
     postToolHooks.resetHooksForTest();
+    // Boot the container's submodules so handlePostCompletion can resolve
+    // 'completionPipeline' from the container — otherwise the wrapper at
+    // task-manager.js:193 throws "called before boot()".
+    if (typeof taskManager.initEarlyDeps === 'function') taskManager.initEarlyDeps();
+    if (typeof taskManager.initSubModules === 'function') taskManager.initSubModules();
     taskManager._testing.resetForTest();
   });
 

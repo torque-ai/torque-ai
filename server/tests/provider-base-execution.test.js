@@ -680,14 +680,17 @@ describe('providers/execution.js', () => {
     mod.init(deps);
 
     expect(apiMock.init).toHaveBeenCalledTimes(1);
-    expect(apiMock.init).toHaveBeenCalledWith({
+    // execution.init() forwards the full deps object to sub-modules; each
+    // sub-module's own init/ensureDeps picks the keys it needs. We assert
+    // the API-relevant subset is present and let extra keys pass through.
+    expect(apiMock.init).toHaveBeenCalledWith(expect.objectContaining({
       db: deps.db,
       dashboard: deps.dashboard,
       apiAbortControllers: deps.apiAbortControllers,
       handleWorkflowTermination: deps.handleWorkflowTermination,
       processQueue: deps.processQueue,
       recordTaskStartedAuditEvent: deps.recordTaskStartedAuditEvent,
-    });
+    }));
   });
 
   it('initializes execute-ollama with its orchestration dependencies', () => {
@@ -697,7 +700,7 @@ describe('providers/execution.js', () => {
     mod.init(deps);
 
     expect(ollamaMock.init).toHaveBeenCalledTimes(1);
-    expect(ollamaMock.init).toHaveBeenCalledWith({
+    expect(ollamaMock.init).toHaveBeenCalledWith(expect.objectContaining({
       db: deps.db,
       dashboard: deps.dashboard,
       safeUpdateTaskStatus: deps.safeUpdateTaskStatus,
@@ -707,7 +710,7 @@ describe('providers/execution.js', () => {
       isLargeModelBlockedOnHost: deps.isLargeModelBlockedOnHost,
       buildFileContext: deps.buildFileContext,
       processQueue: deps.processQueue,
-    });
+    }));
   });
 
   it('initializes execute-cli with process execution dependencies', () => {
@@ -717,7 +720,7 @@ describe('providers/execution.js', () => {
     mod.init(deps);
 
     expect(cliMock.init).toHaveBeenCalledTimes(1);
-    expect(cliMock.init).toHaveBeenCalledWith({
+    expect(cliMock.init).toHaveBeenCalledWith(expect.objectContaining({
       db: deps.db,
       dashboard: deps.dashboard,
       runningProcesses: deps.runningProcesses,
@@ -739,7 +742,7 @@ describe('providers/execution.js', () => {
       taskCleanupGuard: deps.taskCleanupGuard,
       finalizeTask: deps.finalizeTask,
       stallRecoveryAttempts: deps.stallRecoveryAttempts,
-    });
+    }));
   });
 
   it('passes through missing optional dependencies as undefined instead of throwing', () => {
