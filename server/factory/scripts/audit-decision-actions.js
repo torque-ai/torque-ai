@@ -119,6 +119,15 @@ function discoverClassifierRules(rootDir) {
 
   const text = fs.readFileSync(rulesFile, 'utf8');
 
+  // action_matchers stores Map<action, rule_id[]> — multiple rules matching the
+  // same action is a structural finding the audit tool should surface, not
+  // silently overwrite. Callers can len-check the array for collisions.
+  function recordMatcher(action, ruleId) {
+    const existing = action_matchers.get(action) || [];
+    if (!existing.includes(ruleId)) existing.push(ruleId);
+    action_matchers.set(action, existing);
+  }
+
   RULE_BLOCK_RE.lastIndex = 0;
   let bm;
   while ((bm = RULE_BLOCK_RE.exec(text)) !== null) {
@@ -130,7 +139,7 @@ function discoverClassifierRules(rootDir) {
     MATCH_FN_ACTION_RE.lastIndex = 0;
     let am;
     while ((am = MATCH_FN_ACTION_RE.exec(block)) !== null) {
-      action_matchers.set(am[1], ruleId);
+      recordMatcher(am[1], ruleId);
     }
 
     // Extract actions from object-style match: { action: 'foo' }
@@ -142,7 +151,7 @@ function discoverClassifierRules(rootDir) {
       MATCH_OBJ_ACTION_RE.lastIndex = 0;
       let ma;
       while ((ma = MATCH_OBJ_ACTION_RE.exec(mb[1])) !== null) {
-        action_matchers.set(ma[1], ruleId);
+        recordMatcher(ma[1], ruleId);
       }
     }
   }

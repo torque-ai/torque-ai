@@ -54,7 +54,7 @@ describe('discoverEmitSites', () => {
 });
 
 describe('discoverClassifierRules', () => {
-  it('extracts rule ids and action matchers from rules.js', () => {
+  it('extracts rule ids and function-style action matchers (decision.action === ...)', () => {
     const dir = makeFixtureDir({
       'server/plugins/auto-recovery-core/rules.js': `
         module.exports = [
@@ -74,8 +74,58 @@ describe('discoverClassifierRules', () => {
     const { rule_ids, action_matchers } = discoverClassifierRules(dir);
     expect(rule_ids.has('execute_zero_diff_short_circuit')).toBe(true);
     expect(rule_ids.has('phantom_completion_detected')).toBe(true);
-    expect(action_matchers.get('execute_zero_diff_short_circuit')).toBe('execute_zero_diff_short_circuit');
-    expect(action_matchers.get('phantom_completion_detected')).toBe('phantom_completion_detected');
+    expect(action_matchers.get('execute_zero_diff_short_circuit')).toContain('execute_zero_diff_short_circuit');
+    expect(action_matchers.get('phantom_completion_detected')).toContain('phantom_completion_detected');
+  });
+
+  it('extracts real-codebase shape: name + object-style match: { action: ... }', () => {
+    // Mirror the shape in server/plugins/auto-recovery-core/rules.js where
+    // most rules use `name:` instead of `id:` and object-form match blocks.
+    const dir = makeFixtureDir({
+      'server/plugins/auto-recovery-core/rules.js': `
+        module.exports = [
+          {
+            name: 'verify_fail_unclassified',
+            priority: 50,
+            match: { stage: 'verify', action: 'verify_failed' },
+            classify: () => ({ category: 'unknown' }),
+          },
+          {
+            name: 'execute_exception_unclassified',
+            priority: 60,
+            match: { stage: 'execute', action: 'execute_exception' },
+            classify: () => ({ category: 'unknown' }),
+          },
+        ];
+      `,
+    });
+    const { rule_ids, action_matchers } = discoverClassifierRules(dir);
+    expect(rule_ids.has('verify_fail_unclassified')).toBe(true);
+    expect(rule_ids.has('execute_exception_unclassified')).toBe(true);
+    expect(action_matchers.get('verify_failed')).toContain('verify_fail_unclassified');
+    expect(action_matchers.get('execute_exception')).toContain('execute_exception_unclassified');
+  });
+
+  it('records all rule_ids when multiple rules match the same action (collision surfacing)', () => {
+    const dir = makeFixtureDir({
+      'server/plugins/auto-recovery-core/rules.js': `
+        module.exports = [
+          {
+            name: 'first_rule_for_collision',
+            match: { action: 'collision_action' },
+          },
+          {
+            name: 'second_rule_for_collision',
+            match: { action: 'collision_action' },
+          },
+        ];
+      `,
+    });
+    const { action_matchers } = discoverClassifierRules(dir);
+    const matchers = action_matchers.get('collision_action');
+    expect(matchers).toContain('first_rule_for_collision');
+    expect(matchers).toContain('second_rule_for_collision');
+    expect(matchers.length).toBe(2);
   });
 });
 
