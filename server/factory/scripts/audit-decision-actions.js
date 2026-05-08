@@ -8,11 +8,18 @@ const SOURCE_GLOBS = [
   'server/plugins/auto-recovery-core',
 ];
 
-// Match logDecision({ ... action: 'X' ... }) and logDecision(db, { ... action: 'X' ... }).
-const EMIT_LITERAL_RE = /logDecision\s*\(\s*(?:[a-zA-Z_$][\w$]*\s*,\s*)?\{[^}]*\baction\s*:\s*['"]([\w-]+)['"]/g;
+// Match logDecision({ ... action: 'foo' ... }), logDecision(db, { ... action: 'foo' ... }),
+// and aliased forms like logDecisionFn(...) used in some emit sites. The \w*
+// suffix lets us catch `logDecisionFn` (loop-controller.js) without re-introducing
+// the `logDecision\s*\(` literal that triggered self-scan false positives.
+const EMIT_LITERAL_RE = /logDecision\w*\s*\(\s*(?:[a-zA-Z_$][\w$]*\s*,\s*)?\{[^}]*\baction\s*:\s*['"]([\w-]+)['"]/g;
 
-// Match logDecision call where action: is followed by a non-string-literal expression.
-const EMIT_DYNAMIC_RE = /logDecision\s*\(\s*(?:[a-zA-Z_$][\w$]*\s*,\s*)?\{[^}]*\baction\s*:\s*(?!['"])([^,}\n]+)/g;
+// Match logDecision*(...) calls where action: is followed by a non-string-literal expression.
+const EMIT_DYNAMIC_RE = /logDecision\w*\s*\(\s*(?:[a-zA-Z_$][\w$]*\s*,\s*)?\{[^}]*\baction\s*:\s*(?!['"])([^,}\n]+)/g;
+
+// Audit script's own filename — exclude from self-scan so doc-comment examples
+// don't get parsed as real emit sites.
+const SELF_FILENAME = 'audit-decision-actions.js';
 
 function* walkJsFiles(rootDir) {
   const stack = [rootDir];
@@ -29,7 +36,12 @@ function* walkJsFiles(rootDir) {
       if (ent.isDirectory()) {
         if (ent.name === 'node_modules' || ent.name.startsWith('.')) continue;
         stack.push(abs);
-      } else if (ent.isFile() && ent.name.endsWith('.js') && !ent.name.endsWith('.test.js')) {
+      } else if (
+        ent.isFile()
+        && ent.name.endsWith('.js')
+        && !ent.name.endsWith('.test.js')
+        && ent.name !== SELF_FILENAME
+      ) {
         yield abs;
       }
     }

@@ -1,8 +1,8 @@
-import { describe, it, expect } from 'vitest';
-import path from 'node:path';
-import fs from 'node:fs';
-import os from 'node:os';
+'use strict';
 
+const path = require('node:path');
+const fs = require('node:fs');
+const os = require('node:os');
 const { discoverEmitSites } = require('../factory/scripts/audit-decision-actions');
 
 function makeFixtureDir(files) {
