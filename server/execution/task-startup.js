@@ -1336,7 +1336,12 @@ function applyRunDirectoryState({
   const rewrittenDescription = typeof task.task_description === 'string'
     ? task.task_description.replace(/\$run_dir/g, runDir)
     : task.task_description;
+  // Spread previousMetadata first so slot-claim enrichments (last_provider_switch,
+  // provider_switch_history, requested_provider) survive — taskMetadata is the
+  // pre-claim in-memory copy and won't have them. Caller-set taskMetadata still
+  // wins on overlapping keys.
   const nextMetadata = {
+    ...previousMetadata,
     ...taskMetadata,
     run_dir: runDir,
     transcript_path: transcriptLog.filePath,

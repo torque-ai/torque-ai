@@ -98,7 +98,15 @@ function scheduleWorkflowBundleBuild(workflowId) {
  * createWorkflowRuntime(localDeps) inside the container factory.
  */
 function init(deps) {
-  if (deps.db) db = deps.db;
+  if (deps.db) {
+    db = deps.db;
+    // Forward the injected db handle to the config module so its lazy
+    // accessors don't fall back to a direct database-module import and
+    // break the execution-database import boundary. Verified by
+    // tests/execution-database-boundary.test.js.
+    try { require('../config').init({ db: deps.db }); }
+    catch { /* config module not loadable in this context */ }
+  }
   if (deps.startTask) _startTask = deps.startTask;
   if (deps.cancelTask) _cancelTask = deps.cancelTask;
   if (deps.processQueue) _processQueue = deps.processQueue;
