@@ -609,8 +609,10 @@ describe('Orphan Cleanup', () => {
     // re-adopt their detached subprocess. The zombie sweep must not kill
     // those PIDs first, or it defeats re-adoption — every cutover would
     // resurrect the wave of cancellations the abandon path was meant to
-    // eliminate.
-    it("skips kills for cancel_reason='server_restart' rows (re-adoption contract)", async () => {
+    // eliminate. The skip is now bounded by a re-adoption grace window
+    // (TORQUE_SERVER_RESTART_REAP_GRACE_MS) — a row whose completed_at is
+    // recent stays in the protected window.
+    it("skips kills for fresh cancel_reason='server_restart' rows (re-adoption contract)", async () => {
       const runningProcesses = new Map();
       const killOrphanByPid = vi.fn();
       const getProcessCommandLine = vi.fn().mockResolvedValue('node server/utils/process-exit-wrapper.js');
@@ -631,6 +633,7 @@ describe('Orphan Cleanup', () => {
               provider: 'codex',
               subprocess_pid: 45678,
               cancel_reason: 'server_restart',
+              completed_at: new Date(Date.now() - 60 * 1000).toISOString(),
             },
           ]),
         },
@@ -654,6 +657,110 @@ describe('Orphan Cleanup', () => {
       expect(killOrphanByPid).not.toHaveBeenCalled();
       expect(getProcessCommandLine).not.toHaveBeenCalled();
       expect(logger.info).not.toHaveBeenCalledWith(expect.stringContaining("Terminal task restart-abandoned"));
+    });
+
+    // Regression: the unbounded skip used to leak wrappers forever — once
+    // re-adoption failed, the row sat with cancel_reason='server_restart'
+    // and the wrapper PID was never reaped. Re-adoption is an episodic
+    // startup event; once the grace expires the wrapper has no remaining
+    // owner and must be cleaned up.
+    it("kills cancel_reason='server_restart' rows past the re-adoption grace window", async () => {
+      const runningProcesses = new Map();
+      const killOrphanByPid = vi.fn();
+      const getProcessCommandLine = vi.fn().mockResolvedValue('node server/utils/process-exit-wrapper.js');
+      const logger = { info: vi.fn(), warn: vi.fn() };
+
+      vi.spyOn(process, 'kill').mockImplementation(() => {});
+
+      orphanCleanup.init({
+        db: {
+          getConfig: vi.fn().mockReturnValue('0'),
+          getTask: vi.fn(),
+          reconcileHostTaskCounts: vi.fn(),
+          getRunningTasksLightweight: vi.fn().mockReturnValue([]),
+          getTerminalTaskProcessCandidates: vi.fn().mockReturnValue([
+            {
+              id: 'restart-leaked',
+              status: 'cancelled',
+              provider: 'codex',
+              subprocess_pid: 45678,
+              cancel_reason: 'server_restart',
+              // 2 hours ago — well past the 15-min default grace.
+              completed_at: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
+            },
+          ]),
+        },
+        dashboard: { notifyTaskUpdated: vi.fn() },
+        logger,
+        runningProcesses,
+        stallRecoveryAttempts: new Map(),
+        TASK_TIMEOUTS: { PROCESS_QUERY: 5000 },
+        cancelTask: vi.fn(),
+        processQueue: vi.fn(),
+        tryLocalFirstFallback: vi.fn(),
+        getTaskActivity: vi.fn(),
+        tryStallRecovery: vi.fn(),
+        safeConfigInt: vi.fn(),
+        killOrphanByPid,
+        getProcessCommandLine,
+      });
+
+      await orphanCleanup.checkZombieProcesses();
+
+      expect(getProcessCommandLine).toHaveBeenCalledWith(45678);
+      expect(killOrphanByPid).toHaveBeenCalledWith(45678, 'restart-leaked', 5000, 'ZombieCheck');
+      expect(logger.info).toHaveBeenCalledWith(expect.stringContaining("cancel_reason='server_restart'"));
+    });
+
+    // The operator-invoked abandon mode (cancellation-cleanup.md "Abandon
+    // mode contract") is a deliberate "TORQUE walks away" — the operator
+    // owns subsequent monitoring of the PID. The zombie sweep must never
+    // touch these rows, regardless of age.
+    it("never kills cancel_reason='abandon' rows (operator-owned contract)", async () => {
+      const runningProcesses = new Map();
+      const killOrphanByPid = vi.fn();
+      const getProcessCommandLine = vi.fn().mockResolvedValue('node server/utils/process-exit-wrapper.js');
+      const logger = { info: vi.fn(), warn: vi.fn() };
+
+      vi.spyOn(process, 'kill').mockImplementation(() => {});
+
+      orphanCleanup.init({
+        db: {
+          getConfig: vi.fn().mockReturnValue('0'),
+          getTask: vi.fn(),
+          reconcileHostTaskCounts: vi.fn(),
+          getRunningTasksLightweight: vi.fn().mockReturnValue([]),
+          getTerminalTaskProcessCandidates: vi.fn().mockReturnValue([
+            {
+              id: 'operator-abandoned',
+              status: 'cancelled',
+              provider: 'codex',
+              subprocess_pid: 45678,
+              cancel_reason: 'abandon',
+              // Even ancient: operator still owns this PID.
+              completed_at: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(),
+            },
+          ]),
+        },
+        dashboard: { notifyTaskUpdated: vi.fn() },
+        logger,
+        runningProcesses,
+        stallRecoveryAttempts: new Map(),
+        TASK_TIMEOUTS: { PROCESS_QUERY: 5000 },
+        cancelTask: vi.fn(),
+        processQueue: vi.fn(),
+        tryLocalFirstFallback: vi.fn(),
+        getTaskActivity: vi.fn(),
+        tryStallRecovery: vi.fn(),
+        safeConfigInt: vi.fn(),
+        killOrphanByPid,
+        getProcessCommandLine,
+      });
+
+      await orphanCleanup.checkZombieProcesses();
+
+      expect(killOrphanByPid).not.toHaveBeenCalled();
+      expect(getProcessCommandLine).not.toHaveBeenCalled();
     });
 
     it('emits successful close for completed Codex output that outlives completion grace', async () => {
