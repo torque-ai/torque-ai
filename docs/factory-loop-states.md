@@ -299,6 +299,38 @@ Frequently-emitted actions, by stage:
 
 ---
 
+## Finding production drift
+
+The CI gate at `server/tests/factory-decision-actions-catalog.test.js` catches static-analysis-detectable drift — emit sites without catalog entries, catalog entries without classifier wiring, broken rule_id references. For dynamic action names and any change that landed without going through CI, the recovery engine emits `auto_recovery_unknown_action` whenever the classifier returns `matched_rule = null`. Query `factory_decisions` for these:
+
+```sql
+-- Anything that slipped past CI in the last 24h
+SELECT created_at,
+       json_extract(outcome, '$.original_action') AS original_action,
+       json_extract(outcome, '$.original_stage') AS original_stage
+FROM factory_decisions
+WHERE action = 'auto_recovery_unknown_action'
+  AND created_at > datetime('now', '-1 day')
+ORDER BY created_at DESC;
+
+-- Frequency by original_action — find the recurring offenders
+SELECT json_extract(outcome, '$.original_action') AS original_action,
+       COUNT(*) AS hits
+FROM factory_decisions
+WHERE action = 'auto_recovery_unknown_action'
+GROUP BY original_action
+ORDER BY hits DESC;
+```
+
+When you find a hit:
+
+1. Confirm the `original_action` is still emitted (`grep -rn "action: '<name>'" server/`).
+2. If the action is real and frequent: add it to `server/factory/decision-actions.js` with the appropriate classifier kind (see "When changing the loop" below).
+3. Pair the catalog entry with classifier wiring (rule, benign-skip, terminal, b-side-reject, or engine).
+4. The CI gate will pass once the catalog and wiring agree.
+
+---
+
 ## Open questions / known risks
 
 These are real ambiguities the audit surfaced. Each is worth addressing the next time their area comes up.
@@ -342,10 +374,20 @@ If you're adding a new state, transition, or decision action:
 
 1. **New state** — add to `LOOP_STATES` in `loop-states.js`. Decide whether it goes in `TRANSITIONS` (forward edge) or is a backward/parking edge (don't pollute the linear chain). Add to `APPROVAL_GATES` if it's gateable.
 2. **New transition** — add to `TRANSITIONS` if linear; otherwise document in this doc's transition table with the predicate. Make sure the source state's exit predicate covers your case.
-3. **New decision action** — emit via `safeLogDecision`. Decide which classifier path consumes it:
-   - Recovery action (retry, escalate, fallback) → add a rule in `server/plugins/auto-recovery-core/rules.js`. Use `recovery-decisions.md` conflict #4 stage-catalog as the checklist for paired emission + rule.
-   - Benign forward progress → add prefix/match to `isBenignFlowDecision` in `server/factory/auto-recovery/engine.js`.
-   - B-side reject reason → add pattern to `recovery-strategies/registry.js` (modify) or `rejected-recovery.js` (reopen) — see `recovery-decisions.md` conflict #5.
+3. **New decision action** — three-step contract:
+   1. Add an entry to `server/factory/decision-actions.js` (the canonical catalog) with `stage`, `classifier`, optional `rule_id`, and `outcome` keys. The five classifier kinds are: `benign`, `recovery-rule`, `b-side-reject`, `terminal`, `engine`.
+   2. Wire the classifier:
+      - `classifier: 'benign'` → add the action to `BENIGN_FLOW_ACTION_EXACT` or extend a prefix in `server/factory/auto-recovery/engine.js`.
+      - `classifier: 'recovery-rule'` → add a rule to `server/plugins/auto-recovery-core/rules.js` with the appropriate strategy chain. Set the catalog `rule_id` to match. Use `recovery-decisions.md` conflict #4 stage-catalog as the checklist.
+      - `classifier: 'b-side-reject'` → add a pattern in `server/factory/replan-recovery.js` or `rejected-recovery.js` — see `recovery-decisions.md` conflict #5.
+      - `classifier: 'terminal'` or `'engine'` → no further wiring; the catalog entry is the contract.
+   3. Emit at the call site via `safeLogDecision({ ..., action: 'X' })` (or `logDecision({...})` for engine-internal calls).
+
+   The CI gate at `server/tests/factory-decision-actions-catalog.test.js` will fail if any of the three steps is missing. The doc table above is auto-generated from the catalog; regenerate after adding entries:
+
+   ```
+   node server/factory/scripts/render-decision-actions-doc.js --write
+   ```
 4. **New pause variant** — pick an existing variant or add a new one. Document in the "Pause variants" table above. Cross-check with `approveGate` and `advanceLoop` to confirm the new variant's clear path is wired.
 5. **State machine drift check** — `tests/factory-loop.test.js` has assertions for `LOOP_STATES` and `TRANSITIONS` shape. Update them.
 
