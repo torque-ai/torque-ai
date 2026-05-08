@@ -3,7 +3,12 @@
 const path = require('node:path');
 const fs = require('node:fs');
 const os = require('node:os');
-const { discoverEmitSites, discoverClassifierRules, discoverBenignPatterns } = require('../factory/scripts/audit-decision-actions');
+const {
+  discoverEmitSites,
+  discoverClassifierRules,
+  discoverBenignPatterns,
+  runDecisionActionsAudit,
+} = require('../factory/scripts/audit-decision-actions');
 
 function makeFixtureDir(files) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'audit-decisions-'));
@@ -151,8 +156,6 @@ describe('discoverBenignPatterns', () => {
   });
 });
 
-const { runDecisionActionsAudit } = require('../factory/scripts/audit-decision-actions');
-
 describe('runDecisionActionsAudit', () => {
   it('reports emitted_not_in_catalog when emit site uses an action not in the catalog', () => {
     const dir = makeFixtureDir({
@@ -230,5 +233,39 @@ describe('runDecisionActionsAudit', () => {
     expect(report.rule_id_mismatch).toEqual([]);
     expect(report.catalog_not_emitted).toEqual([]);
     expect(report.hasGaps).toBe(false);
+  });
+
+  it('reports rule_id_mismatch with null when recovery-rule catalog entry has no rule_id (catalog malformation)', () => {
+    const dir = makeFixtureDir({
+      'server/factory/foo.js': `logDecision({ action: 'malformed', outcome: {} });`,
+      'server/plugins/auto-recovery-core/rules.js': `module.exports = [];`,
+      'server/factory/auto-recovery/engine.js': `
+        const BENIGN_FLOW_ACTION_EXACT = new Set([]);
+        const BENIGN_FLOW_ACTION_PREFIXES = [];
+      `,
+    });
+    // recovery-rule classifier without rule_id is a catalog typo/omission;
+    // surface it explicitly rather than skipping silently.
+    const catalog = { malformed: { stage: 'EXECUTE', classifier: 'recovery-rule' } };
+    const report = runDecisionActionsAudit({ rootDir: dir, catalog });
+    expect(report.rule_id_mismatch).toEqual([
+      expect.objectContaining({ action: 'malformed', catalog_rule_id: null }),
+    ]);
+    expect(report.hasGaps).toBe(true);
+  });
+
+  it('flags emitted_no_classifier when classifier kind is unknown (typo / future kind)', () => {
+    const dir = makeFixtureDir({
+      'server/factory/foo.js': `logDecision({ action: 'typo_kind_action', outcome: {} });`,
+      'server/plugins/auto-recovery-core/rules.js': `module.exports = [];`,
+      'server/factory/auto-recovery/engine.js': `
+        const BENIGN_FLOW_ACTION_EXACT = new Set([]);
+        const BENIGN_FLOW_ACTION_PREFIXES = [];
+      `,
+    });
+    const catalog = { typo_kind_action: { stage: 'EXECUTE', classifier: 'foobar' } };
+    const report = runDecisionActionsAudit({ rootDir: dir, catalog });
+    expect(report.emitted_no_classifier).toContain('typo_kind_action');
+    expect(report.hasGaps).toBe(true);
   });
 });

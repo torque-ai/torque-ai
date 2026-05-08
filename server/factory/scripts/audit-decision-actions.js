@@ -234,10 +234,15 @@ function runDecisionActionsAudit({ rootDir, catalog }) {
   }
 
   for (const [action, entry] of Object.entries(catalog)) {
-    if (entry.classifier === 'recovery-rule' && entry.rule_id) {
-      if (!classifier_rules.rule_ids.has(entry.rule_id)) {
-        rule_id_mismatch.push({ action, catalog_rule_id: entry.rule_id });
-      }
+    if (entry.classifier !== 'recovery-rule') continue;
+    if (!entry.rule_id) {
+      // Catalog malformation: recovery-rule entry must declare rule_id.
+      // Surface as a mismatch with explicit null rather than skipping silently.
+      rule_id_mismatch.push({ action, catalog_rule_id: null });
+      continue;
+    }
+    if (!classifier_rules.rule_ids.has(entry.rule_id)) {
+      rule_id_mismatch.push({ action, catalog_rule_id: entry.rule_id });
     }
   }
 
