@@ -28,6 +28,13 @@ function installCjsModuleMock(modulePath, exportsValue) {
   };
 }
 
+// Force the legacy pipe path so tests can spy on
+// processLifecycle.spawnAndTrackProcess. The detached path (default-on as of
+// Phase G of the subprocess-detachment arc) routes claude-cli/codex through
+// execute-cli.spawnAndTrackProcessDetached, bypassing the spy.
+const _origDetachEnv = process.env.TORQUE_DETACHED_SUBPROCESSES;
+process.env.TORQUE_DETACHED_SUBPROCESSES = '0';
+
 function setup() {
   ctx = setupE2eDb('starttask-helpers');
   db = ctx.db;

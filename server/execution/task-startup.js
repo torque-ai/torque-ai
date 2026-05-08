@@ -1638,7 +1638,15 @@ async function constructStartupCommand({
 
 function spawnStartupProcess(taskId, task, startupCommand) {
   const { mode: _mode, ...spawnConfig } = startupCommand;
-  return spawnAndTrackProcess(taskId, task, spawnConfig);
+  // Look up the spawn fn fresh from process-lifecycle at call time rather
+  // than the init-captured ref. Production behavior is unchanged (the
+  // captured ref equals processLifecycle.spawnAndTrackProcess by construction);
+  // the dynamic lookup makes vi.spyOn(processLifecycle, 'spawnAndTrackProcess')
+  // installed AFTER init() take effect, which the slot-enforcement and
+  // safeguard tests rely on.
+  const fresh = require('./process-lifecycle').spawnAndTrackProcess;
+  const fn = fresh || spawnAndTrackProcess;
+  return fn(taskId, task, spawnConfig);
 }
 
 function releaseDirectProviderLocksAfterCompletion(resultOrPromise, startupResources) {
