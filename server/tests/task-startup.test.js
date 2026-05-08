@@ -12,6 +12,15 @@ function installCjsModuleMock(modulePath, exportsValue) {
   };
 }
 
+function installProcessLifecycleSpawnMock(spawnAndTrackProcess) {
+  const processLifecyclePath = require.resolve('../execution/process-lifecycle.js');
+  const savedProcessLifecycle = require.cache[processLifecyclePath];
+  installCjsModuleMock('../execution/process-lifecycle.js', {
+    ...(savedProcessLifecycle?.exports || {}),
+    spawnAndTrackProcess,
+  });
+}
+
 function createTask(overrides = {}) {
   return {
     id: 'task-1',
@@ -204,9 +213,16 @@ function loadTaskStartup(options = {}) {
   installCjsModuleMock('../utils/git', gitMock);
   installCjsModuleMock('../container', containerMock);
 
+  const mockSpawnAndTrackProcess = options.depOverrides?.spawnAndTrackProcess
+    || vi.fn(() => ({ queued: false, started: true }));
+  installProcessLifecycleSpawnMock(mockSpawnAndTrackProcess);
+
   delete require.cache[MODULE_PATH];
   const taskStartup = require('../execution/task-startup.js');
   const { deps, tasks } = createDeps(options);
+  if (!options.depOverrides?.spawnAndTrackProcess) {
+    deps.spawnAndTrackProcess = mockSpawnAndTrackProcess;
+  }
   taskStartup.init(deps);
 
   return {
@@ -270,6 +286,7 @@ describe('task-startup', () => {
     });
     const task = createTask({ id: 'factory-task' });
     const { deps } = createDeps({ task });
+    installProcessLifecycleSpawnMock(deps.spawnAndTrackProcess);
     const startup = ctx.module.createTaskStartup(deps);
 
     const result = await startup.startTask(task.id);
@@ -294,6 +311,7 @@ describe('task-startup', () => {
     });
     const task = createTask({ id: 'attempt-task' });
     const { deps } = createDeps({ task });
+    installProcessLifecycleSpawnMock(deps.spawnAndTrackProcess);
     const startup = ctx.module.createTaskStartup(deps);
 
     const result = startup.attemptTaskStart(task.id, 'codex');
