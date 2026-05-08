@@ -99,7 +99,89 @@ function discoverEmitSites(rootDir, sourceGlobs = SOURCE_GLOBS) {
   return { literal_emissions, dynamic_action_sites };
 }
 
+// Matches both `id: 'rule_name'` (fixture shape) and `name: 'rule_name'` (real shape).
+// The block extends until the next id/name key or end of string.
+const RULE_BLOCK_RE = /\b(?:id|name)\s*:\s*['"]([\w-]+)['"][\s\S]*?(?=\b(?:id|name)\s*:\s*['"]|$)/g;
+
+// Matches function-style action checks: decision.action === 'foo' or d.action === 'foo'
+const MATCH_FN_ACTION_RE = /\.\baction\s*===\s*['"]([\w-]+)['"]/g;
+// Matches object-style action field: action: 'foo' (inside a match: { ... } block)
+const MATCH_OBJ_ACTION_RE = /\baction\s*:\s*['"]([\w-]+)['"]/g;
+
+function discoverClassifierRules(rootDir) {
+  const rule_ids = new Set();
+  const action_matchers = new Map();
+
+  const rulesFile = path.join(rootDir, 'server/plugins/auto-recovery-core/rules.js');
+  if (!fs.existsSync(rulesFile)) {
+    return { rule_ids, action_matchers };
+  }
+
+  const text = fs.readFileSync(rulesFile, 'utf8');
+
+  RULE_BLOCK_RE.lastIndex = 0;
+  let bm;
+  while ((bm = RULE_BLOCK_RE.exec(text)) !== null) {
+    const ruleId = bm[1];
+    rule_ids.add(ruleId);
+    const block = bm[0];
+
+    // Extract actions from function-style match: decision.action === 'foo'
+    MATCH_FN_ACTION_RE.lastIndex = 0;
+    let am;
+    while ((am = MATCH_FN_ACTION_RE.exec(block)) !== null) {
+      action_matchers.set(am[1], ruleId);
+    }
+
+    // Extract actions from object-style match: { action: 'foo' }
+    // Only scan within the match/match_fn block to avoid picking up the rule name itself
+    const matchBlockRe = /\bmatch(?:_fn)?\s*:\s*\{([^}]*)\}/g;
+    matchBlockRe.lastIndex = 0;
+    let mb;
+    while ((mb = matchBlockRe.exec(block)) !== null) {
+      MATCH_OBJ_ACTION_RE.lastIndex = 0;
+      let ma;
+      while ((ma = MATCH_OBJ_ACTION_RE.exec(mb[1])) !== null) {
+        action_matchers.set(ma[1], ruleId);
+      }
+    }
+  }
+
+  return { rule_ids, action_matchers };
+}
+
+const BENIGN_EXACT_BLOCK_RE = /BENIGN_FLOW_ACTION_EXACT\s*=\s*new\s+Set\s*\(\s*\[([^\]]*)\]/;
+const BENIGN_PREFIX_BLOCK_RE = /BENIGN_FLOW_ACTION_PREFIXES\s*=\s*\[([^\]]*)\]/;
+
+function discoverBenignPatterns(rootDir) {
+  const exact = new Set();
+  const prefixes = new Set();
+
+  const engineFile = path.join(rootDir, 'server/factory/auto-recovery/engine.js');
+  if (!fs.existsSync(engineFile)) {
+    return { exact, prefixes };
+  }
+
+  const text = fs.readFileSync(engineFile, 'utf8');
+
+  const exactMatch = text.match(BENIGN_EXACT_BLOCK_RE);
+  if (exactMatch) {
+    const items = exactMatch[1].matchAll(/['"]([\w-]+)['"]/g);
+    for (const m of items) exact.add(m[1]);
+  }
+
+  const prefixMatch = text.match(BENIGN_PREFIX_BLOCK_RE);
+  if (prefixMatch) {
+    const items = prefixMatch[1].matchAll(/['"]([\w-]+)['"]/g);
+    for (const m of items) prefixes.add(m[1]);
+  }
+
+  return { exact, prefixes };
+}
+
 module.exports = {
   discoverEmitSites,
+  discoverClassifierRules,
+  discoverBenignPatterns,
   __internals: { walkJsFiles, fileLineFromIndex },
 };
