@@ -1,6 +1,6 @@
 'use strict';
 const path = require('path');
-const { validatePlugin } = require('./plugin-contract');
+const { validatePlugin, formatValidationErrors } = require('./plugin-contract');
 
 const DEFAULT_PLUGIN_DIR = __dirname;
 const AUTH_MODE_PLUGIN_MAP = { enterprise: 'auth' };
@@ -55,7 +55,11 @@ function loadPlugins(options = {}) {
       const instance = createPluginInstance(mod);
       const validation = validatePlugin(instance);
       if (!validation.valid) {
-        safeLog(logger, 'warn', `[plugin-loader] Plugin "${name}" failed validation: ${validation.errors.join(', ')}`);
+        // plugin-contract.md #10 — validation.errors is now a structured
+        // object array; format for log via formatValidationErrors. Legacy
+        // string-array consumers (none today, but keep robust) still work
+        // since the formatter accepts either.
+        safeLog(logger, 'warn', `[plugin-loader] Plugin "${name}" failed validation: ${formatValidationErrors(validation.errors)}`);
         continue;
       }
 

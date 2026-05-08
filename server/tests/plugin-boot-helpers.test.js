@@ -8,6 +8,9 @@ const {
   getAllClassifierRules,
   getAllRecoveryStrategies,
   validatePluginConfigSchemas,
+  uninstallAllPlugins,
+  aggregatePluginHealth,
+  applyPluginMigrations,
 } = require('../plugins/boot-helpers');
 
 // ── plugin-contract.md #12: TORQUE_EXTRA_PLUGINS parser ──────────────
@@ -448,5 +451,314 @@ describe('validatePluginConfigSchemas', () => {
     );
     expect(warnings).toHaveLength(1);
     expect(warnings[0].missing).toEqual(['a', 'c']);
+  });
+});
+
+// ── plugin-contract.md #8: uninstall path on shutdown ──────────────────
+describe('uninstallAllPlugins', () => {
+  function makeLogger() {
+    const lines = { info: [], warn: [] };
+    return {
+      logger: { info: (m) => lines.info.push(m), warn: (m) => lines.warn.push(m) },
+      lines,
+    };
+  }
+
+  it('calls uninstall() on each plugin in reverse load order', () => {
+    const order = [];
+    const plugins = [
+      { name: 'a', uninstall: () => order.push('a') },
+      { name: 'b', uninstall: () => order.push('b') },
+      { name: 'c', uninstall: () => order.push('c') },
+    ];
+    const { logger } = makeLogger();
+    const { uninstalled, failures } = uninstallAllPlugins(plugins, logger);
+    // Reverse order: dependents tear down before dependencies
+    expect(order).toEqual(['c', 'b', 'a']);
+    expect(uninstalled).toEqual(['c', 'b', 'a']);
+    expect(failures).toEqual([]);
+  });
+
+  it('skips plugins without uninstall()', () => {
+    const order = [];
+    const plugins = [
+      { name: 'has-uninstall', uninstall: () => order.push('has') },
+      { name: 'no-uninstall' },
+    ];
+    const { logger } = makeLogger();
+    const { uninstalled, failures } = uninstallAllPlugins(plugins, logger);
+    expect(order).toEqual(['has']);
+    expect(uninstalled).toEqual(['has']);
+    expect(failures).toEqual([]);
+  });
+
+  it('continues with other plugins when one uninstall throws', () => {
+    const order = [];
+    const plugins = [
+      { name: 'good-1', uninstall: () => order.push('good-1') },
+      { name: 'broken', uninstall: () => { throw new Error('boom'); } },
+      { name: 'good-2', uninstall: () => order.push('good-2') },
+    ];
+    const { logger, lines } = makeLogger();
+    const { uninstalled, failures } = uninstallAllPlugins(plugins, logger);
+    expect(order).toEqual(['good-2', 'good-1']);
+    expect(uninstalled).toEqual(['good-2', 'good-1']);
+    expect(failures).toHaveLength(1);
+    expect(failures[0]).toEqual({ name: 'broken', error: 'boom' });
+    expect(lines.warn.some((m) => m.includes('Plugin uninstall FAILED: broken'))).toBe(true);
+  });
+});
+
+// ── plugin-contract.md #9: aggregatePluginHealth ───────────────────────
+describe('aggregatePluginHealth', () => {
+  it('returns ok overall when all plugins report ok', () => {
+    const plugins = [
+      { name: 'a', health: () => ({ status: 'ok' }) },
+      { name: 'b', health: () => ({ status: 'ok', details: 'all good' }) },
+    ];
+    const result = aggregatePluginHealth(plugins);
+    expect(result.overall).toBe('ok');
+    expect(result.perPlugin).toEqual([
+      { plugin: 'a', status: 'ok', details: null },
+      { plugin: 'b', status: 'ok', details: 'all good' },
+    ]);
+  });
+
+  it('downgrades overall to worst-case across reporting plugins', () => {
+    const plugins = [
+      { name: 'a', health: () => ({ status: 'ok' }) },
+      { name: 'b', health: () => ({ status: 'degraded' }) },
+      { name: 'c', health: () => ({ status: 'down', details: 'crashed' }) },
+    ];
+    const result = aggregatePluginHealth(plugins);
+    expect(result.overall).toBe('down');
+  });
+
+  it('skips plugins without health() (no contribution to overall)', () => {
+    const plugins = [
+      { name: 'a' }, // no health
+      { name: 'b', health: () => ({ status: 'ok' }) },
+    ];
+    const result = aggregatePluginHealth(plugins);
+    expect(result.overall).toBe('ok');
+    expect(result.perPlugin).toHaveLength(1);
+    expect(result.perPlugin[0].plugin).toBe('b');
+  });
+
+  it('treats throwing health() as unknown', () => {
+    const plugins = [
+      { name: 'broken', health: () => { throw new Error('boom'); } },
+    ];
+    const result = aggregatePluginHealth(plugins);
+    expect(result.perPlugin[0]).toMatchObject({ plugin: 'broken', status: 'unknown' });
+    expect(result.perPlugin[0].details).toContain('health() threw: boom');
+  });
+
+  it('treats non-object return as unknown', () => {
+    const plugins = [{ name: 'p', health: () => 'ok' }];
+    const result = aggregatePluginHealth(plugins);
+    expect(result.perPlugin[0].status).toBe('unknown');
+  });
+
+  it('treats unknown status string as unknown', () => {
+    const plugins = [{ name: 'p', health: () => ({ status: 'gibberish' }) }];
+    const result = aggregatePluginHealth(plugins);
+    expect(result.perPlugin[0].status).toBe('unknown');
+  });
+
+  it('overall is ok when no plugin reports (nothing implements health())', () => {
+    const result = aggregatePluginHealth([{ name: 'a' }, { name: 'b' }]);
+    expect(result.overall).toBe('ok');
+    expect(result.perPlugin).toEqual([]);
+  });
+});
+
+// ── plugin-contract.md #11: applyPluginMigrations ──────────────────────
+describe('applyPluginMigrations', () => {
+  function makeLogger() {
+    const lines = { info: [], warn: [] };
+    return {
+      logger: { info: (m) => lines.info.push(m), warn: (m) => lines.warn.push(m) },
+      lines,
+    };
+  }
+
+  function makeFakeDb() {
+    // In-memory plugin_migrations table substitute for unit tests.
+    const rows = new Map();
+    return {
+      rows,
+      prepare(sql) {
+        const isSelect = /^SELECT/i.test(sql.trim());
+        if (isSelect) {
+          return {
+            get(name) { return rows.has(name) ? { applied_version: rows.get(name) } : undefined; },
+          };
+        }
+        // INSERT ... ON CONFLICT
+        return {
+          run(name, version /* , ts */) { rows.set(name, version); },
+        };
+      },
+    };
+  }
+
+  it('runs migrate(null, currVersion) on first install', () => {
+    const calls = [];
+    const plugins = [{
+      name: 'p',
+      version: '1.0.0',
+      migrate: (prev, curr) => { calls.push({ prev, curr }); },
+    }];
+    const db = makeFakeDb();
+    const { logger } = makeLogger();
+    const { ran, failures } = applyPluginMigrations(plugins, db, logger);
+    expect(calls).toEqual([{ prev: null, curr: '1.0.0' }]);
+    expect(ran).toEqual([{ plugin: 'p', fromVersion: null, toVersion: '1.0.0' }]);
+    expect(failures).toEqual([]);
+    expect(db.rows.get('p')).toBe('1.0.0');
+  });
+
+  it('skips migrate when version unchanged', () => {
+    const calls = [];
+    const plugins = [{
+      name: 'p',
+      version: '1.0.0',
+      migrate: (prev, curr) => { calls.push({ prev, curr }); },
+    }];
+    const db = makeFakeDb();
+    db.rows.set('p', '1.0.0'); // already migrated
+    const { logger } = makeLogger();
+    const { ran } = applyPluginMigrations(plugins, db, logger);
+    expect(calls).toEqual([]);
+    expect(ran).toEqual([]);
+  });
+
+  it('runs migrate(prev, curr) on version change', () => {
+    const calls = [];
+    const plugins = [{
+      name: 'p',
+      version: '2.0.0',
+      migrate: (prev, curr) => { calls.push({ prev, curr }); },
+    }];
+    const db = makeFakeDb();
+    db.rows.set('p', '1.0.0');
+    const { logger } = makeLogger();
+    applyPluginMigrations(plugins, db, logger);
+    expect(calls).toEqual([{ prev: '1.0.0', curr: '2.0.0' }]);
+    expect(db.rows.get('p')).toBe('2.0.0');
+  });
+
+  it('does NOT update version when migrate throws (so next boot retries)', () => {
+    const plugins = [{
+      name: 'p',
+      version: '2.0.0',
+      migrate: () => { throw new Error('migration broken'); },
+    }];
+    const db = makeFakeDb();
+    db.rows.set('p', '1.0.0');
+    const { logger, lines } = makeLogger();
+    const { ran, failures } = applyPluginMigrations(plugins, db, logger);
+    expect(ran).toEqual([]);
+    expect(failures).toHaveLength(1);
+    expect(failures[0]).toEqual({ plugin: 'p', error: 'migration broken' });
+    expect(db.rows.get('p')).toBe('1.0.0'); // unchanged — retry next boot
+    expect(lines.warn.some((m) => m.includes('Plugin migration FAILED: p') && m.includes('1.0.0 → 2.0.0') && m.includes('will retry next boot'))).toBe(true);
+  });
+
+  it('skips plugins without migrate()', () => {
+    const plugins = [{ name: 'p', version: '1.0.0' }];
+    const db = makeFakeDb();
+    const { logger } = makeLogger();
+    const { ran } = applyPluginMigrations(plugins, db, logger);
+    expect(ran).toEqual([]);
+    expect(db.rows.size).toBe(0);
+  });
+
+  it('warns when db is unavailable', () => {
+    const plugins = [{ name: 'p', version: '1.0.0', migrate: () => {} }];
+    const { logger, lines } = makeLogger();
+    const { ran } = applyPluginMigrations(plugins, null, logger);
+    expect(ran).toEqual([]);
+    expect(lines.warn.some((m) => m.includes('db unavailable'))).toBe(true);
+  });
+});
+
+// ── plugin-contract.md #10: structured validation errors ──────────────
+describe('validatePlugin (structured errors)', () => {
+  const { validatePlugin, formatValidationErrors } = require('../plugins/plugin-contract');
+
+  it('returns structured error objects for missing required fields', () => {
+    const result = validatePlugin({ name: 'p' }); // missing version, install, etc.
+    expect(result.valid).toBe(false);
+    const versionErr = result.errors.find((e) => e.field === 'version');
+    expect(versionErr).toEqual({
+      field: 'version',
+      expected: 'string',
+      actual: 'undefined',
+      kind: 'missing',
+      message: 'missing required field: version',
+    });
+  });
+
+  it('returns kind=type-mismatch when field type is wrong', () => {
+    const plugin = {
+      name: 'p',
+      version: '1.0',
+      install: 'not-a-function', // wrong type
+      uninstall: () => {},
+      middleware: () => [],
+      mcpTools: () => [],
+      eventHandlers: () => ({}),
+      configSchema: () => ({}),
+    };
+    const result = validatePlugin(plugin);
+    expect(result.valid).toBe(false);
+    const installErr = result.errors.find((e) => e.field === 'install');
+    expect(installErr).toMatchObject({
+      field: 'install',
+      expected: 'function',
+      actual: 'string',
+      kind: 'type-mismatch',
+    });
+  });
+
+  it('returns kind=malformed-input for non-object plugin', () => {
+    const result = validatePlugin(null);
+    expect(result.valid).toBe(false);
+    expect(result.errors[0]).toMatchObject({
+      field: '$root',
+      expected: 'object',
+      actual: 'null',
+      kind: 'malformed-input',
+    });
+  });
+
+  it('formatValidationErrors produces back-compat string output', () => {
+    const errors = [
+      { field: 'version', kind: 'missing', message: 'missing required field: version' },
+      { field: 'install', kind: 'type-mismatch', message: 'install must be a function' },
+    ];
+    expect(formatValidationErrors(errors)).toBe(
+      'missing required field: version, install must be a function'
+    );
+  });
+
+  it('formatValidationErrors accepts legacy string entries (mixed)', () => {
+    expect(formatValidationErrors(['old style', { message: 'new style' }])).toBe(
+      'old style, new style'
+    );
+  });
+
+  it('valid plugin returns empty errors array', () => {
+    const plugin = {
+      name: 'p', version: '1.0',
+      install: () => {}, uninstall: () => {},
+      middleware: () => [], mcpTools: () => [],
+      eventHandlers: () => ({}), configSchema: () => ({}),
+    };
+    const result = validatePlugin(plugin);
+    expect(result.valid).toBe(true);
+    expect(result.errors).toEqual([]);
   });
 });
