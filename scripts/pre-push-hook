@@ -251,7 +251,7 @@ run_with_flake_retry_inner() {
   # attribution falls back to combined_exit and reports the wrong phase.
   # Observed today: dashboard stream kept arriving for ~3-4s after the
   # gate-end echo, pushing the marker into the long tail. The original
-  # 1-second cap (5 Ã— 200ms) wasn't enough; bumped to 30 Ã— 200ms = 6 s.
+  # 1-second cap (5 Ã-- 200ms) wasn't enough; bumped to 30 Ã-- 200ms = 6 s.
   # If the marker is found before then, exit early to keep the hook snappy.
   local size_a size_b iter
   size_a=$(wc -c < "$tmp" 2>/dev/null || echo 0)
@@ -577,7 +577,26 @@ ensure_node_modules() {
   fi
 }
 
+# Sweep stale torque-* test temp dirs from \$TMPDIR. Each test that
+# uses TORQUE_DATA_DIR creates an mkdtempSync() dir; tests don't always
+# clean up (vitest crashes, SSH drops kill afterAll). Without this,
+# the dir count grows without bound and NTFS performance degrades --
+# observed 23579 accumulated dirs slowing server tests from ~5min to
+# >30min (timeout). Cap is 60 min: anything older is orphan.
+sweep_stale_torque_temp_dirs() {
+  local tmp_dir="\${TMPDIR:-/tmp}"
+  if [ ! -d "\$tmp_dir" ]; then return 0; fi
+  local sweep_start sweep_end count_before count_after
+  sweep_start=\$(gate_now_ms)
+  count_before=\$(find "\$tmp_dir" -maxdepth 1 -name 'torque-*' 2>/dev/null | wc -l || echo 0)
+  find "\$tmp_dir" -maxdepth 1 -name 'torque-*' -mmin +60 -prune -exec rm -rf {} + 2>/dev/null || true
+  count_after=\$(find "\$tmp_dir" -maxdepth 1 -name 'torque-*' 2>/dev/null | wc -l || echo 0)
+  sweep_end=\$(gate_now_ms)
+  echo "[gate-timing] temp_sweep_ms=\$(elapsed_ms "\$sweep_start" "\$sweep_end") before=\$count_before after=\$count_after"
+}
+
 GATE_START_MS=\$(gate_now_ms)
+sweep_stale_torque_temp_dirs
 SETUP_START_MS=\$(gate_now_ms)
 echo "[gate-timing] remote_start_ms=\$GATE_START_MS mode=$GATE_MODE changed=$GATE_CHANGED_COUNT"
 
