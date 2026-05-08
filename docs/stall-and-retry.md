@@ -292,6 +292,8 @@ If `getAllProviderScores({trustedOnly:true})` returns scores, the chain is stabl
 
 ## Open questions / risks
 
+> **All 12 questions resolved as of 2026-05-08.** This section is now a historical record of the audit drainage. Future work in this surface should append new questions below the existing 12 with their own dated resolution notes — preserve the full trail so the next operator can see the whole arc.
+
 These are the known soft spots — incremental fixes here without a unifying audit are how this surface accreted. Address them before adding new strategies, classifier rules, or chain entries.
 
 ### 1. ✅ ~~Two independent attempt counters with no joint cap~~ RESOLVED 2026-05-07
@@ -334,9 +336,15 @@ Two reasons for short-circuiting first:
 
 Default-config operators see disabled providers immediately on `tail -f torque.log` at boot. Doesn't change behavior — operators who *want* codex/claude-cli stall detection disabled can ignore the line.
 
-### 5. `max_task_lifetime_seconds` is global, not per-provider
+### 5. ✅ ~~`max_task_lifetime_seconds` is global, not per-provider~~ RESOLVED 2026-05-08
 
-The hard cap fires regardless of provider. Codex tasks legitimately running 30-60 min would need the cap set high enough to cover them, which makes it useless as a watchdog for fast providers. **Action:** Make it per-provider (mirror the threshold map) OR document it as "codex-aware: should be set to 2× longest expected codex run."
+`activity-monitoring.js` now resolves the lifetime cap via this chain:
+
+1. `max_task_lifetime_<provider>` (e.g. `max_task_lifetime_codex`, `max_task_lifetime_ollama`) — provider-specific
+2. `max_task_lifetime_seconds` — global default
+3. `0` (disabled)
+
+Operators can keep ollama/cerebras tasks tight (e.g. `max_task_lifetime_ollama=600` = 10min) while letting codex/claude-cli run their natural 30-60min duration without firing the cap. Per-provider value 0 means "fall through to global" — only a positive value pre-empts the global. Range guard via `_safeConfigInt` keeps each value in `[0, 86400]`.
 
 ### 6. ✅ ~~Auto-verify Phase 6.5 has no per-provider chain~~ RESOLVED 2026-05-07
 
@@ -354,17 +362,29 @@ configCore.setProjectConfig('myproject', {
 
 Log line `[auto-verify] Task X: routing fix task to override provider 'codex-spark' (auto_verify_fix_provider)` confirms the routing on each fix submission.
 
-### 7. `tryHashlineTieredFallback` overlaps with chain-based fallback
+### 7. ✅ ~~`tryHashlineTieredFallback` overlaps with chain-based fallback~~ RESOLVED 2026-05-08
 
-`fallback-retry.js` exports both `tryHashlineTieredFallback` (escalates by hashline-format capability) and `tryLocalFirstFallback` (chain-based). The two strategies can fight: hashline-tiered may pick a model that the chain would have skipped. **Action:** Document precedence (currently: tryStallRecovery uses chain-based; codex banner short-circuit uses hashline-tiered) OR unify under one selector.
+The precedence is now documented in the JSDoc on `tryHashlineTieredFallback` itself (`fallback-retry.js`):
 
-### 8. `STALL_REQUEUE_DEBOUNCE_MS` lives in constants.js but `BASE_RETRY_DELAY_MS` lives in fallback-retry.js
+- **Output-stall path** (`tryStallRecovery` from periodic checkStalledTasks) → uses `tryLocalFirstFallback` (chain-based, respects user-configured fallback chains)
+- **Codex banner-only short-circuit** (close-handler classification) → uses `tryHashlineTieredFallback` (hashline-format-aware: bumps to a model that can emit valid SEARCH/REPLACE blocks before going chain-based)
 
-Two different "delay before requeue" knobs in two different files. The first protects against thundering-herd on the queue scheduler; the second protects against rate-limited retries. They serve different purposes but the naming + location asymmetry hides the relationship. **Action:** Co-locate constants OR cross-reference in jsdoc.
+Both paths can fire for the same task across one lifetime but the call sites are mutually exclusive (different triggers: stall sweep vs close-handler). The JSDoc warns against adding a third caller without documenting which trigger path it owns.
 
-### 9. `recordFailoverEvent` fires for stall recovery but not for Phase 1 retry
+### 8. ✅ ~~`STALL_REQUEUE_DEBOUNCE_MS` and `BASE_RETRY_DELAY_MS` in different files~~ RESOLVED 2026-05-08
 
-A stall-recovery requeue records `failover_events` row (RB-029); a Phase 1 retry of the same task does NOT. Operators querying failover events miss a major class of provider-switch behavior. **Action:** Have `handleRetryLogic` record a failover event when retrying with provider switch (it doesn't currently switch — only retries same-provider — but the event would still be useful for retry analytics).
+`BASE_RETRY_DELAY_MS` and `MAX_RETRY_DELAY_MS` moved to `server/constants.js` alongside `STALL_REQUEUE_DEBOUNCE_MS` under a new `--- Retry Framework Delay Constants ---` header that explains the difference:
+
+- `STALL_REQUEUE_DEBOUNCE_MS`: post-mutate processQueue debounce (thundering-herd guard)
+- `BASE_RETRY_DELAY_MS` / `MAX_RETRY_DELAY_MS`: exponential-backoff base/cap for handleRetryLogic (rate-limit retry guard)
+
+`fallback-retry.js` re-exports them via destructured require for back-compat with sibling modules.
+
+### 9. ✅ ~~`recordFailoverEvent` fires for stall recovery but not for Phase 1 retry~~ RESOLVED 2026-05-08
+
+`handleRetryLogic` now records a `failover_events` row with `failover_type='retry'` after `recordRetryAttempt` succeeds. Today the retry is same-provider (handleRetryLogic doesn't change `task.provider`), so `from_provider == to_provider`; the row still surfaces "this task retried with reason=<class>" for retry-rate dashboards.
+
+When a future change adds provider switching on retry, the audit trail is already in place — no need to retrofit recording at that point. Best-effort: missing `recordFailoverEvent` on legacy db shapes is silently skipped via `typeof === 'function'` check.
 
 ### 10. ✅ ~~Retry-After header parsed but not always honored~~ RESOLVED 2026-05-07
 

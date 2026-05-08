@@ -154,6 +154,26 @@ const QUEUE_RETRY_DEBOUNCE_MS = 50;
 /** Debounce delay (ms) for stall recovery re-queue (slightly longer to avoid races) */
 const STALL_REQUEUE_DEBOUNCE_MS = 100;
 
+// --- Retry Framework Delay Constants ---
+//
+// stall-and-retry.md #8 — co-located with STALL_REQUEUE_DEBOUNCE_MS so all
+// "delay before requeue" knobs live in one place. The two serve different
+// purposes:
+//   - STALL_REQUEUE_DEBOUNCE_MS: post-mutate processQueue debounce (ms gap
+//     after status flip → 'queued' before processQueue() runs). Protects
+//     the queue scheduler from thundering-herd when many tasks requeue at
+//     once.
+//   - BASE_RETRY_DELAY_MS / MAX_RETRY_DELAY_MS: exponential-backoff base
+//     and cap for non-zero-exit retry scheduling. Protects against rate-
+//     limited retries on the same provider.
+// Re-exported from server/execution/fallback-retry.js for back-compat.
+
+/** First-retry delay (ms) — exponential base for handleRetryLogic backoff */
+const BASE_RETRY_DELAY_MS = 5000;
+
+/** Cap on exponential retry delay (ms) — prevents arbitrarily long sleeps */
+const MAX_RETRY_DELAY_MS = 120000;
+
 /** Default TTL for queued tasks in minutes (0 = no expiry) */
 const QUEUE_TASK_TTL_MINUTES = 0;
 
@@ -265,6 +285,8 @@ module.exports = {
   TSSERVER_RESTART_BASE_DELAY_MS,
   QUEUE_RETRY_DEBOUNCE_MS,
   STALL_REQUEUE_DEBOUNCE_MS,
+  BASE_RETRY_DELAY_MS,
+  MAX_RETRY_DELAY_MS,
   QUEUE_TASK_TTL_MINUTES,
   INSTANCE_HEARTBEAT_INTERVAL_MS,
   ERROR_FEEDBACK_MAX_TURNS,

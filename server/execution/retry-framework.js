@@ -187,6 +187,32 @@ function handleRetryLogic(ctx) {
     logger.info(`Failed to record retry attempt for task ${taskId}:`, recordErr.message);
   }
 
+  // stall-and-retry.md #9 — record a failover_events row for this retry
+  // so analytics queries that aggregate provider-switch behavior see Phase
+  // 1 retries alongside stall-recovery requeues. Today the retry is
+  // same-provider (handleRetryLogic doesn't change task.provider), so
+  // from_provider == to_provider; the row still surfaces "this task
+  // retried with reason=<class>" for retry-rate dashboards. When a future
+  // change adds provider switching here, the audit trail is already in
+  // place — no need to retrofit recording at that point. Best-effort:
+  // missing recordFailoverEvent (legacy db shapes) is silently skipped.
+  try {
+    if (typeof deps.db.recordFailoverEvent === 'function') {
+      deps.db.recordFailoverEvent({
+        task_id: taskId,
+        from_provider: task.provider,
+        to_provider: task.provider, // same-provider retry today
+        from_model: task.model,
+        to_model: task.model,
+        reason: `Retry: ${errorClassification.reason}`,
+        failover_type: 'retry',
+        attempt_num: retryInfo.retryCount,
+      });
+    }
+  } catch (failoverErr) {
+    logger.info(`Failed to record retry failover_event for task ${taskId}: ${failoverErr.message}`);
+  }
+
   // Keep task in current non-running status during retry delay to prevent premature scheduling.
   // Transition to 'queued' only after the delay fires (inside the setTimeout below).
   if (deps.taskCleanupGuard) deps.taskCleanupGuard.delete(taskId);

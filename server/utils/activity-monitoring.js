@@ -369,9 +369,26 @@ function getTaskActivity(taskId, opts = {}) {
   // resolveReAdoptLastOutputAt's sibling logic in execute-cli.js).
   // Default 0 means disabled; operator opts in by setting
   // `max_task_lifetime_seconds` (e.g. 14400 = 4h for codex/claude-cli).
-  const maxLifetimeSec = _safeConfigInt
-    ? _safeConfigInt('max_task_lifetime_seconds', 0, 0, 86400)
-    : 0;
+  //
+  // stall-and-retry.md #5 — operators can also set per-provider overrides
+  // (`max_task_lifetime_codex`, `max_task_lifetime_ollama`, etc.) that win
+  // over the global value. Useful because codex/claude-cli legitimately run
+  // 30-60min while ollama/cerebras tasks should never run that long. The
+  // per-provider key is checked first; fall back to the global only when
+  // unset (or zero). Resolution chain:
+  //   1. max_task_lifetime_<provider>  (provider-specific cap)
+  //   2. max_task_lifetime_seconds     (global default)
+  //   3. 0                              (disabled)
+  let maxLifetimeSec = 0;
+  if (_safeConfigInt) {
+    if (proc.provider) {
+      const perProvider = _safeConfigInt(`max_task_lifetime_${proc.provider}`, 0, 0, 86400);
+      if (perProvider > 0) maxLifetimeSec = perProvider;
+    }
+    if (maxLifetimeSec === 0) {
+      maxLifetimeSec = _safeConfigInt('max_task_lifetime_seconds', 0, 0, 86400);
+    }
+  }
   let stallReason = null;
   if (maxLifetimeSec > 0) {
     const taskAgeSeconds = Math.floor((now - proc.startTime) / 1000);

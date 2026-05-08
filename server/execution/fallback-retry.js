@@ -11,7 +11,16 @@
 'use strict';
 
 const logger = require('../logger').child({ component: 'fallback-retry' });
-const { STALL_REQUEUE_DEBOUNCE_MS, DEFAULT_FALLBACK_MODEL } = require('../constants');
+// stall-and-retry.md #8 — retry-delay constants now co-located in
+// server/constants.js so STALL_REQUEUE_DEBOUNCE_MS and BASE_RETRY_DELAY_MS
+// share a header. Re-exported below for back-compat with sibling modules
+// that already import them from this file.
+const {
+  STALL_REQUEUE_DEBOUNCE_MS,
+  DEFAULT_FALLBACK_MODEL,
+  BASE_RETRY_DELAY_MS,
+  MAX_RETRY_DELAY_MS,
+} = require('../constants');
 const modelRoles = require('../db/model-roles');
 // Reference the routing-core module without destructuring at load time.
 // Reading CLOUD_PROVIDERS / getProviderFallbackChain off the module at call
@@ -26,9 +35,6 @@ const { normalizeMetadata } = require('../utils/normalize-metadata');
 const { getWindowsNativeCrashExitReason } = require('../utils/process-exit-codes');
 const { buildResumeContext, prependResumeContextToPrompt } = require('../utils/resume-context');
 const { resolveMethod } = require('./capability-resolver');
-
-const BASE_RETRY_DELAY_MS = 5000;   // 5 seconds for first retry
-const MAX_RETRY_DELAY_MS = 120000;  // 2 minutes max
 
 function getRetryDelayMs(task) {
   const rawAttempt = task && task.retry_count;
@@ -877,6 +883,19 @@ function findNextHashlineModel(currentModel, priorErrors) {
  *
  * Tracks attempts via [Hashline-Local] markers in error_output.
  * Configurable max retries via max_hashline_local_retries (default: 2).
+ *
+ * stall-and-retry.md #7 — precedence vs `tryLocalFirstFallback`:
+ *   - tryStallRecovery (output-stall path) → uses tryLocalFirstFallback
+ *     (chain-based, respects user-configured fallback chains).
+ *   - Codex banner-only short-circuit → uses tryHashlineTieredFallback
+ *     (hashline-format-aware: bumps to a model that can emit valid
+ *     SEARCH/REPLACE blocks before going chain-based).
+ * Both paths can fire for the same task across one lifetime, but the
+ * call sites are mutually exclusive — tryStallRecovery is reached from
+ * the periodic stall sweep; the banner short-circuit fires from
+ * close-handler classification. Don't add a third caller without
+ * documenting which trigger path it owns.
+ *
  * @param {string} taskId - Task ID
  * @param {Object} task - Task object from database
  * @param {string} reason - Reason for fallback
