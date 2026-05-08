@@ -220,7 +220,7 @@ Shutdown:
 | Var | Plugin | Effect |
 |-----|--------|--------|
 | `TORQUE_AUTH_MODE` | (loader) | `enterprise` injects `auth` plugin into load list; `local` (default) skips |
-| `TORQUE_CODEGRAPH_ENABLED` | codegraph | `0` makes the plugin's factory return a no-op stub (still loaded, contributes nothing) |
+| `TORQUE_CODEGRAPH_ENABLED` | codegraph | `0` makes the plugin's `enabled()` gate return false; the loader skips it entirely (no install/middleware/mcpTools registration). See #7 below for the migration story |
 | `TORQUE_AUTH_BOOTSTRAP_ADMIN_KEY_NAME` | auth | Override default bootstrap admin key name |
 
 ### `configSchema()`
@@ -255,9 +255,17 @@ These are the known soft spots — addressing them before adding the next plugin
 
 The contract requires `eventHandlers: function`, `validatePlugin` enforces it, but `server/index.js` never invokes it during boot. Plugins that need event subscriptions register them manually inside `install()` via the container's eventBus. This means every plugin ships an empty `eventHandlers()` stub solely to pass validation. **Action:** Either wire the boot integration to call `plugin.eventHandlers()` and subscribe each handler to its named event (closing the documentation gap), OR demote `eventHandlers` from required to optional in the contract.
 
-### 2. Three different factory naming conventions in `createPluginInstance`
+### 2. ✅ ~~Three different factory naming conventions in `createPluginInstance`~~ RESOLVED 2026-05-08
 
-`createPlugin` (canonical), `createSnapScopePlugin` (snapscope only), `createAuthPlugin` (auth only). New plugins must use `createPlugin` but the fallbacks remain in the loader for back-compat. **Action:** Migrate snapscope and auth to also expose `createPlugin` (they each already do via aliases — `createSnapScopePlugin` is the actual function but no `createPlugin` re-export currently in snapscope), then deprecate the two fallback branches in `createPluginInstance`. Removes a 3-way dispatch from the hot path.
+snapscope and auth both now export `createPlugin` aliased to their original factory function (`createSnapScopePlugin` / `createAuthPlugin`). The loader's `createPluginInstance` priority order is unchanged — `createPlugin` first, legacy fallbacks second — so the canonical path always wins for the migrated plugins. Loader comment now marks the legacy fallbacks as a deprecation cycle for any external consumer.
+
+4 unit tests in `loader.test.js` (`createPlugin canonical factory` describe block):
+1. Uses createPlugin when present (canonical path)
+2. Falls back to createSnapScopePlugin when createPlugin absent (legacy)
+3. Falls back to createAuthPlugin when createPlugin absent (legacy)
+4. createPlugin wins when both canonical AND a legacy name are exported (priority verification — pins the migration path)
+
+Future cleanup: once external consumers (if any) confirm migration, the loader's two fallback branches can be removed and `createPluginInstance` simplified to a single check.
 
 ### 3. Install failures don't unload the plugin
 
@@ -275,9 +283,21 @@ Plugin tools shadowing built-in names are skipped with a debug log line. But two
 
 Every plugin returns a JSON Schema describing its config but nothing reads these at runtime. **Action:** Either (a) build a config validator that runs at boot and warns when actual config doesn't match a plugin's schema, OR (b) demote `configSchema` from required to optional and let the dashboard config UI build its forms from a hand-curated list.
 
-### 7. `codegraph` env-var opt-out is checked inside the plugin, not in the loader
+### 7. ✅ ~~`codegraph` env-var opt-out is checked inside the plugin, not in the loader~~ RESOLVED 2026-05-08
 
-`TORQUE_CODEGRAPH_ENABLED=0` makes `createCodegraphPlugin()` return a no-op stub. The loader still loads it, validates it, calls install (no-op), and includes it in the count. From the loader's perspective everything is normal; from the operator's perspective the plugin is "loaded" but inert. **Action:** Move the env-var check into the loader as a per-plugin gate, OR add an explicit `enabled()` method to the contract that the loader checks before validation. Same pattern would let auth's enterprise gate move out of `AUTH_MODE_PLUGIN_MAP` and into the plugin itself.
+The plugin contract gains an optional `enabled()` method. When present and returning false, the loader skips the plugin entirely (no install/middleware/mcpTools/tierTools registration); when absent, the plugin is treated as always-enabled (back-compat with all 6 prior default plugins).
+
+`codegraph/index.js` now exposes `enabled: isFeatureEnabled` so the env-var check (`TORQUE_CODEGRAPH_ENABLED !== '0'`) lives in the loader gate instead of returning a no-op stub from the factory. Operators see `[plugin-loader] Plugin "codegraph" disabled by enabled() gate — skipping` in `torque.log` instead of a silently-loaded inert plugin.
+
+The defensive check inside `install()` (`if (!isFeatureEnabled()) return`) remains as belt-and-suspenders for callers that bypass the loader (test fixtures that construct plugins directly).
+
+4 unit tests in `loader.test.js` (`enabled() gate` describe block):
+1. Skips plugin when enabled() returns false
+2. Loads plugin when enabled() returns true
+3. Loads plugin when enabled() is absent (back-compat default-enabled)
+4. Treats throwing enabled() as disabled (defensive)
+
+Forward-looking: same pattern can migrate auth's enterprise gate out of `AUTH_MODE_PLUGIN_MAP` (`enabled: () => process.env.TORQUE_AUTH_MODE === 'enterprise'`) — left for a future batch.
 
 ### 8. `uninstall()` is contract-required but not exercised in production
 

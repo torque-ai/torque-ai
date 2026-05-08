@@ -322,3 +322,7 @@ const authPlugin = createAuthPlugin();
 
 module.exports = authPlugin;
 module.exports.createAuthPlugin = createAuthPlugin;
+// plugin-contract.md #2 — `createPlugin` is the canonical factory name.
+// Alias for back-compat with the loader's legacy fallback dispatch and any
+// external consumer still calling createAuthPlugin directly.
+module.exports.createPlugin = createAuthPlugin;

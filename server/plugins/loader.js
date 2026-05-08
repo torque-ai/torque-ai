@@ -17,8 +17,15 @@ function safeLog(logger, level, message) {
   else console.log(message);
 }
 
+// plugin-contract.md #2 — `createPlugin` is the canonical factory name.
+// `createSnapScopePlugin` and `createAuthPlugin` are legacy fallbacks that
+// the original two plugins shipped before the convention was settled. Both
+// of those plugins now ALSO export `createPlugin` (aliased to their original
+// factory), so the canonical path always wins. The legacy fallbacks remain
+// for one deprecation cycle in case any external consumer relies on them.
 function createPluginInstance(mod) {
   if (typeof mod.createPlugin === 'function') return mod.createPlugin();
+  // Legacy fallbacks — to be removed after the deprecation cycle.
   if (typeof mod.createSnapScopePlugin === 'function') return mod.createSnapScopePlugin();
   if (typeof mod.createAuthPlugin === 'function') return mod.createAuthPlugin();
   return mod;
@@ -50,6 +57,28 @@ function loadPlugins(options = {}) {
       if (!validation.valid) {
         safeLog(logger, 'warn', `[plugin-loader] Plugin "${name}" failed validation: ${validation.errors.join(', ')}`);
         continue;
+      }
+
+      // plugin-contract.md #7 — opt-in disable gate. Plugins can declare
+      // an `enabled()` method that returns false to skip themselves
+      // entirely (no install/middleware/mcpTools/tierTools registration).
+      // Replaces the older "factory returns a no-op stub" pattern, which
+      // left disabled plugins in the loaded list contributing nothing
+      // and made operator visibility worse (the plugin appeared loaded
+      // but no tools surfaced anywhere). Missing enabled() means
+      // "always enabled" (back-compat with all 6 default plugins).
+      if (typeof instance.enabled === 'function') {
+        let isEnabled = true;
+        try {
+          isEnabled = instance.enabled() !== false;
+        } catch (gateErr) {
+          safeLog(logger, 'warn', `[plugin-loader] Plugin "${name}" enabled() threw: ${gateErr.message} — treating as disabled`);
+          isEnabled = false;
+        }
+        if (!isEnabled) {
+          safeLog(logger, 'info', `[plugin-loader] Plugin "${name}" disabled by enabled() gate — skipping`);
+          continue;
+        }
       }
 
       safeLog(logger, 'info', `[plugin-loader] Loaded plugin: ${instance.name} v${instance.version}`);

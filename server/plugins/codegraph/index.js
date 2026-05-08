@@ -51,6 +51,12 @@ function createCodegraphPlugin() {
   let instrumentedHandlers = null;
 
   function install(container) {
+    // plugin-contract.md #7 — env-var disable now lives in the loader's
+    // enabled() gate (see `enabled` below). install() trusts that the
+    // loader filtered the plugin out when disabled, so this defensive
+    // check would only fire if some caller bypasses the loader. Kept as
+    // belt-and-suspenders since install() is also called directly from
+    // tests that may not route through the loader.
     if (!isFeatureEnabled()) return;
 
     const dbPath = resolveDedicatedDbPath(container);
@@ -123,6 +129,11 @@ function createCodegraphPlugin() {
     middleware,
     eventHandlers,
     configSchema,
+    // plugin-contract.md #7 — loader-side disable gate. When false,
+    // the loader skips this plugin entirely (no install/middleware/
+    // mcpTools registration). Operator opts out via
+    // TORQUE_CODEGRAPH_ENABLED=0; default-on otherwise.
+    enabled: isFeatureEnabled,
     diagnostics: () => diagnostics || { unreachableRepos: [] },
   };
 }

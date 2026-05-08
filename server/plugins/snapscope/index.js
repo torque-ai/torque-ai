@@ -173,3 +173,7 @@ function createSnapScopePlugin() {
 }
 
 module.exports = { createSnapScopePlugin };
+// plugin-contract.md #2 — `createPlugin` is the canonical factory name.
+// Alias for back-compat with the loader's legacy fallback dispatch and any
+// external consumer still calling createSnapScopePlugin directly.
+module.exports.createPlugin = createSnapScopePlugin;
