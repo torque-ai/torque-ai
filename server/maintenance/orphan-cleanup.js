@@ -1178,13 +1178,28 @@ function shouldSkipFinalizingTask(task) {
   return false;
 }
 
+// Console-backed fallback logger used when the container hasn't registered
+// a real logger (tests that bypass server boot). Without this, every
+// `logger.info(...)` in this module's public-callable path (startTimers,
+// logStallDetectionAudit, etc.) crashes with `Cannot read properties of
+// null (reading 'info')`. Pre-fix push9 had 37/199 server-test failures
+// trace through this single null-logger footgun.
+const FALLBACK_LOGGER = {
+  info: (...args) => console.log('[orphan-cleanup]', ...args),
+  warn: (...args) => console.warn('[orphan-cleanup]', ...args),
+  error: (...args) => console.error('[orphan-cleanup]', ...args),
+  debug: () => {},
+};
+
 function ensureDeps() {
+  if (!logger) logger = FALLBACK_LOGGER;
   let container = null;
   try { container = require('../container').defaultContainer; } catch { /* not available */ }
   if (container) {
     if (!db) db = container.peek('db') || null;
     if (!dashboard) dashboard = container.peek('dashboard') || null;
-    if (!logger) logger = container.peek('logger') || null;
+    const containerLogger = container.peek('logger');
+    if (containerLogger && logger === FALLBACK_LOGGER) logger = containerLogger;
     if (!runningProcesses || !stallRecoveryAttempts) {
       const tracker = container.peek('processTracker');
       if (tracker) {
