@@ -34,12 +34,16 @@ function emitAutoShipped({
     );
   }
 
+  // Core keys win on collision so a caller can't bypass `reason` validation
+  // by stuffing a different reason into `extra`. Stage-specific keys in
+  // `extra` (factory_worktree_id, error, detection, etc.) flow through
+  // unchanged because they don't collide with the four core names.
   const outcome = {
+    ...extra,
     work_item_id,
     confidence,
     signals,
     reason,
-    ...extra,
   };
 
   const defaultReasoning = `Auto-shipped at ${stage} (reason=${reason}, confidence=${confidence}). Shipped-detector found matching commits on main.`;

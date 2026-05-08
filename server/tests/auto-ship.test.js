@@ -49,11 +49,38 @@ describe('emitAutoShipped', () => {
     expect(recorded.length).toBe(1);
     expect(recorded[0].action).toBe('auto_shipped');
     expect(recorded[0].stage).toBe('PRIORITIZE');
+    expect(recorded[0].actor).toBe('factory-loop');
+    expect(recorded[0].confidence).toBe(1);
     expect(recorded[0].outcome.reason).toBe('at_prioritize');
     expect(recorded[0].outcome.work_item_id).toBe('wi-7');
     expect(recorded[0].outcome.confidence).toBe('high');
     expect(recorded[0].outcome.signals).toEqual(['commit-match', 'title-match']);
     expect(recorded[0].inputs.reason).toBe('at_prioritize');
+  });
+
+  it('does not let extra override validated core keys (shadowing prevention)', () => {
+    emitAutoShipped({
+      project_id: 1,
+      stage: 'PRIORITIZE',
+      reason: AUTO_SHIPPED_REASONS.AT_PRIORITIZE,
+      work_item_id: 'wi-7',
+      confidence: 'high',
+      signals: ['real-signal'],
+      extra: {
+        // These attempts to override core keys must lose to the validated values.
+        reason: 'forged_bypass_value',
+        work_item_id: 'wi-99',
+        confidence: 'low',
+        signals: ['forged-signal'],
+        // Stage-specific extension fields still flow through.
+        factory_worktree_id: 'wt-1',
+      },
+    });
+    expect(recorded[0].outcome.reason).toBe('at_prioritize');
+    expect(recorded[0].outcome.work_item_id).toBe('wi-7');
+    expect(recorded[0].outcome.confidence).toBe('high');
+    expect(recorded[0].outcome.signals).toEqual(['real-signal']);
+    expect(recorded[0].outcome.factory_worktree_id).toBe('wt-1');
   });
 
   it('throws on unknown reason with a clear message listing valid values', () => {
