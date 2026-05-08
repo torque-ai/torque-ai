@@ -107,16 +107,60 @@ function emitAnnotation(code, signal) {
   process.stderr.write(`\n${line}\n`);
 }
 
+// Idempotent exit. The 'close' / 'error' handlers and the watchdog can
+// each fire — first one wins, the rest are no-ops. Without this flag
+// the watchdog could re-emit an annotation racing with a successful close.
+// `watchdogHandle` is `let` because safeExit may close over it before
+// setInterval runs (handler events are deferred but TDZ on `const` would
+// still bite if a handler ever became synchronous).
+let exited = false;
+let watchdogHandle = null;
+function safeExit(code, signal) {
+  if (exited) return;
+  exited = true;
+  if (watchdogHandle) {
+    try { clearInterval(watchdogHandle); } catch { /* ignore */ }
+    watchdogHandle = null;
+  }
+  emitAnnotation(code, signal);
+  process.exit(typeof code === 'number' ? code : (signal ? 128 : 0));
+}
+
 child.on('error', (err) => {
   process.stderr.write(`[process-exit-wrapper] spawn error: ${err.message}\n`);
-  emitAnnotation(127, null);
-  process.exit(127);
+  safeExit(127, null);
 });
 
 child.on('close', (code, signal) => {
-  emitAnnotation(code, signal);
-  process.exit(typeof code === 'number' ? code : (signal ? 128 : 0));
+  safeExit(code, signal);
 });
+
+// Self-watchdog: defends against Windows zombie-wrapper edge cases where
+// the real binary exits but `child.on('close')` never fires (typically
+// when PROGRAM is a .cmd / .bat shim — the same failure mode the in-memory
+// zombie sweep documents at orphan-cleanup.js Check 1). Without this
+// fallback the wrapper would sit in the process table indefinitely with a
+// dead child, accumulating across restarts until manual cleanup. Polls
+// every 30 s by default; cheap (one process.kill(pid, 0) probe) and
+// unref'd so it never extends the wrapper's lifetime past a normal close.
+// TORQUE_PEW_WATCHDOG_INTERVAL_MS is a test-only override; clamped to >=10ms.
+const WATCHDOG_INTERVAL_MS = (() => {
+  const override = Number(process.env.TORQUE_PEW_WATCHDOG_INTERVAL_MS);
+  return Number.isFinite(override) && override >= 10 ? override : 30_000;
+})();
+watchdogHandle = setInterval(() => {
+  if (exited) return;
+  if (!child.pid) return;
+  try {
+    process.kill(child.pid, 0);
+  } catch (err) {
+    process.stderr.write(`[process-exit-wrapper] watchdog: child PID ${child.pid} is gone (${err.code || err.message}) but 'close' did not fire; forcing exit.\n`);
+    const fallbackCode = (typeof child.exitCode === 'number') ? child.exitCode : 1;
+    const fallbackSignal = child.signalCode || null;
+    safeExit(fallbackCode, fallbackSignal);
+  }
+}, WATCHDOG_INTERVAL_MS);
+watchdogHandle.unref();
 
 // Forward standard termination signals to the child so cancel_task,
 // SIGHUP from terminal disconnect, and Windows-specific termination all

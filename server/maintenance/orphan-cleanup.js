@@ -126,6 +126,29 @@ function isTorqueDetachedCommand(commandLine) {
     || (normalized.includes('codex') && normalized.includes(' exec '));
 }
 
+// Grace window after which a row marked cancel_reason='server_restart' is
+// eligible for the zombie sweep again. The skip exists so the successor
+// reconciler's re-adoption window isn't fought (1168c9f9), but re-adoption
+// is an episodic startup event — once it has run, server_restart rows are
+// permanently terminal and their wrapper PIDs are unowned. Without an upper
+// bound, every failed re-adoption leaks a wrapper forever.
+const SERVER_RESTART_REAP_GRACE_MS_DEFAULT = 15 * 60 * 1000;
+function getServerRestartReapGraceMs() {
+  const override = Number(process.env.TORQUE_SERVER_RESTART_REAP_GRACE_MS);
+  return Number.isFinite(override) && override >= 0
+    ? override
+    : SERVER_RESTART_REAP_GRACE_MS_DEFAULT;
+}
+
+function isWithinReadoptionGrace(task) {
+  if (!task || task.cancel_reason !== 'server_restart') return false;
+  const completedAt = task.completed_at ? Date.parse(task.completed_at) : NaN;
+  // Missing/unparseable completed_at: be conservative and treat as in-grace.
+  // Operator can clean those up manually; we won't kill what we can't time.
+  if (!Number.isFinite(completedAt)) return true;
+  return (Date.now() - completedAt) < getServerRestartReapGraceMs();
+}
+
 function getTerminalTaskProcessCandidates(limit = 200) {
   if (!db) return [];
   if (typeof db.getTerminalTaskProcessCandidates === 'function') {
@@ -133,15 +156,25 @@ function getTerminalTaskProcessCandidates(limit = 200) {
   }
   const rawDb = typeof db.getDbInstance === 'function' ? db.getDbInstance() : null;
   if (!rawDb || typeof rawDb.prepare !== 'function') return [];
+  // Server-restart rows are included only after their re-adoption grace
+  // window expires; the JS-level isWithinReadoptionGrace check is the
+  // authoritative gate (handles missing completed_at). Operator-invoked
+  // 'abandon' rows are excluded entirely — TORQUE walks away by contract.
+  const graceCutoffMs = Date.now() - getServerRestartReapGraceMs();
+  const graceCutoffIso = new Date(graceCutoffMs).toISOString();
   return rawDb.prepare(`
     SELECT id, status, provider, subprocess_pid, pid, completed_at, cancel_reason
     FROM tasks
     WHERE status IN ('cancelled', 'failed', 'completed')
       AND COALESCE(subprocess_pid, pid) IS NOT NULL
-      AND COALESCE(cancel_reason, '') != 'server_restart'
+      AND COALESCE(cancel_reason, '') != 'abandon'
+      AND (
+        COALESCE(cancel_reason, '') != 'server_restart'
+        OR (completed_at IS NOT NULL AND completed_at < ?)
+      )
     ORDER BY COALESCE(completed_at, created_at) DESC
     LIMIT ?
-  `).all(limit);
+  `).all(graceCutoffIso, limit);
 }
 
 function getTrackedProcessPids() {
@@ -160,16 +193,21 @@ async function cleanupTerminalTaskSubprocesses() {
   for (const task of candidates) {
     const pid = Number(task.subprocess_pid || task.pid);
     if (!Number.isFinite(pid) || pid <= 0 || trackedPids.has(pid)) continue;
-    // Honor the abandon-detached contract (a8f05279): rows cancelled by
-    // shutdown for re-adoption keep their PID alive on purpose. The successor
-    // reconciler is the only owner allowed to decide their fate.
-    if (task.cancel_reason === 'server_restart') continue;
+    // Operator-invoked abandon mode (cancellation-cleanup.md "Abandon mode
+    // contract"): TORQUE walks away by contract, never reap.
+    if (task.cancel_reason === 'abandon') continue;
+    // Shutdown-abandon-detached contract (a8f05279, 1168c9f9): rows cancelled
+    // by restart keep their PID alive so the successor reconciler can
+    // re-adopt. Skip while the re-adoption window may still be in flight;
+    // past the grace, the wrapper has no remaining owner and should be reaped.
+    if (isWithinReadoptionGrace(task)) continue;
     if (!isProcessAlive(pid)) continue;
 
     const commandLine = await getProcessCommandLineFn(pid);
     if (!isTorqueDetachedCommand(commandLine)) continue;
 
-    logger.info(`[Zombie Check] Terminal task ${task.id} is '${task.status}' but PID ${pid} is still alive. Killing orphaned detached process.`);
+    const reasonSuffix = task.cancel_reason ? ` (cancel_reason='${task.cancel_reason}')` : '';
+    logger.info(`[Zombie Check] Terminal task ${task.id} is '${task.status}'${reasonSuffix} but PID ${pid} is still alive. Killing orphaned detached process.`);
     killOrphanByPidFn(pid, task.id, 5000, 'ZombieCheck');
   }
 }

@@ -198,4 +198,41 @@ describe('process-exit-wrapper.js — end-to-end', () => {
     expect(result.status).toBe(2);
     expect(result.stderr.toString()).toMatch(/missing TORQUE_PEW_PROGRAM/);
   });
+
+  // Regression: Bug #2 of the wrapper-leak investigation. The watchdog
+  // (process.kill(pid, 0) probe every WATCHDOG_INTERVAL_MS) plus
+  // `child.on('close')` can race when the child exits very fast and the
+  // interval is tight. The `exited` flag must keep both paths idempotent
+  // — exit code stays correct, only one [process-exit] annotation lands.
+  it('emits exactly one annotation when the watchdog ticks alongside a normal close', () => {
+    const dir = tmpDir('torque-pew-watchdog-');
+    const stderrFile = path.join(dir, 'stderr.log');
+    const stderrFd = fs.openSync(stderrFile, 'w');
+
+    // Tight watchdog (50ms) + child that lingers ~250ms so the watchdog
+    // will tick at least a few times before/around child close.
+    const childScript = 'setTimeout(() => process.exit(3), 250);';
+    const result = spawnSync(process.execPath, [WRAPPER], {
+      env: {
+        ...process.env,
+        TORQUE_PEW_PROGRAM: process.execPath,
+        TORQUE_PEW_ARGS: JSON.stringify(['-e', childScript]),
+        TORQUE_PEW_PROVIDER: 'codex',
+        TORQUE_PEW_WATCHDOG_INTERVAL_MS: '50',
+      },
+      stdio: ['ignore', 'ignore', stderrFd],
+      timeout: 15000,
+      windowsHide: true,
+    });
+    fs.closeSync(stderrFd);
+
+    expect(result.status).toBe(3);
+    const stderr = fs.readFileSync(stderrFile, 'utf8');
+    // The annotation must appear exactly once — both paths route through
+    // safeExit, which clears the watchdog and gates on the `exited` flag.
+    const matches = stderr.match(/\[process-exit\]/g) || [];
+    expect(matches.length).toBe(1);
+    // And it must report the child's real exit code, not a watchdog fallback.
+    expect(parseProcessExitAnnotation(stderr)?.code).toBe(3);
+  });
 });
