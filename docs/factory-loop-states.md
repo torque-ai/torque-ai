@@ -327,6 +327,32 @@ When you find a hit:
 3. Pair the catalog entry with classifier wiring (rule, benign-skip, terminal, b-side-reject, or engine).
 4. The CI gate will pass once the catalog and wiring agree.
 
+### Migration note: auto-ship action rename (2026-05-08)
+
+The three previous auto-ship actions (`auto_shipped_at_prioritize`, `auto_shipped_empty_branch`, `auto_shipped_at_verify_fail`) were collapsed into a single `auto_shipped` action with a `reason` discriminator. Historical rows in `factory_decisions` retain their original action names; new rows use the unified shape.
+
+Operator query patterns:
+
+```sql
+-- All auto-ship rows (combines historical + new)
+SELECT created_at, action,
+       json_extract(outcome, '$.reason') AS reason,
+       json_extract(outcome, '$.work_item_id') AS work_item_id
+FROM factory_decisions
+WHERE action IN ('auto_shipped', 'auto_shipped_at_prioritize',
+                 'auto_shipped_empty_branch', 'auto_shipped_at_verify_fail')
+ORDER BY created_at DESC;
+
+-- Frequency by reason (new rows only)
+SELECT json_extract(outcome, '$.reason') AS reason, COUNT(*) AS hits
+FROM factory_decisions
+WHERE action = 'auto_shipped'
+GROUP BY reason
+ORDER BY hits DESC;
+```
+
+Reason values map 1:1 to the previous action names: `at_prioritize` ↔ `auto_shipped_at_prioritize`, `empty_branch_merge_fail` ↔ `auto_shipped_empty_branch`, `at_verify_fail` ↔ `auto_shipped_at_verify_fail`.
+
 ---
 
 ## Open questions / known risks
