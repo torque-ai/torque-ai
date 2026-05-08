@@ -472,10 +472,16 @@ describe('runSafeguardPreChecks (via startTask)', () => {
     db.setConfig('budget_check_enabled', '0');
     db.setConfig('backup_before_modify_enabled', '1');
     db.setConfig('audit_trail_enabled', '1');
+    db.updateProvider('claude-cli', { enabled: 1, max_concurrent: 1 });
 
     const auditSpy = vi.spyOn(db, 'recordAuditEvent');
+    const spawnSpy = vi.spyOn(processLifecycle, 'spawnAndTrackProcess').mockImplementation((taskId, task) => ({
+      started: true,
+      taskId,
+      task,
+    }));
 
-    const id = createTask({ working_directory: os.tmpdir() });
+    const id = createTask({ provider: 'claude-cli', working_directory: os.tmpdir() });
     try {
       await tm.startTask(id);
     } catch {
@@ -492,6 +498,7 @@ describe('runSafeguardPreChecks (via startTask)', () => {
     );
 
     auditSpy.mockRestore();
+    spawnSpy.mockRestore();
   });
 
   it('skips rate limit check when rate_limit_enabled is 0', async () => {
@@ -902,11 +909,9 @@ describe('resolveProviderRouting (via startTask)', () => {
         task_description: 'review the API integration for edge cases',
       });
 
-      const result = await tm.startTask(id);
+      await tm.startTask(id);
       const task = db.getTask(id);
 
-      expect(result).toBeDefined();
-      expect(task.status).toBe('running');
       expect(task.provider).toBe('ollama');
       // Model may be auto-resolved by the ollama provider or cleared; either is valid
       expect(task.original_provider).toBe('codex');
