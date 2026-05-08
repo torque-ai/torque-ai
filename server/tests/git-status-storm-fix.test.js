@@ -146,7 +146,11 @@ describe('Git Status Storm Fix', () => {
       activityMonitoring.init({
         runningProcesses,
         getStallThreshold: () => 60, // 60s threshold
-        safeConfigInt: () => 10,
+        // Return 10 for unrelated keys but 0 for max_task_lifetime_*. The
+        // max-lifetime cap is checked AFTER the filesystem rescue and would
+        // re-stall the task (proc.startTime is 300s old) if any positive
+        // value is returned for those keys.
+        safeConfigInt: (key) => (typeof key === 'string' && key.startsWith('max_task_lifetime_') ? 0 : 10),
         getSkipGitInCloseHandler: () => false,
       });
     });
@@ -232,7 +236,9 @@ describe('Git Status Storm Fix', () => {
       activityMonitoring.init({
         runningProcesses,
         getStallThreshold: () => 60,
-        safeConfigInt: () => 10,
+        // Disable max-task-lifetime so it doesn't re-stall the rescued task
+        // (proc.startTime is 300s old in these fixtures).
+        safeConfigInt: (key) => (typeof key === 'string' && key.startsWith('max_task_lifetime_') ? 0 : 10),
         getSkipGitInCloseHandler: () => false,
       });
       invalidateFingerprintCache();

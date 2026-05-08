@@ -34,6 +34,13 @@ function resetRuntimeMocks() {
 async function setup(options = {}) {
   vi.resetModules();
   resetRuntimeMocks();
+  // The container is a singleton in require.cache — vi.resetModules doesn't
+  // clear it. Without clearing, taskStartup's factory captures the stub
+  // providerRegistry on the first test and subsequent tests see the same
+  // instance even after we override. Force a fresh container so
+  // task-manager's registerValue + boot run from scratch each test.
+  try { delete require.cache[require.resolve('../container')]; }
+  catch { /* already absent */ }
 
   const actualDb = await vi.importActual('../database');
   const actualProcessLifecycle = await vi.importActual('../execution/process-lifecycle');
@@ -75,6 +82,22 @@ async function setup(options = {}) {
   delete require.cache[helpersPath];
   delete require.cache[taskManagerPath];
 
+  // Pre-register the mocked providerRegistry in the container BEFORE
+  // setupE2eDb runs task-manager. task-manager.js gates its stub
+  // providerRegistry registration with `if (!has('providerRegistry'))` —
+  // when our mock is already registered, that guard skips and the mock
+  // wins. Without this, taskStartup's factory captures the stub at boot
+  // and the test's require.cache injection never reaches the running
+  // instance.
+  try {
+    const { defaultContainer } = require('../container');
+    if (typeof defaultContainer.registerValue === 'function' && !defaultContainer.has('providerRegistry')) {
+      defaultContainer.registerValue('providerRegistry', mockedProviderRegistry);
+    } else if (typeof defaultContainer.override === 'function') {
+      defaultContainer.override('providerRegistry', mockedProviderRegistry);
+    }
+  } catch { /* container miss — fall through to require.cache injection */ }
+
   helpers = require('./e2e-helpers');
   ctx = helpers.setupE2eDb('provider-override-runtime');
   db = ctx.db;
@@ -107,6 +130,22 @@ async function cleanup() {
   tm = null;
   resetRuntimeMocks();
   vi.resetModules();
+  // setup() manually injects mocked module exports into require.cache to
+  // override database / process-lifecycle / providers/registry. vi.resetModules()
+  // doesn't clear those direct injections, so a previous test's mock can
+  // leak into the next test's import chain. Clear them explicitly.
+  for (const modPath of [
+    '../database',
+    '../execution/process-lifecycle',
+    '../providers/registry',
+    './e2e-helpers',
+    '../task-manager',
+  ]) {
+    try {
+      const resolved = require.resolve(modPath);
+      delete require.cache[resolved];
+    } catch { /* path not cached */ }
+  }
 }
 
 function createTask(overrides = {}) {

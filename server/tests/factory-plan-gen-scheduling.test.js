@@ -54,7 +54,12 @@ describe('factory plan generation scheduling', () => {
       db?.close?.();
     } finally {
       if (testDir && fs.existsSync(testDir)) {
-        fs.rmSync(testDir, { recursive: true, force: true });
+        // Windows AV/indexer can briefly hold handles open after a test that
+        // spawned child processes; suppress the EPERM noise so the suite
+        // cleanup doesn't fail the gate over a temp-dir leftover.
+        try {
+          fs.rmSync(testDir, { recursive: true, force: true });
+        } catch { /* best-effort */ }
       }
       delete process.env.TORQUE_DATA_DIR;
       dataDir.setDataDir(null);

@@ -109,21 +109,27 @@ describe('replan-recovery-bootstrap disjointness', () => {
   it('throws when a B2 AUTO pattern overlaps a NON_RECOVERABLE pattern (dead code hygiene)', () => {
     bootstrap.bootstrapReplanRecovery();
     // The disjointness check guards against redundant listings between
-    // AUTO_REJECT (or AUTO_UNACTIONABLE) and NON_RECOVERABLE. Simulate by
-    // monkey-patching a NON_RECOVERABLE pattern that overlaps an AUTO entry.
-    const nonRecoverable = rejectedRecovery.NON_RECOVERABLE_REJECT_REASON_PATTERNS;
-    // /^cannot_generate_plan:/i is in NON_RECOVERABLE. Push a synthetic
-    // AUTO_REJECT pattern that overlaps it.
-    rejectedRecovery.AUTO_REJECT_REASON_PATTERNS.push(/^cannot_generate_plan:bogus/i);
+    // AUTO_REJECT (or AUTO_UNACTIONABLE) and NON_RECOVERABLE. The live arrays
+    // are Object.freeze()d as of 2c54533a (single-source-of-truth fix), so we
+    // can't push into them. Swap the export reference instead — the fresh
+    // require of bootstrap below pulls the augmented value from
+    // rejectedRecovery's still-cached module.exports.
+    const original = rejectedRecovery.AUTO_REJECT_REASON_PATTERNS;
+    rejectedRecovery.AUTO_REJECT_REASON_PATTERNS = [
+      ...original,
+      // /^dismissed_from_inbox:/i is in NON_RECOVERABLE and is the only entry
+      // there that no live B1 strategy claims, so this AUTO_REJECT pattern
+      // (a superstring of it) trips the B2∩NON_RECOVERABLE check without
+      // being short-circuited by an earlier B1∩B2 hit.
+      /^dismissed_from_inbox:bogus/i,
+    ];
     try {
-      // Re-evaluate by reloading bootstrap (re-imports the live arrays).
       delete require.cache[require.resolve('../factory/replan-recovery-bootstrap')];
       const fresh = require('../factory/replan-recovery-bootstrap');
       expect(() => fresh.assertDisjointReasonPatterns())
         .toThrow(/B2\) AUTO ∩ NON_RECOVERABLE pattern overlap/);
     } finally {
-      rejectedRecovery.AUTO_REJECT_REASON_PATTERNS.pop();
-      void nonRecoverable;
+      rejectedRecovery.AUTO_REJECT_REASON_PATTERNS = original;
     }
   });
 

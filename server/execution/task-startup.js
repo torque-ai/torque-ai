@@ -1336,7 +1336,12 @@ function applyRunDirectoryState({
   const rewrittenDescription = typeof task.task_description === 'string'
     ? task.task_description.replace(/\$run_dir/g, runDir)
     : task.task_description;
+  // Spread previousMetadata first so slot-claim enrichments (last_provider_switch,
+  // provider_switch_history, requested_provider) survive — taskMetadata is the
+  // pre-claim in-memory copy and won't have them. Caller-set taskMetadata still
+  // wins on overlapping keys.
   const nextMetadata = {
+    ...previousMetadata,
     ...taskMetadata,
     run_dir: runDir,
     transcript_path: transcriptLog.filePath,
@@ -1638,7 +1643,15 @@ async function constructStartupCommand({
 
 function spawnStartupProcess(taskId, task, startupCommand) {
   const { mode: _mode, ...spawnConfig } = startupCommand;
-  return spawnAndTrackProcess(taskId, task, spawnConfig);
+  // Look up the spawn fn fresh from process-lifecycle at call time rather
+  // than the init-captured ref. Production behavior is unchanged (the
+  // captured ref equals processLifecycle.spawnAndTrackProcess by construction);
+  // the dynamic lookup makes vi.spyOn(processLifecycle, 'spawnAndTrackProcess')
+  // installed AFTER init() take effect, which the slot-enforcement and
+  // safeguard tests rely on.
+  const fresh = require('./process-lifecycle').spawnAndTrackProcess;
+  const fn = fresh || spawnAndTrackProcess;
+  return fn(taskId, task, spawnConfig);
 }
 
 function releaseDirectProviderLocksAfterCompletion(resultOrPromise, startupResources) {
