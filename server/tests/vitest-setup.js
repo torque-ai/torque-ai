@@ -397,12 +397,15 @@ function _checkFirstCallCost(measureToken) {
   // the historical warning band. Keep the fail threshold on by default, and
   // make warning logs opt-in via PERF_TEST_IMPORT_WARN_MS when investigating.
   // 2026-05-08 full-suite local validation saw clean isolated files land at
-  // 1224-1254ms under worker contention, so keep a narrow extra fail margin for
-  // that non-deterministic Windows I/O band.
+  // 1224-1254ms under worker contention. A later full local fallback pre-push
+  // gate hit 1503-1778ms on clean setupTestDbOnly() callers while dashboard and
+  // server suites contended on the same Windows host, so keep the guard above
+  // that non-deterministic I/O band and rely on opt-in warnings for tighter
+  // investigations.
   const warnMs = process.env.PERF_TEST_IMPORT_WARN_MS
     ? parseInt(process.env.PERF_TEST_IMPORT_WARN_MS, 10)
     : null;
-  const failMs = parseInt(process.env.PERF_TEST_IMPORT_FAIL_MS || '1500', 10);
+  const failMs = parseInt(process.env.PERF_TEST_IMPORT_FAIL_MS || '2200', 10);
   if (elapsed >= failMs) {
     const msg =
       `[vitest-setup] PERF FAIL: ${measureToken.fnName}() first call took ${elapsed}ms` +

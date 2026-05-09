@@ -50,6 +50,17 @@ describe('Provider Routing & Fallback', { retry: 2 }, () => {
       expect(getText(result)).toMatch(/\|\s*Provider\s*\|\s*\*\*codex\*\*\s*\|/i);
     });
 
+    it('routes explicit "test task" prompts with a local model parameter to codex', async () => {
+      const result = await safeTool('smart_submit_task', {
+        task: 'Test task for test-small:7b',
+        model: 'test-small:7b'
+      });
+      const text = getText(result);
+      expect(result.isError).toBeFalsy();
+      expect(text).toMatch(/\|\s*Provider\s*\|\s*\*\*codex\*\*\s*\|/i);
+      expect(text).not.toMatch(/\|\s*Model\s*\|\s*test-small:7b\s*\|/i);
+    });
+
     it('respects override_provider on explicit "test task" prompts', async () => {
       const result = await safeTool('smart_submit_task', {
         task: 'Test task for qwen2.5-coder:7b',
