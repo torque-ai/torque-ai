@@ -953,10 +953,17 @@ async function handleToolCall(name, args) {
     case 'get_task_log_disk_usage': {
       const { getTaskLogDiskUsage } = require('./utils/task-log-retention');
       const retentionDays = serverConfig.getInt('task_log_retention_days', 30);
-      const usage = getTaskLogDiskUsage({ retentionDays });
+      const minFreeMb = serverConfig.getInt('task_log_disk_min_mb', 1024);
+      const usage = getTaskLogDiskUsage({ retentionDays, minFreeMb });
       const summary = `Task-log disk usage: ${usage.task_count} task dir(s), ${usage.total_bytes} bytes`
         + (usage.oldest_log_age_days !== null
           ? `, oldest log ${usage.oldest_log_age_days} days old`
+          : '')
+        + (usage.disk_check_available
+          ? `, ${usage.free_mb} MB free`
+          : `, free-space check ${usage.disk_check_reason}`)
+        + (usage.admission_paused
+          ? `; admission paused below task_log_disk_min_mb=${usage.min_free_mb} MB`
           : '')
         + ` (retention: ${usage.retention_days} days; configurable via task_log_retention_days).`;
       return {

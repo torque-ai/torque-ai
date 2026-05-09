@@ -42,7 +42,7 @@ const tools = [
   },
   {
     name: 'get_task_log_disk_usage',
-    description: 'Phase E / §2.5.2 — operator-visible status surface for the per-task log directory under <data-dir>/task-logs/. Returns { total_bytes, task_count, oldest_log_age_days, retention_days }. Use to decide when to extend `task_log_retention_days` before the maintenance prune sweep starts deleting forensically interesting logs.',
+    description: 'Phase E / §2.5.2 — operator-visible status surface for the per-task log directory under <data-dir>/task-logs/. Returns log bytes plus free-space/admission guard fields { total_bytes, task_count, oldest_log_age_days, retention_days, free_mb, min_free_mb, admission_paused }. Use to decide when to prune logs, extend `task_log_retention_days`, or raise `task_log_disk_min_mb` before starts are paused.',
     inputSchema: { type: 'object', properties: {} },
   },
   {
