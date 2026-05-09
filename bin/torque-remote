@@ -333,6 +333,64 @@ cleanup_materialized_local_command() {
   fi
 }
 
+powershell_single_quote() {
+  printf "'%s'" "$(printf '%s' "$1" | sed "s/'/''/g")"
+}
+
+powershell_encoded_command() {
+  powershell.exe -NoProfile -Command \
+    '$text = [Console]::In.ReadToEnd(); [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($text))' \
+    2>/dev/null | tr -d '\r\n'
+}
+
+windows_path_parent() {
+  local path="$1"
+  local parent="${path%\\*}"
+  if [[ "$parent" == "$path" ]]; then
+    parent="${path%/*}"
+  fi
+  printf '%s\n' "$parent"
+}
+
+windows_path_to_scp_path() {
+  local path="$1"
+  path="${path//\\//}"
+  printf '%s\n' "$path"
+}
+
+windows_path_to_bash_path() {
+  local path="$1"
+  path="${path//\\//}"
+  if [[ "$path" =~ ^([A-Za-z]):/(.*)$ ]]; then
+    local drive="${BASH_REMATCH[1],,}"
+    printf '/%s/%s\n' "$drive" "${BASH_REMATCH[2]}"
+  else
+    printf '%s\n' "$path"
+  fi
+}
+
+remote_powershell_command() {
+  local ps_body="$1"
+  local encoded
+  encoded="$(printf '%s' "$ps_body" | powershell_encoded_command)"
+  printf 'powershell -NoProfile -ExecutionPolicy Bypass -EncodedCommand %s\n' "$encoded"
+}
+
+remote_git_bash_command() {
+  local bash_body="$1"
+  local ps_body
+  ps_body=$(cat <<EOF
+\$ErrorActionPreference = 'Continue'
+\$env:PATH = 'C:\Program Files\Git\usr\bin;C:\Program Files\Git\bin;' + \$env:PATH
+\$env:TMPDIR = Join-Path \$env:TEMP 'torque-remote-tmp'
+New-Item -ItemType Directory -Path \$env:TMPDIR -Force | Out-Null
+& 'C:\Program Files\Git\usr\bin\bash.exe' -lc $(powershell_single_quote "$bash_body")
+exit \$LASTEXITCODE
+EOF
+)
+  remote_powershell_command "$ps_body"
+}
+
 format_command_for_log() {
   local part parts=()
   for part in "$@"; do
@@ -2037,7 +2095,6 @@ case "$TRANSPORT" in
       fi
     fi
 
-    GIT_BASH='C:\progra~1\Git\bin\bash.exe'
     COMMAND_ARGS_LITERAL="$(bash_array_literal COMMAND_ARGS "${COMMAND_ARGS[@]}")"
 
     # runner.sh body — executed on remote inside the bundle's extracted dir.
@@ -2103,6 +2160,9 @@ EOF
 # torque-remote-inline-bootstrap
 set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+export PATH="/usr/bin:/bin:$PATH"
+export TMPDIR="$SCRIPT_DIR/tmp"
+mkdir -p "$TMPDIR"
 out="$SCRIPT_DIR/runner.out"
 : > "$out"
 bash "$SCRIPT_DIR/runner.sh" >"$out" 2>&1 </dev/null &
@@ -2119,7 +2179,10 @@ exit "$rc"
 EOF
 )
 
-    # Always bundle runner.sh + (maybe) patches/untracked into a tar delivered via SSH stdin.
+    # Always bundle runner.sh + (maybe) patches/untracked into a tar copied to
+    # the remote before execution. Windows OpenSSH + Git Bash can leave stdin
+    # open after `ssh ... < bundle.tar`, so the tar is delivered with scp and
+    # the remote command reads it from disk.
     # --branch <ref> explicitly requests the remote ref as-is; don't overlay local state there.
     if [[ -n "$BRANCH_OVERRIDE" ]]; then
       CAPTURE_LOCAL_STATE="false"
@@ -2138,10 +2201,32 @@ EOF
       fi
     fi
 
-    # Minimal cmd.exe-safe extractor. No newlines, no internal double quotes, no
-    # backslash-escaped quotes, and no cmd.exe metacharacters for runner/tail
-    # lifecycle. bootstrap.sh owns output streaming and cleanup after extraction.
-    REMOTE_RUN_COMMAND="\"$GIT_BASH\" -lc \"d=\$(mktemp -d) || exit 1;tar -xf - -C \$d;tar_rc=\$?;if [ \$tar_rc -ne 0 ]; then rm -rf \$d;exit \$tar_rc;fi;bash \$d/bootstrap.sh\""
+    REMOTE_BUNDLE_PARENT="$(windows_path_parent "$EFFECTIVE_REMOTE_PROJECT_PATH")"
+    REMOTE_BUNDLE_DIR="${REMOTE_BUNDLE_PARENT}\\.torque-remote-bundles"
+    REMOTE_BUNDLE_NAME="bundle-${REMOTE_LANE_INDEX:-0}-$$-$(date +%s)-$RANDOM.tar"
+    REMOTE_BUNDLE_PATH="${REMOTE_BUNDLE_DIR}\\${REMOTE_BUNDLE_NAME}"
+    REMOTE_BUNDLE_SCP_PATH="$(windows_path_to_scp_path "$REMOTE_BUNDLE_PATH")"
+
+    REMOTE_RUN_PS=$(cat <<EOF
+\$ErrorActionPreference = 'Continue'
+\$bundle = $(powershell_single_quote "$REMOTE_BUNDLE_PATH")
+\$extractDir = Join-Path \$env:TEMP ('torque-remote-' + [guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Path \$extractDir -Force | Out-Null
+tar -xf \$bundle -C \$extractDir
+\$tarRc = \$LASTEXITCODE
+Remove-Item -LiteralPath \$bundle -Force -ErrorAction SilentlyContinue
+if (\$tarRc -ne 0) {
+  Remove-Item -LiteralPath \$extractDir -Recurse -Force -ErrorAction SilentlyContinue
+  exit \$tarRc
+}
+\$env:PATH = 'C:\Program Files\Git\usr\bin;C:\Program Files\Git\bin;' + \$env:PATH
+\$env:TMPDIR = Join-Path \$extractDir 'tmp'
+New-Item -ItemType Directory -Path \$env:TMPDIR -Force | Out-Null
+& 'C:\Program Files\Git\usr\bin\bash.exe' (Join-Path \$extractDir 'bootstrap.sh')
+exit \$LASTEXITCODE
+EOF
+)
+    REMOTE_RUN_COMMAND="$(remote_powershell_command "$REMOTE_RUN_PS")"
     REMOTE_CLEANUP_BODY=$(cat <<EOF
 # torque-remote-failsafe-cleanup
 cd $(shell_quote "$EFFECTIVE_REMOTE_PROJECT_PATH") || exit 0
@@ -2151,46 +2236,54 @@ if [[ $(shell_quote "$APPLY_LOCAL_STATE") == 'true' ]]; then
 fi
 EOF
 )
-    REMOTE_CLEANUP_COMMAND="\"$GIT_BASH\" -lc $(shell_quote "$REMOTE_CLEANUP_BODY")"
-    REMOTE_CLEANUP_REQUIRED="$APPLY_LOCAL_STATE"
+    REMOTE_CLEANUP_BODY="$REMOTE_CLEANUP_BODY
+rm -f $(shell_quote "$(windows_path_to_bash_path "$REMOTE_BUNDLE_PATH")") >/dev/null 2>&1 || true"
+    REMOTE_CLEANUP_COMMAND="$(remote_git_bash_command "$REMOTE_CLEANUP_BODY")"
+    REMOTE_CLEANUP_REQUIRED="true"
 
     info "Running on $SSH_USER@$SSH_HOST: $COMMAND_DISPLAY"
     set +e
-    if [[ -n "$COORD_OUTPUT_LOG" ]]; then
-      # See coord-release_on_exit comment: tee SSH output via tail-F-pid so
-      # the user sees real-time progress AND the result-store gets a full
-      # output_tail to replay on warm-hit. The streamer is killed after SSH exits
-      # because Git Bash can leave `tail --pid` alive after the watched process
-      # is gone, which would strand the caller after a completed remote command.
-      run_with_timeout "$TIMEOUT_SECONDS" ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" \
-        "$REMOTE_RUN_COMMAND" < "$LOCAL_STATE_BUNDLE" > "$COORD_OUTPUT_LOG" 2>&1 &
-      cmd_pid=$!
-      tail -f --pid="$cmd_pid" "$COORD_OUTPUT_LOG" &
-      tail_pid=$!
-      wait "$cmd_pid"
-      exit_code=$?
-      sleep 0.2
-      kill "$tail_pid" 2>/dev/null || true
-      wait "$tail_pid" 2>/dev/null || true
+    ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" "if not exist \"$REMOTE_BUNDLE_DIR\" mkdir \"$REMOTE_BUNDLE_DIR\"" >/dev/null 2>&1
+    mkdir_rc=$?
+    if [[ "$mkdir_rc" -ne 0 ]]; then
+      exit_code=$mkdir_rc
     else
-      run_with_timeout "$TIMEOUT_SECONDS" ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" \
-        "$REMOTE_RUN_COMMAND" < "$LOCAL_STATE_BUNDLE"
-      exit_code=$?
+      run_with_timeout "$TIMEOUT_SECONDS" scp -q "${SSH_OPTS[@]}" "$LOCAL_STATE_BUNDLE" "$SSH_USER@$SSH_HOST:$REMOTE_BUNDLE_SCP_PATH"
+      upload_rc=$?
+      if [[ "$upload_rc" -ne 0 ]]; then
+        exit_code=$upload_rc
+      elif [[ -n "$COORD_OUTPUT_LOG" ]]; then
+        # See coord-release_on_exit comment: tee SSH output via tail-F-pid so
+        # the user sees real-time progress AND the result-store gets a full
+        # output_tail to replay on warm-hit. The streamer is killed after SSH exits
+        # because Git Bash can leave `tail --pid` alive after the watched process
+        # is gone, which would strand the caller after a completed remote command.
+        run_with_timeout "$TIMEOUT_SECONDS" ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" \
+          "$REMOTE_RUN_COMMAND" > "$COORD_OUTPUT_LOG" 2>&1 &
+        cmd_pid=$!
+        tail -f --pid="$cmd_pid" "$COORD_OUTPUT_LOG" &
+        tail_pid=$!
+        wait "$cmd_pid"
+        exit_code=$?
+        sleep 0.2
+        kill "$tail_pid" 2>/dev/null || true
+        wait "$tail_pid" 2>/dev/null || true
+      else
+        run_with_timeout "$TIMEOUT_SECONDS" ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" \
+          "$REMOTE_RUN_COMMAND"
+        exit_code=$?
+      fi
     fi
     set -e
 
-    if [[ "$APPLY_LOCAL_STATE" == "true" ]]; then
-      case "$exit_code" in
-        124|255)
-          cleanup_remote_exec
-          ;;
-        *)
-          REMOTE_CLEANUP_REQUIRED="false"
-          ;;
-      esac
-    else
-      REMOTE_CLEANUP_REQUIRED="false"
-    fi
+    case "$exit_code" in
+      124|255)
+        cleanup_remote_exec
+        ;;
+      *)
+        REMOTE_CLEANUP_REQUIRED="false"
+        ;;
+    esac
 
     if [[ $exit_code -eq 124 ]]; then
       echo "[torque-remote] ERROR: Command timed out after ${TIMEOUT_SECONDS}s" >&2

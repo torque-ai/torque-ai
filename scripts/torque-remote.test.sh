@@ -422,6 +422,10 @@ if [[ ( "$remote_cmd" == *".torque-remote-lanes"* || "$remote_cmd" == *".torque-
   exit "${SSH_LOCK_REAP_EXIT_CODE:-0}"
 fi
 
+if [[ "$remote_cmd" == *".torque-remote-bundles"* && "$remote_cmd" == *"mkdir"* ]]; then
+  exit "${SSH_BUNDLE_MKDIR_EXIT_CODE:-0}"
+fi
+
 if [[ "$remote_cmd" == "wmic cpu get loadpercentage /value" ]]; then
   if [[ "${SSH_WMIC_OUTPUT+x}" == "x" ]]; then
     printf '%s\n' "$SSH_WMIC_OUTPUT"
@@ -487,13 +491,7 @@ if [[ "$remote_cmd" == *"git checkout --force "* && "$remote_cmd" == *"git reset
   exit "${SSH_SYNC_EXIT_CODE:-0}"
 fi
 
-if [[ "$remote_cmd" == *"torque-remote-inline-run"* || "$remote_cmd" == *"runner.sh"* || "$remote_cmd" == *"bootstrap.sh"* ]]; then
-  if [[ -n "${TORQUE_REMOTE_TEST_REMOTE_STDIN:-}" ]]; then
-    cat > "$TORQUE_REMOTE_TEST_REMOTE_STDIN"
-  else
-    cat >/dev/null
-  fi
-
+if [[ "$remote_cmd" == *"EncodedCommand"* || "$remote_cmd" == *"torque-remote-inline-run"* || "$remote_cmd" == *"runner.sh"* || "$remote_cmd" == *"bootstrap.sh"* ]]; then
   if [[ "${SSH_EXEC_OUTPUT+x}" == "x" && -n "$SSH_EXEC_OUTPUT" ]]; then
     printf '%s\n' "$SSH_EXEC_OUTPUT"
   fi
@@ -506,6 +504,34 @@ if [[ "${SSH_EXEC_OUTPUT+x}" == "x" && -n "$SSH_EXEC_OUTPUT" ]]; then
 fi
 
 exit "${SSH_EXEC_EXIT_CODE:-0}"
+EOF
+}
+
+write_stub_scp() {
+  local path="$1"
+  cat > "$path" <<'EOF'
+#!/usr/bin/env bash
+set -uo pipefail
+
+log_file="${TORQUE_REMOTE_TEST_CALLS_LOG:?}"
+{
+  printf 'scp'
+  for arg in "$@"; do
+    printf ' [%s]' "$arg"
+  done
+  printf '\n'
+} >> "$log_file"
+
+if [[ "$#" -ge 2 && -n "${TORQUE_REMOTE_TEST_REMOTE_STDIN:-}" ]]; then
+  args=("$@")
+  src_index=$(($# - 2))
+  src="${args[$src_index]}"
+  if [[ -f "$src" ]]; then
+    cp "$src" "$TORQUE_REMOTE_TEST_REMOTE_STDIN"
+  fi
+fi
+
+exit "${SCP_EXIT_CODE:-0}"
 EOF
 }
 
@@ -565,9 +591,10 @@ EOF
   write_stub_jq "$tmp/bin/jq"
   write_stub_git "$tmp/bin/git"
   write_stub_ssh "$tmp/bin/ssh"
+  write_stub_scp "$tmp/bin/scp"
   write_stub_timeout "$tmp/bin/timeout"
   write_stub_argv_dump "$tmp/bin/argv-dump"
-  chmod +x "$tmp/bin/jq" "$tmp/bin/git" "$tmp/bin/ssh" "$tmp/bin/timeout" "$tmp/bin/argv-dump"
+  chmod +x "$tmp/bin/jq" "$tmp/bin/git" "$tmp/bin/ssh" "$tmp/bin/scp" "$tmp/bin/timeout" "$tmp/bin/argv-dump"
 
   LAST_TEST_ENV="$tmp"
 }
@@ -632,7 +659,8 @@ test_default_syncs_main() {
   # uses the detached-HEAD path (same as the worktree bootstrap path).
   expect_file_contains "ssh sync checks out main detached" "$tmp/calls.log" "git checkout --force --detach origin/main"
   expect_file_contains "ssh sync resets origin/main" "$tmp/calls.log" "git reset --hard origin/main"
-  expect_file_contains "remote execute uses git bash" "$tmp/calls.log" "C:\\progra~1\\Git\\bin\\bash.exe"
+  expect_file_contains "remote bundle is uploaded with scp" "$tmp/calls.log" "scp ["
+  expect_file_contains "remote execute uses encoded PowerShell" "$tmp/calls.log" "EncodedCommand"
 
   finish_test "test_default_syncs_main"
 }
@@ -794,15 +822,18 @@ test_remote_bootstrap_streams_runner_output_without_inherited_stdout_hang() {
   run_torque_remote "$tmp" echo hi
 
   expect_eq "exit code is 0" "0" "$RUN_EXIT"
-  expect_contains "remote command invokes bundled bootstrap" "$RUN_REMOTE_COMMANDS" "bash \$d/bootstrap.sh"
+  expect_contains "remote command uses encoded PowerShell launcher" "$RUN_REMOTE_COMMANDS" "EncodedCommand"
   expect_contains "runner stdio is isolated from ssh" "$RUN_BOOTSTRAP_SH" "bash \"\$SCRIPT_DIR/runner.sh\" >\"\$out\" 2>&1 </dev/null &"
   expect_contains "remote tail streams from output tempfile" "$RUN_BOOTSTRAP_SH" "tail -n +1 -f \"\$out\""
   expect_contains "tail background operator is in bundled bash" "$RUN_BOOTSTRAP_SH" "tail -n +1 -f \"\$out\" &"
   expect_contains "tail process is stopped after runner exits" "$RUN_BOOTSTRAP_SH" "kill \"\$tail_pid\" 2>/dev/null || true"
   expect_contains "tail process is reaped defensively" "$RUN_BOOTSTRAP_SH" "wait \"\$tail_pid\" 2>/dev/null || true"
   expect_contains "cleanup cannot hold ssh stdio open" "$RUN_BOOTSTRAP_SH" "rm -rf \"\$SCRIPT_DIR\" >/dev/null 2>&1 </dev/null &"
+  expect_contains "bootstrap creates an isolated TMPDIR for Git Bash tools" "$RUN_BOOTSTRAP_SH" "export TMPDIR=\"\$SCRIPT_DIR/tmp\""
+  expect_file_contains "bundle upload avoids ssh stdin tar delivery" "$tmp/calls.log" "scp ["
   expect_not_contains "ssh command keeps runner lifecycle operators out of cmd.exe" "$RUN_REMOTE_COMMANDS" "tail -n +1 -f"
   expect_not_contains "ssh command does not background runner directly" "$RUN_REMOTE_COMMANDS" "runner.sh >"
+  expect_not_contains "remote command no longer extracts tar from ssh stdin" "$RUN_REMOTE_COMMANDS" "tar -xf -"
   expect_not_contains "remote command does not run runner directly on ssh stdout" "$RUN_REMOTE_COMMANDS" "bash \$d/runner.sh;rc=\$?;rm -rf \$d;exit \$rc"
 
   finish_test "test_remote_bootstrap_streams_runner_output_without_inherited_stdout_hang"
@@ -1039,9 +1070,10 @@ EOF
   write_stub_jq "$parent/bin/jq"
   write_stub_git "$parent/bin/git"
   write_stub_ssh "$parent/bin/ssh"
+  write_stub_scp "$parent/bin/scp"
   write_stub_timeout "$parent/bin/timeout"
   write_stub_argv_dump "$parent/bin/argv-dump"
-  chmod +x "$parent/bin/jq" "$parent/bin/git" "$parent/bin/ssh" "$parent/bin/timeout" "$parent/bin/argv-dump"
+  chmod +x "$parent/bin/jq" "$parent/bin/git" "$parent/bin/ssh" "$parent/bin/scp" "$parent/bin/timeout" "$parent/bin/argv-dump"
 
   local stdout_file="$worktree/stdout.log"
   local stderr_file="$worktree/stderr.log"
@@ -1121,9 +1153,10 @@ EOF
   write_stub_jq "$parent/bin/jq"
   write_stub_git "$parent/bin/git"
   write_stub_ssh "$parent/bin/ssh"
+  write_stub_scp "$parent/bin/scp"
   write_stub_timeout "$parent/bin/timeout"
   write_stub_argv_dump "$parent/bin/argv-dump"
-  chmod +x "$parent/bin/jq" "$parent/bin/git" "$parent/bin/ssh" "$parent/bin/timeout" "$parent/bin/argv-dump"
+  chmod +x "$parent/bin/jq" "$parent/bin/git" "$parent/bin/ssh" "$parent/bin/scp" "$parent/bin/timeout" "$parent/bin/argv-dump"
 
   local stdout_file="$worktree/stdout.log"
   local stderr_file="$worktree/stderr.log"
@@ -1288,7 +1321,7 @@ test_unknown_leading_flag_errors() {
 }
 
 test_timeout_style_failure_triggers_failsafe_cleanup_round_trip() {
-  local tmp
+  local tmp cleanup_count
 
   echo "Test: timeout-style failure triggers fail-safe cleanup round-trip"
   TEST_ERRORS=()
@@ -1304,7 +1337,11 @@ test_timeout_style_failure_triggers_failsafe_cleanup_round_trip() {
 
   expect_nonzero "exit code is non-zero" "$RUN_EXIT"
   expect_contains "stderr reports timeout" "$RUN_STDERR" "timed out after"
-  expect_contains "fail-safe cleanup command runs on timeout-style exit" "$RUN_REMOTE_COMMANDS" "torque-remote-failsafe-cleanup"
+  cleanup_count="$(grep -F "EncodedCommand" "$tmp/remote-commands.log" | wc -l | tr -d '[:space:]')"
+  if [[ "$cleanup_count" -lt 2 ]]; then
+    record_failure "fail-safe cleanup command runs on timeout-style exit (expected at least 2 encoded ssh commands, got $cleanup_count)"
+  fi
+  expect_contains "cleanup body still includes failsafe marker in source" "$(slurp_file "$SCRIPT_UNDER_TEST")" "torque-remote-failsafe-cleanup"
 
   finish_test "test_timeout_style_failure_triggers_failsafe_cleanup_round_trip"
 }
