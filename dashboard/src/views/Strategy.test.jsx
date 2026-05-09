@@ -120,7 +120,7 @@ const mockProviderHealth = [
   {
     provider: 'ollama',
     enabled: true,
-    health_status: 'warning',
+    health_status: 'degraded',
     success_rate_1h: 80,
     successes_1h: 8,
     failures_1h: 2,
@@ -128,6 +128,32 @@ const mockProviderHealth = [
     completed_today: 10,
     failed_today: 2,
     avg_duration_seconds: 120,
+    fallback_state: {
+      preferred_provider: 'ollama',
+      fallback_provider: 'codex',
+      fallback_active: true,
+      preferred_available: false,
+      remote_preferred: true,
+      smart_routing_enabled: true,
+      state: 'fallback_active',
+      health_status: 'degraded',
+      healthy_count: 0,
+      total_count: 1,
+      host_count: 1,
+      known_down_count: 1,
+      unknown_count: 0,
+      summary: 'Ollama unavailable; routing is using codex fallback',
+      hosts: [{
+        id: 'remote',
+        name: 'Remote GPU',
+        url: 'http://192.0.2.183:11434',
+        status: 'down',
+        enabled: true,
+        remote: true,
+        running_tasks: 0,
+        models_count: 0,
+      }],
+    },
   },
   {
     provider: 'deepinfra',
@@ -370,7 +396,7 @@ describe('Strategic', () => {
       // These appear as chain nodes
       expect(screen.getByText('Fallback Chain')).toBeInTheDocument();
     });
-    expect(screen.getByText('2/3 healthy in chain')).toBeInTheDocument();
+    expect(screen.getByText('1/3 healthy in chain')).toBeInTheDocument();
   });
 
   it('displays active provider label in fallback chain footer', async () => {
@@ -403,17 +429,32 @@ describe('Strategic', () => {
   it('displays health status badges', async () => {
     renderWithProviders(<Strategic />, { route: '/strategy' });
     await waitFor(() => {
-      // healthy appears for codex and deepinfra, warning for ollama, disabled for groq
       const healthyElements = screen.getAllByText('healthy');
       expect(healthyElements.length).toBeGreaterThanOrEqual(2);
     });
   });
 
-  it('displays warning status for degraded providers', async () => {
+  it('displays degraded status for fallback-active providers', async () => {
     renderWithProviders(<Strategic />, { route: '/strategy' });
     await waitFor(() => {
-      const warningElements = screen.getAllByText('warning');
-      expect(warningElements.length).toBeGreaterThanOrEqual(1);
+      const degradedElements = screen.getAllByText('degraded');
+      expect(degradedElements.length).toBeGreaterThanOrEqual(1);
+    });
+  });
+
+  it('displays Ollama fallback state in the overview', async () => {
+    renderWithProviders(<Strategic />, { route: '/strategy' });
+    await waitFor(() => {
+      expect(screen.getByText('Ollama fallback active')).toBeInTheDocument();
+      expect(screen.getByText(/Routing is using codex while Ollama is unavailable/)).toBeInTheDocument();
+    });
+  });
+
+  it('displays Ollama host and fallback details on the provider card', async () => {
+    renderWithProviders(<Strategic />, { route: '/strategy' });
+    await waitFor(() => {
+      expect(screen.getByText('Ollama Hosts')).toBeInTheDocument();
+      expect(screen.getAllByText('0/1').length).toBeGreaterThanOrEqual(1);
     });
   });
 

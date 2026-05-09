@@ -80,6 +80,52 @@ function unwrapArrayPayload(payload, ...keys) {
   return [];
 }
 
+function getOllamaFallbackState(providerHealth) {
+  const ollama = providerHealth.find((provider) => provider.provider === 'ollama');
+  return ollama?.fallback_state || null;
+}
+
+function OllamaFallbackNotice({ state }) {
+  if (!state || !['fallback_active', 'partial_degradation'].includes(state.state)) {
+    return null;
+  }
+
+  const fallbackProvider = state.fallback_provider || 'fallback';
+  const hostCount = `${state.healthy_count || 0}/${state.total_count || 0}`;
+  const title = state.fallback_active ? 'Ollama fallback active' : 'Ollama partially degraded';
+  const body = state.fallback_active
+    ? `Routing is using ${fallbackProvider} while Ollama is unavailable. Ollama remains preferred when a host recovers.`
+    : `Routing can use ${hostCount} Ollama hosts and will avoid unavailable hosts.`;
+
+  return (
+    <div className="mb-6 rounded-lg border border-amber-500/30 bg-amber-500/10 p-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <span className={`h-2.5 w-2.5 rounded-full ${state.fallback_active ? 'bg-red-400' : 'bg-yellow-400'}`} aria-hidden="true" />
+            <h3 className="text-sm font-semibold text-white">{title}</h3>
+          </div>
+          <p className="mt-1 text-sm text-slate-300">{body}</p>
+        </div>
+        <div className="grid grid-cols-3 gap-2 text-xs sm:min-w-[270px]">
+          <div className="rounded bg-slate-950/40 px-2 py-1.5">
+            <p className="text-slate-500">Hosts</p>
+            <p className="font-medium text-white">{hostCount}</p>
+          </div>
+          <div className="rounded bg-slate-950/40 px-2 py-1.5">
+            <p className="text-slate-500">Preferred</p>
+            <p className="font-medium text-white">{state.preferred_provider || 'ollama'}</p>
+          </div>
+          <div className="rounded bg-slate-950/40 px-2 py-1.5">
+            <p className="text-slate-500">Fallback</p>
+            <p className="font-medium text-white">{fallbackProvider}</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Fallback Chain Visualization ───────────────────────────
 
 function FallbackChainNode({ name, healthStatus }) {
@@ -151,6 +197,8 @@ function FallbackChain({ chain, providerHealthMap, activeProvider }) {
 function ProviderHealthCard({ data }) {
   const style = getProviderStyle(data.provider);
   const healthStyle = HEALTH_STATUS_STYLES[data.health_status] || HEALTH_STATUS_STYLES.healthy;
+  const fallbackState = data.fallback_state;
+  const showFallbackState = fallbackState && ['fallback_active', 'partial_degradation'].includes(fallbackState.state);
 
   const avgLatencyDisplay = data.avg_duration_seconds
     ? data.avg_duration_seconds < 60
@@ -194,6 +242,20 @@ function ProviderHealthCard({ data }) {
           <p className="text-white font-medium">{data.failed_7d || 0}</p>
         </div>
       </div>
+      {showFallbackState && (
+        <div className="mt-3 grid grid-cols-2 gap-2 border-t border-slate-700/40 pt-3 text-xs">
+          <div>
+            <p className="text-slate-500 mb-0.5">Ollama Hosts</p>
+            <p className="text-white font-medium">
+              {fallbackState.healthy_count || 0}/{fallbackState.total_count || 0}
+            </p>
+          </div>
+          <div>
+            <p className="text-slate-500 mb-0.5">Fallback</p>
+            <p className="text-white font-medium capitalize">{fallbackState.fallback_provider || 'none'}</p>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -553,6 +615,7 @@ export default function Strategic() {
   const completedTasks7d = providerStats.reduce((s, p) => s + (p.stats?.completed_tasks || p.stats?.successful_tasks || 0), 0);
   const successRate7d = totalTasks7d > 0 ? Math.round((completedTasks7d / totalTasks7d) * 100) : null;
   const totalCost7d = budgetSummary?.total_cost || 0;
+  const ollamaFallbackState = getOllamaFallbackState(providerHealth);
 
   return (
     <div className="p-6">
@@ -594,6 +657,8 @@ export default function Strategic() {
       {/* Overview Tab */}
       {topTab === 'overview' && (
         <>
+          <OllamaFallbackNotice state={ollamaFallbackState} />
+
           {/* Stat Cards */}
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">
             <StatCard label="Tasks (7d)" value={totalTasks7d} gradient="blue" />

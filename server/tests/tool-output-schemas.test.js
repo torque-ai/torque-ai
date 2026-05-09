@@ -523,6 +523,17 @@ describe('tool-output-schemas', () => {
       expect(result.structuredData).toBeDefined();
       expect(typeof result.structuredData.healthy_count).toBe('number');
       expect(typeof result.structuredData.total_count).toBe('number');
+      expect(typeof result.structuredData.fallback_active).toBe('boolean');
+      expect(result.structuredData.fallback_state).toEqual(expect.objectContaining({
+        preferred_provider: 'ollama',
+        fallback_provider: expect.any(String),
+        fallback_active: expect.any(Boolean),
+        state: expect.any(String),
+        health_status: expect.any(String),
+        healthy_count: expect.any(Number),
+        total_count: expect.any(Number),
+        hosts: expect.any(Array),
+      }));
       expect(Array.isArray(result.structuredData.hosts)).toBe(true);
       expect(result.content).toBeDefined();
     });
