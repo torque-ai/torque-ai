@@ -21,6 +21,7 @@ const { validateTranscript } = require('../transcripts/transcript-validator');
 const { PreflightError, isPreflightError } = require('./preflight-error');
 const { isRestartBarrierActive } = require('./restart-barrier');
 const { findHeavyLocalValidationCommand } = require('../utils/heavy-validation-guard');
+const taskLogRetention = require('../utils/task-log-retention');
 
 // ── Legacy module-level state, written only by init() (deprecated) ─────────
 // Phase 3 of the universal-DI migration. The factory below provides the
@@ -1203,6 +1204,41 @@ function parkTaskBehindRestartBarrier(task, taskId, barrier) {
   };
 }
 
+function resolveTaskLogDiskAdmissionStatus() {
+  try {
+    const minFreeMb = taskLogRetention.getConfiguredTaskLogMinFreeMb(serverConfig);
+    return taskLogRetention.getTaskLogDiskAdmissionStatus({ minFreeMb });
+  } catch (err) {
+    logger.info(`[startTask] Task-log disk admission check failed open: ${err.message}`);
+    return { allowed: true, checked: false, reason: 'check_failed' };
+  }
+}
+
+function parkTaskBehindTaskLogDiskPressure(task, taskId, admission) {
+  const freeLabel = Number.isFinite(admission?.free_mb)
+    ? `${admission.free_mb} MB`
+    : 'unknown';
+  const minLabel = Number.isFinite(admission?.min_free_mb)
+    ? `${admission.min_free_mb} MB`
+    : 'configured threshold';
+  const errorOutput = `Task-log disk guard active: ${freeLabel} free is below task_log_disk_min_mb (${minLabel}). Will start after disk space recovers.`;
+  const updatedTask = db.updateTaskStatus(taskId, 'queued', {
+    error_output: errorOutput,
+    pid: null,
+    mcp_instance_id: null,
+    ollama_host_id: null,
+  }) || db.getTask(taskId);
+
+  logger.warn(`[startTask] Task-log disk guard queued task ${taskId.slice(0, 8)}: ${freeLabel} free below ${minLabel}`);
+
+  return {
+    queued: true,
+    diskPressure: true,
+    taskLogDisk: admission,
+    task: updatedTask || { ...task, status: 'queued', error_output: errorOutput },
+  };
+}
+
 function prepareStartupPreClaim(task, taskId) {
   const { maxConcurrent, usedEditFormat } = runStartupPreflight({
     task,
@@ -1698,6 +1734,11 @@ async function startTask(taskId) {
     const barrier = isRestartBarrierActive(db);
     if (barrier) {
       return parkTaskBehindRestartBarrier(task, taskId, barrier);
+    }
+
+    const diskAdmission = resolveTaskLogDiskAdmissionStatus();
+    if (diskAdmission && diskAdmission.allowed === false) {
+      return parkTaskBehindTaskLogDiskPressure(task, taskId, diskAdmission);
     }
   }
 

@@ -33,6 +33,7 @@ const modelRoles = require('../db/model-roles');
 const eventBus = require('../event-bus');
 const { isRestartBarrierActive } = require('./restart-barrier');
 const { promotePendingRestartResubmissions } = require('./restart-resubmit-queue');
+const taskLogRetention = require('../utils/task-log-retention');
 
 // Dependency injection
 // ── Legacy module-level state, written only by init() (deprecated) ─────────
@@ -53,6 +54,7 @@ let _stopped = false;
 let _queueChangedListener = null;
 let _lastQueueProcessAt = 0;
 let _lastAutoScaleActivation = 0;
+let _lastDiskPressureWarnAt = 0;
 
 let lastBudgetResetCheck = 0;
 
@@ -125,6 +127,31 @@ function notifyDashboard(taskId, updates = {}) {
   } catch {
     // Dashboard refresh is best-effort for scheduler-side task rewrites.
   }
+}
+
+function isTaskLogDiskAdmissionPaused() {
+  let admission;
+  try {
+    const minFreeMb = taskLogRetention.getConfiguredTaskLogMinFreeMb(serverConfig);
+    admission = taskLogRetention.getTaskLogDiskAdmissionStatus({ minFreeMb });
+  } catch (err) {
+    logger.warn(`[Scheduler] Task-log disk admission check failed open: ${err.message}`);
+    return false;
+  }
+
+  if (!admission || admission.allowed !== false) {
+    return false;
+  }
+
+  const now = Date.now();
+  if (now - _lastDiskPressureWarnAt > 60000) {
+    _lastDiskPressureWarnAt = now;
+    const freeLabel = Number.isFinite(admission.free_mb) ? `${admission.free_mb} MB` : 'unknown';
+    logger.warn(
+      `[Scheduler] Deferring queued task starts because task-log disk free space is ${freeLabel}, below task_log_disk_min_mb=${admission.min_free_mb} MB`,
+    );
+  }
+  return true;
 }
 
 /**
@@ -1228,6 +1255,10 @@ function processQueueInternal(options = {}) {
   const barrier = isRestartBarrierActive(db);
   if (barrier) {
     logger.info(`[Scheduler] Restart barrier active (task ${(barrier.id || '').slice(0, 8)}), skipping queue processing`);
+    return;
+  }
+
+  if (isTaskLogDiskAdmissionPaused()) {
     return;
   }
 

@@ -475,8 +475,12 @@ function seedDefaults(db, logger, safeAddColumn, extras = {}) {
   //   exceeds this size, the tailer truncates from the head with an
   //   in-place rewrite. 100 MB is 10x the in-memory _MAX_OUTPUT_BUFFER,
   //   enough headroom for the longest healthy codex runs.
+  // - task_log_disk_min_mb: admission floor for new queued task starts.
+  //   When the data-dir volume falls below this free-space threshold,
+  //   queued work stays queued until operators prune logs or add space.
   setConfigDefault('task_log_retention_days', '30');
   setConfigDefault('task_log_max_bytes', String(100 * 1024 * 1024));
+  setConfigDefault('task_log_disk_min_mb', '1024');
   safeAddColumn('rate_limits', 'provider TEXT');
   safeAddColumn('rate_limits', 'enabled INTEGER DEFAULT 1');
   const insertWindowRateLimit = db.prepare(`

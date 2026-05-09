@@ -75,6 +75,7 @@ const REGISTRY = {
   cleanup_event_days:      { default: 7,     type: 'int' },
   cleanup_stream_days:     { default: 7,     type: 'int' },
   queue_task_ttl_minutes:  { default: 0,     type: 'int' },
+  task_log_disk_min_mb:    { default: 1024,  type: 'int' },
 
   // Timeouts
   default_timeout:         { default: 30,    type: 'int' },
