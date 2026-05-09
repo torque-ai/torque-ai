@@ -9,7 +9,7 @@ This is the layer one level beneath `docs/recovery-decisions.md`: that doc cover
 ## TL;DR
 
 - **10 declared states** (`loop-states.js`): SENSE, PRIORITIZE, PLAN, PLAN_REVIEW, EXECUTE, VERIFY, LEARN, IDLE, PAUSED, STARVED.
-- **6 declared transitions** (linear chain SENSE → … → LEARN → IDLE).
+- **6 declared forward transitions** (linear chain SENSE → … → LEARN → IDLE).
 - **Pseudo-states the implementation actually uses** that are NOT in the declared set: `READY_FOR_<stage>` (queued for a stage that's currently occupied), `VERIFY_FAIL` (a paused-at-stage value, not a `loop_state` value), and `paused_at_gate` (an action, not a state). PAUSED itself is encoded via two orthogonal fields, not one.
 - **Multiple pause variants** that don't always co-set the related fields. Operator-experience cliffs hide here.
 
@@ -32,7 +32,7 @@ This is the layer one level beneath `docs/recovery-decisions.md`: that doc cover
 | `PAUSED` | Operator pause OR awaiting gate approval. Encoded via two fields — see "Pause variants" below. |
 | `STARVED` | No open work items in intake. Triggers starvation recovery. |
 
-`TRANSITIONS` map declares only the linear chain: `SENSE → PRIORITIZE → PLAN → EXECUTE → VERIFY → LEARN → IDLE`.
+`FORWARD_TRANSITIONS` declares only the normal linear chain: `SENSE → PRIORITIZE → PLAN → EXECUTE → VERIFY → LEARN → IDLE`. The legacy `TRANSITIONS` export remains as an alias for older imports, but new code should use `FORWARD_TRANSITIONS` so backward/self/parking edges are not mistaken for missing entries.
 
 ### Pseudo-states the implementation uses
 
@@ -110,7 +110,7 @@ Declared transitions (linear chain) plus the implicit edges discovered in the im
 
 | From | To | Trigger | Predicate | Decisions emitted | Side effects |
 |---|---|---|---|---|---|
-| `SENSE` | `PRIORITIZE` (or gated stage) | `advanceLoop` | Next state per TRANSITIONS | `scanned_plans`, `paused_at_gate` | Stage claim |
+| `SENSE` | `PRIORITIZE` (or gated stage) | `advanceLoop` | Next state per `FORWARD_TRANSITIONS` | `scanned_plans`, `paused_at_gate` | Stage claim |
 | `PRIORITIZE` | `PLAN` | `handlePrioritizeTransition` | Work item selected, no gate | `selected_work_item` | Remember work item |
 | `PRIORITIZE` | `IDLE` | `handlePrioritizeTransition` | No work items | `no_selected_work_item` | Terminate |
 | `PRIORITIZE` | `IDLE` | `handlePrioritizeTransition` | Auto-shipped detected | `auto_shipped_at_prioritize` | Mark shipped + terminate |
@@ -134,7 +134,7 @@ Declared transitions (linear chain) plus the implicit edges discovered in the im
 | Any | `STARVED` | `advanceLoop` | No open work items after PRIORITIZE | `stale_probe_starvation` | Set `loop_state = STARVED` |
 | `STARVED` | `PRIORITIZE` | `triggerImmediateStarvationRecovery` | Recovery scout found new work | `starvation_recovered` | Clear starvation |
 
-**Backward edges** the declared `TRANSITIONS` map doesn't show but the code does take:
+**Backward/self edges** outside `FORWARD_TRANSITIONS` that the code does take:
 - `PLAN` / `EXECUTE` → `PRIORITIZE` on `stop_execution` events (via `moveInstanceToStage(...)`, multiple call sites).
 - `VERIFY` → `VERIFY` (retry within stage).
 - `EXECUTE` → `EXECUTE` (deferral).
@@ -378,9 +378,9 @@ Both encode as the same column value. Readers distinguish via the most recent de
 
 `auto_shipped_at_prioritize`, `auto_shipped_empty_branch`, `auto_shipped_at_verify_fail` (and possibly more) — spread across `loop-controller.js` lines 3449, 4665, 12266. Each is correct in its context but the contract for "what does auto-ship at this stage mean?" is implicit. Worth a small helper that emits all three through one code path with a `reason` field, so future stages add an enum value rather than a new decision action.
 
-### 5. Backward edges undeclared
+### 5. ✅ ~~Backward edges undeclared~~ RESOLVED 2026-05-08
 
-`TRANSITIONS` (in `loop-states.js`) declares only the linear chain. Code takes backward edges (PLAN/EXECUTE → PRIORITIZE on `stop_execution`, VERIFY → VERIFY on retry). The declared map could either grow to include them (with the predicates) or be renamed to something like `FORWARD_TRANSITIONS` to make the partial nature explicit.
+`loop-states.js` now names the canonical linear-chain map `FORWARD_TRANSITIONS` and keeps `TRANSITIONS` only as a backward-compatible alias. Backward/self/parking edges remain documented in the transition catalog above instead of being forced into the simple forward map.
 
 ### 6. `factory_projects.loop_state` is a legacy mirror
 
@@ -396,8 +396,8 @@ Memory entry `project_subprocess_detach_phase_c_shipped` covers re-adoption of d
 
 If you're adding a new state, transition, or decision action:
 
-1. **New state** — add to `LOOP_STATES` in `loop-states.js`. Decide whether it goes in `TRANSITIONS` (forward edge) or is a backward/parking edge (don't pollute the linear chain). Add to `APPROVAL_GATES` if it's gateable.
-2. **New transition** — add to `TRANSITIONS` if linear; otherwise document in this doc's transition table with the predicate. Make sure the source state's exit predicate covers your case.
+1. **New state** — add to `LOOP_STATES` in `loop-states.js`. Decide whether it goes in `FORWARD_TRANSITIONS` (normal forward edge) or is a backward/self/parking edge (document it here instead of polluting the linear chain). Add to `APPROVAL_GATES` if it's gateable.
+2. **New transition** — add to `FORWARD_TRANSITIONS` if linear; otherwise document in this doc's transition table with the predicate. Make sure the source state's exit predicate covers your case.
 3. **New decision action** — three-step contract:
    1. Add an entry to `server/factory/decision-actions.js` (the canonical catalog) with `stage`, `classifier`, optional `rule_id`, and `outcome` keys. The five classifier kinds are: `benign`, `recovery-rule`, `b-side-reject`, `terminal`, `engine`.
    2. Wire the classifier:
@@ -413,7 +413,7 @@ If you're adding a new state, transition, or decision action:
    node server/factory/scripts/render-decision-actions-doc.js --write
    ```
 4. **New pause variant** — pick an existing variant or add a new one. Document in the "Pause variants" table above. Cross-check with `approveGate` and `advanceLoop` to confirm the new variant's clear path is wired.
-5. **State machine drift check** — `tests/factory-loop.test.js` has assertions for `LOOP_STATES` and `TRANSITIONS` shape. Update them.
+5. **State machine drift check** — `tests/factory-loop.test.js` and `tests/loop-states-transitions.test.js` have assertions for `LOOP_STATES` and `FORWARD_TRANSITIONS` shape. Update them.
 
 ---
 

@@ -8,6 +8,7 @@ const factoryLoopInstances = require('../db/factory/loop-instances');
 // Import the modules under test
 const {
   LOOP_STATES,
+  FORWARD_TRANSITIONS,
   TRANSITIONS,
   APPROVAL_GATES,
   getNextState,
@@ -141,8 +142,8 @@ describe('loop-states', () => {
     expect(Object.keys(LOOP_STATES)).toHaveLength(10);
   });
 
-  it('TRANSITIONS maps full cycle (LEARN terminates at IDLE by default)', () => {
-    expect(TRANSITIONS).toEqual({
+  it('FORWARD_TRANSITIONS maps the normal forward cycle (LEARN terminates at IDLE by default)', () => {
+    expect(FORWARD_TRANSITIONS).toEqual({
       [LOOP_STATES.SENSE]: LOOP_STATES.PRIORITIZE,
       [LOOP_STATES.PRIORITIZE]: LOOP_STATES.PLAN,
       [LOOP_STATES.PLAN]: LOOP_STATES.EXECUTE,
@@ -150,6 +151,7 @@ describe('loop-states', () => {
       [LOOP_STATES.VERIFY]: LOOP_STATES.LEARN,
       [LOOP_STATES.LEARN]: LOOP_STATES.IDLE,
     });
+    expect(TRANSITIONS).toBe(FORWARD_TRANSITIONS);
   });
 
   it('loop.auto_continue=true restores LEARN → SENSE in advanceLoop', async () => {

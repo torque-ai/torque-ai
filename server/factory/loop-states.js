@@ -13,7 +13,9 @@ const LOOP_STATES = Object.freeze({
   STARVED: 'STARVED',
 });
 
-const TRANSITIONS = Object.freeze({
+// Canonical forward path for a normal loop pass. Runtime code also takes
+// documented backward/self/parking edges in loop-controller.js.
+const FORWARD_TRANSITIONS = Object.freeze({
   [LOOP_STATES.SENSE]: LOOP_STATES.PRIORITIZE,
   [LOOP_STATES.PRIORITIZE]: LOOP_STATES.PLAN,
   [LOOP_STATES.PLAN]: LOOP_STATES.EXECUTE,
@@ -21,6 +23,10 @@ const TRANSITIONS = Object.freeze({
   [LOOP_STATES.VERIFY]: LOOP_STATES.LEARN,
   [LOOP_STATES.LEARN]: LOOP_STATES.IDLE,
 });
+
+// Backward-compatible alias for older imports. Prefer FORWARD_TRANSITIONS in
+// new code so self/backward edges are not mistaken for omissions.
+const TRANSITIONS = FORWARD_TRANSITIONS;
 
 const APPROVAL_GATES = Object.freeze({
   supervised: Object.freeze([
@@ -106,7 +112,7 @@ function getPendingGateStage(currentState, trustLevel) {
     return currentState;
   }
 
-  const nextState = TRANSITIONS[currentState];
+  const nextState = FORWARD_TRANSITIONS[currentState];
   if (!nextState) {
     return null;
   }
@@ -126,7 +132,7 @@ function getResumeStateForApprovedGate(stage, trustLevel) {
     return LOOP_STATES.EXECUTE;
   }
   return isExitGatedStage(stage, trustLevel)
-    ? (TRANSITIONS[stage] || stage)
+    ? (FORWARD_TRANSITIONS[stage] || stage)
     : stage;
 }
 
@@ -152,11 +158,12 @@ function getNextState(currentState, trustLevel, approvalStatus) {
     return LOOP_STATES.PAUSED;
   }
 
-  return TRANSITIONS[currentState];
+  return FORWARD_TRANSITIONS[currentState];
 }
 
 module.exports = {
   LOOP_STATES,
+  FORWARD_TRANSITIONS,
   TRANSITIONS,
   APPROVAL_GATES,
   EXIT_GATED_STATES,

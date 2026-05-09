@@ -1,6 +1,6 @@
 'use strict';
 
-const { LOOP_STATES, TRANSITIONS } = require('../factory/loop-states');
+const { LOOP_STATES, FORWARD_TRANSITIONS, TRANSITIONS } = require('../factory/loop-states');
 
 const stateEntries = Object.entries(LOOP_STATES);
 const stateValues = Object.values(LOOP_STATES);
@@ -16,7 +16,7 @@ function getReachableStates(startState) {
 
   while (queue.length > 0) {
     const state = queue.shift();
-    const nextState = TRANSITIONS[state];
+    const nextState = FORWARD_TRANSITIONS[state];
 
     if (!nextState || visited.has(nextState)) {
       continue;
@@ -44,21 +44,25 @@ describe('LOOP_STATES structure', () => {
   });
 });
 
-describe('TRANSITIONS coverage', () => {
+describe('FORWARD_TRANSITIONS coverage', () => {
+  it('keeps TRANSITIONS as a backward-compatible alias', () => {
+    expect(TRANSITIONS).toBe(FORWARD_TRANSITIONS);
+  });
+
   it('defines a transition for every linear loop state', () => {
     for (const state of linearStates) {
-      expect(Object.prototype.hasOwnProperty.call(TRANSITIONS, state)).toBe(true);
+      expect(Object.prototype.hasOwnProperty.call(FORWARD_TRANSITIONS, state)).toBe(true);
     }
   });
 
   it('only points to valid loop states', () => {
-    for (const nextState of Object.values(TRANSITIONS)) {
+    for (const nextState of Object.values(FORWARD_TRANSITIONS)) {
       expect(stateValues).toContain(nextState);
     }
   });
 
   it('never transitions a state to itself', () => {
-    for (const [state, nextState] of Object.entries(TRANSITIONS)) {
+    for (const [state, nextState] of Object.entries(FORWARD_TRANSITIONS)) {
       expect(nextState).not.toBe(state);
     }
   });
@@ -70,7 +74,7 @@ describe('reachability', () => {
 
     for (let step = 0; step < stateValues.length; step += 1) {
       expect(stateValues).toContain(currentState);
-      const nextState = TRANSITIONS[currentState];
+      const nextState = FORWARD_TRANSITIONS[currentState];
       if (!nextState) {
         expect(terminalStates.has(currentState)).toBe(true);
         return;
@@ -101,11 +105,11 @@ describe('reachability', () => {
 describe('terminal states', () => {
   it('either omit terminal transitions or keep them inside terminal states', () => {
     for (const terminalState of terminalStates) {
-      if (!Object.prototype.hasOwnProperty.call(TRANSITIONS, terminalState)) {
+      if (!Object.prototype.hasOwnProperty.call(FORWARD_TRANSITIONS, terminalState)) {
         continue;
       }
 
-      expect(terminalStates.has(TRANSITIONS[terminalState])).toBe(true);
+      expect(terminalStates.has(FORWARD_TRANSITIONS[terminalState])).toBe(true);
     }
   });
 });

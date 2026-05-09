@@ -11,7 +11,7 @@ This is a session handoff. If you're picking this up after the pause, start here
 
 ## What we shipped this session
 
-Three independent arcs, each shipped to `main`:
+Four independent arcs, each shipped to `main`:
 
 ### 1. `torque-remote` lanes (out-of-arc; predates the parent rationalization)
 
@@ -56,11 +56,22 @@ Cutover commit on main: `590977d2 Merge branch 'feat/unified-auto-ship'`.
 
 **Status: shipped.** TORQUE restart deferred (see Pending Problems #1).
 
+### 4. Forward transition naming (sub-project 5 of 7)
+
+Cutover commit on main: see `git log --grep='forward transitions'`.
+
+- `server/factory/loop-states.js` now exports `FORWARD_TRANSITIONS` as the canonical linear-chain map.
+- `TRANSITIONS` remains as a backward-compatible alias for older imports.
+- Internal helpers now read `FORWARD_TRANSITIONS`, and tests assert both the forward-map shape and alias compatibility.
+- `docs/factory-loop-states.md` now marks the backward-edge ambiguity as resolved and points future non-linear edges to the transition catalog.
+
+**Status: shipped.** No restart-sensitive behavior change; this is naming + docs/tests only.
+
 ---
 
-## What's still to do (5 sub-projects of the parent arc)
+## What's still to do (4 sub-projects of the parent arc)
 
-The parent state-machine rationalization arc was decomposed into 7 sub-projects. Sub-project 1 and sub-project 4 are shipped. Five remain. Each is independently pickable; each gets its own brainstorm → spec → plan → execution cycle.
+The parent state-machine rationalization arc was decomposed into 7 sub-projects. Sub-projects 1, 4, and 5 are shipped. Four remain. Each is independently pickable; each gets its own brainstorm → spec → plan → execution cycle.
 
 The original decomposition lives in the brainstorming context for sub-project 1 (search `docs/superpowers/specs/2026-05-07-factory-decision-actions-catalog-design.md` for "Parent arc" reference).
 
@@ -68,13 +79,12 @@ The original decomposition lives in the brainstorming context for sub-project 1 
 |---|---|---|---|---|
 | 2 | **`READY_FOR_<stage>` watchdog** | S | None | Operator-pain fix. Parked instances wait forever if stage occupant crashes. `stuck-loop-detector.js` may alert but doesn't auto-resolve. Add a "park older than X min → force advance with diagnostic" rule, or wire the existing detector to call `cancel_task` on the stale occupant. Open Q#2 in `docs/factory-loop-states.md`. |
 | 3 | **Disambiguate `paused_at_stage = 'EXECUTE'`** | M | None | Schema disambiguation. Two distinct meanings encode as one column value: gate-pause (operator approval pending at EXECUTE) vs plan-generation deferral wait. Readers distinguish via the most recent decision log entry, which is fragile. Worth either splitting the encoding (`EXECUTE` vs `EXECUTE_DEFERRED`) or making the deferral wait a separate column. Open Q#3. |
-| 5 | **Backward edges in `TRANSITIONS`** | S | None | Doc/code reconciliation. `TRANSITIONS` (in `loop-states.js`) declares only the linear chain. Code takes backward edges (`PLAN`/`EXECUTE` → `PRIORITIZE` on `stop_execution`, `VERIFY` → `VERIFY` retry, `EXECUTE` → `EXECUTE` deferral). Either grow the map to include them (with predicates) or rename to `FORWARD_TRANSITIONS` to make the partial nature explicit. Open Q#5. |
 | 6 | **`factory_projects.loop_state` mirror sweep** | S | None | Pure code-health. Project-row `loop_state` is a legacy mirror of the oldest active instance's state. Some readers still go through the project row (`getCurrentLoopState(project)`); some go through the instance directly. Sweep readers, document the mirror as backward-compat-only or remove. Open Q#6. |
 | 7 | **Loop instance restart recovery** | M | Soft-depends on #2 | Behavioral. What happens to a project stuck at `READY_FOR_PLAN` if TORQUE restarts mid-park? `startup-task-reconciler.js` re-classifies tasks but the LOOP instance's `paused_at_stage` recovery on restart is less explicit. Worth confirming. Open Q#7. |
 
 **Recommended order when picking back up:**
 
-- **Start with #5 or #6.** Both are S size, independent, and pure cleanup. Good warm-up after the multi-day pause.
+- **Start with #6.** It is S size, independent, and pure cleanup.
 - **Tackle #2 next.** Real operator-pain fix; sets up #7 cleanly.
 - **#7 after #2.** They overlap in the watchdog/restart-recovery story.
 - **#3 last.** Schema change; biggest blast radius.
