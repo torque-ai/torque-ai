@@ -411,6 +411,52 @@ describe('factory loop-controller EXECUTE modes', () => {
     expect(factoryLoopInstances.listInstances({ project_id: project.id, active_only: true })).toHaveLength(1);
   });
 
+  it('reports active instance loop state before the stale project mirror', () => {
+    const { project } = registerPlanProject();
+    const started = loopController.startLoopForProject(project.id);
+    const activeAt = '2026-05-08T10:00:00.000Z';
+    const legacyAt = '2026-05-08T09:00:00.000Z';
+
+    factoryLoopInstances.updateInstance(started.instance_id, {
+      loop_state: LOOP_STATES.PRIORITIZE,
+      batch_id: 'active-batch',
+      last_action_at: activeAt,
+    });
+    factoryHealth.updateProject(project.id, {
+      loop_state: LOOP_STATES.STARVED,
+      loop_batch_id: 'legacy-batch',
+      loop_last_action_at: legacyAt,
+      loop_paused_at_stage: 'VERIFY_FAIL',
+    });
+
+    expect(loopController.getLoopStateForProject(project.id)).toMatchObject({
+      instance_id: started.instance_id,
+      loop_state: LOOP_STATES.PRIORITIZE,
+      loop_batch_id: 'active-batch',
+      loop_last_action_at: activeAt,
+      loop_paused_at_stage: null,
+      state_source: 'active_loop_instance',
+    });
+  });
+
+  it('falls back to the legacy project mirror when no active instance exists', () => {
+    const { project } = registerPlanProject();
+    factoryHealth.updateProject(project.id, {
+      loop_state: LOOP_STATES.PAUSED,
+      loop_batch_id: 'legacy-batch',
+      loop_last_action_at: '2026-05-08T09:00:00.000Z',
+      loop_paused_at_stage: LOOP_STATES.VERIFY,
+    });
+
+    expect(loopController.getLoopStateForProject(project.id)).toMatchObject({
+      project_id: project.id,
+      loop_state: LOOP_STATES.PAUSED,
+      loop_batch_id: 'legacy-batch',
+      loop_paused_at_stage: LOOP_STATES.VERIFY,
+      state_source: 'legacy_project_mirror',
+    });
+  });
+
   it('does not start when operator pause intent remains after a stale status flip', () => {
     const { project } = registerPlanProject();
     const cfg = project.config_json ? JSON.parse(project.config_json) : {};

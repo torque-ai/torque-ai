@@ -382,9 +382,9 @@ Both encode as the same column value. Readers distinguish via the most recent de
 
 `loop-states.js` now names the canonical linear-chain map `FORWARD_TRANSITIONS` and keeps `TRANSITIONS` only as a backward-compatible alias. Backward/self/parking edges remain documented in the transition catalog above instead of being forced into the simple forward map.
 
-### 6. `factory_projects.loop_state` is a legacy mirror
+### 6. ✅ ~~`factory_projects.loop_state` is a legacy mirror~~ RESOLVED 2026-05-08
 
-Per the storage table, project-row `loop_state` is supposed to mirror the oldest active instance's state. Some readers still go through the project row (`getCurrentLoopState(project)`); some go through the instance directly. Worth a sweep to confirm all readers consult the instance, with the project mirror documented as backward-compat-only or removed.
+Public/runtime loop-state summaries now read the oldest active `factory_loop_instances` row first. The project row remains as an explicitly named legacy mirror fallback for compatibility with no-active-instance/backfill paths, startup migration, recovery probes, and drift reporting (`project_row_loop_state_drift`).
 
 ### 7. Auto-recovery interaction at restart
 

@@ -159,6 +159,45 @@ async function maybeRecoverStarvedProject(project) {
   }
 }
 
+function getProjectLoopStateSnapshot(project) {
+  if (!project?.id) {
+    return {
+      loop_state: LOOP_STATES.IDLE,
+      loop_batch_id: null,
+      loop_last_action_at: null,
+      loop_paused_at_stage: null,
+    };
+  }
+
+  try {
+    return loopController.getLoopStateForProject(project.id);
+  } catch (err) {
+    logger.debug('Factory tick: falling back to project loop mirror', {
+      project_id: project.id,
+      err: err.message,
+    });
+    return {
+      loop_state: project.loop_state || LOOP_STATES.IDLE,
+      loop_batch_id: project.loop_batch_id || null,
+      loop_last_action_at: project.loop_last_action_at || null,
+      loop_paused_at_stage: project.loop_paused_at_stage || null,
+    };
+  }
+}
+
+function withEffectiveProjectLoopState(project, snapshot = getProjectLoopStateSnapshot(project)) {
+  if (!project) {
+    return project;
+  }
+  return {
+    ...project,
+    loop_state: snapshot.loop_state,
+    loop_batch_id: snapshot.loop_batch_id,
+    loop_last_action_at: snapshot.loop_last_action_at,
+    loop_paused_at_stage: snapshot.loop_paused_at_stage,
+  };
+}
+
 function isVerifyLoopInstance(instance) {
   return String(instance?.loop_state || '').toUpperCase() === LOOP_STATES.VERIFY
     || String(instance?.paused_at_stage || '').toUpperCase() === LOOP_STATES.VERIFY;
@@ -711,9 +750,10 @@ function maybeStartAutoAdvanceLoop(projectId, reason = 'tick') {
     project_id: projectId,
     active_only: true,
   });
+  const loopStateView = getProjectLoopStateSnapshot(projectBeforeAutoStart);
   if (
     cfg?.loop?.auto_continue
-    && projectBeforeAutoStart.loop_state !== LOOP_STATES.STARVED
+    && loopStateView.loop_state !== LOOP_STATES.STARVED
     && activeInstances.length === 0
   ) {
     try {
@@ -866,8 +906,9 @@ async function tickProject(project) {
       }
     }
 
-    if (freshProject && freshProject.loop_state === LOOP_STATES.STARVED) {
-      await maybeRecoverStarvedProject(freshProject);
+    const loopStateView = freshProject ? getProjectLoopStateSnapshot(freshProject) : null;
+    if (freshProject && loopStateView.loop_state === LOOP_STATES.STARVED) {
+      await maybeRecoverStarvedProject(withEffectiveProjectLoopState(freshProject, loopStateView));
       return;
     }
 

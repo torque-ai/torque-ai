@@ -1429,6 +1429,14 @@ function getCurrentLoopState(loopRecord) {
   return loopState;
 }
 
+function getInstanceLoopState(instance) {
+  return getCurrentLoopState(instance);
+}
+
+function getLegacyProjectLoopMirrorState(project) {
+  return getCurrentLoopState(project);
+}
+
 function isReadyForStage(pausedAtStage) {
   return typeof pausedAtStage === 'string' && pausedAtStage.startsWith('READY_FOR_');
 }
@@ -1483,7 +1491,7 @@ function mapInstanceToLegacyLoopView(instance) {
   }
 
   return {
-    loop_state: getPausedAtStage(instance) ? LOOP_STATES.PAUSED : getCurrentLoopState(instance),
+    loop_state: getPausedAtStage(instance) ? LOOP_STATES.PAUSED : getInstanceLoopState(instance),
     loop_batch_id: instance.batch_id || null,
     loop_last_action_at: instance.last_action_at || null,
     loop_paused_at_stage: getPausedAtStage(instance),
@@ -4071,7 +4079,8 @@ function summarizeStarvationRecovery(result) {
 }
 
 async function triggerImmediateStarvationRecovery(project, trigger) {
-  if (!project || project.loop_state !== LOOP_STATES.STARVED) {
+  const stateView = project?.id ? getLoopStateForProject(project.id) : null;
+  if (!project || stateView?.loop_state !== LOOP_STATES.STARVED) {
     return null;
   }
 
@@ -4081,7 +4090,13 @@ async function triggerImmediateStarvationRecovery(project, trigger) {
     if (!starvationRecovery || typeof starvationRecovery.maybeRecover !== 'function') {
       return null;
     }
-    return await starvationRecovery.maybeRecover(project, {
+    return await starvationRecovery.maybeRecover({
+      ...project,
+      loop_state: stateView.loop_state,
+      loop_batch_id: stateView.loop_batch_id,
+      loop_last_action_at: stateView.loop_last_action_at,
+      loop_paused_at_stage: stateView.loop_paused_at_stage,
+    }, {
       force: true,
       trigger,
     });
@@ -12774,13 +12789,26 @@ function summarizeInstanceState(project, instance) {
   return {
     instance_id: instance.id,
     project_id: project.id,
-    loop_state: getCurrentLoopState(instance),
+    loop_state: getPausedAtStage(instance) ? LOOP_STATES.PAUSED : getInstanceLoopState(instance),
     loop_batch_id: instance.batch_id || null,
     loop_last_action_at: instance.last_action_at || null,
     loop_paused_at_stage: getPausedAtStage(instance),
     work_item_id: instance.work_item_id || null,
     trust_level: project.trust_level,
     gates: getGatesForTrustLevel(project.trust_level),
+  };
+}
+
+function summarizeLegacyProjectLoopMirror(project) {
+  return {
+    project_id: project.id,
+    loop_state: getLegacyProjectLoopMirrorState(project),
+    loop_batch_id: project.loop_batch_id || null,
+    loop_last_action_at: project.loop_last_action_at || null,
+    loop_paused_at_stage: project.loop_paused_at_stage || null,
+    trust_level: project.trust_level,
+    gates: getGatesForTrustLevel(project.trust_level),
+    state_source: 'legacy_project_mirror',
   };
 }
 
@@ -12839,6 +12867,7 @@ function scheduleLoop(project_id, interval_minutes) {
 
 function startLoop(project_id) {
   const project = getProjectOrThrow(project_id);
+  const previousLoopState = getLoopStateForProject(project.id).loop_state;
   if (isProjectPauseActive(project, { includeStatus: false })) {
     if (project.status !== 'paused') {
       try {
@@ -12855,7 +12884,7 @@ function startLoop(project_id) {
       inputs: {
         current_status: project.status,
         operator_paused: true,
-        previous_state: getCurrentLoopState(project),
+        previous_state: previousLoopState,
       },
       outcome: {
         started: false,
@@ -12866,7 +12895,7 @@ function startLoop(project_id) {
     });
     throw new Error('Cannot start factory loop for paused project; resume_project first');
   }
-  const previousState = getCurrentLoopState(project);
+  const previousState = previousLoopState;
   try {
     const { initFactoryWorktreeAutoCommit } = require('./worktree-auto-commit');
     initFactoryWorktreeAutoCommit({ project });
@@ -14123,17 +14152,15 @@ function getLoopState(instance_id) {
 
 function getLoopStateForProject(project_id) {
   const project = getProjectOrThrow(project_id);
-  const loopState = getCurrentLoopState(project);
+  const activeInstance = getOldestActiveInstance(project.id);
+  if (activeInstance) {
+    return {
+      ...summarizeInstanceState(project, activeInstance),
+      state_source: 'active_loop_instance',
+    };
+  }
 
-  return {
-    project_id: project.id,
-    loop_state: loopState,
-    loop_batch_id: project.loop_batch_id || null,
-    loop_last_action_at: project.loop_last_action_at || null,
-    loop_paused_at_stage: project.loop_paused_at_stage || null,
-    trust_level: project.trust_level,
-    gates: getGatesForTrustLevel(project.trust_level),
-  };
+  return summarizeLegacyProjectLoopMirror(project);
 }
 
 function getAwaitableLoopInstance(project_id) {
