@@ -48,14 +48,14 @@ A replacement test should verify the NEW contract:
 
 Roughly one new test, ~30 min.
 
-### 4. PERF-FAIL flakes (3 unrelated tests)
+### 4. ✅ ~~PERF-FAIL flakes (3 unrelated tests)~~ RESOLVED 2026-05-09
 
 `conditional-edges-integration`, `provider-crud`, `workstation-handlers` test files report `setupTestDb() first call took ~1300ms (threshold: 1200ms)`. Worker-assignment dependent — not real bugs. The threshold is in `tests/vitest-setup.js _checkFirstCallCost`. Either:
 
 - Bump the threshold to 1500ms (least invasive)
 - Investigate the heavy module load on cold worker start (more thorough)
 
-Low priority; only fires intermittently.
+Resolved by raising the default fail threshold to 3000ms while keeping opt-in warnings through `PERF_TEST_IMPORT_WARN_MS` and stricter one-off fail gates through `PERF_TEST_IMPORT_FAIL_MS`. The immediate trigger was a clean local fallback pre-push gate where `db-workflow-engine.test.js` measured 2231ms against the previous 2200ms floor.
 
 ### 5. Untracked placeholder file
 

@@ -6,6 +6,12 @@ const path = require('path');
 const SETUP_PATH = path.resolve(__dirname, 'vitest-setup.js');
 
 describe('vitest-setup cold-import threshold wrapper', () => {
+  it('keeps the default fail threshold above observed full-suite Windows variance', () => {
+    const { _DEFAULT_PERF_TEST_IMPORT_FAIL_MS } = require('./vitest-setup');
+
+    expect(_DEFAULT_PERF_TEST_IMPORT_FAIL_MS).toBe(3000);
+  });
+
   it('does not emit perf warnings by default', () => {
     const script = `
       process.env.TORQUE_DATA_DIR = require('os').tmpdir();
