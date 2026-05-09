@@ -89,21 +89,30 @@ Cutover commit on main: see `git log --grep='retry ready-for loops on startup'`.
 
 **Status: shipped.** Runtime-sensitive behavior change; requires normal worktree cutover/restart barrier.
 
+### 7. EXECUTE deferred pause disambiguation (sub-project 3 of 7)
+
+Cutover commit on main: see `git log --grep='disambiguate execute deferred pauses'`.
+
+- Explicit deferred EXECUTE pause rows now use `EXECUTE_DEFERRED`.
+- `deriveInstanceStateFromLegacyProject()` maps `EXECUTE_DEFERRED` back to real loop state `EXECUTE`.
+- Tick/advance recovery allows `EXECUTE_DEFERRED` and legacy bare `EXECUTE` only when plan-generation wait evidence exists.
+- Fail-loud bare `EXECUTE` pauses stay distinct and still require operator handling or existing empty-batch recovery.
+
+**Status: shipped.** Runtime-sensitive behavior change; requires normal worktree cutover/restart barrier.
+
 ---
 
-## What's still to do (1 sub-project of the parent arc)
+## What's still to do (0 sub-projects of the parent arc)
 
-The parent state-machine rationalization arc was decomposed into 7 sub-projects. Sub-projects 1, 2, 4, 5, 6, and 7 are shipped. One remains.
+The parent state-machine rationalization arc was decomposed into 7 sub-projects. Sub-projects 1 through 7 are shipped.
 
 The original decomposition lives in the brainstorming context for sub-project 1 (search `docs/superpowers/specs/2026-05-07-factory-decision-actions-catalog-design.md` for "Parent arc" reference).
 
-| # | Sub-project | Size | Dependencies | Notes |
-|---|---|---|---|---|
-| 3 | **Disambiguate `paused_at_stage = 'EXECUTE'`** | M | None | Schema disambiguation. Two distinct meanings encode as one column value: gate-pause (operator approval pending at EXECUTE) vs plan-generation deferral wait. Readers distinguish via the most recent decision log entry, which is fragile. Worth either splitting the encoding (`EXECUTE` vs `EXECUTE_DEFERRED`) or making the deferral wait a separate column. Open Q#3. |
+No state-machine rationalization sub-projects remain in this parent arc.
 
 **Recommended order when picking back up:**
 
-- **Tackle #3 next.** Schema change; biggest blast radius and the last remaining state-machine rationalization item.
+- The parent arc is complete. Pick the next documented factory item outside this arc.
 
 ---
 
@@ -115,7 +124,7 @@ The original decomposition lives in the brainstorming context for sub-project 1 
 2. Confirm `git log --oneline -5` on `main` shows the three merges from this session: `590977d2` (auto-ship), `9a8b9132` (catalog), and the lanes merge.
 3. Verify CI gate is live: `cd server && npx vitest run tests/factory-decision-actions-catalog.test.js`. Expected: 5 tests pass.
 4. Verify audit is clean: `node server/factory/scripts/audit-decision-actions.js`. Expected: exit 0, "All gap categories empty."
-5. Pick a sub-project (see table above). Recommend #3 next.
+5. Parent arc is complete; pick the next documented factory item outside this arc.
 
 ### Per-sub-project flow
 
@@ -277,5 +286,5 @@ $ git stash list
 1. Read this doc top to bottom.
 2. Verify `main` is clean of our work-state (other sessions' WIP is fine, just not ours).
 3. Check Pending Problem #1 — is TORQUE running the new code? `mcp tool ping` and verify the version/SHA matches `main`.
-4. If picking up the parent arc, choose a sub-project from the table above. Recommended: #3 next.
+4. If picking up the parent arc, confirm all seven sub-projects remain shipped, then move to the next documented factory item outside this arc.
 5. If picking up something else entirely, this doc is the snapshot to come back to later.

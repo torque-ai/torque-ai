@@ -1203,7 +1203,7 @@ describe('factory pause enforcement', () => {
     });
     factoryLoopInstances.updateInstance(instance.id, {
       loop_state: LOOP_STATES.EXECUTE,
-      paused_at_stage: LOOP_STATES.EXECUTE,
+      paused_at_stage: loopController.EXECUTE_DEFERRED_PAUSED_AT_STAGE,
       work_item_id: item.id,
       batch_id: batchId,
     });
@@ -1214,7 +1214,7 @@ describe('factory pause enforcement', () => {
     factoryHealth.updateProject(project.id, {
       loop_state: LOOP_STATES.EXECUTE,
       loop_batch_id: batchId,
-      loop_paused_at_stage: LOOP_STATES.EXECUTE,
+      loop_paused_at_stage: loopController.EXECUTE_DEFERRED_PAUSED_AT_STAGE,
     });
     taskCore.createTask({
       id: 'tick-plan-generation-task',

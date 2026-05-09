@@ -38,6 +38,7 @@ function resolveTestRunnerRegistry() {
 const eventBus = require('../event-bus');
 const { handleRetryFactoryVerify } = require('../handlers/factory-handlers');
 const loopController = require('./loop-controller');
+const EXECUTE_DEFERRED_PAUSED_AT_STAGE = loopController.EXECUTE_DEFERRED_PAUSED_AT_STAGE || 'EXECUTE_DEFERRED';
 const { detectStuckLoops } = require('./stuck-loop-detector');
 const { sweepStrandedNeedsReviewForProject } = require('./sweep-stranded-needs-review');
 const { runRejectedRecoverySweep } = require('./rejected-recovery');
@@ -1075,9 +1076,12 @@ async function tickProject(project) {
       }
 
       // Skip paused-at-gate instances (need operator approval, not a tick).
-      // READY_FOR_* and paused EXECUTE still participate because the tick can
-      // either advance or recover those states.
-      const pausedAtGate = paused && !paused.startsWith('READY_FOR_') && paused !== 'EXECUTE';
+      // READY_FOR_* and deferred/legacy paused EXECUTE still participate
+      // because the tick can either advance or recover those states.
+      const pausedAtGate = paused
+        && !paused.startsWith('READY_FOR_')
+        && paused !== LOOP_STATES.EXECUTE
+        && paused !== EXECUTE_DEFERRED_PAUSED_AT_STAGE;
       if (pausedAtGate) continue;
 
       try {
@@ -1111,7 +1115,7 @@ async function tickProject(project) {
       // stage paused (worktree failure, empty plan, etc.) but there are no
       // running or queued tasks for the batch, terminate and let the tick's
       // auto-start logic begin a fresh cycle with the next work item.
-      if (paused === 'EXECUTE' && instance.batch_id) {
+      if ((paused === LOOP_STATES.EXECUTE || paused === EXECUTE_DEFERRED_PAUSED_AT_STAGE) && instance.batch_id) {
         try {
           const planGenerationWait = typeof loopController.getDeferredPlanGenerationWaitState === 'function'
             ? loopController.getDeferredPlanGenerationWaitState(latestProject, instance)

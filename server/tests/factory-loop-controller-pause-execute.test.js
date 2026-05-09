@@ -236,6 +236,106 @@ describe('factory loop-controller paused EXECUTE deferral', () => {
     });
   });
 
+  it('resumes an explicit EXECUTE_DEFERRED plan-generation pause when the plan is ready', async () => {
+    const { project, batchId, instance, workItem } = stageExecutePlanProject({ status: 'running' });
+    const deferredStage = loopController.EXECUTE_DEFERRED_PAUSED_AT_STAGE;
+
+    factoryIntake.updateWorkItem(workItem.id, {
+      origin_json: {
+        ...workItem.origin,
+        plan_generation_task_id: 'completed-plan-generator',
+      },
+    });
+    taskCore.createTask({
+      id: 'completed-plan-generator',
+      task_description: 'Generate plan before execution',
+      working_directory: project.path,
+      project: 'factory-plan',
+      status: 'completed',
+      tags: [
+        'factory:internal',
+        'factory:plan_generation',
+        `factory:work_item_id=${workItem.id}`,
+      ],
+    });
+    factoryLoopInstances.updateInstance(instance.id, {
+      paused_at_stage: deferredStage,
+    });
+    factoryHealth.updateProject(project.id, {
+      loop_paused_at_stage: deferredStage,
+    });
+
+    const resumedAdvance = await loopController.advanceLoopForProject(project.id);
+
+    expect(resumedAdvance.previous_state).toBe(LOOP_STATES.EXECUTE);
+    expect(resumedAdvance.paused_at_stage).toBeNull();
+    expect(submitSpy).toHaveBeenCalledTimes(1);
+    expect(submitSpy.mock.calls[0][0]).toMatchObject({
+      plan_task_number: 2,
+    });
+    expect(factoryLoopInstances.getInstance(instance.id)).toMatchObject({
+      loop_state: LOOP_STATES.VERIFY,
+      paused_at_stage: null,
+      batch_id: batchId,
+    });
+    expect(factoryHealth.getProject(project.id)).toMatchObject({
+      loop_state: LOOP_STATES.VERIFY,
+      loop_paused_at_stage: null,
+    });
+  });
+
+  it('keeps legacy bare EXECUTE plan-generation pauses recoverable', async () => {
+    const { project, instance, workItem } = stageExecutePlanProject({ status: 'running' });
+
+    factoryIntake.updateWorkItem(workItem.id, {
+      origin_json: {
+        ...workItem.origin,
+        plan_generation_task_id: 'legacy-plan-generator',
+      },
+    });
+    taskCore.createTask({
+      id: 'legacy-plan-generator',
+      task_description: 'Generate plan before execution',
+      working_directory: project.path,
+      project: 'factory-plan',
+      status: 'completed',
+      tags: [
+        'factory:internal',
+        'factory:plan_generation',
+        `factory:work_item_id=${workItem.id}`,
+      ],
+    });
+    factoryLoopInstances.updateInstance(instance.id, {
+      paused_at_stage: LOOP_STATES.EXECUTE,
+    });
+    factoryHealth.updateProject(project.id, {
+      loop_paused_at_stage: LOOP_STATES.EXECUTE,
+    });
+
+    const resumedAdvance = await loopController.advanceLoopForProject(project.id);
+
+    expect(resumedAdvance.paused_at_stage).toBeNull();
+    expect(submitSpy).toHaveBeenCalledTimes(1);
+    expect(submitSpy.mock.calls[0][0]).toMatchObject({
+      plan_task_number: 2,
+    });
+  });
+
+  it('keeps fail-loud bare EXECUTE pauses blocked without plan-generation evidence', async () => {
+    const { project, instance } = stageExecutePlanProject({ status: 'running' });
+
+    factoryLoopInstances.updateInstance(instance.id, {
+      paused_at_stage: LOOP_STATES.EXECUTE,
+    });
+    factoryHealth.updateProject(project.id, {
+      loop_paused_at_stage: LOOP_STATES.EXECUTE,
+    });
+
+    await expect(loopController.advanceLoopForProject(project.id))
+      .rejects.toThrow('Loop is paused');
+    expect(submitSpy).not.toHaveBeenCalled();
+  });
+
   it('warns and does not duplicate work for an obsolete deferred EXECUTE task that already started', async () => {
     const { project, workItem, batchId, planPath } = stageExecutePlanProject({ status: 'running' });
     const activeTaskId = 'execute-task-2-already-started';

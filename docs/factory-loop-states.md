@@ -41,10 +41,11 @@ These are NOT in `LOOP_STATES`. They live in `factory_loop_instances.paused_at_s
 | Pseudo-state | What it means | Set by |
 |---|---|---|
 | `READY_FOR_<stage>` (e.g., `READY_FOR_PLAN`, `READY_FOR_EXECUTE`) | The instance wants to advance to `<stage>` but the stage is currently occupied by another instance. Parked until the next `advanceLoop()` retries `tryMoveInstanceToStage()`. | `parkInstanceForStage()` after a `StageOccupiedError`. |
+| `EXECUTE_DEFERRED` | The instance is paused only to wait for deferred plan-generation state to clear, while still deriving to the real `EXECUTE` loop state. | Explicit deferred EXECUTE recovery rows; legacy bare `EXECUTE` rows with plan-generation evidence are still accepted for compatibility. |
 | `VERIFY_FAIL` | Verification failed terminally (auto-retries exhausted, ambiguous failure, reviewer timeout, retry-submission errors, worktree-and-branch lost). Cleared by operator via `retryVerifyFromFailure()`. | Multiple sites in `executeVerifyStage` (loop-controller.js lines ~12121, 12185, 12391, 12441, 12489, 12525, 12551). |
 | `<concrete stage>` (e.g., `PRIORITIZE`, `PLAN`, `VERIFY`, `LEARN`) | Awaiting operator approval at this gate. Cleared by `approveGate(<stage>)`. | Trust-level gate logic in `getNextState()`. |
 
-Implementation reads back to a declared state via `deriveInstanceStateFromLegacyProject()` (loop-controller.js:1527): `paused_at_stage` starting with `READY_FOR_` strips the prefix to get the target stage; `VERIFY_FAIL` maps back to `VERIFY`; bare stage names map to themselves.
+Implementation reads back to a declared state via `deriveInstanceStateFromLegacyProject()` (loop-controller.js:1527): `paused_at_stage` starting with `READY_FOR_` strips the prefix to get the target stage; `VERIFY_FAIL` maps back to `VERIFY`; `EXECUTE_DEFERRED` maps back to `EXECUTE`; bare stage names map to themselves.
 
 ---
 
@@ -87,7 +88,7 @@ The audit's most important finding: **PAUSED is not a single state — it's the 
 | **Gate pause** | Trust-level gate fires in `getNextState()` | `instance.paused_at_stage = <stage>` | `approveGate(<stage>)` | If set, `advanceLoop()` refuses to advance until cleared. |
 | **Project-wide operator pause** | `pause_project()` API | `project.status = 'paused'` | `resume_project()` API | `isProjectStatusPaused()` checked at every advance — returns early if true, **regardless of instance.paused_at_stage**. |
 | **Stage occupancy park** | `parkInstanceForStage()` after `StageOccupiedError` | `instance.paused_at_stage = 'READY_FOR_<stage>'` | Next `advanceLoop()` or startup reconciliation retries `tryMoveInstanceToStage()` | If both the park and occupant exceed the watchdog threshold, and the occupant has no live batch tasks, `advanceLoop()` terminates the occupant and retries with a diagnostic decision. |
-| **Plan-generation deferral wait** | `deferExecutePlanTaskIfProjectPaused()` | `instance.paused_at_stage = 'EXECUTE'` (with a different reasoning than the gate variant) | `maybeClearDeferredPlanGenerationWait()` when task finishes / timeout | Same column as gate pause; readers must distinguish via the decision log's `action`. |
+| **Plan-generation deferral wait** | Deferred plan-generation recovery paths | `instance.paused_at_stage = 'EXECUTE_DEFERRED'` for explicit paused rows; current submit-boundary deferrals usually stay in `EXECUTE` with `paused_at_stage = NULL`; legacy bare `EXECUTE` rows with plan-generation task evidence are still recoverable | `maybeClearDeferredPlanGenerationWait()` when task finishes / timeout | Distinct from fail-loud bare `EXECUTE` pauses; readers no longer need the decision log to identify explicit deferred rows. |
 | **VERIFY_FAIL pause** | Multiple `pause_at_stage: 'VERIFY_FAIL'` writes in `executeVerifyStage` | `instance.paused_at_stage = 'VERIFY_FAIL'` | `retryVerifyFromFailure()` operator API | Same column; treated as VERIFY for state-derivation. |
 
 ### The cliff: gate approval vs project-wide pause
@@ -368,12 +369,12 @@ Operator approves a gate but project is also operator-paused → gate clears but
 
 `advanceLoop()` now runs a bounded watchdog before retrying a `READY_FOR_<stage>` move. If both the parked instance and the blocking stage occupant are older than the watchdog threshold, and the occupant has no non-terminal factory batch tasks, the occupant is terminated with `abandonWorktree: true`, a `ready_for_stage_watchdog_released_occupant` decision is recorded, and the parked instance retries the stage claim immediately. Occupants with live batch tasks remain untouched.
 
-### 3. Two distinct meanings for `paused_at_stage = 'EXECUTE'`
+### 3. ✅ ~~Two distinct meanings for `paused_at_stage = 'EXECUTE'`~~ RESOLVED 2026-05-09
 
-- Gate-pause (operator approval pending at EXECUTE).
+- Fail-loud/operator EXECUTE pause (worktree creation failure, no executable tasks, noop shipping pause, etc.).
 - Plan-generation deferral wait (project paused mid-execute, plan-task submission held).
 
-Both encode as the same column value. Readers distinguish via the most recent decision log entry, which is fragile. Worth either splitting the encoding (e.g., `EXECUTE` vs `EXECUTE_DEFERRED`) or making the deferral wait a separate column.
+Explicit deferred EXECUTE pause rows now use `EXECUTE_DEFERRED`, while fail-loud/operator pauses keep bare `EXECUTE`. `deriveInstanceStateFromLegacyProject()` maps `EXECUTE_DEFERRED` back to real loop state `EXECUTE`, and the tick/advance guards allow only `READY_FOR_*`, `EXECUTE_DEFERRED`, and legacy bare `EXECUTE` rows with plan-generation evidence to self-recover. Old rows that used bare `EXECUTE` for plan generation remain compatible, but new readers can distinguish explicit deferrals without consulting the decision log.
 
 ### 4. Three auto-ship decision actions
 
