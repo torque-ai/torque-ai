@@ -142,9 +142,21 @@ function releaseLaneLock(lockPath, pid = process.pid) {
   return true;
 }
 
+function createLaneUnavailableError(config, message) {
+  const err = new Error(`Lane ${config.lane} is unavailable: ${message}. Lock: ${config.lockPath}`);
+  err.code = 'LANE_UNAVAILABLE';
+  err.laneUnavailable = true;
+  return err;
+}
+
+function isLaneUnavailableError(err) {
+  return Boolean(err && (err.code === 'LANE_UNAVAILABLE' || err.laneUnavailable));
+}
+
 function acquireLaneLock(config, options = {}) {
   const pid = options.pid || process.pid;
   const alive = options.isPidAlive || isPidAlive;
+  const unlinkLock = options.unlinkLock || fs.unlinkSync;
   const now = options.now || (() => new Date());
   fs.mkdirSync(config.lockDir, { recursive: true });
 
@@ -164,16 +176,23 @@ function acquireLaneLock(config, options = {}) {
       if (!err || err.code !== 'EEXIST') throw err;
       const existing = readJson(config.lockPath);
       if (existing && alive(existing.pid)) {
-        throw new Error(
-          `Lane ${config.lane} is already locked by PID ${existing.pid}` +
-          (existing.command ? ` (${existing.command})` : '') +
-          `. Lock: ${config.lockPath}`
+        throw createLaneUnavailableError(
+          config,
+          `already locked by PID ${existing.pid}` +
+            (existing.command ? ` (${existing.command})` : '')
         );
       }
+      if (!existing) {
+        if (!fs.existsSync(config.lockPath)) continue;
+        throw createLaneUnavailableError(config, 'lock exists but is not readable yet');
+      }
       try {
-        fs.unlinkSync(config.lockPath);
+        unlinkLock(config.lockPath);
       } catch (unlinkErr) {
-        if (!unlinkErr || unlinkErr.code !== 'ENOENT') throw unlinkErr;
+        if (!unlinkErr || unlinkErr.code !== 'ENOENT') {
+          const reason = unlinkErr && unlinkErr.code ? unlinkErr.code : String(unlinkErr && unlinkErr.message || unlinkErr);
+          throw createLaneUnavailableError(config, `could not reclaim stale lock (${reason})`);
+        }
       }
     }
   }
@@ -197,7 +216,7 @@ function acquireSelectedLaneLock(laneValue, options = {}) {
       const release = acquireLaneLock(config, options);
       return { config, release };
     } catch (err) {
-      if (!isAutoLane(laneValue) || !String(err && err.message || '').includes('already locked by PID')) {
+      if (!isAutoLane(laneValue) || !isLaneUnavailableError(err)) {
         throw err;
       }
       busy.push(err.message);
