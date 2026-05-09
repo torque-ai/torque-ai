@@ -59,6 +59,8 @@ server/tests/_*
 
 # Runtime caches
 server/.cache/
+server/perf/last-run.json
+server/perf/bypass-audit.log
 
 # Temporary worktree isolation dirs
 server/.tmp/
