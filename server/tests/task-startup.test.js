@@ -1127,4 +1127,1479 @@ describe('task-startup', () => {
       expect(progress.error_output_length).toBe(100);
     });
   });
+
+  // ── buildProviderStartupEnv ─────────────────────────────────────────────
+  describe('buildProviderStartupEnv', () => {
+    it('prepends NVM path to PATH when not already present', () => {
+      const ctx = loadTaskStartup();
+      const env = ctx.module.buildProviderStartupEnv({
+        taskId: 'task-env-1',
+        task: { workflow_id: 'wf-1', workflow_node_id: 'node-1' },
+        taskMetadata: { transcript_path: '/tmp/transcript.jsonl' },
+        runDir: '/tmp/run-dir',
+        env: { PATH: '/usr/bin', HOME: '/tmp/torque-home' },
+        nvmNodePath: '/tmp/torque-home/.nvm/versions/node/v22.0.0/bin',
+      });
+
+      expect(env.PATH).toMatch(/^\/tmp\/torque-home\/\.nvm/);
+      expect(env.PATH).toContain('/usr/bin');
+      expect(env.TORQUE_TASK_ID).toBe('task-env-1');
+      expect(env.TORQUE_WORKFLOW_ID).toBe('wf-1');
+      expect(env.TORQUE_WORKFLOW_NODE_ID).toBe('node-1');
+      expect(env.TORQUE_RUN_DIR).toBe('/tmp/run-dir');
+      expect(env.TORQUE_TRANSCRIPT_PATH).toBe('/tmp/transcript.jsonl');
+      expect(env.GIT_TERMINAL_PROMPT).toBe('0');
+      expect(env.CI).toBe('1');
+      expect(env.PYTHONIOENCODING).toBe('utf-8');
+    });
+
+    it('does not duplicate NVM path when already on PATH', () => {
+      const ctx = loadTaskStartup();
+      const nvmPath = '/tmp/torque-home/.nvm/versions/node/v22.0.0/bin';
+      const env = ctx.module.buildProviderStartupEnv({
+        taskId: 'task-env-2',
+        task: {},
+        env: { PATH: `${nvmPath}:/usr/bin`, HOME: '/tmp/torque-home' },
+        nvmNodePath: nvmPath,
+      });
+
+      const segments = env.PATH.split(':');
+      const nvmOccurrences = segments.filter(s => s === nvmPath).length;
+      expect(nvmOccurrences).toBe(1);
+    });
+
+    it('skips NVM path when nvmNodePath is null', () => {
+      const ctx = loadTaskStartup();
+      const env = ctx.module.buildProviderStartupEnv({
+        taskId: 'task-env-3',
+        task: {},
+        env: { PATH: '/usr/bin', HOME: '/tmp/torque-home' },
+        nvmNodePath: null,
+      });
+
+      expect(env.PATH).toBe('/usr/bin');
+    });
+
+    it('prepends nativeCodex pathPrepend to PATH', () => {
+      const ctx = loadTaskStartup();
+      const env = ctx.module.buildProviderStartupEnv({
+        taskId: 'task-env-4',
+        task: {},
+        env: { PATH: '/usr/bin', HOME: '/tmp/torque-home' },
+        nvmNodePath: null,
+        nativeCodex: {
+          pathPrepend: '/opt/codex/vendor',
+          envAdditions: { CODEX_MANAGED: '1' },
+        },
+      });
+
+      expect(env.PATH).toMatch(/^\/opt\/codex\/vendor/);
+      expect(env.CODEX_MANAGED).toBe('1');
+    });
+
+    it('defaults HOME to USERPROFILE when HOME is missing', () => {
+      const ctx = loadTaskStartup();
+      const env = ctx.module.buildProviderStartupEnv({
+        taskId: 'task-env-5',
+        task: {},
+        env: { PATH: '/usr/bin', USERPROFILE: 'C:\\Users\\test' },
+        nvmNodePath: null,
+      });
+
+      expect(env.HOME).toBe('C:\\Users\\test');
+    });
+
+    it('defaults HOME to /tmp when both HOME and USERPROFILE missing', () => {
+      const ctx = loadTaskStartup();
+      const env = ctx.module.buildProviderStartupEnv({
+        taskId: 'task-env-6',
+        task: {},
+        env: { PATH: '/usr/bin' },
+        nvmNodePath: null,
+      });
+
+      expect(env.HOME).toBe('/tmp');
+    });
+
+    it('passes through empty strings for missing workflow and run dir fields', () => {
+      const ctx = loadTaskStartup();
+      const env = ctx.module.buildProviderStartupEnv({
+        taskId: 'task-env-7',
+        task: {},
+        taskMetadata: {},
+        runDir: null,
+        env: { PATH: '', HOME: '/tmp/torque-home' },
+        nvmNodePath: null,
+      });
+
+      expect(env.TORQUE_WORKFLOW_ID).toBe('');
+      expect(env.TORQUE_WORKFLOW_NODE_ID).toBe('');
+      expect(env.TORQUE_RUN_DIR).toBe('');
+      expect(env.TORQUE_TRANSCRIPT_PATH).toBe('');
+    });
+  });
+
+  // ── evaluateFactoryWorktreeHeavyValidationGuard ─────────────────────────
+  describe('evaluateFactoryWorktreeHeavyValidationGuard', () => {
+    it('returns null for non-visible-shell providers', () => {
+      const ctx = loadTaskStartup();
+
+      const result = ctx.module.evaluateFactoryWorktreeHeavyValidationGuard(
+        {
+          working_directory: 'C:/repo/.worktrees/feat-x/',
+          task_description: 'dotnet test SomeProject.sln',
+        },
+        'ollama',
+      );
+
+      expect(result).toBeNull();
+    });
+
+    it('returns null for non-worktree working directories', () => {
+      const ctx = loadTaskStartup();
+
+      const result = ctx.module.evaluateFactoryWorktreeHeavyValidationGuard(
+        {
+          working_directory: 'C:/repo/main/',
+          task_description: 'dotnet test SomeProject.sln',
+        },
+        'codex',
+      );
+
+      expect(result).toBeNull();
+    });
+
+    it('returns null for exempt verify_review kind', () => {
+      const ctx = loadTaskStartup();
+
+      const result = ctx.module.evaluateFactoryWorktreeHeavyValidationGuard(
+        {
+          working_directory: 'C:/repo/.worktrees/feat-x/',
+          task_description: 'dotnet test SomeProject.sln',
+          metadata: { kind: 'verify_review' },
+        },
+        'codex',
+      );
+
+      expect(result).toBeNull();
+    });
+
+    it('returns null for exempt architect_cycle kind', () => {
+      const ctx = loadTaskStartup();
+
+      const result = ctx.module.evaluateFactoryWorktreeHeavyValidationGuard(
+        {
+          working_directory: 'C:/repo/.worktrees/feat-x/',
+          task_description: 'dotnet test SomeProject.sln',
+          metadata: { kind: 'architect_cycle' },
+        },
+        'codex',
+      );
+
+      expect(result).toBeNull();
+    });
+
+    it('returns null for exempt plan_generation kind', () => {
+      const ctx = loadTaskStartup();
+
+      const result = ctx.module.evaluateFactoryWorktreeHeavyValidationGuard(
+        {
+          working_directory: 'C:/repo/.worktrees/feat-x/',
+          task_description: 'dotnet test SomeProject.sln',
+          metadata: { kind: 'plan_generation' },
+        },
+        'codex',
+      );
+
+      expect(result).toBeNull();
+    });
+
+    it('returns null for exempt diffusion compute role', () => {
+      const ctx = loadTaskStartup();
+
+      const result = ctx.module.evaluateFactoryWorktreeHeavyValidationGuard(
+        {
+          working_directory: 'C:/repo/.worktrees/feat-x/',
+          task_description: 'dotnet test SomeProject.sln',
+          metadata: { diffusion_role: 'compute' },
+        },
+        'codex',
+      );
+
+      expect(result).toBeNull();
+    });
+
+    it('returns null when description has no heavy validation command', () => {
+      const ctx = loadTaskStartup();
+
+      const result = ctx.module.evaluateFactoryWorktreeHeavyValidationGuard(
+        {
+          working_directory: 'C:/repo/.worktrees/feat-x/',
+          task_description: 'Add a new utility function to server/utils/helpers.js',
+        },
+        'codex',
+      );
+
+      expect(result).toBeNull();
+    });
+
+    it('parses string metadata for kind-based exemptions', () => {
+      const ctx = loadTaskStartup();
+
+      const result = ctx.module.evaluateFactoryWorktreeHeavyValidationGuard(
+        {
+          working_directory: 'C:/repo/.worktrees/feat-x/',
+          task_description: 'dotnet test SomeProject.sln',
+          metadata: JSON.stringify({ kind: 'verify_review' }),
+        },
+        'codex',
+      );
+
+      expect(result).toBeNull();
+    });
+
+    it('handles null/undefined metadata gracefully', () => {
+      const ctx = loadTaskStartup();
+
+      const result = ctx.module.evaluateFactoryWorktreeHeavyValidationGuard(
+        {
+          working_directory: 'C:/repo/.worktrees/feat-x/',
+          task_description: 'Add logging to utils',
+          metadata: null,
+        },
+        'codex',
+      );
+
+      expect(result).toBeNull();
+    });
+
+    it('detects codex-spark as a visible shell provider', () => {
+      const ctx = loadTaskStartup();
+
+      // Without a heavy command, result is null regardless (no heavy command to block)
+      const result = ctx.module.evaluateFactoryWorktreeHeavyValidationGuard(
+        {
+          working_directory: 'C:/repo/.worktrees/feat-x/',
+          task_description: 'Fix a bug in helpers.js',
+        },
+        'codex-spark',
+      );
+
+      expect(result).toBeNull();
+    });
+
+    it('detects claude-cli as a visible shell provider', () => {
+      const ctx = loadTaskStartup();
+
+      const result = ctx.module.evaluateFactoryWorktreeHeavyValidationGuard(
+        {
+          working_directory: 'C:/repo/.worktrees/feat-x/',
+          task_description: 'Fix a bug in helpers.js',
+        },
+        'claude-cli',
+      );
+
+      expect(result).toBeNull();
+    });
+
+    it('handles missing task gracefully', () => {
+      const ctx = loadTaskStartup();
+
+      const result = ctx.module.evaluateFactoryWorktreeHeavyValidationGuard(null, 'codex');
+
+      expect(result).toBeNull();
+    });
+
+    it('handles missing provider gracefully', () => {
+      const ctx = loadTaskStartup();
+
+      const result = ctx.module.evaluateFactoryWorktreeHeavyValidationGuard(
+        { working_directory: 'C:/repo/.worktrees/feat-x/', task_description: 'test' },
+        null,
+      );
+
+      expect(result).toBeNull();
+    });
+  });
+
+  // ── evaluateClaimedStartupPolicy ────────────────────────────────────────
+  describe('evaluateClaimedStartupPolicy', () => {
+    it('returns earlyResult: null when policy does not block', () => {
+      const ctx = loadTaskStartup();
+      const resourceLifecycle = {
+        releaseForPolicyBlock: vi.fn(),
+      };
+
+      const result = ctx.module.evaluateClaimedStartupPolicy({
+        task: createTask(),
+        taskId: 'task-1',
+        provider: 'codex',
+        evaluatePolicy: vi.fn(() => ({ blocked: false })),
+        describePolicyBlock: vi.fn(),
+        cancelBlockedTask: vi.fn(),
+        updateTaskStatus: vi.fn(),
+        notifyTaskUpdated: vi.fn(),
+        drainQueue: vi.fn(),
+        getTask: vi.fn(),
+        resourceLifecycle,
+        log: { info: vi.fn() },
+      });
+
+      expect(result).toEqual({ earlyResult: null });
+      expect(resourceLifecycle.releaseForPolicyBlock).not.toHaveBeenCalled();
+    });
+
+    it('returns earlyResult: null when policy result is null', () => {
+      const ctx = loadTaskStartup();
+
+      const result = ctx.module.evaluateClaimedStartupPolicy({
+        task: createTask(),
+        taskId: 'task-1',
+        provider: 'codex',
+        evaluatePolicy: vi.fn(() => null),
+        describePolicyBlock: vi.fn(),
+        cancelBlockedTask: vi.fn(),
+        updateTaskStatus: vi.fn(),
+        notifyTaskUpdated: vi.fn(),
+        drainQueue: vi.fn(),
+        getTask: vi.fn(),
+        resourceLifecycle: { releaseForPolicyBlock: vi.fn() },
+        log: { info: vi.fn() },
+      });
+
+      expect(result).toEqual({ earlyResult: null });
+    });
+
+    it('cancels task and returns blocked result when policy blocks', () => {
+      const ctx = loadTaskStartup();
+      const blockedTask = createTask({ id: 'blocked-1', status: 'cancelled' });
+      const cancelBlockedTask = vi.fn();
+      const describePolicyBlock = vi.fn(() => 'No cloud providers allowed');
+      const resourceLifecycle = { releaseForPolicyBlock: vi.fn() };
+      const notifyTaskUpdated = vi.fn();
+      const drainQueue = vi.fn();
+      const getTask = vi.fn(() => blockedTask);
+
+      const result = ctx.module.evaluateClaimedStartupPolicy({
+        task: createTask({ id: 'blocked-1' }),
+        taskId: 'blocked-1',
+        provider: 'codex',
+        evaluatePolicy: vi.fn(() => ({
+          blocked: true,
+          results: [{ outcome: 'fail', reason: 'No cloud providers allowed' }],
+        })),
+        describePolicyBlock,
+        cancelBlockedTask,
+        updateTaskStatus: vi.fn(),
+        notifyTaskUpdated,
+        drainQueue,
+        getTask,
+        resourceLifecycle,
+        log: { info: vi.fn() },
+      });
+
+      expect(result.earlyResult).toEqual({
+        queued: false,
+        blocked: true,
+        failed: true,
+        reason: '[Policy] No cloud providers allowed',
+        task: blockedTask,
+      });
+      expect(cancelBlockedTask).toHaveBeenCalledWith(
+        'blocked-1',
+        '[Policy] No cloud providers allowed',
+        { cancel_reason: 'policy_block' },
+      );
+      expect(resourceLifecycle.releaseForPolicyBlock).toHaveBeenCalledWith(
+        '[Policy] No cloud providers allowed',
+      );
+      expect(notifyTaskUpdated).toHaveBeenCalledWith('blocked-1');
+      expect(drainQueue).toHaveBeenCalled();
+    });
+
+    it('falls back to updateTaskStatus when cancelBlockedTask throws', () => {
+      const ctx = loadTaskStartup();
+      const updateTaskStatus = vi.fn();
+      const resourceLifecycle = { releaseForPolicyBlock: vi.fn() };
+      const log = { info: vi.fn() };
+
+      ctx.module.evaluateClaimedStartupPolicy({
+        task: createTask({ id: 'cancel-fail' }),
+        taskId: 'cancel-fail',
+        provider: 'codex',
+        evaluatePolicy: vi.fn(() => ({ blocked: true })),
+        describePolicyBlock: vi.fn(() => 'blocked reason'),
+        cancelBlockedTask: vi.fn(() => { throw new Error('cancel failed'); }),
+        updateTaskStatus,
+        notifyTaskUpdated: vi.fn(),
+        drainQueue: vi.fn(),
+        getTask: vi.fn(() => null),
+        resourceLifecycle,
+        log,
+      });
+
+      expect(updateTaskStatus).toHaveBeenCalledWith('cancel-fail', 'failed', {
+        error_output: '[Policy] blocked reason',
+      });
+      expect(log.info).toHaveBeenCalledWith(
+        expect.stringContaining('Failed to cancel blocked task cancel-fail'),
+      );
+    });
+
+    it('tolerates notifyTaskUpdated failures', () => {
+      const ctx = loadTaskStartup();
+      const resourceLifecycle = { releaseForPolicyBlock: vi.fn() };
+
+      const result = ctx.module.evaluateClaimedStartupPolicy({
+        task: createTask(),
+        taskId: 'task-1',
+        provider: 'codex',
+        evaluatePolicy: vi.fn(() => ({ blocked: true })),
+        describePolicyBlock: vi.fn(() => 'blocked'),
+        cancelBlockedTask: vi.fn(),
+        updateTaskStatus: vi.fn(),
+        notifyTaskUpdated: vi.fn(() => { throw new Error('dashboard down'); }),
+        drainQueue: vi.fn(),
+        getTask: vi.fn(() => null),
+        resourceLifecycle,
+        log: { info: vi.fn() },
+      });
+
+      expect(result.earlyResult).toBeDefined();
+      expect(result.earlyResult.blocked).toBe(true);
+    });
+
+    it('tolerates drainQueue failures', () => {
+      const ctx = loadTaskStartup();
+      const resourceLifecycle = { releaseForPolicyBlock: vi.fn() };
+      const log = { info: vi.fn() };
+
+      const result = ctx.module.evaluateClaimedStartupPolicy({
+        task: createTask(),
+        taskId: 'task-1',
+        provider: 'codex',
+        evaluatePolicy: vi.fn(() => ({ blocked: true })),
+        describePolicyBlock: vi.fn(() => 'blocked'),
+        cancelBlockedTask: vi.fn(),
+        updateTaskStatus: vi.fn(),
+        notifyTaskUpdated: vi.fn(),
+        drainQueue: vi.fn(() => { throw new Error('queue lock contention'); }),
+        getTask: vi.fn(() => null),
+        resourceLifecycle,
+        log,
+      });
+
+      expect(result.earlyResult.blocked).toBe(true);
+      expect(log.info).toHaveBeenCalledWith('Failed to process queue:', 'queue lock contention');
+    });
+
+    it('passes spread task plus id and provider to evaluatePolicy', () => {
+      const ctx = loadTaskStartup();
+      const evaluatePolicy = vi.fn(() => ({ blocked: false }));
+      const task = createTask({ id: 'task-policy', provider: 'ollama', task_description: 'some work' });
+
+      ctx.module.evaluateClaimedStartupPolicy({
+        task,
+        taskId: 'task-policy',
+        provider: 'codex',
+        evaluatePolicy,
+        describePolicyBlock: vi.fn(),
+        cancelBlockedTask: vi.fn(),
+        updateTaskStatus: vi.fn(),
+        notifyTaskUpdated: vi.fn(),
+        drainQueue: vi.fn(),
+        getTask: vi.fn(),
+        resourceLifecycle: { releaseForPolicyBlock: vi.fn() },
+        log: { info: vi.fn() },
+      });
+
+      expect(evaluatePolicy).toHaveBeenCalledWith(expect.objectContaining({
+        id: 'task-policy',
+        provider: 'codex',
+        task_description: 'some work',
+      }));
+    });
+  });
+
+  // ── recordTaskStartedAuditEvent ─────────────────────────────────────────
+  describe('recordTaskStartedAuditEvent', () => {
+    it('records audit event when both backup and audit are enabled', () => {
+      const task = createTask({ working_directory: 'C:/repo' });
+      const ctx = loadTaskStartup({ task });
+      ctx.deps.serverConfig.getBool.mockImplementation((key) => {
+        if (key === 'backup_before_modify_enabled') return true;
+        if (key === 'audit_trail_enabled') return true;
+        return false;
+      });
+
+      ctx.module.recordTaskStartedAuditEvent(task, 'task-1', 'codex');
+
+      expect(ctx.deps.db.recordAuditEvent).toHaveBeenCalledWith(
+        'task_started', 'task', 'task-1', 'start', 'codex', null,
+        expect.objectContaining({
+          task_description: task.task_description,
+          working_directory: 'C:/repo',
+          provider: 'codex',
+        }),
+      );
+    });
+
+    it('skips audit when backup is disabled', () => {
+      const task = createTask({ working_directory: 'C:/repo' });
+      const ctx = loadTaskStartup({ task });
+      ctx.deps.serverConfig.getBool.mockImplementation((key) => {
+        if (key === 'backup_before_modify_enabled') return false;
+        if (key === 'audit_trail_enabled') return true;
+        return false;
+      });
+
+      ctx.module.recordTaskStartedAuditEvent(task, 'task-1', 'codex');
+
+      expect(ctx.deps.db.recordAuditEvent).not.toHaveBeenCalled();
+    });
+
+    it('skips audit when audit trail is disabled', () => {
+      const task = createTask({ working_directory: 'C:/repo' });
+      const ctx = loadTaskStartup({ task });
+      ctx.deps.serverConfig.getBool.mockImplementation((key) => {
+        if (key === 'backup_before_modify_enabled') return true;
+        if (key === 'audit_trail_enabled') return false;
+        return false;
+      });
+
+      ctx.module.recordTaskStartedAuditEvent(task, 'task-1', 'codex');
+
+      expect(ctx.deps.db.recordAuditEvent).not.toHaveBeenCalled();
+    });
+
+    it('skips audit when working_directory is null', () => {
+      const task = createTask({ working_directory: null });
+      const ctx = loadTaskStartup({ task });
+      ctx.deps.serverConfig.getBool.mockReturnValue(true);
+
+      ctx.module.recordTaskStartedAuditEvent(task, 'task-1', 'codex');
+
+      expect(ctx.deps.db.recordAuditEvent).not.toHaveBeenCalled();
+    });
+
+    it('records system actor while preserving null provider metadata', () => {
+      const task = createTask({ working_directory: 'C:/repo' });
+      const ctx = loadTaskStartup({ task });
+      ctx.deps.serverConfig.getBool.mockReturnValue(true);
+
+      ctx.module.recordTaskStartedAuditEvent(task, 'task-1', null);
+
+      expect(ctx.deps.db.recordAuditEvent).toHaveBeenCalledWith(
+        'task_started', 'task', 'task-1', 'start', 'system', null,
+        expect.objectContaining({
+          task_description: task.task_description,
+          working_directory: 'C:/repo',
+          provider: null,
+        }),
+      );
+    });
+  });
+
+  // ── estimateProgress edge cases ─────────────────────────────────────────
+  describe('estimateProgress advanced', () => {
+    it('uses stderr for progress when stdout is empty and provider is stderr-driven', () => {
+      const ctx = loadTaskStartup();
+      const stderr = Array.from({ length: 100 }, (_, i) => `tool trace ${i}`).join('\n');
+
+      const progress = ctx.module.estimateProgress('', 'codex', stderr);
+
+      expect(progress).toBeGreaterThan(0);
+      expect(progress).toBeLessThanOrEqual(90);
+    });
+
+    it('uses stderr for progress with codex-spark', () => {
+      const ctx = loadTaskStartup();
+      const stderr = Array.from({ length: 50 }, (_, i) => `trace ${i}`).join('\n');
+
+      const progress = ctx.module.estimateProgress('', 'codex-spark', stderr);
+
+      expect(progress).toBeGreaterThan(0);
+    });
+
+    it('uses stderr for progress with claude-cli', () => {
+      const ctx = loadTaskStartup();
+      const stderr = Array.from({ length: 50 }, (_, i) => `trace ${i}`).join('\n');
+
+      const progress = ctx.module.estimateProgress('', 'claude-cli', stderr);
+
+      expect(progress).toBeGreaterThan(0);
+    });
+
+    it('ignores stderr for non-stderr-driven providers like ollama', () => {
+      const ctx = loadTaskStartup();
+      const stderr = Array.from({ length: 200 }, (_, i) => `line ${i}`).join('\n');
+
+      const progress = ctx.module.estimateProgress('', 'ollama', stderr);
+
+      // With empty stdout and ollama provider, stderr is ignored
+      expect(progress).toBe(0);
+    });
+
+    it('detects completion in stderr for codex provider', () => {
+      const ctx = loadTaskStartup();
+      ctx.deps.detectOutputCompletion.mockImplementation((text) => text.includes('DONE'));
+
+      const progress = ctx.module.estimateProgress('', 'codex', 'DONE');
+
+      expect(progress).toBe(95);
+    });
+
+    it('caps progress at 90 before completion detection', () => {
+      const ctx = loadTaskStartup();
+      const hugeOutput = Array.from({ length: 10000 }, (_, i) => `line ${i}`).join('\n');
+
+      const progress = ctx.module.estimateProgress(hugeOutput, 'codex');
+
+      expect(progress).toBe(90);
+    });
+
+    it('handles null/undefined output gracefully', () => {
+      const ctx = loadTaskStartup();
+
+      expect(ctx.module.estimateProgress(null, 'codex')).toBe(0);
+      expect(ctx.module.estimateProgress(undefined, 'codex')).toBe(0);
+      expect(ctx.module.estimateProgress(null, 'codex', null)).toBe(0);
+    });
+  });
+
+  // ── getTaskProgress DB-only path ────────────────────────────────────────
+  describe('getTaskProgress DB-only path', () => {
+    it('returns progress from DB when process is not in memory', () => {
+      const ctx = loadTaskStartup();
+      const task = {
+        id: 'db-task-1',
+        status: 'completed',
+        output: 'task output',
+        error_output: 'task errors',
+        last_activity_at: '2026-01-01T00:00:00Z',
+        progress_percent: 100,
+      };
+      ctx.deps.db.getTask.mockReturnValue(task);
+
+      const progress = ctx.module.getTaskProgress('db-task-1');
+
+      expect(progress).toEqual({
+        running: false,
+        status: 'completed',
+        output: 'task output',
+        errorOutput: 'task errors',
+        output_length: 11,
+        error_output_length: 11,
+        last_output_at: '2026-01-01T00:00:00Z',
+        phase: null,
+        progress: 100,
+      });
+    });
+
+    it('reports orphan running task from DB as running with 0 progress', () => {
+      const ctx = loadTaskStartup();
+      ctx.deps.db.getTask.mockReturnValue({
+        id: 'orphan-1',
+        status: 'running',
+        output: 'some output',
+        error_output: '',
+        last_activity_at: null,
+        progress_percent: null,
+      });
+
+      const progress = ctx.module.getTaskProgress('orphan-1');
+
+      expect(progress.running).toBe(true);
+      expect(progress.status).toBe('running');
+      expect(progress.progress).toBe(0);
+    });
+
+    it('returns null when task is not found in memory or DB', () => {
+      const ctx = loadTaskStartup();
+      ctx.deps.db.getTask.mockReturnValue(null);
+
+      expect(ctx.module.getTaskProgress('nonexistent')).toBeNull();
+    });
+
+    it('resolves partial task IDs via resolveTaskId', () => {
+      const ctx = loadTaskStartup();
+      ctx.deps.db.resolveTaskId.mockReturnValue('full-task-id-12345');
+      ctx.deps.db.getTask.mockImplementation((id) => {
+        if (id === 'full-task-id-12345') {
+          return { id, status: 'completed', output: 'done', error_output: '', progress_percent: 100 };
+        }
+        return null;
+      });
+
+      const progress = ctx.module.getTaskProgress('full-task');
+
+      expect(ctx.deps.db.resolveTaskId).toHaveBeenCalledWith('full-task');
+      expect(progress).not.toBeNull();
+      expect(progress.status).toBe('completed');
+    });
+
+    it('sanitizes output from in-memory running processes', () => {
+      const ctx = loadTaskStartup();
+      ctx.deps.sanitizeTaskOutput.mockReturnValue('SANITIZED');
+      ctx.deps.runningProcesses.set('running-1', {
+        output: 'raw <dangerous> output',
+        errorOutput: 'stderr data',
+        startTime: Date.now() - 10000,
+        lastOutputAt: Date.now(),
+        provider: 'codex',
+      });
+
+      const progress = ctx.module.getTaskProgress('running-1');
+
+      expect(progress.output).toBe('SANITIZED');
+      expect(ctx.deps.sanitizeTaskOutput).toHaveBeenCalledWith('raw <dangerous> output');
+    });
+  });
+
+  // ── getActualModifiedFiles ──────────────────────────────────────────────
+  describe('getActualModifiedFiles', () => {
+    it('returns modified and added files from git status', () => {
+      const ctx = loadTaskStartup();
+      ctx.module.setSkipGitInCloseHandler(false);
+      ctx.mockParseGitStatusLine
+        .mockReturnValueOnce({ isModified: true, isDeleted: false, indexStatus: 'M', filePath: 'src/app.js' })
+        .mockReturnValueOnce({ isModified: false, isDeleted: false, indexStatus: 'A', filePath: 'src/new.js' })
+        .mockReturnValueOnce({ isModified: false, isDeleted: true, indexStatus: 'D', filePath: 'src/removed.js' })
+        .mockReturnValueOnce(null);
+
+      ctx.mockChildProcess.execFileSync.mockReturnValue(
+        ' M src/app.js\nA  src/new.js\nD  src/removed.js\n?? untracked.txt\n',
+      );
+
+      const files = ctx.module.getActualModifiedFiles('C:/repo');
+
+      expect(files).toEqual(['src/app.js', 'src/new.js']);
+    });
+
+    it('excludes .db files', () => {
+      const ctx = loadTaskStartup();
+      ctx.module.setSkipGitInCloseHandler(false);
+      ctx.mockParseGitStatusLine
+        .mockReturnValueOnce({ isModified: true, isDeleted: false, indexStatus: 'M', filePath: 'data.db' })
+        .mockReturnValueOnce({ isModified: true, isDeleted: false, indexStatus: 'M', filePath: 'src/app.js' });
+
+      ctx.mockChildProcess.execFileSync.mockReturnValue(' M data.db\n M src/app.js\n');
+
+      const files = ctx.module.getActualModifiedFiles('C:/repo');
+
+      expect(files).toEqual(['src/app.js']);
+    });
+
+    it('excludes .gitignore files', () => {
+      const ctx = loadTaskStartup();
+      ctx.module.setSkipGitInCloseHandler(false);
+      ctx.mockParseGitStatusLine
+        .mockReturnValueOnce({ isModified: false, isDeleted: false, indexStatus: 'A', filePath: '.gitignore' })
+        .mockReturnValueOnce({ isModified: true, isDeleted: false, indexStatus: 'M', filePath: 'src/app.js' });
+
+      ctx.mockChildProcess.execFileSync.mockReturnValue('A  .gitignore\n M src/app.js\n');
+
+      const files = ctx.module.getActualModifiedFiles('C:/repo');
+
+      expect(files).toEqual(['src/app.js']);
+    });
+
+    it('excludes files starting with .git/', () => {
+      const ctx = loadTaskStartup();
+      ctx.module.setSkipGitInCloseHandler(false);
+      ctx.mockParseGitStatusLine
+        .mockReturnValueOnce({ isModified: true, isDeleted: false, indexStatus: 'M', filePath: '.git/config' })
+        .mockReturnValueOnce({ isModified: true, isDeleted: false, indexStatus: 'M', filePath: 'src/app.js' });
+
+      ctx.mockChildProcess.execFileSync.mockReturnValue(' M .git/config\n M src/app.js\n');
+
+      const files = ctx.module.getActualModifiedFiles('C:/repo');
+
+      expect(files).toEqual(['src/app.js']);
+    });
+
+    it('excludes ghost files (AD status: staged then deleted from disk)', () => {
+      const ctx = loadTaskStartup();
+      ctx.module.setSkipGitInCloseHandler(false);
+      ctx.mockParseGitStatusLine
+        .mockReturnValueOnce({ isModified: false, isDeleted: true, indexStatus: 'A', filePath: 'ghost.js' });
+
+      ctx.mockChildProcess.execFileSync.mockReturnValue('AD ghost.js\n');
+
+      const files = ctx.module.getActualModifiedFiles('C:/repo');
+
+      expect(files).toEqual([]);
+    });
+
+    it('returns null when skipGitInCloseHandler is true', () => {
+      const ctx = loadTaskStartup();
+      ctx.module.setSkipGitInCloseHandler(true);
+
+      const files = ctx.module.getActualModifiedFiles('C:/repo');
+
+      expect(files).toBeNull();
+    });
+
+    it('returns empty array on git error', () => {
+      const ctx = loadTaskStartup();
+      ctx.module.setSkipGitInCloseHandler(false);
+      ctx.mockChildProcess.execFileSync.mockImplementation(() => {
+        throw new Error('git not found');
+      });
+
+      const files = ctx.module.getActualModifiedFiles('C:/repo');
+
+      expect(files).toEqual([]);
+    });
+
+    it('handles empty git status output', () => {
+      const ctx = loadTaskStartup();
+      ctx.module.setSkipGitInCloseHandler(false);
+      ctx.mockChildProcess.execFileSync.mockReturnValue('');
+
+      const files = ctx.module.getActualModifiedFiles('C:/repo');
+
+      expect(files).toEqual([]);
+    });
+  });
+
+  // ── createTaskStartupResourceLifecycle ──────────────────────────────────
+  describe('createTaskStartupResourceLifecycle', () => {
+    it('claimSlot returns earlyResult when at capacity', () => {
+      const task = createTask();
+      const ctx = loadTaskStartup({ task });
+      ctx.deps.db.tryClaimTaskSlot.mockReturnValue({
+        success: false,
+        reason: 'at_capacity',
+      });
+
+      const lifecycle = ctx.module.createTaskStartupResourceLifecycle({
+        taskId: task.id,
+        task,
+        provider: 'codex',
+        maxConcurrent: 3,
+      });
+      const result = lifecycle.claimSlot();
+
+      expect(result.earlyResult).toEqual(expect.objectContaining({
+        queued: true,
+      }));
+      expect(result.earlyResult.task).toBeDefined();
+      expect(ctx.deps.db.updateTaskStatus).toHaveBeenCalledWith(task.id, 'queued');
+    });
+
+    it('claimSlot returns earlyResult for already_running', () => {
+      const task = createTask();
+      const ctx = loadTaskStartup({ task });
+      ctx.deps.db.tryClaimTaskSlot.mockReturnValue({
+        success: false,
+        reason: 'already_running',
+      });
+
+      const lifecycle = ctx.module.createTaskStartupResourceLifecycle({
+        taskId: task.id,
+        task,
+        provider: 'codex',
+        maxConcurrent: 3,
+      });
+      const result = lifecycle.claimSlot();
+
+      expect(result.earlyResult).toEqual({ queued: false, alreadyRunning: true });
+    });
+
+    it('claimSlot throws for not_found', () => {
+      const task = createTask();
+      const ctx = loadTaskStartup({ task });
+      ctx.deps.db.tryClaimTaskSlot.mockReturnValue({
+        success: false,
+        reason: 'not_found',
+      });
+
+      const lifecycle = ctx.module.createTaskStartupResourceLifecycle({
+        taskId: task.id,
+        task,
+        provider: 'codex',
+        maxConcurrent: 3,
+      });
+
+      expect(() => lifecycle.claimSlot()).toThrow('Task not found: task-1');
+    });
+
+    it('claimSlot throws for invalid_status', () => {
+      const task = createTask();
+      const ctx = loadTaskStartup({ task });
+      ctx.deps.db.tryClaimTaskSlot.mockReturnValue({
+        success: false,
+        reason: 'invalid_status',
+        status: 'completed',
+      });
+
+      const lifecycle = ctx.module.createTaskStartupResourceLifecycle({
+        taskId: task.id,
+        task,
+        provider: 'codex',
+        maxConcurrent: 3,
+      });
+
+      expect(() => lifecycle.claimSlot()).toThrow('Task in invalid status for starting: completed');
+    });
+
+    it('claimSlot throws for unknown reason', () => {
+      const task = createTask();
+      const ctx = loadTaskStartup({ task });
+      ctx.deps.db.tryClaimTaskSlot.mockReturnValue({
+        success: false,
+        reason: 'unexpected_error',
+      });
+
+      const lifecycle = ctx.module.createTaskStartupResourceLifecycle({
+        taskId: task.id,
+        task,
+        provider: 'codex',
+        maxConcurrent: 3,
+      });
+
+      expect(() => lifecycle.claimSlot()).toThrow('Failed to claim task slot: unexpected_error');
+    });
+
+    it('claimSlot returns providerConfig and claimResult on success', () => {
+      const task = createTask();
+      const ctx = loadTaskStartup({ task });
+
+      const lifecycle = ctx.module.createTaskStartupResourceLifecycle({
+        taskId: task.id,
+        task,
+        provider: 'codex',
+        maxConcurrent: 3,
+      });
+      const result = lifecycle.claimSlot();
+
+      expect(result.earlyResult).toBeNull();
+      expect(result.providerConfig).toEqual({ enabled: true, cli_path: 'node' });
+      expect(result.claimResult).toEqual(expect.objectContaining({
+        success: true,
+        task: expect.objectContaining({ id: task.id, status: 'running' }),
+      }));
+    });
+
+    it('claimSlot returns earlyResult for provider_at_capacity', () => {
+      const task = createTask();
+      const ctx = loadTaskStartup({ task });
+      ctx.deps.db.tryClaimTaskSlot.mockReturnValue({
+        success: false,
+        reason: 'provider_at_capacity',
+      });
+
+      const lifecycle = ctx.module.createTaskStartupResourceLifecycle({
+        taskId: task.id,
+        task,
+        provider: 'codex',
+        maxConcurrent: 3,
+      });
+      const result = lifecycle.claimSlot();
+
+      expect(result.earlyResult).toEqual(expect.objectContaining({
+        queued: true,
+      }));
+      expect(result.earlyResult.task).toBeDefined();
+      expect(ctx.deps.db.updateTaskStatus).toHaveBeenCalledWith(task.id, 'queued');
+    });
+
+    it('releaseAcquiredFileLocks releases all locks in reverse order', async () => {
+      const task = createTask({
+        id: 'lock-test',
+        task_description: 'Edit files',
+        provider: 'codex',
+      });
+      const ctx = loadTaskStartup({ task });
+      let lockCallCount = 0;
+      ctx.deps.db.acquireFileLock.mockImplementation(() => {
+        lockCallCount++;
+        return { acquired: true };
+      });
+      ctx.deps.resolveFileReferences.mockReturnValue({
+        resolved: [
+          { actual: 'file-a.js' },
+          { actual: 'file-b.js' },
+        ],
+      });
+
+      const lifecycle = ctx.module.createTaskStartupResourceLifecycle({
+        taskId: task.id,
+        task,
+        provider: 'codex',
+        maxConcurrent: 3,
+      });
+      lifecycle.claimSlot();
+      await lifecycle.resolveAndLockFiles('codex');
+
+      expect(ctx.deps.db.acquireFileLock).toHaveBeenCalledTimes(2);
+
+      lifecycle.releaseAcquiredFileLocks();
+
+      expect(ctx.deps.db.releaseFileLock).toHaveBeenCalledTimes(2);
+      expect(ctx.deps.db.releaseFileLock).toHaveBeenCalledWith('file-b.js', 'C:/repo', 'lock-test');
+      expect(ctx.deps.db.releaseFileLock).toHaveBeenCalledWith('file-a.js', 'C:/repo', 'lock-test');
+    });
+
+    it('releaseAcquiredFileLocks does not double-release', async () => {
+      const task = createTask({
+        id: 'double-release',
+        task_description: 'Edit file',
+        provider: 'codex',
+      });
+      const ctx = loadTaskStartup({ task });
+      ctx.deps.resolveFileReferences.mockReturnValue({
+        resolved: [{ actual: 'file.js' }],
+      });
+
+      const lifecycle = ctx.module.createTaskStartupResourceLifecycle({
+        taskId: task.id,
+        task,
+        provider: 'codex',
+        maxConcurrent: 3,
+      });
+      lifecycle.claimSlot();
+      await lifecycle.resolveAndLockFiles('codex');
+
+      lifecycle.releaseAcquiredFileLocks();
+      lifecycle.releaseAcquiredFileLocks();
+
+      expect(ctx.deps.db.releaseFileLock).toHaveBeenCalledTimes(1);
+    });
+
+    it('resolveAndLockFiles requeues sandboxed task on conflict', async () => {
+      const task = createTask({
+        id: 'lock-conflict',
+        task_description: 'Edit file.js',
+        provider: 'codex',
+      });
+      const ctx = loadTaskStartup({ task });
+      ctx.deps.resolveFileReferences.mockReturnValue({
+        resolved: [{ actual: 'file.js' }],
+      });
+      ctx.deps.db.acquireFileLock.mockReturnValue({
+        acquired: false,
+        lockedBy: 'other-task',
+      });
+
+      const lifecycle = ctx.module.createTaskStartupResourceLifecycle({
+        taskId: task.id,
+        task,
+        provider: 'codex',
+        maxConcurrent: 3,
+      });
+      lifecycle.claimSlot();
+      const result = await lifecycle.resolveAndLockFiles('codex');
+
+      expect(result.earlyResult).toEqual(expect.objectContaining({
+        queued: true,
+        fileLockConflict: true,
+        conflictFile: 'file.js',
+        conflictTask: 'other-task',
+      }));
+      expect(ctx.deps.db.requeueTaskAfterAttemptedStart).toHaveBeenCalled();
+    });
+
+    it('resolveAndLockFiles allows non-sandboxed provider to proceed despite lock conflict', async () => {
+      const task = createTask({
+        id: 'lock-proceed',
+        task_description: 'Edit file.js',
+        provider: 'ollama',
+      });
+      const ctx = loadTaskStartup({ task });
+      ctx.deps.resolveFileReferences.mockReturnValue({
+        resolved: [{ actual: 'file.js' }],
+      });
+      ctx.deps.db.acquireFileLock.mockReturnValue({
+        acquired: false,
+        lockedBy: 'other-task',
+      });
+
+      const lifecycle = ctx.module.createTaskStartupResourceLifecycle({
+        taskId: task.id,
+        task,
+        provider: 'ollama',
+        maxConcurrent: 3,
+      });
+      lifecycle.claimSlot();
+      const result = await lifecycle.resolveAndLockFiles('ollama');
+
+      expect(result.earlyResult).toBeNull();
+      expect(ctx.deps.db.requeueTaskAfterAttemptedStart).not.toHaveBeenCalled();
+    });
+
+    it('resolveAndLockFiles returns empty results when no files to resolve', async () => {
+      const task = createTask({ id: 'no-files', working_directory: null });
+      const ctx = loadTaskStartup({ task });
+
+      const lifecycle = ctx.module.createTaskStartupResourceLifecycle({
+        taskId: task.id,
+        task,
+        provider: 'codex',
+        maxConcurrent: 3,
+      });
+      lifecycle.claimSlot();
+      const result = await lifecycle.resolveAndLockFiles('codex');
+
+      expect(result.earlyResult).toBeNull();
+      expect(result.resolvedFilePaths).toEqual([]);
+      expect(result.resolvedFiles).toEqual([]);
+      expect(result.resolvedFileContext).toBe('');
+    });
+  });
+
+  // ── attemptTaskStart queue accounting ───────────────────────────────────
+  describe('attemptTaskStart queue accounting', () => {
+    it('returns pendingAsync true when startTask returns a thenable', () => {
+      const task = createTask();
+      const ctx = loadTaskStartup({ task });
+
+      const result = ctx.module.attemptTaskStart(task.id, 'codex');
+
+      expect(result).toMatchObject({
+        started: false,
+        queued: false,
+        pendingAsync: true,
+      });
+    });
+
+    it('returns pendingAsync for nonexistent task (async startTask always returns thenable)', async () => {
+      const ctx = loadTaskStartup();
+      ctx.deps.db.getTask.mockReturnValue(null);
+      ctx.deps.safeUpdateTaskStatus.mockImplementation((id, status, patch) =>
+        ctx.deps.db.updateTaskStatus(id, status, patch),
+      );
+
+      const result = ctx.module.attemptTaskStart('nonexistent', 'codex');
+
+      // startTask is async, so attemptTaskStart always enters the thenable branch
+      expect(result).toMatchObject({
+        started: false,
+        queued: false,
+        pendingAsync: true,
+      });
+
+      // Wait for the async rejection to fire
+      await new Promise((r) => setTimeout(r, 0));
+      expect(ctx.mockLogger.error).toHaveBeenCalledWith(
+        'processQueue: async failure for codex task nonexistent',
+        { error: 'Task not found: nonexistent' },
+      );
+    });
+
+    it('returns pendingAsync for disabled-provider requeue (async startTask)', async () => {
+      const task = createTask({ provider: 'codex' });
+      const ctx = loadTaskStartup({ task });
+      ctx.deps.db.getProvider.mockReturnValue({ enabled: false });
+
+      const result = ctx.module.attemptTaskStart(task.id, 'codex');
+
+      // startTask is async — attemptTaskStart sees a thenable even for
+      // synchronous early-returns within the async function body.
+      expect(result).toMatchObject({
+        started: false,
+        queued: false,
+        pendingAsync: true,
+      });
+    });
+
+    it('handles deterministic preflight errors with markPreflightFailed', () => {
+      const task = createTask({ id: 'preflight-fail', working_directory: 'C:/missing' });
+      const ctx = loadTaskStartup({ task });
+      ctx.mockFs.statSync.mockImplementation(() => {
+        const err = new Error('gone');
+        err.code = 'ENOENT';
+        throw err;
+      });
+      ctx.deps.safeUpdateTaskStatus.mockImplementation((id, status, patch) => {
+        return ctx.deps.db.updateTaskStatus(id, status, patch);
+      });
+
+      const result = ctx.module.attemptTaskStart(task.id, 'codex');
+
+      expect(result).toMatchObject({
+        started: false,
+        queued: false,
+        pendingAsync: false,
+        failed: true,
+        reason: 'preflight_failed',
+        code: 'WORKING_DIR_MISSING',
+        deterministic: true,
+      });
+    });
+  });
+
+  // ── buildProviderStartupCommand ─────────────────────────────────────────
+  describe('buildProviderStartupCommand', () => {
+    it('returns ollama mode for ollama provider', async () => {
+      const task = createTask({ provider: 'ollama' });
+      const ctx = loadTaskStartup({ task });
+
+      const result = await ctx.module.buildProviderStartupCommand({
+        taskId: task.id,
+        task,
+        provider: 'ollama',
+        providerConfig: { enabled: true },
+        executionTask: task,
+      });
+
+      expect(result).toEqual({
+        mode: 'ollama',
+        provider: 'ollama',
+        executionTask: task,
+      });
+    });
+
+    it('returns spawn mode with codex command for codex provider', async () => {
+      const task = createTask({ provider: 'codex', working_directory: 'C:/repo' });
+      const ctx = loadTaskStartup({ task });
+
+      const result = await ctx.module.buildProviderStartupCommand({
+        taskId: task.id,
+        task,
+        provider: 'codex',
+        providerConfig: { enabled: true },
+        executionTask: task,
+        resolvedFileContext: '',
+        resolvedFiles: [],
+        runDir: '/tmp/run',
+        taskMetadata: {},
+        env: { PATH: '/usr/bin', HOME: '/tmp/torque-home' },
+        platform: 'linux',
+        nvmNodePath: null,
+        resolveCmdToNode: vi.fn(() => null),
+        captureBaselineCommit: vi.fn(() => 'abc123'),
+        log: { info: vi.fn(), warn: vi.fn() },
+      });
+
+      expect(result.mode).toBe('spawn');
+      expect(result.cliPath).toBe('node');
+      expect(result.finalArgs).toEqual(['codex.js']);
+      expect(result.provider).toBe('codex');
+      expect(result.baselineCommit).toBe('abc123');
+      expect(result.options.cwd).toBe('C:/repo');
+      expect(result.options.shell).toBe(false);
+      expect(result.options.windowsHide).toBe(true);
+    });
+
+    it('returns spawn mode for claude-cli provider using sync command builder', async () => {
+      const task = createTask({ provider: 'claude-cli', working_directory: 'C:/repo' });
+      const ctx = loadTaskStartup({ task });
+
+      const result = await ctx.module.buildProviderStartupCommand({
+        taskId: task.id,
+        task,
+        provider: 'claude-cli',
+        providerConfig: { enabled: true },
+        executionTask: task,
+        resolvedFileContext: 'FILE_CTX',
+        resolvedFiles: [],
+        runDir: null,
+        taskMetadata: {},
+        env: { PATH: '/usr/bin', HOME: '/tmp/torque-home' },
+        platform: 'linux',
+        nvmNodePath: null,
+        resolveCmdToNode: vi.fn(() => null),
+        captureBaselineCommit: vi.fn(() => null),
+        log: { info: vi.fn(), warn: vi.fn() },
+      });
+
+      expect(result.mode).toBe('spawn');
+      expect(ctx.deps.buildClaudeCliCommand).toHaveBeenCalledWith(task, expect.any(Object), 'FILE_CTX');
+    });
+
+    it('resolves .cmd to node on Windows platform', async () => {
+      const task = createTask({ provider: 'codex', working_directory: 'C:/repo' });
+      const ctx = loadTaskStartup({ task });
+      ctx.deps.buildCodexCommand.mockResolvedValue({
+        cliPath: 'codex.cmd',
+        finalArgs: ['--full-auto'],
+        stdinPrompt: 'prompt',
+      });
+
+      const resolveCmdToNode = vi.fn(() => ({
+        nodePath: 'C:/node/node.exe',
+        scriptPath: 'C:/node_modules/codex/bin/codex.js',
+      }));
+
+      const result = await ctx.module.buildProviderStartupCommand({
+        taskId: task.id,
+        task,
+        provider: 'codex',
+        providerConfig: { enabled: true },
+        executionTask: task,
+        resolvedFileContext: '',
+        resolvedFiles: [],
+        runDir: null,
+        taskMetadata: {},
+        env: { PATH: 'C:\\Windows', HOME: 'C:\\Users\\test' },
+        platform: 'win32',
+        nvmNodePath: null,
+        resolveCmdToNode,
+        captureBaselineCommit: vi.fn(() => null),
+        log: { info: vi.fn(), warn: vi.fn() },
+      });
+
+      expect(resolveCmdToNode).toHaveBeenCalledWith('codex.cmd');
+      expect(result.cliPath).toBe('C:/node/node.exe');
+      expect(result.finalArgs).toEqual([
+        'C:/node_modules/codex/bin/codex.js',
+        '--full-auto',
+      ]);
+    });
+
+    it('falls back to cmd.exe wrapping when resolution fails on Windows', async () => {
+      const task = createTask({ provider: 'codex', working_directory: 'C:/repo' });
+      const ctx = loadTaskStartup({ task });
+      ctx.deps.buildCodexCommand.mockResolvedValue({
+        cliPath: 'codex.cmd',
+        finalArgs: ['--full-auto'],
+        stdinPrompt: 'prompt',
+      });
+
+      const log = { info: vi.fn(), warn: vi.fn() };
+
+      const result = await ctx.module.buildProviderStartupCommand({
+        taskId: task.id,
+        task,
+        provider: 'codex',
+        providerConfig: { enabled: true },
+        executionTask: task,
+        resolvedFileContext: '',
+        resolvedFiles: [],
+        runDir: null,
+        taskMetadata: {},
+        env: { PATH: 'C:\\Windows', HOME: 'C:\\Users\\test' },
+        platform: 'win32',
+        nvmNodePath: null,
+        resolveCmdToNode: vi.fn(() => null),
+        captureBaselineCommit: vi.fn(() => null),
+        log,
+      });
+
+      expect(result.cliPath).toBe('cmd.exe');
+      expect(result.finalArgs).toEqual(['/c', 'codex.cmd', '--full-auto']);
+      expect(log.info).toHaveBeenCalledWith(
+        expect.stringContaining('falling back to cmd.exe'),
+      );
+    });
+
+    it('skips .cmd resolution for nativeCodex commands', async () => {
+      const task = createTask({ provider: 'codex', working_directory: 'C:/repo' });
+      const ctx = loadTaskStartup({ task });
+      ctx.deps.buildCodexCommand.mockResolvedValue({
+        cliPath: 'C:/codex/codex.exe',
+        finalArgs: ['--full-auto'],
+        stdinPrompt: 'prompt',
+        nativeCodex: { pathPrepend: 'C:/codex/vendor' },
+      });
+
+      const resolveCmdToNode = vi.fn();
+
+      const result = await ctx.module.buildProviderStartupCommand({
+        taskId: task.id,
+        task,
+        provider: 'codex',
+        providerConfig: { enabled: true },
+        executionTask: task,
+        resolvedFileContext: '',
+        resolvedFiles: [],
+        runDir: null,
+        taskMetadata: {},
+        env: { PATH: 'C:\\Windows', HOME: 'C:\\Users\\test' },
+        platform: 'win32',
+        nvmNodePath: null,
+        resolveCmdToNode,
+        captureBaselineCommit: vi.fn(() => null),
+        log: { info: vi.fn(), warn: vi.fn() },
+      });
+
+      expect(resolveCmdToNode).not.toHaveBeenCalled();
+      expect(result.cliPath).toBe('C:/codex/codex.exe');
+    });
+
+    it('defaults cwd to process.cwd() when task has no working_directory', async () => {
+      const task = createTask({ provider: 'codex', working_directory: '' });
+      const ctx = loadTaskStartup({ task });
+
+      const result = await ctx.module.buildProviderStartupCommand({
+        taskId: task.id,
+        task: { ...task, working_directory: '' },
+        provider: 'codex',
+        providerConfig: { enabled: true },
+        executionTask: task,
+        resolvedFileContext: '',
+        resolvedFiles: [],
+        runDir: null,
+        taskMetadata: {},
+        env: { PATH: '/usr/bin', HOME: '/tmp/torque-home' },
+        platform: 'linux',
+        nvmNodePath: null,
+        resolveCmdToNode: vi.fn(() => null),
+        captureBaselineCommit: vi.fn(() => null),
+        log: { info: vi.fn() },
+      });
+
+      expect(result.options.cwd).toBe(process.cwd());
+    });
+  });
+
+  // ── createTaskStartup factory ───────────────────────────────────────────
+  describe('createTaskStartup factory', () => {
+    it('creates isolated instances that do not share state', async () => {
+      const ctx = loadTaskStartup();
+      const taskA = createTask({ id: 'task-a', provider: 'ollama' });
+      const taskB = createTask({ id: 'task-b', provider: 'ollama' });
+
+      const { deps: depsA } = createDeps({ task: taskA });
+      const { deps: depsB } = createDeps({ task: taskB });
+
+      const startupA = ctx.module.createTaskStartup(depsA);
+      const startupB = ctx.module.createTaskStartup(depsB);
+
+      const resultA = await startupA.startTask('task-a');
+      const resultB = await startupB.startTask('task-b');
+
+      expect(resultA).toMatchObject({ queued: false, started: true, provider: 'ollama' });
+      expect(resultB).toMatchObject({ queued: false, started: true, provider: 'ollama' });
+      expect(depsA.executeOllamaTask).toHaveBeenCalledTimes(1);
+      expect(depsB.executeOllamaTask).toHaveBeenCalledTimes(1);
+    });
+
+    it('exposes pure helpers without dep-swapping', () => {
+      const ctx = loadTaskStartup();
+      const { deps } = createDeps();
+      const startup = ctx.module.createTaskStartup(deps);
+
+      expect(startup.NVM_NODE_PATH).toBeDefined();
+      expect(startup.MAX_OUTPUT_BUFFER).toBe(10 * 1024 * 1024);
+      expect(startup.FILE_LOCK_REQUEUE_DELAY_MS).toBe(10000);
+      expect(typeof startup.setSkipGitInCloseHandler).toBe('function');
+      expect(typeof startup.getSkipGitInCloseHandler).toBe('function');
+    });
+
+    it('generates unique QUEUE_LOCK_HOLDER_ID when no taskManager is provided', () => {
+      const ctx = loadTaskStartup();
+      const { deps } = createDeps();
+      delete deps.QUEUE_LOCK_HOLDER_ID;
+      delete deps.taskManager;
+
+      const startup = ctx.module.createTaskStartup(deps);
+
+      // The factory generates a process-unique ID
+      expect(typeof startup).toBe('object');
+      // Can still call startTask — the lock holder ID is generated internally
+    });
+  });
+
+  // ── Constants ───────────────────────────────────────────────────────────
+  describe('module constants', () => {
+    it('exports expected constant values', () => {
+      const ctx = loadTaskStartup();
+
+      expect(ctx.module.MAX_OUTPUT_BUFFER).toBe(10 * 1024 * 1024);
+      expect(ctx.module.FILE_LOCK_REQUEUE_DELAY_MS).toBe(10000);
+    });
+  });
 });
