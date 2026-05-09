@@ -1339,11 +1339,12 @@ async function handleSmartSubmitTask(args) {
   }
 
   // Route test-writing tasks to Codex only when the selected provider lacks
-  // reliable repo-write capability. This preserves the local Ollama safety
-  // rule without overriding tool-capable cloud adapters such as ollama-cloud.
+  // reliable repo-write capability. An explicit model alone must not suppress
+  // this gate; callers that intentionally want local execution still use an
+  // explicit provider override.
   const testTaskPattern = /\b(write|create|add|generate|replace .+ with)\b.{0,30}\b(tests?|specs?|\.test\.|\.spec\.)/i;
   const explicitTestTaskPattern = /\b(?:test|testing)\s+task\b/i;
-  const isTestTask = !isFactoryPlanGeneration && !override_provider && !model &&
+  const isTestTask = !isFactoryPlanGeneration && !override_provider &&
     (testTaskPattern.test(task) || explicitTestTaskPattern.test(task));
   const routingModel = model || routingResult?.model || taskModel || null;
   const selectedProviderSupportsTests = providerSupportsRepoWriteTasks(selectedProvider, routingModel);
@@ -1351,9 +1352,7 @@ async function handleSmartSubmitTask(args) {
     const testTaskFrom = selectedProvider;
     selectedProvider = 'codex';
     const sparkEnabled = serverConfig.isOptIn('codex_spark_enabled');
-    if (sparkEnabled) {
-      taskModel = 'gpt-5.3-codex-spark';
-    }
+    taskModel = sparkEnabled ? 'gpt-5.3-codex-spark' : null;
     logger.info(`[SmartRouting] Test task detected → routing to Codex${sparkEnabled ? ' Spark' : ''} (${routingResult?.provider || 'selected provider'} lacks reliable repo-write test capability)`);
     recordRoutingDecision(routingTrace, {
       stage: ROUTING_TRACE_STAGES.TEST_TASK,
@@ -1367,13 +1366,18 @@ async function handleSmartSubmitTask(args) {
       taskModel = 'gpt-5.3-codex-spark';
       logger.info('[SmartRouting] Test task already on Codex → assigning Spark model');
     }
+  } else if (isTestTask && selectedProvider === 'codex' && taskModel && !codexExhausted) {
+    const sparkEnabled = serverConfig.isOptIn('codex_spark_enabled');
+    taskModel = sparkEnabled ? 'gpt-5.3-codex-spark' : null;
+    logger.info(`[SmartRouting] Test task already on Codex → clearing requested local model${sparkEnabled ? ' and assigning Spark model' : ''}`);
   }
   if (!isFactoryPlanGeneration) {
     const modBefore = selectedProvider;
+    const modificationRoutingModel = isTestTask && selectedProvider === 'codex' ? taskModel : model;
     const modResult = await resolveModificationRouting(task, files, routingResult, {
       selectedProvider,
       override_provider,
-      model,
+      model: modificationRoutingModel,
       complexity,
       working_directory: workingDirectory,
       codexExhausted,
