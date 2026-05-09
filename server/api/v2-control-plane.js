@@ -12,6 +12,7 @@ const costTracking = require('../db/cost-tracking');
 const { sendJson } = require('./middleware');
 const { safeJsonParse } = require('../utils/json');
 const { summarizeTaskError } = require('../utils/error-summary');
+const { summarizeTaskCompletion } = require('../utils/completion-summary');
 const { normalizeTrace: normalizeRoutingTrace } = require('../utils/routing-trace');
 
 // ─── Response Envelope ────────────────────────────────────────────────────
@@ -150,6 +151,7 @@ function buildTaskDetailResponse(task) {
   // moved the task and why, instead of reverse-engineering a single
   // routing_reason string.
   const routingDecisionTrace = normalizeRoutingTrace(metadata?.routing_decision_trace);
+  const completionSummary = summarizeTaskCompletion({ ...task, files_modified: base.files_modified });
 
   return {
     ...base,
@@ -165,6 +167,10 @@ function buildTaskDetailResponse(task) {
     // operators don't have to scroll through kilobytes of prompt-echoed
     // stderr to find the cause. Null for healthy tasks.
     error_summary: summarizeTaskError(task),
+    // Heuristic "what actually completed" summary for successful tasks.
+    // This intentionally calls out no-evidence completions so operators do
+    // not mistake a green status for proof that code changed or tests ran.
+    completion_summary: completionSummary,
   };
 }
 

@@ -1625,6 +1625,35 @@ describe('task-core handlers', () => {
       expect(mockLogger.debug).toHaveBeenCalledTimes(1);
     });
 
+    it('renders completed summary text and structured data', () => {
+      mockDb.getTask.mockReturnValue(makeTask({
+        id: 'task-summary',
+        status: 'completed',
+        started_at: '2026-03-01T00:00:00.000Z',
+        completed_at: '2026-03-01T00:00:05.000Z',
+        exit_code: 0,
+        output: '',
+        error_output: [
+          'codex',
+          "I'll inspect the repo first.",
+          'exec',
+          'rg "summary" server',
+          'succeeded in 10ms:',
+        ].join('\n'),
+        files_modified: [],
+      }));
+
+      const result = handlers.handleGetResult({ task_id: 'task-summary' });
+      const text = textOf(result);
+
+      expect(text).toContain('**Completed Summary:** Marked completed, but no completion evidence was captured');
+      expect(text).toContain('**Next Step:** Review the transcript or retry the task before trusting the completed status.');
+      expect(result.structuredData.completion_summary).toEqual(expect.objectContaining({
+        category: 'completed_no_evidence',
+        confidence: 'low',
+      }));
+    });
+
     it('logs and continues when bundle artifact lookup fails', () => {
       mockDb.getTask.mockReturnValue(makeTask({
         id: 'task-artifact-fail',

@@ -29,6 +29,7 @@ const {
 const { safeLimit, MAX_BATCH_SIZE, MAX_TASK_LENGTH, ErrorCodes, makeError, isPathTraversalSafe, checkProviderAvailability, requireTask } = require('../shared');
 const { formatTime, calculateDuration } = require('./utils');
 const { summarizeTaskError } = require('../../utils/error-summary');
+const { summarizeTaskCompletion } = require('../../utils/completion-summary');
 const { CONTEXT_STUFFING_PROVIDERS } = require('../../utils/context-stuffing');
 const { resolveContextFiles } = require('../../utils/smart-scan');
 const { buildTaskStudyContextEnvelope } = require('../../integrations/codebase-study-engine');
@@ -1064,6 +1065,13 @@ function handleGetResult(args) {
   }
   result += `**Exit Code:** ${task.exit_code}\n`;
   result += `**Duration:** ${calculateDuration(task.started_at, task.completed_at)}\n`;
+  const completionSummary = summarizeTaskCompletion(task);
+  if (completionSummary && completionSummary.summary) {
+    result += `**Completed Summary:** ${completionSummary.summary}\n`;
+    if (completionSummary.next_step) {
+      result += `**Next Step:** ${completionSummary.next_step}\n`;
+    }
+  }
 
   // Show which host executed the task
   let hostName = null;
@@ -1128,6 +1136,7 @@ function handleGetResult(args) {
       output: task.output || null,
       error_output: task.error_output || null,
       error_summary: errorSummary || null,
+      completion_summary: completionSummary || null,
       files_modified: filesModified,
     },
   };

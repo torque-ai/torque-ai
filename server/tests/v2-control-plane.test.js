@@ -510,7 +510,39 @@ describe('v2-control-plane task response builders', () => {
       study_context_summary: null,
       output: 'done',
       error_output: null,
+      completion_summary: expect.objectContaining({
+        category: 'completed_with_evidence',
+        final_answer: expect.objectContaining({ excerpt: 'done' }),
+      }),
     });
+  });
+
+  it('buildTaskDetailResponse exposes low-confidence completed summaries when evidence is missing', () => {
+    const controlPlane = loadControlPlane();
+    const task = {
+      id: 'task-no-evidence',
+      status: 'completed',
+      task_description: 'Make a code change',
+      metadata: '{}',
+      files_modified: '[]',
+      output: null,
+      error_output: [
+        'codex',
+        "I'll inspect the repo first.",
+        'exec',
+        'rg "Make a code change" server',
+        'succeeded in 10ms:',
+      ].join('\n'),
+    };
+
+    expect(controlPlane.buildTaskDetailResponse(task)).toEqual(expect.objectContaining({
+      completion_summary: expect.objectContaining({
+        category: 'completed_no_evidence',
+        confidence: 'low',
+        files_modified_count: 0,
+        next_step: expect.stringContaining('Review the transcript'),
+      }),
+    }));
   });
 
   it('buildTaskDetailResponse exposes provider decision trace while preserving full metadata', () => {
