@@ -428,10 +428,10 @@ Investigated. The two implementations have substantially different capabilities;
 
 **Why plugin is thinner.** The plugin agent runs locally on the remote workstation and operates inside its `projectsDir`. Concurrent `/sync` calls against different `project` keys are naturally serialized at the filesystem layer (different dirs); same-project concurrency is rare in practice (one verify_command per task) and tolerated by the agent's checkout idempotency. The plugin path was designed for "TORQUE wants a fresh-ish working tree to run vitest" — not "operator wants their dirty local state applied as a patch."
 
-**When to use which.** TORQUE's auto-verify-retry uses the plugin (HTTP path) for verify_command; pre-push gates and manual `torque-remote` shell invocations use the bash script. The plugin is correct for its scope; the bash script is correct for its scope. The divergence is intentional, not a bug.
+**When to use which.** TORQUE's auto-verify-retry first uses the plugin (HTTP path) for verify_command when an available remote agent client exists. For Codex-family providers, if no HTTP agent client is available but `torque-remote` is configured for SSH, auto-verify shells through `torque-remote bash -lc '<cmd>'` before falling back to direct local execution. Pre-push gates and manual remote verification also use the bash script. The plugin is correct for its scope; the bash script is correct when callers need sync locks, local-state overlay, and decision/fallback telemetry.
 
 **If you need sync semantics from a plugin call site.** Three options, in order of effort:
-1. **Shell out to torque-remote.** Plugin handler invokes `bin/torque-remote bash -c '<cmd>'` — gets sync, lock, drift, bundle, fallback log for free. ~1-line change in the call site.
+1. **Shell out to torque-remote.** Plugin handler invokes `bin/torque-remote bash -c '<cmd>'` — gets sync, lock, drift, bundle, fallback log for free. This is now the Codex auto-verify fallback when the HTTP agent path is unavailable.
 2. **Add a new agent-server endpoint** (e.g. `/sync-with-overlay`) that mirrors the bash script's sync chain. ~200 LOC; requires agent-server redeploy.
 3. **Unify both into a shared transport library.** ~1000 LOC refactor; hard because bash and Node need different sync abstractions.
 

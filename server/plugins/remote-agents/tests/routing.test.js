@@ -1,6 +1,7 @@
 'use strict';
 
 const childProcess = require('child_process');
+const fs = require('fs');
 
 const { EventEmitter } = require('events');
 
@@ -814,13 +815,73 @@ describe('remote-test-routing', () => {
         const result = await router.runVerifyCommand(
           'npx vitest run',
           '/repo',
-          { provider: 'codex' }
+          { provider: 'codex', disableTorqueRemoteWrapper: true }
         );
 
         expect(result.remote).toBe(false);
         expect(result.success).toBe(true);
         expect(result.output).toBe('local-verify-ok\n');
       } finally {
+        if (originalWsCache) {
+          require.cache[wsModelPath] = originalWsCache;
+        } else {
+          delete require.cache[wsModelPath];
+        }
+      }
+    });
+
+    it('routes codex verify through torque-remote when no agent client exists and SSH wrapper config is present', async () => {
+      const db = {
+        getProjectFromPath: vi.fn().mockReturnValue('SpudgetBooks'),
+        getProjectConfig: vi.fn().mockReturnValue(null),
+      };
+
+      const wsModelPath = require.resolve('../../../workstation/model');
+      const originalWsCache = require.cache[wsModelPath];
+      require.cache[wsModelPath] = {
+        id: wsModelPath, filename: wsModelPath, loaded: true,
+        exports: {
+          listWorkstations: vi.fn().mockReturnValue([]),
+          hasCapability: vi.fn().mockReturnValue(false),
+        },
+      };
+
+      const existsSpy = vi.spyOn(fs, 'existsSync').mockImplementation((filePath) => {
+        const normalized = String(filePath).replace(/\\/g, '/');
+        return normalized.endsWith('/.torque-remote.json')
+          || normalized === 'C:/Program Files/Git/bin/bash.exe';
+      });
+      const readFileSpy = vi.spyOn(fs, 'readFileSync').mockImplementation((filePath) => {
+        const normalized = String(filePath).replace(/\\/g, '/');
+        if (normalized.endsWith('/.torque-remote.json')) {
+          return JSON.stringify({ transport: 'ssh' });
+        }
+        return '';
+      });
+      mockSpawn.mockReturnValueOnce(makeMockChild(0, 'remote-verify-ok\n', ''));
+
+      try {
+        const logger = makeLogger();
+        const router = createRemoteTestRouter({ agentRegistry: null, db, logger });
+        const result = await router.runVerifyCommand(
+          'dotnet build SpudgetBooks.sln -c Release --nologo',
+          '/repo',
+          { provider: 'codex' }
+        );
+
+        expect(result.success).toBe(true);
+        expect(result.remote).toBe(true);
+        expect(result.remoteWrapper).toBe(true);
+        expect(result.output).toBe('remote-verify-ok\n');
+        expect(mockSpawn).toHaveBeenCalledTimes(1);
+        expect(mockSpawn.mock.calls[0][1]).toEqual([
+          '-lc',
+          'torque-remote bash -lc "dotnet build SpudgetBooks.sln -c Release --nologo"',
+        ]);
+        expect(logger.info).toHaveBeenCalledWith(expect.stringContaining('Running via torque-remote wrapper'));
+      } finally {
+        existsSpy.mockRestore();
+        readFileSpy.mockRestore();
         if (originalWsCache) {
           require.cache[wsModelPath] = originalWsCache;
         } else {

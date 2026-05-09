@@ -1,6 +1,9 @@
 'use strict';
 
 const { spawnSync, spawn } = require('child_process');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
 const { prepareLocalVerifyEnv } = require('../../utils/local-verify-env');
 const { prepareWorktreeVerifyDependencies } = require('../../utils/worktree-verify-deps');
 const { createActivityTimeout } = require('../../utils/activity-timeout');
@@ -19,6 +22,8 @@ const SENSITIVE_ENV_PATTERNS = [
 // Codex providers run tasks in a sandbox — post-task heavy compute (tests, builds)
 // should route to a remote workstation with test_runners capability when available.
 const CODEX_PROVIDERS = new Set(['codex', 'codex-spark']);
+const TORQUE_REMOTE_TRANSPORTS = new Set(['ssh']);
+const MAX_VERIFY_OUTPUT_BYTES = 10 * 1024 * 1024;
 
 /**
  * Find a healthy workstation with test_runners capability for codex verification routing.
@@ -57,6 +62,216 @@ function isRemoteAuthError(error) {
 function isRemoteExecutionTimeout(error) {
   const message = String(error?.message || '');
   return /streaming request to \/run timed out/i.test(message);
+}
+
+function resolveBashOnWindows() {
+  const candidates = [
+    process.env.GIT_BASH,
+    'C:/Program Files/Git/bin/bash.exe',
+    'C:/Program Files (x86)/Git/bin/bash.exe',
+  ].filter(Boolean);
+  for (const candidate of candidates) {
+    try {
+      if (fs.existsSync(candidate)) return candidate;
+    } catch {
+      // ignore
+    }
+  }
+  return null;
+}
+
+function findProjectRoot(cwd) {
+  if (!cwd) return null;
+  try {
+    const result = spawnSync('git', ['rev-parse', '--show-toplevel'], {
+      cwd,
+      encoding: 'utf8',
+      timeout: 5000,
+      windowsHide: true,
+    });
+    const root = result.stdout ? result.stdout.trim() : '';
+    if (root) return root;
+  } catch {
+    // fall through to filesystem walk
+  }
+
+  let current = path.resolve(cwd);
+  while (current && current !== path.dirname(current)) {
+    try {
+      if (fs.existsSync(path.join(current, '.git'))) return current;
+    } catch {
+      // ignore
+    }
+    current = path.dirname(current);
+  }
+  return cwd;
+}
+
+function readJsonFile(filePath) {
+  try {
+    if (!filePath || !fs.existsSync(filePath)) return null;
+    return JSON.parse(fs.readFileSync(filePath, 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
+function hasTorqueRemoteTransportConfig(cwd) {
+  const projectRoot = findProjectRoot(cwd);
+  const home = os.homedir();
+  const configPaths = [
+    path.join(home, '.torque-remote.json'),
+    projectRoot ? path.join(projectRoot, '.torque-remote.json') : null,
+  ].filter(Boolean);
+
+  let transport = 'local';
+  for (const configPath of configPaths) {
+    const config = readJsonFile(configPath);
+    if (config && typeof config.transport === 'string') {
+      transport = config.transport.trim().toLowerCase();
+    }
+  }
+  return TORQUE_REMOTE_TRANSPORTS.has(transport);
+}
+
+function buildTorqueRemoteInvocation(command) {
+  const normalized = String(command || '').trim();
+  return `torque-remote bash -lc ${JSON.stringify(normalized)}`;
+}
+
+function didTorqueRemoteFallback(stdout, stderr) {
+  const text = `${stdout || ''}\n${stderr || ''}`;
+  return /\[torque-remote\].*(falling back to local|running locally)|"transport"\s*:\s*"local"|transport=local/i.test(text);
+}
+
+function shouldUseTorqueRemoteWrapper(command, cwd, options = {}) {
+  if (!command || !cwd) return false;
+  if (/^\s*torque-remote\b/i.test(command)) return false;
+  if (options.disableTorqueRemoteWrapper) return false;
+  if (!CODEX_PROVIDERS.has(String(options.provider || '').toLowerCase())) return false;
+  return hasTorqueRemoteTransportConfig(cwd);
+}
+
+function runTorqueRemoteWrapper(command, cwd, options = {}, env) {
+  const bashCommand = buildTorqueRemoteInvocation(command);
+  let cmd;
+  let args;
+  if (process.platform === 'win32') {
+    const bashPath = resolveBashOnWindows();
+    if (!bashPath) {
+      return Promise.resolve({
+        success: false,
+        output: '',
+        error: 'Git Bash not found on this Windows host',
+        exitCode: 1,
+        durationMs: 0,
+        remote: false,
+        remoteWrapper: true,
+        timedOut: false,
+      });
+    }
+    cmd = bashPath;
+    args = ['-lc', bashCommand];
+  } else {
+    cmd = 'bash';
+    args = ['-lc', bashCommand];
+  }
+
+  const startMs = Date.now();
+  const timeout = options.timeout || 300000;
+
+  return new Promise((resolve) => {
+    let stdout = '';
+    let stderr = '';
+    let timedOut = false;
+    let settled = false;
+    let stdoutTruncated = false;
+    let stderrTruncated = false;
+
+    const appendLimited = (current, chunk, stream) => {
+      if (current.length >= MAX_VERIFY_OUTPUT_BYTES) return { value: current, truncated: true };
+      const next = current + chunk;
+      if (next.length <= MAX_VERIFY_OUTPUT_BYTES) return { value: next, truncated: false };
+      return {
+        value: next.slice(0, MAX_VERIFY_OUTPUT_BYTES)
+          + `\n[truncated: ${stream} exceeded ${MAX_VERIFY_OUTPUT_BYTES} bytes]`,
+        truncated: true,
+      };
+    };
+
+    const child = spawn(cmd, args, {
+      cwd,
+      windowsHide: true,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      ...(env ? { env } : {}),
+    });
+
+    child.stdout.setEncoding('utf8');
+    child.stderr.setEncoding('utf8');
+
+    const activityTimeout = createActivityTimeout({
+      timeoutMs: timeout,
+      onTimeout: () => {
+        timedOut = true;
+        killProcessGraceful({ process: child }, 'verify-torque-remote', 5000, 'remote-routing');
+      },
+    });
+
+    child.stdout.on('data', (d) => {
+      activityTimeout.touch();
+      if (typeof options.onActivity === 'function') {
+        try { options.onActivity({ stream: 'stdout', bytes: Buffer.byteLength(String(d)) }); } catch { /* non-critical */ }
+      }
+      if (!stdoutTruncated) {
+        const appended = appendLimited(stdout, d, 'stdout');
+        stdout = appended.value;
+        stdoutTruncated = appended.truncated;
+      }
+    });
+    child.stderr.on('data', (d) => {
+      activityTimeout.touch();
+      if (typeof options.onActivity === 'function') {
+        try { options.onActivity({ stream: 'stderr', bytes: Buffer.byteLength(String(d)) }); } catch { /* non-critical */ }
+      }
+      if (!stderrTruncated) {
+        const appended = appendLimited(stderr, d, 'stderr');
+        stderr = appended.value;
+        stderrTruncated = appended.truncated;
+      }
+    });
+
+    child.on('close', (code) => {
+      activityTimeout.cancel();
+      if (settled) return;
+      settled = true;
+      resolve({
+        success: !timedOut && code === 0,
+        output: stdout,
+        error: timedOut ? `Verify command timed out after ${Math.round(timeout / 1000)}s without output` : stderr,
+        exitCode: timedOut ? 124 : (code ?? 1),
+        durationMs: Date.now() - startMs,
+        remote: !didTorqueRemoteFallback(stdout, stderr),
+        remoteWrapper: true,
+        timedOut,
+      });
+    });
+
+    child.on('error', (err) => {
+      activityTimeout.cancel();
+      if (settled) return;
+      settled = true;
+      resolve({
+        success: false,
+        output: stdout,
+        error: err.message || 'spawn error',
+        exitCode: 1,
+        durationMs: Date.now() - startMs,
+        remote: false,
+        remoteWrapper: true,
+        timedOut: false,
+      });
+    });
+  });
 }
 
 function toRemoteFailureResult(error, startedAt) {
@@ -391,6 +606,16 @@ function createRemoteTestRouter({ agentRegistry, db, logger }) {
       }
     }
 
+    if (shouldUseTorqueRemoteWrapper(command, cwd, options)) {
+      logger.info(`[remote-routing] Running via torque-remote wrapper: ${command}`);
+      const preparedEnv = prepareLocalVerifyEnv(command);
+      try {
+        return await runTorqueRemoteWrapper(command, cwd, options, preparedEnv.env);
+      } finally {
+        preparedEnv.cleanup();
+      }
+    }
+
     logger.info(`[remote-routing] Running locally (async): ${command}`);
     const startMs = Date.now();
     const timeout = options.timeout || 300000; // 5 minutes default
@@ -485,6 +710,8 @@ module.exports = {
   isRemoteAuthError,
   isRemoteExecutionTimeout,
   findTestRunnerWorkstation,
+  hasTorqueRemoteTransportConfig,
+  buildTorqueRemoteInvocation,
   SENSITIVE_ENV_PATTERNS,
   CODEX_PROVIDERS,
 };
