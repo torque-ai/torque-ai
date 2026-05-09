@@ -132,7 +132,7 @@ describe.skipIf(isCI)('createRemoteTestRouter', () => {
       expect(result).toBeNull();
     });
 
-    it('should return null when remote_agent_id is missing', () => {
+    it('should return remote-required config when remote_agent_id is missing', () => {
       const mockDb = createMockDb();
       const logger = createMockLogger();
       insertProjectConfig('my-project', {
@@ -143,7 +143,12 @@ describe.skipIf(isCI)('createRemoteTestRouter', () => {
 
       const router = createRemoteTestRouter({ agentRegistry: null, db: mockDb, logger });
       const result = router.getRemoteConfig('/some/path/my-project');
-      expect(result).toBeNull();
+      expect(result).toEqual({
+        agentId: null,
+        remotePath: '/remote/my-project',
+        requireRemote: true,
+        unavailableReason: 'remote_agent_id_missing',
+      });
     });
 
     it('should return config when prefer_remote_tests is set and agent_id exists', () => {
@@ -160,6 +165,7 @@ describe.skipIf(isCI)('createRemoteTestRouter', () => {
       expect(result).toEqual({
         agentId: 'agent-1',
         remotePath: '/remote/my-project',
+        requireRemote: true,
       });
     });
 
@@ -192,6 +198,7 @@ describe.skipIf(isCI)('createRemoteTestRouter', () => {
       expect(result).toEqual({
         agentId: 'agent-1',
         remotePath: '/some/path/my-project',
+        requireRemote: true,
       });
     });
   });
@@ -235,7 +242,7 @@ describe.skipIf(isCI)('createRemoteTestRouter', () => {
       expect(typeof result.durationMs).toBe('number');
     });
 
-    it('should fall back to local when agentRegistry is null', async () => {
+    it('should fail fast when remote tests are required and agentRegistry is null', async () => {
       const mockDb = createMockDb();
       const logger = createMockLogger();
       insertProjectConfig('my-project', {
@@ -249,10 +256,15 @@ describe.skipIf(isCI)('createRemoteTestRouter', () => {
 
       const router = createRemoteTestRouter({ agentRegistry: null, db: mockDb, logger });
       const result = await router.runRemoteOrLocal('node', ['-e', 'process.exit(0)'], '/some/my-project');
-      expect(result.remote).toBe(false);
+      expect(result).toMatchObject({
+        remote: true,
+        success: false,
+        error: 'Remote execution required but agent registry is unavailable',
+        exitCode: 1,
+      });
     });
 
-    it('should fall back to local when agent client is not available', async () => {
+    it('should fail fast when remote tests are required and agent client is not available', async () => {
       const mockDb = createMockDb();
       const logger = createMockLogger();
       insertProjectConfig('my-project', {
@@ -267,7 +279,12 @@ describe.skipIf(isCI)('createRemoteTestRouter', () => {
 
       const router = createRemoteTestRouter({ agentRegistry: registry, db: mockDb, logger });
       const result = await router.runRemoteOrLocal('node', ['-e', 'process.exit(0)'], '/some/my-project');
-      expect(result.remote).toBe(false);
+      expect(result).toMatchObject({
+        remote: true,
+        success: false,
+        error: 'Remote agent unavailable: agent-1',
+        exitCode: 1,
+      });
       expect(client._runCalls).toHaveLength(0);
     });
 
@@ -419,7 +436,7 @@ describe.skipIf(isCI)('createRemoteTestRouter', () => {
       expect(client._runCalls[0].opts.env).toBeUndefined();
     });
 
-    it('should fall back to local when agent sync throws', async () => {
+    it('should fail fast when remote tests are required and agent sync throws', async () => {
       const mockDb = createMockDb();
       const logger = createMockLogger();
       insertProjectConfig('my-project', {
@@ -438,17 +455,20 @@ describe.skipIf(isCI)('createRemoteTestRouter', () => {
       const router = createRemoteTestRouter({ agentRegistry: registry, db: mockDb, logger });
       const result = await router.runRemoteOrLocal('node', ['--version'], process.cwd());
 
-      expect(result.remote).toBe(false);
-      expect(result.success).toBe(true);
-      expect(result.output).toContain('v');
+      expect(result).toMatchObject({
+        remote: true,
+        success: false,
+        error: 'sync failed: connection refused',
+        exitCode: 1,
+      });
 
       // Verify warning was logged
       const warnings = logger._logs.filter(l => l.level === 'warn');
       expect(warnings.length).toBeGreaterThanOrEqual(1);
-      expect(warnings[0].msg).toContain('falling back to local');
+      expect(warnings[0].msg).toContain('not falling back');
     });
 
-    it('should fall back to local when agent run throws', async () => {
+    it('should fail fast when remote tests are required and agent run throws', async () => {
       const mockDb = createMockDb();
       const logger = createMockLogger();
       insertProjectConfig('my-project', {
@@ -467,7 +487,12 @@ describe.skipIf(isCI)('createRemoteTestRouter', () => {
       const router = createRemoteTestRouter({ agentRegistry: registry, db: mockDb, logger });
       const result = await router.runRemoteOrLocal('node', ['-e', 'process.exit(0)'], process.cwd());
 
-      expect(result.remote).toBe(false);
+      expect(result).toMatchObject({
+        remote: true,
+        success: false,
+        error: 'run failed: timeout',
+        exitCode: 1,
+      });
     });
 
     it('should report failure for local commands that exit non-zero', async () => {
@@ -481,7 +506,7 @@ describe.skipIf(isCI)('createRemoteTestRouter', () => {
       expect(result.exitCode).toBe(42);
     });
 
-    it('should fall back to local when getClient returns null', async () => {
+    it('should fail fast when remote tests are required and getClient returns null', async () => {
       const mockDb = createMockDb();
       const logger = createMockLogger();
       insertProjectConfig('my-project', {
@@ -496,7 +521,12 @@ describe.skipIf(isCI)('createRemoteTestRouter', () => {
 
       const router = createRemoteTestRouter({ agentRegistry: registry, db: mockDb, logger });
       const result = await router.runRemoteOrLocal('node', ['-e', 'process.exit(0)'], '/some/my-project');
-      expect(result.remote).toBe(false);
+      expect(result).toMatchObject({
+        remote: true,
+        success: false,
+        error: 'Remote agent unavailable: agent-1',
+        exitCode: 1,
+      });
     });
   });
 

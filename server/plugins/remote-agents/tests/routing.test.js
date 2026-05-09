@@ -147,7 +147,7 @@ describe('remote-test-routing', () => {
       expect(router.getRemoteConfig('/repo')).toBeNull();
     });
 
-    it('returns null when prefer_remote_tests is enabled but no remote agent id is set', () => {
+    it('returns remote-required config when prefer_remote_tests is enabled but no remote agent id is set', () => {
       const db = {
         getProjectFromPath: vi.fn().mockReturnValue('torque'),
         getProjectConfig: vi.fn().mockReturnValue({
@@ -158,7 +158,12 @@ describe('remote-test-routing', () => {
       };
 
       const router = createRemoteTestRouter({ agentRegistry: null, db, logger: makeLogger() });
-      expect(router.getRemoteConfig('/repo')).toBeNull();
+      expect(router.getRemoteConfig('/repo')).toEqual({
+        agentId: null,
+        remotePath: '/remote/torque',
+        requireRemote: true,
+        unavailableReason: 'remote_agent_id_missing',
+      });
     });
 
     it('returns configured remote settings and falls back remotePath to cwd', () => {
@@ -175,6 +180,7 @@ describe('remote-test-routing', () => {
       expect(router.getRemoteConfig('/work/torque')).toEqual({
         agentId: 'agent-2',
         remotePath: '/work/torque',
+        requireRemote: true,
       });
     });
 
@@ -395,6 +401,7 @@ describe('remote-test-routing', () => {
         expect(result).toEqual({
           agentId: 'my-explicit-agent',
           remotePath: '/explicit/path',
+          requireRemote: true,
         });
       } finally {
         if (originalWsCache) {
@@ -528,7 +535,7 @@ describe('remote-test-routing', () => {
       expect(args).toContain('30s');
     });
 
-    it('falls back to local command when remote run throws', async () => {
+    it('fails fast when remote tests are required and remote run throws', async () => {
       const logger = makeLogger();
       const client = makeClient({ runError: new Error('remote execution failed') });
       const agentRegistry = { getClient: vi.fn().mockReturnValue(client) };
@@ -540,16 +547,19 @@ describe('remote-test-routing', () => {
           remote_project_path: '/remote/torque',
         }),
       };
-      mockSpawnSync
-        .mockReturnValueOnce({ status: 0, stdout: '/work/Torque\n', stderr: '' })
-        .mockReturnValueOnce({ status: 0, stdout: 'local-fallback', stderr: '' });
+      mockSpawnSync.mockReturnValueOnce({ status: 0, stdout: '/work/Torque\n', stderr: '' });
 
       const router = createRemoteTestRouter({ agentRegistry, db, logger });
       const result = await router.runRemoteOrLocal('npm', ['run', 'verify'], '/repo', { branch: 'main' });
 
-      expect(result.remote).toBe(false);
-      expect(result.output).toBe('local-fallback');
-      expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('falling back to local'));
+      expect(result).toMatchObject({
+        remote: true,
+        success: false,
+        error: 'remote execution failed',
+        exitCode: 1,
+      });
+      expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('not falling back'));
+      expect(mockSpawnSync).toHaveBeenCalledTimes(1);
     });
 
     it('performs health check for stale clients and runs remotely if recovered', async () => {
@@ -576,7 +586,7 @@ describe('remote-test-routing', () => {
       expect(result.remote).toBe(true);
     });
 
-    it('falls back to local when stale client remains unavailable after health check', async () => {
+    it('fails fast when remote tests are required and stale client remains unavailable after health check', async () => {
       const client = makeClient({
         available: false,
         checkHealthImpl: async () => {},
@@ -590,15 +600,18 @@ describe('remote-test-routing', () => {
           remote_project_path: '/remote/torque',
         }),
       };
-      mockSpawnSync.mockReturnValueOnce({ status: 0, stdout: 'local-only', stderr: '' });
-
       const router = createRemoteTestRouter({ agentRegistry, db, logger: makeLogger() });
       const result = await router.runRemoteOrLocal('npm', ['test'], '/repo', { branch: 'main' });
 
       expect(client.checkHealth).toHaveBeenCalledTimes(1);
       expect(client.run).not.toHaveBeenCalled();
-      expect(result.remote).toBe(false);
-      expect(result.output).toBe('local-only');
+      expect(result).toMatchObject({
+        remote: true,
+        success: false,
+        error: 'Remote agent unavailable: agent-1',
+        exitCode: 1,
+      });
+      expect(mockSpawnSync).not.toHaveBeenCalled();
     });
 
     it('uses remote path segment as sync project name when git toplevel is empty', async () => {
