@@ -7,6 +7,14 @@ const { spawn, spawnSync } = require('child_process');
 
 const CLIENT = path.join(__dirname, '..', '..', 'bin', 'torque-coord-client');
 
+function isolatedCoordEnv(overrides = {}) {
+  const env = { ...process.env };
+  delete env.TORQUE_COORD_REMOTE_HOST;
+  delete env.TORQUE_COORD_REMOTE_USER;
+  delete env.TORQUE_COORD_SSH_BIN;
+  return { ...env, ...overrides };
+}
+
 // We can't run an in-process http stub here because the test harness uses
 // spawnSync to invoke the CLI, which blocks the parent event loop and
 // therefore deadlocks any in-process HTTP server (the child connects, but
@@ -62,7 +70,7 @@ process.on('message', (m) => { if (m === 'shutdown') server.close(() => process.
 
 function runClient(args, port = 9395) {
   return spawnSync('node', [CLIENT, ...args], {
-    env: { ...process.env, TORQUE_COORD_PORT: String(port), TORQUE_COORD_HOST: '127.0.0.1' },
+    env: isolatedCoordEnv({ TORQUE_COORD_PORT: String(port), TORQUE_COORD_HOST: '127.0.0.1' }),
     encoding: 'utf8',
   });
 }
@@ -163,7 +171,7 @@ describe('torque-coord-client CLI', () => {
     try {
       const result = require('child_process').spawnSync('node', [CLIENT, 'lock-hashes'], {
         cwd: tmpDir,
-        env: { ...process.env, TORQUE_COORD_PORT: '9395' },
+        env: isolatedCoordEnv({ TORQUE_COORD_PORT: '9395' }),
         encoding: 'utf8',
       });
       expect(result.status).toBe(0);

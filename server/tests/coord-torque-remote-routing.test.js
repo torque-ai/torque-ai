@@ -16,6 +16,14 @@ const BASH_EXECUTABLE = process.platform === 'win32' && fs.existsSync(GIT_BASH_P
   ? GIT_BASH_PATH
   : 'bash';
 
+function isolatedCoordEnv(overrides = {}) {
+  const env = { ...process.env };
+  delete env.TORQUE_COORD_REMOTE_HOST;
+  delete env.TORQUE_COORD_REMOTE_USER;
+  delete env.TORQUE_COORD_SSH_BIN;
+  return { ...env, ...overrides };
+}
+
 // Tests probe a tiny shell helper we added: bin/torque-remote exposes
 // `coord_select_routing_mode` via a `--__internal-print-routing-mode` flag
 // (test-only) so we can assert the decision without running a full sync.
@@ -25,7 +33,7 @@ const BASH_EXECUTABLE = process.platform === 'win32' && fs.existsSync(GIT_BASH_P
 function runRoutingProbe(env) {
   return spawnSync(BASH_EXECUTABLE, [TORQUE_REMOTE, '--__internal-print-routing-mode'], {
     encoding: 'utf8',
-    env: { ...process.env, ...env, PATH: process.env.PATH || '' },
+    env: isolatedCoordEnv({ ...env, PATH: process.env.PATH || '' }),
     timeout: 5000,
   });
 }
