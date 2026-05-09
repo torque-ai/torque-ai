@@ -36,7 +36,14 @@ function defaultGitRunner(cwd, args, { timeoutMs } = {}) {
       execOpts.timeout = timeoutMs;
       execOpts.killSignal = 'SIGKILL';
     }
-    childProcess.execFile('git', args, execOpts, (err, stdout, stderr) => {
+    const currentExecFile = childProcess.execFile;
+    const isMockFunction = Boolean(currentExecFile && (currentExecFile._isMockFunction || currentExecFile.mock));
+    const execFile = childProcess._realExecFile
+      && currentExecFile?.__torqueTestGuard === true
+      && !isMockFunction
+      ? childProcess._realExecFile
+      : currentExecFile;
+    execFile.call(childProcess, 'git', args, execOpts, (err, stdout, stderr) => {
       if (err) {
         if (err.code === 'ENOENT') {
           reject(err);

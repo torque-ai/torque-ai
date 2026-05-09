@@ -5,10 +5,11 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const childProcess = require('child_process');
+const { createIsolatedGitEnv, withIsolatedGitArgs } = require('./git-test-utils');
 // server/tests/worker-setup.js stubs child_process.{execFileSync,spawnSync}
-// to prevent orphaned git.exe processes on Windows. Restore the originals so
-// the test fixture can run real git AND so the validator under test can read
-// real HEAD shas through its own childProcess.execFileSync references.
+// to prevent orphaned git.exe processes on Windows. Temporarily bind the real
+// exec so this test's fixture helper and validator module can read real repos.
+const stubbedExecFileSync = childProcess.execFileSync;
 if (childProcess._realExecFileSync) childProcess.execFileSync = childProcess._realExecFileSync;
 const { execFileSync } = childProcess;
 
@@ -16,18 +17,19 @@ const {
   inspectPostTaskDiff,
   filterUndeclaredSignatureChanges,
 } = require('../validation/codegraph-diff-validator');
+childProcess.execFileSync = stubbedExecFileSync;
 
 const wrap = (payload) => ({ structuredData: payload });
 
-const GIT_ENV = { ...process.env, GIT_TERMINAL_PROMPT: '0', GIT_OPTIONAL_LOCKS: '0', GIT_CONFIG_NOSYSTEM: '1' };
+const GIT_ENV = createIsolatedGitEnv();
 function git(repo, ...args) {
-  return execFileSync('git', args, {
+  return execFileSync('git', withIsolatedGitArgs(args), {
     cwd: repo, encoding: 'utf8', windowsHide: true, env: GIT_ENV,
     stdio: ['ignore', 'pipe', 'pipe'],
   }).trim();
 }
 function gitVoid(repo, ...args) {
-  execFileSync('git', args, {
+  execFileSync('git', withIsolatedGitArgs(args), {
     cwd: repo, windowsHide: true, env: GIT_ENV,
     stdio: ['ignore', 'ignore', 'pipe'],
   });
@@ -124,7 +126,11 @@ describe('inspectPostTaskDiff — real git fixture, real handlers', () => {
     // Drive the real cg_diff query module directly; we don't need the SQL
     // index for cg_diff because it reads from the git object store and
     // re-extracts symbols on demand.
+    const stubbed = childProcess.execFileSync;
+    if (childProcess._realExecFileSync) childProcess.execFileSync = childProcess._realExecFileSync;
+    delete require.cache[require.resolve('../plugins/codegraph/queries/diff')];
     const { cgDiff } = require('../plugins/codegraph/queries/diff');
+    childProcess.execFileSync = stubbed;
     return {
       cg_diff: async ({ repo_path, from_sha, to_sha, max_files }) => {
         const r = await cgDiff({ repoPath: repo_path, fromSha: from_sha, toSha: to_sha, maxFiles: max_files });

@@ -11,8 +11,12 @@
 
 const fs = require('fs');
 const path = require('path');
-const { createTestRepoWithCommit, cleanupRepo } = require('./git-test-utils');
+const { createTestRepoWithCommit, cleanupRepo, withRealGit } = require('./git-test-utils');
 const { getWorktreeFingerprint, invalidateFingerprintCache, _fingerprintCache } = require('../utils/git');
+
+function getRealWorktreeFingerprint(...args) {
+  return withRealGit(() => getWorktreeFingerprint(...args));
+}
 
 describe('Git Status Storm Fix', () => {
   let repoDir;
@@ -33,22 +37,22 @@ describe('Git Status Storm Fix', () => {
 
   describe('getWorktreeFingerprint TTL cache', () => {
     it('returns a non-empty fingerprint for a valid git repo', () => {
-      const fp = getWorktreeFingerprint(repoDir);
+      const fp = getRealWorktreeFingerprint(repoDir);
       expect(fp).toBeTruthy();
       expect(typeof fp).toBe('string');
     });
 
     it('returns cached result on second call within TTL', () => {
-      const fp1 = getWorktreeFingerprint(repoDir);
+      const fp1 = getRealWorktreeFingerprint(repoDir);
       // Mutate the repo — if cache works, fingerprint stays the same
       fs.writeFileSync(path.join(repoDir, 'noise.txt'), 'cache-test');
-      const fp2 = getWorktreeFingerprint(repoDir);
+      const fp2 = getRealWorktreeFingerprint(repoDir);
 
       expect(fp2).toBe(fp1); // same cached result, git not re-invoked
     });
 
     it('refreshes fingerprint after TTL expires', () => {
-      const fp1 = getWorktreeFingerprint(repoDir, { ttl: 1 }); // 1ms TTL
+      const fp1 = getRealWorktreeFingerprint(repoDir, { ttl: 1 }); // 1ms TTL
 
       // Write a new file so the repo state actually changes
       fs.writeFileSync(path.join(repoDir, 'after-ttl.txt'), 'new-content');
@@ -57,15 +61,15 @@ describe('Git Status Storm Fix', () => {
       const start = Date.now();
       while (Date.now() - start < 5) { /* spin */ }
 
-      const fp2 = getWorktreeFingerprint(repoDir, { ttl: 1 });
+      const fp2 = getRealWorktreeFingerprint(repoDir, { ttl: 1 });
       expect(fp2).not.toBe(fp1); // should reflect new untracked file
     });
 
     it('caches per working directory independently', () => {
       const repoDir2 = createTestRepoWithCommit('storm-fix-2');
       try {
-        const fp1 = getWorktreeFingerprint(repoDir);
-        const fp2 = getWorktreeFingerprint(repoDir2);
+        const fp1 = getRealWorktreeFingerprint(repoDir);
+        const fp2 = getRealWorktreeFingerprint(repoDir2);
 
         // Different repos → different fingerprints
         expect(fp1).not.toBe(fp2);
@@ -79,13 +83,13 @@ describe('Git Status Storm Fix', () => {
 
     it('deduplicates concurrent calls via cache hit', () => {
       // First call populates the cache
-      getWorktreeFingerprint(repoDir);
+      getRealWorktreeFingerprint(repoDir);
       const cacheEntry = _fingerprintCache.get(repoDir);
       expect(cacheEntry).toBeDefined();
       const cachedTimestamp = cacheEntry.timestamp;
 
       // Immediate second call should reuse cache (timestamp unchanged)
-      getWorktreeFingerprint(repoDir);
+      getRealWorktreeFingerprint(repoDir);
       const cacheEntry2 = _fingerprintCache.get(repoDir);
       expect(cacheEntry2.timestamp).toBe(cachedTimestamp);
     });
@@ -95,7 +99,7 @@ describe('Git Status Storm Fix', () => {
 
   describe('invalidateFingerprintCache', () => {
     it('clears cache for a specific directory', () => {
-      getWorktreeFingerprint(repoDir);
+      getRealWorktreeFingerprint(repoDir);
       expect(_fingerprintCache.has(repoDir)).toBe(true);
 
       invalidateFingerprintCache(repoDir);
@@ -105,8 +109,8 @@ describe('Git Status Storm Fix', () => {
     it('clears all cached entries when no directory specified', () => {
       const repoDir2 = createTestRepoWithCommit('storm-fix-clear');
       try {
-        getWorktreeFingerprint(repoDir);
-        getWorktreeFingerprint(repoDir2);
+        getRealWorktreeFingerprint(repoDir);
+        getRealWorktreeFingerprint(repoDir2);
         expect(_fingerprintCache.size).toBeGreaterThanOrEqual(2);
 
         invalidateFingerprintCache();
@@ -117,18 +121,18 @@ describe('Git Status Storm Fix', () => {
     });
 
     it('allows fresh fingerprint after invalidation', () => {
-      const fp1 = getWorktreeFingerprint(repoDir);
+      const fp1 = getRealWorktreeFingerprint(repoDir);
 
       // Change repo state
       fs.writeFileSync(path.join(repoDir, 'post-invalidate.txt'), 'content');
 
       // Without invalidation, cache returns stale fp
-      const fpStale = getWorktreeFingerprint(repoDir);
+      const fpStale = getRealWorktreeFingerprint(repoDir);
       expect(fpStale).toBe(fp1);
 
       // After invalidation, returns fresh fp reflecting the new file
       invalidateFingerprintCache(repoDir);
-      const fpFresh = getWorktreeFingerprint(repoDir);
+      const fpFresh = getRealWorktreeFingerprint(repoDir);
       expect(fpFresh).not.toBe(fp1);
     });
   });
@@ -198,7 +202,7 @@ describe('Git Status Storm Fix', () => {
       const proc = makeStalledAgentProc('codex');
       runningProcesses.set('stalled-3', proc);
 
-      const activity = activityMonitoring.getTaskActivity('stalled-3');
+      const activity = withRealGit(() => activityMonitoring.getTaskActivity('stalled-3'));
 
       // The real repo has changed since 'old-fingerprint',
       // so filesystem activity should be detected
@@ -246,7 +250,7 @@ describe('Git Status Storm Fix', () => {
 
     it('detects filesystem change and resets stall state', () => {
       // Seed with a known fingerprint, then change the repo
-      const oldFp = getWorktreeFingerprint(repoDir);
+      const oldFp = getRealWorktreeFingerprint(repoDir);
       invalidateFingerprintCache(repoDir);
 
       const proc = {
@@ -268,7 +272,7 @@ describe('Git Status Storm Fix', () => {
       const marker = path.join(repoDir, `activity-marker-${Date.now()}.txt`);
       fs.writeFileSync(marker, 'agent wrote this');
 
-      const activity = activityMonitoring.getTaskActivity('active-agent');
+      const activity = withRealGit(() => activityMonitoring.getTaskActivity('active-agent'));
 
       expect(activity.isStalled).toBe(false); // rescued
       expect(proc.stallWarned).toBe(false); // reset
@@ -291,7 +295,7 @@ describe('Git Status Storm Fix', () => {
       };
       runningProcesses.set('new-agent', proc);
 
-      const activity = activityMonitoring.getTaskActivity('new-agent');
+      const activity = withRealGit(() => activityMonitoring.getTaskActivity('new-agent'));
 
       // First check seeds the fingerprint but can't compare, so stall stands
       expect(activity.isStalled).toBe(true);

@@ -25,6 +25,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
 const Module = require('module');
 const { EventEmitter } = require('events');
 const { PassThrough } = require('stream');
@@ -45,6 +46,48 @@ function wireSharedServerNodeModules() {
 }
 
 wireSharedServerNodeModules();
+
+const EMPTY_GIT_HOOKS_DIR = path.join(os.tmpdir(), 'torque-test-empty-git-hooks');
+const UNSAFE_GIT_ENV_KEYS = new Set([
+  'GIT_DIR',
+  'GIT_WORK_TREE',
+  'GIT_INDEX_FILE',
+  'GIT_OBJECT_DIRECTORY',
+  'GIT_ALTERNATE_OBJECT_DIRECTORIES',
+  'GIT_COMMON_DIR',
+  'GIT_CONFIG',
+  'GIT_CONFIG_GLOBAL',
+  'GIT_CONFIG_SYSTEM',
+  'GIT_CONFIG_COUNT',
+]);
+
+function scrubInheritedGitEnv() {
+  for (const key of Object.keys(process.env)) {
+    if (
+      UNSAFE_GIT_ENV_KEYS.has(key)
+      || /^GIT_CONFIG_(KEY|VALUE)_\d+$/.test(key)
+    ) {
+      delete process.env[key];
+    }
+  }
+
+  try {
+    fs.mkdirSync(EMPTY_GIT_HOOKS_DIR, { recursive: true });
+  } catch {
+    // Git will fail loudly rather than running parent checkout hooks.
+  }
+
+  Object.assign(process.env, {
+    GIT_TERMINAL_PROMPT: '0',
+    GIT_OPTIONAL_LOCKS: '0',
+    GIT_CONFIG_NOSYSTEM: '1',
+    GIT_CONFIG_COUNT: '1',
+    GIT_CONFIG_KEY_0: 'core.hooksPath',
+    GIT_CONFIG_VALUE_0: EMPTY_GIT_HOOKS_DIR.replace(/\\/g, '/'),
+  });
+}
+
+scrubInheritedGitEnv();
 
 const TEST_DATA_ROOT = getVitestWorkerRoot();
 const workerId = process.env.VITEST_WORKER_ID || process.env.TEST_WORKER_ID || String(process.pid);
@@ -78,7 +121,12 @@ function isGitCommand(file) {
 
 function getSubcommand(args) {
   if (!Array.isArray(args)) return '';
-  for (const a of args) {
+  for (let i = 0; i < args.length; i += 1) {
+    const a = args[i];
+    if (a === '-c' || a === '-C' || a === '--git-dir' || a === '--work-tree') {
+      i += 1;
+      continue;
+    }
     if (typeof a === 'string' && a.length > 0 && !a.startsWith('-')) return a;
   }
   return '';
@@ -156,17 +204,16 @@ function createBlockedAgentChild(command, args) {
   return child;
 }
 
-// Patch execFileSync — intercept git, pass through everything else
-childProcess.execFileSync = function(file, args, options) {
+function patchedExecFileSync(file, args, options) {
   if (isGitCommand(file)) {
     return stubGitOutput(args, options?.encoding);
   }
   return _realExecFileSync.call(this, file, args, options);
-};
+}
 
 // Patch execFile (async) — intercept git with the same stub, pass through everything else.
 // Required because async converters (promisify(execFile)) bypass execFileSync patches.
-childProcess.execFile = function(file, args, options, callback) {
+function patchedExecFile(file, args, options, callback) {
   // Handle optional args/options overloads. Mirror Node's execFile signature:
   //   (file, callback)              → args is the function
   //   (file, args, callback)        → options is the function; args stays
@@ -194,34 +241,35 @@ childProcess.execFile = function(file, args, options, callback) {
     return { kill: () => {} };
   }
   return _realExecFile.call(this, file, args, options, callback);
-};
+}
 
 // Add Node's custom promisify symbol so that promisify(childProcess.execFile) resolves to
 // { stdout, stderr } — matching the real execFile behaviour. Without this, promisify wraps
 // the stub as a standard 2-arg callback (resolves to stdout string directly), causing
 // destructuring like `const { stdout } = await execFileAsync(...)` to produce undefined.
 const { promisify } = require('util');
-childProcess.execFile[promisify.custom] = function(file, args, options) {
+
+function patchedExecFilePromisified(file, args, options) {
   return new Promise((resolve, reject) => {
     childProcess.execFile(file, args, options, (err, stdout, stderr) => {
       if (err) { err.stdout = stdout; err.stderr = stderr; reject(err); }
       else resolve({ stdout, stderr });
     });
   });
-};
+}
 
 // Patch spawn — block accidental real agent CLIs in tests. Test files that need
 // process behavior should install their own mock spawn; real Codex/Claude runs
 // are too slow and can leak child processes on Windows.
-childProcess.spawn = function(command, args, options) {
+function patchedSpawn(command, args, options) {
   if (process.env.TORQUE_ALLOW_REAL_AGENT_CLI !== '1' && isAgentCliCommand(command)) {
     return createBlockedAgentChild(command, args);
   }
   return _realSpawn.call(this, command, args, options);
-};
+}
 
 // Patch spawnSync — intercept git, pass through everything else
-childProcess.spawnSync = function(command, args, options) {
+function patchedSpawnSync(command, args, options) {
   if (isGitCommand(command)) {
     const stdout = stubGitOutput(args, options?.encoding);
     return {
@@ -235,7 +283,29 @@ childProcess.spawnSync = function(command, args, options) {
     };
   }
   return _realSpawnSync.call(this, command, args, options);
-};
+}
+
+Object.defineProperty(patchedExecFileSync, '__torqueTestGuard', { value: true });
+Object.defineProperty(patchedExecFile, '__torqueTestGuard', { value: true });
+Object.defineProperty(patchedSpawnSync, '__torqueTestGuard', { value: true });
+
+function installChildProcessTestGuards() {
+  childProcess.execFileSync = patchedExecFileSync;
+  childProcess.execFile = patchedExecFile;
+  childProcess.execFile[promisify.custom] = patchedExecFilePromisified;
+  childProcess.spawn = patchedSpawn;
+  childProcess.spawnSync = patchedSpawnSync;
+}
+
+installChildProcessTestGuards();
+
+try {
+  const { beforeEach, afterEach } = require('vitest');
+  beforeEach(installChildProcessTestGuards);
+  afterEach(installChildProcessTestGuards);
+} catch {
+  // worker-setup may be required directly outside Vitest.
+}
 
 module.exports = {
   wireSharedServerNodeModules,
@@ -243,6 +313,7 @@ module.exports = {
   isAgentCliCommand,
   getSubcommand,
   stubGitOutput,
+  installChildProcessTestGuards,
   // Exposed for tests that need real async git calls (parallel to _realExecFileSync)
   _realExecFile,
 };

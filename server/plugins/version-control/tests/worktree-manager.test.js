@@ -5,6 +5,7 @@ const os = require('os');
 const path = require('path');
 const Database = require('better-sqlite3');
 const childProcess = require('child_process');
+const { createIsolatedGitEnv, withIsolatedGitArgs } = require('../../../tests/git-test-utils');
 
 const MODULE_PATH = require.resolve('../worktree-manager');
 // worker-setup.js stubs git via childProcess; _realExecFileSync is the saved real one.
@@ -35,11 +36,13 @@ function loadManager(db) {
 }
 
 function runRealGit(cwd, args, options = {}) {
-  return originalExecFileSync('git', args, {
+  const { env, ...restOptions } = options;
+  return originalExecFileSync('git', withIsolatedGitArgs(args), {
     cwd,
     encoding: 'utf8',
     windowsHide: true,
-    ...options,
+    env: createIsolatedGitEnv(env || {}),
+    ...restOptions,
   });
 }
 

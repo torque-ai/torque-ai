@@ -10,7 +10,7 @@
 
 'use strict';
 
-const { execFileSync } = require('child_process');
+const childProcess = require('child_process');
 const path = require('path');
 const fs = require('fs');
 const logger = require('../logger').child({ component: 'git-worktree' });
@@ -33,6 +33,17 @@ const BRANCH_NAME_STOP_WORDS = new Set([
   'very', 'just', 'because', 'when', 'that', 'this', 'these', 'those',
   'it', 'its', 'which', 'what', 'who', 'how', 'all', 'any',
 ]);
+
+function execGit(args, options = {}) {
+  const current = childProcess.execFileSync;
+  const isMockFunction = Boolean(current && (current._isMockFunction || current.mock));
+  const execFileSync = childProcess._realExecFileSync
+    && current?.__torqueTestGuard === true
+    && !isMockFunction
+    ? childProcess._realExecFileSync
+    : current;
+  return execFileSync.call(childProcess, 'git', args, options);
+}
 
 /**
  * Convert a task description into a kebab-case branch name.
@@ -76,7 +87,7 @@ function generateBranchName(description) {
  */
 function isGitRepo(dir) {
   try {
-    execFileSync('git', ['rev-parse', '--git-dir'], {
+    execGit(['rev-parse', '--git-dir'], {
       cwd: dir,
       encoding: 'utf-8',
       timeout: TASK_TIMEOUTS.GIT_STATUS,
@@ -112,7 +123,7 @@ function createWorktree(taskId, sourceDir) {
     if (fs.existsSync(worktreePath)) {
       logger.info(`[Worktree] Removing stale worktree at ${worktreePath}`);
       try {
-        execFileSync('git', ['worktree', 'remove', '--force', worktreePath], {
+        execGit(['worktree', 'remove', '--force', worktreePath], {
           cwd: sourceDir,
           encoding: 'utf-8',
           timeout: TASK_TIMEOUTS.GIT_STATUS,
@@ -124,7 +135,7 @@ function createWorktree(taskId, sourceDir) {
         // Manual cleanup fallback — remove directory and prune worktree list
         try {
           fs.rmSync(worktreePath, { recursive: true, force: true });
-          execFileSync('git', ['worktree', 'prune'], {
+          execGit(['worktree', 'prune'], {
             cwd: sourceDir,
             encoding: 'utf-8',
             timeout: TASK_TIMEOUTS.GIT_STATUS,
@@ -138,7 +149,7 @@ function createWorktree(taskId, sourceDir) {
     }
 
     // Capture HEAD SHA before creating worktree
-    const headSha = execFileSync('git', ['rev-parse', 'HEAD'], {
+    const headSha = execGit(['rev-parse', 'HEAD'], {
       cwd: sourceDir,
       encoding: 'utf-8',
       timeout: TASK_TIMEOUTS.GIT_STATUS,
@@ -147,7 +158,7 @@ function createWorktree(taskId, sourceDir) {
     }).trim();
 
     // Create a detached worktree at HEAD
-    execFileSync('git', ['worktree', 'add', '--detach', worktreePath, 'HEAD'], {
+    execGit(['worktree', 'add', '--detach', worktreePath, 'HEAD'], {
       cwd: sourceDir,
       encoding: 'utf-8',
       timeout: TASK_TIMEOUTS.GIT_ADD_ALL, // 30s — worktree add can take a moment for large repos
@@ -194,7 +205,7 @@ function mergeWorktreeChanges(worktreePath, sourceDir, taskId) {
 
     // Stage all changes in the worktree so diff captures everything
     // (including new untracked files)
-    execFileSync('git', ['add', '-A'], {
+    execGit(['add', '-A'], {
       cwd: worktreePath,
       encoding: 'utf-8',
       timeout: TASK_TIMEOUTS.GIT_ADD_ALL,
@@ -205,7 +216,7 @@ function mergeWorktreeChanges(worktreePath, sourceDir, taskId) {
     // Generate a patch of staged changes against HEAD
     let patch;
     try {
-      patch = execFileSync('git', ['diff', '--cached', '--binary'], {
+      patch = execGit(['diff', '--cached', '--binary'], {
         cwd: worktreePath,
         encoding: 'utf-8',
         timeout: TASK_TIMEOUTS.GIT_DIFF,
@@ -229,7 +240,7 @@ function mergeWorktreeChanges(worktreePath, sourceDir, taskId) {
 
     // Apply the patch to the original working directory
     try {
-      execFileSync('git', ['apply', '--3way', '--whitespace=nowarn'], {
+      execGit(['apply', '--3way', '--whitespace=nowarn'], {
         cwd: sourceDir,
         encoding: 'utf-8',
         timeout: TASK_TIMEOUTS.GIT_ADD_ALL,
@@ -241,7 +252,7 @@ function mergeWorktreeChanges(worktreePath, sourceDir, taskId) {
       // --3way failed, try without it
       logger.info(`[Worktree] Task ${taskId} 3-way apply failed, trying direct apply: ${applyErr.message}`);
       try {
-        execFileSync('git', ['apply', '--whitespace=nowarn'], {
+        execGit(['apply', '--whitespace=nowarn'], {
           cwd: sourceDir,
           encoding: 'utf-8',
           timeout: TASK_TIMEOUTS.GIT_ADD_ALL,
@@ -351,7 +362,7 @@ function copyChangedFiles(worktreePath, sourceDir, taskId, statusOutput) {
 function removeWorktree(worktreePath, sourceDir, taskId) {
   try {
     // Try graceful removal first
-    execFileSync('git', ['worktree', 'remove', '--force', worktreePath], {
+    execGit(['worktree', 'remove', '--force', worktreePath], {
       cwd: sourceDir,
       encoding: 'utf-8',
       timeout: TASK_TIMEOUTS.GIT_ADD_ALL,
@@ -366,7 +377,7 @@ function removeWorktree(worktreePath, sourceDir, taskId) {
       if (fs.existsSync(worktreePath)) {
         fs.rmSync(worktreePath, { recursive: true, force: true });
       }
-      execFileSync('git', ['worktree', 'prune'], {
+      execGit(['worktree', 'prune'], {
         cwd: sourceDir,
         encoding: 'utf-8',
         timeout: TASK_TIMEOUTS.GIT_STATUS,

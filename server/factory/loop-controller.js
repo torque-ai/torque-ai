@@ -10871,7 +10871,14 @@ function batchBranchHasCommitsAhead(project_id, batch_id) {
   const baseBranch = row.baseBranch || row.base_branch;
   if (!worktreePath || !baseBranch) return false;
   try {
-    const out = childProcess.execFileSync('git', [
+    const currentExecFileSync = childProcess.execFileSync;
+    const isMockFunction = Boolean(currentExecFileSync && (currentExecFileSync._isMockFunction || currentExecFileSync.mock));
+    const execFileSync = childProcess._realExecFileSync
+      && currentExecFileSync?.__torqueTestGuard === true
+      && !isMockFunction
+      ? childProcess._realExecFileSync
+      : currentExecFileSync;
+    const out = execFileSync.call(childProcess, 'git', [
       'rev-list', '--count', `${baseBranch}..HEAD`,
     ], {
       cwd: worktreePath,

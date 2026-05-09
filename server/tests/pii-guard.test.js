@@ -21,6 +21,7 @@ const childProcess = require('child_process');
 // restores around each test.
 const _realExecFileSync = childProcess._realExecFileSync || childProcess.execFileSync;
 let _gitConfig = { name: '', email: '' };
+let _previousExecFileSync;
 
 function mockedExecFileSync(cmd, args, opts) {
   if (cmd === 'git' && Array.isArray(args) && args[0] === 'config') {
@@ -42,12 +43,13 @@ describe('pii-guard', () => {
   beforeEach(() => {
     // Neutral defaults; individual tests override before reloading.
     _gitConfig = { name: '', email: '' };
+    _previousExecFileSync = childProcess.execFileSync;
     childProcess.execFileSync = mockedExecFileSync;
     piiGuard = loadPiiGuard();
   });
 
   afterEach(() => {
-    childProcess.execFileSync = _realExecFileSync;
+    childProcess.execFileSync = _previousExecFileSync || _realExecFileSync;
   });
 
   describe('scanAndReplace', () => {

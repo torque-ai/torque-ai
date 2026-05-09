@@ -31,8 +31,13 @@ const GIT_BASE_OPTS = Object.freeze({
   stdio: ['ignore', 'pipe', 'pipe'],
 });
 
+function execGit(args, options = {}) {
+  const execFileSync = childProcess._realExecFileSync || childProcess.execFileSync;
+  return execFileSync.call(childProcess, 'git', args, options);
+}
+
 function gitHeadSha(repoPath) {
-  return childProcess.execFileSync('git', ['rev-parse', 'HEAD'], {
+  return execGit(['rev-parse', 'HEAD'], {
     ...GIT_BASE_OPTS,
     cwd: repoPath,
     encoding: 'utf8',
@@ -45,7 +50,7 @@ function gitHeadSha(repoPath) {
 // an unreachable sha can't produce a coherent A/M/D set.
 function gitShaReachable(repoPath, sha) {
   try {
-    childProcess.execFileSync('git', ['merge-base', '--is-ancestor', sha, 'HEAD'], {
+    execGit(['merge-base', '--is-ancestor', sha, 'HEAD'], {
       ...GIT_BASE_OPTS,
       cwd: repoPath,
       encoding: 'utf8',
@@ -67,7 +72,7 @@ function gitShaReachable(repoPath, sha) {
 //   U\tpath.js                        — unmerged (only during conflict; shouldn't happen here)
 // -M50% catches renames at 50%+ similarity. Default is 50% but explicit is clearer.
 function gitDiffNameStatus(repoPath, fromSha, toSha) {
-  const out = childProcess.execFileSync('git', [
+  const out = execGit([
     'diff', '--name-status', '-M50%', fromSha, toSha,
   ], {
     ...GIT_BASE_OPTS,
@@ -93,7 +98,7 @@ function gitDiffNameStatus(repoPath, fromSha, toSha) {
 // reindex where we only need 5-50 files; per-file `git show` is faster than
 // materializing the whole tree via git archive at that scale.
 function gitShowFile(repoPath, sha, filePath) {
-  return childProcess.execFileSync('git', ['show', `${sha}:${filePath}`], {
+  return execGit(['show', `${sha}:${filePath}`], {
     ...GIT_BASE_OPTS,
     cwd: repoPath,
     maxBuffer: 32 * 1024 * 1024,
@@ -101,7 +106,7 @@ function gitShowFile(repoPath, sha, filePath) {
 }
 
 function gitListTree(repoPath, sha) {
-  const out = childProcess.execFileSync('git', ['ls-tree', '-r', '--name-only', sha], {
+  const out = execGit(['ls-tree', '-r', '--name-only', sha], {
     ...GIT_BASE_OPTS,
     cwd: repoPath,
     encoding: 'utf8',
@@ -118,7 +123,7 @@ function gitListTree(repoPath, sha) {
 function gitMaterializeAtHead(repoPath, sha) {
   const tmp = fsSync.mkdtempSync(path.join(os.tmpdir(), 'cg-head-'));
   const archivePath = path.join(tmp, '.archive.tar');
-  childProcess.execFileSync('git', ['archive', '--format=tar', '-o', archivePath, sha], {
+  execGit(['archive', '--format=tar', '-o', archivePath, sha], {
     ...GIT_BASE_OPTS,
     cwd: repoPath,
     maxBuffer: 256 * 1024 * 1024,

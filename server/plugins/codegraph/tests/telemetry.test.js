@@ -6,6 +6,7 @@ const { createHandlers } = require('../handlers');
 const telemetry = require('../telemetry');
 const toolDefs = require('../tool-defs');
 const { setupTinyRepo, destroyTinyRepo } = require('../test-helpers');
+const { gitSync } = require('../../../tests/git-test-utils');
 
 const data = (r) => r.structuredData;
 
@@ -94,8 +95,7 @@ describe('codegraph shadow-mode telemetry', () => {
     await instrumented.cg_resolution_diagnostics({ repo_path: repo, symbol: 'beta' });
     // cg_diff needs two reachable shas — repo has only one commit, but
     // gitShaReachable checks `<sha>^{commit}` so HEAD-vs-HEAD is reachable.
-    const { execFileSync } = require('child_process');
-    const sha = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repo, encoding: 'utf8' }).trim();
+    const sha = gitSync(['rev-parse', 'HEAD'], { cwd: repo });
     await instrumented.cg_diff({ repo_path: repo, from_sha: sha, to_sha: sha });
 
     const tools = usageRows().map((r) => r.tool).sort();

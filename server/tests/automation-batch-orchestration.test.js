@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { gitSync } = require('./git-test-utils');
+const { gitSync, withRealGit } = require('./git-test-utils');
 
 const handlers = require('../handlers/automation-batch-orchestration');
 const automationHandlers = require('../handlers/automation-handlers');
@@ -64,6 +64,10 @@ function extractJsonBlock(text) {
   } catch {
     return null;
   }
+}
+
+function handleAutoCommitBatchWithRealGit(payload) {
+  return withRealGit(() => handlers.handleAutoCommitBatch(payload));
 }
 
 function createFeatureFixture(workingDir) {
@@ -393,7 +397,7 @@ describe('automation-batch-orchestration handlers', () => {
 
   describe('handleAutoCommitBatch', () => {
     it('returns error when working_directory is missing', async () => {
-      const result = await handlers.handleAutoCommitBatch({});
+      const result = await handleAutoCommitBatchWithRealGit({});
       expect(result.isError).toBe(true);
       expect(result.content[0].text).toMatch(/working_directory/i);
     });
@@ -404,7 +408,7 @@ describe('automation-batch-orchestration handlers', () => {
       fs.mkdirSync(path.join(workingDir, 'src'), { recursive: true });
       fs.writeFileSync(path.join(workingDir, 'src', 'safe.ts'), 'export const safe = true;');
 
-      const result = await handlers.handleAutoCommitBatch({
+      const result = await handleAutoCommitBatchWithRealGit({
         working_directory: workingDir,
         verify: false,
         push: false,
@@ -426,7 +430,7 @@ describe('automation-batch-orchestration handlers', () => {
       fs.mkdirSync(path.join(workingDir, 'src'), { recursive: true });
       fs.writeFileSync(path.join(workingDir, 'src', 'safe.ts'), 'export const safe = true;');
 
-      const result = await handlers.handleAutoCommitBatch({
+      const result = await handleAutoCommitBatchWithRealGit({
         working_directory: workingDir,
         verify: false,
         push: false,
@@ -441,7 +445,7 @@ describe('automation-batch-orchestration handlers', () => {
 
     it('rejects non-git working_directory', async () => {
       const workingDir = createNonGitDir();
-      const result = await handlers.handleAutoCommitBatch({
+      const result = await handleAutoCommitBatchWithRealGit({
         working_directory: workingDir,
         verify: false,
         push: false,
@@ -461,7 +465,7 @@ describe('automation-batch-orchestration handlers', () => {
       commitAll(workingDir);
       fs.writeFileSync(filePath, 'export const x = 2;');
 
-      const result = await handlers.handleAutoCommitBatch({
+      const result = await handleAutoCommitBatchWithRealGit({
         working_directory: workingDir,
         verify: false,
         push: false,
@@ -493,7 +497,7 @@ describe('automation-batch-orchestration handlers', () => {
       ));
       taskCore.getTask.mockReturnValue({ files_modified: [] });
 
-      const result = await handlers.handleAutoCommitBatch({
+      const result = await handleAutoCommitBatchWithRealGit({
         working_directory: workingDir,
         batch_name: 'scoped-batch',
         verify: false,
@@ -528,7 +532,7 @@ describe('automation-batch-orchestration handlers', () => {
       commitAll(workingDir);
       fs.writeFileSync(filePath, 'export const value = 2;');
 
-      const result = await handlers.handleAutoCommitBatch({
+      const result = await handleAutoCommitBatchWithRealGit({
         working_directory: workingDir,
         batch_name: 'default-no-push',
         verify: false,

@@ -4,11 +4,17 @@ const Database = require('better-sqlite3');
 const { ensureSchema } = require('../schema');
 const { createHandlers } = require('../handlers');
 const { setupTinyRepo, destroyTinyRepo } = require('../test-helpers');
+const { gitSync } = require('../../../tests/git-test-utils');
 
 // Handlers return MCP tool envelopes: { content: [{type, text}], structuredData }.
 // Read structuredData for typed access; the REST passthrough re-parses
 // content[0].text on the way out.
 const data = (r) => r.structuredData;
+
+function commitAll(repo, message) {
+  gitSync(['add', '.'], { cwd: repo });
+  gitSync(['commit', '-q', '-m', message], { cwd: repo });
+}
 
 describe('codegraph handlers', () => {
   let db, repo, handlers;
@@ -62,11 +68,8 @@ describe('codegraph handlers', () => {
     // already declares beta(); we add an async caller in c.js.
     const fs = require('fs');
     const path = require('path');
-    const { execFileSync } = require('child_process');
     fs.writeFileSync(path.join(repo, 'c.js'), 'async function callerAsync() { return beta(); }\n');
-    execFileSync('git', ['add', '.'], { cwd: repo, windowsHide: true, stdio: ['ignore','ignore','pipe'] });
-    execFileSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '-m', 'add async caller'],
-      { cwd: repo, windowsHide: true, stdio: ['ignore','ignore','pipe'] });
+    commitAll(repo, 'add async caller');
     await handlers.cg_reindex({ repo_path: repo, async: false, force: true });
 
     const r = data(await handlers.cg_find_references({ repo_path: repo, symbol: 'beta' }));
@@ -142,12 +145,9 @@ describe('codegraph handlers', () => {
   it('cg_resolve_tool surfaces is_async / is_generator modifiers on candidates', async () => {
     const fs = require('fs');
     const path = require('path');
-    const { execFileSync } = require('child_process');
     fs.writeFileSync(path.join(repo, 'mods.js'),
       'async function async_tool() {}\nfunction* gen_tool() {}\n');
-    execFileSync('git', ['add', '.'], { cwd: repo, windowsHide: true, stdio: ['ignore','ignore','pipe'] });
-    execFileSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '-m', 'add mods'],
-      { cwd: repo, windowsHide: true, stdio: ['ignore','ignore','pipe'] });
+    commitAll(repo, 'add mods');
     await handlers.cg_reindex({ repo_path: repo, async: false, force: true });
 
     const a = data(await handlers.cg_resolve_tool({ repo_path: repo, tool_name: 'async_tool' }));
@@ -164,11 +164,8 @@ describe('codegraph handlers', () => {
     // fallback has a target. Test directly via the test-helper repo.
     const fs = require('fs');
     const path = require('path');
-    const { execFileSync } = require('child_process');
     fs.writeFileSync(path.join(repo, 'c.js'), 'function handleSomeTool(args) { return null; }\n');
-    execFileSync('git', ['add', '.'], { cwd: repo, windowsHide: true, stdio: ['ignore','ignore','pipe'] });
-    execFileSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '-m', 'add handler'],
-      { cwd: repo, windowsHide: true, stdio: ['ignore','ignore','pipe'] });
+    commitAll(repo, 'add handler');
     await handlers.cg_reindex({ repo_path: repo, async: false, force: true });
 
     const r = data(await handlers.cg_resolve_tool({ repo_path: repo, tool_name: 'some_tool' }));
@@ -185,11 +182,8 @@ describe('codegraph handlers', () => {
   it('staleness reports stale=true after a new commit lands without reindex', async () => {
     const fs = require('fs');
     const path = require('path');
-    const { execFileSync } = require('child_process');
     fs.writeFileSync(path.join(repo, 'c.js'), 'function gamma() {}\n');
-    execFileSync('git', ['add', '.'], { cwd: repo, windowsHide: true, stdio: ['ignore','ignore','pipe'] });
-    execFileSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '-m', 'add c.js'],
-      { cwd: repo, windowsHide: true, stdio: ['ignore','ignore','pipe'] });
+    commitAll(repo, 'add c.js');
 
     const r = data(await handlers.cg_find_references({ repo_path: repo, symbol: 'beta' }));
     expect(r.staleness.stale).toBe(true);
