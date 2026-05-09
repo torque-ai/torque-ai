@@ -5,8 +5,9 @@
  * rollback_task, list_commits, setup_precommit_hook, run_build_check.
  */
 
-const { setupTestDb, teardownTestDb, safeTool } = require('./vitest-setup');
+const { setupTestDb, teardownTestDb, safeTool, getText } = require('./vitest-setup');
 const { extractTaskId } = require('./test-helpers');
+const fs = require('fs');
 const path = require('path');
 const os = require('os');
 
@@ -60,18 +61,21 @@ describe('Git Operations', () => {
       expect(result.isError).toBe(true);
     });
 
-    it('creates rollback record for valid task', async () => {
+    it('reports missing checkpoint storage for project without snapshots', async () => {
       const queueResult = await safeTool('queue_task', {
         task: 'Test task for rollback validation'
       });
       const taskId = extractTaskId(queueResult);
       expect(taskId).not.toBeNull();
 
-      const statusResult = await safeTool('check_status', { task_id: taskId });
-      expect(statusResult.isError).toBeFalsy();
-
-      const rollbackResult = await safeTool('rollback_task', { task_id: taskId });
-      expect(rollbackResult.isError).toBeFalsy();
+      const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'torque-rollback-task-'));
+      try {
+        const rollbackResult = await safeTool('rollback_task', { project_root: projectRoot, task_id: taskId });
+        expect(rollbackResult.isError).toBe(true);
+        expect(getText(rollbackResult)).toMatch(/No shadow repo/i);
+      } finally {
+        fs.rmSync(projectRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+      }
     });
   });
 
