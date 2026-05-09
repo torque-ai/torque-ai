@@ -667,7 +667,7 @@ describe('Queue Scheduler', () => {
   });
 
   describe('filterPausedFactoryProjectTasks', () => {
-    it('defers queued factory tasks for paused projects', () => {
+    it('parks queued factory tasks for paused projects', () => {
       mockDb.getDbInstance = vi.fn(() => ({
         prepare: vi.fn(() => ({
           get: vi.fn((projectId) => (
@@ -704,9 +704,17 @@ describe('Queue Scheduler', () => {
       const filtered = scheduler.filterPausedFactoryProjectTasks(queued);
 
       expect(filtered.map(task => task.id)).toEqual(['running-architect']);
+      expect(mockDb.updateTaskStatus).toHaveBeenCalledWith('paused-architect', 'waiting', {
+        pause_reason: 'factory_project_paused',
+        _preserveProvider: true,
+      });
+      expect(mocks.notifyDashboard).toHaveBeenCalledWith('paused-architect', {
+        status: 'waiting',
+        pause_reason: 'factory_project_paused',
+      });
     });
 
-    it('keeps paused-project factory tasks queued instead of cancelling them during scheduling', () => {
+    it('parks paused-project factory tasks as waiting instead of starting or cancelling them', () => {
       mockDb.getDbInstance = vi.fn(() => ({
         prepare: vi.fn(() => ({
           get: vi.fn((projectId) => (
@@ -748,7 +756,57 @@ describe('Queue Scheduler', () => {
         'cancelled',
         expect.anything(),
       );
-      expect(mockDb.updateTaskStatus).not.toHaveBeenCalled();
+      expect(mockDb.updateTaskStatus).toHaveBeenCalledWith('paused-architect', 'waiting', {
+        pause_reason: 'factory_project_paused',
+        _preserveProvider: true,
+      });
+    });
+
+    it('requeues paused-project waiting tasks when the project resumes', () => {
+      mockDb.listTasks.mockImplementation(({ status }) => {
+        if (status !== 'waiting') return [];
+        return [
+          makeTask({
+            id: 'waiting-architect',
+            status: 'waiting',
+            pause_reason: 'factory_project_paused',
+            provider: 'codex',
+            tags: JSON.stringify([
+              'factory:internal',
+              'factory:architect_cycle',
+              'factory:project_id=paused-project',
+            ]),
+          }),
+          makeTask({
+            id: 'other-project',
+            status: 'waiting',
+            pause_reason: 'factory_project_paused',
+            provider: 'codex',
+            tags: JSON.stringify([
+              'factory:internal',
+              'factory:architect_cycle',
+              'factory:project_id=other-project',
+            ]),
+          }),
+        ];
+      });
+
+      const result = scheduler.resumePausedFactoryProjectTasks('paused-project');
+
+      expect(result).toEqual({ requeued: 1, scanned: 1 });
+      expect(mockDb.updateTaskStatus).toHaveBeenCalledWith('waiting-architect', 'queued', {
+        pause_reason: null,
+        _preserveProvider: true,
+      });
+      expect(mockDb.updateTaskStatus).not.toHaveBeenCalledWith(
+        'other-project',
+        'queued',
+        expect.anything(),
+      );
+      expect(mocks.notifyDashboard).toHaveBeenCalledWith('waiting-architect', {
+        status: 'queued',
+        pause_reason: null,
+      });
     });
   });
 

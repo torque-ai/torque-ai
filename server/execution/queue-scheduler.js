@@ -89,6 +89,7 @@ const FACTORY_SUPERSEDED_BY_PLAN_STATUSES = new Set([
   'waiting',
   'completed',
 ]);
+const FACTORY_PROJECT_PAUSED_REASON = 'factory_project_paused';
 const FACTORY_SUPERSEDED_BY_ACTIVE_STATUSES = new Set([
   'pending',
   'queued',
@@ -445,58 +446,209 @@ function filterSupersededFactoryInternalTasks(queuedTasks, activeSignals = []) {
   return filtered;
 }
 
-function isFactoryProjectPausedForTask(task) {
-  const projectId = getFactoryProjectId(task);
-  if (!projectId) return false;
+function getSchedulerDb() {
+  if (db) return db;
+  try {
+    const { getModule, defaultContainer } = require('../container');
+    return getModule?.('db') || defaultContainer?.peek?.('db') || null;
+  } catch {
+    return null;
+  }
+}
+
+function isFactorySchedulerTask(task) {
+  return hasFactoryInternalTag(task) || isFactoryProjectExecutionSignal(task);
+}
+
+function getFactoryProjectStatus(projectId) {
+  if (!projectId) return null;
 
   const rawDb = getRawDbForScheduler();
-  if (!rawDb || typeof rawDb.prepare !== 'function') return false;
+  if (!rawDb || typeof rawDb.prepare !== 'function') return null;
 
   try {
     const row = rawDb.prepare('SELECT status FROM factory_projects WHERE id = ?').get(projectId);
-    return String(row?.status || '').toLowerCase() === 'paused';
+    return String(row?.status || '').toLowerCase() || null;
   } catch {
+    return null;
+  }
+}
+
+function isFactoryProjectPaused(projectId) {
+  return getFactoryProjectStatus(projectId) === 'paused';
+}
+
+function markFactoryTaskWaitingForPausedProject(task, projectId = getFactoryProjectId(task)) {
+  if (!task?.id || !projectId) return false;
+  const schedulerDb = getSchedulerDb();
+  if (!schedulerDb || typeof schedulerDb.updateTaskStatus !== 'function') return false;
+
+  try {
+    schedulerDb.updateTaskStatus(task.id, 'waiting', {
+      pause_reason: FACTORY_PROJECT_PAUSED_REASON,
+      _preserveProvider: true,
+    });
+    notifyDashboard(task.id, {
+      status: 'waiting',
+      pause_reason: FACTORY_PROJECT_PAUSED_REASON,
+    });
+    return true;
+  } catch (err) {
+    logger.warn('Failed to park queued factory task for paused project', {
+      task_id: task.id,
+      project_id: projectId,
+      err: err.message,
+    });
     return false;
   }
 }
 
-function filterPausedFactoryProjectTasks(queuedTasks) {
+function filterPausedFactoryProjectTasks(queuedTasks, options = {}) {
   if (!Array.isArray(queuedTasks) || queuedTasks.length === 0) {
     return queuedTasks || [];
   }
 
+  const metrics = options && typeof options === 'object' ? options.metrics : null;
   const filtered = [];
+  const parkedByProject = new Map();
   for (const task of queuedTasks) {
-    if (!hasFactoryInternalTag(task) && !isFactoryProjectExecutionSignal(task)) {
+    if (!isFactorySchedulerTask(task)) {
       filtered.push(task);
       continue;
     }
 
-    if (!isFactoryProjectPausedForTask(task)) {
+    const projectId = getFactoryProjectId(task);
+    if (!isFactoryProjectPaused(projectId)) {
       filtered.push(task);
       continue;
     }
 
-    logger.info('Skipping queued factory task because target project is paused', {
-      task_id: task.id,
-      kind: getFactoryKind(task) || 'execution',
-      project_id: getFactoryProjectId(task),
-    });
+    const parked = markFactoryTaskWaitingForPausedProject(task, projectId);
+    if (parked) {
+      parkedByProject.set(projectId, (parkedByProject.get(projectId) || 0) + 1);
+      if (metrics && typeof metrics === 'object') {
+        metrics.parked = (metrics.parked || 0) + 1;
+      }
+    }
   }
 
+  const parkedCount = [...parkedByProject.values()].reduce((sum, count) => sum + count, 0);
+  if (parkedCount > 0) {
+    logger.info('Parked queued factory task(s) because target project is paused', {
+      parked: parkedCount,
+      projects: Object.fromEntries(parkedByProject),
+    });
+  }
   return filtered;
 }
 
 function getRawDbForScheduler() {
-  if (!db) return null;
-  if (typeof db.getDbInstance === 'function') {
+  const schedulerDb = getSchedulerDb();
+  if (!schedulerDb) return null;
+  if (typeof schedulerDb.getDbInstance === 'function') {
     try {
-      return db.getDbInstance();
+      return schedulerDb.getDbInstance();
     } catch {
       return null;
     }
   }
-  return typeof db.prepare === 'function' ? db : null;
+  return typeof schedulerDb.prepare === 'function' ? schedulerDb : null;
+}
+
+function listQueuedFactoryTasksForProject(projectId, limit = 10000) {
+  if (!projectId) return [];
+  const schedulerDb = getSchedulerDb();
+  if (!schedulerDb) return [];
+
+  const tasks = (() => {
+    if (typeof schedulerDb.listQueuedTasksLightweight === 'function') {
+      return schedulerDb.listQueuedTasksLightweight(limit);
+    }
+    if (typeof schedulerDb.listTasks === 'function') {
+      return schedulerDb.listTasks({
+        status: 'queued',
+        limit,
+        columns: ['id', 'status', 'provider', 'model', 'created_at', 'tags', 'metadata'],
+      });
+    }
+    return [];
+  })();
+
+  const list = Array.isArray(tasks) ? tasks : (tasks?.tasks || []);
+  return list.filter(task => isFactorySchedulerTask(task) && getFactoryProjectId(task) === projectId);
+}
+
+function parkQueuedFactoryTasksForPausedProject(projectId, options = {}) {
+  const normalizedProjectId = typeof projectId === 'string' ? projectId.trim() : '';
+  if (!normalizedProjectId || !isFactoryProjectPaused(normalizedProjectId)) {
+    return { parked: 0, scanned: 0 };
+  }
+
+  const queuedTasks = listQueuedFactoryTasksForProject(normalizedProjectId, options.limit || 10000);
+  const metrics = { parked: 0 };
+  filterPausedFactoryProjectTasks(queuedTasks, { metrics });
+  return {
+    parked: metrics.parked,
+    scanned: queuedTasks.length,
+  };
+}
+
+function listPausedWaitingFactoryTasks(projectId, limit = 10000) {
+  const normalizedProjectId = typeof projectId === 'string' ? projectId.trim() : '';
+  if (!normalizedProjectId) return [];
+  const schedulerDb = getSchedulerDb();
+  if (!schedulerDb || typeof schedulerDb.listTasks !== 'function') return [];
+
+  const tasks = schedulerDb.listTasks({
+    status: 'waiting',
+    limit,
+    columns: ['id', 'status', 'provider', 'model', 'created_at', 'pause_reason', 'tags', 'metadata'],
+  });
+  const list = Array.isArray(tasks) ? tasks : (tasks?.tasks || []);
+  return list.filter(task => (
+    task?.pause_reason === FACTORY_PROJECT_PAUSED_REASON
+    && isFactorySchedulerTask(task)
+    && getFactoryProjectId(task) === normalizedProjectId
+  ));
+}
+
+function resumePausedFactoryProjectTasks(projectId, options = {}) {
+  const normalizedProjectId = typeof projectId === 'string' ? projectId.trim() : '';
+  if (!normalizedProjectId) return { requeued: 0, scanned: 0 };
+  const schedulerDb = getSchedulerDb();
+  if (!schedulerDb || typeof schedulerDb.updateTaskStatus !== 'function') {
+    return { requeued: 0, scanned: 0 };
+  }
+
+  const waitingTasks = listPausedWaitingFactoryTasks(normalizedProjectId, options.limit || 10000);
+  let requeued = 0;
+  for (const task of waitingTasks) {
+    try {
+      schedulerDb.updateTaskStatus(task.id, 'queued', {
+        pause_reason: null,
+        _preserveProvider: true,
+      });
+      notifyDashboard(task.id, {
+        status: 'queued',
+        pause_reason: null,
+      });
+      requeued += 1;
+    } catch (err) {
+      logger.warn('Failed to requeue paused factory task after project resume', {
+        task_id: task.id,
+        project_id: normalizedProjectId,
+        err: err.message,
+      });
+    }
+  }
+
+  if (requeued > 0) {
+    logger.info('Requeued paused factory task(s) after project resume', {
+      project_id: normalizedProjectId,
+      requeued,
+    });
+  }
+  return { requeued, scanned: waitingTasks.length };
 }
 
 function loadRecentFactorySupersessionSignals(queuedTasks, limit = 500) {
@@ -1166,10 +1318,9 @@ function processQueueInternal(options = {}) {
   const runningAll = Array.isArray(runningTasks) ? runningTasks : (runningTasks.tasks || []);
 
   const pauseFilteredQueuedTasks = filterPausedFactoryProjectTasks(queuedTasks);
-  // Paused projects are a scheduling gate, not a terminal task outcome. In
-  // particular, startup restart-resubmits clone interrupted factory work into
-  // queued rows so they can resume when the operator resumes the project.
-  // Leave those rows queued and simply withhold promotion.
+  // Paused projects are a scheduling gate, not a terminal task outcome.
+  // Park their work as waiting with a structured pause_reason so the hot queue
+  // remains useful and resume_project can requeue the original provider choice.
   const schedulableQueuedTasks = filterSupersededFactoryInternalTasks(
     pauseFilteredQueuedTasks,
     [
@@ -1620,6 +1771,8 @@ function createQueueScheduler(localDeps = {}) {
     categorizeQueuedTasks: (...args) => withLocalDeps(() => categorizeQueuedTasks(...args)),
     filterSupersededFactoryInternalTasks: (...args) => withLocalDeps(() => filterSupersededFactoryInternalTasks(...args)),
     filterPausedFactoryProjectTasks: (...args) => withLocalDeps(() => filterPausedFactoryProjectTasks(...args)),
+    parkQueuedFactoryTasksForPausedProject: (...args) => withLocalDeps(() => parkQueuedFactoryTasksForPausedProject(...args)),
+    resumePausedFactoryProjectTasks: (...args) => withLocalDeps(() => resumePausedFactoryProjectTasks(...args)),
     loadRecentFactorySupersessionSignals: (...args) => withLocalDeps(() => loadRecentFactorySupersessionSignals(...args)),
     shouldSkipTaskForApproval: (...args) => withLocalDeps(() => shouldSkipTaskForApproval(...args)),
     shouldSkipTaskForFileLockWait: (...args) => withLocalDeps(() => shouldSkipTaskForFileLockWait(...args)),
@@ -1659,6 +1812,8 @@ module.exports = {
   categorizeQueuedTasks,
   filterSupersededFactoryInternalTasks,
   filterPausedFactoryProjectTasks,
+  parkQueuedFactoryTasksForPausedProject,
+  resumePausedFactoryProjectTasks,
   loadRecentFactorySupersessionSignals,
   shouldSkipTaskForApproval,
   shouldSkipTaskForFileLockWait,

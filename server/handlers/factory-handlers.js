@@ -1300,10 +1300,12 @@ async function handlePauseProject(args) {
     const { stopTick } = require('../factory/factory-tick');
     stopTick(updated.id);
   } catch (_e) { void _e; /* factory-tick not loaded */ }
+  const parkedQueue = parkPausedFactoryProjectQueue(updated.id);
   logger.info(`Factory project paused: ${updated.name}`);
   return jsonResponse({
     message: `Project "${updated.name}" paused`,
     project: updated,
+    parked_tasks: parkedQueue.parked,
   });
 }
 
@@ -1326,6 +1328,7 @@ async function handleResumeProject(args) {
   } catch (err) {
     logger.warn({ err }, 'Failed to record resume audit event');
   }
+  const resumedQueue = resumePausedFactoryProjectQueue(updated.id);
   // Start factory tick timer when project resumes.
   // Phase L (2026-04-30): honor cfg.loop.tick_interval_ms so an operator can
   // pause + resume to apply a new tick interval without restarting TORQUE.
@@ -1349,7 +1352,55 @@ async function handleResumeProject(args) {
   return jsonResponse({
     message: `Project "${updated.name}" running`,
     project: updated,
+    requeued_tasks: resumedQueue.requeued,
   });
+}
+
+function getQueueSchedulerLifecycleApi() {
+  try {
+    const { getModule } = require('../container');
+    const queueScheduler = getModule?.('queueScheduler');
+    if (queueScheduler) return queueScheduler;
+  } catch (_e) {
+    void _e;
+  }
+  try {
+    return require('../execution/queue-scheduler');
+  } catch (_e) {
+    return null;
+  }
+}
+
+function parkPausedFactoryProjectQueue(projectId) {
+  const queueScheduler = getQueueSchedulerLifecycleApi();
+  if (!queueScheduler || typeof queueScheduler.parkQueuedFactoryTasksForPausedProject !== 'function') {
+    return { parked: 0, scanned: 0 };
+  }
+  try {
+    return queueScheduler.parkQueuedFactoryTasksForPausedProject(projectId) || { parked: 0, scanned: 0 };
+  } catch (err) {
+    logger.warn('Failed to park queued factory tasks for paused project', {
+      project_id: projectId,
+      err: err.message,
+    });
+    return { parked: 0, scanned: 0 };
+  }
+}
+
+function resumePausedFactoryProjectQueue(projectId) {
+  const queueScheduler = getQueueSchedulerLifecycleApi();
+  if (!queueScheduler || typeof queueScheduler.resumePausedFactoryProjectTasks !== 'function') {
+    return { requeued: 0, scanned: 0 };
+  }
+  try {
+    return queueScheduler.resumePausedFactoryProjectTasks(projectId) || { requeued: 0, scanned: 0 };
+  } catch (err) {
+    logger.warn('Failed to requeue paused factory tasks after project resume', {
+      project_id: projectId,
+      err: err.message,
+    });
+    return { requeued: 0, scanned: 0 };
+  }
 }
 
 function getConfiguredFactoryTickInterval(project) {
@@ -1426,14 +1477,17 @@ async function handlePauseAllProjects(args = {}) {
     } catch (err) {
       logger.warn({ err }, 'Failed to record pause audit event');
     }
-    return true;
+    const parkedQueue = parkPausedFactoryProjectQueue(updated.id);
+    return { paused: true, parked: parkedQueue.parked || 0 };
   }));
   const paused = results.filter(Boolean).length;
+  const parked_tasks = results.reduce((sum, result) => sum + (result?.parked || 0), 0);
   logger.info(`Emergency pause: ${paused} projects paused`);
   return jsonResponse({
     message: `${paused} project(s) paused`,
     total: projects.length,
     paused,
+    parked_tasks,
   });
 }
 
