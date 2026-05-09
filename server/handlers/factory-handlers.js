@@ -2608,8 +2608,11 @@ async function handleDecisionLog(args) {
     since: args.since,
     limit: args.limit,
   });
-  const stats = getDecisionStats(project.id);
-  return jsonResponse({ decisions, stats });
+  const payload = { decisions };
+  if (!isExplicitFalse(args.include_stats)) {
+    payload.stats = getDecisionStats(project.id);
+  }
+  return jsonResponse(payload);
 }
 
 async function handleFactoryProviderLaneAudit(args) {

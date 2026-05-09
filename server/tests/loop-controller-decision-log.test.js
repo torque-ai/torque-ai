@@ -336,4 +336,26 @@ describe('loop-controller decision logging', () => {
       ])
     );
   });
+
+  it('can omit aggregate stats for lightweight decision-log pollers', async () => {
+    const { project } = registerProjectWithWorkItem('guided');
+
+    loopController.startLoopForProject(project.id);
+    await loopController.advanceLoopForProject(project.id);
+
+    const response = await handleDecisionLog({
+      project: project.id,
+      limit: 20,
+      include_stats: false,
+    });
+
+    expect(response.structuredData.decisions.map((entry) => entry.action)).toEqual(
+      expect.arrayContaining([
+        'advance_from_sense',
+        'scanned_plans',
+        'started_loop',
+      ])
+    );
+    expect(response.structuredData).not.toHaveProperty('stats');
+  });
 });
