@@ -2470,6 +2470,28 @@ describe('API Server endpoints', () => {
   // Health endpoint tests
   // ============================================
 
+  describe('GET /api/health', () => {
+    it('uses cached Ollama health by default so remote outages do not block the endpoint', async () => {
+      const response = await dispatchRequest(requestHandler, {
+        method: 'GET',
+        url: '/api/health',
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(handleToolCallSpy).toHaveBeenCalledWith('check_ollama_health', { force_check: false });
+    });
+
+    it('allows callers to request a fresh Ollama probe explicitly', async () => {
+      const response = await dispatchRequest(requestHandler, {
+        method: 'GET',
+        url: '/api/health?force_check=true',
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(handleToolCallSpy).toHaveBeenCalledWith('check_ollama_health', { force_check: true });
+    });
+  });
+
   describe('GET /readyz', () => {
     it('returns 200 when database is accessible and server has been up > 5 seconds', async () => {
       countTasksSpy.mockReturnValue(0); // Database query succeeds
