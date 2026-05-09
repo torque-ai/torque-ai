@@ -604,6 +604,21 @@ ensure_node_modules() {
   fi
 }
 
+run_vitest_phase() {
+  local dir="\$1"
+  shift
+  (
+    cd "\$dir" || exit 1
+    if [ -f "node_modules/vitest/vitest.mjs" ]; then
+      timeout ${PHASE_TIMEOUT_SECS} node node_modules/vitest/vitest.mjs "\$@"
+    elif command -v vitest >/dev/null 2>&1; then
+      timeout ${PHASE_TIMEOUT_SECS} vitest "\$@"
+    else
+      timeout ${PHASE_TIMEOUT_SECS} npx vitest "\$@"
+    fi
+  )
+}
+
 # Sweep stale torque-* test temp dirs from \$TMPDIR. Each test that
 # uses TORQUE_DATA_DIR creates an mkdtempSync() dir; tests don't always
 # clean up (vitest crashes, SSH drops kill afterAll). Without this,
@@ -665,7 +680,7 @@ echo "[gate-timing] setup_ms=\$(elapsed_ms "\$SETUP_START_MS" "\$SETUP_END_MS") 
 if [ "$GATE_RUN_DASHBOARD" = "1" ]; then
   {
     PHASE_START_MS=\$(gate_now_ms)
-    timeout ${PHASE_TIMEOUT_SECS} bash -c "cd dashboard && vitest run --reporter=dot ${GATE_DASHBOARD_TEST_ARGS}"
+    run_vitest_phase dashboard run --reporter=dot ${GATE_DASHBOARD_TEST_ARGS}
     PHASE_EXIT=\$?
     PHASE_END_MS=\$(gate_now_ms)
     echo "[gate-timing] dash_ms=\$(elapsed_ms "\$PHASE_START_MS" "\$PHASE_END_MS") exit=\$PHASE_EXIT"
@@ -681,7 +696,7 @@ fi
 if [ "$GATE_RUN_SERVER" = "1" ]; then
   {
     PHASE_START_MS=\$(gate_now_ms)
-    timeout ${PHASE_TIMEOUT_SECS} bash -c "cd server && vitest run --reporter=dot ${GATE_SERVER_TEST_ARGS}"
+    run_vitest_phase server run --reporter=dot ${GATE_SERVER_TEST_ARGS}
     PHASE_EXIT=\$?
     PHASE_END_MS=\$(gate_now_ms)
     echo "[gate-timing] serv_ms=\$(elapsed_ms "\$PHASE_START_MS" "\$PHASE_END_MS") exit=\$PHASE_EXIT"

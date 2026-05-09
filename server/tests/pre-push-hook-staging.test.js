@@ -64,8 +64,8 @@ describe('pre-push-hook staging-branch invariants', () => {
     // sync), so the --branch invocation appears once but the remote script
     // must reference dashboard, server, and perf commands.
     expect(src).toMatch(/run_with_flake_retry "Remote gate" "\$TORQUE_REMOTE_CMD --suite \$GATE_COORD_SUITE --branch \$staging_branch/);
-    expect(src).toMatch(/cd\s+dashboard\s+&&\s+vitest\s+run/);
-    expect(src).toMatch(/cd\s+server\s+&&\s+vitest\s+run/);
+    expect(src).toMatch(/run_vitest_phase dashboard run/);
+    expect(src).toMatch(/run_vitest_phase server run/);
     expect(src).toMatch(/cd\s+server\s+&&\s+node\s+perf\/run-perf\.js/);
   });
 
@@ -80,6 +80,8 @@ describe('pre-push-hook staging-branch invariants', () => {
     expect(src).toMatch(/local dir="\\\$1"/);
     expect(src).toMatch(/local modules_dir="\\\$1"/);
     expect(src).toMatch(/modules_dir="\\\$\(cd "\\\$modules_dir" && pwd -P\)"/);
+    expect(src).toMatch(/run_vitest_phase\s*\(\)/);
+    expect(src).toMatch(/node_modules\/vitest\/vitest\.mjs/);
     expect(src).toMatch(/ensure_node_modules dash dashboard/);
     expect(src).toMatch(/ensure_node_modules serv server/);
     expect(src).toMatch(/\[\\\$phase\] \[setup\]/);
@@ -108,8 +110,8 @@ describe('pre-push-hook staging-branch invariants', () => {
     expect(src).toMatch(/using \\\$dir dependencies from base checkout via PATH/);
     expect(src).toMatch(/npm install --no-audit --no-fund --prefer-offline/);
     expect(src).toMatch(/dependencies still invalid after install/);
-    expect(src).toMatch(/cd\s+dashboard\s+&&\s+vitest\s+run/);
-    expect(src).toMatch(/cd\s+server\s+&&\s+vitest\s+run/);
+    expect(src).toMatch(/run_vitest_phase dashboard run/);
+    expect(src).toMatch(/run_vitest_phase server run/);
   });
 
   it('passes a plan-specific gate suite to torque-remote so coord serializes and caches correctly', () => {
