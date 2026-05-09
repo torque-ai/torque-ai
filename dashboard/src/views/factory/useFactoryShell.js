@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useLocation } from 'react-router-dom';
 import { factory as factoryApi, getDecisionLog, getFactoryDigest } from '../../api';
 import { useToast } from '../../components/Toast';
 import {
@@ -18,6 +19,7 @@ const EMPTY_BACKLOG = { items: [], cycleId: null, reasoningSummary: null };
 const EMPTY_DECISION_FILTERS = { stage: '', actor: '', batchId: '', since: '' };
 
 export function useFactoryShell() {
+  const location = useLocation();
   const [projectActivity, setProjectActivity] = useState({});
   const [selectedHealth, setSelectedHealth] = useState(null);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -38,6 +40,8 @@ export function useFactoryShell() {
   const [recentActivity, setRecentActivity] = useState([]);
   const [recentActivityHydrated, setRecentActivityHydrated] = useState(false);
   const toast = useToast();
+  const isActivityRoute = location.pathname === '/factory/activity';
+  const isPolicyRoute = location.pathname === '/factory/policy';
   const {
     activeProjectAction,
     approvalsHref,
@@ -278,8 +282,8 @@ export function useFactoryShell() {
 
     Promise.all(projectsRef.current.map(async (project) => {
       const [recentResponse, latestResponse] = await Promise.all([
-        getDecisionLog(project.id, { since: oneHourAgo, limit: 100 }).catch(() => ({ decisions: [] })),
-        getDecisionLog(project.id, { limit: 1 }).catch(() => ({ decisions: [] })),
+        getDecisionLog(project.id, { since: oneHourAgo, limit: 100, include_stats: false }).catch(() => ({ decisions: [] })),
+        getDecisionLog(project.id, { limit: 1, include_stats: false }).catch(() => ({ decisions: [] })),
       ]);
 
       return [
@@ -340,12 +344,19 @@ export function useFactoryShell() {
   }, [loadBacklog, selectedProjectId]);
 
   useEffect(() => {
+    if (!isActivityRoute) {
+      setDecisionLog([]);
+      setDecisionStats(normalizeDecisionStats());
+      setDecisionLoading(false);
+      return undefined;
+    }
+
     let cancelled = false;
     loadDecisionLog(selectedProjectId, decisionFilters, { isCancelled: () => cancelled });
     return () => {
       cancelled = true;
     };
-  }, [decisionFilters, loadDecisionLog, selectedProjectId]);
+  }, [decisionFilters, isActivityRoute, loadDecisionLog, selectedProjectId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -356,12 +367,18 @@ export function useFactoryShell() {
   }, [loadDigest, selectedProjectId]);
 
   useEffect(() => {
+    if (!isPolicyRoute) {
+      setCostMetrics(null);
+      setCostMetricsLoading(false);
+      return undefined;
+    }
+
     let cancelled = false;
     loadCostMetrics(selectedProjectId, { isCancelled: () => cancelled });
     return () => {
       cancelled = true;
     };
-  }, [loadCostMetrics, selectedProjectId]);
+  }, [isPolicyRoute, loadCostMetrics, selectedProjectId]);
 
   useEffect(() => {
     if (!selectedProjectId) {
@@ -383,7 +400,7 @@ export function useFactoryShell() {
       polling = true;
       try {
         const [recentResponse, backlogResponse] = await Promise.all([
-          getDecisionLog(selectedProjectId, { limit: 20 }).catch(() => null),
+          getDecisionLog(selectedProjectId, { limit: 20, include_stats: false }).catch(() => null),
           includeBacklog ? factoryApi.backlog(selectedProjectId).catch(() => null) : Promise.resolve(null),
         ]);
 
@@ -470,12 +487,14 @@ export function useFactoryShell() {
       loadProject(selectedProjectId, { fallbackProject }),
       loadIntake(selectedProjectId),
       loadBacklog(selectedProjectId),
-      loadDecisionLog(selectedProjectId, decisionFilters),
       loadDigest(selectedProjectId),
-      loadCostMetrics(selectedProjectId),
+      isActivityRoute ? loadDecisionLog(selectedProjectId, decisionFilters) : Promise.resolve(),
+      isPolicyRoute ? loadCostMetrics(selectedProjectId) : Promise.resolve(),
     ]);
   }, [
     decisionFilters,
+    isActivityRoute,
+    isPolicyRoute,
     loadBacklog,
     loadCostMetrics,
     loadDecisionLog,
