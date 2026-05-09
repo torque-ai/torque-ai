@@ -82,6 +82,20 @@ describe('resolveSystemShellCommand', () => {
   });
 });
 
+describe('remote verify options', () => {
+  it('requires torque-remote to refuse local fallback', () => {
+    const options = _internalForTests.buildRemoteVerifyOptions('C:\\repo\\worktree', {
+      PATH: 'test-path',
+      TORQUE_REMOTE_REQUIRE_REMOTE: '0',
+    });
+
+    expect(options.cwd).toBe('C:\\repo\\worktree');
+    expect(options.timeout).toBe(30 * 60 * 1000);
+    expect(options.env.PATH).toBe('test-path');
+    expect(options.env.TORQUE_REMOTE_REQUIRE_REMOTE).toBe('1');
+  });
+});
+
 describe('async child process settlement', () => {
   function createFakeChild() {
     const child = new EventEmitter();

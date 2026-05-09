@@ -244,6 +244,17 @@ function buildRemoteVerifyInvocation(command) {
   return `torque-remote bash -lc ${JSON.stringify(normalized)}`;
 }
 
+function buildRemoteVerifyOptions(cwd, env = process.env) {
+  return {
+    cwd,
+    timeout: 30 * 60 * 1000,
+    env: {
+      ...(env || {}),
+      TORQUE_REMOTE_REQUIRE_REMOTE: '1',
+    },
+  };
+}
+
 async function defaultRunRemoteVerify({ branch, command, cwd, logger }) {
   const resolvedCwd = cwd || process.cwd();
   if (logger) logger.info('factory worktree verify: running torque-remote', { branch, command, cwd: resolvedCwd });
@@ -253,7 +264,7 @@ async function defaultRunRemoteVerify({ branch, command, cwd, logger }) {
   // a non-main feature branch (the gate skips tests for non-main pushes anyway).
   // Use async spawn so the Node event loop stays responsive during the up-to-30-minute
   // verify command — spawnSync would freeze all HTTP responses and other factory loops.
-  const baseEnv = { cwd: resolvedCwd, timeout: 30 * 60 * 1000 };
+  const baseEnv = buildRemoteVerifyOptions(resolvedCwd);
   const pushCmd = `git push --no-verify --force-with-lease origin HEAD:refs/heads/${branch}`;
   const pushResult = await spawnInBashAsync(pushCmd, baseEnv);
   if (pushResult.status !== 0) {
@@ -629,6 +640,7 @@ module.exports = {
     CHILD_CLOSE_GRACE_MS,
     MAX_CHILD_BUFFER_BYTES,
     buildRemoteVerifyInvocation,
+    buildRemoteVerifyOptions,
     defaultListChangedFiles,
     prepareWorktreeVerifyDependencies,
     isNonCodeOnlyDiff,
