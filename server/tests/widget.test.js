@@ -68,6 +68,14 @@ describe('smart-scan widget import parsing', () => {
     expect(imports).toContain(widget);
   });
 
+  it('resolves extensionless widget imports to index files in widget directories', () => {
+    const widgetIndex = tmpFile('src/widget/index.js', 'export default function widget() {}');
+    const app = tmpFile('src/app.js', "import widget from './widget';\n");
+
+    const imports = parseImports(app);
+    expect(imports).toContain(widgetIndex);
+  });
+
   it('ignores non-relative widget import specifiers', () => {
     const app = tmpFile('src/app.js', "import { Widget } from 'some-widget-lib';\n");
 

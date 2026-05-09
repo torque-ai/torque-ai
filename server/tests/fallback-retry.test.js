@@ -624,6 +624,31 @@ describe('fallback-retry module', () => {
       expect(updated.error_output).toContain(`[Local-First] Trying ${TEST_MODELS.DEFAULT} on host`);
     });
 
+    it('escalates explicit model test tasks to cloud without repeating local retries', () => {
+      configCore.setConfig('max_local_retries', '3');
+      configCore.setConfig('ollama_fallback_provider', 'codex');
+      configCore.setConfig('codex_enabled', '1');
+      const hostA = registerHealthyHost('probe-a', [TEST_MODELS.SMALL]);
+      registerHealthyHost('probe-b', [TEST_MODELS.SMALL]);
+
+      const task = createTask({
+        provider: 'ollama',
+        model: TEST_MODELS.SMALL,
+        task_description: `Test task for ${TEST_MODELS.SMALL}`,
+        ollama_host_id: hostA,
+      });
+
+      const ok = mod.tryLocalFirstFallback(task.id, task, 'final failure');
+
+      expect(ok).toBe(true);
+      const updated = taskCore.getTask(task.id);
+      expect(updated.provider).toBe('codex');
+      expect(updated.model).toBeNull();
+      expect(updated.ollama_host_id).toBeNull();
+      expect(updated.error_output).toContain('[Local-First] Skipped local retries for explicit model test task');
+      expect(updated.error_output).not.toContain(`[Local-First] Trying ${TEST_MODELS.SMALL} on host`);
+    });
+
     it('tries a different coder model when same-host retry is skipped', () => {
       const hostA = registerHealthyHost('model-a', [TEST_MODELS.CODER_DEFAULT, TEST_MODELS.CODER_QUALITY]);
       const task = createTask({

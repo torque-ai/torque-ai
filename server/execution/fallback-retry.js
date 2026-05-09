@@ -331,6 +331,11 @@ function _isGreenfieldTask(desc) {
     /\bnew\s+(file|test|module|class|component|spec)\b/i.test(desc);
 }
 
+function _isExplicitModelTestTask(desc) {
+  if (!desc) return false;
+  return /\b(?:test|testing)\s+task\s+for\s+[a-z0-9_.\/-]+:[a-z0-9_.-]+\b/i.test(desc);
+}
+
 /**
  * Attempt local-first fallback before escalating to cloud.
  * Tries: (1) same model on different host, (2) different coder model,
@@ -355,6 +360,17 @@ function tryLocalFirstFallback(taskId, task, errorMsg, options = {}) {
   // Also keep raw error string for model/provider deduplication checks (capped to avoid regex on huge strings).
   const rawErrors = (task.error_output || '') + (errorMsg || '');
   const priorErrors = rawErrors.length > 50000 ? rawErrors.slice(-50000) : rawErrors;
+
+  if (_isExplicitModelTestTask(task.task_description)) {
+    logger.info(`[Local-First] Task ${taskId}: explicit model test task failed locally, escalating to cloud`);
+    const escalated = tryOllamaCloudFallback(
+      taskId,
+      task,
+      `${errorMsg}\n[Local-First] Skipped local retries for explicit model test task`
+    );
+    if (escalated) return true;
+    logger.info(`[Local-First] Task ${taskId}: no cloud fallback available for explicit model test task, continuing local fallback`);
+  }
 
   if (localAttempts >= maxLocalRetries) {
     logger.info(`[Local-First] Task ${taskId}: exhausted ${maxLocalRetries} local retries, escalating to cloud`);

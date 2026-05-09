@@ -66,7 +66,7 @@ describe('Host Distribution & Load Balancing', () => {
     db.createTask({
       id,
       status: 'running',
-      task_description: `Test task for ${model}`,
+      task_description: `Local fallback exercise for ${model}`,
       provider: provider || 'ollama',
       model: model || TEST_MODELS.SMALL,
       working_directory: process.cwd()
