@@ -15,6 +15,7 @@ RUN_ARGV_LOG=""
 RUN_REMOTE_COMMANDS=""
 RUN_REMOTE_STDIN_SIZE="0"
 RUN_RUNNER_SH=""
+RUN_BOOTSTRAP_SH=""
 
 SCRIPT_UNDER_TEST="$(cd "$(dirname "${BASH_SOURCE[0]}")/../bin" && pwd)/torque-remote"
 ORIGINAL_PATH="$PATH"
@@ -486,7 +487,7 @@ if [[ "$remote_cmd" == *"git checkout --force "* && "$remote_cmd" == *"git reset
   exit "${SSH_SYNC_EXIT_CODE:-0}"
 fi
 
-if [[ "$remote_cmd" == *"torque-remote-inline-run"* || "$remote_cmd" == *"runner.sh"* ]]; then
+if [[ "$remote_cmd" == *"torque-remote-inline-run"* || "$remote_cmd" == *"runner.sh"* || "$remote_cmd" == *"bootstrap.sh"* ]]; then
   if [[ -n "${TORQUE_REMOTE_TEST_REMOTE_STDIN:-}" ]]; then
     cat > "$TORQUE_REMOTE_TEST_REMOTE_STDIN"
   else
@@ -599,14 +600,15 @@ run_torque_remote() {
   RUN_ARGV_LOG="$(slurp_file "$tmp/argv.log")"
   RUN_REMOTE_COMMANDS="$(slurp_file "$tmp/remote-commands.log")"
   RUN_REMOTE_STDIN_SIZE="$(file_size_bytes "$tmp/remote-stdin.bin")"
-  # The new bootstrap is a tiny cmd.exe-safe `tar -xf - | bash runner.sh`
-  # invocation; the actual runner body — including the `# torque-remote-inline-run`
-  # marker, the COMMAND_ARGS array literal, and the user-command invocation —
-  # lives inside the tar bundle delivered over SSH stdin. Extract runner.sh from
-  # the captured tar so tests can grep its contents directly.
+  # The SSH command line is a tiny cmd.exe-safe extractor. The actual runner
+  # body and the output/lifecycle bootstrap live inside the tar bundle delivered
+  # over SSH stdin, so tests extract both scripts and grep their contents
+  # directly.
   RUN_RUNNER_SH=""
+  RUN_BOOTSTRAP_SH=""
   if [[ -s "$tmp/remote-stdin.bin" ]]; then
     RUN_RUNNER_SH="$(tar -xOf "$tmp/remote-stdin.bin" runner.sh 2>/dev/null || true)"
+    RUN_BOOTSTRAP_SH="$(tar -xOf "$tmp/remote-stdin.bin" bootstrap.sh 2>/dev/null || true)"
   fi
 }
 
@@ -792,12 +794,15 @@ test_remote_bootstrap_streams_runner_output_without_inherited_stdout_hang() {
   run_torque_remote "$tmp" echo hi
 
   expect_eq "exit code is 0" "0" "$RUN_EXIT"
-  expect_contains "runner stdio is isolated from ssh" "$RUN_REMOTE_COMMANDS" "bash \$d/runner.sh >\$out 2>&1 </dev/null & pid=\$!"
-  expect_contains "remote tail streams from output tempfile" "$RUN_REMOTE_COMMANDS" "tail -n +1 -f \$out"
-  expect_contains "tail background operator is in remote bash" "$RUN_REMOTE_COMMANDS" "tail -n +1 -f \$out & tail_pid=\$!"
-  expect_contains "tail process is stopped after runner exits" "$RUN_REMOTE_COMMANDS" "kill \$tail_pid 2>/dev/null || true"
-  expect_contains "tail process is reaped defensively" "$RUN_REMOTE_COMMANDS" "wait \$tail_pid 2>/dev/null || true"
-  expect_contains "cleanup cannot hold ssh stdio open" "$RUN_REMOTE_COMMANDS" "rm -rf \$d >/dev/null 2>&1 </dev/null & exit \$rc"
+  expect_contains "remote command invokes bundled bootstrap" "$RUN_REMOTE_COMMANDS" "bash \$d/bootstrap.sh"
+  expect_contains "runner stdio is isolated from ssh" "$RUN_BOOTSTRAP_SH" "bash \"\$SCRIPT_DIR/runner.sh\" >\"\$out\" 2>&1 </dev/null &"
+  expect_contains "remote tail streams from output tempfile" "$RUN_BOOTSTRAP_SH" "tail -n +1 -f \"\$out\""
+  expect_contains "tail background operator is in bundled bash" "$RUN_BOOTSTRAP_SH" "tail -n +1 -f \"\$out\" &"
+  expect_contains "tail process is stopped after runner exits" "$RUN_BOOTSTRAP_SH" "kill \"\$tail_pid\" 2>/dev/null || true"
+  expect_contains "tail process is reaped defensively" "$RUN_BOOTSTRAP_SH" "wait \"\$tail_pid\" 2>/dev/null || true"
+  expect_contains "cleanup cannot hold ssh stdio open" "$RUN_BOOTSTRAP_SH" "rm -rf \"\$SCRIPT_DIR\" >/dev/null 2>&1 </dev/null &"
+  expect_not_contains "ssh command keeps runner lifecycle operators out of cmd.exe" "$RUN_REMOTE_COMMANDS" "tail -n +1 -f"
+  expect_not_contains "ssh command does not background runner directly" "$RUN_REMOTE_COMMANDS" "runner.sh >"
   expect_not_contains "remote command does not run runner directly on ssh stdout" "$RUN_REMOTE_COMMANDS" "bash \$d/runner.sh;rc=\$?;rm -rf \$d;exit \$rc"
 
   finish_test "test_remote_bootstrap_streams_runner_output_without_inherited_stdout_hang"

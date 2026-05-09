@@ -247,9 +247,11 @@ describe('torque-remote staging branch validation', () => {
     const src = readTorqueRemote();
     const killCount = (src.match(/kill "\$tail_pid" 2>\/dev\/null \|\| true/g) || []).length;
     expect(killCount).toBeGreaterThanOrEqual(2);
-    expect(src).toContain('bash \\$d/runner.sh >\\$out 2>&1 </dev/null & pid=\\$!');
-    expect(src).toContain('tail -n +1 -f \\$out & tail_pid=\\$!');
-    expect(src).toContain('rm -rf \\$d >/dev/null 2>&1 </dev/null & exit \\$rc');
+    expect(src).toContain('bash \\$d/bootstrap.sh');
+    expect(src).toContain('bash "$SCRIPT_DIR/runner.sh" >"$out" 2>&1 </dev/null &');
+    expect(src).toContain('tail -n +1 -f "$out" &');
+    expect(src).toContain('rm -rf "$SCRIPT_DIR" >/dev/null 2>&1 </dev/null &');
+    expect(src).toContain('bootstrap.sh owns output streaming and cleanup after extraction');
   });
 });
 

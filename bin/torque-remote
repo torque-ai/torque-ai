@@ -1067,15 +1067,18 @@ resolve_sync_ref() {
 
 create_local_state_bundle() {
   # Build a tar bundle delivered to the remote over SSH stdin. Always includes
-  # runner.sh (the body bash runs remotely) so the SSH command line can stay a
-  # tiny cmd.exe-safe bootstrap instead of an escaped multi-line script.
+  # runner.sh (the body bash runs remotely) and bootstrap.sh (the output/lifecycle
+  # wrapper) so the SSH command line can stay a tiny cmd.exe-safe extractor
+  # instead of an escaped multi-line script.
   # Patches/untracked are added only when capture_local_state=true AND local
   # state differs from base_ref. Returns "<bundle_path>\n<has_local_state>\n".
   #
-  # Args: $1 = base ref; $2 = runner.sh body; $3 = capture_local_state ("true"|"false").
+  # Args: $1 = base ref; $2 = runner.sh body; $3 = bootstrap.sh body;
+  #       $4 = capture_local_state ("true"|"false").
   local base_ref="$1"
   local runner_body="$2"
-  local capture_local_state="${3:-true}"
+  local bootstrap_body="$3"
+  local capture_local_state="${4:-true}"
   local bundle_dir committed_patch worktree_patch untracked_list bundle_tar
   local has_local_state="false"
 
@@ -1100,8 +1103,9 @@ create_local_state_bundle() {
   fi
 
   printf '%s' "$runner_body" > "$bundle_dir/runner.sh"
+  printf '%s' "$bootstrap_body" > "$bundle_dir/bootstrap.sh"
 
-  local tar_args=(runner.sh)
+  local tar_args=(runner.sh bootstrap.sh)
   [[ -s "$committed_patch" ]] && tar_args+=(committed.patch)
   [[ -s "$worktree_patch" ]]  && tar_args+=(worktree.patch)
   [[ -f "$bundle_dir/untracked.tar" ]] && tar_args+=(untracked.tar)
@@ -2057,6 +2061,26 @@ fi
 EOF
 )
 
+    REMOTE_BOOTSTRAP_BODY=$(cat <<'EOF'
+# torque-remote-inline-bootstrap
+set -uo pipefail
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+out="$SCRIPT_DIR/runner.out"
+: > "$out"
+bash "$SCRIPT_DIR/runner.sh" >"$out" 2>&1 </dev/null &
+pid=$!
+tail -n +1 -f "$out" &
+tail_pid=$!
+wait "$pid"
+rc=$?
+sleep 0.2
+kill "$tail_pid" 2>/dev/null || true
+wait "$tail_pid" 2>/dev/null || true
+rm -rf "$SCRIPT_DIR" >/dev/null 2>&1 </dev/null &
+exit "$rc"
+EOF
+)
+
     # Always bundle runner.sh + (maybe) patches/untracked into a tar delivered via SSH stdin.
     # --branch <ref> explicitly requests the remote ref as-is; don't overlay local state there.
     if [[ -n "$BRANCH_OVERRIDE" ]]; then
@@ -2064,7 +2088,7 @@ EOF
     else
       CAPTURE_LOCAL_STATE="true"
     fi
-    BUNDLE_OUTPUT="$(create_local_state_bundle "$SYNC_REF" "$REMOTE_RUN_BODY" "$CAPTURE_LOCAL_STATE")"
+    BUNDLE_OUTPUT="$(create_local_state_bundle "$SYNC_REF" "$REMOTE_RUN_BODY" "$REMOTE_BOOTSTRAP_BODY" "$CAPTURE_LOCAL_STATE")"
     LOCAL_STATE_BUNDLE="$(printf '%s' "$BUNDLE_OUTPUT" | sed -n '1p')"
     APPLY_LOCAL_STATE="$(printf '%s' "$BUNDLE_OUTPUT" | sed -n '2p')"
 
@@ -2076,12 +2100,10 @@ EOF
       fi
     fi
 
-    # Minimal cmd.exe-safe bootstrap. No newlines, no internal double quotes, no backslash-escaped
-    # quotes (cmd.exe would mis-parse). Extracts the tar from SSH stdin, runs runner.sh, propagates rc.
-    # runner.sh output is written to a remote tempfile and streamed by a tail we explicitly
-    # stop after runner.sh exits. Cleanup is detached with stdio redirected so background
-    # descendants cannot keep the SSH channel open through inherited stdin/stdout/stderr.
-    REMOTE_RUN_COMMAND="\"$GIT_BASH\" -lc \"d=\$(mktemp -d) || exit 1;out=\$d/runner.out;tar -xf - -C \$d;tar_rc=\$?;if [ \$tar_rc -ne 0 ]; then rm -rf \$d;exit \$tar_rc;fi;bash \$d/runner.sh >\$out 2>&1 </dev/null & pid=\$!;tail -n +1 -f \$out & tail_pid=\$!;wait \$pid;rc=\$?;sleep 0.2;kill \$tail_pid 2>/dev/null || true;wait \$tail_pid 2>/dev/null || true;rm -rf \$d >/dev/null 2>&1 </dev/null & exit \$rc\""
+    # Minimal cmd.exe-safe extractor. No newlines, no internal double quotes, no
+    # backslash-escaped quotes, and no cmd.exe metacharacters for runner/tail
+    # lifecycle. bootstrap.sh owns output streaming and cleanup after extraction.
+    REMOTE_RUN_COMMAND="\"$GIT_BASH\" -lc \"d=\$(mktemp -d) || exit 1;tar -xf - -C \$d;tar_rc=\$?;if [ \$tar_rc -ne 0 ]; then rm -rf \$d;exit \$tar_rc;fi;bash \$d/bootstrap.sh\""
     REMOTE_CLEANUP_BODY=$(cat <<EOF
 # torque-remote-failsafe-cleanup
 cd $(shell_quote "$EFFECTIVE_REMOTE_PROJECT_PATH") || exit 0
