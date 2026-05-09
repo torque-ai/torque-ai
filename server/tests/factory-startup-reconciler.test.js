@@ -383,9 +383,9 @@ describe('factory startup reconciler', () => {
     expect(calls.some((call) => call.type === 'start')).toBe(false);
   });
 
-  it('skips ready-for-gate paused instances', async () => {
+  it('retries ready-for-stage paused instances through the normal advance path', async () => {
     const project = registerRunningProject();
-    createInstance(project, {
+    const instance = createInstance(project, {
       state: LOOP_STATES.PLAN,
       pausedAtStage: 'READY_FOR_PLAN',
     });
@@ -394,8 +394,10 @@ describe('factory startup reconciler', () => {
     const result = reconcileFactoryProjectsOnStartup();
     await flushImmediate();
 
-    expect(result.actions).toMatchObject({ skipped: 1, advanced: 0, restarted: 0 });
-    expect(calls.some((call) => call.type === 'advance')).toBe(false);
+    expect(result.actions).toMatchObject({ skipped: 0, advanced: 1, restarted: 0 });
+    expect(calls.filter((call) => call.type === 'advance')).toEqual([
+      { type: 'advance', instanceId: instance.id, options: { autoAdvance: true } },
+    ]);
     expect(calls.some((call) => call.type === 'start')).toBe(false);
   });
 

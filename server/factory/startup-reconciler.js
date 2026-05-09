@@ -291,7 +291,14 @@ function reconcileFactoryProjectsOnStartup({ logger = defaultLogger } = {}) {
         const paused = getPausedStage(instance);
 
         if (isReadyGate(paused)) {
-          actions.skipped += 1;
+          safeLog(logger, 'info', 'startup reconciler retrying READY_FOR stage claim', {
+            project_id: project.id,
+            instance_id: instance.id,
+            paused_at_stage: paused,
+            loop_state: state,
+          });
+          scheduleAdvance(project.id, instance, state, logger);
+          actions.advanced += 1;
           continue;
         }
 
