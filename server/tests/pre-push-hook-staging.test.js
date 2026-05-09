@@ -160,6 +160,14 @@ describe('pre-push-hook staging-branch invariants', () => {
     expect(src).toMatch(/\brun_with_flake_retry\s*\(\)/);
   });
 
+  it('bounds the pre-push output streamer after the remote gate command exits', () => {
+    const src = readHook();
+    const helper = src.match(/run_with_flake_retry_inner\s*\(\)\s*\{[\s\S]*?\n\}/)?.[0];
+    expect(helper).toMatch(/tail -f --pid="\$cmd_pid" "\$tmp" &/);
+    expect(helper).toMatch(/kill "\$tail_pid" 2>\/dev\/null \|\| true/);
+    expect(helper).toMatch(/wait "\$tail_pid" 2>\/dev\/null \|\| true/);
+  });
+
   it('blocks instead of retrying when torque-remote detects concurrent worktree contamination', () => {
     const src = readHook();
     expect(src).toMatch(/\bis_remote_worktree_contamination\s*\(\)/);
@@ -233,6 +241,15 @@ describe('torque-remote staging branch validation', () => {
     expect(src).toMatch(/EFFECTIVE_REMOTE_PROJECT_PATH="\$\{EFFECTIVE_REMOTE_PROJECT_PATH\}\$\{REMOTE_TEST_WORKTREE_SUFFIX\}"/);
     expect(src).toMatch(/TORQUE_REMOTE_BASE_PROJECT_PATH=\$\(shell_quote "\$BASE_EFFECTIVE_REMOTE_PROJECT_PATH"\)/);
     expect(src).toMatch(/export TORQUE_REMOTE_BASE_PROJECT_PATH/);
+  });
+
+  it('bounds torque-remote output streamers after local or ssh commands exit', () => {
+    const src = readTorqueRemote();
+    const killCount = (src.match(/kill "\$tail_pid" 2>\/dev\/null \|\| true/g) || []).length;
+    expect(killCount).toBeGreaterThanOrEqual(2);
+    expect(src).toContain('bash \\$d/runner.sh >\\$out 2>&1 </dev/null & pid=\\$!');
+    expect(src).toContain('tail -n +1 -f \\$out & tail_pid=\\$!');
+    expect(src).toContain('rm -rf \\$d >/dev/null 2>&1 </dev/null & exit \\$rc');
   });
 });
 

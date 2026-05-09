@@ -221,9 +221,9 @@ PHASE_TIMEOUT_SECS="${PRE_PUSH_PHASE_TIMEOUT_SECS:-1800}"
 #
 # Workaround: redirect the command to the tempfile in the background, and
 # have a sibling `tail -f --pid=<eval-pid>` stream the file to stdout.
-# `tail --pid` exits when the writer dies, so the streamer never outlives
-# the work. The tempfile is the canonical capture; PIPESTATUS doesn't
-# enter the picture.
+# The tempfile is the canonical capture; PIPESTATUS does not enter the picture.
+# Stop the streamer explicitly after the writer exits because Git Bash on
+# Windows can leave `tail --pid` alive after the watched process is gone.
 #
 # Background+wait also gives the inner command its own process group, so
 # the tempfile redirect terminates cleanly the moment `wait $CMD_PID`
@@ -239,7 +239,8 @@ run_with_flake_retry_inner() {
   tail_pid=$!
   wait "$cmd_pid"
   RETRIED_EXIT=$?
-  # tail should have self-exited via --pid; reap defensively.
+  sleep 0.2
+  kill "$tail_pid" 2>/dev/null || true
   wait "$tail_pid" 2>/dev/null || true
 
   # Wait for the tempfile to stop growing. On Git Bash + Windows, `wait`

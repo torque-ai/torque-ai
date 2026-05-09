@@ -765,7 +765,7 @@ test_remote_inline_command_preserves_quoted_arguments() {
 
   expect_eq "exit code is 0" "0" "$RUN_EXIT"
   # The argv array literal and quoted arguments live in runner.sh inside the
-  # bundled tar (the SSH command line is just `tar -xf - | bash runner.sh`).
+  # bundled tar; the SSH command line only extracts and invokes that runner.
   expect_contains "runner.sh defines argv array" "$RUN_RUNNER_SH" "COMMAND_ARGS=("
   expect_contains "runner.sh preserves spaced argument" "$RUN_RUNNER_SH" "two\\ words"
   expect_contains "runner.sh preserves semicolon literal" "$RUN_RUNNER_SH" "semi\\;ignored"
@@ -776,6 +776,31 @@ test_remote_inline_command_preserves_quoted_arguments() {
   fi
 
   finish_test "test_remote_inline_command_preserves_quoted_arguments"
+}
+
+test_remote_bootstrap_streams_runner_output_without_inherited_stdout_hang() {
+  local tmp
+
+  echo "Test: remote bootstrap streams runner output without inherited stdout hang"
+  TEST_ERRORS=()
+  reset_stub_env
+
+  make_test_env
+  tmp="$LAST_TEST_ENV"
+  export GIT_REV_PARSE_OUTPUT="main"
+
+  run_torque_remote "$tmp" echo hi
+
+  expect_eq "exit code is 0" "0" "$RUN_EXIT"
+  expect_contains "runner stdio is isolated from ssh" "$RUN_REMOTE_COMMANDS" "bash \$d/runner.sh >\$out 2>&1 </dev/null & pid=\$!"
+  expect_contains "remote tail streams from output tempfile" "$RUN_REMOTE_COMMANDS" "tail -n +1 -f \$out"
+  expect_contains "tail background operator is in remote bash" "$RUN_REMOTE_COMMANDS" "tail -n +1 -f \$out & tail_pid=\$!"
+  expect_contains "tail process is stopped after runner exits" "$RUN_REMOTE_COMMANDS" "kill \$tail_pid 2>/dev/null || true"
+  expect_contains "tail process is reaped defensively" "$RUN_REMOTE_COMMANDS" "wait \$tail_pid 2>/dev/null || true"
+  expect_contains "cleanup cannot hold ssh stdio open" "$RUN_REMOTE_COMMANDS" "rm -rf \$d >/dev/null 2>&1 </dev/null & exit \$rc"
+  expect_not_contains "remote command does not run runner directly on ssh stdout" "$RUN_REMOTE_COMMANDS" "bash \$d/runner.sh;rc=\$?;rm -rf \$d;exit \$rc"
+
+  finish_test "test_remote_bootstrap_streams_runner_output_without_inherited_stdout_hang"
 }
 
 test_config_parses_without_jq() {
@@ -1694,6 +1719,7 @@ main() {
   test_local_state_overlays_worktree_from_fallback_base
   test_local_fallback_preserves_quoted_arguments
   test_remote_inline_command_preserves_quoted_arguments
+  test_remote_bootstrap_streams_runner_output_without_inherited_stdout_hang
   test_config_parses_without_jq
   test_remote_run_does_not_require_timeout_binary
   test_successful_overlay_skips_failsafe_cleanup_round_trip

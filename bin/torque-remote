@@ -1683,17 +1683,18 @@ case "$TRANSPORT" in
     set +e
     if [[ -n "$COORD_OUTPUT_LOG" ]]; then
       # Tee stdout/stderr to the capture file so coord_release_on_exit can
-      # store the last 16KB as the result's output_tail. tail -F --pid
-      # streams the file to the user's terminal in real time and self-exits
-      # when the writer (cmd_pid) dies — this avoids the EOF-leak hang the
-      # pre-push hook documents (Git Bash + Windows ssh keep stdio handles
-      # open longer than `tee` expects, hanging the parent indefinitely).
+      # store the last 16KB as the result's output_tail. The streamer is killed
+      # after the writer exits because Git Bash can leave `tail --pid` alive
+      # after the watched process is gone, recreating the EOF-leak hang this
+      # path avoids by not using `tee`.
       "${COMMAND_ARGS[@]}" > "$COORD_OUTPUT_LOG" 2>&1 &
       cmd_pid=$!
       tail -f --pid="$cmd_pid" "$COORD_OUTPUT_LOG" &
       tail_pid=$!
       wait "$cmd_pid"
       exit_code=$?
+      sleep 0.2
+      kill "$tail_pid" 2>/dev/null || true
       wait "$tail_pid" 2>/dev/null || true
     else
       "${COMMAND_ARGS[@]}"
@@ -2077,7 +2078,10 @@ EOF
 
     # Minimal cmd.exe-safe bootstrap. No newlines, no internal double quotes, no backslash-escaped
     # quotes (cmd.exe would mis-parse). Extracts the tar from SSH stdin, runs runner.sh, propagates rc.
-    REMOTE_RUN_COMMAND="\"$GIT_BASH\" -lc \"d=\$(mktemp -d);tar -xf - -C \$d;bash \$d/runner.sh;rc=\$?;rm -rf \$d;exit \$rc\""
+    # runner.sh output is written to a remote tempfile and streamed by a tail we explicitly
+    # stop after runner.sh exits. Cleanup is detached with stdio redirected so background
+    # descendants cannot keep the SSH channel open through inherited stdin/stdout/stderr.
+    REMOTE_RUN_COMMAND="\"$GIT_BASH\" -lc \"d=\$(mktemp -d) || exit 1;out=\$d/runner.out;tar -xf - -C \$d;tar_rc=\$?;if [ \$tar_rc -ne 0 ]; then rm -rf \$d;exit \$tar_rc;fi;bash \$d/runner.sh >\$out 2>&1 </dev/null & pid=\$!;tail -n +1 -f \$out & tail_pid=\$!;wait \$pid;rc=\$?;sleep 0.2;kill \$tail_pid 2>/dev/null || true;wait \$tail_pid 2>/dev/null || true;rm -rf \$d >/dev/null 2>&1 </dev/null & exit \$rc\""
     REMOTE_CLEANUP_BODY=$(cat <<EOF
 # torque-remote-failsafe-cleanup
 cd $(shell_quote "$EFFECTIVE_REMOTE_PROJECT_PATH") || exit 0
@@ -2095,9 +2099,9 @@ EOF
     if [[ -n "$COORD_OUTPUT_LOG" ]]; then
       # See coord-release_on_exit comment: tee SSH output via tail-F-pid so
       # the user sees real-time progress AND the result-store gets a full
-      # output_tail to replay on warm-hit. Without this, --tail-from-file
-      # reads an empty file and warm-hit replay shows only the cache-hit
-      # log line (the documented Phase 2 limitation we're fixing here).
+      # output_tail to replay on warm-hit. The streamer is killed after SSH exits
+      # because Git Bash can leave `tail --pid` alive after the watched process
+      # is gone, which would strand the caller after a completed remote command.
       run_with_timeout "$TIMEOUT_SECONDS" ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" \
         "$REMOTE_RUN_COMMAND" < "$LOCAL_STATE_BUNDLE" > "$COORD_OUTPUT_LOG" 2>&1 &
       cmd_pid=$!
@@ -2105,6 +2109,8 @@ EOF
       tail_pid=$!
       wait "$cmd_pid"
       exit_code=$?
+      sleep 0.2
+      kill "$tail_pid" 2>/dev/null || true
       wait "$tail_pid" 2>/dev/null || true
     else
       run_with_timeout "$TIMEOUT_SECONDS" ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" \
