@@ -142,9 +142,18 @@ describe('pre-push-hook staging-branch invariants', () => {
     expect(src).toMatch(/Heavy remote gate skipped by gate plan/);
   });
 
-  it('installs an EXIT trap that deletes the staging ref', () => {
+  it('serializes main gates with the shared coordination lock and cleans up on EXIT', () => {
     const src = readHook();
-    expect(src).toMatch(/trap\s+'delete_staging_ref'\s+EXIT/);
+    expect(src).toMatch(/DEFAULT_COORD_LOCK_HELPER="\$\{REPO_ROOT\}\/scripts\/repo-coordination-lock\.sh"/);
+    expect(src).toMatch(/COORD_LOCK_HELPER="\$\{TORQUE_COORD_LOCK_HELPER:-\$DEFAULT_COORD_LOCK_HELPER\}"/);
+    expect(src).toMatch(/COORD_LOCK_HELPER="\$DEFAULT_COORD_LOCK_HELPER"/);
+    expect(src).toMatch(/source "\$COORD_LOCK_HELPER"/);
+    expect(src).toMatch(/repo_coord_lock_acquire "main" "pre-push main gate:/);
+    expect(src).toMatch(/pre_push_cleanup\s*\(\)/);
+    expect(src).toMatch(/delete_staging_ref \|\| true/);
+    expect(src).toMatch(/repo_coord_lock_release \|\| true/);
+    expect(src).toMatch(/trap pre_push_cleanup EXIT/);
+    expect(src).not.toMatch(/trap\s+'delete_staging_ref'\s+EXIT/);
     expect(src).toMatch(/git\s+push\s+[^\n]*--delete\s+"?\$(?:\{)?staging_branch/);
   });
 

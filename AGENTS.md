@@ -12,6 +12,7 @@ These rules apply to future Codex sessions working in this repository:
 4) Use TORQUE restart barriers for server restarts: `restart_server` or `await_restart`. Do not use `taskkill`, `Stop-Process`, PID-file kills, or ad hoc node termination unless the MCP layer is unresponsive and the user explicitly approves.
 5) Docs-only changes may merge without a restart, but still use a worktree and state that no restart is required.
 6) Be patient with restart barriers. Some Codex/factory tasks normally run 30-60 minutes, so `await_restart` may need to hold the barrier for a long drain. Do not cancel, bypass, or declare the barrier stuck unless task status shows a real stall or the user approves an emergency override.
+7) Shared main/worktree mutations must use `scripts/repo-coordination-lock.sh` or a caller that already does. This includes main pre-push gates, cutovers, and apply-mode worktree pruning, so independent shells and agents do not race while changing branch refs, staging refs, or worktree metadata.
 
 ## Parallel Test Lanes
 

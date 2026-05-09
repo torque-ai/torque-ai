@@ -19,8 +19,8 @@
 //
 // Run: node scripts/generate-rest-routes.js [--dry-run]
 //
-// Re-run scripts/rest-parity-audit.js after this to confirm gap count
-// drops to (skip-list size) and orphan count to 0.
+// Re-run scripts/rest-parity-audit.js after this to confirm actionable
+// gap count and orphan count are both 0.
 //
 // IMPORTANT: this script generates a SUPPLEMENT file
 // (server/api/routes-generated-supplement.js) rather than overwriting

@@ -44,6 +44,16 @@ REPO_ROOT="$(git rev-parse --show-toplevel)"
 WORKTREE_DIR="${REPO_ROOT}/.worktrees/feat-${SAFE_NAME}"
 TORQUE_API="http://127.0.0.1:3457"
 TORQUE_PROBE_TIMEOUT_SECONDS=${CUTOVER_PROBE_TIMEOUT_SECONDS:-5}
+DEFAULT_COORD_LOCK_HELPER="${REPO_ROOT}/scripts/repo-coordination-lock.sh"
+COORD_LOCK_HELPER="${TORQUE_COORD_LOCK_HELPER:-$DEFAULT_COORD_LOCK_HELPER}"
+if [ ! -f "$COORD_LOCK_HELPER" ] && [ "$COORD_LOCK_HELPER" != "$DEFAULT_COORD_LOCK_HELPER" ] && [ -f "$DEFAULT_COORD_LOCK_HELPER" ]; then
+  COORD_LOCK_HELPER="$DEFAULT_COORD_LOCK_HELPER"
+fi
+if [ ! -f "$COORD_LOCK_HELPER" ]; then
+  echo "ERROR: Coordination lock helper not found at ${COORD_LOCK_HELPER}"
+  exit 1
+fi
+source "$COORD_LOCK_HELPER"
 
 torque_api_reachable() {
   # /livez is intentionally cheap and avoids false "not running" reports when
@@ -184,6 +194,15 @@ if (cd "$WORKTREE_DIR" && ! git diff --quiet HEAD 2>/dev/null); then
   echo "ERROR: Worktree has uncommitted changes. Commit or stash them first."
   exit 1
 fi
+
+repo_coord_lock_acquire "main" "worktree cutover: ${FEATURE_NAME}"
+worktree_cutover_cleanup() {
+  local rc=$?
+  trap - EXIT
+  repo_coord_lock_release || true
+  exit "$rc"
+}
+trap worktree_cutover_cleanup EXIT
 
 # Guard main's working tree too — another Claude session may be editing on main
 # right now. If we merge + restart-barrier into main with dirty tracked files,

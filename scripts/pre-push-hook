@@ -32,10 +32,21 @@ PATH="$REPO_ROOT/bin:$PATH"
 export PATH
 TORQUE_REMOTE_BIN="$REPO_ROOT/bin/torque-remote"
 TORQUE_REMOTE_CMD="$(printf '%q' "$TORQUE_REMOTE_BIN")"
+DEFAULT_COORD_LOCK_HELPER="${REPO_ROOT}/scripts/repo-coordination-lock.sh"
+COORD_LOCK_HELPER="${TORQUE_COORD_LOCK_HELPER:-$DEFAULT_COORD_LOCK_HELPER}"
+if [ ! -f "$COORD_LOCK_HELPER" ] && [ "$COORD_LOCK_HELPER" != "$DEFAULT_COORD_LOCK_HELPER" ] && [ -f "$DEFAULT_COORD_LOCK_HELPER" ]; then
+  COORD_LOCK_HELPER="$DEFAULT_COORD_LOCK_HELPER"
+fi
+if [ ! -f "$COORD_LOCK_HELPER" ]; then
+  echo "[pre-push] BLOCKED: coordination lock helper not found at ${COORD_LOCK_HELPER}"
+  exit 1
+fi
+source "$COORD_LOCK_HELPER"
 
 ZERO_SHA="0000000000000000000000000000000000000000"
 remote_refs=()
 local_head_sha=""
+staging_branch=""
 
 # Each line is: <local_ref> <local_sha> <remote_ref> <remote_sha>
 while read -r local_ref local_sha remote_ref remote_sha; do
@@ -84,6 +95,27 @@ if [ -z "$local_head_sha" ]; then
   exit 1
 fi
 
+delete_staging_ref() {
+  if [ -z "${staging_branch:-}" ]; then
+    return 0
+  fi
+  # Best-effort cleanup -- never block the hook on a failed cleanup, but log
+  # so noise is visible if it starts failing.
+  if ! git push --no-verify --quiet origin --delete "$staging_branch" 2>/dev/null; then
+    echo "[pre-push] warn: failed to delete staging ref $staging_branch (may not exist on origin)"
+  fi
+}
+
+pre_push_cleanup() {
+  local rc=$?
+  trap - EXIT
+  delete_staging_ref || true
+  repo_coord_lock_release || true
+  exit "$rc"
+}
+
+repo_coord_lock_acquire "main" "pre-push main gate: $(echo "$local_head_sha" | cut -c1-12)"
+trap pre_push_cleanup EXIT
 # vitest writes its summary with ANSI color codes even under `--reporter=dot`,
 # which causes `^[[:space:]]*Test Files` anchors to fail (the line begins with
 # an ESC byte, not whitespace). Strip ANSI before matching so the grep patterns
@@ -386,17 +418,6 @@ if [ "$GATE_RUN_DASHBOARD" = "1" ] || [ "$GATE_RUN_SERVER" = "1" ] || [ "$GATE_R
         ;;
     esac
   fi
-
-  delete_staging_ref() {
-    # Best-effort cleanup — never block the hook on a failed cleanup, but log
-    # so noise is visible if it starts failing.
-    if ! git push --no-verify --quiet origin --delete "$staging_branch" 2>/dev/null; then
-      echo "[pre-push] warn: failed to delete staging ref $staging_branch (may not exist on origin)"
-    fi
-  }
-
-  # Always cleanup the staging ref on exit, whether we succeeded or failed.
-  trap 'delete_staging_ref' EXIT
 
   echo "[pre-push] Staging HEAD at origin/$staging_branch for remote gate..."
   # --force so repeated pushes of the same branch name (rare but possible on

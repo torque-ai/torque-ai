@@ -119,6 +119,33 @@ describe('test-lane script helpers', () => {
     expect(release()).toBe(true);
   });
 
+  test('auto lane selection skips locks that are being written or cannot be reclaimed', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'torque-lane-auto-race-'));
+    const laneOne = resolveLaneConfig(1, { root });
+    const laneTwo = resolveLaneConfig(2, { root });
+    fs.mkdirSync(laneOne.lockDir, { recursive: true });
+    fs.writeFileSync(laneOne.lockPath, '{');
+    fs.writeFileSync(laneTwo.lockPath, JSON.stringify({ lane: 2, pid: 999, command: 'stale' }));
+
+    const { config, release } = acquireSelectedLaneLock('auto', {
+      root,
+      pid: 333,
+      command: 'auto',
+      isPidAlive: () => false,
+      unlinkLock: (lockPath) => {
+        if (lockPath === laneTwo.lockPath) {
+          const err = new Error('file busy');
+          err.code = 'EPERM';
+          throw err;
+        }
+        fs.unlinkSync(lockPath);
+      },
+    });
+
+    expect(config.lane).toBe(3);
+    expect(release()).toBe(true);
+  });
+
   test('parses launcher arguments and resolves presets', () => {
     expect(parseArgs(['--lane', '2', '--preset', 'server-file', '--file', 'server/tests/foo.test.js'])).toMatchObject({
       lane: '2',

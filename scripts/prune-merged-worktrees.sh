@@ -39,6 +39,27 @@ done
 
 cd "$REPO_ROOT"
 
+if [ "$APPLY" -eq 1 ]; then
+  DEFAULT_COORD_LOCK_HELPER="${REPO_ROOT}/scripts/repo-coordination-lock.sh"
+  COORD_LOCK_HELPER="${TORQUE_COORD_LOCK_HELPER:-$DEFAULT_COORD_LOCK_HELPER}"
+  if [ ! -f "$COORD_LOCK_HELPER" ] && [ "$COORD_LOCK_HELPER" != "$DEFAULT_COORD_LOCK_HELPER" ] && [ -f "$DEFAULT_COORD_LOCK_HELPER" ]; then
+    COORD_LOCK_HELPER="$DEFAULT_COORD_LOCK_HELPER"
+  fi
+  if [ ! -f "$COORD_LOCK_HELPER" ]; then
+    echo "ERROR: Coordination lock helper not found at ${COORD_LOCK_HELPER}" >&2
+    exit 1
+  fi
+  source "$COORD_LOCK_HELPER"
+  repo_coord_lock_acquire "main" "merged worktree prune"
+  prune_coord_lock_cleanup() {
+    local rc=$?
+    trap - EXIT
+    repo_coord_lock_release || true
+    exit "$rc"
+  }
+  trap prune_coord_lock_cleanup EXIT
+fi
+
 # Make sure origin/main is fresh so the merge-base check reflects reality.
 git fetch --quiet origin main 2>/dev/null || true
 

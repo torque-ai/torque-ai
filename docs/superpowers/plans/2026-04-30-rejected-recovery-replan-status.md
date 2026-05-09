@@ -32,7 +32,25 @@ All 16 tasks from the implementation plan are complete and committed. The featur
 
 ## Test verification status
 
-**Tests have NOT been run end-to-end during implementation.**
+**Update 2026-05-09:** End-to-end local verification is complete in `feat/testability-lane-deps` after the worktree bootstrap installed fresh `server/` dependencies.
+
+Verified with the lane launcher:
+
+```powershell
+scripts\test-lane.ps1 -Lane auto -Command "cd server; npx vitest run tests/replan-recovery-migration.test.js tests/replan-recovery-config.test.js tests/recovery-strategies-registry.test.js tests/recovery-strategy-rewrite-description.test.js tests/recovery-strategy-decompose.test.js tests/recovery-strategy-escalate.test.js tests/architect-runner-recovery-helpers.test.js tests/replan-recovery.test.js tests/replan-recovery-tick-integration.test.js tests/replan-recovery-event-bus.test.js tests/recovery-inbox-handlers.test.js tests/replan-recovery-startup.test.js tests/replan-recovery-e2e.test.js"
+```
+
+Result: **13 files passed, 70 tests passed**.
+
+Adjacent intake/rejected-recovery regression:
+
+```powershell
+scripts\test-lane.ps1 -Lane auto -Command "cd server; npx vitest run tests/factory-intake.test.js tests/rejected-recovery.test.js"
+```
+
+Result: **2 files passed, 24 tests passed**.
+
+Historical note from implementation time:
 
 The local test infrastructure was degraded throughout this session:
 1. The TORQUE MCP server was disconnected (per system reminder at session start).

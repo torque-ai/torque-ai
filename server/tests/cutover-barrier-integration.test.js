@@ -8,6 +8,7 @@ const os = require('os');
 
 const SCRIPT_PATH = path.resolve(__dirname, '../../scripts/worktree-cutover.sh');
 const REPO_ROOT = path.resolve(__dirname, '../..');
+const LOCK_HELPER_PATH = path.join(REPO_ROOT, 'scripts', 'repo-coordination-lock.sh');
 const GIT_BASH_PATH = path.join('C:', 'Program Files', 'Git', 'bin', 'bash.exe');
 const BASH_EXECUTABLE = process.platform === 'win32' && fs.existsSync(GIT_BASH_PATH)
   ? GIT_BASH_PATH
@@ -109,7 +110,7 @@ rm -rf "/tmp/cutover-test-$$"
     const result = execFileSync(BASH_EXECUTABLE, [wrapperPath, featureName], {
       encoding: 'utf8',
       timeout: 10000,
-      env: { ...process.env, CUTOVER_DRY_RUN: '1', ...env },
+      env: { ...process.env, CUTOVER_DRY_RUN: '1', TORQUE_COORD_LOCK_HELPER: LOCK_HELPER_PATH, ...env },
       windowsHide: true,
     });
     return result;
@@ -205,7 +206,7 @@ rm -rf "$FAKE_ROOT"
     return execFileSync(BASH_EXECUTABLE, [wrapperPath, featureName], {
       encoding: 'utf8',
       timeout: 10000,
-      env: { ...process.env, ...env },
+      env: { ...process.env, TORQUE_COORD_LOCK_HELPER: LOCK_HELPER_PATH, ...env },
       windowsHide: true,
     });
   } finally {
@@ -305,7 +306,7 @@ rm -rf "$FAKE_ROOT"
     const result = childProcess.spawnSync(BASH_EXECUTABLE, [wrapperPath, featureName], {
       encoding: 'utf8',
       timeout: 10000,
-      env: { ...process.env, CUTOVER_MID_DRAIN_UNREACHABLE_RETRIES: '1', ...env },
+      env: { ...process.env, CUTOVER_MID_DRAIN_UNREACHABLE_RETRIES: '1', TORQUE_COORD_LOCK_HELPER: LOCK_HELPER_PATH, ...env },
       windowsHide: true,
     });
     return {
@@ -406,7 +407,7 @@ rm -rf "$FAKE_ROOT"
     const result = childProcess.spawnSync(BASH_EXECUTABLE, [wrapperPath, featureName], {
       encoding: 'utf8',
       timeout: 10000,
-      env: { ...process.env, CUTOVER_RESTART_WAIT_SECONDS: '1', ...env },
+      env: { ...process.env, CUTOVER_RESTART_WAIT_SECONDS: '1', TORQUE_COORD_LOCK_HELPER: LOCK_HELPER_PATH, ...env },
       windowsHide: true,
     });
     return {
@@ -454,6 +455,38 @@ describe('worktree-cutover.sh barrier integration', () => {
       expect(scriptSource).toContain('for CHECK_STATUS in running queued');
       expect(scriptSource).toContain('"provider"');
       expect(scriptSource).toContain('"system"');
+    });
+
+    it('holds the shared main coordination lock before touching main', () => {
+      expect(scriptSource).toContain('repo-coordination-lock.sh');
+      expect(scriptSource).toContain('DEFAULT_COORD_LOCK_HELPER="${REPO_ROOT}/scripts/repo-coordination-lock.sh"');
+      expect(scriptSource).toContain('COORD_LOCK_HELPER="${TORQUE_COORD_LOCK_HELPER:-$DEFAULT_COORD_LOCK_HELPER}"');
+      expect(scriptSource).toContain('COORD_LOCK_HELPER="$DEFAULT_COORD_LOCK_HELPER"');
+      expect(scriptSource).toContain('repo_coord_lock_acquire "main" "worktree cutover: ${FEATURE_NAME}"');
+      expect(scriptSource).toContain('worktree_cutover_cleanup()');
+      expect(scriptSource).toContain('repo_coord_lock_release || true');
+      expect(scriptSource).toContain('trap worktree_cutover_cleanup EXIT');
+
+      const lockIdx = scriptSource.indexOf('repo_coord_lock_acquire "main"');
+      const dirtyMainIdx = scriptSource.indexOf('Main working tree has uncommitted tracked changes');
+      const mergeIdx = scriptSource.indexOf('git merge "$BRANCH" --no-edit');
+      expect(lockIdx).toBeGreaterThan(-1);
+      expect(lockIdx).toBeLessThan(dirtyMainIdx);
+      expect(lockIdx).toBeLessThan(mergeIdx);
+    });
+
+    it('protects apply-mode merged-worktree pruning with the shared lock', () => {
+      const pruneSource = fs.readFileSync(
+        path.join(REPO_ROOT, 'scripts', 'prune-merged-worktrees.sh'),
+        'utf8'
+      );
+      expect(pruneSource).toContain('if [ "$APPLY" -eq 1 ]; then');
+      expect(pruneSource).toContain('DEFAULT_COORD_LOCK_HELPER="${REPO_ROOT}/scripts/repo-coordination-lock.sh"');
+      expect(pruneSource).toContain('COORD_LOCK_HELPER="${TORQUE_COORD_LOCK_HELPER:-$DEFAULT_COORD_LOCK_HELPER}"');
+      expect(pruneSource).toContain('COORD_LOCK_HELPER="$DEFAULT_COORD_LOCK_HELPER"');
+      expect(pruneSource).toContain('repo_coord_lock_acquire "main" "merged worktree prune"');
+      expect(pruneSource).toContain('trap prune_coord_lock_cleanup EXIT');
+      expect(pruneSource).toContain('repo_coord_lock_release || true');
     });
 
     it('attaches to existing barrier instead of creating a duplicate', () => {

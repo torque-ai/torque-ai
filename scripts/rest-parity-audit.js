@@ -140,6 +140,18 @@ const REST_FILES = [
 
 const TOOL_REF_REGEX = /tool\s*:\s*['"`]([a-z_][a-z_0-9]*)['"`]/g;
 
+// Tools that are deliberately not counted as actionable REST gaps. These
+// require live MCP/SSE session state or are otherwise not meaningful as a
+// stateless HTTP call. Keep this aligned with generate-rest-routes.js.
+const INTENTIONAL_REST_OMISSIONS = new Map([
+  ['subscribe_task_events', 'session-scoped: requires live SSE channel for push delivery'],
+  ['check_notifications', 'session-scoped: drains a per-session in-memory queue'],
+  ['ack_notification', 'session-scoped: acks an event delivered via the same SSE stream'],
+  ['unlock_all_tools', 'client-side meta: signals tool-list refresh, not a server operation'],
+  ['unlock_tier', 'client-side meta: signals tool-list refresh, not a server operation'],
+  ['get_tool_schema', 'introspection: exposed via OpenAPI spec at /api/openapi.json'],
+]);
+
 function enumerateRestToolMappings() {
   const restMap = new Map(); // tool name → array of source files
   for (const rel of REST_FILES) {
@@ -180,9 +192,17 @@ function analyze() {
 
   const covered = [];
   const gaps = [];
+  const intentionalOmissions = [];
   for (const [name, sources] of mcp.entries()) {
     if (rest.has(name)) {
       covered.push({ name, sources, restSources: rest.get(name) });
+    } else if (INTENTIONAL_REST_OMISSIONS.has(name)) {
+      intentionalOmissions.push({
+        name,
+        sources,
+        category: categoryFromSource(sources),
+        reason: INTENTIONAL_REST_OMISSIONS.get(name),
+      });
     } else {
       gaps.push({ name, sources, category: categoryFromSource(sources) });
     }
@@ -204,10 +224,13 @@ function analyze() {
       rest_mapped: rest.size,
       covered: covered.length,
       gaps: gaps.length,
+      intentional_omissions: intentionalOmissions.length,
+      rest_applicable_tools: mcp.size - intentionalOmissions.length,
       orphaned_routes: orphanedRoutes.length,
     },
     covered,
     gaps,
+    intentionalOmissions,
     gapsByCategory,
     orphanedRoutes,
   };
@@ -216,7 +239,7 @@ function analyze() {
 // ─── Report rendering ──────────────────────────────────────────────────
 
 function renderMarkdown(result) {
-  const { totals, gapsByCategory, orphanedRoutes } = result;
+  const { totals, gapsByCategory, intentionalOmissions, orphanedRoutes } = result;
   const lines = [];
   lines.push('# REST-parity gap report');
   lines.push('');
@@ -227,12 +250,14 @@ function renderMarkdown(result) {
   lines.push(`| Metric | Count |`);
   lines.push(`|---|---|`);
   lines.push(`| MCP tools defined (across \`server/tool-defs/\` + plugin \`tool-defs.js\`) | ${totals.mcp_tools} |`);
+  lines.push(`| REST-applicable MCP tools | ${totals.rest_applicable_tools} |`);
   lines.push(`| MCP tools with a REST mapping (\`tool: 'name'\` in any route file) | ${totals.covered} |`);
-  lines.push(`| **MCP tools missing REST coverage (gap)** | **${totals.gaps}** |`);
+  lines.push(`| MCP tools intentionally left MCP-only | ${totals.intentional_omissions} |`);
+  lines.push(`| **MCP tools missing REST coverage (actionable gap)** | **${totals.gaps}** |`);
   lines.push(`| Distinct \`tool:\` references in route files | ${totals.rest_mapped} |`);
   lines.push(`| REST routes pointing at non-existent tools (drift) | ${totals.orphaned_routes} |`);
   lines.push('');
-  lines.push(`Coverage: **${((totals.covered / totals.mcp_tools) * 100).toFixed(1)}%**`);
+  lines.push(`Coverage: **${((totals.covered / totals.rest_applicable_tools) * 100).toFixed(1)}%** of REST-applicable MCP tools`);
   lines.push('');
 
   const categories = [...gapsByCategory.entries()].sort((a, b) => b[1].length - a[1].length);
@@ -246,15 +271,31 @@ function renderMarkdown(result) {
   }
   lines.push('');
 
-  lines.push('## Full gap list');
-  lines.push('');
-  for (const [cat, list] of categories) {
-    lines.push(`### ${cat} (${list.length})`);
+  if (intentionalOmissions.length > 0) {
+    lines.push('## Intentional MCP-only tools');
     lines.push('');
-    for (const g of list.sort((a, b) => a.name.localeCompare(b.name))) {
-      lines.push(`- \`${g.name}\` — defined in ${g.sources.map(s => `\`${s}\``).join(', ')}`);
+    lines.push('These tools are excluded from actionable REST-gap totals because their semantics require live MCP/SSE session state.');
+    lines.push('');
+    for (const item of intentionalOmissions.sort((a, b) => a.name.localeCompare(b.name))) {
+      lines.push(`- \`${item.name}\` — ${item.reason}; defined in ${item.sources.map(s => `\`${s}\``).join(', ')}`);
     }
     lines.push('');
+  }
+
+  lines.push('## Full gap list');
+  lines.push('');
+  if (categories.length === 0) {
+    lines.push('No actionable REST coverage gaps remain.');
+    lines.push('');
+  } else {
+    for (const [cat, list] of categories) {
+      lines.push(`### ${cat} (${list.length})`);
+      lines.push('');
+      for (const g of list.sort((a, b) => a.name.localeCompare(b.name))) {
+        lines.push(`- \`${g.name}\` — defined in ${g.sources.map(s => `\`${s}\``).join(', ')}`);
+      }
+      lines.push('');
+    }
   }
 
   if (orphanedRoutes.length > 0) {
@@ -286,6 +327,7 @@ function main() {
     process.stdout.write(JSON.stringify({
       totals: result.totals,
       gaps: result.gaps,
+      intentional_omissions: result.intentionalOmissions,
       orphaned_routes: result.orphanedRoutes,
     }, null, 2));
     process.stdout.write('\n');
@@ -296,7 +338,7 @@ function main() {
   fs.mkdirSync(path.dirname(outPath), { recursive: true });
   fs.writeFileSync(outPath, md);
   console.log(`Wrote ${path.relative(ROOT, outPath)}`);
-  console.log(`MCP tools: ${result.totals.mcp_tools}, REST-covered: ${result.totals.covered}, gap: ${result.totals.gaps}, orphaned routes: ${result.totals.orphaned_routes}`);
+  console.log(`MCP tools: ${result.totals.mcp_tools}, REST-applicable: ${result.totals.rest_applicable_tools}, REST-covered: ${result.totals.covered}, actionable gap: ${result.totals.gaps}, intentional MCP-only: ${result.totals.intentional_omissions}, orphaned routes: ${result.totals.orphaned_routes}`);
 }
 
 main();

@@ -872,7 +872,6 @@ const routes = [
   {
     method: 'POST',
     path: '/api/v2/project-config',
-    tool: 'set_project_config',
     handlerName: 'handleV2CpSetProjectConfig',
     middleware: buildV2Middleware(),
   },
