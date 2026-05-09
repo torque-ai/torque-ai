@@ -68,7 +68,7 @@ After cutover:
 ## Verification status
 
 - **#1, #2, #5 (guard logic):** smoke-tested locally with three input cases; all three returned the expected exit codes.
-- **#3 (worktree-create default):** unverified end-to-end. Operator should run `scripts/worktree-create.sh test-cheap` and confirm deps install by default; then `scripts/worktree-create.sh test-cheap --no-install` and confirm deps are skipped.
+- **#3 (worktree-create default):** verified end-to-end on 2026-05-09 by creating `.worktrees/feat-testability-lane-deps` with the default install path. The script installed `server/` and `dashboard/` dependencies; `server/node_modules/.bin/vitest.cmd`, `server/node_modules/@vitest/utils`, and `dashboard/node_modules` were present afterward. The lane launcher then ran Vitest successfully from that worktree.
 - **#4 (CLAUDE.md rule):** durable rule that takes effect on next session start. No machine verification possible.
 
 The remote workstation was unreachable during this session (stuck SSH PIDs `7778` and `9734` from earlier `torque-remote` attempts), so end-to-end verification of the path-exposure fix (#2) requires the operator to retry once the remote is back.
