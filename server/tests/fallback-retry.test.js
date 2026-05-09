@@ -658,6 +658,27 @@ describe('fallback-retry module', () => {
       expect(updated.ollama_host_id).toBeNull();
       expect(updated.error_output).toContain('[Local-First] All local options exhausted');
       expect(updated.error_output).toContain('Falling back to codex');
+      expect(updated.metadata).toMatchObject({
+        original_provider: 'ollama',
+        local_first_attempts: 1,
+      });
+    });
+
+    it('does not route cloud fallbacks back to raw ollama', () => {
+      const task = createTask({
+        provider: 'codex',
+        model: null,
+        error_output: '[Ollama→Cloud] final failure\nFalling back to codex',
+      });
+
+      const ok = mod.tryLocalFirstFallback(task.id, task, 'codex fallback failed');
+
+      expect(ok).toBe(false);
+      const updated = taskCore.getTask(task.id);
+      expect(updated.provider).toBe('codex');
+      expect(updated.model).toBeNull();
+      expect(updated.error_output).toContain('Falling back to codex');
+      expect(processQueueCalls).toBe(0);
     });
 
     it('escalates to cloud after max local retries are exhausted', () => {
@@ -1625,14 +1646,14 @@ describe('fallback-retry module', () => {
         expect(afterFirst.provider).toBe('codex');
         expect(afterFirst.error_output).toContain('[Local-First] All local options exhausted');
 
-        // Call 2: once the task is on codex, raw ollama becomes an untried local
-        // provider again and the current logic switches back to it.
+        // Call 2: once the task is on codex, local-first fallback must not
+        // route it back to the raw ollama path that already failed.
         const second = mod.tryLocalFirstFallback(task.id, taskCore.getTask(task.id), 'second local failure');
-        expect(second).toBe(true);
+        expect(second).toBe(false);
         const afterSecond = taskCore.getTask(task.id);
-        expect(afterSecond.provider).toBe('ollama');
+        expect(afterSecond.provider).toBe('codex');
         expect(afterSecond.model).toBeNull();
-        expect(afterSecond.error_output).toContain('[Local-First] Trying provider ollama');
+        expect(afterSecond.error_output).toContain('[Local-First] All local options exhausted');
       });
     });
 
@@ -1844,6 +1865,23 @@ describe('classifyError', () => {
     const result = classifyError(`OpenAI Codex
 --------
 workdir: C:\\Projects\\torque-public
+model: gpt-5.2
+provider: openai
+approval: never
+sandbox: danger-full-access
+reasoning effort: high
+reasoning summaries: auto
+session id: abc123`);
+    expect(result).toEqual({
+      retryable: true,
+      reason: 'Codex startup banner only - no task output captured',
+    });
+  });
+
+  it('treats an ANSI-colored Codex startup banner as retryable', () => {
+    const result = classifyError(`\x1b]0;Codex\x07\x1b[32mOpenAI Codex\x1b[0m
+\x1b[90m--------\x1b[0m
+\x1b[1mworkdir:\x1b[0m C:\\Projects\\torque-public
 model: gpt-5.2
 provider: openai
 approval: never

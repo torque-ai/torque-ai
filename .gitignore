@@ -64,6 +64,8 @@ server/perf/bypass-audit.log
 
 # Temporary worktree isolation dirs
 server/.tmp/
+.test-lanes/
+server/.test-lanes/
 
 # Screenshots
 screenshots/

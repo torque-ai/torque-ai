@@ -34,6 +34,7 @@ const { resolveOllamaModel } = require('../providers/ollama-shared');
 const { normalizeMetadata } = require('../utils/normalize-metadata');
 const { getWindowsNativeCrashExitReason } = require('../utils/process-exit-codes');
 const { buildResumeContext, prependResumeContextToPrompt } = require('../utils/resume-context');
+const { stripAnsiEscapes } = require('../utils/sanitize');
 const { resolveMethod } = require('./capability-resolver');
 
 function getRetryDelayMs(task) {
@@ -235,9 +236,10 @@ function getRawDbInstance() {
  * @param {string} taskId - Task ID
  * @param {Object} task - Task object from database
  * @param {string} errorMsg - Error message describing the failure
+ * @param {Object} [extraFields={}] - Additional task fields to persist with the fallback update
  * @returns {boolean} True if task was requeued to a cloud provider
  */
-function tryOllamaCloudFallback(taskId, task, errorMsg) {
+function tryOllamaCloudFallback(taskId, task, errorMsg, extraFields = {}) {
   ensureDeps();
   // Use canonical fallback chain from provider-routing-core (respects user-configured chains).
   // Append remaining CLOUD_PROVIDERS not in chain as safety net — this function's intent is
@@ -292,6 +294,7 @@ function tryOllamaCloudFallback(taskId, task, errorMsg) {
   logger.info(`[Ollama→Cloud] Falling back to ${fallbackProvider} for task ${taskId}`);
   db.recordFailoverEvent({ task_id: taskId, from_provider: task.provider, to_provider: fallbackProvider, reason: errorMsg, failover_type: 'provider' });
   db.updateTaskStatus(taskId, 'queued', withResumeContextPrompt(task, {
+    ...extraFields,
     provider: fallbackProvider,
     model: null,
     started_at: null,
@@ -331,6 +334,12 @@ function _isGreenfieldTask(desc) {
     /\bnew\s+(file|test|module|class|component|spec)\b/i.test(desc);
 }
 
+const LOCAL_FIRST_FALLBACK_PROVIDERS = new Set(['ollama']);
+
+function _isLocalFirstProvider(provider) {
+  return LOCAL_FIRST_FALLBACK_PROVIDERS.has(provider);
+}
+
 /**
  * Attempt local-first fallback before escalating to cloud.
  * Tries: (1) same model on different host, (2) different coder model,
@@ -346,6 +355,14 @@ function _isGreenfieldTask(desc) {
 function tryLocalFirstFallback(taskId, task, errorMsg, options = {}) {
   ensureDeps();
   const maxLocalRetries = serverConfig.getInt('max_local_retries', 3);
+  const currentHost = task.ollama_host_id;
+  const currentModel = task.model;
+  const currentProvider = task.provider;
+
+  if (!_isLocalFirstProvider(currentProvider)) {
+    logger.info(`[Local-First] Task ${taskId}: skipping local-first fallback for non-local provider ${currentProvider || 'unknown'}`);
+    return false;
+  }
 
   // Use metadata counter as the authoritative local attempt count.
   // Counting [Local-First] markers in error_output is unreliable when output is truncated.
@@ -366,10 +383,6 @@ function tryLocalFirstFallback(taskId, task, errorMsg, options = {}) {
     metadata.original_provider = task.provider;
   }
   metadata.local_first_attempts = localAttempts + 1;
-
-  const currentHost = task.ollama_host_id;
-  const currentModel = task.model;
-  const currentProvider = task.provider;
 
   // Step 1: Same model, different host (exclude current host from selection)
   if (!options.skipSameModel && currentModel && currentHost) {
@@ -489,7 +502,9 @@ function tryLocalFirstFallback(taskId, task, errorMsg, options = {}) {
 
   // Step 4: All local options exhausted, fall back to cloud
   logger.info(`[Local-First] Task ${taskId}: all local options exhausted, escalating to cloud`);
-  return tryOllamaCloudFallback(taskId, task, `${errorMsg}\n[Local-First] All local options exhausted`);
+  return tryOllamaCloudFallback(taskId, task, `${errorMsg}\n[Local-First] All local options exhausted`, {
+    metadata: JSON.stringify(metadata),
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -1087,9 +1102,7 @@ function selectHashlineFormat(model, task) {
 // ---------------------------------------------------------------------------
 
 function isCodexStartupBannerOnlyOutput(errorOutput) {
-  const text = String(errorOutput || '')
-    .replace(/\u001b\[[0-9;]*m/g, '')
-    .trim();
+  const text = stripAnsiEscapes(String(errorOutput || '')).trim();
   if (!/\bOpenAI Codex\b/i.test(text)) {
     return false;
   }
