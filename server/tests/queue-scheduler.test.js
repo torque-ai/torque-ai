@@ -705,6 +705,51 @@ describe('Queue Scheduler', () => {
 
       expect(filtered.map(task => task.id)).toEqual(['running-architect']);
     });
+
+    it('keeps paused-project factory tasks queued instead of cancelling them during scheduling', () => {
+      mockDb.getDbInstance = vi.fn(() => ({
+        prepare: vi.fn(() => ({
+          get: vi.fn((projectId) => (
+            projectId === 'paused-project'
+              ? { status: 'paused' }
+              : { status: 'running' }
+          )),
+        })),
+      }));
+      mockDb.listTasks.mockImplementation(({ status }) => {
+        if (status === 'pending') return [];
+        if (status === 'queued') {
+          return [
+            makeTask({
+              id: 'paused-architect',
+              status: 'queued',
+              provider: 'codex',
+              tags: JSON.stringify([
+                'factory:internal',
+                'factory:architect_cycle',
+                'factory:project_id=paused-project',
+              ]),
+            }),
+          ];
+        }
+        if (status === 'running') return [];
+        return [];
+      });
+      mockDb.getConfig.mockImplementation((key) => {
+        if (key === 'codex_enabled') return '1';
+        return null;
+      });
+
+      scheduler.processQueueInternal();
+
+      expect(mocks.safeStartTask).not.toHaveBeenCalled();
+      expect(mockDb.updateTaskStatus).not.toHaveBeenCalledWith(
+        'paused-architect',
+        'cancelled',
+        expect.anything(),
+      );
+      expect(mockDb.updateTaskStatus).not.toHaveBeenCalled();
+    });
   });
 
   // ── processQueueInternal ──────────────────────────────────

@@ -1166,12 +1166,10 @@ function processQueueInternal(options = {}) {
   const runningAll = Array.isArray(runningTasks) ? runningTasks : (runningTasks.tasks || []);
 
   const pauseFilteredQueuedTasks = filterPausedFactoryProjectTasks(queuedTasks);
-  cancelFilteredQueuedFactoryTasks(
-    queuedTasks,
-    pauseFilteredQueuedTasks,
-    'factory_project_paused',
-    'Queued factory task cancelled because its target project is paused.',
-  );
+  // Paused projects are a scheduling gate, not a terminal task outcome. In
+  // particular, startup restart-resubmits clone interrupted factory work into
+  // queued rows so they can resume when the operator resumes the project.
+  // Leave those rows queued and simply withhold promotion.
   const schedulableQueuedTasks = filterSupersededFactoryInternalTasks(
     pauseFilteredQueuedTasks,
     [
