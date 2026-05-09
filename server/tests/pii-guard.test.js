@@ -198,6 +198,13 @@ describe('pii-guard', () => {
       expect(result.sanitized).toBe(src);
     });
 
+    it('does not flag ordinary test code when git user is the technical token Test', () => {
+      const guard = loadWithGitUser('Test');
+      const src = "it('routes explicit test task prompts', () => expect(task).toBe('test-small'))";
+      const result = guard.scanAndReplace(src);
+      expect(result.sanitized).toBe(src);
+    });
+
     it('does not clobber compound identifiers when a non-allowlisted git user happens to be a prefix', () => {
       const guard = loadWithGitUser('Alice');
       const src = 'class AliceCliProvider {} // AliceHelper extends it';

@@ -202,6 +202,7 @@ if (OS_USERNAME && OS_USERNAME.length > 2) {
 const IDENTITY_ALLOWLIST = new Set([
   'codex', 'claude', 'ollama', 'groq', 'cerebras',
   'anthropic', 'deepinfra', 'hyperbolic', 'openai', 'google',
+  'test',
 ]);
 if (
   GIT_USER_NAME
