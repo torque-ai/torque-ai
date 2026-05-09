@@ -60,6 +60,8 @@ For docs-only changes that do not affect the running server, merge the worktree 
 
 Restart barriers are allowed to take a while. Some Codex/factory tasks normally run 30-60 minutes, so `await_restart` may need to hold the barrier until those tasks finish. Keep watching heartbeat/status output and do not cancel, bypass, or treat the barrier as stuck unless task status shows a real stall or the user approves an emergency override.
 
+Operations that mutate shared main/worktree state must also hold the repo coordination lease from `scripts/repo-coordination-lock.sh`. The standard paths already do this for main pre-push gates, worktree cutovers, and apply-mode merged-worktree pruning. Use that helper, or a script that wraps it, before adding new automation that changes main refs, staging refs, or git worktree metadata.
+
 ### Emergency Hotfixes
 
 For critical fixes that can't wait for the worktree workflow:
