@@ -11,6 +11,16 @@ function readTorqueRemote() {
   return fs.readFileSync(TORQUE_REMOTE_PATH, 'utf8');
 }
 
+function resolveBashForFunctionTests() {
+  for (const candidate of [
+    'C:\\Program Files\\Git\\bin\\bash.exe',
+    'C:\\Program Files\\Git\\usr\\bin\\bash.exe',
+  ]) {
+    if (fs.existsSync(candidate)) return candidate;
+  }
+  return 'bash';
+}
+
 // Source-only invariants — assert on the shape of bin/torque-remote without
 // running it. Runtime invariants for build_remote_sync_command are exercised
 // in a separate `describe` block below by sourcing the script in bash and
@@ -48,10 +58,10 @@ describe('torque-remote source invariants', () => {
   it('does not proceed with uncoordinated remote sync after lock timeout', () => {
     const src = readTorqueRemote();
     expect(src).toContain('TORQUE_REMOTE_SYNC_LOCK_TIMEOUT_SECS:-1800');
-    expect(src).toContain('refusing remote sync to avoid worktree contamination');
     expect(src).toContain('Remote sync lock unavailable — falling back to local execution instead of risking remote worktree contamination');
-    expect(src).toContain('if ! acquire_remote_sync_lock; then');
-    expect(src).not.toContain('acquire_remote_sync_lock || true');
+    expect(src).toContain('record_fallback "sync_lock_timeout"');
+    expect(src).toContain('if ! acquire_any_remote_lane "$LANE_COUNT" "$EXPLICIT_LANE"; then');
+    expect(src).not.toContain('acquire_any_remote_lane "$LANE_COUNT" "$EXPLICIT_LANE" || true');
     expect(src).not.toContain('proceeding without serialization');
   });
 
@@ -79,28 +89,29 @@ describe('torque-remote source invariants', () => {
     // exit-98 guard. Sibling path keeps the lock outside any git operation
     // scoped to the worktree. Reproduced live 2026-04-29.
     const src = readTorqueRemote();
-    expect(src).toContain('REMOTE_SYNC_LOCK_DIR="${EFFECTIVE_REMOTE_PROJECT_PATH}.torque-remote-sync.lock"');
+    expect(src).toContain('compute_lane_lock_dir()');
+    expect(src).toContain('printf \'%s\\\\.torque-remote-lanes\\\\.locks\\\\lane-%s\\n\' "$parent" "$index"');
     expect(src).not.toContain('REMOTE_SYNC_LOCK_DIR="$EFFECTIVE_REMOTE_PROJECT_PATH\\\\.torque-remote-sync.lock"');
   });
 
   it('records sync lock ownership and reaps stale locks (same-host PID-dead OR cross-host TTL)', () => {
     const src = readTorqueRemote();
-    expect(src).toContain('REMOTE_SYNC_LOCK_OWNER_FILE="owner.env"');
-    expect(src).toContain('write_remote_sync_lock_owner()');
-    expect(src).toContain('read_remote_sync_lock_owner()');
-    expect(src).toContain('remote_sync_lock_is_stale()');
-    expect(src).toContain('remote_sync_lock_check_owner_block()');
+    expect(src).toContain('REMOTE_LANE_LOCK_OWNER_FILE="owner.env"');
+    expect(src).toContain('write_remote_lane_lock_owner()');
+    expect(src).toContain('read_remote_lane_lock_owner()');
+    expect(src).toContain('remote_lane_lock_is_stale()');
+    expect(src).toContain('remote_lane_lock_check_owner_block()');
     // Same-host PID-dead branch.
-    expect(src).toContain('owner_host="$(owner_field "$owner" host | tr');
-    expect(src).toContain('owner_pid="$(owner_field "$owner" pid)"');
-    expect(src).toContain('"$owner_host" == "$local_host"');
-    expect(src).toContain('kill -0 "$owner_pid"');
+    expect(src).toContain('host_field="$(owner_field "$owner" host | tr');
+    expect(src).toContain('pid_field="$(owner_field "$owner" pid)"');
+    expect(src).toContain('"$host_field" == "$local_host"');
+    expect(src).toContain('kill -0 "$pid_field"');
     // TTL-based cross-host reap (batch-2 #2).
-    expect(src).toContain('TORQUE_REMOTE_SYNC_LOCK_TTL_SECS:-14400');
+    expect(src).toContain('TORQUE_REMOTE_SYNC_LOCK_STALE_TTL_SECS:-14400');
     expect(src).toContain('exceeded TTL');
     // Reap command shape.
-    expect(src).toContain('rmdir /s /q \\"$REMOTE_SYNC_LOCK_DIR\\"');
-    expect(src).not.toContain('rmdir "$REMOTE_SYNC_LOCK_DIR"');
+    expect(src).toContain('rmdir /s /q \\"$REMOTE_LANE_LOCK_DIR\\" 2>nul');
+    expect(src).not.toContain('rmdir "$REMOTE_LANE_LOCK_DIR"');
   });
 
   it('strips trailing whitespace from owner.env field values so the host check matches', () => {
@@ -142,7 +153,7 @@ describe('build_remote_sync_command runtime invariants', () => {
     if (!startMatch) {
       throw new Error('build_remote_sync_command not found in torque-remote source');
     }
-    const stdout = execFileSync('bash', ['-c', `${startMatch[0]}; build_remote_sync_command "$1" "$2" "$3" "$4" "$5"`,
+    const stdout = execFileSync(resolveBashForFunctionTests(), ['-c', `${startMatch[0]}; build_remote_sync_command "$1" "$2" "$3" "$4" "$5"`,
       '_', effPath, fetchCmd, syncCheckout, syncRef, bootstrap], { encoding: 'utf8' });
     return stdout;
   }

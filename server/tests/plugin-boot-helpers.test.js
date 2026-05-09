@@ -488,7 +488,7 @@ describe('uninstallAllPlugins', () => {
     const { logger } = makeLogger();
     const { uninstalled, failures } = uninstallAllPlugins(plugins, logger);
     expect(order).toEqual(['has']);
-    expect(uninstalled).toEqual(['has']);
+    expect(uninstalled).toEqual(['has-uninstall']);
     expect(failures).toEqual([]);
   });
 

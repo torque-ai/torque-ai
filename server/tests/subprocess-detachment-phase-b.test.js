@@ -61,7 +61,7 @@ describe('parseProcessExitAnnotation', () => {
   it('parses a typical wrapper-emitted annotation', () => {
     const text = 'some prior output\n[process-exit] code=0 signal=none duration_ms=12345 provider=codex model=gpt-5.3-codex\n';
     expect(parseProcessExitAnnotation(text)).toEqual({
-      code: 0, signal: null, duration_ms: 12345,
+      code: 0, signal: null, duration_ms: 12345, provider: 'codex', model: 'gpt-5.3-codex',
     });
   });
 
@@ -74,21 +74,21 @@ describe('parseProcessExitAnnotation', () => {
   it('prefers the LAST annotation when multiple exist (defensive)', () => {
     const text = '[process-exit] code=1 signal=none duration_ms=10 provider=codex\nlater output\n[process-exit] code=0 signal=none duration_ms=20 provider=codex\n';
     expect(parseProcessExitAnnotation(text)).toEqual({
-      code: 0, signal: null, duration_ms: 20,
+      code: 0, signal: null, duration_ms: 20, provider: 'codex', model: null,
     });
   });
 
   it('handles code=null (wrapper-spawn-failure shape)', () => {
     const text = '[process-exit] code=null signal=detached_exit duration_ms=0 provider=codex\n';
     expect(parseProcessExitAnnotation(text)).toEqual({
-      code: null, signal: 'detached_exit', duration_ms: 0,
+      code: null, signal: 'detached_exit', duration_ms: 0, provider: 'codex', model: null,
     });
   });
 
   it('handles signal=SIGTERM (POSIX kill)', () => {
     const text = '[process-exit] code=null signal=SIGTERM duration_ms=500 provider=codex\n';
     expect(parseProcessExitAnnotation(text)).toEqual({
-      code: null, signal: 'SIGTERM', duration_ms: 500,
+      code: null, signal: 'SIGTERM', duration_ms: 500, provider: 'codex', model: null,
     });
   });
 });

@@ -1087,7 +1087,14 @@ function createProcessLifecycle(localDeps = {}) {
   } catch { /* container not available */ }
   const tm = localDeps.taskManager || null;
   const tmMethod = (name) => (tm && typeof tm[name] === 'function' ? tm[name].bind(tm) : null);
-  if (!resolved.finalizeTask) resolved.finalizeTask = tmMethod('finalizeTask');
+  if (!resolved.finalizeTask) {
+    resolved.finalizeTask = resolveMethod(localDeps, {
+      capability: 'taskFinalizer',
+      method: 'finalizeTask',
+      legacyHandle: 'taskManager',
+      legacyKey: 'finalizeTask',
+    });
+  }
   if (!resolved.cancelTask) {
     // Lazy capability resolution: each call resolves to the currently-
     // registered taskCanceller capability, falling back to

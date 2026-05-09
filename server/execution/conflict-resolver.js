@@ -126,6 +126,7 @@ function mergeContents(ours, base, theirs) {
 
     try {
       const merged = safeGitExec(['merge-file', '-p', oursPath, basePath, theirsPath], {
+        cwd: tempDir,
         timeout: 10000,
       });
       return { content: merged, clean: true, strategy: 'git-merge-file' };

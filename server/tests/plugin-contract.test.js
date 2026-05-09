@@ -37,6 +37,12 @@ describe('plugin-contract', () => {
     };
     const result = validatePlugin(plugin);
     expect(result.valid).toBe(false);
-    expect(result.errors).toContain('install must be a function');
+    expect(result.errors).toContainEqual({
+      field: 'install',
+      expected: 'function',
+      actual: 'string',
+      kind: 'type-mismatch',
+      message: 'install must be a function',
+    });
   });
 });
