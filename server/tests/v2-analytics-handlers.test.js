@@ -11,6 +11,7 @@ const MODULE_PATHS = [
   '../db/cost-tracking',
   '../db/event-tracking',
   '../db/file/tracking',
+  '../db/host/management',
   '../db/provider/routing-core',
   '../db/webhooks-streaming',
   '../hooks/event-dispatch',
@@ -40,6 +41,8 @@ const mockDb = {
   listProviders: vi.fn(),
   getProviderStats: vi.fn(),
   getProviderHealth: vi.fn(),
+  listOllamaHosts: vi.fn(),
+  isOllamaHealthy: vi.fn(),
   isProviderHealthy: vi.fn(),
   getUsageHistory: vi.fn(),
   getRecentStrategicOperations: vi.fn(),
@@ -67,6 +70,8 @@ const mockOrchestratorHandlers = {
 };
 
 const mockServerConfig = {
+  get: vi.fn(),
+  getBool: vi.fn(),
   isOptIn: vi.fn(),
   getInt: vi.fn(),
 };
@@ -102,6 +107,7 @@ function loadHandlers() {
   installCjsModuleMock('../db/cost-tracking', mockDb);
   installCjsModuleMock('../db/event-tracking', mockDb);
   installCjsModuleMock('../db/file/tracking', mockDb);
+  installCjsModuleMock('../db/host/management', mockDb);
   installCjsModuleMock('../db/provider/routing-core', mockDb);
   installCjsModuleMock('../db/webhooks-streaming', mockDb);
   installCjsModuleMock('../api/middleware', mockMiddleware);
@@ -241,10 +247,14 @@ function resetMockDefaults() {
     failures: 0,
     failureRate: 0,
   });
+  mockDb.listOllamaHosts.mockReset().mockReturnValue([]);
+  mockDb.isOllamaHealthy.mockReset().mockReturnValue(null);
   mockDb.isProviderHealthy.mockReset().mockReturnValue(true);
   mockDb.getUsageHistory.mockReset().mockReturnValue([]);
   mockDb.getRecentStrategicOperations.mockReset().mockReturnValue([]);
 
+  mockServerConfig.get.mockReset().mockImplementation((key, fallback) => fallback);
+  mockServerConfig.getBool.mockReset().mockImplementation((key, fallback) => fallback ?? true);
   mockServerConfig.isOptIn.mockReset().mockReturnValue(false);
   mockServerConfig.getInt.mockReset().mockImplementation((key, fallback) => fallback);
 
@@ -1513,6 +1523,15 @@ describe('api/v2-analytics-handlers', () => {
         return { successes: 0, failures: 0, failureRate: 0 };
       });
       mockDb.isProviderHealthy.mockImplementation((provider) => provider !== 'ollama');
+      mockDb.listOllamaHosts.mockReturnValue([{
+        id: 'remote',
+        name: 'Remote GPU',
+        url: 'http://192.0.2.183:11434',
+        enabled: 1,
+        status: 'down',
+        running_tasks: 0,
+        models: [],
+      }]);
 
       await handlers.handleProviderHealth(createReq(), res);
 
@@ -1542,7 +1561,7 @@ describe('api/v2-analytics-handlers', () => {
             failed_today: 2,
             avg_duration_seconds: 18,
           },
-          {
+          expect.objectContaining({
             provider: 'ollama',
             enabled: true,
             health_status: 'degraded',
@@ -1553,7 +1572,17 @@ describe('api/v2-analytics-handlers', () => {
             completed_today: 1,
             failed_today: 4,
             avg_duration_seconds: 32,
-          },
+            fallback_state: expect.objectContaining({
+              preferred_provider: 'ollama',
+              fallback_provider: 'codex',
+              fallback_active: true,
+              remote_preferred: true,
+              state: 'fallback_active',
+              health_status: 'degraded',
+              healthy_count: 0,
+              total_count: 1,
+            }),
+          }),
           {
             provider: 'disabled-provider',
             enabled: false,

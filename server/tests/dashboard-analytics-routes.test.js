@@ -6,6 +6,7 @@ const MODULE_PATHS = [
   '../db/cost-tracking',
   '../db/event-tracking',
   '../db/file/tracking',
+  '../db/host/management',
   '../db/provider/routing-core',
   '../db/webhooks-streaming',
   '../db/workflow-engine',
@@ -32,6 +33,8 @@ const mockDb = {
   listWebhooks: vi.fn(),
   listProviders: vi.fn(),
   getProviderHealth: vi.fn(),
+  listOllamaHosts: vi.fn(),
+  isOllamaHealthy: vi.fn(),
   isProviderHealthy: vi.fn(),
   getCostSummary: vi.fn(),
   getCostByPeriod: vi.fn(),
@@ -54,6 +57,7 @@ const mockUtils = {
 
 const mockConfig = {
   get: vi.fn(),
+  getBool: vi.fn(),
   getInt: vi.fn(),
 };
 
@@ -110,7 +114,12 @@ const mockFileTracking = {
 const mockProviderRoutingCore = {
   listProviders: mockDb.listProviders,
   getProviderHealth: mockDb.getProviderHealth,
+  isOllamaHealthy: mockDb.isOllamaHealthy,
   isProviderHealthy: mockDb.isProviderHealthy,
+};
+
+const mockHostManagement = {
+  listOllamaHosts: mockDb.listOllamaHosts,
 };
 
 const mockWebhooksStreaming = {
@@ -151,6 +160,7 @@ function loadAnalytics() {
   installMock('../db/cost-tracking', mockCostTracking);
   installMock('../db/event-tracking', mockEventTracking);
   installMock('../db/file/tracking', mockFileTracking);
+  installMock('../db/host/management', mockHostManagement);
   installMock('../db/provider/routing-core', mockProviderRoutingCore);
   installMock('../db/webhooks-streaming', mockWebhooksStreaming);
   installMock('../db/workflow-engine', mockWorkflowEngine);
@@ -237,6 +247,8 @@ function resetMockDefaults() {
     failures: 0,
     failureRate: 0,
   });
+  mockDb.listOllamaHosts.mockReset().mockReturnValue([]);
+  mockDb.isOllamaHealthy.mockReset().mockReturnValue(null);
   mockDb.isProviderHealthy.mockReset().mockReturnValue(true);
   mockDb.getCostSummary.mockReset().mockReturnValue([]);
   mockDb.getCostByPeriod.mockReset().mockReturnValue([]);
@@ -276,6 +288,7 @@ function resetMockDefaults() {
     if (key === 'quota_auto_scale_enabled') return 'false';
     return undefined;
   });
+  mockConfig.getBool.mockReset().mockImplementation((_key, fallback) => fallback ?? true);
   mockConfig.getInt.mockReset().mockImplementation((_key, fallback) => fallback);
 
   mockOrchestratorHandlers.getStrategicStatus.mockReset().mockReturnValue({ mode: 'steady' });
@@ -846,6 +859,15 @@ describe('dashboard analytics route handlers', () => {
         deepinfra: { successes: 0, failures: 0, failureRate: 0 },
       }[provider]));
       mockDb.isProviderHealthy.mockImplementation((provider) => provider !== 'ollama');
+      mockDb.listOllamaHosts.mockReturnValue([{
+        id: 'remote',
+        name: 'Remote GPU',
+        url: 'http://192.0.2.183:11434',
+        enabled: 1,
+        status: 'down',
+        running_tasks: 0,
+        models: [],
+      }]);
 
       const res = createMockRes();
       analytics.handleGetProviderHealth({}, res);
@@ -876,7 +898,7 @@ describe('dashboard analytics route handlers', () => {
             failed_today: 2,
             avg_duration_seconds: 7,
           },
-          {
+          expect.objectContaining({
             provider: 'ollama',
             enabled: true,
             health_status: 'degraded',
@@ -887,7 +909,17 @@ describe('dashboard analytics route handlers', () => {
             completed_today: 1,
             failed_today: 3,
             avg_duration_seconds: 20,
-          },
+            fallback_state: expect.objectContaining({
+              preferred_provider: 'ollama',
+              fallback_provider: 'codex',
+              fallback_active: true,
+              remote_preferred: true,
+              state: 'fallback_active',
+              health_status: 'degraded',
+              healthy_count: 0,
+              total_count: 1,
+            }),
+          }),
           {
             provider: 'deepinfra',
             enabled: false,

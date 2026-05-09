@@ -12,10 +12,15 @@ const taskCore = require('../db/task-core');
 const costTracking = require('../db/cost-tracking');
 const eventTracking = require('../db/event-tracking');
 const fileTracking = require('../db/file/tracking');
+const hostManagement = require('../db/host/management');
 const providerRoutingCore = require('../db/provider/routing-core');
 const webhooksStreaming = require('../db/webhooks-streaming');
 const serverConfig = require('../config');
 const { getProviderHealthStatus } = require('../utils/provider-health-status');
+const {
+  buildOllamaFallbackState,
+  mergeProviderHealthStatus,
+} = require('../utils/ollama-fallback-state');
 const {
   sendSuccess,
   sendError,
@@ -543,11 +548,14 @@ async function handleProviderHealth(req, res) {
     const dayStats = fileTracking.getProviderStats ? fileTracking.getProviderStats(p.provider, 1) : {};
     const health = providerRoutingCore.getProviderHealth ? providerRoutingCore.getProviderHealth(p.provider) : { successes: 0, failures: 0, failureRate: 0 };
     const { status: healthStatus } = getProviderHealthStatus(p, health);
+    const fallbackState = p.provider === 'ollama'
+      ? buildOllamaFallbackState({ hostManagement, providerRoutingCore, serverConfig })
+      : null;
 
-    healthCards.push({
+    const card = {
       provider: p.provider,
       enabled: !!p.enabled,
-      health_status: healthStatus,
+      health_status: mergeProviderHealthStatus(healthStatus, fallbackState),
       success_rate_1h: health.successes + health.failures > 0
         ? Math.round((health.successes / (health.successes + health.failures)) * 100) : null,
       successes_1h: health.successes,
@@ -556,7 +564,13 @@ async function handleProviderHealth(req, res) {
       completed_today: dayStats.successful_tasks || 0,
       failed_today: dayStats.failed_tasks || 0,
       avg_duration_seconds: dayStats.avg_duration_seconds || 0,
-    });
+    };
+
+    if (fallbackState) {
+      card.fallback_state = fallbackState;
+    }
+
+    healthCards.push(card);
   }
 
   sendSuccess(res, requestId, { providers: healthCards }, 200, req);

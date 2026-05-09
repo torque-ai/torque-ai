@@ -12,6 +12,7 @@ const logger = require('../logger').child({ component: 'provider-ollama-hosts' }
 const { TASK_TIMEOUTS } = require('../constants');
 const { ErrorCodes, makeError, probeOllamaEndpoint } = require('./shared');
 const serverConfig = require('../config');
+const { buildOllamaFallbackState } = require('../utils/ollama-fallback-state');
 
 /**
  * List available Ollama models
@@ -173,6 +174,11 @@ async function handleCheckOllamaHealth(args) {
     const updatedHosts = hostManagement.listOllamaHosts();
     const healthyCount = updatedHosts.filter(h => h.enabled && h.status === 'healthy').length;
     const totalEnabled = updatedHosts.filter(h => h.enabled).length;
+    const fallbackState = buildOllamaFallbackState({
+      hosts: updatedHosts,
+      providerRoutingCore,
+      serverConfig,
+    });
 
     // Update the Ollama health cache used by routing
     // This ensures routing knows Ollama is available after health checks
@@ -227,13 +233,14 @@ async function handleCheckOllamaHealth(args) {
     const structuredData = {
       healthy_count: healthyCount,
       total_count: totalEnabled,
-      hosts: updatedHosts.map(h => ({
-        name: h.name,
-        url: h.url,
-        status: h.status,
-        running_tasks: h.running_tasks || 0,
-        models_count: h.models?.length || 0,
-      })),
+      fallback_provider: fallbackState.fallback_provider,
+      fallback_active: fallbackState.fallback_active,
+      preferred_provider: fallbackState.preferred_provider,
+      preferred_available: fallbackState.preferred_available,
+      remote_preferred: fallbackState.remote_preferred,
+      smart_routing_enabled: fallbackState.smart_routing_enabled,
+      fallback_state: fallbackState,
+      hosts: fallbackState.hosts,
     };
 
     return { content: [{ type: 'text', text: output }], structuredData };
@@ -244,6 +251,11 @@ async function handleCheckOllamaHealth(args) {
 
   // Run health check
   const healthy = await providerRoutingCore.checkOllamaHealth(force_check);
+  const fallbackState = buildOllamaFallbackState({
+    providerRoutingCore,
+    serverConfig,
+    singleHostHealthy: healthy,
+  });
 
   let output = `## Ollama Health Status\n\n`;
   output += `| Setting | Value |\n`;
@@ -278,13 +290,14 @@ async function handleCheckOllamaHealth(args) {
   const structuredData = {
     healthy_count: healthy ? 1 : 0,
     total_count: 1,
-    hosts: [{
-      name: 'default',
-      url: ollamaHost,
-      status: healthy ? 'healthy' : 'down',
-      running_tasks: 0,
-      models_count: 0,
-    }],
+    fallback_provider: fallbackState.fallback_provider,
+    fallback_active: fallbackState.fallback_active,
+    preferred_provider: fallbackState.preferred_provider,
+    preferred_available: fallbackState.preferred_available,
+    remote_preferred: fallbackState.remote_preferred,
+    smart_routing_enabled: fallbackState.smart_routing_enabled,
+    fallback_state: fallbackState,
+    hosts: fallbackState.hosts,
   };
 
   return { content: [{ type: 'text', text: output }], structuredData };
