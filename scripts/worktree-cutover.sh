@@ -44,7 +44,11 @@ REPO_ROOT="$(git rev-parse --show-toplevel)"
 WORKTREE_DIR="${REPO_ROOT}/.worktrees/feat-${SAFE_NAME}"
 TORQUE_API="http://127.0.0.1:3457"
 TORQUE_PROBE_TIMEOUT_SECONDS=${CUTOVER_PROBE_TIMEOUT_SECONDS:-5}
-COORD_LOCK_HELPER="${TORQUE_COORD_LOCK_HELPER:-${REPO_ROOT}/scripts/repo-coordination-lock.sh}"
+DEFAULT_COORD_LOCK_HELPER="${REPO_ROOT}/scripts/repo-coordination-lock.sh"
+COORD_LOCK_HELPER="${TORQUE_COORD_LOCK_HELPER:-$DEFAULT_COORD_LOCK_HELPER}"
+if [ ! -f "$COORD_LOCK_HELPER" ] && [ "$COORD_LOCK_HELPER" != "$DEFAULT_COORD_LOCK_HELPER" ] && [ -f "$DEFAULT_COORD_LOCK_HELPER" ]; then
+  COORD_LOCK_HELPER="$DEFAULT_COORD_LOCK_HELPER"
+fi
 if [ ! -f "$COORD_LOCK_HELPER" ]; then
   echo "ERROR: Coordination lock helper not found at ${COORD_LOCK_HELPER}"
   exit 1

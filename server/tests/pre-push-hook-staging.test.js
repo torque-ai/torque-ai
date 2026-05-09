@@ -144,6 +144,9 @@ describe('pre-push-hook staging-branch invariants', () => {
 
   it('serializes main gates with the shared coordination lock and cleans up on EXIT', () => {
     const src = readHook();
+    expect(src).toMatch(/DEFAULT_COORD_LOCK_HELPER="\$\{REPO_ROOT\}\/scripts\/repo-coordination-lock\.sh"/);
+    expect(src).toMatch(/COORD_LOCK_HELPER="\$\{TORQUE_COORD_LOCK_HELPER:-\$DEFAULT_COORD_LOCK_HELPER\}"/);
+    expect(src).toMatch(/COORD_LOCK_HELPER="\$DEFAULT_COORD_LOCK_HELPER"/);
     expect(src).toMatch(/source "\$COORD_LOCK_HELPER"/);
     expect(src).toMatch(/repo_coord_lock_acquire "main" "pre-push main gate:/);
     expect(src).toMatch(/pre_push_cleanup\s*\(\)/);

@@ -40,7 +40,11 @@ done
 cd "$REPO_ROOT"
 
 if [ "$APPLY" -eq 1 ]; then
-  COORD_LOCK_HELPER="${TORQUE_COORD_LOCK_HELPER:-${REPO_ROOT}/scripts/repo-coordination-lock.sh}"
+  DEFAULT_COORD_LOCK_HELPER="${REPO_ROOT}/scripts/repo-coordination-lock.sh"
+  COORD_LOCK_HELPER="${TORQUE_COORD_LOCK_HELPER:-$DEFAULT_COORD_LOCK_HELPER}"
+  if [ ! -f "$COORD_LOCK_HELPER" ] && [ "$COORD_LOCK_HELPER" != "$DEFAULT_COORD_LOCK_HELPER" ] && [ -f "$DEFAULT_COORD_LOCK_HELPER" ]; then
+    COORD_LOCK_HELPER="$DEFAULT_COORD_LOCK_HELPER"
+  fi
   if [ ! -f "$COORD_LOCK_HELPER" ]; then
     echo "ERROR: Coordination lock helper not found at ${COORD_LOCK_HELPER}" >&2
     exit 1

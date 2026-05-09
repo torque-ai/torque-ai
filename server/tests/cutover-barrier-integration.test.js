@@ -459,6 +459,9 @@ describe('worktree-cutover.sh barrier integration', () => {
 
     it('holds the shared main coordination lock before touching main', () => {
       expect(scriptSource).toContain('repo-coordination-lock.sh');
+      expect(scriptSource).toContain('DEFAULT_COORD_LOCK_HELPER="${REPO_ROOT}/scripts/repo-coordination-lock.sh"');
+      expect(scriptSource).toContain('COORD_LOCK_HELPER="${TORQUE_COORD_LOCK_HELPER:-$DEFAULT_COORD_LOCK_HELPER}"');
+      expect(scriptSource).toContain('COORD_LOCK_HELPER="$DEFAULT_COORD_LOCK_HELPER"');
       expect(scriptSource).toContain('repo_coord_lock_acquire "main" "worktree cutover: ${FEATURE_NAME}"');
       expect(scriptSource).toContain('worktree_cutover_cleanup()');
       expect(scriptSource).toContain('repo_coord_lock_release || true');
@@ -478,6 +481,9 @@ describe('worktree-cutover.sh barrier integration', () => {
         'utf8'
       );
       expect(pruneSource).toContain('if [ "$APPLY" -eq 1 ]; then');
+      expect(pruneSource).toContain('DEFAULT_COORD_LOCK_HELPER="${REPO_ROOT}/scripts/repo-coordination-lock.sh"');
+      expect(pruneSource).toContain('COORD_LOCK_HELPER="${TORQUE_COORD_LOCK_HELPER:-$DEFAULT_COORD_LOCK_HELPER}"');
+      expect(pruneSource).toContain('COORD_LOCK_HELPER="$DEFAULT_COORD_LOCK_HELPER"');
       expect(pruneSource).toContain('repo_coord_lock_acquire "main" "merged worktree prune"');
       expect(pruneSource).toContain('trap prune_coord_lock_cleanup EXIT');
       expect(pruneSource).toContain('repo_coord_lock_release || true');
