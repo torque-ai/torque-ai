@@ -260,6 +260,7 @@ const BENIGN_FLOW_ACTION_EXACT = new Set([
   'skipped_shipping',        // shipping step skipped (WI already shipped or ineligible)
   'closed_work_item_loop_stopped', // WI closed because loop stopped
   'gate_approved',           // recovery's prior approval cleared a pause
+  'ready_for_stage_watchdog_released_occupant', // READY_FOR_* watchdog released a stale occupant
 ]);
 
 function isBenignFlowDecision(decision) {

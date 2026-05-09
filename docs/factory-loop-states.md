@@ -86,7 +86,7 @@ The audit's most important finding: **PAUSED is not a single state — it's the 
 |---|---|---|---|---|
 | **Gate pause** | Trust-level gate fires in `getNextState()` | `instance.paused_at_stage = <stage>` | `approveGate(<stage>)` | If set, `advanceLoop()` refuses to advance until cleared. |
 | **Project-wide operator pause** | `pause_project()` API | `project.status = 'paused'` | `resume_project()` API | `isProjectStatusPaused()` checked at every advance — returns early if true, **regardless of instance.paused_at_stage**. |
-| **Stage occupancy park** | `parkInstanceForStage()` after `StageOccupiedError` | `instance.paused_at_stage = 'READY_FOR_<stage>'` | Next `advanceLoop()` retries `tryMoveInstanceToStage()` | If still blocked, stays parked indefinitely. (Watchdog: `stuck-loop-detector.js` may alert; no auto-resolution.) |
+| **Stage occupancy park** | `parkInstanceForStage()` after `StageOccupiedError` | `instance.paused_at_stage = 'READY_FOR_<stage>'` | Next `advanceLoop()` retries `tryMoveInstanceToStage()` | If both the park and occupant exceed the watchdog threshold, and the occupant has no live batch tasks, `advanceLoop()` terminates the occupant and retries with a diagnostic decision. |
 | **Plan-generation deferral wait** | `deferExecutePlanTaskIfProjectPaused()` | `instance.paused_at_stage = 'EXECUTE'` (with a different reasoning than the gate variant) | `maybeClearDeferredPlanGenerationWait()` when task finishes / timeout | Same column as gate pause; readers must distinguish via the decision log's `action`. |
 | **VERIFY_FAIL pause** | Multiple `pause_at_stage: 'VERIFY_FAIL'` writes in `executeVerifyStage` | `instance.paused_at_stage = 'VERIFY_FAIL'` | `retryVerifyFromFailure()` operator API | Same column; treated as VERIFY for state-derivation. |
 
@@ -281,6 +281,7 @@ Frequently-emitted actions, by stage:
 | ANY | `auto_shipped` | `terminal` | `work_item_id`, `confidence`, `signals`, `reason` |
 | ANY | `paused_at_gate` | `recovery-rule` (rule: `execute_worktree_creation_fs_lock`) | `from_state`, `to_state`, `gate_stage`, `reason`, `work_item_id` |
 | ANY | `gate_approved` | `benign` | `approved_stage`, `from_state`, `to_state` |
+| ANY | `ready_for_stage_watchdog_released_occupant` | `benign` | `released_instance_id`, `target_stage`, `parked_stalled_minutes`, `occupant_stalled_minutes` |
 | ANY | `closed_work_item_loop_stopped` | `benign` | `work_item_id`, `work_item_status`, `reject_reason` |
 | ANY | `auto_recovery_classified` | `engine` | `category`, `matched_rule`, `suggested_strategies` |
 | ANY | `auto_recovery_exhausted` | `engine` | `reason` |
@@ -363,9 +364,9 @@ These are real ambiguities the audit surfaced. Each is worth addressing the next
 
 Operator approves a gate but project is also operator-paused → gate clears but `advanceLoop` returns early → loop appears wedged. Fixed: `approveGate()` now refuses on `project.status === 'paused'` with a clear error mirroring `startFactoryLoop`'s pre-flight check.
 
-### 2. `READY_FOR_<stage>` parking has no explicit watchdog
+### 2. ✅ ~~`READY_FOR_<stage>` parking has no explicit watchdog~~ RESOLVED 2026-05-09
 
-If a stage occupant crashes or is orphaned, an instance parked at `READY_FOR_<stage>` waits forever. `stuck-loop-detector.js` may alert but doesn't auto-resolve. Worth adding a "park older than X min → force advance with diagnostic" rule, or wiring the existing detector to call `cancel_task` on the stale occupant.
+`advanceLoop()` now runs a bounded watchdog before retrying a `READY_FOR_<stage>` move. If both the parked instance and the blocking stage occupant are older than the watchdog threshold, and the occupant has no non-terminal factory batch tasks, the occupant is terminated with `abandonWorktree: true`, a `ready_for_stage_watchdog_released_occupant` decision is recorded, and the parked instance retries the stage claim immediately. Occupants with live batch tasks remain untouched.
 
 ### 3. Two distinct meanings for `paused_at_stage = 'EXECUTE'`
 

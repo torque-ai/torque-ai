@@ -80,22 +80,20 @@ Cutover commit on main: see `git log --grep='legacy loop mirror'`.
 
 ---
 
-## What's still to do (3 sub-projects of the parent arc)
+## What's still to do (2 sub-projects of the parent arc)
 
-The parent state-machine rationalization arc was decomposed into 7 sub-projects. Sub-projects 1, 4, 5, and 6 are shipped. Three remain. Each is independently pickable; each gets its own brainstorm → spec → plan → execution cycle.
+The parent state-machine rationalization arc was decomposed into 7 sub-projects. Sub-projects 1, 2, 4, 5, and 6 are shipped. Two remain. Each is independently pickable; each gets its own brainstorm → spec → plan → execution cycle.
 
 The original decomposition lives in the brainstorming context for sub-project 1 (search `docs/superpowers/specs/2026-05-07-factory-decision-actions-catalog-design.md` for "Parent arc" reference).
 
 | # | Sub-project | Size | Dependencies | Notes |
 |---|---|---|---|---|
-| 2 | **`READY_FOR_<stage>` watchdog** | S | None | Operator-pain fix. Parked instances wait forever if stage occupant crashes. `stuck-loop-detector.js` may alert but doesn't auto-resolve. Add a "park older than X min → force advance with diagnostic" rule, or wire the existing detector to call `cancel_task` on the stale occupant. Open Q#2 in `docs/factory-loop-states.md`. |
 | 3 | **Disambiguate `paused_at_stage = 'EXECUTE'`** | M | None | Schema disambiguation. Two distinct meanings encode as one column value: gate-pause (operator approval pending at EXECUTE) vs plan-generation deferral wait. Readers distinguish via the most recent decision log entry, which is fragile. Worth either splitting the encoding (`EXECUTE` vs `EXECUTE_DEFERRED`) or making the deferral wait a separate column. Open Q#3. |
-| 7 | **Loop instance restart recovery** | M | Soft-depends on #2 | Behavioral. What happens to a project stuck at `READY_FOR_PLAN` if TORQUE restarts mid-park? `startup-task-reconciler.js` re-classifies tasks but the LOOP instance's `paused_at_stage` recovery on restart is less explicit. Worth confirming. Open Q#7. |
+| 7 | **Loop instance restart recovery** | M | Soft-depends on shipped #2 | Behavioral. What happens to a project stuck at `READY_FOR_PLAN` if TORQUE restarts mid-park? `startup-task-reconciler.js` re-classifies tasks but the LOOP instance's `paused_at_stage` recovery on restart is less explicit. Worth confirming. Open Q#7. |
 
 **Recommended order when picking back up:**
 
-- **Tackle #2 next.** Real operator-pain fix; sets up #7 cleanly.
-- **#7 after #2.** They overlap in the watchdog/restart-recovery story.
+- **Tackle #7 next.** The watchdog is now in place, so restart recovery is the natural follow-up.
 - **#3 last.** Schema change; biggest blast radius.
 
 ---
@@ -108,7 +106,7 @@ The original decomposition lives in the brainstorming context for sub-project 1 
 2. Confirm `git log --oneline -5` on `main` shows the three merges from this session: `590977d2` (auto-ship), `9a8b9132` (catalog), and the lanes merge.
 3. Verify CI gate is live: `cd server && npx vitest run tests/factory-decision-actions-catalog.test.js`. Expected: 5 tests pass.
 4. Verify audit is clean: `node server/factory/scripts/audit-decision-actions.js`. Expected: exit 0, "All gap categories empty."
-5. Pick a sub-project (see table above). Recommend #2 next.
+5. Pick a sub-project (see table above). Recommend #7 next.
 
 ### Per-sub-project flow
 
@@ -270,5 +268,5 @@ $ git stash list
 1. Read this doc top to bottom.
 2. Verify `main` is clean of our work-state (other sessions' WIP is fine, just not ours).
 3. Check Pending Problem #1 — is TORQUE running the new code? `mcp tool ping` and verify the version/SHA matches `main`.
-4. If picking up the parent arc, choose a sub-project from the table above. Recommended: #2 next.
+4. If picking up the parent arc, choose a sub-project from the table above. Recommended: #7 next.
 5. If picking up something else entirely, this doc is the snapshot to come back to later.

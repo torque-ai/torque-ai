@@ -215,6 +215,7 @@ const PENDING_APPROVAL_SUCCESS_TASK_STATUSES = new Set(['completed', 'shipped'])
 const PENDING_APPROVAL_FAILURE_TASK_STATUSES = new Set(['failed', 'cancelled']);
 const LIVE_WORKTREE_OWNER_STATUSES = new Set(['queued', 'running', 'pending', 'retry_scheduled']);
 const REUSABLE_WORKTREE_OWNER_STATUSES = new Set(['completed']);
+const TERMINAL_FACTORY_BATCH_TASK_STATUSES = new Set(['completed', 'shipped', 'cancelled', 'failed', 'skipped']);
 const REPLACEMENT_WORKTREE_OWNER_STATUSES = new Set([
   ...LIVE_WORKTREE_OWNER_STATUSES,
   ...REUSABLE_WORKTREE_OWNER_STATUSES,
@@ -224,6 +225,7 @@ const EXECUTION_TERMINAL_DECISION_ACTIONS = Object.freeze([
   'execution_failed',
   'started_execution',
 ]);
+const READY_FOR_STAGE_WATCHDOG_MS = 30 * 60 * 1000;
 const EXECUTE_DEFERRED_STALE_MS = 24 * 60 * 60 * 1000;
 const POLL_MS = 2000;
 const STARVATION_THRESHOLD = 3;
@@ -1730,6 +1732,75 @@ function tryMoveInstanceToStage(instance, stage, updates = {}) {
     }
     throw error;
   }
+}
+
+function getReadyForStageAgeMs(instance, nowMs = Date.now()) {
+  const lastActionMs = parseFactoryTimestampMs(instance?.last_action_at);
+  return Number.isFinite(lastActionMs) ? nowMs - lastActionMs : Number.NaN;
+}
+
+function instanceHasNonTerminalFactoryBatchTasks(instance) {
+  if (!instance?.batch_id) {
+    return false;
+  }
+  return listTasksForFactoryBatch(instance.batch_id)
+    .some((task) => !TERMINAL_FACTORY_BATCH_TASK_STATUSES.has(String(task.status || '').toLowerCase()));
+}
+
+function maybeReleaseStaleReadyForStageOccupant(project, parkedInstance, targetStage, nowMs = Date.now()) {
+  const parkedAgeMs = getReadyForStageAgeMs(parkedInstance, nowMs);
+  if (!Number.isFinite(parkedAgeMs) || parkedAgeMs <= READY_FOR_STAGE_WATCHDOG_MS) {
+    return { released: false, reason: 'park_not_stale' };
+  }
+
+  const occupant = factoryLoopInstances.getStageOccupant(project.id, targetStage);
+  if (!occupant || occupant.id === parkedInstance.id) {
+    return { released: false, reason: 'no_blocking_occupant' };
+  }
+
+  const occupantAgeMs = getReadyForStageAgeMs(occupant, nowMs);
+  if (!Number.isFinite(occupantAgeMs) || occupantAgeMs <= READY_FOR_STAGE_WATCHDOG_MS) {
+    return { released: false, reason: 'occupant_not_stale', occupant };
+  }
+
+  if (instanceHasNonTerminalFactoryBatchTasks(occupant)) {
+    return { released: false, reason: 'occupant_has_live_batch_tasks', occupant };
+  }
+
+  const terminated = terminateInstanceAndSync(occupant.id, { abandonWorktree: true });
+
+  safeLogDecision({
+    project_id: project.id,
+    stage: targetStage,
+    action: 'ready_for_stage_watchdog_released_occupant',
+    reasoning: `A loop instance parked at READY_FOR_${targetStage} exceeded the watchdog threshold and the blocking ${targetStage} occupant had no live batch tasks, so the occupant was terminated to release stage occupancy.`,
+    inputs: {
+      parked_instance_id: parkedInstance.id,
+      parked_at_stage: parkedInstance.paused_at_stage,
+      parked_last_action_at: parkedInstance.last_action_at || null,
+      occupant_instance_id: occupant.id,
+      occupant_state: occupant.loop_state,
+      occupant_last_action_at: occupant.last_action_at || null,
+      occupant_batch_id: occupant.batch_id || null,
+      threshold_ms: READY_FOR_STAGE_WATCHDOG_MS,
+    },
+    outcome: {
+      released_instance_id: occupant.id,
+      target_stage: targetStage,
+      parked_stalled_minutes: Math.floor(parkedAgeMs / (60 * 1000)),
+      occupant_stalled_minutes: Math.floor(occupantAgeMs / (60 * 1000)),
+    },
+    confidence: 1,
+    batch_id: parkedInstance.batch_id || occupant.batch_id || null,
+  });
+
+  return {
+    released: true,
+    occupant,
+    terminated,
+    parkedAgeMs,
+    occupantAgeMs,
+  };
 }
 
 function normalizeDecisionStage(stage) {
@@ -13111,20 +13182,31 @@ async function runAdvanceLoop(instance_id) {
 
   if (isReadyForStage(pausedAtStage)) {
     const targetStage = getReadyStage(pausedAtStage);
+    const watchdog = maybeReleaseStaleReadyForStageOccupant(project, instance, targetStage);
     const moved = tryMoveInstanceToStage(instance, targetStage, {
       paused_at_stage: getPendingGateStage(previousState, project.trust_level) === targetStage ? targetStage : null,
       batch_id: instance.batch_id,
       work_item_id: instance.work_item_id,
     });
     instance = moved.instance;
+    const recovered = watchdog.released && !moved.blocked;
     return {
       project_id: project.id,
       instance_id: instance.id,
       previous_state: previousState,
       new_state: getCurrentLoopState(instance),
       paused_at_stage: getPausedAtStage(instance),
-      stage_result: null,
-      reason: moved.blocked ? 'stage_occupied' : 'stage_ready',
+      stage_result: watchdog.released ? {
+        status: recovered ? 'recovered' : 'watchdog_released_occupant',
+        recovery: 'ready_for_stage_watchdog',
+        target_stage: targetStage,
+        released_instance_id: watchdog.occupant.id,
+        parked_stalled_minutes: Math.floor(watchdog.parkedAgeMs / (60 * 1000)),
+        occupant_stalled_minutes: Math.floor(watchdog.occupantAgeMs / (60 * 1000)),
+      } : null,
+      reason: recovered
+        ? 'ready_for_stage_watchdog_released_occupant'
+        : (moved.blocked ? 'stage_occupied' : 'stage_ready'),
     };
   }
 

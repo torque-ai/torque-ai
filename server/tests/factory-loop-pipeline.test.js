@@ -122,6 +122,18 @@ function createFactoryTables(db) {
       batch_id TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
+
+    CREATE TABLE IF NOT EXISTS tasks (
+      id TEXT PRIMARY KEY,
+      task_description TEXT,
+      status TEXT NOT NULL,
+      provider TEXT,
+      model TEXT,
+      tags TEXT,
+      created_at TEXT,
+      started_at TEXT,
+      completed_at TEXT
+    );
   `);
 }
 
@@ -163,6 +175,25 @@ function createPlanWorkItem(project_id, rootDir, name) {
     requestor: 'test',
     origin: { plan_path: planPath },
   });
+}
+
+function insertBatchTask(db, { id, batchId, status }) {
+  db.prepare(`
+    INSERT INTO tasks (
+      id,
+      task_description,
+      status,
+      tags,
+      created_at
+    )
+    VALUES (?, ?, ?, ?, ?)
+  `).run(
+    id,
+    'factory batch task',
+    status,
+    JSON.stringify([`factory:batch_id=${batchId}`]),
+    new Date().toISOString(),
+  );
 }
 
 function createRouteResponse() {
@@ -310,6 +341,75 @@ describe('factory loop pipeline parallelism', () => {
       paused_at_stage: null,
       reason: 'stage_ready',
     });
+  });
+
+  it('releases a stale READY_FOR stage occupant with no live batch tasks', async () => {
+    const project = registerProject();
+    const staleAt = new Date(Date.now() - (31 * 60 * 1000)).toISOString();
+    const blocker = seedInstance(project.id, {
+      loop_state: LOOP_STATES.PRIORITIZE,
+      last_action_at: staleAt,
+    });
+    const started = loopController.startLoop(project.id);
+    await loopController.advanceLoop(started.instance_id);
+    factoryLoopInstances.updateInstance(started.instance_id, {
+      paused_at_stage: 'READY_FOR_PRIORITIZE',
+      last_action_at: staleAt,
+    });
+
+    const resumed = await loopController.advanceLoop(started.instance_id);
+
+    expect(resumed).toMatchObject({
+      instance_id: started.instance_id,
+      new_state: LOOP_STATES.PRIORITIZE,
+      paused_at_stage: null,
+      reason: 'ready_for_stage_watchdog_released_occupant',
+      stage_result: {
+        status: 'recovered',
+        recovery: 'ready_for_stage_watchdog',
+        released_instance_id: blocker.id,
+        target_stage: LOOP_STATES.PRIORITIZE,
+      },
+    });
+    expect(factoryLoopInstances.getInstance(blocker.id).terminated_at).toBeTruthy();
+    expect(factoryLoopInstances.getStageOccupant(project.id, LOOP_STATES.PRIORITIZE).id).toBe(started.instance_id);
+
+    const watchdogDecision = factoryDecisions.listDecisions(project.id, { limit: 20 })
+      .find((decision) => decision.action === 'ready_for_stage_watchdog_released_occupant');
+    expect(watchdogDecision).toBeTruthy();
+    expect(watchdogDecision.outcome).toMatchObject({
+      released_instance_id: blocker.id,
+      target_stage: LOOP_STATES.PRIORITIZE,
+    });
+  });
+
+  it('keeps READY_FOR parked when the stale occupant still has live batch tasks', async () => {
+    const project = registerProject();
+    const staleAt = new Date(Date.now() - (31 * 60 * 1000)).toISOString();
+    const batchId = 'factory-live-ready-for-blocker';
+    const blocker = seedInstance(project.id, {
+      loop_state: LOOP_STATES.PRIORITIZE,
+      batch_id: batchId,
+      last_action_at: staleAt,
+    });
+    insertBatchTask(db, { id: 'live-ready-for-task', batchId, status: 'running' });
+    const started = loopController.startLoop(project.id);
+    await loopController.advanceLoop(started.instance_id);
+    factoryLoopInstances.updateInstance(started.instance_id, {
+      paused_at_stage: 'READY_FOR_PRIORITIZE',
+      last_action_at: staleAt,
+    });
+
+    const stillParked = await loopController.advanceLoop(started.instance_id);
+
+    expect(stillParked).toMatchObject({
+      instance_id: started.instance_id,
+      new_state: LOOP_STATES.SENSE,
+      paused_at_stage: 'READY_FOR_PRIORITIZE',
+      reason: 'stage_occupied',
+    });
+    expect(factoryLoopInstances.getInstance(blocker.id).terminated_at).toBeNull();
+    expect(factoryLoopInstances.getStageOccupant(project.id, LOOP_STATES.PRIORITIZE).id).toBe(blocker.id);
   });
 
   it('PRIORITIZE skips already-claimed items and claims a different work item for the advancing instance', async () => {

@@ -710,6 +710,11 @@ const DECISION_ACTIONS = {
     classifier: 'benign',
     outcome: ['approved_stage', 'from_state', 'to_state'],
   },
+  ready_for_stage_watchdog_released_occupant: {
+    stage: 'ANY',
+    classifier: 'benign',
+    outcome: ['released_instance_id', 'target_stage', 'parked_stalled_minutes', 'occupant_stalled_minutes'],
+  },
   closed_work_item_loop_stopped: {
     stage: 'ANY',
     classifier: 'benign',
