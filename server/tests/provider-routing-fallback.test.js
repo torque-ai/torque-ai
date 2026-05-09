@@ -5,10 +5,11 @@
  */
 
 const { setupTestDb, teardownTestDb, safeTool: rawSafeTool, getText } = require('./vitest-setup');
+const fs = require('fs');
 const os = require('os');
 const _path = require('path');
 
-const suiteRepoDir = _path.resolve(__dirname, '..', '..');
+let suiteTaskDir;
 
 function safeTool(name, args = {}) {
   const payload = { ...args };
@@ -17,14 +18,31 @@ function safeTool(name, args = {}) {
     payload.project = 'test-project';
   }
   if (!Object.prototype.hasOwnProperty.call(payload, 'working_directory')) {
-    payload.working_directory = suiteRepoDir;
+    payload.working_directory = suiteTaskDir;
   }
   return rawSafeTool(name, payload);
 }
 
 describe('Provider Routing & Fallback', { retry: 2 }, () => {
-  beforeAll(() => { setupTestDb('providers'); });
-  afterAll(() => { teardownTestDb(); });
+  beforeAll(() => {
+    setupTestDb('providers');
+    suiteTaskDir = fs.mkdtempSync(_path.join(os.tmpdir(), 'torque-provider-routing-'));
+    fs.writeFileSync(_path.join(suiteTaskDir, 'main.js'), 'module.exports = {};\n', 'utf8');
+
+    const taskManager = require('../task-manager');
+    vi.spyOn(taskManager, 'processQueue').mockReturnValue(undefined);
+    const ciWatcher = require('../ci/watcher');
+    vi.spyOn(ciWatcher, 'autoActivateForRepo').mockReturnValue(undefined);
+  });
+
+  afterAll(() => {
+    vi.restoreAllMocks();
+    if (suiteTaskDir) {
+      fs.rmSync(suiteTaskDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+      suiteTaskDir = null;
+    }
+    teardownTestDb();
+  });
 
   describe('smart_submit_task', () => {
     it('accepts valid task', async () => {
@@ -90,11 +108,16 @@ describe('Provider Routing & Fallback', { retry: 2 }, () => {
     });
 
     it('accepts working_directory', async () => {
-      const result = await safeTool('smart_submit_task', {
-        task: 'Create a test file',
-        working_directory: os.tmpdir()
-      });
-      expect(result.isError).toBeFalsy();
+      const workDir = fs.mkdtempSync(_path.join(os.tmpdir(), 'torque-provider-routing-explicit-'));
+      try {
+        const result = await safeTool('smart_submit_task', {
+          task: 'Create a test file',
+          working_directory: workDir
+        });
+        expect(result.isError).toBeFalsy();
+      } finally {
+        fs.rmSync(workDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+      }
     });
 
     it('accepts files array', async () => {
