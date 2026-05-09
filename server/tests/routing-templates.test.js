@@ -85,6 +85,26 @@ describe('seedPresets', () => {
     expect(providers.length).toBeGreaterThanOrEqual(2);
   });
 
+  it('Codex Primary routes targeted_file_edit through codex-spark before full codex', () => {
+    const tmpl = mod.getTemplateByName('Codex Primary');
+    expect(tmpl).not.toBeNull();
+    const chain = Array.isArray(tmpl.rules.targeted_file_edit)
+      ? tmpl.rules.targeted_file_edit
+      : [tmpl.rules.targeted_file_edit];
+    expect(chain.map((r) => (typeof r === 'string' ? r : r.provider)).slice(0, 2))
+      .toEqual(['codex-spark', 'codex']);
+  });
+
+  it('System Default keeps free targeted edits first, then uses codex-spark before full codex', () => {
+    const tmpl = mod.getTemplateByName('System Default');
+    expect(tmpl).not.toBeNull();
+    const chain = Array.isArray(tmpl.rules.targeted_file_edit)
+      ? tmpl.rules.targeted_file_edit
+      : [tmpl.rules.targeted_file_edit];
+    expect(chain.map((r) => (typeof r === 'string' ? r : r.provider)))
+      .toEqual(['cerebras', 'codex-spark', 'codex']);
+  });
+
   it('Legacy Fallback (auto) preset exists with the categories promoted from matchProviderByPattern', () => {
     // Phase A of the routing-templates fold-in: the security / xaml_wpf
     // / architectural / reasoning / large_code_gen routing that used to

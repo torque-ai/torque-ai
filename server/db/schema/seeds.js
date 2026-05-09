@@ -127,6 +127,9 @@ function seedDefaults(db, logger, safeAddColumn, extras = {}) {
   insertProvider.run('codex', 1, 1, 'codex', 'hybrid', null, JSON.stringify([
       'quota exceeded', 'rate limit', 'weekly limit', 'usage limit', 'too many requests', '429'
     ]), 10, now);
+  insertProvider.run('codex-spark', 1, 2, 'codex', 'hybrid', null, JSON.stringify([
+      'quota exceeded', 'rate limit', 'weekly limit', 'usage limit', 'too many requests', '429'
+    ]), 10, now);
   insertProvider.run('claude-cli', 1, 2, 'claude', 'cli', null, JSON.stringify([
       'hit your limit', 'rate limit', 'resets', '429', 'quota exceeded', 'too many requests'
     ]), 10, now);
@@ -166,7 +169,7 @@ function seedDefaults(db, logger, safeAddColumn, extras = {}) {
       'rate_limit', '429', 'model_not_available', 'server_error'
     ]), 50, now);
   const providerTypes = {
-    codex: 'cloud-cli', 'claude-cli': 'cloud-cli', 'claude-code-sdk': 'cloud-cli',
+    codex: 'cloud-cli', 'codex-spark': 'cloud-cli', 'claude-cli': 'cloud-cli', 'claude-code-sdk': 'cloud-cli',
     'claude-ollama': 'local-cli',
     ollama: 'ollama',
     anthropic: 'cloud-api', deepinfra: 'cloud-api', groq: 'cloud-api',
@@ -188,6 +191,7 @@ function seedDefaults(db, logger, safeAddColumn, extras = {}) {
   }
   const PROVIDER_CAPABILITIES = {
     codex: { capabilities: ['file_creation', 'file_edit', 'multi_file', 'reasoning'], band: 'A' },
+    'codex-spark': { capabilities: ['file_edit', 'reasoning'], band: 'A' },
     'claude-cli': { capabilities: ['file_creation', 'file_edit', 'multi_file', 'reasoning'], band: 'A' },
     'claude-code-sdk': { capabilities: ['file_creation', 'file_edit', 'multi_file', 'reasoning'], band: 'A' },
     'claude-ollama': { capabilities: ['file_edit', 'reasoning', 'code_review'], band: 'C' },

@@ -440,9 +440,12 @@ export default function RoutingTemplates() {
         setActiveTemplateId(null);
         toast.success('Template deactivated — using built-in routing');
       } else {
-        await api.setActive({ template_id: selectedId });
+        const result = await api.setActive({ template_id: selectedId });
         setActiveTemplateId(selectedId);
         toast.success(`Activated template '${selectedTemplate.name}' for routing`);
+        for (const warning of result?.warnings || []) {
+          if (warning?.message) toast.warning?.(warning.message);
+        }
       }
     } catch (err) {
       toast.error(`Activate failed: ${err.message}`);

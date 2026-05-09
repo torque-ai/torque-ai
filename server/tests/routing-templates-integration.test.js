@@ -5,11 +5,13 @@ describe('analyzeTaskForRouting with routing templates', () => {
   let db;
   let providerRouting;
   let templateStore;
+  let routingHandlers;
 
   beforeAll(() => {
     ({ db } = setupTestDbOnly('routing-templates-integration'));
     providerRouting = require('../db/provider/routing-core');
     templateStore = require('../routing/template-store');
+    routingHandlers = require('../handlers/routing-template-handlers');
 
     // Enable smart routing
     db.setConfig('smart_routing_enabled', '1');
@@ -119,5 +121,23 @@ describe('analyzeTaskForRouting with routing templates', () => {
     }
 
     templateStore.deleteTemplate(custom.id);
+  });
+
+  it('returns activation warnings when primary providers are disabled', () => {
+    const systemDefault = templateStore.getTemplateByName('System Default');
+    expect(systemDefault).toBeTruthy();
+
+    const result = routingHandlers.handleActivateRoutingTemplate({ id: systemDefault.id });
+    expect(result?.isError).toBeFalsy();
+
+    const payload = JSON.parse(result.content[0].text);
+    expect(payload.message).toContain('System Default');
+    expect(payload.warnings).toHaveLength(1);
+    expect(payload.warnings[0]).toMatchObject({
+      code: 'routing_template_primary_unavailable',
+      severity: 'warning',
+    });
+    expect(payload.warnings[0].providers.map((entry) => entry.provider))
+      .toEqual(expect.arrayContaining(['cerebras', 'groq']));
   });
 });

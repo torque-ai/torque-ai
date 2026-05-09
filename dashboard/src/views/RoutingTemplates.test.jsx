@@ -36,7 +36,7 @@ vi.mock('../api', () => ({
 }));
 
 vi.mock('../components/Toast', () => ({
-  useToast: () => ({ success: vi.fn(), error: vi.fn() }),
+  useToast: () => ({ success: vi.fn(), error: vi.fn(), warning: vi.fn() }),
 }));
 
 describe('RoutingTemplates', () => {

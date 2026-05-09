@@ -44,6 +44,7 @@
       {"provider": "ollama"}
     ],
     "targeted_file_edit": [
+      {"provider": "codex-spark"},
       {"provider": "codex"},
       {"provider": "claude-cli"},
       {"provider": "ollama"}

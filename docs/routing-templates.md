@@ -10,7 +10,7 @@ This doc is the canonical reference for the 11 preset templates, the schema they
 
 - **11 preset templates** in `server/routing/templates/*.json`. Each is a small JSON file (~21–86 lines).
 - **10 canonical task categories** (declared in `server/routing/category-classifier.js`): `security`, `xaml_wpf`, `architectural`, `reasoning`, `large_code_gen`, `documentation`, `simple_generation`, `targeted_file_edit`, `plan_generation`, `default`.
-- **11 active providers** referenced across templates: `ollama`, `codex`, `claude-cli`, `cerebras`, `groq`, `google-ai`, `openrouter`, `ollama-cloud`, `anthropic`, `deepinfra`, `hyperbolic`. Two documented providers are NOT used in any template: `codex-spark` and `claude-ollama` — see open question #1.
+- **12 active providers** referenced across templates: `ollama`, `codex`, `codex-spark`, `claude-cli`, `cerebras`, `groq`, `google-ai`, `openrouter`, `ollama-cloud`, `anthropic`, `deepinfra`, `hyperbolic`. `claude-ollama` is documented but not used in templates — see open question #2.
 - **Real bug found in this audit and fixed**: `codex-down-failover.json` had a `tests` chain, but `tests` is NOT a canonical category — the resolver never reads it. Removed. Coverage test added so the same drift can't happen again.
 
 ---
@@ -39,6 +39,20 @@ The validator (in `server/routing/template-store.js validateTemplate`) accepts b
 
 ---
 
+## Resolution Precedence
+
+The resolver consults routing intent in this order:
+
+1. **User provider override** — an explicit provider on the task bypasses template evaluation and preserves the user's provider intent.
+2. **Per-task routing template** — `taskMetadata._routing_template` can select a template for one task.
+3. **Global active routing template** — an explicitly activated template runs next. Clearing the active template means there is no explicit global template.
+4. **Legacy Fallback (auto)** — `legacy-fallback.json` mirrors the old pattern rules and runs as a tail template only when the per-task and active templates did not return a provider.
+5. **Smart routing defaults** — pattern routing, complexity routing, legacy routing rules, and finally the configured default provider.
+
+Template chains are walked in order, skipping disabled provider rows, quota-exhausted providers, and providers blocked by the template's capability constraints. Activating a template now returns a warning when any primary provider in the template is disabled or missing required API-key configuration; it does not block activation.
+
+---
+
 ## The 11 templates
 
 Strategy summary, primary providers per category. Each row's "primary" column is the first provider in that category's chain.
@@ -51,7 +65,7 @@ Codex for hard problems, free cloud for everything else. Balanced cost vs qualit
 | security, xaml_wpf, architectural, reasoning, large_code_gen | codex | cerebras, ollama-cloud (kimi-k2, mistral-large-3) |
 | documentation | groq (gpt-oss-120b) | cerebras, google-ai |
 | simple_generation, plan_generation | cerebras (qwen-3-235b) | groq, ollama |
-| targeted_file_edit | cerebras | codex |
+| targeted_file_edit | cerebras | codex-spark, codex |
 | default | cerebras | google-ai, codex |
 
 Has `complexity_overrides` for `targeted_file_edit.complex` and `default.complex` → codex + ollama-cloud (kimi-k2).
@@ -71,7 +85,8 @@ Codex for action work, text-gen providers for plan generation.
 
 | Category | Primary | Notable fallbacks |
 |---|---|---|
-| All except plan_generation | codex | claude-cli, ollama |
+| targeted_file_edit | codex-spark | codex, claude-cli, ollama |
+| All except targeted_file_edit and plan_generation | codex | claude-cli, ollama |
 | plan_generation | codex | cerebras, groq, ollama |
 
 (2026-05-04 fix: plan_generation used to lead with cerebras; that was a real prod bug. See `project_codex_primary_plan_routing.md` in memory.)
@@ -163,27 +178,23 @@ Carries `capability_constraints`: `{ max_files: { groq: 1 }, greenfield_provider
 
 ## Open questions / risks
 
-### 1. `codex-spark` not used in any template
+### 1. ~~`codex-spark` not used in any template~~ ✅ RESOLVED 2026-05-09
 
-`codex-spark` is documented as "Fast single-file edits (gpt-5.3-codex-spark model)" — purpose-built for `targeted_file_edit`. But no template's `targeted_file_edit` chain leads with it; most lead with cerebras or codex (full).
+`codex-spark` is documented as "Fast single-file edits (gpt-5.3-codex-spark model)" and is purpose-built for `targeted_file_edit`.
 
-This is a product/UX call, not a definite bug:
-- **For**: putting codex-spark first in `targeted_file_edit` chains for `codex-primary` and `quality-first` would give faster, cheaper single-file edits without quality loss for the common case.
-- **Against**: `quality-first`'s thesis is "use full codex for everything" — switching to codex-spark contradicts that.
-
-**Action item**: Decide whether `codex-spark` belongs in any preset's `targeted_file_edit` chain. If yes, update `codex-primary.json` and `system-default.json` (most likely candidates).
+**Fix landed**: `codex-primary.json` now leads `targeted_file_edit` with `codex-spark`, and `system-default.json` now falls through from free `cerebras` to `codex-spark` before full `codex`. `codex-spark` is also seeded into `provider_config` so the routing resolver can actually select it from template chains.
 
 ### 2. `claude-ollama` not used in any template
 
 Same shape as #1 — `claude-ollama` (Claude Code CLI driving local Ollama models) is documented but unused in templates. Probably intentional (it's a special-case use), but worth flagging.
 
-### 3. Default-disabled providers as primaries
+### 3. ~~Default-disabled providers as primaries~~ ✅ RESOLVED 2026-05-09
 
 Several templates lead with providers that are disabled-by-default unless the operator sets the API key + runs `configure_provider`:
 - `cost-saver`, `system-default`, `cloud-sprint`, `free-speed`, `free-agentic` lead with cerebras/groq/google-ai for many categories.
 - If the operator activates one of these templates without enabling those providers, the chain falls through to codex/ollama. The shape is "graceful degradation" rather than failure, but the operator's stated intent (e.g., "I want cheap") doesn't get honored.
 
-**Action item**: Consider an activation-time warning when a template's primary providers aren't enabled. Or a dashboard hint.
+**Fix landed**: activating a template now returns a structured warning when any primary provider is disabled, missing from `provider_config`, or missing required API-key configuration. The dashboard surfaces the warning as an amber toast; activation still succeeds and routing still falls through each chain.
 
 ### 4. ~~Validator stricter than resolver (empty-chain drift)~~ ✅ RESOLVED 2026-05-06
 
@@ -193,9 +204,9 @@ The resolver (`resolveProvider`) handles empty chains correctly: `if (chain.leng
 
 **Fix landed**: validator now accepts empty arrays as "fall through" markers (same effect as `undefined`, matches resolver behavior). New regression test pins every preset to validator-passes so future drift between presets and user-shape is caught at test time, not via the validator-bypass loophole.
 
-### 5. Template precedence order is not documented in the templates themselves
+### 5. ~~Template precedence order is not documented in the templates themselves~~ ✅ RESOLVED 2026-05-09
 
-Per CLAUDE.md: "User override > per-task template > global active template > smart routing defaults." But the `legacy-fallback.json` description says it "runs only when no explicit per-task or active template returned a chain" — implying yet another tier. Total tiers: per-task user override → per-task template → global active template → legacy-fallback (auto) → smart routing defaults. **Action item**: codify this in `docs/routing.md` or here, with the exact order the resolver consults.
+See **Resolution Precedence** above for the exact order: user provider override → per-task template → global active template → legacy-fallback (auto) → smart routing defaults.
 
 ---
 

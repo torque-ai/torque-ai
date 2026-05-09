@@ -437,7 +437,13 @@ const V2_CP_HANDLER_LOOKUP = {
       throwToolResultError({ ...result, status: 404 });
     }
     const text = result?.content?.[0]?.text || '';
-    sendJson(res, { data: { message: text }, meta: { request_id: ctx.requestId } }, 200, req);
+    let data;
+    try {
+      data = JSON.parse(text);
+    } catch {
+      data = { message: text, warnings: [] };
+    }
+    sendJson(res, { data, meta: { request_id: ctx.requestId } }, 200, req);
   },
   handleV2CpListCategories: (req, res, ctx) => {
 

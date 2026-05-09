@@ -166,6 +166,7 @@ describe('db/schema/seeds', () => {
     }
 
     expect(providers.some((row) => row.provider === 'codex')).toBe(true);
+    expect(providers.some((row) => row.provider === 'codex-spark')).toBe(true);
     expect(providers.some((row) => row.provider === 'claude-cli')).toBe(true);
     expect(providers.some((row) => row.provider === 'claude-code-sdk')).toBe(true);
     expect(providers.some((row) => row.provider === 'ollama')).toBe(true);
@@ -175,7 +176,7 @@ describe('db/schema/seeds', () => {
     const rows = db.prepare(`
       SELECT provider, capability_tags, quality_band
       FROM provider_config
-      WHERE provider IN ('codex', 'claude-cli', 'claude-code-sdk', 'ollama', 'ollama-cloud', 'groq')
+      WHERE provider IN ('codex', 'codex-spark', 'claude-cli', 'claude-code-sdk', 'ollama', 'ollama-cloud', 'groq')
       ORDER BY provider
     `).all();
     const byProvider = Object.fromEntries(rows.map((row) => [row.provider, row]));
@@ -187,6 +188,11 @@ describe('db/schema/seeds', () => {
       'reasoning',
     ]);
     expect(byProvider.codex.quality_band).toBe('A');
+    expect(JSON.parse(byProvider['codex-spark'].capability_tags)).toEqual([
+      'file_edit',
+      'reasoning',
+    ]);
+    expect(byProvider['codex-spark'].quality_band).toBe('A');
     expect(JSON.parse(byProvider['claude-cli'].capability_tags)).toEqual([
       'file_creation',
       'file_edit',
