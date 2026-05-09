@@ -1,14 +1,68 @@
 const fs = require('fs');
 const path = require('path');
 
-const PORT = Number.parseInt(process.env.TORQUE_MCP_GATEWAY_PORT, 10);
-const BASE_URL = process.env.TORQUE_MCP_GATEWAY_URL
-  || `http://127.0.0.1:${Number.isFinite(PORT) && PORT > 0 ? PORT : 3459}`;
-const ARTIFACT_DIR = path.resolve(__dirname, '..', 'artifacts', 'mcp');
-const PACK_PATH = path.join(ARTIFACT_DIR, 'readiness-pack.json');
+const ROOT_DIR = path.resolve(__dirname, '..');
+const DEFAULT_ARTIFACT_DIR = path.resolve(ROOT_DIR, 'artifacts', 'mcp');
+const CONTROL_ARTIFACTS = {
+  rbac: 'rbac-validation.json',
+  rateLimit: 'rate-limit-validation.json',
+  policyTools: 'policy-tools-validation.json',
+  killSwitch: 'killswitch.json',
+  dualAgent: 'dual-agent-validation.json',
+  matrix: 'evidence-matrix-run.json',
+};
+const CONTROL_ALIASES = new Map(Object.keys(CONTROL_ARTIFACTS).map((key) => [key.toLowerCase(), key]));
+CONTROL_ALIASES.set('ratelimit', 'rateLimit');
+CONTROL_ALIASES.set('policytools', 'policyTools');
+CONTROL_ALIASES.set('killswitch', 'killSwitch');
+CONTROL_ALIASES.set('dualagent', 'dualAgent');
 
-function readArtifact(name) {
-  const p = path.join(ARTIFACT_DIR, name);
+function resolveServerPath(rawPath, fallbackPath = null) {
+  if (!rawPath) {
+    return fallbackPath;
+  }
+  if (path.isAbsolute(rawPath)) {
+    return rawPath;
+  }
+
+  const adjustedPath = rawPath.replace(/^\.?[\\/]*server[\\/]+/i, '');
+  return path.resolve(ROOT_DIR, adjustedPath);
+}
+
+function artifactDirFromEnv(env = process.env) {
+  return resolveServerPath(env.TORQUE_MCP_ARTIFACT_DIR || null, DEFAULT_ARTIFACT_DIR);
+}
+
+function baseUrlFromEnv(env = process.env) {
+  const port = Number.parseInt(env.TORQUE_MCP_GATEWAY_PORT, 10);
+  return env.TORQUE_MCP_GATEWAY_URL
+    || `http://127.0.0.1:${Number.isFinite(port) && port > 0 ? port : 3459}`;
+}
+
+function resolveRequiredControls(rawValue = process.env.TORQUE_MCP_READINESS_REQUIRED) {
+  if (!rawValue || String(rawValue).trim().length === 0 || String(rawValue).trim().toLowerCase() === 'all') {
+    return Object.keys(CONTROL_ARTIFACTS);
+  }
+
+  const resolved = [];
+  for (const token of String(rawValue).split(/[,\s]+/)) {
+    const trimmed = token.trim();
+    if (!trimmed || trimmed.toLowerCase() === 'health') {
+      continue;
+    }
+    const key = CONTROL_ALIASES.get(trimmed.toLowerCase());
+    if (!key) {
+      throw new Error(`Unknown MCP readiness control "${trimmed}".`);
+    }
+    if (!resolved.includes(key)) {
+      resolved.push(key);
+    }
+  }
+  return resolved;
+}
+
+function readArtifact(name, artifactDir = artifactDirFromEnv()) {
+  const p = path.join(artifactDir, name);
   try {
     const raw = fs.readFileSync(p, 'utf8');
     return JSON.parse(raw);
@@ -20,8 +74,8 @@ function readArtifact(name) {
   }
 }
 
-function artifactStatus(name) {
-  const data = readArtifact(name);
+function artifactStatus(name, artifactDir = artifactDirFromEnv()) {
+  const data = readArtifact(name, artifactDir);
   if (!data) {
     return 'missing';
   }
@@ -38,9 +92,21 @@ function artifactStatus(name) {
   return data?.status || 'missing';
 }
 
-async function gatewayHealth() {
+function controlStatuses(artifactDir = artifactDirFromEnv()) {
+  return {
+    rbac: artifactStatus(CONTROL_ARTIFACTS.rbac, artifactDir),
+    rateLimit: artifactStatus(CONTROL_ARTIFACTS.rateLimit, artifactDir),
+    policyTools: artifactStatus(CONTROL_ARTIFACTS.policyTools, artifactDir),
+    killSwitch: artifactStatus(CONTROL_ARTIFACTS.killSwitch, artifactDir),
+    dualAgent: artifactStatus(CONTROL_ARTIFACTS.dualAgent, artifactDir),
+    matrix: artifactStatus(CONTROL_ARTIFACTS.matrix, artifactDir),
+    matrixArtifactPath: path.relative(process.cwd(), path.join(artifactDir, CONTROL_ARTIFACTS.matrix)),
+  };
+}
+
+async function gatewayHealth(baseUrl = baseUrlFromEnv()) {
   try {
-    const res = await fetch(`${BASE_URL}/health`);
+    const res = await fetch(`${baseUrl}/health`);
     const body = await res.text();
     return {
       ok: res.ok,
@@ -58,46 +124,56 @@ async function gatewayHealth() {
   }
 }
 
-async function main() {
-  const controls = {
-    rbac: artifactStatus('rbac-validation.json'),
-    rateLimit: artifactStatus('rate-limit-validation.json'),
-    policyTools: artifactStatus('policy-tools-validation.json'),
-    killSwitch: artifactStatus('killswitch.json'),
-    dualAgent: artifactStatus('dual-agent-validation.json'),
-    matrix: artifactStatus('evidence-matrix-run.json'),
-    matrixArtifactPath: path.relative(process.cwd(), path.join(ARTIFACT_DIR, 'evidence-matrix-run.json')),
-  };
+async function buildReport(options = {}) {
+  const artifactDir = options.artifactDir || artifactDirFromEnv();
+  const baseUrl = options.baseUrl || baseUrlFromEnv();
+  const requiredControls = options.requiredControls || resolveRequiredControls();
+  const controls = controlStatuses(artifactDir);
 
-  const health = await gatewayHealth();
-  const allPass = Object.entries(controls)
-    .filter(([key]) => key !== 'matrixArtifactPath')
-    .every(([, value]) => value === 'pass')
-    && health.ok;
+  const health = await gatewayHealth(baseUrl);
+  const allPass = requiredControls.every((key) => controls[key] === 'pass') && health.ok;
 
-  const report = {
+  return {
     generated_at: new Date().toISOString(),
-    baseUrl: BASE_URL,
+    baseUrl,
+    artifactDir: path.relative(process.cwd(), artifactDir),
     health,
     controls,
+    requiredControls,
     status: allPass ? 'pass' : 'fail',
   };
+}
 
-  fs.mkdirSync(ARTIFACT_DIR, { recursive: true });
-  fs.writeFileSync(PACK_PATH, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
-  process.stdout.write(`[mcp-readiness-pack] generated ${path.relative(process.cwd(), PACK_PATH)}\n`);
+async function main() {
+  const artifactDir = artifactDirFromEnv();
+  const packPath = path.join(artifactDir, 'readiness-pack.json');
+  const report = await buildReport({ artifactDir });
+
+  fs.mkdirSync(artifactDir, { recursive: true });
+  fs.writeFileSync(packPath, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
+  process.stdout.write(`[mcp-readiness-pack] generated ${path.relative(process.cwd(), packPath)}\n`);
   process.stdout.write(`[mcp-readiness-pack] status=${report.status}\n`);
 
-  if (!allPass) {
-    process.exit(1);
+  if (report.status !== 'pass') {
+    process.exitCode = 1;
   }
 }
 
-module.exports = { main };
+module.exports = {
+  main,
+  __testables: {
+    artifactDirFromEnv,
+    baseUrlFromEnv,
+    buildReport,
+    controlStatuses,
+    resolveRequiredControls,
+    resolveServerPath,
+  },
+};
 
 if (require.main === module) {
   main().catch((error) => {
     process.stderr.write(`[mcp-readiness-pack] FAIL ${error?.message || error}\n`);
-    process.exit(1);
+    process.exitCode = 1;
   });
 }

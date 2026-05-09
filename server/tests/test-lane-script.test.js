@@ -23,9 +23,12 @@ describe('test-lane script helpers', () => {
     expect(config.dashboardPort).toBe(3556);
     expect(config.apiPort).toBe(3557);
     expect(config.mcpPort).toBe(3558);
+    expect(config.mcpGatewayPort).toBe(3559);
     expect(config.gpuMetricsPort).toBe(9494);
+    expect(config.coordPort).toBe(9495);
     expect(config.dashboardDevPort).toBe(5273);
     expect(config.dataDir.replace(/\\/g, '/')).toContain('/lane-2/data');
+    expect(config.mcpArtifactsDir.replace(/\\/g, '/')).toContain('/lane-2/artifacts/mcp');
   });
 
   test('rejects invalid lane identifiers', () => {
@@ -46,7 +49,16 @@ describe('test-lane script helpers', () => {
     expect(env.TORQUE_DASHBOARD_PORT).toBe('3656');
     expect(env.TORQUE_API_PORT).toBe('3657');
     expect(env.TORQUE_MCP_SSE_PORT).toBe('3658');
+    expect(env.TORQUE_MCP_GATEWAY_PORT).toBe('3659');
+    expect(env.TORQUE_MCP_GATEWAY_URL).toBe('http://127.0.0.1:3659');
+    expect(env.TORQUE_GPU_METRICS_PORT).toBe('9594');
+    expect(env.TORQUE_COORD_HOST).toBe('127.0.0.1');
+    expect(env.TORQUE_COORD_PORT).toBe('9595');
     expect(env.TORQUE_DASHBOARD_PROXY_TARGET).toBe('http://127.0.0.1:3656');
+    expect(env.TORQUE_ARTIFACT_DIR).toBe(config.artifactsDir);
+    expect(env.TORQUE_MCP_ARTIFACT_DIR).toBe(config.mcpArtifactsDir);
+    expect(env.TORQUE_MCP_LAUNCH_REPORT).toBe(path.join(config.mcpArtifactsDir, 'launch-readiness.json'));
+    expect(env.TORQUE_MCP_DUAL_AGENT_REPORT).toBe(path.join(config.mcpArtifactsDir, 'dual-agent-validation.json'));
     expect(env.TORQUE_VITEST_TEMPLATE_DIR).toBe(config.vitestTemplateDir);
     expect(env.TMP).toBe(config.tempDir);
   });

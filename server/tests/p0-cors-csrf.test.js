@@ -5,6 +5,10 @@ const configCore = require('../db/config-core');
 
 const { dispatch } = require('../dashboard/router');
 
+function dashboardOrigin(host = 'localhost') {
+  return `http://${host}:${process.env.TORQUE_DASHBOARD_PORT || '3456'}`;
+}
+
 function createSseMockResponse() {
   const chunks = [];
   let resolve;
@@ -159,14 +163,15 @@ describe('Security: MCP SSE CORS and dashboard API auth/CSRF', () => {
     });
 
     it('accepts localhost origins', async () => {
+      const origin = dashboardOrigin();
       const { response } = await dispatchSseRequest(handleHttpRequest, {
         method: 'GET',
         url: '/sse',
-        headers: { host: 'localhost:3458', origin: 'http://localhost:3456' },
+        headers: { host: 'localhost:3458', origin },
       });
 
       expect(response.statusCode).toBe(200);
-      expect(response.headers['Access-Control-Allow-Origin']).toBe('http://localhost:3456');
+      expect(response.headers['Access-Control-Allow-Origin']).toBe(origin);
     });
   });
 

@@ -7,7 +7,9 @@ const { spawnSync } = require('child_process');
 
 const MAX_LOCAL_LANES = 4;
 const DEFAULT_DASHBOARD_PORT = 3456;
+const DEFAULT_MCP_GATEWAY_PORT = 3459;
 const DEFAULT_GPU_PORT = 9394;
+const DEFAULT_COORD_PORT = 9395;
 const DEFAULT_DASHBOARD_DEV_PORT = 5173;
 
 const PRESETS = new Set([
@@ -60,13 +62,17 @@ function resolveLaneConfig(laneValue, options = {}) {
     cacheDir: path.join(laneRoot, 'cache'),
     coverageDir: path.join(laneRoot, 'coverage'),
     playwrightOutputDir: path.join(laneRoot, 'playwright'),
+    artifactsDir: path.join(laneRoot, 'artifacts'),
+    mcpArtifactsDir: path.join(laneRoot, 'artifacts', 'mcp'),
     logsDir: path.join(laneRoot, 'logs'),
     vitestTemplateDir: path.join(laneRoot, 'vitest-template'),
     vitestWorkerRoot: path.join(laneRoot, 'vitest-workers'),
     dashboardPort: DEFAULT_DASHBOARD_PORT + portOffset,
     apiPort: DEFAULT_DASHBOARD_PORT + portOffset + 1,
     mcpPort: DEFAULT_DASHBOARD_PORT + portOffset + 2,
+    mcpGatewayPort: DEFAULT_MCP_GATEWAY_PORT + portOffset,
     gpuMetricsPort: DEFAULT_GPU_PORT + portOffset,
+    coordPort: DEFAULT_COORD_PORT + portOffset,
     dashboardDevPort: DEFAULT_DASHBOARD_DEV_PORT + portOffset,
   };
 }
@@ -85,9 +91,17 @@ function buildLaneEnv(config, baseEnv = process.env) {
     TORQUE_DASHBOARD_PORT: String(config.dashboardPort),
     TORQUE_API_PORT: String(config.apiPort),
     TORQUE_MCP_SSE_PORT: String(config.mcpPort),
+    TORQUE_MCP_GATEWAY_PORT: String(config.mcpGatewayPort),
+    TORQUE_MCP_GATEWAY_URL: `http://127.0.0.1:${config.mcpGatewayPort}`,
     TORQUE_GPU_METRICS_PORT: String(config.gpuMetricsPort),
+    TORQUE_COORD_HOST: '127.0.0.1',
+    TORQUE_COORD_PORT: String(config.coordPort),
     TORQUE_DASHBOARD_DEV_PORT: String(config.dashboardDevPort),
     TORQUE_DASHBOARD_PROXY_TARGET: `http://127.0.0.1:${config.dashboardPort}`,
+    TORQUE_ARTIFACT_DIR: config.artifactsDir,
+    TORQUE_MCP_ARTIFACT_DIR: config.mcpArtifactsDir,
+    TORQUE_MCP_LAUNCH_REPORT: path.join(config.mcpArtifactsDir, 'launch-readiness.json'),
+    TORQUE_MCP_DUAL_AGENT_REPORT: path.join(config.mcpArtifactsDir, 'dual-agent-validation.json'),
     TORQUE_VITEST_COVERAGE_DIR: config.coverageDir,
     TORQUE_COVERAGE_DIR: config.coverageDir,
     PLAYWRIGHT_OUTPUT_DIR: config.playwrightOutputDir,
@@ -108,6 +122,8 @@ function ensureLaneDirs(config) {
     config.cacheDir,
     config.coverageDir,
     config.playwrightOutputDir,
+    config.artifactsDir,
+    config.mcpArtifactsDir,
     config.logsDir,
     config.vitestTemplateDir,
     config.vitestWorkerRoot,
@@ -307,7 +323,16 @@ function main(argv = process.argv.slice(2)) {
       TORQUE_DASHBOARD_PORT: env.TORQUE_DASHBOARD_PORT,
       TORQUE_API_PORT: env.TORQUE_API_PORT,
       TORQUE_MCP_SSE_PORT: env.TORQUE_MCP_SSE_PORT,
+      TORQUE_MCP_GATEWAY_PORT: env.TORQUE_MCP_GATEWAY_PORT,
+      TORQUE_MCP_GATEWAY_URL: env.TORQUE_MCP_GATEWAY_URL,
+      TORQUE_GPU_METRICS_PORT: env.TORQUE_GPU_METRICS_PORT,
+      TORQUE_COORD_HOST: env.TORQUE_COORD_HOST,
+      TORQUE_COORD_PORT: env.TORQUE_COORD_PORT,
       TORQUE_DASHBOARD_DEV_PORT: env.TORQUE_DASHBOARD_DEV_PORT,
+      TORQUE_ARTIFACT_DIR: env.TORQUE_ARTIFACT_DIR,
+      TORQUE_MCP_ARTIFACT_DIR: env.TORQUE_MCP_ARTIFACT_DIR,
+      TORQUE_MCP_LAUNCH_REPORT: env.TORQUE_MCP_LAUNCH_REPORT,
+      TORQUE_MCP_DUAL_AGENT_REPORT: env.TORQUE_MCP_DUAL_AGENT_REPORT,
     } }, null, 2) + '\n');
     return 0;
   }
@@ -319,7 +344,7 @@ function main(argv = process.argv.slice(2)) {
   const env = buildLaneEnv(config);
   try {
     process.stderr.write(`[test-lane] lane=${config.lane} data=${config.dataDir}\n`);
-    process.stderr.write(`[test-lane] ports dashboard=${config.dashboardPort} api=${config.apiPort} mcp=${config.mcpPort} vite=${config.dashboardDevPort}\n`);
+    process.stderr.write(`[test-lane] ports dashboard=${config.dashboardPort} api=${config.apiPort} mcp=${config.mcpPort} gateway=${config.mcpGatewayPort} gpu=${config.gpuMetricsPort} coord=${config.coordPort} vite=${config.dashboardDevPort}\n`);
     process.stderr.write(`[test-lane] command=${selected.command}\n`);
     const result = runShellCommand(selected.command, { cwd: selected.cwd, env });
     if (result.error) throw result.error;

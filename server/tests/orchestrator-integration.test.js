@@ -91,6 +91,10 @@ function createApiResponse(payload, { ok = true, status = 200 } = {}) {
   };
 }
 
+function apiBaseUrl() {
+  return process.env.TORQUE_API_URL || `http://127.0.0.1:${process.env.TORQUE_API_PORT || '3457'}`;
+}
+
 function createTask(overrides = {}) {
   return {
     id: 'task-001',
@@ -450,12 +454,12 @@ describe('orchestrator integration', () => {
 
       expect(global.fetch).toHaveBeenNthCalledWith(
         1,
-        'http://127.0.0.1:3457/healthz',
+        `${apiBaseUrl()}/healthz`,
         expect.objectContaining({ method: 'GET' }),
       );
       expect(global.fetch).toHaveBeenNthCalledWith(
         2,
-        'http://127.0.0.1:3457/api/tasks?status=running&limit=5',
+        `${apiBaseUrl()}/api/tasks?status=running&limit=5`,
         expect.objectContaining({ method: 'GET' }),
       );
       expect(formatted).toContain('Server Health');
@@ -508,7 +512,7 @@ describe('orchestrator integration', () => {
 
       expect(global.fetch).toHaveBeenNthCalledWith(
         1,
-        'http://127.0.0.1:3457/api/tools/strategic_decompose',
+        `${apiBaseUrl()}/api/tools/strategic_decompose`,
         expect.objectContaining({
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -522,7 +526,7 @@ describe('orchestrator integration', () => {
       );
       expect(global.fetch).toHaveBeenNthCalledWith(
         2,
-        'http://127.0.0.1:3457/api/tools/strategic_diagnose',
+        `${apiBaseUrl()}/api/tools/strategic_diagnose`,
         expect.objectContaining({
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -534,7 +538,7 @@ describe('orchestrator integration', () => {
       );
       expect(global.fetch).toHaveBeenNthCalledWith(
         3,
-        'http://127.0.0.1:3457/api/tools/strategic_review',
+        `${apiBaseUrl()}/api/tools/strategic_review`,
         expect.objectContaining({
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },

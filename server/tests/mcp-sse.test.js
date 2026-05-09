@@ -5,6 +5,10 @@ const tools = require('../tools');
 
 let nextTestIp = 1;
 
+function dashboardOrigin(host = 'localhost') {
+  return `http://${host}:${process.env.TORQUE_DASHBOARD_PORT || '3456'}`;
+}
+
 // Mock response object similar to api-server.test.js pattern
 function createMockResponse() {
   const chunks = [];
@@ -186,13 +190,14 @@ describe('MCP SSE Transport', () => {
 
   describe('CORS headers', () => {
     it('sets CORS headers on all responses', async () => {
+      const origin = dashboardOrigin();
       const { response } = await dispatchRequest(handleHttpRequest, {
         method: 'GET',
         url: '/sse',
-        headers: { host: 'localhost:3458', origin: 'http://localhost:3456' },
+        headers: { host: 'localhost:3458', origin },
       });
 
-      expect(response.headers['Access-Control-Allow-Origin']).toBe('http://localhost:3456');
+      expect(response.headers['Access-Control-Allow-Origin']).toBe(origin);
       expect(response.headers['Access-Control-Allow-Headers']).toMatch(/Content-Type/);
       expect(response.headers['Access-Control-Allow-Methods']).toBe('GET, POST, DELETE, OPTIONS');
     });

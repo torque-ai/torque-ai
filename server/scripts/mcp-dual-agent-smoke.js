@@ -1,12 +1,15 @@
 const fs = require('fs');
 const path = require('path');
 
+const ROOT_DIR = path.resolve(__dirname, '..');
+const DEFAULT_ARTIFACT_DIR = path.resolve(ROOT_DIR, 'artifacts', 'mcp');
 const MCPPort = parseInt(process.env.TORQUE_MCP_GATEWAY_PORT, 10);
 const BASE_URL = process.env.TORQUE_MCP_GATEWAY_URL
   || (Number.isFinite(MCPPort) && MCPPort > 0 ? `http://127.0.0.1:${MCPPort}` : 'http://127.0.0.1:3459');
 const CONCURRENCY = Math.max(1, parseInt(process.env.TORQUE_MCP_DUAL_AGENT_CONCURRENCY, 10) || 12);
 const TOOL = process.env.TORQUE_MCP_DUAL_AGENT_TOOL || 'torque.task.list';
 const TIMEOUT_MS = Math.max(500, parseInt(process.env.TORQUE_MCP_SMOKE_TIMEOUT_MS, 10) || 10000);
+const DASHBOARD_PORT = parseInt(process.env.TORQUE_DASHBOARD_PORT, 10) || 3456;
 function normalizeReportPath(rawPath) {
   if (!rawPath) return null;
   if (path.isAbsolute(rawPath)) return rawPath;
@@ -16,7 +19,10 @@ function normalizeReportPath(rawPath) {
   return path.resolve(__dirname, '..', adjustedPath);
 }
 
-const REPORT_PATH = normalizeReportPath(process.env.TORQUE_MCP_DUAL_AGENT_REPORT || null);
+const ARTIFACT_DIR = normalizeReportPath(process.env.TORQUE_MCP_ARTIFACT_DIR || DEFAULT_ARTIFACT_DIR);
+const REPORT_PATH = normalizeReportPath(
+  process.env.TORQUE_MCP_DUAL_AGENT_REPORT || path.join(ARTIFACT_DIR, 'dual-agent-validation.json'),
+);
 const LANE_SIZE = Math.max(1, Math.floor(CONCURRENCY / 2));
 
 const TARGET_INFO = BASE_URL === 'http://127.0.0.1:3459'
@@ -129,8 +135,8 @@ function summarize(results) {
   return { avgMs, slowest, groupedByLane, checks, notes };
 }
 
-function writeReport(result, path, config, summary) {
-  if (!path) return;
+function writeReport(result, reportPath, config, summary) {
+  if (!reportPath) return;
 
   const payload = {
     feature: 'MCP-026',
@@ -155,11 +161,12 @@ function writeReport(result, path, config, summary) {
     },
   };
 
-  fs.writeFileSync(path, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
+  fs.mkdirSync(path.dirname(reportPath), { recursive: true });
+  fs.writeFileSync(reportPath, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
 }
 
 async function main() {
-  process.stdout.write(`[mcp-dual-agent-smoke] target=${BASE_URL} (${TARGET_INFO}); dashboard remains on 127.0.0.1:3456\n`);
+  process.stdout.write(`[mcp-dual-agent-smoke] target=${BASE_URL} (${TARGET_INFO}); dashboard remains on 127.0.0.1:${DASHBOARD_PORT}\n`);
 
   const codex = runLane('codex', 'codex', 'operator', 0, LANE_SIZE);
   const claude = runLane('claude', 'claude', 'operator', LANE_SIZE, CONCURRENCY - LANE_SIZE);
@@ -207,24 +214,23 @@ async function main() {
         process.stderr.write(`[mcp-dual-agent-smoke] ERROR ${fail.error}\n`);
       }
     }
-    process.exit(1);
+    process.exitCode = 1;
     return;
   }
 
   if (summary.slowest > TIMEOUT_MS) {
     process.stderr.write('[mcp-dual-agent-smoke] FAIL slowest response exceeded timeout budget\n');
-    process.exit(1);
+    process.exitCode = 1;
     return;
   }
 
   if (summary.checks.length !== 2) {
     process.stderr.write('[mcp-dual-agent-smoke] FAIL expected two lanes (codex, claude)\n');
-    process.exit(1);
+    process.exitCode = 1;
     return;
   }
 
   process.stdout.write('[mcp-dual-agent-smoke] PASS dual-agent request lanes completed without errors.\n');
-  process.exit(0);
 }
 
 module.exports = { main };
@@ -232,6 +238,6 @@ module.exports = { main };
 if (require.main === module) {
   main().catch((error) => {
     process.stderr.write(`[mcp-dual-agent-smoke] FAIL ${error?.message || error}\n`);
-    process.exit(1);
+    process.exitCode = 1;
   });
 }

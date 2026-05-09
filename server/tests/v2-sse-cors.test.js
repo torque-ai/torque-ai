@@ -2,6 +2,10 @@ import { describe, it, expect, vi } from 'vitest';
 
 const { sendV2SseHeaders } = require('../api/v2-core-handlers');
 
+function dashboardOrigin(host = '127.0.0.1') {
+  return `http://${host}:${process.env.TORQUE_DASHBOARD_PORT || '3456'}`;
+}
+
 function makeRes() {
   return {
     writeHead: vi.fn(),
@@ -10,25 +14,27 @@ function makeRes() {
 }
 
 describe('sendV2SseHeaders CORS allowlist', () => {
-  it('allowlisted origin http://127.0.0.1:3456 gets credentialed reflection', () => {
+  it('allowlisted 127.0.0.1 dashboard origin gets credentialed reflection', () => {
     const res = makeRes();
-    const req = { headers: { origin: 'http://127.0.0.1:3456' } };
+    const origin = dashboardOrigin();
+    const req = { headers: { origin } };
 
     sendV2SseHeaders(res, req);
 
     const headers = res.writeHead.mock.calls[0][1];
-    expect(headers['Access-Control-Allow-Origin']).toBe('http://127.0.0.1:3456');
+    expect(headers['Access-Control-Allow-Origin']).toBe(origin);
     expect(headers['Access-Control-Allow-Credentials']).toBe('true');
   });
 
-  it('allowlisted origin http://localhost:3456 gets credentialed reflection', () => {
+  it('allowlisted localhost dashboard origin gets credentialed reflection', () => {
     const res = makeRes();
-    const req = { headers: { origin: 'http://localhost:3456' } };
+    const origin = dashboardOrigin('localhost');
+    const req = { headers: { origin } };
 
     sendV2SseHeaders(res, req);
 
     const headers = res.writeHead.mock.calls[0][1];
-    expect(headers['Access-Control-Allow-Origin']).toBe('http://localhost:3456');
+    expect(headers['Access-Control-Allow-Origin']).toBe(origin);
     expect(headers['Access-Control-Allow-Credentials']).toBe('true');
   });
 

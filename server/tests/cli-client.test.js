@@ -1,4 +1,8 @@
 describe('CLI client', () => {
+  function apiBaseUrl() {
+    return process.env.TORQUE_API_URL || `http://127.0.0.1:${process.env.TORQUE_API_PORT || '3457'}`;
+  }
+
   function createIo() {
     const stdout = [];
     const stderr = [];
@@ -98,7 +102,7 @@ describe('CLI client', () => {
 
     expect(result.command).toBe('submit');
     expect(global.fetch).toHaveBeenCalledWith(
-      'http://127.0.0.1:3457/api/tasks',
+      `${apiBaseUrl()}/api/tasks`,
       expect.objectContaining({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -126,7 +130,7 @@ describe('CLI client', () => {
     });
 
     expect(global.fetch).toHaveBeenCalledWith(
-      'http://127.0.0.1:3457/api/tasks?status=failed&limit=20',
+      `${apiBaseUrl()}/api/tasks?status=failed&limit=20`,
       expect.objectContaining({ method: 'GET' }),
     );
   });
@@ -145,7 +149,7 @@ describe('CLI client', () => {
     });
 
     expect(global.fetch).toHaveBeenCalledWith(
-      'http://127.0.0.1:3457/api/tasks/task-789',
+      `${apiBaseUrl()}/api/tasks/task-789`,
       expect.objectContaining({ method: 'GET' }),
     );
   });
@@ -164,7 +168,7 @@ describe('CLI client', () => {
     });
 
     expect(global.fetch).toHaveBeenCalledWith(
-      'http://127.0.0.1:3457/api/tasks/task-456?confirm=true',
+      `${apiBaseUrl()}/api/tasks/task-456?confirm=true`,
       expect.objectContaining({ method: 'DELETE' }),
     );
   });
@@ -204,7 +208,7 @@ describe('CLI client', () => {
     const exitCode = await runCli(['health'], io);
 
     expect(exitCode).toBe(1);
-    expect(io.getStderr()).toContain('Unable to reach TORQUE API at http://127.0.0.1:3457');
+    expect(io.getStderr()).toContain(`Unable to reach TORQUE API at ${apiBaseUrl()}`);
   });
 
   it('await command polls until task completes', async () => {

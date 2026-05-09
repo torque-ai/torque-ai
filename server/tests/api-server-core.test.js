@@ -24,6 +24,10 @@ let tools;
 let handleToolCallSpy;
 let requestHandler;
 
+function dashboardOrigin(host = '127.0.0.1') {
+  return `http://${host}:${process.env.TORQUE_DASHBOARD_PORT || '3456'}`;
+}
+
 function createMockRequest(overrides = {}) {
   return {
     method: 'GET',
@@ -244,7 +248,7 @@ describe('api-server helpers', () => {
 
     expect(response.statusCode).toBe(202);
     expect(response.headers).toEqual(expect.objectContaining({
-      'Access-Control-Allow-Origin': 'http://127.0.0.1:3456',
+      'Access-Control-Allow-Origin': dashboardOrigin(),
       'X-Frame-Options': 'DENY',
       'X-Content-Type-Options': 'nosniff',
       'X-XSS-Protection': '1; mode=block',

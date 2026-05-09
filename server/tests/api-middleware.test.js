@@ -9,6 +9,10 @@ const { RATE_LIMIT_CLEANUP_MS } = require('../constants');
 let getConfigSpy;
 let getConfigOriginal;
 
+function dashboardOrigin(host = '127.0.0.1') {
+  return `http://${host}:${process.env.TORQUE_DASHBOARD_PORT || '3456'}`;
+}
+
 function createMockRequest(overrides = {}) {
   return {
     method: 'GET',
@@ -196,7 +200,7 @@ describe('sendJson', () => {
 
     expect(res.writeHead).toHaveBeenCalledWith(200, expect.objectContaining({
       'Content-Type': 'application/json',
-      'Access-Control-Allow-Origin': 'http://127.0.0.1:3456',
+      'Access-Control-Allow-Origin': dashboardOrigin(),
       'Access-Control-Allow-Headers': 'Content-Type, X-Torque-Key, X-Request-ID, Authorization',
       'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
       ...middleware.SECURITY_HEADERS,

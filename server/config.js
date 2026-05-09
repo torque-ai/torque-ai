@@ -38,7 +38,7 @@ const REGISTRY = {
   api_port:                { default: 3457,  type: 'int',  envVar: 'TORQUE_API_PORT' },
   mcp_sse_port:            { default: 3458,  type: 'int',  envVar: 'TORQUE_MCP_SSE_PORT' },
   gpu_metrics_port:        { default: 9394,  type: 'int',  envVar: 'TORQUE_GPU_METRICS_PORT' },
-  mcp_gateway_port:        { default: 3460,  type: 'int',  envVar: 'TORQUE_MCP_GATEWAY_PORT' },
+  mcp_gateway_port:        { default: 3459,  type: 'int',  envVar: 'TORQUE_MCP_GATEWAY_PORT' },
 
   // Concurrency
   max_concurrent:          { default: 20,    type: 'int' },

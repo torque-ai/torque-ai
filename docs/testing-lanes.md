@@ -2,7 +2,8 @@
 
 Use test lanes when running TORQUE tests concurrently from multiple agents or shells.
 Each lane gets its own data directory, temp directory, Vitest template DB, worker
-root, coverage output, Playwright output, cache directory, and port block.
+root, coverage output, Playwright output, artifact output, cache directory, and
+port block.
 
 ## Commands
 
@@ -22,12 +23,12 @@ is no longer alive are reclaimed automatically.
 
 ## Lane Map
 
-| Lane | Dashboard | API | MCP | GPU metrics | Vite |
-|------|-----------|-----|-----|-------------|------|
-| 1 | 3456 | 3457 | 3458 | 9394 | 5173 |
-| 2 | 3556 | 3557 | 3558 | 9494 | 5273 |
-| 3 | 3656 | 3657 | 3658 | 9594 | 5373 |
-| 4 | 3756 | 3757 | 3758 | 9694 | 5473 |
+| Lane | Dashboard | API | MCP SSE | MCP gateway | GPU metrics | Coord | Vite |
+|------|-----------|-----|---------|-------------|-------------|-------|------|
+| 1 | 3456 | 3457 | 3458 | 3459 | 9394 | 9395 | 5173 |
+| 2 | 3556 | 3557 | 3558 | 3559 | 9494 | 9495 | 5273 |
+| 3 | 3656 | 3657 | 3658 | 3659 | 9594 | 9595 | 5373 |
+| 4 | 3756 | 3757 | 3758 | 3759 | 9694 | 9695 | 5473 |
 
 The default lane root is `C:\tmp\torque-test-lanes` on Windows and
 `<os.tmpdir()>/torque-test-lanes` elsewhere. Override it with
@@ -48,9 +49,17 @@ The default lane root is `C:\tmp\torque-test-lanes` on Windows and
 - `TORQUE_DASHBOARD_PORT`
 - `TORQUE_API_PORT`
 - `TORQUE_MCP_SSE_PORT`
+- `TORQUE_MCP_GATEWAY_PORT`
+- `TORQUE_MCP_GATEWAY_URL`
 - `TORQUE_GPU_METRICS_PORT`
+- `TORQUE_COORD_HOST`
+- `TORQUE_COORD_PORT`
 - `TORQUE_DASHBOARD_DEV_PORT`
 - `TORQUE_DASHBOARD_PROXY_TARGET`
+- `TORQUE_ARTIFACT_DIR`
+- `TORQUE_MCP_ARTIFACT_DIR`
+- `TORQUE_MCP_LAUNCH_REPORT`
+- `TORQUE_MCP_DUAL_AGENT_REPORT`
 - `TORQUE_VITEST_COVERAGE_DIR`
 - `PLAYWRIGHT_OUTPUT_DIR`
 - `TMP`, `TEMP`, and `TMPDIR`

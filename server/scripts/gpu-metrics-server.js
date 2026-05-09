@@ -437,7 +437,7 @@ function createServer() {
  * @returns {Promise<{ success: boolean, port?: number, hasGpu: boolean }>}
  */
 async function start(opts = {}) {
-  const port = opts.port || DEFAULT_PORT;
+  const port = opts.port === undefined ? DEFAULT_PORT : opts.port;
   sampleIntervalMs = resolveIntervalMs(opts.intervalMs);
   previousCpuSnapshot = null;
 
@@ -473,8 +473,9 @@ async function start(opts = {}) {
       console.warn('[GPU Metrics] WARNING: binding to ' + metricsHost + ' with no authentication \u2014 metrics are publicly accessible');
     }
     server.listen(port, metricsHost, () => {
-      console.error(`[gpu-metrics] Serving metrics on http://${metricsHost}:${port}/metrics`);
-      resolve({ success: true, port, hasGpu });
+      const actualPort = server.address()?.port || port;
+      console.error(`[gpu-metrics] Serving metrics on http://${metricsHost}:${actualPort}/metrics`);
+      resolve({ success: true, port: actualPort, hasGpu });
     });
   });
 }

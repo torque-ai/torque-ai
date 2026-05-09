@@ -4,6 +4,13 @@ describe('server/config.js — unified config resolution', () => {
   let config;
   let mockConfigCore;
   const savedEnv = {};
+  const portEnvKeys = [
+    'TORQUE_DASHBOARD_PORT',
+    'TORQUE_API_PORT',
+    'TORQUE_MCP_SSE_PORT',
+    'TORQUE_GPU_METRICS_PORT',
+    'TORQUE_MCP_GATEWAY_PORT',
+  ];
 
   beforeEach(() => {
     // Fresh require to reset module state
@@ -19,8 +26,10 @@ describe('server/config.js — unified config resolution', () => {
       savedEnv[key] = process.env[key];
       delete process.env[key];
     }
-    savedEnv.TORQUE_DASHBOARD_PORT = process.env.TORQUE_DASHBOARD_PORT;
-    delete process.env.TORQUE_DASHBOARD_PORT;
+    for (const key of portEnvKeys) {
+      savedEnv[key] = process.env[key];
+      delete process.env[key];
+    }
   });
 
   afterEach(() => {
@@ -224,6 +233,7 @@ describe('server/config.js — unified config resolution', () => {
       expect(config.getPort('dashboard')).toBe(3456);
       expect(config.getPort('api')).toBe(3457);
       expect(config.getPort('mcp')).toBe(3458);
+      expect(config.getPort('gateway')).toBe(3459);
       expect(config.getPort('gpu')).toBe(9394);
     });
 

@@ -5,7 +5,16 @@ const path = require('node:path');
 const ROOT_DIR = path.resolve(__dirname, '..');
 const GATEWAY_PORT = Number.parseInt(process.env.TORQUE_MCP_GATEWAY_PORT, 10) || 3459;
 const BASE_URL = process.env.TORQUE_MCP_GATEWAY_URL || `http://127.0.0.1:${GATEWAY_PORT}`;
-const TARGET_PORTS = [3456, 3457, 3458, 3459];
+function parsePortEnv(name, fallback) {
+  const parsed = Number.parseInt(process.env[name], 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+const TARGET_PORTS = [...new Set([
+  parsePortEnv('TORQUE_DASHBOARD_PORT', 3456),
+  parsePortEnv('TORQUE_API_PORT', 3457),
+  parsePortEnv('TORQUE_MCP_SSE_PORT', 3458),
+  GATEWAY_PORT,
+])];
 const START_TIMEOUT_MS = 20000;
 const HEALTH_POLL_MS = 250;
 const SHUTDOWN_TIMEOUT_MS = 5000;
@@ -29,7 +38,16 @@ function normalizeReportPath(rawPath) {
   return path.resolve(ROOT_DIR, adjustedPath);
 }
 
+function normalizeArtifactDir(rawPath) {
+  return normalizeReportPath(rawPath) || path.resolve(ROOT_DIR, 'artifacts', 'mcp');
+}
+
+const ARTIFACT_DIR = normalizeArtifactDir(process.env.TORQUE_MCP_ARTIFACT_DIR || null);
 const REPORT_PATH = normalizeReportPath(process.env.TORQUE_MCP_LAUNCH_REPORT || null);
+
+function artifactPath(name) {
+  return path.join(ARTIFACT_DIR, name);
+}
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -343,11 +361,14 @@ async function waitForHealth() {
   return false;
 }
 
-function runScript(scriptPath) {
+function runScript(scriptPath, envOverrides = {}) {
   const command = process.execPath;
   const result = runtime.spawnSync(command, [scriptPath], {
     cwd: ROOT_DIR,
-    env: process.env,
+    env: {
+      ...process.env,
+      ...envOverrides,
+    },
     stdio: 'inherit',
     windowsHide: true,
   });
@@ -442,6 +463,7 @@ async function main() {
     started_at: new Date().toISOString(),
     base_url: BASE_URL,
     gateway_port: GATEWAY_PORT,
+    artifact_dir: ARTIFACT_DIR,
     reused_existing: false,
     status: 'pass',
     checks: {},
@@ -460,7 +482,7 @@ async function main() {
         env: {
           ...process.env,
           TORQUE_ENABLE_MCP_GATEWAY: '1',
-          TORQUE_MCP_GATEWAY_PORT: process.env.TORQUE_MCP_GATEWAY_PORT || '3459',
+          TORQUE_MCP_GATEWAY_PORT: String(GATEWAY_PORT),
         },
         stdio: 'pipe',
         windowsHide: true,
@@ -475,21 +497,34 @@ async function main() {
     }
     report.health = { ready: true, reused_existing: report.reused_existing };
 
-    const readinessPack = runScript('scripts/mcp-readiness-pack.js');
+    const dualAgentReport = process.env.TORQUE_MCP_DUAL_AGENT_REPORT || artifactPath('dual-agent-validation.json');
+    report.artifacts = {
+      dual_agent_report: dualAgentReport,
+      readiness_pack: artifactPath('readiness-pack.json'),
+    };
+
+    const dualAgent = runScript('scripts/mcp-dual-agent-smoke.js', {
+      TORQUE_MCP_ARTIFACT_DIR: ARTIFACT_DIR,
+      TORQUE_MCP_DUAL_AGENT_REPORT: dualAgentReport,
+    });
+    report.checks.dual_agent_smoke = dualAgent;
+
+    const readinessPack = runScript('scripts/mcp-readiness-pack.js', {
+      TORQUE_MCP_ARTIFACT_DIR: ARTIFACT_DIR,
+      TORQUE_MCP_READINESS_REQUIRED: process.env.TORQUE_MCP_READINESS_REQUIRED || 'dualAgent',
+    });
     report.checks.readiness_pack = readinessPack;
+
+    if (!dualAgent.ok) {
+      report.status = 'fail';
+      throw new Error('ci:mcp-dual-agent-smoke check failed');
+    }
     if (!readinessPack.ok) {
       report.status = 'fail';
       throw new Error('ci:mcp-readiness-pack check failed');
     }
 
-    const dualAgent = runScript('scripts/mcp-dual-agent-smoke.js');
-    report.checks.dual_agent_smoke = dualAgent;
-    if (!dualAgent.ok) {
-      report.status = 'fail';
-      throw new Error('ci:mcp-dual-agent-smoke check failed');
-    }
-
-    process.stdout.write('[mcp-launch-readiness] PASS full gateway readiness checks completed.\n');
+    process.stdout.write('[mcp-launch-readiness] PASS gateway launch readiness checks completed.\n');
   } finally {
     if (startedGatewayProcess) {
       await stopServer(gatewayProcess);
@@ -532,6 +567,7 @@ module.exports = {
     guardPorts,
     hasUnmanagedConflicts,
     normalizeReportPath,
+    normalizeArtifactDir,
     probeTorqueEndpoint,
   },
 };
@@ -549,6 +585,6 @@ module.exports.__testables.resetRuntimeOverrides = () => {
 if (require.main === module) {
   main().catch((error) => {
     process.stderr.write(`[mcp-launch-readiness] FAIL ${error?.message || error}\n`);
-    process.exit(1);
+    process.exitCode = 1;
   });
 }
