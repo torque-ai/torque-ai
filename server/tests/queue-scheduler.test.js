@@ -795,6 +795,26 @@ describe('Queue Scheduler', () => {
       expect(mocks.safeStartTask).not.toHaveBeenCalled();
     });
 
+    it('defers queue processing when task-log disk guard is below threshold', () => {
+      const taskLogRetention = require('../utils/task-log-retention');
+      vi.spyOn(taskLogRetention, 'getTaskLogDiskAdmissionStatus').mockReturnValue({
+        allowed: false,
+        checked: true,
+        admission_paused: true,
+        free_bytes: 512 * 1024 * 1024,
+        free_mb: 512,
+        min_free_mb: 1024,
+        path: 'C:/tmp/torque',
+        reason: 'below_minimum',
+      });
+
+      scheduler.processQueueInternal();
+
+      expect(taskLogRetention.getTaskLogDiskAdmissionStatus).toHaveBeenCalledTimes(1);
+      expect(mockDb.listTasks).not.toHaveBeenCalled();
+      expect(mocks.safeStartTask).not.toHaveBeenCalled();
+    });
+
     it('does not start a stale queued architect task when a newer completed plan-generation signal exists', () => {
       const staleArchitect = makeTask({
         id: 'old-architect',

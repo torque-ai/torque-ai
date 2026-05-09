@@ -180,7 +180,8 @@ const VALID_CONFIG_KEYS = new Set([
   // Phase B; the keys are registered now so Phase B has a stable surface
   // and operators can see them immediately in the dashboard.
   'task_log_retention_days',
-  'task_log_max_bytes'
+  'task_log_max_bytes',
+  'task_log_disk_min_mb'
 ]);
 
 module.exports = { VALID_CONFIG_KEYS };

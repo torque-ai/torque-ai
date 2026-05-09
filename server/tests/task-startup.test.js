@@ -511,6 +511,64 @@ describe('task-startup', () => {
     expect(ctx.deps.spawnAndTrackProcess).not.toHaveBeenCalled();
   });
 
+  it('parks direct start attempts when task-log disk free space is below the floor', async () => {
+    const task = createTask({ status: 'queued', provider: 'codex' });
+    const serverConfig = {
+      get: vi.fn(() => '0'),
+      getBool: vi.fn(() => false),
+      getInt: vi.fn((key, fallback) => (key === 'task_log_disk_min_mb' ? 1024 : fallback)),
+    };
+    const ctx = loadTaskStartup({
+      task,
+      depOverrides: {
+        serverConfig,
+      },
+    });
+    const taskLogRetention = require('../utils/task-log-retention');
+    vi.spyOn(taskLogRetention, 'getTaskLogDiskAdmissionStatus').mockReturnValue({
+      allowed: false,
+      checked: true,
+      admission_paused: true,
+      free_bytes: 512 * 1024 * 1024,
+      free_mb: 512,
+      min_free_mb: 1024,
+      path: 'C:/tmp/torque',
+      reason: 'below_minimum',
+    });
+
+    const result = await ctx.module.startTask(task.id);
+
+    expect(taskLogRetention.getTaskLogDiskAdmissionStatus).toHaveBeenCalledWith({ minFreeMb: 1024 });
+    expect(result).toEqual(expect.objectContaining({
+      queued: true,
+      diskPressure: true,
+      taskLogDisk: expect.objectContaining({
+        allowed: false,
+        admission_paused: true,
+        free_mb: 512,
+        min_free_mb: 1024,
+      }),
+      task: expect.objectContaining({
+        id: task.id,
+        status: 'queued',
+        error_output: expect.stringContaining('Task-log disk guard active'),
+      }),
+    }));
+    expect(ctx.deps.db.updateTaskStatus).toHaveBeenCalledWith(
+      task.id,
+      'queued',
+      expect.objectContaining({
+        error_output: expect.stringContaining('task_log_disk_min_mb'),
+        pid: null,
+        mcp_instance_id: null,
+        ollama_host_id: null,
+      }),
+    );
+    expect(ctx.deps.resolveProviderRouting).not.toHaveBeenCalled();
+    expect(ctx.deps.db.tryClaimTaskSlot).not.toHaveBeenCalled();
+    expect(ctx.deps.spawnAndTrackProcess).not.toHaveBeenCalled();
+  });
+
   it('stamps the resolved Ollama model before handing off to the executor', async () => {
     const registryPath = require.resolve('../models/registry');
     const sharedPath = require.resolve('../providers/ollama-shared');

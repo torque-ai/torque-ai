@@ -31,10 +31,97 @@ const { getDataDir } = require('../data-dir');
 
 const TASK_LOGS_DIRNAME = 'task-logs';
 const DEFAULT_RETENTION_DAYS = 30;
+const DEFAULT_DISK_MIN_MB = 1024;
+const BYTES_PER_MB = 1024 * 1024;
 const LOG_FILE_NAMES = ['stdout.log', 'stderr.log'];
 
 function taskLogsRoot() {
   return path.join(getDataDir(), TASK_LOGS_DIRNAME);
+}
+
+function roundMb(bytes) {
+  return Math.round((bytes / BYTES_PER_MB) * 10) / 10;
+}
+
+function normalizeMinFreeMb(value, fallback = DEFAULT_DISK_MIN_MB) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return Math.max(0, Number(fallback) || 0);
+  return Math.max(0, Math.floor(parsed));
+}
+
+function getConfiguredTaskLogMinFreeMb(config, fallback = DEFAULT_DISK_MIN_MB) {
+  if (config && typeof config.getInt === 'function') {
+    return normalizeMinFreeMb(config.getInt('task_log_disk_min_mb', fallback), fallback);
+  }
+  if (config && typeof config.get === 'function') {
+    return normalizeMinFreeMb(config.get('task_log_disk_min_mb', fallback), fallback);
+  }
+  return normalizeMinFreeMb(fallback, fallback);
+}
+
+/**
+ * Return whether new task starts are allowed under the task-log disk floor.
+ *
+ * The check is fail-open when statfs is unavailable or fails. That keeps TORQUE
+ * usable on unsupported platforms while still enforcing the guard everywhere
+ * Node can report filesystem free space.
+ */
+function getTaskLogDiskAdmissionStatus(opts = {}) {
+  const minFreeMb = normalizeMinFreeMb(opts.minFreeMb, DEFAULT_DISK_MIN_MB);
+  const rootPath = opts.rootPath || getDataDir();
+  const base = {
+    allowed: true,
+    checked: false,
+    admission_paused: false,
+    free_bytes: null,
+    free_mb: null,
+    min_free_mb: minFreeMb,
+    path: rootPath,
+    reason: minFreeMb > 0 ? 'unchecked' : 'disabled',
+  };
+
+  if (minFreeMb <= 0) {
+    return base;
+  }
+
+  const statfsSync = opts.statfsSync || fs.statfsSync;
+  if (typeof statfsSync !== 'function') {
+    return { ...base, reason: 'statfs_unavailable' };
+  }
+
+  let stat;
+  try {
+    stat = statfsSync(rootPath);
+  } catch (err) {
+    return {
+      ...base,
+      reason: `statfs_failed:${err?.code || err?.message || 'unknown'}`,
+    };
+  }
+
+  const blockSize = Number(stat.bsize || stat.frsize);
+  const availableBlocks = Number(
+    stat.bavail !== undefined && stat.bavail !== null
+      ? stat.bavail
+      : stat.bfree,
+  );
+  if (!Number.isFinite(blockSize) || blockSize <= 0 || !Number.isFinite(availableBlocks) || availableBlocks < 0) {
+    return { ...base, reason: 'statfs_invalid' };
+  }
+
+  const freeBytes = availableBlocks * blockSize;
+  const minBytes = minFreeMb * BYTES_PER_MB;
+  const allowed = freeBytes >= minBytes;
+  return {
+    allowed,
+    checked: true,
+    admission_paused: !allowed,
+    free_bytes: freeBytes,
+    free_mb: roundMb(freeBytes),
+    min_free_mb: minFreeMb,
+    path: rootPath,
+    reason: allowed ? 'ok' : 'below_minimum',
+  };
 }
 
 /**
@@ -214,12 +301,23 @@ function getTaskLogDiskUsage(opts = {}) {
   const retentionDays = Number.isFinite(Number(opts.retentionDays))
     ? Number(opts.retentionDays)
     : DEFAULT_RETENTION_DAYS;
+  const admission = getTaskLogDiskAdmissionStatus({
+    minFreeMb: opts.minFreeMb,
+    rootPath: opts.rootPath || getDataDir(),
+    statfsSync: opts.statfsSync,
+  });
   const root = taskLogsRoot();
   const out = {
     total_bytes: 0,
     task_count: 0,
     oldest_log_age_days: null,
     retention_days: retentionDays,
+    free_bytes: admission.free_bytes,
+    free_mb: admission.free_mb,
+    min_free_mb: admission.min_free_mb,
+    admission_paused: admission.admission_paused,
+    disk_check_available: admission.checked,
+    disk_check_reason: admission.reason,
   };
   let entries;
   try {
@@ -250,7 +348,10 @@ module.exports = {
   compressTaskLogs,
   pruneOldTaskLogs,
   getTaskLogDiskUsage,
+  getTaskLogDiskAdmissionStatus,
+  getConfiguredTaskLogMinFreeMb,
   // Exported for tests:
   _taskLogsRoot: taskLogsRoot,
   _DEFAULT_RETENTION_DAYS: DEFAULT_RETENTION_DAYS,
+  _DEFAULT_DISK_MIN_MB: DEFAULT_DISK_MIN_MB,
 };

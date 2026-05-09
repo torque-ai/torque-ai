@@ -10,6 +10,7 @@ const {
   compressTaskLogs,
   pruneOldTaskLogs,
   getTaskLogDiskUsage,
+  getTaskLogDiskAdmissionStatus,
 } = require('../utils/task-log-retention');
 
 function makeTaskLog(taskId, { stdout = '', stderr = '', mtimeAgeMs = 0, prompt = null } = {}) {
@@ -158,22 +159,44 @@ describe('getTaskLogDiskUsage', () => {
     makeTaskLog('t-1', { stdout: 'aaa' });
     makeTaskLog('t-2', { stdout: 'bbbbb', mtimeAgeMs: 10 * 24 * 60 * 60 * 1000 });
 
-    const usage = getTaskLogDiskUsage({ retentionDays: 30 });
+    const usage = getTaskLogDiskUsage({
+      retentionDays: 30,
+      minFreeMb: 1,
+      statfsSync: () => ({ bavail: 2048, bsize: 1024 }),
+    });
 
-    expect(usage.task_count).toBe(2);
-    expect(usage.total_bytes).toBe(8); // 3 + 5
+    expect(usage).toMatchObject({
+      task_count: 2,
+      total_bytes: 8, // 3 + 5
+      retention_days: 30,
+      free_bytes: 2097152,
+      free_mb: 2,
+      min_free_mb: 1,
+      admission_paused: false,
+      disk_check_available: true,
+      disk_check_reason: 'ok',
+    });
     expect(usage.oldest_log_age_days).toBeGreaterThanOrEqual(9.5);
-    expect(usage.retention_days).toBe(30);
   });
 
   it('returns zeros + null oldest_log_age_days when no logs exist', () => {
-    const usage = getTaskLogDiskUsage({ retentionDays: 30 });
+    const usage = getTaskLogDiskUsage({
+      retentionDays: 30,
+      minFreeMb: 1,
+      statfsSync: () => ({ bavail: 2048, bsize: 1024 }),
+    });
 
-    expect(usage).toEqual({
+    expect(usage).toMatchObject({
       total_bytes: 0,
       task_count: 0,
       oldest_log_age_days: null,
       retention_days: 30,
+      free_bytes: 2097152,
+      free_mb: 2,
+      min_free_mb: 1,
+      admission_paused: false,
+      disk_check_available: true,
+      disk_check_reason: 'ok',
     });
   });
 
@@ -181,9 +204,84 @@ describe('getTaskLogDiskUsage', () => {
     makeTaskLog('t-real', { stdout: 'real' });
     fs.mkdirSync(dataDir.getTaskLogDir('t-empty'), { recursive: true });
 
-    const usage = getTaskLogDiskUsage({ retentionDays: 30 });
+    const usage = getTaskLogDiskUsage({
+      retentionDays: 30,
+      minFreeMb: 1,
+      statfsSync: () => ({ bavail: 2048, bsize: 1024 }),
+    });
 
     expect(usage.task_count).toBe(1);
     expect(usage.total_bytes).toBe(4);
+  });
+});
+
+describe('getTaskLogDiskAdmissionStatus', () => {
+  it('allows task starts when free disk is at or above the floor', () => {
+    const status = getTaskLogDiskAdmissionStatus({
+      minFreeMb: 4,
+      statfsSync: () => ({ bavail: 4, bsize: 1024 * 1024 }),
+    });
+
+    expect(status).toMatchObject({
+      allowed: true,
+      checked: true,
+      admission_paused: false,
+      free_bytes: 4 * 1024 * 1024,
+      free_mb: 4,
+      min_free_mb: 4,
+      reason: 'ok',
+    });
+  });
+
+  it('pauses admission when free disk is below the floor', () => {
+    const status = getTaskLogDiskAdmissionStatus({
+      minFreeMb: 1024,
+      statfsSync: () => ({ bavail: 512, bsize: 1024 * 1024 }),
+    });
+
+    expect(status).toMatchObject({
+      allowed: false,
+      checked: true,
+      admission_paused: true,
+      free_mb: 512,
+      min_free_mb: 1024,
+      reason: 'below_minimum',
+    });
+  });
+
+  it('disables the guard when minFreeMb is zero', () => {
+    const status = getTaskLogDiskAdmissionStatus({
+      minFreeMb: 0,
+      statfsSync: () => {
+        throw new Error('should not be called');
+      },
+    });
+
+    expect(status).toMatchObject({
+      allowed: true,
+      checked: false,
+      admission_paused: false,
+      min_free_mb: 0,
+      reason: 'disabled',
+    });
+  });
+
+  it('fails open when filesystem free space cannot be checked', () => {
+    const status = getTaskLogDiskAdmissionStatus({
+      minFreeMb: 1024,
+      statfsSync: () => {
+        const err = new Error('not supported');
+        err.code = 'ENOTSUP';
+        throw err;
+      },
+    });
+
+    expect(status).toMatchObject({
+      allowed: true,
+      checked: false,
+      admission_paused: false,
+      min_free_mb: 1024,
+      reason: 'statfs_failed:ENOTSUP',
+    });
   });
 });

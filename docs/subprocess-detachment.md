@@ -160,6 +160,7 @@ DB config keys (via `set_project_defaults` or direct):
 | Key | Default | Purpose |
 |---|---|---|
 | `task_log_retention_days` | `30` | Phase E prune scheduler retention |
+| `task_log_disk_min_mb` | `1024` | Minimum free MB on the TORQUE data-dir volume required before queued task starts are admitted. Set `0` to disable the admission floor. |
 | `max_task_lifetime_seconds` | `0` (disabled) | Hard cap on task runtime regardless of activity rescues; max `86400` (24h). Tool-call-loop defense. |
 | `finalizing_task_stale_minutes` | `15` | See `docs/cancellation-cleanup.md` #9 + `docs/factory.md` |
 
@@ -223,21 +224,21 @@ Migration v57 adds `tasks.completion_detected_at` (TEXT). `process-streams.js ar
 
 Column added to `ALLOWED_TASK_COLUMNS` (writes) and `LIST_TASKS_ALLOWED_COLUMNS` (reads — same silent-drop precedent as `cancel_reason`). 6 unit tests pin the parser (valid ISO, missing, null task, empty string, garbage, 5-min-old preservation).
 
-### 7. Disk pressure → log truncation contract — **DOCUMENTED 2026-05-07**
+### 7. ~~Disk pressure → log truncation contract~~ ✅ RESOLVED 2026-05-09
 
 When `<data-dir>` runs out of disk mid-task, log writes start failing. The wrapper's `stdio: 'inherit'` means the EIO/ENOSPC happens inside the child's libc `write()` — TORQUE's parent never sees it directly. Behavior depends on the child:
 
 - **codex / codex-spark / claude-cli**: most CLIs treat write failure as fatal and exit non-zero. The wrapper's `child.on('close')` handler still emits the `[process-exit]` annotation (best-effort; if disk is truly full the wrapper's own write may also fail). The close-handler emulation reads what's there and finalizes the task as failed.
 - **stdout/stderr stream divergence**: if stdout fills first but stderr has space (rare with shared volume), the task may report partial output with no error message — operator sees "task completed but result is empty."
-- **`get_task_log_disk_usage` reports `total_bytes`**: operators monitoring the dashboard will see growth approaching disk capacity. No automatic admission gate yet.
+- **`get_task_log_disk_usage` reports `total_bytes` and free-space guard state**: operators monitoring the dashboard will see growth approaching disk capacity, current free MB, the configured admission floor, and whether new queued task starts are paused.
 
-**Operator mitigations** (until #7's full action lands):
-- Periodically run `get_task_log_disk_usage` (MCP tool) to track total bytes vs. available disk.
+**Operator mitigations**:
+- Periodically run `get_task_log_disk_usage` (MCP tool) to track total bytes vs. available disk and confirm whether admission is paused.
 - Set `task_log_retention_days` aggressively (e.g. `7` for high-throughput environments).
 - Pre-allocate `<data-dir>` on a separate volume so disk pressure doesn't impact `torque.db`.
 - If disk fills, manually delete old `task-logs/<taskId>/` dirs; the next prune cycle will normalize state.
 
-**Deferred from this commit** (still worth doing): periodic disk-space check that pauses new task admission when free space is below `task_log_disk_min_mb` config. Implementation requires `fs.statfs` (Linux/macOS) or `wmic logicaldisk` / PowerShell on Windows; not bundled here because the operator workaround above suffices for current scale.
+**Fix landed**: `task_log_disk_min_mb` defaults to `1024`. The queue scheduler checks the data-dir volume before promoting queued work, and direct `startTask` calls park pending/queued tasks back in `queued` with an operator-visible `error_output` when free space is below the floor. The guard uses Node `fs.statfsSync` where available and fails open with a visible reason when the platform cannot report filesystem space. Set `task_log_disk_min_mb=0` to disable the admission floor.
 
 ### 8. ✅ ~~PID-reuse defense relies on log-mtime freshness~~ RESOLVED 2026-05-07
 
