@@ -253,6 +253,17 @@ describe('torque-remote staging branch validation', () => {
     expect(src).toContain('rm -rf "$SCRIPT_DIR" >/dev/null 2>&1 </dev/null &');
     expect(src).toContain('bootstrap.sh owns output streaming and cleanup after extraction');
   });
+
+  it('materializes long bash -c payloads before local fallback execution', () => {
+    const src = readTorqueRemote();
+    expect(src).toMatch(/materialize_local_bash_c_command\s*\(\)/);
+    expect(src).toMatch(/TORQUE_REMOTE_LOCAL_BASH_C_SCRIPT_THRESHOLD:-2000/);
+    expect(src).toContain('printf \'%s\\n\' "$payload" > "$LOCAL_COMMAND_SCRIPT"');
+    expect(src).toContain('LOCAL_COMMAND_ARGS=(bash "$LOCAL_COMMAND_SCRIPT")');
+    expect(src).toMatch(/run_ssh_fallback_locally\s*\(\)\s*\{[\s\S]*materialize_local_bash_c_command[\s\S]*"\$\{LOCAL_COMMAND_ARGS\[@\]\}"/);
+    expect(src).toMatch(/local\)[\s\S]*materialize_local_bash_c_command[\s\S]*"\$\{LOCAL_COMMAND_ARGS\[@\]\}"/);
+    expect(src).toMatch(/cleanup_materialized_local_command\s*\(\)/);
+  });
 });
 
 describe('install-git-hooks.sh installer', () => {

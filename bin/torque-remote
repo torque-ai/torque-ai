@@ -179,6 +179,8 @@ json_get() {
 TEMP_DIRS=()
 REMOTE_CLEANUP_COMMAND=""
 REMOTE_CLEANUP_REQUIRED="false"
+LOCAL_COMMAND_ARGS=()
+LOCAL_COMMAND_SCRIPT=""
 
 # bash's `trap ... EXIT` is single-slot; installing a second trap replaces
 # the first. Prior code installed `cleanup_on_exit` first, then later
@@ -292,6 +294,43 @@ make_temp_dir() {
 
 shell_quote() {
   printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"
+}
+
+materialize_local_bash_c_command() {
+  LOCAL_COMMAND_ARGS=("${COMMAND_ARGS[@]}")
+  LOCAL_COMMAND_SCRIPT=""
+
+  if [[ "${COMMAND_ARGS[0]:-}" != "bash" || "${COMMAND_ARGS[1]:-}" != "-c" || "${#COMMAND_ARGS[@]}" -ne 3 ]]; then
+    return 0
+  fi
+
+  local payload="${COMMAND_ARGS[2]}"
+  local threshold="${TORQUE_REMOTE_LOCAL_BASH_C_SCRIPT_THRESHOLD:-2000}"
+  if [[ ! "$threshold" =~ ^[0-9]+$ ]]; then
+    threshold=2000
+  fi
+  if (( ${#payload} <= threshold )); then
+    return 0
+  fi
+
+  LOCAL_COMMAND_SCRIPT="$(mktemp -t torque-remote-local-bash.XXXXXX.sh 2>/dev/null || mktemp)"
+  if ! printf '%s\n' "$payload" > "$LOCAL_COMMAND_SCRIPT"; then
+    warn "Failed to materialize long bash -c payload; using original command"
+    rm -f "$LOCAL_COMMAND_SCRIPT" 2>/dev/null || true
+    LOCAL_COMMAND_SCRIPT=""
+    LOCAL_COMMAND_ARGS=("${COMMAND_ARGS[@]}")
+    return 0
+  fi
+  chmod +x "$LOCAL_COMMAND_SCRIPT" 2>/dev/null || true
+  LOCAL_COMMAND_ARGS=(bash "$LOCAL_COMMAND_SCRIPT")
+  info "Materialized long bash -c payload to a temp script for local execution"
+}
+
+cleanup_materialized_local_command() {
+  if [[ -n "${LOCAL_COMMAND_SCRIPT:-}" ]]; then
+    rm -f "$LOCAL_COMMAND_SCRIPT" 2>/dev/null || true
+    LOCAL_COMMAND_SCRIPT=""
+  fi
 }
 
 format_command_for_log() {
@@ -1684,7 +1723,11 @@ run_ssh_fallback_locally() {
   (
     unset TORQUE_COORD_REMOTE_HOST
     unset TORQUE_COORD_REMOTE_USER
-    "${COMMAND_ARGS[@]}"
+    materialize_local_bash_c_command
+    "${LOCAL_COMMAND_ARGS[@]}"
+    exit_code=$?
+    cleanup_materialized_local_command
+    exit "$exit_code"
   )
   exit_code=$?
   set -e
@@ -1698,13 +1741,14 @@ case "$TRANSPORT" in
     info "Running locally: $COMMAND_DISPLAY"
     cd "$PROJECT_ROOT"
     set +e
+    materialize_local_bash_c_command
     if [[ -n "$COORD_OUTPUT_LOG" ]]; then
       # Tee stdout/stderr to the capture file so coord_release_on_exit can
       # store the last 16KB as the result's output_tail. The streamer is killed
       # after the writer exits because Git Bash can leave `tail --pid` alive
       # after the watched process is gone, recreating the EOF-leak hang this
       # path avoids by not using `tee`.
-      "${COMMAND_ARGS[@]}" > "$COORD_OUTPUT_LOG" 2>&1 &
+      "${LOCAL_COMMAND_ARGS[@]}" > "$COORD_OUTPUT_LOG" 2>&1 &
       cmd_pid=$!
       tail -f --pid="$cmd_pid" "$COORD_OUTPUT_LOG" &
       tail_pid=$!
@@ -1714,9 +1758,10 @@ case "$TRANSPORT" in
       kill "$tail_pid" 2>/dev/null || true
       wait "$tail_pid" 2>/dev/null || true
     else
-      "${COMMAND_ARGS[@]}"
+      "${LOCAL_COMMAND_ARGS[@]}"
       exit_code=$?
     fi
+    cleanup_materialized_local_command
     set -e
     exit $exit_code
     ;;
