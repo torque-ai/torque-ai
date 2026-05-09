@@ -462,7 +462,7 @@ describe('remote-test-routing', () => {
       expect(result.remote).toBe(false);
       expect(result.success).toBe(true);
       expect(result.output).toBe('local-ok');
-      expect(mockSpawnSync).toHaveBeenCalledWith('npm', ['test'], expect.objectContaining({
+      expect(mockSpawnSync).toHaveBeenCalledWith('npm test', expect.objectContaining({
         cwd: '/repo',
         shell: true,
       }));

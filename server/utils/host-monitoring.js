@@ -315,12 +315,14 @@ async function probeCodexRecovery() {
 
   // Fallback: CLI version check (verifies binary exists, not quota)
   try {
-    const result = spawnSync('npx', ['codex', '--version'], {
+    const spawnOptions = {
       timeout: 10000,
       stdio: 'pipe',
-      shell: process.platform === 'win32',
       windowsHide: true,
-    });
+    };
+    const result = process.platform === 'win32'
+      ? spawnSync('npx codex --version', { ...spawnOptions, shell: true })
+      : spawnSync('npx', ['codex', '--version'], spawnOptions);
 
     if (result.status === 0) {
       db.setCodexExhausted(false);

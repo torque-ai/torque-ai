@@ -1,6 +1,5 @@
 'use strict';
 const http = require('http');
-const url = require('url');
 
 function readJsonBody(req) {
   return new Promise((resolve, reject) => {
@@ -22,6 +21,18 @@ function sendJson(res, status, body) {
     'content-length': Buffer.byteLength(payload),
   });
   res.end(payload);
+}
+
+function getRequestPath(rawUrl) {
+  const text = String(rawUrl || '/');
+  const queryIndex = text.indexOf('?');
+  const withoutQuery = queryIndex === -1 ? text : text.slice(0, queryIndex);
+  if (withoutQuery.startsWith('/')) return withoutQuery || '/';
+
+  const absoluteTarget = /^[A-Za-z][A-Za-z0-9+.-]*:\/\/[^/]*(\/.*)?$/.exec(withoutQuery);
+  if (absoluteTarget) return absoluteTarget[1] || '/';
+
+  return withoutQuery || '/';
 }
 
 function lastLine(buffer) {
@@ -164,8 +175,8 @@ function createServer({ state, results, config }) {
   }
 
   const server = http.createServer((req, res) => {
-    const parsed = url.parse(req.url, true);
-    const parts = parsed.pathname.split('/'); // ['', 'health'] etc.
+    const pathname = getRequestPath(req.url);
+    const parts = pathname.split('/'); // ['', 'health'] etc.
 
     if (req.method === 'GET' && parts[1] === 'health') return handleHealth(req, res);
     if (req.method === 'POST' && parts[1] === 'acquire') return handleAcquire(req, res);
@@ -174,7 +185,7 @@ function createServer({ state, results, config }) {
     if (req.method === 'GET' && parts[1] === 'results') return handleResults(req, res, parts);
     if (req.method === 'GET' && parts[1] === 'active') return handleActive(req, res);
     if (req.method === 'GET' && parts[1] === 'wait') return handleWait(req, res, parts);
-    sendJson(res, 404, { error: 'unknown_route', path: parsed.pathname });
+    sendJson(res, 404, { error: 'unknown_route', path: pathname });
   });
 
   return server;

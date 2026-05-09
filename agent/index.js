@@ -44,6 +44,27 @@ const MAX_BODY_SIZE = 1024 * 1024; // 1MB
 const ALLOWED_ENV_VARS = new Set(['NODE_ENV', 'DEBUG', 'PATH', 'HOME', 'USERPROFILE', 'TEMP', 'TMP']);
 const PROBE_COMMAND_TIMEOUT_MS = 500;
 
+function normalizeCommandName(command) {
+  const commandText = String(command || '').trim();
+  const baseName = commandText.split(/[\\/]/).pop();
+  return baseName.replace(/\.(cmd|exe|bat)$/i, '').toLowerCase();
+}
+
+function quoteWindowsShellArg(value) {
+  const text = String(value);
+  if (text === '') {
+    return '""';
+  }
+  if (!/[\s]/.test(text)) {
+    return text;
+  }
+  return `"${text.replace(/"/g, '\\"')}"`;
+}
+
+function buildWindowsShellCommand(command, args) {
+  return [command, ...args].map(quoteWindowsShellArg).join(' ');
+}
+
 /**
  * Promise-based JSON body parser. Collects request body chunks and parses as JSON.
  * Rejects if body exceeds MAX_BODY_SIZE, is empty, or contains invalid JSON.
@@ -156,9 +177,13 @@ function createServer(overrideConfig = {}) {
       return;
     }
 
-    // On Windows, spawn uses shell:true which passes args through cmd.exe.
-    // Reject any argument containing shell metacharacters that could escape the argv boundary.
-    if (process.platform === 'win32') {
+    const useWindowsShell = process.platform === 'win32'
+      && ['npm', 'npx'].includes(normalizeCommandName(command));
+
+    // npm/npx are .cmd shims on Windows. When shell mode is required, reject
+    // characters that could escape the command boundary before building a
+    // single command string for spawn().
+    if (useWindowsShell) {
       const SHELL_META = /[&|<>;"'`\r\n]/;
       for (const arg of args) {
         if (typeof arg === 'string' && SHELL_META.test(arg)) {
@@ -188,12 +213,17 @@ function createServer(overrideConfig = {}) {
       if (ALLOWED_ENV_VARS.has(k) || k.startsWith('TORQUE_') || k.startsWith('OLLAMA_')) safeEnv[k] = v;
     }
 
-    const child = spawn(command, args, {
+    const spawnOptions = {
       cwd,
       env: { ...process.env, ...safeEnv },
       windowsHide: true,
-      shell: process.platform === 'win32',
-    });
+    };
+    const child = useWindowsShell
+      ? spawn(buildWindowsShellCommand(command, args), {
+        ...spawnOptions,
+        shell: true,
+      })
+      : spawn(command, args, spawnOptions);
 
     // Manual timeout since spawn doesn't have a timeout option
     const timer = setTimeout(() => {

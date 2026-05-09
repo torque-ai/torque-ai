@@ -44,7 +44,12 @@ function _snapshotGitPids() {
     // tasklist is ~10x faster than PowerShell Get-Process (~30ms vs ~260ms)
     const out = execFileSync('tasklist', [
       '/FI', 'IMAGENAME eq git.exe', '/FO', 'CSV', '/NH'
-    ], { timeout: 5000, encoding: 'utf8', windowsHide: true }).trim();
+    ], {
+      timeout: 5000,
+      encoding: 'utf8',
+      windowsHide: true,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    }).trim();
     if (!out || out.startsWith('INFO:')) return new Set();
     const pids = out.split('\r\n')
       .map(line => { const m = line.match(/"git\.exe","(\d+)"/); return m ? Number(m[1]) : null; })
@@ -64,7 +69,12 @@ function snapshotAllGitPids() {
     try {
       const out = execFileSync('tasklist', [
         '/FI', `IMAGENAME eq ${processName}`, '/FO', 'CSV', '/NH'
-      ], { timeout: 5000, encoding: 'utf8', windowsHide: true }).trim();
+      ], {
+        timeout: 5000,
+        encoding: 'utf8',
+        windowsHide: true,
+        stdio: ['ignore', 'pipe', 'pipe'],
+      }).trim();
       if (!out || out.startsWith('INFO:')) continue;
       for (const line of out.split('\r\n')) {
         const m = line.match(/"[^"]+","(\d+)"/);

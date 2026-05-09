@@ -5,6 +5,20 @@ const { resolveWindowsPowerShellEnv } = require('./utils/windows-powershell-env'
 const { createActivityTimeout } = require('./utils/activity-timeout');
 const { prepareWorktreeVerifyDependencies } = require('./utils/worktree-verify-deps');
 
+function quoteShellArg(value) {
+  const text = String(value ?? '');
+  if (process.platform === 'win32') {
+    if (text === '') return '""';
+    if (!/[\s"^&|<>()%]/.test(text)) return text;
+    return `"${text.replace(/"/g, '\\"')}"`;
+  }
+  return `'${text.replace(/'/g, "'\\''")}'`;
+}
+
+function buildShellCommand(command, args = []) {
+  return [command, ...(args || [])].map(quoteShellArg).join(' ');
+}
+
 function createTestRunnerRegistry() {
   let _overrides = null;
 
@@ -96,8 +110,9 @@ function createTestRunnerRegistry() {
   function _localRunRemoteOrLocal(command, args, cwd, options = {}) {
     const { spawnSync } = require('child_process');
     const startMs = Date.now();
-    const childEnv = resolveWindowsPowerShellEnv([command, ...(args || [])].join(' '));
-    const result = spawnSync(command, args, {
+    const shellCommand = buildShellCommand(command, args);
+    const childEnv = resolveWindowsPowerShellEnv(shellCommand);
+    const result = spawnSync(shellCommand, {
       cwd,
       encoding: 'utf8',
       timeout: options.timeout || 120000,

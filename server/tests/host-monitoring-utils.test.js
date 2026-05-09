@@ -432,7 +432,13 @@ describe('host-monitoring utility module', () => {
 
       await monitoring.probeCodexRecovery();
 
-      expect(spawnSyncMock).toHaveBeenCalledWith('npx', ['codex', '--version'], expect.any(Object));
+      if (process.platform === 'win32') {
+        expect(spawnSyncMock).toHaveBeenCalledWith('npx codex --version', expect.objectContaining({
+          shell: true,
+        }));
+      } else {
+        expect(spawnSyncMock).toHaveBeenCalledWith('npx', ['codex', '--version'], expect.any(Object));
+      }
       expect(configCore.getConfig('codex_exhausted')).toBe('1');
     });
   });

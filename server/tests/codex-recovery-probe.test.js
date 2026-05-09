@@ -144,13 +144,22 @@ describe('probeCodexRecovery', () => {
 
     await hostMonitoring.probeCodexRecovery();
 
-    // RB-033: CLI fallback uses --version (not --help) and shell only on Windows
-    expect(mockSpawnSync).toHaveBeenCalledWith('npx', ['codex', '--version'], {
-      timeout: 10000,
-      stdio: 'pipe',
-      shell: process.platform === 'win32',
-      windowsHide: true,
-    });
+    // RB-033: CLI fallback uses --version (not --help) and shell only on Windows.
+    // Windows shell mode must use a single command string to avoid DEP0190.
+    if (process.platform === 'win32') {
+      expect(mockSpawnSync).toHaveBeenCalledWith('npx codex --version', {
+        timeout: 10000,
+        stdio: 'pipe',
+        shell: true,
+        windowsHide: true,
+      });
+    } else {
+      expect(mockSpawnSync).toHaveBeenCalledWith('npx', ['codex', '--version'], {
+        timeout: 10000,
+        stdio: 'pipe',
+        windowsHide: true,
+      });
+    }
     expect(mockDb.setCodexExhausted).toHaveBeenCalledWith(false);
     // Should NOT update the timestamp since we cleared the flag
     expect(mockDb.setConfig).not.toHaveBeenCalledWith('codex_exhausted_at', expect.any(String));

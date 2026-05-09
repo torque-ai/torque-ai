@@ -303,6 +303,17 @@ function safeAddColumn(tableName, columnDef) {
 let DATA_DIR = _resolveDataDir();
 let DB_PATH = path.join(DATA_DIR, 'tasks.db');
 
+function getCurrentWindowsAclPrincipal() {
+  const currentUsername = os.userInfo().username || process.env.USERNAME;
+  if (!currentUsername) return null;
+  if (currentUsername.includes('\\') || currentUsername.includes('@')) {
+    return currentUsername;
+  }
+  return process.env.USERDOMAIN
+    ? `${process.env.USERDOMAIN}\\${currentUsername}`
+    : currentUsername;
+}
+
 let db = null;
 let dbClosed = false;
 const taskStatusTransitionListeners = new Set();
@@ -614,7 +625,10 @@ function init() {
     if (process.platform === 'win32' && DB_PATH !== ':memory:') {
       try {
         const { execFileSync } = require('child_process');
-        execFileSync('icacls', [DB_PATH, '/inheritance:r', '/grant:r', `${process.env.USERNAME}:(F)`], { stdio: 'pipe', windowsHide: true });
+        const aclPrincipal = getCurrentWindowsAclPrincipal();
+        if (aclPrincipal) {
+          execFileSync('icacls', [DB_PATH, '/inheritance:r', '/grant:r', `${aclPrincipal}:(F)`], { stdio: 'pipe', windowsHide: true });
+        }
       } catch (err) {
         logger.warn('Could not set DB file permissions: ' + err.message);
       }
