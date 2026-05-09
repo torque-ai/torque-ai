@@ -312,6 +312,7 @@ describe('remote-test-routing', () => {
     expect(router.getRemoteConfig('/repo/torque-public')).toEqual({
       agentId: 'agent-1',
       remotePath: '/repo/torque-public',
+      requireRemote: true,
     });
     expect(db.getProjectFromPath).toHaveBeenCalledWith('/repo/torque-public');
     expect(db.getProjectConfig).toHaveBeenCalledWith('torque-public');
@@ -507,6 +508,31 @@ describe('remote-test-routing', () => {
     expect(logger.warn).toHaveBeenCalledWith(
       '[remote-routing] Remote auth failed, not falling back: remote health check failed with 401 unauthorized'
     );
+  });
+
+  it('runRemoteOrLocal does not fall back locally when remote tests are required and the agent is unavailable', async () => {
+    const client = createRemoteClient({
+      available: false,
+      availableAfterHealth: false,
+      lastHealthErrorAfterHealth: new Error('agent offline'),
+    });
+    const router = remoteTestRouting.createRemoteTestRouter({
+      agentRegistry: createAgentRegistry({ getClient: vi.fn().mockReturnValue(client) }),
+      db: createRemoteDb(),
+      logger: createLogger(),
+    });
+
+    const result = await router.runRemoteOrLocal('npm', ['test'], '/repo', { branch: 'main' });
+
+    expect(result).toMatchObject({
+      success: false,
+      remote: true,
+      error: 'agent offline',
+      exitCode: 1,
+    });
+    expect(client.checkHealth).toHaveBeenCalledTimes(1);
+    expect(client.run).not.toHaveBeenCalled();
+    expect(mockSpawnSync).not.toHaveBeenCalled();
   });
 
   it('runRemoteOrLocal does not fall back locally for remote /run streaming timeouts', async () => {
@@ -808,6 +834,31 @@ describe('remote-test-routing', () => {
       error: 'streaming request to /run timed out while waiting for output',
       exitCode: 1,
     });
+    expect(mockSpawn).not.toHaveBeenCalled();
+  });
+
+  it('runVerifyCommand does not fall back locally when remote tests are required and the agent is unavailable', async () => {
+    const client = createRemoteClient({
+      available: false,
+      availableAfterHealth: false,
+      lastHealthErrorAfterHealth: new Error('agent offline'),
+    });
+    const router = remoteTestRouting.createRemoteTestRouter({
+      agentRegistry: createAgentRegistry({ getClient: vi.fn().mockReturnValue(client) }),
+      db: createRemoteDb(),
+      logger: createLogger(),
+    });
+
+    const result = await router.runVerifyCommand('npm test', '/repo', { branch: 'main' });
+
+    expect(result).toMatchObject({
+      success: false,
+      remote: true,
+      error: 'agent offline',
+      exitCode: 1,
+    });
+    expect(client.checkHealth).toHaveBeenCalledTimes(1);
+    expect(client.run).not.toHaveBeenCalled();
     expect(mockSpawn).not.toHaveBeenCalled();
   });
 

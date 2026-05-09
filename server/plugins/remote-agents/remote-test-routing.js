@@ -148,6 +148,12 @@ function hasTorqueRemoteTransportConfig(cwd) {
   return TORQUE_REMOTE_TRANSPORTS.has(transport);
 }
 
+function isTruthyConfig(value) {
+  if (value === true || value === 1) return true;
+  if (typeof value !== 'string') return false;
+  return ['1', 'true', 'yes', 'on'].includes(value.trim().toLowerCase());
+}
+
 function buildTorqueRemoteInvocation(command) {
   const normalized = String(command || '').trim();
   return `torque-remote bash -lc ${JSON.stringify(normalized)}`;
@@ -288,6 +294,13 @@ function runTorqueRemoteWrapper(command, cwd, options = {}, env) {
   });
 }
 
+function withRemoteRequiredEnv(env) {
+  return {
+    ...(env || process.env),
+    TORQUE_REMOTE_REQUIRE_REMOTE: '1',
+  };
+}
+
 function toRemoteFailureResult(error, startedAt) {
   return {
     success: false,
@@ -304,8 +317,9 @@ function toRemoteFailureResult(error, startedAt) {
  *
  * The router checks project_config for a configured remote_agent_id and
  * prefer_remote_tests flag.  When a remote agent is available, commands are
- * executed on it (after a git sync).  On any remote failure the router falls
- * back transparently to local spawnSync execution.
+ * executed on it (after a git sync).  Projects that explicitly set
+ * prefer_remote_tests require the remote path and fail fast when it is
+ * unavailable; other callers can still fall back to local execution.
  *
  * @param {object} options
  * @param {object} options.agentRegistry - RemoteAgentRegistry instance
@@ -371,7 +385,16 @@ function createRemoteTestRouter({ agentRegistry, db, logger }) {
         : null;
 
       // Check explicit remote configuration
-      if (config && config.prefer_remote_tests && config.remote_agent_id) {
+      if (config && isTruthyConfig(config.prefer_remote_tests)) {
+        if (!config.remote_agent_id) {
+          return {
+            agentId: null,
+            remotePath: config.remote_project_path || workingDir,
+            requireRemote: true,
+            unavailableReason: 'remote_agent_id_missing',
+          };
+        }
+
         // Phase 3: Try workstation lookup for remote agent
         try {
           const wsModel = require('../../workstation/model');
@@ -395,6 +418,7 @@ function createRemoteTestRouter({ agentRegistry, db, logger }) {
         return {
           agentId: config.remote_agent_id,
           remotePath: config.remote_project_path || workingDir,
+          requireRemote: true,
         };
       }
 
@@ -442,7 +466,8 @@ function createRemoteTestRouter({ agentRegistry, db, logger }) {
    * Flow:
    * 1. Check project config for remote agent preference
    * 2. If remote agent configured and available → sync + run remotely
-   * 3. On any remote failure → fall back to local spawnSync
+   * 3. If remote is required, fail fast on remote unavailability
+   * 4. Otherwise, fall back to local spawnSync
    *
    * @param {string} command - Executable name (e.g. 'npx')
    * @param {string[]} args - Command arguments
@@ -458,6 +483,9 @@ function createRemoteTestRouter({ agentRegistry, db, logger }) {
     if (remoteConfig && agentRegistry) {
       const client = agentRegistry.getClient(remoteConfig.agentId);
       const remoteStartMs = Date.now();
+      if (!client && remoteConfig.requireRemote) {
+        return toRemoteFailureResult(new Error(remoteConfig.unavailableReason || `Remote agent unavailable: ${remoteConfig.agentId || 'not configured'}`), remoteStartMs);
+      }
 
       // If client exists but health cache is stale, run a quick health check
       if (client && !client.isAvailable()) {
@@ -468,6 +496,10 @@ function createRemoteTestRouter({ agentRegistry, db, logger }) {
         if (!client.isAvailable() && isRemoteAuthError(client.lastHealthError)) {
           logger.warn(`[remote-routing] Remote auth failed, not falling back: ${client.lastHealthError.message}`);
           return toRemoteFailureResult(client.lastHealthError, remoteStartMs);
+        }
+        if (!client.isAvailable() && remoteConfig.requireRemote) {
+          logger.warn(`[remote-routing] Remote unavailable and required, not falling back: ${client.lastHealthError?.message || remoteConfig.agentId}`);
+          return toRemoteFailureResult(client.lastHealthError || new Error(`Remote agent unavailable: ${remoteConfig.agentId}`), remoteStartMs);
         }
       }
 
@@ -508,10 +540,16 @@ function createRemoteTestRouter({ agentRegistry, db, logger }) {
             logger.warn(`[remote-routing] Remote execution timed out, not falling back: ${err.message}`);
             return toRemoteFailureResult(err, remoteStartMs);
           }
+          if (remoteConfig.requireRemote) {
+            logger.warn(`[remote-routing] Remote failed and is required, not falling back: ${err.message}`);
+            return toRemoteFailureResult(err, remoteStartMs);
+          }
           logger.warn(`[remote-routing] Remote failed, falling back to local: ${err.message}`);
           // Fall through to local execution
         }
       }
+    } else if (remoteConfig?.requireRemote) {
+      return toRemoteFailureResult(new Error('Remote execution required but agent registry is unavailable'), Date.now());
     }
 
     // Local fallback
@@ -573,6 +611,9 @@ function createRemoteTestRouter({ agentRegistry, db, logger }) {
     if (remoteConfig && agentRegistry) {
       const client = agentRegistry.getClient(remoteConfig.agentId);
       const remoteStartMs = Date.now();
+      if (!client && remoteConfig.requireRemote) {
+        return toRemoteFailureResult(new Error(remoteConfig.unavailableReason || `Remote agent unavailable: ${remoteConfig.agentId || 'not configured'}`), remoteStartMs);
+      }
 
       if (client && !client.isAvailable()) {
         try {
@@ -582,6 +623,10 @@ function createRemoteTestRouter({ agentRegistry, db, logger }) {
         if (!client.isAvailable() && isRemoteAuthError(client.lastHealthError)) {
           logger.warn(`[remote-routing] Remote auth failed, not falling back: ${client.lastHealthError.message}`);
           return toRemoteFailureResult(client.lastHealthError, remoteStartMs);
+        }
+        if (!client.isAvailable() && remoteConfig.requireRemote) {
+          logger.warn(`[remote-routing] Remote unavailable and required, not falling back: ${client.lastHealthError?.message || remoteConfig.agentId}`);
+          return toRemoteFailureResult(client.lastHealthError || new Error(`Remote agent unavailable: ${remoteConfig.agentId}`), remoteStartMs);
         }
       }
 
@@ -616,16 +661,36 @@ function createRemoteTestRouter({ agentRegistry, db, logger }) {
             logger.warn(`[remote-routing] Remote execution timed out, not falling back: ${err.message}`);
             return toRemoteFailureResult(err, remoteStartMs);
           }
+          if (remoteConfig.requireRemote) {
+            logger.warn(`[remote-routing] Remote verify failed and is required, not falling back: ${err.message}`);
+            return toRemoteFailureResult(err, remoteStartMs);
+          }
           logger.warn(`[remote-routing] Remote verify failed, falling back to local: ${err.message}`);
         }
       }
+    } else if (remoteConfig?.requireRemote) {
+      return toRemoteFailureResult(new Error('Remote execution required but agent registry is unavailable'), Date.now());
     }
 
     if (shouldUseTorqueRemoteWrapper(command, cwd, options)) {
       logger.info(`[remote-routing] Running via torque-remote wrapper: ${command}`);
       const preparedEnv = prepareLocalVerifyEnv(command);
       try {
-        return await runTorqueRemoteWrapper(command, cwd, options, preparedEnv.env);
+        const wrapperResult = await runTorqueRemoteWrapper(
+          command,
+          cwd,
+          options,
+          remoteConfig?.requireRemote ? withRemoteRequiredEnv(preparedEnv.env) : preparedEnv.env
+        );
+        if (remoteConfig?.requireRemote && wrapperResult.remote === false) {
+          return {
+            ...wrapperResult,
+            success: false,
+            exitCode: wrapperResult.exitCode === 0 ? 1 : wrapperResult.exitCode,
+            error: wrapperResult.error || 'Remote verification required but torque-remote used local fallback',
+          };
+        }
+        return wrapperResult;
       } finally {
         preparedEnv.cleanup();
       }

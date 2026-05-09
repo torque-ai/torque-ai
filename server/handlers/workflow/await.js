@@ -4,6 +4,8 @@
  */
 
 const path = require('path');
+const fs = require('fs');
+const childProcess = require('child_process');
 const taskCore = require('../../db/task-core');
 const fileTracking = require('../../db/file/tracking');
 const taskMetadata = require('../../db/task-metadata');
@@ -57,51 +59,107 @@ function appendAgenticOrphanRollback(task, message) {
 
 /**
  * Determine whether verify commands should route through torque-remote.
- * Returns false when the project explicitly sets prefer_remote_tests: false,
- * or when torque-remote isn't on PATH. On Windows, torque-remote is a bash
- * script that Node can't exec directly — resolve the bash path so callers
- * can spawn via `bash <script-path>` instead of direct execution.
+ * Returns false when the project explicitly sets prefer_remote_tests: false.
+ * On Windows, torque-remote is a bash script that Node can't exec directly,
+ * so resolve both the script and Git Bash without relying on POSIX `which`
+ * being available in the server process environment.
  */
-function shouldUseTorqueRemote(cwd) {
-  // Check project preference first — explicit false means skip wrapping.
-  try {
-    const { getProjectDefaults } = require('../../db/project-config-core');
-    const defaults = getProjectDefaults(cwd);
-    if (defaults && defaults.prefer_remote_tests === false) {
-      return { use: false, reason: 'prefer_remote_tests=false' };
-    }
-  } catch { /* project-config-core not available — fall through to PATH check */ }
+function isTruthyConfig(value) {
+  if (value === true || value === 1) return true;
+  if (typeof value !== 'string') return false;
+  return ['1', 'true', 'yes', 'on'].includes(value.trim().toLowerCase());
+}
 
-  // Detect torque-remote on PATH
+function isFalseyConfig(value) {
+  if (value === false || value === 0) return true;
+  if (typeof value !== 'string') return false;
+  return ['0', 'false', 'no', 'off'].includes(value.trim().toLowerCase());
+}
+
+function pathExists(filePath) {
+  try { return Boolean(filePath && fs.existsSync(filePath)); } catch { return false; }
+}
+
+function resolveFirstExisting(paths) {
+  return paths.find(pathExists) || null;
+}
+
+function resolveTorqueRemoteScript() {
+  const candidates = [];
+  if (process.env.TORQUE_REMOTE_PATH) candidates.push(process.env.TORQUE_REMOTE_PATH);
+
   try {
-    const whichResult = require('child_process').execFileSync('which', ['torque-remote'], {
+    const lookupCmd = process.platform === 'win32' ? 'where.exe' : 'which';
+    const result = childProcess.execFileSync(lookupCmd, ['torque-remote'], {
       encoding: 'utf8',
       windowsHide: true,
       stdio: ['pipe', 'pipe', 'ignore'],
     }).trim();
-    if (!whichResult) {
-      return { use: false, reason: 'not_on_path' };
+    for (const line of result.split(/\r?\n/)) {
+      if (line.trim()) candidates.push(line.trim());
     }
-    // On Windows, Node can't exec bash scripts directly. Resolve a bash
-    // path so callers can spawn via `bash <script-path>`.
-    let bashPath = null;
-    if (process.platform === 'win32') {
-      const fs = require('fs');
-      for (const candidate of [
-        process.env.GIT_BASH,
-        'C:/Program Files/Git/bin/bash.exe',
-        'C:/Program Files (x86)/Git/bin/bash.exe',
-      ].filter(Boolean)) {
-        try { if (fs.existsSync(candidate)) { bashPath = candidate; break; } } catch {}
-      }
-      if (!bashPath) {
-        return { use: false, reason: 'bash_not_found_on_windows' };
-      }
-    }
-    return { use: true, scriptPath: whichResult, bashPath };
-  } catch {
-    return { use: false, reason: 'not_on_path' };
+  } catch { /* PATH lookup is best-effort; fall back to known locations. */ }
+
+  const repoRoot = path.resolve(__dirname, '../../..');
+  candidates.push(path.join(repoRoot, 'bin', 'torque-remote'));
+  if (process.env.USERPROFILE) candidates.push(path.join(process.env.USERPROFILE, 'bin', 'torque-remote'));
+  if (process.env.HOME) candidates.push(path.join(process.env.HOME, 'bin', 'torque-remote'));
+  candidates.push('/usr/local/bin/torque-remote', '/usr/bin/torque-remote');
+
+  return resolveFirstExisting([...new Set(candidates)]);
+}
+
+function resolveBashPathForTorqueRemote() {
+  if (process.platform !== 'win32') return null;
+  return resolveFirstExisting([
+    process.env.GIT_BASH,
+    'C:/Program Files/Git/bin/bash.exe',
+    'C:/Program Files (x86)/Git/bin/bash.exe',
+  ].filter(Boolean));
+}
+
+function buildRemoteRequiredEnv(remoteCheck) {
+  if (!remoteCheck?.remoteRequired) return undefined;
+  return {
+    ...process.env,
+    TORQUE_REMOTE_REQUIRE_REMOTE: '1',
+  };
+}
+
+function quoteForSafeExec(value) {
+  const text = String(value || '');
+  return /\s/.test(text) ? `"${text.replace(/"/g, '\\"')}"` : text;
+}
+
+function buildTorqueRemoteSafeExecCommand(remoteCheck, verifyCommand) {
+  if (remoteCheck?.bashPath) {
+    return `${quoteForSafeExec(remoteCheck.bashPath)} ${quoteForSafeExec(remoteCheck.scriptPath)} ${verifyCommand}`;
   }
+  return `${quoteForSafeExec(remoteCheck?.scriptPath || 'torque-remote')} ${verifyCommand}`;
+}
+
+function shouldUseTorqueRemote(cwd) {
+  let remoteRequired = false;
+  try {
+    const { getProjectDefaults } = require('../../db/project-config-core');
+    const defaults = getProjectDefaults(cwd);
+    if (defaults && isFalseyConfig(defaults.prefer_remote_tests)) {
+      return { use: false, reason: 'prefer_remote_tests=false', remoteRequired: false };
+    }
+    remoteRequired = Boolean(defaults && isTruthyConfig(defaults.prefer_remote_tests));
+  } catch { /* project-config-core not available — fall through to wrapper lookup */ }
+
+  const scriptPath = resolveTorqueRemoteScript();
+  if (!scriptPath) {
+    return { use: false, reason: 'torque_remote_not_found', remoteRequired };
+  }
+
+  const bashPath = resolveBashPathForTorqueRemote();
+  if (process.platform === 'win32' && !bashPath) {
+    return { use: false, reason: 'bash_not_found_on_windows', remoteRequired };
+  }
+
+  return { use: true, scriptPath, bashPath, remoteRequired };
 }
 
 function normalizePreCommitReviewConfig(value) {
@@ -1369,11 +1427,17 @@ async function formatFinalSummary(args, workflow, tasks, lastTask, startTime) {
             output += governanceWarnings;
           }
           const remoteCheck = shouldUseTorqueRemote(cwd);
+          if (!remoteCheck.use && remoteCheck.remoteRequired) {
+            output += `**Verify command:** \`${args.verify_command}\`\n`;
+            output += `❌ Failed - remote verification is required but unavailable (${remoteCheck.reason})\n`;
+            return output;
+          }
           const effectiveCommand = remoteCheck.use
-            ? `torque-remote ${args.verify_command}`
+            ? buildTorqueRemoteSafeExecCommand(remoteCheck, args.verify_command)
             : args.verify_command;
           const verifyResult = safeExecChain(effectiveCommand, {
             cwd,
+            env: buildRemoteRequiredEnv(remoteCheck),
             timeout: TASK_TIMEOUTS.VERIFY_COMMAND,
             encoding: 'utf8',
             stdio: ['pipe', 'pipe', 'pipe']
@@ -1917,12 +1981,16 @@ async function handleAwaitTask(args) {
               }
               governanceWarnings = formatPreVerifyGovernance(governanceResult?.warned, 'warnings');
               const remoteCheck = shouldUseTorqueRemote(cwd);
+              if (!remoteCheck.use && remoteCheck.remoteRequired) {
+                output += `\n### Verify Command\n${governanceWarnings}❌ Failed - remote verification is required but unavailable (${remoteCheck.reason})\n`;
+                return { content: [{ type: 'text', text: output }] };
+              }
 
               let verifyResult;
               if (remoteCheck.use) {
                 // On Windows, torque-remote is a bash script — Node can't
                 // exec it directly (ENOENT). Spawn via resolved bash path.
-                const execName = remoteCheck.bashPath || 'torque-remote';
+                const execName = remoteCheck.bashPath || remoteCheck.scriptPath || 'torque-remote';
                 const execArgs = remoteCheck.bashPath
                   ? [remoteCheck.scriptPath, args.verify_command]
                   : [args.verify_command];
@@ -1934,6 +2002,7 @@ async function handleAwaitTask(args) {
                     source: 'await_task',
                     caller: 'handleAwaitTask',
                     cwd,
+                    env: buildRemoteRequiredEnv(remoteCheck),
                     timeout: TASK_TIMEOUTS.BUILD_VERIFY || 60000,
                     encoding: 'utf8',
                   }

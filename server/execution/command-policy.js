@@ -45,6 +45,14 @@ const COMMAND_PROFILES = {
       match: (cmd, args) => isExecutable(cmd, 'node') && matchesPathArg(args, 0, 'scripts/test-lane.js'),
     },
     {
+      name: 'torque-remote',
+      match: (cmd) => isExecutable(cmd, 'torque-remote'),
+    },
+    {
+      name: 'bash torque-remote',
+      match: (cmd, args) => isExecutable(cmd, 'bash') && isTorqueRemoteArg(args, 0),
+    },
+    {
       name: 'git diff',
       match: (cmd, args) => isExecutable(cmd, 'git') && matchesArg(args, 0, 'diff'),
     },
@@ -231,6 +239,11 @@ function matchesPathArg(args, index, expected) {
   return actual === expected.toLowerCase();
 }
 
+function isTorqueRemoteArg(args, index) {
+  if (typeof args[index] !== 'string') return false;
+  return normalizeExecutable(args[index]) === 'torque-remote';
+}
+
 function matchesPythonModule(args, expectedModule) {
   let index = 0;
   while (typeof args[index] === 'string' && args[index].startsWith('-') && args[index].toLowerCase() !== '-m') {
@@ -270,6 +283,9 @@ function getShellScriptFromRequest(request) {
   }
 
   if (shell === 'sh' || shell === 'bash') {
+    if (isTorqueRemoteArg(args, 0)) {
+      return null;
+    }
     if (typeof args[0] !== 'string' || !['-c', '-lc'].includes(args[0].toLowerCase())) {
       return { error: `${shell} wrappers must use -c with an allowlisted command` };
     }
@@ -384,6 +400,11 @@ function isSafeDirectoryChange(segment) {
   return /^[A-Za-z0-9._/-]+$/.test(normalized);
 }
 
+function isTorqueRemoteInvocation(request) {
+  return isExecutable(request.cmd, 'torque-remote')
+    || (isExecutable(request.cmd, 'bash') && isTorqueRemoteArg(request.args, 0));
+}
+
 function describeCommand(cmd, args) {
   return [cmd, ...args].join(' ').trim();
 }
@@ -443,11 +464,13 @@ function validateCommand(command, args, profile = 'safe_verify', extraContext = 
     return { allowed: false, reason: meta.reason };
   }
 
-  const metacharacter = findShellMetacharacter(request.commandText, request.args);
-  if (metacharacter) {
-    meta.reason = `Shell metacharacter '${metacharacter}' is not allowed for profile '${profile}'`;
-    logDecision('warn', 'blocked command validation', meta);
-    return { allowed: false, reason: meta.reason };
+  if (!isTorqueRemoteInvocation(request)) {
+    const metacharacter = findShellMetacharacter(request.commandText, request.args);
+    if (metacharacter) {
+      meta.reason = `Shell metacharacter '${metacharacter}' is not allowed for profile '${profile}'`;
+      logDecision('warn', 'blocked command validation', meta);
+      return { allowed: false, reason: meta.reason };
+    }
   }
 
   const rules = COMMAND_PROFILES[profile] || [];

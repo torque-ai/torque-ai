@@ -1775,7 +1775,25 @@ if [[ "$SUITE" != "custom" ]]; then
 fi
 # ────────────────────────────────────────────────────────────────────────
 
+remote_required() {
+  case "${TORQUE_REMOTE_REQUIRE_REMOTE:-}" in
+    1|true|TRUE|yes|YES|on|ON) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 run_ssh_fallback_locally() {
+  if remote_required; then
+    local reason="${DECISION_FALLBACK_REASON:-unknown}"
+    local detail="${DECISION_FALLBACK_DETAIL:-}"
+    if [[ -n "$detail" ]]; then
+      warn "Remote execution required; refusing local fallback ($reason: $detail)"
+    else
+      warn "Remote execution required; refusing local fallback ($reason)"
+    fi
+    exit 125
+  fi
+
   cd "$PROJECT_ROOT"
   set +e
   (

@@ -167,9 +167,55 @@ describeV('await verify routing', () => {
     expectV(directShellCalls.length).toBe(0);
   });
 
-  itV('handleAwaitTask falls back to direct execution when torque-remote is not on PATH', async () => {
+  itV('handleAwaitTask resolves the repo torque-remote wrapper when remote tests are required and PATH lookup fails', async () => {
     viV.spyOn(require('child_process'), 'execFileSync').mockImplementation(() => {
       throw new Error('not found');
+    });
+    const projectConfigCore = require('../db/project-config-core');
+    projectConfigCore.setProjectConfig(path.basename(tmpDir), {
+      verify_command: 'npx vitest run',
+      prefer_remote_tests: true,
+    });
+
+    const taskId = createTestTask({ status: 'running', working_directory: tmpDir });
+
+    const promise = handlers.handleAwaitTask({
+      task_id: taskId,
+      verify_command: 'npx vitest run',
+      working_directory: tmpDir,
+      poll_interval_ms: 30000,
+      timeout_minutes: 1,
+    });
+
+    await new Promise((resolve) => setImmediate(resolve));
+    finalizeTestTask(taskId, 'completed');
+    awaitMocks.taskEvents.emit('task:completed', taskId);
+    const result = await promise;
+
+    expectV(textOfResult(result)).toContain('### Verify Command');
+    expectV(textOfResult(result)).toContain('Passed');
+
+    const verifyCalls = awaitMocks.executeValidatedCommandSync.mock.calls;
+    const [execName, execArgs, execOptions] = verifyCalls[0];
+    const usedTorqueRemote = String(execName).includes('torque-remote')
+      || execArgs.some(a => typeof a === 'string' && a.includes('torque-remote'));
+    expectV(usedTorqueRemote).toBe(true);
+    expectV(execArgs).toEqual(expectV.arrayContaining(['npx vitest run']));
+    expectV(execOptions).toEqual(expectV.objectContaining({
+      env: expectV.objectContaining({ TORQUE_REMOTE_REQUIRE_REMOTE: '1' }),
+    }));
+    const directShellCalls = verifyCalls.filter(([cmd]) => cmd === 'sh' || cmd === 'cmd');
+    expectV(directShellCalls.length).toBe(0);
+  });
+
+  itV('handleAwaitTask runs direct verification when prefer_remote_tests is disabled', async () => {
+    viV.spyOn(require('child_process'), 'execFileSync').mockImplementation(() => {
+      throw new Error('not found');
+    });
+    const projectConfigCore = require('../db/project-config-core');
+    projectConfigCore.setProjectConfig(path.basename(tmpDir), {
+      verify_command: 'npx vitest run',
+      prefer_remote_tests: false,
     });
 
     const taskId = createTestTask({ status: 'running', working_directory: tmpDir });
@@ -255,9 +301,14 @@ describeV('await verify routing', () => {
     );
   });
 
-  itV('handleAwaitWorkflow falls back to direct command when torque-remote is not on PATH', async () => {
+  itV('handleAwaitWorkflow runs direct verification when prefer_remote_tests is disabled', async () => {
     viV.spyOn(require('child_process'), 'execFileSync').mockImplementation(() => {
       throw new Error('not found');
+    });
+    const projectConfigCore = require('../db/project-config-core');
+    projectConfigCore.setProjectConfig(path.basename(tmpDir), {
+      verify_command: 'npx vitest run',
+      prefer_remote_tests: false,
     });
 
     const wfId = randomUUID();

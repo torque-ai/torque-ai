@@ -24,6 +24,8 @@ describe('command-policy', () => {
       expect(validateCommand('node --check src/index.js')).toEqual({ allowed: true });
       expect(validateCommand('node scripts/test-lane.js --lane auto --preset server-smoke')).toEqual({ allowed: true });
       expect(validateCommand('node', ['scripts/test-lane.js', '--lane', 'auto', '--command-base64', 'Y2Qgc2VydmVyICYmIG5weCB2aXRlc3QgcnVu'])).toEqual({ allowed: true });
+      expect(validateCommand('torque-remote', ['dotnet test App.Tests.csproj && dotnet test Integration.Tests.csproj'])).toEqual({ allowed: true });
+      expect(validateCommand('bash', ['bin/torque-remote', 'dotnet test App.Tests.csproj && dotnet test Integration.Tests.csproj'])).toEqual({ allowed: true });
       expect(validateCommand('git diff --stat HEAD~1')).toEqual({ allowed: true });
       expect(validateCommand('git', ['status', '--short'])).toEqual({ allowed: true });
       expect(validateCommand('git', ['log', '--oneline', '-5'])).toEqual({ allowed: true });
