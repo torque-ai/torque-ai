@@ -247,11 +247,13 @@ describe('torque-remote staging branch validation', () => {
     const src = readTorqueRemote();
     const killCount = (src.match(/kill "\$tail_pid" 2>\/dev\/null \|\| true/g) || []).length;
     expect(killCount).toBeGreaterThanOrEqual(2);
-    expect(src).toContain('bash \\$d/bootstrap.sh');
+    expect(src).toContain('scp -q "${SSH_OPTS[@]}" "$LOCAL_STATE_BUNDLE"');
+    expect(src).toContain('EncodedCommand');
+    expect(src).not.toContain('tar -xf - -C \\$d');
     expect(src).toContain('bash "$SCRIPT_DIR/runner.sh" >"$out" 2>&1 </dev/null &');
     expect(src).toContain('tail -n +1 -f "$out" &');
     expect(src).toContain('rm -rf "$SCRIPT_DIR" >/dev/null 2>&1 </dev/null &');
-    expect(src).toContain('bootstrap.sh owns output streaming and cleanup after extraction');
+    expect(src).toContain('Windows OpenSSH + Git Bash can leave stdin');
   });
 
   it('materializes long bash -c payloads before local fallback execution', () => {
