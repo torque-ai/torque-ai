@@ -104,7 +104,9 @@ const routes = [
 
   // Status & Health
   { method: 'GET', path: '/api/status', tool: 'check_status', mapQuery: true },
-  { method: 'GET', path: '/api/health', tool: 'check_ollama_health' },
+  // Keep the dashboard/API health endpoint cheap during planned remote outages.
+  // Operators can still request an active host probe with ?force_check=true.
+  { method: 'GET', path: '/api/health', tool: 'check_ollama_health', mapQuery: true, defaultArgs: { force_check: false } },
 
   // Claude Code Hook Bridge
   { method: 'POST', path: '/api/hooks/claude-event', handlerName: 'handleClaudeEvent' },
