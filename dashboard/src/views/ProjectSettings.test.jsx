@@ -19,6 +19,10 @@ function createResponse(body, { status = 200, contentType = 'application/json' }
   });
 }
 
+function isFactoryProjectsListUrl(url) {
+  return String(url).split('?')[0] === '/api/v2/factory/projects';
+}
+
 describe('ProjectSettings', () => {
   let originalFetch;
 
@@ -268,7 +272,7 @@ describe('ProjectSettings', () => {
       if (url === '/api/v2/routing/templates') return createResponse({ data: [] });
       if (url === '/api/v2/provider-scores') return createResponse([]);
       if (url === '/api/v2/cost-budgets') return createResponse([]);
-      if (url === '/api/v2/factory/projects') {
+      if (isFactoryProjectsListUrl(url)) {
         factoryFetched = true;
         return createResponse({
           data: {
@@ -322,7 +326,7 @@ describe('FactoryLanePolicyPanel — editor controls', () => {
       if (url === '/api/v2/routing/templates') return createResponse({ data: [] });
       if (url === '/api/v2/provider-scores') return createResponse([]);
       if (url === '/api/v2/cost-budgets') return createResponse([]);
-      if (url === '/api/v2/factory/projects') {
+      if (isFactoryProjectsListUrl(url)) {
         return createResponse({
           data: { projects: [{
             id: 'fp-1', name: 'alpha', trust_level: 'guided',
@@ -645,7 +649,7 @@ describe('FactoryLanePolicyPanel — editor controls', () => {
       if (url === '/api/v2/routing/templates') return createResponse({ data: [] });
       if (url === '/api/v2/provider-scores') return createResponse([]);
       if (url === '/api/v2/cost-budgets') return createResponse([]);
-      if (url === '/api/v2/factory/projects') {
+      if (isFactoryProjectsListUrl(url)) {
         return createResponse({
           data: { projects: [{
             id: 'fp-1', name: 'alpha', trust_level: 'guided',
@@ -682,7 +686,7 @@ describe('FactoryLanePolicyPanel — editor controls', () => {
       if (url === '/api/v2/routing/templates') return createResponse({ data: [] });
       if (url === '/api/v2/provider-scores') return createResponse([]);
       if (url === '/api/v2/cost-budgets') return createResponse([]);
-      if (url === '/api/v2/factory/projects') {
+      if (isFactoryProjectsListUrl(url)) {
         return createResponse({
           data: { projects: [{
             id: 'fp-1', name: 'alpha', trust_level: 'guided',
@@ -734,7 +738,7 @@ describe('FactoryLanePolicyPanel — editor controls', () => {
       if (url === '/api/v2/routing/templates') return createResponse({ data: [] });
       if (url === '/api/v2/provider-scores') return createResponse([]);
       if (url === '/api/v2/cost-budgets') return createResponse([]);
-      if (url === '/api/v2/factory/projects') {
+      if (isFactoryProjectsListUrl(url)) {
         return createResponse({
           data: { projects: [{
             id: 'fp-1', name: 'alpha', trust_level: 'guided',
