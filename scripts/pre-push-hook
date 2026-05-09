@@ -48,6 +48,19 @@ remote_refs=()
 local_head_sha=""
 staging_branch=""
 
+git_cleanup_timeout() {
+  local timeout_secs="${PRE_PUSH_STAGING_CLEANUP_TIMEOUT_SECS:-30}"
+  case "$timeout_secs" in
+    ''|*[!0-9]*) timeout_secs=30 ;;
+  esac
+
+  if command -v timeout >/dev/null 2>&1; then
+    timeout "$timeout_secs" git "$@"
+  else
+    git "$@"
+  fi
+}
+
 # Each line is: <local_ref> <local_sha> <remote_ref> <remote_sha>
 while read -r local_ref local_sha remote_ref remote_sha; do
   if [ "$local_sha" = "$ZERO_SHA" ]; then
@@ -99,10 +112,29 @@ delete_staging_ref() {
   if [ -z "${staging_branch:-}" ]; then
     return 0
   fi
-  # Best-effort cleanup -- never block the hook on a failed cleanup, but log
-  # so noise is visible if it starts failing.
-  if ! git push --no-verify --quiet origin --delete "$staging_branch" 2>/dev/null; then
-    echo "[pre-push] warn: failed to delete staging ref $staging_branch (may not exist on origin)"
+  # Best-effort cleanup -- never block the hook on a failed cleanup, but keep
+  # the disposable ref namespace from accumulating when Git reports success but
+  # the remote ref is still visible.
+  local delete_rc verify_rc
+  if git_cleanup_timeout push --no-verify --quiet origin --delete "$staging_branch" 2>/dev/null; then
+    delete_rc=0
+  else
+    delete_rc=$?
+  fi
+
+  if git_cleanup_timeout ls-remote --exit-code --heads origin "$staging_branch" >/dev/null 2>&1; then
+    if ! git_cleanup_timeout push --no-verify --quiet origin ":refs/heads/$staging_branch" 2>/dev/null; then
+      echo "[pre-push] warn: failed to delete staging ref $staging_branch after verification"
+    fi
+  else
+    verify_rc=$?
+    if [ "$verify_rc" -ne 2 ]; then
+      if [ "$delete_rc" -ne 0 ]; then
+        echo "[pre-push] warn: failed to delete staging ref $staging_branch"
+      else
+        echo "[pre-push] warn: could not verify staging ref cleanup for $staging_branch"
+      fi
+    fi
   fi
 }
 

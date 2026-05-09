@@ -156,7 +156,11 @@ describe('pre-push-hook staging-branch invariants', () => {
     expect(src).toMatch(/repo_coord_lock_release \|\| true/);
     expect(src).toMatch(/trap pre_push_cleanup EXIT/);
     expect(src).not.toMatch(/trap\s+'delete_staging_ref'\s+EXIT/);
-    expect(src).toMatch(/git\s+push\s+[^\n]*--delete\s+"?\$(?:\{)?staging_branch/);
+    expect(src).toMatch(/git_cleanup_timeout\s*\(\)/);
+    expect(src).toMatch(/PRE_PUSH_STAGING_CLEANUP_TIMEOUT_SECS:-30/);
+    expect(src).toMatch(/git_cleanup_timeout\s+push\s+[^\n]*--delete\s+"?\$(?:\{)?staging_branch/);
+    expect(src).toMatch(/git_cleanup_timeout\s+ls-remote\s+--exit-code\s+--heads\s+origin\s+"\$staging_branch"/);
+    expect(src).toMatch(/git_cleanup_timeout\s+push\s+--no-verify\s+--quiet\s+origin\s+":refs\/heads\/\$staging_branch"/);
   });
 
   it('exits 1 on test failure with a clear "origin/main is unchanged" message', () => {
