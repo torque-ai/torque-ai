@@ -298,6 +298,48 @@ describe('seedPresets', () => {
     }
   });
 
+  // 2026-05-09: claude-ollama remains a manual opt-in provider until benchmark
+  // evidence shows its selected local model or bridge can satisfy Claude Code's
+  // Anthropic-format tool-use contract.
+  it('preset templates do not auto-route to claude-ollama', () => {
+    const fs = require('node:fs');
+    const path = require('node:path');
+
+    function providersFromChain(value) {
+      if (typeof value === 'string') return [value];
+      if (!Array.isArray(value)) return [];
+      return value
+        .map((entry) => (typeof entry === 'string' ? entry : entry?.provider))
+        .filter(Boolean);
+    }
+
+    const templateDir = path.join(__dirname, '..', 'routing', 'templates');
+    const files = fs.readdirSync(templateDir).filter((f) => f.endsWith('.json'));
+    expect(files.length).toBeGreaterThan(0);
+
+    for (const file of files) {
+      const data = JSON.parse(fs.readFileSync(path.join(templateDir, file), 'utf8'));
+      const chains = [];
+
+      for (const [category, value] of Object.entries(data.rules || {})) {
+        chains.push({ name: `${file}:rules.${category}`, value });
+      }
+
+      for (const [category, overrides] of Object.entries(data.complexity_overrides || {})) {
+        for (const [complexity, value] of Object.entries(overrides || {})) {
+          chains.push({ name: `${file}:complexity_overrides.${category}.${complexity}`, value });
+        }
+      }
+
+      for (const chain of chains) {
+        expect(
+          providersFromChain(chain.value),
+          `${chain.name} should keep claude-ollama opt-in only`
+        ).not.toContain('claude-ollama');
+      }
+    }
+  });
+
   // Regression: seedPresets bypasses validateTemplate entirely, so drift in
   // preset JSONs only surfaces if a USER tries to clone the same shape via
   // createTemplate. That used to mean legacy-fallback's intentional empty

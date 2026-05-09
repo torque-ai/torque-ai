@@ -10,7 +10,7 @@ This doc is the canonical reference for the 11 preset templates, the schema they
 
 - **11 preset templates** in `server/routing/templates/*.json`. Each is a small JSON file (~21–86 lines).
 - **10 canonical task categories** (declared in `server/routing/category-classifier.js`): `security`, `xaml_wpf`, `architectural`, `reasoning`, `large_code_gen`, `documentation`, `simple_generation`, `targeted_file_edit`, `plan_generation`, `default`.
-- **12 active providers** referenced across templates: `ollama`, `codex`, `codex-spark`, `claude-cli`, `cerebras`, `groq`, `google-ai`, `openrouter`, `ollama-cloud`, `anthropic`, `deepinfra`, `hyperbolic`. `claude-ollama` is documented but not used in templates — see open question #2.
+- **12 active providers** referenced across templates: `ollama`, `codex`, `codex-spark`, `claude-cli`, `cerebras`, `groq`, `google-ai`, `openrouter`, `ollama-cloud`, `anthropic`, `deepinfra`, `hyperbolic`. `claude-ollama` is intentionally not used in preset templates; keep it opt-in only until benchmark evidence shows Anthropic-format tool calls are reliable.
 - **Real bug found in this audit and fixed**: `codex-down-failover.json` had a `tests` chain, but `tests` is NOT a canonical category — the resolver never reads it. Removed. Coverage test added so the same drift can't happen again.
 
 ---
@@ -184,9 +184,11 @@ Carries `capability_constraints`: `{ max_files: { groq: 1 }, greenfield_provider
 
 **Fix landed**: `codex-primary.json` now leads `targeted_file_edit` with `codex-spark`, and `system-default.json` now falls through from free `cerebras` to `codex-spark` before full `codex`. `codex-spark` is also seeded into `provider_config` so the routing resolver can actually select it from template chains.
 
-### 2. `claude-ollama` not used in any template
+### 2. ~~`claude-ollama` not used in any template~~ ✅ RESOLVED 2026-05-09
 
-Same shape as #1 — `claude-ollama` (Claude Code CLI driving local Ollama models) is documented but unused in templates. Probably intentional (it's a special-case use), but worth flagging.
+Intentional exclusion. `claude-ollama` (Claude Code CLI driving local Ollama models) remains a documented provider, but preset templates should not auto-route to it yet. The benchmark in `docs/findings/2026-04-19-claude-ollama-benchmark.md` found that the tested local model path did not satisfy Claude Code's Anthropic-format tool-use contract, so automatic template use would turn normal work into avoidable runtime failure.
+
+**Fix landed**: the routing-template regression suite now asserts that preset `rules` and `complexity_overrides` do not include `claude-ollama`. Re-evaluate only after a new benchmark shows the local model or bridge layer reliably emits Anthropic-format tool calls.
 
 ### 3. ~~Default-disabled providers as primaries~~ ✅ RESOLVED 2026-05-09
 
@@ -219,6 +221,7 @@ If you're adding, modifying, or removing a template:
 3. **Validator accepts extra keys silently** — this is a bug class, not a feature. The coverage test is the line of defense.
 4. **Models are optional** — but provider × default-model can change between releases. If you depend on a specific model behavior, set `model:` explicitly.
 5. **For new categories** — adding a new category to `CATEGORIES` in `category-classifier.js` requires every template to add a chain for it. The coverage test will fail until all 11 templates are updated.
+6. **Keep `claude-ollama` opt-in only** — do not add it to preset chains unless a fresh benchmark shows Anthropic-format tool-use reliability for the selected local model or bridge. The preset regression test enforces this exclusion.
 
 ---
 
