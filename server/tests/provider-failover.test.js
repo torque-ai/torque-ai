@@ -1,4 +1,10 @@
 const { setupTestDb, teardownTestDb, safeTool: rawSafeTool, getText } = require('./vitest-setup');
+const {
+  createTaskWorkspaceManager,
+  stubTaskSubmissionSideEffects,
+} = require('./task-workspace-helpers');
+
+const workspaces = createTaskWorkspaceManager({ prefix: 'torque-provider-failover-' });
 
 function safeTool(name, args = {}) {
   const payload = { ...args };
@@ -6,12 +12,24 @@ function safeTool(name, args = {}) {
     && !Object.prototype.hasOwnProperty.call(payload, 'project')) {
     payload.project = 'test-project';
   }
+  if (['smart_submit_task', 'submit_task'].includes(name)
+    && !Object.prototype.hasOwnProperty.call(payload, 'working_directory')) {
+    payload.working_directory = workspaces.create();
+  }
   return rawSafeTool(name, payload);
 }
 
 describe('Provider Failover', () => {
-  beforeAll(() => { setupTestDb('provider-failover'); });
-  afterAll(() => { teardownTestDb(); });
+  beforeAll(() => {
+    setupTestDb('provider-failover');
+    stubTaskSubmissionSideEffects();
+  });
+
+  afterAll(() => {
+    vi.restoreAllMocks();
+    workspaces.cleanup();
+    teardownTestDb();
+  });
 
   describe('adaptive retry configuration', () => {
     it('configure_adaptive_retry enables retry', async () => {
