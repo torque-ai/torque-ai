@@ -6,6 +6,9 @@
  * - submit_task auto_route — smart routing by default
  */
 
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
 const { setupTestDb, teardownTestDb, safeTool: rawSafeTool, getText } = require('./vitest-setup');
 
 let db;
@@ -424,29 +427,52 @@ describe('manage_webhook', () => {
 // ── submit_task auto_route ──
 
 describe('submit_task auto_route', () => {
-  const cwd = process.cwd();
+  const repoWidgetArtifactPath = path.join(__dirname, 'widget.test.js');
+  let taskWorkDirs = [];
+
+  function makeTaskWorkDir() {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'torque-tool-consolidation-'));
+    fs.mkdirSync(path.join(dir, 'tests'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'widget.js'), 'module.exports = {};\n', 'utf8');
+    taskWorkDirs.push(dir);
+    return dir;
+  }
+
+  function stubTaskSideEffects() {
+    vi.spyOn(taskManager, 'processQueue').mockReturnValue(undefined);
+    const ciWatcher = require('../ci/watcher');
+    vi.spyOn(ciWatcher, 'autoActivateForRepo').mockReturnValue(undefined);
+  }
 
   afterEach(() => {
     vi.restoreAllMocks();
+    for (const dir of taskWorkDirs) {
+      fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+    }
+    taskWorkDirs = [];
   });
 
   it('auto_route=true (default, no provider) delegates to smart routing', async () => {
+    stubTaskSideEffects();
+
     const result = await safeTool('submit_task', {
       task: 'Write a unit test for the widget module in tests/widget.test.js',
-      working_directory: cwd,
+      working_directory: makeTaskWorkDir(),
     });
     const text = getText(result);
     // Smart routing may succeed or report provider unavailability — either is correct dispatch
     expect(text).toMatch(/task|started|queued|provider|routing|no.*available/i);
+    expect(fs.existsSync(repoWidgetArtifactPath)).toBe(false);
   });
 
   it('explicit provider bypasses smart routing', async () => {
+    stubTaskSideEffects();
     const startTaskSpy = vi.spyOn(taskManager, 'startTask').mockReturnValue({ queued: false });
 
     const result = await safeTool('submit_task', {
       task: 'Write documentation for the API',
       provider: 'codex',
-      working_directory: cwd,
+      working_directory: makeTaskWorkDir(),
     });
 
     expect(result.isError).toBeFalsy();
@@ -457,12 +483,13 @@ describe('submit_task auto_route', () => {
   });
 
   it('auto_route=false uses direct submission path', async () => {
+    stubTaskSideEffects();
     const startTaskSpy = vi.spyOn(taskManager, 'startTask').mockReturnValue({ queued: false });
 
     const result = await safeTool('submit_task', {
       task: 'Simple doc update',
       auto_route: false,
-      working_directory: cwd,
+      working_directory: makeTaskWorkDir(),
     });
 
     expect(result.isError).toBeFalsy();
