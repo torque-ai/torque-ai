@@ -13,11 +13,13 @@
  */
 
 const {
+  createOutputSafeguards,
   init,
   patchTaskSafeguardMetadata,
   sanitizeOutputForCondition,
   truncateOptionalText,
   shouldSkipOutputSafeguards,
+  shouldRejectNoEvidenceFactoryCompletion,
   SECRET_PATTERNS,
   MAX_SANITIZE_LENGTH,
 } = require('../validation/output-safeguards');
@@ -362,6 +364,122 @@ describe('shouldSkipOutputSafeguards', () => {
       metadata: '{}',
       tags: '[]',
     })).toBe(false);
+  });
+});
+
+describe('shouldRejectNoEvidenceFactoryCompletion', () => {
+  it('rejects completed factory execution tasks with no completion evidence', () => {
+    const task = {
+      status: 'completed',
+      files_modified: [],
+      output: null,
+      error_output: [
+        'codex',
+        'I will read the files first.',
+        'exec',
+        '"pwsh" -Command "Get-Content README.md"',
+      ].join('\n'),
+      tags: JSON.stringify([
+        'factory:batch_id=factory-spudgetbooks-1884',
+        'factory:work_item_id=1884',
+        'factory:plan_task_number=3',
+        'project:SpudgetBooks',
+      ]),
+      metadata: '{}',
+    };
+
+    expect(shouldRejectNoEvidenceFactoryCompletion(task, 'completed')).toBe(true);
+  });
+
+  it('does not reject non-mutating factory-internal tasks', () => {
+    const task = {
+      status: 'completed',
+      files_modified: [],
+      output: null,
+      error_output: '',
+      tags: JSON.stringify(['factory:internal', 'factory:plan_generation']),
+      metadata: JSON.stringify({ factory_internal: true, kind: 'plan_generation' }),
+    };
+
+    expect(shouldRejectNoEvidenceFactoryCompletion(task, 'completed')).toBe(false);
+  });
+
+  it('does not reject factory execution tasks with modified files', () => {
+    const task = {
+      status: 'completed',
+      files_modified: JSON.stringify(['src/example.js']),
+      output: null,
+      error_output: '',
+      tags: JSON.stringify([
+        'factory:batch_id=factory-alpha-1',
+        'factory:plan_task_number=1',
+      ]),
+      metadata: '{}',
+    };
+
+    expect(shouldRejectNoEvidenceFactoryCompletion(task, 'completed')).toBe(false);
+  });
+});
+
+describe('runOutputSafeguards no-evidence factory completion gate', () => {
+  it('marks factory execution tasks failed when they complete without edits or final evidence', async () => {
+    const task = {
+      id: 'task-no-evidence',
+      status: 'completed',
+      provider: 'codex',
+      project: 'SpudgetBooks',
+      working_directory: 'C:/repo',
+      task_description: 'Plan Task 3: edit docs/status/overall-progress-2026-05.md',
+      files_modified: [],
+      output: null,
+      error_output: [
+        'codex',
+        'I will inspect the target docs first.',
+        'exec',
+        '"pwsh" -Command "Get-Content docs/status/overall-progress-2026-05.md"',
+      ].join('\n'),
+      tags: JSON.stringify([
+        'factory:batch_id=factory-spudgetbooks-1884',
+        'factory:work_item_id=1884',
+        'factory:plan_task_number=3',
+        'project:SpudgetBooks',
+      ]),
+      metadata: '{}',
+    };
+    const db = {
+      validateTaskOutput: vi.fn(() => []),
+      getTask: vi.fn(() => task),
+      patchTaskMetadata: vi.fn(() => true),
+      updateTaskStatus: vi.fn(),
+    };
+    const service = createOutputSafeguards({
+      db,
+      getFileChangesForValidation: vi.fn(() => []),
+      checkFileQuality: vi.fn(() => ({ valid: true, issues: [] })),
+      cleanupJunkFiles: vi.fn(),
+      findPlaceholderArtifacts: vi.fn(() => ({ valid: true, issues: [] })),
+    });
+
+    await service.runOutputSafeguards(task.id, 'completed', task);
+
+    expect(db.updateTaskStatus).toHaveBeenCalledWith(
+      task.id,
+      'failed',
+      expect.objectContaining({
+        error_output: expect.stringContaining('no modified files, no final answer, and no verification evidence'),
+      }),
+    );
+    expect(db.patchTaskMetadata).toHaveBeenCalledWith(
+      task.id,
+      expect.objectContaining({
+        output_safeguards: expect.objectContaining({
+          validation_status: 'failed',
+          no_evidence_completion: expect.objectContaining({
+            category: 'completed_no_evidence',
+          }),
+        }),
+      }),
+    );
   });
 });
 

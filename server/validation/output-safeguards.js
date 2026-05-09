@@ -13,6 +13,7 @@ const { CODE_EXTENSIONS, SOURCE_EXTENSIONS, UI_EXTENSIONS } = require('../consta
 const serverConfig = require('../config');
 const logger = require('../logger').child({ component: 'output-safeguards' });
 const piiGuard = require('../utils/pii-guard');
+const { summarizeTaskCompletion } = require('../utils/completion-summary');
 
 // ─── Module-level deps ────────────────────────────────────────────────────
 // Utility deps (getFileChangesForValidation, checkFileQuality, cleanupJunkFiles,
@@ -167,6 +168,61 @@ function shouldSkipOutputSafeguards(task) {
   if (kind && NON_MUTATING_FACTORY_INTERNAL_KINDS.has(kind)) return true;
 
   return metadata.factory_plan_review === true || tags.includes('factory:plan_review');
+}
+
+function isFactoryExecutionTask(task) {
+  const metadata = getTaskMetadata(task);
+  const tags = getTaskTags(task);
+  if (metadata.factory_internal === true || tags.includes('factory:internal')) return false;
+
+  return tags.some(tag =>
+    typeof tag === 'string' &&
+    (tag.startsWith('factory:batch_id=') || tag.startsWith('factory:plan_task_number='))
+  );
+}
+
+function shouldRejectNoEvidenceFactoryCompletion(task, status) {
+  if (status !== 'completed') return false;
+  if (!isFactoryExecutionTask(task)) return false;
+
+  const metadata = getTaskMetadata(task);
+  if (metadata.allow_no_evidence_completion === true || metadata.verify_only === true) {
+    return false;
+  }
+
+  const completionSummary = summarizeTaskCompletion({
+    ...task,
+    status,
+  });
+  return completionSummary?.category === 'completed_no_evidence';
+}
+
+function rejectNoEvidenceFactoryCompletion(taskId, task, status) {
+  if (!shouldRejectNoEvidenceFactoryCompletion(task, status)) return false;
+
+  const completionSummary = summarizeTaskCompletion({
+    ...task,
+    status,
+  });
+  const message = 'Factory execution task completed with no modified files, no final answer, and no verification evidence.';
+
+  patchTaskSafeguardMetadata(taskId, {
+    validation_status: 'failed',
+    validation_issues: message,
+    no_evidence_completion: completionSummary,
+  });
+
+  if (db && typeof db.updateTaskStatus === 'function') {
+    const priorError = typeof task?.error_output === 'string' ? task.error_output.trimEnd() : '';
+    const errorOutput = `${priorError}${priorError ? '\n\n' : ''}[output-safeguards] ${message}`;
+    db.updateTaskStatus(taskId, 'failed', {
+      error_output: errorOutput,
+      completed_at: new Date().toISOString(),
+    });
+  }
+
+  logger.warn(`[Safeguard] Failed no-evidence factory completion for ${taskId}: ${message}`);
+  return true;
 }
 
 function logSafeguardError(taskId, label, err) {
@@ -339,6 +395,10 @@ async function runOutputSafeguards(taskId, status, task) {
     // 1. Run output validation (for completed tasks)
     const { validationScore: vs } = validateFileSizes(taskId, status, task, db, retryEnabled);
     validationScore = vs;
+
+    if (rejectNoEvidenceFactoryCompletion(taskId, task, status)) {
+      return;
+    }
 
     // 1-PII. Sanitize PII in task output and file changes
     if (status === 'completed' && task?.working_directory) {
@@ -943,6 +1003,7 @@ function createOutputSafeguards(deps = {}) {
     sanitizeOutputForCondition,
     truncateOptionalText,
     shouldSkipOutputSafeguards,
+    shouldRejectNoEvidenceFactoryCompletion,
     patchTaskSafeguardMetadata,
   };
 }
@@ -971,6 +1032,7 @@ module.exports = {
   sanitizeOutputForCondition,
   truncateOptionalText,
   shouldSkipOutputSafeguards,
+  shouldRejectNoEvidenceFactoryCompletion,
   patchTaskSafeguardMetadata,
   MAX_SANITIZE_LENGTH,
   SECRET_PATTERNS,
