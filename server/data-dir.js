@@ -28,9 +28,20 @@ const fs = require('fs');
 const HOME_DATA_DIR = path.join(os.homedir(), '.torque');
 const LEGACY_DATA_DIR = path.join(__dirname);
 const TEST_SANDBOX_ROOT = path.join(os.tmpdir(), 'torque-vitest-workers');
+const LOG_DATA_DIR_RESOLUTION_ENV = 'TORQUE_LOG_DATA_DIR_RESOLUTION';
 
 function isTestSandboxActive() {
   return process.env.TORQUE_TEST_SANDBOX === '1';
+}
+
+function shouldLogDataDirResolution() {
+  const explicit = process.env[LOG_DATA_DIR_RESOLUTION_ENV];
+  if (typeof explicit === 'string') {
+    const normalized = explicit.trim().toLowerCase();
+    if (normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on') return true;
+    if (normalized === '0' || normalized === 'false' || normalized === 'no' || normalized === 'off') return false;
+  }
+  return !(process.env.VITEST || process.env.NODE_ENV === 'test');
 }
 
 function getTestSandboxDir() {
@@ -352,9 +363,11 @@ function resolveDataDir() {
         : 'tmpdir fallback';
       // stderr (not stdout) so subprocesses that pipe stdout (notably the
       // vitest-setup-perf tests) don't see this diagnostic line bleed into
-      // their captured output. Production operators reading the log either
-      // way will still see it.
-      console.error(`[data-dir] Resolved: ${dir} (via ${source})`);
+      // their captured output. Suppress the routine banner under test runners
+      // unless explicitly requested; real warnings below remain visible.
+      if (shouldLogDataDirResolution()) {
+        console.error(`[data-dir] Resolved: ${dir} (via ${source})`);
+      }
 
       // Migrate provider configs from legacy location if we moved away from it
       if (!isTestSandboxActive() && dir !== LEGACY_DATA_DIR) {

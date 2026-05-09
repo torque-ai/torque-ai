@@ -25,6 +25,20 @@ const CODEX_PROVIDERS = new Set(['codex', 'codex-spark']);
 const TORQUE_REMOTE_TRANSPORTS = new Set(['ssh']);
 const MAX_VERIFY_OUTPUT_BYTES = 10 * 1024 * 1024;
 
+function quoteShellArg(value) {
+  const text = String(value ?? '');
+  if (process.platform === 'win32') {
+    if (text === '') return '""';
+    if (!/[\s"^&|<>()%]/.test(text)) return text;
+    return `"${text.replace(/"/g, '\\"')}"`;
+  }
+  return `'${text.replace(/'/g, "'\\''")}'`;
+}
+
+function buildShellCommand(command, args = []) {
+  return [command, ...(args || [])].map(quoteShellArg).join(' ');
+}
+
 /**
  * Find a healthy workstation with test_runners capability for codex verification routing.
  * @returns {object|null} Workstation record or null
@@ -504,9 +518,10 @@ function createRemoteTestRouter({ agentRegistry, db, logger }) {
     logger.info(`[remote-routing] Running locally: ${command} ${args.join(' ')}`);
     const startMs = Date.now();
     prepareWorktreeVerifyDependencies(cwd, logger);
-    const preparedEnv = prepareLocalVerifyEnv([command, ...(args || [])].join(' '));
+    const shellCommand = buildShellCommand(command, args);
+    const preparedEnv = prepareLocalVerifyEnv(shellCommand);
     try {
-      const spawnResult = spawnSync(command, args, {
+      const spawnResult = spawnSync(shellCommand, {
         cwd,
         encoding: 'utf8',
         timeout: options.timeout || 120000,

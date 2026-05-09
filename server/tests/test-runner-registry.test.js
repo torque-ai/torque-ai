@@ -1,23 +1,7 @@
 'use strict';
 
-vi.mock('child_process', () => ({
-  spawnSync: vi.fn(() => ({
-    status: 0,
-    stdout: 'ok',
-    stderr: '',
-  })),
-  spawn: vi.fn(() => {
-    const EventEmitter = require('events');
-    const child = new EventEmitter();
-    child.stdout = new EventEmitter();
-    child.stderr = new EventEmitter();
-    child.stdout.setEncoding = vi.fn();
-    child.stderr.setEncoding = vi.fn();
-    child.kill = vi.fn();
-    setTimeout(() => { child.emit('close', 0); }, 5);
-    return child;
-  }),
-}));
+const childProcess = require('child_process');
+let spawnSyncSpy;
 
 const { createTestRunnerRegistry } = require('../test-runner-registry');
 
@@ -25,7 +9,20 @@ describe('TestRunnerRegistry', () => {
   let registry;
 
   beforeEach(() => {
+    if (spawnSyncSpy) {
+      spawnSyncSpy.mockRestore();
+      spawnSyncSpy = undefined;
+    }
     registry = createTestRunnerRegistry();
+    spawnSyncSpy = vi.spyOn(childProcess, 'spawnSync');
+    spawnSyncSpy.mockClear();
+  });
+
+  afterEach(() => {
+    if (spawnSyncSpy) {
+      spawnSyncSpy.mockRestore();
+      spawnSyncSpy = undefined;
+    }
   });
 
   it('should have default local-only runVerifyCommand', async () => {
@@ -74,6 +71,21 @@ describe('TestRunnerRegistry', () => {
     const result = await registry.runVerifyCommand('', '/tmp', {});
     expect(result.success).toBe(true);
     expect(result.durationMs).toBe(0);
+  });
+
+  it('quotes arguments when running local command via shell form', async () => {
+    const command = process.platform === 'win32'
+      ? 'echo "hello world"'
+      : "echo 'hello world'";
+
+    await registry.runRemoteOrLocal('echo', ['hello world'], '/tmp', {});
+
+    expect(spawnSyncSpy).toHaveBeenCalledTimes(1);
+    expect(spawnSyncSpy.mock.calls[0][0]).toContain(command);
+    expect(spawnSyncSpy.mock.calls[0][1]).toMatchObject({
+      cwd: '/tmp',
+      shell: true,
+    });
   });
 
   it('extends the local verify timeout while stdout keeps streaming', async () => {

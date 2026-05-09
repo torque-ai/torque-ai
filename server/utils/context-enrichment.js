@@ -23,10 +23,21 @@ function _isSensitiveFile(filePath) {
 }
 
 let symbolIndexer = null;
-try {
-  const { defaultContainer } = require('../container');
-  symbolIndexer = defaultContainer.get('symbolIndexer');
-} catch (_) {}
+
+function getSymbolIndexer() {
+  if (symbolIndexer) return symbolIndexer;
+  try {
+    const { defaultContainer } = require('../container');
+    if (typeof defaultContainer.peek === 'function') {
+      symbolIndexer = defaultContainer.peek('symbolIndexer') || null;
+    } else if (typeof defaultContainer.get === 'function') {
+      symbolIndexer = defaultContainer.get('symbolIndexer') || null;
+    } else {
+      symbolIndexer = null;
+    }
+  } catch (_) {}
+  return symbolIndexer;
+}
 
 // ─── Configuration ─────────────────────────────────────────────────────
 
@@ -59,7 +70,8 @@ function resolveContextFilePath(contextFile, workingDirectory) {
  * @returns {{ context: string, skipWholeFileStuffing: boolean }}
  */
 function buildSymbolContext(contextFiles, workingDirectory, taskDescription, tokenBudget = MAX_SYMBOL_CONTEXT_TOKENS) {
-  if (!symbolIndexer || !contextFiles || contextFiles.length === 0) {
+  const indexer = getSymbolIndexer();
+  if (!indexer || !contextFiles || contextFiles.length === 0) {
     return { context: '', skipWholeFileStuffing: false };
   }
 
@@ -69,7 +81,7 @@ function buildSymbolContext(contextFiles, workingDirectory, taskDescription, tok
 
   let allSymbols = [];
   try {
-    allSymbols = symbolIndexer.getSymbolsForFiles(contextFilePaths, workingDirectory);
+    allSymbols = indexer.getSymbolsForFiles(contextFilePaths, workingDirectory);
   } catch (_) {
     return { context: '', skipWholeFileStuffing: false };
   }
@@ -96,7 +108,7 @@ function buildSymbolContext(contextFiles, workingDirectory, taskDescription, tok
   for (const sym of scored) {
     if (estimatedTokens > tokenBudget * 0.8) break;
     try {
-      const source = symbolIndexer.getSymbolSource(sym.file_path, sym.start_line, sym.end_line);
+      const source = indexer.getSymbolSource(sym.file_path, sym.start_line, sym.end_line);
       const symbolSource = typeof source === 'string' ? source : (source && source.source);
       if (!symbolSource) continue;
 

@@ -391,8 +391,7 @@ describe('remote-test-routing', () => {
 
     expect(agentRegistry.getClient).not.toHaveBeenCalled();
     expect(mockSpawnSync).toHaveBeenCalledWith(
-      'npx',
-      ['vitest', 'run'],
+      'npx vitest run',
       expect.objectContaining({
         cwd: 'C:\\repo\\torque-public',
         timeout: 45000,

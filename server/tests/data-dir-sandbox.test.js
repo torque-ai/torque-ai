@@ -17,6 +17,7 @@ describe('test sandbox data dir guardrails', () => {
     TORQUE_DATA_DIR: process.env.TORQUE_DATA_DIR,
     TORQUE_TEST_SANDBOX: process.env.TORQUE_TEST_SANDBOX,
     TORQUE_TEST_SANDBOX_DIR: process.env.TORQUE_TEST_SANDBOX_DIR,
+    TORQUE_LOG_DATA_DIR_RESOLUTION: process.env.TORQUE_LOG_DATA_DIR_RESOLUTION,
   };
 
   let createdDirs = [];
@@ -32,6 +33,7 @@ describe('test sandbox data dir guardrails', () => {
     process.env.TORQUE_DATA_DIR = originalEnv.TORQUE_DATA_DIR;
     process.env.TORQUE_TEST_SANDBOX = originalEnv.TORQUE_TEST_SANDBOX;
     process.env.TORQUE_TEST_SANDBOX_DIR = originalEnv.TORQUE_TEST_SANDBOX_DIR;
+    process.env.TORQUE_LOG_DATA_DIR_RESOLUTION = originalEnv.TORQUE_LOG_DATA_DIR_RESOLUTION;
 
     try {
       freshRequire('../data-dir').setDataDir(null);
@@ -55,6 +57,45 @@ describe('test sandbox data dir guardrails', () => {
 
     const dataDir = freshRequire('../data-dir');
     expect(dataDir.getDataDir()).toBe(sandboxDir);
+  });
+
+  it('suppresses the routine resolved banner under vitest', () => {
+    const sandboxDir = fs.mkdtempSync(path.join(os.tmpdir(), 'torque-sandbox-'));
+    createdDirs.push(sandboxDir);
+
+    delete process.env.TORQUE_DATA_DIR;
+    process.env.TORQUE_TEST_SANDBOX = '1';
+    process.env.TORQUE_TEST_SANDBOX_DIR = sandboxDir;
+
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const dataDir = freshRequire('../data-dir');
+      expect(dataDir.getDataDir()).toBe(sandboxDir);
+      expect(errorSpy).not.toHaveBeenCalledWith(expect.stringContaining('[data-dir] Resolved:'));
+    } finally {
+      errorSpy.mockRestore();
+    }
+  });
+
+  it('allows explicitly forcing resolution logging in test mode', () => {
+    const sandboxDir = fs.mkdtempSync(path.join(os.tmpdir(), 'torque-sandbox-'));
+    createdDirs.push(sandboxDir);
+
+    delete process.env.TORQUE_DATA_DIR;
+    process.env.TORQUE_TEST_SANDBOX = '1';
+    process.env.TORQUE_TEST_SANDBOX_DIR = sandboxDir;
+    process.env.TORQUE_LOG_DATA_DIR_RESOLUTION = '1';
+
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const dataDir = freshRequire('../data-dir');
+      expect(dataDir.getDataDir()).toBe(sandboxDir);
+      expect(errorSpy).toHaveBeenCalledWith(
+        expect.stringContaining('[data-dir] Resolved:'),
+      );
+    } finally {
+      errorSpy.mockRestore();
+    }
   });
 
   it('refreshes database data-dir state after TORQUE_DATA_DIR changes', () => {

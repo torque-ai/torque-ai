@@ -393,12 +393,15 @@ function _checkFirstCallCost(measureToken) {
   // Windows test remote (it ran at ~600ms in isolation). The 800ms was
   // calibrated against isolated runs; under 16 vitest workers contending
   // for filesystem and antivirus cycles, first-call wall is bursty. The
-  // warn threshold stays at 500ms so genuine import-cost regressions still
-  // surface in the log. 2026-05-08 full-suite local validation saw clean
-  // isolated files land at 1224-1254ms under worker contention, so keep a
-  // narrow extra margin for that non-deterministic Windows I/O band. Override
-  // via env vars when investigating.
-  const warnMs = parseInt(process.env.PERF_TEST_IMPORT_WARN_MS || '500', 10);
+  // Routine warning logs became noisy as clean isolated files regularly land in
+  // the historical warning band. Keep the fail threshold on by default, and
+  // make warning logs opt-in via PERF_TEST_IMPORT_WARN_MS when investigating.
+  // 2026-05-08 full-suite local validation saw clean isolated files land at
+  // 1224-1254ms under worker contention, so keep a narrow extra fail margin for
+  // that non-deterministic Windows I/O band.
+  const warnMs = process.env.PERF_TEST_IMPORT_WARN_MS
+    ? parseInt(process.env.PERF_TEST_IMPORT_WARN_MS, 10)
+    : null;
   const failMs = parseInt(process.env.PERF_TEST_IMPORT_FAIL_MS || '1500', 10);
   if (elapsed >= failMs) {
     const msg =
@@ -407,7 +410,7 @@ function _checkFirstCallCost(measureToken) {
       ` Check for top-level require('../tools') or require('../task-manager') in this test file.`;
     throw new Error(msg);
   }
-  if (elapsed >= warnMs) {
+  if (Number.isFinite(warnMs) && elapsed >= warnMs) {
     console.warn(
       `[vitest-setup] PERF WARN: ${measureToken.fnName}() first call took ${elapsed}ms` +
       ` (warn threshold: ${warnMs}ms). Consider using setupTestDbOnly() and lazy-requiring heavy modules.`

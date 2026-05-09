@@ -48,6 +48,24 @@ describe('coord http server', () => {
     expect(res.body).toMatchObject({ ok: true, protocol_version: 1, active_count: 0 });
   });
 
+  it('GET /health ignores query strings', async () => {
+    const res = await request(port, 'GET', '/health?probe=1');
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ ok: true, protocol_version: 1, active_count: 0 });
+  });
+
+  it('GET absolute-form /health request targets route without query strings', async () => {
+    const res = await request(port, 'GET', 'http://coord.local/health?probe=1');
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ ok: true, protocol_version: 1, active_count: 0 });
+  });
+
+  it('GET unknown routes report paths without query strings', async () => {
+    const res = await request(port, 'GET', 'http://coord.local/missing?token=secret');
+    expect(res.status).toBe(404);
+    expect(res.body).toEqual({ error: 'unknown_route', path: '/missing' });
+  });
+
   it('POST /acquire returns 200 with lock_id when project free', async () => {
     const res = await request(port, 'POST', '/acquire', {
       project: 'torque-public', sha: 'abc', suite: 'gate',

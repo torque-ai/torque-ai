@@ -30,6 +30,16 @@ const {
 
 let testDir;
 
+function installCjsModuleMock(modulePath, exportsValue) {
+  const resolved = require.resolve(modulePath);
+  require.cache[resolved] = {
+    id: resolved,
+    filename: resolved,
+    loaded: true,
+    exports: exportsValue,
+  };
+}
+
 beforeAll(() => {
   testDir = path.join(os.tmpdir(), `torque-vtest-enrichment-${Date.now()}`);
   fs.mkdirSync(testDir, { recursive: true });
@@ -521,5 +531,114 @@ describe('run', () => {
     expect(result).toContain('export interface Config');
     expect(result).toContain('RELATED TEST FILES');
     expect(result).toContain('runs with config');
+  });
+
+  it('resolves symbol indexer lazily instead of touching the container during module load', () => {
+    const projDir = path.join(testDir, 'lazy-symbol-indexer');
+    fs.mkdirSync(projDir, { recursive: true });
+    fs.writeFileSync(path.join(projDir, 'main.js'), 'function run() { return true; }\n');
+
+    const contextModulePath = require.resolve('../utils/context-enrichment');
+    const containerModulePath = require.resolve('../container');
+    const priorContextModule = require.cache[contextModulePath];
+    const priorContainerModule = require.cache[containerModulePath];
+    delete require.cache[contextModulePath];
+
+    const symbolIndexer = {
+      getSymbolsForFiles: vi.fn(() => [{
+        file_path: path.join(projDir, 'main.js'),
+        start_line: 1,
+        end_line: 1,
+        name: 'run',
+        kind: 'function',
+        exported: true,
+      }]),
+      getSymbolSource: vi.fn(() => 'function run() { return true; }'),
+    };
+    const defaultContainer = {
+      get: vi.fn(() => symbolIndexer),
+      peek: vi.fn(() => symbolIndexer),
+    };
+
+    try {
+      installCjsModuleMock('../container', { defaultContainer });
+      const reloaded = require('../utils/context-enrichment');
+      expect(defaultContainer.get).not.toHaveBeenCalled();
+      expect(defaultContainer.peek).not.toHaveBeenCalled();
+
+      const result = reloaded.enrichResolvedContext(
+        [{ actual: 'main.js' }],
+        projDir,
+        'fix run',
+        null,
+        { enableImports: false, enableTests: false, enableGit: false, enableFewShot: false }
+      );
+
+      expect(defaultContainer.peek).toHaveBeenCalledWith('symbolIndexer');
+      expect(result).toContain('Relevant Code Symbols');
+      expect(result).toContain('function run()');
+    } finally {
+      delete require.cache[contextModulePath];
+      if (priorContextModule) {
+        require.cache[contextModulePath] = priorContextModule;
+      }
+      delete require.cache[containerModulePath];
+      if (priorContainerModule) {
+        require.cache[containerModulePath] = priorContainerModule;
+      }
+    }
+  });
+
+  it('falls back to container.get when peek is unavailable', () => {
+    const projDir = path.join(testDir, 'legacy-container-symbol-indexer');
+    fs.mkdirSync(projDir, { recursive: true });
+    fs.writeFileSync(path.join(projDir, 'main.js'), 'function run() { return true; }\n');
+
+    const contextModulePath = require.resolve('../utils/context-enrichment');
+    const containerModulePath = require.resolve('../container');
+    const priorContextModule = require.cache[contextModulePath];
+    const priorContainerModule = require.cache[containerModulePath];
+    delete require.cache[contextModulePath];
+
+    const symbolIndexer = {
+      getSymbolsForFiles: vi.fn(() => [{
+        file_path: path.join(projDir, 'main.js'),
+        start_line: 1,
+        end_line: 1,
+        name: 'run',
+        kind: 'function',
+        exported: true,
+      }]),
+      getSymbolSource: vi.fn(() => 'function run() { return true; }'),
+    };
+    const defaultContainer = {
+      get: vi.fn(() => symbolIndexer),
+    };
+
+    try {
+      installCjsModuleMock('../container', { defaultContainer });
+      const reloaded = require('../utils/context-enrichment');
+
+      const result = reloaded.enrichResolvedContext(
+        [{ actual: 'main.js' }],
+        projDir,
+        'fix run',
+        null,
+        { enableImports: false, enableTests: false, enableGit: false, enableFewShot: false }
+      );
+
+      expect(defaultContainer.get).toHaveBeenCalledWith('symbolIndexer');
+      expect(result).toContain('Relevant Code Symbols');
+      expect(result).toContain('function run()');
+    } finally {
+      delete require.cache[contextModulePath];
+      if (priorContextModule) {
+        require.cache[contextModulePath] = priorContextModule;
+      }
+      delete require.cache[containerModulePath];
+      if (priorContainerModule) {
+        require.cache[containerModulePath] = priorContainerModule;
+      }
+    }
   });
 });
