@@ -15,6 +15,14 @@ const BASH_EXECUTABLE = process.platform === 'win32' && fs.existsSync(GIT_BASH_P
   ? GIT_BASH_PATH
   : 'bash';
 
+function isolatedCoordEnv(overrides = {}) {
+  const env = { ...process.env };
+  delete env.TORQUE_COORD_REMOTE_HOST;
+  delete env.TORQUE_COORD_REMOTE_USER;
+  delete env.TORQUE_COORD_SSH_BIN;
+  return { ...env, ...overrides };
+}
+
 function makeConfig(tmpDir) {
   const cfg = path.join(tmpDir, '.torque-remote.json');
   fs.writeFileSync(cfg, JSON.stringify({
@@ -46,7 +54,7 @@ function spawnTorqueRemote(args, env, cwd) {
   // BASH_EXECUTABLE pins to Git Bash on Windows so we don't accidentally
   // resolve to WSL bash (mirrors d25abbda).
   return spawnSync(BASH_EXECUTABLE, [TORQUE_REMOTE, ...args], {
-    env: { ...process.env, ...env },
+    env: isolatedCoordEnv(env),
     cwd,
     encoding: 'utf8',
     timeout: 90000,

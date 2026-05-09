@@ -21,6 +21,9 @@ function runClient(args, env) {
   for (const [k, v] of Object.entries(process.env)) {
     if (k.toUpperCase() !== 'PATH') baseEnv[k] = v;
   }
+  delete baseEnv.TORQUE_COORD_REMOTE_HOST;
+  delete baseEnv.TORQUE_COORD_REMOTE_USER;
+  delete baseEnv.TORQUE_COORD_SSH_BIN;
   const childPath = env.PATH || process.env.PATH || '';
   return spawnSync(process.execPath, [COORD_CLIENT, ...args], {
     encoding: 'utf8',

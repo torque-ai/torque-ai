@@ -1678,6 +1678,19 @@ if [[ "$SUITE" != "custom" ]]; then
 fi
 # ────────────────────────────────────────────────────────────────────────
 
+run_ssh_fallback_locally() {
+  cd "$PROJECT_ROOT"
+  set +e
+  (
+    unset TORQUE_COORD_REMOTE_HOST
+    unset TORQUE_COORD_REMOTE_USER
+    "${COMMAND_ARGS[@]}"
+  )
+  exit_code=$?
+  set -e
+  exit $exit_code
+}
+
 case "$TRANSPORT" in
 
   local)
@@ -1727,12 +1740,7 @@ case "$TRANSPORT" in
     if ! ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" "echo ok" &>/dev/null; then
       warn "Remote $SSH_HOST unreachable — falling back to local"
       record_fallback "ssh_unreachable" "host=$SSH_HOST"
-      cd "$PROJECT_ROOT"
-      set +e
-      "${COMMAND_ARGS[@]}"
-      exit_code=$?
-      set -e
-      exit $exit_code
+      run_ssh_fallback_locally
     fi
 
     # Load check — three probes in order of preference:
@@ -1768,12 +1776,7 @@ case "$TRANSPORT" in
     if [[ -n "$load_pct" ]] && (( load_pct > LOAD_THRESHOLD )); then
       warn "Remote $SSH_HOST is overloaded (${load_pct}% CPU, threshold ${LOAD_THRESHOLD}%) — falling back to local"
       record_fallback "remote_overloaded" "load=${load_pct}%/threshold=${LOAD_THRESHOLD}%"
-      cd "$PROJECT_ROOT"
-      set +e
-      "${COMMAND_ARGS[@]}"
-      exit_code=$?
-      set -e
-      exit $exit_code
+      run_ssh_fallback_locally
     fi
 
     SYNC_REF=""
@@ -1794,12 +1797,7 @@ case "$TRANSPORT" in
       if ! acquire_any_remote_lane "$LANE_COUNT" "$EXPLICIT_LANE"; then
         warn "Remote sync lock unavailable — falling back to local execution instead of risking remote worktree contamination"
         record_fallback "sync_lock_timeout" "timeout_secs=${TORQUE_REMOTE_LANE_TIMEOUT_SECS:-${TORQUE_REMOTE_SYNC_LOCK_TIMEOUT_SECS:-1800}}"
-        cd "$PROJECT_ROOT"
-        set +e
-        "${COMMAND_ARGS[@]}"
-        exit_code=$?
-        set -e
-        exit $exit_code
+        run_ssh_fallback_locally
       fi
 
       # Lane claimed — rewrite the workspace path so all downstream commands
@@ -1990,12 +1988,7 @@ case "$TRANSPORT" in
           warn "Sync failed (status=$sync_status) — falling back to local (see $sync_log_path)"
         fi
         record_fallback "sync_failed" "status=$sync_status sync_log=$sync_log_path"
-        cd "$PROJECT_ROOT"
-        set +e
-        "${COMMAND_ARGS[@]}"
-        exit_code=$?
-        set -e
-        exit $exit_code
+        run_ssh_fallback_locally
       fi
     fi
 
