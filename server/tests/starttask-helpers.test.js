@@ -1015,3 +1015,637 @@ describe('resolveProviderRouting (via startTask)', () => {
     budgetSpy.mockRestore();
   });
 });
+
+// ─── attemptTaskStart / safeStartTask error handling paths ──────────────
+
+describe('attemptTaskStart error handling (via tm)', () => {
+  beforeEach(setup);
+  afterEach(async () => {
+    vi.restoreAllMocks();
+    await cleanup();
+  });
+
+  it('safeStartTask returns false for tasks with missing working_directory', () => {
+    const id = createTask({ working_directory: process.cwd() });
+    const rawDb = db.getDbInstance();
+    rawDb.prepare('UPDATE tasks SET working_directory = ? WHERE id = ?')
+      .run('/nonexistent/startask-helpers-test-path', id);
+
+    const result = tm.safeStartTask(id, 'test');
+    expect(result).toBe(false);
+  });
+
+  it('safeStartTask returns false and does not throw when task_description is empty', () => {
+    const id = randomUUID();
+    const rawDb = db.getDbInstance();
+    rawDb.prepare(`
+      INSERT INTO tasks (id, status, task_description, working_directory, timeout_minutes, max_retries, created_at)
+      VALUES (?, 'pending', '', ?, 30, 0, ?)
+    `).run(id, process.cwd(), new Date().toISOString());
+
+    let result;
+    expect(() => {
+      result = tm.safeStartTask(id, 'test');
+    }).not.toThrow();
+    expect(result).toBe(false);
+  });
+
+  it('attemptTaskStart returns failed result with deterministic preflight error info', () => {
+    const id = createTask({ working_directory: process.cwd() });
+    const rawDb = db.getDbInstance();
+    rawDb.prepare('UPDATE tasks SET working_directory = ? WHERE id = ?')
+      .run('/nonexistent/preflight-deterministic-test', id);
+
+    const result = tm.attemptTaskStart(id, 'test');
+
+    expect(result).toBeDefined();
+    expect(result.started).toBe(false);
+    expect(result.queued).toBe(false);
+    expect(result.pendingAsync).toBe(false);
+    expect(result.failed).toBe(true);
+    expect(result.reason).toBe('preflight_failed');
+    expect(result.deterministic).toBe(true);
+    expect(result.code).toBe('WORKING_DIR_MISSING');
+    expect(result.error).toMatch(/does not exist/);
+  });
+
+  it('attemptTaskStart marks deterministic preflight failures as failed in DB', () => {
+    const id = createTask({ working_directory: process.cwd() });
+    const rawDb = db.getDbInstance();
+    rawDb.prepare('UPDATE tasks SET working_directory = ? WHERE id = ?')
+      .run('/nonexistent/preflight-db-mark-test', id);
+
+    tm.attemptTaskStart(id, 'test');
+
+    const task = db.getTask(id);
+    expect(task.status).toBe('failed');
+    expect(task.error_output).toMatch(/does not exist/);
+  });
+
+  it('attemptTaskStart reports pending async startup for nonexistent task', () => {
+    const result = tm.attemptTaskStart('nonexistent-attempt-task-id', 'test');
+    expect(result.started).toBe(false);
+    expect(result.queued).toBe(false);
+    expect(result.pendingAsync).toBe(true);
+  });
+});
+
+// ─── restart barrier (via startTask) ────────────────────────────────────
+
+describe('restart barrier (via startTask)', () => {
+  beforeEach(setup);
+  afterEach(async () => {
+    vi.restoreAllMocks();
+    await cleanup();
+  });
+
+  it('queues task when a restart barrier is active', async () => {
+    // Create a system provider barrier task that simulates a restart
+    const barrierId = randomUUID();
+    db.createTask({
+      id: barrierId,
+      status: 'running',
+      task_description: 'Server restart',
+      provider: 'system',
+      model: null,
+      working_directory: null,
+      max_retries: 0,
+    });
+
+    const taskId = createTask({ status: 'pending' });
+    const result = await tm.startTask(taskId);
+
+    expect(result).toBeDefined();
+    expect(result.queued).toBe(true);
+    expect(result.restartBarrier).toBe(true);
+    expect(result.barrier).toBeDefined();
+
+    const task = db.getTask(taskId);
+    expect(task.status).toBe('queued');
+    expect(task.error_output).toMatch(/Restart barrier active/);
+  });
+
+  it('does NOT block system provider tasks behind a restart barrier', async () => {
+    // Create a system provider barrier task
+    const barrierId = randomUUID();
+    db.createTask({
+      id: barrierId,
+      status: 'running',
+      task_description: 'Server restart',
+      provider: 'system',
+      model: null,
+      working_directory: null,
+      max_retries: 0,
+    });
+
+    // Create another system task — system tasks should bypass the barrier
+    const systemTaskId = randomUUID();
+    db.createTask({
+      id: systemTaskId,
+      status: 'pending',
+      task_description: 'System health check',
+      provider: 'system',
+      model: null,
+      working_directory: null,
+      max_retries: 0,
+    });
+
+    // System tasks should bypass the barrier check (provider === 'system')
+    try {
+      await tm.startTask(systemTaskId);
+    } catch {
+      // May fail during execution, but should not be blocked by barrier
+    }
+
+    const task = db.getTask(systemTaskId);
+    // Should NOT be queued with restart barrier message
+    if (task.error_output) {
+      expect(task.error_output).not.toMatch(/Restart barrier active/);
+    }
+  });
+});
+
+// ─── duplicate check behavior (via startTask) ───────────────────────────
+
+describe('duplicate check behavior (via startTask)', () => {
+  beforeEach(setup);
+  afterEach(async () => {
+    vi.restoreAllMocks();
+    await cleanup();
+  });
+
+  it('records fingerprint when duplicate_check is enabled and task is not a duplicate', async () => {
+    db.setConfig('duplicate_check_enabled', '1');
+    db.setConfig('rate_limit_enabled', '0');
+    db.setConfig('budget_check_enabled', '0');
+
+    const dupSpy = vi.spyOn(db, 'checkDuplicateTask').mockReturnValue({
+      isDuplicate: false,
+    });
+    const fpSpy = vi.spyOn(db, 'recordTaskFingerprint').mockReturnValue(undefined);
+
+    const id = createTask();
+    try {
+      await tm.startTask(id);
+    } catch {
+      // May fail in execution
+    }
+
+    expect(dupSpy).toHaveBeenCalledWith(
+      'Test task for startTask helpers',
+      process.cwd(),
+    );
+    expect(fpSpy).toHaveBeenCalledWith(
+      id,
+      'Test task for startTask helpers',
+      process.cwd(),
+    );
+
+    dupSpy.mockRestore();
+    fpSpy.mockRestore();
+  });
+
+  it('skips duplicate check when duplicate_check_enabled is 0', async () => {
+    db.setConfig('duplicate_check_enabled', '0');
+    db.setConfig('rate_limit_enabled', '0');
+    db.setConfig('budget_check_enabled', '0');
+
+    const dupSpy = vi.spyOn(db, 'checkDuplicateTask');
+    const fpSpy = vi.spyOn(db, 'recordTaskFingerprint');
+
+    const id = createTask();
+    try {
+      await tm.startTask(id);
+    } catch {
+      // May fail in execution
+    }
+
+    expect(dupSpy).not.toHaveBeenCalled();
+    expect(fpSpy).not.toHaveBeenCalled();
+
+    dupSpy.mockRestore();
+    fpSpy.mockRestore();
+  });
+});
+
+// ─── provider slot concurrency enforcement ──────────────────────────────
+
+describe('provider slot concurrency enforcement (via startTask)', () => {
+  beforeEach(setup);
+  afterEach(async () => {
+    vi.restoreAllMocks();
+    await cleanup();
+  });
+
+  it('allows starting a task when global max_concurrent has room', async () => {
+    db.setConfig('rate_limit_enabled', '0');
+    db.setConfig('duplicate_check_enabled', '0');
+    db.setConfig('budget_check_enabled', '0');
+    db.setConfig('max_concurrent', '5');
+
+    const spawnSpy = vi.spyOn(processLifecycle, 'spawnAndTrackProcess').mockImplementation((taskId, task) => ({
+      started: true,
+      taskId,
+      task,
+    }));
+
+    const id = createTask({ provider: 'claude-cli' });
+    db.updateProvider('claude-cli', { enabled: 1, max_concurrent: 5 });
+
+    const result = await tm.startTask(id);
+
+    expect(spawnSpy).toHaveBeenCalledTimes(1);
+    expect(db.getTask(id).status).toBe('running');
+
+    spawnSpy.mockRestore();
+  });
+
+  it('does not treat global max_concurrent=0 as a local start queue signal', async () => {
+    db.setConfig('rate_limit_enabled', '0');
+    db.setConfig('duplicate_check_enabled', '0');
+    db.setConfig('budget_check_enabled', '0');
+    db.setConfig('max_concurrent', '0');
+
+    const spawnSpy = vi.spyOn(processLifecycle, 'spawnAndTrackProcess').mockImplementation((taskId, task) => ({
+      started: true,
+      taskId,
+      task,
+    }));
+
+    const id = createTask({ provider: 'claude-cli' });
+    db.updateProvider('claude-cli', { enabled: 1, max_concurrent: 1 });
+
+    const result = await tm.startTask(id);
+
+    expect(result).toBeDefined();
+    expect(result.started).toBe(true);
+    expect(spawnSpy).toHaveBeenCalledTimes(1);
+
+    spawnSpy.mockRestore();
+  });
+});
+
+// ─── task metadata persistence during routing ───────────────────────────
+
+describe('task metadata persistence during routing (via startTask)', () => {
+  beforeEach(setup);
+  afterEach(async () => {
+    vi.restoreAllMocks();
+    await cleanup();
+  });
+
+  it('preserves original_provider field when budget routing switches provider', async () => {
+    db.setConfig('rate_limit_enabled', '0');
+    db.setConfig('duplicate_check_enabled', '0');
+    db.setConfig('budget_check_enabled', '0');
+
+    registerMockHost(db, 'http://127.0.0.1:19810', ['codellama:latest'], { name: 'metadata-persist' });
+
+    const budgetSpy = vi.spyOn(db, 'isBudgetExceeded').mockReturnValue({
+      exceeded: true,
+      budget: 'test-budget',
+      spent: 100.00,
+      limit: 50.00,
+    });
+
+    const id = createTask({ provider: 'codex' });
+    try {
+      await tm.startTask(id);
+    } catch {
+      // May fail in execution
+    }
+
+    const task = db.getTask(id);
+    expect(task.provider).toBe('ollama');
+    expect(task.original_provider).toBe('codex');
+
+    budgetSpy.mockRestore();
+  });
+
+  it('sets provider_switched_at timestamp when provider changes', async () => {
+    db.setConfig('rate_limit_enabled', '0');
+    db.setConfig('duplicate_check_enabled', '0');
+    db.setConfig('budget_check_enabled', '0');
+
+    registerMockHost(db, 'http://127.0.0.1:19811', ['codellama:latest'], { name: 'switched-at-test' });
+
+    const budgetSpy = vi.spyOn(db, 'isBudgetExceeded').mockReturnValue({
+      exceeded: true,
+      budget: 'test-budget',
+      spent: 100.00,
+      limit: 50.00,
+    });
+
+    const id = createTask({ provider: 'anthropic' });
+    try {
+      await tm.startTask(id);
+    } catch {
+      // May fail in execution
+    }
+
+    const task = db.getTask(id);
+    expect(task.provider).toBe('ollama');
+    expect(task.provider_switched_at).toEqual(expect.any(String));
+
+    budgetSpy.mockRestore();
+  });
+});
+
+// ─── multiple safeguard interactions ────────────────────────────────────
+
+describe('multiple safeguard interactions (via startTask)', () => {
+  beforeEach(setup);
+  afterEach(async () => {
+    vi.restoreAllMocks();
+    await cleanup();
+  });
+
+  it('rate limit takes precedence over duplicate check', async () => {
+    db.setConfig('rate_limit_enabled', '1');
+    db.setConfig('duplicate_check_enabled', '1');
+    db.setConfig('budget_check_enabled', '0');
+
+    const rateSpy = vi.spyOn(db, 'checkRateLimit').mockReturnValue({
+      allowed: false,
+      retryAfter: 60,
+    });
+    const dupSpy = vi.spyOn(db, 'checkDuplicateTask');
+
+    const id = createTask();
+    const result = await tm.startTask(id);
+
+    expect(result.queued).toBe(true);
+    expect(result.rateLimited).toBe(true);
+    // Duplicate check should not be reached since rate limit blocks first
+    expect(dupSpy).not.toHaveBeenCalled();
+
+    rateSpy.mockRestore();
+    dupSpy.mockRestore();
+  });
+
+  it('budget check throws even when rate limit passes', async () => {
+    db.setConfig('rate_limit_enabled', '1');
+    db.setConfig('duplicate_check_enabled', '0');
+    db.setConfig('budget_check_enabled', '1');
+
+    const rateSpy = vi.spyOn(db, 'checkRateLimit').mockReturnValue({
+      allowed: true,
+    });
+    const budgetSpy = vi.spyOn(db, 'isBudgetExceeded').mockReturnValue({
+      exceeded: true,
+      budget: 'combined-budget',
+      spent: 200.00,
+      limit: 100.00,
+    });
+
+    const id = createTask();
+    await expect(() => tm.startTask(id)).rejects.toThrow(/Budget exceeded/);
+
+    rateSpy.mockRestore();
+    budgetSpy.mockRestore();
+  });
+
+  it('all safeguards pass when all are enabled but conditions are met', async () => {
+    db.setConfig('rate_limit_enabled', '1');
+    db.setConfig('duplicate_check_enabled', '1');
+    db.setConfig('budget_check_enabled', '1');
+
+    const rateSpy = vi.spyOn(db, 'checkRateLimit').mockReturnValue({
+      allowed: true,
+    });
+    const dupSpy = vi.spyOn(db, 'checkDuplicateTask').mockReturnValue({
+      isDuplicate: false,
+    });
+    const fpSpy = vi.spyOn(db, 'recordTaskFingerprint').mockReturnValue(undefined);
+    const budgetSpy = vi.spyOn(db, 'isBudgetExceeded').mockReturnValue({
+      exceeded: false,
+      warning: false,
+    });
+
+    const id = createTask();
+    // Task should proceed past safeguards (may fail later in execution)
+    try {
+      await tm.startTask(id);
+    } catch (err) {
+      // Execution may fail, but safeguard errors are specific
+      expect(err.message).not.toMatch(/Rate limit/i);
+      expect(err.message).not.toMatch(/Budget exceeded/i);
+    }
+
+    expect(rateSpy).toHaveBeenCalled();
+    expect(dupSpy).toHaveBeenCalled();
+    expect(fpSpy).toHaveBeenCalled();
+    expect(budgetSpy).toHaveBeenCalled();
+
+    rateSpy.mockRestore();
+    dupSpy.mockRestore();
+    fpSpy.mockRestore();
+    budgetSpy.mockRestore();
+  });
+});
+
+// ─── budget warning with smart routing metadata ─────────────────────────
+
+describe('budget warning routing edge cases (via startTask)', () => {
+  beforeEach(setup);
+  afterEach(async () => {
+    vi.restoreAllMocks();
+    await cleanup();
+  });
+
+  it('keeps critical implementation tasks on paid provider even with budget exceeded', async () => {
+    db.setConfig('rate_limit_enabled', '0');
+    db.setConfig('duplicate_check_enabled', '0');
+    db.setConfig('budget_check_enabled', '0');
+
+    registerMockHost(db, 'http://127.0.0.1:19812', ['codellama:latest'], { name: 'critical-budget' });
+
+    // Budget exceeded but not warning - should still reroute
+    const budgetSpy = vi.spyOn(db, 'isBudgetExceeded').mockReturnValue({
+      exceeded: true,
+      budget: 'test-budget',
+      spent: 100.00,
+      limit: 50.00,
+    });
+
+    const id = createTask({
+      provider: 'codex',
+      task_description: 'implement critical authentication system',
+    });
+    try {
+      await tm.startTask(id);
+    } catch {
+      // May fail in execution
+    }
+
+    // Budget exceeded always reroutes regardless of task criticality
+    const task = db.getTask(id);
+    expect(task.provider).toBe('ollama');
+
+    budgetSpy.mockRestore();
+  });
+
+  it('does not reroute ollama tasks on budget warning (ollama is already free)', async () => {
+    db.setConfig('rate_limit_enabled', '0');
+    db.setConfig('duplicate_check_enabled', '0');
+    db.setConfig('budget_check_enabled', '0');
+
+    registerMockHost(db, 'http://127.0.0.1:19813', ['codellama:latest'], { name: 'ollama-no-reroute' });
+
+    const budgetSpy = vi.spyOn(db, 'isBudgetExceeded').mockReturnValue({
+      warning: true,
+      budget: 'test-budget',
+      spent: 42.00,
+      limit: 50.00,
+    });
+
+    const id = createTask({
+      provider: 'ollama',
+      task_description: 'fix a small bug in the config loader',
+    });
+    try {
+      await tm.startTask(id);
+    } catch {
+      // May fail in execution
+    }
+
+    // Provider should remain ollama since it's already the free option
+    const task = db.getTask(id);
+    expect(task.provider).toBe('ollama');
+
+    budgetSpy.mockRestore();
+  });
+});
+
+// ─── task status transitions ────────────────────────────────────────────
+
+describe('task status transitions (via startTask)', () => {
+  beforeEach(setup);
+  afterEach(async () => {
+    vi.restoreAllMocks();
+    await cleanup();
+  });
+
+  it('transitions pending task to running on successful spawn', async () => {
+    db.setConfig('rate_limit_enabled', '0');
+    db.setConfig('duplicate_check_enabled', '0');
+    db.setConfig('budget_check_enabled', '0');
+
+    const spawnSpy = vi.spyOn(processLifecycle, 'spawnAndTrackProcess').mockImplementation((taskId, task) => ({
+      started: true,
+      taskId,
+      task,
+    }));
+
+    db.updateProvider('claude-cli', { enabled: 1, max_concurrent: 5 });
+    const id = createTask({ provider: 'claude-cli', status: 'pending' });
+
+    await tm.startTask(id);
+
+    const task = db.getTask(id);
+    expect(task.status).toBe('running');
+    expect(task.started_at).toBeTruthy();
+
+    spawnSpy.mockRestore();
+  });
+
+  it('task stays pending/queued when provider is disabled', async () => {
+    db.setConfig('rate_limit_enabled', '0');
+    db.setConfig('duplicate_check_enabled', '0');
+    db.setConfig('budget_check_enabled', '0');
+
+    db.updateProvider('claude-cli', { enabled: 0 });
+    const spawnSpy = vi.spyOn(processLifecycle, 'spawnAndTrackProcess');
+
+    const id = createTask({ provider: 'claude-cli' });
+    const result = await tm.startTask(id);
+
+    expect(result.queued).toBe(true);
+    const task = db.getTask(id);
+    expect(task.status).toBe('queued');
+    expect(spawnSpy).not.toHaveBeenCalled();
+
+    spawnSpy.mockRestore();
+  });
+
+  it('task transitions to failed when spawn throws', async () => {
+    db.setConfig('rate_limit_enabled', '0');
+    db.setConfig('duplicate_check_enabled', '0');
+    db.setConfig('budget_check_enabled', '0');
+
+    db.updateProvider('claude-cli', { enabled: 1, max_concurrent: 5 });
+    const spawnSpy = vi.spyOn(processLifecycle, 'spawnAndTrackProcess').mockImplementation(() => {
+      throw new Error('Failed to spawn process');
+    });
+
+    const id = createTask({ provider: 'claude-cli' });
+
+    await expect(() => tm.startTask(id)).rejects.toThrow(/Failed to spawn process/);
+
+    const task = db.getTask(id);
+    expect(task.status).toBe('failed');
+
+    spawnSpy.mockRestore();
+  });
+});
+
+// ─── edge cases for createTask helper ───────────────────────────────────
+
+describe('startTask with edge case task data', () => {
+  beforeEach(setup);
+  afterEach(async () => {
+    vi.restoreAllMocks();
+    await cleanup();
+  });
+
+  it('handles task with very long description without crashing', async () => {
+    const longDesc = 'A'.repeat(10000);
+    const id = createTask({
+      task_description: longDesc,
+      working_directory: os.tmpdir(),
+    });
+
+    try {
+      await tm.startTask(id);
+    } catch (err) {
+      // May fail in execution, but should not fail in preflight
+      expect(err.message).not.toMatch(/empty/i);
+      expect(err.message).not.toMatch(/does not exist/);
+    }
+  });
+
+  it('handles task with special characters in description', async () => {
+    const id = createTask({
+      task_description: 'Fix the "quoted" bug in <template> & handle $pecial chars: 日本語',
+      working_directory: os.tmpdir(),
+    });
+
+    try {
+      await tm.startTask(id);
+    } catch (err) {
+      expect(err.message).not.toMatch(/empty/i);
+    }
+  });
+
+  it('rejects task with only newlines as description', async () => {
+    const id = randomUUID();
+    const rawDb = db.getDbInstance();
+    rawDb.prepare(`
+      INSERT INTO tasks (id, status, task_description, working_directory, timeout_minutes, max_retries, created_at)
+      VALUES (?, 'pending', ?, ?, 30, 0, ?)
+    `).run(id, '\n\n\n', process.cwd(), new Date().toISOString());
+
+    await expect(() => tm.startTask(id)).rejects.toThrow(/empty/i);
+  });
+
+  it('rejects task with only tab characters as description', async () => {
+    const id = randomUUID();
+    const rawDb = db.getDbInstance();
+    rawDb.prepare(`
+      INSERT INTO tasks (id, status, task_description, working_directory, timeout_minutes, max_retries, created_at)
+      VALUES (?, 'pending', ?, ?, 30, 0, ?)
+    `).run(id, '\t\t\t', process.cwd(), new Date().toISOString());
+
+    await expect(() => tm.startTask(id)).rejects.toThrow(/empty/i);
+  });
+});

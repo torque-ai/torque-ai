@@ -324,7 +324,7 @@ async function handleAutoVerifyRetry(ctx) {
     return;
   }
   // Phase M (2026-04-30): factory worktree paths (e.g.
-  // C:\...\DLPhone\.worktrees\fea-d44fc570) have their own .git
+  // C:\...\example-project\.worktrees\fea-d44fc570) have their own .git
   // gitdir-pointer file, so getProjectFromPath's findProjectRoot stops at
   // the worktree subdir and returns "fea-d44fc570" — which doesn't exist
   // in project_defaults, and the verify_command lookup below fails. Plan
