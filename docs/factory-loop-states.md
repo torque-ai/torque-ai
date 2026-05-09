@@ -114,7 +114,7 @@ Declared transitions (linear chain) plus the implicit edges discovered in the im
 | `SENSE` | `PRIORITIZE` (or gated stage) | `advanceLoop` | Next state per `FORWARD_TRANSITIONS` | `scanned_plans`, `paused_at_gate` | Stage claim |
 | `PRIORITIZE` | `PLAN` | `handlePrioritizeTransition` | Work item selected, no gate | `selected_work_item` | Remember work item |
 | `PRIORITIZE` | `IDLE` | `handlePrioritizeTransition` | No work items | `no_selected_work_item` | Terminate |
-| `PRIORITIZE` | `IDLE` | `handlePrioritizeTransition` | Auto-shipped detected | `auto_shipped_at_prioritize` | Mark shipped + terminate |
+| `PRIORITIZE` | `IDLE` | `handlePrioritizeTransition` | Auto-shipped detected | `auto_shipped` (`reason=at_prioritize`) | Mark shipped + terminate |
 | `PRIORITIZE` | `STARVED` | `advanceLoop` (if no work) | `countOpenWorkItems() === 0` | `stale_probe_starvation` | Set `loop_state = STARVED` |
 | `PLAN` | `EXECUTE` | `executeNonPlanFileStage` / `executePlanFileStage` | Plan generated | `generated_plan` or `skipped_for_plan_file` | Write plan file |
 | `PLAN` | `IDLE` | `executeNonPlanFileStage` | Cannot generate plan | `cannot_generate_plan` | Route work item to needs_replan |
@@ -376,9 +376,9 @@ Operator approves a gate but project is also operator-paused → gate clears but
 
 Explicit deferred EXECUTE pause rows now use `EXECUTE_DEFERRED`, while fail-loud/operator pauses keep bare `EXECUTE`. `deriveInstanceStateFromLegacyProject()` maps `EXECUTE_DEFERRED` back to real loop state `EXECUTE`, and the tick/advance guards allow only `READY_FOR_*`, `EXECUTE_DEFERRED`, and legacy bare `EXECUTE` rows with plan-generation evidence to self-recover. Old rows that used bare `EXECUTE` for plan generation remain compatible, but new readers can distinguish explicit deferrals without consulting the decision log.
 
-### 4. Three auto-ship decision actions
+### 4. ✅ ~~Three auto-ship decision actions~~ RESOLVED 2026-05-08
 
-`auto_shipped_at_prioritize`, `auto_shipped_empty_branch`, `auto_shipped_at_verify_fail` (and possibly more) — spread across `loop-controller.js` lines 3449, 4665, 12266. Each is correct in its context but the contract for "what does auto-ship at this stage mean?" is implicit. Worth a small helper that emits all three through one code path with a `reason` field, so future stages add an enum value rather than a new decision action.
+`server/factory/auto-ship.js` now emits the single canonical decision action `auto_shipped` with an `AUTO_SHIPPED_REASONS` reason enum. The former action names remain only as historical `factory_decisions` rows; new auto-ship emit sites add a reason value instead of minting a new decision action. The decision-action catalog and audit gate are wired to the unified action.
 
 ### 5. ✅ ~~Backward edges undeclared~~ RESOLVED 2026-05-08
 
