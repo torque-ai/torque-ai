@@ -32,6 +32,55 @@ function buildQuery(params = {}) {
   return qs ? `?${qs}` : '';
 }
 
+const REQUEST_OPTION_KEYS = new Set([
+  'body',
+  'cache',
+  'credentials',
+  'headers',
+  'integrity',
+  'keepalive',
+  'method',
+  'mode',
+  'redirect',
+  'referrer',
+  'signal',
+  'timeout',
+]);
+
+function isRequestOptions(value) {
+  return Boolean(
+    value
+    && typeof value === 'object'
+    && Object.keys(value).some((key) => REQUEST_OPTION_KEYS.has(key))
+  );
+}
+
+function normalizeFactoryProjectParams(params = {}) {
+  const normalized = { ...params };
+  if (Object.prototype.hasOwnProperty.call(normalized, 'includeCommits')) {
+    normalized.include_commits = normalized.includeCommits;
+    delete normalized.includeCommits;
+  }
+  if (!Object.prototype.hasOwnProperty.call(normalized, 'include_commits')) {
+    normalized.include_commits = false;
+  }
+  return normalized;
+}
+
+function factoryProjectsEndpoint(params = {}) {
+  return `/factory/projects${buildQuery(normalizeFactoryProjectParams(params))}`;
+}
+
+function splitParamsAndOptions(paramsOrOptions = {}, options = undefined) {
+  if (options !== undefined) {
+    return [paramsOrOptions || {}, options || {}];
+  }
+  if (isRequestOptions(paramsOrOptions)) {
+    return [{}, paramsOrOptions];
+  }
+  return [paramsOrOptions || {}, {}];
+}
+
 export function getCsrfToken() {
   if (window.__torqueCsrf) return window.__torqueCsrf;
   // Fallback: read from the non-HttpOnly torque_csrf cookie
@@ -709,7 +758,10 @@ function parseToolJsonResult(payload) {
 
 export const factory = {
   status: (opts = {}) => requestV2('/factory/status', opts),
-  projects: (opts = {}) => requestV2('/factory/projects', opts),
+  projects: (paramsOrOptions = {}, opts = undefined) => {
+    const [params, options] = splitParamsAndOptions(paramsOrOptions, opts);
+    return requestV2(factoryProjectsEndpoint(params), options);
+  },
   health: (projectId, opts = {}) => requestV2(`/factory/projects/${projectId}`, opts),
   register: (data, opts = {}) => requestV2('/factory/projects', { method: 'POST', body: JSON.stringify(data), ...opts }),
   pause: (projectId, opts = {}) => requestV2(`/factory/projects/${projectId}/pause`, { method: 'POST', ...opts }),

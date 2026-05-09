@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { tasks, providers, stats, planProjects, hosts, concurrency, workstations, budget, taskLogs, system, instances, projectTuning, workflows, benchmarks, study } from './api.js';
+import { tasks, providers, stats, planProjects, hosts, concurrency, workstations, budget, taskLogs, system, instances, projectTuning, workflows, benchmarks, study, factory } from './api.js';
 
 // --- Test helpers ---
 
@@ -627,6 +627,54 @@ describe('api.js', () => {
           method: 'POST',
           body: JSON.stringify({ working_directory: 'C:/repo', create_schedule: true }),
         })
+      );
+    });
+  });
+
+  describe('factory', () => {
+    it('projects() uses the lightweight project list by default', async () => {
+      globalThis.fetch = mockFetch({ body: { data: { projects: [] } } });
+
+      const result = await factory.projects();
+
+      expect(result).toEqual({ projects: [] });
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        '/api/v2/factory/projects?include_commits=false',
+        expect.any(Object)
+      );
+    });
+
+    it('projects() preserves request options when no query params are provided', async () => {
+      globalThis.fetch = mockFetch({ body: { data: { projects: [] } } });
+      const signal = new AbortController().signal;
+
+      await factory.projects({ signal, timeout: 5000 });
+
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        '/api/v2/factory/projects?include_commits=false',
+        expect.objectContaining({ signal: expect.any(AbortSignal) })
+      );
+    });
+
+    it('projects() supports filtered project lists without commit enrichment', async () => {
+      globalThis.fetch = mockFetch({ body: { data: { projects: [] } } });
+
+      await factory.projects({ status: 'paused', summary: 'basic' });
+
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        '/api/v2/factory/projects?status=paused&summary=basic&include_commits=false',
+        expect.any(Object)
+      );
+    });
+
+    it('projects() allows explicit commit enrichment when requested', async () => {
+      globalThis.fetch = mockFetch({ body: { data: { projects: [] } } });
+
+      await factory.projects({ includeCommits: true });
+
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        '/api/v2/factory/projects?include_commits=true',
+        expect.any(Object)
       );
     });
   });
