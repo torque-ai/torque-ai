@@ -110,6 +110,56 @@ repo_coord_lock_age_seconds() {
   esac
 }
 
+repo_coord_lock_current_host() {
+  hostname 2>/dev/null || echo unknown
+}
+
+repo_coord_lock_pid_alive() {
+  local pid="$1"
+  case "$pid" in
+    ''|*[!0-9]*|0) return 1 ;;
+  esac
+
+  if kill -0 "$pid" 2>/dev/null; then
+    return 0
+  fi
+
+  if command -v powershell.exe >/dev/null 2>&1; then
+    powershell.exe -NoProfile -Command "if (Get-Process -Id $pid -ErrorAction SilentlyContinue) { exit 0 } else { exit 1 }" >/dev/null 2>&1 && return 0
+  elif command -v pwsh >/dev/null 2>&1; then
+    pwsh -NoProfile -Command "if (Get-Process -Id $pid -ErrorAction SilentlyContinue) { exit 0 } else { exit 1 }" >/dev/null 2>&1 && return 0
+  elif command -v ps >/dev/null 2>&1; then
+    ps -p "$pid" >/dev/null 2>&1 && return 0
+  fi
+
+  return 1
+}
+
+repo_coord_lock_reap_if_dead_owner() {
+  local lock_dir="$1"
+  local owner_file="$lock_dir/owner.env"
+  local owner_host owner_pid current_host
+
+  if [ ! -f "$owner_file" ]; then
+    return 1
+  fi
+
+  owner_host="$(repo_coord_lock_read_field "$owner_file" host)"
+  owner_pid="$(repo_coord_lock_read_field "$owner_file" pid)"
+  current_host="$(repo_coord_lock_current_host)"
+
+  if [ -z "$owner_host" ] || [ "$owner_host" != "$current_host" ]; then
+    return 1
+  fi
+  if repo_coord_lock_pid_alive "$owner_pid"; then
+    return 1
+  fi
+
+  echo "[coord-lock] Reaping dead same-host lock: $(repo_coord_lock_describe "$lock_dir")"
+  rm -rf "$lock_dir"
+  return 0
+}
+
 repo_coord_lock_reap_if_stale() {
   local lock_dir="$1"
   local stale_secs="${TORQUE_COORD_LOCK_STALE_SECS:-7200}"
@@ -181,6 +231,9 @@ repo_coord_lock_acquire() {
       return 0
     fi
 
+    if repo_coord_lock_reap_if_dead_owner "$lock_dir"; then
+      continue
+    fi
     if repo_coord_lock_reap_if_stale "$lock_dir"; then
       continue
     fi

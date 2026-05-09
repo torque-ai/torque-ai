@@ -83,6 +83,24 @@ fi
 repo_coord_lock_release > "$TMP_ROOT/release.out"
 assert_dir_missing "$LOCK_DIR"
 
+DEAD_LOCK="$TORQUE_COORD_LOCK_ROOT/main.lock"
+mkdir -p "$DEAD_LOCK"
+cat > "$DEAD_LOCK/owner.env" <<EOF
+lock_name=main
+purpose=dead same-host test
+pid=999999999
+host=$(hostname 2>/dev/null || echo unknown)
+started_at=2099-01-01T00:00:00Z
+started_at_epoch=4070908800
+EOF
+printf 'dead-token\n' > "$DEAD_LOCK/token"
+
+export TORQUE_COORD_LOCK_STALE_SECS=7200
+repo_coord_lock_acquire main "dead-owner takeover" > "$TMP_ROOT/dead-owner.out"
+assert_contains "$TMP_ROOT/dead-owner.out" 'Reaping dead same-host lock'
+assert_contains "$TORQUE_COORD_LOCK_DIR/owner.env" '^purpose=dead-owner takeover$'
+repo_coord_lock_release > "$TMP_ROOT/dead-owner-release.out"
+
 STALE_LOCK="$TORQUE_COORD_LOCK_ROOT/main.lock"
 mkdir -p "$STALE_LOCK"
 cat > "$STALE_LOCK/owner.env" <<EOF
