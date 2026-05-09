@@ -11,7 +11,7 @@ This is a session handoff. If you're picking this up after the pause, start here
 
 ## What we shipped this session
 
-Four independent arcs, each shipped to `main`:
+Five independent arcs, each shipped to `main`:
 
 ### 1. `torque-remote` lanes (out-of-arc; predates the parent rationalization)
 
@@ -67,11 +67,22 @@ Cutover commit on main: see `git log --grep='forward transitions'`.
 
 **Status: shipped.** No restart-sensitive behavior change; this is naming + docs/tests only.
 
+### 5. Legacy project-row loop-state mirror sweep (sub-project 6 of 7)
+
+Cutover commit on main: see `git log --grep='legacy loop mirror'`.
+
+- `loopController.getLoopStateForProject()` now reports the oldest active `factory_loop_instances` row first.
+- The `factory_projects.loop_state` path is fenced behind explicit legacy-mirror helper names and remains only as a compatibility fallback when no active instance exists.
+- Factory tick and baseline-starvation recovery callers use the effective loop-state view before deciding whether to recover STARVED projects.
+- Regression coverage proves stale project-row mirrors no longer override active instance state.
+
+**Status: shipped.** Runtime-sensitive behavior change; requires normal worktree cutover/restart barrier.
+
 ---
 
-## What's still to do (4 sub-projects of the parent arc)
+## What's still to do (3 sub-projects of the parent arc)
 
-The parent state-machine rationalization arc was decomposed into 7 sub-projects. Sub-projects 1, 4, and 5 are shipped. Four remain. Each is independently pickable; each gets its own brainstorm → spec → plan → execution cycle.
+The parent state-machine rationalization arc was decomposed into 7 sub-projects. Sub-projects 1, 4, 5, and 6 are shipped. Three remain. Each is independently pickable; each gets its own brainstorm → spec → plan → execution cycle.
 
 The original decomposition lives in the brainstorming context for sub-project 1 (search `docs/superpowers/specs/2026-05-07-factory-decision-actions-catalog-design.md` for "Parent arc" reference).
 
@@ -79,12 +90,10 @@ The original decomposition lives in the brainstorming context for sub-project 1 
 |---|---|---|---|---|
 | 2 | **`READY_FOR_<stage>` watchdog** | S | None | Operator-pain fix. Parked instances wait forever if stage occupant crashes. `stuck-loop-detector.js` may alert but doesn't auto-resolve. Add a "park older than X min → force advance with diagnostic" rule, or wire the existing detector to call `cancel_task` on the stale occupant. Open Q#2 in `docs/factory-loop-states.md`. |
 | 3 | **Disambiguate `paused_at_stage = 'EXECUTE'`** | M | None | Schema disambiguation. Two distinct meanings encode as one column value: gate-pause (operator approval pending at EXECUTE) vs plan-generation deferral wait. Readers distinguish via the most recent decision log entry, which is fragile. Worth either splitting the encoding (`EXECUTE` vs `EXECUTE_DEFERRED`) or making the deferral wait a separate column. Open Q#3. |
-| 6 | **`factory_projects.loop_state` mirror sweep** | S | None | Pure code-health. Project-row `loop_state` is a legacy mirror of the oldest active instance's state. Some readers still go through the project row (`getCurrentLoopState(project)`); some go through the instance directly. Sweep readers, document the mirror as backward-compat-only or remove. Open Q#6. |
 | 7 | **Loop instance restart recovery** | M | Soft-depends on #2 | Behavioral. What happens to a project stuck at `READY_FOR_PLAN` if TORQUE restarts mid-park? `startup-task-reconciler.js` re-classifies tasks but the LOOP instance's `paused_at_stage` recovery on restart is less explicit. Worth confirming. Open Q#7. |
 
 **Recommended order when picking back up:**
 
-- **Start with #6.** It is S size, independent, and pure cleanup.
 - **Tackle #2 next.** Real operator-pain fix; sets up #7 cleanly.
 - **#7 after #2.** They overlap in the watchdog/restart-recovery story.
 - **#3 last.** Schema change; biggest blast radius.
@@ -99,7 +108,7 @@ The original decomposition lives in the brainstorming context for sub-project 1 
 2. Confirm `git log --oneline -5` on `main` shows the three merges from this session: `590977d2` (auto-ship), `9a8b9132` (catalog), and the lanes merge.
 3. Verify CI gate is live: `cd server && npx vitest run tests/factory-decision-actions-catalog.test.js`. Expected: 5 tests pass.
 4. Verify audit is clean: `node server/factory/scripts/audit-decision-actions.js`. Expected: exit 0, "All gap categories empty."
-5. Pick a sub-project (see table above). Recommend #5 or #6 to start.
+5. Pick a sub-project (see table above). Recommend #2 next.
 
 ### Per-sub-project flow
 
@@ -261,5 +270,5 @@ $ git stash list
 1. Read this doc top to bottom.
 2. Verify `main` is clean of our work-state (other sessions' WIP is fine, just not ours).
 3. Check Pending Problem #1 — is TORQUE running the new code? `mcp tool ping` and verify the version/SHA matches `main`.
-4. If picking up the parent arc, choose a sub-project from the table above. Recommended: #5 or #6 first.
+4. If picking up the parent arc, choose a sub-project from the table above. Recommended: #2 next.
 5. If picking up something else entirely, this doc is the snapshot to come back to later.

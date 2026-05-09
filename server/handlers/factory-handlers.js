@@ -237,8 +237,42 @@ function summarizeStarvationRecovery(result) {
   };
 }
 
+function getEffectiveProjectLoopStateView(project) {
+  if (!project?.id) {
+    return null;
+  }
+  try {
+    return loopController.getLoopStateForProject(project.id);
+  } catch (err) {
+    logger.debug('Factory handler: falling back to project loop mirror', {
+      project_id: project.id,
+      err: err.message,
+    });
+    return {
+      loop_state: normalizeProjectLoopState(project.loop_state),
+      loop_batch_id: project.loop_batch_id || null,
+      loop_last_action_at: project.loop_last_action_at || null,
+      loop_paused_at_stage: project.loop_paused_at_stage || null,
+    };
+  }
+}
+
+function withEffectiveProjectLoopState(project, stateView = getEffectiveProjectLoopStateView(project)) {
+  if (!project || !stateView) {
+    return project;
+  }
+  return {
+    ...project,
+    loop_state: stateView.loop_state,
+    loop_batch_id: stateView.loop_batch_id,
+    loop_last_action_at: stateView.loop_last_action_at,
+    loop_paused_at_stage: stateView.loop_paused_at_stage,
+  };
+}
+
 async function triggerBaselineStarvationRecovery(project) {
-  if (!project || project.loop_state !== LOOP_STATES.STARVED) {
+  const stateView = getEffectiveProjectLoopStateView(project);
+  if (!project || stateView?.loop_state !== LOOP_STATES.STARVED) {
     return null;
   }
 
@@ -248,7 +282,7 @@ async function triggerBaselineStarvationRecovery(project) {
     if (!starvationRecovery || typeof starvationRecovery.maybeRecover !== 'function') {
       return null;
     }
-    return await starvationRecovery.maybeRecover(project, {
+    return await starvationRecovery.maybeRecover(withEffectiveProjectLoopState(project, stateView), {
       force: true,
       trigger: 'baseline_resume',
     });
@@ -2608,8 +2642,11 @@ async function handleDecisionLog(args) {
     since: args.since,
     limit: args.limit,
   });
-  const stats = getDecisionStats(project.id);
-  return jsonResponse({ decisions, stats });
+  const payload = { decisions };
+  if (!isExplicitFalse(args.include_stats)) {
+    payload.stats = getDecisionStats(project.id);
+  }
+  return jsonResponse(payload);
 }
 
 async function handleFactoryProviderLaneAudit(args) {
