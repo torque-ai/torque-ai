@@ -3,14 +3,16 @@
 const os = require('os');
 const path = require('path');
 const fs = require('fs');
-// Importing git-test-utils restores real git — required for production code
-// (sandbox-revert-detection.js) that calls execFile('git') directly.
-const { gitSync, cleanupRepo } = require('./git-test-utils');
+const { gitSync, cleanupRepo, withRealGit } = require('./git-test-utils');
 
+let sandboxRevertDetection;
+withRealGit(() => {
+  sandboxRevertDetection = require('../execution/sandbox-revert-detection');
+});
 const {
   detectSandboxReverts,
   _testing: { isCodexProvider, parseDiffStats, checkFileForRevert },
-} = require('../execution/sandbox-revert-detection');
+} = sandboxRevertDetection;
 
 // ─── Git fixture helpers ─────────────────────────────────────────────────
 

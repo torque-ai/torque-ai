@@ -24,6 +24,25 @@ const DEFAULT_STALE_GIT_STATUS_MIN_AGE_MS = 60_000;
 const DEFAULT_STALE_GIT_STATUS_CLEANUP_INTERVAL_MS = 60_000;
 let lastStaleGitStatusCleanupAt = 0;
 
+function isMockFunction(fn) {
+  return Boolean(fn && (fn._isMockFunction || fn.mock));
+}
+
+function resolveExecFileSync({ preferRealTestGit = false } = {}) {
+  const current = childProcess.execFileSync;
+  if (preferRealTestGit && childProcess._realExecFileSync) {
+    return childProcess._realExecFileSync;
+  }
+  if (
+    childProcess._realExecFileSync
+    && current?.__torqueTestGuard === true
+    && !isMockFunction(current)
+  ) {
+    return childProcess._realExecFileSync;
+  }
+  return current;
+}
+
 function isGitStatusProbeArgs(args) {
   return Array.isArray(args)
     && args[0] === 'status'
@@ -139,17 +158,19 @@ foreach ($target in $targets) {
  * @returns {string|Buffer} Git command output
  */
 function safeGitExec(args, opts = {}) {
+  const { preferRealTestGit = false, ...execOpts } = opts;
   const merged = {
     encoding: 'utf8',
     timeout: TASK_TIMEOUTS.GIT_STATUS,
     maxBuffer: 1024 * 1024,
     stdio: ['ignore', 'pipe', 'pipe'],
     windowsHide: true,
-    ...opts,
-    env: { ...process.env, ...GIT_SAFE_ENV, ...(opts.env || {}) },
+    ...execOpts,
+    env: { ...process.env, ...GIT_SAFE_ENV, ...(execOpts.env || {}) },
   };
   try {
-    return childProcess.execFileSync('git', args, merged);
+    const execFileSync = resolveExecFileSync({ preferRealTestGit });
+    return execFileSync.call(childProcess, 'git', args, merged);
   } catch (err) {
     if (isGitStatusProbeArgs(args)) {
       cleanupStaleGitStatusProcesses({ force: true });
@@ -166,7 +187,7 @@ function safeGitExec(args, opts = {}) {
  *
  * @param {string} workingDir
  * @param {string} ref
- * @param {{ timeout?: number }} [opts]
+ * @param {{ timeout?: number, preferRealTestGit?: boolean }} [opts]
  * @returns {boolean}
  */
 function gitRefExists(workingDir, ref, opts = {}) {
@@ -178,6 +199,7 @@ function gitRefExists(workingDir, ref, opts = {}) {
     safeGitExec(['rev-parse', '--verify', ref], {
       cwd: workingDir,
       timeout: opts.timeout ?? TASK_TIMEOUTS.GIT_DIFF ?? TASK_TIMEOUTS.GIT_STATUS,
+      preferRealTestGit: opts.preferRealTestGit === true,
     });
     return true;
   } catch {

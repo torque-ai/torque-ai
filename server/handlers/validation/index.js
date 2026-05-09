@@ -244,11 +244,11 @@ async function handleValidateTaskOutput(args) {
       const tryGitDiff = (gitArgs) => {
         try {
           return safeGitExec(gitArgs, {
-            cwd: workDir, encoding: 'utf-8', timeout: TASK_TIMEOUTS.GIT_STATUS
+            cwd: workDir, encoding: 'utf-8', timeout: TASK_TIMEOUTS.GIT_STATUS, preferRealTestGit: true
           }).trim();
         } catch { return ''; }
       };
-      if (gitRefExists(workDir, 'HEAD~1', { timeout: TASK_TIMEOUTS.GIT_STATUS })) {
+      if (gitRefExists(workDir, 'HEAD~1', { timeout: TASK_TIMEOUTS.GIT_STATUS, preferRealTestGit: true })) {
         gitOutput = tryGitDiff(['diff', '--name-only', 'HEAD~1', 'HEAD']);
       }
       if (!gitOutput) gitOutput = tryGitDiff(['diff', '--name-only', '--cached']);

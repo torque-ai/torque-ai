@@ -67,24 +67,6 @@ function NestedBoundaryHarness({ innerThrows = true, outerSiblingThrows = false 
   );
 }
 
-// Suppress console.error for expected error boundary logs
-const originalConsoleError = console.error;
-beforeAll(() => {
-  vi.spyOn(console, 'error').mockImplementation((...args) => {
-    if (typeof args[0] === 'string' && (
-      args[0].includes('Dashboard error:') ||
-      args[0].includes('The above error occurred') ||
-      args[0].includes('Error: Uncaught')
-    )) {
-      return;
-    }
-    originalConsoleError(...args);
-  });
-});
-afterAll(() => {
-  vi.restoreAllMocks();
-});
-
 describe('ErrorBoundary', () => {
   it('renders children when no error occurs', () => {
     render(

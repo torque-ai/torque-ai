@@ -3,14 +3,14 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { execFileSync } = require('child_process');
 
 const { shouldUseDetachedPath } = require('../providers/execute-cli');
 const serverConfig = require('../config');
+const { gitSync } = require('./git-test-utils');
 
 function tmpGitRepo() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'torque-detach-f-'));
-  execFileSync('git', ['init', '-q'], { cwd: dir });
+  gitSync(['init', '-q'], { cwd: dir });
   return dir;
 }
 

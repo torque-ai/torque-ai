@@ -6,20 +6,19 @@ const os = require('os');
 const path = require('path');
 
 const { createProfileManager } = require('../integrations/codebase-study/profile');
+const { createIsolatedGitEnv, withIsolatedGitArgs } = require('./git-test-utils');
 
 const GIT_TEST_ENV = {
-  ...process.env,
-  GIT_TERMINAL_PROMPT: '0',
-  GIT_OPTIONAL_LOCKS: '0',
-  GIT_CONFIG_NOSYSTEM: '1',
+  ...createIsolatedGitEnv({
   GIT_AUTHOR_NAME: 'Study Profile Test',
   GIT_AUTHOR_EMAIL: 'study-profile@example.com',
   GIT_COMMITTER_NAME: 'Study Profile Test',
   GIT_COMMITTER_EMAIL: 'study-profile@example.com',
+  }),
 };
 
 function runGit(cwd, args) {
-  return childProcess.execFileSync('git', args, {
+  return childProcess.execFileSync('git', withIsolatedGitArgs(args), {
     cwd,
     encoding: 'utf8',
     windowsHide: true,

@@ -24,6 +24,7 @@
 // continue.
 
 const childProcess = require('child_process');
+const execFileSync = childProcess._realExecFileSync || childProcess.execFileSync;
 
 const CG_DIFF_TIMEOUT_MS = 5_000;
 
@@ -68,7 +69,7 @@ function readStructured(result) {
 
 function readHeadSha(workingDirectory) {
   try {
-    const out = childProcess.execFileSync('git', ['rev-parse', 'HEAD'], {
+    const out = execFileSync('git', ['rev-parse', 'HEAD'], {
       ...GIT_BASE_OPTS, cwd: workingDirectory, encoding: 'utf8',
     });
     return out.trim() || null;

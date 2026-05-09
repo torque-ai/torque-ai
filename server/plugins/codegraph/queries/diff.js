@@ -1,6 +1,7 @@
 'use strict';
 
 const childProcess = require('child_process');
+const execFileSync = childProcess._realExecFileSync || childProcess.execFileSync;
 const { extractorFor, languageFor } = require('../extractors');
 
 const GIT_BASE_OPTS = Object.freeze({
@@ -19,7 +20,7 @@ const GIT_BASE_OPTS = Object.freeze({
 // {deleted: from, added: to} (the previous shape) reported every symbol in
 // the renamed file as add+remove even when the content was byte-identical.
 function gitDiffNameStatus(repoPath, fromSha, toSha) {
-  const out = childProcess.execFileSync('git', [
+  const out = execFileSync('git', [
     'diff', '--name-status', '-M50%', fromSha, toSha,
   ], { ...GIT_BASE_OPTS, cwd: repoPath, encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 });
   const added = [], modified = [], deleted = [], renamed = [];
@@ -36,7 +37,7 @@ function gitDiffNameStatus(repoPath, fromSha, toSha) {
 }
 
 function gitShowFile(repoPath, sha, filePath) {
-  return childProcess.execFileSync('git', ['show', `${sha}:${filePath}`], {
+  return execFileSync('git', ['show', `${sha}:${filePath}`], {
     ...GIT_BASE_OPTS, cwd: repoPath, maxBuffer: 32 * 1024 * 1024,
   });
 }
@@ -47,7 +48,7 @@ function gitShaReachable(repoPath, sha) {
   // and any object type (blob/tree/commit). The `^{commit}` peel ensures we
   // reject blob/tree shas that would let cgDiff proceed with a non-commit.
   try {
-    childProcess.execFileSync('git', ['rev-parse', '--verify', '--quiet', `${sha}^{commit}`], {
+    execFileSync('git', ['rev-parse', '--verify', '--quiet', `${sha}^{commit}`], {
       ...GIT_BASE_OPTS, cwd: repoPath,
     });
     return true;

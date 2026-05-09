@@ -11,7 +11,7 @@
 
 const path = require('path');
 const fs = require('fs');
-const { execFileSync, spawnSync } = require('child_process');
+const childProcess = require('child_process');
 const logger = require('../logger').child({ component: 'post-task-validation' });
 const serverConfig = require('../config');
 const { TASK_TIMEOUTS } = require('../constants');
@@ -239,7 +239,7 @@ function revertScopedFiles(workingDir, files, label = 'ScopedRollback') {
 
   for (const file of uniqueFiles) {
     try {
-      execFileSync('git', ['ls-files', '--error-unmatch', '--', file], {
+      childProcess.execFileSync('git', ['ls-files', '--error-unmatch', '--', file], {
         cwd: workingDir,
         encoding: 'utf8',
         stdio: 'pipe',
@@ -252,7 +252,7 @@ function revertScopedFiles(workingDir, files, label = 'ScopedRollback') {
     }
 
     try {
-      execFileSync('git', ['checkout', '--', file], {
+      childProcess.execFileSync('git', ['checkout', '--', file], {
         cwd: workingDir,
         encoding: 'utf8',
         stdio: 'pipe',
@@ -518,7 +518,7 @@ function cleanupJunkFiles(workingDir, taskId) {
           }
           // Also try to unstage from git
           try {
-            execFileSync('git', ['reset', 'HEAD', '--', file], { cwd: workingDir, timeout: TASK_TIMEOUTS.GIT_RESET, windowsHide: true });
+            childProcess.execFileSync('git', ['reset', 'HEAD', '--', file], { cwd: workingDir, timeout: TASK_TIMEOUTS.GIT_RESET, windowsHide: true });
           } catch (err) { logger.debug("task handler error", { err: err.message }); /* ignore */ }
         } catch (err) {
           logger.debug("task handler error", { err: err.message });
@@ -754,7 +754,7 @@ function checkDuplicateFiles(workingDir, modifiedFiles) {
 
       // Find other files with the same name using git ls-files (cross-platform, no `find` dependency)
       try {
-        const result = execFileSync('git', ['ls-files', '--', `**/${fileName}`], {
+        const result = childProcess.execFileSync('git', ['ls-files', '--', `**/${fileName}`], {
           cwd: workingDir,
           encoding: 'utf8',
           timeout: TASK_TIMEOUTS.PROCESS_QUERY,
@@ -768,7 +768,7 @@ function checkDuplicateFiles(workingDir, modifiedFiles) {
         if (matches.length > 0) {
           // Check if this is a new file (not in git history)
           try {
-            execFileSync('git', ['ls-files', '--error-unmatch', modFile], {
+            childProcess.execFileSync('git', ['ls-files', '--error-unmatch', modFile], {
               cwd: workingDir,
               encoding: 'utf8',
               stdio: 'pipe',
@@ -836,7 +836,7 @@ function checkSyntax(workingDir, modifiedFiles) {
       } else if (ext === '.js') {
         // JavaScript - use node to check syntax
         try {
-          execFileSync('node', ['--check', fullPath], {
+          childProcess.execFileSync('node', ['--check', fullPath], {
             cwd: workingDir,
             encoding: 'utf8',
             timeout: TASK_TIMEOUTS.SYNTAX_CHECK,
@@ -873,7 +873,7 @@ function checkSyntax(workingDir, modifiedFiles) {
             ? ['tsc', '--noEmit', '--project', path.join(workingDir, 'tsconfig.json')]
             : ['tsc', '--noEmit', '--allowJs', '--esModuleInterop', fullPath];
           try {
-            execFileSync('npx', tscArgs, {
+            childProcess.execFileSync('npx', tscArgs, {
               cwd: workingDir,
               encoding: 'utf8',
               timeout: TASK_TIMEOUTS.TYPESCRIPT_CHECK,
@@ -940,7 +940,7 @@ function checkSyntax(workingDir, modifiedFiles) {
         // P69: Try python3 first, fall back to python (Windows uses python)
         const pythonCmd = process.platform === 'win32' ? 'python' : 'python3';
         try {
-          execFileSync(pythonCmd, ['-m', 'py_compile', fullPath], {
+          childProcess.execFileSync(pythonCmd, ['-m', 'py_compile', fullPath], {
             cwd: workingDir,
             encoding: 'utf8',
             timeout: TASK_TIMEOUTS.SYNTAX_CHECK,
@@ -1279,7 +1279,7 @@ async function runTestVerification(taskId, task, workingDir) {
     let spawnResult;
 
     if (isWSL && executable.endsWith('.exe')) {
-      spawnResult = spawnSync(executable, args, {
+      spawnResult = childProcess.spawnSync(executable, args, {
         cwd: workingDir,
         encoding: 'utf8',
         timeout,
@@ -1289,7 +1289,7 @@ async function runTestVerification(taskId, task, workingDir) {
       });
     } else if (isWSL && (executable.endsWith('.cmd') || executable.endsWith('.bat'))) {
       const winPath = workingDir.replace(/^\/mnt\/([a-z])/, '$1:').replace(/\//g, '\\');
-      spawnResult = spawnSync('cmd.exe', ['/c', executable, ...args], {
+      spawnResult = childProcess.spawnSync('cmd.exe', ['/c', executable, ...args], {
         cwd: workingDir,
         encoding: 'utf8',
         timeout,
@@ -1299,7 +1299,7 @@ async function runTestVerification(taskId, task, workingDir) {
         env: { ...process.env, CD: winPath }
       });
     } else {
-      spawnResult = spawnSync(executable, args, {
+      spawnResult = childProcess.spawnSync(executable, args, {
         cwd: workingDir,
         encoding: 'utf8',
         timeout,
@@ -1395,7 +1395,7 @@ function runStyleCheck(taskId, task, workingDir) {
     let spawnResult;
 
     if (isWSL && executable.endsWith('.exe')) {
-      spawnResult = spawnSync(executable, args, {
+      spawnResult = childProcess.spawnSync(executable, args, {
         cwd: workingDir,
         encoding: 'utf8',
         timeout,
@@ -1404,7 +1404,7 @@ function runStyleCheck(taskId, task, workingDir) {
         windowsHide: true
       });
     } else {
-      spawnResult = spawnSync(executable, args, {
+      spawnResult = childProcess.spawnSync(executable, args, {
         cwd: workingDir,
         encoding: 'utf8',
         timeout,
@@ -1468,7 +1468,7 @@ function rollbackTaskChanges(taskId, workingDir) {
     }
 
     // Check if last commit was made by a TORQUE provider
-    const lastCommitMessage = execFileSync('git', ['log', '-1', '--format=%s'], {
+    const lastCommitMessage = childProcess.execFileSync('git', ['log', '-1', '--format=%s'], {
       cwd: workingDir,
       encoding: 'utf8',
       timeout: TASK_TIMEOUTS.GIT_STATUS,
@@ -1479,8 +1479,8 @@ function rollbackTaskChanges(taskId, workingDir) {
 
     if (isTorqueCommit) {
       logger.info(`[Rollback] Task ${taskId}: Reverting last auto-generated commit`);
-      execFileSync('git', ['revert', '--no-commit', 'HEAD'], { cwd: workingDir, encoding: 'utf8', timeout: TASK_TIMEOUTS.GIT_COMMIT, windowsHide: true });
-      execFileSync('git', ['commit', '-m', `Revert: Build verification failed for task ${taskId}`], {
+      childProcess.execFileSync('git', ['revert', '--no-commit', 'HEAD'], { cwd: workingDir, encoding: 'utf8', timeout: TASK_TIMEOUTS.GIT_COMMIT, windowsHide: true });
+      childProcess.execFileSync('git', ['commit', '-m', `Revert: Build verification failed for task ${taskId}`], {
         cwd: workingDir,
         encoding: 'utf8',
         timeout: TASK_TIMEOUTS.GIT_COMMIT,

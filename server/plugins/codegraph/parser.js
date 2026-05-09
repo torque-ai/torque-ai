@@ -3,7 +3,15 @@
 const fs = require('fs');
 const path = require('path');
 
-const WASM_DIR = path.join(__dirname, '..', '..', 'node_modules', 'tree-sitter-wasms', 'out');
+function resolveWasmDir() {
+  try {
+    return path.join(path.dirname(require.resolve('tree-sitter-wasms/package.json')), 'out');
+  } catch {
+    return path.join(__dirname, '..', '..', 'node_modules', 'tree-sitter-wasms', 'out');
+  }
+}
+
+const WASM_DIR = resolveWasmDir();
 
 const WASM_BY_LANGUAGE = {
   javascript: 'javascript',

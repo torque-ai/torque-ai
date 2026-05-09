@@ -7,22 +7,21 @@ const os = require('node:os');
 const path = require('node:path');
 
 const branchFreshness = require('../factory/branch-freshness');
+const { createIsolatedGitEnv, withIsolatedGitArgs } = require('./git-test-utils');
 
 const realSpawnSync = childProcess._realSpawnSync || childProcess.spawnSync;
 
 const GIT_ENV = {
-  ...process.env,
-  GIT_TERMINAL_PROMPT: '0',
-  GIT_OPTIONAL_LOCKS: '0',
-  GIT_CONFIG_NOSYSTEM: '1',
+  ...createIsolatedGitEnv({
   GIT_AUTHOR_NAME: 'Test',
   GIT_AUTHOR_EMAIL: 'test@test.com',
   GIT_COMMITTER_NAME: 'Test',
   GIT_COMMITTER_EMAIL: 'test@test.com',
+  }),
 };
 
 function git(repo, args, options = {}) {
-  const result = realSpawnSync('git', args, {
+  const result = realSpawnSync('git', withIsolatedGitArgs(args), {
     cwd: repo,
     windowsHide: true,
     timeout: 10000,

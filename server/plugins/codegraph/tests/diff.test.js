@@ -4,26 +4,29 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const childProcess = require('child_process');
+const { createIsolatedGitEnv, withIsolatedGitArgs } = require('../../../tests/git-test-utils');
 // server/tests/worker-setup.js stubs child_process.{execFileSync,spawnSync}
 // to return fake values like 'abcdef1234567890' for `git rev-parse HEAD`,
 // preventing orphaned git.exe processes on Windows. Test-helpers.js restores
 // the originals — but only by virtue of being imported. cgDiff under test
 // also calls execFileSync internally, so we need the real implementation in
 // scope when the test creates a fixture repo AND when cgDiff diffs it.
+const stubbedExecFileSync = childProcess.execFileSync;
 if (childProcess._realExecFileSync) childProcess.execFileSync = childProcess._realExecFileSync;
 const { execFileSync } = childProcess;
 const { cgDiff } = require('../queries/diff');
+childProcess.execFileSync = stubbedExecFileSync;
 
-const GIT_ENV = { ...process.env, GIT_TERMINAL_PROMPT: '0', GIT_OPTIONAL_LOCKS: '0', GIT_CONFIG_NOSYSTEM: '1' };
+const GIT_ENV = createIsolatedGitEnv();
 
 function git(repo, ...args) {
-  return execFileSync('git', args, {
+  return execFileSync('git', withIsolatedGitArgs(args), {
     cwd: repo, encoding: 'utf8', windowsHide: true, env: GIT_ENV,
     stdio: ['ignore', 'pipe', 'pipe'],
   }).trim();
 }
 function gitVoid(repo, ...args) {
-  execFileSync('git', args, {
+  execFileSync('git', withIsolatedGitArgs(args), {
     cwd: repo, windowsHide: true, env: GIT_ENV,
     stdio: ['ignore', 'ignore', 'pipe'],
   });

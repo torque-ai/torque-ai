@@ -6,6 +6,7 @@ const os = require('os');
 const path = require('path');
 
 const shared = require('../handlers/shared');
+const { createIsolatedGitEnv, withIsolatedGitArgs } = require('./git-test-utils');
 
 const HANDLERS_MODULE = '../handlers/codebase-study-handlers';
 const INTEGRATION_MODULE = '../integrations/codebase-study';
@@ -35,14 +36,12 @@ const STUDY_IMPACT_SUMMARY = {
   },
 };
 const GIT_TEST_ENV = {
-  ...process.env,
-  GIT_TERMINAL_PROMPT: '0',
-  GIT_OPTIONAL_LOCKS: '0',
-  GIT_CONFIG_NOSYSTEM: '1',
+  ...createIsolatedGitEnv({
   GIT_AUTHOR_NAME: 'Study Handler Test',
   GIT_AUTHOR_EMAIL: 'study-handler@example.com',
   GIT_COMMITTER_NAME: 'Study Handler Test',
   GIT_COMMITTER_EMAIL: 'study-handler@example.com',
+  }),
 };
 
 const patchedExecFileSync = childProcess.execFileSync;
@@ -77,7 +76,7 @@ function getText(result) {
 }
 
 function runGit(cwd, args) {
-  return realExecFileSync('git', args, {
+  return realExecFileSync('git', withIsolatedGitArgs(args), {
     cwd,
     encoding: 'utf8',
     windowsHide: true,

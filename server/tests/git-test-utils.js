@@ -12,6 +12,8 @@
  *  - stdio: 'pipe'           — capture output, don't inherit terminal
  *  - env with GIT_TERMINAL_PROMPT=0, GIT_OPTIONAL_LOCKS=0,
  *    GIT_CONFIG_NOSYSTEM=1   — prevent git from launching helpers
+ *  - isolated git env/hooks  — prevent parent repo metadata from leaking into
+ *    temp fixture repositories under the pre-push harness
  *  - --no-gpg-sign on commits — no GPG subprocess
  */
 
@@ -21,31 +23,100 @@ const childProcess = require('child_process');
 // Use the real (unpatched) execFileSync — worker-setup.js patches the default
 // to stub git calls, but tests in this module need actual git operations.
 const execFileSync = childProcess._realExecFileSync || childProcess.execFileSync;
-
-// ALSO restore the global patches for any production code that runs in tests
-// importing this module (e.g., sandbox-revert-detection.js calls execFile('git')
-// via promisify, not through gitSync). Without this, production code in real-git
-// tests hits the stub and gets fake responses.
-if (childProcess._realExecFileSync) childProcess.execFileSync = childProcess._realExecFileSync;
-if (childProcess._realExecFile) childProcess.execFile = childProcess._realExecFile;
-if (childProcess._realSpawnSync) childProcess.spawnSync = childProcess._realSpawnSync;
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
+
+const EMPTY_GIT_HOOKS_DIR = path.join(os.tmpdir(), 'torque-test-empty-git-hooks');
+try {
+  fs.mkdirSync(EMPTY_GIT_HOOKS_DIR, { recursive: true });
+} catch {
+  // If the directory cannot be created, git will still receive a deterministic
+  // hooksPath and fail loudly instead of running the parent checkout hooks.
+}
+
+const UNSAFE_GIT_ENV_KEYS = new Set([
+  'GIT_DIR',
+  'GIT_WORK_TREE',
+  'GIT_INDEX_FILE',
+  'GIT_OBJECT_DIRECTORY',
+  'GIT_ALTERNATE_OBJECT_DIRECTORIES',
+  'GIT_COMMON_DIR',
+  'GIT_CONFIG',
+  'GIT_CONFIG_GLOBAL',
+  'GIT_CONFIG_SYSTEM',
+  'GIT_CONFIG_COUNT',
+]);
+
+function stripInheritedGitState(env) {
+  for (const key of Object.keys(env)) {
+    if (
+      UNSAFE_GIT_ENV_KEYS.has(key)
+      || /^GIT_CONFIG_(KEY|VALUE)_\d+$/.test(key)
+    ) {
+      delete env[key];
+    }
+  }
+  return env;
+}
+
+function createIsolatedGitEnv(overrides = {}, baseEnv = process.env) {
+  const env = stripInheritedGitState({ ...baseEnv });
+  Object.assign(env, {
+    GIT_TERMINAL_PROMPT: '0',
+    GIT_OPTIONAL_LOCKS: '0',
+    GIT_CONFIG_NOSYSTEM: '1',
+    GIT_AUTHOR_NAME: 'Test',
+    GIT_AUTHOR_EMAIL: 'test@test.com',
+    GIT_COMMITTER_NAME: 'Test',
+    GIT_COMMITTER_EMAIL: 'test@test.com',
+  }, overrides);
+  return stripInheritedGitState(env);
+}
+
+function withIsolatedGitArgs(args) {
+  return [
+    '-c',
+    `core.hooksPath=${EMPTY_GIT_HOOKS_DIR.replace(/\\/g, '/')}`,
+    ...args,
+  ];
+}
+
+function withRealGit(fn) {
+  const previous = {
+    execFileSync: childProcess.execFileSync,
+    execFile: childProcess.execFile,
+    spawnSync: childProcess.spawnSync,
+  };
+  if (childProcess._realExecFileSync) childProcess.execFileSync = childProcess._realExecFileSync;
+  if (childProcess._realExecFile) childProcess.execFile = childProcess._realExecFile;
+  if (childProcess._realSpawnSync) childProcess.spawnSync = childProcess._realSpawnSync;
+
+  const restore = () => {
+    childProcess.execFileSync = previous.execFileSync;
+    childProcess.execFile = previous.execFile;
+    childProcess.spawnSync = previous.spawnSync;
+  };
+
+  try {
+    const result = fn();
+    if (result && typeof result.then === 'function') {
+      return result.finally(restore);
+    }
+    restore();
+    return result;
+  } catch (error) {
+    restore();
+    throw error;
+  }
+}
 
 /**
  * Safe environment variables for git in tests.
  * Merged with process.env so git still finds its executable.
  */
 const GIT_TEST_ENV = {
-  ...process.env,
-  GIT_TERMINAL_PROMPT: '0',         // Never prompt for credentials
-  GIT_OPTIONAL_LOCKS: '0',          // Don't hold index.lock (prevents contention)
-  GIT_CONFIG_NOSYSTEM: '1',         // Skip system-level gitconfig (may reference hooks)
-  GIT_AUTHOR_NAME: 'Test',          // Avoid user.name lookup
-  GIT_AUTHOR_EMAIL: 'test@test.com',
-  GIT_COMMITTER_NAME: 'Test',
-  GIT_COMMITTER_EMAIL: 'test@test.com',
+  ...createIsolatedGitEnv(),
 };
 
 /** Default options for all git calls in tests. */
@@ -69,9 +140,9 @@ function gitSync(args, opts = {}) {
   const merged = {
     ...GIT_DEFAULT_OPTS,
     ...opts,
-    env: { ...GIT_TEST_ENV, ...(opts.env || {}) },
+    env: createIsolatedGitEnv(opts.env || {}),
   };
-  return execFileSync('git', args, merged).toString().trim();
+  return execFileSync('git', withIsolatedGitArgs(args), merged).toString().trim();
 }
 
 /**
@@ -159,6 +230,10 @@ module.exports = {
   commitFile,
   commitAll,
   cleanupRepo,
+  withRealGit,
   GIT_TEST_ENV,
   GIT_DEFAULT_OPTS,
+  createIsolatedGitEnv,
+  withIsolatedGitArgs,
+  EMPTY_GIT_HOOKS_DIR,
 };

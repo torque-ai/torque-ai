@@ -15,6 +15,8 @@ describe('worker setup git interception', () => {
     expect(isGitCommand('C:\\Program Files\\Git\\cmd\\git.exe')).toBe(true);
     expect(isGitCommand('node')).toBe(false);
     expect(getSubcommand(['--no-pager', 'status', '--short'])).toBe('status');
+    expect(getSubcommand(['-c', 'core.hooksPath=C:/tmp/hooks', 'status'])).toBe('status');
+    expect(process.env.GIT_DIR).toBeUndefined();
 
     expect(stubGitOutput(['rev-parse', '--abbrev-ref', 'HEAD'], 'utf8')).toBe('main\n');
     expect(childProcess.execFileSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8' })).toBe('/mock/repo\n');

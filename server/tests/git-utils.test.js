@@ -3,7 +3,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { gitSync, cleanupRepo } = require('./git-test-utils');
+const { gitSync, cleanupRepo, withRealGit } = require('./git-test-utils');
 
 const { parseGitStatusLine, getModifiedFiles } = require('../utils/git');
 
@@ -99,13 +99,13 @@ describe('utils/git.js', () => {
 
   describe('getModifiedFiles', () => {
     it('returns an empty array for a clean repository', () => {
-      expect(getModifiedFiles(testDir)).toEqual([]);
+      expect(withRealGit(() => getModifiedFiles(testDir))).toEqual([]);
     });
 
     it('returns untracked files detected by git status', () => {
       fs.writeFileSync(path.join(testDir, 'untracked.txt'), 'new file');
 
-      const modified = getModifiedFiles(testDir);
+      const modified = withRealGit(() => getModifiedFiles(testDir));
       const untracked = modified.find(entry => entry.filePath === 'untracked.txt');
 
       expect(untracked).toBeDefined();
@@ -122,7 +122,7 @@ describe('utils/git.js', () => {
       gitSync(['add', 'baseline.txt'], { cwd: testDir });
       fs.writeFileSync(trackedPath, 'second edit');
 
-      const modified = getModifiedFiles(testDir);
+      const modified = withRealGit(() => getModifiedFiles(testDir));
       const entry = modified.find(item => item.filePath === 'baseline.txt');
 
       expect(entry).not.toBeUndefined();
@@ -137,7 +137,7 @@ describe('utils/git.js', () => {
       fs.writeFileSync(path.join(testDir, 'new-added.txt'), 'new staged file');
       gitSync(['add', 'new-added.txt'], { cwd: testDir });
 
-      const modified = getModifiedFiles(testDir);
+      const modified = withRealGit(() => getModifiedFiles(testDir));
       const stagedEntry = modified.find(item => item.filePath === 'new-added.txt');
 
       expect(stagedEntry).not.toBeUndefined();
@@ -151,7 +151,7 @@ describe('utils/git.js', () => {
     it('returns renamed file entries', () => {
       gitSync(['mv', 'rename-source.txt', 'rename-target.txt'], { cwd: testDir });
 
-      const modified = getModifiedFiles(testDir);
+      const modified = withRealGit(() => getModifiedFiles(testDir));
       const renameEntry = modified.find(item => item.isRenamed);
 
       expect(renameEntry).toBeDefined();
