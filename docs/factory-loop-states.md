@@ -86,7 +86,7 @@ The audit's most important finding: **PAUSED is not a single state — it's the 
 |---|---|---|---|---|
 | **Gate pause** | Trust-level gate fires in `getNextState()` | `instance.paused_at_stage = <stage>` | `approveGate(<stage>)` | If set, `advanceLoop()` refuses to advance until cleared. |
 | **Project-wide operator pause** | `pause_project()` API | `project.status = 'paused'` | `resume_project()` API | `isProjectStatusPaused()` checked at every advance — returns early if true, **regardless of instance.paused_at_stage**. |
-| **Stage occupancy park** | `parkInstanceForStage()` after `StageOccupiedError` | `instance.paused_at_stage = 'READY_FOR_<stage>'` | Next `advanceLoop()` retries `tryMoveInstanceToStage()` | If both the park and occupant exceed the watchdog threshold, and the occupant has no live batch tasks, `advanceLoop()` terminates the occupant and retries with a diagnostic decision. |
+| **Stage occupancy park** | `parkInstanceForStage()` after `StageOccupiedError` | `instance.paused_at_stage = 'READY_FOR_<stage>'` | Next `advanceLoop()` or startup reconciliation retries `tryMoveInstanceToStage()` | If both the park and occupant exceed the watchdog threshold, and the occupant has no live batch tasks, `advanceLoop()` terminates the occupant and retries with a diagnostic decision. |
 | **Plan-generation deferral wait** | `deferExecutePlanTaskIfProjectPaused()` | `instance.paused_at_stage = 'EXECUTE'` (with a different reasoning than the gate variant) | `maybeClearDeferredPlanGenerationWait()` when task finishes / timeout | Same column as gate pause; readers must distinguish via the decision log's `action`. |
 | **VERIFY_FAIL pause** | Multiple `pause_at_stage: 'VERIFY_FAIL'` writes in `executeVerifyStage` | `instance.paused_at_stage = 'VERIFY_FAIL'` | `retryVerifyFromFailure()` operator API | Same column; treated as VERIFY for state-derivation. |
 
@@ -387,9 +387,9 @@ Both encode as the same column value. Readers distinguish via the most recent de
 
 Public/runtime loop-state summaries now read the oldest active `factory_loop_instances` row first. The project row remains as an explicitly named legacy mirror fallback for compatibility with no-active-instance/backfill paths, startup migration, recovery probes, and drift reporting (`project_row_loop_state_drift`).
 
-### 7. Auto-recovery interaction at restart
+### 7. ✅ ~~Auto-recovery interaction at restart~~ RESOLVED 2026-05-09
 
-Memory entry `project_subprocess_detach_phase_c_shipped` covers re-adoption of detached subprocesses post-restart. The factory loop's state-machine re-entry on restart is similar: `startup-task-reconciler.js` re-classifies tasks, but the LOOP instance's `paused_at_stage` recovery on restart is less explicit. Worth confirming what happens to a project stuck at `READY_FOR_PLAN` if TORQUE restarts mid-park — does the new instance pick up where the old one was, or restart from SENSE?
+`startup-reconciler.js` now treats `READY_FOR_<stage>` as recoverable work instead of a terminal skip. On startup it schedules `advanceLoopAsync(instance.id, { autoAdvance: true })` for the parked instance, so the normal `READY_FOR_<stage>` retry path runs after restart. The instance does not restart from SENSE; it keeps its paused target, retries the stage claim, and relies on the bounded watchdog from Q#2 if the blocking occupant is stale and has no live batch tasks.
 
 ---
 
