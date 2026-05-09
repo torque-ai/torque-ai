@@ -23,6 +23,11 @@
 set -euo pipefail
 
 REPO_ROOT="$(git rev-parse --show-toplevel)"
+# Git hooks inherit repository-local GIT_* variables. The gate runs test suites
+# that create and mutate temporary repos; if those variables leak, nested git
+# commands can accidentally write this repo's .git/config.
+unset $(git rev-parse --local-env-vars)
+cd "$REPO_ROOT"
 PATH="$REPO_ROOT/bin:$PATH"
 export PATH
 TORQUE_REMOTE_BIN="$REPO_ROOT/bin/torque-remote"

@@ -125,6 +125,8 @@ describe('pre-push-hook staging-branch invariants', () => {
   it('prefers the repo-local bin directory before invoking torque-remote', () => {
     const src = readHook();
     expect(src).toMatch(/REPO_ROOT="\$\(git rev-parse --show-toplevel\)"/);
+    expect(src).toMatch(/unset \$\(git rev-parse --local-env-vars\)/);
+    expect(src).toMatch(/cd "\$REPO_ROOT"/);
     expect(src).toMatch(/PATH="\$REPO_ROOT\/bin:\$PATH"/);
     expect(src).toMatch(/export PATH/);
     expect(src).toMatch(/TORQUE_REMOTE_BIN="\$REPO_ROOT\/bin\/torque-remote"/);
