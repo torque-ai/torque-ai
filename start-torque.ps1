@@ -116,8 +116,8 @@ while ($elapsed -lt $timeout) {
 
     $readiness = Get-ServerReadiness
     if ($readiness.Ready) {
-        $pid = if ($process) { $process.Id } else { 0 }
-        Write-ServerUrls -ProcessId $pid
+        $serverPid = if ($process) { $process.Id } else { 0 }
+        Write-ServerUrls -ProcessId $serverPid
         exit 0
     }
 

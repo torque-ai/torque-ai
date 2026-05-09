@@ -24,10 +24,82 @@ const parentPid = Number.parseInt(args.parentPid || '', 10);
 const minMajor = Number.parseInt(args.minMajor || '24', 10);
 const logDir = path.join(os.homedir(), '.torque');
 const logFile = path.join(logDir, 'restart-node24.log');
+const restartExitFile = path.join(logDir, 'restart-exit.ndjson');
 
 function log(message) {
   fs.mkdirSync(logDir, { recursive: true });
   fs.appendFileSync(logFile, `${new Date().toISOString()} ${message}\n`, 'utf8');
+}
+
+function buildSuccessorExitDiagnostic(payload = {}) {
+  const exitedAt = payload.exitedAt || new Date().toISOString();
+  const startedAt = payload.startedAt || null;
+  const startedMs = startedAt ? Date.parse(startedAt) : NaN;
+  const exitedMs = Date.parse(exitedAt);
+  const uptimeMs = Number.isFinite(startedMs) && Number.isFinite(exitedMs)
+    ? Math.max(0, exitedMs - startedMs)
+    : null;
+
+  return {
+    timestamp: exitedAt,
+    event: payload.event || 'successor_exit',
+    pid: payload.childPid,
+    code: payload.code ?? null,
+    signal: payload.signal || null,
+    parent_pid: payload.parentPid,
+    helper_pid: payload.helperPid || process.pid,
+    server_script: payload.serverScript || null,
+    repo_root: payload.repoRoot || null,
+    started_at: startedAt,
+    uptime_ms: uptimeMs,
+    error: payload.error || null,
+  };
+}
+
+function writeSuccessorExitDiagnostic(payload = {}, options = {}) {
+  const filePath = options.filePath || restartExitFile;
+  const diagnostic = buildSuccessorExitDiagnostic(payload);
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.appendFileSync(filePath, `${JSON.stringify(diagnostic)}\n`, 'utf8');
+  return diagnostic;
+}
+
+function monitorSuccessorExit(child, metadata = {}, options = {}) {
+  return new Promise((resolve) => {
+    if (!child || typeof child.once !== 'function') {
+      resolve(null);
+      return;
+    }
+
+    let settled = false;
+    const settle = (payload) => {
+      if (settled) return;
+      settled = true;
+      let diagnostic = null;
+      try {
+        diagnostic = writeSuccessorExitDiagnostic({
+          childPid: child.pid,
+          ...metadata,
+          ...payload,
+        }, options);
+      } catch (err) {
+        log(`could not write successor exit diagnostic: ${err.message}`);
+      }
+      resolve(diagnostic);
+    };
+
+    child.once('exit', (code, signal) => {
+      settle({ code, signal });
+    });
+    child.once('error', (error) => {
+      settle({
+        event: 'successor_spawn_error',
+        code: null,
+        signal: null,
+        error: error && error.message ? error.message : String(error),
+      });
+    });
+  });
 }
 
 function assertNodeVersion() {
@@ -272,6 +344,7 @@ async function main() {
     log(`could not open successor log ${successorLogPath} for capture: ${err.message}`);
   }
 
+  const successorStartedAt = new Date().toISOString();
   const child = childProcess.spawn(process.execPath, [serverScript], {
     cwd: serverDir,
     detached: true,
@@ -279,7 +352,6 @@ async function main() {
     windowsHide: true,
     env,
   });
-  child.unref();
   // Close our copies of the FDs once the spawn has duplicated them — keeps
   // the helper from holding write handles after the child takes over.
   if (typeof stdoutFd === 'number') {
@@ -289,6 +361,17 @@ async function main() {
     try { fs.closeSync(stderrFd); } catch { /* already closed */ }
   }
   log(`started TORQUE successor PID ${child.pid} (stdio → ${successorLogPath})`);
+  log(`monitoring TORQUE successor PID ${child.pid} exit (diagnostics → ${restartExitFile})`);
+  const diagnostic = await monitorSuccessorExit(child, {
+    parentPid,
+    helperPid: process.pid,
+    serverScript,
+    repoRoot,
+    startedAt: successorStartedAt,
+  });
+  if (diagnostic) {
+    log(`TORQUE successor PID ${child.pid} exited code=${diagnostic.code ?? 'null'} signal=${diagnostic.signal || 'none'} uptime_ms=${diagnostic.uptime_ms ?? 'unknown'}`);
+  }
 }
 
 if (require.main === module) {
@@ -299,6 +382,9 @@ if (require.main === module) {
 }
 
 module.exports = {
+  buildSuccessorExitDiagnostic,
+  writeSuccessorExitDiagnostic,
+  monitorSuccessorExit,
   tryLoadBetterSqlite3,
   waitForFileUnlock,
   ensureBetterSqliteUsable,

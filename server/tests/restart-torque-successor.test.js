@@ -3,7 +3,11 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { EventEmitter } = require('events');
 const {
+  buildSuccessorExitDiagnostic,
+  monitorSuccessorExit,
+  writeSuccessorExitDiagnostic,
   tryLoadBetterSqlite3,
   waitForFileUnlock,
   ensureBetterSqliteUsable,
@@ -38,6 +42,102 @@ describe('getBetterSqliteBinaryPath', () => {
     const result = getBetterSqliteBinaryPath('/srv');
     expect(result).toMatch(/better-sqlite3/);
     expect(result).toMatch(/better_sqlite3\.node$/);
+  });
+});
+
+describe('successor exit diagnostics', () => {
+  it('builds an exit diagnostic with runtime evidence', () => {
+    const diagnostic = buildSuccessorExitDiagnostic({
+      childPid: 1234,
+      code: 1,
+      signal: null,
+      parentPid: 55,
+      helperPid: 66,
+      serverScript: 'server/index.js',
+      repoRoot: '/repo',
+      startedAt: '2026-05-09T00:00:00.000Z',
+      exitedAt: '2026-05-09T00:00:02.500Z',
+    });
+
+    expect(diagnostic).toMatchObject({
+      timestamp: '2026-05-09T00:00:02.500Z',
+      event: 'successor_exit',
+      pid: 1234,
+      code: 1,
+      signal: null,
+      parent_pid: 55,
+      helper_pid: 66,
+      server_script: 'server/index.js',
+      repo_root: '/repo',
+      started_at: '2026-05-09T00:00:00.000Z',
+      uptime_ms: 2500,
+      error: null,
+    });
+  });
+
+  it('appends successor exit diagnostics without requiring a restart handoff', () => {
+    const tmp = mktmp('successor-exit');
+    try {
+      const filePath = path.join(tmp, 'restart-exit.ndjson');
+      const diagnostic = writeSuccessorExitDiagnostic({
+        childPid: 4321,
+        code: null,
+        signal: 'SIGTERM',
+        parentPid: 77,
+        helperPid: 88,
+        serverScript: 'server/index.js',
+        repoRoot: tmp,
+        startedAt: '2026-05-09T00:00:00.000Z',
+        exitedAt: '2026-05-09T00:00:05.000Z',
+      }, { filePath });
+
+      const rows = fs.readFileSync(filePath, 'utf8')
+        .trim()
+        .split('\n')
+        .map((line) => JSON.parse(line));
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toEqual(diagnostic);
+      expect(rows[0]).toMatchObject({
+        event: 'successor_exit',
+        pid: 4321,
+        code: null,
+        signal: 'SIGTERM',
+        uptime_ms: 5000,
+      });
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it('records a diagnostic when the monitored successor exits', async () => {
+    const tmp = mktmp('successor-monitor');
+    try {
+      const filePath = path.join(tmp, 'restart-exit.ndjson');
+      const child = new EventEmitter();
+      child.pid = 2468;
+      const promise = monitorSuccessorExit(child, {
+        parentPid: 11,
+        helperPid: 22,
+        serverScript: 'server/index.js',
+        repoRoot: tmp,
+        startedAt: '2026-05-09T00:00:00.000Z',
+        exitedAt: '2026-05-09T00:00:01.000Z',
+      }, { filePath });
+
+      child.emit('exit', 0, null);
+      const diagnostic = await promise;
+
+      expect(diagnostic).toMatchObject({
+        event: 'successor_exit',
+        pid: 2468,
+        code: 0,
+        signal: null,
+        uptime_ms: 1000,
+      });
+      expect(fs.readFileSync(filePath, 'utf8')).toContain('"pid":2468');
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
   });
 });
 
