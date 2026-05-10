@@ -215,7 +215,7 @@ reset_stub_env() {
   unset SSH_LANE_GIT_EXISTS_OUTPUT TORQUE_REMOTE_LANE_PROVISION_FROM
   unset SSH_MIGRATION_MARKER_OUTPUT SSH_LEGACY_GIT_EXISTS_OUTPUT
   unset SSH_STATUS_PROBE_OUTPUT
-  unset TORQUE_REMOTE_CONFIG_TRACE
+  unset TORQUE_REMOTE_CONFIG_TRACE TORQUE_REMOTE_COMMAND_LOG_PREVIEW_BYTES
 }
 
 write_stub_argv_dump() {
@@ -1099,6 +1099,60 @@ test_config_parses_without_jq() {
   expect_file_contains "config still routes over ssh" "$tmp/calls.log" "git checkout --force --detach origin/main"
 
   finish_test "test_config_parses_without_jq"
+}
+
+test_telemetry_logs_bound_command_payloads() {
+  local tmp log_dir long_payload marker fallback_log decision_log fallback_json decision_json fallback_size decision_size
+
+  echo "Test: telemetry logs bound command payloads"
+  TEST_ERRORS=()
+  reset_stub_env
+  make_test_env
+  tmp="$LAST_TEST_ENV"
+  marker="TAIL_MARKER_SHOULD_NOT_BE_LOGGED"
+  long_payload="$(printf 'x%.0s' $(seq 1 1600))$marker"
+  log_dir="$tmp/home"
+  log_dir="$log_dir/.torque"
+  fallback_log="$log_dir/torque-remote-fallback.log"
+  decision_log="$log_dir/torque-remote-decisions.jsonl"
+
+  export SSH_CONNECT_EXIT_CODE=255
+  export TORQUE_REMOTE_COMMAND_LOG_PREVIEW_BYTES=96
+
+  run_torque_remote "$tmp" bash -c "printf '%s' '$long_payload' >/dev/null"
+
+  fallback_json="$(slurp_file "$fallback_log")"
+  decision_json="$(slurp_file "$decision_log")"
+  fallback_size="$(file_size_bytes "$fallback_log")"
+  decision_size="$(file_size_bytes "$decision_log")"
+
+  expect_eq "fallback execution succeeds locally" "0" "$RUN_EXIT"
+  expect_contains "fallback log records command preview" "$fallback_json" '"command_preview":"'
+  expect_contains "fallback log records command hash" "$fallback_json" '"command_sha256":"'
+  expect_contains "fallback log records command byte count" "$fallback_json" '"command_bytes":'
+  expect_contains "fallback log marks long command truncated" "$fallback_json" '"command_truncated":true'
+  expect_contains "fallback log records command kind" "$fallback_json" '"command_kind":"bash"'
+  expect_not_contains "fallback log omits legacy full command field" "$fallback_json" '"command":"'
+  expect_not_contains "fallback log omits unbounded command tail" "$fallback_json" "$marker"
+
+  expect_contains "decision log records command preview" "$decision_json" '"command_preview":"'
+  expect_contains "decision log records command hash" "$decision_json" '"command_sha256":"'
+  expect_contains "decision log records command byte count" "$decision_json" '"command_bytes":'
+  expect_contains "decision log marks long command truncated" "$decision_json" '"command_truncated":true'
+  expect_contains "decision log records fallback outcome" "$decision_json" '"outcome":"fallback"'
+  expect_not_contains "decision log omits legacy full command field" "$decision_json" '"command":"'
+  expect_not_contains "decision log omits unbounded command tail" "$decision_json" "$marker"
+
+  if [[ "$fallback_size" -ge 1200 ]]; then
+    record_failure "fallback log line stays compact (expected < 1200 bytes, got $fallback_size)"
+  fi
+  if [[ "$decision_size" -ge 1600 ]]; then
+    record_failure "decision log line stays compact (expected < 1600 bytes, got $decision_size)"
+  fi
+
+  unset SSH_CONNECT_EXIT_CODE TORQUE_REMOTE_COMMAND_LOG_PREVIEW_BYTES
+
+  finish_test "test_telemetry_logs_bound_command_payloads"
 }
 
 test_remote_run_does_not_require_timeout_binary() {
@@ -2026,6 +2080,7 @@ main() {
   test_remote_inline_command_preserves_quoted_arguments
   test_remote_bootstrap_streams_runner_output_without_inherited_stdout_hang
   test_config_parses_without_jq
+  test_telemetry_logs_bound_command_payloads
   test_remote_run_does_not_require_timeout_binary
   test_successful_overlay_skips_failsafe_cleanup_round_trip
   test_remote_overlay_bundle_reaches_run_command

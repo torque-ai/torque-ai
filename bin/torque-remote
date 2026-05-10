@@ -44,6 +44,66 @@ trace_config_sources() {
 # Best-effort: any error (mkdir, append, missing HOME) is swallowed. The
 # fallback path itself MUST NOT be blocked by telemetry.
 #
+json_escape() {
+  sed ':a;N;$!ba;s/\\/\\\\/g; s/"/\\"/g; s/\t/\\t/g; s/\r/\\r/g; s/\n/\\n/g'
+}
+
+json_escape_value() {
+  printf '%s' "$1" | json_escape
+}
+
+command_log_preview_limit() {
+  local limit="${TORQUE_REMOTE_COMMAND_LOG_PREVIEW_BYTES:-512}"
+  case "$limit" in
+    ''|*[!0-9]*) limit=512 ;;
+  esac
+  if (( limit < 32 )); then
+    limit=32
+  elif (( limit > 4096 )); then
+    limit=4096
+  fi
+  printf '%s' "$limit"
+}
+
+command_sha256() {
+  local cmd="$1"
+  if command -v sha256sum >/dev/null 2>&1; then
+    printf '%s' "$cmd" | sha256sum | awk '{print $1}'
+  elif command -v shasum >/dev/null 2>&1; then
+    printf '%s' "$cmd" | shasum -a 256 | awk '{print $1}'
+  else
+    printf 'unavailable'
+  fi
+}
+
+command_kind_for_log() {
+  if [[ -n "${COMMAND_ARGS[0]:-}" ]]; then
+    printf '%s' "${COMMAND_ARGS[0]}"
+  else
+    printf 'unknown'
+  fi
+}
+
+command_telemetry_fields() {
+  local cmd="$1"
+  local limit bytes preview truncated sha kind
+  local esc_preview esc_sha esc_kind
+  limit="$(command_log_preview_limit)"
+  bytes="$(printf '%s' "$cmd" | wc -c | tr -d '[:space:]')"
+  preview="$(printf '%s' "$cmd" | head -c "$limit")"
+  truncated=false
+  if [[ "$bytes" =~ ^[0-9]+$ ]] && (( bytes > limit )); then
+    truncated=true
+  fi
+  sha="$(command_sha256 "$cmd")"
+  kind="$(command_kind_for_log)"
+  esc_preview="$(json_escape_value "$preview")"
+  esc_sha="$(json_escape_value "$sha")"
+  esc_kind="$(json_escape_value "$kind")"
+  printf '"command_kind":"%s","command_preview":"%s","command_sha256":"%s","command_bytes":%s,"command_truncated":%s' \
+    "$esc_kind" "$esc_preview" "$esc_sha" "${bytes:-0}" "$truncated"
+}
+
 # Args: $1=reason (slug like sync_failed, ssh_unreachable),
 #       $2=detail (free-form short string, may be empty),
 #       $3=command (optional override; defaults to current COMMAND_DISPLAY).
@@ -66,17 +126,17 @@ record_fallback() {
   # Escape inner double quotes + backslashes for JSON safety. A printf-built
   # JSONL line keeps the dependency surface to coreutils — no jq required
   # on the local host (jq is a guard-only soft dependency).
-  local esc_reason esc_detail esc_cmd esc_project esc_sync_ref esc_host
-  esc_reason="$(printf '%s' "$reason" | sed 's/\\/\\\\/g; s/"/\\"/g')"
-  esc_detail="$(printf '%s' "$detail" | sed 's/\\/\\\\/g; s/"/\\"/g')"
-  esc_cmd="$(printf '%s' "$cmd" | sed 's/\\/\\\\/g; s/"/\\"/g')"
-  esc_project="$(printf '%s' "$project" | sed 's/\\/\\\\/g; s/"/\\"/g')"
-  esc_sync_ref="$(printf '%s' "$sync_ref" | sed 's/\\/\\\\/g; s/"/\\"/g')"
-  esc_host="$(printf '%s' "$host" | sed 's/\\/\\\\/g; s/"/\\"/g')"
+  local esc_reason esc_detail esc_project esc_sync_ref esc_host cmd_fields
+  esc_reason="$(json_escape_value "$reason")"
+  esc_detail="$(json_escape_value "$detail")"
+  esc_project="$(json_escape_value "$project")"
+  esc_sync_ref="$(json_escape_value "$sync_ref")"
+  esc_host="$(json_escape_value "$host")"
+  cmd_fields="$(command_telemetry_fields "$cmd")"
   {
     mkdir -p "$log_dir" 2>/dev/null || return 0
-    printf '{"timestamp":"%s","project":"%s","sync_ref":"%s","host":"%s","pid":%s,"reason":"%s","detail":"%s","command":"%s"}\n' \
-      "$ts" "$esc_project" "$esc_sync_ref" "$esc_host" "$$" "$esc_reason" "$esc_detail" "$esc_cmd" \
+    printf '{"timestamp":"%s","project":"%s","sync_ref":"%s","host":"%s","pid":%s,"reason":"%s","detail":"%s",%s}\n' \
+      "$ts" "$esc_project" "$esc_sync_ref" "$esc_host" "$$" "$esc_reason" "$esc_detail" "$cmd_fields" \
       >> "$log_path" 2>/dev/null || true
   } >/dev/null 2>&1
   return 0
@@ -138,25 +198,25 @@ record_decision_on_exit() {
   else
     outcome="success"
   fi
-  local esc_project esc_sync_ref esc_host esc_transport esc_outcome esc_reason esc_detail esc_cmd esc_config_source esc_local_config_source
-  esc_project="$(printf '%s' "$project" | sed 's/\\/\\\\/g; s/"/\\"/g')"
-  esc_sync_ref="$(printf '%s' "$sync_ref" | sed 's/\\/\\\\/g; s/"/\\"/g')"
-  esc_host="$(printf '%s' "$host" | sed 's/\\/\\\\/g; s/"/\\"/g')"
-  esc_transport="$(printf '%s' "$transport" | sed 's/\\/\\\\/g; s/"/\\"/g')"
-  esc_outcome="$(printf '%s' "$outcome" | sed 's/\\/\\\\/g; s/"/\\"/g')"
-  esc_reason="$(printf '%s' "$reason" | sed 's/\\/\\\\/g; s/"/\\"/g')"
-  esc_detail="$(printf '%s' "$detail" | sed 's/\\/\\\\/g; s/"/\\"/g')"
-  esc_cmd="$(printf '%s' "$cmd" | sed 's/\\/\\\\/g; s/"/\\"/g')"
-  esc_config_source="$(printf '%s' "$config_source" | sed 's/\\/\\\\/g; s/"/\\"/g')"
-  esc_local_config_source="$(printf '%s' "$local_config_source" | sed 's/\\/\\\\/g; s/"/\\"/g')"
+  local esc_project esc_sync_ref esc_host esc_transport esc_outcome esc_reason esc_detail esc_config_source esc_local_config_source cmd_fields
+  esc_project="$(json_escape_value "$project")"
+  esc_sync_ref="$(json_escape_value "$sync_ref")"
+  esc_host="$(json_escape_value "$host")"
+  esc_transport="$(json_escape_value "$transport")"
+  esc_outcome="$(json_escape_value "$outcome")"
+  esc_reason="$(json_escape_value "$reason")"
+  esc_detail="$(json_escape_value "$detail")"
+  esc_config_source="$(json_escape_value "$config_source")"
+  esc_local_config_source="$(json_escape_value "$local_config_source")"
+  cmd_fields="$(command_telemetry_fields "$cmd")"
   local reason_field='null'
   [[ -n "$reason" ]] && reason_field="\"$esc_reason\""
   local detail_field='null'
   [[ -n "$detail" ]] && detail_field="\"$esc_detail\""
   {
     mkdir -p "$log_dir" 2>/dev/null || return 0
-    printf '{"timestamp_start":"%s","timestamp_end":"%s","elapsed_secs":%s,"project":"%s","sync_ref":"%s","host":"%s","pid":%s,"transport":"%s","config_source":"%s","global_config_present":%s,"project_config_present":%s,"local_config_source":"%s","outcome":"%s","fallback_reason":%s,"fallback_detail":%s,"exit_code":%s,"command":"%s"}\n' \
-      "$ts_start" "$ts_end" "$elapsed" "$esc_project" "$esc_sync_ref" "$esc_host" "$$" "$esc_transport" "$esc_config_source" "$global_config_present" "$project_config_present" "$esc_local_config_source" "$esc_outcome" "$reason_field" "$detail_field" "$exit_code" "$esc_cmd" \
+    printf '{"timestamp_start":"%s","timestamp_end":"%s","elapsed_secs":%s,"project":"%s","sync_ref":"%s","host":"%s","pid":%s,"transport":"%s","config_source":"%s","global_config_present":%s,"project_config_present":%s,"local_config_source":"%s","outcome":"%s","fallback_reason":%s,"fallback_detail":%s,"exit_code":%s,%s}\n' \
+      "$ts_start" "$ts_end" "$elapsed" "$esc_project" "$esc_sync_ref" "$esc_host" "$$" "$esc_transport" "$esc_config_source" "$global_config_present" "$project_config_present" "$esc_local_config_source" "$esc_outcome" "$reason_field" "$detail_field" "$exit_code" "$cmd_fields" \
       >> "$log_path" 2>/dev/null || true
   } >/dev/null 2>&1
   return 0
