@@ -4,6 +4,7 @@ const logger = require('../../logger').child({ component: 'provider-routing' });
 const { safeJsonParse } = require('../../utils/json');
 const serverConfig = require('../../config');
 const providerRegistry = require('../../providers/registry');
+const { deleteTaskChildrenByIds, deleteTaskRowsByIds, normalizeTaskIds } = require('../task-child-cleanup');
 const {
   createSharedFactoryStore,
   deriveLearningScope,
@@ -953,33 +954,39 @@ function cleanupStaleTasks(
   };
 }
 
+function normalizeTaskRetentionCount(value, defaultValue = 5000) {
+  const normalized = Number(value);
+  if (!Number.isFinite(normalized)) return defaultValue;
+  return Math.max(0, Math.trunc(normalized));
+}
+
 /**
  * Prune completed/failed/cancelled tasks beyond a retention count.
- * Keeps the most recent N tasks of each terminal status.
- * @param {number} maxRetained - Maximum completed tasks to keep (default: 5000)
- * @returns {{ pruned: number, task_ids: string[] }} Count of pruned tasks
+ * Keeps the most recent N terminal tasks overall.
+ * @param {number} maxRetained - Maximum terminal tasks to keep (default: 5000)
+ * @returns {{ pruned: number, task_ids: string[], related_deleted: object }} Count of pruned tasks
  */
 function pruneOldTasks(maxRetained = 5000) {
+  const retentionCount = normalizeTaskRetentionCount(maxRetained);
   const rows = db.prepare(`
     SELECT id
     FROM tasks
     WHERE status IN ('completed', 'failed', 'cancelled')
     ORDER BY created_at DESC
     LIMIT -1 OFFSET ?
-  `).all(maxRetained);
-  const taskIds = rows.map((row) => row.id).filter(Boolean);
+  `).all(retentionCount);
+  const taskIds = normalizeTaskIds(rows.map((row) => row.id));
   if (taskIds.length === 0) {
-    return { pruned: 0, task_ids: [] };
+    return { pruned: 0, task_ids: [], related_deleted: {} };
   }
-  const result = db.prepare(`
-    DELETE FROM tasks WHERE id IN (
-      SELECT id FROM tasks
-      WHERE status IN ('completed', 'failed', 'cancelled')
-      ORDER BY created_at DESC
-      LIMIT -1 OFFSET ?
-    )
-  `).run(maxRetained);
-  return { pruned: result.changes, task_ids: taskIds };
+
+  const prune = db.transaction((ids) => {
+    const relatedDeleted = deleteTaskChildrenByIds(db, ids);
+    const pruned = deleteTaskRowsByIds(db, ids);
+    return { pruned, task_ids: ids, related_deleted: relatedDeleted };
+  });
+
+  return prune(taskIds);
 }
 
 /**
