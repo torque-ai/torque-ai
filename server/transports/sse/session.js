@@ -8,7 +8,7 @@
  * Extracted from mcp-sse.js to keep the transport module under 1000 lines.
  */
 
-const { getDbInstance } = require('../../database');
+const { defaultContainer } = require('../../container');
 const workflowEngine = require('../../db/workflow-engine');
 const serverConfig = require('../../config');
 const logger = require('../../logger').child({ component: 'mcp-sse:session' });
@@ -90,6 +90,22 @@ function clearTrackedInterval(timer) {
   if (!timer) return;
   clearInterval(timer);
   if (_trackedIntervals) _trackedIntervals.delete(timer);
+}
+
+function getRawDb() {
+  let dbService = null;
+  try {
+    dbService = defaultContainer.get('db');
+  } catch {
+    dbService = require('../../database');
+  }
+  if (dbService && typeof dbService.getDbInstance === 'function') {
+    return dbService.getDbInstance();
+  }
+  if (dbService && typeof dbService.getDb === 'function') {
+    return dbService.getDb();
+  }
+  return dbService || null;
 }
 
 // ──────────────────────────────────────────────────────────────
@@ -584,7 +600,7 @@ function persistSubscription(sessionId, session) {
       logger.warn(`[mcp-sse] Refusing to persist subscription for unowned session ${sessionId}`);
       return;
     }
-    const rawDb = getDbInstance && getDbInstance();
+    const rawDb = getRawDb();
     if (!rawDb) return;
     const eventTypes = JSON.stringify([...session.eventFilter]);
     const taskIds = session.taskFilter.size > 0 ? JSON.stringify([...session.taskFilter]) : null;
@@ -605,7 +621,7 @@ function persistSubscription(sessionId, session) {
 
 function restoreSubscription(sessionId) {
   try {
-    const rawDb = getDbInstance && getDbInstance();
+    const rawDb = getRawDb();
     if (!rawDb) return null;
     const row = rawDb.prepare(
       'SELECT event_types, task_id FROM task_event_subscriptions WHERE id = ? AND (expires_at IS NULL OR expires_at > ?)'
@@ -622,7 +638,7 @@ function restoreSubscription(sessionId) {
 
 function cleanExpiredSubscriptions() {
   try {
-    const rawDb = getDbInstance && getDbInstance();
+    const rawDb = getRawDb();
     if (!rawDb) return;
     rawDb.prepare("DELETE FROM task_event_subscriptions WHERE expires_at < ?").run(new Date().toISOString());
   } catch {

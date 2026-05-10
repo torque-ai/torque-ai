@@ -69,10 +69,7 @@ function createPlugin() {
   let installed = false;
 
   function install(container) {
-    let dbService = getContainerService(container, 'db');
-    if (!dbService) {
-      try { dbService = require('../../database'); } catch { /* no db */ }
-    }
+    const dbService = getContainerService(container, 'db');
     let rawDb = null;
     try {
       rawDb = resolveRawDb(dbService);

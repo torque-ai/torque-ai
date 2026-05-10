@@ -117,15 +117,7 @@ function createVersionControlPlugin() {
   let installed = false;
 
   function install(container) {
-    // Try container first, fall back to requiring database.js directly
-    // (container may not have 'db' registered during early startup)
-    let dbService = getContainerService(container, 'db');
-    if (!dbService) {
-      try {
-        const database = require('../../database');
-        dbService = database;
-      } catch { /* not available */ }
-    }
+    const dbService = getContainerService(container, 'db');
     db = resolveRawDb(dbService);
     ensureSchema(db);
 

@@ -21,9 +21,6 @@ function createSnapScopePlugin() {
 
   function install(container) {
     _db = getContainerService(container, 'db');
-    if (!_db) {
-      try { _db = require('../../database'); } catch { /* fallback unavailable */ }
-    }
     _serverConfig = getContainerService(container, 'serverConfig');
     _eventBus = getContainerService(container, 'eventBus');
 

@@ -47,11 +47,6 @@ function createPlugin() {
 
   function install(container) {
     dbService = getContainerService(container, 'db');
-    if (!dbService) {
-      try {
-        dbService = require('../../database');
-      } catch {}
-    }
     db = resolveRawDb(dbService);
     agentRegistry = new RemoteAgentRegistry(db);
     _installedRegistry = agentRegistry;

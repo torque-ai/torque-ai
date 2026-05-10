@@ -38,7 +38,6 @@ const ALLOWED = new Set([
   'hooks/event-dispatch.js',          // raw SQL for event persistence
   'execution/strategic-hooks.js',     // raw SQL fallback in persistMetadata
   'execution/task-finalizer.js',      // inline require for getDbInstance in scoring/budget
-  'handlers/concurrency-handlers.js', // raw SQL via db.prepare()
   'handlers/provider-crud-handlers.js', // raw SQL via getDbInstance().prepare()
   'handlers/competitive-feature-handlers.js', // getDbInstance for scoring/indexer
   'handlers/automation-handlers.js',  // safeAddColumn — schema migrations
@@ -52,7 +51,6 @@ const ALLOWED = new Set([
   'dashboard/routes/infrastructure.js', // getDbInstance for raw SQL
   // Split-out files that retained minimal facade usage
   'api/v2-core-handlers.js',           // passes db to v2Inference.init()
-  'transports/sse/session.js',         // getDbInstance for subscription persistence
 ]);
 
 const DB_IMPORT_PATTERN = /require\s*\(\s*['"]\..*database['"]\s*\)/;
