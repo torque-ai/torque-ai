@@ -20,9 +20,16 @@ function createTaskWorkspace(options = {}) {
   return dir;
 }
 
-function cleanupTaskWorkspace(dir) {
+function cleanupTaskWorkspace(dir, options = {}) {
   if (!dir) return;
-  fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  try {
+    fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  } catch (err) {
+    const transientCleanupError = ['EBUSY', 'ENOTEMPTY', 'EPERM'].includes(err && err.code);
+    if (options.strict || !transientCleanupError) {
+      throw err;
+    }
+  }
 }
 
 function createTaskWorkspaceManager(defaultOptions = {}) {

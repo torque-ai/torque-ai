@@ -69,7 +69,7 @@ describe('Host Distribution & Load Balancing', () => {
     db.createTask({
       id,
       status: 'running',
-      task_description: `Test task for ${model}`,
+      task_description: `Host distribution task using ${model}`,
       provider: provider || 'ollama',
       model: model || TEST_MODELS.SMALL,
       working_directory: taskWorkspace()
@@ -410,11 +410,17 @@ describe('Host Distribution & Load Balancing', () => {
 
   describe('tryLocalFirstFallback precision', () => {
     let taskManager;
+    let fallbackRetry;
 
     beforeAll(() => {
       taskManager = require('../task-manager');
       if (typeof taskManager.initEarlyDeps === 'function') taskManager.initEarlyDeps();
       if (typeof taskManager.initSubModules === 'function') taskManager.initSubModules();
+      fallbackRetry = require('../execution/fallback-retry');
+    });
+
+    beforeEach(() => {
+      fallbackRetry.init({ db, processQueue: vi.fn() });
     });
 
     it('step 1: tries same model on different host before anything else', () => {
