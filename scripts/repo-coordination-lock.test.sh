@@ -80,6 +80,26 @@ if [ "$(cat "$LOCK_DIR/token")" != "$LOCK_TOKEN" ]; then
   exit 1
 fi
 
+ISOLATED_LOCK_ROOT="$TMP_ROOT/isolated-gate-locks"
+bash -c '
+  set -euo pipefail
+  source "$1"
+  export REPO_ROOT="$2"
+  export TORQUE_COORD_LOCK_ROOT="$3"
+  unset TORQUE_COORD_LOCK_DIR TORQUE_COORD_LOCK_TOKEN TORQUE_COORD_LOCK_NAME TORQUE_COORD_LOCK_OWNER_BASHPID
+  unset REPO_COORD_LOCK_DIR REPO_COORD_LOCK_TOKEN REPO_COORD_LOCK_NAME REPO_COORD_LOCK_REUSED REPO_COORD_LOCK_OWNER_BASHPID REPO_COORD_LOCK_FORCE_RELEASE
+  repo_coord_lock_acquire main "isolated gate child" > "$4"
+  repo_coord_lock_release >> "$4"
+' bash "$SCRIPT_DIR/repo-coordination-lock.sh" "$REPO_ROOT" "$ISOLATED_LOCK_ROOT" "$TMP_ROOT/isolated-gate.out"
+assert_contains "$TMP_ROOT/isolated-gate.out" 'Acquired main lease for isolated gate child'
+assert_contains "$TMP_ROOT/isolated-gate.out" 'Released lease'
+assert_dir_exists "$LOCK_DIR"
+if [ "$(cat "$LOCK_DIR/token")" != "$LOCK_TOKEN" ]; then
+  echo "Isolated gate child changed the parent lock token" >&2
+  exit 1
+fi
+assert_dir_missing "$ISOLATED_LOCK_ROOT/main.lock"
+
 bash -c '
   set -euo pipefail
   source "$1"

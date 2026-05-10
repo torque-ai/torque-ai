@@ -98,7 +98,7 @@ describe('pre-push-hook staging-branch invariants', () => {
     // test phases and perf inside a single torque-remote SSH session (one
     // sync), so the --branch invocation appears once but the remote script
     // must reference dashboard, server, and perf commands.
-    expect(src).toMatch(/run_with_flake_retry "Remote gate" "TORQUE_REMOTE_REQUIRE_REMOTE=1 \$TORQUE_REMOTE_CMD --suite \$GATE_COORD_SUITE --branch \$staging_branch/);
+    expect(src).toMatch(/run_with_flake_retry "Remote gate" "\$lock_env_reset TORQUE_REMOTE_REQUIRE_REMOTE=1 \$TORQUE_REMOTE_CMD --suite \$GATE_COORD_SUITE --branch \$staging_branch/);
     expect(src).toMatch(/run_vitest_phase dashboard run/);
     expect(src).toMatch(/run_vitest_phase server run/);
     expect(src).toMatch(/cd\s+server\s+&&\s+node\s+perf\/run-perf\.js/);
@@ -230,7 +230,7 @@ printf '%b' "\\302\\267\\302\\267real failure line\\302\\267\\302\\267\\n" | pre
     expect(src).toMatch(/export PATH/);
     expect(src).toMatch(/TORQUE_REMOTE_BIN="\$REPO_ROOT\/bin\/torque-remote"/);
     expect(src).toMatch(/TORQUE_REMOTE_CMD="\$\(printf '%q' "\$TORQUE_REMOTE_BIN"\)"/);
-    expect(src).toMatch(/run_with_flake_retry "Remote gate" "TORQUE_REMOTE_REQUIRE_REMOTE=1 \$TORQUE_REMOTE_CMD --suite \$GATE_COORD_SUITE/);
+    expect(src).toMatch(/run_with_flake_retry "Remote gate" "\$lock_env_reset TORQUE_REMOTE_REQUIRE_REMOTE=1 \$TORQUE_REMOTE_CMD --suite \$GATE_COORD_SUITE/);
     expect(src).toContain('Pre-push owns the local fallback path so the gate runs once.');
   });
 
@@ -263,6 +263,21 @@ printf '%b' "\\302\\267\\302\\267real failure line\\302\\267\\302\\267\\n" | pre
     expect(src).toMatch(/git_cleanup_timeout\s+push\s+[^\n]*--delete\s+"?\$(?:\{)?staging_branch/);
     expect(src).toMatch(/git_cleanup_timeout\s+ls-remote\s+--exit-code\s+--heads\s+origin\s+"\$staging_branch"/);
     expect(src).toMatch(/git_cleanup_timeout\s+push\s+--no-verify\s+--quiet\s+origin\s+":refs\/heads\/\$staging_branch"/);
+  });
+
+  it('isolates generated gate subprocesses from the parent main coordination lease', () => {
+    const src = readHook();
+    expect(src).toMatch(/coord_lock_env_reset_cmd\s*\(\)/);
+    expect(src).toContain('-u TORQUE_COORD_LOCK_ROOT -u TORQUE_COORD_LOCK_DIR -u TORQUE_COORD_LOCK_TOKEN -u TORQUE_COORD_LOCK_NAME -u TORQUE_COORD_LOCK_OWNER_BASHPID');
+    expect(src).toContain('-u REPO_COORD_LOCK_DIR -u REPO_COORD_LOCK_TOKEN -u REPO_COORD_LOCK_NAME -u REPO_COORD_LOCK_REUSED -u REPO_COORD_LOCK_OWNER_BASHPID -u REPO_COORD_LOCK_FORCE_RELEASE');
+    expect(src).toMatch(/lock_root_q=\$\(printf '%q' "\$local_gate_worktree_parent\/coord-locks"\)/);
+    expect(src).toMatch(/TORQUE_COORD_LOCK_ROOT=\$lock_root_q TORQUE_REMOTE_TRANSPORT=local/);
+    expect(src).toContain('GATE_COORD_LOCK_ROOT="\\${TORQUE_GATE_COORD_LOCK_ROOT:-}"');
+    expect(src).toContain('export TORQUE_COORD_LOCK_ROOT="\\$GATE_COORD_LOCK_ROOT"');
+    expect(src).toContain('unset TORQUE_COORD_LOCK_DIR TORQUE_COORD_LOCK_TOKEN TORQUE_COORD_LOCK_NAME TORQUE_COORD_LOCK_OWNER_BASHPID');
+    expect(src).toContain('unset REPO_COORD_LOCK_DIR REPO_COORD_LOCK_TOKEN REPO_COORD_LOCK_NAME REPO_COORD_LOCK_REUSED REPO_COORD_LOCK_OWNER_BASHPID REPO_COORD_LOCK_FORCE_RELEASE');
+    expect(src).toMatch(/trap cleanup_gate_coord_lock_root EXIT/);
+    expect(src).toMatch(/\$lock_env_reset TORQUE_REMOTE_REQUIRE_REMOTE=1 \$TORQUE_REMOTE_CMD --suite \$GATE_COORD_SUITE/);
   });
 
   it('exits 1 on test failure with a clear "origin/main is unchanged" message', () => {
