@@ -394,6 +394,17 @@ unlink_local_fallback_dependency_links() {
   done
 }
 
+remove_local_fallback_worktree_dir() {
+  local path="$1"
+  if ! path_is_under_managed_temp_dir "$path"; then
+    warn "Refusing local fallback directory removal outside managed torque-remote temp root: $path"
+    return 1
+  fi
+
+  rm -rf "$path" 2>/dev/null || true
+  [[ ! -d "$path" ]]
+}
+
 cleanup_local_fallback_worktree() {
   local path="${LOCAL_FALLBACK_WORKTREE_PATH:-}"
   [[ -z "$path" ]] && return 0
@@ -413,7 +424,10 @@ cleanup_local_fallback_worktree() {
     warn "Failed to remove local fallback worktree $path (git worktree remove exit $remove_status): ${remove_output:-<no output>}"
   fi
   if [[ -d "$path" ]]; then
-    warn "Local fallback worktree still exists after cleanup: $path"
+    remove_local_fallback_worktree_dir "$path" || true
+  fi
+  if [[ -d "$path" ]]; then
+    warn "Local fallback worktree still exists after directory cleanup: $path"
   fi
 
   prune_output="$(git -C "$PROJECT_ROOT" worktree prune 2>&1)"

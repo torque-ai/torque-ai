@@ -972,10 +972,10 @@ test_local_fallback_branch_override_uses_isolated_worktree() {
   finish_test "test_local_fallback_branch_override_uses_isolated_worktree"
 }
 
-test_local_fallback_cleanup_warns_when_worktree_remove_fails() {
-  local tmp
+test_local_fallback_cleanup_removes_directory_when_worktree_remove_fails() {
+  local tmp actual_pwd
 
-  echo "Test: local fallback cleanup warns when worktree remove fails"
+  echo "Test: local fallback cleanup removes directory when worktree remove fails"
   TEST_ERRORS=()
   reset_stub_env
 
@@ -986,16 +986,20 @@ test_local_fallback_cleanup_warns_when_worktree_remove_fails() {
   export GIT_WORKTREE_REMOVE_EXIT_CODE=7
   export GIT_WORKTREE_REMOVE_OUTPUT="locked native module"
 
-  run_torque_remote "$tmp" --branch pre-push-gate/test echo hi
+  run_torque_remote "$tmp" --branch pre-push-gate/test bash -c 'pwd > "$TORQUE_REMOTE_TEST_PWD_LOG"'
+
+  actual_pwd="$(slurp_file "$tmp/pwd.log")"
 
   expect_eq "user command exit code is preserved" "0" "$RUN_EXIT"
   expect_contains "stderr reports fallback" "$RUN_STDERR" "falling back to local"
   expect_contains "stderr warns worktree remove failed" "$RUN_STDERR" "Failed to remove local fallback worktree"
   expect_contains "stderr includes git worktree remove exit code" "$RUN_STDERR" "exit 7"
   expect_contains "stderr includes git failure output" "$RUN_STDERR" "locked native module"
-  expect_contains "stderr warns path still exists" "$RUN_STDERR" "Local fallback worktree still exists after cleanup"
+  if [[ -z "$actual_pwd" || -d "$actual_pwd" ]]; then
+    record_failure "fallback worktree directory is removed after git worktree remove leaves files behind"
+  fi
 
-  finish_test "test_local_fallback_cleanup_warns_when_worktree_remove_fails"
+  finish_test "test_local_fallback_cleanup_removes_directory_when_worktree_remove_fails"
 }
 
 test_local_fallback_cleanup_source_scopes_worktree_remove() {
@@ -1007,7 +1011,9 @@ test_local_fallback_cleanup_source_scopes_worktree_remove() {
 
   expect_contains "cleanup helper validates managed temp roots" "$source" "path_is_under_managed_temp_dir"
   expect_contains "cleanup refuses paths outside torque-remote temp roots" "$source" "Refusing local fallback worktree cleanup outside managed torque-remote temp root"
-  expect_contains "cleanup warns on leaked fallback worktree path" "$source" "Local fallback worktree still exists after cleanup"
+  expect_contains "cleanup falls back to scoped directory removal" "$source" "remove_local_fallback_worktree_dir"
+  expect_contains "cleanup refuses unsafe directory removal" "$source" "Refusing local fallback directory removal outside managed torque-remote temp root"
+  expect_contains "cleanup warns on leaked fallback worktree path" "$source" "Local fallback worktree still exists after directory cleanup"
   expect_contains "temp dir helper registers in caller shell" "$source" 'printf -v "$target_var"'
   expect_not_contains "temp dir helper is not used through command substitution" "$source" '="$(make_temp_dir'
 
@@ -2015,7 +2021,7 @@ main() {
   test_local_state_overlays_worktree_from_fallback_base
   test_local_fallback_preserves_quoted_arguments
   test_local_fallback_branch_override_uses_isolated_worktree
-  test_local_fallback_cleanup_warns_when_worktree_remove_fails
+  test_local_fallback_cleanup_removes_directory_when_worktree_remove_fails
   test_local_fallback_cleanup_source_scopes_worktree_remove
   test_remote_inline_command_preserves_quoted_arguments
   test_remote_bootstrap_streams_runner_output_without_inherited_stdout_hang

@@ -652,6 +652,19 @@ run_vitest_phase() {
   )
 }
 
+strip_gate_progress_prefix() {
+  local line="\$1"
+  local vitest_dot=\$'\302\267'
+  while :; do
+    case "\$line" in
+      .*) line="\${line#.}" ;;
+      "\$vitest_dot"*) line="\${line#"\$vitest_dot"}" ;;
+      *) break ;;
+    esac
+  done
+  printf '%s' "\$line"
+}
+
 is_expected_gate_fixture_line() {
   local line="\$1"
   case "\$line" in
@@ -689,27 +702,28 @@ is_expected_gate_cmd_fixture_line() {
 
 prefix_gate_phase_output() {
   local phase="\$1"
-  local line cmd_fixture_continuation=0
+  local line normalized_line cmd_fixture_continuation=0
   while IFS= read -r line || [ -n "\$line" ]; do
-    case "\$line" in
+    normalized_line="\$(strip_gate_progress_prefix "\$line")"
+    case "\$normalized_line" in
       "[gate-timing]"*)
-        printf '%s\n' "\$line"
+        printf '%s\n' "\$normalized_line"
         continue
         ;;
     esac
 
-    if [ "\$cmd_fixture_continuation" -eq 1 ] && [ "\$line" = "operable program or batch file." ]; then
-      printf '[%s] [expected-test-output] %s\n' "\$phase" "\$line"
+    if [ "\$cmd_fixture_continuation" -eq 1 ] && [ "\$normalized_line" = "operable program or batch file." ]; then
+      printf '[%s] [expected-test-output] %s\n' "\$phase" "\$normalized_line"
       cmd_fixture_continuation=0
       continue
     fi
     cmd_fixture_continuation=0
 
-    if is_expected_gate_cmd_fixture_line "\$line"; then
-      printf '[%s] [expected-test-output] %s\n' "\$phase" "\$line"
+    if is_expected_gate_cmd_fixture_line "\$normalized_line"; then
+      printf '[%s] [expected-test-output] %s\n' "\$phase" "\$normalized_line"
       cmd_fixture_continuation=1
-    elif is_expected_gate_fixture_line "\$line"; then
-      printf '[%s] [expected-test-output] %s\n' "\$phase" "\$line"
+    elif is_expected_gate_fixture_line "\$normalized_line"; then
+      printf '[%s] [expected-test-output] %s\n' "\$phase" "\$normalized_line"
     else
       printf '[%s] %s\n' "\$phase" "\$line"
     fi
