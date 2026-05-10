@@ -1120,16 +1120,22 @@ function enforceEventTableLimits(options = {}) {
   const streamChunkBytes = db.prepare('SELECT COALESCE(SUM(length(chunk_data)), 0) as bytes FROM stream_chunks').get().bytes || 0;
   const bytesToDelete = streamChunkByteOverflowDeleteBytes(streamChunkBytes, maxStreamChunkBytes);
   if (bytesToDelete > 0) {
+    // @full-scan: stream_chunks retention ranks oldest rows by cumulative byte
+    // size; the table is bounded by stream_event_retention_max_chunks and
+    // stream_chunk_retention_max_bytes before this sweep runs.
     const result = db.prepare(`
       DELETE FROM stream_chunks WHERE id IN (
         SELECT id FROM (
           SELECT
             id,
-            COALESCE(length(chunk_data), 0) AS chunk_bytes,
-            SUM(COALESCE(length(chunk_data), 0)) OVER (ORDER BY timestamp ASC, id ASC) AS cumulative_bytes
+            SUM(COALESCE(length(chunk_data), 0)) OVER (
+              ORDER BY timestamp ASC, id ASC
+              ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
+            ) AS prior_bytes
           FROM stream_chunks
         )
-        WHERE cumulative_bytes - chunk_bytes < ?
+        -- @full-scan: bounded retention sweep over stream_chunks window alias.
+        WHERE prior_bytes IS NULL OR prior_bytes < ?
       )
     `).run(bytesToDelete);
     deleted += result.changes;

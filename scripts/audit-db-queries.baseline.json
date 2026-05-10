@@ -1,9 +1,1 @@
-[
-  {
-    "file": "server/db/webhooks-streaming.js",
-    "table": "stream_chunks",
-    "cols": [
-      "chunk_bytes"
-    ]
-  }
-]
+[]
