@@ -794,8 +794,9 @@ reuse_base_node_modules() {
     base_win="\$(remote_path_to_windows "\$base_modules")"
     if ! cmd //c "mklink /D \"\$target_win\" \"\$base_win\"" >/dev/null 2>&1; then
       if ! powershell.exe -NoProfile -Command "New-Item -ItemType SymbolicLink -Path '\$target_win' -Target '\$base_win' -ErrorAction Stop | Out-Null" >/dev/null 2>&1; then
-        echo "[\$phase] [setup] could not create a safe symlink for \$dir/node_modules quickly; installing local dependencies"
-        return 1
+        prepend_node_modules "\$base_modules"
+        echo "[\$phase] [setup] using \$dir dependencies from safe base path; symlink unavailable"
+        return 0
       fi
     fi
   fi
@@ -806,8 +807,9 @@ reuse_base_node_modules() {
     return 0
   fi
 
-  echo "[\$phase] [setup] could not verify \$dir dependencies through safe base symlink; installing local dependencies"
-  return 1
+  prepend_node_modules "\$base_modules"
+  echo "[\$phase] [setup] using \$dir dependencies from safe base path; symlink verification unavailable"
+  return 0
 }
 
 ensure_node_modules() {

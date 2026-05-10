@@ -128,9 +128,9 @@ describe('pre-push-hook staging-branch invariants', () => {
     expect(src).not.toMatch(/New-Item -ItemType Junction/);
     expect(src).toMatch(/mklink \/D/);
     expect(src).toMatch(/New-Item -ItemType SymbolicLink/);
-    expect(src).toMatch(/could not create a safe symlink for \\\$dir\/node_modules quickly/);
+    expect(src).toMatch(/using \\\$dir dependencies from safe base path; symlink unavailable/);
     expect(src).toMatch(/using \\\$dir dependencies from safe base symlink/);
-    expect(src).toMatch(/could not verify \\\$dir dependencies through safe base symlink/);
+    expect(src).toMatch(/using \\\$dir dependencies from safe base path; symlink verification unavailable/);
     expect(src).toMatch(/npm install --no-audit --no-fund --prefer-offline/);
     expect(src).toMatch(/dependencies still invalid after install/);
     expect(src).toMatch(/run_vitest_phase dashboard run/);
