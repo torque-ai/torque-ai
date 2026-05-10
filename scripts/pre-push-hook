@@ -209,6 +209,8 @@ cleanup_local_gate_worktree() {
     return 0
   fi
 
+  cleanup_local_gate_dependency_links
+
   local remove_output remove_status prune_output prune_status
   set +e
   remove_output=$(git worktree remove --force "$local_gate_worktree" 2>&1)
@@ -233,6 +235,27 @@ cleanup_local_gate_worktree() {
 
   local_gate_worktree=""
   local_gate_worktree_parent=""
+}
+
+cleanup_local_gate_dependency_links() {
+  if [ -z "${local_gate_worktree:-}" ]; then
+    return 0
+  fi
+
+  local dep link_win
+  for dep in dashboard/node_modules server/node_modules; do
+    if [ ! -e "$local_gate_worktree/$dep" ]; then
+      continue
+    fi
+    if command -v cygpath >/dev/null 2>&1; then
+      link_win="$(cygpath -w "$local_gate_worktree/$dep" 2>/dev/null || printf '%s\n' "$local_gate_worktree/$dep")"
+    else
+      link_win="$local_gate_worktree/$dep"
+    fi
+    # rmdir without /S removes directory symlinks/junctions but refuses real
+    # non-empty node_modules directories, so it cannot traverse into the base repo.
+    cmd //c "rmdir \"$link_win\"" >/dev/null 2>&1 || true
+  done
 }
 
 pre_push_cleanup() {
@@ -794,9 +817,10 @@ reuse_base_node_modules() {
     base_win="\$(remote_path_to_windows "\$base_modules")"
     if ! cmd //c "mklink /D \"\$target_win\" \"\$base_win\"" >/dev/null 2>&1; then
       if ! powershell.exe -NoProfile -Command "New-Item -ItemType SymbolicLink -Path '\$target_win' -Target '\$base_win' -ErrorAction Stop | Out-Null" >/dev/null 2>&1; then
-        prepend_node_modules "\$base_modules"
-        echo "[\$phase] [setup] using \$dir dependencies from safe base path; symlink unavailable"
-        return 0
+        if ! cmd //c "mklink /J \"\$target_win\" \"\$base_win\"" >/dev/null 2>&1; then
+          echo "[\$phase] [setup] could not create a safe link for \$dir/node_modules quickly; installing local dependencies"
+          return 1
+        fi
       fi
     fi
   fi
@@ -807,9 +831,8 @@ reuse_base_node_modules() {
     return 0
   fi
 
-  prepend_node_modules "\$base_modules"
-  echo "[\$phase] [setup] using \$dir dependencies from safe base path; symlink verification unavailable"
-  return 0
+  echo "[\$phase] [setup] could not verify \$dir dependencies through safe base link; installing local dependencies"
+  return 1
 }
 
 ensure_node_modules() {

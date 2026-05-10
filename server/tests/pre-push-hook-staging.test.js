@@ -124,13 +124,15 @@ describe('pre-push-hook staging-branch invariants', () => {
     expect(src).toMatch(/invalid dependency tree/);
     expect(src).toMatch(/reuse_base_node_modules\s*\(\)/);
     expect(src).toMatch(/TORQUE_REMOTE_BASE_PROJECT_PATH/);
-    expect(src).not.toMatch(/mklink \/J/);
+    expect(src).toMatch(/mklink \/J/);
+    expect(src).toMatch(/cleanup_local_gate_dependency_links\s*\(\)/);
+    expect(src).toContain('cmd //c "rmdir \\"$link_win\\""');
     expect(src).not.toMatch(/New-Item -ItemType Junction/);
     expect(src).toMatch(/mklink \/D/);
     expect(src).toMatch(/New-Item -ItemType SymbolicLink/);
-    expect(src).toMatch(/using \\\$dir dependencies from safe base path; symlink unavailable/);
+    expect(src).toMatch(/could not create a safe link for \\\$dir\/node_modules quickly/);
     expect(src).toMatch(/using \\\$dir dependencies from safe base symlink/);
-    expect(src).toMatch(/using \\\$dir dependencies from safe base path; symlink verification unavailable/);
+    expect(src).toMatch(/could not verify \\\$dir dependencies through safe base link/);
     expect(src).toMatch(/npm install --no-audit --no-fund --prefer-offline/);
     expect(src).toMatch(/dependencies still invalid after install/);
     expect(src).toMatch(/run_vitest_phase dashboard run/);
