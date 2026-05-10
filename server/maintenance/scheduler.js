@@ -209,6 +209,7 @@ function startMaintenanceScheduler(opts = {}) {
         let streamRows = 0;
         let eventRows = 0;
         let limitRows = 0;
+        let fileLockRows = 0;
         if (streamCleanupDays > 0 && typeof db.cleanupStreamData === 'function') {
           streamRows = db.cleanupStreamData(streamCleanupDays);
         }
@@ -218,14 +219,18 @@ function startMaintenanceScheduler(opts = {}) {
         if (typeof db.enforceEventTableLimits === 'function') {
           limitRows = db.enforceEventTableLimits(getEventTableLimitOptions());
         }
+        const fileLockRetentionDays = serverConfig.getInt('file_lock_retention_days', 14);
+        if (fileLockRetentionDays > 0 && typeof db.cleanupReleasedFileLocks === 'function') {
+          fileLockRows = db.cleanupReleasedFileLocks(fileLockRetentionDays);
+        }
         let decisionRows = 0;
         if (typeof db.cleanupFactoryDecisions === 'function') {
           decisionRows = db.cleanupFactoryDecisions(getFactoryDecisionCleanupOptions()).deleted;
         }
         if (db.purgeGrowthTables) {
           const purged = db.purgeGrowthTables();
-          if (purged.coordination_events > 0 || purged.health_status > 0 || purged.task_file_writes > 0 || streamRows > 0 || eventRows > 0 || limitRows > 0 || decisionRows > 0) {
-            debugLog(`Growth table purge: coordination_events=${purged.coordination_events}, health_status=${purged.health_status}, task_file_writes=${purged.task_file_writes}, stream_data=${streamRows}, task_events=${eventRows}, table_limits=${limitRows}, factory_decisions=${decisionRows}`);
+          if (purged.coordination_events > 0 || purged.health_status > 0 || purged.task_file_writes > 0 || streamRows > 0 || eventRows > 0 || limitRows > 0 || fileLockRows > 0 || decisionRows > 0) {
+            debugLog(`Growth table purge: coordination_events=${purged.coordination_events}, health_status=${purged.health_status}, task_file_writes=${purged.task_file_writes}, stream_data=${streamRows}, task_events=${eventRows}, table_limits=${limitRows}, file_locks=${fileLockRows}, factory_decisions=${decisionRows}`);
           }
         }
       } catch (purgeErr) {
@@ -387,6 +392,7 @@ function getEventTableLimitOptions() {
     maxAnalyticsRecords: safeConfigInt('analytics_retention_count', 100000),
     maxCoordinationEvents: safeConfigInt('coordination_event_retention_count', 50000),
     maxStreamChunks: safeConfigInt('stream_chunk_retention_count', 50000),
+    maxStreamChunkBytes: safeConfigInt('stream_chunk_retention_max_bytes', 128 * 1024 * 1024),
     maxTaskEvents: safeConfigInt('task_event_retention_count', 100000),
   };
 }
@@ -451,6 +457,10 @@ function runMaintenanceTask(taskType) {
         }
         if (eventCleanupDays > 0) {
           runSafe('cleanupEventData', () => db.cleanupEventData(eventCleanupDays));
+        }
+        const fileLockRetentionDays = safeConfigInt('file_lock_retention_days', 14);
+        if (fileLockRetentionDays > 0 && typeof db.cleanupReleasedFileLocks === 'function') {
+          runSafe('cleanupReleasedFileLocks', () => db.cleanupReleasedFileLocks(fileLockRetentionDays));
         }
         // Always clean up stale webhook retries (7 day default)
         runSafe('cleanupStaleWebhookRetries', () => db.cleanupStaleWebhookRetries(7));
@@ -544,6 +554,17 @@ function runMaintenanceTask(taskType) {
         const result = db.cleanupFactoryDecisions(getFactoryDecisionCleanupOptions());
         if (result.deleted > 0) {
           debugLog(`Cleaned ${result.deleted} factory decision row(s) (retention: ${result.retention_days} days; cap: ${result.max_rows})`);
+        }
+        break;
+      }
+
+      case 'cleanup_file_locks': {
+        const retentionDays = safeConfigInt('file_lock_retention_days', 14);
+        if (retentionDays > 0 && typeof db.cleanupReleasedFileLocks === 'function') {
+          const deleted = db.cleanupReleasedFileLocks(retentionDays);
+          if (deleted > 0) {
+            debugLog(`Cleaned ${deleted} released file lock row(s) (retention: ${retentionDays} days)`);
+          }
         }
         break;
       }

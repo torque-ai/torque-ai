@@ -453,6 +453,19 @@ function releaseExpiredFileLocks(now = new Date().toISOString()) {
   return result.changes;
 }
 
+function cleanupReleasedFileLocks(retentionDays = 14) {
+  const boundedDays = Math.max(1, Math.min(parseInt(retentionDays, 10) || 14, 3650));
+  const now = new Date().toISOString();
+  releaseExpiredFileLocks(now);
+  const cutoff = new Date(Date.now() - boundedDays * 24 * 60 * 60 * 1000).toISOString();
+  const result = db.prepare(`
+    DELETE FROM file_locks
+    WHERE released_at IS NOT NULL
+      AND released_at < ?
+  `).run(cutoff);
+  return result.changes;
+}
+
 /**
  * Get active file locks
  */
@@ -1081,6 +1094,7 @@ module.exports = {
   releaseFileLock,
   releaseAllFileLocks,
   releaseExpiredFileLocks,
+  cleanupReleasedFileLocks,
   getActiveFileLocks,
   createRollback,
   getRollback,

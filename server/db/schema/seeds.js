@@ -101,6 +101,7 @@ function seedDefaults(db, logger, safeAddColumn, extras = {}) {
     ['prune_old_tasks',       'prune_old_tasks',       1440, pruneNextRun],
     ['purge_task_output',     'purge_task_output',     1440, pruneNextRun],
     ['cleanup_factory_decisions', 'cleanup_factory_decisions', 1440, pruneNextRun],
+    ['cleanup_file_locks',    'cleanup_file_locks',    1440, pruneNextRun],
     ['cleanup_logs',          'cleanup_logs',          1440, pruneNextRun],
     ['cleanup_stale_tasks',   'cleanup_stale_tasks',      5, staleTaskNextRun],
     ['enforce_limits',        'enforce_limits',        1440, pruneNextRun],
@@ -447,6 +448,7 @@ function seedDefaults(db, logger, safeAddColumn, extras = {}) {
   setConfigDefault('analytics_retention_count', '100000');
   setConfigDefault('coordination_event_retention_count', '50000');
   setConfigDefault('stream_chunk_retention_count', '50000');
+  setConfigDefault('stream_chunk_retention_max_bytes', String(128 * 1024 * 1024));
   setConfigDefault('task_event_retention_count', '100000');
   setConfigDefault('factory_decision_retention_days', '14');
   setConfigDefault('factory_decision_retention_count', '100000');
@@ -464,6 +466,7 @@ function seedDefaults(db, logger, safeAddColumn, extras = {}) {
   setConfigDefault('cost_tracking_enabled', '1');
   setConfigDefault('duplicate_detection_enabled', '1');
   setConfigDefault('file_locking_enabled', '1');
+  setConfigDefault('file_lock_retention_days', '14');
   setConfigDefault('backup_before_modify_enabled', '0');
   setConfigDefault('security_scanning_enabled', '1');
   setConfigDefault('test_coverage_check_enabled', '0');

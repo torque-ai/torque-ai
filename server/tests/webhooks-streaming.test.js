@@ -768,6 +768,31 @@ describe('webhooks-streaming db module', () => {
       expect(chunkCount).toBe(3);
       expect(eventCount).toBe(2);
     });
+
+    it('enforceEventTableLimits trims oldest stream chunks above the byte budget', () => {
+      const task = makeTask();
+      const streamId = mod.createTaskStream(task.id, 'output');
+      const conn = rawDb();
+      const stmt = conn.prepare(`
+        INSERT INTO stream_chunks (stream_id, chunk_data, chunk_type, sequence_num, timestamp)
+        VALUES (?, ?, 'stdout', ?, ?)
+      `);
+      for (let i = 1; i <= 4; i += 1) {
+        stmt.run(streamId, String(i).repeat(10), i, `2026-01-01 00:00:0${i}`);
+      }
+
+      const deleted = mod.enforceEventTableLimits({
+        maxStreamChunks: 100,
+        maxStreamChunkBytes: 25,
+        maxTaskEvents: 100,
+      });
+      const remaining = conn.prepare('SELECT sequence_num FROM stream_chunks ORDER BY sequence_num ASC').all();
+      const bytes = conn.prepare('SELECT COALESCE(SUM(length(chunk_data)), 0) AS bytes FROM stream_chunks').get().bytes;
+
+      expect(deleted).toBe(2);
+      expect(remaining.map((row) => row.sequence_num)).toEqual([3, 4]);
+      expect(bytes).toBeLessThanOrEqual(25);
+    });
   });
 
   describe('checkpoints and pause', () => {

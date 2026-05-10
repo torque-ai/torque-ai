@@ -670,6 +670,12 @@ describe('Webhook Handlers', () => {
       expect(getText(result)).toContain('Factory decision cleanup');
     });
 
+    it('runs cleanup_file_locks', async () => {
+      const result = await safeTool('run_maintenance', { task_type: 'cleanup_file_locks' });
+      expect(result.isError).toBeFalsy();
+      expect(getText(result)).toContain('File lock cleanup');
+    });
+
     it('runs update_metrics', async () => {
       const result = await safeTool('run_maintenance', { task_type: 'update_metrics' });
       expect(result.isError).toBeTruthy();

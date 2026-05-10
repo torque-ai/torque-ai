@@ -585,6 +585,7 @@ const MAX_STREAM_CHUNKS = 10000;        // Maximum chunks per stream
 const MAX_STREAM_SIZE_BYTES = 10 * 1024 * 1024; // 10MB per stream
 const MAX_CHUNK_SIZE_BYTES = 64 * 1024; // 64KB per chunk
 const MAX_TOTAL_STREAM_CHUNKS = 100000;
+const MAX_TOTAL_STREAM_CHUNK_BYTES = 128 * 1024 * 1024;
 const MAX_TASK_EVENTS = 100000;
 
 function boundedLimit(value, fallback) {
@@ -595,6 +596,12 @@ function boundedLimit(value, fallback) {
 
 function overflowDeleteCount(count, limit, buffer) {
   return Math.min(count, count - limit + Math.min(buffer, Math.floor(Math.max(limit, 0) * 0.01)));
+}
+
+function streamChunkByteOverflowDeleteBytes(currentBytes, maxBytes) {
+  if (maxBytes < 0 || currentBytes <= maxBytes) return 0;
+  const bufferBytes = Math.min(10 * 1024 * 1024, Math.max(1, Math.floor(Math.max(maxBytes, 0) * 0.05)));
+  return currentBytes - maxBytes + bufferBytes;
 }
 
 /**
@@ -1072,6 +1079,7 @@ function enforceEventTableLimits(options = {}) {
   const maxAnalyticsRecords = boundedLimit(options.maxAnalyticsRecords, MAX_ANALYTICS_RECORDS);
   const maxCoordinationEvents = boundedLimit(options.maxCoordinationEvents, MAX_COORDINATION_EVENTS);
   const maxStreamChunks = boundedLimit(options.maxStreamChunks, MAX_TOTAL_STREAM_CHUNKS);
+  const maxStreamChunkBytes = boundedLimit(options.maxStreamChunkBytes, MAX_TOTAL_STREAM_CHUNK_BYTES);
   const maxTaskEvents = boundedLimit(options.maxTaskEvents, MAX_TASK_EVENTS);
 
   // Check analytics table size
@@ -1106,6 +1114,24 @@ function enforceEventTableLimits(options = {}) {
         SELECT id FROM stream_chunks ORDER BY timestamp ASC, id ASC LIMIT ?
       )
     `).run(toDelete);
+    deleted += result.changes;
+  }
+
+  const streamChunkBytes = db.prepare('SELECT COALESCE(SUM(length(chunk_data)), 0) as bytes FROM stream_chunks').get().bytes || 0;
+  const bytesToDelete = streamChunkByteOverflowDeleteBytes(streamChunkBytes, maxStreamChunkBytes);
+  if (bytesToDelete > 0) {
+    const result = db.prepare(`
+      DELETE FROM stream_chunks WHERE id IN (
+        SELECT id FROM (
+          SELECT
+            id,
+            COALESCE(length(chunk_data), 0) AS chunk_bytes,
+            SUM(COALESCE(length(chunk_data), 0)) OVER (ORDER BY timestamp ASC, id ASC) AS cumulative_bytes
+          FROM stream_chunks
+        )
+        WHERE cumulative_bytes - chunk_bytes < ?
+      )
+    `).run(bytesToDelete);
     deleted += result.changes;
   }
 
