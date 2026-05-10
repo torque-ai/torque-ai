@@ -46,6 +46,11 @@ safe_rm_rf_test_path() {
 }
 
 cleanup() {
+  if [[ "${TORQUE_REMOTE_TEST_KEEP_TMP:-0}" == "1" ]]; then
+    echo "keeping torque-remote test temp root: $TEST_TMP_ROOT" >&2
+    return 0
+  fi
+
   local dir
   for dir in "${TEMP_DIRS[@]}"; do
     safe_rm_rf_test_path "$dir" || true
