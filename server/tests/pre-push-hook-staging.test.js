@@ -56,6 +56,25 @@ describe('pre-push-hook staging-branch invariants', () => {
     expect(src).toMatch(/git\s+push\s+[^\n]*origin\s+"?\$(?:\{)?local_head_sha(?:\})?"?:refs\/heads\/\$(?:\{)?staging_branch/);
   });
 
+  it('runs a local detached-worktree gate when remote staging is unavailable', () => {
+    const src = readHook();
+    expect(src).toMatch(/staging_ref_created=0/);
+    expect(src).toMatch(/failed to stage HEAD at origin\/\$staging_branch; running the gate locally instead/);
+    expect(src).not.toContain('aborting before tests');
+    expect(src).toMatch(/prepare_local_gate_worktree\s*\(\)/);
+    expect(src).toMatch(/git worktree add --force --detach "\$local_gate_worktree" "\$local_head_sha"/);
+    expect(src).toMatch(/run_local_gate "\$remote_gate_cmd"/);
+    expect(src).toMatch(/TORQUE_REMOTE_PROJECT_PATH=\$worktree_q TORQUE_REMOTE_BASE_PROJECT_PATH=\$base_q bash -c \$gate_cmd_q/);
+    expect(src).toMatch(/cleanup_local_gate_worktree\s*\|\| true/);
+  });
+
+  it('falls back locally when the remote gate exits before producing a gate marker', () => {
+    const src = readHook();
+    expect(src).toMatch(/Remote gate did not produce a gate-end marker; running the gate locally instead/);
+    expect(src).toMatch(/if ! echo "\$RETRIED_OUTPUT" \| grep -qE '\\\[gate-end\\\] dash_exit=\[0-9\]'/);
+    expect(src).toMatch(/Gate did not produce completion marker/);
+  });
+
   it('invokes torque-remote with --branch $staging_branch and exercises selected gate phases', () => {
     const src = readHook();
     // Both suites (dashboard + server) must run against the staged ref,

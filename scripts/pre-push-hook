@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
 # Two-tier pre-push flow:
-# - Pushes targeting refs/heads/main run the full dashboard + remote server gate.
+# - Pushes targeting refs/heads/main run the full dashboard + server gate.
 # - The gate stages HEAD on a disposable `pre-push-gate/<sha>` ref so the remote
 #   can sync and test *without* touching origin/main. On success, the outer
 #   `git push` proceeds normally (fast-forward, no ref drift). On failure, the
 #   staging ref is deleted and the push is blocked with exit 1.
+# - If the disposable staging ref or remote worker path is unavailable, the hook
+#   still runs the same gate in a detached local worktree at the pushed SHA.
 # - Pushes that only update non-main refs skip tests so feature-branch iteration stays fast.
 # - Delete-only pushes are always allowed and skipped from gating analysis.
 # - When a branch is later merged or pushed to main, the full gate runs again there.
@@ -47,6 +49,9 @@ ZERO_SHA="0000000000000000000000000000000000000000"
 remote_refs=()
 local_head_sha=""
 staging_branch=""
+staging_ref_created=0
+local_gate_worktree_parent=""
+local_gate_worktree=""
 
 git_cleanup_timeout() {
   local timeout_secs="${PRE_PUSH_STAGING_CLEANUP_TIMEOUT_SECS:-30}"
@@ -109,7 +114,7 @@ if [ -z "$local_head_sha" ]; then
 fi
 
 delete_staging_ref() {
-  if [ -z "${staging_branch:-}" ]; then
+  if [ -z "${staging_branch:-}" ] || [ "${staging_ref_created:-0}" -ne 1 ]; then
     return 0
   fi
   # Best-effort cleanup -- never block the hook on a failed cleanup, but keep
@@ -138,9 +143,41 @@ delete_staging_ref() {
   fi
 }
 
+cleanup_local_gate_worktree() {
+  if [ -z "${local_gate_worktree:-}" ]; then
+    return 0
+  fi
+
+  local remove_output remove_status prune_output prune_status
+  set +e
+  remove_output=$(git worktree remove --force "$local_gate_worktree" 2>&1)
+  remove_status=$?
+  set -e
+  if [ "$remove_status" -ne 0 ]; then
+    echo "[pre-push] warn: failed to remove local gate worktree $local_gate_worktree (exit $remove_status): ${remove_output:-<no output>}"
+  fi
+  if [ -e "$local_gate_worktree" ]; then
+    echo "[pre-push] warn: local gate worktree still exists after cleanup: $local_gate_worktree"
+  elif [ -n "${local_gate_worktree_parent:-}" ] && [ -d "$local_gate_worktree_parent" ]; then
+    rmdir "$local_gate_worktree_parent" 2>/dev/null || true
+  fi
+
+  set +e
+  prune_output=$(git worktree prune 2>&1)
+  prune_status=$?
+  set -e
+  if [ "$prune_status" -ne 0 ]; then
+    echo "[pre-push] warn: failed to prune git worktree metadata after local gate cleanup (exit $prune_status): ${prune_output:-<no output>}"
+  fi
+
+  local_gate_worktree=""
+  local_gate_worktree_parent=""
+}
+
 pre_push_cleanup() {
   local rc=$?
   trap - EXIT
+  cleanup_local_gate_worktree || true
   delete_staging_ref || true
   REPO_COORD_LOCK_FORCE_RELEASE=1 repo_coord_lock_release || true
   exit "$rc"
@@ -321,7 +358,7 @@ run_with_flake_retry_inner() {
   # attribution falls back to combined_exit and reports the wrong phase.
   # Observed today: dashboard stream kept arriving for ~3-4s after the
   # gate-end echo, pushing the marker into the long tail. The original
-  # 1-second cap (5 Ã-- 200ms) wasn't enough; bumped to 30 Ã-- 200ms = 6 s.
+  # 1-second cap (5 x 200ms) wasn't enough; bumped to 30 x 200ms = 6 s.
   # If the marker is found before then, exit early to keep the hook snappy.
   local size_a size_b iter
   size_a=$(wc -c < "$tmp" 2>/dev/null || echo 0)
@@ -381,6 +418,27 @@ run_with_flake_retry() {
   fi
 
   rm -f "$tmp"
+}
+
+prepare_local_gate_worktree() {
+  if [ -n "${local_gate_worktree:-}" ]; then
+    return 0
+  fi
+
+  local_gate_worktree_parent=$(mktemp -d "${TMPDIR:-/tmp}/pre-push-local-gate.XXXXXX")
+  local_gate_worktree="$local_gate_worktree_parent/worktree"
+  echo "[pre-push] Preparing local gate worktree at $local_gate_worktree for $local_head_sha..."
+  git worktree add --force --detach "$local_gate_worktree" "$local_head_sha" >/dev/null
+}
+
+run_local_gate() {
+  local gate_cmd="$1"
+  local worktree_q base_q gate_cmd_q
+  prepare_local_gate_worktree
+  worktree_q=$(printf '%q' "$local_gate_worktree")
+  base_q=$(printf '%q' "$REPO_ROOT")
+  gate_cmd_q=$(printf '%q' "$gate_cmd")
+  run_with_flake_retry "Local gate" "cd $worktree_q && TORQUE_REMOTE_PROJECT_PATH=$worktree_q TORQUE_REMOTE_BASE_PROJECT_PATH=$base_q bash -c $gate_cmd_q"
 }
 
 gate_failed() {
@@ -455,25 +513,33 @@ if [ "$GATE_RUN_DASHBOARD" = "1" ] || [ "$GATE_RUN_SERVER" = "1" ] || [ "$GATE_R
   # --force so repeated pushes of the same branch name (rare but possible on
   # force-push of main) overwrite the stale staging ref. The stale ref is still
   # cleaned up by the EXIT trap.
-  if ! git push --no-verify --force origin "$local_head_sha:refs/heads/$staging_branch"; then
-    echo "[pre-push] BLOCKED: failed to stage HEAD at origin/$staging_branch â€” aborting before tests."
-    exit 1
+  if git push --no-verify --force origin "$local_head_sha:refs/heads/$staging_branch"; then
+    staging_ref_created=1
+  else
+    echo "[pre-push] warn: failed to stage HEAD at origin/$staging_branch; running the gate locally instead."
   fi
 
-  echo "[pre-push] Running selected remote gate phases on $staging_branch..."
-  # Test phases run in parallel inside one torque-remote SSH session. Perf
-  # runs after tests in that same synced checkout so measurements are not
-  # contaminated by concurrent vitest load, while avoiding the old second
-  # torque-remote sync. The coordinator suite includes the gate-plan hash so
-  # warm reruns replay only when the same SHA ran the same phase set.
-  cd "$REPO_ROOT"
-  export TORQUE_REMOTE_COORD_SHA="$local_head_sha"
-  if [ -n "$remote_gate_worktree_suffix" ]; then
-    export TORQUE_REMOTE_TEST_WORKTREE_SUFFIX="$remote_gate_worktree_suffix"
-    echo "[pre-push] Remote gate checkout suffix: $TORQUE_REMOTE_TEST_WORKTREE_SUFFIX"
+  if [ "$staging_ref_created" -eq 1 ]; then
+    echo "[pre-push] Running selected remote gate phases on $staging_branch..."
+    # Test phases run in parallel inside one torque-remote SSH session. Perf
+    # runs after tests in that same synced checkout so measurements are not
+    # contaminated by concurrent vitest load, while avoiding the old second
+    # torque-remote sync. The coordinator suite includes the gate-plan hash so
+    # warm reruns replay only when the same SHA ran the same phase set.
+    cd "$REPO_ROOT"
+    export TORQUE_REMOTE_COORD_SHA="$local_head_sha"
+    if [ -n "$remote_gate_worktree_suffix" ]; then
+      export TORQUE_REMOTE_TEST_WORKTREE_SUFFIX="$remote_gate_worktree_suffix"
+      echo "[pre-push] Remote gate checkout suffix: $TORQUE_REMOTE_TEST_WORKTREE_SUFFIX"
+    else
+      unset TORQUE_REMOTE_TEST_WORKTREE_SUFFIX
+      echo "[pre-push] Remote gate checkout suffix disabled; using default torque-remote checkout."
+    fi
   else
+    cd "$REPO_ROOT"
+    export TORQUE_REMOTE_COORD_SHA="$local_head_sha"
     unset TORQUE_REMOTE_TEST_WORKTREE_SUFFIX
-    echo "[pre-push] Remote gate checkout suffix disabled; using default torque-remote checkout."
+    echo "[pre-push] Running selected local gate phases at $local_head_sha..."
   fi
   remote_gate_cmd=$(cat <<EOF
 set -uo pipefail
@@ -852,9 +918,20 @@ echo "[gate-end] dash_exit=\$DASH_EXIT serv_exit=\$SERV_EXIT perf_exit=\$PERF_EX
 exit \$((DASH_EXIT + SERV_EXIT + PERF_EXIT))
 EOF
 )
-  run_with_flake_retry "Remote gate" "$TORQUE_REMOTE_CMD --suite $GATE_COORD_SUITE --branch $staging_branch bash -c $(printf %q "$remote_gate_cmd")"
+  if [ "$staging_ref_created" -eq 1 ]; then
+    run_with_flake_retry "Remote gate" "$TORQUE_REMOTE_CMD --suite $GATE_COORD_SUITE --branch $staging_branch bash -c $(printf %q "$remote_gate_cmd")"
+    if ! echo "$RETRIED_OUTPUT" | grep -qE '\[gate-end\] dash_exit=[0-9]'; then
+      echo "[pre-push] Remote gate did not produce a gate-end marker; running the gate locally instead."
+      run_local_gate "$remote_gate_cmd"
+    fi
+  else
+    run_local_gate "$remote_gate_cmd"
+  fi
   combined_output="$RETRIED_OUTPUT"
   combined_exit="$RETRIED_EXIT"
+  if ! echo "$combined_output" | grep -qE '\[gate-end\] dash_exit=[0-9]'; then
+    gate_failed "Gate did not produce completion marker"
+  fi
 
   # Split combined output into per-phase streams for failure analysis.
   dash_output=$(echo "$combined_output" | grep '^\[dash\] ' | sed 's/^\[dash\] //')
