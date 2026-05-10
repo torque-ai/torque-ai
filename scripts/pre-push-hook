@@ -685,14 +685,30 @@ if [ "$GATE_RUN_DASHBOARD" = "1" ] || [ "$GATE_RUN_SERVER" = "1" ] || [ "$GATE_R
     esac
   fi
 
-  echo "[pre-push] Staging HEAD at origin/$staging_branch for remote gate..."
-  # --force so repeated pushes of the same branch name (rare but possible on
-  # force-push of main) overwrite the stale staging ref. The stale ref is still
-  # cleaned up by the EXIT trap.
-  if git push --no-verify --force origin "$local_head_sha:refs/heads/$staging_branch"; then
-    staging_ref_created=1
+  remote_gate_available=1
+  if [ "${PRE_PUSH_REMOTE_PREFLIGHT:-1}" != "0" ]; then
+    if remote_probe_output=$("$TORQUE_REMOTE_BIN" --__internal-probe-remote-availability 2>&1); then
+      remote_probe_reason="$(printf '%s\n' "$remote_probe_output" | tail -n 1)"
+      echo "[pre-push] Remote gate preflight: ${remote_probe_reason:-available}"
+    else
+      remote_gate_available=0
+      remote_probe_reason="$(printf '%s\n' "$remote_probe_output" | tail -n 1)"
+      echo "[pre-push] Remote gate unavailable before staging (${remote_probe_reason:-probe failed}); running the gate locally instead."
+    fi
   else
-    echo "[pre-push] warn: failed to stage HEAD at origin/$staging_branch; running the gate locally instead."
+    echo "[pre-push] Remote gate preflight disabled by PRE_PUSH_REMOTE_PREFLIGHT=0."
+  fi
+
+  if [ "$remote_gate_available" -eq 1 ]; then
+    echo "[pre-push] Staging HEAD at origin/$staging_branch for remote gate..."
+    # --force so repeated pushes of the same branch name (rare but possible on
+    # force-push of main) overwrite the stale staging ref. The stale ref is still
+    # cleaned up by the EXIT trap.
+    if git push --no-verify --force origin "$local_head_sha:refs/heads/$staging_branch"; then
+      staging_ref_created=1
+    else
+      echo "[pre-push] warn: failed to stage HEAD at origin/$staging_branch; running the gate locally instead."
+    fi
   fi
 
   if [ "$staging_ref_created" -eq 1 ]; then

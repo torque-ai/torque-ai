@@ -1451,6 +1451,7 @@ for _arg in "$@"; do
   if [[ "$_arg" == "--__internal-print-routing-mode" \
      || "$_arg" == "--__internal-print-lane-count" \
      || "$_arg" == "--__internal-print-lane-paths" \
+     || "$_arg" == "--__internal-probe-remote-availability" \
      || "$_arg" == "--status" ]]; then
     _is_internal_fast_path=1
     break
@@ -1542,6 +1543,7 @@ BRANCH_OVERRIDE=""
 SUITE="${TORQUE_REMOTE_DEFAULT_SUITE:-custom}"
 TORQUE_REMOTE_LANES_CLI="${TORQUE_REMOTE_LANES_CLI:-}"
 STATUS_REQUESTED=0
+REMOTE_AVAILABILITY_PROBE_REQUESTED=0
 while [[ "${1:-}" == --* ]]; do
   case "$1" in
     --__internal-print-routing-mode)
@@ -1566,6 +1568,12 @@ while [[ "${1:-}" == --* ]]; do
       printf '%s\n' "$(compute_lane_workspace_path "$2" "$3")"
       printf '%s\n' "$(compute_lane_lock_dir "$2" "$3")"
       exit 0
+      ;;
+    --__internal-probe-remote-availability)
+      # Internal fast-path used by pre-push to avoid creating a staging ref
+      # when the configured remote cannot be reached.
+      REMOTE_AVAILABILITY_PROBE_REQUESTED=1
+      shift
       ;;
     --branch)
       [[ $# -lt 2 ]] && die "Invalid --branch value: "
@@ -1603,7 +1611,7 @@ your inner command, place it after the command name, e.g.:
   esac
 done
 
-if [[ $# -eq 0 && "${STATUS_REQUESTED:-0}" != "1" ]]; then
+if [[ $# -eq 0 && "${STATUS_REQUESTED:-0}" != "1" && "${REMOTE_AVAILABILITY_PROBE_REQUESTED:-0}" != "1" ]]; then
   cat >&2 << 'USAGE'
 Usage: torque-remote [--branch <ref>] <command...>
 
@@ -1808,6 +1816,50 @@ fi
 BASE_EFFECTIVE_REMOTE_PROJECT_PATH="$EFFECTIVE_REMOTE_PROJECT_PATH"
 if [[ -n "$REMOTE_TEST_WORKTREE_SUFFIX" && -n "$EFFECTIVE_REMOTE_PROJECT_PATH" ]]; then
   EFFECTIVE_REMOTE_PROJECT_PATH="${EFFECTIVE_REMOTE_PROJECT_PATH}${REMOTE_TEST_WORKTREE_SUFFIX}"
+fi
+
+# ---- Remote availability probe (deferred until config is loaded) ----
+
+probe_remote_availability() {
+  if [[ "$TRANSPORT" != "ssh" ]]; then
+    printf 'unavailable:not_ssh_transport:transport=%s\n' "$TRANSPORT"
+    return 2
+  fi
+  if [[ -z "$SSH_HOST" ]]; then
+    printf 'unavailable:missing_host\n'
+    return 2
+  fi
+  if [[ -z "$SSH_USER" ]]; then
+    printf 'unavailable:missing_user\n'
+    return 2
+  fi
+  if [[ -z "$REMOTE_PROJECT_PATH" ]]; then
+    printf 'unavailable:missing_remote_project_path\n'
+    return 2
+  fi
+
+  local probe_timeout="${TORQUE_REMOTE_AVAILABILITY_TIMEOUT_SECS:-2}"
+  if ! [[ "$probe_timeout" =~ ^[1-9][0-9]*$ ]]; then
+    probe_timeout=2
+  fi
+
+  local probe_ssh_opts=(-o "ConnectTimeout=$probe_timeout" -o BatchMode=yes)
+  if [[ -n "$SSH_KEY_PATH" && "$SSH_KEY_PATH" != "null" ]]; then
+    probe_ssh_opts+=(-i "$SSH_KEY_PATH")
+  fi
+
+  if ssh "${probe_ssh_opts[@]}" "$SSH_USER@$SSH_HOST" "echo ok" >/dev/null 2>&1; then
+    printf 'available:%s@%s\n' "$SSH_USER" "$SSH_HOST"
+    return 0
+  fi
+
+  printf 'unavailable:ssh_unreachable:host=%s\n' "$SSH_HOST"
+  return 2
+}
+
+if [[ "${REMOTE_AVAILABILITY_PROBE_REQUESTED:-0}" == "1" ]]; then
+  probe_remote_availability
+  exit $?
 fi
 
 # ---- --status diagnostic (deferred until config is loaded) ----

@@ -72,6 +72,18 @@ describe('pre-push-hook staging-branch invariants', () => {
     expect(src).toMatch(/cleanup_local_gate_worktree\s*\|\| true/);
   });
 
+  it('probes remote availability before creating the staging ref', () => {
+    const src = readHook();
+    const probeIdx = src.indexOf('--__internal-probe-remote-availability');
+    const guardIdx = src.indexOf('if [ "$remote_gate_available" -eq 1 ]; then');
+    const stageIdx = src.indexOf('Staging HEAD at origin/$staging_branch');
+    expect(probeIdx).toBeGreaterThan(-1);
+    expect(guardIdx).toBeGreaterThan(probeIdx);
+    expect(stageIdx).toBeGreaterThan(guardIdx);
+    expect(src).toContain('PRE_PUSH_REMOTE_PREFLIGHT');
+    expect(src).toContain('Remote gate unavailable before staging');
+  });
+
   it('falls back locally when the remote gate exits before producing a gate marker', () => {
     const src = readHook();
     expect(src).toMatch(/Remote gate did not produce a gate-end marker; running the gate locally instead/);
