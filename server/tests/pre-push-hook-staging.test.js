@@ -327,6 +327,13 @@ fi
     expect(src).toContain('Local gates must not use the SSH tail-by-pid capture wrapper.');
   });
 
+  it('keeps phase output pipelines from suppressing the gate-end marker', () => {
+    const src = readHook();
+    expect(src).toMatch(/\} 2>&1 \| prefix_gate_phase_output dash \|\| true/);
+    expect(src).toMatch(/\} 2>&1 \| prefix_gate_phase_output serv \|\| true/);
+    expect(src).toMatch(/\} 2>&1 \| prefix_gate_phase_output perf \|\| true/);
+  });
+
   it('blocks instead of retrying when torque-remote detects concurrent worktree contamination', () => {
     const src = readHook();
     expect(src).toMatch(/\bis_remote_worktree_contamination\s*\(\)/);

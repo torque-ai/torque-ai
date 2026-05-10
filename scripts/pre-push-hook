@@ -955,6 +955,8 @@ is_local_gate_transport() {
   esac
 }
 
+# Phase exit files are the source of truth; output-prefix pipelines are
+# observational and must not suppress the final gate-end marker under pipefail.
 run_dashboard_phase() {
   {
     PHASE_START_MS=\$(gate_now_ms)
@@ -963,7 +965,7 @@ run_dashboard_phase() {
     PHASE_END_MS=\$(gate_now_ms)
     echo "[gate-timing] dash_ms=\$(elapsed_ms "\$PHASE_START_MS" "\$PHASE_END_MS") exit=\$PHASE_EXIT"
     echo \$PHASE_EXIT > "\$DASH_EXIT_FILE"
-  } 2>&1 | prefix_gate_phase_output dash
+  } 2>&1 | prefix_gate_phase_output dash || true
 }
 
 run_server_phase() {
@@ -974,7 +976,7 @@ run_server_phase() {
     PHASE_END_MS=\$(gate_now_ms)
     echo "[gate-timing] serv_ms=\$(elapsed_ms "\$PHASE_START_MS" "\$PHASE_END_MS") exit=\$PHASE_EXIT"
     echo \$PHASE_EXIT > "\$SERV_EXIT_FILE"
-  } 2>&1 | prefix_gate_phase_output serv
+  } 2>&1 | prefix_gate_phase_output serv || true
 }
 
 # Sweep stale torque-* test temp dirs from \$TMPDIR. Each test that
@@ -1085,7 +1087,7 @@ if [ "\$DASH_EXIT" -eq 0 ] && [ "\$SERV_EXIT" -eq 0 ] && [ "$GATE_RUN_PERF" = "1
     PHASE_END_MS=\$(gate_now_ms)
     echo "[gate-timing] perf_ms=\$(elapsed_ms "\$PHASE_START_MS" "\$PHASE_END_MS") exit=\$PHASE_EXIT"
     echo \$PHASE_EXIT > "\$PERF_EXIT_FILE"
-  } 2>&1 | prefix_gate_phase_output perf
+  } 2>&1 | prefix_gate_phase_output perf || true
 else
   echo 0 > "\$PERF_EXIT_FILE"
   if [ "$GATE_RUN_PERF" != "1" ]; then
