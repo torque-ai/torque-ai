@@ -116,6 +116,21 @@ describe('pre-push-hook staging-branch invariants', () => {
     expect(src).toMatch(/run_vitest_phase server run/);
   });
 
+  it('labels expected fixture stderr while preserving timing markers', () => {
+    const src = readHook();
+    expect(src).toMatch(/is_expected_gate_fixture_line\s*\(\)/);
+    expect(src).toMatch(/is_expected_gate_cmd_fixture_line\s*\(\)/);
+    expect(src).toMatch(/prefix_gate_phase_output\s*\(\)/);
+    expect(src).toContain('[expected-test-output]');
+    expect(src).toContain('fatal: not a git repository (or any of the parent directories): .git');
+    expect(src).toContain("'Get-Content' is not recognized as an internal or external command,");
+    expect(src).toContain('Dashboard API error: Invalid JSON body');
+    expect(src).toMatch(/"\[gate-timing\]"\*\)[\s\S]*printf '%s\\n'/);
+    expect(src).toMatch(/\} 2>&1 \| prefix_gate_phase_output dash &/);
+    expect(src).toMatch(/\} 2>&1 \| prefix_gate_phase_output serv &/);
+    expect(src).toMatch(/\} 2>&1 \| prefix_gate_phase_output perf/);
+  });
+
   it('passes a plan-specific gate suite to torque-remote so coord serializes and caches correctly', () => {
     const src = readHook();
     // The suite name includes the conservative gate plan hash. Without it,

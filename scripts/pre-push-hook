@@ -652,6 +652,70 @@ run_vitest_phase() {
   )
 }
 
+is_expected_gate_fixture_line() {
+  local line="\$1"
+  case "\$line" in
+    "fatal: not a git repository (or any of the parent directories): .git") return 0 ;;
+    "Preparing worktree (new branch '"*) return 0 ;;
+    "Preparing worktree (detached HEAD "*) return 0 ;;
+    "Already on '"*) return 0 ;;
+    "Switched to "*) return 0 ;;
+    "hint: "*) return 0 ;;
+    "Unhandled API error: boom") return 0 ;;
+    "Dashboard API error: Invalid JSON body") return 0 ;;
+    "Dashboard API error: Request body too large") return 0 ;;
+    "[plugin-loader] Failed to load plugin \"auth\" from "*"nonexistent-plugins"*) return 0 ;;
+    "Require stack:"*) return 0 ;;
+    "- "*"nonexistent-plugins"*) return 0 ;;
+    "[data-dir] Could not persist migration-done flag (non-fatal): no such table: config") return 0 ;;
+    "Tip: Include file names and specific details for better results.") return 0 ;;
+    "err msg") return 0 ;;
+  esac
+  return 1
+}
+
+is_expected_gate_cmd_fixture_line() {
+  local line="\$1"
+  case "\$line" in
+    "'Get-Content' is not recognized as an internal or external command,") return 0 ;;
+    "'Get-ChildItem' is not recognized as an internal or external command,") return 0 ;;
+    "'Select-String' is not recognized as an internal or external command,") return 0 ;;
+    "'Measure-Object' is not recognized as an internal or external command,") return 0 ;;
+    "'get-content' is not recognized as an internal or external command,") return 0 ;;
+    "'gci' is not recognized as an internal or external command,") return 0 ;;
+  esac
+  return 1
+}
+
+prefix_gate_phase_output() {
+  local phase="\$1"
+  local line cmd_fixture_continuation=0
+  while IFS= read -r line || [ -n "\$line" ]; do
+    case "\$line" in
+      "[gate-timing]"*)
+        printf '%s\n' "\$line"
+        continue
+        ;;
+    esac
+
+    if [ "\$cmd_fixture_continuation" -eq 1 ] && [ "\$line" = "operable program or batch file." ]; then
+      printf '[%s] [expected-test-output] %s\n' "\$phase" "\$line"
+      cmd_fixture_continuation=0
+      continue
+    fi
+    cmd_fixture_continuation=0
+
+    if is_expected_gate_cmd_fixture_line "\$line"; then
+      printf '[%s] [expected-test-output] %s\n' "\$phase" "\$line"
+      cmd_fixture_continuation=1
+    elif is_expected_gate_fixture_line "\$line"; then
+      printf '[%s] [expected-test-output] %s\n' "\$phase" "\$line"
+    else
+      printf '[%s] %s\n' "\$phase" "\$line"
+    fi
+  done
+}
+
 # Sweep stale torque-* test temp dirs from \$TMPDIR. Each test that
 # uses TORQUE_DATA_DIR creates an mkdtempSync() dir; tests don't always
 # clean up (vitest crashes, SSH drops kill afterAll). Without this,
@@ -718,7 +782,7 @@ if [ "$GATE_RUN_DASHBOARD" = "1" ]; then
     PHASE_END_MS=\$(gate_now_ms)
     echo "[gate-timing] dash_ms=\$(elapsed_ms "\$PHASE_START_MS" "\$PHASE_END_MS") exit=\$PHASE_EXIT"
     echo \$PHASE_EXIT > "\$DASH_EXIT_FILE"
-  } 2>&1 | sed -u -e "/^\[gate-timing\]/!s/^/[dash] /" &
+  } 2>&1 | prefix_gate_phase_output dash &
   DASH_PID=\$!
 else
   echo 0 > "\$DASH_EXIT_FILE"
@@ -734,7 +798,7 @@ if [ "$GATE_RUN_SERVER" = "1" ]; then
     PHASE_END_MS=\$(gate_now_ms)
     echo "[gate-timing] serv_ms=\$(elapsed_ms "\$PHASE_START_MS" "\$PHASE_END_MS") exit=\$PHASE_EXIT"
     echo \$PHASE_EXIT > "\$SERV_EXIT_FILE"
-  } 2>&1 | sed -u -e "/^\[gate-timing\]/!s/^/[serv] /" &
+  } 2>&1 | prefix_gate_phase_output serv &
   SERV_PID=\$!
 else
   echo 0 > "\$SERV_EXIT_FILE"
@@ -755,7 +819,7 @@ if [ "\$DASH_EXIT" -eq 0 ] && [ "\$SERV_EXIT" -eq 0 ] && [ "$GATE_RUN_PERF" = "1
     PHASE_END_MS=\$(gate_now_ms)
     echo "[gate-timing] perf_ms=\$(elapsed_ms "\$PHASE_START_MS" "\$PHASE_END_MS") exit=\$PHASE_EXIT"
     echo \$PHASE_EXIT > "\$PERF_EXIT_FILE"
-  } 2>&1 | sed -u -e "/^\[gate-timing\]/!s/^/[perf] /"
+  } 2>&1 | prefix_gate_phase_output perf
 else
   echo 0 > "\$PERF_EXIT_FILE"
   if [ "$GATE_RUN_PERF" != "1" ]; then
