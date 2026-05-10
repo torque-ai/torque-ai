@@ -66,6 +66,7 @@ server/perf/bypass-audit.log
 server/.tmp/
 .test-lanes/
 server/.test-lanes/
+server/.tmp-test-lanes/
 
 # Screenshots
 screenshots/
