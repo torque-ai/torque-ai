@@ -23,6 +23,18 @@ die()  { echo "[torque-remote] ERROR: $*" >&2; exit 1; }
 warn() { echo "[torque-remote] WARNING: $*" >&2; }
 info() { echo "[torque-remote] $*" >&2; }
 
+config_trace_enabled() {
+  case "${TORQUE_REMOTE_CONFIG_TRACE:-}" in
+    1|true|TRUE|yes|YES|on|ON) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+trace_config_sources() {
+  config_trace_enabled || return 0
+  info "Config source: remote=${CONFIG_SOURCE:-none} global=${GLOBAL_CONFIG_STATE:-missing}(${GLOBAL_CONFIG:-unknown}) project=${PROJECT_CONFIG_STATE:-missing}(${PROJECT_CONFIG:-unknown}) local=${LOCAL_CONFIG_SOURCE:-none} global_local=${GLOBAL_LOCAL_STATE:-missing}(${GLOBAL_LOCAL:-unknown}) project_local=${PROJECT_LOCAL_STATE:-missing}(${PROJECT_LOCAL:-unknown}) transport=${TRANSPORT:-local} sync_before_run=${SYNC_BEFORE_RUN:-true} timeout_seconds=${TIMEOUT_SECONDS:-300} load_threshold=${LOAD_THRESHOLD:-80}"
+}
+
 # Append a single JSONL record to ~/.torque/torque-remote-fallback.log every
 # time torque-remote falls back to local execution. Lets operators ask
 # "which fallbacks happened in the last 24h, and why?" with one query
@@ -81,8 +93,9 @@ record_fallback() {
 #   DECISION_TRANSPORT         — "local" or "ssh", set at transport branch
 #   DECISION_FALLBACK_REASON   — set by record_fallback's first call
 #   DECISION_FALLBACK_DETAIL   — set by record_fallback's first call
-#   PROJECT_NAME, SYNC_REF, SSH_HOST, COMMAND_DISPLAY — captured during
-#                                                       normal flow
+#   PROJECT_NAME, SYNC_REF, SSH_HOST, COMMAND_DISPLAY, CONFIG_SOURCE,
+#   GLOBAL_CONFIG_STATE, PROJECT_CONFIG_STATE, LOCAL_CONFIG_SOURCE
+#                                                       — captured during normal flow
 #
 # Best-effort: errors swallowed, exit handler must not block.
 DECISION_START_EPOCH=""
@@ -95,6 +108,7 @@ record_decision_on_exit() {
   local log_dir="${TORQUE_REMOTE_DECISION_LOG_DIR:-${HOME}/.torque}"
   local log_path="${TORQUE_REMOTE_DECISION_LOG:-${log_dir}/torque-remote-decisions.jsonl}"
   local ts_start ts_end elapsed now project sync_ref host transport outcome reason detail cmd
+  local config_source local_config_source global_config_present project_config_present
   now="$(date +%s 2>/dev/null || echo 0)"
   if [[ "${DECISION_START_EPOCH:-}" =~ ^[0-9]+$ ]] && [[ "$now" =~ ^[0-9]+$ ]] && (( now > 0 )); then
     elapsed=$((now - DECISION_START_EPOCH))
@@ -111,6 +125,12 @@ record_decision_on_exit() {
   host="${SSH_HOST:-unknown}"
   transport="${DECISION_TRANSPORT:-unknown}"
   cmd="${COMMAND_DISPLAY:-}"
+  config_source="${CONFIG_SOURCE:-none}"
+  local_config_source="${LOCAL_CONFIG_SOURCE:-none}"
+  global_config_present=false
+  [[ "${GLOBAL_CONFIG_STATE:-missing}" == "loaded" ]] && global_config_present=true
+  project_config_present=false
+  [[ "${PROJECT_CONFIG_STATE:-missing}" == "loaded" ]] && project_config_present=true
   reason="${DECISION_FALLBACK_REASON:-}"
   detail="${DECISION_FALLBACK_DETAIL:-}"
   if [[ -n "$reason" ]]; then
@@ -118,7 +138,7 @@ record_decision_on_exit() {
   else
     outcome="success"
   fi
-  local esc_project esc_sync_ref esc_host esc_transport esc_outcome esc_reason esc_detail esc_cmd
+  local esc_project esc_sync_ref esc_host esc_transport esc_outcome esc_reason esc_detail esc_cmd esc_config_source esc_local_config_source
   esc_project="$(printf '%s' "$project" | sed 's/\\/\\\\/g; s/"/\\"/g')"
   esc_sync_ref="$(printf '%s' "$sync_ref" | sed 's/\\/\\\\/g; s/"/\\"/g')"
   esc_host="$(printf '%s' "$host" | sed 's/\\/\\\\/g; s/"/\\"/g')"
@@ -127,14 +147,16 @@ record_decision_on_exit() {
   esc_reason="$(printf '%s' "$reason" | sed 's/\\/\\\\/g; s/"/\\"/g')"
   esc_detail="$(printf '%s' "$detail" | sed 's/\\/\\\\/g; s/"/\\"/g')"
   esc_cmd="$(printf '%s' "$cmd" | sed 's/\\/\\\\/g; s/"/\\"/g')"
+  esc_config_source="$(printf '%s' "$config_source" | sed 's/\\/\\\\/g; s/"/\\"/g')"
+  esc_local_config_source="$(printf '%s' "$local_config_source" | sed 's/\\/\\\\/g; s/"/\\"/g')"
   local reason_field='null'
   [[ -n "$reason" ]] && reason_field="\"$esc_reason\""
   local detail_field='null'
   [[ -n "$detail" ]] && detail_field="\"$esc_detail\""
   {
     mkdir -p "$log_dir" 2>/dev/null || return 0
-    printf '{"timestamp_start":"%s","timestamp_end":"%s","elapsed_secs":%s,"project":"%s","sync_ref":"%s","host":"%s","pid":%s,"transport":"%s","outcome":"%s","fallback_reason":%s,"fallback_detail":%s,"exit_code":%s,"command":"%s"}\n' \
-      "$ts_start" "$ts_end" "$elapsed" "$esc_project" "$esc_sync_ref" "$esc_host" "$$" "$esc_transport" "$esc_outcome" "$reason_field" "$detail_field" "$exit_code" "$esc_cmd" \
+    printf '{"timestamp_start":"%s","timestamp_end":"%s","elapsed_secs":%s,"project":"%s","sync_ref":"%s","host":"%s","pid":%s,"transport":"%s","config_source":"%s","global_config_present":%s,"project_config_present":%s,"local_config_source":"%s","outcome":"%s","fallback_reason":%s,"fallback_detail":%s,"exit_code":%s,"command":"%s"}\n' \
+      "$ts_start" "$ts_end" "$elapsed" "$esc_project" "$esc_sync_ref" "$esc_host" "$$" "$esc_transport" "$esc_config_source" "$global_config_present" "$project_config_present" "$esc_local_config_source" "$esc_outcome" "$reason_field" "$detail_field" "$exit_code" "$esc_cmd" \
       >> "$log_path" 2>/dev/null || true
   } >/dev/null 2>&1
   return 0
@@ -1538,10 +1560,15 @@ TRANSPORT="local"
 SYNC_BEFORE_RUN="true"
 TIMEOUT_SECONDS="300"
 LOAD_THRESHOLD="80"
+CONFIG_SOURCE="none"
+GLOBAL_CONFIG_STATE="missing"
+PROJECT_CONFIG_STATE="missing"
 
 # Global config
 GLOBAL_CONFIG="$HOME/.torque-remote.json"
 if [[ -f "$GLOBAL_CONFIG" ]]; then
+  GLOBAL_CONFIG_STATE="loaded"
+  CONFIG_SOURCE="global"
   v=$(json_get "$GLOBAL_CONFIG" '.transport');        [[ -n "$v" ]] && TRANSPORT="$v"
   v=$(json_get "$GLOBAL_CONFIG" '.sync_before_run');  [[ -n "$v" ]] && SYNC_BEFORE_RUN="$v"
   v=$(json_get "$GLOBAL_CONFIG" '.timeout_seconds');  [[ -n "$v" ]] && TIMEOUT_SECONDS="$v"
@@ -1551,6 +1578,8 @@ fi
 # Per-project override
 PROJECT_CONFIG="$PROJECT_ROOT/.torque-remote.json"
 if [[ -f "$PROJECT_CONFIG" ]]; then
+  PROJECT_CONFIG_STATE="loaded"
+  CONFIG_SOURCE="project"
   v=$(json_get "$PROJECT_CONFIG" '.transport');        [[ -n "$v" ]] && TRANSPORT="$v"
   v=$(json_get "$PROJECT_CONFIG" '.sync_before_run');  [[ -n "$v" ]] && SYNC_BEFORE_RUN="$v"
   v=$(json_get "$PROJECT_CONFIG" '.timeout_seconds');  [[ -n "$v" ]] && TIMEOUT_SECONDS="$v"
@@ -1592,10 +1621,15 @@ REMOTE_TEST_WORKTREE_ROOT=""
 # use a sibling checkout and therefore a separate sync lock without changing
 # the operator's default torque-remote worktree.
 REMOTE_TEST_WORKTREE_SUFFIX=""
+LOCAL_CONFIG_SOURCE="none"
+GLOBAL_LOCAL_STATE="missing"
+PROJECT_LOCAL_STATE="missing"
 
 # Global local config
 GLOBAL_LOCAL="$HOME/.torque-remote.local.json"
 if [[ -f "$GLOBAL_LOCAL" ]]; then
+  GLOBAL_LOCAL_STATE="loaded"
+  LOCAL_CONFIG_SOURCE="global"
   SSH_HOST=$(json_get "$GLOBAL_LOCAL" '.host')
   SSH_USER=$(json_get "$GLOBAL_LOCAL" '.user')
   SSH_KEY_PATH=$(json_get "$GLOBAL_LOCAL" '.key_path')
@@ -1607,6 +1641,8 @@ fi
 # Per-project local override
 PROJECT_LOCAL="$PROJECT_ROOT/.torque-remote.local.json"
 if [[ -f "$PROJECT_LOCAL" ]]; then
+  PROJECT_LOCAL_STATE="loaded"
+  LOCAL_CONFIG_SOURCE="project"
   v=$(json_get "$PROJECT_LOCAL" '.host');                       [[ -n "$v" ]] && SSH_HOST="$v"
   v=$(json_get "$PROJECT_LOCAL" '.user');                       [[ -n "$v" ]] && SSH_USER="$v"
   v=$(json_get "$PROJECT_LOCAL" '.key_path');                   [[ -n "$v" ]] && SSH_KEY_PATH="$v"
@@ -1621,6 +1657,8 @@ if [[ -n "${TORQUE_REMOTE_TEST_WORKTREE_SUFFIX:-}" ]]; then
   fi
   REMOTE_TEST_WORKTREE_SUFFIX="$TORQUE_REMOTE_TEST_WORKTREE_SUFFIX"
 fi
+
+trace_config_sources
 
 # Derive remote project path if not explicitly set
 if [[ -z "$REMOTE_PROJECT_PATH" && -n "$DEFAULT_PROJECT_PATH" ]]; then

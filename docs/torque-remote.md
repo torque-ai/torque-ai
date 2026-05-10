@@ -44,6 +44,12 @@ A `TORQUE_REMOTE_TEST_WORKTREE_SUFFIX` env var appends a per-invocation suffix (
 
 `PROJECT_NAME` is derived from `git rev-parse --git-common-dir` to handle worktrees correctly: `basename(PROJECT_ROOT)` is `feat-foo`, but `git rev-parse` returns the main repo's `.git` so we can recover the real project name.
 
+### Config ownership and source tracing
+
+`~/.torque-remote.json` is operator-owned. The runtime paths in `bin/torque-remote`, `bin/torque-remote-guard`, `hooks/guard-command`, and `server/plugins/remote-agents/remote-test-routing.js` read it; they do not create or repair it when it is missing. If the file reappears after being renamed, treat that as an external setup/profile/agent action and inspect the file timestamps plus the invoking session history.
+
+For live diagnosis, set `TORQUE_REMOTE_CONFIG_TRACE=1` before running `torque-remote` or the guard. The wrappers print the selected config source (`none`, `global`, or `project`) and the per-source loaded/missing state to stderr. `torque-remote` also records `config_source`, `global_config_present`, `project_config_present`, and `local_config_source` in `~/.torque/torque-remote-decisions.jsonl` for every invocation.
+
 ---
 
 ## End-to-end lifecycle (SSH transport)
@@ -295,6 +301,7 @@ Operator-controllable knobs:
 | `TORQUE_REMOTE_SYNC_LOCK_HEARTBEAT_SECS` | `60` | Holder updates heartbeat.epoch on remote every N seconds; `0` disables |
 | `TORQUE_REMOTE_SYNC_LOCK_HEARTBEAT_STALE_SECS` | `300` (5 min) | Waiters warn (one-shot) if heartbeat age exceeds this; informational only, no auto-reap |
 | `TORQUE_REMOTE_SYNC_TIMEOUT_SECS` | `600` (10 min) | Sync chain timeout — kills SSH if fetch/checkout/reset hangs |
+| `TORQUE_REMOTE_CONFIG_TRACE` | (unset) | Opt-in config-source trace for `torque-remote`, `torque-remote-guard`, and server-side wrapper routing |
 | `TORQUE_REMOTE_DECISION_LOG` / `_LOG_DIR` | `~/.torque/torque-remote-decisions.jsonl` | Per-invocation outcome log (success/fallback, transport, elapsed) |
 | `TORQUE_REMOTE_FALLBACK_LOG` / `_LOG_DIR` | `~/.torque/torque-remote-fallback.log` | Per-fallback reason log (only fires on fallback) |
 | `TORQUE_REMOTE_SYNC_LOG` | `/tmp/torque-remote-sync.log` | Sync output log path |
@@ -389,7 +396,7 @@ Stale-check parses the inline owner block (no extra SSH). Per stale-check round,
 
 ### 10. ✅ ~~No structured emission of the sync-vs-fallback decision~~ RESOLVED 2026-05-07
 
-`record_decision_on_exit` (registered via `trap_chain_add`) appends a JSONL line to `~/.torque/torque-remote-decisions.jsonl` for **every** invocation regardless of outcome (distinct from the fallback-only log under #4). Fields: `timestamp_start`, `timestamp_end`, `elapsed_secs`, `project`, `sync_ref`, `host`, `pid`, `transport` (local/ssh), `outcome` (success/fallback), `fallback_reason` (null when success), `fallback_detail`, `exit_code`, `command`. Path overridable via `TORQUE_REMOTE_DECISION_LOG` / `TORQUE_REMOTE_DECISION_LOG_DIR`.
+`record_decision_on_exit` (registered via `trap_chain_add`) appends a JSONL line to `~/.torque/torque-remote-decisions.jsonl` for **every** invocation regardless of outcome (distinct from the fallback-only log under #4). Fields: `timestamp_start`, `timestamp_end`, `elapsed_secs`, `project`, `sync_ref`, `host`, `pid`, `transport` (local/ssh), `config_source`, `global_config_present`, `project_config_present`, `local_config_source`, `outcome` (success/fallback), `fallback_reason` (null when success), `fallback_detail`, `exit_code`, `command`. Path overridable via `TORQUE_REMOTE_DECISION_LOG` / `TORQUE_REMOTE_DECISION_LOG_DIR`.
 
 **Operator queries unlocked:**
 - `jq -s 'group_by(.outcome) | map({outcome: .[0].outcome, count: length})' ~/.torque/torque-remote-decisions.jsonl` — fallback rate over all time

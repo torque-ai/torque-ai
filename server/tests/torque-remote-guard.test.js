@@ -59,12 +59,13 @@ const maybe = SKIP ? describe.skip : describe;
 // genuine hangs invisible.
 const PER_CALL_TIMEOUT_MS = 30000;
 
-function runGuard(command, cwd) {
+function runGuard(command, cwd, env = {}) {
   return spawnSync(BASH_BIN, [GUARD], {
     cwd,
     input: JSON.stringify({ tool_input: { command } }),
     encoding: 'utf8',
     timeout: PER_CALL_TIMEOUT_MS,
+    env: { ...process.env, ...env },
   });
 }
 
@@ -185,6 +186,15 @@ maybe('torque-remote-guard', () => {
         try { fs.rmSync(localRepo, { recursive: true, force: true }); }
         catch { /* tolerated — see afterEach comment */ }
       }
+    });
+  });
+
+  describe('config trace', () => {
+    it('reports the project config source without changing the decision', () => {
+      const r = runGuard('git status', repo, { TORQUE_REMOTE_CONFIG_TRACE: '1' });
+      expect(r.status).toBe(0);
+      expect(r.stderr).toContain('[torque-remote-guard] Config source: project');
+      expect(r.stderr).toContain('.torque-remote.json');
     });
   });
 
