@@ -18,7 +18,6 @@ RUN_RUNNER_SH=""
 RUN_BOOTSTRAP_SH=""
 
 TEST_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
-TEST_REPO_ROOT="$(cd "$TEST_SCRIPT_DIR/.." && pwd -P)"
 SCRIPT_UNDER_TEST="$(cd "$TEST_SCRIPT_DIR/../bin" && pwd -P)/torque-remote"
 ORIGINAL_PATH="$PATH"
 TEST_TMP_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/torque-remote-test-root.XXXXXX")" || {
@@ -741,25 +740,29 @@ run_torque_remote() {
 }
 
 test_git_stub_refuses_worktree_remove_outside_test_root() {
-  local tmp stderr_file exit_code
+  local tmp outside_dir stderr_file exit_code
 
   echo "Test: git stub refuses to remove paths outside the test temp root"
   TEST_ERRORS=()
   reset_stub_env
   make_test_env
   tmp="$LAST_TEST_ENV"
+  outside_dir="$(mktemp -d "${TEST_TMP_ROOT}.outside.XXXXXX")"
   stderr_file="$tmp/stub-git-stderr.log"
 
   TORQUE_REMOTE_TEST_CALLS_LOG="$tmp/calls.log" \
   TORQUE_REMOTE_TEST_TMP_ROOT="$TEST_TMP_ROOT" \
-    "$tmp/bin/git" worktree remove --force "$TEST_REPO_ROOT" > /dev/null 2>"$stderr_file"
+    "$tmp/bin/git" worktree remove --force "$outside_dir" > /dev/null 2>"$stderr_file"
   exit_code=$?
 
   expect_nonzero "outside-root worktree remove is rejected" "$exit_code"
   expect_file_contains "rejection message names outside-root removal" "$stderr_file" "refusing to remove path outside test temp root"
-  if [[ ! -d "$TEST_REPO_ROOT" ]]; then
-    record_failure "repo root still exists after rejected worktree remove"
+  if [[ ! -d "$outside_dir" ]]; then
+    record_failure "outside sentinel still exists after rejected worktree remove"
   fi
+  case "$outside_dir" in
+    "$TEST_TMP_ROOT".outside.*) rm -rf "$outside_dir" ;;
+  esac
 
   finish_test "test_git_stub_refuses_worktree_remove_outside_test_root"
 }
