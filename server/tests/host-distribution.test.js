@@ -1,5 +1,8 @@
 const { setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
 const { TEST_MODELS } = require('./test-helpers');
+const { installStableTaskWorkspace } = require('./task-workspace-helpers');
+
+const taskWorkspace = installStableTaskWorkspace({ prefix: 'torque-host-distribution-' });
 
 /**
  * Host Distribution & Load Balancing Tests
@@ -69,7 +72,7 @@ describe('Host Distribution & Load Balancing', () => {
       task_description: `Test task for ${model}`,
       provider: provider || 'ollama',
       model: model || TEST_MODELS.SMALL,
-      working_directory: process.cwd()
+      working_directory: taskWorkspace()
     });
     if (hostId) {
       db.updateTaskStatus(id, 'running', { ollama_host_id: hostId });
@@ -739,7 +742,7 @@ describe('Host Distribution & Load Balancing', () => {
         task_description: 'Test VRAM tracking',
         provider: 'ollama',
         model: TEST_MODELS.QUALITY,
-        working_directory: process.cwd()
+        working_directory: taskWorkspace()
       });
       db.updateTaskStatus(taskId, 'running', { ollama_host_id: hostId });
 
@@ -769,7 +772,7 @@ describe('Host Distribution & Load Balancing', () => {
         task_description: 'Already running large model',
         provider: 'ollama',
         model: TEST_MODELS.QUALITY,
-        working_directory: process.cwd()
+        working_directory: taskWorkspace()
       });
       db.updateTaskStatus(runningTaskId, 'running', { ollama_host_id: hostId });
 

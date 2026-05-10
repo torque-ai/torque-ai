@@ -6,6 +6,7 @@
  */
 
 const { TEST_MODELS } = require('./test-helpers');
+const { createTaskWorkspaceManager } = require('./task-workspace-helpers');
 
 const mockProviderRegistry = {
   getProviderInstance: vi.fn().mockReturnValue({}),
@@ -42,6 +43,23 @@ const mockServerConfig = {
 vi.mock('../config', () => mockServerConfig);
 
 describe('auto_routed overflow — proof of integration', () => {
+  let taskWorkspaces;
+
+  function taskWorkspace() {
+    return taskWorkspaces.create();
+  }
+
+  beforeEach(() => {
+    taskWorkspaces = createTaskWorkspaceManager({ prefix: 'torque-auto-routed-overflow-' });
+  });
+
+  afterEach(() => {
+    if (taskWorkspaces) {
+      taskWorkspaces.cleanup();
+    }
+    taskWorkspaces = null;
+  });
+
   // ── Part 1: createTask metadata flag ──────────────────────
 
   describe('createTask sets auto_routed correctly', () => {
@@ -112,7 +130,7 @@ describe('auto_routed overflow — proof of integration', () => {
       taskCore.createTask({
         id: taskId,
         task_description: 'Write unit tests for parser module',
-        working_directory: process.cwd(),
+        working_directory: taskWorkspace(),
         status: 'pending',
         // NO provider — this is how workflow tasks are created
       });
@@ -132,7 +150,7 @@ describe('auto_routed overflow — proof of integration', () => {
       taskCore.createTask({
         id: taskId,
         task_description: 'Security audit of auth module',
-        working_directory: process.cwd(),
+        working_directory: taskWorkspace(),
         status: 'pending',
         provider: 'codex', // EXPLICIT
       });
@@ -151,7 +169,7 @@ describe('auto_routed overflow — proof of integration', () => {
       taskCore.createTask({
         id: taskId,
         task_description: 'Deploy pipeline task',
-        working_directory: process.cwd(),
+        working_directory: taskWorkspace(),
         status: 'pending',
         provider: 'codex',
         metadata: JSON.stringify({ user_provider_override: true }),

@@ -8,9 +8,11 @@
 
 const crypto = require('crypto');
 const { setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
+const { installStableTaskWorkspace } = require('./task-workspace-helpers');
 const fileQuality = require('../db/file/quality');
 
 let db;
+const taskWorkspace = installStableTaskWorkspace({ prefix: 'torque-analytics-validation-' });
 
 function createTask(overrides = {}) {
   const id = overrides.id || crypto.randomUUID();
@@ -19,7 +21,7 @@ function createTask(overrides = {}) {
     task_description: overrides.task_description || 'test task',
     provider: overrides.provider || 'ollama',
     model: overrides.model || 'test:1b',
-    working_directory: process.cwd(),
+    working_directory: taskWorkspace(),
     ...overrides,
   });
   return id;
@@ -611,9 +613,9 @@ describe('Analytics & Validation proxy modules', () => {
     it('records a fingerprint and detects duplicates', () => {
       const taskId = createTask({ status: 'running' });
       const desc = `unique-task-desc-${Date.now()}`;
-      db.recordTaskFingerprint(taskId, desc, process.cwd());
+      db.recordTaskFingerprint(taskId, desc, taskWorkspace());
 
-      const check = db.checkDuplicateTask(desc, process.cwd());
+      const check = db.checkDuplicateTask(desc, taskWorkspace());
       expect(check.isDuplicate).toBe(true);
       expect(check.existingTaskId).toBe(taskId);
     });
@@ -621,10 +623,10 @@ describe('Analytics & Validation proxy modules', () => {
     it('returns not duplicate for completed tasks', () => {
       const taskId = createTask({ status: 'completed' });
       const desc = `completed-task-${Date.now()}`;
-      db.recordTaskFingerprint(taskId, desc, process.cwd());
+      db.recordTaskFingerprint(taskId, desc, taskWorkspace());
       db.updateTaskStatus(taskId, 'completed');
 
-      const check = db.checkDuplicateTask(desc, process.cwd());
+      const check = db.checkDuplicateTask(desc, taskWorkspace());
       expect(check.isDuplicate).toBe(false);
     });
   });
@@ -636,7 +638,7 @@ describe('Analytics & Validation proxy modules', () => {
   describe('acquireFileLock + releaseFileLock + getActiveFileLocks', () => {
     it('acquires a file lock', () => {
       const taskId = createTask();
-      const result = db.acquireFileLock('src/app.ts', process.cwd(), taskId);
+      const result = db.acquireFileLock('src/app.ts', taskWorkspace(), taskId);
       expect(result.acquired).toBe(true);
     });
 
@@ -644,7 +646,7 @@ describe('Analytics & Validation proxy modules', () => {
       const task1 = createTask();
       const task2 = createTask();
       const filePath = `src/conflict-${Date.now()}.ts`;
-      const wd = process.cwd();
+      const wd = taskWorkspace();
 
       db.acquireFileLock(filePath, wd, task1);
       const result = db.acquireFileLock(filePath, wd, task2);
@@ -655,8 +657,8 @@ describe('Analytics & Validation proxy modules', () => {
     it('allows same task to re-acquire its own lock', () => {
       const taskId = createTask();
       const filePath = `src/reacquire-${Date.now()}.ts`;
-      db.acquireFileLock(filePath, process.cwd(), taskId);
-      const result = db.acquireFileLock(filePath, process.cwd(), taskId);
+      db.acquireFileLock(filePath, taskWorkspace(), taskId);
+      const result = db.acquireFileLock(filePath, taskWorkspace(), taskId);
       expect(result.acquired).toBe(true);
     });
 
@@ -664,7 +666,7 @@ describe('Analytics & Validation proxy modules', () => {
       const task1 = createTask();
       const task2 = createTask();
       const filePath = `src/release-${Date.now()}.ts`;
-      const wd = process.cwd();
+      const wd = taskWorkspace();
 
       db.acquireFileLock(filePath, wd, task1);
       db.releaseFileLock(filePath, wd, task1);
@@ -675,7 +677,7 @@ describe('Analytics & Validation proxy modules', () => {
 
     it('releaseAllFileLocks releases all locks for a task', () => {
       const taskId = createTask();
-      const wd = process.cwd();
+      const wd = taskWorkspace();
       db.acquireFileLock(`src/a-${Date.now()}.ts`, wd, taskId);
       db.acquireFileLock(`src/b-${Date.now()}.ts`, wd, taskId);
 
@@ -686,7 +688,7 @@ describe('Analytics & Validation proxy modules', () => {
 
     it('getActiveFileLocks returns locks for a specific task', () => {
       const taskId = createTask();
-      const wd = process.cwd();
+      const wd = taskWorkspace();
       const filePath = `src/active-${Date.now()}.ts`;
       db.acquireFileLock(filePath, wd, taskId);
 

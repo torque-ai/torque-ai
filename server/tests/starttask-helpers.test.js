@@ -13,10 +13,12 @@ const fs = require('fs');
 const { randomUUID } = require('crypto');
 const processLifecycle = require('../execution/process-lifecycle');
 const { setupE2eDb, teardownE2eDb, registerMockHost } = require('./e2e-helpers');
+const { installStableTaskWorkspace } = require('./task-workspace-helpers');
 
 let ctx;
 let db;
 let tm;
+const taskWorkspace = installStableTaskWorkspace({ prefix: 'torque-starttask-helpers-' });
 
 function installCjsModuleMock(modulePath, exportsValue) {
   const resolved = require.resolve(modulePath);
@@ -65,7 +67,7 @@ async function cleanup() {
 }
 
 /**
- * Create a task in the DB. Uses process.cwd() as the default working_directory
+ * Create a task in the DB. Uses taskWorkspace() as the default working_directory
  * so runPreflightChecks won't reject it.
  */
 function createTask(overrides = {}) {
@@ -76,7 +78,7 @@ function createTask(overrides = {}) {
     task_description: overrides.task_description || 'Test task for startTask helpers',
     provider: overrides.provider || 'ollama',
     model: overrides.model || 'codellama:latest',
-    working_directory: overrides.working_directory !== undefined ? overrides.working_directory : process.cwd(),
+    working_directory: overrides.working_directory !== undefined ? overrides.working_directory : taskWorkspace(),
     max_retries: overrides.max_retries !== undefined ? overrides.max_retries : 0,
     metadata: overrides.metadata || null,
   });
@@ -92,7 +94,7 @@ describe('runPreflightChecks (via startTask)', () => {
   afterEach(cleanup);
 
   it('throws when working_directory does not exist', async () => {
-    const id = createTask({ working_directory: process.cwd() });
+    const id = createTask({ working_directory: taskWorkspace() });
     // Bypass db.createTask validation by patching the row directly
     const rawDb = db.getDbInstance();
     rawDb.prepare('UPDATE tasks SET working_directory = ? WHERE id = ?')
@@ -107,7 +109,7 @@ describe('runPreflightChecks (via startTask)', () => {
     fs.writeFileSync(tmpFile, 'not a directory');
 
     try {
-      const id = createTask({ working_directory: process.cwd() });
+      const id = createTask({ working_directory: taskWorkspace() });
       const rawDb = db.getDbInstance();
       rawDb.prepare('UPDATE tasks SET working_directory = ? WHERE id = ?')
         .run(tmpFile, id);
@@ -125,7 +127,7 @@ describe('runPreflightChecks (via startTask)', () => {
     rawDb.prepare(`
       INSERT INTO tasks (id, status, task_description, working_directory, timeout_minutes, max_retries, created_at)
       VALUES (?, 'pending', '', ?, 30, 0, ?)
-    `).run(id, process.cwd(), new Date().toISOString());
+    `).run(id, taskWorkspace(), new Date().toISOString());
 
     await expect(() => tm.startTask(id)).rejects.toThrow(/empty/i);
   });
@@ -136,7 +138,7 @@ describe('runPreflightChecks (via startTask)', () => {
     rawDb.prepare(`
       INSERT INTO tasks (id, status, task_description, working_directory, timeout_minutes, max_retries, created_at)
       VALUES (?, 'pending', '   ', ?, 30, 0, ?)
-    `).run(id, process.cwd(), new Date().toISOString());
+    `).run(id, taskWorkspace(), new Date().toISOString());
 
     await expect(() => tm.startTask(id)).rejects.toThrow(/empty/i);
   });
@@ -1026,7 +1028,7 @@ describe('attemptTaskStart error handling (via tm)', () => {
   });
 
   it('safeStartTask returns false for tasks with missing working_directory', () => {
-    const id = createTask({ working_directory: process.cwd() });
+    const id = createTask({ working_directory: taskWorkspace() });
     const rawDb = db.getDbInstance();
     rawDb.prepare('UPDATE tasks SET working_directory = ? WHERE id = ?')
       .run('/nonexistent/startask-helpers-test-path', id);
@@ -1041,7 +1043,7 @@ describe('attemptTaskStart error handling (via tm)', () => {
     rawDb.prepare(`
       INSERT INTO tasks (id, status, task_description, working_directory, timeout_minutes, max_retries, created_at)
       VALUES (?, 'pending', '', ?, 30, 0, ?)
-    `).run(id, process.cwd(), new Date().toISOString());
+    `).run(id, taskWorkspace(), new Date().toISOString());
 
     let result;
     expect(() => {
@@ -1051,7 +1053,7 @@ describe('attemptTaskStart error handling (via tm)', () => {
   });
 
   it('attemptTaskStart returns failed result with deterministic preflight error info', () => {
-    const id = createTask({ working_directory: process.cwd() });
+    const id = createTask({ working_directory: taskWorkspace() });
     const rawDb = db.getDbInstance();
     rawDb.prepare('UPDATE tasks SET working_directory = ? WHERE id = ?')
       .run('/nonexistent/preflight-deterministic-test', id);
@@ -1070,7 +1072,7 @@ describe('attemptTaskStart error handling (via tm)', () => {
   });
 
   it('attemptTaskStart marks deterministic preflight failures as failed in DB', () => {
-    const id = createTask({ working_directory: process.cwd() });
+    const id = createTask({ working_directory: taskWorkspace() });
     const rawDb = db.getDbInstance();
     rawDb.prepare('UPDATE tasks SET working_directory = ? WHERE id = ?')
       .run('/nonexistent/preflight-db-mark-test', id);
@@ -1193,12 +1195,12 @@ describe('duplicate check behavior (via startTask)', () => {
 
     expect(dupSpy).toHaveBeenCalledWith(
       'Test task for startTask helpers',
-      process.cwd(),
+      taskWorkspace(),
     );
     expect(fpSpy).toHaveBeenCalledWith(
       id,
       'Test task for startTask helpers',
-      process.cwd(),
+      taskWorkspace(),
     );
 
     dupSpy.mockRestore();
@@ -1633,7 +1635,7 @@ describe('startTask with edge case task data', () => {
     rawDb.prepare(`
       INSERT INTO tasks (id, status, task_description, working_directory, timeout_minutes, max_retries, created_at)
       VALUES (?, 'pending', ?, ?, 30, 0, ?)
-    `).run(id, '\n\n\n', process.cwd(), new Date().toISOString());
+    `).run(id, '\n\n\n', taskWorkspace(), new Date().toISOString());
 
     await expect(() => tm.startTask(id)).rejects.toThrow(/empty/i);
   });
@@ -1644,7 +1646,7 @@ describe('startTask with edge case task data', () => {
     rawDb.prepare(`
       INSERT INTO tasks (id, status, task_description, working_directory, timeout_minutes, max_retries, created_at)
       VALUES (?, 'pending', ?, ?, 30, 0, ?)
-    `).run(id, '\t\t\t', process.cwd(), new Date().toISOString());
+    `).run(id, '\t\t\t', taskWorkspace(), new Date().toISOString());
 
     await expect(() => tm.startTask(id)).rejects.toThrow(/empty/i);
   });

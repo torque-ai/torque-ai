@@ -1,6 +1,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { installStableTaskWorkspace } = require('./task-workspace-helpers');
 
 const { v4: uuidv4 } = require('uuid');
 
@@ -12,6 +13,8 @@ const { getPeekFirstSliceCanonicalEntry } = require('../contracts/peek');
 const peekHandlers = require('../plugins/snapscope/handlers/analysis');
 const tools = require('../tools');
 const remoteAgentToolDefs = require('../plugins/remote-agents/tool-defs');
+
+const taskWorkspace = installStableTaskWorkspace({ prefix: 'torque-test-hardening-' });
 
 // `coord_status` is dispatched inline via a switch case in tools.js (calls
 // coord-poller.getActiveLocks); no routeMap entry, no plugin handler.
@@ -268,7 +271,7 @@ describe('test-hardening parity', () => {
         id: taskId,
         status: 'pending',
         task_description: 'test task',
-        working_directory: process.cwd(),
+        working_directory: taskWorkspace(),
       });
 
       try {
@@ -399,7 +402,7 @@ describe('test-hardening parity', () => {
     it('import_data rejects oversized batch', async () => {
       const largeTasks = Array.from({ length: 1001 }, (_, index) => ({
         task: `task-${index}`,
-        working_directory: process.cwd(),
+        working_directory: taskWorkspace(),
       }));
       const tmpFile = path.join(os.tmpdir(), `torque-import-test-${Date.now()}.json`);
       fs.writeFileSync(tmpFile, JSON.stringify({ tasks: largeTasks }), 'utf8');

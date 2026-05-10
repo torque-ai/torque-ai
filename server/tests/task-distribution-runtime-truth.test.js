@@ -2,6 +2,24 @@
 
 const { setupE2eDb, teardownE2eDb } = require('./e2e-helpers');
 const { TEST_MODELS } = require('./test-helpers');
+const { createTaskWorkspaceManager } = require('./task-workspace-helpers');
+
+let taskWorkspaces;
+
+function taskWorkspace() {
+  return taskWorkspaces.create();
+}
+
+beforeEach(() => {
+  taskWorkspaces = createTaskWorkspaceManager({ prefix: 'torque-runtime-truth-' });
+});
+
+afterEach(() => {
+  if (taskWorkspaces) {
+    taskWorkspaces.cleanup();
+  }
+  taskWorkspaces = null;
+});
 
 describe('task distribution runtime truth', () => {
   describe('requeueTaskAfterAttemptedStart', () => {
@@ -25,7 +43,7 @@ describe('task distribution runtime truth', () => {
         id,
         status: 'queued',
         task_description: 'Requeue after attempted start',
-        working_directory: process.cwd(),
+        working_directory: taskWorkspace(),
         provider: 'ollama',
         model: TEST_MODELS.SMALL,
       });
@@ -85,7 +103,7 @@ describe('task distribution runtime truth', () => {
         id,
         status: 'pending',
         task_description: 'Task should requeue cleanly',
-        working_directory: process.cwd(),
+        working_directory: taskWorkspace(),
         provider: 'claude-cli',
       });
 
@@ -119,7 +137,7 @@ describe('provider execution attempted-start cleanup', () => {
       model: null,
       metadata: null,
       timeout_minutes: 1,
-      working_directory: process.cwd(),
+      working_directory: taskWorkspace(),
     };
     tasks.set(task.id, { ...task });
 

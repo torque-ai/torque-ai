@@ -3,8 +3,11 @@
 const fs = require('fs');
 const path = require('path');
 
-const RISKY_TOOL_CALL_RE = /(safeTool|handleToolCall)\(\s*['"`](submit_task|smart_submit_task)['"`][\s\S]{0,800}?working_directory\s*:\s*process\.cwd\(\)/m;
-const CWD_ALIAS_TOOL_CALL_RE = /(safeTool|handleToolCall)\(\s*['"`](submit_task|smart_submit_task)['"`][\s\S]{0,800}?working_directory\s*:\s*cwd\b/m;
+const RISKY_REPO_WORKSPACE_CALLS = [
+  /(safeTool|handleToolCall)\(\s*['"`](submit_task|smart_submit_task)['"`][\s\S]{0,800}?working_directory\s*:\s*(process\.cwd\(\)|cwd\b)/m,
+  /\b[\w.]+\.handleSmartSubmitTask\(\s*\{[\s\S]{0,1200}?working_directory\s*:\s*(process\.cwd\(\)|cwd\b)/m,
+  /\b(taskCore|db)\.createTask\(\s*\{[\s\S]{0,1200}?working_directory\s*:\s*(process\.cwd\(\)|cwd\b)/m,
+];
 const CWD_ALIAS_RE = /\bconst\s+cwd\s*=\s*process\.cwd\(\)\s*;/;
 
 function walkTestFiles(dir) {
@@ -26,8 +29,8 @@ describe('task workspace containment', () => {
       .filter(file => file !== __filename)
       .filter(file => {
         const source = fs.readFileSync(file, 'utf8');
-        return RISKY_TOOL_CALL_RE.test(source)
-          || (CWD_ALIAS_RE.test(source) && CWD_ALIAS_TOOL_CALL_RE.test(source));
+        return (source.includes('process.cwd()') || CWD_ALIAS_RE.test(source))
+          && RISKY_REPO_WORKSPACE_CALLS.some(pattern => pattern.test(source));
       })
       .map(file => path.relative(__dirname, file).replace(/\\/g, '/'))
       .sort();

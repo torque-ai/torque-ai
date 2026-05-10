@@ -5,6 +5,7 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach, beforeAll, afterAll } from 'vitest';
 const { setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
+const { installStableTaskWorkspace } = require('./task-workspace-helpers');
 const { createMockChild } = require('./mocks/process-mock');
 const { EventEmitter } = require('events');
 const { PassThrough } = require('stream');
@@ -14,6 +15,7 @@ import crypto from 'crypto';
 
 let db;
 let lifecycle;
+const taskWorkspace = installStableTaskWorkspace({ prefix: 'torque-process-lifecycle-' });
 
 const PROCESS_LIFECYCLE_MODULE = '../execution/process-lifecycle';
 const TASK_CORE_MODULE = '../db/task-core';
@@ -820,7 +822,7 @@ describe('process-lifecycle', () => {
         task_description: 'test webhook trigger',
         provider: 'ollama',
         model: 'test:1b',
-        working_directory: process.cwd(),
+        working_directory: taskWorkspace(),
       });
       expect(() => lifecycle.safeTriggerWebhook(taskId, 'completed')).not.toThrow();
     });

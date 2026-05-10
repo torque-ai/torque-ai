@@ -2,6 +2,7 @@
 
 const fs = require('fs');
 const { createConfigMock } = require('./test-helpers');
+const { createTaskWorkspaceManager } = require('./task-workspace-helpers');
 
 const HANDLER_MODULE = '../handlers/integration/routing';
 const MODULE_PATHS = [
@@ -33,6 +34,8 @@ let defaultProvider;
 let taskStore;
 let workflowStore;
 let dependencyLinks;
+let taskWorkspaces;
+let testWorkDir;
 let uuidCounter = 0;
 
 const mockDb = {
@@ -557,6 +560,16 @@ beforeAll(() => {
 beforeEach(() => {
   vi.restoreAllMocks();
   resetMockState();
+  taskWorkspaces = createTaskWorkspaceManager({ prefix: 'torque-integration-routing-handlers-' });
+  testWorkDir = taskWorkspaces.create();
+});
+
+afterEach(() => {
+  if (taskWorkspaces) {
+    taskWorkspaces.cleanup();
+  }
+  taskWorkspaces = null;
+  testWorkDir = null;
 });
 
 afterAll(() => {
@@ -751,7 +764,7 @@ describe('integration routing handlers', () => {
       try {
         const result = await routing.handleSmartSubmitTask({
           task: 'Create a formatter',
-          working_directory: process.cwd(),
+          working_directory: testWorkDir,
         });
 
         expect(result.isError).toBe(true);
@@ -835,6 +848,7 @@ describe('integration routing handlers', () => {
 
       const result = await routing.handleSmartSubmitTask({
         task: 'Create a new scheduler helper module',
+        working_directory: testWorkDir,
       });
 
       const task = taskFromResult(result);
@@ -850,7 +864,7 @@ describe('integration routing handlers', () => {
       expect(mockDb.analyzeTaskForRouting).toHaveBeenNthCalledWith(
         2,
         'Create a new scheduler helper module',
-        process.cwd(),
+        testWorkDir,
         undefined,
         {
           tierList: true,
@@ -874,6 +888,7 @@ describe('integration routing handlers', () => {
       const result = await routing.handleSmartSubmitTask({
         task: 'Tweak queue telemetry',
         provider: 'claude-cli',
+        working_directory: testWorkDir,
       });
 
       const task = taskFromResult(result);
@@ -888,7 +903,7 @@ describe('integration routing handlers', () => {
       });
       expect(mockDb.analyzeTaskForRouting).toHaveBeenCalledWith(
         'Tweak queue telemetry',
-        process.cwd(),
+        testWorkDir,
         undefined,
         {
           tierList: true,
@@ -983,7 +998,7 @@ describe('integration routing handlers', () => {
       const result = await routing.handleSmartSubmitTask({
         task: 'Implement retry logic in scheduler.js',
         files: ['src/scheduler.js'],
-        working_directory: process.cwd(),
+        working_directory: testWorkDir,
       });
 
       const task = taskFromResult(result);
@@ -1002,7 +1017,7 @@ describe('integration routing handlers', () => {
       const result = await routing.handleSmartSubmitTask({
         task: 'Implement retry logic in scheduler.js',
         files: ['src/scheduler.js'],
-        working_directory: process.cwd(),
+        working_directory: testWorkDir,
       });
 
       const task = taskFromResult(result);
@@ -1022,7 +1037,7 @@ describe('integration routing handlers', () => {
       const result = await routing.handleSmartSubmitTask({
         task: 'Implement retry logic in scheduler.js',
         files: ['src/scheduler.js'],
-        working_directory: process.cwd(),
+        working_directory: testWorkDir,
       });
 
       const task = taskFromResult(result);
@@ -1045,7 +1060,7 @@ describe('integration routing handlers', () => {
       const result = await routing.handleSmartSubmitTask({
         task: 'Implement retry logic in scheduler.js',
         files: ['src/scheduler.js'],
-        working_directory: process.cwd(),
+        working_directory: testWorkDir,
       });
 
       const task = taskFromResult(result);
@@ -1207,7 +1222,7 @@ describe('integration routing handlers', () => {
       const result = await routing.handleSmartSubmitTask({
         task: 'Refactor Service.cs in C# to add a repository abstraction',
         files: ['src/Service.cs'],
-        working_directory: process.cwd(),
+        working_directory: testWorkDir,
       });
 
       expect(result.workflow_id).toBeTruthy();
@@ -1242,7 +1257,7 @@ describe('integration routing handlers', () => {
       const result = await routing.handleSmartSubmitTask({
         task: 'Refactor Service.cs in C# to add a repository abstraction',
         files: ['src/Service.cs'],
-        working_directory: process.cwd(),
+        working_directory: testWorkDir,
         routing_template: 'preset-ollama-cloud-primary',
       });
 
@@ -1269,7 +1284,7 @@ describe('integration routing handlers', () => {
       const result = await routing.handleSmartSubmitTask({
         task: 'Add logging to src/app.js',
         files: ['src/app.js'],
-        working_directory: process.cwd(),
+        working_directory: testWorkDir,
       });
 
       expect(result.workflow_id).toBeTruthy();
@@ -1299,7 +1314,7 @@ describe('integration routing handlers', () => {
       const result = await routing.handleSmartSubmitTask({
         task: 'Add logging to src/app.js',
         files: ['src/app.js'],
-        working_directory: process.cwd(),
+        working_directory: testWorkDir,
         routing_template: 'preset-ollama-cloud-primary',
       });
 
@@ -1346,13 +1361,14 @@ describe('integration routing handlers', () => {
       const result = await routing.handleSmartSubmitTask({
         task: 'Explain scheduler flow',
         provider: 'openrouter',
+        working_directory: testWorkDir,
         context_depth: 2,
       });
 
       const task = taskFromResult(result);
       expect(mockSmartScan.resolveContextFiles).toHaveBeenCalledWith({
         taskDescription: 'Explain scheduler flow',
-        workingDirectory: process.cwd(),
+        workingDirectory: testWorkDir,
         files: [],
         contextDepth: 2,
       });

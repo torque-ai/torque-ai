@@ -13,8 +13,10 @@
 
 const { randomUUID } = require('crypto');
 const { setupE2eDb, teardownE2eDb, registerMockHost } = require('./e2e-helpers');
+const { installStableTaskWorkspace } = require('./task-workspace-helpers');
 
 let ctx, db, tm;
+const taskWorkspace = installStableTaskWorkspace({ prefix: 'torque-tda15-placement-' });
 
 function setup() {
   ctx = setupE2eDb('tda15-placement');
@@ -36,7 +38,7 @@ function createTask(overrides = {}) {
     task_description: overrides.task_description || 'placement contract test task',
     provider: overrides.provider || 'ollama',
     model: overrides.model || null,
-    working_directory: overrides.working_directory !== undefined ? overrides.working_directory : process.cwd(),
+    working_directory: overrides.working_directory !== undefined ? overrides.working_directory : taskWorkspace(),
     max_retries: overrides.max_retries !== undefined ? overrides.max_retries : 0,
     metadata: overrides.metadata || null,
   });

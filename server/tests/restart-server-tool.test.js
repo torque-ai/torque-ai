@@ -1,12 +1,15 @@
 'use strict';
 
 const { setupTestDbOnly, teardownTestDb, resetTables } = require('./vitest-setup');
+const { installStableTaskWorkspace } = require('./task-workspace-helpers');
 const tools = require('../tools');
 const taskCore = require('../db/task-core');
 const taskManager = require('../task-manager');
 const logger = require('../logger');
 const eventBus = require('../event-bus');
 const restartHandoff = require('../execution/restart-handoff');
+
+const taskWorkspace = installStableTaskWorkspace({ prefix: 'torque-restart-server-tool-' });
 
 describe('restart_server tool', () => {
   let shutdownListeners = [];
@@ -115,7 +118,7 @@ describe('restart_server tool', () => {
       task_description: 'Normalize verify-signature test-name paths (#2213)',
       provider: 'codex',
       model: 'gpt-5.2',
-      working_directory: process.cwd(),
+      working_directory: taskWorkspace(),
       status: 'queued',
     });
     taskCore.updateTaskStatus('running-worker', 'running', {
@@ -125,7 +128,7 @@ describe('restart_server tool', () => {
       id: 'status-barrier',
       task_description: 'Restart barrier: status',
       provider: 'system',
-      working_directory: process.cwd(),
+      working_directory: taskWorkspace(),
       status: 'queued',
     });
     taskCore.updateTaskStatus('status-barrier', 'running', {
@@ -162,7 +165,7 @@ describe('restart_server tool', () => {
       id: 'stale-barrier',
       task_description: 'Restart barrier: stale',
       provider: 'system',
-      working_directory: process.cwd(),
+      working_directory: taskWorkspace(),
       status: 'queued',
     });
     taskCore.updateTaskStatus('stale-barrier', 'running', {

@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { installStableTaskWorkspace } = require('./task-workspace-helpers');
 const { mocks } = vi.hoisted(() => {
   const { EventEmitter } = require('events');
   return {
@@ -28,6 +29,7 @@ const taskMetadata = require('../db/task-metadata');
 const fileTracking = require('../db/file/tracking');
 const hostMonitoring = require('../utils/host-monitoring');
 let handlers;
+const taskWorkspace = installStableTaskWorkspace({ prefix: 'torque-workflow-await-' });
 
 function installCjsModuleMock(modulePath, exportsValue) {
   const resolved = require.resolve(modulePath);
@@ -65,7 +67,7 @@ function createWorkflow(overrides = {}) {
     name: 'Workflow Await Test',
     status: 'running',
     context: {},
-    working_directory: process.cwd(),
+    working_directory: taskWorkspace(),
     ...overrides,
   });
 }
@@ -78,7 +80,7 @@ function createTask(overrides = {}) {
     provider: 'codex',
     model: 'gpt-5',
     status: 'pending',
-    working_directory: process.cwd(),
+    working_directory: taskWorkspace(),
     ...overrides,
   });
   return id;
@@ -400,7 +402,7 @@ describe('workflow-await handlers with DB-backed state', () => {
         ([command]) => isVerifyExecutor(command)
       );
       expect(verifyCall).toBeTruthy();
-      expect(verifyCall[2]).toEqual(expect.objectContaining({ cwd: process.cwd() }));
+      expect(verifyCall[2]).toEqual(expect.objectContaining({ cwd: taskWorkspace() }));
     });
 
     it('captures verify_command failures without aborting the task result', async () => {
@@ -490,17 +492,17 @@ describe('workflow-await handlers with DB-backed state', () => {
       expect(mocks.executeValidatedCommandSync).toHaveBeenCalledWith(
         'git',
         ['add', '--', 'src/one.js', 'src/two.js'],
-        expect.objectContaining({ cwd: process.cwd() })
+        expect.objectContaining({ cwd: taskWorkspace() })
       );
       expect(mocks.executeValidatedCommandSync).toHaveBeenCalledWith(
         'git',
         ['commit', '-m', 'feat: await task commit', '--', 'src/one.js', 'src/two.js'],
-        expect.objectContaining({ cwd: process.cwd() })
+        expect.objectContaining({ cwd: taskWorkspace() })
       );
       expect(mocks.executeValidatedCommandSync).toHaveBeenCalledWith(
         'git',
         ['push'],
-        expect.objectContaining({ cwd: process.cwd() })
+        expect.objectContaining({ cwd: taskWorkspace() })
       );
     });
 
@@ -531,12 +533,12 @@ describe('workflow-await handlers with DB-backed state', () => {
       expect(mocks.executeValidatedCommandSync).toHaveBeenCalledWith(
         'git',
         ['diff', '--name-only', '--relative', 'HEAD', '--', '.'],
-        expect.objectContaining({ cwd: process.cwd() })
+        expect.objectContaining({ cwd: taskWorkspace() })
       );
       expect(mocks.executeValidatedCommandSync).toHaveBeenCalledWith(
         'git',
         ['add', '--', 'src/fallback.js'],
-        expect.objectContaining({ cwd: process.cwd() })
+        expect.objectContaining({ cwd: taskWorkspace() })
       );
     });
 
@@ -665,7 +667,7 @@ describe('workflow-await handlers with DB-backed state', () => {
       // "bash <scriptPath> ". When absent, the raw verify_command is used.
       expect(mocks.safeExecChain).toHaveBeenCalledWith(
         expect.stringContaining('node --check server/tools.js'),
-        expect.objectContaining({ cwd: process.cwd() })
+        expect.objectContaining({ cwd: taskWorkspace() })
       );
     });
 
@@ -711,7 +713,7 @@ describe('workflow-await handlers with DB-backed state', () => {
         task_description: 'a task',
         provider: 'codex',
         status: 'completed',
-        working_directory: process.cwd(),
+        working_directory: taskWorkspace(),
       });
       taskCore.createTask({
         id: taskB,
@@ -720,7 +722,7 @@ describe('workflow-await handlers with DB-backed state', () => {
         task_description: 'b task',
         provider: 'codex',
         status: 'completed',
-        working_directory: process.cwd(),
+        working_directory: taskWorkspace(),
       });
 
       vi.spyOn(fileTracking, 'getTaskFileChanges').mockImplementation((taskId) => {
@@ -758,12 +760,12 @@ describe('workflow-await handlers with DB-backed state', () => {
       expect(mocks.executeValidatedCommandSync).toHaveBeenCalledWith(
         'git',
         ['add', '--', 'src/workflow-a.js', 'src/workflow-b.js'],
-        expect.objectContaining({ cwd: process.cwd() })
+        expect.objectContaining({ cwd: taskWorkspace() })
       );
       expect(mocks.executeValidatedCommandSync).toHaveBeenCalledWith(
         'git',
         ['commit', '-m', 'feat: workflow done', '--', 'src/workflow-a.js', 'src/workflow-b.js'],
-        expect.objectContaining({ cwd: process.cwd() })
+        expect.objectContaining({ cwd: taskWorkspace() })
       );
     });
 

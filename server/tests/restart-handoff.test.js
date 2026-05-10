@@ -2,14 +2,17 @@
 
 const fs = require('fs');
 const { setupTestDbOnly, teardownTestDb, resetTables } = require('./vitest-setup');
+const { installStableTaskWorkspace } = require('./task-workspace-helpers');
 const taskCore = require('../db/task-core');
 const restartHandoff = require('../execution/restart-handoff');
+
+const taskWorkspace = installStableTaskWorkspace({ prefix: 'torque-restart-handoff-' });
 
 function createRunningBarrier(id = 'restart-handoff-barrier') {
   taskCore.createTask({
     id,
     task_description: 'Restart barrier',
-    working_directory: process.cwd(),
+    working_directory: taskWorkspace(),
     provider: 'system',
     model: null,
     status: 'queued',

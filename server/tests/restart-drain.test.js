@@ -3,6 +3,9 @@
 const fs = require('fs');
 const path = require('path');
 const { setupTestDbOnly, teardownTestDb, resetTables } = require('./vitest-setup');
+const { installStableTaskWorkspace } = require('./task-workspace-helpers');
+
+const taskWorkspace = installStableTaskWorkspace({ prefix: 'torque-restart-drain-' });
 
 describe('restart_server barrier mode', () => {
   let tools;
@@ -66,7 +69,7 @@ describe('restart_server barrier mode', () => {
       id: 'running-1',
       task_description: 'busy',
       provider: 'codex',
-      working_directory: process.cwd(),
+      working_directory: taskWorkspace(),
     });
     taskCore.updateTaskStatus('running-1', 'queued', {});
     taskCore.updateTaskStatus('running-1', 'running', { started_at: new Date().toISOString() });
@@ -85,7 +88,7 @@ describe('restart_server barrier mode', () => {
       id: 'drain-ms-pin',
       task_description: 'pin drain',
       provider: 'codex',
-      working_directory: process.cwd(),
+      working_directory: taskWorkspace(),
     });
     taskCore.updateTaskStatus('drain-ms-pin', 'queued', {});
     taskCore.updateTaskStatus('drain-ms-pin', 'running', { started_at: new Date().toISOString() });
@@ -103,7 +106,7 @@ describe('restart_server barrier mode', () => {
       id: 'drain-min-pin',
       task_description: 'pin',
       provider: 'codex',
-      working_directory: process.cwd(),
+      working_directory: taskWorkspace(),
     });
     taskCore.updateTaskStatus('drain-min-pin', 'queued', {});
     taskCore.updateTaskStatus('drain-min-pin', 'running', { started_at: new Date().toISOString() });
@@ -123,7 +126,7 @@ describe('restart_server barrier mode', () => {
       id: 'drain-default-pin',
       task_description: 'pin',
       provider: 'codex',
-      working_directory: process.cwd(),
+      working_directory: taskWorkspace(),
     });
     taskCore.updateTaskStatus('drain-default-pin', 'queued', {});
     taskCore.updateTaskStatus('drain-default-pin', 'running', { started_at: new Date().toISOString() });
@@ -142,7 +145,7 @@ describe('restart_server barrier mode', () => {
       id: 'barrier-pin-running',
       task_description: 'keeps first barrier in drain',
       provider: 'codex',
-      working_directory: process.cwd(),
+      working_directory: taskWorkspace(),
     });
     taskCore.updateTaskStatus('barrier-pin-running', 'queued', {});
     taskCore.updateTaskStatus('barrier-pin-running', 'running', { started_at: new Date().toISOString() });

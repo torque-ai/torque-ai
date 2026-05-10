@@ -41,6 +41,34 @@ function createTaskWorkspaceManager(defaultOptions = {}) {
   };
 }
 
+function installStableTaskWorkspace(defaultOptions = {}) {
+  let manager;
+  let current;
+
+  beforeEach(() => {
+    manager = createTaskWorkspaceManager(defaultOptions);
+    current = null;
+  });
+
+  afterEach(() => {
+    if (manager) {
+      manager.cleanup();
+    }
+    manager = null;
+    current = null;
+  });
+
+  return (options = {}) => {
+    if (!manager) {
+      manager = createTaskWorkspaceManager(defaultOptions);
+    }
+    if (!current) {
+      current = manager.create(options);
+    }
+    return current;
+  };
+}
+
 function stubTaskSubmissionSideEffects() {
   const taskManager = require('../task-manager');
   const processQueueSpy = vi.spyOn(taskManager, 'processQueue').mockReturnValue(undefined);
@@ -53,5 +81,6 @@ module.exports = {
   cleanupTaskWorkspace,
   createTaskWorkspace,
   createTaskWorkspaceManager,
+  installStableTaskWorkspace,
   stubTaskSubmissionSideEffects,
 };

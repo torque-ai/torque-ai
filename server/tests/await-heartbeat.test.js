@@ -173,11 +173,13 @@ describe('formatHeartbeat', () => {
 // ---------------------------------------------------------------------------
 const { randomUUID } = require('crypto');
 const { setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
+const { installStableTaskWorkspace } = require('./task-workspace-helpers');
 const taskCore = require('../db/task-core');
 const workflowEngine = require('../db/workflow-engine');
 const hostMonitoring = require('../utils/host-monitoring');
 
 let handlers;
+const taskWorkspace = installStableTaskWorkspace({ prefix: 'torque-await-heartbeat-' });
 
 function installCjsModuleMock(modulePath, exportsValue) {
   const resolved = require.resolve(modulePath);
@@ -206,7 +208,7 @@ function createTask(overrides = {}) {
     provider: 'codex',
     model: 'gpt-5',
     status: 'pending',
-    working_directory: process.cwd(),
+    working_directory: taskWorkspace(),
     ...overrides,
   });
   return id;
@@ -489,7 +491,7 @@ function createWorkflowWithTasks(taskDefs) {
       provider: def.provider || 'codex',
       model: def.model || 'gpt-5',
       status: def.status || 'pending',
-      working_directory: process.cwd(),
+      working_directory: taskWorkspace(),
       workflow_id: workflowId,
       workflow_node_id: def.node_id || def.name || taskId.substring(0, 8),
     });

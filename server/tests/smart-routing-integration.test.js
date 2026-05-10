@@ -348,7 +348,7 @@ describe('handleSmartSubmitTask end-to-end (mocked task submission)', () => {
   it('routes testing task via smart model selection and captures provider/model payload', async () => {
     const result = await handler.handleSmartSubmitTask({
       task: 'Write unit tests for auth.js',
-      working_directory: process.cwd(),
+      working_directory: createTempDir(),
     });
 
     const createdTask = getSubmittedTask(result);
@@ -360,7 +360,7 @@ describe('handleSmartSubmitTask end-to-end (mocked task submission)', () => {
   it('routes documentation greenfield task to Codex (Ollama cannot create files)', async () => {
     const result = await handler.handleSmartSubmitTask({
       task: 'Update the README',
-      working_directory: process.cwd(),
+      working_directory: createTempDir(),
     });
 
     const createdTask = getSubmittedTask(result);
@@ -371,7 +371,7 @@ describe('handleSmartSubmitTask end-to-end (mocked task submission)', () => {
   it('routes code_gen greenfield task to Codex (Ollama cannot create files)', async () => {
     const result = await handler.handleSmartSubmitTask({
       task: 'Add a new API endpoint',
-      working_directory: process.cwd(),
+      working_directory: createTempDir(),
     });
 
     const createdTask = getSubmittedTask(result);
@@ -390,7 +390,7 @@ describe('handleSmartSubmitTask end-to-end (mocked task submission)', () => {
 
     const complexResult = await handler.handleSmartSubmitTask({
       task: 'Design a distributed scheduler with retries, failover, and recovery logic',
-      working_directory: process.cwd(),
+      working_directory: createTempDir(),
     });
 
     const complexTask = getSubmittedTask(complexResult);
@@ -407,7 +407,7 @@ describe('handleSmartSubmitTask end-to-end (mocked task submission)', () => {
 
     const normalResult = await handler.handleSmartSubmitTask({
       task: 'Update the README headings',
-      working_directory: process.cwd(),
+      working_directory: createTempDir(),
     });
 
     const normalTask = getSubmittedTask(normalResult);
@@ -428,7 +428,7 @@ describe('handleSmartSubmitTask end-to-end (mocked task submission)', () => {
     const advisoryResult = await handler.handleSmartSubmitTask({
       task: 'Design a distributed scheduler with retries, failover, and recovery logic',
       files: ['src/a.ts', 'src/b.ts', 'src/c.ts'],
-      working_directory: process.cwd(),
+      working_directory: createTempDir(),
     });
 
     const advisoryTask = getSubmittedTask(advisoryResult);
@@ -442,7 +442,7 @@ describe('handleSmartSubmitTask end-to-end (mocked task submission)', () => {
     const noAdvisoryResult = await handler.handleSmartSubmitTask({
       task: 'Design a distributed scheduler with retries, failover, and recovery logic',
       files: ['src/a.ts'],
-      working_directory: process.cwd(),
+      working_directory: createTempDir(),
     });
 
     const noAdvisoryTask = getSubmittedTask(noAdvisoryResult);
@@ -467,7 +467,7 @@ describe('handleSmartSubmitTask end-to-end (mocked task submission)', () => {
     const result = await handler.handleSmartSubmitTask({
       task: 'Refactor MyService.cs in C# to use a repository abstraction',
       files: ['src/MyService.cs'],
-      working_directory: process.cwd(),
+      working_directory: createTempDir(),
     });
 
     expect(result.workflow_id).toBeTruthy();

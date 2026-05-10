@@ -11,6 +11,9 @@
 
 const { setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
 const { TEST_MODELS } = require('./test-helpers');
+const { installStableTaskWorkspace } = require('./task-workspace-helpers');
+
+const taskWorkspace = installStableTaskWorkspace({ prefix: 'torque-host-failover-' });
 
 describe('Host Failover Chain', () => {
   let db;
@@ -53,7 +56,7 @@ describe('Host Failover Chain', () => {
       status,
       provider: 'ollama',
       model: TEST_MODELS.SMALL,
-      working_directory: process.cwd(),
+      working_directory: taskWorkspace(),
       ollama_host_id: hostId,
     });
     if (status === 'running') {

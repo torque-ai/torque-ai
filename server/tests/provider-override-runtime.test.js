@@ -9,6 +9,9 @@ vi.mock('../integrations/codebase-study-engine', () => ({
 }));
 
 const { randomUUID } = require('crypto');
+const { installStableTaskWorkspace } = require('./task-workspace-helpers');
+
+const taskWorkspace = installStableTaskWorkspace({ prefix: 'torque-provider-override-' });
 
 const mockState = vi.hoisted(() => ({
   spawnAndTrackProcess: vi.fn(),
@@ -156,7 +159,7 @@ function createTask(overrides = {}) {
     task_description: overrides.task_description || 'Test task for runtime fallback guards',
     provider: overrides.provider || 'ollama',
     model: overrides.model || 'codellama:latest',
-    working_directory: overrides.working_directory !== undefined ? overrides.working_directory : process.cwd(),
+    working_directory: overrides.working_directory !== undefined ? overrides.working_directory : taskWorkspace(),
     max_retries: overrides.max_retries !== undefined ? overrides.max_retries : 0,
     retry_count: overrides.retry_count !== undefined ? overrides.retry_count : 0,
     metadata: overrides.metadata || null,

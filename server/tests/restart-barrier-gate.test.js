@@ -1,6 +1,7 @@
 'use strict';
 
 const { setupE2eDb, teardownE2eDb } = require('./e2e-helpers');
+const { installStableTaskWorkspace } = require('./task-workspace-helpers');
 const {
   isRestartBarrierActive,
   isRestartBarrierTask,
@@ -11,6 +12,7 @@ const SLOT_PULL_PATH = require.resolve('../execution/slot-pull-scheduler');
 
 let ctx;
 let db;
+const taskWorkspace = installStableTaskWorkspace({ prefix: 'torque-restart-barrier-gate-' });
 
 function rawDb() {
   return db.getDbInstance();
@@ -22,7 +24,7 @@ function createBarrierTask(overrides = {}) {
   db.createTask({
     id,
     task_description: overrides.task_description || 'Restart barrier',
-    working_directory: process.cwd(),
+    working_directory: taskWorkspace(),
     provider: 'system',
     model: null,
     status: 'queued',
@@ -38,7 +40,7 @@ function createUnassignedQueuedTask(overrides = {}) {
   db.createTask({
     id,
     task_description: 'queued work',
-    working_directory: process.cwd(),
+    working_directory: taskWorkspace(),
     provider: 'codex',
     status: 'queued',
     metadata: {},
@@ -62,7 +64,7 @@ function createRunningTask(id = 'running-1', provider = 'codex') {
   db.createTask({
     id,
     task_description: 'busy',
-    working_directory: process.cwd(),
+    working_directory: taskWorkspace(),
     provider,
     status: 'queued',
     metadata: {},
