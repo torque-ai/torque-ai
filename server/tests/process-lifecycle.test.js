@@ -553,6 +553,14 @@ describe('process-lifecycle', () => {
       vi.advanceTimersByTime(200);
       expect(fired).toBe(0);
     });
+
+    it('clears detached liveness handles', () => {
+      let fired = 0;
+      const livenessHandle = setInterval(() => { fired++; }, 100);
+      lifecycle.clearProcTimeouts({ livenessHandle });
+      vi.advanceTimersByTime(200);
+      expect(fired).toBe(0);
+    });
   });
 
   // ── safeDecrementHostSlot ──
@@ -647,6 +655,34 @@ describe('process-lifecycle', () => {
 
     it('no-ops when proc.process is null', () => {
       expect(() => lifecycle.killProcessGraceful({ process: null }, 'task-1')).not.toThrow();
+    });
+
+    it('kills detached subprocesses by tracked pid when child handle is absent', () => {
+      const platformDescriptor = Object.getOwnPropertyDescriptor(process, 'platform');
+      const processKillSpy = vi.spyOn(process, 'kill').mockImplementation(() => undefined);
+
+      try {
+        Object.defineProperty(process, 'platform', { value: 'linux' });
+
+        const handle = lifecycle.killProcessGraceful(
+          { detached: true, process: null, subprocessPid: 9004 },
+          'detached-task',
+          50,
+          'StallRecovery',
+        );
+
+        expect(processKillSpy).toHaveBeenCalledWith(9004, 'SIGTERM');
+        expect(handle).toBeDefined();
+
+        vi.advanceTimersByTime(50);
+
+        expect(processKillSpy).toHaveBeenCalledWith(9004, 'SIGKILL');
+      } finally {
+        if (platformDescriptor) {
+          Object.defineProperty(process, 'platform', platformDescriptor);
+        }
+        processKillSpy.mockRestore();
+      }
     });
 
     it('handles non-ESRCH errors on SIGTERM without throwing', () => {
@@ -1127,6 +1163,39 @@ describe('process-lifecycle', () => {
 
       expect(destroy).toHaveBeenCalledTimes(1);
       expect(proc._outputBuffer).toBeNull();
+    });
+
+    it('stops detached tails and liveness handles during cleanup', () => {
+      let livenessFired = 0;
+      const outputTail = { stop: vi.fn() };
+      const errorTail = { stop: vi.fn() };
+      const livenessHandle = setInterval(() => { livenessFired++; }, 50);
+      const proc = {
+        detached: true,
+        process: null,
+        subprocessPid: 9005,
+        outputTail,
+        errorTail,
+        livenessHandle,
+      };
+      const runningProcesses = new Map([['task-detached', proc]]);
+      const stallRecoveryAttempts = new Map([['task-detached', { attempts: 1 }]]);
+
+      lifecycle.cleanupProcessTracking(proc, 'task-detached', runningProcesses, stallRecoveryAttempts);
+
+      expect(outputTail.stop).toHaveBeenCalledTimes(1);
+      expect(errorTail.stop).toHaveBeenCalledTimes(1);
+      expect(proc.outputTail).toBeNull();
+      expect(proc.errorTail).toBeNull();
+      expect(proc.livenessHandle).toBeNull();
+      expect(proc.finalizing).toBe(true);
+      expect(proc.stopTailProcessing).toBe(true);
+      expect(runningProcesses.has('task-detached')).toBe(false);
+      expect(stallRecoveryAttempts.has('task-detached')).toBe(false);
+
+      vi.advanceTimersByTime(100);
+
+      expect(livenessFired).toBe(0);
     });
   });
 

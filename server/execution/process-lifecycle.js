@@ -208,6 +208,34 @@ function clearProcTimeouts(proc) {
   if (proc.timeoutHandle) clearTimeout(proc.timeoutHandle);
   if (proc.startupTimeoutHandle) clearTimeout(proc.startupTimeoutHandle);
   if (proc.completionGraceHandle) clearTimeout(proc.completionGraceHandle);
+  if (proc.livenessHandle) clearInterval(proc.livenessHandle);
+}
+
+function getTrackedPid(proc) {
+  if (!proc) return null;
+  const pid = proc.process?.pid || proc.subprocessPid || proc.subprocess_pid || proc.pid;
+  const normalizedPid = Number(pid);
+  return Number.isFinite(normalizedPid) && normalizedPid > 0 ? normalizedPid : null;
+}
+
+function cleanupDetachedTrackingResources(proc) {
+  if (!proc) return;
+  if (proc.detached || proc.outputTail || proc.errorTail || proc.livenessHandle) {
+    proc.finalizing = true;
+    proc.stopTailProcessing = true;
+  }
+  if (proc.outputTail) {
+    try { proc.outputTail.stop(); } catch { /* best-effort cleanup */ }
+    proc.outputTail = null;
+  }
+  if (proc.errorTail) {
+    try { proc.errorTail.stop(); } catch { /* best-effort cleanup */ }
+    proc.errorTail = null;
+  }
+  if (proc.livenessHandle) {
+    clearInterval(proc.livenessHandle);
+    proc.livenessHandle = null;
+  }
 }
 
 /**
@@ -281,7 +309,16 @@ function formatElapsedMinutes(ms) {
  *   rather than "graceful timed out".
  */
 function killProcessGraceful(proc, taskId, killDelayMs = 5000, label = '', options = {}) {
-  if (!proc || !proc.process) return;
+  if (!proc) return;
+  if (!proc.process) {
+    if (proc.detached) {
+      const detachedPid = getTrackedPid(proc);
+      if (detachedPid) {
+        return killOrphanByPid(detachedPid, taskId, killDelayMs, label);
+      }
+    }
+    return;
+  }
   const force = Boolean(options && options.force);
   const prefix = label ? `[${label}] ` : '';
   const pid = Number(proc.process.pid);
@@ -436,6 +473,7 @@ function killOrphanByPid(pid, taskId, killDelayMs = 5000, label = '') {
   if (typeof handle.unref === 'function') {
     handle.unref();
   }
+  return handle;
 }
 
 /**
@@ -507,6 +545,7 @@ function safeTriggerWebhook(taskId, eventName) {
 function cleanupProcessTracking(proc, taskId, runningProcesses, stallRecoveryAttempts) {
   if (!proc) return;
   clearProcTimeouts(proc);
+  cleanupDetachedTrackingResources(proc);
   if (proc._outputBuffer) {
     proc._outputBuffer.destroy();
     proc._outputBuffer = null;
@@ -519,7 +558,7 @@ function cleanupProcessTracking(proc, taskId, runningProcesses, stallRecoveryAtt
   // later call — which never happens for a PID we stop querying once
   // the task ends. ~100 bytes per entry × thousands of tasks per week
   // adds up.
-  const pid = proc.process?.pid || proc.pid;
+  const pid = getTrackedPid(proc);
   if (pid) {
     try {
       const { forgetPid } = require('../utils/process-activity');
