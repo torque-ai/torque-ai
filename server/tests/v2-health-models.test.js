@@ -1,6 +1,5 @@
 const { EventEmitter } = require('events');
 const http = require('http');
-const db = require('../database');
 const configCore = require('../db/config-core');
 const fileTracking = require('../db/file/tracking');
 const taskCore = require('../db/task-core');
@@ -133,6 +132,7 @@ describe('v2 provider health and model inventory endpoints', () => {
   let countTasksSpy;
   let getApprovedModelsSpy;
   let getProviderAdapterSpy;
+  let db;
   let providerRows;
   let configValues;
   let httpGetSpy;
@@ -148,6 +148,7 @@ describe('v2 provider health and model inventory endpoints', () => {
   ];
 
   beforeAll(async () => {
+    db = require('../database');
     for (const key of cloudEnvKeys) {
       originalEnv[key] = process.env[key];
     }

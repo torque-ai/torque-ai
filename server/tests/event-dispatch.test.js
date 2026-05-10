@@ -11,7 +11,6 @@
 
 const mcpSse = require('../mcp/sse');
 const eventDispatch = require('../hooks/event-dispatch');
-const db = require('../database');
 const configCore = require('../db/config-core');
 const webhooksStreaming = require('../db/webhooks-streaming');
 
@@ -20,6 +19,11 @@ eventDispatch.stopRetentionPolicy();
 
 const { sessions, notifySubscribedSessions, taskSubscriptions: _taskSubscriptions, addSessionToTaskSubscriptions: _addSessionToTaskSubscriptions } = mcpSse;
 const { dispatchTaskEvent, taskEvents } = eventDispatch;
+let db;
+
+beforeAll(() => {
+  db = require('../database');
+});
 
 // ──────────────────────────────────────────────────────────────
 // Mock helpers — simulate SSE sessions without a real HTTP server

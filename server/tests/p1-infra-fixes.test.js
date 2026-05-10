@@ -1,7 +1,6 @@
 const { EventEmitter } = require('events');
 const http = require('http');
 
-const { getDbInstance } = require('../database');
 const configCore = require('../db/config-core');
 const taskCore = require('../db/task-core');
 const dbCoord = require('../db/coordination');
@@ -78,6 +77,7 @@ function rawDb() {
 describe('P1 infra fixes', () => {
   describe('Coordination lock stale detection uses lease expiry', () => {
     beforeAll(() => {
+      const { getDbInstance } = require('../database');
       setupTestDbOnly('p1-coord');
       dbCoord.setDb(getDbInstance());
       dbCoord.setGetTask(taskCore.getTask);

@@ -187,7 +187,6 @@ module.exports = [
           'workflow-handlers-analysis.test.js',
           'workflow-handlers-core.test.js',
           // database direct-import consumers (genuine dependency — pre-existing pattern)
-          'event-dispatch.test.js',
           'factory-architect-prompt-guide.test.js',
           'factory-execute-non-plan-file.test.js',
           'factory-execute-to-verify-gate.test.js',
@@ -204,8 +203,6 @@ module.exports = [
           'loop-controller-decision-log.test.js',
           'loop-controller-plans-dir.test.js',
           'p0-cors-csrf.test.js',
-          'p1-infra-fixes.test.js',
-          'v2-health-models.test.js',
           // Non-test JS files in tests/ (baseline scripts, helpers)
           'baseline-all-models.js',
           'baseline-runner.js',
