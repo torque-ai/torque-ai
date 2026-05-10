@@ -166,6 +166,7 @@ function scan() {
     imperativeFiles: imperativeFiles.sort(),
     databaseImporters: databaseImports.sourceViolations.sort(),
     allowedDatabaseImporters: databaseImports.sourceAllowed.sort(),
+    staleAllowedDatabaseImporters: databaseImports.staleAllowed.sort((a, b) => a.file.localeCompare(b.file)),
     diFallbackDatabaseImporters: databaseImports.sourceDiFallback.sort(),
     testDatabaseImporters: databaseImports.testViolations.sort(),
   };
@@ -181,11 +182,13 @@ function emit(metrics, asJson) {
       imperative_init_modules: metrics.imperativeFiles.length,
       direct_database_importers: metrics.databaseImporters.length,
       allowed_database_importers: metrics.allowedDatabaseImporters.length,
+      stale_allowed_database_importers: metrics.staleAllowedDatabaseImporters.length,
       di_fallback_database_importers: metrics.diFallbackDatabaseImporters.length,
       test_database_importers: metrics.testDatabaseImporters.length,
       imperative_init_files: metrics.imperativeFiles,
       direct_database_files: metrics.databaseImporters,
       allowed_database_files: metrics.allowedDatabaseImporters,
+      stale_allowed_database_files: metrics.staleAllowedDatabaseImporters,
       di_fallback_database_files: metrics.diFallbackDatabaseImporters,
       test_database_files: metrics.testDatabaseImporters,
     }, null, 2) + '\n');
@@ -200,6 +203,7 @@ function emit(metrics, asJson) {
   console.log(`  Modules using imperative init({…}) pattern:  ${metrics.imperativeFiles.length}`);
   console.log(`  Unauthorized source database.js imports:     ${metrics.databaseImporters.length}`);
   console.log(`  Allowed/load-bearing facade require sites:   ${metrics.allowedDatabaseImporters.length}`);
+  console.log(`  Stale allowed facade require entries:        ${metrics.staleAllowedDatabaseImporters.length}`);
   console.log(`  DI fallback facade require sites:            ${metrics.diFallbackDatabaseImporters.length}`);
   console.log(`  Test files importing database.js directly:   ${metrics.testDatabaseImporters.length}`);
   console.log();

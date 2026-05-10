@@ -21,26 +21,10 @@ const SERVER_DIR = path.resolve(__dirname, '..');
 // need the raw db reference to wire things up. Shrinks as migration progresses.
 const ALLOWED = new Set([
   'database.js',        // the module itself
-  'container.js',       // DI composition root — wires db into all services
   'index.js',           // server entry point — opens db, passes to container
+  'api-server.js',      // REST entry point — accepts db via createApiServer deps
+  'dashboard/server.js', // dashboard entry point — accepts db via startDashboard deps
   'db/schema/index.js', // DDL migrations — needs raw db for ALTER TABLE
-  'db/throughput-metrics.js', // DB module — imports from parent database.js
-  'eslint-rules/no-heavy-test-imports.test.js', // ESLint rule fixture — strings inside test cases, not real requires
-  // Files that use facade-only core functions (getDbInstance, safeAddColumn, countTasks, isDbClosed)
-  'mcp/sse.js',                       // getDbInstance — raw DB for subscription persistence
-  'config.js',                        // getDbInstance — raw DB for encrypted API key lookup
-  // Raw SQL users — these call db.prepare() or db.getDbInstance().prepare() directly
-  'execution/strategic-hooks.js',     // raw SQL fallback in persistMetadata
-  'execution/task-finalizer.js',      // inline require for getDbInstance in scoring/budget
-  'handlers/competitive-feature-handlers.js', // getDbInstance for scoring/indexer
-  // Core infrastructure — heaviest facade consumers, migrate last
-  'api-server.js',                   // broad facade usage, Phase 5 final migration
-  'dashboard/server.js',             // broad facade usage, Phase 5 final migration
-  'task-manager.js',                 // heaviest consumer — uses everything
-  'api/v2-analytics-handlers.js',    // getDbInstance for raw SQL + facade functions
-  'api/v2-infrastructure-handlers.js', // getDbInstance for raw SQL
-  'dashboard/routes/analytics.js',   // getDbInstance for raw SQL
-  'dashboard/routes/infrastructure.js', // getDbInstance for raw SQL
 ]);
 
 const DB_IMPORT_PATTERN = /require\s*\(\s*['"]\..*database['"]\s*\)/;
@@ -53,6 +37,29 @@ const FACTORY_PATTERN = /function\s+create[A-Z]/;
 // with defaultContainer). Detect the migrated shape by requiring at least
 // one defaultContainer access alongside the database require.
 const DI_CONTAINER_PATTERN = /defaultContainer\s*[.[]/;
+
+function getAllowedDirectDatabaseImportFiles() {
+  return [...ALLOWED].sort();
+}
+
+function getAllowedDirectDatabaseImportProblems(allowedFiles = getAllowedDirectDatabaseImportFiles(), serverDir = SERVER_DIR) {
+  const problems = [];
+
+  for (const relativePath of [...allowedFiles].sort()) {
+    const fullPath = path.join(serverDir, relativePath);
+    if (!fs.existsSync(fullPath)) {
+      problems.push({ file: relativePath, reason: 'missing' });
+      continue;
+    }
+
+    const content = fs.readFileSync(fullPath, 'utf8');
+    if (!DB_IMPORT_PATTERN.test(content)) {
+      problems.push({ file: relativePath, reason: 'no-direct-database-import' });
+    }
+  }
+
+  return problems;
+}
 
 /**
  * Walk a directory tree, calling visitor(fullPath, relativePath) for each .js file.
@@ -94,6 +101,7 @@ function classifyDirectDatabaseImports() {
   const sourceAllowed = [];
   const sourceDiFallback = [];
   const testViolations = [];
+  const staleAllowed = getAllowedDirectDatabaseImportProblems();
 
   // Scan source files (excluding tests/)
   walkJs(SERVER_DIR, (fullPath, relativePath) => {
@@ -126,7 +134,7 @@ function classifyDirectDatabaseImports() {
     });
   }
 
-  return { sourceViolations, sourceAllowed, sourceDiFallback, testViolations };
+  return { sourceViolations, sourceAllowed, sourceDiFallback, testViolations, staleAllowed };
 }
 
 /**
@@ -134,8 +142,8 @@ function classifyDirectDatabaseImports() {
  * Returns { sourceViolations, testViolations } for backwards compatibility.
  */
 function scan() {
-  const { sourceViolations, testViolations } = classifyDirectDatabaseImports();
-  return { sourceViolations, testViolations };
+  const { sourceViolations, testViolations, staleAllowed } = classifyDirectDatabaseImports();
+  return { sourceViolations, testViolations, staleAllowed };
 }
 
 /**
@@ -169,6 +177,8 @@ module.exports = {
   classifyDirectDatabaseImports,
   countFactoryModules,
   countSourceFiles,
+  getAllowedDirectDatabaseImportFiles,
+  getAllowedDirectDatabaseImportProblems,
   scan,
 };
 
@@ -178,7 +188,7 @@ if (require.main === module) {
   const strict = process.argv.includes('--strict');
   const summaryOnly = process.argv.includes('--summary');
 
-  const { sourceViolations, testViolations } = scan();
+  const { sourceViolations, testViolations, staleAllowed } = scan();
   const factoryCount = countFactoryModules();
   const totalSourceFiles = countSourceFiles();
   const migratedCount = totalSourceFiles - sourceViolations.length;
@@ -190,9 +200,21 @@ if (require.main === module) {
   console.log('\nDI Migration Progress:');
   console.log(`  Modules with factory exports: ${factoryCount}`);
   console.log(`  Source files still importing database.js: ${sourceViolations.length}`);
+  console.log(`  Stale allowed database.js import entries: ${staleAllowed.length}`);
   console.log(`  Test files still importing database.js: ${testViolations.length} (deferred to test migration)`);
   console.log(`  Progress: ${progressPct}% of source files migrated`);
   console.log();
+
+  if (staleAllowed.length > 0) {
+    if (!summaryOnly) {
+      console.log(`${staleAllowed.length} stale allowed database.js import entr${staleAllowed.length === 1 ? 'y' : 'ies'}:\n`);
+      for (const entry of staleAllowed) {
+        console.log(`  ${entry.file} (${entry.reason})`);
+      }
+      console.log('\nRemove stale entries from ALLOWED or restore the intentional direct import.\n');
+    }
+    process.exit(1);
+  }
 
   if (summaryOnly) {
     process.exit(0);
