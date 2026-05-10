@@ -710,12 +710,12 @@ describe('fallback-retry module', () => {
       });
     });
 
-    it('skips repeated local retries for bare synthetic model test tasks', () => {
+    it('does not treat bare model test prompts as synthetic local-model probes', () => {
       configCore.setConfig('ollama_fallback_provider', 'codex');
       configCore.setConfig('codex_enabled', '1');
       configCore.setConfig('claude_cli_enabled', '1');
       const hostA = registerHealthyHost('synthetic-bare-a', [TEST_MODELS.SMALL], { running_tasks: 2 });
-      registerHealthyHost('synthetic-bare-b', [TEST_MODELS.SMALL], { running_tasks: 0 });
+      const hostB = registerHealthyHost('synthetic-bare-b', [TEST_MODELS.SMALL], { running_tasks: 0 });
 
       const task = createTask({
         provider: 'ollama',
@@ -728,11 +728,11 @@ describe('fallback-retry module', () => {
 
       expect(ok).toBe(true);
       const updated = taskCore.getTask(task.id);
-      expect(updated.provider).toBe('codex');
-      expect(updated.model).toBeNull();
-      expect(updated.ollama_host_id).toBeNull();
-      expect(updated.error_output).toContain('[Local-First] Skipping local retry for synthetic local-model test task');
-      expect(updated.error_output).not.toContain(`[Local-First] Trying ${TEST_MODELS.SMALL} on host`);
+      expect(updated.provider).toBe('ollama');
+      expect(updated.model).toBe(TEST_MODELS.SMALL);
+      expect(updated.ollama_host_id).toBe(hostB);
+      expect(updated.error_output).not.toContain('[Local-First] Skipping local retry for synthetic local-model test task');
+      expect(updated.error_output).toContain(`[Local-First] Trying ${TEST_MODELS.SMALL} on host`);
       expect(updated.metadata).toMatchObject({
         original_provider: 'ollama',
         local_first_attempts: 1,
