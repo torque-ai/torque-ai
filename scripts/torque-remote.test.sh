@@ -17,14 +17,40 @@ RUN_REMOTE_STDIN_SIZE="0"
 RUN_RUNNER_SH=""
 RUN_BOOTSTRAP_SH=""
 
-SCRIPT_UNDER_TEST="$(cd "$(dirname "${BASH_SOURCE[0]}")/../bin" && pwd)/torque-remote"
+TEST_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+TEST_REPO_ROOT="$(cd "$TEST_SCRIPT_DIR/.." && pwd -P)"
+SCRIPT_UNDER_TEST="$(cd "$TEST_SCRIPT_DIR/../bin" && pwd -P)/torque-remote"
 ORIGINAL_PATH="$PATH"
+TEST_TMP_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/torque-remote-test-root.XXXXXX")" || {
+  echo "failed to create torque-remote test temp root" >&2
+  exit 1
+}
+
+path_is_under_test_tmp_root() {
+  local path="$1"
+  [[ -n "$path" && -n "$TEST_TMP_ROOT" ]] || return 1
+  case "$path" in
+    "$TEST_TMP_ROOT"|"$TEST_TMP_ROOT"/*) return 0 ;;
+  esac
+  return 1
+}
+
+safe_rm_rf_test_path() {
+  local dir="$1"
+  [[ -n "$dir" && -d "$dir" ]] || return 0
+  if ! path_is_under_test_tmp_root "$dir"; then
+    echo "refusing to remove non-test path during cleanup: $dir" >&2
+    return 1
+  fi
+  rm -rf "$dir"
+}
 
 cleanup() {
   local dir
   for dir in "${TEMP_DIRS[@]}"; do
-    [[ -n "$dir" && -d "$dir" ]] && rm -rf "$dir"
+    safe_rm_rf_test_path "$dir" || true
   done
+  safe_rm_rf_test_path "$TEST_TMP_ROOT" || true
 }
 
 trap cleanup EXIT
@@ -251,6 +277,35 @@ write_stub_git() {
 set -uo pipefail
 
 log_file="${TORQUE_REMOTE_TEST_CALLS_LOG:?}"
+test_tmp_root="${TORQUE_REMOTE_TEST_TMP_ROOT:?}"
+
+stub_path_is_under_test_root() {
+  local path="$1"
+  [[ -n "$path" && -n "$test_tmp_root" ]] || return 1
+  case "$path" in
+    "$test_tmp_root"|"$test_tmp_root"/*) return 0 ;;
+  esac
+  return 1
+}
+
+stub_mkdir_p_test_path() {
+  local path="$1"
+  if ! stub_path_is_under_test_root "$path"; then
+    echo "stub git refusing to create path outside test temp root: $path" >&2
+    exit 126
+  fi
+  mkdir -p "$path"
+}
+
+stub_rm_rf_test_path() {
+  local path="$1"
+  if ! stub_path_is_under_test_root "$path"; then
+    echo "stub git refusing to remove path outside test temp root: $path" >&2
+    exit 126
+  fi
+  rm -rf "$path"
+}
+
 {
   printf 'git'
   for arg in "$@"; do
@@ -344,14 +399,14 @@ if [[ "$#" -ge 2 && "$1" == "worktree" && "$2" == "add" ]]; then
   args=("$@")
   target_index=$((${#args[@]} - 2))
   target_path="${args[$target_index]}"
-  mkdir -p "$target_path"
+  stub_mkdir_p_test_path "$target_path"
   exit "${GIT_WORKTREE_ADD_EXIT_CODE:-0}"
 fi
 
 if [[ "$#" -ge 2 && "$1" == "worktree" && "$2" == "remove" ]]; then
   args=("$@")
   target_index=$((${#args[@]} - 1))
-  rm -rf "${args[$target_index]}"
+  stub_rm_rf_test_path "${args[$target_index]}"
   exit "${GIT_WORKTREE_REMOVE_EXIT_CODE:-0}"
 fi
 
@@ -592,10 +647,10 @@ EOF
 
 make_test_env() {
   local tmp
-  tmp="$(mktemp -d)"
+  tmp="$(mktemp -d "$TEST_TMP_ROOT/env.XXXXXX")"
   TEMP_DIRS+=("$tmp")
 
-  mkdir -p "$tmp/.git" "$tmp/bin" "$tmp/home"
+  mkdir -p "$tmp/.git" "$tmp/bin" "$tmp/home" "$tmp/tmp"
   : > "$tmp/calls.log"
   : > "$tmp/argv.log"
   : > "$tmp/pwd.log"
@@ -647,7 +702,11 @@ run_torque_remote() {
     cd "$tmp" || exit 1
     HOME="$tmp/home" \
     PATH="$tmp/bin:$ORIGINAL_PATH" \
+    TMPDIR="$tmp/tmp" \
+    TEMP="$tmp/tmp" \
+    TMP="$tmp/tmp" \
     TORQUE_REMOTE_TEST_CALLS_LOG="$tmp/calls.log" \
+    TORQUE_REMOTE_TEST_TMP_ROOT="$TEST_TMP_ROOT" \
     TORQUE_REMOTE_TEST_ARGV_LOG="$tmp/argv.log" \
     TORQUE_REMOTE_TEST_PWD_LOG="$tmp/pwd.log" \
     TORQUE_REMOTE_TEST_PROJECT_PATH_LOG="$tmp/project-path.log" \
@@ -674,6 +733,30 @@ run_torque_remote() {
     RUN_RUNNER_SH="$(tar -xOf "$tmp/remote-stdin.bin" runner.sh 2>/dev/null || true)"
     RUN_BOOTSTRAP_SH="$(tar -xOf "$tmp/remote-stdin.bin" bootstrap.sh 2>/dev/null || true)"
   fi
+}
+
+test_git_stub_refuses_worktree_remove_outside_test_root() {
+  local tmp stderr_file exit_code
+
+  echo "Test: git stub refuses to remove paths outside the test temp root"
+  TEST_ERRORS=()
+  reset_stub_env
+  make_test_env
+  tmp="$LAST_TEST_ENV"
+  stderr_file="$tmp/stub-git-stderr.log"
+
+  TORQUE_REMOTE_TEST_CALLS_LOG="$tmp/calls.log" \
+  TORQUE_REMOTE_TEST_TMP_ROOT="$TEST_TMP_ROOT" \
+    "$tmp/bin/git" worktree remove --force "$TEST_REPO_ROOT" > /dev/null 2>"$stderr_file"
+  exit_code=$?
+
+  expect_nonzero "outside-root worktree remove is rejected" "$exit_code"
+  expect_file_contains "rejection message names outside-root removal" "$stderr_file" "refusing to remove path outside test temp root"
+  if [[ ! -d "$TEST_REPO_ROOT" ]]; then
+    record_failure "repo root still exists after rejected worktree remove"
+  fi
+
+  finish_test "test_git_stub_refuses_worktree_remove_outside_test_root"
 }
 
 test_default_syncs_main() {
@@ -1134,10 +1217,10 @@ test_worktree_dot_git_file_is_project_root() {
   #   $parent/.git/
   #   $parent/.worktrees/feat-x/  ← feature worktree (.git is a FILE)
   #   $parent/.worktrees/feat-x/.git  ← contains "gitdir: ..."
-  parent="$(mktemp -d)"
+  parent="$(mktemp -d "$TEST_TMP_ROOT/worktree-root.XXXXXX")"
   TEMP_DIRS+=("$parent")
   worktree="$parent/.worktrees/feat-x"
-  mkdir -p "$parent/.git" "$worktree" "$parent/bin" "$parent/home"
+  mkdir -p "$parent/.git" "$worktree" "$parent/bin" "$parent/home" "$parent/tmp"
   printf 'gitdir: %s\n' "$parent/.git/worktrees/feat-x" > "$worktree/.git"
   : > "$worktree/calls.log"
   : > "$worktree/argv.log"
@@ -1178,7 +1261,11 @@ EOF
     cd "$worktree" || exit 1
     HOME="$parent/home" \
     PATH="$parent/bin:$ORIGINAL_PATH" \
+    TMPDIR="$parent/tmp" \
+    TEMP="$parent/tmp" \
+    TMP="$parent/tmp" \
     TORQUE_REMOTE_TEST_CALLS_LOG="$worktree/calls.log" \
+    TORQUE_REMOTE_TEST_TMP_ROOT="$TEST_TMP_ROOT" \
     TORQUE_REMOTE_TEST_ARGV_LOG="$worktree/argv.log" \
     TORQUE_REMOTE_TEST_REMOTE_COMMANDS="$worktree/remote-commands.log" \
     TORQUE_REMOTE_TEST_REMOTE_STDIN="$worktree/remote-stdin.bin" \
@@ -1211,11 +1298,11 @@ test_worktree_uses_main_repo_basename_for_project_name() {
   # Layout (mirrors a real TORQUE feature worktree):
   #   $parent/torque-public/                         ← main checkout (.git directory)
   #   $parent/torque-public/.worktrees/feat-x/        ← worktree (.git is a *file*)
-  parent="$(mktemp -d)"
+  parent="$(mktemp -d "$TEST_TMP_ROOT/worktree-name.XXXXXX")"
   TEMP_DIRS+=("$parent")
   main="$parent/torque-public"
   worktree="$main/.worktrees/feat-x"
-  mkdir -p "$main/.git" "$worktree" "$parent/bin" "$parent/home"
+  mkdir -p "$main/.git" "$worktree" "$parent/bin" "$parent/home" "$parent/tmp"
   printf 'gitdir: %s\n' "$main/.git/worktrees/feat-x" > "$worktree/.git"
   : > "$worktree/calls.log"
   : > "$worktree/argv.log"
@@ -1261,7 +1348,11 @@ EOF
     cd "$worktree" || exit 1
     HOME="$parent/home" \
     PATH="$parent/bin:$ORIGINAL_PATH" \
+    TMPDIR="$parent/tmp" \
+    TEMP="$parent/tmp" \
+    TMP="$parent/tmp" \
     TORQUE_REMOTE_TEST_CALLS_LOG="$worktree/calls.log" \
+    TORQUE_REMOTE_TEST_TMP_ROOT="$TEST_TMP_ROOT" \
     TORQUE_REMOTE_TEST_ARGV_LOG="$worktree/argv.log" \
     TORQUE_REMOTE_TEST_REMOTE_COMMANDS="$worktree/remote-commands.log" \
     TORQUE_REMOTE_TEST_REMOTE_STDIN="$worktree/remote-stdin.bin" \
@@ -1849,6 +1940,17 @@ main() {
     exit 1
   fi
 
+  if [[ "$#" -gt 0 ]]; then
+    local requested_test
+    for requested_test in "$@"; do
+      if ! declare -F "$requested_test" >/dev/null || [[ "$requested_test" != test_* ]]; then
+        echo "unknown torque-remote test: $requested_test" >&2
+        exit 1
+      fi
+      "$requested_test"
+    done
+  else
+  test_git_stub_refuses_worktree_remove_outside_test_root
   test_default_syncs_main
   test_missing_config_does_not_create_global_config
   test_branch_flag_syncs_override
@@ -1893,6 +1995,7 @@ main() {
   test_migration_renames_legacy_workspace_to_lane_1
   test_migration_skips_when_marker_present
   test_status_flag_lists_lane_states
+  fi
 
   echo ""
   echo "=============================="
