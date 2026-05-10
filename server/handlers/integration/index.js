@@ -6,7 +6,7 @@
  */
 
 const path = require('path');
-const database = require('../../database');
+const { defaultContainer } = require('../../container');
 const eventTracking = require('../../db/event-tracking');
 const projectConfigCore = require('../../db/project-config-core');
 const providerRoutingCore = require('../../db/provider/routing-core');
@@ -17,6 +17,14 @@ const shared = require('../shared');
 const { isPathTraversalSafe, requireString, requireEnum, ErrorCodes, makeError } = shared;
 const { resolveOllamaModel } = require('../../providers/ollama-shared');
 const { DEFAULT_FALLBACK_MODEL } = require('../../constants');
+
+function getDatabaseFacade() {
+  try {
+    return defaultContainer.get('db');
+  } catch {
+    return require('../../database');
+  }
+}
 
 // ============================================================
 // Wave 9: Integration Expansion Handlers (Option 5)
@@ -424,7 +432,7 @@ function handleTaskChanges(args) {
     return makeError(ErrorCodes.INVALID_PARAM, 'task_id is required and must be a non-empty string');
   }
 
-  const task = database.getTask(task_id);
+  const task = getDatabaseFacade().getTask(task_id);
   if (!task) {
     return makeError(ErrorCodes.TASK_NOT_FOUND, `Task not found: ${task_id}`);
   }
@@ -478,7 +486,7 @@ function handleRollbackFile(args) {
     return makeError(ErrorCodes.INVALID_PARAM, 'task_id is required and must be a non-empty string');
   }
 
-  const task = database.getTask(task_id);
+  const task = getDatabaseFacade().getTask(task_id);
   if (!task) {
     return makeError(ErrorCodes.TASK_NOT_FOUND, `Task not found: ${task_id}`);
   }
@@ -526,7 +534,7 @@ function handleRollbackFile(args) {
 function handleStashChanges(args) {
   let workDir;
   if (args.task_id) {
-    const task = database.getTask(args.task_id);
+    const task = getDatabaseFacade().getTask(args.task_id);
     if (!task) {
       return makeError(ErrorCodes.TASK_NOT_FOUND, `Task not found: ${args.task_id}`);
     }
@@ -677,7 +685,7 @@ function handleViewDependencies(args) {
   let tasks;
 
   if (args.task_id) {
-    const task = database.getTask(args.task_id);
+    const task = getDatabaseFacade().getTask(args.task_id);
     if (!task) {
       return makeError(ErrorCodes.TASK_NOT_FOUND, `Task not found: ${args.task_id}`);
     }
@@ -686,7 +694,7 @@ function handleViewDependencies(args) {
     const statuses = args.include_completed
       ? ['pending', 'queued', 'running', 'completed']
       : ['pending', 'queued', 'running'];
-    tasks = database.listTasks({ project: args.project, statuses, limit: 100 });
+    tasks = getDatabaseFacade().listTasks({ project: args.project, statuses, limit: 100 });
   }
 
   // Build Mermaid diagram
@@ -830,7 +838,7 @@ List each potential bug with line numbers and explanation.`
     const taskId = require('uuid').v4();
 
     const singleReviewProvider = model ? 'ollama' : routingResult.provider;
-    database.createTask({
+    getDatabaseFacade().createTask({
       id: taskId,
       task_description: `${basePrompt}\n\nFile: ${fileName}\n\nReview the entire file.`,
       working_directory: process.cwd(),
@@ -876,7 +884,7 @@ List each potential bug with line numbers and explanation.`
     const routingResult = providerRoutingCore.analyzeTaskForRouting(`Review ${fileName}`, process.cwd(), [file_path]);
 
     const chunkProvider = model ? 'ollama' : routingResult.provider;
-    database.createTask({
+    getDatabaseFacade().createTask({
       id: taskId,
       task_description: fullTask,
       working_directory: process.cwd(),
@@ -905,7 +913,7 @@ List each potential bug with line numbers and explanation.`
   const aggTask = chunkedReview.generateAggregationTask(file_path, chunkTasks.length, taskIds);
   const aggTaskId = require('uuid').v4();
 
-  database.createTask({
+  getDatabaseFacade().createTask({
     id: aggTaskId,
     task_description: aggTask.task,
     working_directory: process.cwd(),

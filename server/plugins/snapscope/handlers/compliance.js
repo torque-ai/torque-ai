@@ -1,7 +1,7 @@
 'use strict';
 
 const crypto = require('crypto');
-const dbModule = require('../../../database'); // getDbInstance (raw DB handle for direct SQL queries)
+const { defaultContainer } = require('../../../container');
 const peekPolicyAudit = require('../../../db/peek/policy-audit');
 const { fireWebhookForEvent } = require('./webhook-outbound');
 const { classifyActionRisk } = require('./rollback');
@@ -27,11 +27,21 @@ function getAuditChainHash(entry) {
 }
 
 function getDatabaseHandle() {
-  if (dbModule && typeof dbModule.prepare === 'function') {
-    return dbModule;
+  let dbService = null;
+  try {
+    dbService = defaultContainer.get('db');
+  } catch {
+    dbService = require('../../../database');
   }
-  if (dbModule && typeof dbModule.getDbInstance === 'function') {
-    return dbModule.getDbInstance();
+
+  if (dbService && typeof dbService.prepare === 'function') {
+    return dbService;
+  }
+  if (dbService && typeof dbService.getDbInstance === 'function') {
+    return dbService.getDbInstance();
+  }
+  if (dbService && typeof dbService.getDb === 'function') {
+    return dbService.getDb();
   }
   return null;
 }

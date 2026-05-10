@@ -8,10 +8,27 @@
  */
 
 const { randomUUID } = require('crypto');
-const database = require('../database'); // facade-only: getDbInstance (raw DB handle for transactions)
+const { defaultContainer } = require('../container');
 const taskCore = require('../db/task-core');
 const { ErrorCodes, makeError } = require('./error-codes');
 const logger = require('../logger').child({ component: 'experiment-handlers' });
+
+function getRawDb() {
+  let dbService = null;
+  try {
+    dbService = defaultContainer.get('db');
+  } catch {
+    dbService = require('../database');
+  }
+
+  if (dbService && typeof dbService.getDbInstance === 'function') {
+    return dbService.getDbInstance();
+  }
+  if (dbService && typeof dbService.getDb === 'function') {
+    return dbService.getDb();
+  }
+  return dbService || null;
+}
 
 /**
  * Submit the same task to two providers for A/B comparison.
@@ -57,7 +74,7 @@ function handleSubmitAbTest(args) {
   };
 
   try {
-    const rawDb = database.getDbInstance ? database.getDbInstance() : database;
+    const rawDb = getRawDb();
     const createBothTasks = rawDb.transaction(() => {
       taskCore.createTask({
         id: taskIdA,

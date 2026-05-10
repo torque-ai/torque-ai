@@ -23,24 +23,19 @@ const ALLOWED = new Set([
   'database.js',        // the module itself
   'container.js',       // DI composition root — wires db into all services
   'index.js',           // server entry point — opens db, passes to container
-  'db/schema.js',       // DDL migrations — needs raw db for ALTER TABLE
+  'db/schema/index.js', // DDL migrations — needs raw db for ALTER TABLE
   'db/throughput-metrics.js', // DB module — imports from parent database.js
   'db/factory/loop-instances.js', // DB module — lazy fallback for factory loop instance persistence
   'db/factory/worktrees.js',  // DB module — lazy fallback for factory worktree persistence
   'eslint-rules/no-heavy-test-imports.test.js', // ESLint rule fixture — strings inside test cases, not real requires
   // Files that use facade-only core functions (getDbInstance, safeAddColumn, countTasks, isDbClosed)
+  'mcp/index.js',                     // gateway subscription cleanup through database facade
   'mcp/sse.js',                       // getDbInstance — raw DB for subscription persistence
   'config.js',                        // getDbInstance — raw DB for encrypted API key lookup
-  'handlers/experiment-handlers.js',  // getDbInstance — raw DB for SQLite transactions
-  'plugins/snapscope/handlers/compliance.js', // getDbInstance — raw DB for direct SQL audit queries
   // Raw SQL users — these call db.prepare() or db.getDbInstance().prepare() directly
-  'ci/watcher.js',                    // raw SQL for CI watch state
-  'hooks/event-dispatch.js',          // raw SQL for event persistence
   'execution/strategic-hooks.js',     // raw SQL fallback in persistMetadata
   'execution/task-finalizer.js',      // inline require for getDbInstance in scoring/budget
-  'handlers/provider-crud-handlers.js', // raw SQL via getDbInstance().prepare()
   'handlers/competitive-feature-handlers.js', // getDbInstance for scoring/indexer
-  'handlers/automation-handlers.js',  // safeAddColumn — schema migrations
   // Core infrastructure — heaviest facade consumers, migrate last
   'api-server.js',                   // broad facade usage, Phase 5 final migration
   'dashboard/server.js',             // broad facade usage, Phase 5 final migration
@@ -110,8 +105,7 @@ function classifyDirectDatabaseImports() {
     const content = fs.readFileSync(fullPath, 'utf8');
     if (!DB_IMPORT_PATTERN.test(content)) return;
 
-    const baseName = path.basename(fullPath);
-    if (ALLOWED.has(baseName) || ALLOWED.has(relativePath)) {
+    if (ALLOWED.has(relativePath)) {
       sourceAllowed.push(relativePath);
       return;
     }

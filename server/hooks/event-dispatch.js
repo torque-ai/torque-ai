@@ -14,9 +14,26 @@
  */
 
 const { EventEmitter } = require('events');
-const database = require('../database');
+const { defaultContainer } = require('../container');
 const serverConfig = require('../config');
 const logger = require('../logger').child({ component: 'event-dispatch' });
+
+function getRawDb() {
+  let dbService = null;
+  try {
+    dbService = defaultContainer.get('db');
+  } catch {
+    dbService = require('../database');
+  }
+
+  if (dbService && typeof dbService.getDbInstance === 'function') {
+    return dbService.getDbInstance();
+  }
+  if (dbService && typeof dbService.getDb === 'function') {
+    return dbService.getDb();
+  }
+  return dbService || null;
+}
 
 /**
  * Internal event bus for server-side consumers.
@@ -211,7 +228,7 @@ function persistTaskEvent(eventName, task) {
     : buildTaskEventContext(eventName, task);
 
   try {
-    const rawDb = database.getDbInstance();
+    const rawDb = getRawDb();
     if (!rawDb) return;
 
     logMalformedTaskEvent(context, 'persist');
@@ -320,7 +337,7 @@ function dispatchTaskEvent(eventName, task) {
  */
 function getTaskEvents(options = {}) {
   try {
-    const rawDb = database.getDbInstance();
+    const rawDb = getRawDb();
     if (!rawDb) return [];
 
     let sql = 'SELECT * FROM task_events WHERE 1=1';
@@ -360,7 +377,7 @@ function getTaskEvents(options = {}) {
  */
 function pruneOldTaskEvents() {
   try {
-    const rawDb = database.getDbInstance();
+    const rawDb = getRawDb();
     if (!rawDb) return 0;
 
     const retentionDays = serverConfig.getInt('event_retention_days', 30);

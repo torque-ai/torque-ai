@@ -1,7 +1,7 @@
 'use strict';
 
 const { randomUUID } = require('crypto');
-const database = require('../database');
+const { defaultContainer } = require('../container');
 const providerRoutingCore = require('../db/provider/routing-core');
 const taskManager = require('../task-manager');
 const { normalizeProviderTransport } = providerRoutingCore;
@@ -20,13 +20,20 @@ const DEFAULT_TRANSPORT_BY_TYPE = {
 };
 
 function getDatabaseHandle() {
-  if (typeof database.getDb === 'function') {
-    return database.getDb();
+  let dbService = null;
+  try {
+    dbService = defaultContainer.get('db');
+  } catch {
+    dbService = require('../database');
   }
-  if (typeof database.getDbInstance === 'function') {
-    return database.getDbInstance();
+
+  if (dbService && typeof dbService.getDb === 'function') {
+    return dbService.getDb();
   }
-  return null;
+  if (dbService && typeof dbService.getDbInstance === 'function') {
+    return dbService.getDbInstance();
+  }
+  return dbService || null;
 }
 
 

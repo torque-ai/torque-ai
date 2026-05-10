@@ -21,6 +21,7 @@ const { safeExecChain } = require('../utils/safe-exec');
 const { executeValidatedCommandSync } = require('../execution/command-policy');
 const { ErrorCodes, makeError } = require('./shared');
 const { createTestRunnerRegistry } = require('../test-runner-registry');
+const { defaultContainer } = require('../container');
 const logger = require('../logger').child({ component: 'automation-handlers' });
 
 /**
@@ -52,7 +53,18 @@ function _getTestRunnerRegistry() {
 
 // Lazy-load to avoid circular deps
 let _database, _configCore, _taskCore, _taskManager, _projectConfigCore, _schedulingAutomation, _workflowEngine;
-function database() { return _database || (_database = require('../database')); }
+function database() {
+  if (_database) return _database;
+  try {
+    _database = defaultContainer.get('db');
+  } catch {
+    // Fall back below for pre-boot tests and legacy callers.
+  }
+  if (!_database) {
+    _database = require('../database');
+  }
+  return _database;
+}
 function configCore() { return _configCore || (_configCore = require('../db/config-core')); }
 function taskCore() { return _taskCore || (_taskCore = require('../db/task-core')); }
 function taskManager() { return _taskManager || (_taskManager = require('../task-manager')); }
@@ -91,8 +103,8 @@ async function evaluatePreVerifyGovernance(task, verifyCommand, context = {}) {
       try {
         const { createGovernanceRules } = require('../db/governance-rules');
         const { createGovernanceHooks } = require('../governance/hooks');
-        const database = require('../database');
-        const db = database.getDbInstance ? database.getDbInstance() : database;
+        const dbFacade = database();
+        const db = dbFacade.getDbInstance ? dbFacade.getDbInstance() : dbFacade;
         if (db && typeof db.prepare === 'function') {
           const gr = createGovernanceRules({ db });
           governance = createGovernanceHooks({ governanceRules: gr });

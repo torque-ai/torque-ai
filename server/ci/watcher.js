@@ -6,7 +6,7 @@
 const { randomUUID } = require('crypto');
 const GitHubActionsProvider = require('./github-actions');
 const { diagnoseFailures } = require('./diagnostics');
-const database = require('../database');
+const { defaultContainer } = require('../container');
 const ciCache = require('../db/ci-cache');
 
 // Lazy require to break circular dependency: mcp-sse → tools → ci-handlers → watcher → mcp-sse
@@ -20,12 +20,19 @@ const _activeTimers = new Map();
 const MAX_WATCHES = 10;
 
 function _getDb() {
-  if (typeof database.getDbInstance === 'function') {
-    return database.getDbInstance();
+  let dbService = null;
+  try {
+    dbService = defaultContainer.get('db');
+  } catch {
+    dbService = require('../database');
   }
 
-  if (typeof database.getDb === 'function') {
-    return database.getDb();
+  if (dbService && typeof dbService.getDbInstance === 'function') {
+    return dbService.getDbInstance();
+  }
+
+  if (dbService && typeof dbService.getDb === 'function') {
+    return dbService.getDb();
   }
 
   throw new Error('Database handle is not available');
