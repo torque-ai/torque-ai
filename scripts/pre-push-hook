@@ -48,6 +48,7 @@ source "$COORD_LOCK_HELPER"
 ZERO_SHA="0000000000000000000000000000000000000000"
 remote_refs=()
 local_head_sha=""
+local_head_short=""
 staging_branch=""
 staging_ref_created=0
 local_gate_worktree_parent=""
@@ -143,6 +144,66 @@ delete_staging_ref() {
   fi
 }
 
+cleanup_abandoned_staging_refs() {
+  local sha_prefix="$1"
+  local stale_secs="${PRE_PUSH_STAGING_REF_STALE_SECS:-7200}"
+  local now refs line remote_sha full_ref branch epoch age should_delete
+
+  case "$stale_secs" in
+    ''|*[!0-9]*) stale_secs=7200 ;;
+  esac
+  now="$(date +%s 2>/dev/null || echo 0)"
+
+  refs="$(git_cleanup_timeout ls-remote --heads origin 'pre-push-gate/*' 2>/dev/null || true)"
+  if [ -z "$refs" ]; then
+    return 0
+  fi
+
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    remote_sha="${line%%[[:space:]]*}"
+    full_ref="${line#*[[:space:]]}"
+    branch="${full_ref#refs/heads/}"
+    case "$branch" in
+      pre-push-gate/*) ;;
+      *) continue ;;
+    esac
+
+    should_delete=0
+    case "$branch" in
+      "pre-push-gate/${sha_prefix}-"*) should_delete=1 ;;
+    esac
+
+    epoch="${branch#pre-push-gate/????????????-}"
+    epoch="${epoch%%-*}"
+    case "$epoch" in
+      ''|*[!0-9]*) ;;
+      *)
+        if [ "$now" -gt 0 ]; then
+          age=$((now - epoch))
+          if [ "$age" -ge "$stale_secs" ]; then
+            should_delete=1
+          fi
+        fi
+        ;;
+    esac
+
+    if [ "$should_delete" -ne 1 ]; then
+      continue
+    fi
+    if [ "$branch" = "$staging_branch" ]; then
+      continue
+    fi
+
+    echo "[pre-push] Cleaning abandoned staging ref origin/$branch ($remote_sha)..."
+    if ! git_cleanup_timeout push --no-verify --quiet origin --delete "$branch" 2>/dev/null; then
+      echo "[pre-push] warn: failed to delete abandoned staging ref origin/$branch"
+    fi
+  done <<EOF
+$refs
+EOF
+}
+
 cleanup_local_gate_worktree() {
   if [ -z "${local_gate_worktree:-}" ]; then
     return 0
@@ -183,8 +244,10 @@ pre_push_cleanup() {
   exit "$rc"
 }
 
-repo_coord_lock_acquire "main" "pre-push main gate: $(echo "$local_head_sha" | cut -c1-12)"
+local_head_short="$(echo "$local_head_sha" | cut -c1-12)"
+repo_coord_lock_acquire "main" "pre-push main gate: $local_head_short"
 trap pre_push_cleanup EXIT
+cleanup_abandoned_staging_refs "$local_head_short"
 # vitest writes its summary with ANSI color codes even under `--reporter=dot`,
 # which causes `^[[:space:]]*Test Files` anchors to fail (the line begins with
 # an ESC byte, not whitespace). Strip ANSI before matching so the grep patterns
@@ -498,7 +561,7 @@ if [ "$GATE_RUN_DASHBOARD" = "1" ] || [ "$GATE_RUN_SERVER" = "1" ] || [ "$GATE_R
   # a per-hook-run suffix so an older failed hook's EXIT cleanup cannot delete a
   # newer attempt for the same HEAD while the newer remote sync is still fetching.
   hook_run_id="$(date +%s 2>/dev/null || echo time)-$$"
-  staging_branch="pre-push-gate/$(echo "$local_head_sha" | cut -c1-12)-$hook_run_id"
+  staging_branch="pre-push-gate/${local_head_short}-$hook_run_id"
   remote_gate_worktree_suffix="${PRE_PUSH_REMOTE_GATE_WORKTREE_SUFFIX--pre-push-gate}"
   if [ -n "$remote_gate_worktree_suffix" ]; then
     case "$remote_gate_worktree_suffix" in

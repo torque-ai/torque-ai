@@ -52,7 +52,8 @@ describe('pre-push-hook staging-branch invariants', () => {
     const src = readHook();
     expect(src).toMatch(/staging_branch="pre-push-gate\//);
     expect(src).toMatch(/hook_run_id="\$\(date \+%s 2>\/dev\/null \|\| echo time\)-\$\$"/);
-    expect(src).toMatch(/staging_branch="pre-push-gate\/\$\(echo "\$local_head_sha" \| cut -c1-12\)-\$hook_run_id"/);
+    expect(src).toMatch(/local_head_short="\$\(echo "\$local_head_sha" \| cut -c1-12\)"/);
+    expect(src).toMatch(/staging_branch="pre-push-gate\/\$\{local_head_short\}-\$hook_run_id"/);
     expect(src).toMatch(/git\s+push\s+[^\n]*origin\s+"?\$(?:\{)?local_head_sha(?:\})?"?:refs\/heads\/\$(?:\{)?staging_branch/);
   });
 
@@ -193,6 +194,10 @@ describe('pre-push-hook staging-branch invariants', () => {
     expect(src).toMatch(/delete_staging_ref \|\| true/);
     expect(src).toMatch(/REPO_COORD_LOCK_FORCE_RELEASE=1 repo_coord_lock_release \|\| true/);
     expect(src).toMatch(/trap pre_push_cleanup EXIT/);
+    expect(src).toMatch(/cleanup_abandoned_staging_refs "\$local_head_short"/);
+    expect(src).toMatch(/git_cleanup_timeout\s+ls-remote\s+--heads\s+origin\s+'pre-push-gate\/\*'/);
+    expect(src).toMatch(/PRE_PUSH_STAGING_REF_STALE_SECS:-7200/);
+    expect(src).toMatch(/Cleaning abandoned staging ref origin\/\$branch/);
     expect(src).not.toMatch(/trap\s+'delete_staging_ref'\s+EXIT/);
     expect(src).toMatch(/git_cleanup_timeout\s*\(\)/);
     expect(src).toMatch(/PRE_PUSH_STAGING_CLEANUP_TIMEOUT_SECS:-30/);

@@ -117,6 +117,37 @@ assert_contains "$TMP_ROOT/dead-owner.out" 'Reaping dead same-host lock'
 assert_contains "$TORQUE_COORD_LOCK_DIR/owner.env" '^purpose=dead-owner takeover$'
 repo_coord_lock_release > "$TMP_ROOT/dead-owner-release.out"
 
+WINDOWS_DEAD_LOCK="$TORQUE_COORD_LOCK_ROOT/main.lock"
+mkdir -p "$WINDOWS_DEAD_LOCK"
+cat > "$WINDOWS_DEAD_LOCK/owner.env" <<EOF
+lock_name=main
+purpose=windows dead same-host test
+pid=999999998
+host=$(hostname 2>/dev/null || echo unknown)
+started_at=2099-01-01T00:00:00Z
+started_at_epoch=4070908800
+EOF
+printf 'windows-dead-token\n' > "$WINDOWS_DEAD_LOCK/token"
+FAKE_BIN="$TMP_ROOT/fake-bin"
+mkdir -p "$FAKE_BIN"
+cat > "$FAKE_BIN/powershell.exe" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$TORQUE_COORD_LOCK_FAKE_POWERSHELL_LOG"
+exit 1
+EOF
+chmod +x "$FAKE_BIN/powershell.exe"
+
+(
+  export PATH="$FAKE_BIN:$PATH"
+  export TORQUE_COORD_LOCK_UNAME="MINGW64_NT-10.0"
+  export TORQUE_COORD_LOCK_FAKE_POWERSHELL_LOG="$TMP_ROOT/fake-powershell.log"
+  repo_coord_lock_acquire main "windows dead-owner takeover" > "$TMP_ROOT/windows-dead-owner.out"
+  repo_coord_lock_release > "$TMP_ROOT/windows-dead-owner-release.out"
+)
+assert_contains "$TMP_ROOT/windows-dead-owner.out" 'Reaping dead same-host lock'
+assert_contains "$TMP_ROOT/windows-dead-owner.out" 'windows dead same-host test'
+assert_contains "$TMP_ROOT/fake-powershell.log" 'Get-Process -Id 999999998'
+
 STALE_LOCK="$TORQUE_COORD_LOCK_ROOT/main.lock"
 mkdir -p "$STALE_LOCK"
 cat > "$STALE_LOCK/owner.env" <<EOF

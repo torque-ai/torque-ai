@@ -114,8 +114,35 @@ repo_coord_lock_current_host() {
   hostname 2>/dev/null || echo unknown
 }
 
-repo_coord_lock_pid_alive() {
+repo_coord_lock_platform() {
+  if [ -n "${TORQUE_COORD_LOCK_UNAME:-}" ]; then
+    printf '%s\n' "$TORQUE_COORD_LOCK_UNAME"
+    return 0
+  fi
+  uname -s 2>/dev/null || echo unknown
+}
+
+repo_coord_lock_windows_pid_alive() {
   local pid="$1"
+
+  if command -v powershell.exe >/dev/null 2>&1; then
+    powershell.exe -NoProfile -Command "if (Get-Process -Id $pid -ErrorAction SilentlyContinue) { exit 0 } else { exit 1 }" >/dev/null 2>&1
+    return $?
+  fi
+  if command -v pwsh >/dev/null 2>&1; then
+    pwsh -NoProfile -Command "if (Get-Process -Id $pid -ErrorAction SilentlyContinue) { exit 0 } else { exit 1 }" >/dev/null 2>&1
+    return $?
+  fi
+  if command -v tasklist.exe >/dev/null 2>&1; then
+    tasklist.exe /FI "PID eq $pid" /NH 2>/dev/null | grep -qE "[[:space:]]$pid[[:space:]]"
+    return $?
+  fi
+
+  return 2
+}
+
+repo_coord_lock_pid_alive() {
+  local pid="$1" windows_status
   case "$pid" in
     ''|*[!0-9]*|0) return 1 ;;
   esac
@@ -124,11 +151,18 @@ repo_coord_lock_pid_alive() {
     return 0
   fi
 
-  if command -v powershell.exe >/dev/null 2>&1; then
-    powershell.exe -NoProfile -Command "if (Get-Process -Id $pid -ErrorAction SilentlyContinue) { exit 0 } else { exit 1 }" >/dev/null 2>&1 && return 0
-  elif command -v pwsh >/dev/null 2>&1; then
-    pwsh -NoProfile -Command "if (Get-Process -Id $pid -ErrorAction SilentlyContinue) { exit 0 } else { exit 1 }" >/dev/null 2>&1 && return 0
-  elif command -v ps >/dev/null 2>&1; then
+  case "$(repo_coord_lock_platform)" in
+    MINGW*|MSYS*|CYGWIN*)
+      repo_coord_lock_windows_pid_alive "$pid"
+      windows_status=$?
+      case "$windows_status" in
+        0) return 0 ;;
+        1) return 1 ;;
+      esac
+      ;;
+  esac
+
+  if command -v ps >/dev/null 2>&1; then
     ps -p "$pid" >/dev/null 2>&1 && return 0
   fi
 
