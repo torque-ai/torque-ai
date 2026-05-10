@@ -320,11 +320,11 @@ fi
   it('uses synchronous streaming capture for direct local gates', () => {
     const src = readHook();
     const helper = src.match(/run_with_flake_retry_inner_streaming\s*\(\)\s*\{[\s\S]*?\n\}/)?.[0];
-    expect(helper).toMatch(/eval "\$cmd" 2>&1 \| tee "\$tmp"/);
-    expect(helper).toContain('RETRIED_EXIT="$cmd_status"');
+    expect(helper).toContain('node "$REPO_ROOT/scripts/pre-push-tee-runner.js" --output "$tmp" -- bash -c "$cmd"');
+    expect(helper).toContain('RETRIED_EXIT=$?');
     expect(src).toMatch(/run_with_flake_retry_with_runner "\$1" "\$2" run_with_flake_retry_inner_streaming/);
     expect(src).toMatch(/run_with_flake_retry_streaming "Local gate"/);
-    expect(src).toContain('Local gates must not use the SSH tail-by-pid capture wrapper.');
+    expect(src).toContain('The Node tee');
   });
 
   it('keeps phase output pipelines from suppressing the gate-end marker', () => {

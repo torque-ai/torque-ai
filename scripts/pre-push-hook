@@ -502,11 +502,9 @@ run_with_flake_retry_inner() {
 run_with_flake_retry_inner_streaming() {
   local cmd="$1"
   local tmp="$2"
-  local cmd_status
   : > "$tmp"
-  eval "$cmd" 2>&1 | tee "$tmp"
-  cmd_status="${PIPESTATUS[0]}"
-  RETRIED_EXIT="$cmd_status"
+  node "$REPO_ROOT/scripts/pre-push-tee-runner.js" --output "$tmp" -- bash -c "$cmd"
+  RETRIED_EXIT=$?
 }
 
 run_with_flake_retry_with_runner() {
@@ -577,9 +575,9 @@ run_local_gate() {
   worktree_q=$(printf '%q' "$local_gate_worktree")
   base_q=$(printf '%q' "$REPO_ROOT")
   gate_cmd_q=$(printf '%q' "$gate_cmd")
-  # Local gates must not use the SSH tail-by-pid capture wrapper. If the eval
-  # shell returns before local Vitest children finish flushing stdout, cleanup
-  # can remove the gate worktree while tests are still resolving modules.
+  # Local gates must not use the SSH tail-by-pid capture wrapper. The Node tee
+  # runner waits for child close/stdio EOF before cleanup can remove the gate
+  # worktree, which keeps local retries single-owned when the remote is down.
   run_with_flake_retry_streaming "Local gate" "cd $worktree_q && TORQUE_REMOTE_TRANSPORT=local TORQUE_REMOTE_PROJECT_PATH=$worktree_q TORQUE_REMOTE_BASE_PROJECT_PATH=$base_q bash -c $gate_cmd_q"
 }
 
