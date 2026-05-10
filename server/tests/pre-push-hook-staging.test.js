@@ -16,6 +16,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { spawnSync } = require('child_process');
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
 const HOOK_PATH = path.join(REPO_ROOT, 'scripts', 'pre-push-hook');
@@ -161,6 +162,36 @@ describe('pre-push-hook staging-branch invariants', () => {
     expect(src).toMatch(/run_dashboard_phase &/);
     expect(src).toMatch(/run_server_phase &/);
     expect(src).toMatch(/\} 2>&1 \| prefix_gate_phase_output perf/);
+  });
+
+  it('classifies live gate fixture noise with vitest dots and CRLF endings', () => {
+    const bashCheck = spawnSync('bash', ['--version'], { encoding: 'utf8' });
+    if (bashCheck.error || bashCheck.status !== 0) return;
+
+    const src = readHook();
+    const start = src.indexOf('strip_gate_progress_prefix() {');
+    const end = src.indexOf('# Sweep stale torque-* test temp dirs', start);
+    expect(start).toBeGreaterThanOrEqual(0);
+    expect(end).toBeGreaterThan(start);
+
+    const helperBlock = src.slice(start, end).replace(/\\\$/g, '$');
+    const script = `${helperBlock}
+printf '[gate-timing] dash_ms=1 exit=0\\n' | prefix_gate_phase_output serv
+printf '%b' "\\302\\267\\302\\267'Get-Content' is not recognized as an internal or external command,\\r\\n\\302\\267\\302\\267operable program or batch file.\\r\\n" | prefix_gate_phase_output serv
+printf '%b' "\\302\\267\\302\\267err msg\\302\\267\\302\\267\\n" | prefix_gate_phase_output serv
+printf '%b' "\\302\\267\\302\\267hint:\\r\\n" | prefix_gate_phase_output serv
+printf '%b' "\\302\\267\\302\\267real failure line\\302\\267\\302\\267\\n" | prefix_gate_phase_output serv
+`;
+
+    const result = spawnSync('bash', ['-s'], { encoding: 'utf8', input: script });
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toContain('[gate-timing] dash_ms=1 exit=0');
+    expect(result.stdout).toContain("[serv] [expected-test-output] 'Get-Content' is not recognized as an internal or external command,");
+    expect(result.stdout).toContain('[serv] [expected-test-output] operable program or batch file.');
+    expect(result.stdout).toContain('[serv] [expected-test-output] err msg');
+    expect(result.stdout).toContain('[serv] [expected-test-output] hint:');
+    expect(result.stdout).toContain('real failure line');
+    expect(result.stdout).not.toContain('[expected-test-output] real failure line');
   });
 
   it('passes a plan-specific gate suite to torque-remote so coord serializes and caches correctly', () => {

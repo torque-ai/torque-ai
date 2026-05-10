@@ -804,10 +804,20 @@ run_vitest_phase() {
 strip_gate_progress_prefix() {
   local line="\$1"
   local vitest_dot=\$'\302\267'
+  local carriage_return=\$'\r'
   while :; do
     case "\$line" in
       .*) line="\${line#.}" ;;
       "\$vitest_dot"*) line="\${line#"\$vitest_dot"}" ;;
+      *) break ;;
+    esac
+  done
+  case "\$line" in
+    *"\$carriage_return") line="\${line%"\$carriage_return"}" ;;
+  esac
+  while :; do
+    case "\$line" in
+      *"\$vitest_dot") line="\${line%"\$vitest_dot"}" ;;
       *) break ;;
     esac
   done
@@ -822,7 +832,7 @@ is_expected_gate_fixture_line() {
     "Preparing worktree (detached HEAD "*) return 0 ;;
     "Already on '"*) return 0 ;;
     "Switched to "*) return 0 ;;
-    "hint: "*) return 0 ;;
+    "hint:"|"hint: "*) return 0 ;;
     "Unhandled API error: boom") return 0 ;;
     "Dashboard API error: Invalid JSON body") return 0 ;;
     "Dashboard API error: Request body too large") return 0 ;;
