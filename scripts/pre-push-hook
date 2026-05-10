@@ -499,14 +499,25 @@ run_with_flake_retry_inner() {
   done
 }
 
-run_with_flake_retry() {
+run_with_flake_retry_inner_streaming() {
+  local cmd="$1"
+  local tmp="$2"
+  local cmd_status
+  : > "$tmp"
+  eval "$cmd" 2>&1 | tee "$tmp"
+  cmd_status="${PIPESTATUS[0]}"
+  RETRIED_EXIT="$cmd_status"
+}
+
+run_with_flake_retry_with_runner() {
   local label="$1"
   local cmd="$2"
+  local runner="$3"
   local tmp
   tmp=$(mktemp -t prepush.XXXXXX)
 
   set +e
-  run_with_flake_retry_inner "$cmd" "$tmp"
+  "$runner" "$cmd" "$tmp"
   set -e
   RETRIED_OUTPUT=$(<"$tmp")
 
@@ -525,19 +536,27 @@ run_with_flake_retry() {
        && is_file_load_only_flake "$RETRIED_OUTPUT"; then
     echo "[pre-push] $label: file-load flake detected (0 test failures, N file-load failures) — retrying once..."
     set +e
-    run_with_flake_retry_inner "$cmd" "$tmp"
+    "$runner" "$cmd" "$tmp"
     set -e
     RETRIED_OUTPUT=$(<"$tmp")
   elif { [ "$RETRIED_EXIT" -ne 0 ] || gate_marker_has_failure "$RETRIED_OUTPUT"; } \
          && is_segfault_flake "$RETRIED_OUTPUT"; then
     echo "[pre-push] $label: native crash detected (segfault / libuv assert / V8 abort) — retrying once..."
     set +e
-    run_with_flake_retry_inner "$cmd" "$tmp"
+    "$runner" "$cmd" "$tmp"
     set -e
     RETRIED_OUTPUT=$(<"$tmp")
   fi
 
   rm -f "$tmp"
+}
+
+run_with_flake_retry() {
+  run_with_flake_retry_with_runner "$1" "$2" run_with_flake_retry_inner
+}
+
+run_with_flake_retry_streaming() {
+  run_with_flake_retry_with_runner "$1" "$2" run_with_flake_retry_inner_streaming
 }
 
 prepare_local_gate_worktree() {
@@ -558,7 +577,10 @@ run_local_gate() {
   worktree_q=$(printf '%q' "$local_gate_worktree")
   base_q=$(printf '%q' "$REPO_ROOT")
   gate_cmd_q=$(printf '%q' "$gate_cmd")
-  run_with_flake_retry "Local gate" "cd $worktree_q && TORQUE_REMOTE_TRANSPORT=local TORQUE_REMOTE_PROJECT_PATH=$worktree_q TORQUE_REMOTE_BASE_PROJECT_PATH=$base_q bash -c $gate_cmd_q"
+  # Local gates must not use the SSH tail-by-pid capture wrapper. If the eval
+  # shell returns before local Vitest children finish flushing stdout, cleanup
+  # can remove the gate worktree while tests are still resolving modules.
+  run_with_flake_retry_streaming "Local gate" "cd $worktree_q && TORQUE_REMOTE_TRANSPORT=local TORQUE_REMOTE_PROJECT_PATH=$worktree_q TORQUE_REMOTE_BASE_PROJECT_PATH=$base_q bash -c $gate_cmd_q"
 }
 
 gate_failed() {

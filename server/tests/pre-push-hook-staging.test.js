@@ -260,6 +260,7 @@ printf '%b' "\\302\\267\\302\\267real failure line\\302\\267\\302\\267\\n" | pre
     expect(src).toMatch(/\btests_have_failures\s*\(\)/);
     expect(src).toMatch(/\bis_file_load_only_flake\s*\(\)/);
     expect(src).toMatch(/\brun_with_flake_retry\s*\(\)/);
+    expect(src).toMatch(/\brun_with_flake_retry_streaming\s*\(\)/);
   });
 
   it('parses the final anchored gate-end marker instead of grepping all captured output', () => {
@@ -314,6 +315,16 @@ fi
     expect(helper).toMatch(/tail -f --pid="\$cmd_pid" "\$tmp" &/);
     expect(helper).toMatch(/kill "\$tail_pid" 2>\/dev\/null \|\| true/);
     expect(helper).toMatch(/wait "\$tail_pid" 2>\/dev\/null \|\| true/);
+  });
+
+  it('uses synchronous streaming capture for direct local gates', () => {
+    const src = readHook();
+    const helper = src.match(/run_with_flake_retry_inner_streaming\s*\(\)\s*\{[\s\S]*?\n\}/)?.[0];
+    expect(helper).toMatch(/eval "\$cmd" 2>&1 \| tee "\$tmp"/);
+    expect(helper).toContain('RETRIED_EXIT="$cmd_status"');
+    expect(src).toMatch(/run_with_flake_retry_with_runner "\$1" "\$2" run_with_flake_retry_inner_streaming/);
+    expect(src).toMatch(/run_with_flake_retry_streaming "Local gate"/);
+    expect(src).toContain('Local gates must not use the SSH tail-by-pid capture wrapper.');
   });
 
   it('blocks instead of retrying when torque-remote detects concurrent worktree contamination', () => {
