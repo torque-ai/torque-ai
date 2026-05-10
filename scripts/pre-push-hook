@@ -502,9 +502,13 @@ run_with_flake_retry_inner() {
 run_with_flake_retry_inner_streaming() {
   local cmd="$1"
   local tmp="$2"
+  local script
   : > "$tmp"
-  node "$REPO_ROOT/scripts/pre-push-tee-runner.js" --output "$tmp" -- bash -c "$cmd"
+  script=$(mktemp -t prepush-local-cmd.XXXXXX.sh)
+  printf '%s\n' "$cmd" > "$script"
+  node "$REPO_ROOT/scripts/pre-push-tee-runner.js" --output "$tmp" -- bash "$script"
   RETRIED_EXIT=$?
+  rm -f "$script"
 }
 
 run_with_flake_retry_with_runner() {
