@@ -334,6 +334,17 @@ function _isGreenfieldTask(desc) {
     /\bnew\s+(file|test|module|class|component|spec)\b/i.test(desc);
 }
 
+function _isSyntheticLocalModelTestTask(task) {
+  const desc = task?.task_description || '';
+  const match = /(?:^|\n)\s*Test task for(?:(\s+model:)|\s+)\s*([^\s]+)\s*(?:\n|$)/i.exec(desc);
+  if (!match) return false;
+
+  // The legacy probe says "Test task for model: <name>". Newer provider
+  // smoke probes use "Test task for <model:tag>"; require a model-like tag
+  // for the bare form so ordinary task descriptions are not skipped.
+  return Boolean(match[1]) || /^[A-Za-z0-9_.\/+-]+:[A-Za-z0-9_.\/+-]+$/.test(match[2]);
+}
+
 const LOCAL_FIRST_FALLBACK_PROVIDERS = new Set(['ollama']);
 
 function _isLocalFirstProvider(provider) {
@@ -383,6 +394,13 @@ function tryLocalFirstFallback(taskId, task, errorMsg, options = {}) {
     metadata.original_provider = task.provider;
   }
   metadata.local_first_attempts = localAttempts + 1;
+
+  if (_isSyntheticLocalModelTestTask(task)) {
+    logger.info(`[Local-First] Task ${taskId}: synthetic local-model test task, escalating to cloud fallback`);
+    return tryOllamaCloudFallback(taskId, task, `${errorMsg}\n[Local-First] Skipping local retry for synthetic local-model test task`, {
+      metadata: JSON.stringify(metadata),
+    });
+  }
 
   // Step 1: Same model, different host (exclude current host from selection)
   if (!options.skipSameModel && currentModel && currentHost) {

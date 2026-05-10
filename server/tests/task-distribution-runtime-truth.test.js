@@ -50,6 +50,14 @@ describe('task distribution runtime truth', () => {
 
       db.updateTaskStatus(id, 'running', {
         pid: 4242,
+        subprocess_pid: 5151,
+        output_log_path: '/tmp/torque/stdout.log',
+        error_log_path: '/tmp/torque/stderr.log',
+        output_log_offset: 128,
+        error_log_offset: 64,
+        last_activity_at: '2026-03-12T00:01:00.000Z',
+        completion_detected_at: '2026-03-12T00:02:00.000Z',
+        stall_recovery_attempts: 2,
         progress_percent: 55,
         mcp_instance_id: 'mcp-lock-1',
         ollama_host_id: 'host-1',
@@ -66,6 +74,14 @@ describe('task distribution runtime truth', () => {
       expect(task.started_at).toBeNull();
       expect(task.completed_at).toBeNull();
       expect(task.pid).toBeNull();
+      expect(task.subprocess_pid).toBeNull();
+      expect(task.output_log_path).toBeNull();
+      expect(task.error_log_path).toBeNull();
+      expect(task.output_log_offset).toBe(0);
+      expect(task.error_log_offset).toBe(0);
+      expect(task.last_activity_at).toBeNull();
+      expect(task.completion_detected_at).toBeNull();
+      expect(task.stall_recovery_attempts).toBe(2);
       expect(task.progress_percent).toBeNull();
       expect(task.exit_code).toBeNull();
       expect(task.mcp_instance_id).toBeNull();

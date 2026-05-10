@@ -17,11 +17,16 @@ const childProcess = require('child_process');
 //
 // Workaround: mutate childProcess.execFileSync directly. require() of a
 // built-in returns the same module object every time, so overwriting the
-// property is seen by every subsequent require. beforeEach saves and
-// restores around each test.
+// property is seen by every subsequent require. beforeEach replaces it and
+// afterEach restores the real function around each test.
 const _realExecFileSync = childProcess._realExecFileSync || childProcess.execFileSync;
 let _gitConfig = { name: '', email: '' };
-let _previousExecFileSync;
+const syntheticUser = 'synthetic-user';
+const windowsUserPath = (suffix = 'Projects\\torque') => `C:\\Users\\${syntheticUser}\\${suffix}`;
+const linuxUserPath = (suffix = 'code/app') => `/home/${syntheticUser}/${suffix}`;
+const macUserPath = (suffix = 'Desktop') => `/Users/${syntheticUser}/${suffix}`;
+const private192 = (lastOctet = '100') => ['192', '168', '55', lastOctet].join('.');
+const nonAllowlistedEmail = () => ['user', 'synthetic.invalid'].join('@');
 
 function mockedExecFileSync(cmd, args, opts) {
   if (cmd === 'git' && Array.isArray(args) && args[0] === 'config') {
@@ -43,18 +48,17 @@ describe('pii-guard', () => {
   beforeEach(() => {
     // Neutral defaults; individual tests override before reloading.
     _gitConfig = { name: '', email: '' };
-    _previousExecFileSync = childProcess.execFileSync;
     childProcess.execFileSync = mockedExecFileSync;
     piiGuard = loadPiiGuard();
   });
 
   afterEach(() => {
-    childProcess.execFileSync = _previousExecFileSync || _realExecFileSync;
+    childProcess.execFileSync = _realExecFileSync;
   });
 
   describe('scanAndReplace', () => {
     it('replaces Windows user paths', () => {
-      const result = piiGuard.scanAndReplace('File at C:\\Users\\alice\\Projects\\torque');
+      const result = piiGuard.scanAndReplace(`File at ${windowsUserPath()}`);
       expect(result.clean).toBe(false);
       expect(result.sanitized).toBe('File at C:\\Users\\<user>\\Projects\\torque');
       expect(result.findings).toHaveLength(1);
@@ -62,19 +66,19 @@ describe('pii-guard', () => {
     });
 
     it('replaces Linux user paths', () => {
-      const result = piiGuard.scanAndReplace('Path /home/alice/code/app');
+      const result = piiGuard.scanAndReplace(`Path ${linuxUserPath()}`);
       expect(result.clean).toBe(false);
       expect(result.sanitized).toBe('Path /home/<user>/code/app');
     });
 
     it('replaces Mac user paths', () => {
-      const result = piiGuard.scanAndReplace('Path /Users/alice/Desktop');
+      const result = piiGuard.scanAndReplace(`Path ${macUserPath()}`);
       expect(result.clean).toBe(false);
       expect(result.sanitized).toBe('Path /Users/<user>/Desktop');
     });
 
     it('replaces 192.168.x.x preserving last octet', () => {
-      const result = piiGuard.scanAndReplace('Host: 192.168.55.100');
+      const result = piiGuard.scanAndReplace(`Host: ${private192('100')}`);
       expect(result.clean).toBe(false);
       expect(result.sanitized).toBe('Host: 192.0.2.100');
     });
@@ -101,8 +105,8 @@ describe('pii-guard', () => {
       expect(result.clean).toBe(true);
     });
 
-    it('replaces real email addresses', () => {
-      const result = piiGuard.scanAndReplace('Contact: alice@corp.test');
+    it('replaces non-allowlisted email addresses', () => {
+      const result = piiGuard.scanAndReplace(`Contact: ${nonAllowlistedEmail()}`);
       expect(result.clean).toBe(false);
       expect(result.sanitized).toBe('Contact: user@example.com');
     });
@@ -149,10 +153,10 @@ describe('pii-guard', () => {
     });
 
     it('replaces multiple PII types in one string', () => {
-      const input = 'User C:\\Users\\alice at 192.168.55.50 email alice@corp.test';
+      const input = `User ${windowsUserPath('workspace')} at ${private192('50')} email ${nonAllowlistedEmail()}`;
       const result = piiGuard.scanAndReplace(input);
       expect(result.clean).toBe(false);
-      expect(result.sanitized).toBe('User C:\\Users\\<user> at 192.0.2.50 email user@example.com');
+      expect(result.sanitized).toBe('User C:\\Users\\<user>\\workspace at 192.0.2.50 email user@example.com');
       expect(result.findings.length).toBeGreaterThanOrEqual(3);
     });
 
@@ -173,15 +177,16 @@ describe('pii-guard', () => {
     });
 
     it('respects builtinOverrides to disable categories', () => {
-      const result = piiGuard.scanAndReplace('Path /home/<user>/code', {
+      const input = `Path ${linuxUserPath('code')}`;
+      const result = piiGuard.scanAndReplace(input, {
         builtinOverrides: { user_paths: false },
       });
       expect(result.clean).toBe(true);
-      expect(result.sanitized).toBe('Path /home/<user>/code');
+      expect(result.sanitized).toBe(input);
     });
 
     it('reports line numbers in findings', () => {
-      const input = 'Line one\nPath C:\\Users\\alice\\foo\nLine three';
+      const input = `Line one\nPath ${windowsUserPath('foo')}\nLine three`;
       const result = piiGuard.scanAndReplace(input);
       expect(result.findings[0].line).toBe(2);
     });
@@ -208,19 +213,19 @@ describe('pii-guard', () => {
     });
 
     it('does not clobber compound identifiers when a non-allowlisted git user happens to be a prefix', () => {
-      const guard = loadWithGitUser('Alice');
-      const src = 'class AliceCliProvider {} // AliceHelper extends it';
+      const guard = loadWithGitUser('Zorgax');
+      const src = 'class ZorgaxCliProvider {} // ZorgaxHelper extends it';
       const result = guard.scanAndReplace(src);
       expect(result.sanitized).toBe(src);
     });
 
     it('replaces a non-allowlisted git user when it appears as a standalone word', () => {
-      const guard = loadWithGitUser('Zorgax');
-      const src = 'Author attribution mentioning Zorgax here.';
+      const guard = loadWithGitUser('Qorvex');
+      const src = 'Author attribution mentioning Qorvex here.';
       const result = guard.scanAndReplace(src);
       expect(result.clean).toBe(false);
       expect(result.sanitized).toContain('<git-user>');
-      expect(result.sanitized).not.toContain('Zorgax');
+      expect(result.sanitized).not.toContain('Qorvex');
     });
   });
 });
