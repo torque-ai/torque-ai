@@ -57,8 +57,8 @@ function database() {
   if (_database) return _database;
   try {
     _database = defaultContainer.get('db');
-  } catch {
-    // Fall back below for pre-boot tests and legacy callers.
+  } catch (err) {
+    logger.debug('[automation-handlers] db container unavailable; using database facade fallback:', err.message || err);
   }
   if (!_database) {
     _database = require('../database');
