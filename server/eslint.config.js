@@ -187,9 +187,6 @@ module.exports = [
           'workflow-handlers-analysis.test.js',
           'workflow-handlers-core.test.js',
           // database direct-import consumers (genuine dependency — pre-existing pattern)
-          'factory-architect-prompt-guide.test.js',
-          'factory-execute-non-plan-file.test.js',
-          'factory-execute-to-verify-gate.test.js',
           'factory-learn-stage-no-null-db.test.js',
           'factory-loop-async.test.js',
           'factory-loop-controller.test.js',

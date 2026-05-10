@@ -8,7 +8,6 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const Database = require('better-sqlite3');
-const database = require('../database');
 const factoryDecisions = require('../db/factory/decisions');
 const factoryGuardrails = require('../db/factory/guardrails');
 const factoryHealth = require('../db/factory/health');
@@ -159,10 +158,12 @@ async function advanceToExecute(projectId) {
 
 describe('factory EXECUTE -> VERIFY gate semantics', () => {
   let db;
+  let database;
   let originalGetDbInstance;
   let tempDir;
 
   beforeEach(() => {
+    database = require('../database');
     db = new Database(':memory:');
     createFactoryTables(db);
     loopController.setWorktreeRunnerForTests(null);
@@ -199,6 +200,7 @@ describe('factory EXECUTE -> VERIFY gate semantics', () => {
     }
     db.close();
     db = null;
+    database = null;
     tempDir = null;
   });
 

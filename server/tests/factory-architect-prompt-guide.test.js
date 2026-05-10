@@ -14,7 +14,6 @@ const os = require('os');
 const path = require('path');
 const Database = require('better-sqlite3');
 const { loadPlanAuthoringGuide, injectPlanAuthoringGuide } = require('../factory/architect-runner');
-const database = require('../database');
 const factoryDecisions = require('../db/factory/decisions');
 const factoryHealth = require('../db/factory/health');
 const factoryIntake = require('../db/factory/intake');
@@ -158,10 +157,12 @@ describe('factory architect plan-authoring guide injection', () => {
 
 describe('factory architect plan lint integration', () => {
   let db;
+  let database;
   let originalGetDbInstance;
   let tempDir;
 
   beforeEach(() => {
+    database = require('../database');
     db = new Database(':memory:');
     createFactoryTables(db);
     originalGetDbInstance = database.getDbInstance;
@@ -192,6 +193,7 @@ describe('factory architect plan lint integration', () => {
       db.close();
     }
     db = null;
+    database = null;
     tempDir = null;
   });
 

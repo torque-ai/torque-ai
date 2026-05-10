@@ -199,13 +199,17 @@ container.register() calls in source         # how many factory registrations ex
 Subsystem services wired at boot              # how many actually instantiate cleanly
 Container values registered (instances)       # registerValue counts
 Modules using imperative init({…}) pattern    # legacy shape count
-Source files importing database.js directly   # facade-importer count
+Unauthorized source database.js imports       # must stay at 0
+Allowed/load-bearing facade require sites     # remaining deletion blockers
+DI fallback facade require sites              # migrated modules with test fallback
+Test files importing database.js directly     # deferred test migration count
 ```
 
 The migration is "done" when:
 - `wired_at_boot ≈ register_calls` (most factories instantiate at boot)
 - `imperative_init_modules == 0` (no legacy shapes left)
-- `direct_database_importers == 0` (and `database.js` facade can be deleted)
+- `direct_database_importers == 0` (unauthorized source imports stay closed)
+- `allowed_database_importers == 0` (and `database.js` facade can be deleted)
 
 ## Why this shape
 

@@ -13,7 +13,6 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const Database = require('better-sqlite3');
-const database = require('../database');
 const factoryDecisions = require('../db/factory/decisions');
 const factoryHealth = require('../db/factory/health');
 const factoryIntake = require('../db/factory/intake');
@@ -200,11 +199,13 @@ function planGenerationMetadata(projectId, workItemId, timeoutMinutes = 30) {
 
 describe('factory loop-controller EXECUTE for non-plan-file work items', () => {
   let db;
+  let database;
   let originalGetDbInstance;
   let tempDir;
   let planExecuteMock;
 
   beforeEach(() => {
+    database = require('../database');
     db = new Database(':memory:');
     createFactoryTables(db);
     loopController.setWorktreeRunnerForTests(null);
@@ -259,6 +260,7 @@ describe('factory loop-controller EXECUTE for non-plan-file work items', () => {
     }
     db.close();
     db = null;
+    database = null;
     tempDir = null;
   });
 

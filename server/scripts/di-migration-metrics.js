@@ -29,7 +29,11 @@
  */
 
 const fs = require('fs');
+const Module = require('module');
 const path = require('path');
+const {
+  classifyDirectDatabaseImports,
+} = require('./check-no-direct-db-import');
 
 const SERVER_DIR = path.resolve(__dirname, '..');
 
@@ -62,13 +66,32 @@ const REGISTER_CALL = /\b\w+\.register\(\s*['"][a-zA-Z][\w-]*['"]\s*,\s*\[/g;
 const REGISTER_VALUE_CALL = /\b\w+\.registerValue\(\s*['"]([a-zA-Z][\w-]*)['"]/g;
 const INIT_EXPORT = /module\.exports\s*=\s*\{[^}]*\binit\b|module\.exports\.init\s*=/;
 const UNDERSCORE_LET_AT_MODULE_SCOPE = /^let\s+_[a-zA-Z]/m;
-const DB_IMPORT = /require\(\s*['"]\..*database['"]\s*\)/;
+
+function addMainWorktreeNodeModulesFallback() {
+  const marker = `${path.sep}.worktrees${path.sep}`;
+  const markerIndex = SERVER_DIR.indexOf(marker);
+  if (markerIndex === -1) return;
+
+  const mainServerNodeModules = path.join(
+    SERVER_DIR.slice(0, markerIndex),
+    'server',
+    'node_modules',
+  );
+  if (!fs.existsSync(mainServerNodeModules)) return;
+
+  const existing = process.env.NODE_PATH
+    ? process.env.NODE_PATH.split(path.delimiter)
+    : [];
+  if (!existing.includes(mainServerNodeModules)) {
+    process.env.NODE_PATH = [mainServerNodeModules, ...existing].join(path.delimiter);
+    Module._initPaths();
+  }
+}
 
 function scan() {
   let registerCalls = 0;
   const valueRegistrations = new Set();
   const imperativeFiles = [];
-  const databaseImporters = [];
 
   walkJs(SERVER_DIR, (fullPath, relativePath) => {
     const content = fs.readFileSync(fullPath, 'utf8');
@@ -86,12 +109,9 @@ function scan() {
     if (INIT_EXPORT.test(content) && UNDERSCORE_LET_AT_MODULE_SCOPE.test(content)) {
       imperativeFiles.push(relativePath);
     }
-
-    // Direct database.js import
-    if (DB_IMPORT.test(content)) {
-      databaseImporters.push(relativePath);
-    }
   });
+
+  const databaseImports = classifyDirectDatabaseImports();
 
   // Probe live boot to count what's actually wired vs only registered in
   // source. Uses a fresh container with stubbed deps so we don't disturb
@@ -99,6 +119,7 @@ function scan() {
   let wiredCount = 0;
   let wiredServices = [];
   try {
+    addMainWorktreeNodeModulesFallback();
     const { createContainer } = require('../container');
     const probe = createContainer();
     probe.registerValue('db', { prepare: () => ({ get: () => null, all: () => [] }), getDbInstance() { return this; } });
@@ -143,7 +164,10 @@ function scan() {
     wiredServices,
     valueRegistrations: [...valueRegistrations].sort(),
     imperativeFiles: imperativeFiles.sort(),
-    databaseImporters: databaseImporters.sort(),
+    databaseImporters: databaseImports.sourceViolations.sort(),
+    allowedDatabaseImporters: databaseImports.sourceAllowed.sort(),
+    diFallbackDatabaseImporters: databaseImports.sourceDiFallback.sort(),
+    testDatabaseImporters: databaseImports.testViolations.sort(),
   };
 }
 
@@ -156,8 +180,14 @@ function emit(metrics, asJson) {
       value_registrations: metrics.valueRegistrations,
       imperative_init_modules: metrics.imperativeFiles.length,
       direct_database_importers: metrics.databaseImporters.length,
+      allowed_database_importers: metrics.allowedDatabaseImporters.length,
+      di_fallback_database_importers: metrics.diFallbackDatabaseImporters.length,
+      test_database_importers: metrics.testDatabaseImporters.length,
       imperative_init_files: metrics.imperativeFiles,
       direct_database_files: metrics.databaseImporters,
+      allowed_database_files: metrics.allowedDatabaseImporters,
+      di_fallback_database_files: metrics.diFallbackDatabaseImporters,
+      test_database_files: metrics.testDatabaseImporters,
     }, null, 2) + '\n');
     return;
   }
@@ -168,11 +198,15 @@ function emit(metrics, asJson) {
   console.log(`  Subsystem services wired at boot:            ${metrics.wiredCount}`);
   console.log(`  Container values registered (instances):     ${metrics.valueRegistrations.length}`);
   console.log(`  Modules using imperative init({…}) pattern:  ${metrics.imperativeFiles.length}`);
-  console.log(`  Source files importing database.js directly: ${metrics.databaseImporters.length}`);
+  console.log(`  Unauthorized source database.js imports:     ${metrics.databaseImporters.length}`);
+  console.log(`  Allowed/load-bearing facade require sites:   ${metrics.allowedDatabaseImporters.length}`);
+  console.log(`  DI fallback facade require sites:            ${metrics.diFallbackDatabaseImporters.length}`);
+  console.log(`  Test files importing database.js directly:   ${metrics.testDatabaseImporters.length}`);
   console.log();
   console.log('Goal: wired-at-boot count converges with register-call count, then');
-  console.log('imperative-init falls to 0 and database-importer falls to 0 (then');
-  console.log('database.js gets deleted).\n');
+  console.log('imperative-init falls to 0, unauthorized source imports stay at 0,');
+  console.log('and allowed/load-bearing facade users fall to 0 (then database.js');
+  console.log('gets deleted).\n');
 
   if (metrics.valueRegistrations.length > 0 && metrics.valueRegistrations.length < 30) {
     console.log('Container values (registerValue):');

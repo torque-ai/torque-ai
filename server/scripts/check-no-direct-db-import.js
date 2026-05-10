@@ -68,11 +68,13 @@ const DI_CONTAINER_PATTERN = /defaultContainer\s*[.[]/;
 
 /**
  * Walk a directory tree, calling visitor(fullPath, relativePath) for each .js file.
- * Skips node_modules, .tmp, .cache directories.
+ * Skips dependency and cache directories. Callers can also opt out of
+ * tooling-script and lint-fixture directories.
  */
 function walkJs(dir, visitor, opts = {}) {
   const skipDirs = ['node_modules', '.tmp', '.cache'];
   if (opts.skipTests) skipDirs.push('tests');
+  if (opts.skipTooling) skipDirs.push('scripts', 'eslint-rules');
 
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
     if (skipDirs.includes(entry.name)) continue;
@@ -92,11 +94,17 @@ function walkJs(dir, visitor, opts = {}) {
 }
 
 /**
- * Scan for direct database.js imports.
- * Returns { sourceViolations, testViolations }.
+ * Classify direct database.js imports.
+ *
+ * sourceViolations are unauthorized production imports. sourceAllowed are
+ * explicit allowlist entries that still use the facade by design. sourceDiFallback
+ * files are DI-aware modules that keep a pre-boot test fallback require.
+ * testViolations are tracked separately because the test migration is deferred.
  */
-function scan() {
+function classifyDirectDatabaseImports() {
   const sourceViolations = [];
+  const sourceAllowed = [];
+  const sourceDiFallback = [];
   const testViolations = [];
 
   // Scan source files (excluding tests/)
@@ -105,15 +113,21 @@ function scan() {
     if (!DB_IMPORT_PATTERN.test(content)) return;
 
     const baseName = path.basename(fullPath);
-    if (ALLOWED.has(baseName) || ALLOWED.has(relativePath)) return;
+    if (ALLOWED.has(baseName) || ALLOWED.has(relativePath)) {
+      sourceAllowed.push(relativePath);
+      return;
+    }
 
     // DI-aware-with-fallback: file also accesses defaultContainer for db.
     // Treat as migrated — production goes through DI, the require is a
     // pre-boot test fallback only.
-    if (DI_CONTAINER_PATTERN.test(content)) return;
+    if (DI_CONTAINER_PATTERN.test(content)) {
+      sourceDiFallback.push(relativePath);
+      return;
+    }
 
     sourceViolations.push(relativePath);
-  }, { skipTests: true });
+  }, { skipTests: true, skipTooling: true });
 
   // Scan test files separately
   const testsDir = path.join(SERVER_DIR, 'tests');
@@ -125,6 +139,15 @@ function scan() {
     });
   }
 
+  return { sourceViolations, sourceAllowed, sourceDiFallback, testViolations };
+}
+
+/**
+ * Scan for direct database.js imports.
+ * Returns { sourceViolations, testViolations } for backwards compatibility.
+ */
+function scan() {
+  const { sourceViolations, testViolations } = classifyDirectDatabaseImports();
   return { sourceViolations, testViolations };
 }
 
@@ -155,42 +178,51 @@ function countSourceFiles() {
   return count;
 }
 
+module.exports = {
+  classifyDirectDatabaseImports,
+  countFactoryModules,
+  countSourceFiles,
+  scan,
+};
+
 // ── CLI ─────────────────────────────────────────────────────────────────────
 
-const strict = process.argv.includes('--strict');
-const summaryOnly = process.argv.includes('--summary');
+if (require.main === module) {
+  const strict = process.argv.includes('--strict');
+  const summaryOnly = process.argv.includes('--summary');
 
-const { sourceViolations, testViolations } = scan();
-const factoryCount = countFactoryModules();
-const totalSourceFiles = countSourceFiles();
-const migratedCount = totalSourceFiles - sourceViolations.length;
-const progressPct = totalSourceFiles > 0
-  ? Math.round((migratedCount / totalSourceFiles) * 100)
-  : 100;
+  const { sourceViolations, testViolations } = scan();
+  const factoryCount = countFactoryModules();
+  const totalSourceFiles = countSourceFiles();
+  const migratedCount = totalSourceFiles - sourceViolations.length;
+  const progressPct = totalSourceFiles > 0
+    ? Math.round((migratedCount / totalSourceFiles) * 100)
+    : 100;
 
-// Always show metrics
-console.log('\nDI Migration Progress:');
-console.log(`  Modules with factory exports: ${factoryCount}`);
-console.log(`  Source files still importing database.js: ${sourceViolations.length}`);
-console.log(`  Test files still importing database.js: ${testViolations.length} (deferred to test migration)`);
-console.log(`  Progress: ${progressPct}% of source files migrated`);
-console.log();
+  // Always show metrics
+  console.log('\nDI Migration Progress:');
+  console.log(`  Modules with factory exports: ${factoryCount}`);
+  console.log(`  Source files still importing database.js: ${sourceViolations.length}`);
+  console.log(`  Test files still importing database.js: ${testViolations.length} (deferred to test migration)`);
+  console.log(`  Progress: ${progressPct}% of source files migrated`);
+  console.log();
 
-if (summaryOnly) {
-  process.exit(0);
-}
-
-// Show violation details
-if (sourceViolations.length > 0) {
-  console.log(`${sourceViolations.length} source file(s) import database.js directly:\n`);
-  for (const v of sourceViolations.sort()) {
-    console.log(`  ${v}`);
+  if (summaryOnly) {
+    process.exit(0);
   }
-  console.log('\nThese should use the DI container instead.\n');
 
-  if (strict) {
-    process.exit(1);
+  // Show violation details
+  if (sourceViolations.length > 0) {
+    console.log(`${sourceViolations.length} source file(s) import database.js directly:\n`);
+    for (const v of sourceViolations.sort()) {
+      console.log(`  ${v}`);
+    }
+    console.log('\nThese should use the DI container instead.\n');
+
+    if (strict) {
+      process.exit(1);
+    }
+  } else {
+    console.log('No unauthorized direct database imports found in source files.');
   }
-} else {
-  console.log('No unauthorized direct database imports found in source files.');
 }
