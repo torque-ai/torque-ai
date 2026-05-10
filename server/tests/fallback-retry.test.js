@@ -681,6 +681,65 @@ describe('fallback-retry module', () => {
       expect(processQueueCalls).toBe(0);
     });
 
+    it('skips repeated local retries for synthetic local-model test tasks', () => {
+      configCore.setConfig('ollama_fallback_provider', 'codex');
+      configCore.setConfig('codex_enabled', '1');
+      configCore.setConfig('claude_cli_enabled', '1');
+      const hostA = registerHealthyHost('synthetic-a', [TEST_MODELS.CODER_SMALL], { running_tasks: 2 });
+      registerHealthyHost('synthetic-b', [TEST_MODELS.CODER_SMALL], { running_tasks: 0 });
+
+      const task = createTask({
+        provider: 'ollama',
+        model: TEST_MODELS.CODER_SMALL,
+        ollama_host_id: hostA,
+        task_description: `Test task for model: ${TEST_MODELS.CODER_SMALL}`,
+      });
+
+      const ok = mod.tryLocalFirstFallback(task.id, task, 'local model test timed out');
+
+      expect(ok).toBe(true);
+      const updated = taskCore.getTask(task.id);
+      expect(updated.provider).toBe('codex');
+      expect(updated.model).toBeNull();
+      expect(updated.ollama_host_id).toBeNull();
+      expect(updated.error_output).toContain('[Local-First] Skipping local retry for synthetic local-model test task');
+      expect(updated.error_output).not.toContain(`[Local-First] Trying ${TEST_MODELS.CODER_SMALL} on host`);
+      expect(updated.metadata).toMatchObject({
+        original_provider: 'ollama',
+        local_first_attempts: 1,
+      });
+    });
+
+    it('detects synthetic local-model test tasks after retry resume preambles', () => {
+      configCore.setConfig('ollama_fallback_provider', 'codex');
+      configCore.setConfig('codex_enabled', '1');
+      configCore.setConfig('claude_cli_enabled', '1');
+      const hostA = registerHealthyHost('synthetic-resume-a', [TEST_MODELS.CODER_SMALL], { running_tasks: 2 });
+      registerHealthyHost('synthetic-resume-b', [TEST_MODELS.CODER_SMALL], { running_tasks: 0 });
+
+      const task = createTask({
+        provider: 'ollama',
+        model: TEST_MODELS.CODER_SMALL,
+        ollama_host_id: hostA,
+        task_description: [
+          '## Previous Attempt (failed)',
+          'The local model connectivity probe timed out.',
+          '',
+          '## Original Task',
+          `Test task for model: ${TEST_MODELS.CODER_SMALL}`,
+        ].join('\n'),
+      });
+
+      const ok = mod.tryLocalFirstFallback(task.id, task, 'retry resume failed again');
+
+      expect(ok).toBe(true);
+      const updated = taskCore.getTask(task.id);
+      expect(updated.provider).toBe('codex');
+      expect(updated.model).toBeNull();
+      expect(updated.error_output).toContain('[Local-First] Skipping local retry for synthetic local-model test task');
+      expect(updated.error_output).not.toContain(`[Local-First] Trying ${TEST_MODELS.CODER_SMALL} on host`);
+    });
+
     it('escalates to cloud after max local retries are exhausted', () => {
       configCore.setConfig('max_local_retries', '1');
       configCore.setConfig('ollama_fallback_provider', 'codex');

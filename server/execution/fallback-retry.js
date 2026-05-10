@@ -334,6 +334,11 @@ function _isGreenfieldTask(desc) {
     /\bnew\s+(file|test|module|class|component|spec)\b/i.test(desc);
 }
 
+function _isSyntheticLocalModelTestTask(task) {
+  const desc = task?.task_description || '';
+  return /\bTest task for model:\s*\S+/i.test(desc);
+}
+
 const LOCAL_FIRST_FALLBACK_PROVIDERS = new Set(['ollama']);
 
 function _isLocalFirstProvider(provider) {
@@ -383,6 +388,13 @@ function tryLocalFirstFallback(taskId, task, errorMsg, options = {}) {
     metadata.original_provider = task.provider;
   }
   metadata.local_first_attempts = localAttempts + 1;
+
+  if (_isSyntheticLocalModelTestTask(task)) {
+    logger.info(`[Local-First] Task ${taskId}: synthetic local-model test task, escalating to cloud fallback`);
+    return tryOllamaCloudFallback(taskId, task, `${errorMsg}\n[Local-First] Skipping local retry for synthetic local-model test task`, {
+      metadata: JSON.stringify(metadata),
+    });
+  }
 
   // Step 1: Same model, different host (exclude current host from selection)
   if (!options.skipSameModel && currentModel && currentHost) {
