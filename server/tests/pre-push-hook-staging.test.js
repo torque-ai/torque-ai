@@ -72,7 +72,7 @@ describe('pre-push-hook staging-branch invariants', () => {
   it('falls back locally when the remote gate exits before producing a gate marker', () => {
     const src = readHook();
     expect(src).toMatch(/Remote gate did not produce a gate-end marker; running the gate locally instead/);
-    expect(src).toMatch(/if ! echo "\$RETRIED_OUTPUT" \| grep -qE '\\\[gate-end\\\] dash_exit=\[0-9\]'/);
+    expect(src).toMatch(/if ! extract_gate_end_marker "\$RETRIED_OUTPUT" >\/dev\/null; then/);
     expect(src).toMatch(/Gate did not produce completion marker/);
   });
 
@@ -228,6 +228,15 @@ describe('pre-push-hook staging-branch invariants', () => {
     expect(src).toMatch(/\btests_have_failures\s*\(\)/);
     expect(src).toMatch(/\bis_file_load_only_flake\s*\(\)/);
     expect(src).toMatch(/\brun_with_flake_retry\s*\(\)/);
+  });
+
+  it('parses the final anchored gate-end marker instead of grepping all captured output', () => {
+    const src = readHook();
+    const helper = src.match(/extract_gate_end_marker\s*\(\)\s*\{[\s\S]*?\n\}/)?.[0];
+    expect(helper).toContain('"[gate-end] dash_exit="*) marker="$line" ;;');
+    expect(helper).toMatch(/\^\\\[gate-end\\\]\\ dash_exit=\(\[0-9\]\+\)\\ serv_exit=\(\[0-9\]\+\)\\ perf_exit=\(\[0-9\]\+\)\$/);
+    expect(src).toMatch(/gate_end_marker=\$\(extract_gate_end_marker "\$combined_output"\)/);
+    expect(src).not.toMatch(/echo "\$combined_output" \| grep -qE '\\\[gate-end\\\] dash_exit=\[0-9\]'/);
   });
 
   it('bounds the pre-push output streamer after the remote gate command exits', () => {

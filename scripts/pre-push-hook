@@ -269,6 +269,24 @@ strip_phase_prefix() {
   sed -E 's/^\[(dash|serv)\] //'
 }
 
+extract_gate_end_marker() {
+  local output="$1"
+  local line marker=""
+
+  while IFS= read -r line || [ -n "$line" ]; do
+    line="${line%$'\r'}"
+    case "$line" in
+      "[gate-end] dash_exit="*) marker="$line" ;;
+    esac
+  done <<< "$output"
+
+  if [[ "$marker" =~ ^\[gate-end\]\ dash_exit=([0-9]+)\ serv_exit=([0-9]+)\ perf_exit=([0-9]+)$ ]]; then
+    printf '%s\n' "$marker"
+    return 0
+  fi
+  return 1
+}
+
 # vitest prints two summary lines:
 #   Test Files  1 failed | 890 passed | 4 skipped (895)
 #   Tests       18564 passed | 27 skipped | 10 todo (18601)
@@ -359,7 +377,9 @@ is_remote_worktree_contamination() {
 # is printed verbatim by the parallel-gate heredoc and is the ground truth.
 gate_marker_has_failure() {
   local output="$1"
-  echo "$output" | grep -qE '\[gate-end\] .*_exit=[1-9]'
+  local marker
+  marker=$(extract_gate_end_marker "$output") || return 1
+  [[ "$marker" =~ _exit=[1-9][0-9]* ]]
 }
 
 # Per-phase timeout caps pathological SSH stalls. Set generously over the
@@ -1017,7 +1037,7 @@ EOF
 )
   if [ "$staging_ref_created" -eq 1 ]; then
     run_with_flake_retry "Remote gate" "$TORQUE_REMOTE_CMD --suite $GATE_COORD_SUITE --branch $staging_branch bash -c $(printf %q "$remote_gate_cmd")"
-    if ! echo "$RETRIED_OUTPUT" | grep -qE '\[gate-end\] dash_exit=[0-9]'; then
+    if ! extract_gate_end_marker "$RETRIED_OUTPUT" >/dev/null; then
       echo "[pre-push] Remote gate did not produce a gate-end marker; running the gate locally instead."
       run_local_gate "$remote_gate_cmd"
     fi
@@ -1026,7 +1046,8 @@ EOF
   fi
   combined_output="$RETRIED_OUTPUT"
   combined_exit="$RETRIED_EXIT"
-  if ! echo "$combined_output" | grep -qE '\[gate-end\] dash_exit=[0-9]'; then
+  gate_end_marker=""
+  if ! gate_end_marker=$(extract_gate_end_marker "$combined_output"); then
     gate_failed "Gate did not produce completion marker"
   fi
 
@@ -1036,12 +1057,13 @@ EOF
   perf_output=$(echo "$combined_output" | grep '^\[perf\] ' | sed 's/^\[perf\] //')
 
   # The gate-end marker reports per-phase exits even when overall exit code
-  # is nonzero from `set -uo pipefail` weirdness. Prefer the marker when
-  # present.
-  if echo "$combined_output" | grep -qE '\[gate-end\] dash_exit=[0-9]'; then
-    dash_exit=$(echo "$combined_output" | grep '\[gate-end\]' | sed -E 's/.*dash_exit=([0-9]+).*/\1/' | tail -1)
-    server_exit=$(echo "$combined_output" | grep '\[gate-end\]' | sed -E 's/.*serv_exit=([0-9]+).*/\1/' | tail -1)
-    perf_exit=$(echo "$combined_output" | grep '\[gate-end\]' | sed -E 's/.*perf_exit=([0-9]+).*/\1/' | tail -1)
+  # is nonzero from `set -uo pipefail` weirdness. Parse the final anchored
+  # marker instead of grepping the whole captured output: torque-remote logs
+  # the heredoc body too, and `grep -q` can trip pipefail on large streams.
+  if [[ "$gate_end_marker" =~ ^\[gate-end\]\ dash_exit=([0-9]+)\ serv_exit=([0-9]+)\ perf_exit=([0-9]+)$ ]]; then
+    dash_exit="${BASH_REMATCH[1]}"
+    server_exit="${BASH_REMATCH[2]}"
+    perf_exit="${BASH_REMATCH[3]}"
   else
     dash_exit="$combined_exit"
     server_exit="$combined_exit"
