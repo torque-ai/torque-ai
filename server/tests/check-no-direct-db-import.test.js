@@ -21,7 +21,6 @@ describe('check-no-direct-db-import', () => {
       'api-server.js',
       'dashboard/server.js',
       'database.js',
-      'db/schema/index.js',
       'index.js',
     ]);
   });
