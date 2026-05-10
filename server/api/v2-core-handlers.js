@@ -9,7 +9,7 @@
  */
 
 const { randomUUID } = require('crypto');
-const db = require('../database');
+const { defaultContainer } = require('../container');
 const { getTask, updateTaskStatus } = require('../db/task-core');
 const { getDefaultProvider, getProvider, listProviders } = require('../db/provider/routing-core');
 const { recordTaskEvent, getTaskEvents } = require('../db/webhooks-streaming');
@@ -40,6 +40,8 @@ const {
 } = require('./v2-discovery-helpers');
 
 let _remoteAgentPluginHandlers = null;
+let _injectedDb = null;
+let _v2InferenceDb = null;
 
 function getRemoteAgentPluginHandlers() {
   if (_remoteAgentPluginHandlers) {
@@ -50,11 +52,10 @@ function getRemoteAgentPluginHandlers() {
   const agentRegistry = getInstalledRegistry();
   if (!agentRegistry) return null;
 
-  const database = require('../database');
   const { createHandlers } = require('../plugins/remote-agents/handlers');
   _remoteAgentPluginHandlers = createHandlers({
     agentRegistry,
-    db: database,
+    db: resolveDatabaseFacade(),
   });
   return _remoteAgentPluginHandlers;
 }
@@ -452,28 +453,47 @@ function validateV2InferencePayload(payload) {
 // v2-inference module initialization
 // ---------------------------------------------------------------------------
 
-v2Inference.init({
-  db,
-  logger,
-  getProviderAdapter: require('../providers/adapter-registry').getProviderAdapter,
-  normalizeV2Transport,
-  getV2ProviderTransport,
-  getV2ProviderDefaultTimeoutMs,
-  normalizeMessageContent,
-  formatV2InferenceResult,
-  normalizeV2InferenceStatus,
-  normalizeV2ProviderUsage,
-  normalizeV2AttemptMetadata,
-  getV2RetryCount,
-  getAttemptElapsedMs,
-  getV2ProviderAdapterCapabilities,
-  sendV2SseHeaders,
-  sendV2SseEvent,
-  getV2TaskStatusRow,
-  recordV2TaskEvent,
-  sendV2Success,
-  sendV2Error,
-});
+function resolveDatabaseFacade(explicitDb = null) {
+  if (explicitDb) return explicitDb;
+  if (_injectedDb) return _injectedDb;
+
+  try {
+    return defaultContainer.get('db');
+  } catch {
+    return require('../database');
+  }
+}
+
+function configureV2Inference(explicitDb = null) {
+  const database = resolveDatabaseFacade(explicitDb);
+  if (_v2InferenceDb === database) {
+    return;
+  }
+
+  v2Inference.init({
+    db: database,
+    logger,
+    getProviderAdapter: require('../providers/adapter-registry').getProviderAdapter,
+    normalizeV2Transport,
+    getV2ProviderTransport,
+    getV2ProviderDefaultTimeoutMs,
+    normalizeMessageContent,
+    formatV2InferenceResult,
+    normalizeV2InferenceStatus,
+    normalizeV2ProviderUsage,
+    normalizeV2AttemptMetadata,
+    getV2RetryCount,
+    getAttemptElapsedMs,
+    getV2ProviderAdapterCapabilities,
+    sendV2SseHeaders,
+    sendV2SseEvent,
+    getV2TaskStatusRow,
+    recordV2TaskEvent,
+    sendV2Success,
+    sendV2Error,
+  });
+  _v2InferenceDb = database;
+}
 
 const { executeV2ProviderInference } = v2Inference;
 
@@ -481,8 +501,23 @@ const { executeV2ProviderInference } = v2Inference;
 // Set by initTaskManager() when a taskManager is provided.
 let _v2TaskManager = null;
 
-function initTaskManager(tm) {
-  _v2TaskManager = tm;
+function initTaskManager(taskManagerOrDeps) {
+  const isObject = taskManagerOrDeps && typeof taskManagerOrDeps === 'object' && !Array.isArray(taskManagerOrDeps);
+  const isDeps = isObject
+    && (Object.prototype.hasOwnProperty.call(taskManagerOrDeps, 'taskManager')
+      || Object.prototype.hasOwnProperty.call(taskManagerOrDeps, 'db'));
+  const deps = isDeps ? taskManagerOrDeps : { taskManager: taskManagerOrDeps };
+
+  _v2TaskManager = deps.taskManager || null;
+  if (Object.prototype.hasOwnProperty.call(deps, 'db')) {
+    _injectedDb = deps.db || null;
+    if (_injectedDb) {
+      configureV2Inference(_injectedDb);
+      return;
+    }
+  }
+
+  configureV2Inference();
 }
 
 // ---------------------------------------------------------------------------
@@ -762,6 +797,7 @@ async function handleV2Inference(_req, res, context = {}, req = null) {
       return;
     }
 
+    configureV2Inference();
     await executeV2ProviderInference({
       requestId,
       payload: validation.payload,
@@ -843,6 +879,7 @@ async function handleV2ProviderInference(_req, res, context = {}, providerId, re
       return;
     }
 
+    configureV2Inference();
     await executeV2ProviderInference({
       requestId,
       payload: validation.payload,

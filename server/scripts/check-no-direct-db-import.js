@@ -43,8 +43,6 @@ const ALLOWED = new Set([
   'api/v2-infrastructure-handlers.js', // getDbInstance for raw SQL
   'dashboard/routes/analytics.js',   // getDbInstance for raw SQL
   'dashboard/routes/infrastructure.js', // getDbInstance for raw SQL
-  // Split-out files that retained minimal facade usage
-  'api/v2-core-handlers.js',           // passes db to v2Inference.init()
 ]);
 
 const DB_IMPORT_PATTERN = /require\s*\(\s*['"]\..*database['"]\s*\)/;

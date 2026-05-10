@@ -324,7 +324,7 @@ function createApiServer(deps = {}) {
 
   // Initialize v2 control-plane handlers with task manager
   if (serverDeps.taskManager) {
-    _initV2TaskManager(serverDeps.taskManager);
+    _initV2TaskManager({ taskManager: serverDeps.taskManager, db: serverDeps.db });
     v2TaskHandlers.init(serverDeps.taskManager);
     v2WorkflowHandlers.init(serverDeps.taskManager);
     v2GovernanceHandlers.init({ taskManager: serverDeps.taskManager, db: serverDeps.db });
