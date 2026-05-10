@@ -84,7 +84,7 @@ describe('pre-push-hook staging-branch invariants', () => {
     // test phases and perf inside a single torque-remote SSH session (one
     // sync), so the --branch invocation appears once but the remote script
     // must reference dashboard, server, and perf commands.
-    expect(src).toMatch(/run_with_flake_retry "Remote gate" "\$TORQUE_REMOTE_CMD --suite \$GATE_COORD_SUITE --branch \$staging_branch/);
+    expect(src).toMatch(/run_with_flake_retry "Remote gate" "TORQUE_REMOTE_REQUIRE_REMOTE=1 \$TORQUE_REMOTE_CMD --suite \$GATE_COORD_SUITE --branch \$staging_branch/);
     expect(src).toMatch(/run_vitest_phase dashboard run/);
     expect(src).toMatch(/run_vitest_phase server run/);
     expect(src).toMatch(/cd\s+server\s+&&\s+node\s+perf\/run-perf\.js/);
@@ -213,7 +213,8 @@ printf '%b' "\\302\\267\\302\\267real failure line\\302\\267\\302\\267\\n" | pre
     expect(src).toMatch(/export PATH/);
     expect(src).toMatch(/TORQUE_REMOTE_BIN="\$REPO_ROOT\/bin\/torque-remote"/);
     expect(src).toMatch(/TORQUE_REMOTE_CMD="\$\(printf '%q' "\$TORQUE_REMOTE_BIN"\)"/);
-    expect(src).toMatch(/run_with_flake_retry "Remote gate" "\$TORQUE_REMOTE_CMD --suite \$GATE_COORD_SUITE/);
+    expect(src).toMatch(/run_with_flake_retry "Remote gate" "TORQUE_REMOTE_REQUIRE_REMOTE=1 \$TORQUE_REMOTE_CMD --suite \$GATE_COORD_SUITE/);
+    expect(src).toContain('Pre-push owns the local fallback path so the gate runs once.');
   });
 
   it('uses a conservative changed-file gate planner before remote execution', () => {

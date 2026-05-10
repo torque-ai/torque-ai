@@ -1083,7 +1083,10 @@ exit \$((DASH_EXIT + SERV_EXIT + PERF_EXIT))
 EOF
 )
   if [ "$staging_ref_created" -eq 1 ]; then
-    run_with_flake_retry "Remote gate" "$TORQUE_REMOTE_CMD --suite $GATE_COORD_SUITE --branch $staging_branch bash -c $(printf %q "$remote_gate_cmd")"
+    # Pre-push owns the local fallback path so the gate runs once. torque-remote
+    # still falls back locally for ad hoc use, but here that can leave a child
+    # gate alive while the hook starts its own fallback after a missing marker.
+    run_with_flake_retry "Remote gate" "TORQUE_REMOTE_REQUIRE_REMOTE=1 $TORQUE_REMOTE_CMD --suite $GATE_COORD_SUITE --branch $staging_branch bash -c $(printf %q "$remote_gate_cmd")"
     if ! extract_gate_end_marker "$RETRIED_OUTPUT" >/dev/null; then
       echo "[pre-push] Remote gate did not produce a gate-end marker; running the gate locally instead."
       run_local_gate "$remote_gate_cmd"
