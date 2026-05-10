@@ -38,6 +38,14 @@ function getTestRunnerRegistry() {
   } catch { /* fall through to pre-boot fallback */ }
   return require('../test-runner-registry').createTestRunnerRegistry();
 }
+function getFactoryCostMetrics() {
+  try {
+    const { defaultContainer } = require('../container');
+    return defaultContainer.get('costMetrics');
+  } catch {
+    return require('../factory/cost-metrics');
+  }
+}
 const factoryDecisions = require('../db/factory/decisions');
 const factoryAudit = require('../db/factory/audit');
 const factoryArchitect = require('../db/factory/architect');
@@ -56,7 +64,6 @@ const { validatePlansDir } = require('../factory/plans-dir-validator');
 const { guardIntakeItem } = require('../factory/meta-intake-guard');
 const { createShippedDetector } = require('../factory/shipped-detector');
 const { analyzeBatch, detectDrift, recordHumanCorrection } = require('../factory/feedback');
-const { buildProjectCostSummary, getCostPerCycle, getCostPerHealthPoint, getProviderEfficiency } = require('../factory/cost-metrics');
 const { getAuditTrail, getDecisionContext, getDecisionStats } = require('../factory/decision-log');
 const { buildProviderLaneAudit } = require('../factory/provider-lane-audit');
 const { LOOP_STATES } = require('../factory/loop-states');
@@ -2673,13 +2680,14 @@ async function handleRecordCorrection(args) {
 
 async function handleFactoryCostMetrics(args) {
   const project = resolveProject(args.project);
-  const summary = buildProjectCostSummary(project.id);
+  const costMetrics = getFactoryCostMetrics();
+  const summary = costMetrics.buildProjectCostSummary(project.id);
 
   return jsonResponse({
     project: { id: project.id, name: project.name, path: project.path },
-    cost_per_cycle: getCostPerCycle(project.id, summary),
-    cost_per_health_point: getCostPerHealthPoint(project.id, summary),
-    provider_efficiency: getProviderEfficiency(project.id, summary),
+    cost_per_cycle: costMetrics.getCostPerCycle(project.id, summary),
+    cost_per_health_point: costMetrics.getCostPerHealthPoint(project.id, summary),
+    provider_efficiency: costMetrics.getProviderEfficiency(project.id, summary),
   });
 }
 
