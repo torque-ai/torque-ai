@@ -336,7 +336,13 @@ function _isGreenfieldTask(desc) {
 
 function _isSyntheticLocalModelTestTask(task) {
   const desc = task?.task_description || '';
-  return /\bTest task for model:\s*\S+/i.test(desc);
+  const match = /(?:^|\n)\s*Test task for(?:(\s+model:)|\s+)\s*([^\s]+)\s*(?:\n|$)/i.exec(desc);
+  if (!match) return false;
+
+  // The legacy probe says "Test task for model: <name>". Newer provider
+  // smoke probes use "Test task for <model:tag>"; require a model-like tag
+  // for the bare form so ordinary task descriptions are not skipped.
+  return Boolean(match[1]) || /^[A-Za-z0-9_.\/+-]+:[A-Za-z0-9_.\/+-]+$/.test(match[2]);
 }
 
 const LOCAL_FIRST_FALLBACK_PROVIDERS = new Set(['ollama']);
