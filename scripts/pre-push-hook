@@ -53,6 +53,7 @@ staging_branch=""
 staging_ref_created=0
 local_gate_worktree_parent=""
 local_gate_worktree=""
+local_gate_script=""
 
 git_cleanup_timeout() {
   local timeout_secs="${PRE_PUSH_STAGING_CLEANUP_TIMEOUT_SECS:-30}"
@@ -212,6 +213,9 @@ cleanup_local_gate_worktree() {
   cleanup_local_gate_dependency_links
 
   local remove_output remove_status prune_output prune_status
+  if [ -n "${local_gate_script:-}" ]; then
+    rm -f "$local_gate_script" 2>/dev/null || true
+  fi
   set +e
   remove_output=$(git worktree remove --force "$local_gate_worktree" 2>&1)
   remove_status=$?
@@ -235,6 +239,7 @@ cleanup_local_gate_worktree() {
 
   local_gate_worktree=""
   local_gate_worktree_parent=""
+  local_gate_script=""
 }
 
 cleanup_local_gate_dependency_links() {
@@ -591,21 +596,25 @@ prepare_local_gate_worktree() {
 
   local_gate_worktree_parent=$(mktemp -d "${TMPDIR:-/tmp}/pre-push-local-gate.XXXXXX")
   local_gate_worktree="$local_gate_worktree_parent/worktree"
+  local_gate_script="$local_gate_worktree_parent/gate-command.sh"
   echo "[pre-push] Preparing local gate worktree at $local_gate_worktree for $local_head_sha..."
   git worktree add --force --detach "$local_gate_worktree" "$local_head_sha" >/dev/null
 }
 
 run_local_gate() {
   local gate_cmd="$1"
-  local worktree_q base_q gate_cmd_q
+  local worktree_q base_q gate_script_q
   prepare_local_gate_worktree
+  printf '%s\n' "$gate_cmd" > "$local_gate_script"
   worktree_q=$(printf '%q' "$local_gate_worktree")
   base_q=$(printf '%q' "$REPO_ROOT")
-  gate_cmd_q=$(printf '%q' "$gate_cmd")
+  gate_script_q=$(printf '%q' "$local_gate_script")
   # Local gates must not use the SSH tail-by-pid capture wrapper. The Node tee
   # runner waits for child close/stdio EOF before cleanup can remove the gate
   # worktree, which keeps local retries single-owned when the remote is down.
-  run_with_flake_retry_streaming "Local gate" "cd $worktree_q && TORQUE_REMOTE_TRANSPORT=local TORQUE_REMOTE_PROJECT_PATH=$worktree_q TORQUE_REMOTE_BASE_PROJECT_PATH=$base_q bash -c $gate_cmd_q"
+  # Materialize the generated gate body too, avoiding a huge nested bash -c
+  # payload through Windows quoting and command-length boundaries.
+  run_with_flake_retry_streaming "Local gate" "cd $worktree_q && TORQUE_REMOTE_TRANSPORT=local TORQUE_REMOTE_PROJECT_PATH=$worktree_q TORQUE_REMOTE_BASE_PROJECT_PATH=$base_q bash $gate_script_q"
 }
 
 gate_failed() {

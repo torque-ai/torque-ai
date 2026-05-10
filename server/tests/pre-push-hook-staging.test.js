@@ -65,8 +65,10 @@ describe('pre-push-hook staging-branch invariants', () => {
     expect(src).not.toContain('aborting before tests');
     expect(src).toMatch(/prepare_local_gate_worktree\s*\(\)/);
     expect(src).toMatch(/git worktree add --force --detach "\$local_gate_worktree" "\$local_head_sha"/);
+    expect(src).toMatch(/local_gate_script="\$local_gate_worktree_parent\/gate-command\.sh"/);
     expect(src).toMatch(/run_local_gate "\$remote_gate_cmd"/);
-    expect(src).toMatch(/TORQUE_REMOTE_TRANSPORT=local TORQUE_REMOTE_PROJECT_PATH=\$worktree_q TORQUE_REMOTE_BASE_PROJECT_PATH=\$base_q bash -c \$gate_cmd_q/);
+    expect(src).toContain("printf '%s\\n' \"$gate_cmd\" > \"$local_gate_script\"");
+    expect(src).toMatch(/TORQUE_REMOTE_TRANSPORT=local TORQUE_REMOTE_PROJECT_PATH=\$worktree_q TORQUE_REMOTE_BASE_PROJECT_PATH=\$base_q bash \$gate_script_q/);
     expect(src).toMatch(/cleanup_local_gate_worktree\s*\|\| true/);
   });
 
@@ -329,6 +331,8 @@ fi
     expect(helper).toContain('rm -f "$script"');
     expect(src).toMatch(/run_with_flake_retry_with_runner "\$1" "\$2" run_with_flake_retry_inner_streaming/);
     expect(src).toMatch(/run_with_flake_retry_streaming "Local gate"/);
+    expect(src).toContain('bash $gate_script_q');
+    expect(src).not.toContain('bash -c $gate_cmd_q');
     expect(src).toContain('The Node tee');
   });
 
