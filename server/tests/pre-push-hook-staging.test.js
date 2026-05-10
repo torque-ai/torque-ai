@@ -128,9 +128,10 @@ describe('pre-push-hook staging-branch invariants', () => {
     expect(src).toMatch(/TORQUE_REMOTE_BASE_PROJECT_PATH/);
     expect(src).toMatch(/mklink \/J/);
     expect(src).toMatch(/cleanup_local_gate_dependency_links\s*\(\)/);
-    expect(src).toContain('cmd //c "rmdir \\"$link_win\\""');
+    expect(src).toContain('MSYS2_ARG_CONV_EXCL="*" cmd.exe /C rmdir "$link_win"');
     expect(src).not.toMatch(/New-Item -ItemType Junction/);
     expect(src).toMatch(/mklink \/D/);
+    expect(src).toContain('MSYS2_ARG_CONV_EXCL="*" cmd.exe /C mklink /J "\\$target_win" "\\$base_win"');
     expect(src).toMatch(/New-Item -ItemType SymbolicLink/);
     expect(src).toMatch(/could not create a safe link for \\\$dir\/node_modules quickly/);
     expect(src).toMatch(/using \\\$dir dependencies from safe base symlink/);

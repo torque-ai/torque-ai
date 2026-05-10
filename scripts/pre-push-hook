@@ -259,7 +259,7 @@ cleanup_local_gate_dependency_links() {
     fi
     # rmdir without /S removes directory symlinks/junctions but refuses real
     # non-empty node_modules directories, so it cannot traverse into the base repo.
-    cmd //c "rmdir \"$link_win\"" >/dev/null 2>&1 || true
+    MSYS2_ARG_CONV_EXCL="*" cmd.exe /C rmdir "$link_win" >/dev/null 2>&1 || true
   done
 }
 
@@ -824,9 +824,9 @@ reuse_base_node_modules() {
   if [ ! -e "\$dir/node_modules" ]; then
     target_win="\$(remote_path_to_windows "\$dir/node_modules")"
     base_win="\$(remote_path_to_windows "\$base_modules")"
-    if ! cmd //c "mklink /D \"\$target_win\" \"\$base_win\"" >/dev/null 2>&1; then
+    if ! MSYS2_ARG_CONV_EXCL="*" cmd.exe /C mklink /D "\$target_win" "\$base_win" >/dev/null 2>&1; then
       if ! powershell.exe -NoProfile -Command "New-Item -ItemType SymbolicLink -Path '\$target_win' -Target '\$base_win' -ErrorAction Stop | Out-Null" >/dev/null 2>&1; then
-        if ! cmd //c "mklink /J \"\$target_win\" \"\$base_win\"" >/dev/null 2>&1; then
+        if ! MSYS2_ARG_CONV_EXCL="*" cmd.exe /C mklink /J "\$target_win" "\$base_win" >/dev/null 2>&1; then
           echo "[\$phase] [setup] could not create a safe link for \$dir/node_modules quickly; installing local dependencies"
           return 1
         fi
