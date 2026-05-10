@@ -16,6 +16,7 @@ const schedulingAutomation = require('../db/scheduling-automation');
 const taskMetadata = require('../db/task-metadata');
 const webhooksStreaming = require('../db/webhooks-streaming');
 const factoryDecisions = require('../db/factory/decisions');
+const fileTracking = require('../db/file/tracking');
 const workflowEngine = require('../db/workflow-engine');
 const resourceHealth = require('../db/resource-health');
 const serverConfig = require('../config');
@@ -975,6 +976,7 @@ function handleRunMaintenance(args) {
     maxAnalyticsRecords: serverConfig.getInt('analytics_retention_count', 100000),
     maxCoordinationEvents: serverConfig.getInt('coordination_event_retention_count', 50000),
     maxStreamChunks: serverConfig.getInt('stream_chunk_retention_count', 50000),
+    maxStreamChunkBytes: serverConfig.getInt('stream_chunk_retention_max_bytes', 128 * 1024 * 1024),
     maxTaskEvents: serverConfig.getInt('task_event_retention_count', 100000),
   });
   const factoryDecisionCleanupOptions = () => ({
@@ -1019,6 +1021,10 @@ function handleRunMaintenance(args) {
     }
     if (eventDays > 0) {
       addResult('Task event cleanup', () => `${webhooksStreaming.cleanupEventData(eventDays)} row(s) older than ${eventDays} day(s)`);
+    }
+    const fileLockRetentionDays = serverConfig.getInt('file_lock_retention_days', 14);
+    if (fileLockRetentionDays > 0 && typeof fileTracking.cleanupReleasedFileLocks === 'function') {
+      addResult('File lock cleanup', () => `${fileTracking.cleanupReleasedFileLocks(fileLockRetentionDays)} released lock(s) older than ${fileLockRetentionDays} day(s)`);
     }
     addResult('Webhook retry cleanup', () => `${webhooksStreaming.cleanupStaleWebhookRetries(7)} row(s) older than 7 day(s)`);
   }
@@ -1073,6 +1079,15 @@ function handleRunMaintenance(args) {
       const result = factoryDecisions.cleanupFactoryDecisions(factoryDecisionCleanupOptions());
       return `${result.deleted} row(s), retained ${result.retained}`;
     });
+  }
+
+  if (taskType === 'cleanup_file_locks') {
+    const fileLockRetentionDays = serverConfig.getInt('file_lock_retention_days', 14);
+    if (fileLockRetentionDays > 0 && typeof fileTracking.cleanupReleasedFileLocks === 'function') {
+      addResult('File lock cleanup', () => `${fileTracking.cleanupReleasedFileLocks(fileLockRetentionDays)} released lock(s) older than ${fileLockRetentionDays} day(s)`);
+    } else {
+      results.push('File lock cleanup: skipped (disabled)');
+    }
   }
 
   if (taskType === 'vacuum_database') {

@@ -959,7 +959,7 @@ const _LEGACY_EXPORT_MODULES = [
     'getVulnerabilityScanResults', 'getWorkflowFileWrites', 'getXamlConsistencyResults', 'getXamlValidationResults', 'isBudgetExceeded', 'isDiffReviewRequired',
     'listAllSyntaxValidators', 'listRollbacks', 'markDiffReviewed', 'markTimeoutAlertNotified', 'performAutoRollback', 'recordAuditEvent',
     'recordAutoRollback', 'recordCost', 'recordDuplicateFile', 'recordFileLocationAnomaly', 'recordQualityScore', 'recordRateLimitEvent',
-    'recordTaskFileWrite', 'recordTaskFingerprint', 'releaseAllFileLocks', 'releaseExpiredFileLocks', 'releaseFileLock', 'resolveDuplicateFile', 'resolveFileLocationAnomaly',
+    'recordTaskFileWrite', 'recordTaskFingerprint', 'releaseAllFileLocks', 'cleanupReleasedFileLocks', 'releaseExpiredFileLocks', 'releaseFileLock', 'resolveDuplicateFile', 'resolveFileLocationAnomaly',
     'restoreFileBackup', 'runAppSmokeTest', 'runAppSmokeTestSync', 'runBuildCheck', 'runSecurityScan', 'runStyleCheck',
     'runSyntaxValidation', 'runVulnerabilityScan', 'saveBuildResult', 'searchSimilarFiles', 'setBudget', 'setExpectedOutputPath',
     'setOutputLimit', 'updateBudgetSpend', 'updateProviderStats', 'validateApiContract', 'validateXamlSemantics', 'verifyTypeReferences',

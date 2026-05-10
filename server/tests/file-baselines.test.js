@@ -469,6 +469,33 @@ describe('releaseExpiredFileLocks', () => {
   });
 });
 
+describe('cleanupReleasedFileLocks', () => {
+  it('deletes released historical locks while preserving active and recent rows', () => {
+    mod.acquireFileLock('old-released.js', testDir, 'task-lk-old');
+    mod.releaseFileLock('old-released.js', testDir, 'task-lk-old');
+    mod.acquireFileLock('recent-released.js', testDir, 'task-lk-recent');
+    mod.releaseFileLock('recent-released.js', testDir, 'task-lk-recent');
+    mod.acquireFileLock('active.js', testDir, 'task-lk-active');
+
+    rawDb().prepare(`
+      UPDATE file_locks
+      SET acquired_at = ?, released_at = ?, expires_at = ?
+      WHERE task_id = ?
+    `).run(
+      '2000-01-01T00:00:00.000Z',
+      '2000-01-01T00:05:00.000Z',
+      '2000-01-01T00:10:00.000Z',
+      'task-lk-old'
+    );
+
+    const deleted = mod.cleanupReleasedFileLocks(14);
+    const remaining = rawDb().prepare('SELECT task_id FROM file_locks ORDER BY task_id').all().map((row) => row.task_id);
+
+    expect(deleted).toBe(1);
+    expect(remaining).toEqual(['task-lk-active', 'task-lk-recent']);
+  });
+});
+
 describe('getActiveFileLocks', () => {
   it('returns active locks for a task', () => {
     mod.acquireFileLock('lock-list-a.js', testDir, 'task-lk8');
