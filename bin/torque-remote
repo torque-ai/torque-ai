@@ -335,10 +335,30 @@ cleanup_materialized_local_command() {
   fi
 }
 
+unlink_local_fallback_dependency_links() {
+  local path="$1"
+  local dependency_link dependency_link_win
+  for dependency_link in "$path/server/node_modules" "$path/dashboard/node_modules"; do
+    [[ -e "$dependency_link" || -L "$dependency_link" ]] || continue
+    if [[ -L "$dependency_link" ]]; then
+      rm -f "$dependency_link" 2>/dev/null || true
+      continue
+    fi
+
+    case "$(uname -s 2>/dev/null || true)" in
+      MINGW*|MSYS*|CYGWIN*)
+        dependency_link_win="$(cygpath -w "$dependency_link" 2>/dev/null || printf '%s' "$dependency_link")"
+        powershell.exe -NoProfile -Command '$p=$args[0]; if (Test-Path -LiteralPath $p) { $item=Get-Item -LiteralPath $p -Force; if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { Remove-Item -LiteralPath $p -Force } }' "$dependency_link_win" >/dev/null 2>&1 || true
+        ;;
+    esac
+  done
+}
+
 cleanup_local_fallback_worktree() {
   local path="${LOCAL_FALLBACK_WORKTREE_PATH:-}"
   [[ -z "$path" ]] && return 0
 
+  unlink_local_fallback_dependency_links "$path"
   git -C "$PROJECT_ROOT" worktree remove --force "$path" >/dev/null 2>&1 || true
   git -C "$PROJECT_ROOT" worktree prune >/dev/null 2>&1 || true
   LOCAL_FALLBACK_WORKTREE_PATH=""

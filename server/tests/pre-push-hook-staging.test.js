@@ -103,11 +103,13 @@ describe('pre-push-hook staging-branch invariants', () => {
     expect(src).toMatch(/invalid dependency tree/);
     expect(src).toMatch(/reuse_base_node_modules\s*\(\)/);
     expect(src).toMatch(/TORQUE_REMOTE_BASE_PROJECT_PATH/);
-    expect(src).toMatch(/mklink \/J/);
-    expect(src).toMatch(/New-Item -ItemType Junction/);
-    expect(src).toMatch(/could not link \\\$dir\/node_modules quickly/);
-    expect(src).toMatch(/using \\\$dir dependencies from base checkout/);
-    expect(src).toMatch(/using \\\$dir dependencies from base checkout via PATH/);
+    expect(src).not.toMatch(/mklink \/J/);
+    expect(src).not.toMatch(/New-Item -ItemType Junction/);
+    expect(src).toMatch(/mklink \/D/);
+    expect(src).toMatch(/New-Item -ItemType SymbolicLink/);
+    expect(src).toMatch(/could not create a safe symlink for \\\$dir\/node_modules quickly/);
+    expect(src).toMatch(/using \\\$dir dependencies from safe base symlink/);
+    expect(src).toMatch(/could not verify \\\$dir dependencies through safe base symlink/);
     expect(src).toMatch(/npm install --no-audit --no-fund --prefer-offline/);
     expect(src).toMatch(/dependencies still invalid after install/);
     expect(src).toMatch(/run_vitest_phase dashboard run/);
@@ -293,6 +295,18 @@ describe('torque-remote staging branch validation', () => {
     expect(src).toContain('git -C "$PROJECT_ROOT" worktree remove --force "$path"');
     expect(src).toContain('export TORQUE_REMOTE_PROJECT_PATH="$execution_root"');
     expect(src).toContain('export TORQUE_REMOTE_BASE_PROJECT_PATH="$PROJECT_ROOT"');
+  });
+
+  it('unlinks local fallback dependency symlinks before removing the worktree', () => {
+    const src = readTorqueRemote();
+    const unlinkCall = src.indexOf('unlink_local_fallback_dependency_links "$path"');
+    const worktreeRemove = src.indexOf('git -C "$PROJECT_ROOT" worktree remove --force "$path"');
+    expect(src).toMatch(/unlink_local_fallback_dependency_links\s*\(\)/);
+    expect(src).toContain('"$path/server/node_modules" "$path/dashboard/node_modules"');
+    expect(src).toMatch(/\[\[ -L "\$dependency_link" \]\]/);
+    expect(src).toContain('Remove-Item -LiteralPath $p -Force');
+    expect(unlinkCall).toBeGreaterThanOrEqual(0);
+    expect(worktreeRemove).toBeGreaterThan(unlinkCall);
   });
 });
 

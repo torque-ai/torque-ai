@@ -575,28 +575,29 @@ reuse_base_node_modules() {
     if timeout 20 mv "\$dir/node_modules" "\$stale_dir" 2>/dev/null; then
       echo "[\$phase] [setup] moved invalid \$dir/node_modules aside"
     else
-      echo "[\$phase] [setup] could not move invalid \$dir/node_modules quickly; using base dependencies via PATH"
+      echo "[\$phase] [setup] could not move invalid \$dir/node_modules quickly; installing local dependencies"
     fi
   fi
 
   if [ ! -e "\$dir/node_modules" ]; then
     target_win="\$(remote_path_to_windows "\$dir/node_modules")"
     base_win="\$(remote_path_to_windows "\$base_modules")"
-    if ! cmd //c "mklink /J \"\$target_win\" \"\$base_win\"" >/dev/null 2>&1; then
-      powershell.exe -NoProfile -Command "New-Item -ItemType Junction -Path '\$target_win' -Target '\$base_win' -ErrorAction Stop | Out-Null" >/dev/null 2>&1 || \
-        echo "[\$phase] [setup] could not link \$dir/node_modules quickly; using base dependencies via PATH"
+    if ! cmd //c "mklink /D \"\$target_win\" \"\$base_win\"" >/dev/null 2>&1; then
+      if ! powershell.exe -NoProfile -Command "New-Item -ItemType SymbolicLink -Path '\$target_win' -Target '\$base_win' -ErrorAction Stop | Out-Null" >/dev/null 2>&1; then
+        echo "[\$phase] [setup] could not create a safe symlink for \$dir/node_modules quickly; installing local dependencies"
+        return 1
+      fi
     fi
   fi
 
   if dependency_tree_ok "\$dir"; then
     prepend_node_modules "\$dir/node_modules"
-    echo "[\$phase] [setup] using \$dir dependencies from base checkout"
+    echo "[\$phase] [setup] using \$dir dependencies from safe base symlink"
     return 0
   fi
 
-  prepend_node_modules "\$base_modules"
-  echo "[\$phase] [setup] using \$dir dependencies from base checkout via PATH"
-  return 0
+  echo "[\$phase] [setup] could not verify \$dir dependencies through safe base symlink; installing local dependencies"
+  return 1
 }
 
 ensure_node_modules() {
