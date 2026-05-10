@@ -66,6 +66,8 @@ delete childEnv.TORQUE_PEW_PROVIDER;
 delete childEnv.TORQUE_PEW_MODEL;
 delete childEnv.TORQUE_PEW_STDIN_FILE;
 delete childEnv.TORQUE_PEW_TASK_ID;
+delete childEnv.TORQUE_PEW_WATCHDOG_INTERVAL_MS;
+delete childEnv.TORQUE_PEW_WATCHDOG_GRACE_MS;
 
 // Emit the spawn marker BEFORE exec'ing the real binary so it lands at
 // the front of stderr.log. Re-adoption reads it from offset 0 to verify
@@ -115,12 +117,17 @@ function emitAnnotation(code, signal) {
 // still bite if a handler ever became synchronous).
 let exited = false;
 let watchdogHandle = null;
+let watchdogFallbackHandle = null;
 function safeExit(code, signal) {
   if (exited) return;
   exited = true;
   if (watchdogHandle) {
     try { clearInterval(watchdogHandle); } catch { /* ignore */ }
     watchdogHandle = null;
+  }
+  if (watchdogFallbackHandle) {
+    try { clearTimeout(watchdogFallbackHandle); } catch { /* ignore */ }
+    watchdogFallbackHandle = null;
   }
   emitAnnotation(code, signal);
   process.exit(typeof code === 'number' ? code : (signal ? 128 : 0));
@@ -148,16 +155,36 @@ const WATCHDOG_INTERVAL_MS = (() => {
   const override = Number(process.env.TORQUE_PEW_WATCHDOG_INTERVAL_MS);
   return Number.isFinite(override) && override >= 10 ? override : 30_000;
 })();
+const WATCHDOG_FALLBACK_GRACE_MS = (() => {
+  const override = Number(process.env.TORQUE_PEW_WATCHDOG_GRACE_MS);
+  if (Number.isFinite(override) && override >= 0) return override;
+  return 1_000;
+})();
 watchdogHandle = setInterval(() => {
   if (exited) return;
   if (!child.pid) return;
   try {
     process.kill(child.pid, 0);
   } catch (err) {
-    process.stderr.write(`[process-exit-wrapper] watchdog: child PID ${child.pid} is gone (${err.code || err.message}) but 'close' did not fire; forcing exit.\n`);
     const fallbackCode = (typeof child.exitCode === 'number') ? child.exitCode : 1;
     const fallbackSignal = child.signalCode || null;
-    safeExit(fallbackCode, fallbackSignal);
+    if (typeof child.exitCode === 'number' || child.signalCode) {
+      process.stderr.write(`[process-exit-wrapper] watchdog: child PID ${child.pid} is gone (${err.code || err.message}); forcing exit with observed status.\n`);
+      safeExit(fallbackCode, fallbackSignal);
+      return;
+    }
+
+    if (!watchdogFallbackHandle) {
+      process.stderr.write(`[process-exit-wrapper] watchdog: child PID ${child.pid} is gone (${err.code || err.message}) but 'close' did not fire; waiting ${WATCHDOG_FALLBACK_GRACE_MS}ms before fallback exit.\n`);
+      watchdogFallbackHandle = setTimeout(() => {
+        watchdogFallbackHandle = null;
+        if (exited) return;
+        const graceCode = (typeof child.exitCode === 'number') ? child.exitCode : 1;
+        const graceSignal = child.signalCode || null;
+        safeExit(graceCode, graceSignal);
+      }, WATCHDOG_FALLBACK_GRACE_MS);
+      watchdogFallbackHandle.unref();
+    }
   }
 }, WATCHDOG_INTERVAL_MS);
 watchdogHandle.unref();
