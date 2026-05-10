@@ -142,7 +142,7 @@ pre_push_cleanup() {
   local rc=$?
   trap - EXIT
   delete_staging_ref || true
-  repo_coord_lock_release || true
+  REPO_COORD_LOCK_FORCE_RELEASE=1 repo_coord_lock_release || true
   exit "$rc"
 }
 

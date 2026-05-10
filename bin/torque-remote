@@ -181,6 +181,8 @@ REMOTE_CLEANUP_COMMAND=""
 REMOTE_CLEANUP_REQUIRED="false"
 LOCAL_COMMAND_ARGS=()
 LOCAL_COMMAND_SCRIPT=""
+LOCAL_FALLBACK_WORKTREE_PATH=""
+LOCAL_EXECUTION_ROOT=""
 
 # bash's `trap ... EXIT` is single-slot; installing a second trap replaces
 # the first. Prior code installed `cleanup_on_exit` first, then later
@@ -333,6 +335,73 @@ cleanup_materialized_local_command() {
   fi
 }
 
+cleanup_local_fallback_worktree() {
+  local path="${LOCAL_FALLBACK_WORKTREE_PATH:-}"
+  [[ -z "$path" ]] && return 0
+
+  git -C "$PROJECT_ROOT" worktree remove --force "$path" >/dev/null 2>&1 || true
+  git -C "$PROJECT_ROOT" worktree prune >/dev/null 2>&1 || true
+  LOCAL_FALLBACK_WORKTREE_PATH=""
+}
+
+prepare_local_execution_root() {
+  if [[ -z "${BRANCH_OVERRIDE:-}" ]]; then
+    LOCAL_EXECUTION_ROOT="$PROJECT_ROOT"
+    return 0
+  fi
+
+  if [[ ! "$BRANCH_OVERRIDE" =~ ^[a-zA-Z0-9_./-]+$ ]]; then
+    die "Branch '$BRANCH_OVERRIDE' contains unsafe characters"
+  fi
+
+  local sync_ref="origin/$BRANCH_OVERRIDE"
+  if ! git -C "$PROJECT_ROOT" rev-parse --verify "$sync_ref" >/dev/null 2>&1; then
+    if ! git -C "$PROJECT_ROOT" ls-remote --exit-code --heads origin "$BRANCH_OVERRIDE" >/dev/null 2>&1; then
+      die "Branch '$BRANCH_OVERRIDE' does not exist on origin"
+    fi
+    git -C "$PROJECT_ROOT" fetch --prune origin "+refs/heads/$BRANCH_OVERRIDE:refs/remotes/origin/$BRANCH_OVERRIDE"
+  fi
+
+  local worktree_parent worktree_path
+  worktree_parent="$(make_temp_dir)"
+  worktree_path="$worktree_parent/worktree"
+  info "Running --branch $BRANCH_OVERRIDE in an isolated local fallback worktree"
+  git -C "$PROJECT_ROOT" worktree add --force --detach "$worktree_path" "$sync_ref" >/dev/null
+  LOCAL_FALLBACK_WORKTREE_PATH="$worktree_path"
+  LOCAL_EXECUTION_ROOT="$worktree_path"
+}
+
+run_local_command_in_root() {
+  local execution_root="$1"
+  local capture_output="${2:-false}"
+  local exit_code=0
+
+  (
+    unset TORQUE_COORD_REMOTE_HOST
+    unset TORQUE_COORD_REMOTE_USER
+    export TORQUE_REMOTE_PROJECT_PATH="$execution_root"
+    export TORQUE_REMOTE_BASE_PROJECT_PATH="$PROJECT_ROOT"
+    cd "$execution_root" || exit 1
+    materialize_local_bash_c_command
+    if [[ "$capture_output" == "true" && -n "${COORD_OUTPUT_LOG:-}" ]]; then
+      "${LOCAL_COMMAND_ARGS[@]}" > "$COORD_OUTPUT_LOG" 2>&1 &
+      cmd_pid=$!
+      tail -f --pid="$cmd_pid" "$COORD_OUTPUT_LOG" &
+      tail_pid=$!
+      wait "$cmd_pid"
+      exit_code=$?
+      sleep 0.2
+      kill "$tail_pid" 2>/dev/null || true
+      wait "$tail_pid" 2>/dev/null || true
+    else
+      "${LOCAL_COMMAND_ARGS[@]}"
+      exit_code=$?
+    fi
+    cleanup_materialized_local_command
+    exit "$exit_code"
+  )
+}
+
 powershell_single_quote() {
   printf "'%s'" "$(printf '%s' "$1" | sed "s/'/''/g")"
 }
@@ -475,6 +544,7 @@ cleanup_remote_exec() {
 cleanup_on_exit() {
   release_remote_lane_lock
   cleanup_remote_exec
+  cleanup_local_fallback_worktree
   cleanup_temp_dirs
   sweep_old_orphans
 }
@@ -1794,17 +1864,11 @@ run_ssh_fallback_locally() {
     exit 125
   fi
 
-  cd "$PROJECT_ROOT"
+  local execution_root
+  prepare_local_execution_root
+  execution_root="$LOCAL_EXECUTION_ROOT"
   set +e
-  (
-    unset TORQUE_COORD_REMOTE_HOST
-    unset TORQUE_COORD_REMOTE_USER
-    materialize_local_bash_c_command
-    "${LOCAL_COMMAND_ARGS[@]}"
-    exit_code=$?
-    cleanup_materialized_local_command
-    exit "$exit_code"
-  )
+  run_local_command_in_root "$execution_root" "false"
   exit_code=$?
   set -e
   exit $exit_code
@@ -1815,29 +1879,11 @@ case "$TRANSPORT" in
   local)
     DECISION_TRANSPORT="local"
     info "Running locally: $COMMAND_DISPLAY"
-    cd "$PROJECT_ROOT"
+    prepare_local_execution_root
+    execution_root="$LOCAL_EXECUTION_ROOT"
     set +e
-    materialize_local_bash_c_command
-    if [[ -n "$COORD_OUTPUT_LOG" ]]; then
-      # Tee stdout/stderr to the capture file so coord_release_on_exit can
-      # store the last 16KB as the result's output_tail. The streamer is killed
-      # after the writer exits because Git Bash can leave `tail --pid` alive
-      # after the watched process is gone, recreating the EOF-leak hang this
-      # path avoids by not using `tee`.
-      "${LOCAL_COMMAND_ARGS[@]}" > "$COORD_OUTPUT_LOG" 2>&1 &
-      cmd_pid=$!
-      tail -f --pid="$cmd_pid" "$COORD_OUTPUT_LOG" &
-      tail_pid=$!
-      wait "$cmd_pid"
-      exit_code=$?
-      sleep 0.2
-      kill "$tail_pid" 2>/dev/null || true
-      wait "$tail_pid" 2>/dev/null || true
-    else
-      "${LOCAL_COMMAND_ARGS[@]}"
-      exit_code=$?
-    fi
-    cleanup_materialized_local_command
+    run_local_command_in_root "$execution_root" "true"
+    exit_code=$?
     set -e
     exit $exit_code
     ;;

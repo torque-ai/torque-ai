@@ -168,6 +168,7 @@ reset_stub_env() {
   unset GIT_DIFF_BASE_OUTPUT GIT_DIFF_HEAD_OUTPUT GIT_DIFF_EXIT_CODE
   unset GIT_LS_FILES_OUTPUT GIT_LS_FILES_EXIT_CODE
   unset GIT_LS_REMOTE_OUTPUT GIT_LS_REMOTE_EXIT_CODE
+  unset GIT_FETCH_EXIT_CODE GIT_WORKTREE_ADD_EXIT_CODE GIT_WORKTREE_REMOVE_EXIT_CODE
   unset SSH_CONNECT_OUTPUT SSH_CONNECT_EXIT_CODE
   unset SSH_WMIC_OUTPUT SSH_WMIC_EXIT_CODE
   unset GIT_COMMON_DIR_OUTPUT GIT_COMMON_DIR_EXIT_CODE
@@ -257,6 +258,12 @@ log_file="${TORQUE_REMOTE_TEST_CALLS_LOG:?}"
   printf '\n'
 } >> "$log_file"
 
+git_args=("$@")
+if [[ "${git_args[0]:-}" == "-C" && "${#git_args[@]}" -ge 3 ]]; then
+  git_args=("${git_args[@]:2}")
+  set -- "${git_args[@]}"
+fi
+
 if [[ "$#" -ge 3 && "$1" == "rev-parse" && "$2" == "--abbrev-ref" && "$3" == "HEAD" ]]; then
   if [[ "${GIT_REV_PARSE_OUTPUT+x}" == "x" && -n "$GIT_REV_PARSE_OUTPUT" ]]; then
     printf '%s\n' "$GIT_REV_PARSE_OUTPUT"
@@ -326,6 +333,29 @@ if [[ "$#" -ge 3 && "$1" == "remote" && "$2" == "get-url" && "$3" == "origin" ]]
   # exercise the origin-clone fallback path. Override via GIT_REMOTE_URL.
   printf '%s\n' "${GIT_REMOTE_URL:-https://example.invalid/fake.git}"
   exit "${GIT_REMOTE_URL_EXIT_CODE:-0}"
+fi
+
+if [[ "$#" -ge 1 && "$1" == "fetch" ]]; then
+  exit "${GIT_FETCH_EXIT_CODE:-0}"
+fi
+
+if [[ "$#" -ge 2 && "$1" == "worktree" && "$2" == "add" ]]; then
+  args=("$@")
+  target_index=$((${#args[@]} - 2))
+  target_path="${args[$target_index]}"
+  mkdir -p "$target_path"
+  exit "${GIT_WORKTREE_ADD_EXIT_CODE:-0}"
+fi
+
+if [[ "$#" -ge 2 && "$1" == "worktree" && "$2" == "remove" ]]; then
+  args=("$@")
+  target_index=$((${#args[@]} - 1))
+  rm -rf "${args[$target_index]}"
+  exit "${GIT_WORKTREE_REMOVE_EXIT_CODE:-0}"
+fi
+
+if [[ "$#" -ge 2 && "$1" == "worktree" && "$2" == "prune" ]]; then
+  exit 0
 fi
 
 exit "${GIT_DEFAULT_EXIT_CODE:-0}"
@@ -567,6 +597,9 @@ make_test_env() {
   mkdir -p "$tmp/.git" "$tmp/bin" "$tmp/home"
   : > "$tmp/calls.log"
   : > "$tmp/argv.log"
+  : > "$tmp/pwd.log"
+  : > "$tmp/project-path.log"
+  : > "$tmp/base-path.log"
   : > "$tmp/remote-commands.log"
   : > "$tmp/remote-stdin.bin"
 
@@ -615,6 +648,9 @@ run_torque_remote() {
     PATH="$tmp/bin:$ORIGINAL_PATH" \
     TORQUE_REMOTE_TEST_CALLS_LOG="$tmp/calls.log" \
     TORQUE_REMOTE_TEST_ARGV_LOG="$tmp/argv.log" \
+    TORQUE_REMOTE_TEST_PWD_LOG="$tmp/pwd.log" \
+    TORQUE_REMOTE_TEST_PROJECT_PATH_LOG="$tmp/project-path.log" \
+    TORQUE_REMOTE_TEST_BASE_PATH_LOG="$tmp/base-path.log" \
     TORQUE_REMOTE_TEST_REMOTE_COMMANDS="$tmp/remote-commands.log" \
     TORQUE_REMOTE_TEST_REMOTE_STDIN="$tmp/remote-stdin.bin" \
     TORQUE_REMOTE_TEST_LOCK_STATE="$tmp/lock-state" \
@@ -778,6 +814,39 @@ test_local_fallback_preserves_quoted_arguments() {
   expect_contains "second argument keeps semicolon literal" "$RUN_ARGV_LOG" "2=semi;ignored"
 
   finish_test "test_local_fallback_preserves_quoted_arguments"
+}
+
+test_local_fallback_branch_override_uses_isolated_worktree() {
+  local tmp actual_pwd project_path base_path
+
+  echo "Test: local fallback --branch uses isolated worktree"
+  TEST_ERRORS=()
+  reset_stub_env
+
+  make_test_env
+  tmp="$LAST_TEST_ENV"
+  export SSH_CONNECT_EXIT_CODE=1
+  export GIT_LS_REMOTE_EXIT_CODE=0
+
+  run_torque_remote "$tmp" --branch pre-push-gate/test bash -c 'pwd > "$TORQUE_REMOTE_TEST_PWD_LOG"; printf "%s\n" "${TORQUE_REMOTE_PROJECT_PATH:-}" > "$TORQUE_REMOTE_TEST_PROJECT_PATH_LOG"; printf "%s\n" "${TORQUE_REMOTE_BASE_PROJECT_PATH:-}" > "$TORQUE_REMOTE_TEST_BASE_PATH_LOG"'
+
+  actual_pwd="$(slurp_file "$tmp/pwd.log")"
+  project_path="$(slurp_file "$tmp/project-path.log")"
+  base_path="$(slurp_file "$tmp/base-path.log")"
+
+  expect_eq "exit code is 0" "0" "$RUN_EXIT"
+  expect_contains "stderr reports fallback" "$RUN_STDERR" "falling back to local"
+  expect_file_contains "missing remote-tracking branch checks origin" "$tmp/calls.log" "git [-C] [$tmp] [ls-remote] [--exit-code] [--heads] [origin] [pre-push-gate/test]"
+  expect_file_contains "branch ref is fetched before local checkout" "$tmp/calls.log" "git [-C] [$tmp] [fetch] [--prune] [origin] [+refs/heads/pre-push-gate/test:refs/remotes/origin/pre-push-gate/test]"
+  expect_file_contains "detached fallback worktree is created" "$tmp/calls.log" "git [-C] [$tmp] [worktree] [add] [--force] [--detach]"
+  expect_file_contains "fallback worktree is deregistered" "$tmp/calls.log" "git [-C] [$tmp] [worktree] [remove] [--force]"
+  if [[ "$actual_pwd" == "$tmp" ]]; then
+    record_failure "command ran in live project root instead of isolated worktree"
+  fi
+  expect_eq "TORQUE_REMOTE_PROJECT_PATH follows isolated cwd" "$actual_pwd" "$project_path"
+  expect_eq "TORQUE_REMOTE_BASE_PROJECT_PATH points at live checkout" "$tmp" "$base_path"
+
+  finish_test "test_local_fallback_branch_override_uses_isolated_worktree"
 }
 
 test_remote_inline_command_preserves_quoted_arguments() {
@@ -1760,6 +1829,7 @@ main() {
   test_invalid_branch_name_errors
   test_local_state_overlays_worktree_from_fallback_base
   test_local_fallback_preserves_quoted_arguments
+  test_local_fallback_branch_override_uses_isolated_worktree
   test_remote_inline_command_preserves_quoted_arguments
   test_remote_bootstrap_streams_runner_output_without_inherited_stdout_hang
   test_config_parses_without_jq

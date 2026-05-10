@@ -293,7 +293,7 @@ describe('torque-remote coord integration', () => {
     `;
     stub = await spawnStubDaemon(tmpDir, handlerSource);
 
-    const result = spawnTorqueRemote(['--suite', 'gate', '--branch', 'HEAD', 'echo', 'should-not-run'], {
+    const result = spawnTorqueRemote(['--suite', 'gate', 'echo', 'should-not-run'], {
       TORQUE_COORD_PORT: String(stub.port),
       TORQUE_REMOTE_COORD_SHA: 'HEAD',
       HOME: tmpDir,
@@ -359,7 +359,7 @@ describe('torque-remote coord integration', () => {
     `;
     stub = await spawnStubDaemon(tmpDir, handlerSource);
 
-    const result = spawnTorqueRemote(['--suite', 'gate', '--branch', 'HEAD', 'echo', 'fresh-run'], {
+    const result = spawnTorqueRemote(['--suite', 'gate', 'echo', 'fresh-run'], {
       TORQUE_COORD_PORT: String(stub.port),
       TORQUE_REMOTE_COORD_SHA: 'HEAD',
       HOME: tmpDir,

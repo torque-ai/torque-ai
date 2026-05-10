@@ -257,11 +257,12 @@ repo_coord_lock_release() {
   local token="${REPO_COORD_LOCK_TOKEN:-${TORQUE_COORD_LOCK_TOKEN:-}}"
   local owner_bashpid="${REPO_COORD_LOCK_OWNER_BASHPID:-${TORQUE_COORD_LOCK_OWNER_BASHPID:-}}"
   local current_bashpid="${BASHPID:-$$}"
+  local force_release="${REPO_COORD_LOCK_FORCE_RELEASE:-${TORQUE_COORD_LOCK_FORCE_RELEASE:-0}}"
 
   if [ "${REPO_COORD_LOCK_REUSED:-0}" = "1" ]; then
     return 0
   fi
-  if [ -n "$owner_bashpid" ] && [ "$owner_bashpid" != "$current_bashpid" ]; then
+  if [ "$force_release" != "1" ] && [ -n "$owner_bashpid" ] && [ "$owner_bashpid" != "$current_bashpid" ]; then
     return 0
   fi
   if [ -z "$lock_dir" ] || [ -z "$token" ]; then

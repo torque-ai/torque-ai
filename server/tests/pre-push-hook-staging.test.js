@@ -153,7 +153,7 @@ describe('pre-push-hook staging-branch invariants', () => {
     expect(src).toMatch(/repo_coord_lock_acquire "main" "pre-push main gate:/);
     expect(src).toMatch(/pre_push_cleanup\s*\(\)/);
     expect(src).toMatch(/delete_staging_ref \|\| true/);
-    expect(src).toMatch(/repo_coord_lock_release \|\| true/);
+    expect(src).toMatch(/REPO_COORD_LOCK_FORCE_RELEASE=1 repo_coord_lock_release \|\| true/);
     expect(src).toMatch(/trap pre_push_cleanup EXIT/);
     expect(src).not.toMatch(/trap\s+'delete_staging_ref'\s+EXIT/);
     expect(src).toMatch(/git_cleanup_timeout\s*\(\)/);
@@ -279,9 +279,20 @@ describe('torque-remote staging branch validation', () => {
     expect(src).toMatch(/TORQUE_REMOTE_LOCAL_BASH_C_SCRIPT_THRESHOLD:-2000/);
     expect(src).toContain('printf \'%s\\n\' "$payload" > "$LOCAL_COMMAND_SCRIPT"');
     expect(src).toContain('LOCAL_COMMAND_ARGS=(bash "$LOCAL_COMMAND_SCRIPT")');
-    expect(src).toMatch(/run_ssh_fallback_locally\s*\(\)\s*\{[\s\S]*materialize_local_bash_c_command[\s\S]*"\$\{LOCAL_COMMAND_ARGS\[@\]\}"/);
-    expect(src).toMatch(/local\)[\s\S]*materialize_local_bash_c_command[\s\S]*"\$\{LOCAL_COMMAND_ARGS\[@\]\}"/);
+    expect(src).toMatch(/run_local_command_in_root\s*\(\)\s*\{[\s\S]*materialize_local_bash_c_command[\s\S]*"\$\{LOCAL_COMMAND_ARGS\[@\]\}"/);
+    expect(src).toMatch(/run_ssh_fallback_locally\s*\(\)\s*\{[\s\S]*prepare_local_execution_root[\s\S]*run_local_command_in_root/);
+    expect(src).toMatch(/local\)[\s\S]*prepare_local_execution_root[\s\S]*run_local_command_in_root/);
     expect(src).toMatch(/cleanup_materialized_local_command\s*\(\)/);
+  });
+
+  it('runs --branch local fallback in a detached temporary worktree', () => {
+    const src = readTorqueRemote();
+    expect(src).toMatch(/prepare_local_execution_root\s*\(\)/);
+    expect(src).toContain('git -C "$PROJECT_ROOT" fetch --prune origin "+refs/heads/$BRANCH_OVERRIDE:refs/remotes/origin/$BRANCH_OVERRIDE"');
+    expect(src).toContain('git -C "$PROJECT_ROOT" worktree add --force --detach "$worktree_path" "$sync_ref"');
+    expect(src).toContain('git -C "$PROJECT_ROOT" worktree remove --force "$path"');
+    expect(src).toContain('export TORQUE_REMOTE_PROJECT_PATH="$execution_root"');
+    expect(src).toContain('export TORQUE_REMOTE_BASE_PROJECT_PATH="$PROJECT_ROOT"');
   });
 });
 

@@ -80,6 +80,22 @@ if [ "$(cat "$LOCK_DIR/token")" != "$LOCK_TOKEN" ]; then
   exit 1
 fi
 
+bash -c '
+  set -euo pipefail
+  source "$1"
+  export REPO_COORD_LOCK_DIR="$2"
+  export REPO_COORD_LOCK_TOKEN="$3"
+  export REPO_COORD_LOCK_OWNER_BASHPID=999999
+  export REPO_COORD_LOCK_FORCE_RELEASE=1
+  repo_coord_lock_release > "$4"
+' bash "$SCRIPT_DIR/repo-coordination-lock.sh" "$LOCK_DIR" "$LOCK_TOKEN" "$TMP_ROOT/force-release.out"
+assert_dir_missing "$LOCK_DIR"
+
+repo_coord_lock_acquire main "primary after force release" > "$TMP_ROOT/primary-after-force.out"
+LOCK_DIR="$TORQUE_COORD_LOCK_DIR"
+LOCK_TOKEN="$TORQUE_COORD_LOCK_TOKEN"
+assert_dir_exists "$LOCK_DIR"
+
 repo_coord_lock_release > "$TMP_ROOT/release.out"
 assert_dir_missing "$LOCK_DIR"
 

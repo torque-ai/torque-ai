@@ -341,6 +341,8 @@ describe('App', () => {
     });
   });
 
+  // Full pre-push runs dashboard and server suites concurrently on Windows; this
+  // app-mount/WebSocket path can exceed Vitest's 5s default under that load.
   it('applies live task deltas from tasks:batch-updated', async () => {
     const { unmount } = renderApp('/');
 
@@ -378,7 +380,7 @@ describe('App', () => {
     });
 
     unmount();
-  });
+  }, 15000);
 
   it('handles task:event lifecycle messages from the live server contract', async () => {
     const { unmount } = renderApp('/');
