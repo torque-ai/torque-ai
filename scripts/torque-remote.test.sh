@@ -198,7 +198,7 @@ reset_stub_env() {
   unset GIT_DIFF_BASE_OUTPUT GIT_DIFF_HEAD_OUTPUT GIT_DIFF_EXIT_CODE
   unset GIT_LS_FILES_OUTPUT GIT_LS_FILES_EXIT_CODE
   unset GIT_LS_REMOTE_OUTPUT GIT_LS_REMOTE_EXIT_CODE
-  unset GIT_FETCH_EXIT_CODE GIT_WORKTREE_ADD_EXIT_CODE GIT_WORKTREE_REMOVE_EXIT_CODE
+  unset GIT_FETCH_EXIT_CODE GIT_WORKTREE_ADD_EXIT_CODE GIT_WORKTREE_REMOVE_EXIT_CODE GIT_WORKTREE_REMOVE_OUTPUT
   unset SSH_CONNECT_OUTPUT SSH_CONNECT_EXIT_CODE
   unset SSH_WMIC_OUTPUT SSH_WMIC_EXIT_CODE
   unset GIT_COMMON_DIR_OUTPUT GIT_COMMON_DIR_EXIT_CODE
@@ -410,8 +410,14 @@ fi
 if [[ "$#" -ge 2 && "$1" == "worktree" && "$2" == "remove" ]]; then
   args=("$@")
   target_index=$((${#args[@]} - 1))
+  if [[ "${GIT_WORKTREE_REMOVE_OUTPUT+x}" == "x" && -n "$GIT_WORKTREE_REMOVE_OUTPUT" ]]; then
+    printf '%s\n' "$GIT_WORKTREE_REMOVE_OUTPUT" >&2
+  fi
+  if [[ "${GIT_WORKTREE_REMOVE_EXIT_CODE:-0}" != "0" ]]; then
+    exit "${GIT_WORKTREE_REMOVE_EXIT_CODE:-0}"
+  fi
   stub_rm_rf_test_path "${args[$target_index]}"
-  exit "${GIT_WORKTREE_REMOVE_EXIT_CODE:-0}"
+  exit 0
 fi
 
 if [[ "$#" -ge 2 && "$1" == "worktree" && "$2" == "prune" ]]; then
@@ -964,6 +970,55 @@ test_local_fallback_branch_override_uses_isolated_worktree() {
   expect_eq "TORQUE_REMOTE_BASE_PROJECT_PATH points at live checkout" "$tmp" "$base_path"
 
   finish_test "test_local_fallback_branch_override_uses_isolated_worktree"
+}
+
+test_local_fallback_cleanup_removes_directory_when_worktree_remove_fails() {
+  local tmp actual_pwd
+
+  echo "Test: local fallback cleanup removes directory when worktree remove fails"
+  TEST_ERRORS=()
+  reset_stub_env
+
+  make_test_env
+  tmp="$LAST_TEST_ENV"
+  export SSH_CONNECT_EXIT_CODE=1
+  export GIT_LS_REMOTE_EXIT_CODE=0
+  export GIT_WORKTREE_REMOVE_EXIT_CODE=7
+  export GIT_WORKTREE_REMOVE_OUTPUT="locked native module"
+
+  run_torque_remote "$tmp" --branch pre-push-gate/test bash -c 'pwd > "$TORQUE_REMOTE_TEST_PWD_LOG"'
+
+  actual_pwd="$(slurp_file "$tmp/pwd.log")"
+
+  expect_eq "user command exit code is preserved" "0" "$RUN_EXIT"
+  expect_contains "stderr reports fallback" "$RUN_STDERR" "falling back to local"
+  expect_contains "stderr warns worktree remove failed" "$RUN_STDERR" "Failed to remove local fallback worktree"
+  expect_contains "stderr includes git worktree remove exit code" "$RUN_STDERR" "exit 7"
+  expect_contains "stderr includes git failure output" "$RUN_STDERR" "locked native module"
+  if [[ -z "$actual_pwd" || -d "$actual_pwd" ]]; then
+    record_failure "fallback worktree directory is removed after git worktree remove leaves files behind"
+  fi
+
+  finish_test "test_local_fallback_cleanup_removes_directory_when_worktree_remove_fails"
+}
+
+test_local_fallback_cleanup_source_scopes_worktree_remove() {
+  local source
+
+  echo "Test: local fallback cleanup is scoped to managed temp roots"
+  TEST_ERRORS=()
+  source="$(slurp_file "$SCRIPT_UNDER_TEST")"
+
+  expect_contains "cleanup helper validates managed temp roots" "$source" "path_is_under_managed_temp_dir"
+  expect_contains "cleanup refuses paths outside torque-remote temp roots" "$source" "Refusing local fallback worktree cleanup outside managed torque-remote temp root"
+  expect_contains "cleanup inspects Windows process command lines" "$source" "Get-CimInstance Win32_Process"
+  expect_contains "cleanup inspects loaded native modules under fallback root" "$source" 'StartsWith($rootPath, [StringComparison]::OrdinalIgnoreCase)'
+  expect_contains "cleanup stops only matched processes" "$source" "Stop-Process -Id"
+  expect_contains "cleanup warns on leaked fallback worktree path" "$source" "Local fallback worktree still exists after process cleanup"
+  expect_contains "temp dir helper registers in caller shell" "$source" 'printf -v "$target_var"'
+  expect_not_contains "temp dir helper is not used through command substitution" "$source" '="$(make_temp_dir'
+
+  finish_test "test_local_fallback_cleanup_source_scopes_worktree_remove"
 }
 
 test_remote_inline_command_preserves_quoted_arguments() {
@@ -1967,6 +2022,8 @@ main() {
   test_local_state_overlays_worktree_from_fallback_base
   test_local_fallback_preserves_quoted_arguments
   test_local_fallback_branch_override_uses_isolated_worktree
+  test_local_fallback_cleanup_removes_directory_when_worktree_remove_fails
+  test_local_fallback_cleanup_source_scopes_worktree_remove
   test_remote_inline_command_preserves_quoted_arguments
   test_remote_bootstrap_streams_runner_output_without_inherited_stdout_hang
   test_config_parses_without_jq

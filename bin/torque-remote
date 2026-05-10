@@ -310,10 +310,11 @@ sweep_old_orphans() {
 }
 
 make_temp_dir() {
-  local dir
+  local target_var="${1:-}" dir
+  [[ -n "$target_var" ]] || die "make_temp_dir requires a target variable"
   dir="$(mktemp -d "${TMPDIR:-/tmp}/torque-remote.XXXXXX")"
   TEMP_DIRS+=("$dir")
-  printf '%s\n' "$dir"
+  printf -v "$target_var" '%s' "$dir"
 }
 
 shell_quote() {
@@ -357,6 +358,101 @@ cleanup_materialized_local_command() {
   fi
 }
 
+path_is_under_managed_temp_dir() {
+  local path="$1" dir dir_name
+  [[ -n "$path" ]] || return 1
+
+  for dir in "${TEMP_DIRS[@]}"; do
+    [[ -n "$dir" ]] || continue
+    dir="${dir%/}"
+    dir_name="${dir##*/}"
+    [[ "$dir_name" == torque-remote.* ]] || continue
+    case "$path" in
+      "$dir"|"$dir"/*) return 0 ;;
+    esac
+  done
+
+  return 1
+}
+
+cleanup_local_fallback_processes() {
+  local path="$1"
+  [[ -n "$path" ]] || return 0
+
+  case "$(uname -s 2>/dev/null || true)" in
+    MINGW*|MSYS*|CYGWIN*) ;;
+    *) return 0 ;;
+  esac
+  command -v powershell.exe >/dev/null 2>&1 || return 0
+
+  local path_win script_dir script_path script_win
+  path_win="$(cygpath -w "$path" 2>/dev/null || printf '%s' "$path")"
+  make_temp_dir script_dir
+  script_path="$script_dir/cleanup-local-fallback-processes.ps1"
+
+  cat > "$script_path" <<'PWSH'
+param([Parameter(Mandatory=$true)][string]$Root)
+$ErrorActionPreference = 'SilentlyContinue'
+try {
+  $rootPath = [System.IO.Path]::GetFullPath($Root).TrimEnd('\')
+} catch {
+  exit 0
+}
+if ([string]::IsNullOrWhiteSpace($rootPath)) { exit 0 }
+
+$currentPid = $PID
+$targets = New-Object 'System.Collections.Generic.HashSet[int]'
+$processes = @(Get-CimInstance Win32_Process)
+
+foreach ($proc in $processes) {
+  $cmd = [string]$proc.CommandLine
+  if ($cmd -and $cmd.IndexOf($rootPath, [StringComparison]::OrdinalIgnoreCase) -ge 0) {
+    [void]$targets.Add([int]$proc.ProcessId)
+  }
+}
+
+foreach ($proc in @(Get-Process)) {
+  try {
+    foreach ($module in @($proc.Modules)) {
+      $file = [string]$module.FileName
+      if ($file -and $file.StartsWith($rootPath, [StringComparison]::OrdinalIgnoreCase)) {
+        [void]$targets.Add([int]$proc.Id)
+        break
+      }
+    }
+  } catch {
+  }
+}
+
+do {
+  $changed = $false
+  foreach ($proc in $processes) {
+    $pidInt = [int]$proc.ProcessId
+    $parentPidInt = [int]$proc.ParentProcessId
+    if (-not $targets.Contains($pidInt) -and $targets.Contains($parentPidInt)) {
+      [void]$targets.Add($pidInt)
+      $changed = $true
+    }
+  }
+} while ($changed)
+
+$ids = @($targets) | Where-Object { $_ -gt 4 -and $_ -ne $currentPid }
+foreach ($id in $ids) {
+  Stop-Process -Id $id -Force
+}
+
+$deadline = (Get-Date).AddSeconds(5)
+do {
+  $alive = @($ids | Where-Object { Get-Process -Id $_ -ErrorAction SilentlyContinue })
+  if ($alive.Count -eq 0) { break }
+  Start-Sleep -Milliseconds 100
+} while ((Get-Date) -lt $deadline)
+PWSH
+
+  script_win="$(cygpath -w "$script_path" 2>/dev/null || printf '%s' "$script_path")"
+  powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$script_win" "$path_win" >/dev/null 2>&1 || true
+}
+
 unlink_local_fallback_dependency_links() {
   local path="$1"
   local dependency_link dependency_link_win
@@ -376,13 +472,71 @@ unlink_local_fallback_dependency_links() {
   done
 }
 
+remove_local_fallback_worktree_dir() {
+  local path="$1" attempt sleep_secs
+  if ! path_is_under_managed_temp_dir "$path"; then
+    warn "Refusing local fallback directory removal outside managed torque-remote temp root: $path"
+    return 1
+  fi
+
+  sleep_secs=1
+  for attempt in 1 2 3 4 5; do
+    [[ ! -d "$path" ]] && return 0
+    cleanup_local_fallback_processes "$path"
+    if rm -rf "$path" 2>/dev/null; then
+      return 0
+    fi
+    (( attempt == 5 )) && break
+    sleep "$sleep_secs"
+    sleep_secs=$((sleep_secs * 2))
+  done
+
+  [[ ! -d "$path" ]]
+}
+
 cleanup_local_fallback_worktree() {
   local path="${LOCAL_FALLBACK_WORKTREE_PATH:-}"
   [[ -z "$path" ]] && return 0
 
+  if ! path_is_under_managed_temp_dir "$path"; then
+    warn "Refusing local fallback worktree cleanup outside managed torque-remote temp root: $path"
+    LOCAL_FALLBACK_WORKTREE_PATH=""
+    return 0
+  fi
+
+  cleanup_local_fallback_processes "$path"
   unlink_local_fallback_dependency_links "$path"
-  git -C "$PROJECT_ROOT" worktree remove --force "$path" >/dev/null 2>&1 || true
-  git -C "$PROJECT_ROOT" worktree prune >/dev/null 2>&1 || true
+
+  local attempt remove_output remove_status prune_output prune_status sleep_secs
+  remove_output=""
+  remove_status=1
+  sleep_secs=1
+  for attempt in 1 2 3 4 5; do
+    remove_output="$(git -C "$PROJECT_ROOT" worktree remove --force "$path" 2>&1)"
+    remove_status=$?
+    (( remove_status == 0 )) && break
+    [[ ! -d "$path" ]] && break
+    cleanup_local_fallback_processes "$path"
+    (( attempt == 5 )) && break
+    sleep "$sleep_secs"
+    sleep_secs=$((sleep_secs * 2))
+  done
+  if (( remove_status != 0 )); then
+    warn "Failed to remove local fallback worktree $path (git worktree remove exit $remove_status): ${remove_output:-<no output>}"
+  fi
+  if [[ -d "$path" ]]; then
+    remove_local_fallback_worktree_dir "$path" || true
+  fi
+  if [[ -d "$path" ]]; then
+    warn "Local fallback worktree still exists after process cleanup: $path"
+  fi
+
+  prune_output="$(git -C "$PROJECT_ROOT" worktree prune 2>&1)"
+  prune_status=$?
+  if (( prune_status != 0 )); then
+    warn "Failed to prune git worktree metadata after local fallback cleanup (exit $prune_status): ${prune_output:-<no output>}"
+  fi
+
   LOCAL_FALLBACK_WORKTREE_PATH=""
 }
 
@@ -405,7 +559,7 @@ prepare_local_execution_root() {
   fi
 
   local worktree_parent worktree_path
-  worktree_parent="$(make_temp_dir)"
+  make_temp_dir worktree_parent
   worktree_path="$worktree_parent/worktree"
   info "Running --branch $BRANCH_OVERRIDE in an isolated local fallback worktree"
   git -C "$PROJECT_ROOT" worktree add --force --detach "$worktree_path" "$sync_ref" >/dev/null
@@ -538,8 +692,9 @@ run_with_timeout() {
     return $?
   fi
 
-  local timeout_marker watcher_pid command_pid exit_code stdin_fd
-  timeout_marker="$(make_temp_dir)/timed_out"
+  local timeout_dir timeout_marker watcher_pid command_pid exit_code stdin_fd
+  make_temp_dir timeout_dir
+  timeout_marker="$timeout_dir/timed_out"
 
   exec {stdin_fd}<&0
   "$@" <&"$stdin_fd" &
@@ -1291,7 +1446,7 @@ create_local_state_bundle() {
   local bundle_dir committed_patch worktree_patch untracked_list bundle_tar
   local has_local_state="false"
 
-  bundle_dir="$(make_temp_dir)"
+  make_temp_dir bundle_dir
   committed_patch="$bundle_dir/committed.patch"
   worktree_patch="$bundle_dir/worktree.patch"
   untracked_list="$bundle_dir/untracked.list"
