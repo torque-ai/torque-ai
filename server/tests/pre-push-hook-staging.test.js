@@ -65,7 +65,7 @@ describe('pre-push-hook staging-branch invariants', () => {
     expect(src).toMatch(/prepare_local_gate_worktree\s*\(\)/);
     expect(src).toMatch(/git worktree add --force --detach "\$local_gate_worktree" "\$local_head_sha"/);
     expect(src).toMatch(/run_local_gate "\$remote_gate_cmd"/);
-    expect(src).toMatch(/TORQUE_REMOTE_PROJECT_PATH=\$worktree_q TORQUE_REMOTE_BASE_PROJECT_PATH=\$base_q bash -c \$gate_cmd_q/);
+    expect(src).toMatch(/TORQUE_REMOTE_TRANSPORT=local TORQUE_REMOTE_PROJECT_PATH=\$worktree_q TORQUE_REMOTE_BASE_PROJECT_PATH=\$base_q bash -c \$gate_cmd_q/);
     expect(src).toMatch(/cleanup_local_gate_worktree\s*\|\| true/);
   });
 
@@ -136,6 +136,14 @@ describe('pre-push-hook staging-branch invariants', () => {
     expect(src).toMatch(/run_vitest_phase server run/);
   });
 
+  it('runs dashboard and server sequentially when the gate falls back locally', () => {
+    const src = readHook();
+    expect(src).toMatch(/is_local_gate_transport\s*\(\)/);
+    expect(src).toContain('case "\\${TORQUE_REMOTE_TRANSPORT:-ssh}" in');
+    expect(src).toContain('[gate] local transport detected; running dashboard/server phases sequentially');
+    expect(src).toMatch(/if is_local_gate_transport; then[\s\S]*run_dashboard_phase[\s\S]*run_server_phase[\s\S]*else[\s\S]*run_dashboard_phase &[\s\S]*run_server_phase &/);
+  });
+
   it('labels expected fixture stderr while preserving timing markers', () => {
     const src = readHook();
     expect(src).toMatch(/is_expected_gate_fixture_line\s*\(\)/);
@@ -148,8 +156,10 @@ describe('pre-push-hook staging-branch invariants', () => {
     expect(src).toContain('Dashboard API error: Invalid JSON body');
     expect(src).toContain('[ "\\$normalized_line" = "operable program or batch file." ]');
     expect(src).toMatch(/"\[gate-timing\]"\*\)[\s\S]*printf '%s\\n'/);
-    expect(src).toMatch(/\} 2>&1 \| prefix_gate_phase_output dash &/);
-    expect(src).toMatch(/\} 2>&1 \| prefix_gate_phase_output serv &/);
+    expect(src).toMatch(/run_dashboard_phase\s*\(\)[\s\S]*prefix_gate_phase_output dash/);
+    expect(src).toMatch(/run_server_phase\s*\(\)[\s\S]*prefix_gate_phase_output serv/);
+    expect(src).toMatch(/run_dashboard_phase &/);
+    expect(src).toMatch(/run_server_phase &/);
     expect(src).toMatch(/\} 2>&1 \| prefix_gate_phase_output perf/);
   });
 
@@ -301,6 +311,9 @@ describe('torque-remote staging branch validation', () => {
     expect(src).toMatch(/EFFECTIVE_REMOTE_PROJECT_PATH="\$\{EFFECTIVE_REMOTE_PROJECT_PATH\}\$\{REMOTE_TEST_WORKTREE_SUFFIX\}"/);
     expect(src).toMatch(/TORQUE_REMOTE_BASE_PROJECT_PATH=\$\(shell_quote "\$BASE_EFFECTIVE_REMOTE_PROJECT_PATH"\)/);
     expect(src).toMatch(/export TORQUE_REMOTE_BASE_PROJECT_PATH/);
+    expect(src).toContain('export TORQUE_REMOTE_TRANSPORT="local"');
+    expect(src).toContain('TORQUE_REMOTE_TRANSPORT="ssh"');
+    expect(src).toContain('export TORQUE_REMOTE_TRANSPORT');
   });
 
   it('bounds torque-remote output streamers after local or ssh commands exit', () => {

@@ -721,6 +721,7 @@ run_torque_remote() {
     TORQUE_REMOTE_TEST_PWD_LOG="$tmp/pwd.log" \
     TORQUE_REMOTE_TEST_PROJECT_PATH_LOG="$tmp/project-path.log" \
     TORQUE_REMOTE_TEST_BASE_PATH_LOG="$tmp/base-path.log" \
+    TORQUE_REMOTE_TEST_TRANSPORT_LOG="$tmp/transport.log" \
     TORQUE_REMOTE_TEST_REMOTE_COMMANDS="$tmp/remote-commands.log" \
     TORQUE_REMOTE_TEST_REMOTE_STDIN="$tmp/remote-stdin.bin" \
     TORQUE_REMOTE_TEST_LOCK_STATE="$tmp/lock-state" \
@@ -940,7 +941,7 @@ test_local_fallback_preserves_quoted_arguments() {
 }
 
 test_local_fallback_branch_override_uses_isolated_worktree() {
-  local tmp actual_pwd project_path base_path
+  local tmp actual_pwd project_path base_path transport
 
   echo "Test: local fallback --branch uses isolated worktree"
   TEST_ERRORS=()
@@ -951,11 +952,12 @@ test_local_fallback_branch_override_uses_isolated_worktree() {
   export SSH_CONNECT_EXIT_CODE=1
   export GIT_LS_REMOTE_EXIT_CODE=0
 
-  run_torque_remote "$tmp" --branch pre-push-gate/test bash -c 'pwd > "$TORQUE_REMOTE_TEST_PWD_LOG"; printf "%s\n" "${TORQUE_REMOTE_PROJECT_PATH:-}" > "$TORQUE_REMOTE_TEST_PROJECT_PATH_LOG"; printf "%s\n" "${TORQUE_REMOTE_BASE_PROJECT_PATH:-}" > "$TORQUE_REMOTE_TEST_BASE_PATH_LOG"'
+  run_torque_remote "$tmp" --branch pre-push-gate/test bash -c 'pwd > "$TORQUE_REMOTE_TEST_PWD_LOG"; printf "%s\n" "${TORQUE_REMOTE_PROJECT_PATH:-}" > "$TORQUE_REMOTE_TEST_PROJECT_PATH_LOG"; printf "%s\n" "${TORQUE_REMOTE_BASE_PROJECT_PATH:-}" > "$TORQUE_REMOTE_TEST_BASE_PATH_LOG"; printf "%s\n" "${TORQUE_REMOTE_TRANSPORT:-}" > "$TORQUE_REMOTE_TEST_TRANSPORT_LOG"'
 
   actual_pwd="$(slurp_file "$tmp/pwd.log")"
   project_path="$(slurp_file "$tmp/project-path.log")"
   base_path="$(slurp_file "$tmp/base-path.log")"
+  transport="$(slurp_file "$tmp/transport.log")"
 
   expect_eq "exit code is 0" "0" "$RUN_EXIT"
   expect_contains "stderr reports fallback" "$RUN_STDERR" "falling back to local"
@@ -968,6 +970,7 @@ test_local_fallback_branch_override_uses_isolated_worktree() {
   fi
   expect_eq "TORQUE_REMOTE_PROJECT_PATH follows isolated cwd" "$actual_pwd" "$project_path"
   expect_eq "TORQUE_REMOTE_BASE_PROJECT_PATH points at live checkout" "$tmp" "$base_path"
+  expect_eq "TORQUE_REMOTE_TRANSPORT marks local fallback" "local" "$transport"
 
   finish_test "test_local_fallback_branch_override_uses_isolated_worktree"
 }

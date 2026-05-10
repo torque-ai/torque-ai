@@ -501,7 +501,7 @@ run_local_gate() {
   worktree_q=$(printf '%q' "$local_gate_worktree")
   base_q=$(printf '%q' "$REPO_ROOT")
   gate_cmd_q=$(printf '%q' "$gate_cmd")
-  run_with_flake_retry "Local gate" "cd $worktree_q && TORQUE_REMOTE_PROJECT_PATH=$worktree_q TORQUE_REMOTE_BASE_PROJECT_PATH=$base_q bash -c $gate_cmd_q"
+  run_with_flake_retry "Local gate" "cd $worktree_q && TORQUE_REMOTE_TRANSPORT=local TORQUE_REMOTE_PROJECT_PATH=$worktree_q TORQUE_REMOTE_BASE_PROJECT_PATH=$base_q bash -c $gate_cmd_q"
 }
 
 gate_failed() {
@@ -859,6 +859,35 @@ prefix_gate_phase_output() {
   done
 }
 
+is_local_gate_transport() {
+  case "\${TORQUE_REMOTE_TRANSPORT:-ssh}" in
+    local|local-fallback) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+run_dashboard_phase() {
+  {
+    PHASE_START_MS=\$(gate_now_ms)
+    run_vitest_phase dashboard run --reporter=dot ${GATE_DASHBOARD_TEST_ARGS}
+    PHASE_EXIT=\$?
+    PHASE_END_MS=\$(gate_now_ms)
+    echo "[gate-timing] dash_ms=\$(elapsed_ms "\$PHASE_START_MS" "\$PHASE_END_MS") exit=\$PHASE_EXIT"
+    echo \$PHASE_EXIT > "\$DASH_EXIT_FILE"
+  } 2>&1 | prefix_gate_phase_output dash
+}
+
+run_server_phase() {
+  {
+    PHASE_START_MS=\$(gate_now_ms)
+    run_vitest_phase server run --reporter=dot ${GATE_SERVER_TEST_ARGS}
+    PHASE_EXIT=\$?
+    PHASE_END_MS=\$(gate_now_ms)
+    echo "[gate-timing] serv_ms=\$(elapsed_ms "\$PHASE_START_MS" "\$PHASE_END_MS") exit=\$PHASE_EXIT"
+    echo \$PHASE_EXIT > "\$SERV_EXIT_FILE"
+  } 2>&1 | prefix_gate_phase_output serv
+}
+
 # Sweep stale torque-* test temp dirs from \$TMPDIR. Each test that
 # uses TORQUE_DATA_DIR creates an mkdtempSync() dir; tests don't always
 # clean up (vitest crashes, SSH drops kill afterAll). Without this,
@@ -917,40 +946,45 @@ fi
 SETUP_END_MS=\$(gate_now_ms)
 echo "[gate-timing] setup_ms=\$(elapsed_ms "\$SETUP_START_MS" "\$SETUP_END_MS") exit=0"
 
-if [ "$GATE_RUN_DASHBOARD" = "1" ]; then
-  {
-    PHASE_START_MS=\$(gate_now_ms)
-    run_vitest_phase dashboard run --reporter=dot ${GATE_DASHBOARD_TEST_ARGS}
-    PHASE_EXIT=\$?
-    PHASE_END_MS=\$(gate_now_ms)
-    echo "[gate-timing] dash_ms=\$(elapsed_ms "\$PHASE_START_MS" "\$PHASE_END_MS") exit=\$PHASE_EXIT"
-    echo \$PHASE_EXIT > "\$DASH_EXIT_FILE"
-  } 2>&1 | prefix_gate_phase_output dash &
-  DASH_PID=\$!
-else
-  echo 0 > "\$DASH_EXIT_FILE"
-  echo "[dash] skipped by gate plan"
-  echo "[gate-timing] dash_ms=0 exit=0 skipped=1"
-fi
+if is_local_gate_transport; then
+  echo "[gate] local transport detected; running dashboard/server phases sequentially"
+  if [ "$GATE_RUN_DASHBOARD" = "1" ]; then
+    run_dashboard_phase
+  else
+    echo 0 > "\$DASH_EXIT_FILE"
+    echo "[dash] skipped by gate plan"
+    echo "[gate-timing] dash_ms=0 exit=0 skipped=1"
+  fi
 
-if [ "$GATE_RUN_SERVER" = "1" ]; then
-  {
-    PHASE_START_MS=\$(gate_now_ms)
-    run_vitest_phase server run --reporter=dot ${GATE_SERVER_TEST_ARGS}
-    PHASE_EXIT=\$?
-    PHASE_END_MS=\$(gate_now_ms)
-    echo "[gate-timing] serv_ms=\$(elapsed_ms "\$PHASE_START_MS" "\$PHASE_END_MS") exit=\$PHASE_EXIT"
-    echo \$PHASE_EXIT > "\$SERV_EXIT_FILE"
-  } 2>&1 | prefix_gate_phase_output serv &
-  SERV_PID=\$!
+  if [ "$GATE_RUN_SERVER" = "1" ]; then
+    run_server_phase
+  else
+    echo 0 > "\$SERV_EXIT_FILE"
+    echo "[serv] skipped by gate plan"
+    echo "[gate-timing] serv_ms=0 exit=0 skipped=1"
+  fi
 else
-  echo 0 > "\$SERV_EXIT_FILE"
-  echo "[serv] skipped by gate plan"
-  echo "[gate-timing] serv_ms=0 exit=0 skipped=1"
-fi
+  if [ "$GATE_RUN_DASHBOARD" = "1" ]; then
+    run_dashboard_phase &
+    DASH_PID=\$!
+  else
+    echo 0 > "\$DASH_EXIT_FILE"
+    echo "[dash] skipped by gate plan"
+    echo "[gate-timing] dash_ms=0 exit=0 skipped=1"
+  fi
 
-if [ -n "\${DASH_PID:-}" ]; then wait "\$DASH_PID" 2>/dev/null; fi
-if [ -n "\${SERV_PID:-}" ]; then wait "\$SERV_PID" 2>/dev/null; fi
+  if [ "$GATE_RUN_SERVER" = "1" ]; then
+    run_server_phase &
+    SERV_PID=\$!
+  else
+    echo 0 > "\$SERV_EXIT_FILE"
+    echo "[serv] skipped by gate plan"
+    echo "[gate-timing] serv_ms=0 exit=0 skipped=1"
+  fi
+
+  if [ -n "\${DASH_PID:-}" ]; then wait "\$DASH_PID" 2>/dev/null; fi
+  if [ -n "\${SERV_PID:-}" ]; then wait "\$SERV_PID" 2>/dev/null; fi
+fi
 DASH_EXIT=\$(cat "\$DASH_EXIT_FILE" 2>/dev/null || echo "1")
 SERV_EXIT=\$(cat "\$SERV_EXIT_FILE" 2>/dev/null || echo "1")
 
