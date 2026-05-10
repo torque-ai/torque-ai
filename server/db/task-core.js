@@ -23,6 +23,7 @@ const { buildTaskFilterConditions, appendWhereClause } = require('./query-filter
 const { MAX_METADATA_SIZE } = require('../constants');
 const { ErrorCodes } = require('../handlers/error-codes');
 const eventBus = require('../event-bus');
+const { deleteTaskChildrenByIds, deleteTaskRowsByIds } = require('./task-child-cleanup');
 
 // ============================================================
 // Shared constants — mirrors database.js copies exactly
@@ -98,11 +99,6 @@ function serializeTaskJsonColumnValue(value) {
 let db = null;
 let dbClosed = false;
 
-// Module-level prepared statement cache for _cleanOrphanedTaskChildren.
-// Keys are table names; values are PreparedStatement instances.
-// Populated lazily on first call; cleared when setDb() is called with a new instance.
-const _childTableDeletes = new Map();
-
 // Cross-module function references (injected to avoid circular requires)
 let _getProjectFromPath = null;
 let _recordEvent = null;
@@ -116,9 +112,6 @@ function setDb(dbInstance) {
     dbClosed = true;
   } else {
     dbClosed = false;
-  }
-  if (dbInstance !== db) {
-    _childTableDeletes.clear();
   }
   db = dbInstance;
 }
@@ -1125,42 +1118,7 @@ function listQueuedTasksLightweight(limit = 1000) {
  * Delete all child records for a specific task ID from all FK-linked tables.
  */
 function _cleanOrphanedTaskChildren(taskId) {
-  const childTables = new Set([
-    'pipeline_steps', 'token_usage', 'retry_history', 'task_file_changes', 'task_file_writes',
-    'task_streams', 'task_checkpoints', 'task_event_subscriptions', 'task_events',
-    'task_suggestions', 'approval_requests', 'peek_recovery_approvals', 'task_comments', 'resource_usage',
-    'task_claims', 'work_stealing_log', 'validation_results',
-    'pending_approvals', 'failure_matches', 'retry_attempts', 'diff_previews', 'adversarial_reviews', 'verification_checks',
-    'quality_scores', 'task_rollbacks', 'build_checks', 'cost_tracking',
-    'task_fingerprints', 'file_backups', 'security_scans', 'test_coverage',
-    'style_checks', 'change_impacts', 'timeout_alerts', 'output_violations',
-    'expected_output_paths', 'file_location_anomalies', 'duplicate_file_detections',
-    'type_verification_results', 'build_error_analysis', 'similar_file_search',
-    'task_complexity_scores', 'auto_rollbacks', 'xaml_validation_results',
-    'xaml_consistency_results', 'smoke_test_results'
-  ]);
-  for (const table of childTables) {
-    if (!_childTableDeletes.has(table)) {
-      try {
-        // eslint-disable-next-line torque/no-prepare-in-loop -- already cached per-table in _childTableDeletes; runs once per unique table name across the process lifetime
-        _childTableDeletes.set(table, db.prepare(`DELETE FROM ${table} WHERE task_id = ?`));
-      } catch (_e) { void _e; /* table may not exist — skip */ continue; }
-    }
-    try { _childTableDeletes.get(table).run(taskId); } catch (_e) { void _e; /* skip */ }
-  }
-  // Tables with non-standard FK columns — cached under special keys
-  if (!_childTableDeletes.has('__similar_tasks')) {
-    try { _childTableDeletes.set('__similar_tasks', db.prepare('DELETE FROM similar_tasks WHERE source_task_id = ? OR similar_task_id = ?')); } catch (_e) { void _e; }
-  }
-  if (_childTableDeletes.has('__similar_tasks')) {
-    try { _childTableDeletes.get('__similar_tasks').run(taskId, taskId); } catch (_e) { void _e; }
-  }
-  if (!_childTableDeletes.has('__task_replays')) {
-    try { _childTableDeletes.set('__task_replays', db.prepare('DELETE FROM task_replays WHERE original_task_id = ? OR replay_task_id = ?')); } catch (_e) { void _e; }
-  }
-  if (_childTableDeletes.has('__task_replays')) {
-    try { _childTableDeletes.get('__task_replays').run(taskId, taskId); } catch (_e) { void _e; }
-  }
+  deleteTaskChildrenByIds(db, [taskId]);
 }
 
 /**
@@ -1177,7 +1135,7 @@ function deleteTask(taskId) {
   }
   const del = db.transaction(() => {
     _cleanOrphanedTaskChildren(taskId);
-    db.prepare('DELETE FROM tasks WHERE id = ?').run(taskId);
+    deleteTaskRowsByIds(db, [taskId]);
   });
   del();
   return { deleted: true, id: taskId, status: task.status };
@@ -1197,13 +1155,11 @@ function deleteTasks(status) {
   const del = db.transaction(() => {
     // Get IDs first for targeted child cleanup
     const taskIds = db.prepare('SELECT id FROM tasks WHERE status = ?').all(status).map(r => r.id);
-    for (const id of taskIds) {
-      _cleanOrphanedTaskChildren(id);
-    }
-    return db.prepare('DELETE FROM tasks WHERE status = ?').run(status);
+    deleteTaskChildrenByIds(db, taskIds);
+    return deleteTaskRowsByIds(db, taskIds);
   });
-  const result = del();
-  return { deleted: result.changes, status };
+  const deleted = del();
+  return { deleted, status };
 }
 
 /**
@@ -1882,6 +1838,4 @@ module.exports = {
   normalizeProviderValue,
   ALLOWED_TASK_COLUMNS,
   TERMINAL_TASK_STATUSES,
-  // Perf test helpers
-  _childTableDeletes,
 };
