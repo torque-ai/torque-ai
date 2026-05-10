@@ -24,7 +24,6 @@ const ALLOWED = new Set([
   'index.js',           // server entry point — opens db, passes to container
   'api-server.js',      // REST entry point — accepts db via createApiServer deps
   'dashboard/server.js', // dashboard entry point — accepts db via startDashboard deps
-  'db/schema/index.js', // DDL migrations — needs raw db for ALTER TABLE
 ]);
 
 const DB_IMPORT_PATTERN = /require\s*\(\s*['"]\..*database['"]\s*\)/;

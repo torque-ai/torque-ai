@@ -99,6 +99,95 @@ describe('db/schema.js — applySchema', () => {
   beforeAll(() => { setup(); });
   afterAll(() => { teardown(); });
 
+  describe('safeAddColumn dependency', () => {
+    it('requires an injected safeAddColumn helper without consulting the database facade', () => {
+      const schemaModule = require.resolve('../db/schema');
+      const databaseModule = require.resolve('../database');
+      const originalSchemaCache = require.cache[schemaModule];
+      const originalDatabaseCache = require.cache[databaseModule];
+      let databaseFacadeConsulted = false;
+
+      delete require.cache[schemaModule];
+      require.cache[databaseModule] = {
+        id: databaseModule,
+        filename: databaseModule,
+        loaded: true,
+        exports: new Proxy({}, {
+          get(_target, property) {
+            if (property === 'safeAddColumn') {
+              databaseFacadeConsulted = true;
+              throw new Error('database facade safeAddColumn fallback was consulted');
+            }
+            return undefined;
+          },
+        }),
+      };
+
+      try {
+        const { applySchema } = require('../db/schema');
+        expect(() => applySchema({})).toThrow('applySchema requires helpers.safeAddColumn');
+        expect(databaseFacadeConsulted).toBe(false);
+      } finally {
+        delete require.cache[schemaModule];
+        if (originalSchemaCache) {
+          require.cache[schemaModule] = originalSchemaCache;
+        }
+        if (originalDatabaseCache) {
+          require.cache[databaseModule] = originalDatabaseCache;
+        } else {
+          delete require.cache[databaseModule];
+        }
+      }
+    });
+
+    it('uses the injected safeAddColumn helper for schema reconciliation', () => {
+      const calls = [];
+      const localDir = path.join(os.tmpdir(), `torque-vtest-schema-di-${Date.now()}`);
+      const localDb = new Database(':memory:');
+      fs.mkdirSync(localDir, { recursive: true });
+      localDb.pragma('foreign_keys = ON');
+
+      const helpers = {
+        safeAddColumn: (table, colDef) => {
+          calls.push([table, colDef]);
+          try {
+            localDb.exec(`ALTER TABLE ${table} ADD COLUMN ${colDef}`);
+          } catch {}
+        },
+        getConfig: (key) => {
+          try {
+            const row = localDb.prepare('SELECT value FROM config WHERE key = ?').get(key);
+            return row ? row.value : null;
+          } catch { return null; }
+        },
+        setConfig: (key, value) => {
+          try {
+            localDb.prepare('INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)').run(key, String(value));
+          } catch {}
+        },
+        setConfigDefault: (key, value) => {
+          try {
+            localDb.prepare('INSERT OR IGNORE INTO config (key, value) VALUES (?, ?)').run(key, String(value));
+          } catch {}
+        },
+        DATA_DIR: localDir,
+      };
+
+      try {
+        const { applySchema } = require('../db/schema');
+        applySchema(localDb, helpers);
+        expect(calls).toEqual(expect.arrayContaining([
+          ['policy_overrides', 'task_id TEXT'],
+          ['policy_overrides', 'reason TEXT'],
+          ['policy_overrides', "overridden_by TEXT DEFAULT 'operator'"],
+        ]));
+      } finally {
+        localDb.close();
+        fs.rmSync(localDir, { recursive: true, force: true });
+      }
+    });
+  });
+
   // ====================================================
   // Table creation verification
   // ====================================================

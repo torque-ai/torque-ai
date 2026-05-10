@@ -3,8 +3,6 @@
 const path = require('path');
 const { FILE_SIZE_TRUNCATION_THRESHOLD } = require('../../constants');
 const logger = require('../../logger').child({ component: 'schema' });
-// Lazy require to avoid circular dependency (database.js imports this module)
-function _getSafeAddColumn() { return require('../../database').safeAddColumn; }
 const { createTables } = require('./tables');
 const { seedDefaults } = require('./seeds');
 const { runMigrations } = require('./status-validation');
@@ -27,12 +25,12 @@ function applyPolicyOverrideTrackingSchema(db, safeAddColumn) {
   }
 }
 
-function resolveSafeAddColumn(db, injectedSafeAddColumn) {
+function resolveSafeAddColumn(injectedSafeAddColumn) {
   if (typeof injectedSafeAddColumn === 'function') {
     return injectedSafeAddColumn;
   }
 
-  return (tableName, columnDef) => _getSafeAddColumn()(tableName, columnDef);
+  throw new Error('applySchema requires helpers.safeAddColumn');
 }
 
 function applySchema(db, helpers = {}) {
@@ -44,7 +42,7 @@ function applySchema(db, helpers = {}) {
     DATA_DIR = path.join(process.cwd(), '.local', 'share', 'torque'),
   } = helpers;
 
-  const resolvedSafeAddColumn = resolveSafeAddColumn(db, injectedSafeAddColumn);
+  const resolvedSafeAddColumn = resolveSafeAddColumn(injectedSafeAddColumn);
   createTables(db, logger);
   applyPolicyOverrideTrackingSchema(db, resolvedSafeAddColumn);
   runMigrations(db, logger, resolvedSafeAddColumn, {
