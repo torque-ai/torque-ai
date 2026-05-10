@@ -6,6 +6,18 @@
 # Exit 0: allow
 # Exit 2: block with redirect message
 
+config_trace_enabled() {
+  case "${TORQUE_REMOTE_CONFIG_TRACE:-}" in
+    1|true|TRUE|yes|YES|on|ON) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+trace_config_source() {
+  config_trace_enabled || return 0
+  echo "[torque-remote-guard] Config source: ${CONFIG_SOURCE:-none} config=${CONFIG:-none} project_root=${PROJECT_ROOT:-unknown}" >&2
+}
+
 # ---- Find project root ----
 
 find_project_root() {
@@ -25,16 +37,22 @@ PROJECT_ROOT="$(find_project_root)"
 # ---- Load config ----
 
 CONFIG=""
+CONFIG_SOURCE="none"
 if [[ -f "$PROJECT_ROOT/.torque-remote.json" ]]; then
   CONFIG="$PROJECT_ROOT/.torque-remote.json"
+  CONFIG_SOURCE="project"
 elif [[ -f "$HOME/.torque-remote.json" ]]; then
   CONFIG="$HOME/.torque-remote.json"
+  CONFIG_SOURCE="global"
 fi
 
 # No config → allow everything
 if [[ -z "$CONFIG" ]]; then
+  trace_config_source
   exit 0
 fi
+
+trace_config_source
 
 # Check jq
 if ! command -v jq &>/dev/null; then

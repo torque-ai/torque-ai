@@ -79,9 +79,11 @@ Three crashes observed in this session, each followed by clean auto-restart (the
 
 If crashes continue at this rate, worth tracing why detached tasks end up in 'queued' with a still-tracked PID. Memory: `project_zombie_abandon_and_estimate_progress_shipped.md` covers the recent re-adoption contract — may be related.
 
-### 7. torque-remote-guard config auto-resurrection
+### 7. torque-remote-guard config auto-resurrection - RESOLVED 2026-05-10
 
-`~/.torque-remote.json` was renamed three times during this session and reappeared each time. Some component (TORQUE itself, or a plugin) auto-recreates it. Not a bug — the operator workflow expects the guard to be on — but worth knowing for future test-harness work.
+Investigation found the repo runtime paths read `~/.torque-remote.json` but do not create or repair it when missing: `bin/torque-remote`, `bin/torque-remote-guard`, `hooks/guard-command`, `server/plugins/remote-agents/remote-test-routing.js`, and `scripts/install-userbin.sh` are read/copy-only for this config. The live file had matching creation and last-write timestamps (`2026-05-08 19:08:27`), so the observed reappearance was most likely an external setup/profile/agent action from that session rather than TORQUE runtime self-healing.
+
+Added `TORQUE_REMOTE_CONFIG_TRACE=1`, decision-log config-source fields, and regressions that prove a missing global config remains absent during wrapper execution. Future harness work can now distinguish `none`, `global`, and `project` config sources without renaming files repeatedly.
 
 ## Memory notes worth preserving
 

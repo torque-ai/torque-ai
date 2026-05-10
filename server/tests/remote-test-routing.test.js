@@ -4,6 +4,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const require = createRequire(import.meta.url);
 const childProcess = require('child_process');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
 const workstationModelPath = require.resolve('../workstation/model');
 
 const { mockSpawnSync, mockSpawn } = vi.hoisted(() => ({
@@ -261,6 +264,43 @@ describe('remote-test-routing', () => {
     expect(remoteTestRouting.CODEX_PROVIDERS).toBeInstanceOf(Set);
     expect(remoteTestRouting.CODEX_PROVIDERS.has('codex')).toBe(true);
     expect(remoteTestRouting.CODEX_PROVIDERS.has('codex-spark')).toBe(true);
+  });
+
+  it('resolveTorqueRemoteTransportConfig reports source precedence without creating missing global config', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'torque-remote-config-'));
+    const home = path.join(tmp, 'home');
+    const repo = path.join(tmp, 'repo');
+    fs.mkdirSync(home, { recursive: true });
+    fs.mkdirSync(path.join(repo, '.git'), { recursive: true });
+    const globalConfig = path.join(home, '.torque-remote.json');
+    const projectConfig = path.join(repo, '.torque-remote.json');
+    const homedirSpy = vi.spyOn(os, 'homedir').mockReturnValue(home);
+
+    try {
+      expect(remoteTestRouting.resolveTorqueRemoteTransportConfig(repo)).toMatchObject({
+        enabled: false,
+        transport: 'local',
+        source: 'none',
+      });
+      expect(fs.existsSync(globalConfig)).toBe(false);
+
+      fs.writeFileSync(globalConfig, JSON.stringify({ transport: 'ssh' }));
+      expect(remoteTestRouting.resolveTorqueRemoteTransportConfig(repo)).toMatchObject({
+        enabled: true,
+        transport: 'ssh',
+        source: 'global',
+      });
+
+      fs.writeFileSync(projectConfig, JSON.stringify({ transport: 'local' }));
+      expect(remoteTestRouting.resolveTorqueRemoteTransportConfig(repo)).toMatchObject({
+        enabled: false,
+        transport: 'local',
+        source: 'project',
+      });
+    } finally {
+      homedirSpy.mockRestore();
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
   });
 
   it('createRemoteTestRouter returns the expected public API', () => {

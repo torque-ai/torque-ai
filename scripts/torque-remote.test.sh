@@ -185,6 +185,7 @@ reset_stub_env() {
   unset SSH_LANE_GIT_EXISTS_OUTPUT TORQUE_REMOTE_LANE_PROVISION_FROM
   unset SSH_MIGRATION_MARKER_OUTPUT SSH_LEGACY_GIT_EXISTS_OUTPUT
   unset SSH_STATUS_PROBE_OUTPUT
+  unset TORQUE_REMOTE_CONFIG_TRACE
 }
 
 write_stub_argv_dump() {
@@ -699,6 +700,31 @@ test_default_syncs_main() {
   expect_file_contains "remote execute uses encoded PowerShell" "$tmp/calls.log" "EncodedCommand"
 
   finish_test "test_default_syncs_main"
+}
+
+test_missing_config_does_not_create_global_config() {
+  local tmp home_dir global_config
+
+  echo "Test: missing config does not create global config"
+  TEST_ERRORS=()
+  reset_stub_env
+
+  make_test_env
+  tmp="$LAST_TEST_ENV"
+  home_dir="$tmp/home"
+  global_config="$home_dir/.torque-remote.json"
+  rm -f "$tmp/.torque-remote.json" "$tmp/.torque-remote.local.json" "$global_config"
+  export TORQUE_REMOTE_CONFIG_TRACE=1
+
+  run_torque_remote "$tmp" echo hi
+
+  expect_eq "exit code is 0" "0" "$RUN_EXIT"
+  expect_contains "falls back to local warning" "$RUN_STDERR" "No .torque-remote.json found"
+  expect_contains "trace reports no remote config" "$RUN_STDERR" "Config source: remote=none"
+  expect_eq "global config stays absent" "missing" "$(if [[ -e "$global_config" ]]; then printf 'exists'; else printf 'missing'; fi)"
+
+  unset TORQUE_REMOTE_CONFIG_TRACE
+  finish_test "test_missing_config_does_not_create_global_config"
 }
 
 test_branch_flag_syncs_override() {
@@ -1824,6 +1850,7 @@ main() {
   fi
 
   test_default_syncs_main
+  test_missing_config_does_not_create_global_config
   test_branch_flag_syncs_override
   test_branch_flag_missing_errors
   test_invalid_branch_name_errors

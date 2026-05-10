@@ -130,22 +130,69 @@ function readJsonFile(filePath) {
   }
 }
 
-function hasTorqueRemoteTransportConfig(cwd) {
+function resolveTorqueRemoteTransportConfig(cwd, options = {}) {
   const projectRoot = findProjectRoot(cwd);
-  const home = os.homedir();
+  const home = options.home || os.homedir();
   const configPaths = [
-    path.join(home, '.torque-remote.json'),
-    projectRoot ? path.join(projectRoot, '.torque-remote.json') : null,
+    { source: 'global', path: path.join(home, '.torque-remote.json') },
+    projectRoot ? { source: 'project', path: path.join(projectRoot, '.torque-remote.json') } : null,
   ].filter(Boolean);
 
   let transport = 'local';
+  let source = 'none';
+  const checked = [];
   for (const configPath of configPaths) {
-    const config = readJsonFile(configPath);
-    if (config && typeof config.transport === 'string') {
-      transport = config.transport.trim().toLowerCase();
+    let exists = false;
+    try {
+      exists = fs.existsSync(configPath.path);
+    } catch {
+      exists = false;
     }
+    const config = exists ? readJsonFile(configPath.path) : null;
+    const entry = {
+      source: configPath.source,
+      path: configPath.path,
+      exists,
+      readable: Boolean(config),
+    };
+    if (config) {
+      source = configPath.source;
+      if (typeof config.transport === 'string') {
+        transport = config.transport.trim().toLowerCase();
+        entry.transport = transport;
+      }
+    }
+    checked.push(entry);
   }
-  return TORQUE_REMOTE_TRANSPORTS.has(transport);
+  return {
+    enabled: TORQUE_REMOTE_TRANSPORTS.has(transport),
+    transport,
+    source,
+    projectRoot,
+    checked,
+  };
+}
+
+function hasTorqueRemoteTransportConfig(cwd) {
+  return resolveTorqueRemoteTransportConfig(cwd).enabled;
+}
+
+function logTorqueRemoteConfigSource(cwd, logger) {
+  if (!isTruthyConfig(process.env.TORQUE_REMOTE_CONFIG_TRACE)) return;
+  try {
+    const resolved = resolveTorqueRemoteTransportConfig(cwd);
+    const checked = resolved.checked
+      .map(entry => {
+        const state = entry.exists ? (entry.readable ? 'loaded' : 'unreadable') : 'missing';
+        return `${entry.source}=${state}:${entry.path}`;
+      })
+      .join(' ');
+    logger?.info?.(
+      `[remote-routing] torque-remote config source=${resolved.source} transport=${resolved.transport} ${checked}`
+    );
+  } catch {
+    // Config tracing must never affect verification routing.
+  }
 }
 
 function isTruthyConfig(value) {
@@ -673,6 +720,7 @@ function createRemoteTestRouter({ agentRegistry, db, logger }) {
     }
 
     if (shouldUseTorqueRemoteWrapper(command, cwd, options)) {
+      logTorqueRemoteConfigSource(cwd, logger);
       logger.info(`[remote-routing] Running via torque-remote wrapper: ${command}`);
       const preparedEnv = prepareLocalVerifyEnv(command);
       try {
@@ -790,6 +838,7 @@ module.exports = {
   isRemoteAuthError,
   isRemoteExecutionTimeout,
   findTestRunnerWorkstation,
+  resolveTorqueRemoteTransportConfig,
   hasTorqueRemoteTransportConfig,
   buildTorqueRemoteInvocation,
   SENSITIVE_ENV_PATTERNS,
