@@ -69,7 +69,7 @@ Resolved by raising the default fail threshold to 3000ms while keeping opt-in wa
 
 Resolved by live re-check: the placeholder file no longer exists on `main`. The full generated version that appeared when applying the stash was reviewed as overlapping coverage and pruned from the final branch.
 
-### 6. TORQUE stability watch
+### 6. ✅ ~~TORQUE stability watch~~ RESOLVED 2026-05-10
 
 Three crashes observed in this session, each followed by clean auto-restart (the `b0ea85ab` auto-restart fix is doing its job). The crash signal was the zombie-cleanup path:
 
@@ -78,6 +78,8 @@ Three crashes observed in this session, each followed by clean auto-restart (the
 ```
 
 If crashes continue at this rate, worth tracing why detached tasks end up in 'queued' with a still-tracked PID. Memory: `project_zombie_abandon_and_estimate_progress_shipped.md` covers the recent re-adoption contract — may be related.
+
+Resolved by commit `cd33f540` (`Clean up detached subprocess restarts`). The fix made the shared lifecycle stop/restart path detached-aware: when stall recovery or restart cleanup has no child process handle, TORQUE now kills the known detached subprocess PID, stops tail watchers and liveness handles, forgets the tracked PID for activity sampling, and removes stale process/stall tracking before a replacement attempt is queued. Focused verification passed for `process-lifecycle.test.js`, `orphan-cleanup.test.js`, `fallback-retry.test.js`, and the server smoke lane.
 
 ### 7. torque-remote-guard config auto-resurrection - RESOLVED 2026-05-10
 
