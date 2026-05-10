@@ -100,6 +100,7 @@ function seedDefaults(db, logger, safeAddColumn, extras = {}) {
     // id,                    task_type,              interval_minutes, next_run
     ['prune_old_tasks',       'prune_old_tasks',       1440, pruneNextRun],
     ['purge_task_output',     'purge_task_output',     1440, pruneNextRun],
+    ['cleanup_factory_decisions', 'cleanup_factory_decisions', 1440, pruneNextRun],
     ['cleanup_logs',          'cleanup_logs',          1440, pruneNextRun],
     ['cleanup_stale_tasks',   'cleanup_stale_tasks',      5, staleTaskNextRun],
     ['enforce_limits',        'enforce_limits',        1440, pruneNextRun],
@@ -443,6 +444,13 @@ function seedDefaults(db, logger, safeAddColumn, extras = {}) {
   setConfigDefault('cleanup_log_days', '30');
   setConfigDefault('cleanup_event_days', '7');
   setConfigDefault('cleanup_stream_days', '7');
+  setConfigDefault('analytics_retention_count', '100000');
+  setConfigDefault('coordination_event_retention_count', '50000');
+  setConfigDefault('stream_chunk_retention_count', '50000');
+  setConfigDefault('task_event_retention_count', '100000');
+  setConfigDefault('factory_decision_retention_days', '14');
+  setConfigDefault('factory_decision_retention_count', '100000');
+  setConfigDefault('factory_decision_project_retention_count', '25000');
   setConfigDefault('file_baseline_enabled', '1');
   setConfigDefault('syntax_validation_enabled', '1');
   setConfigDefault('diff_preview_required', '0');
@@ -465,6 +473,7 @@ function seedDefaults(db, logger, safeAddColumn, extras = {}) {
   setConfigDefault('output_limits_enabled', '1');
   setConfigDefault('audit_trail_enabled', '1');
   setConfigDefault('task_output_retention_days', '30');
+  setConfigDefault('task_output_retention_max_bytes', String(256 * 1024 * 1024));
   // Subprocess-detachment Phase A defaults (see
   // docs/design/2026-05-03-subprocess-detachment-codex-spike.md §2.5.2):
   // - task_log_retention_days: maintenance scheduler prunes per-task

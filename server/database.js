@@ -68,6 +68,7 @@ const _LAZY_MODULE_DEFINITIONS = [
   { name: 'factoryArchitect', path: './db/factory/architect' },
   { name: 'factoryFeedback', path: './db/factory/feedback' },
   { name: 'factoryAudit', path: './db/factory/audit' },
+  { name: 'factoryDecisions', path: './db/factory/decisions' },
   { name: 'factoryLoopInstances', path: './db/factory/loop-instances' },
   { name: 'factoryWorktrees', path: './db/factory/worktrees' },
 ];
@@ -150,6 +151,7 @@ const factoryIntake = _lazyModule('factoryIntake');
 const factoryArchitect = _lazyModule('factoryArchitect');
 const factoryFeedback = _lazyModule('factoryFeedback');
 const factoryAudit = _lazyModule('factoryAudit');
+const factoryDecisions = _lazyModule('factoryDecisions');
 const factoryLoopInstances = _lazyModule('factoryLoopInstances');
 const factoryWorktrees = _lazyModule('factoryWorktrees');
 
@@ -248,7 +250,7 @@ const ALLOWED_MIGRATION_TABLES = new Set([
   'query_stats', 'optimization_history',
   // Factory
   'factory_projects', 'factory_health_snapshots', 'factory_health_findings',
-  'factory_work_items', 'factory_architect_cycles', 'factory_worktrees',
+  'factory_work_items', 'factory_architect_cycles', 'factory_decisions', 'factory_worktrees',
 ]);
 
 // === SECURITY: Pattern for valid column definitions (name TYPE [constraints]) ===
@@ -398,6 +400,7 @@ function _wireAllModules() {
   factoryArchitect.setDb(db);
   factoryFeedback.setDb(db);
   factoryAudit.setDb(db);
+  factoryDecisions.setDb(db);
   factoryLoopInstances.setDb(db);
   factoryWorktrees.setDb(db);
   workflowEngine.createWorkflowEngine({ db });
@@ -1120,9 +1123,9 @@ const _LEGACY_EXPORT_MODULES = [
   ] },
   { name: 'taskCore', exports: [
     'archiveOldTasks', 'claimSlotAtomic', 'clearProviderIfNotRunning', 'countTasks', 'countTasksByStatus', 'createTask',
-    'deleteTask', 'deleteTasks', 'ensureProjectRegistered', 'getExpiredQueuedTasks', 'getNextQueuedTask', 'getRecentSuccessfulTasks',
+    'deleteTask', 'deleteTasks', 'enforceTaskOutputSizeLimit', 'ensureProjectRegistered', 'getExpiredQueuedTasks', 'getNextQueuedTask', 'getRecentSuccessfulTasks',
     'getRunningCount', 'getRunningCountByProvider', 'getRunningTasksLightweight', 'getTask', 'getTaskStatus', 'listKnownProjects',
-    'listQueuedTasksLightweight', 'listTasks', 'normalizeProviderValue', 'patchTaskMetadata', 'patchTaskSlotBinding', 'purgeOldTaskOutput',
+    'getTerminalTaskOutputBytes', 'listQueuedTasksLightweight', 'listTasks', 'normalizeProviderValue', 'patchTaskMetadata', 'patchTaskSlotBinding', 'purgeOldTaskOutput',
     'requeueAfterSlotFailure', 'requeueTaskAfterAttemptedStart', 'resolveTaskId', 'tryClaimTaskSlot', 'updateTask', 'updateTaskProgress',
     'updateTaskStatus', 'validateColumnName',
   ] },
@@ -1143,6 +1146,10 @@ const _LEGACY_EXPORT_MODULES = [
   { name: 'factoryArchitect', exports: [
     'createCycle', 'getBacklog', 'getCycle', 'getLatestCycle', 'getReasoningLog', 'listCycles',
     'updateCycle',
+  ] },
+  { name: 'factoryDecisions', exports: [
+    'cleanupFactoryDecisions', 'getDecision', 'getDecisionContext', 'getDecisionStats', 'listDecisions',
+    'recordDecision',
   ] },
   { name: 'factoryLoopInstances', exports: [
     'claimStageForInstance', 'createFactoryLoopInstances', 'createInstance', 'getDb', 'getInstance', 'getStageOccupant',

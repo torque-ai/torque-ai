@@ -15,6 +15,7 @@ const providerRoutingCore = require('../db/provider/routing-core');
 const schedulingAutomation = require('../db/scheduling-automation');
 const taskMetadata = require('../db/task-metadata');
 const webhooksStreaming = require('../db/webhooks-streaming');
+const factoryDecisions = require('../db/factory/decisions');
 const workflowEngine = require('../db/workflow-engine');
 const resourceHealth = require('../db/resource-health');
 const serverConfig = require('../config');
@@ -970,6 +971,17 @@ function handleRunMaintenance(args) {
   }
 
   const runAll = taskType === 'all';
+  const eventLimitOptions = () => ({
+    maxAnalyticsRecords: serverConfig.getInt('analytics_retention_count', 100000),
+    maxCoordinationEvents: serverConfig.getInt('coordination_event_retention_count', 50000),
+    maxStreamChunks: serverConfig.getInt('stream_chunk_retention_count', 50000),
+    maxTaskEvents: serverConfig.getInt('task_event_retention_count', 100000),
+  });
+  const factoryDecisionCleanupOptions = () => ({
+    daysToKeep: serverConfig.getInt('factory_decision_retention_days', 14),
+    maxRows: serverConfig.getInt('factory_decision_retention_count', 100000),
+    maxRowsPerProject: serverConfig.getInt('factory_decision_project_retention_count', 25000),
+  });
   const addResult = (label, fn) => {
     try {
       results.push(`${label}: ${fn()}`);
@@ -1035,11 +1047,32 @@ function handleRunMaintenance(args) {
     } else {
       results.push('Task output purge: skipped (disabled)');
     }
+    const maxOutputBytes = serverConfig.getInt('task_output_retention_max_bytes', 256 * 1024 * 1024);
+    if (maxOutputBytes > 0 && typeof taskCore.enforceTaskOutputSizeLimit === 'function') {
+      addResult('Task output size cap', () => {
+        const result = taskCore.enforceTaskOutputSizeLimit(maxOutputBytes);
+        return `${result.purged} task(s), ${result.bytes_before} -> ${result.bytes_after} bytes, cap ${result.max_bytes}`;
+      });
+    }
   }
 
   if (runAll || taskType === 'enforce_limits') {
-    addResult('Event table limits', () => `${webhooksStreaming.enforceEventTableLimits()} row(s)`);
+    addResult('Event table limits', () => `${webhooksStreaming.enforceEventTableLimits(eventLimitOptions())} row(s)`);
     addResult('Webhook log limits', () => `${webhooksStreaming.enforceWebhookLogLimits()} row(s)`);
+  }
+
+  if (taskType === 'enforce_limits') {
+    addResult('Factory decision cleanup', () => {
+      const result = factoryDecisions.cleanupFactoryDecisions(factoryDecisionCleanupOptions());
+      return `${result.deleted} row(s), retained ${result.retained}`;
+    });
+  }
+
+  if (runAll || taskType === 'cleanup_factory_decisions') {
+    addResult('Factory decision cleanup', () => {
+      const result = factoryDecisions.cleanupFactoryDecisions(factoryDecisionCleanupOptions());
+      return `${result.deleted} row(s), retained ${result.retained}`;
+    });
   }
 
   if (taskType === 'vacuum_database') {

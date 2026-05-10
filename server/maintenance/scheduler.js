@@ -135,6 +135,13 @@ function startMaintenanceScheduler(opts = {}) {
           const purged = db.purgeOldTaskOutput(retentionDays);
           if (purged > 0) debugLog(`Purged output from ${purged} old task(s) (retention: ${retentionDays} days)`);
         }
+        const maxOutputBytes = serverConfig.getInt('task_output_retention_max_bytes', 256 * 1024 * 1024);
+        if (maxOutputBytes > 0 && typeof db.enforceTaskOutputSizeLimit === 'function') {
+          const sizeResult = db.enforceTaskOutputSizeLimit(maxOutputBytes);
+          if (sizeResult.purged > 0) {
+            debugLog(`Purged output from ${sizeResult.purged} terminal task(s) by size cap (${sizeResult.bytes_before} -> ${sizeResult.bytes_after} bytes; cap: ${sizeResult.max_bytes})`);
+          }
+        }
       } catch (purgeErr) {
         debugLog(`Task output purge error: ${purgeErr.message}`);
       }
@@ -209,12 +216,16 @@ function startMaintenanceScheduler(opts = {}) {
           eventRows = db.cleanupEventData(eventCleanupDays);
         }
         if (typeof db.enforceEventTableLimits === 'function') {
-          limitRows = db.enforceEventTableLimits();
+          limitRows = db.enforceEventTableLimits(getEventTableLimitOptions());
+        }
+        let decisionRows = 0;
+        if (typeof db.cleanupFactoryDecisions === 'function') {
+          decisionRows = db.cleanupFactoryDecisions(getFactoryDecisionCleanupOptions()).deleted;
         }
         if (db.purgeGrowthTables) {
           const purged = db.purgeGrowthTables();
-          if (purged.coordination_events > 0 || purged.health_status > 0 || purged.task_file_writes > 0 || streamRows > 0 || eventRows > 0 || limitRows > 0) {
-            debugLog(`Growth table purge: coordination_events=${purged.coordination_events}, health_status=${purged.health_status}, task_file_writes=${purged.task_file_writes}, stream_data=${streamRows}, task_events=${eventRows}, table_limits=${limitRows}`);
+          if (purged.coordination_events > 0 || purged.health_status > 0 || purged.task_file_writes > 0 || streamRows > 0 || eventRows > 0 || limitRows > 0 || decisionRows > 0) {
+            debugLog(`Growth table purge: coordination_events=${purged.coordination_events}, health_status=${purged.health_status}, task_file_writes=${purged.task_file_writes}, stream_data=${streamRows}, task_events=${eventRows}, table_limits=${limitRows}, factory_decisions=${decisionRows}`);
           }
         }
       } catch (purgeErr) {
@@ -371,6 +382,23 @@ function safeConfigInt(configKey, defaultVal) {
   return serverConfig.getInt(configKey, defaultVal);
 }
 
+function getEventTableLimitOptions() {
+  return {
+    maxAnalyticsRecords: safeConfigInt('analytics_retention_count', 100000),
+    maxCoordinationEvents: safeConfigInt('coordination_event_retention_count', 50000),
+    maxStreamChunks: safeConfigInt('stream_chunk_retention_count', 50000),
+    maxTaskEvents: safeConfigInt('task_event_retention_count', 100000),
+  };
+}
+
+function getFactoryDecisionCleanupOptions() {
+  return {
+    daysToKeep: safeConfigInt('factory_decision_retention_days', 14),
+    maxRows: safeConfigInt('factory_decision_retention_count', 100000),
+    maxRowsPerProject: safeConfigInt('factory_decision_project_retention_count', 25000),
+  };
+}
+
 function getAutoArchiveStatuses() {
   const raw = serverConfig.get('auto_archive_status');
   if (!raw) return ['completed', 'failed', 'cancelled'];
@@ -431,8 +459,9 @@ function runMaintenanceTask(taskType) {
 
       case 'enforce_limits':
         // Hard limits to prevent unbounded growth even if cleanup doesn't run
-        runSafe('enforceEventTableLimits', () => db.enforceEventTableLimits());
+        runSafe('enforceEventTableLimits', () => db.enforceEventTableLimits(getEventTableLimitOptions()));
         runSafe('enforceWebhookLogLimits', () => db.enforceWebhookLogLimits());
+        runSafe('cleanupFactoryDecisions', () => db.cleanupFactoryDecisions(getFactoryDecisionCleanupOptions()));
         break;
 
       case 'aggregate_metrics':
@@ -501,6 +530,21 @@ function runMaintenanceTask(taskType) {
             debugLog(`Purged output from ${purged} old task(s) (retention: ${retentionDays} days)`);
           }
         }
+        const maxOutputBytes = safeConfigInt('task_output_retention_max_bytes', 256 * 1024 * 1024);
+        if (maxOutputBytes > 0 && typeof db.enforceTaskOutputSizeLimit === 'function') {
+          const sizeResult = db.enforceTaskOutputSizeLimit(maxOutputBytes);
+          if (sizeResult.purged > 0) {
+            debugLog(`Purged output from ${sizeResult.purged} terminal task(s) by size cap (${sizeResult.bytes_before} -> ${sizeResult.bytes_after} bytes; cap: ${sizeResult.max_bytes})`);
+          }
+        }
+        break;
+      }
+
+      case 'cleanup_factory_decisions': {
+        const result = db.cleanupFactoryDecisions(getFactoryDecisionCleanupOptions());
+        if (result.deleted > 0) {
+          debugLog(`Cleaned ${result.deleted} factory decision row(s) (retention: ${result.retention_days} days; cap: ${result.max_rows})`);
+        }
         break;
       }
 
@@ -512,6 +556,7 @@ function runMaintenanceTask(taskType) {
         runSafe('archive_old_tasks', () => runMaintenanceTask('archive_old_tasks'));
         runSafe('cleanup_logs', () => runMaintenanceTask('cleanup_logs'));
         runSafe('enforce_limits', () => runMaintenanceTask('enforce_limits'));
+        runSafe('cleanup_factory_decisions', () => runMaintenanceTask('cleanup_factory_decisions'));
         runSafe('aggregate_metrics', () => runMaintenanceTask('aggregate_metrics'));
         runSafe('vacuum_database', () => runMaintenanceTask('vacuum_database'));
         break;

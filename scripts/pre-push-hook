@@ -363,6 +363,29 @@ tests_have_failures() {
   echo "$output" | strip_ansi | strip_phase_prefix | grep -qE '^[[:space:]]*(Test Files|Tests)[[:space:]].*failed'
 }
 
+print_gate_failure_summary() {
+  local label="$1"
+  local output="$2"
+  local exit_code="$3"
+  local marker="${4:-}"
+  local plain summary
+
+  plain=$(echo "$output" | strip_ansi | strip_phase_prefix)
+  echo "[pre-push] ${label} failure summary (exit ${exit_code})"
+  if [ -n "$marker" ]; then
+    echo "[pre-push] final gate marker: $marker"
+  fi
+
+  summary=$(echo "$plain" | grep -E '^[[:space:]]*(FAIL|Test Files|Tests|Duration)[[:space:]]|Failed Tests|AssertionError|Error:' | tail -40 || true)
+  if [ -n "$summary" ]; then
+    echo "[pre-push] ${label} vitest summary:"
+    printf '%s\n' "$summary"
+  fi
+
+  echo "[pre-push] ${label} output tail:"
+  printf '%s\n' "$plain" | tail -80
+}
+
 # Distinguishes real test failures (tests that ran and asserted wrong) from
 # transient file-load failures (vitest's /@id/ internal module resolver
 # flaking under parallel load; "N Test Files failed | 0 Tests failed").
@@ -1221,11 +1244,11 @@ EOF
   fi
 
   if [ "$dash_exit" -ne 0 ] || tests_have_failures "$dash_output"; then
-    echo "$dash_output" | tail -10
+    print_gate_failure_summary "Dashboard" "$dash_output" "$dash_exit" "$gate_end_marker"
     gate_failed "Dashboard tests failed (exit $dash_exit)"
   fi
   if [ "$server_exit" -ne 0 ] || tests_have_failures "$server_output"; then
-    echo "$server_output" | tail -10
+    print_gate_failure_summary "Server" "$server_output" "$server_exit" "$gate_end_marker"
     gate_failed "Server tests failed (exit $server_exit)"
   fi
   if [ "$perf_exit" -ne 0 ]; then

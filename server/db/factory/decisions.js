@@ -4,6 +4,9 @@ const logger = require('../../logger').child({ component: 'factory-decisions' })
 
 const VALID_STAGES = new Set(['sense', 'prioritize', 'plan', 'execute', 'verify', 'learn', 'ship']);
 const VALID_ACTORS = new Set(['health_model', 'architect', 'planner', 'executor', 'verifier', 'human', 'auto-recovery']);
+const DEFAULT_DECISION_RETENTION_DAYS = 14;
+const DEFAULT_MAX_DECISIONS = 100000;
+const DEFAULT_MAX_DECISIONS_PER_PROJECT = 25000;
 
 let db = null;
 
@@ -201,6 +204,82 @@ function getDecision(id) {
   return parseDecisionRow(row);
 }
 
+function cleanupFactoryDecisions(options = {}) {
+  const instance = getDb();
+  const retentionDays = normalizeNonNegativeInteger(
+    options.daysToKeep,
+    DEFAULT_DECISION_RETENTION_DAYS
+  );
+  const maxRows = normalizeNonNegativeInteger(
+    options.maxRows,
+    DEFAULT_MAX_DECISIONS
+  );
+  const maxRowsPerProject = normalizeNonNegativeInteger(
+    options.maxRowsPerProject,
+    DEFAULT_MAX_DECISIONS_PER_PROJECT
+  );
+  let agePruned = 0;
+  let projectPruned = 0;
+  let countPruned = 0;
+
+  const before = instance.prepare('SELECT COUNT(*) AS count FROM factory_decisions').get().count || 0;
+
+  const runCleanup = instance.transaction(() => {
+    if (retentionDays > 0) {
+      const cutoff = new Date(Date.now() - retentionDays * 24 * 60 * 60 * 1000).toISOString();
+      agePruned = instance.prepare(`
+        DELETE FROM factory_decisions
+        WHERE COALESCE(julianday(created_at), 0) < julianday(?)
+      `).run(cutoff).changes;
+    }
+
+    if (maxRowsPerProject > 0) {
+      projectPruned = instance.prepare(`
+        DELETE FROM factory_decisions
+        WHERE id IN (
+          SELECT id
+          FROM (
+            SELECT
+              id,
+              ROW_NUMBER() OVER (
+                PARTITION BY project_id
+                ORDER BY COALESCE(julianday(created_at), 0) DESC, id DESC
+              ) AS project_rank
+            FROM factory_decisions
+          )
+          WHERE project_rank > ?
+        )
+      `).run(maxRowsPerProject).changes;
+    }
+
+    if (maxRows > 0) {
+      countPruned = instance.prepare(`
+        DELETE FROM factory_decisions
+        WHERE id IN (
+          SELECT id
+          FROM factory_decisions
+          ORDER BY COALESCE(julianday(created_at), 0) DESC, id DESC
+          LIMIT -1 OFFSET ?
+        )
+      `).run(maxRows).changes;
+    }
+  });
+
+  runCleanup();
+  const after = instance.prepare('SELECT COUNT(*) AS count FROM factory_decisions').get().count || 0;
+
+  return {
+    deleted: before - after,
+    age_pruned: agePruned,
+    project_pruned: projectPruned,
+    count_pruned: countPruned,
+    retained: after,
+    retention_days: retentionDays,
+    max_rows: maxRows,
+    max_rows_per_project: maxRowsPerProject,
+  };
+}
+
 function parseDecisionRow(row) {
   if (!row) return null;
 
@@ -242,6 +321,12 @@ function normalizeConfidence(value) {
   return numeric;
 }
 
+function normalizeNonNegativeInteger(value, fallback) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(0, Math.floor(parsed));
+}
+
 function validateStage(stage) {
   if (!VALID_STAGES.has(stage)) {
     throw new Error(`Invalid stage: ${stage}`);
@@ -262,9 +347,11 @@ module.exports = {
   getDecisionContext,
   getDecisionStats,
   getDecision,
+  cleanupFactoryDecisions,
   parseDecisionRow,
   serializeJson,
   normalizeConfidence,
+  normalizeNonNegativeInteger,
   validateStage,
   validateActor,
 };

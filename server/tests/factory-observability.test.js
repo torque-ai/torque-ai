@@ -177,6 +177,55 @@ describe('factory-decisions DB module', () => {
     expect(decisions.map((entry) => entry.action)).toEqual(['third', 'second']);
   });
 
+  it('cleanupFactoryDecisions prunes old decisions and reports retention details', () => {
+    recordDecisionAt({ action: 'ancient', created_at: '2000-01-01 00:00:00' });
+    recordDecisionAt({ action: 'current', created_at: new Date().toISOString() });
+
+    const result = factoryDecisions.cleanupFactoryDecisions({
+      daysToKeep: 7,
+      maxRows: 100,
+      maxRowsPerProject: 100,
+    });
+
+    expect(result.deleted).toBe(1);
+    expect(result.age_pruned).toBe(1);
+    expect(result.retained).toBe(1);
+    expect(factoryDecisions.listDecisions(projectId).map((entry) => entry.action)).toEqual(['current']);
+  });
+
+  it('cleanupFactoryDecisions enforces global and per-project caps', () => {
+    for (let index = 1; index <= 5; index += 1) {
+      recordDecisionAt({ action: `main-${index}`, created_at: timestampFor(index) });
+    }
+    const otherProject = factoryHealth.registerProject({ name: 'other-cleanup', path: '/tmp/other-cleanup' });
+    for (let index = 1; index <= 3; index += 1) {
+      const record = factoryDecisions.recordDecision({
+        project_id: otherProject.id,
+        stage: 'sense',
+        actor: 'architect',
+        action: `other-${index}`,
+      });
+      db.prepare('UPDATE factory_decisions SET created_at = ? WHERE id = ?').run(timestampFor(index), record.id);
+    }
+
+    const projectResult = factoryDecisions.cleanupFactoryDecisions({
+      daysToKeep: 0,
+      maxRows: 0,
+      maxRowsPerProject: 2,
+    });
+    expect(projectResult.deleted).toBe(4);
+    expect(factoryDecisions.listDecisions(projectId).map((entry) => entry.action)).toEqual(['main-5', 'main-4']);
+    expect(factoryDecisions.listDecisions(otherProject.id).map((entry) => entry.action)).toEqual(['other-3', 'other-2']);
+
+    const globalResult = factoryDecisions.cleanupFactoryDecisions({
+      daysToKeep: 0,
+      maxRows: 3,
+      maxRowsPerProject: 0,
+    });
+    expect(globalResult.deleted).toBe(1);
+    expect(globalResult.retained).toBe(3);
+  });
+
   it('getDecisionContext returns all decisions for a batch ordered ASC', () => {
     recordDecisionAt({ batch_id: 'batch-ctx', action: 'third', created_at: timestampFor(3) });
     recordDecisionAt({ batch_id: 'batch-ctx', action: 'first', created_at: timestampFor(1) });

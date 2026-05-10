@@ -661,6 +661,13 @@ describe('Webhook Handlers', () => {
       const result = await safeTool('run_maintenance', { task_type: 'enforce_limits' });
       expect(result.isError).toBeFalsy();
       expect(getText(result)).toContain('Event table limits');
+      expect(getText(result)).toContain('Factory decision cleanup');
+    });
+
+    it('runs cleanup_factory_decisions', async () => {
+      const result = await safeTool('run_maintenance', { task_type: 'cleanup_factory_decisions' });
+      expect(result.isError).toBeFalsy();
+      expect(getText(result)).toContain('Factory decision cleanup');
     });
 
     it('runs update_metrics', async () => {

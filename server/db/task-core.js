@@ -59,6 +59,7 @@ const ALLOWED_TASK_COLUMNS = new Set([
 
 const TERMINAL_TASK_STATUSES = new Set(['completed', 'failed', 'cancelled', 'skipped']);
 const ACTIVE_TASK_STATUSES = new Set(['pending', 'pending_approval', 'queued', 'running']);
+const DEFAULT_TASK_OUTPUT_MAX_BYTES = 256 * 1024 * 1024;
 const STATUS_TO_EVENT = {
   queued: 'TASK_QUEUED',
   running: 'TASK_RUNNING',
@@ -1317,12 +1318,132 @@ function purgeOldTaskOutput(retentionDays = 30) {
   if (!db || dbClosed) return 0;
   const cutoff = new Date(Date.now() - retentionDays * 24 * 3600000).toISOString();
   const result = db.prepare(`
-    UPDATE tasks SET output = NULL, error_output = NULL
-    WHERE status IN ('completed', 'failed', 'cancelled')
+    UPDATE tasks SET output = NULL, error_output = NULL, partial_output = NULL
+    WHERE status IN ('completed', 'failed', 'cancelled', 'skipped')
       AND created_at < ?
-      AND (output IS NOT NULL OR error_output IS NOT NULL)
+      AND (
+        output IS NOT NULL
+        OR error_output IS NOT NULL
+        OR partial_output IS NOT NULL
+      )
   `).run(cutoff);
   return result.changes;
+}
+
+function taskOutputBytesExpression() {
+  return [
+    'COALESCE(length(output), 0)',
+    'COALESCE(length(error_output), 0)',
+    'COALESCE(length(partial_output), 0)',
+  ].join(' + ');
+}
+
+function getTerminalTaskOutputBytes() {
+  if (!db || dbClosed) return 0;
+  const row = db.prepare(`
+    SELECT COALESCE(SUM(${taskOutputBytesExpression()}), 0) AS bytes
+    FROM tasks
+    WHERE status IN ('completed', 'failed', 'cancelled', 'skipped')
+  `).get();
+  return Number(row?.bytes) || 0;
+}
+
+function enforceTaskOutputSizeLimit(maxBytes = DEFAULT_TASK_OUTPUT_MAX_BYTES, options = {}) {
+  if (!db || dbClosed) {
+    return {
+      purged: 0,
+      bytes_before: 0,
+      bytes_after: 0,
+      bytes_reclaimed: 0,
+      max_bytes: normalizeNonNegativeInt(maxBytes, DEFAULT_TASK_OUTPUT_MAX_BYTES),
+    };
+  }
+
+  const max = normalizeNonNegativeInt(maxBytes, DEFAULT_TASK_OUTPUT_MAX_BYTES);
+  if (max <= 0) {
+    return {
+      purged: 0,
+      bytes_before: getTerminalTaskOutputBytes(),
+      bytes_after: getTerminalTaskOutputBytes(),
+      bytes_reclaimed: 0,
+      max_bytes: max,
+    };
+  }
+
+  const batchLimit = normalizeNonNegativeInt(options.batchLimit, 10000);
+  const bytesBefore = getTerminalTaskOutputBytes();
+  if (bytesBefore <= max) {
+    return {
+      purged: 0,
+      bytes_before: bytesBefore,
+      bytes_after: bytesBefore,
+      bytes_reclaimed: 0,
+      max_bytes: max,
+    };
+  }
+
+  const overflowBytes = bytesBefore - max;
+  const candidates = db.prepare(`
+    SELECT
+      id,
+      ${taskOutputBytesExpression()} AS blob_bytes
+    FROM tasks
+    WHERE status IN ('completed', 'failed', 'cancelled', 'skipped')
+      AND (
+        output IS NOT NULL
+        OR error_output IS NOT NULL
+        OR partial_output IS NOT NULL
+      )
+    ORDER BY
+      COALESCE(julianday(completed_at), julianday(started_at), julianday(created_at), 0) ASC,
+      created_at ASC,
+      id ASC
+    LIMIT ?
+  `).all(Math.max(1, batchLimit));
+
+  const ids = [];
+  let selectedBytes = 0;
+  for (const row of candidates) {
+    const rowBytes = Number(row.blob_bytes) || 0;
+    if (rowBytes <= 0) continue;
+    ids.push(row.id);
+    selectedBytes += rowBytes;
+    if (selectedBytes >= overflowBytes) break;
+  }
+
+  if (ids.length === 0) {
+    return {
+      purged: 0,
+      bytes_before: bytesBefore,
+      bytes_after: bytesBefore,
+      bytes_reclaimed: 0,
+      max_bytes: max,
+    };
+  }
+
+  const placeholders = ids.map(() => '?').join(', ');
+  const result = db.prepare(`
+    UPDATE tasks
+    SET output = NULL,
+        error_output = NULL,
+        partial_output = NULL
+    WHERE id IN (${placeholders})
+  `).run(...ids);
+  const bytesAfter = getTerminalTaskOutputBytes();
+
+  return {
+    purged: result.changes,
+    bytes_before: bytesBefore,
+    bytes_after: bytesAfter,
+    bytes_reclaimed: Math.max(0, bytesBefore - bytesAfter),
+    max_bytes: max,
+  };
+}
+
+function normalizeNonNegativeInt(value, fallback) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(0, Math.floor(parsed));
 }
 
 /**
@@ -1817,6 +1938,8 @@ module.exports = {
   // Archive / purge
   archiveOldTasks,
   purgeOldTaskOutput,
+  enforceTaskOutputSizeLimit,
+  getTerminalTaskOutputBytes,
   // Running counts
   getRunningCount,
   getRunningCountByProvider,

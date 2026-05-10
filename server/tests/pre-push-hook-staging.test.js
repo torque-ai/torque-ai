@@ -285,6 +285,17 @@ printf '%b' "\\302\\267\\302\\267real failure line\\302\\267\\302\\267\\n" | pre
     expect(src).toMatch(/origin\/main is unchanged/);
   });
 
+  it('prints a retained phase failure summary instead of only the last few lines', () => {
+    const src = readHook();
+    expect(src).toMatch(/\bprint_gate_failure_summary\s*\(\)/);
+    expect(src).toMatch(/final gate marker/);
+    expect(src).toMatch(/tail -80/);
+    expect(src).toMatch(/print_gate_failure_summary "Dashboard" "\$dash_output" "\$dash_exit" "\$gate_end_marker"/);
+    expect(src).toMatch(/print_gate_failure_summary "Server" "\$server_output" "\$server_exit" "\$gate_end_marker"/);
+    expect(src).not.toMatch(/echo "\$dash_output" \| tail -10/);
+    expect(src).not.toMatch(/echo "\$server_output" \| tail -10/);
+  });
+
   it('preserves the file-load flake retry + vitest-failure-detection helpers', () => {
     const src = readHook();
     // These helpers are the load-bearing parts of the gate. The staging
