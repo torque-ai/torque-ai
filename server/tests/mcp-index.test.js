@@ -103,6 +103,17 @@ function createGatewayMocks() {
     pollSubscriptionAfterCursor: vi.fn(() => ({ events: [], expired: false })),
     cleanupEventData: vi.fn(),
   };
+  state.containerDb = null;
+  state.container = {
+    defaultContainer: {
+      get: vi.fn((name) => {
+        if (name === 'db' && state.containerDb) {
+          return state.containerDb;
+        }
+        throw new Error(`Container service unavailable: ${name}`);
+      }),
+    },
+  };
   state.telemetry = {
     incrementToolCall: vi.fn(),
     incrementError: vi.fn(),
@@ -133,6 +144,7 @@ function createGatewayMocks() {
     tools: state.tools,
     catalog: state.catalog,
     database: state.database,
+    container: state.container,
     telemetry: state.telemetry,
     schemaRegistry: state.schemaRegistry,
     logger: state.logger,
@@ -141,6 +153,7 @@ function createGatewayMocks() {
   primeModuleCache('../tools', currentMocks.tools);
   primeModuleCache('../mcp/catalog-v1', currentMocks.catalog);
   primeModuleCache('../database', currentMocks.database);
+  primeModuleCache('../container', currentMocks.container);
   primeModuleCache('../mcp/telemetry', currentMocks.telemetry);
   primeModuleCache('../mcp/schema-registry', currentMocks.schemaRegistry);
   primeModuleCache('../logger', currentMocks.logger);
@@ -886,6 +899,44 @@ describe('mcp gateway http transport', () => {
     });
     expect(response.getJson().data.session_id).toMatch(UUID_PATTERN);
     expect(mocks.tools.handleToolCall).not.toHaveBeenCalled();
+  });
+
+  it('uses the DI database service for stream subscriptions when available', async () => {
+    const { handler, mocks } = await bootGateway((state) => {
+      state.containerDb = {
+        ...state.database,
+        cleanupEventData: vi.fn(),
+        createEventSubscription: vi.fn(() => 'di-sub-1'),
+      };
+    });
+
+    const result = await dispatchRequest(handler, {
+      method: 'POST',
+      url: '/tools/call',
+      body: {
+        tool: 'torque.stream.subscribe',
+        arguments: {
+          task_id: 'task-di',
+        },
+      },
+    });
+
+    expect(result.response.statusCode).toBe(200);
+    expect(result.response.getJson()).toMatchObject({
+      ok: true,
+      data: {
+        subscription_id: 'di-sub-1',
+        task_id: 'task-di',
+        event_types: ['status_change'],
+      },
+    });
+    expect(mocks.container.defaultContainer.get).toHaveBeenCalledWith('db');
+    expect(mocks.containerDb.createEventSubscription).toHaveBeenCalledWith(
+      'task-di',
+      ['status_change'],
+      undefined,
+    );
+    expect(mocks.database.createEventSubscription).not.toHaveBeenCalled();
   });
 
   it('closes session subscriptions when a session is closed', async () => {

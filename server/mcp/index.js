@@ -5,20 +5,13 @@ const { handleToolCall } = require('../tools');
 const { listTools } = require('./catalog-v1');
 const { filterToolsBrief, filterToolsFull } = require('./tool-list-modes');
 const schemaRegistry = require('./schema-registry');
-const db = require('../database');
+const { defaultContainer } = require('../container');
 const serverConfig = require('../config');
 const telemetry = require('./telemetry');
 const { createCorrelationId, okEnvelope, errorEnvelope } = require('./envelope');
 const logger = require('../logger').child({ component: 'mcp-gateway' });
 const { v4: uuidv4 } = require('uuid');
 const { createHash } = require('crypto');
-const {
-  createEventSubscription,
-  pollSubscription,
-  deleteEventSubscription,
-  pollSubscriptionAfterCursor,
-  cleanupEventData,
-} = require('../database');
 const {
   normalizePolicyKey,
   normalizeEventTypes,
@@ -200,6 +193,65 @@ const rateLimitBuckets = new Map();
 
 logger.warn('MCP Gateway transport is deprecated — use SSE transport (port 3458) instead. Gateway will be removed in a future release.');
 
+function resolveDatabaseFacade(functionName) {
+  try {
+    const dbService = defaultContainer.get('db');
+    if (dbService && typeof dbService[functionName] === 'function') {
+      return dbService;
+    }
+  } catch {
+    // Pre-boot tests and standalone requires fall back to the legacy facade.
+  }
+
+  const database = require('../database');
+  if (database && typeof database[functionName] === 'function') {
+    return database;
+  }
+
+  throw new Error(`Database facade function is unavailable: ${functionName}`);
+}
+
+function callDatabase(functionName, ...args) {
+  const database = resolveDatabaseFacade(functionName);
+  return database[functionName](...args);
+}
+
+function recordAuditLog(...args) {
+  return callDatabase('recordAuditLog', ...args);
+}
+
+function getAuditLog(...args) {
+  return callDatabase('getAuditLog', ...args);
+}
+
+function getAuditStats(...args) {
+  return callDatabase('getAuditStats', ...args);
+}
+
+function setConfig(...args) {
+  return callDatabase('setConfig', ...args);
+}
+
+function createEventSubscription(...args) {
+  return callDatabase('createEventSubscription', ...args);
+}
+
+function pollSubscription(...args) {
+  return callDatabase('pollSubscription', ...args);
+}
+
+function deleteEventSubscription(...args) {
+  return callDatabase('deleteEventSubscription', ...args);
+}
+
+function pollSubscriptionAfterCursor(...args) {
+  return callDatabase('pollSubscriptionAfterCursor', ...args);
+}
+
+function cleanupEventData(...args) {
+  return callDatabase('cleanupEventData', ...args);
+}
+
 function parseBody(req) {
   return new Promise((resolve, reject) => {
     let body = '';
@@ -290,7 +342,7 @@ function recordMutationAudit(toolName, args, execution, actor, role, correlation
     idempotency_key: idempotencyKey || null,
   };
 
-  db.recordAuditLog(
+  recordAuditLog(
     'mcp_tool',
     toolName,
     toolName,
@@ -385,7 +437,7 @@ function loadPolicyStore() {
 }
 
 function persistPolicyStore(store) {
-  db.setConfig(MCP_POLICY_STORE_KEY, JSON.stringify(store || {}));
+  setConfig(MCP_POLICY_STORE_KEY, JSON.stringify(store || {}));
 }
 
 function valuesEqual(a, b) {
@@ -692,7 +744,7 @@ function executeInternalMcpTool(mappedTool, args) {
       ? Math.max(0, Math.trunc(normalized.offset))
       : 0;
 
-    const records = db.getAuditLog({
+    const records = getAuditLog({
       entityType: normalized.entity_type,
       entityId: normalized.entity_id,
       action: normalized.action,
@@ -711,7 +763,7 @@ function executeInternalMcpTool(mappedTool, args) {
     };
 
     if (normalized.include_stats) {
-      response.stats = db.getAuditStats({
+      response.stats = getAuditStats({
         since: normalized.since,
         until: normalized.until,
       });

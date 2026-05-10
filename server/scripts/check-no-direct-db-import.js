@@ -29,7 +29,6 @@ const ALLOWED = new Set([
   'db/factory/worktrees.js',  // DB module — lazy fallback for factory worktree persistence
   'eslint-rules/no-heavy-test-imports.test.js', // ESLint rule fixture — strings inside test cases, not real requires
   // Files that use facade-only core functions (getDbInstance, safeAddColumn, countTasks, isDbClosed)
-  'mcp/index.js',                     // gateway subscription cleanup through database facade
   'mcp/sse.js',                       // getDbInstance — raw DB for subscription persistence
   'config.js',                        // getDbInstance — raw DB for encrypted API key lookup
   // Raw SQL users — these call db.prepare() or db.getDbInstance().prepare() directly
