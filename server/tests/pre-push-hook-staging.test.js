@@ -265,9 +265,46 @@ printf '%b' "\\302\\267\\302\\267real failure line\\302\\267\\302\\267\\n" | pre
     const src = readHook();
     const helper = src.match(/extract_gate_end_marker\s*\(\)\s*\{[\s\S]*?\n\}/)?.[0];
     expect(helper).toContain('"[gate-end] dash_exit="*) marker="$line" ;;');
-    expect(helper).toMatch(/\^\\\[gate-end\\\]\\ dash_exit=\(\[0-9\]\+\)\\ serv_exit=\(\[0-9\]\+\)\\ perf_exit=\(\[0-9\]\+\)\$/);
+    expect(helper).toContain('parse_gate_end_exits "$marker" >/dev/null');
+    expect(src).toMatch(/\bgate_marker_value\s*\(\)/);
+    expect(src).toMatch(/\bparse_gate_end_exits\s*\(\)/);
+    expect(src).toMatch(/gate_exits=\$\(parse_gate_end_exits "\$gate_end_marker"\)/);
+    expect(src).not.toContain('BASH_REMATCH');
+    expect(src).not.toMatch(/\[\[ "\$gate_end_marker" =~/);
     expect(src).toMatch(/gate_end_marker=\$\(extract_gate_end_marker "\$combined_output"\)/);
     expect(src).not.toMatch(/echo "\$combined_output" \| grep -qE '\\\[gate-end\\\] dash_exit=\[0-9\]'/);
+  });
+
+  it('executes gate-end marker parsing without bash regex captures', () => {
+    const bashCheck = spawnSync('bash', ['--version'], { encoding: 'utf8' });
+    if (bashCheck.error || bashCheck.status !== 0) return;
+
+    const src = readHook();
+    const start = src.indexOf('gate_marker_value() {');
+    const end = src.indexOf('# Per-phase timeout caps pathological SSH stalls.', start);
+    expect(start).toBeGreaterThanOrEqual(0);
+    expect(end).toBeGreaterThan(start);
+
+    const helperBlock = src.slice(start, end);
+    const script = `${helperBlock}
+set -euo pipefail
+marker=$(extract_gate_end_marker $'noise\\n[gate-end] dash_exit=0 serv_exit=12 perf_exit=3\\r\\n')
+[ "$marker" = "[gate-end] dash_exit=0 serv_exit=12 perf_exit=3" ]
+exits=$(parse_gate_end_exits "$marker")
+[ "$exits" = "0 12 3" ]
+if extract_gate_end_marker $'[gate-end] dash_exit=0 serv_exit=x perf_exit=0' >/dev/null; then
+  exit 12
+fi
+if ! gate_marker_has_failure $'[gate-end] dash_exit=0 serv_exit=12 perf_exit=0'; then
+  exit 13
+fi
+if gate_marker_has_failure $'[gate-end] dash_exit=0 serv_exit=0 perf_exit=0'; then
+  exit 14
+fi
+`;
+
+    const result = spawnSync('bash', ['-s'], { encoding: 'utf8', input: script });
+    expect(result.status, result.stderr || result.stdout).toBe(0);
   });
 
   it('bounds the pre-push output streamer after the remote gate command exits', () => {
