@@ -12,6 +12,7 @@ describe('provider-model-scores live outcomes', () => {
   });
 
   afterEach(() => {
+    providerModelScores.setDb(null);
     db.close();
     db = null;
   });
