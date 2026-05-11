@@ -2,7 +2,8 @@ const http = require('http');
 const { randomUUID } = require('crypto');
 const tools = require('./tools');
 const { handleToolCall, schemaMap } = tools;
-const db = require('./database');
+const { defaultContainer } = require('./container');
+const { resolveContainerDbService } = require('./utils/db-accessor');
 const serverConfig = require('./config');
 const logger = require('./logger').child({ component: 'api-server' });
 const { CORE_TOOL_NAMES, EXTENDED_TOOL_NAMES } = require('./core-tools');
@@ -52,6 +53,16 @@ const {
 
 let apiServer = null;
 let apiPort = 3457;
+
+function resolveApiDb(deps = {}) {
+  if (Object.prototype.hasOwnProperty.call(deps, 'db')) {
+    return deps.db;
+  }
+  const container = Object.prototype.hasOwnProperty.call(deps, 'container')
+    ? deps.container
+    : defaultContainer;
+  return resolveContainerDbService(container);
+}
 
 function getRestToolNames() {
   const names = new Set(tools.routeMap.keys());
@@ -311,7 +322,7 @@ async function runPluginMiddleware(req, res, middlewares) {
 
 function createApiServer(deps = {}) {
   const serverDeps = {
-    db: deps.db || db,
+    db: resolveApiDb(deps),
     taskManager: deps.taskManager,
     tools: deps.tools || tools,
     logger: deps.logger || logger,
@@ -335,7 +346,7 @@ function createApiServer(deps = {}) {
   const middlewareContext = applyMiddleware(null, {
     getV2RatePolicy,
     getV2RateLimiter,
-    getRateLimit: () => getRateLimit(serverDeps.db || db),
+    getRateLimit: () => getRateLimit(serverDeps.db),
   });
 
   return {
@@ -677,7 +688,7 @@ function start(options = {}) {
     }
 
     const apiContext = createApiServer({
-      db,
+      db: resolveApiDb(options),
       taskManager: options.taskManager || null,
       tools,
       logger,
