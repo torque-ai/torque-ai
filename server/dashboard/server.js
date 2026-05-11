@@ -224,6 +224,7 @@ const MIME_TYPES = {
   '.woff': 'font/woff',
   '.woff2': 'font/woff2',
 };
+const RESERVED_HEALTH_PROBE_PATHS = new Set(['/livez', '/readyz', '/healthz']);
 
 async function getStaticFileStats(filePath) {
   try {
@@ -247,6 +248,7 @@ function serveStatic(req, res) {
   (async () => {
     const dashboardDir = DASHBOARD_STATIC_DIR;
     const urlPath = req.url === '/' ? 'index.html' : req.url.split('?')[0];
+    const isReservedHealthProbe = RESERVED_HEALTH_PROBE_PATHS.has(urlPath);
     let filePath = path.join(dashboardDir, urlPath);
 
     // Security: prevent directory traversal (use path.sep to avoid prefix bypass)
@@ -261,7 +263,7 @@ function serveStatic(req, res) {
     const isAssetRequest = path.extname(path.basename(urlPath)) !== '';
 
     // Extensionless dashboard routes are handled by the React/legacy SPA shell.
-    if (!stats && !isAssetRequest && !req.url.startsWith('/api/')) {
+    if (!stats && !isAssetRequest && !isReservedHealthProbe && !req.url.startsWith('/api/')) {
       filePath = path.join(dashboardDir, 'index.html');
       stats = await getStaticFileStats(filePath);
     }

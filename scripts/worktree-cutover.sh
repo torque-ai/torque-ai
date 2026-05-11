@@ -63,6 +63,157 @@ torque_api_reachable() {
     || curl -s --max-time "${TORQUE_PROBE_TIMEOUT_SECONDS}" "${TORQUE_API}/api/version" > /dev/null 2>&1
 }
 
+resolve_torque_data_file() {
+  local filename="${1:-}"
+  if [ -n "${TORQUE_DATA_DIR:-}" ]; then
+    echo "${TORQUE_DATA_DIR}/${filename}"
+    return 0
+  fi
+  if [ -d "${HOME}/.torque" ]; then
+    echo "${HOME}/.torque/${filename}"
+    return 0
+  fi
+  echo "${TMPDIR:-/tmp}/torque/${filename}"
+}
+
+resolve_torque_log_file() {
+  if [ -n "${TORQUE_LOG_FILE:-}" ]; then
+    echo "${TORQUE_LOG_FILE}"
+    return 0
+  fi
+  resolve_torque_data_file "torque.log"
+}
+
+count_file_lines() {
+  local file_path="${1:-}"
+  if [ -z "$file_path" ] || [ ! -f "$file_path" ]; then
+    echo "0"
+    return 0
+  fi
+  node - "$file_path" <<'EOF'
+const fs = require('fs');
+const filePath = process.argv[2];
+try {
+  const raw = fs.readFileSync(filePath, 'utf8');
+  if (!raw) {
+    process.stdout.write('0');
+  } else {
+    process.stdout.write(String(raw.split(/\r?\n/).filter((line, idx, arr) => idx < arr.length - 1 || line.length > 0).length));
+  }
+} catch {
+  process.stdout.write('0');
+}
+EOF
+}
+
+file_has_lines_after() {
+  local file_path="${1:-}"
+  local line_offset="${2:-0}"
+  if [ -z "$file_path" ] || [ ! -f "$file_path" ]; then
+    return 1
+  fi
+  node - "$file_path" "$line_offset" <<'EOF'
+const fs = require('fs');
+const filePath = process.argv[2];
+const offset = Number.parseInt(process.argv[3] || '0', 10) || 0;
+try {
+  const lines = fs.readFileSync(filePath, 'utf8').split(/\r?\n/).filter((line, idx, arr) => idx < arr.length - 1 || line.length > 0);
+  process.exit(lines.length > offset ? 0 : 1);
+} catch {
+  process.exit(1);
+}
+EOF
+}
+
+file_has_startup_failure_after() {
+  local file_path="${1:-}"
+  local line_offset="${2:-0}"
+  if [ -z "$file_path" ] || [ ! -f "$file_path" ]; then
+    return 1
+  fi
+  node - "$file_path" "$line_offset" <<'EOF'
+const fs = require('fs');
+const filePath = process.argv[2];
+const offset = Number.parseInt(process.argv[3] || '0', 10) || 0;
+const failurePattern = /\b(TORQUE FATAL|uncaughtException|UnhandledPromiseRejection|Cannot find module|SyntaxError|ReferenceError|EADDRINUSE|Error: listen|Container is frozen after boot\(\)|startup lock)\b/i;
+try {
+  const lines = fs.readFileSync(filePath, 'utf8').split(/\r?\n/).filter((line, idx, arr) => idx < arr.length - 1 || line.length > 0);
+  process.exit(lines.slice(offset).some((line) => failurePattern.test(line)) ? 0 : 1);
+} catch {
+  process.exit(1);
+}
+EOF
+}
+
+print_file_lines_after() {
+  local label="${1:-log}"
+  local file_path="${2:-}"
+  local line_offset="${3:-0}"
+  local max_lines="${4:-40}"
+  if [ -z "$file_path" ] || [ ! -f "$file_path" ]; then
+    echo "        ${label}: not found (${file_path:-unknown})"
+    return 0
+  fi
+  node - "$label" "$file_path" "$line_offset" "$max_lines" <<'EOF'
+const fs = require('fs');
+const label = process.argv[2];
+const filePath = process.argv[3];
+const offset = Number.parseInt(process.argv[4] || '0', 10) || 0;
+const maxLines = Number.parseInt(process.argv[5] || '40', 10) || 40;
+try {
+  const lines = fs.readFileSync(filePath, 'utf8').split(/\r?\n/).filter((line, idx, arr) => idx < arr.length - 1 || line.length > 0);
+  const recent = lines.slice(offset).slice(-maxLines);
+  if (!recent.length) {
+    process.stdout.write(`        ${label}: no new lines after restart marker\n`);
+  } else {
+    process.stdout.write(`        ${label}: ${filePath}\n`);
+    for (const line of recent) {
+      process.stdout.write(`          ${line}\n`);
+    }
+  }
+} catch (err) {
+  process.stdout.write(`        ${label}: failed to read ${filePath}: ${err.message}\n`);
+}
+EOF
+}
+
+cutover_startup_failure_observed() {
+  file_has_lines_after "${TORQUE_RESTART_EXIT_FILE_PATH}" "${TORQUE_RESTART_EXIT_START_LINE}" \
+    || file_has_startup_failure_after "${TORQUE_LOG_FILE_PATH}" "${TORQUE_LOG_START_LINE}" \
+    || file_has_startup_failure_after "${TORQUE_SUCCESSOR_LOG_FILE_PATH}" "${TORQUE_SUCCESSOR_LOG_START_LINE}"
+}
+
+print_cutover_restart_diagnostics() {
+  print_file_lines_after "restart-exit diagnostics" "${TORQUE_RESTART_EXIT_FILE_PATH}" "${TORQUE_RESTART_EXIT_START_LINE}" 12
+  print_file_lines_after "successor stderr/stdout" "${TORQUE_SUCCESSOR_LOG_FILE_PATH}" "${TORQUE_SUCCESSOR_LOG_START_LINE}" 40
+  print_file_lines_after "torque.log" "${TORQUE_LOG_FILE_PATH}" "${TORQUE_LOG_START_LINE}" 40
+}
+
+start_torque_with_repo_launcher() {
+  local startup_timeout_seconds="${1:-240}"
+  local launcher="${REPO_ROOT}/start-torque.ps1"
+  if [ -f "$launcher" ]; then
+    if command -v pwsh.exe > /dev/null 2>&1; then
+      echo "  Starting TORQUE via start-torque.ps1..."
+      TORQUE_STARTUP_TIMEOUT_SECONDS="${startup_timeout_seconds}" pwsh.exe -NoProfile -ExecutionPolicy Bypass -File "$launcher"
+      return $?
+    fi
+    if command -v pwsh > /dev/null 2>&1; then
+      echo "  Starting TORQUE via start-torque.ps1..."
+      TORQUE_STARTUP_TIMEOUT_SECONDS="${startup_timeout_seconds}" pwsh -NoProfile -ExecutionPolicy Bypass -File "$launcher"
+      return $?
+    fi
+    if command -v powershell.exe > /dev/null 2>&1; then
+      echo "  Starting TORQUE via start-torque.ps1..."
+      TORQUE_STARTUP_TIMEOUT_SECONDS="${startup_timeout_seconds}" powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$launcher"
+      return $?
+    fi
+  fi
+
+  echo "  start-torque.ps1 launcher unavailable — falling back to node with torque.log capture."
+  (cd "${REPO_ROOT}/server" && nohup node index.js >> "${TORQUE_LOG_FILE_PATH}" 2>&1 &)
+}
+
 resolve_torque_pid_file() {
   if [ -n "${TORQUE_PID_FILE:-}" ]; then
     echo "${TORQUE_PID_FILE}"
@@ -170,7 +321,13 @@ pid_signature_changed() {
 
 TORQUE_PID_FILE_PATH="$(resolve_torque_pid_file)"
 TORQUE_HANDOFF_FILE_PATH="$(resolve_torque_handoff_file)"
+TORQUE_LOG_FILE_PATH="$(resolve_torque_log_file)"
+TORQUE_SUCCESSOR_LOG_FILE_PATH="$(resolve_torque_data_file "successor.log")"
+TORQUE_RESTART_EXIT_FILE_PATH="$(resolve_torque_data_file "restart-exit.ndjson")"
 TORQUE_PRE_RESTART_PID_SIGNATURE=""
+TORQUE_LOG_START_LINE=0
+TORQUE_SUCCESSOR_LOG_START_LINE=0
+TORQUE_RESTART_EXIT_START_LINE=0
 
 if [ ! -d "$WORKTREE_DIR" ]; then
   echo "ERROR: Worktree not found at ${WORKTREE_DIR}"
@@ -359,6 +516,9 @@ TORQUE_RUNNING=false
 if torque_api_reachable; then
   TORQUE_RUNNING=true
   TORQUE_PRE_RESTART_PID_SIGNATURE=$(read_pid_signature "${TORQUE_PID_FILE_PATH}" 2>/dev/null || true)
+  TORQUE_LOG_START_LINE=$(count_file_lines "${TORQUE_LOG_FILE_PATH}")
+  TORQUE_SUCCESSOR_LOG_START_LINE=$(count_file_lines "${TORQUE_SUCCESSOR_LOG_FILE_PATH}")
+  TORQUE_RESTART_EXIT_START_LINE=$(count_file_lines "${TORQUE_RESTART_EXIT_FILE_PATH}")
 fi
 
 summarize_running_blockers() {
@@ -530,7 +690,7 @@ if [ "$TORQUE_RUNNING" = "true" ]; then
       if [ -z "$RESTART_RESP" ]; then
         echo "[error] Failed to submit restart barrier — no response from TORQUE."
         echo "        Merge landed but TORQUE was NOT restarted."
-        echo "        Fallback: bash stop-torque.sh && nohup node server/index.js > /dev/null 2>&1 &"
+        echo "        Fallback: run ./start-torque.ps1 after checking the running task state."
         exit 2
       fi
 
@@ -687,8 +847,9 @@ if [ "$TORQUE_RUNNING" = "true" ]; then
     #    emitShutdown with a 1500ms grace period, then the process exits.
     #    The server auto-restarts (or the OS restarts it) on the updated main.
     #    Startup can legitimately take minutes when the pre-startup backup is
-    #    hashing a multi-GB SQLite DB, so keep waiting before attempting a
-    #    manual start that could collide with the child process' startup lock.
+    #    hashing a multi-GB SQLite DB, but a successor exit diagnostic or fatal
+    #    startup log after this restart marker is actionable and should stop
+    #    the wait with useful evidence instead of timing out silently.
     echo "  Waiting for TORQUE to restart on updated main..."
     if [ -n "${TORQUE_PRE_RESTART_PID_SIGNATURE}" ]; then
       echo "  Confirming restart via PID turnover: ${TORQUE_PID_FILE_PATH}"
@@ -700,7 +861,7 @@ if [ "$TORQUE_RUNNING" = "true" ]; then
     # period, slow pre-startup DB backup hashing a multi-GB sqlite) can
     # legitimately take 4-7 minutes to come back. The previous default
     # produced "TORQUE did not come back up" false alarms that triggered
-    # an unnecessary manual `nohup node` and confused the operator into
+    # unnecessary manual starts and confused the operator into
     # thinking the cutover failed when it just hadn't finished yet.
     # Override via CUTOVER_RESTART_WAIT_SECONDS for slow environments.
     RESTART_WAIT_SECONDS=${CUTOVER_RESTART_WAIT_SECONDS:-480}
@@ -728,6 +889,11 @@ if [ "$TORQUE_RUNNING" = "true" ]; then
           RESTART_CONFIRMED=true
           break
         fi
+      elif cutover_startup_failure_observed; then
+        echo "[error] TORQUE successor logged a startup failure after the restart handoff."
+        echo "        Refusing a blind manual start; fix the startup error below or use the repo launcher intentionally."
+        print_cutover_restart_diagnostics
+        exit 2
       fi
       sleep 2
     done
@@ -736,12 +902,13 @@ if [ "$TORQUE_RUNNING" = "true" ]; then
       if [ -n "${TORQUE_PRE_RESTART_PID_SIGNATURE}" ]; then
         echo "[error] TORQUE stayed reachable but never showed PID turnover."
         echo "        The old process may still be serving after barrier completion."
-        echo "        Check ${TORQUE_PID_FILE_PATH} and torque.log before forcing a restart."
+        echo "        Check ${TORQUE_PID_FILE_PATH} and the restart diagnostics before forcing a restart."
       else
         echo "[error] TORQUE stayed reachable but restart could not be confirmed."
         echo "        No PID record was available, and no outage was observed."
-        echo "        Check ${TORQUE_PID_FILE_PATH} and torque.log before forcing a restart."
+        echo "        Check ${TORQUE_PID_FILE_PATH} and the restart diagnostics before forcing a restart."
       fi
+      print_cutover_restart_diagnostics
       exit 2
     fi
 
@@ -753,8 +920,12 @@ if [ "$TORQUE_RUNNING" = "true" ]; then
         exit 2
       fi
       echo "[warn] TORQUE did not come back up within ${RESTART_WAIT_SECONDS}s. Starting manually..."
-      nohup node "${REPO_ROOT}/server/index.js" > /dev/null 2>&1 &
       MANUAL_WAIT_SECONDS=${CUTOVER_MANUAL_START_WAIT_SECONDS:-240}
+      if ! start_torque_with_repo_launcher "${MANUAL_WAIT_SECONDS}"; then
+        echo "[error] TORQUE launcher failed during manual cutover recovery."
+        print_cutover_restart_diagnostics
+        exit 2
+      fi
       MANUAL_DEADLINE=$(( $(date +%s) + MANUAL_WAIT_SECONDS ))
       while [ "$(date +%s)" -lt "$MANUAL_DEADLINE" ]; do
         if torque_api_reachable; then
@@ -768,13 +939,19 @@ if [ "$TORQUE_RUNNING" = "true" ]; then
             RESTART_CONFIRMED=true
             break
           fi
+        elif cutover_startup_failure_observed; then
+          echo "[error] TORQUE logged a startup failure during manual cutover recovery."
+          print_cutover_restart_diagnostics
+          exit 2
         fi
         sleep 2
       done
       if [ "$RESTART_CONFIRMED" = "true" ]; then
         echo "[ok] TORQUE started manually on updated main"
       else
-        echo "[warn] TORQUE may not have started. Check manually."
+        echo "[error] TORQUE did not become reachable after manual recovery."
+        print_cutover_restart_diagnostics
+        exit 2
       fi
     fi
   fi

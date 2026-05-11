@@ -382,6 +382,35 @@ describe('dashboard-server', () => {
     dashboardServer.stop();
   });
 
+  it('does not serve the SPA shell for dashboard health probe paths', async () => {
+    const distSuffix = path.join('dashboard', 'dist');
+    const indexFileSuffix = path.join('dashboard', 'dist', 'index.html');
+    const existsSync = vi.fn((candidate) => {
+      const value = String(candidate);
+      return value.endsWith(distSuffix) || value.endsWith(indexFileSuffix);
+    });
+    const readFile = vi.fn((filePath, cb) => cb(null, Buffer.from('<div id="root"></div>')));
+    const stat = vi.fn(async (filePath) => {
+      if (String(filePath).endsWith(indexFileSuffix)) {
+        return createMockStats();
+      }
+      throw createMissingStatError(filePath);
+    });
+
+    const { dashboardServer, getRequestHandler, sendErrorMock } = await loadDashboardServer({
+      fsOverrides: { existsSync, readFile, promises: { stat } },
+    });
+
+    await dashboardServer.start({ port: 4570, openBrowser: false });
+    const response = await dispatchRequest(getRequestHandler(), { method: 'GET', url: '/livez' });
+
+    expect(response.statusCode).toBe(404);
+    expect(sendErrorMock).toHaveBeenCalledWith(response, 'Not found', 404);
+    expect(readFile).not.toHaveBeenCalled();
+
+    dashboardServer.stop();
+  });
+
   it('handles WebSocket connections through WebSocketServer', async () => {
     const { dashboardServer, mockHttpServer } = await loadDashboardServer({ instanceId: 'instance-xyz987' });
 

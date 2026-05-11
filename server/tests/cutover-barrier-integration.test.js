@@ -423,6 +423,114 @@ rm -rf "$FAKE_ROOT"
   }
 }
 
+function runStartupFailureDiagnosticSimulation(featureName, env = {}) {
+  const wrapper = `
+#!/usr/bin/env bash
+set -euo pipefail
+
+SAFE_NAME=$(echo "${featureName}" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9._-]/-/g')
+FAKE_ROOT=$(mktemp -d)
+FAKE_REPO="$FAKE_ROOT/repo"
+FAKE_WORKTREE="$FAKE_REPO/.worktrees/feat-$SAFE_NAME"
+FAKE_DATA="$FAKE_ROOT/data"
+mkdir -p "$FAKE_WORKTREE" "$FAKE_DATA" "$FAKE_REPO/server"
+PID_FILE="$FAKE_DATA/torque.pid"
+RESTART_FLAG="$FAKE_DATA/restart-submitted"
+FAILURE_WRITTEN="$FAKE_DATA/failure-written"
+printf '{"pid":111,"startedAt":"2026-05-11T13:00:00.000Z","heartbeatAt":"2026-05-11T13:00:05.000Z"}' > "$PID_FILE"
+printf 'old benign successor line\\n' > "$FAKE_DATA/successor.log"
+printf '{"timestamp":"2026-05-11T12:59:00.000Z","level":"info","message":"old boot"}\\n' > "$FAKE_DATA/torque.log"
+
+git() {
+  if [ "$1" = "-C" ]; then
+    shift 2
+  fi
+  case "$1" in
+    rev-parse)    echo "$FAKE_REPO" ;;
+    show-ref)     return 0 ;;
+    symbolic-ref) echo "main" ;;
+    merge)        echo "Already up to date." ;;
+    merge-base)   return 0 ;;
+    checkout)     return 0 ;;
+    diff)         return 0 ;;
+    worktree)     return 0 ;;
+    branch)       return 0 ;;
+    status)       return 0 ;;
+    *)            command git "$@" ;;
+  esac
+}
+export -f git
+
+sleep() { :; }
+export -f sleep
+
+curl() {
+  case "\${*}" in
+    */api/v2/system/restart-server*)
+      touch "$RESTART_FLAG"
+      echo '{"task_id":"44444444-4444-4444-8444-444444444444","status":"running"}'
+      return 0
+      ;;
+    */api/v2/tasks/44444444-4444-4444-8444-444444444444*)
+      echo '{"status":"completed"}'
+      return 0
+      ;;
+    */api/v2/tasks?status=*)
+      echo '{"items":[]}'
+      return 0
+      ;;
+    */livez*|*/api/version*)
+      if [ -f "$RESTART_FLAG" ]; then
+        if [ ! -f "$FAILURE_WRITTEN" ]; then
+          touch "$FAILURE_WRITTEN"
+          printf 'Error: Cannot find module ajv\\n' >> "$FAKE_DATA/successor.log"
+        fi
+        return 1
+      fi
+      echo '{"ok":true}'
+      return 0
+      ;;
+    *)
+      echo '{}'
+      return 0
+      ;;
+  esac
+}
+export -f curl
+
+export TORQUE_PID_FILE="$PID_FILE"
+export TORQUE_DATA_DIR="$FAKE_DATA"
+
+SCRIPT_BODY=$(tail -n +3 "${SCRIPT_PATH.replace(/\\/g, '/')}")
+eval "$SCRIPT_BODY" <<< ""
+
+rm -rf "$FAKE_ROOT"
+`;
+
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cutover-startup-failure-'));
+  const wrapperPath = path.join(tmpDir, 'startup-failure-cutover.sh');
+  fs.writeFileSync(wrapperPath, wrapper, { mode: 0o755 });
+
+  try {
+    const result = childProcess.spawnSync(BASH_EXECUTABLE, [wrapperPath, featureName], {
+      encoding: 'utf8',
+      timeout: 10000,
+      env: { ...process.env, TORQUE_COORD_LOCK_HELPER: LOCK_HELPER_PATH, ...env },
+      windowsHide: true,
+    });
+    return {
+      status: result.status,
+      stdout: result.stdout || '',
+      stderr: result.stderr || '',
+      error: result.error || null,
+    };
+  } finally {
+    try {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    } catch { /* cleanup best-effort */ }
+  }
+}
+
 describe('worktree-cutover.sh barrier integration', () => {
   const scriptSource = fs.readFileSync(SCRIPT_PATH, 'utf8');
 
@@ -543,8 +651,13 @@ describe('worktree-cutover.sh barrier integration', () => {
       expect(scriptSource).toContain('never showed PID turnover');
     });
 
-    it('falls back to manual start if server does not come back', () => {
-      expect(scriptSource).toContain('nohup node');
+    it('uses restart diagnostics and the repo launcher for manual recovery', () => {
+      expect(scriptSource).toContain('restart-exit.ndjson');
+      expect(scriptSource).toContain('successor.log');
+      expect(scriptSource).toContain('cutover_startup_failure_observed');
+      expect(scriptSource).toContain('print_cutover_restart_diagnostics');
+      expect(scriptSource).toContain('start-torque.ps1');
+      expect(scriptSource).toContain('TORQUE_STARTUP_TIMEOUT_SECONDS');
       expect(scriptSource).toContain('TORQUE started manually on updated main');
     });
 
@@ -677,6 +790,19 @@ describe('worktree-cutover.sh barrier integration', () => {
       expect(result.stdout).toContain('task read returned empty but TORQUE is reachable');
       expect(result.stdout).toContain('TORQUE stayed reachable but never showed PID turnover');
       expect(result.stdout).not.toContain('No matching restart handoff exists');
+    });
+  });
+
+  describe('simulated startup diagnostics', () => {
+    it('fails fast and prints successor logs when startup failure appears after handoff', () => {
+      const result = runStartupFailureDiagnosticSimulation('test-barrier-feature');
+
+      expect(result.error).toBeNull();
+      expect(result.status).toBe(2);
+      expect(result.stdout).toContain('TORQUE successor logged a startup failure');
+      expect(result.stdout).toContain('successor stderr/stdout');
+      expect(result.stdout).toContain('Cannot find module ajv');
+      expect(result.stdout).not.toContain('TORQUE did not come back up within');
     });
   });
 
