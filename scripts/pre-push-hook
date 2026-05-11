@@ -117,8 +117,10 @@ if [ -z "$local_head_sha" ]; then
   exit 1
 fi
 
+local_head_short="$(echo "$local_head_sha" | cut -c1-12)"
+
 if [ -n "$main_remote_sha" ] && [ "$main_remote_sha" = "$local_head_sha" ]; then
-  echo "[pre-push] Main is already at $(echo "$local_head_sha" | cut -c1-12); skipping gate."
+  echo "[pre-push] Main is already at $local_head_short; skipping gate."
   exit 0
 fi
 
@@ -270,6 +272,82 @@ cleanup_local_gate_dependency_links() {
   done
 }
 
+origin_main_matches_local_head() {
+  local current_remote_main
+  current_remote_main="$(git_cleanup_timeout ls-remote origin refs/heads/main 2>/dev/null | awk 'NR == 1 { print $1 }' || true)"
+  [ -n "$current_remote_main" ] && [ "$current_remote_main" = "$local_head_sha" ]
+}
+
+wait_for_matching_pre_push_gate() {
+  local lock_dir owner_file expected_purpose owner_purpose wait_secs poll_secs notice_secs deadline now next_notice
+
+  lock_dir="$(repo_coord_lock_path main)"
+  if [ ! -d "$lock_dir" ]; then
+    return 1
+  fi
+
+  owner_file="$lock_dir/owner.env"
+  expected_purpose="pre-push main gate: $local_head_short"
+  owner_purpose="$(repo_coord_lock_read_field "$owner_file" purpose)"
+  if [ "$owner_purpose" != "$expected_purpose" ]; then
+    return 1
+  fi
+
+  wait_secs="${PRE_PUSH_MATCHING_GATE_WAIT_SECS:-${TORQUE_COORD_LOCK_WAIT_SECS:-7200}}"
+  poll_secs="${TORQUE_COORD_LOCK_POLL_SECS:-5}"
+  notice_secs="${TORQUE_COORD_LOCK_NOTICE_SECS:-30}"
+  case "$wait_secs" in ''|*[!0-9]*) wait_secs=7200 ;; esac
+  case "$poll_secs" in ''|*[!0-9]*) poll_secs=5 ;; esac
+  case "$notice_secs" in ''|*[!0-9]*) notice_secs=30 ;; esac
+
+  echo "[pre-push] Another pre-push gate for $local_head_short is already running; waiting for its result."
+  deadline=$(( $(date +%s) + wait_secs ))
+  next_notice=0
+
+  while [ -d "$lock_dir" ]; do
+    if repo_coord_lock_reap_if_dead_owner "$lock_dir"; then
+      echo "[pre-push] Previous matching gate owner is gone; this push will run the gate."
+      return 1
+    fi
+    if repo_coord_lock_reap_if_stale "$lock_dir"; then
+      echo "[pre-push] Previous matching gate lease was stale; this push will run the gate."
+      return 1
+    fi
+
+    owner_file="$lock_dir/owner.env"
+    owner_purpose="$(repo_coord_lock_read_field "$owner_file" purpose)"
+    if [ "$owner_purpose" != "$expected_purpose" ]; then
+      echo "[pre-push] Main gate lease changed owner; this push will join the normal lock queue."
+      return 1
+    fi
+
+    if origin_main_matches_local_head; then
+      echo "[pre-push] Concurrent pre-push gate already updated origin/main to $local_head_short; skipping duplicate gate."
+      return 0
+    fi
+
+    now="$(date +%s)"
+    if [ "$now" -ge "$deadline" ]; then
+      echo "[pre-push] Timed out waiting for matching pre-push gate; this push will join the normal lock queue."
+      return 1
+    fi
+
+    if [ "$now" -ge "$next_notice" ]; then
+      echo "[pre-push] Waiting for active gate owner: $(repo_coord_lock_describe "$lock_dir")"
+      next_notice=$((now + notice_secs))
+    fi
+    sleep "$poll_secs"
+  done
+
+  if origin_main_matches_local_head; then
+    echo "[pre-push] Concurrent pre-push gate completed and origin/main is at $local_head_short; skipping duplicate gate."
+    return 0
+  fi
+
+  echo "[pre-push] Previous matching gate finished without updating origin/main; this push will run the gate."
+  return 1
+}
+
 coord_lock_env_reset_cmd() {
   printf '%s' 'env -u TORQUE_COORD_LOCK_ROOT -u TORQUE_COORD_LOCK_DIR -u TORQUE_COORD_LOCK_TOKEN -u TORQUE_COORD_LOCK_NAME -u TORQUE_COORD_LOCK_OWNER_BASHPID -u REPO_COORD_LOCK_DIR -u REPO_COORD_LOCK_TOKEN -u REPO_COORD_LOCK_NAME -u REPO_COORD_LOCK_REUSED -u REPO_COORD_LOCK_OWNER_BASHPID -u REPO_COORD_LOCK_FORCE_RELEASE'
 }
@@ -283,9 +361,18 @@ pre_push_cleanup() {
   exit "$rc"
 }
 
-local_head_short="$(echo "$local_head_sha" | cut -c1-12)"
+if wait_for_matching_pre_push_gate; then
+  exit 0
+fi
+
 repo_coord_lock_acquire "main" "pre-push main gate: $local_head_short"
 trap pre_push_cleanup EXIT
+
+if origin_main_matches_local_head; then
+  echo "[pre-push] Main reached $local_head_short while waiting for the gate lock; skipping duplicate gate."
+  exit 0
+fi
+
 cleanup_abandoned_staging_refs "$local_head_short"
 # vitest writes its summary with ANSI color codes even under `--reporter=dot`,
 # which causes `^[[:space:]]*Test Files` anchors to fail (the line begins with

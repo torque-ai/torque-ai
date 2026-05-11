@@ -248,11 +248,30 @@ printf '%b' "\\302\\267\\302\\267real failure line\\302\\267\\302\\267\\n" | pre
     const lockIdx = src.indexOf('repo_coord_lock_acquire "main" "pre-push main gate:');
     const plannerIdx = src.indexOf('scripts/pre-push-gate-plan.js');
     expect(src).toMatch(/main_remote_sha="\$remote_sha"/);
+    expect(src).toMatch(/local_head_short="\$\(echo "\$local_head_sha" \| cut -c1-12\)"/);
     expect(src).toMatch(/if \[ -n "\$main_remote_sha" \] && \[ "\$main_remote_sha" = "\$local_head_sha" \]; then/);
-    expect(src).toMatch(/Main is already at \$\(echo "\$local_head_sha" \| cut -c1-12\); skipping gate/);
+    expect(src).toMatch(/Main is already at \$local_head_short; skipping gate/);
     expect(skipIdx).toBeGreaterThan(-1);
     expect(lockIdx).toBeGreaterThan(skipIdx);
     expect(plannerIdx).toBeGreaterThan(skipIdx);
+  });
+
+  it('coalesces duplicate same-SHA main gate attempts before running another full gate', () => {
+    const src = readHook();
+    const coalesceIdx = src.indexOf('wait_for_matching_pre_push_gate');
+    const lockIdx = src.indexOf('repo_coord_lock_acquire "main" "pre-push main gate:');
+    const postLockRecheckIdx = src.indexOf('Main reached $local_head_short while waiting for the gate lock');
+
+    expect(src).toMatch(/origin_main_matches_local_head\s*\(\)/);
+    expect(src).toContain('Another pre-push gate for $local_head_short is already running; waiting for its result.');
+    expect(src).toContain('Concurrent pre-push gate already updated origin/main to $local_head_short; skipping duplicate gate.');
+    expect(src).toContain('Concurrent pre-push gate completed and origin/main is at $local_head_short; skipping duplicate gate.');
+    expect(src).toContain('Previous matching gate finished without updating origin/main; this push will run the gate.');
+    expect(src).toMatch(/if wait_for_matching_pre_push_gate; then\s+exit 0\s+fi/s);
+    expect(src).toMatch(/if origin_main_matches_local_head; then\s+echo "\[pre-push\] Main reached \$local_head_short while waiting for the gate lock; skipping duplicate gate\."\s+exit 0\s+fi/s);
+    expect(coalesceIdx).toBeGreaterThan(-1);
+    expect(lockIdx).toBeGreaterThan(coalesceIdx);
+    expect(postLockRecheckIdx).toBeGreaterThan(lockIdx);
   });
 
   it('serializes main gates with the shared coordination lock and cleans up on EXIT', () => {
