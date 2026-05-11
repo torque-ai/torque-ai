@@ -38,6 +38,7 @@ const RESTART_RESUBMIT_CAP = (() => {
   const parsed = Number.parseInt(process.env.TORQUE_RESTART_RESUBMIT_CAP || '', 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 6;
 })();
+const RESTART_RESUBMIT_CAP_SKIP_REASON = 'restart_resubmit_cap';
 
 function getDbHandle(db) {
   if (db && typeof db.getDbInstance === 'function') {
@@ -342,6 +343,10 @@ function getRestartResubmitCount(metadata) {
   return Number.isFinite(count) ? count : 0;
 }
 
+function isRestartCancelledTask(task) {
+  return task?.status === 'cancelled' && task?.cancel_reason === 'server_restart';
+}
+
 function isEligibleForClone(original, metadata, db, rawDb) {
   // Project being paused is the right gate for accepting NEW work, not
   // for preserving in-flight work that was already running when the
@@ -407,6 +412,23 @@ function patchOriginalMetadata(taskCore, rawDb, taskId, metadata) {
     taskId,
   );
   return result.changes > 0;
+}
+
+function markRestartResubmitCap({ original, metadata, restartCount, taskCore, rawDb }) {
+  const nextMetadata = {
+    ...metadata,
+    reconciler: 'startup',
+    restart_resubmit_count: restartCount,
+    restart_resubmit_skipped: RESTART_RESUBMIT_CAP_SKIP_REASON,
+  };
+  if (
+    metadata.reconciler === nextMetadata.reconciler
+    && metadata.restart_resubmit_count === nextMetadata.restart_resubmit_count
+    && metadata.restart_resubmit_skipped === nextMetadata.restart_resubmit_skipped
+  ) {
+    return false;
+  }
+  return patchOriginalMetadata(taskCore, rawDb, original.id, nextMetadata);
 }
 
 function failMissingWorkingDirectory({ original, metadata, taskCore, rawDb, logger }) {
@@ -643,6 +665,7 @@ function reconcileOrphanedTasksOnStartup({
     missing_workdir_failed: 0,
     re_adopted: 0,
     deduped: 0,
+    capped_terminal_marked: 0,
     errors: 0,
   };
 
@@ -715,6 +738,21 @@ function reconcileOrphanedTasksOnStartup({
         continue;
       }
 
+      const restartCount = getRestartResubmitCount(metadata);
+      if (isRestartCancelledTask(original) && restartCount >= RESTART_RESUBMIT_CAP) {
+        if (markRestartResubmitCap({ original, metadata, restartCount, taskCore, rawDb })) {
+          actions.capped_terminal_marked++;
+          safeLog(logger, 'debug', `Startup task reconciler marked capped restart-cancelled task terminal ${original.id}`, {
+            task_id: original.id,
+            restart_resubmit_count: restartCount,
+            cap: RESTART_RESUBMIT_CAP,
+          });
+        } else {
+          actions.skipped++;
+        }
+        continue;
+      }
+
       // Subprocess-detachment Phase C: a row carrying subprocess_pid +
       // log paths from the previous parent might still own a live
       // subprocess if it was spawned via spawnAndTrackProcessDetached.
@@ -775,9 +813,9 @@ function reconcileOrphanedTasksOnStartup({
         continue;
       }
 
-      const restartCount = getRestartResubmitCount(metadata);
       if (restartCount >= RESTART_RESUBMIT_CAP) {
         actions.capped++;
+        markRestartResubmitCap({ original, metadata, restartCount, taskCore, rawDb });
         safeLog(logger, 'warn', `Startup task reconciler skipped resubmit cap for ${original.id}`, {
           task_id: original.id,
           restart_resubmit_count: restartCount,
@@ -878,7 +916,8 @@ function reconcileOrphanedTasksOnStartup({
       || actions.completed_from_output > 0
       || actions.missing_workdir_failed > 0
       || actions.re_adopted > 0
-      || actions.deduped > 0,
+      || actions.deduped > 0
+      || actions.capped_terminal_marked > 0,
     actions,
   };
 }

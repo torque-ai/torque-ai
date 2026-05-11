@@ -14,6 +14,7 @@ let db;
 const { safeJsonParse } = require('../utils/json');
 const { enforceVersionIntentForProject } = require('../versioning/version-intent');
 const { executeScheduledTask } = require('../execution/schedule-runner');
+const { resolveDatabaseFacade } = require('./database-facade-resolver');
 const { v4: uuidv4 } = require('uuid');
 const DEFAULT_RUN_HISTORY_LIMIT = 10;
 const RUN_HISTORY_LOOKBACK_MINUTES = 10;
@@ -1192,19 +1193,13 @@ function runScheduledTaskNow(id, options = {}) {
 
   let runtimeDb = options.db;
   if (!runtimeDb) {
-    let databaseFacade = null;
     try {
-      const { defaultContainer } = require('../container');
-      databaseFacade = defaultContainer.get('db');
+      runtimeDb = resolveDatabaseFacade({
+        requiredMethods: ['createTask', 'markScheduledTaskRun'],
+        serviceName: 'scheduled task runner',
+      });
     } catch {
-      try {
-        databaseFacade = require('../database');
-      } catch {
-        databaseFacade = null;
-      }
-    }
-    if (databaseFacade?.createTask && databaseFacade?.markScheduledTaskRun) {
-      runtimeDb = databaseFacade;
+      runtimeDb = null;
     }
   }
 

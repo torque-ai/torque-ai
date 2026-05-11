@@ -629,7 +629,53 @@ describe('startup task reconciler', () => {
     expect(result.actions.cloned).toBe(0);
     expect(getTaskRow('task-capped').status).toBe('cancelled');
     expect(getTaskRow('task-capped').cancel_reason).toBe('server_restart');
+    expect(parseMetadata(getTaskRow('task-capped'))).toMatchObject({
+      restart_resubmit_skipped: 'restart_resubmit_cap',
+    });
     expect(cloneRowsFor('task-capped')).toHaveLength(0);
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('skipped resubmit cap'),
+      expect.objectContaining({ task_id: 'task-capped' }),
+    );
+  });
+
+  test('Already-cancelled capped restart task -> marked terminal and skipped quietly', () => {
+    insertTask({
+      id: 'task-capped-terminal',
+      status: 'cancelled',
+      cancel_reason: 'server_restart',
+      metadata: {
+        auto_resubmit_on_restart: true,
+        restart_resubmit_count: 6,
+      },
+    });
+
+    const first = runReconciler();
+
+    expect(first.reconciled).toBe(true);
+    expect(first.actions.cancelled).toBe(0);
+    expect(first.actions.capped).toBe(0);
+    expect(first.actions.capped_terminal_marked).toBe(1);
+    expect(first.actions.cloned).toBe(0);
+    expect(cloneRowsFor('task-capped-terminal')).toHaveLength(0);
+    expect(parseMetadata(getTaskRow('task-capped-terminal'))).toMatchObject({
+      restart_resubmit_count: 6,
+      restart_resubmit_skipped: 'restart_resubmit_cap',
+    });
+    expect(logger.warn).not.toHaveBeenCalledWith(
+      expect.stringContaining('skipped resubmit cap'),
+      expect.anything(),
+    );
+
+    logger.warn.mockClear();
+    const second = runReconciler();
+
+    expect(second.reconciled).toBe(false);
+    expect(second.actions.cancelled).toBe(0);
+    expect(second.actions.capped_terminal_marked).toBe(0);
+    expect(second.actions.cloned).toBe(0);
+    expect(second.actions.skipped).toBe(1);
+    expect(logger.warn).not.toHaveBeenCalled();
   });
 
   test('Resubmit count below cap -> still cloned (regression: 3 used to cap)', () => {

@@ -1,5 +1,7 @@
 'use strict';
 
+const { resolveContainerDbService, unwrapDbHandle } = require('../../utils/db-accessor');
+
 const TABLE_SQL = `
   CREATE TABLE IF NOT EXISTS provider_model_scores (
     provider TEXT NOT NULL,
@@ -27,11 +29,17 @@ let currentDb = null;
 let tableReady = false;
 
 function resolveDbHandle(candidate) {
-  if (!candidate) return null;
-  if (typeof candidate.prepare === 'function' && typeof candidate.exec === 'function') return candidate;
-  if (typeof candidate.getDbInstance === 'function') return resolveDbHandle(candidate.getDbInstance());
-  if (typeof candidate.getDb === 'function') return resolveDbHandle(candidate.getDb());
-  return null;
+  const handle = unwrapDbHandle(candidate);
+  return handle && typeof handle.exec === 'function' ? handle : null;
+}
+
+function resolveRegisteredDbHandle() {
+  try {
+    const { defaultContainer } = require('../../container');
+    return resolveDbHandle(resolveContainerDbService(defaultContainer));
+  } catch {
+    return null;
+  }
 }
 
 function validateDb(db) {
@@ -67,14 +75,7 @@ function ensureColumns() {
 
 function ensureInitialized() {
   if (!currentDb) {
-    let database;
-    try {
-      const { defaultContainer } = require('../../container');
-      database = defaultContainer.get('db');
-    } catch {
-      database = require('../../database');
-    }
-    currentDb = resolveDbHandle(database);
+    currentDb = resolveRegisteredDbHandle();
   }
   validateDb(currentDb);
   if (!tableReady) {
@@ -91,7 +92,11 @@ function init(db) {
 }
 
 function setDb(db) {
-  init(db);
+  currentDb = resolveDbHandle(db);
+  tableReady = false;
+  if (db !== null && db !== undefined) {
+    ensureInitialized();
+  }
 }
 
 function getDb() {
