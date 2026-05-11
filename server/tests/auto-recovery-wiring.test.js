@@ -19,7 +19,7 @@ describe('auto-recovery wiring', () => {
     const src = fs.readFileSync(path.join(__dirname, '..', 'index.js'), 'utf8');
     const classifierIndex = src.indexOf("defaultContainer.registerValue('pluginClassifierRules'");
     const strategyIndex = src.indexOf("defaultContainer.registerValue('pluginRecoveryStrategies'");
-    const bootIndex = src.indexOf('defaultContainer.boot()');
+    const bootIndex = src.indexOf('defaultContainer.boot();');
 
     expect(classifierIndex).toBeGreaterThan(-1);
     expect(strategyIndex).toBeGreaterThan(-1);

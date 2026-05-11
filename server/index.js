@@ -1253,6 +1253,45 @@ function init() {
     defaultContainer.registerValue('dashboardAdminRoutes', dashboardAdminRoutes);
   }
 
+  // Load plugin descriptors before any DI boot path. taskManager.initSubModules()
+  // may boot the container in degraded mode, so plugin-provided classifier and
+  // recovery registries must be registered before that call, not only before the
+  // explicit defaultContainer.boot() below.
+  const {
+    mergeExtraPluginNames,
+    wirePluginEventHandlers,
+    installPluginsWithUnloadOnError,
+    validatePluginConfigSchemas,
+    getAllClassifierRules,
+    getAllRecoveryStrategies,
+    uninstallAllPlugins,
+    applyPluginMigrations,
+  } = require('./plugins/boot-helpers');
+  const extraPluginNames = mergeExtraPluginNames(DEFAULT_PLUGIN_NAMES);
+  if (extraPluginNames.length > 0) {
+    logger.info(`[plugin-loader] TORQUE_EXTRA_PLUGINS adds: ${extraPluginNames.join(', ')}`);
+  }
+  const loadedPlugins = [];
+  try {
+    const { loadPlugins } = require('./plugins/loader');
+    loadedPlugins.push(...loadPlugins({
+      plugins: [...DEFAULT_PLUGIN_NAMES, ...extraPluginNames],
+      authMode: runtimeMode,
+      logger,
+    }));
+  } catch (err) {
+    debugLog('Plugin loading failed before DI boot: ' + err.message);
+  }
+  if (!defaultContainer.has('loadedPlugins')) {
+    defaultContainer.registerValue('loadedPlugins', loadedPlugins);
+  }
+  if (!defaultContainer.has('pluginClassifierRules')) {
+    defaultContainer.registerValue('pluginClassifierRules', getAllClassifierRules(loadedPlugins));
+  }
+  if (!defaultContainer.has('pluginRecoveryStrategies')) {
+    defaultContainer.registerValue('pluginRecoveryStrategies', getAllRecoveryStrategies(loadedPlugins));
+  }
+
   // Initialize task-manager early deps (provider registry, config) now that DB is ready.
   // initSubModules() wires the extracted module graph; must run before queue processing.
   taskManager.initEarlyDeps();
@@ -1295,45 +1334,6 @@ function init() {
     logger.info('Slot-pull scheduler active');
   } else if (typeof slotPullScheduler.stopHeartbeat === 'function') {
     slotPullScheduler.stopHeartbeat();
-  }
-
-  // Load plugin descriptors before DI boot so plugin-provided classifier and
-  // recovery registries are available to boot-time services such as
-  // autoRecoveryEngine. Installation still runs after boot because plugins may
-  // need fully constructed container services.
-  const {
-    mergeExtraPluginNames,
-    wirePluginEventHandlers,
-    installPluginsWithUnloadOnError,
-    validatePluginConfigSchemas,
-    getAllClassifierRules,
-    getAllRecoveryStrategies,
-    uninstallAllPlugins,
-    applyPluginMigrations,
-  } = require('./plugins/boot-helpers');
-  const extraPluginNames = mergeExtraPluginNames(DEFAULT_PLUGIN_NAMES);
-  if (extraPluginNames.length > 0) {
-    logger.info(`[plugin-loader] TORQUE_EXTRA_PLUGINS adds: ${extraPluginNames.join(', ')}`);
-  }
-  const loadedPlugins = [];
-  try {
-    const { loadPlugins } = require('./plugins/loader');
-    loadedPlugins.push(...loadPlugins({
-      plugins: [...DEFAULT_PLUGIN_NAMES, ...extraPluginNames],
-      authMode: runtimeMode,
-      logger,
-    }));
-  } catch (err) {
-    debugLog('Plugin loading failed before DI boot: ' + err.message);
-  }
-  if (!defaultContainer.has('loadedPlugins')) {
-    defaultContainer.registerValue('loadedPlugins', loadedPlugins);
-  }
-  if (!defaultContainer.has('pluginClassifierRules')) {
-    defaultContainer.registerValue('pluginClassifierRules', getAllClassifierRules(loadedPlugins));
-  }
-  if (!defaultContainer.has('pluginRecoveryStrategies')) {
-    defaultContainer.registerValue('pluginRecoveryStrategies', getAllRecoveryStrategies(loadedPlugins));
   }
 
   // Boot the DI container — makes registered services available via container.get()
