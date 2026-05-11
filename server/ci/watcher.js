@@ -7,6 +7,7 @@ const { randomUUID } = require('crypto');
 const GitHubActionsProvider = require('./github-actions');
 const { diagnoseFailures } = require('./diagnostics');
 const { defaultContainer } = require('../container');
+const { resolveContainerDbService, unwrapDbHandle } = require('../utils/db-accessor');
 const ciCache = require('../db/ci-cache');
 
 // Lazy require to break circular dependency: mcp-sse → tools → ci-handlers → watcher → mcp-sse
@@ -18,23 +19,18 @@ function getMcpSse() {
 
 const _activeTimers = new Map();
 const MAX_WATCHES = 10;
+let _dbService = null;
+
+function init(deps = {}) {
+  if (Object.prototype.hasOwnProperty.call(deps, 'db')) {
+    _dbService = deps.db;
+  }
+  return module.exports;
+}
 
 function _getDb() {
-  let dbService = null;
-  try {
-    dbService = defaultContainer.get('db');
-  } catch {
-    dbService = require('../database');
-  }
-
-  if (dbService && typeof dbService.getDbInstance === 'function') {
-    return dbService.getDbInstance();
-  }
-
-  if (dbService && typeof dbService.getDb === 'function') {
-    return dbService.getDb();
-  }
-
+  const db = unwrapDbHandle(_dbService) || unwrapDbHandle(resolveContainerDbService(defaultContainer));
+  if (db && typeof db.prepare === 'function') return db;
   throw new Error('Database handle is not available');
 }
 
@@ -516,6 +512,7 @@ function autoActivateForRepo(workingDirectory) {
 module.exports = {
   _activeTimers,
   MAX_WATCHES,
+  init,
   watchRepo,
   stopWatch,
   shutdownAll,

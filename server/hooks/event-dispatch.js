@@ -17,22 +17,19 @@ const { EventEmitter } = require('events');
 const { defaultContainer } = require('../container');
 const serverConfig = require('../config');
 const logger = require('../logger').child({ component: 'event-dispatch' });
+const { resolveContainerDbService, unwrapDbHandle } = require('../utils/db-accessor');
+
+let _dbService = null;
+
+function init(deps = {}) {
+  if (Object.prototype.hasOwnProperty.call(deps, 'db')) {
+    _dbService = deps.db;
+  }
+  return module.exports;
+}
 
 function getRawDb() {
-  let dbService = null;
-  try {
-    dbService = defaultContainer.get('db');
-  } catch {
-    dbService = require('../database');
-  }
-
-  if (dbService && typeof dbService.getDbInstance === 'function') {
-    return dbService.getDbInstance();
-  }
-  if (dbService && typeof dbService.getDb === 'function') {
-    return dbService.getDb();
-  }
-  return dbService || null;
+  return unwrapDbHandle(_dbService) || unwrapDbHandle(resolveContainerDbService(defaultContainer));
 }
 
 /**
@@ -428,6 +425,7 @@ function createEventDispatch() {
   return {
     TERMINAL_EVENTS,
     NOTABLE_EVENTS,
+    init,
     persistTaskEvent,
     dispatchTaskEvent,
     taskEvents,
@@ -441,6 +439,7 @@ function createEventDispatch() {
 module.exports = {
   TERMINAL_EVENTS,
   NOTABLE_EVENTS,
+  init,
   persistTaskEvent,
   dispatchTaskEvent,
   taskEvents,

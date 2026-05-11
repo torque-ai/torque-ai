@@ -23,6 +23,11 @@ let db;
 
 beforeAll(() => {
   db = require('./helpers/database-facade');
+  eventDispatch.init({ db });
+});
+
+afterAll(() => {
+  eventDispatch.init({ db: null });
 });
 
 // ──────────────────────────────────────────────────────────────

@@ -2,7 +2,8 @@
 
 const { randomUUID } = require('crypto');
 const { setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
-const { listEvents } = require('../events/event-emitter');
+const eventEmitter = require('../events/event-emitter');
+const { listEvents } = eventEmitter;
 
 let db;
 let testDir;
@@ -11,9 +12,13 @@ beforeAll(() => {
   const setup = setupTestDbOnly('event-replay');
   db = setup.db;
   testDir = setup.testDir;
+  eventEmitter.init({ db });
 });
 
-afterAll(() => teardownTestDb());
+afterAll(() => {
+  eventEmitter.init({ db: null });
+  teardownTestDb();
+});
 
 describe('event log captures full task lifecycle', () => {
   it('emits create + queued + running + completed for a happy-path task', () => {

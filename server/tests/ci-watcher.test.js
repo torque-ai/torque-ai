@@ -8,6 +8,7 @@ const {
   stopWatch,
   shutdownAll,
   getActiveWatches,
+  init: initCiWatcher,
 } = require('../ci/watcher');
 const mcpSse = require('../mcp/sse');
 
@@ -15,7 +16,8 @@ describe('ci watcher', () => {
   let originalPushNotification;
 
   beforeEach(() => {
-    setupTestDbOnly('ci-watcher');
+    const { db } = setupTestDbOnly('ci-watcher');
+    initCiWatcher({ db });
     vi.useFakeTimers();
     originalPushNotification = mcpSse.pushNotification;
     mcpSse.pushNotification = vi.fn();
@@ -24,6 +26,7 @@ describe('ci watcher', () => {
   afterEach(() => {
     vi.useRealTimers();
     shutdownAll();
+    initCiWatcher({ db: null });
     teardownTestDb();
     mcpSse.pushNotification = originalPushNotification;
   });

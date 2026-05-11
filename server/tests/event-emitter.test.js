@@ -3,13 +3,19 @@
 const { setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
 
 let db;
+let eventEmitter;
 
 beforeAll(() => {
   const setup = setupTestDbOnly('events');
   db = setup.db.getDbInstance();
+  eventEmitter = require('../events/event-emitter');
+  eventEmitter.init({ db: setup.db });
 });
 
-afterAll(() => teardownTestDb());
+afterAll(() => {
+  if (eventEmitter) eventEmitter.init({ db: null });
+  teardownTestDb();
+});
 
 beforeEach(() => {
   db.prepare('DELETE FROM task_events').run();
