@@ -3,23 +3,23 @@
 const { EVENT_TYPES } = require('./event-types');
 const eventBus = require('../event-bus');
 const logger = require('../logger').child({ component: 'event-emitter' });
+const { defaultContainer } = require('../container');
+const { resolveContainerDbService, unwrapDbHandle } = require('../utils/db-accessor');
 
 const KNOWN_TYPES = new Set(Object.values(EVENT_TYPES));
 const MAX_PAYLOAD_BYTES = 100000;
 const STRING_TRUNCATE_LENGTH = 4000;
+let _dbService = null;
 
-function resolveFacade() {
-  try {
-    const { defaultContainer } = require('../container');
-    return defaultContainer.get('db');
-  } catch {
-    return require('../database');
+function init(deps = {}) {
+  if (Object.prototype.hasOwnProperty.call(deps, 'db')) {
+    _dbService = deps.db;
   }
+  return module.exports;
 }
 
 function getDb() {
-  const facade = resolveFacade();
-  const db = typeof facade.getDbInstance === 'function' ? facade.getDbInstance() : facade;
+  const db = unwrapDbHandle(_dbService) || unwrapDbHandle(resolveContainerDbService(defaultContainer));
   if (!db || typeof db.prepare !== 'function') {
     throw new Error('Database is not initialized');
   }
@@ -159,4 +159,4 @@ function listEvents({ task_id = null, workflow_id = null, type = null, since = n
   }));
 }
 
-module.exports = { emitTaskEvent, listEvents };
+module.exports = { init, emitTaskEvent, listEvents };
