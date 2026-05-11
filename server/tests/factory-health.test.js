@@ -1,35 +1,77 @@
-import { afterEach, beforeEach, describe, expect, it, test } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, test, vi } from 'vitest';
 
 const path = require('path');
 const Database = require('better-sqlite3');
 const { setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
 const factoryHealth = require('../db/factory/health');
 
+let database;
 let testDir;
+
+function primeModuleCache(modulePath, exportsValue) {
+  const resolved = require.resolve(modulePath);
+  delete require.cache[resolved];
+  require.cache[resolved] = {
+    id: resolved,
+    filename: resolved,
+    loaded: true,
+    exports: exportsValue,
+  };
+}
 
 describe('factory health database handle', () => {
   beforeEach(() => {
-    ({ testDir } = setupTestDbOnly(`factory-health-${Date.now()}`));
+    ({ db: database, testDir } = setupTestDbOnly(`factory-health-${Date.now()}`));
   });
 
   afterEach(() => {
     factoryHealth.setDb(null);
+    database = null;
+    delete require.cache[require.resolve('../container')];
     teardownTestDb();
   });
 
-  test('falls back to the active database module when its module handle is cleared', () => {
+  test('uses the registered container database when its module handle is cleared before boot', () => {
     factoryHealth.setDb(null);
+    const defaultContainer = {
+      peek: vi.fn((name) => (name === 'db' ? database : undefined)),
+      has: vi.fn(() => false),
+      get: vi.fn(() => {
+        throw new Error('defaultContainer.get called before boot()');
+      }),
+    };
+    primeModuleCache('../container', { defaultContainer });
 
     const project = factoryHealth.registerProject({
-      name: 'Fallback DB',
+      name: 'Container DB',
       path: path.join(testDir, 'repo'),
       trust_level: 'supervised',
     });
 
     expect(factoryHealth.getProject(project.id)).toMatchObject({
       id: project.id,
-      name: 'Fallback DB',
+      name: 'Container DB',
     });
+    expect(defaultContainer.peek).toHaveBeenCalledWith('db');
+    expect(defaultContainer.get).not.toHaveBeenCalled();
+  });
+
+  test('does not fall back to the active database module when DI is unavailable', () => {
+    factoryHealth.setDb(null);
+    const defaultContainer = {
+      peek: vi.fn(() => undefined),
+      has: vi.fn(() => false),
+      get: vi.fn(() => {
+        throw new Error('defaultContainer.get called before boot()');
+      }),
+    };
+    primeModuleCache('../container', { defaultContainer });
+
+    expect(() => factoryHealth.registerProject({
+      name: 'No DI DB',
+      path: path.join(testDir, 'repo'),
+      trust_level: 'supervised',
+    })).toThrow('Factory health requires an active database connection');
   });
 });
 

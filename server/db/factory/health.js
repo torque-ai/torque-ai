@@ -3,6 +3,7 @@
 const nodePath = require('path');
 const { v4: uuidv4 } = require('uuid');
 const { validatePolicy, mergeWithDefaults } = require('../../factory/policy-engine');
+const { resolveDbHandle, resolveContainerDbHandle } = require('../db-handle-resolver');
 
 const VALID_TRUST_LEVELS = new Set(['supervised', 'guided', 'autonomous', 'dark']);
 const VALID_STATUSES = new Set(['paused', 'running', 'idle']);
@@ -23,45 +24,8 @@ function setDb(dbInstance) {
   db = dbInstance;
 }
 
-function resolveDbHandle(candidate) {
-  if (!candidate) {
-    return null;
-  }
-  if (typeof candidate.prepare === 'function') {
-    return candidate;
-  }
-  if (typeof candidate.getDbInstance === 'function') {
-    return candidate.getDbInstance();
-  }
-  if (typeof candidate.getDb === 'function') {
-    return candidate.getDb();
-  }
-  return null;
-}
-
 function getDb() {
-  let instance = resolveDbHandle(db);
-  if (!instance) {
-    try {
-      const { defaultContainer } = require('../../container');
-      if (defaultContainer && typeof defaultContainer.has === 'function' && defaultContainer.has('db')) {
-        instance = resolveDbHandle(defaultContainer.get('db'));
-      }
-    } catch {
-      // Fall through to database.js below.
-    }
-  }
-  // Legacy fallback retained because tests/factory-health.test.js explicitly
-  // verifies fallback behavior when setDb(null) is called and the DI
-  // container hasn't been wired (the "module handle cleared" path).
-  if (!instance) {
-    try {
-      const database = require('../../database');
-      instance = resolveDbHandle(database);
-    } catch {
-      // Let the explicit error below surface if no active DB is available.
-    }
-  }
+  const instance = resolveDbHandle(db) || resolveContainerDbHandle();
 
   if (instance) {
     db = instance;

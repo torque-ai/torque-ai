@@ -36,11 +36,17 @@ describe('factory worktrees DI database resolution', () => {
     delete require.cache[require.resolve('../db/factory/worktrees')];
   });
 
-  it('prefers the DI container database over the legacy facade fallback', () => {
+  it('prefers the DI container database over the legacy facade', () => {
     const containerDb = createDbHandle();
     const legacyDb = createDbHandle();
     const legacyFacade = { getDbInstance: vi.fn(() => legacyDb) };
     const defaultContainer = {
+      peek: vi.fn((name) => {
+        if (name === 'db') {
+          return containerDb;
+        }
+        return undefined;
+      }),
       has: vi.fn((name) => name === 'db'),
       get: vi.fn((name) => {
         if (name === 'db') {
@@ -58,16 +64,17 @@ describe('factory worktrees DI database resolution', () => {
     expect(worktrees.listActiveWorktrees()).toEqual([]);
     expect(containerDb.prepare).toHaveBeenCalledWith(expect.stringContaining('FROM factory_worktrees'));
     expect(containerDb.statement.all).toHaveBeenCalledTimes(1);
-    expect(defaultContainer.has).toHaveBeenCalledWith('db');
-    expect(defaultContainer.get).toHaveBeenCalledWith('db');
+    expect(defaultContainer.peek).toHaveBeenCalledWith('db');
+    expect(defaultContainer.get).not.toHaveBeenCalled();
     expect(legacyFacade.getDbInstance).not.toHaveBeenCalled();
     expect(legacyDb.prepare).not.toHaveBeenCalled();
   });
 
-  it('keeps the legacy facade fallback when the container is not booted', () => {
+  it('does not use the legacy facade when the container has no db value', () => {
     const legacyDb = createDbHandle();
     const legacyFacade = { getDbInstance: vi.fn(() => legacyDb) };
     const defaultContainer = {
+      peek: vi.fn(() => undefined),
       has: vi.fn(() => false),
       get: vi.fn(() => {
         throw new Error('defaultContainer.get called before boot()');
@@ -79,11 +86,11 @@ describe('factory worktrees DI database resolution', () => {
 
     const worktrees = loadWorktrees();
 
-    expect(worktrees.listActiveWorktrees()).toEqual([]);
+    expect(() => worktrees.listActiveWorktrees()).toThrow('Factory worktrees requires an active database connection');
+    expect(defaultContainer.peek).toHaveBeenCalledWith('db');
     expect(defaultContainer.has).toHaveBeenCalledWith('db');
     expect(defaultContainer.get).not.toHaveBeenCalled();
-    expect(legacyFacade.getDbInstance).toHaveBeenCalledTimes(1);
-    expect(legacyDb.prepare).toHaveBeenCalledWith(expect.stringContaining('FROM factory_worktrees'));
-    expect(legacyDb.statement.all).toHaveBeenCalledTimes(1);
+    expect(legacyFacade.getDbInstance).not.toHaveBeenCalled();
+    expect(legacyDb.prepare).not.toHaveBeenCalled();
   });
 });

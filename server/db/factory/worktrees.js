@@ -1,5 +1,7 @@
 'use strict';
 
+const { resolveDbHandle, resolveContainerDbHandle } = require('../db-handle-resolver');
+
 let db = null;
 const tableColumnCache = new Map();
 
@@ -8,42 +10,8 @@ function setDb(dbInstance) {
   tableColumnCache.clear();
 }
 
-function resolveDbHandle(candidate) {
-  if (!candidate) {
-    return null;
-  }
-  if (typeof candidate.prepare === 'function') {
-    return candidate;
-  }
-  if (typeof candidate.getDbInstance === 'function') {
-    return candidate.getDbInstance();
-  }
-  if (typeof candidate.getDb === 'function') {
-    return candidate.getDb();
-  }
-  return null;
-}
-
 function getDb() {
-  let instance = resolveDbHandle(db);
-  if (!instance) {
-    try {
-      const { defaultContainer } = require('../../container');
-      if (defaultContainer && typeof defaultContainer.has === 'function' && defaultContainer.has('db')) {
-        instance = resolveDbHandle(defaultContainer.get('db'));
-      }
-    } catch {
-      // Fall through to the database.js fallback below.
-    }
-  }
-  if (!instance) {
-    try {
-      const database = require('../../database');
-      instance = resolveDbHandle(database);
-    } catch {
-      // Let the explicit error below surface if no active DB is available.
-    }
-  }
+  const instance = resolveDbHandle(db) || resolveContainerDbHandle();
 
   if (instance) {
     db = instance;
