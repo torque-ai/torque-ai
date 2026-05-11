@@ -3,6 +3,7 @@
 const fs = require('fs');
 const path = require('path');
 const workflowHandlers = require('../handlers/workflow');
+const { resolveDatabaseFacade } = require('../db/database-facade-resolver');
 const logger = require('../logger').child({ component: 'runs-replay' });
 
 function replayWorkflow(bundleDir) {
@@ -79,17 +80,8 @@ function readTaskSnapshots(tasksDir) {
   return taskById;
 }
 
-function resolveDatabaseFacade() {
-  try {
-    const { defaultContainer } = require('../container');
-    return defaultContainer.get('db');
-  } catch {
-    return require('../database');
-  }
-}
-
 function buildReplayTasks(taskById) {
-  const db = resolveDatabaseFacade();
+  const db = resolveReplayDatabaseFacade();
   const depsByTask = {};
 
   for (const taskId of Object.keys(taskById)) {
@@ -116,6 +108,13 @@ function buildReplayTasks(taskById) {
   });
 }
 
+function resolveReplayDatabaseFacade() {
+  return resolveDatabaseFacade({
+    requiredMethods: ['getTaskDependencies'],
+    serviceName: 'Run replay',
+  });
+}
+
 function normalizeReplayTags(tags) {
   if (!Array.isArray(tags)) return [];
   return tags
@@ -128,4 +127,4 @@ function extractWorkflowId(result) {
   return text.match(/([a-f0-9-]{36})/)?.[1] || null;
 }
 
-module.exports = { replayWorkflow };
+module.exports = { replayWorkflow, resolveReplayDatabaseFacade };

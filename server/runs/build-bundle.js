@@ -2,14 +2,7 @@
 
 const fs = require('fs');
 const path = require('path');
-function resolveDb() {
-  try {
-    const { defaultContainer } = require('../container');
-    return defaultContainer.get('db');
-  } catch {
-    return require('../database');
-  }
-}
+const { resolveDatabaseFacade } = require('../db/database-facade-resolver');
 const { getDataDir } = require('../data-dir');
 const logger = require('../logger').child({ component: 'runs' });
 
@@ -24,14 +17,15 @@ const FALLBACK_BUNDLE_DIR_NAME = 'workflow-bundles';
  */
 function buildBundle(workflowId, opts = {}) {
   const normalizedWorkflowId = normalizePathSegment(workflowId, 'workflowId');
-  const workflow = resolveDb().getWorkflow(normalizedWorkflowId);
+  const database = resolveRunsDatabaseFacade();
+  const workflow = database.getWorkflow(normalizedWorkflowId);
   if (!workflow) return null;
 
   const bundleDir = resolveBundleDir(workflow, normalizedWorkflowId, opts);
   const tasksDir = path.join(bundleDir, 'tasks');
   fs.mkdirSync(tasksDir, { recursive: true });
 
-  const tasks = resolveDb().getWorkflowTasks(normalizedWorkflowId) || [];
+  const tasks = database.getWorkflowTasks(normalizedWorkflowId) || [];
   const manifest = buildManifest(workflow, tasks);
   fs.writeFileSync(path.join(bundleDir, 'manifest.json'), JSON.stringify(manifest, null, 2));
 
@@ -148,8 +142,8 @@ function buildTaskSnapshot(task) {
 
 function writeRetroIfAvailable(workflowId, manifest, bundleDir) {
   try {
-    if (typeof resolveDb().getRetroByWorkflow !== 'function') return;
-    const retro = resolveDb().getRetroByWorkflow(workflowId);
+    const database = resolveRunsDatabaseFacade(['getRetroByWorkflow']);
+    const retro = database.getRetroByWorkflow(workflowId);
     if (!retro) return;
 
     const narrative = parseObjectColumn(retro.narrative);
@@ -168,6 +162,13 @@ function writeRetroIfAvailable(workflowId, manifest, bundleDir) {
   } catch {
     // Retros are optional and should not block bundle creation.
   }
+}
+
+function resolveRunsDatabaseFacade(requiredMethods = ['getWorkflow', 'getWorkflowTasks']) {
+  return resolveDatabaseFacade({
+    requiredMethods,
+    serviceName: 'Run bundle builder',
+  });
 }
 
 function parseArrayColumn(value) {
@@ -202,4 +203,4 @@ function normalizePathSegment(value, label) {
   return normalized;
 }
 
-module.exports = { buildBundle, resolveBundleDir, FALLBACK_BUNDLE_DIR_NAME };
+module.exports = { buildBundle, resolveBundleDir, resolveRunsDatabaseFacade, FALLBACK_BUNDLE_DIR_NAME };
