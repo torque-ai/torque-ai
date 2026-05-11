@@ -103,9 +103,16 @@ function createGatewayMocks() {
     pollSubscriptionAfterCursor: vi.fn(() => ({ events: [], expired: false })),
     cleanupEventData: vi.fn(),
   };
-  state.containerDb = null;
+  state.containerDb = state.database;
   state.container = {
     defaultContainer: {
+      peek: vi.fn((name) => {
+        if (name === 'db' && state.containerDb) {
+          return state.containerDb;
+        }
+        return undefined;
+      }),
+      has: vi.fn((name) => name === 'db' && Boolean(state.containerDb)),
       get: vi.fn((name) => {
         if (name === 'db' && state.containerDb) {
           return state.containerDb;
@@ -930,7 +937,7 @@ describe('mcp gateway http transport', () => {
         event_types: ['status_change'],
       },
     });
-    expect(mocks.container.defaultContainer.get).toHaveBeenCalledWith('db');
+    expect(mocks.container.defaultContainer.peek).toHaveBeenCalledWith('db');
     expect(mocks.containerDb.createEventSubscription).toHaveBeenCalledWith(
       'task-di',
       ['status_change'],

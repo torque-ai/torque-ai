@@ -5,9 +5,9 @@ const { handleToolCall } = require('../tools');
 const { listTools } = require('./catalog-v1');
 const { filterToolsBrief, filterToolsFull } = require('./tool-list-modes');
 const schemaRegistry = require('./schema-registry');
-const { defaultContainer } = require('../container');
 const serverConfig = require('../config');
 const telemetry = require('./telemetry');
+const { resolveDatabaseFacade: resolveRegisteredDatabaseFacade } = require('../db/database-facade-resolver');
 const { createCorrelationId, okEnvelope, errorEnvelope } = require('./envelope');
 const logger = require('../logger').child({ component: 'mcp-gateway' });
 const { v4: uuidv4 } = require('uuid');
@@ -193,26 +193,15 @@ const rateLimitBuckets = new Map();
 
 logger.warn('MCP Gateway transport is deprecated — use SSE transport (port 3458) instead. Gateway will be removed in a future release.');
 
-function resolveDatabaseFacade(functionName) {
-  try {
-    const dbService = defaultContainer.get('db');
-    if (dbService && typeof dbService[functionName] === 'function') {
-      return dbService;
-    }
-  } catch {
-    // Pre-boot tests and standalone requires fall back to the legacy facade.
-  }
-
-  const database = require('../database');
-  if (database && typeof database[functionName] === 'function') {
-    return database;
-  }
-
-  throw new Error(`Database facade function is unavailable: ${functionName}`);
+function resolveMcpDatabaseFacade(functionName) {
+  return resolveRegisteredDatabaseFacade({
+    requiredMethods: [functionName],
+    serviceName: `MCP gateway database facade (${functionName})`,
+  });
 }
 
 function callDatabase(functionName, ...args) {
-  const database = resolveDatabaseFacade(functionName);
+  const database = resolveMcpDatabaseFacade(functionName);
   return database[functionName](...args);
 }
 

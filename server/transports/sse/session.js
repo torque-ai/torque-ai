@@ -11,6 +11,7 @@
 const { defaultContainer } = require('../../container');
 const workflowEngine = require('../../db/workflow-engine');
 const serverConfig = require('../../config');
+const { resolveContainerDbService, unwrapDbHandle } = require('../../utils/db-accessor');
 const logger = require('../../logger').child({ component: 'mcp-sse:session' });
 
 // ──────────────────────────────────────────────────────────────
@@ -93,19 +94,7 @@ function clearTrackedInterval(timer) {
 }
 
 function getRawDb() {
-  let dbService = null;
-  try {
-    dbService = defaultContainer.get('db');
-  } catch {
-    dbService = require('../../database');
-  }
-  if (dbService && typeof dbService.getDbInstance === 'function') {
-    return dbService.getDbInstance();
-  }
-  if (dbService && typeof dbService.getDb === 'function') {
-    return dbService.getDb();
-  }
-  return dbService || null;
+  return unwrapDbHandle(resolveContainerDbService(defaultContainer));
 }
 
 // ──────────────────────────────────────────────────────────────

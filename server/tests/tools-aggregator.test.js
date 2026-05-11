@@ -63,6 +63,9 @@ function createToolsSubject(options = {}) {
     listTasks: vi.fn(() => []),
     ...(options.database || {}),
   };
+  const databaseFacadeResolver = options.databaseFacadeResolver || {
+    resolveDatabaseFacade: vi.fn(() => database),
+  };
 
   const realToolRegistry = REQUIRE_FROM_TOOLS('./tool-metadata');
   const stubbedToolRegistry = {
@@ -76,6 +79,7 @@ function createToolsSubject(options = {}) {
     './utils/logger': collisionLogger,
     './task-manager': taskManager,
     './database': database,
+    './db/database-facade-resolver': databaseFacadeResolver,
     './tool-metadata': stubbedToolRegistry,
   };
 
@@ -132,6 +136,7 @@ module.exports.__testHelpers = {
     hooks,
     taskManager,
     database,
+    databaseFacadeResolver,
   };
 }
 
@@ -673,13 +678,16 @@ describe('tools.js aggregator source-loader', () => {
       });
     });
 
-    it('dispatches plugin-provided tools via the lazy-loaded plugin handler registry using the container db when available', async () => {
+    it('dispatches plugin-provided tools via the lazy-loaded plugin handler registry using the resolved database facade', async () => {
       const pluginHandler = vi.fn(async (args) => ({ plugin: true, args }));
       const createHandlers = vi.fn(() => ({ register_remote_agent: pluginHandler }));
       const mockRegistry = { listAgents: vi.fn() };
-      const containerDb = { listTasks: vi.fn(() => ['from-container']) };
-      const get = vi.fn(() => containerDb);
+      const resolvedDb = { listTasks: vi.fn(() => ['from-container']) };
+      const databaseFacadeResolver = {
+        resolveDatabaseFacade: vi.fn(() => resolvedDb),
+      };
       const subject = createToolsSubject({
+        databaseFacadeResolver,
         modules: {
           './plugins/remote-agents/tool-defs': [{
             name: 'register_remote_agent',
@@ -691,7 +699,6 @@ describe('tools.js aggregator source-loader', () => {
               },
             },
           }],
-          './container': { defaultContainer: { get } },
           './plugins/remote-agents': { getInstalledRegistry: () => mockRegistry },
           './plugins/remote-agents/handlers': { createHandlers },
         },
@@ -701,10 +708,12 @@ describe('tools.js aggregator source-loader', () => {
 
       expect(subject.mod.routeMap.has('register_remote_agent')).toBe(false);
       expect(createHandlers).toHaveBeenCalledTimes(1);
-      expect(get).toHaveBeenCalledWith('db');
+      expect(databaseFacadeResolver.resolveDatabaseFacade).toHaveBeenCalledWith({
+        serviceName: 'remote agent plugin handlers database facade',
+      });
       expect(createHandlers).toHaveBeenCalledWith({
         agentRegistry: mockRegistry,
-        db: containerDb,
+        db: resolvedDb,
       });
       expect(pluginHandler).toHaveBeenCalledWith({ name: 'agent-1' });
       expect(result).toEqual({ plugin: true, args: { name: 'agent-1' } });
@@ -736,14 +745,17 @@ describe('tools.js aggregator source-loader', () => {
       expect(result).toEqual({ runtime: true, args: { repo_path: 'C:\\repo' } });
     });
 
-    it('falls back to the legacy database module when the container db is unavailable', async () => {
+    it('surfaces a resolver error instead of falling back to the legacy database module', async () => {
       const pluginHandler = vi.fn(async (args) => ({ plugin: true, args }));
       const createHandlers = vi.fn(() => ({ register_remote_agent: pluginHandler }));
       const mockRegistry = { listAgents: vi.fn() };
-      const get = vi.fn(() => {
-        throw new Error('container not booted');
-      });
+      const databaseFacadeResolver = {
+        resolveDatabaseFacade: vi.fn(() => {
+          throw new Error('remote agent plugin handlers database facade requires the database facade to be registered in the DI container');
+        }),
+      };
       const subject = createToolsSubject({
+        databaseFacadeResolver,
         modules: {
           './plugins/remote-agents/tool-defs': [{
             name: 'register_remote_agent',
@@ -755,22 +767,17 @@ describe('tools.js aggregator source-loader', () => {
               },
             },
           }],
-          './container': { defaultContainer: { get } },
           './plugins/remote-agents': { getInstalledRegistry: () => mockRegistry },
           './plugins/remote-agents/handlers': { createHandlers },
         },
       });
 
-      const result = await subject.mod.handleToolCall('register_remote_agent', { name: 'agent-1' });
+      await expect(subject.mod.handleToolCall('register_remote_agent', { name: 'agent-1' }))
+        .rejects
+        .toThrow('remote agent plugin handlers database facade requires the database facade to be registered in the DI container');
 
-      expect(createHandlers).toHaveBeenCalledTimes(1);
-      expect(get).toHaveBeenCalledWith('db');
-      expect(createHandlers).toHaveBeenCalledWith({
-        agentRegistry: mockRegistry,
-        db: subject.database,
-      });
-      expect(pluginHandler).toHaveBeenCalledWith({ name: 'agent-1' });
-      expect(result).toEqual({ plugin: true, args: { name: 'agent-1' } });
+      expect(createHandlers).not.toHaveBeenCalled();
+      expect(pluginHandler).not.toHaveBeenCalled();
     });
 
     it('returns schemas for plugin-provided tools via get_tool_schema', async () => {

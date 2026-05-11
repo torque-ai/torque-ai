@@ -5,12 +5,14 @@ const require = createRequire(import.meta.url);
 
 const SESSION_MODULE = '../transports/sse/session.js';
 const DATABASE_MODULE = '../database';
+const CONTAINER_MODULE = '../container';
 const WORKFLOW_ENGINE_MODULE = '../db/workflow-engine';
 const CONFIG_MODULE = '../config';
 const LOGGER_MODULE = '../logger';
 const MODULE_PATHS = [
   SESSION_MODULE,
   DATABASE_MODULE,
+  CONTAINER_MODULE,
   WORKFLOW_ENGINE_MODULE,
   CONFIG_MODULE,
   LOGGER_MODULE,
@@ -18,6 +20,7 @@ const MODULE_PATHS = [
 
 let sessionModule;
 let databaseMock;
+let containerMock;
 let workflowEngineMock;
 let configMock;
 let loggerMock;
@@ -62,6 +65,7 @@ function createMockDb() {
 function loadSessionModule() {
   clearModules();
   installCjsModuleMock(DATABASE_MODULE, databaseMock);
+  installCjsModuleMock(CONTAINER_MODULE, containerMock);
   installCjsModuleMock(WORKFLOW_ENGINE_MODULE, workflowEngineMock);
   installCjsModuleMock(CONFIG_MODULE, configMock);
   installCjsModuleMock(LOGGER_MODULE, loggerModuleMock);
@@ -97,6 +101,16 @@ describe('server/transports/sse/session', () => {
 
     databaseMock = {
       getDbInstance: vi.fn(() => createMockDb()),
+    };
+    containerMock = {
+      defaultContainer: {
+        has: vi.fn((name) => name === 'db'),
+        get: vi.fn((name) => {
+          if (name === 'db') return databaseMock;
+          throw new Error(`Container service unavailable: ${name}`);
+        }),
+        peek: vi.fn((name) => (name === 'db' ? databaseMock : undefined)),
+      },
     };
     workflowEngineMock = {
       getWorkflowTasks: vi.fn(() => []),

@@ -22,6 +22,17 @@ describe('check-no-direct-db-import', () => {
     ]);
   });
 
+  it('keeps transport edge modules off the database facade fallback path', () => {
+    const classification = guard.classifyDirectDatabaseImports();
+
+    expect(classification.sourceDiFallback).not.toEqual(expect.arrayContaining([
+      'mcp/index.js',
+      'tools.js',
+      'transports/sse/protocol.js',
+      'transports/sse/session.js',
+    ]));
+  });
+
   it('keeps test direct database imports behind explicit facade-test boundaries', () => {
     const classification = guard.classifyDirectDatabaseImports();
 

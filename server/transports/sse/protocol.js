@@ -10,12 +10,17 @@
 const mcpProtocol = require('../../mcp/protocol');
 const { TOOLS, handleToolCall } = require('../../tools');
 const { CORE_TOOL_NAMES, EXTENDED_TOOL_NAMES } = require('../../core-tools');
-function resolveDb() {
+const { resolveDatabaseFacade } = require('../../db/database-facade-resolver');
+
+function isAuthConfigured() {
   try {
-    const { defaultContainer } = require('../../container');
-    return defaultContainer.get('db');
+    const db = resolveDatabaseFacade({
+      requiredMethods: ['getConfig'],
+      serviceName: 'SSE protocol database facade',
+    });
+    return Boolean(db.getConfig('api_key'));
   } catch {
-    return require('../../database');
+    return false;
   }
 }
 const session = require('./session');
@@ -239,7 +244,7 @@ function initProtocol(shutdownAbort) {
     onInitialize: (_sess) => {
       // Economy mode removed — routing templates handle cost-aware provider selection
     },
-    isAuthConfigured: () => Boolean(resolveDb().getConfig('api_key')),
+    isAuthConfigured,
   });
 }
 
@@ -250,4 +255,5 @@ module.exports = {
   handleMcpRequest,
   initProtocol,
   injectNotificationSender,
+  isAuthConfigured,
 };

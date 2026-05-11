@@ -17,6 +17,7 @@ const reviewHandlers = require('./handlers/review-handler');
 const symbolIndexerHandlers = require('./handlers/symbol-indexer-handlers');
 const templateHandlers = require('./handlers/template-handlers');
 const { CORE_TOOL_NAMES, EXTENDED_TOOL_NAMES } = require('./core-tools');
+const { resolveDatabaseFacade } = require('./db/database-facade-resolver');
 
 // Re-export thin metadata from tool-metadata (no handler loading).
 const {
@@ -346,18 +347,13 @@ function getRemoteAgentPluginHandlers() {
   const agentRegistry = getInstalledRegistry();
   if (!agentRegistry) return null;
 
-  let database;
-  try {
-    const { defaultContainer } = require('./container');
-    database = defaultContainer.get('db');
-  } catch {
-    database = require('./database');
-  }
   const { createHandlers } = require('./plugins/remote-agents/handlers');
 
   _remoteAgentPluginHandlers = createHandlers({
     agentRegistry,
-    db: database,
+    db: resolveDatabaseFacade({
+      serviceName: 'remote agent plugin handlers database facade',
+    }),
   });
   return _remoteAgentPluginHandlers;
 }
