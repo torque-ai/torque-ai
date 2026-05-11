@@ -1,14 +1,14 @@
 'use strict';
 
-function resolveDatabase() {
-  try {
-    const { defaultContainer } = require('../container');
-    return defaultContainer.get('db');
-  } catch {
-    return require('../database');
-  }
-}
+const { resolveDatabaseFacade } = require('../db/database-facade-resolver');
 const { safeJsonParse } = require('../utils/json');
+
+function resolveDatabase() {
+  return resolveDatabaseFacade({
+    requiredMethods: ['getDbInstance'],
+    serviceName: 'provider lane audit',
+  });
+}
 
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 200;

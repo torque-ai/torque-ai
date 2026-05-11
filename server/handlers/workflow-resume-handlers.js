@@ -1,17 +1,15 @@
 'use strict';
 
 const workflowResume = require('../execution/workflow-resume');
+const { resolveDatabaseFacade } = require('../db/database-facade-resolver');
 const { ErrorCodes, makeError } = require('./shared');
 
 let initialized = false;
 
 function resolveDbFacade() {
-  try {
-    const { defaultContainer } = require('../container');
-    return defaultContainer.get('db');
-  } catch {
-    return require('../database');
-  }
+  return resolveDatabaseFacade({
+    serviceName: 'workflow resume handler',
+  });
 }
 
 function ensureWorkflowResumeInitialized() {

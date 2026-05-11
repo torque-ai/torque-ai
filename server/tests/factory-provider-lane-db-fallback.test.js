@@ -10,13 +10,13 @@ function installCjsModuleMock(modulePath, exportsValue) {
   };
 }
 
-describe('provider lane audit database fallback', () => {
+describe('provider lane audit database resolution', () => {
   afterEach(() => {
     vi.resetModules();
     vi.restoreAllMocks();
   });
 
-  it('uses database.getDbInstance when a db handle is not provided', () => {
+  it('uses the registered database facade when a db handle is not provided', () => {
     const fakeDb = {
       prepare: vi.fn((sql) => {
         if (sql.startsWith('PRAGMA table_info')) {
@@ -25,12 +25,18 @@ describe('provider lane audit database fallback', () => {
         return { all: () => [] };
       }),
     };
+    const dbFacade = {
+      getDbInstance: vi.fn(() => fakeDb),
+    };
+    const defaultContainer = {
+      peek: vi.fn(() => dbFacade),
+      has: vi.fn(() => true),
+      get: vi.fn(() => dbFacade),
+    };
 
     try { delete require.cache[require.resolve('../factory/provider-lane-audit')]; } catch { /* not loaded */ }
-    try { delete require.cache[require.resolve('../database')]; } catch { /* not loaded */ }
-    installCjsModuleMock('../database', {
-      getDbInstance: () => fakeDb,
-    });
+    try { delete require.cache[require.resolve('../container')]; } catch { /* not loaded */ }
+    installCjsModuleMock('../container', { defaultContainer });
 
     const { buildProviderLaneAudit } = require('../factory/provider-lane-audit');
     const audit = buildProviderLaneAudit({
@@ -40,6 +46,8 @@ describe('provider lane audit database fallback', () => {
 
     expect(audit.summary.total_tasks).toBe(0);
     expect(audit.policy.expected_provider).toBe('ollama-cloud');
+    expect(defaultContainer.peek).toHaveBeenCalledWith('db');
+    expect(dbFacade.getDbInstance).toHaveBeenCalled();
     expect(fakeDb.prepare).toHaveBeenCalledWith('PRAGMA table_info(tasks)');
   });
 });
