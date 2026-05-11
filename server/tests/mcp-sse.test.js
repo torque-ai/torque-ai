@@ -1080,7 +1080,7 @@ describe('MCP SSE Transport', () => {
 
   describe('graceful shutdown', () => {
     const fs = require('fs');
-    const db = require('../database');
+    const db = require('./helpers/database-facade');
     const { getVitestTemplateBufferPath } = require('./vitest-template-paths');
     let templateBuffer;
 
@@ -1145,7 +1145,7 @@ describe('MCP SSE Transport', () => {
     });
 
     it('persists every active session to task_event_subscriptions before closing', async () => {
-      const dbInst = require('../database').getDbInstance();
+      const dbInst = require('./helpers/database-facade').getDbInstance();
 
       await mcpSse.start({ port: 0 });
 

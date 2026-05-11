@@ -41,7 +41,7 @@ function setupE2eDb(suiteName) {
   const origDataDir = process.env.TORQUE_DATA_DIR;
   process.env.TORQUE_DATA_DIR = testDir;
 
-  const db = require('../database');
+  const db = require('./helpers/database-facade');
 
   const configCore = require('../db/config-core');
 
@@ -108,7 +108,7 @@ function resetE2eDb() {
     templateBuffer = fs.readFileSync(TEMPLATE_BUF);
   }
 
-  const db = require('../database');
+  const db = require('./helpers/database-facade');
   const configCore = require('../db/config-core');
   db.resetForTest(templateBuffer);
   ensureTestSchema(db.getDbInstance());

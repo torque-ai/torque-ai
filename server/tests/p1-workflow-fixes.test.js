@@ -1,5 +1,3 @@
-const path = require('path');
-const os = require('os');
 const fs = require('fs');
 const { randomUUID } = require('crypto');
 
@@ -86,7 +84,7 @@ function createTask(overrides = {}) {
 describe('P1 workflow fixes', () => {
   beforeAll(() => {
     ({ testDir } = setupTestDb('workflow-fixes'));
-    ({ resetForTest } = require('../database'));
+    ({ resetForTest } = require('./helpers/database-facade'));
     taskCore = require('../db/task-core');
     workflowEngine = require('../db/workflow-engine');
     runtime = require('../execution/workflow-runtime');

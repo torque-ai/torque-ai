@@ -3,7 +3,7 @@
 const path = require('path');
 const os = require('os');
 process.env.TORQUE_DATA_DIR = process.env.TORQUE_DATA_DIR || path.join(os.tmpdir(), 'torque-baseline-test');
-const db = require('../database');
+const db = require('./helpers/database-facade');
 db.init();
 const config = require('../config');
 config.init({ db });

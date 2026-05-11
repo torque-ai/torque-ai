@@ -205,7 +205,7 @@ describe('factory loop-controller EXECUTE for non-plan-file work items', () => {
   let planExecuteMock;
 
   beforeEach(() => {
-    database = require('../database');
+    database = require('./helpers/database-facade');
     db = new Database(':memory:');
     createFactoryTables(db);
     loopController.setWorktreeRunnerForTests(null);

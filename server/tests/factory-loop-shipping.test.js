@@ -3,7 +3,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 vi.mock('../event-bus', () => ({ emitTaskEvent: vi.fn() }));
 
 const Database = require('better-sqlite3');
-const database = require('../database');
+const database = require('./helpers/database-facade');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');

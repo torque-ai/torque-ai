@@ -339,7 +339,7 @@ describe('dashboard/router', () => {
 // ============================================
 
 describe('route handlers with mock db', () => {
-  const db = require('../database');
+  const db = require('./helpers/database-facade');
   const taskCore = require('../db/task-core');
   const webhooksStreaming = require('../db/webhooks-streaming');
   const fileTracking = require('../db/file/tracking');

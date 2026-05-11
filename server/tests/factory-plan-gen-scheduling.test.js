@@ -37,7 +37,7 @@ describe('factory plan generation scheduling', () => {
     process.env.TORQUE_DATA_DIR = testDir;
     dataDir.setDataDir(null);
 
-    db = require('../database');
+    db = require('./helpers/database-facade');
     db.init();
 
     routing = require('../handlers/integration/routing');

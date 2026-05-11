@@ -464,7 +464,7 @@ describe('Item 23: pending_provider_switch in workflow lifecycle', () => {
       origDataDir = process.env.TORQUE_DATA_DIR;
       process.env.TORQUE_DATA_DIR = testDir;
 
-      db = require('../database');
+      db = require('./helpers/database-facade');
       if (!templateBuffer) templateBuffer = fs.readFileSync(TEMPLATE_BUF_PATH);
       db.resetForTest(templateBuffer);
       mod = require('../execution/workflow-runtime');

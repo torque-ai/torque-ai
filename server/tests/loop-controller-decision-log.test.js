@@ -10,7 +10,7 @@ vi.mock('../factory/architect-runner', () => ({
 }));
 
 const Database = require('better-sqlite3');
-const database = require('../database');
+const database = require('./helpers/database-facade');
 const factoryArchitect = require('../db/factory/architect');
 const factoryDecisions = require('../db/factory/decisions');
 const factoryHealth = require('../db/factory/health');

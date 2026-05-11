@@ -4,7 +4,7 @@ vi.mock('../event-bus', () => ({ emitTaskEvent: vi.fn() }));
 
 const Database = require('better-sqlite3');
 const { defaultContainer } = require('../container');
-const database = require('../database');
+const database = require('./helpers/database-facade');
 const factoryDecisions = require('../db/factory/decisions');
 const factoryFeedback = require('../db/factory/feedback');
 const factoryHealth = require('../db/factory/health');

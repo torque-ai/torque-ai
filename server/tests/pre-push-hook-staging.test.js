@@ -242,6 +242,19 @@ printf '%b' "\\302\\267\\302\\267real failure line\\302\\267\\302\\267\\n" | pre
     expect(src).toMatch(/Heavy remote gate skipped by gate plan/);
   });
 
+  it('skips already-synced main pushes before acquiring the gate lock', () => {
+    const src = readHook();
+    const skipIdx = src.indexOf('Main is already at');
+    const lockIdx = src.indexOf('repo_coord_lock_acquire "main" "pre-push main gate:');
+    const plannerIdx = src.indexOf('scripts/pre-push-gate-plan.js');
+    expect(src).toMatch(/main_remote_sha="\$remote_sha"/);
+    expect(src).toMatch(/if \[ -n "\$main_remote_sha" \] && \[ "\$main_remote_sha" = "\$local_head_sha" \]; then/);
+    expect(src).toMatch(/Main is already at \$\(echo "\$local_head_sha" \| cut -c1-12\); skipping gate/);
+    expect(skipIdx).toBeGreaterThan(-1);
+    expect(lockIdx).toBeGreaterThan(skipIdx);
+    expect(plannerIdx).toBeGreaterThan(skipIdx);
+  });
+
   it('serializes main gates with the shared coordination lock and cleans up on EXIT', () => {
     const src = readHook();
     expect(src).toMatch(/DEFAULT_COORD_LOCK_HELPER="\$\{REPO_ROOT\}\/scripts\/repo-coordination-lock\.sh"/);

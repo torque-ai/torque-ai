@@ -408,7 +408,7 @@ describe('db/migrations.js', () => {
     const migrationsModulePath = require.resolve('../db/migrations');
     delete require.cache[migrationsModulePath];
 
-    ({ init: initMigrationsDb, getDbInstance: getMigrationsDbInstance, close: closeMigrationsDb } = require('../database'));
+    ({ init: initMigrationsDb, getDbInstance: getMigrationsDbInstance, close: closeMigrationsDb } = require('./helpers/database-facade'));
     initMigrationsDb();
   });
 

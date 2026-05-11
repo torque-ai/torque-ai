@@ -88,7 +88,7 @@ describe('study-telemetry', () => {
     });
 
     telemetry = require('../db/study-telemetry');
-    telemetry.init?.({ db: require('../database') });
+    telemetry.init?.({ db: require('./helpers/database-facade') });
   });
 
   afterEach(() => {

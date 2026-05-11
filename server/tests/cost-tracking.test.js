@@ -33,7 +33,7 @@ function withFreshCostTrackingDb(run) {
   process.env.TORQUE_DATA_DIR = freshDir;
   delete require.cache[dbModulePath];
 
-  const { init, getDbInstance, close } = require('../database');
+  const { init, getDbInstance, close } = require('./helpers/database-facade');
   init();
   costTracking.setDb(getDbInstance());
 

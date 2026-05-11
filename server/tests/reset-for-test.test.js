@@ -25,7 +25,7 @@ beforeAll(() => {
   process.env.TORQUE_DATA_DIR = testDir;
 
   // Clear module cache for fresh init
-  db = require('../database');
+  db = require('./helpers/database-facade');
   taskCore = require('../db/task-core');
   configCore = require('../db/config-core');
   db.init();

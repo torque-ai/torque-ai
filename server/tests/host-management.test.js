@@ -1221,7 +1221,7 @@ describe('ensureLocalHostEnabled', () => {
     // This section needs a separate DB instance (not the shared singleton),
     // so clear the cache to get a fresh require of the database module.
     try { delete require.cache[require.resolve('../database')]; } catch {}
-    db2 = require('../database');
+    db2 = require('./helpers/database-facade');
     db2.init();
     mod2 = require('../db/host/management');
     mod2.setDb(db2.getDb ? db2.getDb() : db2.getDbInstance());

@@ -1,6 +1,6 @@
 const { EventEmitter } = require('events');
 const http = require('http');
-const db = require('../database');
+const db = require('./helpers/database-facade');
 const configCore = require('../db/config-core');
 const taskCore = require('../db/task-core');
 const hostManagement = require('../db/host/management');

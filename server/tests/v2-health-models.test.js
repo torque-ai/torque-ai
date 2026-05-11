@@ -148,7 +148,7 @@ describe('v2 provider health and model inventory endpoints', () => {
   ];
 
   beforeAll(async () => {
-    db = require('../database');
+    db = require('./helpers/database-facade');
     for (const key of cloudEnvKeys) {
       originalEnv[key] = process.env[key];
     }

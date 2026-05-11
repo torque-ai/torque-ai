@@ -77,7 +77,7 @@ function rawDb() {
 describe('P1 infra fixes', () => {
   describe('Coordination lock stale detection uses lease expiry', () => {
     beforeAll(() => {
-      const { getDbInstance } = require('../database');
+      const { getDbInstance } = require('./helpers/database-facade');
       setupTestDbOnly('p1-coord');
       dbCoord.setDb(getDbInstance());
       dbCoord.setGetTask(taskCore.getTask);

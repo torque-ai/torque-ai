@@ -366,7 +366,7 @@ function _initDb(suiteName) {
   process.env.TORQUE_DATA_DIR = testDir;
   require('../data-dir').setDataDir(null);
 
-  db = require('../database');
+  db = require('./helpers/database-facade');
   db.resetForTest(templateBuffer);
   ensureTestSchema(db.getDbInstance());
 

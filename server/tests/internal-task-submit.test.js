@@ -359,7 +359,7 @@ describe('submitFactoryInternalTask', () => {
   });
 
   it('lets a provider lane expected provider override inherited routing templates for factory-internal tasks', async () => {
-    const database = require('../database');
+    const database = require('./helpers/database-facade');
     const projectConfigCore = require('../db/project-config-core');
     vi.spyOn(database, 'getDbInstance').mockReturnValue({
       prepare: vi.fn(() => ({
@@ -421,7 +421,7 @@ describe('submitFactoryInternalTask', () => {
   });
 
   it('inherits the target project default provider for non-plan-generation manager tasks', async () => {
-    const database = require('../database');
+    const database = require('./helpers/database-facade');
     const projectConfigCore = require('../db/project-config-core');
     vi.spyOn(database, 'getDbInstance').mockReturnValue({
       prepare: vi.fn(() => ({
@@ -464,7 +464,7 @@ describe('submitFactoryInternalTask', () => {
   });
 
   it('defers pure plan generation to routing templates instead of inheriting project default provider', async () => {
-    const database = require('../database');
+    const database = require('./helpers/database-facade');
     const projectConfigCore = require('../db/project-config-core');
     vi.spyOn(database, 'getDbInstance').mockReturnValue({
       prepare: vi.fn(() => ({
@@ -509,7 +509,7 @@ describe('submitFactoryInternalTask', () => {
   });
 
   it('inherits a strict provider-lane expected provider when no routing defaults are configured', async () => {
-    const database = require('../database');
+    const database = require('./helpers/database-facade');
     const projectConfigCore = require('../db/project-config-core');
     vi.spyOn(database, 'getDbInstance').mockReturnValue({
       prepare: vi.fn(() => ({

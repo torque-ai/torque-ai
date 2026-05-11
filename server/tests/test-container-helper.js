@@ -2,7 +2,8 @@
 
 /**
  * Test container helper — provides a fresh DI container with in-memory SQLite
- * for test isolation. New tests should use this instead of require('../database').
+ * for test isolation. Use this when a test needs a booted container; tests
+ * that only need the legacy DB facade should use ./helpers/database-facade.
  *
  * Usage:
  *   const { createTestContainer } = require('./test-container-helper');
@@ -38,7 +39,7 @@ function createTestContainer() {
   }
 
   // Use the existing database module's resetForTest to get a clean in-memory DB
-  const db = require('../database');
+  const db = require('./helpers/database-facade');
   db.resetForTest(templateBuffer);
   ensureTestSchema(db.getDbInstance());
 

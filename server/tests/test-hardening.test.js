@@ -5,7 +5,7 @@ const { installStableTaskWorkspace } = require('./task-workspace-helpers');
 
 const { v4: uuidv4 } = require('uuid');
 
-const { init, close, safeAddColumn } = require('../database');
+const { init, close, safeAddColumn } = require('./helpers/database-facade');
 const taskCore = require('../db/task-core');
 const eventTracking = require('../db/event-tracking');
 const projectConfigCore = require('../db/project-config-core');

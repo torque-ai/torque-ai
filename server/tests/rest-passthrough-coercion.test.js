@@ -93,7 +93,7 @@ describe('REST passthrough schema coercion', () => {
     const tools = require('../tools');
     const configCore = require('../db/config-core');
     const taskCore = require('../db/task-core');
-    const db = require('../database');
+    const db = require('./helpers/database-facade');
 
     getConfigSpy = vi.spyOn(configCore, 'getConfig').mockImplementation((key) => {
       if (key === 'v2_auth_mode') return 'permissive';

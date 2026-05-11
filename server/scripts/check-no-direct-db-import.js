@@ -20,9 +20,16 @@ const SERVER_DIR = path.resolve(__dirname, '..');
 // These are composition-root and entry-point modules that legitimately
 // need the raw db reference to wire things up. Shrinks as migration progresses.
 const ALLOWED = new Set([
-  'database.js',        // the module itself
   'index.js',           // server entry point — opens db, passes to container
   'dashboard/server.js', // dashboard entry point — accepts db via startDashboard deps
+]);
+
+// Tests should use tests/helpers/database-facade.js instead of importing the
+// production facade directly. Keep the direct test surface explicit so it can
+// shrink rather than grow invisibly.
+const TEST_ALLOWED = new Set([
+  'tests/database-facade-lazy-load.test.js',
+  'tests/helpers/database-facade.js',
 ]);
 
 const DB_IMPORT_PATTERN = /require\s*\(\s*['"]\..*database['"]\s*\)/;
@@ -40,6 +47,10 @@ function getAllowedDirectDatabaseImportFiles() {
   return [...ALLOWED].sort();
 }
 
+function getAllowedTestDirectDatabaseImportFiles() {
+  return [...TEST_ALLOWED].sort();
+}
+
 function getAllowedDirectDatabaseImportProblems(allowedFiles = getAllowedDirectDatabaseImportFiles(), serverDir = SERVER_DIR) {
   const problems = [];
 
@@ -51,7 +62,7 @@ function getAllowedDirectDatabaseImportProblems(allowedFiles = getAllowedDirectD
     }
 
     const content = fs.readFileSync(fullPath, 'utf8');
-    if (!DB_IMPORT_PATTERN.test(content)) {
+    if (!hasDirectDatabaseImport(content)) {
       problems.push({ file: relativePath, reason: 'no-direct-database-import' });
     }
   }
@@ -86,6 +97,46 @@ function walkJs(dir, visitor, opts = {}) {
   }
 }
 
+function isInsideLineString(line, index) {
+  let quote = null;
+  let escaped = false;
+
+  for (let i = 0; i < index; i += 1) {
+    const ch = line[i];
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (ch === '\\') {
+      escaped = true;
+      continue;
+    }
+    if (quote) {
+      if (ch === quote) quote = null;
+      continue;
+    }
+    if (ch === '\'' || ch === '"' || ch === '`') {
+      quote = ch;
+    }
+  }
+
+  return Boolean(quote);
+}
+
+function hasDirectDatabaseImport(content) {
+  for (const line of content.split(/\r?\n/)) {
+    const trimmed = line.trimStart();
+    if (trimmed.startsWith('//') || trimmed.startsWith('*')) continue;
+
+    DB_IMPORT_PATTERN.lastIndex = 0;
+    const match = DB_IMPORT_PATTERN.exec(line);
+    if (!match) continue;
+    if (!isInsideLineString(line, match.index)) return true;
+  }
+
+  return false;
+}
+
 /**
  * Classify direct database.js imports.
  *
@@ -104,7 +155,7 @@ function classifyDirectDatabaseImports() {
   // Scan source files (excluding tests/)
   walkJs(SERVER_DIR, (fullPath, relativePath) => {
     const content = fs.readFileSync(fullPath, 'utf8');
-    if (!DB_IMPORT_PATTERN.test(content)) return;
+    if (!hasDirectDatabaseImport(content)) return;
 
     if (ALLOWED.has(relativePath)) {
       sourceAllowed.push(relativePath);
@@ -127,7 +178,8 @@ function classifyDirectDatabaseImports() {
   if (fs.existsSync(testsDir)) {
     walkJs(testsDir, (fullPath, relativePath) => {
       const content = fs.readFileSync(fullPath, 'utf8');
-      if (!DB_IMPORT_PATTERN.test(content)) return;
+      if (!hasDirectDatabaseImport(content)) return;
+      if (TEST_ALLOWED.has(relativePath)) return;
       testViolations.push(relativePath);
     });
   }
@@ -177,6 +229,8 @@ module.exports = {
   countSourceFiles,
   getAllowedDirectDatabaseImportFiles,
   getAllowedDirectDatabaseImportProblems,
+  getAllowedTestDirectDatabaseImportFiles,
+  hasDirectDatabaseImport,
   scan,
 };
 
@@ -199,7 +253,8 @@ if (require.main === module) {
   console.log(`  Modules with factory exports: ${factoryCount}`);
   console.log(`  Source files still importing database.js: ${sourceViolations.length}`);
   console.log(`  Stale allowed database.js import entries: ${staleAllowed.length}`);
-  console.log(`  Test files still importing database.js: ${testViolations.length} (deferred to test migration)`);
+  console.log(`  Unauthorized test files still importing database.js: ${testViolations.length}`);
+  console.log(`  Allowed test database facade entries: ${TEST_ALLOWED.size}`);
   console.log(`  Progress: ${progressPct}% of source files migrated`);
   console.log();
 

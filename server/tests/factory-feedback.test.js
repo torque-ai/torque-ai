@@ -28,8 +28,8 @@ beforeAll(() => {
   factoryFeedback.setDb(db);
   factoryHealth.setDb(db);
   guardrailDb.setDb(db);
-  require('../database').getDbInstance = () => db;
-  feedbackAnalysis.init?.({ db: require('../database') });
+  require('./helpers/database-facade').getDbInstance = () => db;
+  feedbackAnalysis.init?.({ db: require('./helpers/database-facade') });
 });
 
 beforeEach(() => {

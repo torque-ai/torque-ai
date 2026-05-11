@@ -28,7 +28,7 @@ describe('RB-045: budget alert webhook targeting', () => {
     vi.resetModules();
     process.env.TORQUE_DATA_DIR = testDataDir;
     index = require('../index');
-    db = require('../database');
+    db = require('./helpers/database-facade');
     webhookHandlers = require('../handlers/webhook-handlers');
   }
 

@@ -4,7 +4,7 @@ const os = require('node:os');
 
 vi.mock('../event-bus', () => ({ emitTaskEvent: vi.fn() }));
 
-const database = require('../database');
+const database = require('./helpers/database-facade');
 const factoryDecisions = require('../db/factory/decisions');
 const factoryHealth = require('../db/factory/health');
 const factoryIntake = require('../db/factory/intake');

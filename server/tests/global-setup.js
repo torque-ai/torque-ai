@@ -131,7 +131,7 @@ module.exports = async function setup() {
 
   // Clear module cache to ensure fresh init
   delete require.cache[require.resolve('../database')];
-  const db = require('../database');
+  const db = require('./helpers/database-facade');
   const hostManagement = require('../db/host/management');
   db.init();
 

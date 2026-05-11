@@ -6,7 +6,7 @@ const {
   teardownTestDb,
   resetTables,
 } = require('./vitest-setup');
-const database = require('../database');
+const database = require('./helpers/database-facade');
 const factoryGuardrails = require('../db/factory/guardrails');
 const factoryHealth = require('../db/factory/health');
 const factoryIntake = require('../db/factory/intake');

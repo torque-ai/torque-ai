@@ -22,7 +22,7 @@ const { dispatchTaskEvent, taskEvents } = eventDispatch;
 let db;
 
 beforeAll(() => {
-  db = require('../database');
+  db = require('./helpers/database-facade');
 });
 
 // ──────────────────────────────────────────────────────────────

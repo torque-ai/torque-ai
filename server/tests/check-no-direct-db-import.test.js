@@ -19,9 +19,27 @@ describe('check-no-direct-db-import', () => {
   it('keeps the remaining allowed direct import list explicit', () => {
     expect(guard.getAllowedDirectDatabaseImportFiles()).toEqual([
       'dashboard/server.js',
-      'database.js',
       'index.js',
     ]);
+  });
+
+  it('keeps test direct database imports behind explicit facade-test boundaries', () => {
+    const classification = guard.classifyDirectDatabaseImports();
+
+    expect(classification.testViolations).toEqual([]);
+    expect(guard.getAllowedTestDirectDatabaseImportFiles()).toEqual([
+      'tests/database-facade-lazy-load.test.js',
+      'tests/helpers/database-facade.js',
+    ]);
+  });
+
+  it('ignores require-like text inside strings when scanning imports', () => {
+    expect(guard.hasDirectDatabaseImport(
+      "const db = require('../database');\n",
+    )).toBe(true);
+    expect(guard.hasDirectDatabaseImport(
+      "const example = \"const db = require('../database');\";\n",
+    )).toBe(false);
   });
 
   it('surfaces stale allowlist state through scan and CLI summary output', () => {
@@ -35,6 +53,7 @@ describe('check-no-direct-db-import', () => {
 
     expect(result.status).toBe(0);
     expect(result.stdout).toContain('Stale allowed database.js import entries: 0');
+    expect(result.stdout).toContain('Unauthorized test files still importing database.js: 0');
   });
 
   it('classifies missing and no-longer-direct allowlist entries as stale', () => {

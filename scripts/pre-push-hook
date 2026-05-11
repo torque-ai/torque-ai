@@ -48,6 +48,7 @@ source "$COORD_LOCK_HELPER"
 ZERO_SHA="0000000000000000000000000000000000000000"
 remote_refs=()
 local_head_sha=""
+main_remote_sha=""
 local_head_short=""
 staging_branch=""
 staging_ref_created=0
@@ -89,6 +90,7 @@ while read -r local_ref local_sha remote_ref remote_sha; do
 
   if [ "$remote_ref" = "refs/heads/main" ]; then
     local_head_sha="$local_sha"
+    main_remote_sha="$remote_sha"
   fi
 done
 
@@ -113,6 +115,11 @@ fi
 if [ -z "$local_head_sha" ]; then
   echo "[pre-push] Main push detected but local sha not captured from stdin — aborting."
   exit 1
+fi
+
+if [ -n "$main_remote_sha" ] && [ "$main_remote_sha" = "$local_head_sha" ]; then
+  echo "[pre-push] Main is already at $(echo "$local_head_sha" | cut -c1-12); skipping gate."
+  exit 0
 fi
 
 delete_staging_ref() {

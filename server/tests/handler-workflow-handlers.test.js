@@ -1,6 +1,6 @@
 const workflowEngine = require('../db/workflow-engine');
 const configCore = require('../db/config-core');
-const database = require('../database');
+const database = require('./helpers/database-facade');
 const taskCore = require('../db/task-core');
 const taskManager = require('../task-manager');
 const workflowRuntime = require('../execution/workflow-runtime');

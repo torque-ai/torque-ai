@@ -36,7 +36,7 @@ function setupDb() {
 
   const dbModulePath = require.resolve('../database');
   delete require.cache[dbModulePath];
-  ({ init: initDb, getDbInstance, close: closeDb } = require('../database'));
+  ({ init: initDb, getDbInstance, close: closeDb } = require('./helpers/database-facade'));
 
   initDb();
   rawDb = getDbInstance();
