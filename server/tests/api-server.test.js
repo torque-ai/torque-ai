@@ -384,7 +384,7 @@ describe('API Server endpoints', () => {
 
     // Now load api-server (it will use our spied modules)
     const apiServer = require('../api-server');
-    apiServer.start({ port: 4001 });
+    apiServer.start({ port: 4001, db });
   });
 
   function mockV2Adapter({

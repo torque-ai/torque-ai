@@ -22,7 +22,6 @@ const SERVER_DIR = path.resolve(__dirname, '..');
 const ALLOWED = new Set([
   'database.js',        // the module itself
   'index.js',           // server entry point — opens db, passes to container
-  'api-server.js',      // REST entry point — accepts db via createApiServer deps
   'dashboard/server.js', // dashboard entry point — accepts db via startDashboard deps
 ]);
 

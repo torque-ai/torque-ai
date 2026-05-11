@@ -1894,7 +1894,7 @@ function init() {
     logger.info(`[startup] http_middleware_from_plugins=${pluginMiddleware.length}`);
   }
 
-  const apiPromise = apiServer.start({ port: apiPort, taskManager, pluginMiddleware }).then(apiResult => {
+  const apiPromise = apiServer.start({ port: apiPort, db, taskManager, pluginMiddleware }).then(apiResult => {
     if (apiResult.success) {
       apiStarted = true;
       debugLog(`REST API auto-started at http://127.0.0.1:${apiResult.port}`);
