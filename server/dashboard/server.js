@@ -20,7 +20,8 @@ const { WebSocketServer } = require('ws');
 const { execFile } = require('child_process');
 const { WS_MSG_RATE_LIMIT, WS_MSG_RATE_WINDOW_MS } = require('../constants');
 const { redactSecrets } = require('../utils/sanitize');
-const db = require('../database');
+const { defaultContainer } = require('../container');
+const { resolveContainerDbService } = require('../utils/db-accessor');
 const taskCore = require('../db/task-core');
 const hostManagement = require('../db/host/management');
 const serverConfig = require('../config');
@@ -41,6 +42,16 @@ let httpServer = null;
 let wss = null;
 let isRunning = false;
 let serverPort = 3456;
+
+function resolveDashboardDb(deps = {}) {
+  if (Object.prototype.hasOwnProperty.call(deps, 'db')) {
+    return deps.db;
+  }
+  const container = Object.prototype.hasOwnProperty.call(deps, 'container')
+    ? deps.container
+    : defaultContainer;
+  return resolveContainerDbService(container);
+}
 
 /**
  * Standard security headers applied to all responses
@@ -749,7 +760,7 @@ async function start(options = {}) {
     broadcastTaskUpdate,
     clients,
     serverPort,
-    db,
+    db: resolveDashboardDb(options),
   };
 
   // Create HTTP server
@@ -1083,14 +1094,21 @@ module.exports = {
   notifyTaskEvent,
 };
 
-// CLI entry point - run directly with: node dashboard-server.js
+// CLI entry point. The dashboard server does not compose its own database;
+// start the full TORQUE server for a fully wired dashboard.
 if (require.main === module) {
-  // Initialize database when running standalone
-  db.init();
+  const db = resolveDashboardDb();
+  if (!db) {
+    process.stderr.write(
+      'Dashboard standalone mode requires a database registered in the DI container. ' +
+      'Start TORQUE through server/index.js.\n'
+    );
+    process.exit(1);
+  }
 
   const port = parseInt(process.env.PORT, 10) || 3456;
   console.log(`Starting dashboard on port ${port}...`);
-  start({ port, openBrowser: false });
+  start({ port, openBrowser: false, db });
 
   // Keep process alive
   process.on('SIGINT', () => {

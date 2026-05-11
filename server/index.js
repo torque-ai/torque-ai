@@ -1844,7 +1844,7 @@ function init() {
 
   // Auto-start dashboard (doesn't open browser automatically)
   const dashboardPort = serverConfig.getInt('dashboard_port', 3456);
-  dashboard.start({ port: dashboardPort, openBrowser: false, taskManager }).then(dashResult => {
+  dashboard.start({ port: dashboardPort, openBrowser: false, db, taskManager }).then(dashResult => {
     if (dashResult.success) {
       debugLog(`Dashboard auto-started at ${dashResult.url}`);
       // Store the actual dashboard port in the instance lock so sibling sessions can discover it

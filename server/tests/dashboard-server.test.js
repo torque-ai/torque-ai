@@ -712,9 +712,9 @@ describe('dashboard-server', () => {
 
   it('routes /api/* requests to dashboard router dispatch', async () => {
     const dispatchMock = vi.fn(async () => {});
-    const { dashboardServer, getRequestHandler } = await loadDashboardServer({ dispatchImpl: dispatchMock });
+    const { dashboardServer, getRequestHandler, mockDb } = await loadDashboardServer({ dispatchImpl: dispatchMock });
 
-    await dashboardServer.start({ port: 4579, openBrowser: false });
+    await dashboardServer.start({ port: 4579, openBrowser: false, db: mockDb });
 
     const req = createMockReq({ method: 'GET', url: '/api/tasks?limit=5' });
     const { response } = createMockResponse();
@@ -728,6 +728,7 @@ describe('dashboard-server', () => {
       expect.objectContaining({
         broadcastTaskUpdate: expect.any(Function),
         clients: expect.any(Set),
+        db: mockDb,
         serverPort: 4579,
       }),
     );

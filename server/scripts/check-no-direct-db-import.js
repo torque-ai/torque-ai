@@ -21,7 +21,6 @@ const SERVER_DIR = path.resolve(__dirname, '..');
 // need the raw db reference to wire things up. Shrinks as migration progresses.
 const ALLOWED = new Set([
   'index.js',           // server entry point — opens db, passes to container
-  'dashboard/server.js', // dashboard entry point — accepts db via startDashboard deps
 ]);
 
 // Tests should use tests/helpers/database-facade.js instead of importing the
