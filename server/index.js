@@ -1297,6 +1297,45 @@ function init() {
     slotPullScheduler.stopHeartbeat();
   }
 
+  // Load plugin descriptors before DI boot so plugin-provided classifier and
+  // recovery registries are available to boot-time services such as
+  // autoRecoveryEngine. Installation still runs after boot because plugins may
+  // need fully constructed container services.
+  const {
+    mergeExtraPluginNames,
+    wirePluginEventHandlers,
+    installPluginsWithUnloadOnError,
+    validatePluginConfigSchemas,
+    getAllClassifierRules,
+    getAllRecoveryStrategies,
+    uninstallAllPlugins,
+    applyPluginMigrations,
+  } = require('./plugins/boot-helpers');
+  const extraPluginNames = mergeExtraPluginNames(DEFAULT_PLUGIN_NAMES);
+  if (extraPluginNames.length > 0) {
+    logger.info(`[plugin-loader] TORQUE_EXTRA_PLUGINS adds: ${extraPluginNames.join(', ')}`);
+  }
+  const loadedPlugins = [];
+  try {
+    const { loadPlugins } = require('./plugins/loader');
+    loadedPlugins.push(...loadPlugins({
+      plugins: [...DEFAULT_PLUGIN_NAMES, ...extraPluginNames],
+      authMode: runtimeMode,
+      logger,
+    }));
+  } catch (err) {
+    debugLog('Plugin loading failed before DI boot: ' + err.message);
+  }
+  if (!defaultContainer.has('loadedPlugins')) {
+    defaultContainer.registerValue('loadedPlugins', loadedPlugins);
+  }
+  if (!defaultContainer.has('pluginClassifierRules')) {
+    defaultContainer.registerValue('pluginClassifierRules', getAllClassifierRules(loadedPlugins));
+  }
+  if (!defaultContainer.has('pluginRecoveryStrategies')) {
+    defaultContainer.registerValue('pluginRecoveryStrategies', getAllRecoveryStrategies(loadedPlugins));
+  }
+
   // Boot the DI container — makes registered services available via container.get()
   // boot() is internally idempotent — safe to call multiple times
   try {
@@ -1363,33 +1402,12 @@ function init() {
     debugLog(`Run artifacts reindex skipped: ${err.message}`);
   }
 
-  // Load built-in plugins plus any mode-specific plugins the loader adds.
+  // Install built-in plugins plus any mode-specific plugins the loader adds.
   // plugin-contract.md #12 — operator-extensible plugin list via
   // TORQUE_EXTRA_PLUGINS env var. See plugins/boot-helpers.js for the
   // parser; extras are appended to DEFAULT_PLUGIN_NAMES and go through
   // the same load + validate + enabled() gate as built-ins.
-  const {
-    mergeExtraPluginNames,
-    wirePluginEventHandlers,
-    installPluginsWithUnloadOnError,
-    validatePluginConfigSchemas,
-    getAllClassifierRules,
-    getAllRecoveryStrategies,
-    uninstallAllPlugins,
-    applyPluginMigrations,
-  } = require('./plugins/boot-helpers');
-  const extraPluginNames = mergeExtraPluginNames(DEFAULT_PLUGIN_NAMES);
-  if (extraPluginNames.length > 0) {
-    logger.info(`[plugin-loader] TORQUE_EXTRA_PLUGINS adds: ${extraPluginNames.join(', ')}`);
-  }
-  let loadedPlugins = [];
   try {
-    const { loadPlugins } = require('./plugins/loader');
-    loadedPlugins = loadPlugins({
-      plugins: [...DEFAULT_PLUGIN_NAMES, ...extraPluginNames],
-      authMode: runtimeMode,
-      logger,
-    });
     // plugin-contract.md #3 — install-failure unload via shared helper.
     // Mutates loadedPlugins in place to splice out failures.
     installPluginsWithUnloadOnError(loadedPlugins, defaultContainer, logger);
@@ -1411,19 +1429,6 @@ function init() {
       );
     } catch (err) {
       logger.warn(`[plugin-loader] configSchema validation pass failed: ${err.message}`);
-    }
-    // plugin-contract.md #4 — merge classifierRules + recoveryStrategies
-    // across ALL loaded plugins and register as container values. Today
-    // only `auto-recovery-core` contributes, but this opens the path for
-    // future plugins to extend the recovery surface without forking
-    // server/factory/auto-recovery. autoRecoveryEngine factory prefers
-    // these container values over its direct require() of the core
-    // plugin (back-compat).
-    try {
-      defaultContainer.registerValue('pluginClassifierRules', getAllClassifierRules(loadedPlugins));
-      defaultContainer.registerValue('pluginRecoveryStrategies', getAllRecoveryStrategies(loadedPlugins));
-    } catch (err) {
-      logger.warn(`[plugin-loader] central registry registration failed: ${err.message}`);
     }
     // plugin-contract.md #11 — apply plugin migrations. Uses the raw
     // sqlite handle (db.getDbInstance()) since boot-helpers prepare()s
@@ -1449,14 +1454,9 @@ function init() {
     } catch (err) {
       logger.warn(`[plugin-loader] failed to subscribe uninstall to shutdown: ${err.message}`);
     }
-    // Expose loadedPlugins to other consumers (notably the /healthz
-    // route) via container value. plugin-contract.md #9.
-    try {
-      defaultContainer.registerValue('loadedPlugins', loadedPlugins);
-    } catch { /* registerValue idempotent */ }
     logger.info(`[startup] plugins_loaded=${loadedPlugins.map((p) => p.name).join(',') || 'none'}`);
   } catch (err) {
-    debugLog('Plugin loading failed: ' + err.message);
+    debugLog('Plugin installation failed: ' + err.message);
   }
 
   // Run initial cloud provider discovery after a short delay (non-blocking).

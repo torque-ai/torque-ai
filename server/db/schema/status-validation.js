@@ -1,6 +1,7 @@
 'use strict';
 
 const { randomUUID } = require('crypto');
+const { VALID_TASK_STATUS_VALUES } = require('../task-statuses');
 
 /**
  * Validate that all tasks have a recognized status value.
@@ -10,7 +11,7 @@ const { randomUUID } = require('crypto');
  * @param {object} logger - Logger instance
  */
 function validateTaskStatuses(db, logger) {
-  const validStatuses = ['pending', 'queued', 'running', 'completed', 'failed', 'cancelled', 'blocked', 'skipped', 'retry_scheduled'];
+  const validStatuses = VALID_TASK_STATUS_VALUES;
   const placeholders = validStatuses.map(() => '?').join(',');
   const invalid = db.prepare(
     ["SELECT id, status FROM tasks WHERE status NOT IN (", placeholders, ")"].join("")
@@ -1140,4 +1141,9 @@ function migrateModelAgnostic(db) {
   }
 }
 
-module.exports = { runMigrations, migrateModelAgnostic, validateTaskStatuses };
+module.exports = {
+  runMigrations,
+  migrateModelAgnostic,
+  validateTaskStatuses,
+  VALID_TASK_STATUS_VALUES,
+};

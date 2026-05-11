@@ -24,6 +24,10 @@ const { MAX_METADATA_SIZE } = require('../constants');
 const { ErrorCodes } = require('../handlers/error-codes');
 const eventBus = require('../event-bus');
 const { deleteTaskChildrenByIds, deleteTaskRowsByIds } = require('./task-child-cleanup');
+const {
+  ACTIVE_TASK_STATUS_VALUES,
+  TERMINAL_TASK_STATUS_VALUES,
+} = require('./task-statuses');
 
 // ============================================================
 // Shared constants — mirrors database.js copies exactly
@@ -57,8 +61,8 @@ const ALLOWED_TASK_COLUMNS = new Set([
   'stall_recovery_attempts',
 ]);
 
-const TERMINAL_TASK_STATUSES = new Set(['completed', 'failed', 'cancelled', 'skipped']);
-const ACTIVE_TASK_STATUSES = new Set(['pending', 'pending_approval', 'queued', 'running']);
+const TERMINAL_TASK_STATUSES = new Set(TERMINAL_TASK_STATUS_VALUES);
+const ACTIVE_TASK_STATUSES = new Set(ACTIVE_TASK_STATUS_VALUES);
 const DEFAULT_TASK_OUTPUT_MAX_BYTES = 256 * 1024 * 1024;
 const STATUS_TO_EVENT = {
   queued: 'TASK_QUEUED',
