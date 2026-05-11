@@ -18,7 +18,6 @@ describe('check-no-direct-db-import', () => {
 
   it('keeps the remaining allowed direct import list explicit', () => {
     expect(guard.getAllowedDirectDatabaseImportFiles()).toEqual([
-      'dashboard/server.js',
       'index.js',
     ]);
   });
