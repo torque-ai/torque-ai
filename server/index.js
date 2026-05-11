@@ -1256,7 +1256,7 @@ function init() {
   // Load plugin descriptors before any DI boot path. taskManager.initSubModules()
   // may boot the container in degraded mode, so plugin-provided classifier and
   // recovery registries must be registered before that call, not only before the
-  // explicit defaultContainer.boot() below.
+  // explicit container ensure-boot below.
   const {
     mergeExtraPluginNames,
     wirePluginEventHandlers,
@@ -1336,10 +1336,15 @@ function init() {
     slotPullScheduler.stopHeartbeat();
   }
 
-  // Boot the DI container — makes registered services available via container.get()
-  // boot() is internally idempotent — safe to call multiple times
+  // Ensure the DI container is available via container.get(). initSubModules()
+  // may already have booted it for degraded/test-compatible startup, so keep
+  // raw boot() duplicate warnings reserved for accidental double boots.
   try {
-    defaultContainer.boot();
+    if (typeof defaultContainer.ensureBooted === 'function') {
+      defaultContainer.ensureBooted();
+    } else {
+      defaultContainer.boot();
+    }
   } catch (err) {
     logger.error(`Container boot failed: ${err.message}`);
     // Non-fatal during migration — existing require() paths still work

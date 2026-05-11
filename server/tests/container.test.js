@@ -259,6 +259,34 @@ describe('container', () => {
     });
   });
 
+  describe('ensureBooted', () => {
+    it('boots once and reports whether startup already happened', () => {
+      let builds = 0;
+      container.register('svc', [], () => {
+        builds += 1;
+        return { builds };
+      });
+
+      expect(container.isBooted()).toBe(false);
+      expect(container.ensureBooted()).toEqual({ failed: [], alreadyBooted: false });
+      expect(container.ensureBooted()).toEqual({ failed: [], alreadyBooted: true });
+      expect(builds).toBe(1);
+      expect(container.get('svc')).toEqual({ builds: 1 });
+      expect(container.isBooted()).toBe(true);
+    });
+
+    it('passes boot options through on the first call', () => {
+      container.register('bad', [], () => { throw new Error('boom'); });
+
+      const result = container.ensureBooted({ failFast: false });
+
+      expect(result.failed).toEqual(['bad']);
+      expect(result.alreadyBooted).toBe(false);
+      expect(container.ensureBooted()).toEqual({ failed: ['bad'], alreadyBooted: true });
+      expect(container.isBooted()).toBe(true);
+    });
+  });
+
   describe('override', () => {
     it('replaces a service before boot — dependents resolve the override', () => {
       container.register('db', [], () => ({ real: true }));

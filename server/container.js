@@ -12,6 +12,8 @@
  *   .register(name, deps, factory)  — register a factory
  *   .registerValue(name, value)     — register a pre-built value
  *   .boot({ failFast = true })      — resolve deps, run factories
+ *   .ensureBooted(opts)             — boot once, no duplicate warning if already booted
+ *   .isBooted()        — true after a successful or degraded boot
  *   .get(name)          — retrieve an instantiated service
  *   .has(name)          — check if a service is registered
  *   .list()             — list all registered service names
@@ -108,6 +110,7 @@ function createContainer() {
   const _registry = new Map();
   const _instances = new Map();
   let _bootOrder = []; // topological order from the most recent boot()
+  let _lastBootResult = { failed: [] };
   let _booted = false;
   let _frozen = false;
 
@@ -184,12 +187,25 @@ function createContainer() {
     }
 
     _booted = true;
+    _lastBootResult = { failed: [...failed] };
     if (failed.length > 0) {
       logger.warn(`Container: booted ${_instances.size} services (degraded; ${failed.length} factory failure(s): ${failed.join(', ')})`);
     } else {
       logger.info(`Container: booted ${_instances.size} services`);
     }
-    return { failed };
+    return { failed: [..._lastBootResult.failed] };
+  }
+
+  function isBooted() {
+    return _booted;
+  }
+
+  function ensureBooted(opts = {}) {
+    if (_booted) {
+      return { failed: [..._lastBootResult.failed], alreadyBooted: true };
+    }
+    const result = boot(opts);
+    return { ...result, alreadyBooted: false };
   }
 
   function get(name) {
@@ -230,6 +246,7 @@ function createContainer() {
   function resetForTest() {
     _instances.clear();
     _bootOrder = [];
+    _lastBootResult = { failed: [] };
     _booted = false;
     _frozen = false;
   }
@@ -277,6 +294,7 @@ function createContainer() {
 
     _instances.clear();
     _bootOrder = [];
+    _lastBootResult = { failed: [] };
     _booted = false;
     _frozen = false;
 
@@ -316,7 +334,21 @@ function createContainer() {
     }
   }
 
-  return { register, registerValue, boot, get, has, list, peek, freeze, resetForTest, override, dispose };
+  return {
+    register,
+    registerValue,
+    boot,
+    ensureBooted,
+    isBooted,
+    get,
+    has,
+    list,
+    peek,
+    freeze,
+    resetForTest,
+    override,
+    dispose,
+  };
 }
 
 // ── Legacy compatibility ────────────────────────────────────────────────────

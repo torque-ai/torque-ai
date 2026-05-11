@@ -19,10 +19,11 @@ describe('auto-recovery wiring', () => {
     const src = fs.readFileSync(path.join(__dirname, '..', 'index.js'), 'utf8');
     const classifierIndex = src.indexOf("defaultContainer.registerValue('pluginClassifierRules'");
     const strategyIndex = src.indexOf("defaultContainer.registerValue('pluginRecoveryStrategies'");
-    const bootIndex = src.indexOf('defaultContainer.boot();');
+    const bootIndex = src.indexOf('defaultContainer.ensureBooted');
 
     expect(classifierIndex).toBeGreaterThan(-1);
     expect(strategyIndex).toBeGreaterThan(-1);
+    expect(bootIndex).toBeGreaterThan(-1);
     expect(classifierIndex).toBeLessThan(bootIndex);
     expect(strategyIndex).toBeLessThan(bootIndex);
     expect(src).not.toContain('central registry registration failed');
