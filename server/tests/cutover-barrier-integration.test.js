@@ -531,6 +531,123 @@ rm -rf "$FAKE_ROOT"
   }
 }
 
+function runNormalRestartExitDiagnosticSimulation(featureName, env = {}) {
+  const wrapper = `
+#!/usr/bin/env bash
+set -euo pipefail
+
+SAFE_NAME=$(echo "${featureName}" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9._-]/-/g')
+FAKE_ROOT=$(mktemp -d)
+FAKE_REPO="$FAKE_ROOT/repo"
+FAKE_WORKTREE="$FAKE_REPO/.worktrees/feat-$SAFE_NAME"
+FAKE_DATA="$FAKE_ROOT/data"
+mkdir -p "$FAKE_WORKTREE" "$FAKE_DATA" "$FAKE_REPO/server"
+PID_FILE="$FAKE_DATA/torque.pid"
+RESTART_FLAG="$FAKE_DATA/restart-submitted"
+NORMAL_DIAG_WRITTEN="$FAKE_DATA/normal-diag-written"
+LIVEZ_CALLS=0
+printf '{"pid":111,"startedAt":"2026-05-11T13:00:00.000Z","heartbeatAt":"2026-05-11T13:00:05.000Z"}' > "$PID_FILE"
+printf 'old benign successor line\\n' > "$FAKE_DATA/successor.log"
+printf '{"timestamp":"2026-05-11T12:59:00.000Z","event":"old","code":0}\\n' > "$FAKE_DATA/restart-exit.ndjson"
+printf '{"timestamp":"2026-05-11T12:59:00.000Z","level":"info","message":"old boot"}\\n' > "$FAKE_DATA/torque.log"
+
+git() {
+  if [ "$1" = "-C" ]; then
+    shift 2
+  fi
+  case "$1" in
+    rev-parse)    echo "$FAKE_REPO" ;;
+    show-ref)     return 0 ;;
+    symbolic-ref) echo "main" ;;
+    merge)        echo "Already up to date." ;;
+    merge-base)   return 0 ;;
+    checkout)     return 0 ;;
+    diff)         return 0 ;;
+    worktree)     return 0 ;;
+    branch)       return 0 ;;
+    status)       return 0 ;;
+    *)            command git "$@" ;;
+  esac
+}
+export -f git
+
+sleep() { :; }
+export -f sleep
+
+curl() {
+  case "\${*}" in
+    */api/v2/system/restart-server*)
+      touch "$RESTART_FLAG"
+      echo '{"task_id":"55555555-5555-4555-8555-555555555555","status":"running"}'
+      return 0
+      ;;
+    */api/v2/tasks/55555555-5555-4555-8555-555555555555*)
+      echo '{"status":"completed"}'
+      return 0
+      ;;
+    */api/v2/tasks?status=*)
+      echo '{"items":[]}'
+      return 0
+      ;;
+    */livez*|*/api/version*)
+      if [ -f "$RESTART_FLAG" ]; then
+        LIVEZ_CALLS=$((LIVEZ_CALLS + 1))
+        if [ ! -f "$NORMAL_DIAG_WRITTEN" ]; then
+          touch "$NORMAL_DIAG_WRITTEN"
+          printf '{"timestamp":"2026-05-11T13:01:00.000Z","event":"exit","pid":111,"code":0,"signal":null,"restart_pending":true}\\n' >> "$FAKE_DATA/restart-exit.ndjson"
+          printf '{"timestamp":"2026-05-11T13:01:00.500Z","event":"successor_exit","pid":111,"code":0,"signal":null,"error":null}\\n' >> "$FAKE_DATA/restart-exit.ndjson"
+          printf 'Dashboard stopped\\n\\n=== 2026-05-11T13:01:01.000Z successor spawn (parent 111, helper 222) ===\\n' >> "$FAKE_DATA/successor.log"
+        fi
+        if [ "$LIVEZ_CALLS" -lt 3 ]; then
+          return 1
+        fi
+        printf '{"pid":222,"startedAt":"2026-05-11T13:01:01.000Z","heartbeatAt":"2026-05-11T13:01:02.000Z"}' > "$PID_FILE"
+      fi
+      echo '{"ok":true}'
+      return 0
+      ;;
+    *)
+      echo '{}'
+      return 0
+      ;;
+  esac
+}
+export -f curl
+
+export TORQUE_PID_FILE="$PID_FILE"
+export TORQUE_DATA_DIR="$FAKE_DATA"
+export CUTOVER_RESTART_WAIT_SECONDS=10
+
+SCRIPT_BODY=$(tail -n +3 "${SCRIPT_PATH.replace(/\\/g, '/')}")
+eval "$SCRIPT_BODY" <<< ""
+
+rm -rf "$FAKE_ROOT"
+`;
+
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cutover-normal-restart-exit-'));
+  const wrapperPath = path.join(tmpDir, 'normal-restart-exit-cutover.sh');
+  fs.writeFileSync(wrapperPath, wrapper, { mode: 0o755 });
+
+  try {
+    const result = childProcess.spawnSync(BASH_EXECUTABLE, [wrapperPath, featureName], {
+      encoding: 'utf8',
+      timeout: 10000,
+      env: { ...process.env, TORQUE_COORD_LOCK_HELPER: LOCK_HELPER_PATH, ...env },
+      windowsHide: true,
+    });
+    return {
+      status: result.status,
+      stdout: result.stdout || '',
+      stderr: result.stderr || '',
+      error: result.error || null,
+    };
+  } finally {
+    try {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    } catch { /* cleanup best-effort */ }
+  }
+}
+
 describe('worktree-cutover.sh barrier integration', () => {
   const scriptSource = fs.readFileSync(SCRIPT_PATH, 'utf8');
 
@@ -654,6 +771,8 @@ describe('worktree-cutover.sh barrier integration', () => {
     it('uses restart diagnostics and the repo launcher for manual recovery', () => {
       expect(scriptSource).toContain('restart-exit.ndjson');
       expect(scriptSource).toContain('successor.log');
+      expect(scriptSource).toContain('file_has_restart_exit_failure_after');
+      expect(scriptSource).not.toContain('file_has_lines_after "${TORQUE_RESTART_EXIT_FILE_PATH}"');
       expect(scriptSource).toContain('cutover_startup_failure_observed');
       expect(scriptSource).toContain('print_cutover_restart_diagnostics');
       expect(scriptSource).toContain('start-torque.ps1');
@@ -803,6 +922,16 @@ describe('worktree-cutover.sh barrier integration', () => {
       expect(result.stdout).toContain('successor stderr/stdout');
       expect(result.stdout).toContain('Cannot find module ajv');
       expect(result.stdout).not.toContain('TORQUE did not come back up within');
+    });
+
+    it('continues waiting when restart-exit diagnostics contain normal zero-code handoff records', () => {
+      const result = runNormalRestartExitDiagnosticSimulation('test-barrier-feature');
+
+      expect(result.error).toBeNull();
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain('TORQUE restarted on updated main (confirmed via PID turnover)');
+      expect(result.stdout).not.toContain('TORQUE successor logged a startup failure');
+      expect(result.stdout).not.toContain('Cannot find module');
     });
   });
 

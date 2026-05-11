@@ -106,25 +106,6 @@ try {
 EOF
 }
 
-file_has_lines_after() {
-  local file_path="${1:-}"
-  local line_offset="${2:-0}"
-  if [ -z "$file_path" ] || [ ! -f "$file_path" ]; then
-    return 1
-  fi
-  node - "$file_path" "$line_offset" <<'EOF'
-const fs = require('fs');
-const filePath = process.argv[2];
-const offset = Number.parseInt(process.argv[3] || '0', 10) || 0;
-try {
-  const lines = fs.readFileSync(filePath, 'utf8').split(/\r?\n/).filter((line, idx, arr) => idx < arr.length - 1 || line.length > 0);
-  process.exit(lines.length > offset ? 0 : 1);
-} catch {
-  process.exit(1);
-}
-EOF
-}
-
 file_has_startup_failure_after() {
   local file_path="${1:-}"
   local line_offset="${2:-0}"
@@ -139,6 +120,67 @@ const failurePattern = /\b(TORQUE FATAL|uncaughtException|UnhandledPromiseReject
 try {
   const lines = fs.readFileSync(filePath, 'utf8').split(/\r?\n/).filter((line, idx, arr) => idx < arr.length - 1 || line.length > 0);
   process.exit(lines.slice(offset).some((line) => failurePattern.test(line)) ? 0 : 1);
+} catch {
+  process.exit(1);
+}
+EOF
+}
+
+file_has_restart_exit_failure_after() {
+  local file_path="${1:-}"
+  local line_offset="${2:-0}"
+  if [ -z "$file_path" ] || [ ! -f "$file_path" ]; then
+    return 1
+  fi
+  node - "$file_path" "$line_offset" <<'EOF'
+const fs = require('fs');
+const filePath = process.argv[2];
+const offset = Number.parseInt(process.argv[3] || '0', 10) || 0;
+
+function hasNonZeroCode(value) {
+  if (value === null || value === undefined || value === '') return false;
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric !== 0 : true;
+}
+
+function hasSignal(value) {
+  if (value === null || value === undefined) return false;
+  const normalized = String(value).trim().toLowerCase();
+  return normalized !== '' && normalized !== 'null' && normalized !== 'none';
+}
+
+function hasError(value) {
+  if (value === null || value === undefined) return false;
+  if (typeof value === 'string') return value.trim() !== '';
+  return true;
+}
+
+function isFailure(record) {
+  if (!record || typeof record !== 'object') return false;
+  const event = String(record.event || '');
+  if (hasError(record.error)) return true;
+  if (event === 'successor_spawn_error') return true;
+  if (event !== 'exit' && !event.endsWith('_exit')) return false;
+  return hasNonZeroCode(record.code) || hasSignal(record.signal);
+}
+
+try {
+  const lines = fs.readFileSync(filePath, 'utf8')
+    .split(/\r?\n/)
+    .filter((line, idx, arr) => idx < arr.length - 1 || line.length > 0)
+    .slice(offset);
+  for (const line of lines) {
+    try {
+      if (isFailure(JSON.parse(line))) {
+        process.exit(0);
+      }
+    } catch {
+      // Ignore malformed or partially written diagnostic lines. Fatal startup
+      // text is still caught from torque.log/successor.log, and a corrupt row
+      // should not create another cutover false alarm.
+    }
+  }
+  process.exit(1);
 } catch {
   process.exit(1);
 }
@@ -178,7 +220,7 @@ EOF
 }
 
 cutover_startup_failure_observed() {
-  file_has_lines_after "${TORQUE_RESTART_EXIT_FILE_PATH}" "${TORQUE_RESTART_EXIT_START_LINE}" \
+  file_has_restart_exit_failure_after "${TORQUE_RESTART_EXIT_FILE_PATH}" "${TORQUE_RESTART_EXIT_START_LINE}" \
     || file_has_startup_failure_after "${TORQUE_LOG_FILE_PATH}" "${TORQUE_LOG_START_LINE}" \
     || file_has_startup_failure_after "${TORQUE_SUCCESSOR_LOG_FILE_PATH}" "${TORQUE_SUCCESSOR_LOG_START_LINE}"
 }
