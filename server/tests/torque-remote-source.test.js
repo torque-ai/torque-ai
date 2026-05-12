@@ -126,9 +126,12 @@ describe('torque-remote source invariants', () => {
     // TTL-based cross-host reap (batch-2 #2).
     expect(src).toContain('TORQUE_REMOTE_SYNC_LOCK_STALE_TTL_SECS:-14400');
     expect(src).toContain('exceeded TTL');
-    // Reap command shape.
-    expect(src).toContain('rmdir /s /q \\"$REMOTE_LANE_LOCK_DIR\\" 2>nul');
-    expect(src).not.toContain('rmdir "$REMOTE_LANE_LOCK_DIR"');
+    // Reap command shape — lock release now routes through adapter.
+    // The adapter itself still emits rmdir /s /q on Windows (via $lock_dir).
+    expect(src).toContain('remote_lock_release "$REMOTE_LANE_LOCK_DIR"');
+    expect(src).toContain('rmdir /s /q \\"$lock_dir\\"');
+    // Direct inline rmdir against $REMOTE_LANE_LOCK_DIR is gone — adapter owns it.
+    expect(src).not.toContain('rmdir /s /q \\"$REMOTE_LANE_LOCK_DIR\\"');
   });
 
   it('strips trailing whitespace from owner.env field values so the host check matches', () => {

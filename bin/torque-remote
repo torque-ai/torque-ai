@@ -779,7 +779,7 @@ remote_lock_acquire() {
   local owner_env="$2"
   case "$REMOTE_OS" in
     linux)
-      _emit_or_run "mkdir \"$lock_dir\" 2>/dev/null && cat > \"$lock_dir/owner.env\" <<'EOF'
+      _emit_or_run "mkdir \"$lock_dir\" 2>/dev/null; cat > \"$lock_dir/owner.env\" <<'EOF'
 $owner_env
 EOF"
       ;;
@@ -1101,23 +1101,24 @@ remote_lane_lock_safe_value() {
 }
 
 write_remote_lane_lock_owner() {
-  local owner_file owner_host owner_pid owner_started owner_lane
-  owner_file="${REMOTE_LANE_LOCK_DIR}\\${REMOTE_LANE_LOCK_OWNER_FILE}"
+  local owner_host owner_pid owner_started owner_lane owner_env_content
   owner_host="$(remote_lane_lock_safe_value "$(remote_lane_lock_local_host)")"
   owner_pid="$(remote_lane_lock_safe_value "$$")"
   owner_started="$(remote_lane_lock_safe_value "$(date +%s 2>/dev/null || echo 0)")"
   owner_lane="$(remote_lane_lock_safe_value "${REMOTE_LANE_INDEX:-0}")"
-  ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" \
-    "(echo host=$owner_host && echo pid=$owner_pid && echo started_at_epoch=$owner_started && echo lane_index=$owner_lane) > \"$owner_file\"" \
-    >/dev/null 2>&1
+  # Build owner_env content as a local string; pass to adapter which handles
+  # OS-specific emission (Linux: heredoc; Windows: CMD echo chain).
+  owner_env_content="host=$owner_host
+pid=$owner_pid
+started_at_epoch=$owner_started
+lane_index=$owner_lane"
+  remote_lock_acquire "$REMOTE_LANE_LOCK_DIR" "$owner_env_content" >/dev/null 2>&1
 }
 
 read_remote_lane_lock_owner() {
-  local owner_file
-  owner_file="${REMOTE_LANE_LOCK_DIR}\\${REMOTE_LANE_LOCK_OWNER_FILE}"
-  ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" \
-    "type \"$owner_file\" 2>nul" \
-    2>/dev/null | tr -d '\r'
+  # Delegates OS-specific read (Linux: cat; Windows: type) to adapter.
+  # Keep the tr -d '\r' post-processing to strip Windows CR.
+  remote_read_owner_env "$REMOTE_LANE_LOCK_DIR" 2>/dev/null | tr -d '\r'
 }
 
 owner_field() {
@@ -1253,14 +1254,13 @@ start_remote_lane_lock_heartbeat() {
   if ! [[ "$interval" =~ ^[0-9]+$ ]] || (( interval <= 0 )); then
     return 0
   fi
-  local hb_file="${REMOTE_LANE_LOCK_DIR}\\${REMOTE_LANE_LOCK_HEARTBEAT_FILE}"
   # Detached subshell: writes a heartbeat then loops. Each SSH is silenced;
   # failures don't propagate. The loop exits when the parent kills it on
-  # release.
+  # release. OS-specific emission (Linux: echo > path; Windows: echo>path)
+  # handled by remote_heartbeat_write adapter.
   (
     while :; do
-      ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" \
-        "echo $(date +%s 2>/dev/null || echo 0)>\"$hb_file\"" \
+      remote_heartbeat_write "$REMOTE_LANE_LOCK_DIR" "$(date +%s 2>/dev/null || echo 0)" \
         >/dev/null 2>&1 || true
       sleep "$interval"
     done
@@ -1281,9 +1281,8 @@ stop_remote_lane_lock_heartbeat() {
 reap_remote_lane_lock() {
   local reason="$1"
   warn "Remote lane lock appears stale (${reason}); removing $REMOTE_LANE_LOCK_DIR"
-  ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" \
-    "rmdir /s /q \"$REMOTE_LANE_LOCK_DIR\" 2>nul" \
-    >/dev/null 2>&1 || true
+  # OS-specific removal: Linux uses rm -rf; Windows uses rmdir /s /q.
+  remote_lock_release "$REMOTE_LANE_LOCK_DIR" >/dev/null 2>&1 || true
 }
 
 # Read the lane count from configured sources, returning a positive integer.
@@ -1405,16 +1404,21 @@ provision_lane_workspace_if_needed() {
 # Compute the per-lane lock dir. Lock dirs live in a sibling directory next
 # to the workspace base, NOT inside any lane workspace, so `git clean -fd`
 # cannot self-clobber.
-#   base="C:\trt\torque-public" → "C:\trt\.torque-remote-lanes\.locks\lane-3"
+#   Windows: base="C:\trt\torque-public" → "C:\trt\.torque-remote-lanes\.locks\lane-3"
+#   Linux:   base="/trt/torque-public"   → "/trt/.torque-remote-lanes/.locks/lane-3"
 compute_lane_lock_dir() {
   local base="$1"
   local index="$2"
   # Strip the trailing leaf from base to get the parent directory.
+  # Try backslash first (Windows), then forward slash (Linux/POSIX).
   local parent="${base%\\*}"
   if [[ "$parent" == "$base" ]]; then
     parent="${base%/*}"
   fi
-  printf '%s\\.torque-remote-lanes\\.locks\\lane-%s\n' "$parent" "$index"
+  case "${REMOTE_OS:-windows}" in
+    linux) printf '%s/.torque-remote-lanes/.locks/lane-%s\n' "$parent" "$index" ;;
+    *)     printf '%s\\.torque-remote-lanes\\.locks\\lane-%s\n' "$parent" "$index" ;;
+  esac
 }
 
 # Per-call caches populated by `attempt_lane_claim` from the coalesced probe
@@ -1675,9 +1679,8 @@ release_remote_lane_lock() {
   # mid-flight `echo > heartbeat.epoch` doesn't recreate the dir as a
   # side-effect of the redirect.
   stop_remote_lane_lock_heartbeat
-  ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" \
-    "rmdir /s /q \"$REMOTE_LANE_LOCK_DIR\" 2>nul" \
-    >/dev/null 2>&1 || true
+  # OS-specific removal: Linux uses rm -rf; Windows uses rmdir /s /q.
+  remote_lock_release "$REMOTE_LANE_LOCK_DIR" >/dev/null 2>&1 || true
   REMOTE_LANE_LOCK_HELD=0
   REMOTE_LANE_LOCK_DIR=""
   REMOTE_LANE_INDEX=""
