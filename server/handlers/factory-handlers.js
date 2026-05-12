@@ -88,6 +88,7 @@ const FACTORY_QUEUE_STATUS_KEYS = [
 ];
 const FACTORY_SCHEDULABLE_TASK_STATUS_KEYS = FACTORY_QUEUE_STATUS_KEYS
   .filter((status) => status !== 'pending_approval');
+const FACTORY_PROJECT_PAUSED_REASON = 'factory_project_paused';
 const ACTIVE_FACTORY_BATCH_TASK_STATUS_RANK = new Map([
   ['running', 0],
   ['pending_provider_switch', 1],
@@ -807,17 +808,14 @@ function isFactoryQueueTask(task, projectNames = new Set()) {
   return projectName !== '' && projectNames.has(projectName);
 }
 
-function countTasksByStatusKey(status, projectNames = new Set()) {
+function listFactoryTasksByStatusKey(status, projectNames = new Set(), columns = ['id', 'project', 'tags']) {
   try {
     const db = getDatabase();
     if (db && typeof db.listTasks === 'function') {
-      const rows = db.listTasks({ status, limit: 10000, columns: ['id', 'project', 'tags'] });
+      const rows = db.listTasks({ status, limit: 10000, columns });
       return Array.isArray(rows)
-        ? rows.filter((task) => isFactoryQueueTask(task, projectNames)).length
-        : 0;
-    }
-    if (db && typeof db.countTasks === 'function' && projectNames.size === 0) {
-      return Number(db.countTasks({ status, tag: 'factory:internal' })) || 0;
+        ? rows.filter((task) => isFactoryQueueTask(task, projectNames))
+        : [];
     }
   } catch (error) {
     logger.debug('Failed to count tasks for factory idle diagnosis', {
@@ -825,7 +823,33 @@ function countTasksByStatusKey(status, projectNames = new Set()) {
       status,
     });
   }
+  return [];
+}
+
+function countTasksByStatusKey(status, projectNames = new Set()) {
+  const tasks = listFactoryTasksByStatusKey(status, projectNames);
+  if (tasks.length > 0) {
+    return tasks.length;
+  }
+
+  try {
+    const db = getDatabase();
+    if (db && typeof db.countTasks === 'function' && projectNames.size === 0) {
+      return Number(db.countTasks({ status, tag: 'factory:internal' })) || 0;
+    }
+  } catch (error) {
+    logger.debug('Failed to fallback-count tasks for factory idle diagnosis', {
+      err: error.message,
+      status,
+    });
+  }
   return 0;
+}
+
+function countProjectPausedWaitingTasks(projectNames = new Set()) {
+  return listFactoryTasksByStatusKey('waiting', projectNames, ['id', 'project', 'tags', 'pause_reason'])
+    .filter((task) => task.pause_reason === FACTORY_PROJECT_PAUSED_REASON)
+    .length;
 }
 
 function getFactoryTaskQueueCounts(projects = []) {
@@ -839,13 +863,16 @@ function getFactoryTaskQueueCounts(projects = []) {
     byStatus[status] = countTasksByStatusKey(status, projectNames);
   }
   const totalNonTerminal = Object.values(byStatus).reduce((sum, count) => sum + count, 0);
-  const schedulable = FACTORY_SCHEDULABLE_TASK_STATUS_KEYS
+  const projectPausedWaiting = countProjectPausedWaitingTasks(projectNames);
+  const rawSchedulable = FACTORY_SCHEDULABLE_TASK_STATUS_KEYS
     .reduce((sum, status) => sum + (byStatus[status] || 0), 0);
+  const schedulable = Math.max(0, rawSchedulable - projectPausedWaiting);
 
   return {
     by_status: byStatus,
     total_non_terminal: totalNonTerminal,
     schedulable,
+    project_paused_waiting: projectPausedWaiting,
     manual_gate_pending: byStatus.pending_approval || 0,
   };
 }

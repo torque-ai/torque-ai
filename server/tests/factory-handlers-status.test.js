@@ -1083,6 +1083,48 @@ describe('factory_status', () => {
     ]));
   });
 
+  it('does not count project-paused waiting tasks as schedulable factory work', async () => {
+    const db = rawDb();
+    const createdAt = new Date().toISOString();
+
+    insertFactoryProject(db, {
+      id: 'project-paused-waiting',
+      name: 'Paused Waiting',
+      status: 'paused',
+      testDir,
+    });
+    db.prepare(`
+      INSERT INTO tasks (id, task_description, status, provider, tags, pause_reason, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      'task-project-paused-waiting',
+      'Parked task for paused project',
+      'waiting',
+      'codex',
+      JSON.stringify(['factory:internal', 'factory:project_id=project-paused-waiting']),
+      'factory_project_paused',
+      createdAt,
+    );
+
+    const result = await safeTool('factory_status', {});
+
+    expect(result.isError).toBeFalsy();
+    expect(result.structuredData.summary.idle_diagnosis).toMatchObject({
+      idle: true,
+      reason_code: 'all_projects_paused',
+      counts: {
+        task_queue: {
+          by_status: {
+            waiting: 1,
+          },
+          total_non_terminal: 1,
+          schedulable: 0,
+          project_paused_waiting: 1,
+        },
+      },
+    });
+  });
+
   it('does not report idle while schedulable tasks remain queued', async () => {
     const db = rawDb();
     const createdAt = new Date().toISOString();
