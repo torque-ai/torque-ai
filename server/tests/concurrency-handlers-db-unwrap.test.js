@@ -10,6 +10,7 @@
 // changed. (Regression introduced 2026-04-04 in 8a0430c8.)
 
 const Database = require('better-sqlite3');
+const Module = require('module');
 
 function installCjsModuleMock(modulePath, exportsValue) {
   const resolved = require.resolve(modulePath);
@@ -36,6 +37,7 @@ vi.mock('../container', () => ({ defaultContainer: {} }));
 describe('concurrency-handlers — unwraps facade before raw SQL', () => {
   let rawDb;
   let handlers;
+  let databaseLoadSpy;
 
   beforeEach(() => {
     rawDb = new Database(':memory:');
@@ -75,11 +77,21 @@ describe('concurrency-handlers — unwraps facade before raw SQL', () => {
     };
 
     installCjsModuleMock('../container', { defaultContainer: mockContainer });
+    const originalLoad = Module._load;
+    databaseLoadSpy = vi.spyOn(Module, '_load').mockImplementation(function patchedLoad(request, parent, isMain) {
+      const parentFile = parent?.filename?.replace(/\\/g, '/') || '';
+      if (request === '../database' && parentFile.endsWith('/server/handlers/concurrency-handlers.js')) {
+        throw new Error('concurrency handlers should not require database facade directly');
+      }
+      return Reflect.apply(originalLoad, this, [request, parent, isMain]);
+    });
     removeCjsModuleMock('../handlers/concurrency-handlers');
     handlers = require('../handlers/concurrency-handlers');
   });
 
   afterEach(() => {
+    databaseLoadSpy?.mockRestore();
+    databaseLoadSpy = null;
     removeCjsModuleMock('../container', '../handlers/concurrency-handlers');
     if (rawDb) {
       rawDb.close();

@@ -1,7 +1,8 @@
 'use strict';
 
-const { defaultContainer } = require('../container');
+const { resolveDatabaseFacade } = require('../db/database-facade-resolver');
 const hostManagement = require('../db/host/management');
+const { unwrapDbHandle } = require('../utils/db-accessor');
 
 function response(message) {
   return {
@@ -66,16 +67,14 @@ function getDb() {
   // Without this unwrap, .prepare() throws TypeError, the handler returns a
   // plaintext error the v2 dispatch can't JSON.parse, and the dashboard's
   // concurrency UI silently fails to persist (regression from 8a0430c8).
-  let candidate;
-  try {
-    candidate = defaultContainer.get('db');
-  } catch {
-    candidate = require('../database');
+  const candidate = resolveDatabaseFacade({
+    serviceName: 'concurrency handlers',
+  });
+  const rawDb = unwrapDbHandle(candidate);
+  if (!rawDb || typeof rawDb.prepare !== 'function') {
+    throw new Error('concurrency handlers require a database facade with a raw SQL handle');
   }
-  if (candidate && typeof candidate.getDbInstance === 'function') {
-    return candidate.getDbInstance();
-  }
-  return candidate || null;
+  return rawDb;
 }
 
 function getConcurrencyLimits() {
