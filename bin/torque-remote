@@ -1856,6 +1856,7 @@ LOCAL_CONFIG_SOURCE="none"
 GLOBAL_LOCAL_STATE="missing"
 PROJECT_INFRA_LOCAL_STATE="missing"
 PROJECT_LOCAL_STATE="missing"
+REMOTE_OS_OVERRIDE=""
 
 apply_local_config_file() {
   local file="$1"
@@ -1875,6 +1876,8 @@ apply_local_config_file() {
   fi
   v=$(json_get "$file" '.remote_test_worktree_subdir'); [[ -n "$v" ]] && REMOTE_TEST_WORKTREE_SUBDIR="$v"
   v=$(json_get "$file" '.remote_test_worktree_root');   [[ -n "$v" ]] && REMOTE_TEST_WORKTREE_ROOT="$v"
+  v=$(json_get "$file" '.remote_os')
+  [[ -n "$v" && "$v" != "null" ]] && REMOTE_OS_OVERRIDE="$v"
   return 0
 }
 
@@ -1993,6 +1996,26 @@ fi
 if [[ "${STATUS_REQUESTED:-0}" == "1" ]]; then
   print_lane_status
   exit 0
+fi
+
+# ---- Detect remote OS (once per invocation, after SSH config resolves) ----
+if [[ "$TRANSPORT" == "ssh" ]]; then
+  if [[ -n "${REMOTE_OS_OVERRIDE:-}" && "$REMOTE_OS_OVERRIDE" != "auto" ]]; then
+    REMOTE_OS="$REMOTE_OS_OVERRIDE"
+    info "[probe] using config override: REMOTE_OS=$REMOTE_OS"
+    # Run probe alongside to detect drift
+    if remote_probe_os; then
+      if [[ "$REMOTE_OS" != "$REMOTE_OS_OVERRIDE" ]]; then
+        warn "remote_os override ($REMOTE_OS_OVERRIDE) disagrees with probe ($REMOTE_OS). Using override."
+        REMOTE_OS="$REMOTE_OS_OVERRIDE"
+      fi
+    fi
+  else
+    if ! remote_probe_os; then
+      echo "[torque-remote] ERROR: cannot determine remote OS via probe; uname+ver both failed for $SSH_USER@$SSH_HOST. Set remote_os in your local config to 'linux' or 'windows' to override." >&2
+      exit 78
+    fi
+  fi
 fi
 
 # ---- Command to run ----
