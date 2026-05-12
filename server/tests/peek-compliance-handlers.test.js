@@ -9,6 +9,7 @@ const MODULE_PATH = require.resolve('../plugins/snapscope/handlers/compliance');
 let currentModules = {};
 
 vi.mock('../database', () => currentModules.database);
+vi.mock('../db/database-facade-resolver', () => currentModules.databaseFacadeResolver);
 vi.mock('../db/peek/policy-audit', () => currentModules.database);
 vi.mock('../logger', () => currentModules.logger);
 vi.mock('../plugins/snapscope/handlers/webhook-outbound', () => currentModules.webhookOutbound);
@@ -57,12 +58,14 @@ function installCjsModuleMock(modulePath, exportsValue) {
 function loadCompliance() {
   vi.resetModules();
   vi.doMock('../database', () => currentModules.database);
+  vi.doMock('../db/database-facade-resolver', () => currentModules.databaseFacadeResolver);
   vi.doMock('../db/peek/policy-audit', () => currentModules.database);
   vi.doMock('../logger', () => currentModules.logger);
   vi.doMock('../plugins/snapscope/handlers/webhook-outbound', () => currentModules.webhookOutbound);
   vi.doMock('../plugins/snapscope/handlers/rollback', () => currentModules.rollback);
 
   installCjsModuleMock('../database', currentModules.database);
+  installCjsModuleMock('../db/database-facade-resolver', currentModules.databaseFacadeResolver);
   installCjsModuleMock('../db/peek/policy-audit', currentModules.database);
   installCjsModuleMock('../logger', currentModules.logger);
   installCjsModuleMock('../plugins/snapscope/handlers/webhook-outbound', currentModules.webhookOutbound);
@@ -421,6 +424,9 @@ function setupHarness(options = {}) {
 
   currentModules = {
     database: databaseModule,
+    databaseFacadeResolver: {
+      resolveDatabaseFacade: vi.fn(() => databaseModule),
+    },
     logger: loggerMock.module,
     webhookOutbound: {
       fireWebhookForEvent,

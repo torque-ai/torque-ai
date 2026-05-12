@@ -1,7 +1,7 @@
 'use strict';
 
 const crypto = require('crypto');
-const { defaultContainer } = require('../../../container');
+const { resolveDatabaseFacade } = require('../../../db/database-facade-resolver');
 const peekPolicyAudit = require('../../../db/peek/policy-audit');
 const { fireWebhookForEvent } = require('./webhook-outbound');
 const { classifyActionRisk } = require('./rollback');
@@ -29,9 +29,12 @@ function getAuditChainHash(entry) {
 function getDatabaseHandle() {
   let dbService = null;
   try {
-    dbService = defaultContainer.get('db');
-  } catch {
-    dbService = require('../../../database');
+    dbService = resolveDatabaseFacade({
+      serviceName: 'peek compliance handler',
+    });
+  } catch (error) {
+    logger.warn(`Failed to resolve peek compliance database facade: ${error.message}`);
+    return null;
   }
 
   if (dbService && typeof dbService.prepare === 'function') {

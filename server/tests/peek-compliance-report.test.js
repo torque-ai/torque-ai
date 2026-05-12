@@ -311,7 +311,9 @@ describe('peek compliance report handler', () => {
     loggerMock = createLoggerMock();
     databaseFacade = createDatabaseFacade(db);
     compliance = loadCompliance({
-      '../../../database': databaseFacade,
+      '../../../db/database-facade-resolver': {
+        resolveDatabaseFacade: vi.fn(() => databaseFacade),
+      },
       '../../../db/peek/policy-audit': databaseFacade,
       '../../../logger': loggerMock.module,
     });
@@ -620,7 +622,9 @@ describe('peek compliance report handler', () => {
       throw new Error('proof helper unavailable');
     });
     compliance = loadCompliance({
-      '../../../database': databaseFacade,
+      '../../../db/database-facade-resolver': {
+        resolveDatabaseFacade: vi.fn(() => databaseFacade),
+      },
       '../../../db/peek/policy-audit': databaseFacade,
       '../../../logger': loggerMock.module,
     });

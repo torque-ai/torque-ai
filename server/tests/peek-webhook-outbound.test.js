@@ -484,7 +484,9 @@ function createComplianceHandlerSubject({ fireWebhookForEvent = vi.fn(() => Prom
   seedComplianceDatabase(databaseHandle);
 
   const mod = loadPeekCompliance({
-    '../../../database': databaseHandle,
+    '../../../db/database-facade-resolver': {
+      resolveDatabaseFacade: vi.fn(() => databaseHandle),
+    },
     './webhook-outbound': { fireWebhookForEvent },
     './rollback': {
       classifyActionRisk: vi.fn(() => ({ level: 'low' })),
