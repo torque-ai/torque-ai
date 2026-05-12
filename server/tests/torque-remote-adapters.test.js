@@ -183,3 +183,24 @@ describe('remote_bundle_cleanup adapter', () => {
     expect(out).toContain('-EncodedCommand');
   });
 });
+
+describe('remote_run_user_command adapter', () => {
+  it('emits direct bash -lc on linux', () => {
+    const out = emit('remote_run_user_command', ['cd /home/u/foo && npx vitest run', '/home/u/foo'], 'linux');
+    expect(out).toContain('bash');
+    expect(out).toContain('npx vitest run');
+    // Linux path: no PowerShell wrapper, no -EncodedCommand
+    expect(out).not.toContain('-EncodedCommand');
+  });
+
+  it('emits PowerShell-wrapped Git Bash on windows', () => {
+    const out = emit('remote_run_user_command', ['cd C:\\trt\\foo && npx vitest run', 'C:\\trt\\foo'], 'windows');
+    expect(out).toContain('powershell');
+    expect(out).toContain('-EncodedCommand');
+  });
+
+  it('preserves content when user command contains single quotes on linux', () => {
+    const out = emit('remote_run_user_command', ["echo 'hello world'", '/tmp'], 'linux');
+    expect(out).toContain('hello world');
+  });
+});

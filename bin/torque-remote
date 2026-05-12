@@ -875,6 +875,29 @@ remote_bundle_cleanup() {
   esac
 }
 
+# Run the user's bash command in the lane workspace.
+# Args: $1 = bash command body, $2 = cwd on remote.
+remote_run_user_command() {
+  local cmd_body="$1"
+  local cwd="$2"
+  case "$REMOTE_OS" in
+    linux)
+      # Escape single quotes in cmd_body for the outer bash -lc '...' wrapper.
+      local escaped="${cmd_body//\'/\'\\\'\'}"
+      _emit_or_run "bash -lc 'cd \"$cwd\" && $escaped'"
+      ;;
+    windows)
+      # Reuse the existing remote_git_bash_command helper which wraps in
+      # PowerShell + -EncodedCommand.
+      local bash_body="cd \"$cwd\" && $cmd_body"
+      local ps_body
+      ps_body=$(remote_git_bash_command "$bash_body")
+      _emit_or_run "$ps_body"
+      ;;
+    *) warn "[adapter:remote_run_user_command] unknown REMOTE_OS=$REMOTE_OS"; return 74 ;;
+  esac
+}
+
 remote_powershell_command() {
   local ps_body="$1"
   local encoded
