@@ -841,6 +841,40 @@ remote_node_modules_unlink() {
   esac
 }
 
+# Extract a bundle tarball into a directory. Returns 0 on success.
+# Args: $1 = bundle path, $2 = extract dir.
+remote_bundle_extract() {
+  local bundle="$1"
+  local extract_dir="$2"
+  case "$REMOTE_OS" in
+    linux)
+      _emit_or_run "mkdir -p \"$extract_dir\" && tar -xf \"$bundle\" -C \"$extract_dir\""
+      ;;
+    windows)
+      local ps_body="\$d='$extract_dir'; New-Item -ItemType Directory -Path \$d -Force | Out-Null; tar -xf '$bundle' -C \$d"
+      _emit_or_run "$(remote_powershell_command "$ps_body")"
+      ;;
+    *) warn "[adapter:remote_bundle_extract] unknown REMOTE_OS=$REMOTE_OS"; return 74 ;;
+  esac
+}
+
+# Clean up a bundle tarball after extraction.
+# Args: $1 = bundle path.
+remote_bundle_cleanup() {
+  local bundle="$1"
+  case "$REMOTE_OS" in
+    linux)
+      _emit_or_run "rm -f \"$bundle\""
+      ;;
+    windows)
+      # Use 5-attempt exponential backoff (1,2,4,8,16s = 31s budget).
+      local ps_body="\$p='$bundle'; \$delays=@(1,2,4,8,16); foreach (\$d in \$delays) { try { Remove-Item -LiteralPath \$p -Force -ErrorAction Stop; break } catch { Start-Sleep -Seconds \$d } }"
+      _emit_or_run "$(remote_powershell_command "$ps_body")"
+      ;;
+    *) warn "[adapter:remote_bundle_cleanup] unknown REMOTE_OS=$REMOTE_OS"; return 74 ;;
+  esac
+}
+
 remote_powershell_command() {
   local ps_body="$1"
   local encoded

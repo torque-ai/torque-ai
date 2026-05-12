@@ -155,3 +155,31 @@ describe('remote_node_modules_unlink adapter', () => {
     expect(out).not.toContain('/s');
   });
 });
+
+describe('remote_bundle_extract adapter', () => {
+  it('emits mkdir + tar -xf on linux', () => {
+    const out = emit('remote_bundle_extract', ['/tmp/bundle.tar', '/tmp/extract'], 'linux');
+    expect(out).toContain('mkdir -p "/tmp/extract"');
+    expect(out).toContain('tar -xf "/tmp/bundle.tar"');
+    expect(out).toContain('-C "/tmp/extract"');
+  });
+
+  it('emits PowerShell New-Item + tar on windows', () => {
+    const out = emit('remote_bundle_extract', ['C:\\tmp\\bundle.tar', 'C:\\tmp\\extract'], 'windows');
+    expect(out).toContain('powershell');
+    expect(out).toContain('-EncodedCommand');
+  });
+});
+
+describe('remote_bundle_cleanup adapter', () => {
+  it('emits rm -f on linux', () => {
+    const out = emit('remote_bundle_cleanup', ['/tmp/bundle.tar'], 'linux');
+    expect(out).toContain('rm -f "/tmp/bundle.tar"');
+  });
+
+  it('emits PowerShell Remove-Item with retry on windows', () => {
+    const out = emit('remote_bundle_cleanup', ['C:\\tmp\\bundle.tar'], 'windows');
+    expect(out).toContain('powershell');
+    expect(out).toContain('-EncodedCommand');
+  });
+});
