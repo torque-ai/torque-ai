@@ -192,9 +192,12 @@ const BENIGN_FLOW_ACTION_EXACT = new Set([
   'plan_quality_soft_threshold_crossed', // plan quality soft threshold crossed (warn-only)
   'stale_generated_plan_cleared_before_replan', // stale generated plan cleared before replan
   'plan_generation_deferred_project_active', // plan generation deferred; project has active batch
+  'plan_generation_worktree_reused', // plan generation reused active batch worktree
+  'plan_generation_worktree_created', // plan generation created isolated artifact worktree
 
   // ── EXECUTE ──────────────────────────────────────────────────────────────────
   'worktree_created',        // EXECUTE created an isolated worktree
+  'execute_batch_worktree_reused', // EXECUTE reused active batch worktree
   'worktree_reused_completed_owner',  // benign reuse, owner already done
   'worktree_reclaimed',      // pre-reclaim of a stale row before fresh create
   'auto_committed_task',     // factory auto-committed leftover dirty state

@@ -197,6 +197,25 @@ function planGenerationMetadata(projectId, workItemId, timeoutMinutes = 30) {
   };
 }
 
+function createFakePlanArtifactWorktreeRunner() {
+  let sequence = 0;
+  return {
+    createForBatch: vi.fn(async ({ project, batchId }) => {
+      sequence += 1;
+      const safeBatchId = String(batchId || `batch-${sequence}`).replace(/[^A-Za-z0-9._-]/g, '-');
+      const worktreePath = path.join(project.path, '.factory-worktrees', safeBatchId);
+      fs.mkdirSync(worktreePath, { recursive: true });
+      return {
+        id: `fake-vc-worktree-${sequence}`,
+        branch: `factory/${safeBatchId}`,
+        worktreePath,
+        baseBranch: 'main',
+      };
+    }),
+    abandon: vi.fn(async () => null),
+  };
+}
+
 describe('factory loop-controller EXECUTE for non-plan-file work items', () => {
   let db;
   let database;
@@ -208,7 +227,7 @@ describe('factory loop-controller EXECUTE for non-plan-file work items', () => {
     database = require('./helpers/database-facade');
     db = new Database(':memory:');
     createFactoryTables(db);
-    loopController.setWorktreeRunnerForTests(null);
+    loopController.setWorktreeRunnerForTests(createFakePlanArtifactWorktreeRunner());
     factoryHealth.setDb(db);
     factoryIntake.setDb(db);
     factoryLoopInstances.setDb(db);

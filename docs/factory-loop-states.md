@@ -190,6 +190,10 @@ Frequently-emitted actions, by stage:
 | PLAN | `pre_written_plan_quality_rejected` | `b-side-reject` | `work_item_id`, `quality_score`, `reason` |
 | PLAN | `pre_written_plan_quality_rejected_before_execute` | `b-side-reject` | `work_item_id`, `quality_score`, `reason` |
 | EXECUTE | `plan_generation_deferred_project_active` | `benign` | `reason`, `plan_path`, `generation_task_id`, `blocking_work_item_id`, `task_status`, `work_item_id` |
+| EXECUTE | `plan_generation_worktree_unavailable` | `terminal` | `batch_id`, `plan_path` |
+| EXECUTE | `plan_generation_worktree_reused` | `benign` | `factory_worktree_id`, `worktree_id`, `worktree_path`, `branch`, `batch_id` |
+| EXECUTE | `plan_generation_worktree_created` | `benign` | `factory_worktree_id`, `worktree_id`, `worktree_path`, `branch`, `batch_id` |
+| EXECUTE | `plan_generation_worktree_creation_failed` | `terminal` | `error`, `batch_id` |
 | EXECUTE | `plan_generation_retry_unusable_output` | `recovery-rule` (rule: `plan_generation_unusable_output`) | `work_item_id`, `provider` |
 | EXECUTE | `started_execution` | `benign` | `from_state`, `to_state`, `reason`, `batch_id`, `work_item_id` |
 | VERIFY | `entered_from_execute` | `benign` | `from_state`, `to_state`, `paused_at_stage`, `reason`, `batch_id` |
@@ -200,6 +204,7 @@ Frequently-emitted actions, by stage:
 | EXECUTE | `execute_deferred_paused_stale_warning` | `benign` | `work_item_id`, `plan_task_number`, `deferred_at` |
 | EXECUTE | `execute_deferred_resumed` | `benign` | `work_item_id`, `plan_task_number`, `resumed_at` |
 | EXECUTE | `execute_deferred_worktree_reused` | `benign` | `factory_worktree_id`, `worktree_id`, `worktree_path`, `branch`, `batch_id` |
+| EXECUTE | `execute_batch_worktree_reused` | `benign` | `factory_worktree_id`, `worktree_id`, `worktree_path`, `branch`, `batch_id` |
 | EXECUTE | `execute_exception` | `recovery-rule` (rule: `execute_exception_unclassified`) | `work_item_id`, `error` |
 | EXECUTE | `execute_wait_owner_completed` | `benign` | `owning_task_id`, `owning_status` |
 | EXECUTE | `execute_zero_diff_short_circuit` | `recovery-rule` (rule: `execute_zero_diff_short_circuit`) | `work_item_id`, `reason` |
