@@ -870,6 +870,75 @@ remote_node_modules_unlink() {
   esac
 }
 
+# Test whether a remote path exists; prints YES or NO to stdout.
+# Args: $1 = path.
+remote_probe_path_yesno() {
+  local path="$1"
+  case "$REMOTE_OS" in
+    linux)   _emit_or_run "[ -e \"$path\" ] && echo YES || echo NO" ;;
+    windows) _emit_or_run "if exist \"$path\" (echo YES) else (echo NO)" ;;
+    *) warn "[adapter:remote_probe_path_yesno] unknown REMOTE_OS=$REMOTE_OS"; return 74 ;;
+  esac
+}
+
+# Return the path separator for the remote OS.  Prints \ (Windows) or / (Linux).
+remote_path_sep() {
+  case "$REMOTE_OS" in
+    linux)   printf '/' ;;
+    windows) printf '\\' ;;
+    *) warn "[adapter:remote_path_sep] unknown REMOTE_OS=$REMOTE_OS"; printf '\\' ;;
+  esac
+}
+
+# Atomic coalesced lane-lock probe.
+# Args: $1 = lock_dir, $2 = owner_file, $3 = hb_file.
+# Prints one of:
+#   ACQUIRED          — lock created (caller owns it)
+#   HELD\n<owner>\n---HB---\n<hb>  — held (with metadata inline)
+remote_lane_probe() {
+  local lock_dir="$1"
+  local owner_file="$2"
+  local hb_file="$3"
+  case "$REMOTE_OS" in
+    linux)
+      _emit_or_run "mkdir \"$lock_dir\" 2>/dev/null && echo ACQUIRED || (echo HELD && ([ -f \"$owner_file\" ] && cat \"$owner_file\" || echo NO_OWNER) && echo ---HB--- && ([ -f \"$hb_file\" ] && cat \"$hb_file\" || echo NO_HB))"
+      ;;
+    windows)
+      _emit_or_run "if not exist \"$lock_dir\" (mkdir \"$lock_dir\" 2>nul && echo ACQUIRED) else (echo HELD && (if exist \"$owner_file\" (type \"$owner_file\") else (echo NO_OWNER)) && echo ---HB--- && (if exist \"$hb_file\" (type \"$hb_file\") else (echo NO_HB)))"
+      ;;
+    *) warn "[adapter:remote_lane_probe] unknown REMOTE_OS=$REMOTE_OS"; return 74 ;;
+  esac
+}
+
+# Emit a diagnostic command that loops 1..N and prints one status line per
+# lane.  Args: $1 = parent_dir, $2 = lane_count.
+# The caller ssh-executes the emitted string.
+remote_lane_status_cmd() {
+  local parent="$1"
+  local count="$2"
+  case "$REMOTE_OS" in
+    linux)
+      local cmd="true"
+      local i
+      for i in $(seq 1 "$count"); do
+        local lock_dir="${parent}/.torque-remote-lanes/.locks/lane-${i}"
+        cmd+=" ; if [ -d \"$lock_dir\" ]; then echo \"lane-$i HELD\"; [ -f \"$lock_dir/owner.env\" ] && cat \"$lock_dir/owner.env\" || true; else echo \"lane-$i FREE\"; fi"
+      done
+      printf '%s' "$cmd"
+      ;;
+    windows)
+      local cmd="@echo off"
+      local i
+      for i in $(seq 1 "$count"); do
+        local lock_dir="${parent}\\.torque-remote-lanes\\.locks\\lane-${i}"
+        cmd+=" & if exist \"$lock_dir\" (echo lane-$i HELD & type \"$lock_dir\\owner.env\" 2^>nul) else (echo lane-$i FREE)"
+      done
+      printf '%s' "$cmd"
+      ;;
+    *) warn "[adapter:remote_lane_status_cmd] unknown REMOTE_OS=$REMOTE_OS"; return 74 ;;
+  esac
+}
+
 # Extract a bundle tarball into a directory. Returns 0 on success.
 # Args: $1 = bundle path, $2 = extract dir.
 remote_bundle_extract() {
@@ -1365,10 +1434,12 @@ provision_lane_workspace_if_needed() {
     return 0
   fi
 
-  # Quick check: if lane_path\.git exists on remote, skip.
+  # Quick check: if lane_path/.git (or lane_path\.git on Windows) exists on remote, skip.
+  local sep
+  sep="$(remote_path_sep)"
   local probe_result
   probe_result=$(ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" \
-    "if exist \"$lane_path\\.git\" (echo YES) else (echo NO)" \
+    "$(TORQUE_REMOTE_EMIT_ONLY=1 remote_probe_path_yesno "${lane_path}${sep}.git")" \
     2>/dev/null | tr -d '\r' | tail -1)
   if [[ "$probe_result" == "YES" ]]; then
     return 0
@@ -1381,7 +1452,7 @@ provision_lane_workspace_if_needed() {
   local sibling_has_git="NO"
   if [[ "$source_pref" == "sibling" && "$lane_path" != "$sibling_path" ]]; then
     sibling_has_git=$(ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" \
-      "if exist \"$sibling_path\\.git\" (echo YES) else (echo NO)" \
+      "$(TORQUE_REMOTE_EMIT_ONLY=1 remote_probe_path_yesno "${sibling_path}${sep}.git")" \
       2>/dev/null | tr -d '\r' | tail -1)
   fi
 
@@ -1450,16 +1521,18 @@ attempt_lane_claim() {
   REMOTE_LANE_INDEX="$index"
   REMOTE_LANE_LOCK_DIR="$(compute_lane_lock_dir "$REMOTE_LANE_WORKSPACE_BASE" "$index")"
 
-  local owner_file="${REMOTE_LANE_LOCK_DIR}\\${REMOTE_LANE_LOCK_OWNER_FILE}"
-  local hb_file="${REMOTE_LANE_LOCK_DIR}\\${REMOTE_LANE_LOCK_HEARTBEAT_FILE}"
+  local sep
+  sep="$(remote_path_sep)"
+  local owner_file="${REMOTE_LANE_LOCK_DIR}${sep}${REMOTE_LANE_LOCK_OWNER_FILE}"
+  local hb_file="${REMOTE_LANE_LOCK_DIR}${sep}${REMOTE_LANE_LOCK_HEARTBEAT_FILE}"
   local probe_response state owner_block hb_block
-  # CMD-compatible single-shot probe — coalesces "is the lock held?",
+  # Single-shot coalesced probe via adapter — coalesces "is the lock held?",
   # "what does owner.env contain?", AND "what's the latest heartbeat?"
   # so the polling loop doesn't pay multiple SSH round-trips per lane when
   # stale-check fires. mkdir is atomic at the directory-entry level; if two
   # acquires race, only one's mkdir succeeds, the other reports HELD.
   probe_response=$(ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" \
-    "if not exist \"$REMOTE_LANE_LOCK_DIR\" (mkdir \"$REMOTE_LANE_LOCK_DIR\" 2>nul && echo ACQUIRED) else (echo HELD && (if exist \"$owner_file\" (type \"$owner_file\") else (echo NO_OWNER)) && echo ---HB--- && (if exist \"$hb_file\" (type \"$hb_file\") else (echo NO_HB)))" \
+    "$(TORQUE_REMOTE_EMIT_ONLY=1 remote_lane_probe "$REMOTE_LANE_LOCK_DIR" "$owner_file" "$hb_file")" \
     2>/dev/null | tr -d '\r')
   state=$(printf '%s\n' "$probe_response" | head -n 1)
 
@@ -1574,11 +1647,14 @@ migrate_legacy_workspace_if_needed() {
   if [[ "$parent" == "$base" ]]; then
     parent="${base%/*}"
   fi
-  local marker="${parent}\\.torque-remote-lanes\\migrated.flag"
+  local sep
+  sep="$(remote_path_sep)"
+  local lanes_dir="${parent}${sep}.torque-remote-lanes"
+  local marker="${lanes_dir}${sep}migrated.flag"
 
   local marker_present
   marker_present=$(ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" \
-    "if exist \"$marker\" (echo YES) else (echo NO)" \
+    "$(TORQUE_REMOTE_EMIT_ONLY=1 remote_probe_path_yesno "$marker")" \
     2>/dev/null | tr -d '\r' | tail -1)
   if [[ "$marker_present" == "YES" ]]; then
     return 0
@@ -1586,7 +1662,7 @@ migrate_legacy_workspace_if_needed() {
 
   local legacy_git_present
   legacy_git_present=$(ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" \
-    "if exist \"$base\\.git\" (echo YES) else (echo NO)" \
+    "$(TORQUE_REMOTE_EMIT_ONLY=1 remote_probe_path_yesno "${base}${sep}.git")" \
     2>/dev/null | tr -d '\r' | tail -1)
 
   local lane_1_path
@@ -1594,16 +1670,27 @@ migrate_legacy_workspace_if_needed() {
 
   if [[ "$legacy_git_present" == "YES" ]]; then
     info "Migration: renaming legacy workspace $base → $lane_1_path"
-    ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" \
-      "if not exist \"$parent\\.torque-remote-lanes\" (mkdir \"$parent\\.torque-remote-lanes\") && move \"$base\" \"$lane_1_path\"" \
+    # mkdir the lanes dir (idempotent) then rename the old workspace.
+    local rename_cmd
+    case "$REMOTE_OS" in
+      linux)   rename_cmd="$(TORQUE_REMOTE_EMIT_ONLY=1 remote_make_dir "$lanes_dir") && mv \"$base\" \"$lane_1_path\"" ;;
+      windows) rename_cmd="$(TORQUE_REMOTE_EMIT_ONLY=1 remote_make_dir "$lanes_dir") && move \"$base\" \"$lane_1_path\"" ;;
+      *) rename_cmd="true" ;;
+    esac
+    ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" "$rename_cmd" \
       >/dev/null 2>&1 || \
       warn "Legacy workspace rename failed; lane-1 will be lazy-provisioned from origin"
   fi
 
   # Write the marker regardless — even if there was no legacy workspace,
   # we don't want to re-probe forever.
-  ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" \
-    "if not exist \"$parent\\.torque-remote-lanes\" (mkdir \"$parent\\.torque-remote-lanes\") && type nul > \"$marker\"" \
+  local marker_cmd
+  case "$REMOTE_OS" in
+    linux)   marker_cmd="$(TORQUE_REMOTE_EMIT_ONLY=1 remote_make_dir "$lanes_dir") && touch \"$marker\"" ;;
+    windows) marker_cmd="$(TORQUE_REMOTE_EMIT_ONLY=1 remote_make_dir "$lanes_dir") && type nul > \"$marker\"" ;;
+    *) marker_cmd="true" ;;
+  esac
+  ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" "$marker_cmd" \
     >/dev/null 2>&1 || true
 }
 
@@ -1704,6 +1791,19 @@ print_lane_status() {
     status_ssh_opts+=(-i "$SSH_KEY_PATH")
   fi
 
+  # Resolve REMOTE_OS for this diagnostic path (normally set later in the main
+  # flow, but --status exits before that). Honor the config override first;
+  # fall back to a live probe; default to windows if the probe fails.
+  if [[ -z "${REMOTE_OS:-}" ]]; then
+    if [[ -n "${REMOTE_OS_OVERRIDE:-}" && "$REMOTE_OS_OVERRIDE" != "auto" ]]; then
+      REMOTE_OS="$REMOTE_OS_OVERRIDE"
+    elif remote_probe_os 2>/dev/null; then
+      : # REMOTE_OS is now set by remote_probe_os
+    else
+      REMOTE_OS="${REMOTE_OS_OVERRIDE:-windows}"
+    fi
+  fi
+
   # Resolve the workspace base (same way as the normal sync path) so the
   # lock dir computation matches what acquire_any_remote_lane uses.
   REMOTE_LANE_WORKSPACE_BASE="$EFFECTIVE_REMOTE_PROJECT_PATH"
@@ -1713,13 +1813,9 @@ print_lane_status() {
     parent="${REMOTE_LANE_WORKSPACE_BASE%/*}"
   fi
 
-  # Build a single CMD command that loops 1..N and emits a status line per lane.
-  local probe_cmd="@echo off"
-  local i
-  for i in $(seq 1 "$count"); do
-    local lock_dir="${parent}\\.torque-remote-lanes\\.locks\\lane-$i"
-    probe_cmd+=" & if exist \"$lock_dir\" (echo lane-$i HELD & type \"$lock_dir\\owner.env\" 2^>nul) else (echo lane-$i FREE)"
-  done
+  # Build and run a single-round-trip OS-appropriate probe command.
+  local probe_cmd
+  probe_cmd="$(remote_lane_status_cmd "$parent" "$count")"
 
   ssh "${status_ssh_opts[@]}" "$SSH_USER@$SSH_HOST" "$probe_cmd" 2>/dev/null
 }
@@ -2628,28 +2724,36 @@ case "$TRANSPORT" in
       # "already used by worktree at <main path>". Use detached HEAD on the
       # remote ref instead — branch identity isn't needed for build/test.
       if [[ "$EFFECTIVE_REMOTE_PROJECT_PATH" != "$REMOTE_PROJECT_PATH" ]]; then
-        # CMD-compatible bootstrap. The ssh command runs in CMD on Windows
-        # (no grep, no test, no posix). Use CMD's `if not exist DIR (...)`
-        # to short-circuit when the worktree already exists; first run does
-        # the `git worktree add` from main checkout. `2>nul` swallows any
-        # "already used" message in the rare case dir exists but git's
-        # metadata is stale. `cd /d` is required for ROOT-mode worktrees that
-        # may live on a different drive than the project.
-        # `git config core.longpaths=true` runs every sync (idempotent) so
-        # that nested project tooling (StateTrace's own .worktrees, Unity
-        # build outputs, etc.) doesn't trip Windows MAX_PATH=260. Git uses
-        # the \\?\-prefixed Win32 API when this is on, raising the ceiling
-        # to ~32K characters.
-        # The bare `if not exist X (block)` is wrapped in an extra `(...)`
-        # so the trailing `&& chain` continues to run when the if-condition
-        # is false (i.e., .git already exists — every sync after the first).
-        # Without the outer parens, CMD swallows the whole `&&` chain when
-        # the if-block is skipped, silently producing exit 0 and zero output.
-        # Verified live 2026-04-29: bare form skipped fetch+checkout+reset
-        # for 3 days, leaving the test worktree at a stale HEAD and
-        # surfacing as spurious "concurrent torque-remote clobbered the
-        # checkout" errors in the runner.sh exit-98 guard.
-        SYNC_BOOTSTRAP="(if not exist \"$EFFECTIVE_REMOTE_PROJECT_PATH\\.git\" (cd /d \"$REMOTE_PROJECT_PATH\" && git worktree add --force \"$EFFECTIVE_REMOTE_PROJECT_PATH\" $SYNC_REF 2>nul)) && cd /d \"$EFFECTIVE_REMOTE_PROJECT_PATH\" && git config core.longpaths true && "
+        if [[ "$REMOTE_OS" == "linux" ]]; then
+          # POSIX bootstrap: [ -d DIR ] guard, plain cd (no /d flag),
+          # no core.longpaths (Linux git has no MAX_PATH limit).
+          # The `|| true` ensures the worktree-add attempt does not abort the
+          # && chain when the worktree already exists.
+          SYNC_BOOTSTRAP="([ ! -d \"$EFFECTIVE_REMOTE_PROJECT_PATH/.git\" ] && (cd \"$REMOTE_PROJECT_PATH\" && git worktree add --force \"$EFFECTIVE_REMOTE_PROJECT_PATH\" $SYNC_REF 2>/dev/null) || true) && cd \"$EFFECTIVE_REMOTE_PROJECT_PATH\" && "
+        else
+          # CMD-compatible bootstrap. The ssh command runs in CMD on Windows
+          # (no grep, no test, no posix). Use CMD's `if not exist DIR (...)`
+          # to short-circuit when the worktree already exists; first run does
+          # the `git worktree add` from main checkout. `2>nul` swallows any
+          # "already used" message in the rare case dir exists but git's
+          # metadata is stale. `cd /d` is required for ROOT-mode worktrees that
+          # may live on a different drive than the project.
+          # `git config core.longpaths=true` runs every sync (idempotent) so
+          # that nested project tooling (StateTrace's own .worktrees, Unity
+          # build outputs, etc.) doesn't trip Windows MAX_PATH=260. Git uses
+          # the \\?\-prefixed Win32 API when this is on, raising the ceiling
+          # to ~32K characters.
+          # The bare `if not exist X (block)` is wrapped in an extra `(...)`
+          # so the trailing `&& chain` continues to run when the if-condition
+          # is false (i.e., .git already exists — every sync after the first).
+          # Without the outer parens, CMD swallows the whole `&&` chain when
+          # the if-block is skipped, silently producing exit 0 and zero output.
+          # Verified live 2026-04-29: bare form skipped fetch+checkout+reset
+          # for 3 days, leaving the test worktree at a stale HEAD and
+          # surfacing as spurious "concurrent torque-remote clobbered the
+          # checkout" errors in the runner.sh exit-98 guard.
+          SYNC_BOOTSTRAP="(if not exist \"$EFFECTIVE_REMOTE_PROJECT_PATH\\.git\" (cd /d \"$REMOTE_PROJECT_PATH\" && git worktree add --force \"$EFFECTIVE_REMOTE_PROJECT_PATH\" $SYNC_REF 2>nul)) && cd /d \"$EFFECTIVE_REMOTE_PROJECT_PATH\" && git config core.longpaths true && "
+        fi
         SYNC_CHECKOUT="git checkout --force --detach $SYNC_REF"
       else
         SYNC_CHECKOUT="git checkout --force $SYNC_BRANCH"
