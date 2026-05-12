@@ -17,6 +17,55 @@ const FACTORY_TABS = [
   { to: '/factory/policy', label: 'Policy' },
 ];
 
+const IDLE_REASON_TITLES = {
+  all_projects_paused: 'All projects paused',
+  manual_gate_pending: 'Manual gate pending',
+  no_running_projects: 'No running projects',
+  work_waiting_for_loop: 'Work waiting for a loop',
+  queue_empty_no_open_work: 'Queue empty',
+};
+
+function FactoryIdleDiagnosisBanner({ diagnosis, loading, onRefresh }) {
+  if (!diagnosis?.idle || diagnosis.reason_code === 'no_projects_registered') {
+    return null;
+  }
+
+  const counts = diagnosis.counts || {};
+  const queue = counts.task_queue || {};
+  const title = IDLE_REASON_TITLES[diagnosis.reason_code] || 'Factory idle';
+  const metrics = [
+    `${counts.running_projects || 0} running`,
+    `${counts.paused_projects || 0} paused`,
+    `${counts.open_work_items || 0} open items`,
+    `${queue.total_non_terminal || 0} queued`,
+  ];
+
+  return (
+    <div
+      role="status"
+      aria-label="Factory idle diagnosis"
+      className="rounded-2xl border border-amber-500/30 bg-amber-500/10 px-5 py-4 text-sm text-amber-100"
+    >
+      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wider text-amber-300">Factory idle</p>
+          <h2 className="mt-1 text-base font-semibold text-white">{title}</h2>
+          <p className="mt-1 text-amber-100/90">{diagnosis.message}</p>
+          <p className="mt-2 text-xs text-amber-200/80">{metrics.join(' · ')}</p>
+        </div>
+        <button
+          type="button"
+          disabled={loading}
+          onClick={() => onRefresh({ silent: true })}
+          className="inline-flex items-center justify-center rounded-lg border border-amber-400/40 bg-slate-900/40 px-3 py-1.5 text-sm font-medium text-amber-100 transition-colors hover:bg-slate-900/60 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          Refresh
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function Factory() {
   const [clearRecoveryProjectId, setClearRecoveryProjectId] = useState(null);
   const toast = useToast();
@@ -24,6 +73,7 @@ export default function Factory() {
     activeProjectAction,
     handlePauseAll,
     handleToggleProject,
+    idleDiagnosis,
     loadProjects,
     loading,
     outletContext,
@@ -128,6 +178,12 @@ export default function Factory() {
               </div>
             </div>
           )}
+
+          <FactoryIdleDiagnosisBanner
+            diagnosis={idleDiagnosis}
+            loading={loading}
+            onRefresh={loadProjects}
+          />
 
           <div className="grid gap-6 md:grid-cols-[minmax(220px,260px)_minmax(0,1fr)]">
             <div className="space-y-3 rounded-2xl border border-slate-700 bg-slate-800/40 p-2">

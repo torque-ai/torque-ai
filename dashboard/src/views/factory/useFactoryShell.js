@@ -48,6 +48,7 @@ export function useFactoryShell() {
     approveGate,
     advanceLoop,
     handleToggleProject,
+    idleDiagnosis,
     loadProjects,
     loading,
     loopActionBusy,
@@ -568,6 +569,7 @@ export function useFactoryShell() {
     activeProjectAction,
     handlePauseAll,
     handleToggleProject,
+    idleDiagnosis,
     loadProjects,
     loading,
     outletContext: {
@@ -588,6 +590,7 @@ export function useFactoryShell() {
       handleRejectWorkItem,
       handleRerunArchitect,
       handleToggleProject,
+      idleDiagnosis,
       intakeItems,
       intakeLoading,
       loopAdvanceJob,

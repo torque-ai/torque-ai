@@ -61,6 +61,10 @@ function normalizeFactoryProjectParams(params = {}) {
     normalized.include_commits = normalized.includeCommits;
     delete normalized.includeCommits;
   }
+  if (Object.prototype.hasOwnProperty.call(normalized, 'includeIdleDiagnosis')) {
+    normalized.include_idle_diagnosis = normalized.includeIdleDiagnosis;
+    delete normalized.includeIdleDiagnosis;
+  }
   if (!Object.prototype.hasOwnProperty.call(normalized, 'include_commits')) {
     normalized.include_commits = false;
   }

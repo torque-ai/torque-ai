@@ -36,6 +36,52 @@ function insertActiveLoopInstance(db, {
   );
 }
 
+function insertFactoryProject(db, {
+  id,
+  name,
+  status = 'running',
+  loopState = 'IDLE',
+  loopBatchId = null,
+  loopLastActionAt = null,
+  loopPausedAtStage = null,
+  trustLevel = 'autonomous',
+  testDir,
+}) {
+  const createdAt = new Date().toISOString();
+  db.prepare(`
+    INSERT INTO factory_projects (
+      id,
+      name,
+      path,
+      brief,
+      trust_level,
+      status,
+      config_json,
+      loop_state,
+      loop_batch_id,
+      loop_last_action_at,
+      loop_paused_at_stage,
+      created_at,
+      updated_at
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    id,
+    name,
+    path.join(testDir, id),
+    `${name} test project`,
+    trustLevel,
+    status,
+    null,
+    loopState,
+    loopBatchId,
+    loopLastActionAt,
+    loopPausedAtStage,
+    createdAt,
+    createdAt,
+  );
+}
+
 describe('factory_status', () => {
   let testDir;
 
@@ -987,5 +1033,125 @@ describe('factory_status', () => {
       expect(projectsById[projectId].alert_badge).toBeNull();
       expect(notifications.getFactoryAlertBadge({ project_id: projectId })).toBeNull();
     }
+  });
+
+  it('explains factory idle when every project is paused and the task queue is empty', async () => {
+    const db = rawDb();
+
+    insertFactoryProject(db, {
+      id: 'project-paused-one',
+      name: 'Paused One',
+      status: 'paused',
+      testDir,
+    });
+    insertFactoryProject(db, {
+      id: 'project-paused-two',
+      name: 'Paused Two',
+      status: 'paused',
+      testDir,
+    });
+
+    const result = await safeTool('factory_status', {});
+
+    expect(result.isError).toBeFalsy();
+    const diagnosis = result.structuredData.summary.idle_diagnosis;
+    expect(diagnosis).toMatchObject({
+      idle: true,
+      reason_code: 'all_projects_paused',
+      counts: {
+        total_projects: 2,
+        running_projects: 0,
+        paused_projects: 2,
+        active_loop_projects: 0,
+        open_work_items: 0,
+        task_queue: {
+          total_non_terminal: 0,
+          schedulable: 0,
+          manual_gate_pending: 0,
+        },
+      },
+    });
+    expect(diagnosis.project_ids.paused).toEqual(expect.arrayContaining(['project-paused-one', 'project-paused-two']));
+    expect(diagnosis.project_ids.active_loops).toEqual([]);
+    expect(diagnosis.actions).toContainEqual(expect.objectContaining({
+      type: 'resume_project',
+      project_ids: expect.arrayContaining(['project-paused-one', 'project-paused-two']),
+    }));
+    expect(result.structuredData.projects).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'project-paused-one', open_work_item_count: 0 }),
+      expect.objectContaining({ id: 'project-paused-two', open_work_item_count: 0 }),
+    ]));
+  });
+
+  it('does not report idle while schedulable tasks remain queued', async () => {
+    const db = rawDb();
+    const createdAt = new Date().toISOString();
+
+    insertFactoryProject(db, {
+      id: 'project-queued-work',
+      name: 'Queued Work',
+      status: 'running',
+      testDir,
+    });
+    db.prepare('INSERT INTO tasks (id, task_description, status, provider, tags, created_at) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(
+        'task-queued-work',
+        'Queued factory work',
+        'queued',
+        'codex',
+        JSON.stringify(['factory:internal', 'factory:project_id=project-queued-work']),
+        createdAt,
+      );
+
+    const result = await safeTool('factory_status', {});
+
+    expect(result.isError).toBeFalsy();
+    expect(result.structuredData.summary.idle_diagnosis).toMatchObject({
+      idle: false,
+      reason_code: 'queue_has_work',
+      counts: {
+        running_projects: 1,
+        task_queue: {
+          by_status: {
+            queued: 1,
+          },
+          total_non_terminal: 1,
+          schedulable: 1,
+        },
+      },
+    });
+  });
+
+  it('adds idle diagnosis to lightweight project lists when requested', async () => {
+    const db = rawDb();
+
+    insertFactoryProject(db, {
+      id: 'project-list-paused',
+      name: 'Project List Paused',
+      status: 'paused',
+      testDir,
+    });
+
+    const result = await safeTool('list_factory_projects', {
+      summary: 'basic',
+      include_idle_diagnosis: true,
+    });
+
+    expect(result.isError).toBeFalsy();
+    expect(result.structuredData.projects).toEqual([
+      expect.objectContaining({
+        id: 'project-list-paused',
+        status: 'paused',
+        loop_state: 'IDLE',
+      }),
+    ]);
+    expect(result.structuredData.idle_diagnosis).toMatchObject({
+      idle: true,
+      reason_code: 'all_projects_paused',
+      counts: {
+        total_projects: 1,
+        paused_projects: 1,
+      },
+    });
   });
 });
