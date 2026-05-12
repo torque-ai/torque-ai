@@ -114,7 +114,7 @@ repo_coord_lock_age_seconds() {
 repo_coord_lock_heartbeat_summary() {
   local lock_dir="$1"
   local heartbeat_file="$lock_dir/heartbeat.env"
-  local now updated_at_epoch heartbeat_age phase detail output_bytes output_age_seconds
+  local now updated_at_epoch heartbeat_age phase detail output_bytes output_age_seconds artifact_file
 
   if [ ! -f "$heartbeat_file" ]; then
     return 0
@@ -126,6 +126,7 @@ repo_coord_lock_heartbeat_summary() {
   detail="$(repo_coord_lock_read_field "$heartbeat_file" detail)"
   output_bytes="$(repo_coord_lock_read_field "$heartbeat_file" output_bytes)"
   output_age_seconds="$(repo_coord_lock_read_field "$heartbeat_file" output_age_seconds)"
+  artifact_file="$(repo_coord_lock_read_field "$heartbeat_file" artifact_file)"
 
   case "$updated_at_epoch" in
     ''|*[!0-9]*) heartbeat_age="unknown" ;;
@@ -141,6 +142,9 @@ repo_coord_lock_heartbeat_summary() {
   fi
   if [ -n "$detail" ]; then
     printf ' detail=%s' "$detail"
+  fi
+  if [ -n "$artifact_file" ]; then
+    printf ' artifact=%s' "$artifact_file"
   fi
 }
 

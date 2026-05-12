@@ -58,6 +58,10 @@ local_gate_script=""
 pre_push_gate_runtime_dir=""
 pre_push_gate_phase_file=""
 pre_push_gate_heartbeat_pid=""
+pre_push_gate_artifact_file=""
+pre_push_gate_started_at=""
+pre_push_gate_started_at_epoch=""
+pre_push_gate_failure_reason=""
 
 git_cleanup_timeout() {
   local timeout_secs="${PRE_PUSH_STAGING_CLEANUP_TIMEOUT_SECS:-30}"
@@ -359,6 +363,16 @@ pre_push_gate_metadata_value() {
   printf '%s' "${1:-}" | tr '\r\n' '  '
 }
 
+pre_push_git_common_dir() {
+  local common_dir
+  common_dir="$(git -C "$REPO_ROOT" rev-parse --git-common-dir)"
+  case "$common_dir" in
+    /*|[A-Za-z]:/*|[A-Za-z]:\\*) ;;
+    *) common_dir="$REPO_ROOT/$common_dir" ;;
+  esac
+  printf '%s\n' "$common_dir"
+}
+
 pre_push_file_mtime_epoch() {
   local file="$1"
   stat -c %Y "$file" 2>/dev/null || stat -f %m "$file" 2>/dev/null || echo 0
@@ -382,6 +396,7 @@ pre_push_set_gate_phase() {
   } > "$tmp"
   mv -f "$tmp" "$pre_push_gate_phase_file" 2>/dev/null || true
   pre_push_write_gate_heartbeat_once >/dev/null 2>&1 || true
+  pre_push_write_gate_artifact "running" "" >/dev/null 2>&1 || true
 }
 
 pre_push_write_gate_heartbeat_once() {
@@ -423,8 +438,132 @@ pre_push_write_gate_heartbeat_once() {
     printf 'output_file=%s\n' "${output_file:-}"
     printf 'output_bytes=%s\n' "${output_bytes:-0}"
     printf 'output_age_seconds=%s\n' "$output_age_seconds"
+    printf 'artifact_file=%s\n' "${pre_push_gate_artifact_file:-}"
   } > "$tmp"
   mv -f "$tmp" "$lock_dir/heartbeat.env" 2>/dev/null || true
+}
+
+pre_push_artifact_output_tail() {
+  local output_file="${1:-}"
+  if [ -n "${combined_output:-}" ]; then
+    printf '%s\n' "$combined_output" | tail -120
+    return 0
+  fi
+  if [ -n "${RETRIED_OUTPUT:-}" ]; then
+    printf '%s\n' "$RETRIED_OUTPUT" | tail -120
+    return 0
+  fi
+  if [ -n "$output_file" ] && [ -f "$output_file" ]; then
+    tail -120 "$output_file" 2>/dev/null || true
+  fi
+}
+
+pre_push_prune_gate_artifacts() {
+  local root="$1"
+  local max="${PRE_PUSH_GATE_ARTIFACT_MAX_FILES:-50}"
+  local stale
+
+  case "$max" in
+    ''|*[!0-9]*) max=50 ;;
+  esac
+  if [ "$max" -le 0 ]; then
+    return 0
+  fi
+
+  find "$root" -maxdepth 1 -type f -name '*.txt' -printf '%T@ %p\n' 2>/dev/null \
+    | sort -rn \
+    | tail -n +"$((max + 1))" \
+    | sed 's/^[^ ]* //' \
+    | while IFS= read -r stale; do
+        [ -n "$stale" ] && rm -f "$stale" >/dev/null 2>&1 || true
+      done
+}
+
+pre_push_start_gate_artifact() {
+  local root stamp
+  if [ -n "${pre_push_gate_artifact_file:-}" ]; then
+    return 0
+  fi
+
+  root="${PRE_PUSH_GATE_ARTIFACT_ROOT:-$(pre_push_git_common_dir)/torque-pre-push-gate-artifacts}"
+  mkdir -p "$root"
+  pre_push_prune_gate_artifacts "$root" || true
+  stamp="$(date -u +"%Y%m%dT%H%M%SZ" 2>/dev/null || date +%s)"
+  pre_push_gate_started_at="$(date -u +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || date)"
+  pre_push_gate_started_at_epoch="$(date +%s)"
+  pre_push_gate_artifact_file="$root/${local_head_short:-unknown}-$stamp-$$.txt"
+  pre_push_write_gate_artifact "running" "" || true
+}
+
+pre_push_write_gate_artifact() {
+  local status="${1:-running}"
+  local exit_code="${2:-}"
+  local now_iso now_epoch phase detail output_file output_bytes output_age_seconds output_mtime tmp
+
+  if [ -z "${pre_push_gate_artifact_file:-}" ]; then
+    return 0
+  fi
+
+  now_iso="$(date -u +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || date)"
+  now_epoch="$(date +%s)"
+  phase=""
+  detail=""
+  output_file=""
+  if [ -n "${pre_push_gate_phase_file:-}" ] && [ -f "$pre_push_gate_phase_file" ]; then
+    phase="$(repo_coord_lock_read_field "$pre_push_gate_phase_file" phase)"
+    detail="$(repo_coord_lock_read_field "$pre_push_gate_phase_file" detail)"
+    output_file="$(repo_coord_lock_read_field "$pre_push_gate_phase_file" output_file)"
+  fi
+
+  output_bytes=0
+  output_age_seconds=""
+  if [ -n "$output_file" ] && [ -f "$output_file" ]; then
+    output_bytes="$(wc -c < "$output_file" 2>/dev/null | tr -d '[:space:]')"
+    output_mtime="$(pre_push_file_mtime_epoch "$output_file")"
+    case "$output_mtime" in
+      ''|*[!0-9]*) output_age_seconds="" ;;
+      *) output_age_seconds="$((now_epoch - output_mtime))" ;;
+    esac
+  fi
+
+  tmp="${pre_push_gate_artifact_file}.$$"
+  {
+    printf 'pre_push_gate_artifact_version=1\n'
+    printf 'status=%s\n' "$(pre_push_gate_metadata_value "$status")"
+    printf 'exit_code=%s\n' "$(pre_push_gate_metadata_value "$exit_code")"
+    printf 'created_at=%s\n' "$(pre_push_gate_metadata_value "$pre_push_gate_started_at")"
+    printf 'created_at_epoch=%s\n' "$(pre_push_gate_metadata_value "$pre_push_gate_started_at_epoch")"
+    printf 'updated_at=%s\n' "$now_iso"
+    printf 'updated_at_epoch=%s\n' "$now_epoch"
+    printf 'head_sha=%s\n' "$(pre_push_gate_metadata_value "${local_head_sha:-}")"
+    printf 'head_short=%s\n' "$(pre_push_gate_metadata_value "${local_head_short:-}")"
+    printf 'hook_command=%s\n' "$(pre_push_gate_metadata_value "$0")"
+    printf 'torque_remote_bin=%s\n' "$(pre_push_gate_metadata_value "$TORQUE_REMOTE_BIN")"
+    printf 'remote_main_sha=%s\n' "$(pre_push_gate_metadata_value "${remote_main_sha:-}")"
+    printf 'main_remote_sha=%s\n' "$(pre_push_gate_metadata_value "${main_remote_sha:-}")"
+    printf 'gate_mode=%s\n' "$(pre_push_gate_metadata_value "${GATE_MODE:-}")"
+    printf 'gate_plan_hash=%s\n' "$(pre_push_gate_metadata_value "${GATE_PLAN_HASH:-}")"
+    printf 'gate_coord_suite=%s\n' "$(pre_push_gate_metadata_value "${GATE_COORD_SUITE:-}")"
+    printf 'gate_plan_summary=%s\n' "$(pre_push_gate_metadata_value "${GATE_PLAN_SUMMARY:-}")"
+    printf 'execution_mode=%s\n' "$(pre_push_gate_metadata_value "${pre_push_gate_execution_mode:-}")"
+    printf 'staging_branch=%s\n' "$(pre_push_gate_metadata_value "${staging_branch:-}")"
+    printf 'staging_ref_created=%s\n' "$(pre_push_gate_metadata_value "${staging_ref_created:-}")"
+    printf 'remote_probe_reason=%s\n' "$(pre_push_gate_metadata_value "${remote_probe_reason:-}")"
+    printf 'phase=%s\n' "$(pre_push_gate_metadata_value "$phase")"
+    printf 'detail=%s\n' "$(pre_push_gate_metadata_value "$detail")"
+    printf 'output_file=%s\n' "$(pre_push_gate_metadata_value "$output_file")"
+    printf 'output_bytes=%s\n' "$(pre_push_gate_metadata_value "$output_bytes")"
+    printf 'output_age_seconds=%s\n' "$(pre_push_gate_metadata_value "$output_age_seconds")"
+    printf 'gate_end_marker=%s\n' "$(pre_push_gate_metadata_value "${gate_end_marker:-}")"
+    printf 'combined_exit=%s\n' "$(pre_push_gate_metadata_value "${combined_exit:-}")"
+    printf 'dash_exit=%s\n' "$(pre_push_gate_metadata_value "${dash_exit:-}")"
+    printf 'server_exit=%s\n' "$(pre_push_gate_metadata_value "${server_exit:-}")"
+    printf 'perf_exit=%s\n' "$(pre_push_gate_metadata_value "${perf_exit:-}")"
+    printf 'failure_reason=%s\n' "$(pre_push_gate_metadata_value "$pre_push_gate_failure_reason")"
+    printf '\n[output-tail]\n'
+    pre_push_artifact_output_tail "$output_file"
+  } > "$tmp"
+  mv -f "$tmp" "$pre_push_gate_artifact_file" 2>/dev/null || true
 }
 
 pre_push_start_gate_heartbeat() {
@@ -462,8 +601,15 @@ pre_push_stop_gate_heartbeat() {
 
 pre_push_cleanup() {
   local rc=$?
+  local status
   trap - EXIT
   pre_push_set_gate_phase "cleanup" "exit=$rc"
+  if [ "$rc" -eq 0 ]; then
+    status="passed"
+  else
+    status="failed"
+  fi
+  pre_push_write_gate_artifact "$status" "$rc" || true
   cleanup_local_gate_worktree || true
   delete_staging_ref || true
   REPO_COORD_LOCK_FORCE_RELEASE=1 repo_coord_lock_release || true
@@ -476,6 +622,7 @@ if wait_for_matching_pre_push_gate; then
 fi
 
 repo_coord_lock_acquire "main" "pre-push main gate: $local_head_short"
+pre_push_start_gate_artifact
 pre_push_start_gate_heartbeat
 trap pre_push_cleanup EXIT
 
@@ -858,6 +1005,7 @@ run_local_gate() {
 
 gate_failed() {
   local label="$1"
+  pre_push_gate_failure_reason="$label"
   echo "[pre-push] BLOCKED: $label"
   echo "[pre-push] origin/main is unchanged; your local commits are untouched."
   exit 1
@@ -919,6 +1067,7 @@ if [ "$GATE_RUN_DASHBOARD" = "1" ] || [ "$GATE_RUN_SERVER" = "1" ] || [ "$GATE_R
   if [ -n "$remote_gate_worktree_suffix" ]; then
     case "$remote_gate_worktree_suffix" in
       *[!A-Za-z0-9_.-]*)
+        pre_push_gate_failure_reason="unsafe PRE_PUSH_REMOTE_GATE_WORKTREE_SUFFIX"
         echo "[pre-push] BLOCKED: PRE_PUSH_REMOTE_GATE_WORKTREE_SUFFIX contains unsafe characters."
         exit 1
         ;;
@@ -955,6 +1104,7 @@ if [ "$GATE_RUN_DASHBOARD" = "1" ] || [ "$GATE_RUN_SERVER" = "1" ] || [ "$GATE_R
 
   if [ "$staging_ref_created" -eq 1 ]; then
     pre_push_set_gate_phase "remote_gate" "running selected phases on $staging_branch"
+    pre_push_gate_execution_mode="remote"
     echo "[pre-push] Running selected remote gate phases on $staging_branch..."
     # Test phases run in parallel inside one torque-remote SSH session. Perf
     # runs after tests in that same synced checkout so measurements are not
@@ -972,6 +1122,7 @@ if [ "$GATE_RUN_DASHBOARD" = "1" ] || [ "$GATE_RUN_SERVER" = "1" ] || [ "$GATE_R
     fi
   else
     pre_push_set_gate_phase "local_gate" "running selected phases at $local_head_short"
+    pre_push_gate_execution_mode="local"
     cd "$REPO_ROOT"
     export TORQUE_REMOTE_COORD_SHA="$local_head_sha"
     unset TORQUE_REMOTE_TEST_WORKTREE_SUFFIX
@@ -1500,6 +1651,7 @@ EOF
       mkdir -p "$REPO_ROOT/server/perf"
       echo "$AUDIT_LINE" >> "$REPO_ROOT/server/perf/bypass-audit.log"
     else
+      pre_push_gate_failure_reason="perf regression gate failed (exit $perf_exit)"
       echo "[pre-push] BLOCKED: perf regression gate failed (exit $perf_exit)"
       echo "[pre-push] To bypass for incident response: PERF_GATE_BYPASS=1 git push"
       exit 1
@@ -1517,6 +1669,7 @@ if [ -n "$remote_main_sha" ]; then
   for sha in $(git rev-list "$remote_main_sha..$local_head_sha" 2>/dev/null); do
     if git show --name-only --format= "$sha" | grep -q '^server/perf/baseline\.json$'; then
       if ! node "$REPO_ROOT/scripts/perf-baseline-trailer.js" "$sha"; then
+        pre_push_gate_failure_reason="commit $sha modifies server/perf/baseline.json without a valid perf-baseline trailer"
         echo "[pre-push] BLOCKED: commit $sha modifies server/perf/baseline.json without a valid perf-baseline: trailer"
         exit 1
       fi
@@ -1530,6 +1683,7 @@ if [ "$GATE_RUN_AUDIT" = "1" ]; then
     echo "Running DB query audit (strict, baseline-aware)..."
     node "$REPO_ROOT/scripts/audit-db-queries.js" --strict
     if [ $? -ne 0 ]; then
+      pre_push_gate_failure_reason="strict DB query audit detected new potential full scans"
       echo "ERROR: DB query audit detected NEW potential full-scan(s) in this push."
       echo "       Add @full-scan: <reason>, add an index, or run"
       echo "       'node scripts/audit-db-queries.js --write-baseline' if intentional"
@@ -1540,6 +1694,7 @@ if [ "$GATE_RUN_AUDIT" = "1" ]; then
     echo "Running DB query audit (warn-only, no audited paths in diff)..."
     node "$REPO_ROOT/scripts/audit-db-queries.js"
     if [ $? -ne 0 ]; then
+      pre_push_gate_failure_reason="DB query audit failed"
       echo "ERROR: DB query audit failed."
       exit 1
     fi

@@ -54,6 +54,7 @@ phase=server
 detail=running tests
 output_bytes=12345
 output_age_seconds=7
+artifact_file=$TMP_ROOT/pre-push-artifact.txt
 EOF
 repo_coord_lock_status main > "$TMP_ROOT/heartbeat-status.out" 2>&1 || true
 assert_contains "$TMP_ROOT/heartbeat-status.out" 'phase=server'
@@ -61,6 +62,7 @@ assert_contains "$TMP_ROOT/heartbeat-status.out" 'heartbeat_age='
 assert_contains "$TMP_ROOT/heartbeat-status.out" 'output_age=7s'
 assert_contains "$TMP_ROOT/heartbeat-status.out" 'output_bytes=12345'
 assert_contains "$TMP_ROOT/heartbeat-status.out" 'detail=running tests'
+assert_contains "$TMP_ROOT/heartbeat-status.out" "artifact=$TMP_ROOT/pre-push-artifact.txt"
 
 set +e
 bash -c '
