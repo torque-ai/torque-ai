@@ -636,6 +636,59 @@ classify_remote_os() {
   esac
 }
 
+# Probe the remote OS via SSH. Captures uname -s, /etc/os-release, and $HOME
+# in one round-trip. Result classified and held in $REMOTE_OS. $REMOTE_HOME
+# captures the remote user's home for path computation.
+# Args: none (uses $SSH_HOST, $SSH_USER, $SSH_KEY_PATH, $SSH_OPTS from scope).
+# Returns: 0 on classified os, 78 (EX_CONFIG) on unknown/timeout.
+remote_probe_os() {
+  local probe_cmd
+  probe_cmd='uname -s 2>/dev/null || ver 2>/dev/null; echo "---OSRELEASE---"; '
+  probe_cmd+='[ -r /etc/os-release ] && cat /etc/os-release || true; '
+  probe_cmd+='echo "---HOME---"; echo "HOME=$HOME"'
+
+  local probe_output
+  local probe_start probe_end probe_ms
+  probe_start=$(date +%s%3N)
+  if ! probe_output=$(ssh ${SSH_OPTS[@]+"${SSH_OPTS[@]}"} -o ConnectTimeout=10 \
+      ${SSH_KEY_PATH:+-i "$SSH_KEY_PATH"} \
+      "$SSH_USER@$SSH_HOST" "$probe_cmd" 2>&1); then
+    printf '[torque-remote] [adapter:remote_probe_os] ssh failed rc=$? host=%s\n' "$SSH_HOST" >&2
+    REMOTE_OS=unknown
+    return 78
+  fi
+  probe_end=$(date +%s%3N)
+  probe_ms=$((probe_end - probe_start))
+
+  local uname_part osrelease_part home_part
+  uname_part="${probe_output%%---OSRELEASE---*}"
+  local rest="${probe_output#*---OSRELEASE---}"
+  osrelease_part="${rest%%---HOME---*}"
+  home_part="${rest#*---HOME---}"
+
+  classify_remote_os "$(echo "$uname_part" | tr -d '\r' | head -1)"
+
+  REMOTE_HOME=$(echo "$home_part" | grep '^HOME=' | head -1 | cut -d= -f2-)
+  REMOTE_HOME="${REMOTE_HOME%$'\r'}"
+
+  REMOTE_OS_RELEASE_ID=$(echo "$osrelease_part" | grep '^ID=' | head -1 | cut -d= -f2- | tr -d '"')
+  REMOTE_OS_RELEASE_VERSION=$(echo "$osrelease_part" | grep '^VERSION_ID=' | head -1 | cut -d= -f2- | tr -d '"')
+
+  printf '[torque-remote] [adapter:remote_probe_os] os=%s release_id=%s version=%s home=%s ms=%d\n' \
+    "$REMOTE_OS" "$REMOTE_OS_RELEASE_ID" "$REMOTE_OS_RELEASE_VERSION" "$REMOTE_HOME" "$probe_ms" >&2
+
+  local decision_log="$HOME/.torque/torque-remote-decisions.jsonl"
+  mkdir -p "$(dirname "$decision_log")"
+  printf '{"event":"remote_os_probe","ts":"%s","host":"%s","os":"%s","os_release_id":"%s","os_release_version":"%s","probe_duration_ms":%d}\n' \
+    "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$SSH_HOST" "$REMOTE_OS" "$REMOTE_OS_RELEASE_ID" "$REMOTE_OS_RELEASE_VERSION" "$probe_ms" \
+    >> "$decision_log"
+
+  if [[ "$REMOTE_OS" == "unknown" ]]; then
+    return 78
+  fi
+  return 0
+}
+
 remote_powershell_command() {
   local ps_body="$1"
   local encoded

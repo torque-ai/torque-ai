@@ -49,4 +49,13 @@ describe('remote OS probe classifier', () => {
   it('classifies garbage output as unknown', () => {
     expect(classify('zorblax foo bar')).toBe('unknown');
   });
+
+  it('remote_probe_os function is defined when sourced', () => {
+    const out = execFileSync(
+      'bash',
+      [RUNNER, 'declare_and_print', 'unset', 'remote_probe_os'],
+      { encoding: 'utf8' }
+    );
+    expect(out).toMatch(/remote_probe_os/);
+  });
 });
