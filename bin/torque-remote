@@ -2485,16 +2485,45 @@ export PATH="/usr/bin:/bin:$PATH"
 export TMPDIR="$SCRIPT_DIR/tmp"
 mkdir -p "$TMPDIR"
 out="$SCRIPT_DIR/runner.out"
+streamed_lines_file="$SCRIPT_DIR/runner.streamed-lines"
 : > "$out"
+printf '0\n' > "$streamed_lines_file"
 bash "$SCRIPT_DIR/runner.sh" >"$out" 2>&1 </dev/null &
 pid=$!
-tail -n +1 -f "$out" &
+# Stream in real time, but remember how many complete lines made it across.
+# Remote Git Bash/OpenSSH can lag the tail process after runner.sh exits; the
+# replay below makes final markers and syntax errors at-least-once delivery.
+tail -n +1 -f --pid="$pid" "$out" | awk -v state="$streamed_lines_file" '
+  {
+    print
+    fflush()
+    n += 1
+    print n > state
+    close(state)
+  }
+' &
 tail_pid=$!
 wait "$pid"
 rc=$?
-sleep 0.2
+for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+  if ! kill -0 "$tail_pid" 2>/dev/null; then
+    break
+  fi
+  sleep 0.1
+done
 kill "$tail_pid" 2>/dev/null || true
 wait "$tail_pid" 2>/dev/null || true
+streamed_lines="$(cat "$streamed_lines_file" 2>/dev/null || echo 0)"
+case "$streamed_lines" in
+  ''|*[!0-9]*) streamed_lines=0 ;;
+esac
+total_lines="$(wc -l < "$out" 2>/dev/null | tr -d '[:space:]' || echo 0)"
+case "$total_lines" in
+  ''|*[!0-9]*) total_lines=0 ;;
+esac
+if [ "$total_lines" -gt "$streamed_lines" ]; then
+  tail -n +"$((streamed_lines + 1))" "$out" 2>/dev/null || true
+fi
 rm -rf "$SCRIPT_DIR" >/dev/null 2>&1 </dev/null &
 exit "$rc"
 EOF

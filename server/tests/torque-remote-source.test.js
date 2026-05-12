@@ -111,6 +111,15 @@ describe('torque-remote source invariants', () => {
     expect(docs).toContain('<project>/infrastructure/hosts/torque-remote.local.json');
   });
 
+  it('replays remote bootstrap lines that the streaming tail did not flush', () => {
+    const src = readTorqueRemote();
+    expect(src).toContain('streamed_lines_file="$SCRIPT_DIR/runner.streamed-lines"');
+    expect(src).toContain('tail -n +1 -f --pid="$pid" "$out" | awk -v state="$streamed_lines_file"');
+    expect(src).toContain('total_lines="$(wc -l < "$out"');
+    expect(src).toContain('if [ "$total_lines" -gt "$streamed_lines" ]; then');
+    expect(src).toContain('tail -n +"$((streamed_lines + 1))" "$out"');
+  });
+
   it('records sync lock ownership and reaps stale locks (same-host PID-dead OR cross-host TTL)', () => {
     const src = readTorqueRemote();
     expect(src).toContain('REMOTE_LANE_LOCK_OWNER_FILE="owner.env"');
