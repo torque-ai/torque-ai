@@ -55,6 +55,9 @@ staging_ref_created=0
 local_gate_worktree_parent=""
 local_gate_worktree=""
 local_gate_script=""
+pre_push_gate_runtime_dir=""
+pre_push_gate_phase_file=""
+pre_push_gate_heartbeat_pid=""
 
 git_cleanup_timeout() {
   local timeout_secs="${PRE_PUSH_STAGING_CLEANUP_TIMEOUT_SECS:-30}"
@@ -352,12 +355,119 @@ coord_lock_env_reset_cmd() {
   printf '%s' 'env -u TORQUE_COORD_LOCK_ROOT -u TORQUE_COORD_LOCK_DIR -u TORQUE_COORD_LOCK_TOKEN -u TORQUE_COORD_LOCK_NAME -u TORQUE_COORD_LOCK_OWNER_BASHPID -u REPO_COORD_LOCK_DIR -u REPO_COORD_LOCK_TOKEN -u REPO_COORD_LOCK_NAME -u REPO_COORD_LOCK_REUSED -u REPO_COORD_LOCK_OWNER_BASHPID -u REPO_COORD_LOCK_FORCE_RELEASE'
 }
 
+pre_push_gate_metadata_value() {
+  printf '%s' "${1:-}" | tr '\r\n' '  '
+}
+
+pre_push_file_mtime_epoch() {
+  local file="$1"
+  stat -c %Y "$file" 2>/dev/null || stat -f %m "$file" 2>/dev/null || echo 0
+}
+
+pre_push_set_gate_phase() {
+  local phase="${1:-unknown}"
+  local detail="${2:-}"
+  local output_file="${3:-}"
+  local tmp
+
+  if [ -z "${pre_push_gate_phase_file:-}" ]; then
+    return 0
+  fi
+
+  tmp="${pre_push_gate_phase_file}.$$"
+  {
+    printf 'phase=%s\n' "$(pre_push_gate_metadata_value "$phase")"
+    printf 'detail=%s\n' "$(pre_push_gate_metadata_value "$detail")"
+    printf 'output_file=%s\n' "$(pre_push_gate_metadata_value "$output_file")"
+  } > "$tmp"
+  mv -f "$tmp" "$pre_push_gate_phase_file" 2>/dev/null || true
+  pre_push_write_gate_heartbeat_once >/dev/null 2>&1 || true
+}
+
+pre_push_write_gate_heartbeat_once() {
+  local lock_dir="${REPO_COORD_LOCK_DIR:-${TORQUE_COORD_LOCK_DIR:-}}"
+  local token="${REPO_COORD_LOCK_TOKEN:-${TORQUE_COORD_LOCK_TOKEN:-}}"
+  local phase_file="${pre_push_gate_phase_file:-}"
+  local phase detail output_file now_epoch now_iso output_bytes output_age_seconds output_mtime tmp
+
+  if [ -z "$lock_dir" ] || [ -z "$token" ] || [ -z "$phase_file" ]; then
+    return 1
+  fi
+  if [ ! -d "$lock_dir" ] || [ "$(cat "$lock_dir/token" 2>/dev/null || true)" != "$token" ]; then
+    return 1
+  fi
+
+  phase="$(repo_coord_lock_read_field "$phase_file" phase)"
+  detail="$(repo_coord_lock_read_field "$phase_file" detail)"
+  output_file="$(repo_coord_lock_read_field "$phase_file" output_file)"
+  now_epoch="$(date +%s)"
+  now_iso="$(date -u +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || date)"
+  output_bytes=0
+  output_age_seconds=""
+
+  if [ -n "$output_file" ] && [ -f "$output_file" ]; then
+    output_bytes="$(wc -c < "$output_file" 2>/dev/null | tr -d '[:space:]')"
+    output_mtime="$(pre_push_file_mtime_epoch "$output_file")"
+    case "$output_mtime" in
+      ''|*[!0-9]*) output_age_seconds="" ;;
+      *) output_age_seconds="$((now_epoch - output_mtime))" ;;
+    esac
+  fi
+
+  tmp="$lock_dir/heartbeat.env.$$"
+  {
+    printf 'updated_at=%s\n' "$now_iso"
+    printf 'updated_at_epoch=%s\n' "$now_epoch"
+    printf 'phase=%s\n' "${phase:-unknown}"
+    printf 'detail=%s\n' "${detail:-}"
+    printf 'output_file=%s\n' "${output_file:-}"
+    printf 'output_bytes=%s\n' "${output_bytes:-0}"
+    printf 'output_age_seconds=%s\n' "$output_age_seconds"
+  } > "$tmp"
+  mv -f "$tmp" "$lock_dir/heartbeat.env" 2>/dev/null || true
+}
+
+pre_push_start_gate_heartbeat() {
+  local interval
+  if [ -n "${pre_push_gate_heartbeat_pid:-}" ]; then
+    return 0
+  fi
+
+  pre_push_gate_runtime_dir="$(mktemp -d "${TMPDIR:-/tmp}/pre-push-gate-runtime.XXXXXX")"
+  pre_push_gate_phase_file="$pre_push_gate_runtime_dir/phase.env"
+  pre_push_set_gate_phase "starting" "pre-push gate acquired main lease"
+  interval="${PRE_PUSH_GATE_HEARTBEAT_SECS:-10}"
+  case "$interval" in ''|*[!0-9]*) interval=10 ;; esac
+
+  (
+    while pre_push_write_gate_heartbeat_once; do
+      sleep "$interval"
+    done
+  ) &
+  pre_push_gate_heartbeat_pid=$!
+}
+
+pre_push_stop_gate_heartbeat() {
+  if [ -n "${pre_push_gate_heartbeat_pid:-}" ]; then
+    kill "$pre_push_gate_heartbeat_pid" 2>/dev/null || true
+    wait "$pre_push_gate_heartbeat_pid" 2>/dev/null || true
+    pre_push_gate_heartbeat_pid=""
+  fi
+  if [ -n "${pre_push_gate_runtime_dir:-}" ]; then
+    rm -rf "$pre_push_gate_runtime_dir" >/dev/null 2>&1 || true
+    pre_push_gate_runtime_dir=""
+    pre_push_gate_phase_file=""
+  fi
+}
+
 pre_push_cleanup() {
   local rc=$?
   trap - EXIT
+  pre_push_set_gate_phase "cleanup" "exit=$rc"
   cleanup_local_gate_worktree || true
   delete_staging_ref || true
   REPO_COORD_LOCK_FORCE_RELEASE=1 repo_coord_lock_release || true
+  pre_push_stop_gate_heartbeat || true
   exit "$rc"
 }
 
@@ -366,6 +476,7 @@ if wait_for_matching_pre_push_gate; then
 fi
 
 repo_coord_lock_acquire "main" "pre-push main gate: $local_head_short"
+pre_push_start_gate_heartbeat
 trap pre_push_cleanup EXIT
 
 if origin_main_matches_local_head; then
@@ -373,6 +484,7 @@ if origin_main_matches_local_head; then
   exit 0
 fi
 
+pre_push_set_gate_phase "planning" "cleaning staging refs and building gate plan"
 cleanup_abandoned_staging_refs "$local_head_short"
 # vitest writes its summary with ANSI color codes even under `--reporter=dot`,
 # which causes `^[[:space:]]*Test Files` anchors to fail (the line begins with
@@ -666,6 +778,7 @@ run_with_flake_retry_with_runner() {
   local runner="$3"
   local tmp
   tmp=$(mktemp -t prepush.XXXXXX)
+  pre_push_set_gate_phase "$label" "running" "$tmp"
 
   set +e
   "$runner" "$cmd" "$tmp"
@@ -686,6 +799,7 @@ run_with_flake_retry_with_runner() {
   elif { [ "$RETRIED_EXIT" -ne 0 ] || gate_marker_has_failure "$RETRIED_OUTPUT"; } \
        && is_file_load_only_flake "$RETRIED_OUTPUT"; then
     echo "[pre-push] $label: file-load flake detected (0 test failures, N file-load failures) — retrying once..."
+    pre_push_set_gate_phase "$label" "retrying file-load flake" "$tmp"
     set +e
     "$runner" "$cmd" "$tmp"
     set -e
@@ -693,12 +807,14 @@ run_with_flake_retry_with_runner() {
   elif { [ "$RETRIED_EXIT" -ne 0 ] || gate_marker_has_failure "$RETRIED_OUTPUT"; } \
          && is_segfault_flake "$RETRIED_OUTPUT"; then
     echo "[pre-push] $label: native crash detected (segfault / libuv assert / V8 abort) — retrying once..."
+    pre_push_set_gate_phase "$label" "retrying native crash flake" "$tmp"
     set +e
     "$runner" "$cmd" "$tmp"
     set -e
     RETRIED_OUTPUT=$(<"$tmp")
   fi
 
+  pre_push_set_gate_phase "$label" "complete exit=$RETRIED_EXIT" "$tmp"
   rm -f "$tmp"
 }
 
@@ -789,6 +905,7 @@ fi
 # conservative (warn-only) when the plan didn't opt in.
 GATE_AUDIT_STRICT="${GATE_AUDIT_STRICT:-0}"
 
+pre_push_set_gate_phase "planned" "$GATE_PLAN_SUMMARY"
 echo "[pre-push] Gate plan: $GATE_PLAN_SUMMARY"
 echo "[pre-push] Gate phases: dashboard=$GATE_RUN_DASHBOARD server=$GATE_RUN_SERVER perf=$GATE_RUN_PERF audit=$GATE_RUN_AUDIT(strict=$GATE_AUDIT_STRICT) suite=$GATE_COORD_SUITE"
 
@@ -810,6 +927,7 @@ if [ "$GATE_RUN_DASHBOARD" = "1" ] || [ "$GATE_RUN_SERVER" = "1" ] || [ "$GATE_R
 
   remote_gate_available=1
   if [ "${PRE_PUSH_REMOTE_PREFLIGHT:-1}" != "0" ]; then
+    pre_push_set_gate_phase "remote_preflight" "probing torque-remote availability"
     if remote_probe_output=$("$TORQUE_REMOTE_BIN" --__internal-probe-remote-availability 2>&1); then
       remote_probe_reason="$(printf '%s\n' "$remote_probe_output" | tail -n 1)"
       echo "[pre-push] Remote gate preflight: ${remote_probe_reason:-available}"
@@ -823,6 +941,7 @@ if [ "$GATE_RUN_DASHBOARD" = "1" ] || [ "$GATE_RUN_SERVER" = "1" ] || [ "$GATE_R
   fi
 
   if [ "$remote_gate_available" -eq 1 ]; then
+    pre_push_set_gate_phase "staging" "pushing origin/$staging_branch"
     echo "[pre-push] Staging HEAD at origin/$staging_branch for remote gate..."
     # --force so repeated pushes of the same branch name (rare but possible on
     # force-push of main) overwrite the stale staging ref. The stale ref is still
@@ -835,6 +954,7 @@ if [ "$GATE_RUN_DASHBOARD" = "1" ] || [ "$GATE_RUN_SERVER" = "1" ] || [ "$GATE_R
   fi
 
   if [ "$staging_ref_created" -eq 1 ]; then
+    pre_push_set_gate_phase "remote_gate" "running selected phases on $staging_branch"
     echo "[pre-push] Running selected remote gate phases on $staging_branch..."
     # Test phases run in parallel inside one torque-remote SSH session. Perf
     # runs after tests in that same synced checkout so measurements are not
@@ -851,6 +971,7 @@ if [ "$GATE_RUN_DASHBOARD" = "1" ] || [ "$GATE_RUN_SERVER" = "1" ] || [ "$GATE_R
       echo "[pre-push] Remote gate checkout suffix disabled; using default torque-remote checkout."
     fi
   else
+    pre_push_set_gate_phase "local_gate" "running selected phases at $local_head_short"
     cd "$REPO_ROOT"
     export TORQUE_REMOTE_COORD_SHA="$local_head_sha"
     unset TORQUE_REMOTE_TEST_WORKTREE_SUFFIX
@@ -1337,6 +1458,7 @@ EOF
   combined_output="$RETRIED_OUTPUT"
   combined_exit="$RETRIED_EXIT"
   gate_end_marker=""
+  pre_push_set_gate_phase "gate_results" "parsing gate completion marker"
   if ! gate_end_marker=$(extract_gate_end_marker "$combined_output"); then
     gate_failed "Gate did not produce completion marker"
   fi
@@ -1384,11 +1506,13 @@ EOF
     fi
   fi
 else
+  pre_push_set_gate_phase "gate_skipped" "heavy gate skipped by plan"
   echo "[pre-push] Heavy remote gate skipped by gate plan."
 fi
 
 # perf-baseline trailer enforcement: any commit in the push that touches
 # server/perf/baseline.json must carry a perf-baseline: trailer.
+pre_push_set_gate_phase "post_gate_checks" "checking perf baseline trailers"
 if [ -n "$remote_main_sha" ]; then
   for sha in $(git rev-list "$remote_main_sha..$local_head_sha" 2>/dev/null); do
     if git show --name-only --format= "$sha" | grep -q '^server/perf/baseline\.json$'; then
@@ -1401,6 +1525,7 @@ if [ -n "$remote_main_sha" ]; then
 fi
 
 if [ "$GATE_RUN_AUDIT" = "1" ]; then
+  pre_push_set_gate_phase "db_audit" "running database query audit"
   if [ "$GATE_AUDIT_STRICT" = "1" ]; then
     echo "Running DB query audit (strict, baseline-aware)..."
     node "$REPO_ROOT/scripts/audit-db-queries.js" --strict
@@ -1423,4 +1548,5 @@ else
   echo "[pre-push] DB query audit skipped by gate plan."
 fi
 
+pre_push_set_gate_phase "complete" "gate passed; git may push main"
 echo "[pre-push] All tests passed — git will now push refs/heads/main."
