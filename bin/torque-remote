@@ -1,6 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# When TORQUE_REMOTE_TEST_MODE=1, source-mode is enabled: we define all
+# functions but skip the main pipeline. Test files source this script and
+# invoke adapters/classifier functions directly. This lets us unit-test
+# the shell emission without spawning SSH.
+if [[ "${TORQUE_REMOTE_TEST_MODE:-}" == "1" ]]; then
+  TORQUE_REMOTE_SOURCING_FOR_TESTS=1
+fi
+
 # SCRIPT_DIR is needed for locating torque-coord-client (sibling script).
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -1440,6 +1448,8 @@ create_local_state_bundle() {
   printf '%s\n%s\n' "$bundle_tar" "$has_local_state"
 }
 
+if [[ -z "${TORQUE_REMOTE_SOURCING_FOR_TESTS:-}" ]]; then
+
 # Skip the cleanup-and-decision-log traps for internal fast-path flags.
 # Those paths create no temp dirs and exit immediately — but the EXIT trap
 # also fires sweep_old_orphans, which on Windows runs `find /tmp -exec rm -rf`
@@ -2616,3 +2626,5 @@ rm -f $(shell_quote "$(windows_path_to_bash_path "$REMOTE_BUNDLE_PATH")") >/dev/
     die "Unknown transport '$TRANSPORT'. Valid: local, ssh"
     ;;
 esac
+
+fi # end TORQUE_REMOTE_SOURCING_FOR_TESTS guard
