@@ -13,7 +13,7 @@ These rules apply to future Codex sessions working in this repository:
 5) Docs-only changes may merge without a restart, but still use a worktree and state that no restart is required.
 6) Be patient with restart barriers. Some Codex/factory tasks normally run 30-60 minutes, so `await_restart` may need to hold the barrier for a long drain. Do not cancel, bypass, or declare the barrier stuck unless task status shows a real stall or the user approves an emergency override.
 7) Shared main/worktree mutations must use `scripts/repo-coordination-lock.sh` or a caller that already does. This includes main pre-push gates, cutovers, and apply-mode worktree pruning, so independent shells and agents do not race while changing branch refs, staging refs, or worktree metadata.
-8) For pushes that update `main`, prefer `bin/torque-push` (or the installed `torque-push`) over raw `git push`. The wrapper coalesces same-commit concurrent gates before Git negotiates remote refs, avoiding false nonzero pushes when another session lands the same SHA first.
+8) For pushes that update `main`, prefer `bin/torque-push` from Bash or the installed `torque-push` command from PowerShell over raw `git push`. The wrapper coalesces same-commit concurrent gates before Git negotiates remote refs, avoiding false nonzero pushes when another session lands the same SHA first. Do not run `bin\torque-push` directly from PowerShell; use the installed command or `bin\torque-push.cmd`.
 
 ## Parallel Test Lanes
 

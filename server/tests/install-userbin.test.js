@@ -18,6 +18,8 @@ const WRAPPERS = [
   'torque-remote-guard',
   'torque-coord-client',
   'torque-push',
+  'torque-push.cmd',
+  'torque-push-shim.ps1',
 ];
 
 function toBashPath(value) {
@@ -37,6 +39,20 @@ function runInstaller(userBinDir) {
   });
 }
 
+function runPowerShell(command) {
+  return childProcess.spawnSync('powershell.exe', [
+    '-NoProfile',
+    '-ExecutionPolicy',
+    'Bypass',
+    '-Command',
+    command,
+  ], {
+    cwd: REPO_ROOT,
+    encoding: 'utf8',
+    windowsHide: true,
+  });
+}
+
 describe('install-userbin.sh', () => {
   it('copies repo wrappers into TORQUE_USERBIN_DIR and skips unchanged files on rerun', () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'torque-userbin-'));
@@ -49,6 +65,15 @@ describe('install-userbin.sh', () => {
         const src = fs.readFileSync(path.join(BIN_DIR, name));
         const dst = fs.readFileSync(path.join(tmpDir, name));
         expect(dst.equals(src)).toBe(true);
+      }
+
+      if (process.platform === 'win32') {
+        const escapedTmpDir = tmpDir.replace(/'/g, "''");
+        const discovery = runPowerShell(
+          `$env:PATH = '${escapedTmpDir}' + [IO.Path]::PathSeparator + $env:PATH; (Get-Command torque-push).Path`
+        );
+        expect(discovery.status, discovery.stderr).toBe(0);
+        expect(discovery.stdout.trim().toLowerCase()).toBe(path.join(tmpDir, 'torque-push.cmd').toLowerCase());
       }
 
       const second = runInstaller(tmpDir);
