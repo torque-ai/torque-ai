@@ -1122,6 +1122,58 @@ describe('factory_status', () => {
     });
   });
 
+  it('keeps operator-paused projects idle even when stale loop instances remain active', async () => {
+    const db = rawDb();
+    const createdAt = new Date().toISOString();
+
+    insertFactoryProject(db, {
+      id: 'project-paused-active-loop',
+      name: 'Paused Active Loop',
+      status: 'paused',
+      loopState: 'EXECUTE',
+      loopLastActionAt: createdAt,
+      testDir,
+    });
+    insertActiveLoopInstance(db, {
+      projectId: 'project-paused-active-loop',
+      loopState: 'EXECUTE',
+      lastActionAt: createdAt,
+      batchId: 'batch-paused-active-loop',
+    });
+    db.prepare('INSERT INTO tasks (id, task_description, status, provider, tags, created_at) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(
+        'task-paused-waiting',
+        'Waiting task for paused project',
+        'waiting',
+        'codex',
+        JSON.stringify(['factory:internal', 'factory:project_id=project-paused-active-loop']),
+        createdAt,
+      );
+
+    const result = await safeTool('factory_status', {});
+
+    expect(result.isError).toBeFalsy();
+    expect(result.structuredData.summary.idle_diagnosis).toMatchObject({
+      idle: true,
+      reason_code: 'all_projects_paused',
+      counts: {
+        paused_projects: 1,
+        active_loop_projects: 0,
+        paused_active_loop_projects: 1,
+        task_queue: {
+          by_status: {
+            waiting: 1,
+          },
+          schedulable: 1,
+        },
+      },
+      project_ids: {
+        active_loops: [],
+        paused_active_loops: ['project-paused-active-loop'],
+      },
+    });
+  });
+
   it('adds idle diagnosis to lightweight project lists when requested', async () => {
     const db = rawDb();
 

@@ -858,8 +858,19 @@ function projectIdList(projects, predicate) {
 }
 
 function hasActiveFactoryLoop(project) {
+  if (String(project?.status || '').trim().toLowerCase() !== 'running') {
+    return false;
+  }
   if (project.active_task) {
     return true;
+  }
+  const state = normalizeProjectLoopState(project.active_stage || project.loop_state);
+  return !NON_STALLABLE_FACTORY_LOOP_STATES.has(state);
+}
+
+function hasPausedActiveFactoryLoop(project) {
+  if (String(project?.status || '').trim().toLowerCase() !== 'paused') {
+    return false;
   }
   const state = normalizeProjectLoopState(project.active_stage || project.loop_state);
   return !NON_STALLABLE_FACTORY_LOOP_STATES.has(state);
@@ -880,6 +891,7 @@ function buildFactoryIdleDiagnosis(projects, taskQueue = null) {
   const runningProjectIds = projectIdList(projectList, (project) => project.status === 'running');
   const pausedProjectIds = projectIdList(projectList, (project) => project.status === 'paused');
   const activeLoopProjectIds = projectIdList(projectList, hasActiveFactoryLoop);
+  const pausedActiveLoopProjectIds = projectIdList(projectList, hasPausedActiveFactoryLoop);
   const openWorkItems = projectList.reduce((sum, project) => (
     sum + (Number(project.open_work_item_count) || 0)
   ), 0);
@@ -889,6 +901,7 @@ function buildFactoryIdleDiagnosis(projects, taskQueue = null) {
     running_projects: runningProjectIds.length,
     paused_projects: pausedProjectIds.length,
     active_loop_projects: activeLoopProjectIds.length,
+    paused_active_loop_projects: pausedActiveLoopProjectIds.length,
     open_work_items: openWorkItems,
     task_queue: resolvedTaskQueue,
   };
@@ -896,6 +909,7 @@ function buildFactoryIdleDiagnosis(projects, taskQueue = null) {
     running: runningProjectIds.slice(0, 20),
     paused: pausedProjectIds.slice(0, 20),
     active_loops: activeLoopProjectIds.slice(0, 20),
+    paused_active_loops: pausedActiveLoopProjectIds.slice(0, 20),
   };
 
   let idle = true;
@@ -907,6 +921,10 @@ function buildFactoryIdleDiagnosis(projects, taskQueue = null) {
     reasonCode = 'no_projects_registered';
     message = 'No factory projects are registered.';
     actions.push(makeIdleAction('register_factory_project', 'Register a factory project.'));
+  } else if (allProjectsPaused) {
+    reasonCode = 'all_projects_paused';
+    message = 'All registered factory projects are paused.';
+    actions.push(makeIdleAction('resume_project', 'Resume at least one factory project.', pausedProjectIds));
   } else if (activeLoopProjectIds.length > 0) {
     idle = false;
     reasonCode = 'active_factory_loops';
@@ -915,10 +933,6 @@ function buildFactoryIdleDiagnosis(projects, taskQueue = null) {
     idle = false;
     reasonCode = 'queue_has_work';
     message = 'The task queue still has schedulable factory work.';
-  } else if (allProjectsPaused) {
-    reasonCode = 'all_projects_paused';
-    message = 'All registered factory projects are paused.';
-    actions.push(makeIdleAction('resume_project', 'Resume at least one factory project.', pausedProjectIds));
   } else if (resolvedTaskQueue.manual_gate_pending > 0) {
     reasonCode = 'manual_gate_pending';
     message = 'Factory work is waiting on manual approval.';
