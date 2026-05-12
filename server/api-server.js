@@ -333,9 +333,12 @@ function createApiServer(deps = {}) {
   // no-op, preserving the zero-auth local default.
   const pluginMiddleware = Array.isArray(deps.pluginMiddleware) ? deps.pluginMiddleware : [];
 
+  // Initialize v2 core inference with the API server DB dependency even when
+  // no task manager is supplied; v2-core no longer falls back to database.js.
+  _initV2TaskManager({ taskManager: serverDeps.taskManager || null, db: serverDeps.db });
+
   // Initialize v2 control-plane handlers with task manager
   if (serverDeps.taskManager) {
-    _initV2TaskManager({ taskManager: serverDeps.taskManager, db: serverDeps.db });
     v2TaskHandlers.init(serverDeps.taskManager);
     v2WorkflowHandlers.init(serverDeps.taskManager);
     v2GovernanceHandlers.init({ taskManager: serverDeps.taskManager, db: serverDeps.db });

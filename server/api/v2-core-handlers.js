@@ -13,6 +13,7 @@ const { defaultContainer } = require('../container');
 const { getTask, updateTaskStatus } = require('../db/task-core');
 const { getDefaultProvider, getProvider, listProviders } = require('../db/provider/routing-core');
 const { recordTaskEvent, getTaskEvents } = require('../db/webhooks-streaming');
+const { resolveDatabaseFacade: resolveRegisteredDatabaseFacade } = require('../db/database-facade-resolver');
 const serverConfig = require('../config');
 const logger = require('../logger').child({ component: 'api-server' });
 const v2Inference = require('./v2-inference');
@@ -454,14 +455,10 @@ function validateV2InferencePayload(payload) {
 // ---------------------------------------------------------------------------
 
 function resolveDatabaseFacade(explicitDb = null) {
-  if (explicitDb) return explicitDb;
-  if (_injectedDb) return _injectedDb;
-
-  try {
-    return defaultContainer.get('db');
-  } catch {
-    return require('../database');
-  }
+  return resolveRegisteredDatabaseFacade({
+    explicitDb: explicitDb || _injectedDb,
+    serviceName: 'v2 core handlers',
+  });
 }
 
 function configureV2Inference(explicitDb = null) {

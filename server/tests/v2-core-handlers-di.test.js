@@ -1,5 +1,7 @@
 'use strict';
 
+const Module = require('module');
+
 function primeModuleCache(modulePath, exportsValue) {
   const resolved = require.resolve(modulePath);
   delete require.cache[resolved];
@@ -46,24 +48,38 @@ describe('v2 core handlers DI wiring', () => {
     };
     const containerDb = { createTask: vi.fn() };
     const defaultContainer = {
+      has: vi.fn((name) => name === 'db'),
       get: vi.fn((name) => {
         if (name === 'db') return containerDb;
         throw new Error(`Unknown service: ${name}`);
       }),
     };
-
-    primeModuleCache('../api/v2-inference', v2Inference);
-    primeModuleCache('../container', { defaultContainer });
-
-    delete require.cache[require.resolve('../api/v2-core-handlers')];
-    const handlers = require('../api/v2-core-handlers');
-
-    handlers.initTaskManager({ taskManager: { cancelTask: vi.fn() } });
-
-    expect(defaultContainer.get).toHaveBeenCalledWith('db');
-    expect(v2Inference.init).toHaveBeenCalledTimes(1);
-    expect(v2Inference.init.mock.calls[0][0]).toMatchObject({
-      db: containerDb,
+    const originalLoad = Module._load;
+    const databaseLoadSpy = vi.spyOn(Module, '_load').mockImplementation(function patchedLoad(request, parent, isMain) {
+      const parentFile = parent?.filename?.replace(/\\/g, '/') || '';
+      if (request === '../database' && parentFile.endsWith('/server/api/v2-core-handlers.js')) {
+        throw new Error('v2 core handlers should not require database facade');
+      }
+      return Reflect.apply(originalLoad, this, [request, parent, isMain]);
     });
+
+    try {
+      primeModuleCache('../api/v2-inference', v2Inference);
+      primeModuleCache('../container', { defaultContainer });
+
+      delete require.cache[require.resolve('../api/v2-core-handlers')];
+      const handlers = require('../api/v2-core-handlers');
+
+      handlers.initTaskManager({ taskManager: { cancelTask: vi.fn() } });
+
+      expect(defaultContainer.has).toHaveBeenCalledWith('db');
+      expect(defaultContainer.get).toHaveBeenCalledWith('db');
+      expect(v2Inference.init).toHaveBeenCalledTimes(1);
+      expect(v2Inference.init.mock.calls[0][0]).toMatchObject({
+        db: containerDb,
+      });
+    } finally {
+      databaseLoadSpy.mockRestore();
+    }
   });
 });
