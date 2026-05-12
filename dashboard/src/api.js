@@ -379,6 +379,17 @@ export const workstations = {
   }),
 };
 
+export const remoteHostLocalConfig = {
+  get: () => requestV2('/remote-host/local-config'),
+  save: (data) => requestV2('/remote-host/local-config', {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  }),
+  remove: () => requestV2('/remote-host/local-config', {
+    method: 'DELETE',
+  }),
+};
+
 // ─── Model registry endpoints (v2) ──────────────────────────────────────────
 
 export const models = {

@@ -86,6 +86,7 @@ installCjsModuleMock('../api/v2-infrastructure-handlers', handlerModule([
   'handleDeletePeekHost', 'handleTogglePeekHost', 'handleListCredentials',
   'handleSaveCredential', 'handleDeleteCredential', 'handleListAgents',
   'handleCreateAgent', 'handleGetAgent', 'handleAgentHealth', 'handleDeleteAgent',
+  'handleGetRemoteHostLocalConfig', 'handleSaveRemoteHostLocalConfig', 'handleDeleteRemoteHostLocalConfig',
 ]));
 
 // Mock dispatchV2 function

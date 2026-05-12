@@ -633,6 +633,9 @@ const V2_CP_HANDLER_LOOKUP = {
   // Host Activity & Coordination
   handleV2CpHostActivity: v2InfrastructureHandlers.handleHostActivity,
   handleV2CpProviderPercentiles: v2InfrastructureHandlers.handleProviderPercentiles,
+  handleV2CpGetRemoteHostLocalConfig: v2InfrastructureHandlers.handleGetRemoteHostLocalConfig,
+  handleV2CpSaveRemoteHostLocalConfig: v2InfrastructureHandlers.handleSaveRemoteHostLocalConfig,
+  handleV2CpDeleteRemoteHostLocalConfig: v2InfrastructureHandlers.handleDeleteRemoteHostLocalConfig,
   handleV2CpCoordinationDashboard: v2InfrastructureHandlers.handleCoordinationDashboard,
 };
 

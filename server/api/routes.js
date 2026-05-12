@@ -1344,6 +1344,24 @@ const routes = [
     handlerName: 'handleV2CpCoordinationDashboard',
     middleware: buildV2Middleware(),
   },
+  {
+    method: 'GET',
+    path: '/api/v2/remote-host/local-config',
+    handlerName: 'handleV2CpGetRemoteHostLocalConfig',
+    middleware: buildV2Middleware(),
+  },
+  {
+    method: 'PUT',
+    path: '/api/v2/remote-host/local-config',
+    handlerName: 'handleV2CpSaveRemoteHostLocalConfig',
+    middleware: buildV2Middleware(),
+  },
+  {
+    method: 'DELETE',
+    path: '/api/v2/remote-host/local-config',
+    handlerName: 'handleV2CpDeleteRemoteHostLocalConfig',
+    middleware: buildV2Middleware(),
+  },
 
   // Host Management (new)
   {

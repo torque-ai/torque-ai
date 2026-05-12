@@ -1,8 +1,13 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { concurrency, hosts as hostsApi, peekHosts as peekHostsApi, workstations as workstationsApi, models } from '../api';
+import { concurrency, hosts as hostsApi, peekHosts as peekHostsApi, workstations as workstationsApi, models, remoteHostLocalConfig } from '../api';
 import { useToast } from '../components/Toast';
 import { useAbortableRequest } from '../hooks/useAbortableRequest';
 import LoadingSkeleton from '../components/LoadingSkeleton';
+import RemoteHostLocalConfigPanel from '../components/RemoteHostLocalConfigPanel';
+import {
+  EMPTY_REMOTE_HOST_CONFIG_FORM,
+  remoteConfigValuesToForm,
+} from '../utils/remoteHostLocalConfigForm';
 import { formatDistanceToNow, format } from 'date-fns';
 
 const STATUS_STYLES = {
@@ -1136,12 +1141,17 @@ export default function Hosts({ hostActivity }) {
   const [hostList, setHostList] = useState([]);
   const [workstationList, setWorkstationList] = useState([]);
   const [peekHostList, setPeekHostList] = useState([]);
+  const [remoteConfig, setRemoteConfig] = useState(null);
+  const [remoteConfigForm, setRemoteConfigForm] = useState(EMPTY_REMOTE_HOST_CONFIG_FORM);
   const [concurrencyData, setConcurrencyData] = useState(null);
   const [pendingModels, setPendingModels] = useState([]);
   const [loadingHosts, setLoadingHosts] = useState(true);
   const [loadingWorkstations, setLoadingWorkstations] = useState(true);
+  const [loadingRemoteConfig, setLoadingRemoteConfig] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [scanning, setScanning] = useState(false);
+  const [savingRemoteConfig, setSavingRemoteConfig] = useState(false);
+  const [clearingRemoteConfig, setClearingRemoteConfig] = useState(false);
   const [probingWorkstations, setProbingWorkstations] = useState({});
   const [addingWorkstation, setAddingWorkstation] = useState(false);
   const [showAddWorkstation, setShowAddWorkstation] = useState(false);
@@ -1208,18 +1218,34 @@ export default function Hosts({ hostActivity }) {
     });
   }, [executePeekHostLoad]);
 
+  const loadRemoteConfig = useCallback(async () => {
+    setLoadingRemoteConfig(true);
+    try {
+      const data = await remoteHostLocalConfig.get();
+      setRemoteConfig(data);
+      setRemoteConfigForm(remoteConfigValuesToForm(data));
+    } catch (err) {
+      console.error('Failed to load remote host local config:', err);
+      toast.error(`Failed to load remote host config: ${err.message}`);
+    } finally {
+      setLoadingRemoteConfig(false);
+    }
+  }, [toast]);
+
   const refreshInfrastructure = useCallback(async () => {
     await Promise.allSettled([
       loadHosts(),
       loadWorkstations(),
       loadPeekHosts(),
+      loadRemoteConfig(),
     ]);
-  }, [loadHosts, loadPeekHosts, loadWorkstations]);
+  }, [loadHosts, loadPeekHosts, loadRemoteConfig, loadWorkstations]);
 
   useEffect(() => {
     loadHosts();
     loadWorkstations();
     loadPeekHosts();
+    loadRemoteConfig();
     const interval = setInterval(() => {
       if (document.hidden) return;
       loadHosts();
@@ -1227,7 +1253,7 @@ export default function Hosts({ hostActivity }) {
       loadPeekHosts();
     }, 30000); // 30s — WebSocket provides real-time updates; polling is a fallback
     return () => clearInterval(interval);
-  }, [loadHosts, loadPeekHosts, loadWorkstations]);
+  }, [loadHosts, loadPeekHosts, loadRemoteConfig, loadWorkstations]);
 
   async function handleRefresh() {
     setRefreshing(true);
@@ -1392,6 +1418,36 @@ export default function Hosts({ hostActivity }) {
     }
   }
 
+  async function handleSaveRemoteConfig(payload) {
+    setSavingRemoteConfig(true);
+    try {
+      const saved = await remoteHostLocalConfig.save(payload);
+      setRemoteConfig(saved);
+      setRemoteConfigForm(remoteConfigValuesToForm(saved));
+      toast.success('Remote host config saved');
+    } catch (err) {
+      console.error('Remote host config save failed:', err);
+      toast.error(`Save failed: ${err.message}`);
+    } finally {
+      setSavingRemoteConfig(false);
+    }
+  }
+
+  async function handleClearRemoteConfig() {
+    setClearingRemoteConfig(true);
+    try {
+      const cleared = await remoteHostLocalConfig.remove();
+      setRemoteConfig(cleared);
+      setRemoteConfigForm(remoteConfigValuesToForm(cleared));
+      toast.success('Remote host config cleared');
+    } catch (err) {
+      console.error('Remote host config clear failed:', err);
+      toast.error(`Clear failed: ${err.message}`);
+    } finally {
+      setClearingRemoteConfig(false);
+    }
+  }
+
   // --- Peek host handlers ---
 
   async function _handlePeekToggle(name, enabled) {    try {
@@ -1534,6 +1590,17 @@ export default function Hosts({ hostActivity }) {
           </div>
         </div>
       )}
+
+      <RemoteHostLocalConfigPanel
+        config={remoteConfig}
+        form={remoteConfigForm}
+        onChange={setRemoteConfigForm}
+        onSave={handleSaveRemoteConfig}
+        onClear={handleClearRemoteConfig}
+        saving={savingRemoteConfig}
+        clearing={clearingRemoteConfig}
+        loading={loadingRemoteConfig}
+      />
 
       <div>
         <div className="flex items-center justify-between mb-4">
