@@ -2371,6 +2371,42 @@ if [[ "$TRANSPORT" == "ssh" ]]; then
   fi
 fi
 
+# ---- OS-aware lane workspace root default ----
+# Runs after the probe so $REMOTE_OS and $REMOTE_HOME are resolved. Only fires
+# when REMOTE_TEST_WORKTREE_ROOT was not supplied via any config layer.
+# Operators can always override via remote_test_worktree_root in their local
+# config file.
+if [[ "$TRANSPORT" == "ssh" && -z "${REMOTE_TEST_WORKTREE_ROOT:-}" ]]; then
+  case "$REMOTE_OS" in
+    linux)   REMOTE_TEST_WORKTREE_ROOT="${REMOTE_HOME}/trt" ;;
+    windows) REMOTE_TEST_WORKTREE_ROOT='C:\trt' ;;
+    *) die "[torque-remote] cannot pick lane root for REMOTE_OS=$REMOTE_OS" ;;
+  esac
+  # Re-derive EFFECTIVE_REMOTE_PROJECT_PATH now that the root is known.
+  # Use POSIX separators on Linux; backslash on Windows (matching the logic
+  # in the earlier config-driven derivation block above).
+  case "$REMOTE_OS" in
+    linux)
+      case "$REMOTE_TEST_WORKTREE_ROOT" in
+        */) EFFECTIVE_REMOTE_PROJECT_PATH="${REMOTE_TEST_WORKTREE_ROOT}${PROJECT_NAME}" ;;
+        *)  EFFECTIVE_REMOTE_PROJECT_PATH="${REMOTE_TEST_WORKTREE_ROOT}/${PROJECT_NAME}" ;;
+      esac
+      ;;
+    windows)
+      ROOT_NORM_DEFAULT="${REMOTE_TEST_WORKTREE_ROOT//\//\\}"
+      case "$ROOT_NORM_DEFAULT" in
+        *\\) EFFECTIVE_REMOTE_PROJECT_PATH="${ROOT_NORM_DEFAULT}${PROJECT_NAME}" ;;
+        *)   EFFECTIVE_REMOTE_PROJECT_PATH="${ROOT_NORM_DEFAULT}\\${PROJECT_NAME}" ;;
+      esac
+      ;;
+  esac
+  BASE_EFFECTIVE_REMOTE_PROJECT_PATH="$EFFECTIVE_REMOTE_PROJECT_PATH"
+  if [[ -n "$REMOTE_TEST_WORKTREE_SUFFIX" && -n "$EFFECTIVE_REMOTE_PROJECT_PATH" ]]; then
+    EFFECTIVE_REMOTE_PROJECT_PATH="${EFFECTIVE_REMOTE_PROJECT_PATH}${REMOTE_TEST_WORKTREE_SUFFIX}"
+  fi
+  info "[lane-root] REMOTE_OS=$REMOTE_OS default REMOTE_TEST_WORKTREE_ROOT=$REMOTE_TEST_WORKTREE_ROOT EFFECTIVE_REMOTE_PROJECT_PATH=$EFFECTIVE_REMOTE_PROJECT_PATH"
+fi
+
 # ---- Command to run ----
 
 COMMAND_ARGS=("$@")
