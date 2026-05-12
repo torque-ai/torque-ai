@@ -247,6 +247,13 @@ function isAuditStrictTrigger(file) {
 
 function planFromFiles(files, options = {}) {
   const changedFiles = uniqSorted((files || []).filter(Boolean));
+  // REMOTE_OS is included in the hash so a Linux operator's passing gate run
+  // is not replayed as a cache hit for a Windows operator (different binary
+  // toolchains, possible test surface differences). Defaults to 'unknown' when
+  // unset — the "unknown" bucket gets its own cache key, which is the correct
+  // conservative behaviour. Operators on Linux can set REMOTE_OS=linux via
+  // env when invoking the gate (or via the probe added in Task 21).
+  const remoteOs = options.remoteOs || process.env.REMOTE_OS || 'unknown';
   const plan = {
     version: PLAN_VERSION,
     mode: 'affected',
@@ -264,6 +271,7 @@ function planFromFiles(files, options = {}) {
     _server_full: false,
     base: options.base || '',
     head: options.head || '',
+    remote_os: remoteOs,
   };
 
   for (const file of changedFiles) {
@@ -382,6 +390,7 @@ function planFromFiles(files, options = {}) {
     changed_files: plan.changed_files,
     base: plan.base,
     head: plan.head,
+    remote_os: plan.remote_os,
   };
   plan.hash = hashObject(hashInput);
   plan.coord_suite = `gate-${plan.mode}-${plan.hash}`;
