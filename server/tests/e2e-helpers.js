@@ -252,6 +252,9 @@ async function waitForTaskStatus(db, taskId, statuses, timeout = 10000, interval
     await new Promise(resolve => setTimeout(resolve, interval));
   }
   const task = taskCore.getTask(taskId);
+  if (task && statuses.includes(task.status)) {
+    return task;
+  }
   throw new Error(`Task ${taskId} did not reach ${statuses.join('/')} within ${timeout}ms (current: ${task?.status})`);
 }
 
