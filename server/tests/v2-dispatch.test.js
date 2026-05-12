@@ -125,6 +125,9 @@ const mockHandlers = {
     handleListCredentials: vi.fn(),
     handleSaveCredential: vi.fn(),
     handleDeleteCredential: vi.fn(),
+    handleGetRemoteHostLocalConfig: vi.fn(),
+    handleSaveRemoteHostLocalConfig: vi.fn(),
+    handleDeleteRemoteHostLocalConfig: vi.fn(),
     handleListAgents: vi.fn(),
     handleCreateAgent: vi.fn(),
     handleGetAgent: vi.fn(),
@@ -461,6 +464,17 @@ describe('v2-dispatch module', () => {
 
       expect(handled).toBe(true);
       expect(mockHandlers.infrastructure.handleListHosts).toHaveBeenCalledOnce();
+    });
+
+    it('dispatches local remote host config routes before host id routes', async () => {
+      const req = mockReq('GET', '/api/v2/remote-host/local-config');
+      const res = mockRes();
+
+      const handled = await v2Dispatch.dispatchV2(req, res);
+
+      expect(handled).toBe(true);
+      expect(mockHandlers.infrastructure.handleGetRemoteHostLocalConfig).toHaveBeenCalledOnce();
+      expect(mockHandlers.infrastructure.handleGetHost).not.toHaveBeenCalled();
     });
 
     it('dispatches GET /api/v2/workflows to handleListWorkflows', async () => {

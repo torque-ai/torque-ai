@@ -155,6 +155,9 @@ const V2_INFRASTRUCTURE_HANDLER_NAMES = [
   'handleRefreshModels',
   'handleHostActivity',
   'handleProviderPercentiles',
+  'handleGetRemoteHostLocalConfig',
+  'handleSaveRemoteHostLocalConfig',
+  'handleDeleteRemoteHostLocalConfig',
   'handleCoordinationDashboard',
 ];
 
@@ -428,7 +431,7 @@ function createModules() {
       })),
     },
     openapiGenerator: {
-      generateOpenApiSpec: vi.fn(() => ({ openapi: '3.0.3', routes: 179 })),
+      generateOpenApiSpec: vi.fn(() => ({ openapi: '3.0.3', routes: 182 })),
     },
     middleware: {
       sendJson: vi.fn((res, data, status = 200) => {
@@ -921,11 +924,11 @@ describe('openapi route', () => {
     expect(currentModules.openapiGenerator.generateOpenApiSpec).toHaveBeenCalledTimes(1);
     expect(currentModules.middleware.sendJson).toHaveBeenCalledWith(
       res,
-      { openapi: '3.0.3', routes: 179 },
+      { openapi: '3.0.3', routes: 182 },
       200,
       req,
     );
-    expect(parseJsonBody(res)).toEqual({ openapi: '3.0.3', routes: 179 });
+    expect(parseJsonBody(res)).toEqual({ openapi: '3.0.3', routes: 182 });
   });
 
   it('passes the live route table into generateOpenApiSpec', async () => {

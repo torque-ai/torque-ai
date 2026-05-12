@@ -13,6 +13,7 @@ const emailPeek = require('../db/email-peek');
 const hostManagement = require('../db/host/management');
 const coordination = require('../db/coordination');
 const taskCore = require('../db/task-core');
+const remoteHostLocalConfig = require('../utils/remote-host-local-config');
 const {
   sendSuccess,
   sendError,
@@ -779,6 +780,39 @@ async function handleProviderPercentiles(req, res) {
   }
 }
 
+// ─── Local Remote Host Config ─────────────────────────────────────────────
+
+function handleGetRemoteHostLocalConfig(req, res) {
+  const requestId = resolveRequestId(req);
+
+  try {
+    sendSuccess(res, requestId, remoteHostLocalConfig.readRemoteHostLocalConfig(), 200, req);
+  } catch (err) {
+    sendError(res, requestId, err.code || 'operation_failed', err.message, err.status || 500, {}, req);
+  }
+}
+
+async function handleSaveRemoteHostLocalConfig(req, res) {
+  const requestId = resolveRequestId(req);
+  const body = req.body || await parseBody(req);
+
+  try {
+    sendSuccess(res, requestId, remoteHostLocalConfig.saveRemoteHostLocalConfig(body), 200, req);
+  } catch (err) {
+    sendError(res, requestId, err.code || 'operation_failed', err.message, err.status || 500, {}, req);
+  }
+}
+
+function handleDeleteRemoteHostLocalConfig(req, res) {
+  const requestId = resolveRequestId(req);
+
+  try {
+    sendSuccess(res, requestId, remoteHostLocalConfig.deleteRemoteHostLocalConfig(), 200, req);
+  } catch (err) {
+    sendError(res, requestId, err.code || 'operation_failed', err.message, err.status || 500, {}, req);
+  }
+}
+
 // ─── Coordination Dashboard ──────────────────────────────────────────────
 
 async function handleCoordinationDashboard(req, res) {
@@ -825,6 +859,9 @@ function createV2InfrastructureHandlers(_deps) {
     handleRefreshModels,
     handleHostActivity,
     handleProviderPercentiles,
+    handleGetRemoteHostLocalConfig,
+    handleSaveRemoteHostLocalConfig,
+    handleDeleteRemoteHostLocalConfig,
     handleCoordinationDashboard,
   };
 }
@@ -866,6 +903,9 @@ module.exports = {
   // Host Activity & Coordination
   handleHostActivity,
   handleProviderPercentiles,
+  handleGetRemoteHostLocalConfig,
+  handleSaveRemoteHostLocalConfig,
+  handleDeleteRemoteHostLocalConfig,
   handleCoordinationDashboard,
   createV2InfrastructureHandlers,
 };

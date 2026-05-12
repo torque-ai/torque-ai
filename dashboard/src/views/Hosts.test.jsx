@@ -2,6 +2,8 @@ import { fireEvent, screen, waitFor } from '@testing-library/react';
 import { renderWithProviders } from '../test-utils';
 import Hosts from './Hosts';
 
+const executeAbortableRequest = vi.hoisted(() => (fn) => fn(() => true));
+
 vi.mock('../api', () => ({
   requestV2: vi.fn().mockResolvedValue({}),
   concurrency: {
@@ -19,6 +21,11 @@ vi.mock('../api', () => ({
     add: vi.fn().mockResolvedValue({}),
     toggle: vi.fn().mockResolvedValue({}),
     probe: vi.fn(),
+    remove: vi.fn(),
+  },
+  remoteHostLocalConfig: {
+    get: vi.fn(),
+    save: vi.fn(),
     remove: vi.fn(),
   },
   models: {
@@ -48,11 +55,11 @@ vi.mock('date-fns', () => ({
 
 vi.mock('../hooks/useAbortableRequest', () => ({
   useAbortableRequest: () => ({
-    execute: (fn) => fn(() => true),
+    execute: executeAbortableRequest,
   }),
 }));
 
-import { concurrency, hosts as hostsApi, peekHosts as peekHostsApi, workstations as workstationsApi } from '../api';
+import { concurrency, hosts as hostsApi, peekHosts as peekHostsApi, remoteHostLocalConfig, workstations as workstationsApi } from '../api';
 
 const mockHosts = [
   {
@@ -129,6 +136,33 @@ describe('Hosts', () => {
     workstationsApi.toggle.mockResolvedValue({});
     workstationsApi.probe.mockResolvedValue({});
     workstationsApi.remove.mockResolvedValue({});
+    remoteHostLocalConfig.get.mockResolvedValue({
+      exists: false,
+      valid: true,
+      path: 'infrastructure/hosts/torque-remote.local.json',
+      git_ignored: true,
+      values: {},
+      has_key_path: false,
+      key_path_hint: null,
+    });
+    remoteHostLocalConfig.save.mockResolvedValue({
+      exists: true,
+      valid: true,
+      path: 'infrastructure/hosts/torque-remote.local.json',
+      git_ignored: true,
+      values: { host: '192.0.2.20', user: 'remote-user', lane_count: 2 },
+      has_key_path: true,
+      key_path_hint: 'id_ed25519',
+    });
+    remoteHostLocalConfig.remove.mockResolvedValue({
+      exists: false,
+      valid: true,
+      path: 'infrastructure/hosts/torque-remote.local.json',
+      git_ignored: true,
+      values: {},
+      has_key_path: false,
+      key_path_hint: null,
+    });
     peekHostsApi.list.mockResolvedValue([]);
     peekHostsApi.create.mockResolvedValue({});
     peekHostsApi.update.mockResolvedValue({});
@@ -217,6 +251,47 @@ describe('Hosts', () => {
     renderWithProviders(<Hosts />, { route: '/hosts' });
     await waitFor(() => {
       expect(screen.getByText('Refresh')).toBeInTheDocument();
+    });
+  });
+
+  it('saves the local remote execution host config without displaying the stored key path', async () => {
+    remoteHostLocalConfig.get.mockResolvedValueOnce({
+      exists: true,
+      valid: true,
+      path: 'infrastructure/hosts/torque-remote.local.json',
+      git_ignored: true,
+      values: {
+        host: '192.0.2.10',
+        user: 'remote-user',
+        remote_project_path: 'C:\\trt\\torque-public',
+        lane_count: 1,
+      },
+      has_key_path: true,
+      key_path_hint: 'id_ed25519',
+    });
+
+    renderWithProviders(<Hosts />, { route: '/hosts' });
+
+    await waitFor(() => {
+      expect(screen.getByText('Remote Execution Host')).toBeInTheDocument();
+    });
+
+    expect(screen.getByText('Key saved: id_ed25519')).toBeInTheDocument();
+    expect(screen.queryByDisplayValue('C:\\keys\\id_ed25519')).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('Remote host *'), { target: { value: '192.0.2.20' } });
+    fireEvent.change(screen.getByLabelText('SSH key path'), { target: { value: 'C:\\keys\\id_ed25519_new' } });
+    fireEvent.change(screen.getByLabelText('Lanes'), { target: { value: '2' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save Remote Host' }));
+
+    await waitFor(() => {
+      expect(remoteHostLocalConfig.save).toHaveBeenCalledWith({
+        host: '192.0.2.20',
+        user: 'remote-user',
+        key_path: 'C:\\keys\\id_ed25519_new',
+        remote_project_path: 'C:\\trt\\torque-public',
+        lane_count: '2',
+      });
     });
   });
 
