@@ -2542,35 +2542,11 @@ case "$TRANSPORT" in
       run_ssh_fallback_locally
     fi
 
-    # Load check — three probes in order of preference:
-    #   1. PowerShell Get-CimInstance (Windows 10+, future-proof). wmic was
-    #      removed-by-default in Windows 11 24H2; PowerShell's CIM cmdlets
-    #      are the supported replacement.
-    #   2. wmic (legacy Windows; still works on most current installs).
-    #   3. /proc/loadavg (Linux remote workstations).
-    # Empty load_pct after all three probes => threshold check is skipped
-    # (graceful degrade, fail-open like the original behavior).
-    load_pct=""
-    load_output=$(ssh -o ConnectTimeout=2 "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" \
-      "powershell -NoProfile -NonInteractive -Command \"(Get-CimInstance -ClassName Win32_Processor -ErrorAction SilentlyContinue | Measure-Object -Property LoadPercentage -Average).Average\"" \
-      2>/dev/null | tr -d '\r' || true)
-    if [[ -n "$load_output" && "$load_output" =~ ^[0-9]+$ ]]; then
-      load_pct="$load_output"
-    fi
-    if [[ -z "$load_pct" ]]; then
-      load_output=$(ssh -o ConnectTimeout=2 "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" "wmic cpu get loadpercentage /value" 2>/dev/null || true)
-      if [[ -n "$load_output" ]]; then
-        load_pct=$(echo "$load_output" | grep -oP 'LoadPercentage=\K[0-9]+' 2>/dev/null || true)
-      fi
-    fi
-    if [[ -z "$load_pct" ]]; then
-      load_output=$(ssh -o ConnectTimeout=2 "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" "cat /proc/loadavg" 2>/dev/null || true)
-      if [[ -n "$load_output" ]]; then
-        load_1m=$(echo "$load_output" | awk '{print $1}')
-        ncpu=$(ssh -o ConnectTimeout=2 "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" "nproc" 2>/dev/null || echo "1")
-        load_pct=$(awk "BEGIN {printf \"%.0f\", ($load_1m / $ncpu) * 100}")
-      fi
-    fi
+    # Load check — delegates to OS-specific adapter (Windows: 3-tier fallback
+    # via Get-CimInstance, wmic, /proc/loadavg in one SSH call; Linux:
+    # /proc/loadavg divided by nproc). Empty load_pct => threshold check is
+    # skipped (graceful degrade, fail-open).
+    load_pct=$(remote_load_pct 2>/dev/null | tr -d '\r' || true)
 
     if [[ -n "$load_pct" ]] && (( load_pct > LOAD_THRESHOLD )); then
       warn "Remote $SSH_HOST is overloaded (${load_pct}% CPU, threshold ${LOAD_THRESHOLD}%) — falling back to local"
@@ -2899,32 +2875,24 @@ EOF
       fi
     fi
 
-    REMOTE_BUNDLE_PARENT="$(windows_path_parent "$EFFECTIVE_REMOTE_PROJECT_PATH")"
-    REMOTE_BUNDLE_DIR="${REMOTE_BUNDLE_PARENT}\\.torque-remote-bundles"
     REMOTE_BUNDLE_NAME="bundle-${REMOTE_LANE_INDEX:-0}-$$-$(date +%s)-$RANDOM.tar"
-    REMOTE_BUNDLE_PATH="${REMOTE_BUNDLE_DIR}\\${REMOTE_BUNDLE_NAME}"
-    REMOTE_BUNDLE_SCP_PATH="$(windows_path_to_scp_path "$REMOTE_BUNDLE_PATH")"
+    if [[ "$REMOTE_OS" == "linux" ]]; then
+      REMOTE_BUNDLE_DIR="${EFFECTIVE_REMOTE_PROJECT_PATH%/*}/.torque-remote-bundles"
+      REMOTE_BUNDLE_PATH="${REMOTE_BUNDLE_DIR}/${REMOTE_BUNDLE_NAME}"
+      REMOTE_BUNDLE_SCP_PATH="$REMOTE_BUNDLE_PATH"
+      REMOTE_EXTRACT_DIR="${REMOTE_BUNDLE_DIR}/torque-extract-$$"
+    else
+      REMOTE_BUNDLE_PARENT="$(windows_path_parent "$EFFECTIVE_REMOTE_PROJECT_PATH")"
+      REMOTE_BUNDLE_DIR="${REMOTE_BUNDLE_PARENT}\\.torque-remote-bundles"
+      REMOTE_BUNDLE_PATH="${REMOTE_BUNDLE_DIR}\\${REMOTE_BUNDLE_NAME}"
+      REMOTE_BUNDLE_SCP_PATH="$(windows_path_to_scp_path "$REMOTE_BUNDLE_PATH")"
+      REMOTE_EXTRACT_DIR="${REMOTE_BUNDLE_DIR}\\torque-extract-$$"
+    fi
 
-    REMOTE_RUN_PS=$(cat <<EOF
-\$ErrorActionPreference = 'Continue'
-\$bundle = $(powershell_single_quote "$REMOTE_BUNDLE_PATH")
-\$extractDir = Join-Path \$env:TEMP ('torque-remote-' + [guid]::NewGuid().ToString('N'))
-New-Item -ItemType Directory -Path \$extractDir -Force | Out-Null
-tar -xf \$bundle -C \$extractDir
-\$tarRc = \$LASTEXITCODE
-Remove-Item -LiteralPath \$bundle -Force -ErrorAction SilentlyContinue
-if (\$tarRc -ne 0) {
-  Remove-Item -LiteralPath \$extractDir -Recurse -Force -ErrorAction SilentlyContinue
-  exit \$tarRc
-}
-\$env:PATH = 'C:\Program Files\Git\usr\bin;C:\Program Files\Git\bin;' + \$env:PATH
-\$env:TMPDIR = Join-Path \$extractDir 'tmp'
-New-Item -ItemType Directory -Path \$env:TMPDIR -Force | Out-Null
-& 'C:\Program Files\Git\usr\bin\bash.exe' (Join-Path \$extractDir 'bootstrap.sh')
-exit \$LASTEXITCODE
-EOF
-)
-    REMOTE_RUN_COMMAND="$(remote_powershell_command "$REMOTE_RUN_PS")"
+    # Build run command via adapters: extract bundle, cleanup bundle tar, run
+    # bootstrap. Each adapter emits the OS-appropriate shell command; chaining
+    # with && ensures cleanup and run are skipped if extract fails.
+    REMOTE_RUN_COMMAND="$(TORQUE_REMOTE_EMIT_ONLY=1 remote_bundle_extract "$REMOTE_BUNDLE_PATH" "$REMOTE_EXTRACT_DIR") && $(TORQUE_REMOTE_EMIT_ONLY=1 remote_bundle_cleanup "$REMOTE_BUNDLE_PATH") && $(TORQUE_REMOTE_EMIT_ONLY=1 remote_run_user_command "bash '$REMOTE_EXTRACT_DIR/bootstrap.sh'" "$REMOTE_EXTRACT_DIR")"
     REMOTE_CLEANUP_BODY=$(cat <<EOF
 # torque-remote-failsafe-cleanup
 cd $(shell_quote "$EFFECTIVE_REMOTE_PROJECT_PATH") || exit 0
@@ -2935,13 +2903,17 @@ fi
 EOF
 )
     REMOTE_CLEANUP_BODY="$REMOTE_CLEANUP_BODY
-rm -f $(shell_quote "$(windows_path_to_bash_path "$REMOTE_BUNDLE_PATH")") >/dev/null 2>&1 || true"
-    REMOTE_CLEANUP_COMMAND="$(remote_git_bash_command "$REMOTE_CLEANUP_BODY")"
+$(TORQUE_REMOTE_EMIT_ONLY=1 remote_bundle_cleanup "$REMOTE_BUNDLE_PATH") >/dev/null 2>&1 || true"
+    if [[ "$REMOTE_OS" == "linux" ]]; then
+      REMOTE_CLEANUP_COMMAND="bash -c $(shell_quote "$REMOTE_CLEANUP_BODY")"
+    else
+      REMOTE_CLEANUP_COMMAND="$(remote_git_bash_command "$REMOTE_CLEANUP_BODY")"
+    fi
     REMOTE_CLEANUP_REQUIRED="true"
 
     info "Running on $SSH_USER@$SSH_HOST: $COMMAND_DISPLAY"
     set +e
-    ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" "if not exist \"$REMOTE_BUNDLE_DIR\" mkdir \"$REMOTE_BUNDLE_DIR\"" >/dev/null 2>&1
+    remote_make_dir "$REMOTE_BUNDLE_DIR" >/dev/null 2>&1
     mkdir_rc=$?
     if [[ "$mkdir_rc" -ne 0 ]]; then
       exit_code=$mkdir_rc
