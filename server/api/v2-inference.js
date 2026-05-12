@@ -8,9 +8,11 @@
  */
 
 const { randomUUID } = require('crypto');
+const { extractTorqueProperties } = require('../observability/properties');
 
 // Dependencies injected via init()
 let db, logger, getProviderAdapter;
+let observabilityStore;
 let normalizeV2Transport, getV2ProviderTransport, getV2ProviderDefaultTimeoutMs;
 let normalizeMessageContent, formatV2InferenceResult, normalizeV2InferenceStatus;
 let normalizeV2ProviderUsage, normalizeV2AttemptMetadata, getV2RetryCount;
@@ -22,6 +24,7 @@ let sendV2Success, sendV2Error;
 function init(deps) {
   db = deps.db;
   logger = deps.logger;
+  observabilityStore = deps.observabilityStore || null;
   getProviderAdapter = deps.getProviderAdapter;
   normalizeV2Transport = deps.normalizeV2Transport;
   getV2ProviderTransport = deps.getV2ProviderTransport;
@@ -76,6 +79,7 @@ function buildV2InferencePayload({
   routeReason = null,
   transport = null,
   attempts = [],
+  metadata = null,
 }) {
   const rawResult = taskResult ?? {};
   const providerOutput = rawResult.output ?? rawResult.result ?? rawResult.text ?? '';
@@ -83,7 +87,7 @@ function buildV2InferencePayload({
   const normalizedAttempts = normalizeV2AttemptMetadata(attempts);
   const normalizedStatus = normalizeV2InferenceStatus(status || rawResult.status);
 
-  return {
+  const payload = {
     task_id: taskId,
     status: normalizedStatus,
     provider: providerId,
@@ -96,6 +100,12 @@ function buildV2InferencePayload({
     attempts: normalizedAttempts,
     retry_count: getV2RetryCount(normalizedAttempts),
   };
+
+  if (metadata) {
+    payload.metadata = metadata;
+  }
+
+  return payload;
 }
 
 function buildV2AsyncTaskResponse({
@@ -106,8 +116,9 @@ function buildV2AsyncTaskResponse({
   transport = null,
   routeReason = null,
   attempts = [],
+  metadata = null,
 }) {
-  return {
+  const payload = {
     task_id: taskId,
     status: 'queued',
     provider: providerId,
@@ -131,6 +142,12 @@ function buildV2AsyncTaskResponse({
     retry_count: getV2RetryCount(attempts),
     request_id: requestId,
   };
+
+  if (metadata) {
+    payload.metadata = metadata;
+  }
+
+  return payload;
 }
 
 function normalizeV2RouteAttempts(attempts) {
@@ -216,11 +233,67 @@ function buildV2ExecutionPlan({
   ];
 }
 
+function hasTorqueProperties(properties) {
+  return properties && typeof properties === 'object' && Object.keys(properties).length > 0;
+}
+
+function buildV2RequestMetadata({
+  requestId,
+  asyncMode = false,
+  transport = null,
+  routeReason = null,
+  attempts = null,
+  properties = {},
+}) {
+  const metadata = {
+    request_id: requestId,
+    route: 'v2-inference',
+    async: Boolean(asyncMode),
+    transport: transport || null,
+    route_reason: routeReason || null,
+  };
+
+  if (attempts) {
+    metadata.attempts = attempts;
+  }
+
+  if (hasTorqueProperties(properties)) {
+    metadata.properties = { ...properties };
+  }
+
+  return metadata;
+}
+
+function getV2ObservabilityStore() {
+  return observabilityStore || (db && typeof db.recordEvent === 'function' ? db : null);
+}
+
+function recordV2ObservabilityEvent(event) {
+  const store = getV2ObservabilityStore();
+  if (!store || typeof store.recordEvent !== 'function') {
+    return;
+  }
+
+  try {
+    if (store === observabilityStore && store !== db) {
+      store.recordEvent(event);
+      return;
+    }
+    store.recordEvent('v2_inference_attempt', event.task_id || null, event);
+  } catch (_err) {
+    logger.warn(`Failed to record v2 observability event: ${_err.message || _err}`);
+  }
+}
+
 function recordV2AttemptUsage({
   taskId = null,
   attempt,
   attemptIndex = 0,
   taskResult,
+  requestId = null,
+  model = null,
+  properties = {},
+  mode = 'direct',
 }) {
   const normalizedAttempt = normalizeV2AttemptMetadata([attempt])[0];
   if (!normalizedAttempt || !normalizedAttempt.provider) {
@@ -260,7 +333,24 @@ function recordV2AttemptUsage({
     });
   } catch (_err) {
     logger.warn(`Failed to record v2 provider usage telemetry: ${_err.message || _err}`);
+    return;
   }
+
+  recordV2ObservabilityEvent({
+    mode,
+    request_id: requestId || null,
+    task_id: taskId || null,
+    provider: normalizedAttempt.provider,
+    model: taskResult?.model || model || null,
+    status: success ? 'completed' : 'failed',
+    latency_ms: elapsedMs,
+    usage,
+    properties: hasTorqueProperties(properties) ? { ...properties } : {},
+    transport: normalizedAttempt.transport,
+    retry_count: retryCount,
+    failure_reason: reason,
+    error: normalizedAttempt.error || null,
+  });
 }
 
 function deriveV2AttemptFailureReason(error) {
@@ -340,6 +430,34 @@ async function executeV2ProviderInference({ requestId, payload, providerId, req,
   const taskOptions = buildV2InferenceTaskOptions(payload, executionPlan[0]?.provider || providerId);
   const streamMode = payload.stream === true;
   const asyncMode = payload.async === true;
+  const torqueProperties = extractTorqueProperties({ headers: req?.headers, body: payload });
+
+  const buildAttemptMetadata = (attempt, attempts = executionPlan) => buildV2RequestMetadata({
+    requestId,
+    asyncMode,
+    transport: attempt?.transport || null,
+    routeReason: attempt?.reason || null,
+    attempts: normalizeV2AttemptMetadata(attempts),
+    properties: torqueProperties,
+  });
+  const buildAdapterOptions = (attempt) => {
+    const options = {
+      ...taskOptions,
+      transport: attempt?.transport || null,
+      attemptReason: attempt?.reason || null,
+    };
+    if (hasTorqueProperties(torqueProperties)) {
+      options.metadata = buildAttemptMetadata(attempt);
+    }
+    return options;
+  };
+  const recordAttemptUsage = (usageOptions = {}) => recordV2AttemptUsage({
+    requestId,
+    model: taskModel,
+    properties: torqueProperties,
+    mode: 'direct',
+    ...usageOptions,
+  });
 
   const getAttempt = (index) => executionPlan[index] || {};
   const updateAttempt = (index, patch = {}) => {
@@ -388,7 +506,7 @@ async function executeV2ProviderInference({ requestId, payload, providerId, req,
         error: 'provider_not_found',
         failure_reason: 'provider_not_found',
       });
-      recordV2AttemptUsage({
+      recordAttemptUsage({
         attempt: getAttempt(attemptIndex),
         attemptIndex,
       });
@@ -418,7 +536,7 @@ async function executeV2ProviderInference({ requestId, payload, providerId, req,
         error: 'provider_disabled',
         failure_reason: 'provider_disabled',
       });
-      recordV2AttemptUsage({
+      recordAttemptUsage({
         attempt: getAttempt(attemptIndex),
         attemptIndex,
       });
@@ -448,7 +566,7 @@ async function executeV2ProviderInference({ requestId, payload, providerId, req,
         error: 'adapter_missing',
         failure_reason: 'adapter_missing',
       });
-      recordV2AttemptUsage({
+      recordAttemptUsage({
         attempt: getAttempt(attemptIndex),
         attemptIndex,
       });
@@ -478,7 +596,7 @@ async function executeV2ProviderInference({ requestId, payload, providerId, req,
         error: 'stream_unsupported',
         failure_reason: 'stream_unsupported',
       });
-      recordV2AttemptUsage({
+      recordAttemptUsage({
         attempt: getAttempt(attemptIndex),
         attemptIndex,
       });
@@ -512,7 +630,7 @@ async function executeV2ProviderInference({ requestId, payload, providerId, req,
         error: 'async_unsupported',
         failure_reason: 'async_unsupported',
       });
-      recordV2AttemptUsage({
+      recordAttemptUsage({
         attempt: getAttempt(attemptIndex),
         attemptIndex,
       });
@@ -541,9 +659,9 @@ async function executeV2ProviderInference({ requestId, payload, providerId, req,
       continue;
     }
 
-      if (streamMode) {
-        try {
-          const streamSequence = { next: 0 };
+    if (streamMode) {
+      try {
+        const streamSequence = { next: 0 };
         sendV2SseHeaders(res, req);
 
         sendV2SseEvent(res, 'status', {
@@ -555,9 +673,7 @@ async function executeV2ProviderInference({ requestId, payload, providerId, req,
         });
 
         const taskResult = await candidateAdapter.stream(prompt, taskModel, {
-          ...taskOptions,
-          transport: currentAttempt.transport,
-          attemptReason: currentAttempt.reason,
+          ...buildAdapterOptions(currentAttempt),
           onChunk: (chunk) => {
             const sequence = ++streamSequence.next;
             sendV2SseEvent(res, 'chunk', {
@@ -575,7 +691,7 @@ async function executeV2ProviderInference({ requestId, payload, providerId, req,
           error: null,
           failure_reason: null,
         });
-        recordV2AttemptUsage({
+        recordAttemptUsage({
           attempt: getAttempt(attemptIndex),
           attemptIndex,
           taskResult,
@@ -588,13 +704,20 @@ async function executeV2ProviderInference({ requestId, payload, providerId, req,
           routeReason: currentAttempt.reason,
           transport: currentAttempt.transport,
           attempts: executionPlan,
+          metadata: hasTorqueProperties(torqueProperties)
+            ? buildAttemptMetadata(currentAttempt)
+            : null,
         });
-        sendV2SseEvent(res, 'completion', {
+        const completionEvent = {
           request_id: requestId,
           status: responsePayload.status,
           result: responsePayload.result,
           usage: responsePayload.usage,
-        });
+        };
+        if (responsePayload.metadata) {
+          completionEvent.metadata = responsePayload.metadata;
+        }
+        sendV2SseEvent(res, 'completion', completionEvent);
         res.end();
         return;
       } catch (streamErr) {
@@ -603,7 +726,7 @@ async function executeV2ProviderInference({ requestId, payload, providerId, req,
           error: streamErr?.message || String(streamErr || ''),
           failure_reason: deriveV2AttemptFailureReason(streamErr),
         });
-        recordV2AttemptUsage({
+        recordAttemptUsage({
           attempt: getAttempt(attemptIndex),
           attemptIndex,
           taskResult: null,
@@ -644,6 +767,14 @@ async function executeV2ProviderInference({ requestId, payload, providerId, req,
           failure_reason: isActiveAttempt ? null : attempt.failure_reason || null,
         };
       });
+      const asyncMetadata = buildV2RequestMetadata({
+        requestId,
+        asyncMode: true,
+        transport: currentAttempt.transport,
+        routeReason: currentAttempt.reason,
+        attempts: initialAttemptMetadata,
+        properties: torqueProperties,
+      });
 
       try {
         db.createTask({
@@ -652,14 +783,7 @@ async function executeV2ProviderInference({ requestId, payload, providerId, req,
           task_description: prompt.slice(0, 2048),
           provider: currentAttempt.provider,
           model: taskModel || null,
-          metadata: {
-            request_id: requestId,
-            route: 'v2-inference',
-            async: true,
-            transport: currentAttempt.transport || null,
-            route_reason: currentAttempt.reason || null,
-            attempts: initialAttemptMetadata,
-          },
+          metadata: asyncMetadata,
         });
       } catch (err) {
         markAttemptFinished(attemptIndex, {
@@ -667,7 +791,7 @@ async function executeV2ProviderInference({ requestId, payload, providerId, req,
           error: `Failed to create async task: ${err.message}`,
           failure_reason: 'task_creation_failed',
         });
-        recordV2AttemptUsage({
+        recordAttemptUsage({
           attempt: getAttempt(attemptIndex),
           attemptIndex,
           taskResult: null,
@@ -704,7 +828,9 @@ async function executeV2ProviderInference({ requestId, payload, providerId, req,
           providerId: currentAttempt.provider,
           prompt,
           model: taskModel,
-          taskOptions,
+          taskOptions: hasTorqueProperties(torqueProperties)
+            ? { ...taskOptions, metadata: asyncMetadata }
+            : taskOptions,
           executionPlan: initialAttemptMetadata,
           requestedTransport: requestedTransport || null,
         }).catch((asyncErr) => {
@@ -723,6 +849,7 @@ async function executeV2ProviderInference({ requestId, payload, providerId, req,
           transport: currentAttempt.transport,
           routeReason: currentAttempt.reason,
           attempts: initialAttemptMetadata,
+          metadata: hasTorqueProperties(torqueProperties) ? asyncMetadata : null,
         }),
         202,
         req,
@@ -731,18 +858,14 @@ async function executeV2ProviderInference({ requestId, payload, providerId, req,
     }
 
     try {
-      const taskResult = await candidateAdapter.submit(prompt, taskModel, {
-        ...taskOptions,
-        transport: currentAttempt.transport,
-        attemptReason: currentAttempt.reason,
-      });
+      const taskResult = await candidateAdapter.submit(prompt, taskModel, buildAdapterOptions(currentAttempt));
       if (normalizeV2InferenceStatus(taskResult?.status || 'completed') === 'completed') {
         markAttemptFinished(attemptIndex, {
           status: 'succeeded',
           error: null,
           failure_reason: null,
         });
-        recordV2AttemptUsage({
+        recordAttemptUsage({
           attempt: getAttempt(attemptIndex),
           attemptIndex,
           taskResult,
@@ -755,6 +878,9 @@ async function executeV2ProviderInference({ requestId, payload, providerId, req,
           routeReason: currentAttempt.reason,
           transport: currentAttempt.transport,
           attempts: executionPlan,
+          metadata: hasTorqueProperties(torqueProperties)
+            ? buildAttemptMetadata(currentAttempt)
+            : null,
         });
         sendV2Success(res, requestId, responsePayload, 200, req);
         return;
@@ -765,7 +891,7 @@ async function executeV2ProviderInference({ requestId, payload, providerId, req,
         error: taskResult?.error || 'Inference failed',
         failure_reason: 'provider_result_error',
       });
-      recordV2AttemptUsage({
+      recordAttemptUsage({
         attempt: getAttempt(attemptIndex),
         attemptIndex,
         taskResult,
@@ -796,7 +922,7 @@ async function executeV2ProviderInference({ requestId, payload, providerId, req,
         error: err?.message || String(err || ''),
         failure_reason: reason,
       });
-      recordV2AttemptUsage({
+      recordAttemptUsage({
         attempt: getAttempt(attemptIndex),
         attemptIndex,
         taskResult: null,
@@ -883,6 +1009,38 @@ async function runV2AsyncTask({
   const requestIdFromTask = requestId || currentTask?.metadata?.request_id || randomUUID();
 
   const normalizePlanOutput = () => normalizeV2AttemptMetadata(plan);
+  const torqueProperties = hasTorqueProperties(taskOptions?.metadata?.properties)
+    ? { ...taskOptions.metadata.properties }
+    : hasTorqueProperties(currentTask?.metadata?.properties)
+      ? { ...currentTask.metadata.properties }
+      : {};
+  const buildAsyncMetadata = (attempt = null) => buildV2RequestMetadata({
+    requestId: requestIdFromTask,
+    asyncMode: true,
+    transport: attempt?.transport || null,
+    routeReason: attempt?.reason || null,
+    attempts: normalizePlanOutput(),
+    properties: torqueProperties,
+  });
+  const buildAsyncAdapterOptions = (attempt) => {
+    const options = {
+      ...taskOptions,
+      transport: attempt?.transport || null,
+      attemptReason: attempt?.reason || null,
+    };
+    if (hasTorqueProperties(torqueProperties)) {
+      options.metadata = buildAsyncMetadata(attempt);
+    }
+    return options;
+  };
+  const recordAttemptUsage = (usageOptions = {}) => recordV2AttemptUsage({
+    taskId,
+    requestId: requestIdFromTask,
+    model,
+    properties: torqueProperties,
+    mode: 'direct',
+    ...usageOptions,
+  });
   const markAttemptAttempting = (index) => {
     const attemptStart = new Date().toISOString();
     plan[index] = {
@@ -916,14 +1074,14 @@ async function runV2AsyncTask({
   }) => {
     const activeTransport = attempt?.transport || null;
     const activeReason = attempt?.reason || null;
-    const overrides = {
-      route: 'v2-inference',
-      async: true,
-      request_id: requestIdFromTask,
+    const overrides = buildV2RequestMetadata({
+      requestId: requestIdFromTask,
+      asyncMode: true,
       transport: activeTransport,
-      route_reason: activeReason,
+      routeReason: activeReason,
       attempts: normalizePlanOutput(),
-    };
+      properties: torqueProperties,
+    });
 
     const updates = {
       metadata: overrides,
@@ -987,8 +1145,7 @@ async function runV2AsyncTask({
           error: reason,
           failure_reason: reason,
         });
-        recordV2AttemptUsage({
-          taskId,
+        recordAttemptUsage({
           attempt,
           attemptIndex,
         });
@@ -1020,11 +1177,7 @@ async function runV2AsyncTask({
       }
 
       try {
-        const result = await candidateAdapter.submit(prompt, model, {
-          ...taskOptions,
-          transport: attempt.transport,
-          attemptReason: attempt.reason,
-        });
+        const result = await candidateAdapter.submit(prompt, model, buildAsyncAdapterOptions(attempt));
         if (getV2TaskStatusRow(taskId)?.status === 'cancelled') {
           return;
         }
@@ -1047,8 +1200,7 @@ async function runV2AsyncTask({
             error: null,
             failure_reason: null,
           });
-          recordV2AttemptUsage({
-            taskId,
+          recordAttemptUsage({
             attempt: plan[attemptIndex],
             attemptIndex,
             taskResult: result,
@@ -1074,8 +1226,7 @@ async function runV2AsyncTask({
           error: result?.error || 'Inference failed',
           failure_reason: 'provider_result_error',
         });
-        recordV2AttemptUsage({
-          taskId,
+        recordAttemptUsage({
           attempt: plan[attemptIndex],
           attemptIndex,
           taskResult: result,
@@ -1117,8 +1268,7 @@ async function runV2AsyncTask({
           error: errorMessage,
           failure_reason: reason,
         });
-        recordV2AttemptUsage({
-          taskId,
+        recordAttemptUsage({
           attempt: plan[attemptIndex],
           attemptIndex,
           taskResult: null,
@@ -1196,6 +1346,10 @@ module.exports = {
   buildV2AsyncTaskResponse,
   normalizeV2RouteAttempts,
   buildV2ExecutionPlan,
+  hasTorqueProperties,
+  buildV2RequestMetadata,
+  getV2ObservabilityStore,
+  recordV2ObservabilityEvent,
   recordV2AttemptUsage,
   deriveV2AttemptFailureReason,
   buildV2FailurePayload,

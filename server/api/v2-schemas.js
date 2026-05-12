@@ -390,6 +390,10 @@ function validateInferenceRequest(payload, options = {}) {
   if (asyncFlag !== undefined) value.async = asyncFlag;
   if (transport !== undefined) value.transport = transport;
 
+  if (hasOwn(payload, 'properties')) {
+    value.properties = payload.properties;
+  }
+
   const defaultProvider = normalizeTrimmedString(options.defaultProvider);
   if (!value.provider) {
     if (defaultProvider) {

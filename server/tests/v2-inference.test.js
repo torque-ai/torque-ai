@@ -1,12 +1,18 @@
 'use strict';
 
 const { installMock } = require('./cjs-mock');
+const {
+  MAX_PROPERTY_KEY_LENGTH,
+  MAX_PROPERTY_VALUE_LENGTH,
+  extractTorqueProperties,
+} = require('../observability/properties');
 
 const MODULE_PATHS = [
   'crypto',
   '../database',
   '../task-manager',
   '../api/v2-inference',
+  '../observability/properties',
 ];
 
 const mockCrypto = {
@@ -33,6 +39,10 @@ const mockDb = {
   recordProviderUsage: vi.fn(),
   createTask: vi.fn(),
   updateTaskStatus: vi.fn(),
+};
+
+const mockObservabilityStore = {
+  recordEvent: vi.fn(),
 };
 
 const mockLogger = {
@@ -119,6 +129,7 @@ function createInjectedDeps() {
   return {
     db: mockDb,
     logger: mockLogger,
+    observabilityStore: mockObservabilityStore,
     getProviderAdapter: vi.fn((providerId) => state.adapters.get(providerId) || null),
     getProviderCapabilityMatrix: vi.fn(() => ({})),
     SECURITY_HEADERS: { 'x-test': 'true' },
@@ -214,6 +225,8 @@ function resetState() {
     state.taskRows.set(taskId, next);
     return next;
   });
+
+  mockObservabilityStore.recordEvent.mockReset().mockReturnValue(undefined);
 
   mockLogger.warn.mockReset();
   mockLogger.error.mockReset();
@@ -574,6 +587,68 @@ describe('api/v2-inference pure helpers', () => {
     ]);
   });
 
+  it('extracts and normalizes TORQUE properties from headers', () => {
+    expect(extractTorqueProperties({
+      headers: {
+        'X-TORQUE-Property-Environment': ' production ',
+        'x-torque-property-Workflow ID': ' wf-123 ',
+        'X-TORQUE-User': ' alice ',
+        'X-TORQUE-Feature': ' agentic chat ',
+      },
+    })).toEqual({
+      environment: 'production',
+      workflow_id: 'wf-123',
+      user: 'alice',
+      feature: 'agentic chat',
+    });
+  });
+
+  it('lets body properties override duplicate header properties only when present', () => {
+    expect(extractTorqueProperties({
+      headers: {
+        'x-torque-property-env': 'prod',
+        'x-torque-feature': 'header-feature',
+      },
+      body: {
+        properties: {
+          Env: ' staging ',
+          accountTier: ' paid ',
+        },
+      },
+    })).toEqual({
+      env: 'staging',
+      feature: 'header-feature',
+      account_tier: 'paid',
+    });
+  });
+
+  it('rejects array and object values from headers', () => {
+    expect(extractTorqueProperties({
+      headers: {
+        'x-torque-property-env': ['prod'],
+        'x-torque-user': { name: 'alice' },
+        'x-torque-property-region': ' us-west ',
+      },
+    })).toEqual({
+      region: 'us-west',
+    });
+  });
+
+  it('caps normalized property keys and values', () => {
+    const longKey = 'A'.repeat(MAX_PROPERTY_KEY_LENGTH + 20);
+    const longValue = ` ${'v'.repeat(MAX_PROPERTY_VALUE_LENGTH + 20)} `;
+    const properties = extractTorqueProperties({
+      body: {
+        properties: {
+          [longKey]: longValue,
+        },
+      },
+    });
+
+    expect(Object.keys(properties)).toEqual(['a'.repeat(MAX_PROPERTY_KEY_LENGTH)]);
+    expect(properties['a'.repeat(MAX_PROPERTY_KEY_LENGTH)]).toBe('v'.repeat(MAX_PROPERTY_VALUE_LENGTH));
+  });
+
   it('records provider telemetry for a successful attempt', () => {
     handlers.recordV2AttemptUsage({
       taskId: 'task-usage',
@@ -603,6 +678,45 @@ describe('api/v2-inference pure helpers', () => {
       success: true,
       error_type: null,
     });
+  });
+
+  it('records direct observability events with TORQUE properties', () => {
+    handlers.recordV2AttemptUsage({
+      taskId: 'task-observe',
+      requestId: 'req-observe',
+      model: 'model-a',
+      properties: {
+        env: 'staging',
+        feature: 'routing',
+      },
+      attempt: {
+        provider: 'ollama',
+        transport: 'api',
+        status: 'succeeded',
+        attempt_elapsed_ms: 120,
+      },
+      attemptIndex: 0,
+      taskResult: {
+        model: 'model-b',
+        usage: {
+          total_tokens: 42,
+        },
+      },
+    });
+
+    expect(mockObservabilityStore.recordEvent).toHaveBeenCalledWith(expect.objectContaining({
+      mode: 'direct',
+      request_id: 'req-observe',
+      task_id: 'task-observe',
+      provider: 'ollama',
+      model: 'model-b',
+      status: 'completed',
+      latency_ms: 120,
+      properties: {
+        env: 'staging',
+        feature: 'routing',
+      },
+    }));
   });
 
   it('does not record telemetry when the attempt has no provider', () => {
@@ -760,6 +874,84 @@ describe('api/v2-inference.executeV2ProviderInference', () => {
     expect(success.payload.result).toEqual(expect.objectContaining({
       content: 'hello there',
     }));
+  });
+
+  it('adds TORQUE properties to sync metadata and direct observability events', async () => {
+    seedProvider('ollama', { enabled: true, transport: 'api' });
+    const adapter = seedAdapter('ollama');
+    adapter.submit.mockResolvedValue({
+      status: 'completed',
+      output: 'property aware',
+      usage: { total_tokens: 12 },
+    });
+
+    await handlers.executeV2ProviderInference({
+      requestId: 'req-sync-props',
+      payload: {
+        prompt: 'Include properties',
+        model: 'prop-model',
+        properties: {
+          Env: ' body ',
+          feature: ' cost-panel ',
+        },
+      },
+      providerId: 'ollama',
+      req: createReq({
+        requestId: 'req-sync-props',
+        headers: {
+          'x-torque-property-env': 'header',
+          'x-torque-user': ' alice ',
+        },
+      }),
+      res: createRes(),
+    });
+
+    const adapterOptions = adapter.submit.mock.calls[0][2];
+    expect(adapterOptions.metadata.properties).toEqual({
+      env: 'body',
+      feature: 'cost-panel',
+      user: 'alice',
+    });
+
+    const success = getLastSuccess();
+    expect(success.payload.metadata.properties).toEqual({
+      env: 'body',
+      feature: 'cost-panel',
+      user: 'alice',
+    });
+    expect(mockObservabilityStore.recordEvent).toHaveBeenCalledWith(expect.objectContaining({
+      mode: 'direct',
+      request_id: 'req-sync-props',
+      provider: 'ollama',
+      properties: {
+        env: 'body',
+        feature: 'cost-panel',
+        user: 'alice',
+      },
+    }));
+  });
+
+  it('keeps sync inference payloads unchanged when no TORQUE properties are supplied', async () => {
+    seedProvider('ollama', { enabled: true, transport: 'api' });
+    const adapter = seedAdapter('ollama');
+    adapter.submit.mockResolvedValue({
+      status: 'completed',
+      output: 'plain',
+      usage: { total_tokens: 1 },
+    });
+
+    await handlers.executeV2ProviderInference({
+      requestId: 'req-sync-no-props',
+      payload: {
+        prompt: 'No properties',
+      },
+      providerId: 'ollama',
+      req: createReq(),
+      res: createRes(),
+    });
+
+    expect(adapter.submit.mock.calls[0][2]).not.toHaveProperty('metadata');
+    expect(getLastSuccess().payload).not.toHaveProperty('metadata');
   });
 
   it('returns provider_unavailable when the final route provider is missing', async () => {
@@ -1000,9 +1192,57 @@ describe('api/v2-inference.executeV2ProviderInference', () => {
       result: expect.objectContaining({ content: 'hello' }),
       usage: expect.objectContaining({ total_tokens: 5 }),
     }));
+    expect(deps.sendV2SseEvent.mock.calls[3][2]).not.toHaveProperty('metadata');
     expect(res.end).toHaveBeenCalledOnce();
     expect(deps.sendV2Success).not.toHaveBeenCalled();
     expect(deps.sendV2Error).not.toHaveBeenCalled();
+  });
+
+  it('adds TORQUE properties to stream metadata and completion events', async () => {
+    seedProvider('ollama', { enabled: true, transport: 'api' });
+    const adapter = seedAdapter('ollama');
+    adapter.stream.mockResolvedValue({
+      status: 'completed',
+      output: 'streamed',
+      usage: { total_tokens: 6 },
+    });
+
+    await handlers.executeV2ProviderInference({
+      requestId: 'req-stream-props',
+      payload: {
+        prompt: 'Stream with properties',
+        stream: true,
+        properties: {
+          Feature: ' live ',
+        },
+      },
+      providerId: 'ollama',
+      req: createReq({
+        headers: {
+          'x-torque-user': ' bob ',
+        },
+      }),
+      res: createRes(),
+    });
+
+    expect(adapter.stream.mock.calls[0][2].metadata.properties).toEqual({
+      feature: 'live',
+      user: 'bob',
+    });
+    const completionCall = deps.sendV2SseEvent.mock.calls.find(([, eventName]) => eventName === 'completion');
+    expect(completionCall[2].metadata.properties).toEqual({
+      feature: 'live',
+      user: 'bob',
+    });
+    expect(mockObservabilityStore.recordEvent).toHaveBeenCalledWith(expect.objectContaining({
+      mode: 'direct',
+      request_id: 'req-stream-props',
+      provider: 'ollama',
+      properties: {
+        feature: 'live',
+        user: 'bob',
+      },
+    }));
   });
 
   it('emits an SSE error event and ends the response when the final stream attempt fails', async () => {
@@ -1082,6 +1322,44 @@ describe('api/v2-inference.executeV2ProviderInference', () => {
       retry_count: 0,
     }));
     expect(typeof scheduled).toBe('function');
+  });
+
+  it('stores TORQUE properties in queued async task metadata', async () => {
+    seedProvider('ollama', { enabled: true, transport: 'api' });
+    seedAdapter('ollama');
+    setCapabilities('ollama', { supportsAsync: true });
+    mockCrypto.randomUUID.mockReturnValueOnce('queued-task-props');
+
+    vi.spyOn(global, 'setImmediate').mockImplementation(() => 1);
+
+    await handlers.executeV2ProviderInference({
+      requestId: 'req-async-props',
+      payload: {
+        prompt: 'Queue properties',
+        async: true,
+        model: 'async-prop-model',
+        properties: {
+          env: ' async ',
+        },
+      },
+      providerId: 'ollama',
+      req: createReq({
+        headers: {
+          'x-torque-feature': ' batch ',
+        },
+      }),
+      res: createRes(),
+    });
+
+    const createdTask = mockDb.createTask.mock.calls[0][0];
+    expect(createdTask.metadata.properties).toEqual({
+      env: 'async',
+      feature: 'batch',
+    });
+    expect(getLastSuccess().payload.metadata.properties).toEqual({
+      env: 'async',
+      feature: 'batch',
+    });
   });
 
   it('returns a server error when async task creation fails', async () => {
@@ -1251,6 +1529,58 @@ describe('api/v2-inference.runV2AsyncTask', () => {
     expect(deps.recordV2TaskEvent).toHaveBeenNthCalledWith(2, 'task-success', 'completion', 'running', 'completed', expect.objectContaining({
       request_id: 'req-task',
       provider: 'ollama',
+    }));
+  });
+
+  it('preserves TORQUE properties while completing queued async tasks', async () => {
+    state.taskRows.set('task-success-props', {
+      id: 'task-success-props',
+      status: 'queued',
+      metadata: {
+        request_id: 'req-task-props',
+        properties: {
+          env: 'prod',
+          feature: 'async-runner',
+        },
+      },
+    });
+    seedProvider('ollama', { enabled: true, transport: 'api' });
+    const adapter = seedAdapter('ollama');
+    adapter.submit.mockResolvedValue({
+      status: 'completed',
+      output: 'async output',
+      usage: {
+        total_tokens: 11,
+      },
+    });
+
+    await handlers.runV2AsyncTask({
+      taskId: 'task-success-props',
+      requestId: 'req-task-props',
+      providerId: 'ollama',
+      prompt: 'Hello async',
+      model: 'async-model',
+      taskOptions: { timeout: 2 },
+    });
+
+    expect(adapter.submit.mock.calls[0][2].metadata.properties).toEqual({
+      env: 'prod',
+      feature: 'async-runner',
+    });
+    const row = state.taskRows.get('task-success-props');
+    expect(row.status).toBe('completed');
+    expect(row.metadata.properties).toEqual({
+      env: 'prod',
+      feature: 'async-runner',
+    });
+    expect(mockObservabilityStore.recordEvent).toHaveBeenCalledWith(expect.objectContaining({
+      mode: 'direct',
+      request_id: 'req-task-props',
+      task_id: 'task-success-props',
+      properties: {
+        env: 'prod',
+        feature: 'async-runner',
+      },
     }));
   });
 
