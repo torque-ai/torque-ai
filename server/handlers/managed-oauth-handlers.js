@@ -1,12 +1,11 @@
 'use strict';
 
+const { resolveDatabaseFacade } = require('../db/database-facade-resolver');
+
 function resolveDatabase() {
-  try {
-    const { defaultContainer } = require('../container');
-    return defaultContainer.get('db');
-  } catch {
-    return require('../database');
-  }
+  return resolveDatabaseFacade({
+    serviceName: 'managed OAuth handlers',
+  });
 }
 
 const { createAuthConfigStore } = require('../auth/auth-config-store');
@@ -26,7 +25,12 @@ function jsonResponse(data) {
 }
 
 function getDbHandle() {
-  const database = resolveDatabase();
+  let database = null;
+  try {
+    database = resolveDatabase();
+  } catch {
+    return null;
+  }
   if (database && typeof database.getDbInstance === 'function') {
     return database.getDbInstance();
   }
