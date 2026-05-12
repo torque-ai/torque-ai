@@ -636,6 +636,7 @@ const V2_CP_HANDLER_LOOKUP = {
   handleV2CpGetRemoteHostLocalConfig: v2InfrastructureHandlers.handleGetRemoteHostLocalConfig,
   handleV2CpSaveRemoteHostLocalConfig: v2InfrastructureHandlers.handleSaveRemoteHostLocalConfig,
   handleV2CpDeleteRemoteHostLocalConfig: v2InfrastructureHandlers.handleDeleteRemoteHostLocalConfig,
+  handleV2CpTestRemoteHostLocalConfig: v2InfrastructureHandlers.handleTestRemoteHostLocalConfig,
   handleV2CpCoordinationDashboard: v2InfrastructureHandlers.handleCoordinationDashboard,
 };
 

@@ -813,6 +813,16 @@ function handleDeleteRemoteHostLocalConfig(req, res) {
   }
 }
 
+async function handleTestRemoteHostLocalConfig(req, res) {
+  const requestId = resolveRequestId(req);
+
+  try {
+    sendSuccess(res, requestId, await remoteHostLocalConfig.testRemoteHostLocalConfig(), 200, req);
+  } catch (err) {
+    sendError(res, requestId, err.code || 'operation_failed', err.message, err.status || 500, {}, req);
+  }
+}
+
 // ─── Coordination Dashboard ──────────────────────────────────────────────
 
 async function handleCoordinationDashboard(req, res) {
@@ -862,6 +872,7 @@ function createV2InfrastructureHandlers(_deps) {
     handleGetRemoteHostLocalConfig,
     handleSaveRemoteHostLocalConfig,
     handleDeleteRemoteHostLocalConfig,
+    handleTestRemoteHostLocalConfig,
     handleCoordinationDashboard,
   };
 }
@@ -906,6 +917,7 @@ module.exports = {
   handleGetRemoteHostLocalConfig,
   handleSaveRemoteHostLocalConfig,
   handleDeleteRemoteHostLocalConfig,
+  handleTestRemoteHostLocalConfig,
   handleCoordinationDashboard,
   createV2InfrastructureHandlers,
 };

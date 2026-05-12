@@ -1152,6 +1152,8 @@ export default function Hosts({ hostActivity }) {
   const [scanning, setScanning] = useState(false);
   const [savingRemoteConfig, setSavingRemoteConfig] = useState(false);
   const [clearingRemoteConfig, setClearingRemoteConfig] = useState(false);
+  const [testingRemoteConfig, setTestingRemoteConfig] = useState(false);
+  const [remoteConfigTestResult, setRemoteConfigTestResult] = useState(null);
   const [probingWorkstations, setProbingWorkstations] = useState({});
   const [addingWorkstation, setAddingWorkstation] = useState(false);
   const [showAddWorkstation, setShowAddWorkstation] = useState(false);
@@ -1224,6 +1226,7 @@ export default function Hosts({ hostActivity }) {
       const data = await remoteHostLocalConfig.get();
       setRemoteConfig(data);
       setRemoteConfigForm(remoteConfigValuesToForm(data));
+      setRemoteConfigTestResult(null);
     } catch (err) {
       console.error('Failed to load remote host local config:', err);
       toast.error(`Failed to load remote host config: ${err.message}`);
@@ -1424,6 +1427,7 @@ export default function Hosts({ hostActivity }) {
       const saved = await remoteHostLocalConfig.save(payload);
       setRemoteConfig(saved);
       setRemoteConfigForm(remoteConfigValuesToForm(saved));
+      setRemoteConfigTestResult(null);
       toast.success('Remote host config saved');
     } catch (err) {
       console.error('Remote host config save failed:', err);
@@ -1439,12 +1443,32 @@ export default function Hosts({ hostActivity }) {
       const cleared = await remoteHostLocalConfig.remove();
       setRemoteConfig(cleared);
       setRemoteConfigForm(remoteConfigValuesToForm(cleared));
+      setRemoteConfigTestResult(null);
       toast.success('Remote host config cleared');
     } catch (err) {
       console.error('Remote host config clear failed:', err);
       toast.error(`Clear failed: ${err.message}`);
     } finally {
       setClearingRemoteConfig(false);
+    }
+  }
+
+  async function handleTestRemoteConfig() {
+    setTestingRemoteConfig(true);
+    try {
+      const result = await remoteHostLocalConfig.test();
+      setRemoteConfig(result);
+      setRemoteConfigTestResult(result);
+      if (result?.probe?.available) {
+        toast.success('Remote host is reachable');
+      } else {
+        toast.error(result?.probe?.message || 'Remote host is unavailable');
+      }
+    } catch (err) {
+      console.error('Remote host config probe failed:', err);
+      toast.error(`Test failed: ${err.message}`);
+    } finally {
+      setTestingRemoteConfig(false);
     }
   }
 
@@ -1597,8 +1621,11 @@ export default function Hosts({ hostActivity }) {
         onChange={setRemoteConfigForm}
         onSave={handleSaveRemoteConfig}
         onClear={handleClearRemoteConfig}
+        onTest={handleTestRemoteConfig}
         saving={savingRemoteConfig}
         clearing={clearingRemoteConfig}
+        testing={testingRemoteConfig}
+        testResult={remoteConfigTestResult}
         loading={loadingRemoteConfig}
       />
 

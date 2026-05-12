@@ -1362,6 +1362,12 @@ const routes = [
     handlerName: 'handleV2CpDeleteRemoteHostLocalConfig',
     middleware: buildV2Middleware(),
   },
+  {
+    method: 'POST',
+    path: '/api/v2/remote-host/local-config/test',
+    handlerName: 'handleV2CpTestRemoteHostLocalConfig',
+    middleware: buildV2Middleware(),
+  },
 
   // Host Management (new)
   {
