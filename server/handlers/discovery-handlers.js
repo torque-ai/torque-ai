@@ -1,16 +1,12 @@
 'use strict';
 
+const { resolveDatabaseFacade } = require('../db/database-facade-resolver');
+
 function getDbInstance() {
-  // Resolve via DI when booted; fall back to direct facade for the
-  // pre-boot test contexts that exercise this handler without
-  // container.boot() (e.g., handler-task-pipeline.test.js patterns).
-  try {
-    const { defaultContainer } = require('../container');
-    const facade = defaultContainer.get('db');
-    return typeof facade.getDbInstance === 'function' ? facade.getDbInstance() : facade;
-  } catch {
-    return require('../database').getDbInstance();
-  }
+  const facade = resolveDatabaseFacade({
+    serviceName: 'discovery handlers',
+  });
+  return typeof facade.getDbInstance === 'function' ? facade.getDbInstance() : facade;
 }
 
 async function handleDiscoverModels(args) {
