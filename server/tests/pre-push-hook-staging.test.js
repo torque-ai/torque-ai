@@ -560,7 +560,9 @@ describe('torque-remote staging branch validation', () => {
     expect(src).toContain('EncodedCommand');
     expect(src).not.toContain('tar -xf - -C \\$d');
     expect(src).toContain('bash "$SCRIPT_DIR/runner.sh" >"$out" 2>&1 </dev/null &');
-    expect(src).toContain('tail -n +1 -f "$out" &');
+    expect(src).toContain('streamed_lines_file="$SCRIPT_DIR/runner.streamed-lines"');
+    expect(src).toContain('tail -n +1 -f --pid="$pid" "$out" | awk -v state="$streamed_lines_file"');
+    expect(src).toContain('tail -n +"$((streamed_lines + 1))" "$out"');
     expect(src).toContain('rm -rf "$SCRIPT_DIR" >/dev/null 2>&1 </dev/null &');
     expect(src).toContain('Windows OpenSSH + Git Bash can leave stdin');
   });
