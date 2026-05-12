@@ -325,15 +325,44 @@ trap_chain_add() {
 #   $4 SYNC_REF (e.g. origin/main)
 #   $5 SYNC_BOOTSTRAP (worktree-add-if-missing prefix; may be empty)
 #
-# The assembled command runs in CMD on Windows (no posix tools), so all
-# control flow uses CMD primitives:
+# Dispatches to the OS-specific variant based on $REMOTE_OS.
+build_remote_sync_command() {
+  local eff_path="$1" fetch_cmd="$2" sync_checkout="$3" sync_ref="$4" bootstrap="${5:-}"
+  case "$REMOTE_OS" in
+    linux)   build_remote_sync_command_linux   "$eff_path" "$fetch_cmd" "$sync_checkout" "$sync_ref" "$bootstrap" ;;
+    windows) build_remote_sync_command_windows "$eff_path" "$fetch_cmd" "$sync_checkout" "$sync_ref" "$bootstrap" ;;
+    *) warn "[build_remote_sync_command] unknown REMOTE_OS=$REMOTE_OS"; return 74 ;;
+  esac
+}
+
+# Windows variant — CMD primitives only (no POSIX tools available):
 #   - `if not exist DIR (block)` — wrap in outer `(...)` so trailing `&&`
 #     chain runs even when block is skipped.
 #   - `^&^&` to escape `&&` inside `if exist X echo "...^&^& Y"` strings.
 #   - `2>nul` to silence stderr.
-build_remote_sync_command() {
+build_remote_sync_command_windows() {
   local eff_path="$1" fetch_cmd="$2" sync_checkout="$3" sync_ref="$4" bootstrap="${5:-}"
   printf '%s' "${bootstrap}cd \"${eff_path}\" && ${fetch_cmd} && ${sync_checkout} && git reset --hard ${sync_ref} && (git clean -fd || true) && (git diff --quiet HEAD || (echo \"[torque-remote-sync] drift after reset — file locks (Defender/Search/AV) may have prevented checkout from updating tracked files\" 1>&2 && exit 99)) && (if exist package.json if not exist node_modules echo [torque-remote-sync] HINT: ./package.json has no node_modules at ${eff_path} — run: npm install 1>&2) && (if exist server\\package.json if not exist server\\node_modules echo [torque-remote-sync] HINT: server/package.json has no node_modules — run: cd server ^&^& npm install 1>&2) && (if exist dashboard\\package.json if not exist dashboard\\node_modules echo [torque-remote-sync] HINT: dashboard/package.json has no node_modules — run: cd dashboard ^&^& npm install 1>&2)"
+}
+
+# Linux/POSIX variant — POSIX shell constructs; no CMD primitives.
+#   - `[ -d DIR ]` for directory existence checks.
+#   - Plain `cd` (no /d flag).
+#   - POSIX `&&` throughout.
+#   - npm-install hints use `[ -d ]` and standard stderr redirection.
+build_remote_sync_command_linux() {
+  local eff_path="$1" fetch_cmd="$2" sync_checkout="$3" sync_ref="$4" bootstrap="${5:-}"
+  local cmd=""
+  cmd+="${bootstrap}cd \"${eff_path}\" && "
+  cmd+="${fetch_cmd} && "
+  cmd+="${sync_checkout} && "
+  cmd+="git reset --hard ${sync_ref} && "
+  cmd+="(git clean -fd || true) && "
+  cmd+="(git diff --quiet HEAD || (echo \"[torque-remote-sync] drift after reset — file locks (Defender/Search/AV) may have prevented checkout from updating tracked files\" 1>&2 && exit 99)) && "
+  cmd+="([ -f package.json ] && [ ! -d node_modules ] && echo \"[torque-remote-sync] HINT: ./package.json has no node_modules at ${eff_path} — run: npm install\" 1>&2 || true) && "
+  cmd+="([ -f server/package.json ] && [ ! -d server/node_modules ] && echo \"[torque-remote-sync] HINT: server/package.json has no node_modules — run: cd server && npm install\" 1>&2 || true) && "
+  cmd+="([ -f dashboard/package.json ] && [ ! -d dashboard/node_modules ] && echo \"[torque-remote-sync] HINT: dashboard/package.json has no node_modules — run: cd dashboard && npm install\" 1>&2 || true)"
+  printf '%s' "$cmd"
 }
 
 cleanup_temp_dirs() {

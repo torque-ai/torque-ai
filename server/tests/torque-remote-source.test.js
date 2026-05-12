@@ -156,21 +156,36 @@ describe('torque-remote source invariants', () => {
   });
 });
 
-describe('build_remote_sync_command runtime invariants', () => {
-  // Source the bash script and invoke build_remote_sync_command with synthetic
-  // inputs so the actual assembled string can be asserted against. This is
-  // the unit test that closes torque-remote.md open question #7.
+// Shared helper: extract all build_remote_sync_command* function definitions
+// from the source (dispatcher + _windows + _linux) so all three can be
+// sourced together in each bash invocation.
+//
+// Each function block: starts at `^build_remote_sync_command...() {` (column 0)
+// and ends at the next `^}` line. We collect all matches and join them.
+function extractSyncFunctions(src) {
+  const pattern = /^(build_remote_sync_command\S*\(\)\s*\{[\s\S]*?\n\})/gm;
+  const fns = [];
+  let m;
+  while ((m = pattern.exec(src)) !== null) {
+    fns.push(m[1]);
+  }
+  if (fns.length === 0) {
+    throw new Error('No build_remote_sync_command functions found in torque-remote source');
+  }
+  return fns.join('\n');
+}
+
+describe('build_remote_sync_command runtime invariants — REMOTE_OS=windows', () => {
+  // Source all three build_remote_sync_command function definitions and invoke
+  // the dispatcher with REMOTE_OS=windows. This is the unit test that closes
+  // torque-remote.md open question #7; existing Windows invariants are preserved.
   function buildSyncCommand({ effPath, fetchCmd, syncCheckout, syncRef, bootstrap = '' }) {
-    // Source the function out of the real script. To avoid running the
-    // script's main flow, define dummy `trap_chain_add` etc. before sourcing.
-    // Simplest: extract just the function definition via a sed range and
-    // source that.
     const src = readTorqueRemote();
-    const startMatch = src.match(/^build_remote_sync_command\(\)\s*\{[\s\S]*?\n\}/m);
-    if (!startMatch) {
-      throw new Error('build_remote_sync_command not found in torque-remote source');
-    }
-    const stdout = execFileSync(resolveBashForFunctionTests(), ['-c', `${startMatch[0]}; build_remote_sync_command "$1" "$2" "$3" "$4" "$5"`,
+    const fnDefs = extractSyncFunctions(src);
+    // warn() is used by the dispatcher on unknown REMOTE_OS — define a stub.
+    const preamble = `warn() { echo "[warn] $*" >&2; }\nREMOTE_OS=windows\n`;
+    const stdout = execFileSync(resolveBashForFunctionTests(), ['-c',
+      `${preamble}${fnDefs}; build_remote_sync_command "$1" "$2" "$3" "$4" "$5"`,
       '_', effPath, fetchCmd, syncCheckout, syncRef, bootstrap], { encoding: 'utf8' });
     return stdout;
   }
@@ -249,5 +264,104 @@ describe('build_remote_sync_command runtime invariants', () => {
     const fetchIdx = cmd.indexOf(fixture.fetchCmd);
     expect(cdIdx).toBeGreaterThan(-1);
     expect(cdIdx).toBeLessThan(fetchIdx);
+  });
+});
+
+describe('build_remote_sync_command runtime invariants — REMOTE_OS=linux', () => {
+  // Source all three function definitions and invoke the dispatcher with
+  // REMOTE_OS=linux. Pins the POSIX shape invariants for the Linux variant.
+  function buildSyncCommand({ effPath, fetchCmd, syncCheckout, syncRef, bootstrap = '' }) {
+    const src = readTorqueRemote();
+    const fnDefs = extractSyncFunctions(src);
+    const preamble = `warn() { echo "[warn] $*" >&2; }\nREMOTE_OS=linux\n`;
+    const stdout = execFileSync(resolveBashForFunctionTests(), ['-c',
+      `${preamble}${fnDefs}; build_remote_sync_command "$1" "$2" "$3" "$4" "$5"`,
+      '_', effPath, fetchCmd, syncCheckout, syncRef, bootstrap], { encoding: 'utf8' });
+    return stdout;
+  }
+
+  const fixture = {
+    effPath: '/c/trt/torque-public',
+    fetchCmd: 'git fetch --prune origin +refs/heads/main:refs/remotes/origin/main',
+    syncCheckout: 'git checkout --force --detach origin/main',
+    syncRef: 'origin/main',
+    bootstrap: '',
+  };
+
+  it('uses POSIX [ -f ] tests, not CMD if exist', () => {
+    const cmd = buildSyncCommand(fixture);
+    expect(cmd).toMatch(/\[ -f /);
+    expect(cmd).not.toContain('if not exist');
+    expect(cmd).not.toContain('if exist');
+  });
+
+  it('uses git clean -fd (NOT -fdx) so node_modules is preserved across syncs', () => {
+    const cmd = buildSyncCommand(fixture);
+    expect(cmd).toMatch(/git clean -fd(\s|$|\|)/);
+    expect(cmd).not.toMatch(/git clean -[a-z]*x/);
+  });
+
+  it('emits drift detection with exit 99', () => {
+    const cmd = buildSyncCommand(fixture);
+    expect(cmd).toContain('exit 99');
+    expect(cmd).toContain('drift after reset');
+  });
+
+  it('chains fetch → checkout → reset in that exact order', () => {
+    const cmd = buildSyncCommand(fixture);
+    const fetchIdx = cmd.indexOf('git fetch');
+    const checkoutIdx = cmd.indexOf('git checkout');
+    const resetIdx = cmd.indexOf('git reset');
+    expect(fetchIdx).toBeGreaterThanOrEqual(0);
+    expect(checkoutIdx).toBeGreaterThan(fetchIdx);
+    expect(resetIdx).toBeGreaterThan(checkoutIdx);
+  });
+
+  it('chains commands with POSIX && (not CMD ^ escapes)', () => {
+    const cmd = buildSyncCommand(fixture);
+    expect(cmd).toContain('&&');
+    // No CMD-style ^&^& escaping in the POSIX variant.
+    expect(cmd).not.toContain('^&^&');
+  });
+
+  it('uses cd without /d flag (Linux cd does not accept /d)', () => {
+    const cmd = buildSyncCommand(fixture);
+    expect(cmd).not.toContain('cd /d');
+    expect(cmd).toMatch(/cd "[^"]+"/);
+  });
+
+  it('honors a non-empty SYNC_BOOTSTRAP prefix', () => {
+    const cmd = buildSyncCommand({
+      ...fixture,
+      bootstrap: 'BOOTSTRAP_PREFIX_HERE && ',
+    });
+    expect(cmd.startsWith('BOOTSTRAP_PREFIX_HERE && cd ')).toBe(true);
+  });
+});
+
+describe('build_remote_sync_command — OS branch dispatch', () => {
+  function buildSyncCommandWithOS({ os, effPath, fetchCmd, syncCheckout, syncRef, bootstrap = '' }) {
+    const src = readTorqueRemote();
+    const fnDefs = extractSyncFunctions(src);
+    const preamble = `warn() { echo "[warn] $*" >&2; }\nREMOTE_OS=${os}\n`;
+    const stdout = execFileSync(resolveBashForFunctionTests(), ['-c',
+      `${preamble}${fnDefs}; build_remote_sync_command "$1" "$2" "$3" "$4" "$5"`,
+      '_', effPath, fetchCmd, syncCheckout, syncRef, bootstrap], { encoding: 'utf8' });
+    return stdout;
+  }
+
+  it('emits different command shapes for linux vs windows given the same inputs', () => {
+    const args = {
+      effPath: '/some/path',
+      fetchCmd: 'git fetch --prune origin +refs/heads/main:refs/remotes/origin/main',
+      syncCheckout: 'git checkout --force --detach origin/main',
+      syncRef: 'origin/main',
+    };
+    const linuxCmd = buildSyncCommandWithOS({ os: 'linux', ...args });
+    const windowsCmd = buildSyncCommandWithOS({ os: 'windows', ...args });
+    expect(linuxCmd).not.toBe(windowsCmd);
+    // Linux: POSIX; Windows: CMD
+    expect(linuxCmd).toMatch(/\[ -f /);
+    expect(windowsCmd).toContain('if exist');
   });
 });
