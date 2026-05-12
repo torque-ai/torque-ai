@@ -19,9 +19,11 @@
 #   confusing `[remote rejected] main -> main (cannot lock ref)` error and a
 #   non-zero exit code even when the gate passed. Scripts doing `git push && …`
 #   broke on the false failure. See project memory for the diagnosis.
-# - Staging keeps origin/main immutable until the user's push lands, so exit
-#   codes match reality: 0 means "gate passed AND origin/main is at HEAD", 1
-#   means "gate failed AND origin/main is unchanged".
+# - Staging keeps origin/main immutable until the user's push lands. When a
+#   concurrent hook already moved origin/main to this exact HEAD, this hook exits
+#   with a controlled coalesced code instead of allowing Git to attempt a stale
+#   ref transaction. The torque-push wrapper treats that as success after
+#   confirming origin/main already equals HEAD.
 set -euo pipefail
 
 REPO_ROOT="$(git rev-parse --show-toplevel)"
@@ -62,6 +64,15 @@ pre_push_gate_artifact_file=""
 pre_push_gate_started_at=""
 pre_push_gate_started_at_epoch=""
 pre_push_gate_failure_reason=""
+pre_push_gate_coalesced=0
+pre_push_gate_coalesced_reason=""
+PRE_PUSH_COALESCED_EXIT_CODE="${PRE_PUSH_COALESCED_EXIT_CODE:-75}"
+case "$PRE_PUSH_COALESCED_EXIT_CODE" in
+  ''|*[!0-9]*) PRE_PUSH_COALESCED_EXIT_CODE=75 ;;
+esac
+if [ "$PRE_PUSH_COALESCED_EXIT_CODE" -eq 0 ]; then
+  PRE_PUSH_COALESCED_EXIT_CODE=75
+fi
 
 git_cleanup_timeout() {
   local timeout_secs="${PRE_PUSH_STAGING_CLEANUP_TIMEOUT_SECS:-30}"
@@ -285,6 +296,16 @@ origin_main_matches_local_head() {
   [ -n "$current_remote_main" ] && [ "$current_remote_main" = "$local_head_sha" ]
 }
 
+pre_push_exit_coalesced() {
+  local reason="$1"
+  pre_push_gate_coalesced=1
+  pre_push_gate_coalesced_reason="$reason"
+  echo "[pre-push] COALESCED: $reason"
+  echo "[pre-push] origin/main already contains $local_head_short; aborting this duplicate git push before Git attempts a stale ref update."
+  echo "[pre-push] torque-push treats this controlled coalesce as success after confirming origin/main."
+  exit "$PRE_PUSH_COALESCED_EXIT_CODE"
+}
+
 wait_for_matching_pre_push_gate() {
   local lock_dir owner_file expected_purpose owner_purpose wait_secs poll_secs notice_secs deadline now next_notice
 
@@ -329,8 +350,7 @@ wait_for_matching_pre_push_gate() {
     fi
 
     if origin_main_matches_local_head; then
-      echo "[pre-push] Concurrent pre-push gate already updated origin/main to $local_head_short; skipping duplicate gate."
-      return 0
+      pre_push_exit_coalesced "Concurrent pre-push gate already updated origin/main to $local_head_short."
     fi
 
     now="$(date +%s)"
@@ -347,8 +367,7 @@ wait_for_matching_pre_push_gate() {
   done
 
   if origin_main_matches_local_head; then
-    echo "[pre-push] Concurrent pre-push gate completed and origin/main is at $local_head_short; skipping duplicate gate."
-    return 0
+    pre_push_exit_coalesced "Concurrent pre-push gate completed and origin/main is at $local_head_short."
   fi
 
   echo "[pre-push] Previous matching gate finished without updating origin/main; this push will run the gate."
@@ -564,6 +583,7 @@ pre_push_write_gate_artifact() {
     printf 'server_exit=%s\n' "$(pre_push_gate_metadata_value "${server_exit:-}")"
     printf 'perf_exit=%s\n' "$(pre_push_gate_metadata_value "${perf_exit:-}")"
     printf 'failure_reason=%s\n' "$(pre_push_gate_metadata_value "$pre_push_gate_failure_reason")"
+    printf 'coalesced_reason=%s\n' "$(pre_push_gate_metadata_value "$pre_push_gate_coalesced_reason")"
     printf '\n[output-tail]\n'
     pre_push_artifact_output_tail "$output_file"
   } > "$tmp"
@@ -608,7 +628,9 @@ pre_push_cleanup() {
   local status
   trap - EXIT
   pre_push_set_gate_phase "cleanup" "exit=$rc"
-  if [ "$rc" -eq 0 ]; then
+  if [ "${pre_push_gate_coalesced:-0}" = "1" ]; then
+    status="coalesced"
+  elif [ "$rc" -eq 0 ]; then
     status="passed"
   else
     status="failed"
@@ -621,9 +643,7 @@ pre_push_cleanup() {
   exit "$rc"
 }
 
-if wait_for_matching_pre_push_gate; then
-  exit 0
-fi
+wait_for_matching_pre_push_gate || true
 
 repo_coord_lock_acquire "main" "pre-push main gate: $local_head_short"
 pre_push_start_gate_artifact
@@ -631,8 +651,7 @@ pre_push_start_gate_heartbeat
 trap pre_push_cleanup EXIT
 
 if origin_main_matches_local_head; then
-  echo "[pre-push] Main reached $local_head_short while waiting for the gate lock; skipping duplicate gate."
-  exit 0
+  pre_push_exit_coalesced "Main reached $local_head_short while waiting for the gate lock."
 fi
 
 pre_push_set_gate_phase "planning" "cleaning staging refs and building gate plan"
