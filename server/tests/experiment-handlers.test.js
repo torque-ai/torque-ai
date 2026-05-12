@@ -9,6 +9,7 @@ const taskCore = require('../db/task-core');
 
 // rawDb mock with transaction support (returns a function that calls the callback)
 const mockRawDb = {
+  open: true,
   transaction: vi.fn((fn) => fn),
 };
 
@@ -28,7 +29,13 @@ function installMock(modulePath, exports) {
 
 function loadHandlers() {
   delete require.cache[require.resolve('../handlers/experiment-handlers')];
-  installMock('../database', mockDb);
+  installMock('../container', {
+    defaultContainer: {
+      peek: (name) => (name === 'db' ? mockDb : null),
+      has: (name) => name === 'db',
+      get: (name) => (name === 'db' ? mockDb : null),
+    },
+  });
   installMock('../handlers/error-codes', require('../handlers/error-codes'));
   return require('../handlers/experiment-handlers');
 }
@@ -46,6 +53,11 @@ describe('experiment-handlers (Experiment 6)', () => {
     vi.spyOn(taskCore, 'createTask').mockImplementation(() => undefined);
     vi.spyOn(taskCore, 'getTask').mockReturnValue(null);
     handlers = loadHandlers();
+  });
+
+  afterEach(() => {
+    delete require.cache[require.resolve('../handlers/experiment-handlers')];
+    delete require.cache[require.resolve('../container')];
   });
 
   describe('handleSubmitAbTest', () => {

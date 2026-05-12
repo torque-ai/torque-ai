@@ -8,26 +8,16 @@
  */
 
 const { randomUUID } = require('crypto');
-const { defaultContainer } = require('../container');
+const { resolveDatabaseFacade } = require('../db/database-facade-resolver');
 const taskCore = require('../db/task-core');
 const { ErrorCodes, makeError } = require('./error-codes');
 const logger = require('../logger').child({ component: 'experiment-handlers' });
+const { unwrapDbHandle } = require('../utils/db-accessor');
 
 function getRawDb() {
-  let dbService = null;
-  try {
-    dbService = defaultContainer.get('db');
-  } catch {
-    dbService = require('../database');
-  }
-
-  if (dbService && typeof dbService.getDbInstance === 'function') {
-    return dbService.getDbInstance();
-  }
-  if (dbService && typeof dbService.getDb === 'function') {
-    return dbService.getDb();
-  }
-  return dbService || null;
+  return unwrapDbHandle(resolveDatabaseFacade({
+    serviceName: 'experiment handlers',
+  }));
 }
 
 /**
