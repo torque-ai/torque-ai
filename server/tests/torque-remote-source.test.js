@@ -368,3 +368,75 @@ describe('build_remote_sync_command — OS branch dispatch', () => {
     expect(windowsCmd).toContain('if exist');
   });
 });
+
+// Helper: extract validate_remote_config_drift and its dependencies (info/warn/die)
+// from the source and return as a sourcing preamble for bash invocations.
+function extractDriftValidator(src) {
+  const fnPattern = /^(validate_remote_config_drift\(\)\s*\{[\s\S]*?\n\})/m;
+  const m = fnPattern.exec(src);
+  if (!m) {
+    throw new Error('validate_remote_config_drift not found in torque-remote source');
+  }
+  const stubs = [
+    'info()  { :; }',
+    'warn()  { echo "[warn] $*" >&2; }',
+    'die()   { echo "[die] $*" >&2; exit 1; }',
+  ].join('\n');
+  return `${stubs}\n${m[1]}`;
+}
+
+describe('validate_remote_config_drift runtime invariants', () => {
+  // Each test sources only the validator function (plus stubs) to confirm
+  // exit behaviour under synthetic REMOTE_OS / REMOTE_TEST_WORKTREE_ROOT values.
+
+  function runDriftValidator({ remoteOs, worktreeRoot }) {
+    const src = readTorqueRemote();
+    const fnDefs = extractDriftValidator(src);
+    const script = `${fnDefs}\nREMOTE_OS=${remoteOs}\nREMOTE_TEST_WORKTREE_ROOT=${worktreeRoot}\nvalidate_remote_config_drift\necho PASSED`;
+    try {
+      const stdout = execFileSync(resolveBashForFunctionTests(), ['-c', script], { encoding: 'utf8' });
+      return { exitCode: 0, stdout, stderr: '' };
+    } catch (err) {
+      return { exitCode: err.status, stdout: err.stdout || '', stderr: err.stderr || '' };
+    }
+  }
+
+  it('source invariant: validate_remote_config_drift is defined in torque-remote', () => {
+    const src = readTorqueRemote();
+    expect(src).toMatch(/^validate_remote_config_drift\(\)\s*\{/m);
+  });
+
+  it('exits 78 when remote_os=linux but worktree root is a Windows drive letter path', () => {
+    const result = runDriftValidator({ remoteOs: 'linux', worktreeRoot: "'C:\\\\trt'" });
+    expect(result.exitCode).toBe(78);
+    expect(result.stderr).toContain('remote_test_worktree_root looks Windows');
+    expect(result.stderr).toContain('POSIX path');
+    expect(result.stdout).not.toContain('PASSED');
+  });
+
+  it('exits 78 when remote_os=windows but worktree root is a POSIX absolute path', () => {
+    const result = runDriftValidator({ remoteOs: 'windows', worktreeRoot: '/srv/trt' });
+    expect(result.exitCode).toBe(78);
+    expect(result.stderr).toContain('remote_test_worktree_root looks POSIX');
+    expect(result.stderr).toContain('Windows path');
+    expect(result.stdout).not.toContain('PASSED');
+  });
+
+  it('passes when remote_os=linux and worktree root is a POSIX path', () => {
+    const result = runDriftValidator({ remoteOs: 'linux', worktreeRoot: '/srv/trt' });
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('PASSED');
+  });
+
+  it('passes when remote_os=windows and worktree root is a Windows drive-letter path', () => {
+    const result = runDriftValidator({ remoteOs: 'windows', worktreeRoot: "'C:\\\\trt'" });
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('PASSED');
+  });
+
+  it('passes when REMOTE_TEST_WORKTREE_ROOT is empty (no root configured yet)', () => {
+    const result = runDriftValidator({ remoteOs: 'linux', worktreeRoot: "''" });
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('PASSED');
+  });
+});

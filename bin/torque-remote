@@ -719,6 +719,21 @@ remote_probe_os() {
   return 0
 }
 
+# Validate that REMOTE_TEST_WORKTREE_ROOT matches the probed REMOTE_OS path style.
+# Hard fail (exit 78 EX_CONFIG) on drift to prevent silent path corruption.
+# Called after the probe sets $REMOTE_OS and after the default-setter populates
+# $REMOTE_TEST_WORKTREE_ROOT, but before any lane path computation.
+validate_remote_config_drift() {
+  if [[ "$REMOTE_OS" == "linux" && "${REMOTE_TEST_WORKTREE_ROOT:-}" =~ ^[A-Za-z]: ]]; then
+    echo "[torque-remote] ERROR: remote_os=linux but remote_test_worktree_root looks Windows: '$REMOTE_TEST_WORKTREE_ROOT'. Update your local config (~/.torque-remote.local.json or project equivalent) to use a POSIX path (e.g., \"\$REMOTE_HOME/trt\")." >&2
+    exit 78
+  fi
+  if [[ "$REMOTE_OS" == "windows" && "${REMOTE_TEST_WORKTREE_ROOT:-}" =~ ^/ ]]; then
+    echo "[torque-remote] ERROR: remote_os=windows but remote_test_worktree_root looks POSIX: '$REMOTE_TEST_WORKTREE_ROOT'. Update your local config to use a Windows path (e.g., 'C:\\trt')." >&2
+    exit 78
+  fi
+}
+
 # When TORQUE_REMOTE_EMIT_ONLY=1, adapters print their composed SSH command
 # string to stdout instead of executing it. Tests use this to assert
 # emission shape without spawning SSH.
@@ -2405,6 +2420,13 @@ if [[ "$TRANSPORT" == "ssh" && -z "${REMOTE_TEST_WORKTREE_ROOT:-}" ]]; then
     EFFECTIVE_REMOTE_PROJECT_PATH="${EFFECTIVE_REMOTE_PROJECT_PATH}${REMOTE_TEST_WORKTREE_SUFFIX}"
   fi
   info "[lane-root] REMOTE_OS=$REMOTE_OS default REMOTE_TEST_WORKTREE_ROOT=$REMOTE_TEST_WORKTREE_ROOT EFFECTIVE_REMOTE_PROJECT_PATH=$EFFECTIVE_REMOTE_PROJECT_PATH"
+fi
+
+# ---- Validate remote OS / path style agreement ----
+# Runs after probe sets $REMOTE_OS and after defaults populate $REMOTE_TEST_WORKTREE_ROOT,
+# before any lane path computation that uses REMOTE_TEST_WORKTREE_ROOT.
+if [[ "$TRANSPORT" == "ssh" ]]; then
+  validate_remote_config_drift
 fi
 
 # ---- Command to run ----
