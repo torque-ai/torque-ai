@@ -87,7 +87,8 @@ installCjsModuleMock('../api/v2-infrastructure-handlers', handlerModule([
   'handleCreateAgent', 'handleGetAgent', 'handleAgentHealth', 'handleDeleteAgent',
   'handleAddHost', 'handleRefreshModels',
   'handleHostActivity', 'handleProviderPercentiles',
-  'handleGetRemoteHostLocalConfig', 'handleSaveRemoteHostLocalConfig', 'handleDeleteRemoteHostLocalConfig',
+  'handleGetRemoteHostLocalConfig', 'handleSaveRemoteHostLocalConfig',
+  'handleDeleteRemoteHostLocalConfig', 'handleTestRemoteHostLocalConfig',
   'handleCoordinationDashboard',
 ]));
 

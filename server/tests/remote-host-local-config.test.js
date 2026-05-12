@@ -1,5 +1,7 @@
 'use strict';
 
+const childProcess = require('child_process');
+const { EventEmitter } = require('events');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -23,6 +25,7 @@ describe('remote-host-local-config', () => {
   const tempRoots = [];
 
   afterEach(() => {
+    vi.restoreAllMocks();
     for (const root of tempRoots.splice(0)) {
       fs.rmSync(root, { recursive: true, force: true });
     }
@@ -96,5 +99,84 @@ describe('remote-host-local-config', () => {
     }, root)).toThrow(/not ignored by git/);
 
     expect(fs.existsSync(remoteHostLocalConfig.getConfigPath(root))).toBe(false);
+  });
+
+  it('returns not_configured without spawning the probe when no local config is saved', async () => {
+    const root = createTempRoot();
+    tempRoots.push(root);
+    const spawnSpy = vi.spyOn(childProcess, 'spawn');
+
+    const result = await remoteHostLocalConfig.testRemoteHostLocalConfig(root, { bashExecutable: 'bash' });
+
+    expect(spawnSpy).not.toHaveBeenCalled();
+    expect(result.probe).toEqual({
+      available: false,
+      status: 'not_configured',
+      message: 'Save remote host config before testing.',
+      elapsed_ms: 0,
+    });
+  });
+
+  it('runs the existing torque-remote availability probe and parses a reachable host', async () => {
+    const root = createTempRoot();
+    tempRoots.push(root);
+    remoteHostLocalConfig.saveRemoteHostLocalConfig({
+      host: '192.0.2.10',
+      user: 'remote-user',
+      key_path: 'C:\\keys\\id_ed25519',
+      remote_project_path: 'C:\\trt\\torque-public',
+    }, root);
+
+    const child = new EventEmitter();
+    child.stdout = new EventEmitter();
+    child.kill = vi.fn();
+    const spawnSpy = vi.spyOn(childProcess, 'spawn').mockReturnValue(child);
+
+    process.nextTick(() => {
+      child.stdout.emit('data', 'available:remote-user@192.0.2.10\n');
+      child.emit('close', 0);
+    });
+
+    const result = await remoteHostLocalConfig.testRemoteHostLocalConfig(root, {
+      bashExecutable: 'bash',
+      timeoutMs: 1000,
+      availabilityTimeoutSecs: 7,
+    });
+
+    expect(spawnSpy).toHaveBeenCalledWith(
+      'bash',
+      ['-lc', './bin/torque-remote --__internal-probe-remote-availability'],
+      expect.objectContaining({
+        cwd: root,
+        windowsHide: true,
+        env: expect.objectContaining({
+          TORQUE_REMOTE_AVAILABILITY_TIMEOUT_SECS: '7',
+        }),
+      })
+    );
+    expect(result.probe).toEqual(expect.objectContaining({
+      available: true,
+      status: 'available',
+      target: 'remote-user@192.0.2.10',
+      message: 'Remote host is reachable over SSH.',
+    }));
+    expect(result.values.key_path).toBeUndefined();
+  });
+
+  it('parses unreachable probe output without exposing credential fields', () => {
+    const result = remoteHostLocalConfig.parseProbeOutput(
+      'unavailable:ssh_unreachable:host=192.0.2.10\n',
+      2,
+      41
+    );
+
+    expect(result).toEqual({
+      available: false,
+      status: 'ssh_unreachable',
+      detail: { host: '192.0.2.10' },
+      message: 'SSH probe could not reach the remote host.',
+      elapsed_ms: 41,
+    });
+    expect(JSON.stringify(result)).not.toContain('key_path');
   });
 });

@@ -27,6 +27,7 @@ vi.mock('../api', () => ({
     get: vi.fn(),
     save: vi.fn(),
     remove: vi.fn(),
+    test: vi.fn(),
   },
   models: {
     list: vi.fn().mockResolvedValue({ items: [] }),
@@ -127,6 +128,7 @@ const mockConcurrency = {
 
 describe('Hosts', () => {
   beforeEach(() => {
+    vi.clearAllMocks();
     concurrency.get.mockResolvedValue(mockConcurrency);
     hostsApi.list.mockResolvedValue(mockHosts);
     hostsApi.scan.mockResolvedValue({ hosts_found: 2 });
@@ -162,6 +164,21 @@ describe('Hosts', () => {
       values: {},
       has_key_path: false,
       key_path_hint: null,
+    });
+    remoteHostLocalConfig.test.mockResolvedValue({
+      exists: true,
+      valid: true,
+      path: 'infrastructure/hosts/torque-remote.local.json',
+      git_ignored: true,
+      values: { host: '192.0.2.20', user: 'remote-user', lane_count: 2 },
+      has_key_path: true,
+      key_path_hint: 'id_ed25519',
+      probe: {
+        available: true,
+        status: 'available',
+        message: 'Remote host is reachable over SSH.',
+        elapsed_ms: 42,
+      },
     });
     peekHostsApi.list.mockResolvedValue([]);
     peekHostsApi.create.mockResolvedValue({});
@@ -293,6 +310,63 @@ describe('Hosts', () => {
         lane_count: '2',
       });
     });
+  });
+
+  it('tests the saved local remote execution host config', async () => {
+    remoteHostLocalConfig.get.mockResolvedValueOnce({
+      exists: true,
+      valid: true,
+      path: 'infrastructure/hosts/torque-remote.local.json',
+      git_ignored: true,
+      values: {
+        host: '192.0.2.10',
+        user: 'remote-user',
+        lane_count: 1,
+      },
+      has_key_path: true,
+      key_path_hint: 'id_ed25519',
+    });
+
+    renderWithProviders(<Hosts />, { route: '/hosts' });
+
+    await waitFor(() => {
+      expect(screen.getByText('Remote Execution Host')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Test Remote Host' }));
+
+    await waitFor(() => {
+      expect(remoteHostLocalConfig.test).toHaveBeenCalledOnce();
+    });
+    expect(screen.getByText('Reachable')).toBeInTheDocument();
+    expect(screen.getByText(/Remote host is reachable over SSH/)).toBeInTheDocument();
+  });
+
+  it('preserves unsaved remote host form edits when testing the saved config', async () => {
+    remoteHostLocalConfig.get.mockResolvedValueOnce({
+      exists: true,
+      valid: true,
+      path: 'infrastructure/hosts/torque-remote.local.json',
+      git_ignored: true,
+      values: {
+        host: '192.0.2.10',
+        user: 'remote-user',
+        lane_count: 1,
+      },
+      has_key_path: true,
+      key_path_hint: 'id_ed25519',
+    });
+
+    renderWithProviders(<Hosts />, { route: '/hosts' });
+
+    const hostInput = await screen.findByLabelText('Remote host *');
+    fireEvent.change(hostInput, { target: { value: '192.0.2.99' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Test Remote Host' }));
+
+    await waitFor(() => {
+      expect(remoteHostLocalConfig.test).toHaveBeenCalledOnce();
+    });
+    expect(hostInput).toHaveValue('192.0.2.99');
   });
 
   it('shows empty state when no hosts', async () => {

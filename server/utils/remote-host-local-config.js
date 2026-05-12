@@ -237,6 +237,210 @@ function deleteRemoteHostLocalConfig(projectRoot = getProjectRoot()) {
   };
 }
 
+function getBashExecutable(options = {}) {
+  if (options.bashExecutable) return options.bashExecutable;
+  if (process.env.TORQUE_REMOTE_BASH) return process.env.TORQUE_REMOTE_BASH;
+
+  const candidates = process.platform === 'win32'
+    ? [
+        path.join(process.env.ProgramFiles || 'C:\\Program Files', 'Git', 'bin', 'bash.exe'),
+        path.join(process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)', 'Git', 'bin', 'bash.exe'),
+        'bash',
+      ]
+    : ['bash'];
+
+  return candidates.find((candidate) => candidate === 'bash' || fs.existsSync(candidate)) || 'bash';
+}
+
+function parseProbeDetail(parts) {
+  const detail = {};
+  for (const part of parts) {
+    const separator = part.indexOf('=');
+    if (separator <= 0) continue;
+    const key = part.slice(0, separator);
+    const value = part.slice(separator + 1);
+    if (key && value) detail[key] = value;
+  }
+  return detail;
+}
+
+function messageForProbeStatus(status) {
+  switch (status) {
+    case 'available':
+      return 'Remote host is reachable over SSH.';
+    case 'not_configured':
+      return 'Save remote host config before testing.';
+    case 'invalid_config':
+      return 'The saved remote host config is invalid JSON.';
+    case 'missing_host':
+      return 'Remote host is missing from the saved config.';
+    case 'missing_user':
+      return 'SSH user is missing from the saved config.';
+    case 'missing_remote_project_path':
+      return 'Remote project path is missing from the saved config.';
+    case 'not_ssh_transport':
+      return 'Remote transport is not SSH.';
+    case 'ssh_unreachable':
+      return 'SSH probe could not reach the remote host.';
+    case 'probe_timeout':
+      return 'Remote host probe timed out.';
+    case 'probe_spawn_failed':
+      return 'Unable to start the remote host probe.';
+    default:
+      return 'Remote host probe failed.';
+  }
+}
+
+function parseProbeOutput(stdout, exitCode, elapsedMs) {
+  const line = String(stdout || '').split(/\r?\n/).find((entry) => entry.trim())?.trim() || '';
+  const parts = line.split(':');
+
+  if (parts[0] === 'available') {
+    return {
+      available: true,
+      status: 'available',
+      target: parts[1] || null,
+      message: messageForProbeStatus('available'),
+      elapsed_ms: elapsedMs,
+    };
+  }
+
+  if (parts[0] === 'unavailable') {
+    const status = parts[1] || 'unavailable';
+    return {
+      available: false,
+      status,
+      detail: parseProbeDetail(parts.slice(2)),
+      message: messageForProbeStatus(status),
+      elapsed_ms: elapsedMs,
+    };
+  }
+
+  return {
+    available: false,
+    status: exitCode === 0 ? 'unknown_probe_response' : 'probe_failed',
+    message: messageForProbeStatus('probe_failed'),
+    elapsed_ms: elapsedMs,
+  };
+}
+
+function runProbeCommand(projectRoot, options = {}) {
+  const startedAt = Date.now();
+  const timeoutMs = Number.parseInt(options.timeoutMs, 10) > 0
+    ? Number.parseInt(options.timeoutMs, 10)
+    : 10000;
+  const availabilityTimeoutSecs = Number.parseInt(options.availabilityTimeoutSecs, 10) > 0
+    ? Number.parseInt(options.availabilityTimeoutSecs, 10)
+    : 5;
+
+  return new Promise((resolve) => {
+    let child;
+    try {
+      child = childProcess.spawn(
+        getBashExecutable(options),
+        ['-lc', './bin/torque-remote --__internal-probe-remote-availability'],
+        {
+          cwd: projectRoot,
+          env: {
+            ...process.env,
+            TORQUE_REMOTE_AVAILABILITY_TIMEOUT_SECS: String(availabilityTimeoutSecs),
+          },
+          windowsHide: true,
+        }
+      );
+    } catch {
+      resolve({
+        available: false,
+        status: 'probe_spawn_failed',
+        message: messageForProbeStatus('probe_spawn_failed'),
+        elapsed_ms: Date.now() - startedAt,
+      });
+      return;
+    }
+
+    let stdout = '';
+    let settled = false;
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      child.kill();
+    }, timeoutMs);
+
+    function finish(result) {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(result);
+    }
+
+    child.stdout?.on('data', (chunk) => {
+      stdout += String(chunk);
+      if (stdout.length > 2048) {
+        stdout = stdout.slice(0, 2048);
+      }
+    });
+    child.stderr?.on('data', () => {});
+
+    child.on('error', () => {
+      finish({
+        available: false,
+        status: 'probe_spawn_failed',
+        message: messageForProbeStatus('probe_spawn_failed'),
+        elapsed_ms: Date.now() - startedAt,
+      });
+    });
+
+    child.on('close', (code) => {
+      if (timedOut) {
+        finish({
+          available: false,
+          status: 'probe_timeout',
+          message: messageForProbeStatus('probe_timeout'),
+          elapsed_ms: Date.now() - startedAt,
+        });
+        return;
+      }
+
+      finish(parseProbeOutput(stdout, code, Date.now() - startedAt));
+    });
+  });
+}
+
+async function testRemoteHostLocalConfig(projectRoot = getProjectRoot(), options = {}) {
+  const filePath = getConfigPath(projectRoot);
+  const current = readJsonFile(filePath);
+  const configResponse = toResponse(current, projectRoot);
+
+  if (!current.exists) {
+    return {
+      ...configResponse,
+      probe: {
+        available: false,
+        status: 'not_configured',
+        message: messageForProbeStatus('not_configured'),
+        elapsed_ms: 0,
+      },
+    };
+  }
+
+  if (current.parseError) {
+    return {
+      ...configResponse,
+      probe: {
+        available: false,
+        status: 'invalid_config',
+        message: messageForProbeStatus('invalid_config'),
+        elapsed_ms: 0,
+      },
+    };
+  }
+
+  return {
+    ...configResponse,
+    probe: await runProbeCommand(projectRoot, options),
+  };
+}
+
 module.exports = {
   CONFIG_RELATIVE_PATH: CONFIG_RELATIVE_POSIX,
   deleteRemoteHostLocalConfig,
@@ -244,6 +448,8 @@ module.exports = {
   getGitIgnoredStatus,
   getProjectRoot,
   normalizeConfigPayload,
+  parseProbeOutput,
   readRemoteHostLocalConfig,
   saveRemoteHostLocalConfig,
+  testRemoteHostLocalConfig,
 };

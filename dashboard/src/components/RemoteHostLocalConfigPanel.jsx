@@ -6,8 +6,11 @@ export default function RemoteHostLocalConfigPanel({
   onChange,
   onSave,
   onClear,
+  onTest,
   saving,
   clearing,
+  testing,
+  testResult,
   loading,
 }) {
   const hasStoredKeyPath = Boolean(config?.has_key_path);
@@ -19,6 +22,8 @@ export default function RemoteHostLocalConfigPanel({
   const keyPathPlaceholder = hasStoredKeyPath
     ? 'Stored key path; leave blank to keep'
     : 'C:\\Users\\you\\.ssh\\id_ed25519_torque_remote';
+  const testProbe = testResult?.probe || null;
+  const canTest = Boolean(config?.exists && config?.valid !== false && !loading && !saving && !clearing);
 
   function updateField(field, value) {
     onChange({ ...form, [field]: value });
@@ -146,6 +151,14 @@ export default function RemoteHostLocalConfigPanel({
           {clearing ? 'Clearing...' : 'Clear Remote Host'}
         </button>
         <button
+          type="button"
+          onClick={onTest}
+          disabled={!canTest || testing}
+          className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white text-sm rounded-lg disabled:opacity-50 transition-colors"
+        >
+          {testing ? 'Testing...' : 'Test Remote Host'}
+        </button>
+        <button
           type="submit"
           disabled={loading || saving || !canSubmit}
           className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-sm rounded-lg disabled:opacity-50 transition-colors"
@@ -153,6 +166,22 @@ export default function RemoteHostLocalConfigPanel({
           {saving ? 'Saving...' : 'Save Remote Host'}
         </button>
       </div>
+
+      {testProbe && (
+        <div className={`mt-4 rounded-lg border px-3 py-2 text-sm ${
+          testProbe.available
+            ? 'border-green-500/30 bg-green-950/30 text-green-200'
+            : 'border-red-500/30 bg-red-950/30 text-red-200'
+        }`}>
+          <span className="font-medium">
+            {testProbe.available ? 'Reachable' : 'Unavailable'}
+          </span>
+          <span className="text-slate-300"> - {testProbe.message}</span>
+          {Number.isFinite(testProbe.elapsed_ms) && (
+            <span className="text-slate-400"> ({testProbe.elapsed_ms}ms)</span>
+          )}
+        </div>
+      )}
     </form>
   );
 }

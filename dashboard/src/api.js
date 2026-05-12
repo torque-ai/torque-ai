@@ -388,6 +388,10 @@ export const remoteHostLocalConfig = {
   remove: () => requestV2('/remote-host/local-config', {
     method: 'DELETE',
   }),
+  test: () => requestV2('/remote-host/local-config/test', {
+    method: 'POST',
+    timeout: 15000,
+  }),
 };
 
 // ─── Model registry endpoints (v2) ──────────────────────────────────────────

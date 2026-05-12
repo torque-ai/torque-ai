@@ -128,6 +128,7 @@ const mockHandlers = {
     handleGetRemoteHostLocalConfig: vi.fn(),
     handleSaveRemoteHostLocalConfig: vi.fn(),
     handleDeleteRemoteHostLocalConfig: vi.fn(),
+    handleTestRemoteHostLocalConfig: vi.fn(),
     handleListAgents: vi.fn(),
     handleCreateAgent: vi.fn(),
     handleGetAgent: vi.fn(),
@@ -475,6 +476,16 @@ describe('v2-dispatch module', () => {
       expect(handled).toBe(true);
       expect(mockHandlers.infrastructure.handleGetRemoteHostLocalConfig).toHaveBeenCalledOnce();
       expect(mockHandlers.infrastructure.handleGetHost).not.toHaveBeenCalled();
+    });
+
+    it('dispatches local remote host config test route', async () => {
+      const req = mockReq('POST', '/api/v2/remote-host/local-config/test');
+      const res = mockRes();
+
+      const handled = await v2Dispatch.dispatchV2(req, res);
+
+      expect(handled).toBe(true);
+      expect(mockHandlers.infrastructure.handleTestRemoteHostLocalConfig).toHaveBeenCalledOnce();
     });
 
     it('dispatches GET /api/v2/workflows to handleListWorkflows', async () => {
