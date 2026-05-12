@@ -125,3 +125,33 @@ describe('remote_heartbeat_write adapter', () => {
     expect(out).toContain('echo 1700000000>"C:\\trt\\lock\\heartbeat.epoch"');
   });
 });
+
+describe('remote_node_modules_link adapter', () => {
+  it('emits POSIX ln -s with base-dir pre-check on linux', () => {
+    const out = emit('remote_node_modules_link', ['/lane/node_modules', '/base/node_modules'], 'linux');
+    expect(out).toContain('[ -d "/base/node_modules" ]');
+    expect(out).toContain('ln -s "/base/node_modules" "/lane/node_modules"');
+  });
+
+  it('emits mklink /D cascade on windows', () => {
+    const out = emit('remote_node_modules_link', ['C:\\lane\\node_modules', 'C:\\base\\node_modules'], 'windows');
+    expect(out).toContain('mklink /D');
+    expect(out).toContain('C:\\lane\\node_modules');
+    expect(out).toContain('C:\\base\\node_modules');
+  });
+});
+
+describe('remote_node_modules_unlink adapter', () => {
+  it('emits link-guarded rm on linux', () => {
+    const out = emit('remote_node_modules_unlink', ['/lane/node_modules'], 'linux');
+    expect(out).toContain('[ -L "/lane/node_modules" ]');
+    expect(out).toContain('rm "/lane/node_modules"');
+  });
+
+  it('emits rmdir without /S on windows (safety: refuses real dirs)', () => {
+    const out = emit('remote_node_modules_unlink', ['C:\\lane\\node_modules'], 'windows');
+    expect(out).toContain('rmdir "C:\\lane\\node_modules"');
+    expect(out).not.toContain('/S');
+    expect(out).not.toContain('/s');
+  });
+});

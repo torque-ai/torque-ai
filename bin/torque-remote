@@ -807,6 +807,40 @@ remote_heartbeat_write() {
   esac
 }
 
+# Symlink target -> base. Returns 1 if base doesn't exist (caller falls
+# through to fresh npm install).
+# Args: $1 = target, $2 = base.
+remote_node_modules_link() {
+  local target="$1"
+  local base="$2"
+  case "$REMOTE_OS" in
+    linux)
+      _emit_or_run "[ -d \"$base\" ] && ln -s \"$base\" \"$target\" || exit 1"
+      ;;
+    windows)
+      local target_win="${target//\//\\}"
+      local base_win="${base//\//\\}"
+      _emit_or_run "cmd.exe /C mklink /D \"$target_win\" \"$base_win\" || powershell.exe -NoProfile -Command \"New-Item -ItemType SymbolicLink -Path '$target_win' -Target '$base_win'\" || cmd.exe /C mklink /J \"$target_win\" \"$base_win\""
+      ;;
+    *) warn "[adapter:remote_node_modules_link] unknown REMOTE_OS=$REMOTE_OS"; return 74 ;;
+  esac
+}
+
+# Remove a node_modules link if it's actually a link. Never recurse into a
+# real directory.
+# Args: $1 = path.
+remote_node_modules_unlink() {
+  local path="$1"
+  case "$REMOTE_OS" in
+    linux)   _emit_or_run "[ -L \"$path\" ] && rm \"$path\" || true" ;;
+    windows)
+      local path_win="${path//\//\\}"
+      _emit_or_run "cmd.exe /C rmdir \"$path_win\""
+      ;;
+    *) warn "[adapter:remote_node_modules_unlink] unknown REMOTE_OS=$REMOTE_OS"; return 74 ;;
+  esac
+}
+
 remote_powershell_command() {
   local ps_body="$1"
   local encoded
