@@ -653,7 +653,8 @@ remote_probe_os() {
   if ! probe_output=$(ssh ${SSH_OPTS[@]+"${SSH_OPTS[@]}"} -o ConnectTimeout=10 \
       ${SSH_KEY_PATH:+-i "$SSH_KEY_PATH"} \
       "$SSH_USER@$SSH_HOST" "$probe_cmd" 2>&1); then
-    printf '[torque-remote] [adapter:remote_probe_os] ssh failed rc=$? host=%s\n' "$SSH_HOST" >&2
+    local ssh_rc=$?
+    warn "[adapter:remote_probe_os] ssh failed rc=$ssh_rc host=$SSH_HOST"
     REMOTE_OS=unknown
     return 78
   fi
@@ -674,8 +675,7 @@ remote_probe_os() {
   REMOTE_OS_RELEASE_ID=$(echo "$osrelease_part" | grep '^ID=' | head -1 | cut -d= -f2- | tr -d '"')
   REMOTE_OS_RELEASE_VERSION=$(echo "$osrelease_part" | grep '^VERSION_ID=' | head -1 | cut -d= -f2- | tr -d '"')
 
-  printf '[torque-remote] [adapter:remote_probe_os] os=%s release_id=%s version=%s home=%s ms=%d\n' \
-    "$REMOTE_OS" "$REMOTE_OS_RELEASE_ID" "$REMOTE_OS_RELEASE_VERSION" "$REMOTE_HOME" "$probe_ms" >&2
+  info "[adapter:remote_probe_os] os=$REMOTE_OS release_id=$REMOTE_OS_RELEASE_ID version=$REMOTE_OS_RELEASE_VERSION home=$REMOTE_HOME ms=$probe_ms"
 
   local decision_log="$HOME/.torque/torque-remote-decisions.jsonl"
   mkdir -p "$(dirname "$decision_log")"
