@@ -14,6 +14,7 @@ const taskCore = require('../db/task-core');
 const { taskEvents } = require('../hooks/event-dispatch');
 
 const MODULE_PATH = require.resolve('../factory/worktree-auto-commit');
+const CONTAINER_PATH = require.resolve('../container');
 const originalExecFileSync = childProcess._realExecFileSync || childProcess.execFileSync;
 
 function runRealGit(cwd, args, options = {}) {
@@ -206,6 +207,29 @@ function loadAutoCommitModule() {
   return require('../factory/worktree-auto-commit');
 }
 
+function installContainerDbMock(dbFacade) {
+  require.cache[CONTAINER_PATH] = {
+    id: CONTAINER_PATH,
+    filename: CONTAINER_PATH,
+    loaded: true,
+    exports: {
+      defaultContainer: {
+        peek: (name) => (name === 'db' ? dbFacade : null),
+        has: (name) => name === 'db',
+        get: (name) => (name === 'db' ? dbFacade : null),
+      },
+    },
+  };
+}
+
+function restoreContainerDbMock(originalContainerCache) {
+  if (originalContainerCache) {
+    require.cache[CONTAINER_PATH] = originalContainerCache;
+  } else {
+    delete require.cache[CONTAINER_PATH];
+  }
+}
+
 function initGitWorktree(tempDirs) {
   const repoPath = fs.mkdtempSync(path.join(os.tmpdir(), 'factory-worktree-auto-commit-'));
   tempDirs.push(repoPath);
@@ -340,6 +364,7 @@ describe('factory worktree auto-commit', () => {
   let autoCommit;
   let tempDirs;
   let originalGetDbInstance;
+  let originalContainerCache;
 
   beforeEach(() => {
     vi.restoreAllMocks();
@@ -347,7 +372,9 @@ describe('factory worktree auto-commit', () => {
     tempDirs = [];
     db = createDb();
     originalGetDbInstance = database.getDbInstance;
+    originalContainerCache = require.cache[CONTAINER_PATH] || null;
     database.getDbInstance = () => db;
+    installContainerDbMock(database);
     attemptHistory.setDb(db);
     factoryHealth.setDb(db);
     factoryWorktrees.setDb(db);
@@ -361,6 +388,8 @@ describe('factory worktree auto-commit', () => {
     autoCommit?.resetFactoryWorktreeAutoCommitForTests();
     delete require.cache[MODULE_PATH];
     database.getDbInstance = originalGetDbInstance;
+    restoreContainerDbMock(originalContainerCache);
+    originalContainerCache = null;
     attemptHistory.setDb(null);
     factoryHealth.setDb(null);
     factoryWorktrees.setDb(null);
