@@ -215,6 +215,25 @@ describe('torque-push wrapper', () => {
     }
   });
 
+  it('treats a controlled pre-push coalesce abort as success after confirming origin/main', () => {
+    const fake = makeFakeGitEnv({
+      remoteBefore: OLD_SHA,
+      remoteAfter: LOCAL_SHA,
+      pushExit: 1,
+      pushStderr: '[pre-push] COALESCED: Concurrent pre-push gate completed and origin/main is at aaaaaaaaaaaa.',
+    });
+    try {
+      const result = runWrapper(fake);
+
+      expect(result.status, result.stderr).toBe(0);
+      expect(result.stderr).toContain('[pre-push] COALESCED:');
+      expect(result.stderr).not.toContain('cannot lock ref');
+      expect(result.stdout).toContain('treating as success');
+    } finally {
+      fake.cleanup();
+    }
+  });
+
   it('passes non-main pushes through to git unchanged', () => {
     const fake = makeFakeGitEnv({
       branch: 'feature',

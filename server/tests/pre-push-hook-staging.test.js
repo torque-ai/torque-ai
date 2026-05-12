@@ -304,19 +304,25 @@ printf '%b' "\\302\\267\\302\\267real failure line\\302\\267\\302\\267\\n" | pre
     expect(plannerIdx).toBeGreaterThan(skipIdx);
   });
 
-  it('coalesces duplicate same-SHA main gate attempts before running another full gate', () => {
+  it('aborts duplicate same-SHA main gate attempts before Git can attempt a stale ref update', () => {
     const src = readHook();
     const coalesceIdx = src.indexOf('wait_for_matching_pre_push_gate');
     const lockIdx = src.indexOf('repo_coord_lock_acquire "main" "pre-push main gate:');
     const postLockRecheckIdx = src.indexOf('Main reached $local_head_short while waiting for the gate lock');
 
     expect(src).toMatch(/origin_main_matches_local_head\s*\(\)/);
+    expect(src).toMatch(/PRE_PUSH_COALESCED_EXIT_CODE="\$\{PRE_PUSH_COALESCED_EXIT_CODE:-75\}"/);
+    expect(src).toMatch(/if \[ "\$PRE_PUSH_COALESCED_EXIT_CODE" -eq 0 \]; then\s+PRE_PUSH_COALESCED_EXIT_CODE=75\s+fi/s);
+    expect(src).toMatch(/pre_push_exit_coalesced\s*\(\)/);
+    expect(src).toContain('COALESCED: $reason');
+    expect(src).toContain('aborting this duplicate git push before Git attempts a stale ref update.');
     expect(src).toContain('Another pre-push gate for $local_head_short is already running; waiting for its result.');
-    expect(src).toContain('Concurrent pre-push gate already updated origin/main to $local_head_short; skipping duplicate gate.');
-    expect(src).toContain('Concurrent pre-push gate completed and origin/main is at $local_head_short; skipping duplicate gate.');
+    expect(src).toContain('Concurrent pre-push gate already updated origin/main to $local_head_short.');
+    expect(src).toContain('Concurrent pre-push gate completed and origin/main is at $local_head_short.');
     expect(src).toContain('Previous matching gate finished without updating origin/main; this push will run the gate.');
-    expect(src).toMatch(/if wait_for_matching_pre_push_gate; then\s+exit 0\s+fi/s);
-    expect(src).toMatch(/if origin_main_matches_local_head; then\s+echo "\[pre-push\] Main reached \$local_head_short while waiting for the gate lock; skipping duplicate gate\."\s+exit 0\s+fi/s);
+    expect(src).toMatch(/wait_for_matching_pre_push_gate \|\| true/);
+    expect(src).toMatch(/if origin_main_matches_local_head; then\s+pre_push_exit_coalesced "Main reached \$local_head_short while waiting for the gate lock\."\s+fi/s);
+    expect(src).not.toMatch(/skipping duplicate gate\."\s+exit 0/);
     expect(coalesceIdx).toBeGreaterThan(-1);
     expect(lockIdx).toBeGreaterThan(coalesceIdx);
     expect(postLockRecheckIdx).toBeGreaterThan(lockIdx);
@@ -370,6 +376,8 @@ printf '%b' "\\302\\267\\302\\267real failure line\\302\\267\\302\\267\\n" | pre
     expect(src).toMatch(/pre_push_write_gate_artifact "\$status" "\$rc" \|\| true/);
     expect(src).toMatch(/pre_push_artifact_output_tail "\$output_file"/);
     expect(src).toMatch(/failure_reason=%s/);
+    expect(src).toMatch(/coalesced_reason=%s/);
+    expect(src).toMatch(/status="coalesced"/);
     expect(src).toMatch(/\[output-tail\]/);
   });
 
