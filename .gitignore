@@ -36,6 +36,8 @@ server/torque.log.*
 .claude/*.local.md
 .mcp.json
 .torque-remote.local.json
+infrastructure/hosts/*.local.json
+infrastructure/hosts/**/*.local.json
 
 # IDE
 .vscode/

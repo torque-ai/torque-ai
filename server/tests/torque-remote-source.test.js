@@ -94,6 +94,23 @@ describe('torque-remote source invariants', () => {
     expect(src).not.toContain('REMOTE_SYNC_LOCK_DIR="$EFFECTIVE_REMOTE_PROJECT_PATH\\\\.torque-remote-sync.lock"');
   });
 
+  it('supports an ignored infrastructure-host credential file for project-local remote credentials', () => {
+    const src = readTorqueRemote();
+    const gitignore = fs.readFileSync(path.join(REPO_ROOT, '.gitignore'), 'utf8');
+    const hostGitignore = fs.readFileSync(path.join(REPO_ROOT, 'infrastructure', 'hosts', '.gitignore'), 'utf8');
+    const docs = fs.readFileSync(path.join(REPO_ROOT, 'docs', 'torque-remote.md'), 'utf8');
+
+    expect(src).toContain('PROJECT_INFRA_LOCAL="$PROJECT_ROOT/infrastructure/hosts/torque-remote.local.json"');
+    expect(src).toContain('apply_local_config_file "$PROJECT_INFRA_LOCAL" "project-infrastructure" 1');
+    expect(src).toContain('project_infra_local=');
+    expect(gitignore).toContain('infrastructure/hosts/*.local.json');
+    expect(gitignore).toContain('infrastructure/hosts/**/*.local.json');
+    expect(hostGitignore).toContain('*.local.json');
+    expect(hostGitignore).toContain('**/*.local.json');
+    expect(fs.existsSync(path.join(REPO_ROOT, 'infrastructure', 'hosts', 'torque-remote.local.json.example'))).toBe(true);
+    expect(docs).toContain('<project>/infrastructure/hosts/torque-remote.local.json');
+  });
+
   it('records sync lock ownership and reaps stale locks (same-host PID-dead OR cross-host TTL)', () => {
     const src = readTorqueRemote();
     expect(src).toContain('REMOTE_LANE_LOCK_OWNER_FILE="owner.env"');

@@ -18,7 +18,7 @@ torque-remote is a **1336-line bash script** (`bin/torque-remote`) plus a **320-
 
 ---
 
-## The 5-layer config stack
+## The 6-layer config stack
 
 Lowest precedence first; each layer overrides keys from prior layers.
 
@@ -28,7 +28,10 @@ Lowest precedence first; each layer overrides keys from prior layers.
 | 2 | `~/.torque-remote.json` | Operator (global) | `transport`, `sync_before_run`, `timeout_seconds`, `load_threshold`, `intercept_commands[]` |
 | 3 | `~/.torque-remote.local.json` | Operator (global, per-machine) | `host`, `user`, `key_path`, `default_project_path`, `remote_test_worktree_subdir`, `remote_test_worktree_root` |
 | 4 | `<project>/.torque-remote.json` | Project (committable) | Same as #2; overrides global transport choice for this project |
-| 5 | `<project>/.torque-remote.local.json` | Operator (per-project) | Same as #3 + `remote_project_path` (explicit override of derived `<default_project_path>\<PROJECT_NAME>`) |
+| 5 | `<project>/infrastructure/hosts/torque-remote.local.json` | Operator (per-project, ignored) | Same as #3 + `remote_project_path` (explicit override of derived `<default_project_path>\<PROJECT_NAME>`) |
+| 6 | `<project>/.torque-remote.local.json` | Operator (per-project, ignored, legacy-compatible) | Same as #5; wins over the infrastructure-host file when both exist |
+
+Use the infrastructure-host file for repo-specific credentials that must never sync to git. It is ignored by both the repo root `.gitignore` and `infrastructure/hosts/.gitignore`; the committed `infrastructure/hosts/torque-remote.local.json.example` is only a template. On Windows, restrict the real local file with `icacls infrastructure\hosts\torque-remote.local.json /inheritance:r /grant:r "$env:USERNAME:F"`.
 
 **Effective remote path computation:**
 
@@ -56,7 +59,7 @@ For live diagnosis, set `TORQUE_REMOTE_CONFIG_TRACE=1` before running `torque-re
 
 1. **Parse flags** — `--branch <ref>`, `--suite <name>`, `--__internal-print-routing-mode` (test-only).
 2. **Find project root** — walk up looking for `.git` (file or dir; `-e` matches both for worktrees).
-3. **Load config** — global `.torque-remote.json` → project override → global `.local.json` → project `.local.json`.
+3. **Load config** — global `.torque-remote.json` → project override → global `.local.json` → project infrastructure-host `.local.json` → project root `.local.json`.
 4. **Coord routing decision** (`coord_select_routing_mode`) — probes `127.0.0.1:9395/health`. Sets `COORD_ROUTING_MODE` to `local` / `ssh:user@host` / `none`. Required before any `torque-coord-client` invocation.
 5. **Coord begin** (only if `SUITE != custom`) — single node spawn calls `torque-coord-client begin --project --sha --suite --root`. Possible outcomes:
    - **`cache_hit`**: prints `output_tail`, exits with stored `exit_code`. Ends the script.
@@ -117,7 +120,7 @@ Single primary knob: `TORQUE_REMOTE_LANE_COUNT`. Default `1` (today's behavior �
 Precedence (highest first):
 1. `--lanes <N>` CLI flag
 2. `TORQUE_REMOTE_LANE_COUNT` env var
-3. `lane_count` in `.torque-remote.json` / `~/.torque-remote.local.json` / `~/.torque-remote.json` (project > personal > global)
+3. `lane_count` in `.torque-remote.json` / project local credential files / `~/.torque-remote.local.json` / `~/.torque-remote.json` (project > personal > global)
 4. Default = 1
 
 Other env vars:

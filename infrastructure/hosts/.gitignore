@@ -1,0 +1,8 @@
+# Local operator credentials for remote workstations.
+*.local.json
+**/*.local.json
+
+# Keep documentation and templates tracked.
+!.gitignore
+!README.md
+!*.example
