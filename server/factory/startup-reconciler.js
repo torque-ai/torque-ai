@@ -54,15 +54,44 @@ function shouldSkipForOperatorPause(projectId, logger) {
   if (!fresh || !hasOperatorPauseIntent(fresh)) {
     return false;
   }
+  reconcileOperatorPausedProject(fresh, logger);
+  return true;
+}
+
+function reconcileOperatorPausedProject(project, logger, actions = null) {
+  if (!project || !hasOperatorPauseIntent(project)) {
+    return false;
+  }
+
+  let fresh = project;
   if (fresh.status !== 'paused') {
     try {
-      factoryHealth.updateProject(fresh.id, { status: 'paused' });
+      fresh = factoryHealth.updateProject(fresh.id, { status: 'paused' }) || fresh;
     } catch (_err) {
       void _err;
     }
   }
+
+  let terminated = { terminated: 0, instance_ids: [] };
+  if (loopController && typeof loopController.terminateActiveInstancesForProject === 'function') {
+    try {
+      terminated = loopController.terminateActiveInstancesForProject(fresh.id, { abandonWorktree: true }) || terminated;
+    } catch (err) {
+      safeLog(logger, 'warn', 'startup reconciler failed to terminate operator-paused loop instances', {
+        project_id: fresh.id,
+        err: err.message,
+      });
+    }
+  }
+
+  if (actions) {
+    actions.operator_paused_projects += 1;
+    actions.operator_paused_instances_terminated += terminated.terminated || 0;
+  }
+
   safeLog(logger, 'info', 'startup reconciler skipped operator-paused project', {
-    project_id: projectId,
+    project_id: fresh.id,
+    terminated_loop_instances: terminated.terminated || 0,
   });
   return true;
 }
@@ -189,6 +218,8 @@ function createActionCounters() {
     skipped: 0,
     deferred_verify: 0,
     worktrees_reconciled: 0,
+    operator_paused_projects: 0,
+    operator_paused_instances_terminated: 0,
   };
 }
 
@@ -233,7 +264,11 @@ function reconcileFactoryProjectsOnStartup({ logger = defaultLogger } = {}) {
 
   let projects;
   try {
-    projects = factoryHealth.listProjects({ status: 'running' });
+    projects = factoryHealth.listProjects()
+      .filter((project) => (
+        project.status === 'running'
+        || (project.status === 'paused' && hasOperatorPauseIntent(project))
+      ));
   } catch (err) {
     safeLog(logger, 'warn', 'startup factory reconciler scan failed', { err: err.message });
     return {
@@ -246,7 +281,7 @@ function reconcileFactoryProjectsOnStartup({ logger = defaultLogger } = {}) {
 
   for (const project of projects) {
     actions.projects_scanned += 1;
-    if (shouldSkipForOperatorPause(project.id, logger)) {
+    if (reconcileOperatorPausedProject(project, logger, actions)) {
       actions.skipped += 1;
       continue;
     }

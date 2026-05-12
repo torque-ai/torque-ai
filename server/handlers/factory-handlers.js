@@ -1520,17 +1520,17 @@ async function handlePauseProject(args) {
   } catch (err) {
     logger.warn({ err }, 'Failed to record pause audit event');
   }
-  // Stop factory tick timer when project is paused
-  try {
-    const { stopTick } = require('../factory/factory-tick');
-    stopTick(updated.id);
-  } catch (_e) { void _e; /* factory-tick not loaded */ }
+  stopFactoryTickForProject(updated.id);
+  const terminatedLoops = terminateActiveLoopInstancesForOperatorPause(updated.id);
   const parkedQueue = parkPausedFactoryProjectQueue(updated.id);
+  const pausedProject = factoryHealth.getProject(updated.id) || updated;
   logger.info(`Factory project paused: ${updated.name}`);
   return jsonResponse({
     message: `Project "${updated.name}" paused`,
-    project: updated,
+    project: pausedProject,
     parked_tasks: parkedQueue.parked,
+    terminated_loop_instances: terminatedLoops.terminated,
+    terminated_loop_instance_ids: terminatedLoops.instance_ids,
   });
 }
 
@@ -1653,6 +1653,34 @@ function startFactoryTickForProject(project) {
   }
 }
 
+function stopFactoryTickForProject(projectId) {
+  try {
+    const { stopTick } = require('../factory/factory-tick');
+    stopTick(projectId);
+  } catch (_e) {
+    void _e;
+  }
+}
+
+function terminateActiveLoopInstancesForOperatorPause(projectId) {
+  if (!loopController || typeof loopController.terminateActiveInstancesForProject !== 'function') {
+    return { terminated: 0, instance_ids: [] };
+  }
+
+  try {
+    return loopController.terminateActiveInstancesForProject(projectId, { abandonWorktree: true }) || {
+      terminated: 0,
+      instance_ids: [],
+    };
+  } catch (err) {
+    logger.warn('Failed to terminate active loop instances during operator pause', {
+      project_id: projectId,
+      err: err.message,
+    });
+    return { terminated: 0, instance_ids: [], error: err.message };
+  }
+}
+
 function resumeProjectRowForFactoryAction(project, args = {}, reason = 'factory_action') {
   if (!project || project.status !== 'paused') {
     return { resumed: false, project };
@@ -1687,9 +1715,11 @@ function resumeProjectRowForFactoryAction(project, args = {}, reason = 'factory_
 async function handlePauseAllProjects(args = {}) {
   const projects = factoryHealth.listProjects();
   const results = await Promise.all(projects.map(async (p) => {
-    if (p.status === 'paused') return false;
     const previous_status = p.status;
-    const updated = factoryHealth.updateProject(p.id, { status: 'paused' });
+    const updated = factoryHealth.updateProject(p.id, {
+      status: 'paused',
+      config_json: markOperatorPausedConfig(p, args),
+    });
     try {
       factoryAudit.recordAuditEvent({
         project_id: updated.id,
@@ -1702,17 +1732,28 @@ async function handlePauseAllProjects(args = {}) {
     } catch (err) {
       logger.warn({ err }, 'Failed to record pause audit event');
     }
+    stopFactoryTickForProject(updated.id);
+    const terminatedLoops = terminateActiveLoopInstancesForOperatorPause(updated.id);
     const parkedQueue = parkPausedFactoryProjectQueue(updated.id);
-    return { paused: true, parked: parkedQueue.parked || 0 };
+    return {
+      paused: previous_status !== 'paused',
+      already_paused: previous_status === 'paused',
+      parked: parkedQueue.parked || 0,
+      terminated_loop_instances: terminatedLoops.terminated || 0,
+    };
   }));
-  const paused = results.filter(Boolean).length;
+  const paused = results.filter((result) => result?.paused).length;
+  const already_paused = results.filter((result) => result?.already_paused).length;
   const parked_tasks = results.reduce((sum, result) => sum + (result?.parked || 0), 0);
+  const terminated_loop_instances = results.reduce((sum, result) => sum + (result?.terminated_loop_instances || 0), 0);
   logger.info(`Emergency pause: ${paused} projects paused`);
   return jsonResponse({
     message: `${paused} project(s) paused`,
     total: projects.length,
     paused,
+    already_paused,
     parked_tasks,
+    terminated_loop_instances,
   });
 }
 

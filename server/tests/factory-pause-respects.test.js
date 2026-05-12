@@ -131,6 +131,66 @@ describe('factory pause enforcement', () => {
     expect(submitSpy).not.toHaveBeenCalled();
   });
 
+  it('operator pause terminates active loop instances and cancels scheduled advancement', async () => {
+    const project = registerFactoryProject({ status: 'running', autoContinue: true });
+    const instance = factoryLoopInstances.createInstance({ project_id: project.id });
+    loopController._internalForTests.scheduleAutoAdvanceForTests(instance.id, 60_000, () => {});
+
+    const result = await factoryHandlers.handlePauseProject({
+      project: project.id,
+      reason: 'manual stop',
+      actor: 'operator',
+    });
+    const data = JSON.parse(result.content[0].text);
+    const pausedProject = factoryHealth.getProject(project.id);
+    const pausedConfig = JSON.parse(pausedProject.config_json);
+
+    expect(data).toMatchObject({
+      parked_tasks: 0,
+      terminated_loop_instances: 1,
+      terminated_loop_instance_ids: [instance.id],
+    });
+    expect(factoryLoopInstances.getInstance(instance.id).terminated_at).toBeTruthy();
+    expect(loopController._internalForTests.getScheduledAutoAdvanceForTests(instance.id)).toBeNull();
+    expect(pausedProject).toMatchObject({
+      status: 'paused',
+      loop_state: LOOP_STATES.IDLE,
+      loop_batch_id: null,
+      loop_paused_at_stage: null,
+    });
+    expect(pausedConfig.loop).toMatchObject({
+      operator_paused: true,
+      operator_pause_reason: 'manual stop',
+    });
+  });
+
+  it('pause-all marks already-paused projects as operator-paused and terminates stale active loops', async () => {
+    const runningProject = registerFactoryProject({ status: 'running', autoContinue: true });
+    const pausedProject = registerFactoryProject({ status: 'paused', autoContinue: true });
+    const runningInstance = factoryLoopInstances.createInstance({ project_id: runningProject.id });
+    const pausedInstance = factoryLoopInstances.createInstance({ project_id: pausedProject.id });
+
+    const result = await factoryHandlers.handlePauseAllProjects({ reason: 'fleet stop' });
+    const data = JSON.parse(result.content[0].text);
+
+    expect(data).toMatchObject({
+      total: 2,
+      paused: 1,
+      already_paused: 1,
+      terminated_loop_instances: 2,
+    });
+    for (const project of [runningProject, pausedProject]) {
+      const fresh = factoryHealth.getProject(project.id);
+      expect(fresh.status).toBe('paused');
+      expect(JSON.parse(fresh.config_json).loop).toMatchObject({
+        operator_paused: true,
+        operator_pause_reason: 'fleet stop',
+      });
+    }
+    expect(factoryLoopInstances.getInstance(runningInstance.id).terminated_at).toBeTruthy();
+    expect(factoryLoopInstances.getInstance(pausedInstance.id).terminated_at).toBeTruthy();
+  });
+
   it('runAdvanceLoop returns early when the project is paused', async () => {
     const project = registerFactoryProject({ status: 'paused', autoContinue: false });
     const instance = factoryLoopInstances.createInstance({ project_id: project.id });

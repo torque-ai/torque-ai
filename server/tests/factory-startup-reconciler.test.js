@@ -278,6 +278,67 @@ describe('factory startup reconciler', () => {
     expect(calls.some((call) => call.type === 'advance')).toBe(false);
   });
 
+  it('terminates active instances for operator-paused projects on startup without restarting them', async () => {
+    const project = registerRunningProject({
+      config: { loop: { auto_continue: true, operator_paused: true } },
+      loopState: LOOP_STATES.EXECUTE,
+      batchId: 'operator-paused-batch',
+    });
+    factoryHealth.updateProject(project.id, { status: 'paused' });
+    const instance = createInstance(project, {
+      state: LOOP_STATES.EXECUTE,
+      batchId: 'operator-paused-batch',
+    });
+    const { reconcileFactoryProjectsOnStartup } = loadFreshReconciler();
+
+    const result = reconcileFactoryProjectsOnStartup();
+    await flushImmediate();
+
+    expect(result.actions).toMatchObject({
+      projects_scanned: 1,
+      restarted: 0,
+      advanced: 0,
+      skipped: 1,
+      operator_paused_projects: 1,
+      operator_paused_instances_terminated: 1,
+    });
+    expect(factoryLoopInstances.getInstance(instance.id).terminated_at).toBeTruthy();
+    expect(factoryHealth.getProject(project.id)).toMatchObject({
+      status: 'paused',
+      loop_state: LOOP_STATES.IDLE,
+      loop_batch_id: null,
+      loop_paused_at_stage: null,
+    });
+    expect(calls.some((call) => call.type === 'start')).toBe(false);
+    expect(calls.some((call) => call.type === 'advance')).toBe(false);
+  });
+
+  it('leaves internal paused projects outside startup operator-pause cleanup', async () => {
+    const project = registerRunningProject({
+      loopState: LOOP_STATES.VERIFY,
+      batchId: 'internal-paused-batch',
+    });
+    factoryHealth.updateProject(project.id, { status: 'paused' });
+    const instance = createInstance(project, {
+      state: LOOP_STATES.VERIFY,
+      pausedAtStage: LOOP_STATES.VERIFY,
+      batchId: 'internal-paused-batch',
+    });
+    const { reconcileFactoryProjectsOnStartup } = loadFreshReconciler();
+
+    const result = reconcileFactoryProjectsOnStartup();
+    await flushImmediate();
+
+    expect(result.actions).toMatchObject({
+      projects_scanned: 0,
+      operator_paused_projects: 0,
+      operator_paused_instances_terminated: 0,
+    });
+    expect(factoryLoopInstances.getInstance(instance.id).terminated_at).toBeNull();
+    expect(calls.some((call) => call.type === 'start')).toBe(false);
+    expect(calls.some((call) => call.type === 'advance')).toBe(false);
+  });
+
   it('terminates paused-at-EXECUTE instances with empty batches and starts fresh', async () => {
     const project = registerRunningProject();
     const instance = createInstance(project, {
