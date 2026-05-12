@@ -492,6 +492,18 @@ function configureV2Inference(explicitDb = null) {
   _v2InferenceDb = database;
 }
 
+function tryConfigureV2Inference() {
+  try {
+    configureV2Inference();
+    return true;
+  } catch (err) {
+    if (String(err?.message || '').includes('requires the database facade to be registered in the DI container')) {
+      return false;
+    }
+    throw err;
+  }
+}
+
 const { executeV2ProviderInference } = v2Inference;
 
 // Module-level taskManager reference for v2 inference cancel handler.
@@ -510,11 +522,11 @@ function initTaskManager(taskManagerOrDeps) {
     _injectedDb = deps.db || null;
     if (_injectedDb) {
       configureV2Inference(_injectedDb);
-      return;
     }
+    return;
   }
 
-  configureV2Inference();
+  tryConfigureV2Inference();
 }
 
 // ---------------------------------------------------------------------------
