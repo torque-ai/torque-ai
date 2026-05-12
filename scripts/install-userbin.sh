@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Install (or refresh) the wrappers from $REPO/bin into $HOME/bin.
 #
-# These wrappers (torque-remote, torque-remote-guard, torque-coord-client)
+# These wrappers (torque-remote, torque-remote-guard, torque-coord-client,
+# torque-push)
 # are checked into the repo and also lived as manual snapshots in $HOME/bin
 # until 2026-04-29, when this script was added. The user-bin copy is the
 # one actually invoked at the shell prompt and via the Bash PreToolUse
@@ -34,6 +35,7 @@ WRAPPERS=(
   "torque-remote"
   "torque-remote-guard"
   "torque-coord-client"
+  "torque-push"
 )
 
 if [ ! -d "$USERBIN_DST_DIR" ]; then
