@@ -39,6 +39,22 @@ function runInstaller(userBinDir) {
   });
 }
 
+function runInstallerWithHome(homeDir) {
+  const env = {
+    ...process.env,
+    HOME: toBashPath(homeDir),
+  };
+  delete env.TORQUE_USERBIN_DIR;
+  delete env.TORQUE_POWERSHELL_USERBIN_DIR;
+
+  return childProcess.spawnSync(BASH_EXECUTABLE, [toBashPath(SCRIPT_PATH)], {
+    cwd: REPO_ROOT,
+    env,
+    encoding: 'utf8',
+    windowsHide: true,
+  });
+}
+
 function runPowerShell(command) {
   return childProcess.spawnSync('powershell.exe', [
     '-NoProfile',
@@ -95,6 +111,38 @@ describe('install-userbin.sh', () => {
       expect(fs.existsSync(missingDir)).toBe(false);
     } finally {
       fs.rmSync(tmpRoot, { recursive: true, force: true });
+    }
+  });
+
+  const windowsIt = process.platform === 'win32' ? it : it.skip;
+  windowsIt('mirrors default installs into the PowerShell-visible local bin', () => {
+    const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'torque-userbin-home-'));
+    const bashBinDir = path.join(homeDir, 'bin');
+    const powershellBinDir = path.join(homeDir, '.local', 'bin');
+    fs.mkdirSync(bashBinDir, { recursive: true });
+    fs.mkdirSync(powershellBinDir, { recursive: true });
+
+    try {
+      const result = runInstallerWithHome(homeDir);
+      expect(result.status, result.stderr).toBe(0);
+      expect(result.stdout).toContain(`[install-userbin] done: ${WRAPPERS.length} installed, 0 skipped, 0 missing`);
+
+      for (const name of WRAPPERS) {
+        const src = fs.readFileSync(path.join(BIN_DIR, name));
+        const bashCopy = fs.readFileSync(path.join(bashBinDir, name));
+        const powershellCopy = fs.readFileSync(path.join(powershellBinDir, name));
+        expect(bashCopy.equals(src)).toBe(true);
+        expect(powershellCopy.equals(src)).toBe(true);
+      }
+
+      const escapedPowershellBinDir = powershellBinDir.replace(/'/g, "''");
+      const discovery = runPowerShell(
+        `$env:PATH = '${escapedPowershellBinDir}' + [IO.Path]::PathSeparator + $env:PATH; (Get-Command torque-push).Path`
+      );
+      expect(discovery.status, discovery.stderr).toBe(0);
+      expect(discovery.stdout.trim().toLowerCase()).toBe(path.join(powershellBinDir, 'torque-push.cmd').toLowerCase());
+    } finally {
+      fs.rmSync(homeDir, { recursive: true, force: true });
     }
   });
 });
