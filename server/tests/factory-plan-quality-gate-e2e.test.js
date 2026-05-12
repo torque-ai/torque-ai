@@ -58,6 +58,22 @@ const VAGUE_PLAN_WITH_NO_FILE_PATHS = [
   '    Run npm test. Success criteria: things should pass.',
 ].join('\n');
 
+function createFakeWorktreeRunner() {
+  return {
+    createForBatch: vi.fn(async ({ project, workItem, batchId }) => {
+      const worktreePath = path.join(project.path, '.worktrees', `feat-factory-${workItem.id}`);
+      fs.mkdirSync(worktreePath, { recursive: true });
+      return {
+        id: `vc-${batchId || workItem.id}`,
+        worktreePath,
+        branch: `feat/factory-${workItem.id}`,
+        baseBranch: 'main',
+      };
+    }),
+    abandon: vi.fn(),
+  };
+}
+
 describe('auto-generated plan description quality scoring', () => {
   it('passes a high-quality plan with file path, scope, success criteria, and validation command', () => {
     const loopController = require('../factory/loop-controller');
@@ -318,9 +334,11 @@ describe('executeNonPlanFileStage plan-quality-gate integration', () => {
   beforeEach(() => {
     setupTestDbOnly('plan-quality-gate-e2e');
     db = rawDb();
+    require('../factory/loop-controller').setWorktreeRunnerForTests(createFakeWorktreeRunner());
   });
   afterEach(() => {
     vi.restoreAllMocks();
+    require('../factory/loop-controller').setWorktreeRunnerForTests(undefined);
     teardownTestDb();
   });
 
@@ -331,7 +349,7 @@ describe('executeNonPlanFileStage plan-quality-gate integration', () => {
     const { projectId, workItemId } = seedProjectAndItem(db, { trust: 'autonomous' });
 
     vi.spyOn(planGate, 'evaluatePlan').mockResolvedValue({ passed: true, hardFails: [], warnings: [], llmCritique: null, feedbackPrompt: null });
-    vi.spyOn(require('../factory/internal-task-submit'), 'submitFactoryInternalTask').mockResolvedValue({ task_id: 't-1' });
+    const submitStub = vi.spyOn(require('../factory/internal-task-submit'), 'submitFactoryInternalTask').mockResolvedValue({ task_id: 't-1' });
     vi.spyOn(require('../handlers/workflow/await'), 'handleAwaitTask').mockResolvedValue({ status: 'completed' });
     vi.spyOn(require('../db/task-core'), 'getTask').mockReturnValue({ status: 'completed', output: HIGH_QUALITY_PLAN });
 
@@ -345,6 +363,22 @@ describe('executeNonPlanFileStage plan-quality-gate integration', () => {
     const after = db.prepare('SELECT origin_json FROM factory_work_items WHERE id = ?').get(workItemId);
     const origin = JSON.parse(after.origin_json);
     expect(origin.plan_gen_attempts).toBe(1);
+    expect(path.normalize(origin.plan_path)).toContain(`${path.sep}.worktrees${path.sep}`);
+    expect(fs.existsSync(origin.plan_path)).toBe(true);
+    const mainPlanPath = path.join(
+      project.path,
+      'docs',
+      'superpowers',
+      'plans',
+      'auto-generated',
+      `${workItemId}-edit-src-foo-ts-to-do-a-thing.md`,
+    );
+    expect(fs.existsSync(mainPlanPath)).toBe(false);
+    const worktreeRow = db.prepare('SELECT * FROM factory_worktrees WHERE work_item_id = ?').get(workItemId);
+    expect(worktreeRow).toMatchObject({ status: 'active' });
+    expect(submitStub).toHaveBeenCalledWith(expect.objectContaining({
+      working_directory: worktreeRow.worktree_path,
+    }));
   });
 
   it('Scenario 5 (skip_plan_quality_gate metadata): evaluatePlan is NOT called', async () => {
@@ -392,9 +426,11 @@ describe('executeNonPlanFileStage plan-quality-gate — reject paths', () => {
   beforeEach(() => {
     setupTestDbOnly('plan-quality-gate-e2e-rejects');
     db = rawDb();
+    require('../factory/loop-controller').setWorktreeRunnerForTests(createFakeWorktreeRunner());
   });
   afterEach(() => {
     vi.restoreAllMocks();
+    require('../factory/loop-controller').setWorktreeRunnerForTests(undefined);
     teardownTestDb();
   });
 

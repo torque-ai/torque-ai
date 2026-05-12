@@ -18,6 +18,7 @@ const factoryDecisions = require('../db/factory/decisions');
 const factoryHealth = require('../db/factory/health');
 const factoryIntake = require('../db/factory/intake');
 const factoryLoopInstances = require('../db/factory/loop-instances');
+const factoryWorktrees = require('../db/factory/worktrees');
 const loopController = require('../factory/loop-controller');
 const { LOOP_STATES } = require('../factory/loop-states');
 
@@ -108,6 +109,22 @@ function createFactoryTables(db) {
 
     CREATE INDEX IF NOT EXISTS idx_fd_project_time
       ON factory_decisions(project_id, created_at);
+
+    CREATE TABLE IF NOT EXISTS factory_worktrees (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      project_id TEXT NOT NULL,
+      work_item_id INTEGER NOT NULL,
+      batch_id TEXT NOT NULL,
+      vc_worktree_id TEXT NOT NULL,
+      branch TEXT NOT NULL,
+      worktree_path TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'active',
+      owning_task_id TEXT,
+      base_branch TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      abandoned_at TEXT,
+      merged_at TEXT
+    );
   `);
 }
 
@@ -171,7 +188,8 @@ describe('factory architect plan lint integration', () => {
     factoryIntake.setDb(db);
     factoryLoopInstances.setDb(db);
     factoryDecisions.setDb(db);
-    loopController.setWorktreeRunnerForTests(null);
+    factoryWorktrees.setDb(db);
+    loopController.setWorktreeRunnerForTests(undefined);
     tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'factory-plan-lint-'));
     createPlanExecutorMock.mockReset();
     createPlanExecutorMock.mockImplementation(() => ({
@@ -185,7 +203,8 @@ describe('factory architect plan lint integration', () => {
     factoryIntake.setDb(null);
     factoryLoopInstances.setDb(null);
     factoryDecisions.setDb(null);
-    loopController.setWorktreeRunnerForTests(null);
+    factoryWorktrees.setDb(null);
+    loopController.setWorktreeRunnerForTests(undefined);
     if (tempDir && fs.existsSync(tempDir)) {
       fs.rmSync(tempDir, { recursive: true, force: true });
     }
@@ -213,8 +232,21 @@ describe('factory architect plan lint integration', () => {
       description: 'Generate a plan that accidentally uses banned Vitest imports.',
       requestor: 'test',
     });
+    const planWorktreePath = path.join(projectDir, '.worktrees', `feat-factory-${workItem.id}`);
+    loopController.setWorktreeRunnerForTests({
+      createForBatch: vi.fn(async ({ batchId }) => {
+        fs.mkdirSync(planWorktreePath, { recursive: true });
+        return {
+          id: `vc-${batchId}`,
+          worktreePath: planWorktreePath,
+          branch: `feat/factory-${workItem.id}-author-a-bad-test-plan`,
+          baseBranch: 'main',
+        };
+      }),
+      abandon: vi.fn(),
+    });
     const planPath = path.join(
-      projectDir,
+      planWorktreePath,
       'docs',
       'superpowers',
       'plans',
