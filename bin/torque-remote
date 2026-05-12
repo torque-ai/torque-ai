@@ -650,10 +650,11 @@ remote_probe_os() {
   local probe_output
   local probe_start probe_end probe_ms
   probe_start=$(date +%s%3N)
-  if ! probe_output=$(ssh ${SSH_OPTS[@]+"${SSH_OPTS[@]}"} -o ConnectTimeout=10 \
+  probe_output=$(ssh ${SSH_OPTS[@]+"${SSH_OPTS[@]}"} -o ConnectTimeout=10 \
       ${SSH_KEY_PATH:+-i "$SSH_KEY_PATH"} \
-      "$SSH_USER@$SSH_HOST" "$probe_cmd" 2>&1); then
-    local ssh_rc=$?
+      "$SSH_USER@$SSH_HOST" "$probe_cmd" 2>&1)
+  local ssh_rc=$?
+  if [[ $ssh_rc -ne 0 ]]; then
     warn "[adapter:remote_probe_os] ssh failed rc=$ssh_rc host=$SSH_HOST"
     REMOTE_OS=unknown
     return 78
