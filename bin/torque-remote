@@ -602,6 +602,40 @@ windows_path_to_bash_path() {
   fi
 }
 
+# ============================================================================
+# Remote OS adapter layer
+# ----------------------------------------------------------------------------
+# Concentrates OS-specific shell emission. Every site that emits CMD or
+# PowerShell on the remote routes through one of these adapters. The OS
+# is detected once per invocation by remote_probe_os() and held in the
+# session-scope $REMOTE_OS variable (values: linux, windows, unknown).
+#
+# Adapters branch on $REMOTE_OS internally. Orchestration code (lock
+# algorithm, bundle assembly, config parsing) stays OS-agnostic.
+#
+# Preserves the documented lock-semantic invariants:
+#   - local-host-scoped reap rule (same-host PID-alive check; cross-host
+#     TTL-based reap) lives in orchestration, not adapters.
+#   - trailing-whitespace strip rule (Windows owner.env writes leave a
+#     trailing space; owner_field() strips it). Linux owner.env writes
+#     via heredoc are clean. Reader tolerates both.
+# ============================================================================
+
+# Classify a probe output string into linux | windows | unknown.
+# Args: $1 = probe output (uname -s output or ver string).
+# Sets: $REMOTE_OS
+classify_remote_os() {
+  local probe_output="$1"
+  case "$probe_output" in
+    Linux*|*linux*)            REMOTE_OS=linux ;;
+    Darwin*)                   REMOTE_OS=linux ;;     # POSIX-compatible, not certified
+    MINGW*|MSYS*|CYGWIN*)      REMOTE_OS=windows ;;
+    *Microsoft\ Windows*)      REMOTE_OS=windows ;;   # ver output
+    "")                        REMOTE_OS=unknown ;;
+    *)                         REMOTE_OS=unknown ;;
+  esac
+}
+
 remote_powershell_command() {
   local ps_body="$1"
   local encoded
