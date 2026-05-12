@@ -9554,30 +9554,46 @@ async function executePlanFileStage(project, instance, workItem) {
       if (canReuseActiveWorktree) {
         worktreeRecord = activeWorktree;
         executionWorkingDirectory = activeWorktreePath;
-        const reuseDecisionAction = resumedDeferredExecute
-          ? 'execute_deferred_worktree_reused'
-          : 'execute_batch_worktree_reused';
-        safeLogDecision({
-          project_id: project.id,
-          stage: LOOP_STATES.EXECUTE,
-          action: reuseDecisionAction,
-          reasoning: resumedDeferredExecute
-            ? 'Reusing the active batch worktree for a resumed deferred EXECUTE batch.'
-            : 'Reusing the active batch worktree already prepared for this EXECUTE batch.',
-          inputs: {
-            ...getWorkItemDecisionContext(targetItem),
-            ...(resumedDeferredExecute ? { deferral_decision_id: resumedDeferredExecute.id } : {}),
-          },
-          outcome: {
-            factory_worktree_id: activeWorktree.id,
-            worktree_id: activeWorktree.vcWorktreeId,
-            worktree_path: activeWorktreePath,
-            branch: activeWorktree.branch,
+        if (resumedDeferredExecute) {
+          safeLogDecision({
+            project_id: project.id,
+            stage: LOOP_STATES.EXECUTE,
+            action: 'execute_deferred_worktree_reused',
+            reasoning: 'Reusing the active batch worktree for a resumed deferred EXECUTE batch.',
+            inputs: {
+              ...getWorkItemDecisionContext(targetItem),
+              deferral_decision_id: resumedDeferredExecute.id,
+            },
+            outcome: {
+              factory_worktree_id: activeWorktree.id,
+              worktree_id: activeWorktree.vcWorktreeId,
+              worktree_path: activeWorktreePath,
+              branch: activeWorktree.branch,
+              batch_id: executeLogBatchId,
+            },
+            confidence: 1,
             batch_id: executeLogBatchId,
-          },
-          confidence: 1,
-          batch_id: executeLogBatchId,
-        });
+          });
+        } else {
+          safeLogDecision({
+            project_id: project.id,
+            stage: LOOP_STATES.EXECUTE,
+            action: 'execute_batch_worktree_reused',
+            reasoning: 'Reusing the active batch worktree already prepared for this EXECUTE batch.',
+            inputs: {
+              ...getWorkItemDecisionContext(targetItem),
+            },
+            outcome: {
+              factory_worktree_id: activeWorktree.id,
+              worktree_id: activeWorktree.vcWorktreeId,
+              worktree_path: activeWorktreePath,
+              branch: activeWorktree.branch,
+              batch_id: executeLogBatchId,
+            },
+            confidence: 1,
+            batch_id: executeLogBatchId,
+          });
+        }
       } else if (activeWorktree) {
         logger.warn('EXECUTE stage: active batch worktree is not reusable before create', {
           project_id: project.id,

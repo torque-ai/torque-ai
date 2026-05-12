@@ -214,7 +214,7 @@ describe('loop-controller decision logging', () => {
     expect(listDecisionRows(db, 'missing-db-project')).toEqual([]);
   });
 
-  it('logs SENSE -> PRIORITIZE -> PLAN decisions, gate approvals, and plan-generation rejection', async () => {
+  it('logs SENSE -> PRIORITIZE -> PLAN decisions, gate approvals, and plan-artifact worktree pauses', async () => {
     const { project, workItem } = registerProjectWithWorkItem('guided');
 
     loopController.startLoopForProject(project.id);
@@ -284,32 +284,40 @@ describe('loop-controller decision logging', () => {
     });
 
     const planAdvance = await loopController.advanceLoopForProject(project.id);
-    // Phase X4 (79917100): cannot_generate_plan now routes to needs_replan +
-    // PRIORITIZE so the next cycle can rework the item, instead of terminal
-    // 'rejected' → IDLE. The decision still fires and the rejection-reason
-    // metadata is preserved on origin_json (Phase X4's
-    // routeWorkItemToNeedsReplan helper).
-    expect(planAdvance.new_state).toBe(LOOP_STATES.PRIORITIZE);
+    expect(planAdvance.new_state).toBe(LOOP_STATES.EXECUTE);
+    expect(planAdvance.paused_at_stage).toBe(LOOP_STATES.EXECUTE);
     expect(planAdvance.reason).toBeTruthy();
+
+    decisions = listDecisionRows(db, project.id);
+    expect(decisions.at(-1)).toMatchObject({
+      stage: 'execute',
+      action: 'started_execution',
+    });
+
+    loopController.approveGateForProject(project.id, LOOP_STATES.EXECUTE);
+    const executeAdvance = await loopController.advanceLoopForProject(project.id);
+    expect(executeAdvance).toMatchObject({
+      new_state: LOOP_STATES.EXECUTE,
+      paused_at_stage: LOOP_STATES.EXECUTE,
+      stage_result: {
+        status: 'paused',
+        reason: 'plan_generation_worktree_creation_failed',
+      },
+    });
     expect(factoryIntake.getWorkItem(workItem.id)).toMatchObject({
       id: workItem.id,
-      status: 'needs_replan',
+      status: 'in_progress',
+      reject_reason: expect.stringContaining('plan_generation_worktree_creation_failed'),
     });
     decisions = listDecisionRows(db, project.id);
-    // Non-plan-file EXECUTE attempts production plan generation. This minimal
-    // fixture has no task pipeline, so the hardened path now routes the item
-    // to needs_replan instead of looping forever or terminating.
-    expect(decisions.length).toBeGreaterThanOrEqual(9);
-    expect(decisions.find(d => d.stage === 'execute' && d.action === 'started_execution')).toBeUndefined();
-    const routedToReplan = decisions.find(d => d.stage === 'execute' && (
-      d.action === 'cannot_generate_plan_routed_to_needs_replan'
-      || d.action === 'cannot_generate_plan'
+    const worktreeDecision = decisions.find(d => d.stage === 'execute' && (
+      d.action === 'plan_generation_worktree_unavailable'
+      || d.action === 'plan_generation_worktree_creation_failed'
     ));
-    expect(routedToReplan).toBeTruthy();
-    expect(routedToReplan.outcome).toMatchObject({
-      work_item_id: workItem.id,
+    expect(worktreeDecision).toBeTruthy();
+    expect(worktreeDecision.outcome).toMatchObject({
+      batch_id: expect.any(String),
     });
-    expect(routedToReplan.outcome.reason).toBeTruthy();
   });
 
   it('refreshes the decision DB dependency when handleDecisionLog is called', async () => {

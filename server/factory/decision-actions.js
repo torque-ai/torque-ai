@@ -221,6 +221,26 @@ const DECISION_ACTIONS = {
     classifier: 'benign',
     outcome: ['reason', 'plan_path', 'generation_task_id', 'blocking_work_item_id', 'task_status', 'work_item_id'],
   },
+  plan_generation_worktree_unavailable: {
+    stage: 'EXECUTE',
+    classifier: 'terminal',
+    outcome: ['batch_id', 'plan_path'],
+  },
+  plan_generation_worktree_reused: {
+    stage: 'EXECUTE',
+    classifier: 'benign',
+    outcome: ['factory_worktree_id', 'worktree_id', 'worktree_path', 'branch', 'batch_id'],
+  },
+  plan_generation_worktree_created: {
+    stage: 'EXECUTE',
+    classifier: 'benign',
+    outcome: ['factory_worktree_id', 'worktree_id', 'worktree_path', 'branch', 'batch_id'],
+  },
+  plan_generation_worktree_creation_failed: {
+    stage: 'EXECUTE',
+    classifier: 'terminal',
+    outcome: ['error', 'batch_id'],
+  },
   plan_generation_retry_unusable_output: {
     stage: 'EXECUTE',
     classifier: 'recovery-rule',
@@ -271,6 +291,11 @@ const DECISION_ACTIONS = {
     outcome: ['work_item_id', 'plan_task_number', 'resumed_at'],
   },
   execute_deferred_worktree_reused: {
+    stage: 'EXECUTE',
+    classifier: 'benign',
+    outcome: ['factory_worktree_id', 'worktree_id', 'worktree_path', 'branch', 'batch_id'],
+  },
+  execute_batch_worktree_reused: {
     stage: 'EXECUTE',
     classifier: 'benign',
     outcome: ['factory_worktree_id', 'worktree_id', 'worktree_path', 'branch', 'batch_id'],
