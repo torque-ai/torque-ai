@@ -486,7 +486,11 @@ pre_push_start_gate_artifact() {
   fi
 
   root="${PRE_PUSH_GATE_ARTIFACT_ROOT:-$(pre_push_git_common_dir)/torque-pre-push-gate-artifacts}"
-  mkdir -p "$root"
+  if ! mkdir -p "$root"; then
+    echo "[pre-push] warn: could not create gate artifact directory $root; continuing without a gate artifact."
+    pre_push_gate_artifact_file=""
+    return 0
+  fi
   pre_push_prune_gate_artifacts "$root" || true
   stamp="$(date -u +"%Y%m%dT%H%M%SZ" 2>/dev/null || date +%s)"
   pre_push_gate_started_at="$(date -u +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || date)"

@@ -365,6 +365,7 @@ printf '%b' "\\302\\267\\302\\267real failure line\\302\\267\\302\\267\\n" | pre
     expect(src).toMatch(/pre_push_prune_gate_artifacts\s*\(\)/);
     expect(src).toMatch(/PRE_PUSH_GATE_ARTIFACT_MAX_FILES:-50/);
     expect(src).toMatch(/torque-pre-push-gate-artifacts/);
+    expect(src).toMatch(/could not create gate artifact directory/);
     expect(src).toMatch(/pre_push_git_common_dir\s*\(\)/);
     expect(src).toMatch(/pre_push_write_gate_artifact "\$status" "\$rc" \|\| true/);
     expect(src).toMatch(/pre_push_artifact_output_tail "\$output_file"/);
