@@ -85,14 +85,15 @@ repo_coord_lock_describe() {
     return 0
   fi
 
-  local purpose pid host started_at cwd
+  local purpose pid host started_at cwd heartbeat
   purpose="$(repo_coord_lock_read_field "$owner_file" purpose)"
   pid="$(repo_coord_lock_read_field "$owner_file" pid)"
   host="$(repo_coord_lock_read_field "$owner_file" host)"
   started_at="$(repo_coord_lock_read_field "$owner_file" started_at)"
   cwd="$(repo_coord_lock_read_field "$owner_file" cwd)"
-  printf 'purpose=%s pid=%s host=%s started_at=%s cwd=%s\n' \
-    "${purpose:-unknown}" "${pid:-unknown}" "${host:-unknown}" "${started_at:-unknown}" "${cwd:-unknown}"
+  heartbeat="$(repo_coord_lock_heartbeat_summary "$lock_dir")"
+  printf 'purpose=%s pid=%s host=%s started_at=%s cwd=%s%s\n' \
+    "${purpose:-unknown}" "${pid:-unknown}" "${host:-unknown}" "${started_at:-unknown}" "${cwd:-unknown}" "$heartbeat"
 }
 
 repo_coord_lock_age_seconds() {
@@ -108,6 +109,39 @@ repo_coord_lock_age_seconds() {
     ''|*[!0-9]*) printf '0\n' ;;
     *) printf '%s\n' "$((now - started_at))" ;;
   esac
+}
+
+repo_coord_lock_heartbeat_summary() {
+  local lock_dir="$1"
+  local heartbeat_file="$lock_dir/heartbeat.env"
+  local now updated_at_epoch heartbeat_age phase detail output_bytes output_age_seconds
+
+  if [ ! -f "$heartbeat_file" ]; then
+    return 0
+  fi
+
+  now="$(date +%s)"
+  updated_at_epoch="$(repo_coord_lock_read_field "$heartbeat_file" updated_at_epoch)"
+  phase="$(repo_coord_lock_read_field "$heartbeat_file" phase)"
+  detail="$(repo_coord_lock_read_field "$heartbeat_file" detail)"
+  output_bytes="$(repo_coord_lock_read_field "$heartbeat_file" output_bytes)"
+  output_age_seconds="$(repo_coord_lock_read_field "$heartbeat_file" output_age_seconds)"
+
+  case "$updated_at_epoch" in
+    ''|*[!0-9]*) heartbeat_age="unknown" ;;
+    *) heartbeat_age="$((now - updated_at_epoch))s" ;;
+  esac
+
+  printf ' phase=%s heartbeat_age=%s' "${phase:-unknown}" "$heartbeat_age"
+  if [ -n "$output_age_seconds" ]; then
+    printf ' output_age=%ss' "$output_age_seconds"
+  fi
+  if [ -n "$output_bytes" ]; then
+    printf ' output_bytes=%s' "$output_bytes"
+  fi
+  if [ -n "$detail" ]; then
+    printf ' detail=%s' "$detail"
+  fi
 }
 
 repo_coord_lock_current_host() {

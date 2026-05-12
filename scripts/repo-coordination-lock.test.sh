@@ -48,6 +48,19 @@ LOCK_DIR="$TORQUE_COORD_LOCK_DIR"
 LOCK_TOKEN="$TORQUE_COORD_LOCK_TOKEN"
 assert_dir_exists "$LOCK_DIR"
 assert_contains "$LOCK_DIR/owner.env" '^purpose=primary test$'
+cat > "$LOCK_DIR/heartbeat.env" <<EOF
+updated_at_epoch=$(date +%s)
+phase=server
+detail=running tests
+output_bytes=12345
+output_age_seconds=7
+EOF
+repo_coord_lock_status main > "$TMP_ROOT/heartbeat-status.out" 2>&1 || true
+assert_contains "$TMP_ROOT/heartbeat-status.out" 'phase=server'
+assert_contains "$TMP_ROOT/heartbeat-status.out" 'heartbeat_age='
+assert_contains "$TMP_ROOT/heartbeat-status.out" 'output_age=7s'
+assert_contains "$TMP_ROOT/heartbeat-status.out" 'output_bytes=12345'
+assert_contains "$TMP_ROOT/heartbeat-status.out" 'detail=running tests'
 
 set +e
 bash -c '

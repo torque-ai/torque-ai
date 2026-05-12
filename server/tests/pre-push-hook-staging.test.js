@@ -345,6 +345,18 @@ printf '%b' "\\302\\267\\302\\267real failure line\\302\\267\\302\\267\\n" | pre
     expect(src).toMatch(/git_cleanup_timeout\s+push\s+--no-verify\s+--quiet\s+origin\s+":refs\/heads\/\$staging_branch"/);
   });
 
+  it('publishes heartbeat metadata while the main gate is running', () => {
+    const src = readHook();
+    expect(src).toMatch(/pre_push_start_gate_heartbeat\s*\(\)/);
+    expect(src).toMatch(/pre_push_write_gate_heartbeat_once\s*\(\)/);
+    expect(src).toMatch(/heartbeat\.env/);
+    expect(src).toMatch(/pre_push_set_gate_phase "\$label" "running" "\$tmp"/);
+    expect(src).toMatch(/pre_push_set_gate_phase "remote_preflight"/);
+    expect(src).toMatch(/pre_push_set_gate_phase "staging"/);
+    expect(src).toMatch(/pre_push_set_gate_phase "gate_results"/);
+    expect(src).toMatch(/pre_push_stop_gate_heartbeat \|\| true/);
+  });
+
   it('isolates generated gate subprocesses from the parent main coordination lease', () => {
     const src = readHook();
     expect(src).toMatch(/coord_lock_env_reset_cmd\s*\(\)/);
