@@ -57,6 +57,7 @@ npm-debug.log*
 coverage/
 .nyc_output/
 server/tests/_*
+!server/tests/_torque-remote-test-runner.sh
 /runs/
 
 # Runtime caches
