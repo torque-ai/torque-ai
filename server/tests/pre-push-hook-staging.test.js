@@ -157,9 +157,57 @@ describe('pre-push-hook staging-branch invariants', () => {
   it('runs dashboard and server sequentially when the gate falls back locally', () => {
     const src = readHook();
     expect(src).toMatch(/is_local_gate_transport\s*\(\)/);
+    expect(src).toMatch(/configure_local_gate_worker_cap\s*\(\)/);
     expect(src).toContain('case "\\${TORQUE_REMOTE_TRANSPORT:-ssh}" in');
+    expect(src).toContain('PRE_PUSH_LOCAL_VITEST_MAX_WORKERS');
+    expect(src).toContain('local gate defaulting VITEST_MAX_WORKERS=');
+    expect(src).toMatch(/configure_local_gate_worker_cap[\s\S]*if is_local_gate_transport; then/);
     expect(src).toContain('[gate] local transport detected; running dashboard/server phases sequentially');
     expect(src).toMatch(/if is_local_gate_transport; then[\s\S]*run_dashboard_phase[\s\S]*run_server_phase[\s\S]*else[\s\S]*run_dashboard_phase &[\s\S]*run_server_phase &/);
+  });
+
+  it('sets a conservative server worker cap only for local fallback gates', () => {
+    const bashCheck = spawnSync('bash', ['--version'], { encoding: 'utf8' });
+    if (bashCheck.error || bashCheck.status !== 0) return;
+
+    const src = readHook();
+    const start = src.indexOf('is_local_gate_transport() {');
+    const end = src.indexOf('# Phase exit files are the source of truth', start);
+    expect(start).toBeGreaterThanOrEqual(0);
+    expect(end).toBeGreaterThan(start);
+
+    const helperBlock = src.slice(start, end).replace(/\\\$/g, '$');
+    const script = `${helperBlock}
+GATE_RUN_SERVER=1
+unset VITEST_MAX_WORKERS PRE_PUSH_LOCAL_VITEST_MAX_WORKERS
+TORQUE_REMOTE_TRANSPORT=local
+configure_local_gate_worker_cap
+printf 'default=%s\\n' "$VITEST_MAX_WORKERS"
+
+VITEST_MAX_WORKERS=5
+configure_local_gate_worker_cap
+printf 'explicit=%s\\n' "$VITEST_MAX_WORKERS"
+
+unset VITEST_MAX_WORKERS
+PRE_PUSH_LOCAL_VITEST_MAX_WORKERS=bad
+configure_local_gate_worker_cap
+printf 'invalid=%s\\n' "$VITEST_MAX_WORKERS"
+
+unset VITEST_MAX_WORKERS PRE_PUSH_LOCAL_VITEST_MAX_WORKERS
+TORQUE_REMOTE_TRANSPORT=ssh
+configure_local_gate_worker_cap
+printf 'remote=%s\\n' "\${VITEST_MAX_WORKERS:-unset}"
+`;
+
+    const result = spawnSync('bash', ['-s'], { encoding: 'utf8', input: script });
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toContain('local gate defaulting VITEST_MAX_WORKERS=2');
+    expect(result.stdout).toContain('default=2');
+    expect(result.stdout).toContain('preserving VITEST_MAX_WORKERS=5 for local gate');
+    expect(result.stdout).toContain('explicit=5');
+    expect(result.stdout).toContain('invalid PRE_PUSH_LOCAL_VITEST_MAX_WORKERS=bad; using 2');
+    expect(result.stdout).toContain('invalid=2');
+    expect(result.stdout).toContain('remote=unset');
   });
 
   it('labels expected fixture stderr while preserving timing markers', () => {
