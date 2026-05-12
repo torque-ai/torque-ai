@@ -1035,6 +1035,23 @@ async function finalizeTask(taskId, options = {}) {
       getRawDb: getRawDbInstance,
       logDecision: deps.logFactoryDecision,
     }), ctx.status === 'completed');
+    await runStage(
+      ctx,
+      'retry_logic_after_phantom',
+      deps.handleRetryLogic,
+      Boolean(ctx.phantomSuccess) && ctx.status === 'failed' && ctx.code !== 0
+    );
+    if (ctx.earlyExit) {
+      releaseSharedCodexClaimsForEarlyExit(taskId, task, ctx);
+      return {
+        finalized: false,
+        queueManaged: true,
+        task: deps.db.getTask(taskId) || task,
+        status: deps.db.getTask(taskId)?.status || ctx.status,
+        validationStages: ctx.validationStages,
+        reason: 'early_exit',
+      };
+    }
     // Banner-only detection runs on terminal non-success states. Codex
     // killed mid-startup leaves error_output as just the CLI banner —
     // useless for diagnosis. Rewrite to a clearer message while preserving

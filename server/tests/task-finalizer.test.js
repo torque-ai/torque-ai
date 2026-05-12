@@ -376,6 +376,58 @@ describe('task-finalizer', () => {
     expect(handlePostCompletion).toHaveBeenCalledWith(expect.objectContaining({ status: 'failed', code: 1 }));
   });
 
+  it('schedules retry after Codex phantom success reclassification', async () => {
+    const dbBundle = createTaskDb({
+      provider: 'codex',
+      max_retries: 2,
+      retry_count: 0,
+      tags: [
+        'factory:batch_id=factory-a3df749a-7869-486f-9896-64d38d25d39b-664',
+        'factory:work_item_id=664',
+      ],
+    });
+    const handlePostCompletion = vi.fn();
+    const handleRetryLogic = vi.fn((ctx) => {
+      dbBundle.db.updateTaskStatus(ctx.taskId, 'retry_scheduled', {
+        exit_code: ctx.code,
+        error_output: `[Retry 1/2] ${ctx.errorOutput}`,
+      });
+      ctx.earlyExit = true;
+    });
+    initFinalizer({
+      dbBundle,
+      handlePostCompletion,
+      handleRetryLogic,
+      logFactoryDecision: vi.fn(),
+    });
+
+    const result = await finalizer.finalizeTask(dbBundle.taskId, {
+      exitCode: 0,
+      output: '',
+      errorOutput: "ERROR: Reconnecting... 1/5\nERROR: We're currently experiencing high demand",
+      filesModified: [],
+    });
+
+    const storedTask = dbBundle.getStoredTask();
+    expect(result).toMatchObject({
+      finalized: false,
+      queueManaged: true,
+      status: 'retry_scheduled',
+      reason: 'early_exit',
+    });
+    expect(storedTask.status).toBe('retry_scheduled');
+    expect(handleRetryLogic).toHaveBeenCalledTimes(1);
+    expect(handlePostCompletion).not.toHaveBeenCalled();
+    expect(result.validationStages.retry_logic_after_phantom).toMatchObject({
+      outcome: 'early_exit',
+      status_before: 'failed',
+      status_after: 'failed',
+      code_before: 1,
+      code_after: 1,
+      early_exit: true,
+    });
+  });
+
   it('is idempotent when finalizeTask is called twice concurrently', async () => {
     vi.useFakeTimers();
     try {
