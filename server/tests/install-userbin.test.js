@@ -17,6 +17,7 @@ const WRAPPERS = [
   'torque-remote',
   'torque-remote-guard',
   'torque-coord-client',
+  'torque-push',
 ];
 
 function toBashPath(value) {
@@ -42,7 +43,7 @@ describe('install-userbin.sh', () => {
     try {
       const first = runInstaller(tmpDir);
       expect(first.status).toBe(0);
-      expect(first.stdout).toContain('[install-userbin] done: 3 installed, 0 skipped, 0 missing');
+      expect(first.stdout).toContain(`[install-userbin] done: ${WRAPPERS.length} installed, 0 skipped, 0 missing`);
 
       for (const name of WRAPPERS) {
         const src = fs.readFileSync(path.join(BIN_DIR, name));
@@ -52,7 +53,7 @@ describe('install-userbin.sh', () => {
 
       const second = runInstaller(tmpDir);
       expect(second.status).toBe(0);
-      expect(second.stdout).toContain('[install-userbin] done: 0 installed, 3 skipped, 0 missing');
+      expect(second.stdout).toContain(`[install-userbin] done: 0 installed, ${WRAPPERS.length} skipped, 0 missing`);
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }
