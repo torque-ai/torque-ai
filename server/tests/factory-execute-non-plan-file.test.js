@@ -13,6 +13,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const Database = require('better-sqlite3');
+const { defaultContainer } = require('../container');
 const factoryDecisions = require('../db/factory/decisions');
 const factoryHealth = require('../db/factory/health');
 const factoryIntake = require('../db/factory/intake');
@@ -220,6 +221,7 @@ describe('factory loop-controller EXECUTE for non-plan-file work items', () => {
   let db;
   let database;
   let originalGetDbInstance;
+  let containerPeekSpy;
   let tempDir;
   let planExecuteMock;
 
@@ -236,6 +238,11 @@ describe('factory loop-controller EXECUTE for non-plan-file work items', () => {
     projectConfigCore.setDb(db);
     originalGetDbInstance = database.getDbInstance;
     database.getDbInstance = () => db;
+    const originalPeek = defaultContainer.peek.bind(defaultContainer);
+    containerPeekSpy = vi.spyOn(defaultContainer, 'peek').mockImplementation((name) => {
+      if (name === 'db') return database;
+      return originalPeek(name);
+    });
     tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'factory-execute-non-plan-file-'));
     planExecuteMock = vi.fn(async ({ plan_path }) => ({
       plan_path,
@@ -268,6 +275,8 @@ describe('factory loop-controller EXECUTE for non-plan-file work items', () => {
     factoryDecisions.setDb(null);
     factoryWorktrees.setDb(null);
     projectConfigCore.setDb(null);
+    containerPeekSpy?.mockRestore();
+    containerPeekSpy = null;
     routingModule.handleSmartSubmitTask = originalHandleSmartSubmitTask;
     awaitModule.handleAwaitTask = originalHandleAwaitTask;
     taskCore.getTask = originalGetTask;
