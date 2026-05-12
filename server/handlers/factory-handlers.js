@@ -76,6 +76,18 @@ const COMMITS_TODAY_CACHE_TTL_MS = 60 * 1000;
 const COMMITS_TODAY_TIMEOUT_MS = 5 * 1000;
 const TERMINAL_FACTORY_BATCH_TASK_STATUSES = new Set(['completed', 'shipped', 'cancelled', 'failed', 'skipped']);
 const TERMINAL_FACTORY_INTERNAL_TASK_STATUSES = TERMINAL_FACTORY_BATCH_TASK_STATUSES;
+const FACTORY_QUEUE_STATUS_KEYS = [
+  'running',
+  'queued',
+  'pending',
+  'waiting',
+  'blocked',
+  'pending_provider_switch',
+  'retry_scheduled',
+  'pending_approval',
+];
+const FACTORY_SCHEDULABLE_TASK_STATUS_KEYS = FACTORY_QUEUE_STATUS_KEYS
+  .filter((status) => status !== 'pending_approval');
 const ACTIVE_FACTORY_BATCH_TASK_STATUS_RANK = new Map([
   ['running', 0],
   ['pending_provider_switch', 1],
@@ -126,6 +138,13 @@ function isBasicProjectListRequest(args = {}) {
     || args.basic === 'true';
 }
 
+function isIdleDiagnosisRequested(args = {}) {
+  return args.include_idle_diagnosis === true
+    || args.include_idle_diagnosis === 'true'
+    || args.includeIdleDiagnosis === true
+    || args.includeIdleDiagnosis === 'true';
+}
+
 function summarizeBasicFactoryProject(project) {
   return {
     id: project.id,
@@ -133,6 +152,7 @@ function summarizeBasicFactoryProject(project) {
     path: project.path,
     trust_level: project.trust_level,
     status: project.status,
+    loop_state: normalizeProjectLoopState(project.loop_state),
   };
 }
 
@@ -778,6 +798,182 @@ function countOpenFactoryWorkItems(projectId) {
   }
 }
 
+function isFactoryQueueTask(task, projectNames = new Set()) {
+  const tags = getTaskTags(task).map((tag) => String(tag || ''));
+  if (tags.some((tag) => tag.startsWith('factory:'))) {
+    return true;
+  }
+  const projectName = String(task?.project || '').trim();
+  return projectName !== '' && projectNames.has(projectName);
+}
+
+function countTasksByStatusKey(status, projectNames = new Set()) {
+  try {
+    const db = getDatabase();
+    if (db && typeof db.listTasks === 'function') {
+      const rows = db.listTasks({ status, limit: 10000, columns: ['id', 'project', 'tags'] });
+      return Array.isArray(rows)
+        ? rows.filter((task) => isFactoryQueueTask(task, projectNames)).length
+        : 0;
+    }
+    if (db && typeof db.countTasks === 'function' && projectNames.size === 0) {
+      return Number(db.countTasks({ status, tag: 'factory:internal' })) || 0;
+    }
+  } catch (error) {
+    logger.debug('Failed to count tasks for factory idle diagnosis', {
+      err: error.message,
+      status,
+    });
+  }
+  return 0;
+}
+
+function getFactoryTaskQueueCounts(projects = []) {
+  const projectNames = new Set(
+    (Array.isArray(projects) ? projects : [])
+      .map((project) => String(project?.name || '').trim())
+      .filter(Boolean)
+  );
+  const byStatus = {};
+  for (const status of FACTORY_QUEUE_STATUS_KEYS) {
+    byStatus[status] = countTasksByStatusKey(status, projectNames);
+  }
+  const totalNonTerminal = Object.values(byStatus).reduce((sum, count) => sum + count, 0);
+  const schedulable = FACTORY_SCHEDULABLE_TASK_STATUS_KEYS
+    .reduce((sum, status) => sum + (byStatus[status] || 0), 0);
+
+  return {
+    by_status: byStatus,
+    total_non_terminal: totalNonTerminal,
+    schedulable,
+    manual_gate_pending: byStatus.pending_approval || 0,
+  };
+}
+
+function projectIdList(projects, predicate) {
+  return projects
+    .filter(predicate)
+    .map((project) => project.id)
+    .filter(Boolean);
+}
+
+function hasActiveFactoryLoop(project) {
+  if (project.active_task) {
+    return true;
+  }
+  const state = normalizeProjectLoopState(project.active_stage || project.loop_state);
+  return !NON_STALLABLE_FACTORY_LOOP_STATES.has(state);
+}
+
+function makeIdleAction(type, label, projectIds = []) {
+  return {
+    type,
+    label,
+    ...(projectIds.length > 0 ? { project_ids: projectIds.slice(0, 20) } : {}),
+  };
+}
+
+function buildFactoryIdleDiagnosis(projects, taskQueue = null) {
+  const projectList = Array.isArray(projects) ? projects : [];
+  const resolvedTaskQueue = taskQueue || getFactoryTaskQueueCounts(projectList);
+  const totalProjects = projectList.length;
+  const runningProjectIds = projectIdList(projectList, (project) => project.status === 'running');
+  const pausedProjectIds = projectIdList(projectList, (project) => project.status === 'paused');
+  const activeLoopProjectIds = projectIdList(projectList, hasActiveFactoryLoop);
+  const openWorkItems = projectList.reduce((sum, project) => (
+    sum + (Number(project.open_work_item_count) || 0)
+  ), 0);
+  const allProjectsPaused = totalProjects > 0 && pausedProjectIds.length === totalProjects;
+  const counts = {
+    total_projects: totalProjects,
+    running_projects: runningProjectIds.length,
+    paused_projects: pausedProjectIds.length,
+    active_loop_projects: activeLoopProjectIds.length,
+    open_work_items: openWorkItems,
+    task_queue: resolvedTaskQueue,
+  };
+  const projectIds = {
+    running: runningProjectIds.slice(0, 20),
+    paused: pausedProjectIds.slice(0, 20),
+    active_loops: activeLoopProjectIds.slice(0, 20),
+  };
+
+  let idle = true;
+  let reasonCode = 'queue_empty_no_open_work';
+  let message = 'Factory has no active loops, schedulable tasks, or open work items.';
+  const actions = [];
+
+  if (totalProjects === 0) {
+    reasonCode = 'no_projects_registered';
+    message = 'No factory projects are registered.';
+    actions.push(makeIdleAction('register_factory_project', 'Register a factory project.'));
+  } else if (activeLoopProjectIds.length > 0) {
+    idle = false;
+    reasonCode = 'active_factory_loops';
+    message = 'At least one factory loop is active.';
+  } else if (resolvedTaskQueue.schedulable > 0) {
+    idle = false;
+    reasonCode = 'queue_has_work';
+    message = 'The task queue still has schedulable factory work.';
+  } else if (allProjectsPaused) {
+    reasonCode = 'all_projects_paused';
+    message = 'All registered factory projects are paused.';
+    actions.push(makeIdleAction('resume_project', 'Resume at least one factory project.', pausedProjectIds));
+  } else if (resolvedTaskQueue.manual_gate_pending > 0) {
+    reasonCode = 'manual_gate_pending';
+    message = 'Factory work is waiting on manual approval.';
+    actions.push(makeIdleAction('review_approvals', 'Review pending approvals.'));
+  } else if (runningProjectIds.length === 0) {
+    reasonCode = 'no_running_projects';
+    message = 'No factory projects are running.';
+    actions.push(makeIdleAction('resume_project', 'Resume a factory project.', pausedProjectIds));
+  } else if (openWorkItems > 0) {
+    reasonCode = 'work_waiting_for_loop';
+    message = 'Open factory work items exist, but no loop is currently active.';
+    actions.push(makeIdleAction('start_factory_loop', 'Start or advance a factory loop.', runningProjectIds));
+  }
+
+  return {
+    idle,
+    reason_code: reasonCode,
+    message,
+    counts,
+    project_ids: projectIds,
+    actions,
+  };
+}
+
+function summarizeProjectForIdleDiagnosis(project) {
+  const activeInstances = factoryLoopInstances.listInstances({
+    project_id: project.id,
+    active_only: true,
+  });
+  const activeInstance = Array.isArray(activeInstances) ? activeInstances[0] : null;
+  const loopState = activeInstance
+    ? normalizeProjectLoopState(activeInstance.loop_state)
+    : 'IDLE';
+  const activeTask = getActivePlanGenerationTask(activeInstance)
+    || getActiveArchitectTask(activeInstance)
+    || getActiveFactoryBatchTask(activeInstance);
+  const activeStage = ['architect_cycle', 'plan_generation'].includes(activeTask?.kind)
+    ? LOOP_STATES.PLAN
+    : loopState;
+
+  return {
+    id: project.id,
+    name: project.name,
+    status: project.status,
+    loop_state: loopState,
+    active_stage: activeStage,
+    active_task: activeTask,
+    open_work_item_count: countOpenFactoryWorkItems(project.id),
+  };
+}
+
+function buildFactoryIdleDiagnosisForProjects(projects) {
+  return buildFactoryIdleDiagnosis(projects.map(summarizeProjectForIdleDiagnosis));
+}
+
 function hasNonTerminalFactoryBatchTasks(batchId) {
   if (!batchId) {
     return false;
@@ -1127,7 +1323,11 @@ async function handleRegisterFactoryProject(args) {
 async function handleListFactoryProjects(args = {}) {
   const projects = factoryHealth.listProjects(args.status ? { status: args.status } : undefined);
   if (isBasicProjectListRequest(args)) {
-    return jsonResponse({ projects: projects.map(summarizeBasicFactoryProject) });
+    const response = { projects: projects.map(summarizeBasicFactoryProject) };
+    if (isIdleDiagnosisRequested(args)) {
+      response.idle_diagnosis = buildFactoryIdleDiagnosisForProjects(projects);
+    }
+    return jsonResponse(response);
   }
 
   // Include commits_today by default so existing REST consumers see the
@@ -1145,7 +1345,11 @@ async function handleListFactoryProjects(args = {}) {
     }
     return summary;
   }));
-  return jsonResponse({ projects: summaries });
+  const response = { projects: summaries };
+  if (isIdleDiagnosisRequested(args)) {
+    response.idle_diagnosis = buildFactoryIdleDiagnosisForProjects(projects);
+  }
+  return jsonResponse(response);
 }
 
 function summarizeHealthModel(scores) {
@@ -1569,6 +1773,7 @@ async function handleFactoryStatus() {
       loop_paused_at_stage: pausedAtStage,
       loop_last_action_at: lastActionAt,
       consecutive_empty_cycles: Number(p.consecutive_empty_cycles) || 0,
+      open_work_item_count: openWorkItemCount,
       alert_badge: alertBadge,
       balance,
       weakest_dimension: weakest ? weakest[0] : null,
@@ -1588,6 +1793,7 @@ async function handleFactoryStatus() {
   )).length;
   const activeProjectTasks = summaries.filter(project => project.active_task?.kind === 'execution').length;
   const stateMismatchProjects = summaries.filter(project => !project.state_consistency?.ok).length;
+  const idleDiagnosis = buildFactoryIdleDiagnosis(summaries);
   // Stall calculation uses the instance-derived state too, so a dead
   // instance can't look "running but stalled" forever — with no active
   // instance, loop_state is IDLE and the project is excluded from stalled.
@@ -1622,6 +1828,7 @@ async function handleFactoryStatus() {
       active_internal_tasks: activeInternalTasks,
       active_project_tasks: activeProjectTasks,
       state_mismatch_projects: stateMismatchProjects,
+      idle_diagnosis: idleDiagnosis,
     },
   });
 }

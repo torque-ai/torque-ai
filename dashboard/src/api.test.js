@@ -677,5 +677,17 @@ describe('api.js', () => {
         expect.any(Object)
       );
     });
+
+    it('projects() can request factory idle diagnosis', async () => {
+      globalThis.fetch = mockFetch({ body: { data: { projects: [], idle_diagnosis: { idle: true } } } });
+
+      const result = await factory.projects({ includeIdleDiagnosis: true });
+
+      expect(result).toEqual({ projects: [], idle_diagnosis: { idle: true } });
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        '/api/v2/factory/projects?include_idle_diagnosis=true&include_commits=false',
+        expect.any(Object)
+      );
+    });
   });
 });

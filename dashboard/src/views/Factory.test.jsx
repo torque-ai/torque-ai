@@ -95,6 +95,7 @@ describe('Factory overview', () => {
       activeProjectAction: null,
       handlePauseAll,
       handleToggleProject,
+      idleDiagnosis: null,
       loadProjects,
       loading: false,
       outletContext: {
@@ -120,6 +121,7 @@ describe('Factory overview', () => {
         handleRejectWorkItem: vi.fn(),
         handleRerunArchitect: vi.fn(),
         handleToggleProject,
+        idleDiagnosis: null,
         intakeItems: [],
         intakeLoading: false,
         loopAdvanceJob: null,
@@ -180,6 +182,58 @@ describe('Factory overview', () => {
       expect(factoryApi.approveGateInstance).toHaveBeenCalledWith('11111111-1111-4111-8111-111111111111', 'VERIFY');
     });
     expect(screen.getAllByRole('button', { name: 'Pause' }).length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('surfaces global factory idle diagnosis above the project grid', () => {
+    const baseShell = useFactoryShell();
+    const pausedProject = {
+      ...factoryProject,
+      status: 'paused',
+      loop_state: 'IDLE',
+    };
+
+    useFactoryShell.mockReturnValue({
+      ...baseShell,
+      idleDiagnosis: {
+        idle: true,
+        reason_code: 'all_projects_paused',
+        message: 'All registered factory projects are paused.',
+        counts: {
+          running_projects: 0,
+          paused_projects: 1,
+          open_work_items: 0,
+          task_queue: {
+            total_non_terminal: 0,
+          },
+        },
+      },
+      outletContext: {
+        ...baseShell.outletContext,
+        detail: {
+          ...baseShell.outletContext.detail,
+          project: pausedProject,
+        },
+        idleDiagnosis: {
+          idle: true,
+          reason_code: 'all_projects_paused',
+          message: 'All registered factory projects are paused.',
+        },
+        projects: [pausedProject],
+        selectedProject: pausedProject,
+        selectedProjectId: pausedProject.id,
+      },
+      pausedProjects: 1,
+      projects: [pausedProject],
+      runningProjects: 0,
+      totalProjects: 1,
+    });
+
+    renderFactory();
+
+    expect(screen.getByRole('status', { name: /factory idle diagnosis/i })).toBeInTheDocument();
+    expect(screen.getByText('All projects paused')).toBeInTheDocument();
+    expect(screen.getByText('All registered factory projects are paused.')).toBeInTheDocument();
+    expect(screen.getByText(/0 running .* 1 paused .* 0 open items .* 0 queued/i)).toBeInTheDocument();
   });
 
   it('renders keyed factory alert badges and ignores unkeyed alert payloads', () => {

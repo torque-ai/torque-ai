@@ -34,6 +34,19 @@ const tools = [
           enum: ['running', 'paused', 'idle'],
           description: 'Filter by factory status',
         },
+        summary: {
+          type: 'string',
+          enum: ['basic'],
+          description: 'Return a lightweight project list.',
+        },
+        include_commits: {
+          type: 'boolean',
+          description: 'Include commits_today enrichment. Default: true for MCP, false for dashboard API clients.',
+        },
+        include_idle_diagnosis: {
+          type: 'boolean',
+          description: 'Include global factory idle diagnosis with queue, loop, and intake counts.',
+        },
       },
     },
   },
@@ -124,7 +137,7 @@ const tools = [
   },
   {
     name: 'factory_status',
-    description: 'Overview of all factory projects — name, trust level, status, health balance score. Air traffic control view.',
+    description: 'Overview of all factory projects — name, trust level, status, health balance score, active loop state, and idle diagnosis. Air traffic control view.',
     inputSchema: {
       type: 'object',
       properties: {},
