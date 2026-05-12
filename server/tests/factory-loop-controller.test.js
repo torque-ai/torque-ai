@@ -2162,7 +2162,9 @@ Edit server/factory/plan-executor.js and make the requested behavior change. Kee
       owner_source: 'replacement_task_same_worktree',
       retry_after: expect.any(String),
     });
-    expect(db.prepare('SELECT status FROM factory_worktrees WHERE id = ?').get(existing.id).status).toBe('active');
+    const worktreeRow = db.prepare('SELECT status, owning_task_id FROM factory_worktrees WHERE id = ?').get(existing.id);
+    expect(worktreeRow.status).toBe('active');
+    expect(worktreeRow.owning_task_id).toBe('task-restart-clone');
 
     const decisions = listDecisionRows(db, project.id);
     const skipped = decisions.find((d) => d.action === 'worktree_reclaim_skipped_live_owner');

@@ -641,17 +641,15 @@ function maybeReuseCompletedWorktreeOwner({
     return null;
   }
 
-  try {
-    if (ownerSource === 'replacement_task_same_worktree' && stale?.id && owner?.id) {
-      factoryWorktrees.setOwningTask(stale.id, owner.id);
-    }
-  } catch (ownErr) {
-    logger.warn('factory worktree: failed to adopt completed replacement owner before reuse', {
-      factory_worktree_id: stale?.id || null,
-      owning_task_id: owner?.id || null,
-      err: ownErr && ownErr.message,
-    });
-  }
+  adoptReplacementWorktreeOwner({
+    owner,
+    ownerSource,
+    stale,
+    project,
+    targetItem,
+    targetBranch,
+    context: 'completed_reuse',
+  });
 
   logger.info('factory worktree: reusing active worktree with completed owner before create', {
     project_id: project.id,
@@ -690,6 +688,49 @@ function maybeReuseCompletedWorktreeOwner({
     worktreeRecord: stale,
     executionWorkingDirectory: staleWorktreePath,
   };
+}
+
+function adoptReplacementWorktreeOwner({
+  owner,
+  ownerSource,
+  stale,
+  project,
+  targetItem,
+  targetBranch,
+  context,
+}) {
+  if (ownerSource !== 'replacement_task_same_worktree' || !stale?.id || !owner?.id) {
+    return null;
+  }
+  if (stale.owningTaskId === owner.id || stale.owning_task_id === owner.id) {
+    return stale;
+  }
+
+  try {
+    const adopted = factoryWorktrees.setOwningTask(stale.id, owner.id);
+    logger.info('factory worktree: adopted restart-cloned replacement owner', {
+      project_id: project?.id || null,
+      work_item_id: targetItem?.id || null,
+      branch: targetBranch || stale.branch || null,
+      factory_worktree_id: stale.id,
+      previous_owning_task_id: stale.owningTaskId || stale.owning_task_id || null,
+      owning_task_id: owner.id,
+      context: context || null,
+    });
+    return adopted || stale;
+  } catch (ownErr) {
+    logger.warn('factory worktree: failed to adopt restart-cloned replacement owner', {
+      project_id: project?.id || null,
+      work_item_id: targetItem?.id || null,
+      branch: targetBranch || stale.branch || null,
+      factory_worktree_id: stale.id,
+      previous_owning_task_id: stale.owningTaskId || stale.owning_task_id || null,
+      owning_task_id: owner.id,
+      context: context || null,
+      err: ownErr && ownErr.message,
+    });
+    return stale;
+  }
 }
 
 class StageOccupiedError extends Error {
@@ -9752,6 +9793,15 @@ async function executePlanFileStage(project, instance, workItem) {
             effectiveOwning = replacementOwner;
             effectiveOwningStatus = replacementStatus;
             effectiveOwnerSource = 'replacement_task_same_worktree';
+            adoptReplacementWorktreeOwner({
+              owner: replacementOwner,
+              ownerSource: effectiveOwnerSource,
+              stale,
+              project,
+              targetItem,
+              targetBranch,
+              context: 'live_wait',
+            });
           }
         }
         const staleAgeMs = elapsedMsSince(stale.created_at || stale.createdAt);
