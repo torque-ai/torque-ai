@@ -5,7 +5,9 @@ const {
   getProviderLanePolicyFromProject,
   specializePolicyForKind,
 } = require('./provider-lane-policy');
+const { resolveDatabaseFacade } = require('../db/database-facade-resolver');
 const { MAX_TASK_LENGTH } = require('../handlers/shared');
+const { unwrapDbHandle } = require('../utils/db-accessor');
 
 const TRUNCATED_TASK_MARKER = '[... factory internal prompt truncated: middle content omitted ...]';
 
@@ -59,12 +61,9 @@ function ignoredSchemaLookupError(error) {
 }
 
 function resolveFacade() {
-  try {
-    const { defaultContainer } = require('../container');
-    return defaultContainer.get('db');
-  } catch {
-    return require('../database');
-  }
+  return resolveDatabaseFacade({
+    serviceName: 'factory internal task submit',
+  });
 }
 
 function readFactoryProject(project_id) {
@@ -72,7 +71,7 @@ function readFactoryProject(project_id) {
 
   try {
     const database = resolveFacade();
-    const db = database.getDbInstance?.();
+    const db = unwrapDbHandle(database);
     if (db && typeof db.prepare === 'function') {
       const row = db.prepare('SELECT id, name, path, status, config_json FROM factory_projects WHERE id = ?').get(project_id);
       if (row) {

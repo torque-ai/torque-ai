@@ -4,8 +4,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const SUBJECT_PATH = require.resolve('../factory/internal-task-submit');
 const ROUTING_PATH = require.resolve('../handlers/integration/routing');
+const CONTAINER_PATH = require.resolve('../container');
+const databaseFacade = require('./helpers/database-facade');
 
 let originalRoutingCache = null;
+let originalContainerCache = null;
 let mockHandleSmartSubmitTask;
 
 function installRoutingMock() {
@@ -31,6 +34,31 @@ function restoreRoutingMock() {
   originalRoutingCache = null;
 }
 
+function installContainerDbMock() {
+  originalContainerCache = require.cache[CONTAINER_PATH] || null;
+  require.cache[CONTAINER_PATH] = {
+    id: CONTAINER_PATH,
+    filename: CONTAINER_PATH,
+    loaded: true,
+    exports: {
+      defaultContainer: {
+        peek: (name) => (name === 'db' ? databaseFacade : null),
+        has: (name) => name === 'db',
+        get: (name) => (name === 'db' ? databaseFacade : null),
+      },
+    },
+  };
+}
+
+function restoreContainerDbMock() {
+  if (originalContainerCache) {
+    require.cache[CONTAINER_PATH] = originalContainerCache;
+  } else {
+    delete require.cache[CONTAINER_PATH];
+  }
+  originalContainerCache = null;
+}
+
 function loadSubject() {
   delete require.cache[SUBJECT_PATH];
   return require('../factory/internal-task-submit');
@@ -38,10 +66,12 @@ function loadSubject() {
 
 beforeEach(() => {
   installRoutingMock();
+  installContainerDbMock();
 });
 
 afterEach(() => {
   restoreRoutingMock();
+  restoreContainerDbMock();
   vi.restoreAllMocks();
 });
 
