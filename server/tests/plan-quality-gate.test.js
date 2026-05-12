@@ -469,6 +469,7 @@ describe('runLlmSemanticCheck', () => {
     expect(result).toBe('Plan covers the stated goal.');
     expect(submitMock).toHaveBeenCalledWith(expect.objectContaining({
       kind: 'plan_quality_review',
+      working_directory: '/tmp/p',
       extra_tags: expect.arrayContaining([expect.stringMatching(/^factory:plan_review_hash=/)]),
       extra_metadata: expect.objectContaining({
         plan_review_hash: expect.any(String),

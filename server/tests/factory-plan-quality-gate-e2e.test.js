@@ -348,7 +348,7 @@ describe('executeNonPlanFileStage plan-quality-gate integration', () => {
 
     const { projectId, workItemId } = seedProjectAndItem(db, { trust: 'autonomous' });
 
-    vi.spyOn(planGate, 'evaluatePlan').mockResolvedValue({ passed: true, hardFails: [], warnings: [], llmCritique: null, feedbackPrompt: null });
+    const gateSpy = vi.spyOn(planGate, 'evaluatePlan').mockResolvedValue({ passed: true, hardFails: [], warnings: [], llmCritique: null, feedbackPrompt: null });
     const submitStub = vi.spyOn(require('../factory/internal-task-submit'), 'submitFactoryInternalTask').mockResolvedValue({ task_id: 't-1' });
     vi.spyOn(require('../handlers/workflow/await'), 'handleAwaitTask').mockResolvedValue({ status: 'completed' });
     vi.spyOn(require('../db/task-core'), 'getTask').mockReturnValue({ status: 'completed', output: HIGH_QUALITY_PLAN });
@@ -378,6 +378,11 @@ describe('executeNonPlanFileStage plan-quality-gate integration', () => {
     expect(worktreeRow).toMatchObject({ status: 'active' });
     expect(submitStub).toHaveBeenCalledWith(expect.objectContaining({
       working_directory: worktreeRow.worktree_path,
+    }));
+    expect(gateSpy).toHaveBeenCalledWith(expect.objectContaining({
+      project: expect.objectContaining({
+        path: worktreeRow.worktree_path,
+      }),
     }));
   });
 
