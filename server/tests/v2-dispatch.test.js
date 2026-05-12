@@ -7,6 +7,7 @@
  */
 
 const { PassThrough } = require('stream');
+const Module = require('module');
 
 // ─── Mock handler modules ───────────────────────────────────────────────────
 
@@ -140,6 +141,10 @@ const mockHandlers = {
 
 const toolResultText = (text = '') => ({ content: [{ text }] });
 const toolResultJson = (value) => ({ content: [{ text: JSON.stringify(value) }] });
+const mockResolveDatabaseFacade = vi.fn();
+const MockRemoteAgentRegistry = vi.fn(function RemoteAgentRegistry(db) {
+  this.db = db;
+});
 
 // Install CJS module mocks before requiring v2-dispatch
 function installCjsModuleMock(modulePath, exportsValue) {
@@ -156,6 +161,12 @@ function installCjsModuleMock(modulePath, exportsValue) {
 installCjsModuleMock('../database', {
   getDefaultProvider: () => null,
   onClose: () => {},
+});
+installCjsModuleMock('../db/database-facade-resolver', {
+  resolveDatabaseFacade: mockResolveDatabaseFacade,
+});
+installCjsModuleMock('../plugins/remote-agents/agent-registry', {
+  RemoteAgentRegistry: MockRemoteAgentRegistry,
 });
 installCjsModuleMock('../api/v2-schemas', {
   validateInferenceRequest: vi.fn(() => ({ valid: true, errors: [], value: {} })),
@@ -276,6 +287,8 @@ beforeAll(() => {
 
 afterEach(() => {
   vi.clearAllMocks();
+  mockResolveDatabaseFacade.mockReset();
+  MockRemoteAgentRegistry.mockClear();
 });
 
 describe('v2-dispatch module', () => {
@@ -672,6 +685,40 @@ describe('v2-dispatch module', () => {
       v2Dispatch.init(null);
 
       expect(mockHandlers.tasks.init).not.toHaveBeenCalled();
+    });
+
+    it('builds the remote agent registry from the DI database resolver', () => {
+      const rawDb = { prepare: vi.fn() };
+      const dbFacade = { getDbInstance: vi.fn(() => rawDb) };
+      mockResolveDatabaseFacade.mockReturnValue(dbFacade);
+      const originalLoad = Module._load;
+      const databaseLoadSpy = vi.spyOn(Module, '_load').mockImplementation(function patchedLoad(request, parent, isMain) {
+        const parentFile = parent?.filename?.replace(/\\/g, '/') || '';
+        if (request === '../database' && parentFile.endsWith('/server/api/v2-dispatch.js')) {
+          throw new Error('v2-dispatch should not require the database facade');
+        }
+        return Reflect.apply(originalLoad, this, [request, parent, isMain]);
+      });
+
+      try {
+        loadDispatch();
+        const tm = { submit: vi.fn() };
+
+        v2Dispatch.init({ taskManager: tm });
+
+        expect(mockResolveDatabaseFacade).toHaveBeenCalledWith({
+          serviceName: 'v2 dispatch remote agent registry',
+        });
+        expect(dbFacade.getDbInstance).toHaveBeenCalledOnce();
+        expect(MockRemoteAgentRegistry).toHaveBeenCalledWith(rawDb);
+        expect(mockHandlers.infrastructure.init).toHaveBeenCalledWith({
+          taskManager: tm,
+          remoteAgentRegistry: expect.objectContaining({ db: rawDb }),
+        });
+      } finally {
+        databaseLoadSpy.mockRestore();
+        loadDispatch();
+      }
     });
   });
 

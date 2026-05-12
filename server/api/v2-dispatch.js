@@ -13,6 +13,7 @@
 const logger = require('../logger').child({ component: 'v2-dispatch' });
 
 const routes = require('./routes');
+const { resolveDatabaseFacade } = require('../db/database-facade-resolver');
 const { normalizeError } = require('./v2-middleware');
 const { sendJson, validateJsonDepth } = require('./middleware');
 
@@ -59,12 +60,9 @@ function getOrCreateRemoteAgentRegistry(deps = {}) {
   try {
     let dbService = deps.db;
     if (!dbService) {
-      try {
-        const { defaultContainer } = require('../container');
-        dbService = defaultContainer.get('db');
-      } catch {
-        dbService = require('../database');
-      }
+      dbService = resolveDatabaseFacade({
+        serviceName: 'v2 dispatch remote agent registry',
+      });
     }
     const { RemoteAgentRegistry } = require('../plugins/remote-agents/agent-registry');
     _remoteAgentRegistry = new RemoteAgentRegistry(unwrapRemoteAgentDb(dbService));
