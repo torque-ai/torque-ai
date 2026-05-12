@@ -1,0 +1,8 @@
+{
+  "host": "192.0.2.10",
+  "user": "remote-user",
+  "key_path": "C:\\path\\to\\id_ed25519_torque_remote",
+  "remote_project_path": "C:\\trt\\torque-public",
+  "remote_test_worktree_root": "C:\\trt",
+  "lane_count": 1
+}

@@ -42,16 +42,18 @@ function runRoutingProbe(env) {
   });
 }
 
-function runAvailabilityProbe(env) {
+function runAvailabilityProbe(env, options = {}) {
   return spawnSync(BASH_EXECUTABLE, [TORQUE_REMOTE, '--__internal-probe-remote-availability'], {
     encoding: 'utf8',
     env: isolatedCoordEnv({ ...env, PATH: process.env.PATH || '' }),
+    cwd: options.cwd,
     timeout: 5000,
   });
 }
 
 describe('torque-remote coord routing decision', () => {
   let fakeHome;
+  let fakeProjectRoot;
   let localServer;
   let fakeSshDir;
   let fakeSshArgvFile;
@@ -69,6 +71,10 @@ describe('torque-remote coord routing decision', () => {
       fs.rmSync(fakeSshDir, { recursive: true, force: true });
       fakeSshDir = null;
     }
+    if (fakeProjectRoot) {
+      fs.rmSync(fakeProjectRoot, { recursive: true, force: true });
+      fakeProjectRoot = null;
+    }
     fs.rmSync(fakeHome, { recursive: true, force: true });
   });
 
@@ -79,6 +85,21 @@ describe('torque-remote coord routing decision', () => {
   function writeRemoteConfig(host, user) {
     fs.writeFileSync(path.join(fakeHome, '.torque-remote.local.json'),
       JSON.stringify({ host, user, default_project_path: 'C:\\\\x' }));
+  }
+
+  function writeProjectWithInfrastructureRemoteConfig({ host, user }) {
+    fakeProjectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'tr-project-'));
+    fs.mkdirSync(path.join(fakeProjectRoot, '.git'));
+    fs.writeFileSync(path.join(fakeProjectRoot, '.torque-remote.json'), JSON.stringify({ transport: 'ssh' }));
+    const hostsDir = path.join(fakeProjectRoot, 'infrastructure', 'hosts');
+    fs.mkdirSync(hostsDir, { recursive: true });
+    fs.writeFileSync(path.join(hostsDir, 'torque-remote.local.json'), JSON.stringify({
+      host,
+      user,
+      remote_project_path: 'C:\\\\trt\\\\torque-public',
+      remote_test_worktree_root: 'C:\\\\trt',
+    }));
+    return fakeProjectRoot;
   }
 
   function writeFakeSsh(exitCode = 0) {
@@ -173,6 +194,24 @@ describe('torque-remote coord routing decision', () => {
     expect(argv).toContain('BatchMode=yes');
     expect(argv).toContain('wksuser@wkshost');
     expect(argv).toContain('echo ok');
+  });
+
+  it('project infrastructure host credentials override stale global local credentials', () => {
+    writeRemoteConfig('oldhost', 'olduser');
+    const projectRoot = writeProjectWithInfrastructureRemoteConfig({
+      host: 'newhost',
+      user: 'newuser',
+    });
+    const result = runAvailabilityProbe({
+      HOME: fakeHome,
+      BASH_ENV: writeFakeSsh(0),
+      TORQUE_REMOTE_AVAILABILITY_TIMEOUT_SECS: '1',
+    }, { cwd: projectRoot });
+    expect(result.status).toBe(0);
+    expect(result.stdout.trim()).toBe('available:newuser@newhost');
+    const argv = fs.readFileSync(fakeSshArgvFile, 'utf8');
+    expect(argv).toContain('newuser@newhost');
+    expect(argv).not.toContain('olduser@oldhost');
   });
 
   it('prints unavailable without falling back when ssh cannot connect', () => {

@@ -32,7 +32,7 @@ config_trace_enabled() {
 
 trace_config_sources() {
   config_trace_enabled || return 0
-  info "Config source: remote=${CONFIG_SOURCE:-none} global=${GLOBAL_CONFIG_STATE:-missing}(${GLOBAL_CONFIG:-unknown}) project=${PROJECT_CONFIG_STATE:-missing}(${PROJECT_CONFIG:-unknown}) local=${LOCAL_CONFIG_SOURCE:-none} global_local=${GLOBAL_LOCAL_STATE:-missing}(${GLOBAL_LOCAL:-unknown}) project_local=${PROJECT_LOCAL_STATE:-missing}(${PROJECT_LOCAL:-unknown}) transport=${TRANSPORT:-local} sync_before_run=${SYNC_BEFORE_RUN:-true} timeout_seconds=${TIMEOUT_SECONDS:-300} load_threshold=${LOAD_THRESHOLD:-80}"
+  info "Config source: remote=${CONFIG_SOURCE:-none} global=${GLOBAL_CONFIG_STATE:-missing}(${GLOBAL_CONFIG:-unknown}) project=${PROJECT_CONFIG_STATE:-missing}(${PROJECT_CONFIG:-unknown}) local=${LOCAL_CONFIG_SOURCE:-none} global_local=${GLOBAL_LOCAL_STATE:-missing}(${GLOBAL_LOCAL:-unknown}) project_infra_local=${PROJECT_INFRA_LOCAL_STATE:-missing}(${PROJECT_INFRA_LOCAL:-unknown}) project_local=${PROJECT_LOCAL_STATE:-missing}(${PROJECT_LOCAL:-unknown}) transport=${TRANSPORT:-local} sync_before_run=${SYNC_BEFORE_RUN:-true} timeout_seconds=${TIMEOUT_SECONDS:-300} load_threshold=${LOAD_THRESHOLD:-80}"
 }
 
 # Append a single JSONL record to ~/.torque/torque-remote-fallback.log every
@@ -972,6 +972,8 @@ read_lane_count_from_configs() {
   local config_path
   for config_path in \
     "${PROJECT_CONFIG:-}" \
+    "${PROJECT_LOCAL:-}" \
+    "${PROJECT_INFRA_LOCAL:-}" \
     "${GLOBAL_LOCAL:-}" \
     "${GLOBAL_CONFIG:-}"; do
     [[ -z "$config_path" || ! -f "$config_path" ]] && continue
@@ -1522,6 +1524,15 @@ coord_select_routing_mode() {
     COORD_ROUTING_MODE="local"
     return 0
   fi
+  # After normal config loading, prefer the same effective SSH identity that
+  # the transport path uses. This lets project-local credential files override
+  # stale global credentials for coord-client SSH routing too.
+  if [ -n "${SSH_HOST:-}" ] && [ -n "${SSH_USER:-}" ]; then
+    export TORQUE_COORD_REMOTE_HOST="$SSH_HOST"
+    export TORQUE_COORD_REMOTE_USER="$SSH_USER"
+    COORD_ROUTING_MODE="ssh:${SSH_USER}@${SSH_HOST}"
+    return 0
+  fi
   # 3. Local daemon down — try to read remote config.
   local cfg="${HOME}/.torque-remote.local.json"
   if [ -f "$cfg" ]; then
@@ -1746,32 +1757,51 @@ REMOTE_TEST_WORKTREE_ROOT=""
 REMOTE_TEST_WORKTREE_SUFFIX=""
 LOCAL_CONFIG_SOURCE="none"
 GLOBAL_LOCAL_STATE="missing"
+PROJECT_INFRA_LOCAL_STATE="missing"
 PROJECT_LOCAL_STATE="missing"
+
+apply_local_config_file() {
+  local file="$1"
+  local source="$2"
+  local allow_remote_project_path="${3:-0}"
+  local v
+
+  [[ -f "$file" ]] || return 1
+  LOCAL_CONFIG_SOURCE="$source"
+
+  v=$(json_get "$file" '.host');                        [[ -n "$v" ]] && SSH_HOST="$v"
+  v=$(json_get "$file" '.user');                        [[ -n "$v" ]] && SSH_USER="$v"
+  v=$(json_get "$file" '.key_path');                    [[ -n "$v" ]] && SSH_KEY_PATH="$v"
+  v=$(json_get "$file" '.default_project_path');        [[ -n "$v" ]] && DEFAULT_PROJECT_PATH="$v"
+  if [[ "$allow_remote_project_path" = "1" ]]; then
+    v=$(json_get "$file" '.remote_project_path');       [[ -n "$v" ]] && REMOTE_PROJECT_PATH="$v"
+  fi
+  v=$(json_get "$file" '.remote_test_worktree_subdir'); [[ -n "$v" ]] && REMOTE_TEST_WORKTREE_SUBDIR="$v"
+  v=$(json_get "$file" '.remote_test_worktree_root');   [[ -n "$v" ]] && REMOTE_TEST_WORKTREE_ROOT="$v"
+  return 0
+}
 
 # Global local config
 GLOBAL_LOCAL="$HOME/.torque-remote.local.json"
 if [[ -f "$GLOBAL_LOCAL" ]]; then
   GLOBAL_LOCAL_STATE="loaded"
-  LOCAL_CONFIG_SOURCE="global"
-  SSH_HOST=$(json_get "$GLOBAL_LOCAL" '.host')
-  SSH_USER=$(json_get "$GLOBAL_LOCAL" '.user')
-  SSH_KEY_PATH=$(json_get "$GLOBAL_LOCAL" '.key_path')
-  DEFAULT_PROJECT_PATH=$(json_get "$GLOBAL_LOCAL" '.default_project_path')
-  v=$(json_get "$GLOBAL_LOCAL" '.remote_test_worktree_subdir'); [[ -n "$v" ]] && REMOTE_TEST_WORKTREE_SUBDIR="$v"
-  v=$(json_get "$GLOBAL_LOCAL" '.remote_test_worktree_root');    [[ -n "$v" ]] && REMOTE_TEST_WORKTREE_ROOT="$v"
+  apply_local_config_file "$GLOBAL_LOCAL" "global" 0
+fi
+
+# Per-project infrastructure host credentials. This path is intentionally
+# local-only and ignored by git; it lets one repo override stale global remote
+# credentials without committing operator secrets.
+PROJECT_INFRA_LOCAL="$PROJECT_ROOT/infrastructure/hosts/torque-remote.local.json"
+if [[ -f "$PROJECT_INFRA_LOCAL" ]]; then
+  PROJECT_INFRA_LOCAL_STATE="loaded"
+  apply_local_config_file "$PROJECT_INFRA_LOCAL" "project-infrastructure" 1
 fi
 
 # Per-project local override
 PROJECT_LOCAL="$PROJECT_ROOT/.torque-remote.local.json"
 if [[ -f "$PROJECT_LOCAL" ]]; then
   PROJECT_LOCAL_STATE="loaded"
-  LOCAL_CONFIG_SOURCE="project"
-  v=$(json_get "$PROJECT_LOCAL" '.host');                       [[ -n "$v" ]] && SSH_HOST="$v"
-  v=$(json_get "$PROJECT_LOCAL" '.user');                       [[ -n "$v" ]] && SSH_USER="$v"
-  v=$(json_get "$PROJECT_LOCAL" '.key_path');                   [[ -n "$v" ]] && SSH_KEY_PATH="$v"
-  v=$(json_get "$PROJECT_LOCAL" '.remote_project_path');        [[ -n "$v" ]] && REMOTE_PROJECT_PATH="$v"
-  v=$(json_get "$PROJECT_LOCAL" '.remote_test_worktree_subdir'); [[ -n "$v" ]] && REMOTE_TEST_WORKTREE_SUBDIR="$v"
-  v=$(json_get "$PROJECT_LOCAL" '.remote_test_worktree_root');   [[ -n "$v" ]] && REMOTE_TEST_WORKTREE_ROOT="$v"
+  apply_local_config_file "$PROJECT_LOCAL" "project" 1
 fi
 
 if [[ -n "${TORQUE_REMOTE_TEST_WORKTREE_SUFFIX:-}" ]]; then
