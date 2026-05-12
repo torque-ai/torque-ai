@@ -26,11 +26,66 @@ const loopController = require('../factory/loop-controller');
 const planQualityGate = require('../factory/plan-quality-gate');
 const { LOOP_STATES } = require('../factory/loop-states');
 
+const CONTAINER_PATH = require.resolve('../container');
+const INTERNAL_TASK_SUBMIT_PATH = require.resolve('../factory/internal-task-submit');
 const originalHandleSmartSubmitTask = routingModule.handleSmartSubmitTask;
 const originalHandleAwaitTask = awaitModule.handleAwaitTask;
 const originalGetTask = taskCore.getTask;
 const originalListTasks = taskCore.listTasks;
 const originalUpdateTaskStatus = taskCore.updateTaskStatus;
+
+let originalContainerCacheEntry = null;
+
+function installContainerDbFacade(dbHandle) {
+  const originalExports = require('../container');
+  originalContainerCacheEntry = require.cache[CONTAINER_PATH] || null;
+  const originalDefaultContainer = originalExports.defaultContainer || {};
+  const dbFacade = {
+    getDbInstance: () => dbHandle,
+  };
+
+  require.cache[CONTAINER_PATH] = {
+    id: CONTAINER_PATH,
+    filename: CONTAINER_PATH,
+    loaded: true,
+    exports: {
+      ...originalExports,
+      defaultContainer: {
+        ...originalDefaultContainer,
+        peek(name) {
+          if (name === 'db') return dbFacade;
+          return typeof originalDefaultContainer.peek === 'function'
+            ? originalDefaultContainer.peek(name)
+            : undefined;
+        },
+        has(name) {
+          if (name === 'db') return true;
+          return typeof originalDefaultContainer.has === 'function'
+            ? originalDefaultContainer.has(name)
+            : false;
+        },
+        get(name) {
+          if (name === 'db') return dbFacade;
+          if (typeof originalDefaultContainer.get === 'function') {
+            return originalDefaultContainer.get(name);
+          }
+          throw new Error(`unexpected container service: ${name}`);
+        },
+      },
+    },
+  };
+  delete require.cache[INTERNAL_TASK_SUBMIT_PATH];
+}
+
+function restoreContainerDbFacade() {
+  delete require.cache[INTERNAL_TASK_SUBMIT_PATH];
+  if (originalContainerCacheEntry) {
+    require.cache[CONTAINER_PATH] = originalContainerCacheEntry;
+  } else {
+    delete require.cache[CONTAINER_PATH];
+  }
+  originalContainerCacheEntry = null;
+}
 
 function createFactoryTables(db) {
   db.exec(`
@@ -236,6 +291,7 @@ describe('factory loop-controller EXECUTE for non-plan-file work items', () => {
     projectConfigCore.setDb(db);
     originalGetDbInstance = database.getDbInstance;
     database.getDbInstance = () => db;
+    installContainerDbFacade(db);
     tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'factory-execute-non-plan-file-'));
     planExecuteMock = vi.fn(async ({ plan_path }) => ({
       plan_path,
@@ -263,6 +319,7 @@ describe('factory loop-controller EXECUTE for non-plan-file work items', () => {
   });
 
   afterEach(() => {
+    restoreContainerDbFacade();
     database.getDbInstance = originalGetDbInstance;
     factoryLoopInstances.setDb(null);
     factoryDecisions.setDb(null);
