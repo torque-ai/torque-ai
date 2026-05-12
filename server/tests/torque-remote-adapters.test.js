@@ -70,16 +70,19 @@ describe('remote_path_to_native adapter', () => {
 
 describe('remote_lock_acquire adapter', () => {
   const ownerEnv = 'host=foo\npid=123\nstarted_at_epoch=1700000000\nlane_index=1';
+  // Base64-encode to survive Windows CreateProcess argument passing (newlines
+  // in CLI args get mangled). Runner decodes B64:-prefixed args.
+  const ownerEnvB64 = 'B64:' + Buffer.from(ownerEnv).toString('base64');
 
   it('emits mkdir + heredoc on linux', () => {
-    const out = emit('remote_lock_acquire', ['/tmp/lock', ownerEnv], 'linux');
+    const out = emit('remote_lock_acquire', ['/tmp/lock', ownerEnvB64], 'linux');
     expect(out).toContain('mkdir "/tmp/lock"');
     expect(out).toContain('cat > "/tmp/lock/owner.env"');
     expect(out).toContain('host=foo');
   });
 
   it('emits CMD mkdir + echo chain on windows', () => {
-    const out = emit('remote_lock_acquire', ['C:\\trt\\lock', ownerEnv], 'windows');
+    const out = emit('remote_lock_acquire', ['C:\\trt\\lock', ownerEnvB64], 'windows');
     expect(out).toContain('mkdir "C:\\trt\\lock"');
     // First line written with > (overwrite), subsequent with >>
     expect(out).toMatch(/echo host=foo *>"C:\\trt\\lock\\owner\.env"/);

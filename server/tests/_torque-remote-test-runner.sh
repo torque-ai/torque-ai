@@ -23,6 +23,18 @@ fi
 remote_os="$2"
 shift 2
 
+# Decode B64:-prefixed args. Tests use this for multi-line content that
+# can't survive Windows CreateProcess argument passing.
+_decoded_args=()
+for arg in "$@"; do
+  if [[ "$arg" == B64:* ]]; then
+    _decoded_args+=("$(echo "${arg#B64:}" | base64 -d)")
+  else
+    _decoded_args+=("$arg")
+  fi
+done
+set -- "${_decoded_args[@]}"
+
 export TORQUE_REMOTE_TEST_MODE=1
 export TORQUE_REMOTE_EMIT_ONLY=1
 export REMOTE_OS="$remote_os"
