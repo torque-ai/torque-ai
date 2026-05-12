@@ -898,6 +898,22 @@ remote_run_user_command() {
   esac
 }
 
+# Probe remote CPU load percentage.
+# Args: none. Prints integer 0-100 to stdout (empty if unable to probe).
+remote_load_pct() {
+  case "$REMOTE_OS" in
+    linux)
+      _emit_or_run 'awk -v c=$(nproc) "{ printf(\"%d\", \$1/c*100) }" /proc/loadavg'
+      ;;
+    windows)
+      # Preserve the existing 3-tier fallback on Windows: PS Get-CimInstance,
+      # then wmic, then /proc/loadavg (last is for Git Bash availability).
+      _emit_or_run 'powershell -NoProfile -NonInteractive -Command "(Get-CimInstance -ClassName Win32_Processor -ErrorAction SilentlyContinue | Measure-Object -Property LoadPercentage -Average).Average" 2>NUL || wmic cpu get loadpercentage /value 2>NUL | grep -oP "LoadPercentage=\K[0-9]+" || (awk -v c=$(nproc 2>/dev/null || echo 1) "{ printf(\"%d\", \$1/c*100) }" /proc/loadavg 2>/dev/null)'
+      ;;
+    *) warn "[adapter:remote_load_pct] unknown REMOTE_OS=$REMOTE_OS"; return 74 ;;
+  esac
+}
+
 remote_powershell_command() {
   local ps_body="$1"
   local encoded

@@ -204,3 +204,17 @@ describe('remote_run_user_command adapter', () => {
     expect(out).toContain('hello world');
   });
 });
+
+describe('remote_load_pct adapter', () => {
+  it('emits /proc/loadavg with nproc division on linux', () => {
+    const out = emit('remote_load_pct', [], 'linux');
+    expect(out).toContain('/proc/loadavg');
+    expect(out).toContain('nproc');
+  });
+
+  it('emits PowerShell Get-CimInstance preferred on windows', () => {
+    const out = emit('remote_load_pct', [], 'windows');
+    expect(out).toContain('Get-CimInstance');
+    expect(out).toContain('Win32_Processor');
+  });
+});
