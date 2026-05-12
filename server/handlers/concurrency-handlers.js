@@ -72,7 +72,9 @@ function getDb() {
   });
   const rawDb = unwrapDbHandle(candidate);
   if (!rawDb || typeof rawDb.prepare !== 'function') {
-    throw new Error('concurrency handlers require a database facade with a raw SQL handle');
+    const error = new Error('concurrency handlers require a database facade with a raw SQL handle');
+    error.code = 'concurrency_db_handle_missing';
+    throw error;
   }
   return rawDb;
 }
