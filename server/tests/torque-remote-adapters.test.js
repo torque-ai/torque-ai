@@ -67,3 +67,58 @@ describe('remote_path_to_native adapter', () => {
     expect(out).toBe('C:\\trt\\foo');
   });
 });
+
+describe('remote_lock_acquire adapter', () => {
+  const ownerEnv = 'host=foo\npid=123\nstarted_at_epoch=1700000000\nlane_index=1';
+
+  it('emits mkdir + heredoc on linux', () => {
+    const out = emit('remote_lock_acquire', ['/tmp/lock', ownerEnv], 'linux');
+    expect(out).toContain('mkdir "/tmp/lock"');
+    expect(out).toContain('cat > "/tmp/lock/owner.env"');
+    expect(out).toContain('host=foo');
+  });
+
+  it('emits CMD mkdir + echo chain on windows', () => {
+    const out = emit('remote_lock_acquire', ['C:\\trt\\lock', ownerEnv], 'windows');
+    expect(out).toContain('mkdir "C:\\trt\\lock"');
+    // First line written with > (overwrite), subsequent with >>
+    expect(out).toMatch(/echo host=foo *>"C:\\trt\\lock\\owner\.env"/);
+    expect(out).toMatch(/echo pid=123 *>>"C:\\trt\\lock\\owner\.env"/);
+  });
+});
+
+describe('remote_lock_release adapter', () => {
+  it('emits rm -rf on linux', () => {
+    const out = emit('remote_lock_release', ['/tmp/lock'], 'linux');
+    expect(out).toContain('rm -rf "/tmp/lock"');
+  });
+
+  it('emits rmdir /s /q on windows', () => {
+    const out = emit('remote_lock_release', ['C:\\trt\\lock'], 'windows');
+    expect(out).toContain('rmdir /s /q "C:\\trt\\lock"');
+  });
+});
+
+describe('remote_read_owner_env adapter', () => {
+  it('emits cat on linux', () => {
+    const out = emit('remote_read_owner_env', ['/tmp/lock'], 'linux');
+    expect(out).toContain('cat "/tmp/lock/owner.env"');
+  });
+
+  it('emits type on windows', () => {
+    const out = emit('remote_read_owner_env', ['C:\\trt\\lock'], 'windows');
+    expect(out).toContain('type "C:\\trt\\lock\\owner.env"');
+  });
+});
+
+describe('remote_heartbeat_write adapter', () => {
+  it('emits POSIX echo redirect on linux', () => {
+    const out = emit('remote_heartbeat_write', ['/tmp/lock', '1700000000'], 'linux');
+    expect(out).toContain('echo 1700000000 > "/tmp/lock/heartbeat.epoch"');
+  });
+
+  it('emits CMD echo redirect on windows (no space before >, preserves trailing-space artifact)', () => {
+    const out = emit('remote_heartbeat_write', ['C:\\trt\\lock', '1700000000'], 'windows');
+    expect(out).toContain('echo 1700000000>"C:\\trt\\lock\\heartbeat.epoch"');
+  });
+});

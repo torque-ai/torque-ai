@@ -742,6 +742,71 @@ remote_path_to_native() {
   esac
 }
 
+# Acquire a lock atomically + write owner.env in one round-trip.
+# Args: $1 = lock_dir, $2 = owner_env_content (multi-line string).
+# Returns: 0 on acquire, 1 if held.
+remote_lock_acquire() {
+  local lock_dir="$1"
+  local owner_env="$2"
+  case "$REMOTE_OS" in
+    linux)
+      _emit_or_run "mkdir \"$lock_dir\" 2>/dev/null && cat > \"$lock_dir/owner.env\" <<'EOF'
+$owner_env
+EOF"
+      ;;
+    windows)
+      local cmd="mkdir \"$lock_dir\""
+      local first=1
+      while IFS= read -r line; do
+        if [[ -n "$line" ]]; then
+          if [[ $first -eq 1 ]]; then
+            cmd="$cmd && echo $line >\"$lock_dir\\owner.env\""
+            first=0
+          else
+            cmd="$cmd && echo $line >>\"$lock_dir\\owner.env\""
+          fi
+        fi
+      done <<< "$owner_env"
+      _emit_or_run "$cmd"
+      ;;
+    *) warn "[adapter:remote_lock_acquire] unknown REMOTE_OS=$REMOTE_OS"; return 74 ;;
+  esac
+}
+
+# Release a lock by removing the lock_dir.
+# Args: $1 = lock_dir.
+remote_lock_release() {
+  local lock_dir="$1"
+  case "$REMOTE_OS" in
+    linux)   _emit_or_run "rm -rf \"$lock_dir\"" ;;
+    windows) _emit_or_run "rmdir /s /q \"$lock_dir\"" ;;
+    *) warn "[adapter:remote_lock_release] unknown REMOTE_OS=$REMOTE_OS"; return 74 ;;
+  esac
+}
+
+# Read owner.env from a lock_dir. Prints content to stdout.
+# Args: $1 = lock_dir.
+remote_read_owner_env() {
+  local lock_dir="$1"
+  case "$REMOTE_OS" in
+    linux)   _emit_or_run "cat \"$lock_dir/owner.env\"" ;;
+    windows) _emit_or_run "type \"$lock_dir\\owner.env\"" ;;
+    *) warn "[adapter:remote_read_owner_env] unknown REMOTE_OS=$REMOTE_OS"; return 74 ;;
+  esac
+}
+
+# Update heartbeat.epoch in a lock_dir.
+# Args: $1 = lock_dir, $2 = epoch_seconds.
+remote_heartbeat_write() {
+  local lock_dir="$1"
+  local epoch="$2"
+  case "$REMOTE_OS" in
+    linux)   _emit_or_run "echo $epoch > \"$lock_dir/heartbeat.epoch\"" ;;
+    windows) _emit_or_run "echo $epoch>\"$lock_dir\\heartbeat.epoch\"" ;;
+    *) warn "[adapter:remote_heartbeat_write] unknown REMOTE_OS=$REMOTE_OS"; return 74 ;;
+  esac
+}
+
 remote_powershell_command() {
   local ps_body="$1"
   local encoded
