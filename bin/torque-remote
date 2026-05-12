@@ -690,6 +690,58 @@ remote_probe_os() {
   return 0
 }
 
+# When TORQUE_REMOTE_EMIT_ONLY=1, adapters print their composed SSH command
+# string to stdout instead of executing it. Tests use this to assert
+# emission shape without spawning SSH.
+_emit_or_run() {
+  if [[ "${TORQUE_REMOTE_EMIT_ONLY:-}" == "1" ]]; then
+    echo "$1"
+  else
+    ssh ${SSH_OPTS[@]+"${SSH_OPTS[@]}"} ${SSH_KEY_PATH:+-i "$SSH_KEY_PATH"} \
+      "$SSH_USER@$SSH_HOST" "$1"
+  fi
+}
+
+# Check if a remote path exists. Args: $1 = path. Returns: 0 if exists, 1 if not.
+remote_test_path_exists() {
+  local path="$1"
+  case "$REMOTE_OS" in
+    linux)   _emit_or_run "[ -e \"$path\" ]" ;;
+    windows) _emit_or_run "if exist \"$path\" (exit 0) else (exit 1)" ;;
+    *) warn "[adapter:remote_test_path_exists] unknown REMOTE_OS=$REMOTE_OS"; return 74 ;;
+  esac
+}
+
+# Idempotent mkdir. Args: $1 = path.
+remote_make_dir() {
+  local path="$1"
+  case "$REMOTE_OS" in
+    linux)   _emit_or_run "mkdir -p \"$path\"" ;;
+    windows) _emit_or_run "if not exist \"$path\" mkdir \"$path\"" ;;
+    *) warn "[adapter:remote_make_dir] unknown REMOTE_OS=$REMOTE_OS"; return 74 ;;
+  esac
+}
+
+# Recursive remove. Args: $1 = path.
+remote_remove_dir() {
+  local path="$1"
+  case "$REMOTE_OS" in
+    linux)   _emit_or_run "rm -rf \"$path\"" ;;
+    windows) _emit_or_run "rmdir /s /q \"$path\"" ;;
+    *) warn "[adapter:remote_remove_dir] unknown REMOTE_OS=$REMOTE_OS"; return 74 ;;
+  esac
+}
+
+# Normalize path separators for native shell. Args: $1 = path. Prints native form.
+remote_path_to_native() {
+  local path="$1"
+  case "$REMOTE_OS" in
+    linux)   echo "$path" ;;
+    windows) echo "${path//\//\\}" ;;
+    *) warn "[adapter:remote_path_to_native] unknown REMOTE_OS=$REMOTE_OS"; return 74 ;;
+  esac
+}
+
 remote_powershell_command() {
   local ps_body="$1"
   local encoded
