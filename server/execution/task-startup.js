@@ -1076,6 +1076,11 @@ function evaluateClaimedStartupPolicy({
   resourceLifecycle,
   log,
 }) {
+  if (typeof evaluatePolicy !== 'function') {
+    log?.info?.(`[Policy] Pre-execute policy unavailable for task ${taskId}; continuing fail-open.`);
+    return { earlyResult: null };
+  }
+
   const preExecutePolicyResult = evaluatePolicy({
     ...task,
     id: taskId,

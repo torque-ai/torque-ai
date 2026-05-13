@@ -1480,6 +1480,33 @@ describe('task-startup', () => {
       expect(resourceLifecycle.releaseForPolicyBlock).not.toHaveBeenCalled();
     });
 
+    it('fails open when the pre-execute policy dependency is unavailable', () => {
+      const ctx = loadTaskStartup();
+      const log = { info: vi.fn() };
+      const resourceLifecycle = {
+        releaseForPolicyBlock: vi.fn(),
+      };
+
+      const result = ctx.module.evaluateClaimedStartupPolicy({
+        task: createTask(),
+        taskId: 'task-policy-missing',
+        provider: 'codex',
+        evaluatePolicy: undefined,
+        describePolicyBlock: vi.fn(),
+        cancelBlockedTask: vi.fn(),
+        updateTaskStatus: vi.fn(),
+        notifyTaskUpdated: vi.fn(),
+        drainQueue: vi.fn(),
+        getTask: vi.fn(),
+        resourceLifecycle,
+        log,
+      });
+
+      expect(result).toEqual({ earlyResult: null });
+      expect(resourceLifecycle.releaseForPolicyBlock).not.toHaveBeenCalled();
+      expect(log.info).toHaveBeenCalledWith(expect.stringContaining('Pre-execute policy unavailable'));
+    });
+
     it('returns earlyResult: null when policy result is null', () => {
       const ctx = loadTaskStartup();
 
