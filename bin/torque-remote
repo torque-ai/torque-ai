@@ -1,6 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# When TORQUE_REMOTE_TEST_MODE=1, source-mode is enabled: we define all
+# functions but skip the main pipeline. Test files source this script and
+# invoke adapters/classifier functions directly. This lets us unit-test
+# the shell emission without spawning SSH.
+if [[ "${TORQUE_REMOTE_TEST_MODE:-}" == "1" ]]; then
+  TORQUE_REMOTE_SOURCING_FOR_TESTS=1
+fi
+
 # SCRIPT_DIR is needed for locating torque-coord-client (sibling script).
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -317,15 +325,44 @@ trap_chain_add() {
 #   $4 SYNC_REF (e.g. origin/main)
 #   $5 SYNC_BOOTSTRAP (worktree-add-if-missing prefix; may be empty)
 #
-# The assembled command runs in CMD on Windows (no posix tools), so all
-# control flow uses CMD primitives:
+# Dispatches to the OS-specific variant based on $REMOTE_OS.
+build_remote_sync_command() {
+  local eff_path="$1" fetch_cmd="$2" sync_checkout="$3" sync_ref="$4" bootstrap="${5:-}"
+  case "$REMOTE_OS" in
+    linux)   build_remote_sync_command_linux   "$eff_path" "$fetch_cmd" "$sync_checkout" "$sync_ref" "$bootstrap" ;;
+    windows) build_remote_sync_command_windows "$eff_path" "$fetch_cmd" "$sync_checkout" "$sync_ref" "$bootstrap" ;;
+    *) warn "[build_remote_sync_command] unknown REMOTE_OS=$REMOTE_OS"; return 74 ;;
+  esac
+}
+
+# Windows variant — CMD primitives only (no POSIX tools available):
 #   - `if not exist DIR (block)` — wrap in outer `(...)` so trailing `&&`
 #     chain runs even when block is skipped.
 #   - `^&^&` to escape `&&` inside `if exist X echo "...^&^& Y"` strings.
 #   - `2>nul` to silence stderr.
-build_remote_sync_command() {
+build_remote_sync_command_windows() {
   local eff_path="$1" fetch_cmd="$2" sync_checkout="$3" sync_ref="$4" bootstrap="${5:-}"
   printf '%s' "${bootstrap}cd \"${eff_path}\" && ${fetch_cmd} && ${sync_checkout} && git reset --hard ${sync_ref} && (git clean -fd || true) && (git diff --quiet HEAD || (echo \"[torque-remote-sync] drift after reset — file locks (Defender/Search/AV) may have prevented checkout from updating tracked files\" 1>&2 && exit 99)) && (if exist package.json if not exist node_modules echo [torque-remote-sync] HINT: ./package.json has no node_modules at ${eff_path} — run: npm install 1>&2) && (if exist server\\package.json if not exist server\\node_modules echo [torque-remote-sync] HINT: server/package.json has no node_modules — run: cd server ^&^& npm install 1>&2) && (if exist dashboard\\package.json if not exist dashboard\\node_modules echo [torque-remote-sync] HINT: dashboard/package.json has no node_modules — run: cd dashboard ^&^& npm install 1>&2)"
+}
+
+# Linux/POSIX variant — POSIX shell constructs; no CMD primitives.
+#   - `[ -d DIR ]` for directory existence checks.
+#   - Plain `cd` (no /d flag).
+#   - POSIX `&&` throughout.
+#   - npm-install hints use `[ -d ]` and standard stderr redirection.
+build_remote_sync_command_linux() {
+  local eff_path="$1" fetch_cmd="$2" sync_checkout="$3" sync_ref="$4" bootstrap="${5:-}"
+  local cmd=""
+  cmd+="${bootstrap}cd \"${eff_path}\" && "
+  cmd+="${fetch_cmd} && "
+  cmd+="${sync_checkout} && "
+  cmd+="git reset --hard ${sync_ref} && "
+  cmd+="(git clean -fd || true) && "
+  cmd+="(git diff --quiet HEAD || (echo \"[torque-remote-sync] drift after reset — file locks (Defender/Search/AV) may have prevented checkout from updating tracked files\" 1>&2 && exit 99)) && "
+  cmd+="([ -f package.json ] && [ ! -d node_modules ] && echo \"[torque-remote-sync] HINT: ./package.json has no node_modules at ${eff_path} — run: npm install\" 1>&2 || true) && "
+  cmd+="([ -f server/package.json ] && [ ! -d server/node_modules ] && echo \"[torque-remote-sync] HINT: server/package.json has no node_modules — run: cd server && npm install\" 1>&2 || true) && "
+  cmd+="([ -f dashboard/package.json ] && [ ! -d dashboard/node_modules ] && echo \"[torque-remote-sync] HINT: dashboard/package.json has no node_modules — run: cd dashboard && npm install\" 1>&2 || true)"
+  printf '%s' "$cmd"
 }
 
 cleanup_temp_dirs() {
@@ -594,6 +631,427 @@ windows_path_to_bash_path() {
   fi
 }
 
+# ============================================================================
+# Remote OS adapter layer
+# ----------------------------------------------------------------------------
+# Concentrates OS-specific shell emission. Every site that emits CMD or
+# PowerShell on the remote routes through one of these adapters. The OS
+# is detected once per invocation by remote_probe_os() and held in the
+# session-scope $REMOTE_OS variable (values: linux, windows, unknown).
+#
+# Adapters branch on $REMOTE_OS internally. Orchestration code (lock
+# algorithm, bundle assembly, config parsing) stays OS-agnostic.
+#
+# Preserves the documented lock-semantic invariants:
+#   - local-host-scoped reap rule (same-host PID-alive check; cross-host
+#     TTL-based reap) lives in orchestration, not adapters.
+#   - trailing-whitespace strip rule (Windows owner.env writes leave a
+#     trailing space; owner_field() strips it). Linux owner.env writes
+#     via heredoc are clean. Reader tolerates both.
+# ============================================================================
+
+# Classify a probe output string into linux | windows | unknown.
+# Args: $1 = probe output (uname -s output or ver string).
+# Sets: $REMOTE_OS
+classify_remote_os() {
+  local probe_output="$1"
+  case "$probe_output" in
+    Linux*|*linux*)            REMOTE_OS=linux ;;
+    Darwin*)                   REMOTE_OS=linux ;;     # POSIX-compatible, not certified
+    MINGW*|MSYS*|CYGWIN*)      REMOTE_OS=windows ;;
+    *Microsoft\ Windows*)      REMOTE_OS=windows ;;   # ver output
+    "")                        REMOTE_OS=unknown ;;
+    *)                         REMOTE_OS=unknown ;;
+  esac
+}
+
+# Probe the remote OS via SSH. Captures uname -s, /etc/os-release, and $HOME
+# in one round-trip. Result classified and held in $REMOTE_OS. $REMOTE_HOME
+# captures the remote user's home for path computation.
+# Args: none (uses $SSH_HOST, $SSH_USER, $SSH_KEY_PATH, $SSH_OPTS from scope).
+# Returns: 0 on classified os, 78 (EX_CONFIG) on unknown/timeout.
+remote_probe_os() {
+  local probe_cmd
+  probe_cmd='uname -s 2>/dev/null || ver 2>/dev/null; echo "---OSRELEASE---"; '
+  probe_cmd+='[ -r /etc/os-release ] && cat /etc/os-release || true; '
+  probe_cmd+='echo "---HOME---"; echo "HOME=$HOME"'
+
+  local probe_output
+  local probe_start probe_end probe_ms
+  probe_start=$(date +%s%3N)
+  probe_output=$(ssh ${SSH_OPTS[@]+"${SSH_OPTS[@]}"} -o ConnectTimeout=10 \
+      ${SSH_KEY_PATH:+-i "$SSH_KEY_PATH"} \
+      "$SSH_USER@$SSH_HOST" "$probe_cmd" 2>&1)
+  local ssh_rc=$?
+  if [[ $ssh_rc -ne 0 ]]; then
+    warn "[adapter:remote_probe_os] ssh failed rc=$ssh_rc host=$SSH_HOST"
+    REMOTE_OS=unknown
+    return 78
+  fi
+  probe_end=$(date +%s%3N)
+  probe_ms=$((probe_end - probe_start))
+
+  local uname_part osrelease_part home_part
+  uname_part="${probe_output%%---OSRELEASE---*}"
+  local rest="${probe_output#*---OSRELEASE---}"
+  osrelease_part="${rest%%---HOME---*}"
+  home_part="${rest#*---HOME---}"
+
+  classify_remote_os "$(echo "$uname_part" | tr -d '\r' | head -1)"
+
+  REMOTE_HOME=$(echo "$home_part" | grep '^HOME=' | head -1 | cut -d= -f2-)
+  REMOTE_HOME="${REMOTE_HOME%$'\r'}"
+
+  REMOTE_OS_RELEASE_ID=$(echo "$osrelease_part" | grep '^ID=' | head -1 | cut -d= -f2- | tr -d '"')
+  REMOTE_OS_RELEASE_VERSION=$(echo "$osrelease_part" | grep '^VERSION_ID=' | head -1 | cut -d= -f2- | tr -d '"')
+
+  info "[adapter:remote_probe_os] os=$REMOTE_OS release_id=$REMOTE_OS_RELEASE_ID version=$REMOTE_OS_RELEASE_VERSION home=$REMOTE_HOME ms=$probe_ms"
+
+  local decision_log="$HOME/.torque/torque-remote-decisions.jsonl"
+  mkdir -p "$(dirname "$decision_log")"
+  printf '{"event":"remote_os_probe","ts":"%s","host":"%s","os":"%s","os_release_id":"%s","os_release_version":"%s","probe_duration_ms":%d}\n' \
+    "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$SSH_HOST" "$REMOTE_OS" "$REMOTE_OS_RELEASE_ID" "$REMOTE_OS_RELEASE_VERSION" "$probe_ms" \
+    >> "$decision_log"
+
+  if [[ "$REMOTE_OS" == "unknown" ]]; then
+    return 78
+  fi
+  return 0
+}
+
+# Validate that REMOTE_TEST_WORKTREE_ROOT matches the probed REMOTE_OS path style.
+# Hard fail (exit 78 EX_CONFIG) on drift to prevent silent path corruption.
+# Called after the probe sets $REMOTE_OS and after the default-setter populates
+# $REMOTE_TEST_WORKTREE_ROOT, but before any lane path computation.
+validate_remote_config_drift() {
+  if [[ "$REMOTE_OS" == "linux" && "${REMOTE_TEST_WORKTREE_ROOT:-}" =~ ^[A-Za-z]: ]]; then
+    echo "[torque-remote] ERROR: remote_os=linux but remote_test_worktree_root looks Windows: '$REMOTE_TEST_WORKTREE_ROOT'. Update your local config (~/.torque-remote.local.json or project equivalent) to use a POSIX path (e.g., \"\$REMOTE_HOME/trt\")." >&2
+    exit 78
+  fi
+  if [[ "$REMOTE_OS" == "windows" && "${REMOTE_TEST_WORKTREE_ROOT:-}" =~ ^/ ]]; then
+    echo "[torque-remote] ERROR: remote_os=windows but remote_test_worktree_root looks POSIX: '$REMOTE_TEST_WORKTREE_ROOT'. Update your local config to use a Windows path (e.g., 'C:\\trt')." >&2
+    exit 78
+  fi
+}
+
+# Session-cached dotnet presence check on Linux remote.
+# Returns 0 if dotnet is on remote PATH (or REMOTE_OS != linux); 1 if missing.
+_check_dotnet_sdk_on_linux() {
+  if [[ "$REMOTE_OS" != "linux" ]]; then
+    return 0
+  fi
+  if [[ "${_DOTNET_CHECK_DONE:-}" == "1" ]]; then
+    return "$_DOTNET_CHECK_RESULT"
+  fi
+  if ssh ${SSH_OPTS[@]+"${SSH_OPTS[@]}"} ${SSH_KEY_PATH:+-i "$SSH_KEY_PATH"} \
+      "$SSH_USER@$SSH_HOST" 'command -v dotnet >/dev/null 2>&1'; then
+    _DOTNET_CHECK_DONE=1
+    _DOTNET_CHECK_RESULT=0
+    return 0
+  else
+    _DOTNET_CHECK_DONE=1
+    _DOTNET_CHECK_RESULT=1
+    echo "[torque-remote] ERROR: dotnet SDK not installed on Linux remote (host=$SSH_HOST)." >&2
+    echo "[torque-remote] Install:" >&2
+    echo "[torque-remote]   Ubuntu/Debian: sudo apt install dotnet-sdk-8.0" >&2
+    echo "[torque-remote]   Fedora: sudo dnf install dotnet-sdk-8.0" >&2
+    return 1
+  fi
+}
+
+# When TORQUE_REMOTE_EMIT_ONLY=1, adapters print their composed SSH command
+# string to stdout instead of executing it. Tests use this to assert
+# emission shape without spawning SSH.
+_emit_or_run() {
+  if [[ "${TORQUE_REMOTE_EMIT_ONLY:-}" == "1" ]]; then
+    echo "$1"
+  else
+    ssh ${SSH_OPTS[@]+"${SSH_OPTS[@]}"} ${SSH_KEY_PATH:+-i "$SSH_KEY_PATH"} \
+      "$SSH_USER@$SSH_HOST" "$1"
+  fi
+}
+
+# Check if a remote path exists. Args: $1 = path. Returns: 0 if exists, 1 if not.
+remote_test_path_exists() {
+  local path="$1"
+  case "$REMOTE_OS" in
+    linux)   _emit_or_run "[ -e \"$path\" ]" ;;
+    windows) _emit_or_run "if exist \"$path\" (exit 0) else (exit 1)" ;;
+    *) warn "[adapter:remote_test_path_exists] unknown REMOTE_OS=$REMOTE_OS"; return 74 ;;
+  esac
+}
+
+# Idempotent mkdir. Args: $1 = path.
+remote_make_dir() {
+  local path="$1"
+  case "$REMOTE_OS" in
+    linux)   _emit_or_run "mkdir -p \"$path\"" ;;
+    windows) _emit_or_run "if not exist \"$path\" mkdir \"$path\"" ;;
+    *) warn "[adapter:remote_make_dir] unknown REMOTE_OS=$REMOTE_OS"; return 74 ;;
+  esac
+}
+
+# Recursive remove. Args: $1 = path.
+remote_remove_dir() {
+  local path="$1"
+  case "$REMOTE_OS" in
+    linux)   _emit_or_run "rm -rf \"$path\"" ;;
+    windows) _emit_or_run "rmdir /s /q \"$path\"" ;;
+    *) warn "[adapter:remote_remove_dir] unknown REMOTE_OS=$REMOTE_OS"; return 74 ;;
+  esac
+}
+
+# Normalize path separators for native shell. Args: $1 = path. Prints native form.
+remote_path_to_native() {
+  local path="$1"
+  case "$REMOTE_OS" in
+    linux)   echo "$path" ;;
+    windows) echo "${path//\//\\}" ;;
+    *) warn "[adapter:remote_path_to_native] unknown REMOTE_OS=$REMOTE_OS"; return 74 ;;
+  esac
+}
+
+# Acquire a lock atomically + write owner.env in one round-trip.
+# Args: $1 = lock_dir, $2 = owner_env_content (multi-line string).
+# Returns: 0 on acquire, 1 if held.
+remote_lock_acquire() {
+  local lock_dir="$1"
+  local owner_env="$2"
+  case "$REMOTE_OS" in
+    linux)
+      _emit_or_run "mkdir \"$lock_dir\" 2>/dev/null; cat > \"$lock_dir/owner.env\" <<'EOF'
+$owner_env
+EOF"
+      ;;
+    windows)
+      local cmd="mkdir \"$lock_dir\""
+      local first=1
+      while IFS= read -r line; do
+        if [[ -n "$line" ]]; then
+          if [[ $first -eq 1 ]]; then
+            cmd="$cmd && echo $line >\"$lock_dir\\owner.env\""
+            first=0
+          else
+            cmd="$cmd && echo $line >>\"$lock_dir\\owner.env\""
+          fi
+        fi
+      done <<< "$owner_env"
+      _emit_or_run "$cmd"
+      ;;
+    *) warn "[adapter:remote_lock_acquire] unknown REMOTE_OS=$REMOTE_OS"; return 74 ;;
+  esac
+}
+
+# Release a lock by removing the lock_dir.
+# Args: $1 = lock_dir.
+remote_lock_release() {
+  local lock_dir="$1"
+  case "$REMOTE_OS" in
+    linux)   _emit_or_run "rm -rf \"$lock_dir\"" ;;
+    windows) _emit_or_run "rmdir /s /q \"$lock_dir\"" ;;
+    *) warn "[adapter:remote_lock_release] unknown REMOTE_OS=$REMOTE_OS"; return 74 ;;
+  esac
+}
+
+# Read owner.env from a lock_dir. Prints content to stdout.
+# Args: $1 = lock_dir.
+remote_read_owner_env() {
+  local lock_dir="$1"
+  case "$REMOTE_OS" in
+    linux)   _emit_or_run "cat \"$lock_dir/owner.env\"" ;;
+    windows) _emit_or_run "type \"$lock_dir\\owner.env\"" ;;
+    *) warn "[adapter:remote_read_owner_env] unknown REMOTE_OS=$REMOTE_OS"; return 74 ;;
+  esac
+}
+
+# Update heartbeat.epoch in a lock_dir.
+# Args: $1 = lock_dir, $2 = epoch_seconds.
+remote_heartbeat_write() {
+  local lock_dir="$1"
+  local epoch="$2"
+  case "$REMOTE_OS" in
+    linux)   _emit_or_run "echo $epoch > \"$lock_dir/heartbeat.epoch\"" ;;
+    windows) _emit_or_run "echo $epoch>\"$lock_dir\\heartbeat.epoch\"" ;;
+    *) warn "[adapter:remote_heartbeat_write] unknown REMOTE_OS=$REMOTE_OS"; return 74 ;;
+  esac
+}
+
+# Symlink target -> base. Returns 1 if base doesn't exist (caller falls
+# through to fresh npm install).
+# Args: $1 = target, $2 = base.
+remote_node_modules_link() {
+  local target="$1"
+  local base="$2"
+  case "$REMOTE_OS" in
+    linux)
+      _emit_or_run "[ -d \"$base\" ] && ln -s \"$base\" \"$target\" || exit 1"
+      ;;
+    windows)
+      local target_win="${target//\//\\}"
+      local base_win="${base//\//\\}"
+      _emit_or_run "cmd.exe /C mklink /D \"$target_win\" \"$base_win\" || powershell.exe -NoProfile -Command \"New-Item -ItemType SymbolicLink -Path '$target_win' -Target '$base_win'\" || cmd.exe /C mklink /J \"$target_win\" \"$base_win\""
+      ;;
+    *) warn "[adapter:remote_node_modules_link] unknown REMOTE_OS=$REMOTE_OS"; return 74 ;;
+  esac
+}
+
+# Remove a node_modules link if it's actually a link. Never recurse into a
+# real directory.
+# Args: $1 = path.
+remote_node_modules_unlink() {
+  local path="$1"
+  case "$REMOTE_OS" in
+    linux)   _emit_or_run "[ -L \"$path\" ] && rm \"$path\" || true" ;;
+    windows)
+      local path_win="${path//\//\\}"
+      _emit_or_run "cmd.exe /C rmdir \"$path_win\""
+      ;;
+    *) warn "[adapter:remote_node_modules_unlink] unknown REMOTE_OS=$REMOTE_OS"; return 74 ;;
+  esac
+}
+
+# Test whether a remote path exists; prints YES or NO to stdout.
+# Args: $1 = path.
+remote_probe_path_yesno() {
+  local path="$1"
+  case "$REMOTE_OS" in
+    linux)   _emit_or_run "[ -e \"$path\" ] && echo YES || echo NO" ;;
+    windows) _emit_or_run "if exist \"$path\" (echo YES) else (echo NO)" ;;
+    *) warn "[adapter:remote_probe_path_yesno] unknown REMOTE_OS=$REMOTE_OS"; return 74 ;;
+  esac
+}
+
+# Return the path separator for the remote OS.  Prints \ (Windows) or / (Linux).
+remote_path_sep() {
+  case "$REMOTE_OS" in
+    linux)   printf '/' ;;
+    windows) printf '\\' ;;
+    *) warn "[adapter:remote_path_sep] unknown REMOTE_OS=$REMOTE_OS"; printf '\\' ;;
+  esac
+}
+
+# Atomic coalesced lane-lock probe.
+# Args: $1 = lock_dir, $2 = owner_file, $3 = hb_file.
+# Prints one of:
+#   ACQUIRED          — lock created (caller owns it)
+#   HELD\n<owner>\n---HB---\n<hb>  — held (with metadata inline)
+remote_lane_probe() {
+  local lock_dir="$1"
+  local owner_file="$2"
+  local hb_file="$3"
+  case "$REMOTE_OS" in
+    linux)
+      _emit_or_run "mkdir -p \"\$(dirname \"$lock_dir\")\" 2>/dev/null; mkdir \"$lock_dir\" 2>/dev/null && echo ACQUIRED || (echo HELD && ([ -f \"$owner_file\" ] && cat \"$owner_file\" || echo NO_OWNER) && echo ---HB--- && ([ -f \"$hb_file\" ] && cat \"$hb_file\" || echo NO_HB))"
+      ;;
+    windows)
+      _emit_or_run "if not exist \"$lock_dir\" (mkdir \"$lock_dir\" 2>nul && echo ACQUIRED) else (echo HELD && (if exist \"$owner_file\" (type \"$owner_file\") else (echo NO_OWNER)) && echo ---HB--- && (if exist \"$hb_file\" (type \"$hb_file\") else (echo NO_HB)))"
+      ;;
+    *) warn "[adapter:remote_lane_probe] unknown REMOTE_OS=$REMOTE_OS"; return 74 ;;
+  esac
+}
+
+# Emit a diagnostic command that loops 1..N and prints one status line per
+# lane.  Args: $1 = parent_dir, $2 = lane_count.
+# The caller ssh-executes the emitted string.
+remote_lane_status_cmd() {
+  local parent="$1"
+  local count="$2"
+  case "$REMOTE_OS" in
+    linux)
+      local cmd="true"
+      local i
+      for i in $(seq 1 "$count"); do
+        local lock_dir="${parent}/.torque-remote-lanes/.locks/lane-${i}"
+        cmd+=" ; if [ -d \"$lock_dir\" ]; then echo \"lane-$i HELD\"; [ -f \"$lock_dir/owner.env\" ] && cat \"$lock_dir/owner.env\" || true; else echo \"lane-$i FREE\"; fi"
+      done
+      printf '%s' "$cmd"
+      ;;
+    windows)
+      local cmd="@echo off"
+      local i
+      for i in $(seq 1 "$count"); do
+        local lock_dir="${parent}\\.torque-remote-lanes\\.locks\\lane-${i}"
+        cmd+=" & if exist \"$lock_dir\" (echo lane-$i HELD & type \"$lock_dir\\owner.env\" 2^>nul) else (echo lane-$i FREE)"
+      done
+      printf '%s' "$cmd"
+      ;;
+    *) warn "[adapter:remote_lane_status_cmd] unknown REMOTE_OS=$REMOTE_OS"; return 74 ;;
+  esac
+}
+
+# Extract a bundle tarball into a directory. Returns 0 on success.
+# Args: $1 = bundle path, $2 = extract dir.
+remote_bundle_extract() {
+  local bundle="$1"
+  local extract_dir="$2"
+  case "$REMOTE_OS" in
+    linux)
+      _emit_or_run "mkdir -p \"$extract_dir\" && tar -xf \"$bundle\" -C \"$extract_dir\""
+      ;;
+    windows)
+      local ps_body="\$d='$extract_dir'; New-Item -ItemType Directory -Path \$d -Force | Out-Null; tar -xf '$bundle' -C \$d"
+      _emit_or_run "$(remote_powershell_command "$ps_body")"
+      ;;
+    *) warn "[adapter:remote_bundle_extract] unknown REMOTE_OS=$REMOTE_OS"; return 74 ;;
+  esac
+}
+
+# Clean up a bundle tarball after extraction.
+# Args: $1 = bundle path.
+remote_bundle_cleanup() {
+  local bundle="$1"
+  case "$REMOTE_OS" in
+    linux)
+      _emit_or_run "rm -f \"$bundle\""
+      ;;
+    windows)
+      # Use 5-attempt exponential backoff (1,2,4,8,16s = 31s budget).
+      local ps_body="\$p='$bundle'; \$delays=@(1,2,4,8,16); foreach (\$d in \$delays) { try { Remove-Item -LiteralPath \$p -Force -ErrorAction Stop; break } catch { Start-Sleep -Seconds \$d } }"
+      _emit_or_run "$(remote_powershell_command "$ps_body")"
+      ;;
+    *) warn "[adapter:remote_bundle_cleanup] unknown REMOTE_OS=$REMOTE_OS"; return 74 ;;
+  esac
+}
+
+# Run the user's bash command in the lane workspace.
+# Args: $1 = bash command body, $2 = cwd on remote.
+remote_run_user_command() {
+  local cmd_body="$1"
+  local cwd="$2"
+  case "$REMOTE_OS" in
+    linux)
+      # Escape single quotes in cmd_body for the outer bash -lc '...' wrapper.
+      local escaped="${cmd_body//\'/\'\\\'\'}"
+      _emit_or_run "bash -lc 'cd \"$cwd\" && $escaped'"
+      ;;
+    windows)
+      # Reuse the existing remote_git_bash_command helper which wraps in
+      # PowerShell + -EncodedCommand.
+      local bash_body="cd \"$cwd\" && $cmd_body"
+      local ps_body
+      ps_body=$(remote_git_bash_command "$bash_body")
+      _emit_or_run "$ps_body"
+      ;;
+    *) warn "[adapter:remote_run_user_command] unknown REMOTE_OS=$REMOTE_OS"; return 74 ;;
+  esac
+}
+
+# Probe remote CPU load percentage.
+# Args: none. Prints integer 0-100 to stdout (empty if unable to probe).
+remote_load_pct() {
+  case "$REMOTE_OS" in
+    linux)
+      _emit_or_run 'awk -v c=$(nproc) "{ printf(\"%d\", \$1/c*100) }" /proc/loadavg'
+      ;;
+    windows)
+      # Preserve the existing 3-tier fallback on Windows: PS Get-CimInstance,
+      # then wmic, then /proc/loadavg (last is for Git Bash availability).
+      _emit_or_run 'powershell -NoProfile -NonInteractive -Command "(Get-CimInstance -ClassName Win32_Processor -ErrorAction SilentlyContinue | Measure-Object -Property LoadPercentage -Average).Average" 2>NUL || wmic cpu get loadpercentage /value 2>NUL | grep -oP "LoadPercentage=\K[0-9]+" || (awk -v c=$(nproc 2>/dev/null || echo 1) "{ printf(\"%d\", \$1/c*100) }" /proc/loadavg 2>/dev/null)'
+      ;;
+    *) warn "[adapter:remote_load_pct] unknown REMOTE_OS=$REMOTE_OS"; return 74 ;;
+  esac
+}
+
 remote_powershell_command() {
   local ps_body="$1"
   local encoded
@@ -752,23 +1210,24 @@ remote_lane_lock_safe_value() {
 }
 
 write_remote_lane_lock_owner() {
-  local owner_file owner_host owner_pid owner_started owner_lane
-  owner_file="${REMOTE_LANE_LOCK_DIR}\\${REMOTE_LANE_LOCK_OWNER_FILE}"
+  local owner_host owner_pid owner_started owner_lane owner_env_content
   owner_host="$(remote_lane_lock_safe_value "$(remote_lane_lock_local_host)")"
   owner_pid="$(remote_lane_lock_safe_value "$$")"
   owner_started="$(remote_lane_lock_safe_value "$(date +%s 2>/dev/null || echo 0)")"
   owner_lane="$(remote_lane_lock_safe_value "${REMOTE_LANE_INDEX:-0}")"
-  ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" \
-    "(echo host=$owner_host && echo pid=$owner_pid && echo started_at_epoch=$owner_started && echo lane_index=$owner_lane) > \"$owner_file\"" \
-    >/dev/null 2>&1
+  # Build owner_env content as a local string; pass to adapter which handles
+  # OS-specific emission (Linux: heredoc; Windows: CMD echo chain).
+  owner_env_content="host=$owner_host
+pid=$owner_pid
+started_at_epoch=$owner_started
+lane_index=$owner_lane"
+  remote_lock_acquire "$REMOTE_LANE_LOCK_DIR" "$owner_env_content" >/dev/null 2>&1
 }
 
 read_remote_lane_lock_owner() {
-  local owner_file
-  owner_file="${REMOTE_LANE_LOCK_DIR}\\${REMOTE_LANE_LOCK_OWNER_FILE}"
-  ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" \
-    "type \"$owner_file\" 2>nul" \
-    2>/dev/null | tr -d '\r'
+  # Delegates OS-specific read (Linux: cat; Windows: type) to adapter.
+  # Keep the tr -d '\r' post-processing to strip Windows CR.
+  remote_read_owner_env "$REMOTE_LANE_LOCK_DIR" 2>/dev/null | tr -d '\r'
 }
 
 owner_field() {
@@ -904,14 +1363,13 @@ start_remote_lane_lock_heartbeat() {
   if ! [[ "$interval" =~ ^[0-9]+$ ]] || (( interval <= 0 )); then
     return 0
   fi
-  local hb_file="${REMOTE_LANE_LOCK_DIR}\\${REMOTE_LANE_LOCK_HEARTBEAT_FILE}"
   # Detached subshell: writes a heartbeat then loops. Each SSH is silenced;
   # failures don't propagate. The loop exits when the parent kills it on
-  # release.
+  # release. OS-specific emission (Linux: echo > path; Windows: echo>path)
+  # handled by remote_heartbeat_write adapter.
   (
     while :; do
-      ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" \
-        "echo $(date +%s 2>/dev/null || echo 0)>\"$hb_file\"" \
+      remote_heartbeat_write "$REMOTE_LANE_LOCK_DIR" "$(date +%s 2>/dev/null || echo 0)" \
         >/dev/null 2>&1 || true
       sleep "$interval"
     done
@@ -932,9 +1390,8 @@ stop_remote_lane_lock_heartbeat() {
 reap_remote_lane_lock() {
   local reason="$1"
   warn "Remote lane lock appears stale (${reason}); removing $REMOTE_LANE_LOCK_DIR"
-  ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" \
-    "rmdir /s /q \"$REMOTE_LANE_LOCK_DIR\" 2>nul" \
-    >/dev/null 2>&1 || true
+  # OS-specific removal: Linux uses rm -rf; Windows uses rmdir /s /q.
+  remote_lock_release "$REMOTE_LANE_LOCK_DIR" >/dev/null 2>&1 || true
 }
 
 # Read the lane count from configured sources, returning a positive integer.
@@ -1017,10 +1474,12 @@ provision_lane_workspace_if_needed() {
     return 0
   fi
 
-  # Quick check: if lane_path\.git exists on remote, skip.
+  # Quick check: if lane_path/.git (or lane_path\.git on Windows) exists on remote, skip.
+  local sep
+  sep="$(remote_path_sep)"
   local probe_result
   probe_result=$(ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" \
-    "if exist \"$lane_path\\.git\" (echo YES) else (echo NO)" \
+    "$(TORQUE_REMOTE_EMIT_ONLY=1 remote_probe_path_yesno "${lane_path}${sep}.git")" \
     2>/dev/null | tr -d '\r' | tail -1)
   if [[ "$probe_result" == "YES" ]]; then
     return 0
@@ -1033,7 +1492,7 @@ provision_lane_workspace_if_needed() {
   local sibling_has_git="NO"
   if [[ "$source_pref" == "sibling" && "$lane_path" != "$sibling_path" ]]; then
     sibling_has_git=$(ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" \
-      "if exist \"$sibling_path\\.git\" (echo YES) else (echo NO)" \
+      "$(TORQUE_REMOTE_EMIT_ONLY=1 remote_probe_path_yesno "${sibling_path}${sep}.git")" \
       2>/dev/null | tr -d '\r' | tail -1)
   fi
 
@@ -1056,16 +1515,21 @@ provision_lane_workspace_if_needed() {
 # Compute the per-lane lock dir. Lock dirs live in a sibling directory next
 # to the workspace base, NOT inside any lane workspace, so `git clean -fd`
 # cannot self-clobber.
-#   base="C:\trt\torque-public" → "C:\trt\.torque-remote-lanes\.locks\lane-3"
+#   Windows: base="C:\trt\torque-public" → "C:\trt\.torque-remote-lanes\.locks\lane-3"
+#   Linux:   base="/trt/torque-public"   → "/trt/.torque-remote-lanes/.locks/lane-3"
 compute_lane_lock_dir() {
   local base="$1"
   local index="$2"
   # Strip the trailing leaf from base to get the parent directory.
+  # Try backslash first (Windows), then forward slash (Linux/POSIX).
   local parent="${base%\\*}"
   if [[ "$parent" == "$base" ]]; then
     parent="${base%/*}"
   fi
-  printf '%s\\.torque-remote-lanes\\.locks\\lane-%s\n' "$parent" "$index"
+  case "${REMOTE_OS:-windows}" in
+    linux) printf '%s/.torque-remote-lanes/.locks/lane-%s\n' "$parent" "$index" ;;
+    *)     printf '%s\\.torque-remote-lanes\\.locks\\lane-%s\n' "$parent" "$index" ;;
+  esac
 }
 
 # Per-call caches populated by `attempt_lane_claim` from the coalesced probe
@@ -1097,16 +1561,18 @@ attempt_lane_claim() {
   REMOTE_LANE_INDEX="$index"
   REMOTE_LANE_LOCK_DIR="$(compute_lane_lock_dir "$REMOTE_LANE_WORKSPACE_BASE" "$index")"
 
-  local owner_file="${REMOTE_LANE_LOCK_DIR}\\${REMOTE_LANE_LOCK_OWNER_FILE}"
-  local hb_file="${REMOTE_LANE_LOCK_DIR}\\${REMOTE_LANE_LOCK_HEARTBEAT_FILE}"
+  local sep
+  sep="$(remote_path_sep)"
+  local owner_file="${REMOTE_LANE_LOCK_DIR}${sep}${REMOTE_LANE_LOCK_OWNER_FILE}"
+  local hb_file="${REMOTE_LANE_LOCK_DIR}${sep}${REMOTE_LANE_LOCK_HEARTBEAT_FILE}"
   local probe_response state owner_block hb_block
-  # CMD-compatible single-shot probe — coalesces "is the lock held?",
+  # Single-shot coalesced probe via adapter — coalesces "is the lock held?",
   # "what does owner.env contain?", AND "what's the latest heartbeat?"
   # so the polling loop doesn't pay multiple SSH round-trips per lane when
   # stale-check fires. mkdir is atomic at the directory-entry level; if two
   # acquires race, only one's mkdir succeeds, the other reports HELD.
   probe_response=$(ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" \
-    "if not exist \"$REMOTE_LANE_LOCK_DIR\" (mkdir \"$REMOTE_LANE_LOCK_DIR\" 2>nul && echo ACQUIRED) else (echo HELD && (if exist \"$owner_file\" (type \"$owner_file\") else (echo NO_OWNER)) && echo ---HB--- && (if exist \"$hb_file\" (type \"$hb_file\") else (echo NO_HB)))" \
+    "$(TORQUE_REMOTE_EMIT_ONLY=1 remote_lane_probe "$REMOTE_LANE_LOCK_DIR" "$owner_file" "$hb_file")" \
     2>/dev/null | tr -d '\r')
   state=$(printf '%s\n' "$probe_response" | head -n 1)
 
@@ -1221,11 +1687,14 @@ migrate_legacy_workspace_if_needed() {
   if [[ "$parent" == "$base" ]]; then
     parent="${base%/*}"
   fi
-  local marker="${parent}\\.torque-remote-lanes\\migrated.flag"
+  local sep
+  sep="$(remote_path_sep)"
+  local lanes_dir="${parent}${sep}.torque-remote-lanes"
+  local marker="${lanes_dir}${sep}migrated.flag"
 
   local marker_present
   marker_present=$(ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" \
-    "if exist \"$marker\" (echo YES) else (echo NO)" \
+    "$(TORQUE_REMOTE_EMIT_ONLY=1 remote_probe_path_yesno "$marker")" \
     2>/dev/null | tr -d '\r' | tail -1)
   if [[ "$marker_present" == "YES" ]]; then
     return 0
@@ -1233,7 +1702,7 @@ migrate_legacy_workspace_if_needed() {
 
   local legacy_git_present
   legacy_git_present=$(ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" \
-    "if exist \"$base\\.git\" (echo YES) else (echo NO)" \
+    "$(TORQUE_REMOTE_EMIT_ONLY=1 remote_probe_path_yesno "${base}${sep}.git")" \
     2>/dev/null | tr -d '\r' | tail -1)
 
   local lane_1_path
@@ -1241,16 +1710,27 @@ migrate_legacy_workspace_if_needed() {
 
   if [[ "$legacy_git_present" == "YES" ]]; then
     info "Migration: renaming legacy workspace $base → $lane_1_path"
-    ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" \
-      "if not exist \"$parent\\.torque-remote-lanes\" (mkdir \"$parent\\.torque-remote-lanes\") && move \"$base\" \"$lane_1_path\"" \
+    # mkdir the lanes dir (idempotent) then rename the old workspace.
+    local rename_cmd
+    case "$REMOTE_OS" in
+      linux)   rename_cmd="$(TORQUE_REMOTE_EMIT_ONLY=1 remote_make_dir "$lanes_dir") && mv \"$base\" \"$lane_1_path\"" ;;
+      windows) rename_cmd="$(TORQUE_REMOTE_EMIT_ONLY=1 remote_make_dir "$lanes_dir") && move \"$base\" \"$lane_1_path\"" ;;
+      *) rename_cmd="true" ;;
+    esac
+    ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" "$rename_cmd" \
       >/dev/null 2>&1 || \
       warn "Legacy workspace rename failed; lane-1 will be lazy-provisioned from origin"
   fi
 
   # Write the marker regardless — even if there was no legacy workspace,
   # we don't want to re-probe forever.
-  ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" \
-    "if not exist \"$parent\\.torque-remote-lanes\" (mkdir \"$parent\\.torque-remote-lanes\") && type nul > \"$marker\"" \
+  local marker_cmd
+  case "$REMOTE_OS" in
+    linux)   marker_cmd="$(TORQUE_REMOTE_EMIT_ONLY=1 remote_make_dir "$lanes_dir") && touch \"$marker\"" ;;
+    windows) marker_cmd="$(TORQUE_REMOTE_EMIT_ONLY=1 remote_make_dir "$lanes_dir") && type nul > \"$marker\"" ;;
+    *) marker_cmd="true" ;;
+  esac
+  ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" "$marker_cmd" \
     >/dev/null 2>&1 || true
 }
 
@@ -1326,9 +1806,8 @@ release_remote_lane_lock() {
   # mid-flight `echo > heartbeat.epoch` doesn't recreate the dir as a
   # side-effect of the redirect.
   stop_remote_lane_lock_heartbeat
-  ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" \
-    "rmdir /s /q \"$REMOTE_LANE_LOCK_DIR\" 2>nul" \
-    >/dev/null 2>&1 || true
+  # OS-specific removal: Linux uses rm -rf; Windows uses rmdir /s /q.
+  remote_lock_release "$REMOTE_LANE_LOCK_DIR" >/dev/null 2>&1 || true
   REMOTE_LANE_LOCK_HELD=0
   REMOTE_LANE_LOCK_DIR=""
   REMOTE_LANE_INDEX=""
@@ -1352,6 +1831,19 @@ print_lane_status() {
     status_ssh_opts+=(-i "$SSH_KEY_PATH")
   fi
 
+  # Resolve REMOTE_OS for this diagnostic path (normally set later in the main
+  # flow, but --status exits before that). Honor the config override first;
+  # fall back to a live probe; default to windows if the probe fails.
+  if [[ -z "${REMOTE_OS:-}" ]]; then
+    if [[ -n "${REMOTE_OS_OVERRIDE:-}" && "$REMOTE_OS_OVERRIDE" != "auto" ]]; then
+      REMOTE_OS="$REMOTE_OS_OVERRIDE"
+    elif remote_probe_os 2>/dev/null; then
+      : # REMOTE_OS is now set by remote_probe_os
+    else
+      REMOTE_OS="${REMOTE_OS_OVERRIDE:-windows}"
+    fi
+  fi
+
   # Resolve the workspace base (same way as the normal sync path) so the
   # lock dir computation matches what acquire_any_remote_lane uses.
   REMOTE_LANE_WORKSPACE_BASE="$EFFECTIVE_REMOTE_PROJECT_PATH"
@@ -1361,13 +1853,9 @@ print_lane_status() {
     parent="${REMOTE_LANE_WORKSPACE_BASE%/*}"
   fi
 
-  # Build a single CMD command that loops 1..N and emits a status line per lane.
-  local probe_cmd="@echo off"
-  local i
-  for i in $(seq 1 "$count"); do
-    local lock_dir="${parent}\\.torque-remote-lanes\\.locks\\lane-$i"
-    probe_cmd+=" & if exist \"$lock_dir\" (echo lane-$i HELD & type \"$lock_dir\\owner.env\" 2^>nul) else (echo lane-$i FREE)"
-  done
+  # Build and run a single-round-trip OS-appropriate probe command.
+  local probe_cmd
+  probe_cmd="$(remote_lane_status_cmd "$parent" "$count")"
 
   ssh "${status_ssh_opts[@]}" "$SSH_USER@$SSH_HOST" "$probe_cmd" 2>/dev/null
 }
@@ -1439,6 +1927,8 @@ create_local_state_bundle() {
   tar -cf "$bundle_tar" -C "$bundle_dir" "${tar_args[@]}"
   printf '%s\n%s\n' "$bundle_tar" "$has_local_state"
 }
+
+if [[ -z "${TORQUE_REMOTE_SOURCING_FOR_TESTS:-}" ]]; then
 
 # Skip the cleanup-and-decision-log traps for internal fast-path flags.
 # Those paths create no temp dirs and exit immediately — but the EXIT trap
@@ -1555,6 +2045,7 @@ SUITE="${TORQUE_REMOTE_DEFAULT_SUITE:-custom}"
 TORQUE_REMOTE_LANES_CLI="${TORQUE_REMOTE_LANES_CLI:-}"
 STATUS_REQUESTED=0
 REMOTE_AVAILABILITY_PROBE_REQUESTED=0
+PRINT_REMOTE_OS_REQUESTED=0
 while [[ "${1:-}" == --* ]]; do
   case "$1" in
     --__internal-print-routing-mode)
@@ -1613,16 +2104,23 @@ while [[ "${1:-}" == --* ]]; do
       STATUS_REQUESTED=1
       shift
       ;;
+    --print-remote-os)
+      # Print the detected remote OS (linux/windows/unknown) and exit 0.
+      # Used by torque-remote-guard's _get_cached_remote_os helper to avoid
+      # a direct SSH call from the guard itself.
+      PRINT_REMOTE_OS_REQUESTED=1
+      shift
+      ;;
     *)
       die "Unknown torque-remote flag: $1
-torque-remote supports --branch <ref>, --lanes <N>, --suite <name>, and --status. If $1 is meant for
+torque-remote supports --branch <ref>, --lanes <N>, --suite <name>, --status, and --print-remote-os. If $1 is meant for
 your inner command, place it after the command name, e.g.:
   torque-remote npx vitest run $1 ..."
       ;;
   esac
 done
 
-if [[ $# -eq 0 && "${STATUS_REQUESTED:-0}" != "1" && "${REMOTE_AVAILABILITY_PROBE_REQUESTED:-0}" != "1" ]]; then
+if [[ $# -eq 0 && "${STATUS_REQUESTED:-0}" != "1" && "${REMOTE_AVAILABILITY_PROBE_REQUESTED:-0}" != "1" && "${PRINT_REMOTE_OS_REQUESTED:-0}" != "1" ]]; then
   cat >&2 << 'USAGE'
 Usage: torque-remote [--branch <ref>] <command...>
 
@@ -1759,6 +2257,7 @@ LOCAL_CONFIG_SOURCE="none"
 GLOBAL_LOCAL_STATE="missing"
 PROJECT_INFRA_LOCAL_STATE="missing"
 PROJECT_LOCAL_STATE="missing"
+REMOTE_OS_OVERRIDE=""
 
 apply_local_config_file() {
   local file="$1"
@@ -1778,6 +2277,8 @@ apply_local_config_file() {
   fi
   v=$(json_get "$file" '.remote_test_worktree_subdir'); [[ -n "$v" ]] && REMOTE_TEST_WORKTREE_SUBDIR="$v"
   v=$(json_get "$file" '.remote_test_worktree_root');   [[ -n "$v" ]] && REMOTE_TEST_WORKTREE_ROOT="$v"
+  v=$(json_get "$file" '.remote_os')
+  [[ -n "$v" && "$v" != "null" ]] && REMOTE_OS_OVERRIDE="$v"
   return 0
 }
 
@@ -1898,10 +2399,92 @@ if [[ "${STATUS_REQUESTED:-0}" == "1" ]]; then
   exit 0
 fi
 
+# ---- Detect remote OS (once per invocation, after SSH config resolves) ----
+if [[ "$TRANSPORT" == "ssh" ]]; then
+  if [[ -n "${REMOTE_OS_OVERRIDE:-}" && "$REMOTE_OS_OVERRIDE" != "auto" ]]; then
+    REMOTE_OS="$REMOTE_OS_OVERRIDE"
+    info "[probe] using config override: REMOTE_OS=$REMOTE_OS"
+    # Run probe alongside to detect drift
+    if remote_probe_os; then
+      if [[ "$REMOTE_OS" != "$REMOTE_OS_OVERRIDE" ]]; then
+        warn "remote_os override ($REMOTE_OS_OVERRIDE) disagrees with probe ($REMOTE_OS). Using override."
+        REMOTE_OS="$REMOTE_OS_OVERRIDE"
+      fi
+    fi
+  else
+    if ! remote_probe_os; then
+      # For --print-remote-os, a failed probe is non-fatal: caller gets "unknown".
+      if [[ "${PRINT_REMOTE_OS_REQUESTED:-0}" != "1" ]]; then
+        echo "[torque-remote] ERROR: cannot determine remote OS via probe; uname+ver both failed for $SSH_USER@$SSH_HOST. Set remote_os in your local config to 'linux' or 'windows' to override." >&2
+        exit 78
+      fi
+      REMOTE_OS="${REMOTE_OS:-unknown}"
+    fi
+  fi
+fi
+
+# ---- --print-remote-os (deferred until config is loaded and OS is probed) ----
+if [[ "${PRINT_REMOTE_OS_REQUESTED:-0}" == "1" ]]; then
+  echo "${REMOTE_OS:-unknown}"
+  exit 0
+fi
+
+# ---- OS-aware lane workspace path derivation ----
+# Runs after the probe so $REMOTE_OS and $REMOTE_HOME are resolved.
+# Always re-derives EFFECTIVE_REMOTE_PROJECT_PATH with OS-appropriate
+# separators, overwriting whatever the pre-probe block computed (which
+# assumed Windows backslashes unconditionally). Fills in default root
+# only when the operator did not supply one via any config layer.
+if [[ "$TRANSPORT" == "ssh" ]]; then
+  # Fill in default root if operator didn't supply one.
+  if [[ -z "${REMOTE_TEST_WORKTREE_ROOT:-}" ]]; then
+    case "$REMOTE_OS" in
+      linux)   REMOTE_TEST_WORKTREE_ROOT="${REMOTE_HOME}/trt" ;;
+      windows) REMOTE_TEST_WORKTREE_ROOT='C:\trt' ;;
+      *) die "[torque-remote] cannot pick lane root for REMOTE_OS=$REMOTE_OS" ;;
+    esac
+  fi
+
+  # Always re-derive with OS-appropriate separators.
+  case "$REMOTE_OS" in
+    linux)
+      # POSIX path. Trim any trailing slash on the root and join with /.
+      LANE_ROOT="${REMOTE_TEST_WORKTREE_ROOT%/}"
+      EFFECTIVE_REMOTE_PROJECT_PATH="${LANE_ROOT}/${PROJECT_NAME}"
+      ;;
+    windows)
+      ROOT_NORM_DEFAULT="${REMOTE_TEST_WORKTREE_ROOT//\//\\}"
+      case "$ROOT_NORM_DEFAULT" in
+        *\\) EFFECTIVE_REMOTE_PROJECT_PATH="${ROOT_NORM_DEFAULT}${PROJECT_NAME}" ;;
+        *)   EFFECTIVE_REMOTE_PROJECT_PATH="${ROOT_NORM_DEFAULT}\\${PROJECT_NAME}" ;;
+      esac
+      ;;
+  esac
+  BASE_EFFECTIVE_REMOTE_PROJECT_PATH="$EFFECTIVE_REMOTE_PROJECT_PATH"
+  if [[ -n "$REMOTE_TEST_WORKTREE_SUFFIX" && -n "$EFFECTIVE_REMOTE_PROJECT_PATH" ]]; then
+    EFFECTIVE_REMOTE_PROJECT_PATH="${EFFECTIVE_REMOTE_PROJECT_PATH}${REMOTE_TEST_WORKTREE_SUFFIX}"
+  fi
+  info "[lane-path] REMOTE_OS=$REMOTE_OS REMOTE_TEST_WORKTREE_ROOT=$REMOTE_TEST_WORKTREE_ROOT EFFECTIVE_REMOTE_PROJECT_PATH=$EFFECTIVE_REMOTE_PROJECT_PATH"
+fi
+
+# ---- Validate remote OS / path style agreement ----
+# Runs after probe sets $REMOTE_OS and after defaults populate $REMOTE_TEST_WORKTREE_ROOT,
+# before any lane path computation that uses REMOTE_TEST_WORKTREE_ROOT.
+if [[ "$TRANSPORT" == "ssh" ]]; then
+  validate_remote_config_drift
+fi
+
 # ---- Command to run ----
 
 COMMAND_ARGS=("$@")
 COMMAND_DISPLAY="$(format_command_for_log "${COMMAND_ARGS[@]}")"
+
+# ---- Lazy SDK presence checks (after REMOTE_OS is known, before bundle upload) ----
+case "${COMMAND_ARGS[0]:-}" in
+  dotnet)
+    _check_dotnet_sdk_on_linux || exit 69
+    ;;
+esac
 
 # ---- Execute ----
 
@@ -2165,35 +2748,11 @@ case "$TRANSPORT" in
       run_ssh_fallback_locally
     fi
 
-    # Load check — three probes in order of preference:
-    #   1. PowerShell Get-CimInstance (Windows 10+, future-proof). wmic was
-    #      removed-by-default in Windows 11 24H2; PowerShell's CIM cmdlets
-    #      are the supported replacement.
-    #   2. wmic (legacy Windows; still works on most current installs).
-    #   3. /proc/loadavg (Linux remote workstations).
-    # Empty load_pct after all three probes => threshold check is skipped
-    # (graceful degrade, fail-open like the original behavior).
-    load_pct=""
-    load_output=$(ssh -o ConnectTimeout=2 "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" \
-      "powershell -NoProfile -NonInteractive -Command \"(Get-CimInstance -ClassName Win32_Processor -ErrorAction SilentlyContinue | Measure-Object -Property LoadPercentage -Average).Average\"" \
-      2>/dev/null | tr -d '\r' || true)
-    if [[ -n "$load_output" && "$load_output" =~ ^[0-9]+$ ]]; then
-      load_pct="$load_output"
-    fi
-    if [[ -z "$load_pct" ]]; then
-      load_output=$(ssh -o ConnectTimeout=2 "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" "wmic cpu get loadpercentage /value" 2>/dev/null || true)
-      if [[ -n "$load_output" ]]; then
-        load_pct=$(echo "$load_output" | grep -oP 'LoadPercentage=\K[0-9]+' 2>/dev/null || true)
-      fi
-    fi
-    if [[ -z "$load_pct" ]]; then
-      load_output=$(ssh -o ConnectTimeout=2 "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" "cat /proc/loadavg" 2>/dev/null || true)
-      if [[ -n "$load_output" ]]; then
-        load_1m=$(echo "$load_output" | awk '{print $1}')
-        ncpu=$(ssh -o ConnectTimeout=2 "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" "nproc" 2>/dev/null || echo "1")
-        load_pct=$(awk "BEGIN {printf \"%.0f\", ($load_1m / $ncpu) * 100}")
-      fi
-    fi
+    # Load check — delegates to OS-specific adapter (Windows: 3-tier fallback
+    # via Get-CimInstance, wmic, /proc/loadavg in one SSH call; Linux:
+    # /proc/loadavg divided by nproc). Empty load_pct => threshold check is
+    # skipped (graceful degrade, fail-open).
+    load_pct=$(remote_load_pct 2>/dev/null | tr -d '\r' || true)
 
     if [[ -n "$load_pct" ]] && (( load_pct > LOAD_THRESHOLD )); then
       warn "Remote $SSH_HOST is overloaded (${load_pct}% CPU, threshold ${LOAD_THRESHOLD}%) — falling back to local"
@@ -2275,28 +2834,36 @@ case "$TRANSPORT" in
       # "already used by worktree at <main path>". Use detached HEAD on the
       # remote ref instead — branch identity isn't needed for build/test.
       if [[ "$EFFECTIVE_REMOTE_PROJECT_PATH" != "$REMOTE_PROJECT_PATH" ]]; then
-        # CMD-compatible bootstrap. The ssh command runs in CMD on Windows
-        # (no grep, no test, no posix). Use CMD's `if not exist DIR (...)`
-        # to short-circuit when the worktree already exists; first run does
-        # the `git worktree add` from main checkout. `2>nul` swallows any
-        # "already used" message in the rare case dir exists but git's
-        # metadata is stale. `cd /d` is required for ROOT-mode worktrees that
-        # may live on a different drive than the project.
-        # `git config core.longpaths=true` runs every sync (idempotent) so
-        # that nested project tooling (StateTrace's own .worktrees, Unity
-        # build outputs, etc.) doesn't trip Windows MAX_PATH=260. Git uses
-        # the \\?\-prefixed Win32 API when this is on, raising the ceiling
-        # to ~32K characters.
-        # The bare `if not exist X (block)` is wrapped in an extra `(...)`
-        # so the trailing `&& chain` continues to run when the if-condition
-        # is false (i.e., .git already exists — every sync after the first).
-        # Without the outer parens, CMD swallows the whole `&&` chain when
-        # the if-block is skipped, silently producing exit 0 and zero output.
-        # Verified live 2026-04-29: bare form skipped fetch+checkout+reset
-        # for 3 days, leaving the test worktree at a stale HEAD and
-        # surfacing as spurious "concurrent torque-remote clobbered the
-        # checkout" errors in the runner.sh exit-98 guard.
-        SYNC_BOOTSTRAP="(if not exist \"$EFFECTIVE_REMOTE_PROJECT_PATH\\.git\" (cd /d \"$REMOTE_PROJECT_PATH\" && git worktree add --force \"$EFFECTIVE_REMOTE_PROJECT_PATH\" $SYNC_REF 2>nul)) && cd /d \"$EFFECTIVE_REMOTE_PROJECT_PATH\" && git config core.longpaths true && "
+        if [[ "$REMOTE_OS" == "linux" ]]; then
+          # POSIX bootstrap: [ -d DIR ] guard, plain cd (no /d flag),
+          # no core.longpaths (Linux git has no MAX_PATH limit).
+          # The `|| true` ensures the worktree-add attempt does not abort the
+          # && chain when the worktree already exists.
+          SYNC_BOOTSTRAP="([ ! -d \"$EFFECTIVE_REMOTE_PROJECT_PATH/.git\" ] && (cd \"$REMOTE_PROJECT_PATH\" && git worktree add --force \"$EFFECTIVE_REMOTE_PROJECT_PATH\" $SYNC_REF 2>/dev/null) || true) && cd \"$EFFECTIVE_REMOTE_PROJECT_PATH\" && "
+        else
+          # CMD-compatible bootstrap. The ssh command runs in CMD on Windows
+          # (no grep, no test, no posix). Use CMD's `if not exist DIR (...)`
+          # to short-circuit when the worktree already exists; first run does
+          # the `git worktree add` from main checkout. `2>nul` swallows any
+          # "already used" message in the rare case dir exists but git's
+          # metadata is stale. `cd /d` is required for ROOT-mode worktrees that
+          # may live on a different drive than the project.
+          # `git config core.longpaths=true` runs every sync (idempotent) so
+          # that nested project tooling (StateTrace's own .worktrees, Unity
+          # build outputs, etc.) doesn't trip Windows MAX_PATH=260. Git uses
+          # the \\?\-prefixed Win32 API when this is on, raising the ceiling
+          # to ~32K characters.
+          # The bare `if not exist X (block)` is wrapped in an extra `(...)`
+          # so the trailing `&& chain` continues to run when the if-condition
+          # is false (i.e., .git already exists — every sync after the first).
+          # Without the outer parens, CMD swallows the whole `&&` chain when
+          # the if-block is skipped, silently producing exit 0 and zero output.
+          # Verified live 2026-04-29: bare form skipped fetch+checkout+reset
+          # for 3 days, leaving the test worktree at a stale HEAD and
+          # surfacing as spurious "concurrent torque-remote clobbered the
+          # checkout" errors in the runner.sh exit-98 guard.
+          SYNC_BOOTSTRAP="(if not exist \"$EFFECTIVE_REMOTE_PROJECT_PATH\\.git\" (cd /d \"$REMOTE_PROJECT_PATH\" && git worktree add --force \"$EFFECTIVE_REMOTE_PROJECT_PATH\" $SYNC_REF 2>nul)) && cd /d \"$EFFECTIVE_REMOTE_PROJECT_PATH\" && git config core.longpaths true && "
+        fi
         SYNC_CHECKOUT="git checkout --force --detach $SYNC_REF"
       else
         SYNC_CHECKOUT="git checkout --force $SYNC_BRANCH"
@@ -2551,32 +3118,24 @@ EOF
       fi
     fi
 
-    REMOTE_BUNDLE_PARENT="$(windows_path_parent "$EFFECTIVE_REMOTE_PROJECT_PATH")"
-    REMOTE_BUNDLE_DIR="${REMOTE_BUNDLE_PARENT}\\.torque-remote-bundles"
     REMOTE_BUNDLE_NAME="bundle-${REMOTE_LANE_INDEX:-0}-$$-$(date +%s)-$RANDOM.tar"
-    REMOTE_BUNDLE_PATH="${REMOTE_BUNDLE_DIR}\\${REMOTE_BUNDLE_NAME}"
-    REMOTE_BUNDLE_SCP_PATH="$(windows_path_to_scp_path "$REMOTE_BUNDLE_PATH")"
+    if [[ "$REMOTE_OS" == "linux" ]]; then
+      REMOTE_BUNDLE_DIR="${EFFECTIVE_REMOTE_PROJECT_PATH%/*}/.torque-remote-bundles"
+      REMOTE_BUNDLE_PATH="${REMOTE_BUNDLE_DIR}/${REMOTE_BUNDLE_NAME}"
+      REMOTE_BUNDLE_SCP_PATH="$REMOTE_BUNDLE_PATH"
+      REMOTE_EXTRACT_DIR="${REMOTE_BUNDLE_DIR}/torque-extract-$$"
+    else
+      REMOTE_BUNDLE_PARENT="$(windows_path_parent "$EFFECTIVE_REMOTE_PROJECT_PATH")"
+      REMOTE_BUNDLE_DIR="${REMOTE_BUNDLE_PARENT}\\.torque-remote-bundles"
+      REMOTE_BUNDLE_PATH="${REMOTE_BUNDLE_DIR}\\${REMOTE_BUNDLE_NAME}"
+      REMOTE_BUNDLE_SCP_PATH="$(windows_path_to_scp_path "$REMOTE_BUNDLE_PATH")"
+      REMOTE_EXTRACT_DIR="${REMOTE_BUNDLE_DIR}\\torque-extract-$$"
+    fi
 
-    REMOTE_RUN_PS=$(cat <<EOF
-\$ErrorActionPreference = 'Continue'
-\$bundle = $(powershell_single_quote "$REMOTE_BUNDLE_PATH")
-\$extractDir = Join-Path \$env:TEMP ('torque-remote-' + [guid]::NewGuid().ToString('N'))
-New-Item -ItemType Directory -Path \$extractDir -Force | Out-Null
-tar -xf \$bundle -C \$extractDir
-\$tarRc = \$LASTEXITCODE
-Remove-Item -LiteralPath \$bundle -Force -ErrorAction SilentlyContinue
-if (\$tarRc -ne 0) {
-  Remove-Item -LiteralPath \$extractDir -Recurse -Force -ErrorAction SilentlyContinue
-  exit \$tarRc
-}
-\$env:PATH = 'C:\Program Files\Git\usr\bin;C:\Program Files\Git\bin;' + \$env:PATH
-\$env:TMPDIR = Join-Path \$extractDir 'tmp'
-New-Item -ItemType Directory -Path \$env:TMPDIR -Force | Out-Null
-& 'C:\Program Files\Git\usr\bin\bash.exe' (Join-Path \$extractDir 'bootstrap.sh')
-exit \$LASTEXITCODE
-EOF
-)
-    REMOTE_RUN_COMMAND="$(remote_powershell_command "$REMOTE_RUN_PS")"
+    # Build run command via adapters: extract bundle, cleanup bundle tar, run
+    # bootstrap. Each adapter emits the OS-appropriate shell command; chaining
+    # with && ensures cleanup and run are skipped if extract fails.
+    REMOTE_RUN_COMMAND="$(TORQUE_REMOTE_EMIT_ONLY=1 remote_bundle_extract "$REMOTE_BUNDLE_PATH" "$REMOTE_EXTRACT_DIR") && $(TORQUE_REMOTE_EMIT_ONLY=1 remote_bundle_cleanup "$REMOTE_BUNDLE_PATH") && $(TORQUE_REMOTE_EMIT_ONLY=1 remote_run_user_command "bash '$REMOTE_EXTRACT_DIR/bootstrap.sh'" "$REMOTE_EXTRACT_DIR")"
     REMOTE_CLEANUP_BODY=$(cat <<EOF
 # torque-remote-failsafe-cleanup
 cd $(shell_quote "$EFFECTIVE_REMOTE_PROJECT_PATH") || exit 0
@@ -2587,13 +3146,17 @@ fi
 EOF
 )
     REMOTE_CLEANUP_BODY="$REMOTE_CLEANUP_BODY
-rm -f $(shell_quote "$(windows_path_to_bash_path "$REMOTE_BUNDLE_PATH")") >/dev/null 2>&1 || true"
-    REMOTE_CLEANUP_COMMAND="$(remote_git_bash_command "$REMOTE_CLEANUP_BODY")"
+$(TORQUE_REMOTE_EMIT_ONLY=1 remote_bundle_cleanup "$REMOTE_BUNDLE_PATH") >/dev/null 2>&1 || true"
+    if [[ "$REMOTE_OS" == "linux" ]]; then
+      REMOTE_CLEANUP_COMMAND="bash -c $(shell_quote "$REMOTE_CLEANUP_BODY")"
+    else
+      REMOTE_CLEANUP_COMMAND="$(remote_git_bash_command "$REMOTE_CLEANUP_BODY")"
+    fi
     REMOTE_CLEANUP_REQUIRED="true"
 
     info "Running on $SSH_USER@$SSH_HOST: $COMMAND_DISPLAY"
     set +e
-    ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" "if not exist \"$REMOTE_BUNDLE_DIR\" mkdir \"$REMOTE_BUNDLE_DIR\"" >/dev/null 2>&1
+    remote_make_dir "$REMOTE_BUNDLE_DIR" >/dev/null 2>&1
     mkdir_rc=$?
     if [[ "$mkdir_rc" -ne 0 ]]; then
       exit_code=$mkdir_rc
@@ -2645,3 +3208,5 @@ rm -f $(shell_quote "$(windows_path_to_bash_path "$REMOTE_BUNDLE_PATH")") >/dev/
     die "Unknown transport '$TRANSPORT'. Valid: local, ssh"
     ;;
 esac
+
+fi # end TORQUE_REMOTE_SOURCING_FOR_TESTS guard

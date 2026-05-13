@@ -55,6 +55,68 @@ For live diagnosis, set `TORQUE_REMOTE_CONFIG_TRACE=1` before running `torque-re
 
 ---
 
+## Adapter layer (OS-aware emission)
+
+`bin/torque-remote` detects the remote OS via a one-time SSH probe at session start and dispatches all shell emission through an adapter layer. The adapter layer concentrates OS-specific shell construction into ~18 functions; orchestration code (lock algorithm, bundle assembly, config parsing) stays OS-agnostic.
+
+### Probe lifecycle
+
+At session start, the script runs a single coalesced SSH call:
+
+    uname -s 2>/dev/null || ver 2>/dev/null
+    --- (separator)
+    cat /etc/os-release (if readable)
+    --- (separator)
+    HOME=$HOME
+
+The output is classified into one of three buckets:
+
+| Pattern | $REMOTE_OS |
+|---|---|
+| `Linux*`, `*linux*` | `linux` |
+| `Darwin*` | `linux` (POSIX-compatible, not certified for v1) |
+| `MINGW*`, `MSYS*`, `CYGWIN*` | `windows` |
+| `Microsoft Windows*` (ver output) | `windows` |
+| empty or unmatched | `unknown` (fails closed, exit 78) |
+
+The probe's `$REMOTE_HOME`, OS-release ID, and version are also captured for downstream use (lane workspace path defaults, decision logging).
+
+### Config override
+
+A new optional field in operator-side local config (`~/.torque-remote.local.json` or project equivalent): `remote_os` (values: `linux`, `windows`, `auto`, default `auto`). When non-`auto`, the override is used and the probe runs alongside for drift detection. If the override mismatches the probe, a warning fires to stderr and the override wins.
+
+### Adapter contract
+
+| Adapter | Purpose | Linux body | Windows body |
+|---|---|---|---|
+| `remote_probe_os` | One-shot OS detection | `uname -s` + `/etc/os-release` | `ver` fallback |
+| `remote_test_path_exists` | Path-exists check | `[ -e ]` | `if exist` |
+| `remote_make_dir` | Idempotent mkdir | `mkdir -p` | `if not exist + mkdir` |
+| `remote_remove_dir` | Recursive remove | `rm -rf` | `rmdir /s /q` |
+| `remote_lock_acquire` | Acquire + write owner.env | `mkdir + cat>>...` heredoc | `mkdir + echo > owner.env` chain |
+| `remote_lock_release` | Release lock | `rm -rf` | `rmdir /s /q` |
+| `remote_read_owner_env` | Read owner.env | `cat` | `type` |
+| `remote_heartbeat_write` | Update heartbeat.epoch | `echo > heartbeat.epoch` | `echo>heartbeat.epoch` (no space, preserves trailing-space artifact) |
+| `remote_path_to_native` | Path separator normalize | identity (POSIX) | `/` → `\` |
+| `remote_run_user_command` | Run user's command | `bash -lc 'cd && cmd'` | PowerShell EncodedCommand wrapping Git Bash |
+| `remote_node_modules_link` | Symlink node_modules | `[ -d "$base" ] && ln -s` | `mklink /D` → PS `New-Item SymbolicLink` → `mklink /J` cascade |
+| `remote_node_modules_unlink` | Remove only if link | `[ -L ] && rm` | `rmdir` (no `/S`, refuses real dirs) |
+| `remote_bundle_extract` | Untar bundle | `mkdir -p + tar -xf -C` | PS `New-Item + tar` via EncodedCommand |
+| `remote_bundle_cleanup` | Remove uploaded bundle | `rm -f` | PS `Remove-Item` with 5-attempt backoff (31s budget) |
+| `remote_load_pct` | CPU load percentage | `/proc/loadavg ÷ nproc` | PS `Get-CimInstance` → wmic → /proc/loadavg fallback |
+
+(Plus helper adapters added during call-site conversion: `remote_probe_path_yesno`, `remote_path_sep`, `remote_lane_probe`, `remote_lane_status_cmd`.)
+
+### Preserved invariants
+
+The adapter layer preserves two documented lock semantic invariants:
+
+1. **Local-host-scoped reap rule** — same-host PID-alive check, cross-host TTL-based reap. This logic lives in the orchestration code (`remote_lane_lock_is_stale`, `remote_lane_lock_check_owner_block`), not in adapters. Adapter conversions in Phase 4 did not touch this algorithm.
+
+2. **Trailing-whitespace strip rule** — the Windows `echo X > FILE` pattern intentionally produces `X<space>` (trailing space) due to CMD's redirection behavior. `owner_field()` strips trailing whitespace on read. `remote_lock_acquire` on Windows preserves this pattern; Linux's heredoc produces clean output; the reader tolerates both.
+
+---
+
 ## End-to-end lifecycle (SSH transport)
 
 1. **Parse flags** — `--branch <ref>`, `--suite <name>`, `--__internal-print-routing-mode` (test-only).
@@ -323,13 +385,19 @@ Exported to the user's command on remote:
 
 ## Exit codes
 
-| Code | Meaning | Layer |
+`torque-remote` uses standard sysexits.h codes for new failure modes introduced in the Linux-support adapter layer. Pre-existing codes are preserved.
+
+| Code | Meaning | When |
 |---|---|---|
-| 0 | Success | User command |
-| 98 | runner.sh HEAD-mismatch guard fired | Concurrent-session clobber escaped lock+drift |
-| 99 | Sync drift detection fired (`git diff --quiet HEAD` failed after reset) | AV/indexer file lock during checkout |
-| 124 | `run_with_timeout` killed | Inner SSH command exceeded `TIMEOUT_SECONDS` |
-| 255 | SSH-level error | Connection drop, key rejection, etc. |
+| `0` | Success | Normal completion |
+| `64` (`EX_USAGE`) | Command-line usage error | `msbuild` requested against a Linux remote (rejected at intercept by `torque-remote-guard`) |
+| `69` (`EX_UNAVAILABLE`) | Required service unavailable | `dotnet test/build/publish` requested but `dotnet` not on remote PATH (Linux only); session-cached after first miss |
+| `74` (`EX_IOERR`) | Adapter shell-emission failure | An adapter received an unknown `$REMOTE_OS` value (`unknown` bucket); should never fire in normal operation |
+| `78` (`EX_CONFIG`) | Configuration error | Remote OS probe failed or returned `unknown`; `remote_os` override mismatches probe's actual detection in a hard-fail way; `remote_test_worktree_root` path style mismatches detected OS (Windows path on Linux remote or POSIX path on Windows remote) |
+| `98` | runner.sh HEAD-mismatch guard fired | Concurrent-session clobber escaped lock+drift |
+| `99` | Sync drift detection fired (`git diff --quiet HEAD` failed after reset) | AV/indexer file lock during checkout |
+| `124` | `run_with_timeout` killed | Inner SSH command exceeded `TIMEOUT_SECONDS` |
+| `255` | SSH-level error | Connection drop, key rejection, etc. |
 | Other | User command's own exit code | Pass-through |
 
 ---
@@ -446,6 +514,38 @@ Investigated. The two implementations have substantially different capabilities;
 3. **Unify both into a shared transport library.** ~1000 LOC refactor; hard because bash and Node need different sync abstractions.
 
 (1) is the recommended path when the divergence shows up in a real bug.
+
+### 13. SSH ControlMaster multiplexing across probe + sync (OPEN)
+
+The OS probe and each subsequent SSH call (load check, lock acquire, sync chain, heartbeat writer) are separate invocations. When `ControlMaster=auto` is active in the user's `~/.ssh/config`, these share a single TCP connection — good for latency, but the master process may exit between the probe and the sync chain on slow/remote paths. Behavior under ControlMaster has not been validated against the probe-then-emit sequence. Investigation needed; may require `ControlPersist` tuning guidance in docs.
+
+### 14. macOS not certified (OPEN)
+
+Darwin is classified as `linux` (POSIX-compatible). The adapters use POSIX primitives (`mkdir -p`, `rm -rf`, `bash -lc`) that should work on macOS, but `remote_load_pct` on macOS does not have `/proc/loadavg`. The current fallback (`/proc/loadavg` → empty → skip threshold) means macOS remotes skip the load check entirely. No automated test coverage for macOS paths. Best-effort only for v1; full macOS support requires a `sysctl -n vm.loadavg` adapter body.
+
+### 15. `--print-remote-os` cache TTL (OPEN)
+
+The probe result is cached in-session (lasts for the current `torque-remote` invocation). There is no cross-invocation cache — every new shell call re-runs the probe SSH round-trip. For interactive use this is fine (probe adds ~50–200ms), but for the pre-push gate which spawns `torque-remote` repeatedly, these probe calls accumulate. Operator-tunable probe-cache file (e.g., `~/.torque/torque-remote-os-cache.json` with a 24h TTL) would eliminate the redundant round-trips. Not yet implemented.
+
+---
+
+## Manual verification checklist (post-Linux remote setup)
+
+Run after configuring a new Linux remote in `~/.torque-remote.local.json`:
+
+1. Confirm pubkey auth works: `ssh -i <key> <user>@<host> "uname -s"` — should print `Linux` without password prompt.
+2. Print detected OS: `torque-remote --print-remote-os` — should print `linux`.
+3. Lane status: `torque-remote --status` — should print lane state(s) for the Linux remote (no silent exit-2 from the legacy CMD probe).
+4. Simple intercepted command: `torque-remote npx vitest run server/tests/torque-remote-probe.test.js --reporter=basic` — should round-trip through the pipeline and run the test on the Linux remote.
+5. Sync with dirty tree: edit a tracked file locally without committing, then run an intercepted command. Confirm the local change is overlaid on the remote.
+6. Sync with committed-but-unpushed changes: commit a local change without pushing, then run an intercepted command. Confirm the committed state arrives at the remote.
+7. Lane lock acquire/release/heartbeat: run two parallel intercepted commands (with `lane_count >= 2` in config). Confirm both succeed.
+8. Pre-push gate full plan: `PRE_PUSH_FORCE_FULL=1 git push origin main --dry-run` (or `--no-verify` and inspect what would have been gated). Confirm gate plan computation includes `remote_os` in the hash.
+9. Node_modules symlink reuse: run consecutive pre-push gate invocations; confirm second invocation's npm-install phase is skipped (link reused).
+10. Stale lock reap: manually inject an old owner.env on the remote with a fake PID, then run an intercepted command. Confirm stale lock is reaped via TTL.
+11. Fallback to local when SSH unreachable: temporarily block SSH (`sudo iptables -A OUTPUT -p tcp --dport 22 -j DROP` for example) and run a heavy command. Confirm fallback to local execution.
+12. msbuild rejection: `torque-remote msbuild fake.sln` — should exit 64 with "msbuild is Windows-only" error.
+13. dotnet SDK missing: `torque-remote dotnet --version` (if dotnet is not installed on the Linux remote) — should exit 69 with distro-specific install hint.
 
 ---
 

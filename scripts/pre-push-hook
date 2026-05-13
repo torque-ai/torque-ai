@@ -274,19 +274,21 @@ cleanup_local_gate_dependency_links() {
     return 0
   fi
 
-  local dep link_win
+  local dep link link_win
   for dep in dashboard/node_modules server/node_modules; do
-    if [ ! -e "$local_gate_worktree/$dep" ]; then
+    link="$local_gate_worktree/$dep"
+    if [ ! -e "$link" ] && [ ! -L "$link" ]; then
       continue
     fi
-    if command -v cygpath >/dev/null 2>&1; then
-      link_win="$(cygpath -w "$local_gate_worktree/$dep" 2>/dev/null || printf '%s\n' "$local_gate_worktree/$dep")"
-    else
-      link_win="$local_gate_worktree/$dep"
+    if [ -L "$link" ]; then
+      # POSIX symlink — safe to remove with rm (Linux or MSYS2 on Windows)
+      rm "$link" 2>/dev/null || true
+    elif command -v cygpath >/dev/null 2>&1; then
+      link_win="$(cygpath -w "$link" 2>/dev/null || printf '%s\n' "$link")"
+      # rmdir without /S removes directory symlinks/junctions but refuses real
+      # non-empty node_modules directories, so it cannot traverse into the base repo.
+      MSYS2_ARG_CONV_EXCL="*" cmd.exe /C rmdir "$link_win" >/dev/null 2>&1 || true
     fi
-    # rmdir without /S removes directory symlinks/junctions but refuses real
-    # non-empty node_modules directories, so it cannot traverse into the base repo.
-    MSYS2_ARG_CONV_EXCL="*" cmd.exe /C rmdir "$link_win" >/dev/null 2>&1 || true
   done
 }
 
@@ -1175,6 +1177,11 @@ DASH_PID=""
 SERV_PID=""
 SETUP_EXIT=0
 SETUP_FAILED_PHASE=""
+# Detect the OS on the remote so linking code can branch correctly.
+REMOTE_GATE_OS="linux"
+if command -v cygpath >/dev/null 2>&1 || [ -n "\${MSYSTEM:-}" ] || [ -n "\${WINDIR:-}" ]; then
+  REMOTE_GATE_OS="windows"
+fi
 
 remote_path_to_unix() {
   local path="\$1"
@@ -1271,14 +1278,21 @@ reuse_base_node_modules() {
   fi
 
   if [ ! -e "\$dir/node_modules" ]; then
-    target_win="\$(remote_path_to_windows "\$dir/node_modules")"
-    base_win="\$(remote_path_to_windows "\$base_modules")"
-    if ! MSYS2_ARG_CONV_EXCL="*" cmd.exe /C mklink /D "\$target_win" "\$base_win" >/dev/null 2>&1; then
-      if ! powershell.exe -NoProfile -Command "New-Item -ItemType SymbolicLink -Path '\$target_win' -Target '\$base_win' -ErrorAction Stop | Out-Null" >/dev/null 2>&1; then
-        if ! MSYS2_ARG_CONV_EXCL="*" cmd.exe /C mklink /J "\$target_win" "\$base_win" >/dev/null 2>&1; then
-          echo "[\$phase] [setup] could not create a safe link for \$dir/node_modules quickly; installing local dependencies"
-          return 1
+    if [ "\$REMOTE_GATE_OS" = "windows" ]; then
+      target_win="\$(remote_path_to_windows "\$dir/node_modules")"
+      base_win="\$(remote_path_to_windows "\$base_modules")"
+      if ! MSYS2_ARG_CONV_EXCL="*" cmd.exe /C mklink /D "\$target_win" "\$base_win" >/dev/null 2>&1; then
+        if ! powershell.exe -NoProfile -Command "New-Item -ItemType SymbolicLink -Path '\$target_win' -Target '\$base_win' -ErrorAction Stop | Out-Null" >/dev/null 2>&1; then
+          if ! MSYS2_ARG_CONV_EXCL="*" cmd.exe /C mklink /J "\$target_win" "\$base_win" >/dev/null 2>&1; then
+            echo "[\$phase] [setup] could not create a safe link for \$dir/node_modules quickly; installing local dependencies"
+            return 1
+          fi
         fi
+      fi
+    else
+      if ! ln -s "\$base_modules" "\$dir/node_modules" 2>/dev/null; then
+        echo "[\$phase] [setup] could not create a safe link for \$dir/node_modules quickly; installing local dependencies"
+        return 1
       fi
     fi
   fi

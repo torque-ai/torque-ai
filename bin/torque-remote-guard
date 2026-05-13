@@ -315,6 +315,64 @@ build_suggested_command() {
   fi
 }
 
+# Returns the remote OS string (linux/windows/unknown) using a 3-tier strategy:
+# 1. Config override in ~/.torque-remote.local.json (.remote_os field) — no probe.
+# 2. 24h-validity cache file /tmp/torque-remote-probe-cache.$USER.
+# 3. Cache miss: call torque-remote --print-remote-os (fires an SSH probe).
+_get_cached_remote_os() {
+  local cache="/tmp/torque-remote-probe-cache.$USER"
+
+  # 1. Config override (cheapest — no probe)
+  local override=""
+  if [[ -r "$HOME/.torque-remote.local.json" ]]; then
+    if command -v jq >/dev/null 2>&1; then
+      override=$(jq -r '.remote_os // empty' "$HOME/.torque-remote.local.json" 2>/dev/null)
+    else
+      override=$(grep '"remote_os"' "$HOME/.torque-remote.local.json" 2>/dev/null \
+                  | head -1 | sed -E 's/.*"remote_os"[ ]*:[ ]*"([^"]+)".*/\1/')
+    fi
+  fi
+  if [[ -n "$override" && "$override" != "null" && "$override" != "auto" ]]; then
+    echo "$override"
+    return 0
+  fi
+
+  # 2. 24h-validity cache file
+  if [[ -f "$cache" ]]; then
+    local cache_age
+    cache_age=$(($(date +%s) - $(stat -c %Y "$cache" 2>/dev/null || echo 0)))
+    if [[ $cache_age -lt 86400 ]]; then
+      cat "$cache"
+      return 0
+    fi
+  fi
+
+  # 3. Cache miss: fire a probe via the main script.
+  local script_dir
+  script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  local probed
+  probed=$("$script_dir/torque-remote" --print-remote-os 2>/dev/null)
+  if [[ -n "$probed" ]]; then
+    echo "$probed" > "$cache" 2>/dev/null
+    echo "$probed"
+    return 0
+  fi
+  echo "unknown"
+}
+
+# ---- Reject OS-incompatible commands before intercept dispatch ----
+
+# msbuild is Windows-only. Reject it at intercept time when the remote is Linux.
+_first_token=$(echo "$command" | awk '{print $1}')
+if [[ "$_first_token" == "msbuild" || "$_first_token" == "msbuild.exe" ]]; then
+  _remote_os=$(_get_cached_remote_os)
+  if [[ "$_remote_os" == "linux" ]]; then
+    echo "torque-remote-guard: msbuild is Windows-only; cannot run on Linux remote." >&2
+    echo "torque-remote-guard: Run locally with 'msbuild ...' (no torque-remote prefix), or use a Windows remote." >&2
+    exit 64  # EX_USAGE
+  fi
+fi
+
 while IFS= read -r pattern; do
   [[ -z "$pattern" ]] && continue
   if match_pattern "$pattern"; then

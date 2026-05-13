@@ -282,4 +282,38 @@ describe('pre-push gate planner', () => {
       expect(handler.hash).not.toBe(test.hash);
     });
   });
+
+  describe('REMOTE_OS in hash', () => {
+    it('includes remote_os in the plan', () => {
+      const plan = planFromFiles(['README.md'], { base: 'a', head: 'b', remoteOs: 'linux' });
+      expect(plan.remote_os).toBe('linux');
+    });
+
+    it('defaults remote_os to "unknown" when not provided', () => {
+      const origEnv = process.env.REMOTE_OS;
+      delete process.env.REMOTE_OS;
+      const plan = planFromFiles(['README.md'], { base: 'a', head: 'b' });
+      expect(plan.remote_os).toBe('unknown');
+      if (origEnv !== undefined) process.env.REMOTE_OS = origEnv;
+    });
+
+    it('changes the plan hash when REMOTE_OS differs', () => {
+      // A Linux operator's passing gate run must not be replayed as a cache
+      // hit for a Windows operator — they may have different toolchains and
+      // test surface. "unknown" is its own bucket, correct conservative default.
+      const linux = planFromFiles(['server/handlers/factory-handlers.js'], {
+        base: 'a', head: 'b', remoteOs: 'linux',
+      });
+      const windows = planFromFiles(['server/handlers/factory-handlers.js'], {
+        base: 'a', head: 'b', remoteOs: 'windows',
+      });
+      const unknown = planFromFiles(['server/handlers/factory-handlers.js'], {
+        base: 'a', head: 'b', remoteOs: 'unknown',
+      });
+
+      expect(linux.hash).not.toBe(windows.hash);
+      expect(linux.hash).not.toBe(unknown.hash);
+      expect(windows.hash).not.toBe(unknown.hash);
+    });
+  });
 });

@@ -135,9 +135,12 @@ describe('torque-remote source invariants', () => {
     // TTL-based cross-host reap (batch-2 #2).
     expect(src).toContain('TORQUE_REMOTE_SYNC_LOCK_STALE_TTL_SECS:-14400');
     expect(src).toContain('exceeded TTL');
-    // Reap command shape.
-    expect(src).toContain('rmdir /s /q \\"$REMOTE_LANE_LOCK_DIR\\" 2>nul');
-    expect(src).not.toContain('rmdir "$REMOTE_LANE_LOCK_DIR"');
+    // Reap command shape — lock release now routes through adapter.
+    // The adapter itself still emits rmdir /s /q on Windows (via $lock_dir).
+    expect(src).toContain('remote_lock_release "$REMOTE_LANE_LOCK_DIR"');
+    expect(src).toContain('rmdir /s /q \\"$lock_dir\\"');
+    // Direct inline rmdir against $REMOTE_LANE_LOCK_DIR is gone — adapter owns it.
+    expect(src).not.toContain('rmdir /s /q \\"$REMOTE_LANE_LOCK_DIR\\"');
   });
 
   it('strips trailing whitespace from owner.env field values so the host check matches', () => {
@@ -165,21 +168,36 @@ describe('torque-remote source invariants', () => {
   });
 });
 
-describe('build_remote_sync_command runtime invariants', () => {
-  // Source the bash script and invoke build_remote_sync_command with synthetic
-  // inputs so the actual assembled string can be asserted against. This is
-  // the unit test that closes torque-remote.md open question #7.
+// Shared helper: extract all build_remote_sync_command* function definitions
+// from the source (dispatcher + _windows + _linux) so all three can be
+// sourced together in each bash invocation.
+//
+// Each function block: starts at `^build_remote_sync_command...() {` (column 0)
+// and ends at the next `^}` line. We collect all matches and join them.
+function extractSyncFunctions(src) {
+  const pattern = /^(build_remote_sync_command\S*\(\)\s*\{[\s\S]*?\n\})/gm;
+  const fns = [];
+  let m;
+  while ((m = pattern.exec(src)) !== null) {
+    fns.push(m[1]);
+  }
+  if (fns.length === 0) {
+    throw new Error('No build_remote_sync_command functions found in torque-remote source');
+  }
+  return fns.join('\n');
+}
+
+describe('build_remote_sync_command runtime invariants — REMOTE_OS=windows', () => {
+  // Source all three build_remote_sync_command function definitions and invoke
+  // the dispatcher with REMOTE_OS=windows. This is the unit test that closes
+  // torque-remote.md open question #7; existing Windows invariants are preserved.
   function buildSyncCommand({ effPath, fetchCmd, syncCheckout, syncRef, bootstrap = '' }) {
-    // Source the function out of the real script. To avoid running the
-    // script's main flow, define dummy `trap_chain_add` etc. before sourcing.
-    // Simplest: extract just the function definition via a sed range and
-    // source that.
     const src = readTorqueRemote();
-    const startMatch = src.match(/^build_remote_sync_command\(\)\s*\{[\s\S]*?\n\}/m);
-    if (!startMatch) {
-      throw new Error('build_remote_sync_command not found in torque-remote source');
-    }
-    const stdout = execFileSync(resolveBashForFunctionTests(), ['-c', `${startMatch[0]}; build_remote_sync_command "$1" "$2" "$3" "$4" "$5"`,
+    const fnDefs = extractSyncFunctions(src);
+    // warn() is used by the dispatcher on unknown REMOTE_OS — define a stub.
+    const preamble = `warn() { echo "[warn] $*" >&2; }\nREMOTE_OS=windows\n`;
+    const stdout = execFileSync(resolveBashForFunctionTests(), ['-c',
+      `${preamble}${fnDefs}; build_remote_sync_command "$1" "$2" "$3" "$4" "$5"`,
       '_', effPath, fetchCmd, syncCheckout, syncRef, bootstrap], { encoding: 'utf8' });
     return stdout;
   }
@@ -258,5 +276,176 @@ describe('build_remote_sync_command runtime invariants', () => {
     const fetchIdx = cmd.indexOf(fixture.fetchCmd);
     expect(cdIdx).toBeGreaterThan(-1);
     expect(cdIdx).toBeLessThan(fetchIdx);
+  });
+});
+
+describe('build_remote_sync_command runtime invariants — REMOTE_OS=linux', () => {
+  // Source all three function definitions and invoke the dispatcher with
+  // REMOTE_OS=linux. Pins the POSIX shape invariants for the Linux variant.
+  function buildSyncCommand({ effPath, fetchCmd, syncCheckout, syncRef, bootstrap = '' }) {
+    const src = readTorqueRemote();
+    const fnDefs = extractSyncFunctions(src);
+    const preamble = `warn() { echo "[warn] $*" >&2; }\nREMOTE_OS=linux\n`;
+    const stdout = execFileSync(resolveBashForFunctionTests(), ['-c',
+      `${preamble}${fnDefs}; build_remote_sync_command "$1" "$2" "$3" "$4" "$5"`,
+      '_', effPath, fetchCmd, syncCheckout, syncRef, bootstrap], { encoding: 'utf8' });
+    return stdout;
+  }
+
+  const fixture = {
+    effPath: '/c/trt/torque-public',
+    fetchCmd: 'git fetch --prune origin +refs/heads/main:refs/remotes/origin/main',
+    syncCheckout: 'git checkout --force --detach origin/main',
+    syncRef: 'origin/main',
+    bootstrap: '',
+  };
+
+  it('uses POSIX [ -f ] tests, not CMD if exist', () => {
+    const cmd = buildSyncCommand(fixture);
+    expect(cmd).toMatch(/\[ -f /);
+    expect(cmd).not.toContain('if not exist');
+    expect(cmd).not.toContain('if exist');
+  });
+
+  it('uses git clean -fd (NOT -fdx) so node_modules is preserved across syncs', () => {
+    const cmd = buildSyncCommand(fixture);
+    expect(cmd).toMatch(/git clean -fd(\s|$|\|)/);
+    expect(cmd).not.toMatch(/git clean -[a-z]*x/);
+  });
+
+  it('emits drift detection with exit 99', () => {
+    const cmd = buildSyncCommand(fixture);
+    expect(cmd).toContain('exit 99');
+    expect(cmd).toContain('drift after reset');
+  });
+
+  it('chains fetch → checkout → reset in that exact order', () => {
+    const cmd = buildSyncCommand(fixture);
+    const fetchIdx = cmd.indexOf('git fetch');
+    const checkoutIdx = cmd.indexOf('git checkout');
+    const resetIdx = cmd.indexOf('git reset');
+    expect(fetchIdx).toBeGreaterThanOrEqual(0);
+    expect(checkoutIdx).toBeGreaterThan(fetchIdx);
+    expect(resetIdx).toBeGreaterThan(checkoutIdx);
+  });
+
+  it('chains commands with POSIX && (not CMD ^ escapes)', () => {
+    const cmd = buildSyncCommand(fixture);
+    expect(cmd).toContain('&&');
+    // No CMD-style ^&^& escaping in the POSIX variant.
+    expect(cmd).not.toContain('^&^&');
+  });
+
+  it('uses cd without /d flag (Linux cd does not accept /d)', () => {
+    const cmd = buildSyncCommand(fixture);
+    expect(cmd).not.toContain('cd /d');
+    expect(cmd).toMatch(/cd "[^"]+"/);
+  });
+
+  it('honors a non-empty SYNC_BOOTSTRAP prefix', () => {
+    const cmd = buildSyncCommand({
+      ...fixture,
+      bootstrap: 'BOOTSTRAP_PREFIX_HERE && ',
+    });
+    expect(cmd.startsWith('BOOTSTRAP_PREFIX_HERE && cd ')).toBe(true);
+  });
+});
+
+describe('build_remote_sync_command — OS branch dispatch', () => {
+  function buildSyncCommandWithOS({ os, effPath, fetchCmd, syncCheckout, syncRef, bootstrap = '' }) {
+    const src = readTorqueRemote();
+    const fnDefs = extractSyncFunctions(src);
+    const preamble = `warn() { echo "[warn] $*" >&2; }\nREMOTE_OS=${os}\n`;
+    const stdout = execFileSync(resolveBashForFunctionTests(), ['-c',
+      `${preamble}${fnDefs}; build_remote_sync_command "$1" "$2" "$3" "$4" "$5"`,
+      '_', effPath, fetchCmd, syncCheckout, syncRef, bootstrap], { encoding: 'utf8' });
+    return stdout;
+  }
+
+  it('emits different command shapes for linux vs windows given the same inputs', () => {
+    const args = {
+      effPath: '/some/path',
+      fetchCmd: 'git fetch --prune origin +refs/heads/main:refs/remotes/origin/main',
+      syncCheckout: 'git checkout --force --detach origin/main',
+      syncRef: 'origin/main',
+    };
+    const linuxCmd = buildSyncCommandWithOS({ os: 'linux', ...args });
+    const windowsCmd = buildSyncCommandWithOS({ os: 'windows', ...args });
+    expect(linuxCmd).not.toBe(windowsCmd);
+    // Linux: POSIX; Windows: CMD
+    expect(linuxCmd).toMatch(/\[ -f /);
+    expect(windowsCmd).toContain('if exist');
+  });
+});
+
+// Helper: extract validate_remote_config_drift and its dependencies (info/warn/die)
+// from the source and return as a sourcing preamble for bash invocations.
+function extractDriftValidator(src) {
+  const fnPattern = /^(validate_remote_config_drift\(\)\s*\{[\s\S]*?\n\})/m;
+  const m = fnPattern.exec(src);
+  if (!m) {
+    throw new Error('validate_remote_config_drift not found in torque-remote source');
+  }
+  const stubs = [
+    'info()  { :; }',
+    'warn()  { echo "[warn] $*" >&2; }',
+    'die()   { echo "[die] $*" >&2; exit 1; }',
+  ].join('\n');
+  return `${stubs}\n${m[1]}`;
+}
+
+describe('validate_remote_config_drift runtime invariants', () => {
+  // Each test sources only the validator function (plus stubs) to confirm
+  // exit behaviour under synthetic REMOTE_OS / REMOTE_TEST_WORKTREE_ROOT values.
+
+  function runDriftValidator({ remoteOs, worktreeRoot }) {
+    const src = readTorqueRemote();
+    const fnDefs = extractDriftValidator(src);
+    const script = `${fnDefs}\nREMOTE_OS=${remoteOs}\nREMOTE_TEST_WORKTREE_ROOT=${worktreeRoot}\nvalidate_remote_config_drift\necho PASSED`;
+    try {
+      const stdout = execFileSync(resolveBashForFunctionTests(), ['-c', script], { encoding: 'utf8' });
+      return { exitCode: 0, stdout, stderr: '' };
+    } catch (err) {
+      return { exitCode: err.status, stdout: err.stdout || '', stderr: err.stderr || '' };
+    }
+  }
+
+  it('source invariant: validate_remote_config_drift is defined in torque-remote', () => {
+    const src = readTorqueRemote();
+    expect(src).toMatch(/^validate_remote_config_drift\(\)\s*\{/m);
+  });
+
+  it('exits 78 when remote_os=linux but worktree root is a Windows drive letter path', () => {
+    const result = runDriftValidator({ remoteOs: 'linux', worktreeRoot: "'C:\\\\trt'" });
+    expect(result.exitCode).toBe(78);
+    expect(result.stderr).toContain('remote_test_worktree_root looks Windows');
+    expect(result.stderr).toContain('POSIX path');
+    expect(result.stdout).not.toContain('PASSED');
+  });
+
+  it('exits 78 when remote_os=windows but worktree root is a POSIX absolute path', () => {
+    const result = runDriftValidator({ remoteOs: 'windows', worktreeRoot: '/srv/trt' });
+    expect(result.exitCode).toBe(78);
+    expect(result.stderr).toContain('remote_test_worktree_root looks POSIX');
+    expect(result.stderr).toContain('Windows path');
+    expect(result.stdout).not.toContain('PASSED');
+  });
+
+  it('passes when remote_os=linux and worktree root is a POSIX path', () => {
+    const result = runDriftValidator({ remoteOs: 'linux', worktreeRoot: '/srv/trt' });
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('PASSED');
+  });
+
+  it('passes when remote_os=windows and worktree root is a Windows drive-letter path', () => {
+    const result = runDriftValidator({ remoteOs: 'windows', worktreeRoot: "'C:\\\\trt'" });
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('PASSED');
+  });
+
+  it('passes when REMOTE_TEST_WORKTREE_ROOT is empty (no root configured yet)', () => {
+    const result = runDriftValidator({ remoteOs: 'linux', worktreeRoot: "''" });
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('PASSED');
   });
 });
