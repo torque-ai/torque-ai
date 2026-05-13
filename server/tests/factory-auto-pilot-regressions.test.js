@@ -19,6 +19,7 @@ const factoryWorktrees = require('../db/factory/worktrees');
 const routingModule = require('../handlers/integration/routing');
 const taskCore = require('../db/task-core');
 const gitWorktree = require('../utils/git-worktree');
+const { defaultContainer } = require('../container');
 
 const TASK_MANAGER_RESOLVED = require.resolve('../task-manager');
 
@@ -26,6 +27,7 @@ let dbModule;
 let dbHandle;
 let testDir;
 let originalTaskManagerCache = null;
+let containerPeekSpy = null;
 
 function ensureFactoryTables(db) {
   db.exec(`
@@ -201,11 +203,20 @@ beforeEach(() => {
   ensureFactoryTables(dbHandle);
   resetFactoryTables(dbHandle);
   wireFactoryDbModules(dbHandle);
+  const originalPeek = defaultContainer.peek.bind(defaultContainer);
+  containerPeekSpy = vi.spyOn(defaultContainer, 'peek').mockImplementation((name) => {
+    if (name === 'db') {
+      return dbModule;
+    }
+    return originalPeek(name);
+  });
   loopController.setWorktreeRunnerForTests(null);
 });
 
 afterEach(() => {
   restoreTaskManagerCache();
+  containerPeekSpy?.mockRestore();
+  containerPeekSpy = null;
   vi.restoreAllMocks();
 });
 
