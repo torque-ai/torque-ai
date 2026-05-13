@@ -53,9 +53,9 @@ function textOf(result) {
 function isVerifyExecutor(command) {
   return typeof command === 'string'
     && (
-      command === 'torque-remote'
-      || command === 'cmd'
+      command === 'cmd'
       || command === 'sh'
+      || /(?:^|[\\/])torque-remote(?:\.[a-z0-9]+)?$/i.test(command)
       || /(?:^|[\\/])bash(?:\.exe)?$/i.test(command)
     );
 }

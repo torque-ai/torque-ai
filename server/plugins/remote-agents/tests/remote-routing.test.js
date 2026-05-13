@@ -555,8 +555,11 @@ describe.skipIf(isCI)('createRemoteTestRouter', () => {
       const logger = createMockLogger();
       const router = createRemoteTestRouter({ agentRegistry: null, db: mockDb, logger });
 
+      // Quote the inner JS — bare `process.exit(1)` is a syntax error in
+      // sh because `(` opens a subshell; cmd.exe ignores parens here. The
+      // quoted form is portable.
       const result = await router.runVerifyCommand(
-        'node -e process.exit(1) && node --version',
+        'node -e "process.exit(1)" && node --version',
         process.cwd()
       );
 
