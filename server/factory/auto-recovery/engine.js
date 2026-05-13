@@ -215,6 +215,7 @@ const BENIGN_FLOW_ACTION_EXACT = new Set([
   'execute_deferred_resumed', // EXECUTE deferred slot became available; resuming
   'execute_deferred_worktree_reused', // EXECUTE deferred; worktree reused from prior run
   'execute_wait_owner_completed', // EXECUTE waiting for owning task to complete
+  'generated_plan_missing_routed_to_needs_replan', // EXECUTE routed stale generated-plan reference back to planning
   'worktree_reclaim_skipped_in_flight_same_wi', // reclaim skipped: same WI still in-flight
   'worktree_reclaim_skipped_live_owner', // reclaim skipped: worktree has a live owner task
   'dry_run_task',            // dry-run mode; task submission suppressed

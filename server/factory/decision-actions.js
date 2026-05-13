@@ -320,6 +320,11 @@ const DECISION_ACTIONS = {
     classifier: 'benign',
     outcome: ['factory_worktree_id', 'worktree_id', 'worktree_path', 'branch', 'batch_id', 'active_work_item_id', 'requested_work_item_id'],
   },
+  generated_plan_missing_routed_to_needs_replan: {
+    stage: 'EXECUTE',
+    classifier: 'benign',
+    outcome: ['next_state', 'next_status', 'work_item_id', 'plan_path_cleared'],
+  },
   execute_exception: {
     stage: 'EXECUTE',
     classifier: 'recovery-rule',
