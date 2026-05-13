@@ -416,6 +416,31 @@ describe('factory loop-controller EXECUTE modes', () => {
     expect(factoryLoopInstances.listInstances({ project_id: project.id, active_only: true })).toHaveLength(1);
   });
 
+  it('refuses to create a second active loop instance for a project', () => {
+    const { project, workItem } = registerPlanProject();
+    const started = loopController.startLoopForProject(project.id);
+    factoryLoopInstances.updateInstance(started.instance_id, {
+      loop_state: LOOP_STATES.EXECUTE,
+      work_item_id: workItem.id,
+      last_action_at: '2026-05-13T14:00:00.000Z',
+    });
+    factoryHealth.updateProject(project.id, {
+      loop_state: LOOP_STATES.EXECUTE,
+      loop_last_action_at: '2026-05-13T14:00:00.000Z',
+    });
+
+    expect(() => loopController.startLoopForProject(project.id)).toThrow(/Stage EXECUTE is already occupied/);
+
+    const activeInstances = factoryLoopInstances.listInstances({ project_id: project.id, active_only: true });
+    expect(activeInstances).toHaveLength(1);
+    expect(activeInstances[0]).toMatchObject({
+      id: started.instance_id,
+      loop_state: LOOP_STATES.EXECUTE,
+      work_item_id: workItem.id,
+    });
+    expect(listDecisionRows(db, project.id).map((row) => row.action)).toContain('start_loop_blocked_active_instance');
+  });
+
   it('reports active instance loop state before the stale project mirror', () => {
     const { project } = registerPlanProject();
     const started = loopController.startLoopForProject(project.id);

@@ -13528,6 +13528,32 @@ function startLoop(project_id) {
     });
     throw new Error('Cannot start factory loop for paused project; resume_project first');
   }
+  const activeInstance = getOldestActiveInstance(project.id) || backfillLegacyProjectLoopInstance(project.id);
+  if (activeInstance) {
+    const activeStage = getCurrentLoopState(activeInstance);
+    safeLogDecision({
+      project_id: project.id,
+      stage: LOOP_STATES.SENSE,
+      action: 'start_loop_blocked_active_instance',
+      reasoning: 'Factory loop start was refused because the project already has an active loop instance.',
+      inputs: {
+        previous_state: previousLoopState,
+        active_instance_id: activeInstance.id,
+        active_stage: activeStage,
+        active_work_item_id: activeInstance.work_item_id || null,
+        active_batch_id: activeInstance.batch_id || null,
+      },
+      outcome: {
+        started: false,
+        instance_id: activeInstance.id,
+        loop_state: activeStage,
+      },
+      confidence: 1,
+      batch_id: activeInstance.batch_id || null,
+    });
+    syncLegacyProjectLoopState(project.id);
+    throw new StageOccupiedError(project.id, activeStage);
+  }
   const previousState = previousLoopState;
   try {
     const { initFactoryWorktreeAutoCommit } = require('./worktree-auto-commit');

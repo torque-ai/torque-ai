@@ -161,6 +161,7 @@ const BENIGN_FLOW_ACTION_EXACT = new Set([
   // ── SENSE ───────────────────────────────────────────────────────────────────
   'scanned_plans',           // SENSE scanned the plans directory
   'start_loop_blocked_project_paused',  // SENSE found project paused; loop blocked (benign guard)
+  'start_loop_blocked_active_instance', // SENSE refused a duplicate loop start while another instance owns the project
 
   // ── PRIORITIZE ──────────────────────────────────────────────────────────────
   'selected_work_item',      // PRIORITIZE picked a WI

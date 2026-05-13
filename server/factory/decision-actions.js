@@ -39,6 +39,11 @@ const DECISION_ACTIONS = {
     classifier: 'benign',
     outcome: ['started', 'status'],
   },
+  start_loop_blocked_active_instance: {
+    stage: 'SENSE',
+    classifier: 'benign',
+    outcome: ['started', 'instance_id', 'loop_state'],
+  },
 
   // ─── PRIORITIZE ───────────────────────────────────────────────────────────
 
