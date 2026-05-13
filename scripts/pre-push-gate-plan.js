@@ -397,7 +397,133 @@ function planFromFiles(files, options = {}) {
   plan.summary = `${plan.mode}: ${plan.reasons.join('; ') || 'no reason recorded'}`;
   delete plan._dashboard_full;
   delete plan._server_full;
+
+  // Opt-in codegraph plan augmenter — only widens the affected-tests set,
+  // never narrows it. Gated by TORQUE_GATE_USE_CODEGRAPH=1 so default gate
+  // behaviour is preserved while the impact-set integration matures.
+  //
+  // SAFETY CONTRACT:
+  //  - Failures (missing db, missing better-sqlite3, query error, stale
+  //    index) are silent. Plan is returned unchanged.
+  //  - The augmenter NEVER demotes a full-gate plan to affected, and it
+  //    NEVER removes test files from server_args/dashboard_args.
+  //  - The plan hash includes any added test files so cache hits remain
+  //    correct.
+  if (process.env.TORQUE_GATE_USE_CODEGRAPH === '1'
+      && plan.mode === 'affected'
+      && plan.run_server
+      && !plan._codegraph_already_applied) {
+    const extras = tryCodegraphImpactTests(plan);
+    if (extras && extras.length > 0) {
+      const previousArgs = plan.server_args;
+      plan.server_args = uniqSorted([...previousArgs, ...extras]);
+      const added = plan.server_args.length - previousArgs.length;
+      if (added > 0) {
+        plan.reasons.push(`codegraph impact-set added ${added} test file(s)`);
+        plan.summary = `${plan.mode}: ${plan.reasons.join('; ') || 'no reason recorded'}`;
+        // Re-hash with the expanded args so the cache key reflects the
+        // augmented plan; otherwise a non-augmented prior run could replay.
+        plan.hash = hashObject({ ...hashInput, server_args: plan.server_args });
+        plan.coord_suite = `gate-${plan.mode}-${plan.hash}`;
+      }
+    }
+    plan._codegraph_already_applied = true;
+  }
+
+  delete plan._codegraph_already_applied;
   return plan;
+}
+
+// Best-effort codegraph impact-set lookup. Opens the codegraph.db (if
+// present), maps each changed source file to symbols defined in it, and
+// follows `impactSet` reverse-call-graph queries up to depth 3 to find
+// test files that transitively exercise those symbols.
+//
+// All errors are swallowed — this routine MUST NOT break the gate when
+// codegraph is missing, the index is stale, or better-sqlite3 isn't
+// resolvable from the script's module path. Returns either an array of
+// test file paths (server/-relative, suitable for plan.server_args) or
+// null when no augmentation could be performed.
+function tryCodegraphImpactTests(plan) {
+  try {
+    const Database = tryRequireFromServer('better-sqlite3');
+    if (!Database) return null;
+    const dbPath = resolveCodegraphDbPath();
+    if (!dbPath || !fs.existsSync(dbPath)) return null;
+    const db = new Database(dbPath, { readonly: true });
+    try {
+      // Filter to changed source files in server/ that we can resolve
+      // to symbols. Tests are passed through verbatim by the heuristic
+      // path; codegraph augments the source→tests gap.
+      const sourceFiles = plan.changed_files.filter((f) =>
+        f.startsWith('server/')
+        && f.endsWith('.js')
+        && !isServerTest(f));
+      if (sourceFiles.length === 0) return null;
+
+      const { impactSet } = tryRequireFromServer(
+        'server/plugins/codegraph/queries/impact-set',
+        { allowRelative: true }
+      ) || {};
+      if (typeof impactSet !== 'function') return null;
+
+      const repoPath = REPO_ROOT;
+      const out = new Set();
+      const symbolStmt = db.prepare(
+        `SELECT DISTINCT name FROM cg_symbols
+         WHERE repo_path = ? AND file_path = ?`
+      );
+      for (const file of sourceFiles) {
+        let symbolRows;
+        try {
+          symbolRows = symbolStmt.all(repoPath, file);
+        } catch {
+          continue;
+        }
+        for (const { name } of symbolRows) {
+          let result;
+          try {
+            result = impactSet({ db, repoPath, symbol: name, depth: 3, scope: 'loose' });
+          } catch {
+            continue;
+          }
+          for (const impactedFile of result.files || []) {
+            if (isServerTest(impactedFile)) {
+              out.add(serverRelative(impactedFile));
+            }
+          }
+        }
+      }
+      return Array.from(out);
+    } finally {
+      try { db.close(); } catch { /* best effort */ }
+    }
+  } catch {
+    return null;
+  }
+}
+
+function tryRequireFromServer(moduleName, options = {}) {
+  const candidates = [];
+  if (options.allowRelative) {
+    candidates.push(path.join(REPO_ROOT, moduleName));
+  }
+  candidates.push(path.join(REPO_ROOT, 'server', 'node_modules', moduleName));
+  candidates.push(moduleName);
+  for (const candidate of candidates) {
+    try {
+      return require(candidate);
+    } catch { /* try next */ }
+  }
+  return null;
+}
+
+function resolveCodegraphDbPath() {
+  // Mirror server/plugins/codegraph/index.js resolution order so the gate
+  // plan reads the same DB the codegraph plugin writes. TORQUE_DATA_DIR
+  // wins; otherwise fall back to the repo root.
+  const dataDir = process.env.TORQUE_DATA_DIR || REPO_ROOT;
+  return path.join(dataDir, 'codegraph.db');
 }
 
 function shellQuote(value) {

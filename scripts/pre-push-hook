@@ -1086,6 +1086,21 @@ pre_push_set_gate_phase "planned" "$GATE_PLAN_SUMMARY"
 echo "[pre-push] Gate plan: $GATE_PLAN_SUMMARY"
 echo "[pre-push] Gate phases: dashboard=$GATE_RUN_DASHBOARD server=$GATE_RUN_SERVER perf=$GATE_RUN_PERF audit=$GATE_RUN_AUDIT(strict=$GATE_AUDIT_STRICT) suite=$GATE_COORD_SUITE"
 
+# Opt-in vitest sharding of the server phase. When TORQUE_GATE_SHARDS=N (N>=2),
+# the inline remote gate script runs N concurrent `npx vitest --shard=K/N`
+# processes inside one lane workspace, with VITEST_MAX_WORKERS reduced per
+# shard so total worker count stays at or below the configured cap. Default
+# behaviour (single vitest invocation, 8 workers) is preserved when unset or
+# set to 1.
+GATE_SERVER_SHARDS="${TORQUE_GATE_SHARDS:-1}"
+if ! [[ "$GATE_SERVER_SHARDS" =~ ^[0-9]+$ ]] || [ "$GATE_SERVER_SHARDS" -lt 1 ]; then
+  echo "[pre-push] TORQUE_GATE_SHARDS=$GATE_SERVER_SHARDS is not a positive integer; defaulting to 1"
+  GATE_SERVER_SHARDS=1
+fi
+if [ "$GATE_SERVER_SHARDS" -gt 1 ]; then
+  echo "[pre-push] Server phase sharding: $GATE_SERVER_SHARDS parallel shards (TORQUE_GATE_SHARDS)"
+fi
+
 if [ "$GATE_RUN_DASHBOARD" = "1" ] || [ "$GATE_RUN_SERVER" = "1" ] || [ "$GATE_RUN_PERF" = "1" ]; then
   # Disposable ref under refs/heads/pre-push-gate/. Includes the local sha plus
   # a per-hook-run suffix so an older failed hook's EXIT cleanup cannot delete a
@@ -1501,13 +1516,46 @@ run_dashboard_phase() {
   } 2>&1 | prefix_gate_phase_output dash || true
 }
 
+# Vitest sharding (opt-in via dev-side TORQUE_GATE_SHARDS). When sharding is
+# active, run_server_phase spawns N concurrent vitest --shard=K/N processes
+# inside the same lane workspace. Each shard runs a disjoint slice of files,
+# so they don't race on the same suite; per-shard VITEST_MAX_WORKERS is
+# scaled down so the aggregate worker count matches the unsharded ceiling.
+run_server_shards() {
+  local n=${GATE_SERVER_SHARDS}
+  local k=0
+  local any_failed=0
+  local cap="\${VITEST_MAX_WORKERS:-8}"
+  local per_shard
+  per_shard=\$(( ( cap + \$n - 1 ) / \$n ))
+  if [ "\$per_shard" -lt 1 ]; then per_shard=1; fi
+  echo "[serv] [shards] launching \$n shards, VITEST_MAX_WORKERS=\$per_shard per shard"
+  local pids=()
+  for k in \$(seq 1 \$n); do
+    (
+      export VITEST_MAX_WORKERS="\$per_shard"
+      run_vitest_phase server run --reporter=dot --shard="\$k/\$n" ${GATE_SERVER_TEST_ARGS} 2>&1 | sed "s/^/[shard\$k] /"
+      exit "\${PIPESTATUS[0]}"
+    ) &
+    pids+=(\$!)
+  done
+  for pid in "\${pids[@]}"; do
+    if ! wait "\$pid"; then any_failed=1; fi
+  done
+  return \$any_failed
+}
+
 run_server_phase() {
   {
     PHASE_START_MS=\$(gate_now_ms)
-    run_vitest_phase server run --reporter=dot ${GATE_SERVER_TEST_ARGS}
+    if [ "${GATE_SERVER_SHARDS}" -gt 1 ]; then
+      run_server_shards
+    else
+      run_vitest_phase server run --reporter=dot ${GATE_SERVER_TEST_ARGS}
+    fi
     PHASE_EXIT=\$?
     PHASE_END_MS=\$(gate_now_ms)
-    echo "[gate-timing] serv_ms=\$(elapsed_ms "\$PHASE_START_MS" "\$PHASE_END_MS") exit=\$PHASE_EXIT"
+    echo "[gate-timing] serv_ms=\$(elapsed_ms "\$PHASE_START_MS" "\$PHASE_END_MS") exit=\$PHASE_EXIT shards=${GATE_SERVER_SHARDS}"
     echo \$PHASE_EXIT > "\$SERV_EXIT_FILE"
   } 2>&1 | prefix_gate_phase_output serv || true
 }
