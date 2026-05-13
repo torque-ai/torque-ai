@@ -579,7 +579,7 @@ describe('provider startup command builder', () => {
       stdio: ['pipe', 'pipe', 'pipe'],
     }));
     expect(result.options.env).toEqual(expect.objectContaining({
-      PATH: `C:/nvm/current/bin${path.delimiter}C:/Windows/System32`,
+      PATH: `C:/nvm/current/bin${path.posix.delimiter}C:/Windows/System32`,
       HOME: 'C:/Users/<user>',
       FORCE_COLOR: '0',
       NO_COLOR: '1',
@@ -609,6 +609,31 @@ describe('provider startup command builder', () => {
       },
       skipGit: false,
     }));
+  });
+
+  it('uses the target platform PATH delimiter when building startup environment', async () => {
+    const { taskStartup } = loadProviderStartupCommand();
+    const task = createStartupCommandTask({
+      id: 'task-windows-path-delimiter',
+      provider: 'claude-cli',
+    });
+
+    const result = await taskStartup.buildProviderStartupCommand({
+      taskId: task.id,
+      task,
+      provider: 'claude-cli',
+      providerConfig: { cli_path: 'claude.exe' },
+      executionTask: task,
+      resolvedFileContext: 'FILE_CONTEXT',
+      resolvedFiles: [],
+      taskMetadata: {},
+      env: { PATH: 'C:/Windows/System32', USERPROFILE: 'C:/Users/<user>' },
+      nvmNodePath: 'C:/nvm/current/bin',
+      platform: 'win32',
+      captureBaselineCommit: vi.fn(() => 'baseline-win32'),
+    });
+
+    expect(result.options.env.PATH).toBe(`C:/nvm/current/bin${path.win32.delimiter}C:/Windows/System32`);
   });
 
   it('resolves Windows cmd provider paths to node script spawn inputs', async () => {
@@ -670,7 +695,7 @@ describe('provider startup command builder', () => {
     }
     expect(result.stdinPrompt).toBe('wrapped:codex:update src/app.js:FILE_CONTEXT');
     if (result.options.env.PATH !== 'C:/Windows/System32') {
-      const pathEntries = result.options.env.PATH.split(path.delimiter);
+      const pathEntries = result.options.env.PATH.split(path.win32.delimiter);
       expect(pathEntries[0]).toMatch(/[\\/]vendor[\\/][^\\/]+[\\/]path$/i);
       expect(pathEntries).toContain('C:/Windows/System32');
     }

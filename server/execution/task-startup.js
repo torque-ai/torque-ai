@@ -483,19 +483,32 @@ function _resolveWindowsCmdToNodeUncached(cmdPath) {
   }
 }
 
-function buildProviderStartupEnv({ taskId, task, taskMetadata = {}, runDir, env, nvmNodePath, nativeCodex = null }) {
+function pathDelimiterForPlatform(platform = process.platform) {
+  return platform === 'win32' ? path.win32.delimiter : path.posix.delimiter;
+}
+
+function pathListIncludes(pathValue, entry, delimiter) {
+  if (!entry) return true;
+  return String(pathValue || '').split(delimiter).includes(entry);
+}
+
+function prependPathEntry(pathValue, entry, delimiter) {
+  if (!entry || pathListIncludes(pathValue, entry, delimiter)) {
+    return pathValue || '';
+  }
+  return pathValue ? `${entry}${delimiter}${pathValue}` : entry;
+}
+
+function buildProviderStartupEnv({ taskId, task, taskMetadata = {}, runDir, env, nvmNodePath, nativeCodex = null, platform = process.platform }) {
   const envPath = env.PATH || '';
-  let updatedPath = (nvmNodePath && !envPath.includes(nvmNodePath))
-    ? `${nvmNodePath}${path.delimiter}${envPath}`
-    : envPath;
+  const pathDelimiter = pathDelimiterForPlatform(platform);
+  let updatedPath = prependPathEntry(envPath, nvmNodePath, pathDelimiter);
 
   // When launching the native codex.exe directly (bypassing the node wrapper),
   // the wrapper's PATH augmentation for the bundled vendor tools (rg.exe) is
   // lost. Mirror it here: prepend the vendor path dir if the resolver returned
   // one and it isn't already on PATH.
-  if (nativeCodex && nativeCodex.pathPrepend && !envPath.split(path.delimiter).includes(nativeCodex.pathPrepend)) {
-    updatedPath = `${nativeCodex.pathPrepend}${path.delimiter}${updatedPath}`;
-  }
+  updatedPath = prependPathEntry(updatedPath, nativeCodex?.pathPrepend, pathDelimiter);
 
   const base = {
     ...env,
@@ -624,6 +637,7 @@ async function buildProviderStartupCommand({
     env,
     nvmNodePath,
     nativeCodex: command.nativeCodex || null,
+    platform,
   });
 
   // When buildCodexCommand returned a native binary path, skip the .cmd →
