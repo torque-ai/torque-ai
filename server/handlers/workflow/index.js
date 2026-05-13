@@ -419,6 +419,12 @@ function buildWorkflowTaskMetadata(taskLike) {
   if (taskLike.routing_template) {
     metaObj._routing_template = taskLike.routing_template;
   }
+  if (typeof taskLike.verify_command === 'string') {
+    metaObj.verify_command = taskLike.verify_command;
+  }
+  if (taskLike.verify_skip === true) {
+    metaObj.verify_skip = true;
+  }
   if (taskLike.kind === 'crew') {
     metaObj.kind = 'crew';
     metaObj.crew = normalizeCrewTaskConfig(taskLike.crew);
@@ -1378,6 +1384,8 @@ function handleAddWorkflowTask(args) {
     project: resolvedProject,
     context_from: Array.isArray(args.context_from) ? args.context_from.slice() : [],
     routing_template: resolvedRoutingTemplate || undefined,
+    verify_command: args.verify_command,
+    verify_skip: args.verify_skip,
     kind: args.kind,
     crew: args.crew,
   };

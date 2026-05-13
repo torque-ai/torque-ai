@@ -101,6 +101,32 @@ tasks:
     expect(result.spec.tasks[0].task_description).toBe('Write a function');
   });
 
+  it('accepts per-task verification fields', () => {
+    const yamlText = `
+version: 1
+name: per-task-verify
+tasks:
+  - node_id: docs
+    task: Update docs
+    verify_command: markdownlint docs/
+  - node_id: skip
+    task: Skip verify
+    verify_skip: true
+`;
+
+    const result = parseSpecString(yamlText);
+
+    expect(result.ok).toBe(true);
+    expect(result.spec.tasks[0]).toMatchObject({
+      node_id: 'docs',
+      verify_command: 'markdownlint docs/',
+    });
+    expect(result.spec.tasks[1]).toMatchObject({
+      node_id: 'skip',
+      verify_skip: true,
+    });
+  });
+
   it('accepts authored template directives in raw specs', () => {
     const yamlText = `
 version: 1

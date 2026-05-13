@@ -268,6 +268,14 @@ const tools = [
                 items: { type: 'string' },
                 description: 'Optional tags for this node'
               },
+              verify_command: {
+                type: 'string',
+                description: 'Per-task verify command. Overrides project-level verify_command. Empty string disables verify for this task.'
+              },
+              verify_skip: {
+                type: 'boolean',
+                description: 'Skip the auto-verify stage for this task entirely.'
+              },
               provider: {
                 type: 'string',
                 enum: ['codex', 'claude-cli', 'claude-ollama', 'ollama', 'ollama-cloud', 'anthropic', 'cerebras', 'deepinfra', 'google-ai', 'groq', 'hyperbolic', 'openrouter'],
@@ -387,6 +395,14 @@ const tools = [
           type: 'array',
           items: { type: 'string' },
           description: 'Tags for the task'
+        },
+        verify_command: {
+          type: 'string',
+          description: 'Per-task verify command. Overrides project-level verify_command. Empty string disables verify for this task.'
+        },
+        verify_skip: {
+          type: 'boolean',
+          description: 'Skip the auto-verify stage for this task entirely.'
         },
         provider: {
           type: 'string',

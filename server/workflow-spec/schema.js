@@ -136,6 +136,8 @@ const WORKFLOW_SPEC_SCHEMA = {
           provider: { type: 'string', enum: WORKFLOW_PROVIDER_ENUM },
           model: { type: 'string' },
           tags: { type: 'array', items: { type: 'string' } },
+          verify_command: { type: 'string' },
+          verify_skip: { type: 'boolean' },
           timeout_minutes: { type: 'integer', minimum: 1, maximum: 480 },
           auto_approve: { type: 'boolean' },
           version_intent: { type: 'string', enum: VERSION_INTENT_ENUM },
