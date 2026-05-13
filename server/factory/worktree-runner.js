@@ -457,6 +457,7 @@ function createWorktreeRunner({
         branch: record.branch,
       });
     }
+    prepareWorktreeVerifyDependencies(record.worktree_path, logger);
     return {
       id: record.id,
       worktreePath: record.worktree_path,

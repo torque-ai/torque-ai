@@ -1,6 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 const { EventEmitter } = require('events');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
 const {
   createWorktreeRunner,
   sanitizeSlug,
@@ -227,6 +230,60 @@ describe('createWorktreeRunner.createForBatch', () => {
     expect(result.branch).toMatch(/^feat\/factory-42-cover-scan-report-fallback-branches$/);
     expect(result.worktreePath).toContain('.worktrees');
     expect(result.baseBranch).toBe('main');
+  });
+
+  it('links shared package dependencies into created managed worktrees before returning', async () => {
+    const repoPath = fs.mkdtempSync(path.join(os.tmpdir(), 'factory-worktree-runner-deps-'));
+    const packageJson = JSON.stringify({ dependencies: { 'better-sqlite3': '*' } });
+    try {
+      fs.mkdirSync(path.join(repoPath, 'server', 'node_modules', 'better-sqlite3'), { recursive: true });
+      fs.writeFileSync(path.join(repoPath, 'server', 'package.json'), packageJson);
+      fs.writeFileSync(path.join(repoPath, 'server', 'node_modules', 'better-sqlite3', 'package.json'), JSON.stringify({ name: 'better-sqlite3' }));
+
+      const worktreeManagerWithFiles = {
+        createWorktree: vi.fn((sourceRepoPath, featureName, options = {}) => {
+          const branch = `feat/${featureName}`;
+          const worktreePath = path.join(sourceRepoPath, '.worktrees', 'feat-deps-test');
+          fs.mkdirSync(path.join(worktreePath, 'server'), { recursive: true });
+          fs.writeFileSync(path.join(worktreePath, 'server', 'package.json'), packageJson);
+          return {
+            id: 'id-deps',
+            repo_path: sourceRepoPath,
+            worktree_path: worktreePath,
+            branch,
+            feature_name: featureName,
+            base_branch: options.baseBranch || 'main',
+            status: 'active',
+          };
+        }),
+        listWorktrees: vi.fn(() => []),
+        mergeWorktree: vi.fn(),
+        cleanupWorktree: vi.fn(),
+      };
+      const logger = { info: vi.fn(), warn: vi.fn() };
+      const depRunner = createWorktreeRunner({
+        worktreeManager: worktreeManagerWithFiles,
+        runRemoteVerify: vi.fn(),
+        logger,
+      });
+
+      const result = await depRunner.createForBatch({
+        project: { id: 'proj-1', path: repoPath },
+        workItem: { id: 42, title: 'Dependency hydration' },
+        batchId: 'batch-deps',
+      });
+
+      expect(fs.existsSync(path.join(result.worktreePath, 'server', 'node_modules', 'better-sqlite3'))).toBe(true);
+      expect(logger.info).toHaveBeenCalledWith(
+        'factory worktree verify: linked shared node_modules',
+        expect.objectContaining({
+          worktree_path: result.worktreePath,
+          packages: expect.arrayContaining(['server']),
+        }),
+      );
+    } finally {
+      fs.rmSync(repoPath, { recursive: true, force: true });
+    }
   });
 
   it('throws without project.path or workItem.id', async () => {
