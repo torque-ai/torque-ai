@@ -1891,6 +1891,63 @@ function getDecisionActor(stage, actor) {
   return normalizedStage ? DECISION_STAGE_ACTORS[normalizedStage] : null;
 }
 
+function getDefaultFactoryBatchId(project, workItem) {
+  const workItemId = Number(workItem?.id);
+  return project?.id && Number.isInteger(workItemId) && workItemId > 0
+    ? `factory-${project.id}-${workItemId}`
+    : null;
+}
+
+function batchIdBelongsToWorkItem(project, workItem, batchId) {
+  const normalized = typeof batchId === 'string' ? batchId.trim() : '';
+  if (!normalized) return false;
+
+  const workItemId = Number(workItem?.id);
+  if (!Number.isInteger(workItemId) || workItemId <= 0) {
+    return true;
+  }
+
+  if (workItem?.batch_id && normalized === workItem.batch_id) {
+    return true;
+  }
+
+  const defaultBatchId = getDefaultFactoryBatchId(project, workItem);
+  if (defaultBatchId && (normalized === defaultBatchId || normalized.startsWith(`${defaultBatchId}-`))) {
+    return true;
+  }
+
+  try {
+    const matchingWorktree = typeof factoryWorktrees.getActiveWorktreeByBatchAndWorkItem === 'function'
+      ? factoryWorktrees.getActiveWorktreeByBatchAndWorkItem(normalized, workItemId)
+      : null;
+    if (matchingWorktree) {
+      return true;
+    }
+
+    const batchWorktree = typeof factoryWorktrees.getActiveWorktreeByBatch === 'function'
+      ? factoryWorktrees.getActiveWorktreeByBatch(normalized)
+      : null;
+    if (batchWorktree) {
+      return factoryWorktreeBelongsToWorkItem(batchWorktree, workItem);
+    }
+  } catch (error) {
+    logger.debug('Unable to validate factory batch ownership', {
+      project_id: project?.id || null,
+      work_item_id: workItemId,
+      batch_id: normalized,
+      err: error.message,
+    });
+  }
+
+  return false;
+}
+
+function getWorkItemScopedBatchId(project, workItem, batchId) {
+  return batchIdBelongsToWorkItem(project, workItem, batchId)
+    ? String(batchId).trim()
+    : null;
+}
+
 function getDecisionBatchId(project, workItem, explicitBatchId, instance = null) {
   return explicitBatchId
     || workItem?.batch_id
@@ -1901,7 +1958,14 @@ function getDecisionBatchId(project, workItem, explicitBatchId, instance = null)
 
 function getFactorySubmissionBatchId(project, workItem, instance = null) {
   return getDecisionBatchId(project, workItem, null, instance)
-    || (project?.id && workItem?.id != null ? `factory-${project.id}-${workItem.id}` : null);
+    || getDefaultFactoryBatchId(project, workItem);
+}
+
+function getFactoryExecutionBatchId(project, workItem, instance = null) {
+  return workItem?.batch_id
+    || getWorkItemScopedBatchId(project, workItem, instance?.batch_id)
+    || getWorkItemScopedBatchId(project, workItem, project?.loop_batch_id)
+    || getDefaultFactoryBatchId(project, workItem);
 }
 
 function getWorkItemDecisionContext(workItem) {
@@ -4850,7 +4914,12 @@ async function executePrioritizeStage(project, instance, selectedWorkItem = null
     priority: scoring.newPriority,
   });
   rememberSelectedWorkItem(instance.id, updatedWorkItem);
-  updateInstanceAndSync(instance.id, { work_item_id: updatedWorkItem.id });
+  updateInstanceAndSync(instance.id, {
+    work_item_id: updatedWorkItem.id,
+    batch_id: getWorkItemScopedBatchId(project, updatedWorkItem, instance?.batch_id)
+      || updatedWorkItem.batch_id
+      || null,
+  });
 
   safeLogDecision({
     project_id: project.id,
@@ -9560,7 +9629,7 @@ async function executePlanFileStage(project, instance, workItem) {
     return null;
   }
   rememberSelectedWorkItem(instance.id, targetItem);
-  const executeLogBatchId = getFactorySubmissionBatchId(project, targetItem, instance);
+  const executeLogBatchId = getFactoryExecutionBatchId(project, targetItem, instance);
   updateInstanceAndSync(instance.id, {
     work_item_id: targetItem.id,
     batch_id: executeLogBatchId,
@@ -9730,9 +9799,11 @@ async function executePlanFileStage(project, instance, workItem) {
     try {
       const activeWorktree = factoryWorktrees.getActiveWorktreeByBatch(executeLogBatchId);
       const activeWorktreePath = getFactoryWorktreePath(activeWorktree);
+      const activeWorktreeBelongsToTarget = factoryWorktreeBelongsToWorkItem(activeWorktree, targetItem);
       const canReuseActiveWorktree = Boolean(
         activeWorktreePath
         && fs.existsSync(activeWorktreePath)
+        && activeWorktreeBelongsToTarget
         && (resumedDeferredExecute || !activeWorktree.owningTaskId)
       );
       if (canReuseActiveWorktree) {
@@ -9779,6 +9850,28 @@ async function executePlanFileStage(project, instance, workItem) {
           });
         }
       } else if (activeWorktree) {
+        if (activeWorktreePath && fs.existsSync(activeWorktreePath) && !activeWorktreeBelongsToTarget) {
+          safeLogDecision({
+            project_id: project.id,
+            stage: LOOP_STATES.EXECUTE,
+            action: 'execute_batch_worktree_reuse_skipped',
+            reasoning: 'Skipped active batch worktree reuse because the row belongs to a different factory work item.',
+            inputs: {
+              ...getWorkItemDecisionContext(targetItem),
+            },
+            outcome: {
+              factory_worktree_id: activeWorktree.id,
+              worktree_id: activeWorktree.vcWorktreeId,
+              worktree_path: activeWorktreePath,
+              branch: activeWorktree.branch,
+              batch_id: executeLogBatchId,
+              active_work_item_id: getFactoryWorktreeWorkItemId(activeWorktree),
+              requested_work_item_id: targetItem.id,
+            },
+            confidence: 1,
+            batch_id: executeLogBatchId,
+          });
+        }
         logger.warn('EXECUTE stage: active batch worktree is not reusable before create', {
           project_id: project.id,
           work_item_id: targetItem.id,
@@ -10307,8 +10400,8 @@ async function executePlanFileStage(project, instance, workItem) {
   const taskCore = require('../db/task-core');
   const executeMode = resolveExecuteMode(project);
   const dry_run = executeMode !== 'live';
-  const decisionBatchId = getDecisionBatchId(project, targetItem, null, instance);
-  const submissionBatchId = getFactorySubmissionBatchId(project, targetItem, instance);
+  const decisionBatchId = executeLogBatchId;
+  const submissionBatchId = executeLogBatchId;
   const executeDecisionBatchId = executeMode === 'pending_approval' ? submissionBatchId : decisionBatchId;
 
   const executor = createPlanExecutor({
@@ -13864,7 +13957,7 @@ async function runAdvanceLoop(instance_id) {
         project,
         instance,
         workItem: targetItem,
-        batchId: instance.batch_id || targetItem.batch_id || getFactorySubmissionBatchId(project, targetItem, instance),
+        batchId: getFactoryExecutionBatchId(project, targetItem, instance),
       });
       if (preExecuteZeroDiff) {
         // Phase E: when the batch already produced a real commit, the

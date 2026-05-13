@@ -310,6 +310,11 @@ const DECISION_ACTIONS = {
     classifier: 'benign',
     outcome: ['factory_worktree_id', 'worktree_id', 'worktree_path', 'branch', 'batch_id'],
   },
+  execute_batch_worktree_reuse_skipped: {
+    stage: 'EXECUTE',
+    classifier: 'benign',
+    outcome: ['factory_worktree_id', 'worktree_id', 'worktree_path', 'branch', 'batch_id', 'active_work_item_id', 'requested_work_item_id'],
+  },
   execute_exception: {
     stage: 'EXECUTE',
     classifier: 'recovery-rule',
