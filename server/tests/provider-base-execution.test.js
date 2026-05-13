@@ -632,6 +632,12 @@ describe('provider startup command builder', () => {
       resolvedFiles: [],
       taskMetadata: {},
       env: { PATH: 'C:/Windows/System32', HOME: 'C:/Users/<user>' },
+      // Suppress runtime NVM auto-detection — when this test runs on a Linux
+      // host the default NVM_NODE_PATH resolves to /usr/local/bin, which then
+      // prepends a non-Windows entry to PATH and breaks the vendor-path
+      // assertion below. Pass null so PATH is governed solely by the native
+      // codex vendor prepend (when present) and the supplied env.
+      nvmNodePath: null,
       platform: 'win32',
       resolveCmdToNode,
       captureBaselineCommit: vi.fn(() => 'baseline-456'),
