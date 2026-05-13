@@ -734,6 +734,31 @@ validate_remote_config_drift() {
   fi
 }
 
+# Session-cached dotnet presence check on Linux remote.
+# Returns 0 if dotnet is on remote PATH (or REMOTE_OS != linux); 1 if missing.
+_check_dotnet_sdk_on_linux() {
+  if [[ "$REMOTE_OS" != "linux" ]]; then
+    return 0
+  fi
+  if [[ "${_DOTNET_CHECK_DONE:-}" == "1" ]]; then
+    return "$_DOTNET_CHECK_RESULT"
+  fi
+  if ssh ${SSH_OPTS[@]+"${SSH_OPTS[@]}"} ${SSH_KEY_PATH:+-i "$SSH_KEY_PATH"} \
+      "$SSH_USER@$SSH_HOST" 'command -v dotnet >/dev/null 2>&1'; then
+    _DOTNET_CHECK_DONE=1
+    _DOTNET_CHECK_RESULT=0
+    return 0
+  else
+    _DOTNET_CHECK_DONE=1
+    _DOTNET_CHECK_RESULT=1
+    echo "[torque-remote] ERROR: dotnet SDK not installed on Linux remote (host=$SSH_HOST)." >&2
+    echo "[torque-remote] Install:" >&2
+    echo "[torque-remote]   Ubuntu/Debian: sudo apt install dotnet-sdk-8.0" >&2
+    echo "[torque-remote]   Fedora: sudo dnf install dotnet-sdk-8.0" >&2
+    return 1
+  fi
+}
+
 # When TORQUE_REMOTE_EMIT_ONLY=1, adapters print their composed SSH command
 # string to stdout instead of executing it. Tests use this to assert
 # emission shape without spawning SSH.
@@ -2451,6 +2476,13 @@ fi
 
 COMMAND_ARGS=("$@")
 COMMAND_DISPLAY="$(format_command_for_log "${COMMAND_ARGS[@]}")"
+
+# ---- Lazy SDK presence checks (after REMOTE_OS is known, before bundle upload) ----
+case "${COMMAND_ARGS[0]:-}" in
+  dotnet)
+    _check_dotnet_sdk_on_linux || exit 69
+    ;;
+esac
 
 # ---- Execute ----
 
