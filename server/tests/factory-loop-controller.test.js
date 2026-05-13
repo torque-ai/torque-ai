@@ -416,10 +416,26 @@ describe('factory loop-controller EXECUTE modes', () => {
     expect(factoryLoopInstances.listInstances({ project_id: project.id, active_only: true })).toHaveLength(1);
   });
 
-  it('refuses to create a second active loop instance for a project', () => {
-    const { project, workItem } = registerPlanProject();
+  it('refuses to start a second loop when SENSE is already occupied', () => {
+    const { project } = registerPlanProject();
     const started = loopController.startLoopForProject(project.id);
-    factoryLoopInstances.updateInstance(started.instance_id, {
+    // First instance stays in SENSE (default state immediately after start).
+
+    expect(() => loopController.startLoopForProject(project.id)).toThrow(/Stage SENSE is already occupied/);
+
+    const activeInstances = factoryLoopInstances.listInstances({ project_id: project.id, active_only: true });
+    expect(activeInstances).toHaveLength(1);
+    expect(activeInstances[0]).toMatchObject({
+      id: started.instance_id,
+      loop_state: LOOP_STATES.SENSE,
+    });
+    expect(listDecisionRows(db, project.id).map((row) => row.action)).toContain('start_loop_blocked_active_instance');
+  });
+
+  it('allows a new SENSE start when the existing instance has advanced past SENSE', () => {
+    const { project, workItem } = registerPlanProject();
+    const first = loopController.startLoopForProject(project.id);
+    factoryLoopInstances.updateInstance(first.instance_id, {
       loop_state: LOOP_STATES.EXECUTE,
       work_item_id: workItem.id,
       last_action_at: '2026-05-13T14:00:00.000Z',
@@ -429,16 +445,13 @@ describe('factory loop-controller EXECUTE modes', () => {
       loop_last_action_at: '2026-05-13T14:00:00.000Z',
     });
 
-    expect(() => loopController.startLoopForProject(project.id)).toThrow(/Stage EXECUTE is already occupied/);
+    const second = loopController.startLoopForProject(project.id);
+    expect(second.instance_id).not.toBe(first.instance_id);
 
-    const activeInstances = factoryLoopInstances.listInstances({ project_id: project.id, active_only: true });
-    expect(activeInstances).toHaveLength(1);
-    expect(activeInstances[0]).toMatchObject({
-      id: started.instance_id,
-      loop_state: LOOP_STATES.EXECUTE,
-      work_item_id: workItem.id,
-    });
-    expect(listDecisionRows(db, project.id).map((row) => row.action)).toContain('start_loop_blocked_active_instance');
+    const active = factoryLoopInstances.listInstances({ project_id: project.id, active_only: true });
+    expect(active).toHaveLength(2);
+    const stages = active.map((row) => row.loop_state).sort();
+    expect(stages).toEqual([LOOP_STATES.EXECUTE, LOOP_STATES.SENSE].sort());
   });
 
   it('hydrates dependencies when reusing an active plan artifact worktree', async () => {

@@ -13569,14 +13569,22 @@ function startLoop(project_id) {
     });
     throw new Error('Cannot start factory loop for paused project; resume_project first');
   }
+  // Only refuse a new start when SENSE is already occupied. The pipeline
+  // is designed to run multiple instances in parallel across distinct stages
+  // (SENSE / PRIORITIZE / EXECUTE / VERIFY / SHIP). Blocking on any active
+  // instance regardless of stage would break that parallelism — see the
+  // describe('factory loop pipeline parallelism') tests for the contract.
+  // The createInstance call below also enforces SENSE-stage occupancy via
+  // FACTORY_STAGE_OCCUPIED; this guard fires earlier so the decision log
+  // captures the would-have-been start with full context.
   const activeInstance = getOldestActiveInstance(project.id) || backfillLegacyProjectLoopInstance(project.id);
-  if (activeInstance) {
-    const activeStage = getCurrentLoopState(activeInstance);
+  if (activeInstance && getCurrentLoopState(activeInstance) === LOOP_STATES.SENSE) {
+    const activeStage = LOOP_STATES.SENSE;
     safeLogDecision({
       project_id: project.id,
       stage: LOOP_STATES.SENSE,
       action: 'start_loop_blocked_active_instance',
-      reasoning: 'Factory loop start was refused because the project already has an active loop instance.',
+      reasoning: 'Factory loop start was refused because SENSE is already occupied by an active loop instance.',
       inputs: {
         previous_state: previousLoopState,
         active_instance_id: activeInstance.id,

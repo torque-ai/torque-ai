@@ -155,6 +155,7 @@ Frequently-emitted actions, by stage:
 | SENSE | `started_loop` | `benign` | `from_state`, `to_state`, `instance_id` |
 | SENSE | `starting` | `benign` | _(none)_ |
 | SENSE | `start_loop_blocked_project_paused` | `benign` | `started`, `status` |
+| SENSE | `start_loop_blocked_active_instance` | `benign` | `started`, `instance_id`, `loop_state` |
 | PRIORITIZE | `selected_work_item` | `benign` | `work_item_id`, `priority`, `status`, `source`, `batch_id` |
 | PRIORITIZE | `scored_work_item` | `benign` | `work_item_id`, `score`, `factors` |
 | PRIORITIZE | `no_selected_work_item` | `benign` | `reason`, `work_item_id`, `batch_id` |
