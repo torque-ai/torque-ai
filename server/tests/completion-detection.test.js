@@ -3,6 +3,7 @@
 const {
   detectSuccessFromOutput,
   detectOutputCompletion,
+  hasFailureRejectionSignal,
   buildCombinedProcessOutput,
   COMPLETION_OUTPUT_THRESHOLDS,
   SHARED_COMPLETION_PATTERNS,
@@ -65,6 +66,21 @@ describe('completion-detection', () => {
       expect(detectOutputCompletion(output, 'codex')).toBe(
         detectSuccessFromOutput(output, 'codex')
       );
+    });
+  });
+
+  describe('hasFailureRejectionSignal', () => {
+    it('detects definitive provider failures independently of success text', () => {
+      const output = [
+        'All 12 tests passed',
+        "ERROR: You've hit your usage limit for GPT-5.3-Codex-Spark.",
+      ].join('\n');
+
+      expect(hasFailureRejectionSignal(output)).toBe(true);
+    });
+
+    it('returns false for normal completion output', () => {
+      expect(hasFailureRejectionSignal('All 12 tests passed')).toBe(false);
     });
   });
 

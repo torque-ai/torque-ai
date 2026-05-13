@@ -25,7 +25,11 @@ function getProviderRoutingCore() { return require('../db/provider/routing-core'
 function getExecuteCli() { return require('../providers/execute-cli'); }
 const logger = require('../logger').child({ component: 'process-lifecycle' });
 const { redactCommandArgs } = require('../utils/sanitize');
-const { buildCombinedProcessOutput, detectSuccessFromOutput } = require('../validation/completion-detection');
+const {
+  buildCombinedProcessOutput,
+  detectSuccessFromOutput,
+  hasFailureRejectionSignal,
+} = require('../validation/completion-detection');
 const { shouldUseOutputCompletionDetection } = require('./completion-policy');
 const { resolveMethod } = require('./capability-resolver');
 const { extractModifiedFiles } = require('../utils/file-resolution');
@@ -623,10 +627,14 @@ function handleCloseCleanup(taskId, code) {
       proc._outputBuffer = null;
     }
 
-    // Check combined stdout+stderr — Codex CLI writes summaries to stderr
-    if (shouldUseOutputCompletionDetection(proc) && !proc.completionDetected) {
+    // Check combined stdout+stderr — Codex CLI writes summaries to stderr.
+    // A stale completion flag must not override a later definitive provider
+    // failure, such as a usage-limit error emitted after prompt echo.
+    if (shouldUseOutputCompletionDetection(proc)) {
       const combinedOutput = buildCombinedProcessOutput(proc.output, proc.errorOutput);
-      if (combinedOutput) {
+      if (combinedOutput && hasFailureRejectionSignal(combinedOutput)) {
+        proc.completionDetected = false;
+      } else if (combinedOutput && !proc.completionDetected) {
         proc.completionDetected = detectSuccessFromOutput(combinedOutput, proc.provider);
       }
     }

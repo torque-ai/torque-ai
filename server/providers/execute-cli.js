@@ -23,6 +23,10 @@ const { applyStudyContextPrompt } = require('../integrations/codebase-study-engi
 const { resolveCodexNativeBinary } = require('../execution/codex-native-resolve');
 const { classifyReasoningEffort } = require('../execution/codex-reasoning-effort');
 const { shouldUseOutputCompletionDetection } = require('../execution/completion-policy');
+const {
+  buildCombinedProcessOutput,
+  hasFailureRejectionSignal,
+} = require('../validation/completion-detection');
 const { resolveActivityAwareTimeoutDecision } = require('../utils/activity-timeout');
 const { isSubprocessDetachmentEnabled } = require('../utils/subprocess-detachment');
 const { getTaskLogDir } = require('../data-dir');
@@ -52,6 +56,20 @@ function describeTimeoutDecisionReason(reason) {
 
 function formatElapsedMinutes(ms) {
   return (Math.max(0, ms) / 60000).toFixed(1);
+}
+
+function reconcileDetectedCompletionWithFailureOutput(taskId, proc, code, prefix = '[Completion]') {
+  if (!proc || code === 0 || !proc.completionDetected) return code;
+
+  const combinedOutput = buildCombinedProcessOutput(proc.output, proc.errorOutput);
+  if (combinedOutput && hasFailureRejectionSignal(combinedOutput)) {
+    proc.completionDetected = false;
+    logger.info(`${prefix} Task ${taskId} exited with code ${code} and output contained definitive failure text. Preserving non-zero exit.`);
+    return code;
+  }
+
+  logger.info(`${prefix} Task ${taskId} exited with code ${code} but output indicated success (provider: ${proc.provider}). Treating as code 0.`);
+  return 0;
 }
 
 /**
@@ -1040,17 +1058,18 @@ function spawnAndTrackProcess(taskId, task, cmdSpec, provider) {
       if (proc.startupTimeoutHandle) clearTimeout(proc.startupTimeoutHandle);
       if (proc.completionGraceHandle) clearTimeout(proc.completionGraceHandle);
 
-      // Check combined stdout+stderr for completion — Codex writes summaries to stderr
-      if (shouldUseOutputCompletionDetection(proc) && !proc.completionDetected) {
-        const combinedOutput = (proc.output || '') + (proc.errorOutput || '');
-        if (combinedOutput) {
+      // Check combined stdout+stderr for completion — Codex writes summaries
+      // to stderr. Re-check failure signals even when completion was detected
+      // earlier, because later provider errors must preserve the real exit code.
+      if (shouldUseOutputCompletionDetection(proc)) {
+        const combinedOutput = buildCombinedProcessOutput(proc.output, proc.errorOutput);
+        if (combinedOutput && hasFailureRejectionSignal(combinedOutput)) {
+          proc.completionDetected = false;
+        } else if (combinedOutput && !proc.completionDetected) {
           proc.completionDetected = _helpers.detectOutputCompletion(combinedOutput, proc.provider);
         }
       }
-      if (proc.completionDetected && code !== 0) {
-        logger.info(`[Completion] Task ${taskId} exited with code ${code} but output indicated success (provider: ${proc.provider}). Treating as code 0.`);
-        code = 0;
-      }
+      code = reconcileDetectedCompletionWithFailureOutput(taskId, proc, code, '[Completion]');
 
       if (proc.ollamaHostId) {
         try {
@@ -1903,9 +1922,11 @@ async function finalizeDetachedTask({ taskId, task, provider, isCodexProvider })
       try { proc.errorTail.stop(); } catch { /* ignore */ }
     }
 
-    if (shouldUseOutputCompletionDetection(proc) && !proc.completionDetected) {
-      const combinedOutput = (proc.output || '') + (proc.errorOutput || '');
-      if (combinedOutput) {
+    if (shouldUseOutputCompletionDetection(proc)) {
+      const combinedOutput = buildCombinedProcessOutput(proc.output, proc.errorOutput);
+      if (combinedOutput && hasFailureRejectionSignal(combinedOutput)) {
+        proc.completionDetected = false;
+      } else if (combinedOutput && !proc.completionDetected) {
         proc.completionDetected = _helpers.detectOutputCompletion(combinedOutput, proc.provider);
       }
     }
@@ -1919,10 +1940,7 @@ async function finalizeDetachedTask({ taskId, task, provider, isCodexProvider })
   let code = annotation && annotation.code !== null ? annotation.code : null;
   const effectiveSignal = annotation ? (annotation.signal || null) : 'detached_exit';
 
-  if (proc && proc.completionDetected && code !== 0) {
-    logger.info(`[Detached] Task ${taskId} exited with code ${code} but output indicated success (provider: ${proc.provider}). Treating as code 0.`);
-    code = 0;
-  }
+  code = reconcileDetectedCompletionWithFailureOutput(taskId, proc, code, '[Detached]');
 
   if (proc && proc.ollamaHostId) {
     try { db.decrementHostTasks(proc.ollamaHostId); } catch { /* ignore */ }

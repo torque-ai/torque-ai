@@ -447,6 +447,7 @@ function loadLifecycleSubject({
       [output, errorOutput].filter(Boolean).join('\n')
     ),
     detectSuccessFromOutput: vi.fn(() => false),
+    hasFailureRejectionSignal: vi.fn(() => false),
   },
   fileResolutionMock = { extractModifiedFiles: vi.fn(() => []) },
   webhookHandlersMock = null,
@@ -1358,6 +1359,7 @@ describe('process-lifecycle', () => {
       const completionMock = {
         buildCombinedProcessOutput: vi.fn(() => 'Task completed successfully'),
         detectSuccessFromOutput: vi.fn(() => true),
+        hasFailureRejectionSignal: vi.fn(() => false),
       };
       const { subject, completionMock: loadedCompletion } = loadLifecycleSubject({
         dbMock,
@@ -1400,11 +1402,12 @@ describe('process-lifecycle', () => {
       expect(runningProcesses.getStallAttempts(taskId)).toBeUndefined();
     });
 
-    it('handleCloseCleanup preserves pre-detected completion without recomputing output', () => {
+    it('handleCloseCleanup preserves pre-detected completion without recomputing success detection', () => {
       const taskId = 'task-close-pre-detected';
       const completionMock = {
         buildCombinedProcessOutput: vi.fn(() => 'unused'),
         detectSuccessFromOutput: vi.fn(() => false),
+        hasFailureRejectionSignal: vi.fn(() => false),
       };
       const { subject, completionMock: loadedCompletion } = loadLifecycleSubject({
         completionMock,
@@ -1426,7 +1429,40 @@ describe('process-lifecycle', () => {
       const result = subject.handleCloseCleanup(taskId, 5);
 
       expect(result.code).toBe(0);
-      expect(loadedCompletion.buildCombinedProcessOutput).not.toHaveBeenCalled();
+      expect(loadedCompletion.buildCombinedProcessOutput).toHaveBeenCalledWith('already done', '');
+      expect(loadedCompletion.hasFailureRejectionSignal).toHaveBeenCalledWith('unused');
+      expect(loadedCompletion.detectSuccessFromOutput).not.toHaveBeenCalled();
+    });
+
+    it('handleCloseCleanup preserves non-zero exit when stale completion is followed by a definitive failure', () => {
+      const taskId = 'task-close-usage-limit';
+      const completionMock = {
+        buildCombinedProcessOutput: vi.fn(() => "All tests passed\nERROR: You've hit your usage limit for GPT-5.3-Codex-Spark."),
+        detectSuccessFromOutput: vi.fn(() => true),
+        hasFailureRejectionSignal: vi.fn(() => true),
+      };
+      const { subject, completionMock: loadedCompletion } = loadLifecycleSubject({
+        completionMock,
+      });
+      const runningProcesses = new ProcessTracker();
+      const proc = {
+        output: 'All tests passed',
+        errorOutput: "ERROR: You've hit your usage limit for GPT-5.3-Codex-Spark.",
+        completionDetected: true,
+        provider: 'codex',
+      };
+      runningProcesses.set(taskId, proc);
+
+      subject.init({
+        markTaskCleanedUp: runningProcesses.markCleanedUp.bind(runningProcesses),
+        runningProcesses,
+      });
+
+      const result = subject.handleCloseCleanup(taskId, 1);
+
+      expect(result.code).toBe(1);
+      expect(proc.completionDetected).toBe(false);
+      expect(loadedCompletion.hasFailureRejectionSignal).toHaveBeenCalled();
       expect(loadedCompletion.detectSuccessFromOutput).not.toHaveBeenCalled();
     });
   });
@@ -1814,6 +1850,7 @@ describe('process-lifecycle', () => {
       const completionMock = {
         buildCombinedProcessOutput: vi.fn(() => 'modified: server/execution/process-lifecycle.js'),
         detectSuccessFromOutput: vi.fn(() => false),
+        hasFailureRejectionSignal: vi.fn(() => false),
       };
       const finalizeTask = vi.fn(async () => ({ queueManaged: false }));
       const { subject } = loadLifecycleSubject({

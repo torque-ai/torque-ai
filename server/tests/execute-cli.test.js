@@ -927,6 +927,69 @@ describe('execute-cli.js', () => {
       expect(runningProcesses.has(taskId)).toBe(false);
     });
 
+    it('does not coerce detached non-zero usage-limit exits through stale completion detection', async () => {
+      const logDir = path.join(testDir, 'detached-usage-limit');
+      fs.mkdirSync(logDir, { recursive: true });
+      const stdoutPath = path.join(logDir, 'stdout.log');
+      const stderrPath = path.join(logDir, 'stderr.log');
+      fs.writeFileSync(stdoutPath, 'All tests passed\n', 'utf8');
+      fs.writeFileSync(
+        stderrPath,
+        [
+          "ERROR: You've hit your usage limit for GPT-5.3-Codex-Spark.",
+          '[process-exit] code=1 signal=none duration_ms=25 provider=codex model=gpt-5.3-codex-spark',
+          '',
+        ].join('\n'),
+        'utf8'
+      );
+
+      const runningProcesses = new Map();
+      const finalizeTaskSpy = vi.fn(async () => ({ finalized: true, queueManaged: false }));
+      const deps = makeDeps({ runningProcesses, finalizeTask: finalizeTaskSpy });
+      mod.init(deps);
+
+      const taskId = randomUUID();
+      taskCore.createTask({
+        id: taskId,
+        task_description: 'Detached usage limit test',
+        status: 'running',
+        provider: 'codex',
+        working_directory: testDir,
+      });
+      runningProcesses.set(taskId, {
+        output: '',
+        errorOutput: '',
+        outputLogPath: stdoutPath,
+        errorLogPath: stderrPath,
+        outputLogOffset: 0,
+        errorLogOffset: 0,
+        outputTail: { stop: vi.fn() },
+        errorTail: { stop: vi.fn() },
+        provider: 'codex',
+        model: 'gpt-5.3-codex-spark',
+        startTime: Date.now(),
+        completionDetected: true,
+      });
+
+      await mod.finalizeDetachedTask({
+        taskId,
+        task: { id: taskId, task_description: 'Detached usage limit test' },
+        provider: 'codex',
+        isCodexProvider: false,
+      });
+
+      expect(finalizeTaskSpy).toHaveBeenCalledWith(
+        taskId,
+        expect.objectContaining({
+          exitCode: 1,
+          errorOutput: expect.stringContaining('usage limit'),
+          procState: expect.objectContaining({
+            completionDetected: false,
+          }),
+        })
+      );
+    });
+
     it('marks detached tasks as finalizing while process tracking is removed', async () => {
       const logDir = path.join(testDir, 'detached-finalizing-marker');
       fs.mkdirSync(logDir, { recursive: true });

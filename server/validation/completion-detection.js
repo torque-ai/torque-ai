@@ -106,9 +106,7 @@ function detectSuccessFromOutput(output, provider) {
   if (!output || output.length < 20) return false;
 
   // Reject early if output contains definitive failure signals
-  for (const pattern of FAILURE_REJECTION_PATTERNS) {
-    if (pattern.test(output)) return false;
-  }
+  if (hasFailureRejectionSignal(output)) return false;
 
   // Explicit high-confidence completion evidence
   const explicitSuccessSignals = [
@@ -178,6 +176,16 @@ function detectOutputCompletion(output, provider) {
   return detectSuccessFromOutput(output, provider);
 }
 
+function hasFailureRejectionSignal(output) {
+  if (!output || typeof output !== 'string') return false;
+
+  for (const pattern of FAILURE_REJECTION_PATTERNS) {
+    if (pattern.test(output)) return true;
+  }
+
+  return false;
+}
+
 /**
  * Combine stdout and stderr into a single string.
  */
@@ -198,5 +206,6 @@ module.exports = {
   // Functions
   detectSuccessFromOutput,
   detectOutputCompletion,
+  hasFailureRejectionSignal,
   buildCombinedProcessOutput,
 };
