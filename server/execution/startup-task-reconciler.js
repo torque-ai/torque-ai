@@ -13,6 +13,7 @@ const {
   rollbackAgenticTaskChanges,
 } = require('./agentic-orphan-rollback');
 const { isRestartBarrierTask } = require('./restart-barrier');
+const { findLastProcessExitAnnotation } = require('../utils/process-exit-format');
 
 // Subprocess-detachment Phase C: PID-reuse defense window. If a row's
 // subprocess_pid is still alive but the on-disk log file hasn't been
@@ -81,6 +82,33 @@ function hasCompletedOutput(task) {
   return detectSuccessFromOutput(combinedOutput, task?.provider || 'default');
 }
 
+function readTextFileIfPresent(filePath) {
+  if (!filePath || typeof filePath !== 'string') return '';
+  try {
+    return fs.readFileSync(filePath, 'utf8');
+  } catch {
+    return '';
+  }
+}
+
+function appendIfMissing(existing, addition) {
+  const current = String(existing || '');
+  const next = String(addition || '');
+  if (!next) return current;
+  if (!current) return next;
+  if (current.includes(next)) return current;
+  return `${current}\n${next}`;
+}
+
+function getCompletedDetachedLogSnapshot(task) {
+  const stdout = readTextFileIfPresent(task?.output_log_path);
+  const stderr = readTextFileIfPresent(task?.error_log_path);
+  if (!stdout && !stderr) return null;
+  const annotation = findLastProcessExitAnnotation(stderr);
+  if (!annotation || annotation.code !== 0 || annotation.signal) return null;
+  return { stdout, stderr, annotation };
+}
+
 function releaseCompletionSideEffects(taskId, logger) {
   try {
     const fileBaselines = require('../db/file/baselines');
@@ -110,9 +138,29 @@ function completeFinishedOrphan({ original, taskCore, logger }) {
   if (original?.status !== 'running') {
     return false;
   }
-  if (isPidAlive(original.pid)) {
+  if (isPidAlive(original.pid) || isPidAlive(original.subprocess_pid)) {
     return false;
   }
+
+  const detachedSnapshot = getCompletedDetachedLogSnapshot(original);
+  if (detachedSnapshot) {
+    taskCore.updateTaskStatus(original.id, 'completed', {
+      exit_code: 0,
+      pid: null,
+      ollama_host_id: null,
+      mcp_instance_id: null,
+      output: appendIfMissing(original.output, detachedSnapshot.stdout),
+      error_output: appendIfMissing(original.error_output, detachedSnapshot.stderr),
+      completed_at: new Date().toISOString(),
+    });
+    releaseCompletionSideEffects(original.id, logger);
+    safeLog(logger, 'info', 'Startup task reconciler marked dead detached task completed from process-exit log', {
+      task_id: original.id,
+      provider: original.provider || detachedSnapshot.annotation.provider || null,
+    });
+    return true;
+  }
+
   if (!hasCompletedOutput(original)) {
     return false;
   }
@@ -122,6 +170,7 @@ function completeFinishedOrphan({ original, taskCore, logger }) {
     pid: null,
     ollama_host_id: null,
     mcp_instance_id: null,
+    completed_at: new Date().toISOString(),
   });
   releaseCompletionSideEffects(original.id, logger);
   safeLog(logger, 'info', 'Startup task reconciler marked dead-PID task completed from persisted final output', {

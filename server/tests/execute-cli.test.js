@@ -98,8 +98,8 @@ function makeDeps(overrides = {}) {
     NVM_NODE_PATH: overrides.NVM_NODE_PATH !== undefined ? overrides.NVM_NODE_PATH : null,
     QUEUE_LOCK_HOLDER_ID: 'test-lock',
     MAX_OUTPUT_BUFFER: 10 * 1024 * 1024,
-    pendingRetryTimeouts: new Map(),
-    taskCleanupGuard: new Map(),
+    pendingRetryTimeouts: overrides.pendingRetryTimeouts || new Map(),
+    taskCleanupGuard: overrides.taskCleanupGuard || new Map(),
   };
 }
 
@@ -1055,6 +1055,67 @@ describe('execute-cli.js', () => {
       await finalizing;
 
       expect(finalizingTasks.has(taskId)).toBe(false);
+    });
+
+    it('clears the cleanup guard when detached finalization requeues the same task for failover', async () => {
+      const logDir = path.join(testDir, 'detached-failover-cleanup-guard');
+      fs.mkdirSync(logDir, { recursive: true });
+      const stdoutPath = path.join(logDir, 'stdout.log');
+      const stderrPath = path.join(logDir, 'stderr.log');
+      fs.writeFileSync(stdoutPath, 'quota failure before failover\n', 'utf8');
+      fs.writeFileSync(
+        stderrPath,
+        '[process-exit] code=1 signal=none duration_ms=25 provider=codex model=gpt-5.3-codex-spark\n',
+        'utf8'
+      );
+
+      const runningProcesses = new Map();
+      const cleanupGuard = new Map();
+      const finalizeTaskSpy = vi.fn(async () => ({
+        finalized: false,
+        queueManaged: true,
+        reason: 'early_exit',
+      }));
+      const deps = makeDeps({
+        runningProcesses,
+        taskCleanupGuard: cleanupGuard,
+        finalizeTask: finalizeTaskSpy,
+      });
+      mod.init(deps);
+
+      const taskId = randomUUID();
+      cleanupGuard.set(taskId, Date.now());
+      taskCore.createTask({
+        id: taskId,
+        task_description: 'Detached failover cleanup guard test',
+        status: 'running',
+        provider: 'codex',
+        working_directory: testDir,
+      });
+      runningProcesses.set(taskId, {
+        output: '',
+        errorOutput: '',
+        outputLogPath: stdoutPath,
+        errorLogPath: stderrPath,
+        outputLogOffset: 0,
+        errorLogOffset: 0,
+        outputTail: { stop: vi.fn() },
+        errorTail: { stop: vi.fn() },
+        provider: 'codex',
+        model: 'gpt-5.3-codex-spark',
+        startTime: Date.now(),
+        completionDetected: false,
+      });
+
+      await mod.finalizeDetachedTask({
+        taskId,
+        task: { id: taskId, task_description: 'Detached failover cleanup guard test' },
+        provider: 'codex',
+        isCodexProvider: false,
+      });
+
+      expect(finalizeTaskSpy).toHaveBeenCalled();
+      expect(cleanupGuard.has(taskId)).toBe(false);
     });
   });
 

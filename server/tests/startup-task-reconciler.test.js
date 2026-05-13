@@ -1341,6 +1341,39 @@ describe('startup-task-reconciler — Phase C re-adoption', () => {
     expect(getTaskRow('task-pid-dead').status).toBe('cancelled');
   });
 
+  test('reconciler completes a dead detached row when the wrapper log has a clean process exit', () => {
+    const paths = makeLogPaths('task-dead-clean-exit');
+    fs.writeFileSync(paths.stdoutPath, 'All three files are complete\n', 'utf8');
+    fs.writeFileSync(
+      paths.stderrPath,
+      '[torque-spawn] taskId=task-dead-clean-exit wrapper-pid=4242 started_at_epoch=1778649644\n[process-exit] code=0 signal=none duration_ms=25 provider=claude-cli\n',
+      'utf8'
+    );
+    insertTask({
+      id: 'task-dead-clean-exit',
+      provider: 'claude-cli',
+      subprocess_pid: 999999999,
+      output_log_path: paths.stdoutPath,
+      error_log_path: paths.stderrPath,
+      output: '',
+      error_output: '',
+    });
+    const reAdoptSpy = vi.fn(() => true);
+    const result = runReconciler({
+      executeCli: { reAdoptDetachedSubprocess: reAdoptSpy },
+    });
+
+    expect(result.actions.re_adopted).toBe(0);
+    expect(result.actions.completed_from_output).toBe(1);
+    expect(result.actions.cancelled).toBe(0);
+    expect(reAdoptSpy).not.toHaveBeenCalled();
+    const row = getTaskRow('task-dead-clean-exit');
+    expect(row.status).toBe('completed');
+    expect(row.exit_code).toBe(0);
+    expect(row.output).toContain('All three files are complete');
+    expect(row.error_output).toContain('[process-exit] code=0');
+  });
+
   test('reconciler ignores rows without subprocess_pid (pipe-path tasks)', () => {
     insertTask({ id: 'task-pipe' }); // no subprocess columns set
     const reAdoptSpy = vi.fn(() => true);

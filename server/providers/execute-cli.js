@@ -525,6 +525,13 @@ function markTaskCleanedUp(...args) { if (!_markTaskCleanedUp) throw new Error('
 function processQueue(...args) { return _processQueue ? _processQueue(...args) : undefined; }
 function finalizeTask(...args) { if (!_finalizeTask) throw new Error('execute-cli not initialized'); return _finalizeTask(...args); }
 
+function clearCleanupGuardForRequeuedTask(taskId, result) {
+  if (!result || result.queueManaged !== true || result.finalized !== false) return;
+  try {
+    _taskCleanupGuard?.delete?.(taskId);
+  } catch { /* non-critical retry/failover bookkeeping */ }
+}
+
 function setFinalizingMarker(taskId, marker) {
   if (!_finalizingTasks) return;
   if (typeof _finalizingTasks.set === 'function') {
@@ -2013,6 +2020,7 @@ async function finalizeDetachedTask({ taskId, task, provider, isCodexProvider })
         : [],
       finalizationHeartbeat,
     });
+    clearCleanupGuardForRequeuedTask(taskId, result);
     queueManaged = Boolean(result?.queueManaged);
   } catch (err) {
     logger.info(`Critical error in detached finalize for task ${taskId}: ${err.message}`);
@@ -2034,6 +2042,7 @@ async function finalizeDetachedTask({ taskId, task, provider, isCodexProvider })
         : { provider, detached: true },
       finalizationHeartbeat,
     });
+    clearCleanupGuardForRequeuedTask(taskId, result);
     queueManaged = queueManaged || Boolean(result?.queueManaged);
   } finally {
     // Phase E / §2.5.2 — compress task logs on finalize. Always runs

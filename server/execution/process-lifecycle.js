@@ -159,6 +159,13 @@ function touchFinalizingMarker(taskId, stage) {
   }
 }
 
+function clearCleanupGuardForRequeuedTask(taskId, result) {
+  if (!result || result.queueManaged !== true || result.finalized !== false) return;
+  try {
+    deps?.runningProcesses?.clearCleanupGuard?.(taskId);
+  } catch { /* non-critical retry/failover bookkeeping */ }
+}
+
 /**
  * Initialize module with dependencies from task-manager.js context.
  *
@@ -923,6 +930,7 @@ function spawnAndTrackProcess(taskId, task, spawnConfig) {
           : [],
         finalizationHeartbeat,
       });
+      clearCleanupGuardForRequeuedTask(taskId, result);
       handlerManagedQueue = Boolean(result?.queueManaged);
     } catch (err) {
       logger.info(`Critical error in close handler for task ${taskId}:`, err.message);
@@ -944,6 +952,7 @@ function spawnAndTrackProcess(taskId, task, spawnConfig) {
           : {},
           finalizationHeartbeat,
       });
+      clearCleanupGuardForRequeuedTask(taskId, result);
       handlerManagedQueue = handlerManagedQueue || Boolean(result?.queueManaged);
     } finally {
       if (deps.finalizingTasks) deps.finalizingTasks.delete(taskId);
