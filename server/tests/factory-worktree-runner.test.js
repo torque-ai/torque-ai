@@ -217,19 +217,24 @@ describe('createWorktreeRunner.createForBatch', () => {
   });
 
   it('creates a worktree with factory-<id>-<slug> feature name', async () => {
-    const result = await runner.createForBatch({
-      project: { id: 'proj-1', path: 'C:/repo' },
-      workItem: { id: 42, title: 'Cover scan-report fallback branches' },
-      batchId: 'batch-xyz',
-    });
-    expect(worktreeManager.createWorktree).toHaveBeenCalledWith(
-      'C:/repo',
-      'factory-42-cover-scan-report-fallback-branches',
-      expect.objectContaining({ baseBranch: 'main' }),
-    );
-    expect(result.branch).toMatch(/^feat\/factory-42-cover-scan-report-fallback-branches$/);
-    expect(result.worktreePath).toContain('.worktrees');
-    expect(result.baseBranch).toBe('main');
+    const repoPath = fs.mkdtempSync(path.join(os.tmpdir(), 'factory-worktree-runner-create-'));
+    try {
+      const result = await runner.createForBatch({
+        project: { id: 'proj-1', path: repoPath },
+        workItem: { id: 42, title: 'Cover scan-report fallback branches' },
+        batchId: 'batch-xyz',
+      });
+      expect(worktreeManager.createWorktree).toHaveBeenCalledWith(
+        repoPath,
+        'factory-42-cover-scan-report-fallback-branches',
+        expect.objectContaining({ baseBranch: 'main' }),
+      );
+      expect(result.branch).toMatch(/^feat\/factory-42-cover-scan-report-fallback-branches$/);
+      expect(result.worktreePath).toContain('.worktrees');
+      expect(result.baseBranch).toBe('main');
+    } finally {
+      fs.rmSync(repoPath, { recursive: true, force: true });
+    }
   });
 
   it('links shared package dependencies into created managed worktrees before returning', async () => {

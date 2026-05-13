@@ -26,6 +26,20 @@ const NON_CODE_EXTENSIONS = new Set([
   '.toml',
 ]);
 
+function safeGitEnv() {
+  const env = { ...process.env };
+  delete env.GIT_DIR;
+  delete env.GIT_WORK_TREE;
+  delete env.GIT_INDEX_FILE;
+  delete env.GIT_OBJECT_DIRECTORY;
+  delete env.GIT_ALTERNATE_OBJECT_DIRECTORIES;
+  return {
+    ...env,
+    GIT_TERMINAL_PROMPT: '0',
+    GIT_OPTIONAL_LOCKS: '0',
+  };
+}
+
 function spawnTrackedProcessAsync(cmd, args, options = {}, spawnImpl = spawn) {
   return new Promise((resolve) => {
     const child = spawnImpl(cmd, args, { ...options, windowsHide: true });
@@ -327,7 +341,7 @@ function defaultCountCommitsAhead({ cwd, baseBranch, branch }) {
     const out = execFileSync(
       'git',
       ['rev-list', '--count', `${baseBranch}..${branch}`],
-      { cwd, encoding: 'utf8', windowsHide: true, timeout: 5000, stdio: ['pipe', 'pipe', 'ignore'] },
+      { cwd, encoding: 'utf8', windowsHide: true, env: safeGitEnv(), timeout: 5000, stdio: ['pipe', 'pipe', 'ignore'] },
     ).trim();
     const n = Number.parseInt(out, 10);
     return Number.isFinite(n) ? n : 0;
@@ -345,7 +359,7 @@ function defaultListChangedFiles({ cwd, baseBranch, branch }) {
     const out = execFileSync(
       'git',
       ['diff', '--name-only', `${baseBranch}...${branch}`],
-      { cwd, encoding: 'utf8', windowsHide: true, timeout: 5000, stdio: ['pipe', 'pipe', 'ignore'] },
+      { cwd, encoding: 'utf8', windowsHide: true, env: safeGitEnv(), timeout: 5000, stdio: ['pipe', 'pipe', 'ignore'] },
     );
     return String(out || '')
       .split(/\r?\n/)
@@ -364,7 +378,7 @@ function isNonCodeOnlyDiff(files = []) {
 }
 
 // Detect the repo's default branch (main/master/custom) from origin/HEAD or
-// fallback to whichever of master/main actually exists locally. Returns 'main'
+// fallback to whichever of main/master actually exists locally. Returns 'main'
 // if nothing resolves so callers still get a sensible default.
 function detectDefaultBranch(cwd) {
   if (!cwd) return 'main';
@@ -375,14 +389,14 @@ function detectDefaultBranch(cwd) {
   const { execFileSync } = require('child_process');
   try {
     const headRef = execFileSync('git', ['symbolic-ref', 'refs/remotes/origin/HEAD'], {
-      cwd, encoding: 'utf8', windowsHide: true, timeout: 5000, stdio: ['pipe', 'pipe', 'ignore'],
+      cwd, encoding: 'utf8', windowsHide: true, env: safeGitEnv(), timeout: 5000, stdio: ['pipe', 'pipe', 'ignore'],
     }).trim().replace(/^refs\/remotes\/origin\//, '');
     if (headRef) return headRef;
   } catch { /* fall through */ }
-  for (const candidate of ['master', 'main']) {
+  for (const candidate of ['main', 'master']) {
     try {
       execFileSync('git', ['rev-parse', '--verify', candidate], {
-        cwd, windowsHide: true, timeout: 5000, stdio: 'ignore',
+        cwd, windowsHide: true, env: safeGitEnv(), timeout: 5000, stdio: 'ignore',
       });
       return candidate;
     } catch { /* try next */ }
@@ -396,7 +410,7 @@ function isWorktreeDirty(cwd) {
   // `git diff --quiet HEAD` exits non-zero on any tracked change vs HEAD.
   try {
     execFileSync('git', ['diff', '--quiet', 'HEAD'], {
-      cwd, windowsHide: true, timeout: 5000, stdio: 'ignore',
+      cwd, windowsHide: true, env: safeGitEnv(), timeout: 5000, stdio: 'ignore',
     });
     return false;
   } catch {
@@ -412,10 +426,10 @@ function resyncWorktreeToHead(cwd, logger) {
   if (!cwd) return false;
   try {
     execFileSync('git', ['reset', '--hard', 'HEAD'], {
-      cwd, windowsHide: true, timeout: 30000, stdio: 'ignore',
+      cwd, windowsHide: true, env: safeGitEnv(), timeout: 30000, stdio: 'ignore',
     });
     execFileSync('git', ['clean', '-fd'], {
-      cwd, windowsHide: true, timeout: 30000, stdio: 'ignore',
+      cwd, windowsHide: true, env: safeGitEnv(), timeout: 30000, stdio: 'ignore',
     });
     if (logger) logger.warn('factory worktree resynced to HEAD before verify', { cwd });
     return true;
