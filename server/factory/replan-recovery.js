@@ -484,6 +484,26 @@ async function runReplanRecoverySweep({
   return dispatcher.runSweep({ config, nowMs });
 }
 
+function getReplanRecoveryInstanceId(taskManager = null) {
+  const envInstanceId = String(process.env.TORQUE_INSTANCE_ID || '').trim();
+  if (envInstanceId) return envInstanceId;
+
+  const manager = taskManager || (() => {
+    try {
+      return require('../task-manager');
+    } catch {
+      return null;
+    }
+  })();
+
+  if (manager && typeof manager.getMcpInstanceId === 'function') {
+    const mcpInstanceId = String(manager.getMcpInstanceId() || '').trim();
+    if (mcpInstanceId) return mcpInstanceId;
+  }
+
+  return `pid-${process.pid}`;
+}
+
 function cleanupStaleReplanClaims(db, currentInstanceId) {
   if (!db || !currentInstanceId) return 0;
   const result = db.prepare(`
@@ -498,6 +518,7 @@ function cleanupStaleReplanClaims(db, currentInstanceId) {
 module.exports = {
   createDispatcher,
   runReplanRecoverySweep,
+  getReplanRecoveryInstanceId,
   cleanupStaleReplanClaims,
   resetReplanRecoverySweepStateForTests,
   DECISION_ACTION_ATTEMPTED,

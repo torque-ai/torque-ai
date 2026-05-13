@@ -1247,7 +1247,7 @@ async function tickProject(project) {
       // Replan-recovery — idea-side rejection sweep. Off by default; opt-in
       // per environment via replan_recovery_enabled.
       try {
-        const { runReplanRecoverySweep } = require('./replan-recovery');
+        const { runReplanRecoverySweep, getReplanRecoveryInstanceId } = require('./replan-recovery');
         const { bootstrapReplanRecovery } = require('./replan-recovery-bootstrap');
         const { getReplanRecoveryConfig } = require('../db/config-core');
         bootstrapReplanRecovery();
@@ -1256,7 +1256,7 @@ async function tickProject(project) {
           logger,
           config: getReplanRecoveryConfig(),
           eventBus,
-          instanceId: process.env.TORQUE_INSTANCE_ID || 'default',
+          instanceId: getReplanRecoveryInstanceId(),
         });
       } catch (replanErr) {
         logger.error('replan-recovery sweep threw', { err: replanErr.message });

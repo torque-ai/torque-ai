@@ -1537,9 +1537,9 @@ function init() {
   // Replan-recovery startup: register strategies + clear stale claims from prior instances.
   try {
     const { bootstrapReplanRecovery } = require('./factory/replan-recovery-bootstrap');
-    const { cleanupStaleReplanClaims } = require('./factory/replan-recovery');
+    const { cleanupStaleReplanClaims, getReplanRecoveryInstanceId } = require('./factory/replan-recovery');
     bootstrapReplanRecovery();
-    const instanceId = process.env.TORQUE_INSTANCE_ID || 'default';
+    const instanceId = getReplanRecoveryInstanceId(taskManager);
     const cleared = cleanupStaleReplanClaims(db.getDbInstance(), instanceId);
     if (cleared > 0) {
       debugLog(`Cleared ${cleared} stale replan-recovery claim(s) from prior instance(s)`);
