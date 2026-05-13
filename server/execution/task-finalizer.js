@@ -270,6 +270,60 @@ function shouldFailCompletedFactoryNoChange(ctx) {
   return true;
 }
 
+function isMeaningfulGitStatusFile(entry) {
+  if (!entry || entry.isDeleted) return false;
+  if (!(entry.isModified || entry.isNew || entry.isRenamed || entry.indexStatus === 'A')) {
+    return false;
+  }
+  const filePath = String(entry.filePath || '').replace(/\\/g, '/');
+  return Boolean(filePath)
+    && !filePath.endsWith('.db')
+    && !filePath.startsWith('.git/')
+    && filePath !== '.gitignore';
+}
+
+function readActualChangedFiles(task) {
+  const workingDirectory = typeof task?.working_directory === 'string'
+    ? task.working_directory.trim()
+    : '';
+  if (!workingDirectory) return [];
+
+  if (typeof deps.getActualModifiedFilesForNoFileDetection === 'function') {
+    try {
+      const files = deps.getActualModifiedFilesForNoFileDetection(workingDirectory, task);
+      return Array.isArray(files) ? files.filter(Boolean) : [];
+    } catch (err) {
+      logger.debug(`[finalizer] Actual modified-file probe failed for ${task.id}: ${err.message}`);
+      return [];
+    }
+  }
+
+  try {
+    const { getModifiedFiles } = require('../utils/git');
+    return getModifiedFiles(workingDirectory)
+      .filter(isMeaningfulGitStatusFile)
+      .map((entry) => String(entry.filePath || '').replace(/\\/g, '/'))
+      .filter(Boolean);
+  } catch (err) {
+    logger.debug(`[finalizer] Git status modified-file probe failed for ${task?.id || 'unknown'}: ${err.message}`);
+    return [];
+  }
+}
+
+function augmentFactoryFilesModifiedFromGitStatus(ctx) {
+  if (!ctx || ctx.status !== 'completed' || ctx.code !== 0) return;
+  const task = ctx.task || {};
+  const metadata = mergeTaskMetadata(task, ctx);
+  if (!isFactoryBatchExecutionTask(task, metadata)) return;
+
+  const actualFiles = readActualChangedFiles(task);
+  if (actualFiles.length === 0) return;
+
+  const combined = new Set(Array.isArray(ctx.filesModified) ? ctx.filesModified : []);
+  for (const file of actualFiles) combined.add(file);
+  ctx.filesModified = Array.from(combined);
+}
+
 function logFactoryNoFileChangeDecision(ctx, tags) {
   if (typeof deps.logFactoryDecision !== 'function') return;
   const batchId = getFactoryTagValue(tags, 'factory:batch_id=');
@@ -1131,6 +1185,7 @@ async function finalizeTask(taskId, options = {}) {
     await runStage(ctx, 'compute_apply_creation', handleComputeApplyCreation, ctx.code === 0);
 
     await runStage(ctx, 'fuzzy_repair', deps.handleFuzzyRepair, typeof deps.handleFuzzyRepair === 'function');
+    augmentFactoryFilesModifiedFromGitStatus(ctx);
     await runStage(ctx, 'no_file_change_detection', deps.handleNoFileChangeDetection, typeof deps.handleNoFileChangeDetection === 'function');
     await runStage(
       ctx,

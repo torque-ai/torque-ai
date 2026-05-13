@@ -532,6 +532,66 @@ describe('task-finalizer', () => {
     expect(handlePostCompletion).toHaveBeenCalledWith(expect.objectContaining({ status: 'failed', code: 1 }));
   });
 
+  it('uses actual factory worktree changes before no-file-change reclassification', async () => {
+    const dbBundle = createTaskDb({
+      provider: 'codex',
+      working_directory: 'C:/repo/.worktrees/feature',
+      task_description: 'Plan: Workflow work\nTask 1: Add workflow DAG validation',
+      tags: [
+        'factory:batch_id=factory-a3df749a-7869-486f-9896-64d38d25d39b-194',
+        'factory:work_item_id=194',
+        'factory:plan_task_number=1',
+      ],
+    });
+    const { db } = dbBundle;
+    const handlePostCompletion = vi.fn();
+    const logFactoryDecision = vi.fn();
+    const scopedFinalizer = finalizer.createTaskFinalizer({
+      db,
+      safeUpdateTaskStatus: vi.fn((...args) => db.updateTaskStatus(...args)),
+      sanitizeTaskOutput: (value) => value || '',
+      extractModifiedFiles: vi.fn(() => []),
+      getActualModifiedFilesForNoFileDetection: vi.fn(() => [
+        'server/workflow-spec/schema.js',
+        'server/workflow-spec/dag-validator.js',
+        'server/tests/workflow-dag-validation.test.js',
+      ]),
+      handleRetryLogic: vi.fn(),
+      handleSafeguardChecks: vi.fn(),
+      handleFuzzyRepair: vi.fn(),
+      handleAutoValidation: vi.fn(),
+      handleBuildTestStyleCommit: vi.fn(),
+      handleAutoVerifyRetry: vi.fn(async () => {}),
+      handleProviderFailover: vi.fn(),
+      handlePostCompletion,
+      logFactoryDecision,
+    });
+
+    const result = await scopedFinalizer.finalizeTask(dbBundle.taskId, {
+      exitCode: 0,
+      output: 'All tasks complete. Files created are described in prose.',
+      errorOutput: 'git status --short\n M server/workflow-spec/schema.js\n?? server/workflow-spec/dag-validator.js',
+      filesModified: [],
+    });
+
+    const storedTask = dbBundle.getStoredTask();
+    expect(result.finalized).toBe(true);
+    expect(storedTask.status).toBe('completed');
+    expect(storedTask.exit_code).toBe(0);
+    expect(storedTask.files_modified).toEqual([
+      'server/workflow-spec/schema.js',
+      'server/workflow-spec/dag-validator.js',
+      'server/tests/workflow-dag-validation.test.js',
+    ]);
+    expect(storedTask.error_output).not.toContain('[no-file-change]');
+    expect(logFactoryDecision).not.toHaveBeenCalled();
+    expect(handlePostCompletion).toHaveBeenCalledWith(expect.objectContaining({
+      status: 'completed',
+      code: 0,
+      filesModified: expect.arrayContaining(['server/workflow-spec/dag-validator.js']),
+    }));
+  });
+
   it('schedules retry after factory no-file-change reclassification', async () => {
     const dbBundle = createTaskDb({
       provider: 'codex',
