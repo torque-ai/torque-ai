@@ -132,7 +132,7 @@ describe.skipIf(isCI)('createRemoteTestRouter', () => {
       expect(result).toBeNull();
     });
 
-    it('should return remote-required config when remote_agent_id is missing', () => {
+    it('should fall back locally when prefer_remote_tests has no remote_agent_id', () => {
       const mockDb = createMockDb();
       const logger = createMockLogger();
       insertProjectConfig('my-project', {
@@ -143,12 +143,11 @@ describe.skipIf(isCI)('createRemoteTestRouter', () => {
 
       const router = createRemoteTestRouter({ agentRegistry: null, db: mockDb, logger });
       const result = router.getRemoteConfig('/some/path/my-project');
-      expect(result).toEqual({
-        agentId: null,
-        remotePath: '/remote/my-project',
-        requireRemote: true,
-        unavailableReason: 'remote_agent_id_missing',
-      });
+      expect(result).toBeNull();
+      expect(logger._logs.some(
+        (entry) => entry.level === 'warn'
+          && entry.msg.includes('no remote_agent_id is configured')
+      )).toBe(true);
     });
 
     it('should return config when prefer_remote_tests is set and agent_id exists', () => {

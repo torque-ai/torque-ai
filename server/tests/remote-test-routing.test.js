@@ -358,6 +358,24 @@ describe('remote-test-routing', () => {
     expect(db.getProjectConfig).toHaveBeenCalledWith('torque-public');
   });
 
+  it('getRemoteConfig falls back locally when prefer_remote_tests has no remote_agent_id', () => {
+    const logger = createLogger();
+    const db = createRemoteDb({
+      remote_agent_id: null,
+      remote_project_path: '/remote/torque-public',
+    });
+    const router = remoteTestRouting.createRemoteTestRouter({
+      agentRegistry: createAgentRegistry(),
+      db,
+      logger,
+    });
+
+    expect(router.getRemoteConfig('/repo/torque-public')).toBeNull();
+    expect(logger.warn).toHaveBeenCalledWith(
+      '[remote-routing] prefer_remote_tests is enabled for "torque-public" but no remote_agent_id is configured; falling back to local verification'
+    );
+  });
+
   it('getRemoteConfig auto-discovers a codex test runner when config is missing', async () => {
     const workstationModule = {
       listWorkstations: vi.fn().mockReturnValue([

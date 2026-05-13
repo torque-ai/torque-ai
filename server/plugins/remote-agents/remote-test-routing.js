@@ -363,10 +363,10 @@ function toRemoteFailureResult(error, startedAt) {
  * Creates a remote test router that can run commands either on a remote agent or locally.
  *
  * The router checks project_config for a configured remote_agent_id and
- * prefer_remote_tests flag.  When a remote agent is available, commands are
- * executed on it (after a git sync).  Projects that explicitly set
- * prefer_remote_tests require the remote path and fail fast when it is
- * unavailable; other callers can still fall back to local execution.
+ * prefer_remote_tests flag.  When a remote agent is configured and available,
+ * commands are executed on it (after a git sync).  Projects with an explicit
+ * remote agent require the remote path and fail fast when it is unavailable;
+ * projects without a configured agent can still fall back to local execution.
  *
  * @param {object} options
  * @param {object} options.agentRegistry - RemoteAgentRegistry instance
@@ -434,39 +434,34 @@ function createRemoteTestRouter({ agentRegistry, db, logger }) {
       // Check explicit remote configuration
       if (config && isTruthyConfig(config.prefer_remote_tests)) {
         if (!config.remote_agent_id) {
+          logger.warn?.(`[remote-routing] prefer_remote_tests is enabled for "${project}" but no remote_agent_id is configured; falling back to local verification`);
+        } else {
+          // Phase 3: Try workstation lookup for remote agent
+          try {
+            const wsModel = require('../../workstation/model');
+            const ws = wsModel.getWorkstationByName(config.remote_agent_id)
+              || wsModel.getWorkstation(config.remote_agent_id);
+            if (
+              ws
+              && ws._capabilities
+              && (
+                ws._capabilities.command_exec === true
+                || (ws._capabilities.command_exec && ws._capabilities.command_exec.detected)
+              )
+            ) {
+              // Found a workstation with command_exec capability matching the remote_agent_id.
+              // The existing agent-client code will handle the actual execution.
+            }
+          } catch {
+            /* fall through to legacy agent lookup */
+          }
+
           return {
-            agentId: null,
+            agentId: config.remote_agent_id,
             remotePath: config.remote_project_path || workingDir,
             requireRemote: true,
-            unavailableReason: 'remote_agent_id_missing',
           };
         }
-
-        // Phase 3: Try workstation lookup for remote agent
-        try {
-          const wsModel = require('../../workstation/model');
-          const ws = wsModel.getWorkstationByName(config.remote_agent_id)
-            || wsModel.getWorkstation(config.remote_agent_id);
-          if (
-            ws
-            && ws._capabilities
-            && (
-              ws._capabilities.command_exec === true
-              || (ws._capabilities.command_exec && ws._capabilities.command_exec.detected)
-            )
-          ) {
-            // Found a workstation with command_exec capability matching the remote_agent_id.
-            // The existing agent-client code will handle the actual execution.
-          }
-        } catch {
-          /* fall through to legacy agent lookup */
-        }
-
-        return {
-          agentId: config.remote_agent_id,
-          remotePath: config.remote_project_path || workingDir,
-          requireRemote: true,
-        };
       }
 
       // Auto-discover remote workstation for codex providers.
