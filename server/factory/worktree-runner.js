@@ -364,7 +364,7 @@ function isNonCodeOnlyDiff(files = []) {
 }
 
 // Detect the repo's default branch (main/master/custom) from origin/HEAD or
-// fallback to whichever of master/main actually exists locally. Returns 'main'
+// fallback to whichever of main/master actually exists locally. Returns 'main'
 // if nothing resolves so callers still get a sensible default.
 function detectDefaultBranch(cwd) {
   if (!cwd) return 'main';
@@ -379,7 +379,7 @@ function detectDefaultBranch(cwd) {
     }).trim().replace(/^refs\/remotes\/origin\//, '');
     if (headRef) return headRef;
   } catch { /* fall through */ }
-  for (const candidate of ['master', 'main']) {
+  for (const candidate of ['main', 'master']) {
     try {
       execFileSync('git', ['rev-parse', '--verify', candidate], {
         cwd, windowsHide: true, timeout: 5000, stdio: 'ignore',

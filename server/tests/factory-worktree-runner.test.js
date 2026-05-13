@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 const { EventEmitter } = require('events');
+const { execFileSync } = require('child_process');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -39,6 +40,21 @@ function makeWorktreeManagerMock({ listSeed = [] } = {}) {
     })),
     cleanupWorktree: vi.fn((id) => ({ id, removed: true })),
   };
+}
+
+function createTempRepoOnMain() {
+  const repoPath = fs.mkdtempSync(path.join(os.tmpdir(), 'factory-worktree-runner-repo-'));
+  execFileSync('git', ['init'], { cwd: repoPath, stdio: 'ignore', windowsHide: true });
+  execFileSync('git', ['checkout', '-b', 'main'], { cwd: repoPath, stdio: 'ignore', windowsHide: true });
+  execFileSync('git', [
+    '-c', 'user.name=TORQUE Test',
+    '-c', 'user.email=torque-test@example.com',
+    'commit',
+    '--allow-empty',
+    '-m',
+    'init',
+  ], { cwd: repoPath, stdio: 'ignore', windowsHide: true });
+  return repoPath;
 }
 
 describe('sanitizeSlug', () => {
@@ -217,19 +233,24 @@ describe('createWorktreeRunner.createForBatch', () => {
   });
 
   it('creates a worktree with factory-<id>-<slug> feature name', async () => {
-    const result = await runner.createForBatch({
-      project: { id: 'proj-1', path: 'C:/repo' },
-      workItem: { id: 42, title: 'Cover scan-report fallback branches' },
-      batchId: 'batch-xyz',
-    });
-    expect(worktreeManager.createWorktree).toHaveBeenCalledWith(
-      'C:/repo',
-      'factory-42-cover-scan-report-fallback-branches',
-      expect.objectContaining({ baseBranch: 'main' }),
-    );
-    expect(result.branch).toMatch(/^feat\/factory-42-cover-scan-report-fallback-branches$/);
-    expect(result.worktreePath).toContain('.worktrees');
-    expect(result.baseBranch).toBe('main');
+    const repoPath = createTempRepoOnMain();
+    try {
+      const result = await runner.createForBatch({
+        project: { id: 'proj-1', path: repoPath },
+        workItem: { id: 42, title: 'Cover scan-report fallback branches' },
+        batchId: 'batch-xyz',
+      });
+      expect(worktreeManager.createWorktree).toHaveBeenCalledWith(
+        repoPath,
+        'factory-42-cover-scan-report-fallback-branches',
+        expect.objectContaining({ baseBranch: 'main' }),
+      );
+      expect(result.branch).toMatch(/^feat\/factory-42-cover-scan-report-fallback-branches$/);
+      expect(result.worktreePath).toContain('.worktrees');
+      expect(result.baseBranch).toBe('main');
+    } finally {
+      fs.rmSync(repoPath, { recursive: true, force: true });
+    }
   });
 
   it('links shared package dependencies into created managed worktrees before returning', async () => {
