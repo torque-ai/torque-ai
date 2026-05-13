@@ -11,6 +11,11 @@ const crypto = require('crypto');
 const logger = require('../logger').child({ component: 'backup-core' });
 const { getDataDir } = require('../data-dir');
 const { runMigrations } = require('./migrations');
+const {
+  isPathInsideDirectory,
+  joinPlatformPath,
+  resolvePlatformPath,
+} = require('../utils/platform-paths');
 
 let _db = null;
 let _backupTimer = null;
@@ -457,17 +462,12 @@ async function restoreDatabase(srcPath, confirm, { force = false } = {}) {
 }
 
 function getBackupsDir() {
-  return path.resolve(path.join(getDataDir(), 'backups'));
-}
-
-function isPathInsideDirectory(baseDir, targetDir) {
-  const rel = path.relative(baseDir, targetDir);
-  return rel === '' || (!rel.startsWith(`..${path.sep}`) && rel !== '..' && !path.isAbsolute(rel));
+  return resolvePlatformPath(joinPlatformPath(getDataDir(), 'backups'));
 }
 
 function resolveManagedBackupsDir(dir) {
-  const backupsDir = path.resolve(getBackupsDir());
-  const resolved = path.resolve(dir || backupsDir);
+  const backupsDir = resolvePlatformPath(getBackupsDir());
+  const resolved = resolvePlatformPath(dir || backupsDir);
 
   if (!isPathInsideDirectory(backupsDir, resolved)) {
     throw new Error(`Backup directory must resolve to a path inside the managed backups directory: ${backupsDir}`);

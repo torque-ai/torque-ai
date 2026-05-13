@@ -76,12 +76,12 @@ describe('TestRunnerRegistry', () => {
   it('quotes arguments when running local command via shell form', async () => {
     const command = process.platform === 'win32'
       ? 'echo "hello world"'
-      : "echo 'hello world'";
+      : "'echo' 'hello world'";
 
     await registry.runRemoteOrLocal('echo', ['hello world'], '/tmp', {});
 
     expect(spawnSyncSpy).toHaveBeenCalledTimes(1);
-    expect(spawnSyncSpy.mock.calls[0][0]).toContain(command);
+    expect(spawnSyncSpy.mock.calls[0][0]).toBe(command);
     expect(spawnSyncSpy.mock.calls[0][1]).toMatchObject({
       cwd: '/tmp',
       shell: true,

@@ -209,6 +209,7 @@ Frequently-emitted actions, by stage:
 | EXECUTE | `execute_deferred_worktree_reused` | `benign` | `factory_worktree_id`, `worktree_id`, `worktree_path`, `branch`, `batch_id` |
 | EXECUTE | `execute_batch_worktree_reused` | `benign` | `factory_worktree_id`, `worktree_id`, `worktree_path`, `branch`, `batch_id` |
 | EXECUTE | `execute_batch_worktree_reuse_skipped` | `benign` | `factory_worktree_id`, `worktree_id`, `worktree_path`, `branch`, `batch_id`, `active_work_item_id`, `requested_work_item_id` |
+| EXECUTE | `generated_plan_missing_routed_to_needs_replan` | `benign` | `next_state`, `next_status`, `work_item_id`, `plan_path_cleared` |
 | EXECUTE | `execute_exception` | `recovery-rule` (rule: `execute_exception_unclassified`) | `work_item_id`, `error` |
 | EXECUTE | `execute_wait_owner_completed` | `benign` | `owning_task_id`, `owning_status` |
 | EXECUTE | `execute_zero_diff_short_circuit` | `recovery-rule` (rule: `execute_zero_diff_short_circuit`) | `work_item_id`, `reason` |

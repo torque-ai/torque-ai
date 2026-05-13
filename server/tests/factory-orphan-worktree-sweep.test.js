@@ -230,7 +230,7 @@ describe('sweepOrphanWorktreeDirs', () => {
         throw busyError;
       });
       vi.spyOn(childProcess, 'execFileSync').mockImplementation((file, args, options) => {
-        if (file === 'cmd') {
+        if (file === 'cmd' || file === 'rm') {
           throw busyError;
         }
         return origExecFileSync(file, args, options);
@@ -282,7 +282,7 @@ describe('sweepOrphanWorktreeDirs', () => {
         throw eaccesError;
       });
       vi.spyOn(childProcess, 'execFileSync').mockImplementation((file, args, options) => {
-        if (file === 'cmd') {
+        if (file === 'cmd' || file === 'rm') {
           throw eaccesError;
         }
         return origExecFileSync(file, args, options);

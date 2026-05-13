@@ -41,6 +41,10 @@ function createDataDirMock(dataDir = 'C:\\mock-home\\.torque') {
   };
 }
 
+function mockWindowsBackupsDir() {
+  return path.win32.join('C:\\mock-home', '.torque', 'backups');
+}
+
 function createFsMock(overrides = {}) {
   return {
     existsSync: vi.fn(() => true),
@@ -714,7 +718,7 @@ describe('db/backup-core', () => {
 
   it('returns an empty list when the backup directory does not exist', () => {
     const { subject, fs, dataDirMock } = loadSubject();
-    const defaultDir = path.join('C:\\mock-home', '.torque', 'backups');
+    const defaultDir = mockWindowsBackupsDir();
 
     delete process.env.TORQUE_DATA_DIR;
     fs.existsSync.mockReturnValue(false);
@@ -726,7 +730,7 @@ describe('db/backup-core', () => {
 
   it('lists only database backups and sorts them newest-first', () => {
     const { subject, fs } = loadSubject();
-    const backupDir = path.join('C:\\mock-home', '.torque', 'backups');
+    const backupDir = mockWindowsBackupsDir();
     const statsByPath = new Map([
       [path.join(backupDir, 'old.db'), { size: 10, mtime: new Date('2026-01-01T00:00:00.000Z') }],
       [path.join(backupDir, 'mid.sqlite'), { size: 20, mtime: new Date('2026-02-01T00:00:00.000Z') }],
@@ -763,7 +767,7 @@ describe('db/backup-core', () => {
 
   it('does not delete anything during cleanup when the keep count already covers all backups', () => {
     const { subject, fs } = loadSubject();
-    const backupDir = path.join('C:\\mock-home', '.torque', 'backups');
+    const backupDir = mockWindowsBackupsDir();
     const statsByPath = new Map([
       [path.join(backupDir, 'one.db'), { size: 1, mtime: new Date('2025-01-01T00:00:00.000Z') }],
       [path.join(backupDir, 'two.db'), { size: 2, mtime: new Date('2025-01-02T00:00:00.000Z') }],
@@ -781,7 +785,7 @@ describe('db/backup-core', () => {
 
   it('cleans up only old backups beyond the retention count and ignores unlink failures', () => {
     const { subject, fs } = loadSubject();
-    const backupDir = path.join('C:\\mock-home', '.torque', 'backups');
+    const backupDir = mockWindowsBackupsDir();
     const oldOne = path.join(backupDir, 'old-1.db');
     const oldTwo = path.join(backupDir, 'old-2.db');
     const statsByPath = new Map([
@@ -811,7 +815,7 @@ describe('db/backup-core', () => {
 
   it('prunes generated backups by category and removes sidecars', () => {
     const { subject, fs } = loadSubject();
-    const backupDir = path.join('C:\\mock-home', '.torque', 'backups');
+    const backupDir = mockWindowsBackupsDir();
     const oldShutdown = path.join(backupDir, 'torque-pre-shutdown-2026-01-01T00-00-00-000Z.db');
     const midShutdown = path.join(backupDir, 'torque-pre-shutdown-2026-01-02T00-00-00-000Z.db');
     const keepShutdown = path.join(backupDir, 'torque-pre-shutdown-2026-01-03T00-00-00-000Z.db');
@@ -848,7 +852,7 @@ describe('db/backup-core', () => {
 
   it('reserves space for the next backup before enforcing the total cap', () => {
     const { subject, fs } = loadSubject();
-    const backupDir = path.join('C:\\mock-home', '.torque', 'backups');
+    const backupDir = mockWindowsBackupsDir();
     const periodic = path.join(backupDir, 'torque-2026-01-01T00-00-00-000Z.db');
     const shutdown = path.join(backupDir, 'torque-pre-shutdown-2026-01-02T00-00-00-000Z.db');
     const startup = path.join(backupDir, 'torque-pre-startup-2026-01-03T00-00-00-000Z.db');
@@ -891,7 +895,7 @@ describe('db/backup-core', () => {
 
   it('leaves protected and manual backups alone even when the cap is low', () => {
     const { subject, fs } = loadSubject();
-    const backupDir = path.join('C:\\mock-home', '.torque', 'backups');
+    const backupDir = mockWindowsBackupsDir();
     const protectedProvider = path.join(backupDir, 'torque-pre-provider-removal-2026-01-01T00-00-00-000Z.db');
     const manual = path.join(backupDir, 'manual.db');
     const statsByPath = new Map([

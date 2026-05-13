@@ -5,6 +5,7 @@ const path = require('path');
 const costTracking = require('./cost-tracking');
 const eventTracking = require('./event-tracking');
 const { readStudyArtifacts } = require('../integrations/codebase-study-engine');
+const { normalizeStoredPath } = require('../utils/platform-paths');
 
 const STUDY_EVENT_TYPES = Object.freeze([
   'study_task_submitted',
@@ -111,10 +112,7 @@ function normalizeWorkingDirectory(value) {
   if (typeof value !== 'string' || !value.trim()) {
     return null;
   }
-  const resolved = path.resolve(value.trim());
-  return process.platform === 'win32'
-    ? resolved.toLowerCase()
-    : resolved;
+  return normalizeStoredPath(value.trim());
 }
 
 function sumTokenUsage(taskId) {
