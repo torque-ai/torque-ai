@@ -193,6 +193,8 @@ const BENIGN_FLOW_ACTION_EXACT = new Set([
   'stale_generated_plan_cleared_before_replan', // stale generated plan cleared before replan
   'plan_generation_deferred_project_active', // plan generation deferred; project has active batch
   'plan_generation_worktree_reused', // plan generation reused active batch worktree
+  'plan_generation_worktree_reuse_skipped', // plan generation skipped a different work item's active batch worktree
+  'plan_generation_worktree_missing_abandoned', // plan generation abandoned a missing item-scoped worktree row
   'plan_generation_worktree_created', // plan generation created isolated artifact worktree
 
   // ── EXECUTE ──────────────────────────────────────────────────────────────────

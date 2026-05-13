@@ -231,6 +231,16 @@ const DECISION_ACTIONS = {
     classifier: 'benign',
     outcome: ['factory_worktree_id', 'worktree_id', 'worktree_path', 'branch', 'batch_id'],
   },
+  plan_generation_worktree_reuse_skipped: {
+    stage: 'EXECUTE',
+    classifier: 'benign',
+    outcome: ['factory_worktree_id', 'worktree_id', 'worktree_path', 'branch', 'batch_id', 'active_work_item_id', 'requested_work_item_id'],
+  },
+  plan_generation_worktree_missing_abandoned: {
+    stage: 'EXECUTE',
+    classifier: 'benign',
+    outcome: ['factory_worktree_id', 'worktree_id', 'worktree_path', 'branch', 'batch_id'],
+  },
   plan_generation_worktree_created: {
     stage: 'EXECUTE',
     classifier: 'benign',

@@ -164,6 +164,29 @@ function getActiveWorktreeByBatch(batch_id) {
   }
 }
 
+function getActiveWorktreeByBatchAndWorkItem(batch_id, work_item_id) {
+  try {
+    const row = getDb().prepare(`
+      SELECT *
+      FROM factory_worktrees
+      WHERE batch_id = ?
+        AND work_item_id = ?
+        AND status = 'active'
+      ORDER BY created_at DESC, id DESC
+      LIMIT 1
+    `).get(
+      requireText(batch_id, 'batch_id'),
+      requireInteger(work_item_id, 'work_item_id'),
+    );
+    return parseWorktree(row);
+  } catch (error) {
+    if (isMissingTableError(error)) {
+      return null;
+    }
+    throw error;
+  }
+}
+
 function getWorktreeByBranch(branch) {
   try {
     const row = getDb().prepare(`
@@ -387,6 +410,7 @@ module.exports = {
   recordWorktree,
   getActiveWorktree,
   getActiveWorktreeByBatch,
+  getActiveWorktreeByBatchAndWorkItem,
   getWorktreeByBranch,
   getActiveWorktreeByBranch,
   getLatestWorktreeForWorkItem,
