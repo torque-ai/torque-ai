@@ -76,6 +76,10 @@ function quoteShellArg(value) {
     if (!/[\s"^&|<>()%]/.test(text)) return text;
     return `"${text.replace(/"/g, '\\"')}"`;
   }
+  if (text === '') return "''";
+  // Safe identifier characters never need quoting on POSIX shells; skip
+  // quoting to keep the rendered command identical across platforms.
+  if (/^[A-Za-z0-9_\-./@:=,+]+$/.test(text)) return text;
   return `'${text.replace(/'/g, "'\\''")}'`;
 }
 

@@ -79,6 +79,11 @@ function isNewerWorktreeRow(candidate, existing) {
 // paths where Codex or pytest leaves wheel-check dirs with restrictive
 // DACLs. Layered fallback — plain rmSync, chmod-recursive + rmSync, then
 // platform shell rmdir/rm -rf — clears each of those stuck cases.
+//
+// This routine targets the Windows readonly file attribute. On Unix a
+// directory needs the execute bit to be traversable, so chmodding a directory
+// to 0o666 (rw-rw-rw-) would strip execute and break later cleanup. Use 0o755
+// for directories on Unix and the historical 0o666 for files.
 function clearReadOnlyRecursive(dir) {
   let entries;
   try {
@@ -88,7 +93,8 @@ function clearReadOnlyRecursive(dir) {
   }
   for (const entry of entries) {
     const full = path.join(dir, entry.name);
-    try { fs.chmodSync(full, 0o666); } catch { /* best effort */ }
+    const mode = entry.isDirectory() && process.platform !== 'win32' ? 0o755 : 0o666;
+    try { fs.chmodSync(full, mode); } catch { /* best effort */ }
     if (entry.isDirectory()) {
       clearReadOnlyRecursive(full);
     }
@@ -102,7 +108,14 @@ function forceRmSync(target) {
     if (!fs.existsSync(target)) return;
   } catch { /* fall through */ }
   try {
-    fs.chmodSync(target, 0o666);
+    // Preserve directory traversability on Unix (see clearReadOnlyRecursive).
+    let topMode = 0o666;
+    if (process.platform !== 'win32') {
+      try {
+        if (fs.statSync(target).isDirectory()) topMode = 0o755;
+      } catch { /* fall through with default mode */ }
+    }
+    fs.chmodSync(target, topMode);
   } catch { /* best effort */ }
   clearReadOnlyRecursive(target);
   try {

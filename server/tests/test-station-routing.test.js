@@ -153,13 +153,14 @@ describeV('await verify routing', () => {
     expectV(textOfResult(result)).toContain('Passed');
 
     // On Windows, shouldUseTorqueRemote wraps via bash (Node can't exec
-    // bash scripts directly). On Linux/macOS, it calls torque-remote directly.
+    // bash scripts directly), so the script path lands in execArgs. On
+    // Linux/macOS, the resolved torque-remote path becomes execName itself.
     // Accept either pattern — what matters is that the verify DID NOT fall
     // back to sh/cmd direct execution.
     const verifyCalls = awaitMocks.executeValidatedCommandSync.mock.calls;
     expectV(verifyCalls.length).toBeGreaterThanOrEqual(1);
     const [execName, execArgs] = verifyCalls[0];
-    const usedTorqueRemote = execName === 'torque-remote'
+    const usedTorqueRemote = (typeof execName === 'string' && execName.includes('torque-remote'))
       || (typeof execName === 'string' && execName.includes('bash') && execArgs.some(a => typeof a === 'string' && a.includes('torque-remote')));
     expectV(usedTorqueRemote).toBe(true);
     expectV(execArgs).toEqual(expectV.arrayContaining(['npx vitest run']));
