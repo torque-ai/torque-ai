@@ -557,7 +557,7 @@ describe('evaluatePlan orchestration', () => {
     llmSpy.mockRestore();
   });
 
-  it('deterministic pass + LLM no-go in dark trust: records critique as advisory and passes', async () => {
+  it('deterministic pass + LLM no-go in dark trust: blocks with critique feedback', async () => {
     const llmSpy = vi.spyOn(planQualityGate, 'runLlmSemanticCheck').mockResolvedValue('[no-go] Plan rewrites the wrong subsystem.');
     const plan = '## Task 1: Edit src/foo.ts\n\nIn src/foo.ts rename handleX to handleY and run npx vitest tests/foo.test.ts. Body is long enough for rule 4.\n\n## Task 2: Edit src/bar.ts\n\nIn src/bar.ts call handleY via the new export and run npx vitest tests/bar.test.ts. Body is long enough for rule 4.';
     const result = await planQualityGate.evaluatePlan({
@@ -565,12 +565,29 @@ describe('evaluatePlan orchestration', () => {
       workItem: { id: 1, title: 'w', description: 'd' },
       project: { id: 'p', path: '/tmp/p', trust_level: 'dark' },
     });
-    expect(result.passed).toBe(true);
-    expect(result.feedbackPrompt).toBeNull();
+    expect(result.passed).toBe(false);
+    expect(result.feedbackPrompt).toContain('wrong subsystem');
     expect(result.llmCritique).toContain('wrong subsystem');
-    expect(result.warnings).toEqual(expect.arrayContaining([
-      expect.objectContaining({ rule: 'llm_semantic_no_go_advisory' }),
-    ]));
+    llmSpy.mockRestore();
+  });
+
+  it('deterministic pass + concrete acceptance mismatch no-go in dark trust: blocks execution', async () => {
+    const critique = 'The plan misses the required test file and verification command by adding coverage to server/tests/handler-workflow-handlers.test.js instead of server/tests/workflow-dag-validation.test.js.';
+    const llmSpy = vi.spyOn(planQualityGate, 'runLlmSemanticCheck').mockResolvedValue(`[no-go] ${critique}`);
+    const plan = '## Task 1: Edit server/handlers/workflow/index.js\n\nIn server/handlers/workflow/index.js add the workflow DAG guard and run npx vitest server/tests/handler-workflow-handlers.test.js. Body is long enough for rule 4.\n\n## Task 2: Edit server/tests/handler-workflow-handlers.test.js\n\nIn server/tests/handler-workflow-handlers.test.js add dispatch rejection coverage and run npx vitest server/tests/handler-workflow-handlers.test.js. Body is long enough for rule 4.';
+    const result = await planQualityGate.evaluatePlan({
+      plan,
+      workItem: {
+        id: 194,
+        title: 'Fabro #64: Add build-time workflow DAG validation before dispatch',
+        description: 'Add focused tests in server/tests/workflow-dag-validation.test.js and verify with npm test -- server/tests/workflow-dag-validation.test.js.',
+      },
+      project: { id: 'p', path: '/tmp/p', trust_level: 'dark' },
+    });
+
+    expect(result.passed).toBe(false);
+    expect(result.llmCritique).toContain('required test file');
+    expect(result.feedbackPrompt).toContain('server/tests/workflow-dag-validation.test.js');
     llmSpy.mockRestore();
   });
 

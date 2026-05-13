@@ -541,18 +541,6 @@ async function evaluatePlan({ plan, workItem, project, projectConfig }) {
     if (isUnsupportedWorktreeSetupCritique(cleanCritique)) {
       return { passed: true, hardFails: [], warnings, llmCritique: null, feedbackPrompt: null };
     }
-    if (isDarkTrustProject(project)) {
-      return {
-        passed: true,
-        hardFails: [],
-        warnings: warnings.concat({
-          rule: 'llm_semantic_no_go_advisory',
-          detail: cleanCritique,
-        }),
-        llmCritique: cleanCritique,
-        feedbackPrompt: null,
-      };
-    }
     const feedbackPrompt = buildFeedbackPrompt([], warnings, cleanCritique);
     return { passed: false, hardFails: [], warnings, llmCritique: cleanCritique, feedbackPrompt };
   }
