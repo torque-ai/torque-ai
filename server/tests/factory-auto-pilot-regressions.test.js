@@ -16,7 +16,7 @@ const factoryHealth = require('../db/factory/health');
 const factoryIntake = require('../db/factory/intake');
 const factoryLoopInstances = require('../db/factory/loop-instances');
 const factoryWorktrees = require('../db/factory/worktrees');
-const routingModule = require('../handlers/integration/routing');
+const internalTaskSubmit = require('../factory/internal-task-submit');
 const taskCore = require('../db/task-core');
 
 const TASK_MANAGER_RESOLVED = require.resolve('../task-manager');
@@ -252,10 +252,10 @@ describe('handleAutoVerifyRetry', () => {
 });
 
 describe('runArchitectLLM', () => {
-  it('passes target project working_directory to the submitter', async () => {
+  it('passes target project working_directory to the internal submitter', async () => {
     installTaskManagerCache({ startTask: vi.fn() });
 
-    const submitSpy = vi.spyOn(routingModule, 'handleSmartSubmitTask').mockResolvedValue({
+    const submitSpy = vi.spyOn(internalTaskSubmit, 'submitFactoryInternalTask').mockResolvedValue({
       task_id: 'architect-task-1',
     });
     vi.spyOn(taskCore, 'getTask').mockReturnValue({
@@ -291,6 +291,8 @@ describe('runArchitectLLM', () => {
 
     expect(submitSpy).toHaveBeenCalledWith(expect.objectContaining({
       working_directory: '/target/path',
+      kind: 'architect_cycle',
+      project_id: 'pid',
     }));
   });
 });
