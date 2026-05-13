@@ -2429,26 +2429,28 @@ if [[ "${PRINT_REMOTE_OS_REQUESTED:-0}" == "1" ]]; then
   exit 0
 fi
 
-# ---- OS-aware lane workspace root default ----
-# Runs after the probe so $REMOTE_OS and $REMOTE_HOME are resolved. Only fires
-# when REMOTE_TEST_WORKTREE_ROOT was not supplied via any config layer.
-# Operators can always override via remote_test_worktree_root in their local
-# config file.
-if [[ "$TRANSPORT" == "ssh" && -z "${REMOTE_TEST_WORKTREE_ROOT:-}" ]]; then
-  case "$REMOTE_OS" in
-    linux)   REMOTE_TEST_WORKTREE_ROOT="${REMOTE_HOME}/trt" ;;
-    windows) REMOTE_TEST_WORKTREE_ROOT='C:\trt' ;;
-    *) die "[torque-remote] cannot pick lane root for REMOTE_OS=$REMOTE_OS" ;;
-  esac
-  # Re-derive EFFECTIVE_REMOTE_PROJECT_PATH now that the root is known.
-  # Use POSIX separators on Linux; backslash on Windows (matching the logic
-  # in the earlier config-driven derivation block above).
+# ---- OS-aware lane workspace path derivation ----
+# Runs after the probe so $REMOTE_OS and $REMOTE_HOME are resolved.
+# Always re-derives EFFECTIVE_REMOTE_PROJECT_PATH with OS-appropriate
+# separators, overwriting whatever the pre-probe block computed (which
+# assumed Windows backslashes unconditionally). Fills in default root
+# only when the operator did not supply one via any config layer.
+if [[ "$TRANSPORT" == "ssh" ]]; then
+  # Fill in default root if operator didn't supply one.
+  if [[ -z "${REMOTE_TEST_WORKTREE_ROOT:-}" ]]; then
+    case "$REMOTE_OS" in
+      linux)   REMOTE_TEST_WORKTREE_ROOT="${REMOTE_HOME}/trt" ;;
+      windows) REMOTE_TEST_WORKTREE_ROOT='C:\trt' ;;
+      *) die "[torque-remote] cannot pick lane root for REMOTE_OS=$REMOTE_OS" ;;
+    esac
+  fi
+
+  # Always re-derive with OS-appropriate separators.
   case "$REMOTE_OS" in
     linux)
-      case "$REMOTE_TEST_WORKTREE_ROOT" in
-        */) EFFECTIVE_REMOTE_PROJECT_PATH="${REMOTE_TEST_WORKTREE_ROOT}${PROJECT_NAME}" ;;
-        *)  EFFECTIVE_REMOTE_PROJECT_PATH="${REMOTE_TEST_WORKTREE_ROOT}/${PROJECT_NAME}" ;;
-      esac
+      # POSIX path. Trim any trailing slash on the root and join with /.
+      LANE_ROOT="${REMOTE_TEST_WORKTREE_ROOT%/}"
+      EFFECTIVE_REMOTE_PROJECT_PATH="${LANE_ROOT}/${PROJECT_NAME}"
       ;;
     windows)
       ROOT_NORM_DEFAULT="${REMOTE_TEST_WORKTREE_ROOT//\//\\}"
@@ -2462,7 +2464,7 @@ if [[ "$TRANSPORT" == "ssh" && -z "${REMOTE_TEST_WORKTREE_ROOT:-}" ]]; then
   if [[ -n "$REMOTE_TEST_WORKTREE_SUFFIX" && -n "$EFFECTIVE_REMOTE_PROJECT_PATH" ]]; then
     EFFECTIVE_REMOTE_PROJECT_PATH="${EFFECTIVE_REMOTE_PROJECT_PATH}${REMOTE_TEST_WORKTREE_SUFFIX}"
   fi
-  info "[lane-root] REMOTE_OS=$REMOTE_OS default REMOTE_TEST_WORKTREE_ROOT=$REMOTE_TEST_WORKTREE_ROOT EFFECTIVE_REMOTE_PROJECT_PATH=$EFFECTIVE_REMOTE_PROJECT_PATH"
+  info "[lane-path] REMOTE_OS=$REMOTE_OS REMOTE_TEST_WORKTREE_ROOT=$REMOTE_TEST_WORKTREE_ROOT EFFECTIVE_REMOTE_PROJECT_PATH=$EFFECTIVE_REMOTE_PROJECT_PATH"
 fi
 
 # ---- Validate remote OS / path style agreement ----

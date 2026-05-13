@@ -28,7 +28,7 @@ echo "OK: --status returned lane state"
 
 echo ""
 echo "=== Step 3: Round-trip a simple intercepted command ==="
-if bin/torque-remote npx vitest run server/tests/torque-remote-probe.test.js --reporter=basic 2>&1 | tail -5; then
+if bin/torque-remote npx vitest run server/tests/torque-remote-probe.test.js --reporter=default 2>&1 | tail -10; then
   echo "OK: vitest round-tripped through the pipeline"
 else
   echo "FAIL: vitest invocation failed (the remote may be unreachable or torque-remote may have a bug)"
