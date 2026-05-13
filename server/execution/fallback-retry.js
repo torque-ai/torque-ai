@@ -1187,6 +1187,11 @@ function classifyError(errorOutput, exitCode) {
     { pattern: 'invalid api key', reason: 'Invalid API key' },
     { pattern: 'api key not found', reason: 'API key not found' },
     { pattern: 'openai_api_key', reason: 'OpenAI API key issue' },
+    // Long-lived account/model limits should fall through to provider
+    // failover instead of burning same-model retry attempts.
+    { pattern: 'usage limit', reason: 'Usage limit exhausted' },
+    { pattern: 'weekly limit', reason: 'Usage limit exhausted' },
+    { pattern: 'hit your limit', reason: 'Usage limit exhausted' },
     // Disk/filesystem failures (permanent without intervention)
     { pattern: /disk full|no space left on device/i, reason: 'Disk full' },
     { pattern: /read-only file system/i, reason: 'Read-only filesystem' },

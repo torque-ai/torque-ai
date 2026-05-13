@@ -1906,6 +1906,11 @@ describe('classifyError', () => {
     expect(result).toEqual({ retryable: false, reason: 'Invalid API key' });
   });
 
+  it('classifies long-lived usage limits as non-retryable so failover can handle them', () => {
+    const result = classifyError("ERROR: You've hit your usage limit for GPT-5.3-Codex-Spark. Try again at May 15th, 2026 11:59 PM.", 1);
+    expect(result).toEqual({ retryable: false, reason: 'Usage limit exhausted' });
+  });
+
   it('classifies network timeout as retryable', () => {
     const result = classifyError('ETIMEDOUT while calling endpoint');
     expect(result).toEqual({ retryable: true, reason: 'Connection timed out' });

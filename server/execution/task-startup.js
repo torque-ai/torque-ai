@@ -2167,7 +2167,7 @@ function cleanupOrphanedRetryTimeouts() {
   for (const [taskId, timeoutHandle] of retryTimeouts.entries()) {
     const task = taskDb.getTask(taskId);
     // Clean up if task doesn't exist or is no longer in a retryable state
-    if (!task || !['pending', 'queued'].includes(task.status)) {
+    if (!task || !['pending', 'queued', 'retry_scheduled'].includes(task.status)) {
       clearTimeout(timeoutHandle);
       retryTimeouts.delete(taskId);
       cleaned++;

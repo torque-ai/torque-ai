@@ -120,6 +120,18 @@ describe('completion-detection', () => {
       expect(detectSuccessFromOutput('insufficient_quota for this request', 'codex')).toBe(false);
     });
 
+    it('rejects Codex usage-limit output even when the echoed prompt contains completion-like text', () => {
+      const output = [
+        'Quality Rules:',
+        'NEVER create a new file if a similar file already exists.',
+        'x'.repeat(600),
+        "ERROR: You've hit your usage limit for GPT-5.3-Codex-Spark.",
+        'ERROR: Try again at May 15th, 2026 11:59 PM.',
+      ].join('\n');
+
+      expect(detectSuccessFromOutput(output, 'codex')).toBe(false);
+    });
+
     it('rejects output with error status code', () => {
       expect(detectSuccessFromOutput('error: 401 unauthorized access', 'codex')).toBe(false);
     });

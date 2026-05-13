@@ -984,6 +984,7 @@ describe('task-startup', () => {
       ['completed-task', { id: 1 }],
       ['missing-task', { id: 2 }],
       ['queued-task', { id: 3 }],
+      ['retry-task', { id: 4 }],
     ]);
     const ctx = loadTaskStartup({
       depOverrides: {
@@ -994,6 +995,7 @@ describe('task-startup', () => {
     ctx.deps.db.getTask.mockImplementation((taskId) => {
       if (taskId === 'completed-task') return { id: taskId, status: 'completed' };
       if (taskId === 'queued-task') return { id: taskId, status: 'queued' };
+      if (taskId === 'retry-task') return { id: taskId, status: 'retry_scheduled' };
       return null;
     });
 
@@ -1003,6 +1005,7 @@ describe('task-startup', () => {
     expect(pendingRetryTimeouts.has('completed-task')).toBe(false);
     expect(pendingRetryTimeouts.has('missing-task')).toBe(false);
     expect(pendingRetryTimeouts.has('queued-task')).toBe(true);
+    expect(pendingRetryTimeouts.has('retry-task')).toBe(true);
   });
 
   it('cleanupOrphanedRetryTimeouts falls back to processTracker retry timeouts', async () => {
@@ -1010,6 +1013,7 @@ describe('task-startup', () => {
     const pendingRetryTimeouts = new Map([
       ['completed-task', { id: 1 }],
       ['queued-task', { id: 2 }],
+      ['retry-task', { id: 3 }],
     ]);
     const processTracker = { retryTimeouts: pendingRetryTimeouts };
     const ctx = loadTaskStartup({
@@ -1021,6 +1025,7 @@ describe('task-startup', () => {
 
     ctx.deps.db.getTask.mockImplementation((taskId) => {
       if (taskId === 'queued-task') return { id: taskId, status: 'queued' };
+      if (taskId === 'retry-task') return { id: taskId, status: 'retry_scheduled' };
       return { id: taskId, status: 'completed' };
     });
 
@@ -1029,6 +1034,7 @@ describe('task-startup', () => {
     expect(clearTimeoutSpy).toHaveBeenCalledTimes(1);
     expect(pendingRetryTimeouts.has('completed-task')).toBe(false);
     expect(pendingRetryTimeouts.has('queued-task')).toBe(true);
+    expect(pendingRetryTimeouts.has('retry-task')).toBe(true);
   });
 
   it('safeStartTask catches and logs startTask errors without throwing', async () => {

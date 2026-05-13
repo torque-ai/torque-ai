@@ -78,6 +78,9 @@ const FAILURE_REJECTION_PATTERNS = [
   /\bauthentication\s+failed\b/i,                       // Auth failure
   /\binvalid\s+api\s*key\b/i,                           // Bad API key
   /\binsufficient[_ ]quota\b/i,                         // Quota exhausted
+  /\busage\s+limit\b/i,                                  // Model/account usage limit
+  /\bhit\s+your\s+(?:usage\s+)?limit\b/i,                // "You've hit your usage limit"
+  /\bweekly\s+limit\b/i,                                 // Weekly quota exhausted
   /\baccess\s+denied\b/i,                               // Permission error
   /\bservice\s+unavailable\b/i,                         // 503 errors
   /\binternal\s+server\s+error\b/i,                     // 500 errors
