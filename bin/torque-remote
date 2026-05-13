@@ -2020,6 +2020,7 @@ SUITE="${TORQUE_REMOTE_DEFAULT_SUITE:-custom}"
 TORQUE_REMOTE_LANES_CLI="${TORQUE_REMOTE_LANES_CLI:-}"
 STATUS_REQUESTED=0
 REMOTE_AVAILABILITY_PROBE_REQUESTED=0
+PRINT_REMOTE_OS_REQUESTED=0
 while [[ "${1:-}" == --* ]]; do
   case "$1" in
     --__internal-print-routing-mode)
@@ -2078,16 +2079,23 @@ while [[ "${1:-}" == --* ]]; do
       STATUS_REQUESTED=1
       shift
       ;;
+    --print-remote-os)
+      # Print the detected remote OS (linux/windows/unknown) and exit 0.
+      # Used by torque-remote-guard's _get_cached_remote_os helper to avoid
+      # a direct SSH call from the guard itself.
+      PRINT_REMOTE_OS_REQUESTED=1
+      shift
+      ;;
     *)
       die "Unknown torque-remote flag: $1
-torque-remote supports --branch <ref>, --lanes <N>, --suite <name>, and --status. If $1 is meant for
+torque-remote supports --branch <ref>, --lanes <N>, --suite <name>, --status, and --print-remote-os. If $1 is meant for
 your inner command, place it after the command name, e.g.:
   torque-remote npx vitest run $1 ..."
       ;;
   esac
 done
 
-if [[ $# -eq 0 && "${STATUS_REQUESTED:-0}" != "1" && "${REMOTE_AVAILABILITY_PROBE_REQUESTED:-0}" != "1" ]]; then
+if [[ $# -eq 0 && "${STATUS_REQUESTED:-0}" != "1" && "${REMOTE_AVAILABILITY_PROBE_REQUESTED:-0}" != "1" && "${PRINT_REMOTE_OS_REQUESTED:-0}" != "1" ]]; then
   cat >&2 << 'USAGE'
 Usage: torque-remote [--branch <ref>] <command...>
 
@@ -2380,10 +2388,20 @@ if [[ "$TRANSPORT" == "ssh" ]]; then
     fi
   else
     if ! remote_probe_os; then
-      echo "[torque-remote] ERROR: cannot determine remote OS via probe; uname+ver both failed for $SSH_USER@$SSH_HOST. Set remote_os in your local config to 'linux' or 'windows' to override." >&2
-      exit 78
+      # For --print-remote-os, a failed probe is non-fatal: caller gets "unknown".
+      if [[ "${PRINT_REMOTE_OS_REQUESTED:-0}" != "1" ]]; then
+        echo "[torque-remote] ERROR: cannot determine remote OS via probe; uname+ver both failed for $SSH_USER@$SSH_HOST. Set remote_os in your local config to 'linux' or 'windows' to override." >&2
+        exit 78
+      fi
+      REMOTE_OS="${REMOTE_OS:-unknown}"
     fi
   fi
+fi
+
+# ---- --print-remote-os (deferred until config is loaded and OS is probed) ----
+if [[ "${PRINT_REMOTE_OS_REQUESTED:-0}" == "1" ]]; then
+  echo "${REMOTE_OS:-unknown}"
+  exit 0
 fi
 
 # ---- OS-aware lane workspace root default ----
