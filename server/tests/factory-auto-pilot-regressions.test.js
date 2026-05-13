@@ -16,6 +16,7 @@ const factoryHealth = require('../db/factory/health');
 const factoryIntake = require('../db/factory/intake');
 const factoryLoopInstances = require('../db/factory/loop-instances');
 const factoryWorktrees = require('../db/factory/worktrees');
+const internalTaskSubmit = require('../factory/internal-task-submit');
 const routingModule = require('../handlers/integration/routing');
 const taskCore = require('../db/task-core');
 const gitWorktree = require('../utils/git-worktree');
@@ -267,6 +268,9 @@ describe('runArchitectLLM', () => {
   it('submits architect work in an isolated worktree with target project metadata', async () => {
     installTaskManagerCache({ startTask: vi.fn() });
 
+    const originalSubmitFactoryInternalTask = internalTaskSubmit.submitFactoryInternalTask;
+    const internalSubmitSpy = vi.spyOn(internalTaskSubmit, 'submitFactoryInternalTask')
+      .mockImplementation((payload) => originalSubmitFactoryInternalTask(payload));
     const submitSpy = vi.spyOn(routingModule, 'handleSmartSubmitTask').mockResolvedValue({
       task_id: 'architect-task-1',
     });
@@ -305,6 +309,11 @@ describe('runArchitectLLM', () => {
 
     await architectRunner.runArchitectCycle('pid', 'manual');
 
+    expect(internalSubmitSpy).toHaveBeenCalledWith(expect.objectContaining({
+      working_directory: '/target/path',
+      kind: 'architect_cycle',
+      project_id: 'pid',
+    }));
     expect(createWorktreeSpy).toHaveBeenCalledWith(expect.stringMatching(/^factory-internal-architect_cycle-/), '/target/path');
     expect(submitSpy).toHaveBeenCalledWith(expect.objectContaining({
       working_directory: '/isolated/architect-worktree',
