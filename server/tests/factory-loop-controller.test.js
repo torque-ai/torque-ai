@@ -664,6 +664,46 @@ describe('factory loop-controller EXECUTE modes', () => {
     });
   });
 
+  it('routes missing generated plan files back to replan after worktree preparation', async () => {
+    const { project, workItem, planPath } = registerPlanProject();
+    const generatedPlanPath = path.join(path.dirname(planPath), 'auto-generated', 'generated-after-reclaim.md');
+    fs.mkdirSync(path.dirname(generatedPlanPath), { recursive: true });
+    fs.copyFileSync(planPath, generatedPlanPath);
+    const generatedWorkItem = factoryIntake.updateWorkItem(workItem.id, {
+      origin_json: JSON.stringify({ plan_path: generatedPlanPath }),
+      status: 'planned',
+    });
+    const worktreePath = path.join(path.dirname(planPath), 'exec-worktree-after-reclaim');
+    loopController.setWorktreeRunnerForTests({
+      createForBatch: vi.fn(async () => {
+        fs.rmSync(generatedPlanPath, { force: true });
+        fs.mkdirSync(worktreePath, { recursive: true });
+        return {
+          id: 'vc-generated-missing',
+          branch: 'feat/generated-missing',
+          worktreePath,
+          baseBranch: 'main',
+        };
+      }),
+      abandon: vi.fn(async () => null),
+    });
+
+    await advanceSupervisedPlanProject(project.id);
+    const executeAdvance = await loopController.advanceLoopForProject(project.id);
+
+    expect(executeAdvance.new_state).toBe(LOOP_STATES.PRIORITIZE);
+    expect(executeAdvance.paused_at_stage).toBeNull();
+    expect(routingModule.handleSmartSubmitTask).not.toHaveBeenCalled();
+    const updated = factoryIntake.getWorkItem(generatedWorkItem.id);
+    expect(updated).toMatchObject({
+      status: 'needs_replan',
+      reject_reason: 'generated_plan_missing_after_worktree_prepare',
+    });
+    expect(updated.origin.plan_path).toBeUndefined();
+    const decisions = listDecisionRows(db, project.id);
+    expect(decisions.find((row) => row.action === 'generated_plan_missing_routed_to_needs_replan')).toBeTruthy();
+  });
+
   it('ignores a stale instance batch before choosing the EXECUTE worktree', async () => {
     const { project, workItem } = registerPlanProject();
     const otherWorkItem = factoryIntake.createWorkItem({

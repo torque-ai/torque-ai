@@ -10591,6 +10591,65 @@ async function executePlanFileStage(project, instance, workItem) {
     }
   })();
 
+  if (
+    planPathForExecutor
+    && !fs.existsSync(planPathForExecutor)
+    && shouldDeletePlanPathForNeedsReplan(targetItem, targetItem.origin?.plan_path)
+  ) {
+    const routed = routeWorkItemToNeedsReplan(targetItem, {
+      reason: 'generated_plan_missing_after_worktree_prepare',
+      details: {
+        plan_path: targetItem.origin?.plan_path || null,
+        executor_plan_path: planPathForExecutor,
+        worktree_path: executionWorkingDirectory || null,
+      },
+    });
+    if (instance?.id) {
+      rememberSelectedWorkItem(instance.id, routed);
+      updateInstanceAndSync(instance.id, { work_item_id: routed.id });
+    }
+    logger.warn('EXECUTE stage: generated plan path missing after worktree preparation; routing to needs_replan', {
+      project_id: project.id,
+      work_item_id: targetItem.id,
+      plan_path: targetItem.origin?.plan_path || null,
+      executor_plan_path: planPathForExecutor,
+      worktree_path: executionWorkingDirectory || null,
+    });
+    safeLogDecision({
+      project_id: project.id,
+      stage: LOOP_STATES.EXECUTE,
+      action: 'generated_plan_missing_routed_to_needs_replan',
+      reasoning: 'The generated plan file was missing after preparing the execution worktree; routing to needs_replan so the architect regenerates it instead of pausing on ENOENT.',
+      inputs: {
+        ...getWorkItemDecisionContext(targetItem),
+        executor_plan_path: planPathForExecutor,
+        worktree_path: executionWorkingDirectory || null,
+      },
+      outcome: {
+        next_state: LOOP_STATES.PRIORITIZE,
+        next_status: routed.status,
+        work_item_id: routed.id,
+        plan_path_cleared: true,
+      },
+      confidence: 1,
+      batch_id: decisionBatchId,
+    });
+    return {
+      next_state: LOOP_STATES.PRIORITIZE,
+      paused_at_stage: null,
+      stop_execution: true,
+      reason: 'generated plan missing after worktree prepare',
+      stage_result: {
+        status: routed.status,
+        reason: 'generated_plan_missing_after_worktree_prepare',
+        work_item_id: routed.id,
+        plan_path: targetItem.origin?.plan_path || null,
+        executor_plan_path: planPathForExecutor,
+      },
+      work_item: routed,
+    };
+  }
+
   if (resumedDeferredExecute) {
     const deferredResumeInspection = await inspectExecuteDeferredResume({
       project,
