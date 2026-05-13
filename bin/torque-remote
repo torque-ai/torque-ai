@@ -941,7 +941,7 @@ remote_lane_probe() {
   local hb_file="$3"
   case "$REMOTE_OS" in
     linux)
-      _emit_or_run "mkdir \"$lock_dir\" 2>/dev/null && echo ACQUIRED || (echo HELD && ([ -f \"$owner_file\" ] && cat \"$owner_file\" || echo NO_OWNER) && echo ---HB--- && ([ -f \"$hb_file\" ] && cat \"$hb_file\" || echo NO_HB))"
+      _emit_or_run "mkdir -p \"\$(dirname \"$lock_dir\")\" 2>/dev/null; mkdir \"$lock_dir\" 2>/dev/null && echo ACQUIRED || (echo HELD && ([ -f \"$owner_file\" ] && cat \"$owner_file\" || echo NO_OWNER) && echo ---HB--- && ([ -f \"$hb_file\" ] && cat \"$hb_file\" || echo NO_HB))"
       ;;
     windows)
       _emit_or_run "if not exist \"$lock_dir\" (mkdir \"$lock_dir\" 2>nul && echo ACQUIRED) else (echo HELD && (if exist \"$owner_file\" (type \"$owner_file\") else (echo NO_OWNER)) && echo ---HB--- && (if exist \"$hb_file\" (type \"$hb_file\") else (echo NO_HB)))"
