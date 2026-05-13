@@ -257,6 +257,44 @@ describe('task-finalizer', () => {
     );
   });
 
+  it('resolves retry logic with scoped dependencies when no explicit retry handler is provided', async () => {
+    const classifyError = vi.fn(() => ({ retryable: false, reason: 'synthetic_nonretryable' }));
+    const dbBundle = createTaskDb();
+    const { db } = dbBundle;
+    const safeUpdateTaskStatus = vi.fn((...args) => db.updateTaskStatus(...args));
+    const scopedFinalizer = finalizer.createTaskFinalizer({
+      db,
+      safeUpdateTaskStatus,
+      classifyError,
+      sanitizeTaskOutput: (value) => value || '',
+      extractModifiedFiles: vi.fn(() => []),
+      handleSafeguardChecks: vi.fn(),
+      handleFuzzyRepair: vi.fn(),
+      handleNoFileChangeDetection: vi.fn(),
+      handleSandboxRevertDetection: vi.fn(),
+      handleAutoValidation: vi.fn(),
+      handleBuildTestStyleCommit: vi.fn(),
+      handleAutoVerifyRetry: vi.fn(async () => {}),
+      handleProviderFailover: vi.fn(),
+      handlePostCompletion: vi.fn(),
+    });
+
+    const result = await scopedFinalizer.finalizeTask(dbBundle.taskId, {
+      exitCode: 1,
+      output: '',
+      errorOutput: 'synthetic failure',
+    });
+
+    expect(result.finalized).toBe(true);
+    expect(result.status).toBe('failed');
+    expect(classifyError).toHaveBeenCalledWith('synthetic failure', 1);
+    expect(result.validationStages.retry_logic).toMatchObject({
+      outcome: 'no_change',
+    });
+    expect(result.validationStages.retry_logic).not.toHaveProperty('error');
+    expect(dbBundle.getStoredTask().error_output).not.toContain('deps.classifyError is not a function');
+  });
+
   it('uses the DI completion pipeline service for post-completion hooks', async () => {
     const dbBundle = createTaskDb();
     const { db } = dbBundle;

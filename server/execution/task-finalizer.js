@@ -1493,7 +1493,16 @@ function createTaskFinalizer(localDeps = {}) {
 
   // Stage handlers resolved from their canonical modules.
   if (!resolved.handleRetryLogic) {
-    try { resolved.handleRetryLogic = require('./retry-framework').handleRetryLogic; }
+    try {
+      const retryFramework = require('./retry-framework');
+      if (resolved.retryFramework && typeof resolved.retryFramework.handleRetryLogic === 'function') {
+        resolved.handleRetryLogic = resolved.retryFramework.handleRetryLogic.bind(resolved.retryFramework);
+      } else if (typeof retryFramework.createRetryFramework === 'function') {
+        resolved.handleRetryLogic = retryFramework.createRetryFramework(resolved).handleRetryLogic;
+      } else {
+        resolved.handleRetryLogic = retryFramework.handleRetryLogic;
+      }
+    }
     catch { /* fall through */ }
   }
   if (!resolved.handleSafeguardChecks) {
