@@ -133,7 +133,7 @@ describe('factory-tick baseline probe phase', () => {
     });
   });
 
-  it('runs the recorded failed verify command instead of a narrower smoke baseline before requeueing', async () => {
+  it('runs the configured baseline probe command before requeueing', async () => {
     const factoryTick = require('../factory/factory-tick');
     const baselineProbe = require('../factory/baseline-probe');
 
@@ -154,7 +154,7 @@ describe('factory-tick baseline probe phase', () => {
     await factoryTick.tickProject(project);
 
     expect(probeSpy).toHaveBeenCalledWith(expect.objectContaining({
-      verifyCommand: 'npx vitest run server/tests/full-baseline.test.js',
+      verifyCommand: 'npx vitest run server/tests/baseline-probe.test.js',
     }));
     const item = db.prepare('SELECT status FROM factory_work_items WHERE id = ?').get(workItemId);
     expect(item.status).toBe('pending');

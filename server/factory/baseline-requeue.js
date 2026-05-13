@@ -38,6 +38,19 @@ function validateProbeProvedBlockedCommand({ config, probeVerifyCommand } = {}) 
   const evidence = config?.baseline_broken_evidence;
   const blockedVerifyCommand = normalizeComparableVerifyCommand(evidence?.verify_command);
   const provedVerifyCommand = normalizeComparableVerifyCommand(probeVerifyCommand);
+  const configuredBaselineVerifyCommand = normalizeComparableVerifyCommand(config?.baseline_verify_command);
+  if (
+    configuredBaselineVerifyCommand
+    && provedVerifyCommand
+    && configuredBaselineVerifyCommand === provedVerifyCommand
+  ) {
+    return {
+      proved: true,
+      blocked_verify_command: blockedVerifyCommand,
+      probe_verify_command: provedVerifyCommand,
+      proof_source: 'baseline_verify_command',
+    };
+  }
   if (blockedVerifyCommand && provedVerifyCommand && blockedVerifyCommand !== provedVerifyCommand) {
     return {
       proved: false,
