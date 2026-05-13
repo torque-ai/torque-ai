@@ -755,6 +755,38 @@ describe('version-control worktree manager', () => {
     expect(manager.getWorktree('wt-fs-lock')).toBeNull();
   });
 
+  it('falls back to forceRmSync when git worktree remove leaves a partial directory with Invalid argument', () => {
+    const repoPath = makeRepoRoot();
+    const wtPath = path.join(repoPath, '.worktrees', 'feat-invalid-argument');
+    insertWorktree({
+      id: 'wt-invalid-argument',
+      repo_path: repoPath,
+      worktree_path: wtPath,
+      branch: 'feat/invalid-argument',
+    });
+    fs.writeFileSync(path.join(wtPath, 'partial.tmp'), 'left behind');
+
+    execFileSyncMock.mockImplementation((cmd, args) => {
+      if (cmd === 'git' && Array.isArray(args)
+          && args[0] === 'worktree' && args[1] === 'remove') {
+        const err = new Error(
+          `Command failed: git worktree remove --force ${wtPath}\n`
+          + `error: failed to delete '${wtPath}': Invalid argument\n`
+        );
+        err.stderr = `error: failed to delete '${wtPath}': Invalid argument`;
+        throw err;
+      }
+      return '';
+    });
+
+    const result = manager.cleanupWorktree('wt-invalid-argument');
+
+    expect(result.removed).toBe(true);
+    expect(result.warnings.some((warning) => warning.includes('Invalid argument'))).toBe(true);
+    expect(fs.existsSync(wtPath)).toBe(false);
+    expect(manager.getWorktree('wt-invalid-argument')).toBeNull();
+  });
+
   it('removes the current worktree when only older same-path db siblings exist', () => {
     const repoPath = makeRepoRoot();
     const worktreePath = path.join(repoPath, '.worktrees', 'feat-cleanup-sibling');
