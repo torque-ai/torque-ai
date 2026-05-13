@@ -401,6 +401,38 @@ describe('handleAutoVerifyRetry — guards and init', () => {
     expect(ctx.status).toBe('completed');
   });
 
+  it('skips when task metadata sets verify_skip', async () => {
+    const db = createMockDb({ initialConfig: { verify_command: 'npm test' } });
+    const { handleAutoVerifyRetry, mockLoggerChild } = loadModuleWithMocks({ db });
+    const ctx = makeCtx({
+      task: makeTask({ metadata: JSON.stringify({ verify_skip: true }) }),
+    });
+
+    await handleAutoVerifyRetry(ctx);
+
+    expect(mockRunVerifyCommand).not.toHaveBeenCalled();
+    expect(mockLoggerChild.info).toHaveBeenCalledWith(
+      expect.stringContaining('verify_skip set'),
+    );
+    expect(ctx.status).toBe('completed');
+  });
+
+  it('skips when task metadata sets an empty verify_command', async () => {
+    const db = createMockDb({ initialConfig: { verify_command: 'npm test' } });
+    const { handleAutoVerifyRetry, mockLoggerChild } = loadModuleWithMocks({ db });
+    const ctx = makeCtx({
+      task: makeTask({ metadata: JSON.stringify({ verify_command: '' }) }),
+    });
+
+    await handleAutoVerifyRetry(ctx);
+
+    expect(mockRunVerifyCommand).not.toHaveBeenCalled();
+    expect(mockLoggerChild.info).toHaveBeenCalledWith(
+      expect.stringContaining('no verify_command'),
+    );
+    expect(ctx.status).toBe('completed');
+  });
+
   it('skips read-only factory scout tasks even when project verify is configured', async () => {
     const db = createMockDb({
       project: 'bitsy',
@@ -452,6 +484,45 @@ describe('handleAutoVerifyRetry — guards and init', () => {
 });
 
 describe('handleAutoVerifyRetry — verify execution', () => {
+  it('prefers task metadata verify_command over project config', async () => {
+    const db = createMockDb({ initialConfig: { verify_command: 'npm test' } });
+    const { handleAutoVerifyRetry } = loadModuleWithMocks({ db });
+    const ctx = makeCtx({
+      task: makeTask({
+        working_directory: 'C:/repo/my-app',
+        metadata: JSON.stringify({ verify_command: 'markdownlint docs/' }),
+      }),
+    });
+
+    await handleAutoVerifyRetry(ctx);
+
+    expect(mockRunVerifyCommand).toHaveBeenCalledWith(
+      'markdownlint docs/',
+      'C:/repo/my-app',
+      expect.objectContaining({ timeout: 300000 }),
+    );
+  });
+
+  it('runs task metadata verify_command for non-default providers', async () => {
+    const db = createMockDb({ initialConfig: {} });
+    const { handleAutoVerifyRetry } = loadModuleWithMocks({ db });
+    const ctx = makeCtx({
+      task: makeTask({
+        provider: 'ollama',
+        working_directory: 'C:/repo/my-app',
+        metadata: JSON.stringify({ verify_command: 'npm run docs:check' }),
+      }),
+    });
+
+    await handleAutoVerifyRetry(ctx);
+
+    expect(mockRunVerifyCommand).toHaveBeenCalledWith(
+      'npm run docs:check',
+      'C:/repo/my-app',
+      expect.objectContaining({ provider: 'ollama' }),
+    );
+  });
+
   it('runs verify_command via router.runVerifyCommand with correct args', async () => {
     const db = createMockDb({ initialConfig: { verify_command: 'npx tsc --noEmit' } });
     const { handleAutoVerifyRetry } = loadModuleWithMocks({ db });

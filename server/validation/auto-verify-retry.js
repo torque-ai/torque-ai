@@ -4,7 +4,7 @@
  * Auto-Verify Retry Phase (Phase 6.5)
  *
  * Runs after handleBuildTestStyleCommit in the close-handler pipeline.
- * For default-enabled providers, executes the project's verify_command and
+ * For default-enabled providers, executes the task/project verify_command and
  * auto-submits an error-feedback fix task if verification fails.
  *
  * Uses init() dependency injection (same pattern as close-phases.js).
@@ -280,7 +280,7 @@ async function runVerifyCommandInSandbox(task, verifyCommand, sandboxConfig) {
  * Guards:
  * - Only runs for completed tasks (ctx.status === 'completed')
  * - Only runs for <git-user>/<git-user>-Spark providers (unless auto_verify_on_completion explicitly set)
- * - Only runs when verify_command is configured for the project
+ * - Only runs when verify_command is configured for the task or project
  *
  * On verify failure with retries available:
  * - Creates a new fix task with error-feedback prompt
@@ -337,6 +337,8 @@ async function handleAutoVerifyRetry(ctx) {
   if (!project) return;
 
   const config = _db.getProjectConfig(project) || {};
+  const taskMetadata = getTaskMetadata(task);
+  const hasTaskVerifyCommand = Object.prototype.hasOwnProperty.call(taskMetadata, 'verify_command');
 
   // Check auto_verify_on_completion flag:
   // - Default ON for auto-verify providers (auto_verify_on_completion is null/undefined → use provider default)
@@ -344,13 +346,20 @@ async function handleAutoVerifyRetry(ctx) {
   // - Explicit 0 disables for any provider
   const autoVerifyExplicit = config.auto_verify_on_completion;
   if (autoVerifyExplicit === 0 || autoVerifyExplicit === false) return;
-  if (!isAutoVerifyProvider && autoVerifyExplicit !== 1 && autoVerifyExplicit !== true) return;
+  if (!hasTaskVerifyCommand && !isAutoVerifyProvider && autoVerifyExplicit !== 1 && autoVerifyExplicit !== true) return;
 
-  // Guard: need a verify_command
-  const verifyCommand = config.verify_command;
-  if (!verifyCommand) return;
+  if (taskMetadata.verify_skip === true) {
+    logger.info(`[auto-verify] Task ${taskId}: verify_skip set, skipping`);
+    return;
+  }
 
-  const taskMetadata = getTaskMetadata(task);
+  const verifyCommand = hasTaskVerifyCommand ? taskMetadata.verify_command : config.verify_command;
+  if (typeof verifyCommand !== 'string' || verifyCommand.trim().length === 0) {
+    logger.info(`[auto-verify] Task ${taskId}: no verify_command (task or project), skipping`);
+    return;
+  }
+
+  const normalizedVerifyCommand = verifyCommand.trim();
   const sandboxConfig = resolveVerifySandboxConfig(taskMetadata);
 
   const hostMonitoring = require('../utils/host-monitoring');
@@ -371,8 +380,8 @@ async function handleAutoVerifyRetry(ctx) {
   }
 
   const verifyResult = sandboxConfig.enabled
-    ? await runVerifyCommandInSandbox(task, verifyCommand, sandboxConfig)
-    : await getRouter().runVerifyCommand(verifyCommand, task.working_directory, {
+    ? await runVerifyCommandInSandbox(task, normalizedVerifyCommand, sandboxConfig)
+    : await getRouter().runVerifyCommand(normalizedVerifyCommand, task.working_directory, {
       timeout: 300000, // 5 minutes — tsc + vitest can be slow on large projects
       provider,
       onActivity: typeof ctx.finalizationHeartbeat === 'function'

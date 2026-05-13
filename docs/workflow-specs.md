@@ -56,6 +56,8 @@ Workflow specs are version-controlled YAML files that define a TORQUE workflow a
 | `provider` | enum | no | Explicit provider override. |
 | `model` | string | no | Model override. |
 | `tags` | [string] | no | Free-form tags. |
+| `verify_command` | string | no | Per-task verify command. Overrides the project-level verify command. Empty string disables verify for this task. |
+| `verify_skip` | bool | no | Skip the auto-verify stage for this task. |
 | `timeout_minutes` | int | no | 1-480. |
 | `auto_approve` | bool | no | Skip approval gates. |
 | `version_intent` | enum | no | Override workflow-level intent. |
@@ -73,6 +75,23 @@ Workflow specs are version-controlled YAML files that define a TORQUE workflow a
 - **Versioned** - Tag a release, the workflow as of that release is preserved.
 
 Workflows built inline via `create_workflow` are ephemeral. They exist only in the DB. Specs are the right shape for workflows you want to keep.
+
+## Per-task verification
+
+Project defaults can define a `verify_command` that runs after eligible tasks complete. Override that behavior per task when a workflow mixes docs, frontend, backend, and schema work:
+
+    tasks:
+      - node_id: docs
+        task: Update README and docs/workflow-specs.md
+        verify_command: markdownlint README.md docs/
+      - node_id: schema
+        task: Update schema migrations
+        verify_command: npx vitest run server/tests/schema-*.test.js
+      - node_id: comment
+        task: Add a code comment
+        verify_skip: true
+
+`verify_command` wins over the project-level command. `verify_command: ""` disables verify for that task. `verify_skip: true` also disables the auto-verify stage and is clearer when the task should never run verification.
 
 ## Templates and inheritance
 
