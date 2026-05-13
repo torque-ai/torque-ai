@@ -200,6 +200,7 @@ const BENIGN_FLOW_ACTION_EXACT = new Set([
   // ── EXECUTE ──────────────────────────────────────────────────────────────────
   'worktree_created',        // EXECUTE created an isolated worktree
   'execute_batch_worktree_reused', // EXECUTE reused active batch worktree
+  'execute_batch_worktree_reuse_skipped', // EXECUTE skipped a different work item's active batch worktree
   'worktree_reused_completed_owner',  // benign reuse, owner already done
   'worktree_reclaimed',      // pre-reclaim of a stale row before fresh create
   'auto_committed_task',     // factory auto-committed leftover dirty state
