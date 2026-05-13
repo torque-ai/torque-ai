@@ -1037,9 +1037,10 @@ Edit server/factory/plan-executor.js and make the requested behavior change. Kee
   });
 
   it('uses factory_verify_command before the broad project verify command', () => {
+    const repoRoot = path.resolve(__dirname, '..', '..');
     const command = loopController.__testing__.resolveFactoryVerifyCommand({
       project: {
-        path: process.cwd(),
+        path: repoRoot,
         config: {
           factory_verify_command: 'node scripts/factory-smoke.js',
           verify_command: 'npx vitest run',
