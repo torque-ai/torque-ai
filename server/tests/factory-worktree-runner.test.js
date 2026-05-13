@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 const { EventEmitter } = require('events');
+const { execFileSync } = require('child_process');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -39,6 +40,21 @@ function makeWorktreeManagerMock({ listSeed = [] } = {}) {
     })),
     cleanupWorktree: vi.fn((id) => ({ id, removed: true })),
   };
+}
+
+function createTempRepoOnMain() {
+  const repoPath = fs.mkdtempSync(path.join(os.tmpdir(), 'factory-worktree-runner-repo-'));
+  execFileSync('git', ['init'], { cwd: repoPath, stdio: 'ignore', windowsHide: true });
+  execFileSync('git', ['checkout', '-b', 'main'], { cwd: repoPath, stdio: 'ignore', windowsHide: true });
+  execFileSync('git', [
+    '-c', 'user.name=TORQUE Test',
+    '-c', 'user.email=torque-test@example.com',
+    'commit',
+    '--allow-empty',
+    '-m',
+    'init',
+  ], { cwd: repoPath, stdio: 'ignore', windowsHide: true });
+  return repoPath;
 }
 
 describe('sanitizeSlug', () => {
@@ -217,7 +233,7 @@ describe('createWorktreeRunner.createForBatch', () => {
   });
 
   it('creates a worktree with factory-<id>-<slug> feature name', async () => {
-    const repoPath = fs.mkdtempSync(path.join(os.tmpdir(), 'factory-worktree-runner-create-'));
+    const repoPath = createTempRepoOnMain();
     try {
       const result = await runner.createForBatch({
         project: { id: 'proj-1', path: repoPath },

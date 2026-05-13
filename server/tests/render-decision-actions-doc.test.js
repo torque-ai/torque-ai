@@ -4,7 +4,6 @@ const fs = require('node:fs');
 const path = require('node:path');
 const {
   renderTable,
-  spliceIntoDoc,
   BEGIN_MARKER,
   END_MARKER,
 } = require('../factory/scripts/render-decision-actions-doc');
