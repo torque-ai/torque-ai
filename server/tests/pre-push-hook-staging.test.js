@@ -62,6 +62,8 @@ describe('pre-push-hook staging-branch invariants', () => {
     const src = readHook();
     expect(src).toMatch(/staging_ref_created=0/);
     expect(src).toMatch(/failed to stage HEAD at origin\/\$staging_branch; running the gate locally instead/);
+    expect(src).toMatch(/remote_gate_fallback_reason="staging_ref_push_failed"/);
+    expect(src).toMatch(/pre_push_gate_execution_mode="local_fallback"/);
     expect(src).not.toContain('aborting before tests');
     expect(src).toMatch(/prepare_local_gate_worktree\s*\(\)/);
     expect(src).toMatch(/git worktree add --force --detach "\$local_gate_worktree" "\$local_head_sha"/);
@@ -82,12 +84,16 @@ describe('pre-push-hook staging-branch invariants', () => {
     expect(stageIdx).toBeGreaterThan(guardIdx);
     expect(src).toContain('PRE_PUSH_REMOTE_PREFLIGHT');
     expect(src).toContain('Remote gate unavailable before staging');
+    expect(src).toMatch(/remote_gate_fallback_reason="remote_preflight_unavailable"/);
   });
 
   it('falls back locally when the remote gate exits before producing a gate marker', () => {
     const src = readHook();
     expect(src).toMatch(/Remote gate did not produce a gate-end marker; running the gate locally instead/);
     expect(src).toMatch(/if ! extract_gate_end_marker "\$RETRIED_OUTPUT" >\/dev\/null; then/);
+    expect(src).toMatch(/remote_gate_attempt_exit="\$RETRIED_EXIT"/);
+    expect(src).toMatch(/remote_gate_fallback_reason="remote_gate_missing_marker"/);
+    expect(src).toMatch(/pre_push_gate_execution_mode="local_fallback"/);
     expect(src).toMatch(/Gate did not produce completion marker/);
   });
 
@@ -377,6 +383,8 @@ printf '%b' "\\302\\267\\302\\267real failure line\\302\\267\\302\\267\\n" | pre
     expect(src).toMatch(/pre_push_artifact_output_tail "\$output_file"/);
     expect(src).toMatch(/failure_reason=%s/);
     expect(src).toMatch(/coalesced_reason=%s/);
+    expect(src).toMatch(/remote_gate_fallback_reason=%s/);
+    expect(src).toMatch(/remote_gate_attempt_exit=%s/);
     expect(src).toMatch(/status="coalesced"/);
     expect(src).toMatch(/\[output-tail\]/);
   });
