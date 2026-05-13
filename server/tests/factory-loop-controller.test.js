@@ -845,7 +845,11 @@ Edit server/factory/plan-executor.js and make the requested behavior change. Kee
       status: 'needs_replan',
       reject_reason: 'pre_written_plan_rejected_by_quality_gate',
     });
-    expect(factoryIntake.getWorkItem(workItem.id).origin?.last_plan_description_quality_rejection).toMatchObject({
+    const after = factoryIntake.getWorkItem(workItem.id);
+    expect(after.origin?.plan_path).toBeUndefined();
+    expect(after.origin?.source_plan_path).toBe(planPath);
+    expect(fs.existsSync(planPath)).toBe(true);
+    expect(after.origin?.last_plan_description_quality_rejection).toMatchObject({
       code: 'plan_quality_gate_failed',
       missing_specificity_signals: expect.arrayContaining(['task_has_acceptance_criterion']),
     });
@@ -907,6 +911,43 @@ Edit server/factory/plan-executor.js and make the requested behavior change. Kee
 
     const decisions = listDecisionRows(db, project.id);
     expect(decisions.find((d) => d.action === 'stale_generated_plan_cleared_before_replan')).toBeTruthy();
+  });
+
+  it('clears durable source plan pointers before replanning a needs_replan item', async () => {
+    const { project, workItem, planPath } = registerPlanProject();
+    const routedWorkItem = factoryIntake.updateWorkItem(workItem.id, {
+      status: 'needs_replan',
+      reject_reason: 'pre_written_plan_rejected_by_quality_gate',
+    });
+    const batchId = `factory-${project.id}-${workItem.id}`;
+    const instance = factoryLoopInstances.createInstance({
+      project_id: project.id,
+      work_item_id: workItem.id,
+      batch_id: batchId,
+    });
+
+    const result = await loopController._internalForTests.executePlanStage(project, instance, routedWorkItem);
+
+    expect(result).toMatchObject({
+      stop_execution: true,
+      next_state: LOOP_STATES.PRIORITIZE,
+      stage_result: {
+        status: 'needs_replan',
+        reason: 'stale_source_plan_before_replan',
+        work_item_id: workItem.id,
+        plan_path: planPath,
+      },
+    });
+    const after = factoryIntake.getWorkItem(workItem.id);
+    expect(after.status).toBe('needs_replan');
+    expect(after.origin?.plan_path).toBeUndefined();
+    expect(after.origin?.source_plan_path).toBe(planPath);
+    expect(after.origin?.last_rejection_reason).toBe('stale_source_plan_before_replan');
+    expect(fs.existsSync(planPath)).toBe(true);
+    expect(routingModule.handleSmartSubmitTask).not.toHaveBeenCalled();
+
+    const decisions = listDecisionRows(db, project.id);
+    expect(decisions.find((d) => d.action === 'stale_source_plan_pointer_cleared_before_replan')).toBeTruthy();
   });
 
   it('keeps pure suppression available when config.execute_mode is suppress', async () => {

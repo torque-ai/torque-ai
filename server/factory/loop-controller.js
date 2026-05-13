@@ -7862,6 +7862,10 @@ function shouldDeletePlanPathForNeedsReplan(workItem, planPath) {
   return true;
 }
 
+function shouldClearPlanPathForNeedsReplan(_workItem, planPath) {
+  return Boolean(planPath && typeof planPath === 'string');
+}
+
 // Phase X4 (2026-05-01): generic helper for routing a work item to
 // needs_replan. Used by the LLM-semantic gate, parse-error, timeout,
 // empty-branch, and replan-generation-failed paths — every reject reason
@@ -7981,13 +7985,19 @@ function routeWorkItemToNeedsReplan(workItem, { reason, attempt = null, details 
   // Also delete generated stale plan files from disk so the next pickup
   // forces a fresh architect plan generation. Source plan_file docs are
   // durable intake artifacts and must be preserved; only factory-owned
-  // auto-generated plans are safe to unlink here.
+  // auto-generated plans are safe to unlink here. Regardless of whether
+  // a file is deleted, needs_replan clears origin.plan_path so the loop
+  // does not repeatedly re-run the same rejected source plan.
   // Live evidence (example-project item #2048, 2026-05-02): plan file with both
   // tasks marked [x] persisted across cycles. Each pickup completed
   // EXECUTE in 3s with no diff, routed back via empty_branch_after_execute,
   // hit Phase X5 same-shape escalation in 3 cycles, terminally exhausted.
   const stalePlanPath = existingOrigin?.plan_path;
   const shouldDeleteStalePlanPath = shouldDeletePlanPathForNeedsReplan(workItem, stalePlanPath);
+  const shouldClearStalePlanPath = shouldClearPlanPathForNeedsReplan(workItem, stalePlanPath);
+  const durableSourcePlanPath = shouldClearStalePlanPath && !shouldDeleteStalePlanPath && workItem.source === 'plan_file'
+    ? stalePlanPath
+    : null;
   if (shouldDeleteStalePlanPath) {
     try {
       if (fs.existsSync(stalePlanPath)) {
@@ -8009,11 +8019,12 @@ function routeWorkItemToNeedsReplan(workItem, { reason, attempt = null, details 
     last_rejection_reason: reasonStr,
     ...(attempt !== null ? { last_rejection_attempt: attempt } : {}),
     ...(details ? { last_rejection_details: details } : {}),
+    ...(durableSourcePlanPath ? { source_plan_path: baseOrigin.source_plan_path || durableSourcePlanPath } : {}),
     last_rejected_at: new Date().toISOString(),
     escalation_history: persistedHistory,
     ...(escalation ? { last_escalation: escalation } : {}),
   };
-  if (shouldDeleteStalePlanPath || workItem.source !== 'plan_file') {
+  if (shouldClearStalePlanPath) {
     delete origin.plan_path;
   }
 
@@ -8209,26 +8220,35 @@ async function executePlanStage(project, instance, selectedWorkItem = null) {
   }
 
   if (workItem?.origin?.plan_path && fs.existsSync(workItem.origin.plan_path)) {
-    if (workItem.status === 'needs_replan' && shouldDeletePlanPathForNeedsReplan(workItem, workItem.origin.plan_path)) {
+    if (workItem.status === 'needs_replan' && shouldClearPlanPathForNeedsReplan(workItem, workItem.origin.plan_path)) {
       const stalePlanPath = workItem.origin.plan_path;
+      const isGeneratedPlanPath = shouldDeletePlanPathForNeedsReplan(workItem, stalePlanPath);
+      const stalePlanReason = isGeneratedPlanPath
+        ? 'stale_generated_plan_before_replan'
+        : 'stale_source_plan_before_replan';
       const routed = routeWorkItemToNeedsReplan(workItem, {
-        reason: 'stale_generated_plan_before_replan',
+        reason: stalePlanReason,
         details: { plan_path: stalePlanPath },
       });
       if (instance?.id) {
         rememberSelectedWorkItem(instance.id, routed);
         updateInstanceAndSync(instance.id, { work_item_id: routed.id });
       }
-      logger.info('PLAN stage: removed stale generated plan before needs_replan architect pass', {
+      logger.info('PLAN stage: cleared stale plan before needs_replan architect pass', {
         project_id: project.id,
         work_item_id: routed.id,
         plan_path: stalePlanPath,
+        deleted_plan_file: isGeneratedPlanPath,
       });
       safeLogDecision({
         project_id: project.id,
         stage: LOOP_STATES.PLAN,
-        action: 'stale_generated_plan_cleared_before_replan',
-        reasoning: 'needs_replan work item had a generated plan file; cleared it so the architect must produce a fresh plan.',
+        action: isGeneratedPlanPath
+          ? 'stale_generated_plan_cleared_before_replan'
+          : 'stale_source_plan_pointer_cleared_before_replan',
+        reasoning: isGeneratedPlanPath
+          ? 'needs_replan work item had a generated plan file; cleared it so the architect must produce a fresh plan.'
+          : 'needs_replan work item had a durable source plan pointer; cleared the pointer so the architect must produce a fresh plan while preserving the source file.',
         inputs: {
           ...getWorkItemDecisionContext(workItem),
           plan_path: stalePlanPath,
@@ -8237,6 +8257,7 @@ async function executePlanStage(project, instance, selectedWorkItem = null) {
           next_status: routed.status,
           next_state: LOOP_STATES.PRIORITIZE,
           plan_path_cleared: true,
+          deleted_plan_file: isGeneratedPlanPath,
           ...getWorkItemDecisionContext(routed),
         },
         confidence: 1,
@@ -8249,7 +8270,7 @@ async function executePlanStage(project, instance, selectedWorkItem = null) {
         next_state: LOOP_STATES.PRIORITIZE,
         stage_result: {
           status: routed.status,
-          reason: 'stale_generated_plan_before_replan',
+          reason: stalePlanReason,
           work_item_id: routed.id,
           plan_path: stalePlanPath,
         },
@@ -15315,6 +15336,7 @@ module.exports = {
   buildPriorRejectionFeedbackPrompt,
   routeWorkItemToNeedsReplan,
   shouldDeletePlanPathForNeedsReplan,
+  shouldClearPlanPathForNeedsReplan,
   detectSameShapeEscalation,
   normalizeRejectionReasonForShape,
   SAME_SHAPE_THRESHOLD,

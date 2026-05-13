@@ -62,7 +62,7 @@ describe('routeWorkItemToNeedsReplan also deletes stale plan file from disk', ()
     expect(fs.existsSync(planPath)).toBe(false);
   });
 
-  it('preserves source plan_file documents and keeps their origin plan_path', () => {
+  it('preserves source plan_file documents while clearing their origin plan_path', () => {
     const planPath = path.join(tmpDir, '2026-04-11-fabro-63-persistent-threads.md');
     fs.writeFileSync(planPath, '# Persistent threads Plan\n\n## Task 1: Implement threads\n');
 
@@ -79,7 +79,8 @@ describe('routeWorkItemToNeedsReplan also deletes stale plan file from disk', ()
     );
 
     expect(after.status).toBe('needs_replan');
-    expect(after.origin?.plan_path).toBe(planPath);
+    expect(after.origin?.plan_path).toBeUndefined();
+    expect(after.origin?.source_plan_path).toBe(planPath);
     expect(after.origin?.plan_generation_task_id).toBeUndefined();
     expect(fs.existsSync(planPath)).toBe(true);
   });
