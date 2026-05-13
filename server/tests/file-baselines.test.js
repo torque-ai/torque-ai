@@ -423,6 +423,34 @@ describe('acquireFileLock', () => {
     `).get('expired-reclaim.js', testDir, 'task-lk-expired');
     expect(expired.released_at).toBeTruthy();
   });
+
+  it('reclaims locks held by terminal owner tasks before checking conflicts', () => {
+    mod.setGetTask((taskId) => (
+      taskId === 'task-lk-cancelled'
+        ? { id: taskId, status: 'cancelled' }
+        : null
+    ));
+    try {
+      mod.acquireFileLock('terminal-owner.js', testDir, 'task-lk-cancelled');
+
+      const result = mod.acquireFileLock('terminal-owner.js', testDir, 'task-lk-new-owner');
+
+      expect(result.acquired).toBe(true);
+      const rows = rawDb().prepare(`
+        SELECT task_id, released_at
+        FROM file_locks
+        WHERE file_path = ? AND working_directory = ?
+        ORDER BY id ASC
+      `).all('terminal-owner.js', testDir);
+      expect(rows).toHaveLength(2);
+      expect(rows[0].task_id).toBe('task-lk-cancelled');
+      expect(rows[0].released_at).toBeTruthy();
+      expect(rows[1].task_id).toBe('task-lk-new-owner');
+      expect(rows[1].released_at).toBeNull();
+    } finally {
+      mod.setGetTask(null);
+    }
+  });
 });
 
 describe('releaseFileLock', () => {

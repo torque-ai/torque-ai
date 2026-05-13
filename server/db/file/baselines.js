@@ -74,6 +74,26 @@ function resolveScopedWorkingDirectory(taskId, workingDirectory) {
   return resolvedWorkingDirectory;
 }
 
+const TERMINAL_FILE_LOCK_OWNER_STATUSES = new Set(['completed', 'failed', 'cancelled', 'skipped']);
+
+function releaseStaleOwnerFileLock(existing, now) {
+  if (!existing || !existing.task_id) return false;
+  const owner = getTaskForScope(existing.task_id);
+  if (!owner) return false;
+  const ownerStatus = String(owner?.status || '').toLowerCase();
+  if (owner && !TERMINAL_FILE_LOCK_OWNER_STATUSES.has(ownerStatus)) {
+    return false;
+  }
+
+  const stmt = db.prepare(`
+    UPDATE file_locks
+    SET released_at = ?
+    WHERE id = ? AND released_at IS NULL
+  `);
+  const result = stmt.run(now, existing.id);
+  return result.changes > 0;
+}
+
 async function walkValidationFiles(rootDirectory, options, onFile) {
   const fsPromises = require('fs').promises;
   const path = require('path');
@@ -394,7 +414,7 @@ function acquireFileLock(filePath, workingDirectory, taskId, lockType = 'exclusi
       AND (expires_at IS NULL OR expires_at > ?)
     `).get(filePath, workingDirectory, now);
 
-    if (existing && existing.task_id !== taskId) {
+    if (existing && existing.task_id !== taskId && !releaseStaleOwnerFileLock(existing, now)) {
       return { acquired: false, reason: `File locked by task ${existing.task_id}`, lockedBy: existing.task_id };
     }
 

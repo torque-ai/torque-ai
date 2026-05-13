@@ -843,6 +843,37 @@ describe('task-startup', () => {
     expect(ctx.deps.processQueue).toHaveBeenCalledTimes(1);
   });
 
+  it('keeps delayed file-lock retries bound to factory-local processQueue', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-04-23T00:00:00.000Z'));
+
+    const task = createTask({
+      id: 'file-lock-factory-scope',
+      task_description: 'Edit server/api.js',
+      provider: 'codex',
+    });
+    const ctx = loadTaskStartup({ task });
+    const queueSpy = vi.fn();
+    ctx.deps.resolveFileReferences.mockReturnValue({
+      resolved: [{ actual: 'server/api.js' }],
+    });
+    ctx.deps.db.acquireFileLock.mockReturnValue({
+      acquired: false,
+      lockedBy: 'holder-task',
+    });
+    ctx.module.init({ ...ctx.deps, processQueue: undefined });
+    const startup = ctx.module.createTaskStartup({ ...ctx.deps, processQueue: queueSpy });
+
+    const result = await startup.startTask(task.id);
+
+    expect(result).toEqual(expect.objectContaining({
+      queued: true,
+      fileLockConflict: true,
+    }));
+    vi.advanceTimersByTime(ctx.module.FILE_LOCK_REQUEUE_DELAY_MS);
+    expect(queueSpy).toHaveBeenCalledTimes(1);
+  });
+
   it('does not append duplicate output for the same file-lock conflict', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-04-23T00:00:10.000Z'));

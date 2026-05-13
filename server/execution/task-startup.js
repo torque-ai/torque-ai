@@ -185,13 +185,14 @@ function buildFileLockRequeuePatch(task, filePath, lockedBy) {
 }
 
 function scheduleFileLockRetryQueue(delayMs = FILE_LOCK_REQUEUE_DELAY_MS) {
-  if (typeof processQueue !== 'function') return;
+  const queueFn = typeof processQueue === 'function' ? processQueue : null;
+  if (!queueFn) return;
   const safeDelayMs = Number.isFinite(delayMs) && delayMs > 0
     ? Math.min(delayMs, FILE_LOCK_REQUEUE_MAX_DELAY_MS)
     : FILE_LOCK_REQUEUE_DELAY_MS;
   const timer = setTimeout(() => {
     try {
-      processQueue();
+      queueFn();
     } catch (err) {
       logger.info(`[FileLock] Failed to process delayed queue retry: ${err.message}`);
     }
