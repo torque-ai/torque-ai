@@ -174,6 +174,55 @@ describe('submitFactoryInternalTask', () => {
     }));
   });
 
+  it('isolates mutable factory-internal reviewer work when caller passes the project main worktree', async () => {
+    const database = require('./helpers/database-facade');
+    const projectConfigCore = require('../db/project-config-core');
+    const gitWorktree = require('../utils/git-worktree');
+    vi.spyOn(database, 'getDbInstance').mockReturnValue({
+      prepare: vi.fn(() => ({
+        get: vi.fn(() => ({
+          id: 'project-isolated',
+          name: 'TorquePublic',
+          path: 'C:/Projects/TorquePublic',
+          status: 'running',
+        })),
+      })),
+    });
+    vi.spyOn(projectConfigCore, 'getProjectDefaults').mockReturnValue(null);
+    vi.spyOn(gitWorktree, 'createWorktree').mockReturnValue({
+      worktreePath: 'C:/Projects/TorquePublic/server/.tmp/worktrees/task-factory-internal-review',
+      headSha: 'abc1234',
+    });
+    const { submitFactoryInternalTask } = loadSubject();
+    mockHandleSmartSubmitTask.mockResolvedValue({ task_id: 'isolated-review-task' });
+
+    await submitFactoryInternalTask({
+      task: 'review plan quality',
+      working_directory: 'C:/Projects/TorquePublic',
+      kind: 'plan_quality_review',
+      project_id: 'project-isolated',
+      work_item_id: 42,
+    });
+
+    expect(gitWorktree.createWorktree).toHaveBeenCalledWith(
+      expect.stringMatching(/^factory-internal-plan_quality_review-project-isolated-42-/),
+      'C:/Projects/TorquePublic',
+    );
+    expect(mockHandleSmartSubmitTask).toHaveBeenCalledWith(expect.objectContaining({
+      project: 'factory-plan',
+      working_directory: 'C:/Projects/TorquePublic/server/.tmp/worktrees/task-factory-internal-review',
+      tags: expect.arrayContaining([
+        'factory:internal_worktree_isolated',
+      ]),
+      task_metadata: expect.objectContaining({
+        kind: 'plan_quality_review',
+        internal_original_working_directory: 'C:/Projects/TorquePublic',
+        internal_isolation_worktree_path: 'C:/Projects/TorquePublic/server/.tmp/worktrees/task-factory-internal-review',
+        internal_isolation_head_sha: 'abc1234',
+      }),
+    }));
+  });
+
   it('accepts architect JSON recovery kinds and routes them under factory-architect', async () => {
     const { submitFactoryInternalTask } = loadSubject();
     mockHandleSmartSubmitTask.mockResolvedValue({ task_id: 'architect-json-task' });
@@ -453,6 +502,7 @@ describe('submitFactoryInternalTask', () => {
   it('inherits the target project default provider for non-plan-generation manager tasks', async () => {
     const database = require('./helpers/database-facade');
     const projectConfigCore = require('../db/project-config-core');
+    const gitWorktree = require('../utils/git-worktree');
     vi.spyOn(database, 'getDbInstance').mockReturnValue({
       prepare: vi.fn(() => ({
         get: vi.fn(() => ({
@@ -471,6 +521,10 @@ describe('submitFactoryInternalTask', () => {
         default_provider: 'ollama',
         default_model: 'qwen3-coder:30b',
       };
+    });
+    vi.spyOn(gitWorktree, 'createWorktree').mockReturnValue({
+      worktreePath: 'C:/Projects/StateTrace/server/.tmp/worktrees/task-factory-internal-verify',
+      headSha: 'def5678',
     });
     const { submitFactoryInternalTask } = loadSubject();
     mockHandleSmartSubmitTask.mockResolvedValue({ task_id: 'plan-task-2' });

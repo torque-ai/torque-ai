@@ -1,5 +1,6 @@
 'use strict';
 
+const path = require('path');
 const {
   buildProviderLaneTaskMetadata,
   getProviderLanePolicyFromProject,
@@ -35,6 +36,15 @@ const DEFAULT_ACTIVITY_TIMEOUT_MINUTES_BY_KIND = Object.freeze({
   verify_review: 15,
 });
 
+const MAIN_WORKDIR_ISOLATION_KINDS = new Set([
+  'architect_cycle',
+  'architect_json',
+  'replan_decompose',
+  'replan_rewrite',
+  'plan_quality_review',
+  'verify_review',
+]);
+
 function requireWorkingDirectory(working_directory) {
   if (typeof working_directory !== 'string' || working_directory.trim() === '') {
     throw new Error('working_directory is required for factory-internal tasks');
@@ -53,6 +63,57 @@ function normalizeOptionalString(value) {
   if (typeof value !== 'string') return null;
   const trimmed = value.trim();
   return trimmed || null;
+}
+
+function normalizePathForCompare(value) {
+  const normalized = normalizeOptionalString(value);
+  if (!normalized) return null;
+  try {
+    return path.resolve(normalized).replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+  } catch {
+    return normalized.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+  }
+}
+
+function buildIsolationTaskId({ kind, project_id, work_item_id }) {
+  const seed = [
+    'factory-internal',
+    kind,
+    project_id || 'project',
+    work_item_id || 'project',
+    Date.now().toString(36),
+    Math.random().toString(36).slice(2, 8),
+  ].join('-');
+  return seed.replace(/[^A-Za-z0-9_-]/g, '-');
+}
+
+function maybeCreateMainWorkdirIsolation({ resolvedKind, resolvedWorkingDirectory, targetProject, project_id, work_item_id }) {
+  const targetPath = normalizePathForCompare(targetProject?.path);
+  const taskPath = normalizePathForCompare(resolvedWorkingDirectory);
+  if (!MAIN_WORKDIR_ISOLATION_KINDS.has(resolvedKind) || !targetPath || !taskPath || targetPath !== taskPath) {
+    return {
+      workingDirectory: resolvedWorkingDirectory,
+      metadata: null,
+      extraTags: [],
+    };
+  }
+
+  const { createWorktree } = require('../utils/git-worktree');
+  const isolationTaskId = buildIsolationTaskId({ kind: resolvedKind, project_id, work_item_id });
+  const created = createWorktree(isolationTaskId, resolvedWorkingDirectory);
+  if (!created?.worktreePath) {
+    throw new Error(`failed to create isolation worktree for factory-internal ${resolvedKind}`);
+  }
+
+  return {
+    workingDirectory: created.worktreePath,
+    metadata: {
+      internal_original_working_directory: resolvedWorkingDirectory,
+      internal_isolation_worktree_path: created.worktreePath,
+      internal_isolation_head_sha: created.headSha || null,
+    },
+    extraTags: ['factory:internal_worktree_isolated'],
+  };
 }
 
 function ignoredSchemaLookupError(error) {
@@ -284,6 +345,13 @@ async function submitFactoryInternalTask({
   const resolvedKind = requireKnownKind(kind);
   const targetProject = readFactoryProject(project_id);
   assertProjectAcceptsInternalTasks(project_id, targetProject);
+  const workingDirectoryIsolation = maybeCreateMainWorkdirIsolation({
+    resolvedKind,
+    resolvedWorkingDirectory,
+    targetProject,
+    project_id,
+    work_item_id,
+  });
   const project = PROJECT_BY_KIND[resolvedKind];
   const requestedProvider = normalizeOptionalString(provider);
   const requestedRoutingTemplate = normalizeOptionalString(routing_template);
@@ -311,6 +379,7 @@ async function submitFactoryInternalTask({
     ...(targetProject?.name ? [`factory:target_project=${targetProject.name}`] : []),
     ...(work_item_id ? [`factory:work_item_id=${work_item_id}`] : []),
     ...(boundedTask.truncated ? ['factory:task_truncated'] : []),
+    ...workingDirectoryIsolation.extraTags,
     ...(Array.isArray(extra_tags) ? extra_tags : []),
   ];
   const task_metadata = {
@@ -344,6 +413,7 @@ async function submitFactoryInternalTask({
       deferred_provider_inheritance_from_project: inheritedIntent.defaults?.project || targetProject?.name || null,
       deferred_provider_inheritance_reason: 'plan_generation_uses_routing_template',
     } : {}),
+    ...(workingDirectoryIsolation.metadata || {}),
     ...buildProviderLaneTaskMetadata(targetProject || {}, resolvedKind),
     ...(defaultActivityTimeoutPolicy ? { activity_timeout_policy: defaultActivityTimeoutPolicy } : {}),
     ...(extra_metadata || {}),
@@ -353,7 +423,7 @@ async function submitFactoryInternalTask({
   const result = await handleSmartSubmitTask({
     task: boundedTask.task,
     project,
-    working_directory: resolvedWorkingDirectory,
+    working_directory: workingDirectoryIsolation.workingDirectory,
     ...(effectiveProvider ? { provider: effectiveProvider } : {}),
     ...(effectiveModel ? { model: effectiveModel } : {}),
     ...(effectiveRoutingTemplate ? { routing_template: effectiveRoutingTemplate } : {}),
