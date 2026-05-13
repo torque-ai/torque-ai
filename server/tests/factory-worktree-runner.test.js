@@ -353,6 +353,45 @@ describe('createWorktreeRunner.verify', () => {
     expect(result.output).toContain('[fallback-local-verify]');
   });
 
+  it('falls back to local verify when required remote execution refuses fallback for unreachable SSH', async () => {
+    const runRemoteVerify = vi.fn(() => ({
+      exitCode: 125,
+      stdout: '',
+      stderr: [
+        '[torque-remote] WARNING: Remote 192.0.2.10 unreachable - falling back to local',
+        '[torque-remote] WARNING: Remote execution required; refusing local fallback (ssh_unreachable: host=192.0.2.10)',
+      ].join('\n'),
+    }));
+    const runLocalVerify = vi.fn(() => ({
+      exitCode: 0,
+      stdout: 'local ok',
+      stderr: '',
+    }));
+    const runner = createWorktreeRunner({
+      worktreeManager: makeWorktreeManagerMock(),
+      runRemoteVerify,
+      runLocalVerify,
+      countCommitsAhead: nonEmptyCountCommitsAhead,
+    });
+
+    const result = await runner.verify({
+      worktreePath: 'C:/wt',
+      branch: 'feat/remote-required',
+      verifyCommand: 'npx vitest run server/tests/baseline-probe.test.js',
+    });
+
+    expect(result.passed).toBe(true);
+    expect(runRemoteVerify).toHaveBeenCalledTimes(1);
+    expect(runLocalVerify).toHaveBeenCalledWith(expect.objectContaining({
+      branch: 'feat/remote-required',
+      command: 'npx vitest run server/tests/baseline-probe.test.js',
+      cwd: 'C:/wt',
+      fallbackReason: '[torque-remote] WARNING: Remote 192.0.2.10 unreachable - falling back to local',
+    }));
+    expect(result.output).toContain('local ok');
+    expect(result.output).toContain('[fallback-local-verify]');
+  });
+
   it('does not fall back for ordinary verify failures', async () => {
     const runRemoteVerify = vi.fn(() => ({
       exitCode: 1,
