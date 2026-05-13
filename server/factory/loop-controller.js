@@ -5256,6 +5256,7 @@ const PLAN_RELATED_STOP_WORDS = new Set([
   'expected',
   'factory',
   'failure',
+  'fabro',
   'from',
   'function',
   'handle',
@@ -5273,6 +5274,8 @@ const PLAN_RELATED_STOP_WORDS = new Set([
   'pass',
   'path',
   'paths',
+  'plan',
+  'plans',
   'project',
   'provided',
   'requested',
@@ -5389,6 +5392,32 @@ function tokenizePlannerPathForAffinity(filePath) {
     .filter((token) => token.length >= 4 && !PLAN_RELATED_GENERIC_PATH_TOKENS.has(token));
 }
 
+function buildPlannerTitleAffinityTokens(workItem) {
+  return String(workItem?.title || '')
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .split(/[^A-Za-z0-9]+/g)
+    .map(normalizePlannerAffinityToken)
+    .filter((token) => token.length >= 4 && !PLAN_RELATED_GENERIC_PATH_TOKENS.has(token));
+}
+
+function hasTitleAnchorPathAffinity(filePath, workItem, seedFiles = []) {
+  const candidates = (seedFiles || [])
+    .map((file) => String(file || '').replace(/\\/g, '/'))
+    .filter(Boolean);
+  if (candidates.length > 0) return true;
+
+  const titleTokens = new Set(buildPlannerTitleAffinityTokens(workItem));
+  if (titleTokens.size === 0) return true;
+
+  const fileTokens = new Set(tokenizePlannerPathForAffinity(filePath));
+  if (fileTokens.size === 0) return false;
+
+  for (const token of fileTokens) {
+    if (titleTokens.has(token)) return true;
+  }
+  return false;
+}
+
 function hasCandidatePathAffinity(filePath, seedFiles = []) {
   const candidates = (seedFiles || [])
     .map((file) => String(file || '').replace(/\\/g, '/'))
@@ -5419,6 +5448,7 @@ function shouldIncludeRelatedPlannerFile(filePath, workItem, seedFiles = []) {
   if (PLAN_RELATED_GENERATED_ARTIFACT_RE.test(normalized)) return false;
   const requestedFamilies = getRequestedPlanLanguageFamilies(workItem, seedFiles);
   if (!isLanguageCompatibleRelatedFile(normalized, requestedFamilies)) return false;
+  if (!hasTitleAnchorPathAffinity(normalized, workItem, seedFiles)) return false;
   return hasCandidatePathAffinity(normalized, seedFiles);
 }
 
