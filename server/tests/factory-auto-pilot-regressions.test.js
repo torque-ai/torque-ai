@@ -17,7 +17,9 @@ const factoryIntake = require('../db/factory/intake');
 const factoryLoopInstances = require('../db/factory/loop-instances');
 const factoryWorktrees = require('../db/factory/worktrees');
 const internalTaskSubmit = require('../factory/internal-task-submit');
+const routingModule = require('../handlers/integration/routing');
 const taskCore = require('../db/task-core');
+const gitWorktree = require('../utils/git-worktree');
 
 const TASK_MANAGER_RESOLVED = require.resolve('../task-manager');
 
@@ -252,11 +254,18 @@ describe('handleAutoVerifyRetry', () => {
 });
 
 describe('runArchitectLLM', () => {
-  it('passes target project working_directory to the internal submitter', async () => {
+  it('submits architect work in an isolated worktree with target project metadata', async () => {
     installTaskManagerCache({ startTask: vi.fn() });
 
-    const submitSpy = vi.spyOn(internalTaskSubmit, 'submitFactoryInternalTask').mockResolvedValue({
+    const originalSubmitFactoryInternalTask = internalTaskSubmit.submitFactoryInternalTask;
+    const internalSubmitSpy = vi.spyOn(internalTaskSubmit, 'submitFactoryInternalTask')
+      .mockImplementation((payload) => originalSubmitFactoryInternalTask(payload));
+    const submitSpy = vi.spyOn(routingModule, 'handleSmartSubmitTask').mockResolvedValue({
       task_id: 'architect-task-1',
+    });
+    const createWorktreeSpy = vi.spyOn(gitWorktree, 'createWorktree').mockReturnValue({
+      worktreePath: '/isolated/architect-worktree',
+      headSha: 'abc123',
     });
     vi.spyOn(taskCore, 'getTask').mockReturnValue({
       id: 'architect-task-1',
@@ -289,10 +298,21 @@ describe('runArchitectLLM', () => {
 
     await architectRunner.runArchitectCycle('pid', 'manual');
 
-    expect(submitSpy).toHaveBeenCalledWith(expect.objectContaining({
+    expect(internalSubmitSpy).toHaveBeenCalledWith(expect.objectContaining({
       working_directory: '/target/path',
       kind: 'architect_cycle',
       project_id: 'pid',
+    }));
+    expect(createWorktreeSpy).toHaveBeenCalledWith(expect.stringMatching(/^factory-internal-architect_cycle-/), '/target/path');
+    expect(submitSpy).toHaveBeenCalledWith(expect.objectContaining({
+      working_directory: '/isolated/architect-worktree',
+      tags: expect.arrayContaining(['factory:internal_worktree_isolated']),
+      task_metadata: expect.objectContaining({
+        target_project_path: '/target/path',
+        internal_original_working_directory: '/target/path',
+        internal_isolation_worktree_path: '/isolated/architect-worktree',
+        internal_isolation_head_sha: 'abc123',
+      }),
     }));
   });
 });

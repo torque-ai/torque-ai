@@ -147,7 +147,7 @@ describe('remote-test-routing', () => {
       expect(router.getRemoteConfig('/repo')).toBeNull();
     });
 
-    it('returns remote-required config when prefer_remote_tests is enabled but no remote agent id is set', () => {
+    it('returns null when prefer_remote_tests is enabled but no remote agent id is set', () => {
       const db = {
         getProjectFromPath: vi.fn().mockReturnValue('torque'),
         getProjectConfig: vi.fn().mockReturnValue({
@@ -157,13 +157,12 @@ describe('remote-test-routing', () => {
         }),
       };
 
-      const router = createRemoteTestRouter({ agentRegistry: null, db, logger: makeLogger() });
-      expect(router.getRemoteConfig('/repo')).toEqual({
-        agentId: null,
-        remotePath: '/remote/torque',
-        requireRemote: true,
-        unavailableReason: 'remote_agent_id_missing',
-      });
+      const logger = makeLogger();
+      const router = createRemoteTestRouter({ agentRegistry: null, db, logger });
+      expect(router.getRemoteConfig('/repo')).toBeNull();
+      expect(logger.warn).toHaveBeenCalledWith(
+        '[remote-routing] prefer_remote_tests is enabled for "torque" but no remote_agent_id is configured; falling back to local verification'
+      );
     });
 
     it('returns configured remote settings and falls back remotePath to cwd', () => {
