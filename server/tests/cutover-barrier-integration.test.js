@@ -216,6 +216,123 @@ rm -rf "$FAKE_ROOT"
   }
 }
 
+function runRestartCooldownSimulation(featureName, env = {}) {
+  const wrapper = `
+#!/usr/bin/env bash
+set -euo pipefail
+
+SAFE_NAME=$(echo "${featureName}" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9._-]/-/g')
+FAKE_ROOT=$(mktemp -d)
+FAKE_REPO="$FAKE_ROOT/repo"
+FAKE_WORKTREE="$FAKE_REPO/.worktrees/feat-$SAFE_NAME"
+FAKE_DATA="$FAKE_ROOT/data"
+mkdir -p "$FAKE_WORKTREE" "$FAKE_DATA" "$FAKE_REPO/server"
+PID_FILE="$FAKE_DATA/torque.pid"
+POST_COUNT_FILE="$FAKE_DATA/restart-post-count"
+LIVEZ_COUNT_FILE="$FAKE_DATA/livez-count"
+RESTART_ACCEPTED_FILE="$FAKE_DATA/restart-accepted"
+printf '{"pid":111,"startedAt":"2026-05-13T15:00:00.000Z","heartbeatAt":"2026-05-13T15:00:05.000Z"}' > "$PID_FILE"
+printf '0' > "$POST_COUNT_FILE"
+printf '0' > "$LIVEZ_COUNT_FILE"
+
+git() {
+  if [ "$1" = "-C" ]; then
+    shift 2
+  fi
+  case "$1" in
+    rev-parse)   echo "$FAKE_REPO" ;;
+    show-ref)    return 0 ;;
+    symbolic-ref) echo "main" ;;
+    merge)       echo "Already up to date." ;;
+    merge-base)  return 0 ;;
+    checkout)    return 0 ;;
+    diff)        return 0 ;;
+    worktree)    return 0 ;;
+    branch)      return 0 ;;
+    status)      return 0 ;;
+    *)           command git "$@" ;;
+  esac
+}
+export -f git
+
+sleep() {
+  echo "COOLDOWN_SLEEP:$*"
+}
+export -f sleep
+
+curl() {
+  case "\${*}" in
+    */api/v2/system/restart-server*)
+      count=$(cat "$POST_COUNT_FILE")
+      count=$((count + 1))
+      printf '%s' "$count" > "$POST_COUNT_FILE"
+      if [ "$count" -eq 1 ]; then
+        echo '{"tool":"restart_server","result":"Restart cooldown active. Last restart barrier finished 11766ms ago; wait 1234ms or set TORQUE_RESTART_COOLDOWN_MS=0 to disable."}'
+      else
+        touch "$RESTART_ACCEPTED_FILE"
+        echo '{"task_id":"22222222-2222-4222-8222-222222222222","status":"running"}'
+      fi
+      return 0
+      ;;
+    */api/v2/tasks/22222222-2222-4222-8222-222222222222*)
+      echo '{"status":"completed"}'
+      return 0
+      ;;
+    */api/v2/tasks?status=*)
+      echo '{"items":[]}'
+      return 0
+      ;;
+    */livez*|*/api/version*)
+      count=$(cat "$LIVEZ_COUNT_FILE")
+      count=$((count + 1))
+      printf '%s' "$count" > "$LIVEZ_COUNT_FILE"
+      if [ -f "$RESTART_ACCEPTED_FILE" ] && [ "$count" -ge 4 ]; then
+        printf '{"pid":222,"startedAt":"2026-05-13T15:02:00.000Z","heartbeatAt":"2026-05-13T15:02:02.000Z"}' > "$PID_FILE"
+      fi
+      echo '{"ok":true}'
+      return 0
+      ;;
+    *)
+      echo '{}'
+      return 0
+      ;;
+  esac
+}
+export -f curl
+
+export TORQUE_PID_FILE="$PID_FILE"
+
+SCRIPT_BODY=$(tail -n +3 "${SCRIPT_PATH.replace(/\\/g, '/')}")
+eval "$SCRIPT_BODY" <<< ""
+
+rm -rf "$FAKE_ROOT"
+`;
+
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cutover-cooldown-'));
+  const wrapperPath = path.join(tmpDir, 'cooldown-cutover.sh');
+  fs.writeFileSync(wrapperPath, wrapper, { mode: 0o755 });
+
+  try {
+    return execFileSync(BASH_EXECUTABLE, [wrapperPath, featureName], {
+      encoding: 'utf8',
+      timeout: 10000,
+      env: {
+        ...process.env,
+        CUTOVER_RESTART_COOLDOWN_BUFFER_MS: '0',
+        CUTOVER_RESTART_COOLDOWN_MAX_WAIT_MS: '5000',
+        CUTOVER_RESTART_COOLDOWN_RETRIES: '1',
+        TORQUE_COORD_LOCK_HELPER: LOCK_HELPER_PATH,
+        ...env,
+      },
+      windowsHide: true,
+    });
+  } finally {
+    try {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    } catch { /* cleanup best-effort */ }
+  }
+}
+
 function runMidDrainUnreachableSimulation(featureName, env = {}) {
   const wrapper = `
 #!/usr/bin/env bash
@@ -812,6 +929,13 @@ describe('worktree-cutover.sh barrier integration', () => {
       expect(scriptSource).toContain('Pipeline was empty');
     });
 
+    it('retries restart-server cooldown responses before failing cutover', () => {
+      expect(scriptSource).toContain('parse_restart_cooldown_wait_ms');
+      expect(scriptSource).toContain('CUTOVER_RESTART_COOLDOWN_RETRIES');
+      expect(scriptSource).toContain('Restart cooldown active');
+      expect(scriptSource).toContain('retrying restart barrier');
+    });
+
     it('does NOT use the old cooperative drain poll pattern', () => {
       // The old script polled /api/v2/tasks?status=running and counted results
       // with grep -oE '"id"' | wc -l. That pattern should be gone.
@@ -887,6 +1011,17 @@ describe('worktree-cutover.sh barrier integration', () => {
 
       if (!output) return;
       expect(output).toContain('Confirming restart via PID turnover');
+      expect(output).toContain('TORQUE restarted on updated main (confirmed via PID turnover)');
+    });
+  });
+
+  describe('simulated restart cooldown', () => {
+    it('waits for the advertised cooldown and resubmits the restart barrier', () => {
+      const output = runRestartCooldownSimulation('test-barrier-feature');
+
+      expect(output).toContain('Restart cooldown active; waiting 2s before retrying restart barrier');
+      expect(output).toContain('COOLDOWN_SLEEP:2');
+      expect(output).toContain('Barrier task: 22222222');
       expect(output).toContain('TORQUE restarted on updated main (confirmed via PID turnover)');
     });
   });
