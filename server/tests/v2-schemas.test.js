@@ -63,6 +63,30 @@ describe('validateInferenceRequest', () => {
     });
   });
 
+  it('preserves raw TORQUE properties for inference metadata extraction', () => {
+    const result = validateInferenceRequest({
+      prompt: 'Track this request',
+      provider: 'ollama',
+      properties: {
+        Env: ' staging ',
+        accountTier: ' paid ',
+      },
+    });
+
+    expect(result).toEqual({
+      valid: true,
+      errors: [],
+      value: {
+        prompt: 'Track this request',
+        provider: 'ollama',
+        properties: {
+          Env: ' staging ',
+          accountTier: ' paid ',
+        },
+      },
+    });
+  });
+
   it('rejects non-object request bodies', () => {
     const result = validateInferenceRequest('invalid');
 
