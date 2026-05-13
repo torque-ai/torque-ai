@@ -158,6 +158,11 @@ function isUnsupportedWorktreeSetupCritique(text) {
   return WORKTREE_SETUP_CRITIQUE_RE.test(value);
 }
 
+function isDarkTrustProject(project) {
+  const trustLevel = String(project?.trust_level || project?.trustLevel || '').toLowerCase();
+  return trustLevel === 'dark';
+}
+
 function parseTasks(planMarkdown) {
   // Returns [{ number, title, body }] splitting the plan at each ## Task N: heading.
   if (typeof planMarkdown !== 'string' || !planMarkdown) return [];
@@ -536,6 +541,18 @@ async function evaluatePlan({ plan, workItem, project, projectConfig }) {
     if (isUnsupportedWorktreeSetupCritique(cleanCritique)) {
       return { passed: true, hardFails: [], warnings, llmCritique: null, feedbackPrompt: null };
     }
+    if (isDarkTrustProject(project)) {
+      return {
+        passed: true,
+        hardFails: [],
+        warnings: warnings.concat({
+          rule: 'llm_semantic_no_go_advisory',
+          detail: cleanCritique,
+        }),
+        llmCritique: cleanCritique,
+        feedbackPrompt: null,
+      };
+    }
     const feedbackPrompt = buildFeedbackPrompt([], warnings, cleanCritique);
     return { passed: false, hardFails: [], warnings, llmCritique: cleanCritique, feedbackPrompt };
   }
@@ -563,6 +580,7 @@ module.exports = {
   findExistingLlmSemanticCheckTask,
   buildFeedbackPrompt,
   isUnsupportedWorktreeSetupCritique,
+  isDarkTrustProject,
   augmentPlanMarkdown,
   evaluatePlan,
 };

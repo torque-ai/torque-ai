@@ -557,6 +557,23 @@ describe('evaluatePlan orchestration', () => {
     llmSpy.mockRestore();
   });
 
+  it('deterministic pass + LLM no-go in dark trust: records critique as advisory and passes', async () => {
+    const llmSpy = vi.spyOn(planQualityGate, 'runLlmSemanticCheck').mockResolvedValue('[no-go] Plan rewrites the wrong subsystem.');
+    const plan = '## Task 1: Edit src/foo.ts\n\nIn src/foo.ts rename handleX to handleY and run npx vitest tests/foo.test.ts. Body is long enough for rule 4.\n\n## Task 2: Edit src/bar.ts\n\nIn src/bar.ts call handleY via the new export and run npx vitest tests/bar.test.ts. Body is long enough for rule 4.';
+    const result = await planQualityGate.evaluatePlan({
+      plan,
+      workItem: { id: 1, title: 'w', description: 'd' },
+      project: { id: 'p', path: '/tmp/p', trust_level: 'dark' },
+    });
+    expect(result.passed).toBe(true);
+    expect(result.feedbackPrompt).toBeNull();
+    expect(result.llmCritique).toContain('wrong subsystem');
+    expect(result.warnings).toEqual(expect.arrayContaining([
+      expect.objectContaining({ rule: 'llm_semantic_no_go_advisory' }),
+    ]));
+    llmSpy.mockRestore();
+  });
+
   it('deterministic pass + LLM worktree-setup no-go: treats the plan as pass', async () => {
     const llmSpy = vi.spyOn(planQualityGate, 'runLlmSemanticCheck').mockResolvedValue('[no-go] The implementation scope is sound, but the plan omits creation of a dedicated git worktree and feature branch before editing production code.');
     const plan = '## Task 1: Edit src/foo.ts\n\nIn src/foo.ts rename handleX to handleY and run npx vitest tests/foo.test.ts. Body is long enough for rule 4.\n\n## Task 2: Edit src/bar.ts\n\nIn src/bar.ts call handleY via the new export and run npx vitest tests/bar.test.ts. Body is long enough for rule 4.';
