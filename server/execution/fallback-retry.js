@@ -1163,6 +1163,10 @@ function classifyError(errorOutput, exitCode) {
     return makeResult(true, 'Stale session cleanup after no heartbeat');
   }
 
+  if (/\[no-file-change\]/i.test(errorText)) {
+    return makeResult(true, 'Factory no-file-change result');
+  }
+
   // === NON-RETRYABLE ERRORS (permanent failures) ===
   const matchesPattern = (text, pattern) => {
     if (pattern instanceof RegExp) return pattern.test(text);

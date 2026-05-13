@@ -1931,6 +1931,11 @@ describe('classifyError', () => {
     expect(result).toEqual({ retryable: true, reason: 'Service unavailable' });
   });
 
+  it('classifies factory no-file-change sentinels as retryable before long-unknown fallback', () => {
+    const result = classifyError(`[no-file-change] Factory execution plan task 1 completed with exit code 0 but reported no modified files.\n${'x'.repeat(800)}`, 1);
+    expect(result).toEqual({ retryable: true, reason: 'Factory no-file-change result' });
+  });
+
   it('marks short unknown exitCode=1 errors as retryable', () => {
     const result = classifyError('short network flap', 1);
     expect(result).toEqual({ retryable: true, reason: 'Unknown short error - may be transient' });
