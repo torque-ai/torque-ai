@@ -683,6 +683,50 @@ if [ "$TORQUE_RUNNING" = "true" ]; then
     DRAIN_TIMEOUT_MS=300000
   fi
 
+  parse_restart_cooldown_wait_ms() {
+    local response="$1"
+    local wait_ms=""
+
+    wait_ms="$(printf '%s\n' "$response" | sed -nE 's/.*"wait_ms"[[:space:]]*:[[:space:]]*([0-9]+).*/\1/p' | head -1 || true)"
+    if [ -z "$wait_ms" ]; then
+      wait_ms="$(printf '%s\n' "$response" | sed -nE 's/.*wait[[:space:]]+([0-9]+)ms.*/\1/p' | head -1 || true)"
+    fi
+
+    case "$wait_ms" in
+      ''|*[!0-9]*)
+        return 1
+        ;;
+      *)
+        printf '%s\n' "$wait_ms"
+        ;;
+    esac
+  }
+
+  restart_cooldown_sleep_seconds() {
+    local wait_ms="$1"
+    local buffer_ms="${CUTOVER_RESTART_COOLDOWN_BUFFER_MS:-1000}"
+
+    case "$buffer_ms" in
+      ''|*[!0-9]*)
+        buffer_ms=1000
+        ;;
+    esac
+
+    printf '%s\n' "$(((wait_ms + buffer_ms + 999) / 1000))"
+  }
+
+  restart_cooldown_max_wait_ms() {
+    local max_wait_ms="${CUTOVER_RESTART_COOLDOWN_MAX_WAIT_MS:-60000}"
+
+    case "$max_wait_ms" in
+      ''|*[!0-9]*)
+        max_wait_ms=60000
+        ;;
+    esac
+
+    printf '%s\n' "$max_wait_ms"
+  }
+
   # --- Dry-run support ---
   # Set CUTOVER_DRY_RUN=1 to print the intended API calls without executing.
   if [ "${CUTOVER_DRY_RUN:-0}" = "1" ]; then
@@ -723,53 +767,80 @@ if [ "$TORQUE_RUNNING" = "true" ]; then
       BARRIER_TASK_ID="$EXISTING_BARRIER"
     else
       # 2. Submit the restart barrier
-      RESTART_RESP=$(curl -s --max-time 10 \
-        -X POST "${TORQUE_API}/api/v2/system/restart-server" \
-        -H "Content-Type: application/json" \
-        -d "{\"reason\":\"Cutover to ${FEATURE_NAME}\",\"drain_timeout_ms\":${DRAIN_TIMEOUT_MS}}" \
-        2>/dev/null || echo "")
+      RESTART_COOLDOWN_RETRIES="${CUTOVER_RESTART_COOLDOWN_RETRIES:-2}"
+      case "$RESTART_COOLDOWN_RETRIES" in
+        ''|*[!0-9]*)
+          RESTART_COOLDOWN_RETRIES=2
+          ;;
+      esac
 
-      if [ -z "$RESTART_RESP" ]; then
-        echo "[error] Failed to submit restart barrier — no response from TORQUE."
-        echo "        Merge landed but TORQUE was NOT restarted."
-        echo "        Fallback: run ./start-torque.ps1 after checking the running task state."
-        exit 2
-      fi
+      RESTART_SUBMIT_ATTEMPT=0
+      while :; do
+        RESTART_SUBMIT_ATTEMPT=$((RESTART_SUBMIT_ATTEMPT + 1))
+        RESTART_RESP=$(curl -s --max-time 10 \
+          -X POST "${TORQUE_API}/api/v2/system/restart-server" \
+          -H "Content-Type: application/json" \
+          -d "{\"reason\":\"Cutover to ${FEATURE_NAME}\",\"drain_timeout_ms\":${DRAIN_TIMEOUT_MS}}" \
+          2>/dev/null || echo "")
 
-      # Extract task_id from response. TORQUE's restart endpoint returns
-      # either a plain JSON body ({"task_id":"...","status":"..."}) or the
-      # MCP-tool-wrapped shape where the id is inside a `result` string
-      # with backslash-escaped quotes. Prefer the JSON key; fall back to
-      # the first UUID in the body so both shapes work.
-      # Uses sed -E + grep -oE (POSIX), not grep -oP — gitbash on Windows
-      # ships with a grep that errors "-P supports only unibyte and UTF-8
-      # locales" under the default locale, which silently broke the id
-      # extraction and left cutovers without an auto-restart (2026-04-20).
-      BARRIER_TASK_ID=$(echo "$RESTART_RESP" | sed -nE 's/.*"task_id"[[:space:]]*:[[:space:]]*"([^"\\]+)".*/\1/p' | head -1 || true)
-      if [ -z "$BARRIER_TASK_ID" ]; then
-        BARRIER_TASK_ID=$(echo "$RESTART_RESP" | grep -oE '[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}' | head -1 || true)
-      fi
-      BARRIER_STATUS=$(echo "$RESTART_RESP" | sed -nE 's/.*"status"[[:space:]]*:[[:space:]]*"([^"\\]+)".*/\1/p' | head -1 || true)
+        if [ -z "$RESTART_RESP" ]; then
+          echo "[error] Failed to submit restart barrier — no response from TORQUE."
+          echo "        Merge landed but TORQUE was NOT restarted."
+          echo "        Fallback: run ./start-torque.ps1 after checking the running task state."
+          exit 2
+        fi
 
-      # Empty-pipeline case: when the queue is idle, restart_server's MCP-tool
-      # response gets unwrapped to `{tool, result: "Pipeline empty. Server
-      # restart scheduled..."}` by the REST passthrough — the structured
-      # task_id/status fields are dropped. Both extractors come up empty.
-      # Recognize the empty-pipeline marker so the cutover doesn't fail
-      # in that branch (the server IS restarting, we just have no barrier
-      # id to poll). The wait-for-new-server step below confirms via PID
-      # turnover.
-      if [ -z "$BARRIER_TASK_ID" ] && echo "$RESTART_RESP" | grep -qE "Pipeline empty|restart scheduled|restart_scheduled"; then
-        echo "[ok] Pipeline was empty — server restart scheduled (no barrier task to poll)."
-        BARRIER_STATUS="restart_scheduled"
-      fi
+        # Extract task_id from response. TORQUE's restart endpoint returns
+        # either a plain JSON body ({"task_id":"...","status":"..."}) or the
+        # MCP-tool-wrapped shape where the id is inside a `result` string
+        # with backslash-escaped quotes. Prefer the JSON key; fall back to
+        # the first UUID in the body so both shapes work.
+        # Uses sed -E + grep -oE (POSIX), not grep -oP — gitbash on Windows
+        # ships with a grep that errors "-P supports only unibyte and UTF-8
+        # locales" under the default locale, which silently broke the id
+        # extraction and left cutovers without an auto-restart (2026-04-20).
+        BARRIER_TASK_ID=$(echo "$RESTART_RESP" | sed -nE 's/.*"task_id"[[:space:]]*:[[:space:]]*"([^"\\]+)".*/\1/p' | head -1 || true)
+        if [ -z "$BARRIER_TASK_ID" ]; then
+          BARRIER_TASK_ID=$(echo "$RESTART_RESP" | grep -oE '[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}' | head -1 || true)
+        fi
+        BARRIER_STATUS=$(echo "$RESTART_RESP" | sed -nE 's/.*"status"[[:space:]]*:[[:space:]]*"([^"\\]+)".*/\1/p' | head -1 || true)
 
-      if [ -z "$BARRIER_TASK_ID" ] && [ "${BARRIER_STATUS:-}" != "restart_scheduled" ]; then
+        # Empty-pipeline case: when the queue is idle, restart_server's MCP-tool
+        # response gets unwrapped to `{tool, result: "Pipeline empty. Server
+        # restart scheduled..."}` by the REST passthrough — the structured
+        # task_id/status fields are dropped. Both extractors come up empty.
+        # Recognize the empty-pipeline marker so the cutover doesn't fail
+        # in that branch (the server IS restarting, we just have no barrier
+        # id to poll). The wait-for-new-server step below confirms via PID
+        # turnover.
+        if [ -z "$BARRIER_TASK_ID" ] && echo "$RESTART_RESP" | grep -qE "Pipeline empty|restart scheduled|restart_scheduled"; then
+          echo "[ok] Pipeline was empty — server restart scheduled (no barrier task to poll)."
+          BARRIER_STATUS="restart_scheduled"
+        fi
+
+        if [ -n "$BARRIER_TASK_ID" ] || [ "${BARRIER_STATUS:-}" = "restart_scheduled" ]; then
+          break
+        fi
+
+        if cooldown_wait_ms="$(parse_restart_cooldown_wait_ms "$RESTART_RESP")"; then
+          cooldown_max_wait_ms="$(restart_cooldown_max_wait_ms)"
+          if [ "$cooldown_wait_ms" -gt "$cooldown_max_wait_ms" ]; then
+            echo "[error] Restart cooldown wait ${cooldown_wait_ms}ms exceeds CUTOVER_RESTART_COOLDOWN_MAX_WAIT_MS=${cooldown_max_wait_ms}."
+          elif [ "$RESTART_SUBMIT_ATTEMPT" -le "$RESTART_COOLDOWN_RETRIES" ]; then
+            cooldown_sleep_seconds="$(restart_cooldown_sleep_seconds "$cooldown_wait_ms")"
+            echo "[warn] Restart cooldown active; waiting ${cooldown_sleep_seconds}s before retrying restart barrier (${RESTART_SUBMIT_ATTEMPT}/${RESTART_COOLDOWN_RETRIES})."
+            sleep "$cooldown_sleep_seconds"
+            continue
+          else
+            echo "[error] Restart cooldown remained active after ${RESTART_COOLDOWN_RETRIES} retries."
+          fi
+        fi
+
         echo "[error] Restart barrier response missing task_id."
         echo "        Response: ${RESTART_RESP}"
         echo "        Merge landed but TORQUE was NOT restarted."
         exit 2
-      fi
+      done
 
       if [ -n "$BARRIER_TASK_ID" ]; then
         echo "  Barrier task: ${BARRIER_TASK_ID:0:8} (${BARRIER_STATUS})"
