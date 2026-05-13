@@ -66,6 +66,8 @@ pre_push_gate_started_at_epoch=""
 pre_push_gate_failure_reason=""
 pre_push_gate_coalesced=0
 pre_push_gate_coalesced_reason=""
+remote_gate_fallback_reason=""
+remote_gate_attempt_exit=""
 PRE_PUSH_COALESCED_EXIT_CODE="${PRE_PUSH_COALESCED_EXIT_CODE:-75}"
 case "$PRE_PUSH_COALESCED_EXIT_CODE" in
   ''|*[!0-9]*) PRE_PUSH_COALESCED_EXIT_CODE=75 ;;
@@ -574,6 +576,8 @@ pre_push_write_gate_artifact() {
     printf 'staging_branch=%s\n' "$(pre_push_gate_metadata_value "${staging_branch:-}")"
     printf 'staging_ref_created=%s\n' "$(pre_push_gate_metadata_value "${staging_ref_created:-}")"
     printf 'remote_probe_reason=%s\n' "$(pre_push_gate_metadata_value "${remote_probe_reason:-}")"
+    printf 'remote_gate_fallback_reason=%s\n' "$(pre_push_gate_metadata_value "${remote_gate_fallback_reason:-}")"
+    printf 'remote_gate_attempt_exit=%s\n' "$(pre_push_gate_metadata_value "${remote_gate_attempt_exit:-}")"
     printf 'phase=%s\n' "$(pre_push_gate_metadata_value "$phase")"
     printf 'detail=%s\n' "$(pre_push_gate_metadata_value "$detail")"
     printf 'output_file=%s\n' "$(pre_push_gate_metadata_value "$output_file")"
@@ -1108,6 +1112,7 @@ if [ "$GATE_RUN_DASHBOARD" = "1" ] || [ "$GATE_RUN_SERVER" = "1" ] || [ "$GATE_R
     else
       remote_gate_available=0
       remote_probe_reason="$(printf '%s\n' "$remote_probe_output" | tail -n 1)"
+      remote_gate_fallback_reason="remote_preflight_unavailable"
       echo "[pre-push] Remote gate unavailable before staging (${remote_probe_reason:-probe failed}); running the gate locally instead."
     fi
   else
@@ -1123,6 +1128,7 @@ if [ "$GATE_RUN_DASHBOARD" = "1" ] || [ "$GATE_RUN_SERVER" = "1" ] || [ "$GATE_R
     if git push --no-verify --force origin "$local_head_sha:refs/heads/$staging_branch"; then
       staging_ref_created=1
     else
+      remote_gate_fallback_reason="staging_ref_push_failed"
       echo "[pre-push] warn: failed to stage HEAD at origin/$staging_branch; running the gate locally instead."
     fi
   fi
@@ -1146,8 +1152,12 @@ if [ "$GATE_RUN_DASHBOARD" = "1" ] || [ "$GATE_RUN_SERVER" = "1" ] || [ "$GATE_R
       echo "[pre-push] Remote gate checkout suffix disabled; using default torque-remote checkout."
     fi
   else
+    if [ -n "$remote_gate_fallback_reason" ]; then
+      pre_push_gate_execution_mode="local_fallback"
+    else
+      pre_push_gate_execution_mode="local"
+    fi
     pre_push_set_gate_phase "local_gate" "running selected phases at $local_head_short"
-    pre_push_gate_execution_mode="local"
     cd "$REPO_ROOT"
     export TORQUE_REMOTE_COORD_SHA="$local_head_sha"
     unset TORQUE_REMOTE_TEST_WORKTREE_SUFFIX
@@ -1637,6 +1647,9 @@ EOF
     lock_env_reset=$(coord_lock_env_reset_cmd)
     run_with_flake_retry "Remote gate" "$lock_env_reset TORQUE_REMOTE_REQUIRE_REMOTE=1 $TORQUE_REMOTE_CMD --suite $GATE_COORD_SUITE --branch $staging_branch bash -c $(printf %q "$remote_gate_cmd")"
     if ! extract_gate_end_marker "$RETRIED_OUTPUT" >/dev/null; then
+      remote_gate_attempt_exit="$RETRIED_EXIT"
+      remote_gate_fallback_reason="remote_gate_missing_marker"
+      pre_push_gate_execution_mode="local_fallback"
       echo "[pre-push] Remote gate did not produce a gate-end marker; running the gate locally instead."
       run_local_gate "$remote_gate_cmd"
     fi
