@@ -51,6 +51,23 @@ function getProjectsBaseDir(env = process.env) {
   return path.resolve(os.homedir(), 'torque-agent-projects');
 }
 
+/**
+ * Normalize the Node.js os.platform() value to the same three-value vocabulary
+ * used by torque-remote's classify_remote_os shell function:
+ *   linux   — Linux or macOS (POSIX-compatible)
+ *   windows — Windows (win32 in Node.js)
+ *   unknown — anything else
+ *
+ * @param {string} platform - Value from os.platform()
+ * @returns {'linux'|'windows'|'unknown'}
+ */
+function normalizeRemoteOs(platform) {
+  const p = String(platform || '').toLowerCase();
+  if (p === 'linux' || p === 'darwin') return 'linux';
+  if (p === 'win32') return 'windows';
+  return 'unknown';
+}
+
 function getHealthPayload(load = 0, capacity = os.cpus().length, startedAt = Date.now()) {
   const normalizedCapacity = Number.isFinite(Number(capacity)) && Number(capacity) > 0
     ? Number(capacity)
@@ -67,6 +84,7 @@ function getHealthPayload(load = 0, capacity = os.cpus().length, startedAt = Dat
     uptime: Math.max(0, (Date.now() - startedAt) / 1000),
     running_tasks: normalizedLoad,
     max_concurrent: normalizedCapacity,
+    remote_os: normalizeRemoteOs(os.platform()),
     system: {
       platform: os.platform(),
       memory_available_mb: Math.round(os.freemem() / (1024 * 1024)),
@@ -882,6 +900,7 @@ module.exports = {
   isAuthorized,
   normalizeEnv,
   normalizeCommandName,
+  normalizeRemoteOs,
   prepareShellArgs,
   readJsonBody,
   resolveProjectDir,

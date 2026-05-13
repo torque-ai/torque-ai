@@ -1,5 +1,6 @@
 'use strict';
 
+const { execFileSync } = require('node:child_process');
 const { spawnSync, spawn } = require('child_process');
 const fs = require('fs');
 const os = require('os');
@@ -8,6 +9,49 @@ const { prepareLocalVerifyEnv } = require('../../utils/local-verify-env');
 const { prepareWorktreeVerifyDependencies } = require('../../utils/worktree-verify-deps');
 const { createActivityTimeout } = require('../../utils/activity-timeout');
 const { killProcessGraceful } = require('../../execution/process-lifecycle');
+
+// ---- Remote OS probe (cached for 24 h) ----
+
+let _cachedRemoteOs = null;
+let _cachedRemoteOsAt = 0;
+const REMOTE_OS_CACHE_TTL = 24 * 60 * 60 * 1000;
+
+/**
+ * Invoke `torque-remote --print-remote-os` once and cache the result for 24 h.
+ * Falls back to 'unknown' on any error (e.g. no SSH config, script missing).
+ * @returns {'linux'|'windows'|'unknown'}
+ */
+function getRemoteOs() {
+  const now = Date.now();
+  if (_cachedRemoteOs && (now - _cachedRemoteOsAt) < REMOTE_OS_CACHE_TTL) {
+    return _cachedRemoteOs;
+  }
+  try {
+    const torqueRemote = path.join(__dirname, '..', '..', '..', 'bin', 'torque-remote');
+    const out = execFileSync('bash', [torqueRemote, '--print-remote-os'], {
+      encoding: 'utf8',
+      timeout: 15000,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    _cachedRemoteOs = out.trim() || 'unknown';
+    _cachedRemoteOsAt = now;
+    return _cachedRemoteOs;
+  } catch {
+    return 'unknown';
+  }
+}
+
+/**
+ * Build a health-like object that includes the remote_os field for the TORQUE
+ * controller side (i.e. what OS the configured SSH remote runs). Callers that
+ * want to surface a single unified health object can merge this with the
+ * per-agent health data returned by RemoteAgentClient.checkHealth().
+ *
+ * @returns {{ remote_os: 'linux'|'windows'|'unknown' }}
+ */
+function getHealthResponse() {
+  return { remote_os: getRemoteOs() };
+}
 
 const SENSITIVE_ENV_PATTERNS = [
   /^(TORQUE_AGENT_SECRET|API_KEY|SECRET|TOKEN|PASSWORD|CREDENTIAL|AUTH)/i,
@@ -841,6 +885,8 @@ module.exports = {
   resolveTorqueRemoteTransportConfig,
   hasTorqueRemoteTransportConfig,
   buildTorqueRemoteInvocation,
+  getRemoteOs,
+  getHealthResponse,
   SENSITIVE_ENV_PATTERNS,
   CODEX_PROVIDERS,
 };
