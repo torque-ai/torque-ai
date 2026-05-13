@@ -197,6 +197,11 @@ function listDecisionRows(db, projectId) {
   }));
 }
 
+function decodeLaneWrappedCommand(command) {
+  const match = String(command || '').match(/--command-base64\s+([A-Za-z0-9+/=]+)/);
+  return match ? Buffer.from(match[1], 'base64').toString('utf8') : null;
+}
+
 async function advanceSupervisedPlanProject(projectId) {
   loopController.startLoopForProject(projectId);
 
@@ -590,6 +595,94 @@ describe('factory loop-controller EXECUTE modes', () => {
     });
   });
 
+  it('ignores a stale instance batch before choosing the EXECUTE worktree', async () => {
+    const { project, workItem } = registerPlanProject();
+    const otherWorkItem = factoryIntake.createWorkItem({
+      project_id: project.id,
+      source: 'plan_file',
+      title: 'Other plan item',
+      description: 'Owns the stale batch worktree from a previous loop attempt.',
+      requestor: 'test',
+      origin: { plan_path: path.join(tempDir, 'other-plan.md') },
+    });
+    const staleBatchId = `factory-${project.id}-${otherWorkItem.id}`;
+    const expectedBatchId = `factory-${project.id}-${workItem.id}`;
+    const staleWorktreePath = path.join(project.path, '.worktrees', 'stale-other-item');
+    const targetWorktreePath = path.join(project.path, '.worktrees', 'target-current-item');
+    fs.mkdirSync(staleWorktreePath, { recursive: true });
+    fs.mkdirSync(targetWorktreePath, { recursive: true });
+    factoryWorktrees.recordWorktree({
+      project_id: project.id,
+      work_item_id: otherWorkItem.id,
+      batch_id: staleBatchId,
+      vc_worktree_id: 'vc-stale-other-item',
+      branch: 'feat/factory-stale-other-item',
+      worktree_path: staleWorktreePath,
+    });
+
+    const worktreeRunner = {
+      createForBatch: vi.fn(async ({ batchId, workItem: runnerWorkItem }) => {
+        expect(batchId).toBe(expectedBatchId);
+        expect(runnerWorkItem.id).toBe(workItem.id);
+        return {
+          id: 'vc-target-current-item',
+          branch: 'feat/factory-target-current-item',
+          worktreePath: targetWorktreePath,
+        };
+      }),
+      verify: vi.fn(async () => ({
+        passed: true,
+        output: 'ok',
+        durationMs: 12,
+      })),
+      mergeToMain: vi.fn(),
+      abandon: vi.fn(),
+    };
+    loopController.setWorktreeRunnerForTests(worktreeRunner);
+
+    const instance = factoryLoopInstances.createInstance({
+      project_id: project.id,
+      work_item_id: workItem.id,
+      batch_id: staleBatchId,
+    });
+    factoryLoopInstances.updateInstance(instance.id, {
+      loop_state: LOOP_STATES.EXECUTE,
+      work_item_id: workItem.id,
+      batch_id: staleBatchId,
+      paused_at_stage: null,
+    });
+    factoryHealth.updateProject(project.id, {
+      loop_state: LOOP_STATES.EXECUTE,
+      loop_batch_id: staleBatchId,
+      loop_paused_at_stage: null,
+    });
+
+    const executeAdvance = await loopController.advanceLoopForProject(project.id);
+
+    expect(executeAdvance.new_state).toBe(LOOP_STATES.VERIFY);
+    expect(worktreeRunner.createForBatch).toHaveBeenCalledTimes(1);
+    expect(worktreeRunner.abandon).not.toHaveBeenCalled();
+    expect(routingModule.handleSmartSubmitTask).toHaveBeenCalledWith(expect.objectContaining({
+      working_directory: targetWorktreePath,
+      tags: expect.arrayContaining([
+        `factory:batch_id=${expectedBatchId}`,
+        `factory:work_item_id=${workItem.id}`,
+      ]),
+    }));
+    expect(routingModule.handleSmartSubmitTask).not.toHaveBeenCalledWith(expect.objectContaining({
+      working_directory: staleWorktreePath,
+    }));
+
+    const decisions = listDecisionRows(db, project.id);
+    expect(decisions.find((d) => d.action === 'worktree_created')).toMatchObject({
+      outcome: expect.objectContaining({
+        worktree_path: targetWorktreePath,
+        batch_id: expectedBatchId,
+      }),
+    });
+    expect(decisions.find((d) => d.action === 'execute_batch_worktree_reused')).toBeFalsy();
+  });
+
   it('routes a bad pre-written plan to needs_replan at EXECUTE before creating a worktree', async () => {
     const { project, workItem, planPath } = registerPlanProject();
     fs.writeFileSync(planPath, `# Weak plan
@@ -959,10 +1052,9 @@ Edit server/factory/plan-executor.js and make the requested behavior change. Kee
       },
     });
 
-    expect(command).toEqual({
-      command: 'node scripts/factory-smoke.js',
-      source: 'factory_project_config.factory_verify_command',
-    });
+    expect(command.source).toBe('factory_project_config.factory_verify_command');
+    expect(command.command).toMatch(/^node scripts\/test-lane\.js --lane auto --command-base64 /);
+    expect(decodeLaneWrappedCommand(command.command)).toBe('node scripts/factory-smoke.js');
   });
 
   it('marks stale-branch verify conflicts unactionable and advances instead of looping at VERIFY', async () => {
