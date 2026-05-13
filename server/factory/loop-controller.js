@@ -7321,6 +7321,14 @@ function readWorkItemPlanText(workItem) {
 }
 
 function resolveProjectVerifyCommand(project) {
+  const fromFactoryScopedConfig = normalizeVerifyCommand(project?.config?.factory_verify_command);
+  if (fromFactoryScopedConfig) {
+    return {
+      command: wrapVerifyCommandForTestLane(fromFactoryScopedConfig, { projectPath: project?.path }),
+      source: 'factory_project_config.factory_verify_command',
+    };
+  }
+
   const fromFactoryConfig = normalizeVerifyCommand(project?.config?.verify_command);
   if (fromFactoryConfig) {
     return {
@@ -7333,6 +7341,14 @@ function resolveProjectVerifyCommand(project) {
     try {
       const projectConfigCore = require('../db/project-config-core');
       const defaults = projectConfigCore.getProjectConfig(project.name);
+      const fromFactoryScopedDefaults = normalizeVerifyCommand(defaults?.factory_verify_command);
+      if (fromFactoryScopedDefaults) {
+        return {
+          command: wrapVerifyCommandForTestLane(fromFactoryScopedDefaults, { projectPath: project?.path }),
+          source: 'project_defaults.factory_verify_command',
+        };
+      }
+
       const fromDefaults = normalizeVerifyCommand(defaults?.verify_command);
       if (fromDefaults) {
         return {

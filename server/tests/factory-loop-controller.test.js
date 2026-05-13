@@ -943,6 +943,28 @@ Edit server/factory/plan-executor.js and make the requested behavior change. Kee
     });
   });
 
+  it('uses factory_verify_command before the broad project verify command', () => {
+    const command = loopController.__testing__.resolveFactoryVerifyCommand({
+      project: {
+        path: process.cwd(),
+        config: {
+          factory_verify_command: 'node scripts/factory-smoke.js',
+          verify_command: 'npx vitest run',
+        },
+      },
+      workItem: {
+        id: 42,
+        description: 'No scoped command here.',
+        origin_json: '{}',
+      },
+    });
+
+    expect(command).toEqual({
+      command: 'node scripts/factory-smoke.js',
+      source: 'factory_project_config.factory_verify_command',
+    });
+  });
+
   it('marks stale-branch verify conflicts unactionable and advances instead of looping at VERIFY', async () => {
     const { project, workItem } = registerPlanProject();
     const batchId = `factory-${project.id}-${workItem.id}`;
