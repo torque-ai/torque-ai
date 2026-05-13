@@ -428,6 +428,178 @@ describe('task-finalizer', () => {
     });
   });
 
+  it('reclassifies completed factory execution tasks with no file changes as failed', async () => {
+    const dbBundle = createTaskDb({
+      provider: 'codex',
+      max_retries: 2,
+      retry_count: 2,
+      task_description: 'Plan: Memory work\nTask 1: Add the Chroma collection adapter',
+      tags: [
+        'factory:batch_id=factory-a3df749a-7869-486f-9896-64d38d25d39b-227',
+        'factory:work_item_id=227',
+        'factory:plan_task_number=1',
+      ],
+    });
+    const { db } = dbBundle;
+    const safeUpdateTaskStatus = vi.fn((...args) => db.updateTaskStatus(...args));
+    const handlePostCompletion = vi.fn();
+    const handleRetryLogic = vi.fn();
+    const logFactoryDecision = vi.fn();
+    const scopedFinalizer = finalizer.createTaskFinalizer({
+      db,
+      safeUpdateTaskStatus,
+      sanitizeTaskOutput: (value) => value || '',
+      extractModifiedFiles: vi.fn(() => []),
+      handleRetryLogic,
+      handleSafeguardChecks: vi.fn(),
+      handleFuzzyRepair: vi.fn(),
+      handleAutoValidation: vi.fn(),
+      handleBuildTestStyleCommit: vi.fn(),
+      handleAutoVerifyRetry: vi.fn(async () => {}),
+      handleProviderFailover: vi.fn(),
+      handlePostCompletion,
+      logFactoryDecision,
+    });
+
+    const result = await scopedFinalizer.finalizeTask(dbBundle.taskId, {
+      exitCode: 0,
+      output: 'I inspected the files.',
+      errorOutput: '',
+      filesModified: [],
+    });
+
+    const storedTask = dbBundle.getStoredTask();
+    expect(result.finalized).toBe(true);
+    expect(storedTask.status).toBe('failed');
+    expect(safeUpdateTaskStatus).toHaveBeenCalledWith(
+      dbBundle.taskId,
+      'failed',
+      expect.objectContaining({
+        exit_code: 1,
+        error_output: expect.stringContaining('[no-file-change]'),
+        progress_percent: 0,
+      })
+    );
+    expect(handleRetryLogic).toHaveBeenCalledTimes(1);
+    expect(storedTask.metadata.finalization.raw_exit_code).toBe(0);
+    expect(storedTask.metadata.finalization.final_status).toBe('failed');
+    expect(storedTask.metadata.finalization.validation_stage_outcomes.no_file_change_detection.outcome).toBe('status:failed');
+    expect(logFactoryDecision).toHaveBeenCalledWith(expect.objectContaining({
+      project_id: 'a3df749a-7869-486f-9896-64d38d25d39b',
+      stage: 'execute',
+      actor: 'executor',
+      action: 'empty_execution_task_detected',
+      batch_id: 'factory-a3df749a-7869-486f-9896-64d38d25d39b-227',
+    }));
+    expect(handlePostCompletion).toHaveBeenCalledWith(expect.objectContaining({ status: 'failed', code: 1 }));
+  });
+
+  it('schedules retry after factory no-file-change reclassification', async () => {
+    const dbBundle = createTaskDb({
+      provider: 'codex',
+      max_retries: 2,
+      retry_count: 0,
+      task_description: 'Plan: Memory work\nTask 2: Route task-cache semantic lookup through Chroma',
+      tags: [
+        'factory:batch_id=factory-a3df749a-7869-486f-9896-64d38d25d39b-228',
+        'factory:work_item_id=228',
+        'factory:plan_task_number=2',
+      ],
+    });
+    const { db } = dbBundle;
+    const handlePostCompletion = vi.fn();
+    const handleRetryLogic = vi.fn((ctx) => {
+      db.updateTaskStatus(ctx.taskId, 'retry_scheduled', {
+        exit_code: ctx.code,
+        error_output: `[Retry 1/2] ${ctx.errorOutput}`,
+      });
+      ctx.earlyExit = true;
+    });
+    const scopedFinalizer = finalizer.createTaskFinalizer({
+      db,
+      safeUpdateTaskStatus: vi.fn((...args) => db.updateTaskStatus(...args)),
+      sanitizeTaskOutput: (value) => value || '',
+      extractModifiedFiles: vi.fn(() => []),
+      handleRetryLogic,
+      handleSafeguardChecks: vi.fn(),
+      handleFuzzyRepair: vi.fn(),
+      handleAutoValidation: vi.fn(),
+      handleBuildTestStyleCommit: vi.fn(),
+      handleAutoVerifyRetry: vi.fn(async () => {}),
+      handleProviderFailover: vi.fn(),
+      handlePostCompletion,
+      logFactoryDecision: vi.fn(),
+    });
+
+    const result = await scopedFinalizer.finalizeTask(dbBundle.taskId, {
+      exitCode: 0,
+      output: 'done',
+      errorOutput: '',
+      filesModified: [],
+    });
+
+    const storedTask = dbBundle.getStoredTask();
+    expect(result).toMatchObject({
+      finalized: false,
+      queueManaged: true,
+      status: 'retry_scheduled',
+      reason: 'early_exit',
+    });
+    expect(storedTask.status).toBe('retry_scheduled');
+    expect(storedTask.error_output).toContain('[no-file-change]');
+    expect(handleRetryLogic).toHaveBeenCalledTimes(1);
+    expect(handlePostCompletion).not.toHaveBeenCalled();
+    expect(result.validationStages.retry_logic_after_no_file_change).toMatchObject({
+      outcome: 'early_exit',
+      status_before: 'failed',
+      status_after: 'failed',
+      code_before: 1,
+      code_after: 1,
+      early_exit: true,
+    });
+  });
+
+  it('allows explicit read-only factory tasks to complete without file changes', async () => {
+    const dbBundle = createTaskDb({
+      provider: 'codex',
+      task_description: 'Plan: Audit work\nTask 1: Read-only review of cache behavior',
+      tags: [
+        'factory:batch_id=factory-a3df749a-7869-486f-9896-64d38d25d39b-229',
+        'factory:work_item_id=229',
+        'factory:plan_task_number=1',
+      ],
+      metadata: JSON.stringify({ read_only: true }),
+    });
+    const { db } = dbBundle;
+    const scopedFinalizer = finalizer.createTaskFinalizer({
+      db,
+      safeUpdateTaskStatus: vi.fn((...args) => db.updateTaskStatus(...args)),
+      sanitizeTaskOutput: (value) => value || '',
+      extractModifiedFiles: vi.fn(() => []),
+      handleRetryLogic: vi.fn(),
+      handleSafeguardChecks: vi.fn(),
+      handleFuzzyRepair: vi.fn(),
+      handleAutoValidation: vi.fn(),
+      handleBuildTestStyleCommit: vi.fn(),
+      handleAutoVerifyRetry: vi.fn(async () => {}),
+      handleProviderFailover: vi.fn(),
+      handlePostCompletion: vi.fn(),
+      logFactoryDecision: vi.fn(),
+    });
+
+    const result = await scopedFinalizer.finalizeTask(dbBundle.taskId, {
+      exitCode: 0,
+      output: 'review complete',
+      errorOutput: '',
+      filesModified: [],
+    });
+
+    const storedTask = dbBundle.getStoredTask();
+    expect(result.finalized).toBe(true);
+    expect(storedTask.status).toBe('completed');
+    expect(storedTask.metadata.finalization.validation_stage_outcomes.no_file_change_detection.outcome).toBe('no_change');
+  });
+
   it('is idempotent when finalizeTask is called twice concurrently', async () => {
     vi.useFakeTimers();
     try {

@@ -129,6 +129,25 @@ function appendErrorOutput(current, message) {
   return `${current}\n${message}`;
 }
 
+function normalizeTaskTags(value) {
+  if (Array.isArray(value)) return value.map(tag => String(tag).trim()).filter(Boolean);
+  if (typeof value !== 'string' || value.trim() === '') return [];
+  try {
+    const parsed = JSON.parse(value);
+    if (Array.isArray(parsed)) {
+      return parsed.map(tag => String(tag).trim()).filter(Boolean);
+    }
+  } catch {
+    // Fall back to comma-separated legacy tags.
+  }
+  return value.split(',').map(tag => tag.trim()).filter(Boolean);
+}
+
+function getFactoryTagValue(tags, prefix) {
+  const tag = tags.find(candidate => candidate.startsWith(prefix));
+  return tag ? tag.slice(prefix.length) : null;
+}
+
 function parseMetadata(rawMetadata) {
   if (!rawMetadata) return {};
   if (typeof rawMetadata === 'object' && rawMetadata !== null) return { ...rawMetadata };
@@ -208,6 +227,88 @@ function readDbConfig(key) {
 
 function normalizeText(value) {
   return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+function isTruthyMetadataFlag(value) {
+  return value === true || value === 1 || value === '1' || String(value).toLowerCase() === 'true';
+}
+
+function taskExplicitlyReadOnlyForNoFileDetection(task, metadata) {
+  const safeMetadata = metadata && typeof metadata === 'object' && !Array.isArray(metadata)
+    ? metadata
+    : {};
+  if (
+    isTruthyMetadataFlag(safeMetadata.read_only)
+    || isTruthyMetadataFlag(safeMetadata.readOnly)
+    || isTruthyMetadataFlag(safeMetadata.agentic_read_only)
+  ) {
+    return true;
+  }
+
+  const taskDescription = String(task?.task_description || '');
+  return /\b(?:read-only|readonly)\b/i.test(taskDescription)
+    || /\b(?:do not|don't)\s+(?:edit|create|delete|modify|write|move|format|change|update)\b[^.!\n\r]*\bfiles?\b/i.test(taskDescription)
+    || /\bno\s+(?:file\s+)?(?:edits?|changes?|writes?|modifications?)\b/i.test(taskDescription);
+}
+
+function isFactoryBatchExecutionTask(task, metadata) {
+  if (metadata?.factory_internal === true) return false;
+  const tags = normalizeTaskTags(task?.tags);
+  return tags.some(tag => tag.startsWith('factory:batch_id=factory-'))
+    || tags.some(tag => tag.startsWith('factory:plan_task_number='));
+}
+
+function shouldFailCompletedFactoryNoChange(ctx) {
+  if (!ctx || ctx.status !== 'completed' || ctx.code !== 0) return false;
+  if (Array.isArray(ctx.filesModified) && ctx.filesModified.length > 0) return false;
+
+  const task = ctx.task || {};
+  const metadata = mergeTaskMetadata(task, ctx);
+  if (!isFactoryBatchExecutionTask(task, metadata)) return false;
+  if (taskExplicitlyReadOnlyForNoFileDetection(task, metadata)) return false;
+
+  return true;
+}
+
+function logFactoryNoFileChangeDecision(ctx, tags) {
+  if (typeof deps.logFactoryDecision !== 'function') return;
+  const batchId = getFactoryTagValue(tags, 'factory:batch_id=');
+  const workItemId = getFactoryTagValue(tags, 'factory:work_item_id=');
+  const projectId = normalizeText(ctx.task?.factory_project_id)
+    || normalizeText(ctx.task?.project_id)
+    || normalizeText(mergeTaskMetadata(ctx.task, ctx).factory_project_id)
+    || (batchId ? batchId.match(/^factory-([0-9a-f-]{36})-/i)?.[1] : null)
+    || null;
+  try {
+    deps.logFactoryDecision({
+      project_id: projectId,
+      stage: 'execute',
+      actor: 'executor',
+      action: 'empty_execution_task_detected',
+      batch_id: batchId,
+      task_id: ctx.taskId,
+      work_item_id: workItemId,
+      reasoning: 'Factory execution task completed successfully but reported no modified files.',
+    });
+  } catch (err) {
+    logger.debug(`[finalizer] Failed to log no-file-change factory decision: ${err.message}`);
+  }
+}
+
+function handleNoFileChangeDetection(ctx) {
+  if (!shouldFailCompletedFactoryNoChange(ctx)) return;
+
+  const tags = normalizeTaskTags(ctx.task?.tags);
+  const planTaskNumber = getFactoryTagValue(tags, 'factory:plan_task_number=');
+  const planTaskText = planTaskNumber ? ` plan task ${planTaskNumber}` : '';
+  ctx.status = 'failed';
+  ctx.code = 1;
+  ctx.noFileChangeFailure = true;
+  ctx.errorOutput = appendErrorOutput(
+    ctx.errorOutput,
+    `[no-file-change] Factory execution${planTaskText} completed with exit code 0 but reported no modified files.`
+  );
+  logFactoryNoFileChangeDecision(ctx, tags);
 }
 
 function getSharedFactoryStore() {
@@ -1031,6 +1132,23 @@ async function finalizeTask(taskId, options = {}) {
 
     await runStage(ctx, 'fuzzy_repair', deps.handleFuzzyRepair, typeof deps.handleFuzzyRepair === 'function');
     await runStage(ctx, 'no_file_change_detection', deps.handleNoFileChangeDetection, typeof deps.handleNoFileChangeDetection === 'function');
+    await runStage(
+      ctx,
+      'retry_logic_after_no_file_change',
+      deps.handleRetryLogic,
+      Boolean(ctx.noFileChangeFailure) && ctx.status === 'failed' && ctx.code !== 0
+    );
+    if (ctx.earlyExit) {
+      releaseSharedCodexClaimsForEarlyExit(taskId, task, ctx);
+      return {
+        finalized: false,
+        queueManaged: true,
+        task: deps.db.getTask(taskId) || task,
+        status: deps.db.getTask(taskId)?.status || ctx.status,
+        validationStages: ctx.validationStages,
+        reason: 'early_exit',
+      };
+    }
     await runStage(ctx, 'phantom_success_detection', (stageCtx) => runPhantomSuccessDetection(stageCtx, {
       getRawDb: getRawDbInstance,
       logDecision: deps.logFactoryDecision,
@@ -1412,7 +1530,7 @@ function createTaskFinalizer(localDeps = {}) {
     resolved.handleFuzzyRepair = () => { /* no-op (legacy phase removed) */ };
   }
   if (typeof resolved.handleNoFileChangeDetection !== 'function') {
-    resolved.handleNoFileChangeDetection = () => { /* no-op (legacy phase removed) */ };
+    resolved.handleNoFileChangeDetection = handleNoFileChangeDetection;
   }
 
   // Utility functions resolved from their source modules.
