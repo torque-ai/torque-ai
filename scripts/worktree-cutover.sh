@@ -801,7 +801,7 @@ if [ "$TORQUE_RUNNING" = "true" ]; then
         # extraction and left cutovers without an auto-restart (2026-04-20).
         BARRIER_TASK_ID=$(echo "$RESTART_RESP" | sed -nE 's/.*"task_id"[[:space:]]*:[[:space:]]*"([^"\\]+)".*/\1/p' | head -1 || true)
         if [ -z "$BARRIER_TASK_ID" ]; then
-          BARRIER_TASK_ID=$(echo "$RESTART_RESP" | grep -oE '[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}' | head -1 || true)
+          BARRIER_TASK_ID=$(echo "$RESTART_RESP" | grep -oE '[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}' | head -1 || true)
         fi
         BARRIER_STATUS=$(echo "$RESTART_RESP" | sed -nE 's/.*"status"[[:space:]]*:[[:space:]]*"([^"\\]+)".*/\1/p' | head -1 || true)
 
