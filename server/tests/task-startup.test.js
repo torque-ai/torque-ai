@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+const path = require('path');
 const MODULE_PATH = require.resolve('../execution/task-startup.js');
 
 function installCjsModuleMock(modulePath, exportsValue) {
@@ -1176,6 +1177,7 @@ describe('task-startup', () => {
         runDir: '/tmp/run-dir',
         env: { PATH: '/usr/bin', HOME: '/tmp/torque-home' },
         nvmNodePath: '/tmp/torque-home/.nvm/versions/node/v22.0.0/bin',
+        platform: 'linux',
       });
 
       expect(env.PATH).toMatch(/^\/tmp\/torque-home\/\.nvm/);
@@ -1198,9 +1200,10 @@ describe('task-startup', () => {
         task: {},
         env: { PATH: `${nvmPath}:/usr/bin`, HOME: '/tmp/torque-home' },
         nvmNodePath: nvmPath,
+        platform: 'linux',
       });
 
-      const segments = env.PATH.split(':');
+      const segments = env.PATH.split(path.posix.delimiter);
       const nvmOccurrences = segments.filter(s => s === nvmPath).length;
       expect(nvmOccurrences).toBe(1);
     });
@@ -1212,6 +1215,7 @@ describe('task-startup', () => {
         task: {},
         env: { PATH: '/usr/bin', HOME: '/tmp/torque-home' },
         nvmNodePath: null,
+        platform: 'linux',
       });
 
       expect(env.PATH).toBe('/usr/bin');
@@ -1228,6 +1232,7 @@ describe('task-startup', () => {
           pathPrepend: '/opt/codex/vendor',
           envAdditions: { CODEX_MANAGED: '1' },
         },
+        platform: 'linux',
       });
 
       expect(env.PATH).toMatch(/^\/opt\/codex\/vendor/);
