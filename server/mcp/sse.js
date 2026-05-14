@@ -716,20 +716,27 @@ function start(options = {}) {
     // Initialize shared protocol handler
     protocolMod.initProtocol(shutdownAbort);
 
-    ssePort = options.port || serverConfig.getInt('mcp_sse_port', 3458);
+    // Port resolution: explicit `options.port` (including 0) wins over
+    // config. `0` is the ephemeral signal — kernel assigns; the actual
+    // port is read back from server.address().port in the listen
+    // callback. See docs/ephemeral-port-migration.md.
+    const requestedPort = Object.prototype.hasOwnProperty.call(options, 'port')
+      ? options.port
+      : serverConfig.getInt('mcp_sse_port', 3458);
+    ssePort = requestedPort;
 
     sseServer = http.createServer(handleHttpRequest);
 
     sseServer.on('error', (err) => {
       sseServer = null;
       if (err.code === 'EADDRINUSE') {
-        debugLog(`Port ${ssePort} already in use`);
+        debugLog(`Port ${requestedPort} already in use`);
         process.stderr.write(
-          `\nMCP SSE port ${ssePort} is already in use.\n\n` +
+          `\nMCP SSE port ${requestedPort} is already in use.\n\n` +
           `Options:\n` +
           `  1. Stop existing TORQUE: bash stop-torque.sh\n` +
-          `  2. Use different port: TORQUE_SSE_PORT=${ssePort + 2} torque start\n` +
-          `  3. Find what's using it: lsof -i :${ssePort} (Linux/Mac) or netstat -ano | findstr :${ssePort} (Windows)\n\n`
+          `  2. Use different port: TORQUE_SSE_PORT=${requestedPort + 2} torque start\n` +
+          `  3. Find what's using it: lsof -i :${requestedPort} (Linux/Mac) or netstat -ano | findstr :${requestedPort} (Windows)\n\n`
         );
         resolve({ success: false, error: 'Port in use' });
       } else {
@@ -739,7 +746,11 @@ function start(options = {}) {
     });
 
     const sseHost = process.env.TORQUE_API_HOST || '127.0.0.1';
-    sseServer.listen(ssePort, sseHost, () => {
+    sseServer.listen(requestedPort, sseHost, () => {
+      const address = sseServer.address();
+      if (address && typeof address.port === 'number') {
+        ssePort = address.port;
+      }
       debugLog(`Listening on http://${sseHost}:${ssePort}/sse (legacy) and /mcp (streamable HTTP)`);
       sessionMod.cleanExpiredSubscriptions();
       trackInterval(setInterval(sessionMod.cleanExpiredSubscriptions, 60 * 60 * 1000));
