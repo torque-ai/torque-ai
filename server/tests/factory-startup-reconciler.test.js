@@ -122,7 +122,14 @@ function flushImmediate() {
 function loadFreshReconciler() {
   const modulePath = require.resolve('../factory/startup-reconciler');
   delete require.cache[modulePath];
-  return require('../factory/startup-reconciler');
+  const mod = require('../factory/startup-reconciler');
+  return {
+    ...mod,
+    reconcileFactoryProjectsOnStartup: (options = {}) => mod.reconcileFactoryProjectsOnStartup({
+      db: database,
+      ...options,
+    }),
+  };
 }
 
 describe('factory startup reconciler', () => {
@@ -511,6 +518,29 @@ describe('factory startup reconciler', () => {
     expect(calls.filter((call) => call.type === 'advance')).toHaveLength(1);
     expect(calls.filter((call) => call.type === 'start')).toHaveLength(0);
     expect(worktreeReconcile.reconcileProject).toHaveBeenCalledTimes(1);
+  });
+
+  it('uses injected db resolution instead of the legacy database facade fallback', async () => {
+    const source = fs.readFileSync(path.join(__dirname, '..', 'factory', 'startup-reconciler.js'), 'utf8');
+    expect(source).not.toMatch(/require\(['"]\.\.\/database['"]\)/);
+
+    const getSpy = vi.spyOn(defaultContainer, 'get').mockImplementation(() => {
+      throw new Error('container should not be touched when db is injected');
+    });
+    const project = registerRunningProject();
+    createInstance(project, { state: LOOP_STATES.SENSE });
+    const { reconcileFactoryProjectsOnStartup } = loadFreshReconciler();
+
+    const result = reconcileFactoryProjectsOnStartup();
+    await flushImmediate();
+
+    expect(result.actions).toMatchObject({ advanced: 1 });
+    expect(worktreeReconcile.reconcileProject).toHaveBeenCalledWith({
+      db,
+      project_id: project.id,
+      project_path: project.path,
+    });
+    expect(getSpy).not.toHaveBeenCalled();
   });
 
   it('does not dispatch auto-recovery before the DI container is booted', () => {
