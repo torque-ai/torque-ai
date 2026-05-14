@@ -205,6 +205,64 @@ function extractFileReferencesExpanded(description) {
   return Array.from(refs);
 }
 
+function normalizeReferencePath(ref) {
+  return String(ref || '')
+    .trim()
+    .replace(/\\/g, '/')
+    .replace(/^\.\/+/, '')
+    .replace(/\/+/g, '/');
+}
+
+function hasDirectorySegment(ref) {
+  return /[\\/]/.test(String(ref || ''));
+}
+
+function removeBareRefsCoveredByExplicitPaths(fileRefs) {
+  const explicitBasenames = new Set();
+  for (const ref of fileRefs) {
+    if (hasDirectorySegment(ref)) {
+      explicitBasenames.add(path.basename(normalizeReferencePath(ref)).toLowerCase());
+    }
+  }
+
+  if (explicitBasenames.size === 0) return fileRefs;
+
+  return fileRefs.filter(ref => {
+    if (hasDirectorySegment(ref)) return true;
+    return !explicitBasenames.has(String(ref || '').toLowerCase());
+  });
+}
+
+function candidateMatchesReferenceSuffix(candidate, normalizedRef) {
+  const normalizedCandidate = normalizeReferencePath(candidate).toLowerCase();
+  const target = normalizeReferencePath(normalizedRef).toLowerCase();
+  return normalizedCandidate === target || normalizedCandidate.endsWith(`/${target}`);
+}
+
+const PLACEHOLDER_FILE_REFERENCES = new Set([
+  'bitsy/agent/session.py',
+  'foo.ts',
+  'myapp.tests',
+  'myapp.tests.csproj',
+  'node.js',
+  'path/to/spec.js',
+  'session.py',
+  'spec.js',
+  'src/foo.ts',
+  'test_foo.py',
+  'tests/test_foo.py',
+]);
+
+function isKnownPlaceholderFileReference(ref) {
+  const normalized = normalizeReferencePath(ref).toLowerCase();
+  if (!normalized) return false;
+  if (PLACEHOLDER_FILE_REFERENCES.has(normalized)) return true;
+  if (normalized.startsWith('path/to/')) return true;
+  if (normalized.startsWith('example/') || normalized.startsWith('examples/')) return true;
+  if (normalized.startsWith('sample/') || normalized.startsWith('samples/')) return true;
+  return false;
+}
+
 /**
  * Build a file index for a working directory.
  * Returns Map<lowercaseBasename, relativePath[]> with caching.
@@ -306,7 +364,7 @@ function resolveFileReferences(description, workingDirectory) {
 
   let fileRefs;
   try {
-    fileRefs = extractFileReferencesExpanded(description);
+    fileRefs = removeBareRefsCoveredByExplicitPaths(extractFileReferencesExpanded(description));
   } catch (e) {
     logger.info(`[FileResolve] Error extracting refs: ${e.message}`);
     return result;
@@ -354,8 +412,13 @@ function resolveFileReferences(description, workingDirectory) {
         logger.info(`[FileResolve] Cannot stat ${exactPath}: ${e.message}`);
       }
     }
+
+    if (isKnownPlaceholderFileReference(ref)) {
+      continue;
+    }
+
     // Strategy 2: Unique basename match
-    const basename = path.basename(ref).toLowerCase();
+    const basename = path.basename(normalized).toLowerCase();
     const candidates = index.get(basename);
 
     if (!candidates || candidates.length === 0) {
@@ -363,11 +426,25 @@ function resolveFileReferences(description, workingDirectory) {
       continue;
     }
 
-    if (candidates.length === 1) {
-      const absPath = path.resolve(workingDirectory, candidates[0]);
+    const explicitPathRef = hasDirectorySegment(ref);
+    const candidatePool = explicitPathRef
+      ? candidates.filter(candidate => candidateMatchesReferenceSuffix(candidate, normalized))
+      : candidates;
+
+    if (candidatePool.length === 0) {
+      result.unresolved.push(ref);
+      continue;
+    }
+
+    if (candidatePool.length === 1) {
+      const absPath = path.resolve(workingDirectory, candidatePool[0]);
       if (!alreadyResolved.has(absPath)) {
         alreadyResolved.add(absPath);
-        result.resolved.push({ mentioned: ref, actual: candidates[0], confidence: 'unique-basename' });
+        result.resolved.push({
+          mentioned: ref,
+          actual: candidatePool[0],
+          confidence: explicitPathRef ? 'path-suffix' : 'unique-basename',
+        });
       }
       continue;
     }
@@ -379,7 +456,7 @@ function resolveFileReferences(description, workingDirectory) {
     let bestScore = -1;
     let bestCandidate = null;
 
-    for (const candidate of candidates) {
+    for (const candidate of candidatePool) {
       const candParts = candidate.toLowerCase().replace(/\\/g, '/').split('/').filter(Boolean);
       let score = 0;
 
