@@ -927,7 +927,7 @@ async function start(options = {}) {
       // lives on server.address(). Sync the downstream references so
       // the listen banner, openBrowser URL, routeContext capture, and
       // the resolved result all use the real port.
-      const address = httpServer.address();
+      const address = typeof httpServer.address === 'function' ? httpServer.address() : null;
       if (address && typeof address.port === 'number') {
         serverPort = address.port;
         if (routeContext) routeContext.serverPort = serverPort;

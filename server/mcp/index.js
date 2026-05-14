@@ -1407,7 +1407,7 @@ function start(options = {}) {
     });
 
     server.listen(requestedPort, '127.0.0.1', () => {
-      const address = server.address();
+      const address = typeof server.address === 'function' ? server.address() : null;
       if (address && typeof address.port === 'number') {
         port = address.port;
       }
