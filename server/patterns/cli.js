@@ -4,6 +4,7 @@
 const path = require('path');
 const { loadPatternsFromDir } = require('./pattern-loader');
 const { runPattern } = require('./pattern-runner');
+const { resolveContainerDbService } = require('../utils/db-accessor');
 
 const USAGE = [
   'Usage: torque fabric -p <pattern> [options]',
@@ -92,19 +93,28 @@ function getPatternsDir(cwd, dir) {
   return path.resolve(dir || path.join(cwd, '.torque', 'patterns'));
 }
 
-function resolveDatabaseFacade() {
+function resolveDatabaseService(explicitDb = null) {
+  if (explicitDb) {
+    return typeof explicitDb === 'function' ? explicitDb() : explicitDb;
+  }
+
   try {
     const { defaultContainer } = require('../container');
-    return defaultContainer.get('db');
+    return resolveContainerDbService(defaultContainer);
   } catch {
-    return require('../database');
+    return null;
   }
 }
 
-function initializeProviderRuntime() {
-  const db = resolveDatabaseFacade();
-  const serverConfig = require('../config');
-  const providerRegistry = require('../providers/registry');
+function initializeProviderRuntime(deps = {}) {
+  const db = resolveDatabaseService(deps.db);
+  if (!db) {
+    throw new Error('database service is unavailable');
+  }
+
+  const serverConfig = deps.serverConfig || require('../config');
+  const providerRegistry = deps.providerRegistry || require('../providers/registry');
+  const CodexCliProvider = deps.CodexCliProvider || require('../providers/v2-cli-providers').CodexCliProvider;
 
   let initializedDb = false;
   if (!db.isReady()) {
@@ -114,7 +124,7 @@ function initializeProviderRuntime() {
 
   serverConfig.init({ db });
   providerRegistry.init({ db });
-  providerRegistry.registerProviderClass('codex', require('../providers/v2-cli-providers').CodexCliProvider);
+  providerRegistry.registerProviderClass('codex', CodexCliProvider);
 
   const codex = providerRegistry.getProviderInstance('codex');
   if (!codex) {
@@ -134,7 +144,7 @@ function initializeProviderRuntime() {
   };
 }
 
-async function main(argv = process.argv.slice(2), io = {}) {
+async function main(argv = process.argv.slice(2), io = {}, deps = {}) {
   const stdout = io.stdout || process.stdout;
   const stderr = io.stderr || process.stderr;
   const stdin = io.stdin || process.stdin;
@@ -173,7 +183,7 @@ async function main(argv = process.argv.slice(2), io = {}) {
   }
 
   const input = await readStdin(stdin);
-  const providerRuntime = initializeProviderRuntime();
+  const providerRuntime = initializeProviderRuntime(deps);
 
   try {
     const output = await runPattern({
@@ -210,6 +220,7 @@ module.exports = {
   USAGE,
   parseArgs,
   readStdin,
+  initializeProviderRuntime,
   main,
 };
 

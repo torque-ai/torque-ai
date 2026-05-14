@@ -441,8 +441,9 @@ if (EXISTING_COMMANDS.has(command)) {
 } else if (command === 'plan') {
   runHandler(handlePlan);
 } else if (command === 'fabric') {
+  const getDb = () => require(path.join(__dirname, '..', 'server', 'database'));
   require(path.join(__dirname, '..', 'server', 'patterns', 'cli'))
-    .main(process.argv.slice(3))
+    .main(process.argv.slice(3), {}, { db: getDb })
     .then((code) => { process.exitCode = code; })
     .catch((err) => {
       console.error(err.message || String(err));
