@@ -112,6 +112,7 @@ docs/superpowers/research/
 drafts/
 .tmp-vitest/
 .vitest-tmp/
+server/.vitest-tmp/
 
 # Root-level provider probe artifacts
 /google_ai_*.json

@@ -152,6 +152,24 @@ assert_contains "$TMP_ROOT/dead-owner.out" 'Reaping dead same-host lock'
 assert_contains "$TORQUE_COORD_LOCK_DIR/owner.env" '^purpose=dead-owner takeover$'
 repo_coord_lock_release > "$TMP_ROOT/dead-owner-release.out"
 
+DEAD_STATUS_LOCK="$TORQUE_COORD_LOCK_ROOT/main.lock"
+mkdir -p "$DEAD_STATUS_LOCK"
+cat > "$DEAD_STATUS_LOCK/owner.env" <<EOF
+lock_name=main
+purpose=dead same-host status test
+pid=999999997
+host=$(hostname 2>/dev/null || echo unknown)
+started_at=2099-01-01T00:00:00Z
+started_at_epoch=4070908800
+EOF
+printf 'dead-status-token\n' > "$DEAD_STATUS_LOCK/token"
+
+export TORQUE_COORD_LOCK_STALE_SECS=7200
+repo_coord_lock_status main > "$TMP_ROOT/dead-status.out"
+assert_contains "$TMP_ROOT/dead-status.out" 'Reaping dead same-host lock'
+assert_contains "$TMP_ROOT/dead-status.out" 'main lease is free'
+assert_dir_missing "$DEAD_STATUS_LOCK"
+
 WINDOWS_DEAD_LOCK="$TORQUE_COORD_LOCK_ROOT/main.lock"
 mkdir -p "$WINDOWS_DEAD_LOCK"
 cat > "$WINDOWS_DEAD_LOCK/owner.env" <<EOF
@@ -200,5 +218,23 @@ repo_coord_lock_acquire main "stale takeover" > "$TMP_ROOT/stale.out"
 assert_contains "$TMP_ROOT/stale.out" 'Reaping stale lock'
 assert_contains "$TORQUE_COORD_LOCK_DIR/owner.env" '^purpose=stale takeover$'
 repo_coord_lock_release > "$TMP_ROOT/stale-release.out"
+
+STALE_STATUS_LOCK="$TORQUE_COORD_LOCK_ROOT/main.lock"
+mkdir -p "$STALE_STATUS_LOCK"
+cat > "$STALE_STATUS_LOCK/owner.env" <<EOF
+lock_name=main
+purpose=stale status test
+pid=1
+host=test
+started_at=1970-01-01T00:00:00Z
+started_at_epoch=1
+EOF
+printf 'stale-status-token\n' > "$STALE_STATUS_LOCK/token"
+
+export TORQUE_COORD_LOCK_STALE_SECS=1
+repo_coord_lock_status main > "$TMP_ROOT/stale-status.out"
+assert_contains "$TMP_ROOT/stale-status.out" 'Reaping stale lock'
+assert_contains "$TMP_ROOT/stale-status.out" 'main lease is free'
+assert_dir_missing "$STALE_STATUS_LOCK"
 
 echo "repo-coordination-lock tests passed"

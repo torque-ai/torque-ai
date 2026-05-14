@@ -356,6 +356,13 @@ repo_coord_lock_status() {
   local lock_dir
   lock_dir="$(repo_coord_lock_path "$lock_name")"
   if [ -d "$lock_dir" ]; then
+    if repo_coord_lock_reap_if_dead_owner "$lock_dir"; then
+      :
+    elif repo_coord_lock_reap_if_stale "$lock_dir"; then
+      :
+    fi
+  fi
+  if [ -d "$lock_dir" ]; then
     echo "[coord-lock] ${lock_name} lease held by: $(repo_coord_lock_describe "$lock_dir")"
     return 1
   fi
