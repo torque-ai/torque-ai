@@ -870,7 +870,8 @@ function checkProviderAvailability(options = {}) {
         return true;
       });
       if (hasNonCodexFallback) return null;
-    } catch {
+    } catch (_err) {
+      void _err;
       // Fall through to the conservative no-hosts error below.
     }
   }

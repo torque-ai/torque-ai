@@ -130,7 +130,7 @@ describe('probeCodexRecovery', () => {
     expect(mockDb.setCodexExhausted).not.toHaveBeenCalled();
   });
 
-  it('clears exhaustion flag when CLI probe succeeds (status 0)', async () => {
+  it('keeps exhaustion flag when CLI probe succeeds without proving quota recovery', async () => {
     const twentyMinutesAgo = new Date(Date.now() - 20 * 60 * 1000).toISOString();
 
     mockDb.getConfig.mockImplementation((key) => {
@@ -160,9 +160,8 @@ describe('probeCodexRecovery', () => {
         windowsHide: true,
       });
     }
-    expect(mockDb.setCodexExhausted).toHaveBeenCalledWith(false);
-    // Should NOT update the timestamp since we cleared the flag
-    expect(mockDb.setConfig).not.toHaveBeenCalledWith('codex_exhausted_at', expect.any(String));
+    expect(mockDb.setCodexExhausted).not.toHaveBeenCalled();
+    expect(mockDb.setConfig).toHaveBeenCalledWith('codex_exhausted_at', expect.any(String));
   });
 
   it('updates timestamp when CLI probe fails (non-zero exit)', async () => {
@@ -219,7 +218,8 @@ describe('probeCodexRecovery', () => {
 
     // Should probe immediately when no exhausted_at timestamp exists
     expect(mockSpawnSync).toHaveBeenCalled();
-    expect(mockDb.setCodexExhausted).toHaveBeenCalledWith(false);
+    expect(mockDb.setCodexExhausted).not.toHaveBeenCalled();
+    expect(mockDb.setConfig).toHaveBeenCalledWith('codex_exhausted_at', expect.any(String));
   });
 
   // ── API probe path tests (when OPENAI_API_KEY is set) ──────
@@ -287,14 +287,15 @@ describe('probeCodexRecovery', () => {
       });
     }
 
-    it('clears exhaustion when API returns 200', async () => {
+    it('keeps exhaustion when API returns 200 without proving quota recovery', async () => {
       setupExhaustedConfig();
       mockApiResponse(200);
 
       await hostMonitoring.probeCodexRecovery();
 
       expect(mockHttps.request).toHaveBeenCalled();
-      expect(mockDb.setCodexExhausted).toHaveBeenCalledWith(false);
+      expect(mockDb.setCodexExhausted).not.toHaveBeenCalled();
+      expect(mockDb.setConfig).toHaveBeenCalledWith('codex_exhausted_at', expect.any(String));
       // CLI should NOT be called when API succeeds
       expect(mockSpawnSync).not.toHaveBeenCalled();
     });
@@ -332,7 +333,8 @@ describe('probeCodexRecovery', () => {
 
       // API returned 500, so CLI fallback should run
       expect(mockSpawnSync).toHaveBeenCalled();
-      expect(mockDb.setCodexExhausted).toHaveBeenCalledWith(false);
+      expect(mockDb.setCodexExhausted).not.toHaveBeenCalled();
+      expect(mockDb.setConfig).toHaveBeenCalledWith('codex_exhausted_at', expect.any(String));
     });
 
     it('falls back to CLI when API request errors', async () => {
@@ -356,7 +358,8 @@ describe('probeCodexRecovery', () => {
 
       // API errored, so CLI fallback should run
       expect(mockSpawnSync).toHaveBeenCalled();
-      expect(mockDb.setCodexExhausted).toHaveBeenCalledWith(false);
+      expect(mockDb.setCodexExhausted).not.toHaveBeenCalled();
+      expect(mockDb.setConfig).toHaveBeenCalledWith('codex_exhausted_at', expect.any(String));
     });
   });
 });
