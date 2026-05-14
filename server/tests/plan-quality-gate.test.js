@@ -141,6 +141,22 @@ describe('runDeterministicRules — per-task content', () => {
     expect(hardFails.find(f => f.rule === 'task_avoids_local_heavy_validation')).toBeUndefined();
   });
 
+  it('rejects test-runner validation that targets remote config metadata', () => {
+    const plan = `## Task 1: Cover remote config behavior
+
+Edit server/tests/remote-config.test.js to assert that remote config parsing keeps the expected defaults for torque-public. Run npx vitest run .torque-remote.json and expect the remote config validation to pass.`;
+    const { hardFails } = runDeterministicRules(plan);
+    expect(hardFails.some(f => f.rule === 'task_avoids_config_file_test_targets' && f.taskNumber === 1)).toBe(true);
+  });
+
+  it('allows config validation through a parser command instead of a test-runner target', () => {
+    const plan = `## Task 1: Validate remote config parsing
+
+Edit .torque-remote.json only to correct the remote host metadata. Acceptance criteria: JSON.parse must pass for .torque-remote.json and no source files should change. Validation: run node -e "JSON.parse(require('fs').readFileSync('.torque-remote.json','utf8'))" and expect exit code 0.`;
+    const { hardFails } = runDeterministicRules(plan);
+    expect(hardFails.find(f => f.rule === 'task_avoids_config_file_test_targets')).toBeUndefined();
+  });
+
   it('rule 7: task with a single "appropriately" near a concrete object does NOT hard-fail', () => {
     const plan = `## Task 1: Wire src/bar.ts\n\nUpdate src/bar.ts to call the new helper appropriately. Run npx vitest tests/bar.test.ts to verify.`;
     const { hardFails } = runDeterministicRules(plan);

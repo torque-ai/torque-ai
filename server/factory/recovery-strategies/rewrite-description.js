@@ -15,6 +15,10 @@ const reasonPatterns = [
   // (the plan called for a heavy local validation step that won't survive
   // the runtime guard — rewrite to skip that step or route it elsewhere).
   /^task_avoids_local_heavy_validation(:|$)/i,
+  // Invalid test-runner targets usually indicate the work item description
+  // mixed config-file edits into unrelated implementation work. Rewrite so
+  // the next plan names the real source/test files or a proper config parser.
+  /^task_avoids_config_file_test_targets(:|$)/i,
 ];
 
 function validateRewriteResponse(response) {

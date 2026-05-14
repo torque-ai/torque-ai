@@ -55,6 +55,13 @@ describe('Phase P: failure-mode-specific rewrite guidance', () => {
       expect(guidance).toContain('git commit');
     });
 
+    it('returns config-target guidance for task_avoids_config_file_test_targets', () => {
+      const guidance = getFailureModeGuidance('task_avoids_config_file_test_targets: task_1');
+      expect(guidance).toContain('test runner against a config or metadata file');
+      expect(guidance).toContain('real source/test files');
+      expect(guidance).toContain('remote execution');
+    });
+
     it('returns scope-cut guidance for cannot_generate_plan', () => {
       const guidance = getFailureModeGuidance('cannot_generate_plan: provider timeout after 600s');
       expect(guidance).toContain('Cut scope by ~50%');
@@ -163,6 +170,7 @@ describe('Phase P: failure-mode-specific rewrite guidance', () => {
       expect(matches('task_targets_missing_files: task_1')).toBe(true);
       expect(matches('task_targets_missing_files')).toBe(true);
       expect(matches('task_avoids_local_heavy_validation: task_2')).toBe(true);
+      expect(matches('task_avoids_config_file_test_targets: task_1')).toBe(true);
 
       // Pre-existing patterns still match
       expect(matches('cannot_generate_plan: provider timed out')).toBe(true);

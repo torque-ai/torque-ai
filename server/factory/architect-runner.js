@@ -798,6 +798,15 @@ function getFailureModeGuidance(priorReason) {
     ].join('\n');
   }
 
+  if (/^task_avoids_config_file_test_targets/i.test(reason)) {
+    return [
+      '',
+      'FAILURE-MODE GUIDANCE: The previous plan used a test runner against a config or metadata file such as `.torque-remote.json`.',
+      'When rewriting, keep validation targeted at real source/test files or existing repo scripts.',
+      'Do not edit remote execution, routing, or provider configuration unless the work item explicitly asks for those config changes.',
+    ].join('\n');
+  }
+
   // Plan generation timed out or the provider failed. Usually means
   // the work item is too ambitious for one cycle.
   if (/^cannot_generate_plan/i.test(reason)) {

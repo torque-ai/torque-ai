@@ -46,6 +46,10 @@ const RULES = {
     severity: 'hard', scope: 'task',
     description: 'Heavy validation/build commands in task bodies must use torque-remote or be left to the orchestrator verify step.',
   },
+  task_avoids_config_file_test_targets: {
+    severity: 'hard', scope: 'task',
+    description: 'Test-runner validation commands must not target config or metadata files such as .torque-remote.json.',
+  },
   task_avoids_vague_phrases: {
     severity: 'hard', scope: 'task', minHits: 1,
     description: 'Avoid vague phrases ("improve", "update", "clean up", "refactor accordingly") unless accompanied by a concrete file path, function name, or symbol.',
@@ -71,6 +75,8 @@ const RULES = {
 const FILE_PATH_RE = /[A-Za-z0-9_./\\-]+\.(?:csproj|fsproj|vbproj|targets|props|tsx|jsx|cjs|mjs|yaml|yml|json|sql|xaml|axaml|xml|resx|psm1|ps1|sln|js|ts|py|cs|sh|md)\b/i;
 const GREP_TARGET_RE = /\bsearch_files\b|\bgrep\b/i;
 const VALIDATION_COMMAND_TARGET_RE = /\b(?:npx\s+vitest(?:\s+run)?|vitest(?:\s+run)?|pytest|python\s+-m\s+pytest|npm(?:\s+--prefix\s+\S+)?\s+(?:run\s+)?test\s+--)\s+[`'"]?([A-Za-z0-9_.][A-Za-z0-9_./\\-]*)(?=[`'"\s]|$)/i;
+const TEST_RUNNER_TARGET_RE = /\b(?:npx\s+vitest(?:\s+run)?|vitest(?:\s+run)?|pytest|python\s+-m\s+pytest|npm(?:\s+--prefix\s+\S+)?\s+(?:run\s+)?test\s+--)\s+[`'"]?([A-Za-z0-9_.][A-Za-z0-9_./\\-]*)(?=[`'"\s]|$)/gi;
+const CONFIG_FILE_TEST_TARGET_RE = /(?:^|[\\/])(?:\.torque-remote\.json|\.env(?:\.[^\\/]+)?|package(?:-lock)?\.json|pnpm-lock\.yaml|yarn\.lock|tsconfig(?:\.[^\\/]+)?\.json|vite\.config\.[cm]?[jt]s|vitest\.config\.[cm]?[jt]s)$/i;
 const ACCEPTANCE_RE = /\b(npx vitest|dotnet test|pytest|npm(?:\s+--prefix\s+\S+)?\s+(?:run\s+)?test|assert|expect|acceptance criteria\s*:|validation\s*:|must\s+(?:pass|return|include|not\s+include|not\s+read|call|not\s+call)|should\s+(?:pass|report|produce|exist|include|not\s+include))\b/i;
 const CONCRETE_FILE_PATH_RE = /(?:^|[\s`'"([])(?:[A-Za-z]:)?(?:[A-Za-z0-9_.-]+[\\/])+[A-Za-z0-9_.-]+\.(?:csproj|fsproj|vbproj|targets|props|cjs|cs|css|go|html|java|js|json|jsx|md|mjs|psm1|ps1|py|rb|resx|rs|sh|sln|sql|ts|tsx|txt|xaml|axaml|xml|ya?ml)\b/i;
 const CONCRETE_BACKTICK_RE = /`[^`\n]+`/;
@@ -140,6 +146,19 @@ function findNestedWorktreeSetup(text) {
     }
   }
   return null;
+}
+
+function findConfigFileTestTargets(text) {
+  const value = String(text || '');
+  const targets = [];
+  TEST_RUNNER_TARGET_RE.lastIndex = 0;
+  for (const match of value.matchAll(TEST_RUNNER_TARGET_RE)) {
+    const target = String(match[1] || '').trim().replace(/^['"`]+|['"`]+$/g, '');
+    if (CONFIG_FILE_TEST_TARGET_RE.test(target)) {
+      targets.push(target);
+    }
+  }
+  return [...new Set(targets)];
 }
 
 function hasConcreteTaskScope(text) {
@@ -262,6 +281,15 @@ function runDeterministicRules(planMarkdown) {
         rule: 'task_avoids_local_heavy_validation',
         taskNumber: task.number,
         detail: `Task ${task.number} includes heavyweight local validation (${heavyLocalValidation}). Use torque-remote for .NET/build-wrapper validation, or leave the full verify command to the orchestrator.`,
+      });
+    }
+
+    const configFileTestTargets = findConfigFileTestTargets(task.body);
+    if (configFileTestTargets.length > 0) {
+      hardFails.push({
+        rule: 'task_avoids_config_file_test_targets',
+        taskNumber: task.number,
+        detail: `Task ${task.number} uses a test runner against config/metadata file target(s): ${configFileTestTargets.join(', ')}. Use a focused source/test file, repo script, or schema/lint command instead.`,
       });
     }
 
@@ -424,6 +452,8 @@ Return ONLY valid JSON in this shape: {"verdict":"go"|"no-go","critique":"one se
 Factory execution already creates an isolated git worktree and feature branch for each batch.
 Do NOT reject a plan because it omits worktree or branch setup instructions.
 Do reject a plan only for semantic mismatch with the work item, missing concrete implementation scope, or unsafe/incorrect execution guidance.
+Reject plans that use test runners against config or metadata files such as \`.torque-remote.json\`.
+Reject plans that edit remote execution, routing, or provider configuration unless the work item explicitly asks for those changes.
 
 Plan:
 ${plan}
