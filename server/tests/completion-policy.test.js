@@ -2,6 +2,7 @@
 
 const {
   isFactoryStructuredOutputTask,
+  isFactoryPlanExecutionTask,
   isScoutStructuredOutputTask,
   shouldUseOutputCompletionDetection,
 } = require('../execution/completion-policy');
@@ -50,6 +51,31 @@ describe('completion-policy', () => {
       metadata: JSON.stringify({
         factory_internal: true,
         kind: 'scout',
+      }),
+    })).toBe(false);
+  });
+
+  it('disables output-completion grace for factory plan execution tasks', () => {
+    const metadata = {
+      plan_path: 'C:\\repo\\.worktrees\\fea-123\\docs\\plans\\generated.md',
+      plan_task_number: 1,
+      plan_task_title: 'Align metadata',
+      file_paths: ['.claude-plugin/marketplace.json'],
+    };
+
+    expect(isFactoryPlanExecutionTask(metadata)).toBe(true);
+    expect(shouldUseOutputCompletionDetection({
+      provider: 'codex',
+      metadata,
+    })).toBe(false);
+  });
+
+  it('normalizes JSON-string factory plan execution metadata', () => {
+    expect(shouldUseOutputCompletionDetection({
+      provider: 'codex',
+      metadata: JSON.stringify({
+        plan_path: 'C:\\repo\\docs\\plans\\generated.md',
+        plan_task_number: 2,
       }),
     })).toBe(false);
   });
