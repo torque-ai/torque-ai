@@ -72,7 +72,40 @@ if [[ -z "${PID:-}" ]]; then
   exit 0
 fi
 
-if kill -0 "$PID" 2>/dev/null; then
+# Windows-aware PID-alive check. `kill -0 <pid>` from MSYS bash returns
+# non-zero for live Windows processes that weren't spawned by this bash
+# session (the POSIX-emulation kill cannot probe foreign PIDs reliably).
+# Without the fallback, the watchdog false-alarms every tick on Windows
+# and respawns into EADDRINUSE storms — observed live 2026-05-14 with
+# pid=28956 alive but watchdog spawning a new node every minute.
+# Mirrors repo_coord_lock_pid_alive in scripts/repo-coordination-lock.sh.
+pid_is_alive() {
+  local probe_pid="$1"
+  case "$probe_pid" in
+    ''|*[!0-9]*|0) return 1 ;;
+  esac
+  if kill -0 "$probe_pid" 2>/dev/null; then
+    return 0
+  fi
+  case "$(uname -s 2>/dev/null || echo unknown)" in
+    MINGW*|MSYS*|CYGWIN*)
+      if command -v powershell.exe >/dev/null 2>&1; then
+        powershell.exe -NoProfile -Command "if (Get-Process -Id $probe_pid -ErrorAction SilentlyContinue) { exit 0 } else { exit 1 }" >/dev/null 2>&1
+        return $?
+      fi
+      if command -v tasklist.exe >/dev/null 2>&1; then
+        tasklist.exe /FI "PID eq $probe_pid" /NH 2>/dev/null | grep -qE "[[:space:]]$probe_pid[[:space:]]"
+        return $?
+      fi
+      ;;
+  esac
+  if command -v ps >/dev/null 2>&1; then
+    ps -p "$probe_pid" >/dev/null 2>&1 && return 0
+  fi
+  return 1
+}
+
+if pid_is_alive "$PID"; then
   if [[ -n "${HB:-}" ]]; then
     HB_EPOCH=$(date -u -d "$HB" +%s 2>/dev/null || echo 0)
     NOW_EPOCH=$(date -u +%s)
