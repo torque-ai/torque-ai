@@ -1110,6 +1110,92 @@ describe('factory loop-controller EXECUTE for non-plan-file work items', () => {
     });
   });
 
+  it('submits a provider fallback when plan generation hits a transient local provider timeout', async () => {
+    const { project, workItem } = registerExecuteProject({
+      description: 'Create a focused plan when the local plan generator host is temporarily unreachable.',
+    });
+    routingModule.handleSmartSubmitTask = vi.fn()
+      .mockResolvedValueOnce({ task_id: 'plan-gen-task' })
+      .mockResolvedValueOnce({ task_id: 'fallback-plan-gen-task' });
+    taskCore.getTask = vi.fn((taskId) => {
+      if (taskId === 'plan-gen-task') {
+        return {
+          id: taskId,
+          status: 'failed',
+          provider: 'ollama',
+          output: '',
+          error_output: 'connect ETIMEDOUT ollama-plan-host:11434',
+        };
+      }
+      return null;
+    });
+
+    const executeAdvance = await loopController.advanceLoopForProject(project.id);
+    const updatedWorkItem = factoryIntake.getWorkItem(workItem.id);
+
+    expect(routingModule.handleSmartSubmitTask).toHaveBeenCalledTimes(2);
+    expect(routingModule.handleSmartSubmitTask.mock.calls[1][0]).toEqual(expect.objectContaining({
+      provider: 'claude-cli',
+      timeout_minutes: 30,
+      tags: expect.arrayContaining([
+        'factory:plan_generation',
+        `factory:work_item_id=${workItem.id}`,
+      ]),
+      task_metadata: expect.objectContaining({
+        kind: 'plan_generation',
+        plan_generation_provider_fallback: true,
+        plan_generation_failed_provider: 'ollama',
+        plan_generation_failed_task_id: 'plan-gen-task',
+      }),
+    }));
+    expect(awaitModule.handleAwaitTask).toHaveBeenCalledWith({
+      task_id: 'plan-gen-task',
+      timeout_minutes: 30,
+      heartbeat_minutes: 0,
+      auto_resubmit_on_restart: true,
+    });
+    expect(executeAdvance).toMatchObject({
+      new_state: LOOP_STATES.EXECUTE,
+      paused_at_stage: null,
+      reason: 'plan generation provider fallback submitted after transient provider error',
+      stage_result: {
+        status: 'deferred',
+        reason: 'provider_fallback_submitted',
+        failed_generation_task_id: 'plan-gen-task',
+        generation_task_id: 'fallback-plan-gen-task',
+        failed_provider: 'ollama',
+        fallback_provider: 'claude-cli',
+      },
+    });
+    expect(updatedWorkItem).toMatchObject({
+      id: workItem.id,
+      status: 'planned',
+      reject_reason: null,
+      origin: expect.objectContaining({
+        plan_generation_task_id: 'fallback-plan-gen-task',
+        plan_generation_status: 'submitted',
+        plan_generation_provider_fallback_count: 1,
+        plan_generation_provider_fallback_from: 'ollama',
+        plan_generation_provider_fallback_to: 'claude-cli',
+      }),
+    });
+    expect(createPlanExecutorMock).not.toHaveBeenCalled();
+
+    const decisions = listDecisionRows(db, project.id);
+    expect(decisions.find((row) => row.action === 'plan_generation_provider_fallback_submitted')).toMatchObject({
+      stage: 'execute',
+      outcome: expect.objectContaining({
+        reason: 'transient_provider_error',
+        failed_provider: 'ollama',
+        fallback_provider: 'claude-cli',
+        failed_generation_task_id: 'plan-gen-task',
+        generation_task_id: 'fallback-plan-gen-task',
+        work_item_id: workItem.id,
+      }),
+    });
+    expect(decisions.find((row) => row.action === 'cannot_generate_plan_routed_to_needs_replan')).toBeUndefined();
+  });
+
   it('submits scoped scout files and disables ambient context for plan generation', async () => {
     const allowedFiles = ['server/factory/loop-controller.js', 'server/tests/plan-prompt-scope-files.test.js'];
     const { project, workItem } = registerExecuteProject({

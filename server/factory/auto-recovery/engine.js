@@ -198,6 +198,7 @@ const BENIGN_FLOW_ACTION_EXACT = new Set([
   'plan_generation_worktree_reuse_skipped', // plan generation skipped a different work item's active batch worktree
   'plan_generation_worktree_missing_abandoned', // plan generation abandoned a missing item-scoped worktree row
   'plan_generation_worktree_created', // plan generation created isolated artifact worktree
+  'plan_generation_provider_fallback_submitted', // transient plan-generation provider error fell back to another provider
 
   // ── EXECUTE ──────────────────────────────────────────────────────────────────
   'worktree_created',        // EXECUTE created an isolated worktree

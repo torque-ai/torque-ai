@@ -267,6 +267,11 @@ const DECISION_ACTIONS = {
     rule_id: 'plan_generation_unusable_output',
     outcome: ['work_item_id', 'provider'],
   },
+  plan_generation_provider_fallback_submitted: {
+    stage: 'EXECUTE',
+    classifier: 'benign',
+    outcome: ['work_item_id', 'failed_provider', 'fallback_provider', 'generation_task_id'],
+  },
 
   // ─── EXECUTE ──────────────────────────────────────────────────────────────
 

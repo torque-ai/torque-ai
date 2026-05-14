@@ -2680,11 +2680,176 @@ function buildPlanGenerationDeferredResult({
 }
 
 const PLAN_GENERATION_UNUSABLE_OUTPUT_RETRIES = 1;
+const PLAN_GENERATION_PROVIDER_FALLBACK_LIMIT = 1;
+const PLAN_GENERATION_PROVIDER_FALLBACK_PROVIDER = 'claude-cli';
+const TRANSIENT_PLAN_GENERATION_PROVIDER_ERROR_RE =
+  /\b(?:ETIMEDOUT|ECONNRESET|ECONNREFUSED|EHOSTUNREACH|ENETUNREACH|UND_ERR_CONNECT_TIMEOUT)\b|connect\s+\S*\s*timed?\s*out|socket hang up|fetch failed/i;
 
 function getPlanGenerationRetryCount(workItem) {
   const origin = getWorkItemOriginObject(workItem);
   const count = Number(origin.plan_generation_retry_count || 0);
   return Number.isFinite(count) && count > 0 ? Math.floor(count) : 0;
+}
+
+function getPlanGenerationProviderFallbackCount(workItem) {
+  const origin = getWorkItemOriginObject(workItem);
+  const count = Number(origin.plan_generation_provider_fallback_count || 0);
+  return Number.isFinite(count) && count > 0 ? Math.floor(count) : 0;
+}
+
+function isTransientPlanGenerationProviderError(error) {
+  const text = [
+    error && typeof error.message === 'string' ? error.message : '',
+    error && typeof error.code === 'string' ? error.code : '',
+    typeof error === 'string' ? error : '',
+  ].filter(Boolean).join('\n');
+  return TRANSIENT_PLAN_GENERATION_PROVIDER_ERROR_RE.test(text);
+}
+
+async function buildPlanGenerationProviderFallbackResult({
+  project,
+  instance,
+  targetItem,
+  planPath,
+  generationTaskId,
+  generationTask,
+  error,
+  submitFactoryInternalTask,
+  prompt,
+  planGenerationWorkingDirectory,
+  planGenerationFiles,
+  planGenerationTimeoutMinutes,
+  planGenerationActivityTimeoutPolicy,
+}) {
+  if (!isTransientPlanGenerationProviderError(error)) {
+    return null;
+  }
+
+  const fallbackCount = getPlanGenerationProviderFallbackCount(targetItem);
+  if (fallbackCount >= PLAN_GENERATION_PROVIDER_FALLBACK_LIMIT) {
+    return null;
+  }
+
+  const origin = getWorkItemOriginObject(targetItem);
+  const failedProvider = normalizeOptionalString(generationTask?.provider)
+    || normalizeOptionalString(origin.plan_generator_provider)
+    || PLAN_GENERATOR_LABEL;
+  if (failedProvider === PLAN_GENERATION_PROVIDER_FALLBACK_PROVIDER) {
+    return null;
+  }
+
+  let fallbackTaskId = null;
+  try {
+    const submitted = await submitFactoryInternalTask({
+      task: prompt,
+      provider: PLAN_GENERATION_PROVIDER_FALLBACK_PROVIDER,
+      working_directory: planGenerationWorkingDirectory,
+      kind: 'plan_generation',
+      project_id: project.id,
+      work_item_id: targetItem.id,
+      files: planGenerationFiles.length > 0 ? planGenerationFiles : undefined,
+      context_stuff: false,
+      study_context: false,
+      timeout_minutes: planGenerationTimeoutMinutes,
+      extra_metadata: {
+        activity_timeout_policy: planGenerationActivityTimeoutPolicy,
+        plan_generation_provider_fallback: true,
+        plan_generation_failed_provider: failedProvider,
+        plan_generation_failed_task_id: generationTaskId || null,
+      },
+    });
+    fallbackTaskId = submitted?.task_id || null;
+  } catch (fallbackErr) {
+    logger.warn('EXECUTE stage: plan-generation provider fallback submit failed', {
+      project_id: project.id,
+      work_item_id: targetItem.id,
+      failed_generation_task_id: generationTaskId || null,
+      failed_provider: failedProvider,
+      fallback_provider: PLAN_GENERATION_PROVIDER_FALLBACK_PROVIDER,
+      err: fallbackErr.message,
+    });
+    return null;
+  }
+
+  if (!fallbackTaskId) {
+    return null;
+  }
+
+  const fallbackOrigin = {
+    ...clearPlanGenerationWaitFields(origin),
+    plan_path: planPath,
+    plan_generation_task_id: fallbackTaskId,
+    plan_generation_status: 'submitted',
+    plan_generation_provider_fallback_count: fallbackCount + 1,
+    plan_generation_provider_fallback_from: failedProvider,
+    plan_generation_provider_fallback_to: PLAN_GENERATION_PROVIDER_FALLBACK_PROVIDER,
+    plan_generation_provider_fallback_error: String(error?.message || error || '').slice(0, 1000),
+    plan_generation_updated_at: nowIso(),
+  };
+
+  let updatedWorkItem = targetItem;
+  try {
+    updatedWorkItem = factoryIntake.updateWorkItem(targetItem.id, {
+      origin_json: fallbackOrigin,
+      status: targetItem.status || 'planned',
+    });
+    rememberSelectedWorkItem(instance.id, updatedWorkItem);
+  } catch (persistErr) {
+    logger.warn('EXECUTE stage: failed to persist plan-generation provider fallback state', {
+      project_id: project.id,
+      work_item_id: targetItem.id,
+      fallback_task_id: fallbackTaskId,
+      err: persistErr.message,
+    });
+  }
+
+  logger.warn('EXECUTE stage: submitted plan-generation provider fallback after transient provider error', {
+    project_id: project.id,
+    work_item_id: targetItem.id,
+    failed_generation_task_id: generationTaskId || null,
+    fallback_generation_task_id: fallbackTaskId,
+    failed_provider: failedProvider,
+    fallback_provider: PLAN_GENERATION_PROVIDER_FALLBACK_PROVIDER,
+    error: String(error?.message || error || '').slice(0, 500),
+  });
+  safeLogDecision({
+    project_id: project.id,
+    stage: LOOP_STATES.EXECUTE,
+    action: 'plan_generation_provider_fallback_submitted',
+    reasoning: `Transient plan-generation provider error from ${failedProvider}; submitted fallback ${PLAN_GENERATION_PROVIDER_FALLBACK_PROVIDER}.`,
+    inputs: {
+      ...getWorkItemDecisionContext(targetItem),
+    },
+    outcome: {
+      reason: 'transient_provider_error',
+      error: String(error?.message || error || '').slice(0, 1000),
+      failed_provider: failedProvider,
+      fallback_provider: PLAN_GENERATION_PROVIDER_FALLBACK_PROVIDER,
+      failed_generation_task_id: generationTaskId || null,
+      generation_task_id: fallbackTaskId,
+      fallback_count: fallbackCount + 1,
+      ...getWorkItemDecisionContext(updatedWorkItem),
+    },
+    confidence: 0.85,
+    batch_id: getDecisionBatchId(project, updatedWorkItem, null, instance),
+  });
+
+  return {
+    reason: 'plan generation provider fallback submitted after transient provider error',
+    work_item: updatedWorkItem,
+    stop_execution: true,
+    next_state: LOOP_STATES.EXECUTE,
+    paused_at_stage: null,
+    stage_result: {
+      status: 'deferred',
+      reason: 'provider_fallback_submitted',
+      plan_path: planPath,
+      failed_generation_task_id: generationTaskId || null,
+      generation_task_id: fallbackTaskId,
+      failed_provider: failedProvider,
+      fallback_provider: PLAN_GENERATION_PROVIDER_FALLBACK_PROVIDER,
+    },
+  };
 }
 
 function buildPlanGenerationRetryResult({
@@ -10012,6 +10177,25 @@ async function executeNonPlanFileStage(project, instance, workItem) {
         generationTaskId,
         error,
       });
+    }
+
+    const fallbackResult = await buildPlanGenerationProviderFallbackResult({
+      project,
+      instance,
+      targetItem,
+      planPath,
+      generationTaskId,
+      generationTask,
+      error,
+      submitFactoryInternalTask,
+      prompt,
+      planGenerationWorkingDirectory,
+      planGenerationFiles,
+      planGenerationTimeoutMinutes,
+      planGenerationActivityTimeoutPolicy,
+    });
+    if (fallbackResult) {
+      return fallbackResult;
     }
 
     logger.warn('EXECUTE stage: failed to generate plan for non-plan-file work item', {
