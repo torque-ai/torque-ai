@@ -227,18 +227,19 @@ describe('Smart Routing — Codex Exhaustion Gate & Local-First Routing', () => 
       expect(task.provider).not.toBe('codex');
     });
 
-    it('rejects greenfield when exhausted and Ollama is down (both-providers-down gate)', async () => {
+    it('uses a non-Codex fallback when exhausted and Ollama is down', async () => {
       setCodexExhausted();
       clearHosts(); // No Ollama hosts
 
-      // With both Codex exhausted and no Ollama hosts, the both-providers-down gate
-      // returns an error — there's nowhere to route the task
       const result = await mod.handleSmartSubmitTask({
         task: 'Create a simple string formatting utility',
         working_directory: testDir,
       });
-      expect(result.isError).toBe(true);
-      expect(result.content[0].text).toContain('No providers available');
+      expect(result.isError).not.toBe(true);
+      const task = extractTaskFromResult(result);
+      expect(task).toBeTruthy();
+      const meta = typeof task.metadata === 'string' ? JSON.parse(task.metadata) : (task.metadata || {});
+      expect(task.provider || meta.intended_provider || '').not.toMatch(/^codex/);
     });
 
     it('does not block Codex routing when not exhausted', async () => {
@@ -278,17 +279,17 @@ describe('Smart Routing — Codex Exhaustion Gate & Local-First Routing', () => 
   });
 
   describe('Both-providers-down rejection', () => {
-    it('rejects submission when Codex exhausted AND local LLM down', async () => {
+    it('does NOT reject when Codex exhausted and a non-Codex provider is available', async () => {
       setCodexExhausted();
       clearHosts(); // No healthy Ollama hosts
 
-      // Returns an error object — both providers down, nowhere to route
       const result = await mod.handleSmartSubmitTask({
         task: 'Create a utility function to format dates',
         working_directory: testDir,
       });
-      expect(result.isError).toBe(true);
-      expect(result.content[0].text).toContain('No providers available');
+      expect(result.isError).not.toBe(true);
+      const task = extractTaskFromResult(result);
+      expect(task).toBeTruthy();
     });
 
     it('does NOT reject when Codex is NOT exhausted', async () => {

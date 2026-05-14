@@ -28,6 +28,8 @@ const workflowEngine = {
 
 const providerRoutingCore = {
   isCodexExhausted: vi.fn(),
+  isProviderAvailableForRouting: vi.fn(),
+  listProviders: vi.fn(),
 };
 
 const hostManagement = {
@@ -127,9 +129,13 @@ beforeEach(() => {
   taskCore.getTask.mockReset();
   workflowEngine.getWorkflow.mockReset();
   providerRoutingCore.isCodexExhausted.mockReset();
+  providerRoutingCore.isProviderAvailableForRouting.mockReset();
+  providerRoutingCore.listProviders.mockReset();
   hostManagement.hasHealthyOllamaHost.mockReset();
 
   providerRoutingCore.isCodexExhausted.mockReturnValue(false);
+  providerRoutingCore.isProviderAvailableForRouting.mockReturnValue(false);
+  providerRoutingCore.listProviders.mockReturnValue([]);
   hostManagement.hasHealthyOllamaHost.mockReturnValue(true);
   shared = loadShared();
 });
@@ -1019,11 +1025,25 @@ describe('handlers/shared.js utilities', () => {
     it('returns a NO_HOSTS_AVAILABLE error when codex is exhausted and Ollama is offline', () => {
       providerRoutingCore.isCodexExhausted.mockReturnValue(true);
       hostManagement.hasHealthyOllamaHost.mockReturnValue(false);
+      providerRoutingCore.listProviders.mockReturnValue([]);
 
       const result = shared.checkProviderAvailability();
 
       expect(result).toBeTruthy();
       expectError(result.error, shared.ErrorCodes.NO_HOSTS_AVAILABLE.code, 'No providers available');
+    });
+
+    it('returns null when a non-Codex fallback provider is available', () => {
+      providerRoutingCore.isCodexExhausted.mockReturnValue(true);
+      hostManagement.hasHealthyOllamaHost.mockReturnValue(false);
+      providerRoutingCore.listProviders.mockReturnValue([
+        { provider: 'codex', enabled: true },
+        { provider: 'claude-cli', enabled: true },
+      ]);
+      providerRoutingCore.isProviderAvailableForRouting.mockImplementation((provider) => provider === 'claude-cli');
+
+      expect(shared.checkProviderAvailability()).toBeNull();
+      expect(providerRoutingCore.isProviderAvailableForRouting).toHaveBeenCalledWith('claude-cli');
     });
   });
 

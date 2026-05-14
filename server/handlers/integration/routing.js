@@ -977,7 +977,7 @@ async function handleSmartSubmitTask(args) {
 
   // Fix F3: Use per-provider timeout defaults when no explicit timeout given
   const providerTimeout = (taskManager.PROVIDER_DEFAULT_TIMEOUTS || {})[selectedProvider] || defaultTimeout;
-  const effectiveTimeout = timeout_minutes || providerTimeout;
+  const effectiveTimeout = timeout_minutes ?? providerTimeout;
   const submissionTaskId = require('uuid').v4();
   const autoApproveSimple = serverConfig.isOptIn('auto_approve_simple');
   const requireReviewForComplex = serverConfig.getBool('require_review_for_complex');

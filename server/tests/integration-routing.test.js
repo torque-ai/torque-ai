@@ -951,6 +951,18 @@ describe('integration routing handlers', () => {
       expect(mockDb.determineTaskComplexity).toHaveBeenCalledWith('Create a formatter', ['src/formatter.js']);
     });
 
+    it('preserves timeout_minutes zero instead of replacing it with the provider default', async () => {
+      const result = await routing.handleSmartSubmitTask({
+        task: 'Create a formatter',
+        provider: 'claude-cli',
+        timeout_minutes: 0,
+      });
+
+      const task = taskFromResult(result);
+      expect(task).toBeTruthy();
+      expect(task.timeout_minutes).toBe(0);
+    });
+
     it('returns provider availability errors before creating tasks', async () => {
       mockShared.checkProviderAvailability.mockReturnValueOnce({
         error: mockErrorCodes.makeError(ErrorCodes.OPERATION_FAILED, 'No providers available'),

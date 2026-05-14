@@ -852,6 +852,29 @@ function checkProviderAvailability(options = {}) {
   const providerRoutingCore = require('../db/provider/routing-core');
   const hostManagement = require('../db/host/management');
   if (!providerRoutingCore.isCodexExhausted() || hostManagement.hasHealthyOllamaHost()) return null;
+
+  if (typeof providerRoutingCore.listProviders === 'function') {
+    try {
+      const providers = providerRoutingCore.listProviders();
+      const hasNonCodexFallback = providers.some((candidate) => {
+        const providerName = candidate?.provider || candidate?.name;
+        if (!providerName || !candidate?.enabled) return false;
+        if (String(providerName).trim().toLowerCase().startsWith('codex')) return false;
+        if (String(providerName).trim().toLowerCase() === 'ollama') return false;
+        if (typeof providerRoutingCore.isProviderAvailableForRouting === 'function') {
+          return providerRoutingCore.isProviderAvailableForRouting(providerName);
+        }
+        if (typeof providerRoutingCore.isProviderConfiguredForRouting === 'function') {
+          return providerRoutingCore.isProviderConfiguredForRouting(providerName);
+        }
+        return true;
+      });
+      if (hasNonCodexFallback) return null;
+    } catch {
+      // Fall through to the conservative no-hosts error below.
+    }
+  }
+
   return {
     error: makeError(ErrorCodes.NO_HOSTS_AVAILABLE,
       'No providers available: Codex quota exhausted and local LLM offline. ' +
