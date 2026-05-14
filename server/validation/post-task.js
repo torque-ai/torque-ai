@@ -132,10 +132,9 @@ const PLACEHOLDER_SIGNAL_PATTERNS = [
   { regex: /\[truncated(?: for brevity)?\]/i, kind: 'truncation marker' },
 ];
 
-const EMPTY_ARROW_IMPLEMENTATION_PATTERNS = [
-  /^\s*(?:export\s+)?(?:const|let|var)\s+[A-Za-z_$][\w$]*\s*=\s*(?:async\s*)?(?:\([^)]*\)|[A-Za-z_$][\w$]*)\s*=>\s*\{\s*\}\s*;?\s*$/m,
-  /^\s*(?:module\.)?exports(?:\.[A-Za-z_$][\w$]*)?\s*=\s*(?:async\s*)?(?:\([^)]*\)|[A-Za-z_$][\w$]*)\s*=>\s*\{\s*\}\s*;?\s*$/m,
-];
+const EMPTY_ARROW_STUB_LINE_RE = /^\s*(?:(?:(?:export\s+)?(?:const|let|var)\s+[A-Za-z_$][\w$]*|(?:module\.)?exports(?:\.[A-Za-z_$][\w$]*)?)\s*=\s*|export\s+default\s+)(?:async\s*)?(?:\([^)]*\)|[A-Za-z_$][\w$]*)\s*=>\s*{\s*};?\s*$/;
+const EXPORT_ONLY_LINE_RE = /^\s*(?:(?:export\s+default\s+[A-Za-z_$][\w$]*)|(?:export\s*{\s*[\w\s,$]*\s*})|(?:module\.exports\s*=\s*(?:{[^}]*}|[A-Za-z_$][\w$]*))|(?:exports\.[A-Za-z_$][\w$]*\s*=\s*[A-Za-z_$][\w$]*))\s*;?\s*$/;
+const JS_DIRECTIVE_LINE_RE = /^\s*['"]use strict['"];\s*$/;
 
 function parseGitStatusEntry(line) {
   if (!line || line.length < 4) return null;
@@ -709,9 +708,16 @@ function checkFileQuality(filePath, options = {}) {
         break;
       }
     }
-    if (!issues.includes('File contains placeholder/stub content') &&
-        EMPTY_ARROW_IMPLEMENTATION_PATTERNS.some(pattern => pattern.test(content))) {
-      issues.push('File contains placeholder/stub content');
+    const emptyArrowStubLines = codeLines.filter(l => EMPTY_ARROW_STUB_LINE_RE.test(l));
+    if (emptyArrowStubLines.length > 0) {
+      const substantiveLines = codeLines.filter(l =>
+        !EMPTY_ARROW_STUB_LINE_RE.test(l) &&
+        !EXPORT_ONLY_LINE_RE.test(l) &&
+        !JS_DIRECTIVE_LINE_RE.test(l)
+      );
+      if (substantiveLines.length === 0 && !issues.includes('File contains placeholder/stub content')) {
+        issues.push('File contains placeholder/stub content');
+      }
     }
 
     // P95/P100: Count stub comments that replace method bodies — 2+ is mass destruction
