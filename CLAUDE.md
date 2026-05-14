@@ -396,22 +396,7 @@ Use `get_tool_schema { tool_name: "<name>" }` for full parameter details on any 
 
 ## Architecture — DI Container
 
-TORQUE uses a dependency injection container (`server/container.js`) as its composition root. Every module exports a `createXxx` factory function and is registered in the container.
-
-### For new code
-
-Use the container to access services instead of `require('./database')`:
-
-    // OLD (legacy — do not use in new code):
-    const db = require('./database');
-    db.getTask(id);
-
-    // NEW (preferred):
-    const { defaultContainer } = require('./container');
-    const taskCore = defaultContainer.get('taskCore');
-    taskCore.getTask(id);
-
-**DI lint rule:** `npm run lint:di` (in server/) reports files still importing database.js directly.
+`server/container.js` is the composition root. New code should resolve services via `defaultContainer.get('<name>')`, not `require('./database')` — the `npm run lint:di` rule (in `server/`) flags direct database.js imports. Modules export `createXxx` factories and register themselves in the container. Full design + migration history: `server/ARCHITECTURE.md`.
 
 ## File Safety
 
@@ -489,27 +474,14 @@ When submitting work to Ollama, the task description is the instruction set. The
 - **Parallelize independent tasks** — tests, fixture generation, and unrelated edits should run as separate nodes whenever their write sets do not conflict.
 - **Use `step_providers` deliberately** — keep simple steps local and route complex reasoning or test-generation steps to cloud providers when they are enabled.
 
-## Additional TORQUE Automation Tools
+## More Tools
 
-- **`configure_stall_detection`** — sets provider-specific stall thresholds and optional auto-resubmit behavior.
-- **`auto_verify_and_fix`** — runs the project's verification command, detects failures, and can auto-submit fix tasks instead of requiring a manual verify-fix loop.
-- **`generate_test_tasks`** — scans for untested files and generates targeted test-writing tasks that can be submitted directly or added to workflows.
-- **`get_batch_summary`** — produces a workflow completion summary including changed files, durations, and test counts.
+Beyond the core surface above, useful additions discoverable via `get_tool_schema { tool_name }`:
 
-## TORQUE Advanced Orchestration Tools
+- **Automation / batch:** `configure_stall_detection`, `auto_verify_and_fix`, `generate_test_tasks`, `get_batch_summary`, `generate_feature_tasks`, `run_batch`, `detect_file_conflicts`, `auto_commit_batch`.
+- **Universal TypeScript:** `inject_class_dependency`, `add_ts_union_members`, `inject_method_calls`, `normalize_interface_formatting`, `add_ts_enum_members` (in addition to the four TS tools in the table above). Prefer these over raw search/replace when they fit — they use AST anchors, not content matching.
 
-- **`generate_feature_tasks`** — generates the standard feature task set from a feature name and spec using existing project files as context.
-- **`run_batch`** — generates feature tasks and test tasks, creates the workflow, and starts execution in one call.
-- **`detect_file_conflicts`** — checks whether multiple completed tasks touched the same files before you verify or commit.
-- **`auto_commit_batch`** — performs verification, commit generation, and optional push using the project's configured defaults.
-
-## Additional TORQUE Universal TypeScript Tools
-
-- **`inject_class_dependency`** — injects imports, fields, initialization, and access patterns into an existing class with anchored placement.
-- **`add_ts_union_members`** — adds string members to a TypeScript union without introducing duplicates.
-- **`inject_method_calls`** — inserts code before a marker string in any file.
-- **`normalize_interface_formatting`** — re-indents a TypeScript interface body after repeated edits.
-- **`add_ts_enum_members`** — appends enum members without duplicate drift.
+Call `unlock_all_tools` to see all ~600.
 
 ## Cloud Inference Notes
 
