@@ -61,6 +61,8 @@ server/tests/_*
 /runs/
 
 # Runtime caches
+__pycache__/
+*.py[cod]
 server/.cache/
 server/perf/last-run.json
 server/perf/bypass-audit.log
