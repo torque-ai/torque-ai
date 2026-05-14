@@ -512,6 +512,28 @@ describe('runLlmSemanticCheck', () => {
     });
     expect(result).toBe('not json at all');
   });
+
+  it('treats explicit plain-text no-go reviewer output as a rejection', async () => {
+    installMock(submitPath, {
+      submitFactoryInternalTask: vi.fn().mockResolvedValue({ task_id: 'tid-plain-no-go' }),
+    });
+    installMock(awaitPath, {
+      handleAwaitTask: vi.fn().mockResolvedValue({ status: 'completed' }),
+    });
+    installMock(taskCorePath, {
+      getTask: vi.fn().mockReturnValue({
+        status: 'completed',
+        output: 'The plan receives a no-go verdict. Key issues: broken server/server/tests path.',
+      }),
+    });
+    const { runLlmSemanticCheck } = require('../factory/plan-quality-gate');
+    const result = await runLlmSemanticCheck({
+      plan: '## Task 1: Example\n\nSome body.',
+      workItem: { id: 1, title: 'w', description: 'd' },
+      project: { id: 'p', path: '/tmp/p' },
+    });
+    expect(result).toBe('[no-go] The plan receives a no-go verdict. Key issues: broken server/server/tests path.');
+  });
 });
 
 const planQualityGate = require('../factory/plan-quality-gate');

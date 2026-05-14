@@ -393,7 +393,18 @@ async function runLlmSemanticCheck({ plan, workItem, project, timeoutMs = LLM_TI
     // Unparseable — fall through and return the raw output as critique.
     void _e;
   }
-  return raw;
+  return normalizeUnparseableSemanticReview(raw);
+}
+
+function normalizeUnparseableSemanticReview(raw) {
+  const text = String(raw || '').trim();
+  if (!text) return text;
+  const explicitNoGo = [
+    /["']?verdict["']?\s*[:=]\s*["']?no-go["']?/i,
+    /\bplan\s+(?:receives|received|gets|got|is)\s+(?:a\s+)?no-go\s+verdict\b/i,
+    /^\s*(?:verdict\s*[:=]\s*)?no-go\b/i,
+  ].some((pattern) => pattern.test(text));
+  return explicitNoGo ? `[no-go] ${text}` : text;
 }
 
 function getPlanSemanticCheckHash(plan) {
