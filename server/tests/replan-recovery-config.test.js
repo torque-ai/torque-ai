@@ -41,14 +41,10 @@ describe('replan-recovery config defaults', () => {
     expect(cfg.splitMaxDepth).toBe(2);
   });
 
-  it('architect-runner has no wall-clock inner deadline (2026-05-02 policy)', () => {
-    // Phase R originally required the outer strategy timeout to exceed the
-    // architect-runner inner deadline so strategies couldn't be cut off
-    // mid-poll. The architect-runner now polls without a wall-clock cap
-    // (see phasew-architect-cycle-deadline.test.js) — stall detection is
-    // the bound on hung architect tasks. The outer strategy timeout
-    // remains the only wall-clock bound on replan recovery, sized to give
-    // codex room to land on busy days.
+  it('architect-runner has no independent poll-loop deadline', () => {
+    // The architect-runner polls terminal task state and relies on the
+    // submitted task timeout for the provider bound. Replan recovery keeps
+    // its own outer strategy timeout for the overall strategy budget.
     const fs = require('fs');
     const path = require('path');
     const archSrc = fs.readFileSync(

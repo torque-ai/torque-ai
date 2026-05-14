@@ -3,20 +3,16 @@
 const fs = require('fs');
 const path = require('path');
 
-describe('runArchitectCycle: poll-only, no wall-clock deadline', () => {
+describe('runArchitectCycle: terminal-state polling with bounded provider tasks', () => {
   const archSrc = fs.readFileSync(
     path.join(__dirname, '..', 'factory', 'architect-runner.js'),
     'utf8',
   );
 
-  describe('no hardcoded wall-clock deadline (2026-05-02 policy)', () => {
+  describe('no outer poll-loop wall-clock deadline', () => {
     it('does not declare a deadlineMs constant in architect-runner.js', () => {
-      // 2026-05-02: the previous Phase T/W alignment kept hardcoded
-      // wall-clock budgets (15min) on both architect entry points. Even
-      // aligned, those budgets killed viable codex work that legitimately
-      // exceeded the cap on busy days. The new policy: poll until the
-      // task reaches a terminal state, and let stall detection bound
-      // hung tasks. Regression guard: no deadlineMs declarations.
+      // The runner should not maintain a second independent deadline on top
+      // of the submitted task timeout. Poll terminal task state instead.
       expect(archSrc).not.toMatch(/deadlineMs\s*=/);
     });
 
@@ -26,12 +22,11 @@ describe('runArchitectCycle: poll-only, no wall-clock deadline', () => {
       expect(archSrc).not.toMatch(/while\s*\(\s*Date\.now\(\)\s*</);
     });
 
-    it('passes timeout_minutes: 0 (unbounded) to submitFactoryInternalTask', () => {
-      // 0 explicitly opts into "no timeout" at the provider layer.
-      // Omitting the field would default to 10 in internal-task-submit,
-      // which is the destructive behavior we removed.
-      const zeroTimeoutHits = archSrc.match(/timeout_minutes:\s*0\b/g) || [];
-      expect(zeroTimeoutHits.length).toBeGreaterThanOrEqual(2);
+    it('passes the bounded architect timeout to submitFactoryInternalTask', () => {
+      expect(archSrc).toMatch(/const\s+ARCHITECT_TASK_TIMEOUT_MINUTES\s*=\s*30\b/);
+      const boundedTimeoutHits = archSrc.match(/timeout_minutes:\s*ARCHITECT_TASK_TIMEOUT_MINUTES\b/g) || [];
+      expect(boundedTimeoutHits.length).toBeGreaterThanOrEqual(2);
+      expect(archSrc).not.toMatch(/timeout_minutes:\s*0\b/);
     });
   });
 

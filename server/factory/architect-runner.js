@@ -31,6 +31,8 @@ const PRIORITIZABLE_WORK_ITEM_STATUSES = new Set([
   'verifying',
 ]);
 
+const ARCHITECT_TASK_TIMEOUT_MINUTES = 30;
+
 // Items created through the DB store priority as INTEGER (see migration v14);
 // unit-test fixtures and legacy callers may still pass the string form.
 // Accept both to keep architect prioritization consistent across call paths.
@@ -645,15 +647,10 @@ async function runArchitectLLM(prompt, project_id, projectPath) {
       working_directory: projectPath,
       kind: 'architect_cycle',
       project_id,
-      // 0 = no enforced wall-clock timeout. The architect-runner polls
-      // until the task reaches a terminal state (completed/failed/cancelled)
-      // or the row vanishes. Provider-layer stall detection (see
-      // configure_stall_detection) is the bound on hung tasks; hardcoded
-      // wall-clock budgets here previously killed viable codex work that
-      // exceeded the inner timeout while the outer poll still had budget
-      // (Phase T/W aligned the layers; 2026-05-02 confirmed the alignment
-      // itself was the wrong shape — kill destruction, keep polling).
-      timeout_minutes: 0,
+      // The outer loop still polls terminal task state, but the submitted
+      // provider task needs a finite bound so silent fallback providers
+      // cannot hold the factory loop forever.
+      timeout_minutes: ARCHITECT_TASK_TIMEOUT_MINUTES,
     });
     taskId = task_id;
     if (!taskId) {
@@ -665,8 +662,8 @@ async function runArchitectLLM(prompt, project_id, projectPath) {
     return null;
   }
 
-  // Poll until the task reaches a terminal state. No wall-clock deadline:
-  // stall detection at the provider layer is what bounds hung tasks.
+  // Poll until the task reaches a terminal state. The submitted task carries
+  // the provider wall-clock bound.
   while (true) {
     const task = taskCore.getTask(taskId);
     if (!task) {
@@ -726,10 +723,9 @@ async function submitArchitectJsonPrompt(prompt, project_id, projectPath, kind =
       // failure context — context-stuffing on top of that pushed Codex into
       // exploring the repo for a "JSON only" rewrite (2026-05-02 live).
       ...(recoveryJsonTask ? { context_stuff: false, study_context: false } : {}),
-      // 0 = no enforced wall-clock timeout. Polling below bounds the wait
-      // by terminal task state, not by an arbitrary minute count. Stall
-      // detection is the safety net against hung tasks.
-      timeout_minutes: 0,
+      // The poll below remains terminal-state based; the provider task itself
+      // is bounded so a silent JSON rewrite cannot block auto-advance forever.
+      timeout_minutes: ARCHITECT_TASK_TIMEOUT_MINUTES,
     });
     taskId = task_id;
     if (!taskId) {
@@ -741,8 +737,8 @@ async function submitArchitectJsonPrompt(prompt, project_id, projectPath, kind =
     return null;
   }
 
-  // Poll until the task reaches a terminal state. No wall-clock deadline:
-  // stall detection at the provider layer is what bounds hung tasks.
+  // Poll until the task reaches a terminal state. The submitted task carries
+  // the provider wall-clock bound.
   while (true) {
     const task = taskCore.getTask(taskId);
     if (!task) {

@@ -12,8 +12,8 @@
  * response was not a string`.
  *
  * 2026-05-02 update: the deadline_exceeded mode was removed when the
- * architect-runner switched to poll-only with no wall-clock deadline.
- * Stall detection at the provider layer is the new bound on hung tasks.
+ * architect-runner switched to terminal-state polling. The submitted
+ * provider task carries the hung-task bound.
  */
 
 'use strict';

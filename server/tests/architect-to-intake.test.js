@@ -216,6 +216,10 @@ describe('architect backlog promotion to intake', () => {
     const cycle = await runArchitectCycle(project.id, 'manual');
     const items = factoryIntake.listWorkItems({ project_id: project.id });
 
+    expect(submitFactoryInternalTaskMock).toHaveBeenCalledWith(expect.objectContaining({
+      kind: 'architect_cycle',
+      timeout_minutes: 30,
+    }));
     expect(items).toHaveLength(2);
     expect(items).toEqual(expect.arrayContaining([
       expect.objectContaining({
