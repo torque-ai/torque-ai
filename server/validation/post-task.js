@@ -697,7 +697,6 @@ function checkFileQuality(filePath, options = {}) {
       /^\s*(?:\/\/|#)\s*\.\.\.$/m,                 // Comment line with just ellipsis (// or #)
       ...PLACEHOLDER_SIGNAL_PATTERNS.map(signal => signal.regex),
       /{\s*(?:\/\/|#)\s*TODO\s*}/,                 // Empty block with only TODO marker (// or #)
-      /=>\s*{\s*}/,                               // Empty arrow function body
     ];
     for (const pattern of placeholderPatterns) {
       if (pattern.test(content)) {

@@ -264,6 +264,23 @@ module.exports = { sum, multiply };
       expect(result.issues.some(i => i.includes('lines of code'))).toBe(false);
     });
 
+    it('allows intentional empty arrow no-op callbacks', () => {
+      const workingDir = makeWorkDir('quality-noop-arrow');
+      const filePath = writeFile(workingDir, 'commands.js', `
+async function handleAwait(args) {
+  const log = args._log || (() => {});
+  log('waiting');
+  return true;
+}
+
+module.exports = { handleAwait };
+`.trim());
+
+      const result = mod.checkFileQuality(filePath);
+      expect(result.valid).toBe(true);
+      expect(result.issues.some(i => i.includes('placeholder/stub'))).toBe(false);
+    });
+
     it('detects placeholder and accidental diff content', () => {
       const workingDir = makeWorkDir('quality-placeholders');
       const filePath = writeFile(workingDir, 'bad.js', `
