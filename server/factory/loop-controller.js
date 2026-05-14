@@ -627,7 +627,135 @@ function findReusableReplacementWorktreeOwner(args) {
   return isReusableWorktreeOwner(candidate) ? candidate : null;
 }
 
-function maybeReuseCompletedWorktreeOwner({
+function getReusedFactoryWorktreeBaseRef(record, project, worktreePath) {
+  return record?.base_branch
+    || record?.baseBranch
+    || detectDefaultBranch(worktreePath || project?.path || process.cwd())
+    || 'main';
+}
+
+function getStaleBranchCommitThreshold(project) {
+  try {
+    const projectConfig = project?.config_json ? JSON.parse(project.config_json) : {};
+    const thresholdValue = Number(projectConfig.stale_branch_commit_threshold);
+    return Number.isFinite(thresholdValue) ? thresholdValue : 0;
+  } catch {
+    return 0;
+  }
+}
+
+async function ensureReusedFactoryWorktreeFresh({
+  project,
+  workItem,
+  worktreeRecord,
+  worktreePath,
+  batchId,
+  reuseContext,
+}) {
+  const branch = worktreeRecord?.branch || null;
+  if (!worktreeRecord || !worktreePath || !branch) {
+    return { ok: true, checked: false, reason: 'missing_worktree_metadata' };
+  }
+
+  const baseRef = getReusedFactoryWorktreeBaseRef(worktreeRecord, project, worktreePath);
+  const threshold = getStaleBranchCommitThreshold(project);
+  const freshness = await branchFreshness.checkBranchFreshness({
+    worktreePath,
+    branch,
+    baseRef,
+    threshold,
+  });
+
+  if (!freshness.stale) {
+    return { ok: true, checked: true, freshness, baseRef, threshold };
+  }
+
+  safeLogDecision({
+    project_id: project.id,
+    stage: LOOP_STATES.EXECUTE,
+    action: 'factory_worktree_reuse_stale_detected',
+    reasoning: `Reused factory worktree ${branch} is stale versus ${baseRef}; attempting automatic rebase before ${reuseContext}.`,
+    inputs: { ...getWorkItemDecisionContext(workItem) },
+    outcome: {
+      factory_worktree_id: worktreeRecord.id,
+      worktree_id: worktreeRecord.vcWorktreeId,
+      worktree_path: worktreePath,
+      branch,
+      baseRef,
+      threshold,
+      commits_behind: freshness.commitsBehind,
+      stale_files: freshness.staleFiles,
+      reuse_context: reuseContext,
+    },
+    confidence: 1,
+    batch_id: batchId,
+  });
+
+  const rebaseResult = await branchFreshness.attemptRebase(worktreePath, branch, baseRef);
+  if (rebaseResult.ok) {
+    safeLogDecision({
+      project_id: project.id,
+      stage: LOOP_STATES.EXECUTE,
+      action: 'factory_worktree_reuse_auto_rebased',
+      reasoning: `Automatically rebased reused factory worktree ${branch} onto ${baseRef} before ${reuseContext}.`,
+      inputs: { ...getWorkItemDecisionContext(workItem) },
+      outcome: {
+        factory_worktree_id: worktreeRecord.id,
+        worktree_id: worktreeRecord.vcWorktreeId,
+        worktree_path: worktreePath,
+        branch,
+        baseRef,
+        reuse_context: reuseContext,
+      },
+      confidence: 1,
+      batch_id: batchId,
+    });
+    return { ok: true, checked: true, rebased: true, freshness, rebaseResult, baseRef, threshold };
+  }
+
+  safeLogDecision({
+    project_id: project.id,
+    stage: LOOP_STATES.EXECUTE,
+    action: 'factory_worktree_reuse_rebase_failed',
+    reasoning: `Automatic rebase of reused factory worktree ${branch} onto ${baseRef} failed; skipping reuse so the factory can create a fresh worktree.`,
+    inputs: { ...getWorkItemDecisionContext(workItem) },
+    outcome: {
+      factory_worktree_id: worktreeRecord.id,
+      worktree_id: worktreeRecord.vcWorktreeId,
+      worktree_path: worktreePath,
+      branch,
+      baseRef,
+      threshold,
+      commits_behind: freshness.commitsBehind,
+      stale_files: freshness.staleFiles,
+      error: rebaseResult.error,
+      reuse_context: reuseContext,
+    },
+    confidence: 1,
+    batch_id: batchId,
+  });
+  return { ok: false, checked: true, rebased: false, freshness, rebaseResult, baseRef, threshold };
+}
+
+async function abandonReusedFactoryWorktreeAfterFreshnessFailure({
+  worktreeRunner,
+  worktreeRecord,
+  reason,
+}) {
+  if (!worktreeRecord?.id) {
+    return;
+  }
+  factoryWorktrees.markAbandoned(worktreeRecord.id, reason);
+  if (typeof worktreeRunner?.abandon === 'function' && worktreeRecord.vcWorktreeId) {
+    await worktreeRunner.abandon({
+      id: worktreeRecord.vcWorktreeId,
+      branch: worktreeRecord.branch,
+      reason,
+    });
+  }
+}
+
+async function maybeReuseCompletedWorktreeOwner({
   owner,
   ownerStatus,
   ownerSource,
@@ -639,6 +767,18 @@ function maybeReuseCompletedWorktreeOwner({
   executeLogBatchId,
 }) {
   if (!isReusableWorktreeOwner(owner, ownerStatus) || !staleWorktreePath || !fs.existsSync(staleWorktreePath)) {
+    return null;
+  }
+
+  const freshness = await ensureReusedFactoryWorktreeFresh({
+    project,
+    workItem: targetItem,
+    worktreeRecord: stale,
+    worktreePath: staleWorktreePath,
+    batchId: executeLogBatchId,
+    reuseContext: 'completed_owner_reuse',
+  });
+  if (!freshness.ok) {
     return null;
   }
 
@@ -5132,6 +5272,7 @@ async function prepareAutoGeneratedPlanArtifactWorktree({
   }
 
   const activeWorktreePath = getFactoryWorktreePath(activeWorktree);
+  let activeWorktreeAbandonedForFreshness = false;
   if (activeWorktreePath && fs.existsSync(activeWorktreePath)) {
     if (!factoryWorktreeBelongsToWorkItem(activeWorktree, workItem)) {
       safeLogDecision({
@@ -5153,38 +5294,55 @@ async function prepareAutoGeneratedPlanArtifactWorktree({
         batch_id: batchId,
       });
     } else {
-      safeLogDecision({
-        project_id: project.id,
-        stage: LOOP_STATES.EXECUTE,
-        action: 'plan_generation_worktree_reused',
-        reasoning: 'Reusing the active factory work-item worktree for auto-generated plan artifacts.',
-        inputs: { ...getWorkItemDecisionContext(workItem) },
-        outcome: {
-          factory_worktree_id: activeWorktree.id,
-          worktree_id: activeWorktree.vcWorktreeId,
-          worktree_path: activeWorktreePath,
-          branch: activeWorktree.branch,
-          batch_id: batchId,
-        },
-        confidence: 1,
-        batch_id: batchId,
-      });
-      prepareReusedFactoryWorktreeDependencies(activeWorktreePath, {
-        project_id: project.id,
-        work_item_id: workItem.id,
-        batch_id: batchId,
-        reuse_context: 'plan_generation',
-      });
-      return {
-        batchId,
+      const freshness = await ensureReusedFactoryWorktreeFresh({
+        project,
+        workItem,
         worktreeRecord: activeWorktree,
-        workingDirectory: activeWorktreePath,
-        planPath: buildAutoGeneratedPlanPath(project, workItem, activeWorktreePath),
-      };
+        worktreePath: activeWorktreePath,
+        batchId,
+        reuseContext: 'plan_generation',
+      });
+      if (!freshness.ok) {
+        await abandonReusedFactoryWorktreeAfterFreshnessFailure({
+          worktreeRunner,
+          worktreeRecord: activeWorktree,
+          reason: 'stale_rebase_failed_before_plan_generation',
+        });
+        activeWorktreeAbandonedForFreshness = true;
+      } else {
+        safeLogDecision({
+          project_id: project.id,
+          stage: LOOP_STATES.EXECUTE,
+          action: 'plan_generation_worktree_reused',
+          reasoning: 'Reusing the active factory work-item worktree for auto-generated plan artifacts.',
+          inputs: { ...getWorkItemDecisionContext(workItem) },
+          outcome: {
+            factory_worktree_id: activeWorktree.id,
+            worktree_id: activeWorktree.vcWorktreeId,
+            worktree_path: activeWorktreePath,
+            branch: activeWorktree.branch,
+            batch_id: batchId,
+          },
+          confidence: 1,
+          batch_id: batchId,
+        });
+        prepareReusedFactoryWorktreeDependencies(activeWorktreePath, {
+          project_id: project.id,
+          work_item_id: workItem.id,
+          batch_id: batchId,
+          reuse_context: 'plan_generation',
+        });
+        return {
+          batchId,
+          worktreeRecord: activeWorktree,
+          workingDirectory: activeWorktreePath,
+          planPath: buildAutoGeneratedPlanPath(project, workItem, activeWorktreePath),
+        };
+      }
     }
   }
 
-  if (activeWorktree && factoryWorktreeBelongsToWorkItem(activeWorktree, workItem)) {
+  if (activeWorktree && factoryWorktreeBelongsToWorkItem(activeWorktree, workItem) && !activeWorktreeAbandonedForFreshness) {
     safeLogDecision({
       project_id: project.id,
       stage: LOOP_STATES.EXECUTE,
@@ -9879,52 +10037,71 @@ async function executePlanFileStage(project, instance, workItem) {
         && (resumedDeferredExecute || !activeWorktree.owningTaskId)
       );
       if (canReuseActiveWorktree) {
-        worktreeRecord = activeWorktree;
-        executionWorkingDirectory = activeWorktreePath;
-        prepareReusedFactoryWorktreeDependencies(activeWorktreePath, {
-          project_id: project.id,
-          work_item_id: targetItem.id,
-          batch_id: executeLogBatchId,
-          reuse_context: resumedDeferredExecute ? 'deferred_execute' : 'execute',
+        const freshness = await ensureReusedFactoryWorktreeFresh({
+          project,
+          workItem: targetItem,
+          worktreeRecord: activeWorktree,
+          worktreePath: activeWorktreePath,
+          batchId: executeLogBatchId,
+          reuseContext: resumedDeferredExecute ? 'deferred_execute' : 'execute',
         });
-        if (resumedDeferredExecute) {
-          safeLogDecision({
+        if (freshness.ok) {
+          worktreeRecord = activeWorktree;
+          executionWorkingDirectory = activeWorktreePath;
+          prepareReusedFactoryWorktreeDependencies(activeWorktreePath, {
             project_id: project.id,
-            stage: LOOP_STATES.EXECUTE,
-            action: 'execute_deferred_worktree_reused',
-            reasoning: 'Reusing the active batch worktree for a resumed deferred EXECUTE batch.',
-            inputs: {
-              ...getWorkItemDecisionContext(targetItem),
-              deferral_decision_id: resumedDeferredExecute.id,
-            },
-            outcome: {
-              factory_worktree_id: activeWorktree.id,
-              worktree_id: activeWorktree.vcWorktreeId,
-              worktree_path: activeWorktreePath,
-              branch: activeWorktree.branch,
-              batch_id: executeLogBatchId,
-            },
-            confidence: 1,
+            work_item_id: targetItem.id,
             batch_id: executeLogBatchId,
+            reuse_context: resumedDeferredExecute ? 'deferred_execute' : 'execute',
           });
-        } else {
-          safeLogDecision({
-            project_id: project.id,
-            stage: LOOP_STATES.EXECUTE,
-            action: 'execute_batch_worktree_reused',
-            reasoning: 'Reusing the active batch worktree already prepared for this EXECUTE batch.',
-            inputs: {
-              ...getWorkItemDecisionContext(targetItem),
-            },
-            outcome: {
-              factory_worktree_id: activeWorktree.id,
-              worktree_id: activeWorktree.vcWorktreeId,
-              worktree_path: activeWorktreePath,
-              branch: activeWorktree.branch,
+          if (resumedDeferredExecute) {
+            safeLogDecision({
+              project_id: project.id,
+              stage: LOOP_STATES.EXECUTE,
+              action: 'execute_deferred_worktree_reused',
+              reasoning: 'Reusing the active batch worktree for a resumed deferred EXECUTE batch.',
+              inputs: {
+                ...getWorkItemDecisionContext(targetItem),
+                deferral_decision_id: resumedDeferredExecute.id,
+              },
+              outcome: {
+                factory_worktree_id: activeWorktree.id,
+                worktree_id: activeWorktree.vcWorktreeId,
+                worktree_path: activeWorktreePath,
+                branch: activeWorktree.branch,
+                batch_id: executeLogBatchId,
+              },
+              confidence: 1,
               batch_id: executeLogBatchId,
-            },
-            confidence: 1,
+            });
+          } else {
+            safeLogDecision({
+              project_id: project.id,
+              stage: LOOP_STATES.EXECUTE,
+              action: 'execute_batch_worktree_reused',
+              reasoning: 'Reusing the active batch worktree already prepared for this EXECUTE batch.',
+              inputs: {
+                ...getWorkItemDecisionContext(targetItem),
+              },
+              outcome: {
+                factory_worktree_id: activeWorktree.id,
+                worktree_id: activeWorktree.vcWorktreeId,
+                worktree_path: activeWorktreePath,
+                branch: activeWorktree.branch,
+                batch_id: executeLogBatchId,
+              },
+              confidence: 1,
+              batch_id: executeLogBatchId,
+            });
+          }
+        } else {
+          logger.warn('EXECUTE stage: active batch worktree reuse skipped after freshness check failed', {
+            project_id: project.id,
+            work_item_id: targetItem.id,
             batch_id: executeLogBatchId,
+            factory_worktree_id: activeWorktree.id,
+            worktree_path: activeWorktreePath,
+            branch: activeWorktree.branch,
           });
         }
       } else if (activeWorktree) {
@@ -10209,7 +10386,7 @@ async function executePlanFileStage(project, instance, workItem) {
             reusableOwnerSource = 'replacement_task_same_worktree';
           }
         }
-        const reuse = maybeReuseCompletedWorktreeOwner({
+        const reuse = await maybeReuseCompletedWorktreeOwner({
           owner: reusableOwner,
           ownerStatus: reusableOwnerStatus,
           ownerSource: reusableOwnerSource,
