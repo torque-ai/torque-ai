@@ -736,7 +736,7 @@ function start(options = {}) {
       // When requestedPort was 0, the kernel-assigned port lives on
       // server.address().port. Sync apiPort so stop() / re-entrant
       // start() checks see the real value, not the placeholder 0.
-      const address = apiServer.address();
+      const address = typeof apiServer.address === 'function' ? apiServer.address() : null;
       if (address && typeof address.port === 'number') {
         apiPort = address.port;
       }
