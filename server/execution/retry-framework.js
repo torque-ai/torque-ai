@@ -175,6 +175,16 @@ function handleRetryLogic(ctx) {
   }
   logger.info(`Task ${taskId} will retry in ${delayMs/1000}s (attempt ${retryInfo.retryCount}/${retryInfo.maxRetries}): ${errorClassification.reason}`);
   const sanitizedOutput = sanitizeOutput(proc.output);
+  const retryDeps = deps;
+  const retryTimeouts = retryDeps.pendingRetryTimeouts;
+  if (
+    !retryTimeouts
+    || typeof retryTimeouts.set !== 'function'
+    || typeof retryTimeouts.delete !== 'function'
+  ) {
+    logger.info(`Task ${taskId} retry refused: pending retry timeout registry unavailable`);
+    return;
+  }
 
   // Record retry attempt
   try {
@@ -233,8 +243,8 @@ function handleRetryLogic(ctx) {
 
   // Schedule retry after delay
   const retryTimeoutHandle = setTimeout(() => {
-    deps.pendingRetryTimeouts.delete(taskId);
-    const currentTask = deps.db.getTask(taskId);
+    retryTimeouts.delete(taskId);
+    const currentTask = retryDeps.db.getTask(taskId);
     if (!currentTask) {
       logger.info(`Retry cancelled for task ${taskId} - task no longer exists`);
       return;
@@ -256,9 +266,9 @@ function handleRetryLogic(ctx) {
       return;
     }
     // Transition from retry_scheduled → queued now that the delay has fired
-    deps.db.updateTaskStatus(taskId, 'queued', { retry_count: (currentTask.retry_count || 0) + 1 });
+    retryDeps.db.updateTaskStatus(taskId, 'queued', { retry_count: (currentTask.retry_count || 0) + 1 });
     try {
-      const p = deps.startTask(taskId);
+      const p = retryDeps.startTask(taskId);
       if (p && typeof p.catch === 'function') {
         p.catch(err => {
           logger.info(`Retry async failure for task ${taskId}:`, err.message);
@@ -267,7 +277,7 @@ function handleRetryLogic(ctx) {
     } catch (err) {
       logger.info(`Retry failed for task ${taskId}:`, err.message);
       try {
-        deps.db.updateTaskStatus(taskId, 'failed', {
+        retryDeps.db.updateTaskStatus(taskId, 'failed', {
           error_output: `Retry failed: ${err.message}`
         });
       } catch (dbErr) {
@@ -276,7 +286,7 @@ function handleRetryLogic(ctx) {
     }
   }, delayMs);
 
-  deps.pendingRetryTimeouts.set(taskId, retryTimeoutHandle);
+  retryTimeouts.set(taskId, retryTimeoutHandle);
 
   // Trigger retry webhook
   try {

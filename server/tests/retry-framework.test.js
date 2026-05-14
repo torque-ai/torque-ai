@@ -83,7 +83,9 @@ function createScenario(options = {}) {
     Object.assign(deps, options.deps);
   }
 
-  retryFramework.init(deps);
+  if (!options.skipInit) {
+    retryFramework.init(deps);
+  }
 
   return {
     deps,
@@ -120,6 +122,26 @@ describe('retry-framework', () => {
       scenario.deps.pendingRetryTimeouts.clear();
     }
     vi.useRealTimers();
+  });
+
+  it('uses captured factory deps when the retry delay fires', async () => {
+    scenario = createScenario({ skipInit: true });
+    const framework = retryFramework.createRetryFramework(scenario.deps);
+
+    framework.handleRetryLogic(scenario.ctx);
+
+    expect(scenario.ctx.earlyExit).toBe(true);
+    expect(scenario.deps.pendingRetryTimeouts.has(scenario.taskId)).toBe(true);
+
+    await vi.advanceTimersByTimeAsync(1000);
+
+    expect(scenario.deps.pendingRetryTimeouts.has(scenario.taskId)).toBe(false);
+    expect(scenario.deps.db.updateTaskStatus).toHaveBeenCalledWith(
+      scenario.taskId,
+      'queued',
+      expect.objectContaining({ retry_count: 1 }),
+    );
+    expect(scenario.deps.startTask).toHaveBeenCalledWith(scenario.taskId);
   });
 
   it('does nothing for non-retryable errors', () => {
