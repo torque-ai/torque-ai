@@ -904,9 +904,14 @@ describe('worktree-cutover.sh barrier integration', () => {
       expect(scriptSource).toContain('Cutover to');
     });
 
-    it('sends timeout_minutes in restart request body', () => {
-      expect(scriptSource).toMatch(/\\"timeout_minutes\\"/);
-      expect(scriptSource).toContain('BARRIER_TIMEOUT_MIN');
+    it('sends drain_timeout_ms in restart request body', () => {
+      expect(scriptSource).toMatch(/\\"drain_timeout_ms\\"/);
+      expect(scriptSource).toContain('DRAIN_TIMEOUT_MS');
+    });
+
+    it('defaults cutover restart barriers to a 60-minute drain', () => {
+      expect(scriptSource).toContain('BARRIER_TIMEOUT_MIN=60');
+      expect(scriptSource).toContain('DRAIN_TIMEOUT_MS=3600000');
     });
 
     it('supports CUTOVER_DRY_RUN=1 environment variable', () => {

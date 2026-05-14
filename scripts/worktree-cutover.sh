@@ -1,11 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Parse flags. The new --graceful flag (subprocess-detachment design §2.5.3
-# Phase D) extends the drain window to 10 min for awaiter-sensitive
-# operations; without it, the cutover uses TORQUE's new fast 60-second
-# default. Operators who relied on today's long drain (60 min) can still
-# pin the legacy behavior via `BARRIER_TIMEOUT_MIN=60 cutover ...`.
+# Parse flags. --graceful is retained as an explicit long-drain alias, but
+# cutovers default to the documented 60-minute restart-barrier behavior so
+# normal 30-60 minute factory tasks are not interrupted mid-edit.
 GRACEFUL_DRAIN=0
 POSITIONAL=()
 while [ $# -gt 0 ]; do
@@ -641,46 +639,40 @@ count_nondetachable_running() {
 
 if [ "$TORQUE_RUNNING" = "true" ]; then
   # Cutover drain budget. Subprocess-detachment design §2.5.3 (Phase D)
-  # reframes the drain from a correctness mechanism (don't kill running
-  # tasks) to a UX preference (give awaiters time to flush). With Phase C
-  # re-adoption in place, surviving codex subprocesses are picked back up
-  # by the new instance, so a fast restart is safe.
+  # makes re-adoption a backstop for survivors, but the default cutover path
+  # should still let normal factory-owned work finish in its worktree before
+  # restarting the control plane.
   #
-  # --graceful — 10-minute drain (awaiter-sensitive cutovers). Use when
-  #              dashboards / await_task callers need to see results
-  #              before the control plane reshuffles.
-  # default —    5-minute drain (TORQUE's current default, bumped from 60s
-  #              on 2026-05-06 — 60s reliably hit drain timeout mid-codex-
-  #              call, and the parent-death + re-adoption cycle is
-  #              disruptive even when it succeeds).
-  # fast —       export BARRIER_TIMEOUT_MIN=1 to pin the legacy 60s behavior
+  # --graceful — 60-minute drain (same as the default; kept for scripts
+  #              that already pass the flag for awaiter-sensitive cutovers).
+  # default —    60-minute drain, matching the repo-level restart-barrier
+  #              rules. Factory/Codex tasks often run 30-60 minutes, and a
+  #              timeout-triggered restart creates avoidable re-adoption and
+  #              resubmission churn even when it eventually recovers.
+  # fast —       export BARRIER_TIMEOUT_MIN=1 to request 60-second behavior
   #              for fast iteration during TORQUE-itself development.
-  # legacy —     export BARRIER_TIMEOUT_MIN=60 to pin the original
-  #              60-minute drain for environments that haven't enabled
-  #              detachment yet.
+  # custom —     export BARRIER_TIMEOUT_MIN=N to pin any explicit drain.
   # Auto-extend the drain when non-detachable providers are running (ollama,
-  # cloud-API providers, etc.). The 5-min default is sized for typical
-  # codex calls, but anything outside DETACHABLE_PROVIDERS gets killed by
-  # the startup reconciler on restart — losing whatever progress it had
-  # accumulated. Bumping to 30 min lets a mid-flight ollama agentic task
-  # finish naturally. Set CUTOVER_NONDETACH_MIN to override (e.g. 0 to
-  # disable, 60 for an hour).
+  # cloud-API providers, etc.). Anything outside DETACHABLE_PROVIDERS gets
+  # killed by the startup reconciler on restart — losing whatever progress it had
+  # accumulated. CUTOVER_NONDETACH_MIN can extend beyond 60 for slower
+  # environments; BARRIER_TIMEOUT_MIN remains the explicit override.
   NONDETACH_RUNNING=$(count_nondetachable_running)
-  AUTO_EXTEND_MIN=${CUTOVER_NONDETACH_MIN:-30}
+  AUTO_EXTEND_MIN=${CUTOVER_NONDETACH_MIN:-60}
 
   if [ "$GRACEFUL_DRAIN" = "1" ]; then
-    BARRIER_TIMEOUT_MIN=${BARRIER_TIMEOUT_MIN:-10}
+    BARRIER_TIMEOUT_MIN=${BARRIER_TIMEOUT_MIN:-60}
     DRAIN_TIMEOUT_MS=$((BARRIER_TIMEOUT_MIN * 60 * 1000))
   elif [ -n "${BARRIER_TIMEOUT_MIN:-}" ]; then
     DRAIN_TIMEOUT_MS=$((BARRIER_TIMEOUT_MIN * 60 * 1000))
-  elif [ "${NONDETACH_RUNNING:-0}" -gt 0 ] && [ "${AUTO_EXTEND_MIN:-0}" -gt 0 ]; then
+  elif [ "${NONDETACH_RUNNING:-0}" -gt 0 ] && [ "${AUTO_EXTEND_MIN:-0}" -gt 60 ]; then
     BARRIER_TIMEOUT_MIN=$AUTO_EXTEND_MIN
     DRAIN_TIMEOUT_MS=$((BARRIER_TIMEOUT_MIN * 60 * 1000))
     echo "  ${NONDETACH_RUNNING} non-detachable running task(s) detected — extending drain to ${BARRIER_TIMEOUT_MIN}m so they finish before restart."
-    echo "  (Override with CUTOVER_NONDETACH_MIN=<minutes> or BARRIER_TIMEOUT_MIN=<minutes>; set CUTOVER_NONDETACH_MIN=0 to disable.)"
+    echo "  (Override with CUTOVER_NONDETACH_MIN=<minutes> or BARRIER_TIMEOUT_MIN=<minutes>.)"
   else
-    BARRIER_TIMEOUT_MIN=5
-    DRAIN_TIMEOUT_MS=300000
+    BARRIER_TIMEOUT_MIN=60
+    DRAIN_TIMEOUT_MS=3600000
   fi
 
   parse_restart_cooldown_wait_ms() {
@@ -735,7 +727,7 @@ if [ "$TORQUE_RUNNING" = "true" ]; then
     echo "  GET ${TORQUE_API}/api/v2/tasks?status=queued&provider=system&limit=10"
     echo "[dry-run] Would submit restart barrier:"
     echo "  POST ${TORQUE_API}/api/v2/system/restart-server"
-    echo "  Body: {\"reason\":\"Cutover to ${FEATURE_NAME}\",\"timeout_minutes\":${BARRIER_TIMEOUT_MIN}}"
+    echo "  Body: {\"reason\":\"Cutover to ${FEATURE_NAME}\",\"drain_timeout_ms\":${DRAIN_TIMEOUT_MS}}"
     echo "[dry-run] Would poll barrier task:"
     echo "  GET ${TORQUE_API}/api/v2/tasks/<task_id>"
     echo "[dry-run] Would confirm process turnover before accepting health:"

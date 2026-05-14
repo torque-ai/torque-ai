@@ -28,7 +28,7 @@ const tools = [
         },
         drain_timeout_ms: {
           type: 'number',
-          description: 'Maximum milliseconds to wait for the pipeline to drain (default: 60000 — 60 s). 0 = immediate restart with no drain (re-adoption catches survivors when subprocess detachment is enabled). 600000 = 10-min graceful drain (today\'s cutover --graceful behavior). Subprocess-detachment design §2.5.3.'
+          description: 'Maximum milliseconds to wait for the pipeline to drain (default: 3600000 — 60 min). 0 = immediate restart with no drain (re-adoption catches survivors when subprocess detachment is enabled). 60000 = fast 60 s drain. 600000 = explicit 10-min drain. Subprocess-detachment design §2.5.3.'
         },
         drain_timeout_minutes: { type: 'number', description: 'Legacy: drain timeout in minutes. Honored only when drain_timeout_ms is unset.' },
         timeout_minutes: { type: 'number', description: 'Legacy alias for drain_timeout_minutes.' },

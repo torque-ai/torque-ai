@@ -505,29 +505,24 @@ async function handleRestartServerBarrier(args) {
   // awaiters time to flush) rather than a correctness mechanism (avoid
   // killing in-flight subprocesses).
   //
-  // Default 300_000 ms (5 min) — bumped from the original 60s default
-  // (2026-05-06) after observing that 60s reliably hits drain timeout
-  // mid-codex-call. Re-adoption rescues detached survivors but a single
-  // model-API roundtrip routinely takes 30-60s, and the parent-death +
-  // re-adoption cycle is disruptive even when it succeeds (in-memory
-  // byte counts reset, elapsed clock resets, occasional re-adoption
-  // failures get cancelled with cancel_reason='server_restart'). 5 min
-  // covers a typical codex inference call plus a brief commit/cleanup
-  // tail. Operators who want the fast-restart behavior back can pass
-  // `drain_timeout_ms: 60_000` explicitly per call, set
-  // `BARRIER_TIMEOUT_MIN=1` for cutovers, or extend further with
-  // `--graceful` (10 min) / `BARRIER_TIMEOUT_MIN=N`.
+  // Default 3_600_000 ms (60 min). Factory/Codex tasks routinely run
+  // 30-60 minutes, and the parent-death + re-adoption cycle is disruptive
+  // even when it succeeds (in-memory byte counts reset, elapsed clock resets,
+  // occasional re-adoption failures get cancelled with
+  // cancel_reason='server_restart'). Operators who want fast restart behavior
+  // can pass `drain_timeout_ms: 60_000` explicitly per call or set
+  // `BARRIER_TIMEOUT_MIN=1` for cutovers.
   //
   //   `drain_timeout_ms = 0`        → immediate restart
   //   `drain_timeout_ms = 60_000`   → fast restart (legacy 1-min default)
-  //   `drain_timeout_ms = 300_000`  → 5-min drain (current default)
-  //   `drain_timeout_ms = 600_000`  → 10-min graceful drain (cutover --graceful)
-  //   `drain_timeout_ms = 3_600_000`→ 60-min drain (very-legacy default)
+  //   `drain_timeout_ms = 300_000`  → 5-min drain (explicit short drain)
+  //   `drain_timeout_ms = 600_000`  → 10-min drain (explicit graceful drain)
+  //   `drain_timeout_ms = 3_600_000`→ 60-min drain (current default)
   // Backward compat: `drain_timeout_minutes` and the older
   // `timeout_minutes` arg are still honored when `drain_timeout_ms` is
   // not provided. Caller-supplied 0 is treated as a real choice (no drain),
   // not as missing — this is the operator's "skip drain entirely" knob.
-  const DEFAULT_DRAIN_TIMEOUT_MS = 300_000;
+  const DEFAULT_DRAIN_TIMEOUT_MS = 3_600_000;
   let drainTimeoutMs;
   if (Number.isFinite(Number(args.drain_timeout_ms))) {
     drainTimeoutMs = Math.max(0, Number(args.drain_timeout_ms));
