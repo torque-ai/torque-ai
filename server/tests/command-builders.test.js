@@ -112,6 +112,24 @@ describe('execution/command-builders', () => {
       expect(result.stdinPrompt).toBe('[wrapped:claude-cli] Analyze code\nfile-ctx-string');
     });
 
+    it('does not wrap factory structured-output prompts as coding tasks', () => {
+      const deps = initModule();
+      const task = {
+        task_description: 'Return ONLY valid JSON.',
+        metadata: {
+          factory_internal: true,
+          kind: 'architect_cycle',
+        },
+        files: ['a.js'],
+        project: 'factory-architect',
+      };
+
+      const result = commandBuilders.buildClaudeCliCommand(task, null, 'file-ctx-string');
+
+      expect(deps.wrapWithInstructions).not.toHaveBeenCalled();
+      expect(result.stdinPrompt).toBe('Return ONLY valid JSON.');
+    });
+
     it('defaults cliPath to "claude" on non-Windows or "claude.cmd" on Windows', () => {
       initModule();
       const task = { task_description: 'test' };
@@ -225,6 +243,25 @@ describe('execution/command-builders', () => {
         expect(deps.wrapWithInstructions).toHaveBeenCalled();
         expect(result.stdinPrompt).toContain('[wrapped:codex]');
       });
+
+      it('does not wrap factory structured-output prompts for codex fallback mode', async () => {
+        const deps = initModule();
+        const task = {
+          task_description: 'Return ONLY valid JSON.',
+          model: 'gpt-5-codex',
+          working_directory: '/proj',
+          metadata: {
+            factory_internal: true,
+            kind: 'architect_cycle',
+          },
+        };
+
+        const result = await commandBuilders.buildCodexCommand(task, null, 'ctx', null);
+
+        expect(deps.wrapWithInstructions).not.toHaveBeenCalled();
+        expect(deps.codexIntelligence.buildCodexEnrichedPrompt).not.toHaveBeenCalled();
+        expect(result.stdinPrompt).toBe('Return ONLY valid JSON.');
+      });
     });
 
     // --- Enriched path (resolvedFiles + working_directory) ---
@@ -245,6 +282,29 @@ describe('execution/command-builders', () => {
           task, resolvedFiles, '/proj', ''
         );
         expect(result.stdinPrompt).toContain('enriched:Implement feature');
+      });
+
+      it('keeps factory structured-output prompts raw even when files resolve', async () => {
+        const deps = initModule({
+          providerCfg: makeProviderCfg({ enabled: true }),
+        });
+        const task = {
+          task_description: 'Return ONLY valid JSON.',
+          model: 'gpt-5-codex',
+          working_directory: '/proj',
+          metadata: {
+            factory_internal: true,
+            kind: 'architect_cycle',
+          },
+        };
+        const resolvedFiles = [{ actual: '/proj/a.js', mentioned: 'a.js' }];
+
+        const result = await commandBuilders.buildCodexCommand(task, null, 'ctx', resolvedFiles);
+
+        expect(deps.wrapWithInstructions).not.toHaveBeenCalled();
+        expect(deps.contextEnrichment.enrichResolvedContextAsync).not.toHaveBeenCalled();
+        expect(deps.codexIntelligence.buildCodexEnrichedPrompt).not.toHaveBeenCalled();
+        expect(result.stdinPrompt).toBe('Return ONLY valid JSON.');
       });
 
       it('calls contextEnrichment when enrichment config is enabled', async () => {

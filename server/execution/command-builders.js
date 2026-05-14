@@ -9,6 +9,7 @@ const logger = require('../logger').child({ component: 'command-builders' });
 const { applyStudyContextPrompt } = require('../integrations/codebase-study-engine');
 const { resolveCodexNativeBinary } = require('./codex-native-resolve');
 const { classifyReasoningEffort } = require('./codex-reasoning-effort');
+const { isFactoryStructuredOutputTask } = require('./completion-policy');
 
 // Git worktrees store per-worktree state at <main>/.git/worktrees/<name>/ and
 // the shared object database + refs at <main>/.git/, both outside the
@@ -94,6 +95,10 @@ function getExecutionDescription(task) {
     : task.task_description;
 }
 
+function shouldUseRawStructuredPrompt(task) {
+  return isFactoryStructuredOutputTask(task?.metadata || task?.task_metadata);
+}
+
 /**
  * @internal — test-only override path. Production resolves via
  * createCommandBuilders(localDeps) inside the container factory.
@@ -119,12 +124,14 @@ function init(overrides = {}) {
 function buildClaudeCliCommand(task, providerConfig, resolvedFileContext) {
   const promptDescription = getExecutionDescription(task);
   const effectiveTaskDescription = applyStudyContextPrompt(promptDescription, task.metadata);
-  const wrappedDescription = _wrapWithInstructions(
-    effectiveTaskDescription,
-    'claude-cli',
-    null,
-    { files: task.files, project: task.project, fileContext: resolvedFileContext }
-  );
+  const wrappedDescription = shouldUseRawStructuredPrompt(task)
+    ? effectiveTaskDescription
+    : _wrapWithInstructions(
+      effectiveTaskDescription,
+      'claude-cli',
+      null,
+      { files: task.files, project: task.project, fileContext: resolvedFileContext }
+    );
   const finalArgs = [
     '--dangerously-skip-permissions',
     '--disable-slash-commands',
@@ -164,7 +171,9 @@ async function buildCodexCommand(task, providerConfig, resolvedFileContext, reso
   const effectiveTaskDescription = applyStudyContextPrompt(promptDescription, task.metadata);
   let stdinPrompt;
 
-  if (resolvedFiles && resolvedFiles.length > 0 && task.working_directory) {
+  if (shouldUseRawStructuredPrompt(task)) {
+    stdinPrompt = effectiveTaskDescription;
+  } else if (resolvedFiles && resolvedFiles.length > 0 && task.working_directory) {
     // Use codex intelligence for enriched, efficient prompt
     const codexEnrichCfg = _providerCfg.getEnrichmentConfig();
     let enrichment = '';
