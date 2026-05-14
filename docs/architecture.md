@@ -443,3 +443,23 @@ database.js (facade)
 | DB sub-modules | `server/db/` | 15+ files |
 | Schema | `server/db/schema-tables.js` | ~3,500 |
 | Constants | `server/constants.js` | ~230 |
+
+---
+
+## Task Distribution Philosophy
+
+TORQUE should be understood as control-tower dispatch, not simple queue draining.
+
+A task is a claim on the right kind of intelligence under user intent, policy, provider capability, and real capacity constraints. If a user chose a provider, that choice matters. If no provider was chosen, the system should wait until a real slot opens and then make a deliberate placement. Providers are specialists with different costs, strengths, and failure modes — not anonymous worker threads.
+
+The system should always be able to explain:
+
+1. What the user asked for
+2. What intent is authoritative
+3. When a real slot opened
+4. Which provider actually executed
+5. Whether the task moved
+6. Why it moved
+7. Who or what moved it
+
+When the runtime cannot answer those questions cleanly, it has drifted from orchestration into freight shuffling. Future routing, fallback, queue, dashboard, and workflow changes should preserve **deliberate placement, legible movement, and accountable control**. Any new routing or scheduling code should be reviewable against those three invariants.

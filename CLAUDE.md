@@ -189,31 +189,9 @@ Free API providers (groq, cerebras, google-ai, openrouter) automatically receive
 - **Budget:** groq/cerebras/openrouter: 96K tokens; google-ai: 800K tokens. Override with `context_budget` per-task.
 - **Over budget:** Task fails with actionable error suggesting google-ai or narrower scope
 
-## Spirit of Task Distribution
+## Task Distribution Philosophy
 
-Torque should be understood as control-tower dispatch, not simple queue draining.
-
-A task is a claim on the right kind of intelligence under user intent, policy, provider capability, and real capacity constraints. If a user chose a provider, that choice matters. If no provider was chosen, the system should wait until a real slot opens and then make a deliberate placement. Providers are specialists with different costs, strengths, and failure modes, not anonymous worker threads.
-
-The system should always be able to explain:
-
-1. what the user asked for
-2. what intent is authoritative
-3. when a real slot opened
-4. which provider actually executed
-5. whether the task moved
-6. why it moved
-7. who or what moved it
-
-When the runtime cannot answer those questions cleanly, it has drifted from orchestration into freight shuffling. Future routing, fallback, queue, dashboard, and workflow changes should preserve deliberate placement, legible movement, and accountable control.
-
-## Model Tiers
-
-All tiers are configured via `set_project_defaults` and the tier config in the database.
-
-Models are auto-discovered from registered Ollama hosts via health checks. Use `list_ollama_hosts` to see what's available.
-
-Override per task: `/torque-submit Write docs for... model=qwen3-coder:30b`
+TORQUE is control-tower dispatch, not freight shuffling. Provider placement must be deliberate, legible, and accountable — the runtime should always be able to explain user intent, when capacity opened, which provider executed, and why. New routing, fallback, queue, or scheduler code should be reviewable against those invariants. Full design rationale: `docs/architecture.md` "Task Distribution Philosophy".
 
 ## Fallback Behavior
 
@@ -400,32 +378,7 @@ These policies require Claude's judgment and cannot be reduced to rules:
 
 ## Project Versioning
 
-TORQUE supports automated semver release management per project. When versioning is enabled, releases are cut automatically on task/workflow completion.
-
-### Enabling Versioning
-
-Enable via `project_metadata`: `versioning_enabled = true`, `versioning_start = "1.0.0"` (default 0.1.0), `versioning_auto_push = false`.
-
-### version_intent (Required for Versioned Projects)
-
-Every task, workflow, and schedule submission to a versioned project **must** include `version_intent`:
-
-| Intent | Bump | Use |
-|--------|------|-----|
-| `feature` | minor | New functionality |
-| `fix` | patch | Bug fixes |
-| `breaking` | major | Breaking changes |
-| `internal` | none | Docs, refactoring, tests |
-
-### Auto-Release
-
-- **Workflow completion** calculates bump from accumulated intents, creates git tag + changelog
-- **Standalone task completion** bumps immediately
-- **Direct commits** auto-tracked via conventional commit prefix (`feat:`, `fix:`, etc.)
-
-### For Direct Claude Changes
-
-When editing versioned projects outside TORQUE, **always use conventional commit messages**. The completion pipeline auto-scans for untracked commits and records them with inferred intent.
+TORQUE supports automated semver release management per project — set `versioning_enabled = true` in `project_metadata` to opt in. When enabled, **every task, workflow, and schedule submission must include `version_intent`** (`feature` / `fix` / `breaking` / `internal`), and releases are cut automatically on completion. For direct edits outside TORQUE, use conventional commit prefixes (`feat:`, `fix:`, `chore:`) so the pipeline can infer intent. Full setup, bump rules, and conventional-commit integration: `docs/versioning.md`.
 
 ## MCP Tool Reference
 
@@ -439,26 +392,7 @@ TORQUE tools are progressively unlocked. Start with the core set, use `get_tool_
 | **Automation** | `set_project_defaults`, `get_project_defaults`, `scan_project`, `submit_scout`, `create_diffusion_plan` |
 | **TypeScript Tools** | `add_ts_interface_members`, `add_ts_method_to_class`, `replace_ts_method_body`, `add_import_statement` |
 
-### TORQUE Automation Tools
-
-- `set_project_defaults` configures default provider, model, verification, privacy, review, and remote-test behavior for a project.
-- `get_project_defaults` returns the current defaults for a project.
-
-Use `get_tool_schema { tool_name: "<name>" }` for full parameter details on any tool.
-
-## Multi-Host Setup
-
-TORQUE distributes Ollama work across registered LAN hosts.
-
-### Adding a Remote Host
-
-Use `add_ollama_host` to register a new machine:
-
-    add_ollama_host { name: "NewHost", url: "http://192.168.1.x:11434" }
-
-### Load Balancing
-
-TORQUE assigns work across healthy hosts automatically. Use `list_ollama_hosts` to inspect host status and `check_ollama_health` to verify connectivity before relying on a remote host.
+Use `get_tool_schema { tool_name: "<name>" }` for full parameter details on any tool. Use `/torque-hosts` to register, list, or health-check Ollama hosts — TORQUE load-balances across healthy hosts automatically.
 
 ## Architecture — DI Container
 
@@ -579,16 +513,7 @@ When submitting work to Ollama, the task description is the instruction set. The
 
 ## Cloud Inference Notes
 
-For open-weight cloud inference, the two specialist providers are:
-
-| Provider | Env Var | Default Model | Concurrency | Pricing (per 1M tokens) |
-|----------|---------|---------------|-------------|-------------------------|
-| **deepinfra** | `DEEPINFRA_API_KEY` | `Qwen/Qwen2.5-72B-Instruct` | 200 per model | $0.13-$1.00 input |
-| **hyperbolic** | `HYPERBOLIC_API_KEY` | `Qwen/Qwen2.5-72B-Instruct` | 120 req/min on Pro | $0.40-$4.00 input |
-
-Both providers use OpenAI-compatible APIs and start disabled until their API keys are configured. A common pattern is to keep simple steps on local providers and route system or test-heavy steps with `step_providers`, for example:
-
-    step_providers: { types: "ollama", events: "ollama", data: "ollama", system: "deepinfra", tests: "deepinfra", wire: "ollama" }
+For open-weight cloud inference at scale, see `docs/cloud-inference.md` — covers DeepInfra and Hyperbolic concurrency limits, default models, pricing, and the `step_providers` pattern for routing simple stages to local Ollama and reasoning/test stages to a cloud specialist.
 
 ## TORQUE Team Pipeline
 
