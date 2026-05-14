@@ -281,6 +281,19 @@ module.exports = { handleAwait };
       expect(result.issues.some(i => i.includes('placeholder/stub'))).toBe(false);
     });
 
+    it('flags direct empty arrow implementation assignments as stubs', () => {
+      const workingDir = makeWorkDir('quality-empty-arrow-implementation');
+      const filePath = writeFile(workingDir, 'handler.js', `
+const handler = () => {};
+const onClick = () => {};
+export default handler;
+`.trim());
+
+      const result = mod.checkFileQuality(filePath);
+      expect(result.valid).toBe(false);
+      expect(result.issues.some(i => i.includes('placeholder/stub'))).toBe(true);
+    });
+
     it('detects placeholder and accidental diff content', () => {
       const workingDir = makeWorkDir('quality-placeholders');
       const filePath = writeFile(workingDir, 'bad.js', `

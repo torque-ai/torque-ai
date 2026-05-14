@@ -132,6 +132,11 @@ const PLACEHOLDER_SIGNAL_PATTERNS = [
   { regex: /\[truncated(?: for brevity)?\]/i, kind: 'truncation marker' },
 ];
 
+const EMPTY_ARROW_IMPLEMENTATION_PATTERNS = [
+  /^\s*(?:export\s+)?(?:const|let|var)\s+[A-Za-z_$][\w$]*\s*=\s*(?:async\s*)?(?:\([^)]*\)|[A-Za-z_$][\w$]*)\s*=>\s*\{\s*\}\s*;?\s*$/m,
+  /^\s*(?:module\.)?exports(?:\.[A-Za-z_$][\w$]*)?\s*=\s*(?:async\s*)?(?:\([^)]*\)|[A-Za-z_$][\w$]*)\s*=>\s*\{\s*\}\s*;?\s*$/m,
+];
+
 function parseGitStatusEntry(line) {
   if (!line || line.length < 4) return null;
 
@@ -703,6 +708,10 @@ function checkFileQuality(filePath, options = {}) {
         issues.push('File contains placeholder/stub content');
         break;
       }
+    }
+    if (!issues.includes('File contains placeholder/stub content') &&
+        EMPTY_ARROW_IMPLEMENTATION_PATTERNS.some(pattern => pattern.test(content))) {
+      issues.push('File contains placeholder/stub content');
     }
 
     // P95/P100: Count stub comments that replace method bodies — 2+ is mass destruction

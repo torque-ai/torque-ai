@@ -68,6 +68,7 @@ pre_push_gate_coalesced=0
 pre_push_gate_coalesced_reason=""
 remote_gate_fallback_reason=""
 remote_gate_attempt_exit=""
+remote_gate_attempt_output_tail=""
 PRE_PUSH_COALESCED_EXIT_CODE="${PRE_PUSH_COALESCED_EXIT_CODE:-75}"
 case "$PRE_PUSH_COALESCED_EXIT_CODE" in
   ''|*[!0-9]*) PRE_PUSH_COALESCED_EXIT_CODE=75 ;;
@@ -578,6 +579,7 @@ pre_push_write_gate_artifact() {
     printf 'remote_probe_reason=%s\n' "$(pre_push_gate_metadata_value "${remote_probe_reason:-}")"
     printf 'remote_gate_fallback_reason=%s\n' "$(pre_push_gate_metadata_value "${remote_gate_fallback_reason:-}")"
     printf 'remote_gate_attempt_exit=%s\n' "$(pre_push_gate_metadata_value "${remote_gate_attempt_exit:-}")"
+    printf 'remote_gate_attempt_output_tail_present=%s\n' "$([ -n "${remote_gate_attempt_output_tail:-}" ] && echo 1 || echo 0)"
     printf 'phase=%s\n' "$(pre_push_gate_metadata_value "$phase")"
     printf 'detail=%s\n' "$(pre_push_gate_metadata_value "$detail")"
     printf 'output_file=%s\n' "$(pre_push_gate_metadata_value "$output_file")"
@@ -592,6 +594,10 @@ pre_push_write_gate_artifact() {
     printf 'coalesced_reason=%s\n' "$(pre_push_gate_metadata_value "$pre_push_gate_coalesced_reason")"
     printf '\n[output-tail]\n'
     pre_push_artifact_output_tail "$output_file"
+    if [ -n "${remote_gate_attempt_output_tail:-}" ]; then
+      printf '\n[remote-output-tail]\n'
+      printf '%s\n' "$remote_gate_attempt_output_tail"
+    fi
   } > "$tmp"
   mv -f "$tmp" "$pre_push_gate_artifact_file" 2>/dev/null || true
 }
@@ -1697,6 +1703,7 @@ EOF
     run_with_flake_retry "Remote gate" "$lock_env_reset TORQUE_REMOTE_REQUIRE_REMOTE=1 $TORQUE_REMOTE_CMD --suite $GATE_COORD_SUITE --branch $staging_branch bash -c $(printf %q "$remote_gate_cmd")"
     if ! extract_gate_end_marker "$RETRIED_OUTPUT" >/dev/null; then
       remote_gate_attempt_exit="$RETRIED_EXIT"
+      remote_gate_attempt_output_tail="$(printf '%s\n' "$RETRIED_OUTPUT" | tail -120)"
       remote_gate_fallback_reason="remote_gate_missing_marker"
       pre_push_gate_execution_mode="local_fallback"
       echo "[pre-push] Remote gate did not produce a gate-end marker; running the gate locally instead."
