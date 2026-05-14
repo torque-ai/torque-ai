@@ -91,6 +91,10 @@ function sha256(buffer) {
   return crypto.createHash('sha256').update(buffer).digest('hex');
 }
 
+function sqlQuotedPath(filePath) {
+  return String(filePath).replace(/'/g, "''");
+}
+
 function createStreamingReadMock(buffer) {
   let offset = 0;
 
@@ -277,7 +281,7 @@ describe('db/backup-core', () => {
 
     const result = subject.backupDatabase(backupPath);
 
-    expect(db.exec).toHaveBeenCalledWith("VACUUM INTO 'C:\\tmp\\owner''s-live-backup.db'");
+    expect(db.exec).toHaveBeenCalledWith(`VACUUM INTO '${sqlQuotedPath(backupPath)}'`);
     expect(db.serialize).not.toHaveBeenCalled();
     expect(fs.openSync).toHaveBeenCalledWith(backupPath, 'r');
     expect(fs.writeFileSync).toHaveBeenCalledWith(backupPath + '.sha256', sha256(backupBytes), 'utf-8');
@@ -304,7 +308,7 @@ describe('db/backup-core', () => {
 
     const size = subject.writeDatabaseHandleBackupWithHash(db, backupPath);
 
-    expect(db.exec).toHaveBeenCalledWith("VACUUM INTO 'C:\\tmp\\pre-startup.db'");
+    expect(db.exec).toHaveBeenCalledWith(`VACUUM INTO '${sqlQuotedPath(backupPath)}'`);
     expect(db.serialize).not.toHaveBeenCalled();
     expect(fs.openSync).toHaveBeenCalledWith(backupPath, 'r');
     expect(fs.writeFileSync).toHaveBeenCalledWith(backupPath + '.sha256', sha256(backupBytes), 'utf-8');
@@ -388,8 +392,9 @@ describe('db/backup-core', () => {
       sha256(buffer),
       'utf-8',
     ]);
-    expect(fs.unlinkSync).toHaveBeenCalledWith(path.win32.join(backupDir, 'torque-2026-01-01T12-00-00-000Z.db'));
-    expect(fs.unlinkSync).toHaveBeenCalledWith(path.win32.join(backupDir, 'torque-2026-01-01T12-00-00-000Z.db.sha256'));
+    const prunedBackupDir = subject.getBackupsDir();
+    expect(fs.unlinkSync).toHaveBeenCalledWith(path.win32.join(prunedBackupDir, 'torque-2026-01-01T12-00-00-000Z.db'));
+    expect(fs.unlinkSync).toHaveBeenCalledWith(path.win32.join(prunedBackupDir, 'torque-2026-01-01T12-00-00-000Z.db.sha256'));
     expect(backupLogger.info).toHaveBeenCalledWith(expect.stringContaining('Database backed up to'));
     expect(backupLogger.info).toHaveBeenCalledWith('[backup] Removed old backup: torque-2026-01-01T12-00-00-000Z.db');
   });

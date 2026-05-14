@@ -8240,34 +8240,43 @@ async function executePlanStage(project, instance, selectedWorkItem = null) {
         plan_path: stalePlanPath,
         deleted_plan_file: isGeneratedPlanPath,
       });
-      const stalePlanDecision = {
-        project_id: project.id,
-        stage: LOOP_STATES.PLAN,
-        inputs: {
-          ...getWorkItemDecisionContext(workItem),
-          plan_path: stalePlanPath,
-        },
-        outcome: {
-          next_status: routed.status,
-          next_state: LOOP_STATES.PRIORITIZE,
-          plan_path_cleared: true,
-          deleted_plan_file: isGeneratedPlanPath,
-          ...getWorkItemDecisionContext(routed),
-        },
-        confidence: 1,
-        batch_id: getDecisionBatchId(project, routed, null, instance),
+      // Split into literal `action:` calls so the decision-actions audit
+      // can statically discover both emit sites. The ternary form hid the
+      // sibling action from the audit, producing a catalog_not_emitted
+      // false-positive on whichever branch was registered in the catalog.
+      const stalePlanDecisionInputs = {
+        ...getWorkItemDecisionContext(workItem),
+        plan_path: stalePlanPath,
       };
+      const stalePlanDecisionOutcome = {
+        next_status: routed.status,
+        next_state: LOOP_STATES.PRIORITIZE,
+        plan_path_cleared: true,
+        deleted_plan_file: isGeneratedPlanPath,
+        ...getWorkItemDecisionContext(routed),
+      };
+      const stalePlanDecisionBatchId = getDecisionBatchId(project, routed, null, instance);
       if (isGeneratedPlanPath) {
         safeLogDecision({
-          ...stalePlanDecision,
+          project_id: project.id,
+          stage: LOOP_STATES.PLAN,
           action: 'stale_generated_plan_cleared_before_replan',
           reasoning: 'needs_replan work item had a generated plan file; cleared it so the architect must produce a fresh plan.',
+          inputs: stalePlanDecisionInputs,
+          outcome: stalePlanDecisionOutcome,
+          confidence: 1,
+          batch_id: stalePlanDecisionBatchId,
         });
       } else {
         safeLogDecision({
-          ...stalePlanDecision,
+          project_id: project.id,
+          stage: LOOP_STATES.PLAN,
           action: 'stale_source_plan_pointer_cleared_before_replan',
           reasoning: 'needs_replan work item had a durable source plan pointer; cleared the pointer so the architect must produce a fresh plan while preserving the source file.',
+          inputs: stalePlanDecisionInputs,
+          outcome: stalePlanDecisionOutcome,
+          confidence: 1,
+          batch_id: stalePlanDecisionBatchId,
         });
       }
       return {

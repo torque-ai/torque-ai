@@ -98,13 +98,14 @@ function getExecutionDescription(task) {
  * @internal — test-only override path. Production resolves via
  * createCommandBuilders(localDeps) inside the container factory.
  */
-function init({ wrapWithInstructions, providerCfg, contextEnrichment, codexIntelligence, db, nvmNodePath } = {}) {
+function init(overrides = {}) {
+  const { wrapWithInstructions, providerCfg, contextEnrichment, codexIntelligence, db, nvmNodePath } = overrides;
   if (wrapWithInstructions) _wrapWithInstructions = wrapWithInstructions;
   if (providerCfg) _providerCfg = providerCfg;
   if (contextEnrichment) _contextEnrichment = contextEnrichment;
   if (codexIntelligence) _codexIntelligence = codexIntelligence;
   if (db) _db = db;
-  if (nvmNodePath) _nvmNodePath = nvmNodePath;
+  if (Object.prototype.hasOwnProperty.call(overrides, 'nvmNodePath')) _nvmNodePath = nvmNodePath;
 }
 
 /**
