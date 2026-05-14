@@ -246,6 +246,21 @@ describe('git-worktree', { retry: 2 }, () => {
       expect(fs.existsSync(path.join(orphanDir, 'task-orphan-2'))).toBe(false);
     });
 
+    it('preserves directories referenced by active tasks', () => {
+      const orphanDir = path.join(testBaseDir, 'protected-orphan-base');
+      const activeDir = path.join(orphanDir, 'task-active');
+      const staleDir = path.join(orphanDir, 'task-stale');
+      fs.mkdirSync(path.join(activeDir, 'nested'), { recursive: true });
+      fs.mkdirSync(staleDir, { recursive: true });
+
+      gitWorktree.cleanupOrphanedWorktrees(orphanDir, {
+        protectedPaths: [path.join(activeDir, 'nested')],
+      });
+
+      expect(fs.existsSync(activeDir)).toBe(true);
+      expect(fs.existsSync(staleDir)).toBe(false);
+    });
+
     it('handles nonexistent base directory gracefully', () => {
       expect(() => {
         gitWorktree.cleanupOrphanedWorktrees(path.join(testBaseDir, 'nope'));
