@@ -236,6 +236,34 @@ print_cutover_restart_diagnostics() {
   print_file_lines_after "torque.log" "${TORQUE_LOG_FILE_PATH}" "${TORQUE_LOG_START_LINE}" 40
 }
 
+# Write a heartbeat record to the active coordination lock so other sessions
+# blocked on the lock (pre-push gates, other cutovers, prune sweeps) can see
+# what phase the current cutover is in via repo_coord_lock_describe. Field
+# schema matches what `repo_coord_lock_heartbeat_summary` reads in
+# scripts/repo-coordination-lock.sh. Best-effort: any failure is non-fatal.
+cutover_write_heartbeat() {
+  local phase="${1:-unknown}"
+  local detail="${2:-}"
+  local lock_dir="${REPO_COORD_LOCK_DIR:-${TORQUE_COORD_LOCK_DIR:-}}"
+  local token="${REPO_COORD_LOCK_TOKEN:-${TORQUE_COORD_LOCK_TOKEN:-}}"
+  if [ -z "$lock_dir" ] || [ ! -d "$lock_dir" ]; then
+    return 0
+  fi
+  if [ -n "$token" ] && [ "$(cat "$lock_dir/token" 2>/dev/null || true)" != "$token" ]; then
+    return 0
+  fi
+  local now_epoch now_iso tmp
+  now_epoch="$(date +%s)"
+  now_iso="$(date -u +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || date)"
+  tmp="$lock_dir/heartbeat.env.$$"
+  {
+    printf 'updated_at=%s\n' "$now_iso"
+    printf 'updated_at_epoch=%s\n' "$now_epoch"
+    printf 'phase=%s\n' "$phase"
+    printf 'detail=%s\n' "$detail"
+  } > "$tmp" 2>/dev/null && mv -f "$tmp" "$lock_dir/heartbeat.env" 2>/dev/null || true
+}
+
 start_torque_with_repo_launcher() {
   local startup_timeout_seconds="${1:-240}"
   local launcher="${REPO_ROOT}/start-torque.ps1"
@@ -400,9 +428,11 @@ if (cd "$WORKTREE_DIR" && ! git diff --quiet HEAD 2>/dev/null); then
 fi
 
 repo_coord_lock_acquire "main" "worktree cutover: ${FEATURE_NAME}"
+cutover_write_heartbeat "lock_acquired" "feature=${FEATURE_NAME}"
 worktree_cutover_cleanup() {
   local rc=$?
   trap - EXIT
+  cutover_write_heartbeat "releasing" "exit=${rc}"
   repo_coord_lock_release || true
   exit "$rc"
 }
@@ -426,6 +456,7 @@ if ! git -C "${REPO_ROOT}" diff --quiet 2>/dev/null || \
   echo "[warn] CUTOVER_ALLOW_DIRTY_MAIN=1 set — proceeding with dirty main."
 fi
 
+cutover_write_heartbeat "merging" "branch=${BRANCH}"
 echo "  Merging ${BRANCH} into main..."
 
 # The main repo's HEAD can drift off `main` — the factory's mergeWorktree and
@@ -497,6 +528,7 @@ if [ -n "$merge_changed_files" ]; then
   fi
 fi
 
+cutover_write_heartbeat "merged" "branch=${BRANCH}"
 echo "[ok] Merged"
 
 # Refresh node_modules unconditionally — the previous diff-gated form
@@ -757,6 +789,7 @@ if [ "$TORQUE_RUNNING" = "true" ] && [ "$TORQUE_RESTART_REQUIRED" = "true" ]; th
     echo "[dry-run] Would verify new server:"
     echo "  curl http://127.0.0.1:3458/sse"
   else
+    cutover_write_heartbeat "barrier_submitting" "drain_timeout_ms=${DRAIN_TIMEOUT_MS}"
     echo "  Submitting restart barrier (drain + restart)..."
 
     # 1. Check for an existing barrier task — prevents concurrent cutovers
@@ -961,6 +994,7 @@ if [ "$TORQUE_RUNNING" = "true" ] && [ "$TORQUE_RESTART_REQUIRED" = "true" ]; th
           LAST_BLOCKER_REPORT="$NOW_SECONDS"
         fi
 
+        cutover_write_heartbeat "barrier_draining" "barrier=${BARRIER_TASK_ID:0:8} status=${TASK_STATUS}"
         echo "    Barrier ${BARRIER_TASK_ID:0:8}: ${TASK_STATUS} — sleeping 10s..."
         sleep 10
       done
@@ -975,6 +1009,7 @@ if [ "$TORQUE_RUNNING" = "true" ] && [ "$TORQUE_RESTART_REQUIRED" = "true" ]; th
     #    hashing a multi-GB SQLite DB, but a successor exit diagnostic or fatal
     #    startup log after this restart marker is actionable and should stop
     #    the wait with useful evidence instead of timing out silently.
+    cutover_write_heartbeat "restart_waiting" "timeout=${CUTOVER_RESTART_WAIT_SECONDS:-480}s"
     echo "  Waiting for TORQUE to restart on updated main..."
     if [ -n "${TORQUE_PRE_RESTART_PID_SIGNATURE}" ]; then
       echo "  Confirming restart via PID turnover: ${TORQUE_PID_FILE_PATH}"
@@ -1086,6 +1121,7 @@ else
   echo "  TORQUE not running — no restart needed. Start it when ready."
 fi
 
+cutover_write_heartbeat "cleanup" "worktree=${WORKTREE_DIR##*/}"
 echo "  Cleaning up worktree..."
 # Retry rm -rf with exponential backoff. On Windows, AV/indexer processes
 # (Defender, WSearch) routinely hold open handles to files in node_modules/
