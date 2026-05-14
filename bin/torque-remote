@@ -31,6 +31,14 @@ die()  { echo "[torque-remote] ERROR: $*" >&2; exit 1; }
 warn() { echo "[torque-remote] WARNING: $*" >&2; }
 info() { echo "[torque-remote] $*" >&2; }
 
+nonnegative_int_or_default() {
+  local value="$1" default_value="$2"
+  case "$value" in
+    ''|*[!0-9]*) printf '%s\n' "$default_value" ;;
+    *) printf '%s\n' "$value" ;;
+  esac
+}
+
 config_trace_enabled() {
   case "${TORQUE_REMOTE_CONFIG_TRACE:-}" in
     1|true|TRUE|yes|YES|on|ON) return 0 ;;
@@ -2954,13 +2962,34 @@ case "$TRANSPORT" in
       # that should not mask SSH failures.
       _torque_remote_sync_pipeline() {
         ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" "$SYNC_SSH_CMD" \
-          2>&1 | tee -a "$sync_log_path" | (grep -v 'Unable to persist credentials\|credential store\|aka.ms/gcm' || true)
+          2>&1 | tee -a "$sync_log_path" "$sync_attempt_log_path" | (grep -v 'Unable to persist credentials\|credential store\|aka.ms/gcm' || true)
         return "${PIPESTATUS[0]}"
       }
-      set +e
-      run_with_timeout "$sync_timeout_secs" _torque_remote_sync_pipeline
-      sync_status=$?
-      set -e
+      sync_missing_ref_max_retries="$(nonnegative_int_or_default "${TORQUE_REMOTE_SYNC_MISSING_REF_RETRIES:-4}" 4)"
+      sync_missing_ref_sleep_secs="$(nonnegative_int_or_default "${TORQUE_REMOTE_SYNC_RETRY_SLEEP_SECS:-2}" 2)"
+      sync_missing_ref_max_attempts=$((sync_missing_ref_max_retries + 1))
+      sync_attempt=1
+      while :; do
+        sync_attempt_log_path="$(mktemp "${TMPDIR:-/tmp}/torque-remote-sync-attempt.XXXXXX")"
+        set +e
+        run_with_timeout "$sync_timeout_secs" _torque_remote_sync_pipeline
+        sync_status=$?
+        set -e
+        if [[ "$sync_status" -eq 0 ]]; then
+          rm -f "$sync_attempt_log_path" 2>/dev/null || true
+          break
+        fi
+        if [[ -z "${BRANCH_OVERRIDE:-}" ]] \
+             || (( sync_attempt >= sync_missing_ref_max_attempts )) \
+             || ! grep -qE "couldn't find remote ref|could not find remote ref" "$sync_attempt_log_path" 2>/dev/null; then
+          rm -f "$sync_attempt_log_path" 2>/dev/null || true
+          break
+        fi
+        warn "Sync fetch could not see '$BRANCH_OVERRIDE' on the remote yet (attempt ${sync_attempt}/${sync_missing_ref_max_attempts}); retrying after ${sync_missing_ref_sleep_secs}s"
+        rm -f "$sync_attempt_log_path" 2>/dev/null || true
+        sleep "$sync_missing_ref_sleep_secs"
+        sync_attempt=$((sync_attempt + 1))
+      done
       if [[ "$sync_status" -ne 0 ]]; then
         # Sync failed — falling back to local execution rather than running
         # against stale or wrong-base remote state. Possible exit shapes:

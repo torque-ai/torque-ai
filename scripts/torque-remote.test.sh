@@ -199,11 +199,11 @@ reset_stub_env() {
   unset GIT_LS_FILES_OUTPUT GIT_LS_FILES_EXIT_CODE
   unset GIT_LS_REMOTE_OUTPUT GIT_LS_REMOTE_EXIT_CODE
   unset GIT_FETCH_EXIT_CODE GIT_WORKTREE_ADD_EXIT_CODE GIT_WORKTREE_REMOVE_EXIT_CODE GIT_WORKTREE_REMOVE_OUTPUT
-  unset SSH_CONNECT_OUTPUT SSH_CONNECT_EXIT_CODE
+  unset SSH_CONNECT_OUTPUT SSH_CONNECT_EXIT_CODE SSH_REMOTE_OS_PROBE_OUTPUT
   unset SSH_WMIC_OUTPUT SSH_WMIC_EXIT_CODE
   unset GIT_COMMON_DIR_OUTPUT GIT_COMMON_DIR_EXIT_CODE
   unset SSH_BRANCH_EXISTS_OUTPUT SSH_BRANCH_EXISTS_EXIT_CODE
-  unset SSH_SYNC_OUTPUT SSH_SYNC_EXIT_CODE
+  unset SSH_SYNC_OUTPUT SSH_SYNC_EXIT_CODE SSH_SYNC_EXIT_SEQUENCE TORQUE_REMOTE_SYNC_MISSING_REF_RETRIES TORQUE_REMOTE_SYNC_RETRY_SLEEP_SECS
   unset SSH_EXEC_OUTPUT SSH_EXEC_EXIT_CODE
   unset SSH_LOCK_ACQUIRE_SEQUENCE SSH_LOCK_ACQUIRE_EXIT_CODE
   unset SSH_LOCK_OWNER_OUTPUT SSH_LOCK_OWNER_READ_EXIT_CODE SSH_LOCK_OWNER_WRITE_EXIT_CODE
@@ -464,6 +464,15 @@ if [[ -n "${TORQUE_REMOTE_TEST_REMOTE_COMMANDS:-}" ]]; then
   printf '%s\n' "$remote_cmd" >> "$TORQUE_REMOTE_TEST_REMOTE_COMMANDS"
 fi
 
+if [[ "$remote_cmd" == *"---OSRELEASE---"* && "$remote_cmd" == *"---HOME---"* ]]; then
+  if [[ "${SSH_REMOTE_OS_PROBE_OUTPUT+x}" == "x" && -n "$SSH_REMOTE_OS_PROBE_OUTPUT" ]]; then
+    printf '%s\n' "$SSH_REMOTE_OS_PROBE_OUTPUT"
+  else
+    printf 'Microsoft Windows\n---OSRELEASE---\n---HOME---\nHOME=C:\\Temp\\torque-remote-home\n'
+  fi
+  exit 0
+fi
+
 next_lock_ack() {
   local sequence="${SSH_LOCK_ACQUIRE_SEQUENCE:-ACQUIRED}"
   local state_file="${TORQUE_REMOTE_TEST_LOCK_STATE:-}"
@@ -484,6 +493,34 @@ next_lock_ack() {
     printf '%s' "$((index + 1))" > "$state_file"
   fi
   printf '%s\n' "$ack"
+}
+
+next_sync_exit() {
+  local sequence="${SSH_SYNC_EXIT_SEQUENCE:-}"
+  local state_file="${TORQUE_REMOTE_TEST_SYNC_STATE:-}"
+  local index=0
+  local last_index
+  local status
+
+  if [[ -z "$sequence" ]]; then
+    printf '%s\n' "${SSH_SYNC_EXIT_CODE:-0}"
+    return 0
+  fi
+
+  IFS=',' read -r -a sync_states <<< "$sequence"
+  if [[ -n "$state_file" && -f "$state_file" ]]; then
+    index="$(cat "$state_file")"
+  fi
+  last_index=$((${#sync_states[@]} - 1))
+  if (( index <= last_index )); then
+    status="${sync_states[$index]}"
+  else
+    status="${sync_states[$last_index]}"
+  fi
+  if [[ -n "$state_file" ]]; then
+    printf '%s' "$((index + 1))" > "$state_file"
+  fi
+  printf '%s\n' "$status"
 }
 
 if [[ "$remote_cmd" == "@echo off"* ]] && [[ "$remote_cmd" == *"echo lane-"* ]]; then
@@ -537,6 +574,42 @@ if [[ "$remote_cmd" == "if exist "* && "$remote_cmd" == *"migrated.flag"* && "$r
   exit 0
 fi
 
+if [[ "$remote_cmd" == "[ -e "* && "$remote_cmd" == *" ] && echo YES || echo NO" ]]; then
+  if [[ "$remote_cmd" == *"migrated.flag"* ]]; then
+    printf '%s\n' "${SSH_MIGRATION_MARKER_OUTPUT:-YES}"
+    exit 0
+  fi
+
+  if [[ "$remote_cmd" != *"lane-"* ]]; then
+    printf '%s\n' "${SSH_LEGACY_GIT_EXISTS_OUTPUT:-NO}"
+    exit 0
+  fi
+
+  lane_key=""
+  if [[ "$remote_cmd" =~ lane-([0-9]+) ]]; then
+    lane_key="lane-${BASH_REMATCH[1]}"
+  fi
+  git_exists_map="${SSH_LANE_GIT_EXISTS_OUTPUT:-}"
+  result="YES"
+  if [[ -n "$git_exists_map" && -n "$lane_key" ]]; then
+    IFS=',' read -r -a entries <<< "$git_exists_map"
+    for entry in "${entries[@]}"; do
+      key="${entry%%:*}"
+      val="${entry##*:}"
+      if [[ "$key" == "$lane_key" ]]; then
+        if [[ "${val,,}" == "no" ]]; then
+          result="NO"
+        else
+          result="YES"
+        fi
+        break
+      fi
+    done
+  fi
+  printf '%s\n' "$result"
+  exit 0
+fi
+
 if [[ "$remote_cmd" == "if exist "* && "$remote_cmd" == *"(echo YES) else (echo NO)" && "$remote_cmd" != *"git worktree"* && "$remote_cmd" != *"lane-"* ]]; then
   # Legacy base .git probe: "if exist "<base>\.git" (echo YES) else (echo NO)"
   # This path has no lane-N suffix — it is the pre-lane workspace.
@@ -584,7 +657,7 @@ if [[ "$remote_cmd" == *"git checkout --force "* && "$remote_cmd" == *"git reset
   else
     printf 'sync-ok\n'
   fi
-  exit "${SSH_SYNC_EXIT_CODE:-0}"
+  exit "$(next_sync_exit)"
 fi
 
 if [[ "$remote_cmd" == *"EncodedCommand"* || "$remote_cmd" == *"torque-remote-inline-run"* || "$remote_cmd" == *"runner.sh"* || "$remote_cmd" == *"bootstrap.sh"* ]]; then
@@ -698,6 +771,53 @@ EOF
   LAST_TEST_ENV="$tmp"
 }
 
+set_linux_lane_config() {
+  local tmp="$1"
+  cat > "$tmp/.torque-remote.local.json" <<'EOF'
+{
+  "host": "fakehost",
+  "user": "fakeuser",
+  "remote_project_path": "/fake",
+  "remote_test_worktree_root": "/tmp/torque-remote-home/trt",
+  "remote_os": "linux"
+}
+EOF
+  export SSH_REMOTE_OS_PROBE_OUTPUT=$'Linux\n---OSRELEASE---\nID=ubuntu\nVERSION_ID=24.04\n---HOME---\nHOME=/tmp/torque-remote-home'
+}
+
+set_windows_lane_config() {
+  local tmp="$1"
+  cat > "$tmp/.torque-remote.local.json" <<'EOF'
+{
+  "host": "fakehost",
+  "user": "fakeuser",
+  "remote_project_path": "C:\\trt\\torque-public",
+  "remote_test_worktree_root": "C:\\trt",
+  "remote_os": "windows"
+}
+EOF
+  export SSH_REMOTE_OS_PROBE_OUTPUT=$'Microsoft Windows\n---OSRELEASE---\n---HOME---\nHOME=C:\\Temp\\torque-remote-home'
+}
+
+linux_project_path() {
+  local tmp="$1"
+  local suffix="${2:-}"
+  printf '/tmp/torque-remote-home/trt/%s%s' "$(basename "$tmp")" "$suffix"
+}
+
+linux_lane_path() {
+  local tmp="$1"
+  local lane="$2"
+  local suffix="${3:-}"
+  printf '%s-lane-%s' "$(linux_project_path "$tmp" "$suffix")" "$lane"
+}
+
+windows_lane_path() {
+  local tmp="$1"
+  local lane="$2"
+  printf 'C:\\\\trt\\%s-lane-%s' "$(basename "$tmp")" "$lane"
+}
+
 run_torque_remote() {
   local tmp="$1"
   shift
@@ -725,6 +845,7 @@ run_torque_remote() {
     TORQUE_REMOTE_TEST_REMOTE_COMMANDS="$tmp/remote-commands.log" \
     TORQUE_REMOTE_TEST_REMOTE_STDIN="$tmp/remote-stdin.bin" \
     TORQUE_REMOTE_TEST_LOCK_STATE="$tmp/lock-state" \
+    TORQUE_REMOTE_TEST_SYNC_STATE="$tmp/sync-state" \
     TORQUE_REMOTE_SYNC_LOG="$tmp/sync.log" \
     bash "$SCRIPT_UNDER_TEST" "$@" >"$stdout_file" 2>"$stderr_file"
   )
@@ -1511,6 +1632,7 @@ test_worktree_suffix_uses_sibling_path_and_lock() {
 
   make_test_env
   tmp="$LAST_TEST_ENV"
+  set_linux_lane_config "$tmp"
   export GIT_REV_PARSE_OUTPUT="main"
   export TORQUE_REMOTE_TEST_WORKTREE_SUFFIX="-pre-push-gate"
 
@@ -1519,9 +1641,9 @@ test_worktree_suffix_uses_sibling_path_and_lock() {
   expect_eq "exit code is 0" "0" "$RUN_EXIT"
   # Active workspace = <base><worktree-suffix><lane-suffix>. Asserting the full
   # path so a regression that drops the lane suffix can't pass via substring.
-  expect_contains "runner uses suffixed+lane project path" "$RUN_RUNNER_SH" "/fake-pre-push-gate-lane-1"
-  expect_contains "base dependency path stays unsuffixed" "$RUN_RUNNER_SH" "TORQUE_REMOTE_BASE_PROJECT_PATH='/fake'"
-  expect_contains "lane lock is acquired" "$RUN_REMOTE_COMMANDS" ".torque-remote-lanes\.locks\lane-1"
+  expect_contains "runner uses suffixed+lane project path" "$RUN_RUNNER_SH" "$(linux_lane_path "$tmp" 1 "-pre-push-gate")"
+  expect_contains "base dependency path stays unsuffixed" "$RUN_RUNNER_SH" "TORQUE_REMOTE_BASE_PROJECT_PATH='$(linux_project_path "$tmp")'"
+  expect_contains "lane lock is acquired" "$RUN_REMOTE_COMMANDS" ".torque-remote-lanes/.locks/lane-1"
   expect_not_contains "old sync.lock path is not used" "$RUN_REMOTE_COMMANDS" ".torque-remote-sync.lock"
 
   finish_test "test_worktree_suffix_uses_sibling_path_and_lock"
@@ -1600,6 +1722,42 @@ test_sync_failure_falls_back_to_local() {
   expect_eq "remote-stdin bundle is empty (no runner.sh shipped)" "0" "$RUN_REMOTE_STDIN_SIZE"
 
   finish_test "test_sync_failure_falls_back_to_local"
+}
+
+test_sync_missing_staging_ref_retries_before_remote_run() {
+  local tmp sync_count
+
+  echo "Test: missing staged branch during remote sync is retried before fallback"
+  TEST_ERRORS=()
+  reset_stub_env
+
+  make_test_env
+  tmp="$LAST_TEST_ENV"
+  cat > "$tmp/.torque-remote.local.json" <<'EOF'
+{
+  "host": "fakehost",
+  "user": "fakeuser",
+  "remote_project_path": "/fake",
+  "remote_os": "linux"
+}
+EOF
+  export GIT_REV_PARSE_OUTPUT="main"
+  export GIT_VERIFY_EXISTS=$'origin/main\norigin/pre-push-gate/test'
+  export TORQUE_REMOTE_SYNC_MISSING_REF_RETRIES=1
+  export TORQUE_REMOTE_SYNC_RETRY_SLEEP_SECS=0
+  export SSH_SYNC_EXIT_SEQUENCE="128,0"
+  export SSH_SYNC_OUTPUT="fatal: couldn't find remote ref refs/heads/pre-push-gate/test"
+  export SSH_REMOTE_OS_PROBE_OUTPUT=$'Linux\n---OSRELEASE---\nID=ubuntu\nVERSION_ID=24.04\n---HOME---\nHOME=/tmp/torque-remote-home'
+
+  run_torque_remote "$tmp" --branch pre-push-gate/test argv-dump "remote-after-retry"
+
+  sync_count="$(grep -c 'git fetch --prune origin +refs/heads/pre-push-gate/test:refs/remotes/origin/pre-push-gate/test' "$tmp/remote-commands.log" || true)"
+  expect_eq "exit code is 0" "0" "$RUN_EXIT"
+  expect_eq "remote sync was attempted twice" "2" "$sync_count"
+  expect_contains "stderr reports missing ref retry" "$RUN_STDERR" "Sync fetch could not see 'pre-push-gate/test' on the remote yet"
+  expect_greater_than_zero "remote runner was shipped after retry success" "$RUN_REMOTE_STDIN_SIZE"
+
+  finish_test "test_sync_missing_staging_ref_retries_before_remote_run"
 }
 
 test_unknown_leading_flag_errors() {
@@ -1900,12 +2058,13 @@ test_default_workspace_path_targets_lane_1() {
 
   make_test_env
   local tmp="$LAST_TEST_ENV"
+  set_linux_lane_config "$tmp"
   export GIT_REV_PARSE_OUTPUT="main"
 
   run_torque_remote "$tmp" echo hi
 
   expect_eq "exit code is 0" "0" "$RUN_EXIT"
-  expect_contains "remote sync targets lane-1 path" "$RUN_REMOTE_COMMANDS" "/fake-lane-1"
+  expect_contains "remote sync targets lane-1 path" "$RUN_REMOTE_COMMANDS" "$(linux_lane_path "$tmp" 1)"
 
   finish_test "test_default_workspace_path_targets_lane_1"
 }
@@ -1917,6 +2076,7 @@ test_cold_start_provisions_from_sibling_lane_1() {
 
   make_test_env
   local tmp="$LAST_TEST_ENV"
+  set_linux_lane_config "$tmp"
   export GIT_REV_PARSE_OUTPUT="main"
   export TORQUE_REMOTE_LANE_COUNT=4
   export SSH_LOCK_ACQUIRE_SEQUENCE="HELD,HELD,ACQUIRED"
@@ -1930,8 +2090,8 @@ test_cold_start_provisions_from_sibling_lane_1() {
 
   expect_eq "exit code is 0" "0" "$RUN_EXIT"
   expect_contains "provision command clones from lane-1 sibling" "$RUN_REMOTE_COMMANDS" "git clone --local"
-  expect_contains "provision target is lane-3" "$RUN_REMOTE_COMMANDS" "/fake-lane-3"
-  expect_contains "provision source is lane-1" "$RUN_REMOTE_COMMANDS" "/fake-lane-1"
+  expect_contains "provision target is lane-3" "$RUN_REMOTE_COMMANDS" "$(linux_lane_path "$tmp" 3)"
+  expect_contains "provision source is lane-1" "$RUN_REMOTE_COMMANDS" "$(linux_lane_path "$tmp" 1)"
 
   finish_test "test_cold_start_provisions_from_sibling_lane_1"
 }
@@ -1965,6 +2125,7 @@ test_multi_lane_each_command_targets_claimed_lane_path() {
 
   make_test_env
   local tmp="$LAST_TEST_ENV"
+  set_linux_lane_config "$tmp"
   export GIT_REV_PARSE_OUTPUT="main"
   export TORQUE_REMOTE_LANE_COUNT=4
   export SSH_LOCK_ACQUIRE_SEQUENCE="HELD,HELD,ACQUIRED"
@@ -1975,7 +2136,7 @@ test_multi_lane_each_command_targets_claimed_lane_path() {
   run_torque_remote "$tmp" echo hi
 
   expect_eq "exit code is 0" "0" "$RUN_EXIT"
-  expect_contains "remote sync targets lane-3 path" "$RUN_REMOTE_COMMANDS" "/fake-lane-3"
+  expect_contains "remote sync targets lane-3 path" "$RUN_REMOTE_COMMANDS" "$(linux_lane_path "$tmp" 3)"
 
   finish_test "test_multi_lane_each_command_targets_claimed_lane_path"
 }
@@ -1987,15 +2148,7 @@ test_migration_renames_legacy_workspace_to_lane_1() {
 
   make_test_env
   local tmp="$LAST_TEST_ENV"
-  # Override remote_project_path to a realistic Windows-style path that
-  # includes the project name so we can assert on it in the rename command.
-  cat > "$tmp/.torque-remote.local.json" <<'EOJSON'
-{
-  "host": "fakehost",
-  "user": "fakeuser",
-  "remote_project_path": "C:\\trt\\torque-public"
-}
-EOJSON
+  set_windows_lane_config "$tmp"
   export GIT_REV_PARSE_OUTPUT="main"
   # Stub: marker missing, legacy <base>\.git exists, lane-1\.git does NOT.
   export SSH_MIGRATION_MARKER_OUTPUT="NO"
@@ -2006,7 +2159,7 @@ EOJSON
 
   expect_eq "exit code is 0" "0" "$RUN_EXIT"
   expect_contains "migration renames legacy path" "$RUN_REMOTE_COMMANDS" "move "
-  expect_contains "rename target is lane-1" "$RUN_REMOTE_COMMANDS" "torque-public-lane-1"
+  expect_contains "rename target is lane-1" "$RUN_REMOTE_COMMANDS" "$(windows_lane_path "$tmp" 1)"
   expect_contains "marker file is written" "$RUN_REMOTE_COMMANDS" "migrated.flag"
 
   finish_test "test_migration_renames_legacy_workspace_to_lane_1"
@@ -2098,6 +2251,7 @@ main() {
   test_worktree_suffix_rejects_unsafe_chars
   test_sync_includes_drift_detection
   test_sync_failure_falls_back_to_local
+  test_sync_missing_staging_ref_retries_before_remote_run
   test_unknown_leading_flag_errors
   test_timeout_style_failure_triggers_failsafe_cleanup_round_trip
   test_lane_count_resolves_default_to_1
