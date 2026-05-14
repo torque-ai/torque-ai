@@ -409,9 +409,15 @@ function planFromFiles(files, options = {}) {
   //    NEVER removes test files from server_args/dashboard_args.
   //  - The plan hash includes any added test files so cache hits remain
   //    correct.
+  // server_args.length > 0 gate: when the heuristic returned an empty
+  // server_args list, that means "run the entire server suite" — adding
+  // 14 codegraph hits would narrow the gate from full-suite to those 14
+  // files, demoting coverage. Only augment when the heuristic already
+  // settled on a specific test slice.
   if (process.env.TORQUE_GATE_USE_CODEGRAPH === '1'
       && plan.mode === 'affected'
       && plan.run_server
+      && plan.server_args.length > 0
       && !plan._codegraph_already_applied) {
     const extras = tryCodegraphImpactTests(plan);
     if (extras && extras.length > 0) {
