@@ -437,6 +437,45 @@ function debugLog(message) {
   logger.debug(message);
 }
 
+function normalizeStartupWorktreePath(value) {
+  if (typeof value !== 'string' || value.trim() === '') return null;
+  try {
+    return path.resolve(value).replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+  } catch {
+    return value.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+  }
+}
+
+function collectProtectedTaskWorktreePaths(baseDir) {
+  const protectedPaths = [];
+  const normalizedBaseDir = normalizeStartupWorktreePath(baseDir);
+  if (!normalizedBaseDir) return protectedPaths;
+
+  try {
+    const sqlite = typeof db.getDbInstance === 'function' ? db.getDbInstance() : null;
+    if (!sqlite || typeof sqlite.prepare !== 'function') return protectedPaths;
+    const rows = sqlite.prepare(`
+      SELECT DISTINCT working_directory
+      FROM tasks
+      WHERE working_directory IS NOT NULL
+        AND TRIM(working_directory) != ''
+        AND status NOT IN ('completed', 'failed', 'cancelled', 'canceled')
+    `).all();
+
+    for (const row of rows) {
+      const workingDirectory = row && row.working_directory;
+      const normalized = normalizeStartupWorktreePath(workingDirectory);
+      if (normalized && (normalized === normalizedBaseDir || normalized.startsWith(`${normalizedBaseDir}/`))) {
+        protectedPaths.push(workingDirectory);
+      }
+    }
+  } catch (err) {
+    debugLog(`Startup worktree cleanup: failed to collect active task worktrees: ${err.message}`);
+  }
+
+  return protectedPaths;
+}
+
 // MCP Protocol version
 const JSONRPC_VERSION = '2.0';
 
@@ -1766,8 +1805,12 @@ function init() {
 
   // Clean up orphaned git worktrees from previous crashed server runs
   try {
-    const { cleanupOrphanedWorktrees } = require('./utils/git-worktree');
-    cleanupOrphanedWorktrees();
+    const { cleanupOrphanedWorktrees, WORKTREE_BASE_DIR } = require('./utils/git-worktree');
+    const protectedPaths = collectProtectedTaskWorktreePaths(WORKTREE_BASE_DIR);
+    if (protectedPaths.length > 0) {
+      debugLog(`Startup worktree cleanup: preserving ${protectedPaths.length} active task worktree(s)`);
+    }
+    cleanupOrphanedWorktrees(undefined, { protectedPaths });
   } catch (err) {
     debugLog(`Startup worktree cleanup error: ${err.message}`);
   }

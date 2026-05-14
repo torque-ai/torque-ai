@@ -391,14 +391,43 @@ function removeWorktree(worktreePath, sourceDir, taskId) {
   }
 }
 
+function normalizeCleanupPath(value) {
+  if (typeof value !== 'string' || value.trim() === '') return null;
+  try {
+    return path.resolve(value).replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+  } catch {
+    return value.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+  }
+}
+
+function normalizeProtectedWorktreePaths(protectedPaths) {
+  if (!protectedPaths) return new Set();
+  const values = protectedPaths instanceof Set ? Array.from(protectedPaths) : protectedPaths;
+  if (!Array.isArray(values)) return new Set();
+  return new Set(values.map(normalizeCleanupPath).filter(Boolean));
+}
+
+function isProtectedWorktreePath(worktreePath, protectedPaths) {
+  const normalized = normalizeCleanupPath(worktreePath);
+  if (!normalized) return false;
+  for (const protectedPath of protectedPaths) {
+    if (protectedPath === normalized || protectedPath.startsWith(`${normalized}/`)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 /**
  * Clean up any orphaned worktrees in the base directory.
  * Call this during server startup to handle worktrees from crashed processes.
  *
  * @param {string} [baseDir] - Override worktree base directory (for testing)
+ * @param {{ protectedPaths?: string[]|Set<string> }} [options]
  */
-function cleanupOrphanedWorktrees(baseDir) {
+function cleanupOrphanedWorktrees(baseDir, options = {}) {
   const dir = baseDir || WORKTREE_BASE_DIR;
+  const protectedPaths = normalizeProtectedWorktreePaths(options.protectedPaths);
   try {
     if (!fs.existsSync(dir)) return;
 
@@ -408,6 +437,10 @@ function cleanupOrphanedWorktrees(baseDir) {
       try {
         const stat = fs.statSync(fullPath);
         if (stat.isDirectory()) {
+          if (isProtectedWorktreePath(fullPath, protectedPaths)) {
+            logger.info(`[Worktree] Preserving active task worktree during orphan cleanup: ${fullPath}`);
+            continue;
+          }
           logger.info(`[Worktree] Cleaning up orphaned worktree: ${fullPath}`);
           fs.rmSync(fullPath, { recursive: true, force: true });
         }
