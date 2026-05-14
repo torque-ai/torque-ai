@@ -192,6 +192,7 @@ const BENIGN_FLOW_ACTION_EXACT = new Set([
   'plan_quality_skipped_by_metadata', // plan quality check skipped by WI metadata
   'plan_quality_soft_threshold_crossed', // plan quality soft threshold crossed (warn-only)
   'stale_generated_plan_cleared_before_replan', // stale generated plan cleared before replan
+  'stale_source_plan_pointer_cleared_before_replan', // stale source-plan pointer cleared before replan (preserves source file)
   'plan_generation_deferred_project_active', // plan generation deferred; project has active batch
   'plan_generation_worktree_reused', // plan generation reused active batch worktree
   'plan_generation_worktree_reuse_skipped', // plan generation skipped a different work item's active batch worktree
