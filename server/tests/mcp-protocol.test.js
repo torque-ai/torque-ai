@@ -586,6 +586,29 @@ describe('parseStreamingArtifacts', () => {
     expect(fileResult[0]).not.toHaveProperty('cmd');
     expect(shellResult[0]).not.toHaveProperty('path');
   });
+
+  it('resets global regex state between consecutive calls', () => {
+    const text = '<action type="file" path="a.js">a</action>';
+    const first = parseStreamingArtifacts(text);
+    const second = parseStreamingArtifacts(text);
+    expect(first).toEqual(second);
+    expect(first).toHaveLength(1);
+  });
+
+  it('omits path when file action has no path attribute', () => {
+    // Regex makes path optional — a file action without path= should still parse
+    const text = '<action type="file">bare content</action>';
+    const result = parseStreamingArtifacts(text);
+    expect(result).toEqual([{ type: 'file', content: 'bare content' }]);
+    expect(result[0]).not.toHaveProperty('path');
+  });
+
+  it('omits cmd when shell action has no cmd attribute', () => {
+    const text = '<action type="shell">bare shell</action>';
+    const result = parseStreamingArtifacts(text);
+    expect(result).toEqual([{ type: 'shell', content: 'bare shell' }]);
+    expect(result[0]).not.toHaveProperty('cmd');
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -771,5 +794,40 @@ describe('tools/call streaming artifact extraction', () => {
 
     expect(result._streamingArtifacts).toHaveLength(1);
     expect(result._streamingArtifacts[0].path).toBe('x.txt');
+  });
+
+  it('does not attach _streamingArtifacts when result has no content array', async () => {
+    reinit({
+      handleToolCall: async () => ({ someOtherField: true }),
+    });
+
+    const session = makeSession('full');
+    const result = await handleRequest(
+      { method: 'tools/call', params: { name: 'tool_a' } },
+      session
+    );
+
+    expect(result._streamingArtifacts).toBeUndefined();
+    expect(session._artifactJournal).toBeUndefined();
+  });
+
+  it('skips text blocks with empty string during artifact extraction', async () => {
+    reinit({
+      handleToolCall: async () => ({
+        content: [
+          { type: 'text', text: '' },
+          { type: 'text', text: '<action type="file" path="real.js">code</action>' },
+        ],
+      }),
+    });
+
+    const session = makeSession('full');
+    const result = await handleRequest(
+      { method: 'tools/call', params: { name: 'tool_a' } },
+      session
+    );
+
+    expect(result._streamingArtifacts).toHaveLength(1);
+    expect(result._streamingArtifacts[0].path).toBe('real.js');
   });
 });
