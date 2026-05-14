@@ -12,6 +12,35 @@ const { TOOLS, handleToolCall } = require('../../tools');
 const { CORE_TOOL_NAMES, EXTENDED_TOOL_NAMES } = require('../../core-tools');
 const { resolveDatabaseFacade } = require('../../db/database-facade-resolver');
 
+// ──────────────────────────────────────────────────────────────
+// Streaming artifact notification formatting
+// ──────────────────────────────────────────────────────────────
+
+/**
+ * Format streaming artifact actions into an MCP notification payload
+ * suitable for pushing over SSE.
+ *
+ * @param {Array<{ type: 'file'|'shell', path?: string, cmd?: string, content: string }>} artifacts
+ * @param {string} toolName - Name of the originating tool call.
+ * @returns {{ level: string, logger: string, data: { type: string, tool: string, artifacts: Array } }}
+ */
+function formatArtifactNotification(artifacts, toolName) {
+  return {
+    level: 'info',
+    logger: 'torque',
+    data: {
+      type: 'streaming_artifacts',
+      tool: toolName,
+      artifacts: artifacts.map(a => {
+        const entry = { type: a.type, content: a.content };
+        if (a.path) entry.path = a.path;
+        if (a.cmd) entry.cmd = a.cmd;
+        return entry;
+      }),
+    },
+  };
+}
+
 function isAuthConfigured() {
   try {
     const db = resolveDatabaseFacade({
@@ -195,6 +224,15 @@ async function handleMcpRequest(request, sess) {
     }
   }
 
+  // Push streaming artifact notifications over SSE when present
+  if (method === 'tools/call' && result && result._streamingArtifacts && result._streamingArtifacts.length > 0) {
+    if (_sendJsonRpcNotification) {
+      const toolName = params && params.name ? params.name : 'unknown';
+      const notification = formatArtifactNotification(result._streamingArtifacts, toolName);
+      _sendJsonRpcNotification(sess, 'notifications/message', { params: notification });
+    }
+  }
+
   // Append SSE-only tools to tools/list responses
   if (method === 'tools/list' && result && result.tools && SSE_TOOLS) {
     result.tools = [...result.tools, ...SSE_TOOLS];
@@ -256,4 +294,5 @@ module.exports = {
   initProtocol,
   injectNotificationSender,
   isAuthConfigured,
+  formatArtifactNotification,
 };
