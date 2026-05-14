@@ -7,44 +7,29 @@
  * detect JS/TS function boundaries, create stub target files, and parse
  * task output for edit detection.
  *
- * Uses init() dependency injection to receive server config and enrichment refs.
+ * Uses the container-resolved factory shape.
  */
 
 const path = require('path');
 const fs = require('fs');
 const logger = require('../logger').child({ component: 'file-context-builder' });
 
-// ── Module-level deps ──────────────────────────────────────────────────────
-// Utility deps resolve at module load via require() from canonical sources.
-// They remain `let` so the factory's per-instance swap (createFileContextBuilder)
-// and the test-only init() shim can override them transiently.
-// `_db` and `_serverConfig` lazy-resolve through the container at first use.
-let _serverConfig = null;
-let _providerCfg = require('../providers/config');
-let _contextEnrichment = require('../utils/context-enrichment');
-let _computeLineHash = require('../handlers/hashline-handlers').computeLineHash;
-let _db = null;
+function resolveFileContextDeps(overrides = {}) {
+  let containerDb = null;
+  let containerServerConfig = null;
+  try {
+    const { defaultContainer } = require('../container');
+    containerDb = defaultContainer.peek('db') || null;
+    containerServerConfig = defaultContainer.peek('serverConfig') || null;
+  } catch { /* container not yet available */ }
 
-function ensureContainerDeps() {
-  if (!_db || !_serverConfig) {
-    try {
-      const { defaultContainer } = require('../container');
-      if (!_db) _db = defaultContainer.peek('db') || null;
-      if (!_serverConfig) _serverConfig = defaultContainer.peek('serverConfig') || null;
-    } catch { /* container not yet available */ }
-  }
-}
-
-/**
- * @internal — test-only override path. Production resolves via
- * createFileContextBuilder(localDeps) inside the container factory.
- */
-function init(deps = {}) {
-  if (deps.serverConfig) _serverConfig = deps.serverConfig;
-  if (deps.providerCfg) _providerCfg = deps.providerCfg;
-  if (deps.contextEnrichment) _contextEnrichment = deps.contextEnrichment;
-  if (deps.computeLineHash) _computeLineHash = deps.computeLineHash;
-  if (deps.db) _db = deps.db;
+  return {
+    serverConfig: overrides.serverConfig || containerServerConfig || require('../config'),
+    providerCfg: overrides.providerCfg || require('../providers/config'),
+    contextEnrichment: overrides.contextEnrichment || require('../utils/context-enrichment'),
+    computeLineHash: overrides.computeLineHash || require('../handlers/hashline-handlers').computeLineHash,
+    db: Object.prototype.hasOwnProperty.call(overrides, 'db') ? overrides.db : containerDb,
+  };
 }
 
 function isInsideWorkingDirectory(workingDir, targetPath) {
@@ -64,12 +49,12 @@ function isInsideWorkingDirectory(workingDir, targetPath) {
  * Try to build context from the symbol index instead of whole files.
  * Returns null if index is unavailable or empty (caller falls through to whole-file).
  */
-function trySymbolLevelContext(resolvedFiles, workingDirectory, maxBytes, taskDescription) {
+function trySymbolLevelContext(deps, resolvedFiles, workingDirectory, maxBytes, taskDescription) {
   try {
-    ensureContainerDeps();
     const symbolIndexer = require('../utils/symbol-indexer');
-    if (!_db) return null;
-    const dbInst = typeof _db.getDbInstance === 'function' ? _db.getDbInstance() : _db;
+    const db = deps?.db;
+    if (!db) return null;
+    const dbInst = typeof db.getDbInstance === 'function' ? db.getDbInstance() : db;
     if (!dbInst) return null;
 
     symbolIndexer.init(dbInst);
@@ -126,20 +111,19 @@ function trySymbolLevelContext(resolvedFiles, workingDirectory, maxBytes, taskDe
   }
 }
 
-async function buildFileContext(resolvedFiles, workingDirectory, maxBytes = 30000, taskDescription = '') {
+async function buildFileContextWithDeps(deps, resolvedFiles, workingDirectory, maxBytes = 30000, taskDescription = '') {
   if (!resolvedFiles || resolvedFiles.length === 0) return '';
 
-  ensureContainerDeps();
-
   // Try symbol-level context first (90%+ token savings when index exists)
-  const symbolContext = trySymbolLevelContext(resolvedFiles, workingDirectory, maxBytes, taskDescription);
+  const symbolContext = trySymbolLevelContext(deps, resolvedFiles, workingDirectory, maxBytes, taskDescription);
   if (symbolContext) return symbolContext;
 
   const MAX_FILE_BYTES = 15000;
   const MAX_FILE_LINES = 350;
   const methodPattern = /^\s*(public|private|protected|internal|static|async|override|virtual|abstract|def |function |class |interface |export |const |let |var )\b/;
 
-  const hashlineEnabled = _serverConfig && _serverConfig.getBool('hashline_context_enabled');
+  const hashlineEnabled = deps.serverConfig && typeof deps.serverConfig.getBool === 'function' &&
+    deps.serverConfig.getBool('hashline_context_enabled');
   let totalBytes = 0;
   const sections = [];
 
@@ -168,8 +152,8 @@ async function buildFileContext(resolvedFiles, workingDirectory, maxBytes = 3000
       const lineNum = String(idx + 1).padStart(3, '0');
       const isMethod = methodPattern.test(line);
       const marker = isMethod ? '>>>' : '   ';
-      if (hashlineEnabled && _computeLineHash) {
-        const hash = _computeLineHash(line);
+      if (hashlineEnabled && deps.computeLineHash) {
+        const hash = deps.computeLineHash(line);
         return `L${lineNum}:${hash}:${marker} ${line}`;
       }
       return `L${lineNum}:${marker} ${line}`;
@@ -201,11 +185,13 @@ async function buildFileContext(resolvedFiles, workingDirectory, maxBytes = 3000
 
   // Context enrichment: import types, test files, git context, few-shot examples
   let enrichment = '';
-  const enrichCfg = _providerCfg && _providerCfg.getEnrichmentConfig();
+  const enrichCfg = deps.providerCfg && typeof deps.providerCfg.getEnrichmentConfig === 'function'
+    ? deps.providerCfg.getEnrichmentConfig()
+    : null;
   if (enrichCfg && enrichCfg.enabled) {
     try {
-      enrichment = await _contextEnrichment.enrichResolvedContextAsync(
-        resolvedFiles, workingDirectory, taskDescription, _db, enrichCfg
+      enrichment = await deps.contextEnrichment.enrichResolvedContextAsync(
+        resolvedFiles, workingDirectory, taskDescription, deps.db, enrichCfg
       );
     } catch (e) {
       logger.info(`[BuildFileContext] Non-fatal enrichment error: ${e.message}`);
@@ -223,6 +209,10 @@ async function buildFileContext(resolvedFiles, workingDirectory, maxBytes = 3000
     `${sections.length} file(s) resolved from task description.\n` +
     `Cite the EXACT line number where issues occur (e.g., "Line 62:" if you see "L062: problematic code").` +
     sections.join('') + enrichment + '\n';
+}
+
+async function buildFileContext(...args) {
+  return buildFileContextWithDeps(resolveFileContextDeps(), ...args);
 }
 
 /**
@@ -336,28 +326,11 @@ async function ensureTargetFilesExist(workingDir, filePaths) {
 
 // ── New factory shape (preferred) ─────────────────────────────────────────
 function createFileContextBuilder(deps = {}) {
-  // Resolve utility/config deps via require() when not overridden.
-  const local = {
-    _serverConfig: deps.serverConfig || require('../config'),
-    _providerCfg: deps.providerCfg || require('../providers/config'),
-    _contextEnrichment: deps.contextEnrichment || require('../utils/context-enrichment'),
-    _computeLineHash: deps.computeLineHash || require('../handlers/hashline-handlers').computeLineHash,
-    _db: deps.db,
-  };
-  function withLocalDeps(fn) {
-    const prev = { _serverConfig, _providerCfg, _contextEnrichment, _computeLineHash, _db };
-    _serverConfig = local._serverConfig;
-    _providerCfg = local._providerCfg;
-    _contextEnrichment = local._contextEnrichment;
-    _computeLineHash = local._computeLineHash;
-    _db = local._db;
-    try { return fn(); }
-    finally { ({ _serverConfig, _providerCfg, _contextEnrichment, _computeLineHash, _db } = prev); }
-  }
+  const local = resolveFileContextDeps(deps);
   return {
-    buildFileContext: (...args) => withLocalDeps(() => buildFileContext(...args)),
-    extractJsFunctionBoundaries: (...args) => withLocalDeps(() => extractJsFunctionBoundaries(...args)),
-    ensureTargetFilesExist: (...args) => withLocalDeps(() => ensureTargetFilesExist(...args)),
+    buildFileContext: (...args) => buildFileContextWithDeps(local, ...args),
+    extractJsFunctionBoundaries,
+    ensureTargetFilesExist,
   };
 }
 
@@ -375,8 +348,6 @@ function register(container) {
 module.exports = {
   createFileContextBuilder,
   register,
-  // @internal — test-only override path (see init() jsdoc)
-  init,
   buildFileContext,
   extractJsFunctionBoundaries,
   ensureTargetFilesExist,
