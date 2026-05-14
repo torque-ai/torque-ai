@@ -795,6 +795,40 @@ describe('integration routing handlers', () => {
       });
     });
 
+    it('reroutes Codex template selections when Codex is exhausted', async () => {
+      mockDb.isCodexExhausted.mockReturnValue(true);
+      mockDb.analyzeTaskForRouting.mockReturnValueOnce(baseRoutingResult({
+        provider: 'codex',
+        complexity: 'normal',
+        reason: "Template 'Codex Primary': default -> codex",
+        chain: [
+          { provider: 'codex', model: 'gpt-5.3-codex-spark' },
+          { provider: 'claude-cli', model: null },
+          { provider: 'ollama', model: null },
+        ],
+      }));
+
+      const result = await routing.handleSmartSubmitTask({
+        task: 'Implement queue telemetry in server/factory/factory-tick.js',
+      });
+
+      const task = taskFromResult(result);
+      expect(task).toBeTruthy();
+      expect(task.provider).toBe('claude-cli');
+      expect(task.model).toBeNull();
+      expect(task.metadata.routing_mode).toBe('codex_exhausted');
+      expect(task.metadata.routing_reason).toContain('Codex exhausted');
+      expect(task.metadata.routing_decision_trace).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            from: 'codex',
+            to: 'claude-cli',
+            reason: expect.stringContaining('Codex exhausted'),
+          }),
+        ]),
+      );
+    });
+
     it('stores tier-list metadata and leaves provider unassigned in slot-pull mode', async () => {
       setMockDbConfig({ scheduling_mode: 'slot-pull' });
       mockDb.analyzeTaskForRouting

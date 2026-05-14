@@ -408,6 +408,14 @@ function handleProviderFailover(ctx) {
 
     if (fallbackProvider) {
       logger.info(`[Provider Failover] ${currentProvider} quota exceeded, switching to ${fallbackProvider} for task ${taskId}`);
+      if (currentProvider === 'codex' || currentProvider === 'codex-spark') {
+        try {
+          db.setCodexExhausted(true);
+          logger.info('[Codex Exhaustion] Codex quota exhausted — future routing will skip Codex before failover');
+        } catch (e) {
+          logger.info(`[Codex Exhaustion] Failed to set flag: ${e.message}`);
+        }
+      }
       const sanitizedOutput = _sanitizeTaskOutput(proc.output);
       const failoverErrorOutput = errorOutput + `\n[Auto-Failover] Switching from ${currentProvider} to ${fallbackProvider}`;
       const resumeContext = buildResumeContext(sanitizedOutput, failoverErrorOutput, {

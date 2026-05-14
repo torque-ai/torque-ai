@@ -1335,7 +1335,56 @@ async function handleSmartSubmitTask(args) {
   // Codex exhaustion gate: when quota is exceeded, skip all Codex routing
   const codexExhausted = providerRoutingCore.isCodexExhausted();
   if (codexExhausted) {
-    logger.info(`[SmartRouting] Codex exhausted — all tasks route to local LLM`);
+    logger.info('[SmartRouting] Codex exhausted — routing will skip Codex before fallback');
+  }
+  const isCodexProviderName = (providerName) => {
+    const normalized = typeof providerName === 'string' ? providerName.trim().toLowerCase() : '';
+    return normalized === 'codex' || normalized === 'codex-spark';
+  };
+  const selectCodexExhaustionFallback = () => {
+    const candidateSources = [
+      Array.isArray(routingResult?.chain) ? routingResult.chain : [],
+      getFallbackProviderChain(selectedProvider) || [],
+    ];
+    const seenProviders = new Set();
+    for (const source of candidateSources) {
+      for (const entry of source) {
+        const candidate = normalizeRoutingCandidate(entry);
+        if (!candidate || !candidate.providerName || seenProviders.has(candidate.providerName)) {
+          continue;
+        }
+        seenProviders.add(candidate.providerName);
+        if (isCodexProviderName(candidate.providerName)) {
+          continue;
+        }
+        if (!isProviderAllowedForLane(candidate.providerName)) {
+          continue;
+        }
+        if (!isProviderAvailableForRouting(candidate.providerName)) {
+          continue;
+        }
+        return candidate;
+      }
+    }
+    return null;
+  };
+  if (!override_provider && codexExhausted && isCodexProviderName(selectedProvider)) {
+    const fallback = selectCodexExhaustionFallback();
+    if (fallback) {
+      const previousProvider = selectedProvider;
+      selectedProvider = fallback.providerName;
+      taskModel = fallback.model || null;
+      modRoutingReason = `Codex exhausted → ${selectedProvider}`;
+      logger.info(`[SmartRouting] Codex exhausted — rerouting ${previousProvider} to ${selectedProvider}`);
+      recordRoutingDecision(routingTrace, {
+        stage: ROUTING_TRACE_STAGES.FALLBACK,
+        from: previousProvider,
+        to: selectedProvider,
+        reason: `Codex exhausted — skipped ${previousProvider} and used ${selectedProvider}`,
+      });
+    } else {
+      logger.warn('[SmartRouting] Codex exhausted but no enabled non-Codex fallback was available');
+    }
   }
 
   // Route test-writing tasks to Codex only when the selected provider lacks
@@ -1387,7 +1436,7 @@ async function handleSmartSubmitTask(args) {
     // Preserve a previously-set taskModel (e.g. from test-writing promotion) when the
     // modification helper had no opinion (returned null).
     if (modResult.taskModel != null) taskModel = modResult.taskModel;
-    modRoutingReason = modResult.modRoutingReason;
+    if (modResult.modRoutingReason) modRoutingReason = modResult.modRoutingReason;
     if (modBefore !== selectedProvider && modResult.modRoutingReason) {
       recordRoutingDecision(routingTrace, {
         stage: ROUTING_TRACE_STAGES.MODIFICATION,

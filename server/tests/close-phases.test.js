@@ -612,7 +612,7 @@ describe('Close Phases', () => {
       expect(mockDb.setCodexExhausted).toHaveBeenCalledWith(true);
     });
 
-    it('does NOT set codex_exhausted flag when fallback provider is available', () => {
+    it('sets codex_exhausted flag when codex quota fails even if fallback provider is available', () => {
       vi.useFakeTimers();
 
       mockDb.isProviderQuotaError.mockReturnValue(true);
@@ -624,7 +624,7 @@ describe('Close Phases', () => {
 
       closePhases.handleProviderFailover(ctx);
 
-      expect(mockDb.setCodexExhausted).not.toHaveBeenCalled();
+      expect(mockDb.setCodexExhausted).toHaveBeenCalledWith(true);
 
       vi.useRealTimers();
     });
