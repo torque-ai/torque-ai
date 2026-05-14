@@ -1281,7 +1281,8 @@ Edit server/factory/plan-executor.js and make the requested behavior change. Kee
       await advanceSupervisedPlanProject(project.id);
       const executeAdvance = await loopController.advanceLoopForProject(project.id);
 
-      expect(executeAdvance.new_state).toBe(LOOP_STATES.VERIFY);
+      expect(executeAdvance.paused_at_stage).not.toBe(LOOP_STATES.EXECUTE);
+      expect(String(executeAdvance.reason || '')).not.toContain('worktree creation failed');
       expect(executeAdvance.paused_at_stage).toBe(LOOP_STATES.VERIFY);
       expect(executeAdvance.reason).toBe('batch_tasks_not_terminal');
 
@@ -2607,6 +2608,70 @@ Edit server/factory/plan-executor.js and make the requested behavior change. Kee
     const decisions = listDecisionRows(db, project.id);
     expect(decisions.find((d) => d.action === 'worktree_reused_completed_owner')).toBeTruthy();
     expect(decisions.find((d) => d.action === 'worktree_reclaimed')).toBeFalsy();
+  });
+
+  it('preserves a dirty stale EXECUTE worktree and creates a suffixed replacement', async () => {
+    const { project, workItem } = registerPlanProject();
+    const batchId = `factory-${project.id}-${workItem.id}`;
+    const targetBranch = `feat/factory-${workItem.id}-dry-run-plan-item`;
+    const oldWorktreePath = path.join(project.path, '.worktrees', 'feat-dirty-execute');
+    const freshWorktreePath = path.join(project.path, '.worktrees', 'feat-fresh-execute');
+    fs.mkdirSync(oldWorktreePath, { recursive: true });
+    fs.mkdirSync(freshWorktreePath, { recursive: true });
+    const existing = factoryWorktrees.recordWorktree({
+      project_id: project.id,
+      work_item_id: workItem.id,
+      batch_id: batchId,
+      vc_worktree_id: 'vc-dirty-execute',
+      branch: targetBranch,
+      worktree_path: oldWorktreePath,
+      base_branch: 'main',
+    });
+    const worktreeRunner = {
+      createForBatch: vi.fn(async () => ({
+        id: 'vc-fresh-execute',
+        branch: `${targetBranch}-preserved-dirty-${existing.id}`,
+        worktreePath: freshWorktreePath,
+      })),
+      verify: vi.fn(async () => ({ passed: true, output: 'ok', durationMs: 12 })),
+      mergeToMain: vi.fn(),
+      abandon: vi.fn(),
+    };
+    const checkBranchFreshnessSpy = vi.spyOn(branchFreshness, 'checkBranchFreshness').mockResolvedValue({
+      stale: true,
+      commitsBehind: 883,
+      staleFiles: [],
+    });
+    const attemptRebaseSpy = vi.spyOn(branchFreshness, 'attemptRebase').mockResolvedValue({
+      ok: false,
+      error: 'error: cannot rebase: You have unstaged changes.',
+    });
+    loopController.setWorktreeRunnerForTests(worktreeRunner);
+
+    try {
+      await advanceSupervisedPlanProject(project.id);
+      const executeAdvance = await loopController.advanceLoopForProject(project.id);
+
+      expect(worktreeRunner.abandon).not.toHaveBeenCalledWith(expect.objectContaining({
+        id: 'vc-dirty-execute',
+      }));
+      expect(worktreeRunner.createForBatch).toHaveBeenCalledWith(expect.objectContaining({
+        featureNameSuffix: `preserved-dirty-${existing.id}`,
+      }));
+      expect(routingModule.handleSmartSubmitTask).toHaveBeenCalledWith(expect.objectContaining({
+        working_directory: freshWorktreePath,
+      }));
+      expect(executeAdvance.paused_at_stage).not.toBe(LOOP_STATES.EXECUTE);
+      expect(String(executeAdvance.reason || '')).not.toContain('worktree creation failed');
+      expect(db.prepare('SELECT status FROM factory_worktrees WHERE id = ?').get(existing.id).status)
+        .toBe('preserved');
+      const decisions = listDecisionRows(db, project.id);
+      expect(decisions.find((d) => d.action === 'factory_worktree_reuse_dirty_preserved')).toBeTruthy();
+      expect(decisions.find((d) => d.action === 'worktree_creation_failed')).toBeFalsy();
+    } finally {
+      checkBranchFreshnessSpy.mockRestore();
+      attemptRebaseSpy.mockRestore();
+    }
   });
 
   it('pauses EXECUTE at a fail-loud state when worktree creation throws (no fallback to main)', async () => {

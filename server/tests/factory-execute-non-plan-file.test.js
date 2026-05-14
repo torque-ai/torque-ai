@@ -379,7 +379,7 @@ describe('factory loop-controller EXECUTE for non-plan-file work items', () => {
     const currentPath = path.join(projectDir, '.factory-worktrees', 'current-item');
     fs.mkdirSync(otherPath, { recursive: true });
     fs.mkdirSync(currentPath, { recursive: true });
-    factoryWorktrees.recordWorktree({
+    const worktreeRow = factoryWorktrees.recordWorktree({
       project_id: project.id,
       work_item_id: workItem.id,
       batch_id: batchId,
@@ -419,7 +419,7 @@ describe('factory loop-controller EXECUTE for non-plan-file work items', () => {
     const batchId = `factory-${project.id}-shared`;
     const currentPath = path.join(projectDir, '.factory-worktrees', 'current-item-stale');
     fs.mkdirSync(currentPath, { recursive: true });
-    factoryWorktrees.recordWorktree({
+    const worktreeRow = factoryWorktrees.recordWorktree({
       project_id: project.id,
       work_item_id: workItem.id,
       batch_id: batchId,
@@ -462,14 +462,14 @@ describe('factory loop-controller EXECUTE for non-plan-file work items', () => {
     }
   });
 
-  it('abandons a stale plan artifact worktree and creates a fresh one when rebase fails', async () => {
+  it('preserves a stale plan artifact worktree and creates a suffixed fresh one when rebase conflicts', async () => {
     const runner = createFakePlanArtifactWorktreeRunner();
     loopController.setWorktreeRunnerForTests(runner);
     const { project, workItem, projectDir } = registerExecuteProject();
     const batchId = `factory-${project.id}-shared`;
     const currentPath = path.join(projectDir, '.factory-worktrees', 'current-item-conflict');
     fs.mkdirSync(currentPath, { recursive: true });
-    factoryWorktrees.recordWorktree({
+    const worktreeRow = factoryWorktrees.recordWorktree({
       project_id: project.id,
       work_item_id: workItem.id,
       batch_id: batchId,
@@ -497,18 +497,18 @@ describe('factory loop-controller EXECUTE for non-plan-file work items', () => {
       });
 
       expect(prepared.workingDirectory).not.toBe(currentPath);
-      expect(runner.abandon).toHaveBeenCalledWith({
-        id: 'vc-current-conflict',
-        branch: 'factory/current-item-conflict',
-        reason: 'stale_rebase_failed_before_plan_generation',
-      });
+      expect(runner.abandon).not.toHaveBeenCalled();
       expect(runner.createForBatch).toHaveBeenCalledTimes(1);
+      expect(runner.createForBatch).toHaveBeenCalledWith(expect.objectContaining({
+        featureNameSuffix: `preserved-dirty-${worktreeRow.id}`,
+      }));
       const oldRow = db.prepare('SELECT status, abandoned_at FROM factory_worktrees WHERE vc_worktree_id = ?')
         .get('vc-current-conflict');
-      expect(oldRow.status).toBe('abandoned');
-      expect(oldRow.abandoned_at).toBeTruthy();
+      expect(oldRow.status).toBe('preserved');
+      expect(oldRow.abandoned_at).toBeFalsy();
       const decisions = listDecisionRows(db, project.id);
-      expect(decisions.some((row) => row.action === 'factory_worktree_reuse_rebase_failed')).toBe(true);
+      expect(decisions.some((row) => row.action === 'factory_worktree_reuse_dirty_preserved')).toBe(true);
+      expect(decisions.some((row) => row.action === 'factory_worktree_reuse_rebase_failed')).toBe(false);
       expect(decisions.some((row) => row.action === 'plan_generation_worktree_missing_abandoned')).toBe(false);
       expect(decisions.some((row) => row.action === 'plan_generation_worktree_created')).toBe(true);
     } finally {
@@ -564,6 +564,57 @@ describe('factory loop-controller EXECUTE for non-plan-file work items', () => {
       expect(decisions.some((row) => row.action === 'factory_worktree_reuse_dirty_preserved')).toBe(true);
       expect(decisions.some((row) => row.action === 'factory_worktree_reuse_rebase_failed')).toBe(false);
       expect(decisions.some((row) => row.action === 'plan_generation_worktree_created')).toBe(true);
+    } finally {
+      checkSpy.mockRestore();
+      rebaseSpy.mockRestore();
+    }
+  });
+
+  it('preserves a stale plan artifact worktree when a rebase conflict leaves it dirty', async () => {
+    const runner = createFakePlanArtifactWorktreeRunner();
+    loopController.setWorktreeRunnerForTests(runner);
+    const { project, workItem, projectDir } = registerExecuteProject();
+    const batchId = `factory-${project.id}-shared`;
+    const currentPath = path.join(projectDir, '.factory-worktrees', 'current-item-conflict-dirty');
+    initializeDirtyGitWorktree(currentPath);
+    const worktreeRow = factoryWorktrees.recordWorktree({
+      project_id: project.id,
+      work_item_id: workItem.id,
+      batch_id: batchId,
+      vc_worktree_id: 'vc-current-conflict-dirty',
+      branch: 'factory/current-item-conflict-dirty',
+      worktree_path: currentPath,
+      base_branch: 'main',
+    });
+    const checkSpy = vi.spyOn(branchFreshness, 'checkBranchFreshness').mockResolvedValue({
+      stale: true,
+      reason: 'commits_behind',
+      commitsBehind: 5,
+      staleFiles: [],
+    });
+    const rebaseSpy = vi.spyOn(branchFreshness, 'attemptRebase').mockResolvedValue({
+      ok: false,
+      error: 'CONFLICT (content): merge conflict',
+    });
+
+    try {
+      const prepared = await loopController._internalForTests.prepareAutoGeneratedPlanArtifactWorktree({
+        project,
+        instance: { id: 'inst-shared-batch-stale-conflict-dirty', project_id: project.id, batch_id: batchId },
+        workItem,
+      });
+
+      expect(prepared.workingDirectory).not.toBe(currentPath);
+      expect(runner.abandon).not.toHaveBeenCalled();
+      expect(runner.createForBatch).toHaveBeenCalledWith(expect.objectContaining({
+        featureNameSuffix: `preserved-dirty-${worktreeRow.id}`,
+      }));
+      const oldRow = db.prepare('SELECT status FROM factory_worktrees WHERE vc_worktree_id = ?')
+        .get('vc-current-conflict-dirty');
+      expect(oldRow.status).toBe('preserved');
+      const decisions = listDecisionRows(db, project.id);
+      expect(decisions.some((row) => row.action === 'factory_worktree_reuse_dirty_preserved')).toBe(true);
+      expect(decisions.some((row) => row.action === 'factory_worktree_reuse_rebase_failed')).toBe(false);
     } finally {
       checkSpy.mockRestore();
       rebaseSpy.mockRestore();

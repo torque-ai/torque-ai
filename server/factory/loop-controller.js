@@ -634,6 +634,11 @@ function isDirtyRebaseFailure(error) {
     .test(String(error || ''));
 }
 
+function isConflictRebaseFailure(error) {
+  return /\b(CONFLICT|could not apply|resolve all conflicts|merge conflict|rebase conflict)\b/i
+    .test(String(error || ''));
+}
+
 function normalizeWorktreePathForCompare(worktreePath) {
   if (typeof worktreePath !== 'string' || worktreePath.trim() === '') {
     return null;
@@ -803,14 +808,14 @@ async function ensureReusedFactoryWorktreeFresh({
     return { ok: true, checked: true, rebased: true, freshness, rebaseResult, baseRef, threshold };
   }
 
-  if (isDirtyRebaseFailure(rebaseResult.error)) {
-    const dirtyStatus = getWorktreeDirtyStatus(worktreePath);
+  const dirtyStatus = getWorktreeDirtyStatus(worktreePath);
+  if (isDirtyRebaseFailure(rebaseResult.error) || isConflictRebaseFailure(rebaseResult.error) || dirtyStatus.dirty) {
     const fallbackSuffix = `preserved-dirty-${worktreeRecord.id}`;
     safeLogDecision({
       project_id: project.id,
       stage: LOOP_STATES.EXECUTE,
       action: 'factory_worktree_reuse_dirty_preserved',
-      reasoning: `Reused factory worktree ${branch} could not rebase because it has uncommitted changes; preserving it and creating a suffixed fresh worktree for ${reuseContext}.`,
+      reasoning: `Reused factory worktree ${branch} could not rebase cleanly and now has uncommitted changes; preserving it and creating a suffixed fresh worktree for ${reuseContext}.`,
       inputs: { ...getWorkItemDecisionContext(workItem) },
       outcome: {
         factory_worktree_id: worktreeRecord.id,
@@ -823,6 +828,8 @@ async function ensureReusedFactoryWorktreeFresh({
         stale_files: freshness.staleFiles,
         reuse_context: reuseContext,
         fallback_suffix: fallbackSuffix,
+        dirty_checked: dirtyStatus.checked,
+        dirty_reason: dirtyStatus.reason || null,
       },
       confidence: 1,
       batch_id: batchId,
@@ -907,6 +914,14 @@ async function maybeReuseCompletedWorktreeOwner({
     reuseContext: 'completed_owner_reuse',
   });
   if (!freshness.ok) {
+    if (freshness.dirtyWorktree) {
+      const fallbackSuffix = freshness.fallbackSuffix || `preserved-dirty-${stale.id}`;
+      factoryWorktrees.markPreserved(
+        stale.id,
+        `dirty_before_completed_owner_reuse_fallback:${ownerSource || 'unknown_owner'}`,
+      );
+      return { preservedDirtyFallbackSuffix: fallbackSuffix };
+    }
     return null;
   }
 
@@ -10393,6 +10408,7 @@ async function executePlanFileStage(project, instance, workItem) {
   const worktreeRunner = getWorktreeRunner();
   let worktreeRecord = null;
   let executionWorkingDirectory = project.path;
+  let preservedDirtyFallbackSuffix = null;
   if (worktreeRunner) {
     try {
       const activeWorktree = factoryWorktrees.getActiveWorktreeByBatch(executeLogBatchId);
@@ -10463,6 +10479,13 @@ async function executePlanFileStage(project, instance, workItem) {
             });
           }
         } else {
+          if (freshness.dirtyWorktree) {
+            factoryWorktrees.markPreserved(
+              activeWorktree.id,
+              `dirty_before_execute_fallback:${resumedDeferredExecute ? 'deferred_execute' : 'execute'}`,
+            );
+            preservedDirtyFallbackSuffix = freshness.fallbackSuffix || `preserved-dirty-${activeWorktree.id}`;
+          }
           logger.warn('EXECUTE stage: active batch worktree reuse skipped after freshness check failed', {
             project_id: project.id,
             work_item_id: targetItem.id,
@@ -10470,6 +10493,8 @@ async function executePlanFileStage(project, instance, workItem) {
             factory_worktree_id: activeWorktree.id,
             worktree_path: activeWorktreePath,
             branch: activeWorktree.branch,
+            dirty_worktree: Boolean(freshness.dirtyWorktree),
+            fallback_suffix: preservedDirtyFallbackSuffix,
           });
         }
       } else if (activeWorktree) {
@@ -10765,11 +10790,14 @@ async function executePlanFileStage(project, instance, workItem) {
           targetItem,
           executeLogBatchId,
         });
-        if (reuse) {
+        if (reuse?.worktreeRecord) {
           worktreeRecord = reuse.worktreeRecord;
           executionWorkingDirectory = reuse.executionWorkingDirectory;
         }
-        if (!worktreeRecord) logger.warn('factory worktree: pre-reclaiming stale active row before create', {
+        if (reuse?.preservedDirtyFallbackSuffix) {
+          preservedDirtyFallbackSuffix = reuse.preservedDirtyFallbackSuffix;
+        }
+        if (!worktreeRecord && !preservedDirtyFallbackSuffix) logger.warn('factory worktree: pre-reclaiming stale active row before create', {
           project_id: project.id,
           work_item_id: targetItem.id,
           branch: targetBranch,
@@ -10782,7 +10810,7 @@ async function executePlanFileStage(project, instance, workItem) {
         // this the subsequent `git worktree remove` / fs.rmSync hit
         // "Device or resource busy" on Windows and the reclaim produces
         // phantom state.
-        if (!worktreeRecord && stale.owningTaskId) {
+        if (!worktreeRecord && !preservedDirtyFallbackSuffix && stale.owningTaskId) {
           try {
             const taskCore = require('../db/task-core');
             const owning = taskCore.getTask(stale.owningTaskId);
@@ -10844,8 +10872,8 @@ async function executePlanFileStage(project, instance, workItem) {
             });
           }
         }
-        if (!worktreeRecord) factoryWorktrees.markAbandoned(stale.id, 'pre_reclaim_before_create');
-        if (!worktreeRecord && typeof worktreeRunner.abandon === 'function' && stale.vcWorktreeId) {
+        if (!worktreeRecord && !preservedDirtyFallbackSuffix) factoryWorktrees.markAbandoned(stale.id, 'pre_reclaim_before_create');
+        if (!worktreeRecord && !preservedDirtyFallbackSuffix && typeof worktreeRunner.abandon === 'function' && stale.vcWorktreeId) {
           // Let errors propagate — if cleanup fails (e.g. a process still
           // holds a file lock), the outer catch will pause EXECUTE with a
           // real diagnostic instead of silently proceeding into a broken
@@ -10856,7 +10884,7 @@ async function executePlanFileStage(project, instance, workItem) {
             reason: 'pre_reclaim_before_create',
           });
         }
-        if (!worktreeRecord) safeLogDecision({
+        if (!worktreeRecord && !preservedDirtyFallbackSuffix) safeLogDecision({
           project_id: project.id,
           stage: LOOP_STATES.EXECUTE,
           action: 'worktree_reclaimed',
@@ -10878,6 +10906,7 @@ async function executePlanFileStage(project, instance, workItem) {
             project,
             workItem: targetItem,
             batchId: executeLogBatchId,
+            featureNameSuffix: preservedDirtyFallbackSuffix,
           });
         } catch (firstErr) {
           // Retry once after reconciling orphan worktrees if the error looks
@@ -10917,6 +10946,7 @@ async function executePlanFileStage(project, instance, workItem) {
               project,
               workItem: targetItem,
               batchId: executeLogBatchId,
+              featureNameSuffix: preservedDirtyFallbackSuffix,
             });
           } else {
             throw firstErr;
