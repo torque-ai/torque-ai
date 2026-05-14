@@ -11,6 +11,7 @@ const EXPECTED_REJECT_REASONS = [
   'branch_stale_vs_master',
   'branch_stale_vs_base',
   'pre_written_plan_rejected_by_quality_gate',
+  'plan_already_satisfied_no_new_work',
 ];
 
 function createFactoryTables(db) {
@@ -138,6 +139,18 @@ describe('factory intake unactionable status', () => {
       status: 'unactionable',
       reject_reason: 'zero_diff_across_retries',
     });
+  });
+
+  test('rejectWorkItemUnactionable accepts plan-already-satisfied verify terminal reason', () => {
+    const item = factoryIntake.createWorkItem({
+      project_id: project.id,
+      title: 'Plan already satisfied',
+    });
+
+    const rejected = factoryIntake.rejectWorkItemUnactionable(item.id, 'plan_already_satisfied_no_new_work');
+
+    expect(rejected.status).toBe('unactionable');
+    expect(rejected.reject_reason).toBe('plan_already_satisfied_no_new_work');
   });
 
   test('rejectWorkItemUnactionable rejects reasons outside REJECT_REASONS', () => {

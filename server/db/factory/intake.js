@@ -38,6 +38,7 @@ const REJECT_REASONS = Object.freeze(new Set([
   'branch_stale_vs_master',
   'branch_stale_vs_base',
   'pre_written_plan_rejected_by_quality_gate',
+  'plan_already_satisfied_no_new_work',
 ]));
 // Phase X5: escalation_exhausted is terminal-but-distinct — it joins the
 // closed set so PRIORITIZE doesn't keep re-picking it, but the operator
