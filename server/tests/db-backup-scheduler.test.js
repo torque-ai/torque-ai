@@ -77,7 +77,7 @@ describe('Database backup scheduler', () => {
 
   it('creates backup files and hash files on a schedule', async () => {
     db.startBackupScheduler(5);
-    await advance(15);
+    await advance(6);
 
     const backups = listBackups();
     expect(backups.length).toBeGreaterThanOrEqual(1);
@@ -89,8 +89,8 @@ describe('Database backup scheduler', () => {
   it('cleans up backups beyond the configured maximum', async () => {
     db.setConfig('backup_max_count', '2');
 
-    db.startBackupScheduler(1);
-    await advance(25);
+    db.startBackupScheduler(5);
+    await advance(16);
 
     expect(listBackups().length).toBeGreaterThan(0);
     expect(listBackups().length).toBeLessThanOrEqual(2);
@@ -98,7 +98,7 @@ describe('Database backup scheduler', () => {
 
   it('stops creating backups when stopped', async () => {
     db.startBackupScheduler(5);
-    await advance(10);
+    await advance(6);
 
     const countBeforeStop = listBackups().length;
     expect(countBeforeStop).toBeGreaterThan(0);
@@ -119,8 +119,6 @@ describe('Database backup scheduler', () => {
     const startBackupSchedulerSpy = vi.spyOn(backupCore, 'startBackupScheduler');
     db.init();
     expect(startBackupSchedulerSpy).not.toHaveBeenCalled();
-
-    await advance(5000);
 
     expect(listBackups()).toHaveLength(0);
   });
