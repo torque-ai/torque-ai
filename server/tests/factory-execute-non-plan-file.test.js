@@ -833,6 +833,53 @@ describe('factory loop-controller EXECUTE for non-plan-file work items', () => {
     })).toBe('');
   });
 
+  it('recovers a side-written plan file from a crashed plan-generation task', () => {
+    const { project, workItem, projectDir } = registerExecuteProject();
+    const expectedPlanPath = path.join(
+      projectDir,
+      'docs',
+      'superpowers',
+      'plans',
+      'auto-generated',
+      `${workItem.id}-add-behavioral-tests-for-factory-scorers.md`
+    );
+    const sideWrittenPlanPath = path.join(
+      projectDir,
+      'docs',
+      'superpowers',
+      'plans',
+      path.basename(expectedPlanPath)
+    );
+    fs.mkdirSync(path.dirname(sideWrittenPlanPath), { recursive: true });
+    fs.writeFileSync(sideWrittenPlanPath, `# Behavioral Scorer Plan
+
+## Task 1: Add behavioral scorer tests
+
+- [ ] **Step 1: Add regression coverage**
+
+    Update server/tests/factory-scorers.test.js with scout-driven scorer coverage.
+`, 'utf8');
+
+    const recovered = loopController._internalForTests.recoverTerminalPlanGenerationMarkdown({
+      generationTask: {
+        id: 'plan-gen-task',
+        status: 'failed',
+        output: 'The plan has been written.',
+        error_output: '[process-exit] code=3221226505 signal=none',
+      },
+      planPath: expectedPlanPath,
+      workItem,
+      project,
+    });
+
+    expect(recovered).toMatchObject({
+      source: 'side_written_file',
+      sourcePath: sideWrittenPlanPath,
+    });
+    expect(recovered.markdown).toContain(`**Source:** auto-generated from work_item #${workItem.id}`);
+    expect(recovered.markdown).toContain('## Task 1: Add behavioral scorer tests');
+  });
+
   // TODO: mock setup for the happy path doesn't currently let the implementation
   // see a valid plan markdown back from the awaitTask stub. The "no description"
   // guard test below covers the functional safety case. Re-enable after wiring
