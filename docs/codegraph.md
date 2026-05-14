@@ -4,9 +4,9 @@
 
 ## Status
 
-- **Languages:** JavaScript, TypeScript, TSX, Python, Go, and C# through `web-tree-sitter` plus `tree-sitter-wasms`. PowerShell files are detected but skipped until a compatible PowerShell WASM grammar is available.
+- **Languages:** JavaScript, TypeScript, TSX, Python, Go, C#, and PowerShell through `web-tree-sitter` plus `tree-sitter-wasms` (PowerShell extractor at `server/plugins/codegraph/extractors/powershell.js`).
 - **Storage:** SQLite tables prefixed `cg_*` in a dedicated `<DATA_DIR>/codegraph.db` file (separate from the main TORQUE db so reindex transactions don't lock task scheduling)
-- **Off by default.** Set `TORQUE_CODEGRAPH_ENABLED=1` and restart to enable.
+- **On by default.** Set `TORQUE_CODEGRAPH_ENABLED=0` and restart to disable.
 
 ## REST endpoints
 
@@ -63,7 +63,6 @@ server/plugins/codegraph/
 
 ## Limitations (MVP)
 
-- PowerShell is listed for extractor compatibility but skipped at parse time because `tree-sitter-wasms@0.1.13` does not ship a PowerShell grammar.
 - No cross-repo references.
 - Identifier-based call resolution only — no scope or import-aware binding. `foo()` in two files maps to the same target name. Consumers should treat results as candidate impact, not proof.
 - No incremental commit-by-commit updates; `cg_reindex` always re-indexes from scratch (idempotent — runs no-op if HEAD is unchanged).
@@ -71,7 +70,7 @@ server/plugins/codegraph/
 
 ## Validation plan
 
-After cutover, the plugin loads inert (no tools registered) until `TORQUE_CODEGRAPH_ENABLED=1` is set in the TORQUE environment. Once enabled, run a one-week shadow-mode validation: serve queries via the REST endpoints manually but do not wire the Planner or scouts to consume them. Track:
+The plugin now loads by default; `TORQUE_CODEGRAPH_ENABLED=0` is the opt-out switch. Once enabled (the normal case), run a one-week shadow-mode validation when first adopting it: serve queries via the REST endpoints manually but do not wire the Planner or scouts to consume them yet. Track:
 
 - Reindex success rate per repo
 - Query result quality (sample 10 known refactors per week, compare `cg_impact_set` against ground truth)

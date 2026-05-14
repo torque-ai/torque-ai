@@ -383,7 +383,7 @@ TORQUE supports automated semver release management per project — set `version
 
 ## MCP Tool Reference
 
-TORQUE tools are progressively unlocked. Start with the core set, use `get_tool_schema` for signatures, and call `unlock_all_tools` to see all ~600 tools.
+TORQUE tools are progressively unlocked. Start with the core set, use `get_tool_schema` for signatures, and call `unlock_all_tools` to see all ~570 tools.
 
 | Category | Tools |
 |----------|-------|
@@ -482,7 +482,7 @@ Beyond the core surface above, useful additions discoverable via `get_tool_schem
 - **Automation / batch:** `configure_stall_detection`, `auto_verify_and_fix`, `generate_test_tasks`, `get_batch_summary`, `generate_feature_tasks`, `run_batch`, `detect_file_conflicts`, `auto_commit_batch`.
 - **Universal TypeScript:** `inject_class_dependency`, `add_ts_union_members`, `inject_method_calls`, `normalize_interface_formatting`, `add_ts_enum_members` (in addition to the four TS tools in the table above). Prefer these over raw search/replace when they fit — they use AST anchors, not content matching.
 
-Call `unlock_all_tools` to see all ~600.
+Call `unlock_all_tools` to see all ~570.
 
 ## Cloud Inference Notes
 

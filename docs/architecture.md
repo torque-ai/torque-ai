@@ -32,7 +32,7 @@ How TORQUE works, from request entry to task completion.
 │                     ▼             ▼                              │
 │              ┌──────────────────────┐                           │
 │              │   Provider Registry  │                           │
-│              │   12 providers       │                           │
+│              │   14 providers       │                           │
 │              └──────┬───────────────┘                           │
 │                     │                                           │
 │       ┌─────────────┼──────────────┐                           │
