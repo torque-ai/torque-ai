@@ -735,6 +735,44 @@ describe('task-finalizer', () => {
     }
   });
 
+  it('fails the task when a finalizer stage exceeds its configured timeout', async () => {
+    vi.useFakeTimers();
+    try {
+      const dbBundle = createTaskDb({
+        task_description: 'Finalize task with hung validation stage',
+      });
+      dbBundle.db.getConfig = vi.fn((key) => (
+        key === 'finalizer_stage_build_test_style_commit_timeout_ms' ? '25' : null
+      ));
+      const hangingBuildStage = vi.fn(() => new Promise(() => {}));
+      initFinalizer({
+        dbBundle,
+        handleBuildTestStyleCommit: hangingBuildStage,
+        handlePostCompletion: vi.fn(),
+      });
+
+      const finalizePromise = finalizer.finalizeTask(dbBundle.taskId, {
+        exitCode: 0,
+        output: 'done',
+        errorOutput: '',
+      });
+
+      await vi.advanceTimersByTimeAsync(30);
+      const result = await finalizePromise;
+      const storedTask = dbBundle.getStoredTask();
+
+      expect(result.finalized).toBe(true);
+      expect(storedTask.status).toBe('failed');
+      expect(storedTask.error_output).toContain('[FINALIZER build_test_style_commit TIMEOUT]');
+      expect(storedTask.metadata.finalization.validation_stage_outcomes.build_test_style_commit.outcome)
+        .toBe('timeout');
+      expect(storedTask.metadata.finalization.validation_stage_outcomes.build_test_style_commit.timeout_ms)
+        .toBe(25);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('records categorized outcomes for local providers before the terminal DB write', async () => {
     vi.useFakeTimers();
     try {

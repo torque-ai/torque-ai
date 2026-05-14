@@ -40,6 +40,17 @@ let handleAdversarialReview = null;
 const finalizationLocks = new Map();
 let ownedSharedFactoryStore = null;
 
+const DEFAULT_STAGE_TIMEOUT_MS = 120000;
+const STAGE_TIMEOUT_MS = {
+  build_test_style_commit: 300000,
+  auto_verify_retry: 360000,
+  verification_ledger: 120000,
+  adversarial_review: 120000,
+  smart_diagnosis: 60000,
+  strategic_review: 60000,
+  provider_failover: 120000,
+};
+
 function resetForTest() {
   if (ownedSharedFactoryStore && typeof ownedSharedFactoryStore.close === 'function') {
     try { ownedSharedFactoryStore.close(); } catch { /* non-fatal */ }
@@ -223,6 +234,41 @@ function getRawDbInstance() {
 function readDbConfig(key) {
   if (!deps.db || typeof deps.db.getConfig !== 'function') return null;
   try { return deps.db.getConfig(key); } catch { return null; }
+}
+
+function parsePositiveInteger(value) {
+  if (value === undefined || value === null || value === '') return null;
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+function getStageTimeoutMs(name) {
+  const stageOverride = parsePositiveInteger(readDbConfig(`finalizer_stage_${name}_timeout_ms`));
+  if (stageOverride !== null) return stageOverride;
+  const globalOverride = parsePositiveInteger(readDbConfig('finalizer_stage_timeout_ms'));
+  if (globalOverride !== null) return globalOverride;
+  return STAGE_TIMEOUT_MS[name] || DEFAULT_STAGE_TIMEOUT_MS;
+}
+
+function createStageTimeoutError(name, timeoutMs) {
+  const err = new Error(`finalizer stage ${name} timed out after ${timeoutMs}ms`);
+  err.code = 'FINALIZER_STAGE_TIMEOUT';
+  err.stage = name;
+  err.timeoutMs = timeoutMs;
+  return err;
+}
+
+function runWithStageTimeout(name, timeoutMs, handlerPromise) {
+  if (!timeoutMs || timeoutMs <= 0) return Promise.resolve(handlerPromise);
+  let timeoutId = null;
+  const timeoutPromise = new Promise((_, reject) => {
+    timeoutId = setTimeout(() => reject(createStageTimeoutError(name, timeoutMs)), timeoutMs);
+    if (typeof timeoutId?.unref === 'function') timeoutId.unref();
+  });
+  return Promise.race([Promise.resolve(handlerPromise), timeoutPromise])
+    .finally(() => {
+      if (timeoutId) clearTimeout(timeoutId);
+    });
 }
 
 function normalizeText(value) {
@@ -871,28 +917,32 @@ async function runStage(ctx, name, handler, shouldRun = true) {
 
   const before = snapshotCtx(ctx);
   const startedAt = Date.now();
+  const timeoutMs = getStageTimeoutMs(name);
 
   try {
-    await Promise.resolve(handler(ctx));
+    await runWithStageTimeout(name, timeoutMs, handler(ctx));
   } catch (err) {
     ctx.pipelineError = true;
     ctx.status = 'failed';
     ctx.code = normalizeExitCode(ctx.code);
     if (ctx.code === 0) ctx.code = 1;
-    ctx.errorOutput = appendErrorOutput(ctx.errorOutput, `[FINALIZER ${name} ERROR] ${err.message}`);
+    const isTimeout = err?.code === 'FINALIZER_STAGE_TIMEOUT';
+    const errorLabel = isTimeout ? 'TIMEOUT' : 'ERROR';
+    ctx.errorOutput = appendErrorOutput(ctx.errorOutput, `[FINALIZER ${name} ${errorLabel}] ${err.message}`);
     ctx.validationStages[name] = {
-      outcome: 'error',
+      outcome: isTimeout ? 'timeout' : 'error',
       status_before: before.status,
       status_after: ctx.status,
       code_before: before.code,
       code_after: ctx.code,
       early_exit: ctx.earlyExit === true,
       duration_ms: Date.now() - startedAt,
+      timeout_ms: isTimeout ? timeoutMs : undefined,
       error: err.message,
     };
-    logger.info(`[TaskFinalizer] Stage ${name} failed for ${ctx.taskId}: ${err.message}`);
+    logger.info(`[TaskFinalizer] Stage ${name} ${isTimeout ? 'timed out' : 'failed'} for ${ctx.taskId}: ${err.message}`);
     if (typeof ctx.finalizationHeartbeat === 'function') {
-      try { ctx.finalizationHeartbeat(`stage:${name}:error`); } catch { /* non-critical */ }
+      try { ctx.finalizationHeartbeat(`stage:${name}:${isTimeout ? 'timeout' : 'error'}`); } catch { /* non-critical */ }
     }
     return;
   }
