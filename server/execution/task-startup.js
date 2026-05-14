@@ -76,6 +76,60 @@ const FILE_LOCK_WAIT_METADATA_KEY = 'file_lock_wait';
 const FACTORY_WORKTREE_RE = /(^|[\\/])\.worktrees([\\/]|$)/i;
 const VISIBLE_SHELL_PROVIDERS = new Set(['claude-cli', 'codex', 'codex-spark']);
 
+function resolveProviderRegistry() {
+  if (
+    providerRegistry
+    && typeof providerRegistry.isKnownProvider === 'function'
+    && typeof providerRegistry.isApiProvider === 'function'
+  ) {
+    return providerRegistry;
+  }
+  try {
+    return require('../providers/registry');
+  } catch {
+    return null;
+  }
+}
+
+function isKnownProvider(provider) {
+  const registry = resolveProviderRegistry();
+  return typeof registry?.isKnownProvider === 'function'
+    ? registry.isKnownProvider(provider)
+    : true;
+}
+
+function isApiProvider(provider) {
+  const registry = resolveProviderRegistry();
+  return typeof registry?.isApiProvider === 'function'
+    ? registry.isApiProvider(provider)
+    : false;
+}
+
+function getProviderInstance(provider) {
+  const registry = resolveProviderRegistry();
+  return typeof registry?.getProviderInstance === 'function'
+    ? registry.getProviderInstance(provider)
+    : null;
+}
+
+function resolveTaskStatusUpdater() {
+  if (typeof safeUpdateTaskStatus === 'function') {
+    return safeUpdateTaskStatus;
+  }
+  if (db && typeof db.updateTaskStatus === 'function') {
+    return db.updateTaskStatus.bind(db);
+  }
+  return null;
+}
+
+function updateTaskStatusForStartup(taskId, status, fields = {}) {
+  const update = resolveTaskStatusUpdater();
+  if (typeof update !== 'function') {
+    throw new Error('task status updater is not available');
+  }
+  return update(taskId, status, fields);
+}
+
 function resolvePendingRetryTimeouts() {
   if (pendingRetryTimeouts && typeof pendingRetryTimeouts.entries === 'function') {
     return pendingRetryTimeouts;
@@ -830,7 +884,10 @@ function resolveStartupProvider({
 }) {
   const routing = resolveRouting(task, taskId);
   const provider = routing.provider;
-  if (!registry.isKnownProvider(provider)) {
+  const providerIsKnown = registry && typeof registry.isKnownProvider === 'function'
+    ? registry.isKnownProvider(provider)
+    : isKnownProvider(provider);
+  if (!providerIsKnown) {
     const errorMessage = failInvalidProvider(taskId, provider);
     throw new Error(errorMessage);
   }
@@ -933,7 +990,7 @@ function createTaskStartupResourceLifecycle({
     }
     const currentTask = db.getTask(taskId);
     if (currentTask && currentTask.status === 'running' && !currentTask.pid) {
-      safeUpdateTaskStatus(taskId, status, {
+      updateTaskStatusForStartup(taskId, status, {
         ...fields,
         pid: null,
         mcp_instance_id: null,
@@ -1466,7 +1523,7 @@ function evaluateClaimedPolicyForStartup({
     evaluatePolicy: evaluateTaskPreExecutePolicy,
     describePolicyBlock: getPolicyBlockReason,
     cancelBlockedTask: cancelTask,
-    updateTaskStatus: safeUpdateTaskStatus,
+    updateTaskStatus: updateTaskStatusForStartup,
     notifyTaskUpdated: id => dashboard.notifyTaskUpdated(id),
     drainQueue: processQueue,
     getTask: id => db.getTask(id),
@@ -1487,7 +1544,7 @@ function evaluateClaimedPolicyForStartup({
     cancelTask(taskId, cancelReason, { cancel_reason: 'policy_block' });
   } catch (cancelErr) {
     logger.info(`[Governance] Failed to cancel blocked task ${taskId}: ${cancelErr.message}`);
-    safeUpdateTaskStatus(taskId, 'failed', {
+    updateTaskStatusForStartup(taskId, 'failed', {
       error_output: cancelReason,
     });
   }
@@ -1618,7 +1675,7 @@ function prepareApiProviderExecution({
   maxConcurrent,
   startupResources,
 }) {
-  const instance = providerRegistry.getProviderInstance(provider);
+  const instance = getProviderInstance(provider);
   if (instance) {
     return {
       completed: true,
@@ -1652,7 +1709,7 @@ function prepareProviderExecution({
     return { completed: false, provider, providerConfig, executionTask };
   }
 
-  if (providerRegistry.isApiProvider(provider)) {
+  if (isApiProvider(provider)) {
     return prepareApiProviderExecution({
       task,
       taskId,
@@ -1865,10 +1922,7 @@ function markPreflightFailed(taskId, err) {
     mcp_instance_id: null,
     ollama_host_id: null,
   };
-  const update = typeof safeUpdateTaskStatus === 'function'
-    ? safeUpdateTaskStatus
-    : db.updateTaskStatus.bind(db);
-  update(taskId, 'failed', fields);
+  updateTaskStatusForStartup(taskId, 'failed', fields);
   try { dashboard.notifyTaskUpdated(taskId); } catch { /* ignore */ }
   return {
     started: false,
@@ -1936,7 +1990,7 @@ function attemptTaskStart(taskId, label) {
         try {
           const t = db.getTask(taskId);
           if (t && t.status === 'running' && !t.pid) {
-            safeUpdateTaskStatus(taskId, 'failed', {
+            updateTaskStatusForStartup(taskId, 'failed', {
               error_output: asyncErr.message,
               pid: null,
               mcp_instance_id: null,

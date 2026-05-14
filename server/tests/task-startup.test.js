@@ -213,6 +213,11 @@ function loadTaskStartup(options = {}) {
   installCjsModuleMock('../constants', constantsMock);
   installCjsModuleMock('../utils/git', gitMock);
   installCjsModuleMock('../container', containerMock);
+  installCjsModuleMock('../providers/registry', options.providerRegistryFallback || {
+    isKnownProvider: vi.fn((provider) => ['ollama', 'codex', 'codex-spark', 'claude-cli', 'system'].includes(provider)),
+    isApiProvider: vi.fn(() => false),
+    getProviderInstance: vi.fn(() => null),
+  });
 
   const mockSpawnAndTrackProcess = options.depOverrides?.spawnAndTrackProcess
     || vi.fn(() => ({ queued: false, started: true }));
@@ -370,6 +375,22 @@ describe('task-startup', () => {
       { cancel_reason: 'policy_block' },
     );
     expect(taskManager.processQueue).toHaveBeenCalledTimes(1);
+  });
+
+  it('uses the canonical provider registry when the injected registry scope is unavailable', async () => {
+    const task = createTask({ id: 'claude-task', provider: 'claude-cli' });
+    const ctx = loadTaskStartup({
+      task,
+      depOverrides: {
+        providerRegistry: undefined,
+      },
+    });
+
+    const result = await ctx.module.startTask(task.id);
+
+    expect(result).toEqual({ queued: false, started: true });
+    expect(ctx.deps.spawnAndTrackProcess).toHaveBeenCalledTimes(1);
+    expect(ctx.deps.failTaskForInvalidProvider).not.toHaveBeenCalled();
   });
 
   it('injects resolved mention context into the execution prompt and tags unresolved mentions', async () => {
@@ -1087,6 +1108,35 @@ describe('task-startup', () => {
     );
     expect(ctx.tasks.get(task.id)?.status).toBe('failed');
     expect(ctx.deps.processQueue).toHaveBeenCalled();
+  });
+
+  it('falls back to db.updateTaskStatus when async startup cleanup has no safe updater', async () => {
+    const task = createTask({ provider: 'ollama' });
+    const ctx = loadTaskStartup({
+      task,
+      depOverrides: {
+        safeUpdateTaskStatus: null,
+      },
+    });
+    const failError = new Error('agentic startup failed without safe updater');
+    ctx.deps.executeOllamaTask.mockRejectedValue(failError);
+
+    const result = ctx.module.safeStartTask(task.id, 'ollama');
+
+    expect(result).toBe(false);
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(ctx.deps.db.updateTaskStatus).toHaveBeenCalledWith(
+      task.id,
+      'failed',
+      expect.objectContaining({
+        error_output: failError.message,
+        pid: null,
+        mcp_instance_id: null,
+        ollama_host_id: null,
+      }),
+    );
+    expect(ctx.tasks.get(task.id)?.status).toBe('failed');
   });
 
   it('setSkipGitInCloseHandler and getSkipGitInCloseHandler toggle correctly', async () => {
