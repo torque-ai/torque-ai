@@ -7,23 +7,19 @@
  * after a task reaches a terminal state. Keeps counters and downstream task
  * statuses in sync.
  *
- * Uses init() dependency injection.
+ * Uses the container-resolved factory shape.
  */
 
-// ── Legacy module-level state, written only by init() (deprecated) ─────────
-// Phase 3 of the universal-DI migration: this module exposes both the new
-// createPlanProjectResolver factory + register(container) and the legacy
-// init({…}) shape. Legacy state removed when task-manager.js migrates.
-let _db = null;
-let _dashboard = null;
-
-/**
- * @internal — test-only override path. Production resolves via
- * createPlanProjectResolver(localDeps) inside the container factory.
- */
-function init(deps = {}) {
-  if (deps.db) _db = deps.db;
-  if (deps.dashboard) _dashboard = deps.dashboard;
+function getContainerDeps() {
+  try {
+    const { defaultContainer } = require('../container');
+    return {
+      db: defaultContainer.peek('db') || null,
+      dashboard: defaultContainer.peek('dashboard') || null,
+    };
+  } catch {
+    return { db: null, dashboard: null };
+  }
 }
 
 /**
@@ -34,20 +30,26 @@ function init(deps = {}) {
  * @param {string} newStatus - New task status ('completed' or 'failed').
  * @returns {void}
  */
-function handleProjectDependencyResolution(taskId, newStatus) {
+function handleProjectDependencyResolutionWithDeps(deps, taskId, newStatus) {
   if (!['completed', 'failed'].includes(newStatus)) return;
 
-  const projectTask = _db.getPlanProjectTask(taskId);
+  const db = deps?.db;
+  if (!db) {
+    throw new Error('plan-project-resolver requires db dependency');
+  }
+  const dashboard = deps.dashboard || null;
+
+  const projectTask = db.getPlanProjectTask(taskId);
   if (!projectTask) return;
 
-  const project = _db.getPlanProject(projectTask.project_id);
+  const project = db.getPlanProject(projectTask.project_id);
   if (!project) return;
 
   const updateProjectCounts = () => {
-    const projectTasks = _db.getPlanProjectTasks(projectTask.project_id);
+    const projectTasks = db.getPlanProjectTasks(projectTask.project_id);
     const completedTasks = projectTasks.filter(t => t.status === 'completed').length;
     const failedTasks = projectTasks.filter(t => t.status === 'failed').length;
-    _db.updatePlanProject(projectTask.project_id, {
+    db.updatePlanProject(projectTask.project_id, {
       completed_tasks: completedTasks,
       failed_tasks: failedTasks
     });
@@ -55,9 +57,9 @@ function handleProjectDependencyResolution(taskId, newStatus) {
   };
 
   const notifyTaskUpdated = (dependentTaskId) => {
-    if (!_dashboard) return;
+    if (!dashboard) return;
     try {
-      _dashboard.notifyTaskUpdated(dependentTaskId);
+      dashboard.notifyTaskUpdated(dependentTaskId);
     } catch {
       // Dashboard notifications are best-effort for dependency updates.
     }
@@ -66,20 +68,20 @@ function handleProjectDependencyResolution(taskId, newStatus) {
   const { completedTasks } = updateProjectCounts();
 
   if (newStatus === 'completed') {
-    const dependentTaskIds = _db.getDependentPlanTasks(taskId);
+    const dependentTaskIds = db.getDependentPlanTasks(taskId);
 
     for (const depTaskId of dependentTaskIds) {
-      const depTask = _db.getTask(depTaskId);
+      const depTask = db.getTask(depTaskId);
       if (!depTask || depTask.status !== 'waiting') continue;
 
-      if (_db.areAllPlanDependenciesComplete(depTaskId)) {
-        _db.updateTaskStatus(depTaskId, 'queued');
+      if (db.areAllPlanDependenciesComplete(depTaskId)) {
+        db.updateTaskStatus(depTaskId, 'queued');
         notifyTaskUpdated(depTaskId);
       }
     }
 
     if (completedTasks >= project.total_tasks) {
-      _db.updatePlanProject(projectTask.project_id, {
+      db.updatePlanProject(projectTask.project_id, {
         status: 'completed',
         completed_at: new Date().toISOString()
       });
@@ -93,12 +95,12 @@ function handleProjectDependencyResolution(taskId, newStatus) {
 
   while (queue.length > 0) {
     const currentId = queue.shift();
-    const dependentTaskIds = _db.getDependentPlanTasks(currentId);
+    const dependentTaskIds = db.getDependentPlanTasks(currentId);
 
     for (const depTaskId of dependentTaskIds) {
       if (toBlock.has(depTaskId)) continue;
 
-      const depTask = _db.getTask(depTaskId);
+      const depTask = db.getTask(depTaskId);
       if (depTask && ['waiting', 'queued'].includes(depTask.status)) {
         toBlock.add(depTaskId);
         queue.push(depTaskId);
@@ -107,16 +109,20 @@ function handleProjectDependencyResolution(taskId, newStatus) {
   }
 
   for (const depTaskId of toBlock) {
-    _db.updateTaskStatus(depTaskId, 'blocked');
+    db.updateTaskStatus(depTaskId, 'blocked');
     notifyTaskUpdated(depTaskId);
   }
 
-  const remainingTasks = _db.getPlanProjectTasks(projectTask.project_id);
+  const remainingTasks = db.getPlanProjectTasks(projectTask.project_id);
   const canProceed = remainingTasks.some(t => ['queued', 'running', 'waiting'].includes(t.status));
 
   if (!canProceed && completedTasks < project.total_tasks) {
-    _db.updatePlanProject(projectTask.project_id, { status: 'failed' });
+    db.updatePlanProject(projectTask.project_id, { status: 'failed' });
   }
+}
+
+function handleProjectDependencyResolution(taskId, newStatus) {
+  return handleProjectDependencyResolutionWithDeps(getContainerDeps(), taskId, newStatus);
 }
 
 /**
@@ -137,16 +143,11 @@ function handlePlanProjectTaskFailure(taskId) {
 
 // ── New factory shape (preferred) ─────────────────────────────────────────
 function createPlanProjectResolver(deps = {}) {
-  const local = { _db: deps.db, _dashboard: deps.dashboard };
-  function withLocalDeps(fn) {
-    const prev = { _db, _dashboard };
-    _db = local._db; _dashboard = local._dashboard;
-    try { return fn(); } finally { ({ _db, _dashboard } = prev); }
-  }
+  const local = { db: deps.db, dashboard: deps.dashboard };
   return {
-    handleProjectDependencyResolution: (...args) => withLocalDeps(() => handleProjectDependencyResolution(...args)),
-    handlePlanProjectTaskCompletion: (...args) => withLocalDeps(() => handlePlanProjectTaskCompletion(...args)),
-    handlePlanProjectTaskFailure: (...args) => withLocalDeps(() => handlePlanProjectTaskFailure(...args)),
+    handleProjectDependencyResolution: (...args) => handleProjectDependencyResolutionWithDeps(local, ...args),
+    handlePlanProjectTaskCompletion: (taskId) => handleProjectDependencyResolutionWithDeps(local, taskId, 'completed'),
+    handlePlanProjectTaskFailure: (taskId) => handleProjectDependencyResolutionWithDeps(local, taskId, 'failed'),
   };
 }
 
@@ -161,8 +162,6 @@ function register(container) {
 module.exports = {
   createPlanProjectResolver,
   register,
-  // @internal — test-only override path (see init() jsdoc)
-  init,
   handleProjectDependencyResolution,
   handlePlanProjectTaskCompletion,
   handlePlanProjectTaskFailure,
