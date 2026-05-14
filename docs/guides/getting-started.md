@@ -146,13 +146,15 @@ TORQUE works with Claude Code and any MCP-compatible client. The `torque init` c
 {
   "mcpServers": {
     "torque": {
-      "type": "sse",
-      "url": "http://127.0.0.1:3458/sse",
+      "type": "streamable-http",
+      "url": "http://127.0.0.1:3458/mcp",
       "description": "TORQUE — Distributed AI task orchestration"
     }
   }
 }
 ```
+
+The legacy SSE endpoint at `http://127.0.0.1:3458/sse` (type `sse`) is still served as a fallback for older MCP clients.
 
 Once connected, TORQUE exposes tools progressively — starting with core task management and unlocking advanced orchestration as you need it.
 
@@ -171,6 +173,6 @@ Or navigate to `http://localhost:3456` in your browser. The dashboard provides:
 
 ## Next Steps
 
-- **[Provider Guide](providers.md)** — configure all 12 providers, set API keys, tune routing
+- **[Provider Guide](providers.md)** — configure all 14 providers, set API keys, tune routing
 - **[Troubleshooting](troubleshooting.md)** — common issues and solutions
 - **[CLAUDE.md](../../CLAUDE.md)** — full architecture reference, workflows, policy engine, and all MCP tools

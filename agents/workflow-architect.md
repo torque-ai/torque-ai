@@ -12,7 +12,7 @@ You design DAG workflows for TORQUE from feature descriptions.
     Scenario | Provider | Model
     Greenfield work or complex tasks | `codex` | default
     Small edits under 300 lines | `ollama` | qwen2.5-coder:32b
-    Targeted edits | `hashline-ollama` | qwen2.5-coder:32b
+    Targeted single-file edits | `codex-spark` | default
 
 4. Output the workflow using MCP tool calls:
 

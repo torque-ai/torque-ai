@@ -1,6 +1,6 @@
 # Provider Guide
 
-TORQUE routes tasks across 12 execution providers. This guide covers how to configure each one.
+TORQUE routes tasks across 14 execution providers. This guide covers how to configure each one.
 
 ## Provider Types
 
@@ -66,13 +66,23 @@ Same as Codex but uses the `gpt-5.3-codex-spark` model for faster single-file ed
 
 **Setup:** Same as Codex — shares the same CLI and API key.
 
-### Claude Code
+### Claude Code (CLI subprocess)
 
-Anthropic's Claude Code CLI. Best for architectural decisions and complex debugging.
+Anthropic's Claude Code CLI invoked as a raw subprocess. Best for architectural decisions and complex debugging when you want the same agentic loop as interactive Claude Code.
 
 **Setup:**
 1. Install: `npm install -g @anthropic-ai/claude-code`
 2. Authenticate: `claude auth`
+
+Provider ID: `claude-cli`.
+
+### Claude Code SDK (in-process)
+
+The same Claude Code agentic loop, but invoked via the SDK instead of a raw CLI subprocess. Gives TORQUE structured streaming, a session store, permission-mode control (`auto` / `acceptEdits` / `plan` / `bypassPermissions`), and skills loading.
+
+**Setup:** Same Claude Code install + authentication as above.
+
+Provider ID: `claude-code-sdk`. Default model `claude-sonnet-4-20250514`.
 
 ### claude-ollama (Local + Claude Code harness)
 
@@ -200,19 +210,25 @@ configure_fallback_chain { provider: "ollama", chain: ["deepinfra", "codex"] }
 
 ## Routing Templates
 
-Routing templates give you explicit control over which providers handle which task categories. TORQUE auto-detects 9 task categories from the task description:
+Routing templates give you explicit control over which providers handle which task categories. TORQUE auto-detects 10 task categories from the task description:
 
-`security`, `xaml_wpf`, `architectural`, `reasoning`, `large_code_gen`, `documentation`, `simple_generation`, `targeted_file_edit`, `default`
+`security`, `xaml_wpf`, `architectural`, `reasoning`, `large_code_gen`, `documentation`, `simple_generation`, `targeted_file_edit`, `plan_generation`, `default`
 
 ### Preset Templates
 
+**11 presets ship in `server/routing/templates/*.json`.** Common ones:
+
 | Template | Strategy |
 |----------|----------|
-| **System Default** | Codex for hard problems, balanced routing for rest |
+| **System Default** | Codex for hard problems, free cloud for rest |
 | **Quality First** | Codex primary for all code work |
 | **Cost Saver** | Lightweight providers first, Codex as last resort |
 | **Cloud Sprint** | Cerebras primary, maximum speed |
+| **Free Agentic** | Zero-cost providers only (no Codex) |
+| **Free Speed** | Cerebras for lowest latency, Codex safety net |
 | **All Local** | Ollama for everything, Codex escape hatch for complex tasks |
+
+See `docs/routing-templates.md` for the full 11-preset catalog, schema, and resolver precedence.
 
 ### Activate a Template
 
