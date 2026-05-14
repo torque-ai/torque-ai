@@ -81,6 +81,14 @@ const WORK_ITEM_STATUS_ORDER = Object.freeze([
 // gives the queue room to admit other work and lets the operator see the
 // rejection in the dashboard before the next attempt fires.
 const NEEDS_REPLAN_COOLDOWN_MS = 5 * 60 * 1000;
+const NEEDS_REPLAN_PLAN_QUALITY_SELECTION_PENALTY = 32;
+const NEEDS_REPLAN_GENERIC_REJECTION_SELECTION_PENALTY = 16;
+const NEEDS_REPLAN_HISTORY_PENALTY_STEP = 4;
+const NEEDS_REPLAN_HISTORY_PENALTY_MAX = 12;
+const NEEDS_REPLAN_PLAN_QUALITY_PENALTY_PATTERN =
+  /(?:plan_quality_gate_rejected_after_intrabatch_retries|pre_written_plan_rejected_by_quality_gate|plan_already_satisfied_no_new_work|already\s+(?:complete|satisfied)|\bno-?op\b|same-shape)/i;
+const NEEDS_REPLAN_GENERIC_REJECTION_PENALTY_PATTERN =
+  /(?:cannot_generate_plan|empty_branch_after_execute|zero_diff|verify_failed|worktree_[a-z_]*failed|execute_exception|task_\d+_failed|dep_(?:cascade|resolver)_)/i;
 
 const SQLITE_UTC_TIMESTAMP_PATTERN = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?$/;
 
@@ -109,6 +117,63 @@ function getNeedsReplanCooldownInfo(item, nowMs = Date.now()) {
     updatedAtMs,
     remainingMs: Math.max(0, remainingMs),
   };
+}
+
+function buildNeedsReplanPenaltyEvidence(item) {
+  const origin = getWorkItemOriginObject(item);
+  const evidenceParts = [
+    item?.reject_reason,
+    origin?.last_rejection_reason,
+    origin?.last_gate_feedback,
+  ];
+
+  if (origin?.last_rejection_details) {
+    evidenceParts.push(JSON.stringify(origin.last_rejection_details));
+  }
+  if (origin?.last_plan_description_quality_rejection) {
+    evidenceParts.push(JSON.stringify(origin.last_plan_description_quality_rejection));
+  }
+  if (Array.isArray(origin?.escalation_history)) {
+    evidenceParts.push(origin.escalation_history
+      .map((entry) => entry && entry.reason)
+      .filter(Boolean)
+      .join('\n'));
+  }
+
+  return {
+    evidence: evidenceParts.filter(Boolean).join('\n'),
+    historyCount: Array.isArray(origin?.escalation_history) ? origin.escalation_history.length : 0,
+  };
+}
+
+function getNeedsReplanSelectionPenalty(item) {
+  if (!item || item.status !== 'needs_replan') {
+    return { penalty: 0, label: null };
+  }
+
+  const { evidence, historyCount } = buildNeedsReplanPenaltyEvidence(item);
+  if (!evidence.trim()) {
+    return { penalty: 0, label: null };
+  }
+
+  let penalty = 0;
+  let label = null;
+  if (NEEDS_REPLAN_PLAN_QUALITY_PENALTY_PATTERN.test(evidence)) {
+    penalty = NEEDS_REPLAN_PLAN_QUALITY_SELECTION_PENALTY;
+    label = 'plan_quality_or_noop_rejection';
+  } else if (NEEDS_REPLAN_GENERIC_REJECTION_PENALTY_PATTERN.test(evidence)) {
+    penalty = NEEDS_REPLAN_GENERIC_REJECTION_SELECTION_PENALTY;
+    label = 'prior_replan_rejection';
+  }
+
+  if (penalty > 0 && historyCount > 1) {
+    penalty += Math.min(
+      NEEDS_REPLAN_HISTORY_PENALTY_MAX,
+      (historyCount - 1) * NEEDS_REPLAN_HISTORY_PENALTY_STEP
+    );
+  }
+
+  return { penalty, label };
 }
 
 const DECISION_STAGE_ACTORS = Object.freeze({
@@ -4945,11 +5010,7 @@ async function claimNextWorkItemForInstance(project_id, instance_id) {
     rankedCandidates = survivors;
   }
 
-  const orderedCandidates = [];
-  for (const status of WORK_ITEM_STATUS_ORDER) {
-    orderedCandidates.push(...rankedCandidates.filter((item) => item && item.status === status));
-  }
-  orderedCandidates.push(...rankedCandidates.filter((item) => !orderedCandidates.includes(item)));
+  const orderedCandidates = orderCandidatesForPrioritize(rankedCandidates);
 
   const maxRepicks = Math.max(1, (promotionConfig?.stale_max_repicks) || 3);
   const skipped = [];
@@ -5098,6 +5159,57 @@ function compareByIntakeOrder(left, right) {
   return String(left?.id || '').localeCompare(String(right?.id || ''));
 }
 
+function getNormalizedWorkItemPriority(item) {
+  try {
+    return factoryIntake.normalizePriority(
+      item?.priority,
+      factoryIntake.normalizePriority(undefined)
+    );
+  } catch (_err) {
+    return factoryIntake.normalizePriority(undefined);
+  }
+}
+
+function getPrioritizeSelectionScore(item) {
+  const priority = getNormalizedWorkItemPriority(item);
+  const penalty = getNeedsReplanSelectionPenalty(item).penalty;
+  return clampPriority(priority - penalty);
+}
+
+function compareNeedsReplanCandidatesForPrioritize(left, right, rankedIndex) {
+  const scoreDelta = getPrioritizeSelectionScore(right) - getPrioritizeSelectionScore(left);
+  if (scoreDelta !== 0) {
+    return scoreDelta;
+  }
+
+  const priorityDelta = getNormalizedWorkItemPriority(right) - getNormalizedWorkItemPriority(left);
+  if (priorityDelta !== 0) {
+    return priorityDelta;
+  }
+
+  return (rankedIndex.get(left) ?? 0) - (rankedIndex.get(right) ?? 0);
+}
+
+function orderCandidatesForPrioritize(rankedCandidates = []) {
+  const rankedIndex = new Map();
+  rankedCandidates.forEach((item, index) => {
+    rankedIndex.set(item, index);
+  });
+
+  const orderedCandidates = [];
+  for (const status of WORK_ITEM_STATUS_ORDER) {
+    let candidates = rankedCandidates.filter((item) => item && item.status === status);
+    if (status === 'needs_replan') {
+      candidates = candidates
+        .slice()
+        .sort((left, right) => compareNeedsReplanCandidatesForPrioritize(left, right, rankedIndex));
+    }
+    orderedCandidates.push(...candidates);
+  }
+  orderedCandidates.push(...rankedCandidates.filter((item) => !orderedCandidates.includes(item)));
+  return orderedCandidates;
+}
+
 function clampPriority(value) {
   const numeric = Number(value);
   if (!Number.isFinite(numeric)) {
@@ -5112,10 +5224,7 @@ function scoreWorkItemForPrioritize(workItem, openItems = []) {
     return null;
   }
 
-  const oldPriority = factoryIntake.normalizePriority(
-    workItem.priority,
-    factoryIntake.normalizePriority(undefined)
-  );
+  const oldPriority = getNormalizedWorkItemPriority(workItem);
   const sourceBase = PRIORITIZE_SOURCE_BASE_SCORES[workItem.source] ?? 62;
   const createdAt = getCreatedAtValue(workItem);
   const ageMs = Number.isFinite(createdAt) ? Math.max(0, Date.now() - createdAt) : 0;
@@ -5129,12 +5238,21 @@ function scoreWorkItemForPrioritize(workItem, openItems = []) {
   const intakeIndex = intakeOrder === -1 ? openItems.length : intakeOrder;
   const backlogBoost = Math.max(0, Math.min(6, openItems.length - intakeIndex - 1));
 
-  const newPriority = clampPriority(sourceBase + ageBoost + backlogBoost);
+  const replanPenalty = getNeedsReplanSelectionPenalty(workItem);
+  const newPriority = clampPriority(sourceBase + ageBoost + backlogBoost - replanPenalty.penalty);
+  const scoreReasonParts = [
+    `source=${workItem.source || 'unknown'} base=${sourceBase}`,
+    `age_days=${ageDays}`,
+    `intake_order=${intakeIndex + 1}/${Math.max(openItems.length, 1)}`,
+  ];
+  if (replanPenalty.penalty > 0) {
+    scoreReasonParts.push(`replan_penalty=${replanPenalty.penalty}:${replanPenalty.label}`);
+  }
 
   return {
     oldPriority,
     newPriority,
-    scoreReason: `source=${workItem.source || 'unknown'} base=${sourceBase}; age_days=${ageDays}; intake_order=${intakeIndex + 1}/${Math.max(openItems.length, 1)}`,
+    scoreReason: scoreReasonParts.join('; '),
   };
 }
 
@@ -15845,6 +15963,8 @@ module.exports = {
   },
   _internalForTests: {
     claimNextWorkItemForInstance,
+    scoreWorkItemForPrioritize,
+    getNeedsReplanSelectionPenalty,
     parseFactoryTimestampMs,
     getNeedsReplanCooldownInfo,
     handlePrioritizeTransition,

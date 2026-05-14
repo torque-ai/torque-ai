@@ -1131,6 +1131,63 @@ describe('factory loop work-item shipping', () => {
     expect(decisions.find((row) => row.action === 'healed_already_shipped')).toBeUndefined();
   });
 
+  it('claims cleaner needs_replan work ahead of repeatedly rejected plan-quality replans', async () => {
+    const project = factoryHealth.registerProject({
+      name: `Factory Replan Selection Penalty ${Date.now()}`,
+      path: `/tmp/factory-replan-selection-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      trust_level: 'dark',
+    });
+
+    const poisoned = factoryIntake.createWorkItem({
+      project_id: project.id,
+      source: 'plan_file',
+      title: 'Repeated plan-quality rejection',
+      description: 'This row should cool behind cleaner needs_replan rows.',
+      priority: 100,
+      requestor: 'test',
+    });
+    factoryIntake.updateWorkItem(poisoned.id, {
+      status: 'needs_replan',
+      reject_reason: 'plan_quality_gate_rejected_after_intrabatch_retries',
+      origin_json: {
+        escalation_history: [
+          { reason: 'plan_quality_gate_rejected_after_intrabatch_retries' },
+          { reason: 'plan_quality_gate_rejected_after_intrabatch_retries' },
+        ],
+      },
+    });
+
+    const clean = factoryIntake.createWorkItem({
+      project_id: project.id,
+      source: 'plan_file',
+      title: 'Cleaner replan candidate',
+      description: 'This needs_replan row has no rejection evidence yet.',
+      priority: 94,
+      requestor: 'test',
+    });
+    factoryIntake.updateWorkItem(clean.id, { status: 'needs_replan' });
+    db.prepare('UPDATE factory_work_items SET updated_at = ? WHERE id IN (?, ?)')
+      .run('2026-05-04 07:00:00', poisoned.id, clean.id);
+
+    const result = await loopController._internalForTests.claimNextWorkItemForInstance(
+      project.id,
+      'instance-replan-penalty',
+    );
+
+    expect(result.workItem).toBeTruthy();
+    expect(result.workItem.id).toBe(clean.id);
+    expect(factoryIntake.getWorkItem(poisoned.id).claimed_by_instance_id).toBeFalsy();
+
+    const poisonedSnapshot = factoryIntake.getWorkItem(poisoned.id);
+    const cleanSnapshot = factoryIntake.getWorkItem(clean.id);
+    const scoring = loopController._internalForTests.scoreWorkItemForPrioritize(
+      poisonedSnapshot,
+      [poisonedSnapshot, cleanSnapshot],
+    );
+    expect(scoring.newPriority).toBeLessThan(cleanSnapshot.priority);
+    expect(scoring.scoreReason).toContain('replan_penalty=');
+  });
+
   it('claims a fallback item instead of reporting empty intake when stale-probe skip budget is exhausted', async () => {
     const staleProbe = require('../factory/stale-probe');
     const project = factoryHealth.registerProject({
