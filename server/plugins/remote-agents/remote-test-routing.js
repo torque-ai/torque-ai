@@ -14,30 +14,52 @@ const { killProcessGraceful } = require('../../execution/process-lifecycle');
 
 let _cachedRemoteOs = null;
 let _cachedRemoteOsAt = 0;
-const REMOTE_OS_CACHE_TTL = 24 * 60 * 60 * 1000;
+let _cachedRemoteOsTtl = 0;
+const REMOTE_OS_SUCCESS_CACHE_TTL = 24 * 60 * 60 * 1000;
+const REMOTE_OS_FAILURE_CACHE_TTL = 5 * 60 * 1000;
+const REMOTE_OS_PROBE_TIMEOUT_MS = 2000;
+
+function parsePositiveInt(value, fallback) {
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function getRemoteOsProbeTimeoutMs() {
+  return parsePositiveInt(process.env.TORQUE_REMOTE_OS_PROBE_TIMEOUT_MS, REMOTE_OS_PROBE_TIMEOUT_MS);
+}
+
+function getRemoteOsFailureCacheTtlMs() {
+  return parsePositiveInt(process.env.TORQUE_REMOTE_OS_FAILURE_CACHE_TTL_MS, REMOTE_OS_FAILURE_CACHE_TTL);
+}
+
+function cacheRemoteOs(remoteOs, now, ttlMs) {
+  _cachedRemoteOs = ['linux', 'windows'].includes(remoteOs) ? remoteOs : 'unknown';
+  _cachedRemoteOsAt = now;
+  _cachedRemoteOsTtl = ttlMs;
+  return _cachedRemoteOs;
+}
 
 /**
- * Invoke `torque-remote --print-remote-os` once and cache the result for 24 h.
- * Falls back to 'unknown' on any error (e.g. no SSH config, script missing).
+ * Invoke `torque-remote --print-remote-os` with a short timeout. Successful
+ * probes are cached for 24 h; failures are cached briefly as 'unknown' so
+ * health payload construction stays responsive when SSH is unavailable.
  * @returns {'linux'|'windows'|'unknown'}
  */
 function getRemoteOs() {
   const now = Date.now();
-  if (_cachedRemoteOs && (now - _cachedRemoteOsAt) < REMOTE_OS_CACHE_TTL) {
+  if (_cachedRemoteOs && _cachedRemoteOsTtl > 0 && (now - _cachedRemoteOsAt) < _cachedRemoteOsTtl) {
     return _cachedRemoteOs;
   }
   try {
     const torqueRemote = path.join(__dirname, '..', '..', '..', 'bin', 'torque-remote');
     const out = execFileSync('bash', [torqueRemote, '--print-remote-os'], {
       encoding: 'utf8',
-      timeout: 15000,
+      timeout: getRemoteOsProbeTimeoutMs(),
       stdio: ['ignore', 'pipe', 'pipe'],
     });
-    _cachedRemoteOs = out.trim() || 'unknown';
-    _cachedRemoteOsAt = now;
-    return _cachedRemoteOs;
+    return cacheRemoteOs(out.trim(), now, REMOTE_OS_SUCCESS_CACHE_TTL);
   } catch {
-    return 'unknown';
+    return cacheRemoteOs('unknown', now, getRemoteOsFailureCacheTtlMs());
   }
 }
 
