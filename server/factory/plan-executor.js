@@ -3,7 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const childProcess = require('node:child_process');
 const logger = require('../logger').child({ component: 'plan-executor' });
-const { parsePlanFile, extractVerifyCommand } = require('./plan-parser');
+const { parsePlanFile, extractVerifyCommand, extractTaskVerifyConfig } = require('./plan-parser');
 const { findHeavyLocalValidationCommand } = require('../utils/heavy-validation-guard');
 
 const FILE_PATH_RE = /(?:^|[\s"'`(])((?:[A-Za-z0-9_.-]+[\\/])+[A-Za-z0-9_.-]+)(?=$|[\s"'`),:])/gm;
@@ -401,6 +401,26 @@ function isReusableTaskActiveForMode(status, mode) {
   return false;
 }
 
+function applyTaskVerifyConfigToAwaitArgs(awaitArgs, verifyConfig) {
+  if (verifyConfig?.verify_skip === true) {
+    return awaitArgs;
+  }
+  if (verifyConfig?.verify_command) {
+    awaitArgs.verify_command = verifyConfig.verify_command;
+  }
+  return awaitArgs;
+}
+
+function buildTaskVerifyMetadata(verifyConfig) {
+  if (verifyConfig?.verify_skip === true) {
+    return { verify_skip: true };
+  }
+  if (verifyConfig?.verify_command) {
+    return { verify_command: verifyConfig.verify_command };
+  }
+  return {};
+}
+
 function createPlanExecutor({ submit, awaitTask, findReusableTask = null, projectDefaults = {}, onDryRunTask = null }) {
   async function execute({
     plan_path,
@@ -414,7 +434,7 @@ function createPlanExecutor({ submit, awaitTask, findReusableTask = null, projec
     const started = Date.now();
     const content = fs.readFileSync(plan_path, 'utf8');
     const parsed = parsePlanFile(content);
-    const verify_command = extractVerifyCommand(content, projectDefaults.verify_command);
+    const planVerifyCommand = extractVerifyCommand(content, projectDefaults.verify_command);
     const planFilePaths = extractFilePaths(content);
     const mode = normalizeExecutionMode(execution_mode, dry_run);
 
@@ -437,6 +457,9 @@ function createPlanExecutor({ submit, awaitTask, findReusableTask = null, projec
     let violation = null;
 
     for (const task of parsed.tasks) {
+      const verifyConfig = extractTaskVerifyConfig(task, planVerifyCommand);
+      const verifyMetadata = buildTaskVerifyMetadata(verifyConfig);
+
       if (task.completed) {
         const verification = await verifyCompletedTaskArtifacts(task, working_directory, baseBranch);
         if (!verification.trust) {
@@ -584,12 +607,11 @@ function createPlanExecutor({ submit, awaitTask, findReusableTask = null, projec
           continue;
         }
 
-        const reusedResult = await awaitTask({
+        const reusedResult = await awaitTask(applyTaskVerifyConfigToAwaitArgs({
           task_id: reusableTask.task_id,
-          verify_command,
           commit_message: task.commit_message || `feat: plan task ${task.task_number}`,
           working_directory,
-        });
+        }, verifyConfig));
 
         if (reusedResult.status !== 'completed' || (reusedResult.verify_status && reusedResult.verify_status !== 'passed')) {
           failed_task = task.task_number;
@@ -629,6 +651,7 @@ function createPlanExecutor({ submit, awaitTask, findReusableTask = null, projec
           plan_task_number: task.task_number,
           plan_task_title: task.task_title,
           file_paths,
+          ...verifyMetadata,
         },
         initial_status: mode === 'pending_approval' ? 'pending_approval' : undefined,
       });
@@ -653,12 +676,11 @@ function createPlanExecutor({ submit, awaitTask, findReusableTask = null, projec
         continue;
       }
 
-      const result = await awaitTask({
+      const result = await awaitTask(applyTaskVerifyConfigToAwaitArgs({
         task_id,
-        verify_command,
         commit_message: task.commit_message || `feat: plan task ${task.task_number}`,
         working_directory,
-      });
+      }, verifyConfig));
 
       if (result.status !== 'completed' || (result.verify_status && result.verify_status !== 'passed')) {
         failed_task = task.task_number;

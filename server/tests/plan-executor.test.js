@@ -62,6 +62,64 @@ describe('plan-executor', () => {
     expect(awaitMock.mock.calls[0][0].commit_message).toBe('feat: first');
   });
 
+  it('applies separate task-local verify_command values to submit metadata and await calls', async () => {
+    const PLAN_WITH_TASK_VERIFY = `# Scoped verify
+
+**Tech Stack:** Node.js, vitest.
+
+## Task 1: docs
+
+verify_command: markdownlint README.md docs/
+
+- [ ] **Step 1: update docs**
+
+Update docs.
+
+## Task 2: dashboard
+
+verify_command: npx vitest run dashboard/
+
+- [ ] **Step 1: update dashboard**
+
+Update dashboard.
+`;
+    fs.writeFileSync(planPath, PLAN_WITH_TASK_VERIFY);
+
+    await exec.execute({ plan_path: planPath, project: 'p', working_directory: dir });
+
+    expect(submitMock).toHaveBeenCalledTimes(2);
+    expect(submitMock.mock.calls[0][0].task_metadata.verify_command).toBe('markdownlint README.md docs/');
+    expect(submitMock.mock.calls[1][0].task_metadata.verify_command).toBe('npx vitest run dashboard/');
+    expect(awaitMock.mock.calls[0][0].verify_command).toBe('markdownlint README.md docs/');
+    expect(awaitMock.mock.calls[1][0].verify_command).toBe('npx vitest run dashboard/');
+  });
+
+  it('honors task-local verify_skip without passing the project fallback to await', async () => {
+    const PLAN_WITH_VERIFY_SKIP = `# Skip verify
+
+## Task 1: docs only
+
+verify_skip: true
+
+- [ ] **Step 1: update docs**
+
+Update docs only.
+`;
+    fs.writeFileSync(planPath, PLAN_WITH_VERIFY_SKIP);
+    const skipExec = createPlanExecutor({
+      submit: submitMock,
+      awaitTask: awaitMock,
+      projectDefaults: { verify_command: 'npm test' },
+    });
+
+    await skipExec.execute({ plan_path: planPath, project: 'p', working_directory: dir });
+
+    expect(submitMock).toHaveBeenCalledTimes(1);
+    expect(submitMock.mock.calls[0][0].task_metadata.verify_skip).toBe(true);
+    expect(submitMock.mock.calls[0][0].task_metadata).not.toHaveProperty('verify_command');
+    expect(awaitMock.mock.calls[0][0]).not.toHaveProperty('verify_command');
+  });
+
   it('ticks checkboxes in the plan file after a task succeeds', async () => {
     await exec.execute({ plan_path: planPath, project: 'p', working_directory: dir });
     const updated = fs.readFileSync(planPath, 'utf8');
