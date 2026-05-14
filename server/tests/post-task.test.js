@@ -281,6 +281,19 @@ module.exports = { handleAwait };
       expect(result.issues.some(i => i.includes('placeholder/stub'))).toBe(false);
     });
 
+    it('flags files made only of empty arrow stubs', () => {
+      const workingDir = makeWorkDir('quality-empty-arrow-stubs');
+      const filePath = writeFile(workingDir, 'handlers.js', `
+const handler = () => {};
+const onClick = () => {};
+export default handler;
+`.trim());
+
+      const result = mod.checkFileQuality(filePath);
+      expect(result.valid).toBe(false);
+      expect(result.issues.some(i => i.includes('placeholder/stub'))).toBe(true);
+    });
+
     it('detects placeholder and accidental diff content', () => {
       const workingDir = makeWorkDir('quality-placeholders');
       const filePath = writeFile(workingDir, 'bad.js', `
