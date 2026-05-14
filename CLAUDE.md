@@ -6,7 +6,7 @@
 
 TORQUE requires two things to work in Claude Code:
 
-1. **MCP server** — auto-configured on first startup (~48 core tools unlocked by default; ~570 total via progressive unlock)
+1. **MCP server** — auto-configured on first startup (~48 core tools unlocked by default; ~750 total via progressive unlock)
 2. **Slash commands** — located in `.claude/commands/` (provides the `/torque-*` commands)
 
 Slash commands are auto-discovered from `.claude/commands/`. In local mode, the TORQUE server auto-injects the keyless streamable-HTTP MCP endpoint `http://127.0.0.1:3458/mcp` into your global `~/.claude/.mcp.json` when it starts — no manual configuration needed. The legacy SSE endpoint at `http://127.0.0.1:3458/sse` is still served as a fallback for older MCP clients.
@@ -352,7 +352,7 @@ TORQUE supports automated semver release management per project — set `version
 
 ## MCP Tool Reference
 
-TORQUE tools are progressively unlocked. Start with the core set, use `get_tool_schema` for signatures, and call `unlock_all_tools` to see all ~570 tools.
+TORQUE tools are progressively unlocked. Start with the core set, use `get_tool_schema` for signatures, and call `unlock_all_tools` to see all ~750 tools. (Canonical count: `scripts/rest-parity-audit.js` → `docs/rest-parity-gap-report.md`.)
 
 | Category | Tools |
 |----------|-------|
@@ -433,7 +433,7 @@ Beyond the core surface above, useful additions discoverable via `get_tool_schem
 - **Automation / batch:** `configure_stall_detection`, `auto_verify_and_fix`, `generate_test_tasks`, `get_batch_summary`, `generate_feature_tasks`, `run_batch`, `detect_file_conflicts`, `auto_commit_batch`.
 - **Universal TypeScript:** `inject_class_dependency`, `add_ts_union_members`, `inject_method_calls`, `normalize_interface_formatting`, `add_ts_enum_members` (in addition to the four TS tools in the table above). Prefer these over raw search/replace when they fit — they use AST anchors, not content matching.
 
-Call `unlock_all_tools` to see all ~570.
+Call `unlock_all_tools` to see all ~750.
 
 ## Cloud Inference Notes
 

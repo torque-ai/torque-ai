@@ -50,13 +50,13 @@ Every TORQUE component's `start()` must:
 
 | Component | File | Status |
 |---|---|---|
-| API server | `server/api-server.js` | ✅ Migrated 2026-05-14 |
-| Dashboard server | `server/dashboard/server.js` | ⏳ Pending — has auto-increment loop, needs special handling for `port: 0` |
-| MCP gateway | `server/mcp/index.js` | ⏳ Pending |
-| MCP SSE | `server/mcp/sse.js` | ⏳ Pending |
-| Coord daemon | `server/coord/index.js` | ✅ Already uses `server.listen(config.port, ...)` — works with port: 0 |
-| Peek server | `server/plugins/snapscope/peek-server.js` | ⏳ Check if applicable |
-| Test stubs / mocks | Various | ⏳ Many mock `http.createServer` so don't actually bind — keep their fixed ports as decorative |
+| API server | `server/api-server.js` | ✅ Migrated — port resolution at line 701; `address().port` readback at line 739 |
+| Dashboard server | `server/dashboard/server.js` | ✅ Migrated — `options.port === 0` branch skips the auto-increment loop (line 728); `address()` readback at line 930 |
+| MCP gateway | `server/mcp/index.js` | ✅ Migrated — port resolution at line 1362; `address()` readback at line 1410 |
+| MCP SSE | `server/mcp/sse.js` | ✅ Migrated — port resolution at line 719; `address()` readback at line 750 |
+| Coord daemon | `server/coord/index.js` | ✅ Already uses `server.listen(config.port, ...)` — works with `port: 0` natively |
+| Peek server | N/A | Not applicable — `server/plugins/snapscope/peek-server.js` does not exist in the current codebase. Snapscope drives an external Peek daemon on the workstation, not an in-process Node listener |
+| Test stubs / mocks | Various | Many mock `http.createServer` so don't actually bind — keep their fixed ports as decorative |
 
 ### Dashboard-server special case
 
