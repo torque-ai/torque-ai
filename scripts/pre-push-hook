@@ -1260,6 +1260,7 @@ dependency_tree_ok() {
   local dir="\$1"
   [ -d "\$dir/node_modules" ] || return 1
   [ -e "\$dir/node_modules/.bin/vitest" ] || [ -e "\$dir/node_modules/vitest/vitest.mjs" ] || return 1
+  [ -d "\$dir/node_modules/@vitest/utils" ] || return 1
   case "\$dir" in
     server|*/server)
       [ -d "\$dir/node_modules/better-sqlite3" ] && \

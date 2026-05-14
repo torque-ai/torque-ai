@@ -211,6 +211,11 @@ const DECISION_ACTIONS = {
     classifier: 'benign',
     outcome: ['work_item_id', 'plan_path'],
   },
+  stale_source_plan_pointer_cleared_before_replan: {
+    stage: 'PLAN',
+    classifier: 'benign',
+    outcome: ['work_item_id', 'plan_path'],
+  },
   pre_written_plan_quality_rejected: {
     stage: 'PLAN',
     classifier: 'b-side-reject',

@@ -24,6 +24,14 @@ function joinPlatformPath(base, ...segments) {
   return path.join(rawBase, ...segments);
 }
 
+function dirnamePlatformPath(value) {
+  const raw = String(value ?? '');
+  if (isWindowsAbsolutePath(raw)) {
+    return path.win32.dirname(path.win32.normalize(raw));
+  }
+  return path.dirname(raw);
+}
+
 function isPathInsideDirectory(baseDir, targetDir) {
   const resolvedBase = resolvePlatformPath(baseDir);
   const resolvedTarget = resolvePlatformPath(targetDir);
@@ -53,6 +61,7 @@ function normalizeStoredPath(value) {
 }
 
 module.exports = {
+  dirnamePlatformPath,
   isPathInsideDirectory,
   isWindowsAbsolutePath,
   joinPlatformPath,

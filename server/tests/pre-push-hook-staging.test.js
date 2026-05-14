@@ -137,6 +137,7 @@ describe('pre-push-hook staging-branch invariants', () => {
     expect(src).toMatch(/\[gate-timing\] perf_ms=/);
     expect(src).toMatch(/\[gate-timing\] total_ms=/);
     expect(src).toMatch(/dependency_tree_ok\s*\(\)/);
+    expect(src).toMatch(/node_modules\/@vitest\/utils/);
     expect(src).toMatch(/better-sqlite3/);
     expect(src).toMatch(/web-tree-sitter/);
     expect(src).toMatch(/tree-sitter-wasms/);

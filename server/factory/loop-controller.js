@@ -8240,15 +8240,9 @@ async function executePlanStage(project, instance, selectedWorkItem = null) {
         plan_path: stalePlanPath,
         deleted_plan_file: isGeneratedPlanPath,
       });
-      safeLogDecision({
+      const stalePlanDecision = {
         project_id: project.id,
         stage: LOOP_STATES.PLAN,
-        action: isGeneratedPlanPath
-          ? 'stale_generated_plan_cleared_before_replan'
-          : 'stale_source_plan_pointer_cleared_before_replan',
-        reasoning: isGeneratedPlanPath
-          ? 'needs_replan work item had a generated plan file; cleared it so the architect must produce a fresh plan.'
-          : 'needs_replan work item had a durable source plan pointer; cleared the pointer so the architect must produce a fresh plan while preserving the source file.',
         inputs: {
           ...getWorkItemDecisionContext(workItem),
           plan_path: stalePlanPath,
@@ -8262,7 +8256,20 @@ async function executePlanStage(project, instance, selectedWorkItem = null) {
         },
         confidence: 1,
         batch_id: getDecisionBatchId(project, routed, null, instance),
-      });
+      };
+      if (isGeneratedPlanPath) {
+        safeLogDecision({
+          ...stalePlanDecision,
+          action: 'stale_generated_plan_cleared_before_replan',
+          reasoning: 'needs_replan work item had a generated plan file; cleared it so the architect must produce a fresh plan.',
+        });
+      } else {
+        safeLogDecision({
+          ...stalePlanDecision,
+          action: 'stale_source_plan_pointer_cleared_before_replan',
+          reasoning: 'needs_replan work item had a durable source plan pointer; cleared the pointer so the architect must produce a fresh plan while preserving the source file.',
+        });
+      }
       return {
         reason: 'stale generated plan cleared before replan',
         work_item: routed,

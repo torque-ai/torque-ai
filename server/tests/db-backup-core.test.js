@@ -203,7 +203,7 @@ function setCommonInternals(subject, overrides = {}) {
     setConfigDefault: vi.fn(),
     safeAddColumn: vi.fn(),
     injectDbAll: vi.fn(),
-    getDbPath: vi.fn(() => path.join('C:\\data', 'torque.db')),
+    getDbPath: vi.fn(() => path.win32.join('C:\\data', 'torque.db')),
     getDataDir: vi.fn(() => 'C:\\data'),
     setDbRef: vi.fn(),
     isDbClosed: vi.fn(() => false),
@@ -225,7 +225,7 @@ describe('db/backup-core', () => {
   it('throws when backing up before the database is initialized', () => {
     const { subject } = loadSubject();
 
-    expect(() => subject.backupDatabase(path.join('C:\\tmp', 'backup.db'))).toThrow('Database not initialized');
+    expect(() => subject.backupDatabase(path.win32.join('C:\\tmp', 'backup.db'))).toThrow('Database not initialized');
   });
 
   it('creates a backup file and parent directory when needed', () => {
@@ -234,7 +234,7 @@ describe('db/backup-core', () => {
     const db = createDbHandle({
       serialize: vi.fn(() => buffer),
     });
-    const destPath = path.join('C:\\tmp', 'nested', 'torque.db');
+    const destPath = path.win32.join('C:\\tmp', 'nested', 'torque.db');
 
     subject.setDb(db);
     fs.existsSync.mockReturnValue(false);
@@ -245,7 +245,7 @@ describe('db/backup-core', () => {
 
     const result = subject.backupDatabase(destPath);
 
-    expect(fs.mkdirSync).toHaveBeenCalledWith(path.dirname(destPath), { recursive: true });
+    expect(fs.mkdirSync).toHaveBeenCalledWith(path.win32.dirname(destPath), { recursive: true });
     expect(db.serialize).toHaveBeenCalledOnce();
     expect(fs.writeFileSync).toHaveBeenCalledWith(destPath, buffer);
     expect(fs.writeFileSync).toHaveBeenCalledWith(destPath + '.sha256', sha256(buffer), 'utf-8');
@@ -255,7 +255,7 @@ describe('db/backup-core', () => {
   });
 
   it('backs up live sqlite handles with VACUUM INTO instead of serializing into memory', () => {
-    const backupPath = path.join('C:\\tmp', 'owner\'s-live-backup.db');
+    const backupPath = path.win32.join('C:\\tmp', 'owner\'s-live-backup.db');
     const backupBytes = Buffer.from('vacuum-backup-bytes');
     const fs = createFsMock({
       existsSync: vi.fn(() => false),
@@ -288,7 +288,7 @@ describe('db/backup-core', () => {
   });
 
   it('backs up explicit sqlite handles with VACUUM INTO instead of serializing into memory', () => {
-    const backupPath = path.join('C:\\tmp', 'pre-startup.db');
+    const backupPath = path.win32.join('C:\\tmp', 'pre-startup.db');
     const backupBytes = Buffer.from('pre-startup-vacuum-backup');
     const fs = createFsMock({
       statSync: vi.fn(() => ({ size: backupBytes.length })),
@@ -318,7 +318,7 @@ describe('db/backup-core', () => {
     subject.setDb(db);
     fs.existsSync.mockReturnValue(true);
 
-    subject.backupDatabase(path.join('C:\\tmp', 'existing', 'backup.db'));
+    subject.backupDatabase(path.win32.join('C:\\tmp', 'existing', 'backup.db'));
 
     expect(fs.mkdirSync).not.toHaveBeenCalled();
     // Two writes: the .db file and the .sha256 integrity file
@@ -347,8 +347,8 @@ describe('db/backup-core', () => {
   });
 
   it('creates scheduled backups and removes files beyond the retention limit', () => {
-    const backupRoot = path.join('C:\\data-root');
-    const backupDir = path.join(backupRoot, 'backups');
+    const backupRoot = 'C:\\data-root';
+    const backupDir = path.win32.join(backupRoot, 'backups');
     const { subject, fs, backupLogger } = loadSubject({
       dataDirMock: createDataDirMock(backupRoot),
     });
@@ -388,8 +388,8 @@ describe('db/backup-core', () => {
       sha256(buffer),
       'utf-8',
     ]);
-    expect(fs.unlinkSync).toHaveBeenCalledWith(path.join(backupDir, 'torque-2026-01-01T12-00-00-000Z.db'));
-    expect(fs.unlinkSync).toHaveBeenCalledWith(path.join(backupDir, 'torque-2026-01-01T12-00-00-000Z.db.sha256'));
+    expect(fs.unlinkSync).toHaveBeenCalledWith(path.win32.join(backupDir, 'torque-2026-01-01T12-00-00-000Z.db'));
+    expect(fs.unlinkSync).toHaveBeenCalledWith(path.win32.join(backupDir, 'torque-2026-01-01T12-00-00-000Z.db.sha256'));
     expect(backupLogger.info).toHaveBeenCalledWith(expect.stringContaining('Database backed up to'));
     expect(backupLogger.info).toHaveBeenCalledWith('[backup] Removed old backup: torque-2026-01-01T12-00-00-000Z.db');
   });
@@ -444,8 +444,8 @@ describe('db/backup-core', () => {
   });
 
   it('uses VACUUM INTO for pre-shutdown backups without serializing the database', () => {
-    const backupRoot = path.join('C:\\data-root');
-    const backupDir = path.join(backupRoot, 'backups');
+    const backupRoot = 'C:\\data-root';
+    const backupDir = path.win32.join(backupRoot, 'backups');
     const backupBytes = Buffer.from('pre-shutdown-vacuum-backup');
     const fs = createFsMock({
       statSync: vi.fn(() => ({
@@ -510,7 +510,7 @@ describe('db/backup-core', () => {
     it('creates SHA-256 hash file alongside backup', () => {
       const { subject, fs } = loadSubject();
       const backupBuffer = Buffer.from('integrity-backup-bytes');
-      const backupPath = path.join('C:\\tmp', 'integrity.db');
+      const backupPath = path.win32.join('C:\\tmp', 'integrity.db');
       const db = createDbHandle({
         serialize: vi.fn(() => backupBuffer),
       });
@@ -732,9 +732,9 @@ describe('db/backup-core', () => {
     const { subject, fs } = loadSubject();
     const backupDir = mockWindowsBackupsDir();
     const statsByPath = new Map([
-      [path.join(backupDir, 'old.db'), { size: 10, mtime: new Date('2026-01-01T00:00:00.000Z') }],
-      [path.join(backupDir, 'mid.sqlite'), { size: 20, mtime: new Date('2026-02-01T00:00:00.000Z') }],
-      [path.join(backupDir, 'new.db'), { size: 30, mtime: new Date('2026-03-01T00:00:00.000Z') }],
+      [path.win32.join(backupDir, 'old.db'), { size: 10, mtime: new Date('2026-01-01T00:00:00.000Z') }],
+      [path.win32.join(backupDir, 'mid.sqlite'), { size: 20, mtime: new Date('2026-02-01T00:00:00.000Z') }],
+      [path.win32.join(backupDir, 'new.db'), { size: 30, mtime: new Date('2026-03-01T00:00:00.000Z') }],
     ]);
 
     fs.existsSync.mockReturnValue(true);
@@ -746,19 +746,19 @@ describe('db/backup-core', () => {
     expect(backups).toEqual([
       {
         name: 'new.db',
-        path: path.join(backupDir, 'new.db'),
+        path: path.win32.join(backupDir, 'new.db'),
         size: 30,
         created_at: '2026-03-01T00:00:00.000Z',
       },
       {
         name: 'mid.sqlite',
-        path: path.join(backupDir, 'mid.sqlite'),
+        path: path.win32.join(backupDir, 'mid.sqlite'),
         size: 20,
         created_at: '2026-02-01T00:00:00.000Z',
       },
       {
         name: 'old.db',
-        path: path.join(backupDir, 'old.db'),
+        path: path.win32.join(backupDir, 'old.db'),
         size: 10,
         created_at: '2026-01-01T00:00:00.000Z',
       },
@@ -769,8 +769,8 @@ describe('db/backup-core', () => {
     const { subject, fs } = loadSubject();
     const backupDir = mockWindowsBackupsDir();
     const statsByPath = new Map([
-      [path.join(backupDir, 'one.db'), { size: 1, mtime: new Date('2025-01-01T00:00:00.000Z') }],
-      [path.join(backupDir, 'two.db'), { size: 2, mtime: new Date('2025-01-02T00:00:00.000Z') }],
+      [path.win32.join(backupDir, 'one.db'), { size: 1, mtime: new Date('2025-01-01T00:00:00.000Z') }],
+      [path.win32.join(backupDir, 'two.db'), { size: 2, mtime: new Date('2025-01-02T00:00:00.000Z') }],
     ]);
 
     fs.existsSync.mockReturnValue(true);
@@ -786,11 +786,11 @@ describe('db/backup-core', () => {
   it('cleans up only old backups beyond the retention count and ignores unlink failures', () => {
     const { subject, fs } = loadSubject();
     const backupDir = mockWindowsBackupsDir();
-    const oldOne = path.join(backupDir, 'old-1.db');
-    const oldTwo = path.join(backupDir, 'old-2.db');
+    const oldOne = path.win32.join(backupDir, 'old-1.db');
+    const oldTwo = path.win32.join(backupDir, 'old-2.db');
     const statsByPath = new Map([
-      [path.join(backupDir, 'new-1.db'), { size: 1, mtime: new Date('2026-03-10T00:00:00.000Z') }],
-      [path.join(backupDir, 'new-2.db'), { size: 2, mtime: new Date('2026-03-09T00:00:00.000Z') }],
+      [path.win32.join(backupDir, 'new-1.db'), { size: 1, mtime: new Date('2026-03-10T00:00:00.000Z') }],
+      [path.win32.join(backupDir, 'new-2.db'), { size: 2, mtime: new Date('2026-03-09T00:00:00.000Z') }],
       [oldOne, { size: 3, mtime: new Date('2025-12-15T00:00:00.000Z') }],
       [oldTwo, { size: 4, mtime: new Date('2025-11-01T00:00:00.000Z') }],
     ]);
@@ -816,9 +816,9 @@ describe('db/backup-core', () => {
   it('prunes generated backups by category and removes sidecars', () => {
     const { subject, fs } = loadSubject();
     const backupDir = mockWindowsBackupsDir();
-    const oldShutdown = path.join(backupDir, 'torque-pre-shutdown-2026-01-01T00-00-00-000Z.db');
-    const midShutdown = path.join(backupDir, 'torque-pre-shutdown-2026-01-02T00-00-00-000Z.db');
-    const keepShutdown = path.join(backupDir, 'torque-pre-shutdown-2026-01-03T00-00-00-000Z.db');
+    const oldShutdown = path.win32.join(backupDir, 'torque-pre-shutdown-2026-01-01T00-00-00-000Z.db');
+    const midShutdown = path.win32.join(backupDir, 'torque-pre-shutdown-2026-01-02T00-00-00-000Z.db');
+    const keepShutdown = path.win32.join(backupDir, 'torque-pre-shutdown-2026-01-03T00-00-00-000Z.db');
     const statsByPath = new Map([
       [oldShutdown, { size: 10, mtime: new Date('2026-01-01T00:00:00.000Z') }],
       [midShutdown, { size: 10, mtime: new Date('2026-01-02T00:00:00.000Z') }],
@@ -827,9 +827,9 @@ describe('db/backup-core', () => {
 
     fs.existsSync.mockReturnValue(true);
     fs.readdirSync.mockReturnValue([
-      path.basename(oldShutdown),
-      path.basename(midShutdown),
-      path.basename(keepShutdown),
+      path.win32.basename(oldShutdown),
+      path.win32.basename(midShutdown),
+      path.win32.basename(keepShutdown),
     ]);
     fs.statSync.mockImplementation((fullPath) => statsByPath.get(fullPath));
 
@@ -853,11 +853,11 @@ describe('db/backup-core', () => {
   it('reserves space for the next backup before enforcing the total cap', () => {
     const { subject, fs } = loadSubject();
     const backupDir = mockWindowsBackupsDir();
-    const periodic = path.join(backupDir, 'torque-2026-01-01T00-00-00-000Z.db');
-    const shutdown = path.join(backupDir, 'torque-pre-shutdown-2026-01-02T00-00-00-000Z.db');
-    const startup = path.join(backupDir, 'torque-pre-startup-2026-01-03T00-00-00-000Z.db');
-    const protectedProvider = path.join(backupDir, 'torque-pre-provider-removal-2026-01-01T00-00-00-000Z.db');
-    const manual = path.join(backupDir, 'manual.db');
+    const periodic = path.win32.join(backupDir, 'torque-2026-01-01T00-00-00-000Z.db');
+    const shutdown = path.win32.join(backupDir, 'torque-pre-shutdown-2026-01-02T00-00-00-000Z.db');
+    const startup = path.win32.join(backupDir, 'torque-pre-startup-2026-01-03T00-00-00-000Z.db');
+    const protectedProvider = path.win32.join(backupDir, 'torque-pre-provider-removal-2026-01-01T00-00-00-000Z.db');
+    const manual = path.win32.join(backupDir, 'manual.db');
     const statsByPath = new Map([
       [periodic, { size: 45, mtime: new Date('2026-01-01T00:00:00.000Z') }],
       [shutdown, { size: 45, mtime: new Date('2026-01-02T00:00:00.000Z') }],
@@ -868,11 +868,11 @@ describe('db/backup-core', () => {
 
     fs.existsSync.mockReturnValue(true);
     fs.readdirSync.mockReturnValue([
-      path.basename(periodic),
-      path.basename(shutdown),
-      path.basename(startup),
-      path.basename(protectedProvider),
-      path.basename(manual),
+      path.win32.basename(periodic),
+      path.win32.basename(shutdown),
+      path.win32.basename(startup),
+      path.win32.basename(protectedProvider),
+      path.win32.basename(manual),
     ]);
     fs.statSync.mockImplementation((fullPath) => statsByPath.get(fullPath));
 
@@ -896,15 +896,15 @@ describe('db/backup-core', () => {
   it('leaves protected and manual backups alone even when the cap is low', () => {
     const { subject, fs } = loadSubject();
     const backupDir = mockWindowsBackupsDir();
-    const protectedProvider = path.join(backupDir, 'torque-pre-provider-removal-2026-01-01T00-00-00-000Z.db');
-    const manual = path.join(backupDir, 'manual.db');
+    const protectedProvider = path.win32.join(backupDir, 'torque-pre-provider-removal-2026-01-01T00-00-00-000Z.db');
+    const manual = path.win32.join(backupDir, 'manual.db');
     const statsByPath = new Map([
       [protectedProvider, { size: 500, mtime: new Date('2026-01-01T00:00:00.000Z') }],
       [manual, { size: 500, mtime: new Date('2026-01-01T00:00:00.000Z') }],
     ]);
 
     fs.existsSync.mockReturnValue(true);
-    fs.readdirSync.mockReturnValue([path.basename(protectedProvider), path.basename(manual)]);
+    fs.readdirSync.mockReturnValue([path.win32.basename(protectedProvider), path.win32.basename(manual)]);
     fs.statSync.mockImplementation((fullPath) => statsByPath.get(fullPath));
 
     const deleted = subject.pruneManagedBackups({

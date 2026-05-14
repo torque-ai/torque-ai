@@ -5,13 +5,13 @@
  * Extracted from database.js (Phase 5.2 / D1.1)
  */
 const Database = require('better-sqlite3');
-const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
 const logger = require('../logger').child({ component: 'backup-core' });
 const { getDataDir } = require('../data-dir');
 const { runMigrations } = require('./migrations');
 const {
+  dirnamePlatformPath,
   isPathInsideDirectory,
   joinPlatformPath,
   resolvePlatformPath,
@@ -202,7 +202,7 @@ function listManagedBackupEntries(backupDir) {
     .map((name) => {
       const category = classifyManagedBackup(name);
       if (!category) return null;
-      const fullPath = path.join(backupDir, name);
+      const fullPath = joinPlatformPath(backupDir, name);
       try {
         const stats = fs.statSync(fullPath);
         const mtimeMs = stats.mtime instanceof Date ? stats.mtime.getTime() : 0;
@@ -314,7 +314,7 @@ function pruneManagedBackups(options = {}) {
 function backupDatabase(destPath) {
   if (!_db) throw new Error('Database not initialized');
 
-  const destDir = path.dirname(destPath);
+  const destDir = dirnamePlatformPath(destPath);
   if (!fs.existsSync(destDir)) {
     fs.mkdirSync(destDir, { recursive: true });
   }
@@ -335,7 +335,7 @@ function startBackupScheduler(intervalMs = 3600000) {
   // Override periodic retention via
   // `backup_max_count` config.
   const maxBackups = parseNonNegativeInt(readConfigValue('backup_max_count'), DEFAULT_PERIODIC_BACKUP_KEEP);
-  const backupDir = path.join(getDataDir(), 'backups');
+  const backupDir = joinPlatformPath(getDataDir(), 'backups');
 
   _backupTimer = setInterval(() => {
     try {
@@ -349,7 +349,7 @@ function startBackupScheduler(intervalMs = 3600000) {
       });
 
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-      const backupPath = path.join(backupDir, `torque-${timestamp}.db`);
+      const backupPath = joinPlatformPath(backupDir, `torque-${timestamp}.db`);
 
       const size = writeLiveDatabaseBackupWithHash(backupPath);
 
@@ -491,7 +491,7 @@ function listBackups(dir) {
   return fs.readdirSync(dir)
     .filter(f => f.endsWith('.db') || f.endsWith('.sqlite'))
     .map(f => {
-      const fullPath = path.join(dir, f);
+      const fullPath = joinPlatformPath(dir, f);
       const stats = fs.statSync(fullPath);
       return {
         name: f,
@@ -507,7 +507,7 @@ function listBackups(dir) {
  * RB-057: Remove old backups beyond retention limit.
  */
 function cleanupOldBackups(options = {}) {
-  const dir = options.dir || path.join(getDataDir(), 'backups');
+  const dir = options.dir || joinPlatformPath(getDataDir(), 'backups');
   const keepCount = options.keepCount || 10;
   const maxAgeDays = options.maxAgeDays || 30;
 
@@ -544,7 +544,7 @@ function takePreShutdownBackup() {
   if (!_db || (_isDbClosed && _isDbClosed())) return null;
 
   try {
-    const backupDir = path.join(getDataDir(), 'backups');
+    const backupDir = joinPlatformPath(getDataDir(), 'backups');
     fs.mkdirSync(backupDir, { recursive: true });
     pruneManagedBackups({
       dir: backupDir,
@@ -552,7 +552,7 @@ function takePreShutdownBackup() {
     });
 
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-    const backupPath = path.join(backupDir, `torque-pre-shutdown-${timestamp}.db`);
+    const backupPath = joinPlatformPath(backupDir, `torque-pre-shutdown-${timestamp}.db`);
 
     const size = writeLiveDatabaseBackupWithHash(backupPath);
 
