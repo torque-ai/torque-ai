@@ -1,5 +1,11 @@
+import os from 'node:os';
 import { defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react';
+
+const configuredMaxWorkers = Number.parseInt(process.env.VITEST_MAX_WORKERS || '', 10);
+const workerCap = Number.isFinite(configuredMaxWorkers) && configuredMaxWorkers > 0
+  ? configuredMaxWorkers
+  : 4;
 
 export default defineConfig({
   plugins: [react()],
@@ -15,6 +21,9 @@ export default defineConfig({
     retry: 1,
     include: ['src/**/*.test.{js,jsx}'],
     exclude: ['e2e/**', 'node_modules/**'],
+    pool: 'threads',
+    maxWorkers: Math.max(1, Math.min(os.cpus().length - 1, workerCap)),
+    fileParallelism: true,
     coverage: {
       provider: 'v8',
       reporter: ['text', 'text-summary', 'lcov'],
