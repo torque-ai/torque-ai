@@ -209,6 +209,9 @@ Frequently-emitted actions, by stage:
 | EXECUTE | `execute_deferred_resumed` | `benign` | `work_item_id`, `plan_task_number`, `resumed_at` |
 | EXECUTE | `execute_deferred_worktree_reused` | `benign` | `factory_worktree_id`, `worktree_id`, `worktree_path`, `branch`, `batch_id` |
 | EXECUTE | `execute_batch_worktree_reused` | `benign` | `factory_worktree_id`, `worktree_id`, `worktree_path`, `branch`, `batch_id` |
+| EXECUTE | `factory_worktree_reuse_stale_detected` | `benign` | `factory_worktree_id`, `worktree_id`, `worktree_path`, `branch`, `baseRef`, `threshold`, `commits_behind`, `stale_files`, `reuse_context` |
+| EXECUTE | `factory_worktree_reuse_auto_rebased` | `benign` | `factory_worktree_id`, `worktree_id`, `worktree_path`, `branch`, `baseRef`, `reuse_context` |
+| EXECUTE | `factory_worktree_reuse_rebase_failed` | `benign` | `factory_worktree_id`, `worktree_id`, `worktree_path`, `branch`, `baseRef`, `threshold`, `commits_behind`, `stale_files`, `error`, `reuse_context` |
 | EXECUTE | `execute_batch_worktree_reuse_skipped` | `benign` | `factory_worktree_id`, `worktree_id`, `worktree_path`, `branch`, `batch_id`, `active_work_item_id`, `requested_work_item_id` |
 | EXECUTE | `generated_plan_missing_routed_to_needs_replan` | `benign` | `next_state`, `next_status`, `work_item_id`, `plan_path_cleared` |
 | EXECUTE | `execute_exception` | `recovery-rule` (rule: `execute_exception_unclassified`) | `work_item_id`, `error` |
