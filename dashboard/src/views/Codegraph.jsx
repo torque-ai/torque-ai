@@ -288,7 +288,7 @@ export default function Codegraph() {
         <div>
           <h1 className="text-2xl font-semibold text-slate-100">Code Graph</h1>
           <p className="text-sm text-slate-400 mt-1">
-            Symbol/reference index for any repo TORQUE has indexed. Set <code className="px-1 py-0.5 rounded bg-slate-800 text-slate-300">TORQUE_CODEGRAPH_ENABLED=1</code> to enable.
+            Symbol/reference index for any repo TORQUE has indexed. Enabled by default; set <code className="px-1 py-0.5 rounded bg-slate-800 text-slate-300">TORQUE_CODEGRAPH_ENABLED=0</code> to disable.
           </p>
         </div>
         <button

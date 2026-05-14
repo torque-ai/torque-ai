@@ -11,7 +11,7 @@ Find stale, missing, or misleading documentation.
 - **Broken links** — markdown links pointing to non-existent files or anchors
 - **Parameter mismatches** — documented parameters that don't match actual function signatures or tool schemas
 - **Missing onboarding docs** — key workflows (adding a provider, creating a plugin, adding an MCP tool) with no guide
-- **Inconsistent counts** — "12 providers" when there are actually 13, or vice versa
+- **Inconsistent counts** — claimed-vs-actual mismatch in things like "N providers", "M plugins", "K routing templates" (compare doc against the source-of-truth file)
 - **Orphaned docs** — documentation files not referenced from any index or README
 - **Missing JSDoc** — public API functions and module exports without JSDoc comments
 - **Stale examples** — code examples that use deprecated APIs or wrong parameter names

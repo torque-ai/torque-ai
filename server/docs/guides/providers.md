@@ -6,18 +6,22 @@ TORQUE routes tasks across multiple execution providers, balancing cost, speed, 
 
 | Provider | ID | Execution | Cost | Best For |
 |----------|----|-----------|------|----------|
-| **Ollama (direct)** | `ollama` | Local HTTP | Free | Text generation, docs |
-| **Claude CLI** | `claude-cli` | Cloud API | Paid | Complex tasks, architecture |
-| **Codex** | `codex` | Cloud API | Paid | Multi-file refactoring |
-| **Codex Spark** | `codex-spark` | Cloud API | Paid | Fast single-file edits |
-| **Anthropic API** | `anthropic` | Cloud HTTP | Paid | Direct API access |
-| **Cerebras** | `cerebras` | Cloud HTTP | Paid | Fast inference |
-| **Google AI** | `google-ai` | Cloud HTTP | Paid | Large context (800K+ tokens) |
-| **Groq** | `groq` | Cloud HTTP | Paid | Fast inference |
-| **DeepInfra** | `deepinfra` | OpenAI-compatible Cloud API | Paid | High-throughput batch model routing |
-| **Hyperbolic** | `hyperbolic` | OpenAI-compatible Cloud API | Paid | High-capacity 70B–405B inference |
-| **Ollama Cloud** | `ollama-cloud` | Cloud HTTP | Paid | Remote Ollama-compatible endpoint |
-| **OpenRouter** | `openrouter` | Cloud HTTP | Free + paid | Multi-model gateway |
+| **Ollama (direct)** | `ollama` | Local HTTP | Free | General prompts, documentation, lightweight local edits |
+| **Codex** | `codex` | Cloud subscription CLI | Paid | Greenfield code, complex multi-file tasks |
+| **Codex Spark** | `codex-spark` | Cloud subscription CLI | Paid | Fast single-file edits (gpt-5.3-codex-spark model) |
+| **Claude CLI** | `claude-cli` | Cloud subscription CLI subprocess | Paid | Architectural decisions, complex debugging (raw CLI subprocess) |
+| **Claude Code SDK** | `claude-code-sdk` | Cloud subscription, in-process SDK | Paid | SDK-based agentic loop with structured streaming, session store, permission modes (auto / acceptEdits / plan / bypassPermissions), and skills loading. Default model `claude-sonnet-4-20250514` |
+| **claude-ollama** | `claude-ollama` | Local CLI-harness | Free | Local Ollama models driven through the Claude Code agentic loop (Read/Edit/Bash) — not the raw prompt-response shape used by `ollama` |
+| **Anthropic API** | `anthropic` | Cloud HTTP (BYOK) | Paid | Direct Claude API tasks |
+| **Cerebras** | `cerebras` | Cloud HTTP (BYOK) | Paid | Fast inference, low latency |
+| **Google AI** | `google-ai` | Cloud HTTP (BYOK) | Paid | Large context (800K+ tokens) |
+| **Groq** | `groq` | Cloud HTTP (BYOK) | Paid | Low-latency general tasks |
+| **DeepInfra** | `deepinfra` | OpenAI-compatible Cloud API (BYOK) | Paid | High-concurrency batch (200 concurrent/model) |
+| **Hyperbolic** | `hyperbolic` | OpenAI-compatible Cloud API (BYOK) | Paid | Large models (70B–405B), fast output |
+| **Ollama Cloud** | `ollama-cloud` | Cloud HTTP (BYOK) | Paid | Remote Ollama-compatible endpoint (bearer-token REST) |
+| **OpenRouter** | `openrouter` | Cloud HTTP (BYOK) | Free + paid | Multi-model gateway |
+
+14 providers total. BYOK = Bring Your Own Key. All cloud-API providers start disabled; enable with `configure_provider { provider: "<name>", enabled: true }` after setting the API key env var.
 
 ## Smart Routing
 
@@ -115,18 +119,53 @@ Ollama runs locally and provides free, unlimited LLM inference.
 configure_provider { provider: "ollama", settings: { host: "http://localhost:11434" } }
 ```
 
-### Claude CLI
+### Codex
 
-Uses Anthropic's Claude via the `claude` CLI tool.
+OpenAI's Codex CLI invoked as a subprocess. Best for greenfield code generation and complex multi-file tasks.
 
 **Setup:**
-1. Install Claude CLI
-2. Set `ANTHROPIC_API_KEY` environment variable
-3. No additional configuration needed
+1. `npm install -g @openai/codex`
+2. `codex auth`
+3. `export OPENAI_API_KEY=your-key`
+
+### Codex Spark
+
+Same Codex CLI binary, but TORQUE pins the `gpt-5.3-codex-spark` model for faster single-file edits. Shares auth + API key with Codex.
+
+### Claude CLI
+
+Anthropic's Claude Code CLI invoked as a raw subprocess. Best for architectural decisions and complex debugging when you want the interactive agentic loop.
+
+**Setup:**
+1. `npm install -g @anthropic-ai/claude-code`
+2. `claude auth`
 
 **Configuration:**
 ```
 set_default_provider { provider: "claude-cli" }
+```
+
+### Claude Code SDK
+
+Same Claude Code agentic loop, but invoked via the SDK instead of a raw subprocess. Provides structured streaming, a session store, permission-mode control, and skills loading. Shares Claude Code install + auth with `claude-cli`.
+
+Default model: `claude-sonnet-4-20250514`. Permission modes: `auto`, `acceptEdits`, `plan`, `bypassPermissions`.
+
+### claude-ollama (Local + Claude Code harness)
+
+Wraps `ollama launch claude --model <local> -- -p "<prompt>"` so local Ollama models drive the Claude Code harness (Read/Edit/Bash tool loop) instead of the raw prompt-response shape used by the `ollama` provider. Disabled by default.
+
+**Prerequisites:**
+- `ollama` binary on PATH (0.20.7+)
+- `claude` binary on PATH (Claude Code CLI)
+- At least one healthy Ollama host with non-cloud models
+
+Concurrency: 1 task per host (VRAM constraint).
+
+**Not for cloud Ollama models** — cloud tags use SSH-keypair sign-in at ollama.com and can't go through the launcher bridge. Use `ollama-cloud` for those.
+
+```
+configure_provider { provider: "claude-ollama", enabled: true }
 ```
 
 ### Anthropic API (Direct)
@@ -183,6 +222,34 @@ Hyperbolic provides OpenAI-compatible API access and is provisioned but starts d
 - Pricing snapshot:
   - `Llama-3.1-70B-Instruct` at `$0.40 / 1M input tokens`
 - Streaming supported (`/chat/completions` with `stream: true`)
+
+### Cerebras (disabled by default)
+
+Low-latency LPU inference. Used as the primary speed option in the `Cloud Sprint` and `Free Speed` routing template presets.
+
+- Environment key: `CEREBRAS_API_KEY`
+- Configure via: `configure_provider { provider: "cerebras", enabled: true }`
+
+### Google AI (disabled by default)
+
+Gemini API access. Used for tasks needing very large context (up to 800K tokens) — `context_stuff` automatically targets `google-ai` when budget overflows other free providers.
+
+- Environment key: `GOOGLE_AI_API_KEY`
+- Configure via: `configure_provider { provider: "google-ai", enabled: true }`
+
+### OpenRouter (disabled by default)
+
+Multi-model gateway with a free tier and many paid options.
+
+- Environment key: `OPENROUTER_API_KEY`
+- Configure via: `configure_provider { provider: "openrouter", enabled: true }`
+
+### Ollama Cloud (disabled by default)
+
+Remote Ollama-compatible endpoint hosted at `api.ollama.com`. Uses bearer-token auth (distinct from `ollama` which is local HTTP).
+
+- Environment key: `OLLAMA_CLOUD_API_KEY`
+- Configure via: `configure_provider { provider: "ollama-cloud", enabled: true }`
 
 ## Fallback Chain
 

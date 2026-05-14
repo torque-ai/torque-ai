@@ -114,19 +114,21 @@ Large models take time to load into VRAM on first use. The first task after pull
 
 ### Claude Code can't connect to TORQUE
 
-1. Verify the server is running: `curl http://127.0.0.1:3458/sse`
-2. Check `.mcp.json` points to the correct port:
+1. Verify the server is running: `curl http://127.0.0.1:3458/mcp` (primary) or `curl http://127.0.0.1:3458/sse` (legacy fallback).
+2. Check `.mcp.json` points to the correct port. The current primary endpoint is streamable HTTP:
 
 ```json
 {
   "mcpServers": {
     "torque": {
-      "type": "sse",
-      "url": "http://127.0.0.1:3458/sse"
+      "type": "streamable-http",
+      "url": "http://127.0.0.1:3458/mcp"
     }
   }
 }
 ```
+
+If your MCP client doesn't support `streamable-http`, fall back to the legacy SSE form (`type: "sse"`, `url: "http://127.0.0.1:3458/sse"`).
 
 3. Restart Claude Code after changing `.mcp.json`
 

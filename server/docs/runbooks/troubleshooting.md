@@ -281,7 +281,7 @@ Common issues and solutions for TORQUE.
 **Solutions:**
 
 1. Check fallback chain: `configure_fallback_chain {}` (no args shows current chain)
-2. Set fallback: `configure_fallback_chain { chain: ["hashline-ollama", "codex", "claude-cli"] }`
+2. Set fallback: `configure_fallback_chain { chain: ["ollama", "codex-spark", "codex", "claude-cli"] }`
 3. Check fallback provider health: `check_ollama_health {}` or `health_check {}`
 
 ---
