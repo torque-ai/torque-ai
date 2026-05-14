@@ -2813,6 +2813,15 @@ function reusableTaskMatchesPlanContext(candidate, { planPath, workingDirectory 
   return Boolean(expectedWorkingDirectory && candidateWorkingDirectory && candidateWorkingDirectory === expectedWorkingDirectory);
 }
 
+function activeReusableTaskMatchesWorkingDirectory(candidate, workingDirectory) {
+  const expectedWorkingDirectory = normalizeReusablePlanPath(workingDirectory);
+  const candidateWorkingDirectory = normalizeReusablePlanPath(candidate?.working_directory || candidate?.workingDirectory);
+  if (!expectedWorkingDirectory || !candidateWorkingDirectory) {
+    return true;
+  }
+  return candidateWorkingDirectory === expectedWorkingDirectory;
+}
+
 function findExistingPlanTaskSubmission(taskCore, {
   projectName,
   workingDirectory,
@@ -2887,6 +2896,13 @@ function findExistingPlanTaskSubmission(taskCore, {
     : matching;
 
   const active = prioritized.find((candidate) => {
+    const activeStatus = candidate.status === 'running'
+      || candidate.status === 'queued'
+      || candidate.status === 'pending'
+      || candidate.status === 'pending_approval';
+    if (!activeStatus) {
+      return false;
+    }
     if (isStaleNeverStartedPendingPlanGenerationTask(candidate, stalePendingMs)) {
       logger.warn('Ignoring stale pending reusable plan task submission', {
         task_id: candidate.id,
@@ -2897,10 +2913,18 @@ function findExistingPlanTaskSubmission(taskCore, {
       });
       return false;
     }
-    return candidate.status === 'running'
-      || candidate.status === 'queued'
-      || candidate.status === 'pending'
-      || candidate.status === 'pending_approval';
+    if (!activeReusableTaskMatchesWorkingDirectory(candidate, workingDirectory)) {
+      logger.warn('Ignoring active reusable plan task from a different working directory', {
+        task_id: candidate.id,
+        work_item_id: normalizedWorkItemId,
+        plan_task_number: normalizedPlanTaskNumber,
+        status: candidate.status,
+        expected_working_directory: workingDirectory || null,
+        candidate_working_directory: candidate.working_directory || candidate.workingDirectory || null,
+      });
+      return false;
+    }
+    return true;
   });
   if (active) {
     return { task_id: active.id, status: active.status };
