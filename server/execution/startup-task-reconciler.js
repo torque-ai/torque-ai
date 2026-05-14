@@ -202,6 +202,59 @@ function getTask(taskCore, rawDb, taskId) {
   return rawDb.prepare('SELECT * FROM tasks WHERE id = ?').get(taskId) || null;
 }
 
+function getResubmissionChildren(rawDb, taskId) {
+  if (!taskId || !rawDb || typeof rawDb.prepare !== 'function') return [];
+  try {
+    return rawDb.prepare(`
+      SELECT *
+      FROM tasks
+      WHERE json_extract(metadata, '$.resubmitted_from') = ?
+      ORDER BY created_at DESC
+      LIMIT 25
+    `).all(taskId);
+  } catch {
+    return [];
+  }
+}
+
+function findNonCancelledResubmissionDescendant(taskCore, rawDb, original, metadata = parseMetadata(original?.metadata)) {
+  if (!original?.id) return null;
+
+  const pendingIds = [];
+  const pushId = (id) => {
+    const normalized = normalizeNonEmptyString(id);
+    if (normalized && normalized !== original.id) {
+      pendingIds.push(normalized);
+    }
+  };
+
+  pushId(metadata.resubmitted_as);
+  for (const child of getResubmissionChildren(rawDb, original.id)) {
+    pushId(child.id);
+  }
+
+  const seen = new Set([original.id]);
+  while (pendingIds.length > 0 && seen.size < 100) {
+    const taskId = pendingIds.shift();
+    if (!taskId || seen.has(taskId)) continue;
+    seen.add(taskId);
+
+    const task = getTask(taskCore, rawDb, taskId);
+    if (!task) continue;
+    if (task.status !== 'cancelled') {
+      return task;
+    }
+
+    const childMetadata = parseMetadata(task.metadata);
+    pushId(childMetadata.resubmitted_as);
+    for (const child of getResubmissionChildren(rawDb, task.id)) {
+      pushId(child.id);
+    }
+  }
+
+  return null;
+}
+
 function getWorkflow(db, rawDb, workflowId) {
   if (!workflowId) return null;
   if (db && typeof db.getWorkflow === 'function') {
@@ -779,11 +832,19 @@ function reconcileOrphanedTasksOnStartup({
       }
 
       const metadata = parseMetadata(original.metadata);
-      const pointedTask = metadata.resubmitted_as
-        ? getTask(taskCore, rawDb, metadata.resubmitted_as)
-        : null;
-      if (pointedTask && pointedTask.status !== 'cancelled') {
+      const liveResubmissionDescendant = findNonCancelledResubmissionDescendant(
+        taskCore,
+        rawDb,
+        original,
+        metadata,
+      );
+      if (liveResubmissionDescendant) {
         actions.skipped++;
+        safeLog(logger, 'info', `Startup task reconciler skipped already-resubmitted task ${original.id}`, {
+          task_id: original.id,
+          resubmitted_as: liveResubmissionDescendant.id,
+          resubmitted_as_status: liveResubmissionDescendant.status,
+        });
         continue;
       }
 

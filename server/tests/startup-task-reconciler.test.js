@@ -549,6 +549,76 @@ describe('startup task reconciler', () => {
     expect(getTaskRow('task-idempotent').status).toBe('running');
   });
 
+  test('Restart-chain idempotency -> skips ancestors when a descendant clone is active', () => {
+    insertTask({
+      id: 'task-chain-root',
+      status: 'cancelled',
+      cancel_reason: 'server_restart',
+      metadata: {
+        auto_resubmit_on_restart: true,
+        resubmitted_as: 'task-chain-child',
+      },
+    });
+    insertTask({
+      id: 'task-chain-child',
+      status: 'cancelled',
+      cancel_reason: 'server_restart',
+      metadata: {
+        auto_resubmit_on_restart: true,
+        resubmitted_from: 'task-chain-root',
+        resubmitted_as: 'task-chain-grandchild',
+        restart_resubmit_count: 1,
+      },
+    });
+    insertTask({
+      id: 'task-chain-grandchild',
+      status: 'queued',
+      metadata: {
+        auto_resubmit_on_restart: true,
+        resubmitted_from: 'task-chain-child',
+        restart_resubmit_count: 2,
+      },
+    });
+
+    const beforeCount = db.prepare('SELECT COUNT(*) AS count FROM tasks').get().count;
+    const result = runReconciler();
+    const afterCount = db.prepare('SELECT COUNT(*) AS count FROM tasks').get().count;
+
+    expect(result.actions.cloned).toBe(0);
+    expect(result.actions.skipped).toBeGreaterThanOrEqual(2);
+    expect(afterCount).toBe(beforeCount);
+    expect(parseMetadata(getTaskRow('task-chain-root')).resubmitted_as).toBe('task-chain-child');
+    expect(parseMetadata(getTaskRow('task-chain-child')).resubmitted_as).toBe('task-chain-grandchild');
+  });
+
+  test('Restart-chain idempotency -> finds active child even when resubmitted_as is missing', () => {
+    insertTask({
+      id: 'task-missing-pointer-root',
+      status: 'cancelled',
+      cancel_reason: 'server_restart',
+      metadata: {
+        auto_resubmit_on_restart: true,
+      },
+    });
+    insertTask({
+      id: 'task-missing-pointer-child',
+      status: 'queued',
+      metadata: {
+        auto_resubmit_on_restart: true,
+        resubmitted_from: 'task-missing-pointer-root',
+        restart_resubmit_count: 1,
+      },
+    });
+
+    const beforeCount = db.prepare('SELECT COUNT(*) AS count FROM tasks').get().count;
+    const result = runReconciler();
+    const afterCount = db.prepare('SELECT COUNT(*) AS count FROM tasks').get().count;
+
+    expect(result.actions.cloned).toBe(0);
+    expect(result.actions.skipped).toBe(1);
+    expect(afterCount).toBe(beforeCount);
+  });
+
   test('Resume-context propagation -> clone resume_context parses back correctly', () => {
     insertTask({
       id: 'task-resume',
@@ -701,11 +771,12 @@ describe('startup task reconciler', () => {
       id: 'task-race',
       metadata: { auto_resubmit_on_restart: true },
     });
-    insertTask({
-      id: 'existing-race-clone',
-      status: 'queued',
-      metadata: { resubmitted_from: 'task-race' },
-    });
+    const createTask = taskCore.createTask;
+    vi.spyOn(taskCore, 'createTask').mockImplementationOnce((task) => {
+      const err = new Error('SQLITE_CONSTRAINT_UNIQUE: UNIQUE constraint failed');
+      err.code = 'SQLITE_CONSTRAINT_UNIQUE';
+      throw err;
+    }).mockImplementation((task) => createTask(task));
 
     const result = runReconciler();
 
@@ -714,7 +785,7 @@ describe('startup task reconciler', () => {
     expect(result.actions.cloned).toBe(0);
     expect(getTaskRow('task-race').status).toBe('cancelled');
     expect(getTaskRow('task-race').cancel_reason).toBe('server_restart');
-    expect(cloneRowsFor('task-race')).toHaveLength(1);
+    expect(cloneRowsFor('task-race')).toHaveLength(0);
     expect(logger.warn).toHaveBeenCalledWith(
       expect.stringContaining('skipped duplicate resubmit'),
       expect.objectContaining({ task_id: 'task-race' }),
