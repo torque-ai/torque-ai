@@ -74,6 +74,18 @@ describe('utils/git', () => {
           },
         },
         {
+          line: 'M server/tests/schema-tables.test.js',
+          expected: {
+            indexStatus: ' ',
+            workStatus: 'M',
+            filePath: 'server/tests/schema-tables.test.js',
+            isNew: false,
+            isModified: true,
+            isDeleted: false,
+            isRenamed: false,
+          },
+        },
+        {
           line: 'A  added.js',
           expected: {
             indexStatus: 'A',

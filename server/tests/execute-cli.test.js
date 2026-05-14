@@ -927,6 +927,79 @@ describe('execute-cli.js', () => {
       expect(runningProcesses.has(taskId)).toBe(false);
     });
 
+    it('passes detached Codex auto-committed files into task finalization', async () => {
+      const childProcess = require('child_process');
+      const execFileSync = childProcess._realExecFileSync || childProcess.execFileSync;
+      const repoDir = path.join(testDir, `detached-autocommit-${randomUUID()}`);
+      fs.mkdirSync(path.join(repoDir, 'server', 'tests'), { recursive: true });
+      const git = (args) => execFileSync('git', args, {
+        cwd: repoDir,
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+        windowsHide: true,
+      });
+      git(['init']);
+      git(['config', 'user.email', 'torque-test-invalid']);
+      git(['config', 'user.name', 'TORQUE Test']);
+      fs.writeFileSync(path.join(repoDir, 'README.md'), 'base\n', 'utf8');
+      const changedFile = path.join(repoDir, 'server', 'tests', 'schema-tables.test.js');
+      fs.writeFileSync(changedFile, 'test("schema", () => { expect(true).toBe(true); });\n', 'utf8');
+      git(['add', 'README.md', 'server/tests/schema-tables.test.js']);
+      git(['commit', '-m', 'init']);
+
+      fs.writeFileSync(changedFile, 'test("schema", () => {});\n', 'utf8');
+      const logDir = path.join(testDir, 'detached-autocommit-logs');
+      fs.mkdirSync(logDir, { recursive: true });
+      const stdoutPath = path.join(logDir, 'stdout.log');
+      const stderrPath = path.join(logDir, 'stderr.log');
+      fs.writeFileSync(stdoutPath, 'All tests pass.\n', 'utf8');
+      fs.writeFileSync(stderrPath, '[process-exit] code=0 signal=none duration_ms=25 provider=codex\n', 'utf8');
+
+      const runningProcesses = new Map();
+      const finalizeTaskSpy = vi.fn(async () => ({ finalized: true, queueManaged: false }));
+      const deps = makeDeps({ runningProcesses, finalizeTask: finalizeTaskSpy });
+      mod.init(deps);
+
+      const taskId = randomUUID();
+      taskCore.createTask({
+        id: taskId,
+        task_description: 'Detached Codex auto-commit file list test',
+        status: 'running',
+        provider: 'codex',
+        working_directory: repoDir,
+      });
+      runningProcesses.set(taskId, {
+        output: '',
+        errorOutput: '',
+        outputLogPath: stdoutPath,
+        errorLogPath: stderrPath,
+        outputLogOffset: 0,
+        errorLogOffset: 0,
+        outputTail: { stop: vi.fn() },
+        errorTail: { stop: vi.fn() },
+        provider: 'codex',
+        model: 'gpt-5.5',
+        startTime: Date.now(),
+        completionDetected: false,
+      });
+
+      await mod.finalizeDetachedTask({
+        taskId,
+        task: {
+          id: taskId,
+          task_description: 'Detached Codex auto-commit file list test',
+          working_directory: repoDir,
+        },
+        provider: 'codex',
+        isCodexProvider: true,
+      });
+
+      const finalizeOptions = finalizeTaskSpy.mock.calls[0][1];
+      expect(finalizeOptions.filesModified).toContain('server/tests/schema-tables.test.js');
+      expect(finalizeOptions.filesModified).not.toContain('erver/tests/schema-tables.test.js');
+      expect(git(['status', '--porcelain']).trim()).toBe('');
+    });
+
     it('does not coerce detached non-zero usage-limit exits through stale completion detection', async () => {
       const logDir = path.join(testDir, 'detached-usage-limit');
       fs.mkdirSync(logDir, { recursive: true });

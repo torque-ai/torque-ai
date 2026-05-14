@@ -222,9 +222,15 @@ const MAX_FINGERPRINT_CACHE = 500; // evict oldest entries beyond this limit
  */
 function parseGitStatusLine(line) {
   if (!line || line.length < 4) return null;
-  const indexStatus = line[0];   // X = staging area
-  const workStatus = line[1];    // Y = working tree
-  const filePath = line.slice(3).replace(/^"/, '').replace(/"$/, '').trim();
+  let indexStatus = line[0];   // X = staging area
+  let workStatus = line[1];    // Y = working tree
+  let filePath = line.slice(3);
+  if (!/^[ MADRCU?!][ MADRCU?!] /.test(line) && /^[MADRCU?!]\s+/.test(line)) {
+    indexStatus = ' ';
+    workStatus = line[0];
+    filePath = line.slice(2);
+  }
+  filePath = filePath.replace(/^"/, '').replace(/"$/, '').trim();
   if (!filePath) return null;
   return {
     indexStatus,

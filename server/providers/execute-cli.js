@@ -16,7 +16,7 @@ const { PROVIDER_DEFAULTS, COMPLETION_GRACE_MS, COMPLETION_GRACE_CODEX_MS } = re
 const { extractModifiedFiles } = require('../utils/file-resolution');
 const { redactCommandArgs, redactSecrets } = require('../utils/sanitize');
 const gitWorktree = require('../utils/git-worktree');
-const { safeGitExec } = require('../utils/git');
+const { parseGitStatusLine, safeGitExec } = require('../utils/git');
 const { buildSafeEnv } = require('../utils/safe-env');
 const serverConfig = require('../config');
 const { applyStudyContextPrompt } = require('../integrations/codebase-study-engine');
@@ -70,6 +70,34 @@ function reconcileDetectedCompletionWithFailureOutput(taskId, proc, code, prefix
 
   logger.info(`${prefix} Task ${taskId} exited with code ${code} but output indicated success (provider: ${proc.provider}). Treating as code 0.`);
   return 0;
+}
+
+function parseAutoCommittedFiles(statusOut) {
+  if (!statusOut) return [];
+
+  const files = new Set();
+  for (const rawLine of String(statusOut).split(/\r?\n/)) {
+    const entry = parseGitStatusLine(rawLine);
+    if (!entry || entry.isDeleted) continue;
+    if (!(entry.isModified || entry.isNew || entry.isRenamed || entry.indexStatus === 'A')) continue;
+    const filePath = String(entry.filePath || '').replace(/\\/g, '/').trim();
+    if (filePath && !filePath.startsWith('.git/')) {
+      files.add(filePath);
+    }
+  }
+  return Array.from(files);
+}
+
+function mergeModifiedFileLists(...lists) {
+  const files = new Set();
+  for (const list of lists) {
+    if (!Array.isArray(list)) continue;
+    for (const value of list) {
+      const filePath = String(value || '').replace(/\\/g, '/').trim();
+      if (filePath) files.add(filePath);
+    }
+  }
+  return Array.from(files);
 }
 
 /**
@@ -1059,6 +1087,7 @@ function spawnAndTrackProcess(taskId, task, cmdSpec, provider) {
 
     const proc = runningProcesses.get(taskId);
     let queueManaged = false;
+    let autoCommittedFiles = [];
 
     if (proc) {
       if (proc.timeoutHandle) clearTimeout(proc.timeoutHandle);
@@ -1137,13 +1166,17 @@ function spawnAndTrackProcess(taskId, task, cmdSpec, provider) {
               logger.info(`[Worktree] Task ${taskId} merge complete: ${filesChanged} file(s)`);
               // Auto-commit so the next parallel task's worktree starts from updated HEAD.
               try {
-                const { execFileSync } = require('child_process');
-                execFileSync('git', ['add', '-A'], {
+                const statusOut = safeGitExec(['status', '--porcelain'], {
+                  cwd: origDir, encoding: 'utf-8', timeout: 10000,
+                  stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true,
+                }).trim();
+                autoCommittedFiles = mergeModifiedFileLists(autoCommittedFiles, parseAutoCommittedFiles(statusOut));
+                safeGitExec(['add', '-A'], {
                   cwd: origDir, encoding: 'utf-8', timeout: 10000,
                   stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true,
                 });
                 const shortDesc = (task.task_description || '').substring(0, 50).replace(/["\n\r]/g, ' ').trim();
-                execFileSync('git', ['commit', '-m', `fix(torque): ${shortDesc} [${task.model || provider}]`], {
+                safeGitExec(['commit', '-m', `fix(torque): ${shortDesc} [${task.model || provider}]`], {
                   cwd: origDir, encoding: 'utf-8', timeout: 10000,
                   stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true,
                 });
@@ -1176,19 +1209,19 @@ function spawnAndTrackProcess(taskId, task, cmdSpec, provider) {
       // Auto-commit advances HEAD so parallel tasks see each other's changes.
       if (isCodexProvider && !proc.worktreeInfo && code === 0 && task.working_directory) {
         try {
-          const { execFileSync } = require('child_process');
           const workDir = task.working_directory;
           const statusOut = safeGitExec(['status', '--porcelain'], {
             cwd: workDir, encoding: 'utf-8', timeout: 10000,
             stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true,
           }).trim();
           if (statusOut) {
-            execFileSync('git', ['add', '-A'], {
+            autoCommittedFiles = mergeModifiedFileLists(autoCommittedFiles, parseAutoCommittedFiles(statusOut));
+            safeGitExec(['add', '-A'], {
               cwd: workDir, encoding: 'utf-8', timeout: 10000,
               stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true,
             });
             const shortDesc = (task.task_description || '').substring(0, 50).replace(/["\n\r]/g, ' ').trim();
-            execFileSync('git', ['commit', '-m', `fix(torque): ${shortDesc} [${task.model || provider}]`], {
+            safeGitExec(['commit', '-m', `fix(torque): ${shortDesc} [${task.model || provider}]`], {
               cwd: workDir, encoding: 'utf-8', timeout: 10000,
               stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true,
             });
@@ -1264,7 +1297,10 @@ function spawnAndTrackProcess(taskId, task, cmdSpec, provider) {
               provider: currentTask?.provider || provider,
             },
         filesModified: proc
-          ? extractModifiedFiles((proc.output || '') + (proc.errorOutput || ''))
+          ? mergeModifiedFileLists(
+            extractModifiedFiles((proc.output || '') + (proc.errorOutput || '')),
+            autoCommittedFiles
+          )
           : [],
       });
       queueManaged = Boolean(result?.queueManaged);
@@ -1910,6 +1946,7 @@ async function finalizeDetachedTask({ taskId, task, provider, isCodexProvider })
   const finalizationHeartbeat = (stage = 'detached_finalize') => touchFinalizingMarker(taskId, stage);
   const proc = runningProcesses.get(taskId);
   let queueManaged = false;
+  let autoCommittedFiles = [];
 
   if (proc) {
     finalizationHeartbeat('detached_finalize:flush_logs');
@@ -1964,12 +2001,13 @@ async function finalizeDetachedTask({ taskId, task, provider, isCodexProvider })
         stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true,
       }).trim();
       if (statusOut) {
-        execFileSync('git', ['add', '-A'], {
+        autoCommittedFiles = parseAutoCommittedFiles(statusOut);
+        safeGitExec(['add', '-A'], {
           cwd: workDir, encoding: 'utf-8', timeout: 10000,
           stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true,
         });
         const shortDesc = (task.task_description || '').substring(0, 50).replace(/["\n\r]/g, ' ').trim();
-        execFileSync('git', ['commit', '-m', `fix(torque): ${shortDesc} [${task.model || provider}]`], {
+        safeGitExec(['commit', '-m', `fix(torque): ${shortDesc} [${task.model || provider}]`], {
           cwd: workDir, encoding: 'utf-8', timeout: 10000,
           stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true,
         });
@@ -2016,7 +2054,10 @@ async function finalizeDetachedTask({ taskId, task, provider, isCodexProvider })
           }
         : { provider: currentTask?.provider || provider, detached: true },
       filesModified: proc
-        ? extractModifiedFiles((proc.output || '') + (proc.errorOutput || ''))
+        ? mergeModifiedFileLists(
+          extractModifiedFiles((proc.output || '') + (proc.errorOutput || '')),
+          autoCommittedFiles
+        )
         : [],
       finalizationHeartbeat,
     });
