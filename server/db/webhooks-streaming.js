@@ -823,6 +823,61 @@ function cleanupStreamData(daysToKeep = 7) {
 }
 
 // ============================================================
+// Streaming Artifact Protocol Integration
+// ============================================================
+
+/**
+ * Create stream chunks from parsed streaming artifact actions.
+ *
+ * Each artifact action (file write, shell command) is stored as a stream chunk
+ * with chunk_type 'artifact' so downstream consumers (webhook deliveries,
+ * dashboard streaming views) can identify artifact-bearing chunks.
+ *
+ * @param {string} streamId - Existing task stream ID (from createTaskStream / getOrCreateTaskStream).
+ * @param {Array<{ type: 'file'|'shell', path?: string, cmd?: string, content: string }>} artifacts
+ *   Parsed artifact actions — typically the return value of `parseStreamingArtifacts()`.
+ * @returns {number[]} Sequence numbers assigned to the inserted chunks.
+ */
+function createArtifactStreamChunks(streamId, artifacts) {
+  if (!streamId || !Array.isArray(artifacts) || artifacts.length === 0) return [];
+  const sequences = [];
+  for (const artifact of artifacts) {
+    const chunkData = JSON.stringify(artifact);
+    const seq = addStreamChunk(streamId, chunkData, 'artifact');
+    sequences.push(seq);
+  }
+  return sequences;
+}
+
+/**
+ * Build a webhook delivery payload from streaming artifact actions.
+ *
+ * Intended to be passed as the `payload` to `logWebhookDelivery` or included
+ * in the body sent to the webhook endpoint when an artifact-bearing event fires.
+ *
+ * @param {string} taskId - Owning task ID.
+ * @param {string} toolName - Name of the MCP tool that produced the artifacts.
+ * @param {Array<{ type: 'file'|'shell', path?: string, cmd?: string, content: string }>} artifacts
+ *   Parsed artifact actions.
+ * @returns {{ event: string, task_id: string, tool: string, artifact_count: number, artifacts: Array }}
+ */
+function buildArtifactWebhookPayload(taskId, toolName, artifacts) {
+  const safeArtifacts = Array.isArray(artifacts) ? artifacts : [];
+  return {
+    event: 'task.streaming_artifact',
+    task_id: taskId,
+    tool: toolName || 'unknown',
+    artifact_count: safeArtifacts.length,
+    artifacts: safeArtifacts.map(a => {
+      const entry = { type: a.type, content: a.content };
+      if (a.path) entry.path = a.path;
+      if (a.cmd) entry.cmd = a.cmd;
+      return entry;
+    }),
+  };
+}
+
+// ============================================================
 // Wave 2 Phase 1: Event Subscription Functions
 // ============================================================
 
@@ -1324,6 +1379,9 @@ function createWebhooksStreaming({ db: dbInstance }) {
     pauseTask,
     clearPauseState,
     listPausedTasks,
+    // Streaming artifact protocol
+    createArtifactStreamChunks,
+    buildArtifactWebhookPayload,
   };
 }
 
@@ -1366,6 +1424,9 @@ module.exports = {
   cleanupAnalytics,
   cleanupCoordinationEvents,
   enforceEventTableLimits,
+  // Streaming artifact protocol
+  createArtifactStreamChunks,
+  buildArtifactWebhookPayload,
   // Checkpoints / Pause
   saveTaskCheckpoint,
   getTaskCheckpoint,
