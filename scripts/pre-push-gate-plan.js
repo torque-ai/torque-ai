@@ -519,11 +519,26 @@ function tryRequireFromServer(moduleName, options = {}) {
 }
 
 function resolveCodegraphDbPath() {
-  // Mirror server/plugins/codegraph/index.js resolution order so the gate
-  // plan reads the same DB the codegraph plugin writes. TORQUE_DATA_DIR
-  // wins; otherwise fall back to the repo root.
-  const dataDir = process.env.TORQUE_DATA_DIR || REPO_ROOT;
-  return path.join(dataDir, 'codegraph.db');
+  // Mirror server/plugins/codegraph/index.js resolution but prefer the
+  // operator's persistent TORQUE data dir (~/.torque/codegraph.db) over
+  // a stale repo-root copy. The plugin runs with TORQUE_DATA_DIR set, so
+  // that's the populated DB; the repo-root file is usually a leftover
+  // from an early init that no longer gets written.
+  //
+  // Candidate order: TORQUE_DATA_DIR > ~/.torque > REPO_ROOT.
+  // First existing & non-empty (file size > 0) wins.
+  const homeDir = require('os').homedir();
+  const candidates = [];
+  if (process.env.TORQUE_DATA_DIR) candidates.push(path.join(process.env.TORQUE_DATA_DIR, 'codegraph.db'));
+  candidates.push(path.join(homeDir, '.torque', 'codegraph.db'));
+  candidates.push(path.join(REPO_ROOT, 'codegraph.db'));
+  for (const candidate of candidates) {
+    try {
+      const stat = fs.statSync(candidate);
+      if (stat.isFile() && stat.size > 0) return candidate;
+    } catch { /* try next */ }
+  }
+  return null;
 }
 
 function shellQuote(value) {
