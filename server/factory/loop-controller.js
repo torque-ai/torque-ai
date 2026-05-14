@@ -3403,6 +3403,108 @@ function listTasksForFactoryBatch(batchId) {
   }
 }
 
+function appendFactoryBatchCancelError(task, reason) {
+  const prefix = task?.error_output ? `${task.error_output}\n` : '';
+  return `${prefix}[factory] ${reason}`;
+}
+
+function cancelLiveFactoryBatchTasks(batchId, options = {}) {
+  if (!batchId) {
+    return { task_ids: [], cancelled_task_ids: [], failed_cancellations: [] };
+  }
+
+  const reason = options.reason
+    || `Factory cancelled live task because batch ${batchId} is no longer executable.`;
+  const cancelReason = options.cancel_reason || 'factory_batch_cancelled';
+  const terminalStatus = options.terminal_status || 'cancelled';
+  const batchTasks = listTasksForFactoryBatch(batchId);
+  const candidates = batchTasks.filter(
+    (task) => !TERMINAL_FACTORY_BATCH_TASK_STATUSES.has(String(task.status || '').toLowerCase()),
+  );
+  const result = {
+    task_ids: candidates.map((task) => task.id),
+    cancelled_task_ids: [],
+    failed_cancellations: [],
+  };
+
+  if (candidates.length === 0) {
+    return result;
+  }
+
+  let taskCore = null;
+  try {
+    taskCore = require('../db/task-core');
+  } catch (err) {
+    logger.debug('Factory batch cancellation: task-core unavailable', {
+      batch_id: batchId,
+      err: err && err.message,
+    });
+  }
+
+  let taskManager = null;
+  try {
+    taskManager = require('../task-manager');
+  } catch (err) {
+    logger.warn('Factory batch cancellation: task-manager unavailable; falling back to DB status update', {
+      batch_id: batchId,
+      err: err && err.message,
+    });
+  }
+
+  for (const task of candidates) {
+    let cancelled = false;
+    let managerError = null;
+
+    if (taskManager && typeof taskManager.cancelTask === 'function') {
+      try {
+        cancelled = Boolean(taskManager.cancelTask(task.id, reason, {
+          cancel_reason: cancelReason,
+          terminal_status: terminalStatus,
+        }));
+      } catch (err) {
+        managerError = err;
+        logger.warn('Factory batch cancellation: task-manager cancel failed; falling back to DB status update', {
+          batch_id: batchId,
+          task_id: task.id,
+          err: err && err.message,
+        });
+      }
+    }
+
+    if (!cancelled && taskCore && typeof taskCore.updateTaskStatus === 'function') {
+      try {
+        const latest = typeof taskCore.getTask === 'function' ? taskCore.getTask(task.id) : task;
+        if (!latest || TERMINAL_FACTORY_BATCH_TASK_STATUSES.has(String(latest.status || '').toLowerCase())) {
+          cancelled = true;
+        } else {
+          taskCore.updateTaskStatus(task.id, terminalStatus, {
+            cancel_reason: cancelReason,
+            error_output: appendFactoryBatchCancelError(latest, reason),
+          });
+          cancelled = true;
+        }
+      } catch (err) {
+        result.failed_cancellations.push({
+          task_id: task.id,
+          error: err && err.message ? err.message : String(err),
+          manager_error: managerError && managerError.message ? managerError.message : null,
+        });
+      }
+    }
+
+    if (cancelled) {
+      result.cancelled_task_ids.push(task.id);
+    } else if (!taskCore || typeof taskCore.updateTaskStatus !== 'function') {
+      result.failed_cancellations.push({
+        task_id: task.id,
+        error: managerError && managerError.message ? managerError.message : 'task_cancellation_unavailable',
+      });
+    }
+  }
+
+  return result;
+}
+
 function resolvePendingApprovalBatchId(project, workItem, executionDecision, startedExecutionDecision) {
   return startedExecutionDecision?.outcome?.batch_id
     || executionDecision?.batch_id
@@ -9968,11 +10070,22 @@ async function executePlanFileStage(project, instance, workItem) {
     if (gateVerdict && !gateVerdict.passed) {
       const failedRules = gateVerdict.hardFails.map((h) => h.rule);
       const routed = routePlanQualityGateFailureToNeedsReplan(targetItem, gateVerdict);
+      const cancellation = cancelLiveFactoryBatchTasks(executeLogBatchId, {
+        reason: `Factory cancelled live task because EXECUTE pre-written plan was rejected before worktree creation for batch ${executeLogBatchId}.`,
+        cancel_reason: 'factory_plan_rejected',
+        terminal_status: 'cancelled',
+      });
+      updateInstanceAndSync(instance.id, {
+        batch_id: null,
+        last_action_at: nowIso(),
+      });
       logger.warn('EXECUTE stage: pre-written plan rejected by quality gate before worktree creation', {
         project_id: project.id,
         work_item_id: targetItem.id,
         plan_path: targetItem.origin.plan_path,
         rules: failedRules,
+        cancelled_tasks: cancellation.cancelled_task_ids.length,
+        failed_cancellations: cancellation.failed_cancellations.length,
       });
       safeLogDecision({
         project_id: project.id,
@@ -9988,6 +10101,8 @@ async function executePlanFileStage(project, instance, workItem) {
           rule_violations: gateVerdict.hardFails,
           plan_path: targetItem.origin.plan_path,
           next_status: routed.status,
+          cancelled_tasks: cancellation.cancelled_task_ids,
+          cancellation_failed_tasks: cancellation.failed_cancellations,
           ...getWorkItemDecisionContext(targetItem),
         },
         confidence: 1,
@@ -10004,6 +10119,8 @@ async function executePlanFileStage(project, instance, workItem) {
           work_item_id: routed.id,
           plan_path: targetItem.origin.plan_path,
           rule_violations: failedRules,
+          cancelled_tasks: cancellation.cancelled_task_ids,
+          cancellation_failed_tasks: cancellation.failed_cancellations,
         },
       };
     }

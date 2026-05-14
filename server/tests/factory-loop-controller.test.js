@@ -16,6 +16,7 @@ const factoryWorktrees = require('../db/factory/worktrees');
 const routingModule = require('../handlers/integration/routing');
 const awaitModule = require('../handlers/workflow/await');
 const taskCore = require('../db/task-core');
+const taskManager = require('../task-manager');
 const branchFreshness = require('../factory/branch-freshness');
 const loopController = require('../factory/loop-controller');
 const verifyReview = require('../factory/verify-review');
@@ -25,6 +26,7 @@ const { defaultContainer } = require('../container');
 const originalHandleSmartSubmitTask = routingModule.handleSmartSubmitTask;
 const originalHandleAwaitTask = awaitModule.handleAwaitTask;
 const originalGetTask = taskCore.getTask;
+const originalCancelTask = taskManager.cancelTask;
 
 function createFactoryTables(db) {
   db.exec(`
@@ -257,6 +259,7 @@ describe('factory loop-controller EXECUTE modes', () => {
       status: 'completed',
       error_output: null,
     }));
+    taskManager.cancelTask = vi.fn();
   });
 
   afterEach(() => {
@@ -271,6 +274,7 @@ describe('factory loop-controller EXECUTE modes', () => {
     routingModule.handleSmartSubmitTask = originalHandleSmartSubmitTask;
     awaitModule.handleAwaitTask = originalHandleAwaitTask;
     taskCore.getTask = originalGetTask;
+    taskManager.cancelTask = originalCancelTask;
     loopController.setWorktreeRunnerForTests(null);
     if (tempDir && fs.existsSync(tempDir)) {
       fs.rmSync(tempDir, { recursive: true, force: true });
@@ -819,6 +823,16 @@ Edit server/factory/plan-executor.js and make the requested behavior change. Kee
       loop_batch_id: batchId,
       loop_paused_at_stage: null,
     });
+    insertBatchTask(db, {
+      taskId: 'task-stale-plan-batch',
+      batchId,
+      status: 'running',
+    });
+    taskManager.cancelTask.mockImplementation((taskId, _reason, options = {}) => {
+      db.prepare('UPDATE tasks SET status = ? WHERE id = ?')
+        .run(options.terminal_status || 'cancelled', taskId);
+      return true;
+    });
 
     const worktreeRunner = {
       createForBatch: vi.fn(),
@@ -838,6 +852,21 @@ Edit server/factory/plan-executor.js and make the requested behavior change. Kee
       work_item_id: workItem.id,
       plan_path: planPath,
       rule_violations: expect.arrayContaining(['task_has_acceptance_criterion']),
+      cancelled_tasks: ['task-stale-plan-batch'],
+    });
+    expect(taskManager.cancelTask).toHaveBeenCalledWith(
+      'task-stale-plan-batch',
+      expect.stringContaining('pre-written plan was rejected'),
+      { cancel_reason: 'factory_plan_rejected', terminal_status: 'cancelled' },
+    );
+    expect(db.prepare('SELECT status FROM tasks WHERE id = ?').get('task-stale-plan-batch')).toMatchObject({
+      status: 'cancelled',
+    });
+    expect(factoryLoopInstances.getInstance(instance.id)).toMatchObject({
+      batch_id: null,
+    });
+    expect(factoryHealth.getProject(project.id)).toMatchObject({
+      loop_batch_id: null,
     });
     expect(worktreeRunner.createForBatch).not.toHaveBeenCalled();
     expect(routingModule.handleSmartSubmitTask).not.toHaveBeenCalled();
@@ -855,7 +884,11 @@ Edit server/factory/plan-executor.js and make the requested behavior change. Kee
     });
 
     const decisions = listDecisionRows(db, project.id);
-    expect(decisions.find((d) => d.action === 'pre_written_plan_quality_rejected_before_execute')).toBeTruthy();
+    expect(decisions.find((d) => d.action === 'pre_written_plan_quality_rejected_before_execute')).toMatchObject({
+      outcome: expect.objectContaining({
+        cancelled_tasks: ['task-stale-plan-batch'],
+      }),
+    });
   });
 
   it('clears generated plan files before replanning a needs_replan item', async () => {
