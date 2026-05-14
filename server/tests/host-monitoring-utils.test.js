@@ -359,7 +359,7 @@ describe('host-monitoring utility module', () => {
       }
     });
 
-    it('clears exhausted flag when API probe returns 200', async () => {
+    it('keeps exhausted flag when API probe returns 200 because quota is not proven', async () => {
       process.env.OPENAI_API_KEY = 'test-key';
       configCore.setConfig('codex_exhausted', '1');
       configCore.setConfig('codex_probe_interval_minutes', '0');
@@ -375,6 +375,7 @@ describe('host-monitoring utility module', () => {
       await monitoring.probeCodexRecovery();
 
       expect(configCore.getConfig('codex_exhausted')).toBe('1');
+      expect(configCore.getConfig('codex_exhausted_at')).toBeTruthy();
       expect(requestSpy).toHaveBeenCalledTimes(1);
       expect(spawnSpy).not.toHaveBeenCalled();
     });
@@ -413,7 +414,7 @@ describe('host-monitoring utility module', () => {
       expect(spawnSpy).not.toHaveBeenCalled();
     });
 
-    it('falls back to CLI probe when OpenAI key is missing', async () => {
+    it('falls back to CLI probe when OpenAI key is missing without clearing quota exhaustion', async () => {
       const spawnSyncMock = vi.fn().mockReturnValue({ status: 0 });
       monitoring = loadHostMonitoringWithChildProcessPatches({
         spawnSync: spawnSyncMock,
@@ -440,6 +441,7 @@ describe('host-monitoring utility module', () => {
         expect(spawnSyncMock).toHaveBeenCalledWith('npx', ['codex', '--version'], expect.any(Object));
       }
       expect(configCore.getConfig('codex_exhausted')).toBe('1');
+      expect(configCore.getConfig('codex_exhausted_at')).toBeTruthy();
     });
   });
 

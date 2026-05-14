@@ -294,8 +294,8 @@ async function probeCodexRecovery() {
       });
 
       if (probeResult.status === 200) {
-        db.setCodexExhausted(false);
-        logger.info('[Codex Probe] API responsive (HTTP 200) — clearing exhaustion flag');
+        db.setConfig('codex_exhausted_at', new Date().toISOString());
+        logger.info('[Codex Probe] API responsive (HTTP 200) but quota availability is not proven — keeping exhaustion flag');
         return;
       } else if (probeResult.status === 429) {
         db.setConfig('codex_exhausted_at', new Date().toISOString());
@@ -325,8 +325,8 @@ async function probeCodexRecovery() {
       : spawnSync('npx', ['codex', '--version'], spawnOptions);
 
     if (result.status === 0) {
-      db.setCodexExhausted(false);
-      logger.info('[Codex Probe] Codex CLI responsive — clearing exhaustion flag');
+      db.setConfig('codex_exhausted_at', new Date().toISOString());
+      logger.info('[Codex Probe] Codex CLI responsive but quota availability is not proven — keeping exhaustion flag');
     } else {
       const stderr = (result.stderr || '').toString();
       const isQuota = stderr.includes('rate_limit') || stderr.includes('quota') || stderr.includes('429');
