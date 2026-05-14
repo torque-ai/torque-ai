@@ -1,6 +1,6 @@
 # Workflow Specs
 
-Workflow specs are version-controlled YAML files that define a TORQUE workflow as a DAG of tasks. Commit concrete specs in `<project>/workflows/`, keep reusable bases in `<project>/workflows/templates/`, and run them by name or path from your host or automation entrypoint.
+Workflow specs are version-controlled YAML files that define a TORQUE workflow as a DAG of tasks. Store concrete specs in `<project>/workflows/`, keep reusable bases in `<project>/workflows/templates/`, and run them by name or path from your host or automation entrypoint.
 
 ## Quick start
 
@@ -56,8 +56,8 @@ Workflow specs are version-controlled YAML files that define a TORQUE workflow a
 | `provider` | enum | no | Explicit provider override. |
 | `model` | string | no | Model override. |
 | `tags` | [string] | no | Free-form tags. |
-| `verify_command` | string | no | Per-task verify command. Overrides the project-level verify command. Empty string disables verify for this task. |
-| `verify_skip` | bool | no | Skip the auto-verify stage for this task. |
+| `verify_command` | string | no | Task-level verify command override. Replaces the project verify command for this task. Empty string disables verify for this task. |
+| `verify_skip` | bool | no | Explicit opt-out from auto-verify for this task. |
 | `timeout_minutes` | int | no | 1-480. |
 | `auto_approve` | bool | no | Skip approval gates. |
 | `version_intent` | enum | no | Override workflow-level intent. |
@@ -78,20 +78,25 @@ Workflows built inline via `create_workflow` are ephemeral. They exist only in t
 
 ## Per-task verification
 
-Project defaults can define a `verify_command` that runs after eligible tasks complete. Override that behavior per task when a workflow mixes docs, frontend, backend, and schema work:
+Project defaults can define a `verify_command` that runs after eligible tasks complete. Use task-level overrides when a workflow mixes docs, database, frontend, and tasks that should skip verification:
 
     tasks:
       - node_id: docs
         task: Update README and docs/workflow-specs.md
         verify_command: markdownlint README.md docs/
-      - node_id: schema
-        task: Update schema migrations
+      - node_id: database
+        task: Update database migrations and seed data
         verify_command: npx vitest run server/tests/schema-*.test.js
-      - node_id: comment
-        task: Add a code comment
+      - node_id: frontend
+        task: Update the workflow specs dashboard UI
+        verify_command: npx playwright test dashboard/tests/workflow-specs.spec.js
+      - node_id: generated-note
+        task: Refresh generated workflow notes
         verify_skip: true
 
-`verify_command` wins over the project-level command. `verify_command: ""` disables verify for that task. `verify_skip: true` also disables the auto-verify stage and is clearer when the task should never run verification.
+The same fields are accepted in YAML `tasks`, `create_workflow.tasks[]`, and `add_workflow_task` payloads. TORQUE persists them in task metadata so auto-verify can resolve the task-level behavior later.
+
+`verify_command` is a task-level override and wins over the project-level command. `verify_command: ""` disables verify for that task. `verify_skip: true` is an explicit opt-out from auto-verify and is clearer when the task should never run verification.
 
 ## Templates and inheritance
 

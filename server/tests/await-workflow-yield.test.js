@@ -13,18 +13,39 @@ async function createTestWorkflow(db, name, taskDefs) {
 
   const taskIds = {};
   for (const def of taskDefs) {
-    const result = await safeTool('add_workflow_task', {
+    const taskArgs = {
       workflow_id: workflowId,
       node_id: def.node_id,
       task_description: def.task,
       depends_on: def.depends_on
-    });
+    };
+    if (Object.prototype.hasOwnProperty.call(def, 'verify_command')) {
+      taskArgs.verify_command = def.verify_command;
+    }
+    if (Object.prototype.hasOwnProperty.call(def, 'verify_skip')) {
+      taskArgs.verify_skip = def.verify_skip;
+    }
+    const result = await safeTool('add_workflow_task', taskArgs);
     const text = getText(result);
-    const idMatch = text.match(/([a-f0-9-]{36})/);
-    taskIds[def.node_id] = idMatch[1];
+    taskIds[def.node_id] = extractUUID(text);
   }
 
   return { workflowId, taskIds };
+}
+
+function extractUUID(text) {
+  const idMatch = text.match(/([a-f0-9-]{36})/);
+  return idMatch ? idMatch[1] : null;
+}
+
+function parseTaskMetadata(task) {
+  if (!task || !task.metadata) return {};
+  if (typeof task.metadata === 'object') return task.metadata;
+  try {
+    return JSON.parse(task.metadata);
+  } catch {
+    return {};
+  }
 }
 
 /**
@@ -157,6 +178,57 @@ describe('await_workflow yield-on-completion', () => {
       expect(text).toContain('failed');
       // Final summary included since it's the only task
       expect(text).toContain('## Workflow Completed');
+    });
+  });
+
+  describe('per-task verify metadata', () => {
+    it('persists verify controls from create_workflow task objects', async () => {
+      const result = await safeTool('create_workflow', {
+        name: `verify-metadata-create-${randomUUID()}`,
+        tasks: [
+          {
+            node_id: 'database',
+            task_description: 'Update database migrations',
+            verify_command: 'npx vitest run server/tests/schema-*.test.js'
+          },
+          {
+            node_id: 'skip',
+            task_description: 'Refresh generated note',
+            verify_skip: true
+          }
+        ]
+      });
+
+      expect(result.isError).toBeFalsy();
+      const workflowId = extractUUID(getText(result));
+      expect(workflowId).toBeTruthy();
+      const tasks = db.getWorkflowTasks(workflowId);
+      const databaseTask = tasks.find(task => task.workflow_node_id === 'database');
+      const skipTask = tasks.find(task => task.workflow_node_id === 'skip');
+
+      expect(databaseTask).toBeTruthy();
+      expect(skipTask).toBeTruthy();
+      expect(parseTaskMetadata(databaseTask).verify_command).toBe('npx vitest run server/tests/schema-*.test.js');
+      expect(parseTaskMetadata(skipTask).verify_skip).toBe(true);
+    });
+
+    it('persists verify controls from add_workflow_task payloads', async () => {
+      const wf = await createTestWorkflow(db, `verify-metadata-add-${randomUUID()}`, [
+        {
+          node_id: 'frontend',
+          task: 'Update frontend workflow UI',
+          verify_command: 'npx playwright test dashboard/tests/workflow-specs.spec.js'
+        },
+        {
+          node_id: 'skip',
+          task: 'Update generated docs index',
+          verify_skip: true
+        }
+      ]);
+
+      expect(parseTaskMetadata(db.getTask(wf.taskIds.frontend)).verify_command)
+        .toBe('npx playwright test dashboard/tests/workflow-specs.spec.js');
+      expect(parseTaskMetadata(db.getTask(wf.taskIds.skip)).verify_skip).toBe(true);
     });
   });
 

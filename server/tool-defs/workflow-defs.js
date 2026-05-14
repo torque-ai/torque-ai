@@ -270,11 +270,11 @@ const tools = [
               },
               verify_command: {
                 type: 'string',
-                description: 'Per-task verify command. Overrides project-level verify_command. Empty string disables verify for this task.'
+                description: 'Task-level verify command override. Replaces the project verify command for this task; an empty string disables verify for this task.'
               },
               verify_skip: {
                 type: 'boolean',
-                description: 'Skip the auto-verify stage for this task entirely.'
+                description: 'Explicit opt-out from auto-verify for this task.'
               },
               provider: {
                 type: 'string',
@@ -398,11 +398,11 @@ const tools = [
         },
         verify_command: {
           type: 'string',
-          description: 'Per-task verify command. Overrides project-level verify_command. Empty string disables verify for this task.'
+          description: 'Task-level verify command override. Replaces the project verify command for this task; an empty string disables verify for this task.'
         },
         verify_skip: {
           type: 'boolean',
-          description: 'Skip the auto-verify stage for this task entirely.'
+          description: 'Explicit opt-out from auto-verify for this task.'
         },
         provider: {
           type: 'string',

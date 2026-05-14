@@ -419,7 +419,7 @@ function buildWorkflowTaskMetadata(taskLike) {
   if (taskLike.routing_template) {
     metaObj._routing_template = taskLike.routing_template;
   }
-  if (typeof taskLike.verify_command === 'string') {
+  if (hasOwn(taskLike, 'verify_command') && typeof taskLike.verify_command === 'string') {
     metaObj.verify_command = taskLike.verify_command;
   }
   if (taskLike.verify_skip === true) {

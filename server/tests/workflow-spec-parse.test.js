@@ -109,9 +109,18 @@ tasks:
   - node_id: docs
     task: Update docs
     verify_command: markdownlint docs/
+  - node_id: database
+    task: Update migrations
+    verify_command: npx vitest run server/tests/schema-*.test.js
+  - node_id: frontend
+    task: Update dashboard UI
+    verify_command: npx playwright test dashboard/tests/workflow-specs.spec.js
   - node_id: skip
     task: Skip verify
     verify_skip: true
+  - node_id: disabled-command
+    task: Disable inherited verify command
+    verify_command: ""
 `;
 
     const result = parseSpecString(yamlText);
@@ -122,8 +131,20 @@ tasks:
       verify_command: 'markdownlint docs/',
     });
     expect(result.spec.tasks[1]).toMatchObject({
+      node_id: 'database',
+      verify_command: 'npx vitest run server/tests/schema-*.test.js',
+    });
+    expect(result.spec.tasks[2]).toMatchObject({
+      node_id: 'frontend',
+      verify_command: 'npx playwright test dashboard/tests/workflow-specs.spec.js',
+    });
+    expect(result.spec.tasks[3]).toMatchObject({
       node_id: 'skip',
       verify_skip: true,
+    });
+    expect(result.spec.tasks[4]).toMatchObject({
+      node_id: 'disabled-command',
+      verify_command: '',
     });
   });
 
