@@ -205,6 +205,7 @@ const BENIGN_FLOW_ACTION_EXACT = new Set([
   'execute_batch_worktree_reused', // EXECUTE reused active batch worktree
   'factory_worktree_reuse_stale_detected', // reused worktree drift was detected before reuse
   'factory_worktree_reuse_auto_rebased', // reused worktree drift was automatically corrected
+  'factory_worktree_reuse_invalid_detected', // reused worktree git metadata was invalid and preserved
   'factory_worktree_reuse_rebase_failed', // reused worktree drift forced fresh-worktree fallback
   'factory_worktree_reuse_dirty_preserved', // dirty reused worktree was preserved and bypassed
   'execute_batch_worktree_reuse_skipped', // EXECUTE skipped a different work item's active batch worktree

@@ -5,6 +5,7 @@ vi.mock('../event-bus', () => ({ emitTaskEvent: vi.fn() }));
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const childProcess = require('child_process');
 const Database = require('better-sqlite3');
 const database = require('./helpers/database-facade');
 const factoryDecisions = require('../db/factory/decisions');
@@ -198,6 +199,31 @@ function listDecisionRows(db, projectId) {
     inputs: row.inputs_json ? JSON.parse(row.inputs_json) : null,
     outcome: row.outcome_json ? JSON.parse(row.outcome_json) : null,
   }));
+}
+
+function runGit(repoDir, args) {
+  const execFileSync = childProcess._realExecFileSync || childProcess.execFileSync;
+  return execFileSync('git', args, {
+    cwd: repoDir,
+    encoding: 'utf8',
+    windowsHide: true,
+    env: {
+      ...process.env,
+      GIT_TERMINAL_PROMPT: '0',
+      GIT_OPTIONAL_LOCKS: '0',
+    },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+}
+
+function initializeCleanGitWorktree(worktreePath) {
+  fs.mkdirSync(worktreePath, { recursive: true });
+  runGit(worktreePath, ['init']);
+  runGit(worktreePath, ['config', 'user.email', 'factory-test@example.com']);
+  runGit(worktreePath, ['config', 'user.name', 'Factory Test']);
+  fs.writeFileSync(path.join(worktreePath, 'tracked.txt'), 'clean\n', 'utf8');
+  runGit(worktreePath, ['add', 'tracked.txt']);
+  runGit(worktreePath, ['commit', '-m', 'init', '--no-gpg-sign']);
 }
 
 function decodeLaneWrappedCommand(command) {
@@ -469,7 +495,7 @@ describe('factory loop-controller EXECUTE modes', () => {
     fs.mkdirSync(path.join(project.path, 'node_modules', 'leftpad'), { recursive: true });
     fs.writeFileSync(path.join(project.path, 'package.json'), packageJson);
     fs.writeFileSync(path.join(project.path, 'node_modules', 'leftpad', 'package.json'), JSON.stringify({ name: 'leftpad' }));
-    fs.mkdirSync(worktreePath, { recursive: true });
+    initializeCleanGitWorktree(worktreePath);
     fs.writeFileSync(path.join(worktreePath, 'package.json'), packageJson);
     factoryWorktrees.recordWorktree({
       project_id: project.id,
@@ -921,7 +947,7 @@ Edit server/factory/plan-executor.js and make the requested behavior change. Kee
       loop_paused_at_stage: null,
     });
     const worktreePath = path.join(project.path, '.worktrees', 'feat-live-plan-owner');
-    fs.mkdirSync(worktreePath, { recursive: true });
+    initializeCleanGitWorktree(worktreePath);
     const existing = factoryWorktrees.recordWorktree({
       project_id: project.id,
       work_item_id: workItem.id,
@@ -2242,7 +2268,7 @@ Edit server/factory/plan-executor.js and make the requested behavior change. Kee
     db.prepare('ALTER TABLE factory_worktrees ADD COLUMN owning_task_id TEXT').run();
     const targetBranch = `feat/factory-${workItem.id}-dry-run-plan-item`;
     const worktreePath = path.join(project.path, '.worktrees', 'feat-live-owner');
-    fs.mkdirSync(worktreePath, { recursive: true });
+    initializeCleanGitWorktree(worktreePath);
     const existing = factoryWorktrees.recordWorktree({
       project_id: project.id,
       work_item_id: workItem.id,
@@ -2333,7 +2359,7 @@ Edit server/factory/plan-executor.js and make the requested behavior change. Kee
     db.prepare('ALTER TABLE factory_worktrees ADD COLUMN owning_task_id TEXT').run();
     const targetBranch = `feat/factory-${workItem.id}-dry-run-plan-item`;
     const worktreePath = path.join(project.path, '.worktrees', 'feat-young-live-owner');
-    fs.mkdirSync(worktreePath, { recursive: true });
+    initializeCleanGitWorktree(worktreePath);
     const existing = factoryWorktrees.recordWorktree({
       project_id: project.id,
       work_item_id: workItem.id,
@@ -2411,7 +2437,7 @@ Edit server/factory/plan-executor.js and make the requested behavior change. Kee
     db.prepare('ALTER TABLE factory_worktrees ADD COLUMN owning_task_id TEXT').run();
     const targetBranch = `feat/factory-${workItem.id}-dry-run-plan-item`;
     const worktreePath = path.join(project.path, '.worktrees', 'feat-aged-same-wi');
-    fs.mkdirSync(worktreePath, { recursive: true });
+    initializeCleanGitWorktree(worktreePath);
     const existing = factoryWorktrees.recordWorktree({
       project_id: project.id,
       work_item_id: workItem.id,
@@ -2482,7 +2508,7 @@ Edit server/factory/plan-executor.js and make the requested behavior change. Kee
     db.prepare('ALTER TABLE factory_worktrees ADD COLUMN owning_task_id TEXT').run();
     const targetBranch = `feat/factory-${workItem.id}-dry-run-plan-item`;
     const worktreePath = path.join(project.path, '.worktrees', 'feat-throttle');
-    fs.mkdirSync(worktreePath, { recursive: true });
+    initializeCleanGitWorktree(worktreePath);
     const existing = factoryWorktrees.recordWorktree({
       project_id: project.id,
       work_item_id: workItem.id,
@@ -2529,7 +2555,7 @@ Edit server/factory/plan-executor.js and make the requested behavior change. Kee
     const targetBranch = `feat/factory-${workItem.id}-dry-run-plan-item`;
     const batchId = `factory-${project.id}-${workItem.id}`;
     const worktreePath = path.join(project.path, '.worktrees', 'feat-restart-cloned-owner');
-    fs.mkdirSync(worktreePath, { recursive: true });
+    initializeCleanGitWorktree(worktreePath);
     const existing = factoryWorktrees.recordWorktree({
       project_id: project.id,
       work_item_id: workItem.id,
@@ -2607,7 +2633,7 @@ Edit server/factory/plan-executor.js and make the requested behavior change. Kee
     const targetBranch = `feat/factory-${workItem.id}-dry-run-plan-item`;
     const batchId = `factory-${project.id}-${workItem.id}`;
     const worktreePath = path.join(project.path, '.worktrees', 'feat-completed-restart-clone');
-    fs.mkdirSync(worktreePath, { recursive: true });
+    initializeCleanGitWorktree(worktreePath);
     const existing = factoryWorktrees.recordWorktree({
       project_id: project.id,
       work_item_id: workItem.id,
@@ -2690,7 +2716,7 @@ Edit server/factory/plan-executor.js and make the requested behavior change. Kee
     db.prepare('ALTER TABLE factory_worktrees ADD COLUMN owning_task_id TEXT').run();
     const targetBranch = `feat/factory-${workItem.id}-dry-run-plan-item`;
     const worktreePath = path.join(project.path, '.worktrees', 'feat-completed-owner');
-    fs.mkdirSync(worktreePath, { recursive: true });
+    initializeCleanGitWorktree(worktreePath);
     const existing = factoryWorktrees.recordWorktree({
       project_id: project.id,
       work_item_id: workItem.id,
@@ -2740,7 +2766,7 @@ Edit server/factory/plan-executor.js and make the requested behavior change. Kee
     const targetBranch = `feat/factory-${workItem.id}-dry-run-plan-item`;
     const oldWorktreePath = path.join(project.path, '.worktrees', 'feat-dirty-execute');
     const freshWorktreePath = path.join(project.path, '.worktrees', 'feat-fresh-execute');
-    fs.mkdirSync(oldWorktreePath, { recursive: true });
+    initializeCleanGitWorktree(oldWorktreePath);
     fs.mkdirSync(freshWorktreePath, { recursive: true });
     const existing = factoryWorktrees.recordWorktree({
       project_id: project.id,
