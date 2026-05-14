@@ -53,6 +53,13 @@ if [ ! -f "$COORD_LOCK_HELPER" ]; then
 fi
 source "$COORD_LOCK_HELPER"
 
+RESTART_POLICY_HELPER="${REPO_ROOT}/scripts/worktree-cutover-restart-policy.sh"
+if [ -f "$RESTART_POLICY_HELPER" ]; then
+  source "$RESTART_POLICY_HELPER"
+else
+  cutover_changed_paths_require_restart() { return 0; }
+fi
+
 torque_api_reachable() {
   # /livez is intentionally cheap and avoids false "not running" reports when
   # heavier endpoints are slow under factory load. Fall back to /api/version for
@@ -561,6 +568,19 @@ if torque_api_reachable; then
   TORQUE_RESTART_EXIT_START_LINE=$(count_file_lines "${TORQUE_RESTART_EXIT_FILE_PATH}")
 fi
 
+TORQUE_RESTART_REQUIRED=false
+if [ "$TORQUE_RUNNING" = "true" ]; then
+  if [ "${CUTOVER_FORCE_RESTART:-0}" = "1" ]; then
+    TORQUE_RESTART_REQUIRED=true
+    echo "  CUTOVER_FORCE_RESTART=1 — restart barrier required."
+  elif cutover_changed_paths_require_restart <<< "$merge_changed_files"; then
+    TORQUE_RESTART_REQUIRED=true
+  else
+    echo "  Merge changed only documentation/operator metadata — skipping restart barrier."
+    echo "  Set CUTOVER_FORCE_RESTART=1 to force a restart for this cutover."
+  fi
+fi
+
 summarize_running_blockers() {
   local resp
   resp=$(curl -s --max-time 5 "${TORQUE_API}/api/v2/tasks?status=running&limit=20" 2>/dev/null || echo "")
@@ -637,7 +657,7 @@ count_nondetachable_running() {
 # promoting any new work. Running tasks finish naturally, then the server
 # restarts itself. No external kill required.
 
-if [ "$TORQUE_RUNNING" = "true" ]; then
+if [ "$TORQUE_RUNNING" = "true" ] && [ "$TORQUE_RESTART_REQUIRED" = "true" ]; then
   # Cutover drain budget. Subprocess-detachment design §2.5.3 (Phase D)
   # makes re-adoption a backstop for survivors, but the default cutover path
   # should still let normal factory-owned work finish in its worktree before
@@ -1060,6 +1080,8 @@ if [ "$TORQUE_RUNNING" = "true" ]; then
       fi
     fi
   fi
+elif [ "$TORQUE_RUNNING" = "true" ]; then
+  echo "  TORQUE running — restart not required for this merge."
 else
   echo "  TORQUE not running — no restart needed. Start it when ready."
 fi
