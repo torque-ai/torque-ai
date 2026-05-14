@@ -405,7 +405,12 @@ describe('handleAutoVerifyRetry — guards and init', () => {
     const db = createMockDb({ initialConfig: { verify_command: 'npm test' } });
     const { handleAutoVerifyRetry, mockLoggerChild } = loadModuleWithMocks({ db });
     const ctx = makeCtx({
-      task: makeTask({ metadata: JSON.stringify({ verify_skip: true }) }),
+      task: makeTask({
+        metadata: JSON.stringify({
+          verify_skip: true,
+          verify_command: 'npm run task:verify',
+        }),
+      }),
     });
 
     await handleAutoVerifyRetry(ctx);
@@ -508,7 +513,7 @@ describe('handleAutoVerifyRetry — verify execution', () => {
     const { handleAutoVerifyRetry } = loadModuleWithMocks({ db });
     const ctx = makeCtx({
       task: makeTask({
-        provider: 'ollama',
+        provider: 'claude-cli',
         working_directory: 'C:/repo/my-app',
         metadata: JSON.stringify({ verify_command: 'npm run docs:check' }),
       }),
@@ -519,7 +524,32 @@ describe('handleAutoVerifyRetry — verify execution', () => {
     expect(mockRunVerifyCommand).toHaveBeenCalledWith(
       'npm run docs:check',
       'C:/repo/my-app',
-      expect.objectContaining({ provider: 'ollama' }),
+      expect.objectContaining({ provider: 'claude-cli' }),
+    );
+  });
+
+  it('runs task metadata verify_command when project auto-verify is disabled', async () => {
+    const db = createMockDb({
+      initialConfig: {
+        verify_command: 'npm test',
+        auto_verify_on_completion: 0,
+      },
+    });
+    const { handleAutoVerifyRetry } = loadModuleWithMocks({ db });
+    const ctx = makeCtx({
+      task: makeTask({
+        provider: 'claude-cli',
+        working_directory: 'C:/repo/my-app',
+        metadata: JSON.stringify({ verify_command: 'npm run task:verify' }),
+      }),
+    });
+
+    await handleAutoVerifyRetry(ctx);
+
+    expect(mockRunVerifyCommand).toHaveBeenCalledWith(
+      'npm run task:verify',
+      'C:/repo/my-app',
+      expect.objectContaining({ provider: 'claude-cli' }),
     );
   });
 

@@ -340,14 +340,6 @@ async function handleAutoVerifyRetry(ctx) {
   const taskMetadata = getTaskMetadata(task);
   const hasTaskVerifyCommand = Object.prototype.hasOwnProperty.call(taskMetadata, 'verify_command');
 
-  // Check auto_verify_on_completion flag:
-  // - Default ON for auto-verify providers (auto_verify_on_completion is null/undefined → use provider default)
-  // - Default OFF for others
-  // - Explicit 0 disables for any provider
-  const autoVerifyExplicit = config.auto_verify_on_completion;
-  if (autoVerifyExplicit === 0 || autoVerifyExplicit === false) return;
-  if (!hasTaskVerifyCommand && !isAutoVerifyProvider && autoVerifyExplicit !== 1 && autoVerifyExplicit !== true) return;
-
   if (taskMetadata.verify_skip === true) {
     logger.info(`[auto-verify] Task ${taskId}: verify_skip set, skipping`);
     return;
@@ -360,6 +352,16 @@ async function handleAutoVerifyRetry(ctx) {
   }
 
   const normalizedVerifyCommand = verifyCommand.trim();
+
+  // Check auto_verify_on_completion flag:
+  // - Default ON for auto-verify providers (auto_verify_on_completion is null/undefined -> use provider default)
+  // - Default OFF for others
+  // - Project-level explicit 0 disables project-level verification, but a
+  //   task-level verify_command is an explicit per-task opt-in.
+  const autoVerifyExplicit = config.auto_verify_on_completion;
+  if (!hasTaskVerifyCommand && (autoVerifyExplicit === 0 || autoVerifyExplicit === false)) return;
+  if (!hasTaskVerifyCommand && !isAutoVerifyProvider && autoVerifyExplicit !== 1 && autoVerifyExplicit !== true) return;
+
   const sandboxConfig = resolveVerifySandboxConfig(taskMetadata);
 
   const hostMonitoring = require('../utils/host-monitoring');
