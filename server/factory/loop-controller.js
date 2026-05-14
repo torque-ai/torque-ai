@@ -9424,6 +9424,25 @@ async function executeNonPlanFileStage(project, instance, workItem) {
   };
   let planGenerationOrigin = nextOrigin;
 
+  if (!fs.existsSync(planPath)) {
+    const preExistingRecoveredPlan = recoverTerminalPlanGenerationMarkdown({
+      planPath,
+      workItem: targetItem,
+      project: planGenerationProject,
+    });
+    if (preExistingRecoveredPlan?.source === 'side_written_file') {
+      logger.warn('EXECUTE stage: adopting existing side-written plan before submitting plan-generation task', {
+        project_id: project.id,
+        work_item_id: targetItem.id,
+        plan_path: planPath,
+        side_written_plan_path: preExistingRecoveredPlan.sourcePath,
+      });
+      fs.mkdirSync(path.dirname(planPath), { recursive: true });
+      fs.writeFileSync(planPath, preExistingRecoveredPlan.markdown);
+      cleanupRecoveredSideWrittenPlan(preExistingRecoveredPlan, planPath);
+    }
+  }
+
   if (fs.existsSync(planPath)) {
     const updatedWorkItem = factoryIntake.updateWorkItem(targetItem.id, {
       origin_json: clearPlanGenerationWaitFields(nextOrigin),
