@@ -47,7 +47,7 @@ description: Turn feature specs into concrete TORQUE workflows with correct depe
 triggers: "plan a workflow", "break this into TORQUE tasks", "design the DAG for", "decompose this feature"
 instructions:
 1) Create either one `submit_task` or a `create_workflow` + ordered `add_workflow_task` plan.
-2) Select providers by task profile: greenfield `codex`, heavy reasoning `deepinfra`, precision edits `hashline-ollama`, routine edits `ollama`.
+2) Select providers by task profile: greenfield `codex`, heavy reasoning `deepinfra`, precision/single-file edits `codex-spark`, routine local edits `ollama`.
 3) Keep each node self-contained with file paths, acceptance criteria, and explicit `depends_on`.
 4) Detect conflicting file writes and serialize those tasks.
 5) Include dependency graph and conflict notes in output.
