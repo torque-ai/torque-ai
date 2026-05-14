@@ -88,7 +88,10 @@ Use the `/torque-*` commands to interact with TORQUE. Commands compose multiple 
 | `/torque-ci` | CI monitoring — watch repos, diagnose failures, view history |
 | `/torque-hosts` | Manage Ollama hosts — add, remove, enable, disable, health checks |
 | `/torque-restart` | Restart the MCP server to apply code changes |
+| `/torque-recovery-inbox` | Triage rejected work items that exhausted auto-recovery |
+| `/torque-schedule` | List, pause, resume, create, and delete scheduled tasks |
 | `/torque-scout [variant]` | Spawn discovery scouts — security, quality, visual, performance |
+| `/torque-sweep` | Full automated sweep — deploy all scouts, auto-triage, spawn team to fix |
 | `/torque-team [brief]` | Spawn development team — Planner, QC, Remediation pipeline |
 | `/torque-templates` | View, activate, and manage routing templates |
 | `/torque-validate` | Run code quality validation — syntax, build checks, regression detection |
@@ -154,9 +157,9 @@ To enable a cloud API provider:
 
 ### Routing Templates
 
-Smart routing's defaults work well, but **routing templates** give you explicit control over which providers handle which task categories. Templates map 9 auto-detected task categories to provider fallback chains.
+Smart routing's defaults work well, but **routing templates** give you explicit control over which providers handle which task categories. Templates map 10 auto-detected task categories to provider fallback chains.
 
-**Available presets:**
+**11 presets ship in `server/routing/templates/*.json`.** Common ones:
 
 | Template | Strategy | Best For |
 |----------|----------|----------|
@@ -168,8 +171,10 @@ Smart routing's defaults work well, but **routing templates** give you explicit 
 | **Free Speed** | Cerebras for lowest latency, Codex safety net | Fast iteration, quick fixes |
 | **All Local** | Ollama for everything, Codex escape hatch for complex | Privacy-first, air-gapped |
 
+See `docs/routing-templates.md` for the full 11-preset catalog, schema, and resolver precedence.
+
 **Task categories** (auto-detected from task description):
-`security`, `xaml_wpf`, `architectural`, `reasoning`, `large_code_gen`, `documentation`, `simple_generation`, `targeted_file_edit`, `default`
+`security`, `xaml_wpf`, `architectural`, `reasoning`, `large_code_gen`, `documentation`, `simple_generation`, `targeted_file_edit`, `plan_generation`, `default`
 
 **Template precedence:** User override (`provider: "X"`) > per-task template > global active template > smart routing defaults.
 
@@ -273,7 +278,9 @@ TORQUE loads several plugins by default (configured in `DEFAULT_PLUGIN_NAMES` in
 | **snapscope** | `server/plugins/snapscope/` | ~35 `peek_*` and `capture_*` tools for visual verification, window capture, manifest validation, semantic diff, OCR, baselines |
 | **version-control** | `server/plugins/version-control/` | ~13 `vc_*` tools for worktree lifecycle, commit/PR generation, changelog, release cutting |
 | **remote-agents** | `server/plugins/remote-agents/` | `register_remote_agent`, `run_remote_command`, `run_tests`, plus health checks. Registers a `TestRunnerRegistry` route so `verify_command` / tests run on the configured remote with automatic local fallback; without it the validation pipeline is local-only |
-| **codegraph** | `server/plugins/codegraph/` | Eight `cg_*` tools for symbol/reference queries (find-references, call-graph, impact-set, dead-symbols, resolve-tool, class-hierarchy) plus `cg_index_status` and `cg_reindex`. Off by default — set `TORQUE_CODEGRAPH_ENABLED=1` to enable. JS/TS/TSX/Python/Go/C#/PowerShell supported. See `docs/codegraph.md`. |
+| **model-freshness** | `server/plugins/model-freshness/` | Tracks model freshness across registered Ollama hosts via a watchlist + events store, polls remote registry digests, and surfaces drift in the dashboard |
+| **auto-recovery-core** | `server/plugins/auto-recovery-core/` | Classifier rules + 9 recovery strategies (retry, clean-and-retry, retry-with-fresh-session, fallback-provider, retry-plan-generation, fresh-worktree, reject-and-advance, escalate, discard-regenerable-merge-block) consumed by the auto-recovery engine |
+| **codegraph** | `server/plugins/codegraph/` | Eight `cg_*` tools for symbol/reference queries (find-references, call-graph, impact-set, dead-symbols, resolve-tool, class-hierarchy) plus `cg_index_status` and `cg_reindex`. On by default — set `TORQUE_CODEGRAPH_ENABLED=0` to disable. JS/TS/TSX/Python/Go/C#/PowerShell supported. See `docs/codegraph.md`. |
 
 ## Remote Workstation
 
@@ -329,6 +336,10 @@ Pre-push checks are two-tier:
 - Pushes to non-main branches skip tests for fast iteration. Merges to `main` still run the conservative main gate.
 - Force full gate: `PRE_PUSH_FORCE_FULL=1 git push origin main` or `PRE_PUSH_GATE_MODE=full git push origin main`.
 - Escape hatch: `git push --no-verify` bypasses the hook.
+
+**Gate parallelism env vars (`scripts/pre-push-hook`, `scripts/pre-push-gate-plan.js`):**
+- `TORQUE_GATE_SHARDS=N` — opt-in vitest fan-out for the server phase. Default `1` (no sharding). Set to `4` or `8` to parallelize the server suite across N shards in the same remote lane; `VITEST_MAX_WORKERS` scales per shard.
+- `TORQUE_GATE_USE_CODEGRAPH` — opt-out codegraph impact-set augmenter that widens (never narrows) the affected-tests set on `affected`-mode runs. Default on. Set to `0` to disable.
 
 Examples:
 
