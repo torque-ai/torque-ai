@@ -212,6 +212,7 @@ Frequently-emitted actions, by stage:
 | EXECUTE | `execute_batch_worktree_reused` | `benign` | `factory_worktree_id`, `worktree_id`, `worktree_path`, `branch`, `batch_id` |
 | EXECUTE | `factory_worktree_reuse_stale_detected` | `benign` | `factory_worktree_id`, `worktree_id`, `worktree_path`, `branch`, `baseRef`, `threshold`, `commits_behind`, `stale_files`, `reuse_context` |
 | EXECUTE | `factory_worktree_reuse_auto_rebased` | `benign` | `factory_worktree_id`, `worktree_id`, `worktree_path`, `branch`, `baseRef`, `reuse_context` |
+| EXECUTE | `factory_worktree_reuse_invalid_detected` | `benign` | `factory_worktree_id`, `worktree_id`, `worktree_path`, `branch`, `baseRef`, `threshold`, `reuse_context`, `reason`, `error`, `fallback_suffix` |
 | EXECUTE | `factory_worktree_reuse_rebase_failed` | `benign` | `factory_worktree_id`, `worktree_id`, `worktree_path`, `branch`, `baseRef`, `threshold`, `commits_behind`, `stale_files`, `error`, `reuse_context` |
 | EXECUTE | `factory_worktree_reuse_dirty_preserved` | `benign` | `factory_worktree_id`, `worktree_id`, `worktree_path`, `branch`, `baseRef`, `threshold`, `commits_behind`, `stale_files`, `reuse_context`, `fallback_suffix` |
 | EXECUTE | `execute_batch_worktree_reuse_skipped` | `benign` | `factory_worktree_id`, `worktree_id`, `worktree_path`, `branch`, `batch_id`, `active_work_item_id`, `requested_work_item_id` |

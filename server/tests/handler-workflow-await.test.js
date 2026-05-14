@@ -12,6 +12,7 @@ const handlers = require('../handlers/workflow/await');
 const shellPolicy = require('../utils/shell-policy');
 const preCommitReviewer = require('../review/pre-commit-reviewer');
 const childProcess = require('child_process');
+const projectConfigCore = require('../db/project-config-core');
 const { taskEvents } = require('../hooks/event-dispatch');
 
 function textOf(result) {
@@ -20,7 +21,7 @@ function textOf(result) {
 
 describe('workflow-await handlers', () => {
   afterEach(() => {
-    vi.clearAllMocks();
+    vi.restoreAllMocks();
     taskEvents.removeAllListeners();
     vi.useRealTimers();
   });
@@ -269,29 +270,30 @@ describe('workflow-await handlers', () => {
       expect(output).toContain('**Rejected:** Command not allowed');
     });
 
-    it('reports verify command execution failure details when command cannot be spawned', async () => {
+    it('reports verify command failure details when the command exits non-zero', async () => {
       vi.spyOn(shellPolicy, 'validateShellCommand').mockReturnValue({ ok: true });
+      vi.spyOn(projectConfigCore, 'getProjectDefaults').mockReturnValue({ prefer_remote_tests: false });
+
       const output = await handlers.formatFinalSummary(
-        { verify_command: 'python --version' },
-        { id: 'wf-1', name: 'Verify Pass WF', working_directory: '/repo' },
+        { verify_command: 'node -e "process.exit(1)"' },
+        { id: 'wf-1', name: 'Verify Fail WF', working_directory: process.cwd() },
         [{ id: 'a', status: 'completed', workflow_node_id: 'A' }],
         null,
         Date.now() - 5000
       );
 
-      // The verify command may run via torque-remote or safeExecChain;
-      // either way, when it fails, the output should reflect a failure.
       expect(output).toContain('**Result:** FAILED');
-      expect(output).toContain('Verify command:**');
+      expect(output).toContain('**Verify command:** `node -e "process.exit(1)"`');
     });
 
     it('stops before auto-commit when verify command fails', async () => {
       vi.spyOn(shellPolicy, 'validateShellCommand').mockReturnValue({ ok: true });
+      vi.spyOn(projectConfigCore, 'getProjectDefaults').mockReturnValue({ prefer_remote_tests: false });
       const execSpy = vi.spyOn(childProcess, 'execFileSync');
 
       const output = await handlers.formatFinalSummary(
         { verify_command: 'node -e "process.exit(1)"', auto_commit: true },
-        { id: 'wf-1', name: 'Verify Fail WF', working_directory: '/repo' },
+        { id: 'wf-1', name: 'Verify Fail WF', working_directory: process.cwd() },
         [{ id: 'a', status: 'completed', workflow_node_id: 'A' }],
         null,
         Date.now() - 5000
