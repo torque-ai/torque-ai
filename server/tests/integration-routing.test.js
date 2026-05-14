@@ -858,6 +858,55 @@ describe('integration routing handlers', () => {
       expect(mockDb.analyzeTaskForRouting).not.toHaveBeenCalled();
     });
 
+    it('reroutes template-selected Codex Spark provider when Spark is disabled', async () => {
+      providerConfigs['codex-spark'] = { name: 'codex-spark', enabled: true };
+      setMockDbConfig({ codex_spark_enabled: '0' });
+      mockDb.analyzeTaskForRouting.mockReturnValueOnce(baseRoutingResult({
+        provider: 'codex-spark',
+        complexity: 'normal',
+        reason: "Template 'Codex Primary': backend -> codex-spark",
+        chain: [
+          { provider: 'codex-spark', model: 'gpt-5.3-codex-spark' },
+          { provider: 'codex', model: null },
+          { provider: 'claude-cli', model: null },
+        ],
+      }));
+
+      const result = await routing.handleSmartSubmitTask({
+        task: 'Implement workflow signal tests',
+      });
+
+      const task = taskFromResult(result);
+      expect(task).toBeTruthy();
+      expect(task.provider).toBe('codex');
+      expect(task.model).toBeNull();
+      expect(task.metadata.routing_reason).toContain('Codex Spark unavailable');
+      expect(task.metadata.routing_decision_trace).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            from: 'codex-spark',
+            to: 'codex',
+            reason: expect.stringContaining('Codex Spark unavailable'),
+          }),
+        ]),
+      );
+    });
+
+    it('rejects explicit Codex Spark overrides when Spark is disabled', async () => {
+      providerConfigs['codex-spark'] = { name: 'codex-spark', enabled: true };
+      setMockDbConfig({ codex_spark_enabled: '0' });
+
+      const result = await routing.handleSmartSubmitTask({
+        task: 'Tweak queue telemetry',
+        provider: 'codex-spark',
+      });
+
+      expect(result.isError).toBe(true);
+      expect(textOf(result)).toContain('Codex Spark is disabled or exhausted');
+      expect(mockDb.createTask).not.toHaveBeenCalled();
+      expect(mockDb.analyzeTaskForRouting).not.toHaveBeenCalled();
+    });
+
     it('stores tier-list metadata and leaves provider unassigned in slot-pull mode', async () => {
       setMockDbConfig({ scheduling_mode: 'slot-pull' });
       mockDb.analyzeTaskForRouting

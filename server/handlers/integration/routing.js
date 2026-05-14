@@ -141,6 +141,10 @@ function normalizeInitialTaskStatus(initialStatus) {
 const BUILTIN_AGENTIC_PROVIDERS = new Set(['codex', 'codex-spark', 'claude-cli', 'claude-code-sdk']);
 const CODEX_SPARK_MODEL = 'gpt-5.3-codex-spark';
 
+function isCodexSparkProvider(providerName) {
+  return String(providerName || '').trim().toLowerCase() === 'codex-spark';
+}
+
 function isCodexSparkAvailable() {
   return serverConfig.isOptIn('codex_spark_enabled')
     && !serverConfig.isOptIn('codex_spark_exhausted');
@@ -880,6 +884,35 @@ async function handleSmartSubmitTask(args) {
     return normalizedProvider;
   };
 
+  const selectCodexSparkUnavailableFallback = () => {
+    const candidateSources = [
+      Array.isArray(routingResult?.chain) ? routingResult.chain : [],
+      getFallbackProviderChain(selectedProvider) || [],
+      ['codex'],
+    ];
+    const seenProviders = new Set();
+    for (const source of candidateSources) {
+      for (const entry of source) {
+        const candidate = normalizeRoutingCandidate(entry);
+        if (!candidate || !candidate.providerName || seenProviders.has(candidate.providerName)) {
+          continue;
+        }
+        seenProviders.add(candidate.providerName);
+        if (isCodexSparkProvider(candidate.providerName)) {
+          continue;
+        }
+        if (!isProviderAllowedForLane(candidate.providerName)) {
+          continue;
+        }
+        if (!isProviderAvailableForRouting(candidate.providerName)) {
+          continue;
+        }
+        return candidate;
+      }
+    }
+    return null;
+  };
+
   // Routing decision trace — captures every stage that influenced the
   // provider selection so operators can answer "who moved my task and
   // why?" instead of staring at a single `routing_reason` string.
@@ -928,6 +961,31 @@ async function handleSmartSubmitTask(args) {
   // Both-providers-down gate: reject if Codex exhausted AND no local LLM available (RB-031)
   const availCheck = checkProviderAvailability({ hasExplicitProvider: hasExplicitProviderOverride });
   if (availCheck) return availCheck.error;
+
+  if (isCodexSparkProvider(selectedProvider) && !isCodexSparkAvailable()) {
+    if (hasExplicitProviderOverride) {
+      return makeError(
+        ErrorCodes.PROVIDER_ERROR,
+        'Codex Spark is disabled or exhausted. Enable it or choose a different provider.'
+      );
+    }
+    const fallback = selectCodexSparkUnavailableFallback();
+    if (fallback) {
+      const previousProvider = selectedProvider;
+      selectedProvider = fallback.providerName;
+      routingResult.reason += ` (Codex Spark unavailable, falling back to ${selectedProvider})`;
+      modRoutingReason = `Codex Spark unavailable -> ${selectedProvider}`;
+      logger.info(`[SmartRouting] ${modRoutingReason}`);
+      recordRoutingDecision(routingTrace, {
+        stage: ROUTING_TRACE_STAGES.FALLBACK,
+        from: previousProvider,
+        to: selectedProvider,
+        reason: `Codex Spark unavailable — skipped ${previousProvider} and used ${selectedProvider}`,
+      });
+    } else {
+      logger.warn('[SmartRouting] Codex Spark unavailable but no enabled fallback provider was available');
+    }
+  }
 
   // Validate provider
   let providerConfig = providerRoutingCore.getProvider(selectedProvider);
