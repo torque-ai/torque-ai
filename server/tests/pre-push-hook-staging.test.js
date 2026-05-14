@@ -70,7 +70,7 @@ describe('pre-push-hook staging-branch invariants', () => {
     expect(src).toMatch(/local_gate_script="\$local_gate_worktree_parent\/gate-command\.sh"/);
     expect(src).toMatch(/run_local_gate "\$remote_gate_cmd"/);
     expect(src).toContain("printf '%s\\n' \"$gate_cmd\" > \"$local_gate_script\"");
-    expect(src).toMatch(/TORQUE_REMOTE_TRANSPORT=local TORQUE_REMOTE_PROJECT_PATH=\$worktree_q TORQUE_REMOTE_BASE_PROJECT_PATH=\$base_q bash \$gate_script_q/);
+    expect(src).toMatch(/TORQUE_REMOTE_TRANSPORT=local TORQUE_REMOTE_PROJECT_PATH=\$worktree_q TORQUE_REMOTE_BASE_PROJECT_PATH=\$base_q \$local_gate_env bash \$gate_script_q/);
     expect(src).toMatch(/cleanup_local_gate_worktree\s*\|\| true/);
   });
 
@@ -174,6 +174,26 @@ describe('pre-push-hook staging-branch invariants', () => {
     expect(src).toMatch(/configure_local_gate_server_shards[\s\S]*if is_local_gate_transport; then/);
     expect(src).toContain('[gate] local transport detected; running dashboard/server phases sequentially');
     expect(src).toMatch(/if is_local_gate_transport; then[\s\S]*run_dashboard_phase[\s\S]*run_server_phase[\s\S]*else[\s\S]*run_dashboard_phase &[\s\S]*run_server_phase &/);
+  });
+
+  it('isolates local fallback gates from live TORQUE ports and data', () => {
+    const src = readHook();
+    expect(src).toMatch(/local_gate_env_assignments\s*\(\)/);
+    expect(src).toMatch(/local_gate_path_for_env\s*\(\)/);
+    expect(src).toContain('local_gate_lane_root="$local_gate_worktree_parent/lane"');
+    expect(src).toContain('TORQUE_DATA_DIR=%q');
+    expect(src).toContain('TORQUE_TEST_SANDBOX=%q');
+    expect(src).toContain('TORQUE_DASHBOARD_PORT=%q');
+    expect(src).toContain('TORQUE_API_PORT=%q');
+    expect(src).toContain('TORQUE_API_URL=%q');
+    expect(src).toContain('TORQUE_MCP_SSE_PORT=%q');
+    expect(src).toContain('TORQUE_MCP_GATEWAY_PORT=%q');
+    expect(src).toContain('TORQUE_COORD_PORT=%q');
+    expect(src).toContain('TORQUE_ARTIFACT_DIR=%q');
+    expect(src).toContain('npm_config_cache=%q');
+    expect(src).toMatch(/local port_base=\$\(\(43000 \+ \(seed % 1000\) \* 20\)\)/);
+    expect(src).toMatch(/local_gate_env=\$\(local_gate_env_assignments\)/);
+    expect(src).toMatch(/TORQUE_REMOTE_TRANSPORT=local[\s\S]*\$local_gate_env bash \$gate_script_q/);
   });
 
   it('sets a conservative worker cap only for local fallback gates', () => {

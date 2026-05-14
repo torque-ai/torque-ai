@@ -57,6 +57,7 @@ staging_ref_created=0
 local_gate_worktree_parent=""
 local_gate_worktree=""
 local_gate_script=""
+local_gate_lane_root=""
 pre_push_gate_runtime_dir=""
 pre_push_gate_phase_file=""
 pre_push_gate_heartbeat_pid=""
@@ -246,6 +247,9 @@ cleanup_local_gate_worktree() {
   if [ -n "${local_gate_script:-}" ]; then
     rm -f "$local_gate_script" 2>/dev/null || true
   fi
+  if [ -n "${local_gate_lane_root:-}" ] && [ -d "$local_gate_lane_root" ]; then
+    rm -rf "$local_gate_lane_root" 2>/dev/null || true
+  fi
   set +e
   remove_output=$(git worktree remove --force "$local_gate_worktree" 2>&1)
   remove_status=$?
@@ -270,6 +274,7 @@ cleanup_local_gate_worktree() {
   local_gate_worktree=""
   local_gate_worktree_parent=""
   local_gate_script=""
+  local_gate_lane_root=""
 }
 
 cleanup_local_gate_dependency_links() {
@@ -1016,13 +1021,97 @@ prepare_local_gate_worktree() {
   local_gate_worktree_parent=$(mktemp -d "${TMPDIR:-/tmp}/pre-push-local-gate.XXXXXX")
   local_gate_worktree="$local_gate_worktree_parent/worktree"
   local_gate_script="$local_gate_worktree_parent/gate-command.sh"
+  local_gate_lane_root="$local_gate_worktree_parent/lane"
   echo "[pre-push] Preparing local gate worktree at $local_gate_worktree for $local_head_sha..."
   git worktree add --force --detach "$local_gate_worktree" "$local_head_sha" >/dev/null
 }
 
+local_gate_path_for_env() {
+  local candidate="$1"
+  if command -v cygpath >/dev/null 2>&1; then
+    cygpath -w "$candidate" 2>/dev/null || printf '%s\n' "$candidate"
+  else
+    printf '%s\n' "$candidate"
+  fi
+}
+
+local_gate_env_assignments() {
+  local lane_root="${local_gate_lane_root:-$local_gate_worktree_parent/lane}"
+  local data_dir="$lane_root/data"
+  local sandbox_dir="$lane_root/sandbox"
+  local temp_dir="$lane_root/tmp"
+  local cache_dir="$lane_root/cache"
+  local coverage_dir="$lane_root/coverage"
+  local playwright_dir="$lane_root/playwright"
+  local artifacts_dir="$lane_root/artifacts"
+  local mcp_artifacts_dir="$artifacts_dir/mcp"
+  local vitest_template_dir="$lane_root/vitest-template"
+  local vitest_worker_root="$lane_root/vitest-workers"
+  local logs_dir="$lane_root/logs"
+  mkdir -p "$data_dir" "$sandbox_dir" "$temp_dir" "$cache_dir" "$coverage_dir" \
+    "$playwright_dir" "$artifacts_dir" "$mcp_artifacts_dir" "$vitest_template_dir" \
+    "$vitest_worker_root" "$logs_dir"
+
+  local seed="${BASHPID:-$$}"
+  local port_base=$((43000 + (seed % 1000) * 20))
+  local dashboard_port=$port_base
+  local api_port=$((port_base + 1))
+  local mcp_sse_port=$((port_base + 2))
+  local mcp_gateway_port=$((port_base + 3))
+  local gpu_metrics_port=$((port_base + 4))
+  local coord_port=$((port_base + 5))
+  local dashboard_dev_port=$((port_base + 6))
+
+  local lane_root_env data_dir_env sandbox_dir_env temp_dir_env cache_dir_env
+  local coverage_dir_env playwright_dir_env artifacts_dir_env mcp_artifacts_dir_env
+  local vitest_template_dir_env vitest_worker_root_env
+  lane_root_env=$(local_gate_path_for_env "$lane_root")
+  data_dir_env=$(local_gate_path_for_env "$data_dir")
+  sandbox_dir_env=$(local_gate_path_for_env "$sandbox_dir")
+  temp_dir_env=$(local_gate_path_for_env "$temp_dir")
+  cache_dir_env=$(local_gate_path_for_env "$cache_dir")
+  coverage_dir_env=$(local_gate_path_for_env "$coverage_dir")
+  playwright_dir_env=$(local_gate_path_for_env "$playwright_dir")
+  artifacts_dir_env=$(local_gate_path_for_env "$artifacts_dir")
+  mcp_artifacts_dir_env=$(local_gate_path_for_env "$mcp_artifacts_dir")
+  vitest_template_dir_env=$(local_gate_path_for_env "$vitest_template_dir")
+  vitest_worker_root_env=$(local_gate_path_for_env "$vitest_worker_root")
+
+  printf 'TORQUE_TEST_LANE=%q ' "local"
+  printf 'TORQUE_TEST_LANE_ROOT=%q ' "$lane_root_env"
+  printf 'TORQUE_TEST_LANE_DIR=%q ' "$lane_root_env"
+  printf 'TORQUE_DATA_DIR=%q ' "$data_dir_env"
+  printf 'TORQUE_TEST_SANDBOX=%q ' "1"
+  printf 'TORQUE_TEST_SANDBOX_DIR=%q ' "$sandbox_dir_env"
+  printf 'TORQUE_VITEST_TEMPLATE_DIR=%q ' "$vitest_template_dir_env"
+  printf 'TORQUE_VITEST_WORKER_ROOT=%q ' "$vitest_worker_root_env"
+  printf 'TORQUE_DASHBOARD_PORT=%q ' "$dashboard_port"
+  printf 'TORQUE_API_PORT=%q ' "$api_port"
+  printf 'TORQUE_API_URL=%q ' ""
+  printf 'TORQUE_MCP_SSE_PORT=%q ' "$mcp_sse_port"
+  printf 'TORQUE_MCP_GATEWAY_PORT=%q ' "$mcp_gateway_port"
+  printf 'TORQUE_MCP_GATEWAY_URL=%q ' "http://127.0.0.1:$mcp_gateway_port"
+  printf 'TORQUE_GPU_METRICS_PORT=%q ' "$gpu_metrics_port"
+  printf 'TORQUE_COORD_HOST=%q ' "127.0.0.1"
+  printf 'TORQUE_COORD_PORT=%q ' "$coord_port"
+  printf 'TORQUE_DASHBOARD_DEV_PORT=%q ' "$dashboard_dev_port"
+  printf 'TORQUE_DASHBOARD_PROXY_TARGET=%q ' "http://127.0.0.1:$dashboard_port"
+  printf 'TORQUE_ARTIFACT_DIR=%q ' "$artifacts_dir_env"
+  printf 'TORQUE_MCP_ARTIFACT_DIR=%q ' "$mcp_artifacts_dir_env"
+  printf 'TORQUE_MCP_LAUNCH_REPORT=%q ' "$mcp_artifacts_dir_env/launch-readiness.json"
+  printf 'TORQUE_MCP_DUAL_AGENT_REPORT=%q ' "$mcp_artifacts_dir_env/dual-agent-validation.json"
+  printf 'TORQUE_VITEST_COVERAGE_DIR=%q ' "$coverage_dir_env"
+  printf 'TORQUE_COVERAGE_DIR=%q ' "$coverage_dir_env"
+  printf 'PLAYWRIGHT_OUTPUT_DIR=%q ' "$playwright_dir_env"
+  printf 'npm_config_cache=%q ' "$cache_dir_env/npm"
+  printf 'TMP=%q ' "$temp_dir_env"
+  printf 'TEMP=%q ' "$temp_dir_env"
+  printf 'TMPDIR=%q ' "$temp_dir_env"
+}
+
 run_local_gate() {
   local gate_cmd="$1"
-  local worktree_q base_q gate_script_q lock_root_q lock_env_reset
+  local worktree_q base_q gate_script_q lock_root_q lock_env_reset local_gate_env
   prepare_local_gate_worktree
   printf '%s\n' "$gate_cmd" > "$local_gate_script"
   worktree_q=$(printf '%q' "$local_gate_worktree")
@@ -1030,12 +1119,13 @@ run_local_gate() {
   gate_script_q=$(printf '%q' "$local_gate_script")
   lock_root_q=$(printf '%q' "$local_gate_worktree_parent/coord-locks")
   lock_env_reset=$(coord_lock_env_reset_cmd)
+  local_gate_env=$(local_gate_env_assignments)
   # Local gates must not use the SSH tail-by-pid capture wrapper. The Node tee
   # runner waits for child close/stdio EOF before cleanup can remove the gate
   # worktree, which keeps local retries single-owned when the remote is down.
   # Materialize the generated gate body too, avoiding a huge nested bash -c
   # payload through Windows quoting and command-length boundaries.
-  run_with_flake_retry_streaming "Local gate" "cd $worktree_q && $lock_env_reset TORQUE_COORD_LOCK_ROOT=$lock_root_q TORQUE_REMOTE_TRANSPORT=local TORQUE_REMOTE_PROJECT_PATH=$worktree_q TORQUE_REMOTE_BASE_PROJECT_PATH=$base_q bash $gate_script_q"
+  run_with_flake_retry_streaming "Local gate" "cd $worktree_q && $lock_env_reset TORQUE_COORD_LOCK_ROOT=$lock_root_q TORQUE_REMOTE_TRANSPORT=local TORQUE_REMOTE_PROJECT_PATH=$worktree_q TORQUE_REMOTE_BASE_PROJECT_PATH=$base_q $local_gate_env bash $gate_script_q"
 }
 
 gate_failed() {
