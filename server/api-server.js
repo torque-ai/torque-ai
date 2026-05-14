@@ -698,7 +698,15 @@ function start(options = {}) {
       pluginMiddleware: Array.isArray(options.pluginMiddleware) ? options.pluginMiddleware : [],
     });
 
-    apiPort = options.port || serverConfig.getPort('api');
+    // Port resolution: an explicit `options.port` (including 0) takes
+    // precedence over config. `0` means "ask the kernel for an
+    // ephemeral port" — the actual assigned port is read back from
+    // server.address().port in the listen callback. Tests use this
+    // pattern so parallel shards/workers don't fight over a fixed port.
+    const requestedPort = Object.prototype.hasOwnProperty.call(options, 'port')
+      ? options.port
+      : serverConfig.getPort('api');
+    apiPort = requestedPort;
 
     apiServer = http.createServer(apiContext.requestHandler);
     startRateLimitCleanup();
@@ -710,11 +718,11 @@ function start(options = {}) {
       stopRateLimitCleanup();
       if (err.code === 'EADDRINUSE') {
         process.stderr.write(
-          `\nPort ${apiPort} is already in use.\n\n` +
+          `\nPort ${requestedPort} is already in use.\n\n` +
           `Options:\n` +
           `  1. Stop existing TORQUE: bash stop-torque.sh\n` +
-          `  2. Use different port: TORQUE_API_PORT=${apiPort + 2} torque start\n` +
-          `  3. Find what's using it: lsof -i :${apiPort} (Linux/Mac) or netstat -ano | findstr :${apiPort} (Windows)\n\n`
+          `  2. Use different port: TORQUE_API_PORT=${requestedPort + 2} torque start\n` +
+          `  3. Find what's using it: lsof -i :${requestedPort} (Linux/Mac) or netstat -ano | findstr :${requestedPort} (Windows)\n\n`
         );
         resolve({ success: false, error: 'Port in use' });
       } else {
@@ -724,7 +732,14 @@ function start(options = {}) {
     });
 
     const apiHost = process.env.TORQUE_API_HOST || '127.0.0.1';
-    apiServer.listen(apiPort, apiHost, () => {
+    apiServer.listen(requestedPort, apiHost, () => {
+      // When requestedPort was 0, the kernel-assigned port lives on
+      // server.address().port. Sync apiPort so stop() / re-entrant
+      // start() checks see the real value, not the placeholder 0.
+      const address = apiServer.address();
+      if (address && typeof address.port === 'number') {
+        apiPort = address.port;
+      }
       process.stderr.write(`TORQUE API server listening on http://${apiHost}:${apiPort}\n`);
       resolve({ success: true, port: apiPort, host: apiHost });
     });
