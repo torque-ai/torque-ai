@@ -215,27 +215,7 @@ Stalled tasks are automatically cancelled and resubmitted with provider fallback
 
 ## Visual Sweep
 
-Deep visual audit for a single application. Runs on-demand or via one-time schedule.
-
-### Usage
-
-    /torque-visual-sweep <app>                                        # sweep all pages
-    /torque-visual-sweep <app> --depth component --section dashboard  # deep dive one section
-    /torque-visual-sweep <app> --schedule "11pm"                      # schedule for later
-
-### Peek Manifest
-
-Each project with UI declares its visual surfaces in `peek-manifest.json` at the project root. New visual surfaces are enforced by:
-- **Pre-commit hook** — blocks commits with unregistered surfaces
-- **TORQUE post-task hook** — flags unregistered surfaces after task completion
-
-### Three Phases
-
-1. **Discovery** — reads manifest, validates against live UI, detects unmanifested surfaces
-2. **Capture** — navigates to each section sequentially, captures via `peek_diagnose`
-3. **Analysis** — fleet of parallel Claude agents, one per section, writing findings
-
-Findings output to `docs/findings/<date>-visual-sweep-<app>-summary.md`.
+Deep visual audit for a single application via `/torque-visual-sweep <app>`. Three phases (discovery, capture, analysis) run against the project's `peek-manifest.json`; findings land in `docs/findings/<date>-visual-sweep-<app>-summary.md`. See `docs/visual-sweep.md` for the manifest schema, hook enforcement, and per-phase agent contracts.
 
 ## Quality Safeguards
 
@@ -281,18 +261,7 @@ Use `torque-remote` for heavy commands when a remote workstation is configured:
 
 Without `--branch`, `torque-remote` uses the current worktree as the source of truth for the remote run.
 
-**Path discipline for chained commands:** When the user command contains shell features (`&&`, `|`, `;`, redirects), wrap the whole thing in `bash -c` so the entire pipeline runs on the remote, and use **relative paths or `$TORQUE_REMOTE_PROJECT_PATH`** rather than the local worktree absolute path:
-
-    # Right — relative to the project (runner cd's there before exec):
-    torque-remote bash -c "cd server && npx vitest run tests/foo.test.js"
-
-    # Right — explicit env-var reference for clarity:
-    torque-remote bash -c 'cd "$TORQUE_REMOTE_PROJECT_PATH/server" && npx vitest run tests/foo.test.js'
-
-    # Wrong — local absolute path does not exist on the remote:
-    torque-remote bash -c "cd <local-worktree-path>/server && npx vitest..."
-
-`torque-remote` exports two env vars to the inner command: `TORQUE_REMOTE_PROJECT_PATH` (the synced project path on the remote, where your worktree state has been overlaid) and `TORQUE_REMOTE_BASE_PROJECT_PATH` (the base ref's project path). Prefer relative paths from the project root; fall back to `$TORQUE_REMOTE_PROJECT_PATH` only when an absolute path is required.
+**Path discipline for chained commands:** wrap multi-step commands in `bash -c` and use relative paths or `$TORQUE_REMOTE_PROJECT_PATH` rather than local absolute paths — full examples and env-var contract in `docs/torque-remote.md` "Path discipline for chained commands."
 
 If the remote is unreachable or overloaded, `torque-remote` falls back to local execution automatically.
 
@@ -445,25 +414,7 @@ The editing harness is often the bottleneck. Apply these rules consistently:
 
 ## Ollama Task Authoring
 
-When submitting work to Ollama, the task description is the instruction set. The wording determines whether the task converges or burns iterations.
-
-**For files under ~300 lines:** simple instructions usually work, for example: "In file X, change Y to Z."
-
-**For files over ~300 lines:**
-
-- Tell the model to use `search_files` first to find the relevant line numbers.
-- Tell it to use `read_file` with `start_line` and `end_line` to read only the relevant section.
-- Tell it to use `replace_lines` instead of `edit_file` for the actual change.
-- Include approximate line numbers when you know them. "Around line 450" is more reliable than a bare symbol search in very large files.
-- For multiple edits in a large file, list each edit with function or class names and line numbers.
-- Split multi-function refactors into separate tasks. Ollama is more reliable when each task owns one function or one file-sized unit of change.
-
-**General rules:**
-
-- Include exact file paths.
-- Be specific: "add X after Y" is better than "improve the code."
-- For files over ~500 lines, prefer one file per task.
-- End with "After making the edits, stop." to prevent unnecessary verification loops.
+Ollama task descriptions are the instruction set — wording determines convergence vs. burned iterations. For files >300 lines, tell the model to use `search_files` → `read_file` (line-range) → `replace_lines` instead of full-file edits, and split multi-function refactors into separate tasks (15-iteration cap). Full prompting playbook with examples in `docs/ollama-prompting.md`.
 
 ## TORQUE Best Practices
 
@@ -513,33 +464,9 @@ You are the Orchestrator. Your responsibilities:
 - **Document** — update `CLAUDE.md` or `README` when project conventions change. Do not hand-edit `CHANGELOG.md`; TORQUE release automation owns it.
 - **Shutdown carefully** — when winding down the team, nudge potentially idle agents with a plain-text message before sending structured shutdown requests so they reliably process the shutdown.
 
-### Streaming Protocol
+### Pipeline Internals
 
-- Planner sends task IDs to QC as tasks are submitted.
-- QC awaits each task individually, reviews it immediately on completion, and routes verdicts without batching.
-
-### Metadata Contract
-
-- Tasks that modify frontend, dashboard, or XAML surfaces should carry `ui_review: true`.
-- Code-only tasks should carry `ui_review: false`.
-
-### QC Dual-Pass Testing
-
-1. **Per-task pass** — targeted verification as each task completes.
-2. **Integration pass** — full-suite or integration verification after all tasks pass individually.
-
-Integration failures go back to Remediation with the combined context.
-
-### Discovery Phase
-
-When the work is not yet well-defined:
-
-1. Use `/torque-scout <variant>` to run targeted scouts such as `security`, `quality`, `visual`, `performance`, `dependency`, `test-coverage`, `documentation`, or `accessibility`.
-2. Read the findings file in `docs/findings/`.
-3. Triage findings with the user and mark them actionable or deferred.
-4. Feed actionable items into `/torque-team`.
-
-Use `/torque-sweep` when you want the full scout set, automatic triage, and immediate team handoff for actionable findings.
+Streaming protocol (Planner → QC per-task, no batching), `ui_review` metadata contract for the conditional UI Reviewer, QC's dual-pass testing model (per-task + integration), and the scout-driven Discovery Phase all live in `docs/team-pipeline.md`. Use `/torque-sweep` when you want the full scout set + auto-triage + team handoff in one command.
 
 ### When Not to Use the Team Pipeline
 

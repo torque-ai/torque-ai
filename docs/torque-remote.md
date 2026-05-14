@@ -557,5 +557,25 @@ Run after configuring a new Linux remote in `~/.torque-remote.local.json`:
 - **Coord integration**: every new invocation site must use the in-process trap chain (call `cleanup_on_exit` from any coord_release_on_exit-style handler); never install a bare `trap cleanup_on_exit EXIT` in coord-mode without ensuring the coord release runs first.
 - **Guard hook**: pattern-matching changes — confirm the change doesn't break the path-component bypass (`node_modules/vitest/...`) or the chained `cd && git commit` exemption; both are real-world cases that landed only after multiple bug reports.
 
+## Path discipline for chained commands
+
+When the user command contains shell features (`&&`, `|`, `;`, redirects), wrap the whole thing in `bash -c` so the entire pipeline runs on the remote — not just the first command. Inside `bash -c`, use **relative paths from the project root** or the `$TORQUE_REMOTE_PROJECT_PATH` env var, never the local worktree absolute path:
+
+    # Right — relative to the project (the runner cd's there before exec):
+    torque-remote bash -c "cd server && npx vitest run tests/foo.test.js"
+
+    # Right — explicit env-var reference for clarity:
+    torque-remote bash -c 'cd "$TORQUE_REMOTE_PROJECT_PATH/server" && npx vitest run tests/foo.test.js'
+
+    # Wrong — local absolute path does not exist on the remote:
+    torque-remote bash -c "cd <local-worktree-path>/server && npx vitest..."
+
+`torque-remote` exports two env vars to the inner command:
+
+- `TORQUE_REMOTE_PROJECT_PATH` — the synced project path on the remote, with your worktree state overlaid.
+- `TORQUE_REMOTE_BASE_PROJECT_PATH` — the base ref's project path (the clean checkout before overlay).
+
+Prefer relative paths from the project root; fall back to `$TORQUE_REMOTE_PROJECT_PATH` only when an absolute path is required.
+
 ---
 *Sibling references: `docs/recovery-decisions.md`, `docs/factory-loop-states.md`, `docs/cancellation-cleanup.md`, `docs/routing-templates.md`.*
