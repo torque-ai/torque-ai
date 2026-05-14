@@ -174,6 +174,31 @@ describe('submitFactoryInternalTask', () => {
     }));
   });
 
+  it('adds a short default activity timeout policy to plan quality reviews', async () => {
+    const { submitFactoryInternalTask } = loadSubject();
+    mockHandleSmartSubmitTask.mockResolvedValue({ task_id: 'plan-quality-review-task' });
+
+    await submitFactoryInternalTask({
+      task: 'review plan quality',
+      working_directory: '/review-repo',
+      kind: 'plan_quality_review',
+      project_id: 'project-3',
+    });
+
+    expect(mockHandleSmartSubmitTask).toHaveBeenCalledWith(expect.objectContaining({
+      timeout_minutes: 10,
+      task_metadata: expect.objectContaining({
+        kind: 'plan_quality_review',
+        activity_timeout_policy: {
+          kind: 'plan_quality_review',
+          timeout_minutes: 5,
+          max_wall_clock_minutes: 20,
+          overrun_intake_problem: 'factory_internal_timeout_overrun_active',
+        },
+      }),
+    }));
+  });
+
   it('isolates mutable factory-internal reviewer work when caller passes the project main worktree', async () => {
     const database = require('./helpers/database-facade');
     const projectConfigCore = require('../db/project-config-core');

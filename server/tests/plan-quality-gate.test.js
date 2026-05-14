@@ -10,7 +10,7 @@ describe('plan-quality-gate module exports', () => {
     expect(typeof mod.isUnsupportedWorktreeSetupCritique).toBe('function');
     expect(typeof mod.RULES).toBe('object');
     expect(mod.MAX_REPLAN_ATTEMPTS).toBe(1);
-    expect(mod.LLM_TIMEOUT_MS).toBe(15 * 60_000);
+    expect(mod.LLM_TIMEOUT_MS).toBe(5 * 60_000);
   });
 });
 
@@ -418,7 +418,7 @@ describe('runLlmSemanticCheck', () => {
     expect(submitMock).not.toHaveBeenCalled();
     expect(awaitMock).toHaveBeenCalledWith({
       task_id: 'existing-review',
-      timeout_minutes: 15,
+      timeout_minutes: 5,
       heartbeat_minutes: 0,
     });
   });
@@ -486,7 +486,7 @@ describe('runLlmSemanticCheck', () => {
     expect(submitMock).toHaveBeenCalledWith(expect.objectContaining({
       kind: 'plan_quality_review',
       working_directory: '/tmp/p',
-      timeout_minutes: 15,
+      timeout_minutes: 5,
       extra_tags: expect.arrayContaining([expect.stringMatching(/^factory:plan_review_hash=/)]),
       extra_metadata: expect.objectContaining({
         plan_review_hash: expect.any(String),

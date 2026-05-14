@@ -32,7 +32,7 @@ const DEFAULT_ACTIVITY_TIMEOUT_MINUTES_BY_KIND = Object.freeze({
   architect_json: 30,
   replan_decompose: 30,
   replan_rewrite: 30,
-  plan_quality_review: 15,
+  plan_quality_review: 5,
   verify_review: 15,
 });
 

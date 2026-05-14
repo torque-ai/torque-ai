@@ -6,15 +6,10 @@ const { deterministicVerify } = require('./plan-augmenter');
 const { checkPlanImpact } = require('./codegraph-plan-augmenter');
 
 const MAX_REPLAN_ATTEMPTS = 1;
-// Plan-quality semantic review has the model read a full generated plan
-// (~150-300 lines) and emit a structured verdict. With codex gpt-5.5 +
-// xhigh reasoning that routinely takes 30-120s on a real plan, and
-// claude-cli fallback can take longer after Codex quota exhaustion. The
-// timeout is converted into a task timeout via
-// `Math.max(1, Math.floor(timeoutMs / 60_000))`; keep it aligned with the
-// internal submitter's default plan_quality_review headroom so reviewer work
-// is not cancelled mid-reasoning.
-const LLM_TIMEOUT_MS = 15 * 60_000;
+// Plan-quality semantic review is an advisory second opinion after the
+// deterministic gate has already passed. If the reviewer stalls, fail open
+// quickly so factory progress is not held by a silent provider.
+const LLM_TIMEOUT_MS = 5 * 60_000;
 const ACTIVE_LLM_SEMANTIC_CHECK_STATUSES = new Set(['pending', 'pending_approval', 'queued', 'running', 'waiting']);
 
 const RULES = {
