@@ -829,6 +829,35 @@ describe('integration routing handlers', () => {
       );
     });
 
+    it('reroutes factory-internal inherited Codex providers when Codex is exhausted', async () => {
+      mockDb.isCodexExhausted.mockReturnValue(true);
+
+      const result = await routing.handleSmartSubmitTask({
+        task: 'You are a quality reviewer for a software factory plan.',
+        provider: 'codex',
+        project: 'factory-plan',
+        task_metadata: {
+          factory_internal: true,
+          kind: 'plan_quality_review',
+          inherited_provider: 'codex',
+          inherited_provider_source: 'project_defaults',
+          user_provider_override: false,
+        },
+      });
+
+      const task = taskFromResult(result);
+      expect(task).toBeTruthy();
+      expect(task.provider).toBe('claude-cli');
+      expect(task.model).toBeNull();
+      expect(task.metadata.user_provider_override).toBe(false);
+      expect(task.metadata.requested_provider).toBeNull();
+      expect(task.metadata.inherited_provider).toBe('codex');
+      expect(task.metadata.routing_mode).toBe('codex_exhausted');
+      expect(task.metadata.routing_reason).toContain('Factory inherited provider');
+      expect(task.metadata.routing_reason).toContain('Codex exhausted');
+      expect(mockDb.analyzeTaskForRouting).not.toHaveBeenCalled();
+    });
+
     it('stores tier-list metadata and leaves provider unassigned in slot-pull mode', async () => {
       setMockDbConfig({ scheduling_mode: 'slot-pull' });
       mockDb.analyzeTaskForRouting

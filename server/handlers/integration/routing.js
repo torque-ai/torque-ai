@@ -721,6 +721,14 @@ async function handleSmartSubmitTask(args) {
     tags,
     taskMetadata: userTaskMetadata,
   });
+  const inheritedFactoryInternalProvider = Boolean(
+    override_provider
+    && userTaskMetadata?.factory_internal === true
+    && userTaskMetadata?.user_provider_override === false
+    && typeof userTaskMetadata?.inherited_provider === 'string'
+    && userTaskMetadata.inherited_provider.trim() === override_provider
+  );
+  const hasExplicitProviderOverride = Boolean(override_provider && !inheritedFactoryInternalProvider);
 
   if (!effectiveRoutingTemplate) {
     try {
@@ -874,14 +882,23 @@ async function handleSmartSubmitTask(args) {
   const routingTrace = createRoutingTrace();
 
   if (override_provider) {
-    // User explicitly requested a provider
+    // User explicitly requested a provider, or a factory-internal task inherited
+    // a project/lane provider. Inherited intent can still be rerouted by
+    // exhaustion and health gates because it is not operator intent.
     selectedProvider = override_provider;
-    routingResult = { provider: override_provider, rule: null, reason: 'User override', trace: routingTrace };
+    routingResult = {
+      provider: override_provider,
+      rule: null,
+      reason: hasExplicitProviderOverride ? 'User override' : 'Factory inherited provider',
+      trace: routingTrace,
+    };
     recordRoutingDecision(routingTrace, {
       stage: ROUTING_TRACE_STAGES.USER_OVERRIDE,
       from: null,
       to: override_provider,
-      reason: 'Caller passed override_provider — explicit user intent',
+      reason: hasExplicitProviderOverride
+        ? 'Caller passed override_provider — explicit user intent'
+        : 'Factory-internal task inherited provider intent from project routing policy',
     });
   } else {
     // Run fresh health check before routing (force=true to avoid stale cache)
@@ -903,7 +920,7 @@ async function handleSmartSubmitTask(args) {
   }
 
   // Both-providers-down gate: reject if Codex exhausted AND no local LLM available (RB-031)
-  const availCheck = checkProviderAvailability({ hasExplicitProvider: !!override_provider });
+  const availCheck = checkProviderAvailability({ hasExplicitProvider: hasExplicitProviderOverride });
   if (availCheck) return availCheck.error;
 
   // Validate provider
@@ -911,7 +928,7 @@ async function handleSmartSubmitTask(args) {
   if (!providerConfig || !providerConfig.enabled) {
     // TDA-01: If user explicitly chose this provider, return an error instead of
     // silently falling back. Explicit provider intent is sovereign.
-    if (override_provider) {
+    if (hasExplicitProviderOverride) {
       if (!providerConfig) {
         return makeError(ErrorCodes.RESOURCE_NOT_FOUND, `Selected provider not found: ${selectedProvider}`);
       }
@@ -932,7 +949,7 @@ async function handleSmartSubmitTask(args) {
     return makeError(ErrorCodes.PROVIDER_ERROR, `Provider ${selectedProvider} is disabled. Enable it or choose a different provider.`);
   }
   if (!isProviderConfiguredForRouting(selectedProvider)) {
-    if (override_provider) {
+    if (hasExplicitProviderOverride) {
       return makeError(ErrorCodes.PROVIDER_ERROR, `Provider ${selectedProvider} requires an API key before it can be used.`);
     }
     const fallbackProvider = resolveFirstEnabledProvider();
@@ -985,8 +1002,8 @@ async function handleSmartSubmitTask(args) {
         review_status: reviewStatus,
         metadata: {
           smart_routing: true,
-          user_provider_override: !!override_provider,
-          requested_provider: override_provider || null,
+          user_provider_override: hasExplicitProviderOverride,
+          requested_provider: hasExplicitProviderOverride ? override_provider : null,
           requested_model: model || null,
         },
       })
@@ -1081,7 +1098,7 @@ async function handleSmartSubmitTask(args) {
           metadata: JSON.stringify({
             smart_routing: true,
             intended_provider: def.provider,
-            requested_provider: override_provider || null,
+            requested_provider: hasExplicitProviderOverride ? override_provider : null,
             requested_model: model || null,
             decomposed_from: task,
             subtask_index: i + 1,
@@ -1262,7 +1279,7 @@ async function handleSmartSubmitTask(args) {
             metadata: JSON.stringify({
               smart_routing: true,
               intended_provider: def.provider,
-              requested_provider: override_provider || null,
+              requested_provider: hasExplicitProviderOverride ? override_provider : null,
               requested_model: model || null,
               decomposed_from: task,
               js_decomposition: true,
@@ -1368,7 +1385,7 @@ async function handleSmartSubmitTask(args) {
     }
     return null;
   };
-  if (!override_provider && codexExhausted && isCodexProviderName(selectedProvider)) {
+  if (!hasExplicitProviderOverride && codexExhausted && isCodexProviderName(selectedProvider)) {
     const fallback = selectCodexExhaustionFallback();
     if (fallback) {
       const previousProvider = selectedProvider;
@@ -1393,7 +1410,7 @@ async function handleSmartSubmitTask(args) {
   // explicit provider override.
   const testTaskPattern = /\b(write|create|add|generate|replace .+ with)\b.{0,30}\b(tests?|specs?|\.test\.|\.spec\.)/i;
   const explicitTestTaskPattern = /\b(?:test|testing)\s+task\b/i;
-  const isTestTask = !isFactoryPlanGeneration && !override_provider &&
+  const isTestTask = !isFactoryPlanGeneration && !hasExplicitProviderOverride &&
     (testTaskPattern.test(task) || explicitTestTaskPattern.test(task));
   const routingModel = model || routingResult?.model || taskModel || null;
   const selectedProviderSupportsTests = providerSupportsRepoWriteTasks(selectedProvider, routingModel);
@@ -1425,7 +1442,7 @@ async function handleSmartSubmitTask(args) {
     const modificationRoutingModel = isTestTask && selectedProvider === 'codex' ? taskModel : model;
     const modResult = await resolveModificationRouting(task, files, routingResult, {
       selectedProvider,
-      override_provider,
+      override_provider: hasExplicitProviderOverride ? override_provider : null,
       model: modificationRoutingModel,
       complexity,
       working_directory: workingDirectory,
@@ -1505,7 +1522,7 @@ async function handleSmartSubmitTask(args) {
   // Guard: redirect to the first enabled provider when the selected provider is disabled in provider_config
   // Skip when user explicitly chose the provider — respect their decision
   const selectedProviderConfig = providerRoutingCore.getProvider(selectedProvider);
-  if (!override_provider && (!selectedProviderConfig || !selectedProviderConfig.enabled)) {
+  if (!hasExplicitProviderOverride && (!selectedProviderConfig || !selectedProviderConfig.enabled)) {
     const sparkEnabled = serverConfig.isOptIn('codex_spark_enabled');
     const prevProvider = selectedProvider;
     selectedProvider = resolveSafeSelectedProvider(providerRoutingCore.getDefaultProvider()) || 'codex';
@@ -1525,7 +1542,7 @@ async function handleSmartSubmitTask(args) {
   }
 
   // Guard: deprioritize unhealthy cloud providers (skip when user explicitly chose the provider)
-  if (!override_provider && typeof providerRoutingCore.isProviderHealthy === 'function' && !providerRoutingCore.isProviderHealthy(selectedProvider)) {
+  if (!hasExplicitProviderOverride && typeof providerRoutingCore.isProviderHealthy === 'function' && !providerRoutingCore.isProviderHealthy(selectedProvider)) {
     const rawTemplateChain = Array.isArray(routingResult?.chain) ? routingResult.chain : [];
     const templateChain = rawTemplateChain
       .map((candidate) => normalizeRoutingCandidate(candidate))
@@ -1610,10 +1627,10 @@ async function handleSmartSubmitTask(args) {
   // still ships work to codex/codex-spark because the lane filter previously
   // only ran on fallback selection and chain metadata.
   //
-  // The swap is skipped when `override_provider` is set — explicit user
+  // The swap is skipped when a user `override_provider` is set — explicit user
   // intent is sovereign. Lane policy only enforces against automatic routing.
   if (
-    !override_provider
+    !hasExplicitProviderOverride
     && providerLanePolicy
     && providerLanePolicy.enforce_handoffs
     && !isProviderAllowedForLane(selectedProvider)
@@ -1671,14 +1688,14 @@ async function handleSmartSubmitTask(args) {
   const tierRoutingResult = useTierList
     ? providerRoutingCore.analyzeTaskForRouting(task, workingDirectory, files, {
         tierList: true,
-        isUserOverride: !!override_provider,
-        overrideProvider: override_provider || null,
+        isUserOverride: hasExplicitProviderOverride,
+        overrideProvider: hasExplicitProviderOverride ? override_provider : null,
       })
     : null;
   const slotPullEligibleProviders = Array.isArray(tierRoutingResult?.eligible_providers) && tierRoutingResult.eligible_providers.length > 0
     ? tierRoutingResult.eligible_providers
-    : [override_provider || selectedProvider].filter(Boolean);
-  const slotPullIntendedProvider = override_provider
+    : [(hasExplicitProviderOverride ? override_provider : null) || selectedProvider].filter(Boolean);
+  const slotPullIntendedProvider = (hasExplicitProviderOverride ? override_provider : null)
     || resolveSafeSelectedProvider(slotPullEligibleProviders[0] || selectedProvider)
     || selectedProvider;
   const normalizedSlotPullEligibleProviders = slotPullEligibleProviders
@@ -1703,8 +1720,8 @@ async function handleSmartSubmitTask(args) {
     intended_provider: slotPullIntendedProvider,
     capability_requirements: slotPullCapabilityRequirements,
     quality_tier: slotPullQualityTier,
-    user_provider_override: !!override_provider,
-    requested_provider: override_provider || null,
+    user_provider_override: hasExplicitProviderOverride,
+    requested_provider: hasExplicitProviderOverride ? override_provider : null,
     needs_review: needsReview || undefined,
     split_advisory: splitAdvisory || undefined,
     split_suggestions: splitSuggestions.length > 0 ? splitSuggestions : undefined,
@@ -1738,7 +1755,7 @@ async function handleSmartSubmitTask(args) {
       project: project || undefined,
       tags: tags || undefined,
       status: initialTaskStatus,
-      provider: override_provider || null,
+      provider: hasExplicitProviderOverride ? override_provider : null,
       model: taskModel,
       timeout_minutes: effectiveTimeout,
       priority: priority || 0,
@@ -1765,8 +1782,8 @@ async function handleSmartSubmitTask(args) {
       metadata: JSON.stringify({
         smart_routing: true,
         intended_provider: selectedProvider,
-        user_provider_override: !!override_provider,
-        requested_provider: override_provider || null,
+        user_provider_override: hasExplicitProviderOverride,
+        requested_provider: hasExplicitProviderOverride ? override_provider : null,
         needs_review: needsReview || undefined,
         split_advisory: splitAdvisory || undefined,
         split_suggestions: splitSuggestions.length > 0 ? splitSuggestions : undefined,
@@ -1789,7 +1806,7 @@ async function handleSmartSubmitTask(args) {
     });
   }
 
-  if (useTierList && !override_provider && typeof taskCore.patchTaskSlotBinding === 'function') {
+  if (useTierList && !hasExplicitProviderOverride && typeof taskCore.patchTaskSlotBinding === 'function') {
     try {
       taskCore.patchTaskSlotBinding(taskId, slotPullMetadata);
     } catch (err) {
