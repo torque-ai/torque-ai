@@ -3,11 +3,11 @@
 /**
  * execution/register.js — register execution modules with the DI container.
  *
- * Universal-DI migration. Each execution module exposes both a legacy
- * init({…}) shape and a new createXxx(deps) + register(container) shape.
- * This file controls which of those new shapes are *active* in the
- * container — i.e. which ones boot() instantiates so consumers can
- * resolve them via container.get(name).
+ * Universal-DI migration. Execution modules expose a createXxx(deps) +
+ * register(container) shape; some older modules still carry a legacy
+ * init({…}) shim while their consumers finish migrating. This file controls
+ * which factory shapes are *active* in the container — i.e. which ones boot()
+ * instantiates so consumers can resolve them via container.get(name).
  *
  * Usage from container.js:
  *   require('./execution/register').register(_defaultContainer);

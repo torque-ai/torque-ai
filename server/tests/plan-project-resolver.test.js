@@ -2,7 +2,8 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { createRequire } from 'module';
 
 const require = createRequire(import.meta.url);
-const resolver = require('../execution/plan-project-resolver');
+const resolverModule = require('../execution/plan-project-resolver');
+const { createContainer } = require('../container');
 
 function createDbMocks() {
   return {
@@ -20,6 +21,7 @@ function createDbMocks() {
 describe('execution/plan-project-resolver', () => {
   let db;
   let dashboard;
+  let resolver;
 
   beforeEach(() => {
     vi.restoreAllMocks();
@@ -27,7 +29,7 @@ describe('execution/plan-project-resolver', () => {
 
     db = createDbMocks();
     dashboard = { notifyTaskUpdated: vi.fn() };
-    resolver.init({ db, dashboard });
+    resolver = resolverModule.createPlanProjectResolver({ db, dashboard });
   });
 
   it('ignores non-terminal statuses', () => {
@@ -169,5 +171,20 @@ describe('execution/plan-project-resolver', () => {
     expect(db.updatePlanProject).toHaveBeenNthCalledWith(2, 'project-1', {
       status: 'failed',
     });
+  });
+
+  it('registers the resolver in a container', () => {
+    db.getPlanProjectTask.mockReturnValue(null);
+
+    const container = createContainer();
+    container.registerValue('db', db);
+    container.registerValue('dashboard', dashboard);
+    resolverModule.register(container);
+    container.boot();
+
+    const service = container.get('planProjectResolver');
+    service.handleProjectDependencyResolution('task-container', 'completed');
+
+    expect(db.getPlanProjectTask).toHaveBeenCalledWith('task-container');
   });
 });
