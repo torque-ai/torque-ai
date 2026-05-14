@@ -149,6 +149,7 @@ const AUTOMATION_MODULES = [
   '../handlers/automation-handlers',
   '../handlers/automation-ts-tools',
   '../handlers/automation-batch-orchestration',
+  '../db/database-facade-resolver',
   '../database',
   '../db/config-core',
   '../db/task-core',
@@ -181,6 +182,9 @@ function loadTaskProject({ dbMock, sharedMock, loggerMock, formatTimeMock }) {
 
 function loadAutomationHandlers({ dbMock, sharedMock, loggerMock }) {
   clearModules(AUTOMATION_MODULES);
+  installCjsModuleMock('../db/database-facade-resolver', {
+    resolveDatabaseFacade: vi.fn(() => dbMock),
+  });
   installCjsModuleMock('../database', dbMock);
   installCjsModuleMock('../db/config-core', {});
   installCjsModuleMock('../db/task-core', {});

@@ -322,8 +322,16 @@ function resetMocks(options = {}) {
   mockGovernanceHooks = null;
   mockContainer = {
     defaultContainer: {
-      has: vi.fn((name) => name === 'governanceHooks' && Boolean(mockGovernanceHooks)),
-      get: vi.fn((name) => (name === 'governanceHooks' ? mockGovernanceHooks : undefined)),
+      peek: vi.fn((name) => (name === 'db' ? mockDb : undefined)),
+      has: vi.fn((name) => (
+        name === 'db'
+        || (name === 'governanceHooks' && Boolean(mockGovernanceHooks))
+      )),
+      get: vi.fn((name) => {
+        if (name === 'db') return mockDb;
+        if (name === 'governanceHooks') return mockGovernanceHooks;
+        return undefined;
+      }),
     },
   };
   mockConstants = {
@@ -402,6 +410,7 @@ function clearCjsModules(modulePaths) {
 
 const AUTOMATION_MODULES = [
   '../handlers/automation-handlers',
+  '../db/database-facade-resolver',
   '../database',
   '../db/config-core',
   '../db/task-core',
@@ -439,6 +448,9 @@ const INTEGRATION_MODULES = [
 function loadAutomationHandlers() {
   vi.resetModules();
   clearCjsModules(AUTOMATION_MODULES);
+  installCjsModuleMock('../db/database-facade-resolver', {
+    resolveDatabaseFacade: vi.fn(() => mockDb),
+  });
   installCjsModuleMock('../database', mockDb);
   installCjsModuleMock('../db/config-core', mockDb);
   installCjsModuleMock('../db/task-core', mockDb);
@@ -535,6 +547,9 @@ function seedScanFixture(projectDir) {
 vi.mock('fs', () => mockFs);
 vi.mock('path', () => mockPath);
 vi.mock('child_process', () => mockChildProcess);
+vi.mock('../db/database-facade-resolver', () => ({
+  resolveDatabaseFacade: vi.fn(() => mockDb),
+}));
 vi.mock('../database', () => mockDb);
 vi.mock('../task-manager', () => mockTaskManager);
 vi.mock('../handlers/shared', () => mockShared);

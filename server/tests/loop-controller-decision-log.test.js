@@ -19,6 +19,7 @@ const factoryLoopInstances = require('../db/factory/loop-instances');
 const loopController = require('../factory/loop-controller');
 const { LOOP_STATES } = require('../factory/loop-states');
 const { handleDecisionLog } = require('../handlers/factory-handlers');
+const { defaultContainer } = require('../container');
 
 function createFactoryTables(db) {
   db.exec(`
@@ -187,9 +188,12 @@ beforeEach(() => {
   factoryDecisions.setDb(db);
   originalGetDbInstance = database.getDbInstance;
   database.getDbInstance = () => db;
+  defaultContainer.resetForTest();
+  defaultContainer.registerValue('db', database);
 });
 
 afterEach(() => {
+  defaultContainer.resetForTest();
   database.getDbInstance = originalGetDbInstance;
   factoryArchitect.setDb(null);
   factoryHealth.setDb(null);

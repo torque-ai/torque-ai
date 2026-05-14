@@ -16,6 +16,7 @@ const factoryLoopInstances = require('../db/factory/loop-instances');
 const loopController = require('../factory/loop-controller');
 const { LOOP_STATES } = require('../factory/loop-states');
 const { FACTORY_V2_ROUTES } = require('../api/routes/factory-routes');
+const { defaultContainer } = require('../container');
 
 function createFactoryTables(db) {
   db.exec(`
@@ -284,12 +285,15 @@ describe('factory loop pipeline parallelism', () => {
     factoryLoopInstances.setDb(db);
     originalGetDbInstance = database.getDbInstance;
     database.getDbInstance = () => db;
+    defaultContainer.resetForTest();
+    defaultContainer.registerValue('db', database);
     loopController.setWorktreeRunnerForTests(null);
     tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'factory-loop-pipeline-'));
   });
 
   afterEach(() => {
     loopController.setWorktreeRunnerForTests(undefined);
+    defaultContainer.resetForTest();
     database.getDbInstance = originalGetDbInstance;
     factoryArchitect.setDb(null);
     factoryLoopInstances.setDb(null);
