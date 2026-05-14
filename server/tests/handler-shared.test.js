@@ -1,6 +1,22 @@
 const path = require('path');
+const fs = require('fs');
 const { setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
+const { hasDirectDatabaseImport } = require('../scripts/check-no-direct-db-import');
 const shared = require('../handlers/shared');
+
+function collectHandlerFiles(dir = path.join(__dirname, '..', 'handlers')) {
+  const entries = fs.readdirSync(dir, { withFileTypes: true });
+  const files = [];
+  for (const entry of entries) {
+    const fullPath = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      files.push(...collectHandlerFiles(fullPath));
+    } else if (entry.name.endsWith('.js')) {
+      files.push(fullPath);
+    }
+  }
+  return files;
+}
 
 function getText(result) {
   return result?.content?.[0]?.text || '';
@@ -17,6 +33,16 @@ describe('handler:shared', () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+  });
+
+  it('guards handler modules against direct database facade imports', () => {
+    const handlerRoot = path.join(__dirname, '..', 'handlers');
+    const offenders = collectHandlerFiles(handlerRoot)
+      .filter((file) => hasDirectDatabaseImport(fs.readFileSync(file, 'utf8')))
+      .map((file) => path.relative(path.join(__dirname, '..'), file).replace(/\\/g, '/'))
+      .sort();
+
+    expect(offenders).toEqual([]);
   });
 
   describe('validation helpers', () => {

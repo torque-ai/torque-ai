@@ -231,6 +231,9 @@ function loadAutomationModule(overrides = {}) {
   const mockDatabase = overrides.database || {
     safeAddColumn: mockDb.safeAddColumn,
   };
+  const mockDatabaseFacadeResolver = overrides.databaseFacadeResolver || {
+    resolveDatabaseFacade: vi.fn(() => mockDatabase),
+  };
   const mockConfigCore = overrides.configCore || {
     __stores: mockDb.__stores,
     setConfig: mockDb.setConfig,
@@ -292,6 +295,7 @@ function loadAutomationModule(overrides = {}) {
     '../test-runner-registry': { createTestRunnerRegistry },
     '../logger': { child: vi.fn(() => mockLogger) },
     '../database': mockDatabase,
+    '../db/database-facade-resolver': mockDatabaseFacadeResolver,
     '../db/config-core': mockConfigCore,
     '../db/task-core': mockTaskCore,
     '../db/project-config-core': mockProjectConfigCore,
@@ -344,6 +348,7 @@ module.exports.__testHelpers = {
     helpers: exportedModule.exports.__testHelpers,
     mocks: {
       db: mockDatabase,
+      databaseFacadeResolver: mockDatabaseFacadeResolver,
       configCore: mockConfigCore,
       taskCore: mockTaskCore,
       projectConfigCore: mockProjectConfigCore,
@@ -391,14 +396,15 @@ describe('automation-handlers main unit suite', () => {
       expect(helpers.sanitizeTemplateVariable(42)).toBe('42');
     });
 
-    it('lazy-loads database and task-manager only once', () => {
+    it('resolves database facade and lazy-loads task-manager only once', () => {
       const { helpers, mocks, requireCounts } = loadAutomationModule();
 
       expect(helpers.db()).toBe(mocks.db);
       expect(helpers.db()).toBe(mocks.db);
       expect(helpers.taskManager()).toBe(mocks.taskManager);
       expect(helpers.taskManager()).toBe(mocks.taskManager);
-      expect(requireCounts['../database']).toBe(1);
+      expect(requireCounts['../db/database-facade-resolver']).toBe(1);
+      expect(mocks.databaseFacadeResolver.resolveDatabaseFacade).toHaveBeenCalledTimes(1);
       expect(requireCounts['../task-manager']).toBe(1);
     });
 

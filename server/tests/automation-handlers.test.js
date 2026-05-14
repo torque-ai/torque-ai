@@ -10,6 +10,7 @@ const tempDirs = new Set();
 let currentModules = {};
 
 vi.mock('../database', () => currentModules.database);
+vi.mock('../db/database-facade-resolver', () => currentModules.databaseFacadeResolver);
 vi.mock('../db/config-core', () => currentModules.configCore);
 vi.mock('../db/task-core', () => currentModules.taskCore);
 vi.mock('../db/project-config-core', () => currentModules.projectConfigCore);
@@ -121,6 +122,9 @@ function createDefaultModules(overrides = {}) {
   const database = overrides.database || {
     safeAddColumn: db.safeAddColumn,
   };
+  const databaseFacadeResolver = overrides.databaseFacadeResolver || {
+    resolveDatabaseFacade: vi.fn(() => database),
+  };
   const configCore = overrides.configCore || {
     __stores: db.__stores,
     setConfig: db.setConfig,
@@ -161,6 +165,7 @@ function createDefaultModules(overrides = {}) {
   return {
     db,
     database,
+    databaseFacadeResolver,
     configCore,
     taskCore,
     projectConfigCore,
@@ -199,6 +204,7 @@ function loadHandlers(overrides = {}) {
 
   vi.resetModules();
   vi.doMock('../database', () => currentModules.database);
+  vi.doMock('../db/database-facade-resolver', () => currentModules.databaseFacadeResolver);
   vi.doMock('../db/config-core', () => currentModules.configCore);
   vi.doMock('../db/task-core', () => currentModules.taskCore);
   vi.doMock('../db/project-config-core', () => currentModules.projectConfigCore);
@@ -224,6 +230,7 @@ function loadHandlers(overrides = {}) {
   vi.doMock('../handlers/automation-batch-orchestration', () => currentModules.batchOrchestration);
 
   installCjsModuleMock('../database', currentModules.database);
+  installCjsModuleMock('../db/database-facade-resolver', currentModules.databaseFacadeResolver);
   installCjsModuleMock('../db/config-core', currentModules.configCore);
   installCjsModuleMock('../db/task-core', currentModules.taskCore);
   installCjsModuleMock('../db/project-config-core', currentModules.projectConfigCore);

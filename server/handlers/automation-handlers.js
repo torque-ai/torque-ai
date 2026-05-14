@@ -21,7 +21,7 @@ const { safeExecChain } = require('../utils/safe-exec');
 const { executeValidatedCommandSync } = require('../execution/command-policy');
 const { ErrorCodes, makeError } = require('./shared');
 const { createTestRunnerRegistry } = require('../test-runner-registry');
-const { defaultContainer } = require('../container');
+const { resolveDatabaseFacade } = require('../db/database-facade-resolver');
 const logger = require('../logger').child({ component: 'automation-handlers' });
 
 /**
@@ -55,14 +55,10 @@ function _getTestRunnerRegistry() {
 let _database, _configCore, _taskCore, _taskManager, _projectConfigCore, _schedulingAutomation, _workflowEngine;
 function database() {
   if (_database) return _database;
-  try {
-    _database = defaultContainer.get('db');
-  } catch (err) {
-    logger.debug('[automation-handlers] db container unavailable; using database facade fallback:', err.message || err);
-  }
-  if (!_database) {
-    _database = require('../database');
-  }
+  _database = resolveDatabaseFacade({
+    requiredMethods: ['safeAddColumn'],
+    serviceName: 'automation handlers',
+  });
   return _database;
 }
 function configCore() { return _configCore || (_configCore = require('../db/config-core')); }

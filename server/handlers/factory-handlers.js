@@ -5,24 +5,24 @@ const { randomUUID } = require('crypto');
 const path = require('path');
 const fs = require('fs');
 const childProcess = require('child_process');
+const { resolveDatabaseFacade } = require('../db/database-facade-resolver');
+const { unwrapDbHandle } = require('../utils/db-accessor');
+
 // Lazy-resolve the database via the DI container at call time. database.js
 // registers the facade as 'db' on defaultContainer during init() and
 // resetForTest(), so this is the single source of truth in normal runtime.
-// Some test contexts construct handlers before container.boot() runs; in
-// that case fall back to the direct database module facade so handlers
-// don't crash with "Container: get('db') called before boot()". The
-// fallback is necessary even though it re-introduces a database.js
-// require — the alternative is breaking ~4 plan-file MCP-tool tests that
-// exercise factory-handlers without booting the full container.
 function getDatabase() {
-  try {
-    const { defaultContainer } = require('../container');
-    return defaultContainer.get('db');
-  } catch {
-    // Container not booted (some tests construct handlers before
-    // container.boot() runs). Fall back to the direct facade.
-    return require('../database');
+  return resolveDatabaseFacade({
+    serviceName: 'factory handlers',
+  });
+}
+
+function getRawDatabase() {
+  const rawDb = unwrapDbHandle(getDatabase());
+  if (!rawDb || typeof rawDb.prepare !== 'function') {
+    throw new Error('factory handlers require a database facade with a raw SQL handle');
   }
+  return rawDb;
 }
 // The shared TestRunnerRegistry is the only one the remote-agents plugin
 // registers overrides on. A fresh instance created here would silently
@@ -1139,7 +1139,7 @@ function buildFactoryLoopErrorResponse(error) {
 }
 
 function ensureFactoryDecisionDb() {
-  const db = getDatabase().getDbInstance();
+  const db = getRawDatabase();
   if (db) {
     factoryDecisions.setDb(db);
   }
@@ -2038,7 +2038,7 @@ async function handleIntakeFromFindings(args) {
 async function handleScanPlansDirectory(args) {
   const project = resolveProject(args.project_id);
   const plansDir = validatePlansDir({ projectPath: project.path, plansDir: args.plans_dir });
-  const db = getDatabase().getDbInstance();
+  const db = getRawDatabase();
   const repoRoot = resolvePlansRepoRoot(project.path, plansDir);
   const shippedDetector = createShippedDetector({ repoRoot });
   const planIntake = createPlanFileIntake({ db, factoryIntake, shippedDetector });
@@ -3004,7 +3004,7 @@ async function handleFactoryProviderLaneAudit(args) {
   const project = resolveProject(args.project);
   const audit = buildProviderLaneAudit({
     project,
-    db: getDatabase().getDbInstance(),
+    db: getRawDatabase(),
     limit: args.limit,
     expected_provider: args.expected_provider,
     allowed_fallback_providers: args.allowed_fallback_providers,

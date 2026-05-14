@@ -12,6 +12,7 @@ const HANDLER_FILE = require.resolve(HANDLER_MODULE);
 const MOCKED_MODULE_PATHS = [
   HANDLER_MODULE,
   '../database',
+  '../db/database-facade-resolver',
   '../db/provider/routing-core',
   '../task-manager',
   '../utils/credential-crypto',
@@ -342,6 +343,12 @@ function createDefaultModules(overrides = {}) {
       getDb: vi.fn(() => db),
       getDbInstance: vi.fn(() => db),
     },
+    databaseFacadeResolver: overrides.databaseFacadeResolver || {
+      resolveDatabaseFacade: vi.fn(() => ({
+        getDb: vi.fn(() => db),
+        getDbInstance: vi.fn(() => db),
+      })),
+    },
     providerRoutingCore,
     taskManager: overrides.taskManager || {
       processQueue: vi.fn(),
@@ -395,6 +402,7 @@ async function loadProviderCrudHandlers(overrides = {}) {
 
   vi.resetModules();
   vi.doMock('../database', () => currentModules.database);
+  vi.doMock('../db/database-facade-resolver', () => currentModules.databaseFacadeResolver);
   vi.doMock('../db/provider/routing-core', () => currentModules.providerRoutingCore);
   vi.doMock('../task-manager', () => currentModules.taskManager);
   vi.doMock('../utils/credential-crypto', () => currentModules.credentialCrypto);
@@ -405,6 +413,7 @@ async function loadProviderCrudHandlers(overrides = {}) {
   vi.doMock('../utils/sensitive-keys', () => currentModules.sensitiveKeys);
 
   installCjsModuleMock('../database', currentModules.database);
+  installCjsModuleMock('../db/database-facade-resolver', currentModules.databaseFacadeResolver);
   installCjsModuleMock('../db/provider/routing-core', currentModules.providerRoutingCore);
   installCjsModuleMock('../task-manager', currentModules.taskManager);
   installCjsModuleMock('../utils/credential-crypto', currentModules.credentialCrypto);

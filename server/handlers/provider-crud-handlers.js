@@ -1,7 +1,8 @@
 'use strict';
 
 const { randomUUID } = require('crypto');
-const { defaultContainer } = require('../container');
+const { resolveDatabaseFacade } = require('../db/database-facade-resolver');
+const { unwrapDbHandle } = require('../utils/db-accessor');
 const providerRoutingCore = require('../db/provider/routing-core');
 const taskManager = require('../task-manager');
 const { normalizeProviderTransport } = providerRoutingCore;
@@ -20,20 +21,10 @@ const DEFAULT_TRANSPORT_BY_TYPE = {
 };
 
 function getDatabaseHandle() {
-  let dbService = null;
-  try {
-    dbService = defaultContainer.get('db');
-  } catch {
-    dbService = require('../database');
-  }
-
-  if (dbService && typeof dbService.getDb === 'function') {
-    return dbService.getDb();
-  }
-  if (dbService && typeof dbService.getDbInstance === 'function') {
-    return dbService.getDbInstance();
-  }
-  return dbService || null;
+  const dbService = resolveDatabaseFacade({
+    serviceName: 'provider CRUD handlers',
+  });
+  return unwrapDbHandle(dbService);
 }
 
 

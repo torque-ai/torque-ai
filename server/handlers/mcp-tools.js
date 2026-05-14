@@ -3,6 +3,8 @@
 const { randomUUID } = require('crypto');
 const vm = require('vm');
 const { defaultContainer } = require('../container');
+const { resolveDatabaseFacade } = require('../db/database-facade-resolver');
+const { unwrapDbHandle } = require('../utils/db-accessor');
 const { createAction } = require('../actions/action');
 const { createApplication } = require('../actions/application');
 const { createStatePersister } = require('../actions/state-persister');
@@ -73,10 +75,7 @@ function ensureFallbackRegisteredEvalTasks() {
 }
 
 function unwrapDbService(dbService) {
-  if (dbService && typeof dbService.getDbInstance === 'function') {
-    return dbService.getDbInstance();
-  }
-  return dbService;
+  return unwrapDbHandle(dbService) || dbService;
 }
 
 function resolveSpecialistRegistry() {
@@ -100,9 +99,12 @@ function resolveSpecialistStorage() {
     void error;
   }
 
-  const database = require('../database');
   const { createSpecialistStorage } = require('../routing/specialist-storage');
-  return createSpecialistStorage({ db: unwrapDbService(database) });
+  return createSpecialistStorage({
+    db: unwrapDbService(resolveDatabaseFacade({
+      serviceName: 'mcp specialist storage',
+    })),
+  });
 }
 
 function resolveEvalTaskRegistry() {
@@ -168,7 +170,9 @@ function ensureRoutingProviderRegistration(providerRegistry, providerName) {
   }
 
   try {
-    const db = require('../database');
+    const db = resolveDatabaseFacade({
+      serviceName: 'mcp provider registration',
+    });
     if (db?.isReady?.()) {
       require('../config').init({ db });
       if (typeof providerRegistry.init === 'function') {
@@ -486,10 +490,9 @@ function resolveMemoryDb() {
     void error;
   }
 
-  const database = require('../database');
-  const db = typeof database.getDbInstance === 'function'
-    ? database.getDbInstance()
-    : database;
+  const db = unwrapDbHandle(resolveDatabaseFacade({
+    serviceName: 'mcp memory handlers',
+  }));
   if (!db || typeof db.prepare !== 'function') {
     throw createHandlerError('memory database is unavailable', ErrorCodes.DATABASE_ERROR);
   }
@@ -699,7 +702,9 @@ function getCodexProvider() {
   }
 
   try {
-    const database = require('../database');
+    const database = resolveDatabaseFacade({
+      serviceName: 'mcp codex provider registration',
+    });
     if (database?.isReady?.()) {
       require('../config').init({ db: database });
       if (typeof providerRegistry.init === 'function') {
@@ -875,10 +880,9 @@ function getStatePersister() {
     void error;
   }
 
-  const database = require('../database');
-  const db = typeof database.getDbInstance === 'function'
-    ? database.getDbInstance()
-    : database;
+  const db = unwrapDbHandle(resolveDatabaseFacade({
+    serviceName: 'mcp state persister',
+  }));
   return createStatePersister({ db });
 }
 

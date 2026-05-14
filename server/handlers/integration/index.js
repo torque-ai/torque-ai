@@ -6,7 +6,7 @@
  */
 
 const path = require('path');
-const { defaultContainer } = require('../../container');
+const { resolveDatabaseFacade } = require('../../db/database-facade-resolver');
 const eventTracking = require('../../db/event-tracking');
 const projectConfigCore = require('../../db/project-config-core');
 const providerRoutingCore = require('../../db/provider/routing-core');
@@ -19,11 +19,10 @@ const { resolveOllamaModel } = require('../../providers/ollama-shared');
 const { DEFAULT_FALLBACK_MODEL } = require('../../constants');
 
 function getDatabaseFacade() {
-  try {
-    return defaultContainer.get('db');
-  } catch {
-    return require('../../database');
-  }
+  return resolveDatabaseFacade({
+    requiredMethods: ['getTask', 'listTasks', 'createTask'],
+    serviceName: 'integration handlers',
+  });
 }
 
 // ============================================================

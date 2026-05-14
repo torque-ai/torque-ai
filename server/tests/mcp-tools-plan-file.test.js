@@ -105,6 +105,8 @@ describe('plan-file MCP tools', () => {
     factoryIntake.setDb(db);
     originalGetDbInstance = database.getDbInstance;
     database.getDbInstance = () => db;
+    defaultContainer.resetForTest();
+    defaultContainer.registerValue('db', database);
     projectDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-plan-tools-project-'));
     plansDir = path.join(projectDir, 'docs', 'superpowers', 'plans');
     fs.mkdirSync(plansDir, { recursive: true });
@@ -221,6 +223,7 @@ describe('specialist routing MCP tools', () => {
     defaultContainer.resetForTest();
     originalGetDbInstance = database.getDbInstance;
     database.getDbInstance = () => db;
+    defaultContainer.registerValue('db', database);
     originalGetProviderInstance = providerRegistry.getProviderInstance;
     originalRegisterProviderClass = providerRegistry.registerProviderClass;
     originalInit = providerRegistry.init;
