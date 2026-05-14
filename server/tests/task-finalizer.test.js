@@ -773,6 +773,42 @@ describe('task-finalizer', () => {
     }
   });
 
+  it('allows auto_verify_retry to run longer than the old six-minute ceiling', async () => {
+    vi.useFakeTimers();
+    try {
+      const dbBundle = createTaskDb({
+        task_description: 'Finalize task with slow auto verify',
+      });
+      dbBundle.db.getConfig = vi.fn(() => null);
+      const slowAutoVerify = vi.fn(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 370000));
+      });
+      initFinalizer({
+        dbBundle,
+        handleAutoVerifyRetry: slowAutoVerify,
+        handlePostCompletion: vi.fn(),
+      });
+
+      const finalizePromise = finalizer.finalizeTask(dbBundle.taskId, {
+        exitCode: 0,
+        output: 'done',
+        errorOutput: '',
+      });
+
+      await vi.advanceTimersByTimeAsync(370000);
+      const result = await finalizePromise;
+      const storedTask = dbBundle.getStoredTask();
+
+      expect(result.finalized).toBe(true);
+      expect(storedTask.status).toBe('completed');
+      expect(storedTask.error_output || '').not.toContain('[FINALIZER auto_verify_retry TIMEOUT]');
+      expect(storedTask.metadata.finalization.validation_stage_outcomes.auto_verify_retry.outcome)
+        .toBe('no_change');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('records categorized outcomes for local providers before the terminal DB write', async () => {
     vi.useFakeTimers();
     try {

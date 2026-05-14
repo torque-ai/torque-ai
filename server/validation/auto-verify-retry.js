@@ -27,6 +27,7 @@ const { copyWorkspaceToSandbox } = require('../sandbox/workspace-sync');
 const { inspectPostTaskDiff } = require('./codegraph-diff-validator');
 const { enrichFixPromptWithCodegraph } = require('../utils/codegraph-fix-enrichment');
 const { isScoutStructuredOutputTask } = require('../execution/completion-policy');
+const { wrapVerifyCommandForTestLane } = require('../factory/test-lane-verify');
 
 // Providers that get auto-verify by default.
 // Built via character join to avoid the repo's PII scrub, which case-
@@ -359,7 +360,9 @@ async function handleAutoVerifyRetry(ctx) {
     return;
   }
 
-  const normalizedVerifyCommand = verifyCommand.trim();
+  const normalizedVerifyCommand = wrapVerifyCommandForTestLane(verifyCommand.trim(), {
+    projectPath: task.working_directory,
+  });
   const sandboxConfig = resolveVerifySandboxConfig(taskMetadata);
 
   const hostMonitoring = require('../utils/host-monitoring');

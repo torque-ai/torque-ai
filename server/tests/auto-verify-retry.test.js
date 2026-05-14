@@ -14,6 +14,9 @@
  */
 
 const crypto = require('crypto');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
 const contextEnrichment = require('../utils/context-enrichment');
 
 const MODULE_PATH = '../validation/auto-verify-retry';
@@ -165,6 +168,18 @@ function makeVerifyResult({ exitCode = 1, output = '', error = 'src/foo.ts(10,5)
     durationMs: 150,
     remote: false,
   };
+}
+
+function makeProjectWithTestLaneLauncher() {
+  const projectPath = fs.mkdtempSync(path.join(os.tmpdir(), 'torque-auto-verify-lane-'));
+  fs.mkdirSync(path.join(projectPath, 'scripts'), { recursive: true });
+  fs.writeFileSync(path.join(projectPath, 'scripts', 'test-lane.js'), "'use strict';\n");
+  return projectPath;
+}
+
+function decodeLaneWrappedCommand(command) {
+  const match = String(command || '').match(/--command-base64\s+([A-Za-z0-9+/=]+)/);
+  return match ? Buffer.from(match[1], 'base64').toString('utf8') : null;
 }
 
 /**
@@ -535,6 +550,21 @@ describe('handleAutoVerifyRetry — verify execution', () => {
       'C:/repo/my-app',
       expect.objectContaining({ timeout: 300000 }),
     );
+  });
+
+  it('wraps raw verify_command with a test lane when the project supports lanes', async () => {
+    const projectPath = makeProjectWithTestLaneLauncher();
+    const db = createMockDb({ initialConfig: { verify_command: 'npm test' } });
+    const { handleAutoVerifyRetry } = loadModuleWithMocks({ db });
+    const ctx = makeCtx({ task: makeTask({ working_directory: projectPath }) });
+
+    await handleAutoVerifyRetry(ctx);
+
+    const [command, cwd, options] = mockRunVerifyCommand.mock.calls[0];
+    expect(command).toMatch(/^node scripts\/test-lane\.js --lane auto --command-base64 /);
+    expect(decodeLaneWrappedCommand(command)).toBe('npm test');
+    expect(cwd).toBe(projectPath);
+    expect(options).toEqual(expect.objectContaining({ timeout: 300000 }));
   });
 
   it('skips verify when the resource gate blocks an overloaded host', async () => {

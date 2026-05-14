@@ -43,7 +43,7 @@ let ownedSharedFactoryStore = null;
 const DEFAULT_STAGE_TIMEOUT_MS = 120000;
 const STAGE_TIMEOUT_MS = {
   build_test_style_commit: 300000,
-  auto_verify_retry: 360000,
+  auto_verify_retry: 31 * 60 * 1000,
   verification_ledger: 120000,
   adversarial_review: 120000,
   smart_diagnosis: 60000,
