@@ -76,7 +76,7 @@ function loadSubject() {
 
 function loadInitializedSubject(overrides = {}) {
   const mod = loadSubject();
-  mod.init({
+  return mod.createFileContextBuilder({
     serverConfig: serverConfigMock,
     providerCfg: providerCfgMock,
     contextEnrichment: contextEnrichmentMock,
@@ -84,7 +84,6 @@ function loadInitializedSubject(overrides = {}) {
     db: dbModule,
     ...overrides,
   });
-  return mod;
 }
 
 function writeTempFile(relPath, content) {
