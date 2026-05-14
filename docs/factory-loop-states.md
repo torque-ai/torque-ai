@@ -188,6 +188,7 @@ Frequently-emitted actions, by stage:
 | PLAN | `plan_quality_soft_threshold_crossed` | `benign` | `work_item_id`, `quality_score`, `threshold` |
 | PLAN | `resumed_plan_quality_rejected` | `b-side-reject` | `work_item_id`, `quality_score`, `reason` |
 | PLAN | `stale_generated_plan_cleared_before_replan` | `benign` | `work_item_id`, `plan_path` |
+| PLAN | `stale_source_plan_pointer_cleared_before_replan` | `benign` | `work_item_id`, `plan_path` |
 | PLAN | `pre_written_plan_quality_rejected` | `b-side-reject` | `work_item_id`, `quality_score`, `reason` |
 | PLAN | `pre_written_plan_quality_rejected_before_execute` | `b-side-reject` | `work_item_id`, `quality_score`, `reason` |
 | EXECUTE | `plan_generation_deferred_project_active` | `benign` | `reason`, `plan_path`, `generation_task_id`, `blocking_work_item_id`, `task_status`, `work_item_id` |
