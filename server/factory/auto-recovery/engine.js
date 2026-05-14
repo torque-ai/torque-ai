@@ -202,6 +202,9 @@ const BENIGN_FLOW_ACTION_EXACT = new Set([
   // ── EXECUTE ──────────────────────────────────────────────────────────────────
   'worktree_created',        // EXECUTE created an isolated worktree
   'execute_batch_worktree_reused', // EXECUTE reused active batch worktree
+  'factory_worktree_reuse_stale_detected', // reused worktree drift was detected before reuse
+  'factory_worktree_reuse_auto_rebased', // reused worktree drift was automatically corrected
+  'factory_worktree_reuse_rebase_failed', // reused worktree drift forced fresh-worktree fallback
   'execute_batch_worktree_reuse_skipped', // EXECUTE skipped a different work item's active batch worktree
   'worktree_reused_completed_owner',  // benign reuse, owner already done
   'worktree_reclaimed',      // pre-reclaim of a stale row before fresh create

@@ -320,6 +320,21 @@ const DECISION_ACTIONS = {
     classifier: 'benign',
     outcome: ['factory_worktree_id', 'worktree_id', 'worktree_path', 'branch', 'batch_id'],
   },
+  factory_worktree_reuse_stale_detected: {
+    stage: 'EXECUTE',
+    classifier: 'benign',
+    outcome: ['factory_worktree_id', 'worktree_id', 'worktree_path', 'branch', 'baseRef', 'threshold', 'commits_behind', 'stale_files', 'reuse_context'],
+  },
+  factory_worktree_reuse_auto_rebased: {
+    stage: 'EXECUTE',
+    classifier: 'benign',
+    outcome: ['factory_worktree_id', 'worktree_id', 'worktree_path', 'branch', 'baseRef', 'reuse_context'],
+  },
+  factory_worktree_reuse_rebase_failed: {
+    stage: 'EXECUTE',
+    classifier: 'benign',
+    outcome: ['factory_worktree_id', 'worktree_id', 'worktree_path', 'branch', 'baseRef', 'threshold', 'commits_behind', 'stale_files', 'error', 'reuse_context'],
+  },
   execute_batch_worktree_reuse_skipped: {
     stage: 'EXECUTE',
     classifier: 'benign',
