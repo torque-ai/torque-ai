@@ -140,6 +140,21 @@ function createSchema(sqliteDb) {
       status TEXT DEFAULT 'paused'
     );
 
+    CREATE TABLE factory_work_items (
+      id INTEGER PRIMARY KEY,
+      project_id TEXT,
+      source TEXT DEFAULT 'architect',
+      title TEXT,
+      description TEXT,
+      status TEXT DEFAULT 'pending',
+      reject_reason TEXT,
+      origin_json TEXT,
+      batch_id TEXT,
+      claimed_by_instance_id TEXT,
+      created_at TEXT,
+      updated_at TEXT
+    );
+
     CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_resubmitted_from_active
       ON tasks(json_extract(metadata,'$.resubmitted_from'))
       WHERE status != 'cancelled' AND json_extract(metadata,'$.resubmitted_from') IS NOT NULL;
@@ -210,6 +225,29 @@ function insertTask(overrides = {}) {
   `).run(...TASK_COLUMNS.map(column => serializeValue(column, task[column])));
 
   return task.id;
+}
+
+function insertFactoryWorkItem(overrides = {}) {
+  const now = new Date().toISOString();
+  db.prepare(`
+    INSERT INTO factory_work_items
+      (id, project_id, source, title, description, status, reject_reason, origin_json, batch_id, claimed_by_instance_id, created_at, updated_at)
+    VALUES
+      (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    overrides.id,
+    overrides.project_id || 'project-a',
+    overrides.source || 'architect',
+    overrides.title || 'Factory work item',
+    overrides.description || 'Startup reconciler fixture',
+    overrides.status || 'pending',
+    overrides.reject_reason || null,
+    overrides.origin_json || null,
+    overrides.batch_id || null,
+    overrides.claimed_by_instance_id || null,
+    overrides.created_at || now,
+    overrides.updated_at || now,
+  );
 }
 
 function runReconciler(options = {}) {
@@ -339,6 +377,78 @@ describe('startup task reconciler', () => {
     expect(result.actions.cancelled).toBe(1);
     expect(result.actions.cloned).toBe(1);
     expect(cloneRowsFor('task-factory')).toHaveLength(1);
+  });
+
+  test('Factory-tagged orphan for non-resumable work item -> cancelled but not cloned', () => {
+    insertFactoryWorkItem({
+      id: 207,
+      status: 'needs_replan',
+      reject_reason: 'pre_written_plan_rejected_by_quality_gate',
+    });
+    insertTask({
+      id: 'task-stale-factory-work-item',
+      tags: [
+        'factory:batch_id=factory-project-a-207',
+        'factory:work_item_id=207',
+        'factory:plan_task_number=1',
+        'project:torque-public',
+      ],
+    });
+
+    const result = runReconciler();
+
+    expect(result.actions.cancelled).toBe(1);
+    expect(result.actions.cloned).toBe(0);
+    expect(result.actions.factory_work_item_skipped).toBe(1);
+    expect(cloneRowsFor('task-stale-factory-work-item')).toHaveLength(0);
+    const original = getTaskRow('task-stale-factory-work-item');
+    expect(original.status).toBe('cancelled');
+    expect(original.cancel_reason).toBe('server_restart');
+    expect(original.error_output).toContain('[startup-reconciler] task cancelled by server restart');
+    expect(parseMetadata(original)).toMatchObject({
+      restart_resubmit_skipped: 'factory_work_item_not_resumable',
+      factory_work_item_id: 207,
+      factory_work_item_status: 'needs_replan',
+    });
+    expect(logger.info).toHaveBeenCalledWith(
+      expect.stringContaining('skipped factory task task-stale-factory-work-item'),
+      expect.objectContaining({
+        task_id: 'task-stale-factory-work-item',
+        work_item_id: 207,
+        work_item_status: 'needs_replan',
+      }),
+    );
+  });
+
+  test('Restart-cancelled factory task for non-resumable work item is not cloned again', () => {
+    insertFactoryWorkItem({
+      id: 208,
+      status: 'rejected',
+      reject_reason: 'verify_failed',
+    });
+    insertTask({
+      id: 'task-cancelled-stale-factory-work-item',
+      status: 'cancelled',
+      cancel_reason: 'server_restart',
+      tags: [
+        'factory:batch_id=factory-project-a-208',
+        'factory:work_item_id=208',
+        'factory:plan_task_number=1',
+        'project:torque-public',
+      ],
+    });
+
+    const result = runReconciler();
+
+    expect(result.actions.cancelled).toBe(0);
+    expect(result.actions.cloned).toBe(0);
+    expect(result.actions.factory_work_item_skipped).toBe(1);
+    expect(cloneRowsFor('task-cancelled-stale-factory-work-item')).toHaveLength(0);
+    expect(parseMetadata(getTaskRow('task-cancelled-stale-factory-work-item'))).toMatchObject({
+      restart_resubmit_skipped: 'factory_work_item_not_resumable',
+      factory_work_item_id: 208,
+      factory_work_item_status: 'rejected',
+    });
   });
 
   test('Factory plan-generation restart candidates are deduped by project', () => {

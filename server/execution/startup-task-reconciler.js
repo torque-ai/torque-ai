@@ -40,6 +40,20 @@ const RESTART_RESUBMIT_CAP = (() => {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 6;
 })();
 const RESTART_RESUBMIT_CAP_SKIP_REASON = 'restart_resubmit_cap';
+const FACTORY_WORK_ITEM_NOT_RESUMABLE_SKIP_REASON = 'factory_work_item_not_resumable';
+const NON_RESUMABLE_FACTORY_WORK_ITEM_STATUSES = new Set([
+  'completed',
+  'shipped',
+  'shipped_stale',
+  'rejected',
+  'unactionable',
+  'needs_review',
+  'needs_replan',
+  'superseded',
+  'escalation_exhausted',
+  'cancelled',
+  'skipped',
+]);
 
 function getDbHandle(db) {
   if (db && typeof db.getDbInstance === 'function') {
@@ -301,6 +315,22 @@ function getTaskTagValue(task, prefix) {
   return value || null;
 }
 
+function normalizePositiveInteger(value) {
+  const parsed = Number.parseInt(String(value ?? ''), 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+function getFactoryWorkItemIdFromTask(task, metadata = parseMetadata(task?.metadata)) {
+  const tagValue = normalizePositiveInteger(getTaskTagValue(task, 'factory:work_item_id='));
+  if (tagValue) return tagValue;
+
+  const metadataValue = normalizePositiveInteger(metadata.work_item_id);
+  if (metadataValue) return metadataValue;
+
+  const camelMetadataValue = normalizePositiveInteger(metadata.workItemId);
+  return camelMetadataValue || null;
+}
+
 function getFactoryProjectIdFromTask(task) {
   const direct = getTaskTagValue(task, 'factory:project_id=');
   if (direct) return direct;
@@ -438,6 +468,46 @@ function isFactoryProjectPaused(task, rawDb) {
   }
 
   return false;
+}
+
+function getFactoryWorkItemRestartBlock(task, metadata, rawDb) {
+  if (!tagsContainFactory(task?.tags)) return null;
+  if (!rawDb || typeof rawDb.prepare !== 'function') return null;
+
+  const workItemId = getFactoryWorkItemIdFromTask(task, metadata);
+  if (!workItemId) return null;
+
+  try {
+    const row = rawDb.prepare('SELECT id, status FROM factory_work_items WHERE id = ?').get(workItemId);
+    if (!row) return null;
+
+    const status = String(row.status || '').toLowerCase();
+    if (!NON_RESUMABLE_FACTORY_WORK_ITEM_STATUSES.has(status)) return null;
+
+    return {
+      reason: FACTORY_WORK_ITEM_NOT_RESUMABLE_SKIP_REASON,
+      work_item_id: workItemId,
+      work_item_status: status,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function markFactoryWorkItemRestartSkipped({
+  original,
+  metadata,
+  taskCore,
+  rawDb,
+  block,
+}) {
+  return patchOriginalMetadata(taskCore, rawDb, original.id, {
+    ...metadata,
+    reconciler: 'startup',
+    restart_resubmit_skipped: block.reason,
+    factory_work_item_id: block.work_item_id,
+    factory_work_item_status: block.work_item_status,
+  });
 }
 
 function getRestartResubmitCount(metadata) {
@@ -767,6 +837,7 @@ function reconcileOrphanedTasksOnStartup({
     missing_workdir_failed: 0,
     re_adopted: 0,
     deduped: 0,
+    factory_work_item_skipped: 0,
     capped_terminal_marked: 0,
     errors: 0,
   };
@@ -860,6 +931,43 @@ function reconcileOrphanedTasksOnStartup({
         } else {
           actions.skipped++;
         }
+        continue;
+      }
+
+      const factoryWorkItemBlock = getFactoryWorkItemRestartBlock(original, metadata, rawDb);
+      if (factoryWorkItemBlock) {
+        if (original.status !== 'cancelled') {
+          const rollbackResult = rollbackAgenticTaskChanges(original, { logger });
+          const restartOutput = appendRollbackReport(
+            `${original.error_output || ''}\n[startup-reconciler] task cancelled by server restart`,
+            rollbackResult
+          );
+          rawDb.prepare(`
+            UPDATE tasks
+            SET status = 'cancelled',
+                cancel_reason = 'server_restart',
+                error_output = ?,
+                completed_at = ?
+            WHERE id = ?
+          `).run(restartOutput, new Date().toISOString(), original.id);
+          actions.cancelled++;
+        }
+
+        markFactoryWorkItemRestartSkipped({
+          original,
+          metadata,
+          taskCore,
+          rawDb,
+          block: factoryWorkItemBlock,
+        });
+        actions.skipped++;
+        actions.factory_work_item_skipped++;
+        safeLog(logger, 'info', `Startup task reconciler skipped factory task ${original.id} because its work item is not resumable`, {
+          task_id: original.id,
+          work_item_id: factoryWorkItemBlock.work_item_id,
+          work_item_status: factoryWorkItemBlock.work_item_status,
+          reason: factoryWorkItemBlock.reason,
+        });
         continue;
       }
 
