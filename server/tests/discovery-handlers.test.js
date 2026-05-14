@@ -97,6 +97,8 @@ describe('discovery handlers', () => {
     expect(registry.setDb).toHaveBeenCalledWith(db);
     expect(getProviderAdapter).toHaveBeenCalledWith('ollama');
     expect(discoverFromAdapter).toHaveBeenCalledWith(db, adapter, 'ollama', null);
+    expect(registry.setDb.mock.invocationCallOrder[0])
+      .toBeLessThan(discoverFromAdapter.mock.invocationCallOrder[0]);
     expect(result).toContain('## Discovery: ollama');
   });
 
@@ -109,5 +111,123 @@ describe('discovery handlers', () => {
     expect(registry.setDb).toHaveBeenCalledWith(db);
     expect(discoverAllModels).toHaveBeenCalledWith(db);
     expect(result).toContain('## Model Discovery Results');
+  });
+
+  it('formats provider-specific discovery success metrics and roles', async () => {
+    discoverFromAdapter.mockResolvedValue({
+      discovered: 5,
+      new: 2,
+      updated: 1,
+      removed: 0,
+      capabilities_set: 4,
+      roles_assigned: [
+        { role: 'fast', model: 'llama-fast' },
+        { role: 'cheap', model: 'llama-cheap' },
+      ],
+    });
+    const { handleDiscoverModels } = loadSubject();
+
+    const result = await handleDiscoverModels({ provider: 'ollama' });
+
+    expect(result).toContain('## Discovery: ollama');
+    expect(result).toContain('| Discovered | 5 |');
+    expect(result).toContain('| New | 2 |');
+    expect(result).toContain('| Updated | 1 |');
+    expect(result).toContain('| Removed | 0 |');
+    expect(result).toContain('| Capabilities set | 4 |');
+    expect(result).toContain('**Roles assigned:** fast=llama-fast, cheap=llama-cheap');
+  });
+
+  it('returns an unknown-provider message without invoking discovery', async () => {
+    getProviderAdapter.mockReturnValue(null);
+    const { handleDiscoverModels } = loadSubject();
+
+    const result = await handleDiscoverModels({ provider: 'missing-provider' });
+
+    expect(result).toBe('Unknown provider: missing-provider. Use list_providers to see available providers.');
+    expect(discoverFromAdapter).not.toHaveBeenCalled();
+  });
+
+  it('formats provider-specific discovery errors', async () => {
+    discoverFromAdapter.mockResolvedValue({ error: 'Network timeout' });
+    const { handleDiscoverModels } = loadSubject();
+
+    const result = await handleDiscoverModels({ provider: 'ollama' });
+
+    expect(result).toBe('## Discovery: ollama\n\nError: Network timeout');
+  });
+
+  it('formats all-provider discovery results with multiple providers', async () => {
+    discoverAllModels.mockResolvedValue({
+      ollama: {
+        discovered: 3,
+        new: 1,
+        updated: 1,
+        removed: 0,
+        capabilities_set: 2,
+        roles_assigned: [{ role: 'local', model: 'llama3' }],
+      },
+      groq: {
+        discovered: 2,
+        new: 0,
+        updated: 2,
+        removed: 1,
+        capabilities_set: 2,
+        roles_assigned: [],
+      },
+    });
+    const { handleDiscoverModels } = loadSubject();
+
+    const result = await handleDiscoverModels({});
+
+    expect(discoverAllModels).toHaveBeenCalledWith(db);
+    expect(result).toContain('## Model Discovery Results');
+    expect(result).toContain('## Discovery: ollama');
+    expect(result).toContain('| Discovered | 3 |');
+    expect(result).toContain('**Roles assigned:** local=llama3');
+    expect(result).toContain('## Discovery: groq');
+    expect(result).toContain('| Removed | 1 |');
+  });
+
+  it('formats empty all-provider discovery results', async () => {
+    discoverAllModels.mockResolvedValue({});
+    const { handleDiscoverModels } = loadSubject();
+
+    const result = await handleDiscoverModels({});
+
+    expect(result).toBe(
+      '## Model Discovery\n\nNo providers available for discovery. Enable providers with API keys first.',
+    );
+  });
+
+  it('formats OpenRouter scout details', async () => {
+    discoverFromAdapter.mockResolvedValue({
+      discovered: 4,
+      new: 2,
+      updated: 0,
+      removed: 0,
+      capabilities_set: 4,
+      roles_assigned: [],
+      openrouter_scout: {
+        scored: 3,
+        roles_assigned: [{ role: 'reasoning', model: 'deepseek/deepseek-r1' }],
+        top_models: [
+          { model_name: 'deepseek/deepseek-r1', score: 98 },
+          { model_name: 'qwen/qwen3-32b', score: 91 },
+        ],
+      },
+    });
+    const { handleDiscoverModels } = loadSubject();
+
+    const result = await handleDiscoverModels({ provider: 'openrouter' });
+
+    expect(result).toContain('**OpenRouter scout:** scored 3 model(s); roles reasoning=deepseek/deepseek-r1');
+    expect(result).toContain('Top scored: deepseek/deepseek-r1 (98), qwen/qwen3-32b (91)');
+  });
+
+  it('createDiscoveryHandlers exposes handleDiscoverModels', () => {
+    const { createDiscoveryHandlers, handleDiscoverModels } = loadSubject();
+
+    expect(createDiscoveryHandlers()).toEqual({ handleDiscoverModels });
   });
 });
