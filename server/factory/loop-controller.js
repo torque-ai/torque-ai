@@ -3649,6 +3649,65 @@ function cancelLiveFactoryBatchTasks(batchId, options = {}) {
   return result;
 }
 
+function getActiveBatchWorktreeForPlanGate({ projectId, workItemId, batchId }) {
+  if (!projectId || !workItemId || !batchId) {
+    return null;
+  }
+
+  try {
+    return factoryWorktrees.getActiveWorktreeByBatchAndWorkItem(batchId, workItemId);
+  } catch (err) {
+    logger.debug('Factory plan gate: active worktree lookup failed', {
+      project_id: projectId,
+      work_item_id: workItemId,
+      batch_id: batchId,
+      err: err && err.message,
+    });
+    return null;
+  }
+}
+
+function getLiveActiveBatchWorktreeOwner({
+  projectId,
+  workItemId,
+  batchId,
+  activeWorktree = null,
+}) {
+  if (!projectId || !workItemId || !batchId) {
+    return null;
+  }
+  const owningTaskId = activeWorktree?.owningTaskId || activeWorktree?.owning_task_id || null;
+  if (!activeWorktree || !owningTaskId) {
+    return null;
+  }
+
+  let owner = null;
+  try {
+    const taskCore = require('../db/task-core');
+    owner = typeof taskCore.getTask === 'function' ? taskCore.getTask(owningTaskId) : null;
+  } catch (err) {
+    logger.debug('Factory batch owner lookup: task-core unavailable', {
+      project_id: projectId,
+      work_item_id: workItemId,
+      batch_id: batchId,
+      owning_task_id: owningTaskId,
+      err: err && err.message,
+    });
+    return null;
+  }
+
+  const ownerStatus = String(owner?.status || '').toLowerCase();
+  if (!isLiveWorktreeOwner(owner, ownerStatus)) {
+    return null;
+  }
+
+  return {
+    worktree: activeWorktree,
+    owner,
+    ownerStatus,
+  };
+}
+
 function resolvePendingApprovalBatchId(project, workItem, executionDecision, startedExecutionDecision) {
   return startedExecutionDecision?.outcome?.batch_id
     || executionDecision?.batch_id
@@ -10256,95 +10315,158 @@ async function executePlanFileStage(project, instance, workItem) {
     work_item_id: targetItem.id,
     batch_id: executeLogBatchId,
   });
-  // EXECUTE can be entered directly after restart, deferred approval, or
-  // recovery. Re-run the pre-written plan gate here before any worktree is
-  // created so legacy/resumed plan files cannot start tasks and only then be
-  // rejected by PLAN on a later loop.
-  try {
-    const planQualityGate = require('./plan-quality-gate');
-    const planText = fs.readFileSync(targetItem.origin.plan_path, 'utf8');
-    const gateVerdict = await planQualityGate.evaluatePlan({
-      plan: planText,
-      workItem: targetItem,
-      project,
-      projectConfig: getProjectConfigForPlanGate(project),
-    });
-    if (gateVerdict && !gateVerdict.passed) {
-      const failedRules = gateVerdict.hardFails.map((h) => h.rule);
-      const routed = routePlanQualityGateFailureToNeedsReplan(targetItem, gateVerdict);
-      const cancellation = cancelLiveFactoryBatchTasks(executeLogBatchId, {
-        reason: `Factory cancelled live task because EXECUTE pre-written plan was rejected before worktree creation for batch ${executeLogBatchId}.`,
-        cancel_reason: 'factory_plan_rejected',
-        terminal_status: 'cancelled',
-      });
-      updateInstanceAndSync(instance.id, {
-        batch_id: null,
-        last_action_at: nowIso(),
-      });
-      logger.warn('EXECUTE stage: pre-written plan rejected by quality gate before worktree creation', {
-        project_id: project.id,
-        work_item_id: targetItem.id,
-        plan_path: targetItem.origin.plan_path,
-        rules: failedRules,
-        cancelled_tasks: cancellation.cancelled_task_ids.length,
-        failed_cancellations: cancellation.failed_cancellations.length,
-      });
+  const activeBatchWorktree = getActiveBatchWorktreeForPlanGate({
+    projectId: project.id,
+    workItemId: targetItem.id,
+    batchId: executeLogBatchId,
+  });
+  const liveActiveBatchOwner = getLiveActiveBatchWorktreeOwner({
+    projectId: project.id,
+    workItemId: targetItem.id,
+    batchId: executeLogBatchId,
+    activeWorktree: activeBatchWorktree,
+  });
+  if (liveActiveBatchOwner) {
+    const retryAfter = new Date(Date.now() + AUTO_ADVANCE_DEFERRED_FALLBACK_DELAY_MS).toISOString();
+    const skipKey = `${instance.id}:${liveActiveBatchOwner.owner.id}:plan-gate`;
+    const now = Date.now();
+    const lastEmit = inFlightSameWiSkipEmitTimestamps.get(skipKey) || 0;
+    const shouldEmit = (now - lastEmit) >= IN_FLIGHT_SAME_WI_SKIP_LOG_INTERVAL_MS;
+    if (shouldEmit) {
+      if (inFlightSameWiSkipEmitTimestamps.size >= IN_FLIGHT_SAME_WI_SKIP_TRACKING_MAX_ENTRIES) {
+        const oldestKey = inFlightSameWiSkipEmitTimestamps.keys().next().value;
+        if (oldestKey !== undefined) inFlightSameWiSkipEmitTimestamps.delete(oldestKey);
+      }
+      inFlightSameWiSkipEmitTimestamps.set(skipKey, now);
       safeLogDecision({
         project_id: project.id,
         stage: LOOP_STATES.EXECUTE,
-        action: 'pre_written_plan_quality_rejected_before_execute',
-        reasoning: `Pre-written plan failed quality gate before EXECUTE worktree creation: ${failedRules.join(', ')}.`,
+        action: 'worktree_reclaim_skipped_in_flight_same_wi',
+        reasoning: 'Skipped pre-written plan gate and pre-reclaim because the worktree row belongs to the in-flight task for this same work item.',
         inputs: {
           ...getWorkItemDecisionContext(targetItem),
           plan_path: targetItem.origin.plan_path,
         },
         outcome: {
-          gate_only_evaluated: true,
-          rule_violations: gateVerdict.hardFails,
-          plan_path: targetItem.origin.plan_path,
-          next_status: routed.status,
-          cancelled_tasks: cancellation.cancelled_task_ids,
-          cancellation_failed_tasks: cancellation.failed_cancellations,
-          ...getWorkItemDecisionContext(targetItem),
+          factory_worktree_id: liveActiveBatchOwner.worktree.id,
+          batch_id: executeLogBatchId,
+          owning_task_id: liveActiveBatchOwner.owner.id,
+          owning_status: liveActiveBatchOwner.ownerStatus,
+          gate_deferred: true,
+          retry_after: retryAfter,
         },
         confidence: 1,
         batch_id: executeLogBatchId,
       });
-      return {
-        next_state: LOOP_STATES.PRIORITIZE,
-        stop_execution: true,
-        reason: 'pre-written plan rejected by quality gate',
-        work_item: routed,
-        stage_result: {
-          status: 'needs_replan',
-          reason: 'pre_written_plan_rejected_by_quality_gate',
-          work_item_id: routed.id,
-          plan_path: targetItem.origin.plan_path,
-          rule_violations: failedRules,
-          cancelled_tasks: cancellation.cancelled_task_ids,
-          cancellation_failed_tasks: cancellation.failed_cancellations,
-        },
-      };
     }
-  } catch (err) {
-    logger.warn('execute pre-written plan-quality-gate evaluation failed; proceeding (fail-open)', {
-      project_id: project.id,
-      work_item_id: targetItem.id,
-      plan_path: targetItem.origin.plan_path,
-      err: err.message,
-    });
-    safeLogDecision({
-      project_id: project.id,
-      stage: LOOP_STATES.EXECUTE,
-      action: 'plan_quality_gate_fail_open',
-      reasoning: `Execute pre-written plan gate threw: ${err.message}`,
-      outcome: {
+    return {
+      next_state: LOOP_STATES.EXECUTE,
+      stop_execution: true,
+      reason: 'active factory batch task still running before plan gate',
+      work_item: targetItem,
+      stage_result: {
+        status: 'waiting',
+        reason: 'in_flight_owner_same_wi',
+        factory_worktree_id: liveActiveBatchOwner.worktree.id,
+        owning_task_id: liveActiveBatchOwner.owner.id,
+        owning_status: liveActiveBatchOwner.ownerStatus,
+        retry_after: retryAfter,
+      },
+    };
+  }
+  // EXECUTE can be entered directly after restart, deferred approval, or
+  // recovery. Re-run the pre-written plan gate only while the batch has not
+  // created its factory worktree yet. Once a batch worktree exists, the plan
+  // has already crossed the "before create" boundary and later EXECUTE ticks
+  // must preserve in-flight or completed task output instead of re-gating a
+  // progress-mutated plan file.
+  if (!activeBatchWorktree) {
+    try {
+      const planQualityGate = require('./plan-quality-gate');
+      const planText = fs.readFileSync(targetItem.origin.plan_path, 'utf8');
+      const gateVerdict = await planQualityGate.evaluatePlan({
+        plan: planText,
+        workItem: targetItem,
+        project,
+        projectConfig: getProjectConfigForPlanGate(project),
+      });
+      if (gateVerdict && !gateVerdict.passed) {
+        const failedRules = gateVerdict.hardFails.map((h) => h.rule);
+        const routed = routePlanQualityGateFailureToNeedsReplan(targetItem, gateVerdict);
+        const cancellation = cancelLiveFactoryBatchTasks(executeLogBatchId, {
+          reason: `Factory cancelled live task because EXECUTE pre-written plan was rejected before worktree creation for batch ${executeLogBatchId}.`,
+          cancel_reason: 'factory_plan_rejected',
+          terminal_status: 'cancelled',
+        });
+        updateInstanceAndSync(instance.id, {
+          batch_id: null,
+          last_action_at: nowIso(),
+        });
+        logger.warn('EXECUTE stage: pre-written plan rejected by quality gate before worktree creation', {
+          project_id: project.id,
+          work_item_id: targetItem.id,
+          plan_path: targetItem.origin.plan_path,
+          rules: failedRules,
+          cancelled_tasks: cancellation.cancelled_task_ids.length,
+          failed_cancellations: cancellation.failed_cancellations.length,
+        });
+        safeLogDecision({
+          project_id: project.id,
+          stage: LOOP_STATES.EXECUTE,
+          action: 'pre_written_plan_quality_rejected_before_execute',
+          reasoning: `Pre-written plan failed quality gate before EXECUTE worktree creation: ${failedRules.join(', ')}.`,
+          inputs: {
+            ...getWorkItemDecisionContext(targetItem),
+            plan_path: targetItem.origin.plan_path,
+          },
+          outcome: {
+            gate_only_evaluated: true,
+            rule_violations: gateVerdict.hardFails,
+            plan_path: targetItem.origin.plan_path,
+            next_status: routed.status,
+            cancelled_tasks: cancellation.cancelled_task_ids,
+            cancellation_failed_tasks: cancellation.failed_cancellations,
+            ...getWorkItemDecisionContext(targetItem),
+          },
+          confidence: 1,
+          batch_id: executeLogBatchId,
+        });
+        return {
+          next_state: LOOP_STATES.PRIORITIZE,
+          stop_execution: true,
+          reason: 'pre-written plan rejected by quality gate',
+          work_item: routed,
+          stage_result: {
+            status: 'needs_replan',
+            reason: 'pre_written_plan_rejected_by_quality_gate',
+            work_item_id: routed.id,
+            plan_path: targetItem.origin.plan_path,
+            rule_violations: failedRules,
+            cancelled_tasks: cancellation.cancelled_task_ids,
+            cancellation_failed_tasks: cancellation.failed_cancellations,
+          },
+        };
+      }
+    } catch (err) {
+      logger.warn('execute pre-written plan-quality-gate evaluation failed; proceeding (fail-open)', {
+        project_id: project.id,
         work_item_id: targetItem.id,
         plan_path: targetItem.origin.plan_path,
-      },
-      confidence: 1,
-      batch_id: executeLogBatchId,
-    });
+        err: err.message,
+      });
+      safeLogDecision({
+        project_id: project.id,
+        stage: LOOP_STATES.EXECUTE,
+        action: 'plan_quality_gate_fail_open',
+        reasoning: `Execute pre-written plan gate threw: ${err.message}`,
+        outcome: {
+          work_item_id: targetItem.id,
+          plan_path: targetItem.origin.plan_path,
+        },
+        confidence: 1,
+        batch_id: executeLogBatchId,
+      });
+    }
   }
   const resumedDeferredExecute = project.status !== 'paused'
     ? getLatestExecutePausedDeferral({

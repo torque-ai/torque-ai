@@ -18,6 +18,7 @@ const awaitModule = require('../handlers/workflow/await');
 const taskCore = require('../db/task-core');
 const taskManager = require('../task-manager');
 const branchFreshness = require('../factory/branch-freshness');
+const planQualityGate = require('../factory/plan-quality-gate');
 const loopController = require('../factory/loop-controller');
 const verifyReview = require('../factory/verify-review');
 const { LOOP_STATES } = require('../factory/loop-states');
@@ -889,6 +890,129 @@ Edit server/factory/plan-executor.js and make the requested behavior change. Kee
         cancelled_tasks: ['task-stale-plan-batch'],
       }),
     });
+  });
+
+  it('does not rerun the pre-written plan gate while the current batch worktree owner is live', async () => {
+    const { project, workItem, planPath } = registerPlanProject();
+    fs.writeFileSync(planPath, `# Weak plan
+
+**Tech Stack:** Node.js.
+
+## Task 1: Modify the helper
+
+Edit server/factory/plan-executor.js and make the requested behavior change. Keep the implementation small, stay inside the helper module, and leave unrelated files alone.
+`);
+    db.prepare('ALTER TABLE factory_worktrees ADD COLUMN owning_task_id TEXT').run();
+    const batchId = `factory-${project.id}-${workItem.id}`;
+    const instance = factoryLoopInstances.createInstance({
+      project_id: project.id,
+      work_item_id: workItem.id,
+      batch_id: batchId,
+    });
+    factoryLoopInstances.updateInstance(instance.id, {
+      loop_state: LOOP_STATES.EXECUTE,
+      work_item_id: workItem.id,
+      batch_id: batchId,
+      paused_at_stage: null,
+    });
+    factoryHealth.updateProject(project.id, {
+      loop_state: LOOP_STATES.EXECUTE,
+      loop_batch_id: batchId,
+      loop_paused_at_stage: null,
+    });
+    const worktreePath = path.join(project.path, '.worktrees', 'feat-live-plan-owner');
+    fs.mkdirSync(worktreePath, { recursive: true });
+    const existing = factoryWorktrees.recordWorktree({
+      project_id: project.id,
+      work_item_id: workItem.id,
+      batch_id: batchId,
+      vc_worktree_id: 'vc-live-plan-owner',
+      branch: `feat/factory-${workItem.id}-dry-run-plan-item`,
+      worktree_path: worktreePath,
+    });
+    factoryWorktrees.setOwningTask(existing.id, 'task-live-plan-owner');
+    db.prepare(`
+      INSERT INTO tasks (id, status, tags, working_directory, started_at)
+      VALUES (?, ?, ?, ?, ?)
+    `).run(
+      'task-live-plan-owner',
+      'running',
+      JSON.stringify([
+        `factory:batch_id=${batchId}`,
+        `factory:work_item_id=${workItem.id}`,
+        'factory:plan_task_number=2',
+        'project:torque-public',
+      ]),
+      worktreePath,
+      new Date().toISOString(),
+    );
+    taskCore.getTask = vi.fn((taskId) => ({
+      id: taskId,
+      status: taskId === 'task-live-plan-owner' ? 'running' : 'completed',
+      started_at: taskId === 'task-live-plan-owner' ? new Date().toISOString() : null,
+      error_output: null,
+    }));
+    const gateSpy = vi.spyOn(planQualityGate, 'evaluatePlan')
+      .mockRejectedValue(new Error('plan gate should defer while batch owner is live'));
+
+    const worktreeRunner = {
+      createForBatch: vi.fn(),
+      verify: vi.fn(),
+      mergeToMain: vi.fn(),
+      abandon: vi.fn(),
+    };
+    loopController.setWorktreeRunnerForTests(worktreeRunner);
+
+    try {
+      const executeAdvance = await loopController.advanceLoopForProject(project.id);
+
+      expect(executeAdvance.new_state).toBe(LOOP_STATES.EXECUTE);
+      expect(executeAdvance.paused_at_stage).toBeNull();
+      expect(executeAdvance.stage_result).toMatchObject({
+        status: 'waiting',
+        reason: 'in_flight_owner_same_wi',
+        factory_worktree_id: existing.id,
+        owning_task_id: 'task-live-plan-owner',
+        owning_status: 'running',
+        retry_after: expect.any(String),
+      });
+      expect(gateSpy).not.toHaveBeenCalled();
+      expect(taskManager.cancelTask).not.toHaveBeenCalled();
+      expect(worktreeRunner.createForBatch).not.toHaveBeenCalled();
+      expect(routingModule.handleSmartSubmitTask).not.toHaveBeenCalled();
+      expect(db.prepare('SELECT status FROM factory_worktrees WHERE id = ?').get(existing.id).status).toBe('active');
+      expect(factoryIntake.getWorkItem(workItem.id).reject_reason).toBeNull();
+
+      const decisions = listDecisionRows(db, project.id);
+      expect(decisions.find((d) => d.action === 'worktree_reclaim_skipped_in_flight_same_wi')).toMatchObject({
+        outcome: expect.objectContaining({
+          factory_worktree_id: existing.id,
+          owning_task_id: 'task-live-plan-owner',
+          owning_status: 'running',
+          gate_deferred: true,
+        }),
+      });
+      expect(decisions.find((d) => d.action === 'pre_written_plan_quality_rejected_before_execute')).toBeFalsy();
+
+      taskCore.getTask = vi.fn((taskId) => ({
+        id: taskId,
+        status: 'completed',
+        started_at: new Date().toISOString(),
+        completed_at: new Date().toISOString(),
+        error_output: null,
+      }));
+      gateSpy.mockClear();
+
+      const resumedAdvance = await loopController.advanceLoopForProject(project.id);
+
+      expect(gateSpy).not.toHaveBeenCalled();
+      expect(resumedAdvance.new_state).toBe(LOOP_STATES.VERIFY);
+      expect(routingModule.handleSmartSubmitTask).toHaveBeenCalledWith(expect.objectContaining({
+        working_directory: worktreePath,
+      }));
+    } finally {
+      gateSpy.mockRestore();
+    }
   });
 
   it('clears generated plan files before replanning a needs_replan item', async () => {
