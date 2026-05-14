@@ -747,7 +747,7 @@ function start(options = {}) {
 
     const sseHost = process.env.TORQUE_API_HOST || '127.0.0.1';
     sseServer.listen(requestedPort, sseHost, () => {
-      const address = sseServer.address();
+      const address = typeof sseServer.address === 'function' ? sseServer.address() : null;
       if (address && typeof address.port === 'number') {
         ssePort = address.port;
       }
