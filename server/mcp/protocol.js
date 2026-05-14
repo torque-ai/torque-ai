@@ -5,13 +5,36 @@ const DEFAULT_PROTOCOL_VERSION = '2024-11-05';
 const SECURITY_WARNING_MESSAGE = 'TORQUE is running without authentication. Run configure to set an API key.';
 
 // ── Streaming artifact protocol (Bolt.diy-style action tags) ─────────────────
-// Matches <action type="file" path="...">content</action>
-// and     <action type="shell" cmd="...">content</action>
-// Supports incremental chunked results with journaling for revert.
+//
+// Provider results may embed structured artifact actions inline using XML-style
+// tags.  The protocol recognises two action types:
+//
+//   <action type="file" path="relative/path.js">file content</action>
+//   <action type="shell" cmd="npm install foo">optional stdin</action>
+//
+// When a tools/call result contains these tags the protocol layer automatically:
+//   1. Parses every <action> tag via parseStreamingArtifacts().
+//   2. Journals each action into session._artifactJournal for revert support.
+//   3. Attaches the parsed array to result._streamingArtifacts so downstream
+//      consumers (SSE transport, webhooks-streaming) can act on them without
+//      re-parsing.
+//
+// The regex intentionally uses a non-greedy content match ([\s\S]*?) so that
+// multiple actions in the same text block are parsed independently.
+//
+// See also: server/db/webhooks-streaming.js (streaming chunk accumulation) and
+//           server/transports/sse/protocol.js (SSE artifact forwarding).
 const ACTION_TAG_RE = /<action\s+type="(file|shell)"(?:\s+path="([^"]*)")?(?:\s+cmd="([^"]*)")?\s*>([\s\S]*?)<\/action>/g;
 
 /**
  * Parse streaming artifact action tags from a text string.
+ *
+ * Recognised tag shapes:
+ *   `<action type="file" path="src/foo.js">content</action>`
+ *   `<action type="shell" cmd="npm test">optional stdin</action>`
+ *
+ * File actions carry a `path` property; shell actions carry a `cmd` property.
+ * Both always carry `content` (the body between open/close tags).
  *
  * @param {string} text - Raw text that may contain `<action>` tags.
  * @returns {Array<{ type: 'file'|'shell', path?: string, cmd?: string, content: string }>}
@@ -33,12 +56,16 @@ function parseStreamingArtifacts(text) {
 
 /**
  * Process artifact actions extracted from a tool result, journaling each for
- * revertability. Mutates `session._artifactJournal` (creates it if absent).
+ * revertability.  Mutates `session._artifactJournal` (creates it if absent).
  *
- * @param {Array} actions - Parsed action entries from parseStreamingArtifacts.
- * @param {object} session - MCP session (mutated: _artifactJournal appended).
+ * Each journal entry records `{ toolName, timestamp, type, content, path?, cmd? }`
+ * so that a future revert operation can undo file writes or re-run compensating
+ * shell commands in reverse chronological order.
+ *
+ * @param {Array} actions  - Parsed action entries from {@link parseStreamingArtifacts}.
+ * @param {object} session - MCP session (mutated: `_artifactJournal` array appended).
  * @param {string} toolName - Name of the originating tool call.
- * @returns {Array} The same actions array (pass-through for chaining).
+ * @returns {Array} The same `actions` array (pass-through for chaining).
  */
 function journalArtifactActions(actions, session, toolName) {
   if (!actions || actions.length === 0) return actions;
