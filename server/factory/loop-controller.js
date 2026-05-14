@@ -2695,12 +2695,51 @@ function getPlanGeneratorLabel(provider) {
   return normalizeOptionalString(provider) || PLAN_GENERATOR_LABEL;
 }
 
+function normalizeReusablePlanPath(value) {
+  const normalized = normalizeOptionalString(value);
+  if (!normalized) return null;
+  try {
+    return path.resolve(normalized).replace(/\\/g, '/').toLowerCase();
+  } catch {
+    return normalized.replace(/\\/g, '/').toLowerCase();
+  }
+}
+
+function getReusableTaskMetadata(task) {
+  const metadata = task?.metadata ?? task?.task_metadata;
+  if (!metadata) return {};
+  if (typeof metadata === 'object' && !Array.isArray(metadata)) return metadata;
+  if (typeof metadata !== 'string') return {};
+  try {
+    const parsed = JSON.parse(metadata);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function reusableTaskMatchesPlanContext(candidate, { planPath, workingDirectory }) {
+  const expectedPlanPath = normalizeReusablePlanPath(planPath);
+  if (!expectedPlanPath) return true;
+
+  const metadata = getReusableTaskMetadata(candidate);
+  const candidatePlanPath = normalizeReusablePlanPath(metadata.plan_path || metadata.planPath);
+  if (candidatePlanPath) {
+    return candidatePlanPath === expectedPlanPath;
+  }
+
+  const expectedWorkingDirectory = normalizeReusablePlanPath(workingDirectory);
+  const candidateWorkingDirectory = normalizeReusablePlanPath(candidate?.working_directory || candidate?.workingDirectory);
+  return Boolean(expectedWorkingDirectory && candidateWorkingDirectory && candidateWorkingDirectory === expectedWorkingDirectory);
+}
+
 function findExistingPlanTaskSubmission(taskCore, {
   projectName,
   workingDirectory,
   workItemId,
   planTaskNumber,
   batchId = null,
+  planPath = null,
   stalePendingMs = DEFAULT_STALE_PENDING_PLAN_GENERATION_MS,
 }) {
   if (!taskCore || typeof taskCore.listTasks !== 'function') {
@@ -2730,7 +2769,7 @@ function findExistingPlanTaskSubmission(taskCore, {
       orderBy: 'created_at',
       orderDir: 'desc',
       limit: 100,
-      columns: ['id', 'status', 'tags', 'created_at', 'started_at'],
+      columns: ['id', 'status', 'tags', 'created_at', 'started_at', 'metadata', 'working_directory'],
     });
 
     candidates = queryCandidates({
@@ -2754,6 +2793,7 @@ function findExistingPlanTaskSubmission(taskCore, {
     Array.isArray(candidate?.tags)
     && candidate.tags.includes(workItemTag)
     && candidate.tags.includes(planTaskTag)
+    && reusableTaskMatchesPlanContext(candidate, { planPath, workingDirectory })
   ));
   if (matching.length === 0) {
     return null;
@@ -10948,6 +10988,7 @@ async function executePlanFileStage(project, instance, workItem) {
       workItemId: targetItem.id,
       planTaskNumber: args.task?.task_number ?? args.plan_task_number,
       batchId: submissionBatchId,
+      planPath: targetItem.origin?.plan_path || null,
     }),
     projectDefaults: project.config || {},
     onDryRunTask: dry_run ? async ({ task, prompt, file_paths, simulated, submitted_task_id, initial_status, execution_mode }) => {
