@@ -407,8 +407,8 @@ function init(deps) {
   getProviderSlotLimits = deps.getProviderSlotLimits;
   getEffectiveGlobalMaxConcurrent = deps.getEffectiveGlobalMaxConcurrent;
   spawnAndTrackProcess = deps.spawnAndTrackProcess;
-  buildClaudeCliCommand = deps.buildClaudeCliCommand;
-  buildCodexCommand = deps.buildCodexCommand;
+  buildClaudeCliCommand = resolveCommandBuilder('buildClaudeCliCommand', deps.buildClaudeCliCommand, deps.commandBuilders);
+  buildCodexCommand = resolveCommandBuilder('buildCodexCommand', deps.buildCodexCommand, deps.commandBuilders);
   buildFileContext = deps.buildFileContext;
   resolveFileReferences = deps.resolveFileReferences;
   executeOllamaTask = deps.executeOllamaTask;
@@ -420,6 +420,30 @@ function init(deps) {
   sanitizeTaskOutput = deps.sanitizeTaskOutput;
   detectOutputCompletion = deps.detectOutputCompletion;
   QUEUE_LOCK_HOLDER_ID = deps.QUEUE_LOCK_HOLDER_ID;
+}
+
+function getCommandBuildersService(explicitService) {
+  if (explicitService && typeof explicitService === 'object') {
+    return explicitService;
+  }
+  try {
+    const { defaultContainer } = require('../container');
+    const service = defaultContainer.peek?.('commandBuilders');
+    if (service && typeof service === 'object') return service;
+  } catch { /* fall through */ }
+  try {
+    return require('./command-builders');
+  } catch {
+    return null;
+  }
+}
+
+function resolveCommandBuilder(name, candidate, explicitService) {
+  if (typeof candidate === 'function') {
+    return candidate;
+  }
+  const service = getCommandBuildersService(explicitService);
+  return typeof service?.[name] === 'function' ? service[name] : candidate;
 }
 
 // ── NVM / Windows helpers ──────────────────────────────────────────────────
@@ -679,9 +703,18 @@ async function buildProviderStartupCommand({
     };
   }
 
+  const builderName = provider === 'claude-cli' ? 'buildClaudeCliCommand' : 'buildCodexCommand';
+  const builder = resolveCommandBuilder(
+    builderName,
+    provider === 'claude-cli' ? buildClaudeCliCommand : buildCodexCommand,
+  );
+  if (typeof builder !== 'function') {
+    throw new TypeError(`${builderName} is not available`);
+  }
+
   const command = provider === 'claude-cli'
-    ? buildClaudeCliCommand(executionTask, providerConfig, resolvedFileContext)
-    : await buildCodexCommand(executionTask, providerConfig, resolvedFileContext, resolvedFiles);
+    ? builder(executionTask, providerConfig, resolvedFileContext)
+    : await builder(executionTask, providerConfig, resolvedFileContext, resolvedFiles);
 
   const envVars = buildProviderStartupEnv({
     taskId,
@@ -2332,13 +2365,16 @@ function createTaskStartup(localDeps = {}) {
       if (resolved.getEffectiveGlobalMaxConcurrent === undefined) resolved.getEffectiveGlobalMaxConcurrent = pr.getEffectiveGlobalMaxConcurrent;
     } catch { /* fall through */ }
   }
-  // Command builders.
-  if (resolved.buildClaudeCliCommand === undefined || resolved.buildCodexCommand === undefined) {
-    try {
-      const cb = require('./command-builders');
-      if (resolved.buildClaudeCliCommand === undefined) resolved.buildClaudeCliCommand = cb.buildClaudeCliCommand;
-      if (resolved.buildCodexCommand === undefined) resolved.buildCodexCommand = cb.buildCodexCommand;
-    } catch { /* fall through */ }
+  // Command builders. Treat malformed DI values as missing; async startup
+  // paths can otherwise hold a stale non-function reference after boot races.
+  if (typeof resolved.buildClaudeCliCommand !== 'function' || typeof resolved.buildCodexCommand !== 'function') {
+    const cb = getCommandBuildersService(resolved.commandBuilders);
+    if (typeof resolved.buildClaudeCliCommand !== 'function' && typeof cb?.buildClaudeCliCommand === 'function') {
+      resolved.buildClaudeCliCommand = cb.buildClaudeCliCommand;
+    }
+    if (typeof resolved.buildCodexCommand !== 'function' && typeof cb?.buildCodexCommand === 'function') {
+      resolved.buildCodexCommand = cb.buildCodexCommand;
+    }
   }
   if (resolved.buildFileContext === undefined) {
     try { resolved.buildFileContext = require('./file-context-builder').buildFileContext; }
@@ -2416,8 +2452,8 @@ function createTaskStartup(localDeps = {}) {
     if (resolved.getProviderSlotLimits !== undefined) getProviderSlotLimits = resolved.getProviderSlotLimits;
     if (resolved.getEffectiveGlobalMaxConcurrent !== undefined) getEffectiveGlobalMaxConcurrent = resolved.getEffectiveGlobalMaxConcurrent;
     if (resolved.spawnAndTrackProcess !== undefined) spawnAndTrackProcess = resolved.spawnAndTrackProcess;
-    if (resolved.buildClaudeCliCommand !== undefined) buildClaudeCliCommand = resolved.buildClaudeCliCommand;
-    if (resolved.buildCodexCommand !== undefined) buildCodexCommand = resolved.buildCodexCommand;
+    if (typeof resolved.buildClaudeCliCommand === 'function') buildClaudeCliCommand = resolved.buildClaudeCliCommand;
+    if (typeof resolved.buildCodexCommand === 'function') buildCodexCommand = resolved.buildCodexCommand;
     if (resolved.buildFileContext !== undefined) buildFileContext = resolved.buildFileContext;
     if (resolved.resolveFileReferences !== undefined) resolveFileReferences = resolved.resolveFileReferences;
     if (resolved.executeOllamaTask !== undefined) executeOllamaTask = resolved.executeOllamaTask;
@@ -2493,10 +2529,11 @@ function register(container) {
   // from their canonical modules; runningProcesses + pendingRetryTimeouts
   // from processTracker; cancelTask/processQueue/safeUpdateTaskStatus from
   // taskManager (cancelTask preferring the registered taskCanceller
-  // capability). Only the true container services need to be declared.
+  // capability). commandBuilders is declared so startup never captures a
+  // malformed fallback while the container is booting.
   container.register(
     'taskStartup',
-    ['db', 'dashboard', 'serverConfig', 'providerRegistry', 'gpuMetrics', 'taskManager'],
+    ['db', 'dashboard', 'serverConfig', 'providerRegistry', 'gpuMetrics', 'taskManager', 'commandBuilders'],
     (deps) => createTaskStartup(deps)
   );
 }

@@ -2528,6 +2528,45 @@ describe('task-startup', () => {
       expect(ctx.deps.buildClaudeCliCommand).toHaveBeenCalledWith(task, expect.any(Object), 'FILE_CTX');
     });
 
+    it('uses commandBuilders service when a captured claude-cli builder is malformed', async () => {
+      const task = createTask({ provider: 'claude-cli', working_directory: 'C:/repo' });
+      const ctx = loadTaskStartup({ task });
+      const commandBuilders = {
+        buildClaudeCliCommand: vi.fn(() => ({
+          cliPath: 'node',
+          finalArgs: ['claude-cli.js'],
+          stdinPrompt: 'claude prompt',
+        })),
+        buildCodexCommand: vi.fn(),
+      };
+      const startup = ctx.module.createTaskStartup({
+        ...ctx.deps,
+        commandBuilders,
+        buildClaudeCliCommand: {},
+      });
+
+      const result = await startup.buildProviderStartupCommand({
+        taskId: task.id,
+        task,
+        provider: 'claude-cli',
+        providerConfig: { enabled: true },
+        executionTask: task,
+        resolvedFileContext: 'FILE_CTX',
+        resolvedFiles: [],
+        runDir: null,
+        taskMetadata: {},
+        env: { PATH: '/usr/bin', HOME: '/tmp/torque-home' },
+        platform: 'linux',
+        nvmNodePath: null,
+        resolveCmdToNode: vi.fn(() => null),
+        captureBaselineCommit: vi.fn(() => null),
+        log: { info: vi.fn(), warn: vi.fn() },
+      });
+
+      expect(result.mode).toBe('spawn');
+      expect(commandBuilders.buildClaudeCliCommand).toHaveBeenCalledWith(task, expect.any(Object), 'FILE_CTX');
+    });
+
     it('resolves .cmd to node on Windows platform', async () => {
       const task = createTask({ provider: 'codex', working_directory: 'C:/repo' });
       const ctx = loadTaskStartup({ task });
