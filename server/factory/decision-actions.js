@@ -335,6 +335,11 @@ const DECISION_ACTIONS = {
     classifier: 'benign',
     outcome: ['factory_worktree_id', 'worktree_id', 'worktree_path', 'branch', 'baseRef', 'reuse_context'],
   },
+  factory_worktree_reuse_invalid_detected: {
+    stage: 'EXECUTE',
+    classifier: 'benign',
+    outcome: ['factory_worktree_id', 'worktree_id', 'worktree_path', 'branch', 'baseRef', 'threshold', 'reuse_context', 'reason', 'error', 'fallback_suffix'],
+  },
   factory_worktree_reuse_rebase_failed: {
     stage: 'EXECUTE',
     classifier: 'benign',
