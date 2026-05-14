@@ -1277,6 +1277,10 @@ describe('factory loop-controller EXECUTE for non-plan-file work items', () => {
     factoryIntake.updateWorkItem(workItem.id, {
       origin_json: {
         plan_generation_task_id: 'plan-gen-task',
+        plan_generation_provider_fallback_count: 1,
+        plan_generation_provider_fallback_from: 'ollama',
+        plan_generation_provider_fallback_to: 'claude-cli',
+        plan_generation_provider_fallback_error: 'connect ETIMEDOUT ollama-plan-host:11434',
       },
     });
     taskCore.getTask = vi.fn((taskId) => ({
@@ -1865,6 +1869,10 @@ describe('factory loop-controller EXECUTE for non-plan-file work items', () => {
       }),
     });
     expect(updatedWorkItem.origin.plan_generation_task_id).toBeUndefined();
+    expect(updatedWorkItem.origin.plan_generation_provider_fallback_count).toBeUndefined();
+    expect(updatedWorkItem.origin.plan_generation_provider_fallback_from).toBeUndefined();
+    expect(updatedWorkItem.origin.plan_generation_provider_fallback_to).toBeUndefined();
+    expect(updatedWorkItem.origin.plan_generation_provider_fallback_error).toBeUndefined();
     expect(createPlanExecutorMock).not.toHaveBeenCalled();
     expect(routingModule.handleSmartSubmitTask).not.toHaveBeenCalled();
 

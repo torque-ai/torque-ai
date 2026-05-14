@@ -2434,6 +2434,10 @@ function clearPlanGenerationWaitFields(origin = {}) {
   delete next.plan_generation_retry_count;
   delete next.plan_generation_last_error;
   delete next.plan_generation_updated_at;
+  delete next.plan_generation_provider_fallback_count;
+  delete next.plan_generation_provider_fallback_from;
+  delete next.plan_generation_provider_fallback_to;
+  delete next.plan_generation_provider_fallback_error;
   return next;
 }
 
@@ -2865,7 +2869,7 @@ function buildPlanGenerationRetryResult({
   const retryAfter = new Date(Date.now() + 60 * 1000).toISOString();
   const origin = getWorkItemOriginObject(targetItem);
   const retryOrigin = {
-    ...origin,
+    ...clearPlanGenerationWaitFields(origin),
     plan_path: planPath,
     plan_generation_status: 'retry_scheduled',
     plan_generation_retry_count: retryCount,
@@ -2873,8 +2877,6 @@ function buildPlanGenerationRetryResult({
     plan_generation_last_error: String(error?.message || error || 'unusable plan-generation output').slice(0, 1000),
     plan_generation_updated_at: nowIso(),
   };
-  delete retryOrigin.plan_generation_task_id;
-  delete retryOrigin.plan_generation_wait_reason;
 
   let updatedWorkItem = targetItem;
   try {
