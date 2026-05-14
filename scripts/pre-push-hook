@@ -1104,7 +1104,7 @@ if ! [[ "$GATE_SERVER_SHARDS" =~ ^[0-9]+$ ]] || [ "$GATE_SERVER_SHARDS" -lt 1 ];
   GATE_SERVER_SHARDS=1
 fi
 if [ "$GATE_SERVER_SHARDS" -gt 1 ]; then
-  echo "[pre-push] Server phase sharding: $GATE_SERVER_SHARDS parallel shards (TORQUE_GATE_SHARDS)"
+  echo "[pre-push] Server phase sharding requested: $GATE_SERVER_SHARDS parallel shards (TORQUE_GATE_SHARDS)"
 fi
 
 if [ "$GATE_RUN_DASHBOARD" = "1" ] || [ "$GATE_RUN_SERVER" = "1" ] || [ "$GATE_RUN_PERF" = "1" ]; then
@@ -1184,8 +1184,9 @@ if [ "$GATE_RUN_DASHBOARD" = "1" ] || [ "$GATE_RUN_SERVER" = "1" ] || [ "$GATE_R
     unset TORQUE_REMOTE_TEST_WORKTREE_SUFFIX
     echo "[pre-push] Running selected local gate phases at $local_head_sha..."
   fi
-  remote_gate_cmd=$(cat <<EOF
+remote_gate_cmd=$(cat <<EOF
 set -uo pipefail
+GATE_SERVER_SHARDS="$GATE_SERVER_SHARDS"
 GATE_COORD_LOCK_ROOT="\${TORQUE_GATE_COORD_LOCK_ROOT:-}"
 GATE_COORD_LOCK_ROOT_CREATED=0
 if [ -z "\$GATE_COORD_LOCK_ROOT" ]; then
@@ -1490,24 +1491,49 @@ configure_local_gate_worker_cap() {
   if ! is_local_gate_transport; then
     return 0
   fi
-  if [ "$GATE_RUN_SERVER" != "1" ]; then
+  if [ "$GATE_RUN_DASHBOARD" != "1" ] && [ "$GATE_RUN_SERVER" != "1" ]; then
     return 0
   fi
   if [ -n "\${VITEST_MAX_WORKERS:-}" ]; then
-    echo "[serv] [setup] preserving VITEST_MAX_WORKERS=\$VITEST_MAX_WORKERS for local gate"
+    echo "[gate] [setup] preserving VITEST_MAX_WORKERS=\$VITEST_MAX_WORKERS for local gate"
     return 0
   fi
 
   local worker_cap="\${PRE_PUSH_LOCAL_VITEST_MAX_WORKERS:-2}"
   case "\$worker_cap" in
     ''|*[!0-9]*|0)
-      echo "[serv] [setup] invalid PRE_PUSH_LOCAL_VITEST_MAX_WORKERS=\$worker_cap; using 2"
+      echo "[gate] [setup] invalid PRE_PUSH_LOCAL_VITEST_MAX_WORKERS=\$worker_cap; using 2"
       worker_cap=2
       ;;
   esac
 
   export VITEST_MAX_WORKERS="\$worker_cap"
-  echo "[serv] [setup] local gate defaulting VITEST_MAX_WORKERS=\$VITEST_MAX_WORKERS"
+  echo "[gate] [setup] local gate defaulting VITEST_MAX_WORKERS=\$VITEST_MAX_WORKERS"
+}
+
+configure_local_gate_server_shards() {
+  if ! is_local_gate_transport; then
+    return 0
+  fi
+  if [ "$GATE_RUN_SERVER" != "1" ]; then
+    return 0
+  fi
+  if [ "\$GATE_SERVER_SHARDS" -le 1 ]; then
+    return 0
+  fi
+
+  local local_shards="\${PRE_PUSH_LOCAL_GATE_SHARDS:-1}"
+  case "\$local_shards" in
+    ''|*[!0-9]*|0)
+      echo "[serv] [setup] invalid PRE_PUSH_LOCAL_GATE_SHARDS=\$local_shards; using 1"
+      local_shards=1
+      ;;
+  esac
+
+  if [ "\$local_shards" -ne "\$GATE_SERVER_SHARDS" ]; then
+    echo "[serv] [setup] local gate using \$local_shards server shard(s) instead of \$GATE_SERVER_SHARDS"
+  fi
+  GATE_SERVER_SHARDS="\$local_shards"
 }
 
 # Phase exit files are the source of truth; output-prefix pipelines are
@@ -1536,7 +1562,7 @@ run_dashboard_phase() {
 # Without this, a starved shard's vitest waits forever on its workers and
 # the entire gate hangs invisibly until the dev-side SSH timeout fires.
 run_server_shards() {
-  local n=${GATE_SERVER_SHARDS}
+  local n="\$GATE_SERVER_SHARDS"
   local k=0
   local any_failed=0
   local per_shard="\${TORQUE_GATE_PER_SHARD_WORKERS:-1}"
@@ -1608,14 +1634,14 @@ run_server_shards() {
 run_server_phase() {
   {
     PHASE_START_MS=\$(gate_now_ms)
-    if [ "${GATE_SERVER_SHARDS}" -gt 1 ]; then
+    if [ "\$GATE_SERVER_SHARDS" -gt 1 ]; then
       run_server_shards
     else
       run_vitest_phase server run --reporter=dot ${GATE_SERVER_TEST_ARGS}
     fi
     PHASE_EXIT=\$?
     PHASE_END_MS=\$(gate_now_ms)
-    echo "[gate-timing] serv_ms=\$(elapsed_ms "\$PHASE_START_MS" "\$PHASE_END_MS") exit=\$PHASE_EXIT shards=${GATE_SERVER_SHARDS}"
+    echo "[gate-timing] serv_ms=\$(elapsed_ms "\$PHASE_START_MS" "\$PHASE_END_MS") exit=\$PHASE_EXIT shards=\$GATE_SERVER_SHARDS"
     echo \$PHASE_EXIT > "\$SERV_EXIT_FILE"
   } 2>&1 | prefix_gate_phase_output serv || true
 }
@@ -1678,6 +1704,7 @@ fi
 SETUP_END_MS=\$(gate_now_ms)
 echo "[gate-timing] setup_ms=\$(elapsed_ms "\$SETUP_START_MS" "\$SETUP_END_MS") exit=0"
 configure_local_gate_worker_cap
+configure_local_gate_server_shards
 
 if is_local_gate_transport; then
   echo "[gate] local transport detected; running dashboard/server phases sequentially"

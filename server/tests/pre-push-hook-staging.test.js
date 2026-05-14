@@ -167,13 +167,16 @@ describe('pre-push-hook staging-branch invariants', () => {
     expect(src).toMatch(/configure_local_gate_worker_cap\s*\(\)/);
     expect(src).toContain('case "\\${TORQUE_REMOTE_TRANSPORT:-ssh}" in');
     expect(src).toContain('PRE_PUSH_LOCAL_VITEST_MAX_WORKERS');
+    expect(src).toContain('PRE_PUSH_LOCAL_GATE_SHARDS');
     expect(src).toContain('local gate defaulting VITEST_MAX_WORKERS=');
+    expect(src).toContain('local gate using \\$local_shards server shard(s) instead of \\$GATE_SERVER_SHARDS');
     expect(src).toMatch(/configure_local_gate_worker_cap[\s\S]*if is_local_gate_transport; then/);
+    expect(src).toMatch(/configure_local_gate_server_shards[\s\S]*if is_local_gate_transport; then/);
     expect(src).toContain('[gate] local transport detected; running dashboard/server phases sequentially');
     expect(src).toMatch(/if is_local_gate_transport; then[\s\S]*run_dashboard_phase[\s\S]*run_server_phase[\s\S]*else[\s\S]*run_dashboard_phase &[\s\S]*run_server_phase &/);
   });
 
-  it('sets a conservative server worker cap only for local fallback gates', () => {
+  it('sets a conservative worker cap only for local fallback gates', () => {
     const bashCheck = spawnSync('bash', ['--version'], { encoding: 'utf8' });
     if (bashCheck.error || bashCheck.status !== 0) return;
 
@@ -186,6 +189,7 @@ describe('pre-push-hook staging-branch invariants', () => {
     const helperBlock = src.slice(start, end).replace(/\\\$/g, '$');
     const script = `${helperBlock}
 GATE_RUN_SERVER=1
+GATE_RUN_DASHBOARD=1
 unset VITEST_MAX_WORKERS PRE_PUSH_LOCAL_VITEST_MAX_WORKERS
 TORQUE_REMOTE_TRANSPORT=local
 configure_local_gate_worker_cap
@@ -215,6 +219,61 @@ printf 'remote=%s\\n' "\${VITEST_MAX_WORKERS:-unset}"
     expect(result.stdout).toContain('invalid PRE_PUSH_LOCAL_VITEST_MAX_WORKERS=bad; using 2');
     expect(result.stdout).toContain('invalid=2');
     expect(result.stdout).toContain('remote=unset');
+  });
+
+  it('clamps local fallback server sharding unless explicitly overridden', () => {
+    const bashCheck = spawnSync('bash', ['--version'], { encoding: 'utf8' });
+    if (bashCheck.error || bashCheck.status !== 0) return;
+
+    const src = readHook();
+    const start = src.indexOf('is_local_gate_transport() {');
+    const end = src.indexOf('# Phase exit files are the source of truth', start);
+    expect(start).toBeGreaterThanOrEqual(0);
+    expect(end).toBeGreaterThan(start);
+
+    const helperBlock = src.slice(start, end).replace(/\\\$/g, '$');
+    const script = `${helperBlock}
+GATE_RUN_SERVER=1
+TORQUE_REMOTE_TRANSPORT=local
+GATE_SERVER_SHARDS=4
+unset PRE_PUSH_LOCAL_GATE_SHARDS
+configure_local_gate_server_shards
+printf 'default=%s\\n' "$GATE_SERVER_SHARDS"
+
+GATE_SERVER_SHARDS=4
+PRE_PUSH_LOCAL_GATE_SHARDS=2
+configure_local_gate_server_shards
+printf 'explicit=%s\\n' "$GATE_SERVER_SHARDS"
+
+GATE_SERVER_SHARDS=4
+PRE_PUSH_LOCAL_GATE_SHARDS=bad
+configure_local_gate_server_shards
+printf 'invalid=%s\\n' "$GATE_SERVER_SHARDS"
+
+GATE_SERVER_SHARDS=4
+unset PRE_PUSH_LOCAL_GATE_SHARDS
+TORQUE_REMOTE_TRANSPORT=ssh
+configure_local_gate_server_shards
+printf 'remote=%s\\n' "$GATE_SERVER_SHARDS"
+`;
+
+    const result = spawnSync('bash', ['-s'], { encoding: 'utf8', input: script });
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toContain('local gate using 1 server shard(s) instead of 4');
+    expect(result.stdout).toContain('default=1');
+    expect(result.stdout).toContain('local gate using 2 server shard(s) instead of 4');
+    expect(result.stdout).toContain('explicit=2');
+    expect(result.stdout).toContain('invalid PRE_PUSH_LOCAL_GATE_SHARDS=bad; using 1');
+    expect(result.stdout).toContain('invalid=1');
+    expect(result.stdout).toContain('remote=4');
+  });
+
+  it('caps dashboard vitest workers from VITEST_MAX_WORKERS', () => {
+    const configPath = path.resolve(__dirname, '..', '..', 'dashboard', 'vitest.config.js');
+    const src = fs.readFileSync(configPath, 'utf8');
+    expect(src).toContain('VITEST_MAX_WORKERS');
+    expect(src).toContain('maxWorkers');
+    expect(src).toContain("pool: 'threads'");
   });
 
   it('labels expected fixture stderr while preserving timing markers', () => {
