@@ -7552,14 +7552,18 @@ function extractNumberedPlanSummaryTasks(rawOutput) {
       break;
     }
 
-    const match = line.match(/^\s*(\d+)[.)]\s+(?:\*\*)?\s*Task\s+(\d+)(?:\s*[:.-]\s*([^*—–-]+?))?\s*(?:\*\*)?\s*(?:[—–-]\s*|:\s*)?(.*)$/i);
+    const numberedMatch = line.match(/^\s*(\d+)[.)]\s+(?:\*\*)?\s*Task\s+(\d+)(?:\s*[:.-]\s*([^*—–-]+?))?\s*(?:\*\*)?\s*(?:[—–-]\s*|:\s*)?(.*)$/i);
+    const bareTaskMatch = numberedMatch
+      ? null
+      : line.match(/^\s*(?:[-*]\s*)?(?:\*\*)?\s*Task\s+(\d+)(?:\s*[:.-]\s*([^*—–-]+?))?\s*(?:\*\*)?\s*(?:[—–-]\s*|:\s*)?(.*)$/i);
+    const match = numberedMatch || bareTaskMatch;
     if (match) {
       flushCurrent();
       current = {
-        listNumber: Number(match[1]),
-        taskNumber: Number(match[2]),
-        explicitTitle: match[3] || '',
-        detail: match[4] || '',
+        listNumber: numberedMatch ? Number(match[1]) : tasks.length + 1,
+        taskNumber: Number(numberedMatch ? match[2] : match[1]),
+        explicitTitle: numberedMatch ? (match[3] || '') : (match[2] || ''),
+        detail: numberedMatch ? (match[4] || '') : (match[3] || ''),
       };
       continue;
     }
@@ -7602,9 +7606,9 @@ function titleFromNumberedPlanSummaryTask(task) {
     .replace(/\([^)]*\)\s*$/g, '')
     .replace(/^\d+\s+/, '')
     .trim();
-  if (/\btests?\b/i.test(title) && !/^(?:add|cover|create|test|validate)\b/i.test(title)) {
+  if (/\btests?\b/i.test(title) && !/^(?:add(?:s|ed|ing)?|cover(?:s|ed|ing)?|create(?:s|d|ing)?|test(?:s|ed|ing)?|validate(?:s|d|ing)?)\b/i.test(title)) {
     title = `Add ${title}`;
-  } else if (!/^(?:add|cover|create|fix|harden|implement|persist|refactor|repair|test|validate|wire)\b/i.test(title)) {
+  } else if (!/^(?:add(?:s|ed|ing)?|cover(?:s|ed|ing)?|create(?:s|d|ing)?|fix(?:es|ed|ing)?|harden(?:s|ed|ing)?|implement(?:s|ed|ing)?|persist(?:s|ed|ing)?|refactor(?:s|ed|ing)?|repair(?:s|ed|ing)?|test(?:s|ed|ing)?|validate(?:s|d|ing)?|wire(?:s|d|ing)?)\b/i.test(title)) {
     title = `Implement ${title}`;
   }
   return (title || `Plan task ${task.taskNumber}`).slice(0, 120).trim();
