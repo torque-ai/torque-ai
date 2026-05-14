@@ -11,6 +11,8 @@ const REST_ROUTE_FILES = [
 
 const API_DOC_PATHS = [
   path.join('docs', 'api'),
+  path.join('server', 'docs', 'api', 'openapi.json'),
+  path.join('server', 'docs', 'api', 'rest-api.md'),
   'api-docs',
   'swagger.json',
   'swagger.yaml',

@@ -15,6 +15,11 @@ describe('api-completeness scorer', () => {
     fs.writeFileSync(filePath, content, 'utf8');
   }
 
+  function writeMatchingApiSurface() {
+    writeFile('server/tool-defs/foo-defs.js', "module.exports = [{ name: 'foo' }];");
+    writeFile('server/api/routes.js', "{ method: 'GET', tool: 'foo' }");
+  }
+
   beforeEach(() => {
     tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'scorer-test-'));
   });
@@ -55,6 +60,26 @@ describe('api-completeness scorer', () => {
 
     expect(result.score).toBeLessThan(50);
     expect(result.findings.some((finding) => /parity/i.test(finding.title))).toBe(true);
+  });
+
+  test('detects published OpenAPI JSON under server docs', () => {
+    writeMatchingApiSurface();
+    writeFile('server/docs/api/openapi.json', '{}');
+
+    const result = score(tempDir, {}, null);
+
+    expect(result.details.hasApiDocs).toBe(true);
+    expect(result.findings.some((finding) => /No API documentation/i.test(finding.title))).toBe(false);
+  });
+
+  test('detects published REST API markdown under server docs', () => {
+    writeMatchingApiSurface();
+    writeFile('server/docs/api/rest-api.md', '# REST API');
+
+    const result = score(tempDir, {}, null);
+
+    expect(result.details.hasApiDocs).toBe(true);
+    expect(result.findings.some((finding) => /No API documentation/i.test(finding.title))).toBe(false);
   });
 
   test('detects ASP.NET controllers and minimal APIs as a real API surface', () => {
