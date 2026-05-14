@@ -1,11 +1,20 @@
 'use strict';
 
-function resolveDatabase() {
+const {
+  resolveContainerDbService,
+  unwrapDbHandle,
+} = require('../utils/db-accessor');
+
+function resolveDatabase(dbService = null) {
+  if (dbService) {
+    return dbService;
+  }
+
   try {
     const { defaultContainer } = require('../container');
-    return defaultContainer.get('db');
+    return resolveContainerDbService(defaultContainer);
   } catch {
-    return require('../database');
+    return null;
   }
 }
 const factoryHealth = require('../db/factory/health');
@@ -180,7 +189,7 @@ function emitVerifyNeedsRetry(project, instance, logger) {
   safeLog(logger, 'info', 'Factory VERIFY-state instance deferred on startup', payload);
 }
 
-function reconcileWorktreesBeforeAdvance(project, logger, actions) {
+function reconcileWorktreesBeforeAdvance(project, logger, actions, dbService = null) {
   if (!worktreeReconcile || typeof worktreeReconcile.reconcileProject !== 'function') {
     safeLog(logger, 'debug', 'startup reconciler worktree reconcile unavailable', {
       project_id: project.id,
@@ -189,7 +198,7 @@ function reconcileWorktreesBeforeAdvance(project, logger, actions) {
   }
 
   try {
-    const db = resolveDatabase().getDbInstance();
+    const db = unwrapDbHandle(resolveDatabase(dbService));
     if (!db || !project.path) {
       return;
     }
@@ -251,7 +260,7 @@ function dispatchAutoRecoveryStartupReconcile({ logger = defaultLogger } = {}) {
   }
 }
 
-function reconcileFactoryProjectsOnStartup({ logger = defaultLogger } = {}) {
+function reconcileFactoryProjectsOnStartup({ logger = defaultLogger, db = null } = {}) {
   if (alreadyReconciled) {
     return {
       reconciled: false,
@@ -292,7 +301,7 @@ function reconcileFactoryProjectsOnStartup({ logger = defaultLogger } = {}) {
     };
 
     try {
-      reconcileWorktreesBeforeAdvance(project, logger, actions);
+      reconcileWorktreesBeforeAdvance(project, logger, actions, db);
       loopController.syncLegacyProjectLoopState(project.id);
 
       const instances = factoryLoopInstances.listInstances({
