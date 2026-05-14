@@ -4,6 +4,56 @@ const SERVER_INFO = { name: 'torque', version: '1.0.0' };
 const DEFAULT_PROTOCOL_VERSION = '2024-11-05';
 const SECURITY_WARNING_MESSAGE = 'TORQUE is running without authentication. Run configure to set an API key.';
 
+// ── Streaming artifact protocol (Bolt.diy-style action tags) ─────────────────
+// Matches <action type="file" path="...">content</action>
+// and     <action type="shell" cmd="...">content</action>
+// Supports incremental chunked results with journaling for revert.
+const ACTION_TAG_RE = /<action\s+type="(file|shell)"(?:\s+path="([^"]*)")?(?:\s+cmd="([^"]*)")?\s*>([\s\S]*?)<\/action>/g;
+
+/**
+ * Parse streaming artifact action tags from a text string.
+ *
+ * @param {string} text - Raw text that may contain `<action>` tags.
+ * @returns {Array<{ type: 'file'|'shell', path?: string, cmd?: string, content: string }>}
+ */
+function parseStreamingArtifacts(text) {
+  if (!text || typeof text !== 'string') return [];
+  const actions = [];
+  let match;
+  // Reset lastIndex for safety since we reuse the global regex
+  ACTION_TAG_RE.lastIndex = 0;
+  while ((match = ACTION_TAG_RE.exec(text)) !== null) {
+    const entry = { type: match[1], content: match[4] };
+    if (match[1] === 'file' && match[2]) entry.path = match[2];
+    if (match[1] === 'shell' && match[3]) entry.cmd = match[3];
+    actions.push(entry);
+  }
+  return actions;
+}
+
+/**
+ * Process artifact actions extracted from a tool result, journaling each for
+ * revertability. Mutates `session._artifactJournal` (creates it if absent).
+ *
+ * @param {Array} actions - Parsed action entries from parseStreamingArtifacts.
+ * @param {object} session - MCP session (mutated: _artifactJournal appended).
+ * @param {string} toolName - Name of the originating tool call.
+ * @returns {Array} The same actions array (pass-through for chaining).
+ */
+function journalArtifactActions(actions, session, toolName) {
+  if (!actions || actions.length === 0) return actions;
+  if (!session._artifactJournal) session._artifactJournal = [];
+  const timestamp = Date.now();
+  for (const action of actions) {
+    session._artifactJournal.push({
+      toolName,
+      timestamp,
+      ...action,
+    });
+  }
+  return actions;
+}
+
 // ── Legacy module-level state, written only by init() (deprecated) ────────────
 // Phase 4 of the universal-DI migration. Coexistence pattern.
 let _tools = [];
@@ -162,6 +212,21 @@ async function _handleToolCallInternal(params, session) {
       delete result.structuredData; // always clean up internal field
     }
 
+    // Extract and journal streaming artifact actions from text content
+    if (result && result.content && !result.isError) {
+      const allActions = [];
+      for (const block of result.content) {
+        if (block.type === 'text' && block.text) {
+          const parsed = parseStreamingArtifacts(block.text);
+          if (parsed.length > 0) allActions.push(...parsed);
+        }
+      }
+      if (allActions.length > 0) {
+        journalArtifactActions(allActions, session, name);
+        result._streamingArtifacts = allActions;
+      }
+    }
+
     return result;
   } catch (err) {
     return {
@@ -230,4 +295,7 @@ module.exports = {
   SERVER_INFO,
   DEFAULT_PROTOCOL_VERSION,
   SECURITY_WARNING_MESSAGE,
+  // Streaming artifact protocol
+  parseStreamingArtifacts,
+  journalArtifactActions,
 };

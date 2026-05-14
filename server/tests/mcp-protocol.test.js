@@ -1,6 +1,6 @@
 'use strict';
 
-const { init, handleRequest, SERVER_INFO } = require('../mcp/protocol');
+const { init, handleRequest, SERVER_INFO, parseStreamingArtifacts, journalArtifactActions } = require('../mcp/protocol');
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -516,5 +516,260 @@ describe('invalid request', () => {
     await expect(handleRequest(null, session)).rejects.toMatchObject({ code: -32600 });
     await expect(handleRequest('string', session)).rejects.toMatchObject({ code: -32600 });
     await expect(handleRequest(42, session)).rejects.toMatchObject({ code: -32600 });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 16. parseStreamingArtifacts
+// ---------------------------------------------------------------------------
+
+describe('parseStreamingArtifacts', () => {
+  it('returns empty array for null/undefined/non-string input', () => {
+    expect(parseStreamingArtifacts(null)).toEqual([]);
+    expect(parseStreamingArtifacts(undefined)).toEqual([]);
+    expect(parseStreamingArtifacts(42)).toEqual([]);
+  });
+
+  it('returns empty array when no action tags present', () => {
+    expect(parseStreamingArtifacts('plain text with no tags')).toEqual([]);
+  });
+
+  it('parses a single file action', () => {
+    const text = '<action type="file" path="src/index.js">console.log("hi");</action>';
+    const result = parseStreamingArtifacts(text);
+    expect(result).toEqual([
+      { type: 'file', path: 'src/index.js', content: 'console.log("hi");' },
+    ]);
+  });
+
+  it('parses a single shell action', () => {
+    const text = '<action type="shell" cmd="npm install">installing deps</action>';
+    const result = parseStreamingArtifacts(text);
+    expect(result).toEqual([
+      { type: 'shell', cmd: 'npm install', content: 'installing deps' },
+    ]);
+  });
+
+  it('parses multiple mixed actions from one string', () => {
+    const text = [
+      'Some preamble text.',
+      '<action type="file" path="a.txt">file content A</action>',
+      'middle text',
+      '<action type="shell" cmd="echo hello">hello output</action>',
+      '<action type="file" path="b.js">const b = 1;</action>',
+    ].join('\n');
+    const result = parseStreamingArtifacts(text);
+    expect(result).toHaveLength(3);
+    expect(result[0]).toEqual({ type: 'file', path: 'a.txt', content: 'file content A' });
+    expect(result[1]).toEqual({ type: 'shell', cmd: 'echo hello', content: 'hello output' });
+    expect(result[2]).toEqual({ type: 'file', path: 'b.js', content: 'const b = 1;' });
+  });
+
+  it('handles multiline content inside action tags', () => {
+    const text = '<action type="file" path="multi.js">line1\nline2\nline3</action>';
+    const result = parseStreamingArtifacts(text);
+    expect(result).toHaveLength(1);
+    expect(result[0].content).toBe('line1\nline2\nline3');
+  });
+
+  it('handles empty content inside action tags', () => {
+    const text = '<action type="file" path="empty.txt"></action>';
+    const result = parseStreamingArtifacts(text);
+    expect(result).toEqual([{ type: 'file', path: 'empty.txt', content: '' }]);
+  });
+
+  it('does not set path for shell actions or cmd for file actions', () => {
+    const fileText = '<action type="file" path="f.txt">data</action>';
+    const shellText = '<action type="shell" cmd="ls">output</action>';
+    const fileResult = parseStreamingArtifacts(fileText);
+    const shellResult = parseStreamingArtifacts(shellText);
+    expect(fileResult[0]).not.toHaveProperty('cmd');
+    expect(shellResult[0]).not.toHaveProperty('path');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 17. journalArtifactActions
+// ---------------------------------------------------------------------------
+
+describe('journalArtifactActions', () => {
+  it('returns the same actions array (pass-through)', () => {
+    const actions = [{ type: 'file', path: 'a.txt', content: 'x' }];
+    const session = makeSession();
+    const result = journalArtifactActions(actions, session, 'tool_a');
+    expect(result).toBe(actions);
+  });
+
+  it('creates _artifactJournal on session if absent', () => {
+    const session = makeSession();
+    expect(session._artifactJournal).toBeUndefined();
+    journalArtifactActions([{ type: 'file', path: 'a.txt', content: 'x' }], session, 'tool_a');
+    expect(Array.isArray(session._artifactJournal)).toBe(true);
+    expect(session._artifactJournal).toHaveLength(1);
+  });
+
+  it('appends to existing _artifactJournal', () => {
+    const session = makeSession();
+    session._artifactJournal = [{ toolName: 'prev', timestamp: 1, type: 'shell', cmd: 'echo', content: '' }];
+    journalArtifactActions([{ type: 'file', path: 'b.txt', content: 'y' }], session, 'tool_b');
+    expect(session._artifactJournal).toHaveLength(2);
+    expect(session._artifactJournal[1].toolName).toBe('tool_b');
+    expect(session._artifactJournal[1].path).toBe('b.txt');
+  });
+
+  it('records toolName and timestamp on each entry', () => {
+    const session = makeSession();
+    const before = Date.now();
+    journalArtifactActions([{ type: 'shell', cmd: 'npm test', content: 'ok' }], session, 'my_tool');
+    const after = Date.now();
+    const entry = session._artifactJournal[0];
+    expect(entry.toolName).toBe('my_tool');
+    expect(entry.timestamp).toBeGreaterThanOrEqual(before);
+    expect(entry.timestamp).toBeLessThanOrEqual(after);
+    expect(entry.type).toBe('shell');
+    expect(entry.cmd).toBe('npm test');
+  });
+
+  it('returns the actions array unchanged for empty input', () => {
+    const session = makeSession();
+    expect(journalArtifactActions([], session, 'tool_a')).toEqual([]);
+    expect(journalArtifactActions(null, session, 'tool_a')).toBeNull();
+    expect(session._artifactJournal).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 18. tools/call — streaming artifact extraction integration
+// ---------------------------------------------------------------------------
+
+describe('tools/call streaming artifact extraction', () => {
+  it('extracts file artifacts from tool result text and attaches _streamingArtifacts', async () => {
+    const textWithAction = 'Result: <action type="file" path="out.js">module.exports = {};</action> done.';
+    reinit({
+      handleToolCall: async () => ({
+        content: [{ type: 'text', text: textWithAction }],
+      }),
+    });
+
+    const session = makeSession('full');
+    const result = await handleRequest(
+      { method: 'tools/call', params: { name: 'tool_a' } },
+      session
+    );
+
+    expect(result._streamingArtifacts).toEqual([
+      { type: 'file', path: 'out.js', content: 'module.exports = {};' },
+    ]);
+  });
+
+  it('journals extracted artifacts into session._artifactJournal', async () => {
+    const textWithAction = '<action type="shell" cmd="npm test">all passed</action>';
+    reinit({
+      handleToolCall: async () => ({
+        content: [{ type: 'text', text: textWithAction }],
+      }),
+    });
+
+    const session = makeSession('full');
+    await handleRequest(
+      { method: 'tools/call', params: { name: 'tool_a' } },
+      session
+    );
+
+    expect(session._artifactJournal).toHaveLength(1);
+    expect(session._artifactJournal[0].toolName).toBe('tool_a');
+    expect(session._artifactJournal[0].type).toBe('shell');
+    expect(session._artifactJournal[0].cmd).toBe('npm test');
+  });
+
+  it('does not attach _streamingArtifacts when no action tags present', async () => {
+    reinit({
+      handleToolCall: async () => ({
+        content: [{ type: 'text', text: 'plain result' }],
+      }),
+    });
+
+    const session = makeSession('full');
+    const result = await handleRequest(
+      { method: 'tools/call', params: { name: 'tool_a' } },
+      session
+    );
+
+    expect(result._streamingArtifacts).toBeUndefined();
+    expect(session._artifactJournal).toBeUndefined();
+  });
+
+  it('does not extract artifacts from error results', async () => {
+    reinit({
+      handleToolCall: async () => ({
+        content: [{ type: 'text', text: '<action type="file" path="x.js">code</action>' }],
+        isError: true,
+      }),
+    });
+
+    const session = makeSession('full');
+    const result = await handleRequest(
+      { method: 'tools/call', params: { name: 'tool_a' } },
+      session
+    );
+
+    expect(result._streamingArtifacts).toBeUndefined();
+    expect(session._artifactJournal).toBeUndefined();
+  });
+
+  it('extracts artifacts from multiple text blocks in one result', async () => {
+    reinit({
+      handleToolCall: async () => ({
+        content: [
+          { type: 'text', text: '<action type="file" path="a.js">const a = 1;</action>' },
+          { type: 'text', text: '<action type="shell" cmd="node a.js">1</action>' },
+        ],
+      }),
+    });
+
+    const session = makeSession('full');
+    const result = await handleRequest(
+      { method: 'tools/call', params: { name: 'tool_a' } },
+      session
+    );
+
+    expect(result._streamingArtifacts).toHaveLength(2);
+    expect(result._streamingArtifacts[0].type).toBe('file');
+    expect(result._streamingArtifacts[1].type).toBe('shell');
+    expect(session._artifactJournal).toHaveLength(2);
+  });
+
+  it('accumulates journal entries across multiple tool calls', async () => {
+    reinit({
+      handleToolCall: async () => ({
+        content: [{ type: 'text', text: '<action type="file" path="f.txt">data</action>' }],
+      }),
+    });
+
+    const session = makeSession('full');
+    await handleRequest({ method: 'tools/call', params: { name: 'tool_a' } }, session);
+    await handleRequest({ method: 'tools/call', params: { name: 'tool_a' } }, session);
+
+    expect(session._artifactJournal).toHaveLength(2);
+  });
+
+  it('skips non-text content blocks during artifact extraction', async () => {
+    reinit({
+      handleToolCall: async () => ({
+        content: [
+          { type: 'image', data: 'base64...' },
+          { type: 'text', text: '<action type="file" path="x.txt">content</action>' },
+        ],
+      }),
+    });
+
+    const session = makeSession('full');
+    const result = await handleRequest(
+      { method: 'tools/call', params: { name: 'tool_a' } },
+      session
+    );
+
+    expect(result._streamingArtifacts).toHaveLength(1);
+    expect(result._streamingArtifacts[0].path).toBe('x.txt');
   });
 });
