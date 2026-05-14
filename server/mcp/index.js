@@ -1359,7 +1359,13 @@ function start(options = {}) {
       return;
     }
 
-    port = options.port || 3459;
+    // Port resolution: explicit `options.port` (including 0) wins; 0
+    // signals kernel-ephemeral assignment, read back in the listen
+    // callback. See docs/ephemeral-port-migration.md.
+    const requestedPort = Object.prototype.hasOwnProperty.call(options, 'port')
+      ? options.port
+      : 3459;
+    port = requestedPort;
     schemaRegistry.loadSchemas();
 
   server = http.createServer((req, res) => {
@@ -1382,25 +1388,29 @@ function start(options = {}) {
 
     server.on('error', (err) => {
       if (err.code === 'EADDRINUSE') {
-        logger.warn(`MCP gateway port already in use: ${port}`);
+        logger.warn(`MCP gateway port already in use: ${requestedPort}`);
         process.stderr.write(
-          `\nMCP gateway port ${port} is already in use.\n\n` +
+          `\nMCP gateway port ${requestedPort} is already in use.\n\n` +
           `Options:\n` +
           `  1. Stop existing TORQUE: bash stop-torque.sh\n` +
-          `  2. Use different port: TORQUE_MCP_PORT=${port + 2} torque start\n` +
-          `  3. Find what's using it: lsof -i :${port} (Linux/Mac) or netstat -ano | findstr :${port} (Windows)\n\n`
+          `  2. Use different port: TORQUE_MCP_PORT=${requestedPort + 2} torque start\n` +
+          `  3. Find what's using it: lsof -i :${requestedPort} (Linux/Mac) or netstat -ano | findstr :${requestedPort} (Windows)\n\n`
         );
         server = null;
-        resolve({ success: false, error: 'Port in use', port });
+        resolve({ success: false, error: 'Port in use', port: requestedPort });
         return;
       }
 
       logger.error('Failed to start MCP gateway', { message: err.message, stack: err.stack });
       server = null;
-      resolve({ success: false, error: err.message, port });
+      resolve({ success: false, error: err.message, port: requestedPort });
     });
 
-    server.listen(port, '127.0.0.1', () => {
+    server.listen(requestedPort, '127.0.0.1', () => {
+      const address = server.address();
+      if (address && typeof address.port === 'number') {
+        port = address.port;
+      }
       if (idempotencyCleanupInterval) {
         clearInterval(idempotencyCleanupInterval);
       }

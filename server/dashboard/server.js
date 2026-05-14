@@ -715,38 +715,47 @@ async function start(options = {}) {
     return { success: false, error: 'Dashboard already running', url: `http://127.0.0.1:${serverPort}` };
   }
 
-  const basePort = options.port || serverConfig.getInt('dashboard_port', 3456);
+  const explicitPort = Object.prototype.hasOwnProperty.call(options, 'port');
+  const basePort = explicitPort ? options.port : serverConfig.getInt('dashboard_port', 3456);
   const openInBrowser = options.openBrowser !== false;
   const MAX_PORT_ATTEMPTS = 5;
 
-  // Try base port first, then auto-increment up to MAX_PORT_ATTEMPTS
-  // Multiple Claude Code sessions can each get their own dashboard instance
+  // `port: 0` is the ephemeral signal — skip the auto-increment loop
+  // and defer to the kernel for assignment. The actual port is read
+  // back from server.address() in the listen callback. Tests use this
+  // to avoid collisions when parallel shards run on the same machine.
   let foundPort = null;
-  for (let attempt = 0; attempt < MAX_PORT_ATTEMPTS; attempt++) {
-    const candidatePort = basePort + attempt;
-    const portAvailable = await checkPortAvailable(candidatePort);
-    if (portAvailable) {
-      foundPort = candidatePort;
-      break;
+  if (explicitPort && options.port === 0) {
+    foundPort = 0;
+  } else {
+    // Try base port first, then auto-increment up to MAX_PORT_ATTEMPTS
+    // Multiple Claude Code sessions can each get their own dashboard instance
+    for (let attempt = 0; attempt < MAX_PORT_ATTEMPTS; attempt++) {
+      const candidatePort = basePort + attempt;
+      const portAvailable = await checkPortAvailable(candidatePort);
+      if (portAvailable) {
+        foundPort = candidatePort;
+        break;
+      }
+      if (attempt === 0) {
+        process.stderr.write(`Dashboard port ${candidatePort} is in use, trying next ports...\n`);
+      }
     }
-    if (attempt === 0) {
-      process.stderr.write(`Dashboard port ${candidatePort} is in use, trying next ports...\n`);
-    }
-  }
 
-  if (foundPort === null) {
-    process.stderr.write(
-      `\nDashboard ports ${basePort}-${basePort + MAX_PORT_ATTEMPTS - 1} all in use. Dashboard disabled.\n\n` +
-      `Options:\n` +
-      `  1. Stop existing TORQUE: bash stop-torque.sh\n` +
-      `  2. Use different base port: TORQUE_DASHBOARD_PORT=${basePort + MAX_PORT_ATTEMPTS} torque start\n` +
-      `  3. Find what's using them: lsof -i :${basePort} (Linux/Mac) or netstat -ano | findstr :${basePort} (Windows)\n\n`
-    );
-    return {
-      success: false,
-      error: `Ports ${basePort}-${basePort + MAX_PORT_ATTEMPTS - 1} all in use`,
-      url: `http://127.0.0.1:${basePort}` // Existing dashboard might still work
-    };
+    if (foundPort === null) {
+      process.stderr.write(
+        `\nDashboard ports ${basePort}-${basePort + MAX_PORT_ATTEMPTS - 1} all in use. Dashboard disabled.\n\n` +
+        `Options:\n` +
+        `  1. Stop existing TORQUE: bash stop-torque.sh\n` +
+        `  2. Use different base port: TORQUE_DASHBOARD_PORT=${basePort + MAX_PORT_ATTEMPTS} torque start\n` +
+        `  3. Find what's using them: lsof -i :${basePort} (Linux/Mac) or netstat -ano | findstr :${basePort} (Windows)\n\n`
+      );
+      return {
+        success: false,
+        error: `Ports ${basePort}-${basePort + MAX_PORT_ATTEMPTS - 1} all in use`,
+        url: `http://127.0.0.1:${basePort}` // Existing dashboard might still work
+      };
+    }
   }
 
   serverPort = foundPort;
@@ -896,45 +905,67 @@ async function start(options = {}) {
   wss = new WebSocketServer({ server: httpServer });
   wss.on('connection', handleWebSocket);
 
-  // Start listening
+  // Start listening — return a Promise that resolves only after the
+  // kernel-assigned port is known. Previously start() returned
+  // synchronously with `port: serverPort`, which was the pre-listen
+  // value. That was fine when serverPort was always a real fixed port,
+  // but breaks ephemeral (port: 0) callers who need the assigned port
+  // in the resolved result.
   const dashboardHost = process.env.TORQUE_API_HOST || '127.0.0.1';
-  httpServer.listen(serverPort, dashboardHost, () => {
-    isRunning = true;
-    process.stderr.write(`Dashboard running at http://${dashboardHost}:${serverPort}\n`);
+  return new Promise((resolve) => {
+    let settled = false;
+    httpServer.on('error', (err) => {
+      process.stderr.write(`Dashboard server error: ${err.message}\n`);
+      isRunning = false;
+      if (!settled) {
+        settled = true;
+        resolve({ success: false, error: err.message, url: `http://127.0.0.1:${serverPort}` });
+      }
+    });
+    httpServer.listen(serverPort, dashboardHost, () => {
+      // When serverPort was 0 (ephemeral), the kernel-assigned port
+      // lives on server.address(). Sync the downstream references so
+      // the listen banner, openBrowser URL, routeContext capture, and
+      // the resolved result all use the real port.
+      const address = httpServer.address();
+      if (address && typeof address.port === 'number') {
+        serverPort = address.port;
+        if (routeContext) routeContext.serverPort = serverPort;
+      }
+      isRunning = true;
+      process.stderr.write(`Dashboard running at http://${dashboardHost}:${serverPort}\n`);
 
-    if (openInBrowser) {
-      openBrowser(`http://127.0.0.1:${serverPort}`);
-    }
+      if (openInBrowser) {
+        openBrowser(`http://127.0.0.1:${serverPort}`);
+      }
+
+      // Periodic stats broadcast (60 seconds - main updates come from task changes)
+      const statsInterval = setInterval(() => {
+        if (isRunning) {
+          broadcastStatsUpdate();
+        }
+      }, 60000);
+      // Don't keep the event loop alive on the stats broadcast alone. stop()
+      // clears the interval on graceful shutdown, but if dashboard.start() is
+      // called and stop() is never reached (e.g. uncaughtException →
+      // SHUTDOWN_TIMEOUT → process.exit), the interval can tick once during
+      // the grace window and call broadcastStatsUpdate against half-closed
+      // websockets. unref() lets node exit naturally; matches the pattern
+      // used by orphan-cleanup, sleep-watchdog, event-dispatch, factory-tick.
+      if (typeof statsInterval.unref === 'function') statsInterval.unref();
+      // Store interval for cleanup
+      httpServer.statsInterval = statsInterval;
+
+      if (!settled) {
+        settled = true;
+        resolve({
+          success: true,
+          url: `http://127.0.0.1:${serverPort}`,
+          port: serverPort,
+        });
+      }
+    });
   });
-
-  httpServer.on('error', (err) => {
-    process.stderr.write(`Dashboard server error: ${err.message}\n`);
-    isRunning = false;
-  });
-
-  // Periodic stats broadcast (60 seconds - main updates come from task changes)
-  const statsInterval = setInterval(() => {
-    if (isRunning) {
-      broadcastStatsUpdate();
-    }
-  }, 60000);
-  // Don't keep the event loop alive on the stats broadcast alone. stop()
-  // clears the interval on graceful shutdown, but if dashboard.start() is
-  // called and stop() is never reached (e.g. uncaughtException →
-  // SHUTDOWN_TIMEOUT → process.exit), the interval can tick once during
-  // the grace window and call broadcastStatsUpdate against half-closed
-  // websockets. unref() lets node exit naturally; matches the pattern
-  // used by orphan-cleanup, sleep-watchdog, event-dispatch, factory-tick.
-  if (typeof statsInterval.unref === 'function') statsInterval.unref();
-
-  // Store interval for cleanup
-  httpServer.statsInterval = statsInterval;
-
-  return {
-    success: true,
-    url: `http://127.0.0.1:${serverPort}`,
-    port: serverPort,
-  };
 }
 
 /**
