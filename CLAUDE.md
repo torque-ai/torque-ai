@@ -6,12 +6,12 @@
 
 TORQUE requires two things to work in Claude Code:
 
-1. **MCP server** — auto-configured on first startup (~30 core tools unlocked by default; ~600 total via progressive unlock)
+1. **MCP server** — auto-configured on first startup (~48 core tools unlocked by default; ~570 total via progressive unlock)
 2. **Slash commands** — located in `.claude/commands/` (provides the `/torque-*` commands)
 
-Slash commands are auto-discovered from `.claude/commands/`. In local mode, the TORQUE server auto-injects the keyless MCP SSE connection `http://127.0.0.1:3458/sse` into your global `~/.claude/.mcp.json` when it starts — no manual configuration needed.
+Slash commands are auto-discovered from `.claude/commands/`. In local mode, the TORQUE server auto-injects the keyless streamable-HTTP MCP endpoint `http://127.0.0.1:3458/mcp` into your global `~/.claude/.mcp.json` when it starts — no manual configuration needed. The legacy SSE endpoint at `http://127.0.0.1:3458/sse` is still served as a fallback for older MCP clients.
 
-**Manual setup (optional):** If auto-injection doesn't work, copy `.mcp.json.example` to `.mcp.json` and set the URL to `http://127.0.0.1:3458/sse`.
+**Manual setup (optional):** If auto-injection doesn't work, copy `.mcp.json.example` to `.mcp.json` — it ships both the primary (`/mcp`, type `streamable-http`) and legacy (`/sse`, type `sse`) entries.
 
 ### Local Mode (default)
 
@@ -101,7 +101,7 @@ For advanced/direct MCP tool access, use the raw tool names (e.g., `smart_submit
 
 ## Providers
 
-TORQUE routes between **13 execution providers**. Smart routing picks the best one automatically - you rarely need to choose manually.
+TORQUE routes between **14 execution providers**. Smart routing picks the best one automatically - you rarely need to choose manually.
 
 ### Local (Ollama)
 
@@ -117,7 +117,8 @@ Run on your local Ollama instance or registered LAN hosts. Free, private, no API
 |----------|------------|----------|
 | **codex** | Codex CLI installed + authenticated | Greenfield code, complex multi-file tasks |
 | **codex-spark** | Codex CLI installed + authenticated | Fast single-file edits (gpt-5.3-codex-spark model) |
-| **claude-cli** | Claude Code CLI installed + authenticated | Architectural decisions, complex debugging |
+| **claude-cli** | Claude Code CLI installed + authenticated | Architectural decisions, complex debugging (raw CLI subprocess) |
+| **claude-code-sdk** | Claude Code installed + authenticated | SDK-based agentic loop with structured streaming, session store, permission modes (`auto` / `acceptEdits` / `plan` / `bypassPermissions`), and skills loading. Default model `claude-sonnet-4-20250514` |
 
 ### Local (CLI-harness)
 
