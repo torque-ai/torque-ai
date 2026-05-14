@@ -7972,15 +7972,30 @@ function detectSameShapeEscalation(escalationHistory, currentEntry) {
   if (!Array.isArray(escalationHistory) || escalationHistory.length < SAME_SHAPE_THRESHOLD - 1) {
     return false;
   }
-  const recent = escalationHistory.slice(-(SAME_SHAPE_THRESHOLD - 1));
   const currentShape = normalizeRejectionReasonForShape(currentEntry.reason);
-  const currentSignals = (currentEntry.missing_signals || []).slice().sort().join(',');
-  for (const entry of recent) {
-    if (normalizeRejectionReasonForShape(entry.reason) !== currentShape) return false;
-    const sig = (entry.missing_signals || []).slice().sort().join(',');
-    if (sig !== currentSignals) return false;
+  const currentSignals = normalizeMissingSignalsForShape(currentEntry);
+  const recent = escalationHistory.slice(-(SAME_SHAPE_THRESHOLD - 1));
+  if (recent.every((entry) => isSameShapeEscalationEntry(entry, currentShape, currentSignals))) {
+    return true;
   }
-  return true;
+
+  // Fixed transient failures may interleave between semantic plan rejections.
+  // Count matching entries in the retained window so persistent same-shape
+  // rejections still escalate instead of churning in needs_replan forever.
+  const retainedWindow = escalationHistory.slice(-ESCALATION_HISTORY_MAX);
+  const matchingCount = retainedWindow.filter(
+    (entry) => isSameShapeEscalationEntry(entry, currentShape, currentSignals)
+  ).length;
+  return matchingCount >= SAME_SHAPE_THRESHOLD - 1;
+}
+
+function normalizeMissingSignalsForShape(entry) {
+  return (entry?.missing_signals || []).slice().sort().join(',');
+}
+
+function isSameShapeEscalationEntry(entry, currentShape, currentSignals) {
+  return normalizeRejectionReasonForShape(entry?.reason) === currentShape
+    && normalizeMissingSignalsForShape(entry) === currentSignals;
 }
 
 function buildTerminalEscalationRejectReason(workItem, evidence) {

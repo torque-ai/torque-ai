@@ -124,6 +124,17 @@ describe('Phase X5: same-shape escalation in routeWorkItemToNeedsReplan', () => 
       const current = { reason: 'plan_quality_gate: z', missing_signals: [] };
       expect(detectSameShapeEscalation(history, current)).toBe(false);
     });
+
+    it('returns true when same-shape rejections are interleaved with transient failures', () => {
+      const history = [
+        { reason: 'plan_quality_gate_rejected_after_intrabatch_retries', missing_signals: [] },
+        { reason: 'task_1_failed', missing_signals: [] },
+        { reason: 'generated_plan_missing_after_worktree_prepare', missing_signals: [] },
+        { reason: 'plan_quality_gate_rejected_after_intrabatch_retries', missing_signals: [] },
+      ];
+      const current = { reason: 'plan_quality_gate_rejected_after_intrabatch_retries', missing_signals: [] };
+      expect(detectSameShapeEscalation(history, current)).toBe(true);
+    });
   });
 
   describe('escalation flow end-to-end', () => {
