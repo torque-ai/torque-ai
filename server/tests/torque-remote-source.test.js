@@ -144,15 +144,45 @@ describe('torque-remote source invariants', () => {
   });
 
   it('strips trailing whitespace from owner.env field values so the host check matches', () => {
-    // CMD's `echo X>file` writes a trailing space before the newline,
-    // so owner.env values read back with a literal trailing space.
-    // Without stripping, the owner_host == local_host comparison in
-    // remote_sync_lock_is_stale always fails and the auto-reap path
-    // never fires for crashed sessions. Verified live 2026-04-29 via
-    // certutil hex dump of a CMD-echoed file: the bytes were
-    // `<value>\\x20\\x0D\\x0A`.
-    const src = readTorqueRemote();
-    expect(src).toMatch(/owner_field\s*\(\)\s*\{[\s\S]*?sed 's\/\[\[:space:\]\]\*\$\/\/'/);
+    // CMD's `echo X >file` writes a trailing space before the newline,
+    // so owner.env values read back with a literal trailing space. The
+    // file content looks like `host=test-workstation<SPACE>\r\n` after Windows
+    // remote write. Without stripping, the owner_host == local_host
+    // comparison in remote_lane_lock_is_stale always fails and the
+    // auto-reap path never fires for crashed sessions — stale locks
+    // accumulate and pre-push gates hang waiting for locks owned by
+    // dead local PIDs. Symptom: 2026-05-07 stuck push for >75 min.
+    // Fix: 35d154a3 (merged via b9cfac9d) added the awk sub() strip.
+    //
+    // The prior source-level test pinned `sed 's/[[:space:]]*$//'`
+    // verbatim, which silently passed for both correctness and
+    // breakage — it broke when 35d154a3 was reworked from sed to awk
+    // and no one noticed. This functional test asserts the behavior
+    // (strip happens) rather than the implementation (sed vs awk).
+    const RUNNER = path.join(__dirname, '_torque-remote-test-runner.sh');
+    const BASH = resolveBashForFunctionTests();
+    const callOwnerField = (ownerText, field) => {
+      const b64Arg = `B64:${Buffer.from(ownerText).toString('base64')}`;
+      return execFileSync(
+        BASH,
+        [RUNNER, 'owner_field', 'linux', b64Arg, field],
+        { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }
+      ).replace(/\r?\n$/, '');
+    };
+    // CMD-style trailing space on every value.
+    const cmdStyle = 'host=test-workstation \npid=12345 \nstarted_at_epoch=1700000000 \nlane_index=1 ';
+    expect(callOwnerField(cmdStyle, 'host')).toBe('test-workstation');
+    expect(callOwnerField(cmdStyle, 'pid')).toBe('12345');
+    expect(callOwnerField(cmdStyle, 'started_at_epoch')).toBe('1700000000');
+    expect(callOwnerField(cmdStyle, 'lane_index')).toBe('1');
+    // Clean values pass through unchanged.
+    const clean = 'host=mybox\npid=42';
+    expect(callOwnerField(clean, 'host')).toBe('mybox');
+    expect(callOwnerField(clean, 'pid')).toBe('42');
+    // Multiple trailing spaces and tabs are all stripped.
+    expect(callOwnerField('host=foo   \t \npid=9', 'host')).toBe('foo');
+    // Missing field returns empty (used by stale-check to refuse reap).
+    expect(callOwnerField(clean, 'started_at_epoch')).toBe('');
   });
 
   it('exposes build_remote_sync_command as a discrete helper so the assembled CMD line can be unit-tested', () => {
