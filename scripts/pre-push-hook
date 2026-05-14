@@ -1525,30 +1525,83 @@ run_dashboard_phase() {
 
 # Vitest sharding (opt-in via dev-side TORQUE_GATE_SHARDS). When sharding is
 # active, run_server_phase spawns N concurrent vitest --shard=K/N processes
-# inside the same lane workspace. Each shard runs a disjoint slice of files,
-# so they don't race on the same suite; per-shard VITEST_MAX_WORKERS is
-# scaled down so the aggregate worker count matches the unsharded ceiling.
+# inside the same lane workspace. Each shard runs a disjoint slice of files.
+# Per-shard VITEST_MAX_WORKERS defaults to 1 to keep total concurrent
+# workers manageable on the remote workstation, which shares CPU with QEMU,
+# ollama, and other tenants — bisection traced "shard hangs after running
+# some files" to CPU starvation when 4 × 2 = 8 workers fought ~5 free CPUs.
+#
+# A side watchdog process polls each shard's per-file log mtime and SIGKILLs
+# a shard whose log has been idle for SHARD_WATCHDOG_SECS (default 180).
+# Without this, a starved shard's vitest waits forever on its workers and
+# the entire gate hangs invisibly until the dev-side SSH timeout fires.
 run_server_shards() {
   local n=${GATE_SERVER_SHARDS}
   local k=0
   local any_failed=0
-  local cap="\${VITEST_MAX_WORKERS:-8}"
-  local per_shard
-  per_shard=\$(( ( cap + \$n - 1 ) / \$n ))
+  local per_shard="\${TORQUE_GATE_PER_SHARD_WORKERS:-1}"
   if [ "\$per_shard" -lt 1 ]; then per_shard=1; fi
-  echo "[serv] [shards] launching \$n shards, VITEST_MAX_WORKERS=\$per_shard per shard"
+  local watchdog_secs="\${TORQUE_GATE_SHARD_WATCHDOG_SECS:-180}"
+  echo "[serv] [shards] launching \$n shards, VITEST_MAX_WORKERS=\$per_shard per shard, watchdog=\${watchdog_secs}s"
   local pids=()
+  local logs=()
+  local watchdog_dir
+  watchdog_dir=\$(mktemp -d "\${TMPDIR:-/tmp}/torque-gate-shards.XXXXXX")
   for k in \$(seq 1 \$n); do
+    local logfile="\$watchdog_dir/shard-\$k.log"
+    : > "\$logfile"
     (
       export VITEST_MAX_WORKERS="\$per_shard"
-      run_vitest_phase server run --reporter=dot --shard="\$k/\$n" ${GATE_SERVER_TEST_ARGS} 2>&1 | sed "s/^/[shard\$k] /"
+      run_vitest_phase server run --reporter=dot --shard="\$k/\$n" ${GATE_SERVER_TEST_ARGS} 2>&1 \
+        | sed "s/^/[shard\$k] /" \
+        | tee -a "\$logfile"
       exit "\${PIPESTATUS[0]}"
     ) &
     pids+=(\$!)
+    logs+=("\$logfile")
   done
+
+  # Background watchdog — every 30s, check whether each shard's log file
+  # has grown. If a shard has been idle longer than \$watchdog_secs while
+  # its pid is still alive, SIGKILL the shard subshell tree and record
+  # the kill so the gate fails loudly instead of waiting on a hung
+  # vitest. Watchdog exits when every shard pid has exited.
+  local shard_count=\${#pids[@]}
+  (
+    while :; do
+      sleep 30
+      local any_alive=0
+      local i
+      for i in \$(seq 0 \$((shard_count - 1))); do
+        local pid="\${pids[\$i]}"
+        local log="\${logs[\$i]}"
+        if kill -0 "\$pid" 2>/dev/null; then
+          any_alive=1
+          local mtime now idle
+          mtime=\$(stat -c %Y "\$log" 2>/dev/null || echo 0)
+          now=\$(date +%s)
+          idle=\$((now - mtime))
+          if [ "\$idle" -gt "\$watchdog_secs" ]; then
+            local sk=\$((i + 1))
+            echo "[serv] [shards] [watchdog] shard\$sk idle for \${idle}s — SIGKILL (likely resource starvation)" >&2
+            pkill -9 -P "\$pid" 2>/dev/null || true
+            kill -9 "\$pid" 2>/dev/null || true
+          fi
+        fi
+      done
+      [ "\$any_alive" = 0 ] && break
+    done
+  ) &
+  local watchdog_pid=\$!
+
   for pid in "\${pids[@]}"; do
     if ! wait "\$pid"; then any_failed=1; fi
   done
+  # Watchdog exits on its own when all shards are dead; reap it without
+  # error if it raced ahead.
+  kill "\$watchdog_pid" 2>/dev/null || true
+  wait "\$watchdog_pid" 2>/dev/null || true
+  rm -rf "\$watchdog_dir" 2>/dev/null || true
   return \$any_failed
 }
 

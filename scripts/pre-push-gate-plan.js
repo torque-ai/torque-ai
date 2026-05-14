@@ -414,7 +414,12 @@ function planFromFiles(files, options = {}) {
   // 14 codegraph hits would narrow the gate from full-suite to those 14
   // files, demoting coverage. Only augment when the heuristic already
   // settled on a specific test slice.
-  if (process.env.TORQUE_GATE_USE_CODEGRAPH === '1'
+  //
+  // Default-on: the augmenter only ever WIDENS the test set. Explicit
+  // TORQUE_GATE_USE_CODEGRAPH=0 disables it; any other value (unset,
+  // '1', anything) enables. The internal safety contract above prevents
+  // narrowing, so default-on cannot reduce gate coverage.
+  if (process.env.TORQUE_GATE_USE_CODEGRAPH !== '0'
       && plan.mode === 'affected'
       && plan.run_server
       && plan.server_args.length > 0
