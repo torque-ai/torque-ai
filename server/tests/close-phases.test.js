@@ -64,6 +64,7 @@ describe('Close Phases', () => {
       recordProviderUsage: vi.fn(),
       approveProviderSwitch: vi.fn(),
       getTask: vi.fn().mockReturnValue(null),
+      setConfig: vi.fn(),
       setCodexExhausted: vi.fn(),
       getTaskFileChanges: vi.fn().mockReturnValue([{ file_path: 'src/changed.js' }]),
       recordFailoverEvent: vi.fn(),
@@ -625,6 +626,28 @@ describe('Close Phases', () => {
       closePhases.handleProviderFailover(ctx);
 
       expect(mockDb.setCodexExhausted).toHaveBeenCalledWith(true);
+
+      vi.useRealTimers();
+    });
+
+    it('marks only Codex Spark exhausted for Spark model usage limits', () => {
+      vi.useFakeTimers();
+
+      mockDb.isProviderQuotaError.mockReturnValue(true);
+      mockDb.getNextFallbackProvider.mockReturnValue('claude-cli');
+
+      const task = makeTask({ provider: 'codex', model: 'gpt-5.3-codex-spark', retry_count: 0 });
+      const proc = makeProc({
+        errorOutput: "ERROR: You've hit your usage limit for GPT-5.3-Codex-Spark. Switch to another model now, or try again at May 15th, 2026 11:59 PM.",
+      });
+      const ctx = makeCtx({ status: 'failed', task, proc, code: 1 });
+
+      closePhases.handleProviderFailover(ctx);
+
+      expect(mockDb.setCodexExhausted).not.toHaveBeenCalled();
+      expect(mockDb.setConfig).toHaveBeenCalledWith('codex_spark_exhausted', '1');
+      expect(mockDb.setConfig).toHaveBeenCalledWith('codex_spark_exhausted_at', expect.any(String));
+      expect(mockDb.setConfig).toHaveBeenCalledWith('codex_spark_exhausted_until', 'May 15th, 2026 11:59 PM');
 
       vi.useRealTimers();
     });

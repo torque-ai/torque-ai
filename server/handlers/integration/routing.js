@@ -139,6 +139,12 @@ function normalizeInitialTaskStatus(initialStatus) {
 }
 
 const BUILTIN_AGENTIC_PROVIDERS = new Set(['codex', 'codex-spark', 'claude-cli', 'claude-code-sdk']);
+const CODEX_SPARK_MODEL = 'gpt-5.3-codex-spark';
+
+function isCodexSparkAvailable() {
+  return serverConfig.isOptIn('codex_spark_enabled')
+    && !serverConfig.isOptIn('codex_spark_exhausted');
+}
 
 function providerSupportsRepoWriteTasks(provider, model) {
   if (!provider) return false;
@@ -595,10 +601,10 @@ async function resolveModificationRouting(task, files, routingResult, opts) {
     } else if (isModificationTask && codexEnabled && !override_provider && !codexExhausted) {
       // Large files or unknown size → modification_oversize_provider
       // (defaults to codex from the legacy-fallback preset).
-      const sparkEnabled = serverConfig.isOptIn('codex_spark_enabled');
+      const sparkEnabled = isCodexSparkAvailable();
       selectedProvider = oversizeProvider;
       if (selectedProvider === 'codex' && sparkEnabled && (complexity === 'simple' || complexity === 'normal')) {
-        taskModel = 'gpt-5.3-codex-spark';
+        taskModel = CODEX_SPARK_MODEL;
         modRoutingReason = `Modification task (${fileSizeKnown ? maxFileLines + ' lines' : 'unknown size'}) → Codex Spark (fast, ${complexity})`;
         logger.info(`[SmartRouting] Spark: ${modRoutingReason}`);
       } else {
@@ -632,10 +638,10 @@ async function resolveModificationRouting(task, files, routingResult, opts) {
       // legacy-fallback preset). Experiment 1 showed 3/3 Ollama
       // greenfield tasks silently fell back to Codex or stalled, so
       // routing directly avoids the fallback latency penalty (~2x slower).
-      const sparkEnabled = serverConfig.isOptIn('codex_spark_enabled');
+      const sparkEnabled = isCodexSparkAvailable();
       selectedProvider = greenfieldProvider;
       if (selectedProvider === 'codex' && sparkEnabled && complexity !== 'complex') {
-        taskModel = 'gpt-5.3-codex-spark';
+        taskModel = CODEX_SPARK_MODEL;
         modRoutingReason = `${complexity} greenfield → Codex Spark (Ollama cannot create files)`;
       } else {
         taskModel = null;
@@ -1417,8 +1423,8 @@ async function handleSmartSubmitTask(args) {
   if (isTestTask && !selectedProviderSupportsTests && selectedProvider !== 'codex' && serverConfig.isOptIn('codex_enabled') && !codexExhausted) {
     const testTaskFrom = selectedProvider;
     selectedProvider = 'codex';
-    const sparkEnabled = serverConfig.isOptIn('codex_spark_enabled');
-    taskModel = sparkEnabled ? 'gpt-5.3-codex-spark' : null;
+    const sparkEnabled = isCodexSparkAvailable();
+    taskModel = sparkEnabled ? CODEX_SPARK_MODEL : null;
     logger.info(`[SmartRouting] Test task detected → routing to Codex${sparkEnabled ? ' Spark' : ''} (${routingResult?.provider || 'selected provider'} lacks reliable repo-write test capability)`);
     recordRoutingDecision(routingTrace, {
       stage: ROUTING_TRACE_STAGES.TEST_TASK,
@@ -1427,14 +1433,14 @@ async function handleSmartSubmitTask(args) {
       reason: `Test-task gate: ${testTaskFrom} lacks reliable repo-write capability${sparkEnabled ? ' — using Codex Spark' : ' — using Codex'}`,
     });
   } else if (isTestTask && selectedProvider === 'codex' && !taskModel && !codexExhausted) {
-    const sparkEnabled = serverConfig.isOptIn('codex_spark_enabled');
+    const sparkEnabled = isCodexSparkAvailable();
     if (sparkEnabled) {
-      taskModel = 'gpt-5.3-codex-spark';
+      taskModel = CODEX_SPARK_MODEL;
       logger.info('[SmartRouting] Test task already on Codex → assigning Spark model');
     }
   } else if (isTestTask && selectedProvider === 'codex' && taskModel && !codexExhausted) {
-    const sparkEnabled = serverConfig.isOptIn('codex_spark_enabled');
-    taskModel = sparkEnabled ? 'gpt-5.3-codex-spark' : null;
+    const sparkEnabled = isCodexSparkAvailable();
+    taskModel = sparkEnabled ? CODEX_SPARK_MODEL : null;
     logger.info(`[SmartRouting] Test task already on Codex → clearing requested local model${sparkEnabled ? ' and assigning Spark model' : ''}`);
   }
   if (!isFactoryPlanGeneration) {
@@ -1523,11 +1529,11 @@ async function handleSmartSubmitTask(args) {
   // Skip when user explicitly chose the provider — respect their decision
   const selectedProviderConfig = providerRoutingCore.getProvider(selectedProvider);
   if (!hasExplicitProviderOverride && (!selectedProviderConfig || !selectedProviderConfig.enabled)) {
-    const sparkEnabled = serverConfig.isOptIn('codex_spark_enabled');
+    const sparkEnabled = isCodexSparkAvailable();
     const prevProvider = selectedProvider;
     selectedProvider = resolveSafeSelectedProvider(providerRoutingCore.getDefaultProvider()) || 'codex';
     if (selectedProvider === 'codex' && sparkEnabled && (complexity === 'simple' || complexity === 'normal')) {
-      taskModel = 'gpt-5.3-codex-spark';
+      taskModel = CODEX_SPARK_MODEL;
     } else {
       taskModel = null;
     }

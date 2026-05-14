@@ -993,6 +993,23 @@ describe('integration routing handlers', () => {
       expect(task.timeout_minutes).toBe(25);
     });
 
+    it('promotes test-writing tasks to regular Codex when Spark is exhausted', async () => {
+      setMockDbConfig({ codex_spark_exhausted: '1' });
+      mockDb.analyzeTaskForRouting.mockReturnValueOnce(baseRoutingResult({
+        provider: 'ollama',
+        complexity: 'normal',
+      }));
+
+      const result = await routing.handleSmartSubmitTask({
+        task: 'Write unit tests for the queue scheduler',
+      });
+
+      const task = taskFromResult(result);
+      expect(task.provider).toBe('codex');
+      expect(task.model).toBeNull();
+      expect(textOf(result)).not.toContain('Codex Spark');
+    });
+
     it('promotes explicit test tasks with local model requests to Codex Spark', async () => {
       mockDb.analyzeTaskForRouting.mockReturnValueOnce(baseRoutingResult({
         provider: 'ollama',

@@ -23,6 +23,8 @@ const { buildResumeContext, prependResumeContextToPrompt } = require('../utils/r
 const { GIT_SAFE_ENV, cleanupStaleGitStatusProcesses } = require('../utils/git');
 const { isScoutStructuredOutputTask } = require('../execution/completion-policy');
 
+const CODEX_SPARK_MODEL = 'gpt-5.3-codex-spark';
+
 // ── Module-level deps ──────────────────────────────────────────────────────
 // Utility deps resolve at module load via require() from canonical sources.
 // They remain `let` so the factory's per-instance swap (createClosePhases)
@@ -44,6 +46,29 @@ let _sanitizeTaskOutput = require('../execution/task-utils').sanitizeTaskOutput;
 let _tryLocalFirstFallback = require('../execution/fallback-retry').tryLocalFirstFallback;
 let _safeUpdateTaskStatus = null;
 let _processQueue = null;
+
+function isCodexSparkQuotaError(task, errorPayload) {
+  const model = String(task?.model || '').trim().toLowerCase();
+  const payload = String(errorPayload || '');
+  return model === CODEX_SPARK_MODEL
+    || /GPT-5\.3-Codex-Spark/i.test(payload)
+    || /codex[-_\s]?spark/i.test(payload);
+}
+
+function extractCodexSparkResetHint(errorPayload) {
+  const match = String(errorPayload || '').match(/try again at ([^\n.]+(?:\.\s*\d{4})?[^.\n]*)/i);
+  return match ? match[1].trim() : null;
+}
+
+function markCodexSparkExhausted(errorPayload) {
+  if (!db || typeof db.setConfig !== 'function') return;
+  db.setConfig('codex_spark_exhausted', '1');
+  db.setConfig('codex_spark_exhausted_at', new Date().toISOString());
+  const resetHint = extractCodexSparkResetHint(errorPayload);
+  if (resetHint) {
+    db.setConfig('codex_spark_exhausted_until', resetHint);
+  }
+}
 
 function ensureDeps() {
   let container = null;
@@ -409,11 +434,20 @@ function handleProviderFailover(ctx) {
     if (fallbackProvider) {
       logger.info(`[Provider Failover] ${currentProvider} quota exceeded, switching to ${fallbackProvider} for task ${taskId}`);
       if (currentProvider === 'codex' || currentProvider === 'codex-spark') {
-        try {
-          db.setCodexExhausted(true);
-          logger.info('[Codex Exhaustion] Codex quota exhausted — future routing will skip Codex before failover');
-        } catch (e) {
-          logger.info(`[Codex Exhaustion] Failed to set flag: ${e.message}`);
+        if (isCodexSparkQuotaError(task, errorPayload)) {
+          try {
+            markCodexSparkExhausted(errorPayload);
+            logger.info('[Codex Spark Exhaustion] Spark model quota exhausted — future routing will use regular Codex before failover');
+          } catch (e) {
+            logger.info(`[Codex Spark Exhaustion] Failed to set flag: ${e.message}`);
+          }
+        } else {
+          try {
+            db.setCodexExhausted(true);
+            logger.info('[Codex Exhaustion] Codex quota exhausted — future routing will skip Codex before failover');
+          } catch (e) {
+            logger.info(`[Codex Exhaustion] Failed to set flag: ${e.message}`);
+          }
         }
       }
       const sanitizedOutput = _sanitizeTaskOutput(proc.output);
@@ -462,11 +496,20 @@ function handleProviderFailover(ctx) {
       logger.info(`[Provider Failover] Fallback chain exhausted for task ${taskId}, all providers tried`);
       // Set system-wide Codex exhaustion flag when provider is codex and chain is exhausted
       if (currentProvider === 'codex' || currentProvider === 'claude-cli') {
-        try {
-          db.setCodexExhausted(true);
-          logger.info(`[Codex Exhaustion] Codex quota exhausted — system switching to local LLM mode`);
-        } catch (e) {
-          logger.info(`[Codex Exhaustion] Failed to set flag: ${e.message}`);
+        if (currentProvider === 'codex' && isCodexSparkQuotaError(task, errorPayload)) {
+          try {
+            markCodexSparkExhausted(errorPayload);
+            logger.info('[Codex Spark Exhaustion] Spark model quota exhausted with no fallback — regular Codex remains routable');
+          } catch (e) {
+            logger.info(`[Codex Spark Exhaustion] Failed to set flag: ${e.message}`);
+          }
+        } else {
+          try {
+            db.setCodexExhausted(true);
+            logger.info(`[Codex Exhaustion] Codex quota exhausted — system switching to local LLM mode`);
+          } catch (e) {
+            logger.info(`[Codex Exhaustion] Failed to set flag: ${e.message}`);
+          }
         }
       }
       ctx.status = 'failed';
