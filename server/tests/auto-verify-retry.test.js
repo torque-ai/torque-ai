@@ -528,6 +528,30 @@ describe('handleAutoVerifyRetry — verify execution', () => {
     );
   });
 
+  it('runs task metadata verify_command when project lookup fails', async () => {
+    const db = createMockDb({
+      initialConfig: { verify_command: 'npm test' },
+      projectExists: false,
+    });
+    const { handleAutoVerifyRetry } = loadModuleWithMocks({ db });
+    const ctx = makeCtx({
+      task: makeTask({
+        provider: 'claude-cli',
+        working_directory: 'C:/repo/unregistered-worktree',
+        metadata: JSON.stringify({ verify_command: 'npm run task:verify' }),
+      }),
+    });
+
+    await handleAutoVerifyRetry(ctx);
+
+    expect(db.getProjectConfig).not.toHaveBeenCalled();
+    expect(mockRunVerifyCommand).toHaveBeenCalledWith(
+      'npm run task:verify',
+      'C:/repo/unregistered-worktree',
+      expect.objectContaining({ provider: 'claude-cli' }),
+    );
+  });
+
   it('runs task metadata verify_command when project auto-verify is disabled', async () => {
     const db = createMockDb({
       initialConfig: {

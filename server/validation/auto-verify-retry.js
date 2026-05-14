@@ -317,6 +317,21 @@ async function handleAutoVerifyRetry(ctx) {
   // Determine provider
   const provider = (task.provider || '').toLowerCase();
   const isAutoVerifyProvider = AUTO_VERIFY_PROVIDERS.has(provider);
+  const taskMetadata = getTaskMetadata(task);
+  const hasTaskVerifyCommand = Object.prototype.hasOwnProperty.call(taskMetadata, 'verify_command');
+
+  if (taskMetadata.verify_skip === true) {
+    logger.info(`[auto-verify] Task ${taskId}: verify_skip set, skipping`);
+    return;
+  }
+
+  if (
+    hasTaskVerifyCommand &&
+    (typeof taskMetadata.verify_command !== 'string' || taskMetadata.verify_command.trim().length === 0)
+  ) {
+    logger.info(`[auto-verify] Task ${taskId}: no verify_command (task metadata disabled), skipping`);
+    return;
+  }
 
   // Look up project config
   if (!_db) {
@@ -333,17 +348,16 @@ async function handleAutoVerifyRetry(ctx) {
   // detection for non-factory tasks.
   const projectTag = tags.find((t) => typeof t === 'string' && t.startsWith('project:'));
   const projectFromTag = projectTag ? projectTag.slice('project:'.length).trim() : null;
-  const project = projectFromTag || _db.getProjectFromPath(task.working_directory);
-  if (!project) return;
-
-  const config = _db.getProjectConfig(project) || {};
-  const taskMetadata = getTaskMetadata(task);
-  const hasTaskVerifyCommand = Object.prototype.hasOwnProperty.call(taskMetadata, 'verify_command');
-
-  if (taskMetadata.verify_skip === true) {
-    logger.info(`[auto-verify] Task ${taskId}: verify_skip set, skipping`);
-    return;
+  const projectFromTask = typeof task.project === 'string' && task.project.trim().length > 0
+    ? task.project.trim()
+    : null;
+  let project = projectFromTag || projectFromTask || null;
+  if (!project && typeof _db.getProjectFromPath === 'function') {
+    project = _db.getProjectFromPath(task.working_directory);
   }
+  if (!project && !hasTaskVerifyCommand) return;
+
+  const config = project ? (_db.getProjectConfig(project) || {}) : {};
 
   const verifyCommand = hasTaskVerifyCommand ? taskMetadata.verify_command : config.verify_command;
   if (typeof verifyCommand !== 'string' || verifyCommand.trim().length === 0) {
