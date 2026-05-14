@@ -2,6 +2,7 @@
 const {
   parsePlanFile,
   extractVerifyCommand,
+  extractTaskVerifyConfig,
   extractExplicitVerifyCommand,
   normalizeVerifyCommand,
 } = require('../factory/plan-parser');
@@ -117,6 +118,60 @@ Verification: torque-remote dotnet test simtests/SimCore.DotNet.Tests.csproj -c 
 `;
     expect(extractVerifyCommand(plan, 'dotnet test simtests/SimCore.DotNet.Tests.csproj -c Release'))
       .toBe('dotnet test simtests/SimCore.DotNet.Tests.csproj -c Release --filter FullyQualifiedName~LockstepTests');
+  });
+
+  it('extractTaskVerifyConfig reads task-local verify_command metadata', () => {
+    const plan = `${SAMPLE}
+
+## Task 3: Docs
+
+verify_command: markdownlint README.md docs/
+
+- [ ] **Step 1: Update docs**
+`;
+    const parsed = parsePlanFile(plan);
+
+    expect(extractTaskVerifyConfig(parsed.tasks[2], 'npm test'))
+      .toEqual({ verify_command: 'markdownlint README.md docs/' });
+  });
+
+  it('extractTaskVerifyConfig reads task-local validation lines', () => {
+    const plan = `${SAMPLE}
+
+## Task 3: Frontend
+
+Validation: npx vitest run dashboard/
+
+- [ ] **Step 1: Update dashboard**
+`;
+    const parsed = parsePlanFile(plan);
+
+    expect(extractTaskVerifyConfig(parsed.tasks[2], 'npm test'))
+      .toEqual({ verify_command: 'npx vitest run dashboard/' });
+  });
+
+  it('extractTaskVerifyConfig lets task-local skip declarations suppress defaults', () => {
+    const plan = `${SAMPLE}
+
+## Task 3: Docs-only comment
+
+verify_skip: true
+verify_command: npx vitest run should-not-run
+
+- [ ] **Step 1: Update comment**
+
+## Task 4: Explicit empty verify
+
+verify_command: ""
+
+- [ ] **Step 1: Update prose**
+`;
+    const parsed = parsePlanFile(plan);
+
+    expect(extractTaskVerifyConfig(parsed.tasks[2], 'npm test'))
+      .toEqual({ verify_skip: true });
+    expect(extractTaskVerifyConfig(parsed.tasks[3], 'npm test'))
+      .toEqual({ verify_skip: true });
   });
 
   it('extractExplicitVerifyCommand reads Validate with code spans', () => {

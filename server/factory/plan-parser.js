@@ -348,6 +348,7 @@ const VERIFY_COMMAND_EXECUTABLES = new Set([
   'just',
   'make',
   'mage',
+  'markdownlint',
   'mvn',
   'ninja',
   'node',
@@ -519,6 +520,83 @@ function extractExplicitVerifyCommand(planContent) {
   return null;
 }
 
+function extractNonCodeMarkdownLines(markdown) {
+  const lines = [];
+  let inFence = false;
+
+  for (const line of String(markdown || '').split(/\r?\n/)) {
+    if (/^```/.test(line)) {
+      inFence = !inFence;
+      continue;
+    }
+    if (inFence || /^(?: {4}|\t)/.test(line)) {
+      continue;
+    }
+    lines.push(line);
+  }
+
+  return lines;
+}
+
+function buildTaskMarkdownFallback(task) {
+  if (!task || typeof task !== 'object') return '';
+  if (typeof task.raw_markdown === 'string') return task.raw_markdown;
+  return [
+    task.task_title,
+    ...(Array.isArray(task.steps) ? task.steps.flatMap((step) => [
+      step.title,
+      ...(Array.isArray(step.notes) ? step.notes : []),
+      ...(Array.isArray(step.code_blocks) ? step.code_blocks.map((block) => block.content) : []),
+    ]) : []),
+  ].filter(Boolean).join('\n');
+}
+
+function unwrapVerifyScalar(raw) {
+  let value = String(raw || '').trim();
+  const codeSpan = value.match(/^`([^`]*)`$/);
+  if (codeSpan) {
+    value = codeSpan[1].trim();
+  }
+  const quote = value[0];
+  if ((quote === '"' || quote === "'") && value.endsWith(quote)) {
+    value = value.slice(1, -1).trim();
+  }
+  return value;
+}
+
+function extractTaskVerifyConfig(task, projectDefault) {
+  const taskText = buildTaskMarkdownFallback(task);
+  const lines = extractNonCodeMarkdownLines(taskText);
+
+  for (const line of lines) {
+    const skipMatch = line.match(/^\s*(?:[-*]\s*)?verify_skip\s*:\s*(.+?)\s*$/i);
+    if (skipMatch && /^true$/i.test(unwrapVerifyScalar(skipMatch[1]))) {
+      return { verify_skip: true };
+    }
+  }
+
+  for (const line of lines) {
+    const commandMatch = line.match(/^\s*(?:[-*]\s*)?verify_command\s*:\s*(.*?)\s*$/i);
+    if (!commandMatch) continue;
+    const rawCommand = unwrapVerifyScalar(commandMatch[1]);
+    if (!rawCommand) {
+      return { verify_skip: true };
+    }
+    const verifyCommand = normalizeVerifyCommand(rawCommand);
+    if (verifyCommand) {
+      return { verify_command: verifyCommand };
+    }
+  }
+
+  const explicit = extractExplicitVerifyCommand(lines.join('\n'));
+  if (explicit) {
+    return { verify_command: explicit };
+  }
+
+  const defaultCommand = normalizeVerifyCommand(projectDefault);
+  return defaultCommand ? { verify_command: defaultCommand } : {};
+}
+
 function extractVerifyCommand(planContent, projectDefault) {
   const explicit = extractExplicitVerifyCommand(planContent);
   if (explicit) return explicit;
@@ -535,6 +613,7 @@ module.exports = {
   parsePlanFile,
   parsePlanMarkdown,
   extractVerifyCommand,
+  extractTaskVerifyConfig,
   extractExplicitVerifyCommand,
   normalizeVerifyCommand,
   isLikelyVerifyCommand,
