@@ -288,6 +288,26 @@ function markAbandoned(id, reason) {
   }
 }
 
+function markPreserved(id, reason) {
+  void reason;
+  try {
+    const result = getDb().prepare(`
+      UPDATE factory_worktrees
+      SET status = 'preserved'
+      WHERE id = ?
+    `).run(requireInteger(id, 'id'));
+    if (result.changes === 0) {
+      return null;
+    }
+    return getWorktree(id);
+  } catch (error) {
+    if (isMissingTableError(error)) {
+      return null;
+    }
+    throw error;
+  }
+}
+
 function setOwningTask(id, task_id) {
   try {
     // When a non-null task is being attached, also bump created_at so the
@@ -440,6 +460,7 @@ module.exports = {
   getLatestWorktreeForWorkItem,
   markMerged,
   markAbandoned,
+  markPreserved,
   listActiveWorktrees,
   pruneAbandonedWorktrees,
   setOwningTask,

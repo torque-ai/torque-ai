@@ -451,11 +451,12 @@ function createWorktreeRunner({
     throw new Error('worktree-runner requires a worktreeManager with createWorktree/mergeWorktree/cleanupWorktree');
   }
 
-  async function createForBatch({ project, workItem, batchId }) {
+  async function createForBatch({ project, workItem, batchId, featureNameSuffix = null }) {
     if (!project || !project.path) throw new Error('createForBatch requires project.path');
     if (!workItem || !workItem.id) throw new Error('createForBatch requires workItem.id');
     const slug = sanitizeSlug(workItem.title || `item-${workItem.id}`);
-    const featureName = `factory-${workItem.id}-${slug}`;
+    const suffix = featureNameSuffix ? `-${sanitizeSlug(featureNameSuffix, 24)}` : '';
+    const featureName = `factory-${workItem.id}-${slug}${suffix}`;
 
     const baseBranch = detectDefaultBranch(project.path);
 

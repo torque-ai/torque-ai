@@ -335,6 +335,11 @@ const DECISION_ACTIONS = {
     classifier: 'benign',
     outcome: ['factory_worktree_id', 'worktree_id', 'worktree_path', 'branch', 'baseRef', 'threshold', 'commits_behind', 'stale_files', 'error', 'reuse_context'],
   },
+  factory_worktree_reuse_dirty_preserved: {
+    stage: 'EXECUTE',
+    classifier: 'benign',
+    outcome: ['factory_worktree_id', 'worktree_id', 'worktree_path', 'branch', 'baseRef', 'threshold', 'commits_behind', 'stale_files', 'reuse_context', 'fallback_suffix'],
+  },
   execute_batch_worktree_reuse_skipped: {
     stage: 'EXECUTE',
     classifier: 'benign',
