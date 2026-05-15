@@ -1034,6 +1034,15 @@ function runMigrations(db, logger, safeAddColumn, extras = {}) {
   } catch (e) {
     logger.debug(`Schema migration (tasks resubmitted_from active index): ${e.message}`);
   }
+  try {
+    db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_tasks_resubmitted_from_created
+      ON tasks(json_extract(metadata,'$.resubmitted_from'), created_at DESC)
+      WHERE json_extract(metadata,'$.resubmitted_from') IS NOT NULL
+    `);
+  } catch (e) {
+    logger.debug(`Schema migration (tasks resubmitted_from lookup index): ${e.message}`);
+  }
   migrateModelAgnostic(db);
 
   // Await restart recovery: structured cancel reason + server epoch

@@ -602,6 +602,9 @@ function createTables(db, logger) {
       CREATE INDEX IF NOT EXISTS idx_tasks_provider_completed ON tasks(provider, completed_at);
       CREATE INDEX IF NOT EXISTS idx_tasks_status_completed ON tasks(status, completed_at DESC);
       CREATE INDEX IF NOT EXISTS idx_tasks_workflow ON tasks(workflow_id);
+      CREATE INDEX IF NOT EXISTS idx_tasks_resubmitted_from_created
+        ON tasks(json_extract(metadata,'$.resubmitted_from'), created_at DESC)
+        WHERE json_extract(metadata,'$.resubmitted_from') IS NOT NULL;
     `);
   db.exec(`
       CREATE TABLE IF NOT EXISTS pipelines (

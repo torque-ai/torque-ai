@@ -238,6 +238,11 @@ describe('db/schema.js — smoke test', () => {
       expect(indexes).toContain('idx_tasks_status_priority');
     });
 
+    it('tasks resubmitted_from lookup index exists', () => {
+      const indexes = getIndexNames();
+      expect(indexes).toContain('idx_tasks_resubmitted_from_created');
+    });
+
     it('tasks.tags index exists', () => {
       const indexes = getIndexNames();
       expect(indexes).toContain('idx_tasks_tags');

@@ -185,6 +185,7 @@ const EXPECTED_INDEXES = [
   "idx_tasks_status_created",
   "idx_tasks_provider_completed",
   "idx_tasks_status_completed",
+  "idx_tasks_resubmitted_from_created",
   "idx_policy_profiles_project",
   "idx_policy_rules_stage",
   "idx_policy_bindings_profile",
@@ -534,6 +535,8 @@ describe('db/schema/tables', () => {
 
     expect(getIndexColumns('idx_tasks_status_priority')).toEqual(['status', 'priority']);
     expect(getIndexSql('idx_tasks_status_priority')).toContain('priority DESC');
+    expect(getIndexSql('idx_tasks_resubmitted_from_created')).toContain("json_extract(metadata,'$.resubmitted_from')");
+    expect(getIndexSql('idx_tasks_resubmitted_from_created')).toContain('created_at DESC');
     expect(getIndexColumns('idx_coordination_events_lock')).toEqual(['lock_key', 'heartbeat_at']);
     expect(getIndexColumns('idx_task_claims_task_status')).toEqual(['task_id', 'status']);
     expect(getIndexSql('idx_rate_limits_project_type')).toContain('WHERE project_id IS NOT NULL');
@@ -542,6 +545,22 @@ describe('db/schema/tables', () => {
       .all()
       .find((index) => index.name === 'idx_approval_task_rule');
     expect(approvalRuleIndex?.unique).toBe(1);
+  });
+
+  it('indexes restart resubmission children including cancelled rows', () => {
+    createTables(db, logger);
+
+    const plan = db.prepare(`
+      EXPLAIN QUERY PLAN
+      SELECT *
+      FROM tasks
+      WHERE json_extract(metadata, '$.resubmitted_from') = ?
+      ORDER BY created_at DESC
+      LIMIT 25
+    `).all('parent-task');
+
+    const detail = plan.map((row) => row.detail).join('\n');
+    expect(detail).toContain('idx_tasks_resubmitted_from_created');
   });
 
   it('createTables is idempotent', () => {
