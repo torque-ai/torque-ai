@@ -34,11 +34,42 @@ function validBody() {
 
 function withTempRepo(callback) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plan-quality-gate-'));
-  try {
-    return callback(dir);
-  } finally {
+  const cleanup = () => {
     fs.rmSync(dir, { recursive: true, force: true });
+  };
+  try {
+    const result = callback(dir);
+    if (result && typeof result.then === 'function') {
+      return result.finally(cleanup);
+    }
+    cleanup();
+    return result;
+  } catch (err) {
+    cleanup();
+    throw err;
   }
+}
+
+function writeFixtureFiles(repoPath, files) {
+  for (const file of files) {
+    const absolute = path.join(repoPath, file);
+    fs.mkdirSync(path.dirname(absolute), { recursive: true });
+    fs.writeFileSync(absolute, 'module.exports = {};\n');
+  }
+}
+
+function withEvaluatePlanRepo(callback) {
+  return withTempRepo((repoPath) => {
+    writeFixtureFiles(repoPath, [
+      'src/foo.ts',
+      'src/bar.ts',
+      'tests/foo.test.ts',
+      'tests/bar.test.ts',
+      'server/handlers/workflow/index.js',
+      'server/tests/handler-workflow-handlers.test.js',
+    ]);
+    return callback(repoPath);
+  });
 }
 
 describe('runDeterministicRules — structural', () => {
@@ -660,49 +691,49 @@ describe('evaluatePlan orchestration', () => {
     llmSpy.mockRestore();
   });
 
-  it('deterministic pass + LLM go: returns passed=true with critique populated', async () => {
+  it('deterministic pass + LLM go: returns passed=true with critique populated', () => withEvaluatePlanRepo(async (repoPath) => {
     const llmSpy = vi.spyOn(planQualityGate, 'runLlmSemanticCheck').mockResolvedValue('Plan covers the goal.');
     const plan = '## Task 1: Edit src/foo.ts\n\nIn src/foo.ts rename handleX to handleY and run npx vitest tests/foo.test.ts. Body is long enough for rule 4.\n\n## Task 2: Edit src/bar.ts\n\nIn src/bar.ts call handleY via the new export and run npx vitest tests/bar.test.ts. Body is long enough for rule 4.';
     const result = await planQualityGate.evaluatePlan({
       plan,
       workItem: { id: 1, title: 'w', description: 'd' },
-      project: { id: 'p', path: '/tmp/p' },
+      project: { id: 'p', path: repoPath },
     });
     expect(result.passed).toBe(true);
     expect(llmSpy).toHaveBeenCalledTimes(1);
     expect(result.llmCritique).toBe('Plan covers the goal.');
     expect(result.feedbackPrompt).toBeNull();
     llmSpy.mockRestore();
-  });
+  }));
 
-  it('deterministic pass + LLM no-go: returns passed=false with critique in feedbackPrompt', async () => {
+  it('deterministic pass + LLM no-go: returns passed=false with critique in feedbackPrompt', () => withEvaluatePlanRepo(async (repoPath) => {
     const llmSpy = vi.spyOn(planQualityGate, 'runLlmSemanticCheck').mockResolvedValue('[no-go] Plan rewrites the wrong subsystem.');
     const plan = '## Task 1: Edit src/foo.ts\n\nIn src/foo.ts rename handleX to handleY and run npx vitest tests/foo.test.ts. Body is long enough for rule 4.\n\n## Task 2: Edit src/bar.ts\n\nIn src/bar.ts call handleY via the new export and run npx vitest tests/bar.test.ts. Body is long enough for rule 4.';
     const result = await planQualityGate.evaluatePlan({
       plan,
       workItem: { id: 1, title: 'w', description: 'd' },
-      project: { id: 'p', path: '/tmp/p' },
+      project: { id: 'p', path: repoPath },
     });
     expect(result.passed).toBe(false);
     expect(result.feedbackPrompt).toContain('wrong subsystem');
     llmSpy.mockRestore();
-  });
+  }));
 
-  it('deterministic pass + LLM no-go in dark trust: blocks with critique feedback', async () => {
+  it('deterministic pass + LLM no-go in dark trust: blocks with critique feedback', () => withEvaluatePlanRepo(async (repoPath) => {
     const llmSpy = vi.spyOn(planQualityGate, 'runLlmSemanticCheck').mockResolvedValue('[no-go] Plan rewrites the wrong subsystem.');
     const plan = '## Task 1: Edit src/foo.ts\n\nIn src/foo.ts rename handleX to handleY and run npx vitest tests/foo.test.ts. Body is long enough for rule 4.\n\n## Task 2: Edit src/bar.ts\n\nIn src/bar.ts call handleY via the new export and run npx vitest tests/bar.test.ts. Body is long enough for rule 4.';
     const result = await planQualityGate.evaluatePlan({
       plan,
       workItem: { id: 1, title: 'w', description: 'd' },
-      project: { id: 'p', path: '/tmp/p', trust_level: 'dark' },
+      project: { id: 'p', path: repoPath, trust_level: 'dark' },
     });
     expect(result.passed).toBe(false);
     expect(result.feedbackPrompt).toContain('wrong subsystem');
     expect(result.llmCritique).toContain('wrong subsystem');
     llmSpy.mockRestore();
-  });
+  }));
 
-  it('deterministic pass + concrete acceptance mismatch no-go in dark trust: blocks execution', async () => {
+  it('deterministic pass + concrete acceptance mismatch no-go in dark trust: blocks execution', () => withEvaluatePlanRepo(async (repoPath) => {
     const critique = 'The plan misses the required test file and verification command by adding coverage to server/tests/handler-workflow-handlers.test.js instead of server/tests/workflow-dag-validation.test.js.';
     const llmSpy = vi.spyOn(planQualityGate, 'runLlmSemanticCheck').mockResolvedValue(`[no-go] ${critique}`);
     const plan = '## Task 1: Edit server/handlers/workflow/index.js\n\nIn server/handlers/workflow/index.js add the workflow DAG guard and run npx vitest server/tests/handler-workflow-handlers.test.js. Body is long enough for rule 4.\n\n## Task 2: Edit server/tests/handler-workflow-handlers.test.js\n\nIn server/tests/handler-workflow-handlers.test.js add dispatch rejection coverage and run npx vitest server/tests/handler-workflow-handlers.test.js. Body is long enough for rule 4.';
@@ -713,39 +744,39 @@ describe('evaluatePlan orchestration', () => {
         title: 'Fabro #64: Add build-time workflow DAG validation before dispatch',
         description: 'Add focused tests in server/tests/workflow-dag-validation.test.js and verify with npm test -- server/tests/workflow-dag-validation.test.js.',
       },
-      project: { id: 'p', path: '/tmp/p', trust_level: 'dark' },
+      project: { id: 'p', path: repoPath, trust_level: 'dark' },
     });
 
     expect(result.passed).toBe(false);
     expect(result.llmCritique).toContain('required test file');
     expect(result.feedbackPrompt).toContain('server/tests/workflow-dag-validation.test.js');
     llmSpy.mockRestore();
-  });
+  }));
 
-  it('deterministic pass + LLM worktree-setup no-go: treats the plan as pass', async () => {
+  it('deterministic pass + LLM worktree-setup no-go: treats the plan as pass', () => withEvaluatePlanRepo(async (repoPath) => {
     const llmSpy = vi.spyOn(planQualityGate, 'runLlmSemanticCheck').mockResolvedValue('[no-go] The implementation scope is sound, but the plan omits creation of a dedicated git worktree and feature branch before editing production code.');
     const plan = '## Task 1: Edit src/foo.ts\n\nIn src/foo.ts rename handleX to handleY and run npx vitest tests/foo.test.ts. Body is long enough for rule 4.\n\n## Task 2: Edit src/bar.ts\n\nIn src/bar.ts call handleY via the new export and run npx vitest tests/bar.test.ts. Body is long enough for rule 4.';
     const result = await planQualityGate.evaluatePlan({
       plan,
       workItem: { id: 1, title: 'w', description: 'd' },
-      project: { id: 'p', path: '/tmp/p' },
+      project: { id: 'p', path: repoPath },
     });
     expect(result.passed).toBe(true);
     expect(result.llmCritique).toBeNull();
     expect(result.feedbackPrompt).toBeNull();
     llmSpy.mockRestore();
-  });
+  }));
 
-  it('deterministic pass + LLM returns null (timeout/error): treats as pass', async () => {
+  it('deterministic pass + LLM returns null (timeout/error): treats as pass', () => withEvaluatePlanRepo(async (repoPath) => {
     const llmSpy = vi.spyOn(planQualityGate, 'runLlmSemanticCheck').mockResolvedValue(null);
     const plan = '## Task 1: Edit src/foo.ts\n\nIn src/foo.ts rename handleX to handleY and run npx vitest tests/foo.test.ts. Body is long enough for rule 4.\n\n## Task 2: Edit src/bar.ts\n\nIn src/bar.ts call handleY via the new export and run npx vitest tests/bar.test.ts. Body is long enough for rule 4.';
     const result = await planQualityGate.evaluatePlan({
       plan,
       workItem: { id: 1, title: 'w', description: 'd' },
-      project: { id: 'p', path: '/tmp/p' },
+      project: { id: 'p', path: repoPath },
     });
     expect(result.passed).toBe(true);
     expect(result.llmCritique).toBeNull();
     llmSpy.mockRestore();
-  });
+  }));
 });
