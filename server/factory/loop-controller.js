@@ -7837,7 +7837,12 @@ function migrateGeneratedPlanPathForExecutionWorktree({
 // constraints_json to the next provider in the project's chain. When
 // the chain is exhausted, transition to terminal 'escalation_exhausted'
 // (distinct from 'rejected' so operators see "system tried everything").
-function routeWorkItemToNeedsReplan(workItem, { reason, attempt = null, details = null } = {}) {
+function routeWorkItemToNeedsReplan(workItem, {
+  reason,
+  attempt = null,
+  details = null,
+  trackEscalation = true,
+} = {}) {
   if (!workItem || !workItem.id) return workItem;
   const existingOrigin = getWorkItemOriginObject(workItem) || {};
   const detailObject = details && typeof details === 'object' ? details : null;
@@ -7859,6 +7864,11 @@ function routeWorkItemToNeedsReplan(workItem, { reason, attempt = null, details 
     return workItem;
   }
   const reasonStr = String(reason || 'unknown');
+  const reasonShape = normalizeRejectionReasonForShape(reasonStr);
+  // Pointer cleanup is a control-plane transition, not an architect failure.
+  const isPlanPointerCleanupReason = reasonShape === 'stale_source_plan_before_replan'
+    || reasonShape === 'stale_generated_plan_before_replan';
+  const shouldTrackEscalation = trackEscalation !== false && !isPlanPointerCleanupReason;
   const missingSignals = detailPlanQualityRejection?.missing_specificity_signals
     || existingOrigin?.last_plan_description_quality_rejection?.missing_specificity_signals
     || [];
@@ -7873,7 +7883,9 @@ function routeWorkItemToNeedsReplan(workItem, { reason, attempt = null, details 
     missing_signals: missingSignals,
     ts: new Date().toISOString(),
   };
-  const escalationHistory = [...priorHistory, currentEntry];
+  const escalationHistory = shouldTrackEscalation
+    ? [...priorHistory, currentEntry]
+    : priorHistory;
 
   // Read constraints to know which provider is currently in play.
   let constraints = {};
@@ -7888,7 +7900,7 @@ function routeWorkItemToNeedsReplan(workItem, { reason, attempt = null, details 
 
   // Same-shape escalation check.
   let escalation = null;
-  if (detectSameShapeEscalation(priorHistory, currentEntry)) {
+  if (shouldTrackEscalation && detectSameShapeEscalation(priorHistory, currentEntry)) {
     const chain = readProjectProviderChain(workItem.project_id);
     if (chain.length > 0) {
       // When no override is set, the project defaults to chain[0] — so
@@ -7904,7 +7916,7 @@ function routeWorkItemToNeedsReplan(workItem, { reason, attempt = null, details 
           kind: 'provider_switch',
           from: currentProvider,
           to: nextProvider,
-          reason_shape: normalizeRejectionReasonForShape(reasonStr),
+          reason_shape: reasonShape,
           consecutive_same_shape: SAME_SHAPE_THRESHOLD,
         };
       } else {
@@ -7912,13 +7924,13 @@ function routeWorkItemToNeedsReplan(workItem, { reason, attempt = null, details 
           kind: 'chain_exhausted',
           from: currentProvider,
           chain,
-          reason_shape: normalizeRejectionReasonForShape(reasonStr),
+          reason_shape: reasonShape,
         };
       }
     } else {
       escalation = {
         kind: 'no_provider_chain',
-        reason_shape: normalizeRejectionReasonForShape(reasonStr),
+        reason_shape: reasonShape,
       };
     }
   }
@@ -7929,7 +7941,9 @@ function routeWorkItemToNeedsReplan(workItem, { reason, attempt = null, details 
   // escalate to provider B, the previous SAME_SHAPE_THRESHOLD-1 entries
   // in history still match — so the very next rejection would re-trigger
   // escalation and burn through the chain in a single tick.
-  const persistedHistory = escalation ? [currentEntry] : escalationHistory;
+  const persistedHistory = shouldTrackEscalation
+    ? (escalation ? [currentEntry] : escalationHistory)
+    : priorHistory;
 
   // Clear plan-generation wait fields so the next pickup creates a FRESH
   // task instead of re-awaiting the cached failure. Without this, a work
@@ -7995,7 +8009,7 @@ function routeWorkItemToNeedsReplan(workItem, { reason, attempt = null, details 
     && (escalation.kind === 'chain_exhausted' || escalation.kind === 'no_provider_chain');
   const newStatus = escalationTerminal ? 'escalation_exhausted' : 'needs_replan';
   const newRejectReason = escalationTerminal
-    ? `escalation_exhausted: ${escalation.kind} after ${SAME_SHAPE_THRESHOLD}× same-shape (${normalizeRejectionReasonForShape(reasonStr)})`
+    ? `escalation_exhausted: ${escalation.kind} after ${SAME_SHAPE_THRESHOLD}× same-shape (${reasonShape})`
     : reasonStr;
 
   return factoryIntake.updateWorkItem(workItem.id, {
@@ -8188,6 +8202,7 @@ async function executePlanStage(project, instance, selectedWorkItem = null) {
       const routed = routeWorkItemToNeedsReplan(workItem, {
         reason: stalePlanReason,
         details: { plan_path: stalePlanPath },
+        trackEscalation: false,
       });
       if (instance?.id) {
         rememberSelectedWorkItem(instance.id, routed);

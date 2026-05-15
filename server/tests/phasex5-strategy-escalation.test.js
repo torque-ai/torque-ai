@@ -230,6 +230,30 @@ describe('Phase X5: same-shape escalation in routeWorkItemToNeedsReplan', () => 
       expect(after.origin?.last_escalation).toMatchObject({ kind: 'no_provider_chain' });
     });
 
+    it('does not terminally escalate stale plan pointer cleanup cycles', () => {
+      makeProject(db, []);
+      const item = factoryIntake.createWorkItem({
+        project_id: 'p1',
+        source: 'plan_file',
+        title: 'X',
+        origin: { plan_path: '/tmp/source-plan.md' },
+      });
+
+      let current = item;
+      for (let i = 0; i < SAME_SHAPE_THRESHOLD + 1; i += 1) {
+        current = routeWorkItemToNeedsReplan(current, {
+          reason: 'stale_source_plan_before_replan',
+          details: { plan_path: '/tmp/source-plan.md' },
+        });
+        current = factoryIntake.getWorkItem(current.id);
+      }
+
+      expect(current.status).toBe('needs_replan');
+      expect(current.reject_reason).toBe('stale_source_plan_before_replan');
+      expect(current.origin?.last_escalation).toBeUndefined();
+      expect(current.origin?.escalation_history || []).toEqual([]);
+    });
+
     it('uses modern provider_lane_policy config as the architect escalation chain', () => {
       makeProjectWithConfig(db, {
         provider_lane_policy: {

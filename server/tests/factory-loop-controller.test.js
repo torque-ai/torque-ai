@@ -1156,6 +1156,8 @@ Edit server/factory/plan-executor.js and make the requested behavior change. Kee
     expect(after.origin?.plan_path).toBeUndefined();
     expect(after.origin?.source_plan_path).toBe(planPath);
     expect(after.origin?.last_rejection_reason).toBe('stale_source_plan_before_replan');
+    expect(after.origin?.last_escalation).toBeUndefined();
+    expect(after.origin?.escalation_history || []).toEqual([]);
     expect(fs.existsSync(planPath)).toBe(true);
     expect(routingModule.handleSmartSubmitTask).not.toHaveBeenCalled();
 
