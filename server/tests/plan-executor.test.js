@@ -444,6 +444,28 @@ git commit -m "feat: add helper"
     expect(submitMock).toHaveBeenCalledTimes(1);
   });
 
+  it('does NOT block create-path tasks that omit the word "file"', async () => {
+    const PLAN_CREATE_PATHS = `# X
+
+## Task 1: Add .torquefn DSL parser
+
+- [ ] **Step 1: implement**
+
+\`\`\`text
+Create \`server/torquefn/dsl-parser.js\`, \`server/tests/torquefn-dsl-parser.test.js\`, and \`torque/functions/work_item_plan.torquefn\`.
+\`\`\`
+
+- [ ] **Step 2: commit**
+
+\`\`\`bash
+git commit -m "feat: add torquefn parser"
+\`\`\`
+`;
+    fs.writeFileSync(planPath, PLAN_CREATE_PATHS);
+    await exec.execute({ plan_path: planPath, project: 'p', working_directory: dir });
+    expect(submitMock).toHaveBeenCalledTimes(1);
+  });
+
   it('does NOT block when intent is ambiguous (no edit/modify verb)', async () => {
     // Conservative default: when the prompt doesn't clearly say "edit"
     // or "create", don't gate. Many legitimate plans phrase work

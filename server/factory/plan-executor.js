@@ -323,6 +323,8 @@ async function verifyCompletedTaskArtifacts(task, working_directory, baseBranch 
 // { ok: false, reason, missing, intent }.
 const EDIT_VERBS_RE = /\b(edit|modify|update|replace|repair|fix|refactor|rename|extend|change)\b/i;
 const CREATE_VERBS_RE = /\b(create|add|new|introduce|generate)\b\s+(?:a\s+|an\s+)?\b(?:file|module|class|component|test)/i;
+const CREATE_PATH_RE = /\b(?:create|introduce|generate)\b[^.\n]{0,160}(?:`[^`]+`|"[^"]+"|'[^']+'|[A-Za-z0-9_./\\-]+\.[A-Za-z0-9_]+)/i;
+const ADD_NEW_PATH_RE = /\badd\b[^.\n]{0,80}\bnew\b[^.\n]{0,80}(?:`[^`]+`|"[^"]+"|'[^']+'|[A-Za-z0-9_./\\-]+\.[A-Za-z0-9_]+)/i;
 const CREATE_PHRASE_RE = /\b(?:create|new)\b[^.]{0,40}\b(?:if (?:it )?(?:does not |doesn't )exist|when missing|otherwise)\b/i;
 
 function verifyTaskTargetsForSubmission(task, working_directory, prompt) {
@@ -338,7 +340,10 @@ function verifyTaskTargetsForSubmission(task, working_directory, prompt) {
   // when both appear — a task that says "Create X (or edit if it exists)"
   // is intentionally tolerant of missing files.
   const text = `${task.task_title || ''}\n${prompt || ''}`;
-  const isCreate = CREATE_VERBS_RE.test(text) || CREATE_PHRASE_RE.test(text);
+  const isCreate = CREATE_VERBS_RE.test(text)
+    || CREATE_PATH_RE.test(text)
+    || ADD_NEW_PATH_RE.test(text)
+    || CREATE_PHRASE_RE.test(text);
   const isEdit = !isCreate && EDIT_VERBS_RE.test(text);
 
   // Without a clear edit/modify verb, don't gate. Many plans are
