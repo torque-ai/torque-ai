@@ -13,6 +13,8 @@ describe('classifyZeroDiff — heuristic layer', () => {
       'There is nothing to modify because the requested tests are already implemented.',
       'No changes are needed — the implementation is already complete.',
       'This is already implemented in ProjectSettings.test.jsx.',
+      'The requested test cases already exist in ProjectSettings.test.jsx.',
+      'The behavior is already covered by the existing test file.',
       'No modifications required.',
     ]],
     ['blocked', [
