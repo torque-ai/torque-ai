@@ -646,6 +646,7 @@ describe('executeNonPlanFileStage plan-quality-gate — reject paths', () => {
     expect(result).toMatchObject({
       stop_execution: true,
       next_state: 'EXECUTE',
+      paused_at_stage: 'EXECUTE',
       stage_result: {
         status: 'deferred',
         reason: 'task_still_running',

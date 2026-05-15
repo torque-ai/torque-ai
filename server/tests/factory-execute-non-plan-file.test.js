@@ -1160,7 +1160,7 @@ describe('factory loop-controller EXECUTE for non-plan-file work items', () => {
     });
     expect(executeAdvance).toMatchObject({
       new_state: LOOP_STATES.EXECUTE,
-      paused_at_stage: null,
+      paused_at_stage: LOOP_STATES.EXECUTE,
       reason: 'plan generation deferred while task remains active',
       stage_result: {
         status: 'deferred',
@@ -1395,7 +1395,7 @@ describe('factory loop-controller EXECUTE for non-plan-file work items', () => {
 
     expect(executeAdvance).toMatchObject({
       new_state: LOOP_STATES.EXECUTE,
-      paused_at_stage: null,
+      paused_at_stage: LOOP_STATES.EXECUTE,
       reason: 'plan generation deferred for file-lock contention',
       stage_result: {
         status: 'deferred',
@@ -1439,11 +1439,11 @@ describe('factory loop-controller EXECUTE for non-plan-file work items', () => {
 
     expect(waitingAdvance).toMatchObject({
       new_state: LOOP_STATES.EXECUTE,
-      paused_at_stage: null,
-      reason: 'plan generation deferred for file-lock contention',
+      paused_at_stage: LOOP_STATES.EXECUTE,
+      reason: 'plan generation still waiting on file-lock contention',
       stage_result: {
-        status: 'deferred',
-        reason: 'file_lock_wait',
+        status: 'waiting',
+        reason: 'plan_generation_file_lock_wait',
         generation_task_id: 'plan-gen-task',
         task_status: 'queued',
         retry_after: retryAfter,
@@ -1483,7 +1483,7 @@ describe('factory loop-controller EXECUTE for non-plan-file work items', () => {
 
     expect(executeAdvance).toMatchObject({
       new_state: LOOP_STATES.EXECUTE,
-      paused_at_stage: null,
+      paused_at_stage: LOOP_STATES.EXECUTE,
       reason: 'plan generation deferred while task remains active',
       stage_result: {
         status: 'deferred',
@@ -1537,7 +1537,7 @@ describe('factory loop-controller EXECUTE for non-plan-file work items', () => {
 
     expect(executeAdvance).toMatchObject({
       new_state: LOOP_STATES.EXECUTE,
-      paused_at_stage: null,
+      paused_at_stage: LOOP_STATES.EXECUTE,
       reason: 'plan generation deferred while task remains active',
       stage_result: {
         status: 'deferred',
@@ -1572,6 +1572,94 @@ describe('factory loop-controller EXECUTE for non-plan-file work items', () => {
     expect(decisions.find((row) => row.action === 'cannot_generate_plan')).toBeUndefined();
   });
 
+  it('does not execute a stale materialized plan while a re-plan task is still active', async () => {
+    const { project, workItem, projectDir } = registerExecuteProject({
+      description: 'Add coverage for active re-plan recovery when an old plan file exists.',
+    });
+    const batchId = `factory-${project.id}-stale-replan`;
+    const worktreePath = path.join(projectDir, '.factory-worktrees', 'stale-replan');
+    initializeCleanGitWorktree(worktreePath);
+    factoryWorktrees.recordWorktree({
+      project_id: project.id,
+      work_item_id: workItem.id,
+      batch_id: batchId,
+      vc_worktree_id: 'vc-stale-replan',
+      branch: 'factory/stale-replan',
+      worktree_path: worktreePath,
+      base_branch: 'main',
+    });
+    const stalePlanPath = path.join(
+      worktreePath,
+      'docs',
+      'superpowers',
+      'plans',
+      'auto-generated',
+      `${workItem.id}-add-behavioral-tests-for-factory-scorers.md`
+    );
+    fs.mkdirSync(path.dirname(stalePlanPath), { recursive: true });
+    fs.writeFileSync(stalePlanPath, [
+      '# Old rejected plan',
+      '',
+      '## Task 1: Edit a file that should not be executed',
+      '',
+      '- Edit missing/file.js',
+    ].join('\n'), 'utf8');
+    factoryIntake.updateWorkItem(workItem.id, {
+      origin_json: {
+        plan_path: stalePlanPath,
+        plan_generation_task_id: 'active-replan-task',
+        plan_generation_status: 'running',
+        plan_generation_wait_reason: 'task_still_running',
+      },
+      batch_id: batchId,
+    });
+    factoryHealth.updateProject(project.id, {
+      loop_batch_id: batchId,
+    });
+    taskCore.getTask = vi.fn((taskId) => {
+      if (taskId === 'active-replan-task') {
+        return {
+          id: taskId,
+          status: 'running',
+          output: '',
+          error_output: '',
+          tags: planGenerationTags(project.id, workItem.id),
+          metadata: planGenerationMetadata(project.id, workItem.id),
+        };
+      }
+      return null;
+    });
+
+    const executeAdvance = await loopController.advanceLoopForProject(project.id);
+    const waitingAdvance = await loopController.advanceLoopForProject(project.id);
+
+    expect(executeAdvance).toMatchObject({
+      new_state: LOOP_STATES.EXECUTE,
+      paused_at_stage: LOOP_STATES.EXECUTE,
+      reason: 'plan generation deferred while task remains active',
+      stage_result: {
+        status: 'deferred',
+        reason: 'task_still_running',
+        generation_task_id: 'active-replan-task',
+        task_status: 'running',
+      },
+    });
+    expect(waitingAdvance).toMatchObject({
+      new_state: LOOP_STATES.EXECUTE,
+      paused_at_stage: LOOP_STATES.EXECUTE,
+      reason: 'plan generation task is still active',
+      stage_result: {
+        status: 'waiting',
+        reason: 'plan_generation_task_active',
+        generation_task_id: 'active-replan-task',
+        task_status: 'running',
+      },
+    });
+    expect(routingModule.handleSmartSubmitTask).not.toHaveBeenCalled();
+    expect(awaitModule.handleAwaitTask).not.toHaveBeenCalled();
+    expect(createPlanExecutorMock).not.toHaveBeenCalled();
+  });
+
   it('defers an active plan-generation task discovered by work-item tags before submitting a duplicate', async () => {
     const { project, workItem } = registerExecuteProject({
       description: 'Add coverage for active plan generation without origin metadata.',
@@ -1594,7 +1682,7 @@ describe('factory loop-controller EXECUTE for non-plan-file work items', () => {
 
     expect(executeAdvance).toMatchObject({
       new_state: LOOP_STATES.EXECUTE,
-      paused_at_stage: null,
+      paused_at_stage: LOOP_STATES.EXECUTE,
       reason: 'plan generation deferred while task remains active',
       stage_result: {
         status: 'deferred',
@@ -1683,7 +1771,7 @@ describe('factory loop-controller EXECUTE for non-plan-file work items', () => {
     });
     expect(executeAdvance).toMatchObject({
       new_state: LOOP_STATES.EXECUTE,
-      paused_at_stage: null,
+      paused_at_stage: LOOP_STATES.EXECUTE,
       reason: 'plan generation deferred while task remains active',
       stage_result: {
         status: 'deferred',
@@ -1765,7 +1853,7 @@ describe('factory loop-controller EXECUTE for non-plan-file work items', () => {
     });
     expect(executeAdvance).toMatchObject({
       new_state: LOOP_STATES.EXECUTE,
-      paused_at_stage: null,
+      paused_at_stage: LOOP_STATES.EXECUTE,
       reason: 'plan generation deferred while task remains active',
       stage_result: {
         status: 'deferred',
@@ -1806,7 +1894,7 @@ describe('factory loop-controller EXECUTE for non-plan-file work items', () => {
 
     expect(freshAdvance).toMatchObject({
       new_state: LOOP_STATES.EXECUTE,
-      paused_at_stage: null,
+      paused_at_stage: LOOP_STATES.EXECUTE,
       reason: 'plan generation deferred while task remains active',
       stage_result: {
         status: 'deferred',
@@ -1849,7 +1937,7 @@ describe('factory loop-controller EXECUTE for non-plan-file work items', () => {
 
     expect(unownedAdvance).toMatchObject({
       new_state: LOOP_STATES.EXECUTE,
-      paused_at_stage: null,
+      paused_at_stage: LOOP_STATES.EXECUTE,
       reason: 'plan generation deferred while task remains active',
       stage_result: {
         status: 'deferred',
@@ -1899,7 +1987,7 @@ describe('factory loop-controller EXECUTE for non-plan-file work items', () => {
 
     expect(executeAdvance).toMatchObject({
       new_state: LOOP_STATES.EXECUTE,
-      paused_at_stage: null,
+      paused_at_stage: LOOP_STATES.EXECUTE,
       reason: 'plan generation deferred while task remains active',
       stage_result: {
         status: 'deferred',
