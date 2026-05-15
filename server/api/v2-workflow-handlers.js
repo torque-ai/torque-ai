@@ -19,10 +19,8 @@ const {
 } = require('./v2-control-plane');
 const { parseBody } = require('./middleware');
 
-let _taskManager = null;
-
-function init(taskManager) {
-  _taskManager = taskManager;
+function init() {
+  // Compatibility no-op: workflow handlers resolve services lazily.
 }
 
 function getContainerService(name) {

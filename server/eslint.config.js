@@ -310,7 +310,6 @@ module.exports = [
           'v2-governance-handlers.js',
           'v2-infrastructure-handlers.js',
           'v2-task-handlers.js',
-          'v2-workflow-handlers.js',
           'workflow-runtime.js',
         ],
       }],
