@@ -169,6 +169,7 @@ Frequently-emitted actions, by stage:
 | PRIORITIZE | `marked_for_failover_routing` | `benign` | `work_item_id`, `instance_id`, `fallback_template` |
 | PRIORITIZE | `plan_quality_attempt_window_escalated` | `benign` | `work_item_id`, `priority`, `work_item_status`, `work_item_source`, `plan_path`, `previous_status`, `next_status`, `attempt_count`, `reason_shape` |
 | PRIORITIZE | `auto_rejected_stuck_executing` | `b-side-reject` | `work_item_id`, `reason`, `stuck_since` |
+| PRIORITIZE | `plan_quality_attempt_window_escalated` | `b-side-reject` | `work_item_id`, `priority`, `work_item_status`, `work_item_source`, `plan_path`, `previous_status`, `next_status`, `attempt_count`, `reason_shape` |
 | PLAN | `generated_plan` | `benign` | `work_item_id`, `plan_path`, `task_count`, `description_quality` |
 | PLAN | `plan_generated` | `benign` | `work_item_id`, `plan_path`, `task_count` |
 | PLAN | `cannot_generate_plan` | `recovery-rule` (rule: `codex_phantom_success`) | `work_item_id`, `error`, `attempt` |
