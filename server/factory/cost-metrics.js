@@ -17,19 +17,7 @@ const EMPTY_TASK_COST_DATA = Object.freeze({
 
 const BATCH_TAG_PREFIXES = Object.freeze(['', 'batch:', 'factory:', 'workflow:']);
 
-// ── Legacy module-level state, written only by init() (deprecated) ─────────
-// Phase 4 of the universal-DI migration. Coexistence pattern.
-let _db = null;
-
-/** @deprecated Use createCostMetrics(deps) or container.get('costMetrics'). */
-function init(deps = {}) {
-  if (deps.db) {
-    _db = deps.db;
-  }
-  return module.exports;
-}
-
-function getCostPerCycle(project_id, summary = buildProjectCostSummary(project_id)) {
+function getCostPerCycleForDb(dbService, project_id, summary = buildProjectCostSummaryForDb(dbService, project_id)) {
   if (summary.cycle_count === 0 || summary.total_cost <= 0) {
     return 0;
   }
@@ -37,7 +25,7 @@ function getCostPerCycle(project_id, summary = buildProjectCostSummary(project_i
   return roundMetric(summary.total_cost / summary.cycle_count);
 }
 
-function getCostPerHealthPoint(project_id, summary = buildProjectCostSummary(project_id)) {
+function getCostPerHealthPointForDb(dbService, project_id, summary = buildProjectCostSummaryForDb(dbService, project_id)) {
   if (summary.total_cost <= 0 || summary.total_improvement <= 0) {
     return 0;
   }
@@ -45,7 +33,7 @@ function getCostPerHealthPoint(project_id, summary = buildProjectCostSummary(pro
   return roundMetric(summary.total_cost / summary.total_improvement);
 }
 
-function getProviderEfficiency(project_id, summary = buildProjectCostSummary(project_id)) {
+function getProviderEfficiencyForDb(dbService, project_id, summary = buildProjectCostSummaryForDb(dbService, project_id)) {
   if (!summary.tasks.length) {
     return [];
   }
@@ -81,12 +69,12 @@ function getProviderEfficiency(project_id, summary = buildProjectCostSummary(pro
     });
 }
 
-function buildProjectCostSummary(project_id) {
+function buildProjectCostSummaryForDb(dbService, project_id) {
   if (!project_id) {
     return EMPTY_SUMMARY;
   }
 
-  const db = getRawDb();
+  const db = getRawDb(dbService);
   if (!db) {
     return EMPTY_SUMMARY;
   }
@@ -264,14 +252,14 @@ function getTotalImprovement(cycles) {
   }, 0);
 }
 
-function getRawDb() {
+function getRawDb(dbService) {
   try {
-    if (!_db) {
+    if (!dbService) {
       return null;
     }
-    return typeof _db.getDbInstance === 'function'
-      ? _db.getDbInstance()
-      : (typeof _db.prepare === 'function' ? _db : null);
+    return typeof dbService.getDbInstance === 'function'
+      ? dbService.getDbInstance()
+      : (typeof dbService.prepare === 'function' ? dbService : null);
   } catch {
     return null;
   }
@@ -308,34 +296,44 @@ function roundMetric(value) {
   return Math.round(normalized * 10000) / 10000;
 }
 
-// ── New factory shape (preferred) ─────────────────────────────────────────
-function createCostMetrics(deps = {}) {
-  const local = { _db: deps.db };
-  function withLocalDeps(fn) {
-    const prev = { _db };
-    if (local._db !== undefined) _db = local._db;
-    try { return fn(); } finally { _db = prev._db; }
+function createCostMetrics(initialDeps = {}) {
+  let dbService = initialDeps.db || null;
+
+  function init(deps = {}) {
+    if (deps.db) {
+      dbService = deps.db;
+    }
+    return api;
   }
-  return {
-    getCostPerCycle: (...args) => withLocalDeps(() => getCostPerCycle(...args)),
-    getCostPerHealthPoint: (...args) => withLocalDeps(() => getCostPerHealthPoint(...args)),
-    getProviderEfficiency: (...args) => withLocalDeps(() => getProviderEfficiency(...args)),
-    buildProjectCostSummary: (...args) => withLocalDeps(() => buildProjectCostSummary(...args)),
+
+  const api = {
+    init,
+    getCostPerCycle: (...args) => getCostPerCycleForDb(dbService, ...args),
+    getCostPerHealthPoint: (...args) => getCostPerHealthPointForDb(dbService, ...args),
+    getProviderEfficiency: (...args) => getProviderEfficiencyForDb(dbService, ...args),
+    buildProjectCostSummary: (...args) => buildProjectCostSummaryForDb(dbService, ...args),
   };
+  return api;
 }
 
 function register(container) {
   container.register('costMetrics', ['db'], (deps) => createCostMetrics(deps));
 }
 
+const defaultCostMetrics = createCostMetrics();
+
+/** @deprecated Use createCostMetrics(deps) or container.get('costMetrics'). */
+function init(deps = {}) {
+  defaultCostMetrics.init(deps);
+  return module.exports;
+}
+
 module.exports = {
-  // New shape (preferred)
   createCostMetrics,
   register,
-  // Legacy shape (kept until task-manager.js migrates)
   init,
-  getCostPerCycle,
-  getCostPerHealthPoint,
-  getProviderEfficiency,
-  buildProjectCostSummary,
+  getCostPerCycle: (...args) => defaultCostMetrics.getCostPerCycle(...args),
+  getCostPerHealthPoint: (...args) => defaultCostMetrics.getCostPerHealthPoint(...args),
+  getProviderEfficiency: (...args) => defaultCostMetrics.getProviderEfficiency(...args),
+  buildProjectCostSummary: (...args) => defaultCostMetrics.buildProjectCostSummary(...args),
 };
