@@ -8,18 +8,35 @@ const {
 } = require('./v2-control-plane');
 const { parseBody } = require('./middleware');
 
-let _auditStore = null;
-let _orchestrator = null;
-
-function init({ auditStore, orchestrator }) {
-  _auditStore = auditStore || null;
-  _orchestrator = orchestrator || null;
+function normalizeAuditHandlerDeps({ auditStore, orchestrator } = {}) {
+  return {
+    auditStore: auditStore || null,
+    orchestrator: orchestrator || null,
+  };
 }
 
-async function handleStartAudit(req, res) {
+function createV2AuditHandlers(initialDeps = {}) {
+  let deps = normalizeAuditHandlerDeps(initialDeps);
+
+  function init(nextDeps = {}) {
+    deps = normalizeAuditHandlerDeps(nextDeps);
+  }
+
+  return {
+    init,
+    handleStartAudit: (req, res) => handleStartAuditWithDeps(deps, req, res),
+    handleListRuns: (req, res) => handleListRunsWithDeps(deps, req, res),
+    handleGetRunFindings: (req, res) => handleGetRunFindingsWithDeps(deps, req, res),
+    handleGetAllFindings: (req, res) => handleGetAllFindingsWithDeps(deps, req, res),
+    handlePatchFinding: (req, res) => handlePatchFindingWithDeps(deps, req, res),
+    handleGetRunSummary: (req, res) => handleGetRunSummaryWithDeps(deps, req, res),
+  };
+}
+
+async function handleStartAuditWithDeps(deps, req, res) {
   const requestId = resolveRequestId(req);
 
-  if (!_orchestrator) {
+  if (!deps.orchestrator) {
     return sendError(res, requestId, 'internal_error', 'Audit orchestrator not initialized', 500, {}, req);
   }
 
@@ -35,7 +52,7 @@ async function handleStartAudit(req, res) {
   }
 
   try {
-    const result = await _orchestrator.runAudit({
+    const result = await deps.orchestrator.runAudit({
       path: body.path,
       categories: body.categories || null,
       subcategories: body.subcategories || null,
@@ -58,10 +75,10 @@ async function handleStartAudit(req, res) {
   }
 }
 
-async function handleListRuns(req, res) {
+async function handleListRunsWithDeps(deps, req, res) {
   const requestId = resolveRequestId(req);
 
-  if (!_auditStore) {
+  if (!deps.auditStore) {
     return sendError(res, requestId, 'internal_error', 'Audit store not initialized', 500, {}, req);
   }
 
@@ -71,7 +88,7 @@ async function handleListRuns(req, res) {
     if (req.query?.status) filters.status = req.query.status;
     if (req.query?.limit) filters.limit = Number(req.query.limit);
 
-    const runs = _auditStore.listAuditRuns(filters);
+    const runs = deps.auditStore.listAuditRuns(filters);
     sendSuccess(res, requestId, { runs: Array.isArray(runs) ? runs : [] }, 200, req);
   } catch (err) {
     logger.error({ err }, 'handleListRuns failed');
@@ -79,10 +96,10 @@ async function handleListRuns(req, res) {
   }
 }
 
-async function handleGetRunFindings(req, res) {
+async function handleGetRunFindingsWithDeps(deps, req, res) {
   const requestId = resolveRequestId(req);
 
-  if (!_auditStore) {
+  if (!deps.auditStore) {
     return sendError(res, requestId, 'internal_error', 'Audit store not initialized', 500, {}, req);
   }
 
@@ -100,7 +117,7 @@ async function handleGetRunFindings(req, res) {
     if (req.query?.limit) filters.limit = Number(req.query.limit);
     if (req.query?.offset) filters.offset = Number(req.query.offset);
 
-    const findings = _auditStore.getFindings(filters);
+    const findings = deps.auditStore.getFindings(filters);
     sendSuccess(res, requestId, { findings: Array.isArray(findings) ? findings : [] }, 200, req);
   } catch (err) {
     logger.error({ err }, 'handleGetRunFindings failed');
@@ -108,10 +125,10 @@ async function handleGetRunFindings(req, res) {
   }
 }
 
-async function handleGetAllFindings(req, res) {
+async function handleGetAllFindingsWithDeps(deps, req, res) {
   const requestId = resolveRequestId(req);
 
-  if (!_auditStore) {
+  if (!deps.auditStore) {
     return sendError(res, requestId, 'internal_error', 'Audit store not initialized', 500, {}, req);
   }
 
@@ -127,7 +144,7 @@ async function handleGetAllFindings(req, res) {
     if (req.query?.limit) filters.limit = Number(req.query.limit);
     if (req.query?.offset) filters.offset = Number(req.query.offset);
 
-    const findings = _auditStore.getFindings(filters);
+    const findings = deps.auditStore.getFindings(filters);
     sendSuccess(res, requestId, { findings: Array.isArray(findings) ? findings : [] }, 200, req);
   } catch (err) {
     logger.error({ err }, 'handleGetAllFindings failed');
@@ -135,10 +152,10 @@ async function handleGetAllFindings(req, res) {
   }
 }
 
-async function handlePatchFinding(req, res) {
+async function handlePatchFindingWithDeps(deps, req, res) {
   const requestId = resolveRequestId(req);
 
-  if (!_auditStore) {
+  if (!deps.auditStore) {
     return sendError(res, requestId, 'internal_error', 'Audit store not initialized', 500, {}, req);
   }
 
@@ -163,7 +180,7 @@ async function handlePatchFinding(req, res) {
   }
 
   try {
-    const changed = _auditStore.updateFinding(findingId, updates);
+    const changed = deps.auditStore.updateFinding(findingId, updates);
     if (changed === 0) {
       return sendError(res, requestId, 'not_found', `Finding not found: ${findingId}`, 404, {}, req);
     }
@@ -174,10 +191,10 @@ async function handlePatchFinding(req, res) {
   }
 }
 
-async function handleGetRunSummary(req, res) {
+async function handleGetRunSummaryWithDeps(deps, req, res) {
   const requestId = resolveRequestId(req);
 
-  if (!_auditStore) {
+  if (!deps.auditStore) {
     return sendError(res, requestId, 'internal_error', 'Audit store not initialized', 500, {}, req);
   }
 
@@ -187,7 +204,7 @@ async function handleGetRunSummary(req, res) {
   }
 
   try {
-    const summary = _auditStore.getAuditSummary(auditRunId);
+    const summary = deps.auditStore.getAuditSummary(auditRunId);
     if (!summary) {
       return sendError(res, requestId, 'not_found', `Audit run not found: ${auditRunId}`, 404, {}, req);
     }
@@ -198,7 +215,18 @@ async function handleGetRunSummary(req, res) {
   }
 }
 
+const defaultV2AuditHandlers = createV2AuditHandlers();
+
+const init = (deps) => defaultV2AuditHandlers.init(deps);
+const handleStartAudit = (req, res) => defaultV2AuditHandlers.handleStartAudit(req, res);
+const handleListRuns = (req, res) => defaultV2AuditHandlers.handleListRuns(req, res);
+const handleGetRunFindings = (req, res) => defaultV2AuditHandlers.handleGetRunFindings(req, res);
+const handleGetAllFindings = (req, res) => defaultV2AuditHandlers.handleGetAllFindings(req, res);
+const handlePatchFinding = (req, res) => defaultV2AuditHandlers.handlePatchFinding(req, res);
+const handleGetRunSummary = (req, res) => defaultV2AuditHandlers.handleGetRunSummary(req, res);
+
 module.exports = {
+  createV2AuditHandlers,
   init,
   handleStartAudit,
   handleListRuns,

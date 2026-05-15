@@ -3,19 +3,38 @@
 const { ErrorCodes, makeError } = require('./error-codes');
 const logger = require('../logger').child({ component: 'audit-handlers' });
 
-let _auditStore = null;
-let _orchestrator = null;
-let _autoInitDone = false;
-
-function init({ auditStore, orchestrator }) {
-  _auditStore = auditStore || null;
-  _orchestrator = orchestrator || null;
-  _autoInitDone = true;
+function normalizeAuditHandlerDeps({ auditStore, orchestrator } = {}) {
+  return {
+    auditStore: auditStore || null,
+    orchestrator: orchestrator || null,
+  };
 }
 
-function ensureInitialized() {
-  if (_autoInitDone) return;
-  _autoInitDone = true;
+function createAuditHandlers(initialDeps = {}) {
+  const deps = normalizeAuditHandlerDeps(initialDeps);
+  const state = {
+    deps,
+    autoInitDone: Boolean(deps.auditStore || deps.orchestrator),
+  };
+
+  function init(nextDeps = {}) {
+    state.deps = normalizeAuditHandlerDeps(nextDeps);
+    state.autoInitDone = true;
+  }
+
+  return {
+    init,
+    handleAuditCodebase: (args) => handleAuditCodebaseWithState(state, args),
+    handleListAuditRuns: (args) => handleListAuditRunsWithState(state, args),
+    handleGetAuditFindings: (args) => handleGetAuditFindingsWithState(state, args),
+    handleUpdateAuditFinding: (args) => handleUpdateAuditFindingWithState(state, args),
+    handleGetAuditRunSummary: (args) => handleGetAuditRunSummaryWithState(state, args),
+  };
+}
+
+function ensureInitialized(state) {
+  if (state.autoInitDone) return;
+  state.autoInitDone = true;
 
   try {
     const auditStore = require('../db/audit-store');
@@ -23,8 +42,7 @@ function ensureInitialized() {
     const workflowHandlers = require('./workflow');
     const infraHandlers = require('./integration/infra');
 
-    _auditStore = auditStore;
-    _orchestrator = orchestrator;
+    state.deps = normalizeAuditHandlerDeps({ auditStore, orchestrator });
 
     orchestrator.init({
       auditStore,
@@ -37,18 +55,18 @@ function ensureInitialized() {
   }
 }
 
-async function handleAuditCodebase(args) {
+async function handleAuditCodebaseWithState(state, args) {
   try {
-    ensureInitialized();
+    ensureInitialized(state);
     if (!args || typeof args.path !== 'string' || args.path.trim().length === 0) {
       return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'path is required and must be a non-empty string');
     }
 
-    if (!_orchestrator) {
+    if (!state.deps.orchestrator) {
       return makeError(ErrorCodes.INTERNAL_ERROR, 'Audit orchestrator is not initialized');
     }
 
-    const result = await _orchestrator.runAudit({
+    const result = await state.deps.orchestrator.runAudit({
       path: args.path,
       categories: args.categories || null,
       subcategories: args.subcategories || null,
@@ -103,10 +121,10 @@ async function handleAuditCodebase(args) {
   }
 }
 
-async function handleListAuditRuns(args) {
+async function handleListAuditRunsWithState(state, args) {
   try {
-    ensureInitialized();
-    if (!_auditStore) {
+    ensureInitialized(state);
+    if (!state.deps.auditStore) {
       return makeError(ErrorCodes.INTERNAL_ERROR, 'Audit store is not initialized');
     }
 
@@ -115,7 +133,7 @@ async function handleListAuditRuns(args) {
     if (args.status) filters.status = args.status;
     if (args.limit) filters.limit = args.limit;
 
-    const runs = _auditStore.listAuditRuns(filters);
+    const runs = state.deps.auditStore.listAuditRuns(filters);
     const rows = Array.isArray(runs) ? runs : [];
 
     if (rows.length === 0) {
@@ -140,10 +158,10 @@ async function handleListAuditRuns(args) {
   }
 }
 
-async function handleGetAuditFindings(args) {
+async function handleGetAuditFindingsWithState(state, args) {
   try {
-    ensureInitialized();
-    if (!_auditStore) {
+    ensureInitialized(state);
+    if (!state.deps.auditStore) {
       return makeError(ErrorCodes.INTERNAL_ERROR, 'Audit store is not initialized');
     }
 
@@ -161,7 +179,7 @@ async function handleGetAuditFindings(args) {
     if (args.limit) filters.limit = args.limit;
     if (args.offset) filters.offset = args.offset;
 
-    const result = _auditStore.getFindings(filters);
+    const result = state.deps.auditStore.getFindings(filters);
     const rows = result && Array.isArray(result.findings) ? result.findings
       : Array.isArray(result) ? result : [];
 
@@ -188,10 +206,10 @@ async function handleGetAuditFindings(args) {
   }
 }
 
-async function handleUpdateAuditFinding(args) {
+async function handleUpdateAuditFindingWithState(state, args) {
   try {
-    ensureInitialized();
-    if (!_auditStore) {
+    ensureInitialized(state);
+    if (!state.deps.auditStore) {
       return makeError(ErrorCodes.INTERNAL_ERROR, 'Audit store is not initialized');
     }
 
@@ -207,7 +225,7 @@ async function handleUpdateAuditFinding(args) {
       return makeError(ErrorCodes.INVALID_PARAM, 'At least one of verified or false_positive must be provided');
     }
 
-    const changed = _auditStore.updateFinding(args.finding_id, updates);
+    const changed = state.deps.auditStore.updateFinding(args.finding_id, updates);
 
     if (changed === 0) {
       return makeError(ErrorCodes.RESOURCE_NOT_FOUND, `Finding not found: ${args.finding_id}`);
@@ -224,10 +242,10 @@ async function handleUpdateAuditFinding(args) {
   }
 }
 
-async function handleGetAuditRunSummary(args) {
+async function handleGetAuditRunSummaryWithState(state, args) {
   try {
-    ensureInitialized();
-    if (!_auditStore) {
+    ensureInitialized(state);
+    if (!state.deps.auditStore) {
       return makeError(ErrorCodes.INTERNAL_ERROR, 'Audit store is not initialized');
     }
 
@@ -235,7 +253,7 @@ async function handleGetAuditRunSummary(args) {
       return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'audit_run_id is required');
     }
 
-    const summary = _auditStore.getAuditSummary(args.audit_run_id);
+    const summary = state.deps.auditStore.getAuditSummary(args.audit_run_id);
 
     if (!summary) {
       return makeError(ErrorCodes.RESOURCE_NOT_FOUND, `Audit run not found: ${args.audit_run_id}`);
@@ -279,7 +297,17 @@ async function handleGetAuditRunSummary(args) {
   }
 }
 
+const defaultAuditHandlers = createAuditHandlers();
+
+const init = (deps) => defaultAuditHandlers.init(deps);
+const handleAuditCodebase = (args) => defaultAuditHandlers.handleAuditCodebase(args);
+const handleListAuditRuns = (args) => defaultAuditHandlers.handleListAuditRuns(args);
+const handleGetAuditFindings = (args) => defaultAuditHandlers.handleGetAuditFindings(args);
+const handleUpdateAuditFinding = (args) => defaultAuditHandlers.handleUpdateAuditFinding(args);
+const handleGetAuditRunSummary = (args) => defaultAuditHandlers.handleGetAuditRunSummary(args);
+
 module.exports = {
+  createAuditHandlers,
   init,
   handleAuditCodebase,
   handleListAuditRuns,
