@@ -43,6 +43,17 @@ assert_contains() {
   fi
 }
 
+assert_not_contains() {
+  local file="$1"
+  local pattern="$2"
+  if grep -qE "$pattern" "$file"; then
+    echo "Expected $file not to contain pattern: $pattern" >&2
+    echo "--- $file ---" >&2
+    cat "$file" >&2
+    exit 1
+  fi
+}
+
 repo_coord_lock_acquire main "primary test" > "$TMP_ROOT/primary.out"
 LOCK_DIR="$TORQUE_COORD_LOCK_DIR"
 LOCK_TOKEN="$TORQUE_COORD_LOCK_TOKEN"
@@ -200,6 +211,120 @@ chmod +x "$FAKE_BIN/powershell.exe"
 assert_contains "$TMP_ROOT/windows-dead-owner.out" 'Reaping dead same-host lock'
 assert_contains "$TMP_ROOT/windows-dead-owner.out" 'windows dead same-host test'
 assert_contains "$TMP_ROOT/fake-powershell.log" 'Get-Process -Id 999999998'
+
+WINDOWS_STORED_PID_LOCK="$TORQUE_COORD_LOCK_ROOT/main.lock"
+mkdir -p "$WINDOWS_STORED_PID_LOCK"
+cat > "$WINDOWS_STORED_PID_LOCK/owner.env" <<EOF
+lock_name=main
+purpose=windows stored pid test
+pid=12345
+windows_pid=424242
+host=$(hostname 2>/dev/null || echo unknown)
+started_at=2099-01-01T00:00:00Z
+started_at_epoch=4070908800
+EOF
+printf 'windows-stored-pid-token\n' > "$WINDOWS_STORED_PID_LOCK/token"
+: > "$TMP_ROOT/fake-powershell-stored.log"
+
+(
+  export PATH="$FAKE_BIN:$PATH"
+  export TORQUE_COORD_LOCK_UNAME="MINGW64_NT-10.0"
+  export TORQUE_COORD_LOCK_FAKE_POWERSHELL_LOG="$TMP_ROOT/fake-powershell-stored.log"
+  repo_coord_lock_acquire main "windows stored-pid takeover" > "$TMP_ROOT/windows-stored-pid.out"
+  repo_coord_lock_release > "$TMP_ROOT/windows-stored-pid-release.out"
+)
+assert_contains "$TMP_ROOT/windows-stored-pid.out" 'Reaping dead same-host lock'
+assert_contains "$TMP_ROOT/windows-stored-pid.out" 'windows_pid=424242'
+assert_contains "$TMP_ROOT/fake-powershell-stored.log" 'Get-Process -Id 424242'
+assert_not_contains "$TMP_ROOT/fake-powershell-stored.log" 'Get-Process -Id 12345'
+
+WINDOWS_MAPPED_PID_LOCK="$TORQUE_COORD_LOCK_ROOT/main.lock"
+mkdir -p "$WINDOWS_MAPPED_PID_LOCK"
+cat > "$WINDOWS_MAPPED_PID_LOCK/owner.env" <<EOF
+lock_name=main
+purpose=windows mapped pid test
+pid=13579
+host=$(hostname 2>/dev/null || echo unknown)
+started_at=2099-01-01T00:00:00Z
+started_at_epoch=4070908800
+EOF
+printf 'windows-mapped-pid-token\n' > "$WINDOWS_MAPPED_PID_LOCK/token"
+cat > "$FAKE_BIN/ps" <<'EOF'
+#!/usr/bin/env bash
+if [ "${1:-}" = "-W" ]; then
+  cat <<'PSOUT'
+      PID    PPID    PGID     WINPID   TTY         UID    STIME COMMAND
+    13579       1   13579      55555  pty0      197609 00:00:00 /usr/bin/bash
+PSOUT
+  exit 0
+fi
+exit 1
+EOF
+chmod +x "$FAKE_BIN/ps"
+: > "$TMP_ROOT/fake-powershell-mapped.log"
+
+(
+  export PATH="$FAKE_BIN:$PATH"
+  export TORQUE_COORD_LOCK_UNAME="MINGW64_NT-10.0"
+  export TORQUE_COORD_LOCK_FAKE_POWERSHELL_LOG="$TMP_ROOT/fake-powershell-mapped.log"
+  repo_coord_lock_acquire main "windows mapped-pid takeover" > "$TMP_ROOT/windows-mapped-pid.out"
+  repo_coord_lock_release > "$TMP_ROOT/windows-mapped-pid-release.out"
+)
+assert_contains "$TMP_ROOT/windows-mapped-pid.out" 'Reaping dead same-host lock'
+assert_contains "$TMP_ROOT/fake-powershell-mapped.log" 'Get-Process -Id 55555'
+assert_not_contains "$TMP_ROOT/fake-powershell-mapped.log" 'Get-Process -Id 13579'
+
+WINDOWS_LIVE_MAPPED_PID_LOCK="$TORQUE_COORD_LOCK_ROOT/main.lock"
+mkdir -p "$WINDOWS_LIVE_MAPPED_PID_LOCK"
+cat > "$WINDOWS_LIVE_MAPPED_PID_LOCK/owner.env" <<EOF
+lock_name=main
+purpose=windows live mapped pid test
+pid=24680
+host=$(hostname 2>/dev/null || echo unknown)
+started_at=2099-01-01T00:00:00Z
+started_at_epoch=4070908800
+EOF
+printf 'windows-live-mapped-pid-token\n' > "$WINDOWS_LIVE_MAPPED_PID_LOCK/token"
+cat > "$FAKE_BIN/ps" <<'EOF'
+#!/usr/bin/env bash
+if [ "${1:-}" = "-W" ]; then
+  cat <<'PSOUT'
+      PID    PPID    PGID     WINPID   TTY         UID    STIME COMMAND
+    24680       1   24680      66666  pty0      197609 00:00:00 /usr/bin/bash
+PSOUT
+  exit 0
+fi
+exit 1
+EOF
+cat > "$FAKE_BIN/powershell.exe" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$TORQUE_COORD_LOCK_FAKE_POWERSHELL_LOG"
+case "$*" in
+  *"Get-Process -Id 66666"*) exit 0 ;;
+  *) exit 1 ;;
+esac
+EOF
+chmod +x "$FAKE_BIN/ps" "$FAKE_BIN/powershell.exe"
+: > "$TMP_ROOT/fake-powershell-live-mapped.log"
+
+set +e
+(
+  export PATH="$FAKE_BIN:$PATH"
+  export TORQUE_COORD_LOCK_UNAME="MINGW64_NT-10.0"
+  export TORQUE_COORD_LOCK_FAKE_POWERSHELL_LOG="$TMP_ROOT/fake-powershell-live-mapped.log"
+  repo_coord_lock_acquire main "windows live mapped-pid blocked" > "$TMP_ROOT/windows-live-mapped-pid.out" 2>&1
+)
+live_mapped_rc=$?
+set -e
+if [ "$live_mapped_rc" -eq 0 ]; then
+  echo "Expected live mapped Windows PID to block acquisition" >&2
+  exit 1
+fi
+assert_contains "$TMP_ROOT/windows-live-mapped-pid.out" 'Timed out waiting for main lease'
+assert_contains "$TMP_ROOT/fake-powershell-live-mapped.log" 'Get-Process -Id 66666'
+assert_not_contains "$TMP_ROOT/windows-live-mapped-pid.out" 'Reaping dead same-host lock'
+assert_dir_exists "$WINDOWS_LIVE_MAPPED_PID_LOCK"
+rm -rf "$WINDOWS_LIVE_MAPPED_PID_LOCK"
 
 STALE_LOCK="$TORQUE_COORD_LOCK_ROOT/main.lock"
 mkdir -p "$STALE_LOCK"

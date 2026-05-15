@@ -48,22 +48,56 @@ repo_coord_lock_read_field() {
   sed -nE "s/^${field}=(.*)$/\\1/p" "$file" 2>/dev/null | head -1
 }
 
+repo_coord_lock_platform() {
+  if [ -n "${TORQUE_COORD_LOCK_UNAME:-}" ]; then
+    printf '%s\n' "$TORQUE_COORD_LOCK_UNAME"
+    return 0
+  fi
+  uname -s 2>/dev/null || echo unknown
+}
+
+repo_coord_lock_is_windows_platform() {
+  case "$(repo_coord_lock_platform)" in
+    MINGW*|MSYS*|CYGWIN*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+repo_coord_lock_msys_windows_pid() {
+  local msys_pid="$1"
+  case "$msys_pid" in
+    ''|*[!0-9]*|0) return 1 ;;
+  esac
+
+  if ! command -v ps >/dev/null 2>&1; then
+    return 1
+  fi
+
+  ps -W 2>/dev/null | awk -v pid="$msys_pid" '$1 == pid { print $4; exit }'
+}
+
 repo_coord_lock_write_owner() {
   local lock_dir="$1"
   local lock_name="$2"
   local purpose="$3"
   local token="$4"
-  local now_epoch now_iso host user repo_root
+  local now_epoch now_iso host user repo_root windows_pid
   now_epoch="$(date +%s)"
   now_iso="$(date -u +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || date)"
   host="$(hostname 2>/dev/null || echo unknown)"
   user="${USER:-${USERNAME:-unknown}}"
   repo_root="$(repo_coord_lock_repo_root 2>/dev/null || echo unknown)"
+  if repo_coord_lock_is_windows_platform; then
+    windows_pid="$(repo_coord_lock_msys_windows_pid "$$" 2>/dev/null || true)"
+  fi
 
   {
     printf 'lock_name=%s\n' "$lock_name"
     printf 'purpose=%s\n' "$purpose"
     printf 'pid=%s\n' "$$"
+    if [ -n "${windows_pid:-}" ]; then
+      printf 'windows_pid=%s\n' "$windows_pid"
+    fi
     printf 'ppid=%s\n' "${PPID:-unknown}"
     printf 'user=%s\n' "$user"
     printf 'host=%s\n' "$host"
@@ -85,15 +119,20 @@ repo_coord_lock_describe() {
     return 0
   fi
 
-  local purpose pid host started_at cwd heartbeat
+  local purpose pid windows_pid host started_at cwd heartbeat pid_summary
   purpose="$(repo_coord_lock_read_field "$owner_file" purpose)"
   pid="$(repo_coord_lock_read_field "$owner_file" pid)"
+  windows_pid="$(repo_coord_lock_read_field "$owner_file" windows_pid)"
   host="$(repo_coord_lock_read_field "$owner_file" host)"
   started_at="$(repo_coord_lock_read_field "$owner_file" started_at)"
   cwd="$(repo_coord_lock_read_field "$owner_file" cwd)"
   heartbeat="$(repo_coord_lock_heartbeat_summary "$lock_dir")"
-  printf 'purpose=%s pid=%s host=%s started_at=%s cwd=%s%s\n' \
-    "${purpose:-unknown}" "${pid:-unknown}" "${host:-unknown}" "${started_at:-unknown}" "${cwd:-unknown}" "$heartbeat"
+  pid_summary="pid=${pid:-unknown}"
+  if [ -n "$windows_pid" ]; then
+    pid_summary="$pid_summary windows_pid=$windows_pid"
+  fi
+  printf 'purpose=%s %s host=%s started_at=%s cwd=%s%s\n' \
+    "${purpose:-unknown}" "$pid_summary" "${host:-unknown}" "${started_at:-unknown}" "${cwd:-unknown}" "$heartbeat"
 }
 
 repo_coord_lock_age_seconds() {
@@ -152,14 +191,6 @@ repo_coord_lock_current_host() {
   hostname 2>/dev/null || echo unknown
 }
 
-repo_coord_lock_platform() {
-  if [ -n "${TORQUE_COORD_LOCK_UNAME:-}" ]; then
-    printf '%s\n' "$TORQUE_COORD_LOCK_UNAME"
-    return 0
-  fi
-  uname -s 2>/dev/null || echo unknown
-}
-
 repo_coord_lock_windows_pid_alive() {
   local pid="$1"
 
@@ -180,25 +211,44 @@ repo_coord_lock_windows_pid_alive() {
 }
 
 repo_coord_lock_pid_alive() {
-  local pid="$1" windows_status
+  local pid="$1"
+  local windows_pid="${2:-}"
+  local mapped_windows_pid windows_status
   case "$pid" in
     ''|*[!0-9]*|0) return 1 ;;
   esac
 
-  if kill -0 "$pid" 2>/dev/null; then
-    return 0
-  fi
-
-  case "$(repo_coord_lock_platform)" in
-    MINGW*|MSYS*|CYGWIN*)
-      repo_coord_lock_windows_pid_alive "$pid"
+  if repo_coord_lock_is_windows_platform; then
+    if [ -n "$windows_pid" ]; then
+      repo_coord_lock_windows_pid_alive "$windows_pid"
       windows_status=$?
       case "$windows_status" in
         0) return 0 ;;
         1) return 1 ;;
       esac
-      ;;
-  esac
+    fi
+
+    mapped_windows_pid="$(repo_coord_lock_msys_windows_pid "$pid" 2>/dev/null || true)"
+    if [ -n "$mapped_windows_pid" ]; then
+      repo_coord_lock_windows_pid_alive "$mapped_windows_pid"
+      windows_status=$?
+      case "$windows_status" in
+        0) return 0 ;;
+        1) return 1 ;;
+      esac
+    fi
+
+    repo_coord_lock_windows_pid_alive "$pid"
+    windows_status=$?
+    case "$windows_status" in
+      0) return 0 ;;
+      1) return 1 ;;
+    esac
+  fi
+
+  if kill -0 "$pid" 2>/dev/null; then
+    return 0
+  fi
 
   if command -v ps >/dev/null 2>&1; then
     ps -p "$pid" >/dev/null 2>&1 && return 0
@@ -210,7 +260,7 @@ repo_coord_lock_pid_alive() {
 repo_coord_lock_reap_if_dead_owner() {
   local lock_dir="$1"
   local owner_file="$lock_dir/owner.env"
-  local owner_host owner_pid current_host
+  local owner_host owner_pid owner_windows_pid current_host
 
   if [ ! -f "$owner_file" ]; then
     return 1
@@ -218,12 +268,13 @@ repo_coord_lock_reap_if_dead_owner() {
 
   owner_host="$(repo_coord_lock_read_field "$owner_file" host)"
   owner_pid="$(repo_coord_lock_read_field "$owner_file" pid)"
+  owner_windows_pid="$(repo_coord_lock_read_field "$owner_file" windows_pid)"
   current_host="$(repo_coord_lock_current_host)"
 
   if [ -z "$owner_host" ] || [ "$owner_host" != "$current_host" ]; then
     return 1
   fi
-  if repo_coord_lock_pid_alive "$owner_pid"; then
+  if repo_coord_lock_pid_alive "$owner_pid" "$owner_windows_pid"; then
     return 1
   fi
 
