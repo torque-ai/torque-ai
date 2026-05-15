@@ -7,6 +7,7 @@ const fs = require('fs');
 const childProcess = require('child_process');
 const { resolveDatabaseFacade } = require('../db/database-facade-resolver');
 const { unwrapDbHandle } = require('../utils/db-accessor');
+const { resolvePlansRepoRoot } = require('../factory/shared/plan-path');
 
 // Lazy-resolve the database via the DI container at call time. database.js
 // registers the facade as 'db' on defaultContainer during init() and
@@ -1307,40 +1308,6 @@ function summarizeFactoryCycleInstance(instance, decisions, workItemTitle) {
     stage_progression: stageProgression,
     status: determineFactoryCycleStatus(instance, decisions),
   };
-}
-
-function resolvePlansRepoRoot(projectPath, plansDir) {
-  const candidates = [];
-
-  if (projectPath) {
-    candidates.push(path.resolve(projectPath));
-  }
-
-  if (plansDir) {
-    let current = path.resolve(plansDir);
-    while (current && !candidates.includes(current)) {
-      candidates.push(current);
-      const parent = path.dirname(current);
-      if (parent === current) {
-        break;
-      }
-      current = parent;
-    }
-  }
-
-  for (const candidate of candidates) {
-    if (fs.existsSync(path.join(candidate, '.git'))) {
-      return candidate;
-    }
-  }
-
-  for (const candidate of candidates) {
-    if (fs.existsSync(candidate) && fs.existsSync(path.join(candidate, 'server'))) {
-      return candidate;
-    }
-  }
-
-  return candidates.find((candidate) => fs.existsSync(candidate)) || path.resolve(plansDir || projectPath || process.cwd());
 }
 
 async function handleRegisterFactoryProject(args) {
