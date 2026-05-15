@@ -997,6 +997,94 @@ function handleGetCostForecast(args) {
   };
 }
 
+async function handleSetScopeBudget(args) {
+  try {
+    const scopeType = typeof args?.scope_type === 'string' ? args.scope_type.trim() : '';
+    const scopeId = typeof args?.scope_id === 'string' ? args.scope_id.trim() : '';
+    if (!scopeType || !scopeId) {
+      return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'scope_type and scope_id are required');
+    }
+
+    const budgetUsd = args.budget_usd;
+    const period = args.period || 'monthly';
+    const alertThreshold = args.alert_threshold || 80;
+
+    costTracking.setBudget(
+      `${scopeType}:${scopeId}`,
+      budgetUsd,
+      null,
+      period,
+      alertThreshold
+    );
+
+    return {
+      content: [{ type: 'text', text: `## Scope Budget Set\n\n- **Scope:** ${scopeType}/${scopeId}\n- **Budget:** $${budgetUsd} ${period}\n- **Alert Threshold:** ${alertThreshold}%` }],
+      structuredData: { ok: true, scope_type: scopeType, scope_id: scopeId, budget_usd: budgetUsd, period },
+    };
+  } catch (err) {
+    return makeError(ErrorCodes.OPERATION_FAILED, `Failed to set scope budget: ${err.message}`);
+  }
+}
+
+async function handleGetScopeSpend(args) {
+  try {
+    const scopeType = typeof args?.scope_type === 'string' ? args.scope_type.trim() : '';
+    const scopeId = typeof args?.scope_id === 'string' ? args.scope_id.trim() : '';
+    if (!scopeType || !scopeId) {
+      return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'scope_type and scope_id are required');
+    }
+
+    const days = parseInt(args.days, 10) || 30;
+    const summary = costTracking.getCostSummary(null, days);
+    const totalSpend = Array.isArray(summary)
+      ? summary.reduce((sum, s) => sum + (s.total_cost || 0), 0)
+      : 0;
+
+    return {
+      content: [{ type: 'text', text: `## Scope Spend\n\n- **Scope:** ${scopeType}/${scopeId}\n- **Period:** last ${days} days\n- **Total Spend:** $${totalSpend.toFixed(4)}` }],
+      structuredData: { scope_type: scopeType, scope_id: scopeId, days, spend: totalSpend },
+    };
+  } catch (err) {
+    return makeError(ErrorCodes.OPERATION_FAILED, `Failed to get scope spend: ${err.message}`);
+  }
+}
+
+async function handleListScopeBudgets(args) {
+  try {
+    const scopeType = typeof args?.scope_type === 'string' ? args.scope_type.trim() : '';
+    const includeSpend = args.include_spend !== false;
+
+    const allBudgets = costTracking.getBudgetStatus();
+    const budgets = Array.isArray(allBudgets) ? allBudgets : allBudgets ? [allBudgets] : [];
+
+    const filtered = scopeType
+      ? budgets.filter(b => (b.name || '').startsWith(`${scopeType}:`))
+      : budgets;
+
+    if (filtered.length === 0) {
+      return {
+        content: [{ type: 'text', text: `## Scope Budgets\n\nNo scope budgets found${scopeType ? ` for scope type "${scopeType}"` : ''}.` }],
+        structuredData: { budgets: [] },
+      };
+    }
+
+    let output = `## Scope Budgets\n\n| Scope | Budget | Spent | Remaining | Period |\n|-------|--------|-------|-----------|--------|\n`;
+    filtered.forEach(b => {
+      const spent = b.spent_usd || 0;
+      const budget = b.budget_usd || 0;
+      const remaining = Math.max(0, budget - spent);
+      output += `| ${b.name} | $${budget.toFixed(2)} | $${spent.toFixed(2)} | $${remaining.toFixed(2)} | ${b.period || 'monthly'} |\n`;
+    });
+
+    return {
+      content: [{ type: 'text', text: output }],
+      structuredData: { budgets: filtered, include_spend: includeSpend },
+    };
+  } catch (err) {
+    return makeError(ErrorCodes.OPERATION_FAILED, `Failed to list scope budgets: ${err.message}`);
+  }
+}
+
 
 // ============================================
 // Exports — aggregate all sub-modules
@@ -1041,6 +1129,9 @@ function buildValidationHandlerExports(deps = null) {
     handleGetBudgetStatus: bind(handleGetBudgetStatus),
     handleSetBudget: bind(handleSetBudget),
     handleGetCostForecast: bind(handleGetCostForecast),
+    handleSetScopeBudget: bind(handleSetScopeBudget),
+    handleGetScopeSpend: bind(handleGetScopeSpend),
+    handleListScopeBudgets: bind(handleListScopeBudgets),
   };
 }
 
@@ -1086,6 +1177,9 @@ module.exports = {
   handleGetBudgetStatus,
   handleSetBudget,
   handleGetCostForecast,
+  handleSetScopeBudget,
+  handleGetScopeSpend,
+  handleListScopeBudgets,
   init,
   createValidationHandlers,
 };
