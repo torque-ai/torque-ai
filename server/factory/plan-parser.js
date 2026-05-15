@@ -393,6 +393,73 @@ function commandBasename(token) {
   return (parts[parts.length - 1] || unquoted).toLowerCase();
 }
 
+function shellWords(command) {
+  const words = [];
+  const pattern = /"([^"]*)"|'([^']*)'|(\S+)/g;
+  let match;
+  while ((match = pattern.exec(String(command || ''))) !== null) {
+    words.push(match[1] ?? match[2] ?? match[3] ?? '');
+  }
+  return words;
+}
+
+function isBareNodeTestFileCommand(command) {
+  const words = shellWords(command);
+  if (words.length < 2) return false;
+  if (!/^node(?:\.exe)?$/i.test(commandBasename(words[0]))) return false;
+
+  let nodeRunnerMode = false;
+  let syntaxCheckMode = false;
+  for (let index = 1; index < words.length; index += 1) {
+    const word = words[index];
+    if (word === '--test' || word.startsWith('--test-')) {
+      nodeRunnerMode = true;
+      continue;
+    }
+    if (word === '--check' || word === '-c') {
+      syntaxCheckMode = true;
+      continue;
+    }
+    if (word.startsWith('-')) {
+      continue;
+    }
+    return !nodeRunnerMode
+      && !syntaxCheckMode
+      && /(?:^|[\\/])[^\\/]+\.(?:test|spec)\.[cm]?[jt]sx?$/i.test(word);
+  }
+  return false;
+}
+
+function isInvalidNpxMarkdownlintCommand(command) {
+  const words = shellWords(command);
+  if (words.length < 2 || commandBasename(words[0]) !== 'npx') return false;
+
+  for (let index = 1; index < words.length; index += 1) {
+    const word = words[index];
+    if (word === '--') continue;
+    if (word.startsWith('-')) continue;
+    return word === 'markdownlint';
+  }
+  return false;
+}
+
+function isInvalidVerifyCommandSegment(command) {
+  return isBareNodeTestFileCommand(command)
+    || isInvalidNpxMarkdownlintCommand(command);
+}
+
+function stripInvalidVerifyCommandSegments(command) {
+  const parts = String(command || '').split(/\s+&&\s+/);
+  if (parts.length === 1) {
+    return isInvalidVerifyCommandSegment(command) ? null : command;
+  }
+
+  const kept = parts
+    .map((part) => part.trim())
+    .filter((part) => part && !isInvalidVerifyCommandSegment(part));
+  return kept.length > 0 ? kept.join(' && ') : null;
+}
+
 function stripVerifySentenceSuffix(raw) {
   let value = String(raw || '').trim();
   const suffixPatterns = [
@@ -484,6 +551,7 @@ function normalizeVerifyCommand(command) {
     normalized = `powershell -NoProfile -ExecutionPolicy Bypass -EncodedCommand ${encoded}`;
   }
 
+  normalized = stripInvalidVerifyCommandSegments(normalized);
   if (!normalized || !isLikelyVerifyCommand(normalized)) return null;
   return normalized;
 }

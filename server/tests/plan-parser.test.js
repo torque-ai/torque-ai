@@ -156,6 +156,29 @@ Verification: torque-remote dotnet test simtests/SimCore.DotNet.Tests.csproj -c 
     ]);
   });
 
+  it('drops bare node invocations of runner-owned test files from validation commands', () => {
+    const plan = [
+      '# Generated plan',
+      'Run `node server/plugins/remote-agents/tests/command-tools.test.js` and ensure all tests pass.',
+      'Run `npx vitest run server/plugins/remote-agents/tests/command-tools.test.js` and ensure all tests pass.',
+      'Run `npx markdownlint docs/scouting/smolagents.md` and ensure no linting errors are present.',
+    ].join('\n');
+
+    expect(normalizeVerifyCommand('node server/plugins/remote-agents/tests/command-tools.test.js')).toBeNull();
+    expect(normalizeVerifyCommand('node --check server/plugins/remote-agents/tests/command-tools.test.js'))
+      .toBe('node --check server/plugins/remote-agents/tests/command-tools.test.js');
+    expect(normalizeVerifyCommand('node --test server/plugins/remote-agents/tests/command-tools.test.js'))
+      .toBe('node --test server/plugins/remote-agents/tests/command-tools.test.js');
+    expect(normalizeVerifyCommand('node server/plugins/remote-agents/tests/command-tools.test.js && npx vitest run server/plugins/remote-agents/tests/command-tools.test.js'))
+      .toBe('npx vitest run server/plugins/remote-agents/tests/command-tools.test.js');
+    expect(normalizeVerifyCommand('npx markdownlint docs/scouting/smolagents.md')).toBeNull();
+    expect(normalizeVerifyCommand('npx markdownlint-cli docs/scouting/smolagents.md'))
+      .toBe('npx markdownlint-cli docs/scouting/smolagents.md');
+    expect(extractExplicitVerifyCommands(plan)).toEqual([
+      'npx vitest run server/plugins/remote-agents/tests/command-tools.test.js',
+    ]);
+  });
+
   it('does not treat prose validation guidance as an executable command', () => {
     const plan = [
       '# Split loop-controller Plan',
