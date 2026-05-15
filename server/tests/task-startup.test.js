@@ -213,6 +213,9 @@ function loadTaskStartup(options = {}) {
   installCjsModuleMock('../constants', constantsMock);
   installCjsModuleMock('../utils/git', gitMock);
   installCjsModuleMock('../container', containerMock);
+  if (options.serverConfigFallback) {
+    installCjsModuleMock('../config', options.serverConfigFallback);
+  }
   installCjsModuleMock('../providers/registry', options.providerRegistryFallback || {
     isKnownProvider: vi.fn((provider) => ['ollama', 'codex', 'codex-spark', 'claude-cli', 'system'].includes(provider)),
     isApiProvider: vi.fn(() => false),
@@ -335,6 +338,31 @@ describe('task-startup', () => {
       id: task.id,
       provider: 'codex',
     }));
+  });
+
+  it('falls back to the config module when factory startup DI lacks serverConfig', async () => {
+    const fallbackConfig = {
+      get: vi.fn((_key, fallback = '0') => fallback),
+      getBool: vi.fn(() => false),
+      getInt: vi.fn((_key, fallback = 0) => fallback),
+    };
+    const ctx = loadTaskStartup({
+      depOverrides: { serverConfig: undefined },
+      serverConfigFallback: fallbackConfig,
+    });
+    const task = createTask({ id: 'config-fallback-task' });
+    const { deps } = createDeps({
+      task,
+      depOverrides: { serverConfig: undefined },
+    });
+    installProcessLifecycleSpawnMock(deps.spawnAndTrackProcess);
+    const startup = ctx.module.createTaskStartup(deps);
+
+    const result = await startup.startTask(task.id);
+
+    expect(result).toEqual({ queued: false, started: true });
+    expect(fallbackConfig.getBool).toHaveBeenCalledWith('rate_limit_enabled');
+    expect(deps.spawnAndTrackProcess).toHaveBeenCalledTimes(1);
   });
 
   it('lazily resolves taskManager methods assigned after createTaskStartup construction', async () => {
