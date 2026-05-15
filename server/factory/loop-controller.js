@@ -14033,13 +14033,21 @@ async function runExecuteVerifyStage(project_id, batch_id, instance = null) {
   return executeVerifyStage(project_id, batch_id, instance);
 }
 
-// Phase 2c-dispatcher slice 2: VERIFY runner wraps runExecuteVerifyStage
-// as a (ctx) => StageOutcome. The dispatcher's VERIFY case calls this and
-// unwraps `outcome.stageResult.legacy` to preserve the legacy post-VERIFY
-// policy reads (pause_at_stage, reason, isTerminalVerifyOutcome,
-// finalizeTerminalVerifyOutcome). Phase 3 lifts the policy into the runner.
+// Phase 2c Step B: the VERIFY runner owns the post-VERIFY policy — the
+// already-verified short-circuit, pause-at-stage, terminal-outcome
+// finalization, and the move to LEARN. The dispatcher calls it, then
+// applyOutcome to emit the uniform stage_complete decision. The runner
+// does the instance side effects and hands back `instance` / `legacy` /
+// `advanceResult` bridge fields.
 const verifyStageRunner = createVerifyStageRunner({
   executeVerifyStage: runExecuteVerifyStage,
+  getLatestStageDecision,
+  hasVerifiedBatchDecision,
+  isTerminalVerifyOutcome,
+  finalizeTerminalVerifyOutcome,
+  tryMoveInstanceToStage,
+  updateInstanceAndSync,
+  nowIso,
 });
 
 let executeLearnStageForTests = null;
@@ -14642,54 +14650,26 @@ async function runAdvanceLoop(instance_id) {
     }
 
     case LOOP_STATES.VERIFY: {
-      const latestVerifyDecision = getLatestStageDecision(project.id, LOOP_STATES.VERIFY);
-      const rerunApprovedVerify = ['gate_approved', 'retry_verify_requested'].includes(latestVerifyDecision?.action);
-      const currentBatchAlreadyVerified = Boolean(
-        instance.batch_id
-        && !rerunApprovedVerify
-        && hasVerifiedBatchDecision(project.id, instance.batch_id)
-      );
-      if (currentBatchAlreadyVerified) {
-        stageResult = {
-          status: 'skipped',
-          reason: 'batch_already_verified',
-          batch_id: instance.batch_id,
-        };
-      } else {
-        // Phase 2c-dispatcher: route through verifyStageRunner. Unwraps
-        // outcome.stageResult.legacy back into stageResult so the post-stage
-        // checks (pause_at_stage, isTerminalVerifyOutcome,
-        // finalizeTerminalVerifyOutcome) stay byte-identical.
-        const verifyCtx = { project, instance, batchId: instance.batch_id ?? null };
-        const verifyOutcome = await verifyStageRunner(verifyCtx);
-        stageResult = verifyOutcome.stageResult?.legacy ?? null;
+      // Phase 2c Step B: the post-VERIFY policy (already-verified
+      // short-circuit, pause-at-stage, terminal finalization, move to
+      // LEARN) now lives in the VERIFY runner. The dispatcher calls it,
+      // then applyOutcome to emit the uniform stage_complete decision.
+      const verifyCtx = {
+        project,
+        instance,
+        batchId: instance.batch_id ?? null,
+        previousState,
+        instance_id,
+        decisionStore: stageDecisionStore,
+      };
+      const verifyOutcome = await verifyStageRunner(verifyCtx);
+      applyOutcome(verifyCtx, LOOP_STATES.VERIFY, verifyOutcome);
+      if (verifyOutcome.advanceResult) {
+        return verifyOutcome.advanceResult;
       }
-      if (stageResult && stageResult.pause_at_stage) {
-        instance = updateInstanceAndSync(instance.id, {
-          paused_at_stage: stageResult.pause_at_stage,
-          last_action_at: nowIso(),
-        });
-        transitionReason = stageResult.reason || transitionReason;
-        break;
-      }
-
-      if (isTerminalVerifyOutcome(stageResult)) {
-        return finalizeTerminalVerifyOutcome({
-          project,
-          instance,
-          previousState,
-          stageResult,
-        });
-      }
-
-      const moveToLearn = tryMoveInstanceToStage(instance, LOOP_STATES.LEARN, {
-        batch_id: instance.batch_id,
-        work_item_id: instance.work_item_id,
-      });
-      instance = moveToLearn.instance;
-      transitionReason = moveToLearn.blocked
-        ? 'stage_occupied'
-        : (rerunApprovedVerify ? 'verify_rerun_completed' : 'verified_batch');
+      instance = verifyOutcome.instance;
+      stageResult = verifyOutcome.legacy ?? null;
+      transitionReason = verifyOutcome.reason;
       break;
     }
 
