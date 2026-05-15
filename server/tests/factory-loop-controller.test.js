@@ -2873,6 +2873,66 @@ Edit server/factory/plan-executor.js and make the requested behavior change. Kee
     expect(decisions.find((d) => d.action === 'worktree_reclaimed')).toBeFalsy();
   });
 
+  it('reuses a completed-owner active batch worktree with a preserved-dirty suffix', async () => {
+    const { project, workItem } = registerPlanProject();
+    db.prepare('ALTER TABLE factory_worktrees ADD COLUMN owning_task_id TEXT').run();
+    const targetBranch = `feat/factory-${workItem.id}-dry-run-plan-item`;
+    const fallbackBranch = `${targetBranch}-preserved-dirty-123`;
+    const worktreePath = path.join(project.path, '.worktrees', 'feat-fallback-completed-owner');
+    initializeCleanGitWorktree(worktreePath);
+    const existing = factoryWorktrees.recordWorktree({
+      project_id: project.id,
+      work_item_id: workItem.id,
+      batch_id: `factory-${project.id}-${workItem.id}`,
+      vc_worktree_id: 'vc-fallback-completed-owner',
+      branch: fallbackBranch,
+      worktree_path: worktreePath,
+    });
+    factoryWorktrees.setOwningTask(existing.id, 'task-fallback-completed-owner');
+    taskCore.getTask = vi.fn((taskId) => ({
+      id: taskId,
+      status: 'completed',
+      error_output: null,
+    }));
+
+    const worktreeRunner = {
+      createForBatch: vi.fn(),
+      verify: vi.fn(async () => ({
+        passed: true,
+        output: 'ok',
+        durationMs: 12,
+      })),
+      mergeToMain: vi.fn(),
+      abandon: vi.fn(),
+    };
+    loopController.setWorktreeRunnerForTests(worktreeRunner);
+
+    await advanceSupervisedPlanProject(project.id);
+    const executeAdvance = await loopController.advanceLoopForProject(project.id);
+
+    expect(worktreeRunner.createForBatch).not.toHaveBeenCalled();
+    expect(worktreeRunner.abandon).not.toHaveBeenCalled();
+    expect(routingModule.handleSmartSubmitTask).toHaveBeenCalledWith(expect.objectContaining({
+      working_directory: worktreePath,
+    }));
+    expect(executeAdvance.new_state).toBe(LOOP_STATES.VERIFY);
+    expect(db.prepare('SELECT status FROM factory_worktrees WHERE id = ?').get(existing.id).status).toBe('active');
+
+    const decisions = listDecisionRows(db, project.id);
+    const reused = decisions.find((d) => d.action === 'worktree_reused_completed_owner');
+    expect(reused).toBeTruthy();
+    expect(reused.outcome).toMatchObject({
+      factory_worktree_id: existing.id,
+      branch: fallbackBranch,
+      owning_task_id: 'task-fallback-completed-owner',
+      owning_status: 'completed',
+      owner_source: 'active_batch_worktree',
+      worktree_path: worktreePath,
+    });
+    expect(decisions.find((d) => d.action === 'worktree_created')).toBeFalsy();
+    expect(decisions.find((d) => d.action === 'worktree_reclaimed')).toBeFalsy();
+  });
+
   it('preserves a dirty stale EXECUTE worktree and creates a suffixed replacement', async () => {
     const { project, workItem } = registerPlanProject();
     const batchId = `factory-${project.id}-${workItem.id}`;
