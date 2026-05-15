@@ -16,22 +16,13 @@ const STUDY_EVENT_TYPES = Object.freeze([
 const DEFAULT_RECOMMENDED_PROPOSAL_LIMIT = 2;
 const MIN_COMPARISON_SAMPLE_SIZE = 2;
 
-let _db = null;
-
-function init(deps = {}) {
-  if (deps.db) {
-    _db = deps.db;
-  }
-  return module.exports;
-}
-
-function getDbInstance() {
-  if (!_db) {
+function resolveDbInstance(dbService) {
+  if (!dbService) {
     return null;
   }
-  return typeof _db.getDbInstance === 'function'
-    ? _db.getDbInstance()
-    : (typeof _db.prepare === 'function' ? _db : null);
+  return typeof dbService.getDbInstance === 'function'
+    ? dbService.getDbInstance()
+    : (typeof dbService.prepare === 'function' ? dbService : null);
 }
 
 function toRepoPath(value) {
@@ -474,7 +465,7 @@ function recordStudyTaskCompleted(task) {
   return true;
 }
 
-function readStudyEvents({ workingDirectory, sinceDays = 30 } = {}) {
+function readStudyEvents(getDbInstance, { workingDirectory, sinceDays = 30 } = {}) {
   const db = getDbInstance();
   if (!db || !workingDirectory) {
     return [];
@@ -724,8 +715,8 @@ function buildImpactRecommendation(taskOutcomes, reviewOutcomes) {
   return recommendation;
 }
 
-function getStudyImpactSummary({ workingDirectory, sinceDays = 30 } = {}) {
-  const events = readStudyEvents({ workingDirectory, sinceDays });
+function buildStudyImpactSummary(getDbInstance, { workingDirectory, sinceDays = 30 } = {}) {
+  const events = readStudyEvents(getDbInstance, { workingDirectory, sinceDays });
   if (!events.length) {
     return {
       generated_at: new Date().toISOString(),
@@ -816,9 +807,44 @@ function getStudyImpactSummary({ workingDirectory, sinceDays = 30 } = {}) {
   };
 }
 
+function createStudyTelemetry(initialDeps = {}) {
+  let dbService = initialDeps.db || null;
+
+  function init(deps = {}) {
+    if (deps.db) {
+      dbService = deps.db;
+    }
+    return api;
+  }
+
+  function getDbInstance() {
+    return resolveDbInstance(dbService);
+  }
+
+  function getStudyImpactSummary(options = {}) {
+    return buildStudyImpactSummary(getDbInstance, options);
+  }
+
+  const api = {
+    init,
+    recordStudyTaskSubmitted,
+    recordStudyTaskCompleted,
+    getStudyImpactSummary,
+  };
+  return api;
+}
+
+const defaultStudyTelemetry = createStudyTelemetry();
+
+function init(deps = {}) {
+  defaultStudyTelemetry.init(deps);
+  return module.exports;
+}
+
 module.exports = {
   init,
-  recordStudyTaskSubmitted,
-  recordStudyTaskCompleted,
-  getStudyImpactSummary,
+  createStudyTelemetry,
+  recordStudyTaskSubmitted: (...args) => defaultStudyTelemetry.recordStudyTaskSubmitted(...args),
+  recordStudyTaskCompleted: (...args) => defaultStudyTelemetry.recordStudyTaskCompleted(...args),
+  getStudyImpactSummary: (...args) => defaultStudyTelemetry.getStudyImpactSummary(...args),
 };

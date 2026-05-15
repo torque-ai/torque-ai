@@ -12,18 +12,6 @@ const VALID_CORRECTION_TYPES = new Set([
   'trust_adjustment',
 ]);
 
-// ── Legacy module-level state, written only by init() (deprecated) ─────────
-// Phase 4 of the universal-DI migration. Coexistence pattern.
-let _db = null;
-
-/** @deprecated Use createFeedback(deps) or container.get('factoryFeedback'). */
-function init(deps = {}) {
-  if (deps.db) {
-    _db = deps.db;
-  }
-  return module.exports;
-}
-
 function analyzeBatch(project_id, batch_id, options = {}) {
   if (!project_id) throw new Error('project_id is required');
 
@@ -145,7 +133,7 @@ function detectDrift(project_id, options = {}) {
   };
 }
 
-function recordHumanCorrection(project_id, correction) {
+function recordHumanCorrectionWithDb(getRawDb, project_id, correction) {
   if (!project_id) throw new Error('project_id is required');
   validateCorrection(correction);
 
@@ -410,23 +398,22 @@ function parseCorrectionList(parsedCorrections, jsonValue, feedbackId) {
   }
 }
 
-function ensureDbInitialized() {
-  if (_db) return;
+function ensureDbInitialized(getDbService, setDbService) {
+  if (getDbService()) return;
   try {
     const { defaultContainer } = require('../container');
     if (defaultContainer && defaultContainer.has && defaultContainer.has('db')) {
-      _db = defaultContainer.get('db');
+      setDbService(defaultContainer.get('db'));
     }
   } catch (err) {
     logger.warn({ err: err.message }, 'Lazy DI init failed for factory feedback analysis');
   }
 }
 
-function getRawDb() {
-  ensureDbInitialized();
-  const rawDb = typeof _db?.getDbInstance === 'function'
-    ? _db.getDbInstance()
-    : (typeof _db?.prepare === 'function' ? _db : null);
+function resolveRawDb(dbService) {
+  const rawDb = typeof dbService?.getDbInstance === 'function'
+    ? dbService.getDbInstance()
+    : (typeof dbService?.prepare === 'function' ? dbService : null);
   if (!rawDb) {
     throw new Error('Factory feedback analysis requires an active database connection');
   }
@@ -461,19 +448,31 @@ function formatCurrency(value) {
   return `$${toNumber(value).toFixed(2)}`;
 }
 
-// ── New factory shape (preferred) ─────────────────────────────────────────
-function createFeedback(deps = {}) {
-  const local = { _db: deps.db };
-  function withLocalDeps(fn) {
-    const prev = { _db };
-    if (local._db !== undefined) _db = local._db;
-    try { return fn(); } finally { _db = prev._db; }
+function createFeedback(initialDeps = {}) {
+  let dbService = initialDeps.db || null;
+
+  function init(deps = {}) {
+    if (deps.db) {
+      dbService = deps.db;
+    }
+    return api;
   }
-  return {
-    analyzeBatch: (...args) => withLocalDeps(() => analyzeBatch(...args)),
-    detectDrift: (...args) => withLocalDeps(() => detectDrift(...args)),
-    recordHumanCorrection: (...args) => withLocalDeps(() => recordHumanCorrection(...args)),
+
+  function getRawDb() {
+    ensureDbInitialized(
+      () => dbService,
+      (nextDbService) => { dbService = nextDbService; }
+    );
+    return resolveRawDb(dbService);
+  }
+
+  const api = {
+    init,
+    analyzeBatch,
+    detectDrift,
+    recordHumanCorrection: (...args) => recordHumanCorrectionWithDb(getRawDb, ...args),
   };
+  return api;
 }
 
 // Registered as 'factoryFeedback' to keep the container namespace clean
@@ -482,13 +481,19 @@ function register(container) {
   container.register('factoryFeedback', ['db'], (deps) => createFeedback(deps));
 }
 
+const defaultFeedback = createFeedback();
+
+/** @deprecated Use createFeedback(deps) or container.get('factoryFeedback'). */
+function init(deps = {}) {
+  defaultFeedback.init(deps);
+  return module.exports;
+}
+
 module.exports = {
-  // New shape (preferred)
   createFeedback,
   register,
-  // Legacy shape (kept until task-manager.js migrates)
   init,
-  analyzeBatch,
-  detectDrift,
-  recordHumanCorrection,
+  analyzeBatch: (...args) => defaultFeedback.analyzeBatch(...args),
+  detectDrift: (...args) => defaultFeedback.detectDrift(...args),
+  recordHumanCorrection: (...args) => defaultFeedback.recordHumanCorrection(...args),
 };
