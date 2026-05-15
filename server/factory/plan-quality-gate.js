@@ -6,6 +6,7 @@ const path = require('node:path');
 const { findHeavyLocalValidationCommand } = require('../utils/heavy-validation-guard');
 const { deterministicVerify } = require('./plan-augmenter');
 const { checkPlanImpact } = require('./codegraph-plan-augmenter');
+const { discoverExistingFileAlternates } = require('./shared/scope-search');
 
 const MAX_REPLAN_ATTEMPTS = 1;
 // Plan-quality semantic review is an advisory second opinion after the
@@ -308,7 +309,26 @@ function findMissingEditTargets(task, repoPath) {
     return !fs.existsSync(absolute);
   });
 
-  return { targets, missing };
+  const alternatives = {};
+  for (const target of missing) {
+    const candidates = discoverExistingFileAlternates(repoRoot, target);
+    if (candidates.length > 0) {
+      alternatives[target] = candidates;
+    }
+  }
+
+  return { targets, missing, alternatives };
+}
+
+function formatMissingEditTargetAlternatives(alternatives = {}) {
+  const lines = [];
+  for (const [missing, candidates] of Object.entries(alternatives)) {
+    if (!Array.isArray(candidates) || candidates.length === 0) continue;
+    lines.push(`${missing} -> ${candidates.join(', ')}`);
+  }
+  return lines.length > 0
+    ? ` Existing nearby candidate(s): ${lines.join('; ')}.`
+    : '';
 }
 
 function hasConcreteTaskScope(text) {
@@ -468,10 +488,11 @@ function runDeterministicRules(planMarkdown, options = {}) {
 
     const editTargetCheck = findMissingEditTargets(task, repoPath);
     if (editTargetCheck.missing.length > 0) {
+      const alternatives = formatMissingEditTargetAlternatives(editTargetCheck.alternatives);
       hardFails.push({
         rule: 'task_edit_targets_exist',
         taskNumber: task.number,
-        detail: `Task ${task.number} edits missing target file(s): ${editTargetCheck.missing.join(', ')}. Pick existing repository files or rewrite the task as an explicit create-file task.`,
+        detail: `Task ${task.number} edits missing target file(s): ${editTargetCheck.missing.join(', ')}.${alternatives} Pick existing repository files or rewrite the task as an explicit create-file task.`,
       });
     }
 

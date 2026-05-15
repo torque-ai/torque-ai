@@ -31,6 +31,8 @@ const {
   buildPlannerTitleAffinityTokens,
   tokenizePlannerPathForAffinity,
   buildPlannerFileSearchTokens,
+  normalizePlannerAffinityToken,
+  PLAN_RELATED_GENERIC_PATH_TOKENS,
 } = require('./planner-tokens');
 
 const {
@@ -159,6 +161,145 @@ function findUniqueProjectFileByBasename(projectPath, filePath) {
   return matches.length === 1 ? matches[0] : null;
 }
 
+function collectPriorMissingTargetFiles(workItem) {
+  const origin = getWorkItemOriginObject(workItem);
+  const sources = [
+    origin.last_gate_feedback,
+    origin.last_rejection_details?.feedback_prompt,
+    origin.last_rejection_details?.message,
+  ].filter((value) => typeof value === 'string' && value.trim());
+  const out = new Set();
+  const missingTargetRe = /missing target file\(s\):\s*([^\n]+)/gi;
+  for (const source of sources) {
+    missingTargetRe.lastIndex = 0;
+    for (const match of source.matchAll(missingTargetRe)) {
+      const targetList = String(match[1] || '')
+        .replace(/\s+Pick existing repository files.*$/i, '')
+        .replace(/\s+Choose existing repository files.*$/i, '')
+        .replace(/\s+Use existing repository files.*$/i, '');
+      for (const raw of targetList.split(',')) {
+        const cleaned = raw.trim().replace(/^[`'"]+|[`'",.;:)]+$/g, '');
+        const normalized = normalizePlanProjectRelativePath(cleaned, null);
+        if (normalized) out.add(normalized);
+      }
+    }
+  }
+  return Array.from(out);
+}
+
+function tokenizeReplacementPath(filePath) {
+  return String(filePath || '')
+    .replace(/\\/g, '/')
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .split(/[^A-Za-z0-9]+/g)
+    .map(normalizePlannerAffinityToken)
+    .filter((token) => token.length >= 3 && !PLAN_RELATED_GENERIC_PATH_TOKENS.has(token));
+}
+
+function discoverExistingFileAlternates(projectPath, missingPath, limit = 4) {
+  if (!projectPath || !missingPath) return [];
+  const root = path.resolve(projectPath);
+  if (!fs.existsSync(root)) return [];
+
+  const normalizedMissing = normalizePlanProjectRelativePath(missingPath, null);
+  if (!normalizedMissing) return [];
+  const missingAbsolute = path.resolve(root, normalizedMissing);
+  if (missingAbsolute.startsWith(root + path.sep) && fs.existsSync(missingAbsolute)) {
+    return [];
+  }
+
+  const missingDir = path.posix.dirname(normalizedMissing).toLowerCase();
+  const missingExt = path.extname(normalizedMissing).toLowerCase();
+  const missingStem = path.posix.basename(normalizedMissing, missingExt).toLowerCase();
+  const missingSegments = normalizedMissing.toLowerCase().split('/').filter(Boolean);
+  const missingTokens = new Set(tokenizeReplacementPath(normalizedMissing));
+  const scored = [];
+  const seen = new Set();
+  const addCandidate = (rel, baseScore = 0) => {
+    const normalized = normalizePlanProjectRelativePath(rel, null);
+    if (!normalized || seen.has(normalized)) return;
+    const absolute = path.resolve(root, normalized);
+    if (!absolute.startsWith(root + path.sep) && absolute !== root) return;
+    if (!fs.existsSync(absolute)) return;
+    seen.add(normalized);
+    const relLower = normalized.toLowerCase();
+    const candidateExt = path.extname(relLower);
+    const candidateStem = path.posix.basename(relLower, candidateExt);
+    const candidateDir = path.posix.dirname(relLower);
+    const candidateSegments = relLower.split('/').filter(Boolean);
+    const candidateTokens = new Set(tokenizeReplacementPath(relLower));
+    let score = baseScore;
+    if (candidateStem === missingStem) score += 60;
+    if (candidateDir === missingDir) score += 24;
+    if (candidateExt === missingExt) score += 8;
+    if (candidateSegments[0] && candidateSegments[0] === missingSegments[0]) score += 6;
+    if (candidateSegments[1] && candidateSegments[1] === missingSegments[1]) score += 10;
+    for (const token of candidateTokens) {
+      if (missingTokens.has(token)) score += 8;
+    }
+    scored.push({ file: normalized, score });
+  };
+
+  const alternateExts = ['.js', '.json', '.jsx', '.ts', '.tsx', '.mjs', '.cjs'];
+  if (missingExt) {
+    for (const ext of alternateExts) {
+      if (ext === missingExt) continue;
+      addCandidate(`${normalizedMissing.slice(0, -missingExt.length)}${ext}`, 240);
+    }
+  }
+
+  let visited = 0;
+  const walk = (dir) => {
+    if (visited > 12000) return;
+    let entries;
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch (_err) {
+      return;
+    }
+    for (const entry of entries) {
+      if (PLAN_RELATED_SKIP_DIRS.has(entry.name)) continue;
+      const absolute = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        walk(absolute);
+        continue;
+      }
+      visited += 1;
+      if (!PLAN_RELATED_FILE_EXT_RE.test(entry.name)) continue;
+      const rel = path.relative(root, absolute).replace(/\\/g, '/');
+      const candidateTokens = new Set(tokenizeReplacementPath(rel));
+      let overlap = 0;
+      for (const token of candidateTokens) {
+        if (missingTokens.has(token)) overlap += 1;
+      }
+      const relLower = rel.toLowerCase();
+      const sameTop = missingSegments[0] && relLower.startsWith(`${missingSegments[0]}/`);
+      if (overlap > 0 || sameTop) {
+        addCandidate(rel, overlap * 40);
+      }
+    }
+  };
+
+  walk(root);
+  return scored
+    .filter((entry) => entry.score > 0)
+    .sort((a, b) => b.score - a.score || a.file.localeCompare(b.file))
+    .map((entry) => entry.file)
+    .filter((file, index, arr) => arr.indexOf(file) === index)
+    .slice(0, limit);
+}
+
+function collectPriorMissingTargetResolutionHints(workItem, projectPath = null, limit = 6) {
+  if (!projectPath) return [];
+  return collectPriorMissingTargetFiles(workItem)
+    .map((missing) => ({
+      missing,
+      candidates: discoverExistingFileAlternates(projectPath, missing),
+    }))
+    .filter((hint) => hint.candidates.length > 0)
+    .slice(0, limit);
+}
+
 function collectOriginScopeFiles(workItem) {
   const out = new Set();
   const push = (value) => {
@@ -190,6 +331,7 @@ function collectArchitectScopeDetails(workItem, projectPath = null) {
   const originFiles = collectOriginScopeFiles(workItem);
   const descriptionFiles = collectWorkItemDescriptionFiles(workItem);
   const hardScopeFiles = collectArchitectHardScopeFiles(workItem);
+  const priorMissingTargetHints = collectPriorMissingTargetResolutionHints(workItem, projectPath);
   const verified = new Set();
   const candidates = new Set();
   const hardScope = new Set();
@@ -211,16 +353,22 @@ function collectArchitectScopeDetails(workItem, projectPath = null) {
   for (const file of originFiles) addScopeFile(file, true);
   for (const file of descriptionFiles) addScopeFile(file, false);
 
-  const relatedFiles = discoverRelatedProjectFiles(projectPath, workItem, [
-    ...verified,
-    ...candidates,
-  ]).filter((file) => !verified.has(file));
+  const hintedFiles = priorMissingTargetHints.flatMap((hint) => hint.candidates);
+  const relatedFiles = [
+    ...hintedFiles,
+    ...discoverRelatedProjectFiles(projectPath, workItem, [
+      ...verified,
+      ...candidates,
+      ...hintedFiles,
+    ]),
+  ].filter((file, index, arr) => !verified.has(file) && arr.indexOf(file) === index);
 
   return {
     scopeFiles: Array.from(verified),
     candidateFiles: Array.from(candidates),
     hardScopeFiles: Array.from(hardScope),
     relatedFiles,
+    priorMissingTargetHints,
   };
 }
 
@@ -339,6 +487,9 @@ module.exports = {
   hasCandidatePathAffinity,
   shouldIncludeRelatedPlannerFile,
   findUniqueProjectFileByBasename,
+  collectPriorMissingTargetFiles,
+  discoverExistingFileAlternates,
+  collectPriorMissingTargetResolutionHints,
   collectOriginScopeFiles,
   collectArchitectScopeDetails,
   collectArchitectScopeFiles,

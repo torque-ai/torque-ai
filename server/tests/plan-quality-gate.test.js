@@ -216,6 +216,25 @@ Edit \`server/execution/workflow-advance.js\` to call the budget ceiling helper 
     expect(fail.detail).toContain('server/execution/workflow-advance.js');
   }));
 
+  it('suggests nearby existing files for missing edit targets', () => withTempRepo((repoPath) => {
+    writeFixtureFiles(repoPath, [
+      'server/mcp/schemas/v1/torque.task.submit.request.schema.json',
+      'server/handlers/mcp-tools.js',
+      'server/api/v2-task-handlers.js',
+    ]);
+
+    const plan = `## Task 1: Wire task submission validators
+
+Edit \`server/mcp/schemas/v1/torque.task.submit.request.schema.js\` and \`server/mcp/tool-handlers.js\` to persist output validators. Acceptance criteria: npx vitest run server/tests/task-handlers.test.js should pass.`;
+    const { hardFails } = runDeterministicRules(plan, { repoPath });
+    const fail = hardFails.find(f => f.rule === 'task_edit_targets_exist');
+
+    expect(fail).toBeTruthy();
+    expect(fail.detail).toContain('Existing nearby candidate(s)');
+    expect(fail.detail).toContain('server/mcp/schemas/v1/torque.task.submit.request.schema.json');
+    expect(fail.detail).toMatch(/server\/(?:handlers\/mcp-tools|api\/v2-task-handlers)\.js/);
+  }));
+
   it('does not reject create-file tasks for missing new files', () => withTempRepo((repoPath) => {
     const plan = `## Task 1: Add focused cost ceiling tests
 
