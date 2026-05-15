@@ -368,4 +368,39 @@ describe('History', () => {
       );
     });
   });
+
+  it('shows error state when task list API rejects and no cached data', async () => {
+    tasksApi.list.mockRejectedValue(new Error('Network failure'));
+    renderWithProviders(<History />, { route: '/history' });
+
+    await waitFor(() => {
+      expect(screen.getByText('Failed to load task history')).toBeInTheDocument();
+      expect(screen.getByText('Network failure')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
+    });
+  });
+
+  it('retries and displays data after clicking Retry on error state', async () => {
+    tasksApi.list.mockRejectedValueOnce(new Error('Network failure'));
+    renderWithProviders(<History />, { route: '/history' });
+
+    await waitFor(() => {
+      expect(screen.getByText('Failed to load task history')).toBeInTheDocument();
+    });
+
+    tasksApi.list.mockResolvedValueOnce({ tasks: mockTasks, pagination: mockPagination });
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/Build feature A/)).toBeInTheDocument();
+      expect(screen.getByText(/Fix broken tests/)).toBeInTheDocument();
+    });
+  });
+
+  it('wraps content in ErrorBoundary', async () => {
+    renderWithProviders(<History />, { route: '/history' });
+    await waitFor(() => {
+      expect(screen.getByText('Task History')).toBeInTheDocument();
+    });
+  });
 });

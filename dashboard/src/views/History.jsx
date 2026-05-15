@@ -8,6 +8,7 @@ import { STATUS_BG_COLORS, STATUS_ICONS } from '../constants';
 import { getRelevantModel } from '../utils/providerModels';
 import { formatDuration } from '../utils/formatters';
 import { format, formatDistanceToNow } from 'date-fns';
+import ErrorBoundary from '../components/ErrorBoundary';
 
 const safeFormat = (dateStr, fmt) => {
   try { return dateStr ? format(new Date(dateStr), fmt) : 'N/A'; }
@@ -202,6 +203,7 @@ export default function History({ onOpenDrawer, relativeTimeTick = 0 }) {
   const [reassigningIds, setReassigningIds] = useState(new Set());
   const [pagination, setPagination] = useState({ page: parseInt(searchParams.get('page')) || 1, totalPages: 1 });
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(null);
 
   // Initialize filters from URL params
   const [filters, setFilters] = useState({
@@ -342,9 +344,11 @@ export default function History({ onOpenDrawer, relativeTimeTick = 0 }) {
           totalPages: Math.ceil((data.pagination?.total || 0) / (data.pagination?.limit || 20)),
         }));
         setProviderList(Array.isArray(providerData) ? providerData : []);
+        setLoadError(null);
       } catch (err) {
         if (!isCurrent()) return;
         console.error('Failed to load tasks:', err);
+        setLoadError(err);
         toast.error('Failed to load task history');
       } finally {
         if (isCurrent()) setLoading(false);
@@ -550,7 +554,34 @@ export default function History({ onOpenDrawer, relativeTimeTick = 0 }) {
     return () => window.removeEventListener('keydown', handleKey);
   }, [sortedTasks, focusedIdx, onOpenDrawer]);
 
+  if (loadError && tasks.length === 0) {
+    return (
+      <div className="p-6">
+        <div className="flex-1 flex items-center justify-center p-12">
+          <div className="text-center max-w-md">
+            <div className="w-12 h-12 rounded-full bg-red-500/20 flex items-center justify-center mx-auto mb-4">
+              <svg className="w-6 h-6 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
+            </div>
+            <h2 className="text-lg font-semibold text-white mb-2">Failed to load task history</h2>
+            <p className="text-sm text-slate-400 mb-4">
+              {loadError.message || 'An unexpected error occurred while loading task history.'}
+            </p>
+            <button
+              onClick={() => { setLoading(true); setLoadError(null); loadTasks(); }}
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-sm rounded-lg transition-colors"
+            >
+              Retry
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
+    <ErrorBoundary>
     <div className="p-6">
       <div className="flex items-center justify-between mb-6">
         <h2 className="heading-lg text-white">Task History</h2>
@@ -885,5 +916,6 @@ export default function History({ onOpenDrawer, relativeTimeTick = 0 }) {
         </div>
       )}
     </div>
+    </ErrorBoundary>
   );
 }
