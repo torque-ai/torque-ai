@@ -10,6 +10,9 @@ describe('classifyZeroDiff — heuristic layer', () => {
       'No changes needed — module already implements the API.',
       'Already present in src/foo.ts.',
       'Nothing to change.',
+      'There is nothing to modify because the requested tests are already implemented.',
+      'No changes are needed — the implementation is already complete.',
+      'This is already implemented in ProjectSettings.test.jsx.',
       'No modifications required.',
     ]],
     ['blocked', [

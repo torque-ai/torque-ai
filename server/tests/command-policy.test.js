@@ -26,9 +26,19 @@ describe('command-policy', () => {
       expect(validateCommand('node', ['scripts/test-lane.js', '--lane', 'auto', '--command-base64', 'Y2Qgc2VydmVyICYmIG5weCB2aXRlc3QgcnVu'])).toEqual({ allowed: true });
       expect(validateCommand('torque-remote', ['dotnet test App.Tests.csproj && dotnet test Integration.Tests.csproj'])).toEqual({ allowed: true });
       expect(validateCommand('bash', ['bin/torque-remote', 'dotnet test App.Tests.csproj && dotnet test Integration.Tests.csproj'])).toEqual({ allowed: true });
+      expect(validateCommand('C:/Program Files/Git/bin/bash.exe', ['C:\\Users\\Werem\\.local\\bin\\torque-remote', 'npx vitest run'])).toEqual({ allowed: true });
       expect(validateCommand('git diff --stat HEAD~1')).toEqual({ allowed: true });
       expect(validateCommand('git', ['status', '--short'])).toEqual({ allowed: true });
       expect(validateCommand('git', ['log', '--oneline', '-5'])).toEqual({ allowed: true });
+    });
+
+    it('preserves executable paths with spaces when args are explicit', () => {
+      expect(validateCommand('C:/Program Files/Git/bin/bash.exe', ['C:\\Users\\Werem\\.local\\bin\\torque-remote', 'npx vitest run']))
+        .toEqual({ allowed: true });
+
+      const blocked = validateCommand('C:/Program Files/Git/bin/bash.exe', ['not-remote', 'npx vitest run']);
+      expect(blocked.allowed).toBe(false);
+      expect(blocked.reason).toContain('allowlisted command');
     });
 
     it('blocks dangerous advanced_shell commands without the explicit flag', () => {
