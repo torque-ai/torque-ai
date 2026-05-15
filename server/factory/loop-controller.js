@@ -153,6 +153,15 @@ const {
   isMergeTargetOperatorBlockedError,
 } = require('./recovery');
 const {
+  DEFAULT_PLAN_GENERATION_TIMEOUT_MINUTES,
+  PLAN_GENERATION_HARD_CAP_EXTENSION_MINUTES,
+  DEFAULT_STALE_PENDING_PLAN_GENERATION_MS,
+  OLLAMA_PLAN_GENERATION_TIMEOUT_MINUTES,
+  resolvePlanGenerationTimeoutMinutes,
+  buildPlanGenerationActivityTimeoutPolicy,
+  clearPlanGenerationWaitFields,
+} = require('./plan-generation/timeout-policy');
+const {
   getWorkItemConstraintsObject,
   getWorkItemOriginObject,
   extractWorkItemAcceptanceCriteria,
@@ -170,9 +179,6 @@ const {
 } = require('./shared/planner-tokens');
 
 const PLAN_GENERATOR_LABEL = 'auto-router';
-const DEFAULT_PLAN_GENERATION_TIMEOUT_MINUTES = 30;
-const PLAN_GENERATION_HARD_CAP_EXTENSION_MINUTES = 15;
-const DEFAULT_STALE_PENDING_PLAN_GENERATION_MS = DEFAULT_PLAN_GENERATION_TIMEOUT_MINUTES * 60 * 1000;
 const AUTO_ADVANCE_DEFAULT_DELAY_MS = 100;
 const AUTO_ADVANCE_DEFERRED_MIN_DELAY_MS = 2500;
 const AUTO_ADVANCE_DEFERRED_FALLBACK_DELAY_MS = 30 * 1000;
@@ -455,47 +461,6 @@ function isProjectPauseActive(project, { includeStatus = true } = {}) {
 // loop kicks in faster — burning 30min on a stalled architect cycle is
 // strictly worse than failing fast and letting the cap-based reject move
 // the queue forward.
-const OLLAMA_PLAN_GENERATION_TIMEOUT_MINUTES = 10;
-
-function resolvePlanGenerationTimeoutMinutes(project) {
-  let configured = null;
-  try {
-    const cfg = project?.config_json ? JSON.parse(project.config_json) : {};
-    configured = cfg.plan_generation_timeout_minutes
-      ?? cfg.factory_plan_generation_timeout_minutes
-      ?? null;
-  } catch (_cfgErr) {
-    void _cfgErr;
-  }
-  const numeric = Number(configured);
-  if (Number.isFinite(numeric) && numeric > 0) {
-    return Math.min(Math.max(Math.ceil(numeric), 1), 120);
-  }
-  // Provider-aware default: small local models get a tighter cap.
-  if (getEffectiveProjectProvider(project) === 'ollama') {
-    return OLLAMA_PLAN_GENERATION_TIMEOUT_MINUTES;
-  }
-  return DEFAULT_PLAN_GENERATION_TIMEOUT_MINUTES;
-}
-
-function buildPlanGenerationActivityTimeoutPolicy(timeoutMinutes) {
-  const numeric = Number(timeoutMinutes);
-  const boundedTimeoutMinutes = Number.isFinite(numeric) && numeric > 0
-    ? Math.min(Math.max(Math.ceil(numeric), 1), 120)
-    : DEFAULT_PLAN_GENERATION_TIMEOUT_MINUTES;
-  const minimumHardCapMinutes = boundedTimeoutMinutes + PLAN_GENERATION_HARD_CAP_EXTENSION_MINUTES;
-  const doubledActivityBudgetMinutes = boundedTimeoutMinutes * 2;
-  return {
-    kind: 'plan_generation',
-    timeout_minutes: boundedTimeoutMinutes,
-    max_wall_clock_minutes: Math.min(
-      Math.max(doubledActivityBudgetMinutes, minimumHardCapMinutes),
-      120
-    ),
-    overrun_intake_problem: 'timeout_overrun_active',
-  };
-}
-
 function getTaskAgeMs(task) {
   if (!task) return null;
   // provider_switched_at takes precedence so failover-requeued tasks reset the
@@ -2512,22 +2477,6 @@ function getStoredPlanGenerationTaskId(workItem) {
   }
   const parsedOrigin = parseJsonObject(workItem?.origin_json);
   return normalizeOptionalString(parsedOrigin?.plan_generation_task_id);
-}
-
-function clearPlanGenerationWaitFields(origin = {}) {
-  const next = { ...(origin && typeof origin === 'object' ? origin : {}) };
-  delete next.plan_generation_task_id;
-  delete next.plan_generation_status;
-  delete next.plan_generation_wait_reason;
-  delete next.plan_generation_retry_after;
-  delete next.plan_generation_retry_count;
-  delete next.plan_generation_last_error;
-  delete next.plan_generation_updated_at;
-  delete next.plan_generation_provider_fallback_count;
-  delete next.plan_generation_provider_fallback_from;
-  delete next.plan_generation_provider_fallback_to;
-  delete next.plan_generation_provider_fallback_error;
-  return next;
 }
 
 function getTaskMetadataObject(task) {
