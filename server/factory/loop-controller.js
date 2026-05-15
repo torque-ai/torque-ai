@@ -162,6 +162,10 @@ const {
   clearPlanGenerationWaitFields,
 } = require('./plan-generation/timeout-policy');
 const {
+  getActiveInstances,
+  getOldestActiveInstance,
+} = require('./lifecycle/active-instances');
+const {
   VERIFY_FIX_PROMPT_TAIL_BUDGET,
   VERIFY_FIX_PROMPT_PRIOR_BUDGET,
   stripAnsi,
@@ -1280,14 +1284,6 @@ function getLoopContextOrThrow(instance_id) {
   const instance = getInstanceOrThrow(instance_id);
   const project = getProjectOrThrow(instance.project_id);
   return { instance, project };
-}
-
-function getActiveInstances(project_id) {
-  return factoryLoopInstances.listInstances({ project_id, active_only: true });
-}
-
-function getOldestActiveInstance(project_id) {
-  return getActiveInstances(project_id)[0] || null;
 }
 
 function getPausedAtStage(loopRecord) {
