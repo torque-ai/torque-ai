@@ -28,7 +28,7 @@ const {
 } = require('../constants');
 const {
   resolveActivityAwareTimeoutDecision,
-  resolvePlanGenerationHardCapMs,
+  resolveFactoryInternalHardCapMs,
 } = require('../utils/activity-timeout');
 const { checkProcStatusLinux } = require('../utils/proc-status');
 
@@ -447,7 +447,7 @@ function getTrackedTaskIdleState(task, timeoutMs) {
     active: timeoutDecision.action === 'extend',
     idleMs,
     timeoutDecision,
-    hardCapMs: resolvePlanGenerationHardCapMs(proc?.metadata, task?.metadata, task?.task_metadata),
+    hardCapMs: resolveFactoryInternalHardCapMs(proc?.metadata, task?.metadata, task?.task_metadata),
   };
 }
 
@@ -612,7 +612,7 @@ function checkStaleRunningTasks() {
           logger.info(`[Stale Check] Task ${task.id} has been running for ${elapsedMin}min (timeout: ${timeoutMinutes}min) but had activity ${idleMin}min ago - leaving running`);
           if (idleState.hardCapMs > 0) {
             const hardCapMin = Math.round(idleState.hardCapMs / 60000);
-            logger.info(`[Stale Check] Factory plan-generation task ${task.id} remains active before hard cap (${hardCapMin}min) - suppressing timeout_overrun_active intake`);
+            logger.info(`[Stale Check] Factory internal task ${task.id} remains active before hard cap (${hardCapMin}min) - suppressing timeout_overrun_active intake`);
           } else {
             maybeReportRuntimeProblem(task, 'timeout_overrun_active', {
               timeoutMinutes,
@@ -624,7 +624,10 @@ function checkStaleRunningTasks() {
         }
 
         const elapsedMin = Math.round(elapsedMs / 60000);
-        if (idleState.tracked && idleState.timeoutDecision?.reason === 'factory_plan_generation_hard_cap') {
+        if (idleState.tracked && (
+          idleState.timeoutDecision?.reason === 'factory_plan_generation_hard_cap'
+          || idleState.timeoutDecision?.reason === 'factory_internal_hard_cap'
+        )) {
           maybeReportRuntimeProblem(task, 'timeout_overrun_active', {
             timeoutMinutes,
             elapsedMinutes: elapsedMin,

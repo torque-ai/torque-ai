@@ -128,6 +128,14 @@ describe('execution/command-builders', () => {
 
       expect(deps.wrapWithInstructions).not.toHaveBeenCalled();
       expect(result.stdinPrompt).toBe('Return ONLY valid JSON.');
+      expect(result.finalArgs).toEqual([
+        '--dangerously-skip-permissions',
+        '--disable-slash-commands',
+        '--strict-mcp-config',
+        '--tools',
+        '',
+        '-p',
+      ]);
     });
 
     it('defaults cliPath to "claude" on non-Windows or "claude.cmd" on Windows', () => {

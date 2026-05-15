@@ -124,7 +124,8 @@ function init(overrides = {}) {
 function buildClaudeCliCommand(task, providerConfig, resolvedFileContext) {
   const promptDescription = getExecutionDescription(task);
   const effectiveTaskDescription = applyStudyContextPrompt(promptDescription, task.metadata);
-  const wrappedDescription = shouldUseRawStructuredPrompt(task)
+  const useRawStructuredPrompt = shouldUseRawStructuredPrompt(task);
+  const wrappedDescription = useRawStructuredPrompt
     ? effectiveTaskDescription
     : _wrapWithInstructions(
       effectiveTaskDescription,
@@ -138,6 +139,9 @@ function buildClaudeCliCommand(task, providerConfig, resolvedFileContext) {
     '--strict-mcp-config',
     '-p'
   ];
+  if (useRawStructuredPrompt) {
+    finalArgs.splice(finalArgs.length - 1, 0, '--tools', '');
+  }
   const stdinPrompt = wrappedDescription;
 
   let cliPath;

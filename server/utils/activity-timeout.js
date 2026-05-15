@@ -32,20 +32,31 @@ function firstMetadataObject(...candidates) {
   return null;
 }
 
-function resolvePlanGenerationHardCapMs(...metadataCandidates) {
+function resolveFactoryInternalHardCap(...metadataCandidates) {
   const metadata = firstMetadataObject(...metadataCandidates);
-  if (!metadata || metadata.factory_internal !== true || metadata.kind !== 'plan_generation') {
-    return 0;
+  if (!metadata || metadata.factory_internal !== true) {
+    return { hardCapMs: 0, kind: null };
   }
   const policy = parseMetadataObject(metadata.activity_timeout_policy);
-  if (!policy || policy.kind !== 'plan_generation') {
-    return 0;
+  const metadataKind = String(metadata.kind || '').trim();
+  const policyKind = String(policy?.kind || '').trim();
+  if (!policy || !metadataKind || !policyKind || metadataKind !== policyKind) {
+    return { hardCapMs: 0, kind: metadataKind || null };
   }
   const maxWallClockMinutes = Number(policy.max_wall_clock_minutes);
   if (!Number.isFinite(maxWallClockMinutes) || maxWallClockMinutes <= 0) {
-    return 0;
+    return { hardCapMs: 0, kind: metadataKind };
   }
-  return maxWallClockMinutes * 60 * 1000;
+  return { hardCapMs: maxWallClockMinutes * 60 * 1000, kind: metadataKind };
+}
+
+function resolveFactoryInternalHardCapMs(...metadataCandidates) {
+  return resolveFactoryInternalHardCap(...metadataCandidates).hardCapMs;
+}
+
+function resolvePlanGenerationHardCapMs(...metadataCandidates) {
+  const hardCap = resolveFactoryInternalHardCap(...metadataCandidates);
+  return hardCap.kind === 'plan_generation' ? hardCap.hardCapMs : 0;
 }
 
 function createActivityTimeout({ timeoutMs, onTimeout, now = () => Date.now() }) {
@@ -149,19 +160,22 @@ function resolveActivityAwareTimeoutDecision({
   const lastActivity = Number.isFinite(lastOutputAt) ? lastOutputAt : startTime;
   const idleMs = Math.max(0, currentTime - lastActivity);
   const elapsedMs = Math.max(0, currentTime - startTime);
-  const hardCapMs = resolvePlanGenerationHardCapMs(
+  const hardCap = resolveFactoryInternalHardCap(
     metadata,
     proc.metadata,
     task?.metadata,
     task?.task_metadata
   );
+  const hardCapMs = hardCap.hardCapMs;
 
   if (hardCapMs > 0 && elapsedMs >= hardCapMs) {
     return {
       action: 'timeout',
       idleMs,
       elapsedMs,
-      reason: 'factory_plan_generation_hard_cap',
+      reason: hardCap.kind === 'plan_generation'
+        ? 'factory_plan_generation_hard_cap'
+        : 'factory_internal_hard_cap',
     };
   }
 
@@ -183,5 +197,6 @@ module.exports = {
   normalizeTimeoutMs,
   parseMetadataObject,
   resolveActivityAwareTimeoutDecision,
+  resolveFactoryInternalHardCapMs,
   resolvePlanGenerationHardCapMs,
 };

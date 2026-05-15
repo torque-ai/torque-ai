@@ -292,9 +292,9 @@ function computeActivityAwareTimeoutDelay(proc, timeoutMs, now = Date.now()) {
 }
 
 function describeTimeoutDecisionReason(reason) {
-  return reason === 'factory_plan_generation_hard_cap'
-    ? 'factory plan-generation hard cap'
-    : 'idle timeout';
+  if (reason === 'factory_plan_generation_hard_cap') return 'factory plan-generation hard cap';
+  if (reason === 'factory_internal_hard_cap') return 'factory internal hard cap';
+  return 'idle timeout';
 }
 
 function formatElapsedMinutes(ms) {

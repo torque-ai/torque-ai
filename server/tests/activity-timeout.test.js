@@ -4,6 +4,7 @@ const {
   createActivityTimeout,
   normalizeTimeoutMs,
   resolveActivityAwareTimeoutDecision,
+  resolveFactoryInternalHardCapMs,
   resolvePlanGenerationHardCapMs,
 } = require('../utils/activity-timeout');
 
@@ -53,6 +54,19 @@ describe('resolveActivityAwareTimeoutDecision', () => {
     };
   }
 
+  function architectCycleMetadata(maxWallClockMinutes = 60) {
+    return {
+      factory_internal: true,
+      kind: 'architect_cycle',
+      activity_timeout_policy: {
+        kind: 'architect_cycle',
+        timeout_minutes: 30,
+        max_wall_clock_minutes: maxWallClockMinutes,
+        overrun_intake_problem: 'timeout_overrun_active',
+      },
+    };
+  }
+
   it('resolves factory plan-generation hard caps from object metadata', () => {
     expect(resolvePlanGenerationHardCapMs(planGenerationMetadata(25))).toBe(25 * minuteMs);
   });
@@ -62,6 +76,11 @@ describe('resolveActivityAwareTimeoutDecision', () => {
     metadata.activity_timeout_policy = JSON.stringify(metadata.activity_timeout_policy);
 
     expect(resolvePlanGenerationHardCapMs(JSON.stringify(metadata))).toBe(25 * minuteMs);
+  });
+
+  it('resolves non-plan factory internal hard caps from policy metadata', () => {
+    expect(resolveFactoryInternalHardCapMs(architectCycleMetadata(45))).toBe(45 * minuteMs);
+    expect(resolvePlanGenerationHardCapMs(architectCycleMetadata(45))).toBe(0);
   });
 
   it('extends active factory plan-generation tasks before the hard cap', () => {
@@ -93,6 +112,22 @@ describe('resolveActivityAwareTimeoutDecision', () => {
       idleMs: minuteMs,
       elapsedMs: 60 * minuteMs,
       reason: 'factory_plan_generation_hard_cap',
+    });
+  });
+
+  it('times out active non-plan factory internal tasks at their hard cap', () => {
+    const decision = resolveActivityAwareTimeoutDecision({
+      proc: { startTime: 0, lastOutputAt: 59 * minuteMs },
+      timeoutMs,
+      metadata: architectCycleMetadata(60),
+      now: 60 * minuteMs,
+    });
+
+    expect(decision).toEqual({
+      action: 'timeout',
+      idleMs: minuteMs,
+      elapsedMs: 60 * minuteMs,
+      reason: 'factory_internal_hard_cap',
     });
   });
 
