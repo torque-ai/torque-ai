@@ -324,15 +324,11 @@ function getNeedsReplanSelectionPenalty(item) {
   return { penalty, label };
 }
 
-const DECISION_STAGE_ACTORS = Object.freeze({
-  sense: 'health_model',
-  prioritize: 'architect',
-  plan: 'planner',
-  plan_review: 'reviewer',
-  execute: 'executor',
-  verify: 'verifier',
-  learn: 'verifier',
-});
+const {
+  DECISION_STAGE_ACTORS,
+  normalizeDecisionStage,
+  getDecisionActor,
+} = require('./decision-actors');
 
 const PRIORITIZE_SOURCE_BASE_SCORES = Object.freeze({
   plan_file: 82,
@@ -2228,22 +2224,6 @@ function maybeReleaseStaleReadyForStageOccupant(project, parkedInstance, targetS
     parkedAgeMs,
     occupantAgeMs,
   };
-}
-
-function normalizeDecisionStage(stage) {
-  if (!stage || typeof stage !== 'string') {
-    return null;
-  }
-  const normalized = stage.toLowerCase();
-  return DECISION_STAGE_ACTORS[normalized] ? normalized : null;
-}
-
-function getDecisionActor(stage, actor) {
-  const normalizedStage = normalizeDecisionStage(stage);
-  if (actor) {
-    return actor;
-  }
-  return normalizedStage ? DECISION_STAGE_ACTORS[normalizedStage] : null;
 }
 
 function getDefaultFactoryBatchId(project, workItem) {
