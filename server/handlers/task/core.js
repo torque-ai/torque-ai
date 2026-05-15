@@ -310,7 +310,7 @@ function buildTaskPeekArtifactSection(taskId) {
 /**
  * Submit and immediately start a task
  */
-function handleSubmitTask(args) {
+async function handleSubmitTask(args) {
   const project = typeof args?.project === 'string' && args.project.trim() ? args.project.trim() : 'unassigned';
 
   // Phase 3.2: auto_route dispatch — default true routes to smart_submit_task
@@ -518,7 +518,7 @@ function handleSubmitTask(args) {
     metadata,
   };
 
-  const continueSubmitTask = (governanceEvaluation) => {
+  const continueSubmitTask = async (governanceEvaluation) => {
     if (governanceEvaluation?.error) {
       return governanceEvaluation.error;
     }
@@ -640,7 +640,7 @@ function handleSubmitTask(args) {
           existingMetaCtx.warning = 'No working directory specified — file context unavailable';
           taskCore.patchTaskMetadata(taskId, existingMetaCtx);
         }
-        const scanResult = contextWorkDir ? resolveContextFiles({
+        const scanResult = contextWorkDir ? await resolveContextFiles({
           taskDescription,
           workingDirectory: contextWorkDir,
           files: Array.isArray(args.files) ? args.files.filter(f => typeof f === 'string') : [],

@@ -498,16 +498,16 @@ describe('task-core handlers', () => {
   });
 
   describe('handleSubmitTask', () => {
-    it('rejects a missing task', () => {
-      const result = handlers.handleSubmitTask({ auto_route: false });
+    it('rejects a missing task', async () => {
+      const result = await handlers.handleSubmitTask({ auto_route: false });
 
       expect(result.isError).toBe(true);
       expect(result.error_code).toBe('MISSING_REQUIRED_PARAM');
       expect(textOf(result)).toContain('task must be a non-empty string');
     });
 
-    it('rejects a task longer than MAX_TASK_LENGTH', () => {
-      const result = handlers.handleSubmitTask({
+    it('rejects a task longer than MAX_TASK_LENGTH', async () => {
+      const result = await handlers.handleSubmitTask({
         task: 'x'.repeat(mockShared.MAX_TASK_LENGTH + 1),
         auto_route: false,
       });
@@ -517,8 +517,8 @@ describe('task-core handlers', () => {
       expect(textOf(result)).toContain('exceeds maximum length');
     });
 
-    it('rejects a negative timeout', () => {
-      const result = handlers.handleSubmitTask({
+    it('rejects a negative timeout', async () => {
+      const result = await handlers.handleSubmitTask({
         task: 'Run tests',
         timeout_minutes: -1,
         auto_route: false,
@@ -529,8 +529,8 @@ describe('task-core handlers', () => {
       expect(textOf(result)).toContain('timeout_minutes');
     });
 
-    it('rejects a non-numeric priority', () => {
-      const result = handlers.handleSubmitTask({
+    it('rejects a non-numeric priority', async () => {
+      const result = await handlers.handleSubmitTask({
         task: 'Run tests',
         priority: 'high',
         auto_route: false,
@@ -541,10 +541,10 @@ describe('task-core handlers', () => {
       expect(textOf(result)).toContain('priority must be a number');
     });
 
-    it('rejects an unknown explicit provider', () => {
+    it('rejects an unknown explicit provider', async () => {
       mockDb.getProvider.mockReturnValue(null);
 
-      const result = handlers.handleSubmitTask({
+      const result = await handlers.handleSubmitTask({
         task: 'Use a provider',
         provider: 'missing-provider',
       });
@@ -554,10 +554,10 @@ describe('task-core handlers', () => {
       expect(textOf(result)).toContain('Unknown provider');
     });
 
-    it('rejects a disabled explicit provider', () => {
+    it('rejects a disabled explicit provider', async () => {
       mockDb.getProvider.mockReturnValue({ provider: 'ollama', enabled: false });
 
-      const result = handlers.handleSubmitTask({
+      const result = await handlers.handleSubmitTask({
         task: 'Use ollama',
         provider: 'ollama',
       });
@@ -567,14 +567,14 @@ describe('task-core handlers', () => {
       expect(textOf(result)).toContain('disabled');
     });
 
-    it('delegates to smart_submit_task when auto routing is enabled without an explicit provider', () => {
+    it('delegates to smart_submit_task when auto routing is enabled without an explicit provider', async () => {
       const routedResult = {
         __subscribe_task_id: 'smart-routed-123',
         content: [{ type: 'text', text: 'Smart routing handled this submission.' }],
       };
       mockRouting.handleSmartSubmitTask.mockReturnValue(routedResult);
 
-      const result = handlers.handleSubmitTask({
+      const result = await handlers.handleSubmitTask({
         task: 'Route this task',
         working_directory: 'C:\\repo',
         timeout_minutes: 12,
@@ -603,8 +603,8 @@ describe('task-core handlers', () => {
       expect(mockTaskManager.startTask).not.toHaveBeenCalled();
     });
 
-    it('does not delegate to smart_submit_task when auto routing is disabled', () => {
-      handlers.handleSubmitTask({
+    it('does not delegate to smart_submit_task when auto routing is disabled', async () => {
+      await handlers.handleSubmitTask({
         task: 'Handle locally',
         auto_route: false,
       });
@@ -616,8 +616,8 @@ describe('task-core handlers', () => {
       });
     });
 
-    it('does not delegate to smart_submit_task when an explicit provider is supplied', () => {
-      handlers.handleSubmitTask({
+    it('does not delegate to smart_submit_task when an explicit provider is supplied', async () => {
+      await handlers.handleSubmitTask({
         task: 'Use explicit provider',
         provider: 'ollama',
       });
@@ -629,7 +629,7 @@ describe('task-core handlers', () => {
       });
     });
 
-    it('rejects auto-routed submission when codex is exhausted and no ollama host is healthy', () => {
+    it('rejects auto-routed submission when codex is exhausted and no ollama host is healthy', async () => {
       mockDb.isCodexExhausted.mockReturnValue(true);
       mockDb.hasHealthyOllamaHost.mockReturnValue(false);
       mockShared.checkProviderAvailability.mockReturnValueOnce({
@@ -640,7 +640,7 @@ describe('task-core handlers', () => {
         },
       });
 
-      const result = handlers.handleSubmitTask({ task: 'Fallback blocked', auto_route: false });
+      const result = await handlers.handleSubmitTask({ task: 'Fallback blocked', auto_route: false });
 
       expect(result.isError).toBe(true);
       expect(result.error_code).toBe('NO_HOSTS_AVAILABLE');
@@ -648,8 +648,8 @@ describe('task-core handlers', () => {
       expect(mockDb.createTask).not.toHaveBeenCalled();
     });
 
-    it('creates a task with explicit provider metadata and provider timeout defaults', () => {
-      const result = handlers.handleSubmitTask({
+    it('creates a task with explicit provider metadata and provider timeout defaults', async () => {
+      const result = await handlers.handleSubmitTask({
         task: '  Ship feature  ',
         provider: 'ollama',
         auto_approve: true,
@@ -679,14 +679,14 @@ describe('task-core handlers', () => {
       });
     });
 
-    it('stores tier-list metadata and leaves provider unassigned in slot-pull mode', () => {
+    it('stores tier-list metadata and leaves provider unassigned in slot-pull mode', async () => {
       mockDb.getConfig.mockImplementation(createConfigMock({
         default_timeout: '33',
         budget_check_enabled: '1',
         scheduling_mode: 'slot-pull',
       }));
 
-      handlers.handleSubmitTask({
+      await handlers.handleSubmitTask({
         task: 'Create a new scheduler helper',
         auto_route: false,
       });
@@ -713,7 +713,7 @@ describe('task-core handlers', () => {
       );
     });
 
-    it('locks explicit providers into singleton eligible lists in slot-pull mode', () => {
+    it('locks explicit providers into singleton eligible lists in slot-pull mode', async () => {
       mockDb.getConfig.mockImplementation(createConfigMock({
         default_timeout: '33',
         budget_check_enabled: '1',
@@ -728,7 +728,7 @@ describe('task-core handlers', () => {
         quality_tier: 'normal',
       });
 
-      handlers.handleSubmitTask({
+      await handlers.handleSubmitTask({
         task: 'Run on ollama only',
         provider: 'ollama',
       });
@@ -755,8 +755,8 @@ describe('task-core handlers', () => {
       );
     });
 
-    it('uses the default provider and stores empty metadata for auto-routed submissions', () => {
-      const result = handlers.handleSubmitTask({ task: 'Auto route me', auto_route: false });
+    it('uses the default provider and stores empty metadata for auto-routed submissions', async () => {
+      const result = await handlers.handleSubmitTask({ task: 'Auto route me', auto_route: false });
 
       expect(result.isError).toBeUndefined();
 
@@ -766,7 +766,7 @@ describe('task-core handlers', () => {
       expect(JSON.parse(createdTask.metadata)).toEqual({ intended_provider: 'codex' });
     });
 
-    it('falls back to the first enabled provider when the configured default provider is disabled', () => {
+    it('falls back to the first enabled provider when the configured default provider is disabled', async () => {
       mockDb.getDefaultProvider.mockReturnValue('codex');
       mockDb.getProvider.mockImplementation((provider) => ({
         provider,
@@ -777,14 +777,14 @@ describe('task-core handlers', () => {
         { provider: 'openrouter', enabled: true },
       ]);
 
-      handlers.handleSubmitTask({ task: 'Use a safe fallback default', auto_route: false });
+      await handlers.handleSubmitTask({ task: 'Use a safe fallback default', auto_route: false });
 
       expect(lastCreatedTask().provider).toBeNull();
       expect(lastCreatedTaskMetadata()).toEqual({ intended_provider: 'openrouter' });
     });
 
-    it('accepts a null timeout and falls back to the provider timeout default', () => {
-      handlers.handleSubmitTask({
+    it('accepts a null timeout and falls back to the provider timeout default', async () => {
+      await handlers.handleSubmitTask({
         task: 'Null timeout fallback',
         provider: 'ollama',
         timeout_minutes: null,
@@ -796,8 +796,8 @@ describe('task-core handlers', () => {
       });
     });
 
-    it('prefers an explicit timeout over provider defaults', () => {
-      handlers.handleSubmitTask({
+    it('prefers an explicit timeout over provider defaults', async () => {
+      await handlers.handleSubmitTask({
         task: 'Custom timeout',
         provider: 'ollama',
         timeout_minutes: 12,
@@ -806,17 +806,17 @@ describe('task-core handlers', () => {
       expect(lastCreatedTask().timeout_minutes).toBe(12);
     });
 
-    it('falls back to the configured default timeout when provider has no specific default', () => {
+    it('falls back to the configured default timeout when provider has no specific default', async () => {
       mockDb.getDefaultProvider.mockReturnValue('custom-provider');
 
-      handlers.handleSubmitTask({ task: 'Use fallback timeout', auto_route: false });
+      await handlers.handleSubmitTask({ task: 'Use fallback timeout', auto_route: false });
 
       expect(lastCreatedTask().provider).toBeNull();
       expect(lastCreatedTask().timeout_minutes).toBe(33);
     });
 
-    it('persists the trimmed description, working directory, and subscribe task id for started tasks', () => {
-      const result = handlers.handleSubmitTask({
+    it('persists the trimmed description, working directory, and subscribe task id for started tasks', async () => {
+      const result = await handlers.handleSubmitTask({
         task: '  Persist submit payload  ',
         working_directory: 'C:\\repo\\torque',
         auto_route: false,
@@ -830,8 +830,8 @@ describe('task-core handlers', () => {
       });
     });
 
-    it('stores falsey auto_approve and zero priority without coercing them upward', () => {
-      handlers.handleSubmitTask({
+    it('stores falsey auto_approve and zero priority without coercing them upward', async () => {
+      await handlers.handleSubmitTask({
         task: 'Keep default flags',
         auto_route: false,
         auto_approve: 0,
@@ -848,11 +848,11 @@ describe('task-core handlers', () => {
       }));
     });
 
-    it('returns a queued message when task manager reports queueing', () => {
+    it('returns a queued message when task manager reports queueing', async () => {
       mockTaskManager.startTask.mockReturnValue({ queued: true });
       mockTaskManager.getRunningTaskCount.mockReturnValue(4);
 
-      const result = handlers.handleSubmitTask({
+      const result = await handlers.handleSubmitTask({
         task: 'Queue me',
         provider: 'codex',
       });
@@ -861,8 +861,8 @@ describe('task-core handlers', () => {
       expect(textOf(result)).toContain('Current running tasks: 4');
     });
 
-    it('uses the explicit model for cost estimation after resolving the default provider budget bucket', () => {
-      handlers.handleSubmitTask({
+    it('uses the explicit model for cost estimation after resolving the default provider budget bucket', async () => {
+      await handlers.handleSubmitTask({
         task: 'Default provider with explicit model',
         auto_route: false,
         model: 'gpt-5.3-codex',
@@ -877,8 +877,8 @@ describe('task-core handlers', () => {
       });
     });
 
-    it('passes hasExplicitProvider=true to provider availability checks for explicit providers', () => {
-      handlers.handleSubmitTask({
+    it('passes hasExplicitProvider=true to provider availability checks for explicit providers', async () => {
+      await handlers.handleSubmitTask({
         task: 'Check provider gate',
         provider: 'ollama',
       });
@@ -886,8 +886,8 @@ describe('task-core handlers', () => {
       expect(mockShared.checkProviderAvailability).toHaveBeenLastCalledWith({ hasExplicitProvider: true });
     });
 
-    it('passes hasExplicitProvider=false to provider availability checks for default-provider submissions', () => {
-      handlers.handleSubmitTask({
+    it('passes hasExplicitProvider=false to provider availability checks for default-provider submissions', async () => {
+      await handlers.handleSubmitTask({
         task: 'Default provider gate',
         auto_route: false,
       });
@@ -895,8 +895,8 @@ describe('task-core handlers', () => {
       expect(mockShared.checkProviderAvailability).toHaveBeenLastCalledWith({ hasExplicitProvider: false });
     });
 
-    it('checks budget using the chosen provider and model hint', () => {
-      handlers.handleSubmitTask({
+    it('checks budget using the chosen provider and model hint', async () => {
+      await handlers.handleSubmitTask({
         task: 'Budgeted task',
         provider: 'ollama',
         model: TEST_MODELS.DEFAULT,
@@ -906,8 +906,8 @@ describe('task-core handlers', () => {
       expect(mockDb.checkBudgetBeforeSubmission).toHaveBeenCalledWith('ollama', 0.25);
     });
 
-    it('uses the selected provider as the budget hint when no model is supplied', () => {
-      handlers.handleSubmitTask({
+    it('uses the selected provider as the budget hint when no model is supplied', async () => {
+      await handlers.handleSubmitTask({
         task: 'Budget by provider',
         provider: 'ollama',
       });
@@ -915,10 +915,10 @@ describe('task-core handlers', () => {
       expect(mockDb.estimateCost).toHaveBeenCalledWith('Budget by provider', 'ollama');
     });
 
-    it('skips budget estimation when budget checks are disabled', () => {
+    it('skips budget estimation when budget checks are disabled', async () => {
       mockDb.getConfig.mockImplementation(createConfigMock({ default_timeout: '33', budget_check_enabled: '0' }));
 
-      const result = handlers.handleSubmitTask({
+      const result = await handlers.handleSubmitTask({
         task: 'No budget gate',
         auto_route: false,
       });
@@ -928,7 +928,7 @@ describe('task-core handlers', () => {
       expect(mockDb.checkBudgetBeforeSubmission).not.toHaveBeenCalled();
     });
 
-    it('returns BUDGET_EXCEEDED when the budget check fails', () => {
+    it('returns BUDGET_EXCEEDED when the budget check fails', async () => {
       mockDb.checkBudgetBeforeSubmission.mockReturnValue({
         allowed: false,
         budget: 'daily',
@@ -936,7 +936,7 @@ describe('task-core handlers', () => {
         limit: 10,
       });
 
-      const result = handlers.handleSubmitTask({ task: 'Too expensive', auto_route: false });
+      const result = await handlers.handleSubmitTask({ task: 'Too expensive', auto_route: false });
 
       expect(result.isError).toBe(true);
       expect(result.error_code).toBe('BUDGET_EXCEEDED');
@@ -944,8 +944,8 @@ describe('task-core handlers', () => {
       expect(mockDb.createTask).not.toHaveBeenCalled();
     });
 
-    it('evaluates submission policy with normalized task data and explicit-provider metadata', () => {
-      handlers.handleSubmitTask({
+    it('evaluates submission policy with normalized task data and explicit-provider metadata', async () => {
+      await handlers.handleSubmitTask({
         task: '  Normalize submit payload  ',
         provider: 'ollama',
         auto_approve: 1,
@@ -970,8 +970,8 @@ describe('task-core handlers', () => {
       });
     });
 
-    it('evaluates submission policy with default-provider metadata when no explicit provider is supplied', () => {
-      handlers.handleSubmitTask({
+    it('evaluates submission policy with default-provider metadata when no explicit provider is supplied', async () => {
+      await handlers.handleSubmitTask({
         task: 'Default policy payload',
         auto_route: false,
       });
@@ -985,13 +985,13 @@ describe('task-core handlers', () => {
       }));
     });
 
-    it('blocks submit_task when policy evaluation returns a reason', () => {
+    it('blocks submit_task when policy evaluation returns a reason', async () => {
       mockPolicyEngine.evaluate.mockReturnValue({
         blocked: true,
         reason: 'Daily policy quota reached',
       });
 
-      const result = handlers.handleSubmitTask({
+      const result = await handlers.handleSubmitTask({
         task: 'Blocked by policy',
         auto_route: false,
       });
@@ -1003,13 +1003,13 @@ describe('task-core handlers', () => {
       expect(mockTaskManager.startTask).not.toHaveBeenCalled();
     });
 
-    it('blocks submit_task when policy evaluation returns only an error string', () => {
+    it('blocks submit_task when policy evaluation returns only an error string', async () => {
       mockPolicyEngine.evaluate.mockReturnValue({
         blocked: true,
         error: 'Policy engine hard stop',
       });
 
-      const result = handlers.handleSubmitTask({
+      const result = await handlers.handleSubmitTask({
         task: 'Blocked by policy error',
         auto_route: false,
       });
@@ -1020,12 +1020,12 @@ describe('task-core handlers', () => {
       expect(mockDb.createTask).not.toHaveBeenCalled();
     });
 
-    it('continues submit_task when policy evaluation is unavailable', () => {
+    it('continues submit_task when policy evaluation is unavailable', async () => {
       const originalPolicyEvaluator = mockTaskManager.evaluateTaskSubmissionPolicy;
       mockTaskManager.evaluateTaskSubmissionPolicy = undefined;
 
       try {
-        const result = handlers.handleSubmitTask({
+        const result = await handlers.handleSubmitTask({
           task: 'Submit without policy hook',
           auto_route: false,
         });
@@ -1040,13 +1040,13 @@ describe('task-core handlers', () => {
       }
     });
 
-    it('returns OPERATION_FAILED when task startup is blocked after creation', () => {
+    it('returns OPERATION_FAILED when task startup is blocked after creation', async () => {
       mockTaskManager.startTask.mockReturnValue({
         blocked: true,
         reason: 'Scheduler denied startup',
       });
 
-      const result = handlers.handleSubmitTask({
+      const result = await handlers.handleSubmitTask({
         task: 'Start me later',
         auto_route: false,
       });
@@ -1059,7 +1059,7 @@ describe('task-core handlers', () => {
   });
 
   describe('handleQueueTask', () => {
-    it('rejects a missing task', () => {
+    it('rejects a missing task', async () => {
       const result = handlers.handleQueueTask({});
 
       expect(result.isError).toBe(true);
@@ -1067,7 +1067,7 @@ describe('task-core handlers', () => {
       expect(textOf(result)).toContain('task must be a non-empty string');
     });
 
-    it('rejects a task longer than MAX_TASK_LENGTH', () => {
+    it('rejects a task longer than MAX_TASK_LENGTH', async () => {
       const result = handlers.handleQueueTask({
         task: 'x'.repeat(mockShared.MAX_TASK_LENGTH + 1),
       });
@@ -1077,7 +1077,7 @@ describe('task-core handlers', () => {
       expect(textOf(result)).toContain('exceeds maximum length');
     });
 
-    it('rejects a negative timeout', () => {
+    it('rejects a negative timeout', async () => {
       const result = handlers.handleQueueTask({
         task: 'Queue timeout',
         timeout_minutes: -1,
@@ -1088,7 +1088,7 @@ describe('task-core handlers', () => {
       expect(textOf(result)).toContain('timeout_minutes');
     });
 
-    it('rejects a non-numeric priority', () => {
+    it('rejects a non-numeric priority', async () => {
       const result = handlers.handleQueueTask({
         task: 'Queue priority',
         priority: 'urgent',
@@ -1099,7 +1099,7 @@ describe('task-core handlers', () => {
       expect(textOf(result)).toContain('priority must be a number');
     });
 
-    it('rejects an unknown explicit provider', () => {
+    it('rejects an unknown explicit provider', async () => {
       mockDb.getProvider.mockReturnValue(null);
 
       const result = handlers.handleQueueTask({
@@ -1112,7 +1112,7 @@ describe('task-core handlers', () => {
       expect(textOf(result)).toContain('Unknown provider');
     });
 
-    it('rejects a disabled explicit provider', () => {
+    it('rejects a disabled explicit provider', async () => {
       mockDb.getProvider.mockReturnValue({ provider: 'ollama', enabled: false });
 
       const result = handlers.handleQueueTask({
@@ -1125,7 +1125,7 @@ describe('task-core handlers', () => {
       expect(textOf(result)).toContain('disabled');
     });
 
-    it('creates queued tasks with an explicit provider and configured priority', () => {
+    it('creates queued tasks with an explicit provider and configured priority', async () => {
       const result = handlers.handleQueueTask({
         task: 'Queue this',
         provider: 'ollama',
@@ -1146,7 +1146,7 @@ describe('task-core handlers', () => {
       expect(mockTaskManager.startTask).not.toHaveBeenCalled();
     });
 
-    it('stores user_provider_override metadata for queued tasks with an explicit provider', () => {
+    it('stores user_provider_override metadata for queued tasks with an explicit provider', async () => {
       handlers.handleQueueTask({
         task: 'Queue explicit metadata',
         provider: 'ollama',
@@ -1158,7 +1158,7 @@ describe('task-core handlers', () => {
       });
     });
 
-    it('stores empty metadata for queued tasks without an explicit provider', () => {
+    it('stores empty metadata for queued tasks without an explicit provider', async () => {
       handlers.handleQueueTask({
         task: 'Queue default metadata',
       });
@@ -1166,7 +1166,7 @@ describe('task-core handlers', () => {
       expect(lastCreatedTaskMetadata()).toEqual({ intended_provider: 'codex' });
     });
 
-    it('falls back to the first enabled provider for queued tasks when the configured default is disabled', () => {
+    it('falls back to the first enabled provider for queued tasks when the configured default is disabled', async () => {
       mockDb.getDefaultProvider.mockReturnValue('codex');
       mockDb.getProvider.mockImplementation((provider) => ({
         provider,
@@ -1185,7 +1185,7 @@ describe('task-core handlers', () => {
       expect(lastCreatedTaskMetadata()).toEqual({ intended_provider: 'openrouter' });
     });
 
-    it('accepts a null timeout and falls back to the provider timeout default when queueing', () => {
+    it('accepts a null timeout and falls back to the provider timeout default when queueing', async () => {
       handlers.handleQueueTask({
         task: 'Queue null timeout fallback',
         provider: 'ollama',
@@ -1198,7 +1198,7 @@ describe('task-core handlers', () => {
       });
     });
 
-    it('uses configured timeout fallback when the default provider lacks a specific timeout override', () => {
+    it('uses configured timeout fallback when the default provider lacks a specific timeout override', async () => {
       mockDb.getDefaultProvider.mockReturnValue('custom-provider');
 
       handlers.handleQueueTask({ task: 'Queue fallback timeout' });
@@ -1207,7 +1207,7 @@ describe('task-core handlers', () => {
       expect(lastCreatedTask().provider).toBeNull();
     });
 
-    it('prefers an explicit timeout over provider defaults when queueing', () => {
+    it('prefers an explicit timeout over provider defaults when queueing', async () => {
       handlers.handleQueueTask({
         task: 'Queue custom timeout',
         provider: 'ollama',
@@ -1217,7 +1217,7 @@ describe('task-core handlers', () => {
       expect(lastCreatedTask().timeout_minutes).toBe(14);
     });
 
-    it('persists the trimmed description and working directory while omitting a subscribe task id', () => {
+    it('persists the trimmed description and working directory while omitting a subscribe task id', async () => {
       const result = handlers.handleQueueTask({
         task: '  Persist queue payload  ',
         working_directory: 'C:\\repo\\queue',
@@ -1230,7 +1230,7 @@ describe('task-core handlers', () => {
       });
     });
 
-    it('stores falsey auto_approve and zero priority when queueing', () => {
+    it('stores falsey auto_approve and zero priority when queueing', async () => {
       handlers.handleQueueTask({
         task: 'Queue default flags',
         auto_approve: 0,
@@ -1247,7 +1247,7 @@ describe('task-core handlers', () => {
       }));
     });
 
-    it('passes hasExplicitProvider=true to provider availability checks for queued explicit providers', () => {
+    it('passes hasExplicitProvider=true to provider availability checks for queued explicit providers', async () => {
       handlers.handleQueueTask({
         task: 'Queue provider gate',
         provider: 'ollama',
@@ -1256,7 +1256,7 @@ describe('task-core handlers', () => {
       expect(mockShared.checkProviderAvailability).toHaveBeenLastCalledWith({ hasExplicitProvider: true });
     });
 
-    it('rejects auto-routed queueing when no providers are available', () => {
+    it('rejects auto-routed queueing when no providers are available', async () => {
       mockDb.isCodexExhausted.mockReturnValue(true);
       mockDb.hasHealthyOllamaHost.mockReturnValue(false);
       mockShared.checkProviderAvailability.mockReturnValueOnce({
@@ -1274,7 +1274,7 @@ describe('task-core handlers', () => {
       expect(mockDb.createTask).not.toHaveBeenCalled();
     });
 
-    it('returns budget errors before queueing the task', () => {
+    it('returns budget errors before queueing the task', async () => {
       mockDb.checkBudgetBeforeSubmission.mockReturnValue({
         allowed: false,
         budget: 'weekly',
@@ -1289,7 +1289,7 @@ describe('task-core handlers', () => {
       expect(mockDb.createTask).not.toHaveBeenCalled();
     });
 
-    it('uses the selected provider as the budget hint for queue_task when no model is supplied', () => {
+    it('uses the selected provider as the budget hint for queue_task when no model is supplied', async () => {
       handlers.handleQueueTask({
         task: 'Queue budget by provider',
         provider: 'ollama',
@@ -1298,7 +1298,7 @@ describe('task-core handlers', () => {
       expect(mockDb.estimateCost).toHaveBeenCalledWith('Queue budget by provider', 'ollama');
     });
 
-    it('uses the explicit model for cost estimation after resolving the default provider budget bucket when queueing', () => {
+    it('uses the explicit model for cost estimation after resolving the default provider budget bucket when queueing', async () => {
       handlers.handleQueueTask({
         task: 'Queue default provider with model',
         model: 'gpt-5.3-codex',
@@ -1313,7 +1313,7 @@ describe('task-core handlers', () => {
       });
     });
 
-    it('skips queue budget estimation when budget checks are disabled', () => {
+    it('skips queue budget estimation when budget checks are disabled', async () => {
       mockDb.getConfig.mockImplementation(createConfigMock({ default_timeout: '33', budget_check_enabled: '0' }));
 
       const result = handlers.handleQueueTask({
@@ -1325,7 +1325,7 @@ describe('task-core handlers', () => {
       expect(mockDb.checkBudgetBeforeSubmission).not.toHaveBeenCalled();
     });
 
-    it('evaluates queue policy with normalized task data and explicit-provider metadata', () => {
+    it('evaluates queue policy with normalized task data and explicit-provider metadata', async () => {
       handlers.handleQueueTask({
         task: '  Normalize queue payload  ',
         provider: 'ollama',
@@ -1351,7 +1351,7 @@ describe('task-core handlers', () => {
       });
     });
 
-    it('evaluates queue policy with default-provider metadata when no explicit provider is supplied', () => {
+    it('evaluates queue policy with default-provider metadata when no explicit provider is supplied', async () => {
       handlers.handleQueueTask({
         task: 'Queue default policy payload',
       });
@@ -1365,7 +1365,7 @@ describe('task-core handlers', () => {
       }));
     });
 
-    it('blocks queue_task when policy evaluation returns a reason', () => {
+    it('blocks queue_task when policy evaluation returns a reason', async () => {
       mockPolicyEngine.evaluate.mockReturnValue({
         blocked: true,
         reason: 'Queue policy limit reached',
@@ -1381,7 +1381,7 @@ describe('task-core handlers', () => {
       expect(mockDb.createTask).not.toHaveBeenCalled();
     });
 
-    it('blocks queue_task when policy evaluation returns only an error string', () => {
+    it('blocks queue_task when policy evaluation returns only an error string', async () => {
       mockPolicyEngine.evaluate.mockReturnValue({
         blocked: true,
         error: 'Queue policy hard stop',
@@ -1397,7 +1397,7 @@ describe('task-core handlers', () => {
       expect(mockDb.createTask).not.toHaveBeenCalled();
     });
 
-    it('continues queue_task when policy evaluation is unavailable', () => {
+    it('continues queue_task when policy evaluation is unavailable', async () => {
       const originalPolicyEvaluator = mockTaskManager.evaluateTaskSubmissionPolicy;
       mockTaskManager.evaluateTaskSubmissionPolicy = undefined;
 
@@ -1418,14 +1418,14 @@ describe('task-core handlers', () => {
   });
 
   describe('handleCheckStatus', () => {
-    it('returns TASK_NOT_FOUND for a missing task id', () => {
+    it('returns TASK_NOT_FOUND for a missing task id', async () => {
       const result = handlers.handleCheckStatus({ task_id: 'missing-task' });
 
       expect(result.isError).toBe(true);
       expect(result.error_code).toBe('TASK_NOT_FOUND');
     });
 
-    it('formats an individual task including progress and active status details', () => {
+    it('formats an individual task including progress and active status details', async () => {
       mockDb.getTask.mockReturnValue(makeTask({
         id: 'task-running',
         status: 'running',
@@ -1461,7 +1461,7 @@ describe('task-core handlers', () => {
       expect(text).toContain('**Exit Code:** 0');
     });
 
-    it('falls back to unknown pressure and raw host ids when status formatting cannot resolve them', () => {
+    it('falls back to unknown pressure and raw host ids when status formatting cannot resolve them', async () => {
       mockTaskManager.getResourcePressureInfo.mockImplementation(() => {
         throw new Error('pressure unavailable');
       });
@@ -1484,7 +1484,7 @@ describe('task-core handlers', () => {
       expect(text).toContain('**Duration:** duration(5s)');
     });
 
-    it('builds a summary for running, queued, and recent tasks', () => {
+    it('builds a summary for running, queued, and recent tasks', async () => {
       const runningTask = makeTask({
         id: 'running-abcdefgh',
         status: 'running',
@@ -1531,7 +1531,7 @@ describe('task-core handlers', () => {
   });
 
   describe('handleGetResult', () => {
-    it('returns a still-running message for non-terminal tasks', () => {
+    it('returns a still-running message for non-terminal tasks', async () => {
       mockDb.getTask.mockReturnValue(makeTask({ status: 'running' }));
 
       const result = handlers.handleGetResult({ task_id: 'task-12345678' });
@@ -1540,7 +1540,7 @@ describe('task-core handlers', () => {
       expect(textOf(result)).toContain('Task is still running');
     });
 
-    it('renders requested-model overrides, host names, file lists, and errors', () => {
+    it('renders requested-model overrides, host names, file lists, and errors', async () => {
       mockDb.getTask.mockReturnValue(makeTask({
         id: 'task-result',
         status: 'failed',
@@ -1607,7 +1607,7 @@ describe('task-core handlers', () => {
       expect(text).toContain('fatal error');
     });
 
-    it('logs and continues when metadata is invalid JSON', () => {
+    it('logs and continues when metadata is invalid JSON', async () => {
       mockDb.getTask.mockReturnValue(makeTask({
         id: 'task-invalid-meta',
         status: 'completed',
@@ -1625,7 +1625,7 @@ describe('task-core handlers', () => {
       expect(mockLogger.debug).toHaveBeenCalledTimes(1);
     });
 
-    it('renders completed summary text and structured data', () => {
+    it('renders completed summary text and structured data', async () => {
       mockDb.getTask.mockReturnValue(makeTask({
         id: 'task-summary',
         status: 'completed',
@@ -1654,7 +1654,7 @@ describe('task-core handlers', () => {
       }));
     });
 
-    it('logs and continues when bundle artifact lookup fails', () => {
+    it('logs and continues when bundle artifact lookup fails', async () => {
       mockDb.getTask.mockReturnValue(makeTask({
         id: 'task-artifact-fail',
         status: 'completed',
@@ -1781,7 +1781,7 @@ describe('task-core handlers', () => {
   });
 
   describe('handleListTasks', () => {
-    it('uses the detected current project and shows the all_projects tip when nothing matches', () => {
+    it('uses the detected current project and shows the all_projects tip when nothing matches', async () => {
       const result = handlers.handleListTasks({});
 
       expect(mockDb.getCurrentProject).toHaveBeenCalledWith(process.cwd());
@@ -1796,7 +1796,7 @@ describe('task-core handlers', () => {
       expect(textOf(result)).toContain('all_projects: true');
     });
 
-    it('renders filtered task tables with host names and truncated model names', () => {
+    it('renders filtered task tables with host names and truncated model names', async () => {
       mockDb.listTasks.mockReturnValue([
         makeTask({
           id: 'abcdef1234567890',
@@ -1831,14 +1831,14 @@ describe('task-core handlers', () => {
   });
 
   describe('handleCancelTask', () => {
-    it('requires task_id', () => {
+    it('requires task_id', async () => {
       const result = handlers.handleCancelTask({});
 
       expect(result.isError).toBe(true);
       expect(result.error_code).toBe('MISSING_REQUIRED_PARAM');
     });
 
-    it('returns a safety check for running tasks without confirm', () => {
+    it('returns a safety check for running tasks without confirm', async () => {
       mockDb.getTask.mockReturnValue(makeTask({
         id: 'cancel-me',
         status: 'running',
@@ -1859,7 +1859,7 @@ describe('task-core handlers', () => {
       expect(mockTaskManager.cancelTask).not.toHaveBeenCalled();
     });
 
-    it('cancels confirmed tasks and forwards custom reasons', () => {
+    it('cancels confirmed tasks and forwards custom reasons', async () => {
       mockDb.getTask.mockReturnValue(makeTask({
         id: 'cancel-confirmed',
         status: 'queued',
@@ -1884,7 +1884,7 @@ describe('task-core handlers', () => {
       expect(textOf(result)).toContain('Task cancel-confirmed cancelled.');
     });
 
-    it('maps cancelTask throws to INVALID_STATUS_TRANSITION when the task still exists', () => {
+    it('maps cancelTask throws to INVALID_STATUS_TRANSITION when the task still exists', async () => {
       mockDb.getTask.mockReturnValue(makeTask({
         id: 'cancel-throw',
         status: 'completed',
@@ -1903,7 +1903,7 @@ describe('task-core handlers', () => {
       expect(textOf(result)).toContain('Cannot cancel task cancel-throw');
     });
 
-    it('returns INVALID_STATUS_TRANSITION when cancelTask returns false', () => {
+    it('returns INVALID_STATUS_TRANSITION when cancelTask returns false', async () => {
       mockDb.getTask.mockReturnValue(makeTask({
         id: 'cancel-false',
         status: 'completed',
@@ -1921,7 +1921,7 @@ describe('task-core handlers', () => {
   });
 
   describe('handleConfigure', () => {
-    it('rejects non-finite max_concurrent values', () => {
+    it('rejects non-finite max_concurrent values', async () => {
       const result = handlers.handleConfigure({ max_concurrent: Number.NaN });
 
       expect(result.isError).toBe(true);
@@ -1929,7 +1929,7 @@ describe('task-core handlers', () => {
       expect(textOf(result)).toContain('max_concurrent must be a finite number');
     });
 
-    it('clamps values and triggers queue processing when configuration changes', () => {
+    it('clamps values and triggers queue processing when configuration changes', async () => {
       const result = handlers.handleConfigure({
         max_concurrent: 20,
         default_timeout: 200,
@@ -1942,7 +1942,7 @@ describe('task-core handlers', () => {
       expect(textOf(result)).toContain('Configuration updated');
     });
 
-    it('returns the current configuration without processing the queue when nothing changed', () => {
+    it('returns the current configuration without processing the queue when nothing changed', async () => {
       const result = handlers.handleConfigure({});
 
       expect(result.isError).toBeUndefined();
@@ -1952,21 +1952,21 @@ describe('task-core handlers', () => {
   });
 
   describe('handleGetProgress', () => {
-    it('requires task_id', () => {
+    it('requires task_id', async () => {
       const result = handlers.handleGetProgress({});
 
       expect(result.isError).toBe(true);
       expect(result.error_code).toBe('MISSING_REQUIRED_PARAM');
     });
 
-    it('returns TASK_NOT_FOUND when the task manager has no progress entry', () => {
+    it('returns TASK_NOT_FOUND when the task manager has no progress entry', async () => {
       const result = handlers.handleGetProgress({ task_id: 'missing-progress' });
 
       expect(result.isError).toBe(true);
       expect(result.error_code).toBe('TASK_NOT_FOUND');
     });
 
-    it('uses stream chunks for live output and tails the requested number of lines', () => {
+    it('uses stream chunks for live output and tails the requested number of lines', async () => {
       mockTaskManager.getTaskProgress.mockReturnValue({
         running: true,
         progress: 42,
@@ -1990,7 +1990,7 @@ describe('task-core handlers', () => {
       expect(text).toContain('line-3\nline-4');
     });
 
-    it('falls back to progress output and logs when stream chunk retrieval fails', () => {
+    it('falls back to progress output and logs when stream chunk retrieval fails', async () => {
       mockTaskManager.getTaskProgress.mockReturnValue({
         running: true,
         progress: 17,
@@ -2011,7 +2011,7 @@ describe('task-core handlers', () => {
       expect(mockLogger.debug).toHaveBeenCalledTimes(1);
     });
 
-    it('shows finished tasks with no output placeholder when the buffer is empty', () => {
+    it('shows finished tasks with no output placeholder when the buffer is empty', async () => {
       mockTaskManager.getTaskProgress.mockReturnValue({
         running: false,
         progress: 100,
@@ -2030,7 +2030,7 @@ describe('task-core handlers', () => {
       expect(text).toContain('(no output yet)');
     });
 
-    it('surfaces stderr activity when stdout is empty (codex mid-thinking)', () => {
+    it('surfaces stderr activity when stdout is empty (codex mid-thinking)', async () => {
       const stderrTrace = 'reading docs/file.md\nrg --files docs\nlisting artifacts';
       mockTaskManager.getTaskProgress.mockReturnValue({
         running: true,
@@ -2061,7 +2061,7 @@ describe('task-core handlers', () => {
   });
 
   describe('handleShareContext', () => {
-    it('requires a string task_id', () => {
+    it('requires a string task_id', async () => {
       const result = handlers.handleShareContext({
         content: 'context body',
       });
@@ -2071,7 +2071,7 @@ describe('task-core handlers', () => {
       expect(textOf(result)).toContain('task_id must be a non-empty string');
     });
 
-    it('requires string content', () => {
+    it('requires string content', async () => {
       const result = handlers.handleShareContext({
         task_id: 'task-share',
         content: null,
@@ -2082,7 +2082,7 @@ describe('task-core handlers', () => {
       expect(textOf(result)).toContain('content must be a non-empty string');
     });
 
-    it('rejects missing working directories', () => {
+    it('rejects missing working directories', async () => {
       const missingDir = path.join(TEMP_ROOT, 'missing-share-dir');
       mockDb.getTask.mockReturnValue(makeTask({
         id: 'task-share-missing-dir',
@@ -2099,7 +2099,7 @@ describe('task-core handlers', () => {
       expect(textOf(result)).toContain(`Working directory does not exist: ${missingDir}`);
     });
 
-    it('rejects symlink working directories', () => {
+    it('rejects symlink working directories', async () => {
       const workDir = makeTempDir('share-symlink');
       mockDb.getTask.mockReturnValue(makeTask({
         id: 'task-share-symlink',
@@ -2120,7 +2120,7 @@ describe('task-core handlers', () => {
       expect(textOf(result)).toContain(`Working directory is a symlink: ${workDir}`);
     });
 
-    it('writes sanitized context files and merges the latest task context state', () => {
+    it('writes sanitized context files and merges the latest task context state', async () => {
       const workDir = makeTempDir('share-success');
       const initialTask = makeTask({
         id: 'task-share-success',
@@ -2155,7 +2155,7 @@ describe('task-core handlers', () => {
       expect(textOf(result)).toContain(expectedFile);
     });
 
-    it('falls back to the original task status when the refresh read returns null', () => {
+    it('falls back to the original task status when the refresh read returns null', async () => {
       const workDir = makeTempDir('share-refresh-null');
       const originalTask = makeTask({
         id: 'task-share-refresh-null',
@@ -2181,7 +2181,7 @@ describe('task-core handlers', () => {
   });
 
   describe('handleSyncFiles', () => {
-    it('requires a string task_id', () => {
+    it('requires a string task_id', async () => {
       const result = handlers.handleSyncFiles({
         files: ['server/tests/task-core-handlers.test.js'],
       });
@@ -2191,7 +2191,7 @@ describe('task-core handlers', () => {
       expect(textOf(result)).toContain('task_id must be a non-empty string');
     });
 
-    it('requires a non-empty files array', () => {
+    it('requires a non-empty files array', async () => {
       const result = handlers.handleSyncFiles({
         task_id: 'task-sync',
         files: [],
@@ -2202,7 +2202,7 @@ describe('task-core handlers', () => {
       expect(textOf(result)).toContain('files must be a non-empty array');
     });
 
-    it('rejects file batches larger than MAX_BATCH_SIZE', () => {
+    it('rejects file batches larger than MAX_BATCH_SIZE', async () => {
       const result = handlers.handleSyncFiles({
         task_id: 'task-sync',
         files: Array.from({ length: mockShared.MAX_BATCH_SIZE + 1 }, (_, index) => `file-${index}.txt`),
@@ -2213,7 +2213,7 @@ describe('task-core handlers', () => {
       expect(textOf(result)).toContain(`files array cannot exceed ${mockShared.MAX_BATCH_SIZE} items`);
     });
 
-    it('rejects unsupported sync directions', () => {
+    it('rejects unsupported sync directions', async () => {
       const result = handlers.handleSyncFiles({
         task_id: 'task-sync',
         files: ['file.txt'],
@@ -2225,7 +2225,7 @@ describe('task-core handlers', () => {
       expect(textOf(result)).toContain('direction must be "push" or "pull"');
     });
 
-    it('pushes files into the task workspace using only the source basename', () => {
+    it('pushes files into the task workspace using only the source basename', async () => {
       const taskDir = makeTempDir('sync-push-task');
       const sourceDir = makeTempDir('sync-push-source');
       const nestedDir = path.join(sourceDir, 'nested');
@@ -2249,7 +2249,7 @@ describe('task-core handlers', () => {
       expect(fs.readFileSync(expectedDest, 'utf8')).toBe('push payload');
     });
 
-    it('reports available files from the task workspace when pulling', () => {
+    it('reports available files from the task workspace when pulling', async () => {
       const taskDir = makeTempDir('sync-pull-task');
       const nestedDir = path.join(taskDir, 'reports');
       const relativeFile = path.join('reports', 'summary.txt');
@@ -2269,7 +2269,7 @@ describe('task-core handlers', () => {
       expect(textOf(result)).toContain(`✓ Available: ${resolvedFile}`);
     });
 
-    it('blocks traversal attempts before any file operation occurs', () => {
+    it('blocks traversal attempts before any file operation occurs', async () => {
       const taskDir = makeTempDir('sync-traversal-precheck');
       mockDb.getTask.mockReturnValue(makeTask({
         id: 'task-sync-traversal-precheck',
@@ -2284,7 +2284,7 @@ describe('task-core handlers', () => {
       expect(textOf(result)).toContain('✗ Path traversal blocked: ..\\secrets.txt');
     });
 
-    it('blocks resolved pull paths that escape the task workspace', () => {
+    it('blocks resolved pull paths that escape the task workspace', async () => {
       const taskDir = makeTempDir('sync-traversal-resolved');
       const outsideFile = path.join(TEMP_ROOT, 'outside.txt');
       fs.writeFileSync(outsideFile, 'outside');
@@ -2301,7 +2301,7 @@ describe('task-core handlers', () => {
       expect(textOf(result)).toContain(`✗ Path traversal blocked: ${outsideFile}`);
     });
 
-    it('reports invalid file entries and missing push sources inline', () => {
+    it('reports invalid file entries and missing push sources inline', async () => {
       const taskDir = makeTempDir('sync-mixed-errors');
       const missingFile = path.join(TEMP_ROOT, 'missing-source.txt');
       mockDb.getTask.mockReturnValue(makeTask({
@@ -2320,7 +2320,7 @@ describe('task-core handlers', () => {
       expect(text).toContain(`✗ Source not found: ${missingFile}`);
     });
 
-    it('reports filesystem copy errors without aborting the rest of the batch', () => {
+    it('reports filesystem copy errors without aborting the rest of the batch', async () => {
       const taskDir = makeTempDir('sync-copy-error-task');
       const sourceDir = makeTempDir('sync-copy-error-source');
       const sourceFile = path.join(sourceDir, 'copy-me.txt');
@@ -2344,7 +2344,7 @@ describe('task-core handlers', () => {
   });
 
   describe('handleTaskInfo', () => {
-    it('defaults to status mode and returns the queue summary with pressure metadata', () => {
+    it('defaults to status mode and returns the queue summary with pressure metadata', async () => {
       mockTaskManager.getResourcePressureInfo.mockReturnValue({ level: 'high' });
 
       const result = handlers.handleTaskInfo({});
@@ -2355,7 +2355,7 @@ describe('task-core handlers', () => {
       expect(textOf(result)).toContain('**Resource Pressure:** high');
     });
 
-    it('requires task_id for result mode', () => {
+    it('requires task_id for result mode', async () => {
       const result = handlers.handleTaskInfo({ mode: 'result' });
 
       expect(result.isError).toBe(true);
@@ -2363,7 +2363,7 @@ describe('task-core handlers', () => {
       expect(textOf(result)).toContain('task_id is required for mode=result');
     });
 
-    it('requires task_id for progress mode', () => {
+    it('requires task_id for progress mode', async () => {
       const result = handlers.handleTaskInfo({ mode: 'progress' });
 
       expect(result.isError).toBe(true);
@@ -2371,7 +2371,7 @@ describe('task-core handlers', () => {
       expect(textOf(result)).toContain('task_id is required for mode=progress');
     });
 
-    it('adds pressure metadata to result mode responses', () => {
+    it('adds pressure metadata to result mode responses', async () => {
       mockTaskManager.getResourcePressureInfo.mockReturnValue({ level: 'medium' });
       mockDb.getTask.mockReturnValue(makeTask({
         id: 'task-taskinfo-result',
@@ -2392,7 +2392,7 @@ describe('task-core handlers', () => {
       expect(textOf(result)).toContain('task_info result body');
     });
 
-    it('adds unknown pressure metadata to progress mode when pressure inspection fails', () => {
+    it('adds unknown pressure metadata to progress mode when pressure inspection fails', async () => {
       mockTaskManager.getResourcePressureInfo.mockImplementation(() => {
         throw new Error('pressure read failed');
       });
@@ -2412,7 +2412,7 @@ describe('task-core handlers', () => {
       expect(textOf(result)).toContain('progress body');
     });
 
-    it('rejects unknown task_info modes', () => {
+    it('rejects unknown task_info modes', async () => {
       const result = handlers.handleTaskInfo({
         mode: 'mystery',
       });

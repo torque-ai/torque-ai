@@ -30,55 +30,55 @@ describe('parseImports', () => {
     ({ parseImports } = require('../utils/smart-scan'));
   });
 
-  it('extracts ES module named imports', () => {
+  it('extracts ES module named imports', async () => {
     const depFile = tmpFile('src/utils.js', 'export function foo() {}');
     const mainFile = tmpFile('src/main.js', "import { foo } from './utils';\nconsole.log(foo());");
 
-    const imports = parseImports(mainFile);
+    const imports = await parseImports(mainFile);
     expect(imports).toContain(depFile);
   });
 
-  it('extracts ES module default imports', () => {
+  it('extracts ES module default imports', async () => {
     const depFile = tmpFile('src/config.js', 'export default {}');
     const mainFile = tmpFile('src/app.js', "import config from './config';\n");
 
-    const imports = parseImports(mainFile);
+    const imports = await parseImports(mainFile);
     expect(imports).toContain(depFile);
   });
 
-  it('extracts ES module namespace imports', () => {
+  it('extracts ES module namespace imports', async () => {
     const depFile = tmpFile('lib/helpers.ts', 'export const x = 1;');
     const mainFile = tmpFile('lib/index.ts', "import * as helpers from './helpers';\n");
 
-    const imports = parseImports(mainFile);
+    const imports = await parseImports(mainFile);
     expect(imports).toContain(depFile);
   });
 
-  it('extracts CommonJS require calls', () => {
+  it('extracts CommonJS require calls', async () => {
     const depFile = tmpFile('src/alpha.js', 'module.exports = 1;');
     const mainFile = tmpFile('src/beta.js', "const a = require('./alpha');\n");
 
-    const imports = parseImports(mainFile);
+    const imports = await parseImports(mainFile);
     expect(imports).toContain(depFile);
   });
 
-  it('extracts destructured require calls', () => {
+  it('extracts destructured require calls', async () => {
     const depFile = tmpFile('src/math.js', 'module.exports = { add: (a,b) => a+b };');
     const mainFile = tmpFile('src/calc.js', "const { add } = require('./math');\n");
 
-    const imports = parseImports(mainFile);
+    const imports = await parseImports(mainFile);
     expect(imports).toContain(depFile);
   });
 
-  it('extracts dynamic import() calls', () => {
+  it('extracts dynamic import() calls', async () => {
     const depFile = tmpFile('src/dynamic.js', 'export const x = 1;');
     const mainFile = tmpFile('src/loader.js', "const mod = await import('./dynamic.js');\n");
 
-    const imports = parseImports(mainFile);
+    const imports = await parseImports(mainFile);
     expect(imports).toContain(depFile);
   });
 
-  it('skips bare specifiers (node_modules / builtins)', () => {
+  it('skips bare specifiers (node_modules / builtins)', async () => {
     tmpFile('src/app.js', '');
     const mainFile = tmpFile('src/index.js', [
       "import express from 'express';",
@@ -88,7 +88,7 @@ describe('parseImports', () => {
       "import('./src/app.js');",
     ].join('\n'));
 
-    const imports = parseImports(mainFile);
+    const imports = await parseImports(mainFile);
     // Should not include bare specifiers
     for (const imp of imports) {
       expect(imp).not.toMatch(/node_modules/);
@@ -98,57 +98,57 @@ describe('parseImports', () => {
     expect(imports.length).toBeLessThanOrEqual(1); // only ./src/app.js might resolve
   });
 
-  it('resolves extensionless imports by trying .js, .ts, .jsx, .tsx', () => {
+  it('resolves extensionless imports by trying .js, .ts, .jsx, .tsx', async () => {
     const depFile = tmpFile('src/widget.tsx', 'export default function Widget() {}');
     const mainFile = tmpFile('src/app.tsx', "import Widget from './widget';\n");
 
-    const imports = parseImports(mainFile);
+    const imports = await parseImports(mainFile);
     expect(imports).toContain(depFile);
   });
 
-  it('resolves .ts extension for extensionless imports', () => {
+  it('resolves .ts extension for extensionless imports', async () => {
     const depFile = tmpFile('src/types.ts', 'export type Foo = string;');
     const mainFile = tmpFile('src/consumer.ts', "import { Foo } from './types';\n");
 
-    const imports = parseImports(mainFile);
+    const imports = await parseImports(mainFile);
     expect(imports).toContain(depFile);
   });
 
-  it('resolves .jsx extension for extensionless imports', () => {
+  it('resolves .jsx extension for extensionless imports', async () => {
     const depFile = tmpFile('components/Button.jsx', 'export default function Button() {}');
     const mainFile = tmpFile('components/Form.jsx', "import Button from './Button';\n");
 
-    const imports = parseImports(mainFile);
+    const imports = await parseImports(mainFile);
     expect(imports).toContain(depFile);
   });
 
-  it('resolves index files in directories', () => {
+  it('resolves index files in directories', async () => {
     const indexFile = tmpFile('src/utils/index.js', 'module.exports = {};');
     const mainFile = tmpFile('src/main.js', "const utils = require('./utils');\n");
 
-    const imports = parseImports(mainFile);
+    const imports = await parseImports(mainFile);
     expect(imports).toContain(indexFile);
   });
 
-  it('resolves index.ts in directories', () => {
+  it('resolves index.ts in directories', async () => {
     const indexFile = tmpFile('src/lib/index.ts', 'export const x = 1;');
     const mainFile = tmpFile('src/entry.ts', "import { x } from './lib';\n");
 
-    const imports = parseImports(mainFile);
+    const imports = await parseImports(mainFile);
     expect(imports).toContain(indexFile);
   });
 
-  it('skips imports that resolve to nonexistent files', () => {
+  it('skips imports that resolve to nonexistent files', async () => {
     const mainFile = tmpFile('src/orphan.js', [
       "import { ghost } from './nonexistent';",
       "const missing = require('./also-missing');",
     ].join('\n'));
 
-    const imports = parseImports(mainFile);
+    const imports = await parseImports(mainFile);
     expect(imports).toEqual([]);
   });
 
-  it('deduplicates imports to the same file', () => {
+  it('deduplicates imports to the same file', async () => {
     const depFile = tmpFile('src/shared.js', 'module.exports = {};');
     const mainFile = tmpFile('src/consumer.js', [
       "import shared from './shared';",
@@ -156,33 +156,33 @@ describe('parseImports', () => {
       "const again = require('./shared.js');",
     ].join('\n'));
 
-    const imports = parseImports(mainFile);
+    const imports = await parseImports(mainFile);
     // Each resolved path should appear only once
     const unique = new Set(imports);
     expect(unique.size).toBe(imports.length);
     expect(imports).toContain(depFile);
   });
 
-  it('handles relative parent imports (../)', () => {
+  it('handles relative parent imports (../)', async () => {
     const depFile = tmpFile('shared/constants.js', 'module.exports = {};');
     const mainFile = tmpFile('src/deep/nested.js', "const c = require('../../shared/constants');\n");
 
-    const imports = parseImports(mainFile);
+    const imports = await parseImports(mainFile);
     expect(imports).toContain(depFile);
   });
 
-  it('handles imports with explicit extensions', () => {
+  it('handles imports with explicit extensions', async () => {
     const _depFile = tmpFile('src/data.json', '{}');
     // .json isn't in RESOLVE_EXTENSIONS, but exact path should work
     // Actually this tests that explicit extension works
     const jsFile = tmpFile('src/helper.js', 'module.exports = 1;');
     const mainFile = tmpFile('src/main.js', "const h = require('./helper.js');\n");
 
-    const imports = parseImports(mainFile);
+    const imports = await parseImports(mainFile);
     expect(imports).toContain(jsFile);
   });
 
-  it('handles multiple imports in a single file', () => {
+  it('handles multiple imports in a single file', async () => {
     const fileA = tmpFile('src/a.js', 'module.exports = 1;');
     const fileB = tmpFile('src/b.ts', 'export const b = 2;');
     const fileC = tmpFile('src/c.jsx', 'export default function C() {}');
@@ -192,40 +192,40 @@ describe('parseImports', () => {
       "import C from './c';",
     ].join('\n'));
 
-    const imports = parseImports(mainFile);
+    const imports = await parseImports(mainFile);
     expect(imports).toContain(fileA);
     expect(imports).toContain(fileB);
     expect(imports).toContain(fileC);
     expect(imports).toHaveLength(3);
   });
 
-  it('returns empty array for a file with no imports', () => {
+  it('returns empty array for a file with no imports', async () => {
     const mainFile = tmpFile('src/standalone.js', 'console.log("hello world");\n');
 
-    const imports = parseImports(mainFile);
+    const imports = await parseImports(mainFile);
     expect(imports).toEqual([]);
   });
 
-  it('returns empty array for nonexistent source file', () => {
+  it('returns empty array for nonexistent source file', async () => {
     const fakePath = path.join(testDir, 'does-not-exist.js');
 
-    const imports = parseImports(fakePath);
+    const imports = await parseImports(fakePath);
     expect(imports).toEqual([]);
   });
 
-  it('handles re-exports', () => {
+  it('handles re-exports', async () => {
     const depFile = tmpFile('src/internal.js', 'export const x = 1;');
     const mainFile = tmpFile('src/barrel.js', "export { x } from './internal';\n");
 
-    const imports = parseImports(mainFile);
+    const imports = await parseImports(mainFile);
     expect(imports).toContain(depFile);
   });
 
-  it('handles side-effect imports', () => {
+  it('handles side-effect imports', async () => {
     const depFile = tmpFile('src/polyfill.js', '// side effects');
     const mainFile = tmpFile('src/entry.js', "import './polyfill';\n");
 
-    const imports = parseImports(mainFile);
+    const imports = await parseImports(mainFile);
     expect(imports).toContain(depFile);
   });
 });
@@ -237,17 +237,17 @@ describe('isRelativeImport', () => {
     ({ isRelativeImport } = require('../utils/smart-scan'));
   });
 
-  it('returns true for ./ prefixed paths', () => {
+  it('returns true for ./ prefixed paths', async () => {
     expect(isRelativeImport('./utils')).toBe(true);
     expect(isRelativeImport('./deep/nested/file')).toBe(true);
   });
 
-  it('returns true for ../ prefixed paths', () => {
+  it('returns true for ../ prefixed paths', async () => {
     expect(isRelativeImport('../shared')).toBe(true);
     expect(isRelativeImport('../../root')).toBe(true);
   });
 
-  it('returns false for bare specifiers', () => {
+  it('returns false for bare specifiers', async () => {
     expect(isRelativeImport('express')).toBe(false);
     expect(isRelativeImport('fs')).toBe(false);
     expect(isRelativeImport('@scope/package')).toBe(false);
@@ -262,51 +262,51 @@ describe('resolveImportPath', () => {
     ({ resolveImportPath } = require('../utils/smart-scan'));
   });
 
-  it('resolves exact file path', () => {
+  it('resolves exact file path', async () => {
     const target = tmpFile('src/exact.js', '// content');
-    const result = resolveImportPath('./exact.js', path.join(testDir, 'src'));
+    const result = await resolveImportPath('./exact.js', path.join(testDir, 'src'));
     expect(result).toBe(target);
   });
 
-  it('resolves extensionless to .js', () => {
+  it('resolves extensionless to .js', async () => {
     const target = tmpFile('src/mod.js', '// content');
-    const result = resolveImportPath('./mod', path.join(testDir, 'src'));
+    const result = await resolveImportPath('./mod', path.join(testDir, 'src'));
     expect(result).toBe(target);
   });
 
-  it('resolves extensionless to .ts', () => {
+  it('resolves extensionless to .ts', async () => {
     const target = tmpFile('src/mod.ts', '// content');
-    const result = resolveImportPath('./mod', path.join(testDir, 'src'));
+    const result = await resolveImportPath('./mod', path.join(testDir, 'src'));
     expect(result).toBe(target);
   });
 
-  it('resolves extensionless to .tsx', () => {
+  it('resolves extensionless to .tsx', async () => {
     const target = tmpFile('src/Component.tsx', '// content');
-    const result = resolveImportPath('./Component', path.join(testDir, 'src'));
+    const result = await resolveImportPath('./Component', path.join(testDir, 'src'));
     expect(result).toBe(target);
   });
 
-  it('resolves directory with index.js', () => {
+  it('resolves directory with index.js', async () => {
     const target = tmpFile('src/lib/index.js', '// content');
-    const result = resolveImportPath('./lib', path.join(testDir, 'src'));
+    const result = await resolveImportPath('./lib', path.join(testDir, 'src'));
     expect(result).toBe(target);
   });
 
-  it('resolves directory with index.ts', () => {
+  it('resolves directory with index.ts', async () => {
     const target = tmpFile('src/lib/index.ts', '// content');
-    const result = resolveImportPath('./lib', path.join(testDir, 'src'));
+    const result = await resolveImportPath('./lib', path.join(testDir, 'src'));
     expect(result).toBe(target);
   });
 
-  it('returns null for unresolvable import', () => {
-    const result = resolveImportPath('./nonexistent', path.join(testDir, 'src'));
+  it('returns null for unresolvable import', async () => {
+    const result = await resolveImportPath('./nonexistent', path.join(testDir, 'src'));
     expect(result).toBeNull();
   });
 
-  it('prefers .js over .ts when both exist', () => {
+  it('prefers .js over .ts when both exist', async () => {
     const jsFile = tmpFile('src/both.js', '// js');
     tmpFile('src/both.ts', '// ts');
-    const result = resolveImportPath('./both', path.join(testDir, 'src'));
+    const result = await resolveImportPath('./both', path.join(testDir, 'src'));
     expect(result).toBe(jsFile);
   });
 });
@@ -318,7 +318,7 @@ describe('IMPORT_PATTERNS', () => {
     ({ IMPORT_PATTERNS } = require('../utils/smart-scan'));
   });
 
-  it('exports an array of regex patterns', () => {
+  it('exports an array of regex patterns', async () => {
     expect(Array.isArray(IMPORT_PATTERNS)).toBe(true);
     expect(IMPORT_PATTERNS.length).toBe(3);
     for (const p of IMPORT_PATTERNS) {
@@ -334,7 +334,7 @@ describe('RESOLVE_EXTENSIONS', () => {
     ({ RESOLVE_EXTENSIONS } = require('../utils/smart-scan'));
   });
 
-  it('includes standard JS/TS extensions', () => {
+  it('includes standard JS/TS extensions', async () => {
     expect(RESOLVE_EXTENSIONS).toContain('.js');
     expect(RESOLVE_EXTENSIONS).toContain('.ts');
     expect(RESOLVE_EXTENSIONS).toContain('.jsx');
@@ -355,84 +355,84 @@ describe('findConventionMatches', () => {
     ({ findConventionMatches, DEFAULT_CONVENTION_PATTERNS } = require('../utils/smart-scan'));
   });
 
-  it('source file finds its .test.js file', () => {
+  it('source file finds its .test.js file', async () => {
     const src = tmpFile('src/foo.js', '// source');
     const test = tmpFile('src/foo.test.js', '// test');
 
-    const matches = findConventionMatches(src);
+    const matches = await findConventionMatches(src);
     expect(matches).toContain(test);
   });
 
-  it('source file finds its .test.ts file', () => {
+  it('source file finds its .test.ts file', async () => {
     const src = tmpFile('src/bar.ts', '// source');
     const test = tmpFile('src/bar.test.ts', '// test');
 
-    const matches = findConventionMatches(src);
+    const matches = await findConventionMatches(src);
     expect(matches).toContain(test);
   });
 
-  it('test file finds its source file (reverse)', () => {
+  it('test file finds its source file (reverse)', async () => {
     const src = tmpFile('src/foo.js', '// source');
     const test = tmpFile('src/foo.test.js', '// test');
 
-    const matches = findConventionMatches(test);
+    const matches = await findConventionMatches(test);
     expect(matches).toContain(src);
   });
 
-  it('source file finds its .spec.js file', () => {
+  it('source file finds its .spec.js file', async () => {
     const src = tmpFile('src/baz.js', '// source');
     const spec = tmpFile('src/baz.spec.js', '// spec');
 
-    const matches = findConventionMatches(src);
+    const matches = await findConventionMatches(src);
     expect(matches).toContain(spec);
   });
 
-  it('spec file finds its source file', () => {
+  it('spec file finds its source file', async () => {
     const src = tmpFile('src/baz.js', '// source');
     const spec = tmpFile('src/baz.spec.js', '// spec');
 
-    const matches = findConventionMatches(spec);
+    const matches = await findConventionMatches(spec);
     expect(matches).toContain(src);
   });
 
-  it('System file finds types.ts and constants.ts in same directory', () => {
+  it('System file finds types.ts and constants.ts in same directory', async () => {
     const sys = tmpFile('src/systems/FooSystem.ts', '// system');
     const types = tmpFile('src/systems/types.ts', '// types');
     const constants = tmpFile('src/systems/constants.ts', '// constants');
 
-    const matches = findConventionMatches(sys);
+    const matches = await findConventionMatches(sys);
     expect(matches).toContain(types);
     expect(matches).toContain(constants);
   });
 
-  it('returns empty for files with no convention matches on disk', () => {
+  it('returns empty for files with no convention matches on disk', async () => {
     const src = tmpFile('src/lonely.js', '// no test or spec exists');
 
-    const matches = findConventionMatches(src);
+    const matches = await findConventionMatches(src);
     expect(matches).toEqual([]);
   });
 
-  it('test file does NOT also match as source (guard prevents .test.test.js)', () => {
+  it('test file does NOT also match as source (guard prevents .test.test.js)', async () => {
     const test = tmpFile('src/widget.test.js', '// test');
     // No widget.test.test.js exists — guard should prevent the source→test rule from firing
 
-    const matches = findConventionMatches(test);
+    const matches = await findConventionMatches(test);
     // Should only look for widget.js (the reverse rule), which doesn't exist
     expect(matches).toEqual([]);
   });
 
-  it('source file finds both .test.js and .spec.js when both exist', () => {
+  it('source file finds both .test.js and .spec.js when both exist', async () => {
     const src = tmpFile('src/dual.js', '// source');
     const test = tmpFile('src/dual.test.js', '// test');
     const spec = tmpFile('src/dual.spec.js', '// spec');
 
-    const matches = findConventionMatches(src);
+    const matches = await findConventionMatches(src);
     expect(matches).toContain(test);
     expect(matches).toContain(spec);
     expect(matches).toHaveLength(2);
   });
 
-  it('accepts custom convention patterns', () => {
+  it('accepts custom convention patterns', async () => {
     const src = tmpFile('src/thing.js', '// source');
     const doc = tmpFile('src/thing.md', '# docs');
 
@@ -446,11 +446,11 @@ describe('findConventionMatches', () => {
       },
     ];
 
-    const matches = findConventionMatches(src, customPatterns);
+    const matches = await findConventionMatches(src, customPatterns);
     expect(matches).toContain(doc);
   });
 
-  it('exports DEFAULT_CONVENTION_PATTERNS as an array', () => {
+  it('exports DEFAULT_CONVENTION_PATTERNS as an array', async () => {
     expect(Array.isArray(DEFAULT_CONVENTION_PATTERNS)).toBe(true);
     expect(DEFAULT_CONVENTION_PATTERNS.length).toBeGreaterThan(0);
     for (const p of DEFAULT_CONVENTION_PATTERNS) {
@@ -471,86 +471,86 @@ describe('smartScan', () => {
     ({ smartScan, MAX_FILE_SIZE_BYTES } = require('../utils/smart-scan'));
   });
 
-  it('returns explicit files with reason "explicit"', () => {
+  it('returns explicit files with reason "explicit"', async () => {
     const fileA = tmpFile('src/a.js', '// content');
 
-    const result = smartScan({ files: [fileA] });
+    const result = await smartScan({ files: [fileA] });
     expect(result.contextFiles).toContain(fileA);
     expect(result.reasons.get(fileA)).toBe('explicit');
   });
 
-  it('discovers imports at depth 1 with reason "import:filename"', () => {
+  it('discovers imports at depth 1 with reason "import:filename"', async () => {
     const dep = tmpFile('src/utils.js', 'module.exports = {};');
     const main = tmpFile('src/main.js', "const u = require('./utils');\n");
 
-    const result = smartScan({ files: [main] });
+    const result = await smartScan({ files: [main] });
     expect(result.contextFiles).toContain(dep);
     expect(result.reasons.get(dep)).toBe('import:utils.js');
   });
 
-  it('discovers imports at depth 2 with reason "import-level-2:filename"', () => {
+  it('discovers imports at depth 2 with reason "import-level-2:filename"', async () => {
     const deep = tmpFile('src/deep.js', 'module.exports = 42;');
     const mid = tmpFile('src/mid.js', "const d = require('./deep');\nmodule.exports = d;");
     const top = tmpFile('src/top.js', "const m = require('./mid');\n");
 
-    const result = smartScan({ files: [top], contextDepth: 2 });
+    const result = await smartScan({ files: [top], contextDepth: 2 });
     expect(result.contextFiles).toContain(mid);
     expect(result.contextFiles).toContain(deep);
     expect(result.reasons.get(mid)).toBe('import:mid.js');
     expect(result.reasons.get(deep)).toBe('import-level-2:deep.js');
   });
 
-  it('does NOT discover depth-2 imports when depth is 1', () => {
+  it('does NOT discover depth-2 imports when depth is 1', async () => {
     const deep = tmpFile('src/deep.js', 'module.exports = 42;');
     const mid = tmpFile('src/mid.js', "const d = require('./deep');\nmodule.exports = d;");
     const top = tmpFile('src/top.js', "const m = require('./mid');\n");
 
-    const result = smartScan({ files: [top], contextDepth: 1 });
+    const result = await smartScan({ files: [top], contextDepth: 1 });
     expect(result.contextFiles).toContain(mid);
     expect(result.contextFiles).not.toContain(deep);
   });
 
-  it('includes convention matches with reason "convention:filename"', () => {
+  it('includes convention matches with reason "convention:filename"', async () => {
     const src = tmpFile('src/widget.js', '// source');
     const test = tmpFile('src/widget.test.js', '// test');
 
-    const result = smartScan({ files: [src] });
+    const result = await smartScan({ files: [src] });
     expect(result.contextFiles).toContain(test);
     expect(result.reasons.get(test)).toBe('convention:widget.test.js');
   });
 
-  it('deduplicates files (same file passed twice)', () => {
+  it('deduplicates files (same file passed twice)', async () => {
     const fileA = tmpFile('src/dup.js', '// content');
 
-    const result = smartScan({ files: [fileA, fileA] });
+    const result = await smartScan({ files: [fileA, fileA] });
     const count = result.contextFiles.filter(f => f === fileA).length;
     expect(count).toBe(1);
     expect(result.reasons.get(fileA)).toBe('explicit');
   });
 
-  it('skips files larger than 200KB (adds to skipped array)', () => {
+  it('skips files larger than 200KB (adds to skipped array)', async () => {
     const bigContent = 'x'.repeat(MAX_FILE_SIZE_BYTES + 1);
     const bigFile = tmpFile('src/huge.js', bigContent);
 
-    const result = smartScan({ files: [bigFile] });
+    const result = await smartScan({ files: [bigFile] });
     expect(result.contextFiles).not.toContain(bigFile);
     expect(result.skipped).toContain(bigFile);
   });
 
-  it('returns empty for no files', () => {
-    const result = smartScan({ files: [] });
+  it('returns empty for no files', async () => {
+    const result = await smartScan({ files: [] });
     expect(result.contextFiles).toEqual([]);
     expect(result.skipped).toEqual([]);
     expect(result.reasons.size).toBe(0);
   });
 
-  it('preserves priority ordering: explicit > imports > conventions', () => {
+  it('preserves priority ordering: explicit > imports > conventions', async () => {
     const dep = tmpFile('src/helper.js', 'module.exports = {};');
     const depTest = tmpFile('src/helper.test.js', '// test for helper');
     const main = tmpFile('src/main.js', "const h = require('./helper');\n");
     const mainTest = tmpFile('src/main.test.js', '// test for main');
 
-    const result = smartScan({ files: [main] });
+    const result = await smartScan({ files: [main] });
 
     const mainIdx = result.contextFiles.indexOf(main);
     const depIdx = result.contextFiles.indexOf(dep);
@@ -564,10 +564,10 @@ describe('smartScan', () => {
     expect(depIdx).toBeLessThan(depTestIdx);
   });
 
-  it('resolves relative paths with workingDirectory', () => {
+  it('resolves relative paths with workingDirectory', async () => {
     const fileA = tmpFile('project/src/index.js', '// content');
 
-    const result = smartScan({
+    const result = await smartScan({
       files: ['src/index.js'],
       workingDirectory: path.join(testDir, 'project'),
     });
@@ -575,27 +575,27 @@ describe('smartScan', () => {
     expect(result.reasons.get(fileA)).toBe('explicit');
   });
 
-  it('exports MAX_FILE_SIZE_BYTES as a number', () => {
+  it('exports MAX_FILE_SIZE_BYTES as a number', async () => {
     expect(typeof MAX_FILE_SIZE_BYTES).toBe('number');
     expect(MAX_FILE_SIZE_BYTES).toBe(200 * 1024);
   });
 
-  it('convention matches apply to imported files too', () => {
+  it('convention matches apply to imported files too', async () => {
     const _dep = tmpFile('src/service.js', 'module.exports = {};');
     const depTest = tmpFile('src/service.test.js', '// test for service');
     const main = tmpFile('src/app.js', "const s = require('./service');\n");
 
-    const result = smartScan({ files: [main] });
+    const result = await smartScan({ files: [main] });
     // Convention match on the imported service.js should find service.test.js
     expect(result.contextFiles).toContain(depTest);
     expect(result.reasons.get(depTest)).toBe('convention:service.test.js');
   });
 
-  it('skips nonexistent explicit files silently', () => {
+  it('skips nonexistent explicit files silently', async () => {
     const fakePath = path.join(testDir, 'does-not-exist.js');
     const realFile = tmpFile('src/real.js', '// real');
 
-    const result = smartScan({ files: [fakePath, realFile] });
+    const result = await smartScan({ files: [fakePath, realFile] });
     expect(result.contextFiles).not.toContain(fakePath);
     expect(result.contextFiles).toContain(realFile);
   });
