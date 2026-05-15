@@ -180,6 +180,7 @@ const BENIGN_FLOW_ACTION_EXACT = new Set([
   'decompose_would_yield_eligible', // decompose check found eligible subtasks
   'parked_codex_unavailable', // WI parked because codex quota unavailable
   'marked_for_failover_routing', // WI marked for provider failover routing
+  'plan_quality_attempt_window_escalated', // PRIORITIZE escalated repeated plan-quality rejection attempts before another loop
 
   // ── PLAN ────────────────────────────────────────────────────────────────────
   'pre_written_plan_quality_passed',
