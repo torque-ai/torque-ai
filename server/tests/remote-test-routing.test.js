@@ -775,6 +775,87 @@ describe('remote-test-routing', () => {
     });
   });
 
+  it('runVerifyCommand resolves async local verifies when exit fires without close', async () => {
+    vi.useFakeTimers();
+    try {
+      const child = createMockChildProcess({ autoClose: false });
+      const router = remoteTestRouting.createRemoteTestRouter({
+        agentRegistry: createAgentRegistry(),
+        db: createDb(),
+        logger: createLogger(),
+      });
+      mockSpawn.mockReturnValueOnce(child);
+
+      const promise = router.runVerifyCommand('npm test', '/repo', { timeout: 30000 });
+      child.stdout.emit('data', 'verify ok\n');
+      child.emit('exit', 0);
+      await vi.advanceTimersByTimeAsync(5000);
+      const result = await promise;
+
+      expect(result).toMatchObject({
+        success: true,
+        output: 'verify ok\n',
+        error: '',
+        exitCode: 0,
+        remote: false,
+        timedOut: false,
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('runVerifyCommand resolves torque-remote wrapper verifies when exit fires without close', async () => {
+    vi.useFakeTimers();
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'torque-remote-wrapper-'));
+    const originalGitBash = process.env.GIT_BASH;
+    try {
+      fs.mkdirSync(path.join(tmp, '.git'), { recursive: true });
+      fs.writeFileSync(path.join(tmp, '.torque-remote.json'), JSON.stringify({ transport: 'ssh' }));
+      const fakeBash = path.join(tmp, 'bash.exe');
+      fs.writeFileSync(fakeBash, '');
+      process.env.GIT_BASH = fakeBash;
+
+      const child = createMockChildProcess({ autoClose: false });
+      const router = remoteTestRouting.createRemoteTestRouter({
+        agentRegistry: createAgentRegistry(),
+        db: createDb(),
+        logger: createLogger(),
+      });
+      mockSpawn.mockReturnValueOnce(child);
+
+      const promise = router.runVerifyCommand('npm test', tmp, {
+        provider: 'codex',
+        timeout: 30000,
+      });
+      child.stdout.emit('data', 'remote verify ok\n');
+      child.emit('exit', 0);
+      await vi.advanceTimersByTimeAsync(5000);
+      const result = await promise;
+
+      expect(result).toMatchObject({
+        success: true,
+        output: 'remote verify ok\n',
+        error: '',
+        exitCode: 0,
+        remote: true,
+        remoteWrapper: true,
+        timedOut: false,
+      });
+      const [, args, options] = mockSpawn.mock.calls[0];
+      expect(args).toEqual(['-lc', 'torque-remote bash -lc "npm test"']);
+      expect(options).toEqual(expect.objectContaining({ cwd: tmp }));
+    } finally {
+      if (originalGitBash === undefined) {
+        delete process.env.GIT_BASH;
+      } else {
+        process.env.GIT_BASH = originalGitBash;
+      }
+      vi.useRealTimers();
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
   it('runVerifyCommand times out async local verifies and terminates the child', async () => {
     vi.useFakeTimers();
     try {

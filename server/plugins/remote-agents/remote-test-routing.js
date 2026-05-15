@@ -322,6 +322,7 @@ function runTorqueRemoteWrapper(command, cwd, options = {}, env) {
     let stderr = '';
     let timedOut = false;
     let settled = false;
+    let closeEventFired = false;
     let stdoutTruncated = false;
     let stderrTruncated = false;
 
@@ -377,7 +378,17 @@ function runTorqueRemoteWrapper(command, cwd, options = {}, env) {
       }
     });
 
+    child.on('exit', (exitCode) => {
+      const closeFallback = setTimeout(() => {
+        if (!settled && !closeEventFired && typeof child.emit === 'function') {
+          child.emit('close', exitCode);
+        }
+      }, 5000);
+      closeFallback.unref?.();
+    });
+
     child.on('close', (code) => {
+      closeEventFired = true;
       activityTimeout.cancel();
       if (settled) return;
       settled = true;
@@ -820,6 +831,7 @@ function createRemoteTestRouter({ agentRegistry, db, logger }) {
         let stderr = '';
         let timedOut = false;
         let settled = false;
+        let closeEventFired = false;
 
         const child = spawn(command, {
           cwd,
@@ -857,7 +869,17 @@ function createRemoteTestRouter({ agentRegistry, db, logger }) {
           if (stderr.length < MAX_BUF) stderr += d;
         });
 
+        child.on('exit', (exitCode) => {
+          const closeFallback = setTimeout(() => {
+            if (!settled && !closeEventFired && typeof child.emit === 'function') {
+              child.emit('close', exitCode);
+            }
+          }, 5000);
+          closeFallback.unref?.();
+        });
+
         child.on('close', (code) => {
+          closeEventFired = true;
           activityTimeout.cancel();
           if (settled) return;
           settled = true;
