@@ -131,6 +131,34 @@ const tools = [
       },
       required: ['working_directory']
     }
+  },
+  {
+    name: 'run_code_agent',
+    description: 'Execute a JavaScript code snippet in a sandboxed environment following the smolagents CodeAgent pattern. Code is the action language — snippets can use variables, loops, conditionals, and call tools by name. No filesystem, network, or process access is available inside the sandbox.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        code: {
+          type: 'string',
+          description: 'JavaScript code snippet to execute. May use top-level await. Access tools via the `tools` object (e.g., `await tools.run_remote_command({ command: "npm test", working_directory: "/repo" })`). Use `console.log()` for output. Return a value with `return`.'
+        },
+        tools: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'List of tool names to make available inside the sandbox (e.g., ["run_remote_command", "run_tests"]). Only tools from the remote-agents plugin are supported.'
+        },
+        context: {
+          type: 'object',
+          description: 'Key-value pairs made available as the read-only `context` object inside the sandbox.'
+        },
+        timeout: {
+          type: 'number',
+          description: 'Execution timeout in ms (default 10000)',
+          default: 10000
+        }
+      },
+      required: ['code']
+    }
   }
 ];
 

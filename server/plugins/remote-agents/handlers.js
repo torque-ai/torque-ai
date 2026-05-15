@@ -2,6 +2,7 @@
 
 const { ErrorCodes, makeError } = require('../../handlers/error-codes');
 const { createRemoteTestRouter } = require('./remote-test-routing');
+const { executeCodeAgentCode } = require('./sandbox');
 
 function _hasOwn(obj, key) {
   return Object.prototype.hasOwnProperty.call(obj || {}, key);
@@ -632,6 +633,68 @@ function createHandlers({ agentRegistry, db } = {}) {
     }
   }
 
+  async function handleRunCodeAgent(args = {}) {
+    try {
+      const code = typeof args.code === 'string' ? args.code.trim() : '';
+      if (!code) {
+        return _createToolError(ErrorCodes.MISSING_REQUIRED_PARAM, 'code is required');
+      }
+
+      const timeout = _normalizeTimeoutMs(args.timeout, 10000);
+
+      // Build tool map from the caller-supplied tool names.
+      // Each listed tool becomes a callable function inside the sandbox that
+      // delegates to the corresponding handler in *this* plugin's handler map.
+      const requestedTools = Array.isArray(args.tools) ? args.tools : [];
+      const toolMap = Object.create(null);
+      const handlerMap = {
+        run_remote_command: handleRunRemoteCommand,
+        run_tests: handleRunTests,
+      };
+      for (const toolName of requestedTools) {
+        if (typeof toolName === 'string' && typeof handlerMap[toolName] === 'function') {
+          toolMap[toolName] = handlerMap[toolName];
+        }
+      }
+
+      const context = (args.context && typeof args.context === 'object') ? args.context : {};
+
+      const result = await executeCodeAgentCode(code, toolMap, context, { timeout });
+
+      const outputLines = [];
+      if (result.output) {
+        outputLines.push(result.output);
+      }
+      if (result.tool_calls.length > 0) {
+        outputLines.push(`\nTool calls (${result.tool_calls.length}):`);
+        for (const call of result.tool_calls) {
+          const argsStr = typeof call.args === 'string'
+            ? call.args
+            : JSON.stringify(call.args);
+          outputLines.push(`  ${call.tool}(${argsStr})`);
+        }
+      }
+      if (result.error) {
+        outputLines.push(`\nError: ${result.error}`);
+      }
+      if (result.result !== undefined && result.result !== null) {
+        outputLines.push(`\nReturn value: ${JSON.stringify(result.result)}`);
+      }
+
+      const text = outputLines.join('\n') || (result.success ? 'Code executed successfully (no output)' : 'Code execution failed (no output)');
+
+      return {
+        content: [{ type: 'text', text }],
+        success: result.success,
+        tool_calls: result.tool_calls,
+        result: result.result,
+        ...(result.error ? { isError: true, error_code: ErrorCodes.OPERATION_FAILED.code } : {}),
+      };
+    } catch (err) {
+      return _createToolError(ErrorCodes.INTERNAL_ERROR, err.message || String(err));
+    }
+  }
+
   return {
     register_remote_agent: handleRegisterRemoteAgent,
     list_remote_agents: handleListRemoteAgents,
@@ -640,6 +703,7 @@ function createHandlers({ agentRegistry, db } = {}) {
     check_remote_agent_health: handleCheckRemoteAgentHealth,
     run_remote_command: handleRunRemoteCommand,
     run_tests: handleRunTests,
+    run_code_agent: handleRunCodeAgent,
   };
 }
 

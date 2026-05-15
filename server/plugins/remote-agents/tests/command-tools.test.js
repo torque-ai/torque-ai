@@ -26,6 +26,7 @@ function clearModules(modulePaths) {
 
 const MODULES_TO_CLEAR = [
   '../handlers',
+  '../sandbox',
   '../../../db/project-config-core',
   '../../../logger',
 ];
@@ -196,5 +197,260 @@ describe('remote command MCP tools', () => {
     expect(result.remote).toBe(true);
     expect(getText(result)).toContain('[remote: remote-gpu-host] Exit code: 0');
     expect(getText(result)).toContain('remote-ok');
+  });
+});
+
+describe('run_code_agent MCP tool', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    clearModules(MODULES_TO_CLEAR);
+  });
+
+  it('executes a simple code snippet and captures console output', async () => {
+    const { handlers } = loadHandlers();
+
+    const result = await handlers.run_code_agent({
+      code: 'console.log("hello from sandbox");',
+    });
+
+    expect(result.success).toBe(true);
+    expect(getText(result)).toContain('hello from sandbox');
+    expect(result.tool_calls).toEqual([]);
+  });
+
+  it('returns a value from the code snippet', async () => {
+    const { handlers } = loadHandlers();
+
+    const result = await handlers.run_code_agent({
+      code: 'return 42;',
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.result).toBe(42);
+    expect(getText(result)).toContain('Return value: 42');
+  });
+
+  it('provides context object to the sandbox', async () => {
+    const { handlers } = loadHandlers();
+
+    const result = await handlers.run_code_agent({
+      code: 'console.log("project=" + context.projectName);',
+      context: { projectName: 'torque' },
+    });
+
+    expect(result.success).toBe(true);
+    expect(getText(result)).toContain('project=torque');
+  });
+
+  it('returns error when code is missing', async () => {
+    const { handlers } = loadHandlers();
+
+    const result = await handlers.run_code_agent({});
+
+    expect(result.isError).toBe(true);
+    expect(result.error_code).toBe('MISSING_REQUIRED_PARAM');
+    expect(getText(result)).toBe('Error: code is required');
+  });
+
+  it('returns error when code is empty string', async () => {
+    const { handlers } = loadHandlers();
+
+    const result = await handlers.run_code_agent({ code: '   ' });
+
+    expect(result.isError).toBe(true);
+    expect(result.error_code).toBe('MISSING_REQUIRED_PARAM');
+    expect(getText(result)).toBe('Error: code is required');
+  });
+
+  it('captures runtime errors from the code snippet', async () => {
+    const { handlers } = loadHandlers();
+
+    const result = await handlers.run_code_agent({
+      code: 'throw new Error("something broke");',
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.isError).toBe(true);
+    expect(result.error_code).toBe('OPERATION_FAILED');
+    expect(getText(result)).toContain('Error: something broke');
+  });
+
+  it('prevents access to require and process', async () => {
+    const { handlers } = loadHandlers();
+
+    const result = await handlers.run_code_agent({
+      code: 'const fs = require("fs");',
+    });
+
+    expect(result.success).toBe(false);
+    expect(getText(result)).toContain('Error:');
+    // require is not defined in the sandbox
+    expect(getText(result)).toMatch(/require is not defined|require is not a function/);
+  });
+
+  it('prevents access to process global', async () => {
+    const { handlers } = loadHandlers();
+
+    const result = await handlers.run_code_agent({
+      code: 'console.log(process.env.HOME);',
+    });
+
+    expect(result.success).toBe(false);
+    expect(getText(result)).toMatch(/process is not defined|Cannot read propert/);
+  });
+
+  it('allows calling tools listed in the tools array', async () => {
+    const execSync = vi.spyOn(require('child_process'), 'execSync').mockReturnValue('test-output\n');
+    const { handlers } = loadHandlers({
+      registry: {
+        getAll: vi.fn(() => []),
+        getClient: vi.fn(),
+      },
+    });
+
+    const result = await handlers.run_code_agent({
+      code: `
+        const res = await tools.run_remote_command({
+          command: 'echo hello',
+          working_directory: '/repo',
+        });
+        console.log("tool returned");
+        return res.success;
+      `,
+      tools: ['run_remote_command'],
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.tool_calls).toHaveLength(1);
+    expect(result.tool_calls[0].tool).toBe('run_remote_command');
+    expect(getText(result)).toContain('tool returned');
+  });
+
+  it('ignores tool names that are not in the handler map', async () => {
+    const { handlers } = loadHandlers();
+
+    const result = await handlers.run_code_agent({
+      code: 'return Object.keys(tools);',
+      tools: ['run_remote_command', 'nonexistent_tool'],
+    });
+
+    expect(result.success).toBe(true);
+    // Only run_remote_command should be in the tools object
+    expect(result.result).toContain('run_remote_command');
+    expect(result.result).not.toContain('nonexistent_tool');
+  });
+
+  it('works with no tools specified', async () => {
+    const { handlers } = loadHandlers();
+
+    const result = await handlers.run_code_agent({
+      code: 'return Object.keys(tools).length;',
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.result).toBe(0);
+  });
+
+  it('supports top-level await in code snippets', async () => {
+    const { handlers } = loadHandlers();
+
+    const result = await handlers.run_code_agent({
+      code: `
+        const value = await Promise.resolve(99);
+        return value;
+      `,
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.result).toBe(99);
+  });
+
+  it('handles multiple console.log calls', async () => {
+    const { handlers } = loadHandlers();
+
+    const result = await handlers.run_code_agent({
+      code: `
+        console.log("line 1");
+        console.log("line 2");
+        console.warn("a warning");
+      `,
+    });
+
+    expect(result.success).toBe(true);
+    expect(getText(result)).toContain('line 1');
+    expect(getText(result)).toContain('line 2');
+    expect(getText(result)).toContain('[warn] a warning');
+  });
+
+  it('uses loops and conditionals inside the sandbox', async () => {
+    const { handlers } = loadHandlers();
+
+    const result = await handlers.run_code_agent({
+      code: `
+        let sum = 0;
+        for (let i = 1; i <= 10; i++) {
+          sum += i;
+        }
+        if (sum === 55) {
+          console.log("correct");
+        }
+        return sum;
+      `,
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.result).toBe(55);
+    expect(getText(result)).toContain('correct');
+  });
+
+  it('reports tool call details in the output text', async () => {
+    const execSync = vi.spyOn(require('child_process'), 'execSync').mockReturnValue('ok\n');
+    const { handlers } = loadHandlers({
+      registry: {
+        getAll: vi.fn(() => []),
+        getClient: vi.fn(),
+      },
+    });
+
+    const result = await handlers.run_code_agent({
+      code: `
+        await tools.run_remote_command({ command: 'echo hi', working_directory: '/tmp' });
+      `,
+      tools: ['run_remote_command'],
+    });
+
+    expect(getText(result)).toContain('Tool calls (1)');
+    expect(getText(result)).toContain('run_remote_command');
+  });
+
+  it('handles tool call errors gracefully', async () => {
+    const { handlers } = loadHandlers();
+
+    // run_remote_command without required params should return a tool error,
+    // which the sandbox code receives as a result (not a thrown exception)
+    const result = await handlers.run_code_agent({
+      code: `
+        const res = await tools.run_remote_command({});
+        return res.isError;
+      `,
+      tools: ['run_remote_command'],
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.result).toBe(true);
+    expect(result.tool_calls).toHaveLength(1);
+  });
+
+  it('respects the custom timeout parameter', async () => {
+    const { handlers } = loadHandlers();
+
+    // A tight timeout should cause the snippet to fail if it tries to run too long
+    const result = await handlers.run_code_agent({
+      code: 'while(true) {}',
+      timeout: 50,
+    });
+
+    expect(result.success).toBe(false);
+    expect(getText(result)).toMatch(/Error:.*timed out|Error:.*timeout/i);
   });
 });
