@@ -28,8 +28,7 @@ const TIER_1 = [
   'list_ollama_hosts', 'list_ollama_models', 'manage_host', 'manage_tuning', 'run_benchmark',
   // CI Watcher
   'await_ci_run', 'list_ci_runs', 'ci_run_status',
-  'diagnose_ci_failure', 'watch_ci_repo', 'stop_ci_watch',
-  'configure_ci_provider',
+  'diagnose_ci_failure',
   // Diffusion engine
   'submit_scout', 'create_diffusion_plan', 'diffusion_status',
   // Factory
@@ -43,6 +42,8 @@ const TIER_1 = [
 ];
 
 const TIER_2 = [
+  // CI Watcher setup/control
+  'watch_ci_repo', 'stop_ci_watch', 'configure_ci_provider',
   // Host management (legacy aliases — manage_host is preferred for new code)
   'add_ollama_host',
   // Unified management tools (replaces individual host/tuning/webhook tools)

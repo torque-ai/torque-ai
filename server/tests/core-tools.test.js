@@ -110,6 +110,12 @@ describe('CORE_TOOL_NAMES (Tier 1)', () => {
     );
   });
 
+  it('includes scope budget controls needed by budget-aware routing', () => {
+    expect(CORE_TOOL_NAMES).toEqual(
+      expect.arrayContaining(['set_scope_budget', 'get_scope_spend', 'list_scope_budgets']),
+    );
+  });
+
   it('all core tools have matching tool definitions', () => {
     const defNames = getToolDefinitionNames();
     const defSet = new Set(defNames);
@@ -171,6 +177,15 @@ describe('EXTENDED_TOOL_NAMES (Tier 1 + 2)', () => {
   it('includes batch orchestration tools in Tier 2', () => {
     expect(EXTENDED_TOOL_NAMES).toEqual(
       expect.arrayContaining(['run_batch', 'generate_test_tasks']),
+    );
+  });
+
+  it('includes CI watcher setup controls in Tier 2', () => {
+    expect(EXTENDED_TOOL_NAMES).toEqual(
+      expect.arrayContaining(['watch_ci_repo', 'stop_ci_watch', 'configure_ci_provider']),
+    );
+    expect(CORE_TOOL_NAMES).not.toEqual(
+      expect.arrayContaining(['watch_ci_repo', 'stop_ci_watch', 'configure_ci_provider']),
     );
   });
 
