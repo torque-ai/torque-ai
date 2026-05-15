@@ -59,6 +59,14 @@ const RULES = {
     severity: 'hard', scope: 'task',
     description: 'Edit-style tasks must target files that already exist in the repository.',
   },
+  task_create_targets_unique: {
+    severity: 'hard', scope: 'plan',
+    description: 'Create-file targets must be unique across all plan tasks.',
+  },
+  validation_command_targets_unique: {
+    severity: 'hard', scope: 'task',
+    description: 'A validation command must not list the same test/source target more than once.',
+  },
   no_duplicate_task_titles: {
     severity: 'hard', scope: 'plan',
     description: 'Task titles must be unique within a plan.',
@@ -86,6 +94,16 @@ const EDIT_TARGET_CONTEXT_RE = new RegExp(
   `\\b(?:edit|modify|update|replace|repair|fix|refactor|rename|extend|change|wire)\\b[^.\\n]{0,200}?((?:[A-Za-z]:)?(?:[A-Za-z0-9_.-]+[\\\\/])+[A-Za-z0-9_.-]+\\.(?:${PLAN_PATH_EXTENSIONS}))`,
   'gi',
 );
+const CREATE_TARGET_CONTEXT_RES = [
+  new RegExp(
+    `\\b(?:create|introduce)\\b[^.\\n]{0,200}?((?:[A-Za-z]:)?(?:[A-Za-z0-9_.-]+[\\\\/])+[A-Za-z0-9_.-]+\\.(?:${PLAN_PATH_EXTENSIONS}))`,
+    'gi',
+  ),
+  new RegExp(
+    `\\badd\\b[^.\\n]{0,120}?\\b(?:new|dedicated|focused|separate)\\b[^.\\n]{0,160}?((?:[A-Za-z]:)?(?:[A-Za-z0-9_.-]+[\\\\/])+[A-Za-z0-9_.-]+\\.(?:${PLAN_PATH_EXTENSIONS}))`,
+    'gi',
+  ),
+];
 const CONCRETE_BACKTICK_RE = /`[^`\n]+`/;
 const CONCRETE_QUOTED_RE = /"[^"\n]+"|'[^'\n]+'/;
 const CONCRETE_IDENTIFIER_RE = /\b(?:[A-Z][a-z0-9]+(?:[A-Z][A-Za-z0-9]*)+|[a-z]+(?:[A-Z][A-Za-z0-9]*)+|[A-Za-z][A-Za-z0-9]*_[A-Za-z0-9_]+)\b/g;
@@ -209,6 +227,58 @@ function extractEditTargetFilePaths(text) {
     matches.push(match[1]);
   }
   return uniqueNormalizedPaths(matches);
+}
+
+function extractCreateTargetFilePaths(text) {
+  const value = String(text || '');
+  const matches = [];
+  for (const pattern of CREATE_TARGET_CONTEXT_RES) {
+    pattern.lastIndex = 0;
+    for (const match of value.matchAll(pattern)) {
+      matches.push(match[1]);
+    }
+  }
+  return uniqueNormalizedPaths(matches);
+}
+
+function extractValidationCommandSnippets(text) {
+  const value = String(text || '');
+  const snippets = [];
+  const codeSpanRe = /`([^`\n]*(?:npx\s+vitest|vitest|pytest|python\s+-m\s+pytest|npm(?:\s+--prefix\s+\S+)?\s+(?:run\s+)?test\s+--)[^`\n]*)`/gi;
+  for (const match of value.matchAll(codeSpanRe)) {
+    snippets.push(match[1]);
+  }
+  if (snippets.length > 0) {
+    return snippets;
+  }
+  const commandRe = /\b(?:npx\s+vitest(?:\s+run)?|vitest(?:\s+run)?|pytest|python\s+-m\s+pytest|npm(?:\s+--prefix\s+\S+)?\s+(?:run\s+)?test\s+--)\b/gi;
+  for (const line of value.split(/\r?\n/)) {
+    commandRe.lastIndex = 0;
+    for (const match of line.matchAll(commandRe)) {
+      snippets.push(line.slice(match.index));
+    }
+  }
+  return snippets;
+}
+
+function findDuplicateValidationCommandTargets(text) {
+  const duplicates = [];
+  const pathRe = new RegExp(`\\b[A-Za-z0-9_.][A-Za-z0-9_./\\\\-]*\\.(?:${PLAN_PATH_EXTENSIONS})\\b`, 'gi');
+  for (const snippet of extractValidationCommandSnippets(text)) {
+    const counts = new Map();
+    pathRe.lastIndex = 0;
+    for (const match of String(snippet || '').matchAll(pathRe)) {
+      const normalized = normalizePlanPathCandidate(match[0]);
+      if (!normalized) continue;
+      counts.set(normalized, (counts.get(normalized) || 0) + 1);
+    }
+    for (const [target, count] of counts) {
+      if (count > 1) {
+        duplicates.push(target);
+      }
+    }
+  }
+  return [...new Set(duplicates)];
 }
 
 function findMissingEditTargets(task, repoPath) {
@@ -402,6 +472,34 @@ function runDeterministicRules(planMarkdown, options = {}) {
         rule: 'task_edit_targets_exist',
         taskNumber: task.number,
         detail: `Task ${task.number} edits missing target file(s): ${editTargetCheck.missing.join(', ')}. Pick existing repository files or rewrite the task as an explicit create-file task.`,
+      });
+    }
+
+    const duplicateValidationTargets = findDuplicateValidationCommandTargets(task.body);
+    if (duplicateValidationTargets.length > 0) {
+      hardFails.push({
+        rule: 'validation_command_targets_unique',
+        taskNumber: task.number,
+        detail: `Task ${task.number} repeats validation target(s) in one command: ${duplicateValidationTargets.join(', ')}. List each test/source target once.`,
+      });
+    }
+  }
+
+  const createTargetOwners = new Map();
+  for (const task of tasks) {
+    const createTargets = extractCreateTargetFilePaths(`${task.title || ''}\n${task.body || ''}`);
+    for (const target of createTargets) {
+      if (!createTargetOwners.has(target)) {
+        createTargetOwners.set(target, []);
+      }
+      createTargetOwners.get(target).push(task.number);
+    }
+  }
+  for (const [target, owners] of createTargetOwners) {
+    if (owners.length > 1) {
+      hardFails.push({
+        rule: 'task_create_targets_unique',
+        detail: `Create-file target ${target} appears in multiple tasks (${owners.map((n) => `Task ${n}`).join(', ')}). Use distinct output files or make one task edit the existing file.`,
       });
     }
   }

@@ -194,6 +194,61 @@ Create \`server/tests/cost-ceiling.test.js\` with Vitest coverage for budget cei
     expect(hardFails.find(f => f.rule === 'task_edit_targets_exist')).toBeUndefined();
   }));
 
+  it('rejects duplicate create-file targets across tasks', () => {
+    const plan = `## Task 1: Extract DAG resolver tests
+
+Create \`server/tests/workflow-runtime.test.js\` with focused DAG resolver coverage. Acceptance criteria: npx vitest run server/tests/workflow-runtime.test.js should pass and the file should contain six resolver cases.
+
+## Task 2: Extract task handler tests
+
+Create \`server/tests/workflow-runtime.test.js\` with focused task handler coverage. Acceptance criteria: npx vitest run server/tests/workflow-runtime.test.js should pass and the file should contain five handler cases.`;
+    const { hardFails } = runDeterministicRules(plan);
+    const fail = hardFails.find(f => f.rule === 'task_create_targets_unique');
+
+    expect(fail).toBeTruthy();
+    expect(fail.detail).toContain('server/tests/workflow-runtime.test.js');
+    expect(fail.detail).toContain('Task 1');
+    expect(fail.detail).toContain('Task 2');
+  });
+
+  it('allows distinct create-file targets across tasks', () => {
+    const plan = `## Task 1: Extract DAG resolver tests
+
+Create \`server/tests/workflow-dag-resolver.test.js\` with focused DAG resolver coverage. Acceptance criteria: npx vitest run server/tests/workflow-dag-resolver.test.js should pass and the file should contain six resolver cases.
+
+## Task 2: Extract task handler tests
+
+Create \`server/tests/workflow-task-handlers.test.js\` with focused task handler coverage. Acceptance criteria: npx vitest run server/tests/workflow-task-handlers.test.js should pass and the file should contain five handler cases.`;
+    const { hardFails } = runDeterministicRules(plan);
+
+    expect(hardFails.find(f => f.rule === 'task_create_targets_unique')).toBeUndefined();
+  });
+
+  it('rejects repeated validation command targets inside one command', () => {
+    const plan = `## Task 1: Validate workflow runtime split
+
+Edit \`server/execution/workflow-runtime.js\` to delegate DAG resolution and run \`npx vitest run server/tests/workflow-runtime.test.js server/tests/workflow-runtime.test.js\`. Acceptance criteria: the workflow runtime tests should pass without duplicate command targets.`;
+    const { hardFails } = runDeterministicRules(plan);
+    const fail = hardFails.find(f => f.rule === 'validation_command_targets_unique');
+
+    expect(fail).toBeTruthy();
+    expect(fail.taskNumber).toBe(1);
+    expect(fail.detail).toContain('server/tests/workflow-runtime.test.js');
+  });
+
+  it('allows the same validation target in separate task commands', () => {
+    const plan = `## Task 1: Update runtime dependency wiring
+
+Edit \`server/execution/workflow-runtime.js\` to accept an injected helper and run \`npx vitest run server/tests/workflow-runtime.test.js\`. Acceptance criteria: the runtime suite should pass for the injected helper.
+
+## Task 2: Update runtime container registration
+
+Edit \`server/container.js\` to register the helper and run \`npx vitest run server/tests/workflow-runtime.test.js\`. Acceptance criteria: the same runtime suite should pass after container wiring.`;
+    const { hardFails } = runDeterministicRules(plan);
+
+    expect(hardFails.find(f => f.rule === 'validation_command_targets_unique')).toBeUndefined();
+  });
+
   it('rule 7: task with a single "appropriately" near a concrete object does NOT hard-fail', () => {
     const plan = `## Task 1: Wire src/bar.ts\n\nUpdate src/bar.ts to call the new helper appropriately. Run npx vitest tests/bar.test.ts to verify.`;
     const { hardFails } = runDeterministicRules(plan);
