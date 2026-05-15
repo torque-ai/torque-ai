@@ -940,3 +940,224 @@ describe('code_agent integration', () => {
     expect(errorResult.error_code).toBe('OPERATION_FAILED');
   });
 });
+
+describe('code_agent registry awareness', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    clearModules(MODULES_TO_CLEAR);
+  });
+
+  it('defaults kind to "code_agent" in the result', async () => {
+    const { handlers } = loadHandlers();
+
+    const result = await handlers.run_code_agent({
+      code: 'return "ok";',
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.kind).toBe('code_agent');
+  });
+
+  it('accepts a custom kind from args and propagates it', async () => {
+    const { handlers } = loadHandlers();
+
+    const result = await handlers.run_code_agent({
+      code: 'return context.kind;',
+      kind: 'custom_kind',
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.kind).toBe('custom_kind');
+    expect(result.result).toBe('custom_kind');
+  });
+
+  it('injects working_directory into sandbox context', async () => {
+    const { handlers } = loadHandlers();
+
+    const result = await handlers.run_code_agent({
+      code: 'return context.working_directory;',
+      working_directory: '/my/project',
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.result).toBe('/my/project');
+    expect(result.working_directory).toBe('/my/project');
+  });
+
+  it('sandbox context merges user context with injected fields', async () => {
+    const { handlers } = loadHandlers();
+
+    const result = await handlers.run_code_agent({
+      code: 'return { wd: context.working_directory, kind: context.kind, custom: context.myField };',
+      working_directory: '/project',
+      kind: 'code_agent',
+      context: { myField: 'hello' },
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.result).toEqual({
+      wd: '/project',
+      kind: 'code_agent',
+      custom: 'hello',
+    });
+  });
+
+  it('omits working_directory from result when not provided', async () => {
+    const { handlers } = loadHandlers();
+
+    const result = await handlers.run_code_agent({
+      code: 'return 1;',
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.working_directory).toBeUndefined();
+  });
+
+  it('blocks admin tools from being exposed in the sandbox', async () => {
+    const { handlers } = loadHandlers({
+      registry: {
+        getAll: vi.fn(() => []),
+        getClient: vi.fn(),
+      },
+    });
+
+    const result = await handlers.run_code_agent({
+      code: 'return Object.keys(tools).sort();',
+      tools: ['run_remote_command', 'register_remote_agent', 'remove_remote_agent', 'list_remote_agents', 'check_remote_agent_health'],
+    });
+
+    expect(result.success).toBe(true);
+    // Only execution tools should be present; admin tools are filtered out
+    expect(result.result).toEqual(['run_remote_command']);
+  });
+
+  it('run_tests is allowed in sandbox but admin tools are not', async () => {
+    const execSync = vi.spyOn(require('child_process'), 'execSync')
+      .mockReturnValue('test-ok\n');
+    const { handlers } = loadHandlers({
+      project: 'test-proj',
+      projectConfig: { verify_command: 'npm test' },
+      registry: {
+        getAll: vi.fn(() => []),
+        getClient: vi.fn(),
+      },
+    });
+
+    const result = await handlers.run_code_agent({
+      code: 'return Object.keys(tools).sort();',
+      tools: ['run_tests', 'get_remote_agent', 'run_remote_command'],
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.result).toEqual(['run_remote_command', 'run_tests']);
+  });
+
+  it('getCodeAgentToolNames returns the allowlist', async () => {
+    const { handlers } = loadHandlers();
+
+    const toolNames = handlers.getCodeAgentToolNames();
+
+    expect(Array.isArray(toolNames)).toBe(true);
+    expect(toolNames).toContain('run_remote_command');
+    expect(toolNames).toContain('run_tests');
+    expect(toolNames).not.toContain('register_remote_agent');
+    expect(toolNames).not.toContain('run_code_agent');
+  });
+
+  it('isCodeAgentTool returns true for allowed tools', async () => {
+    const { handlers } = loadHandlers();
+
+    expect(handlers.isCodeAgentTool('run_remote_command')).toBe(true);
+    expect(handlers.isCodeAgentTool('run_tests')).toBe(true);
+    expect(handlers.isCodeAgentTool('register_remote_agent')).toBe(false);
+    expect(handlers.isCodeAgentTool('run_code_agent')).toBe(false);
+    expect(handlers.isCodeAgentTool('nonexistent')).toBe(false);
+  });
+
+  it('tool calls inside sandbox use agent registry for remote routing', async () => {
+    const run = vi.fn().mockResolvedValue({
+      success: true,
+      output: 'remote-sandbox-ok\n',
+      error: '',
+      exitCode: 0,
+      durationMs: 10,
+    });
+    const { handlers } = loadHandlers({
+      registry: {
+        getAll: vi.fn(() => [
+          { id: 'gpu-box', name: 'gpu-box', status: 'healthy', enabled: true },
+        ]),
+        getClient: vi.fn(() => ({ run })),
+      },
+    });
+
+    const result = await handlers.run_code_agent({
+      code: `
+        const r = await tools.run_remote_command({
+          command: 'echo hello',
+          working_directory: '/repo',
+        });
+        return { remote: r.remote, ok: r.success };
+      `,
+      tools: ['run_remote_command'],
+      working_directory: '/repo',
+      kind: 'code_agent',
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.kind).toBe('code_agent');
+    expect(result.working_directory).toBe('/repo');
+    expect(result.tool_calls).toHaveLength(1);
+    expect(result.tool_calls[0].tool).toBe('run_remote_command');
+    // The tool call should have routed through the agent registry to the remote
+    expect(result.result.remote).toBe(true);
+    expect(result.result.ok).toBe(true);
+  });
+
+  it('tool calls fall back to local when no agent is available', async () => {
+    const execSync = vi.spyOn(require('child_process'), 'execSync')
+      .mockReturnValue('local-sandbox-ok\n');
+    const { handlers } = loadHandlers({
+      registry: {
+        getAll: vi.fn(() => []),
+        getClient: vi.fn(),
+      },
+    });
+
+    const result = await handlers.run_code_agent({
+      code: `
+        const r = await tools.run_remote_command({
+          command: 'echo local',
+          working_directory: '/repo',
+        });
+        return { remote: r.remote, ok: r.success };
+      `,
+      tools: ['run_remote_command'],
+      working_directory: '/repo',
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.tool_calls).toHaveLength(1);
+    expect(result.result.remote).toBe(false);
+    expect(result.result.ok).toBe(true);
+  });
+
+  it('kind field is accessible in sandbox context for conditional logic', async () => {
+    const { handlers } = loadHandlers();
+
+    const result = await handlers.run_code_agent({
+      code: `
+        if (context.kind === 'code_agent') {
+          console.log("running as code_agent");
+          return true;
+        }
+        return false;
+      `,
+      kind: 'code_agent',
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.result).toBe(true);
+    expect(getText(result)).toContain('running as code_agent');
+  });
+});
