@@ -33,7 +33,12 @@ const {
   defaultVerifyCommandForProject,
   wrapVerifyCommandForTestLane,
 } = require('./test-lane-verify');
-const { extractExplicitVerifyCommand, normalizeVerifyCommand, parsePlanFile } = require('./plan-parser');
+const {
+  extractExplicitVerifyCommand,
+  extractExplicitVerifyCommands,
+  normalizeVerifyCommand,
+  parsePlanFile,
+} = require('./plan-parser');
 const {
   buildProviderLaneTaskMetadata,
   getProviderLanePolicyFromProject,
@@ -8762,8 +8767,10 @@ function resolveWorkItemVerifyCommand(workItem) {
   if (descriptionCommand) return { command: descriptionCommand, source: 'work_item_description' };
 
   const planText = readWorkItemPlanText(workItem);
-  const planCommand = extractExplicitVerifyCommand(planText || '');
-  if (planCommand) return { command: planCommand, source: 'plan_file' };
+  const planCommands = extractExplicitVerifyCommands(planText || '');
+  if (planCommands.length > 0) {
+    return { command: planCommands.join(' && '), source: 'plan_file' };
+  }
 
   return null;
 }

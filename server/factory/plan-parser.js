@@ -504,6 +504,11 @@ function extractCommandFromVerifyText(text) {
     return normalizeVerifyCommand(withCodeSpan[1]);
   }
 
+  const runCodeSpan = line.match(/\b(?:Run|Execute)\s+`([^`]+)`/i);
+  if (runCodeSpan && /\b(?:check|coverage|ensure|lint|pass|passes|succeed|success criteria|test|tests|validate|validation|verify)\b/i.test(line)) {
+    return normalizeVerifyCommand(runCodeSpan[1]);
+  }
+
   const explicit = line.match(/\b(?:Validate|Verify)\b[^\n]{0,160}\bwith\s+(.+)$/i);
   if (!explicit) return null;
   const raw = stripVerifySentenceSuffix(explicit[1].trim());
@@ -511,12 +516,21 @@ function extractCommandFromVerifyText(text) {
   return normalizeVerifyCommand(codeSpan ? codeSpan[1] : raw);
 }
 
-function extractExplicitVerifyCommand(planContent) {
+function extractExplicitVerifyCommands(planContent) {
+  const commands = [];
+  const seen = new Set();
   for (const line of String(planContent || '').split(/\r?\n/)) {
     const command = extractCommandFromVerifyText(line);
-    if (command) return command;
+    if (command && !seen.has(command)) {
+      seen.add(command);
+      commands.push(command);
+    }
   }
-  return null;
+  return commands;
+}
+
+function extractExplicitVerifyCommand(planContent) {
+  return extractExplicitVerifyCommands(planContent)[0] || null;
 }
 
 function extractVerifyCommand(planContent, projectDefault) {
@@ -536,6 +550,7 @@ module.exports = {
   parsePlanMarkdown,
   extractVerifyCommand,
   extractExplicitVerifyCommand,
+  extractExplicitVerifyCommands,
   normalizeVerifyCommand,
   isLikelyVerifyCommand,
 };

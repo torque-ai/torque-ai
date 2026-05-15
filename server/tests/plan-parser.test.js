@@ -3,6 +3,7 @@ const {
   parsePlanFile,
   extractVerifyCommand,
   extractExplicitVerifyCommand,
+  extractExplicitVerifyCommands,
   normalizeVerifyCommand,
 } = require('../factory/plan-parser');
 
@@ -137,6 +138,22 @@ Verification: torque-remote dotnet test simtests/SimCore.DotNet.Tests.csproj -c 
 
     expect(extractExplicitVerifyCommand(plan))
       .toBe('cd server && npx vitest run tests/verify-signature.test.js');
+  });
+
+  it('extractExplicitVerifyCommands aggregates generated validation run commands', () => {
+    const plan = [
+      '# Generated plan',
+      'Run `node --check server/tools.js` from the repository root. Success criteria: the command should pass.',
+      'Run `npx vitest run server/tests/*matrix* server/tests/*score* server/tests/*experiment* && npm run lint` and ensure tests pass.',
+      'Run `npx vitest run server/tests/*matrix* server/tests/*score* server/tests/*experiment* && npm run lint` and ensure tests pass.',
+    ].join('\n');
+
+    expect(extractExplicitVerifyCommand(plan))
+      .toBe('node --check server/tools.js');
+    expect(extractExplicitVerifyCommands(plan)).toEqual([
+      'node --check server/tools.js',
+      'npx vitest run server/tests/*matrix* server/tests/*score* server/tests/*experiment* && npm run lint',
+    ]);
   });
 
   it('does not treat prose validation guidance as an executable command', () => {
