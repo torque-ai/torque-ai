@@ -11,7 +11,7 @@ const {
   isValidState,
   getGatesForTrustLevel,
 } = require('./loop-states');
-const database = require('../database');
+const { resolveContainerDbHandle } = require('../db/db-handle-resolver');
 const factoryDecisions = require('../db/factory/decisions');
 const factoryHealth = require('../db/factory/health');
 const factoryIntake = require('../db/factory/intake');
@@ -92,6 +92,10 @@ const NEEDS_REPLAN_GENERIC_REJECTION_PENALTY_PATTERN =
   /(?:cannot_generate_plan|empty_branch_after_execute|zero_diff|verify_failed|worktree_[a-z_]*failed|execute_exception|task_\d+_failed|dep_(?:cascade|resolver)_)/i;
 
 const SQLITE_UTC_TIMESTAMP_PATTERN = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?$/;
+
+function getDatabaseHandle() {
+  return resolveContainerDbHandle();
+}
 
 function parseFactoryTimestampMs(value) {
   if (!value) return Number.NaN;
@@ -227,7 +231,7 @@ function getWorktreeRunner() {
   if (worktreeRunnerTestOverride !== undefined) return worktreeRunnerTestOverride;
   if (sharedWorktreeRunner) return sharedWorktreeRunner;
   try {
-    const db = database.getDbInstance();
+    const db = getDatabaseHandle();
     if (!db || typeof db.prepare !== 'function') return null;
     const worktreeManager = createWorktreeManager({ db });
     sharedWorktreeRunner = createWorktreeRunner({ worktreeManager, logger });
@@ -254,7 +258,7 @@ function setWorktreeRunnerForTests(runner) {
 function refreshFactoryDbHandles() {
   let db = null;
   try {
-    db = database.getDbInstance();
+    db = getDatabaseHandle();
   } catch {
     return null;
   }
@@ -1340,7 +1344,7 @@ function deferExecutePlanTaskIfProjectPaused({
 }
 
 function getLatestExecutePausedDeferral({ project_id, batch_id, work_item_id } = {}) {
-  const db = database.getDbInstance();
+  const db = getDatabaseHandle();
   if (!db || !project_id || !batch_id) {
     return null;
   }
@@ -1380,7 +1384,7 @@ function getLatestExecutePausedDeferral({ project_id, batch_id, work_item_id } =
 }
 
 function hasExecuteDeferralFollowup({ project_id, batch_id, action, deferral_id } = {}) {
-  const db = database.getDbInstance();
+  const db = getDatabaseHandle();
   if (!db || !project_id || !batch_id || !action || !deferral_id) {
     return false;
   }
@@ -3401,7 +3405,7 @@ function clearSelectedWorkItem(instance_id) {
 }
 
 function getSelectedWorkItemIdFromDecisionLog(project_id, batch_id = null) {
-  const db = database.getDbInstance();
+  const db = getDatabaseHandle();
   if (!db) {
     return null;
   }
@@ -3539,7 +3543,7 @@ function getDecisionRowWorkItemId(row) {
 }
 
 function getLatestStartedExecutionDecision(project_id) {
-  const db = database.getDbInstance();
+  const db = getDatabaseHandle();
   if (!db || !project_id) {
     return null;
   }
@@ -3563,7 +3567,7 @@ function getLatestStartedExecutionDecision(project_id) {
 }
 
 function getLatestStageDecision(project_id, stage) {
-  const db = database.getDbInstance();
+  const db = getDatabaseHandle();
   const normalizedStage = normalizeDecisionStage(stage);
   if (!db || !project_id || !normalizedStage) {
     return null;
@@ -3604,7 +3608,7 @@ function hasVerifiedBatchDecision(project_id, batch_id) {
 }
 
 function getLatestExecuteLiveOwnerWaitDecision(project_id, batchId = null) {
-  const db = database.getDbInstance();
+  const db = getDatabaseHandle();
   if (!db || !project_id) {
     return null;
   }
@@ -3700,7 +3704,7 @@ function maybeClearCompletedExecuteOwnerWait(project, instance) {
 }
 
 function getLatestExecutionDecisionForWorkItem(project_id, workItemId) {
-  const db = database.getDbInstance();
+  const db = getDatabaseHandle();
   if (!db || !project_id || !workItemId) {
     return null;
   }
@@ -3735,7 +3739,7 @@ function escapeSqlLikeValue(value) {
 }
 
 function listTasksForFactoryBatch(batchId) {
-  const db = database.getDbInstance();
+  const db = getDatabaseHandle();
   if (!db || !batchId) {
     return [];
   }
@@ -4643,7 +4647,7 @@ function safeLogDecision(entry) {
   try {
     const decisionDb = typeof factoryDecisions.getDb === 'function'
       ? factoryDecisions.getDb()
-      : database.getDbInstance();
+      : getDatabaseHandle();
     if (!decisionDb || typeof decisionDb.prepare !== 'function') {
       logger.debug('Skipping factory decision log because database is unavailable', {
         project_id: entry?.project_id,
@@ -4863,7 +4867,7 @@ function executeSenseStage(project_id, instance = null) {
   };
 
   if (project.config && project.config.plans_dir) {
-    const db = database.getDbInstance();
+    const db = getDatabaseHandle();
     if (!db || typeof db.prepare !== 'function') {
       logger.warn('SENSE: skipped plan-file intake because database is unavailable', {
         project_id,
@@ -10691,7 +10695,7 @@ async function handlePrioritizeTransition({ project, instance, currentState }) {
     } catch (_e) { void _e; /* container unavailable — treat as breaker-closed */ }
 
     const codexDecision = decideCodexFallbackAction({
-      db: database.getDbInstance(),
+      db: getDatabaseHandle(),
       projectId: project.id,
       workItemId: transitionWorkItem.id,
       breaker,
@@ -10706,7 +10710,7 @@ async function handlePrioritizeTransition({ project, instance, currentState }) {
         let parkProjectConfig = {};
         try { parkProjectConfig = project?.config_json ? JSON.parse(project.config_json) : {}; } catch (_e) { void _e; }
         const decomposeResult = decomposeBeforePark({
-          db: database.getDbInstance(),
+          db: getDatabaseHandle(),
           projectId: project.id,
           workItem: transitionWorkItem,
           projectConfig: parkProjectConfig,
@@ -10728,7 +10732,7 @@ async function handlePrioritizeTransition({ project, instance, currentState }) {
       try {
         const { parkWorkItemForCodex } = require('../db/factory/intake');
         parkWorkItemForCodex({
-          db: database.getDbInstance(),
+          db: getDatabaseHandle(),
           workItemId: transitionWorkItem.id,
           reason: codexDecision.reason,
         });
@@ -11616,8 +11620,7 @@ async function executePlanFileStage(project, instance, workItem) {
           const errMsg = firstErr && typeof firstErr.message === 'string' ? firstErr.message : '';
           if (/already exists/i.test(errMsg)) {
             try {
-              const database = require('../database');
-              const db = database.getDbInstance();
+              const db = getDatabaseHandle();
               if (db && project.path) {
                 const { reconcileProject: reconcileOrphanWorktrees } = require('./worktree-reconcile');
                 const rec = reconcileOrphanWorktrees({
@@ -16263,7 +16266,7 @@ function getAwaitableLoopInstance(project_id) {
 }
 
 function getLatestDecisionSummary(project_id) {
-  const db = database.getDbInstance();
+  const db = getDatabaseHandle();
   if (!db || !project_id) {
     return null;
   }

@@ -23,6 +23,7 @@ describe('check-no-direct-db-import', () => {
   it('keeps transport edge modules off the database facade fallback path', () => {
     const classification = guard.classifyDirectDatabaseImports();
 
+    expect(classification.sourceDiFallback).toEqual([]);
     expect(classification.sourceDiFallback).not.toEqual(expect.arrayContaining([
       'mcp/index.js',
       'tools.js',

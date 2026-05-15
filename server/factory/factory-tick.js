@@ -13,13 +13,18 @@ const factoryIntake = require('../db/factory/intake');
 const factoryLoopInstances = require('../db/factory/loop-instances');
 const factoryDecisions = require('../db/factory/decisions');
 const { getRejectRecoveryConfig } = require('../db/config-core');
+const { resolveDatabaseFacade } = require('../db/database-facade-resolver');
+const { resolveContainerDbHandle } = require('../db/db-handle-resolver');
+
 function resolveDatabase() {
-  try {
-    const { defaultContainer } = require('../container');
-    return defaultContainer.get('db');
-  } catch {
-    return require('../database');
-  }
+  return resolveDatabaseFacade({
+    requiredMethods: ['getDbInstance'],
+    serviceName: 'Factory tick',
+  });
+}
+
+function resolveDatabaseHandle() {
+  return resolveContainerDbHandle();
 }
 // The shared TestRunnerRegistry instance is the only one the remote-agents
 // plugin registers overrides on. Constructing a fresh registry here would
@@ -402,7 +407,7 @@ function remapTaskToSkippedAfterCancellation(task, { taskCore, reason }) {
   }
 
   try {
-    const db = require('../database').getDbInstance();
+    const db = resolveDatabaseHandle();
     if (!db) return false;
     const result = db.prepare('UPDATE tasks SET status = ?, error_output = ?, completed_at = ?, cancel_reason = NULL WHERE id = ?')
       .run('skipped', updates.error_output, updates.completed_at, task.id);
