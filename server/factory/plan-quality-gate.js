@@ -1,6 +1,8 @@
 'use strict';
 
 const { createHash } = require('crypto');
+const fs = require('node:fs');
+const path = require('node:path');
 const { findHeavyLocalValidationCommand } = require('../utils/heavy-validation-guard');
 const { deterministicVerify } = require('./plan-augmenter');
 const { checkPlanImpact } = require('./codegraph-plan-augmenter');
@@ -53,6 +55,10 @@ const RULES = {
     severity: 'hard', scope: 'task',
     description: 'Factory plan tasks must not instruct workers to create or switch to another git worktree; factory execution already runs in an isolated worktree.',
   },
+  task_edit_targets_exist: {
+    severity: 'hard', scope: 'task',
+    description: 'Edit-style tasks must target files that already exist in the repository.',
+  },
   no_duplicate_task_titles: {
     severity: 'hard', scope: 'plan',
     description: 'Task titles must be unique within a plan.',
@@ -73,7 +79,13 @@ const VALIDATION_COMMAND_TARGET_RE = /\b(?:npx\s+vitest(?:\s+run)?|vitest(?:\s+r
 const TEST_RUNNER_TARGET_RE = /\b(?:npx\s+vitest(?:\s+run)?|vitest(?:\s+run)?|pytest|python\s+-m\s+pytest|npm(?:\s+--prefix\s+\S+)?\s+(?:run\s+)?test\s+--)\s+[`'"]?([A-Za-z0-9_.][A-Za-z0-9_./\\-]*)(?=[`'"\s]|$)/gi;
 const CONFIG_FILE_TEST_TARGET_RE = /(?:^|[\\/])(?:\.torque-remote\.json|\.env(?:\.[^\\/]+)?|package(?:-lock)?\.json|pnpm-lock\.yaml|yarn\.lock|tsconfig(?:\.[^\\/]+)?\.json|vite\.config\.[cm]?[jt]s|vitest\.config\.[cm]?[jt]s)$/i;
 const ACCEPTANCE_RE = /\b(npx vitest|dotnet test|pytest|npm(?:\s+--prefix\s+\S+)?\s+(?:run\s+)?test|assert|expect|acceptance criteria\s*:|validation\s*:|must\s+(?:pass|return|include|not\s+include|not\s+read|call|not\s+call)|should\s+(?:pass|report|produce|exist|include|not\s+include))\b/i;
+const PLAN_PATH_EXTENSIONS = 'csproj|fsproj|vbproj|targets|props|cjs|cs|css|go|html|java|js|json|jsx|md|mjs|psm1|ps1|py|rb|resx|rs|sh|sln|sql|ts|tsx|txt|xaml|axaml|xml|ya?ml';
 const CONCRETE_FILE_PATH_RE = /(?:^|[\s`'"([])(?:[A-Za-z]:)?(?:[A-Za-z0-9_.-]+[\\/])+[A-Za-z0-9_.-]+\.(?:csproj|fsproj|vbproj|targets|props|cjs|cs|css|go|html|java|js|json|jsx|md|mjs|psm1|ps1|py|rb|resx|rs|sh|sln|sql|ts|tsx|txt|xaml|axaml|xml|ya?ml)\b/i;
+const EDIT_INTENT_RE = /\b(?:edit|modify|update|replace|repair|fix|refactor|rename|extend|change|wire)\b/i;
+const EDIT_TARGET_CONTEXT_RE = new RegExp(
+  `\\b(?:edit|modify|update|replace|repair|fix|refactor|rename|extend|change|wire)\\b[^.\\n]{0,200}?((?:[A-Za-z]:)?(?:[A-Za-z0-9_.-]+[\\\\/])+[A-Za-z0-9_.-]+\\.(?:${PLAN_PATH_EXTENSIONS}))`,
+  'gi',
+);
 const CONCRETE_BACKTICK_RE = /`[^`\n]+`/;
 const CONCRETE_QUOTED_RE = /"[^"\n]+"|'[^'\n]+'/;
 const CONCRETE_IDENTIFIER_RE = /\b(?:[A-Z][a-z0-9]+(?:[A-Z][A-Za-z0-9]*)+|[a-z]+(?:[A-Z][A-Za-z0-9]*)+|[A-Za-z][A-Za-z0-9]*_[A-Za-z0-9_]+)\b/g;
@@ -156,6 +168,79 @@ function findConfigFileTestTargets(text) {
   return [...new Set(targets)];
 }
 
+function normalizePlanPathCandidate(rawValue) {
+  let candidate = String(rawValue || '').trim()
+    .replace(/\\/g, '/')
+    .replace(/^[`'"]+|[`'",.;:)]+$/g, '');
+  while (candidate.startsWith('./')) {
+    candidate = candidate.slice(2);
+  }
+  while (candidate.startsWith('/')) {
+    candidate = candidate.slice(1);
+  }
+  if (!candidate || candidate.includes('://') || candidate.split('/').includes('..')) {
+    return null;
+  }
+  if (!new RegExp(`\\.(?:${PLAN_PATH_EXTENSIONS})$`, 'i').test(candidate)) {
+    return null;
+  }
+  return candidate;
+}
+
+function uniqueNormalizedPaths(paths) {
+  const seen = new Set();
+  const result = [];
+  for (const rawPath of paths) {
+    const normalized = normalizePlanPathCandidate(rawPath);
+    if (!normalized || seen.has(normalized)) {
+      continue;
+    }
+    seen.add(normalized);
+    result.push(normalized);
+  }
+  return result;
+}
+
+function extractEditTargetFilePaths(text) {
+  const value = String(text || '');
+  const matches = [];
+  EDIT_TARGET_CONTEXT_RE.lastIndex = 0;
+  for (const match of value.matchAll(EDIT_TARGET_CONTEXT_RE)) {
+    matches.push(match[1]);
+  }
+  return uniqueNormalizedPaths(matches);
+}
+
+function findMissingEditTargets(task, repoPath) {
+  if (!repoPath || typeof repoPath !== 'string') {
+    return { targets: [], missing: [] };
+  }
+
+  const text = `${task.title || ''}\n${task.body || ''}`;
+  if (!EDIT_INTENT_RE.test(text)) {
+    return { targets: [], missing: [] };
+  }
+
+  const targets = extractEditTargetFilePaths(text);
+  if (targets.length === 0) {
+    return { targets: [], missing: [] };
+  }
+
+  const repoRoot = path.resolve(repoPath);
+  if (!fs.existsSync(repoRoot)) {
+    return { targets, missing: [] };
+  }
+  const missing = targets.filter((target) => {
+    const absolute = path.resolve(repoRoot, target);
+    if (!absolute.startsWith(repoRoot + path.sep) && absolute !== repoRoot) {
+      return true;
+    }
+    return !fs.existsSync(absolute);
+  });
+
+  return { targets, missing };
+}
+
 function hasConcreteTaskScope(text) {
   const value = String(text || '');
   if (FILE_PATH_RE.test(value) || GREP_TARGET_RE.test(value)) {
@@ -198,9 +283,12 @@ function parseTasks(planMarkdown) {
   });
 }
 
-function runDeterministicRules(planMarkdown) {
+function runDeterministicRules(planMarkdown, options = {}) {
   const hardFails = [];
   const warnings = [];
+  const repoPath = typeof options.repoPath === 'string' && options.repoPath.trim()
+    ? options.repoPath.trim()
+    : null;
 
   // Rule 10 — check before parsing, short-circuits runaway plans.
   if (typeof planMarkdown === 'string' && planMarkdown.length > RULES.plan_size_upper_bound.maxBytes) {
@@ -305,6 +393,15 @@ function runDeterministicRules(planMarkdown) {
         rule: 'task_avoids_nested_worktree_setup',
         taskNumber: task.number,
         detail: `Task ${task.number} instructs the worker to create or switch to another git worktree (${nestedWorktreeSetup}). Factory execution already provides the isolated worktree; remove the nested worktree setup.`,
+      });
+    }
+
+    const editTargetCheck = findMissingEditTargets(task, repoPath);
+    if (editTargetCheck.missing.length > 0) {
+      hardFails.push({
+        rule: 'task_edit_targets_exist',
+        taskNumber: task.number,
+        detail: `Task ${task.number} edits missing target file(s): ${editTargetCheck.missing.join(', ')}. Pick existing repository files or rewrite the task as an explicit create-file task.`,
       });
     }
   }
@@ -565,7 +662,9 @@ async function evaluatePlan({ plan, workItem, project, projectConfig }) {
       void err;
     }
   }
-  const { hardFails, warnings } = runDeterministicRules(activePlan);
+  const { hardFails, warnings } = runDeterministicRules(activePlan, {
+    repoPath: project && typeof project.path === 'string' ? project.path : null,
+  });
   if (hardFails.length > 0) {
     const feedbackPrompt = buildFeedbackPrompt(hardFails, warnings, null);
     return { passed: false, hardFails, warnings, llmCritique: null, feedbackPrompt };

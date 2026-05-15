@@ -1,5 +1,9 @@
 'use strict';
 
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+
 describe('plan-quality-gate module exports', () => {
   it('exports evaluatePlan, runDeterministicRules, runLlmSemanticCheck, buildFeedbackPrompt, RULES', () => {
     const mod = require('../factory/plan-quality-gate');
@@ -26,6 +30,15 @@ function buildSingleTask(title, body) {
 
 function validBody() {
   return 'In src/foo.ts, adjust the focused behavior and run npx vitest server/tests/plan-quality-gate.test.js to verify the expected result.';
+}
+
+function withTempRepo(callback) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plan-quality-gate-'));
+  try {
+    return callback(dir);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 }
 
 describe('runDeterministicRules — structural', () => {
@@ -156,6 +169,30 @@ Edit .torque-remote.json only to correct the remote host metadata. Acceptance cr
     const { hardFails } = runDeterministicRules(plan);
     expect(hardFails.find(f => f.rule === 'task_avoids_config_file_test_targets')).toBeUndefined();
   });
+
+  it('rejects edit-style tasks that target missing repository files', () => withTempRepo((repoPath) => {
+    fs.mkdirSync(path.join(repoPath, 'server', 'db'), { recursive: true });
+    fs.writeFileSync(path.join(repoPath, 'server', 'db', 'workflow-engine.js'), 'module.exports = {};\n');
+
+    const plan = `## Task 1: Integrate cost ceiling enforcement
+
+Edit \`server/execution/workflow-advance.js\` to call the budget ceiling helper before promoting ready workflow tasks. Acceptance criteria: requiring \`server/execution/workflow-advance.js\` should expose handleWorkflowTaskCompletion, and npx vitest run server/tests/workflow-runtime.test.js should pass.`;
+    const { hardFails } = runDeterministicRules(plan, { repoPath });
+    const fail = hardFails.find(f => f.rule === 'task_edit_targets_exist');
+
+    expect(fail).toBeTruthy();
+    expect(fail.taskNumber).toBe(1);
+    expect(fail.detail).toContain('server/execution/workflow-advance.js');
+  }));
+
+  it('does not reject create-file tasks for missing new files', () => withTempRepo((repoPath) => {
+    const plan = `## Task 1: Add focused cost ceiling tests
+
+Create \`server/tests/cost-ceiling.test.js\` with Vitest coverage for budget ceiling behavior. Acceptance criteria: npx vitest run server/tests/cost-ceiling.test.js should pass and the test file should contain six focused cases.`;
+    const { hardFails } = runDeterministicRules(plan, { repoPath });
+
+    expect(hardFails.find(f => f.rule === 'task_edit_targets_exist')).toBeUndefined();
+  }));
 
   it('rule 7: task with a single "appropriately" near a concrete object does NOT hard-fail', () => {
     const plan = `## Task 1: Wire src/bar.ts\n\nUpdate src/bar.ts to call the new helper appropriately. Run npx vitest tests/bar.test.ts to verify.`;
