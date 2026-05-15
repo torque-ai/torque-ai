@@ -222,6 +222,7 @@ function initializeCleanGitWorktree(worktreePath) {
   runGit(worktreePath, ['init']);
   runGit(worktreePath, ['config', 'user.email', 'factory-test@example.com']);
   runGit(worktreePath, ['config', 'user.name', 'Factory Test']);
+  runGit(worktreePath, ['config', 'core.longpaths', 'true']);
   fs.writeFileSync(path.join(worktreePath, 'tracked.txt'), 'clean\n', 'utf8');
   runGit(worktreePath, ['add', 'tracked.txt']);
   runGit(worktreePath, ['commit', '-m', 'init', '--no-gpg-sign']);

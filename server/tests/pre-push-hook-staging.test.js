@@ -66,6 +66,7 @@ describe('pre-push-hook staging-branch invariants', () => {
     expect(src).toMatch(/pre_push_gate_execution_mode="local_fallback"/);
     expect(src).not.toContain('aborting before tests');
     expect(src).toMatch(/prepare_local_gate_worktree\s*\(\)/);
+    expect(src).toMatch(/pre_push_local_gate_tmp_root\s*\(\)/);
     expect(src).toMatch(/git worktree add --force --detach "\$local_gate_worktree" "\$local_head_sha"/);
     expect(src).toMatch(/local_gate_script="\$local_gate_worktree_parent\/gate-command\.sh"/);
     expect(src).toMatch(/run_local_gate "\$remote_gate_cmd"/);
@@ -200,6 +201,9 @@ describe('pre-push-hook staging-branch invariants', () => {
     const src = readHook();
     expect(src).toMatch(/local_gate_env_assignments\s*\(\)/);
     expect(src).toMatch(/local_gate_path_for_env\s*\(\)/);
+    expect(src).toContain('TORQUE_PRE_PUSH_LOCAL_TMPDIR');
+    expect(src).toContain('/c/tmp/torque-pre-push');
+    expect(src).toContain('local_gate_worktree_parent=$(mktemp -d "$(pre_push_local_gate_tmp_root)/pre-push-local-gate.XXXXXX")');
     expect(src).toContain('local_gate_lane_root="$local_gate_worktree_parent/lane"');
     expect(src).toContain('TORQUE_DATA_DIR=%q');
     expect(src).toContain('TORQUE_TEST_SANDBOX=%q');

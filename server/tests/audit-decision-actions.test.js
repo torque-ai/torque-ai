@@ -57,6 +57,35 @@ describe('discoverEmitSites', () => {
     const { literal_emissions } = discoverEmitSites(dir);
     expect(literal_emissions.get('verified_batch').length).toBe(2);
   });
+
+  it('detects the DecisionStore facade: decisionStore.log({ ... action: ... })', () => {
+    // The loop-controller refactor migrates stage decision emission off
+    // safeLogDecision onto the stages/ DecisionStore facade. The audit must
+    // see those emit sites or the catalog goes blind. apply-outcome.js's
+    // stage_complete emission is the first such site.
+    const dir = makeFixtureDir({
+      'apply-outcome.js': `ctx.decisionStore.log({ project_id: 1, stage: currentStage, action: 'stage_complete', outcome: {} });`,
+    });
+    const { literal_emissions } = discoverEmitSites(dir);
+    expect([...literal_emissions.keys()]).toEqual(['stage_complete']);
+  });
+
+  it('records a dynamic-action site for decisionStore.log with a non-literal action', () => {
+    const dir = makeFixtureDir({
+      'foo.js': `decisionStore.log({ project_id: 1, action: someVar, outcome: {} });`,
+    });
+    const { literal_emissions, dynamic_action_sites } = discoverEmitSites(dir);
+    expect([...literal_emissions.keys()]).toEqual([]);
+    expect(dynamic_action_sites.length).toBe(1);
+  });
+
+  it('does not match an unrelated .log() call that happens to carry an action key', () => {
+    const dir = makeFixtureDir({
+      'foo.js': `logger.log({ action: 'not_a_decision' });`,
+    });
+    const { literal_emissions } = discoverEmitSites(dir);
+    expect([...literal_emissions.keys()]).toEqual([]);
+  });
 });
 
 describe('discoverClassifierRules', () => {

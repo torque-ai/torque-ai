@@ -1172,12 +1172,39 @@ prepare_local_gate_worktree() {
     return 0
   fi
 
-  local_gate_worktree_parent=$(mktemp -d "${TMPDIR:-/tmp}/pre-push-local-gate.XXXXXX")
+  local_gate_worktree_parent=$(mktemp -d "$(pre_push_local_gate_tmp_root)/pre-push-local-gate.XXXXXX")
   local_gate_worktree="$local_gate_worktree_parent/worktree"
   local_gate_script="$local_gate_worktree_parent/gate-command.sh"
   local_gate_lane_root="$local_gate_worktree_parent/lane"
   echo "[pre-push] Preparing local gate worktree at $local_gate_worktree for $local_head_sha..."
   git worktree add --force --detach "$local_gate_worktree" "$local_head_sha" >/dev/null
+}
+
+pre_push_local_gate_tmp_root() {
+  local candidate
+  if [ -n "${TORQUE_PRE_PUSH_LOCAL_TMPDIR:-}" ]; then
+    mkdir -p "$TORQUE_PRE_PUSH_LOCAL_TMPDIR"
+    printf '%s\n' "$TORQUE_PRE_PUSH_LOCAL_TMPDIR"
+    return 0
+  fi
+
+  if command -v cygpath >/dev/null 2>&1 || [ -n "${MSYSTEM:-}" ] || [ -n "${WINDIR:-}" ]; then
+    if command -v cygpath >/dev/null 2>&1; then
+      candidate=$(cygpath -u "${SystemDrive:-C:}\\tmp\\torque-pre-push" 2>/dev/null || true)
+      if [ -n "$candidate" ] && mkdir -p "$candidate" 2>/dev/null; then
+        printf '%s\n' "$candidate"
+        return 0
+      fi
+    fi
+    for candidate in "/c/tmp/torque-pre-push" "${TMPDIR:-/tmp}/torque-pre-push"; do
+      if mkdir -p "$candidate" 2>/dev/null; then
+        printf '%s\n' "$candidate"
+        return 0
+      fi
+    done
+  fi
+
+  printf '%s\n' "${TMPDIR:-/tmp}"
 }
 
 local_gate_path_for_env() {
