@@ -51,6 +51,7 @@ const { createLearnStageRunner } = require('./stages/learn');
 const { createVerifyStageRunner } = require('./stages/verify');
 const { createDecisionStore } = require('./stages/stores/decision');
 const { applyOutcome } = require('./stages/apply-outcome');
+const { derivePlanExecuteOutcome } = require('./stages/plan-execute-outcome');
 const logger = require('../logger').child({ component: 'loop-controller' });
 const { prepareWorktreeVerifyDependencies } = require('../utils/worktree-verify-deps');
 const {
@@ -14639,6 +14640,20 @@ async function runAdvanceLoop(instance_id) {
         instance_id,
         transitionWorkItem,
       });
+      // Phase 2c Step B: emit the uniform stage_complete decision.
+      // derivePlanExecuteOutcome maps the helper's 22-exit-point result
+      // to a StageOutcome without threading a disposition through every
+      // exit; the helper itself is unchanged.
+      applyOutcome(
+        {
+          project,
+          instance: planExec.instance || instance,
+          batchId: instance.batch_id ?? null,
+          decisionStore: stageDecisionStore,
+        },
+        currentState,
+        derivePlanExecuteOutcome(planExec),
+      );
       if (planExec.earlyReturn) {
         return planExec.earlyReturn;
       }
