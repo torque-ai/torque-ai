@@ -260,6 +260,33 @@ function insertBatchTask(db, { taskId, batchId, status }) {
   ]));
 }
 
+function insertAlreadyInPlaceNoopDecision(db, { projectId, batchId, taskId, planTaskNumber = 1 }) {
+  db.prepare(`
+    INSERT INTO factory_decisions (
+      project_id,
+      stage,
+      actor,
+      action,
+      reasoning,
+      outcome_json,
+      confidence,
+      batch_id
+    ) VALUES (?, 'execute', 'executor', 'auto_commit_skipped_clean', ?, ?, 1, ?)
+  `).run(
+    projectId,
+    'Approved plan task completed, but the factory worktree was already clean.',
+    JSON.stringify({
+      task_id: taskId,
+      plan_task_number: planTaskNumber,
+      files_changed: [],
+      zero_diff_reason: 'already_in_place',
+      classifier_source: 'heuristic',
+      classifier_conf: 1,
+    }),
+    batchId,
+  );
+}
+
 describe('factory loop-controller EXECUTE modes', () => {
   let db;
   let originalGetDbInstance;
@@ -1695,6 +1722,89 @@ Edit server/factory/plan-executor.js and make the requested behavior change. Kee
       }),
     });
     expect(decisions.find((d) => d.action === 'verify_reviewed_ambiguous_paused')).toBeUndefined();
+  });
+
+  it('auto-ships empty-branch verify when every batch task was already in place', async () => {
+    const { project, workItem } = registerPlanProject();
+    const batchId = `factory-${project.id}-${workItem.id}`;
+    const wtPathEmptyBranch = path.join(project.path, '.worktrees', 'feat-factory-empty-branch-noop');
+    fs.mkdirSync(wtPathEmptyBranch, { recursive: true });
+    const reviewSpy = vi.spyOn(verifyReview, 'reviewVerifyFailure');
+    reviewSpy.mockClear();
+    const worktreeRunner = {
+      createForBatch: vi.fn(async () => ({
+        id: 'vc-worktree-empty-branch-noop',
+        branch: 'feat/factory-empty-branch-noop',
+        worktreePath: wtPathEmptyBranch,
+      })),
+      verify: vi.fn(async () => ({
+        passed: false,
+        output: '[empty-branch] Branch feat/factory-empty-branch-noop has no commits ahead of main; nothing to verify.',
+        stderr: '[empty-branch] Branch feat/factory-empty-branch-noop has no commits ahead of main; nothing to verify.',
+        durationMs: 12,
+        reason: 'empty_branch',
+      })),
+      mergeToMain: vi.fn(),
+      abandon: vi.fn(),
+    };
+    let submittedTaskCount = 0;
+    routingModule.handleSmartSubmitTask = vi.fn(async () => {
+      submittedTaskCount += 1;
+      const taskId = `empty-branch-noop-task-${submittedTaskCount}`;
+      insertBatchTask(db, {
+        taskId,
+        batchId,
+        status: 'completed',
+      });
+      insertAlreadyInPlaceNoopDecision(db, {
+        projectId: project.id,
+        batchId,
+        taskId,
+        planTaskNumber: submittedTaskCount,
+      });
+      return { task_id: taskId };
+    });
+    loopController.setWorktreeRunnerForTests(worktreeRunner);
+
+    await advanceSupervisedPlanProject(project.id);
+    const verifyAdvance = await loopController.advanceLoopForProject(project.id);
+
+    expect(reviewSpy).not.toHaveBeenCalled();
+    expect(worktreeRunner.verify).toHaveBeenCalledTimes(1);
+    expect(verifyAdvance).toMatchObject({
+      previous_state: LOOP_STATES.EXECUTE,
+      new_state: LOOP_STATES.IDLE,
+      stage_result: expect.objectContaining({
+        status: 'shipped',
+        reason: 'all_tasks_already_in_place_empty_branch_at_verify',
+      }),
+    });
+    expect(factoryIntake.getWorkItem(workItem.id)).toMatchObject({
+      id: workItem.id,
+      status: 'shipped',
+    });
+    const decisions = listDecisionRows(db, project.id);
+    expect(decisions.find((d) => d.action === 'verify_empty_branch_auto_shipped')).toMatchObject({
+      outcome: expect.objectContaining({
+        work_item_id: workItem.id,
+        branch: 'feat/factory-empty-branch-noop',
+        reason: 'all_tasks_already_in_place',
+        resolution_source: 'batch_all_already_in_place',
+        noop_summary: expect.objectContaining({
+          matched: true,
+          task_count: submittedTaskCount,
+          no_op_count: submittedTaskCount,
+        }),
+      }),
+    });
+    expect(decisions.find((d) => d.action === 'verify_empty_branch_routed_to_needs_replan')).toBeUndefined();
+    expect(decisions.find((d) => d.action === 'verify_terminal_rejection_terminated')).toBeUndefined();
+    expect(decisions.find((d) => d.action === 'verify_terminal_shipped_terminated')).toMatchObject({
+      outcome: expect.objectContaining({
+        work_item_id: workItem.id,
+        status: 'shipped',
+      }),
+    });
   });
 
   it('pauses VERIFY_FAIL for controlled recovery when the verify reviewer times out', async () => {

@@ -5130,6 +5130,92 @@ function detectWorkItemShippedOnMain(project, workItem) {
   return detector.detectShipped({ content: planContent, title: workItem.title });
 }
 
+function getBatchAlreadyInPlaceNoopSummary(project_id, batch_id) {
+  if (!project_id || !batch_id) {
+    return { matched: false, reason: 'missing_context' };
+  }
+
+  const tasks = listTasksForFactoryBatch(batch_id);
+  if (tasks.length === 0) {
+    return { matched: false, reason: 'no_batch_tasks' };
+  }
+
+  const completedTasks = tasks.filter((task) => String(task.status || '').toLowerCase() === 'completed');
+  if (completedTasks.length !== tasks.length) {
+    return {
+      matched: false,
+      reason: 'batch_not_all_completed',
+      task_count: tasks.length,
+      completed_count: completedTasks.length,
+      non_completed_statuses: tasks
+        .filter((task) => String(task.status || '').toLowerCase() !== 'completed')
+        .map((task) => ({ task_id: task.id, status: task.status || null })),
+    };
+  }
+
+  const db = getDatabaseHandle();
+  if (!db || typeof db.prepare !== 'function') {
+    return { matched: false, reason: 'missing_db' };
+  }
+
+  let rows = [];
+  try {
+    rows = db.prepare(`
+      SELECT outcome_json
+      FROM factory_decisions
+      WHERE project_id = ?
+        AND batch_id = ?
+        AND stage = 'execute'
+        AND action = 'auto_commit_skipped_clean'
+      ORDER BY id ASC
+    `).all(project_id, batch_id);
+  } catch (error) {
+    logger.debug({ err: error.message, project_id, batch_id }, 'Unable to inspect already-in-place no-op decisions');
+    return { matched: false, reason: 'decision_query_failed' };
+  }
+
+  const alreadyInPlaceTaskIds = new Set();
+  const evidence = [];
+  for (const row of rows) {
+    const outcome = parseJsonObject(row.outcome_json);
+    const taskId = outcome?.task_id ? String(outcome.task_id) : null;
+    const reason = String(outcome?.zero_diff_reason || '').trim();
+    const confidence = Number(outcome?.classifier_conf);
+    if (!taskId || reason !== 'already_in_place' || !Number.isFinite(confidence) || confidence < 0.8) {
+      continue;
+    }
+    alreadyInPlaceTaskIds.add(taskId);
+    evidence.push({
+      task_id: taskId,
+      plan_task_number: outcome?.plan_task_number ?? null,
+      classifier_source: outcome?.classifier_source || null,
+      classifier_conf: confidence,
+    });
+  }
+
+  const missingTaskIds = completedTasks
+    .map((task) => String(task.id))
+    .filter((taskId) => !alreadyInPlaceTaskIds.has(taskId));
+
+  if (missingTaskIds.length > 0) {
+    return {
+      matched: false,
+      reason: 'not_all_tasks_already_in_place',
+      task_count: completedTasks.length,
+      no_op_count: alreadyInPlaceTaskIds.size,
+      missing_task_ids: missingTaskIds,
+    };
+  }
+
+  return {
+    matched: true,
+    reason: 'all_tasks_already_in_place',
+    task_count: completedTasks.length,
+    no_op_count: alreadyInPlaceTaskIds.size,
+    evidence,
+  };
+}
+
 function resolveVerifyEmptyBranch({
   project,
   project_id,
@@ -5175,6 +5261,31 @@ function resolveVerifyEmptyBranch({
     return {
       status: 'shipped',
       reason: 'auto_shipped_empty_branch_at_verify',
+      branch: worktreeRecord.branch,
+      worktree_path: worktreeRecord.worktreePath,
+    };
+  }
+
+  const noopSummary = getBatchAlreadyInPlaceNoopSummary(project_id, batch_id);
+  if (resolvedWorkItem && noopSummary.matched) {
+    factoryIntake.updateWorkItem(resolvedWorkItem.id, { status: 'shipped' });
+    safeLogDecision({
+      project_id,
+      stage: LOOP_STATES.VERIFY,
+      action: 'verify_empty_branch_auto_shipped',
+      reasoning: `VERIFY found no commits ahead for ${worktreeRecord.branch}, but every completed batch task was classified as already_in_place with high confidence. Marking shipped instead of re-planning the same no-op work.`,
+      outcome: {
+        ...sharedOutcome,
+        reason: 'all_tasks_already_in_place',
+        resolution_source: 'batch_all_already_in_place',
+        noop_summary: noopSummary,
+      },
+      confidence: 1,
+      batch_id,
+    });
+    return {
+      status: 'shipped',
+      reason: 'all_tasks_already_in_place_empty_branch_at_verify',
       branch: worktreeRecord.branch,
       worktree_path: worktreeRecord.worktreePath,
     };
