@@ -9,22 +9,6 @@ const { resolveContainerDbService, unwrapDbHandle } = require('../utils/db-acces
 const KNOWN_TYPES = new Set(Object.values(EVENT_TYPES));
 const MAX_PAYLOAD_BYTES = 100000;
 const STRING_TRUNCATE_LENGTH = 4000;
-let _dbService = null;
-
-function init(deps = {}) {
-  if (Object.prototype.hasOwnProperty.call(deps, 'db')) {
-    _dbService = deps.db;
-  }
-  return module.exports;
-}
-
-function getDb() {
-  const db = unwrapDbHandle(_dbService) || unwrapDbHandle(resolveContainerDbService(defaultContainer));
-  if (!db || typeof db.prepare !== 'function') {
-    throw new Error('Database is not initialized');
-  }
-  return db;
-}
 
 function stringifyPayload(payload) {
   try {
@@ -79,38 +63,98 @@ function emitRealtimeEvent(evt) {
   }
 }
 
-function emitTaskEvent({ task_id, workflow_id = null, type, actor = null, payload = {} }) {
-  if (!KNOWN_TYPES.has(type)) {
-    throw new Error(`Unknown event type: ${type}`);
+function createEventEmitter(initialDeps = {}) {
+  let dbService = null;
+
+  function init(deps = {}) {
+    if (Object.prototype.hasOwnProperty.call(deps, 'db')) {
+      dbService = deps.db;
+    }
+    return api;
   }
-  if (!task_id || typeof task_id !== 'string') {
-    throw new Error('task_id is required');
+
+  function getDb() {
+    const db = unwrapDbHandle(dbService) || unwrapDbHandle(resolveContainerDbService(defaultContainer));
+    if (!db || typeof db.prepare !== 'function') {
+      throw new Error('Database is not initialized');
+    }
+    return db;
   }
 
-  const db = getDb();
-  const ts = new Date().toISOString();
-  const payloadJson = truncatePayload(payload);
+  function emitTaskEvent({ task_id, workflow_id = null, type, actor = null, payload = {} }) {
+    if (!KNOWN_TYPES.has(type)) {
+      throw new Error(`Unknown event type: ${type}`);
+    }
+    if (!task_id || typeof task_id !== 'string') {
+      throw new Error('task_id is required');
+    }
 
-  const result = db.prepare(`
-    INSERT INTO task_events (
-      task_id, workflow_id, ts, type, actor, payload_json,
-      event_type, event_data, created_at
-    )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(task_id, workflow_id, ts, type, actor, payloadJson, type, payloadJson, ts);
+    const db = getDb();
+    const ts = new Date().toISOString();
+    const payloadJson = truncatePayload(payload);
 
-  const evt = {
-    id: result.lastInsertRowid,
-    task_id,
-    workflow_id,
-    ts,
-    type,
-    actor,
-    payload: payload || {},
-  };
+    const result = db.prepare(`
+      INSERT INTO task_events (
+        task_id, workflow_id, ts, type, actor, payload_json,
+        event_type, event_data, created_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(task_id, workflow_id, ts, type, actor, payloadJson, type, payloadJson, ts);
 
-  emitRealtimeEvent(evt);
-  return evt;
+    const evt = {
+      id: result.lastInsertRowid,
+      task_id,
+      workflow_id,
+      ts,
+      type,
+      actor,
+      payload: payload || {},
+    };
+
+    emitRealtimeEvent(evt);
+    return evt;
+  }
+
+  function listEvents({ task_id = null, workflow_id = null, type = null, since = null, limit = 1000 } = {}) {
+    const where = [];
+    const params = [];
+
+    if (task_id) {
+      where.push('task_id = ?');
+      params.push(task_id);
+    }
+    if (workflow_id) {
+      where.push('workflow_id = ?');
+      params.push(workflow_id);
+    }
+    if (type) {
+      where.push('type = ?');
+      params.push(type);
+    }
+    if (since) {
+      where.push('ts >= ?');
+      params.push(since);
+    }
+
+    const normalizedLimit = Number.isInteger(limit) && limit > 0 ? limit : 1000;
+    params.push(normalizedLimit);
+
+    const rows = getDb().prepare(`
+      SELECT * FROM task_events
+      ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
+      ORDER BY ts ASC, id ASC
+      LIMIT ?
+    `).all(...params);
+
+    return rows.map((row) => ({
+      ...row,
+      payload: parsePayload(row.payload_json),
+    }));
+  }
+
+  const api = { init, emitTaskEvent, listEvents };
+  init(initialDeps);
+  return api;
 }
 
 function parsePayload(payloadJson) {
@@ -122,41 +166,16 @@ function parsePayload(payloadJson) {
   }
 }
 
-function listEvents({ task_id = null, workflow_id = null, type = null, since = null, limit = 1000 } = {}) {
-  const where = [];
-  const params = [];
+const defaultEmitter = createEventEmitter();
 
-  if (task_id) {
-    where.push('task_id = ?');
-    params.push(task_id);
-  }
-  if (workflow_id) {
-    where.push('workflow_id = ?');
-    params.push(workflow_id);
-  }
-  if (type) {
-    where.push('type = ?');
-    params.push(type);
-  }
-  if (since) {
-    where.push('ts >= ?');
-    params.push(since);
-  }
-
-  const normalizedLimit = Number.isInteger(limit) && limit > 0 ? limit : 1000;
-  params.push(normalizedLimit);
-
-  const rows = getDb().prepare(`
-    SELECT * FROM task_events
-    ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
-    ORDER BY ts ASC, id ASC
-    LIMIT ?
-  `).all(...params);
-
-  return rows.map((row) => ({
-    ...row,
-    payload: parsePayload(row.payload_json),
-  }));
+function init(deps = {}) {
+  defaultEmitter.init(deps);
+  return module.exports;
 }
 
-module.exports = { init, emitTaskEvent, listEvents };
+module.exports = {
+  init,
+  emitTaskEvent: (...args) => defaultEmitter.emitTaskEvent(...args),
+  listEvents: (...args) => defaultEmitter.listEvents(...args),
+  createEventEmitter,
+};

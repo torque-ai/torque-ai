@@ -496,3 +496,41 @@ describe('FreeQuotaTracker', () => {
     });
   });
 });
+
+describe('free-quota-tracker-singleton factory', () => {
+  const { createFreeQuotaTrackerSingleton } = require('../tasks/free-quota-tracker-singleton');
+
+  function createDb(rpmLimit) {
+    return {
+      getProviderRateLimits: vi.fn(() => [
+        { provider: 'groq', rpm_limit: rpmLimit, rpd_limit: 100, tpm_limit: 1000, tpd_limit: 10000 },
+      ]),
+      recordDailySnapshot: vi.fn(),
+    };
+  }
+
+  it('keeps tracker cache and db binding scoped to each factory instance', () => {
+    const firstDb = createDb(7);
+    const secondDb = createDb(11);
+    const firstSingleton = createFreeQuotaTrackerSingleton({ db: firstDb });
+    const secondSingleton = createFreeQuotaTrackerSingleton({ db: secondDb });
+
+    const firstTracker = firstSingleton.getFreeQuotaTracker();
+    const cachedFirstTracker = firstSingleton.getFreeQuotaTracker();
+    const secondTracker = secondSingleton.getFreeQuotaTracker();
+
+    expect(cachedFirstTracker).toBe(firstTracker);
+    expect(secondTracker).not.toBe(firstTracker);
+    expect(firstTracker.providers.get('groq').rpm_limit).toBe(7);
+    expect(secondTracker.providers.get('groq').rpm_limit).toBe(11);
+    expect(firstDb.getProviderRateLimits).toHaveBeenCalledTimes(1);
+    expect(secondDb.getProviderRateLimits).toHaveBeenCalledTimes(1);
+
+    firstSingleton._resetForTest();
+    const rebuiltFirstTracker = firstSingleton.getFreeQuotaTracker();
+
+    expect(rebuiltFirstTracker).not.toBe(firstTracker);
+    expect(rebuiltFirstTracker.providers.get('groq').rpm_limit).toBe(7);
+    expect(firstDb.getProviderRateLimits).toHaveBeenCalledTimes(2);
+  });
+});

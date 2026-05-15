@@ -2,13 +2,11 @@
 
 const defaultModelRegistry = require('../models/registry');
 
-let _deps = {};
-
 function init(deps = {}) {
-  _deps = { ...deps };
-  if (_deps.db && typeof defaultModelRegistry.setDb === 'function') {
-    defaultModelRegistry.setDb(_deps.db);
+  if (deps.db && typeof defaultModelRegistry.setDb === 'function') {
+    defaultModelRegistry.setDb(deps.db);
   }
+  return module.exports;
 }
 
 function getModelRegistry(deps = {}) {
@@ -83,6 +81,6 @@ function createModelRegistryHandlers(deps) {
 module.exports = {
   init,
   createModelRegistryHandlers,
-  handleListModels: (args) => handleListModels(args, _deps),
-  handleAssignModelRole: (args) => handleAssignModelRole(args, _deps),
+  handleListModels: (args) => handleListModels(args),
+  handleAssignModelRole: (args) => handleAssignModelRole(args),
 };

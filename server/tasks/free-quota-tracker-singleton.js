@@ -14,7 +14,7 @@
  * resolution path don't clutter the composition root.
  *
  * Concurrency note: Node.js is single-threaded, so the
- *   if (!_tracker) ...
+ *   if (!tracker) ...
  * check is race-free under the event loop. If this function were
  * ever called from worker threads, the check would not be atomic
  * and a mutex would be needed.
@@ -43,51 +43,62 @@ function mergeDefaultFreeProviderRateLimits(limits = []) {
   return Array.from(byProvider.values());
 }
 
-let _db = null;
-let _tracker = null;
-
 /**
- * @internal — test-only override path. Production lazy-resolves _db via
+ * @internal — test-only override path. Production lazy-resolves db via
  * defaultContainer.peek('db') inside getFreeQuotaTracker.
  */
-function init({ db } = {}) {
-  if (db) _db = db;
-}
+function createFreeQuotaTrackerSingleton(initialDeps = {}) {
+  let dbInstance = initialDeps.db || null;
+  let tracker = null;
 
-function ensureDb() {
-  if (_db) return _db;
-  try {
-    _db = require('../container').defaultContainer.peek('db') || null;
-  } catch { /* container not yet available */ }
-  return _db;
-}
-
-function getFreeQuotaTracker() {
-  if (!_tracker) {
-    ensureDb();
-    if (!_db) {
-      throw new Error('free-quota-tracker-singleton: db not available — register a db value in the DI container before calling getFreeQuotaTracker()');
-    }
-    const limits = mergeDefaultFreeProviderRateLimits(
-      _db.getProviderRateLimits ? _db.getProviderRateLimits() : []
-    );
-    _tracker = new FreeQuotaTracker(limits);
-    if (_db.recordDailySnapshot) {
-      _tracker.setDb(_db);
-    }
+  function init({ db } = {}) {
+    if (db) dbInstance = db;
   }
-  return _tracker;
+
+  function ensureDb() {
+    if (dbInstance) return dbInstance;
+    try {
+      dbInstance = require('../container').defaultContainer.peek('db') || null;
+    } catch { /* container not yet available */ }
+    return dbInstance;
+  }
+
+  function getFreeQuotaTracker() {
+    if (!tracker) {
+      ensureDb();
+      if (!dbInstance) {
+        throw new Error('free-quota-tracker-singleton: db not available — register a db value in the DI container before calling getFreeQuotaTracker()');
+      }
+      const limits = mergeDefaultFreeProviderRateLimits(
+        dbInstance.getProviderRateLimits ? dbInstance.getProviderRateLimits() : []
+      );
+      tracker = new FreeQuotaTracker(limits);
+      if (dbInstance.recordDailySnapshot) {
+        tracker.setDb(dbInstance);
+      }
+    }
+    return tracker;
+  }
+
+  // Test helper — release the cached tracker so the next call rebuilds it.
+  function resetForTest() {
+    tracker = null;
+  }
+
+  return {
+    init,
+    getFreeQuotaTracker,
+    _resetForTest: resetForTest,
+  };
 }
 
-// Test helper — release the cached tracker so the next call rebuilds it.
-function _resetForTest() {
-  _tracker = null;
-}
+const singleton = createFreeQuotaTrackerSingleton();
 
 module.exports = {
-  init,
-  getFreeQuotaTracker,
+  init: singleton.init,
+  getFreeQuotaTracker: singleton.getFreeQuotaTracker,
   mergeDefaultFreeProviderRateLimits,
   DEFAULT_FREE_PROVIDER_RATE_LIMITS,
-  _resetForTest,
+  _resetForTest: singleton._resetForTest,
+  createFreeQuotaTrackerSingleton,
 };
