@@ -166,10 +166,10 @@ function failWorkflowBudgetExhausted(db, workflowId, reason) {
   // Cancel remaining queued/pending tasks belonging to this workflow.
   db.prepare(
     `UPDATE tasks
-     SET status = 'cancelled', result = ?
+     SET status = 'cancelled', cancel_reason = ?, completed_at = ?
      WHERE workflow_id = ?
        AND status IN ('queued', 'pending')`
-  ).run('Budget ceiling exceeded', workflowId);
+  ).run('Budget ceiling exceeded', now, workflowId);
 }
 
 module.exports = {

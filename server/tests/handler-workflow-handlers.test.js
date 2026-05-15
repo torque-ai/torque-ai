@@ -1260,6 +1260,10 @@ describe('cost-ceiling-enforcement', () => {
   let dbHandle;
 
   beforeAll(() => {
+    // Restore any lingering spies from the prior describe block (e.g.
+    // taskCore.createTask mocked to return undefined) so that real DB
+    // inserts work in these integration tests.
+    vi.restoreAllMocks();
     setupTestDbOnly('cost-ceiling');
     dbHandle = rawDb();
     // Wire cost-tracking module to the same test db handle
@@ -1326,12 +1330,12 @@ describe('cost-ceiling-enforcement', () => {
     expect(workflow.context.budget_exhausted_reason).toContain('Subscription task count');
 
     // Verify remaining pending tasks are cancelled
-    const t3Row = dbHandle.prepare('SELECT status, result FROM tasks WHERE id = ?').get(t3);
-    const t4Row = dbHandle.prepare('SELECT status, result FROM tasks WHERE id = ?').get(t4);
+    const t3Row = dbHandle.prepare('SELECT status, cancel_reason FROM tasks WHERE id = ?').get(t3);
+    const t4Row = dbHandle.prepare('SELECT status, cancel_reason FROM tasks WHERE id = ?').get(t4);
     expect(t3Row.status).toBe('cancelled');
-    expect(t3Row.result).toBe('Budget ceiling exceeded');
+    expect(t3Row.cancel_reason).toBe('Budget ceiling exceeded');
     expect(t4Row.status).toBe('cancelled');
-    expect(t4Row.result).toBe('Budget ceiling exceeded');
+    expect(t4Row.cancel_reason).toBe('Budget ceiling exceeded');
   });
 
   it('cost_ceiling_usd halts workflow when API cost reaches ceiling', () => {
