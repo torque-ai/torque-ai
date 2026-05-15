@@ -1508,6 +1508,10 @@ function getRunningTasksLightweight() {
       max_retries,
       mcp_instance_id,
       ollama_host_id,
+      pid,
+      subprocess_pid,
+      output_log_path,
+      error_log_path,
       workflow_id,
       working_directory,
       task_description
