@@ -12,6 +12,7 @@
 const crypto = require('crypto');
 const credCrypto = require('../utils/credential-crypto');
 const { safeJsonParse } = require('../utils/json');
+const { sanitizePayloadObject, fenceWebhookContent } = require('../utils/webhook-payload-sanitizer');
 
 let db;
 
@@ -150,6 +151,43 @@ function cleanupOldDeliveries(maxAgeDays = 7) {
 }
 
 /**
+ * Build a sanitized, fence-delimited task description from a template and
+ * webhook payload.
+ *
+ * 1. Sanitizes the raw payload via `sanitizePayloadObject` (strips null bytes,
+ *    normalizes fullwidth confusables, truncates values, blocks prototype-
+ *    pollution keys).
+ * 2. Substitutes `{{payload.field}}` placeholders using the sanitized values.
+ *    Supports dot-notation for one level of nesting (e.g. `{{payload.repo.name}}`).
+ * 3. Wraps the fully-substituted string in BEGIN/END EXTERNAL WEBHOOK DATA
+ *    fences so downstream prompt builders can distinguish webhook-originated
+ *    content from operator-authored text.
+ *
+ * @param {string} template - The task_description template containing {{payload.*}} placeholders.
+ * @param {Object} payload  - The raw webhook request body (req.body).
+ * @returns {string} The sanitized, substituted, fence-delimited description.
+ */
+function buildDescription(template, payload) {
+  const safePayload = sanitizePayloadObject(payload);
+
+  const result = template.replace(/\{\{payload\.([^}]+)\}\}/g, (match, path) => {
+    const keys = path.split('.');
+    let value = safePayload;
+    for (const key of keys) {
+      if (value == null || typeof value !== 'object') return match;
+      if (!Object.prototype.hasOwnProperty.call(value, key)) return match;
+      value = value[key];
+    }
+    if (value == null) return match;
+    // safePayload values are already sanitized strings (or nested objects with
+    // sanitized string leaves), so we just coerce to string here.
+    return String(value);
+  });
+
+  return fenceWebhookContent(result);
+}
+
+/**
  * Factory: create an inbound-webhooks instance with injected db.
  * @param {{ db: object }} deps
  */
@@ -164,6 +202,7 @@ function createInboundWebhooks({ db: dbInstance }) {
     checkDeliveryExists,
     recordDelivery,
     cleanupOldDeliveries,
+    buildDescription,
   };
 }
 
@@ -177,5 +216,6 @@ module.exports = {
   checkDeliveryExists,
   recordDelivery,
   cleanupOldDeliveries,
+  buildDescription,
   createInboundWebhooks,
 };

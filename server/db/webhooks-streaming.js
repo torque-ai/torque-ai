@@ -11,6 +11,7 @@
 
 const credCrypto = require('../utils/credential-crypto');
 const { safeJsonParse } = require('../utils/json');
+const { sanitizePayloadObject } = require('../utils/webhook-payload-sanitizer');
 
 let db;
 
@@ -270,6 +271,10 @@ function setWebhookDeliveryExecutor(fn) {
 }
 
 function logWebhookDelivery({ webhookId, event, taskId, payload, responseStatus, responseBody, success, error, attempt = 0, maxRetries, retryable = false }) {
+  // SECURITY: sanitize payload before storage to prevent prompt injection if
+  // logged payloads are later surfaced in task descriptions or LLM prompts.
+  const safePayload = sanitizePayloadObject(payload);
+
   const stmt = db.prepare(`
     INSERT INTO webhook_logs (webhook_id, event, task_id, payload, response_status, response_body, success, error, triggered_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -279,7 +284,7 @@ function logWebhookDelivery({ webhookId, event, taskId, payload, responseStatus,
     webhookId,
     event,
     taskId,
-    JSON.stringify(payload),
+    JSON.stringify(safePayload),
     responseStatus,
     responseBody,
     success ? 1 : 0,

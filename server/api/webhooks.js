@@ -4,6 +4,7 @@ const crypto = require('crypto');
 const inboundWebhooks = require('../db/inbound-webhooks');
 const { handleToolCall } = require('../tools');
 const { sendJson } = require('./middleware');
+const { sanitizePayloadObject } = require('../utils/webhook-payload-sanitizer');
 
 const RAW_WEBHOOK_BODY_LIMIT_BYTES = 10 * 1024 * 1024; // 10MB
 const BODY_PARSE_TIMEOUT_MS = 30000;
@@ -168,11 +169,16 @@ async function handleInboundWebhook(req, res, webhookName, _context = {}) {
     }
   }
 
+  // SECURITY: sanitize payload at the route boundary before any template processing.
+  // Strips null bytes, normalizes fullwidth confusables, truncates values, and blocks
+  // prototype-pollution keys. Raw `payload` must never flow unsanitized into task descriptions.
+  const safePayload = sanitizePayloadObject(payload);
+
   // Substitute {{payload.*}} in task description
   const actionConfig = webhook.action_config;
   const taskDescription = substitutePayload(
     (actionConfig?.task_description || ''),
-    payload
+    safePayload
   );
 
   // Build task args
