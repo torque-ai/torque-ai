@@ -16,6 +16,7 @@ const BASH_EXECUTABLE = process.platform === 'win32' && fs.existsSync(GIT_BASH_P
 
 const LOCAL_SHA = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
 const OLD_SHA = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+const NEW_SHA = 'cccccccccccccccccccccccccccccccccccccccc';
 
 function toBashPath(filePath) {
   const normalized = filePath.replace(/\\/g, '/');
@@ -37,6 +38,16 @@ function makeFakeGitEnv(options = {}) {
 set -euo pipefail
 printf '%s\\n' "$*" >> "$FAKE_GIT_LOG"
 
+state_value() {
+  local file="$1"
+  local fallback="$2"
+  if [ -f "$file" ]; then
+    cat "$file"
+  else
+    printf '%s\\n' "$fallback"
+  fi
+}
+
 if [ "$1" = "rev-parse" ] && [ "$2" = "--show-toplevel" ]; then
   printf '%s\\n' "$FAKE_REPO"
   exit 0
@@ -52,13 +63,15 @@ fi
 if [ "$1" = "rev-parse" ]; then
   case "$2" in
     *'^{commit}')
-      printf '%s\\n' "$FAKE_LOCAL_SHA"
+      state_value "$FAKE_STATE/local-sha" "$FAKE_LOCAL_SHA"
       exit 0
       ;;
   esac
 fi
 if [ "$1" = "ls-remote" ]; then
-  if [ -f "$FAKE_STATE/push-called" ]; then
+  if [ -f "$FAKE_STATE/remote-sha" ]; then
+    printf '%s\\trefs/heads/main\\n' "$(cat "$FAKE_STATE/remote-sha")"
+  elif [ -f "$FAKE_STATE/push-called" ]; then
     printf '%s\\trefs/heads/main\\n' "$FAKE_REMOTE_AFTER"
   else
     printf '%s\\trefs/heads/main\\n' "$FAKE_REMOTE_BEFORE"
@@ -66,10 +79,32 @@ if [ "$1" = "ls-remote" ]; then
   exit 0
 fi
 if [ "$1" = "push" ]; then
+  count=0
+  if [ -f "$FAKE_STATE/push-count" ]; then
+    count="$(cat "$FAKE_STATE/push-count")"
+  fi
+  count=$((count + 1))
+  printf '%s\\n' "$count" > "$FAKE_STATE/push-count"
   touch "$FAKE_STATE/push-called"
+  if [ "$count" -eq 1 ] && [ -n "$FAKE_LOCAL_SHA_AFTER_FIRST_PUSH" ]; then
+    printf '%s\\n' "$FAKE_LOCAL_SHA_AFTER_FIRST_PUSH" > "$FAKE_STATE/local-sha"
+  fi
+  if [ "$count" -eq 1 ] && [ -n "$FAKE_REMOTE_AFTER_FIRST_PUSH" ]; then
+    printf '%s\\n' "$FAKE_REMOTE_AFTER_FIRST_PUSH" > "$FAKE_STATE/remote-sha"
+  fi
+  if [ "$count" -eq 2 ] && [ -n "$FAKE_REMOTE_AFTER_SECOND_PUSH" ]; then
+    printf '%s\\n' "$FAKE_REMOTE_AFTER_SECOND_PUSH" > "$FAKE_STATE/remote-sha"
+  fi
+  push_exit="$FAKE_PUSH_EXIT"
+  if [ -n "$FAKE_PUSH_EXIT_SEQUENCE" ]; then
+    sequence_value="$(printf '%s\\n' $FAKE_PUSH_EXIT_SEQUENCE | sed -n "\${count}p" || true)"
+    if [ -n "$sequence_value" ]; then
+      push_exit="$sequence_value"
+    fi
+  fi
   if [ -n "$FAKE_PUSH_STDOUT" ]; then printf '%s\\n' "$FAKE_PUSH_STDOUT"; fi
   if [ -n "$FAKE_PUSH_STDERR" ]; then printf '%s\\n' "$FAKE_PUSH_STDERR" >&2; fi
-  exit "$FAKE_PUSH_EXIT"
+  exit "$push_exit"
 fi
 
 printf 'unexpected git invocation: %s\\n' "$*" >&2
@@ -92,8 +127,12 @@ exit 64
     FAKE_REMOTE_BEFORE: options.remoteBefore || OLD_SHA,
     FAKE_REMOTE_AFTER: options.remoteAfter || options.remoteBefore || OLD_SHA,
     FAKE_PUSH_EXIT: String(options.pushExit ?? 0),
+    FAKE_PUSH_EXIT_SEQUENCE: options.pushExitSequence || '',
     FAKE_PUSH_STDOUT: options.pushStdout || '',
     FAKE_PUSH_STDERR: options.pushStderr || '',
+    FAKE_LOCAL_SHA_AFTER_FIRST_PUSH: options.localShaAfterFirstPush || '',
+    FAKE_REMOTE_AFTER_FIRST_PUSH: options.remoteAfterFirstPush || '',
+    FAKE_REMOTE_AFTER_SECOND_PUSH: options.remoteAfterSecondPush || '',
   };
 
   return {
@@ -101,7 +140,7 @@ exit 64
     repo,
     fakeBin,
     env,
-    logPath: env.FAKE_GIT_LOG,
+    logPath: path.join(state, 'git.log'),
     cleanup: () => fs.rmSync(root, { recursive: true, force: true }),
   };
 }
@@ -229,6 +268,28 @@ describe('torque-push wrapper', () => {
       expect(result.stderr).toContain('[pre-push] COALESCED:');
       expect(result.stderr).not.toContain('cannot lock ref');
       expect(result.stdout).toContain('treating as success');
+    } finally {
+      fake.cleanup();
+    }
+  });
+
+  it('retries from the new local ref when main moves while a stale hook was waiting', () => {
+    const fake = makeFakeGitEnv({
+      remoteBefore: OLD_SHA,
+      remoteAfter: OLD_SHA,
+      localShaAfterFirstPush: NEW_SHA,
+      pushExitSequence: '1 0',
+      pushStderr: '[pre-push] BLOCKED: local ref refs/heads/main moved while waiting for the gate lock.',
+    });
+    try {
+      const result = runWrapper(fake);
+
+      expect(result.status, result.stderr).toBe(0);
+      const calls = fs.readFileSync(fake.logPath, 'utf8');
+      expect(result.stderr).toContain('local ref refs/heads/main moved');
+      expect(result.stdout).toContain('local ref HEAD moved from aaaaaaaaaaaa to cccccccccccc while waiting; retrying from the new tip.');
+      expect(calls.match(/^push$/gm)?.length || 0).toBe(2);
+      expect(calls).toContain('rev-parse HEAD^{commit}');
     } finally {
       fake.cleanup();
     }
