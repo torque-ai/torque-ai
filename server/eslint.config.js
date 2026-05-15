@@ -308,7 +308,6 @@ module.exports = [
           'task-execution-hooks.js',
           'v2-dispatch.js',
           'v2-governance-handlers.js',
-          'v2-infrastructure-handlers.js',
           'v2-task-handlers.js',
           'workflow-runtime.js',
         ],

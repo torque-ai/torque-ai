@@ -22,8 +22,9 @@ const {
 } = require('./v2-control-plane');
 const { parseBody } = require('./middleware');
 
-let _taskManager = null;
-let _remoteAgentRegistry = null;
+const handlerState = {
+  remoteAgentRegistry: null,
+};
 
 const CREDENTIAL_DENYLIST_FIELDS = [
   'encrypted_value',
@@ -88,14 +89,8 @@ function normalizeInitDeps(depsOrTaskManager) {
 function init(depsOrTaskManager = {}) {
   const deps = normalizeInitDeps(depsOrTaskManager);
 
-  if (Object.keys(deps).length > 0) {
-    if (Object.prototype.hasOwnProperty.call(deps, 'taskManager')) {
-      _taskManager = deps.taskManager;
-    }
-    if (Object.prototype.hasOwnProperty.call(deps, 'remoteAgentRegistry')) {
-      _remoteAgentRegistry = deps.remoteAgentRegistry || null;
-    }
-    return module.exports;
+  if (Object.prototype.hasOwnProperty.call(deps, 'remoteAgentRegistry')) {
+    handlerState.remoteAgentRegistry = deps.remoteAgentRegistry || null;
   }
 
   return module.exports;
@@ -554,9 +549,9 @@ async function handleDeleteCredential(req, res) {
 
 // ─── Remote Agents ──────────────────────────────────────────────────────────
 
-function _resetRegistryCache() { _remoteAgentRegistry = null; }
+function _resetRegistryCache() { handlerState.remoteAgentRegistry = null; }
 function _getRegistry() {
-  return _remoteAgentRegistry;
+  return handlerState.remoteAgentRegistry;
 }
 
 function _sanitizeAgent(agent) {
