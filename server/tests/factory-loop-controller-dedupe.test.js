@@ -37,6 +37,7 @@ describe('findExistingPlanTaskSubmission', () => {
     })).toEqual({
       task_id: 'current-running',
       status: 'running',
+      same_batch: true,
     });
 
     expect(listTasks).toHaveBeenCalledWith(expect.objectContaining({
@@ -65,6 +66,7 @@ describe('findExistingPlanTaskSubmission', () => {
     })).toEqual({
       task_id: 'prior-completed',
       status: 'completed',
+      same_batch: false,
     });
   });
 
@@ -93,6 +95,7 @@ describe('findExistingPlanTaskSubmission', () => {
     })).toEqual({
       task_id: 'prior-completed',
       status: 'completed',
+      same_batch: false,
     });
 
     expect(listTasks).toHaveBeenCalledWith(expect.objectContaining({
@@ -125,6 +128,7 @@ describe('findExistingPlanTaskSubmission', () => {
     })).toEqual({
       task_id: 'fresh-pending',
       status: 'pending',
+      same_batch: true,
     });
   });
 
@@ -196,6 +200,7 @@ describe('findExistingPlanTaskSubmission', () => {
     })).toEqual({
       task_id: 'current-completed',
       status: 'completed',
+      same_batch: true,
     });
   });
 });
