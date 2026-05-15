@@ -20,6 +20,7 @@ const { runPhantomSuccessDetection, runCodexBannerOnlyDetection } = require('../
 const { parseDiffusionSignal } = require('../diffusion/signal-parser');
 const { parseComputeOutput, validateComputeSchema } = require('../diffusion/compute-output-parser');
 const { expandApplyTaskDescription } = require('../diffusion/planner');
+const { matchHeuristic: matchZeroDiffHeuristic } = require('../factory/completion-rationale');
 const { safeJsonParse } = require('../utils/json');
 const resumeContextUtils = require('../utils/resume-context');
 const {
@@ -312,6 +313,10 @@ function shouldFailCompletedFactoryNoChange(ctx) {
   const metadata = mergeTaskMetadata(task, ctx);
   if (!isFactoryBatchExecutionTask(task, metadata)) return false;
   if (taskExplicitlyReadOnlyForNoFileDetection(task, metadata)) return false;
+  const zeroDiffSignal = matchZeroDiffHeuristic(buildCombinedOutput(ctx.output, ctx.errorOutput));
+  if (zeroDiffSignal?.reason === 'already_in_place' && zeroDiffSignal.confidence >= 0.8) {
+    return false;
+  }
 
   return true;
 }

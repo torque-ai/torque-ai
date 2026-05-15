@@ -657,6 +657,59 @@ describe('task-finalizer', () => {
     });
   });
 
+  it('allows already-in-place factory no-op completions to reach post-completion hooks', async () => {
+    const dbBundle = createTaskDb({
+      provider: 'claude-cli',
+      max_retries: 2,
+      retry_count: 0,
+      task_description: 'Plan: Factory Lane Policy Editor Implementation Plan\nTask 2: Create Approvals.test.jsx coverage',
+      tags: [
+        'factory:batch_id=factory-a3df749a-7869-486f-9896-64d38d25d39b-2274',
+        'factory:work_item_id=2274',
+        'factory:plan_task_number=2',
+      ],
+    });
+    const { db } = dbBundle;
+    const handleRetryLogic = vi.fn();
+    const handlePostCompletion = vi.fn();
+    const logFactoryDecision = vi.fn();
+    const scopedFinalizer = finalizer.createTaskFinalizer({
+      db,
+      safeUpdateTaskStatus: vi.fn((...args) => db.updateTaskStatus(...args)),
+      sanitizeTaskOutput: (value) => value || '',
+      extractModifiedFiles: vi.fn(() => []),
+      handleRetryLogic,
+      handleSafeguardChecks: vi.fn(),
+      handleFuzzyRepair: vi.fn(),
+      handleAutoValidation: vi.fn(),
+      handleBuildTestStyleCommit: vi.fn(),
+      handleAutoVerifyRetry: vi.fn(async () => {}),
+      handleProviderFailover: vi.fn(),
+      handlePostCompletion,
+      logFactoryDecision,
+    });
+
+    const result = await scopedFinalizer.finalizeTask(dbBundle.taskId, {
+      exitCode: 0,
+      output: 'The task is already complete. The requested tests already exist in ProjectSettings.test.jsx and pass.',
+      errorOutput: '',
+      filesModified: [],
+    });
+
+    const storedTask = dbBundle.getStoredTask();
+    expect(result.finalized).toBe(true);
+    expect(storedTask.status).toBe('completed');
+    expect(storedTask.exit_code).toBe(0);
+    expect(storedTask.error_output || '').not.toContain('[no-file-change]');
+    expect(storedTask.metadata.finalization.validation_stage_outcomes.no_file_change_detection.outcome).toBe('no_change');
+    expect(handleRetryLogic).not.toHaveBeenCalled();
+    expect(logFactoryDecision).not.toHaveBeenCalled();
+    expect(handlePostCompletion).toHaveBeenCalledWith(expect.objectContaining({
+      status: 'completed',
+      code: 0,
+    }));
+  });
+
   it('allows explicit read-only factory tasks to complete without file changes', async () => {
     const dbBundle = createTaskDb({
       provider: 'codex',
