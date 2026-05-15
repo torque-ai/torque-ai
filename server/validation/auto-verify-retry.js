@@ -138,6 +138,10 @@ function getTaskTags(task) {
   return Array.isArray(parsed) ? parsed : [];
 }
 
+function isFactoryPlanTask(tags) {
+  return tags.some(tag => /^factory:plan_task_number=/.test(String(tag || '').trim()));
+}
+
 function isReadOnlyFactoryScoutTask(task) {
   const tags = getTaskTags(task).map(tag => String(tag || '').trim()).filter(Boolean);
   return tags.includes('factory:scout')
@@ -303,6 +307,7 @@ async function handleAutoVerifyRetry(ctx) {
   // code — running verify on them produces meaningless tests:fail:N tags
   // and burns compute on unrelated test suites.
   const tags = getTaskTags(task);
+  const factoryPlanTask = isFactoryPlanTask(tags);
   if (tags.includes('factory:internal')) {
     logger.info(`[auto-verify] Task ${taskId}: skipping verify — factory:internal task`);
     return;
@@ -502,6 +507,15 @@ async function handleAutoVerifyRetry(ctx) {
   }
 
   logger.info(`[auto-verify] Task ${taskId}: verify failed (exit ${verifyExitCode}), verifyOutput length=${verifyOutput.length}`);
+
+  if (factoryPlanTask) {
+    logger.info(`[auto-verify] Task ${taskId}: factory plan task verify failed — marking failed instead of accepting provider success`);
+    ctx.status = 'failed';
+    ctx.code = verifyExitCode || 1;
+    ctx.errorOutput = (ctx.errorOutput || '') +
+      `\n\n[auto-verify] Factory plan task verification failed:\n${(verifyOutput || '').slice(-6000)}`;
+    return;
+  }
 
   // Concurrent workflow sibling check: if this task is part of a workflow and other
   // tasks are still running/queued, verify failures are likely from concurrent

@@ -29,6 +29,25 @@ function setGetTask(fn) { _getTask = fn; }
 
 function getTask(...args) { return _getTask(...args); }
 
+function _tryParseJsonObject(value) {
+  if (!value || typeof value !== 'string') return null;
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function _firstNonEmptyString(...values) {
+  for (const value of values) {
+    if (typeof value === 'string' && value.trim()) {
+      return value.trim();
+    }
+  }
+  return null;
+}
+
 function _readQuantifier(pattern, startIndex) {
   const char = pattern[startIndex];
   if (!char) return null;
@@ -636,11 +655,20 @@ function shouldRetryWithCloud(taskId, output, context = {}) {
     }
 
     if (shouldRetry) {
+      const metadata = _tryParseJsonObject(task.metadata);
+      const originalProvider = _firstNonEmptyString(
+        task.original_provider,
+        metadata?.original_provider,
+        task.provider,
+        context.original_provider,
+        context.provider,
+        'unknown',
+      );
       // Record the retry attempt
       _getStmt('insertRetryAttempt', `
         INSERT INTO retry_attempts (task_id, original_provider, retry_provider, rule_id, attempt_number, trigger_reason, outcome, attempted_at)
         VALUES (?, ?, ?, ?, ?, ?, 'pending', ?)
-      `).run(taskId, task.provider, rule.fallback_provider, rule.id, attempts.count + 1, reason, new Date().toISOString());
+      `).run(taskId, originalProvider, rule.fallback_provider, rule.id, attempts.count + 1, reason, new Date().toISOString());
 
       return {
         shouldRetry: true,

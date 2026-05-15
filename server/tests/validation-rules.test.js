@@ -700,6 +700,27 @@ describe('validation-rules module', () => {
       expect(result.delaySeconds).toBe(5);
     });
 
+    it('records retry attempts when task.provider is blank but original_provider is available', () => {
+      mod.saveRetryRule({
+        id: randomUUID(),
+        name: 'Blank provider retry',
+        trigger_type: 'pattern',
+        trigger_condition: 'blank-provider-error',
+        fallback_provider: 'claude-cli',
+        max_retries: 3,
+      });
+
+      const task = createTask({ provider: 'codex', original_provider: 'codex' });
+      rawDb().prepare("UPDATE tasks SET provider = '' WHERE id = ?").run(task.id);
+
+      const result = mod.shouldRetryWithCloud(task.id, 'blank-provider-error');
+
+      expect(result.shouldRetry).toBe(true);
+      const attempts = mod.getRetryAttempts(task.id);
+      expect(attempts).toHaveLength(1);
+      expect(attempts[0].original_provider).toBe('codex');
+    });
+
     it('does not retry when max retries exceeded', () => {
       const ruleId = randomUUID();
       mod.saveRetryRule({

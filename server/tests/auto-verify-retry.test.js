@@ -700,6 +700,27 @@ describe('handleAutoVerifyRetry — failure and retry behavior', () => {
     expect(ctx.errorOutput).toContain('[auto-verify] Verification failed');
   });
 
+  it('marks factory plan tasks failed when verify fails even if the provider exited cleanly', async () => {
+    const db = createMockDb({ initialConfig: { verify_command: 'npx tsc --noEmit' } });
+    const { handleAutoVerifyRetry, db: mockDb } = loadModuleWithMocks({ db });
+    mockRunVerifyCommand.mockResolvedValue(
+      makeVerifyResult({ error: 'src/foo.ts(10,5): error TS2339: Property foo does not exist' }),
+    );
+    const ctx = makeCtx({
+      proc: { rawExitCode: 0 },
+      task: makeTask({
+        tags: ['factory:work_item_id=2191', 'factory:plan_task_number=3', 'project:test-project'],
+      }),
+    });
+
+    await handleAutoVerifyRetry(ctx);
+
+    expect(ctx.status).toBe('failed');
+    expect(ctx.code).toBe(1);
+    expect(ctx.errorOutput).toContain('Factory plan task verification failed');
+    expect(mockDb.createTask).not.toHaveBeenCalled();
+  });
+
   it('when verify fails: creates a new fix task with error feedback prompt', async () => {
     const db = createMockDb({ initialConfig: { verify_command: 'npx tsc --noEmit' } });
     const { handleAutoVerifyRetry, db: mockDb, mockBuildErrorFeedbackPrompt } = loadModuleWithMocks({ db });
