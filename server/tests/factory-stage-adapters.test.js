@@ -171,37 +171,128 @@ describe('VERIFY adapter', () => {
   });
 });
 
-describe('LEARN adapter', () => {
-  it('passes through analysis fields and routes to IDLE', async () => {
-    const analysis = {
-      feedback_id: 'fb-1',
-      summary: 'all good',
-      shipping_result: { status: 'shipped' },
+describe('LEARN runner (Phase 2c Step B — policy lifted in)', () => {
+  // Build the 9-dep bundle; per-test overrides supply the executor's
+  // analysis and the project-pause / auto_continue inputs.
+  function makeLearnDeps(overrides = {}) {
+    const movedInstance = { id: 'inst-1', batch_id: null, loop_state: 'SENSE' };
+    const updatedInstance = { id: 'inst-1', batch_id: 'batch-1', paused_at_stage: 'LEARN' };
+    return {
+      executeLearnStage: overrides.executeLearnStage || (async () => ({ feedback_id: 'fb', summary: 's' })),
+      getProjectOrThrow: overrides.getProjectOrThrow || (() => ({ id: 42, name: 'demo' })),
+      isProjectPauseActive: overrides.isProjectPauseActive || (() => false),
+      parseProjectConfigObject: overrides.parseProjectConfigObject || (() => ({})),
+      tryMoveInstanceToStage: overrides.tryMoveInstanceToStage
+        || vi.fn(() => ({ instance: movedInstance, blocked: false })),
+      terminateInstanceAndSync: overrides.terminateInstanceAndSync || vi.fn(),
+      recordFactoryIdleIfExhausted: overrides.recordFactoryIdleIfExhausted || vi.fn(),
+      updateInstanceAndSync: overrides.updateInstanceAndSync || vi.fn(() => updatedInstance),
+      nowIso: overrides.nowIso || (() => '2026-05-15T00:00:00Z'),
+      _movedInstance: movedInstance,
+      _updatedInstance: updatedInstance,
     };
-    const run = createLearnStageRunner({
-      executeLearnStage: async () => analysis,
+  }
+  const learnCtx = () => ({
+    project: baseProject,
+    instance: baseInstance,
+    batchId: 'batch-1',
+    previousState: 'VERIFY',
+    instance_id: 'inst-1',
+  });
+
+  it('throws when a required dep is missing', () => {
+    expect(() => createLearnStageRunner({ executeLearnStage: async () => null }))
+      .toThrow(/dep 'getProjectOrThrow' is required/);
+    expect(() => createLearnStageRunner({})).toThrow(/dep '.*' is required/);
+  });
+
+  it('shipping paused → disposition=pause, instance updated, no advanceResult', async () => {
+    const deps = makeLearnDeps({
+      executeLearnStage: async () => ({
+        feedback_id: 'fb-1',
+        shipping_result: { status: 'paused', pause_at_stage: 'LEARN', reason: 'gate_wait' },
+      }),
     });
-    const outcome = await run({ project: baseProject, instance: baseInstance });
+    const run = createLearnStageRunner(deps);
+    const outcome = await run(learnCtx());
+    expect(outcome.disposition).toBe('pause');
+    expect(outcome.pausedAtStage).toBe('LEARN');
+    expect(outcome.reason).toBe('gate_wait');
+    expect(outcome.advanceResult).toBeNull();
+    expect(outcome.instance).toBe(deps._updatedInstance);
+    expect(deps.updateInstanceAndSync).toHaveBeenCalled();
+    expect(deps.terminateInstanceAndSync).not.toHaveBeenCalled();
+  });
+
+  it('project paused after LEARN → disposition=terminate, advanceResult to IDLE', async () => {
+    const deps = makeLearnDeps({
+      executeLearnStage: async () => ({ feedback_id: 'fb-2' }),
+      isProjectPauseActive: () => true,
+    });
+    const run = createLearnStageRunner(deps);
+    const outcome = await run(learnCtx());
+    expect(outcome.disposition).toBe('terminate');
+    expect(outcome.advanceResult).toMatchObject({
+      new_state: 'IDLE',
+      reason: 'project_paused_after_learn',
+      previous_state: 'VERIFY',
+      instance_id: 'inst-1',
+    });
+    expect(deps.terminateInstanceAndSync).toHaveBeenCalledWith('inst-1');
+    expect(deps.recordFactoryIdleIfExhausted).toHaveBeenCalled();
+  });
+
+  it('auto_continue=true → disposition=continue, nextState=SENSE, recycle move issued', async () => {
+    const deps = makeLearnDeps({
+      executeLearnStage: async () => ({ feedback_id: 'fb-3' }),
+      parseProjectConfigObject: () => ({ loop: { auto_continue: true } }),
+    });
+    const run = createLearnStageRunner(deps);
+    const outcome = await run(learnCtx());
     expect(outcome.disposition).toBe('continue');
-    expect(outcome.nextState).toBe('IDLE');
-    expect(outcome.stageResult.feedback_id).toBe('fb-1');
-    expect(outcome.stageResult.shipped_as_noop).toBe(false);
-    expect(outcome.stageResult.analysis).toBe(analysis);
+    expect(outcome.nextState).toBe('SENSE');
+    expect(outcome.reason).toBeNull();
+    expect(outcome.advanceResult).toBeNull();
+    expect(deps.tryMoveInstanceToStage).toHaveBeenCalledWith(
+      baseInstance, 'SENSE', { batch_id: null, work_item_id: null, paused_at_stage: null },
+    );
   });
 
-  it('exposes analysis=null when executor returned null', async () => {
-    const run = createLearnStageRunner({ executeLearnStage: async () => null });
-    const outcome = await run({ project: baseProject, instance: baseInstance });
-    expect(outcome.stageResult.analysis).toBeNull();
-    expect(outcome.stageResult.shipped_as_noop).toBe(false);
-  });
-
-  it('detects noop_shipped from shipping_result.status', async () => {
-    const run = createLearnStageRunner({
-      executeLearnStage: async () => ({ shipping_result: { status: 'noop_shipped' } }),
+  it('auto_continue but recycle blocked → reason=stage_occupied', async () => {
+    const deps = makeLearnDeps({
+      executeLearnStage: async () => ({ feedback_id: 'fb-3b' }),
+      parseProjectConfigObject: () => ({ loop: { auto_continue: true } }),
+      tryMoveInstanceToStage: vi.fn(() => ({ instance: baseInstance, blocked: true })),
     });
-    const outcome = await run({ project: baseProject, instance: baseInstance });
-    expect(outcome.stageResult.shipped_as_noop).toBe(true);
+    const run = createLearnStageRunner(deps);
+    const outcome = await run(learnCtx());
+    expect(outcome.disposition).toBe('continue');
+    expect(outcome.reason).toBe('stage_occupied');
+  });
+
+  it('no auto_continue → disposition=terminate, advanceResult learn_completed', async () => {
+    const deps = makeLearnDeps({
+      executeLearnStage: async () => ({ feedback_id: 'fb-4', summary: 'done' }),
+      parseProjectConfigObject: () => ({ loop: { auto_continue: false } }),
+    });
+    const run = createLearnStageRunner(deps);
+    const outcome = await run(learnCtx());
+    expect(outcome.disposition).toBe('terminate');
+    expect(outcome.advanceResult).toMatchObject({ new_state: 'IDLE', reason: 'learn_completed' });
+    expect(outcome.advanceResult.stage_result).toMatchObject({ feedback_id: 'fb-4' });
+    expect(deps.terminateInstanceAndSync).toHaveBeenCalledWith('inst-1');
+  });
+
+  it('lean stageResult: shipped_as_noop derived, analysis carried on the bridge field', async () => {
+    const analysis = { feedback_id: 'fb-5', summary: 'noop', shipping_result: { status: 'noop_shipped' } };
+    const deps = makeLearnDeps({
+      executeLearnStage: async () => analysis,
+      parseProjectConfigObject: () => ({ loop: { auto_continue: false } }),
+    });
+    const run = createLearnStageRunner(deps);
+    const outcome = await run(learnCtx());
+    expect(outcome.stageResult).toEqual({ shipped_as_noop: true, feedback_id: 'fb-5', summary: 'noop' });
+    expect(outcome.analysis).toBe(analysis);
   });
 });
 

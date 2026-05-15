@@ -49,6 +49,8 @@ const eventBus = require('../event-bus');
 const baselineRequeue = require('./baseline-requeue');
 const { createLearnStageRunner } = require('./stages/learn');
 const { createVerifyStageRunner } = require('./stages/verify');
+const { createDecisionStore } = require('./stages/stores/decision');
+const { applyOutcome } = require('./stages/apply-outcome');
 const logger = require('../logger').child({ component: 'loop-controller' });
 const { prepareWorktreeVerifyDependencies } = require('../utils/worktree-verify-deps');
 const {
@@ -14053,14 +14055,27 @@ async function runExecuteLearnStage(project_id, batch_id, instance = null) {
   return executeLearnStage(project_id, batch_id, instance);
 }
 
-// Phase 2c-dispatcher: LEARN runner wraps runExecuteLearnStage as a
-// (ctx) => StageOutcome. The dispatcher's LEARN case calls this and
-// unwraps `outcome.stageResult.analysis` to preserve the legacy
-// post-LEARN policy reads (shipping_result.status, project pause check,
-// auto_continue routing). Phase 3 lifts the policy into the runner.
+// Phase 2c Step B: the LEARN runner owns the post-LEARN policy
+// (shipping-pause, project-pause, auto_continue → SENSE, terminate →
+// IDLE). The dispatcher calls it, then applyOutcome to emit the uniform
+// stage_complete decision. The runner does the instance side effects
+// and hands back `instance` / `analysis` / `advanceResult` bridge fields.
 const learnStageRunner = createLearnStageRunner({
   executeLearnStage: runExecuteLearnStage,
+  getProjectOrThrow,
+  isProjectPauseActive,
+  parseProjectConfigObject,
+  tryMoveInstanceToStage,
+  terminateInstanceAndSync,
+  recordFactoryIdleIfExhausted,
+  updateInstanceAndSync,
+  nowIso,
 });
+
+// Phase 2c Step B: shared DecisionStore facade for applyOutcome's
+// stage_complete emission. `createDecisionStore()` with no args resolves
+// the real factoryDecisions + decision-log + container DB handle.
+const stageDecisionStore = createDecisionStore();
 
 async function executeLearnStage(project_id, batch_id, instance) {
   try {
@@ -14679,68 +14694,26 @@ async function runAdvanceLoop(instance_id) {
     }
 
     case LOOP_STATES.LEARN: {
-      // Phase 2c-dispatcher: call site routes through the LEARN stage
-      // runner instead of runExecuteLearnStage directly. The runner
-      // wraps the legacy executor in StageOutcome shape; the dispatcher
-      // unwraps `analysis` to preserve the legacy post-stage policy
-      // reads (shipping_result, project pause, auto_continue → SENSE).
-      const learnCtx = { project, instance, batchId: instance.batch_id ?? null };
+      // Phase 2c Step B: the post-LEARN policy now lives in the LEARN
+      // runner. The runner does the instance side effects and returns a
+      // complete outcome; applyOutcome emits the uniform stage_complete
+      // decision; the dispatcher applies the runner's bridge fields.
+      const learnCtx = {
+        project,
+        instance,
+        batchId: instance.batch_id ?? null,
+        previousState,
+        instance_id,
+        decisionStore: stageDecisionStore,
+      };
       const learnOutcome = await learnStageRunner(learnCtx);
-      stageResult = learnOutcome.stageResult?.analysis ?? null;
-      if (stageResult?.shipping_result?.status === 'paused') {
-        instance = updateInstanceAndSync(instance.id, {
-          paused_at_stage: stageResult.shipping_result.pause_at_stage || LOOP_STATES.LEARN,
-          last_action_at: nowIso(),
-        });
-        transitionReason = stageResult.shipping_result.reason || 'shipping_paused';
-        break;
+      applyOutcome(learnCtx, LOOP_STATES.LEARN, learnOutcome);
+      if (learnOutcome.advanceResult) {
+        return learnOutcome.advanceResult;
       }
-      const latestProject = getProjectOrThrow(project.id);
-      if (isProjectPauseActive(latestProject)) {
-        const lastActionAt = instance.last_action_at || null;
-        terminateInstanceAndSync(instance.id);
-        recordFactoryIdleIfExhausted(project.id, {
-          last_action_at: lastActionAt,
-          reason: 'project_paused_after_learn',
-        });
-        return {
-          project_id: project.id,
-          instance_id,
-          previous_state: previousState,
-          new_state: LOOP_STATES.IDLE,
-          paused_at_stage: null,
-          stage_result: stageResult,
-          reason: 'project_paused_after_learn',
-        };
-      }
-      const cfg = parseProjectConfigObject(latestProject);
-      if (cfg && cfg.loop && cfg.loop.auto_continue === true) {
-        const moveToSense = tryMoveInstanceToStage(instance, LOOP_STATES.SENSE, {
-          batch_id: null,
-          work_item_id: null,
-          paused_at_stage: null,
-        });
-        instance = moveToSense.instance;
-        if (moveToSense.blocked) {
-          transitionReason = 'stage_occupied';
-        }
-      } else {
-        const lastActionAt = instance.last_action_at || null;
-        terminateInstanceAndSync(instance.id);
-        recordFactoryIdleIfExhausted(project.id, {
-          last_action_at: lastActionAt,
-          reason: 'learn_completed',
-        });
-        return {
-          project_id: project.id,
-          instance_id,
-          previous_state: previousState,
-          new_state: LOOP_STATES.IDLE,
-          paused_at_stage: null,
-          stage_result: stageResult,
-          reason: 'learn_completed',
-        };
-      }
+      instance = learnOutcome.instance;
+      stageResult = learnOutcome.analysis ?? null;
+      transitionReason = learnOutcome.reason;
       break;
     }
 
