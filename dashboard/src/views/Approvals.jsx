@@ -5,6 +5,7 @@ import { useToast } from '../components/Toast';
 import StatCard from '../components/StatCard';
 import { formatDate } from '../utils/formatters';
 import LoadingSkeleton from '../components/LoadingSkeleton';
+import ErrorBoundary from '../components/ErrorBoundary';
 
 const PAGE_LIMIT = 25;
 const FACTORY_POLL_MS = 5000;
@@ -421,6 +422,8 @@ export default function Approvals() {
   const [history, setHistory] = useState([]);
   const [loading, setLoading] = useState(true);
   const [factoryLoading, setFactoryLoading] = useState(true);
+  const [loadError, setLoadError] = useState(null);
+  const [factoryLoadError, setFactoryLoadError] = useState(null);
   const [actionInProgress, setActionInProgress] = useState(null);
   const [factoryActionInProgress, setFactoryActionInProgress] = useState(null);
   const [activeTab, setActiveTab] = useState('pending');
@@ -464,9 +467,11 @@ export default function Approvals() {
       if (!mountedRef.current) return;
       setPending(pendingData);
       setHistory(historyData);
+      setLoadError(null);
     } catch (err) {
       console.error('Failed to load approvals:', err);
       if (mountedRef.current) {
+        setLoadError(err);
         toast.error('Failed to load approvals');
       }
     } finally {
@@ -481,9 +486,11 @@ export default function Approvals() {
       const data = await tasksApi.list({ status: 'pending_approval', limit: 100 });
       if (!mountedRef.current) return;
       setFactoryTasks(Array.isArray(data?.tasks) ? data.tasks : []);
+      setFactoryLoadError(null);
     } catch (err) {
       if (!background && mountedRef.current) {
         console.error('Failed to load factory task approvals:', err);
+        setFactoryLoadError(err);
         toast.error('Failed to load factory task approvals');
       }
     } finally {
@@ -689,7 +696,34 @@ export default function Approvals() {
     );
   }
 
+  if (loadError && pending.length === 0 && history.length === 0) {
+    return (
+      <div className="p-6">
+        <div className="flex-1 flex items-center justify-center p-12">
+          <div className="text-center max-w-md">
+            <div className="w-12 h-12 rounded-full bg-red-500/20 flex items-center justify-center mx-auto mb-4">
+              <svg className="w-6 h-6 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
+            </div>
+            <h2 className="text-lg font-semibold text-white mb-2">Failed to load approvals</h2>
+            <p className="text-sm text-slate-400 mb-4">
+              {loadError.message || 'An unexpected error occurred while loading approval data.'}
+            </p>
+            <button
+              onClick={() => { setLoading(true); setLoadError(null); loadData(); }}
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-sm rounded-lg transition-colors"
+            >
+              Retry
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
+    <ErrorBoundary>
     <div className="p-6">
       <div className="mb-6">
         <h2 className="heading-lg text-white">Approvals</h2>
@@ -730,7 +764,18 @@ export default function Approvals() {
           </div>
         </div>
 
-        {factoryBatches.length === 0 ? (
+        {factoryLoadError ? (
+          <div className="mt-4 rounded-xl border border-dashed border-red-700/40 bg-red-900/10 px-4 py-6 text-center">
+            <p className="text-sm text-red-400 mb-2">Failed to load factory task approvals</p>
+            <p className="text-xs text-slate-500 mb-3">{factoryLoadError.message || 'An unexpected error occurred.'}</p>
+            <button
+              onClick={() => { setFactoryLoading(true); setFactoryLoadError(null); loadFactoryTasks(); }}
+              className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs rounded-lg transition-colors"
+            >
+              Retry
+            </button>
+          </div>
+        ) : factoryBatches.length === 0 ? (
           <div className="mt-4 rounded-xl border border-dashed border-slate-700/70 bg-slate-900/40 px-4 py-6 text-sm text-slate-400">
             No tasks awaiting approval.
           </div>
@@ -996,5 +1041,6 @@ export default function Approvals() {
         </>
       )}
     </div>
+    </ErrorBoundary>
   );
 }

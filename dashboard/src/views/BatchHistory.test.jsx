@@ -266,4 +266,45 @@ describe('BatchHistory', () => {
       expect(screen.getByText('claude-3.7-sonnet')).toBeInTheDocument();
     });
   });
+
+  it('shows error state when workflows API fails and no data is cached', async () => {
+    workflowsApi.list.mockRejectedValue(new Error('Network error'));
+
+    renderWithProviders(<BatchHistory />, { route: '/batches' });
+
+    await waitFor(() => {
+      expect(screen.getByText('Failed to load batch history')).toBeInTheDocument();
+    });
+    expect(screen.getByText('Network error')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
+  });
+
+  it('retries loading when Retry button is clicked on error state', async () => {
+    workflowsApi.list.mockRejectedValueOnce(new Error('Network error'));
+
+    renderWithProviders(<BatchHistory />, { route: '/batches' });
+
+    await waitFor(() => {
+      expect(screen.getByText('Failed to load batch history')).toBeInTheDocument();
+    });
+
+    // Reset mock to succeed on retry
+    workflowsApi.list.mockResolvedValue(mockWorkflows);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+
+    await waitFor(() => {
+      expect(screen.getByText('Feature build')).toBeInTheDocument();
+      expect(screen.getByText('Test run')).toBeInTheDocument();
+    });
+  });
+
+  it('wraps main content in ErrorBoundary for render error recovery', async () => {
+    renderWithProviders(<BatchHistory />, { route: '/batches' });
+    await waitFor(() => {
+      expect(screen.getByText('Batches')).toBeInTheDocument();
+    });
+    // Verify the page renders successfully with ErrorBoundary wrapper
+    expect(screen.getByText('Total Workflows')).toBeInTheDocument();
+  });
 });

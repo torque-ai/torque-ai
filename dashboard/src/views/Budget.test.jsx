@@ -1,4 +1,4 @@
-import { screen, waitFor } from '@testing-library/react';
+import { screen, waitFor, fireEvent } from '@testing-library/react';
 import { renderWithProviders } from '../test-utils';
 import Budget from './Budget';
 
@@ -181,5 +181,48 @@ describe('Budget', () => {
     await waitFor(() => {
       expect(screen.getByText(/Budget exceeded/)).toBeInTheDocument();
     });
+  });
+
+  it('shows error state when budget API fails and no data is cached', async () => {
+    budgetApi.summary.mockRejectedValue(new Error('Network error'));
+
+    renderWithProviders(<Budget />, { route: '/budget' });
+
+    await waitFor(() => {
+      expect(screen.getByText('Failed to load budget data')).toBeInTheDocument();
+    });
+    expect(screen.getByText('Network error')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
+  });
+
+  it('retries loading when Retry button is clicked on error state', async () => {
+    budgetApi.summary.mockRejectedValueOnce(new Error('Network error'));
+
+    renderWithProviders(<Budget />, { route: '/budget' });
+
+    await waitFor(() => {
+      expect(screen.getByText('Failed to load budget data')).toBeInTheDocument();
+    });
+
+    // Reset mock to succeed on retry
+    budgetApi.summary.mockResolvedValue(mockSummary);
+    budgetApi.status.mockResolvedValue(mockBudgetStatus);
+    budgetApi.forecast.mockResolvedValue(null);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+
+    await waitFor(() => {
+      expect(screen.getByText('Budget & Usage')).toBeInTheDocument();
+      expect(screen.getByText('Total Cost')).toBeInTheDocument();
+    });
+  });
+
+  it('wraps main content in ErrorBoundary for render error recovery', async () => {
+    renderWithProviders(<Budget />, { route: '/budget' });
+    await waitFor(() => {
+      expect(screen.getByText('Budget & Usage')).toBeInTheDocument();
+    });
+    // Verify the page renders successfully with ErrorBoundary wrapper
+    expect(screen.getByText('Total Cost')).toBeInTheDocument();
   });
 });

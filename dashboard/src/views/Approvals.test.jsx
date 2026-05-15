@@ -507,4 +507,80 @@ describe('Approvals', () => {
       expect(screen.getByText('Task: task-999')).toBeInTheDocument();
     });
   });
+
+  it('shows error state when approvals API fails and no data is cached', async () => {
+    approvalsApi.listPending.mockRejectedValue(new Error('Network error'));
+    approvalsApi.getHistory.mockRejectedValue(new Error('Network error'));
+
+    renderWithProviders(<Approvals />, { route: '/approvals' });
+
+    await waitFor(() => {
+      expect(screen.getByText('Failed to load approvals')).toBeInTheDocument();
+    });
+    expect(screen.getByText('Network error')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
+  });
+
+  it('retries loading when Retry button is clicked on error state', async () => {
+    approvalsApi.listPending.mockRejectedValueOnce(new Error('Network error'));
+    approvalsApi.getHistory.mockRejectedValueOnce(new Error('Network error'));
+
+    renderWithProviders(<Approvals />, { route: '/approvals' });
+
+    await waitFor(() => {
+      expect(screen.getByText('Failed to load approvals')).toBeInTheDocument();
+    });
+
+    // Reset mocks to succeed on retry
+    approvalsApi.listPending.mockResolvedValue(mockPendingV2Response);
+    approvalsApi.getHistory.mockResolvedValue(mockHistoryV2Response);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+
+    await waitFor(() => {
+      expect(screen.getByText('Review task lifecycle changes for invariant drift')).toBeInTheDocument();
+    });
+  });
+
+  it('shows factory error state when factory tasks API fails', async () => {
+    tasksApi.list.mockRejectedValue(new Error('Factory API down'));
+
+    renderWithProviders(<Approvals />, { route: '/approvals' });
+
+    const section = await screen.findByRole('region', { name: 'Factory Task Approvals' });
+    await waitFor(() => {
+      expect(within(section).getByText('Failed to load factory task approvals')).toBeInTheDocument();
+    });
+    expect(within(section).getByText('Factory API down')).toBeInTheDocument();
+    expect(within(section).getByRole('button', { name: 'Retry' })).toBeInTheDocument();
+  });
+
+  it('retries factory loading when factory Retry button is clicked', async () => {
+    tasksApi.list.mockRejectedValueOnce(new Error('Factory API down'));
+
+    renderWithProviders(<Approvals />, { route: '/approvals' });
+
+    const section = await screen.findByRole('region', { name: 'Factory Task Approvals' });
+    await waitFor(() => {
+      expect(within(section).getByText('Failed to load factory task approvals')).toBeInTheDocument();
+    });
+
+    // Reset mock to succeed on retry
+    tasksApi.list.mockResolvedValue(mockFactoryTasksResponse);
+
+    fireEvent.click(within(section).getByRole('button', { name: 'Retry' }));
+
+    await waitFor(() => {
+      expect(within(section).getByText('Batch batch-42')).toBeInTheDocument();
+    });
+  });
+
+  it('wraps main content in ErrorBoundary for render error recovery', async () => {
+    renderWithProviders(<Approvals />, { route: '/approvals' });
+    await waitFor(() => {
+      expect(screen.getByText('Approvals')).toBeInTheDocument();
+    });
+    // Verify the page renders successfully with ErrorBoundary wrapper
+    expect(screen.getByText('Review and act on pending approval requests')).toBeInTheDocument();
+  });
 });

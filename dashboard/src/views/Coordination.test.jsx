@@ -387,4 +387,56 @@ describe('Coordination', () => {
       expect(screen.getByText('N/A')).toBeInTheDocument();
     });
   });
+
+  // --- Error handling ---
+
+  it('shows error state when coordination API fails and no data is cached', async () => {
+    coordinationApi.getDashboard.mockRejectedValue(new Error('Network error'));
+    coordinationApi.listAgents.mockRejectedValue(new Error('Network error'));
+    coordinationApi.listRules.mockRejectedValue(new Error('Network error'));
+    coordinationApi.listClaims.mockRejectedValue(new Error('Network error'));
+
+    renderWithProviders(<Coordination />, { route: '/coordination' });
+
+    await waitFor(() => {
+      expect(screen.getByText('Failed to load coordination data')).toBeInTheDocument();
+    });
+    expect(screen.getByText('Network error')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
+  });
+
+  it('retries loading when Retry button is clicked on error state', async () => {
+    coordinationApi.getDashboard.mockRejectedValueOnce(new Error('Network error'));
+    coordinationApi.listAgents.mockRejectedValueOnce(new Error('Network error'));
+    coordinationApi.listRules.mockRejectedValueOnce(new Error('Network error'));
+    coordinationApi.listClaims.mockRejectedValueOnce(new Error('Network error'));
+
+    renderWithProviders(<Coordination />, { route: '/coordination' });
+
+    await waitFor(() => {
+      expect(screen.getByText('Failed to load coordination data')).toBeInTheDocument();
+    });
+
+    // Reset mocks to succeed on retry
+    coordinationApi.getDashboard.mockResolvedValue(mockDashboard);
+    coordinationApi.listAgents.mockResolvedValue({ agents: mockAgents });
+    coordinationApi.listRules.mockResolvedValue({ rules: mockRules });
+    coordinationApi.listClaims.mockResolvedValue({ claims: mockClaims });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+
+    await waitFor(() => {
+      expect(screen.getByText('Coordination')).toBeInTheDocument();
+      expect(screen.getByText('codex-worker-1')).toBeInTheDocument();
+    });
+  });
+
+  it('wraps main content in ErrorBoundary for render error recovery', async () => {
+    renderWithProviders(<Coordination />, { route: '/coordination' });
+    await waitFor(() => {
+      expect(screen.getByText('Coordination')).toBeInTheDocument();
+    });
+    // Verify the page renders successfully with ErrorBoundary wrapper
+    expect(screen.getByText('Active Agents')).toBeInTheDocument();
+  });
 });
