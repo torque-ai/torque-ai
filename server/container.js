@@ -357,9 +357,10 @@ const _defaultContainer = createContainer();
 // ── DI-factory registrations ─────────────────────────────────────────────────
 // Register services that use the proper DI factory pattern (createXxx(deps)).
 // These are resolved at boot() time, after all values (e.g. 'db') are registered.
-// index.js registers the database MODULE (not the raw better-sqlite3 handle)
-// under the 'db' key. Factories that need prepared statements must unwrap via
-// getDbInstance. unwrapDb normalizes both shapes so either registration works.
+// index.js registers the runtime-store service (not the raw better-sqlite3
+// handle) under the 'db' key. Factories that need prepared statements must
+// unwrap via getDbInstance. unwrapDb normalizes both shapes so either
+// registration works.
 function unwrapDb(db) {
   return db && typeof db.getDbInstance === 'function' ? db.getDbInstance() : db;
 }

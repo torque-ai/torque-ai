@@ -17,11 +17,9 @@ const path = require('path');
 const SERVER_DIR = path.resolve(__dirname, '..');
 
 // Files ALLOWED to import database.js directly.
-// These are composition-root and entry-point modules that legitimately
-// need the raw db reference to wire things up. Shrinks as migration progresses.
-const ALLOWED = new Set([
-  'index.js',           // server entry point — opens db, passes to container
-]);
+// This stays empty: runtime code must use DI/container services or the
+// canonical runtime-store boundary instead of the legacy compatibility alias.
+const ALLOWED = new Set([]);
 
 // Tests should use tests/helpers/database-facade.js instead of importing the
 // production facade directly. Keep the direct test surface explicit so it can

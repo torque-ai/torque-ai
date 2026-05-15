@@ -209,8 +209,8 @@ function emit(metrics, asJson) {
   console.log();
   console.log('Goal: wired-at-boot count converges with register-call count, then');
   console.log('imperative-init falls to 0, unauthorized source imports stay at 0,');
-  console.log('and allowed/load-bearing facade users fall to 0 (then database.js');
-  console.log('gets deleted).\n');
+  console.log('allowed/load-bearing database.js users stay at 0, and DI fallback');
+  console.log('facade users shrink until the compatibility shim can be deleted.\n');
 
   if (metrics.valueRegistrations.length > 0 && metrics.valueRegistrations.length < 30) {
     console.log('Container values (registerValue):');
