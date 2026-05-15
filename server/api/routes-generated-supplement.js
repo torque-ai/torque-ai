@@ -20,8 +20,8 @@
  */
 
 const routes = [
-  // ═══ 55 auto-generated tool-passthrough routes ═══
-  // Generated: 2026-05-08
+  // ═══ 56 auto-generated tool-passthrough routes ═══
+  // Generated: 2026-05-15
   // Pattern: tool-passthrough via handleToolCall()
 
   // ─── advanced (4 routes) ─────────────────────
@@ -87,6 +87,9 @@ const routes = [
   { method: 'POST', path: '/api/v2/plugin-model-freshness/model-watchlist-remove', tool: 'model_watchlist_remove', mapBody: true },
   { method: 'POST', path: '/api/v2/plugin-model-freshness/model-freshness-scan-now', tool: 'model_freshness_scan_now', mapBody: true },
   { method: 'POST', path: '/api/v2/plugin-model-freshness/model-freshness-events', tool: 'model_freshness_events', mapBody: true },
+
+  // ─── plugin-remote-agents (1 routes) ─────────────────────
+  { method: 'POST', path: '/api/v2/plugin-remote-agents/run-code-agent', tool: 'run_code_agent', mapBody: true },
 
   // ─── symbol-indexer (4 routes) ─────────────────────
   { method: 'POST', path: '/api/v2/symbol-indexer/register-repo', tool: 'register_repo', mapBody: true },
