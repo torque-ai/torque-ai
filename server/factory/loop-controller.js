@@ -8570,6 +8570,122 @@ async function executeNonPlanFileStage(project, instance, workItem) {
         },
       };
     }
+
+    const reuseOrigin = getWorkItemOriginObject(updatedWorkItem);
+    const planQualityGate = require('./plan-quality-gate');
+    if (reuseOrigin.skip_plan_quality_gate === true) {
+      eventBus.emitFactoryPlanGateSkipped({
+        project_id: project.id,
+        work_item_id: updatedWorkItem.id,
+        reason: 'metadata_override',
+      });
+      safeLogDecision({
+        project_id: project.id,
+        stage: LOOP_STATES.PLAN,
+        action: 'plan_quality_skipped_by_metadata',
+        reasoning: 'Work item origin.skip_plan_quality_gate is true; bypassing the materialized generated plan gate.',
+        outcome: { work_item_id: updatedWorkItem.id, plan_path: planPath },
+        confidence: 1,
+        batch_id: getDecisionBatchId(project, updatedWorkItem, null, instance),
+      });
+    } else {
+      let reuseGateVerdict = null;
+      try {
+        reuseGateVerdict = await planQualityGate.evaluatePlan({
+          plan: existingPlanContent,
+          workItem: updatedWorkItem,
+          project: planGenerationProject,
+          projectConfig: getProjectConfigForPlanGate(project),
+        });
+      } catch (err) {
+        logger.warn('materialized generated plan-quality-gate evaluation failed; treating as pass (fail-open)', {
+          project_id: project.id,
+          work_item_id: updatedWorkItem.id,
+          plan_path: planPath,
+          err: err.message,
+        });
+        safeLogDecision({
+          project_id: project.id,
+          stage: LOOP_STATES.PLAN,
+          action: 'plan_quality_gate_fail_open',
+          reasoning: `Materialized generated plan gate threw: ${err.message}`,
+          outcome: {
+            work_item_id: updatedWorkItem.id,
+            plan_path: planPath,
+          },
+          confidence: 1,
+          batch_id: getDecisionBatchId(project, updatedWorkItem, null, instance),
+        });
+      }
+
+      if (reuseGateVerdict && reuseGateVerdict.passed) {
+        const nextOriginForPass = {
+          ...reuseOrigin,
+          plan_gen_attempts: (reuseOrigin.plan_gen_attempts || 0) + 1,
+        };
+        factoryIntake.updateWorkItem(updatedWorkItem.id, {
+          origin_json: JSON.stringify(nextOriginForPass),
+        });
+        safeLogDecision({
+          project_id: project.id,
+          stage: LOOP_STATES.PLAN,
+          action: 'plan_quality_passed',
+          reasoning: 'Materialized generated plan passed quality gate before reuse.',
+          outcome: {
+            work_item_id: updatedWorkItem.id,
+            attempts: nextOriginForPass.plan_gen_attempts,
+            warnings: reuseGateVerdict.warnings.length,
+            plan_path: planPath,
+          },
+          confidence: 1,
+          batch_id: getDecisionBatchId(project, updatedWorkItem, null, instance),
+        });
+      } else if (reuseGateVerdict && !reuseGateVerdict.passed) {
+        const failedRules = reuseGateVerdict.hardFails.map((h) => h.rule);
+        const routed = routePlanQualityGateFailureToNeedsReplan(updatedWorkItem, reuseGateVerdict, {
+          reason: 'materialized_generated_plan_rejected_by_quality_gate',
+          attempt: reuseOrigin.plan_gen_attempts || null,
+        });
+        logger.warn('EXECUTE stage: materialized generated plan rejected by quality gate before reuse', {
+          project_id: project.id,
+          work_item_id: updatedWorkItem.id,
+          plan_path: planPath,
+          rules: failedRules,
+        });
+        safeLogDecision({
+          project_id: project.id,
+          stage: LOOP_STATES.EXECUTE,
+          action: 'resumed_plan_quality_rejected',
+          reasoning: `Materialized generated plan failed quality gate before reuse: ${failedRules.join(', ')}.`,
+          inputs: {
+            ...getWorkItemDecisionContext(updatedWorkItem),
+            plan_path: planPath,
+          },
+          outcome: {
+            rule_violations: reuseGateVerdict.hardFails,
+            plan_path: planPath,
+            next_status: routed.status,
+            ...getWorkItemDecisionContext(updatedWorkItem),
+          },
+          confidence: 1,
+          batch_id: getDecisionBatchId(project, updatedWorkItem, null, instance),
+        });
+        return {
+          reason: 'materialized generated plan rejected by quality gate',
+          work_item: routed,
+          stop_execution: true,
+          next_state: LOOP_STATES.PRIORITIZE,
+          stage_result: {
+            status: 'needs_replan',
+            reason: 'materialized_generated_plan_rejected_by_quality_gate',
+            work_item_id: routed.id,
+            plan_path: planPath,
+            rule_violations: failedRules,
+          },
+        };
+      }
+    }
+
     // Skip plan review for autonomous/dark trust — these projects opted
     // out of human approval gates. Log the review but don't block.
     if (trustLevel !== 'autonomous' && trustLevel !== 'dark') {
