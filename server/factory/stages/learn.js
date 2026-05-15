@@ -1,4 +1,4 @@
-// LEARN stage adapter (Phase 2c-adapt slice 6).
+// LEARN stage adapter (Phase 2c-adapt slice 6, refined in 2c-dispatcher).
 //
 // Legacy signature: executeLearnStage(project_id, batch_id, instance)
 // Legacy return: the feedback analysis object (with shipping_result attached)
@@ -9,6 +9,13 @@
 //                          stageResult.shipped_as_noop derived from shipping_result.status
 //   - error → disposition: 'continue', nextState: 'IDLE' (legacy already
 //             swallows; the loop advances regardless)
+//
+// stageResult exposes both the contracted convenience fields and the
+// legacy `analysis` object verbatim. The dispatcher's post-LEARN policy
+// (auto-continue branching, shipping_result.status === 'paused' check,
+// project-pause check) still reads from `analysis` — that's the seam
+// Phase 2c-dispatcher uses while the policy stays in loop-controller.
+// Phase 3 lifts the policy in here and `analysis` becomes private.
 
 /**
  * @param {{
@@ -40,6 +47,7 @@ function createLearnStageRunner({ executeLearnStage } = {}) {
         shipped_as_noop: shippedAsNoop,
         feedback_id: feedbackId,
         summary,
+        analysis: analysis ?? null,
       },
     };
   };

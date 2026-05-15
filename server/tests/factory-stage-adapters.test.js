@@ -152,17 +152,26 @@ describe('VERIFY adapter', () => {
 
 describe('LEARN adapter', () => {
   it('passes through analysis fields and routes to IDLE', async () => {
+    const analysis = {
+      feedback_id: 'fb-1',
+      summary: 'all good',
+      shipping_result: { status: 'shipped' },
+    };
     const run = createLearnStageRunner({
-      executeLearnStage: async () => ({
-        feedback_id: 'fb-1',
-        summary: 'all good',
-        shipping_result: { status: 'shipped' },
-      }),
+      executeLearnStage: async () => analysis,
     });
     const outcome = await run({ project: baseProject, instance: baseInstance });
     expect(outcome.disposition).toBe('continue');
     expect(outcome.nextState).toBe('IDLE');
     expect(outcome.stageResult.feedback_id).toBe('fb-1');
+    expect(outcome.stageResult.shipped_as_noop).toBe(false);
+    expect(outcome.stageResult.analysis).toBe(analysis);
+  });
+
+  it('exposes analysis=null when executor returned null', async () => {
+    const run = createLearnStageRunner({ executeLearnStage: async () => null });
+    const outcome = await run({ project: baseProject, instance: baseInstance });
+    expect(outcome.stageResult.analysis).toBeNull();
     expect(outcome.stageResult.shipped_as_noop).toBe(false);
   });
 

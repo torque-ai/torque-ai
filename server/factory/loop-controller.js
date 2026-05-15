@@ -47,6 +47,7 @@ const {
 const { createWorktreeManager } = require('../plugins/version-control/worktree-manager');
 const eventBus = require('../event-bus');
 const baselineRequeue = require('./baseline-requeue');
+const { createLearnStageRunner } = require('./stages/learn');
 const logger = require('../logger').child({ component: 'loop-controller' });
 const { prepareWorktreeVerifyDependencies } = require('../utils/worktree-verify-deps');
 const {
@@ -13417,6 +13418,15 @@ async function runExecuteLearnStage(project_id, batch_id, instance = null) {
   return executeLearnStage(project_id, batch_id, instance);
 }
 
+// Phase 2c-dispatcher: LEARN runner wraps runExecuteLearnStage as a
+// (ctx) => StageOutcome. The dispatcher's LEARN case calls this and
+// unwraps `outcome.stageResult.analysis` to preserve the legacy
+// post-LEARN policy reads (shipping_result.status, project pause check,
+// auto_continue routing). Phase 3 lifts the policy into the runner.
+const learnStageRunner = createLearnStageRunner({
+  executeLearnStage: runExecuteLearnStage,
+});
+
 async function executeLearnStage(project_id, batch_id, instance) {
   try {
     const feedback = require('./feedback');
@@ -14388,7 +14398,14 @@ async function runAdvanceLoop(instance_id) {
     }
 
     case LOOP_STATES.LEARN: {
-      stageResult = await runExecuteLearnStage(project.id, instance.batch_id, instance);
+      // Phase 2c-dispatcher: call site routes through the LEARN stage
+      // runner instead of runExecuteLearnStage directly. The runner
+      // wraps the legacy executor in StageOutcome shape; the dispatcher
+      // unwraps `analysis` to preserve the legacy post-stage policy
+      // reads (shipping_result, project pause, auto_continue → SENSE).
+      const learnCtx = { project, instance, batchId: instance.batch_id ?? null };
+      const learnOutcome = await learnStageRunner(learnCtx);
+      stageResult = learnOutcome.stageResult?.analysis ?? null;
       if (stageResult?.shipping_result?.status === 'paused') {
         instance = updateInstanceAndSync(instance.id, {
           paused_at_stage: stageResult.shipping_result.pause_at_stage || LOOP_STATES.LEARN,
