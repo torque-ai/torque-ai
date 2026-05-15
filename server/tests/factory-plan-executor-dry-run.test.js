@@ -130,6 +130,14 @@ Update src/app.js.
     expect(awaitMock).toHaveBeenCalledWith(expect.objectContaining({
       task_id: 'existing-task-1',
     }));
+    expect(result.submitted_tasks).toEqual([
+      {
+        task_number: 1,
+        task_id: 'existing-task-1',
+        reused: true,
+        status: 'running',
+      },
+    ]);
     expect(fs.readFileSync(planPath, 'utf8')).toContain('[x]');
   });
 
@@ -157,6 +165,14 @@ Create tools/checker.js.
     });
 
     expect(result.completed_tasks).toEqual([1]);
+    expect(result.submitted_tasks).toEqual([]);
+    expect(result.reused_completed_tasks).toEqual([
+      {
+        task_number: 1,
+        task_id: 'existing-task-2',
+        same_batch: false,
+      },
+    ]);
     expect(submitMock).not.toHaveBeenCalled();
     expect(awaitMock).not.toHaveBeenCalled();
     expect(fs.readFileSync(planPath, 'utf8')).toContain('[x]');

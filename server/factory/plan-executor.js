@@ -437,6 +437,7 @@ function createPlanExecutor({ submit, awaitTask, findReusableTask = null, projec
 
     const completed_tasks = [];
     const submitted_tasks = [];
+    const reused_completed_tasks = [];
     let failed_task = null;
     let task_count = 0;
     let violation = null;
@@ -554,6 +555,11 @@ function createPlanExecutor({ submit, awaitTask, findReusableTask = null, projec
         if (verification.trust) {
           logger.info(`reusing completed task ${reusableTask.task_id} for already-landed plan task ${task.task_number}`);
           tickTaskInFile(plan_path, task.task_number);
+          reused_completed_tasks.push({
+            task_number: task.task_number,
+            task_id: reusableTask.task_id,
+            same_batch: reusableTask.same_batch === true,
+          });
           completed_tasks.push(task.task_number);
           continue;
         }
@@ -569,6 +575,14 @@ function createPlanExecutor({ submit, awaitTask, findReusableTask = null, projec
 
       if (reusableTask?.task_id && isReusableTaskActiveForMode(reusableTask.status, mode)) {
         logger.info(`reusing active task ${reusableTask.task_id} for plan task ${task.task_number}`);
+        if (mode === 'live') {
+          submitted_tasks.push({
+            task_number: task.task_number,
+            task_id: reusableTask.task_id,
+            reused: true,
+            status: reusableTask.status,
+          });
+        }
         if (mode === 'pending_approval') {
           task_count += 1;
           submitted_tasks.push({ task_number: task.task_number, task_id: reusableTask.task_id });
@@ -638,6 +652,9 @@ function createPlanExecutor({ submit, awaitTask, findReusableTask = null, projec
         initial_status: mode === 'pending_approval' ? 'pending_approval' : undefined,
       });
       const task_id = submission?.task_id;
+      if (mode === 'live') {
+        submitted_tasks.push({ task_number: task.task_number, task_id });
+      }
 
       if (mode === 'pending_approval') {
         task_count += 1;
@@ -681,6 +698,13 @@ function createPlanExecutor({ submit, awaitTask, findReusableTask = null, projec
       duration_ms: Date.now() - started,
     };
 
+    if (submitted_tasks.length > 0 || mode === 'live') {
+      result.submitted_tasks = submitted_tasks;
+    }
+    if (reused_completed_tasks.length > 0) {
+      result.reused_completed_tasks = reused_completed_tasks;
+    }
+
     if (violation) {
       result.violation = violation;
     }
@@ -704,7 +728,7 @@ function createPlanExecutor({ submit, awaitTask, findReusableTask = null, projec
       result.task_count = task_count;
       result.simulated = mode === 'suppress';
       result.execution_mode = mode;
-      if (submitted_tasks.length > 0) {
+      if (submitted_tasks.length > 0 || mode === 'pending_approval') {
         result.submitted_tasks = submitted_tasks;
       }
     }

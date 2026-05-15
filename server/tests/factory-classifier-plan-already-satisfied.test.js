@@ -67,6 +67,24 @@ function seedCompletedExecution(projectId, batchId, submittedTasks) {
   });
 }
 
+function seedAutoCommittedTask(projectId, batchId) {
+  factoryDecisions.recordDecision({
+    project_id: projectId,
+    stage: 'execute',
+    actor: 'executor',
+    action: 'auto_committed_task',
+    reasoning: 'Approved plan task completed with dirty worktree changes, so the factory auto-committed them.',
+    outcome: {
+      task_id: 'task-uuid-1',
+      plan_task_number: 1,
+      commit_sha: 'abc123',
+      files_changed: ['server/example.js'],
+    },
+    confidence: 1,
+    batch_id: batchId,
+  });
+}
+
 function buildReviewArgs({ projectId, batchId }) {
   return {
     verifyOutput: { exitCode: 1, stdout: 'FAIL', stderr: '', timedOut: false },
@@ -123,6 +141,41 @@ describe('reviewVerifyFailure plan-already-satisfied classifier', () => {
 
   it('does NOT short-circuit when submitted_tasks is non-empty (real EXECUTE work)', async () => {
     seedCompletedExecution(projectId, 'B1', ['task-uuid-1', 'task-uuid-2']);
+
+    await verifyReview.reviewVerifyFailure(buildReviewArgs({ projectId, batchId: 'B1' }));
+
+    expect(llmSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('does NOT short-circuit when the same batch auto-committed task output', async () => {
+    seedCompletedExecution(projectId, 'B1', []);
+    seedAutoCommittedTask(projectId, 'B1');
+
+    await verifyReview.reviewVerifyFailure(buildReviewArgs({ projectId, batchId: 'B1' }));
+
+    expect(llmSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('does NOT short-circuit when EXECUTE reused completed tasks from the same batch', async () => {
+    factoryDecisions.recordDecision({
+      project_id: projectId,
+      stage: 'execute',
+      actor: 'executor',
+      action: 'completed_execution',
+      reasoning: 'plan execution completed',
+      outcome: {
+        completed_tasks: [1, 2],
+        submitted_tasks: [],
+        reused_completed_tasks: [
+          { task_number: 1, task_id: 'task-uuid-1', same_batch: true },
+          { task_number: 2, task_id: 'task-uuid-2', same_batch: true },
+        ],
+        execution_mode: 'live',
+        final_state: 'VERIFY',
+      },
+      confidence: 1,
+      batch_id: 'B1',
+    });
 
     await verifyReview.reviewVerifyFailure(buildReviewArgs({ projectId, batchId: 'B1' }));
 

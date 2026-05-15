@@ -3121,12 +3121,20 @@ function findExistingPlanTaskSubmission(taskCore, {
     return true;
   });
   if (active) {
-    return { task_id: active.id, status: active.status };
+    return {
+      task_id: active.id,
+      status: active.status,
+      same_batch: Boolean(batchTag && active.tags.includes(batchTag)),
+    };
   }
 
   const completed = prioritized.find((candidate) => candidate.status === 'completed');
   if (completed) {
-    return { task_id: completed.id, status: completed.status };
+    return {
+      task_id: completed.id,
+      status: completed.status,
+      same_batch: Boolean(batchTag && completed.tags.includes(batchTag)),
+    };
   }
 
   return null;
@@ -12365,6 +12373,9 @@ async function executePlanFileStage(project, instance, workItem) {
       task_count: result.task_count ?? null,
       simulated: result.simulated === true,
       submitted_tasks: Array.isArray(result.submitted_tasks) ? result.submitted_tasks : [],
+      reused_completed_tasks: Array.isArray(result.reused_completed_tasks)
+        ? result.reused_completed_tasks
+        : [],
       final_state: getPostStageTransition(LOOP_STATES.EXECUTE, project.trust_level).next_state,
       plan_path: targetItem.origin.plan_path,
     },

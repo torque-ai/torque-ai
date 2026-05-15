@@ -1005,7 +1005,10 @@ async function reviewVerifyFailure({
   if (batch_id && failingTests.length === 0) {
     try {
       const factoryDecisions = require('../db/factory/decisions');
-      const priorDecisions = factoryDecisions.listDecisions(project?.id || null, { stage: 'execute', limit: 20 });
+      const priorDecisions = factoryDecisions.listDecisions(project?.id || null, { stage: 'execute', limit: 100 });
+      const batchHadAutoCommit = priorDecisions.some((d) => (
+        d.batch_id === batch_id && d.action === 'auto_committed_task'
+      ));
       const planAlreadySatisfied = priorDecisions.some((d) => {
         if (d.batch_id !== batch_id) return false;
         if (d.action !== 'completed_execution') return false;
@@ -1014,7 +1017,14 @@ async function reviewVerifyFailure({
           try { outcome = JSON.parse(d.outcome_json); } catch { outcome = null; }
         }
         if (!outcome || typeof outcome !== 'object') return false;
-        return Array.isArray(outcome.submitted_tasks) && outcome.submitted_tasks.length === 0;
+        const submittedTasks = Array.isArray(outcome.submitted_tasks) ? outcome.submitted_tasks : null;
+        if (!submittedTasks || submittedTasks.length > 0) return false;
+        if (batchHadAutoCommit) return false;
+        const reusedCompletedTasks = Array.isArray(outcome.reused_completed_tasks)
+          ? outcome.reused_completed_tasks
+          : [];
+        if (reusedCompletedTasks.some((task) => task && task.same_batch === true)) return false;
+        return true;
       });
       if (planAlreadySatisfied) {
         return {
