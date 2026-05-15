@@ -92,6 +92,11 @@ const {
   PLAN_GENERATION_REPOSITORY_BOUNDARY_SECTION,
 } = require('./shared/prompt-sections');
 const {
+  parseProjectConfigObject,
+  getProjectConfigForPlanGate,
+  getEffectiveProjectProvider,
+} = require('./shared/project-config');
+const {
   getWorkItemConstraintsObject,
   getWorkItemOriginObject,
   extractWorkItemAcceptanceCriteria,
@@ -376,18 +381,6 @@ function elapsedMsSince(value) {
   return parsed == null ? null : Date.now() - parsed;
 }
 
-function parseProjectConfigObject(project) {
-  if (project?.config && typeof project.config === 'object') {
-    return project.config;
-  }
-  try {
-    return project?.config_json ? JSON.parse(project.config_json) : {};
-  } catch (_err) {
-    void _err;
-    return {};
-  }
-}
-
 function hasOperatorPauseIntent(project) {
   const cfg = parseProjectConfigObject(project);
   return cfg?.loop?.operator_paused === true;
@@ -398,29 +391,6 @@ function isProjectPauseActive(project, { includeStatus = true } = {}) {
     return hasOperatorPauseIntent(project);
   }
   return project?.status === 'paused' || hasOperatorPauseIntent(project);
-}
-
-/**
- * Read the project's effective provider intent from its lane policy.
- * Returns the lowercase expected_provider when present, or null when no
- * lane policy is set. Used by the architect prompt builder and timeout
- * resolver to short-circuit prompt complexity / wall-clock budget for
- * known-small local models like qwen3-coder:30b on the `ollama` lane.
- */
-function getEffectiveProjectProvider(project) {
-  try {
-    const cfg = parseProjectConfigObject(project);
-    const policy = cfg?.provider_lane_policy || cfg?.provider_lane;
-    const expected = policy && typeof policy === 'object' ? policy.expected_provider : null;
-    return typeof expected === 'string' && expected.trim() ? expected.trim().toLowerCase() : null;
-  } catch (_err) {
-    void _err;
-    return null;
-  }
-}
-
-function getProjectConfigForPlanGate(project) {
-  return parseProjectConfigObject(project);
 }
 
 // Phase G: small local models (qwen3-coder:30b) consistently exceed the
