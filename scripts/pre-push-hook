@@ -50,6 +50,7 @@ source "$COORD_LOCK_HELPER"
 ZERO_SHA="0000000000000000000000000000000000000000"
 remote_refs=()
 local_head_sha=""
+main_local_ref=""
 main_remote_sha=""
 local_head_short=""
 staging_branch=""
@@ -111,6 +112,7 @@ while read -r local_ref local_sha remote_ref remote_sha; do
   fi
 
   if [ "$remote_ref" = "refs/heads/main" ]; then
+    main_local_ref="$local_ref"
     local_head_sha="$local_sha"
     main_remote_sha="$remote_sha"
   fi
@@ -145,6 +147,30 @@ if [ -n "$main_remote_sha" ] && [ "$main_remote_sha" = "$local_head_sha" ]; then
   echo "[pre-push] Main is already at $local_head_short; skipping gate."
   exit 0
 fi
+
+main_local_ref_current_sha() {
+  if [ -z "${main_local_ref:-}" ]; then
+    return 1
+  fi
+  git rev-parse --verify "${main_local_ref}^{commit}" 2>/dev/null
+}
+
+pre_push_validate_local_ref_fresh() {
+  local current_sha current_short
+  if ! current_sha="$(main_local_ref_current_sha)"; then
+    echo "[pre-push] BLOCKED: local ref ${main_local_ref:-<unknown>} no longer resolves while waiting for the gate lock."
+    echo "[pre-push] Rerun torque-push so the current main tip is gated."
+    return 1
+  fi
+  if [ "$current_sha" = "$local_head_sha" ]; then
+    return 0
+  fi
+
+  current_short="$(echo "$current_sha" | cut -c1-12)"
+  echo "[pre-push] BLOCKED: local ref $main_local_ref moved from $local_head_short to $current_short while waiting for the gate lock."
+  echo "[pre-push] Rerun torque-push so the current main tip is gated instead of stale $local_head_short."
+  return 1
+}
 
 delete_staging_ref() {
   if [ -z "${staging_branch:-}" ] || [ "${staging_ref_created:-0}" -ne 1 ]; then
@@ -663,6 +689,10 @@ pre_push_cleanup() {
 wait_for_matching_pre_push_gate || true
 
 repo_coord_lock_acquire "main" "pre-push main gate: $local_head_short"
+if ! pre_push_validate_local_ref_fresh; then
+  REPO_COORD_LOCK_FORCE_RELEASE=1 repo_coord_lock_release || true
+  exit 1
+fi
 pre_push_start_gate_artifact
 pre_push_start_gate_heartbeat
 trap pre_push_cleanup EXIT

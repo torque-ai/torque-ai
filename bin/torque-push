@@ -103,6 +103,35 @@ origin_main_matches_local_head() {
   [ -n "$current_remote_main" ] && [ "$current_remote_main" = "$local_head_sha" ]
 }
 
+resolve_local_head_sha() {
+  git rev-parse "${local_ref}^{commit}"
+}
+
+set_local_head_sha() {
+  local_head_sha="$(resolve_local_head_sha)"
+  local_head_short="$(echo "$local_head_sha" | cut -c1-12)"
+}
+
+local_ref_matches_local_head() {
+  local current_local_head
+  current_local_head="$(resolve_local_head_sha 2>/dev/null || true)"
+  [ -n "$current_local_head" ] && [ "$current_local_head" = "$local_head_sha" ]
+}
+
+refresh_if_local_ref_moved() {
+  local current_local_head current_local_short
+  current_local_head="$(resolve_local_head_sha 2>/dev/null || true)"
+  if [ -z "$current_local_head" ] || [ "$current_local_head" = "$local_head_sha" ]; then
+    return 1
+  fi
+
+  current_local_short="$(echo "$current_local_head" | cut -c1-12)"
+  echo "[torque-push] local ref $local_ref moved from $local_head_short to $current_local_short while waiting; retrying from the new tip."
+  local_head_sha="$current_local_head"
+  local_head_short="$current_local_short"
+  return 0
+}
+
 maybe_source_coord_lock() {
   local helper="${repo_root}/scripts/repo-coordination-lock.sh"
   if [ -f "$helper" ]; then
@@ -142,8 +171,12 @@ wait_for_matching_pre_push_gate() {
 
   while [ -d "$lock_dir" ]; do
     if origin_main_matches_local_head; then
-      echo "[torque-push] origin/main reached $local_head_short; no push needed."
-      return 0
+      if local_ref_matches_local_head; then
+        echo "[torque-push] origin/main reached $local_head_short; no push needed."
+        return 0
+      fi
+      echo "[torque-push] origin/main reached $local_head_short, but $local_ref moved while waiting."
+      return 1
     fi
     if repo_coord_lock_reap_if_dead_owner "$lock_dir"; then
       echo "[torque-push] Previous matching gate owner is gone; running push normally."
@@ -175,8 +208,11 @@ wait_for_matching_pre_push_gate() {
   done
 
   if origin_main_matches_local_head; then
-    echo "[torque-push] origin/main reached $local_head_short; no push needed."
-    return 0
+    if local_ref_matches_local_head; then
+      echo "[torque-push] origin/main reached $local_head_short; no push needed."
+      return 0
+    fi
+    echo "[torque-push] origin/main reached $local_head_short, but $local_ref moved while waiting."
   fi
   return 1
 }
@@ -186,31 +222,58 @@ if [ -z "$local_ref" ]; then
   exec git push "$@"
 fi
 
-local_head_sha="$(git rev-parse "${local_ref}^{commit}")"
-local_head_short="$(echo "$local_head_sha" | cut -c1-12)"
-
-if origin_main_matches_local_head; then
-  echo "[torque-push] origin/main already at $local_head_short; no push needed."
-  exit 0
-fi
-
 maybe_source_coord_lock
-if wait_for_matching_pre_push_gate; then
-  exit 0
-fi
 
-set +e
-git push "$@"
-push_rc=$?
-set -e
+max_ref_refreshes="${TORQUE_PUSH_REF_REFRESH_LIMIT:-8}"
+case "$max_ref_refreshes" in ''|*[!0-9]*) max_ref_refreshes=8 ;; esac
+ref_refreshes=0
 
-if [ "$push_rc" -eq 0 ]; then
-  exit 0
-fi
+while :; do
+  set_local_head_sha
 
-if origin_main_matches_local_head; then
-  echo "[torque-push] git push returned $push_rc, but origin/main is now at $local_head_short; treating as success."
-  exit 0
-fi
+  if origin_main_matches_local_head; then
+    echo "[torque-push] origin/main already at $local_head_short; no push needed."
+    exit 0
+  fi
 
-exit "$push_rc"
+  if wait_for_matching_pre_push_gate; then
+    exit 0
+  fi
+
+  if refresh_if_local_ref_moved; then
+    ref_refreshes=$((ref_refreshes + 1))
+    if [ "$ref_refreshes" -gt "$max_ref_refreshes" ]; then
+      echo "[torque-push] local ref $local_ref changed more than $max_ref_refreshes time(s) while pushing; stop the moving cutovers and retry."
+      exit 1
+    fi
+    continue
+  fi
+
+  set +e
+  git push "$@"
+  push_rc=$?
+  set -e
+
+  if [ "$push_rc" -eq 0 ]; then
+    exit 0
+  fi
+
+  if origin_main_matches_local_head; then
+    if local_ref_matches_local_head; then
+      echo "[torque-push] git push returned $push_rc, but origin/main is now at $local_head_short; treating as success."
+      exit 0
+    fi
+    echo "[torque-push] git push returned $push_rc and origin/main reached $local_head_short, but $local_ref moved while waiting."
+  fi
+
+  if refresh_if_local_ref_moved; then
+    ref_refreshes=$((ref_refreshes + 1))
+    if [ "$ref_refreshes" -gt "$max_ref_refreshes" ]; then
+      echo "[torque-push] local ref $local_ref changed more than $max_ref_refreshes time(s) while pushing; stop the moving cutovers and retry."
+      exit 1
+    fi
+    continue
+  fi
+
+  exit "$push_rc"
+done

@@ -434,6 +434,29 @@ printf '%b' "\\302\\267\\302\\267real failure line\\302\\267\\302\\267\\n" | pre
     expect(postLockRecheckIdx).toBeGreaterThan(lockIdx);
   });
 
+  it('rejects stale local main refs after waiting for the coordination lock', () => {
+    const src = readHook();
+    const captureIdx = src.indexOf('main_local_ref="$local_ref"');
+    const lockIdx = src.indexOf('repo_coord_lock_acquire "main" "pre-push main gate:');
+    const freshnessIdx = src.indexOf('if ! pre_push_validate_local_ref_fresh; then');
+    const artifactIdx = src.indexOf('\npre_push_start_gate_artifact', freshnessIdx);
+    const plannerIdx = src.indexOf('scripts/pre-push-gate-plan.js', freshnessIdx);
+
+    expect(src).toContain('main_local_ref=""');
+    expect(src).toContain('main_local_ref="$local_ref"');
+    expect(src).toMatch(/main_local_ref_current_sha\s*\(\)/);
+    expect(src).toMatch(/git rev-parse --verify "\$\{main_local_ref\}\^\{commit\}"/);
+    expect(src).toMatch(/pre_push_validate_local_ref_fresh\s*\(\)/);
+    expect(src).toContain('local ref $main_local_ref moved from $local_head_short to $current_short while waiting for the gate lock.');
+    expect(src).toContain('Rerun torque-push so the current main tip is gated instead of stale $local_head_short.');
+    expect(src).toMatch(/if ! pre_push_validate_local_ref_fresh; then\s+REPO_COORD_LOCK_FORCE_RELEASE=1 repo_coord_lock_release \|\| true\s+exit 1\s+fi/s);
+    expect(captureIdx).toBeGreaterThan(-1);
+    expect(lockIdx).toBeGreaterThan(captureIdx);
+    expect(freshnessIdx).toBeGreaterThan(lockIdx);
+    expect(artifactIdx).toBeGreaterThan(freshnessIdx);
+    expect(plannerIdx).toBeGreaterThan(freshnessIdx);
+  });
+
   it('serializes main gates with the shared coordination lock and cleans up on EXIT', () => {
     const src = readHook();
     expect(src).toMatch(/DEFAULT_COORD_LOCK_HELPER="\$\{REPO_ROOT\}\/scripts\/repo-coordination-lock\.sh"/);
