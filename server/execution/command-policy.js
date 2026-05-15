@@ -198,7 +198,11 @@ function extractCommandRequest(command, args, extraContext = {}) {
     return { error: 'Command is empty or not a string' };
   }
 
-  const commandTokens = tokenizeCommandString(commandText);
+  const normalizedArgs = normalizeStringArray(rawArgs);
+  const explicitArgs = normalizedArgs.length > 0;
+  const commandTokens = explicitArgs
+    ? [commandText]
+    : tokenizeCommandString(commandText);
   if (commandTokens.length === 0) {
     return { error: 'Command is empty' };
   }
@@ -206,13 +210,15 @@ function extractCommandRequest(command, args, extraContext = {}) {
   return {
     commandText,
     cmd: commandTokens[0],
-    args: [...commandTokens.slice(1), ...normalizeStringArray(rawArgs)],
+    args: [...commandTokens.slice(1), ...normalizedArgs],
     context,
   };
 }
 
 function normalizeExecutable(command) {
-  return path.basename(String(command || ''))
+  const normalizedPath = String(command || '').replace(/\\/g, '/');
+  const basename = normalizedPath.split('/').pop() || path.basename(normalizedPath);
+  return basename
     .replace(/\.(exe|cmd|bat|ps1)$/i, '')
     .toLowerCase();
 }
