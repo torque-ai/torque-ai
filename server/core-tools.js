@@ -38,6 +38,8 @@ const TIER_1 = [
   'list_scheduled', 'pause_scheduled', 'cancel_scheduled', 'schedule_task', 'schedule_workflow_spec',
   // Context (compact session resume)
   'get_context',
+  // Scope budgets (budget-aware routing)
+  'set_scope_budget', 'get_scope_spend', 'list_scope_budgets',
 ];
 
 const TIER_2 = [
