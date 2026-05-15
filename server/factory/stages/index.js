@@ -21,6 +21,12 @@ const { resolveStageContext } = require('./context');
 const { applyOutcome, STAGE_ORDER, nextInOrder } = require('./apply-outcome');
 const stores = require('./stores');
 const { createSenseStageRunner } = require('./sense');
+const { createPrioritizeStageRunner } = require('./prioritize');
+const { createPlanStageRunner } = require('./plan');
+const { createExecuteStageRunner, isPlanFileWorkItem } = require('./execute');
+const { createVerifyStageRunner } = require('./verify');
+const { createLearnStageRunner } = require('./learn');
+const { createIdleStageRunner } = require('./idle');
 
 module.exports = {
   resolveStageContext,
@@ -29,4 +35,11 @@ module.exports = {
   nextInOrder,
   ...stores,
   createSenseStageRunner,
+  createPrioritizeStageRunner,
+  createPlanStageRunner,
+  createExecuteStageRunner,
+  isPlanFileWorkItem,
+  createVerifyStageRunner,
+  createLearnStageRunner,
+  createIdleStageRunner,
 };
