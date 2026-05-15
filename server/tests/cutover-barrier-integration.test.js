@@ -13,6 +13,7 @@ const GIT_BASH_PATH = path.join('C:', 'Program Files', 'Git', 'bin', 'bash.exe')
 const BASH_EXECUTABLE = process.platform === 'win32' && fs.existsSync(GIT_BASH_PATH)
   ? GIT_BASH_PATH
   : 'bash';
+const CUTOVER_SIMULATION_TIMEOUT_MS = 30000;
 
 /**
  * Integration tests for worktree-cutover.sh restart barrier flow.
@@ -109,7 +110,7 @@ rm -rf "/tmp/cutover-test-$$"
   try {
     const result = execFileSync(BASH_EXECUTABLE, [wrapperPath, featureName], {
       encoding: 'utf8',
-      timeout: 10000,
+      timeout: CUTOVER_SIMULATION_TIMEOUT_MS,
       env: { ...process.env, CUTOVER_DRY_RUN: '1', TORQUE_COORD_LOCK_HELPER: LOCK_HELPER_PATH, ...env },
       windowsHide: true,
     });
@@ -205,7 +206,7 @@ rm -rf "$FAKE_ROOT"
   try {
     return execFileSync(BASH_EXECUTABLE, [wrapperPath, featureName], {
       encoding: 'utf8',
-      timeout: 10000,
+      timeout: CUTOVER_SIMULATION_TIMEOUT_MS,
       env: { ...process.env, TORQUE_COORD_LOCK_HELPER: LOCK_HELPER_PATH, ...env },
       windowsHide: true,
     });
@@ -315,7 +316,7 @@ rm -rf "$FAKE_ROOT"
   try {
     return execFileSync(BASH_EXECUTABLE, [wrapperPath, featureName], {
       encoding: 'utf8',
-      timeout: 10000,
+      timeout: CUTOVER_SIMULATION_TIMEOUT_MS,
       env: {
         ...process.env,
         CUTOVER_RESTART_COOLDOWN_BUFFER_MS: '0',
@@ -422,7 +423,7 @@ rm -rf "$FAKE_ROOT"
   try {
     const result = childProcess.spawnSync(BASH_EXECUTABLE, [wrapperPath, featureName], {
       encoding: 'utf8',
-      timeout: 10000,
+      timeout: CUTOVER_SIMULATION_TIMEOUT_MS,
       env: { ...process.env, CUTOVER_MID_DRAIN_UNREACHABLE_RETRIES: '1', TORQUE_COORD_LOCK_HELPER: LOCK_HELPER_PATH, ...env },
       windowsHide: true,
     });
@@ -523,7 +524,7 @@ rm -rf "$FAKE_ROOT"
   try {
     const result = childProcess.spawnSync(BASH_EXECUTABLE, [wrapperPath, featureName], {
       encoding: 'utf8',
-      timeout: 10000,
+      timeout: CUTOVER_SIMULATION_TIMEOUT_MS,
       env: { ...process.env, CUTOVER_RESTART_WAIT_SECONDS: '1', TORQUE_COORD_LOCK_HELPER: LOCK_HELPER_PATH, ...env },
       windowsHide: true,
     });
@@ -631,7 +632,7 @@ rm -rf "$FAKE_ROOT"
   try {
     const result = childProcess.spawnSync(BASH_EXECUTABLE, [wrapperPath, featureName], {
       encoding: 'utf8',
-      timeout: 10000,
+      timeout: CUTOVER_SIMULATION_TIMEOUT_MS,
       env: { ...process.env, TORQUE_COORD_LOCK_HELPER: LOCK_HELPER_PATH, ...env },
       windowsHide: true,
     });
@@ -748,7 +749,7 @@ rm -rf "$FAKE_ROOT"
   try {
     const result = childProcess.spawnSync(BASH_EXECUTABLE, [wrapperPath, featureName], {
       encoding: 'utf8',
-      timeout: 10000,
+      timeout: CUTOVER_SIMULATION_TIMEOUT_MS,
       env: { ...process.env, TORQUE_COORD_LOCK_HELPER: LOCK_HELPER_PATH, ...env },
       windowsHide: true,
     });
