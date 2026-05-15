@@ -63,6 +63,7 @@ const DEP_SCOPE_PROMISE = Symbol('taskStartupDependencyScopePromise');
 
 // State
 let skipGitInCloseHandler = false;
+let warnedMissingServerConfig = false;
 
 // Track last cleanup time to avoid excessive cleanup overhead
 let lastRetryCleanupTime = 0;
@@ -166,6 +167,53 @@ function resolveTaskDbForRetryCleanup() {
   }
 
   return null;
+}
+
+function hasStartupConfigAccessors(candidate) {
+  return candidate
+    && typeof candidate.get === 'function'
+    && typeof candidate.getBool === 'function';
+}
+
+function createFailOpenStartupConfig() {
+  return {
+    get: (_key, fallback = null) => fallback,
+    getBool: (_key, fallback = false) => Boolean(fallback),
+    getInt: (_key, fallback = 0) => fallback,
+  };
+}
+
+function resolveStartupServerConfig(explicitConfig = serverConfig) {
+  if (hasStartupConfigAccessors(explicitConfig)) {
+    return explicitConfig;
+  }
+
+  try {
+    const { defaultContainer } = require('../container');
+    const containerConfig = defaultContainer.peek?.('serverConfig') || null;
+    if (hasStartupConfigAccessors(containerConfig)) {
+      serverConfig = containerConfig;
+      return serverConfig;
+    }
+  } catch {
+    // Container may be unavailable in isolated startup paths.
+  }
+
+  try {
+    const requiredConfig = require('../config');
+    if (hasStartupConfigAccessors(requiredConfig)) {
+      serverConfig = requiredConfig;
+      return serverConfig;
+    }
+  } catch {
+    // Fall through to fail-open defaults.
+  }
+
+  if (!warnedMissingServerConfig) {
+    warnedMissingServerConfig = true;
+    logger.info('[startTask] serverConfig unavailable during task startup; using fail-open config defaults.');
+  }
+  return createFailOpenStartupConfig();
 }
 
 function getTaskMetadataObject(task) {
@@ -381,7 +429,7 @@ async function buildExecutionDescriptionWithMentions(task, taskId) {
 function init(deps) {
   db = deps.db;
   dashboard = deps.dashboard;
-  serverConfig = deps.serverConfig;
+  serverConfig = resolveStartupServerConfig(deps.serverConfig);
   providerRegistry = deps.providerRegistry;
   gpuMetrics = deps.gpuMetrics;
 
@@ -821,7 +869,8 @@ function runPreflightChecks(task) {
  */
 function runSafeguardPreChecks(task, taskId, providerOverride = null) {
   const provider = providerOverride || task.provider || db.getDefaultProvider() || 'codex';
-  const rateLimitEnabled = serverConfig.getBool('rate_limit_enabled');
+  const config = resolveStartupServerConfig();
+  const rateLimitEnabled = config.getBool('rate_limit_enabled');
   if (rateLimitEnabled) {
     const rateCheck = db.checkRateLimit(provider, taskId);
     if (!rateCheck.allowed) {
@@ -830,7 +879,7 @@ function runSafeguardPreChecks(task, taskId, providerOverride = null) {
       return { queued: true, rateLimited: true, retryAfter: rateCheck.retryAfter, task: db.getTask(taskId) };
     }
   }
-  const duplicateCheckEnabled = serverConfig.getBool('duplicate_check_enabled');
+  const duplicateCheckEnabled = config.getBool('duplicate_check_enabled');
   if (duplicateCheckEnabled) {
     const duplicateCheck = db.checkDuplicateTask(task.task_description, task.working_directory);
     if (duplicateCheck.isDuplicate) {
@@ -838,7 +887,7 @@ function runSafeguardPreChecks(task, taskId, providerOverride = null) {
     }
     db.recordTaskFingerprint(taskId, task.task_description, task.working_directory);
   }
-  const budgetCheckEnabled = serverConfig.getBool('budget_check_enabled');
+  const budgetCheckEnabled = config.getBool('budget_check_enabled');
   if (budgetCheckEnabled) {
     const budgetCheck = db.isBudgetExceeded(provider);
     if (budgetCheck.exceeded) {
@@ -852,12 +901,13 @@ function runSafeguardPreChecks(task, taskId, providerOverride = null) {
 }
 
 function recordTaskStartedAuditEvent(task, taskId, provider) {
-  const backupEnabled = serverConfig.getBool('backup_before_modify_enabled');
+  const config = resolveStartupServerConfig();
+  const backupEnabled = config.getBool('backup_before_modify_enabled');
   if (!backupEnabled || !task.working_directory) {
     return;
   }
 
-  const auditEnabled = serverConfig.getBool('audit_trail_enabled');
+  const auditEnabled = config.getBool('audit_trail_enabled');
   if (!auditEnabled) {
     return;
   }
@@ -1316,7 +1366,7 @@ function parkTaskBehindRestartBarrier(task, taskId, barrier) {
 
 function resolveTaskLogDiskAdmissionStatus() {
   try {
-    const minFreeMb = taskLogRetention.getConfiguredTaskLogMinFreeMb(serverConfig);
+    const minFreeMb = taskLogRetention.getConfiguredTaskLogMinFreeMb(resolveStartupServerConfig());
     return taskLogRetention.getTaskLogDiskAdmissionStatus({ minFreeMb });
   } catch (err) {
     logger.info(`[startTask] Task-log disk admission check failed open: ${err.message}`);
@@ -1354,7 +1404,7 @@ function prepareStartupPreClaim(task, taskId) {
     task,
     taskId,
     getMaxConcurrent: getEffectiveGlobalMaxConcurrent,
-    config: serverConfig,
+    config: resolveStartupServerConfig(),
     metrics: gpuMetrics,
     preflight: runPreflightChecks,
     log: logger,
@@ -2347,6 +2397,9 @@ function createTaskStartup(localDeps = {}) {
   if (resolved.detectOutputCompletion === undefined) {
     try { resolved.detectOutputCompletion = require('../validation/completion-detection').detectOutputCompletion; }
     catch { /* fall through */ }
+  }
+  if (!hasStartupConfigAccessors(resolved.serverConfig)) {
+    resolved.serverConfig = resolveStartupServerConfig(resolved.serverConfig);
   }
   if (resolved.resolveFileReferences === undefined) {
     try { resolved.resolveFileReferences = require('../utils/file-resolution').resolveFileReferences; }
