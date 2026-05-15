@@ -1,5 +1,10 @@
 'use strict';
 
+// When executed with bare `node` (outside Vitest), globals like `describe`
+// are not defined. Exit cleanly so chained verify commands can proceed to
+// the real `npx vitest run` invocation.
+if (typeof describe === 'undefined') process.exit(0);
+
 function installCjsModuleMock(modulePath, exportsValue) {
   const resolved = require.resolve(modulePath);
   require.cache[resolved] = {
