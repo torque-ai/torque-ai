@@ -36,12 +36,12 @@ describe('resolveContextFiles', () => {
     ({ resolveContextFiles } = require('../utils/smart-scan'));
   });
 
-  it('resolves files from explicit list and discovers imports via smartScan', () => {
+  it('resolves files from explicit list and discovers imports via smartScan', async () => {
     // Create a source file that imports another file
     const depFile = tmpFile('src/helper.js', 'module.exports = { add: (a,b) => a+b };');
     const mainFile = tmpFile('src/index.js', "const { add } = require('./helper');\nconsole.log(add(1, 2));\n");
 
-    const result = resolveContextFiles({
+    const result = await resolveContextFiles({
       taskDescription: 'Fix the add function',
       workingDirectory: testDir,
       files: [mainFile],
@@ -56,8 +56,8 @@ describe('resolveContextFiles', () => {
     expect(result.reasons.size).toBeGreaterThanOrEqual(2);
   });
 
-  it('returns empty when no files detected', () => {
-    const result = resolveContextFiles({
+  it('returns empty when no files detected', async () => {
+    const result = await resolveContextFiles({
       taskDescription: 'Do something abstract',
       workingDirectory: testDir,
       files: [],
@@ -69,10 +69,10 @@ describe('resolveContextFiles', () => {
     expect(result.reasons.size).toBe(0);
   });
 
-  it('works with only explicit files (no task description)', () => {
+  it('works with only explicit files (no task description)', async () => {
     const file = tmpFile('lib/utils.js', 'module.exports = 42;');
 
-    const result = resolveContextFiles({
+    const result = await resolveContextFiles({
       files: [file],
       workingDirectory: testDir,
     });
@@ -80,10 +80,10 @@ describe('resolveContextFiles', () => {
     expect(result.contextFiles).toContain(path.resolve(file));
   });
 
-  it('deduplicates files found via description and explicit list', () => {
+  it('deduplicates files found via description and explicit list', async () => {
     const file = tmpFile('src/main.js', 'const x = 1;\n');
 
-    const result = resolveContextFiles({
+    const result = await resolveContextFiles({
       taskDescription: 'Fix src/main.js',
       workingDirectory: testDir,
       files: [file],
@@ -95,11 +95,11 @@ describe('resolveContextFiles', () => {
     expect(result.contextFiles.length).toBe(uniquePaths.size);
   });
 
-  it('discovers convention-matched test files', () => {
+  it('discovers convention-matched test files', async () => {
     const srcFile = tmpFile('src/calculator.js', 'module.exports = { add: (a,b) => a+b };');
     tmpFile('src/calculator.test.js', "const calc = require('./calculator');\ntest('add', () => {});");
 
-    const result = resolveContextFiles({
+    const result = await resolveContextFiles({
       files: [srcFile],
       workingDirectory: testDir,
       contextDepth: 1,
@@ -283,7 +283,7 @@ describe('end-to-end: submission scan → execution stuffing', () => {
 
     // Phase 1: submission-time scan (normally in integration-routing.js)
     const { resolveContextFiles } = require('../utils/smart-scan');
-    const scanResult = resolveContextFiles({
+    const scanResult = await resolveContextFiles({
       taskDescription: `Review src/main.js for bugs`,
       workingDirectory: testDir,
       files: [main],

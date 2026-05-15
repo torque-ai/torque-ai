@@ -408,7 +408,7 @@ async function handleSubmitTask(req, res) {
     if (CONTEXT_STUFFING_PROVIDERS.has(provider) && body.context_stuff !== false && workingDirectory) {
       try {
         const depth = body.context_depth || 1;
-        const scanResult = resolveContextFiles({
+        const scanResult = await resolveContextFiles({
           taskDescription: description,
           workingDirectory,
           files: Array.isArray(body.files) ? body.files.filter(f => typeof f === 'string') : [],

@@ -1882,7 +1882,7 @@ async function handleSmartSubmitTask(args) {
   if (CONTEXT_STUFFING_PROVIDERS.has(selectedProvider) && context_stuff !== false) {
     try {
       const depth = context_depth || 1;
-      const scanResult = resolveContextFiles({
+      const scanResult = await resolveContextFiles({
         taskDescription: task,
         workingDirectory: workingDirectory,
         files: Array.isArray(files) ? files.filter(f => typeof f === 'string') : [],
