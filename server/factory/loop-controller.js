@@ -9496,6 +9496,418 @@ function getExecutePlanStageForTransition() {
   return module.exports?._internalForTests?.executePlanStage || executePlanStage;
 }
 
+// Phase 2c-dispatcher: PLAN/EXECUTE transition handler. Extracted verbatim
+// from the runAdvanceLoop switch (the combined `case LOOP_STATES.PLAN:
+// case LOOP_STATES.EXECUTE:` branch) so the dispatcher case shrinks to a
+// uniform call — mirrors handlePrioritizeTransition. Pure move; zero
+// behavior change.
+//
+// Body indentation is preserved verbatim from the extracted case so the
+// commit diff is reviewable: only the 22 control-flow exit points changed
+// (each `break` → a continue-descriptor return; each `return <result>` →
+// an earlyReturn-wrapped return). A formatting pass belongs to Phase 3
+// when this body moves into stages/.
+//
+// Returns one of:
+//   { earlyReturn: <advanceResult> }
+//       — runAdvanceLoop returns it directly.
+//   { earlyReturn: null, instance, transitionWorkItem, stageResult, transitionReason }
+//       — runAdvanceLoop applies these locals and continues the
+//         post-switch path (the legacy `break`).
+async function handlePlanExecuteTransition({
+  project,
+  instance,
+  currentState,
+  previousState,
+  instance_id,
+  transitionWorkItem,
+}) {
+  let stageResult = null;
+  let transitionReason = null;
+
+      if (currentState === LOOP_STATES.PLAN) {
+        const moveToExecute = tryMoveInstanceToStage(instance, LOOP_STATES.EXECUTE, {
+          work_item_id: instance.work_item_id,
+        });
+        if (moveToExecute.blocked) {
+          instance = moveToExecute.instance;
+          transitionReason = 'stage_occupied';
+          return { earlyReturn: null, instance, transitionWorkItem, stageResult, transitionReason };
+        }
+        instance = moveToExecute.instance;
+      }
+
+      let targetItem = transitionWorkItem || tryGetSelectedWorkItem(instance, project.id, {
+        fallbackToLoopSelection: true,
+      });
+      // Nothing to work on — terminate cleanly instead of spinning in place.
+      // Without this, auto-advance retriggers EXECUTE every 100ms because
+      // executePlanFileStage returns null with a null targetItem and
+      // executeNextState defaults back to EXECUTE. The next tick will
+      // re-enter SENSE and pick up new work if any exists.
+      if (!targetItem) {
+        const lastActionAt = instance.last_action_at || null;
+        terminateInstanceAndSync(instance.id);
+        recordFactoryIdleIfExhausted(project.id, {
+          last_action_at: lastActionAt,
+          reason: 'no_work_item_selected',
+        });
+        return { earlyReturn: {
+          project_id: project.id,
+          instance_id: instance.id,
+          previous_state: previousState,
+          new_state: LOOP_STATES.IDLE,
+          paused_at_stage: null,
+          stage_result: null,
+          reason: 'no_work_item_selected',
+        } };
+      }
+
+      const closedWorkItemReason = getClosedWorkItemLoopStopReason(targetItem);
+      if (closedWorkItemReason) {
+        let finalWorkItem = targetItem;
+        if (
+          closedWorkItemReason === 'work_item_closed_escalation_exhausted_reject_reason'
+          || closedWorkItemReason === 'work_item_closed_escalation_exhausted_origin'
+        ) {
+          try {
+            finalWorkItem = restoreTerminalEscalationWorkItem(targetItem) || targetItem;
+          } catch (err) {
+            logger.warn('Factory loop: failed to restore terminal escalation_exhausted work item status', {
+              project_id: project.id,
+              work_item_id: targetItem.id,
+              status: targetItem.status,
+              err: err.message,
+            });
+          }
+        }
+        const lastActionAt = instance.last_action_at || null;
+        terminateInstanceAndSync(instance.id);
+        recordFactoryIdleIfExhausted(project.id, {
+          last_action_at: lastActionAt,
+          reason: closedWorkItemReason,
+        });
+        try {
+          safeLogDecision({
+            project_id: project.id,
+            stage: String(currentState || '').toLowerCase(),
+            actor: 'loop-controller',
+            action: 'closed_work_item_loop_stopped',
+            reasoning: `Loop instance stopped because work item ${targetItem.id} is closed (${finalWorkItem.status || targetItem.status}).`,
+            outcome: {
+              work_item_id: targetItem.id,
+              work_item_status: finalWorkItem.status || targetItem.status,
+              reject_reason: finalWorkItem.reject_reason || targetItem.reject_reason || null,
+            },
+            batch_id: instance.batch_id || getDecisionBatchId(project, finalWorkItem),
+          });
+        } catch (_err) { void _err; }
+        return { earlyReturn: {
+          project_id: project.id,
+          instance_id: instance.id,
+          previous_state: previousState,
+          new_state: LOOP_STATES.IDLE,
+          paused_at_stage: null,
+          stage_result: {
+            status: 'stopped',
+            reason: closedWorkItemReason,
+            work_item_id: targetItem.id,
+            work_item_status: finalWorkItem.status || targetItem.status,
+          },
+          reason: closedWorkItemReason,
+        } };
+      }
+
+      const preExecuteZeroDiff = maybeShortCircuitZeroDiffExecute({
+        project,
+        instance,
+        workItem: targetItem,
+        batchId: getFactoryExecutionBatchId(project, targetItem, instance),
+      });
+      if (preExecuteZeroDiff) {
+        // Phase E: when the batch already produced a real commit, the
+        // short-circuit signals "advance to VERIFY" instead of rejecting.
+        // The work item stays alive; verify runs on the existing diff.
+        if (preExecuteZeroDiff.advance_to_verify) {
+          return { earlyReturn: {
+            project_id: project.id,
+            instance_id,
+            previous_state: previousState,
+            new_state: LOOP_STATES.VERIFY,
+            paused_at_stage: null,
+            stage_result: preExecuteZeroDiff.stage_result,
+            reason: preExecuteZeroDiff.reason,
+          } };
+        }
+        const lastActionAt = instance.last_action_at || null;
+        terminateInstanceAndSync(instance.id);
+        recordFactoryIdleIfExhausted(project.id, {
+          last_action_at: lastActionAt,
+          reason: 'execute_zero_diff_short_circuit',
+        });
+        return { earlyReturn: {
+          project_id: project.id,
+          instance_id,
+          previous_state: previousState,
+          new_state: LOOP_STATES.IDLE,
+          paused_at_stage: null,
+          stage_result: preExecuteZeroDiff.stage_result,
+          reason: preExecuteZeroDiff.reason,
+        } };
+      }
+
+      const targetPlanPath = targetItem.origin?.plan_path || null;
+      const hasPendingPlanGeneration = Boolean(getStoredPlanGenerationTaskId(targetItem));
+      if (hasPendingPlanGeneration || !targetPlanPath || !fs.existsSync(targetPlanPath)) {
+        const generated = await executeNonPlanFileStage(project, instance, targetItem);
+        if (generated?.work_item) {
+          targetItem = generated.work_item;
+          transitionWorkItem = generated.work_item;
+        }
+        if (generated?.stage_result) {
+          stageResult = generated.stage_result;
+        }
+        if (generated?.reason) {
+          transitionReason = generated.reason;
+        }
+        if (generated?.stop_execution) {
+          // If the stage asked to go to IDLE (e.g. cannot_generate_plan
+          // auto-rejected the item), terminate and exit instead of pausing.
+          if (generated.next_state === LOOP_STATES.IDLE) {
+            const lastActionAt = instance.last_action_at || null;
+            terminateInstanceAndSync(instance.id);
+            recordFactoryIdleIfExhausted(project.id, {
+              last_action_at: lastActionAt,
+              reason: generated.reason || 'stop_execution_idle',
+            });
+            return { earlyReturn: {
+              project_id: project.id,
+              instance_id: instance.id,
+              previous_state: previousState,
+              new_state: LOOP_STATES.IDLE,
+              paused_at_stage: null,
+              stage_result: generated.stage_result || null,
+              reason: generated.reason || 'stop_execution_idle',
+            } };
+          }
+          if (generated.next_state === LOOP_STATES.PRIORITIZE) {
+            const moveToPrioritize = tryMoveInstanceToStage(instance, LOOP_STATES.PRIORITIZE, {
+              work_item_id: generated.work_item?.id ?? instance.work_item_id,
+            });
+            instance = moveToPrioritize.instance;
+            if (moveToPrioritize.blocked) {
+              transitionReason = 'stage_occupied';
+            }
+            return { earlyReturn: null, instance, transitionWorkItem, stageResult, transitionReason };
+          }
+          if (generated.next_state === LOOP_STATES.EXECUTE && !generated.paused_at_stage) {
+            instance = updateInstanceAndSync(instance.id, {
+              paused_at_stage: null,
+              last_action_at: nowIso(),
+            });
+            return { earlyReturn: null, instance, transitionWorkItem, stageResult, transitionReason };
+          }
+          instance = updateInstanceAndSync(instance.id, {
+            paused_at_stage: generated.paused_at_stage || LOOP_STATES.PLAN_REVIEW,
+            last_action_at: nowIso(),
+          });
+          return { earlyReturn: null, instance, transitionWorkItem, stageResult, transitionReason };
+        }
+      }
+
+      const executeStage = await executePlanFileStage(project, instance, targetItem);
+      if (executeStage) {
+        stageResult = executeStage.stage_result;
+        transitionReason = executeStage.reason;
+        transitionWorkItem = executeStage.work_item || transitionWorkItem;
+      }
+      instance = getInstanceOrThrow(instance.id);
+
+      if (executeStage?.stop_execution) {
+        if (executeStage.next_state === LOOP_STATES.IDLE) {
+          const lastActionAt = instance.last_action_at || null;
+          terminateInstanceAndSync(instance.id);
+          recordFactoryIdleIfExhausted(project.id, {
+            last_action_at: lastActionAt,
+            reason: transitionReason || executeStage.reason || 'execute_stop_idle',
+          });
+          return { earlyReturn: {
+            project_id: project.id,
+            instance_id: instance.id,
+            previous_state: previousState,
+            new_state: LOOP_STATES.IDLE,
+            paused_at_stage: null,
+            stage_result: executeStage.stage_result || null,
+            reason: transitionReason || executeStage.reason || 'execute_stop_idle',
+          } };
+        }
+        if (executeStage.next_state === LOOP_STATES.PRIORITIZE) {
+          const moveToPrioritize = tryMoveInstanceToStage(instance, LOOP_STATES.PRIORITIZE, {
+            work_item_id: executeStage.work_item?.id ?? instance.work_item_id,
+          });
+          instance = moveToPrioritize.instance;
+          if (moveToPrioritize.blocked) {
+            transitionReason = 'stage_occupied';
+          }
+          return { earlyReturn: null, instance, transitionWorkItem, stageResult, transitionReason };
+        }
+        if (executeStage.next_state === LOOP_STATES.EXECUTE && !executeStage.paused_at_stage) {
+          instance = updateInstanceAndSync(instance.id, {
+            paused_at_stage: null,
+            last_action_at: nowIso(),
+          });
+          return { earlyReturn: null, instance, transitionWorkItem, stageResult, transitionReason };
+        }
+        instance = updateInstanceAndSync(instance.id, {
+          paused_at_stage: executeStage.paused_at_stage || LOOP_STATES.EXECUTE,
+          last_action_at: nowIso(),
+        });
+        return { earlyReturn: null, instance, transitionWorkItem, stageResult, transitionReason };
+      }
+
+      const executeNextState = executeStage?.next_state || LOOP_STATES.EXECUTE;
+      if (executeNextState === LOOP_STATES.IDLE) {
+        const lastActionAt = instance.last_action_at || null;
+        terminateInstanceAndSync(instance.id);
+        recordFactoryIdleIfExhausted(project.id, {
+          last_action_at: lastActionAt,
+          reason: transitionReason || 'execute_completed_idle',
+        });
+        return { earlyReturn: {
+          project_id: project.id,
+          instance_id,
+          previous_state: previousState,
+          new_state: LOOP_STATES.IDLE,
+          paused_at_stage: null,
+          stage_result: stageResult,
+          reason: transitionReason,
+        } };
+      }
+
+      // Defense-in-depth: any stage that asks to PAUSE must actually pause
+      // the instance, even if the stage forgot to set stop_execution: true.
+      // Without this, a bare `next_state: PAUSED` silently falls through
+      // the default break, the instance stays in EXECUTE, and the next
+      // tick re-runs the same failure (seen with execution_failed_no_tasks
+      // at 14:21 today before the companion handler fix landed).
+      if (executeNextState === LOOP_STATES.PAUSED) {
+        instance = updateInstanceAndSync(instance.id, {
+          paused_at_stage: executeStage?.paused_at_stage || LOOP_STATES.EXECUTE,
+          last_action_at: nowIso(),
+        });
+        return { earlyReturn: null, instance, transitionWorkItem, stageResult, transitionReason };
+      }
+
+      // Zero-diff short-circuit: if the last two+ executes for this batch
+      // ended with auto_commit_skipped_clean, the work item is not producing
+      // a diff and Codex is spinning. Reject it as unactionable so the loop
+      // can move on instead of burning more retries.
+      try {
+        const zdBatchId = executeStage?.work_item?.batch_id || instance.batch_id;
+        const workItemForZd = executeStage?.work_item || transitionWorkItem || targetItem || null;
+        const zeroDiff = maybeShortCircuitZeroDiffExecute({
+          project,
+          instance,
+          workItem: workItemForZd,
+          batchId: zdBatchId,
+        });
+        if (zeroDiff) {
+          // Phase E: prior auto_committed_task means the diff already
+          // landed; advance to VERIFY to validate the existing commit
+          // instead of treating no-op retries as failure.
+          if (zeroDiff.advance_to_verify) {
+            return { earlyReturn: {
+              project_id: project.id,
+              instance_id,
+              previous_state: previousState,
+              new_state: LOOP_STATES.VERIFY,
+              paused_at_stage: null,
+              stage_result: zeroDiff.stage_result,
+              reason: zeroDiff.reason,
+            } };
+          }
+          const lastActionAtZd = instance.last_action_at || null;
+          terminateInstanceAndSync(instance.id);
+          recordFactoryIdleIfExhausted(project.id, {
+            last_action_at: lastActionAtZd,
+            reason: 'execute_zero_diff_short_circuit',
+          });
+          return { earlyReturn: {
+            project_id: project.id,
+            instance_id,
+            previous_state: previousState,
+            new_state: LOOP_STATES.IDLE,
+            paused_at_stage: null,
+            stage_result: zeroDiff.stage_result,
+            reason: zeroDiff.reason,
+          } };
+        }
+      } catch (err) {
+        logger.warn('EXECUTE zero-diff short-circuit: detection failed', {
+          project_id: project.id,
+          error: err.message,
+        });
+      }
+
+      if (executeNextState === LOOP_STATES.VERIFY) {
+        const executeBatchId = executeStage?.work_item?.batch_id || instance.batch_id;
+        const shipResult = await maybeShipNoop({
+          project_id: project.id,
+          batch_id: executeBatchId,
+          work_item_id: instance && instance.work_item_id,
+        });
+        if (shipResult.shipped_as_noop) {
+          if (instance.work_item_id) {
+            const shippedWorkItem = factoryIntake.updateWorkItem(instance.work_item_id, { status: 'shipped' });
+            rememberSelectedWorkItem(instance.id, shippedWorkItem);
+            factoryIntake.releaseClaimForInstance(instance.id);
+          }
+          const moveToLearn = tryMoveInstanceToStage(instance, LOOP_STATES.LEARN, {
+            batch_id: executeBatchId,
+            work_item_id: transitionWorkItem?.id ?? instance.work_item_id,
+          });
+          instance = moveToLearn.instance;
+          transitionReason = moveToLearn.blocked ? 'stage_occupied' : 'shipped_as_noop';
+          return { earlyReturn: null, instance, transitionWorkItem, stageResult, transitionReason };
+        }
+        if (shipResult.paused) {
+          instance = updateInstanceAndSync(instance.id, {
+            paused_at_stage: LOOP_STATES.EXECUTE,
+            last_action_at: nowIso(),
+          });
+          transitionReason = shipResult.paused_reason || 'paused_at_gate';
+          return { earlyReturn: null, instance, transitionWorkItem, stageResult, transitionReason };
+        }
+        const moveToVerify = tryMoveInstanceToStage(instance, LOOP_STATES.VERIFY, {
+          batch_id: executeBatchId,
+          work_item_id: transitionWorkItem?.id ?? instance.work_item_id,
+        });
+        if (moveToVerify.blocked) {
+          instance = moveToVerify.instance;
+          transitionReason = 'stage_occupied';
+          return { earlyReturn: null, instance, transitionWorkItem, stageResult, transitionReason };
+        }
+        instance = moveToVerify.instance;
+        stageResult = await runExecuteVerifyStage(project.id, instance.batch_id, instance);
+        if (stageResult && stageResult.pause_at_stage) {
+          instance = updateInstanceAndSync(instance.id, {
+            paused_at_stage: stageResult.pause_at_stage,
+            last_action_at: nowIso(),
+          });
+          transitionReason = stageResult.reason || transitionReason;
+        } else if (isTerminalVerifyOutcome(stageResult)) {
+          return { earlyReturn: finalizeTerminalVerifyOutcome({
+            project,
+            instance,
+            previousState,
+            stageResult,
+          }) };
+        }
+      }
+
+  return { earlyReturn: null, instance, transitionWorkItem, stageResult, transitionReason };
+}
+
 async function handlePrioritizeTransition({ project, instance, currentState }) {
   let stageResult = null;
   let transitionReason = null;
@@ -13979,385 +14391,25 @@ async function runAdvanceLoop(instance_id) {
 
     case LOOP_STATES.PLAN:
     case LOOP_STATES.EXECUTE: {
-      if (currentState === LOOP_STATES.PLAN) {
-        const moveToExecute = tryMoveInstanceToStage(instance, LOOP_STATES.EXECUTE, {
-          work_item_id: instance.work_item_id,
-        });
-        if (moveToExecute.blocked) {
-          instance = moveToExecute.instance;
-          transitionReason = 'stage_occupied';
-          break;
-        }
-        instance = moveToExecute.instance;
-      }
-
-      let targetItem = transitionWorkItem || tryGetSelectedWorkItem(instance, project.id, {
-        fallbackToLoopSelection: true,
-      });
-      // Nothing to work on — terminate cleanly instead of spinning in place.
-      // Without this, auto-advance retriggers EXECUTE every 100ms because
-      // executePlanFileStage returns null with a null targetItem and
-      // executeNextState defaults back to EXECUTE. The next tick will
-      // re-enter SENSE and pick up new work if any exists.
-      if (!targetItem) {
-        const lastActionAt = instance.last_action_at || null;
-        terminateInstanceAndSync(instance.id);
-        recordFactoryIdleIfExhausted(project.id, {
-          last_action_at: lastActionAt,
-          reason: 'no_work_item_selected',
-        });
-        return {
-          project_id: project.id,
-          instance_id: instance.id,
-          previous_state: previousState,
-          new_state: LOOP_STATES.IDLE,
-          paused_at_stage: null,
-          stage_result: null,
-          reason: 'no_work_item_selected',
-        };
-      }
-
-      const closedWorkItemReason = getClosedWorkItemLoopStopReason(targetItem);
-      if (closedWorkItemReason) {
-        let finalWorkItem = targetItem;
-        if (
-          closedWorkItemReason === 'work_item_closed_escalation_exhausted_reject_reason'
-          || closedWorkItemReason === 'work_item_closed_escalation_exhausted_origin'
-        ) {
-          try {
-            finalWorkItem = restoreTerminalEscalationWorkItem(targetItem) || targetItem;
-          } catch (err) {
-            logger.warn('Factory loop: failed to restore terminal escalation_exhausted work item status', {
-              project_id: project.id,
-              work_item_id: targetItem.id,
-              status: targetItem.status,
-              err: err.message,
-            });
-          }
-        }
-        const lastActionAt = instance.last_action_at || null;
-        terminateInstanceAndSync(instance.id);
-        recordFactoryIdleIfExhausted(project.id, {
-          last_action_at: lastActionAt,
-          reason: closedWorkItemReason,
-        });
-        try {
-          safeLogDecision({
-            project_id: project.id,
-            stage: String(currentState || '').toLowerCase(),
-            actor: 'loop-controller',
-            action: 'closed_work_item_loop_stopped',
-            reasoning: `Loop instance stopped because work item ${targetItem.id} is closed (${finalWorkItem.status || targetItem.status}).`,
-            outcome: {
-              work_item_id: targetItem.id,
-              work_item_status: finalWorkItem.status || targetItem.status,
-              reject_reason: finalWorkItem.reject_reason || targetItem.reject_reason || null,
-            },
-            batch_id: instance.batch_id || getDecisionBatchId(project, finalWorkItem),
-          });
-        } catch (_err) { void _err; }
-        return {
-          project_id: project.id,
-          instance_id: instance.id,
-          previous_state: previousState,
-          new_state: LOOP_STATES.IDLE,
-          paused_at_stage: null,
-          stage_result: {
-            status: 'stopped',
-            reason: closedWorkItemReason,
-            work_item_id: targetItem.id,
-            work_item_status: finalWorkItem.status || targetItem.status,
-          },
-          reason: closedWorkItemReason,
-        };
-      }
-
-      const preExecuteZeroDiff = maybeShortCircuitZeroDiffExecute({
+      // Phase 2c-dispatcher: the combined PLAN/EXECUTE policy lives in
+      // handlePlanExecuteTransition (mirrors handlePrioritizeTransition).
+      // The helper either signals an early-return (which runAdvanceLoop
+      // returns directly) or hands back the updated transition locals.
+      const planExec = await handlePlanExecuteTransition({
         project,
         instance,
-        workItem: targetItem,
-        batchId: getFactoryExecutionBatchId(project, targetItem, instance),
+        currentState,
+        previousState,
+        instance_id,
+        transitionWorkItem,
       });
-      if (preExecuteZeroDiff) {
-        // Phase E: when the batch already produced a real commit, the
-        // short-circuit signals "advance to VERIFY" instead of rejecting.
-        // The work item stays alive; verify runs on the existing diff.
-        if (preExecuteZeroDiff.advance_to_verify) {
-          return {
-            project_id: project.id,
-            instance_id,
-            previous_state: previousState,
-            new_state: LOOP_STATES.VERIFY,
-            paused_at_stage: null,
-            stage_result: preExecuteZeroDiff.stage_result,
-            reason: preExecuteZeroDiff.reason,
-          };
-        }
-        const lastActionAt = instance.last_action_at || null;
-        terminateInstanceAndSync(instance.id);
-        recordFactoryIdleIfExhausted(project.id, {
-          last_action_at: lastActionAt,
-          reason: 'execute_zero_diff_short_circuit',
-        });
-        return {
-          project_id: project.id,
-          instance_id,
-          previous_state: previousState,
-          new_state: LOOP_STATES.IDLE,
-          paused_at_stage: null,
-          stage_result: preExecuteZeroDiff.stage_result,
-          reason: preExecuteZeroDiff.reason,
-        };
+      if (planExec.earlyReturn) {
+        return planExec.earlyReturn;
       }
-
-      const targetPlanPath = targetItem.origin?.plan_path || null;
-      const hasPendingPlanGeneration = Boolean(getStoredPlanGenerationTaskId(targetItem));
-      if (hasPendingPlanGeneration || !targetPlanPath || !fs.existsSync(targetPlanPath)) {
-        const generated = await executeNonPlanFileStage(project, instance, targetItem);
-        if (generated?.work_item) {
-          targetItem = generated.work_item;
-          transitionWorkItem = generated.work_item;
-        }
-        if (generated?.stage_result) {
-          stageResult = generated.stage_result;
-        }
-        if (generated?.reason) {
-          transitionReason = generated.reason;
-        }
-        if (generated?.stop_execution) {
-          // If the stage asked to go to IDLE (e.g. cannot_generate_plan
-          // auto-rejected the item), terminate and exit instead of pausing.
-          if (generated.next_state === LOOP_STATES.IDLE) {
-            const lastActionAt = instance.last_action_at || null;
-            terminateInstanceAndSync(instance.id);
-            recordFactoryIdleIfExhausted(project.id, {
-              last_action_at: lastActionAt,
-              reason: generated.reason || 'stop_execution_idle',
-            });
-            return {
-              project_id: project.id,
-              instance_id: instance.id,
-              previous_state: previousState,
-              new_state: LOOP_STATES.IDLE,
-              paused_at_stage: null,
-              stage_result: generated.stage_result || null,
-              reason: generated.reason || 'stop_execution_idle',
-            };
-          }
-          if (generated.next_state === LOOP_STATES.PRIORITIZE) {
-            const moveToPrioritize = tryMoveInstanceToStage(instance, LOOP_STATES.PRIORITIZE, {
-              work_item_id: generated.work_item?.id ?? instance.work_item_id,
-            });
-            instance = moveToPrioritize.instance;
-            if (moveToPrioritize.blocked) {
-              transitionReason = 'stage_occupied';
-            }
-            break;
-          }
-          if (generated.next_state === LOOP_STATES.EXECUTE && !generated.paused_at_stage) {
-            instance = updateInstanceAndSync(instance.id, {
-              paused_at_stage: null,
-              last_action_at: nowIso(),
-            });
-            break;
-          }
-          instance = updateInstanceAndSync(instance.id, {
-            paused_at_stage: generated.paused_at_stage || LOOP_STATES.PLAN_REVIEW,
-            last_action_at: nowIso(),
-          });
-          break;
-        }
-      }
-
-      const executeStage = await executePlanFileStage(project, instance, targetItem);
-      if (executeStage) {
-        stageResult = executeStage.stage_result;
-        transitionReason = executeStage.reason;
-        transitionWorkItem = executeStage.work_item || transitionWorkItem;
-      }
-      instance = getInstanceOrThrow(instance.id);
-
-      if (executeStage?.stop_execution) {
-        if (executeStage.next_state === LOOP_STATES.IDLE) {
-          const lastActionAt = instance.last_action_at || null;
-          terminateInstanceAndSync(instance.id);
-          recordFactoryIdleIfExhausted(project.id, {
-            last_action_at: lastActionAt,
-            reason: transitionReason || executeStage.reason || 'execute_stop_idle',
-          });
-          return {
-            project_id: project.id,
-            instance_id: instance.id,
-            previous_state: previousState,
-            new_state: LOOP_STATES.IDLE,
-            paused_at_stage: null,
-            stage_result: executeStage.stage_result || null,
-            reason: transitionReason || executeStage.reason || 'execute_stop_idle',
-          };
-        }
-        if (executeStage.next_state === LOOP_STATES.PRIORITIZE) {
-          const moveToPrioritize = tryMoveInstanceToStage(instance, LOOP_STATES.PRIORITIZE, {
-            work_item_id: executeStage.work_item?.id ?? instance.work_item_id,
-          });
-          instance = moveToPrioritize.instance;
-          if (moveToPrioritize.blocked) {
-            transitionReason = 'stage_occupied';
-          }
-          break;
-        }
-        if (executeStage.next_state === LOOP_STATES.EXECUTE && !executeStage.paused_at_stage) {
-          instance = updateInstanceAndSync(instance.id, {
-            paused_at_stage: null,
-            last_action_at: nowIso(),
-          });
-          break;
-        }
-        instance = updateInstanceAndSync(instance.id, {
-          paused_at_stage: executeStage.paused_at_stage || LOOP_STATES.EXECUTE,
-          last_action_at: nowIso(),
-        });
-        break;
-      }
-
-      const executeNextState = executeStage?.next_state || LOOP_STATES.EXECUTE;
-      if (executeNextState === LOOP_STATES.IDLE) {
-        const lastActionAt = instance.last_action_at || null;
-        terminateInstanceAndSync(instance.id);
-        recordFactoryIdleIfExhausted(project.id, {
-          last_action_at: lastActionAt,
-          reason: transitionReason || 'execute_completed_idle',
-        });
-        return {
-          project_id: project.id,
-          instance_id,
-          previous_state: previousState,
-          new_state: LOOP_STATES.IDLE,
-          paused_at_stage: null,
-          stage_result: stageResult,
-          reason: transitionReason,
-        };
-      }
-
-      // Defense-in-depth: any stage that asks to PAUSE must actually pause
-      // the instance, even if the stage forgot to set stop_execution: true.
-      // Without this, a bare `next_state: PAUSED` silently falls through
-      // the default break, the instance stays in EXECUTE, and the next
-      // tick re-runs the same failure (seen with execution_failed_no_tasks
-      // at 14:21 today before the companion handler fix landed).
-      if (executeNextState === LOOP_STATES.PAUSED) {
-        instance = updateInstanceAndSync(instance.id, {
-          paused_at_stage: executeStage?.paused_at_stage || LOOP_STATES.EXECUTE,
-          last_action_at: nowIso(),
-        });
-        break;
-      }
-
-      // Zero-diff short-circuit: if the last two+ executes for this batch
-      // ended with auto_commit_skipped_clean, the work item is not producing
-      // a diff and Codex is spinning. Reject it as unactionable so the loop
-      // can move on instead of burning more retries.
-      try {
-        const zdBatchId = executeStage?.work_item?.batch_id || instance.batch_id;
-        const workItemForZd = executeStage?.work_item || transitionWorkItem || targetItem || null;
-        const zeroDiff = maybeShortCircuitZeroDiffExecute({
-          project,
-          instance,
-          workItem: workItemForZd,
-          batchId: zdBatchId,
-        });
-        if (zeroDiff) {
-          // Phase E: prior auto_committed_task means the diff already
-          // landed; advance to VERIFY to validate the existing commit
-          // instead of treating no-op retries as failure.
-          if (zeroDiff.advance_to_verify) {
-            return {
-              project_id: project.id,
-              instance_id,
-              previous_state: previousState,
-              new_state: LOOP_STATES.VERIFY,
-              paused_at_stage: null,
-              stage_result: zeroDiff.stage_result,
-              reason: zeroDiff.reason,
-            };
-          }
-          const lastActionAtZd = instance.last_action_at || null;
-          terminateInstanceAndSync(instance.id);
-          recordFactoryIdleIfExhausted(project.id, {
-            last_action_at: lastActionAtZd,
-            reason: 'execute_zero_diff_short_circuit',
-          });
-          return {
-            project_id: project.id,
-            instance_id,
-            previous_state: previousState,
-            new_state: LOOP_STATES.IDLE,
-            paused_at_stage: null,
-            stage_result: zeroDiff.stage_result,
-            reason: zeroDiff.reason,
-          };
-        }
-      } catch (err) {
-        logger.warn('EXECUTE zero-diff short-circuit: detection failed', {
-          project_id: project.id,
-          error: err.message,
-        });
-      }
-
-      if (executeNextState === LOOP_STATES.VERIFY) {
-        const executeBatchId = executeStage?.work_item?.batch_id || instance.batch_id;
-        const shipResult = await maybeShipNoop({
-          project_id: project.id,
-          batch_id: executeBatchId,
-          work_item_id: instance && instance.work_item_id,
-        });
-        if (shipResult.shipped_as_noop) {
-          if (instance.work_item_id) {
-            const shippedWorkItem = factoryIntake.updateWorkItem(instance.work_item_id, { status: 'shipped' });
-            rememberSelectedWorkItem(instance.id, shippedWorkItem);
-            factoryIntake.releaseClaimForInstance(instance.id);
-          }
-          const moveToLearn = tryMoveInstanceToStage(instance, LOOP_STATES.LEARN, {
-            batch_id: executeBatchId,
-            work_item_id: transitionWorkItem?.id ?? instance.work_item_id,
-          });
-          instance = moveToLearn.instance;
-          transitionReason = moveToLearn.blocked ? 'stage_occupied' : 'shipped_as_noop';
-          break;
-        }
-        if (shipResult.paused) {
-          instance = updateInstanceAndSync(instance.id, {
-            paused_at_stage: LOOP_STATES.EXECUTE,
-            last_action_at: nowIso(),
-          });
-          transitionReason = shipResult.paused_reason || 'paused_at_gate';
-          break;
-        }
-        const moveToVerify = tryMoveInstanceToStage(instance, LOOP_STATES.VERIFY, {
-          batch_id: executeBatchId,
-          work_item_id: transitionWorkItem?.id ?? instance.work_item_id,
-        });
-        if (moveToVerify.blocked) {
-          instance = moveToVerify.instance;
-          transitionReason = 'stage_occupied';
-          break;
-        }
-        instance = moveToVerify.instance;
-        stageResult = await runExecuteVerifyStage(project.id, instance.batch_id, instance);
-        if (stageResult && stageResult.pause_at_stage) {
-          instance = updateInstanceAndSync(instance.id, {
-            paused_at_stage: stageResult.pause_at_stage,
-            last_action_at: nowIso(),
-          });
-          transitionReason = stageResult.reason || transitionReason;
-        } else if (isTerminalVerifyOutcome(stageResult)) {
-          return finalizeTerminalVerifyOutcome({
-            project,
-            instance,
-            previousState,
-            stageResult,
-          });
-        }
-      }
+      instance = planExec.instance;
+      transitionWorkItem = planExec.transitionWorkItem;
+      stageResult = planExec.stageResult;
+      transitionReason = planExec.transitionReason;
       break;
     }
 
