@@ -35,22 +35,27 @@ Everything a stage needs, passed as a single object. Resolved once per loop tick
 ```js
 /**
  * @typedef {Object} StageContext
- * @property {ProjectRow} project        — already-resolved project row (never null inside a stage)
- * @property {InstanceRow} instance      — already-resolved loop instance (never null inside a stage)
- * @property {WorkItem|null} workItem    — currently-selected work item, or null for Sense
- * @property {string|null} batchId       — current execution batch, or null pre-EXECUTE
- * @property {DBHandle} db               — database facade from the DI container
- * @property {Logger} logger             — pre-bound child logger with project/instance/stage tags
- * @property {DecisionRecorder} decisions — `decisions.log(...)` replaces `safeLogDecision(...)`
- * @property {InstanceMutator} instanceMutator — `updateInstanceAndSync`, `rememberSelectedWorkItem`, etc.
+ * @property {ProjectRow} project              — already-resolved project row (never null inside a stage)
+ * @property {InstanceRow} instance            — already-resolved loop instance (never null inside a stage)
+ * @property {WorkItem|null} workItem          — currently-selected work item, or null for Sense
+ * @property {string|null} batchId             — current execution batch, or null pre-EXECUTE
+ * @property {WorkItemStore} workItemStore     — load, update, claim, routeToNeedsReplan, listOpen
+ * @property {InstanceStore} instanceStore     — load, updateAndSync, rememberSelectedWorkItem, clearSelectedWorkItem
+ * @property {DecisionStore} decisionStore     — log, getLatestForStage, listForBatch
+ * @property {BatchStore} batchStore           — getOrCreate, listTasks
+ * @property {WorktreeStore} worktreeStore     — getActiveByBatch, getActiveByProject, markMerged
+ * @property {Logger} logger                   — pre-bound child logger with project/instance/stage tags
  */
 ```
 
+Stages never see a raw `db` handle — they consume the typed store interfaces. This boundary is decided (see "Decisions" section below) because it keeps stages domain-shaped: a stage edit doesn't need to know SQL schema, just the operations its store exposes.
+
 Why a context object instead of positional arguments:
-- The dispatcher resolves the heavyweight values (project, instance, db handle) **once**. Stages stop calling `getProjectOrThrow`, `factoryHealth.getProject`, or `defaultContainer.get('db')` on every entry.
+- The dispatcher resolves the heavyweight values (project, instance, stores) **once**. Stages stop calling `getProjectOrThrow`, `factoryHealth.getProject`, or `defaultContainer.get('db')` on every entry.
 - Tests construct a fake context once and reuse it across stage invocations.
 - Adding a new piece of cross-cutting context (e.g. a feature-flag service, a trace span) is one edit to the typedef + one edit at the dispatcher's resolve site, instead of N stage-signature changes.
 - The DI container becomes the **resolver**, not a global lookup performed inside each stage.
+- Swapping the DB facade, adding a read replica, or wiring up observability is one edit per store, zero per stage.
 
 ### `StageOutcome` (output)
 
@@ -179,14 +184,46 @@ Order stays smallest-first (Sense → Learn → Prioritize → Plan → Verify �
 
 `startLoop`, `advanceLoop`, `awaitFactoryLoop`, `approveGate`, `rejectGate`, `terminateInstanceAndSync` etc. become consumers of `resolveStageContext` + `stages[state]` + `applyOutcome`. They lose their per-stage knowledge and become pure dispatch.
 
-## Open questions for the operator
+## Decisions (resolved 2026-05-15)
 
-These need a decision before Phase 2c opens:
+These were posed as open questions during the spec draft. The lens for each is "what survives the most change over the next 2-3 years."
 
-1. **`StageContext` carries a DI-resolved `db` handle.** That couples stages to the container. Acceptable, or should stages take the DB-bound services already wrapped (work-item store, decision store, instance mutator) so they never see a raw `db`? The latter is purer; the former matches current code.
-2. **`applyOutcome` writes a `stage_complete` decision automatically.** Today, every stage emits its own terminal decision with bespoke fields. If the dispatcher writes it, the fields become uniform (good for the dashboard) but stage-specific signal-richness is lost. Mitigation: `extraDecisions` on the outcome, or accept the uniformity.
-3. **Naming.** `disposition` is jargon. `nextAction`, `result`, `verdict`? I'd keep `disposition` because it has fewer overloads in this codebase.
-4. **Backward compat.** Tests today import the bare `executeFooStage` functions and call them with positional args. Phase 2c adapters keep that working, but Phase 3 (full extraction) breaks them. Options: (a) update tests in lockstep, (b) keep a deprecation-period adapter, (c) cut over hard. (a) is cleanest but bigger; (c) is fastest. Probably (a).
+### 1. `StageContext` carries **pre-wrapped stores**, not a raw `db` handle
+
+Stages take typed store interfaces, never a raw `db`:
+
+```
+workItemStore   — load, update, claim, routeToNeedsReplan, listOpen
+instanceStore   — load, updateAndSync, rememberSelectedWorkItem, clearSelectedWorkItem
+decisionStore   — log, getLatestForStage, listForBatch
+batchStore      — getOrCreate, listTasks
+worktreeStore   — getActiveByBatch, getActiveByProject, markMerged
+```
+
+Each is a thin wrapper over the existing `factoryIntake` / `factoryLoopInstances` / `factoryDecisions` / `factoryWorktrees` modules — paid once in Phase 2c-scaffold, benefit compounds forever:
+
+- Read replica, sharding, or DB facade swap: one edit per store, zero per stage.
+- Per-store observability (tracing, timing): wrap once, get it everywhere.
+- Tests fake a store interface, not a whole DB.
+- Stages become functions of their context interface — domain logic, not DB clients with logic on top.
+
+### 2. `applyOutcome` auto-emits a uniform `stage_complete` decision; `extraDecisions` is the escape hatch
+
+The dispatcher writes one `stage_complete` row per stage tick with uniform fields (`project_id`, `instance_id`, `stage`, `disposition`, `next_state`, `paused_at_stage`, `reason`, `batch_id`, `work_item_id`, `stage_result`, `timestamp`).
+
+Stages that need to emit additional causal events (e.g. EXECUTE submitting N tasks, VERIFY recording a fix-task submission) return them on `outcome.extraDecisions: DecisionRecord[]`. The dispatcher writes them **after** the primary `stage_complete` so causal order is preserved in the log.
+
+Why: the dashboard and the `docs/recovery-decisions.md` audit tool both benefit from uniformity, and the addendum already calls out "silent UNKNOWN routing is the most common bug class." Uniform structured decisions narrow that surface. `extraDecisions` keeps signal-richness available where stages genuinely need it.
+
+### 3. Keep `disposition` as the discriminator name
+
+`nextAction` collides with `factory_decisions.action` (a different concept already alive in the codebase — that collision is exactly the kind of overload that produces real bugs). `verdict` implies judgment, not control flow. `disposition` has no overloads in this codebase and means precisely what it says here: "how should this tick be disposed of?" JSDoc the enum values inline next to the property and the jargon cost drops to zero.
+
+### 4. Tests update in lockstep with each Phase 3 commit
+
+Each `feat/refactor-3X-stage-*` worktree includes the stage's file move plus updates to its direct importers (~25 test files total, one or two per phase). No deprecation adapter, no hard cutover.
+
+Why: deprecation adapters accumulate as silent technical debt — "we'll clean it up later" never happens reliably. Hard cutover breaks CI for unbounded time. Lockstep keeps each commit's blast radius predictable and tests on the new contract actually test the new contract.
 
 ## How to apply this doc
 
