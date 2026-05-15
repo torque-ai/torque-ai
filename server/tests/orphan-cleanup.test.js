@@ -5,6 +5,9 @@
  * host failover cleanup, and stale task timeout handling.
  */
 
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
 const { TEST_MODELS: BASE_TEST_MODELS } = require('./test-helpers');
 
 const TEST_MODELS = { ...BASE_TEST_MODELS, DEFAULT: 'qwen3-coder:30b' };
@@ -893,6 +896,7 @@ describe('Orphan Cleanup', () => {
         getConfig: vi.fn().mockReturnValue('0'),
         reconcileHostTaskCounts: vi.fn(),
         getRunningTasksLightweight: vi.fn().mockReturnValue([]),
+        getTask: vi.fn().mockReturnValue(null),
         updateTaskStatus: vi.fn(),
         decrementHostTasks: vi.fn(),
       };
@@ -1193,6 +1197,50 @@ describe('Orphan Cleanup', () => {
         provider: null,
       }));
       expect(mockProcessQueue).toHaveBeenCalled();
+    });
+
+    it('completes untracked detached tasks when the process-exit log shows success', () => {
+      const recentTime = new Date(Date.now() - 2 * 60 * 1000).toISOString();
+      const logDir = fs.mkdtempSync(path.join(os.tmpdir(), 'torque-orphan-cleanup-'));
+      const stdoutPath = path.join(logDir, 'stdout.log');
+      const stderrPath = path.join(logDir, 'stderr.log');
+      fs.writeFileSync(stdoutPath, 'final answer\n', 'utf8');
+      fs.writeFileSync(stderrPath, '[torque-spawn] taskId=task-detached-done wrapper-pid=123 started_at_epoch=1\n[process-exit] code=0 signal=none duration_ms=25 provider=claude-cli\n', 'utf8');
+
+      try {
+        mockDb.getTask.mockReturnValue({
+          id: 'task-detached-done',
+          output: 'existing output',
+          error_output: '',
+        });
+        mockDb.getRunningTasksLightweight.mockReturnValue([
+          {
+            id: 'task-detached-done',
+            status: 'running',
+            started_at: recentTime,
+            timeout_minutes: 30,
+            retry_count: 0,
+            max_retries: 2,
+            mcp_instance_id: 'mcp-current',
+            output_log_path: stdoutPath,
+            error_log_path: stderrPath,
+          },
+        ]);
+
+        orphanCleanup.checkStaleRunningTasks();
+
+        expect(mockDb.updateTaskStatus).toHaveBeenCalledWith('task-detached-done', 'completed', expect.objectContaining({
+          exit_code: 0,
+          pid: null,
+          subprocess_pid: null,
+          mcp_instance_id: null,
+          output: expect.stringContaining('final answer'),
+          error_output: expect.stringContaining('[process-exit] code=0 signal=none'),
+        }));
+        expect(mockProcessQueue).toHaveBeenCalled();
+      } finally {
+        fs.rmSync(logDir, { recursive: true, force: true });
+      }
     });
 
     it('skips orphan recovery while finalization marker is active', () => {

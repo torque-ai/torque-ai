@@ -14,10 +14,12 @@
 
 const { execFile } = require('child_process');
 const { promisify } = require('util');
+const fs = require('fs');
 const execFileAsync = promisify(execFile);
 const { killProcessGraceful, killOrphanByPid } = require('../execution/process-lifecycle');
 const serverConfig = require('../config');
 const { parseModelSizeB } = require('../utils/model');
+const { findLastProcessExitAnnotation } = require('../utils/process-exit-format');
 const {
   appendRollbackReport,
   rollbackAgenticTaskChanges,
@@ -502,6 +504,65 @@ function maybeReportRuntimeProblem(task, problem, details = {}) {
   }
 }
 
+function readTextFileIfPresent(filePath) {
+  if (!filePath || typeof filePath !== 'string') return '';
+  try {
+    return fs.readFileSync(filePath, 'utf8');
+  } catch {
+    return '';
+  }
+}
+
+function appendIfMissing(existing, addition) {
+  const current = String(existing || '');
+  const next = String(addition || '');
+  if (!next) return current;
+  if (!current) return next;
+  if (current.includes(next)) return current;
+  return `${current}\n${next}`;
+}
+
+function tryCompleteDetachedProcessExitTask(task) {
+  if (!task || task.status !== 'running') return false;
+  if (!task.output_log_path && !task.error_log_path) return false;
+
+  const fullTask = typeof db?.getTask === 'function'
+    ? (db.getTask(task.id) || task)
+    : task;
+  const stdout = readTextFileIfPresent(task.output_log_path || fullTask?.output_log_path);
+  const stderr = readTextFileIfPresent(task.error_log_path || fullTask?.error_log_path);
+  const annotation = findLastProcessExitAnnotation([
+    stderr,
+    fullTask?.error_output || '',
+    stdout,
+    fullTask?.output || '',
+  ].filter(Boolean).join('\n'));
+
+  if (!annotation || annotation.code !== 0 || annotation.signal) {
+    return false;
+  }
+
+  const update = {
+    exit_code: 0,
+    pid: null,
+    subprocess_pid: null,
+    mcp_instance_id: null,
+    ollama_host_id: null,
+    completed_at: new Date().toISOString(),
+  };
+  if (stdout) {
+    update.output = appendIfMissing(fullTask?.output, stdout);
+  }
+  if (stderr) {
+    update.error_output = appendIfMissing(fullTask?.error_output, stderr);
+  }
+
+  db.updateTaskStatus(task.id, 'completed', update);
+  try { dashboard?.notifyTaskUpdated?.(task.id); } catch { /* ignore */ }
+  logger?.info?.(`[Stale Check] Marked ${task.id} completed from detached process-exit log`);
+  return true;
+}
+
 /**
  * Check for stale running tasks that should have timed out
  * This catches tasks that exceeded their timeout but weren't cancelled
@@ -550,6 +611,10 @@ function checkStaleRunningTasks() {
         ? getMcpInstanceId()
         : null;
       const isTrackedLocally = runningProcesses.has(task.id);
+      if (!isTrackedLocally && tryCompleteDetachedProcessExitTask(task)) {
+        recoveredOrphans++;
+        continue;
+      }
       const retryCount = task.retry_count || 0;
       const maxRetries = task.max_retries != null ? task.max_retries : 2;
       const requeueOrFailDeadOwner = (reason) => {
