@@ -158,6 +158,9 @@ const BENIGN_FLOW_ACTION_PREFIXES = [
   'starting',                 // generic stage-started signal
 ];
 const BENIGN_FLOW_ACTION_EXACT = new Set([
+  // ── STAGE LIFECYCLE (ANY) ───────────────────────────────────────────────────
+  'stage_complete',          // applyOutcome's uniform per-tick stage_complete record (stages/ dispatcher contract)
+
   // ── SENSE ───────────────────────────────────────────────────────────────────
   'scanned_plans',           // SENSE scanned the plans directory
   'start_loop_blocked_project_paused',  // SENSE found project paused; loop blocked (benign guard)

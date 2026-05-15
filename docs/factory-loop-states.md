@@ -310,6 +310,7 @@ Frequently-emitted actions, by stage:
 | ANY | `auto_recovery_strategy_selected` | `engine` | `strategy`, `classification` |
 | ANY | `auto_recovery_strategy_succeeded` | `engine` | `strategy`, `classification` |
 | ANY | `auto_recovery_unknown_action` | `engine` | `original_action`, `original_stage`, `outcome_keys`, `work_item_id`, `task_id`, `engine_decided_strategies` |
+| ANY | `stage_complete` | `benign` | `disposition`, `next_state`, `paused_at_stage`, `work_item_id`, `batch_id`, `stage_result` |
 <!-- END AUTOGEN: decision-actions-table -->
 
 **When adding a new decision action**: pair the emit site with a classifier rule. If the rule's strategy chain doesn't apply, at minimum add it to `isBenignFlowDecision` so recovery skips it. Pattern that keeps biting: a new action emitted with no matching rule routes to UNKNOWN → plain retry → re-spawn the same failing provider on the same task. Three of the five `recovery-decisions.md` conflicts were variations of this.

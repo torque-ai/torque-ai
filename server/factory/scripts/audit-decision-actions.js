@@ -9,19 +9,33 @@ const SOURCE_GLOBS = [
 ];
 
 // Match every form of decision-log call observed in the codebase:
-//   logDecision({...})           — server/factory/decision-log.js
-//   logDecision(db, {...})       — server/factory/auto-recovery/engine.js
-//   logDecisionFn({...})         — alias binding in loop-controller.js (one site)
-//   safeLogDecision({...})       — wrapper in loop-controller.js + worktree-auto-commit.js (most calls)
+//   logDecision({...})              — server/factory/decision-log.js
+//   logDecision(db, {...})          — server/factory/auto-recovery/engine.js
+//   logDecisionFn({...})            — alias binding in loop-controller.js (one site)
+//   safeLogDecision({...})          — wrapper in loop-controller.js + worktree-auto-commit.js (most calls)
+//   decisionStore.log({...})        — the stages/ DecisionStore facade
+//                                     (server/factory/stages/, e.g. apply-outcome.js).
+//                                     The loop-controller refactor migrates stage
+//                                     decision emission onto this facade; without
+//                                     this alternative the catalog audit would go
+//                                     blind to every decision a stage runner emits.
 // The `(?:safeL|l)` alternation handles the case difference: `safeLogDecision`
 // has capital L after the `safe` prefix, while bare `logDecision` is lowercase.
 // `\w*` after `ogDecision` covers `logDecisionFn` and any future suffix variants.
-// Word boundary `\b` prevents accidental matches inside unrelated identifiers
-// like `MyLogDecision` or `pologDecision`.
-const EMIT_LITERAL_RE = /\b(?:safeL|l)ogDecision\w*\s*\(\s*(?:[a-zA-Z_$][\w$]*\s*,\s*)?\{[^}]*\baction\s*:\s*['"]([\w-]+)['"]/g;
+// `\bdecisionStore\.log` matches the facade method regardless of receiver prefix
+// (`ctx.decisionStore.log`, `this.decisionStore.log`, …). Word boundary `\b`
+// prevents accidental matches inside unrelated identifiers like `MyLogDecision`.
+const EMIT_CALL_PREFIX = '(?:\\b(?:safeL|l)ogDecision\\w*|\\bdecisionStore\\.log)';
+const EMIT_LITERAL_RE = new RegExp(
+  `${EMIT_CALL_PREFIX}\\s*\\(\\s*(?:[a-zA-Z_$][\\w$]*\\s*,\\s*)?\\{[^}]*\\baction\\s*:\\s*['"]([\\w-]+)['"]`,
+  'g',
+);
 
 // Match the same call shapes where action: is followed by a non-string-literal expression.
-const EMIT_DYNAMIC_RE = /\b(?:safeL|l)ogDecision\w*\s*\(\s*(?:[a-zA-Z_$][\w$]*\s*,\s*)?\{[^}]*\baction\s*:\s*(?!['"])([^,}\n]+)/g;
+const EMIT_DYNAMIC_RE = new RegExp(
+  `${EMIT_CALL_PREFIX}\\s*\\(\\s*(?:[a-zA-Z_$][\\w$]*\\s*,\\s*)?\\{[^}]*\\baction\\s*:\\s*(?!['"])([^,}\\n]+)`,
+  'g',
+);
 
 // Audit script's own filename — exclude from self-scan so doc-comment examples
 // don't get parsed as real emit sites.
