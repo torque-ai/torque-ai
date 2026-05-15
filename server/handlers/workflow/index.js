@@ -1251,6 +1251,8 @@ function handleCreateWorkflow(args) {
     description: args.description,
     working_directory: args.working_directory,
     priority: args.priority,
+    cost_ceiling_usd: args.cost_ceiling_usd,
+    task_count_ceiling: args.task_count_ceiling,
     context: Object.keys(workflowContext).length > 0 ? workflowContext : undefined
   });
   // Propagate workflow-level routing_template to seeded tasks that don't have their own
