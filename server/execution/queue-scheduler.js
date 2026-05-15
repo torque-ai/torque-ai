@@ -65,6 +65,7 @@ let _providerLimitCacheTs = 0;
 const PROVIDER_LIMIT_CACHE_TTL_MS = 10000;
 const QUEUE_CHANGED_EVENT = 'torque:queue-changed';
 const QUEUE_CHANGED_LISTENER_TAG = Symbol.for('torque.queueChangedListener');
+const QUEUE_CHANGED_LISTENER_TEARDOWN = Symbol.for('torque.queueChangedListenerTeardown');
 const EXIT_CLEANUP_LISTENER_TAG = Symbol.for('torque.queueSchedulerExitCleanup');
 const FREE_PROVIDERS = Object.freeze([
   'groq',
@@ -112,12 +113,38 @@ const FACTORY_PLAN_SIGNAL_KINDS = new Set([
   'plan_quality_review',
 ]);
 
+function clearQueueChangedDebounceTimer() {
+  if (_debounceTimer) {
+    clearTimeout(_debounceTimer);
+    _debounceTimer = null;
+  }
+}
+
+function teardownQueueChangedListener(listener) {
+  if (!listener) {
+    clearQueueChangedDebounceTimer();
+    return;
+  }
+
+  const listenerTeardown = listener[QUEUE_CHANGED_LISTENER_TEARDOWN];
+  if (typeof listenerTeardown === 'function') {
+    listenerTeardown();
+    return;
+  }
+
+  process.removeListener(QUEUE_CHANGED_EVENT, listener);
+  if (listener === _queueChangedListener) {
+    _queueChangedListener = null;
+  }
+}
+
 function removeStaleQueueChangedListeners() {
   for (const listener of process.listeners(QUEUE_CHANGED_EVENT)) {
     if (listener && listener[QUEUE_CHANGED_LISTENER_TAG]) {
-      process.removeListener(QUEUE_CHANGED_EVENT, listener);
+      teardownQueueChangedListener(listener);
     }
   }
+  clearQueueChangedDebounceTimer();
 }
 
 function notifyDashboard(taskId, updates = {}) {
@@ -174,13 +201,8 @@ function init(deps) {
   _stopped = false;
 
   removeStaleQueueChangedListeners();
-
-  // Remove previous listener if init() is called multiple times
-  if (_queueChangedListener) {
-    process.removeListener(QUEUE_CHANGED_EVENT, _queueChangedListener);
-  }
   _lastQueueProcessAt = 0;
-  _queueChangedListener = () => {
+  const queueChangedListener = () => {
     if (_stopped) return;
     if (!_debounceTimer) {
       _debounceTimer = setTimeout(() => {
@@ -194,7 +216,15 @@ function init(deps) {
       }, 15);
     }
   };
-  _queueChangedListener[QUEUE_CHANGED_LISTENER_TAG] = true;
+  queueChangedListener[QUEUE_CHANGED_LISTENER_TAG] = true;
+  queueChangedListener[QUEUE_CHANGED_LISTENER_TEARDOWN] = () => {
+    clearQueueChangedDebounceTimer();
+    process.removeListener(QUEUE_CHANGED_EVENT, queueChangedListener);
+    if (_queueChangedListener === queueChangedListener) {
+      _queueChangedListener = null;
+    }
+  };
+  _queueChangedListener = queueChangedListener;
   process.on(QUEUE_CHANGED_EVENT, _queueChangedListener);
   ensureExitCleanup();
 }
@@ -215,14 +245,7 @@ function attemptTaskStart(taskId, label) {
  */
 function stop() {
   _stopped = true;
-  if (_debounceTimer) {
-    clearTimeout(_debounceTimer);
-    _debounceTimer = null;
-  }
-  if (_queueChangedListener) {
-    process.removeListener(QUEUE_CHANGED_EVENT, _queueChangedListener);
-    _queueChangedListener = null;
-  }
+  removeStaleQueueChangedListeners();
   _lastQueueProcessAt = 0;
 }
 
@@ -232,18 +255,12 @@ function ensureExitCleanup() {
   if (_exitCleanupRegistered) return;
   for (const listener of process.listeners('exit')) {
     if (listener && listener[EXIT_CLEANUP_LISTENER_TAG]) {
-      _exitCleanupRegistered = true;
-      return;
+      process.removeListener('exit', listener);
     }
   }
 
   _exitCleanupRegistered = true;
-  const listener = () => {
-    if (_queueChangedListener) {
-      process.removeListener(QUEUE_CHANGED_EVENT, _queueChangedListener);
-      _queueChangedListener = null;
-    }
-  };
+  const listener = () => removeStaleQueueChangedListeners();
   listener[EXIT_CLEANUP_LISTENER_TAG] = true;
   process.once('exit', listener);
 }

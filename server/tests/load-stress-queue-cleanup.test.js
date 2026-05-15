@@ -342,3 +342,87 @@ describe('Resource cleanup', () => {
     expect(finalTask.completed_at).toBeTruthy();
   });
 });
+
+// ============================================================
+// SlotPullScheduler listener cleanup
+// ============================================================
+describe('SlotPullScheduler listener cleanup', () => {
+  let slotPull;
+  const modPath = require.resolve('../execution/slot-pull-scheduler');
+
+  beforeEach(() => {
+    delete require.cache[modPath];
+    slotPull = require('../execution/slot-pull-scheduler');
+  });
+
+  afterEach(() => {
+    try { slotPull.stopHeartbeat(); } catch { /* ignore */ }
+  });
+
+  it('does not leak interval timers across 20 init/stopHeartbeat cycles', () => {
+    vi.useFakeTimers();
+    try {
+      const mockDb = {
+        listProviders: vi.fn().mockReturnValue([]),
+        listQueuedTasksLightweight: vi.fn().mockReturnValue([]),
+        listOllamaHosts: vi.fn().mockReturnValue([]),
+        getConfig: vi.fn().mockReturnValue(null),
+        getProvider: vi.fn().mockReturnValue(null),
+        getRunningCountByProvider: vi.fn().mockReturnValue(0),
+      };
+
+      for (let i = 0; i < 20; i++) {
+        slotPull.init({ db: mockDb, startTask: vi.fn() });
+        slotPull.startHeartbeat();
+        slotPull.stopHeartbeat();
+      }
+
+      // After 20 start/stop cycles with all heartbeats stopped,
+      // advancing timers should not trigger any heartbeat callbacks
+      mockDb.listQueuedTasksLightweight.mockClear();
+      vi.advanceTimersByTime(120_000);
+      expect(mockDb.listQueuedTasksLightweight).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('has exactly one active heartbeat after a final startHeartbeat()', () => {
+    vi.useFakeTimers();
+    try {
+      const mockDb = {
+        listProviders: vi.fn().mockReturnValue([]),
+        listQueuedTasksLightweight: vi.fn().mockReturnValue([]),
+        listOllamaHosts: vi.fn().mockReturnValue([]),
+        getConfig: vi.fn().mockReturnValue(null),
+        getProvider: vi.fn().mockReturnValue(null),
+        getRunningCountByProvider: vi.fn().mockReturnValue(0),
+      };
+
+      for (let i = 0; i < 20; i++) {
+        slotPull.init({ db: mockDb, startTask: vi.fn() });
+        slotPull.startHeartbeat();
+        slotPull.stopHeartbeat();
+      }
+
+      // Start one final heartbeat
+      slotPull.init({ db: mockDb, startTask: vi.fn() });
+      slotPull.startHeartbeat();
+
+      // Return one unassigned task so runSlotPullPass fires
+      mockDb.listQueuedTasksLightweight.mockReturnValue([{ id: 'test-task', provider: null }]);
+      mockDb.listQueuedTasksLightweight.mockClear();
+
+      // Advance past one heartbeat interval (30s)
+      vi.advanceTimersByTime(31_000);
+
+      // Heartbeat should have fired exactly once (one interval, not 20 leaked ones)
+      expect(mockDb.listQueuedTasksLightweight.mock.calls.length).toBeLessThanOrEqual(2);
+      expect(mockDb.listQueuedTasksLightweight.mock.calls.length).toBeGreaterThanOrEqual(1);
+
+      slotPull.stopHeartbeat();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
