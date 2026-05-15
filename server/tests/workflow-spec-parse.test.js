@@ -149,6 +149,190 @@ tasks:
     ]);
   });
 
+  it('accepts task with typed signature (input + output)', () => {
+    const yamlText = `
+version: 1
+name: typed-workflow
+tasks:
+  - node_id: generate
+    task: Generate report data
+    signature:
+      input:
+        type: object
+        required: [project_name]
+        properties:
+          project_name:
+            type: string
+          max_items:
+            type: integer
+      output:
+        type: object
+        required: [items]
+        properties:
+          items:
+            type: array
+            items:
+              type: object
+          summary:
+            type: string
+`;
+
+    const result = parseSpecString(yamlText);
+
+    expect(result.ok).toBe(true);
+    expect(result.spec.tasks[0].signature).toEqual({
+      input: {
+        type: 'object',
+        required: ['project_name'],
+        properties: {
+          project_name: { type: 'string' },
+          max_items: { type: 'integer' },
+        },
+      },
+      output: {
+        type: 'object',
+        required: ['items'],
+        properties: {
+          items: { type: 'array', items: { type: 'object' } },
+          summary: { type: 'string' },
+        },
+      },
+    });
+  });
+
+  it('accepts task with signature input only', () => {
+    const yamlText = `
+version: 1
+name: input-only
+tasks:
+  - node_id: step
+    task: Process input
+    signature:
+      input:
+        type: object
+        properties:
+          path:
+            type: string
+`;
+
+    const result = parseSpecString(yamlText);
+
+    expect(result.ok).toBe(true);
+    expect(result.spec.tasks[0].signature).toEqual({
+      input: {
+        type: 'object',
+        properties: { path: { type: 'string' } },
+      },
+    });
+    expect(result.spec.tasks[0].signature.output).toBeUndefined();
+  });
+
+  it('accepts task with signature output only', () => {
+    const yamlText = `
+version: 1
+name: output-only
+tasks:
+  - node_id: step
+    task: Produce output
+    signature:
+      output:
+        type: object
+        properties:
+          result:
+            type: boolean
+`;
+
+    const result = parseSpecString(yamlText);
+
+    expect(result.ok).toBe(true);
+    expect(result.spec.tasks[0].signature).toEqual({
+      output: {
+        type: 'object',
+        properties: { result: { type: 'boolean' } },
+      },
+    });
+    expect(result.spec.tasks[0].signature.input).toBeUndefined();
+  });
+
+  it('accepts task with empty signature object', () => {
+    const yamlText = `
+version: 1
+name: empty-sig
+tasks:
+  - node_id: step
+    task: No constraints
+    signature: {}
+`;
+
+    const result = parseSpecString(yamlText);
+
+    expect(result.ok).toBe(true);
+    expect(result.spec.tasks[0].signature).toEqual({});
+  });
+
+  it('rejects signature with unknown keys', () => {
+    const yamlText = `
+version: 1
+name: bad-sig
+tasks:
+  - node_id: step
+    task: Bad signature
+    signature:
+      input:
+        type: object
+      unknown_key:
+        type: string
+`;
+
+    const result = parseSpecString(yamlText);
+
+    expect(result.ok).toBe(false);
+    expect(result.errors.join(' ')).toMatch(/additional|unknown/i);
+  });
+
+  it('rejects non-object signature', () => {
+    const yamlText = `
+version: 1
+name: bad-sig-type
+tasks:
+  - node_id: step
+    task: Wrong type
+    signature: just-a-string
+`;
+
+    const result = parseSpecString(yamlText);
+
+    expect(result.ok).toBe(false);
+  });
+
+  it('preserves signature through task normalization', () => {
+    const yamlText = `
+version: 1
+name: normalize-sig
+tasks:
+  - node_id: a
+    task: Do work
+    signature:
+      input:
+        type: object
+        properties:
+          file:
+            type: string
+      output:
+        type: object
+        properties:
+          changed:
+            type: boolean
+`;
+
+    const result = parseSpecString(yamlText);
+
+    expect(result.ok).toBe(true);
+    expect(result.spec.tasks[0].task_description).toBe('Do work');
+    expect(result.spec.tasks[0].signature.input.properties.file).toEqual({ type: 'string' });
+    expect(result.spec.tasks[0].signature.output.properties.changed).toEqual({ type: 'boolean' });
+  });
+
   it('accepts crew tasks with router configuration', () => {
     const yamlText = `
 version: 1
