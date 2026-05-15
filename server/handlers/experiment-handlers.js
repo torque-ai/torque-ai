@@ -1,10 +1,13 @@
 'use strict';
 
 /**
- * Experiment 6: A/B Provider Comparison Tool
+ * Experiment handlers — A/B provider comparison + Experiment SDK MCP tools.
  *
- * Submits identical tasks to two different providers simultaneously,
- * enabling empirical comparison of provider quality, speed, and reliability.
+ * The A/B tools (submit_ab_test, compare_ab_test) predate the SDK.
+ * The SDK tools (run_experiment, get_experiment_result, diff_experiments,
+ * list_experiment_results) wrap the eval primitives (task-spec, run-sample,
+ * scorer) into a higher-level experiment API with immutable results and
+ * dataset-aware diffing.
  */
 
 const { randomUUID } = require('crypto');
@@ -13,6 +16,8 @@ const taskCore = require('../db/task-core');
 const { ErrorCodes, makeError } = require('./error-codes');
 const logger = require('../logger').child({ component: 'experiment-handlers' });
 const { unwrapDbHandle } = require('../utils/db-accessor');
+const { createScorer } = require('../evals/scorer');
+const { createSolver } = require('../evals/solver');
 
 function getRawDb() {
   return unwrapDbHandle(resolveDatabaseFacade({
@@ -20,20 +25,37 @@ function getRawDb() {
   }));
 }
 
+// ── In-memory experiment result store ──
+// Keyed by experiment ID. Results are immutable once stored.
+const _experimentResults = new Map();
+const MAX_STORED_EXPERIMENTS = 200;
+
+function storeExperimentResult(result) {
+  // Evict oldest if over capacity
+  if (_experimentResults.size >= MAX_STORED_EXPERIMENTS) {
+    const oldestKey = _experimentResults.keys().next().value;
+    _experimentResults.delete(oldestKey);
+  }
+  _experimentResults.set(result.id, result);
+}
+
+function getExperimentResult(experimentId) {
+  return _experimentResults.get(experimentId) || null;
+}
+
+function listExperimentResults() {
+  return Array.from(_experimentResults.values());
+}
+
+// Exported for testing
+function clearExperimentResults() {
+  _experimentResults.clear();
+}
+
+// ── A/B Provider Comparison (existing) ──
+
 /**
  * Submit the same task to two providers for A/B comparison.
- *
- * Creates two tasks with identical descriptions but different providers,
- * both queued simultaneously. Returns both task IDs for tracking.
- *
- * @param {object} args
- * @param {string} args.task_description - The task to submit to both providers
- * @param {string} args.provider_a - First provider (e.g., 'codex')
- * @param {string} args.provider_b - Second provider (e.g., 'ollama')
- * @param {string} args.working_directory - Working directory for both tasks
- * @param {string} [args.model_a] - Optional model override for provider A
- * @param {string} [args.model_b] - Optional model override for provider B
- * @returns {object} MCP-formatted response with both task IDs
  */
 function handleSubmitAbTest(args) {
   if (!args?.task_description || typeof args.task_description !== 'string' || !args.task_description.trim()) {
@@ -126,11 +148,6 @@ function handleSubmitAbTest(args) {
 
 /**
  * Compare results of a completed A/B test.
- *
- * @param {object} args
- * @param {string} args.task_id_a - Task ID for variant A
- * @param {string} args.task_id_b - Task ID for variant B
- * @returns {object} MCP-formatted comparison report
  */
 function handleCompareAbTest(args) {
   if (!args?.task_id_a || typeof args.task_id_a !== 'string') {
@@ -177,14 +194,12 @@ function handleCompareAbTest(args) {
     `| **Output Size** | ${outputLenA.toLocaleString()} chars | ${outputLenB.toLocaleString()} chars | - |`,
   ];
 
-  // Add strategic review comparison if available
   const reviewA = metaA.strategic_review;
   const reviewB = metaB.strategic_review;
   if (reviewA || reviewB) {
     lines.push(`| **Review** | ${reviewA?.decision || 'N/A'} | ${reviewB?.decision || 'N/A'} | ${reviewA?.decision === 'approve' && reviewB?.decision !== 'approve' ? 'A' : reviewB?.decision === 'approve' && reviewA?.decision !== 'approve' ? 'B' : 'Tie'} |`);
   }
 
-  // Overall winner determination
   let scoreA = 0, scoreB = 0;
   if (taskA.status === 'completed') scoreA += 3;
   if (taskB.status === 'completed') scoreB += 3;
@@ -201,15 +216,250 @@ function handleCompareAbTest(args) {
   };
 }
 
+// ── Experiment SDK handlers ──
+
+/**
+ * Run an experiment via MCP: supply a name, inline dataset, scorer kind,
+ * and solver kind. The handler builds the eval primitives and delegates
+ * to runExperiment().
+ *
+ * @param {object} args
+ * @param {string} args.name - Experiment name
+ * @param {Array<object>} args.dataset - Array of sample objects
+ * @param {string} [args.scorer_kind] - 'match' | 'choice' (default: 'match')
+ * @param {string} [args.target_field] - Dataset field to use as scorer target (default: 'expected')
+ * @param {string} [args.input_field] - Dataset field to use as solver input (default: 'input')
+ * @param {number} [args.limit] - Max samples to run
+ * @param {object} [args.metadata] - Extra metadata
+ */
+async function handleRunExperiment(args) {
+  if (!args?.name || typeof args.name !== 'string' || !args.name.trim()) {
+    return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'name is required');
+  }
+  if (!args?.dataset || !Array.isArray(args.dataset) || args.dataset.length === 0) {
+    return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'dataset must be a non-empty array');
+  }
+  if (args.dataset.length > 1000) {
+    return makeError(ErrorCodes.INVALID_PARAM, 'dataset must have at most 1000 samples');
+  }
+
+  const scorerKind = args.scorer_kind || 'match';
+  if (!['match', 'choice'].includes(scorerKind)) {
+    return makeError(ErrorCodes.INVALID_PARAM, 'scorer_kind must be "match" or "choice"');
+  }
+
+  const targetField = args.target_field || 'expected';
+  const inputField = args.input_field || 'input';
+
+  const scorer = createScorer({
+    kind: scorerKind,
+    target: (sample) => sample[targetField],
+  });
+
+  // Simple echo solver — takes input_field from the sample and returns it as output.
+  // In a real workflow, the solver would call an LLM or tool.
+  const solver = createSolver({
+    name: 'passthrough',
+    run: (sample) => ({ output: sample[inputField] }),
+  });
+
+  try {
+    const { runExperiment } = require('../evals/experiment');
+    const result = await runExperiment(args.name.trim(), {
+      dataset: args.dataset,
+      solver,
+      scorers: scorer,
+      limit: typeof args.limit === 'number' ? args.limit : undefined,
+      metadata: args.metadata || {},
+    });
+
+    storeExperimentResult(result);
+
+    const lines = [
+      '## Experiment Completed',
+      '',
+      `**ID:** \`${result.id}\``,
+      `**Name:** ${result.name}`,
+      `**Dataset:** ${result.aggregate.executed} / ${result.aggregate.requested} samples`,
+      `**Mean Score:** ${result.aggregate.mean_value !== null ? result.aggregate.mean_value.toFixed(3) : 'N/A'}`,
+      `**Completed:** ${result.aggregate.completed} | **Errored:** ${result.aggregate.errored} | **Blocked:** ${result.aggregate.blocked}`,
+      '',
+      `Use \`get_experiment_result { experiment_id: "${result.id}" }\` to retrieve full results.`,
+      `Use \`diff_experiments\` to compare against another experiment on the same dataset.`,
+    ];
+
+    return { content: [{ type: 'text', text: lines.join('\n') }] };
+  } catch (err) {
+    logger.error(`[ExperimentSDK] runExperiment failed: ${err.message}`);
+    return makeError(ErrorCodes.INTERNAL_ERROR, `Experiment failed: ${err.message}`);
+  }
+}
+
+/**
+ * Retrieve a stored experiment result by ID.
+ */
+function handleGetExperimentResult(args) {
+  if (!args?.experiment_id || typeof args.experiment_id !== 'string') {
+    return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'experiment_id is required');
+  }
+
+  const result = getExperimentResult(args.experiment_id);
+  if (!result) {
+    return makeError(ErrorCodes.EXPERIMENT_NOT_FOUND, `Experiment not found: ${args.experiment_id}`);
+  }
+
+  const rowSummaries = (result.rows || []).slice(0, 50).map((row) => {
+    const scoreVal = row.score && typeof row.score.value === 'number'
+      ? row.score.value.toFixed(3)
+      : 'N/A';
+    return `| ${row.index} | ${row.status} | ${scoreVal} | ${row.duration_ms || 0}ms |`;
+  });
+
+  const lines = [
+    `## Experiment: ${result.name}`,
+    '',
+    `**ID:** \`${result.id}\``,
+    `**Dataset Identity:** \`${result.dataset_identity}\``,
+    `**Started:** ${result.started_at}`,
+    `**Completed:** ${result.completed_at}`,
+    `**Scorer Count:** ${result.scorer_count}`,
+    '',
+    '### Aggregate',
+    `- Executed: ${result.aggregate.executed} / ${result.aggregate.requested}`,
+    `- Completed: ${result.aggregate.completed}`,
+    `- Errored: ${result.aggregate.errored}`,
+    `- Blocked: ${result.aggregate.blocked}`,
+    `- Mean Score: ${result.aggregate.mean_value !== null ? result.aggregate.mean_value.toFixed(3) : 'N/A'}`,
+    '',
+    '### Row Results (first 50)',
+    '| Index | Status | Score | Duration |',
+    '|-------|--------|-------|----------|',
+    ...rowSummaries,
+  ];
+
+  if (result.rows.length > 50) {
+    lines.push(``, `_...and ${result.rows.length - 50} more rows_`);
+  }
+
+  return { content: [{ type: 'text', text: lines.join('\n') }] };
+}
+
+/**
+ * Diff two experiments on the same dataset.
+ */
+function handleDiffExperiments(args) {
+  if (!args?.base_experiment_id || typeof args.base_experiment_id !== 'string') {
+    return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'base_experiment_id is required');
+  }
+  if (!args?.new_experiment_id || typeof args.new_experiment_id !== 'string') {
+    return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'new_experiment_id is required');
+  }
+
+  const baseResult = getExperimentResult(args.base_experiment_id);
+  const newResult = getExperimentResult(args.new_experiment_id);
+
+  if (!baseResult) {
+    return makeError(ErrorCodes.EXPERIMENT_NOT_FOUND, `Base experiment not found: ${args.base_experiment_id}`);
+  }
+  if (!newResult) {
+    return makeError(ErrorCodes.EXPERIMENT_NOT_FOUND, `New experiment not found: ${args.new_experiment_id}`);
+  }
+
+  try {
+    const { diffExperiments } = require('../evals/experiment');
+    const diff = diffExperiments(baseResult, newResult);
+
+    const changedRows = (diff.changed || []).slice(0, 20).map((ch) => {
+      const delta = ch.score_delta >= 0 ? `+${ch.score_delta.toFixed(3)}` : ch.score_delta.toFixed(3);
+      return `| ${ch.index} | ${ch.base.status} → ${ch.new.status} | ${delta} |`;
+    });
+
+    const lines = [
+      '## Experiment Diff',
+      '',
+      `**Base:** \`${diff.base_experiment_id}\``,
+      `**New:** \`${diff.new_experiment_id}\``,
+      `**Dataset:** \`${diff.dataset_identity}\``,
+      '',
+      '### Summary',
+      `- Total rows: ${diff.summary.total_rows}`,
+      `- Changed: ${diff.summary.changed}`,
+      `- Unchanged: ${diff.summary.unchanged}`,
+      `- Added: ${diff.summary.added}`,
+      `- Removed: ${diff.summary.removed}`,
+      `- Base mean score: ${diff.summary.base_mean_score !== null ? diff.summary.base_mean_score.toFixed(3) : 'N/A'}`,
+      `- New mean score: ${diff.summary.new_mean_score !== null ? diff.summary.new_mean_score.toFixed(3) : 'N/A'}`,
+      `- Mean score delta: ${diff.summary.mean_score_delta !== null ? (diff.summary.mean_score_delta >= 0 ? '+' : '') + diff.summary.mean_score_delta.toFixed(3) : 'N/A'}`,
+    ];
+
+    if (changedRows.length > 0) {
+      lines.push(
+        '',
+        '### Changed Rows (first 20)',
+        '| Index | Status Change | Score Delta |',
+        '|-------|---------------|-------------|',
+        ...changedRows,
+      );
+      if (diff.changed.length > 20) {
+        lines.push(``, `_...and ${diff.changed.length - 20} more changed rows_`);
+      }
+    }
+
+    return { content: [{ type: 'text', text: lines.join('\n') }] };
+  } catch (err) {
+    return makeError(ErrorCodes.INVALID_PARAM, err.message);
+  }
+}
+
+/**
+ * List all stored experiment results.
+ */
+function handleListExperimentResults(args) {
+  const results = listExperimentResults();
+
+  if (results.length === 0) {
+    return {
+      content: [{ type: 'text', text: 'No experiment results stored. Run `run_experiment` to create one.' }],
+    };
+  }
+
+  const rows = results.map((r) => {
+    const mean = r.aggregate && r.aggregate.mean_value !== null
+      ? r.aggregate.mean_value.toFixed(3)
+      : 'N/A';
+    return `| \`${r.id.slice(0, 8)}…\` | ${r.name} | ${r.aggregate.executed}/${r.aggregate.requested} | ${mean} | ${r.completed_at || 'N/A'} |`;
+  });
+
+  const lines = [
+    `## Experiment Results (${results.length})`,
+    '',
+    '| ID | Name | Samples | Mean Score | Completed |',
+    '|----|------|---------|------------|-----------|',
+    ...rows,
+  ];
+
+  return { content: [{ type: 'text', text: lines.join('\n') }] };
+}
+
 function createExperimentHandlers() {
   return {
     handleSubmitAbTest,
     handleCompareAbTest,
+    handleRunExperiment,
+    handleGetExperimentResult,
+    handleDiffExperiments,
+    handleListExperimentResults,
   };
 }
 
 module.exports = {
   handleSubmitAbTest,
   handleCompareAbTest,
+  handleRunExperiment,
+  handleGetExperimentResult,
+  handleDiffExperiments,
+  handleListExperimentResults,
   createExperimentHandlers,
+  // Exported for testing
+  clearExperimentResults,
 };

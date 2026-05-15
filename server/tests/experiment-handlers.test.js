@@ -1,7 +1,9 @@
 'use strict';
 
 /**
- * Tests for Experiment 6: A/B Provider Comparison Tool
+ * Tests for Experiment handlers:
+ * - A/B Provider Comparison Tool (Experiment 6)
+ * - Experiment SDK handlers (run_experiment, get_experiment_result, diff_experiments, list_experiment_results)
  */
 
 const { TEST_MODELS } = require('./test-helpers');
@@ -266,6 +268,303 @@ describe('experiment-handlers (Experiment 6)', () => {
       });
 
       expect(result.content[0].text).toContain('codex (B) wins');
+    });
+  });
+});
+
+// ── Experiment SDK handler tests ──
+
+describe('experiment-handlers SDK', () => {
+  let handlers;
+
+  beforeEach(() => {
+    mockDb.getDbInstance.mockReset();
+    mockDb.getDbInstance.mockReturnValue(mockRawDb);
+    mockRawDb.transaction.mockReset();
+    mockRawDb.transaction.mockImplementation((fn) => fn);
+    vi.restoreAllMocks();
+    vi.spyOn(taskCore, 'createTask').mockImplementation(() => undefined);
+    vi.spyOn(taskCore, 'getTask').mockReturnValue(null);
+    handlers = loadHandlers();
+    // Clear stored experiments between tests
+    handlers.clearExperimentResults();
+  });
+
+  afterEach(() => {
+    delete require.cache[require.resolve('../handlers/experiment-handlers')];
+    delete require.cache[require.resolve('../container')];
+  });
+
+  describe('handleRunExperiment', () => {
+    it('returns error when name is missing', async () => {
+      const result = await handlers.handleRunExperiment({});
+      expect(result.isError).toBe(true);
+      expect(result.error_code).toBe('MISSING_REQUIRED_PARAM');
+    });
+
+    it('returns error when name is empty string', async () => {
+      const result = await handlers.handleRunExperiment({ name: '  ', dataset: [{ input: 'a' }] });
+      expect(result.isError).toBe(true);
+      expect(result.error_code).toBe('MISSING_REQUIRED_PARAM');
+    });
+
+    it('returns error when dataset is missing', async () => {
+      const result = await handlers.handleRunExperiment({ name: 'test-exp' });
+      expect(result.isError).toBe(true);
+      expect(result.error_code).toBe('MISSING_REQUIRED_PARAM');
+    });
+
+    it('returns error when dataset is empty', async () => {
+      const result = await handlers.handleRunExperiment({ name: 'test-exp', dataset: [] });
+      expect(result.isError).toBe(true);
+      expect(result.error_code).toBe('MISSING_REQUIRED_PARAM');
+    });
+
+    it('returns error when dataset exceeds 1000 samples', async () => {
+      const bigDataset = Array.from({ length: 1001 }, (_, i) => ({ input: `item-${i}` }));
+      const result = await handlers.handleRunExperiment({ name: 'too-big', dataset: bigDataset });
+      expect(result.isError).toBe(true);
+      expect(result.error_code).toBe('INVALID_PARAM');
+    });
+
+    it('returns error for invalid scorer_kind', async () => {
+      const result = await handlers.handleRunExperiment({
+        name: 'bad-scorer',
+        dataset: [{ input: 'a', expected: 'a' }],
+        scorer_kind: 'invalid',
+      });
+      expect(result.isError).toBe(true);
+      expect(result.error_code).toBe('INVALID_PARAM');
+    });
+
+    it('runs a match experiment with passthrough solver', async () => {
+      const result = await handlers.handleRunExperiment({
+        name: 'match-test',
+        dataset: [
+          { input: 'hello', expected: 'hello' },
+          { input: 'world', expected: 'world' },
+          { input: 'foo', expected: 'bar' },
+        ],
+      });
+
+      expect(result.isError).toBeFalsy();
+      expect(result.content).toBeDefined();
+      expect(result.content[0].type).toBe('text');
+      const text = result.content[0].text;
+      expect(text).toContain('Experiment Completed');
+      expect(text).toContain('match-test');
+      // 2 out of 3 match (hello=hello, world=world, foo!=bar)
+      expect(text).toContain('3 / 3 samples');
+    });
+
+    it('stores result and returns experiment ID', async () => {
+      const result = await handlers.handleRunExperiment({
+        name: 'stored-exp',
+        dataset: [{ input: 'a', expected: 'a' }],
+      });
+
+      expect(result.isError).toBeFalsy();
+      const text = result.content[0].text;
+      // Extract ID from the response
+      const idMatch = text.match(/\*\*ID:\*\*\s*`([^`]+)`/);
+      expect(idMatch).toBeTruthy();
+
+      // Verify it's retrievable
+      const getResult = handlers.handleGetExperimentResult({ experiment_id: idMatch[1] });
+      expect(getResult.isError).toBeFalsy();
+      expect(getResult.content[0].text).toContain('stored-exp');
+    });
+
+    it('respects limit parameter', async () => {
+      const result = await handlers.handleRunExperiment({
+        name: 'limited-exp',
+        dataset: [
+          { input: 'a', expected: 'a' },
+          { input: 'b', expected: 'b' },
+          { input: 'c', expected: 'c' },
+          { input: 'd', expected: 'd' },
+        ],
+        limit: 2,
+      });
+
+      expect(result.isError).toBeFalsy();
+      const text = result.content[0].text;
+      expect(text).toContain('2 / 2 samples');
+    });
+
+    it('uses choice scorer when scorer_kind is choice', async () => {
+      const result = await handlers.handleRunExperiment({
+        name: 'choice-exp',
+        dataset: [{ input: 'yes', expected: 'yes' }],
+        scorer_kind: 'choice',
+      });
+
+      expect(result.isError).toBeFalsy();
+      expect(result.content[0].text).toContain('Experiment Completed');
+    });
+
+    it('uses custom input_field and target_field', async () => {
+      const result = await handlers.handleRunExperiment({
+        name: 'custom-fields',
+        dataset: [
+          { question: 'what', answer: 'what' },
+          { question: 'why', answer: 'why' },
+        ],
+        input_field: 'question',
+        target_field: 'answer',
+      });
+
+      expect(result.isError).toBeFalsy();
+      expect(result.content[0].text).toContain('2 / 2 samples');
+    });
+  });
+
+  describe('handleGetExperimentResult', () => {
+    it('returns error when experiment_id is missing', () => {
+      const result = handlers.handleGetExperimentResult({});
+      expect(result.isError).toBe(true);
+      expect(result.error_code).toBe('MISSING_REQUIRED_PARAM');
+    });
+
+    it('returns error when experiment not found', () => {
+      const result = handlers.handleGetExperimentResult({ experiment_id: 'nonexistent' });
+      expect(result.isError).toBe(true);
+      expect(result.error_code).toBe('EXPERIMENT_NOT_FOUND');
+    });
+
+    it('returns detailed result for stored experiment', async () => {
+      // First run an experiment to populate the store
+      const runResult = await handlers.handleRunExperiment({
+        name: 'detail-test',
+        dataset: [
+          { input: 'a', expected: 'a' },
+          { input: 'b', expected: 'x' },
+        ],
+      });
+
+      const idMatch = runResult.content[0].text.match(/\*\*ID:\*\*\s*`([^`]+)`/);
+      const result = handlers.handleGetExperimentResult({ experiment_id: idMatch[1] });
+
+      expect(result.isError).toBeFalsy();
+      const text = result.content[0].text;
+      expect(text).toContain('detail-test');
+      expect(text).toContain('Aggregate');
+      expect(text).toContain('Row Results');
+      expect(text).toContain('Executed: 2 / 2');
+    });
+  });
+
+  describe('handleDiffExperiments', () => {
+    it('returns error when base_experiment_id is missing', () => {
+      const result = handlers.handleDiffExperiments({});
+      expect(result.isError).toBe(true);
+      expect(result.error_code).toBe('MISSING_REQUIRED_PARAM');
+    });
+
+    it('returns error when new_experiment_id is missing', () => {
+      const result = handlers.handleDiffExperiments({ base_experiment_id: 'abc' });
+      expect(result.isError).toBe(true);
+      expect(result.error_code).toBe('MISSING_REQUIRED_PARAM');
+    });
+
+    it('returns error when base experiment not found', () => {
+      const result = handlers.handleDiffExperiments({
+        base_experiment_id: 'missing-base',
+        new_experiment_id: 'missing-new',
+      });
+      expect(result.isError).toBe(true);
+      expect(result.error_code).toBe('EXPERIMENT_NOT_FOUND');
+    });
+
+    it('diffs two experiments on the same dataset', async () => {
+      const dataset = [
+        { input: 'a', expected: 'a' },
+        { input: 'b', expected: 'b' },
+      ];
+
+      const run1 = await handlers.handleRunExperiment({ name: 'base-exp', dataset });
+      const run2 = await handlers.handleRunExperiment({ name: 'new-exp', dataset });
+
+      const baseId = run1.content[0].text.match(/\*\*ID:\*\*\s*`([^`]+)`/)[1];
+      const newId = run2.content[0].text.match(/\*\*ID:\*\*\s*`([^`]+)`/)[1];
+
+      const result = handlers.handleDiffExperiments({
+        base_experiment_id: baseId,
+        new_experiment_id: newId,
+      });
+
+      expect(result.isError).toBeFalsy();
+      const text = result.content[0].text;
+      expect(text).toContain('Experiment Diff');
+      expect(text).toContain('Total rows: 2');
+      // Same dataset and same solver, so unchanged should be 2
+      expect(text).toContain('Unchanged: 2');
+      expect(text).toContain('Changed: 0');
+    });
+
+    it('rejects diff across different datasets', async () => {
+      const run1 = await handlers.handleRunExperiment({
+        name: 'dataset-a',
+        dataset: [{ input: 'a', expected: 'a' }],
+      });
+      const run2 = await handlers.handleRunExperiment({
+        name: 'dataset-b',
+        dataset: [{ input: 'different', expected: 'different' }],
+      });
+
+      const baseId = run1.content[0].text.match(/\*\*ID:\*\*\s*`([^`]+)`/)[1];
+      const newId = run2.content[0].text.match(/\*\*ID:\*\*\s*`([^`]+)`/)[1];
+
+      const result = handlers.handleDiffExperiments({
+        base_experiment_id: baseId,
+        new_experiment_id: newId,
+      });
+
+      expect(result.isError).toBe(true);
+      expect(result.error_code).toBe('INVALID_PARAM');
+    });
+  });
+
+  describe('handleListExperimentResults', () => {
+    it('returns empty message when no experiments stored', () => {
+      const result = handlers.handleListExperimentResults({});
+      expect(result.isError).toBeFalsy();
+      expect(result.content[0].text).toContain('No experiment results stored');
+    });
+
+    it('lists stored experiments with summary info', async () => {
+      await handlers.handleRunExperiment({
+        name: 'exp-one',
+        dataset: [{ input: 'a', expected: 'a' }],
+      });
+      await handlers.handleRunExperiment({
+        name: 'exp-two',
+        dataset: [{ input: 'b', expected: 'b' }],
+      });
+
+      const result = handlers.handleListExperimentResults({});
+      expect(result.isError).toBeFalsy();
+      const text = result.content[0].text;
+      expect(text).toContain('Experiment Results (2)');
+      expect(text).toContain('exp-one');
+      expect(text).toContain('exp-two');
+    });
+  });
+
+  describe('clearExperimentResults', () => {
+    it('clears all stored experiment results', async () => {
+      await handlers.handleRunExperiment({
+        name: 'to-clear',
+        dataset: [{ input: 'a', expected: 'a' }],
+      });
+
+      let list = handlers.handleListExperimentResults({});
+      expect(list.content[0].text).toContain('Experiment Results (1)');
+
+      handlers.clearExperimentResults();
+
+      list = handlers.handleListExperimentResults({});
+      expect(list.content[0].text).toContain('No experiment results stored');
     });
   });
 });
