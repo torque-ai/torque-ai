@@ -97,6 +97,24 @@ describe('pre-push-hook staging-branch invariants', () => {
     expect(src).toMatch(/Gate did not produce completion marker/);
   });
 
+  it('waits for repeated quiet samples before declaring remote gate output complete', () => {
+    const src = readHook();
+    expect(src).toMatch(/local size_a size_b iter stable_count/);
+    expect(src).toMatch(/stable_count=0/);
+    expect(src).toMatch(/stable_count=\$\(\(stable_count \+ 1\)\)/);
+    expect(src).toMatch(/\[ "\$stable_count" -ge 5 \] && break/);
+    expect(src).toMatch(/grep -qE '\\\[gate-end\\\] dash_exit=\[0-9\]'/);
+  });
+
+  it('uses a gate-specific setup import perf threshold without changing the unit default', () => {
+    const src = readHook();
+    expect(src).toMatch(/configure_gate_import_perf_threshold\s*\(\)/);
+    expect(src).toContain('PRE_PUSH_PERF_TEST_IMPORT_FAIL_MS');
+    expect(src).toContain('PERF_TEST_IMPORT_FAIL_MS');
+    expect(src).toContain('defaulting PERF_TEST_IMPORT_FAIL_MS=');
+    expect(src).toMatch(/configure_gate_import_perf_threshold[\s\S]*configure_local_gate_worker_cap/);
+  });
+
   it('invokes torque-remote with --branch $staging_branch and exercises selected gate phases', () => {
     const src = readHook();
     // Both suites (dashboard + server) must run against the staged ref,

@@ -335,7 +335,7 @@ describe('factory worktrees persistence', () => {
     factoryWorktrees.setDb(null);
   });
 
-  it('refreshes created_at when setOwningTask attaches a non-null owner', async () => {
+  it('refreshes created_at when setOwningTask attaches a non-null owner', () => {
     // Regression: the loop-controller pre-reclaim grace check uses the
     // worktree row's created_at to decide whether the slot is "fresh."
     // Before this fix, attaching a fresh task to an old worktree row left
@@ -365,9 +365,6 @@ describe('factory worktrees persistence', () => {
     const staleMs = Date.parse(`${stale.created_at.replace(' ', 'T')}Z`);
     expect(Date.now() - staleMs).toBeGreaterThan(60 * 60 * 1000);
 
-    // Sleep briefly so the bump is observable at second resolution.
-    await new Promise((resolve) => setTimeout(resolve, 1100));
-
     const refreshed = factoryWorktrees.setOwningTask(recorded.id, 'task-fresh');
     expect(refreshed).toBeTruthy();
     expect(refreshed.owningTaskId).toBe('task-fresh');
@@ -379,8 +376,8 @@ describe('factory worktrees persistence', () => {
 
     // Clearing the owner (null) must NOT bump created_at — clearing isn't a
     // slot reuse, just an end-of-life transition.
+    db.prepare("UPDATE factory_worktrees SET created_at = '2000-01-01 00:00:00' WHERE id = ?").run(recorded.id);
     const beforeClear = db.prepare('SELECT created_at FROM factory_worktrees WHERE id = ?').get(recorded.id).created_at;
-    await new Promise((resolve) => setTimeout(resolve, 1100));
     factoryWorktrees.clearOwningTask(recorded.id);
     const afterClear = db.prepare('SELECT created_at FROM factory_worktrees WHERE id = ?').get(recorded.id).created_at;
     expect(afterClear).toBe(beforeClear);
@@ -389,7 +386,7 @@ describe('factory worktrees persistence', () => {
     factoryWorktrees.setDb(null);
   });
 
-  it('refreshGraceForOwningTask bumps created_at for the active row owned by a task_id', async () => {
+  it('refreshGraceForOwningTask bumps created_at for the active row owned by a task_id', () => {
     // Regression: stall recovery requeues the SAME task_id (status='queued',
     // started_at=null) for a fresh attempt. Without this refresh the
     // factory_worktrees row keeps its old created_at — and on the next
@@ -444,8 +441,6 @@ describe('factory worktrees persistence', () => {
     // Also backdate row A — refreshing task-stall must NOT touch task-other.
     db.prepare("UPDATE factory_worktrees SET created_at = datetime('now', '-2 hours') WHERE id = ?").run(recordedA.id);
     const beforeA = db.prepare('SELECT created_at FROM factory_worktrees WHERE id = ?').get(recordedA.id);
-
-    await new Promise((resolve) => setTimeout(resolve, 1100));
 
     const refreshed = factoryWorktrees.refreshGraceForOwningTask('task-stall');
     expect(refreshed).toBeTruthy();

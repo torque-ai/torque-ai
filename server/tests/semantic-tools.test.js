@@ -1,19 +1,42 @@
 const path = require('path');
 const os = require('os');
 const fs = require('fs');
-const { setupTestDb, teardownTestDb, safeTool, getText } = require('./vitest-setup');
+const {
+  handleAddTsMethodToClass,
+  handleReplaceTsMethodBody,
+  handleAddImportStatement,
+} = require('../handlers/automation-ts-tools');
+
+const toolHandlers = {
+  add_ts_method_to_class: handleAddTsMethodToClass,
+  replace_ts_method_body: handleReplaceTsMethodBody,
+  add_import_statement: handleAddImportStatement,
+};
+
+async function callTool(name, args) {
+  try {
+    return await toolHandlers[name](args);
+  } catch (err) {
+    return { content: [{ type: 'text', text: err.message }], isError: true };
+  }
+}
+
+function getText(result) {
+  if (result && result.content && result.content[0]) {
+    return result.content[0].text || '';
+  }
+  return '';
+}
 
 describe('Semantic TypeScript Tools', () => {
   let tmpDir;
 
   beforeAll(() => {
-    setupTestDb('semantic-tools');
     tmpDir = path.join(os.tmpdir(), `semantic-tools-test-${Date.now()}`);
     fs.mkdirSync(tmpDir, { recursive: true });
   });
 
   afterAll(() => {
-    teardownTestDb();
     try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch { /* ignore */ }
   });
 
@@ -43,7 +66,7 @@ describe('Semantic TypeScript Tools', () => {
     });
 
     it('adds method at end of class', async () => {
-      const result = await safeTool('add_ts_method_to_class', {
+      const result = await callTool('add_ts_method_to_class', {
         file_path: classFile,
         class_name: 'MyService',
         method_code: 'public newMethod() {\n  return 42;\n}',
@@ -57,7 +80,7 @@ describe('Semantic TypeScript Tools', () => {
     });
 
     it('rejects when class not found', async () => {
-      const result = await safeTool('add_ts_method_to_class', {
+      const result = await callTool('add_ts_method_to_class', {
         file_path: classFile,
         class_name: 'NonExistentClass',
         method_code: 'public foo() {}',
@@ -67,7 +90,7 @@ describe('Semantic TypeScript Tools', () => {
     });
 
     it('skips duplicate method name', async () => {
-      const result = await safeTool('add_ts_method_to_class', {
+      const result = await callTool('add_ts_method_to_class', {
         file_path: classFile,
         class_name: 'MyService',
         method_code: 'public getData() {\n  return "new";\n}',
@@ -81,7 +104,7 @@ describe('Semantic TypeScript Tools', () => {
     });
 
     it('supports before_first_private position', async () => {
-      const result = await safeTool('add_ts_method_to_class', {
+      const result = await callTool('add_ts_method_to_class', {
         file_path: classFile,
         class_name: 'MyService',
         method_code: 'public inserted() {\n  return true;\n}',
@@ -96,7 +119,7 @@ describe('Semantic TypeScript Tools', () => {
     });
 
     it('errors on missing required params', async () => {
-      const result = await safeTool('add_ts_method_to_class', {
+      const result = await callTool('add_ts_method_to_class', {
         file_path: classFile,
         // missing class_name and method_code
       });
@@ -125,7 +148,7 @@ describe('Semantic TypeScript Tools', () => {
     });
 
     it('replaces body by name, signature preserved', async () => {
-      const result = await safeTool('replace_ts_method_body', {
+      const result = await callTool('replace_ts_method_body', {
         file_path: classFile,
         class_name: 'Calculator',
         method_name: 'add',
@@ -143,7 +166,7 @@ describe('Semantic TypeScript Tools', () => {
     });
 
     it('rejects when method not found', async () => {
-      const result = await safeTool('replace_ts_method_body', {
+      const result = await callTool('replace_ts_method_body', {
         file_path: classFile,
         class_name: 'Calculator',
         method_name: 'nonexistent',
@@ -154,7 +177,7 @@ describe('Semantic TypeScript Tools', () => {
     });
 
     it('rejects when class not found', async () => {
-      const result = await safeTool('replace_ts_method_body', {
+      const result = await callTool('replace_ts_method_body', {
         file_path: classFile,
         class_name: 'WrongClass',
         method_name: 'add',
@@ -165,7 +188,7 @@ describe('Semantic TypeScript Tools', () => {
     });
 
     it('errors on missing required params', async () => {
-      const result = await safeTool('replace_ts_method_body', {
+      const result = await callTool('replace_ts_method_body', {
         file_path: classFile,
         class_name: 'Calculator',
         // missing method_name and new_body
@@ -183,7 +206,7 @@ describe('Semantic TypeScript Tools', () => {
         'return result;',
       ].join('\n');
 
-      const result = await safeTool('replace_ts_method_body', {
+      const result = await callTool('replace_ts_method_body', {
         file_path: classFile,
         class_name: 'Calculator',
         method_name: 'multiply',
@@ -214,7 +237,7 @@ describe('Semantic TypeScript Tools', () => {
     });
 
     it('adds import after last existing import', async () => {
-      const result = await safeTool('add_import_statement', {
+      const result = await callTool('add_import_statement', {
         file_path: importFile,
         import_statement: 'import { Baz } from "./baz";',
       });
@@ -230,7 +253,7 @@ describe('Semantic TypeScript Tools', () => {
     });
 
     it('skips if module already imported (idempotent)', async () => {
-      const result = await safeTool('add_import_statement', {
+      const result = await callTool('add_import_statement', {
         file_path: importFile,
         import_statement: 'import { Foo, Extra } from "./foo";',
       });
@@ -244,7 +267,7 @@ describe('Semantic TypeScript Tools', () => {
     });
 
     it('errors on nonexistent file', async () => {
-      const result = await safeTool('add_import_statement', {
+      const result = await callTool('add_import_statement', {
         file_path: path.join(tmpDir, 'does-not-exist.ts'),
         import_statement: 'import { X } from "./x";',
       });
@@ -261,7 +284,7 @@ describe('Semantic TypeScript Tools', () => {
         'function main() {}',
       ].join('\n'), 'utf8');
 
-      const result = await safeTool('add_import_statement', {
+      const result = await callTool('add_import_statement', {
         file_path: requireFile,
         import_statement: 'import { join } from "path/posix";',
       });

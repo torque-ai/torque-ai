@@ -925,11 +925,13 @@ run_with_flake_retry_inner() {
   # the parallel-gate heredoc. When that marker is missing the failure
   # attribution falls back to combined_exit and reports the wrong phase.
   # Observed today: dashboard stream kept arriving for ~3-4s after the
-  # gate-end echo, pushing the marker into the long tail. The original
-  # 1-second cap (5 x 200ms) wasn't enough; bumped to 30 x 200ms = 6 s.
+  # gate-end echo, pushing the marker into the long tail. A single quiet
+  # 200ms sample is not enough to prove quiescence, so require repeated
+  # stable samples while still capping the wait at 30 x 200ms = 6 s.
   # If the marker is found before then, exit early to keep the hook snappy.
-  local size_a size_b iter
+  local size_a size_b iter stable_count
   size_a=$(wc -c < "$tmp" 2>/dev/null || echo 0)
+  stable_count=0
   for iter in $(seq 1 30); do
     sleep 0.2
     # Fast-exit once the parallel-gate marker is present — it's the only
@@ -942,8 +944,13 @@ run_with_flake_retry_inner() {
     # the wrong phase as failed.
     grep -qE '\[gate-end\] dash_exit=[0-9]' "$tmp" 2>/dev/null && break
     size_b=$(wc -c < "$tmp" 2>/dev/null || echo 0)
-    [ "$size_a" = "$size_b" ] && break
-    size_a="$size_b"
+    if [ "$size_a" = "$size_b" ]; then
+      stable_count=$((stable_count + 1))
+      [ "$stable_count" -ge 5 ] && break
+    else
+      stable_count=0
+      size_a="$size_b"
+    fi
   done
 }
 
@@ -1626,6 +1633,25 @@ configure_local_gate_server_shards() {
   GATE_SERVER_SHARDS="\$local_shards"
 }
 
+configure_gate_import_perf_threshold() {
+  if [ -n "\${PERF_TEST_IMPORT_FAIL_MS:-}" ]; then
+    echo "[gate] [setup] preserving PERF_TEST_IMPORT_FAIL_MS=\$PERF_TEST_IMPORT_FAIL_MS"
+    export PERF_TEST_IMPORT_FAIL_MS
+    return 0
+  fi
+
+  local threshold="\${PRE_PUSH_PERF_TEST_IMPORT_FAIL_MS:-6000}"
+  case "\$threshold" in
+    ''|*[!0-9]*|0)
+      echo "[gate] [setup] invalid PRE_PUSH_PERF_TEST_IMPORT_FAIL_MS=\$threshold; using 6000"
+      threshold=6000
+      ;;
+  esac
+
+  export PERF_TEST_IMPORT_FAIL_MS="\$threshold"
+  echo "[gate] [setup] defaulting PERF_TEST_IMPORT_FAIL_MS=\$PERF_TEST_IMPORT_FAIL_MS for pre-push gate"
+}
+
 # Phase exit files are the source of truth; output-prefix pipelines are
 # observational and must not suppress the final gate-end marker under pipefail.
 run_dashboard_phase() {
@@ -1793,6 +1819,7 @@ fi
 
 SETUP_END_MS=\$(gate_now_ms)
 echo "[gate-timing] setup_ms=\$(elapsed_ms "\$SETUP_START_MS" "\$SETUP_END_MS") exit=0"
+configure_gate_import_perf_threshold
 configure_local_gate_worker_cap
 configure_local_gate_server_shards
 
