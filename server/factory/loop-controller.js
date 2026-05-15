@@ -7526,6 +7526,36 @@ function resolveFactoryVerifyCommand({ project, workItem } = {}) {
   return resolveProjectVerifyCommand(project);
 }
 
+function clearDeferredPlanGenerationWaitFields(options = {}) {
+  const { workItem, instance, status, reason } = options;
+  if (!workItem?.id) {
+    return workItem || null;
+  }
+
+  const updates = {
+    origin_json: clearPlanGenerationWaitFields(getWorkItemOriginObject(workItem)),
+  };
+  if (Object.prototype.hasOwnProperty.call(options, 'status')) {
+    updates.status = status;
+  }
+
+  try {
+    const updatedWorkItem = factoryIntake.updateWorkItem(workItem.id, updates);
+    if (instance?.id) {
+      rememberSelectedWorkItem(instance.id, updatedWorkItem);
+    }
+    return updatedWorkItem;
+  } catch (error) {
+    logger.warn('EXECUTE stage: failed to clear deferred plan-generation wait fields', {
+      project_id: workItem.project_id || null,
+      work_item_id: workItem.id,
+      reason: reason || null,
+      err: error.message,
+    });
+    return workItem;
+  }
+}
+
 function maybeClearDeferredPlanGenerationWait(project, instance) {
   const workItem = tryGetSelectedWorkItem(instance, project.id, {
     fallbackToLoopSelection: true,
@@ -7544,21 +7574,12 @@ function maybeClearDeferredPlanGenerationWait(project, instance) {
     reason: 'deferred_wait_recovery',
     requireSchedulerOwned: true,
   })) {
-    let updatedWorkItem = workItem;
-    try {
-      updatedWorkItem = factoryIntake.updateWorkItem(workItem.id, {
-        origin_json: clearPlanGenerationWaitFields(origin),
-        status: workItem.status || 'planned',
-      });
-      rememberSelectedWorkItem(instance.id, updatedWorkItem);
-    } catch (error) {
-      logger.warn('EXECUTE stage: failed to clear stale pending plan-generation wait fields', {
-        project_id: project.id,
-        work_item_id: workItem.id,
-        generation_task_id: generationTaskId,
-        err: error.message,
-      });
-    }
+    const updatedWorkItem = clearDeferredPlanGenerationWaitFields({
+      workItem,
+      instance,
+      status: workItem.status || 'planned',
+      reason: 'stale_pending_plan_generation',
+    }) || workItem;
 
     logger.warn('EXECUTE stage: clearing stale pending plan-generation wait', {
       project_id: project.id,
@@ -7592,6 +7613,11 @@ function maybeClearDeferredPlanGenerationWait(project, instance) {
   }
 
   if (origin.plan_path && fs.existsSync(origin.plan_path)) {
+    clearDeferredPlanGenerationWaitFields({
+      workItem,
+      instance,
+      reason: 'plan_materialized',
+    });
     const updated = updateInstanceAndSync(instance.id, {
       paused_at_stage: null,
       last_action_at: nowIso(),
@@ -7604,6 +7630,11 @@ function maybeClearDeferredPlanGenerationWait(project, instance) {
     };
   }
 
+  clearDeferredPlanGenerationWaitFields({
+    workItem,
+    instance,
+    reason: 'plan_generation_terminal_without_plan',
+  });
   const updated = updateInstanceAndSync(instance.id, {
     paused_at_stage: null,
     last_action_at: nowIso(),
