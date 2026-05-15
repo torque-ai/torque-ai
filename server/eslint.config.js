@@ -272,7 +272,6 @@ module.exports = [
         allowlist: [
           'activity-monitoring.js',
           'agentic-capability.js',
-          'audit-handlers.js',
           'auto-commit-batch.js',
           'auto-verify-retry.js',
           'build-verification.js',
@@ -295,7 +294,6 @@ module.exports = [
           'index.js',
           'model-registry-handlers.js',
           'ollama-health.js',
-          'orchestrator.js',
           'output-safeguards.js',
           'post-task.js',
           'prompts.js',
@@ -308,7 +306,6 @@ module.exports = [
           'study-telemetry.js',
           'symbol-indexer.js',
           'task-execution-hooks.js',
-          'v2-audit-handlers.js',
           'v2-dispatch.js',
           'v2-governance-handlers.js',
           'v2-infrastructure-handlers.js',

@@ -9,11 +9,6 @@ const logger = require('../logger').child({ component: 'audit-orchestrator' })
 const fsPromises = require('node:fs/promises')
 const path = require('node:path')
 
-let _auditStore = null
-let _createWorkflow = null
-let _runWorkflow = null
-let _scanProject = null
-
 const TIER_WEIGHTS = {
   small: 1,
   medium: 3,
@@ -135,24 +130,29 @@ const estimateDuration = (filesByTier) => ({
 
 const createWorkflowError = (text) => ({ error: text })
 
-const assertRequiredDeps = (isDryRun) => {
-  if (!_auditStore || !_auditStore.createAuditRun || !_auditStore.updateAuditRun) {
+const normalizeAuditDeps = ({
+  auditStore,
+  createWorkflow,
+  runWorkflow,
+  scanProject,
+} = {}) => ({
+  auditStore: auditStore || null,
+  createWorkflow: createWorkflow || null,
+  runWorkflow: runWorkflow || null,
+  scanProject: scanProject || null,
+})
+
+const assertRequiredDeps = (deps, isDryRun) => {
+  if (!deps.auditStore || !deps.auditStore.createAuditRun || !deps.auditStore.updateAuditRun) {
     return 'audit store dependency is not initialized'
   }
-  if (typeof _createWorkflow !== 'function' && !isDryRun) {
+  if (typeof deps.createWorkflow !== 'function' && !isDryRun) {
     return 'createWorkflow dependency is not initialized'
   }
   return null
 }
 
-const init = ({ auditStore, createWorkflow, runWorkflow, scanProject }) => {
-  _auditStore = auditStore || null
-  _createWorkflow = createWorkflow || null
-  _runWorkflow = runWorkflow || null
-  _scanProject = scanProject || null
-}
-
-const runAudit = async ({
+const runAuditWithDeps = async (deps, {
   path: projectPath,
   categories = null,
   subcategories = null,
@@ -163,6 +163,13 @@ const runAudit = async ({
   ignore_patterns: ignorePatterns,
   dry_run = false,
 }) => {
+  const {
+    auditStore,
+    createWorkflow,
+    runWorkflow,
+    scanProject,
+  } = deps
+
   if (typeof projectPath !== 'string' || projectPath.trim().length === 0) {
     return createWorkflowError('projectPath must be a non-empty string')
   }
@@ -171,7 +178,7 @@ const runAudit = async ({
     return createWorkflowError('No audit categories are configured')
   }
 
-  const dependencyError = assertRequiredDeps(dry_run)
+  const dependencyError = assertRequiredDeps(deps, dry_run)
   if (dependencyError) {
     return createWorkflowError(dependencyError)
   }
@@ -197,11 +204,11 @@ const runAudit = async ({
     : getRelevantCategories(files.map((file) => file.ext))
 
   const preamble = (() => {
-    if (typeof _scanProject !== 'function') {
+    if (typeof scanProject !== 'function') {
       return generatePreamble('', { fileCount: files.length, projectPath: safeProjectPath })
     }
 
-    return Promise.resolve(_scanProject({ path: safeProjectPath, checks: ['summary'] }))
+    return Promise.resolve(scanProject({ path: safeProjectPath, checks: ['summary'] }))
       .then((scanResult) => {
         const scanText = extractToolText(scanResult)
         return generatePreamble(scanText, { fileCount: files.length, projectPath: safeProjectPath })
@@ -230,7 +237,7 @@ const runAudit = async ({
     }
   }
 
-  const runRecord = _auditStore.createAuditRun({
+  const runRecord = auditStore.createAuditRun({
     project_path: safeProjectPath,
     categories: categoryKeys,
     provider,
@@ -274,7 +281,7 @@ const runAudit = async ({
 
   const workflowName = `audit-${String(auditRunId).slice(0, 8)}`
   const workflowDescription = `Audit run for ${safeProjectPath} (${files.length} files, ${reviewUnits.length} tasks)`
-  const workflowResult = await _createWorkflow({
+  const workflowResult = await createWorkflow({
     name: workflowName,
     description: workflowDescription,
     working_directory: safeProjectPath,
@@ -284,14 +291,14 @@ const runAudit = async ({
     || runRecord?.workflow_id
     || String(auditRunId)
 
-  _auditStore.updateAuditRun(auditRunId, {
+  auditStore.updateAuditRun(auditRunId, {
     status: 'running',
     workflow_id: workflowId,
     total_files: files.length,
   })
 
-  if (typeof _runWorkflow === 'function') {
-    await _runWorkflow({ workflow_id: workflowId })
+  if (typeof runWorkflow === 'function') {
+    await runWorkflow({ workflow_id: workflowId })
   }
 
   return {
@@ -305,7 +312,28 @@ const runAudit = async ({
   }
 }
 
+const createAuditOrchestrator = (initialDeps = {}) => {
+  let deps = normalizeAuditDeps(initialDeps)
+
+  const init = (nextDeps = {}) => {
+    deps = normalizeAuditDeps(nextDeps)
+  }
+
+  const runAudit = (args) => runAuditWithDeps(deps, args)
+
+  return {
+    init,
+    runAudit,
+  }
+}
+
+const defaultAuditOrchestrator = createAuditOrchestrator()
+
+const init = (deps) => defaultAuditOrchestrator.init(deps)
+const runAudit = (args) => defaultAuditOrchestrator.runAudit(args)
+
 module.exports = {
+  createAuditOrchestrator,
   init,
   runAudit,
 }
