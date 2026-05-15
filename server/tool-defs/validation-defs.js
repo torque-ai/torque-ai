@@ -634,6 +634,121 @@ module.exports = [
     }
   },
   {
+    name: 'set_scope_budget',
+    description: 'Set budget limit for a scope (tenant, user, project, domain, or global).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        scope_type: {
+          type: 'string',
+          enum: [
+            'tenant',
+            'user',
+            'project',
+            'domain',
+            'global'
+          ],
+          description: 'Scope type for the budget'
+        },
+        scope_id: {
+          type: 'string',
+          description: 'Scope identifier (e.g., tenant ID, user ID, project name)'
+        },
+        window: {
+          type: 'string',
+          enum: [
+            'daily',
+            'monthly'
+          ],
+          description: 'Budget window period'
+        },
+        amount_usd: {
+          type: 'number',
+          description: 'Budget amount in USD'
+        },
+        warn_at_fraction: {
+          type: 'number',
+          description: 'Fraction of budget at which to warn (e.g., 0.8 for 80%)'
+        },
+        hard_cap: {
+          type: 'boolean',
+          description: 'Whether to enforce a hard cap that blocks requests when exceeded'
+        }
+      },
+      required: [
+        'scope_type',
+        'scope_id',
+        'window',
+        'amount_usd'
+      ]
+    }
+  },
+  {
+    name: 'get_scope_spend',
+    description: 'Get current spend for a scope (tenant, user, project, domain, or global).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        scope_type: {
+          type: 'string',
+          enum: [
+            'tenant',
+            'user',
+            'project',
+            'domain',
+            'global'
+          ],
+          description: 'Scope type to query'
+        },
+        scope_id: {
+          type: 'string',
+          description: 'Scope identifier'
+        },
+        window: {
+          type: 'string',
+          enum: [
+            'daily',
+            'monthly'
+          ],
+          description: 'Spend window period'
+        }
+      },
+      required: [
+        'scope_type',
+        'scope_id',
+        'window'
+      ]
+    }
+  },
+  {
+    name: 'list_scope_budgets',
+    description: 'List all budget limits for a scope (tenant, user, project, domain, or global).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        scope_type: {
+          type: 'string',
+          enum: [
+            'tenant',
+            'user',
+            'project',
+            'domain',
+            'global'
+          ],
+          description: 'Scope type to list budgets for'
+        },
+        scope_id: {
+          type: 'string',
+          description: 'Scope identifier'
+        }
+      },
+      required: [
+        'scope_type',
+        'scope_id'
+      ]
+    }
+  },
+  {
     name: 'get_cost_forecast',
     description: 'Get cost forecast based on historical spending. Shows daily average burn rate, projected monthly cost, and days until each budget is exhausted. Use to proactively manage spending before hitting limits.',
     inputSchema: {
