@@ -9943,11 +9943,33 @@ async function executePlanFileStage(project, instance, workItem) {
       const activeWorktree = factoryWorktrees.getActiveWorktreeByBatch(executeLogBatchId);
       const activeWorktreePath = getFactoryWorktreePath(activeWorktree);
       const activeWorktreeBelongsToTarget = factoryWorktreeBelongsToWorkItem(activeWorktree, targetItem);
+      let activeOwning = null;
+      let activeOwningStatus = null;
+      try {
+        if (activeWorktree?.owningTaskId) {
+          const taskCore = require('../db/task-core');
+          activeOwning = taskCore.getTask(activeWorktree.owningTaskId);
+          activeOwningStatus = activeOwning?.status || null;
+        }
+      } catch (ownershipErr) {
+        logger.warn('factory worktree: owning-task lookup failed before active batch reuse guard', {
+          active_factory_worktree_id: activeWorktree?.id || null,
+          owning_task_id: activeWorktree?.owningTaskId || null,
+          err: ownershipErr && ownershipErr.message,
+        });
+      }
       const canReuseActiveWorktree = Boolean(
         activeWorktreePath
         && fs.existsSync(activeWorktreePath)
         && activeWorktreeBelongsToTarget
         && (resumedDeferredExecute || !activeWorktree.owningTaskId)
+      );
+      const canReuseCompletedOwnerActiveWorktree = Boolean(
+        !resumedDeferredExecute
+        && activeWorktreePath
+        && fs.existsSync(activeWorktreePath)
+        && activeWorktreeBelongsToTarget
+        && isReusableWorktreeOwner(activeOwning, activeOwningStatus)
       );
       if (canReuseActiveWorktree) {
         const freshness = await ensureReusedFactoryWorktreeFresh({
@@ -10028,6 +10050,25 @@ async function executePlanFileStage(project, instance, workItem) {
             invalid_worktree: Boolean(freshness.invalidWorktree),
             fallback_suffix: preservedDirtyFallbackSuffix,
           });
+        }
+      } else if (canReuseCompletedOwnerActiveWorktree) {
+        const reuse = await maybeReuseCompletedWorktreeOwner({
+          owner: activeOwning,
+          ownerStatus: activeOwningStatus,
+          ownerSource: 'active_batch_worktree',
+          stale: activeWorktree,
+          staleWorktreePath: activeWorktreePath,
+          targetBranch: activeWorktree.branch,
+          project,
+          targetItem,
+          executeLogBatchId,
+        });
+        if (reuse?.worktreeRecord) {
+          worktreeRecord = reuse.worktreeRecord;
+          executionWorkingDirectory = reuse.executionWorkingDirectory;
+        }
+        if (reuse?.preservedDirtyFallbackSuffix) {
+          preservedDirtyFallbackSuffix = reuse.preservedDirtyFallbackSuffix;
         }
       } else if (activeWorktree) {
         if (activeWorktreePath && fs.existsSync(activeWorktreePath) && !activeWorktreeBelongsToTarget) {
