@@ -213,6 +213,56 @@ Do the work.
       expect(result.completed_tasks).toEqual([1]);
     });
 
+    it('does not let same-batch file evidence bypass the no-commits-ahead gate', async () => {
+      setupRepo(dir);
+      git(dir, ['checkout', '--quiet', '-b', 'feat/empty-evidence']);
+      fs.mkdirSync(path.join(dir, 'src'), { recursive: true });
+      fs.writeFileSync(path.join(dir, 'src', 'app.js'), 'preexisting\n');
+      const planPath = path.join(dir, 'plan.md');
+      fs.writeFileSync(
+        planPath,
+        `# Reuse Plan
+
+## Task 1: ship it
+
+- [ ] **Step 1: edit \`src/app.js\`**
+
+\`\`\`text
+Do the work.
+\`\`\`
+`
+      );
+
+      const submitMock = vi.fn(async () => ({ task_id: 'fresh-task' }));
+      const awaitMock = vi.fn(async () => ({ status: 'completed', verify_status: 'passed' }));
+      const findReusableTask = vi.fn(async () => ({
+        task_id: 'same-batch-completed-task',
+        status: 'completed',
+        same_batch: true,
+        files_modified: ['src/app.js'],
+      }));
+
+      const executor = createPlanExecutor({
+        submit: submitMock,
+        awaitTask: awaitMock,
+        findReusableTask,
+      });
+
+      const result = await executor.execute({
+        plan_path: planPath,
+        project: 'test',
+        working_directory: dir,
+        execution_mode: 'live',
+        baseBranch: 'master',
+      });
+
+      expect(submitMock).toHaveBeenCalledTimes(1);
+      expect(awaitMock).toHaveBeenCalledWith(expect.objectContaining({
+        task_id: 'fresh-task',
+      }));
+      expect(result.completed_tasks).toEqual([1]);
+    });
+
     it('DOES reuse a completed task when the branch already has commits ahead', async () => {
       setupRepo(dir);
       git(dir, ['checkout', '--quiet', '-b', 'feat/work']);

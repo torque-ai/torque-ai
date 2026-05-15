@@ -389,6 +389,32 @@ function verifyTaskTargetsForSubmission(task, working_directory, prompt) {
   };
 }
 
+function normalizeReusableTaskFilesModified(value) {
+  const parsed = typeof value === 'string'
+    ? (() => { try { return JSON.parse(value); } catch { return []; } })()
+    : value;
+  if (!Array.isArray(parsed)) return [];
+  return parsed
+    .map((entry) => {
+      if (typeof entry === 'string') return entry.trim();
+      if (entry && typeof entry === 'object') {
+        return String(entry.path || entry.file_path || entry.file || '').trim();
+      }
+      return '';
+    })
+    .filter(Boolean);
+}
+
+function hasReusableTaskFileEvidence(reusableTask) {
+  return reusableTask?.same_batch === true
+    && normalizeReusableTaskFilesModified(reusableTask.files_modified).length > 0;
+}
+
+function canTrustReusableTaskFileEvidence(reusableTask, verification) {
+  return verification?.reason !== 'branch_no_commits_ahead'
+    && hasReusableTaskFileEvidence(reusableTask);
+}
+
 function normalizeExecutionMode(executionMode, dryRun) {
   if (EXECUTION_MODES.has(executionMode)) {
     return executionMode;
@@ -552,7 +578,16 @@ function createPlanExecutor({ submit, awaitTask, findReusableTask = null, projec
 
       if (reusableTask?.task_id && reusableTask.status === 'completed') {
         const verification = await verifyCompletedTaskArtifacts(task, working_directory, baseBranch);
-        if (verification.trust) {
+        const trustFileEvidence = !verification.trust && canTrustReusableTaskFileEvidence(reusableTask, verification);
+        if (verification.trust || trustFileEvidence) {
+          if (trustFileEvidence) {
+            logger.info(`reusing completed task ${reusableTask.task_id} for plan task ${task.task_number} based on same-batch file evidence`, {
+              plan_path,
+              task_number: task.task_number,
+              verification_reason: verification.reason,
+              files_modified: normalizeReusableTaskFilesModified(reusableTask.files_modified),
+            });
+          }
           logger.info(`reusing completed task ${reusableTask.task_id} for already-landed plan task ${task.task_number}`);
           tickTaskInFile(plan_path, task.task_number);
           reused_completed_tasks.push({

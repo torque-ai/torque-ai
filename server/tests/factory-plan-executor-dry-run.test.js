@@ -177,4 +177,44 @@ Create tools/checker.js.
     expect(awaitMock).not.toHaveBeenCalled();
     expect(fs.readFileSync(planPath, 'utf8')).toContain('[x]');
   });
+
+  it('trusts same-batch completed tasks with file evidence when target extraction is stale', async () => {
+    const singleTaskPlan = `# Reuse Completed Plan
+
+## Task 1: add classifier
+
+- [ ] **Step 1: add classifier**
+
+\`\`\`text
+Create server/ci/failure-classifier.js.
+\`\`\`
+`;
+    fs.writeFileSync(planPath, singleTaskPlan);
+    findReusableTask.mockResolvedValue({
+      task_id: 'existing-task-3',
+      status: 'completed',
+      same_batch: true,
+      files_modified: ['server/ci/diagnostics.js'],
+    });
+
+    const result = await executor.execute({
+      plan_path: planPath,
+      project: 'factory-project',
+      working_directory: dir,
+      execution_mode: 'live',
+    });
+
+    expect(result.completed_tasks).toEqual([1]);
+    expect(result.submitted_tasks).toEqual([]);
+    expect(result.reused_completed_tasks).toEqual([
+      {
+        task_number: 1,
+        task_id: 'existing-task-3',
+        same_batch: true,
+      },
+    ]);
+    expect(submitMock).not.toHaveBeenCalled();
+    expect(awaitMock).not.toHaveBeenCalled();
+    expect(fs.readFileSync(planPath, 'utf8')).toContain('[x]');
+  });
 });

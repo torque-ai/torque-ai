@@ -3038,6 +3038,26 @@ function activeReusableTaskMatchesWorkingDirectory(candidate, workingDirectory) 
   return candidateWorkingDirectory === expectedWorkingDirectory;
 }
 
+function normalizeReusableTaskFilesModified(value) {
+  const parsed = typeof value === 'string'
+    ? (() => { try { return JSON.parse(value); } catch { return []; } })()
+    : value;
+  if (!Array.isArray(parsed)) return [];
+  return parsed
+    .map((entry) => {
+      if (typeof entry === 'string') return entry.trim();
+      if (entry && typeof entry === 'object') {
+        return String(entry.path || entry.file_path || entry.file || '').trim();
+      }
+      return '';
+    })
+    .filter(Boolean);
+}
+
+function reusableCompletedTaskHasFileEvidence(candidate) {
+  return normalizeReusableTaskFilesModified(candidate?.files_modified).length > 0;
+}
+
 function findExistingPlanTaskSubmission(taskCore, {
   projectName,
   workingDirectory,
@@ -3074,7 +3094,7 @@ function findExistingPlanTaskSubmission(taskCore, {
       orderBy: 'created_at',
       orderDir: 'desc',
       limit: 100,
-      columns: ['id', 'status', 'tags', 'created_at', 'started_at', 'metadata', 'working_directory'],
+      columns: ['id', 'status', 'tags', 'created_at', 'started_at', 'metadata', 'working_directory', 'files_modified'],
     });
 
     candidates = queryCandidates({
@@ -3150,13 +3170,19 @@ function findExistingPlanTaskSubmission(taskCore, {
     };
   }
 
-  const completed = prioritized.find((candidate) => candidate.status === 'completed');
+  const completedCandidates = prioritized.filter((candidate) => candidate.status === 'completed');
+  const completed = completedCandidates.find(reusableCompletedTaskHasFileEvidence)
+    || completedCandidates[0];
   if (completed) {
-    return {
+    const result = {
       task_id: completed.id,
       status: completed.status,
       same_batch: Boolean(batchTag && completed.tags.includes(batchTag)),
     };
+    if (completed.files_modified !== undefined) {
+      result.files_modified = completed.files_modified;
+    }
+    return result;
   }
 
   return null;

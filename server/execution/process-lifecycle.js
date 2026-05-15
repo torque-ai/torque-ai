@@ -35,6 +35,7 @@ const { resolveMethod } = require('./capability-resolver');
 const { extractModifiedFiles } = require('../utils/file-resolution');
 const { resolveActivityAwareTimeoutDecision } = require('../utils/activity-timeout');
 const { isSubprocessDetachmentEnabled } = require('../utils/subprocess-detachment');
+const { captureInitialFilesystemFingerprint } = require('../utils/activity-monitoring');
 
 // Providers eligible for the detached spawn path (Phases B + F).
 // ollama / ollama-agentic / claude-code-sdk stay on the pipe path —
@@ -747,6 +748,7 @@ function spawnAndTrackProcess(taskId, task, spawnConfig) {
 
   // Track the process with timeout handles for cleanup
   const now = Date.now();
+  const initialFsFingerprint = captureInitialFilesystemFingerprint(provider, options.cwd || null);
   deps.runningProcesses.set(taskId, {
     process: child,
     output: '',
@@ -770,7 +772,9 @@ function spawnAndTrackProcess(taskId, task, spawnConfig) {
     completionGraceHandle: null, // Timer: grace period before force-completing a lingering process
     lastProgress: 0,            // Fix F4: track last progress to avoid regression
     baselineCommit: baselineCommit,  // HEAD SHA before task started (for scoped validation)
-    workingDirectory: options.cwd || null  // For filesystem-activity stall detection
+    workingDirectory: options.cwd || null, // For filesystem-activity stall detection
+    lastFsFingerprint: initialFsFingerprint,
+    initialFsFingerprint,
   });
 
   // Check if spawn actually started a process (undefined PID = spawn failure on Windows)
