@@ -36,6 +36,7 @@ function createOptions(overrides = {}) {
     serverConfig,
     db,
     logger,
+    warningCache: overrides.warningCache ?? new Set(),
   };
 }
 
@@ -106,6 +107,50 @@ describe('execution/effective-concurrency', () => {
     expect(options.safeConfigInt).not.toHaveBeenCalledWith('max_api_concurrent', 4);
     expect(options.logger.warn).toHaveBeenCalledWith(
       '[Concurrency] Enabled provider limits sum to 15, but configured max_concurrent=10 is enforced as the global cap.',
+    );
+  });
+
+  it('logs the auto-compute cap warning once per distinct message', () => {
+    const warningCache = new Set();
+    const options = createOptions({
+      warningCache,
+      configValues: {
+        max_ollama_concurrent: 8,
+        max_codex_concurrent: 6,
+        max_api_concurrent: 4,
+        max_concurrent: 10,
+      },
+      serverConfig: {
+        getBool: vi.fn(() => true),
+      },
+    });
+
+    expect(getEffectiveGlobalMaxConcurrent(options)).toBe(10);
+    expect(getEffectiveGlobalMaxConcurrent(options)).toBe(10);
+
+    expect(options.logger.warn).toHaveBeenCalledTimes(1);
+    expect(options.logger.warn).toHaveBeenCalledWith(
+      '[Concurrency] Enabled provider limits sum to 18, but configured max_concurrent=10 is enforced as the global cap.',
+    );
+
+    const changedOptions = createOptions({
+      warningCache,
+      configValues: {
+        max_ollama_concurrent: 8,
+        max_codex_concurrent: 6,
+        max_api_concurrent: 4,
+        max_concurrent: 9,
+      },
+      logger: options.logger,
+      serverConfig: {
+        getBool: vi.fn(() => true),
+      },
+    });
+
+    expect(getEffectiveGlobalMaxConcurrent(changedOptions)).toBe(9);
+    expect(options.logger.warn).toHaveBeenCalledTimes(2);
+    expect(options.logger.warn).toHaveBeenLastCalledWith(
+      '[Concurrency] Enabled provider limits sum to 18, but configured max_concurrent=9 is enforced as the global cap.',
     );
   });
 
