@@ -139,3 +139,30 @@ The original checklist jumps from "all stages extracted" to "update docs and shi
 ### Recommended posture for the next session
 
 Continue the prep extractions sequentially (planner-tokens → plan-path-internals → scope-search proper), then prompt-sections, then provider-resolution. **At Phase 1a end** (all plan-builders extracted), stop and produce the `plan-builders/README.md` and the `@typedef`s before opening Phase 2. That's the first reflection checkpoint — and it's the moment the refactor stops being pure mechanical movement and starts being architecture.
+
+---
+
+## Addendum 2: Stage interface spec landed (2026-05-15)
+
+The end-of-Phase-2 reflection checkpoint shipped as [`docs/factory-stage-interface.md`](../factory-stage-interface.md). It defines `StageContext` (input) and `StageOutcome` (discriminated-union output) and validates the contract against all seven existing stage executors.
+
+The phase plan above is revised by that spec:
+
+| Old phase | Revised | Why |
+|---|---|---|
+| Phase 2b — lifecycle (read-only) | **Largely subsumed.** `getLoopState`, `getActiveInstances`, etc. become trivial after `resolveStageContext` exists. Defer until Phase 2c-scaffold lands. | Their entanglement was the dispatcher's heterogeneity, not their own complexity. |
+| Phase 2c — lifecycle (mutating) | **Renamed to Phase 2c-scaffold + Phase 2c-adapt.** Scaffold = land `stages/types.js`, `stages/context.js`, `stages/apply-outcome.js`. Adapt = in-place wrap each existing stage executor to consume `StageContext` and return `StageOutcome` via a thin adapter. | Lifts the contract before any stage moves. |
+| Phase 3a-g — stage extraction | **Unchanged in spirit, but now mechanical.** Each `executeFooStage` is already a contract implementation; moving the file is `git mv`-shaped. | The contract absorbed the heterogeneity. |
+| Phase 4 — doc cross-refs | **Move to incremental.** Per phase, not at the end. | Less drift to chase. |
+
+Recommended next-session sequencing:
+
+1. **Phase 2c-scaffold** — ship `stages/types.js`, `stages/context.js`, `stages/apply-outcome.js`. No behavior change. Loop-controller unchanged.
+2. **Phase 2c-adapt-sense** — wrap `executeSenseStage` in place. It's the smallest. Validates the adapter pattern.
+3. **Phase 2c-adapt × 6** — one wrap-in-place commit per remaining stage. Each is small.
+4. **Phase 2c-dispatcher** — lift `runAdvanceLoop`'s per-stage dispatch into `applyOutcome` + a stages map. Big delete in loop-controller.
+5. **Phase 2b — lifecycle (now trivial)** — extract the read-only getters that now have zero dispatcher entanglement.
+6. **Phase 3a-g** — move each adapted stage to its own file. Mechanical.
+7. **Phase 4 — doc cross-refs.** Stays at the end. Update `factory.md`, `factory-loop-states.md`, etc. with the new file locations.
+
+The spec doc's "Open questions for the operator" section has four pending decisions; pick those up before Phase 2c-scaffold begins.
