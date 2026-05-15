@@ -10,7 +10,7 @@
  */
 
 const routes = [
-  // ═══ Generated REST routes for 511 MCP tools ═══
+  // ═══ Generated REST routes for 514 MCP tools ═══
   // Generated: 2026-03-13
   // Pattern: tool-passthrough via handleToolCall()
 
@@ -448,7 +448,7 @@ const routes = [
   { method: 'POST', path: '/api/v2/tsserver/tsserver-quickinfo', tool: 'tsserver_quickinfo', mapBody: true },
   { method: 'POST', path: '/api/v2/tsserver/tsserver-definition', tool: 'tsserver_definition', mapBody: true },
 
-  // ─── validation (76 routes) ───────────────────────────────────────────────────
+  // ─── validation (79 routes) ───────────────────────────────────────────────────
   { method: 'GET', path: '/api/v2/validation/list-validation-rules', tool: 'list_validation_rules', mapQuery: true },
   { method: 'POST', path: '/api/v2/validation/add-validation-rule', tool: 'add_validation_rule', mapBody: true },
   { method: 'POST', path: '/api/v2/validation/update-validation-rule', tool: 'update_validation_rule', mapBody: true },
@@ -525,6 +525,9 @@ const routes = [
   { method: 'GET', path: /^\/api\/v2\/validation\/get-xaml-consistency-results\/([^/]+)$/, tool: 'get_xaml_consistency_results', mapQuery: true, mapParams: ['task_id'] },
   { method: 'POST', path: '/api/v2/validation/run-app-smoke-test', tool: 'run_app_smoke_test', mapBody: true },
   { method: 'GET', path: /^\/api\/v2\/validation\/get-smoke-test-results\/([^/]+)$/, tool: 'get_smoke_test_results', mapQuery: true, mapParams: ['task_id'] },
+  { method: 'POST', path: '/api/v2/validation/set-scope-budget', tool: 'set_scope_budget', mapBody: true },
+  { method: 'GET', path: '/api/v2/validation/get-scope-spend', tool: 'get_scope_spend', mapQuery: true },
+  { method: 'GET', path: '/api/v2/validation/list-scope-budgets', tool: 'list_scope_budgets', mapQuery: true },
 
   // ─── vc (13 routes) ───────────────────────────────────────────────────────────
   { method: 'POST', path: '/api/v2/vc/cleanup-stale', tool: 'vc_cleanup_stale', mapBody: true },
