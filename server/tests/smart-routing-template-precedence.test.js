@@ -84,8 +84,8 @@ describe('smart routing template precedence', () => {
     // Codex Primary's plan_generation rule (server/routing/templates/codex-primary.json)
     // leads with codex per commit e79ca7a9 — "Codex for hard problems" guards
     // against the example-project regression where ollama-led plan_generation
-    // produced unusable plans. The chain is: codex → cerebras → groq → ollama,
-    // and routing should pick the first eligible link.
+    // produced unusable plans. The chain is: codex → claude-cli → API text
+    // providers → ollama, and routing should pick the first eligible link.
     const result = providerRoutingCore.analyzeTaskForRouting(
       'You are generating an execution plan for a single factory work item. Return ## Task N: sections only.',
       process.cwd(),

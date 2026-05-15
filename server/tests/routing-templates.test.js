@@ -80,6 +80,10 @@ describe('seedPresets', () => {
       : [tmpl.rules.plan_generation];
     const providers = chain.map((r) => (typeof r === 'string' ? r : r.provider));
     expect(providers[0]).toBe('codex');
+    // Keep an enabled cloud CLI fallback before local Ollama so Codex
+    // exhaustion does not send factory plan generation straight to qwen3-coder.
+    expect(providers.indexOf('claude-cli')).toBeGreaterThan(0);
+    expect(providers.indexOf('claude-cli')).toBeLessThan(providers.indexOf('ollama'));
     // ollama may remain as a last-resort fallback but must not be first.
     expect(providers[0]).not.toBe('ollama');
     expect(providers.length).toBeGreaterThanOrEqual(2);

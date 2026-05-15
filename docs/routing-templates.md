@@ -87,7 +87,7 @@ Codex for action work, text-gen providers for plan generation.
 |---|---|---|
 | targeted_file_edit | codex-spark | codex, claude-cli, ollama |
 | All except targeted_file_edit and plan_generation | codex | claude-cli, ollama |
-| plan_generation | codex | cerebras, groq, ollama |
+| plan_generation | codex | claude-cli, cerebras, groq, ollama |
 
 (2026-05-04 fix: plan_generation used to lead with cerebras; that was a real prod bug. See `project_codex_primary_plan_routing.md` in memory.)
 
