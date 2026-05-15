@@ -873,6 +873,48 @@ describe('execute-cli.js', () => {
       expect(finalizeArgs.errorOutput || '').not.toMatch(/\[process-exit\]/);
     });
 
+    it('does not run instant-exit fallback after a normal close', async () => {
+      const mockChild = createMockChild();
+      spawnMock.mockReturnValue(mockChild);
+
+      const finalizeTaskSpy = vi.fn(async () => ({ finalized: true, queueManaged: false }));
+      const deps = makeDeps({ runningProcesses: new Map(), finalizeTask: finalizeTaskSpy });
+      mod.init(deps);
+
+      const taskId = randomUUID();
+      taskCore.createTask({
+        id: taskId,
+        task_description: 'Instant-exit fallback guard test',
+        status: 'running',
+        provider: 'codex',
+        working_directory: testDir,
+      });
+
+      const cmdSpec = {
+        cliPath: 'node',
+        finalArgs: [],
+        stdinPrompt: null,
+        envExtras: {},
+        selectedOllamaHostId: null,
+        usedEditFormat: null,
+      };
+
+      vi.useFakeTimers();
+      try {
+        mod.spawnAndTrackProcess(taskId, { id: taskId, working_directory: testDir }, cmdSpec, 'codex');
+        simulateSuccess(mockChild, 'all good', 5);
+
+        await vi.advanceTimersByTimeAsync(10);
+        expect(finalizeTaskSpy).toHaveBeenCalledTimes(1);
+        expect(finalizeTaskSpy.mock.calls[0][1].exitCode).toBe(0);
+
+        await vi.advanceTimersByTimeAsync(2500);
+        expect(finalizeTaskSpy).toHaveBeenCalledTimes(1);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
     it('flushes detached log bytes before finalizing the task output', async () => {
       const logDir = path.join(testDir, 'detached-flush');
       fs.mkdirSync(logDir, { recursive: true });

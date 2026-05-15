@@ -1013,8 +1013,14 @@ function spawnAndTrackProcess(taskId, task, cmdSpec, provider) {
     ollama_host_id: selectedOllamaHostId
   });
 
+  let closeEventFired = false;
+  let exitSignal = null;
+
   // Detect instant-exit
   setTimeout(() => {
+    if (closeEventFired) {
+      return;
+    }
     const proc = runningProcesses.get(taskId);
     if (!proc) {
       const task = db.getTask(taskId);
@@ -1067,8 +1073,6 @@ function spawnAndTrackProcess(taskId, task, cmdSpec, provider) {
   });
 
   // Handle process completion
-  let closeEventFired = false;
-  let exitSignal = null;
   child.on('exit', (exitCode, signal) => {
     // Capture signal so subprocesses killed by SIGKILL/SIGTERM/etc. are
     // distinguishable from normal non-zero exits in the classifier.
