@@ -48,6 +48,7 @@ const { createWorktreeManager } = require('../plugins/version-control/worktree-m
 const eventBus = require('../event-bus');
 const baselineRequeue = require('./baseline-requeue');
 const { createLearnStageRunner } = require('./stages/learn');
+const { createVerifyStageRunner } = require('./stages/verify');
 const logger = require('../logger').child({ component: 'loop-controller' });
 const { prepareWorktreeVerifyDependencies } = require('../utils/worktree-verify-deps');
 const {
@@ -13405,6 +13406,15 @@ async function runExecuteVerifyStage(project_id, batch_id, instance = null) {
   return executeVerifyStage(project_id, batch_id, instance);
 }
 
+// Phase 2c-dispatcher slice 2: VERIFY runner wraps runExecuteVerifyStage
+// as a (ctx) => StageOutcome. The dispatcher's VERIFY case calls this and
+// unwraps `outcome.stageResult.legacy` to preserve the legacy post-VERIFY
+// policy reads (pause_at_stage, reason, isTerminalVerifyOutcome,
+// finalizeTerminalVerifyOutcome). Phase 3 lifts the policy into the runner.
+const verifyStageRunner = createVerifyStageRunner({
+  executeVerifyStage: runExecuteVerifyStage,
+});
+
 let executeLearnStageForTests = null;
 
 function setExecuteLearnStageForTests(fn) {
@@ -14366,7 +14376,13 @@ async function runAdvanceLoop(instance_id) {
           batch_id: instance.batch_id,
         };
       } else {
-        stageResult = await runExecuteVerifyStage(project.id, instance.batch_id, instance);
+        // Phase 2c-dispatcher: route through verifyStageRunner. Unwraps
+        // outcome.stageResult.legacy back into stageResult so the post-stage
+        // checks (pause_at_stage, isTerminalVerifyOutcome,
+        // finalizeTerminalVerifyOutcome) stay byte-identical.
+        const verifyCtx = { project, instance, batchId: instance.batch_id ?? null };
+        const verifyOutcome = await verifyStageRunner(verifyCtx);
+        stageResult = verifyOutcome.stageResult?.legacy ?? null;
       }
       if (stageResult && stageResult.pause_at_stage) {
         instance = updateInstanceAndSync(instance.id, {

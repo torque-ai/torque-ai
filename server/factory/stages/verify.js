@@ -1,8 +1,10 @@
-// VERIFY stage adapter (Phase 2c-adapt slice 5).
+// VERIFY stage adapter (Phase 2c-adapt slice 5, refined in 2c-dispatcher).
 //
 // Legacy signature: executeVerifyStage(project_id, batch_id, instance = null)
-// Legacy return: mixed — { next_state, fix_task_id, exit_code, output_tail, ... }
-// or null. The current dispatcher reads `next_state` directly.
+// Legacy return: mixed — { next_state, fix_task_id, exit_code, output_tail,
+// pause_at_stage, reason, ... } or null. The current dispatcher reads many
+// of those fields plus consults `isTerminalVerifyOutcome(legacy)` and
+// `finalizeTerminalVerifyOutcome({stageResult: legacy})`.
 //
 // Adapter contract (StageOutcome):
 //   - passed → disposition: 'continue', nextState: legacy.next_state || 'LEARN'
@@ -10,7 +12,10 @@
 //   - failed with auto-fix submitted → disposition: 'pause' (the loop waits
 //     on the fix task) with stageResult.fix_task_id populated
 //
-// 2c-dispatcher refines the verify-fail → gate routing.
+// stageResult exposes the contracted convenience fields plus the legacy
+// return verbatim under `.legacy`. The dispatcher's verify-fail and
+// terminal-outcome routing still reads from `.legacy` until Phase 3 lifts
+// the policy into the runner.
 
 /**
  * @param {{
@@ -37,6 +42,7 @@ function createVerifyStageRunner({ executeVerifyStage } = {}) {
       exit_code: legacy?.exit_code ?? null,
       output_tail: legacy?.output_tail ?? null,
       fix_task_id: fixTaskId,
+      legacy: legacy ?? null,
     };
 
     if (verifyStatus === 'failed') {

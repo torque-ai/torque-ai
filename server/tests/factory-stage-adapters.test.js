@@ -148,6 +148,27 @@ describe('VERIFY adapter', () => {
     expect(outcome.stageResult.exit_code).toBe(1);
     expect(outcome.stageResult.output_tail).toMatch(/AssertionError/);
   });
+
+  it('exposes the legacy return verbatim under stageResult.legacy', async () => {
+    const legacy = {
+      next_state: 'LEARN',
+      status: 'passed',
+      exit_code: 0,
+      pause_at_stage: null,
+      reason: 'all green',
+      extra_field_we_dont_model: 'preserved',
+    };
+    const run = createVerifyStageRunner({ executeVerifyStage: async () => legacy });
+    const outcome = await run({ project: baseProject, instance: baseInstance, batchId: 'b-11' });
+    expect(outcome.stageResult.legacy).toBe(legacy);
+    expect(outcome.stageResult.legacy.extra_field_we_dont_model).toBe('preserved');
+  });
+
+  it('legacy=null when executor returns null', async () => {
+    const run = createVerifyStageRunner({ executeVerifyStage: async () => null });
+    const outcome = await run({ project: baseProject, instance: baseInstance, batchId: 'b-12' });
+    expect(outcome.stageResult.legacy).toBeNull();
+  });
 });
 
 describe('LEARN adapter', () => {
