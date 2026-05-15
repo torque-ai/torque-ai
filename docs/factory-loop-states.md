@@ -167,6 +167,7 @@ Frequently-emitted actions, by stage:
 | PRIORITIZE | `decompose_would_yield_eligible` | `benign` | `work_item_id`, `eligibleCount`, `subtaskCount`, `decomposed` |
 | PRIORITIZE | `parked_codex_unavailable` | `benign` | `work_item_id`, `reason` |
 | PRIORITIZE | `marked_for_failover_routing` | `benign` | `work_item_id`, `instance_id`, `fallback_template` |
+| PRIORITIZE | `plan_quality_attempt_window_escalated` | `benign` | `work_item_id`, `priority`, `work_item_status`, `work_item_source`, `plan_path`, `previous_status`, `next_status`, `attempt_count`, `reason_shape` |
 | PRIORITIZE | `auto_rejected_stuck_executing` | `b-side-reject` | `work_item_id`, `reason`, `stuck_since` |
 | PLAN | `generated_plan` | `benign` | `work_item_id`, `plan_path`, `task_count`, `description_quality` |
 | PLAN | `plan_generated` | `benign` | `work_item_id`, `plan_path`, `task_count` |
