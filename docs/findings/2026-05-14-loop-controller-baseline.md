@@ -97,3 +97,45 @@ Plan-builder coverage (relevant to Phase 1a):
 - [ ] **Phase 4 — doc cross-refs** (`feat/refactor-4-doc-paths`)
 
 Target end state: `loop-controller.js` ~500 lines, pure orchestration, all bodies moved.
+
+---
+
+## Addendum: Architecturally Strong Posture (2026-05-14)
+
+Just splitting `loop-controller.js` into more files isn't architecturally strong — it's code organization, not architecture. The file is god-shaped because of structural problems the extraction-only checklist above does not address:
+
+1. **No domain boundaries.** Work-item accessors, plan generation, stage execution, verify-prompt building, worktree management, and recovery integration all live in one module without a contract between them.
+2. **Implicit coupling via top-level helpers.** Functions call each other freely; there's no dependency graph or layering.
+3. **No interface contracts.** Stages take `(project, instance, workItem)` and side-effect into the DB. There's no typed `StageContext` / `StageOutcome` shape that the dispatcher dispatches on.
+4. **The file IS the documentation.** The "consult X.md first" rules in `CLAUDE.md` exist because the structure doesn't tell the reader what's where.
+
+Splitting into 16 files leaves 1-4 unchanged. The strongest move is to keep the mechanical extractions (irreversible value, low risk) **but interleave reflection checkpoints that turn the extracted clusters into proper abstractions**.
+
+### Reflection checkpoints
+
+| After... | Reflect on... | Output |
+|---|---|---|
+| Each `shared/` module lands | Should this be a flat namespace or a single entry point like `buildPlan(workItem, project, options)`? | Optional public-API consolidation commit before moving on |
+| All plan-builders extracted (~Phase 1a end) | What's the actual contract between `loop-controller` and `plan-builders/`? | JSDoc `@typedef`s for `PlanInput`, `PlanOutput`; a `plan-builders/README.md` (1 page) declaring the package boundary |
+| All lifecycle entry points extracted (~Phase 2c end) | What does a `Stage` interface look like, given how Sense/Prioritize/Plan/Verify/Learn actually vary? | Spec doc `docs/factory-stage-interface.md` proposing `StageContext` / `StageOutcome`, validated against what the stages actually need |
+| All stages extracted (~Phase 3g end) | Is the leftover `loop-controller.js` the right shape, or should it be a thin dispatcher + a separate state-machine module? | Final-shape decision before Phase 4 |
+
+The original checklist jumps from "all stages extracted" to "update docs and ship." That skips the highest-leverage architectural work.
+
+### Concrete additions to the arc
+
+1. **Per-`shared/`-module JSDoc typedefs.** Every new module gets `@typedef`s for the structured inputs it handles (`@typedef {Object} WorkItem`). Free documentation; catches drift; lays groundwork for an eventual TS migration.
+2. **Per-cluster README.md.** When `plan-builders/` exists, add `plan-builders/README.md` (1 page) documenting what each file owns and what they collectively guarantee. Same for `stages/`, `recovery/`, `verify-helpers/`, etc. These eventually replace the "consult X.md first" pointers in `CLAUDE.md` with locality.
+3. **Update reference docs as content moves, not at the end.** The original Phase 4 deferred all doc updates; bundle them into each phase so `docs/factory-loop-states.md`, `docs/recovery-decisions.md`, etc. stay accurate continuously.
+4. **Don't shrink for shrinking's sake.** A 2-3K-line dispatcher that is all dispatch + thin glue is *fine*. The target isn't "500 lines" in the file — it's "every line in the file answers a single question: which stage runs next, given current state?" The `~500 lines` figure in the checklist above is aspirational; revise it down or up at the Phase 3g end-of-stage checkpoint when the actual shape is visible.
+
+### What NOT to do
+
+- **Don't redesign before extracting.** Hidden behavior in 16K lines is real; we'd break corner cases nobody documented. The extraction order (pure helpers → entry points → stages) is deliberately safest-first.
+- **Don't extract via TORQUE batch tasks for the mechanical moves.** JS-side structural moves don't have AST-anchored mutators the way the TS tools do. Hand-coded extractions with full Read-before-Edit have been clean so far (3-for-3 cutovers on 2026-05-14).
+- **Don't bundle the `parseJsonObject` global dedup into this arc.** ~10 copies across the repo; legitimate separate refactor; do not lump in here.
+- **Don't chase doc cross-refs mid-phase.** The "consult X.md first" pointers cite line numbers that drift constantly. Update them only at phase boundaries that include doc work.
+
+### Recommended posture for the next session
+
+Continue the prep extractions sequentially (planner-tokens → plan-path-internals → scope-search proper), then prompt-sections, then provider-resolution. **At Phase 1a end** (all plan-builders extracted), stop and produce the `plan-builders/README.md` and the `@typedef`s before opening Phase 2. That's the first reflection checkpoint — and it's the moment the refactor stops being pure mechanical movement and starts being architecture.
