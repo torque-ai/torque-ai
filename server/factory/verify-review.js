@@ -34,6 +34,18 @@ const ENVIRONMENT_STDERR_PATTERNS = [
   /\bENOENT\b/,
   /\btimeout after \d+/i,
   /\bkilled by signal\b/i,
+  // Remote-host-unreachable patterns (SpudgetBooks 2026-05-09 incident).
+  // Without these, torque-remote SSH failures fell through detectEnvironmentFailure
+  // → LLM judge correctly diagnosed "remote host unreachable" → classifier still
+  // routed to baseline_broken → auto-recovery exhausted → terminal_decision. Now
+  // these patterns route the same shape to environment_failure (retry/defer path).
+  /\bssh:\s*connect to host\s+\S+\s+port\s+\d+:\s*Connection refused\b/i,
+  /\bssh:\s*Could not resolve hostname\b/i,
+  /\bssh:\s*connect to host\s+\S+\s+port\s+\d+:\s*No route to host\b/i,
+  /\bssh:\s*connect to host\s+\S+\s+port\s+\d+:\s*Operation timed out\b/i,
+  /\bkex_exchange_identification:\s*(?:Connection closed by remote host|read:\s*Connection reset)/i,
+  /\bremote (?:execution )?(?:host|workstation|agent)\s+\S+\s+(?:was )?unreachable\b/i,
+  /\btorque-remote:.*(?:unreachable|refused|no route|could not resolve)\b/i,
 ];
 const REVIEW_TASK_TIMEOUT_RE = /\btimeout exceeded\b/i;
 const ACTIVE_VERIFY_REVIEW_STATUSES = new Set(['pending', 'pending_approval', 'queued', 'running', 'waiting']);
@@ -326,6 +338,43 @@ function detectEnvironmentFailure(verifyOutput) {
     { re: /\bENOENT\b/, signal: 'stderr_ENOENT', reason: 'missing_file_or_dir' },
     { re: /\btimeout after \d+/i, signal: 'stderr_timeout', reason: 'timeout' },
     { re: /\bkilled by signal\b/i, signal: 'stderr_killed', reason: 'timeout' },
+    // Remote-host-unreachable patterns (SpudgetBooks 2026-05-09 incident — see
+    // ENVIRONMENT_STDERR_PATTERNS comment above for rationale).
+    {
+      re: /\bssh:\s*connect to host\s+\S+\s+port\s+\d+:\s*Connection refused\b/i,
+      signal: 'stderr_ssh_connection_refused',
+      reason: 'host_unreachable',
+    },
+    {
+      re: /\bssh:\s*Could not resolve hostname\b/i,
+      signal: 'stderr_ssh_dns_failure',
+      reason: 'host_unreachable',
+    },
+    {
+      re: /\bssh:\s*connect to host\s+\S+\s+port\s+\d+:\s*No route to host\b/i,
+      signal: 'stderr_ssh_no_route',
+      reason: 'host_unreachable',
+    },
+    {
+      re: /\bssh:\s*connect to host\s+\S+\s+port\s+\d+:\s*Operation timed out\b/i,
+      signal: 'stderr_ssh_connect_timeout',
+      reason: 'host_unreachable',
+    },
+    {
+      re: /\bkex_exchange_identification:\s*(?:Connection closed by remote host|read:\s*Connection reset)/i,
+      signal: 'stderr_ssh_kex_failure',
+      reason: 'host_unreachable',
+    },
+    {
+      re: /\bremote (?:execution )?(?:host|workstation|agent)\s+\S+\s+(?:was )?unreachable\b/i,
+      signal: 'stderr_torque_remote_unreachable',
+      reason: 'host_unreachable',
+    },
+    {
+      re: /\btorque-remote:.*(?:unreachable|refused|no route|could not resolve)\b/i,
+      signal: 'stderr_torque_remote_wrapper',
+      reason: 'host_unreachable',
+    },
   ];
   for (const check of stderrChecks) {
     if (check.re.test(stderr)) {

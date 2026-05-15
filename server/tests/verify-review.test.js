@@ -215,6 +215,107 @@ describe('detectEnvironmentFailure', () => {
     const r = detectEnvironmentFailure({ exitCode: 0, stdout: 'PASSED', stderr: '', timedOut: false });
     expect(r.detected).toBe(false);
   });
+
+  // Remote-host-unreachable patterns — SpudgetBooks 2026-05-09 incident: torque-remote
+  // SSH errors fell through this detector → LLM judge correctly diagnosed → classifier
+  // still routed to baseline_broken → auto-recovery exhausted → terminal_decision.
+  // Each pattern below now routes to environment_failure (retry/defer path).
+
+  it('detects ssh Connection refused as host_unreachable', () => {
+    const r = detectEnvironmentFailure({
+      exitCode: 255,
+      stdout: '',
+      stderr: 'ssh: connect to host 192.0.2.42 port 22: Connection refused\r\n',
+      timedOut: false,
+    });
+    expect(r.detected).toBe(true);
+    expect(r.signals).toContain('stderr_ssh_connection_refused');
+    expect(r.reason).toBe('host_unreachable');
+  });
+
+  it('detects ssh Could not resolve hostname as host_unreachable', () => {
+    const r = detectEnvironmentFailure({
+      exitCode: 255,
+      stdout: '',
+      stderr: 'ssh: Could not resolve hostname workstation.local: Name or service not known\n',
+      timedOut: false,
+    });
+    expect(r.detected).toBe(true);
+    expect(r.signals).toContain('stderr_ssh_dns_failure');
+    expect(r.reason).toBe('host_unreachable');
+  });
+
+  it('detects ssh No route to host as host_unreachable', () => {
+    const r = detectEnvironmentFailure({
+      exitCode: 255,
+      stdout: '',
+      stderr: 'ssh: connect to host 198.51.100.5 port 22: No route to host\n',
+      timedOut: false,
+    });
+    expect(r.detected).toBe(true);
+    expect(r.signals).toContain('stderr_ssh_no_route');
+    expect(r.reason).toBe('host_unreachable');
+  });
+
+  it('detects ssh Operation timed out as host_unreachable', () => {
+    const r = detectEnvironmentFailure({
+      exitCode: 255,
+      stdout: '',
+      stderr: 'ssh: connect to host 192.0.2.99 port 22: Operation timed out\n',
+      timedOut: false,
+    });
+    expect(r.detected).toBe(true);
+    expect(r.signals).toContain('stderr_ssh_connect_timeout');
+    expect(r.reason).toBe('host_unreachable');
+  });
+
+  it('detects ssh kex_exchange_identification connection closed as host_unreachable', () => {
+    const r = detectEnvironmentFailure({
+      exitCode: 255,
+      stdout: '',
+      stderr: 'kex_exchange_identification: Connection closed by remote host\n',
+      timedOut: false,
+    });
+    expect(r.detected).toBe(true);
+    expect(r.signals).toContain('stderr_ssh_kex_failure');
+    expect(r.reason).toBe('host_unreachable');
+  });
+
+  it('detects "remote execution host X was unreachable" (SpudgetBooks May-9 critique shape)', () => {
+    const r = detectEnvironmentFailure({
+      exitCode: 1,
+      stdout: '',
+      stderr: 'verify command did not reach the test runner at all; required remote execution host 192.0.2.42 was unreachable\n',
+      timedOut: false,
+    });
+    expect(r.detected).toBe(true);
+    expect(r.signals).toContain('stderr_torque_remote_unreachable');
+    expect(r.reason).toBe('host_unreachable');
+  });
+
+  it('detects torque-remote wrapper unreachable message', () => {
+    const r = detectEnvironmentFailure({
+      exitCode: 1,
+      stdout: '',
+      stderr: 'torque-remote: workstation unreachable, falling back to local\n',
+      timedOut: false,
+    });
+    expect(r.detected).toBe(true);
+    expect(r.signals).toContain('stderr_torque_remote_wrapper');
+    expect(r.reason).toBe('host_unreachable');
+  });
+
+  it('still treats normal test failure as task_caused (no false positives on host_unreachable patterns)', () => {
+    const r = detectEnvironmentFailure({
+      exitCode: 1,
+      stdout: 'FAILED tests/foo.py::test_baz',
+      stderr: 'AssertionError: expected 1 but got 2',
+      timedOut: false,
+    });
+    expect(r.detected).toBe(false);
+    expect(r.signals).toEqual([]);
+    expect(r.reason).toBeNull();
+  });
 });
 
 const { parseFailingTests } = require('../factory/verify-review');
