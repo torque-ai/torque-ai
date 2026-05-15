@@ -1192,6 +1192,57 @@ describe('factory loop work-item shipping', () => {
     expect(scoring.scoreReason).toContain('replan_penalty=');
   });
 
+  it('escalates exhausted plan-quality needs_replan rows before claiming work', async () => {
+    const project = factoryHealth.registerProject({
+      name: `Factory Replan Attempt Escalation ${Date.now()}`,
+      path: `/tmp/factory-replan-attempt-escalation-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      trust_level: 'dark',
+    });
+
+    const exhausted = factoryIntake.createWorkItem({
+      project_id: project.id,
+      source: 'plan_file',
+      title: 'Exhausted plan-quality candidate',
+      description: 'This row already spent the plan-quality attempt window.',
+      priority: 100,
+      requestor: 'test',
+    });
+    factoryIntake.updateWorkItem(exhausted.id, {
+      status: 'needs_replan',
+      reject_reason: 'plan_quality_gate_rejected_after_intrabatch_retries',
+      origin_json: {
+        plan_gen_attempts: loopController.SAME_SHAPE_THRESHOLD,
+        last_rejection_attempt: loopController.SAME_SHAPE_THRESHOLD,
+      },
+    });
+
+    const clean = factoryIntake.createWorkItem({
+      project_id: project.id,
+      source: 'plan_file',
+      title: 'Clean fallback candidate',
+      description: 'This row should be claimable once exhausted rows are closed.',
+      priority: 10,
+      requestor: 'test',
+    });
+    factoryIntake.updateWorkItem(clean.id, { status: 'needs_replan' });
+    db.prepare('UPDATE factory_work_items SET updated_at = ? WHERE id IN (?, ?)')
+      .run('2026-05-04 07:00:00', exhausted.id, clean.id);
+
+    const result = await loopController._internalForTests.claimNextWorkItemForInstance(
+      project.id,
+      'instance-replan-attempt-escalation',
+    );
+
+    expect(result.workItem).toBeTruthy();
+    expect(result.workItem.id).toBe(clean.id);
+    const exhaustedSnapshot = factoryIntake.getWorkItem(exhausted.id);
+    expect(exhaustedSnapshot.status).toBe('escalation_exhausted');
+    expect(exhaustedSnapshot.reject_reason).toMatch(/escalation_exhausted: no_provider_chain/);
+
+    const decisions = listDecisionRows(db, project.id);
+    expect(decisions.some((row) => row.action === 'plan_quality_attempt_window_escalated')).toBe(true);
+  });
+
   it('claims a fallback item instead of reporting empty intake when stale-probe skip budget is exhausted', async () => {
     const staleProbe = require('../factory/stale-probe');
     const project = factoryHealth.registerProject({

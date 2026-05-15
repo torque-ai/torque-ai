@@ -230,6 +230,51 @@ describe('Phase X5: same-shape escalation in routeWorkItemToNeedsReplan', () => 
       expect(after.origin?.last_escalation).toMatchObject({ kind: 'no_provider_chain' });
     });
 
+    it('escalates exhausted plan-quality attempt windows even before history has enough batch entries', () => {
+      makeProject(db, []);
+      const item = factoryIntake.createWorkItem({ project_id: 'p1', source: 'scout', title: 'X' });
+      const after = routeWorkItemToNeedsReplan(item, {
+        reason: 'plan_quality_gate_rejected_after_intrabatch_retries',
+        attempt: SAME_SHAPE_THRESHOLD,
+      });
+
+      expect(after.status).toBe('escalation_exhausted');
+      expect(after.origin?.last_escalation).toMatchObject({
+        kind: 'no_provider_chain',
+        reason_shape: 'plan_quality_gate_rejected_after_intrabatch_retries',
+        basis: 'plan_quality_attempt_window',
+      });
+    });
+
+    it('uses exhausted plan-quality attempt windows for one provider switch without burning the chain', () => {
+      makeProject(db, ['ollama', 'codex', 'claude-cli']);
+      const item = factoryIntake.createWorkItem({ project_id: 'p1', source: 'scout', title: 'X' });
+      const switched = routeWorkItemToNeedsReplan(item, {
+        reason: 'plan_quality_gate_rejected_after_intrabatch_retries',
+        attempt: SAME_SHAPE_THRESHOLD,
+      });
+
+      expect(switched.status).toBe('needs_replan');
+      expect(switched.origin?.last_escalation).toMatchObject({
+        kind: 'provider_switch',
+        from: null,
+        to: 'codex',
+        basis: 'plan_quality_attempt_window',
+      });
+
+      const afterProviderAttempt = routeWorkItemToNeedsReplan(factoryIntake.getWorkItem(switched.id), {
+        reason: 'plan_quality_gate_rejected_after_intrabatch_retries',
+        attempt: SAME_SHAPE_THRESHOLD + 1,
+      });
+
+      expect(afterProviderAttempt.status).toBe('needs_replan');
+      expect(afterProviderAttempt.origin?.last_escalation).toMatchObject({
+        kind: 'provider_switch',
+        to: 'codex',
+      });
+      expect(afterProviderAttempt.origin?.last_escalation?.to).not.toBe('claude-cli');
+    });
+
     it('does not terminally escalate stale plan pointer cleanup cycles', () => {
       makeProject(db, []);
       const item = factoryIntake.createWorkItem({

@@ -235,6 +235,11 @@ const NEEDS_REPLAN_PLAN_QUALITY_PENALTY_PATTERN =
   /(?:plan_quality_gate_rejected_after_intrabatch_retries|pre_written_plan_rejected_by_quality_gate|plan_already_satisfied_no_new_work|already\s+(?:complete|satisfied)|\bno-?op\b|same-shape)/i;
 const NEEDS_REPLAN_GENERIC_REJECTION_PENALTY_PATTERN =
   /(?:cannot_generate_plan|empty_branch_after_execute|zero_diff|verify_failed|worktree_[a-z_]*failed|execute_exception|task_\d+_failed|dep_(?:cascade|resolver)_)/i;
+const PLAN_QUALITY_ESCALATION_REASON_SHAPES = new Set([
+  'plan_quality_gate_rejected_after_intrabatch_retries',
+  'pre_written_plan_rejected_by_quality_gate',
+  'materialized_generated_plan_rejected_by_quality_gate',
+]);
 
 const SQLITE_UTC_TIMESTAMP_PATTERN = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?$/;
 
@@ -324,6 +329,73 @@ function getNeedsReplanSelectionPenalty(item) {
   }
 
   return { penalty, label };
+}
+
+function getPlanQualityReplanAttemptCount(item, origin = getWorkItemOriginObject(item) || {}) {
+  const attempts = [
+    origin?.plan_gen_attempts,
+    origin?.last_rejection_attempt,
+  ]
+    .map((value) => Number(value))
+    .filter((value) => Number.isFinite(value));
+
+  return attempts.length > 0 ? Math.max(...attempts) : 0;
+}
+
+function shouldEscalatePlanQualityAttemptWindow({ reasonShape, attempt, origin = {} } = {}) {
+  if (!PLAN_QUALITY_ESCALATION_REASON_SHAPES.has(reasonShape)) {
+    return false;
+  }
+
+  const attemptCount = Number(attempt);
+  if (!Number.isFinite(attemptCount) || attemptCount < SAME_SHAPE_THRESHOLD) {
+    return false;
+  }
+
+  const lastEscalation = origin?.last_escalation;
+  return !(lastEscalation
+    && lastEscalation.kind === 'provider_switch'
+    && lastEscalation.reason_shape === reasonShape);
+}
+
+function maybeEscalateExhaustedPlanQualityNeedsReplan(project_id, item) {
+  if (!item || item.status !== 'needs_replan') {
+    return { workItem: item, escalated: false };
+  }
+
+  const origin = getWorkItemOriginObject(item) || {};
+  const reason = item.reject_reason || origin.last_rejection_reason || '';
+  const reasonShape = normalizeRejectionReasonForShape(reason);
+  const attempt = getPlanQualityReplanAttemptCount(item, origin);
+  if (!shouldEscalatePlanQualityAttemptWindow({ reasonShape, attempt, origin })) {
+    return { workItem: item, escalated: false };
+  }
+
+  const routed = routeWorkItemToNeedsReplan(item, {
+    reason,
+    attempt,
+    details: {
+      escalated_without_reexecution: true,
+      prior_attempt_count: attempt,
+    },
+  });
+
+  safeLogDecision({
+    project_id,
+    stage: LOOP_STATES.PRIORITIZE,
+    action: 'plan_quality_attempt_window_escalated',
+    reasoning: 'PRIORITIZE found a needs_replan item whose recorded plan-quality attempts already cross the same-shape threshold; escalating before another execution loop.',
+    outcome: {
+      ...getWorkItemDecisionContext(routed || item),
+      previous_status: item.status,
+      next_status: routed?.status || item.status,
+      attempt_count: attempt,
+      reason_shape: reasonShape,
+    },
+    confidence: 1,
+  });
+
+  return { workItem: routed || item, escalated: Boolean(routed) };
 }
 
 const {
@@ -5415,6 +5487,19 @@ async function claimNextWorkItemForInstance(project_id, instance_id) {
     if (healed) {
       continue; // dropped from candidates
     }
+    if (item.claimed_by_instance_id && item.claimed_by_instance_id !== instance_id) {
+      survivors.push(item);
+      continue;
+    }
+    const planQualityEscalation = maybeEscalateExhaustedPlanQualityNeedsReplan(project_id, item);
+    if (planQualityEscalation.escalated) {
+      const escalatedItem = planQualityEscalation.workItem;
+      if (!escalatedItem || CLOSED_WORK_ITEM_STATUSES.has(escalatedItem.status)) {
+        continue;
+      }
+      survivors.push(escalatedItem);
+      continue;
+    }
     survivors.push(item);
   }
 
@@ -7882,7 +7967,14 @@ function routeWorkItemToNeedsReplan(workItem, {
 
   // Same-shape escalation check.
   let escalation = null;
-  if (shouldTrackEscalation && detectSameShapeEscalation(priorHistory, currentEntry)) {
+  const planQualityAttemptEscalation = shouldTrackEscalation
+    && shouldEscalatePlanQualityAttemptWindow({
+      reasonShape,
+      attempt,
+      origin: existingOrigin,
+    });
+  if (shouldTrackEscalation
+    && (detectSameShapeEscalation(priorHistory, currentEntry) || planQualityAttemptEscalation)) {
     const chain = readProjectProviderChain(workItem.project_id);
     if (chain.length > 0) {
       // When no override is set, the project defaults to chain[0] — so
@@ -7899,7 +7991,10 @@ function routeWorkItemToNeedsReplan(workItem, {
           from: currentProvider,
           to: nextProvider,
           reason_shape: reasonShape,
-          consecutive_same_shape: SAME_SHAPE_THRESHOLD,
+          consecutive_same_shape: planQualityAttemptEscalation
+            ? Math.max(SAME_SHAPE_THRESHOLD, Number(attempt) || SAME_SHAPE_THRESHOLD)
+            : SAME_SHAPE_THRESHOLD,
+          ...(planQualityAttemptEscalation ? { basis: 'plan_quality_attempt_window' } : {}),
         };
       } else {
         escalation = {
@@ -7907,12 +8002,14 @@ function routeWorkItemToNeedsReplan(workItem, {
           from: currentProvider,
           chain,
           reason_shape: reasonShape,
+          ...(planQualityAttemptEscalation ? { basis: 'plan_quality_attempt_window' } : {}),
         };
       }
     } else {
       escalation = {
         kind: 'no_provider_chain',
         reason_shape: reasonShape,
+        ...(planQualityAttemptEscalation ? { basis: 'plan_quality_attempt_window' } : {}),
       };
     }
   }
