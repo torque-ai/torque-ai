@@ -158,7 +158,7 @@ function createShippedDetector({ repoRoot, runGitLog } = {}) {
     // ships new work items — observed live on example-project where merge commits like
     // "feat/factory-681-add-first-run-unity-host-join-ux-smoke-c" matched 4 of
     // 6 tokens of an UNRELATED new plan that happened to share host/join/smoke
-    // terminology. The project-identifying first 1-2 tokens (e.g., "dlphone")
+    // terminology. The project-identifying first 1-2 tokens (e.g., "samplegame")
     // must appear in the matched subject for the ship signal to be trustworthy.
     if (commitKeywordHit && (gitMatchScore >= 0.6 || (fileExistenceRatio !== null && fileExistenceRatio >= 0.8))) {
       confidence = 'high';
