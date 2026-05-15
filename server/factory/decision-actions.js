@@ -853,6 +853,20 @@ const DECISION_ACTIONS = {
     classifier: 'engine',
     outcome: ['original_action', 'original_stage', 'outcome_keys', 'work_item_id', 'task_id', 'engine_decided_strategies'],
   },
+
+  // ─── STAGE LIFECYCLE (ANY) ────────────────────────────────────────────────
+  // Emitted by the stages/ dispatcher contract, not by a specific stage's
+  // domain logic. `applyOutcome` (server/factory/stages/apply-outcome.js)
+  // writes exactly one `stage_complete` row per stage tick via the
+  // DecisionStore facade — a uniform, structured record of how the tick was
+  // disposed. Stage-specific domain decisions ride alongside as the stage's
+  // own catalogued actions (emitted via outcome.extraDecisions). Benign:
+  // it records normal flow, never a fault — recovery skips it.
+  stage_complete: {
+    stage: 'ANY',
+    classifier: 'benign',
+    outcome: ['disposition', 'next_state', 'paused_at_stage', 'work_item_id', 'batch_id', 'stage_result'],
+  },
 };
 
 module.exports = { DECISION_ACTIONS };
