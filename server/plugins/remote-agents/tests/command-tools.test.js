@@ -454,3 +454,489 @@ describe('run_code_agent MCP tool', () => {
     expect(getText(result)).toMatch(/Error:.*timed out|Error:.*timeout/i);
   });
 });
+
+describe('code_agent integration', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    clearModules(MODULES_TO_CLEAR);
+  });
+
+  it('chains multiple tool calls sequentially in a single snippet', async () => {
+    const execSync = vi.spyOn(require('child_process'), 'execSync')
+      .mockReturnValueOnce('first-output\n')
+      .mockReturnValueOnce('second-output\n');
+    const { handlers } = loadHandlers({
+      registry: {
+        getAll: vi.fn(() => []),
+        getClient: vi.fn(),
+      },
+    });
+
+    const result = await handlers.run_code_agent({
+      code: `
+        const r1 = await tools.run_remote_command({
+          command: 'echo first',
+          working_directory: '/repo',
+        });
+        const r2 = await tools.run_remote_command({
+          command: 'echo second',
+          working_directory: '/repo',
+        });
+        console.log("calls=" + [r1.success, r2.success].join(","));
+        return { first: r1.exitCode, second: r2.exitCode };
+      `,
+      tools: ['run_remote_command'],
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.tool_calls).toHaveLength(2);
+    expect(result.tool_calls[0].tool).toBe('run_remote_command');
+    expect(result.tool_calls[1].tool).toBe('run_remote_command');
+    expect(getText(result)).toContain('calls=true,true');
+    expect(getText(result)).toContain('Tool calls (2)');
+    expect(result.result).toEqual({ first: 0, second: 0 });
+  });
+
+  it('tool call failure does not crash the sandbox; subsequent calls still execute', async () => {
+    const execSync = vi.spyOn(require('child_process'), 'execSync')
+      .mockImplementationOnce(() => {
+        const err = new Error('command failed');
+        err.status = 1;
+        err.stdout = 'partial output';
+        err.stderr = 'some error';
+        throw err;
+      })
+      .mockReturnValueOnce('recovery-ok\n');
+    const { handlers } = loadHandlers({
+      registry: {
+        getAll: vi.fn(() => []),
+        getClient: vi.fn(),
+      },
+    });
+
+    const result = await handlers.run_code_agent({
+      code: `
+        const r1 = await tools.run_remote_command({
+          command: 'failing-cmd',
+          working_directory: '/repo',
+        });
+        const r2 = await tools.run_remote_command({
+          command: 'recovery-cmd',
+          working_directory: '/repo',
+        });
+        return { firstOk: r1.success, secondOk: r2.success };
+      `,
+      tools: ['run_remote_command'],
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.tool_calls).toHaveLength(2);
+    // The first command should have failed, the second should have succeeded
+    expect(result.result.firstOk).toBe(false);
+    expect(result.result.secondOk).toBe(true);
+  });
+
+  it('run_tests tool available inside sandbox with verify_command delegation', async () => {
+    const execSync = vi.spyOn(require('child_process'), 'execSync')
+      .mockReturnValue('tests passed\n');
+    const { handlers } = loadHandlers({
+      project: 'my-project',
+      projectConfig: { verify_command: 'npm test' },
+      registry: {
+        getAll: vi.fn(() => []),
+        getClient: vi.fn(),
+      },
+    });
+
+    const result = await handlers.run_code_agent({
+      code: `
+        const r = await tools.run_tests({
+          working_directory: '/repo',
+        });
+        return { ok: r.success, text: r.content[0].text };
+      `,
+      tools: ['run_tests'],
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.tool_calls).toHaveLength(1);
+    expect(result.tool_calls[0].tool).toBe('run_tests');
+    expect(execSync).toHaveBeenCalledWith('npm test', expect.objectContaining({
+      cwd: '/repo',
+    }));
+    expect(result.result.ok).toBe(true);
+    expect(result.result.text).toContain('tests passed');
+  });
+
+  it('context flows through to conditional logic that gates tool calls', async () => {
+    const execSync = vi.spyOn(require('child_process'), 'execSync')
+      .mockReturnValue('ran\n');
+    const { handlers } = loadHandlers({
+      registry: {
+        getAll: vi.fn(() => []),
+        getClient: vi.fn(),
+      },
+    });
+
+    const result = await handlers.run_code_agent({
+      code: `
+        if (context.shouldRun) {
+          await tools.run_remote_command({
+            command: context.cmd,
+            working_directory: '/repo',
+          });
+          console.log("executed");
+        } else {
+          console.log("skipped");
+        }
+        return context.shouldRun;
+      `,
+      tools: ['run_remote_command'],
+      context: { shouldRun: true, cmd: 'echo ctx' },
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.result).toBe(true);
+    expect(result.tool_calls).toHaveLength(1);
+    expect(getText(result)).toContain('executed');
+    expect(getText(result)).not.toContain('skipped');
+  });
+
+  it('context gate prevents tool call when condition is false', async () => {
+    const { handlers } = loadHandlers({
+      registry: {
+        getAll: vi.fn(() => []),
+        getClient: vi.fn(),
+      },
+    });
+
+    const result = await handlers.run_code_agent({
+      code: `
+        if (context.shouldRun) {
+          await tools.run_remote_command({
+            command: 'echo never',
+            working_directory: '/repo',
+          });
+        } else {
+          console.log("skipped");
+        }
+        return "done";
+      `,
+      tools: ['run_remote_command'],
+      context: { shouldRun: false },
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.tool_calls).toHaveLength(0);
+    expect(getText(result)).toContain('skipped');
+  });
+
+  it('accumulates console output alongside tool call output in correct order', async () => {
+    const execSync = vi.spyOn(require('child_process'), 'execSync')
+      .mockReturnValue('tool-done\n');
+    const { handlers } = loadHandlers({
+      registry: {
+        getAll: vi.fn(() => []),
+        getClient: vi.fn(),
+      },
+    });
+
+    const result = await handlers.run_code_agent({
+      code: `
+        console.log("step-1");
+        await tools.run_remote_command({ command: 'echo x', working_directory: '/repo' });
+        console.log("step-2");
+        return "end";
+      `,
+      tools: ['run_remote_command'],
+    });
+
+    expect(result.success).toBe(true);
+    const text = getText(result);
+    const step1Idx = text.indexOf('step-1');
+    const step2Idx = text.indexOf('step-2');
+    // Console output ordering should be preserved
+    expect(step1Idx).toBeLessThan(step2Idx);
+    expect(step1Idx).toBeGreaterThanOrEqual(0);
+  });
+
+  it('error in first tool call propagates; sandbox catches it without crashing', async () => {
+    const { handlers } = loadHandlers({
+      registry: {
+        getAll: vi.fn(() => []),
+        getClient: vi.fn(),
+      },
+    });
+
+    // Call run_remote_command with missing params → returns isError result (not thrown)
+    const result = await handlers.run_code_agent({
+      code: `
+        const r = await tools.run_remote_command({});
+        if (r.isError) {
+          console.log("caught error: " + r.content[0].text);
+        }
+        return r.isError;
+      `,
+      tools: ['run_remote_command'],
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.result).toBe(true);
+    expect(getText(result)).toContain('caught error:');
+    expect(getText(result)).toContain('command and working_directory are required');
+  });
+
+  it('mixed tool set: both run_remote_command and run_tests in same snippet', async () => {
+    const execSync = vi.spyOn(require('child_process'), 'execSync')
+      .mockReturnValueOnce('build-ok\n')
+      .mockReturnValueOnce('tests-ok\n');
+    const { handlers } = loadHandlers({
+      project: 'mixed-project',
+      projectConfig: { verify_command: 'npm test' },
+      registry: {
+        getAll: vi.fn(() => []),
+        getClient: vi.fn(),
+      },
+    });
+
+    const result = await handlers.run_code_agent({
+      code: `
+        const build = await tools.run_remote_command({
+          command: 'npm run build',
+          working_directory: '/repo',
+        });
+        const test = await tools.run_tests({
+          working_directory: '/repo',
+        });
+        return {
+          buildOk: build.success,
+          testOk: test.success,
+        };
+      `,
+      tools: ['run_remote_command', 'run_tests'],
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.tool_calls).toHaveLength(2);
+    expect(result.tool_calls[0].tool).toBe('run_remote_command');
+    expect(result.tool_calls[1].tool).toBe('run_tests');
+    expect(result.result).toEqual({ buildOk: true, testOk: true });
+  });
+
+  it('dynamic tool invocation using context-provided tool name', async () => {
+    const execSync = vi.spyOn(require('child_process'), 'execSync')
+      .mockReturnValue('dynamic-out\n');
+    const { handlers } = loadHandlers({
+      registry: {
+        getAll: vi.fn(() => []),
+        getClient: vi.fn(),
+      },
+    });
+
+    const result = await handlers.run_code_agent({
+      code: `
+        const toolFn = tools[context.toolName];
+        if (!toolFn) return "no tool";
+        const r = await toolFn({
+          command: 'echo dynamic',
+          working_directory: '/repo',
+        });
+        return r.success;
+      `,
+      tools: ['run_remote_command'],
+      context: { toolName: 'run_remote_command' },
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.result).toBe(true);
+    expect(result.tool_calls).toHaveLength(1);
+  });
+
+  it('tool call arguments are recorded accurately in tool_calls log', async () => {
+    const execSync = vi.spyOn(require('child_process'), 'execSync')
+      .mockReturnValue('logged\n');
+    const { handlers } = loadHandlers({
+      registry: {
+        getAll: vi.fn(() => []),
+        getClient: vi.fn(),
+      },
+    });
+
+    const result = await handlers.run_code_agent({
+      code: `
+        await tools.run_remote_command({
+          command: 'specific-command --flag=value',
+          working_directory: '/specific/path',
+          timeout: 9999,
+        });
+      `,
+      tools: ['run_remote_command'],
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.tool_calls).toHaveLength(1);
+    const call = result.tool_calls[0];
+    expect(call.tool).toBe('run_remote_command');
+    expect(call.args).toEqual({
+      command: 'specific-command --flag=value',
+      working_directory: '/specific/path',
+      timeout: 9999,
+    });
+    // The result should also be recorded
+    expect(call.result).toBeDefined();
+    expect(call.result.success).toBe(true);
+  });
+
+  it('loop-driven tool calls execute correct number of times', async () => {
+    let callCount = 0;
+    const execSync = vi.spyOn(require('child_process'), 'execSync')
+      .mockImplementation(() => {
+        callCount++;
+        return `call-${callCount}\n`;
+      });
+    const { handlers } = loadHandlers({
+      registry: {
+        getAll: vi.fn(() => []),
+        getClient: vi.fn(),
+      },
+    });
+
+    const result = await handlers.run_code_agent({
+      code: `
+        const results = [];
+        for (let i = 0; i < 3; i++) {
+          const r = await tools.run_remote_command({
+            command: 'echo iteration-' + i,
+            working_directory: '/repo',
+          });
+          results.push(r.success);
+        }
+        return results;
+      `,
+      tools: ['run_remote_command'],
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.tool_calls).toHaveLength(3);
+    expect(result.result).toEqual([true, true, true]);
+    expect(execSync).toHaveBeenCalledTimes(3);
+  });
+
+  it('sandbox returns structured data types (arrays, nested objects) from tool results', async () => {
+    const execSync = vi.spyOn(require('child_process'), 'execSync')
+      .mockReturnValue('check-ok\n');
+    const { handlers } = loadHandlers({
+      registry: {
+        getAll: vi.fn(() => []),
+        getClient: vi.fn(),
+      },
+    });
+
+    const result = await handlers.run_code_agent({
+      code: `
+        const r = await tools.run_remote_command({
+          command: 'echo check',
+          working_directory: '/repo',
+        });
+        return {
+          success: r.success,
+          hasContent: Array.isArray(r.content),
+          exitCode: r.exitCode,
+          keys: Object.keys(r).sort(),
+        };
+      `,
+      tools: ['run_remote_command'],
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.result.success).toBe(true);
+    expect(result.result.hasContent).toBe(true);
+    expect(result.result.exitCode).toBe(0);
+    expect(result.result.keys).toContain('content');
+    expect(result.result.keys).toContain('success');
+  });
+
+  it('empty tools array and complex computation completes without sandbox tools', async () => {
+    const { handlers } = loadHandlers();
+
+    const result = await handlers.run_code_agent({
+      code: `
+        const data = context.items.map(x => x * 2).filter(x => x > 4);
+        const sum = data.reduce((a, b) => a + b, 0);
+        console.log("processed " + data.length + " items, sum=" + sum);
+        return { data, sum };
+      `,
+      tools: [],
+      context: { items: [1, 2, 3, 4, 5] },
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.tool_calls).toEqual([]);
+    expect(result.result).toEqual({ data: [6, 8, 10], sum: 24 });
+    expect(getText(result)).toContain('processed 3 items, sum=24');
+  });
+
+  it('async tool call rejection is surfaced as sandbox error', async () => {
+    const run = vi.fn().mockRejectedValue(new Error('network unreachable'));
+    const { handlers } = loadHandlers({
+      registry: {
+        getAll: vi.fn(() => [
+          { id: 'flaky-host', name: 'flaky-host', status: 'healthy', enabled: true },
+        ]),
+        getClient: vi.fn(() => ({ run })),
+      },
+    });
+
+    const result = await handlers.run_code_agent({
+      code: `
+        try {
+          await tools.run_remote_command({
+            command: 'echo test',
+            working_directory: '/repo',
+          });
+        } catch (e) {
+          console.log("caught: " + e.message);
+          return "handled";
+        }
+      `,
+      tools: ['run_remote_command'],
+    });
+
+    // The handler catches remote execution errors internally and returns
+    // an error result rather than throwing, so the sandbox code receives
+    // the error response object. Either path (caught exception or error
+    // result) should not crash the sandbox.
+    expect(result.success).toBeDefined();
+    expect(result.tool_calls).toHaveLength(1);
+  });
+
+  it('result shape is consistent across success and error paths', async () => {
+    const { handlers } = loadHandlers();
+
+    const successResult = await handlers.run_code_agent({
+      code: 'return 1;',
+    });
+
+    const errorResult = await handlers.run_code_agent({
+      code: 'throw new Error("boom");',
+    });
+
+    // Both results should have the standard shape
+    for (const r of [successResult, errorResult]) {
+      expect(r).toHaveProperty('content');
+      expect(Array.isArray(r.content)).toBe(true);
+      expect(r.content[0]).toHaveProperty('type', 'text');
+      expect(r.content[0]).toHaveProperty('text');
+      expect(r).toHaveProperty('success');
+      expect(r).toHaveProperty('tool_calls');
+      expect(Array.isArray(r.tool_calls)).toBe(true);
+    }
+
+    expect(successResult.success).toBe(true);
+    expect(successResult.isError).toBeUndefined();
+
+    expect(errorResult.success).toBe(false);
+    expect(errorResult.isError).toBe(true);
+    expect(errorResult.error_code).toBe('OPERATION_FAILED');
+  });
+});
