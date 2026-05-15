@@ -58,37 +58,38 @@ test('listTasks({raw:true}) still casts auto_approve to boolean', () => {
   expect(typeof tasks[0].auto_approve).toBe('boolean');
 });
 
-test('listTasks({raw:true}) is measurably faster than parsed for 1000 rows', () => {
+test('listTasks({raw:true}) skips JSON parsing for raw JSON columns', () => {
   const db = new Database(':memory:');
   db.exec(CREATE_TABLE_SQL);
   const ins = db.prepare(
     'INSERT INTO tasks (id, project, task_description, tags, files_modified, context)' +
     ' VALUES (?, \'p\', \'d\', ?, ?, ?)'
   );
-  for (let i = 0; i < 1000; i++) {
+  for (let i = 0; i < 3; i++) {
     ins.run('t' + i, JSON.stringify(['a', 'b', 'c']), JSON.stringify(['x.js', 'y.js']), JSON.stringify({ k: 'v' }));
   }
   const taskCore = require('../db/task-core');
   taskCore.setDb(db);
   const cols = ['id', 'tags', 'files_modified', 'context', 'auto_approve'];
-  // Warm up
-  for (let w = 0; w < 5; w++) {
-    taskCore.listTasks({ project: 'p', limit: 1000, columns: cols });
-    taskCore.listTasks({ project: 'p', limit: 1000, raw: true, columns: cols });
+
+  const originalParse = JSON.parse;
+  let parseCount = 0;
+  JSON.parse = function countingParse() {
+    parseCount += 1;
+    return originalParse.apply(this, arguments);
+  };
+
+  try {
+    taskCore.listTasks({ project: 'p', limit: 3, columns: cols });
+    expect(parseCount).toBe(9);
+
+    parseCount = 0;
+    const rawTasks = taskCore.listTasks({ project: 'p', limit: 3, raw: true, columns: cols });
+    expect(parseCount).toBe(0);
+    expect(rawTasks[0].tags).toBe('["a","b","c"]');
+    expect(rawTasks[0].files_modified).toBe('["x.js","y.js"]');
+    expect(rawTasks[0].context).toBe('{"k":"v"}');
+  } finally {
+    JSON.parse = originalParse;
   }
-  const N = 20;
-  const { performance } = require('perf_hooks');
-  let parsedTotal = 0, rawTotal = 0;
-  for (let i = 0; i < N; i++) {
-    let t = performance.now();
-    taskCore.listTasks({ project: 'p', limit: 1000, columns: cols });
-    parsedTotal += performance.now() - t;
-    t = performance.now();
-    taskCore.listTasks({ project: 'p', limit: 1000, raw: true, columns: cols });
-    rawTotal += performance.now() - t;
-  }
-  const parsedMean = parsedTotal / N;
-  const rawMean = rawTotal / N;
-  // raw must be at least 10% faster than parsed (skipping 3000 JSON.parse calls per batch)
-  expect(rawMean).toBeLessThan(parsedMean * 0.90);
-}, 30000);
+});
