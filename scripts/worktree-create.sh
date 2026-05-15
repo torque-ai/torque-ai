@@ -101,12 +101,12 @@ install_worktree_dependencies() {
 
   if [ -f "${worktree_dir}/server/package.json" ]; then
     echo "Installing server dependencies..."
-    (cd "${worktree_dir}/server" && npm install --silent)
+    (cd "${worktree_dir}/server" && npm install --silent --include=dev)
   fi
 
   if [ -f "${worktree_dir}/dashboard/package.json" ]; then
     echo "Installing dashboard dependencies..."
-    (cd "${worktree_dir}/dashboard" && npm install --silent)
+    (cd "${worktree_dir}/dashboard" && npm install --silent --include=dev)
   fi
 }
 
@@ -116,11 +116,11 @@ print_dependency_install_hint() {
   echo "Skipping dependency installs (default)."
   if [ -f "${worktree_dir}/server/package.json" ]; then
     echo "  To bootstrap server dependencies later:"
-    echo "    (cd ${worktree_dir}/server && npm install --silent)"
+    echo "    (cd ${worktree_dir}/server && npm install --silent --include=dev)"
   fi
   if [ -f "${worktree_dir}/dashboard/package.json" ]; then
     echo "  To bootstrap dashboard dependencies later:"
-    echo "    (cd ${worktree_dir}/dashboard && npm install --silent)"
+    echo "    (cd ${worktree_dir}/dashboard && npm install --silent --include=dev)"
   fi
 }
 

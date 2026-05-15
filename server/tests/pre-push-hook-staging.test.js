@@ -176,7 +176,7 @@ describe('pre-push-hook staging-branch invariants', () => {
     expect(src).toMatch(/could not create a safe link for \\\$dir\/node_modules quickly/);
     expect(src).toMatch(/using \\\$dir dependencies from safe base symlink/);
     expect(src).toMatch(/could not verify \\\$dir dependencies through safe base link/);
-    expect(src).toMatch(/npm install --no-audit --no-fund --prefer-offline/);
+    expect(src).toMatch(/npm install --include=dev --no-audit --no-fund --prefer-offline/);
     expect(src).toMatch(/dependencies still invalid after install/);
     expect(src).toMatch(/run_vitest_phase dashboard run/);
     expect(src).toMatch(/run_vitest_phase server run/);
