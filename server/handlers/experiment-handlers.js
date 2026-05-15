@@ -8,6 +8,10 @@
  * list_experiment_results) wrap the eval primitives (task-spec, run-sample,
  * scorer) into a higher-level experiment API with immutable results and
  * dataset-aware diffing.
+ *
+ * Experiment results are persisted to the experiment_results DB table via
+ * server/db/experiment-results.js. An in-memory Map acts as a hot cache
+ * with LRU eviction; the DB is the source of truth.
  */
 
 const { randomUUID } = require('crypto');
@@ -18,6 +22,7 @@ const logger = require('../logger').child({ component: 'experiment-handlers' });
 const { unwrapDbHandle } = require('../utils/db-accessor');
 const { createScorer } = require('../evals/scorer');
 const { createSolver } = require('../evals/solver');
+const experimentResultsDb = require('../db/experiment-results');
 
 function getRawDb() {
   return unwrapDbHandle(resolveDatabaseFacade({
@@ -25,13 +30,20 @@ function getRawDb() {
   }));
 }
 
-// ── In-memory experiment result store ──
-// Keyed by experiment ID. Results are immutable once stored.
+// ── In-memory experiment result cache ──
+// Hot cache keyed by experiment ID. DB is the source of truth.
 const _experimentResults = new Map();
 const MAX_STORED_EXPERIMENTS = 200;
 
 function storeExperimentResult(result) {
-  // Evict oldest if over capacity
+  // Persist to DB first
+  try {
+    experimentResultsDb.storeExperimentResult(result);
+  } catch (err) {
+    logger.warn(`[ExperimentSDK] DB persistence failed, using in-memory only: ${err.message}`);
+  }
+
+  // Update in-memory cache
   if (_experimentResults.size >= MAX_STORED_EXPERIMENTS) {
     const oldestKey = _experimentResults.keys().next().value;
     _experimentResults.delete(oldestKey);
@@ -40,10 +52,35 @@ function storeExperimentResult(result) {
 }
 
 function getExperimentResult(experimentId) {
-  return _experimentResults.get(experimentId) || null;
+  // Check in-memory cache first
+  const cached = _experimentResults.get(experimentId);
+  if (cached) return cached;
+
+  // Fall back to DB
+  try {
+    const dbResult = experimentResultsDb.getExperimentResult(experimentId);
+    if (dbResult) {
+      // Populate cache for subsequent lookups
+      _experimentResults.set(dbResult.id, dbResult);
+      return dbResult;
+    }
+  } catch (err) {
+    logger.debug(`[ExperimentSDK] DB lookup failed for ${experimentId}: ${err.message}`);
+  }
+
+  return null;
 }
 
 function listExperimentResults() {
+  // Try DB first for complete listing
+  try {
+    const dbResults = experimentResultsDb.listExperimentResults();
+    if (dbResults.length > 0) return dbResults;
+  } catch (err) {
+    logger.debug(`[ExperimentSDK] DB listing failed, falling back to in-memory: ${err.message}`);
+  }
+
+  // Fall back to in-memory cache
   return Array.from(_experimentResults.values());
 }
 

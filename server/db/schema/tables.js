@@ -53,6 +53,7 @@ const VALID_TABLE_NAMES = new Set([
   'duration_predictions',
   'email_notifications',
   'expected_output_paths',
+  'experiment_results',
   'failover_config',
   'failover_events',
   'failure_matches',

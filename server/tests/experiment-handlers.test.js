@@ -4,6 +4,7 @@
  * Tests for Experiment handlers:
  * - A/B Provider Comparison Tool (Experiment 6)
  * - Experiment SDK handlers (run_experiment, get_experiment_result, diff_experiments, list_experiment_results)
+ * - DB persistence integration (experiment-results store)
  */
 
 const { TEST_MODELS } = require('./test-helpers');
@@ -566,5 +567,150 @@ describe('experiment-handlers SDK', () => {
       list = handlers.handleListExperimentResults({});
       expect(list.content[0].text).toContain('No experiment results stored');
     });
+  });
+});
+
+// ── experiment-results DB store unit tests ──
+
+describe('experiment-results DB store', () => {
+  let Database;
+  let db;
+  let experimentResultsDb;
+
+  beforeEach(() => {
+    // Use better-sqlite3 in-memory DB for real SQL testing
+    Database = require('better-sqlite3');
+    db = new Database(':memory:');
+
+    // Fresh-require the module to reset internal state
+    delete require.cache[require.resolve('../db/experiment-results')];
+    experimentResultsDb = require('../db/experiment-results');
+    experimentResultsDb.init(db);
+  });
+
+  afterEach(() => {
+    if (db && db.open) db.close();
+    delete require.cache[require.resolve('../db/experiment-results')];
+  });
+
+  const sampleResult = () => ({
+    id: `exp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    name: 'test-experiment',
+    dataset_identity: 'abc123',
+    started_at: '2026-05-10T10:00:00Z',
+    completed_at: '2026-05-10T10:00:05Z',
+    scorer_count: 1,
+    aggregate: { executed: 3, requested: 3, completed: 2, errored: 1, blocked: 0, mean_value: 0.667 },
+    rows: [
+      { id: 'r:0', index: 0, input: { q: 'a' }, output: { a: 'a' }, status: 'completed', score: { value: 1 }, duration_ms: 10 },
+      { id: 'r:1', index: 1, input: { q: 'b' }, output: { a: 'b' }, status: 'completed', score: { value: 1 }, duration_ms: 12 },
+      { id: 'r:2', index: 2, input: { q: 'c' }, output: { a: 'x' }, status: 'error', score: { value: 0 }, duration_ms: 5 },
+    ],
+    metadata: { source: 'unit-test' },
+  });
+
+  it('stores and retrieves an experiment result', () => {
+    const result = sampleResult();
+    experimentResultsDb.storeExperimentResult(result);
+
+    const retrieved = experimentResultsDb.getExperimentResult(result.id);
+    expect(retrieved).not.toBeNull();
+    expect(retrieved.id).toBe(result.id);
+    expect(retrieved.name).toBe('test-experiment');
+    expect(retrieved.dataset_identity).toBe('abc123');
+    expect(retrieved.scorer_count).toBe(1);
+    expect(retrieved.aggregate.executed).toBe(3);
+    expect(retrieved.aggregate.mean_value).toBe(0.667);
+    expect(retrieved.rows).toHaveLength(3);
+    expect(retrieved.rows[0].id).toBe('r:0');
+    expect(retrieved.metadata.source).toBe('unit-test');
+  });
+
+  it('returns null for missing experiment', () => {
+    const result = experimentResultsDb.getExperimentResult('nonexistent');
+    expect(result).toBeNull();
+  });
+
+  it('lists stored experiments', () => {
+    const r1 = sampleResult();
+    const r2 = { ...sampleResult(), id: 'exp-second', name: 'second-experiment' };
+    experimentResultsDb.storeExperimentResult(r1);
+    experimentResultsDb.storeExperimentResult(r2);
+
+    const list = experimentResultsDb.listExperimentResults();
+    expect(list).toHaveLength(2);
+    const names = list.map((r) => r.name);
+    expect(names).toContain('test-experiment');
+    expect(names).toContain('second-experiment');
+  });
+
+  it('filters by name', () => {
+    const r1 = sampleResult();
+    const r2 = { ...sampleResult(), id: 'exp-other', name: 'other-experiment' };
+    experimentResultsDb.storeExperimentResult(r1);
+    experimentResultsDb.storeExperimentResult(r2);
+
+    const filtered = experimentResultsDb.listExperimentResults({ name: 'other-experiment' });
+    expect(filtered).toHaveLength(1);
+    expect(filtered[0].name).toBe('other-experiment');
+  });
+
+  it('filters by dataset_identity', () => {
+    const r1 = sampleResult();
+    const r2 = { ...sampleResult(), id: 'exp-diff-ds', dataset_identity: 'xyz789' };
+    experimentResultsDb.storeExperimentResult(r1);
+    experimentResultsDb.storeExperimentResult(r2);
+
+    const filtered = experimentResultsDb.listExperimentResults({ dataset_identity: 'xyz789' });
+    expect(filtered).toHaveLength(1);
+    expect(filtered[0].dataset_identity).toBe('xyz789');
+  });
+
+  it('deletes an experiment result', () => {
+    const result = sampleResult();
+    experimentResultsDb.storeExperimentResult(result);
+    expect(experimentResultsDb.getExperimentResult(result.id)).not.toBeNull();
+
+    const deleted = experimentResultsDb.deleteExperimentResult(result.id);
+    expect(deleted).toBe(true);
+    expect(experimentResultsDb.getExperimentResult(result.id)).toBeNull();
+  });
+
+  it('delete returns false for missing experiment', () => {
+    const deleted = experimentResultsDb.deleteExperimentResult('nonexistent');
+    expect(deleted).toBe(false);
+  });
+
+  it('counts stored experiments', () => {
+    expect(experimentResultsDb.countExperimentResults()).toBe(0);
+    experimentResultsDb.storeExperimentResult(sampleResult());
+    expect(experimentResultsDb.countExperimentResults()).toBe(1);
+    experimentResultsDb.storeExperimentResult({ ...sampleResult(), id: 'exp-2' });
+    expect(experimentResultsDb.countExperimentResults()).toBe(2);
+  });
+
+  it('upserts on duplicate id', () => {
+    const result = sampleResult();
+    experimentResultsDb.storeExperimentResult(result);
+
+    const updated = { ...result, name: 'updated-name' };
+    experimentResultsDb.storeExperimentResult(updated);
+
+    const retrieved = experimentResultsDb.getExperimentResult(result.id);
+    expect(retrieved.name).toBe('updated-name');
+    expect(experimentResultsDb.countExperimentResults()).toBe(1);
+  });
+
+  it('rejects result without id', () => {
+    expect(() => experimentResultsDb.storeExperimentResult({ name: 'no-id' }))
+      .toThrow(/result with id is required/);
+  });
+
+  it('respects limit in listing', () => {
+    for (let i = 0; i < 5; i++) {
+      experimentResultsDb.storeExperimentResult({ ...sampleResult(), id: `exp-${i}` });
+    }
+    const limited = experimentResultsDb.listExperimentResults({ limit: 2 });
+    expect(limited).toHaveLength(2);
   });
 });
