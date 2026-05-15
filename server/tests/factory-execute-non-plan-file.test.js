@@ -623,6 +623,45 @@ describe('factory loop-controller EXECUTE for non-plan-file work items', () => {
     }
   });
 
+  it('migrates generated plan artifacts into the fallback execution worktree', () => {
+    const { project, workItem, projectDir } = registerExecuteProject();
+    const sourceWorktree = path.join(projectDir, '.factory-worktrees', 'old-generated-plan-worktree');
+    const executionWorktree = path.join(projectDir, '.factory-worktrees', 'fallback-execution-worktree');
+    const sourcePlanPath = path.join(
+      sourceWorktree,
+      'docs',
+      'superpowers',
+      'plans',
+      'auto-generated',
+      `${workItem.id}-add-behavioral-tests-for-factory-scorers.md`
+    );
+    fs.mkdirSync(path.dirname(sourcePlanPath), { recursive: true });
+    fs.mkdirSync(executionWorktree, { recursive: true });
+    fs.writeFileSync(sourcePlanPath, `# Behavioral Scorer Plan
+
+## Task 1: Add behavioral scorer tests
+
+- [ ] **Step 1: Add regression coverage**
+`, 'utf8');
+    const planned = factoryIntake.updateWorkItem(workItem.id, {
+      origin_json: { plan_path: sourcePlanPath },
+      status: 'executing',
+    });
+
+    const migrated = loopController._internalForTests.migrateGeneratedPlanPathForExecutionWorktree({
+      project,
+      workItem: planned,
+      executionWorkingDirectory: executionWorktree,
+    });
+
+    expect(migrated.migrated).toBe(true);
+    expect(path.resolve(migrated.planPath).startsWith(path.resolve(executionWorktree))).toBe(true);
+    expect(fs.existsSync(migrated.planPath)).toBe(true);
+    expect(fs.readFileSync(migrated.planPath, 'utf8')).toContain('## Task 1: Add behavioral scorer tests');
+    const updated = factoryIntake.getWorkItem(workItem.id);
+    expect(updated.origin.plan_path).toBe(migrated.planPath);
+  });
+
   it('preserves a stale plan artifact worktree when a rebase conflict leaves it dirty', async () => {
     const runner = createFakePlanArtifactWorktreeRunner();
     loopController.setWorktreeRunnerForTests(runner);
