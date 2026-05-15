@@ -85,6 +85,23 @@ const CREW_SCHEMA = {
   },
 };
 
+// Schema for typed task signatures — each property is a JSON Schema object
+// describing the shape of the task's input or output data.
+const SIGNATURE_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    input: {
+      type: 'object',
+      description: 'JSON Schema describing the expected input for this task.',
+    },
+    output: {
+      type: 'object',
+      description: 'JSON Schema describing the expected output for this task.',
+    },
+  },
+};
+
 // JSON Schema for .yaml workflow spec files.
 // Keep this schema additive-only across versions; old specs must keep parsing.
 const WORKFLOW_SPEC_SCHEMA = {
@@ -145,6 +162,7 @@ const WORKFLOW_SPEC_SCHEMA = {
           alternate_node_id: { type: 'string' },
           condition: { type: 'string' },
           goal_gate: { type: 'boolean' },
+          signature: SIGNATURE_SCHEMA,
           __remove: { type: 'boolean' },
         },
       },
@@ -157,4 +175,5 @@ module.exports = {
   WORKFLOW_PROVIDER_ENUM,
   VERSION_INTENT_ENUM,
   ON_FAIL_ENUM,
+  SIGNATURE_SCHEMA,
 };

@@ -64,6 +64,7 @@ Workflow specs are version-controlled YAML files that define a TORQUE workflow a
 | `on_fail` | enum | no | `cancel` / `skip` / `continue` / `run_alternate`. |
 | `alternate_node_id` | string | no | For `run_alternate`. |
 | `condition` | string | no | Edge condition expression. |
+| `signature` | object | no | Typed input/output contract for the task. See [Typed task signatures](#typed-task-signatures). |
 | `goal_gate` | bool | no | Marks a non-bypassable quality gate for the workflow. |
 | `__remove` | bool | no | Only used in child specs to remove an inherited task. |
 
@@ -92,6 +93,108 @@ Project defaults can define a `verify_command` that runs after eligible tasks co
         verify_skip: true
 
 `verify_command` wins over the project-level command. `verify_command: ""` disables verify for that task. `verify_skip: true` also disables the auto-verify stage and is clearer when the task should never run verification.
+
+## Typed task signatures
+
+Tasks can declare a `signature` object that describes the shape of their input and output data using standard JSON Schema. Signatures make inter-task data contracts explicit so that upstream producers and downstream consumers agree on a structure without relying on ad-hoc conventions in task descriptions.
+
+### Signature fields
+
+| Field | Type | Description |
+|---|---|---|
+| `signature.input` | object (JSON Schema) | Schema describing the data this task expects to receive. |
+| `signature.output` | object (JSON Schema) | Schema describing the data this task promises to produce. |
+
+Both fields are optional. A task can declare only `input`, only `output`, both, or an empty `signature: {}` (which passes validation but imposes no constraints). Unknown keys inside `signature` are rejected (`additionalProperties: false`).
+
+### Example: input and output
+
+    tasks:
+      - node_id: generate
+        task: Generate report data from project metrics
+        signature:
+          input:
+            type: object
+            required: [project_name]
+            properties:
+              project_name:
+                type: string
+              max_items:
+                type: integer
+          output:
+            type: object
+            required: [items]
+            properties:
+              items:
+                type: array
+                items:
+                  type: object
+              summary:
+                type: string
+
+### Example: input only
+
+    tasks:
+      - node_id: lint
+        task: Lint the target file
+        signature:
+          input:
+            type: object
+            properties:
+              path:
+                type: string
+
+### Example: mixed tasks
+
+Not every task in a workflow needs a signature. Tasks without `signature` are unconstrained and behave identically to pre-signature specs:
+
+    tasks:
+      - node_id: plan
+        task: Write a plan
+      - node_id: implement
+        task: Execute the plan
+        depends_on: [plan]
+        signature:
+          input:
+            type: object
+            properties:
+              plan_path:
+                type: string
+          output:
+            type: object
+            properties:
+              changed_files:
+                type: array
+                items:
+                  type: string
+
+### Deeply nested schemas
+
+`input` and `output` accept arbitrary JSON Schema, including nested objects, arrays, `required`, `enum`, `additionalProperties`, and all other standard JSON Schema keywords:
+
+    signature:
+      input:
+        type: object
+        required: [records]
+        properties:
+          records:
+            type: array
+            items:
+              type: object
+              required: [id]
+              properties:
+                id:
+                  type: integer
+                metadata:
+                  type: object
+                  additionalProperties: true
+
+### Validation rules
+
+- `signature` must be an object. Strings, arrays, numbers, and null are rejected.
+- Only `input` and `output` keys are allowed inside `signature`.
+- `input` and `output` must each be objects (JSON Schema definitions).
+- Signatures survive task normalization unchanged: the `task` -> `task_description` rename does not affect `signature`.
 
 ## Templates and inheritance
 
