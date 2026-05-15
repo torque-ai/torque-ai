@@ -11,6 +11,7 @@ const { lintPlanContent } = require('./plan-lint');
 const { createScoutFindingsIntake } = require('./scout-findings-intake');
 const { guardIntakeItem } = require('./meta-intake-guard');
 const { composeGuide } = require('./plan-authoring-guide');
+const { resolveContainerDbHandle } = require('../db/db-handle-resolver');
 const {
   createSharedFactoryStore,
   deriveVerifyFailurePattern,
@@ -1034,14 +1035,7 @@ function updateBacklogWorkItemStatuses(backlog) {
 async function ingestScoutFindings(project) {
   if (!project || !project.path) return;
   try {
-    let database;
-    try {
-      const { defaultContainer } = require('../container');
-      database = defaultContainer.get('db');
-    } catch {
-      database = require('../database');
-    }
-    const db = typeof database.getDbInstance === 'function' ? database.getDbInstance() : null;
+    const db = resolveContainerDbHandle();
     if (!db) return;
     const findings_dir = path.join(project.path, 'docs', 'findings');
     const intake = createScoutFindingsIntake({ db, factoryIntake });

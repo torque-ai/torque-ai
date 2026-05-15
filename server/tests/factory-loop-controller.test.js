@@ -278,6 +278,8 @@ describe('factory loop-controller EXECUTE modes', () => {
     taskCore.setDb(db);
     originalGetDbInstance = database.getDbInstance;
     database.getDbInstance = () => db;
+    defaultContainer.resetForTest();
+    defaultContainer.registerValue('db', database);
     tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'factory-loop-controller-'));
     routingModule.handleSmartSubmitTask = vi.fn(async () => ({ task_id: 'live-task-id' }));
     awaitModule.handleAwaitTask = vi.fn(async () => ({ content: [{ text: 'awaited' }] }));
@@ -303,6 +305,7 @@ describe('factory loop-controller EXECUTE modes', () => {
     taskCore.getTask = originalGetTask;
     taskManager.cancelTask = originalCancelTask;
     loopController.setWorktreeRunnerForTests(null);
+    defaultContainer.resetForTest();
     if (tempDir && fs.existsSync(tempDir)) {
       fs.rmSync(tempDir, { recursive: true, force: true });
     }
