@@ -3,6 +3,7 @@ const path = require('path');
 const os = require('os');
 const fs = require('fs');
 const workflowEngine = require('../db/workflow-engine');
+const { createWorkflowState } = require('../workflow-state/workflow-state');
 const { setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
 const taskCore = require('../db/task-core');
 const { getVitestTemplateBufferPath } = require('./vitest-template-paths');
@@ -272,6 +273,109 @@ describe('db/workflow-engine module', () => {
     const dependentsOfA = workflowEngine.getTaskDependents(taskA.id);
     expect(dependentsOfA).toHaveLength(1);
     expect(dependentsOfA[0].task_id).toBe(taskB.id);
+  });
+
+  it('merge_object reducer persists merged keys through full DB round-trip', () => {
+    const workflow = createWorkflow({ name: 'workflow-merge-reducer' });
+    const wsDb = db.getDbInstance();
+    const ws = createWorkflowState({ db: wsDb });
+
+    ws.setStateSchema(workflow.id, null, { config: 'merge_object' });
+
+    const r1 = ws.applyPatch(workflow.id, { config: { host: 'localhost', port: 3000 } });
+    expect(r1.ok).toBe(true);
+    expect(r1.state.config).toEqual({ host: 'localhost', port: 3000 });
+
+    const r2 = ws.applyPatch(workflow.id, { config: { port: 4000, debug: true } });
+    expect(r2.ok).toBe(true);
+    expect(r2.state.config).toEqual({ host: 'localhost', port: 4000, debug: true });
+
+    const persisted = ws.getState(workflow.id);
+    expect(persisted.config).toEqual({ host: 'localhost', port: 4000, debug: true });
+  });
+
+  it('append reducer deduplicates nothing but accumulates items through DB round-trip', () => {
+    const workflow = createWorkflow({ name: 'workflow-append-reducer' });
+    const wsDb = db.getDbInstance();
+    const ws = createWorkflowState({ db: wsDb });
+
+    ws.setStateSchema(workflow.id, null, { log: 'append' });
+
+    const r1 = ws.applyPatch(workflow.id, { log: ['event-a', 'event-b'] });
+    expect(r1.ok).toBe(true);
+    expect(r1.state.log).toEqual(['event-a', 'event-b']);
+
+    const r2 = ws.applyPatch(workflow.id, { log: ['event-b', 'event-c'] });
+    expect(r2.ok).toBe(true);
+    expect(r2.state.log).toEqual(['event-a', 'event-b', 'event-b', 'event-c']);
+
+    const persisted = ws.getState(workflow.id);
+    expect(persisted.log).toEqual(['event-a', 'event-b', 'event-b', 'event-c']);
+  });
+
+  it('schema validation rejects patches that produce invalid state', () => {
+    const workflow = createWorkflow({ name: 'workflow-schema-reject' });
+    const wsDb = db.getDbInstance();
+    const ws = createWorkflowState({ db: wsDb });
+
+    const schema = {
+      type: 'object',
+      properties: {
+        counter: { type: 'number' },
+      },
+      additionalProperties: false,
+    };
+    ws.setStateSchema(workflow.id, schema, { counter: 'numeric_sum' });
+
+    const good = ws.applyPatch(workflow.id, { counter: 5 });
+    expect(good.ok).toBe(true);
+    expect(good.state.counter).toBe(5);
+
+    const bad = ws.applyPatch(workflow.id, { extra_field: 'not allowed' });
+    expect(bad.ok).toBe(false);
+    expect(bad.errors).toBeDefined();
+    expect(bad.errors.length).toBeGreaterThan(0);
+
+    const unchanged = ws.getState(workflow.id);
+    expect(unchanged.counter).toBe(5);
+    expect(unchanged.extra_field).toBeUndefined();
+  });
+
+  it('multi-channel atomic update applies all reducers in a single applyPatch call', () => {
+    const workflow = createWorkflow({ name: 'workflow-multi-channel' });
+    const wsDb = db.getDbInstance();
+    const ws = createWorkflowState({ db: wsDb });
+
+    ws.setStateSchema(workflow.id, null, {
+      log: 'append',
+      count: 'numeric_sum',
+      meta: 'merge_object',
+    });
+
+    ws.applyPatch(workflow.id, {
+      log: ['init'],
+      count: 1,
+      meta: { author: 'test' },
+    });
+
+    const result = ws.applyPatch(workflow.id, {
+      log: ['step-2'],
+      count: 3,
+      meta: { version: 2 },
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.state.log).toEqual(['init', 'step-2']);
+    expect(result.state.count).toBe(4);
+    expect(result.state.meta).toEqual({ author: 'test', version: 2 });
+
+    const persisted = ws.getState(workflow.id);
+    expect(persisted.log).toEqual(['init', 'step-2']);
+    expect(persisted.count).toBe(4);
+    expect(persisted.meta).toEqual({ author: 'test', version: 2 });
+
+    const versionInfo = ws.getMeta(workflow.id);
+    expect(versionInfo.version).toBe(3);
   });
 });
 

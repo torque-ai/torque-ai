@@ -358,7 +358,7 @@ TORQUE tools are progressively unlocked. Start with the core set, use `get_tool_
 |----------|-------|
 | **Core** | `ping`, `restart_server`, `await_restart`, `unlock_tier`, `unlock_all_tools` |
 | **Task** | `submit_task`, `smart_submit_task`, `task_info`, `await_task`, `cancel_task` |
-| **Workflow** | `create_workflow`, `add_workflow_task`, `run_workflow`, `workflow_status`, `await_workflow` |
+| **Workflow** | `create_workflow`, `add_workflow_task`, `run_workflow`, `workflow_status`, `await_workflow`, `get_workflow_state`, `set_workflow_state` |
 | **Automation** | `set_project_defaults`, `get_project_defaults`, `scan_project`, `submit_scout`, `create_diffusion_plan` |
 | **TypeScript Tools** | `add_ts_interface_members`, `add_ts_method_to_class`, `replace_ts_method_body`, `add_import_statement` |
 
