@@ -36,7 +36,9 @@ function getTestRunnerRegistry() {
     const { defaultContainer } = require('../container');
     const registry = defaultContainer.get('testRunnerRegistry');
     if (registry) return registry;
-  } catch { /* fall through to pre-boot fallback */ }
+  } catch (err) {
+    logger.debug({ err }, 'test runner registry unavailable; using pre-boot fallback');
+  }
   return require('../test-runner-registry').createTestRunnerRegistry();
 }
 function getFactoryCostMetrics() {
