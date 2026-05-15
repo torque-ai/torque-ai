@@ -157,7 +157,7 @@ The phase plan above is revised by that spec:
 
 Recommended next-session sequencing:
 
-1. **Phase 2c-scaffold** — ship `stages/types.js`, `stages/context.js`, `stages/apply-outcome.js`. No behavior change. Loop-controller unchanged.
+1. **Phase 2c-scaffold** — ship `stages/types.js` (typedefs), `stages/stores/{workItem, instance, decision, batch, worktree}.js` (thin wrappers over the existing `factoryIntake` / `factoryLoopInstances` / `factoryDecisions` / `factoryWorktrees` / `factoryHealth` modules), `stages/context.js` (`resolveStageContext` factory), `stages/apply-outcome.js` (`applyOutcome` writes the uniform `stage_complete` decision + any `extraDecisions`). No behavior change. Loop-controller unchanged.
 2. **Phase 2c-adapt-sense** — wrap `executeSenseStage` in place. It's the smallest. Validates the adapter pattern.
 3. **Phase 2c-adapt × 6** — one wrap-in-place commit per remaining stage. Each is small.
 4. **Phase 2c-dispatcher** — lift `runAdvanceLoop`'s per-stage dispatch into `applyOutcome` + a stages map. Big delete in loop-controller.
@@ -165,4 +165,4 @@ Recommended next-session sequencing:
 6. **Phase 3a-g** — move each adapted stage to its own file. Mechanical.
 7. **Phase 4 — doc cross-refs.** Stays at the end. Update `factory.md`, `factory-loop-states.md`, etc. with the new file locations.
 
-The spec doc's "Open questions for the operator" section has four pending decisions; pick those up before Phase 2c-scaffold begins.
+The spec doc's "Decisions" section resolves the four open questions: pre-wrapped stores (not raw `db`), auto-emit uniform `stage_complete` + `extraDecisions` escape hatch, keep `disposition`, lockstep test updates with each Phase 3 commit. Phase 2c-scaffold can open with no pending blockers.
