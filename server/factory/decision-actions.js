@@ -107,6 +107,11 @@ const DECISION_ACTIONS = {
     classifier: 'b-side-reject',
     outcome: ['work_item_id', 'reason', 'stuck_since'],
   },
+  plan_quality_attempt_window_escalated: {
+    stage: 'PRIORITIZE',
+    classifier: 'b-side-reject',
+    outcome: ['work_item_id', 'priority', 'work_item_status', 'work_item_source', 'plan_path', 'previous_status', 'next_status', 'attempt_count', 'reason_shape'],
+  },
 
   // ─── PLAN ─────────────────────────────────────────────────────────────────
 
