@@ -11,6 +11,10 @@ const projectConfigCore = require('../db/project-config-core');
 const logger = require('../logger');
 const handlers = require('../handlers/workflow');
 const Module = require('module');
+const { v4: uuidv4 } = require('uuid');
+const { setupTestDbOnly, teardownTestDb, rawDb } = require('./vitest-setup');
+const costTracking = require('../db/cost-tracking');
+const { checkWorkflowCostCeiling, failWorkflowBudgetExhausted } = require('../execution/cost-ceiling');
 
 function loadHandlers(deps = { db: database }) {
   delete require.cache[require.resolve('../handlers/workflow')];
@@ -1247,4 +1251,197 @@ describe('handler:workflow-handlers', () => {
     });
   });
 
+});
+
+// ── Cost Ceiling Integration Tests ──────────────────────────────────────
+// These tests use a real in-memory SQLite database (not mocks) because
+// checkWorkflowCostCeiling and failWorkflowBudgetExhausted execute raw SQL.
+describe('cost-ceiling-enforcement', () => {
+  let dbHandle;
+
+  beforeAll(() => {
+    // Restore any lingering spies from the prior describe block (e.g.
+    // taskCore.createTask mocked to return undefined) so that real DB
+    // inserts work in these integration tests.
+    vi.restoreAllMocks();
+    setupTestDbOnly('cost-ceiling');
+    dbHandle = rawDb();
+    // Wire cost-tracking module to the same test db handle
+    costTracking.setDb(dbHandle);
+    workflowEngine.setDb(dbHandle);
+  });
+
+  afterAll(() => {
+    teardownTestDb();
+  });
+
+  function createTestWorkflow(overrides = {}) {
+    const id = overrides.id || `wf-ceil-${uuidv4()}`;
+    workflowEngine.createWorkflow({
+      id,
+      name: overrides.name || 'Ceiling Test Workflow',
+      status: overrides.status || 'running',
+      working_directory: overrides.working_directory || '/test',
+      cost_ceiling_usd: overrides.cost_ceiling_usd ?? null,
+      task_count_ceiling: overrides.task_count_ceiling ?? null,
+    });
+    return id;
+  }
+
+  function createTestTask(workflowId, overrides = {}) {
+    const id = overrides.id || uuidv4();
+    taskCore.createTask({
+      id,
+      task_description: overrides.task_description || 'test task',
+      provider: overrides.provider || 'codex',
+      status: overrides.status || 'pending',
+      workflow_id: workflowId,
+      ...overrides,
+    });
+    return id;
+  }
+
+  it('task_count_ceiling halts workflow when subscription task count reaches ceiling', () => {
+    const wfId = createTestWorkflow({ task_count_ceiling: 2 });
+
+    // Create 4 tasks — 2 will be completed on subscription providers, 2 remain pending.
+    const t1 = createTestTask(wfId, { provider: 'codex', status: 'completed' });
+    const t2 = createTestTask(wfId, { provider: 'codex-spark', status: 'completed' });
+    const t3 = createTestTask(wfId, { provider: 'codex', status: 'pending' });
+    const t4 = createTestTask(wfId, { provider: 'codex', status: 'pending' });
+
+    // Check ceiling — should be exceeded (2 completed subscription tasks >= ceiling of 2)
+    const result = checkWorkflowCostCeiling(dbHandle, wfId);
+    expect(result.exceeded).toBe(true);
+    expect(result.reason).toContain('Subscription task count');
+    expect(result.reason).toContain('2');
+    expect(result.subscription_task_count).toBe(2);
+    expect(result.task_count_ceiling).toBe(2);
+
+    // Fail the workflow due to budget exhaustion
+    failWorkflowBudgetExhausted(dbHandle, wfId, result.reason);
+
+    // Verify workflow is failed with budget_exhausted failure_class
+    const workflow = workflowEngine.getWorkflow(wfId);
+    expect(workflow.status).toBe('failed');
+    expect(workflow.completed_at).toBeTruthy();
+    expect(workflow.context).toBeDefined();
+    expect(workflow.context.failure_class).toBe('budget_exhausted');
+    expect(workflow.context.budget_exhausted_reason).toContain('Subscription task count');
+
+    // Verify remaining pending tasks are cancelled
+    const t3Row = dbHandle.prepare('SELECT status, cancel_reason FROM tasks WHERE id = ?').get(t3);
+    const t4Row = dbHandle.prepare('SELECT status, cancel_reason FROM tasks WHERE id = ?').get(t4);
+    expect(t3Row.status).toBe('cancelled');
+    expect(t3Row.cancel_reason).toBe('Budget ceiling exceeded');
+    expect(t4Row.status).toBe('cancelled');
+    expect(t4Row.cancel_reason).toBe('Budget ceiling exceeded');
+  });
+
+  it('cost_ceiling_usd halts workflow when API cost reaches ceiling', () => {
+    const wfId = createTestWorkflow({ cost_ceiling_usd: 1.00 });
+
+    // Create 3 tasks — first one completed with cost > $1.00
+    const t1 = createTestTask(wfId, { provider: 'deepinfra', status: 'completed' });
+    const t2 = createTestTask(wfId, { provider: 'deepinfra', status: 'pending' });
+    const t3 = createTestTask(wfId, { provider: 'deepinfra', status: 'pending' });
+
+    // Record token usage that exceeds $1.00 for the first task.
+    // Using a large token count with a known model to push cost above $1.
+    // deepinfra/gpt-4 pricing: the exact rate doesn't matter — we just need
+    // enough tokens to exceed $1. With default fallback pricing (~$0.03/1K input),
+    // 50,000 input tokens ≈ $1.50.
+    costTracking.recordTokenUsage(t1, {
+      input_tokens: 50000,
+      output_tokens: 20000,
+      model: 'gpt-4',
+    });
+
+    const result = checkWorkflowCostCeiling(dbHandle, wfId);
+    expect(result.exceeded).toBe(true);
+    expect(result.reason).toContain('API cost');
+    expect(result.reason).toContain('ceiling');
+    expect(result.api_cost_usd).toBeGreaterThanOrEqual(1.0);
+    expect(result.cost_ceiling_usd).toBe(1.0);
+
+    // Fail the workflow
+    failWorkflowBudgetExhausted(dbHandle, wfId, result.reason);
+
+    const workflow = workflowEngine.getWorkflow(wfId);
+    expect(workflow.status).toBe('failed');
+    expect(workflow.context.failure_class).toBe('budget_exhausted');
+    expect(workflow.context.budget_exhausted_reason).toContain('API cost');
+
+    // Remaining pending tasks are cancelled
+    const t2Row = dbHandle.prepare('SELECT status FROM tasks WHERE id = ?').get(t2);
+    const t3Row = dbHandle.prepare('SELECT status FROM tasks WHERE id = ?').get(t3);
+    expect(t2Row.status).toBe('cancelled');
+    expect(t3Row.status).toBe('cancelled');
+  });
+
+  it('workflow without ceilings proceeds normally (no breach)', () => {
+    const wfId = createTestWorkflow({
+      cost_ceiling_usd: null,
+      task_count_ceiling: null,
+    });
+
+    const t1 = createTestTask(wfId, { provider: 'codex', status: 'completed' });
+    const t2 = createTestTask(wfId, { provider: 'codex', status: 'pending' });
+
+    costTracking.recordTokenUsage(t1, {
+      input_tokens: 5000,
+      output_tokens: 2000,
+      model: 'codex',
+    });
+
+    const result = checkWorkflowCostCeiling(dbHandle, wfId);
+    expect(result.exceeded).toBe(false);
+    expect(result.reason).toBeNull();
+    expect(result.cost_ceiling_usd).toBeNull();
+    expect(result.task_count_ceiling).toBeNull();
+
+    // Workflow remains running (no state change)
+    const workflow = workflowEngine.getWorkflow(wfId);
+    expect(workflow.status).toBe('running');
+
+    // Pending task remains pending (not cancelled)
+    const t2Row = dbHandle.prepare('SELECT status FROM tasks WHERE id = ?').get(t2);
+    expect(t2Row.status).toBe('pending');
+  });
+
+  it('workflow under ceiling proceeds normally', () => {
+    const wfId = createTestWorkflow({
+      task_count_ceiling: 10,
+      cost_ceiling_usd: 100.00,
+    });
+
+    // Complete one task on a subscription provider with small cost
+    const t1 = createTestTask(wfId, { provider: 'codex', status: 'completed' });
+    const t2 = createTestTask(wfId, { provider: 'codex', status: 'pending' });
+
+    costTracking.recordTokenUsage(t1, {
+      input_tokens: 1000,
+      output_tokens: 500,
+      model: 'codex',
+    });
+
+    const result = checkWorkflowCostCeiling(dbHandle, wfId);
+    expect(result.exceeded).toBe(false);
+    expect(result.reason).toBeNull();
+    expect(result.subscription_task_count).toBe(1);
+    expect(result.task_count_ceiling).toBe(10);
+    expect(result.cost_ceiling_usd).toBe(100.0);
+    // API cost should be very small (subscription provider tokens are still
+    // tracked in token_usage, but the subscription_task_count is the
+    // meaningful metric for subscription providers)
+    expect(result.api_cost_usd).toBeLessThan(100.0);
+
+    // Workflow remains running
+    const workflow = workflowEngine.getWorkflow(wfId);
+    expect(workflow.status).toBe('running');
+
+    // Pending task remains pending
+    const t2Row = dbHandle.prepare('SELECT status FROM tasks WHERE id = ?').get(t2);
+    expect(t2Row.status).toBe('pending');
+  });
 });

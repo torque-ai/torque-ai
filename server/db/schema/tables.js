@@ -1503,6 +1503,8 @@ function createTables(db, logger) {
     'priority INTEGER DEFAULT 0',
     'parent_workflow_id TEXT',
     'fork_checkpoint_id TEXT',
+    'cost_ceiling_usd REAL',
+    'task_count_ceiling INTEGER',
   ]);
   db.exec(`
       CREATE TABLE IF NOT EXISTS workflow_checkpoints (

@@ -323,6 +323,14 @@ const tools = [
             },
             reviewer_provider: { type: 'string' }
           }
+        },
+        cost_ceiling_usd: {
+          type: 'number',
+          description: 'Maximum API cost in USD before budget halt'
+        },
+        task_count_ceiling: {
+          type: 'integer',
+          description: 'Maximum subscription-provider tasks before budget halt'
         }
       },
       required: ['name', 'tasks']

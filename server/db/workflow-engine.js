@@ -38,8 +38,8 @@ function setDb(dbInstance) {
 
 function createWorkflow(workflow) {
   const stmt = db.prepare(`
-    INSERT INTO workflows (id, name, description, working_directory, status, template_id, context, priority, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO workflows (id, name, description, working_directory, status, template_id, context, priority, cost_ceiling_usd, task_count_ceiling, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   stmt.run(
@@ -51,6 +51,8 @@ function createWorkflow(workflow) {
     workflow.template_id || null,
     workflow.context ? JSON.stringify(workflow.context) : null,
     workflow.priority || 0,
+    workflow.cost_ceiling_usd ?? null,
+    workflow.task_count_ceiling ?? null,
     new Date().toISOString()
   );
 
