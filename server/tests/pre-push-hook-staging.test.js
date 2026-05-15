@@ -159,6 +159,8 @@ describe('pre-push-hook staging-branch invariants', () => {
     expect(src).toMatch(/better-sqlite3/);
     expect(src).toMatch(/web-tree-sitter/);
     expect(src).toMatch(/tree-sitter-wasms/);
+    expect(src).toMatch(/jsdom\/lib\/jsdom\/living\/css\/helpers\/patched-csstree\.js/);
+    expect(src).toMatch(/@csstools\/css-syntax-patches-for-csstree\/dist\/index\.json/);
     expect(src).toMatch(/timeout 20 mv/);
     expect(src).toMatch(/invalid dependency tree/);
     expect(src).toMatch(/reuse_base_node_modules\s*\(\)/);

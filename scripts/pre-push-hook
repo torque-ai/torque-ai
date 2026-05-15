@@ -1369,7 +1369,9 @@ dependency_tree_ok() {
     server|*/server)
       [ -d "\$dir/node_modules/better-sqlite3" ] && \
         [ -d "\$dir/node_modules/web-tree-sitter" ] && \
-        [ -d "\$dir/node_modules/tree-sitter-wasms" ]
+        [ -d "\$dir/node_modules/tree-sitter-wasms" ] && \
+        [ -f "\$dir/node_modules/jsdom/lib/jsdom/living/css/helpers/patched-csstree.js" ] && \
+        [ -f "\$dir/node_modules/@csstools/css-syntax-patches-for-csstree/dist/index.json" ]
       ;;
     *)
       return 0
