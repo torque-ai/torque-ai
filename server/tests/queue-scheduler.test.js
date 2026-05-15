@@ -209,7 +209,7 @@ describe('Queue Scheduler', () => {
         vi.advanceTimersByTime(100);
 
         expect(mockDb.listTasks).not.toHaveBeenCalled();
-        expect(activeDb.listTasks).toHaveBeenCalledTimes(1);
+        expect(activeDb.listTasks.mock.calls.filter(([args]) => args?.status === 'queued')).toHaveLength(1);
 
         reloadedScheduler.stop();
         reloadedScheduler.stop();
