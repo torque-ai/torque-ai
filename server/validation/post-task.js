@@ -355,6 +355,55 @@ function describePlaceholderOnlyContent(content) {
   return null;
 }
 
+function isLikelyTestFile(filePath) {
+  const normalized = String(filePath || '').replace(/\\/g, '/');
+  const basename = path.basename(normalized);
+  return /\.(?:test|spec)\.[cm]?[jt]sx?$/i.test(basename)
+    || /(?:^|\/)(?:tests|__tests__)\/.+\.[cm]?[jt]sx?$/i.test(normalized);
+}
+
+function isCommonJsEsmSyntaxError(err) {
+  const parts = [err?.message, err?.stdout, err?.stderr]
+    .filter(Boolean)
+    .map(value => Buffer.isBuffer(value) ? value.toString('utf8') : String(value));
+  const combined = parts.join('\n');
+  return combined.includes('Cannot use import statement outside a module')
+    || combined.includes("Unexpected token 'export'")
+    || combined.includes('Unexpected token export');
+}
+
+function looksLikeEsmJavaScript(content) {
+  return typeof content === 'string' && /^\s*(?:import|export)\s/m.test(content);
+}
+
+function retryNodeCheckAsModule(fullPath, workingDir) {
+  let source = '';
+  try {
+    source = fs.readFileSync(fullPath, 'utf8');
+  } catch {
+    return false;
+  }
+
+  if (!looksLikeEsmJavaScript(source)) {
+    return false;
+  }
+
+  try {
+    childProcess.execFileSync('node', ['--input-type=module', '--check'], {
+      cwd: workingDir,
+      input: source,
+      encoding: 'utf8',
+      timeout: TASK_TIMEOUTS.SYNTAX_CHECK,
+      stdio: 'pipe',
+      windowsHide: true,
+    });
+    return true;
+  } catch (err) {
+    logger.debug("task handler error", { err: err.message });
+    return false;
+  }
+}
+
 function extractMatchingLine(text, pattern) {
   if (typeof text !== 'string' || !text) return null;
 
@@ -655,6 +704,7 @@ function checkFileQuality(filePath, options = {}) {
 
     const content = fs.readFileSync(filePath, 'utf8');
     const lines = content.split('\n');
+    const isTestFile = isLikelyTestFile(filePath);
     const nonEmptyLines = lines.filter(l => l.trim().length > 0);
     const codeLines = nonEmptyLines.filter(l => {
       const trimmed = l.trim();
@@ -667,6 +717,10 @@ function checkFileQuality(filePath, options = {}) {
              trimmed !== '}' &&
              trimmed !== '';
     });
+    const exactPlaceholderReason = describePlaceholderOnlyContent(content);
+    if (exactPlaceholderReason) {
+      issues.push('File contains placeholder/stub content');
+    }
 
     // Size/line-count checks — skip for newly created files since they start small.
     // Placeholder/stub pattern detection below still applies to all files.
@@ -697,13 +751,15 @@ function checkFileQuality(filePath, options = {}) {
     // NOTE: Simple TODO comments are legitimate documentation, not stubs
     // Only flag patterns that clearly indicate unfinished/stub code
     // Patterns use ^ anchor with multiline to match actual code lines, not string content
+    // Test files often embed placeholder-looking source snippets as fixtures; keep exact
+    // placeholder-only detection above, but do not reject fixture strings in real tests.
     const placeholderPatterns = [
       /^\s*(?:\/\/|#)\s*\.\.\.$/m,                 // Comment line with just ellipsis (// or #)
-      ...PLACEHOLDER_SIGNAL_PATTERNS.map(signal => signal.regex),
+      ...(isTestFile ? [] : PLACEHOLDER_SIGNAL_PATTERNS.map(signal => signal.regex)),
       /{\s*(?:\/\/|#)\s*TODO\s*}/,                 // Empty block with only TODO marker (// or #)
     ];
     for (const pattern of placeholderPatterns) {
-      if (pattern.test(content)) {
+      if (!issues.includes('File contains placeholder/stub content') && pattern.test(content)) {
         issues.push('File contains placeholder/stub content');
         break;
       }
@@ -858,6 +914,9 @@ function checkSyntax(workingDir, modifiedFiles) {
             windowsHide: true,
           });
         } catch (syntaxErr) {
+          if (isCommonJsEsmSyntaxError(syntaxErr) && retryNodeCheckAsModule(fullPath, workingDir)) {
+            continue;
+          }
           issues.push(`${path.basename(fullPath)}: Syntax error - ${syntaxErr.message.substring(0, 100)}`);
         }
       } else if (ext === '.ts' || ext === '.tsx') {
