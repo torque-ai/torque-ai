@@ -4,10 +4,27 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { spawnSync } = require('child_process');
+const { gitSync } = require('./git-test-utils');
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
 const HOOK_PATH = path.join(REPO_ROOT, 'scripts', 'pre-push-hook');
 const LOCK_HELPER = path.join(REPO_ROOT, 'scripts', 'repo-coordination-lock.sh');
+const GIT_BASH_PATH = path.join('C:', 'Program Files', 'Git', 'bin', 'bash.exe');
+const BASH_EXECUTABLE = process.platform === 'win32' && fs.existsSync(GIT_BASH_PATH)
+  ? GIT_BASH_PATH
+  : 'bash';
+
+function shellQuote(value) {
+  return `'${String(value).replace(/'/g, "'\\''")}'`;
+}
+
+function toBashPath(filePath) {
+  const normalized = path.resolve(filePath).replace(/\\/g, '/');
+  const driveMatch = normalized.match(/^([A-Za-z]):\/(.*)$/);
+  return driveMatch
+    ? `/${driveMatch[1].toLowerCase()}/${driveMatch[2]}`
+    : normalized;
+}
 
 // Test fixture: spawn bash with a driver script that extracts the two
 // pre-push-hook helpers we care about, points at a temp artifact root,
@@ -25,27 +42,32 @@ function runFollowerCheck(opts) {
     repoRootDir,
   } = opts;
 
+  const bashRepoRoot = shellQuote(toBashPath(repoRootDir));
+  const bashArtifactRoot = shellQuote(toBashPath(artifactRoot));
+  const bashLockHelper = shellQuote(toBashPath(LOCK_HELPER));
+  const bashHookPath = shellQuote(toBashPath(HOOK_PATH));
   const driver = `
 set -uo pipefail
-export REPO_ROOT='${repoRootDir.replace(/'/g, "'\\''")}'
-export PRE_PUSH_GATE_ARTIFACT_ROOT='${artifactRoot.replace(/'/g, "'\\''")}'
+export REPO_ROOT=${bashRepoRoot}
+export PRE_PUSH_GATE_ARTIFACT_ROOT=${bashArtifactRoot}
 export PRE_PUSH_PASS_TRUST_WINDOW_SECS='${trustWindow}'
 local_head_short='${localHeadShort}'
 local_head_sha='${localHeadSha}'
 
 # Load the coordination-lock helper for repo_coord_lock_read_field
-source '${LOCK_HELPER.replace(/'/g, "'\\''")}'
+source ${bashLockHelper}
+set +e
 
 # Pull the two functions we exercise out of pre-push-hook. The function
 # closing brace is at column 0 so the sed range is unambiguous.
-eval "$(sed -n '/^pre_push_git_common_dir() {$/,/^}$/p' '${HOOK_PATH.replace(/'/g, "'\\''")}')"
-eval "$(sed -n '/^pre_push_follower_ride_passed_artifact() {$/,/^}$/p' '${HOOK_PATH.replace(/'/g, "'\\''")}')"
+eval "$(sed -n '/^pre_push_git_common_dir() {$/,/^}$/p' ${bashHookPath})"
+eval "$(sed -n '/^pre_push_follower_ride_passed_artifact() {$/,/^}$/p' ${bashHookPath})"
 
 pre_push_follower_ride_passed_artifact
 printf 'rc=%d\\n' $?
 `;
 
-  return spawnSync('bash', ['-c', driver], { encoding: 'utf8' });
+  return spawnSync(BASH_EXECUTABLE, ['-c', driver], { encoding: 'utf8' });
 }
 
 // Build a minimal passed-status artifact file matching the format
@@ -72,22 +94,15 @@ function writeArtifact(artifactPath, fields) {
 // a deterministic SHA. We don't need the gate to actually run — just the
 // follower-ride function's HEAD lookup.
 function makeFixtureRepo(dir) {
-  const run = (cmd, args) => {
-    const r = spawnSync(cmd, args, { cwd: dir, encoding: 'utf8' });
-    if (r.status !== 0) {
-      throw new Error(`${cmd} ${args.join(' ')} failed: ${r.stderr || r.stdout}`);
-    }
-    return r.stdout.trim();
-  };
   fs.mkdirSync(dir, { recursive: true });
-  run('git', ['init', '--quiet', '-b', 'main']);
-  run('git', ['config', 'user.email', 'test@example.com']);
-  run('git', ['config', 'user.name', 'Test']);
-  run('git', ['config', 'commit.gpgsign', 'false']);
+  gitSync(['init', '--quiet', '-b', 'main'], { cwd: dir });
+  gitSync(['config', 'user.email', 'test@example.com'], { cwd: dir });
+  gitSync(['config', 'user.name', 'Test'], { cwd: dir });
+  gitSync(['config', 'commit.gpgsign', 'false'], { cwd: dir });
   fs.writeFileSync(path.join(dir, 'README.md'), 'fixture\n');
-  run('git', ['add', 'README.md']);
-  run('git', ['commit', '--quiet', '--no-verify', '-m', 'init']);
-  return run('git', ['rev-parse', 'HEAD']);
+  gitSync(['add', 'README.md'], { cwd: dir });
+  gitSync(['commit', '--quiet', '--no-verify', '-m', 'init'], { cwd: dir });
+  return gitSync(['rev-parse', 'HEAD'], { cwd: dir });
 }
 
 describe('pre-push gate coordination — follower-ride-passed-artifact', () => {
