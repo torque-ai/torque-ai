@@ -13,10 +13,12 @@ const factoryGuardrails = require('../db/factory/guardrails');
 const factoryHealth = require('../db/factory/health');
 const factoryIntake = require('../db/factory/intake');
 const factoryLoopInstances = require('../db/factory/loop-instances');
+const factoryWorktrees = require('../db/factory/worktrees');
 const routingModule = require('../handlers/integration/routing');
 const awaitModule = require('../handlers/workflow/await');
 const taskCore = require('../db/task-core');
 const loopController = require('../factory/loop-controller');
+const { defaultContainer } = require('../container');
 const { LOOP_STATES, getNextState, getGatesForTrustLevel } = require('../factory/loop-states');
 
 const originalHandleSmartSubmitTask = routingModule.handleSmartSubmitTask;
@@ -172,8 +174,11 @@ describe('factory EXECUTE -> VERIFY gate semantics', () => {
     factoryIntake.setDb(db);
     factoryLoopInstances.setDb(db);
     factoryDecisions.setDb(db);
+    factoryWorktrees.setDb(db);
     originalGetDbInstance = database.getDbInstance;
     database.getDbInstance = () => db;
+    defaultContainer.resetForTest();
+    defaultContainer.registerValue('db', database);
     tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'factory-execute-to-verify-'));
     routingModule.handleSmartSubmitTask = vi.fn(async () => ({ task_id: 'live-task-id' }));
     awaitModule.handleAwaitTask = vi.fn(async () => ({ content: [{ text: 'awaited' }] }));
@@ -189,8 +194,10 @@ describe('factory EXECUTE -> VERIFY gate semantics', () => {
     factoryGuardrails.setDb(null);
     factoryLoopInstances.setDb(null);
     factoryDecisions.setDb(null);
+    factoryWorktrees.setDb(null);
     factoryHealth.setDb(null);
     factoryIntake.setDb(null);
+    defaultContainer.resetForTest();
     loopController.setWorktreeRunnerForTests(null);
     routingModule.handleSmartSubmitTask = originalHandleSmartSubmitTask;
     awaitModule.handleAwaitTask = originalHandleAwaitTask;

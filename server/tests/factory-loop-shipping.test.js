@@ -15,6 +15,7 @@ const factoryIntake = require('../db/factory/intake');
 const factoryLoopInstances = require('../db/factory/loop-instances');
 const factoryWorktrees = require('../db/factory/worktrees');
 const loopController = require('../factory/loop-controller');
+const { defaultContainer } = require('../container');
 const { LOOP_STATES } = require('../factory/loop-states');
 
 function createFactoryTables(db) {
@@ -315,6 +316,8 @@ describe('factory loop work-item shipping', () => {
     factoryWorktrees.setDb(db);
     originalGetDbInstance = database.getDbInstance;
     database.getDbInstance = () => db;
+    defaultContainer.resetForTest();
+    defaultContainer.registerValue('db', database);
   });
 
   afterEach(() => {
@@ -324,6 +327,7 @@ describe('factory loop work-item shipping', () => {
     factoryFeedback.setDb(null);
     guardrailDb.setDb(null);
     factoryWorktrees.setDb(null);
+    defaultContainer.resetForTest();
     loopController.setWorktreeRunnerForTests(null);
     for (const dir of tempWorktreeDirs) {
       fs.rmSync(dir, { recursive: true, force: true });

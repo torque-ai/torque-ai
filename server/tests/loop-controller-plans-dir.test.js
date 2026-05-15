@@ -7,7 +7,9 @@ const Database = require('better-sqlite3');
 const database = require('./helpers/database-facade');
 const factoryHealth = require('../db/factory/health');
 const factoryIntake = require('../db/factory/intake');
+const factoryLoopInstances = require('../db/factory/loop-instances');
 const loopController = require('../factory/loop-controller');
+const { defaultContainer } = require('../container');
 
 function createFactoryTables(db) {
   db.exec(`
@@ -110,14 +112,21 @@ describe('loop-controller SENSE plans_dir intake', () => {
     createFactoryTables(db);
     factoryHealth.setDb(db);
     factoryIntake.setDb(db);
+    factoryLoopInstances.setDb(db);
     originalGetDbInstance = database.getDbInstance;
     database.getDbInstance = () => db;
+    defaultContainer.resetForTest();
+    defaultContainer.registerValue('db', database);
     plansDir = fs.mkdtempSync(path.join(os.tmpdir(), 'loop-plans-'));
   });
 
   afterEach(() => {
     fs.rmSync(plansDir, { recursive: true, force: true });
     database.getDbInstance = originalGetDbInstance;
+    factoryHealth.setDb(null);
+    factoryIntake.setDb(null);
+    factoryLoopInstances.setDb(null);
+    defaultContainer.resetForTest();
     db.close();
   });
 

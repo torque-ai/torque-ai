@@ -19,9 +19,11 @@ const database = require('./helpers/database-facade');
 const factoryDecisions = require('../db/factory/decisions');
 const factoryHealth = require('../db/factory/health');
 const factoryIntake = require('../db/factory/intake');
+const factoryLoopInstances = require('../db/factory/loop-instances');
 const loopController = require('../factory/loop-controller');
 const { LOOP_STATES } = require('../factory/loop-states');
 const planQualityGate = require('../factory/plan-quality-gate');
+const { defaultContainer } = require('../container');
 
 function createFactoryTables(db) {
   db.exec(`
@@ -148,8 +150,11 @@ beforeEach(() => {
   factoryHealth.setDb(db);
   factoryIntake.setDb(db);
   factoryDecisions.setDb(db);
+  factoryLoopInstances.setDb(db);
   originalGetDbInstance = database.getDbInstance;
   database.getDbInstance = () => db;
+  defaultContainer.resetForTest();
+  defaultContainer.registerValue('db', database);
   tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'factory-selected-work-item-'));
   // Bypass the plan-quality-gate's LLM semantic check; the routing/await
   // mocks for this test return undefined, which would make the gate's
@@ -166,6 +171,10 @@ beforeEach(() => {
 afterEach(() => {
   database.getDbInstance = originalGetDbInstance;
   factoryDecisions.setDb(null);
+  factoryLoopInstances.setDb(null);
+  factoryHealth.setDb(null);
+  factoryIntake.setDb(null);
+  defaultContainer.resetForTest();
   loopController.setWorktreeRunnerForTests(null);
   if (tempDir && fs.existsSync(tempDir)) {
     fs.rmSync(tempDir, { recursive: true, force: true });
