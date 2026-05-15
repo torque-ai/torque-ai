@@ -470,6 +470,45 @@ describe('createWorktreeRunner.verify', () => {
     expect(result.output).toContain('[fallback-local-verify]');
   });
 
+  it('falls back to local verify when torque-remote cannot probe remote OS over SSH', async () => {
+    const runRemoteVerify = vi.fn(() => ({
+      exitCode: 78,
+      stdout: '',
+      stderr: [
+        '[torque-remote] WARNING: [adapter:remote_probe_os] ssh failed rc=255 host=192.0.2.10',
+        "[torque-remote] ERROR: cannot determine remote OS via probe; uname+ver both failed for werem@192.0.2.10. Set remote_os in your local config to 'linux' or 'windows' to override.",
+      ].join('\n'),
+    }));
+    const runLocalVerify = vi.fn(() => ({
+      exitCode: 0,
+      stdout: 'local ok',
+      stderr: '',
+    }));
+    const runner = createWorktreeRunner({
+      worktreeManager: makeWorktreeManagerMock(),
+      runRemoteVerify,
+      runLocalVerify,
+      countCommitsAhead: nonEmptyCountCommitsAhead,
+    });
+
+    const result = await runner.verify({
+      worktreePath: 'C:/wt',
+      branch: 'feat/remote-probe',
+      verifyCommand: 'npx vitest run server/tests/baseline-probe.test.js',
+    });
+
+    expect(result.passed).toBe(true);
+    expect(runRemoteVerify).toHaveBeenCalledTimes(1);
+    expect(runLocalVerify).toHaveBeenCalledWith(expect.objectContaining({
+      branch: 'feat/remote-probe',
+      command: 'npx vitest run server/tests/baseline-probe.test.js',
+      cwd: 'C:/wt',
+      fallbackReason: expect.stringContaining('[adapter:remote_probe_os]'),
+    }));
+    expect(result.output).toContain('local ok');
+    expect(result.output).toContain('[fallback-local-verify]');
+  });
+
   it('does not fall back for ordinary verify failures', async () => {
     const runRemoteVerify = vi.fn(() => ({
       exitCode: 1,
