@@ -131,6 +131,43 @@ const tools = [
       },
       required: ['working_directory']
     }
+  },
+  {
+    name: 'run_code_agent',
+    description: 'Execute a JavaScript code snippet in a sandboxed environment following the smolagents CodeAgent pattern. Code is the action language — snippets can use variables, loops, conditionals, and call tools by name. No filesystem, network, or process access is available inside the sandbox. The agent registry routes tool calls within the sandbox through the same remote/local routing as direct tool invocations.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        code: {
+          type: 'string',
+          description: 'JavaScript code snippet to execute. May use top-level await. Access tools via the `tools` object (e.g., `await tools.run_remote_command({ command: "npm test", working_directory: "/repo" })`). Use `console.log()` for output. Return a value with `return`.'
+        },
+        tools: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'List of tool names to make available inside the sandbox (e.g., ["run_remote_command", "run_tests"]). Only execution tools from the remote-agents plugin are supported; admin tools (register, remove, health check) are excluded.'
+        },
+        context: {
+          type: 'object',
+          description: 'Key-value pairs made available as the read-only `context` object inside the sandbox. The working_directory and kind fields are automatically injected when provided as top-level parameters.'
+        },
+        working_directory: {
+          type: 'string',
+          description: 'Project working directory. Injected into the sandbox context as `context.working_directory` so code snippets can reference project paths without hardcoding them.'
+        },
+        kind: {
+          type: 'string',
+          description: 'Task kind identifier (default: "code_agent"). Used by the agent registry to distinguish code_agent tasks from other task types for routing and tracking.',
+          default: 'code_agent'
+        },
+        timeout: {
+          type: 'number',
+          description: 'Execution timeout in ms (default 10000)',
+          default: 10000
+        }
+      },
+      required: ['code']
+    }
   }
 ];
 

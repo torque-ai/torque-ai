@@ -98,7 +98,7 @@ function createPlugin() {
   function tierTools() {
     return {
       tier1: [],
-      tier2: ['register_remote_agent', 'list_remote_agents', 'check_remote_agent_health', 'run_remote_command'],
+      tier2: ['register_remote_agent', 'list_remote_agents', 'check_remote_agent_health', 'run_remote_command', 'run_code_agent'],
     };
   }
 

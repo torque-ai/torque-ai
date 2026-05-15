@@ -2,6 +2,7 @@
 
 const { ErrorCodes, makeError } = require('../../handlers/error-codes');
 const { createRemoteTestRouter } = require('./remote-test-routing');
+const { executeCodeAgentCode } = require('./sandbox');
 
 function _hasOwn(obj, key) {
   return Object.prototype.hasOwnProperty.call(obj || {}, key);
@@ -632,7 +633,105 @@ function createHandlers({ agentRegistry, db } = {}) {
     }
   }
 
-  return {
+  // Tools that are safe to expose inside the code_agent sandbox.
+  // Execution tools only — admin/registry tools are excluded to prevent
+  // sandbox code from mutating agent configuration.
+  const CODE_AGENT_TOOL_ALLOWLIST = new Set([
+    'run_remote_command',
+    'run_tests',
+  ]);
+
+  /**
+   * Build the handler map available to code_agent sandbox invocations.
+   * Only execution-oriented tools are included (controlled by the allowlist).
+   * The map is built lazily from the full handler set so new execution tools
+   * added to the plugin are picked up automatically once added to the allowlist.
+   */
+  function _getCodeAgentHandlerMap() {
+    return {
+      run_remote_command: handleRunRemoteCommand,
+      run_tests: handleRunTests,
+    };
+  }
+
+  async function handleRunCodeAgent(args = {}) {
+    try {
+      const code = typeof args.code === 'string' ? args.code.trim() : '';
+      if (!code) {
+        return _createToolError(ErrorCodes.MISSING_REQUIRED_PARAM, 'code is required');
+      }
+
+      const timeout = _normalizeTimeoutMs(args.timeout, 10000);
+      const kind = typeof args.kind === 'string' ? args.kind.trim() : 'code_agent';
+
+      // Build tool map from the caller-supplied tool names.
+      // Each listed tool becomes a callable function inside the sandbox that
+      // delegates to the corresponding handler in *this* plugin's handler map.
+      // Only tools in the allowlist are exposed — admin tools (register, remove,
+      // health check) are never available inside the sandbox.
+      const requestedTools = Array.isArray(args.tools) ? args.tools : [];
+      const toolMap = Object.create(null);
+      const handlerMap = _getCodeAgentHandlerMap();
+      for (const toolName of requestedTools) {
+        if (typeof toolName === 'string'
+            && CODE_AGENT_TOOL_ALLOWLIST.has(toolName)
+            && typeof handlerMap[toolName] === 'function') {
+          toolMap[toolName] = handlerMap[toolName];
+        }
+      }
+
+      // Merge caller-provided context with execution metadata.
+      // The working_directory and kind fields are injected so sandbox code
+      // can reference them without hardcoding paths.
+      const userContext = (args.context && typeof args.context === 'object') ? args.context : {};
+      const workingDirectory = typeof args.working_directory === 'string'
+        ? args.working_directory.trim()
+        : '';
+      const context = {
+        ...userContext,
+        ...(workingDirectory ? { working_directory: workingDirectory } : {}),
+        kind,
+      };
+
+      const result = await executeCodeAgentCode(code, toolMap, context, { timeout });
+
+      const outputLines = [];
+      if (result.output) {
+        outputLines.push(result.output);
+      }
+      if (result.tool_calls.length > 0) {
+        outputLines.push(`\nTool calls (${result.tool_calls.length}):`);
+        for (const call of result.tool_calls) {
+          const argsStr = typeof call.args === 'string'
+            ? call.args
+            : JSON.stringify(call.args);
+          outputLines.push(`  ${call.tool}(${argsStr})`);
+        }
+      }
+      if (result.error) {
+        outputLines.push(`\nError: ${result.error}`);
+      }
+      if (result.result !== undefined && result.result !== null) {
+        outputLines.push(`\nReturn value: ${JSON.stringify(result.result)}`);
+      }
+
+      const text = outputLines.join('\n') || (result.success ? 'Code executed successfully (no output)' : 'Code execution failed (no output)');
+
+      return {
+        content: [{ type: 'text', text }],
+        success: result.success,
+        tool_calls: result.tool_calls,
+        result: result.result,
+        kind,
+        ...(workingDirectory ? { working_directory: workingDirectory } : {}),
+        ...(result.error ? { isError: true, error_code: ErrorCodes.OPERATION_FAILED.code } : {}),
+      };
+    } catch (err) {
+      return _createToolError(ErrorCodes.INTERNAL_ERROR, err.message || String(err));
+    }
+  }
+
+  const handlers = {
     register_remote_agent: handleRegisterRemoteAgent,
     list_remote_agents: handleListRemoteAgents,
     get_remote_agent: handleGetRemoteAgent,
@@ -640,7 +739,28 @@ function createHandlers({ agentRegistry, db } = {}) {
     check_remote_agent_health: handleCheckRemoteAgentHealth,
     run_remote_command: handleRunRemoteCommand,
     run_tests: handleRunTests,
+    run_code_agent: handleRunCodeAgent,
   };
+
+  /**
+   * Return the set of tool names available inside code_agent sandbox invocations.
+   * Callers (e.g., the task execution system) can use this to discover which
+   * tools a code_agent task is allowed to call.
+   */
+  handlers.getCodeAgentToolNames = function getCodeAgentToolNames() {
+    return [...CODE_AGENT_TOOL_ALLOWLIST];
+  };
+
+  /**
+   * Check whether a given tool name is available for code_agent sandbox use.
+   * @param {string} toolName
+   * @returns {boolean}
+   */
+  handlers.isCodeAgentTool = function isCodeAgentTool(toolName) {
+    return CODE_AGENT_TOOL_ALLOWLIST.has(toolName);
+  };
+
+  return handlers;
 }
 
 module.exports = { createHandlers };
