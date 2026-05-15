@@ -77,6 +77,12 @@ module.exports = {
         branches: 58,
         functions: 73,
         lines: 68,
+        'execution/file-context-builder.js': {
+          statements: 95,
+          branches: 95,
+          functions: 95,
+          lines: 95,
+        },
       },
     },
   },
