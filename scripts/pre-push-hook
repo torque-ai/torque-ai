@@ -68,6 +68,7 @@ pre_push_gate_started_at_epoch=""
 pre_push_gate_failure_reason=""
 pre_push_gate_coalesced=0
 pre_push_gate_coalesced_reason=""
+pre_push_reaped_leader_info=""
 remote_gate_fallback_reason=""
 remote_gate_attempt_exit=""
 remote_gate_attempt_output_tail=""
@@ -332,6 +333,81 @@ origin_main_matches_local_head() {
   [ -n "$current_remote_main" ] && [ "$current_remote_main" = "$local_head_sha" ]
 }
 
+# Defect C — When a same-SHA gate has just finished but the leader's parent
+# process died (so it never advanced origin/main), a follower waiter that
+# falls out of its while-loop today re-runs the entire gate from scratch.
+# Detect a fresh passed artifact for the current HEAD and let the follower
+# ride that result: print confirmation and signal the caller to exit 0 so
+# git proceeds with the actual push protocol step.
+#
+# Trust requires ALL of: status=passed, exit_code=0, head_sha matches the
+# CURRENT git HEAD (not the captured local_head_sha — guard against HEAD
+# drift between gate start and follower wakeup), AND
+# created_at_epoch is within PRE_PUSH_PASS_TRUST_WINDOW_SECS (default 1800).
+# Set PRE_PUSH_PASS_TRUST_WINDOW_SECS=0 to disable the ride path entirely
+# (forces follower-runs-own-gate; useful for tests pinning the negative path).
+pre_push_follower_ride_passed_artifact() {
+  local trust_window root candidate newest_artifact
+  local artifact_status artifact_exit_code artifact_head_sha artifact_created_at_epoch
+  local current_head_sha now_epoch age
+
+  trust_window="${PRE_PUSH_PASS_TRUST_WINDOW_SECS:-1800}"
+  case "$trust_window" in ''|*[!0-9]*) trust_window=1800 ;; esac
+  if [ "$trust_window" -le 0 ]; then
+    return 1
+  fi
+
+  if [ -z "${local_head_short:-}" ]; then
+    return 1
+  fi
+
+  root="${PRE_PUSH_GATE_ARTIFACT_ROOT:-$(pre_push_git_common_dir)/torque-pre-push-gate-artifacts}"
+  if [ ! -d "$root" ]; then
+    return 1
+  fi
+
+  current_head_sha="$(git -C "$REPO_ROOT" rev-parse HEAD 2>/dev/null || true)"
+  if [ -z "$current_head_sha" ]; then
+    return 1
+  fi
+
+  # Find newest artifact matching our short SHA. `-nt` compares mtime, which is
+  # what we want here — the gate's cleanup trap rewrites the artifact with the
+  # final status, so the most-recently-modified one carries the truth.
+  newest_artifact=""
+  for candidate in "$root"/"${local_head_short}"-*.txt; do
+    [ -f "$candidate" ] || continue
+    if [ -z "$newest_artifact" ] || [ "$candidate" -nt "$newest_artifact" ]; then
+      newest_artifact="$candidate"
+    fi
+  done
+
+  if [ -z "$newest_artifact" ]; then
+    return 1
+  fi
+
+  artifact_status="$(repo_coord_lock_read_field "$newest_artifact" status)"
+  artifact_exit_code="$(repo_coord_lock_read_field "$newest_artifact" exit_code)"
+  artifact_head_sha="$(repo_coord_lock_read_field "$newest_artifact" head_sha)"
+  artifact_created_at_epoch="$(repo_coord_lock_read_field "$newest_artifact" created_at_epoch)"
+
+  [ "$artifact_status" = "passed" ] || return 1
+  [ "$artifact_exit_code" = "0" ]   || return 1
+  [ "$artifact_head_sha" = "$current_head_sha" ] || return 1
+
+  case "$artifact_created_at_epoch" in
+    ''|*[!0-9]*) return 1 ;;
+  esac
+  now_epoch="$(date +%s)"
+  age=$((now_epoch - artifact_created_at_epoch))
+  if [ "$age" -gt "$trust_window" ]; then
+    return 1
+  fi
+
+  echo "[pre-push] Concurrent gate already passed for ${local_head_short} (artifact age ${age}s, trust window ${trust_window}s); proceeding with push."
+  return 0
+}
+
 pre_push_exit_coalesced() {
   local reason="$1"
   pre_push_gate_coalesced=1
@@ -369,12 +445,22 @@ wait_for_matching_pre_push_gate() {
   next_notice=0
 
   while [ -d "$lock_dir" ]; do
+    # Defect B — snapshot the owner BEFORE invoking the reap helpers so we can
+    # report (and persist in the follower's eventual artifact) which leader
+    # process actually died or went stale. The reap helpers remove owner.env
+    # and the lock dir, so a post-reap describe would return "unknown".
+    local pre_reap_snapshot=""
+    if [ -f "$lock_dir/owner.env" ]; then
+      pre_reap_snapshot="$(repo_coord_lock_describe "$lock_dir" 2>/dev/null || true)"
+    fi
     if repo_coord_lock_reap_if_dead_owner "$lock_dir"; then
-      echo "[pre-push] Previous matching gate owner is gone; this push will run the gate."
+      pre_push_reaped_leader_info="dead_owner: ${pre_reap_snapshot:-unknown}"
+      echo "[pre-push] Previous matching gate owner is gone (${pre_reap_snapshot:-unknown}); this push will run the gate."
       return 1
     fi
     if repo_coord_lock_reap_if_stale "$lock_dir"; then
-      echo "[pre-push] Previous matching gate lease was stale; this push will run the gate."
+      pre_push_reaped_leader_info="stale_lease: ${pre_reap_snapshot:-unknown}"
+      echo "[pre-push] Previous matching gate lease was stale (${pre_reap_snapshot:-unknown}); this push will run the gate."
       return 1
     fi
 
@@ -404,6 +490,16 @@ wait_for_matching_pre_push_gate() {
 
   if origin_main_matches_local_head; then
     pre_push_exit_coalesced "Concurrent pre-push gate completed and origin/main is at $local_head_short."
+  fi
+
+  # Defect C — leader's gate passed but origin/main wasn't advanced (typically
+  # the leader's parent process died before the gate finished). Let this
+  # follower ride the leader's pass and proceed to the actual push. We exit 0
+  # directly because the EXIT trap isn't installed yet (trap is set after the
+  # wait function returns) — falling through to repo_coord_lock_acquire +
+  # gate-run is exactly what we want to avoid.
+  if pre_push_follower_ride_passed_artifact; then
+    exit 0
   fi
 
   echo "[pre-push] Previous matching gate finished without updating origin/main; this push will run the gate."
@@ -623,6 +719,7 @@ pre_push_write_gate_artifact() {
     printf 'perf_exit=%s\n' "$(pre_push_gate_metadata_value "${perf_exit:-}")"
     printf 'failure_reason=%s\n' "$(pre_push_gate_metadata_value "$pre_push_gate_failure_reason")"
     printf 'coalesced_reason=%s\n' "$(pre_push_gate_metadata_value "$pre_push_gate_coalesced_reason")"
+    printf 'reaped_leader_info=%s\n' "$(pre_push_gate_metadata_value "$pre_push_reaped_leader_info")"
     printf '\n[output-tail]\n'
     pre_push_artifact_output_tail "$output_file"
     if [ -n "${remote_gate_attempt_output_tail:-}" ]; then
@@ -634,7 +731,7 @@ pre_push_write_gate_artifact() {
 }
 
 pre_push_start_gate_heartbeat() {
-  local interval
+  local interval artifact_refresh_secs artifact_refresh_ratio
   if [ -n "${pre_push_gate_heartbeat_pid:-}" ]; then
     return 0
   fi
@@ -645,8 +742,28 @@ pre_push_start_gate_heartbeat() {
   interval="${PRE_PUSH_GATE_HEARTBEAT_SECS:-10}"
   case "$interval" in ''|*[!0-9]*) interval=10 ;; esac
 
+  # Defect A — artifact refresh in the heartbeat loop. The artifact is the file
+  # a follower consults to decide whether a same-SHA gate has finished; without
+  # this it only updates on phase transitions, so a long Local-gate phase
+  # leaves the artifact's `updated_at` stale for 10+ min while heartbeats tick
+  # every $interval seconds. Refresh ratio rounds down so artifact writes stay
+  # bounded — default 30s artifact cadence vs 10s heartbeat = ratio 3.
+  artifact_refresh_secs="${PRE_PUSH_GATE_ARTIFACT_REFRESH_SECS:-30}"
+  case "$artifact_refresh_secs" in ''|*[!0-9]*) artifact_refresh_secs=30 ;; esac
+  if [ "$artifact_refresh_secs" -le "$interval" ]; then
+    artifact_refresh_ratio=1
+  else
+    artifact_refresh_ratio=$(( artifact_refresh_secs / interval ))
+    [ "$artifact_refresh_ratio" -lt 1 ] && artifact_refresh_ratio=1
+  fi
+
   (
+    tick=0
     while pre_push_write_gate_heartbeat_once; do
+      tick=$((tick + 1))
+      if [ "$((tick % artifact_refresh_ratio))" -eq 0 ]; then
+        pre_push_write_gate_artifact "running" "" >/dev/null 2>&1 || true
+      fi
       sleep "$interval"
     done
   ) &
