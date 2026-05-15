@@ -1639,7 +1639,7 @@ ensure_node_modules() {
 
   if [ -n "\$install_reason" ]; then
     echo "[\$phase] [setup] installing \$dir dependencies (\$install_reason)"
-    if ! (cd "\$dir" && npm install --no-audit --no-fund --prefer-offline) 2>&1 | sed -u "s/^/[\$phase] [setup] /"; then
+    if ! (cd "\$dir" && npm install --include=dev --no-audit --no-fund --prefer-offline) 2>&1 | sed -u "s/^/[\$phase] [setup] /"; then
       return 1
     fi
     if ! dependency_tree_ok "\$dir"; then

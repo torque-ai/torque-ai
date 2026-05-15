@@ -540,17 +540,19 @@ echo "[ok] Merged"
 # server/package.json so the gate skipped install; the restart-barrier
 # successor crashed with `Cannot find module 'ajv'` and the queue was
 # wedged until the next person ran `npm install` by hand. Running
-# `npm install --prefer-offline` always costs ~2s in the no-op fast
-# path vs minutes of debugging a wedged queue, so the unconditional
-# form is strictly better. --no-audit/--no-fund trim the chatter.
+# `npm install --include=dev --prefer-offline` always costs ~2s in the
+# no-op fast path vs minutes of debugging a wedged queue or local gate
+# whose shared node_modules was pruned down to production dependencies, so
+# the unconditional form is strictly better. --no-audit/--no-fund trim the
+# chatter.
 if [ -d "${REPO_ROOT}/server" ] && [ -f "${REPO_ROOT}/server/package.json" ]; then
   echo "  Refreshing server node_modules (idempotent)..."
-  (cd "${REPO_ROOT}/server" && npm install --silent --no-audit --no-fund --prefer-offline 2>&1 | tail -3) \
+  (cd "${REPO_ROOT}/server" && npm install --silent --include=dev --no-audit --no-fund --prefer-offline 2>&1 | tail -3) \
     || echo "[warn] server npm install failed — restart may crash with 'Cannot find module'. Run 'cd server && npm install' manually."
 fi
 if [ -d "${REPO_ROOT}/dashboard" ] && [ -f "${REPO_ROOT}/dashboard/package.json" ]; then
   echo "  Refreshing dashboard node_modules (idempotent)..."
-  (cd "${REPO_ROOT}/dashboard" && npm install --silent --no-audit --no-fund --prefer-offline 2>&1 | tail -3) \
+  (cd "${REPO_ROOT}/dashboard" && npm install --silent --include=dev --no-audit --no-fund --prefer-offline 2>&1 | tail -3) \
     || echo "[warn] dashboard npm install failed — vite build will likely fail. Run 'cd dashboard && npm install' manually."
 fi
 
