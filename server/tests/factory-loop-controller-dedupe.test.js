@@ -99,7 +99,7 @@ describe('findExistingPlanTaskSubmission', () => {
     });
 
     expect(listTasks).toHaveBeenCalledWith(expect.objectContaining({
-      columns: ['id', 'status', 'tags', 'created_at', 'started_at', 'metadata', 'working_directory'],
+      columns: ['id', 'status', 'tags', 'created_at', 'started_at', 'metadata', 'working_directory', 'files_modified'],
     }));
   });
 
@@ -201,6 +201,36 @@ describe('findExistingPlanTaskSubmission', () => {
       task_id: 'current-completed',
       status: 'completed',
       same_batch: true,
+    });
+  });
+
+  it('prefers completed task rows with file evidence over newer no-op completions', () => {
+    const listTasks = vi.fn(() => ([
+      {
+        id: 'newer-no-op',
+        status: 'completed',
+        files_modified: [],
+        tags: ['factory:work_item_id=708', 'factory:plan_task_number=1', 'factory:batch_id=current-batch'],
+      },
+      {
+        id: 'older-with-files',
+        status: 'completed',
+        files_modified: JSON.stringify(['server/ci/diagnostics.js']),
+        tags: ['factory:work_item_id=708', 'factory:plan_task_number=1', 'factory:batch_id=current-batch'],
+      },
+    ]));
+
+    expect(findExistingPlanTaskSubmission({ listTasks }, {
+      projectName: 'example-project',
+      workingDirectory: 'C:/repo',
+      workItemId: 708,
+      planTaskNumber: 1,
+      batchId: 'current-batch',
+    })).toEqual({
+      task_id: 'older-with-files',
+      status: 'completed',
+      same_batch: true,
+      files_modified: JSON.stringify(['server/ci/diagnostics.js']),
     });
   });
 });

@@ -191,6 +191,15 @@ function init(deps) {
   if (deps.getSkipGitInCloseHandler) _skipGitInCloseHandler = deps.getSkipGitInCloseHandler;
 }
 
+function captureInitialFilesystemFingerprint(provider, workingDirectory) {
+  if (!AGENT_PROVIDERS.has(provider) || !workingDirectory) return null;
+  try {
+    return getWorktreeFingerprint(workingDirectory, { ttl: 0 }) || null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Check if an agent task has filesystem activity despite no stdout.
  * Compares current git state (HEAD position + uncommitted changes) against
@@ -324,7 +333,7 @@ function getTaskActivity(taskId, opts = {}) {
   //      on the LLM API but still accrue user-time across the wait.
   // Without (2), a codex run paused on a multi-minute API response was
   // declared stalled and cancelled mid-call (pre_reclaim_before_create).
-  const taskPid = proc.pid || proc.process?.pid;
+  const taskPid = proc.subprocessPid || proc.subprocess_pid || proc.pid || proc.process?.pid;
   if (isStalled && taskPid) {
     try {
       const { getProcessTreeCpu, getProcessTreeCpuDelta } = require('./process-activity');
@@ -457,6 +466,7 @@ function canAcceptTask() {
 module.exports = {
   init,
   AGENT_PROVIDERS,
+  captureInitialFilesystemFingerprint,
   checkFilesystemActivity,
   getTaskActivity,
   getAllTaskActivity,

@@ -32,6 +32,7 @@ const { isSubprocessDetachmentEnabled } = require('../utils/subprocess-detachmen
 const { getTaskLogDir } = require('../data-dir');
 const { Tail } = require('../utils/file-tail');
 const { isPidAlive } = require('../utils/pid-liveness');
+const { captureInitialFilesystemFingerprint } = require('../utils/activity-monitoring');
 
 // Subprocess exit-code sentinels for cases where there is no real exit code
 // (the subprocess either never ran, was torn down before tracking, or the
@@ -972,6 +973,7 @@ function spawnAndTrackProcess(taskId, task, cmdSpec, provider) {
 
   // Track the process with timeout handles for cleanup
   const now = Date.now();
+  const initialFsFingerprint = captureInitialFilesystemFingerprint(provider, options.cwd);
   runningProcesses.set(taskId, {
     process: child,
     output: '',
@@ -993,7 +995,8 @@ function spawnAndTrackProcess(taskId, task, cmdSpec, provider) {
     lastProgress: 0,
     baselineCommit: baselineCommit,
     workingDirectory: options.cwd,
-    lastFsFingerprint: null,
+    lastFsFingerprint: initialFsFingerprint,
+    initialFsFingerprint,
     // Worktree isolation state (null when not using worktrees)
     worktreeInfo: worktreeInfo,
     originalWorkingDirectory: worktreeInfo ? task.working_directory : null,
@@ -1756,7 +1759,7 @@ function spawnAndTrackProcessDetached(taskId, task, cmdSpec, providerArg) {
     lastProgress: 0,
     baselineCommit,
     workingDirectory: effectiveCwd,
-    lastFsFingerprint: null,
+    lastFsFingerprint: captureInitialFilesystemFingerprint(provider, effectiveCwd),
     worktreeInfo: null,
     originalWorkingDirectory: null,
     // Detachment-specific fields:
@@ -2301,7 +2304,7 @@ function reAdoptDetachedSubprocess(taskId, persistedTask) {
     lastProgress: 0,
     baselineCommit: persistedTask?.baseline_commit || null,
     workingDirectory: persistedTask?.working_directory || null,
-    lastFsFingerprint: null,
+    lastFsFingerprint: captureInitialFilesystemFingerprint(provider, persistedTask?.working_directory || null),
     worktreeInfo: null,
     originalWorkingDirectory: null,
     detached: true,

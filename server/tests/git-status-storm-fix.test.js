@@ -51,6 +51,15 @@ describe('Git Status Storm Fix', () => {
       expect(fp2).toBe(fp1); // same cached result, git not re-invoked
     });
 
+    it('bypasses cached result when ttl is zero', () => {
+      const fp1 = getRealWorktreeFingerprint(repoDir);
+      fs.writeFileSync(path.join(repoDir, 'ttl-zero.txt'), 'fresh');
+
+      const fp2 = getRealWorktreeFingerprint(repoDir, { ttl: 0 });
+
+      expect(fp2).not.toBe(fp1);
+    });
+
     it('refreshes fingerprint after TTL expires', () => {
       const fp1 = getRealWorktreeFingerprint(repoDir, { ttl: 1 }); // 1ms TTL
 
@@ -300,6 +309,13 @@ describe('Git Status Storm Fix', () => {
       // First check seeds the fingerprint but can't compare, so stall stands
       expect(activity.isStalled).toBe(true);
       expect(proc.lastFsFingerprint).toBeTruthy(); // seeded
+    });
+
+    it('captures an initial fingerprint for agent providers', () => {
+      const fp = activityMonitoring.captureInitialFilesystemFingerprint('claude-cli', repoDir);
+
+      expect(fp).toBeTruthy();
+      expect(activityMonitoring.captureInitialFilesystemFingerprint('ollama', repoDir)).toBeNull();
     });
   });
 });

@@ -196,6 +196,39 @@ describe('Activity Monitoring - Stall Threshold Multipliers', () => {
     expect(activity.cpuRescued).toBe(true);
   });
 
+  it('rescues detached agent tasks using subprocessPid', () => {
+    getStallThreshold.mockReturnValue(120);
+    const now = Date.now();
+    runningProcesses.set('task-detached-codex', {
+      process: null,
+      subprocessPid: process.pid,
+      workingDirectory: null,
+      model: 'gpt-5.5',
+      provider: 'codex',
+      metadata: {},
+      lastOutputAt: now - 200 * 1000,
+      output: '',
+      errorOutput: '',
+      lastFsFingerprint: null,
+    });
+
+    vi.spyOn(processActivity, 'getProcessTreeCpu').mockReturnValue({
+      totalCpu: 0,
+      totalCpuPercent: 0,
+      processCount: 2,
+      isActive: false,
+    });
+    vi.spyOn(processActivity, 'getProcessTreeCpuDelta').mockReturnValue({
+      deltaMs: 1500,
+      isAdvancing: true,
+      hasBaseline: true,
+    });
+
+    const activity = activityMonitoring.getTaskActivity('task-detached-codex');
+    expect(activity.isStalled).toBe(false);
+    expect(activity.cpuRescued).toBe(true);
+  });
+
   it('still flags stalled for non-agent provider when CPU is 0% even if delta > 0', () => {
     // Cumulative-delta rescue is gated to AGENT_PROVIDERS — ollama/etc.
     // should not benefit, since they are expected to stream stdout when

@@ -270,11 +270,11 @@ function getModifiedFiles(workingDir, opts = {}) {
  * @returns {string} Fingerprint string (empty if not a git repo)
  */
 function getWorktreeFingerprint(workingDir, opts = {}) {
-  const ttl = opts.ttl || DEFAULT_FINGERPRINT_TTL_MS;
+  const ttl = opts.ttl ?? DEFAULT_FINGERPRINT_TTL_MS;
   const now = Date.now();
 
   const cached = _fingerprintCache.get(workingDir);
-  if (cached && (now - cached.timestamp) < ttl) {
+  if (ttl > 0 && cached && (now - cached.timestamp) < ttl) {
     return cached.fingerprint;
   }
 
