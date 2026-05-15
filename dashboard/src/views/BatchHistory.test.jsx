@@ -273,22 +273,23 @@ describe('BatchHistory', () => {
     renderWithProviders(<BatchHistory />, { route: '/batches' });
 
     await waitFor(() => {
-      expect(screen.getByText('Failed to load batch history')).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: 'Failed to load batch history' })).toBeInTheDocument();
     });
     expect(screen.getByText('Network error')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
   });
 
   it('retries loading when Retry button is clicked on error state', async () => {
-    workflowsApi.list.mockRejectedValueOnce(new Error('Network error'));
+    workflowsApi.list.mockRejectedValue(new Error('Network error'));
 
     renderWithProviders(<BatchHistory />, { route: '/batches' });
 
     await waitFor(() => {
-      expect(screen.getByText('Failed to load batch history')).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: 'Failed to load batch history' })).toBeInTheDocument();
     });
 
     // Reset mock to succeed on retry
+    workflowsApi.list.mockReset();
     workflowsApi.list.mockResolvedValue(mockWorkflows);
 
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }));

@@ -374,21 +374,22 @@ describe('History', () => {
     renderWithProviders(<History />, { route: '/history' });
 
     await waitFor(() => {
-      expect(screen.getByText('Failed to load task history')).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: 'Failed to load task history' })).toBeInTheDocument();
       expect(screen.getByText('Network failure')).toBeInTheDocument();
       expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
     });
   });
 
   it('retries and displays data after clicking Retry on error state', async () => {
-    tasksApi.list.mockRejectedValueOnce(new Error('Network failure'));
+    tasksApi.list.mockRejectedValue(new Error('Network failure'));
     renderWithProviders(<History />, { route: '/history' });
 
     await waitFor(() => {
-      expect(screen.getByText('Failed to load task history')).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: 'Failed to load task history' })).toBeInTheDocument();
     });
 
-    tasksApi.list.mockResolvedValueOnce({ tasks: mockTasks, pagination: mockPagination });
+    tasksApi.list.mockReset();
+    tasksApi.list.mockResolvedValue({ tasks: mockTasks, pagination: mockPagination });
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
 
     await waitFor(() => {

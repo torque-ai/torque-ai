@@ -399,25 +399,29 @@ describe('Coordination', () => {
     renderWithProviders(<Coordination />, { route: '/coordination' });
 
     await waitFor(() => {
-      expect(screen.getByText('Failed to load coordination data')).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: 'Failed to load coordination data' })).toBeInTheDocument();
     });
     expect(screen.getByText('Network error')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
   });
 
   it('retries loading when Retry button is clicked on error state', async () => {
-    coordinationApi.getDashboard.mockRejectedValueOnce(new Error('Network error'));
-    coordinationApi.listAgents.mockRejectedValueOnce(new Error('Network error'));
-    coordinationApi.listRules.mockRejectedValueOnce(new Error('Network error'));
-    coordinationApi.listClaims.mockRejectedValueOnce(new Error('Network error'));
+    coordinationApi.getDashboard.mockRejectedValue(new Error('Network error'));
+    coordinationApi.listAgents.mockRejectedValue(new Error('Network error'));
+    coordinationApi.listRules.mockRejectedValue(new Error('Network error'));
+    coordinationApi.listClaims.mockRejectedValue(new Error('Network error'));
 
     renderWithProviders(<Coordination />, { route: '/coordination' });
 
     await waitFor(() => {
-      expect(screen.getByText('Failed to load coordination data')).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: 'Failed to load coordination data' })).toBeInTheDocument();
     });
 
     // Reset mocks to succeed on retry
+    coordinationApi.getDashboard.mockReset();
+    coordinationApi.listAgents.mockReset();
+    coordinationApi.listRules.mockReset();
+    coordinationApi.listClaims.mockReset();
     coordinationApi.getDashboard.mockResolvedValue(mockDashboard);
     coordinationApi.listAgents.mockResolvedValue({ agents: mockAgents });
     coordinationApi.listRules.mockResolvedValue({ rules: mockRules });

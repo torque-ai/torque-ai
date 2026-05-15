@@ -515,23 +515,25 @@ describe('Approvals', () => {
     renderWithProviders(<Approvals />, { route: '/approvals' });
 
     await waitFor(() => {
-      expect(screen.getByText('Failed to load approvals')).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: 'Failed to load approvals' })).toBeInTheDocument();
     });
     expect(screen.getByText('Network error')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
   });
 
   it('retries loading when Retry button is clicked on error state', async () => {
-    approvalsApi.listPending.mockRejectedValueOnce(new Error('Network error'));
-    approvalsApi.getHistory.mockRejectedValueOnce(new Error('Network error'));
+    approvalsApi.listPending.mockRejectedValue(new Error('Network error'));
+    approvalsApi.getHistory.mockRejectedValue(new Error('Network error'));
 
     renderWithProviders(<Approvals />, { route: '/approvals' });
 
     await waitFor(() => {
-      expect(screen.getByText('Failed to load approvals')).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: 'Failed to load approvals' })).toBeInTheDocument();
     });
 
     // Reset mocks to succeed on retry
+    approvalsApi.listPending.mockReset();
+    approvalsApi.getHistory.mockReset();
     approvalsApi.listPending.mockResolvedValue(mockPendingV2Response);
     approvalsApi.getHistory.mockResolvedValue(mockHistoryV2Response);
 
@@ -556,7 +558,7 @@ describe('Approvals', () => {
   });
 
   it('retries factory loading when factory Retry button is clicked', async () => {
-    tasksApi.list.mockRejectedValueOnce(new Error('Factory API down'));
+    tasksApi.list.mockRejectedValue(new Error('Factory API down'));
 
     renderWithProviders(<Approvals />, { route: '/approvals' });
 
@@ -566,12 +568,13 @@ describe('Approvals', () => {
     });
 
     // Reset mock to succeed on retry
+    tasksApi.list.mockReset();
     tasksApi.list.mockResolvedValue(mockFactoryTasksResponse);
 
     fireEvent.click(within(section).getByRole('button', { name: 'Retry' }));
 
     await waitFor(() => {
-      expect(within(section).getByText('Batch batch-42')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Collapse batch batch-99' })).toBeInTheDocument();
     });
   });
 

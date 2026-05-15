@@ -189,22 +189,23 @@ describe('Budget', () => {
     renderWithProviders(<Budget />, { route: '/budget' });
 
     await waitFor(() => {
-      expect(screen.getByText('Failed to load budget data')).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: 'Failed to load budget data' })).toBeInTheDocument();
     });
     expect(screen.getByText('Network error')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
   });
 
   it('retries loading when Retry button is clicked on error state', async () => {
-    budgetApi.summary.mockRejectedValueOnce(new Error('Network error'));
+    budgetApi.summary.mockRejectedValue(new Error('Network error'));
 
     renderWithProviders(<Budget />, { route: '/budget' });
 
     await waitFor(() => {
-      expect(screen.getByText('Failed to load budget data')).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: 'Failed to load budget data' })).toBeInTheDocument();
     });
 
     // Reset mock to succeed on retry
+    budgetApi.summary.mockReset();
     budgetApi.summary.mockResolvedValue(mockSummary);
     budgetApi.status.mockResolvedValue(mockBudgetStatus);
     budgetApi.forecast.mockResolvedValue(null);
