@@ -236,7 +236,7 @@ describe('factory end-to-end flow', () => {
 
   test('handler: pause_project resolves a unique project name', async () => {
     const regResult = await handlers.handleRegisterFactoryProject({
-      name: 'Bitsy',
+      name: 'example-project',
       path: '/projects/example-project',
       trust_level: 'dark',
     });

@@ -506,9 +506,9 @@ describe('Kanban', () => {
     });
     expect(screen.getByText('scout')).toBeInTheDocument();
     expect(screen.getByText('architect')).toBeInTheDocument();
-    // Scout case also gets the target-project badge so the user sees both
-    // pieces of info even though task.project is null.
-    expect(screen.getByText('→ example-project')).toBeInTheDocument();
+    // Both factory tasks point at the same downstream project, so the board
+    // should show the target badge on each task.
+    expect(screen.getAllByText('→ example-project')).toHaveLength(2);
   });
 
   it('shows target-project badge on factory-internal tasks (architect/plan)', async () => {
