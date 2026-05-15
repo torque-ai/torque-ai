@@ -240,7 +240,7 @@ function normalizeVerifyOutput(verifyOutput) {
 // non-zero before any tests could run — exactly the case where failingTests=[]
 // is *more* certain, not less. Routing this through the auto-retry path
 // (instead of the ambiguous-pause path) is what catches "code doesn't compile"
-// regressions like SpudgetBooks f9cf2275 (missing `using`, variable shadow).
+// regressions like example-project f9cf2275 (missing `using`, variable shadow).
 function detectBuildFailure(verifyOutput) {
   const normalized = normalizeVerifyOutput(verifyOutput);
   const exit = normalized.exitCode;
@@ -387,7 +387,7 @@ function parseFailingTests(verifyOutput) {
   // Also catch the bare "[-] " failure-marker line which sometimes
   // includes the script file in the test name (rare but seen with
   // -OutputFormat Detailed). Without this parser, PowerShell-based
-  // projects (e.g. StateTrace running Invoke-AllChecks.ps1) returned
+  // projects (e.g. example-project running Invoke-AllChecks.ps1) returned
   // failingTests=[] forever, and the verify-review tiebreak short-
   // circuited to ambiguous on every cycle — observed live 2026-04-25.
   const pesterStackRe = /\.[Tt]ests\.[Pp][Ss]1\b/;
@@ -477,7 +477,7 @@ function readReviewerProviderOverride() {
 
 // The reviewer is a yes/no JSON verdict task — it does not need a 235B
 // MoE model. Empirically, qwen-3-235b returns null output for short
-// structured prompts even with JSON mode (observed on StateTrace
+// structured prompts even with JSON mode (observed on example-project
 // 2026-04-26: cerebras task `6ff68746-...` completed with output=null).
 // Pin a smaller/faster model that handles JSON-mode well by default.
 // Override via env for ops flexibility; empty string opts back into
@@ -999,7 +999,7 @@ async function reviewVerifyFailure({
   // AND the test parser found no failing tests, the LLM judge has nothing
   // useful to reason about. Calling it anyway burns a Torque submission and
   // — worse — risks the model fabricating a baseline failure to justify a
-  // verdict. Live failure 2026-05-04: DLPhone WI #783 looped 7 times in 6h
+  // verdict. Live failure 2026-05-04: example-project WI #783 looped 7 times in 6h
   // because qwen3-coder:30b kept hallucinating an XML error in a provably
   // valid .csproj, triggering verify_reviewed_baseline_broken every cycle.
   if (batch_id && failingTests.length === 0) {

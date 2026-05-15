@@ -2109,7 +2109,7 @@ describe('factory loop-controller EXECUTE for non-plan-file work items', () => {
       description: 'Reformat LAN startup retry test bodies without changing behavior.',
     });
     const rawPlan = [
-      '# DLPhone local Ollama canary Plan',
+      '# example-project local Ollama canary Plan',
       '**Source:** auto-generated from work_item #2082',
       '**Tech Stack:** C#',
       '',
@@ -2142,7 +2142,7 @@ describe('factory loop-controller EXECUTE for non-plan-file work items', () => {
       description: 'Reformat LAN startup retry test bodies without changing behavior.',
     });
     const rawPlan = [
-      '# DLPhone local Ollama canary Plan',
+      '# example-project local Ollama canary Plan',
       '**Source:** auto-generated from work_item #2082',
       '**Tech Stack:** C#',
       '',
@@ -2182,7 +2182,7 @@ describe('factory loop-controller EXECUTE for non-plan-file work items', () => {
       },
     };
     const rawPlan = [
-      '# DLPhone local Ollama canary Plan',
+      '# example-project local Ollama canary Plan',
       '**Source:** auto-generated from work_item #2083',
       '**Tech Stack:** C#',
       '',
@@ -2219,7 +2219,7 @@ describe('factory loop-controller EXECUTE for non-plan-file work items', () => {
       },
     };
     const rawPlan = [
-      '# DLPhone local Ollama canary Plan',
+      '# example-project local Ollama canary Plan',
       '**Source:** auto-generated from work_item #2084',
       '**Tech Stack:** Python',
       '',

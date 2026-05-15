@@ -71,7 +71,7 @@ describe('seedPresets', () => {
   it('Codex Primary routes plan_generation to codex first, not ollama', () => {
     // Template name and `description` both promise codex primary. Previously the
     // plan_generation rule put ollama first, so factory plans were written by a
-    // small local model and then rejected by the plan-quality gate — SpudgetBooks
+    // small local model and then rejected by the plan-quality gate — example-project
     // stalled because no plan ever passed and no execute task ever ran.
     const tmpl = mod.getTemplateByName('Codex Primary');
     expect(tmpl).not.toBeNull();

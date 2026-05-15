@@ -383,7 +383,7 @@ describe('shouldRejectNoEvidenceFactoryCompletion', () => {
         'factory:batch_id=factory-spudgetbooks-1884',
         'factory:work_item_id=1884',
         'factory:plan_task_number=3',
-        'project:SpudgetBooks',
+        'project:example-project',
       ]),
       metadata: '{}',
     };
@@ -427,7 +427,7 @@ describe('runOutputSafeguards no-evidence factory completion gate', () => {
       id: 'task-no-evidence',
       status: 'completed',
       provider: 'codex',
-      project: 'SpudgetBooks',
+      project: 'example-project',
       working_directory: 'C:/repo',
       task_description: 'Plan Task 3: edit docs/status/overall-progress-2026-05.md',
       files_modified: [],
@@ -442,7 +442,7 @@ describe('runOutputSafeguards no-evidence factory completion gate', () => {
         'factory:batch_id=factory-spudgetbooks-1884',
         'factory:work_item_id=1884',
         'factory:plan_task_number=3',
-        'project:SpudgetBooks',
+        'project:example-project',
       ]),
       metadata: '{}',
     };

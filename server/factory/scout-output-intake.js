@@ -231,7 +231,7 @@ function resolveScoutWorkingDir(task, metadata) {
  * Used to catch hallucinated exemplar_files from small-LLM scouts that invent
  * paths instead of reading the real codebase (observed 2026-04-29 with
  * qwen3-coder:30b producing factory-starvation-recovery.md and 3 other
- * fictional paths in a DLPhone scout, see scout task e50cfe25).
+ * fictional paths in a example-project scout, see scout task e50cfe25).
  *
  * @returns {{ kept: string[], dropped: string[], unchecked: boolean }}
  *   `unchecked: true` when baseDir is missing or input is not an array —
@@ -360,7 +360,7 @@ function createScoutOutputIntake({ factoryIntake, logger = console, resolveProje
       }
 
       // Existence guard: drop patterns whose exemplar_files are entirely
-      // hallucinated. Small-LLM scouts (qwen3-coder:30b on DLPhone, scout
+      // hallucinated. Small-LLM scouts (qwen3-coder:30b on example-project, scout
       // task e50cfe25 on 2026-04-29) regularly produce plausible-looking
       // patterns about fictional files. Without this filter the patterns
       // reach the architect, get re-planned 5 times until the deterministic

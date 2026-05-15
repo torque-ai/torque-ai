@@ -21,8 +21,8 @@ describe('local-verify-env', () => {
   it('resolves a trusted Windows temp base from LOCALAPPDATA instead of inherited TEMP', () => {
     const env = {
       LOCALAPPDATA: 'C:\\Users\\TestUser\\AppData\\Local',
-      TEMP: 'C:\\Users\\TestUser\\.codex\\memories\\bitsy-autodev-pytest-runtime\\tmp',
-      TMP: 'C:\\Users\\TestUser\\.codex\\memories\\bitsy-autodev-pytest-runtime\\tmp',
+      TEMP: 'C:\\Users\\TestUser\\.codex\\memories\\example-project-autodev-pytest-runtime\\tmp',
+      TMP: 'C:\\Users\\TestUser\\.codex\\memories\\example-project-autodev-pytest-runtime\\tmp',
     };
 
     expect(resolveTrustedTempBase(env, 'win32')).toBe('C:\\Users\\TestUser\\AppData\\Local\\Temp');
@@ -32,10 +32,10 @@ describe('local-verify-env', () => {
     const tempBaseRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'torque-local-verify-test-'));
     const env = {
       LOCALAPPDATA: 'C:\\Users\\TestUser\\AppData\\Local',
-      TEMP: 'C:\\Users\\TestUser\\.codex\\memories\\bitsy-autodev-pytest-runtime\\tmp',
-      TMP: 'C:\\Users\\TestUser\\.codex\\memories\\bitsy-autodev-pytest-runtime\\tmp',
-      TMPDIR: 'C:\\Users\\TestUser\\.codex\\memories\\bitsy-autodev-pytest-runtime\\tmp',
-      PYTEST_DEBUG_TEMPROOT: 'C:\\Users\\TestUser\\.codex\\memories\\bitsy-autodev-pytest-runtime\\pytest-temp-root',
+      TEMP: 'C:\\Users\\TestUser\\.codex\\memories\\example-project-autodev-pytest-runtime\\tmp',
+      TMP: 'C:\\Users\\TestUser\\.codex\\memories\\example-project-autodev-pytest-runtime\\tmp',
+      TMPDIR: 'C:\\Users\\TestUser\\.codex\\memories\\example-project-autodev-pytest-runtime\\tmp',
+      PYTEST_DEBUG_TEMPROOT: 'C:\\Users\\TestUser\\.codex\\memories\\example-project-autodev-pytest-runtime\\pytest-temp-root',
     };
 
     const prepared = prepareLocalVerifyEnv('py -3.12 -m pytest tests/ -q', env, {

@@ -238,8 +238,8 @@ Modify \`src/already-there.js\`:
 - [ ] **Step 1: run the failing test**
 
 \`\`\`bash
-# Read tests/SpudgetBooks.Infrastructure.Tests.csproj first
-dotnet test tests/SpudgetBooks.Infrastructure.Tests/SpudgetBooks.Infrastructure.Tests.csproj --verbosity normal
+# Read tests/example-project.Infrastructure.Tests.csproj first
+dotnet test tests/example-project.Infrastructure.Tests/example-project.Infrastructure.Tests.csproj --verbosity normal
 \`\`\`
 `;
     fs.writeFileSync(planPath, BAD_PLAN);

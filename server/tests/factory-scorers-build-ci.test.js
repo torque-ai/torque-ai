@@ -110,9 +110,9 @@ describe('build-ci scorer', () => {
   });
 
   test('detects dotnet build and test signals from workflows and PowerShell scripts', () => {
-    writeFile('SpudgetBooks.sln', 'Microsoft Visual Studio Solution File, Format Version 12.00');
+    writeFile('example-project.sln', 'Microsoft Visual Studio Solution File, Format Version 12.00');
     writeFile(
-      'tests/SpudgetBooks.CoreTests/SpudgetBooks.CoreTests.csproj',
+      'tests/example-project.CoreTests/example-project.CoreTests.csproj',
       `<?xml version="1.0" encoding="utf-8"?>
 <Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup>
@@ -122,8 +122,8 @@ describe('build-ci scorer', () => {
 </Project>`,
     );
     writeFile(
-      'tests/SpudgetBooks.CoreTests/InvoiceServiceTests.cs',
-      'namespace SpudgetBooks.CoreTests; public class InvoiceServiceTests {}',
+      'tests/example-project.CoreTests/InvoiceServiceTests.cs',
+      'namespace example-project.CoreTests; public class InvoiceServiceTests {}',
     );
     writeFile(
       '.github/workflows/ci.yml',
@@ -132,10 +132,10 @@ jobs:
   build:
     runs-on: windows-latest
     steps:
-      - run: dotnet build SpudgetBooks.sln
-      - run: dotnet test SpudgetBooks.sln --no-build`,
+      - run: dotnet build example-project.sln
+      - run: dotnet test example-project.sln --no-build`,
     );
-    writeFile('scripts/build.ps1', 'dotnet build SpudgetBooks.sln');
+    writeFile('scripts/build.ps1', 'dotnet build example-project.sln');
 
     const result = score(tempDir, {}, null);
 

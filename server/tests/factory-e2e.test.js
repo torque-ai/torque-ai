@@ -237,13 +237,13 @@ describe('factory end-to-end flow', () => {
   test('handler: pause_project resolves a unique project name', async () => {
     const regResult = await handlers.handleRegisterFactoryProject({
       name: 'Bitsy',
-      path: '/projects/bitsy',
+      path: '/projects/example-project',
       trust_level: 'dark',
     });
     const projectId = JSON.parse(regResult.content[0].text).project.id;
     factoryHealth.updateProject(projectId, { status: 'running' });
 
-    const pauseResult = await handlers.handlePauseProject({ project: 'bitsy', reason: 'operator allowlist' });
+    const pauseResult = await handlers.handlePauseProject({ project: 'example-project', reason: 'operator allowlist' });
     const pauseData = JSON.parse(pauseResult.content[0].text);
 
     expect(pauseData.project.id).toBe(projectId);

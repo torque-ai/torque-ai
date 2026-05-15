@@ -105,21 +105,21 @@ describe('buildProviderStartupEnv — native codex PATH augmentation', () => {
 describe('evaluateFactoryWorktreeHeavyValidationGuard', () => {
   it('blocks heavy local .NET validation for codex tasks in factory worktrees', () => {
     const result = evaluateFactoryWorktreeHeavyValidationGuard({
-      task_description: 'Update the evidence doc, then run dotnet test SpudgetBooks.sln --no-build.',
-      working_directory: 'C:\\Users\\FactoryUser\\Projects\\SpudgetBooks\\.worktrees\\fea-1234',
+      task_description: 'Update the evidence doc, then run dotnet test example-project.sln --no-build.',
+      working_directory: 'C:\\Users\\FactoryUser\\Projects\\example-project\\.worktrees\\fea-1234',
     }, 'codex');
 
     expect(result).toMatchObject({
       blocked: true,
-      detected_command: 'Update the evidence doc, then run dotnet test SpudgetBooks.sln --no-build.',
+      detected_command: 'Update the evidence doc, then run dotnet test example-project.sln --no-build.',
     });
     expect(result.message).toContain('torque-remote');
   });
 
   it('allows torque-remote validation commands in factory worktrees', () => {
     const result = evaluateFactoryWorktreeHeavyValidationGuard({
-      task_description: 'Run torque-remote dotnet test tests/SpudgetBooks.App.Tests/SpudgetBooks.App.Tests.csproj before shipping.',
-      working_directory: 'C:\\Users\\FactoryUser\\Projects\\SpudgetBooks\\.worktrees\\fea-1234',
+      task_description: 'Run torque-remote dotnet test tests/example-project.App.Tests/example-project.App.Tests.csproj before shipping.',
+      working_directory: 'C:\\Users\\FactoryUser\\Projects\\example-project\\.worktrees\\fea-1234',
     }, 'codex');
 
     expect(result).toBeNull();
@@ -127,8 +127,8 @@ describe('evaluateFactoryWorktreeHeavyValidationGuard', () => {
 
   it('ignores heavy validation commands outside factory worktrees', () => {
     const result = evaluateFactoryWorktreeHeavyValidationGuard({
-      task_description: 'Run dotnet test SpudgetBooks.sln --no-build before shipping.',
-      working_directory: 'C:\\Users\\FactoryUser\\Projects\\SpudgetBooks',
+      task_description: 'Run dotnet test example-project.sln --no-build before shipping.',
+      working_directory: 'C:\\Users\\FactoryUser\\Projects\\example-project',
     }, 'codex');
 
     expect(result).toBeNull();
@@ -175,8 +175,8 @@ describe('evaluateFactoryWorktreeHeavyValidationGuard', () => {
     // EXECUTE tasks in the factory pipeline are normal code-writing
     // tasks and SHOULD be steered to torque-remote.
     const result = evaluateFactoryWorktreeHeavyValidationGuard({
-      task_description: 'Implement the feature. Verify with: dotnet test SpudgetBooks.sln --no-build.',
-      working_directory: 'C:\\Users\\FactoryUser\\Projects\\SpudgetBooks\\.worktrees\\fea-1234',
+      task_description: 'Implement the feature. Verify with: dotnet test example-project.sln --no-build.',
+      working_directory: 'C:\\Users\\FactoryUser\\Projects\\example-project\\.worktrees\\fea-1234',
       metadata: { kind: 'execute', factory_internal: true },
     }, 'codex');
 

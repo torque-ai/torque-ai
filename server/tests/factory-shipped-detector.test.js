@@ -175,7 +175,7 @@ describe('factory shipped detector', () => {
     expect(result.signals.title_tokens).not.toContain('and');
   });
 
-  // Regression: live DLPhone bug 2026-04-28. The architect kept regenerating
+  // Regression: live example-project bug 2026-04-28. The architect kept regenerating
   // identical "dlphone-typed-lan-startup-failure-reasons" plans because the
   // shipped detector was scoring 0.6+ token overlap against unrelated merge
   // commits. Specifically wi=2010 with title tokens
@@ -184,7 +184,7 @@ describe('factory shipped detector', () => {
   // which matched [unity, host, join, smoke] (4/6 = 0.67) but lacks the
   // discriminating "dlphone" project token. The fix requires commitKeywordHit
   // (top-2 tokens BOTH in the subject) for any ship decision.
-  it('does NOT ship when score >= 0.6 but the project-identifying top tokens are absent (DLPhone false-positive)', () => {
+  it('does NOT ship when score >= 0.6 but the project-identifying top tokens are absent (example-project false-positive)', () => {
     writeRepoFiles(repoRoot, FILE_REFERENCES.slice(0, 1));
     const runGitLog = vi.fn().mockReturnValue([
       "Merge branch 'feat/factory-681-add-first-run-unity-host-join-ux-smoke-c'",
@@ -193,8 +193,8 @@ describe('factory shipped detector', () => {
     const detector = createShippedDetector({ repoRoot, runGitLog });
 
     const result = detector.detectShipped({
-      title: 'DLPhone Unity Playmode Host Join Smoke',
-      content: createPlanContent('DLPhone Unity Playmode Host Join Smoke', FILE_REFERENCES.slice(0, 1)),
+      title: 'example-project Unity Playmode Host Join Smoke',
+      content: createPlanContent('example-project Unity Playmode Host Join Smoke', FILE_REFERENCES.slice(0, 1)),
     });
 
     // 4/6 token overlap (unity, host, join, smoke) → score 0.67, but
@@ -213,8 +213,8 @@ describe('factory shipped detector', () => {
     const detector = createShippedDetector({ repoRoot, runGitLog });
 
     const result = detector.detectShipped({
-      title: 'DLPhone Unity Playmode Host Join Smoke',
-      content: createPlanContent('DLPhone Unity Playmode Host Join Smoke', FILE_REFERENCES.slice(0, 9)),
+      title: 'example-project Unity Playmode Host Join Smoke',
+      content: createPlanContent('example-project Unity Playmode Host Join Smoke', FILE_REFERENCES.slice(0, 9)),
     });
 
     // top-2 [dlphone, unity] both in subject → commitKeywordHit:true, all 6
@@ -237,8 +237,8 @@ describe('factory shipped detector', () => {
     const detector = createShippedDetector({ repoRoot, runGitLog });
 
     const result = detector.detectShipped({
-      title: 'DLPhone Unity Host Join Stress Coverage',
-      content: createPlanContent('DLPhone Unity Host Join Stress Coverage', FILE_REFERENCES.slice(0, 9)),
+      title: 'example-project Unity Host Join Stress Coverage',
+      content: createPlanContent('example-project Unity Host Join Stress Coverage', FILE_REFERENCES.slice(0, 9)),
     });
 
     // file_existence_ratio = 1.0, gitMatchScore = 0.5 (3/6: unity, host, join)
@@ -250,21 +250,21 @@ describe('factory shipped detector', () => {
     expect(result.shipped).toBe(false);
   });
 
-  // Regression: DLPhone (and other non-Node projects) had file_existence_ratio:
+  // Regression: example-project (and other non-Node projects) had file_existence_ratio:
   // null because the FILE_REFERENCE_REGEX whitelist didn't include `.cs`,
   // `simtests/`, or `client/UnityProject/Assets/`. That meant the detector's
   // file-existence signal was always null for these projects, leaving it
   // entirely dependent on git-token matching — which then produced the
   // false-positive above.
-  it('extracts C# file references in simtests/ (DLPhone-style)', () => {
+  it('extracts C# file references in simtests/ (example-project-style)', () => {
     const cs = ['simtests/HelloSimTests.cs', 'simtests/CombatTests.cs', 'simtests/ConfigTestPaths.cs'];
     writeRepoFiles(repoRoot, cs);
     const runGitLog = vi.fn().mockReturnValue([]);
     const detector = createShippedDetector({ repoRoot, runGitLog });
 
     const result = detector.detectShipped({
-      title: 'DLPhone Hello Sim Determinism Coverage',
-      content: createPlanContent('DLPhone Hello Sim Determinism Coverage', cs),
+      title: 'example-project Hello Sim Determinism Coverage',
+      content: createPlanContent('example-project Hello Sim Determinism Coverage', cs),
     });
 
     expect(result.signals.file_reference_total).toBe(3);
@@ -283,8 +283,8 @@ describe('factory shipped detector', () => {
     const detector = createShippedDetector({ repoRoot, runGitLog });
 
     const result = detector.detectShipped({
-      title: 'StateTrace WPF Render Pipeline Coverage',
-      content: createPlanContent('StateTrace WPF Render Pipeline Coverage', refs),
+      title: 'example-project WPF Render Pipeline Coverage',
+      content: createPlanContent('example-project WPF Render Pipeline Coverage', refs),
     });
 
     expect(result.signals.file_reference_total).toBe(3);

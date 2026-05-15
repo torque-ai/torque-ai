@@ -476,13 +476,13 @@ describe('Kanban', () => {
             {
               ...runningTask,
               id: 'task-scout-1',
-              task_description: 'Starvation recovery scout for DLPhone',
+              task_description: 'Starvation recovery scout for example-project',
               project: null,
               tags: [
                 'factory:scout',
                 'factory:reason=factory_starvation_recovery',
                 'factory:starvation_recovery',
-                'factory:target_project=DLPhone',
+                'factory:target_project=example-project',
               ],
             },
             {
@@ -490,7 +490,7 @@ describe('Kanban', () => {
               id: 'task-arch-2',
               task_description: 'Architect cycle',
               project: 'factory-architect',
-              tags: ['factory:internal', 'factory:architect_cycle', 'factory:target_project=bitsy'],
+              tags: ['factory:internal', 'factory:architect_cycle', 'factory:target_project=example-project'],
             },
           ],
         });
@@ -501,14 +501,14 @@ describe('Kanban', () => {
     renderWithProviders(<Kanban />, { route: '/' });
 
     await waitFor(() => {
-      expect(screen.getByText('Starvation recovery scout for DLPhone')).toBeInTheDocument();
+      expect(screen.getByText('Starvation recovery scout for example-project')).toBeInTheDocument();
       expect(screen.getByText('Architect cycle')).toBeInTheDocument();
     });
     expect(screen.getByText('scout')).toBeInTheDocument();
     expect(screen.getByText('architect')).toBeInTheDocument();
     // Scout case also gets the target-project badge so the user sees both
     // pieces of info even though task.project is null.
-    expect(screen.getByText('→ DLPhone')).toBeInTheDocument();
+    expect(screen.getByText('→ example-project')).toBeInTheDocument();
   });
 
   it('shows target-project badge on factory-internal tasks (architect/plan)', async () => {
@@ -519,9 +519,9 @@ describe('Kanban', () => {
             {
               ...runningTask,
               id: 'task-arch-1',
-              task_description: 'Architect cycle for DLPhone',
+              task_description: 'Architect cycle for example-project',
               project: 'factory-architect',
-              tags: ['factory:internal', 'factory:architect_cycle', 'factory:target_project=DLPhone'],
+              tags: ['factory:internal', 'factory:architect_cycle', 'factory:target_project=example-project'],
             },
             {
               ...runningTask,
@@ -539,10 +539,10 @@ describe('Kanban', () => {
     renderWithProviders(<Kanban />, { route: '/' });
 
     await waitFor(() => {
-      expect(screen.getByText('Architect cycle for DLPhone')).toBeInTheDocument();
+      expect(screen.getByText('Architect cycle for example-project')).toBeInTheDocument();
       expect(screen.getByText('Plan generation for torque-public')).toBeInTheDocument();
     });
-    expect(screen.getByText('→ DLPhone')).toBeInTheDocument();
+    expect(screen.getByText('→ example-project')).toBeInTheDocument();
     expect(screen.getByText('→ torque-public')).toBeInTheDocument();
   });
 
@@ -554,9 +554,9 @@ describe('Kanban', () => {
             {
               ...runningTask,
               id: 'task-direct-1',
-              task_description: 'Direct task in DLPhone',
-              project: 'DLPhone',
-              tags: ['factory:target_project=DLPhone'],
+              task_description: 'Direct task in example-project',
+              project: 'example-project',
+              tags: ['factory:target_project=example-project'],
             },
           ],
         });
@@ -567,9 +567,9 @@ describe('Kanban', () => {
     renderWithProviders(<Kanban />, { route: '/' });
 
     await waitFor(() => {
-      expect(screen.getByText('Direct task in DLPhone')).toBeInTheDocument();
+      expect(screen.getByText('Direct task in example-project')).toBeInTheDocument();
     });
-    expect(screen.queryByText('→ DLPhone')).toBeNull();
+    expect(screen.queryByText('→ example-project')).toBeNull();
   });
 
   it('routes Reject for pending provider switch tasks', async () => {

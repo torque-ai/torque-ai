@@ -2857,7 +2857,7 @@ case "$TRANSPORT" in
           # metadata is stale. `cd /d` is required for ROOT-mode worktrees that
           # may live on a different drive than the project.
           # `git config core.longpaths=true` runs every sync (idempotent) so
-          # that nested project tooling (StateTrace's own .worktrees, Unity
+          # that nested project tooling (an example-project's own .worktrees, Unity
           # build outputs, etc.) doesn't trip Windows MAX_PATH=260. Git uses
           # the \\?\-prefixed Win32 API when this is on, raising the ceiling
           # to ~32K characters.

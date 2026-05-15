@@ -659,7 +659,7 @@ function createWorktreeManager({ db } = {}) {
     // mid-rebase, mid-cherry-pick, or mid-revert, the pre-merge cleanup path
     // below will keep throwing generic "uncommitted changes" every loop
     // iteration because `git commit` refuses to commit while conflict
-    // markers are unresolved. The factory retried this ~1/min against bitsy
+    // markers are unresolved. The factory retried this ~1/min against example-project
     // master on 2026-04-20 until the operator noticed. Distinct error +
     // code lets LEARN pause the project immediately. This must run before
     // the porcelain short-circuit because merge/rebase marker files can be

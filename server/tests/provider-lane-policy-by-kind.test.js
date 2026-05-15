@@ -224,7 +224,7 @@ describe('Phase H: by_kind in provider lane policy', () => {
 });
 
 describe('Phase S: kind-family fallback in by_kind specialization', () => {
-  // DLPhone shape: operator declared architect_cycle/plan_generation/verify_review
+  // example-project shape: operator declared architect_cycle/plan_generation/verify_review
   // → codex but did not enumerate every architect-related kind. The Phase P
   // replan_rewrite/replan_decompose kinds (and architect_json) should
   // inherit the architect_cycle override via family fallback rather than
@@ -312,7 +312,7 @@ describe('Phase T: buildProviderLaneTaskMetadata accepts kind for stamping', () 
 
   const projectRow = {
     id: 'b9261762-7be5-4fc9-9794-f18c3e404fcb',
-    name: 'DLPhone',
+    name: 'example-project',
     config_json: JSON.stringify({
       provider_lane_policy: {
         expected_provider: 'ollama',

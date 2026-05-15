@@ -154,7 +154,7 @@ describe('no-edits-after-nudge — hard fail (counter>=MAX)', () => {
   });
 });
 
-describe('flag-decoupling regression — DLPhone task 8347e0a6 (2026-05-04)', () => {
+describe('flag-decoupling regression — example-project task 8347e0a6 (2026-05-04)', () => {
   // Pre-hardening this case fell through to model_finished because the
   // incomplete-task-nudge gate was guarded by !emptySummaryRetried, which
   // could be set by an earlier empty-summary retry without the model

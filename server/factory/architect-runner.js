@@ -709,7 +709,7 @@ async function submitArchitectJsonPrompt(prompt, project_id, projectPath, kind =
   // hiding which of the 5 distinct upstream failures actually triggered
   // the null. Tag each path with a structured warn so we can grep
   // "[architect-submit]" in logs and see the real distribution of
-  // failure modes (DLPhone replan_recovery_strategy_failed at 03:29:15
+  // failure modes (example-project replan_recovery_strategy_failed at 03:29:15
   // motivated this).
   let taskId;
   try {

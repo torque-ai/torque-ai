@@ -139,7 +139,7 @@ describe('shared-factory-store', () => {
       provider: 'ollama',
       tech_stack: 'dotnet',
       failure_pattern: 'missing-sdk',
-      project_source: 'SpudgetBooks',
+      project_source: 'example-project',
       expires_at: '2026-05-01T00:00:00.000Z',
       // Same pin as the case above — upsertLearningTxn's
       // expireStaleRowsNow sweep would otherwise delete the first row
@@ -199,7 +199,7 @@ describe('shared-factory-store', () => {
       failure_pattern: 'rate-limit',
       confidence: 0.5,
       sample_count: 1,
-      project_source: 'SpudgetBooks',
+      project_source: 'example-project',
       expires_at: '2026-04-29T09:00:00.000Z',
     });
 

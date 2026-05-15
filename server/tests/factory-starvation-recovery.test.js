@@ -634,7 +634,7 @@ describe('starvation recovery scout backoff helpers', () => {
 });
 
 describe('buildStarvationRecoveryScope', () => {
-  // The rewrite was driven by two DLPhone scout failures on qwen3-coder:30b
+  // The rewrite was driven by two example-project scout failures on qwen3-coder:30b
   // (e50cfe25 and c6549cc0, 2026-04-29) where the model latched onto
   // "Factory starvation recovery scout" in the original scope and produced
   // patterns about queue monitoring / starvation recovery / work-item
@@ -642,24 +642,24 @@ describe('buildStarvationRecoveryScope', () => {
 
   it('leads with the project name (not "Factory") so small models do not parse "factory" as topic', () => {
     const scope = buildStarvationRecoveryScope({
-      project: { name: 'DLPhone', brief: 'Mobile RTS game.' },
+      project: { name: 'example-project', brief: 'Mobile RTS game.' },
       noYieldScoutCount: 0,
     });
     const firstLine = scope.split('\n')[0];
-    expect(firstLine).toContain('**DLPhone**');
+    expect(firstLine).toContain('**example-project**');
     expect(firstLine).not.toMatch(/^Factory\s/);
   });
 
   it('embeds the project brief verbatim under a "Project context" heading', () => {
     const scope = buildStarvationRecoveryScope({
       project: {
-        name: 'DLPhone',
-        brief: 'DLPhone is a mobile RTS (Android/Unity, .NET 8) inspired by classic colony-management strategy games.',
+        name: 'example-project',
+        brief: 'example-project is a mobile RTS (Android/Unity, .NET 8) inspired by classic colony-management strategy games.',
       },
       noYieldScoutCount: 0,
     });
     expect(scope).toContain('## Project context');
-    expect(scope).toContain('DLPhone is a mobile RTS (Android/Unity, .NET 8)');
+    expect(scope).toContain('example-project is a mobile RTS (Android/Unity, .NET 8)');
   });
 
   it('omits the Project context section when no brief is available', () => {
@@ -681,19 +681,19 @@ describe('buildStarvationRecoveryScope', () => {
 
   it('explicitly disambiguates "factory" as the build pipeline, not the project domain', () => {
     const scope = buildStarvationRecoveryScope({
-      project: { name: 'DLPhone', brief: 'Mobile RTS.' },
+      project: { name: 'example-project', brief: 'Mobile RTS.' },
       noYieldScoutCount: 0,
     });
     expect(scope).toContain('## Disambiguation');
     expect(scope).toMatch(/"factory" refers to the autonomous build pipeline/i);
-    expect(scope).toContain("NOT to DLPhone's domain");
+    expect(scope).toContain("NOT to example-project's domain");
     // Listing the things models tend to invent so the model is told NOT to:
     expect(scope).toMatch(/queue monitoring|starvation recovery|generic factory/i);
   });
 
   it('mandates evidence — concrete items must come from list_directory or search_files', () => {
     const scope = buildStarvationRecoveryScope({
-      project: { name: 'DLPhone', brief: 'Mobile RTS.' },
+      project: { name: 'example-project', brief: 'Mobile RTS.' },
       noYieldScoutCount: 0,
     });
     expect(scope).toContain('## Evidence requirement');
@@ -705,7 +705,7 @@ describe('buildStarvationRecoveryScope', () => {
 
   it('forbids reading Codex memory or paths outside the project working directory', () => {
     const scope = buildStarvationRecoveryScope({
-      project: { name: 'StateTrace', brief: 'PowerShell desktop diagnostics.' },
+      project: { name: 'example-project', brief: 'PowerShell desktop diagnostics.' },
       noYieldScoutCount: 0,
     });
     expect(scope).toContain('## Repository boundary');
@@ -717,7 +717,7 @@ describe('buildStarvationRecoveryScope', () => {
 
   it('explicitly allows an empty concrete work item array as a valid signal', () => {
     const scope = buildStarvationRecoveryScope({
-      project: { name: 'DLPhone', brief: 'Mobile RTS.' },
+      project: { name: 'example-project', brief: 'Mobile RTS.' },
       noYieldScoutCount: 0,
     });
     expect(scope).toContain('empty');
@@ -727,7 +727,7 @@ describe('buildStarvationRecoveryScope', () => {
 
   it('does not mention loose scout pattern blocks in the bounded scope', () => {
     const scope = buildStarvationRecoveryScope({
-      project: { name: 'DLPhone', brief: 'Mobile RTS.' },
+      project: { name: 'example-project', brief: 'Mobile RTS.' },
       noYieldScoutCount: 0,
     });
     expect(scope).not.toContain('__PATTERNS_READY__');
@@ -745,7 +745,7 @@ describe('buildStarvationRecoveryScope', () => {
 
   it('preserves the no-yield scout backoff count for the model', () => {
     const scope = buildStarvationRecoveryScope({
-      project: { name: 'DLPhone', brief: 'Mobile RTS.' },
+      project: { name: 'example-project', brief: 'Mobile RTS.' },
       noYieldScoutCount: 3,
     });
     expect(scope).toContain('No-yield scout backoff count: 3');
@@ -753,7 +753,7 @@ describe('buildStarvationRecoveryScope', () => {
 
   it('preserves bounded scope limits and evidence sources', () => {
     const scope = buildStarvationRecoveryScope({
-      project: { name: 'DLPhone', brief: 'Mobile RTS.' },
+      project: { name: 'example-project', brief: 'Mobile RTS.' },
       noYieldScoutCount: 0,
     });
     expect(scope).toContain('## Scope bounds');

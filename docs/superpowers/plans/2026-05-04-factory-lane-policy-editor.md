@@ -1442,7 +1442,7 @@ not running, start it first per the root `CLAUDE.md`.
 
 In a browser open the dashboard URL (default `http://localhost:5173`),
 go to Settings, and pick a project that is registered with the
-factory and has an existing `provider_lane_policy` (DLPhone is the
+factory and has an existing `provider_lane_policy` (example-project is the
 canonical example in this repo).
 
 - [ ] **Step 3: Manually verify each control**

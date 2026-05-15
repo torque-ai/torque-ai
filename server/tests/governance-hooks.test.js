@@ -484,7 +484,7 @@ describe('governance/hooks', () => {
 
     it('checkRequireRemoteForBuilds blocks dotnet test even when the stored config is stale', () => {
       const result = CHECKERS.checkRequireRemoteForBuilds(
-        { task_description: 'Run dotnet test SpudgetBooks.sln --no-build and record the results.' },
+        { task_description: 'Run dotnet test example-project.sln --no-build and record the results.' },
         { config: JSON.stringify({ commands: ['dotnet build'] }) },
       );
 
@@ -509,7 +509,7 @@ describe('governance/hooks', () => {
 
     it('checkRequireRemoteForBuilds allows torque-remote-prefixed commands', () => {
       const result = CHECKERS.checkRequireRemoteForBuilds(
-        { task_description: 'Validation: run `torque-remote dotnet test SpudgetBooks.sln --no-build` before shipping.' },
+        { task_description: 'Validation: run `torque-remote dotnet test example-project.sln --no-build` before shipping.' },
         { config: null },
       );
 

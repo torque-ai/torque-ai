@@ -45,7 +45,7 @@ const READ_ONLY_TOOLS = new Set(['read_file', 'list_directory', 'search_files'])
 const ACTION_TOOLS = new Set(['write_file', 'edit_file', 'replace_lines', 'run_command']);
 const DEFAULT_MAX_READ_ONLY_ITERATIONS = envPositiveInt('TORQUE_AGENTIC_MAX_READ_ONLY_ITERATIONS', 5);
 // Cap tool calls per single model response. qwen3-coder:30b returned 22
-// parallel read-only calls in iteration 1 of DLPhone task 07af7b77 on
+// parallel read-only calls in iteration 1 of example-project task 07af7b77 on
 // 2026-04-26 — exhausted exploration budget before any edit, then went
 // silent. Capping forces the model to interleave reading with reasoning
 // across multiple iterations. Override via TORQUE_AGENTIC_MAX_TOOL_CALLS_PER_TURN.
@@ -314,7 +314,7 @@ async function runAgenticLoop({
   // when either fired, the nudge couldn't fire. Now it has its own counter,
   // and we allow up to 2 nudges before declaring the task a hard failure.
   // This catches the qwen3-coder:30b "I'll first check…" false-completion
-  // pattern observed live 2026-05-04 on DLPhone task 8347e0a6 (38s, 2 reads,
+  // pattern observed live 2026-05-04 on example-project task 8347e0a6 (38s, 2 reads,
   // 0 writes, exit 0). Without the second nudge + hard-fail, models that
   // ignore the first nudge get marked completed despite producing nothing.
   let incompleteTaskNudgeCount = 0;
@@ -573,7 +573,7 @@ async function runAgenticLoop({
       // declaring itself "done" with a text response, nudge it to actually complete the work.
       // This catches the explore-without-write pattern: model gathers context exhaustively
       // then "summarizes" instead of editing. Observed live 2026-04-26 on qwen3-coder:30b
-      // — a DLPhone task did 24 read-only calls, then went silent for 13 min, finished
+      // — a example-project task did 24 read-only calls, then went silent for 13 min, finished
       // with 0 files changed. Then again 2026-05-04 on task 8347e0a6 (38s, 2 reads, 0
       // writes, exit 0) where the previous flag-collision-guarded one-shot nudge was
       // suppressed by an earlier emptySummaryRetried fire.

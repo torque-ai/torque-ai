@@ -68,12 +68,12 @@ describe('user-facing scorer', () => {
   });
 
   test('detects WPF dashboard XAML without falling back to no_dashboard_dir', () => {
-    const projectDir = path.join(tempDir, 'SpudgetBooks');
+    const projectDir = path.join(tempDir, 'example-project');
     fs.mkdirSync(projectDir, { recursive: true });
     writeFile(
-      'SpudgetBooks/Sections/Dashboard/MainDashboard.xaml',
+      'example-project/Sections/Dashboard/MainDashboard.xaml',
       `
-        <UserControl x:Class="SpudgetBooks.Sections.Dashboard.MainDashboard"
+        <UserControl x:Class="example-project.Sections.Dashboard.MainDashboard"
             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
             AutomationProperties.Name="Main Dashboard">

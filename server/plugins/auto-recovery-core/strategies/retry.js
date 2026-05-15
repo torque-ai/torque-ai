@@ -39,7 +39,7 @@ module.exports = {
     // The right operation here is advanceLoop, which transitions the loop out
     // of the ready-state into the named target stage. Without this branch the
     // retry path threw on every READY_FOR_* recovery and forced escalation
-    // (seen on DLPhone item #2163: rewriteWorkItem returned non-string from a
+    // (seen on example-project item #2163: rewriteWorkItem returned non-string from a
     // stalled Codex call → retry → "Invalid gate stage: READY_FOR_PLAN" →
     // escalate → project paused).
     const isReadyForStage = pausedStage && pausedStage.startsWith('READY_FOR_');
@@ -49,7 +49,7 @@ module.exports = {
       // approveGate lets the loop tick re-enter the same stage on its own.
       // Without this branch retry would call retryFactoryVerify and throw
       // "Loop is not in VERIFY", dead-ending recovery on every non-verify
-      // exception (seen on DLPhone item #708 after a smart_submit_task
+      // exception (seen on example-project item #708 after a smart_submit_task
       // workflow auto-decompose was mis-classified as execute_exception).
       await services.approveGate({ project_id: project.id, stage: pausedStage });
       return {

@@ -1390,7 +1390,7 @@ describe('workflow await handlers (module-mocked)', () => {
         status: 'completed',
         metadata: {
           visual_verify: {
-            process: 'StateTrace.exe',
+            process: 'example-project.exe',
             title: 'Compare',
             host: 'host-a',
             auto_diff: false,
@@ -1413,7 +1413,7 @@ describe('workflow await handlers (module-mocked)', () => {
       expect(textOf(result)).toContain('Task Completed: build');
       expect(result.content[1].text).toBe('visual verify content');
       expect(mocks.handlePeekUi).toHaveBeenCalledWith({
-        process: 'StateTrace.exe',
+        process: 'example-project.exe',
         title: 'Compare',
         host: 'host-a',
         auto_diff: false,

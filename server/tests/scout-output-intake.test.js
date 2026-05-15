@@ -327,7 +327,7 @@ describe('scout output intake', () => {
         '__SCOUT_COMPLETE__',
         JSON.stringify({
           concrete_factory_work_items: [{
-            title: 'DLPhone startup failure reasons',
+            title: 'example-project startup failure reasons',
             reason: 'Repeated scout finding.',
           }],
         }),
@@ -342,7 +342,7 @@ describe('scout output intake', () => {
     })]);
     expect(factoryIntake.findRecentDuplicateWorkItems).toHaveBeenCalledWith(
       'project-1',
-      'DLPhone startup failure reasons',
+      'example-project startup failure reasons',
       expect.objectContaining({
         source: 'scout',
         statuses: expect.arrayContaining(['rejected', 'shipped_stale']),
@@ -353,7 +353,7 @@ describe('scout output intake', () => {
 });
 
 describe('scout output intake — exemplar_files existence guard', () => {
-  // The guard catches small-LLM scouts (qwen3-coder:30b on DLPhone, scout
+  // The guard catches small-LLM scouts (qwen3-coder:30b on example-project, scout
   // task e50cfe25 on 2026-04-29) that hallucinate plausible-looking file
   // paths instead of reading the real codebase. Without it, a hallucinated
   // pattern reaches the architect, gets re-planned 5 times until the

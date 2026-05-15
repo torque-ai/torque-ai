@@ -1063,13 +1063,13 @@ describe('api/v2-task-handlers.handleRetryTask', () => {
         provider: 'ollama-cloud',
         model: 'mistral-large-3:675b',
         project: 'factory-plan',
-        tags: ['factory:internal', 'factory:plan_generation', 'factory:target_project=DLPhone'],
+        tags: ['factory:internal', 'factory:plan_generation', 'factory:target_project=example-project'],
         metadata: JSON.stringify({
           _routing_template: 'preset-ollama-cloud-primary',
           factory_internal: true,
           kind: 'plan_generation',
           project_id: 'project-1',
-          target_project: 'DLPhone',
+          target_project: 'example-project',
           target_project_path: 'C:/repo',
           work_item_id: 893,
           provider_lane_policy: {
@@ -1093,7 +1093,7 @@ describe('api/v2-task-handlers.handleRetryTask', () => {
 
     const created = mockDb.createTask.mock.calls[0][0];
     expect(created.project).toBe('factory-plan');
-    expect(created.tags).toEqual(['factory:internal', 'factory:plan_generation', 'factory:target_project=DLPhone']);
+    expect(created.tags).toEqual(['factory:internal', 'factory:plan_generation', 'factory:target_project=example-project']);
     const metadata = parseJson(created.metadata);
     expect(metadata).toMatchObject({
       retry_of: 'failed-factory-plan',
@@ -1101,7 +1101,7 @@ describe('api/v2-task-handlers.handleRetryTask', () => {
       factory_internal: true,
       kind: 'plan_generation',
       project_id: 'project-1',
-      target_project: 'DLPhone',
+      target_project: 'example-project',
       target_project_path: 'C:/repo',
       work_item_id: 893,
       provider_lane_policy: {

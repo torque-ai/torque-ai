@@ -108,7 +108,7 @@ describe('process-streams', () => {
         id: 't1',
         status: 'running',
         provider: 'codex',
-        project: 'bitsy',
+        project: 'example-project',
         metadata: { mode: 'scout' },
       });
 

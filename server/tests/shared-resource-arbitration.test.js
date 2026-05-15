@@ -117,8 +117,8 @@ describe('shared Codex resource arbitration', () => {
     scheduler = loadScheduler({
       db: spudgetDb,
       store,
-      projectId: 'SpudgetBooks',
-      projectName: 'SpudgetBooks',
+      projectId: 'example-project',
+      projectName: 'example-project',
       startTask: vi.fn(taskId => {
         spudgetStarts.push(taskId);
         spudgetTasks.find(task => task.id === taskId).status = 'running';
@@ -143,8 +143,8 @@ describe('shared Codex resource arbitration', () => {
       loadScheduler({
         db: spudgetDb,
         store,
-        projectId: 'SpudgetBooks',
-        projectName: 'SpudgetBooks',
+        projectId: 'example-project',
+        projectName: 'example-project',
         startTask: vi.fn(taskId => {
           spudgetStarts.push(taskId);
           spudgetTasks.find(task => task.id === taskId).status = 'running';

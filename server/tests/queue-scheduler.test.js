@@ -1836,7 +1836,7 @@ describe('Queue Scheduler', () => {
               id: 'project-exec',
               provider: 'codex',
               task_description: 'Implement the selected project task',
-              tags: JSON.stringify(['factory:batch_id=batch-1', 'project:bitsy']),
+              tags: JSON.stringify(['factory:batch_id=batch-1', 'project:example-project']),
             }),
           ];
         }

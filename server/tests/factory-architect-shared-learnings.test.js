@@ -127,7 +127,7 @@ function seedVerifyFailureLearning(store, overrides = {}) {
     failure_pattern: pattern.pattern_hash,
     confidence: 0.9,
     sample_count: 3,
-    project_source: 'SpudgetBooks',
+    project_source: 'example-project',
     expires_at: '2099-01-01T00:00:00.000Z',
     payload: {
       signal_type: DEFAULT_VERIFY_FAILURE_SIGNAL_TYPE,
@@ -178,9 +178,9 @@ describe('factory architect shared verify-failure learnings', () => {
       status: 'running',
       provider: 'codex',
       task_description: 'Refactor EF Core repository layer and run dotnet test',
-      working_directory: path.join(tempDir, 'SpudgetBooks'),
+      working_directory: path.join(tempDir, 'example-project'),
       metadata: JSON.stringify({
-        project_id: 'SpudgetBooks',
+        project_id: 'example-project',
         target_files: ['src/Data/AppDbContext.cs', 'src/Data/App.csproj'],
       }),
       output: '',
@@ -224,7 +224,7 @@ describe('factory architect shared verify-failure learnings', () => {
       signal_type: DEFAULT_VERIFY_FAILURE_SIGNAL_TYPE,
       tech_stack: 'dotnet',
       provider: 'codex',
-      project_source: 'SpudgetBooks',
+      project_source: 'example-project',
     });
 
     const payload = JSON.parse(rows[0].payload_json);

@@ -368,7 +368,7 @@ describe('factory hardening end-to-end', () => {
   });
 
   it('Phase E: zero-diff with prior auto_committed_task advances to VERIFY (not IDLE/unactionable)', async () => {
-    // Regression for the live failure on DLPhone work item #2097
+    // Regression for the live failure on example-project work item #2097
     // (2026-04-29). qwen3-coder:30b's first EXECUTE attempt landed
     // commit 507350f at 22:47:48 (a real C# test in the work item's
     // allowed_files). Two follow-up retries no-op'd at 22:51:36 and
@@ -464,7 +464,7 @@ describe('factory hardening end-to-end', () => {
   });
 
   it('zero-diff with agent self-commits ahead of master advances to VERIFY (not IDLE/unactionable)', async () => {
-    // Regression for the live failure on bitsy work item #470 (2026-05-03,
+    // Regression for the live failure on example-project work item #470 (2026-05-03,
     // "Add type stubs and py.typed marker"). Codex generated a 4-task plan
     // that passed the quality gate; claude-cli executed each task and
     // committed inside the worktree (3f2ecf5, 2e69d25, 43a6cd3, e355132 —

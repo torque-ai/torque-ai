@@ -37,10 +37,10 @@ function insertTask(db, overrides) {
     provider: overrides.provider || 'ollama-cloud',
     model: overrides.model || 'mistral-large-3:675b',
     original_provider: overrides.original_provider || null,
-    tags: JSON.stringify(overrides.tags || ['factory:internal', 'factory:project_id=proj-1', 'factory:target_project=DLPhone']),
-    metadata: JSON.stringify(overrides.metadata || { target_project: 'DLPhone', project_id: 'proj-1' }),
+    tags: JSON.stringify(overrides.tags || ['factory:internal', 'factory:project_id=proj-1', 'factory:target_project=example-project']),
+    metadata: JSON.stringify(overrides.metadata || { target_project: 'example-project', project_id: 'proj-1' }),
     task_metadata: JSON.stringify(overrides.task_metadata || {}),
-    working_directory: overrides.working_directory || 'C:\\Projects\\DLPhone',
+    working_directory: overrides.working_directory || 'C:\\Projects\\example-project',
     created_at: overrides.created_at || '2026-04-25T17:00:00.000Z',
     started_at: overrides.started_at || null,
     completed_at: overrides.completed_at || null,
@@ -65,8 +65,8 @@ function insertTask(db, overrides) {
 describe('provider lane audit', () => {
   const project = {
     id: 'proj-1',
-    name: 'DLPhone',
-    path: 'C:\\Projects\\DLPhone',
+    name: 'example-project',
+    path: 'C:\\Projects\\example-project',
     config_json: JSON.stringify({
       provider_lane_policy: {
         expected_provider: 'ollama-cloud',
@@ -82,7 +82,7 @@ describe('provider lane audit', () => {
       id: 'ollama-running',
       status: 'running',
       metadata: {
-        target_project: 'DLPhone',
+        target_project: 'example-project',
         project_id: 'proj-1',
         work_item_id: 885,
         _routing_template: 'preset-ollama-cloud-primary',
@@ -96,7 +96,7 @@ describe('provider lane audit', () => {
       original_provider: 'ollama-cloud',
       files_modified: ['src/Lan.cs'],
       metadata: {
-        target_project: 'DLPhone',
+        target_project: 'example-project',
         project_id: 'proj-1',
         work_item_id: 885,
         _routing_template: 'preset-ollama-cloud-primary',
@@ -112,7 +112,7 @@ describe('provider lane audit', () => {
       provider: 'codex',
       model: null,
       metadata: {
-        target_project: 'DLPhone',
+        target_project: 'example-project',
         project_id: 'proj-1',
         work_item_id: 884,
       },
@@ -151,7 +151,7 @@ describe('provider lane audit', () => {
       provider: 'codex',
       original_provider: 'ollama-cloud',
       metadata: {
-        target_project: 'DLPhone',
+        target_project: 'example-project',
         project_id: 'proj-1',
         agentic_handoff: true,
         agentic_handoff_from: 'ollama-cloud',
@@ -163,7 +163,7 @@ describe('provider lane audit', () => {
     insertTask(db, {
       id: 'codex-unclassified',
       provider: 'codex',
-      metadata: { target_project: 'DLPhone', project_id: 'proj-1' },
+      metadata: { target_project: 'example-project', project_id: 'proj-1' },
       created_at: '2026-04-25T17:01:00.000Z',
     });
 
@@ -211,13 +211,13 @@ describe('provider lane audit', () => {
     insertTask(db, {
       id: 'pre-policy-codex',
       provider: 'codex',
-      metadata: { target_project: 'DLPhone', project_id: 'proj-1' },
+      metadata: { target_project: 'example-project', project_id: 'proj-1' },
       created_at: '2026-04-25T17:01:59.000Z',
     });
     insertTask(db, {
       id: 'post-policy-ollama',
       provider: 'ollama-cloud',
-      metadata: { target_project: 'DLPhone', project_id: 'proj-1' },
+      metadata: { target_project: 'example-project', project_id: 'proj-1' },
       created_at: '2026-04-25T17:02:00.000Z',
     });
 
@@ -245,7 +245,7 @@ describe('provider lane audit', () => {
     insertTask(db, {
       id: 'codex-fallback',
       provider: 'codex',
-      metadata: { target_project: 'DLPhone', project_id: 'proj-1' },
+      metadata: { target_project: 'example-project', project_id: 'proj-1' },
     });
 
     const audit = buildProviderLaneAudit({
@@ -278,7 +278,7 @@ describe('provider lane audit', () => {
       model: 'gemini-2.5-flash',
       original_provider: 'groq',
       metadata: {
-        target_project: 'DLPhone',
+        target_project: 'example-project',
         project_id: 'proj-1',
         agentic_handoff: true,
         agentic_handoff_from: 'groq',
@@ -290,7 +290,7 @@ describe('provider lane audit', () => {
     insertTask(db, {
       id: 'codex-provider',
       provider: 'codex',
-      metadata: { target_project: 'DLPhone', project_id: 'proj-1' },
+      metadata: { target_project: 'example-project', project_id: 'proj-1' },
       created_at: '2026-04-25T17:02:00.000Z',
     });
 

@@ -1,6 +1,6 @@
 'use strict';
 
-// Regression for the DLPhone empty-branch loop observed 2026-05-02.
+// Regression for the example-project empty-branch loop observed 2026-05-02.
 
 const fs = require('fs');
 const os = require('os');

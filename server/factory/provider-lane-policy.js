@@ -113,7 +113,7 @@ function normalizeProviderLanePolicy(value) {
  * having to enumerate every kind that didn't exist when they wrote
  * their config.
  *
- * Live evidence (DLPhone 2026-05-01 13:03 UTC): operator's by_kind had
+ * Live evidence (example-project 2026-05-01 13:03 UTC): operator's by_kind had
  * architect_cycle/plan_generation/verify_review → codex, but Phase P's
  * new replan_rewrite/replan_decompose kinds had no entry, so they fell
  * through to the project default (ollama) and qwen3-coder:30b returned
@@ -199,7 +199,7 @@ function buildProviderLaneTaskMetadata(projectOrConfig = {}, kind = null) {
   // kind-specialized policy onto the task's metadata. Otherwise any
   // downstream consumer that re-resolves provider from
   // metadata.provider_lane_policy.expected_provider would see the
-  // unspecialized worker-lane provider (e.g. ollama on DLPhone) and
+  // unspecialized worker-lane provider (e.g. ollama on example-project) and
   // override the codex routing that Phase H/S already chose at
   // submission time. The metadata previously diverged from the actual
   // routing decision; this keeps them aligned.

@@ -24,7 +24,7 @@ describe('shouldEscalateNoOpAgenticResult — factory-batch structural check', (
     id: 'wi-749-task-1',
     task_description: 'Capture observable LanStartupCoordinator failure reasons.',
     tags: JSON.stringify([
-      'factory:project=DLPhone',
+      'factory:project=example-project',
       'factory:batch_id=factory-b9261762-7be5-4fc9-9794-f18c3e404fcb-749',
       'factory:plan_task_number=1',
     ]),

@@ -214,7 +214,7 @@ describe('handleSubmitScout', () => {
     // which makes scout tasks identifiable on the board the same way
     // architect/plan-gen tasks already are.
     installCjsModuleMock('../db/factory/health', {
-      getProject: (id) => (id === 'project-1' ? { id, name: 'DLPhone' } : null),
+      getProject: (id) => (id === 'project-1' ? { id, name: 'example-project' } : null),
     });
     const fresh = require(HANDLER_MODULE);
     fresh.handleSubmitScout({
@@ -225,7 +225,7 @@ describe('handleSubmitScout', () => {
       project_id: 'project-1',
     });
     const lastCall = mockTaskCore.createTask.mock.calls.at(-1)[0];
-    expect(lastCall.tags).toContain('factory:target_project=DLPhone');
+    expect(lastCall.tags).toContain('factory:target_project=example-project');
   });
 
   it('omits factory:target_project tag when factoryHealth has no record', () => {

@@ -153,7 +153,7 @@ describe('file-resolution defensive behavior', () => {
     testDirs.push(workDir);
 
     const result = resolveFileReferences(
-      'Examples only: path/to/spec.js, tests/test_foo.py, Node.js, MyApp.Tests.csproj, and bitsy/agent/session.py.',
+      'Examples only: path/to/spec.js, tests/test_foo.py, Node.js, MyApp.Tests.csproj, and example-project/agent/session.py.',
       workDir
     );
 

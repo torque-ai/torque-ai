@@ -6,7 +6,7 @@
  * Pre-Phase-Q, all paths returned `null` silently (except submit_failed which
  * logged a generic warn). Downstream parseStrictJson then threw "provider
  * response was not a string" — masking which upstream condition actually
- * triggered the null. Live evidence: DLPhone work item replan at
+ * triggered the null. Live evidence: example-project work item replan at
  * 03:29:15 UTC failed with `replan_recovery_strategy_failed: Strategy
  * "rewrite-description" threw or timed out: rewriteWorkItem: provider
  * response was not a string`.

@@ -21,13 +21,13 @@ function seed(db) {
   )`).run();
 }
 
-describe('E2E: SpudgetBooks sourcelink scenario', () => {
+describe('E2E: example-project sourcelink scenario', () => {
   it('classifies as transient, runs clean_and_retry, logs success', async () => {
     const db = new Database(':memory:');
     seed(db);
     db.prepare(`INSERT INTO factory_projects
                 (id, name, status, path, loop_state, loop_paused_at_stage, loop_last_action_at)
-                VALUES ('sb', 'SpudgetBooks', 'running', '/fake/sb', 'PAUSED', 'VERIFY_FAIL',
+                VALUES ('sb', 'example-project', 'running', '/fake/sb', 'PAUSED', 'VERIFY_FAIL',
                         '2026-04-21T03:00:00Z')`).run();
     db.prepare(`INSERT INTO factory_decisions
                 (project_id, stage, actor, action, reasoning, outcome_json, created_at, batch_id)

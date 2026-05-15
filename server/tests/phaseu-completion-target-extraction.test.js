@@ -29,8 +29,8 @@ async function withTmpDir(fn) {
 
 describe('Phase U: edit-target extraction', () => {
   describe('extractEditTargetPaths', () => {
-    it('captures bare filename after Edit verb (the bitsy task 2 case)', () => {
-      // Live bug: bitsy plan 735 task 2 says
+    it('captures bare filename after Edit verb (the example-project task 2 case)', () => {
+      // Live bug: example-project plan 735 task 2 says
       //   "Edit `pyproject.toml`. ... matching ... used by `.github/workflows/python-ci.yml`"
       // The reference path was being treated as the edit target. Phase U
       // should extract pyproject.toml (the actual target) and ignore the
@@ -39,7 +39,7 @@ describe('Phase U: edit-target extraction', () => {
 
 - [x] **Step 1: Configure**
 
-    Edit \`pyproject.toml\`. Set a stable target-version matching the lowest Python version used by \`.github/workflows/python-ci.yml\`, and ensure the lint gate targets \`bitsy\` and \`tests\`.`;
+    Edit \`pyproject.toml\`. Set a stable target-version matching the lowest Python version used by \`.github/workflows/python-ci.yml\`, and ensure the lint gate targets \`example-project\` and \`tests\`.`;
       const targets = extractEditTargetPaths(makeTask(md));
       expect(targets).toEqual(['pyproject.toml']);
     });
@@ -61,12 +61,12 @@ describe('Phase U: edit-target extraction', () => {
 
     it('rejects bare module names with no dot or slash', () => {
       // "Configure target-version" should not be treated as a path.
-      const md = 'Configure `bitsy` package settings.';
+      const md = 'Configure `example-project` package settings.';
       expect(extractEditTargetPaths(makeTask(md))).toEqual([]);
     });
 
     it('returns empty list when no verb precedes a backticked identifier', () => {
-      // The bitsy bug-source: a path is mentioned as a reference, not after a verb.
+      // The example-project bug-source: a path is mentioned as a reference, not after a verb.
       const md = 'The `.github/workflows/python-ci.yml` is the reference.';
       expect(extractEditTargetPaths(makeTask(md))).toEqual([]);
     });
@@ -88,8 +88,8 @@ describe('Phase U: edit-target extraction', () => {
   });
 
   describe('verifyCompletedTaskArtifacts (Phase U integration)', () => {
-    it('trusts [x] when the bare filename target exists (bitsy bug fix)', () => withTmpDir(async (dir) => {
-      // Reproduce the exact bitsy plan 735 task 2 scenario.
+    it('trusts [x] when the bare filename target exists (example-project bug fix)', () => withTmpDir(async (dir) => {
+      // Reproduce the exact example-project plan 735 task 2 scenario.
       fs.writeFileSync(path.join(dir, 'pyproject.toml'), '[tool.ruff]\n');
       // Note: .github/workflows/python-ci.yml does NOT exist (the source bug).
       const md = `## Task 2

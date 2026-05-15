@@ -9,7 +9,7 @@ const reasonPatterns = [
   // Phase P (2026-04-30): Phase N's pre-submission guard surfaces here
   // as `task_targets_missing_files: task_N`. Without this pattern, the
   // reject_reason fell through to rejected-recovery's `task_.+_failed`
-  // pattern and just retried the same broken plan (DLPhone #2117 thrash).
+  // pattern and just retried the same broken plan (example-project #2117 thrash).
   /^task_targets_missing_files(:|$)/i,
   // The heavy-validation guard's violation also benefits from a rewrite
   // (the plan called for a heavy local validation step that won't survive

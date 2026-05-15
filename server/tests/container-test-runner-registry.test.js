@@ -11,7 +11,7 @@
 // factory-handlers.executeBaselineResumeProbe, factory-tick baseline probe)
 // then ran the verify chain locally instead of routing it to the configured
 // remote workstation — observed as a 5GB local dotnet test storm on the dev
-// box during a SpudgetBooks baseline-probe cycle.
+// box during a example-project baseline-probe cycle.
 
 const { createContainer, defaultContainer } = require('../container');
 const { createTestRunnerRegistry } = require('../test-runner-registry');

@@ -29,7 +29,7 @@ const READOPT_LOG_STALE_MS_DEFAULT = 5 * 60 * 1000;
 // non-detachable providers (ollama, ollama-agentic, anthropic, etc.)
 // burn through the cap quickly because they get cloned anew on every
 // restart. With multiple cutovers per hour observed in practice, 3
-// caused real ollama-agentic work to be abandoned (DLPhone WI #161
+// caused real ollama-agentic work to be abandoned (example-project WI #161
 // 10bc5f57 was at restart_resubmit_count=3 on 2026-05-05).
 // Override via TORQUE_RESTART_RESUBMIT_CAP. Detachable subprocesses
 // (codex/codex-spark/claude-cli) don't increment the counter at all

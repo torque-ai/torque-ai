@@ -249,7 +249,7 @@ describe('Close Phases', () => {
           tags: JSON.stringify([
             'factory:scout',
             'factory:reason=factory_starvation_recovery',
-            'project:bitsy',
+            'project:example-project',
           ]),
           metadata: JSON.stringify({
             mode: 'scout',

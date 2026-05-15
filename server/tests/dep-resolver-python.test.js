@@ -105,7 +105,7 @@ describe('python adapter mapModuleToPackage()', () => {
     const r = await adapter.mapModuleToPackage({
       module_name: 'cv2',
       error_output: "ModuleNotFoundError: No module named 'cv2'",
-      manifest_excerpt: '[project]\nname = "bitsy"',
+      manifest_excerpt: '[project]\nname = "example-project"',
       project: { id: 'p', path: '/tmp/p' },
       workItem: { id: 1 },
     });
@@ -180,7 +180,7 @@ describe('python adapter buildResolverPrompt()', () => {
     const adapter = createPythonAdapter();
     const prompt = adapter.buildResolverPrompt({
       package_name: 'opencv-python',
-      project: { id: 'p', path: '/tmp/p', name: 'bitsy' },
+      project: { id: 'p', path: '/tmp/p', name: 'example-project' },
       worktree: { path: '/tmp/p/.worktrees/feat-factory-79' },
       workItem: { id: 79, title: 'Add scoring' },
       error_output: 'ModuleNotFoundError: No module named cv2',

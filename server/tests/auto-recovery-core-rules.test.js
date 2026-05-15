@@ -130,7 +130,7 @@ describe('auto-recovery-core day-one rules', () => {
   });
 
   it('classifies "active worktree owner still running" as await_self_heal with empty strategies', () => {
-    // Regression for the bitsy work_item 2161 spin (2026-05-01 03:18-03:31):
+    // Regression for the example-project work_item 2161 spin (2026-05-01 03:18-03:31):
     // pre-execute reclaim found the worktree owned by a live task, the loop
     // transitioned to PAUSED, auto-recovery picked retry → approveGate → un-paused,
     // loop ticked → same condition → paused again, in a tight ~5 min cycle.
@@ -257,11 +257,11 @@ describe('auto-recovery-core day-one rules', () => {
   });
 
   it('classifies LEARN merge_target_dirty as await_self_heal with discard + escalate chain', () => {
-    // Regression for bitsy WI 732 (2026-05-03) AND DLPhone WI #762
+    // Regression for example-project WI 732 (2026-05-03) AND example-project WI #762
     // (2026-05-04): LEARN's merge check fires merge_target_dirty when main
     // has dirty files. Originally (3f36337c) the rule used empty strategies
     // assuming operator-driven self-heal would fire the rearm path; live
-    // evidence on DLPhone showed `auto_recovery_exhausted=1` parked the
+    // evidence on example-project showed `auto_recovery_exhausted=1` parked the
     // project at READY_FOR_LEARN and rearm did NOT fire even after the
     // operator cleaned main — manual approveGate was always required.
     //
@@ -308,7 +308,7 @@ describe('auto-recovery-core day-one rules', () => {
   });
 
   it('classifies plan_generation_retry_unusable_output as plan_failure with fallback_provider first', () => {
-    // Regression for bitsy WI 470 (2026-05-03): claude-cli's plan_generation
+    // Regression for example-project WI 470 (2026-05-03): claude-cli's plan_generation
     // returned a summary string ("The plan has been written to plan.md...")
     // because Claude Code is a tool-using agent and treated "Return Markdown
     // only" as "do work and produce a file". The factory's parser rejected
@@ -335,8 +335,8 @@ describe('auto-recovery-core day-one rules', () => {
   });
 
   it('classifies execute execution_failed as transient with retry first', () => {
-    // Regression for bitsy task ce75e955 (2026-05-03): WI 536 task 1
-    // cancelled by a concurrent Claude session that saw bitsy as paused
+    // Regression for example-project task ce75e955 (2026-05-03): WI 536 task 1
+    // cancelled by a concurrent Claude session that saw example-project as paused
     // and triaged the running task as 'leaked'. The cancellation surfaced
     // as execute/execution_failed with reasoning 'task 1 failed'. Without
     // this rule, the default unknown-classification picked retry, then
@@ -364,7 +364,7 @@ describe('auto-recovery-core day-one rules', () => {
   });
 
   it('classifies execute_zero_diff_short_circuit as transient with retry first', () => {
-    // Regression for bitsy WI 2170 (2026-05-03): work item was already
+    // Regression for example-project WI 2170 (2026-05-03): work item was already
     // shipped via a prior gitignore commit; both EXECUTE attempts produced
     // zero-diff (auto_commit_skipped_clean), the short-circuit fired and
     // marked WI unactionable, and the loop transitioned to IDLE. Without

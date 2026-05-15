@@ -37,7 +37,7 @@ describe('listRecoveryCandidates', () => {
     db.prepare(SCHEMA).run();
   });
 
-  it('matches VERIFY_FAIL-paused projects (SpudgetBooks bug)', () => {
+  it('matches VERIFY_FAIL-paused projects (example-project bug)', () => {
     seedProject(db, {
       id: 'sb', loop_state: 'PAUSED', loop_paused_at_stage: 'VERIFY_FAIL',
       loop_last_action_at: '2026-04-21T03:00:00Z',

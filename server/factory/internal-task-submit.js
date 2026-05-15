@@ -210,7 +210,7 @@ function resolveInheritedRoutingIntent({
   // this submission has a kind that matches, the kind's override
   // becomes the effective expected_provider. Without specialization the
   // architect/plan-quality/verify-review tasks would inherit the
-  // worker-lane provider (e.g. ollama on DLPhone) and never reach the
+  // worker-lane provider (e.g. ollama on example-project) and never reach the
   // stronger model the operator pinned for those manager kinds.
   const lanePolicy = kind
     ? specializePolicyForKind(rawLanePolicy, kind)

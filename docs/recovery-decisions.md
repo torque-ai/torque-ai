@@ -119,7 +119,7 @@ Predicates are checked in order; first match wins. Sample (not exhaustive — se
 
 Documented here for completeness. Templates: `system-default`, `quality-first`, `codex-primary`, `cost-saver`, `cloud-sprint`, `free-agentic`, `free-speed`, `all-local`, `ollama-cloud-primary`, `codex-down-failover`, `legacy-fallback`.
 
-**Hot zone:** the `plan_generation` category. Several templates lead with cerebras/groq for plan_generation — appropriate for fast text-gen, but `bitsy` WI 470 (memory entry: `project_codex_primary_plan_routing.md`) showed claude-cli silently writing the plan to a file instead of returning inline markdown, which fed directly into `plan_generation_unusable_output` rule firings in A. Routing-template choice is upstream of recovery rule load.
+**Hot zone:** the `plan_generation` category. Several templates lead with cerebras/groq for plan_generation — appropriate for fast text-gen, but `example-project` WI 470 (memory entry: `project_codex_primary_plan_routing.md`) showed claude-cli silently writing the plan to a file instead of returning inline markdown, which fed directly into `plan_generation_unusable_output` rule firings in A. Routing-template choice is upstream of recovery rule load.
 
 ---
 
@@ -150,7 +150,7 @@ These are real ambiguities surfaced by this audit. Each one is worth resolving b
 
 ### 1. ~~`learn_merge_target_dirty` empty strategies — intentional or stale?~~ ✅ RESOLVED 2026-05-05
 
-**Resolution**: factory-self-heal won. The original "operator-self-heal" claim was disproven by live evidence (DLPhone WI #762, 2026-05-04): `auto_recovery_exhausted=1` parked the project at READY_FOR_LEARN and rearm did **not** fire even after the operator cleaned main — manual `approveGate({stage:"LEARN"})` was always required. Separately, the discard strategy in B1 was architecturally unreachable because `merge_target_dirty` is emitted only as a project-level pause action (`safeLogDecision({ stage: LEARN, action: 'merge_target_dirty', ... })` in loop-controller.js), never as a work-item `reject_reason`.
+**Resolution**: factory-self-heal won. The original "operator-self-heal" claim was disproven by live evidence (example-project WI #762, 2026-05-04): `auto_recovery_exhausted=1` parked the project at READY_FOR_LEARN and rearm did **not** fire even after the operator cleaned main — manual `approveGate({stage:"LEARN"})` was always required. Separately, the discard strategy in B1 was architecturally unreachable because `merge_target_dirty` is emitted only as a project-level pause action (`safeLogDecision({ stage: LEARN, action: 'merge_target_dirty', ... })` in loop-controller.js), never as a work-item `reject_reason`.
 
 **Fix landed**: A-side strategy `discard-regenerable-merge-block` added in `server/plugins/auto-recovery-core/strategies/`, sharing core logic with the B1 strategy via the new `server/factory/recovery-strategies/discard-regenerable-merge-block-core.js`. The rule now suggests `['discard-regenerable-merge-block', 'escalate']`. The strategy is conservative — refuses when any dirty file is non-regenerable (falls through to `escalate` so the operator still gets notified for genuine work-in-progress on main). B1 strategy stays registered as defense-in-depth in case a future codepath sets `merge_target_dirty` as a `reject_reason`.
 

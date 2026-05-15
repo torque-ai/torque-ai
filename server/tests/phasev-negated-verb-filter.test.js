@@ -14,7 +14,7 @@ function makeTask(rawMarkdown) {
 
 describe('Phase V: negation guard in extractEditTargetPaths', () => {
   it('excludes targets preceded by "do not"', () => {
-    // Live bug from bitsy plan 721 task 1 — duplicate-plan rewrite.
+    // Live bug from example-project plan 721 task 1 — duplicate-plan rewrite.
     const md = `Treat this request as already satisfied by the canonical
 dependency-health implementation; do not create
 \`scripts/check_dependency_health.py\` from this duplicate plan.`;

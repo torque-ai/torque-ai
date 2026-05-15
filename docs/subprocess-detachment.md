@@ -41,7 +41,7 @@ These commits hardened the live detachment path. None added new phases; they fix
 
 | Date | Commit | Issue | Fix |
 |---|---|---|---|
-| 2026-05-05 | `944a0ec3` | DLPhone WI #783 cutover-killed an 8-min ollama agentic task | `worktree-cutover.sh` auto-extends drain to 30 min when running tasks include non-detachable providers. `CUTOVER_NONDETACH_MIN` env override (0 disables). |
+| 2026-05-05 | `944a0ec3` | example-project WI #783 cutover-killed an 8-min ollama agentic task | `worktree-cutover.sh` auto-extends drain to 30 min when running tasks include non-detachable providers. `CUTOVER_NONDETACH_MIN` env override (0 disables). |
 | 2026-05-05 | `8651798b` | Codex `[process-exit]` banner regex (`\s*$` with `/m`) matched every blank line → every chunk misclassified as banner → `proc.lastOutputAt` frozen at spawn for every codex task | Replaced inline regex with `every()` pattern from process-streams.js. |
 | 2026-05-05 | `ba4620d3` → `03a88393` | `getTaskProgress` returned "(no output yet)" when stdout was empty even though stderr had codex tool traces — misleading the operator | Counts stderr in progress for codex/codex-spark/claude-cli when stdout empty. New v2 progress endpoint contract: `output_length`, `error_output_length`, `last_output_at`, `status`, `elapsed_seconds`. MCP `get_progress` shows `### Latest Stderr` section. |
 | 2026-05-05 | `d8462d0e` | v2 progress endpoint missing `error_output_bytes` (was MCP-only); cutover orphan retry budget too short | Endpoint symmetry; cutover cleanup uses exponential backoff (31s budget, was 3s) + post-prune retry. |

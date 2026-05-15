@@ -356,7 +356,7 @@ describe('handleAutoVerifyRetry — guards and init', () => {
   // falling back to path-based lookup.
   it('uses project:<name> tag when present, even if path lookup would mis-resolve', async () => {
     const db = createMockDb({
-      project: 'DLPhone',
+      project: 'example-project',
       initialConfig: { verify_command: 'dotnet test' },
       projectExists: true,
     });
@@ -368,17 +368,17 @@ describe('handleAutoVerifyRetry — guards and init', () => {
     const ctx = makeCtxWithModifiedFiles({
       task: makeTask({
         provider: 'ollama',
-        working_directory: 'C:/repo/DLPhone/.worktrees/fea-d44fc570',
-        tags: ['factory:work_item_id=2115', 'project:DLPhone'],
+        working_directory: 'C:/repo/example-project/.worktrees/fea-d44fc570',
+        tags: ['factory:work_item_id=2115', 'project:example-project'],
       }),
     });
 
     await handleAutoVerifyRetry(ctx);
 
     // The tag-based lookup should win — getProjectConfig is called with
-    // the DLPhone name from the tag, not the worktree subdir.
-    expect(db.getProjectConfig).toHaveBeenCalledWith('DLPhone');
-    // verify_command should fire because DLPhone's config has it set.
+    // the example-project name from the tag, not the worktree subdir.
+    expect(db.getProjectConfig).toHaveBeenCalledWith('example-project');
+    // verify_command should fire because example-project's config has it set.
     expect(mockRunVerifyCommand).toHaveBeenCalled();
   });
 
@@ -450,7 +450,7 @@ describe('handleAutoVerifyRetry — guards and init', () => {
 
   it('skips read-only factory scout tasks even when project verify is configured', async () => {
     const db = createMockDb({
-      project: 'bitsy',
+      project: 'example-project',
       initialConfig: {
         verify_command: 'py -3.12 -m pytest tests/ -q',
         auto_verify_on_completion: 1,
@@ -459,11 +459,11 @@ describe('handleAutoVerifyRetry — guards and init', () => {
     const { handleAutoVerifyRetry } = loadModuleWithMocks({ db });
     const ctx = makeCtx({
       task: makeTask({
-        project: 'bitsy',
+        project: 'example-project',
         tags: JSON.stringify([
           'factory:scout',
           'factory:reason=factory_starvation_recovery',
-          'project:bitsy',
+          'project:example-project',
         ]),
         metadata: JSON.stringify({
           mode: 'scout',

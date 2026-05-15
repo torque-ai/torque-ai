@@ -28,8 +28,8 @@ vi.mock('./useFactoryLoopControl', () => ({
 
 const project = {
   id: 'project-1',
-  name: 'SpudgetBooks',
-  path: 'C:/Projects/SpudgetBooks',
+  name: 'example-project',
+  path: 'C:/Projects/example-project',
   status: 'running',
   trust_level: 'dark',
   loop_state: 'EXECUTE',

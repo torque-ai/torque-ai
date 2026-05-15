@@ -116,7 +116,7 @@ function extractTaskFilePaths(task, fallbackFilePaths = []) {
 // has a slash, AND ignores backticked references that aren't immediately
 // preceded by an action verb.
 //
-// Bug it fixes: bitsy plan 735 task 2 says "Edit `pyproject.toml`. ...
+// Bug it fixes: example-project plan 735 task 2 says "Edit `pyproject.toml`. ...
 // matching the lowest Python version used by `.github/workflows/python-ci.yml`".
 // extractTaskFilePaths returned ONLY .github/workflows/python-ci.yml
 // (the reference) because pyproject.toml has no slash. The completion
@@ -132,7 +132,7 @@ const EDIT_TARGET_RE = new RegExp(`\\b${TARGET_VERBS}\\b(?:\\s+(?:the|a|an|new))
 // were positive instructions, treating `X` and `Y` as edit targets — then
 // mistrusting the (correctly-marked) [x] when the file didn't exist.
 //
-// Live evidence: bitsy plan 721 task 1 says
+// Live evidence: example-project plan 721 task 1 says
 //   "Treat this request as already satisfied by the canonical
 //    dependency-health implementation; do not create
 //    `scripts/check_dependency_health.py` from this duplicate plan."
@@ -238,7 +238,7 @@ async function verifyCompletedTaskArtifacts(task, working_directory, baseBranch 
   //
   // Phase U: prefer "Edit `X`" / "Create `X`" extraction over the raw
   // slash-path extractor. The raw extractor mistakes references for
-  // targets — bitsy plan 735 task 2 case (see extractEditTargetPaths
+  // targets — example-project plan 735 task 2 case (see extractEditTargetPaths
   // comment). Fall back to the raw extractor when no verb-anchored
   // targets are detectable.
   //

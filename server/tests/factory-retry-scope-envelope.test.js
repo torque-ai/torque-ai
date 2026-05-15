@@ -26,21 +26,21 @@ describe('verify retry scope envelope — pure helpers', () => {
     ]));
   });
 
-  it('extractScopeEnvelopeFiles includes WPF and .NET project paths from SpudgetBooks-style plans', () => {
+  it('extractScopeEnvelopeFiles includes WPF and .NET project paths from example-project-style plans', () => {
     const text = [
-      'Edit `src/SpudgetBooks.App/Navigation/Shell/SidebarTreeControl.xaml`,',
-      '`src/SpudgetBooks.App/Navigation/Shell/BreadcrumbBar.xaml`, and',
-      '`src/SpudgetBooks.App/MainWindow.xaml`.',
-      'Validate with `dotnet test tests/SpudgetBooks.App.Tests/SpudgetBooks.App.Tests.csproj -c Release`.',
+      'Edit `src/example-project.App/Navigation/Shell/SidebarTreeControl.xaml`,',
+      '`src/example-project.App/Navigation/Shell/BreadcrumbBar.xaml`, and',
+      '`src/example-project.App/MainWindow.xaml`.',
+      'Validate with `dotnet test tests/example-project.App.Tests/example-project.App.Tests.csproj -c Release`.',
       'Use `pwsh scripts/e2e.ps1 -Configuration Release` for the visual smoke.',
     ].join('\n');
 
     const files = extractScopeEnvelopeFiles(text);
     expect(files).toEqual(expect.arrayContaining([
-      'src/SpudgetBooks.App/Navigation/Shell/SidebarTreeControl.xaml',
-      'src/SpudgetBooks.App/Navigation/Shell/BreadcrumbBar.xaml',
-      'src/SpudgetBooks.App/MainWindow.xaml',
-      'tests/SpudgetBooks.App.Tests/SpudgetBooks.App.Tests.csproj',
+      'src/example-project.App/Navigation/Shell/SidebarTreeControl.xaml',
+      'src/example-project.App/Navigation/Shell/BreadcrumbBar.xaml',
+      'src/example-project.App/MainWindow.xaml',
+      'tests/example-project.App.Tests/example-project.App.Tests.csproj',
       'scripts/e2e.ps1',
     ]));
   });
@@ -88,19 +88,19 @@ describe('verify retry scope envelope — pure helpers', () => {
 
   it('treats plan-listed WPF XAML shell edits as in-scope during verify retries', () => {
     const envelope = computeScopeEnvelope([
-      'Edit `src/SpudgetBooks.App/Navigation/Shell/SidebarTreeControl.xaml`,',
-      '`src/SpudgetBooks.App/Navigation/Shell/ActionTrayControl.xaml`,',
-      '`src/SpudgetBooks.App/Navigation/Shell/BreadcrumbBar.xaml`,',
-      '`src/SpudgetBooks.App/Navigation/Shell/StatusBarControl.xaml`,',
-      'and `src/SpudgetBooks.App/MainWindow.xaml`.',
+      'Edit `src/example-project.App/Navigation/Shell/SidebarTreeControl.xaml`,',
+      '`src/example-project.App/Navigation/Shell/ActionTrayControl.xaml`,',
+      '`src/example-project.App/Navigation/Shell/BreadcrumbBar.xaml`,',
+      '`src/example-project.App/Navigation/Shell/StatusBarControl.xaml`,',
+      'and `src/example-project.App/MainWindow.xaml`.',
     ].join('\n'), '');
 
     const off = isOutOfScope([
-      'src/SpudgetBooks.App/MainWindow.xaml',
-      'src/SpudgetBooks.App/Navigation/Shell/ActionTrayControl.xaml',
-      'src/SpudgetBooks.App/Navigation/Shell/BreadcrumbBar.xaml',
-      'src/SpudgetBooks.App/Navigation/Shell/SidebarTreeControl.xaml',
-      'src/SpudgetBooks.App/Navigation/Shell/StatusBarControl.xaml',
+      'src/example-project.App/MainWindow.xaml',
+      'src/example-project.App/Navigation/Shell/ActionTrayControl.xaml',
+      'src/example-project.App/Navigation/Shell/BreadcrumbBar.xaml',
+      'src/example-project.App/Navigation/Shell/SidebarTreeControl.xaml',
+      'src/example-project.App/Navigation/Shell/StatusBarControl.xaml',
     ], envelope);
 
     expect(off).toEqual([]);

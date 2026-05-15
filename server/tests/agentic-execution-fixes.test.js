@@ -438,9 +438,9 @@ describe('providers/execution agentic fixes', () => {
 
     const task = {
       id: 'task-empty-final-output-fallback',
-      task_description: 'Generate an execution plan for DLPhone.',
+      task_description: 'Generate an execution plan for example-project.',
       working_directory: 'C:/repo',
-      metadata: JSON.stringify({ plan_task_title: 'Plan DLPhone typed failure coverage' }),
+      metadata: JSON.stringify({ plan_task_title: 'Plan example-project typed failure coverage' }),
     };
     const chain = [
       { provider: 'cerebras', model: 'qwen-3-coder' },
@@ -1713,7 +1713,7 @@ describe('providers/execution agentic fixes', () => {
         ],
         factory_internal: true,
         kind: 'architect_cycle',
-        target_project: 'DLPhone',
+        target_project: 'example-project',
         ollama_cloud_repo_write_mode: 'proposal_apply',
         proposal_apply_provider: 'codex',
         provider_lane_policy: {
@@ -2600,7 +2600,7 @@ describe('providers/execution agentic fixes', () => {
       tags: JSON.stringify([
         'factory:batch_id=factory-b9261762-7be5-4fc9-9794-f18c3e404fcb-2057',
         'factory:plan_task_number=1',
-        'project:DLPhone',
+        'project:example-project',
       ]),
     });
 

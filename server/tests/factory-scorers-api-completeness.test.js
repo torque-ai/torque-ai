@@ -84,11 +84,11 @@ describe('api-completeness scorer', () => {
 
   test('detects ASP.NET controllers and minimal APIs as a real API surface', () => {
     writeFile(
-      'SpudgetBooks.Api/Controllers/V1/InvoicesController.cs',
+      'example-project.Api/Controllers/V1/InvoicesController.cs',
       `
         using Microsoft.AspNetCore.Mvc;
 
-        namespace SpudgetBooks.Api.Controllers.V1;
+        namespace example-project.Api.Controllers.V1;
 
         [ApiController]
         [Route("api/v1/invoices")]
@@ -103,7 +103,7 @@ describe('api-completeness scorer', () => {
       `,
     );
     writeFile(
-      'SpudgetBooks.Api/Program.cs',
+      'example-project.Api/Program.cs',
       `
         var builder = WebApplication.CreateBuilder(args);
         var app = builder.Build();

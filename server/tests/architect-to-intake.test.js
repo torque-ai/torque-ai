@@ -129,7 +129,7 @@ function wireFactoryDbModules(db) {
   factoryIntake.setDb(db);
 }
 
-function createProject(name = 'bitsy') {
+function createProject(name = 'example-project') {
   const projectPath = path.join(testDir, `${name}-${Date.now()}-${Math.random().toString(16).slice(2)}`);
   fs.mkdirSync(projectPath, { recursive: true });
   return factoryHealth.registerProject({

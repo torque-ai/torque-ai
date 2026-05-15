@@ -1,6 +1,6 @@
 'use strict';
 
-// Regression for the DLPhone infinite-loop bug observed 2026-05-02:
+// Regression for the example-project infinite-loop bug observed 2026-05-02:
 // task f387eef6 failed on 2026-04-29, but the loop kept re-awaiting it
 // every ~5min for 3 days because routeWorkItemToNeedsReplan didn't
 // clear the stale plan_generation_task_id from origin_json.

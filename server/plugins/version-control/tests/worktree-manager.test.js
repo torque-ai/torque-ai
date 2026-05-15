@@ -1256,7 +1256,7 @@ describe('version-control worktree manager (real git integration)', () => {
   });
 
   it('mergeWorktree short-circuits with IN_PROGRESS_GIT_OPERATION when the target repo is mid-merge', () => {
-    // Guards the bitsy 2026-04-20 incident: target repo left in UU / mid-
+    // Guards the example-project 2026-04-20 incident: target repo left in UU / mid-
     // merge state → pre-merge cleanup retries `git commit` forever → 13
     // "uncommitted changes" errors in 75 minutes. The detector must
     // short-circuit with a distinct code so LEARN can pause the project

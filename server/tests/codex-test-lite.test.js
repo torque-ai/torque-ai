@@ -40,7 +40,7 @@ describe('test-verification-lite injection', () => {
   it('is NOT injected when working_directory is a .NET project (.csproj present)', () => {
     const dir = makeTempDir();
     try {
-      fs.writeFileSync(path.join(dir, 'SpudgetBooks.sln'), '');
+      fs.writeFileSync(path.join(dir, 'example-project.sln'), '');
       fs.writeFileSync(path.join(dir, 'Project.csproj'), '<Project />');
       const wrapped = wrapWithInstructions('Fix the login bug', 'codex', null, { workingDirectory: dir });
       expect(wrapped).not.toContain('Do NOT run the full project test suite');

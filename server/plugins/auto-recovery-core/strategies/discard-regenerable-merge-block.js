@@ -15,7 +15,7 @@
 // parks at READY_FOR_LEARN until manual operator approval.
 //
 // Live evidence (memory: project_factory_recovery_rule_overrides_strategy):
-// DLPhone WI #762 hit merge_target_dirty on 2026-05-04 with three stale
+// example-project WI #762 hit merge_target_dirty on 2026-05-04 with three stale
 // regenerable plan files; the discard logic would have classified them as
 // allowlisted and cleaned them, but the rule's empty-strategies array
 // suppressed any strategy from running and the project sat parked until

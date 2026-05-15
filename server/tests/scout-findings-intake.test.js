@@ -83,7 +83,7 @@ function wireFactoryDbModules(db) {
   factoryIntake.setDb(db);
 }
 
-function createProject(name = 'bitsy') {
+function createProject(name = 'example-project') {
   const projectPath = path.join(testDir, `${name}-${Date.now()}-${Math.random().toString(16).slice(2)}`);
   fs.mkdirSync(projectPath, { recursive: true });
   return factoryHealth.registerProject({
@@ -105,7 +105,7 @@ function sampleScanMarkdown() {
   return [
     '# Security Scan',
     '**Date:** 2026-04-18',
-    '**Scope:** bitsy/ package',
+    '**Scope:** example-project/ package',
     '**Variant:** security',
     '',
     '## Summary',
@@ -114,13 +114,13 @@ function sampleScanMarkdown() {
     '## Findings',
     '',
     '### [HIGH] Path traversal via MCP projects_root',
-    '- **File:** bitsy/cli/_io.py:16',
+    '- **File:** example-project/cli/_io.py:16',
     '- **Description:** asset_root joins projects_root without validating segments, allowing dotdot escapes.',
     '- **Status:** NEW',
     '- **Suggested fix:** Validate segments against an allowlist and resolve under an approved root.',
     '',
     '### [HIGH] Unvalidated LLM-supplied dimensions allocate unbounded buffers',
-    '- **File:** bitsy/agent/tool_interface.py:117',
+    '- **File:** example-project/agent/tool_interface.py:117',
     '- **Description:** dispatch_tool_call copies LLM args into op constructors without clamping width/height.',
     '- **Status:** NEW',
     '- **Suggested fix:** Enforce per-tool max dimensions before constructing ops.',
@@ -155,14 +155,14 @@ describe('parseFindings', () => {
     expect(findings[0]).toMatchObject({
       severity: 'HIGH',
       title: 'Path traversal via MCP projects_root',
-      file: 'bitsy/cli/_io.py:16',
+      file: 'example-project/cli/_io.py:16',
     });
     expect(findings[0].description).toContain('asset_root');
     expect(findings[0].suggested_fix).toContain('Validate segments');
     expect(findings[1]).toMatchObject({
       severity: 'HIGH',
       title: 'Unvalidated LLM-supplied dimensions allocate unbounded buffers',
-      file: 'bitsy/agent/tool_interface.py:117',
+      file: 'example-project/agent/tool_interface.py:117',
     });
   });
 
@@ -198,7 +198,7 @@ describe('scout findings intake', () => {
       expect(origin.scan_path).toBe(scanPath);
       expect(origin.variant).toBe('security');
       expect(origin.severity).toBe('HIGH');
-      expect(origin.target_file).toMatch(/bitsy\//);
+      expect(origin.target_file).toMatch(/example-project\//);
     }
 
     const intakeRows = dbHandle.prepare(

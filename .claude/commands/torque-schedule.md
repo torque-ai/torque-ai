@@ -32,7 +32,7 @@ POST/DELETE requests require the header `-H "X-Requested-With: XMLHttpRequest"`.
 
 | Name | Cron | Enabled | Status | Runs | Last Run | Next Run |
 |------|------|---------|--------|------|----------|----------|
-| autodev:workflow:bitsy | */20 * * * * | yes | active | 47 | 12:00 UTC | 12:20 UTC |
+| autodev:workflow:example-project | */20 * * * * | yes | active | 47 | 12:00 UTC | 12:20 UTC |
 
 To manage: /torque-schedule pause|resume|delete|info <name-or-id>
 ```

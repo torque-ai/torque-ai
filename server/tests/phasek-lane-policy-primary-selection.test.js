@@ -7,7 +7,7 @@
  * project's `provider_lane_policy`. The lane filter was applied only to
  * fallback selections and to chain metadata, not to the primary slot.
  *
- * Live evidence: DLPhone (lane policy `expected_provider: ollama,
+ * Live evidence: example-project (lane policy `expected_provider: ollama,
  * allowed_providers: [ollama], enforce_handoffs: true`) had its plan-task
  * EXECUTE submissions go to codex-spark anyway because the
  * `preset-all-local` routing template + score-ranker selected codex-spark
@@ -89,7 +89,7 @@ describe('Phase K: lane policy on primary selection', () => {
     // Instead we exercise the lane swap by NOT setting override_provider
     // and letting smart routing pick — but we also pin the routing
     // template to one whose chain favors codex for the chosen category.
-    // The DLPhone shape has no `enforce_handoffs` and no override; the
+    // The example-project shape has no `enforce_handoffs` and no override; the
     // template + score ranker pick codex; Phase K must redirect to ollama.
     const { task, error, text } = await submitWithLane({
       task: 'Refactor multi-file system: redesign auth flow with new credential injection',

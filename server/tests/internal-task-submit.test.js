@@ -469,8 +469,8 @@ describe('submitFactoryInternalTask', () => {
       prepare: vi.fn(() => ({
         get: vi.fn(() => ({
           id: 'project-42',
-          name: 'DLPhone',
-          path: 'C:/Projects/DLPhone',
+          name: 'example-project',
+          path: 'C:/Projects/example-project',
           status: 'running',
           config_json: JSON.stringify({
             provider_lane_policy: {
@@ -483,9 +483,9 @@ describe('submitFactoryInternalTask', () => {
       })),
     });
     vi.spyOn(projectConfigCore, 'getProjectDefaults').mockImplementation((candidate) => {
-      if (candidate !== 'DLPhone') return null;
+      if (candidate !== 'example-project') return null;
       return {
-        project: 'DLPhone',
+        project: 'example-project',
         routing_template_id: 'preset-ollama-cloud-primary',
         default_provider: 'codex',
         default_model: 'gpt-5.4',
@@ -496,7 +496,7 @@ describe('submitFactoryInternalTask', () => {
 
     await submitFactoryInternalTask({
       task: 'review verify failure',
-      working_directory: 'C:/Projects/DLPhone/.worktrees/fea-123',
+      working_directory: 'C:/Projects/example-project/.worktrees/fea-123',
       kind: 'plan_generation',
       project_id: 'project-42',
       work_item_id: 7,
@@ -507,12 +507,12 @@ describe('submitFactoryInternalTask', () => {
     expect(submitted.provider).toBe('ollama-cloud');
     expect(submitted.model).toBeUndefined();
     expect(submitted.routing_template).toBeUndefined();
-    expect(submitted.tags).toContain('factory:target_project=DLPhone');
+    expect(submitted.tags).toContain('factory:target_project=example-project');
     expect(submitted.task_metadata).toEqual(expect.objectContaining({
-      target_project: 'DLPhone',
-      target_project_path: 'C:/Projects/DLPhone',
+      target_project: 'example-project',
+      target_project_path: 'C:/Projects/example-project',
       inherited_provider: 'ollama-cloud',
-      inherited_provider_from_project: 'DLPhone',
+      inherited_provider_from_project: 'example-project',
       inherited_provider_source: 'provider_lane_policy',
       user_provider_override: false,
       provider_lane_policy: expect.objectContaining({
@@ -532,23 +532,23 @@ describe('submitFactoryInternalTask', () => {
       prepare: vi.fn(() => ({
         get: vi.fn(() => ({
           id: 'project-99',
-          name: 'StateTrace',
-          path: 'C:/Projects/StateTrace',
+          name: 'example-project',
+          path: 'C:/Projects/example-project',
           status: 'running',
         })),
       })),
     });
     vi.spyOn(projectConfigCore, 'getProjectDefaults').mockImplementation((candidate) => {
-      if (candidate !== 'StateTrace') return null;
+      if (candidate !== 'example-project') return null;
       return {
-        project: 'StateTrace',
+        project: 'example-project',
         routing_template_id: null,
         default_provider: 'ollama',
         default_model: 'qwen3-coder:30b',
       };
     });
     vi.spyOn(gitWorktree, 'createWorktree').mockReturnValue({
-      worktreePath: 'C:/Projects/StateTrace/server/.tmp/worktrees/task-factory-internal-verify',
+      worktreePath: 'C:/Projects/example-project/server/.tmp/worktrees/task-factory-internal-verify',
       headSha: 'def5678',
     });
     const { submitFactoryInternalTask } = loadSubject();
@@ -556,7 +556,7 @@ describe('submitFactoryInternalTask', () => {
 
     await submitFactoryInternalTask({
       task: 'review verify failure',
-      working_directory: 'C:/Projects/StateTrace',
+      working_directory: 'C:/Projects/example-project',
       kind: 'verify_review',
       project_id: 'project-99',
     });
@@ -565,9 +565,9 @@ describe('submitFactoryInternalTask', () => {
       provider: 'ollama',
       model: 'qwen3-coder:30b',
       task_metadata: expect.objectContaining({
-        target_project: 'StateTrace',
+        target_project: 'example-project',
         inherited_provider: 'ollama',
-        inherited_provider_from_project: 'StateTrace',
+        inherited_provider_from_project: 'example-project',
       }),
     }));
   });
@@ -624,8 +624,8 @@ describe('submitFactoryInternalTask', () => {
       prepare: vi.fn(() => ({
         get: vi.fn(() => ({
           id: 'project-lane-only',
-          name: 'DLPhone',
-          path: 'C:/Projects/DLPhone',
+          name: 'example-project',
+          path: 'C:/Projects/example-project',
           status: 'running',
           config_json: JSON.stringify({
             provider_lane_policy: {
@@ -643,7 +643,7 @@ describe('submitFactoryInternalTask', () => {
 
     await submitFactoryInternalTask({
       task: 'review verify failure',
-      working_directory: 'C:/Projects/DLPhone/.worktrees/feat-893',
+      working_directory: 'C:/Projects/example-project/.worktrees/feat-893',
       kind: 'verify_review',
       project_id: 'project-lane-only',
       work_item_id: 893,
@@ -652,9 +652,9 @@ describe('submitFactoryInternalTask', () => {
     expect(mockHandleSmartSubmitTask).toHaveBeenCalledWith(expect.objectContaining({
       provider: 'ollama-cloud',
       task_metadata: expect.objectContaining({
-        target_project: 'DLPhone',
+        target_project: 'example-project',
         inherited_provider: 'ollama-cloud',
-        inherited_provider_from_project: 'DLPhone',
+        inherited_provider_from_project: 'example-project',
         inherited_provider_source: 'provider_lane_policy',
         user_provider_override: false,
         provider_lane_policy: expect.objectContaining({

@@ -8,7 +8,7 @@
  * a new tick interval was a full TORQUE restart.
  *
  * Phase L plumbs the config-aware lookup through the resume path so an
- * operator can shorten DLPhone's tick (or any project's) without a
+ * operator can shorten example-project's tick (or any project's) without a
  * full server restart — pause + update config + resume now applies the
  * new interval immediately.
  */

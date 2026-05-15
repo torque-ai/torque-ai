@@ -161,7 +161,7 @@ describe('createScoutProviderResolver', () => {
 });
 
 describe('Phase I: by_kind.scout overrides expected_provider for scouts', () => {
-  // Lets DLPhone pin EXECUTE to ollama while routing scouts (a manager
+  // Lets example-project pin EXECUTE to ollama while routing scouts (a manager
   // activity — deciding what's worth doing) to codex via by_kind.scout.
   // Without this, the worker-lane provider also drove discovery, and
   // qwen3-coder:30b's scouts kept emitting hallucinated file paths

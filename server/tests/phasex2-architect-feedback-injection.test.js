@@ -29,7 +29,7 @@ describe('Phase X2: prior-rejection feedback prompt', () => {
     });
 
     it('produces a structured feedback block from a real plan-quality rejection payload', () => {
-      // Shape captured live from StateTrace work item #2177 rejection at
+      // Shape captured live from example-project work item #2177 rejection at
       // 2026-05-01 21:29:54 UTC.
       const rejection = {
         code: 'plan_description_quality_below_threshold',

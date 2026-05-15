@@ -21,7 +21,7 @@ describe('runtime-problem-intake', () => {
             factory_internal: true,
             kind: 'plan_generation',
             project_id: 'target-project',
-            target_project: 'DLPhone',
+            target_project: 'example-project',
           }),
           tags: JSON.stringify([
             'factory:internal',
@@ -31,7 +31,7 @@ describe('runtime-problem-intake', () => {
         })),
       },
       factoryHealth: {
-        getProject: vi.fn((id) => ({ id, name: id === 'target-project' ? 'DLPhone' : 'unknown' })),
+        getProject: vi.fn((id) => ({ id, name: id === 'target-project' ? 'example-project' : 'unknown' })),
         getProjectByPath: vi.fn(() => ({ id: 'torque-project', name: 'torque-public' })),
         listProjects: vi.fn(() => [{ id: 'torque-project', name: 'torque-public' }]),
       },

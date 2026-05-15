@@ -1,4 +1,4 @@
-// Targeted tests for the bitsy-work-item-471 retry hardening:
+// Targeted tests for the example-project-work-item-471 retry hardening:
 //   1. buildVerifyFixPrompt / VERIFY_FIX_PROMPT_TAIL_BUDGET — tail-clip width
 //   2. isProjectStatusPaused — project-row pause gate for pause_project
 //   3. countPriorVerifyRetryTasksForBatch — persisted retry counter
@@ -83,7 +83,7 @@ describe('buildVerifyFixPrompt', () => {
   });
 
   it('wraps verifyCommand in a fenced diagnostic block so the heavy-validation guard ignores it', () => {
-    // Regression for DLPhone WI #749 (2026-05-04): codex auto-verify-retry
+    // Regression for example-project WI #749 (2026-05-04): codex auto-verify-retry
     // tasks failed via [Governance] heavy local validation rule because
     // `Verify command: dotnet test ...` was emitted bare on a single line,
     // which the guard's regex caught. Wrapping in a fenced block under a

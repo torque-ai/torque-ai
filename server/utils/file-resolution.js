@@ -240,7 +240,7 @@ function candidateMatchesReferenceSuffix(candidate, normalizedRef) {
 }
 
 const PLACEHOLDER_FILE_REFERENCES = new Set([
-  'bitsy/agent/session.py',
+  'example-project/agent/session.py',
   'foo.ts',
   'myapp.tests',
   'myapp.tests.csproj',

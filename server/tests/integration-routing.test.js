@@ -1382,7 +1382,7 @@ describe('integration routing handlers', () => {
       mockDb.isProviderHealthy.mockImplementation((providerName) => providerName !== 'ollama-cloud');
 
       const result = await routing.handleSmartSubmitTask({
-        task: 'Summarize DLPhone queue state',
+        task: 'Summarize example-project queue state',
         routing_template: 'preset-ollama-cloud-primary',
         task_metadata: {
           provider_lane_policy: {

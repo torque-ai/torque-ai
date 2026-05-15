@@ -118,7 +118,7 @@ module.exports = [
     // the pre-execute reclaim check fires `worktree_reclaim_skipped_live_owner`
     // again, and the loop transitions back to PAUSED. Auto-recovery then
     // rearms on the new paused_at_gate decision and the cycle repeats every
-    // few minutes — observed live on bitsy work_item 2161 from 03:18 to
+    // few minutes — observed live on example-project work_item 2161 from 03:18 to
     // 03:31 with no actual progress.
     //
     // Empty suggested_strategies routes the engine through the
@@ -314,7 +314,7 @@ module.exports = [
     // reject_and_advance, which lets the short-circuit's intent fire
     // sooner via the same code path it would have used anyway.
     //
-    // Observed live on StateTrace 2026-04-25: paused at EXECUTE for
+    // Observed live on example-project 2026-04-25: paused at EXECUTE for
     // ~10min before auto-recovery picked it up as `unknown` and chose
     // plain `retry`. Naming the rule keeps the decision log honest and
     // the strategy chain stronger.
@@ -337,7 +337,7 @@ module.exports = [
     //      project would rearm via the `new_real_decision` path. This
     //      avoided the alternative — default `['retry', 'escalate']`
     //      cycling approveGate against a dirty target every tick.
-    //   2. Live evidence 2026-05-04 (DLPhone WI #762, memory entry
+    //   2. Live evidence 2026-05-04 (example-project WI #762, memory entry
     //      `project_factory_recovery_rule_overrides_strategy.md`): the
     //      rearm path didn't actually fire — `auto_recovery_exhausted=1`
     //      parked the project at READY_FOR_LEARN, and even after the
@@ -362,7 +362,7 @@ module.exports = [
     //      and decision-log queries keep working; the strategy declares
     //      `applicable_categories: ['await_self_heal', 'transient']`.
     //
-    // Original 2026-05-03 evidence (bitsy WI 732): paused at LEARN with
+    // Original 2026-05-03 evidence (example-project WI 732): paused at LEARN with
     // uncommitted .gitignore + tests/test_ci_parity.py from a prior
     // factory run. With the new strategy, those non-regenerable files
     // would trigger the `refused` branch and the chain would fall through
@@ -402,7 +402,7 @@ module.exports = [
     // the next attempt comes from an agent that returns inline markdown
     // without filesystem side-effects.
     //
-    // Live evidence 2026-05-03: bitsy WI 470 plan-generation on claude-cli
+    // Live evidence 2026-05-03: example-project WI 470 plan-generation on claude-cli
     // returned "The plan has been written to plan.md..." instead of inline
     // markdown; the loop logged plan_generation_retry_unusable_output and
     // recovery's retry chain hit max_attempts without unblocking. Routing-
@@ -432,7 +432,7 @@ module.exports = [
     // other session watching for "leaked" tasks to cancel the next
     // attempt's child task too. Bitsy WI 536 task ce75e955 (2026-05-03)
     // got cancelled by a concurrent session ~110s after start with
-    // reason "bitsy project is paused; stopping leaked running task
+    // reason "example-project project is paused; stopping leaked running task
     // before focusing on torque-public", triggering exactly this
     // unknown-classification cascade.
     //
@@ -466,7 +466,7 @@ module.exports = [
     // here; naming the rule keeps the decision log honest and routes
     // retry's advanceLoop branch correctly.
     //
-    // Live evidence 2026-05-03: bitsy WI 2170 (already-shipped via prior
+    // Live evidence 2026-05-03: example-project WI 2170 (already-shipped via prior
     // gitignore commit) zero-diffed twice, short-circuit fired, and the
     // unknown-classification recovery exhausted because retry hit "Loop
     // not started for this project".
@@ -485,7 +485,7 @@ module.exports = [
     // invoking the LLM tiebreak at all, because there is literally
     // nothing to attribute.
     //
-    // Observed live on StateTrace 2026-04-25: PowerShell/Pester verify
+    // Observed live on example-project 2026-04-25: PowerShell/Pester verify
     // output wasn't being parsed (parser only handled pytest / vitest /
     // dotnet at the time), so the loop ran ambiguous→retry→ambiguous→
     // retry indefinitely. The Pester parser landed alongside this rule —

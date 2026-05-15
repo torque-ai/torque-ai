@@ -83,7 +83,7 @@ describe('smart routing template precedence', () => {
   it('routes plan generation through the Codex Primary chain (codex first, text providers as fallback)', () => {
     // Codex Primary's plan_generation rule (server/routing/templates/codex-primary.json)
     // leads with codex per commit e79ca7a9 — "Codex for hard problems" guards
-    // against the SpudgetBooks regression where ollama-led plan_generation
+    // against the example-project regression where ollama-led plan_generation
     // produced unusable plans. The chain is: codex → cerebras → groq → ollama,
     // and routing should pick the first eligible link.
     const result = providerRoutingCore.analyzeTaskForRouting(

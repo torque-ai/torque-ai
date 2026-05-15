@@ -101,7 +101,7 @@ describe('auto-generated plan description quality scoring', () => {
   });
 
   it('passes a documentation-only plan without synthetic line counts or pytest invocations', () => {
-    // Guards the bitsy 2026-04-20 item 490 / 491 regression: the deterministic
+    // Guards the example-project 2026-04-20 item 490 / 491 regression: the deterministic
     // gate kept rejecting doc-only tasks at 60/100 because `estimated_scope`
     // and `validation_steps` regex target test-run commands ("pytest", "npx
     // vitest", etc.). Doc-removal / doc-supersession tasks naturally lack

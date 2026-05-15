@@ -146,7 +146,7 @@ describe('auto-recovery engine.tick', () => {
   });
 
   it('skips benign-flow decisions without consuming retry budget or pausing the project', async () => {
-    // Regression for the bitsy 2026-05-03 unknown-classification cascade.
+    // Regression for the example-project 2026-05-03 unknown-classification cascade.
     // When a concurrent session interrupts the loop (cancel_task, peer
     // restart, etc.), the project may end up paused while the LATEST real
     // decision is a forward-progress signal (advance_from_prioritize,

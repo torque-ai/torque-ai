@@ -6,17 +6,17 @@
   "project": {
     "id": "e197725b-69df-497f-bc72-7b03aa80b4b9",
     "name": "torque-public",
-    "path": "C:\\Users\\Werem\\Projects\\torque-public",
+    "path": "C:\\Users\\<os-user>\\Projects\\torque-public",
     "trust_level": "supervised"
   },
-  "plan_path": "C:\\Users\\Werem\\Projects\\torque-public\\docs\\superpowers\\plans\\2026-04-11-fabro-1-workflow-as-code.md",
+  "plan_path": "C:\\Users\\<os-user>\\Projects\\torque-public\\docs\\superpowers\\plans\\2026-04-11-fabro-1-workflow-as-code.md",
   "work_item": {
     "id": 104,
     "title": "Fabro #1: Workflow-as-Code Implementation Plan",
     "status": "pending",
     "priority": 50,
     "origin": {
-      "plan_path": "C:\\Users\\Werem\\Projects\\torque-public\\docs\\superpowers\\plans\\2026-04-11-fabro-1-workflow-as-code.md",
+      "plan_path": "C:\\Users\\<os-user>\\Projects\\torque-public\\docs\\superpowers\\plans\\2026-04-11-fabro-1-workflow-as-code.md",
       "content_hash": "5da6c40c11f018aeac561aae1319ad9c527847de0c56594eb125a5efeaefc918",
       "previous_hash": null,
       "task_count": 12,
@@ -31,7 +31,7 @@
     "status": "executing",
     "priority": 50,
     "origin": {
-      "plan_path": "C:\\Users\\Werem\\Projects\\torque-public\\docs\\superpowers\\plans\\2026-04-12-software-factory-phase9-plan-file-intake.md",
+      "plan_path": "C:\\Users\\<os-user>\\Projects\\torque-public\\docs\\superpowers\\plans\\2026-04-12-software-factory-phase9-plan-file-intake.md",
       "content_hash": "ca417672b07c03d16b072b16cf4acb01888a06eaa65e1531bb2e0aa90d363489",
       "previous_hash": null,
       "task_count": 3,
@@ -63,14 +63,14 @@
       "actor": "human",
       "action": "scan_plans_directory",
       "reasoning": "Task 2 fixture-capture run scanned the configured plans directory.",
-      "inputs_json": "{\"plans_dir\":\"C:\\\\Users\\\\Werem\\\\Projects\\\\torque-public\\\\docs\\\\superpowers\\\\plans\",\"plan_path\":\"C:\\\\Users\\\\Werem\\\\Projects\\\\torque-public\\\\docs\\\\superpowers\\\\plans\\\\2026-04-11-fabro-1-workflow-as-code.md\"}",
+      "inputs_json": "{\"plans_dir\":\"C:\\\\Users\\\\<os-user>\\\\Projects\\\\torque-public\\\\docs\\\\superpowers\\\\plans\",\"plan_path\":\"C:\\\\Users\\\\<os-user>\\\\Projects\\\\torque-public\\\\docs\\\\superpowers\\\\plans\\\\2026-04-11-fabro-1-workflow-as-code.md\"}",
       "outcome_json": "{\"scanned\":221,\"created_count\":0,\"skipped_count\":221,\"work_item_id\":104}",
       "confidence": 1,
       "batch_id": "factory-plan1-2026-04-12T22-47-51-924Z",
       "created_at": "2026-04-12T22:47:52.058Z",
       "inputs": {
-        "plans_dir": "C:\\Users\\Werem\\Projects\\torque-public\\docs\\superpowers\\plans",
-        "plan_path": "C:\\Users\\Werem\\Projects\\torque-public\\docs\\superpowers\\plans\\2026-04-11-fabro-1-workflow-as-code.md"
+        "plans_dir": "C:\\Users\\<os-user>\\Projects\\torque-public\\docs\\superpowers\\plans",
+        "plan_path": "C:\\Users\\<os-user>\\Projects\\torque-public\\docs\\superpowers\\plans\\2026-04-11-fabro-1-workflow-as-code.md"
       },
       "outcome": {
         "scanned": 221,
@@ -110,14 +110,14 @@
       "actor": "human",
       "action": "plan_stage_skipped",
       "reasoning": "pre-written plan detected",
-      "inputs_json": "{\"work_item_id\":104,\"plan_path\":\"C:\\\\Users\\\\Werem\\\\Projects\\\\torque-public\\\\docs\\\\superpowers\\\\plans\\\\2026-04-11-fabro-1-workflow-as-code.md\"}",
+      "inputs_json": "{\"work_item_id\":104,\"plan_path\":\"C:\\\\Users\\\\<os-user>\\\\Projects\\\\torque-public\\\\docs\\\\superpowers\\\\plans\\\\2026-04-11-fabro-1-workflow-as-code.md\"}",
       "outcome_json": "{\"from_state\":\"PRIORITIZE\",\"to_state\":\"EXECUTE\",\"reason\":\"pre-written plan detected\",\"work_item_id\":209}",
       "confidence": 1,
       "batch_id": "factory-plan1-2026-04-12T22-47-51-924Z",
       "created_at": "2026-04-12T22:47:52.125Z",
       "inputs": {
         "work_item_id": 104,
-        "plan_path": "C:\\Users\\Werem\\Projects\\torque-public\\docs\\superpowers\\plans\\2026-04-11-fabro-1-workflow-as-code.md"
+        "plan_path": "C:\\Users\\<os-user>\\Projects\\torque-public\\docs\\superpowers\\plans\\2026-04-11-fabro-1-workflow-as-code.md"
       },
       "outcome": {
         "from_state": "PRIORITIZE",

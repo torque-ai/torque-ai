@@ -314,20 +314,20 @@ describe('scoreAll on real TORQUE codebase', () => {
       'package.json': JSON.stringify({
         name: 'spudgetbooks-shell',
         scripts: {
-          build: 'dotnet build SpudgetBooks.sln',
-          test: 'dotnet test SpudgetBooks.sln --no-build',
+          build: 'dotnet build example-project.sln',
+          test: 'dotnet test example-project.sln --no-build',
           lint: 'eslint .',
           typecheck: 'tsc --noEmit',
         },
       }),
       '.eslintrc.json': '{}',
       '.husky/pre-commit': 'npm test',
-      'SpudgetBooks.sln': 'Microsoft Visual Studio Solution File, Format Version 12.00',
-      'SpudgetBooks.Core/InvoiceService.cs': 'namespace SpudgetBooks.Core; public sealed class InvoiceService { }',
-      'SpudgetBooks.Api/Controllers/V1/InvoicesController.cs': `
+      'example-project.sln': 'Microsoft Visual Studio Solution File, Format Version 12.00',
+      'example-project.Core/InvoiceService.cs': 'namespace example-project.Core; public sealed class InvoiceService { }',
+      'example-project.Api/Controllers/V1/InvoicesController.cs': `
         using Microsoft.AspNetCore.Mvc;
 
-        namespace SpudgetBooks.Api.Controllers.V1;
+        namespace example-project.Api.Controllers.V1;
 
         [ApiController]
         [Route("api/v1/invoices")]
@@ -337,7 +337,7 @@ describe('scoreAll on real TORQUE codebase', () => {
           public IActionResult List() => Ok();
         }
       `,
-      'SpudgetBooks.Api/Program.cs': `
+      'example-project.Api/Program.cs': `
         var builder = WebApplication.CreateBuilder(args);
         var app = builder.Build();
         app.MapControllers();
@@ -345,7 +345,7 @@ describe('scoreAll on real TORQUE codebase', () => {
         app.Run();
       `,
       'Sections/Dashboard/MainDashboard.xaml': `
-        <UserControl x:Class="SpudgetBooks.Sections.Dashboard.MainDashboard"
+        <UserControl x:Class="example-project.Sections.Dashboard.MainDashboard"
             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
             AutomationProperties.Name="Dashboard">
@@ -358,22 +358,22 @@ describe('scoreAll on real TORQUE codebase', () => {
           </Grid>
         </UserControl>
       `,
-      'tests/SpudgetBooks.CoreTests/SpudgetBooks.CoreTests.csproj': `<?xml version="1.0" encoding="utf-8"?>
+      'tests/example-project.CoreTests/example-project.CoreTests.csproj': `<?xml version="1.0" encoding="utf-8"?>
 <Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.10.0" />
     <PackageReference Include="xunit" Version="2.9.0" />
   </ItemGroup>
 </Project>`,
-      'tests/SpudgetBooks.CoreTests/InvoiceServiceTests.cs': 'namespace SpudgetBooks.CoreTests; public class InvoiceServiceTests { }',
+      'tests/example-project.CoreTests/InvoiceServiceTests.cs': 'namespace example-project.CoreTests; public class InvoiceServiceTests { }',
       '.github/workflows/ci.yml': `
         name: ci
         jobs:
           build:
             runs-on: windows-latest
             steps:
-              - run: dotnet build SpudgetBooks.sln
-              - run: dotnet test SpudgetBooks.sln --no-build
+              - run: dotnet build example-project.sln
+              - run: dotnet test example-project.sln --no-build
       `,
       'openapi.json': '{}',
     });
@@ -382,8 +382,8 @@ describe('scoreAll on real TORQUE codebase', () => {
       const sourceDirs = resolveHealthScanSourceDirs(projectDir);
       expect(sourceDirs).toEqual(expect.arrayContaining([
         'Sections',
-        'SpudgetBooks.Api',
-        'SpudgetBooks.Core',
+        'example-project.Api',
+        'example-project.Core',
       ]));
       expect(sourceDirs).not.toContain('tests');
 

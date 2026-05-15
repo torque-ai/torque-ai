@@ -513,12 +513,12 @@ function taskExplicitlyReadOnly(taskDescription, metadata) {
   // form (with whitespace) collides with instructional prose like
   // "use read_file with start_line/end_line to read only the relevant
   // 30-50 lines" — the Phase O ollama-edit-guidance attached to all
-  // DLPhone tasks via factory `expected_provider:ollama`. That false
+  // example-project tasks via factory `expected_provider:ollama`. That false
   // positive made every such task evaluate as read-only, which set
   // taskExpectsModification=false in runAgenticLoop and made
   // shouldEscalateNoOpAgenticResult return false — so qwen3-coder:30b
   // tasks that produced 0 edits silently completed exit_code=0.
-  // Live evidence (2026-05-04): DLPhone task fca0050e (1m 56s, 7 reads,
+  // Live evidence (2026-05-04): example-project task fca0050e (1m 56s, 7 reads,
   // 0 writes, exit 0) bypassed the no-op defense via this path.
   //
   // Restrict to the unambiguous adjectival forms — hyphenated "read-only"
@@ -909,7 +909,7 @@ function shouldRequireToolEvidence(provider, task, workingDir) {
   // prompt alone — they're verdict/classification calls, not exploration.
   // Forcing them to call repository tools first stops the model with
   // missing_tool_evidence even though the model behaved correctly.
-  // Observed live on StateTrace 2026-04-26: cerebras/zai-glm-4.7 verify
+  // Observed live on example-project 2026-04-26: cerebras/zai-glm-4.7 verify
   // reviewer task killed for "missing_tool_evidence" because the JSON
   // prompt told it not to use tools.
   const metadata = normalizeTaskMetadata(task);
@@ -3375,7 +3375,7 @@ async function executeApiProviderWithAgentic(task, providerInstance) {
   //     in the agentic loop adds a system prompt demanding tool calls,
   //     which conflicts with the structured-output prompt and produces
   //     `0 tool calls, 0 files changed` no-ops or `empty_toolless_result`
-  //     kills. Observed live: verify_review on StateTrace 2026-04-26
+  //     kills. Observed live: verify_review on example-project 2026-04-26
   //     04:35-04:45 (cerebras/zai-glm-4.7), then 11 plan_generation
   //     tasks 2026-04-26 with the verdict prompt mis-labeled as
   //     plan_generation kind on ollama/qwen3-coder:30b.

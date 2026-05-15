@@ -130,7 +130,7 @@ function SaveStatusIndicator({ status }) {
 // verify_review/execute) — it overrides the active routing template at
 // the project level. Without this surface, by_kind overrides were
 // invisible and operators had no way to tell why a project was ignoring
-// a globally-active template (live failure 2026-05-04: DLPhone shadowed
+// a globally-active template (live failure 2026-05-04: example-project shadowed
 // "All Local" with codex for 4 kinds, blew through tokens silently).
 //
 // Saves go through PUT /api/v2/factory/projects/{id}/trust → the

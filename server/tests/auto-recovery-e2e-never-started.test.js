@@ -3,7 +3,7 @@ const Database = require('better-sqlite3');
 const autoRecovery = require('../factory/auto-recovery');
 const { createPlugin } = require('../plugins/auto-recovery-core');
 
-describe('E2E: StateTrace never-started', () => {
+describe('E2E: example-project never-started', () => {
   it('classifies as never_started, runs retry_plan_generation', async () => {
     const db = new Database(':memory:');
     db.prepare(`CREATE TABLE factory_projects (
@@ -22,7 +22,7 @@ describe('E2E: StateTrace never-started', () => {
       batch_id TEXT, created_at TEXT
     )`).run();
     db.prepare(`INSERT INTO factory_projects (id, name, status, path, loop_state)
-                VALUES ('st', 'StateTrace', 'paused', '/fake/st', 'IDLE')`).run();
+                VALUES ('st', 'example-project', 'paused', '/fake/st', 'IDLE')`).run();
 
     const plugin = createPlugin();
     let retryPlanCalled = false;

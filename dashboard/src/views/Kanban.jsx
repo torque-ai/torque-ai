@@ -272,7 +272,7 @@ const TaskCard = memo(function TaskCard({
   const batchId = getTaskTagValue(task, 'factory:batch_id');
   // Factory-internal tasks (architect/plan-gen/verify-review) are billed
   // under synthetic projects like "factory-architect" and "factory-plan",
-  // which hides which downstream project (DLPhone, torque-public, etc.)
+  // which hides which downstream project (example-project, torque-public, etc.)
   // they were generated for. Surface the real target via the tag set by
   // submitFactoryInternalTask, but only when it differs from task.project
   // so we don't render a duplicate badge on ordinary tasks.

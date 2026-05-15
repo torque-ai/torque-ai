@@ -844,7 +844,7 @@ describe('remote-test-routing', () => {
 
     it('routes codex verify through torque-remote when no agent client exists and SSH wrapper config is present', async () => {
       const db = {
-        getProjectFromPath: vi.fn().mockReturnValue('SpudgetBooks'),
+        getProjectFromPath: vi.fn().mockReturnValue('example-project'),
         getProjectConfig: vi.fn().mockReturnValue(null),
       };
 
@@ -876,7 +876,7 @@ describe('remote-test-routing', () => {
         const logger = makeLogger();
         const router = createRemoteTestRouter({ agentRegistry: null, db, logger });
         const result = await router.runVerifyCommand(
-          'dotnet build SpudgetBooks.sln -c Release --nologo',
+          'dotnet build example-project.sln -c Release --nologo',
           '/repo',
           { provider: 'codex' }
         );
@@ -888,7 +888,7 @@ describe('remote-test-routing', () => {
         expect(mockSpawn).toHaveBeenCalledTimes(1);
         expect(mockSpawn.mock.calls[0][1]).toEqual([
           '-lc',
-          'torque-remote bash -lc "dotnet build SpudgetBooks.sln -c Release --nologo"',
+          'torque-remote bash -lc "dotnet build example-project.sln -c Release --nologo"',
         ]);
         expect(logger.info).toHaveBeenCalledWith(expect.stringContaining('Running via torque-remote wrapper'));
       } finally {

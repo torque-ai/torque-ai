@@ -136,7 +136,7 @@ function isTerminalRealDecision(decision) {
 // project on `pauseProject` via the default escalate strategy, entrenching
 // the pause instead of unsticking it.
 //
-// Live evidence (bitsy 2026-05-03): repeated cycles where a concurrent
+// Live evidence (example-project 2026-05-03): repeated cycles where a concurrent
 // session's `cancel_task` interrupted a running plan_generation, the
 // factory routed it to needs_replan, the project paused while the
 // LATEST decision was `prioritize/advance_from_prioritize` (a SUCCESS

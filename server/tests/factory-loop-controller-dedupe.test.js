@@ -29,7 +29,7 @@ describe('findExistingPlanTaskSubmission', () => {
     ]));
 
     expect(findExistingPlanTaskSubmission({ listTasks }, {
-      projectName: 'DLPhone',
+      projectName: 'example-project',
       workingDirectory: 'C:/repo',
       workItemId: 708,
       planTaskNumber: 1,
@@ -40,7 +40,7 @@ describe('findExistingPlanTaskSubmission', () => {
     });
 
     expect(listTasks).toHaveBeenCalledWith(expect.objectContaining({
-      project: 'DLPhone',
+      project: 'example-project',
       workingDirectory: 'C:/repo',
       tag: 'factory:work_item_id=708',
       statuses: ['pending', 'pending_approval', 'queued', 'running', 'completed'],
@@ -57,7 +57,7 @@ describe('findExistingPlanTaskSubmission', () => {
     ]));
 
     expect(findExistingPlanTaskSubmission({ listTasks }, {
-      projectName: 'DLPhone',
+      projectName: 'example-project',
       workingDirectory: 'C:/repo',
       workItemId: 708,
       planTaskNumber: 1,
@@ -85,7 +85,7 @@ describe('findExistingPlanTaskSubmission', () => {
     ]));
 
     expect(findExistingPlanTaskSubmission({ listTasks }, {
-      projectName: 'DLPhone',
+      projectName: 'example-project',
       workingDirectory: 'C:/repo',
       workItemId: 708,
       planTaskNumber: 1,
@@ -117,7 +117,7 @@ describe('findExistingPlanTaskSubmission', () => {
     ]));
 
     expect(findExistingPlanTaskSubmission({ listTasks }, {
-      projectName: 'DLPhone',
+      projectName: 'example-project',
       workingDirectory: 'C:/repo',
       workItemId: 708,
       planTaskNumber: 1,
@@ -140,7 +140,7 @@ describe('findExistingPlanTaskSubmission', () => {
     ]));
 
     expect(findExistingPlanTaskSubmission({ listTasks }, {
-      projectName: 'DLPhone',
+      projectName: 'example-project',
       workingDirectory: 'C:/repo/.worktrees/current',
       workItemId: 708,
       planTaskNumber: 1,
@@ -166,7 +166,7 @@ describe('findExistingPlanTaskSubmission', () => {
     });
 
     expect(findExistingPlanTaskSubmission({ listTasks }, {
-      projectName: 'DLPhone',
+      projectName: 'example-project',
       workingDirectory: 'C:/repo/.worktrees/current',
       workItemId: 708,
       planTaskNumber: 1,
@@ -187,7 +187,7 @@ describe('findExistingPlanTaskSubmission', () => {
     ]));
 
     expect(findExistingPlanTaskSubmission({ listTasks }, {
-      projectName: 'DLPhone',
+      projectName: 'example-project',
       workingDirectory: 'C:/repo/.worktrees/current',
       workItemId: 708,
       planTaskNumber: 1,

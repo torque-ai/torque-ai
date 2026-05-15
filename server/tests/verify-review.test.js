@@ -302,7 +302,7 @@ Test Files: /r/tests/Bar.Tests/bin/Debug/net8.0/Bar.Tests.dll
 Describing FactoryGate
   [-] should reject when ratio < threshold 30ms
      Expected 0.99 but was 0.85
-     at <ScriptBlock>, C:\\Users\\Werem\\Projects\\StateTrace\\Modules\\Tests\\SharedCacheHitRatioGate.Tests.ps1:42
+     at <ScriptBlock>, C:\\Users\\<os-user>\\Projects\\example-project\\Modules\\Tests\\SharedCacheHitRatioGate.Tests.ps1:42
   [-] should mark warm runs ready 18ms
      at <ScriptBlock>, Modules/Tests/SharedCacheHitRatioGate.Tests.ps1:67
 
@@ -321,7 +321,7 @@ Tests Passed: 12, Failed: 2, Skipped: 0
 [-] InvokeAllChecks.Validate fails on missing manifest
    Expected: True
    But was:  False
-   at line: 14 in C:\\Users\\Werem\\Projects\\StateTrace\\Tools\\Tests\\InvokeAllChecks.Tests.ps1
+   at line: 14 in C:\\Users\\<os-user>\\Projects\\example-project\\Tools\\Tests\\InvokeAllChecks.Tests.ps1
 `,
       stderr: '',
     };
@@ -1605,7 +1605,7 @@ describe('isSharedInfrastructureFile', () => {
     expect(isSharedInfrastructureFile('Cargo.lock')).toBe(true);
     expect(isSharedInfrastructureFile('go.mod')).toBe(true);
     expect(isSharedInfrastructureFile('go.sum')).toBe(true);
-    expect(isSharedInfrastructureFile('SpudgetBooks.sln')).toBe(true);
+    expect(isSharedInfrastructureFile('example-project.sln')).toBe(true);
     expect(isSharedInfrastructureFile('src/Domain/Domain.csproj')).toBe(true);
     expect(isSharedInfrastructureFile('Makefile')).toBe(true);
   });
@@ -1659,7 +1659,7 @@ describe('detectBuildFailure', () => {
     expect(r.signals).toEqual([]);
   });
 
-  it('detects the f9cf2275 SpudgetBooks pattern (CS errors + Build FAILED + Error count)', () => {
+  it('detects the f9cf2275 example-project pattern (CS errors + Build FAILED + Error count)', () => {
     // Synthetic version of the actual `dotnet test` output that should have
     // tripped the gate on 2026-04-23 but didn't. failingTests=[] (because
     // the build failed before tests could run), exit 1, plus all three

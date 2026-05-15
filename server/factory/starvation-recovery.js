@@ -40,7 +40,7 @@ function parseLastActionMs(value) {
  * Build the scope text for a starvation recovery scout.
  *
  * Two failure modes drove the rewrite of the original scope text on
- * 2026-04-29 (DLPhone scouts e50cfe25 and c6549cc0, both run on
+ * 2026-04-29 (example-project scouts e50cfe25 and c6549cc0, both run on
  * qwen3-coder:30b):
  *
  *  1. The original scope led with "Factory starvation recovery scout."
