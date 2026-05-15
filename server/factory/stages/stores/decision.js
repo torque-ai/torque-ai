@@ -16,19 +16,19 @@
 //     db-handle plumbing stays consistent with safeLogDecision.
 
 const factoryDecisions = require('../../../db/factory/decisions');
-const { logDecision } = require('../../decision-log');
+const decisionLog = require('../../decision-log');
 const { normalizeDecisionStage, getDecisionActor } = require('../../decision-actors');
 const { resolveContainerDbHandle } = require('../../../db/db-handle-resolver');
 
-function resolveDecisionDb() {
-  if (typeof factoryDecisions.getDb === 'function') {
-    const db = factoryDecisions.getDb();
+function resolveDecisionDb(decisionsStore, resolveDbHandle) {
+  if (typeof decisionsStore.getDb === 'function') {
+    const db = decisionsStore.getDb();
     if (db && typeof db.prepare === 'function') {
       return db;
     }
   }
   try {
-    const db = resolveContainerDbHandle();
+    const db = resolveDbHandle();
     if (db && typeof db.prepare === 'function') {
       return db;
     }
@@ -41,7 +41,11 @@ function resolveDecisionDb() {
 /**
  * @returns {import('../types').DecisionStore}
  */
-function createDecisionStore() {
+function createDecisionStore(options = {}) {
+  const decisionsStore = options.factoryDecisions || factoryDecisions;
+  const decisionLogger = options.decisionLog || decisionLog;
+  const resolveDbHandle = options.resolveContainerDbHandle || resolveContainerDbHandle;
+
   return {
     log(record) {
       const normalizedStage = normalizeDecisionStage(record?.stage);
@@ -50,15 +54,15 @@ function createDecisionStore() {
         return null;
       }
       try {
-        const db = resolveDecisionDb();
+        const db = resolveDecisionDb(decisionsStore, resolveDbHandle);
         if (!db) {
           // No DB available — match safeLogDecision's silent-skip semantics.
           return null;
         }
-        if (typeof factoryDecisions.setDb === 'function') {
-          factoryDecisions.setDb(db);
+        if (typeof decisionsStore.setDb === 'function') {
+          decisionsStore.setDb(db);
         }
-        return logDecision({
+        return decisionLogger.logDecision({
           ...record,
           stage: normalizedStage,
           actor,
@@ -72,22 +76,22 @@ function createDecisionStore() {
     },
 
     getLatestForStage(projectId, stage) {
-      if (typeof factoryDecisions.getLatestDecisionForStage !== 'function') {
+      if (typeof decisionsStore.getLatestDecisionForStage !== 'function') {
         return null;
       }
       try {
-        return factoryDecisions.getLatestDecisionForStage(projectId, stage);
+        return decisionsStore.getLatestDecisionForStage(projectId, stage);
       } catch {
         return null;
       }
     },
 
     listForBatch(batchId) {
-      if (typeof factoryDecisions.listDecisionsForBatch !== 'function') {
+      if (typeof decisionsStore.listDecisionsForBatch !== 'function') {
         return [];
       }
       try {
-        return factoryDecisions.listDecisionsForBatch(batchId) || [];
+        return decisionsStore.listDecisionsForBatch(batchId) || [];
       } catch {
         return [];
       }

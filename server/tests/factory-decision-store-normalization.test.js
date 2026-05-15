@@ -5,35 +5,39 @@
 //   - drop records missing `action` (defensive — matches safeLogDecision)
 //   - never throw into the stage even when the DB layer is unavailable
 //
-// We mock the inner logDecision call so the test runs without a DB.
+// Inject the inner logDecision call so the test runs without a DB and without
+// relying on Vitest to intercept nested CommonJS require() calls.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-vi.mock('../factory/decision-log.js', () => ({
-  logDecision: vi.fn(() => ({ id: 'fake-decision' })),
-}));
-
-vi.mock('../db/factory/decisions.js', () => ({
-  getDb: vi.fn(() => ({ prepare: vi.fn() })),  // fake db handle so resolveDecisionDb returns it
-  setDb: vi.fn(),
-  getLatestDecisionForStage: vi.fn(),
-  listDecisionsForBatch: vi.fn(),
-}));
-
-vi.mock('../db/db-handle-resolver.js', () => ({
-  resolveContainerDbHandle: vi.fn(() => ({ prepare: vi.fn() })),
-}));
-
-const decisionLog = await import('../factory/decision-log.js');
 const { createDecisionStore } = await import('../factory/stages/stores/decision.js');
 
 describe('decisionStore.log — normalization contract', () => {
+  let decisionLog;
+  let factoryDecisions;
+
   beforeEach(() => {
-    vi.clearAllMocks();
+    decisionLog = {
+      logDecision: vi.fn(() => ({ id: 'fake-decision' })),
+    };
+    factoryDecisions = {
+      getDb: vi.fn(() => ({ prepare: vi.fn() })),
+      setDb: vi.fn(),
+      getLatestDecisionForStage: vi.fn(),
+      listDecisionsForBatch: vi.fn(),
+    };
   });
 
+  function createInjectedStore() {
+    return createDecisionStore({
+      decisionLog,
+      factoryDecisions,
+      resolveContainerDbHandle: vi.fn(() => ({ prepare: vi.fn() })),
+    });
+  }
+
   it('lowercases recognized stage names and defaults actor from the map', () => {
-    const store = createDecisionStore();
+    const store = createInjectedStore();
     store.log({ stage: 'SENSE', action: 'scanned_plans', project_id: 1 });
 
     expect(decisionLog.logDecision).toHaveBeenCalledTimes(1);
@@ -44,7 +48,7 @@ describe('decisionStore.log — normalization contract', () => {
   });
 
   it('preserves an explicit actor over the stage→actor map', () => {
-    const store = createDecisionStore();
+    const store = createInjectedStore();
     store.log({ stage: 'plan', action: 'replanned', actor: 'human_operator', project_id: 1 });
 
     const call = decisionLog.logDecision.mock.calls[0][0];
@@ -52,7 +56,7 @@ describe('decisionStore.log — normalization contract', () => {
   });
 
   it('drops decisions for unknown stages with no DB write', () => {
-    const store = createDecisionStore();
+    const store = createInjectedStore();
     const result = store.log({ stage: 'idle', action: 'no_op', project_id: 1 });
 
     expect(result).toBeNull();
@@ -60,7 +64,7 @@ describe('decisionStore.log — normalization contract', () => {
   });
 
   it('drops decisions missing action with no DB write', () => {
-    const store = createDecisionStore();
+    const store = createInjectedStore();
     const result = store.log({ stage: 'sense', project_id: 1 });
 
     expect(result).toBeNull();
@@ -68,7 +72,7 @@ describe('decisionStore.log — normalization contract', () => {
   });
 
   it('drops decisions whose stage resolves to no actor', () => {
-    const store = createDecisionStore();
+    const store = createInjectedStore();
     const result = store.log({ stage: null, action: 'whatever', project_id: 1 });
 
     expect(result).toBeNull();
