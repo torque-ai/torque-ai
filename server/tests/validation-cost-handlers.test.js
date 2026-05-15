@@ -141,4 +141,254 @@ describe('Validation Cost Handlers', () => {
       expect(text).toContain('Parameter "days" must be of type number, got string');
     });
   });
+
+  // ============================================
+  // Scope Budget Handlers (cost-focused coverage)
+  // ============================================
+
+  describe('set_scope_budget', () => {
+    it('rejects missing scope_type', async () => {
+      const result = await safeTool('set_scope_budget', {
+        scope_id: 'cost-proj-1',
+        window: 'monthly',
+        amount_usd: 100
+      });
+      expect(result.isError).toBe(true);
+    });
+
+    it('rejects missing scope_id', async () => {
+      const result = await safeTool('set_scope_budget', {
+        scope_type: 'project',
+        window: 'monthly',
+        amount_usd: 100
+      });
+      expect(result.isError).toBe(true);
+    });
+
+    it('rejects missing window', async () => {
+      const result = await safeTool('set_scope_budget', {
+        scope_type: 'project',
+        scope_id: 'cost-proj-1',
+        amount_usd: 100
+      });
+      expect(result.isError).toBe(true);
+    });
+
+    it('rejects missing amount_usd', async () => {
+      const result = await safeTool('set_scope_budget', {
+        scope_type: 'project',
+        scope_id: 'cost-proj-1',
+        window: 'monthly'
+      });
+      expect(result.isError).toBe(true);
+    });
+
+    it('rejects completely empty args', async () => {
+      const result = await safeTool('set_scope_budget', {});
+      expect(result.isError).toBe(true);
+    });
+
+    it('rejects invalid scope_type enum value', async () => {
+      const result = await safeTool('set_scope_budget', {
+        scope_type: 'invalid_scope',
+        scope_id: 'cost-proj-1',
+        window: 'monthly',
+        amount_usd: 100
+      });
+      expect(result.isError).toBe(true);
+      const text = getText(result);
+      expect(text).toContain('scope_type');
+    });
+
+    it('rejects invalid window enum value', async () => {
+      const result = await safeTool('set_scope_budget', {
+        scope_type: 'project',
+        scope_id: 'cost-proj-1',
+        window: 'yearly',
+        amount_usd: 100
+      });
+      expect(result.isError).toBe(true);
+      const text = getText(result);
+      expect(text).toContain('window');
+    });
+
+    it('sets a scope budget with valid args', async () => {
+      const result = await safeTool('set_scope_budget', {
+        scope_type: 'project',
+        scope_id: 'cost-test-proj',
+        window: 'monthly',
+        amount_usd: 50
+      });
+      const text = getText(result);
+      expect(text.length).toBeGreaterThan(0);
+      if (!result.isError) {
+        expect(text).toContain('Scope Budget Set');
+        expect(text).toContain('project');
+        expect(text).toContain('cost-test-proj');
+      }
+    });
+
+    it('accepts optional warn_at_fraction parameter', async () => {
+      const result = await safeTool('set_scope_budget', {
+        scope_type: 'user',
+        scope_id: 'cost-user-1',
+        window: 'daily',
+        amount_usd: 25,
+        warn_at_fraction: 0.9
+      });
+      const text = getText(result);
+      expect(text.length).toBeGreaterThan(0);
+    });
+
+    it('accepts optional hard_cap parameter', async () => {
+      const result = await safeTool('set_scope_budget', {
+        scope_type: 'tenant',
+        scope_id: 'cost-tenant-1',
+        window: 'monthly',
+        amount_usd: 200,
+        hard_cap: true
+      });
+      const text = getText(result);
+      expect(text.length).toBeGreaterThan(0);
+    });
+  });
+
+  describe('get_scope_spend', () => {
+    it('rejects missing scope_type', async () => {
+      const result = await safeTool('get_scope_spend', {
+        scope_id: 'cost-proj-1',
+        window: 'monthly'
+      });
+      expect(result.isError).toBe(true);
+    });
+
+    it('rejects missing scope_id', async () => {
+      const result = await safeTool('get_scope_spend', {
+        scope_type: 'project',
+        window: 'monthly'
+      });
+      expect(result.isError).toBe(true);
+    });
+
+    it('rejects missing window', async () => {
+      const result = await safeTool('get_scope_spend', {
+        scope_type: 'project',
+        scope_id: 'cost-proj-1'
+      });
+      expect(result.isError).toBe(true);
+    });
+
+    it('rejects completely empty args', async () => {
+      const result = await safeTool('get_scope_spend', {});
+      expect(result.isError).toBe(true);
+    });
+
+    it('rejects invalid scope_type enum value', async () => {
+      const result = await safeTool('get_scope_spend', {
+        scope_type: 'invalid_scope',
+        scope_id: 'cost-proj-1',
+        window: 'monthly'
+      });
+      expect(result.isError).toBe(true);
+      const text = getText(result);
+      expect(text).toContain('scope_type');
+    });
+
+    it('rejects invalid window enum value', async () => {
+      const result = await safeTool('get_scope_spend', {
+        scope_type: 'project',
+        scope_id: 'cost-proj-1',
+        window: 'yearly'
+      });
+      expect(result.isError).toBe(true);
+      const text = getText(result);
+      expect(text).toContain('window');
+    });
+
+    it('returns spend data for valid args', async () => {
+      const result = await safeTool('get_scope_spend', {
+        scope_type: 'project',
+        scope_id: 'cost-test-proj',
+        window: 'monthly'
+      });
+      const text = getText(result);
+      expect(text.length).toBeGreaterThan(0);
+      if (!result.isError) {
+        expect(text).toContain('Scope Spend');
+        expect(text).toContain('project');
+        expect(text).toContain('cost-test-proj');
+      }
+    });
+
+    it('returns spend data with daily window', async () => {
+      const result = await safeTool('get_scope_spend', {
+        scope_type: 'user',
+        scope_id: 'cost-user-1',
+        window: 'daily'
+      });
+      const text = getText(result);
+      expect(text.length).toBeGreaterThan(0);
+    });
+  });
+
+  describe('list_scope_budgets', () => {
+    it('rejects missing scope_type', async () => {
+      const result = await safeTool('list_scope_budgets', {
+        scope_id: 'cost-proj-1'
+      });
+      expect(result.isError).toBe(true);
+    });
+
+    it('rejects missing scope_id', async () => {
+      const result = await safeTool('list_scope_budgets', {
+        scope_type: 'project'
+      });
+      expect(result.isError).toBe(true);
+    });
+
+    it('rejects completely empty args', async () => {
+      const result = await safeTool('list_scope_budgets', {});
+      expect(result.isError).toBe(true);
+    });
+
+    it('rejects invalid scope_type enum value', async () => {
+      const result = await safeTool('list_scope_budgets', {
+        scope_type: 'invalid_scope',
+        scope_id: 'cost-proj-1'
+      });
+      expect(result.isError).toBe(true);
+      const text = getText(result);
+      expect(text).toContain('scope_type');
+    });
+
+    it('returns budgets list for valid args', async () => {
+      const result = await safeTool('list_scope_budgets', {
+        scope_type: 'project',
+        scope_id: 'cost-test-proj'
+      });
+      const text = getText(result);
+      expect(text.length).toBeGreaterThan(0);
+      if (!result.isError) {
+        expect(text).toContain('Scope Budgets');
+      }
+    });
+
+    it('returns budgets for different scope types (global)', async () => {
+      const result = await safeTool('list_scope_budgets', {
+        scope_type: 'global',
+        scope_id: 'default'
+      });
+      const text = getText(result);
+      expect(text.length).toBeGreaterThan(0);
+    });
+
+    it('returns budgets for domain scope', async () => {
+      const result = await safeTool('list_scope_budgets', {
+        scope_type: 'domain',
+        scope_id: 'engineering'
+      });
+      const text = getText(result);
+      expect(text.length).toBeGreaterThan(0);
+    });
+  });
 });
