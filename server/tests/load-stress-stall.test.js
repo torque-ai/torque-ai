@@ -101,23 +101,27 @@ function _completeAllMockChildren(output = 'done\n') {
 // ============================================================
 // 1. Concurrent Task Submission (8 tests)
 describe('Stall recovery', () => {
-  it('task stalls beyond threshold: detected by checkStalledTasks', async () => {
+  it('task stalls beyond threshold: detected by checkStalledTasks', () => {
     ctx.db.setConfig('max_concurrent', '10');
     ctx.db.setConfig('stall_recovery_enabled', '0'); // disable auto-recovery for clean detection
 
-    const taskId = createTestTask(ctx.db, { provider: 'codex' });
-    await ctx.tm.startTask(taskId);
+    const taskId = createTestTask(ctx.db, { provider: 'ollama' });
+    ctx.db.updateTaskStatus(taskId, 'running');
 
-    // Inject a fake entry into runningProcesses with old lastOutputAt
+    // Seed runningProcesses directly so this stall-detection test does not
+    // depend on provider startup side effects.
     const procs = ctx.tm._testing.runningProcesses;
-    const proc = procs.get(taskId);
-    expect(proc).toBeDefined();
-    // Set last output to 10 minutes ago to trigger stall
-    proc.lastOutputAt = Date.now() - 700 * 1000;
-    proc.provider = 'ollama'; // Use ollama which has a real stall threshold
-    // Null out process/pid so CPU activity rescue doesn't find a live system process
-    proc.process = null;
-    proc.pid = undefined;
+    const startedAt = Date.now() - 700 * 1000;
+    procs.set(taskId, {
+      provider: 'ollama',
+      model: 'codellama:latest',
+      startTime: startedAt,
+      lastOutputAt: startedAt,
+      process: null,
+      pid: undefined,
+      output: '',
+      metadata: {},
+    });
 
     const stalled = ctx.tm.checkStalledTasks(false);
     // Should detect the stalled task
