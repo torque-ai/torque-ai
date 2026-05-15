@@ -127,47 +127,111 @@ describe('EXECUTE adapter', () => {
   });
 });
 
-describe('VERIFY adapter', () => {
-  it('passing verify → disposition=continue, nextState passed through', async () => {
-    const run = createVerifyStageRunner({
-      executeVerifyStage: async () => ({ next_state: 'LEARN', status: 'passed', exit_code: 0 }),
-    });
-    const outcome = await run({ project: baseProject, instance: baseInstance, batchId: 'b-9' });
+describe('VERIFY runner (Phase 2c Step B — policy lifted in)', () => {
+  // Build the 8-dep bundle; per-test overrides supply the executor's
+  // legacy return and the already-verified / terminal inputs.
+  function makeVerifyDeps(overrides = {}) {
+    const movedInstance = { id: 'inst-1', batch_id: 'batch-1', loop_state: 'LEARN' };
+    const pausedInstance = { id: 'inst-1', batch_id: 'batch-1', paused_at_stage: 'VERIFY' };
+    return {
+      executeVerifyStage: overrides.executeVerifyStage || (async () => ({ status: 'passed', next_state: 'LEARN' })),
+      getLatestStageDecision: overrides.getLatestStageDecision || (() => null),
+      hasVerifiedBatchDecision: overrides.hasVerifiedBatchDecision || (() => false),
+      isTerminalVerifyOutcome: overrides.isTerminalVerifyOutcome || (() => false),
+      finalizeTerminalVerifyOutcome: overrides.finalizeTerminalVerifyOutcome
+        || (() => ({ new_state: 'PAUSED', reason: 'verify_failed' })),
+      tryMoveInstanceToStage: overrides.tryMoveInstanceToStage
+        || vi.fn(() => ({ instance: movedInstance, blocked: false })),
+      updateInstanceAndSync: overrides.updateInstanceAndSync || vi.fn(() => pausedInstance),
+      nowIso: overrides.nowIso || (() => '2026-05-15T00:00:00Z'),
+      _movedInstance: movedInstance,
+      _pausedInstance: pausedInstance,
+    };
+  }
+  const verifyCtx = () => ({
+    project: baseProject,
+    instance: { ...baseInstance, work_item_id: 'wi-1' },
+    batchId: 'batch-1',
+    previousState: 'EXECUTE',
+    instance_id: 'inst-1',
+  });
+
+  it('throws when a required dep is missing', () => {
+    expect(() => createVerifyStageRunner({ executeVerifyStage: async () => null }))
+      .toThrow(/dep 'getLatestStageDecision' is required/);
+  });
+
+  it('verified batch → disposition=continue, nextState=LEARN, move issued', async () => {
+    const deps = makeVerifyDeps();
+    const run = createVerifyStageRunner(deps);
+    const outcome = await run(verifyCtx());
     expect(outcome.disposition).toBe('continue');
     expect(outcome.nextState).toBe('LEARN');
-    expect(outcome.stageResult.status).toBe('passed');
+    expect(outcome.reason).toBe('verified_batch');
+    expect(outcome.advanceResult).toBeNull();
+    expect(deps.tryMoveInstanceToStage).toHaveBeenCalled();
   });
 
-  it('failing verify → disposition=pause at VERIFY', async () => {
-    const run = createVerifyStageRunner({
-      executeVerifyStage: async () => ({ status: 'failed', exit_code: 1, output_tail: 'AssertionError: oops' }),
+  it('pause_at_stage → disposition=pause, instance updated, no advanceResult', async () => {
+    const deps = makeVerifyDeps({
+      executeVerifyStage: async () => ({ status: 'failed', pause_at_stage: 'VERIFY', reason: 'tests red' }),
     });
-    const outcome = await run({ project: baseProject, instance: baseInstance, batchId: 'b-10' });
+    const run = createVerifyStageRunner(deps);
+    const outcome = await run(verifyCtx());
     expect(outcome.disposition).toBe('pause');
     expect(outcome.pausedAtStage).toBe('VERIFY');
-    expect(outcome.stageResult.exit_code).toBe(1);
-    expect(outcome.stageResult.output_tail).toMatch(/AssertionError/);
+    expect(outcome.reason).toBe('tests red');
+    expect(outcome.advanceResult).toBeNull();
+    expect(deps.updateInstanceAndSync).toHaveBeenCalled();
   });
 
-  it('exposes the legacy return verbatim under stageResult.legacy', async () => {
-    const legacy = {
-      next_state: 'LEARN',
-      status: 'passed',
-      exit_code: 0,
-      pause_at_stage: null,
-      reason: 'all green',
-      extra_field_we_dont_model: 'preserved',
-    };
-    const run = createVerifyStageRunner({ executeVerifyStage: async () => legacy });
-    const outcome = await run({ project: baseProject, instance: baseInstance, batchId: 'b-11' });
-    expect(outcome.stageResult.legacy).toBe(legacy);
-    expect(outcome.stageResult.legacy.extra_field_we_dont_model).toBe('preserved');
+  it('terminal verify outcome → disposition=terminate, advanceResult from finalize', async () => {
+    const deps = makeVerifyDeps({
+      executeVerifyStage: async () => ({ status: 'failed', exit_code: 1 }),
+      isTerminalVerifyOutcome: () => true,
+      finalizeTerminalVerifyOutcome: () => ({ new_state: 'PAUSED', reason: 'verify_terminal' }),
+    });
+    const run = createVerifyStageRunner(deps);
+    const outcome = await run(verifyCtx());
+    expect(outcome.disposition).toBe('terminate');
+    expect(outcome.nextState).toBe('PAUSED');
+    expect(outcome.advanceResult).toMatchObject({ new_state: 'PAUSED', reason: 'verify_terminal' });
   });
 
-  it('legacy=null when executor returns null', async () => {
-    const run = createVerifyStageRunner({ executeVerifyStage: async () => null });
-    const outcome = await run({ project: baseProject, instance: baseInstance, batchId: 'b-12' });
-    expect(outcome.stageResult.legacy).toBeNull();
+  it('already-verified batch short-circuits the executor', async () => {
+    const exec = vi.fn(async () => ({ status: 'passed' }));
+    const deps = makeVerifyDeps({
+      executeVerifyStage: exec,
+      hasVerifiedBatchDecision: () => true,
+      getLatestStageDecision: () => ({ action: 'verified_batch' }),
+    });
+    const run = createVerifyStageRunner(deps);
+    const outcome = await run(verifyCtx());
+    expect(exec).not.toHaveBeenCalled();
+    expect(outcome.legacy).toMatchObject({ status: 'skipped', reason: 'batch_already_verified' });
+    expect(outcome.disposition).toBe('continue');
+  });
+
+  it('approved rerun bypasses the already-verified short-circuit', async () => {
+    const exec = vi.fn(async () => ({ status: 'passed' }));
+    const deps = makeVerifyDeps({
+      executeVerifyStage: exec,
+      hasVerifiedBatchDecision: () => true,
+      getLatestStageDecision: () => ({ action: 'gate_approved' }),
+    });
+    const run = createVerifyStageRunner(deps);
+    const outcome = await run(verifyCtx());
+    expect(exec).toHaveBeenCalled();
+    expect(outcome.reason).toBe('verify_rerun_completed');
+  });
+
+  it('lean stageResult carries status/exit_code; full return rides the legacy bridge', async () => {
+    const legacy = { status: 'passed', exit_code: 0, output_tail: 'ok', fix_task_id: null, extra: 'kept' };
+    const deps = makeVerifyDeps({ executeVerifyStage: async () => legacy });
+    const run = createVerifyStageRunner(deps);
+    const outcome = await run(verifyCtx());
+    expect(outcome.stageResult).toEqual({ status: 'passed', exit_code: 0, output_tail: 'ok', fix_task_id: null });
+    expect(outcome.legacy).toBe(legacy);
   });
 });
 
