@@ -787,6 +787,38 @@ describe('version-control worktree manager', () => {
     expect(manager.getWorktree('wt-invalid-argument')).toBeNull();
   });
 
+  it('falls back to forceRmSync when git worktree remove reports Directory not empty', () => {
+    const repoPath = makeRepoRoot();
+    const wtPath = path.join(repoPath, '.worktrees', 'feat-dir-not-empty');
+    insertWorktree({
+      id: 'wt-dir-not-empty',
+      repo_path: repoPath,
+      worktree_path: wtPath,
+      branch: 'feat/dir-not-empty',
+    });
+    fs.writeFileSync(path.join(wtPath, 'leftover.tmp'), 'left behind');
+
+    execFileSyncMock.mockImplementation((cmd, args) => {
+      if (cmd === 'git' && Array.isArray(args)
+          && args[0] === 'worktree' && args[1] === 'remove') {
+        const err = new Error(
+          `Command failed: git worktree remove --force ${wtPath}\n`
+          + `error: failed to delete '${wtPath}': Directory not empty\n`
+        );
+        err.stderr = `error: failed to delete '${wtPath}': Directory not empty`;
+        throw err;
+      }
+      return '';
+    });
+
+    const result = manager.cleanupWorktree('wt-dir-not-empty');
+
+    expect(result.removed).toBe(true);
+    expect(result.warnings.some((warning) => warning.includes('Directory not empty'))).toBe(true);
+    expect(fs.existsSync(wtPath)).toBe(false);
+    expect(manager.getWorktree('wt-dir-not-empty')).toBeNull();
+  });
+
   it('removes the current worktree when only older same-path db siblings exist', () => {
     const repoPath = makeRepoRoot();
     const worktreePath = path.join(repoPath, '.worktrees', 'feat-cleanup-sibling');

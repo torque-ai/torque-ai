@@ -1145,17 +1145,19 @@ function createWorktree(repoPath, featureName, options = {}) {
         // still holding handles, indexer, etc.) surface as "Permission denied"
         // / EBUSY / EPERM / "Access is denied" / "being used by another
         // process" from `git worktree remove --force`. Git on Windows can also
-        // emit "Invalid argument" after it has already removed the .git
-        // redirect and much of the tree, leaving a partial directory that is no
-        // longer registered in `git worktree list`. These are cleanup failures,
-        // not structural failures — fall through to the layered forceRmSync
-        // (chmod-clear-readonly -> shell rmdir) and quarantine fallbacks already
-        // used by createWorktree, instead of bubbling up and leaving an active
-        // vc_worktrees row pointing at a corrupt partial checkout. Live evidence
-        // 2026-05-03 (task 65072ba9-6b7b-4886-937b-d6fb665db468): permission
-        // denial here discarded the OTLP-spans work item; 2026-05-13 saw
-        // "Invalid argument" leave .worktrees/fea-ee35034a without scripts/.
-        const isFsLock = /Permission denied|Invalid argument|EBUSY|EPERM|EACCES|access is denied|being used by another process/i.test(gitMessage);
+        // emit "Invalid argument" or "Directory not empty" after it has
+        // already removed the .git redirect and much of the tree, leaving a
+        // partial directory that is no longer registered in `git worktree
+        // list`. These are cleanup failures, not structural failures — fall
+        // through to the layered forceRmSync (chmod-clear-readonly -> shell
+        // rmdir) and quarantine fallbacks already used by createWorktree,
+        // instead of bubbling up and leaving an active vc_worktrees row pointing
+        // at a corrupt partial checkout. Live evidence 2026-05-03 (task
+        // 65072ba9-6b7b-4886-937b-d6fb665db468): permission denial here
+        // discarded the OTLP-spans work item; 2026-05-13 saw "Invalid
+        // argument" leave .worktrees/fea-ee35034a without scripts/; 2026-05-15
+        // saw "Directory not empty" leave a shipped factory worktree behind.
+        const isFsLock = /Permission denied|Invalid argument|Directory not empty|EBUSY|EPERM|EACCES|access is denied|being used by another process/i.test(gitMessage);
         if (!isNotWorkingTree && !isFsLock) {
           throw error;
         }
