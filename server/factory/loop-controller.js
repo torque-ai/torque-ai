@@ -66,6 +66,15 @@ const {
   normalizeWorkItemDetail,
   getWorkItemDetail,
 } = require('./shared/workitem-accessors');
+const {
+  PLAN_RELATED_STOP_WORDS,
+  PLAN_RELATED_GENERIC_PATH_TOKENS,
+  normalizePlannerAffinityToken,
+  tokenizePlannerPathForAffinity,
+  buildPlannerTitleAffinityTokens,
+  tokenizePlannerSearchText,
+  buildPlannerFileSearchTokens,
+} = require('./shared/planner-tokens');
 
 const PLAN_GENERATOR_LABEL = 'auto-router';
 const DEFAULT_PLAN_GENERATION_TIMEOUT_MINUTES = 30;
@@ -6249,106 +6258,6 @@ const PLAN_RELATED_SKIP_DIRS = new Set([
   'tmp',
   'temp',
 ]);
-const PLAN_RELATED_STOP_WORDS = new Set([
-  'about',
-  'acceptance',
-  'adding',
-  'after',
-  'against',
-  'before',
-  'build',
-  'command',
-  'concrete',
-  'cover',
-  'create',
-  'criteria',
-  'current',
-  'debug',
-  'does',
-  'done',
-  'edge',
-  'ensure',
-  'existing',
-  'expected',
-  'factory',
-  'failure',
-  'fabro',
-  'from',
-  'function',
-  'handle',
-  'implementation',
-  'instead',
-  'invalid',
-  'issue',
-  'logic',
-  'missing',
-  'module',
-  'nearest',
-  'node',
-  'only',
-  'package',
-  'pass',
-  'path',
-  'paths',
-  'plan',
-  'plans',
-  'project',
-  'provided',
-  'requested',
-  'return',
-  'runner',
-  'slice',
-  'small',
-  'task',
-  'tests',
-  'that',
-  'this',
-  'typed',
-  'unit',
-  'update',
-  'uses',
-  'valid',
-  'verify',
-  'with',
-  'work',
-  'yaml',
-]);
-const PLAN_RELATED_GENERIC_PATH_TOKENS = new Set([
-  ...PLAN_RELATED_STOP_WORDS,
-  '__tests__',
-  'app',
-  'apps',
-  'component',
-  'components',
-  'definition',
-  'definitions',
-  'doc',
-  'docs',
-  'extractor',
-  'extractors',
-  'index',
-  'integration',
-  'integrations',
-  'javascript',
-  'jsx',
-  'lib',
-  'libs',
-  'parser',
-  'parsers',
-  'react',
-  'schema',
-  'schemas',
-  'server',
-  'src',
-  'spec',
-  'template',
-  'templates',
-  'test',
-  'type',
-  'types',
-  'typescript',
-  'tsx',
-]);
 const PLAN_RELATED_GENERATED_ARTIFACT_RE = /^(?:docs\/superpowers\/plans\/auto-generated|docs\/findings)\//i;
 
 function isInternalTempWorktreePlanPath(filePath) {
@@ -6393,34 +6302,6 @@ function isLanguageCompatibleRelatedFile(filePath, requestedFamilies) {
   if (!requestedFamilies || requestedFamilies.size === 0) return true;
   const family = getPlanPathLanguageFamily(filePath);
   return !family || requestedFamilies.has(family);
-}
-
-function normalizePlannerAffinityToken(token) {
-  const lower = String(token || '').toLowerCase().trim();
-  if (lower.length > 4 && lower.endsWith('ies')) {
-    return `${lower.slice(0, -3)}y`;
-  }
-  if (lower.length > 4 && lower.endsWith('s')) {
-    return lower.slice(0, -1);
-  }
-  return lower;
-}
-
-function tokenizePlannerPathForAffinity(filePath) {
-  return String(filePath || '')
-    .replace(/\\/g, '/')
-    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
-    .split(/[^A-Za-z0-9]+/g)
-    .map(normalizePlannerAffinityToken)
-    .filter((token) => token.length >= 4 && !PLAN_RELATED_GENERIC_PATH_TOKENS.has(token));
-}
-
-function buildPlannerTitleAffinityTokens(workItem) {
-  return String(workItem?.title || '')
-    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
-    .split(/[^A-Za-z0-9]+/g)
-    .map(normalizePlannerAffinityToken)
-    .filter((token) => token.length >= 4 && !PLAN_RELATED_GENERIC_PATH_TOKENS.has(token));
 }
 
 function hasTitleAnchorPathAffinity(filePath, workItem, seedFiles = []) {
@@ -6621,24 +6502,6 @@ function collectArchitectScopeDetails(workItem, projectPath = null) {
 
 function collectArchitectScopeFiles(workItem, projectPath = null) {
   return collectArchitectScopeDetails(workItem, projectPath).scopeFiles;
-}
-
-function tokenizePlannerSearchText(value) {
-  return String(value || '')
-    .toLowerCase()
-    .split(/[^a-z0-9]+/g)
-    .map((token) => token.trim())
-    .filter((token) => token.length >= 4 && !PLAN_RELATED_STOP_WORDS.has(token));
-}
-
-function buildPlannerFileSearchTokens(workItem, seedFiles = []) {
-  const tokens = new Set(tokenizePlannerSearchText(`${workItem?.title || ''}\n${workItem?.description || ''}`));
-  for (const file of seedFiles || []) {
-    for (const token of tokenizePlannerSearchText(file)) {
-      tokens.add(token);
-    }
-  }
-  return Array.from(tokens);
 }
 
 function discoverRelatedProjectFiles(projectPath, workItem, seedFiles = [], limit = 8) {
