@@ -295,6 +295,27 @@ describe('torque-push wrapper', () => {
     }
   });
 
+  it('continues with the new local ref when main moves during a successful gate', () => {
+    const fake = makeFakeGitEnv({
+      remoteBefore: OLD_SHA,
+      localShaAfterFirstPush: NEW_SHA,
+      remoteAfterFirstPush: LOCAL_SHA,
+      remoteAfterSecondPush: NEW_SHA,
+      pushExitSequence: '0 0',
+    });
+    try {
+      const result = runWrapper(fake);
+
+      expect(result.status, result.stderr).toBe(0);
+      const calls = fs.readFileSync(fake.logPath, 'utf8');
+      expect(result.stdout).toContain('git push succeeded for aaaaaaaaaaaa, but HEAD moved while the gate was running.');
+      expect(result.stdout).toContain('local ref HEAD moved from aaaaaaaaaaaa to cccccccccccc while waiting; retrying from the new tip.');
+      expect(calls.match(/^push$/gm)?.length || 0).toBe(2);
+    } finally {
+      fake.cleanup();
+    }
+  });
+
   it('passes non-main pushes through to git unchanged', () => {
     const fake = makeFakeGitEnv({
       branch: 'feature',

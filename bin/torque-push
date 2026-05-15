@@ -255,7 +255,20 @@ while :; do
   set -e
 
   if [ "$push_rc" -eq 0 ]; then
-    exit 0
+    if local_ref_matches_local_head; then
+      exit 0
+    fi
+    echo "[torque-push] git push succeeded for $local_head_short, but $local_ref moved while the gate was running."
+    if refresh_if_local_ref_moved; then
+      ref_refreshes=$((ref_refreshes + 1))
+      if [ "$ref_refreshes" -gt "$max_ref_refreshes" ]; then
+        echo "[torque-push] local ref $local_ref changed more than $max_ref_refreshes time(s) while pushing; stop the moving cutovers and retry."
+        exit 1
+      fi
+      continue
+    fi
+    echo "[torque-push] local ref $local_ref no longer resolves after pushing $local_head_short; stop and inspect before retrying."
+    exit 1
   fi
 
   if origin_main_matches_local_head; then
