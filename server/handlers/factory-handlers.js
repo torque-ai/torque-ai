@@ -1517,6 +1517,7 @@ async function handlePauseProject(args) {
     logger.warn({ err }, 'Failed to record pause audit event');
   }
   stopFactoryTickForProject(updated.id);
+  const cancelledTasks = cancelRunningFactoryTasksForPausedProject(updated);
   const terminatedLoops = terminateActiveLoopInstancesForOperatorPause(updated.id);
   const parkedQueue = parkPausedFactoryProjectQueue(updated.id);
   const pausedProject = factoryHealth.getProject(updated.id) || updated;
@@ -1524,6 +1525,9 @@ async function handlePauseProject(args) {
   return jsonResponse({
     message: `Project "${updated.name}" paused`,
     project: pausedProject,
+    cancelled_tasks: cancelledTasks.cancelled,
+    cancelled_task_ids: cancelledTasks.cancelled_task_ids,
+    failed_task_cancellations: cancelledTasks.failed_cancellations,
     parked_tasks: parkedQueue.parked,
     terminated_loop_instances: terminatedLoops.terminated,
     terminated_loop_instance_ids: terminatedLoops.instance_ids,
@@ -1606,6 +1610,137 @@ function parkPausedFactoryProjectQueue(projectId) {
     });
     return { parked: 0, scanned: 0 };
   }
+}
+
+function taskBelongsToFactoryProject(task, project) {
+  if (!task || !project) {
+    return false;
+  }
+  const tags = getTaskTags(task);
+  const hasFactoryTag = tags.some((tag) => typeof tag === 'string' && tag.startsWith('factory:'));
+  if (!hasFactoryTag) {
+    return false;
+  }
+  const projectNameTag = project.name ? `project:${project.name}` : null;
+  const projectIdTag = project.id ? `factory:project_id=${project.id}` : null;
+  return task.project === project.name
+    || (projectNameTag && tags.includes(projectNameTag))
+    || (projectIdTag && tags.includes(projectIdTag));
+}
+
+function listRunningFactoryTasksForProject(project) {
+  if (!project?.id && !project?.name) {
+    return [];
+  }
+
+  let taskCore;
+  try {
+    taskCore = require('../db/task-core');
+  } catch (err) {
+    logger.warn('Failed to load task-core while inspecting running factory tasks for paused project', {
+      project_id: project?.id,
+      err: err.message,
+    });
+    return [];
+  }
+
+  const columns = ['id', 'status', 'provider', 'project', 'tags', 'created_at', 'started_at'];
+  const tasksById = new Map();
+  const addTasks = (tasks) => {
+    for (const task of Array.isArray(tasks) ? tasks : []) {
+      if (task?.id && taskBelongsToFactoryProject(task, project)) {
+        tasksById.set(task.id, task);
+      }
+    }
+  };
+
+  try {
+    if (project.name) {
+      addTasks(taskCore.listTasks({
+        project: project.name,
+        statuses: ['running'],
+        columns,
+        orderBy: 'created_at',
+        orderDir: 'desc',
+        limit: 1000,
+      }));
+    }
+    if (project.id) {
+      addTasks(taskCore.listTasks({
+        tags: [`factory:project_id=${project.id}`],
+        statuses: ['running'],
+        columns,
+        orderBy: 'created_at',
+        orderDir: 'desc',
+        limit: 1000,
+      }));
+    }
+  } catch (err) {
+    logger.warn('Failed to list running factory tasks for paused project', {
+      project_id: project.id,
+      err: err.message,
+    });
+  }
+
+  return Array.from(tasksById.values());
+}
+
+function cancelRunningFactoryTasksForPausedProject(project) {
+  const tasks = listRunningFactoryTasksForProject(project);
+  if (tasks.length === 0) {
+    return { scanned: 0, cancelled: 0, cancelled_task_ids: [], failed_cancellations: [] };
+  }
+
+  let taskManager;
+  try {
+    taskManager = require('../task-manager');
+  } catch (err) {
+    logger.warn('Failed to load task-manager while cancelling running factory tasks for paused project', {
+      project_id: project.id,
+      err: err.message,
+    });
+    return {
+      scanned: tasks.length,
+      cancelled: 0,
+      cancelled_task_ids: [],
+      failed_cancellations: tasks.map((task) => ({ task_id: task.id, error: err.message })),
+    };
+  }
+
+  const cancelledTaskIds = [];
+  const failedCancellations = [];
+  const reason = `Factory project "${project.name || project.id}" was paused by an operator`;
+
+  for (const task of tasks) {
+    try {
+      if (!taskManager || typeof taskManager.cancelTask !== 'function') {
+        throw new Error('taskManager.cancelTask unavailable');
+      }
+      const cancelled = taskManager.cancelTask(task.id, reason, {
+        cancel_reason: FACTORY_PROJECT_PAUSED_REASON,
+        terminal_status: 'cancelled',
+      });
+      if (cancelled) {
+        cancelledTaskIds.push(task.id);
+      } else {
+        failedCancellations.push({ task_id: task.id, error: 'cancelTask returned false' });
+      }
+    } catch (err) {
+      logger.warn('Failed to cancel running factory task for paused project', {
+        project_id: project.id,
+        task_id: task.id,
+        err: err.message,
+      });
+      failedCancellations.push({ task_id: task.id, error: err.message });
+    }
+  }
+
+  return {
+    scanned: tasks.length,
+    cancelled: cancelledTaskIds.length,
+    cancelled_task_ids: cancelledTaskIds,
+    failed_cancellations: failedCancellations,
+  };
 }
 
 function resumePausedFactoryProjectQueue(projectId) {
@@ -1729,17 +1864,22 @@ async function handlePauseAllProjects(args = {}) {
       logger.warn({ err }, 'Failed to record pause audit event');
     }
     stopFactoryTickForProject(updated.id);
+    const cancelledTasks = cancelRunningFactoryTasksForPausedProject(updated);
     const terminatedLoops = terminateActiveLoopInstancesForOperatorPause(updated.id);
     const parkedQueue = parkPausedFactoryProjectQueue(updated.id);
     return {
       paused: previous_status !== 'paused',
       already_paused: previous_status === 'paused',
+      cancelled_tasks: cancelledTasks.cancelled || 0,
+      failed_task_cancellations: cancelledTasks.failed_cancellations || [],
       parked: parkedQueue.parked || 0,
       terminated_loop_instances: terminatedLoops.terminated || 0,
     };
   }));
   const paused = results.filter((result) => result?.paused).length;
   const already_paused = results.filter((result) => result?.already_paused).length;
+  const cancelled_tasks = results.reduce((sum, result) => sum + (result?.cancelled_tasks || 0), 0);
+  const failed_task_cancellations = results.flatMap((result) => result?.failed_task_cancellations || []);
   const parked_tasks = results.reduce((sum, result) => sum + (result?.parked || 0), 0);
   const terminated_loop_instances = results.reduce((sum, result) => sum + (result?.terminated_loop_instances || 0), 0);
   logger.info(`Emergency pause: ${paused} projects paused`);
@@ -1748,6 +1888,8 @@ async function handlePauseAllProjects(args = {}) {
     total: projects.length,
     paused,
     already_paused,
+    cancelled_tasks,
+    failed_task_cancellations,
     parked_tasks,
     terminated_loop_instances,
   });

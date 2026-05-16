@@ -9,6 +9,7 @@ const factoryHealth = require('../db/factory/health');
 const factoryIntake = require('../db/factory/intake');
 const factoryLoopInstances = require('../db/factory/loop-instances');
 const taskCore = require('../db/task-core');
+const taskManager = require('../task-manager');
 const routingModule = require('../handlers/integration/routing');
 const factoryHandlers = require('../handlers/factory-handlers');
 const factoryTick = require('../factory/factory-tick');
@@ -161,6 +162,83 @@ describe('factory pause enforcement', () => {
     expect(pausedConfig.loop).toMatchObject({
       operator_paused: true,
       operator_pause_reason: 'manual stop',
+    });
+  });
+
+  it('operator pause cancels running factory tasks for the project', async () => {
+    const project = registerFactoryProject({ status: 'running', autoContinue: true });
+    const item = factoryIntake.createWorkItem({
+      project_id: project.id,
+      source: 'architect',
+      title: 'Running factory task',
+      description: 'The provider process should be cancelled when the project pauses.',
+      status: 'executing',
+    });
+    const instance = factoryLoopInstances.createInstance({
+      project_id: project.id,
+      batch_id: 'factory-pause-running-task',
+      work_item_id: item.id,
+    });
+    factoryLoopInstances.updateInstance(instance.id, {
+      loop_state: LOOP_STATES.EXECUTE,
+      batch_id: 'factory-pause-running-task',
+      work_item_id: item.id,
+    });
+    const factoryTaskDir = path.join(project.path, '.worktrees', 'factory-task');
+    fs.mkdirSync(factoryTaskDir, { recursive: true });
+    taskCore.createTask({
+      id: 'task-running-factory-pause',
+      status: 'running',
+      task_description: 'running factory task',
+      working_directory: factoryTaskDir,
+      project: project.name,
+      tags: [
+        'factory:batch_id=factory-pause-running-task',
+        `factory:work_item_id=${item.id}`,
+        'factory:plan_task_number=1',
+        `project:${project.name}`,
+      ],
+    });
+    taskCore.createTask({
+      id: 'task-running-manual-same-project',
+      status: 'running',
+      task_description: 'manual project task',
+      working_directory: project.path,
+      project: project.name,
+      tags: [`project:${project.name}`],
+    });
+    const cancelSpy = vi.spyOn(taskManager, 'cancelTask')
+      .mockImplementation((taskId, _reason, options = {}) => {
+        taskCore.updateTaskStatus(taskId, options.terminal_status || 'cancelled', {
+          cancel_reason: options.cancel_reason,
+        });
+        return true;
+      });
+
+    const result = await factoryHandlers.handlePauseProject({
+      project: project.id,
+      reason: 'manual stop',
+      actor: 'operator',
+    });
+    const data = JSON.parse(result.content[0].text);
+
+    expect(data).toMatchObject({
+      cancelled_tasks: 1,
+      cancelled_task_ids: ['task-running-factory-pause'],
+      failed_task_cancellations: [],
+      terminated_loop_instances: 1,
+    });
+    expect(cancelSpy).toHaveBeenCalledWith(
+      'task-running-factory-pause',
+      expect.stringContaining(`Factory project "${project.name}" was paused`),
+      { cancel_reason: 'factory_project_paused', terminal_status: 'cancelled' },
+    );
+    expect(taskCore.getTask('task-running-factory-pause')).toMatchObject({
+      status: 'cancelled',
+      cancel_reason: 'factory_project_paused',
+    });
+    expect(taskCore.getTask('task-running-manual-same-project')).toMatchObject({
+      status: 'running',
     });
   });
 
