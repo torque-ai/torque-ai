@@ -25,6 +25,97 @@
 // whole analysis object; the full analysis rides the `analysis` bridge.
 
 const { LOOP_STATES } = require('../loop-states');
+const logger = require('../../logger').child({ component: 'factory-learn-stage' });
+
+// ─── LEARN executor — Phase 3 (body lifted out of loop-controller) ───────────
+//
+// `executeLearnStage` runs the post-batch feedback analysis, records the
+// `learned` decision, ships the work item if eligible, and returns the
+// analysis object (with `shipping_result` attached). The body is verbatim
+// from loop-controller.js; loop-controller keeps a one-line wiring:
+//   const executeLearnStage = createLearnStage({ ...injected deps });
+//
+// `feedback` is lazy-required inside the executor (as the original was —
+// it avoids a module-load cycle). `safeLogDecision` and
+// `maybeShipWorkItemAfterLearn` are loop-controller-internal and injected.
+
+const LEARN_EXECUTOR_DEPS = ['safeLogDecision', 'maybeShipWorkItemAfterLearn'];
+
+/**
+ * @param {{
+ *   safeLogDecision: (entry: object) => any,
+ *   maybeShipWorkItemAfterLearn: (projectId, batchId, instance) => Promise<any>,
+ * }} deps
+ * @returns {(projectId: number|string, batchId: string|null, instance: object|null) => Promise<any>}
+ */
+function createLearnStage(deps = {}) {
+  for (const name of LEARN_EXECUTOR_DEPS) {
+    if (typeof deps[name] !== 'function') {
+      throw new TypeError(`createLearnStage: dep '${name}' is required`);
+    }
+  }
+  const { safeLogDecision, maybeShipWorkItemAfterLearn } = deps;
+
+  return async function executeLearnStage(project_id, batch_id, instance) {
+    try {
+      const feedback = require('../feedback');
+      const analysis = feedback.analyzeBatch(project_id, batch_id);
+      safeLogDecision({
+        project_id,
+        stage: LOOP_STATES.LEARN,
+        action: 'learned',
+        reasoning: 'LEARN stage analyzed post-batch feedback.',
+        inputs: {
+          batch_id,
+          signals: {
+            health_dimensions: Object.keys(analysis?.health_delta || {}).length,
+            task_count: analysis?.execution_metrics?.task_count ?? null,
+            guardrail_events: analysis?.guardrail_activity?.total ?? 0,
+          },
+        },
+        outcome: {
+          feedback_id: analysis?.feedback_id ?? null,
+          summary: analysis?.summary || null,
+        },
+        confidence: 1,
+        batch_id,
+      });
+      const shippingResult = await maybeShipWorkItemAfterLearn(project_id, batch_id, instance);
+      if (analysis && typeof analysis === 'object') {
+        analysis.shipping_result = shippingResult || null;
+      }
+      logger.info('LEARN stage: batch analysis complete', {
+        project_id,
+        batch_id,
+        shipping_status: shippingResult?.status || null,
+        shipping_reason: shippingResult?.reason || null,
+        work_item_id: shippingResult?.work_item_id || null,
+      });
+      return analysis;
+    } catch (err) {
+      logger.warn(`LEARN stage analysis failed: ${err.message}`, { project_id });
+      safeLogDecision({
+        project_id,
+        stage: LOOP_STATES.LEARN,
+        action: 'learn_failed',
+        reasoning: err.message,
+        inputs: {
+          batch_id,
+          signals: null,
+        },
+        outcome: {
+          status: 'error',
+          error: err.message,
+        },
+        confidence: 1,
+        batch_id,
+      });
+      return { status: 'error', error: err.message };
+    }
+  };
+}
+
+// ─── LEARN runner — Phase 2c Step B (post-tick policy) ───────────────────────
 
 const REQUIRED_DEPS = [
   'executeLearnStage',
@@ -187,4 +278,4 @@ function createLearnStageRunner(deps = {}) {
   };
 }
 
-module.exports = { createLearnStageRunner };
+module.exports = { createLearnStage, createLearnStageRunner };
