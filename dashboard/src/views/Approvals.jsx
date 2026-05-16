@@ -776,7 +776,11 @@ export default function Approvals() {
             </button>
           </div>
         ) : factoryBatches.length === 0 ? (
-          <div className="mt-4 rounded-xl border border-dashed border-slate-700/70 bg-slate-900/40 px-4 py-6 text-sm text-slate-400">
+          <div
+            data-testid="factory-approvals-empty-state"
+            role="status"
+            className="mt-4 rounded-xl border border-dashed border-slate-700/70 bg-slate-900/40 px-4 py-6 text-sm text-slate-400"
+          >
             No tasks awaiting approval.
           </div>
         ) : (
@@ -857,7 +861,7 @@ export default function Approvals() {
               <tbody>
                 {pagedPending.length === 0 ? (
                   <tr>
-                    <td colSpan={5} className="p-8 text-center text-slate-500">
+                    <td colSpan={5} className="p-8 text-center text-slate-500" data-testid="approvals-empty-state" role="status">
                       No pending approvals
                     </td>
                   </tr>
@@ -972,7 +976,7 @@ export default function Approvals() {
               <tbody>
                 {pagedHistory.length === 0 ? (
                   <tr>
-                    <td colSpan={5} className="p-8 text-center text-slate-500">
+                    <td colSpan={5} className="p-8 text-center text-slate-500" data-testid="history-empty-state" role="status">
                       No approval history
                     </td>
                   </tr>
