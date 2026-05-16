@@ -2414,6 +2414,85 @@ function parseJsonObject(value) {
   }
 }
 
+function getLatestPlanFileIntakeForWorkItem(projectId, workItemId) {
+  const db = getDatabaseHandle();
+  if (!db || typeof db.prepare !== 'function' || !projectId || !workItemId) {
+    return null;
+  }
+  try {
+    return db.prepare(`
+      SELECT plan_path, content_hash FROM factory_plan_file_intake
+      WHERE project_id = ? AND work_item_id = ?
+      ORDER BY created_at DESC LIMIT 1
+    `).get(projectId, workItemId) || null;
+  } catch (error) {
+    logger.debug('Unable to inspect plan-file intake history for work item', {
+      project_id: projectId,
+      work_item_id: workItemId,
+      err: error.message,
+    });
+    return null;
+  }
+}
+
+function supersedeMissingSourcePlanFileWorkItem(project, instance, workItem) {
+  if (!workItem || workItem.source !== 'plan_file') {
+    return null;
+  }
+  const origin = workItem.origin && typeof workItem.origin === 'object'
+    ? workItem.origin
+    : (parseJsonObject(workItem.origin_json) || {});
+  const latest = getLatestPlanFileIntakeForWorkItem(project.id, workItem.id);
+  const candidatePaths = [
+    origin.plan_path,
+    origin.source_plan_path,
+    latest?.plan_path,
+  ]
+    .filter((value) => typeof value === 'string' && value.trim())
+    .map((value) => path.resolve(value));
+  const uniquePaths = [...new Set(candidatePaths)];
+  if (uniquePaths.length === 0 || uniquePaths.some((planPath) => fs.existsSync(planPath))) {
+    return null;
+  }
+
+  const updated = factoryIntake.updateWorkItem(workItem.id, {
+    status: 'superseded',
+    reject_reason: 'source_plan_file_missing',
+    origin_json: {
+      ...origin,
+      source_plan_path: origin.source_plan_path || latest?.plan_path || origin.plan_path || null,
+      missing_plan_paths: uniquePaths,
+      missing_plan_file_reconciled_at: new Date().toISOString(),
+      missing_plan_file_reason: 'source_plan_file_missing',
+      ...(latest?.content_hash ? { content_hash: origin.content_hash || latest.content_hash } : {}),
+    },
+  });
+  if (instance?.id) {
+    rememberSelectedWorkItem(instance.id, updated);
+    updateInstanceAndSync(instance.id, { work_item_id: updated.id });
+  }
+  safeLogDecision({
+    project_id: project.id,
+    stage: LOOP_STATES.EXECUTE,
+    action: 'source_plan_file_missing_superseded',
+    reasoning: 'Plan-file work item no longer has an on-disk source plan; superseding instead of generating a replacement plan.',
+    inputs: {
+      ...getWorkItemDecisionContext(workItem),
+      missing_plan_paths: uniquePaths,
+    },
+    outcome: {
+      ...getWorkItemDecisionContext(updated),
+      prior_status: workItem.status,
+      next_status: 'superseded',
+      reason: 'source_plan_file_missing',
+      missing_plan_paths: uniquePaths,
+    },
+    confidence: 1,
+    batch_id: getDecisionBatchId(project, updated, null, instance),
+  });
+  return updated;
+}
+
 function normalizeOptionalString(value) {
   if (typeof value !== 'string') {
     return null;
@@ -8420,6 +8499,20 @@ async function executeNonPlanFileStage(project, instance, workItem) {
 
   rememberSelectedWorkItem(instance.id, targetItem);
   updateInstanceAndSync(instance.id, { work_item_id: targetItem.id });
+  const supersededMissingSourcePlan = supersedeMissingSourcePlanFileWorkItem(project, instance, targetItem);
+  if (supersededMissingSourcePlan) {
+    return {
+      reason: 'source plan file missing',
+      work_item: supersededMissingSourcePlan,
+      stop_execution: true,
+      next_state: LOOP_STATES.PRIORITIZE,
+      stage_result: {
+        status: 'superseded',
+        reason: 'source_plan_file_missing',
+        work_item_id: supersededMissingSourcePlan.id,
+      },
+    };
+  }
   const description = typeof targetItem.description === 'string'
     ? targetItem.description.trim()
     : '';

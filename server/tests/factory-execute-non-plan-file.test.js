@@ -167,6 +167,15 @@ function createFactoryTables(db) {
 
     CREATE INDEX IF NOT EXISTS idx_fd_project_time
       ON factory_decisions(project_id, created_at);
+
+    CREATE TABLE IF NOT EXISTS factory_plan_file_intake (
+      plan_path TEXT NOT NULL,
+      content_hash TEXT NOT NULL,
+      work_item_id INTEGER NOT NULL REFERENCES factory_work_items(id) ON DELETE CASCADE,
+      project_id TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY (project_id, plan_path, content_hash)
+    );
   `);
 }
 
@@ -333,6 +342,7 @@ describe('factory loop-controller EXECUTE for non-plan-file work items', () => {
     config,
     origin,
     constraints,
+    source = 'scout',
   } = {}) {
     const projectDir = path.join(tempDir, `project-${Date.now()}-${Math.random().toString(16).slice(2)}`);
     fs.mkdirSync(projectDir, { recursive: true });
@@ -348,7 +358,7 @@ describe('factory loop-controller EXECUTE for non-plan-file work items', () => {
 
     const workItem = factoryIntake.createWorkItem({
       project_id: project.id,
-      source: 'scout',
+      source,
       title: 'Add behavioral tests for factory scorers',
       description,
       requestor: 'test',
@@ -2166,6 +2176,55 @@ describe('factory loop-controller EXECUTE for non-plan-file work items', () => {
       }),
     });
     expect(decisions.find((row) => row.action === 'cannot_generate_plan')).toBeUndefined();
+  });
+
+  it('supersedes orphaned plan_file work items before generating replacement plans', async () => {
+    const missingPlanPath = path.join(tempDir, 'deleted-source-plan.md');
+    const { project, workItem } = registerExecuteProject({
+      source: 'plan_file',
+      description: 'Old plan-file work item whose source markdown was deleted.',
+      origin: {
+        content_hash: 'old-source-hash',
+        task_count: 0,
+        step_count: 3,
+      },
+    });
+    db.prepare(`
+      INSERT INTO factory_plan_file_intake (project_id, plan_path, content_hash, work_item_id, created_at)
+      VALUES (?, ?, ?, ?, ?)
+    `).run(project.id, missingPlanPath, 'old-source-hash', workItem.id, '2026-05-16T00:00:00.000Z');
+
+    const executeAdvance = await loopController.advanceLoopForProject(project.id);
+    const updatedWorkItem = factoryIntake.getWorkItem(workItem.id);
+
+    expect(executeAdvance).toMatchObject({
+      new_state: LOOP_STATES.PRIORITIZE,
+      reason: 'source plan file missing',
+      stage_result: {
+        status: 'superseded',
+        reason: 'source_plan_file_missing',
+        work_item_id: workItem.id,
+      },
+    });
+    expect(updatedWorkItem).toMatchObject({
+      status: 'superseded',
+      reject_reason: 'source_plan_file_missing',
+    });
+    expect(updatedWorkItem.origin).toMatchObject({
+      source_plan_path: missingPlanPath,
+      missing_plan_file_reason: 'source_plan_file_missing',
+    });
+    expect(routingModule.handleSmartSubmitTask).not.toHaveBeenCalled();
+    expect(createPlanExecutorMock).not.toHaveBeenCalled();
+
+    const decisions = listDecisionRows(db, project.id);
+    const supersededDecision = decisions.find((row) => row.action === 'source_plan_file_missing_superseded');
+    expect(supersededDecision?.outcome).toMatchObject({
+      work_item_id: workItem.id,
+      prior_status: 'planned',
+      next_status: 'superseded',
+      reason: 'source_plan_file_missing',
+    });
   });
 
   it('does not immediately reselect a claimed needs_replan item during cooldown', async () => {

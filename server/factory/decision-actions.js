@@ -272,6 +272,11 @@ const DECISION_ACTIONS = {
     rule_id: 'plan_generation_unusable_output',
     outcome: ['work_item_id', 'provider'],
   },
+  source_plan_file_missing_superseded: {
+    stage: 'EXECUTE',
+    classifier: 'benign',
+    outcome: ['work_item_id', 'prior_status', 'next_status', 'reason', 'missing_plan_paths'],
+  },
   plan_generation_provider_fallback_submitted: {
     stage: 'EXECUTE',
     classifier: 'benign',
