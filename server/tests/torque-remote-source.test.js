@@ -270,26 +270,27 @@ describe('build_remote_sync_command runtime invariants — REMOTE_OS=windows', (
   it('wraps every if-not-exist block in outer parens so the && chain survives a false condition', () => {
     // 2026-04-29 regression: a bare `if X (block) && rest` form had CMD
     // skip `rest` when X was false. The fix was to wrap the if in an
-    // additional set of parens. ALL if-not-exist blocks in the assembled
-    // command must follow the `(if not exist ...)` shape — count the
-    // occurrences of the outer-paren pattern and ensure no bare ones
-    // exist.
+    // additional set of parens. ALL three if-not-exist blocks (root hint,
+    // server install, dashboard install) must follow the `(if exist ...)`
+    // shape.
     const cmd = buildSyncCommand(fixture);
-    // The npm-install hints (3 of them) all use this shape.
-    const wrappedHints = cmd.match(/\(if exist [^)]+if not exist [^)]+echo[^)]+\)/g) || [];
-    expect(wrappedHints.length).toBe(3);
+    const wrappedBlocks = cmd.match(/\(if exist [^(]*?if not exist /g) || [];
+    expect(wrappedBlocks.length).toBe(3);
     // Negative: there should be no `&& if exist` (un-wrapped) anywhere
     // outside the parenthesized wrappers.
     expect(cmd).not.toMatch(/&&\s+if (?:not )?exist /);
   });
 
-  it('escapes nested && inside echo strings as ^&^&', () => {
-    // The npm-install hint for server/dashboard echoes `cd subdir && npm install`.
-    // Inside the SSH-CMD line, the literal `&&` must be escaped `^&^&` so
-    // CMD doesn't interpret it as a command separator.
+  it('auto-installs server/dashboard deps via pushd / call npm install / popd', () => {
+    // Parity with the Linux variant. A freshly git-cloned lane has no
+    // node_modules; a bare HINT left every server test failing with
+    // better-sqlite3 MODULE_NOT_FOUND. The CMD block pushd's into the dir,
+    // runs `call npm install`, and popd's — `call` so control returns from
+    // npm.cmd, and the unconditional `&` so popd runs (and the && chain
+    // survives) even when the install fails.
     const cmd = buildSyncCommand(fixture);
-    expect(cmd).toContain('cd server ^&^& npm install');
-    expect(cmd).toContain('cd dashboard ^&^& npm install');
+    expect(cmd).toContain('pushd server & call npm install --no-audit --no-fund 1>&2 & popd');
+    expect(cmd).toContain('pushd dashboard & call npm install --no-audit --no-fund 1>&2 & popd');
   });
 
   it('honors a non-empty SYNC_BOOTSTRAP prefix when a worktree path differs from the project path', () => {
