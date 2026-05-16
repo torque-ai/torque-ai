@@ -2905,7 +2905,12 @@ case "$TRANSPORT" in
           # checkout" errors in the runner.sh exit-98 guard.
           SYNC_BOOTSTRAP="(if not exist \"$EFFECTIVE_REMOTE_PROJECT_PATH\\.git\" (cd /d \"$REMOTE_PROJECT_PATH\" && git worktree add --force \"$EFFECTIVE_REMOTE_PROJECT_PATH\" $SYNC_REF 2>nul)) && cd /d \"$EFFECTIVE_REMOTE_PROJECT_PATH\" && git config core.longpaths true && "
         fi
-        SYNC_CHECKOUT="git checkout --force --detach $SYNC_REF"
+        # Pin checkout to the exact resolved SHA, not the floating
+        # origin/<branch> ref. On a busy repo origin advances mid-run, and a
+        # floating ref lands the lane on a newer commit than the locally
+        # computed patch base — that trips runner.sh's exit-98 guard as a
+        # false "concurrent clobber" and misapplies the overlay patches.
+        SYNC_CHECKOUT="git checkout --force --detach $EXPECTED_SYNC_SHA"
       else
         SYNC_CHECKOUT="git checkout --force $SYNC_BRANCH"
       fi
@@ -2982,11 +2987,16 @@ case "$TRANSPORT" in
       # (e.g. `git clean -fdx` wiping node_modules every sync, missing outer
       # parens around `if not exist` blocks breaking `&& chain`) get caught
       # by `tests/torque-remote-source.test.js` instead of by an operator.
+      # Reset to the pinned SHA (not the floating $SYNC_REF) so the lane's
+      # HEAD deterministically equals the patch base — see the SYNC_CHECKOUT
+      # comment above. FETCH_COMMAND still fetches the branch, which brings
+      # EXPECTED_SYNC_SHA's objects whether it is the current tip or an
+      # ancestor of a tip that advanced during the run.
       SYNC_SSH_CMD="$(build_remote_sync_command \
         "$EFFECTIVE_REMOTE_PROJECT_PATH" \
         "$FETCH_COMMAND" \
         "$SYNC_CHECKOUT" \
-        "$SYNC_REF" \
+        "$EXPECTED_SYNC_SHA" \
         "$SYNC_BOOTSTRAP")"
       # Define the sync pipeline as a function so run_with_timeout can wrap
       # it as a single command. Function inherits SSH_OPTS, SSH_USER,

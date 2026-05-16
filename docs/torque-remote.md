@@ -394,7 +394,7 @@ Exported to the user's command on remote:
 | `69` (`EX_UNAVAILABLE`) | Required service unavailable | `dotnet test/build/publish` requested but `dotnet` not on remote PATH (Linux only); session-cached after first miss |
 | `74` (`EX_IOERR`) | Adapter shell-emission failure | An adapter received an unknown `$REMOTE_OS` value (`unknown` bucket); should never fire in normal operation |
 | `78` (`EX_CONFIG`) | Configuration error | Remote OS probe failed or returned `unknown`; `remote_os` override mismatches probe's actual detection in a hard-fail way; `remote_test_worktree_root` path style mismatches detected OS (Windows path on Linux remote or POSIX path on Windows remote) |
-| `98` | runner.sh HEAD-mismatch guard fired | Concurrent-session clobber escaped lock+drift |
+| `98` | runner.sh HEAD-mismatch guard fired | Lane HEAD ≠ the pinned sync SHA — a genuine concurrent clobber or checkout corruption (the sync pins checkout/reset to a resolved SHA, so origin advancing mid-run no longer trips this) |
 | `99` | Sync drift detection fired (`git diff --quiet HEAD` failed after reset) | AV/indexer file lock during checkout |
 | `124` | `run_with_timeout` killed | Inner SSH command exceeded `TIMEOUT_SECONDS` |
 | `255` | SSH-level error | Connection drop, key rejection, etc. |
