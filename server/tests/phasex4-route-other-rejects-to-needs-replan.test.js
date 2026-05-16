@@ -4,10 +4,12 @@ const fs = require('fs');
 const path = require('path');
 
 describe('Phase X4: non-quality reject paths route to needs_replan, not rejected', () => {
-  const src = fs.readFileSync(
-    path.join(__dirname, '..', 'factory', 'loop-controller.js'),
-    'utf8',
-  );
+  // Phase 3 decomposition: the reject-routing logic moved out of
+  // loop-controller.js into the extracted per-stage modules. These structural
+  // greps run against the concatenated factory-loop source.
+  const src = ['loop-controller.js', 'plan-execute.js', 'plan-generation-cluster.js']
+    .map((f) => fs.readFileSync(path.join(__dirname, '..', 'factory', f), 'utf8'))
+    .join('\n');
 
   describe('routeWorkItemToNeedsReplan helper', () => {
     it('exists as a function', () => {

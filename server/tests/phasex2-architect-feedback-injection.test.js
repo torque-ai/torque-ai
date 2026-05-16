@@ -172,10 +172,11 @@ describe('Phase X2: first-attempt plan generation reads origin.last_plan_descrip
   it('source-grep: the first plan-generation prompt build pulls priorFeedback from origin', () => {
     // Verifies the wiring without booting the full container. A future
     // refactor that drops this code path will surface here.
-    const src = fs.readFileSync(
-      path.join(__dirname, '..', 'factory', 'loop-controller.js'),
-      'utf8',
-    );
+    // Phase 3 decomposition: the plan-generation prompt wiring moved into the
+    // extracted per-stage modules; grep the concatenated factory-loop source.
+    const src = ['loop-controller.js', 'plan-execute.js', 'plan-generation-cluster.js']
+      .map((f) => fs.readFileSync(path.join(__dirname, '..', 'factory', f), 'utf8'))
+      .join('\n');
     // The wire-in must reference both the origin field name and the
     // builder, in close proximity.
     expect(src).toMatch(/last_plan_description_quality_rejection[\s\S]{0,400}buildPriorRejectionFeedbackPrompt/);

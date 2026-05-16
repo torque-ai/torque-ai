@@ -112,10 +112,11 @@ describe('Phase X1: needs_replan status (foundation)', () => {
 describe('Phase X1: WORK_ITEM_STATUS_ORDER includes needs_replan at end', () => {
   it('loop-controller exposes needs_replan in WORK_ITEM_STATUS_ORDER', () => {
     const fs = require('fs');
-    const src = fs.readFileSync(
-      path.join(__dirname, '..', 'factory', 'loop-controller.js'),
-      'utf8',
-    );
+    // Phase 3 decomposition: factory-loop logic spans loop-controller.js plus
+    // the extracted per-stage modules; grep the concatenated source.
+    const src = ['loop-controller.js', 'plan-execute.js', 'plan-generation-cluster.js']
+      .map((f) => fs.readFileSync(path.join(__dirname, '..', 'factory', f), 'utf8'))
+      .join('\n');
     const orderMatch = src.match(/WORK_ITEM_STATUS_ORDER\s*=\s*Object\.freeze\(\[([\s\S]*?)\]\)/);
     expect(orderMatch).not.toBeNull();
     expect(orderMatch[1]).toContain("'needs_replan'");
@@ -128,10 +129,11 @@ describe('Phase X1: WORK_ITEM_STATUS_ORDER includes needs_replan at end', () => 
 
   it('NEEDS_REPLAN_COOLDOWN_MS is defined and at least 5 minutes', () => {
     const fs = require('fs');
-    const src = fs.readFileSync(
-      path.join(__dirname, '..', 'factory', 'loop-controller.js'),
-      'utf8',
-    );
+    // Phase 3 decomposition: factory-loop logic spans loop-controller.js plus
+    // the extracted per-stage modules; grep the concatenated source.
+    const src = ['loop-controller.js', 'plan-execute.js', 'plan-generation-cluster.js']
+      .map((f) => fs.readFileSync(path.join(__dirname, '..', 'factory', f), 'utf8'))
+      .join('\n');
     const match = src.match(/NEEDS_REPLAN_COOLDOWN_MS\s*=\s*(\d+)\s*\*\s*60\s*\*\s*1000/);
     expect(match).not.toBeNull();
     expect(Number(match[1])).toBeGreaterThanOrEqual(5);
@@ -139,10 +141,11 @@ describe('Phase X1: WORK_ITEM_STATUS_ORDER includes needs_replan at end', () => 
 
   it('claimNextWorkItemForInstance applies NEEDS_REPLAN_COOLDOWN_MS check', () => {
     const fs = require('fs');
-    const src = fs.readFileSync(
-      path.join(__dirname, '..', 'factory', 'loop-controller.js'),
-      'utf8',
-    );
+    // Phase 3 decomposition: factory-loop logic spans loop-controller.js plus
+    // the extracted per-stage modules; grep the concatenated source.
+    const src = ['loop-controller.js', 'plan-execute.js', 'plan-generation-cluster.js']
+      .map((f) => fs.readFileSync(path.join(__dirname, '..', 'factory', f), 'utf8'))
+      .join('\n');
     const cooldownBlock = src.match(/needs_replan'[\s\S]{0,400}NEEDS_REPLAN_COOLDOWN_MS/);
     expect(cooldownBlock).not.toBeNull();
   });
