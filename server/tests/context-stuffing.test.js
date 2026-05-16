@@ -100,6 +100,37 @@ describe('stuffContext', () => {
     })).rejects.toThrow(/context too large/i);
   });
 
+  it('bails early on over-budget input without reading every file', async () => {
+    // Ten files, each ~200K chars (~50K tokens). groq budget is 96000 tokens,
+    // so the running total crosses the budget within the first few files.
+    // The thrown error must report a file count well below 10 — proof the
+    // scan stopped early instead of reading and joining all ten.
+    const files = [];
+    for (let i = 0; i < 10; i++) {
+      const p = path.join(testDir, `chunk-${i}.js`);
+      fs.writeFileSync(p, 'x'.repeat(200000));
+      files.push(p);
+    }
+
+    let thrown;
+    try {
+      await stuffContext({
+        contextFiles: files,
+        workingDirectory: testDir,
+        taskDescription: 'task',
+        provider: 'groq',
+      });
+    } catch (err) {
+      thrown = err;
+    }
+    expect(thrown).toBeTruthy();
+    expect(thrown.message).toMatch(/context too large/i);
+    expect(thrown.message).toMatch(/scan stopped early/i);
+    const fileCountMatch = thrown.message.match(/across (\d+) file/);
+    expect(fileCountMatch).toBeTruthy();
+    expect(Number(fileCountMatch[1])).toBeLessThan(files.length);
+  });
+
   it('respects custom contextBudget override', async () => {
     const filePath = path.join(testDir, 'small.js');
     fs.writeFileSync(filePath, 'const x = 1;\n'); // ~14 chars => ~4 tokens

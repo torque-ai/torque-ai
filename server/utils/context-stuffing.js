@@ -110,7 +110,20 @@ function estimateTokens(text) {
  * @throws {Error} If total estimated tokens exceed the budget
  */
 async function stuffContext({ contextFiles, workingDirectory, taskDescription, provider, model, contextBudget }) {
+  const budget = contextBudget || getContextBudget(provider, model);
+
+  // The final prompt is a fixed header + the joined file blocks + a task
+  // wrapper. Compute the fixed overhead once so the read loop can track a
+  // running token estimate and bail BEFORE reading more files once the budget
+  // is already blown — an over-budget request fails fast instead of reading
+  // and joining every file only to throw at the end.
+  const HEADER = '### Project Context\n\nThe following files from the project are provided for reference.\n\n';
+  const TASK_WRAPPER = `\n\n### Task\n\n${taskDescription}`;
+  const overheadChars = HEADER.length + TASK_WRAPPER.length;
+
   const fileBlocks = [];
+  // Running length of fileBlocks.join('\n\n') — kept in step with fileBlocks.
+  let contextSectionChars = 0;
 
   for (const filePath of (contextFiles || [])) {
     // SECURITY: skip sensitive files that may contain credentials
@@ -132,10 +145,27 @@ async function stuffContext({ contextFiles, workingDirectory, taskDescription, p
       // Don't count trailing empty line from final newline
       const lineCount = (lines.length > 0 && lines[lines.length - 1] === '') ? lines.length - 1 : lines.length;
       const block = `--- FILE: ${relativePath} (${lineCount} lines) ---\n${content}\n--- END FILE ---`;
+      // Account for the '\n\n' join separator before every block after the first.
+      contextSectionChars += (fileBlocks.length > 0 ? 2 : 0) + block.length;
       fileBlocks.push(block);
     } catch (err) {
       const relativePath = path.relative(workingDirectory, filePath).replace(/\\/g, '/');
       logger.debug(`Skipping unreadable file: ${relativePath}`, { error: err.message });
+      continue;
+    }
+
+    // Budget check sits OUTSIDE the read try/catch so a thrown over-budget
+    // error propagates instead of being swallowed as an "unreadable file".
+    // The running total is monotonically increasing, so bailing here yields
+    // the same pass/fail outcome as a single end-of-loop check — it just
+    // stops before reading the remaining files.
+    const runningTokens = Math.ceil((overheadChars + contextSectionChars) / 4);
+    if (runningTokens > budget) {
+      throw new Error(
+        `Context too large: ~${runningTokens} estimated tokens across ${fileBlocks.length} file(s) ` +
+        `exceeds budget of ${budget} (scan stopped early). ` +
+        `Consider using google-ai (800K token budget) or narrowing the scope of context files.`
+      );
     }
   }
 
@@ -144,22 +174,8 @@ async function stuffContext({ contextFiles, workingDirectory, taskDescription, p
     return { enrichedDescription: taskDescription };
   }
 
-  // Build the full enriched description
-  const contextSection = fileBlocks.join('\n\n');
-  const enrichedDescription =
-    `### Project Context\n\nThe following files from the project are provided for reference.\n\n${contextSection}\n\n### Task\n\n${taskDescription}`;
-
-  // Check token budget
-  const budget = contextBudget || getContextBudget(provider, model);
-  const estimatedTokens = estimateTokens(enrichedDescription);
-
-  if (estimatedTokens > budget) {
-    throw new Error(
-      `Context too large: ${fileBlocks.length} file(s), ~${estimatedTokens} estimated tokens exceeds budget of ${budget}. ` +
-      `Consider using google-ai (800K token budget) or narrowing the scope of context files.`
-    );
-  }
-
+  // Under budget (the loop would have thrown otherwise) — assemble the prompt.
+  const enrichedDescription = HEADER + fileBlocks.join('\n\n') + TASK_WRAPPER;
   return { enrichedDescription };
 }
 
