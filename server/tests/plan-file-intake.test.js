@@ -129,6 +129,27 @@ describe('plan-file-intake', () => {
     expect(origin.step_count).toBe(2);
   });
 
+  it('counts h3 task headings the same way the plan executor parses them', () => {
+    fs.writeFileSync(path.join(dir, 'plan-h3.md'), [
+      '# H3 Plan',
+      '',
+      '**Goal:** Keep historical plan files executable.',
+      '',
+      '### Task 1: first',
+      '- [ ] Step 1: write failing test',
+      '',
+      '### Task 2: second',
+      '- [ ] Step 1: make it pass',
+    ].join('\n'));
+
+    const result = scanPlans();
+
+    expect(result.created).toHaveLength(1);
+    const origin = getOrigin(result.created[0]);
+    expect(origin.task_count).toBe(2);
+    expect(origin.step_count).toBe(2);
+  });
+
   it('is idempotent: second scan creates nothing new', () => {
     fs.writeFileSync(path.join(dir, 'plan-b.md'), '# B\n\n## Task 1: x\n- [ ] do it\n');
 
