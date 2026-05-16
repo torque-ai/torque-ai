@@ -34,7 +34,7 @@ const { CONTEXT_STUFFING_PROVIDERS } = require('../../utils/context-stuffing');
 const { resolveContextFiles } = require('../../utils/smart-scan');
 const { buildTaskStudyContextEnvelope } = require('../../integrations/codebase-study-engine');
 const { PROVIDER_DEFAULT_TIMEOUTS } = require('../../constants');
-const { enforceVersionIntentForProject } = require('../../versioning/version-intent');
+const { enforceVersionIntent } = require('../../versioning/version-intent');
 const logger = require('../../logger');
 
 /**
@@ -349,24 +349,10 @@ async function submitTaskCore(args) {
   // Version intent enforcement for versioned projects
   const workDir = args.working_directory || null;
   if (workDir) {
-    try {
-      // DI container has the facade registered as 'db' since
-      // database.js#init() / resetForTest() both call
-      // registerFacadeWithContainer(). The facade exposes getDbInstance()
-      // and lazy property getters (e.g., facade.prepare → underlying db),
-      // so passing the facade itself is equivalent to passing
-      // getDbInstance() for any consumer that calls db.prepare(...).
-      const { defaultContainer } = require('../../container');
-      const rawDb = defaultContainer.get('db');
-      const versionIntentError = enforceVersionIntentForProject(
-        rawDb,
-        workDir,
-        args.version_intent,
-        makeError,
-        ErrorCodes
-      );
-      if (versionIntentError) return versionIntentError;
-    } catch (_e) { /* version-intent module unavailable — allow */ }
+    const intentResult = enforceVersionIntent({ versionIntent: args.version_intent, projectId: workDir });
+    if (!intentResult.valid) {
+      return makeError(ErrorCodes.INVALID_PARAM, intentResult.error.message);
+    }
   }
 
   // Input validation

@@ -31,7 +31,7 @@ const {
 const logger = require('../../logger').child({ component: 'workflow' });
 const { parseStylesheet, resolveTaskProps } = require('../../routing/stylesheet');
 const { safeJsonParse } = require('../../utils/json');
-const { validateVersionIntent, isProjectVersioned } = require('../../versioning/version-intent');
+const { enforceVersionIntent } = require('../../versioning/version-intent');
 
 const PRE_COMMIT_REVIEW_BLOCK_MODES = new Set(['fail_workflow', 'require_approval', 'warn_only']);
 
@@ -1174,24 +1174,23 @@ function handleCreateWorkflow(args) {
   // Version intent enforcement for versioned projects
   const workDir = args.working_directory || null;
   if (workDir) {
-    try {
-      const rawDb = getRawDb();
-      if (rawDb && isProjectVersioned(rawDb, workDir)) {
-        const workflowIntent = args.version_intent;
-        if (!workflowIntent) {
-          const tasksWithoutIntent = (args.tasks || []).filter(t => !t.version_intent);
-          if (tasksWithoutIntent.length > 0) {
-            return makeError(ErrorCodes.MISSING_REQUIRED_PARAM,
-              'version_intent is required for versioned project. Set on the workflow or on every task. Use: feature, fix, breaking, or internal');
-          }
-        } else {
-          const intentCheck = validateVersionIntent(workflowIntent);
-          if (!intentCheck.valid) {
-            return makeError(ErrorCodes.INVALID_PARAM, intentCheck.error);
-          }
+    const workflowIntent = args.version_intent;
+    if (!workflowIntent) {
+      // No workflow-level intent — check that every task has its own intent
+      const tasksWithoutIntent = (args.tasks || []).filter(t => !t.version_intent);
+      if (tasksWithoutIntent.length > 0) {
+        const intentResult = enforceVersionIntent({ versionIntent: undefined, projectId: workDir, db: getRawDb() });
+        if (!intentResult.valid) {
+          return makeError(ErrorCodes.MISSING_REQUIRED_PARAM,
+            'version_intent is required for versioned project. Set on the workflow or on every task. Use: feature, fix, breaking, or internal');
         }
       }
-    } catch (_e) { /* version-intent module unavailable - allow */ }
+    } else {
+      const intentResult = enforceVersionIntent({ versionIntent: workflowIntent, projectId: workDir, db: getRawDb() });
+      if (!intentResult.valid) {
+        return makeError(ErrorCodes.INVALID_PARAM, intentResult.error.message);
+      }
+    }
   }
 
   const workflowId = uuidv4();
