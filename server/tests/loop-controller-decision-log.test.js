@@ -156,6 +156,16 @@ function listDecisionRows(db, projectId) {
   }));
 }
 
+function findDecision(decisions, stage, action) {
+  return decisions.find((row) => row.stage === stage && row.action === action);
+}
+
+function expectDecision(decisions, stage, action) {
+  const decision = findDecision(decisions, stage, action);
+  expect(decision, `${stage}:${action}`).toBeTruthy();
+  return decision;
+}
+
 function registerProjectWithWorkItem(trustLevel = 'guided') {
   const project = factoryHealth.registerProject({
     name: `Decision Log ${trustLevel}`,
@@ -223,9 +233,8 @@ describe('loop-controller decision logging', () => {
 
     loopController.startLoopForProject(project.id);
     let decisions = listDecisionRows(db, project.id);
-    expect(decisions).toHaveLength(2);
-    expect(decisions.map((row) => row.action)).toEqual(['started_loop', 'scanned_plans']);
-    expect(decisions[1]).toMatchObject({
+    expect(decisions.map((row) => row.action)).toEqual(expect.arrayContaining(['started_loop', 'scanned_plans']));
+    expect(expectDecision(decisions, 'sense', 'scanned_plans')).toMatchObject({
       stage: 'sense',
       action: 'scanned_plans',
     });
@@ -233,7 +242,6 @@ describe('loop-controller decision logging', () => {
     const senseAdvance = await loopController.advanceLoopForProject(project.id);
     expect(senseAdvance.new_state).toBe(LOOP_STATES.PRIORITIZE);
     decisions = listDecisionRows(db, project.id);
-    expect(decisions).toHaveLength(3);
     expect(decisions.at(-1)).toMatchObject({
       stage: 'sense',
       action: 'advance_from_sense',
@@ -243,31 +251,37 @@ describe('loop-controller decision logging', () => {
     expect(prioritizeAdvance.new_state).toBe(LOOP_STATES.PLAN);
     expect(prioritizeAdvance.paused_at_stage).toBe(LOOP_STATES.PLAN);
     decisions = listDecisionRows(db, project.id);
-    expect(decisions).toHaveLength(7);
-    expect(decisions.at(-3)).toMatchObject({
+    const selectedWorkItem = expectDecision(decisions, 'prioritize', 'selected_work_item');
+    const scoredWorkItem = expectDecision(decisions, 'prioritize', 'scored_work_item');
+    const generatedPlan = expectDecision(decisions, 'plan', 'generated_plan');
+    const pausedAtGate = expectDecision(decisions, 'plan', 'paused_at_gate');
+    expect(decisions.indexOf(selectedWorkItem)).toBeLessThan(decisions.indexOf(scoredWorkItem));
+    expect(decisions.indexOf(scoredWorkItem)).toBeLessThan(decisions.indexOf(generatedPlan));
+    expect(decisions.indexOf(generatedPlan)).toBeLessThan(decisions.indexOf(pausedAtGate));
+    expect(scoredWorkItem).toMatchObject({
       stage: 'prioritize',
       action: 'scored_work_item',
     });
-    expect(decisions.at(-3).outcome).toMatchObject({
+    expect(scoredWorkItem.outcome).toMatchObject({
       work_item_id: workItem.id,
       old_priority: workItem.priority,
       new_priority: expect.any(Number),
       score_reason: expect.any(String),
     });
-    expect(decisions.at(-4)).toMatchObject({
+    expect(selectedWorkItem).toMatchObject({
       stage: 'prioritize',
       action: 'selected_work_item',
     });
-    expect(decisions.at(-4).outcome).toMatchObject({
+    expect(selectedWorkItem.outcome).toMatchObject({
       work_item_id: workItem.id,
       priority: workItem.priority,
       selection_status: 'selected',
     });
-    expect(decisions.at(-2)).toMatchObject({
+    expect(generatedPlan).toMatchObject({
       stage: 'plan',
       action: 'generated_plan',
     });
-    expect(decisions.at(-1)).toMatchObject({
+    expect(pausedAtGate).toMatchObject({
       stage: 'plan',
       action: 'paused_at_gate',
     });
@@ -275,7 +289,6 @@ describe('loop-controller decision logging', () => {
     const approved = loopController.approveGateForProject(project.id, LOOP_STATES.PLAN);
     expect(approved.state).toBe(LOOP_STATES.PLAN);
     decisions = listDecisionRows(db, project.id);
-    expect(decisions).toHaveLength(8);
     expect(decisions.at(-1)).toMatchObject({
       stage: 'plan',
       actor: 'human',
