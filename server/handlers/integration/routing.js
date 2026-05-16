@@ -21,7 +21,7 @@ const { resolveContextFiles } = require('../../utils/smart-scan');
 const { buildTaskStudyContextEnvelope } = require('../../integrations/codebase-study-engine');
 const { resolveOllamaModel } = require('../../providers/ollama-shared');
 const { shouldDecompose, decomposeTask: buildDecomposedTasks, GUIDED_FILE_THRESHOLD, GUIDED_MIN_FUNCTIONS } = require('../../execution/task-decomposition');
-const { enforceVersionIntentForProject } = require('../../versioning/version-intent');
+const { enforceVersionIntent } = require('../../versioning/version-intent');
 const { buildOllamaCloudProposalApplyMetadata } = require('../../routing/ollama-cloud-proposal-policy');
 const {
   getProviderLanePolicyFromMetadata,
@@ -416,25 +416,10 @@ function extractSmartSubmitInputs(args) {
     };
   }
   if (working_directory) {
-    try {
-      // database.js#init() / resetForTest() register the facade as 'db'
-      // on the DI container, so this lookup is the single source of truth.
-      // Surrounding try/catch (started at line ~403) handles missing DI
-      // by surfacing "version-intent module unavailable" — preserves the
-      // graceful-degrade behavior of the prior legacy fallback.
-      const { defaultContainer } = require('../../container');
-      const rawDb = defaultContainer.get('db');
-      const versionIntentError = enforceVersionIntentForProject(
-        rawDb,
-        working_directory,
-        version_intent,
-        makeError,
-        ErrorCodes
-      );
-      if (versionIntentError) {
-        return { error: versionIntentError };
-      }
-    } catch (_e) { /* version-intent module unavailable — allow */ }
+    const intentResult = enforceVersionIntent({ versionIntent: version_intent, projectId: working_directory });
+    if (!intentResult.valid) {
+      return { error: makeError(ErrorCodes.INVALID_PARAM, intentResult.error.message) };
+    }
   }
 
   const estimatedTokens = Math.max(1, Math.ceil(task.length / 4));

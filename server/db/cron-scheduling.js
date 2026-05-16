@@ -12,7 +12,7 @@
 let db;
 
 const { safeJsonParse } = require('../utils/json');
-const { enforceVersionIntentForProject } = require('../versioning/version-intent');
+const { enforceVersionIntent } = require('../versioning/version-intent');
 const { executeScheduledTask } = require('../execution/schedule-runner');
 const { resolveDatabaseFacade } = require('./database-facade-resolver');
 const { v4: uuidv4 } = require('uuid');
@@ -813,7 +813,10 @@ function createCronScheduledTask(dataOrName, cronExpression, taskDescription, le
   const workDir = (data.task_config && data.task_config.working_directory) || null;
   if (workDir) {
     const intent = data.version_intent || (data.task_config && data.task_config.version_intent);
-    enforceVersionIntentForProject(db, workDir, intent);
+    const intentResult = enforceVersionIntent({ versionIntent: intent, projectId: workDir, db });
+    if (!intentResult.valid) {
+      throw new Error(intentResult.error.message);
+    }
   }
 
   // Validate cron expression
@@ -872,7 +875,10 @@ function createOneTimeSchedule(data) {
   const workDir = (data.task_config && data.task_config.working_directory) || null;
   if (workDir) {
     const intent = data.version_intent || (data.task_config && data.task_config.version_intent);
-    enforceVersionIntentForProject(db, workDir, intent);
+    const intentResult = enforceVersionIntent({ versionIntent: intent, projectId: workDir, db });
+    if (!intentResult.valid) {
+      throw new Error(intentResult.error.message);
+    }
   }
   const now = new Date();
 

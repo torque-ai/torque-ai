@@ -141,12 +141,79 @@ function intentToBump(intent) {
   return INTENT_TO_BUMP[intent] || null;
 }
 
+/**
+ * Synchronous helper: validates that a version_intent value is one of the
+ * allowed strings. Returns { valid: true, intent } on success or
+ * { valid: false, error: { status, message } } on failure.
+ */
+function validateVersionIntentValue(intent) {
+  if (!intent || typeof intent !== 'string') {
+    return { valid: false, error: { status: 400, message: 'version_intent is required. Use: feature, fix, breaking, or internal' } };
+  }
+  const normalized = intent.trim().toLowerCase();
+  if (!VALID_INTENTS.has(normalized)) {
+    return { valid: false, error: { status: 400, message: `Invalid version_intent "${intent}". Use: feature, fix, breaking, or internal` } };
+  }
+  return { valid: true, intent: normalized };
+}
+
+/**
+ * Centralized version-intent enforcement for all entry points (task, workflow, cron).
+ *
+ * @param {object} opts
+ * @param {string|undefined} opts.versionIntent - The version_intent value to validate.
+ * @param {string|undefined} opts.projectId     - Working directory / project path.
+ * @param {object|undefined} opts.db            - SQLite database handle. If omitted, resolved from the DI container.
+ * @returns {{ valid: boolean, error?: { status: number, message: string } }}
+ *
+ * If versioning is not enabled for the project (or the project/DB cannot be resolved),
+ * returns { valid: true } — enforcement is skipped gracefully.
+ */
+function enforceVersionIntent({ versionIntent, projectId, db: explicitDb } = {}) {
+  let db = explicitDb || null;
+
+  // Resolve DB from DI container if not provided
+  if (!db) {
+    try {
+      const { defaultContainer } = require('../container');
+      if (defaultContainer && typeof defaultContainer.get === 'function') {
+        db = defaultContainer.get('db');
+      }
+    } catch (_e) {
+      // DI container unavailable — skip enforcement gracefully
+      return { valid: true };
+    }
+  }
+
+  if (!db || !projectId) {
+    return { valid: true };
+  }
+
+  // Check whether versioning is enabled for the project
+  if (!isProjectVersioned(db, projectId)) {
+    return { valid: true };
+  }
+
+  // Versioning is enabled — intent is required
+  if (!versionIntent) {
+    return {
+      valid: false,
+      error: { status: 400, message: 'version_intent is required for versioned project. Use: feature, fix, breaking, or internal' },
+    };
+  }
+
+  // Validate the intent value
+  return validateVersionIntentValue(versionIntent);
+}
+
 module.exports = {
   VALID_INTENTS,
   INTENT_PRIORITY,
   isValidIntent,
   validateVersionIntent,
+  validateVersionIntentValue,
   enforceVersionIntentForProject,
+  enforceVersionIntent,
   isProjectVersioned,
   resolveVersionedProject,
   getVersioningConfig,
