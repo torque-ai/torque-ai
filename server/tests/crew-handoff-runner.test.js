@@ -106,6 +106,208 @@ describe('crew-runner handoff', () => {
   });
 });
 
+describe('runCrew() — handoff integration', () => {
+  beforeEach(() => {
+    resetHandoffState();
+  });
+
+  it('handoff switches active agent mid-loop', async () => {
+    const callLog = [];
+    const agents = {
+      alpha: {
+        tools: {
+          delegate: async () => createHandoff('beta'),
+        },
+      },
+      beta: {
+        tools: {
+          finish: async () => 'beta-done',
+        },
+      },
+    };
+    const state = {
+      activeAgent: 'alpha',
+      contextVariables: createContextVariables(),
+    };
+
+    // Turn 1: alpha delegates to beta via handoff
+    const turn1 = await runCrewTurn({
+      agents,
+      state,
+      toolCall: { name: 'delegate', args: {} },
+    });
+
+    expect(turn1.handedOff).toBe(true);
+    expect(turn1.activeAgent).toBe('beta');
+    expect(state.activeAgent).toBe('beta');
+    callLog.push('alpha:delegate');
+
+    // Turn 2: beta finishes — confirm the handoff stuck
+    const turn2 = await runCrewTurn({
+      agents,
+      state,
+      toolCall: { name: 'finish', args: {} },
+    });
+
+    callLog.push('beta:finish');
+    expect(turn2.activeAgent).toBe('beta');
+    expect(turn2.result).toBe('beta-done');
+    expect(callLog).toEqual(['alpha:delegate', 'beta:finish']);
+  });
+
+  it('context variables survive handoff and are visible to target agent', async () => {
+    const agents = {
+      alpha: {
+        tools: {
+          delegate: async () =>
+            createHandoff('beta', { contextPatch: { key: 'val', extra: 42 } }),
+        },
+      },
+      beta: {
+        tools: {
+          read_ctx: async (_args, ctx) =>
+            `key=${ctx.get('key')},extra=${ctx.get('extra')}`,
+        },
+      },
+    };
+    const state = {
+      activeAgent: 'alpha',
+      contextVariables: createContextVariables({ preexisting: true }),
+    };
+
+    await runCrewTurn({
+      agents,
+      state,
+      toolCall: { name: 'delegate', args: {} },
+    });
+
+    // Context variables must have the handoff patch merged
+    expect(state.contextVariables.get('key')).toBe('val');
+    expect(state.contextVariables.get('extra')).toBe(42);
+    // Pre-existing variables must survive the merge
+    expect(state.contextVariables.get('preexisting')).toBe(true);
+
+    // Target agent sees the merged context
+    const turn2 = await runCrewTurn({
+      agents,
+      state,
+      toolCall: { name: 'read_ctx', args: {} },
+    });
+
+    expect(turn2.result).toBe('key=val,extra=42');
+  });
+
+  it('handoff context patch is recorded in handoff history', async () => {
+    const agents = {
+      alpha: {
+        tools: {
+          delegate: async () =>
+            createHandoff('beta', { contextPatch: { reason: 'escalation' } }),
+        },
+      },
+      beta: {
+        tools: {
+          ack: async () => 'ok',
+        },
+      },
+    };
+    const state = {
+      activeAgent: 'alpha',
+      contextVariables: createContextVariables(),
+    };
+
+    await runCrewTurn({
+      agents,
+      state,
+      taskId: 'task-int-1',
+      workflowId: 'wf-int-1',
+      toolCall: { name: 'delegate', args: {} },
+    });
+
+    const history = getHandoffHistory('task-int-1');
+    expect(history).toHaveLength(1);
+    expect(history[0]).toEqual(
+      expect.objectContaining({
+        from: 'alpha',
+        to: 'beta',
+        patch: { reason: 'escalation' },
+        workflow_id: 'wf-int-1',
+      })
+    );
+  });
+
+  it('handoff to unknown agent throws', async () => {
+    const agents = {
+      alpha: {
+        tools: {
+          delegate: async () => createHandoff('nonexistent'),
+        },
+      },
+    };
+    const state = {
+      activeAgent: 'alpha',
+      contextVariables: createContextVariables(),
+    };
+
+    await expect(
+      runCrewTurn({
+        agents,
+        state,
+        toolCall: { name: 'delegate', args: {} },
+      })
+    ).rejects.toThrow(/unknown active agent "nonexistent"/i);
+  });
+
+  it('chained handoffs A→B→C complete in order', async () => {
+    const invocationOrder = [];
+    const agents = {
+      a: {
+        tools: {
+          hop: async () => {
+            invocationOrder.push('a');
+            return createHandoff('b');
+          },
+        },
+      },
+      b: {
+        tools: {
+          hop: async () => {
+            invocationOrder.push('b');
+            return createHandoff('c');
+          },
+        },
+      },
+      c: {
+        tools: {
+          hop: async () => {
+            invocationOrder.push('c');
+            return 'final-result';
+          },
+        },
+      },
+    };
+    const state = {
+      activeAgent: 'a',
+      contextVariables: createContextVariables(),
+    };
+
+    // chainAutomatically causes runCrewTurn to follow the handoff chain
+    // since all agents share the same tool name "hop"
+    const result = await runCrewTurn({
+      agents,
+      state,
+      toolCall: { name: 'hop', args: {} },
+      chainAutomatically: true,
+      maxHandoffs: 10,
+    });
+
+    expect(invocationOrder).toEqual(['a', 'b', 'c']);
+    expect(state.activeAgent).toBe('c');
+    expect(result.activeAgent).toBe('c');
+    expect(result.result).toBe('final-result');
+  });
+});
+
 describe('runCrew', () => {
   it('defaults to round-robin routing and exits when output matches schema', async () => {
     const roles = [{ name: 'planner' }, { name: 'critic' }];
