@@ -395,4 +395,26 @@ describe('circuit-breaker', () => {
       }));
     });
   });
+
+  describe('classifyFailure edge cases', () => {
+    it('classifyFailure(null) => unknown', () => {
+      expect(classifyFailure(null)).toBe('unknown');
+    });
+
+    it('classifyFailure(undefined) => unknown', () => {
+      expect(classifyFailure(undefined)).toBe('unknown');
+    });
+
+    it('classifyFailure("") => unknown (empty string)', () => {
+      expect(classifyFailure('')).toBe('unknown');
+    });
+
+    it('classifyFailure(42) => unknown (numeric coerced via String())', () => {
+      expect(classifyFailure(42)).toBe('unknown');
+    });
+
+    it('classifyFailure(object with toString) => connectivity (coerced via String())', () => {
+      expect(classifyFailure({ toString: () => 'ECONNREFUSED' })).toBe('connectivity');
+    });
+  });
 });
