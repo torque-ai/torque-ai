@@ -311,6 +311,16 @@ function buildTaskPeekArtifactSection(taskId) {
  * Submit and immediately start a task
  */
 async function handleSubmitTask(args) {
+  try {
+    return await submitTaskCore(args);
+  } catch (err) {
+    const message = err && err.message ? err.message : String(err || 'Unknown submit_task failure');
+    logger.error(`[submit_task] Failed to submit task: ${message}`);
+    return makeError(ErrorCodes.OPERATION_FAILED, `Failed to submit task: ${message}`);
+  }
+}
+
+async function submitTaskCore(args) {
   const project = typeof args?.project === 'string' && args.project.trim() ? args.project.trim() : 'unassigned';
 
   // Phase 3.2: auto_route dispatch — default true routes to smart_submit_task
@@ -710,9 +720,9 @@ async function handleSubmitTask(args) {
 
   const governanceEvaluation = evaluateTaskSubmissionGovernance(submissionTask);
   if (isPromiseLike(governanceEvaluation)) {
-    return governanceEvaluation.then(continueSubmitTask);
+    return await governanceEvaluation.then(continueSubmitTask);
   }
-  return continueSubmitTask(governanceEvaluation);
+  return await continueSubmitTask(governanceEvaluation);
 }
 
 

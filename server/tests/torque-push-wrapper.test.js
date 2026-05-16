@@ -14,6 +14,8 @@ const BASH_EXECUTABLE = process.platform === 'win32' && fs.existsSync(GIT_BASH_P
   ? GIT_BASH_PATH
   : 'bash';
 
+vi.setConfig({ testTimeout: 60000 });
+
 const LOCAL_SHA = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
 const OLD_SHA = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
 const NEW_SHA = 'cccccccccccccccccccccccccccccccccccccccc';

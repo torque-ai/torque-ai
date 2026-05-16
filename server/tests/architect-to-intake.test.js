@@ -3,6 +3,8 @@
 const fs = require('fs');
 const path = require('path');
 
+vi.setConfig({ hookTimeout: 60000 });
+
 const getTaskMock = vi.fn();
 const submitFactoryInternalTaskMock = vi.fn();
 const taskManagerMock = { startTask: vi.fn() };

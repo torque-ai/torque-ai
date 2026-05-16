@@ -44,20 +44,20 @@ describe('handler:task-core (extended)', () => {
     vi.useRealTimers();
   });
 
-  it('handleSubmitTask rejects explicitly disabled providers', () => {
+  it('handleSubmitTask rejects explicitly disabled providers', async () => {
     mockSubmissionDefaults();
     vi.spyOn(providerRoutingCore, 'getProvider').mockReturnValue({ enabled: false });
 
-    const result = handlers.handleSubmitTask(withProject({ task: 'Run checks', provider: 'ollama' }));
+    const result = await handlers.handleSubmitTask(withProject({ task: 'Run checks', provider: 'ollama' }));
 
     expect(result.isError).toBe(true);
     expect(result.error_code).toBe('PROVIDER_ERROR');
   });
 
-  it('handleSubmitTask accepts an explicit project', () => {
+  it('handleSubmitTask accepts an explicit project', async () => {
     mockSubmissionDefaults();
 
-    const result = handlers.handleSubmitTask(withProject({ task: 'Run checks', auto_route: false }));
+    const result = await handlers.handleSubmitTask(withProject({ task: 'Run checks', auto_route: false }));
 
     expect(result.isError).not.toBe(true);
     expect(taskCore.createTask).toHaveBeenCalledWith(expect.objectContaining({
@@ -65,18 +65,18 @@ describe('handler:task-core (extended)', () => {
     }));
   });
 
-  it('handleSubmitTask blocks when no providers are available', () => {
+  it('handleSubmitTask blocks when no providers are available', async () => {
     mockSubmissionDefaults();
     vi.spyOn(providerRoutingCore, 'isCodexExhausted').mockReturnValue(true);
     vi.spyOn(hostManagement, 'hasHealthyOllamaHost').mockReturnValue(false);
 
-    const result = handlers.handleSubmitTask(withProject({ task: 'Run checks', auto_route: false }));
+    const result = await handlers.handleSubmitTask(withProject({ task: 'Run checks', auto_route: false }));
 
     expect(result.isError).toBe(true);
     expect(result.error_code).toBe('NO_HOSTS_AVAILABLE');
   });
 
-  it('handleSubmitTask returns budget exceeded when projected spend is disallowed', () => {
+  it('handleSubmitTask returns budget exceeded when projected spend is disallowed', async () => {
     mockSubmissionDefaults();
     vi.spyOn(costTracking, 'checkBudgetBeforeSubmission').mockReturnValue({
       allowed: false,
@@ -85,14 +85,14 @@ describe('handler:task-core (extended)', () => {
       limit: 10,
     });
 
-    const result = handlers.handleSubmitTask(withProject({ task: 'Expensive task', auto_route: false }));
+    const result = await handlers.handleSubmitTask(withProject({ task: 'Expensive task', auto_route: false }));
 
     expect(result.isError).toBe(true);
     expect(result.error_code).toBe('BUDGET_EXCEEDED');
     expect(getText(result)).toContain('$9.50/$10.00');
   });
 
-  it('handleSubmitTask uses provider default timeout when no explicit timeout is set', () => {
+  it('handleSubmitTask uses provider default timeout when no explicit timeout is set', async () => {
     mockSubmissionDefaults();
     vi.spyOn(providerRoutingCore, 'getDefaultProvider').mockReturnValue('ollama');
     vi.spyOn(configCore, 'getConfig').mockImplementation(createConfigMock({
@@ -101,7 +101,7 @@ describe('handler:task-core (extended)', () => {
     }));
     const createSpy = vi.spyOn(taskCore, 'createTask');
 
-    handlers.handleSubmitTask(withProject({ task: 'Use provider timeout', auto_route: false }));
+    await handlers.handleSubmitTask(withProject({ task: 'Use provider timeout', auto_route: false }));
 
     expect(createSpy).toHaveBeenCalledWith(expect.objectContaining({
       timeout_minutes: taskManager.PROVIDER_DEFAULT_TIMEOUTS.ollama,
@@ -110,7 +110,7 @@ describe('handler:task-core (extended)', () => {
     }));
   });
 
-  it('handleSubmitTask prefers container db for version intent enforcement', () => {
+  it('handleSubmitTask prefers container db for version intent enforcement', async () => {
     mockSubmissionDefaults();
     const containerPath = require.resolve('../container');
     const databasePath = require.resolve('../database');
@@ -146,7 +146,7 @@ describe('handler:task-core (extended)', () => {
     };
 
     try {
-      const result = handlers.handleSubmitTask({
+      const result = await handlers.handleSubmitTask({
         project: 'test-project',
         task: 'Use container db',
         auto_route: false,
