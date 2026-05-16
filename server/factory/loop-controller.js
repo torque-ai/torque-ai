@@ -6297,6 +6297,11 @@ function chooseMissingPlanPathReplacement(normalized, alternateFiles = [], relat
       .filter(Boolean)
   )];
   if (candidates.length === 0) return null;
+  const normalizedDir = path.posix.dirname(String(normalized || '').replace(/\\/g, '/').toLowerCase());
+  const sameDirectoryAlternate = (alternateFiles || [])
+    .map((file) => String(file || '').replace(/\\/g, '/'))
+    .find((file) => path.posix.dirname(file.toLowerCase()) === normalizedDir);
+  if (sameDirectoryAlternate) return sameDirectoryAlternate;
   return chooseRelatedReplacementFile(normalized, candidates, workItem) || candidates[0] || null;
 }
 
