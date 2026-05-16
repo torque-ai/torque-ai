@@ -205,7 +205,7 @@ Each `torque-remote` invocation:
 3. Probes lanes 1..N (or only the explicit lane) for an unheld lock dir.
 4. Claims the first free lane via atomic `mkdir`.
 5. Rewrites `EFFECTIVE_REMOTE_PROJECT_PATH` to `<base>-lane-K` so all downstream commands target the claimed workspace.
-6. Cold-start: if `<lane-path>\.git` is missing, clones from sibling lane-1 (`git clone --local`) or origin.
+6. Cold-start: if `<lane-path>\.git` is missing, clones from sibling lane-1 (`git clone --local`) or origin, then resets that lane's `origin` remote to the primary repository URL before sync.
 7. Runs the sync chain inside the claimed lane.
 8. Releases the lane lock on exit (via `trap`).
 
