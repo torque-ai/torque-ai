@@ -558,9 +558,29 @@ function tryCompleteDetachedProcessExitTask(task) {
   }
 
   db.updateTaskStatus(task.id, 'completed', update);
+  const proc = runningProcesses?.get?.(task.id);
+  if (proc) {
+    abandonDetachedTracker(proc);
+    runningProcesses.delete(task.id);
+    stallRecoveryAttempts?.delete?.(task.id);
+  }
   try { dashboard?.notifyTaskUpdated?.(task.id); } catch { /* ignore */ }
   logger?.info?.(`[Stale Check] Marked ${task.id} completed from detached process-exit log`);
   return true;
+}
+
+function shouldRecoverTrackedDetachedProcessExit(task) {
+  if (!runningProcesses || !task?.id) return false;
+  const proc = runningProcesses.get(task.id);
+  if (!proc || proc.detached !== true || proc.finalizing) return false;
+
+  const detachedPid = getDetachedSubprocessPid(proc);
+  if (detachedPid !== null) {
+    return !isProcessAlive(detachedPid);
+  }
+
+  const processPid = Number(proc.process?.pid);
+  return Number.isFinite(processPid) && processPid > 0 && !isProcessAlive(processPid);
 }
 
 /**
@@ -611,7 +631,8 @@ function checkStaleRunningTasks() {
         ? getMcpInstanceId()
         : null;
       const isTrackedLocally = runningProcesses.has(task.id);
-      if (!isTrackedLocally && tryCompleteDetachedProcessExitTask(task)) {
+      if ((!isTrackedLocally || shouldRecoverTrackedDetachedProcessExit(task))
+        && tryCompleteDetachedProcessExitTask(task)) {
         recoveredOrphans++;
         continue;
       }

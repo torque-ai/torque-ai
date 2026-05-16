@@ -1243,6 +1243,78 @@ describe('Orphan Cleanup', () => {
       }
     });
 
+    it('completes tracked detached tasks when the subprocess exited before liveness finalization', () => {
+      const recentTime = new Date(Date.now() - 2 * 60 * 1000).toISOString();
+      const logDir = fs.mkdtempSync(path.join(os.tmpdir(), 'torque-orphan-cleanup-'));
+      const stdoutPath = path.join(logDir, 'stdout.log');
+      const stderrPath = path.join(logDir, 'stderr.log');
+      const livenessHandle = setInterval(() => {}, 99999);
+      const completionGraceHandle = setTimeout(() => {}, 99999);
+      livenessHandle.unref?.();
+      completionGraceHandle.unref?.();
+      const proc = {
+        process: null,
+        detached: true,
+        subprocessPid: 12345,
+        livenessHandle,
+        completionGraceHandle,
+        outputTail: { stop: vi.fn() },
+        errorTail: { stop: vi.fn() },
+      };
+      fs.writeFileSync(stdoutPath, 'tracked final answer\n', 'utf8');
+      fs.writeFileSync(stderrPath, '[process-exit] code=0 signal=none duration_ms=25 provider=claude-cli\n', 'utf8');
+      vi.spyOn(process, 'kill').mockImplementation((pid, signal) => {
+        if (pid === 12345 && signal === 0) {
+          const error = new Error('not running');
+          error.code = 'ESRCH';
+          throw error;
+        }
+        return true;
+      });
+
+      try {
+        runningProcesses.set('task-tracked-detached-done', proc);
+        mockDb.getTask.mockReturnValue({
+          id: 'task-tracked-detached-done',
+          output: '',
+          error_output: '',
+        });
+        mockDb.getRunningTasksLightweight.mockReturnValue([
+          {
+            id: 'task-tracked-detached-done',
+            status: 'running',
+            started_at: recentTime,
+            timeout_minutes: 30,
+            retry_count: 0,
+            max_retries: 2,
+            mcp_instance_id: 'mcp-current',
+            output_log_path: stdoutPath,
+            error_log_path: stderrPath,
+          },
+        ]);
+
+        orphanCleanup.checkStaleRunningTasks();
+
+        expect(mockDb.updateTaskStatus).toHaveBeenCalledWith('task-tracked-detached-done', 'completed', expect.objectContaining({
+          exit_code: 0,
+          pid: null,
+          subprocess_pid: null,
+          mcp_instance_id: null,
+          output: expect.stringContaining('tracked final answer'),
+          error_output: expect.stringContaining('[process-exit] code=0 signal=none'),
+        }));
+        expect(runningProcesses.has('task-tracked-detached-done')).toBe(false);
+        expect(proc.livenessHandle).toBeNull();
+        expect(proc.completionGraceHandle).toBeNull();
+        expect(proc.outputTail.stop).toHaveBeenCalled();
+        expect(proc.errorTail.stop).toHaveBeenCalled();
+        expect(mockCancelTask).not.toHaveBeenCalled();
+        expect(mockProcessQueue).toHaveBeenCalled();
+      } finally {
+        fs.rmSync(logDir, { recursive: true, force: true });
+      }
+    });
+
     it('skips orphan recovery while finalization marker is active', () => {
       const recentTime = new Date(Date.now() - 2 * 60 * 1000).toISOString();
       const finalizingTasks = new Map([
