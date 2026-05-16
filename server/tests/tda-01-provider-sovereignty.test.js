@@ -105,12 +105,12 @@ describe('TDA-01: handleSubmitTask — intent preservation', () => {
     }
   });
 
-  it('sets user_provider_override when provider is explicit', () => {
+  it('sets user_provider_override when provider is explicit', async () => {
     expect(handleSubmitTask, 'handleSubmitTask should be importable').toBeTruthy();
     // The metadata passed to createTask should include user_provider_override: true
     const spy = vi.spyOn(mockDb, 'createTask');
     try {
-      handleSubmitTask({
+      await handleSubmitTask({
         task: 'Test task for sovereignty',
         provider: 'ollama',
         working_directory: '/tmp',
@@ -125,11 +125,11 @@ describe('TDA-01: handleSubmitTask — intent preservation', () => {
     expect(metadata.user_provider_override).toBe(true);
   });
 
-  it('does not set user_provider_override when no provider specified', () => {
+  it('does not set user_provider_override when no provider specified', async () => {
     expect(handleSubmitTask, 'handleSubmitTask should be importable').toBeTruthy();
     const spy = vi.spyOn(mockDb, 'createTask');
     try {
-      handleSubmitTask({
+      await handleSubmitTask({
         task: 'Test task without provider',
         working_directory: '/tmp',
       });
@@ -146,12 +146,12 @@ describe('TDA-01: handleSubmitTask — intent preservation', () => {
     }
   });
 
-  it('returns error when explicit provider is disabled', () => {
+  it('returns error when explicit provider is disabled', async () => {
     expect(handleSubmitTask, 'handleSubmitTask should be importable').toBeTruthy();
     mockDb.getProvider.mockReturnValue({ enabled: false, max_concurrent: 5 });
     let result;
     try {
-      result = handleSubmitTask({
+      result = await handleSubmitTask({
         task: 'Test task',
         provider: 'disabled-provider',
         working_directory: '/tmp',
@@ -166,12 +166,12 @@ describe('TDA-01: handleSubmitTask — intent preservation', () => {
     expect(text).toMatch(/disabled/i);
   });
 
-  it('preserves explicit provider through to createTask', () => {
+  it('preserves explicit provider through to createTask', async () => {
     expect(handleSubmitTask, 'handleSubmitTask should be importable').toBeTruthy();
     mockDb.getProvider.mockReturnValue({ enabled: true, max_concurrent: 5 });
     const spy = vi.spyOn(mockDb, 'createTask');
     try {
-      handleSubmitTask({
+      await handleSubmitTask({
         task: 'Test hashline task',
         provider: 'ollama',
         working_directory: '/tmp',

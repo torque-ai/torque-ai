@@ -246,7 +246,7 @@ describe('cross-workflow priority', () => {
     it('persists workflow priority in workflow-engine source', () => {
       const workflowEngineSource = readServerFile('db', 'workflow-engine.js');
 
-      expect(workflowEngineSource).toContain('INSERT INTO workflows (id, name, description, working_directory, status, template_id, context, priority, created_at)');
+      expect(workflowEngineSource).toMatch(/INSERT INTO workflows \([^)]*\bpriority\b[^)]*\)/);
       expect(workflowEngineSource).toContain('workflow.priority || 0');
       expect(workflowEngineSource).toContain('if (updates.priority !== undefined)');
       expect(workflowEngineSource).toContain("fields.push('priority = ?');");

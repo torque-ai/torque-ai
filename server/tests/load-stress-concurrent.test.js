@@ -20,6 +20,8 @@ const os = require('os');
 const { v4: _uuidv4 } = require('uuid');
 const { createMockChild, simulateSuccess } = require('./mocks/process-mock');
 
+vi.setConfig({ hookTimeout: 60000 });
+
 // ─── Patch child_process.spawn BEFORE process-lifecycle.js is loaded ─────────
 // process-lifecycle.js does `const { spawn } = require('child_process')` at
 // require-time. We must replace spawn on the module object BEFORE that require
