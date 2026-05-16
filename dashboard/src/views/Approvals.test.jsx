@@ -290,6 +290,8 @@ describe('Approvals', () => {
       expect(screen.getByText('Review task lifecycle changes for invariant drift')).toBeInTheDocument();
     });
     expect(screen.queryByTestId('approvals-empty-state')).toBeNull();
+    // Verify the populated list is rendered instead
+    expect(screen.getByText('Delete staging database')).toBeInTheDocument();
   });
 
   it('displays Pending stat card with correct count', async () => {
@@ -382,11 +384,14 @@ describe('Approvals', () => {
     approvalsApi.listPending.mockResolvedValue([]);
     renderWithProviders(<Approvals />, { route: '/approvals' });
     await waitFor(() => {
-      expect(screen.getByText('No pending approvals')).toBeInTheDocument();
+      expect(screen.getByTestId('approvals-empty-state')).toBeInTheDocument();
     });
     const emptyState = screen.getByTestId('approvals-empty-state');
-    expect(emptyState).toBeInTheDocument();
     expect(emptyState).toHaveAttribute('role', 'status');
+    expect(emptyState).toHaveTextContent('No pending approvals');
+    // Ensure no approval rows are rendered alongside the empty state
+    expect(screen.queryByText('Review task lifecycle changes for invariant drift')).toBeNull();
+    expect(screen.queryByText('Delete staging database')).toBeNull();
   });
 
   it('switches to history tab on click', async () => {
