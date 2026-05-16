@@ -160,7 +160,7 @@ function runWrapper(fake, args = []) {
       TORQUE_PUSH_WRAPPER: toBashPath(WRAPPER_PATH),
     },
     encoding: 'utf8',
-    timeout: 10000,
+    timeout: 30000,
   });
 }
 

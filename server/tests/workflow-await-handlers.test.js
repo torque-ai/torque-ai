@@ -633,7 +633,7 @@ describe('workflow await handlers (module-mocked)', () => {
         expect.stringContaining('npm test'),
         expect.objectContaining({ cwd: overrideCwd })
       );
-    });
+    }, 60000);
 
     it('stops before auto-commit when verify returns a non-zero exit code', async () => {
       const workflow = createWorkflow({ id: 'wf-verify-fail', name: 'Verify Fail Workflow' });

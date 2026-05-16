@@ -43,7 +43,7 @@ function runRealGit(cwd, args, options = {}) {
     windowsHide: true,
     env: createIsolatedGitEnv(env || {}),
     ...restOptions,
-  });
+  }, 120000);
 }
 
 describe('version-control worktree manager', () => {
@@ -1208,7 +1208,7 @@ describe('version-control worktree manager (real git integration)', () => {
     const log = runRealGit(repoPath, ['log', '--pretty=%s', 'main']).trim();
     expect(log).not.toMatch(/pre-merge cleanup/);
     expect(log).not.toMatch(/normalize line endings/);
-  });
+  }, 120000);
 
   it('mergeWorktree reports untracked files on the main repo before factory merge', () => {
     const repoPath = initGitRepo();

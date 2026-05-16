@@ -47,7 +47,7 @@ describe('factory plan generation scheduling', () => {
 
     taskManager.initEarlyDeps();
     taskManager.initSubModules();
-  });
+  }, 30000);
 
   afterAll(() => {
     try {

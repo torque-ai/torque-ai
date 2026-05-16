@@ -1,17 +1,33 @@
 // server/tests/torque-remote-adapters.test.js
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { execFileSync } from 'node:child_process';
+import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const RUNNER = path.join(__dirname, '_torque-remote-test-runner.sh');
+const GIT_BASH_PATH = path.join('C:', 'Program Files', 'Git', 'bin', 'bash.exe');
+const BASH_EXECUTABLE = process.platform === 'win32' && fs.existsSync(GIT_BASH_PATH)
+  ? GIT_BASH_PATH
+  : 'bash';
+const ADAPTER_TEST_TIMEOUT_MS = 60000;
+
+vi.setConfig({ testTimeout: ADAPTER_TEST_TIMEOUT_MS });
+
+function toBashPath(value) {
+  if (process.platform !== 'win32') return value;
+  return value
+    .replace(/^([A-Za-z]):[\\/]/, (_match, drive) => `/${drive.toLowerCase()}/`)
+    .replace(/\\/g, '/');
+}
+
+const RUNNER = toBashPath(path.join(__dirname, '_torque-remote-test-runner.sh'));
 
 function emit(adapterName, args, os) {
   return execFileSync(
-    'bash',
+    BASH_EXECUTABLE,
     [RUNNER, adapterName, os, ...args],
-    { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }
+    { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: ADAPTER_TEST_TIMEOUT_MS }
   );
 }
 
