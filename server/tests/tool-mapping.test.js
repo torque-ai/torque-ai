@@ -1275,6 +1275,77 @@ describe('tool-mapping', () => {
     });
   });
 
+  describe('registerTool / findTool / listAllTools', () => {
+    afterEach(() => {
+      clearRegistry();
+    });
+
+    it('registerTool stores a tool that findTool can retrieve', () => {
+      const def = { handler: async () => ({ ok: true }) };
+      registerTool('my_tool', def);
+      expect(findTool('my_tool')).toBe(def);
+    });
+
+    it('findTool returns null for unregistered tools', () => {
+      expect(findTool('nonexistent')).toBeNull();
+    });
+
+    it('listAllTools returns all registered tool names', () => {
+      registerTool('tool_a', { handler: async () => ({}) });
+      registerTool('tool_b', { handler: async () => ({}) });
+      registerTool('tool_c', { handler: async () => ({}) });
+      const names = listAllTools();
+      expect(names).toEqual(['tool_a', 'tool_b', 'tool_c']);
+    });
+
+    it('listAllTools returns an empty array when no tools are registered', () => {
+      expect(listAllTools()).toEqual([]);
+    });
+
+    it('registerTool overwrites a previously registered tool with the same name', () => {
+      const def1 = { handler: async () => ({ v: 1 }) };
+      const def2 = { handler: async () => ({ v: 2 }) };
+      registerTool('dup', def1);
+      registerTool('dup', def2);
+      expect(findTool('dup')).toBe(def2);
+      expect(listAllTools()).toEqual(['dup']);
+    });
+  });
+
+  describe('clearRegistry', () => {
+    afterEach(() => {
+      clearRegistry();
+    });
+
+    it('removes all registered tools', () => {
+      registerTool('tool_x', { handler: async () => ({}) });
+      registerTool('tool_y', { handler: async () => ({}) });
+      clearRegistry();
+      expect(listAllTools()).toEqual([]);
+      expect(findTool('tool_x')).toBeNull();
+    });
+
+    it('removes all registered aliases', () => {
+      registerAlias('shortcut', 'target');
+      clearRegistry();
+      expect(resolveAlias('shortcut')).toBe('shortcut');
+    });
+
+    it('removes all pre-invoke and post-invoke hooks', async () => {
+      const hookCalled = { pre: false, post: false };
+      registerTool('hook_test', { handler: async () => ({ ok: true }) });
+      addPreInvokeHook(() => { hookCalled.pre = true; });
+      addPostInvokeHook(() => { hookCalled.post = true; });
+      clearRegistry();
+
+      // Re-register tool so invocation can proceed
+      registerTool('hook_test', { handler: async () => ({ ok: true }) });
+      await invokeToolWithMiddleware('hook_test', {});
+      expect(hookCalled.pre).toBe(false);
+      expect(hookCalled.post).toBe(false);
+    });
+  });
+
   describe('registerAlias / resolveAlias', () => {
     afterEach(() => {
       clearRegistry();
@@ -1414,6 +1485,77 @@ describe('tool-mapping', () => {
       const result = await invokeToolWithMiddleware('my_tool', {});
       expect(order).toEqual(['first', 'second']);
       expect(result.order).toEqual(['first', 'second']);
+    });
+
+    it('returns error object when tool is not found', async () => {
+      const result = await invokeToolWithMiddleware('nonexistent_tool', {});
+      expect(result.error).toBe(true);
+      expect(result.message).toContain('Tool not found');
+      expect(result.message).toContain('nonexistent_tool');
+    });
+
+    it('pre-invoke hook returning undefined/null does not replace params', async () => {
+      let capturedParams = null;
+      registerTool('test_tool', {
+        handler: async (params) => {
+          capturedParams = params;
+          return { ok: true };
+        },
+      });
+
+      addPreInvokeHook(() => undefined);
+      addPreInvokeHook(() => null);
+
+      await invokeToolWithMiddleware('test_tool', { key: 'value' });
+      expect(capturedParams.key).toBe('value');
+    });
+
+    it('multiple post-invoke hooks chain transformations in order', async () => {
+      registerTool('chain_tool', {
+        handler: async () => ({ step: 0 }),
+      });
+
+      addPostInvokeHook((_name, result) => ({ ...result, step: 1 }));
+      addPostInvokeHook((_name, result) => ({ ...result, step: result.step + 1 }));
+
+      const result = await invokeToolWithMiddleware('chain_tool', {});
+      expect(result.step).toBe(2);
+    });
+
+    it('post-invoke hook returning undefined keeps previous result', async () => {
+      registerTool('noop_post', {
+        handler: async () => ({ original: true }),
+      });
+
+      addPostInvokeHook(() => undefined);
+
+      const result = await invokeToolWithMiddleware('noop_post', {});
+      expect(result).toEqual({ original: true });
+    });
+
+    it('handler errors propagate as rejections', async () => {
+      registerTool('failing_tool', {
+        handler: async () => { throw new Error('handler boom'); },
+      });
+
+      await expect(invokeToolWithMiddleware('failing_tool', {}))
+        .rejects.toThrow('handler boom');
+    });
+
+    it('pre-invoke hook receives the resolved tool name (not the alias)', async () => {
+      let receivedName = null;
+      registerTool('actual_tool', {
+        handler: async () => ({ ok: true }),
+      });
+      registerAlias('my_alias', 'actual_tool');
+
+      addPreInvokeHook((name, params) => {
+        receivedName = name;
+        return params;
+      });
+
+      await invokeToolWithMiddleware('my_alias', {});
+      expect(receivedName).toBe('actual_tool');
     });
   });
 });
