@@ -1,6 +1,6 @@
 # Factory Stage Interface — Spec
 
-**Status:** Draft. Reflection checkpoint for the loop-controller refactor arc (see [`docs/findings/2026-05-14-loop-controller-baseline.md`](findings/2026-05-14-loop-controller-baseline.md)). Captures what a clean `Stage` interface should look like before Phase 2c (lifecycle mutating) and Phase 3 (stage executors) start moving code.
+**Status:** Implemented (2026-05-16). This doc began as the end-of-Phase-2 reflection checkpoint for the loop-controller refactor arc (see [`docs/findings/2026-05-14-loop-controller-baseline.md`](findings/2026-05-14-loop-controller-baseline.md)). The contract it proposes — `StageContext` in, `StageOutcome` out — shipped: Phases 2c-3 extracted all seven stage executors into their own files and wired them through `resolveStageContext` / `applyOutcome`. See [`server/factory/stages/README.md`](../server/factory/stages/README.md) for the as-built layout and the two stage-wiring shapes (Step B runners vs. `derive*Outcome` mappers). The sections below remain the canonical spec for the contract itself.
 
 ## Why this doc exists
 
@@ -225,14 +225,29 @@ Each `feat/refactor-3X-stage-*` worktree includes the stage's file move plus upd
 
 Why: deprecation adapters accumulate as silent technical debt — "we'll clean it up later" never happens reliably. Hard cutover breaks CI for unbounded time. Lockstep keeps each commit's blast radius predictable and tests on the new contract actually test the new contract.
 
-## How to apply this doc
+## Outcome
 
-When picking up the next phase:
+The arc shipped as planned. Phase 2c-scaffold landed the contract (`types.js` +
+`resolveStageContext` + `applyOutcome` + `stores/`); Phase 2c-adapt / Step B
+wrapped each stage to the contract; Phase 3 extracted all seven executors into
+their own files. `loop-controller.js` went from 16,748 → 7,350 lines.
 
-1. Read this doc.
-2. Ship **Phase 2c-scaffold** first (types + `resolveStageContext` + `applyOutcome`) as a docs-and-scaffolding-only commit. Loop-controller behavior unchanged.
-3. Adapt each existing stage in place to consume the context object via a thin wrapper, validating the contract holds. One phase per stage. Behavior still unchanged.
-4. Once all seven stages use the context shape, lift the dispatcher logic into the new helpers. Loop-controller's dispatch code shrinks dramatically.
-5. Then start Phase 3 stage extraction — by this point every move is `git mv` + delete-the-stub.
+Two practical refinements emerged during implementation and are now the
+as-built reality (see [`server/factory/stages/README.md`](../server/factory/stages/README.md)):
 
-The work between this doc and the end of Phase 3 should be roughly 8-10 more focused phases. The result is a `loop-controller.js` of ~500-800 lines that's pure dispatch, with each stage in its own file implementing a clear interface.
+- **Two wiring shapes, not one.** The early Phase 2c-adapt sketch assumed a
+  single uniform `create*StageRunner` adapter per stage. Step B found that
+  LEARN/VERIFY genuinely needed a deps-injected runner (their post-tick policy
+  was inline in the dispatcher `switch`), while PRIORITIZE/PLAN/EXECUTE already
+  had their policy in an extracted transition helper, so a post-hoc
+  `derive*Outcome()` pure mapper sufficed. The five speculative runner adapters
+  that didn't get wired were removed.
+- **The dispatcher `switch` was not fully collapsed.** `applyOutcome` emits the
+  uniform `stage_complete` decision, but `runAdvanceLoop` still owns the
+  per-stage `switch` and the `runAdvanceLoop` return contract — the LEARN/VERIFY
+  runners return `advanceResult` bridge fields precisely so the dispatcher keeps
+  that contract. Collapsing the `switch` into a declarative stage-map is
+  follow-on work, tracked in the baseline doc's Addendum 3.
+
+The sections above remain the canonical spec for `StageContext` /
+`StageOutcome`; this Outcome section records how the implementation landed.

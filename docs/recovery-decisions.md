@@ -166,7 +166,7 @@ These don't conflict — they're two separate provider chains for two different 
 **The actual conflict surfaced during this investigation** was between two same-shape escalation paths that DO share state:
 
 - **B1** (`recovery-strategies/escalate-architect.js`) — was reading `constraints.last_used_provider`, but `last_used_provider` is **never written by any production code path** (only the test fixture set it). On second escalation, `lastUsed=null` → `lastIdx=0` → bump to `chain[1]` again — looped on the same provider. The recovery would never advance past `chain[1]`.
-- **X5** (`loop-controller.js routeWorkItemToNeedsReplan` ~line 7331) — reads `constraints.architect_provider_override`, the field both X5 and B1 actually write. Works correctly.
+- **X5** (`routeWorkItemToNeedsReplan` in `server/factory/loop-controller.js`) — reads `constraints.architect_provider_override`, the field both X5 and B1 actually write. Works correctly.
 
 **Fix landed**: aligned B1 to read `architect_provider_override` (same field X5 reads). Single state model now drives both same-shape escalation paths. Added regression tests covering second/third escalation cycles plus a "ignores legacy `last_used_provider`" no-op test. The legacy field can be deleted from any older fixtures or seeds without behavioral effect.
 
