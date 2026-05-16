@@ -640,10 +640,121 @@ function validateToolArgumentsSemantics(toolName, args) {
   return { valid: true };
 }
 
+// ---------------------------------------------------------------------------
+// Tool Registry — aliases, hooks, and middleware dispatch
+// ---------------------------------------------------------------------------
+
+const toolRegistry = new Map();
+const aliasRegistry = new Map();
+const preInvokeHooks = [];
+const postInvokeHooks = [];
+
+function registerTool(name, definition) {
+  toolRegistry.set(name, definition);
+}
+
+function findTool(name) {
+  return toolRegistry.get(name) || null;
+}
+
+function listAllTools() {
+  return [...toolRegistry.keys()];
+}
+
+function registerAlias(alias, target) {
+  aliasRegistry.set(alias, target);
+}
+
+function resolveAlias(name) {
+  const visited = new Set();
+  let current = name;
+
+  while (aliasRegistry.has(current)) {
+    if (visited.has(current)) {
+      // Circular alias detected — return current to terminate
+      return current;
+    }
+    visited.add(current);
+    current = aliasRegistry.get(current);
+  }
+
+  return current;
+}
+
+function addPreInvokeHook(fn) {
+  if (typeof fn !== 'function') {
+    throw new TypeError('Pre-invoke hook must be a function');
+  }
+  preInvokeHooks.push(fn);
+}
+
+function addPostInvokeHook(fn) {
+  if (typeof fn !== 'function') {
+    throw new TypeError('Post-invoke hook must be a function');
+  }
+  postInvokeHooks.push(fn);
+}
+
+async function invokeToolWithMiddleware(toolName, params) {
+  const resolvedName = resolveAlias(toolName);
+  const tool = toolRegistry.get(resolvedName);
+
+  if (!tool) {
+    return { error: true, message: `Tool not found: ${resolvedName}` };
+  }
+
+  // Run pre-invoke hooks
+  let currentParams = { ...params };
+  for (const hook of preInvokeHooks) {
+    try {
+      const result = hook(resolvedName, currentParams);
+      if (result && typeof result === 'object') {
+        currentParams = result;
+      }
+    } catch (err) {
+      return { hookError: true, message: err.message };
+    }
+  }
+
+  // Invoke the tool handler
+  const handlerResult = await tool.handler(currentParams);
+
+  // Run post-invoke hooks — failures are swallowed
+  let finalResult = handlerResult;
+  for (const hook of postInvokeHooks) {
+    try {
+      const transformed = hook(resolvedName, finalResult);
+      if (transformed !== undefined) {
+        finalResult = transformed;
+      }
+    } catch (_err) {
+      // Post-invoke hook errors are intentionally swallowed
+    }
+  }
+
+  return finalResult;
+}
+
+function clearRegistry() {
+  toolRegistry.clear();
+  aliasRegistry.clear();
+  preInvokeHooks.length = 0;
+  postInvokeHooks.length = 0;
+}
+
 module.exports = {
   STREAM_EVENT_TYPES,
   normalizePolicyKey,
   normalizeEventTypes,
   mapTaskToolCall,
   validateToolArgumentsSemantics,
+  registerTool,
+  findTool,
+  listAllTools,
+  registerAlias,
+  resolveAlias,
+  addPreInvokeHook,
+  addPostInvokeHook,
+  invokeToolWithMiddleware,
+  clearRegistry,
 };

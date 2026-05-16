@@ -1,5 +1,5 @@
 import { createRequire } from 'module';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const require = createRequire(import.meta.url);
 
@@ -9,6 +9,15 @@ const {
   normalizeEventTypes,
   mapTaskToolCall,
   validateToolArgumentsSemantics,
+  registerTool,
+  findTool,
+  listAllTools,
+  registerAlias,
+  resolveAlias,
+  addPreInvokeHook,
+  addPostInvokeHook,
+  invokeToolWithMiddleware,
+  clearRegistry,
 } = require('../mcp/tool-mapping.js');
 
 describe('tool-mapping', () => {
@@ -1263,6 +1272,148 @@ describe('tool-mapping', () => {
         code: 'VALIDATION_TASK_REQUIRED',
         message: 'Either task or prompt is required',
       });
+    });
+  });
+
+  describe('registerAlias / resolveAlias', () => {
+    afterEach(() => {
+      clearRegistry();
+    });
+
+    it('returns the original name when no alias is registered', () => {
+      expect(resolveAlias('some_tool')).toBe('some_tool');
+    });
+
+    it('resolves a registered alias to its target', () => {
+      registerAlias('shortcut', 'real_tool');
+      expect(resolveAlias('shortcut')).toBe('real_tool');
+    });
+
+    it('resolves chained aliases transitively', () => {
+      registerAlias('a', 'b');
+      registerAlias('b', 'c');
+      expect(resolveAlias('a')).toBe('c');
+    });
+
+    it('terminates without infinite loop on circular aliases', () => {
+      registerAlias('x', 'y');
+      registerAlias('y', 'x');
+      const result = resolveAlias('x');
+      // Must terminate — returns either 'x' or 'y'
+      expect(['x', 'y']).toContain(result);
+    });
+  });
+
+  describe('addPreInvokeHook / addPostInvokeHook', () => {
+    afterEach(() => {
+      clearRegistry();
+    });
+
+    it('throws when addPreInvokeHook is passed a non-function value', () => {
+      expect(() => addPreInvokeHook('not a function')).toThrow(TypeError);
+      expect(() => addPreInvokeHook(null)).toThrow(TypeError);
+      expect(() => addPreInvokeHook(42)).toThrow(TypeError);
+    });
+
+    it('throws when addPostInvokeHook is passed a non-function value', () => {
+      expect(() => addPostInvokeHook('not a function')).toThrow(TypeError);
+      expect(() => addPostInvokeHook(undefined)).toThrow(TypeError);
+      expect(() => addPostInvokeHook({})).toThrow(TypeError);
+    });
+
+    it('pre-invoke hook can mutate params before handler receives them', async () => {
+      let capturedParams = null;
+      registerTool('test_tool', {
+        handler: async (params) => {
+          capturedParams = params;
+          return { ok: true };
+        },
+      });
+
+      addPreInvokeHook((_name, params) => {
+        return { ...params, injected: true };
+      });
+
+      await invokeToolWithMiddleware('test_tool', { original: 'value' });
+      expect(capturedParams.injected).toBe(true);
+      expect(capturedParams.original).toBe('value');
+    });
+  });
+
+  describe('invokeToolWithMiddleware', () => {
+    afterEach(() => {
+      clearRegistry();
+    });
+
+    it('resolves aliases before invocation', async () => {
+      const handler = vi.fn(async () => ({ done: true }));
+      registerTool('real', { handler });
+      registerAlias('alias', 'real');
+
+      const result = await invokeToolWithMiddleware('alias', {});
+      expect(handler).toHaveBeenCalled();
+      expect(result).toEqual({ done: true });
+    });
+
+    it('returns hookError when a pre-invoke hook throws', async () => {
+      registerTool('my_tool', {
+        handler: async () => ({ ok: true }),
+      });
+
+      addPreInvokeHook(() => {
+        throw new Error('hook failed');
+      });
+
+      const result = await invokeToolWithMiddleware('my_tool', {});
+      expect(result.hookError).toBe(true);
+    });
+
+    it('post-invoke hook can transform the result', async () => {
+      registerTool('my_tool', {
+        handler: async () => ({ original: true }),
+      });
+
+      addPostInvokeHook((_name, _result) => {
+        return { modified: true };
+      });
+
+      const result = await invokeToolWithMiddleware('my_tool', {});
+      expect(result).toEqual({ modified: true });
+    });
+
+    it('post-invoke hook error does NOT fail the invocation', async () => {
+      const handler = vi.fn(async () => ({ ok: true }));
+      registerTool('my_tool', { handler });
+
+      addPostInvokeHook(() => {
+        throw new Error('post-hook exploded');
+      });
+
+      const result = await invokeToolWithMiddleware('my_tool', {});
+      expect(result).toEqual({ ok: true });
+    });
+
+    it('multiple pre-invoke hooks run in registration order', async () => {
+      const order = [];
+      registerTool('my_tool', {
+        handler: async (params) => {
+          return { order: params.order };
+        },
+      });
+
+      addPreInvokeHook((_name, params) => {
+        order.push('first');
+        return { ...params, order: [...(params.order || []), 'first'] };
+      });
+
+      addPreInvokeHook((_name, params) => {
+        order.push('second');
+        return { ...params, order: [...(params.order || []), 'second'] };
+      });
+
+      const result = await invokeToolWithMiddleware('my_tool', {});
+      expect(order).toEqual(['first', 'second']);
+      expect(result.order).toEqual(['first', 'second']);
     });
   });
 });
