@@ -28,12 +28,30 @@ function encodeVerifyCommand(command) {
   return Buffer.from(String(command || ''), 'utf8').toString('base64');
 }
 
+function hasShellControlOperator(command) {
+  return /(?:&&|\|\||[;|`<>])/.test(String(command || ''));
+}
+
+function normalizeVerifyCommandForTestLane(command) {
+  const text = String(command || '').trim();
+  if (!text) return text;
+  if (hasShellControlOperator(text)) return text;
+  if (!/^(?:npx\s+)?vitest\s+run\b/.test(text)) return text;
+  if (!/(^|\s)(["']?)server[\\/]/.test(text)) return text;
+
+  const rewritten = text.replace(
+    /(^|\s)(["']?)server[\\/](\S+?)\2(?=\s|$)/g,
+    (_match, prefix, quote, filePath) => `${prefix}${quote}${filePath.replace(/\\/g, '/')}${quote}`
+  );
+  return `cd server && ${rewritten}`;
+}
+
 function wrapVerifyCommandForTestLane(command, { projectPath } = {}) {
   const normalized = String(command || '').trim();
   if (!normalized) return normalized;
   if (!hasTestLaneLauncher(projectPath)) return normalized;
   if (isAlreadyLaneCommand(normalized) || isRemoteVerifyCommand(normalized)) return normalized;
-  return `node scripts/test-lane.js --lane auto --command-base64 ${encodeVerifyCommand(normalized)}`;
+  return `node scripts/test-lane.js --lane auto --command-base64 ${encodeVerifyCommand(normalizeVerifyCommandForTestLane(normalized))}`;
 }
 
 function defaultVerifyCommandForProject(projectPath) {
@@ -47,5 +65,6 @@ module.exports = {
   hasTestLaneLauncher,
   isAlreadyLaneCommand,
   isRemoteVerifyCommand,
+  normalizeVerifyCommandForTestLane,
   wrapVerifyCommandForTestLane,
 };

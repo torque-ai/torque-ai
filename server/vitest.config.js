@@ -5,6 +5,7 @@ const workerCap = Number.isFinite(configuredMaxWorkers) && configuredMaxWorkers 
   ? configuredMaxWorkers
   : 8;
 const coverageDir = process.env.TORQUE_VITEST_COVERAGE_DIR || process.env.TORQUE_COVERAGE_DIR || './coverage';
+const focusedLaneCoverage = /^(?:1|true|yes)$/i.test(process.env.TORQUE_FOCUSED_VITEST_COVERAGE || '');
 
 module.exports = {
   test: {
@@ -72,12 +73,14 @@ module.exports = {
         'vitest.config.js',
         'eslint.config.js',
       ],
-      thresholds: {
-        statements: 68,
-        branches: 58,
-        functions: 73,
-        lines: 68,
-      },
+      ...(focusedLaneCoverage ? {} : {
+        thresholds: {
+          statements: 68,
+          branches: 58,
+          functions: 73,
+          lines: 68,
+        },
+      }),
     },
   },
 };

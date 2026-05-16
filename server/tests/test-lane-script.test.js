@@ -10,6 +10,8 @@ const {
   buildLaneEnv,
   getPresetCommand,
   isAutoLane,
+  isFocusedVitestCoverageCommand,
+  normalizeServerVitestCommand,
   parseArgs,
   releaseLaneLock,
   resolveLaneConfig,
@@ -164,5 +166,36 @@ describe('test-lane script helpers', () => {
     });
     expect(preset.cwd.replace(/\\/g, '/')).toBe('C:/repo/torque-public/server');
     expect(preset.command).toContain('tests/foo.test.js');
+  });
+
+  test('normalizes root-scoped server vitest commands into the server package', () => {
+    const selected = normalizeServerVitestCommand(
+      'npx vitest run server/tests/tool-mapping.test.js --coverage',
+      { repoRoot: 'C:\\repo\\torque-public' }
+    );
+
+    expect(selected.cwd.replace(/\\/g, '/')).toBe('C:/repo/torque-public/server');
+    expect(selected.command).toBe('npx vitest run tests/tool-mapping.test.js --coverage');
+    expect(selected.focusedCoverage).toBe(true);
+  });
+
+  test('detects focused coverage commands without marking full-suite coverage', () => {
+    expect(isFocusedVitestCoverageCommand('cd server && npx vitest run tests/tool-mapping.test.js --coverage')).toBe(true);
+    expect(isFocusedVitestCoverageCommand('npx vitest run --coverage')).toBe(false);
+  });
+
+  test('vitest config relaxes global thresholds for focused lane coverage', () => {
+    const configPath = path.resolve(__dirname, '..', 'vitest.config.js');
+    const previous = process.env.TORQUE_FOCUSED_VITEST_COVERAGE;
+    delete require.cache[configPath];
+    process.env.TORQUE_FOCUSED_VITEST_COVERAGE = '1';
+    try {
+      const config = require(configPath);
+      expect(config.test.coverage.thresholds).toBeUndefined();
+    } finally {
+      if (previous === undefined) delete process.env.TORQUE_FOCUSED_VITEST_COVERAGE;
+      else process.env.TORQUE_FOCUSED_VITEST_COVERAGE = previous;
+      delete require.cache[configPath];
+    }
   });
 });

@@ -257,6 +257,37 @@ function normalizeServerFile(filePath) {
   return normalized.startsWith('server/') ? normalized.slice('server/'.length) : normalized;
 }
 
+function hasShellControlOperator(command) {
+  return /(?:&&|\|\||[;|`<>])/.test(String(command || ''));
+}
+
+function isFocusedVitestCoverageCommand(command) {
+  const text = String(command || '').replace(/\\/g, '/');
+  return /(?:^|&&\s*)(?:npx\s+)?vitest\s+run\b/.test(text)
+    && /\s--coverage(?:\s|$|=)/.test(text)
+    && /(?:^|\s)(["']?)tests\/[^"'\s]+\1(?=\s|$)|(?:^|\s)(["']?)server\/tests\/[^"'\s]+\2(?=\s|$)/.test(text);
+}
+
+function normalizeServerVitestCommand(command, options = {}) {
+  const repoRoot = options.repoRoot || repoRootFromScript();
+  const text = String(command || '').trim();
+  const focusedCoverage = isFocusedVitestCoverageCommand(text);
+  if (!text) return { cwd: repoRoot, command: text, focusedCoverage };
+  if (hasShellControlOperator(text)) return { cwd: repoRoot, command: text, focusedCoverage };
+  if (!/^(?:npx\s+)?vitest\s+run\b/.test(text)) return { cwd: repoRoot, command: text, focusedCoverage };
+  if (!/(^|\s)(["']?)server[\\/]/.test(text)) return { cwd: repoRoot, command: text, focusedCoverage };
+
+  const rewritten = text.replace(
+    /(^|\s)(["']?)server[\\/](\S+?)\2(?=\s|$)/g,
+    (_match, prefix, quote, filePath) => `${prefix}${quote}${filePath.replace(/\\/g, '/')}${quote}`
+  );
+  return {
+    cwd: path.join(repoRoot, 'server'),
+    command: rewritten,
+    focusedCoverage,
+  };
+}
+
 function getPresetCommand(preset, options = {}) {
   const repoRoot = options.repoRoot || repoRootFromScript();
   if (!PRESETS.has(preset)) {
@@ -330,7 +361,7 @@ function main(argv = process.argv.slice(2)) {
     ? Buffer.from(args.commandBase64, 'base64').toString('utf8')
     : args.command;
   const selected = decodedCommand
-    ? { cwd: repoRootFromScript(), command: decodedCommand }
+    ? normalizeServerVitestCommand(decodedCommand, { repoRoot: repoRootFromScript() })
     : getPresetCommand(args.preset || 'server-smoke', { file: args.file });
 
   if (args.printEnv) {
@@ -361,6 +392,9 @@ function main(argv = process.argv.slice(2)) {
     command: selected.command,
   });
   const env = buildLaneEnv(config);
+  if (selected.focusedCoverage) {
+    env.TORQUE_FOCUSED_VITEST_COVERAGE = '1';
+  }
   try {
     process.stderr.write(`[test-lane] lane=${config.lane} data=${config.dataDir}\n`);
     process.stderr.write(`[test-lane] ports dashboard=${config.dashboardPort} api=${config.apiPort} mcp=${config.mcpPort} gateway=${config.mcpGatewayPort} gpu=${config.gpuMetricsPort} coord=${config.coordPort} vite=${config.dashboardDevPort}\n`);
@@ -391,6 +425,8 @@ module.exports = {
   defaultLaneRoot,
   ensureLaneDirs,
   getPresetCommand,
+  isFocusedVitestCoverageCommand,
+  normalizeServerVitestCommand,
   isPidAlive,
   isAutoLane,
   parseArgs,

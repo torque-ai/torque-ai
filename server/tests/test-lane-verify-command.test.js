@@ -7,6 +7,7 @@ const path = require('path');
 const {
   RAW_DEFAULT_VERIFY_COMMAND,
   defaultVerifyCommandForProject,
+  normalizeVerifyCommandForTestLane,
   wrapVerifyCommandForTestLane,
 } = require('../factory/test-lane-verify');
 
@@ -51,5 +52,27 @@ describe('factory test lane verify command wrapping', () => {
     const command = defaultVerifyCommandForProject(projectPath);
 
     expect(decodeWrappedCommand(command)).toBe(RAW_DEFAULT_VERIFY_COMMAND);
+  });
+
+  test('normalizes root-scoped server vitest commands before lane wrapping', () => {
+    const projectPath = makeProjectWithLauncher();
+    const raw = 'npx vitest run server/tests/tool-mapping.test.js --coverage';
+    const command = wrapVerifyCommandForTestLane(raw, { projectPath });
+
+    expect(normalizeVerifyCommandForTestLane(raw)).toBe(
+      'cd server && npx vitest run tests/tool-mapping.test.js --coverage'
+    );
+    expect(decodeWrappedCommand(command)).toBe(
+      'cd server && npx vitest run tests/tool-mapping.test.js --coverage'
+    );
+  });
+
+  test('does not rewrite full-suite coverage commands', () => {
+    const projectPath = makeProjectWithLauncher();
+    const raw = 'npx vitest run --coverage';
+    const command = wrapVerifyCommandForTestLane(raw, { projectPath });
+
+    expect(normalizeVerifyCommandForTestLane(raw)).toBe(raw);
+    expect(decodeWrappedCommand(command)).toBe(raw);
   });
 });
