@@ -368,8 +368,15 @@ build_remote_sync_command_linux() {
   cmd+="(git clean -fd || true) && "
   cmd+="(git diff --quiet HEAD || (echo \"[torque-remote-sync] drift after reset — file locks (Defender/Search/AV) may have prevented checkout from updating tracked files\" 1>&2 && exit 99)) && "
   cmd+="([ -f package.json ] && [ ! -d node_modules ] && echo \"[torque-remote-sync] HINT: ./package.json has no node_modules at ${eff_path} — run: npm install\" 1>&2 || true) && "
-  cmd+="([ -f server/package.json ] && [ ! -d server/node_modules ] && echo \"[torque-remote-sync] HINT: server/package.json has no node_modules — run: cd server && npm install\" 1>&2 || true) && "
-  cmd+="([ -f dashboard/package.json ] && [ ! -d dashboard/node_modules ] && echo \"[torque-remote-sync] HINT: dashboard/package.json has no node_modules — run: cd dashboard && npm install\" 1>&2 || true)"
+  # server/ and dashboard/ deps are auto-installed on first sync. Lanes are
+  # provisioned by `git clone`, which never brings gitignored node_modules,
+  # and every server test loads better-sqlite3 via global-setup.js — so a
+  # bare HINT left freshly-provisioned lanes failing every run with
+  # MODULE_NOT_FOUND. Install once when absent; `git clean -fd` (no -x)
+  # preserves it across later syncs. Tolerant by design: a failed install
+  # must not break the && chain, which would force a spurious local fallback.
+  cmd+="(if [ -f server/package.json ] && [ ! -d server/node_modules ]; then echo \"[torque-remote-sync] server/node_modules missing — running 'cd server && npm install' (one-time, may take a few minutes)\" 1>&2; (cd server && npm install --no-audit --no-fund 1>&2) && echo \"[torque-remote-sync] server dependencies installed\" 1>&2 || echo \"[torque-remote-sync] HINT: automatic 'cd server && npm install' failed — install manually\" 1>&2; fi; true) && "
+  cmd+="(if [ -f dashboard/package.json ] && [ ! -d dashboard/node_modules ]; then echo \"[torque-remote-sync] dashboard/node_modules missing — running 'cd dashboard && npm install' (one-time, may take a few minutes)\" 1>&2; (cd dashboard && npm install --no-audit --no-fund 1>&2) && echo \"[torque-remote-sync] dashboard dependencies installed\" 1>&2 || echo \"[torque-remote-sync] HINT: automatic 'cd dashboard && npm install' failed — install manually\" 1>&2; fi; true)"
   printf '%s' "$cmd"
 }
 

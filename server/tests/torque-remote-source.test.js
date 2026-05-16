@@ -379,6 +379,22 @@ describe('build_remote_sync_command runtime invariants — REMOTE_OS=linux', () 
     });
     expect(cmd.startsWith('BOOTSTRAP_PREFIX_HERE && cd ')).toBe(true);
   });
+
+  it('auto-installs server/dashboard deps when node_modules is missing (not just a hint)', () => {
+    // 2026-05-16 "remote tests failing" root cause: lanes are provisioned by
+    // `git clone`, which never brings gitignored node_modules. The sync chain
+    // used to only print a HINT, so every server test aborted at globalSetup
+    // with `Cannot find module 'better-sqlite3'`. It now runs `npm install`
+    // once when node_modules is absent.
+    const cmd = buildSyncCommand(fixture);
+    expect(cmd).toContain('cd server && npm install');
+    expect(cmd).toContain('cd dashboard && npm install');
+    // The install is guarded by an `if ... then` so a failure cannot break
+    // the && chain — a hard sync failure would trigger a spurious local
+    // fallback instead of running tests on the remote.
+    expect(cmd).toMatch(/\[ ! -d server\/node_modules \]; then/);
+    expect(cmd).toMatch(/\[ ! -d dashboard\/node_modules \]; then/);
+  });
 });
 
 describe('build_remote_sync_command — OS branch dispatch', () => {
