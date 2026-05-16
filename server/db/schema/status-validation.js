@@ -773,6 +773,7 @@ function runMigrations(db, logger, safeAddColumn, extras = {}) {
   safeAddColumn('provider_config', 'provider_type TEXT');
   safeAddColumn('provider_config', 'model_discovery TEXT');
   safeAddColumn('provider_config', 'default_model TEXT');
+  safeAddColumn('provider_config', 'timeout_minutes INTEGER');
 
   // Phase 2: Migrate existing host data to workstations
   try {
