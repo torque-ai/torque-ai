@@ -522,7 +522,7 @@ function appendIfMissing(existing, addition) {
   return `${current}\n${next}`;
 }
 
-function tryCompleteDetachedProcessExitTask(task) {
+function tryCompleteDetachedProcessExitTask(task, source = 'Stale Check') {
   if (!task || task.status !== 'running') return false;
   if (!task.output_log_path && !task.error_log_path) return false;
 
@@ -565,8 +565,28 @@ function tryCompleteDetachedProcessExitTask(task) {
     stallRecoveryAttempts?.delete?.(task.id);
   }
   try { dashboard?.notifyTaskUpdated?.(task.id); } catch { /* ignore */ }
-  logger?.info?.(`[Stale Check] Marked ${task.id} completed from detached process-exit log`);
+  logger?.info?.(`[${source}] Marked ${task.id} completed from detached process-exit log`);
   return true;
+}
+
+async function reapTrackedDetachedPidAfterCompletion(taskId, detachedPid) {
+  if (!isProcessAlive(detachedPid)) return;
+
+  let commandLine = '';
+  try {
+    commandLine = await getProcessCommandLineFn(detachedPid);
+  } catch (err) {
+    logger?.info?.(`[Zombie Check] Could not verify command line for completed detached task ${taskId} PID ${detachedPid}: ${err.message}`);
+    return;
+  }
+
+  if (!isTorqueDetachedCommand(commandLine)) {
+    logger?.info?.(`[Zombie Check] Detached task ${taskId} completed from process-exit log but PID ${detachedPid} command was not a TORQUE wrapper; leaving process alone.`);
+    return;
+  }
+
+  logger?.info?.(`[Zombie Check] Detached task ${taskId} completed from process-exit log while PID ${detachedPid} was still alive. Killing orphaned detached process.`);
+  killOrphanByPidFn(detachedPid, taskId, 5000, 'ZombieCheck');
 }
 
 function shouldRecoverTrackedDetachedProcessExit(task) {
@@ -781,6 +801,14 @@ async function checkZombieProcesses() {
       if (detachedPid !== null && (!proc.process || typeof proc.process.emit !== 'function')) {
         try {
           const dbTask = db.getTask(taskId);
+          if (dbTask && dbTask.status === 'running' && !proc.finalizing) {
+            const completedFromLog = tryCompleteDetachedProcessExitTask(dbTask, 'Zombie Check');
+            if (completedFromLog) {
+              await reapTrackedDetachedPidAfterCompletion(taskId, detachedPid);
+              try { processQueue?.(); } catch { /* ignore */ }
+              continue;
+            }
+          }
           if (dbTask && dbTask.status !== 'running') {
             logger.info(`[Zombie Check] Detached task ${taskId} is '${dbTask.status}' in DB but still tracked. Killing PID ${detachedPid} and cleaning up.`);
             killOrphanByPidFn(detachedPid, taskId, 5000, 'ZombieCheck');

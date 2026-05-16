@@ -1987,7 +1987,10 @@ async function finalizeDetachedTask({ taskId, task, provider, isCodexProvider })
   // itself was killed mid-write — extremely rare), fall back to null +
   // detached_exit so the downstream classifier can still produce a
   // distinct reason.
-  const annotation = parseProcessExitAnnotation(proc?.errorOutput || '');
+  const detachedAnnotationOutput = proc
+    ? buildCombinedProcessOutput(proc.output || '', proc.errorOutput || '')
+    : '';
+  const annotation = parseProcessExitAnnotation(detachedAnnotationOutput);
   let code = annotation && annotation.code !== null ? annotation.code : null;
   const effectiveSignal = annotation ? (annotation.signal || null) : 'detached_exit';
 
