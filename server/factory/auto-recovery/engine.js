@@ -195,6 +195,8 @@ const BENIGN_FLOW_ACTION_EXACT = new Set([
   'plan_quality_gate_fail_open', // plan quality gate failed open (non-blocking)
   'plan_quality_skipped_by_metadata', // plan quality check skipped by WI metadata
   'plan_quality_soft_threshold_crossed', // plan quality soft threshold crossed (warn-only)
+  'plan_quality_rejected_will_replan', // plan-quality gate rejected; loop self-recovers by re-planning with feedback (b-side flow — the re-plan IS the recovery, engine must not double-handle)
+  'plan_quality_routed_to_needs_replan_after_intrabatch_retries', // both intra-batch plan attempts rejected; routed to needs_replan for a future batch (loop self-handles, same shape as the *_routed_to_needs_replan family below)
   'stale_generated_plan_cleared_before_replan', // stale generated plan cleared before replan
   'stale_source_plan_pointer_cleared_before_replan', // stale source-plan pointer cleared before replan (preserves source file)
   'plan_generation_deferred_project_active', // plan generation deferred; project has active batch

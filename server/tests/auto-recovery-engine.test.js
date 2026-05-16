@@ -216,6 +216,8 @@ describe('auto-recovery engine.tick', () => {
       ['skipped_for_plan_file', 'plan'],
       ['generated_plan', 'plan'],
       ['plan_quality_passed', 'plan'],
+      ['plan_quality_rejected_will_replan', 'plan'],
+      ['plan_quality_routed_to_needs_replan_after_intrabatch_retries', 'plan'],
       ['worktree_created', 'execute'],
       ['worktree_reused_completed_owner', 'execute'],
       ['auto_committed_task', 'execute'],
