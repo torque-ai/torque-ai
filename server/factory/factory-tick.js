@@ -40,6 +40,15 @@ function resolveTestRunnerRegistry() {
   } catch { /* fall through to pre-boot fallback */ }
   return require('../test-runner-registry').createTestRunnerRegistry();
 }
+let testRunnerRegistryOverride = null;
+
+function setTestRunnerRegistryForTests(registry) {
+  testRunnerRegistryOverride = registry || null;
+}
+
+function getTestRunnerRegistry() {
+  return testRunnerRegistryOverride || resolveTestRunnerRegistry();
+}
 const eventBus = require('../event-bus');
 const { handleRetryFactoryVerify } = require('../handlers/factory-handlers');
 const loopController = require('./loop-controller');
@@ -853,7 +862,7 @@ async function tickProject(project) {
             defaults = projectConfigCore.getProjectDefaults(project.path || project.id);
           } catch (_e) { void _e; }
           const verifyCommand = baselineProbe.resolveBaselineVerifyCommand({ cfg, defaults });
-          const runnerRegistry = resolveTestRunnerRegistry();
+          const runnerRegistry = getTestRunnerRegistry();
           const runner = async ({ command, cwd, timeoutMs }) => {
             const r = await runnerRegistry.runVerifyCommand(command, cwd, { timeout: timeoutMs });
             return {
@@ -879,6 +888,16 @@ async function tickProject(project) {
           }
 
           if (probe.passed) {
+            const latestBeforeResume = factoryHealth.getProject(project.id) || freshProject;
+            if (hasOperatorPauseIntent(latestBeforeResume)) {
+              if (latestBeforeResume.status !== 'paused') {
+                factoryHealth.updateProject(project.id, { status: 'paused' });
+              }
+              logger.info('Factory tick: baseline probe passed but operator pause remains active', {
+                project_id: project.id,
+              });
+              return;
+            }
             const pausedSince = Date.parse(cfg.baseline_broken_since) || Date.now();
             const requeueResult = baselineRequeue.maybeRequeueBaselineBlockedWorkItem({
               project_id: project.id,
@@ -1519,6 +1538,7 @@ module.exports = {
     hasPausedVerifyBatchWait,
     hasOperatorPauseIntent,
     inspectStalePlanGenerationDeferral,
+    setTestRunnerRegistryForTests,
     PLAN_GENERATION_MAX_DEFERRAL_MS,
   },
 };

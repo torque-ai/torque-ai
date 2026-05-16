@@ -14,6 +14,7 @@ const routingModule = require('../handlers/integration/routing');
 const factoryHandlers = require('../handlers/factory-handlers');
 const factoryTick = require('../factory/factory-tick');
 const loopController = require('../factory/loop-controller');
+const baselineAutoFix = require('../factory/baseline-auto-fix');
 const { LOOP_STATES } = require('../factory/loop-states');
 
 function sleep(ms) {
@@ -45,6 +46,7 @@ describe('factory pause enforcement', () => {
 
   afterEach(() => {
     factoryTick.stopAll();
+    factoryTick._internalForTests.setTestRunnerRegistryForTests(null);
     loopController.setWorktreeRunnerForTests(null);
     vi.restoreAllMocks();
     teardownTestDb();
@@ -1141,6 +1143,113 @@ describe('factory pause enforcement', () => {
       factoryTick.stopAll();
       vi.useRealTimers();
     }
+  });
+
+  it('baseline auto-fix does not resume a project after an operator pause lands during a probe', () => {
+    const factoryDecisions = require('../db/factory/decisions');
+    factoryDecisions.setDb(db);
+    const project = registerFactoryProject({ status: 'paused', autoContinue: true });
+    const cfg = {
+      loop: { auto_continue: true },
+      baseline_broken_since: new Date(Date.now() - 60_000).toISOString(),
+      baseline_fix_attempts: 0,
+    };
+    const staleRunningSnapshot = factoryHealth.updateProject(project.id, {
+      status: 'running',
+      config_json: JSON.stringify(cfg),
+    });
+    const operatorCfg = {
+      ...cfg,
+      loop: {
+        ...cfg.loop,
+        operator_paused: true,
+        operator_paused_at: new Date().toISOString(),
+        operator_pause_reason: 'operator paused while baseline probe was running',
+      },
+    };
+    factoryHealth.updateProject(project.id, {
+      status: 'paused',
+      config_json: JSON.stringify(operatorCfg),
+    });
+
+    const result = baselineAutoFix.runBaselineAutoFix({
+      project: staleRunningSnapshot,
+      cfg,
+      probe: { output: 'Example.Namespace.Test [FAIL]' },
+      deps: {
+        factoryHealth,
+        factoryIntake,
+        factoryDecisions,
+        logger: { warn: vi.fn(), info: vi.fn(), debug: vi.fn() },
+        db,
+      },
+    });
+
+    expect(result.action).toBe('operator_paused');
+    const fresh = factoryHealth.getProject(project.id);
+    expect(fresh.status).toBe('paused');
+    expect(JSON.parse(fresh.config_json).loop).toMatchObject({
+      operator_paused: true,
+      operator_pause_reason: 'operator paused while baseline probe was running',
+    });
+    expect(factoryIntake.listWorkItems({ project_id: project.id })).toHaveLength(0);
+    const decisions = db.prepare(`
+      SELECT action
+      FROM factory_decisions
+      WHERE project_id = ?
+      ORDER BY id DESC
+      LIMIT 1
+    `).all(project.id);
+    expect(decisions[0]?.action).toBe('baseline_auto_fix_skipped_operator_paused');
+  });
+
+  it('green baseline probe does not resume a project after an operator pause lands during the probe', async () => {
+    const project = registerFactoryProject({ status: 'paused', autoContinue: true });
+    const cfg = {
+      loop: { auto_continue: true },
+      baseline_broken_since: new Date(Date.now() - 60_000).toISOString(),
+      baseline_broken_probe_attempts: 0,
+      baseline_broken_tick_count: 1,
+      baseline_verify_command: 'echo baseline green',
+    };
+    factoryHealth.updateProject(project.id, {
+      status: 'paused',
+      config_json: JSON.stringify(cfg),
+    });
+    factoryTick._internalForTests.setTestRunnerRegistryForTests({
+      runVerifyCommand: vi.fn(async () => {
+        const latest = factoryHealth.getProject(project.id);
+        const latestCfg = latest.config_json ? JSON.parse(latest.config_json) : {};
+        latestCfg.loop = {
+          ...(latestCfg.loop || {}),
+          operator_paused: true,
+          operator_paused_at: new Date().toISOString(),
+          operator_pause_reason: 'operator paused while green baseline probe was running',
+        };
+        factoryHealth.updateProject(project.id, {
+          status: 'paused',
+          config_json: JSON.stringify(latestCfg),
+        });
+        return {
+          exitCode: 0,
+          output: 'ok',
+          error: '',
+          durationMs: 1,
+          timedOut: false,
+        };
+      }),
+    });
+
+    await factoryTick.tickProject(factoryHealth.getProject(project.id));
+
+    const fresh = factoryHealth.getProject(project.id);
+    expect(fresh.status).toBe('paused');
+    const freshCfg = JSON.parse(fresh.config_json);
+    expect(freshCfg.loop).toMatchObject({
+      operator_paused: true,
+      operator_pause_reason: 'operator paused while green baseline probe was running',
+    });
+    expect(freshCfg.baseline_broken_since).toBeTruthy();
   });
 
   it('auto-clears a VERIFY gate when batch tasks are all skipped', async () => {

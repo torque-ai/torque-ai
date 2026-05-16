@@ -23,6 +23,45 @@ const MAX_LISTED_TESTS = 25;
 const DECISION_CREATED = 'baseline_auto_fix_work_item_created';
 const DECISION_EXHAUSTED = 'baseline_auto_fix_exhausted';
 const DECISION_REPAUSED = 'baseline_auto_fix_repaused_for_reprobe';
+const DECISION_SKIPPED_OPERATOR_PAUSED = 'baseline_auto_fix_skipped_operator_paused';
+
+function parseProjectConfig(project) {
+  if (!project?.config_json) return {};
+  try { return JSON.parse(project.config_json); } catch { return {}; }
+}
+
+function hasOperatorPauseIntent(projectOrConfig) {
+  const cfg = projectOrConfig?.config_json
+    ? parseProjectConfig(projectOrConfig)
+    : (projectOrConfig || {});
+  return cfg?.loop?.operator_paused === true;
+}
+
+function latestOperatorPausedProject(factoryHealth, project) {
+  const latest = factoryHealth.getProject(project.id) || project;
+  return hasOperatorPauseIntent(latest) ? latest : null;
+}
+
+function recordSkippedOperatorPaused({ project, factoryDecisions, logger, db, stage = 'verify' }) {
+  try {
+    factoryDecisions.setDb(db);
+    factoryDecisions.recordDecision({
+      project_id: project.id,
+      stage,
+      actor: 'auto-recovery',
+      action: DECISION_SKIPPED_OPERATOR_PAUSED,
+      reasoning: 'Baseline auto-fix skipped because the project has an operator pause marker.',
+      outcome: {
+        status: project.status || null,
+        operator_paused: true,
+      },
+      confidence: 1,
+      batch_id: null,
+    });
+  } catch (err) {
+    logger.warn('baseline-auto-fix: failed to record operator-paused skip decision', { err: err.message });
+  }
+}
 
 // Extract failing test identifiers from verify-command / probe output.
 // Focused on xUnit (SpudgetBooks is .NET/xUnit) with pytest + vitest fallbacks.
@@ -125,6 +164,14 @@ function buildBaselineFixWorkItemFields({ projectId, failingTests, attemptNumber
 function runBaselineAutoFix({ project, cfg, probe, deps }) {
   const { factoryHealth, factoryIntake, factoryDecisions, logger, db } = deps;
   const attempts = getBaselineFixAttempts(cfg);
+  const pausedProject = latestOperatorPausedProject(factoryHealth, project);
+  if (pausedProject) {
+    if (pausedProject.status !== 'paused') {
+      factoryHealth.updateProject(pausedProject.id, { status: 'paused' });
+    }
+    recordSkippedOperatorPaused({ project: pausedProject, factoryDecisions, logger, db });
+    return { action: 'operator_paused' };
+  }
 
   if (attempts >= BASELINE_FIX_ATTEMPT_CAP) {
     // One-shot escalation: the baseline probe keeps running on its backoff
@@ -188,6 +235,25 @@ function runBaselineAutoFix({ project, cfg, probe, deps }) {
 
   cfg.baseline_fix_attempts = attempts + 1;
   cfg.baseline_fix_work_item_id = workItem.id;
+  const latestBeforeResume = factoryHealth.getProject(project.id) || project;
+  if (hasOperatorPauseIntent(latestBeforeResume)) {
+    const latestCfg = {
+      ...parseProjectConfig(latestBeforeResume),
+      baseline_fix_attempts: cfg.baseline_fix_attempts,
+      baseline_fix_work_item_id: cfg.baseline_fix_work_item_id,
+    };
+    factoryHealth.updateProject(project.id, {
+      status: 'paused',
+      config_json: JSON.stringify(latestCfg),
+    });
+    recordSkippedOperatorPaused({
+      project: { ...latestBeforeResume, status: 'paused' },
+      factoryDecisions,
+      logger,
+      db,
+    });
+    return { action: 'operator_paused', work_item_id: workItem.id, attempt: attempts + 1 };
+  }
   factoryHealth.updateProject(project.id, {
     status: 'running',
     config_json: JSON.stringify(cfg),
