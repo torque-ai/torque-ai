@@ -154,6 +154,10 @@ function findUnqualifiedVaguePhrases(text) {
   for (const phrase of VAGUE_PHRASES) {
     phrase.re.lastIndex = 0;
     for (const match of value.matchAll(phrase.re)) {
+      const after = value.slice(match.index + match[0].length, match.index + match[0].length + 16);
+      if (phrase.label === 'modify' && /^\s+files?\b/i.test(after)) {
+        continue;
+      }
       const start = Math.max(0, match.index - 80);
       const end = Math.min(value.length, match.index + match[0].length + 120);
       if (!hasConcreteObject(value.slice(start, end))) {

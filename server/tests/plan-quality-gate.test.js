@@ -369,6 +369,14 @@ Edit \`server/container.js\` to register the helper and run \`npx vitest run ser
     expect(hardFails.find(f => f.rule === 'task_avoids_vague_phrases')).toBeUndefined();
   });
 
+  it('rule 7: adjective "modified files" does not hard-fail concrete tasks', () => {
+    const plan = `## Task 1: Add workflow event coverage
+
+Edit \`server/events/event-types.js\` and run \`npx vitest run server/tests/workflow-runtime.test.js\`. Acceptance criteria: the modified files must keep workflow event constants importable and the workflow runtime tests should pass.`;
+    const { hardFails } = runDeterministicRules(plan);
+    expect(hardFails.find(f => f.rule === 'task_avoids_vague_phrases')).toBeUndefined();
+  });
+
   it('rule 7: title "Update the code" flags missing concrete language', () => {
     const filler = 'This neutral planning context intentionally avoids naming a target object. '.repeat(3);
     const plan = buildSingleTask('Update the code', `${filler}${validBody()}`);

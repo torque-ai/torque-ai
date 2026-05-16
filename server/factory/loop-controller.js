@@ -92,6 +92,7 @@ const {
   collectOriginScopeFiles,
   collectArchitectScopeDetails,
   collectArchitectScopeFiles,
+  discoverExistingFileAlternates,
   discoverRelatedProjectFiles,
   chooseRelatedReplacementFile,
 } = require('./shared/scope-search');
@@ -6250,7 +6251,7 @@ function hasPlanPathCreationContext(planText, filePath) {
     while (index >= 0) {
       const before = text.slice(Math.max(0, index - 180), index);
       const after = text.slice(index + variant.length, Math.min(text.length, index + variant.length + 100));
-      const createVerbRe = /\b(?:add|create|new|scaffold|introduce|define|write)\b/gi;
+      const createVerbRe = /\b(?:create|scaffold|introduce|write)\b/gi;
       let isCreateTarget = false;
       for (const match of before.matchAll(createVerbRe)) {
         const betweenVerbAndTarget = before.slice(match.index + match[0].length);
@@ -6273,18 +6274,6 @@ function shouldReplaceExistingPlanPath(originalFile, replacementFile, workItem, 
   const replacementLower = String(replacementFile || '').replace(/\\/g, '/').toLowerCase();
   const hardScope = new Set((hardScopeFiles || []).map((file) => String(file || '').replace(/\\/g, '/').toLowerCase()));
   if (!originalLower || !replacementLower || hardScope.has(originalLower)) return false;
-
-  const workText = `${workItem?.title || ''}\n${workItem?.description || ''}`.toLowerCase();
-  if (/(?:runtime|runner|execution)/.test(workText)
-    && !/(?:runtime|runner|execution)/.test(originalLower)
-    && /(?:runtime|execution)/.test(replacementLower)) {
-    return true;
-  }
-  if (originalLower.includes('/db/')
-    && replacementLower.includes('/execution/')
-    && workText.includes('workflow')) {
-    return true;
-  }
   return false;
 }
 
@@ -6310,7 +6299,18 @@ function normalizeGeneratedPlanFileReferences(taskSection, workItem, project) {
   let out = String(taskSection || '');
   const details = collectArchitectScopeDetails(workItem, projectPath);
   const hardScopeFiles = details.hardScopeFiles || [];
-  const relatedPool = discoverRelatedProjectFiles(projectPath, workItem, rawPaths, 12)
+  const alternateFilesByPath = new Map();
+  const alternateFiles = rawPaths.flatMap((rawPath) => {
+    const normalized = normalizePlanProjectRelativePath(rawPath, projectPath);
+    if (!normalized) return [];
+    const candidates = discoverExistingFileAlternates(projectPath, normalized, 4);
+    if (candidates.length > 0) {
+      alternateFilesByPath.set(normalized, candidates);
+    }
+    return candidates;
+  });
+  const relatedPool = alternateFiles
+    .concat(discoverRelatedProjectFiles(projectPath, workItem, rawPaths, 12))
     .concat(details.relatedFiles || [])
     .filter((file, index, arr) => file && arr.indexOf(file) === index);
   for (const rawPath of [...new Set(rawPaths)]) {
@@ -6323,7 +6323,10 @@ function normalizeGeneratedPlanFileReferences(taskSection, workItem, project) {
     const normalized = normalizePlanProjectRelativePath(rawPath, projectPath);
     if (!normalized) continue;
     const exists = projectFileExists(projectPath, normalized);
-    const replacement = chooseRelatedReplacementFile(normalized, relatedPool, workItem);
+    const replacement = exists
+      ? chooseRelatedReplacementFile(normalized, relatedPool, workItem)
+      : ((alternateFilesByPath.get(normalized) || [])[0]
+        || chooseRelatedReplacementFile(normalized, relatedPool, workItem));
     if (!replacement || replacement === normalized) continue;
 
     const creationContext = hasPlanPathCreationContext(out, rawPath);

@@ -231,13 +231,14 @@ function discoverExistingFileAlternates(projectPath, missingPath, limit = 4) {
     const candidateTokens = new Set(tokenizeReplacementPath(relLower));
     let score = baseScore;
     if (candidateStem === missingStem) score += 60;
-    if (candidateDir === missingDir) score += 24;
+    if (candidateDir === missingDir) score += 80;
     if (candidateExt === missingExt) score += 8;
     if (candidateSegments[0] && candidateSegments[0] === missingSegments[0]) score += 6;
     if (candidateSegments[1] && candidateSegments[1] === missingSegments[1]) score += 10;
     for (const token of candidateTokens) {
       if (missingTokens.has(token)) score += 8;
     }
+    if (missingTokens.has('event') && candidateTokens.has('event')) score += 24;
     scored.push({ file: normalized, score });
   };
 
