@@ -10,7 +10,7 @@
 
 const path = require('path');
 const fs = require('fs');
-const { ErrorCodes, makeError, isPathTraversalSafe } = require('./shared');
+const { ErrorCodes, makeError, isPathTraversalSafe, resolveAndValidateWorkspacePath } = require('./shared');
 
 let _taskCore;
 function taskCore() {
@@ -58,21 +58,22 @@ function resolveScopedFilePath(args, filePath) {
     return workspaceRoot;
   }
 
+  // Fail-closed: if no workspace root is available, reject the request.
+  // Absolute paths must always be validated against a workspace boundary.
   if (!workspaceRoot) {
-    return path.resolve(filePath);
+    return makeError(ErrorCodes.INVALID_PARAM, 'No working_directory provided — cannot validate file_path against a workspace boundary');
   }
 
-  if (!isPathTraversalSafe(filePath, workspaceRoot)) {
-    return makeError(ErrorCodes.PATH_TRAVERSAL, 'file_path is outside workspace root');
+  // Resolve the file path relative to workspace root
+  const resolvedPath = path.isAbsolute(filePath) ? filePath : path.resolve(workspaceRoot, filePath);
+
+  // Use workspace-bounded validation from shared.js
+  const validation = resolveAndValidateWorkspacePath(resolvedPath, [workspaceRoot]);
+  if (!validation.valid) {
+    return makeError(ErrorCodes.PATH_TRAVERSAL, validation.reason || 'file_path is outside workspace root');
   }
 
-  const resolvedPath = path.resolve(workspaceRoot, filePath);
-  const relativePath = path.relative(workspaceRoot, resolvedPath);
-  if (relativePath.startsWith('..') || path.isAbsolute(relativePath)) {
-    return makeError(ErrorCodes.PATH_TRAVERSAL, 'file_path is outside workspace root');
-  }
-
-  return resolvedPath;
+  return validation.resolved;
 }
 
 /**
