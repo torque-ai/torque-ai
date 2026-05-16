@@ -322,7 +322,7 @@ describe('getNextExecutablePlanTask', () => {
   it('returns the first non-completed task', async () => {
     const plan = {
       tasks: [
-        { task_number: 1, title: 'A', completed: true },
+        { task_number: 1, title: 'A', completed: true, steps: [] },
         { task_number: 2, title: 'B', completed: false },
         { task_number: 3, title: 'C', completed: false },
       ],
@@ -335,8 +335,8 @@ describe('getNextExecutablePlanTask', () => {
   it('returns null when all tasks are completed', async () => {
     const plan = {
       tasks: [
-        { task_number: 1, completed: true },
-        { task_number: 2, completed: true },
+        { task_number: 1, completed: true, steps: [] },
+        { task_number: 2, completed: true, steps: [] },
       ],
     };
     expect(await cluster.getNextExecutablePlanTask(plan, '/dir')).toBeNull();
@@ -374,7 +374,7 @@ describe('getNextExecutablePlanTask', () => {
     // task.completed && no verifier → continue
     const plan = {
       tasks: [
-        { task_number: 1, completed: true },
+        { task_number: 1, completed: true, steps: [] },
         { task_number: 2, completed: false },
       ],
     };
