@@ -58,6 +58,7 @@ function createSenseStage(deps = {}) {
       created_count: 0,
       shipped_count: 0,
       skipped_count: 0,
+      reconciled_count: 0,
     };
 
     if (project.config && project.config.plans_dir) {
@@ -80,8 +81,9 @@ function createSenseStage(deps = {}) {
         scanSummary.created_count = result.created.length;
         scanSummary.shipped_count = result.shipped_count;
         scanSummary.skipped_count = result.skipped.length;
+        scanSummary.reconciled_count = Array.isArray(result.reconciled) ? result.reconciled.length : 0;
         logger.info(
-          `SENSE: scanned ${result.scanned} plan files - ${result.created.length} new, ${result.shipped_count} shipped, ${result.skipped.length} skipped`,
+          `SENSE: scanned ${result.scanned} plan files - ${result.created.length} new, ${result.shipped_count} shipped, ${result.skipped.length} skipped, ${scanSummary.reconciled_count} reconciled`,
           { project_id }
         );
       }

@@ -27,6 +27,21 @@ function sha256(text) {
 }
 
 function createPlanFileIntake({ db, factoryIntake, shippedDetector }) {
+  function parseOrigin(item) {
+    if (item?.origin && typeof item.origin === 'object') {
+      return item.origin;
+    }
+    if (!item?.origin_json) {
+      return {};
+    }
+    try {
+      const parsed = JSON.parse(item.origin_json);
+      return parsed && typeof parsed === 'object' ? parsed : {};
+    } catch {
+      return {};
+    }
+  }
+
   function findPrevious(project_id, plan_path) {
     return db.prepare(`
       SELECT content_hash, work_item_id FROM factory_plan_file_intake
@@ -47,6 +62,14 @@ function createPlanFileIntake({ db, factoryIntake, shippedDetector }) {
       WHERE project_id = ? AND plan_path = ? AND content_hash = ?
       ORDER BY created_at DESC LIMIT 1
     `).get(project_id, plan_path, content_hash);
+  }
+
+  function findLatestByWorkItem(project_id, work_item_id) {
+    return db.prepare(`
+      SELECT plan_path, content_hash FROM factory_plan_file_intake
+      WHERE project_id = ? AND work_item_id = ?
+      ORDER BY created_at DESC LIMIT 1
+    `).get(project_id, work_item_id);
   }
 
   function recordIngest({ project_id, plan_path, content_hash, work_item_id }) {
@@ -75,9 +98,7 @@ function createPlanFileIntake({ db, factoryIntake, shippedDetector }) {
       return false;
     }
 
-    const origin = item.origin && typeof item.origin === 'object'
-      ? item.origin
-      : (item.origin_json ? JSON.parse(item.origin_json) : {});
+    const origin = parseOrigin(item);
     const needsRepair = origin.plan_path !== plan_path
       || origin.content_hash !== content_hash
       || origin.task_count !== parsed.task_count
@@ -101,12 +122,70 @@ function createPlanFileIntake({ db, factoryIntake, shippedDetector }) {
     return true;
   }
 
+  function listActivePlanFileWorkItems(project_id) {
+    const CLOSED = Array.from(factoryIntake.CLOSED_STATUSES || new Set(['completed', 'rejected', 'shipped']));
+    const placeholders = CLOSED.map(() => '?').join(', ');
+    return db.prepare(`
+      SELECT * FROM factory_work_items
+      WHERE project_id = ?
+        AND source = 'plan_file'
+        AND status NOT IN (${placeholders})
+    `).all(project_id, ...CLOSED);
+  }
+
+  function reconcileMissingPlanFiles({ project_id, skipped }) {
+    if (typeof factoryIntake.updateWorkItem !== 'function') {
+      return [];
+    }
+
+    const reconciled = [];
+    const now = new Date().toISOString();
+    for (const item of listActivePlanFileWorkItems(project_id)) {
+      const origin = parseOrigin(item);
+      const latest = findLatestByWorkItem(project_id, item.id);
+      const candidatePaths = [
+        origin.plan_path,
+        origin.source_plan_path,
+        latest?.plan_path,
+      ]
+        .filter((value) => typeof value === 'string' && value.trim())
+        .map((value) => path.resolve(value));
+      const uniquePaths = [...new Set(candidatePaths)];
+      if (uniquePaths.length === 0 || uniquePaths.some((planPath) => fs.existsSync(planPath))) {
+        continue;
+      }
+
+      const updated = factoryIntake.updateWorkItem(item.id, {
+        status: 'superseded',
+        reject_reason: 'source_plan_file_missing',
+        origin_json: {
+          ...origin,
+          source_plan_path: origin.source_plan_path || latest?.plan_path || origin.plan_path || null,
+          missing_plan_paths: uniquePaths,
+          missing_plan_file_reconciled_at: now,
+          missing_plan_file_reason: 'source_plan_file_missing',
+          ...(latest?.content_hash ? { content_hash: origin.content_hash || latest.content_hash } : {}),
+        },
+      });
+      const entry = {
+        plan_path: latest?.plan_path || origin.plan_path || null,
+        reason: 'source_plan_file_missing_superseded',
+        work_item_id: item.id,
+        prior_status: item.status,
+      };
+      skipped.push(entry);
+      reconciled.push(updated);
+    }
+    return reconciled;
+  }
+
   function scan({ project_id, plans_dir, filter = /\.md$/i }) {
     if (!project_id) throw new Error('project_id required');
     if (!fs.existsSync(plans_dir)) throw new Error(`plans_dir not found: ${plans_dir}`);
 
     const created = [];
     const skipped = [];
+    const reconciled = [];
     let shipped_count = 0;
     const files = fs.readdirSync(plans_dir)
       .filter((name) => filter.test(name))
@@ -232,7 +311,9 @@ function createPlanFileIntake({ db, factoryIntake, shippedDetector }) {
       logger.info(`ingested plan: ${path.basename(filePath)} -> work_item ${item.id}`);
     }
 
-    return { created, skipped, scanned: files.length, shipped_count };
+    reconciled.push(...reconcileMissingPlanFiles({ project_id, skipped }));
+
+    return { created, skipped, scanned: files.length, shipped_count, reconciled };
   }
 
   return { scan };
