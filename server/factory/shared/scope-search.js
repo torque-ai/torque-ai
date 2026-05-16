@@ -214,6 +214,7 @@ function discoverExistingFileAlternates(projectPath, missingPath, limit = 4) {
   const missingStem = path.posix.basename(normalizedMissing, missingExt).toLowerCase();
   const missingSegments = normalizedMissing.toLowerCase().split('/').filter(Boolean);
   const missingTokens = new Set(tokenizeReplacementPath(normalizedMissing));
+  const missingIsTest = isPlanTestPath(normalizedMissing);
   const scored = [];
   const seen = new Set();
   const addCandidate = (rel, baseScore = 0) => {
@@ -229,7 +230,10 @@ function discoverExistingFileAlternates(projectPath, missingPath, limit = 4) {
     const candidateDir = path.posix.dirname(relLower);
     const candidateSegments = relLower.split('/').filter(Boolean);
     const candidateTokens = new Set(tokenizeReplacementPath(relLower));
+    const candidateIsTest = isPlanTestPath(relLower);
     let score = baseScore;
+    if (missingIsTest && candidateIsTest) score += 140;
+    if (missingIsTest !== candidateIsTest) score -= 120;
     if (candidateStem === missingStem) score += 60;
     if (candidateDir === missingDir) score += 80;
     if (candidateExt === missingExt) score += 8;

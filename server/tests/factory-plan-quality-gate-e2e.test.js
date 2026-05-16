@@ -262,11 +262,14 @@ describe('auto-generated plan description quality scoring', () => {
 
     expect(normalized).toContain('server/execution/workflow-runtime.js');
     expect(normalized).toContain('server/tests/workflow-runtime.test.js');
+    expect(normalized).toContain('server/db/workflow-engine.js');
     expect(normalized).toContain('## Task 1: Implement workflow runtime entrypoint');
     expect(normalized).not.toContain('## Task 1: Identify and analyze');
     expect(normalized).not.toContain('git commit -m');
-    expect(normalized).not.toContain('server/db/workflow-engine.js');
+    expect(normalized).not.toContain('server/workflow-engine.js');
+    expect(normalized).not.toContain('packages/runtime/src/index.ts');
     expect(normalized).not.toContain('server/__tests__/workflow-runtime-library.test.js');
+    expect(normalized).not.toContain('npx vitest run server/execution/workflow-runtime.js');
     expect(normalized).toContain('Estimated scope: single focused change across');
     expect(normalized).toContain('Run `');
 
