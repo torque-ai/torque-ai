@@ -168,6 +168,12 @@ function handleConfigureProvider(args) {
   }
 
   // RB-027: Validate provider config values
+  if (enabled !== undefined && typeof enabled !== 'boolean') {
+    return makeError(
+      ErrorCodes.INVALID_PARAM,
+      `"enabled" must be a boolean (true or false), received: ${JSON.stringify(enabled)}`
+    );
+  }
   if (max_concurrent !== undefined) {
     if (typeof max_concurrent !== 'number' || !Number.isInteger(max_concurrent) || max_concurrent < 1 || max_concurrent > 100) {
       return makeError(

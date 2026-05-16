@@ -1406,12 +1406,19 @@ async function handleConfigureProvider(req, res) {
     }, req);
   }
 
+  const normalizedTimeout = normalizeOptionalPositiveInteger(body.timeout_minutes);
+  if (normalizedTimeout.error) {
+    return sendError(res, requestId, 'validation_error', `timeout_minutes ${normalizedTimeout.error}`, 400, {
+      field: 'timeout_minutes',
+    }, req);
+  }
+
   try {
     const updates = {};
     if (normalizedEnabled.value !== undefined) updates.enabled = normalizedEnabled.value ? 1 : 0;
     if (body.model) updates.default_model = body.model;
     if (body.max_concurrent !== undefined) updates.max_concurrent = body.max_concurrent;
-    if (body.timeout_minutes !== undefined) updates.timeout_minutes = body.timeout_minutes;
+    if (normalizedTimeout.value !== undefined) updates.timeout_minutes = normalizedTimeout.value;
 
     providerRoutingCore.updateProvider(providerId, updates);
     const updated = providerRoutingCore.getProvider(providerId);
