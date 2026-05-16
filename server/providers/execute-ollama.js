@@ -507,13 +507,17 @@ async function executeOllamaTask(task) {
     // Can be overridden by any later layer if needed
     const adaptiveContextEnabled = serverConfig.getBool('adaptive_context_enabled');
     let adaptiveCtx = null;
+
+    // Parse task metadata unconditionally — downstream consumers (applyStudyContextPrompt,
+    // file-context builder) need it regardless of whether adaptive context is enabled.
     let taskMetadataParsed = {};
+    try {
+      taskMetadataParsed = typeof task.metadata === 'object' && task.metadata !== null ? task.metadata : task.metadata ? JSON.parse(task.metadata) : {};
+    } catch { /* ignore */ }
+
     if (adaptiveContextEnabled) {
       // Extract file paths from task description or metadata
       const taskFiles = [];
-      try {
-        taskMetadataParsed = typeof task.metadata === 'object' && task.metadata !== null ? task.metadata : task.metadata ? JSON.parse(task.metadata) : {};
-      } catch { /* ignore */ }
       if (taskMetadataParsed.files) {
         taskFiles.push(...taskMetadataParsed.files);
       }
