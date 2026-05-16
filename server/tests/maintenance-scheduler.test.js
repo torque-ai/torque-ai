@@ -682,4 +682,20 @@ describe('maintenance/scheduler cron task execution', () => {
     }));
     expect(debugLog).toHaveBeenCalledWith('Executed scheduled workflow "example-project autodev" -> workflow wf-generated-2 (cloned from wf-source)');
   });
+
+  it('runs cron on the 60s tick but defers heavy retention to a slower interval', async () => {
+    db = buildDb();
+    initScheduler(db);
+    scheduler.startMaintenanceScheduler();
+
+    // One 60s tick: the cron schedule check runs; heavy retention (archival)
+    // does not — it lives on the separate, slower retention interval now.
+    await vi.advanceTimersByTimeAsync(60000);
+    expect(db.getDueScheduledTasks).toHaveBeenCalled();
+    expect(db.archiveOldTasks).not.toHaveBeenCalled();
+
+    // Advance to the 5-minute retention interval — archival now runs.
+    await vi.advanceTimersByTimeAsync(4 * 60000);
+    expect(db.archiveOldTasks).toHaveBeenCalled();
+  });
 });
