@@ -6269,6 +6269,13 @@ function hasPlanPathCreationContext(planText, filePath) {
   return false;
 }
 
+function isEphemeralGeneratedPlanTarget(filePath) {
+  const normalized = String(filePath || '').trim().replace(/\\/g, '/').replace(/^\.\//, '').toLowerCase();
+  return normalized.startsWith('.tmp/')
+    || normalized.startsWith('tmp/')
+    || normalized.startsWith('temp/');
+}
+
 function shouldReplaceExistingPlanPath(originalFile, replacementFile, workItem, hardScopeFiles = []) {
   const originalLower = String(originalFile || '').replace(/\\/g, '/').toLowerCase();
   const replacementLower = String(replacementFile || '').replace(/\\/g, '/').toLowerCase();
@@ -6346,9 +6353,10 @@ function normalizeGeneratedPlanFileReferences(taskSection, workItem, project) {
     if (!replacement || replacement === normalized) continue;
 
     const creationContext = hasPlanPathCreationContext(out, rawPath);
+    const ephemeralGeneratedTarget = isEphemeralGeneratedPlanTarget(normalized);
     const shouldReplace = exists
       ? shouldReplaceExistingPlanPath(normalized, replacement, workItem, hardScopeFiles)
-      : (!creationContext || (isPlanTestPath(normalized) && isPlanTestPath(replacement)));
+      : (ephemeralGeneratedTarget || !creationContext || (isPlanTestPath(normalized) && isPlanTestPath(replacement)));
     if (!shouldReplace) continue;
 
     out = replacePlanPathLiteral(out, rawPath, replacement);
@@ -6621,7 +6629,7 @@ function dedupeValidationCommandTargetText(text) {
     }
     seen.add(normalized);
     return match;
-  }).replace(/[ \t]{2,}/g, ' ');
+  }).replace(/[ \t]{2,}/g, ' ').replace(/[ \t]+$/g, '');
   return { value, changed };
 }
 
