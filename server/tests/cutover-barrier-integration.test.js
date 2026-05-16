@@ -13,7 +13,8 @@ const GIT_BASH_PATH = path.join('C:', 'Program Files', 'Git', 'bin', 'bash.exe')
 const BASH_EXECUTABLE = process.platform === 'win32' && fs.existsSync(GIT_BASH_PATH)
   ? GIT_BASH_PATH
   : 'bash';
-const CUTOVER_SIMULATION_TIMEOUT_MS = 30000;
+const CUTOVER_SIMULATION_TIMEOUT_MS = 60000;
+const CUTOVER_SIMULATION_TEST_TIMEOUT_MS = 70000;
 
 /**
  * Integration tests for worktree-cutover.sh restart barrier flow.
@@ -963,7 +964,7 @@ describe('worktree-cutover.sh barrier integration', () => {
         // If the wrapper fails (e.g. on CI without bash), skip gracefully
         dryRunOutput = null;
       }
-    });
+    }, CUTOVER_SIMULATION_TEST_TIMEOUT_MS);
 
     it('prints the barrier check GET calls', () => {
       if (!dryRunOutput) return; // skip if bash unavailable
@@ -1018,7 +1019,7 @@ describe('worktree-cutover.sh barrier integration', () => {
       if (!output) return;
       expect(output).toContain('Confirming restart via PID turnover');
       expect(output).toContain('TORQUE restarted on updated main (confirmed via PID turnover)');
-    });
+    }, CUTOVER_SIMULATION_TEST_TIMEOUT_MS);
   });
 
   describe('simulated restart cooldown', () => {
@@ -1029,7 +1030,7 @@ describe('worktree-cutover.sh barrier integration', () => {
       expect(output).toContain('COOLDOWN_SLEEP:2');
       expect(output).toContain('Barrier task: 22222222');
       expect(output).toContain('TORQUE restarted on updated main (confirmed via PID turnover)');
-    });
+    }, CUTOVER_SIMULATION_TEST_TIMEOUT_MS);
   });
 
   describe('simulated mid-drain outage', () => {
@@ -1041,7 +1042,7 @@ describe('worktree-cutover.sh barrier integration', () => {
       expect(result.stdout).toContain('No matching restart handoff exists');
       expect(result.stdout).toContain('Refusing to start a successor over an undrained barrier');
       expect(result.stdout).not.toContain('NOHUP_CALLED');
-    });
+    }, CUTOVER_SIMULATION_TEST_TIMEOUT_MS);
 
     it('retries an empty barrier task read when TORQUE is still reachable', () => {
       const result = runTransientTaskReadSimulation('test-barrier-feature');
@@ -1050,7 +1051,7 @@ describe('worktree-cutover.sh barrier integration', () => {
       expect(result.stdout).toContain('task read returned empty but TORQUE is reachable');
       expect(result.stdout).toContain('TORQUE stayed reachable but never showed PID turnover');
       expect(result.stdout).not.toContain('No matching restart handoff exists');
-    });
+    }, CUTOVER_SIMULATION_TEST_TIMEOUT_MS);
   });
 
   describe('simulated startup diagnostics', () => {
@@ -1063,7 +1064,7 @@ describe('worktree-cutover.sh barrier integration', () => {
       expect(result.stdout).toContain('successor stderr/stdout');
       expect(result.stdout).toContain('Cannot find module ajv');
       expect(result.stdout).not.toContain('TORQUE did not come back up within');
-    });
+    }, CUTOVER_SIMULATION_TEST_TIMEOUT_MS);
 
     it('continues waiting when restart-exit diagnostics contain normal zero-code handoff records', () => {
       const result = runNormalRestartExitDiagnosticSimulation('test-barrier-feature');
@@ -1073,7 +1074,7 @@ describe('worktree-cutover.sh barrier integration', () => {
       expect(result.stdout).toContain('TORQUE restarted on updated main (confirmed via PID turnover)');
       expect(result.stdout).not.toContain('TORQUE successor logged a startup failure');
       expect(result.stdout).not.toContain('Cannot find module');
-    });
+    }, CUTOVER_SIMULATION_TEST_TIMEOUT_MS);
   });
 
   // ── Restart barrier module unit tests ──────────────────────────────

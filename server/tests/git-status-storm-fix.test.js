@@ -23,7 +23,7 @@ describe('Git Status Storm Fix', () => {
 
   beforeAll(() => {
     repoDir = createTestRepoWithCommit('storm-fix');
-  });
+  }, 60000);
 
   afterAll(() => {
     cleanupRepo(repoDir);

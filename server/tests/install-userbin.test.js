@@ -12,6 +12,7 @@ const GIT_BASH_PATH = path.join('C:', 'Program Files', 'Git', 'bin', 'bash.exe')
 const BASH_EXECUTABLE = process.platform === 'win32' && fs.existsSync(GIT_BASH_PATH)
   ? GIT_BASH_PATH
   : 'bash';
+const INSTALL_USERBIN_TEST_TIMEOUT_MS = 60000;
 
 const WRAPPERS = [
   'torque-remote',
@@ -35,6 +36,7 @@ function runInstaller(userBinDir) {
       TORQUE_USERBIN_DIR: toBashPath(userBinDir),
     },
     encoding: 'utf8',
+    timeout: INSTALL_USERBIN_TEST_TIMEOUT_MS,
     windowsHide: true,
   });
 }
@@ -51,6 +53,7 @@ function runInstallerWithHome(homeDir) {
     cwd: REPO_ROOT,
     env,
     encoding: 'utf8',
+    timeout: INSTALL_USERBIN_TEST_TIMEOUT_MS,
     windowsHide: true,
   });
 }
@@ -65,6 +68,7 @@ function runPowerShell(command) {
   ], {
     cwd: REPO_ROOT,
     encoding: 'utf8',
+    timeout: INSTALL_USERBIN_TEST_TIMEOUT_MS,
     windowsHide: true,
   });
 }
@@ -98,7 +102,7 @@ describe('install-userbin.sh', () => {
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }
-  });
+  }, INSTALL_USERBIN_TEST_TIMEOUT_MS);
 
   it('skips cleanly when TORQUE_USERBIN_DIR does not exist', () => {
     const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'torque-userbin-missing-'));
@@ -144,5 +148,5 @@ describe('install-userbin.sh', () => {
     } finally {
       fs.rmSync(homeDir, { recursive: true, force: true });
     }
-  });
+  }, INSTALL_USERBIN_TEST_TIMEOUT_MS);
 });

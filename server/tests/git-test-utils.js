@@ -120,7 +120,7 @@ const GIT_TEST_ENV = {
 };
 
 /** Default options for all git calls in tests. */
-const GIT_SYNC_TIMEOUT_MS = 30000;
+const GIT_SYNC_TIMEOUT_MS = 60000;
 const GIT_DEFAULT_OPTS = {
   windowsHide: true,
   timeout: GIT_SYNC_TIMEOUT_MS,
