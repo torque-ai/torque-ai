@@ -1789,7 +1789,7 @@ EOF
   sync_count="$(grep -c 'git fetch --prune origin +refs/heads/pre-push-gate/test:refs/remotes/origin/pre-push-gate/test' "$tmp/remote-commands.log" || true)"
   expect_eq "exit code is 0" "0" "$RUN_EXIT"
   expect_eq "remote sync was attempted twice" "2" "$sync_count"
-  expect_contains "stderr reports default retry budget" "$RUN_STDERR" "attempt 1/21"
+  expect_contains "stderr reports default retry budget" "$RUN_STDERR" "attempt 1/41"
   expect_greater_than_zero "remote runner was shipped after default retry success" "$RUN_REMOTE_STDIN_SIZE"
 
   finish_test "test_sync_missing_staging_ref_default_retry_budget_is_long"
