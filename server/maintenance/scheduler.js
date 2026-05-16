@@ -20,9 +20,16 @@ let logger = null;
 
 // Interval handles
 let maintenanceInterval = null;
+let retentionInterval = null;
 let coordinationAgentInterval = null;
 let coordinationLockInterval = null;
 let providerQuotaInferenceInterval = null;
+
+// Heavy retention (archival, output/log purge, growth-table trimming) runs on
+// its own slower interval, separate from the 60s maintenance tick, so a slow
+// purge cannot delay cron schedule execution. Retention windows are hours/days
+// so a 5-minute cadence has no functional effect.
+const RETENTION_SWEEP_INTERVAL_MS = 5 * 60 * 1000;
 
 const PROVIDER_QUOTA_INFERENCE_INTERVAL_MS = 5 * 60 * 1000;
 const PROVIDER_QUOTA_INFERENCE_LIMITS = Object.freeze({
@@ -71,17 +78,28 @@ function checkDiskSpace(dirPath) {
  * Start the maintenance scheduler
  * Runs scheduled maintenance tasks at configured intervals
  * Idempotent - safe to call multiple times
+ *
+ * The 60s tick stays lean: due maintenance schedules, disk-space check,
+ * budget alerts, and cron schedule execution (which must run every minute so
+ * scheduled tasks fire on time). Heavy retention work is on a separate, slower
+ * interval — see runRetentionSweep — so a slow purge can no longer delay cron
+ * execution or disk monitoring behind it.
  */
 function startMaintenanceScheduler(opts = {}) {
-  // Clear existing interval to prevent duplicate schedulers
-  // This handles cases where the module is reloaded or init is called multiple times
+  // Clear existing intervals to prevent duplicate schedulers.
+  // This handles cases where the module is reloaded or init is called multiple times.
   if (maintenanceInterval) {
     timerRegistry.remove(maintenanceInterval);
     clearInterval(maintenanceInterval);
     maintenanceInterval = null;
   }
+  if (retentionInterval) {
+    timerRegistry.remove(retentionInterval);
+    clearInterval(retentionInterval);
+    retentionInterval = null;
+  }
 
-  // Check for due maintenance tasks every minute
+  // Lean 60s tick — due maintenance schedules, disk check, budget alerts, cron.
   maintenanceInterval = timerRegistry.trackInterval(setInterval(() => {
     try {
       const dueTasks = db.getDueMaintenanceTasks();
@@ -112,76 +130,9 @@ function startMaintenanceScheduler(opts = {}) {
       // Also check budget alerts after maintenance
       checkBudgetAlerts();
 
-      // Archive old terminal tasks (completed/failed/cancelled > 24h)
-      try {
-        const archived = db.archiveOldTasks(24);
-        if (archived > 0) debugLog(`Archived ${archived} old task(s)`);
-      } catch (archErr) {
-        debugLog(`Task archival error: ${archErr.message}`);
-      }
-
-      // Purge output/error_output from terminal tasks past retention. Archival
-      // only sets archived=1 — the heavy TEXT blobs stay on disk. Without this
-      // purge, tasks.db grows unbounded. The `purge_task_output` maintenance
-      // task exists but was only reachable through the `maintenance_schedules`
-      // table, which isn't seeded anywhere, so it never ran. On 2026-04-24 a
-      // live install had ~7000 terminal tasks with output still populated,
-      // 647 MB of it older than 7 days. Inline alongside archival so it's
-      // unconditional. Retention is configurable via
-      // `task_output_retention_days` (default 30).
-      try {
-        const retentionDays = serverConfig.getInt('task_output_retention_days', 30);
-        if (retentionDays > 0 && typeof db.purgeOldTaskOutput === 'function') {
-          const purged = db.purgeOldTaskOutput(retentionDays);
-          if (purged > 0) debugLog(`Purged output from ${purged} old task(s) (retention: ${retentionDays} days)`);
-        }
-        const maxOutputBytes = serverConfig.getInt('task_output_retention_max_bytes', 256 * 1024 * 1024);
-        if (maxOutputBytes > 0 && typeof db.enforceTaskOutputSizeLimit === 'function') {
-          const sizeResult = db.enforceTaskOutputSizeLimit(maxOutputBytes);
-          if (sizeResult.purged > 0) {
-            debugLog(`Purged output from ${sizeResult.purged} terminal task(s) by size cap (${sizeResult.bytes_before} -> ${sizeResult.bytes_after} bytes; cap: ${sizeResult.max_bytes})`);
-          }
-        }
-      } catch (purgeErr) {
-        debugLog(`Task output purge error: ${purgeErr.message}`);
-      }
-
-      // Phase E / §2.5.2 — prune the per-task log directories under
-      // <data-dir>/task-logs/<taskId>/ after `task_log_retention_days`.
-      // Independent of `task_output_retention_days` (which is a DB
-      // column purge): logs live on disk, can grow large on long-tail
-      // detached subprocesses, and are usually wanted for forensics
-      // longer than the in-DB output blobs.
-      try {
-        const logRetentionDays = serverConfig.getInt('task_log_retention_days', 30);
-        if (logRetentionDays > 0) {
-          const { pruneOldTaskLogs } = require('../utils/task-log-retention');
-          const result = pruneOldTaskLogs(logRetentionDays);
-          if (result.deleted.length > 0 || result.errors > 0) {
-            const deletedBytes = result.deleted.reduce((acc, d) => acc + d.bytes, 0);
-            debugLog(`Task-log prune: deleted ${result.deleted.length} dir(s) totaling ${deletedBytes} bytes (retention: ${logRetentionDays} days; kept ${result.kept}; errors ${result.errors})`);
-            // Forensics: write a per-delete event row so an operator
-            // can reconstruct what was removed weeks later. Best-effort
-            // — never let a failed audit row block the prune.
-            if (typeof db.recordEvent === 'function') {
-              for (const entry of result.deleted) {
-                try {
-                  db.recordEvent('task_log_pruned', {
-                    task_id: entry.taskId,
-                    age_days: entry.age_days,
-                    bytes: entry.bytes,
-                    retention_days: logRetentionDays,
-                  });
-                } catch { /* non-fatal */ }
-              }
-            }
-          }
-        }
-      } catch (logPruneErr) {
-        debugLog(`Task-log prune error: ${logPruneErr.message}`);
-      }
-
-      // C-2: Execute due user cron scheduled tasks
+      // C-2: Execute due user cron scheduled tasks. This MUST stay on the 60s
+      // tick — scheduled tasks would otherwise fire late by up to the slower
+      // retention cadence.
       try {
         const dueSchedules = db.getDueScheduledTasks();
         for (const schedule of dueSchedules) {
@@ -200,47 +151,131 @@ function startMaintenanceScheduler(opts = {}) {
       } catch (cronErr) {
         debugLog(`Cron schedule check error: ${cronErr.message}`);
       }
-
-      // Unconditional growth table purge — trim high-volume tables regardless
-      // of cleanup_log_days setting to prevent unbounded DB growth
-      try {
-        const streamCleanupDays = serverConfig.getInt('cleanup_stream_days', 7);
-        const eventCleanupDays = serverConfig.getInt('cleanup_event_days', serverConfig.getInt('cleanup_log_days', 30));
-        let streamRows = 0;
-        let eventRows = 0;
-        let limitRows = 0;
-        let fileLockRows = 0;
-        if (streamCleanupDays > 0 && typeof db.cleanupStreamData === 'function') {
-          streamRows = db.cleanupStreamData(streamCleanupDays);
-        }
-        if (eventCleanupDays > 0 && typeof db.cleanupEventData === 'function') {
-          eventRows = db.cleanupEventData(eventCleanupDays);
-        }
-        if (typeof db.enforceEventTableLimits === 'function') {
-          limitRows = db.enforceEventTableLimits(getEventTableLimitOptions());
-        }
-        const fileLockRetentionDays = serverConfig.getInt('file_lock_retention_days', 14);
-        if (fileLockRetentionDays > 0 && typeof db.cleanupReleasedFileLocks === 'function') {
-          fileLockRows = db.cleanupReleasedFileLocks(fileLockRetentionDays);
-        }
-        let decisionRows = 0;
-        if (typeof db.cleanupFactoryDecisions === 'function') {
-          decisionRows = db.cleanupFactoryDecisions(getFactoryDecisionCleanupOptions()).deleted;
-        }
-        if (db.purgeGrowthTables) {
-          const purged = db.purgeGrowthTables();
-          if (purged.coordination_events > 0 || purged.health_status > 0 || purged.task_file_writes > 0 || streamRows > 0 || eventRows > 0 || limitRows > 0 || fileLockRows > 0 || decisionRows > 0) {
-            debugLog(`Growth table purge: coordination_events=${purged.coordination_events}, health_status=${purged.health_status}, task_file_writes=${purged.task_file_writes}, stream_data=${streamRows}, task_events=${eventRows}, table_limits=${limitRows}, file_locks=${fileLockRows}, factory_decisions=${decisionRows}`);
-          }
-        }
-      } catch (purgeErr) {
-        debugLog(`Growth table purge error: ${purgeErr.message}`);
-      }
     } catch (err) {
       debugLog(`Maintenance scheduler error: ${err.message}`);
     }
   }, 60000)); // Check every minute
   maintenanceInterval.unref();
+
+  // Heavy retention sweep on its own slower cadence.
+  retentionInterval = timerRegistry.trackInterval(setInterval(() => {
+    runRetentionSweep();
+  }, RETENTION_SWEEP_INTERVAL_MS));
+  retentionInterval.unref();
+}
+
+/**
+ * Heavy retention sweep — task archival, output/log purge, growth-table
+ * trimming. Runs on RETENTION_SWEEP_INTERVAL_MS, separate from the 60s
+ * maintenance tick, so a slow purge cannot delay cron schedule execution or
+ * disk monitoring. Each step is independently try/caught so one failure never
+ * blocks the rest; retention windows are hours/days so the slower cadence has
+ * no functional effect.
+ */
+function runRetentionSweep() {
+  // Archive old terminal tasks (completed/failed/cancelled > 24h)
+  try {
+    const archived = db.archiveOldTasks(24);
+    if (archived > 0) debugLog(`Archived ${archived} old task(s)`);
+  } catch (archErr) {
+    debugLog(`Task archival error: ${archErr.message}`);
+  }
+
+  // Purge output/error_output from terminal tasks past retention. Archival
+  // only sets archived=1 — the heavy TEXT blobs stay on disk. Without this
+  // purge, tasks.db grows unbounded. The `purge_task_output` maintenance
+  // task exists but was only reachable through the `maintenance_schedules`
+  // table, which isn't seeded anywhere, so it never ran. On 2026-04-24 a
+  // live install had ~7000 terminal tasks with output still populated,
+  // 647 MB of it older than 7 days. Run it unconditionally. Retention is
+  // configurable via `task_output_retention_days` (default 30).
+  try {
+    const retentionDays = serverConfig.getInt('task_output_retention_days', 30);
+    if (retentionDays > 0 && typeof db.purgeOldTaskOutput === 'function') {
+      const purged = db.purgeOldTaskOutput(retentionDays);
+      if (purged > 0) debugLog(`Purged output from ${purged} old task(s) (retention: ${retentionDays} days)`);
+    }
+    const maxOutputBytes = serverConfig.getInt('task_output_retention_max_bytes', 256 * 1024 * 1024);
+    if (maxOutputBytes > 0 && typeof db.enforceTaskOutputSizeLimit === 'function') {
+      const sizeResult = db.enforceTaskOutputSizeLimit(maxOutputBytes);
+      if (sizeResult.purged > 0) {
+        debugLog(`Purged output from ${sizeResult.purged} terminal task(s) by size cap (${sizeResult.bytes_before} -> ${sizeResult.bytes_after} bytes; cap: ${sizeResult.max_bytes})`);
+      }
+    }
+  } catch (purgeErr) {
+    debugLog(`Task output purge error: ${purgeErr.message}`);
+  }
+
+  // Phase E / §2.5.2 — prune the per-task log directories under
+  // <data-dir>/task-logs/<taskId>/ after `task_log_retention_days`.
+  // Independent of `task_output_retention_days` (which is a DB
+  // column purge): logs live on disk, can grow large on long-tail
+  // detached subprocesses, and are usually wanted for forensics
+  // longer than the in-DB output blobs.
+  try {
+    const logRetentionDays = serverConfig.getInt('task_log_retention_days', 30);
+    if (logRetentionDays > 0) {
+      const { pruneOldTaskLogs } = require('../utils/task-log-retention');
+      const result = pruneOldTaskLogs(logRetentionDays);
+      if (result.deleted.length > 0 || result.errors > 0) {
+        const deletedBytes = result.deleted.reduce((acc, d) => acc + d.bytes, 0);
+        debugLog(`Task-log prune: deleted ${result.deleted.length} dir(s) totaling ${deletedBytes} bytes (retention: ${logRetentionDays} days; kept ${result.kept}; errors ${result.errors})`);
+        // Forensics: write a per-delete event row so an operator
+        // can reconstruct what was removed weeks later. Best-effort
+        // — never let a failed audit row block the prune.
+        if (typeof db.recordEvent === 'function') {
+          for (const entry of result.deleted) {
+            try {
+              db.recordEvent('task_log_pruned', {
+                task_id: entry.taskId,
+                age_days: entry.age_days,
+                bytes: entry.bytes,
+                retention_days: logRetentionDays,
+              });
+            } catch { /* non-fatal */ }
+          }
+        }
+      }
+    }
+  } catch (logPruneErr) {
+    debugLog(`Task-log prune error: ${logPruneErr.message}`);
+  }
+
+  // Unconditional growth table purge — trim high-volume tables regardless
+  // of cleanup_log_days setting to prevent unbounded DB growth
+  try {
+    const streamCleanupDays = serverConfig.getInt('cleanup_stream_days', 7);
+    const eventCleanupDays = serverConfig.getInt('cleanup_event_days', serverConfig.getInt('cleanup_log_days', 30));
+    let streamRows = 0;
+    let eventRows = 0;
+    let limitRows = 0;
+    let fileLockRows = 0;
+    if (streamCleanupDays > 0 && typeof db.cleanupStreamData === 'function') {
+      streamRows = db.cleanupStreamData(streamCleanupDays);
+    }
+    if (eventCleanupDays > 0 && typeof db.cleanupEventData === 'function') {
+      eventRows = db.cleanupEventData(eventCleanupDays);
+    }
+    if (typeof db.enforceEventTableLimits === 'function') {
+      limitRows = db.enforceEventTableLimits(getEventTableLimitOptions());
+    }
+    const fileLockRetentionDays = serverConfig.getInt('file_lock_retention_days', 14);
+    if (fileLockRetentionDays > 0 && typeof db.cleanupReleasedFileLocks === 'function') {
+      fileLockRows = db.cleanupReleasedFileLocks(fileLockRetentionDays);
+    }
+    let decisionRows = 0;
+    if (typeof db.cleanupFactoryDecisions === 'function') {
+      decisionRows = db.cleanupFactoryDecisions(getFactoryDecisionCleanupOptions()).deleted;
+    }
+    if (db.purgeGrowthTables) {
+      const purged = db.purgeGrowthTables();
+      if (purged.coordination_events > 0 || purged.health_status > 0 || purged.task_file_writes > 0 || streamRows > 0 || eventRows > 0 || limitRows > 0 || fileLockRows > 0 || decisionRows > 0) {
+        debugLog(`Growth table purge: coordination_events=${purged.coordination_events}, health_status=${purged.health_status}, task_file_writes=${purged.task_file_writes}, stream_data=${streamRows}, task_events=${eventRows}, table_limits=${limitRows}, file_locks=${fileLockRows}, factory_decisions=${decisionRows}`);
+      }
+    }
+  } catch (purgeErr) {
+    debugLog(`Growth table purge error: ${purgeErr.message}`);
+  }
 }
 
 /**
@@ -641,6 +676,11 @@ function stopAll() {
     timerRegistry.remove(maintenanceInterval);
     clearInterval(maintenanceInterval);
     maintenanceInterval = null;
+  }
+  if (retentionInterval) {
+    timerRegistry.remove(retentionInterval);
+    clearInterval(retentionInterval);
+    retentionInterval = null;
   }
   if (coordinationAgentInterval) {
     timerRegistry.remove(coordinationAgentInterval);
