@@ -6609,23 +6609,48 @@ function routeHeavyValidationCommands(value) {
 const VALIDATION_TARGET_PATH_RE = /\b[A-Za-z0-9_.][A-Za-z0-9_./\\-]*\.(?:csproj|fsproj|vbproj|targets|props|cjs|cs|css|go|html|java|js|json|jsx|md|mjs|psm1|ps1|py|rb|resx|rs|sh|sln|sql|ts|tsx|txt|xaml|axaml|xml|ya?ml)\b/gi;
 const VALIDATION_COMMAND_LINE_RE = /\b(?:npx\s+vitest(?:\s+run)?|vitest(?:\s+run)?|pytest|python\s+-m\s+pytest|npm(?:\s+--prefix\s+\S+)?\s+(?:run\s+)?test\s+--)\b/i;
 
+function dedupeValidationCommandTargetText(text) {
+  const seen = new Set();
+  let changed = false;
+  VALIDATION_TARGET_PATH_RE.lastIndex = 0;
+  const value = String(text || '').replace(VALIDATION_TARGET_PATH_RE, (match) => {
+    const normalized = String(match || '').replace(/\\/g, '/').toLowerCase();
+    if (seen.has(normalized)) {
+      changed = true;
+      return '';
+    }
+    seen.add(normalized);
+    return match;
+  }).replace(/[ \t]{2,}/g, ' ');
+  return { value, changed };
+}
+
 function dedupeValidationCommandTargets(value) {
   const lines = String(value || '').split(/\r?\n/);
   let changed = false;
   const nextLines = lines.map((line) => {
     if (!VALIDATION_COMMAND_LINE_RE.test(line)) return line;
-    const seen = new Set();
-    VALIDATION_TARGET_PATH_RE.lastIndex = 0;
-    const next = line.replace(VALIDATION_TARGET_PATH_RE, (match) => {
-      const normalized = String(match || '').replace(/\\/g, '/').toLowerCase();
-      if (seen.has(normalized)) {
-        changed = true;
-        return '';
+    let handledBacktickCommand = false;
+    let lineChanged = false;
+    const backtickNext = line.replace(/`([^`]+)`/g, (match, inner) => {
+      if (!VALIDATION_COMMAND_LINE_RE.test(inner)) {
+        return match;
       }
-      seen.add(normalized);
-      return match;
-    }).replace(/[ \t]{2,}/g, ' ');
-    return next;
+      handledBacktickCommand = true;
+      const deduped = dedupeValidationCommandTargetText(inner);
+      lineChanged = lineChanged || deduped.changed;
+      return `\`${deduped.value}\``;
+    });
+    if (handledBacktickCommand) {
+      changed = changed || lineChanged;
+      return backtickNext;
+    }
+
+    const boundary = line.search(/\b(?:success criteria|acceptance criteria|expected(?: passing)? result)\b/i);
+    const commandEnd = boundary >= 0 ? boundary : line.length;
+    const deduped = dedupeValidationCommandTargetText(line.slice(0, commandEnd));
+    changed = changed || deduped.changed;
+    return `${deduped.value}${line.slice(commandEnd)}`;
   });
   return changed ? nextLines.join('\n') : value;
 }

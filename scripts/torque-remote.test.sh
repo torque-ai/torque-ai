@@ -1760,6 +1760,41 @@ EOF
   finish_test "test_sync_missing_staging_ref_retries_before_remote_run"
 }
 
+test_sync_missing_staging_ref_default_retry_budget_is_long() {
+  local tmp sync_count
+
+  echo "Test: missing staged branch retry default allows slow remote ref visibility"
+  TEST_ERRORS=()
+  reset_stub_env
+
+  make_test_env
+  tmp="$LAST_TEST_ENV"
+  cat > "$tmp/.torque-remote.local.json" <<'EOF'
+{
+  "host": "fakehost",
+  "user": "fakeuser",
+  "remote_project_path": "/fake",
+  "remote_os": "linux"
+}
+EOF
+  export GIT_REV_PARSE_OUTPUT="main"
+  export GIT_VERIFY_EXISTS=$'origin/main\norigin/pre-push-gate/test'
+  export TORQUE_REMOTE_SYNC_RETRY_SLEEP_SECS=0
+  export SSH_SYNC_EXIT_SEQUENCE="128,0"
+  export SSH_SYNC_OUTPUT="fatal: couldn't find remote ref refs/heads/pre-push-gate/test"
+  export SSH_REMOTE_OS_PROBE_OUTPUT=$'Linux\n---OSRELEASE---\nID=ubuntu\nVERSION_ID=24.04\n---HOME---\nHOME=/tmp/torque-remote-home'
+
+  run_torque_remote "$tmp" --branch pre-push-gate/test argv-dump "remote-after-default-retry"
+
+  sync_count="$(grep -c 'git fetch --prune origin +refs/heads/pre-push-gate/test:refs/remotes/origin/pre-push-gate/test' "$tmp/remote-commands.log" || true)"
+  expect_eq "exit code is 0" "0" "$RUN_EXIT"
+  expect_eq "remote sync was attempted twice" "2" "$sync_count"
+  expect_contains "stderr reports default retry budget" "$RUN_STDERR" "attempt 1/21"
+  expect_greater_than_zero "remote runner was shipped after default retry success" "$RUN_REMOTE_STDIN_SIZE"
+
+  finish_test "test_sync_missing_staging_ref_default_retry_budget_is_long"
+}
+
 test_unknown_leading_flag_errors() {
   local tmp
 
@@ -2252,6 +2287,7 @@ main() {
   test_sync_includes_drift_detection
   test_sync_failure_falls_back_to_local
   test_sync_missing_staging_ref_retries_before_remote_run
+  test_sync_missing_staging_ref_default_retry_budget_is_long
   test_unknown_leading_flag_errors
   test_timeout_style_failure_triggers_failsafe_cleanup_round_trip
   test_lane_count_resolves_default_to_1

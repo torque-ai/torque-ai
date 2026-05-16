@@ -2965,8 +2965,8 @@ case "$TRANSPORT" in
           2>&1 | tee -a "$sync_log_path" "$sync_attempt_log_path" | (grep -v 'Unable to persist credentials\|credential store\|aka.ms/gcm' || true)
         return "${PIPESTATUS[0]}"
       }
-      sync_missing_ref_max_retries="$(nonnegative_int_or_default "${TORQUE_REMOTE_SYNC_MISSING_REF_RETRIES:-4}" 4)"
-      sync_missing_ref_sleep_secs="$(nonnegative_int_or_default "${TORQUE_REMOTE_SYNC_RETRY_SLEEP_SECS:-2}" 2)"
+      sync_missing_ref_max_retries="$(nonnegative_int_or_default "${TORQUE_REMOTE_SYNC_MISSING_REF_RETRIES:-20}" 20)"
+      sync_missing_ref_sleep_secs="$(nonnegative_int_or_default "${TORQUE_REMOTE_SYNC_RETRY_SLEEP_SECS:-3}" 3)"
       sync_missing_ref_max_attempts=$((sync_missing_ref_max_retries + 1))
       sync_attempt=1
       while :; do
