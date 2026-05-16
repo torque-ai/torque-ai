@@ -74,6 +74,16 @@ const DEFAULT_TASK_CANCEL_GRACE_MS = Math.max(
   0,
   Number.parseInt(process.env.TORQUE_FACTORY_VERIFY_CANCEL_GRACE_MS || '5500', 10) || 0,
 );
+// A plan-generation task alive far longer than any legitimate planning run is
+// hung (commonly file-lock contention). The deferred-EXECUTE wait has no
+// timeout of its own, so without a cap the loop parks at EXECUTE forever.
+// Past this age the tick cancels the hung task and terminates the instance so
+// a fresh cycle can begin. Default 20 min; normal plan generation is 3-10 min.
+const PLAN_GENERATION_MAX_DEFERRAL_MS = Math.max(
+  60_000,
+  Number.parseInt(process.env.TORQUE_PLAN_GEN_MAX_DEFERRAL_MS || String(20 * 60 * 1000), 10)
+    || (20 * 60 * 1000),
+);
 
 function getProjectConfig(project) {
   if (!project.config_json) return {};
@@ -781,6 +791,32 @@ function maybeStartAutoAdvanceLoop(projectId, reason = 'tick') {
   return false;
 }
 
+// Detect a plan-generation task deferred far past any legitimate planning
+// duration — i.e. hung (file-lock contention, stalled subprocess). Returns
+// { stale, age_ms } so the tick can recover instead of preserving the
+// deferred-EXECUTE state indefinitely. `taskCoreOverride` is a test seam.
+function inspectStalePlanGenerationDeferral(planGenerationWait, taskCoreOverride) {
+  if (!planGenerationWait || !planGenerationWait.task_id) {
+    return { stale: false, age_ms: 0 };
+  }
+  try {
+    const taskCore = resolveTaskCore(taskCoreOverride);
+    const task = taskCore.getTask(planGenerationWait.task_id);
+    if (!task) {
+      return { stale: false, age_ms: 0 };
+    }
+    const anchorRaw = task.last_activity_at || task.started_at || task.created_at;
+    const anchorMs = anchorRaw ? Date.parse(anchorRaw) : NaN;
+    if (!Number.isFinite(anchorMs)) {
+      return { stale: false, age_ms: 0 };
+    }
+    const ageMs = Date.now() - anchorMs;
+    return { stale: ageMs > PLAN_GENERATION_MAX_DEFERRAL_MS, age_ms: ageMs };
+  } catch (_e) {
+    return { stale: false, age_ms: 0 };
+  }
+}
+
 async function tickProject(project) {
   try {
     const freshProject = factoryHealth.getProject(project.id);
@@ -1191,6 +1227,49 @@ async function tickProject(project) {
             ? loopController.getDeferredPlanGenerationWaitState(latestProject, instance)
             : null;
           if (planGenerationWait) {
+            const staleDeferral = inspectStalePlanGenerationDeferral(planGenerationWait);
+            if (staleDeferral.stale) {
+              // The plan-generation task has been alive far past any
+              // legitimate planning run — it is hung (commonly file-lock
+              // contention). The deferred-wait state has no timeout of its
+              // own, so without this the loop parks at EXECUTE indefinitely.
+              // Cancel the hung task and terminate the instance; the tick's
+              // auto-start below begins a fresh cycle.
+              logger.warn('Factory tick: recovering stale deferred plan generation', {
+                project_id: project.id,
+                instance_id: instance.id,
+                batch_id: instance.batch_id,
+                work_item_id: planGenerationWait.work_item_id,
+                task_id: planGenerationWait.task_id,
+                deferred_age_ms: staleDeferral.age_ms,
+                max_deferral_ms: PLAN_GENERATION_MAX_DEFERRAL_MS,
+              });
+              if (planGenerationWait.task_id) {
+                try {
+                  const taskCore = resolveTaskCore();
+                  const hungTask = taskCore.getTask(planGenerationWait.task_id);
+                  if (hungTask) {
+                    cancelFactoryTask(
+                      hungTask,
+                      `Factory cancelled hung plan-generation task — deferred ${Math.round(staleDeferral.age_ms / 60000)}min (max ${Math.round(PLAN_GENERATION_MAX_DEFERRAL_MS / 60000)}min)`,
+                      {
+                        taskCore,
+                        taskManager: resolveTaskManager(),
+                        cancelReason: 'factory_plan_generation_stale',
+                      },
+                    );
+                  }
+                } catch (cancelErr) {
+                  logger.debug('Factory tick: failed to cancel hung plan-generation task', {
+                    project_id: project.id,
+                    task_id: planGenerationWait.task_id,
+                    err: cancelErr.message,
+                  });
+                }
+              }
+              loopController.terminateInstanceAndSync(instance.id, { abandonWorktree: true });
+              continue; // auto-start below begins a fresh cycle
+            }
             logger.info('Factory tick: preserving PAUSED-at-EXECUTE for deferred plan generation', {
               project_id: project.id,
               instance_id: instance.id,
@@ -1439,5 +1518,7 @@ module.exports = {
     maybeStartAutoAdvanceLoop,
     hasPausedVerifyBatchWait,
     hasOperatorPauseIntent,
+    inspectStalePlanGenerationDeferral,
+    PLAN_GENERATION_MAX_DEFERRAL_MS,
   },
 };
