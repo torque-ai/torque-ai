@@ -969,6 +969,67 @@ describe('execute-cli.js', () => {
       expect(runningProcesses.has(taskId)).toBe(false);
     });
 
+    it('recovers the detached exit code from a [process-exit] annotation on stdout', async () => {
+      const logDir = path.join(testDir, 'detached-stdout-annotation');
+      fs.mkdirSync(logDir, { recursive: true });
+      const stdoutPath = path.join(logDir, 'stdout.log');
+      const stderrPath = path.join(logDir, 'stderr.log');
+      // The wrapper's exit marker landed on stdout (merged streams) rather
+      // than stderr. Finalization parses the combined stdout+stderr buffer,
+      // so the non-zero exit code must still be recovered — a stderr-only
+      // parse would miss it and fall back to a null/detached_exit code.
+      fs.writeFileSync(
+        stdoutPath,
+        'final answer from detached task\n[process-exit] code=1 signal=none duration_ms=25 provider=codex\n',
+        'utf8'
+      );
+      fs.writeFileSync(stderrPath, '', 'utf8');
+
+      const runningProcesses = new Map();
+      const finalizeTaskSpy = vi.fn(async () => ({ finalized: true, queueManaged: false }));
+      const deps = makeDeps({ runningProcesses, finalizeTask: finalizeTaskSpy });
+      mod.init(deps);
+
+      const taskId = randomUUID();
+      taskCore.createTask({
+        id: taskId,
+        task_description: 'Detached stdout annotation test',
+        status: 'running',
+        provider: 'codex',
+        working_directory: testDir,
+      });
+      runningProcesses.set(taskId, {
+        output: '',
+        errorOutput: '',
+        outputLogPath: stdoutPath,
+        errorLogPath: stderrPath,
+        outputLogOffset: 0,
+        errorLogOffset: 0,
+        outputTail: { stop: vi.fn() },
+        errorTail: { stop: vi.fn() },
+        provider: 'codex',
+        model: 'gpt-5.5',
+        startTime: Date.now(),
+        completionDetected: false,
+      });
+
+      await mod.finalizeDetachedTask({
+        taskId,
+        task: { id: taskId, task_description: 'Detached stdout annotation test' },
+        provider: 'codex',
+        isCodexProvider: false,
+      });
+
+      expect(finalizeTaskSpy).toHaveBeenCalledWith(
+        taskId,
+        expect.objectContaining({
+          exitCode: 1,
+          output: expect.stringContaining('[process-exit] code=1'),
+        })
+      );
+      expect(runningProcesses.has(taskId)).toBe(false);
+    });
+
     it('passes detached Codex auto-committed files into task finalization', async () => {
       const childProcess = require('child_process');
       const execFileSync = childProcess._realExecFileSync || childProcess.execFileSync;

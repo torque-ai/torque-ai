@@ -503,6 +503,105 @@ describe('Orphan Cleanup', () => {
       expect(logger.info).not.toHaveBeenCalledWith(expect.stringContaining('malformed process tracker entry'));
     });
 
+    it('completes tracked detached tasks from process-exit logs even when the PID still appears alive', async () => {
+      const runningProcesses = new Map();
+      const stallRecoveryAttempts = new Map([['task-detached-done-alive', 1]]);
+      const logDir = fs.mkdtempSync(path.join(os.tmpdir(), 'torque-zombie-detached-'));
+      const stdoutPath = path.join(logDir, 'stdout.log');
+      const stderrPath = path.join(logDir, 'stderr.log');
+      const outputTail = { stop: vi.fn() };
+      const errorTail = { stop: vi.fn() };
+      const livenessHandle = setInterval(() => {}, 99999);
+      const timeoutHandle = setTimeout(() => {}, 99999);
+      const startupTimeoutHandle = setTimeout(() => {}, 99999);
+      const completionGraceHandle = setTimeout(() => {}, 99999);
+      livenessHandle.unref?.();
+      timeoutHandle.unref?.();
+      startupTimeoutHandle.unref?.();
+      completionGraceHandle.unref?.();
+      const proc = {
+        provider: 'claude-cli',
+        detached: true,
+        subprocessPid: 12345,
+        process: null,
+        outputTail,
+        errorTail,
+        livenessHandle,
+        timeoutHandle,
+        startupTimeoutHandle,
+        completionGraceHandle,
+      };
+      const mockDb = {
+        getConfig: vi.fn().mockReturnValue('0'),
+        getTask: vi.fn().mockReturnValue({
+          id: 'task-detached-done-alive',
+          status: 'running',
+          output: 'existing output',
+          error_output: '',
+          output_log_path: stdoutPath,
+          error_log_path: stderrPath,
+        }),
+        updateTaskStatus: vi.fn(),
+        reconcileHostTaskCounts: vi.fn(),
+        getRunningTasksLightweight: vi.fn().mockReturnValue([]),
+      };
+      const processQueue = vi.fn();
+      const killOrphanByPid = vi.fn();
+      const getProcessCommandLine = vi.fn().mockResolvedValue('node server/utils/process-exit-wrapper.js');
+
+      fs.writeFileSync(stdoutPath, 'final answer from detached task\n', 'utf8');
+      fs.writeFileSync(stderrPath, '[process-exit] code=0 signal=none duration_ms=25 provider=claude-cli\n', 'utf8');
+      runningProcesses.set('task-detached-done-alive', proc);
+      vi.spyOn(process, 'kill').mockImplementation((pid, signal) => {
+        if (pid === 12345 && signal === 0) return true;
+        return true;
+      });
+
+      try {
+        orphanCleanup.init({
+          db: mockDb,
+          dashboard: { notifyTaskUpdated: vi.fn() },
+          logger: { info: vi.fn(), warn: vi.fn() },
+          runningProcesses,
+          stallRecoveryAttempts,
+          TASK_TIMEOUTS: { PROCESS_QUERY: 5000 },
+          cancelTask: vi.fn(),
+          processQueue,
+          tryLocalFirstFallback: vi.fn(),
+          getTaskActivity: vi.fn(),
+          tryStallRecovery: vi.fn(),
+          safeConfigInt: vi.fn(),
+          killOrphanByPid,
+          getProcessCommandLine,
+        });
+
+        await orphanCleanup.checkZombieProcesses();
+
+        expect(mockDb.updateTaskStatus).toHaveBeenCalledWith('task-detached-done-alive', 'completed', expect.objectContaining({
+          exit_code: 0,
+          pid: null,
+          subprocess_pid: null,
+          output: expect.stringContaining('final answer from detached task'),
+          error_output: expect.stringContaining('[process-exit] code=0 signal=none'),
+        }));
+        expect(getProcessCommandLine).toHaveBeenCalledWith(12345);
+        expect(killOrphanByPid).toHaveBeenCalledWith(12345, 'task-detached-done-alive', 5000, 'ZombieCheck');
+        expect(processQueue).toHaveBeenCalled();
+        expect(runningProcesses.has('task-detached-done-alive')).toBe(false);
+        expect(stallRecoveryAttempts.has('task-detached-done-alive')).toBe(false);
+        expect(proc.finalizing).toBe(true);
+        expect(proc.stopTailProcessing).toBe(true);
+        expect(proc.livenessHandle).toBeNull();
+        expect(proc.timeoutHandle).toBeNull();
+        expect(proc.startupTimeoutHandle).toBeNull();
+        expect(proc.completionGraceHandle).toBeNull();
+        expect(outputTail.stop).toHaveBeenCalled();
+        expect(errorTail.stop).toHaveBeenCalled();
+      } finally {
+        fs.rmSync(logDir, { recursive: true, force: true });
+      }
+    });
+
     it('abandons cancelled detached tracker entries before killing their subprocess', async () => {
       const runningProcesses = new Map();
       const stallRecoveryAttempts = new Map([['task-cancelled-detached', 1]]);
