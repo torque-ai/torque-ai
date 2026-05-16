@@ -146,7 +146,7 @@ The adapter layer preserves two documented lock semantic invariants:
     && git reset --hard <ref>
     && (git clean -fd || true)            # no -x: preserves node_modules
     && (git diff --quiet HEAD || (echo drift 1>&2 && exit 99))
-    && (npm install hints for root/server/dashboard)
+    && (server/dashboard: auto `npm install` when node_modules absent [Linux]; root: hint)
     ```
     Output is `tee`'d to `/tmp/torque-remote-sync.log`. Failure → fall back to local.
 13. **Build local-state bundle** — only if `--branch` not set. Captures:
@@ -495,7 +495,7 @@ Investigated. The two implementations have substantially different capabilities;
 | **Drift detection** | `git diff --quiet HEAD` after reset → exit 99 | None |
 | **Local-state overlay** | committed.patch + worktree.patch + untracked.tar via SSH stdin | None — uses HEAD of the remote branch as-is |
 | **HEAD-mismatch guard (runner.sh)** | exit 98 on concurrent-session clobber | N/A — no inner runner |
-| **npm install hints** | Yes (root, server, dashboard) | None |
+| **Missing-deps handling** | Auto-installs server/dashboard when node_modules absent (Linux); hint for root, hint-only on Windows | None |
 | **Sync timeout wrapper** | run_with_timeout (default 600s) | Per-call HTTP timeout (300s default) |
 | **Fallback to local** | 6-step chain (transport, config, ssh, load, lock, sync) | "remote unavailable" only — no overload check, no lock backpressure |
 | **Per-session sync log** | `/tmp/torque-remote-sync.<pid>.<epoch>.log` | None — agent-server's own logs |
