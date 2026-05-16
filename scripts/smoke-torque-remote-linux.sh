@@ -20,18 +20,30 @@ echo "OK: REMOTE_OS=linux"
 
 echo ""
 echo "=== Step 2: torque-remote --status ==="
-if ! bin/torque-remote --status 2>&1 | head -10; then
-  echo "FAIL: --status exited non-zero"
+# Capture torque-remote's real exit code. Piping straight into `head` would
+# (a) report head's exit, not torque-remote's, and (b) SIGPIPE-kill
+# torque-remote early when --status prints more than 10 lines.
+status_rc=0
+status_out="$(bin/torque-remote --status 2>&1)" || status_rc=$?
+printf '%s\n' "$status_out" | head -10
+if [[ "$status_rc" -ne 0 ]]; then
+  echo "FAIL: --status exited non-zero (exit $status_rc)"
   exit 1
 fi
 echo "OK: --status returned lane state"
 
 echo ""
 echo "=== Step 3: Round-trip a simple intercepted command ==="
-if bin/torque-remote npx vitest run server/tests/torque-remote-probe.test.js --reporter=default 2>&1 | tail -10; then
+# Capture torque-remote's real exit code before piping to tail. `cmd | tail`
+# reports tail's exit (0), not torque-remote's — so a failed remote run would
+# otherwise be reported as OK.
+probe_rc=0
+probe_out="$(bin/torque-remote npx vitest run server/tests/torque-remote-probe.test.js --reporter=default 2>&1)" || probe_rc=$?
+printf '%s\n' "$probe_out" | tail -10
+if [[ "$probe_rc" -eq 0 ]]; then
   echo "OK: vitest round-tripped through the pipeline"
 else
-  echo "FAIL: vitest invocation failed (the remote may be unreachable or torque-remote may have a bug)"
+  echo "FAIL: vitest invocation failed (exit $probe_rc) — remote unreachable or torque-remote bug"
   exit 1
 fi
 

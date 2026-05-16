@@ -400,6 +400,13 @@ Exported to the user's command on remote:
 | `255` | SSH-level error | Connection drop, key rejection, etc. |
 | Other | User command's own exit code | Pass-through |
 
+> **Piped exit codes.** `torque-remote` exits with the code above, but
+> `torque-remote <cmd> | tail` (or any pipe) reports the *last* pipeline
+> stage's exit unless `set -o pipefail` is active — a failed run can then
+> look like a success. Capture `${PIPESTATUS[0]}`, enable `pipefail`, or read
+> the exit before piping. The pre-push gate sidesteps this entirely by
+> parsing its `[gate-end]` marker rather than trusting `$?`.
+
 ---
 
 ## Open questions / risks
