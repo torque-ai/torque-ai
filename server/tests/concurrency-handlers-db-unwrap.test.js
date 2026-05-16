@@ -171,4 +171,87 @@ describe('concurrency-handlers — unwraps facade before raw SQL', () => {
     expect(codex).toBeTruthy();
     expect(codex.max_concurrent).toBe(10);
   });
+
+  // --- Error propagation tests ---
+
+  it('handleGetConcurrencyLimits returns isError 500 when DB query throws', () => {
+    // Drop the table so the SELECT throws an error
+    rawDb.prepare('DROP TABLE provider_config').run();
+
+    const result = handlers.handleGetConcurrencyLimits();
+    expect(result?.isError).toBe(true);
+    expect(result?.status).toBe(500);
+    expect(result?.content?.[0]?.text).toMatch(/Failed to get concurrency limits/);
+  });
+
+  it('handleSetConcurrencyLimit (provider) returns isError 500 when UPDATE throws', () => {
+    // Drop the table so the SELECT/UPDATE throws
+    rawDb.prepare('DROP TABLE provider_config').run();
+
+    const result = handlers.handleSetConcurrencyLimit({
+      scope: 'provider',
+      target: 'codex',
+      max_concurrent: 5,
+    });
+    expect(result?.isError).toBe(true);
+    expect(result?.status).toBe(500);
+    expect(result?.content?.[0]?.text).toMatch(/Failed to set provider max_concurrent/);
+  });
+
+  it('handleSetConcurrencyLimit (vram_factor) returns isError 500 when INSERT throws', () => {
+    // Drop the config table so the INSERT OR REPLACE throws
+    rawDb.prepare('DROP TABLE config').run();
+
+    const result = handlers.handleSetConcurrencyLimit({
+      scope: 'vram_factor',
+      vram_factor: 0.9,
+    });
+    expect(result?.isError).toBe(true);
+    expect(result?.status).toBe(500);
+    expect(result?.content?.[0]?.text).toMatch(/Failed to set vram_overhead_factor/);
+  });
+
+  it('handleSetConcurrencyLimit returns isError when scope is missing', () => {
+    const result = handlers.handleSetConcurrencyLimit({});
+    expect(result?.isError).toBe(true);
+    expect(result?.content?.[0]?.text).toMatch(/scope is required/);
+  });
+
+  it('handleSetConcurrencyLimit returns isError for invalid scope', () => {
+    const result = handlers.handleSetConcurrencyLimit({
+      scope: 'bogus',
+      target: 'codex',
+      max_concurrent: 5,
+    });
+    expect(result?.isError).toBe(true);
+    expect(result?.content?.[0]?.text).toMatch(/Invalid scope/);
+  });
+
+  it('handleSetConcurrencyLimit returns isError when neither max_concurrent nor vram_factor given', () => {
+    const result = handlers.handleSetConcurrencyLimit({
+      scope: 'provider',
+      target: 'codex',
+    });
+    expect(result?.isError).toBe(true);
+    expect(result?.content?.[0]?.text).toMatch(/max_concurrent or vram_factor is required/);
+  });
+
+  it('handleSetConcurrencyLimit (provider) returns isError when max_concurrent not supplied for provider scope', () => {
+    const result = handlers.handleSetConcurrencyLimit({
+      scope: 'provider',
+      target: 'codex',
+      vram_factor: 0.8,
+    });
+    expect(result?.isError).toBe(true);
+    expect(result?.content?.[0]?.text).toMatch(/max_concurrent is required for provider scope/);
+  });
+
+  it('handleSetConcurrencyLimit (vram_factor) returns isError for out-of-range vram_factor', () => {
+    const result = handlers.handleSetConcurrencyLimit({
+      scope: 'vram_factor',
+      vram_factor: 0.2,
+    });
+    expect(result?.isError).toBe(true);
+    expect(result?.content?.[0]?.text).toMatch(/vram_factor must be a number between 0\.5 and 1\.0/);
+  });
 });
