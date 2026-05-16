@@ -88,7 +88,7 @@ Decision-log actions to watch:
 - `paused_at_gate` with `paused_reason: 'already_in_place_review_required' | 'blocked_by_codex' | 'precondition_missing' | 'unknown_zero_diff_review_required' | 'low_confidence_zero_diff_review_required'` — classifier-triggered pause at EXECUTE.
 - `verify_silent_rerun_started` / `verify_passed_on_silent_rerun` / `verify_rerun_same_failure` / `verify_rerun_different_failure` / `verify_silent_rerun_failed` — silent rerun lifecycle.
 
-Retry fix prompts now include a "Prior attempts on this work item:" block (last 3 attempts, file counts, Codex summaries) and a "Verify error progression:" diff between the prior and current verify runs. See `server/factory/loop-controller.js` (`buildVerifyFixPrompt`) for the budget + rendering rules.
+Retry fix prompts now include a "Prior attempts on this work item:" block (last 3 attempts, file counts, Codex summaries) and a "Verify error progression:" diff between the prior and current verify runs. See `server/factory/verify-helpers/index.js` (`buildVerifyFixPrompt`) for the budget + rendering rules.
 
 Design: `docs/superpowers/specs/2026-04-20-close-handler-retry-observability-design.md`
 Plan:   `docs/superpowers/plans/2026-04-20-close-handler-observability.md`

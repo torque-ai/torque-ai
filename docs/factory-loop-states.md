@@ -1,6 +1,6 @@
 # Factory Loop State Machine Reference
 
-This document is the canonical reference for TORQUE's factory loop state machine. It exists because the *declared* states in `server/factory/loop-states.js` are a small clean subset of what the *implementation* in `server/factory/loop-controller.js` (14k+ LOC) actually does. The implicit complexity — pseudo-states, pause variants, re-entry rules, decision-action emissions — has accreted across many sessions and was previously only legible by reading the code.
+This document is the canonical reference for TORQUE's factory loop state machine. It exists because the *declared* states in `server/factory/loop-states.js` are a small clean subset of what the *implementation* actually does. The implicit complexity — pseudo-states, pause variants, re-entry rules, decision-action emissions — has accreted across many sessions and was previously only legible by reading the code. The implementation lives in `server/factory/loop-controller.js` (the ~7,350-line dispatcher) plus the stage executors extracted by the refactor arc — `server/factory/stages/` (SENSE/PRIORITIZE/VERIFY/LEARN) and `server/factory/plan-execute.js` (PLAN/EXECUTE); see `server/factory/stages/README.md`.
 
 This is the layer one level beneath `docs/recovery-decisions.md`: that doc covers what to do when work fails; this doc covers the loop the recovery layer is reasoning about.
 
@@ -42,10 +42,10 @@ These are NOT in `LOOP_STATES`. They live in `factory_loop_instances.paused_at_s
 |---|---|---|
 | `READY_FOR_<stage>` (e.g., `READY_FOR_PLAN`, `READY_FOR_EXECUTE`) | The instance wants to advance to `<stage>` but the stage is currently occupied by another instance. Parked until the next `advanceLoop()` retries `tryMoveInstanceToStage()`. | `parkInstanceForStage()` after a `StageOccupiedError`. |
 | `EXECUTE_DEFERRED` | The instance is paused only to wait for deferred plan-generation state to clear, while still deriving to the real `EXECUTE` loop state. | Explicit deferred EXECUTE recovery rows; legacy bare `EXECUTE` rows with plan-generation evidence are still accepted for compatibility. |
-| `VERIFY_FAIL` | Verification failed terminally (auto-retries exhausted, ambiguous failure, reviewer timeout, retry-submission errors, worktree-and-branch lost). Cleared by operator via `retryVerifyFromFailure()`. | Multiple sites in `executeVerifyStage` (loop-controller.js lines ~12121, 12185, 12391, 12441, 12489, 12525, 12551). |
+| `VERIFY_FAIL` | Verification failed terminally (auto-retries exhausted, ambiguous failure, reviewer timeout, retry-submission errors, worktree-and-branch lost). Cleared by operator via `retryVerifyFromFailure()`. | Multiple sites in `executeVerifyStage` (`server/factory/stages/verify.js`). |
 | `<concrete stage>` (e.g., `PRIORITIZE`, `PLAN`, `VERIFY`, `LEARN`) | Awaiting operator approval at this gate. Cleared by `approveGate(<stage>)`. | Trust-level gate logic in `getNextState()`. |
 
-Implementation reads back to a declared state via `deriveInstanceStateFromLegacyProject()` (loop-controller.js:1527): `paused_at_stage` starting with `READY_FOR_` strips the prefix to get the target stage; `VERIFY_FAIL` maps back to `VERIFY`; `EXECUTE_DEFERRED` maps back to `EXECUTE`; bare stage names map to themselves.
+Implementation reads back to a declared state via `deriveInstanceStateFromLegacyProject()` (in `server/factory/loop-controller.js`): `paused_at_stage` starting with `READY_FOR_` strips the prefix to get the target stage; `VERIFY_FAIL` maps back to `VERIFY`; `EXECUTE_DEFERRED` maps back to `EXECUTE`; bare stage names map to themselves.
 
 ---
 
@@ -444,5 +444,5 @@ If you're adding a new state, transition, or decision action:
 - `docs/recovery-decisions.md` — what to do when work fails. The 3 recovery subsystems (auto-recovery engine, replan/rejected sweeps, execution-layer retry/fallback) are downstream of the decisions emitted by the loop. Conflict #4's stage catalog covers the 17 task-finalizer stages and their producer-consumer pairs with recovery rules.
 - `docs/factory.md` — operator-facing factory runbook. The "Auto-Recovery Decision Actions" section there covers a subset of the actions cataloged in this doc.
 - `server/factory/loop-states.js` — declared states + helper functions. Authoritative for what's "valid".
-- `server/factory/loop-controller.js` — the implementation. Per-stage handlers (`executePlanFileStage`, `executeVerifyStage`, `executeLearnStage`, `handlePrioritizeTransition`) own the dense logic.
+- `server/factory/loop-controller.js` — the dispatcher (`runAdvanceLoop`), lifecycle getters, and the stage-injected helpers. Per-stage handlers were extracted by the refactor arc: `server/factory/stages/{sense,prioritize,verify,learn}.js` and `server/factory/plan-execute.js` (`executePlanFileStage`, `executeNonPlanFileStage`, `handlePlanExecuteTransition`) own the dense per-stage logic. See `server/factory/stages/README.md`.
 - `server/factory/factory-tick.js` — the periodic tick that drives `advanceLoop` and the recovery sweeps.
