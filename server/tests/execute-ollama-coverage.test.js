@@ -397,4 +397,48 @@ describe('execute-ollama.js — coverage edge cases', () => {
       configCore.setConfig('ollama_max_ctx', '32768');
     });
   });
+
+  // ── 4. taskMetadataParsed scoping regression ────────────────────
+
+  describe('taskMetadataParsed scoping', () => {
+    it('taskMetadataParsed accessible when adaptive context disabled', async () => {
+      // Regression: taskMetadataParsed was previously declared inside the
+      // `if (adaptiveContextEnabled)` block, causing a ReferenceError when
+      // the non-adaptive path called applyStudyContextPrompt(prompt, taskMetadataParsed).
+      // After the fix (hoisting above the branch), this test must pass without error.
+      addHost({ url: mockUrl, model: 'codellama:latest' });
+
+      // Explicitly disable adaptive context — the code path under test
+      configCore.setConfig('adaptive_context_enabled', '0');
+      configCore.setConfig('ollama_auto_tuning_enabled', '0');
+
+      const safeUpdate = vi.fn();
+      const deps = makeDeps({ safeUpdateTaskStatus: safeUpdate });
+      mod.init(deps);
+
+      const taskId = randomUUID();
+      const metadata = JSON.stringify({ files: ['some/file.ts'] });
+      taskCore.createTask({
+        id: taskId,
+        task_description: 'Non-adaptive path regression test',
+        status: 'running',
+        provider: 'ollama',
+        model: 'codellama:latest',
+        working_directory: testDir,
+        metadata,
+      });
+
+      // Must not throw ReferenceError: taskMetadataParsed is not defined
+      await mod.executeOllamaTask({
+        id: taskId,
+        task_description: 'Non-adaptive path regression test',
+        model: 'codellama:latest',
+        working_directory: testDir,
+        metadata,
+      });
+
+      // Task should complete successfully (mock server returns 200)
+      expect(safeUpdate).toHaveBeenCalledWith(taskId, 'completed', expect.anything());
+    });
+  });
 });
