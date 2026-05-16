@@ -3665,9 +3665,10 @@ function scoreWorkItemForPrioritize(workItem, openItems = []) {
 // handlePrioritizeTransition was, so every injected helper is defined).
 
 // Codegraph integration block. Emitted only when explicitly enabled via
-// TORQUE_CODEGRAPH_ENABLED=1 — otherwise the
-// planner would be told about tools that don't exist and fail when
-// calling them. The block teaches the
+// TORQUE_CODEGRAPH_PLANNER_PROMPT=1 (its own var — NOT the plugin's
+// TORQUE_CODEGRAPH_ENABLED) — otherwise the
+// planner would be told about tools that don't exist and fabricate
+// tool-call transcripts with invented paths. The block teaches the
 // planner Codex to use the cg_* MCP tools as a research step before
 // committing to a plan, rather than trying to ship the work blind.
 //
