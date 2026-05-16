@@ -74,7 +74,7 @@ describe('factory-tick baseline probe phase', () => {
     expect(eventSpy).toHaveBeenCalledTimes(1);
   });
 
-  it('probes paused project; stays paused on red probe and increments attempts', async () => {
+  it('genuine red probe generates a fix work item and resumes the project (Fix B)', async () => {
     const factoryTick = require('../factory/factory-tick');
     const baselineProbe = require('../factory/baseline-probe');
 
@@ -87,11 +87,21 @@ describe('factory-tick baseline probe phase', () => {
     const project = db.prepare('SELECT * FROM factory_projects WHERE id = ?').get(projectId);
     await factoryTick.tickProject(project);
 
+    // Fix B: a confirmed red baseline is now remediated, not just re-probed.
+    // The project resumes to running so the loop processes the fix work item.
     const updated = db.prepare('SELECT status, config_json FROM factory_projects WHERE id = ?').get(projectId);
-    expect(updated.status).toBe('paused');
+    expect(updated.status).toBe('running');
     const cfg = JSON.parse(updated.config_json);
-    expect(cfg.baseline_broken_since).toBeTruthy();
-    expect(cfg.baseline_broken_probe_attempts).toBe(1);
+    expect(cfg.baseline_broken_since).toBeTruthy(); // still flagged until a green probe confirms
+    expect(cfg.baseline_fix_attempts).toBe(1);
+    expect(cfg.baseline_fix_work_item_id).toBeTruthy();
+
+    const fixItem = db.prepare('SELECT * FROM factory_work_items WHERE id = ?')
+      .get(cfg.baseline_fix_work_item_id);
+    expect(fixItem).toBeTruthy();
+    expect(fixItem.source).toBe('self_generated');
+    expect(fixItem.priority).toBe(95);
+    expect(fixItem.title).toMatch(/fix .* failing baseline test/i);
   });
 
   it('requeues the rejected work item when automatic baseline probe clears', async () => {
@@ -232,8 +242,11 @@ describe('factory-tick baseline probe phase', () => {
     const factoryTick = require('../factory/factory-tick');
     const baselineProbe = require('../factory/baseline-probe');
 
+    // Use an error probe (timeout): error probes are environmental, not a
+    // confirmed red baseline, so Fix B remediation does not fire and the
+    // project stays paused — keeping the backoff schedule itself under test.
     const probeSpy = vi.spyOn(baselineProbe, 'probeProjectBaseline').mockResolvedValue({
-      passed: false, exitCode: 1, output: 'FAIL', durationMs: 1, error: null,
+      passed: false, exitCode: null, output: '', durationMs: 1, error: 'timeout',
     });
 
     const projectId = seedPausedBaselineProject(db, { probeAttempts: 0, tickCountSincePause: 0 });

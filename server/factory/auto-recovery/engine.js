@@ -236,6 +236,8 @@ const BENIGN_FLOW_ACTION_EXACT = new Set([
   'worktree_verify_passed',  // verify_command passed remotely
   'verify_empty_branch_routed_to_needs_replan',  // factory-level routing decision
   'cannot_generate_plan_routed_to_needs_replan',  // post-cancel routing
+  'baseline_auto_fix_work_item_created',  // Fix B: red-baseline remediation work item generated (benign forward progress)
+  'baseline_auto_fix_repaused_for_reprobe',  // Fix B: re-paused after baseline-fix work item reached terminal status
   'verify_silent_rerun_started',  // verify silent re-run attempt started
   'verify_silent_rerun_failed',   // verify silent re-run attempt failed (not final)
   'verify_passed_on_silent_rerun', // verify passed on a silent re-run attempt

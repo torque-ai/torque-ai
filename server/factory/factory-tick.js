@@ -50,6 +50,7 @@ const { runRejectedRecoverySweep } = require('./rejected-recovery');
 const { recoverStalledVerifyLoops, resetRecoveryAttempts } = require('./verify-stall-recovery');
 const { reconcileProject: reconcileOrphanWorktrees } = require('./worktree-reconcile');
 const baselineRequeue = require('./baseline-requeue');
+const baselineAutoFix = require('./baseline-auto-fix');
 const factoryNotifications = require('./notifications');
 const { LOOP_STATES } = require('./loop-states');
 const logger = require('../logger').child({ component: 'factory-tick' });
@@ -877,6 +878,11 @@ async function tickProject(project) {
             cfg.baseline_broken_evidence = null;
             cfg.baseline_broken_probe_attempts = 0;
             cfg.baseline_broken_tick_count = 0;
+            // Fix B: baseline green — clear the auto-fix attempt counter so a
+            // future regression starts a fresh remediation budget.
+            cfg.baseline_fix_attempts = 0;
+            cfg.baseline_fix_work_item_id = null;
+            cfg.baseline_fix_exhausted_at = null;
             factoryHealth.updateProject(project.id, {
               status: 'running',
               config_json: JSON.stringify(cfg),
@@ -900,6 +906,34 @@ async function tickProject(project) {
               attempts: cfg.baseline_broken_probe_attempts,
               reason: probe.error || 'non_zero_exit',
             });
+            // Fix B: remediation, not just detection. A GENUINE red probe
+            // (tests ran and failed — exitCode set, no probe error) gets a
+            // high-priority fix work item generated and the project resumed so
+            // the loop processes it. Bounded by an attempt cap; escalates to
+            // the operator on exhaustion. A probe *error* (timeout / runner
+            // threw / no verify command) is an environmental probe failure,
+            // NOT a confirmed broken baseline — leave the backoff to re-probe.
+            if (!probe.error) {
+              try {
+                baselineAutoFix.runBaselineAutoFix({
+                  project: freshProject,
+                  cfg,
+                  probe,
+                  deps: {
+                    factoryHealth,
+                    factoryIntake,
+                    factoryDecisions,
+                    logger,
+                    db: resolveDatabase().getDbInstance(),
+                  },
+                });
+              } catch (autoFixErr) {
+                logger.warn('Factory tick: baseline auto-fix failed', {
+                  project_id: project.id,
+                  err: autoFixErr.message,
+                });
+              }
+            }
           }
         } else {
           cfg.baseline_broken_tick_count = nextTickCount;
@@ -909,6 +943,37 @@ async function tickProject(project) {
       }
       if (!hasPausedVerifyBatchWait(freshProject)) {
         return; // paused projects stay paused until explicitly resumed
+      }
+    }
+
+    // Fix B: baseline-repair running window. When runBaselineAutoFix resumed a
+    // baseline-broken project so the loop could process the fix work item,
+    // re-pause once that work item reaches a terminal state — the next tick's
+    // baseline probe then re-evaluates (green -> resume, red -> retry/escalate).
+    if (freshProject && freshProject.status === 'running') {
+      const runningCfg = getProjectConfig(freshProject);
+      if (runningCfg.baseline_broken_since && runningCfg.baseline_fix_work_item_id) {
+        try {
+          const repause = baselineAutoFix.repauseIfBaselineFixTerminal({
+            project: freshProject,
+            cfg: runningCfg,
+            deps: {
+              factoryHealth,
+              factoryIntake,
+              factoryDecisions,
+              logger,
+              db: resolveDatabase().getDbInstance(),
+            },
+          });
+          if (repause.action === 'repaused') {
+            return; // re-paused — next tick re-probes the baseline
+          }
+        } catch (repauseErr) {
+          logger.warn('Factory tick: baseline-fix re-pause check failed', {
+            project_id: project.id,
+            err: repauseErr.message,
+          });
+        }
       }
     }
 
