@@ -460,7 +460,11 @@ function getClaim(taskIdOrClaimId) {
  * @returns {any}
  */
 function listClaims({ agent_id, task_id, status, include_expired = false, limit = 50 } = {}) {
-  let query = 'SELECT c.*, t.task_description FROM task_claims c JOIN tasks t ON c.task_id = t.id WHERE 1=1';
+  // `t.status AS task_status` lets callers read the claimed task's status
+  // without a per-claim getTask() — the coordination scheduler renews leases
+  // for running tasks every 30s and would otherwise issue an N+1 query.
+  // Aliased to avoid colliding with the claim's own `status` from `c.*`.
+  let query = 'SELECT c.*, t.task_description, t.status AS task_status FROM task_claims c JOIN tasks t ON c.task_id = t.id WHERE 1=1';
   const params = [];
 
   if (agent_id) {
