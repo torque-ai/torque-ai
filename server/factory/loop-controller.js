@@ -47,7 +47,7 @@ const {
 const { createWorktreeManager } = require('../plugins/version-control/worktree-manager');
 const eventBus = require('../event-bus');
 const baselineRequeue = require('./baseline-requeue');
-const { createLearnStageRunner } = require('./stages/learn');
+const { createLearnStage, createLearnStageRunner } = require('./stages/learn');
 const { createVerifyStageRunner } = require('./stages/verify');
 const { createSenseStage } = require('./stages/sense');
 const { createDecisionStore } = require('./stages/stores/decision');
@@ -14142,63 +14142,14 @@ const learnStageRunner = createLearnStageRunner({
 // the real factoryDecisions + decision-log + container DB handle.
 const stageDecisionStore = createDecisionStore();
 
-async function executeLearnStage(project_id, batch_id, instance) {
-  try {
-    const feedback = require('./feedback');
-    const analysis = feedback.analyzeBatch(project_id, batch_id);
-    safeLogDecision({
-      project_id,
-      stage: LOOP_STATES.LEARN,
-      action: 'learned',
-      reasoning: 'LEARN stage analyzed post-batch feedback.',
-      inputs: {
-        batch_id,
-        signals: {
-          health_dimensions: Object.keys(analysis?.health_delta || {}).length,
-          task_count: analysis?.execution_metrics?.task_count ?? null,
-          guardrail_events: analysis?.guardrail_activity?.total ?? 0,
-        },
-      },
-      outcome: {
-        feedback_id: analysis?.feedback_id ?? null,
-        summary: analysis?.summary || null,
-      },
-      confidence: 1,
-      batch_id,
-    });
-    const shippingResult = await maybeShipWorkItemAfterLearn(project_id, batch_id, instance);
-    if (analysis && typeof analysis === 'object') {
-      analysis.shipping_result = shippingResult || null;
-    }
-    logger.info('LEARN stage: batch analysis complete', {
-      project_id,
-      batch_id,
-      shipping_status: shippingResult?.status || null,
-      shipping_reason: shippingResult?.reason || null,
-      work_item_id: shippingResult?.work_item_id || null,
-    });
-    return analysis;
-  } catch (err) {
-    logger.warn(`LEARN stage analysis failed: ${err.message}`, { project_id });
-    safeLogDecision({
-      project_id,
-      stage: LOOP_STATES.LEARN,
-      action: 'learn_failed',
-      reasoning: err.message,
-      inputs: {
-        batch_id,
-        signals: null,
-      },
-      outcome: {
-        status: 'error',
-        error: err.message,
-      },
-      confidence: 1,
-      batch_id,
-    });
-    return { status: 'error', error: err.message };
-  }
-}
+// Phase 3: the LEARN executor body lives in stages/learn.js (createLearnStage,
+// alongside the Step B createLearnStageRunner). loop-controller keeps this
+// one-line wiring — safeLogDecision and maybeShipWorkItemAfterLearn are
+// injected; feedback / logger / LOOP_STATES are required inside learn.js.
+const executeLearnStage = createLearnStage({
+  safeLogDecision,
+  maybeShipWorkItemAfterLearn,
+});
 
 function getLoopInstanceForProjectOrThrow(project_id) {
   const instance = getOldestActiveInstance(project_id) || backfillLegacyProjectLoopInstance(project_id);
