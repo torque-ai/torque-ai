@@ -326,6 +326,48 @@ assert_not_contains "$TMP_ROOT/windows-live-mapped-pid.out" 'Reaping dead same-h
 assert_dir_exists "$WINDOWS_LIVE_MAPPED_PID_LOCK"
 rm -rf "$WINDOWS_LIVE_MAPPED_PID_LOCK"
 
+WINDOWS_PID_FROM_NON_WINDOWS_LOCK="$TORQUE_COORD_LOCK_ROOT/main.lock"
+mkdir -p "$WINDOWS_PID_FROM_NON_WINDOWS_LOCK"
+cat > "$WINDOWS_PID_FROM_NON_WINDOWS_LOCK/owner.env" <<EOF
+lock_name=main
+purpose=windows pid from non-windows shell test
+pid=35791
+windows_pid=77777
+host=$(hostname 2>/dev/null || echo unknown)
+started_at=2099-01-01T00:00:00Z
+started_at_epoch=4070908800
+EOF
+printf 'windows-pid-from-non-windows-token\n' > "$WINDOWS_PID_FROM_NON_WINDOWS_LOCK/token"
+cat > "$FAKE_BIN/powershell.exe" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$TORQUE_COORD_LOCK_FAKE_POWERSHELL_LOG"
+case "$*" in
+  *"Get-Process -Id 77777"*) exit 0 ;;
+  *) exit 1 ;;
+esac
+EOF
+chmod +x "$FAKE_BIN/powershell.exe"
+: > "$TMP_ROOT/fake-powershell-non-windows.log"
+
+set +e
+(
+  export PATH="$FAKE_BIN:$PATH"
+  export TORQUE_COORD_LOCK_UNAME="Linux"
+  export TORQUE_COORD_LOCK_FAKE_POWERSHELL_LOG="$TMP_ROOT/fake-powershell-non-windows.log"
+  repo_coord_lock_acquire main "windows pid from non-windows shell blocked" > "$TMP_ROOT/windows-pid-from-non-windows.out" 2>&1
+)
+non_windows_pid_rc=$?
+set -e
+if [ "$non_windows_pid_rc" -eq 0 ]; then
+  echo "Expected live stored Windows PID to block acquisition from non-Windows shell" >&2
+  exit 1
+fi
+assert_contains "$TMP_ROOT/windows-pid-from-non-windows.out" 'Timed out waiting for main lease'
+assert_contains "$TMP_ROOT/fake-powershell-non-windows.log" 'Get-Process -Id 77777'
+assert_not_contains "$TMP_ROOT/windows-pid-from-non-windows.out" 'Reaping dead same-host lock'
+assert_dir_exists "$WINDOWS_PID_FROM_NON_WINDOWS_LOCK"
+rm -rf "$WINDOWS_PID_FROM_NON_WINDOWS_LOCK"
+
 STALE_LOCK="$TORQUE_COORD_LOCK_ROOT/main.lock"
 mkdir -p "$STALE_LOCK"
 cat > "$STALE_LOCK/owner.env" <<EOF
