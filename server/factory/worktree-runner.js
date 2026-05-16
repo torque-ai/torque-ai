@@ -1,6 +1,8 @@
 'use strict';
 
 const fs = require('fs');
+const os = require('os');
+const path = require('path');
 const { spawn, execFileSync } = require('child_process');
 const { prepareLocalVerifyEnv } = require('../utils/local-verify-env');
 const { prepareWorktreeVerifyDependencies } = require('../utils/worktree-verify-deps');
@@ -38,6 +40,245 @@ function safeGitEnv() {
     GIT_TERMINAL_PROMPT: '0',
     GIT_OPTIONAL_LOCKS: '0',
   };
+}
+
+function parsePositiveInteger(value, fallback) {
+  const parsed = Number.parseInt(String(value ?? ''), 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function delay(ms) {
+  if (!Number.isFinite(ms) || ms <= 0) return Promise.resolve();
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+function sanitizeCoordinationLockName(name = 'main') {
+  return String(name || 'main').toLowerCase().replace(/[^a-z0-9._-]/g, '-');
+}
+
+function isAbsoluteGitPath(value) {
+  return path.isAbsolute(value) || /^[A-Za-z]:[\\/]/.test(String(value || ''));
+}
+
+function resolveCoordinationLockRoot(repoPath) {
+  if (process.env.TORQUE_COORD_LOCK_ROOT) {
+    return process.env.TORQUE_COORD_LOCK_ROOT;
+  }
+  const commonDir = execFileSync('git', ['-C', repoPath, 'rev-parse', '--git-common-dir'], {
+    encoding: 'utf8',
+    windowsHide: true,
+    env: safeGitEnv(),
+  }).trim();
+  const absoluteCommonDir = isAbsoluteGitPath(commonDir)
+    ? commonDir
+    : path.join(repoPath, commonDir);
+  return path.join(absoluteCommonDir, 'torque-coordination-locks');
+}
+
+function readCoordinationOwnerFile(filePath) {
+  const out = {};
+  let text = '';
+  try {
+    text = fs.readFileSync(filePath, 'utf8');
+  } catch (_err) {
+    return out;
+  }
+  for (const line of text.split(/\r?\n/)) {
+    const idx = line.indexOf('=');
+    if (idx <= 0) continue;
+    out[line.slice(0, idx)] = line.slice(idx + 1);
+  }
+  return out;
+}
+
+function isProcessAlive(pid) {
+  const numeric = Number.parseInt(String(pid || ''), 10);
+  if (!Number.isFinite(numeric) || numeric <= 0) return false;
+  try {
+    process.kill(numeric, 0);
+    return true;
+  } catch (err) {
+    return err && err.code === 'EPERM';
+  }
+}
+
+function describeCoordinationLock(lockDir) {
+  const owner = readCoordinationOwnerFile(path.join(lockDir, 'owner.env'));
+  const startedAt = owner.started_at || 'unknown';
+  const host = owner.host || 'unknown';
+  const cwd = owner.cwd || 'unknown';
+  const pid = owner.pid || 'unknown';
+  const windowsPid = owner.windows_pid ? ` windows_pid=${owner.windows_pid}` : '';
+  return `purpose=${owner.purpose || 'unknown'} pid=${pid}${windowsPid} host=${host} started_at=${startedAt} cwd=${cwd}`;
+}
+
+function removeCoordinationLockDir(lockDir) {
+  try {
+    fs.rmSync(lockDir, { recursive: true, force: true });
+  } catch (_err) {
+    // Best effort; the next acquire loop will retry or time out.
+  }
+}
+
+function reapDeadOrStaleCoordinationLock(lockDir, nowEpochSeconds, logger = null) {
+  const owner = readCoordinationOwnerFile(path.join(lockDir, 'owner.env'));
+  const currentHost = os.hostname();
+  const ownerHost = owner.host || '';
+  if (ownerHost && ownerHost === currentHost) {
+    const pidAlive = isProcessAlive(owner.windows_pid || owner.pid);
+    if (!pidAlive) {
+      if (logger) {
+        logger.warn('Reaping dead same-host repo coordination lock before factory merge', {
+          lock_dir: lockDir,
+          owner: describeCoordinationLock(lockDir),
+        });
+      }
+      removeCoordinationLockDir(lockDir);
+      return true;
+    }
+  }
+
+  const staleAfter = parsePositiveInteger(
+    process.env.TORQUE_COORD_LOCK_STALE_SECS || owner.stale_after_seconds,
+    7200,
+  );
+  const startedAt = Number.parseInt(String(owner.started_at_epoch || ''), 10);
+  if (Number.isFinite(startedAt) && nowEpochSeconds - startedAt >= staleAfter) {
+    if (logger) {
+      logger.warn('Reaping stale repo coordination lock before factory merge', {
+        lock_dir: lockDir,
+        owner: describeCoordinationLock(lockDir),
+        age_seconds: nowEpochSeconds - startedAt,
+      });
+    }
+    removeCoordinationLockDir(lockDir);
+    return true;
+  }
+
+  return false;
+}
+
+function writeCoordinationLockOwner(lockDir, { lockName, purpose, token, repoPath }) {
+  const now = new Date();
+  const startedAtEpoch = Math.floor(now.getTime() / 1000);
+  const lines = [
+    `lock_name=${lockName}`,
+    `purpose=${purpose}`,
+    `pid=${process.pid}`,
+    `ppid=${process.ppid || 'unknown'}`,
+    `user=${process.env.USER || process.env.USERNAME || 'unknown'}`,
+    `host=${os.hostname()}`,
+    `repo=${repoPath || 'unknown'}`,
+    `cwd=${process.cwd()}`,
+    `started_at=${now.toISOString().replace(/\.\d{3}Z$/, 'Z')}`,
+    `started_at_epoch=${startedAtEpoch}`,
+    `stale_after_seconds=${process.env.TORQUE_COORD_LOCK_STALE_SECS || 7200}`,
+    `command=${process.argv.join(' ')}`,
+    '',
+  ];
+  fs.writeFileSync(path.join(lockDir, 'owner.env'), lines.join('\n'));
+  fs.writeFileSync(path.join(lockDir, 'token'), `${token}\n`);
+}
+
+async function withRepoCoordinationLock({
+  repoPath,
+  lockName = 'main',
+  purpose = 'factory merge worktree',
+  logger = null,
+}, fn) {
+  if (typeof fn !== 'function') {
+    throw new Error('withRepoCoordinationLock requires a callback');
+  }
+  if (!repoPath || typeof repoPath !== 'string') {
+    if (logger) {
+      logger.warn('factory merge proceeding without repo coordination lock; repo path unavailable', {
+        lock_name: lockName,
+        purpose,
+      });
+    }
+    return fn();
+  }
+
+  const safeName = sanitizeCoordinationLockName(lockName);
+  const lockRoot = resolveCoordinationLockRoot(repoPath);
+  const lockDir = path.join(lockRoot, `${safeName}.lock`);
+  const inheritedLockDir = process.env.TORQUE_COORD_LOCK_DIR;
+  const inheritedToken = process.env.TORQUE_COORD_LOCK_TOKEN;
+  if (inheritedLockDir && inheritedToken && path.resolve(inheritedLockDir) === path.resolve(lockDir)) {
+    try {
+      if (fs.readFileSync(path.join(lockDir, 'token'), 'utf8').trim() === inheritedToken) {
+        if (logger) {
+          logger.info('Reusing repo coordination lock for factory merge', { lock_name: lockName, purpose });
+        }
+        return fn();
+      }
+    } catch (_err) {
+      // Fall through to a fresh acquire if the inherited lock metadata vanished.
+    }
+  }
+
+  const waitSecs = parsePositiveInteger(process.env.TORQUE_COORD_LOCK_WAIT_SECS, 7200);
+  const pollSecs = parsePositiveInteger(process.env.TORQUE_COORD_LOCK_POLL_SECS, 5);
+  const noticeSecs = parsePositiveInteger(process.env.TORQUE_COORD_LOCK_NOTICE_SECS, 30);
+  const deadline = Date.now() + waitSecs * 1000;
+  let nextNotice = 0;
+  const token = `${Math.floor(Date.now() / 1000)}-${process.pid}-${Math.random().toString(36).slice(2)}`;
+  let acquired = false;
+
+  fs.mkdirSync(lockRoot, { recursive: true });
+
+  while (!acquired) {
+    try {
+      fs.mkdirSync(lockDir);
+      writeCoordinationLockOwner(lockDir, { lockName, purpose, token, repoPath });
+      acquired = true;
+      if (logger) {
+        logger.info('Acquired repo coordination lock for factory merge', { lock_name: lockName, purpose });
+      }
+      break;
+    } catch (err) {
+      if (!err || err.code !== 'EEXIST') throw err;
+    }
+
+    const nowEpochSeconds = Math.floor(Date.now() / 1000);
+    if (reapDeadOrStaleCoordinationLock(lockDir, nowEpochSeconds, logger)) {
+      continue;
+    }
+    if (Date.now() >= deadline) {
+      throw new Error(`Timed out waiting for ${lockName} repo coordination lock held by: ${describeCoordinationLock(lockDir)}`);
+    }
+    if (Date.now() >= nextNotice) {
+      if (logger) {
+        logger.info('Waiting for repo coordination lock before factory merge', {
+          lock_name: lockName,
+          purpose,
+          held_by: describeCoordinationLock(lockDir),
+        });
+      }
+      nextNotice = Date.now() + noticeSecs * 1000;
+    }
+    await delay(pollSecs * 1000);
+  }
+
+  try {
+    return await fn();
+  } finally {
+    if (acquired) {
+      try {
+        const currentToken = fs.readFileSync(path.join(lockDir, 'token'), 'utf8').trim();
+        if (currentToken === token) {
+          removeCoordinationLockDir(lockDir);
+          if (logger) {
+            logger.info('Released repo coordination lock after factory merge', { lock_name: lockName, purpose });
+          }
+        }
+      } catch (_err) {
+        // Missing lock metadata after the critical section is non-fatal.
+      }
+    }
+  }
 }
 
 function spawnTrackedProcessAsync(cmd, args, options = {}, spawnImpl = spawn) {
@@ -449,6 +690,7 @@ function createWorktreeRunner({
   runLocalVerify = defaultRunLocalVerify,
   countCommitsAhead = defaultCountCommitsAhead,
   listChangedFiles = defaultListChangedFiles,
+  withMainCoordinationLock = null,
   logger,
 } = {}) {
   if (!worktreeManager || typeof worktreeManager.createWorktree !== 'function') {
@@ -602,26 +844,45 @@ function createWorktreeRunner({
   async function mergeToMain({ id, branch, target = 'main', strategy = 'merge' }) {
     if (!id && !branch) throw new Error('mergeToMain requires id or branch');
     let worktreeId = id;
+    let worktreeRecord = null;
     if (!worktreeId && typeof worktreeManager.listWorktrees === 'function') {
       const all = worktreeManager.listWorktrees();
       const match = all.find((w) => w.branch === branch);
       if (!match) throw new Error(`mergeToMain: no worktree found for branch ${branch}`);
+      worktreeRecord = match;
       worktreeId = match.id;
+    } else if (worktreeId && typeof worktreeManager.listWorktrees === 'function') {
+      worktreeRecord = worktreeManager.listWorktrees().find((w) => w.id === worktreeId) || null;
     }
-    const result = worktreeManager.mergeWorktree(worktreeId, {
-      strategy,
-      targetBranch: target,
-      deleteAfter: true,
-    });
-    if (logger) {
-      logger.info('factory worktree merged', {
-        worktree_id: worktreeId,
-        branch: result && result.branch,
-        target_branch: target,
+
+    const lockRunner = typeof withMainCoordinationLock === 'function'
+      ? withMainCoordinationLock
+      : (ctx, fn) => withRepoCoordinationLock({ ...ctx, logger }, fn);
+    const repoPath = worktreeRecord?.repo_path || worktreeRecord?.repoPath || null;
+    const branchLabel = branch || worktreeRecord?.branch || worktreeId;
+    const result = await lockRunner({
+      repoPath,
+      lockName: target,
+      purpose: `factory merge worktree: ${branchLabel}`,
+      worktreeId,
+      branch: branchLabel,
+    }, async () => {
+      const mergeResult = worktreeManager.mergeWorktree(worktreeId, {
         strategy,
-        cleaned: result && result.cleaned,
+        targetBranch: target,
+        deleteAfter: true,
       });
-    }
+      if (logger) {
+        logger.info('factory worktree merged', {
+          worktree_id: worktreeId,
+          branch: mergeResult && mergeResult.branch,
+          target_branch: target,
+          strategy,
+          cleaned: mergeResult && mergeResult.cleaned,
+        });
+      }
+      return mergeResult;
+    });
     return result;
   }
 
@@ -670,5 +931,6 @@ module.exports = {
     spawnTrackedProcessAsync,
     spawnInBashAsync,
     spawnInSystemShellAsync,
+    withRepoCoordinationLock,
   },
 };

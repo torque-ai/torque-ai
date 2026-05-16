@@ -244,6 +244,23 @@ Create \`server/tests/cost-ceiling.test.js\` with Vitest coverage for budget cei
     expect(hardFails.find(f => f.rule === 'task_edit_targets_exist')).toBeUndefined();
   }));
 
+  it('does not truncate .json references to missing .js edit targets', () => withTempRepo((repoPath) => {
+    writeFixtureFiles(repoPath, [
+      'server/perf/baseline.json',
+      'scripts/perf-baseline-trailer.js',
+      'server/tests/perf-update-baseline.test.js',
+    ]);
+
+    const plan = `## Task 1: Create performance gate documentation
+
+Create \`docs/performance-gate.md\` as a single new documentation file. The baseline-update protocol section must mention \`scripts/perf-baseline-trailer.js\` and state that commits modifying \`server/perf/baseline.json\` require a trailer. Acceptance criteria: run \`node -e "const fs=require('fs'); const c=fs.readFileSync('docs/performance-gate.md','utf8'); if(!c.includes('server/perf/baseline.json')) process.exit(1)"\` and expect exit code 0.`;
+
+    const { hardFails } = runDeterministicRules(plan, { repoPath });
+    const fail = hardFails.find(f => f.rule === 'task_edit_targets_exist');
+
+    expect(fail).toBeUndefined();
+  }));
+
   it('rejects duplicate create-file targets across tasks', () => {
     const plan = `## Task 1: Extract DAG resolver tests
 

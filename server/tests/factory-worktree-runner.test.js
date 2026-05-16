@@ -648,6 +648,46 @@ describe('createWorktreeRunner.mergeToMain', () => {
     expect(worktreeManager.mergeWorktree).toHaveBeenCalledWith('id-99', expect.anything());
     expect(res.branch).toBe('feat/factory-7-foo');
   });
+
+  it('wraps main merges in the repo coordination lock when the worktree row has a repo path', async () => {
+    const worktreeManager = makeWorktreeManagerMock({
+      listSeed: [{
+        id: 'id-123',
+        branch: 'feat/factory-7-foo',
+        worktree_path: 'C:/repo/.worktrees/factory-7-foo',
+        repo_path: 'C:/repo',
+      }],
+    });
+    const order = [];
+    const withMainCoordinationLock = vi.fn(async (ctx, fn) => {
+      order.push('lock');
+      expect(ctx).toMatchObject({
+        repoPath: 'C:/repo',
+        lockName: 'main',
+        worktreeId: 'id-123',
+        branch: 'feat/factory-7-foo',
+      });
+      expect(ctx.purpose).toContain('feat/factory-7-foo');
+      const result = await fn();
+      order.push('release');
+      return result;
+    });
+    const runner = createWorktreeRunner({
+      worktreeManager,
+      runRemoteVerify: vi.fn(),
+      withMainCoordinationLock,
+    });
+
+    const res = await runner.mergeToMain({ id: 'id-123', branch: 'feat/factory-7-foo' });
+
+    expect(res.merged).toBe(true);
+    expect(withMainCoordinationLock).toHaveBeenCalledTimes(1);
+    expect(worktreeManager.mergeWorktree).toHaveBeenCalledWith('id-123', expect.objectContaining({
+      targetBranch: 'main',
+      deleteAfter: true,
+    }));
+    expect(order).toEqual(['lock', 'release']);
+  });
 });
 
 describe('createWorktreeRunner.abandon', () => {

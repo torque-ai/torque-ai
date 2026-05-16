@@ -89,19 +89,20 @@ const TEST_RUNNER_TARGET_RE = /\b(?:npx\s+vitest(?:\s+run)?|vitest(?:\s+run)?|py
 const CONFIG_FILE_TEST_TARGET_RE = /(?:^|[\\/])(?:\.torque-remote\.json|\.env(?:\.[^\\/]+)?|package(?:-lock)?\.json|pnpm-lock\.yaml|yarn\.lock|tsconfig(?:\.[^\\/]+)?\.json|vite\.config\.[cm]?[jt]s|vitest\.config\.[cm]?[jt]s)$/i;
 const ACCEPTANCE_RE = /\b(npx vitest|dotnet test|pytest|npm(?:\s+--prefix\s+\S+)?\s+(?:run\s+)?test|assert|expect|acceptance criteria\s*:|validation\s*:|must\s+(?:pass|return|include|not\s+include|not\s+read|call|not\s+call)|should\s+(?:pass|report|produce|exist|include|not\s+include))\b/i;
 const PLAN_PATH_EXTENSIONS = 'csproj|fsproj|vbproj|targets|props|cjs|cs|css|go|html|java|js|json|jsx|md|mjs|psm1|ps1|py|rb|resx|rs|sh|sln|sql|ts|tsx|txt|xaml|axaml|xml|ya?ml';
+const PLAN_PATH_EXTENSION_BOUNDARY = '(?=$|[^A-Za-z0-9])';
 const CONCRETE_FILE_PATH_RE = /(?:^|[\s`'"([])(?:[A-Za-z]:)?(?:[A-Za-z0-9_.-]+[\\/])+[A-Za-z0-9_.-]+\.(?:csproj|fsproj|vbproj|targets|props|cjs|cs|css|go|html|java|js|json|jsx|md|mjs|psm1|ps1|py|rb|resx|rs|sh|sln|sql|ts|tsx|txt|xaml|axaml|xml|ya?ml)\b/i;
 const EDIT_INTENT_RE = /\b(?:edit|modify|update|replace|repair|fix|refactor|rename|extend|change|wire)\b/i;
 const EDIT_TARGET_CONTEXT_RE = new RegExp(
-  `\\b(?:edit|modify|update|replace|repair|fix|refactor|rename|extend|change|wire)\\b[^.\\n]{0,200}?((?:[A-Za-z]:)?(?:[A-Za-z0-9_.-]+[\\\\/])+[A-Za-z0-9_.-]+\\.(?:${PLAN_PATH_EXTENSIONS}))`,
+  `\\b(?:edit|modify|update|replace|repair|fix|refactor|rename|extend|change|wire)\\b[^.\\n]{0,200}?((?:[A-Za-z]:)?(?:[A-Za-z0-9_.-]+[\\\\/])+[A-Za-z0-9_.-]+\\.(?:${PLAN_PATH_EXTENSIONS}))${PLAN_PATH_EXTENSION_BOUNDARY}`,
   'gi',
 );
 const CREATE_TARGET_CONTEXT_RES = [
   new RegExp(
-    `\\b(?:create|introduce)\\b[^.\\n]{0,200}?((?:[A-Za-z]:)?(?:[A-Za-z0-9_.-]+[\\\\/])+[A-Za-z0-9_.-]+\\.(?:${PLAN_PATH_EXTENSIONS}))`,
+    `\\b(?:create|introduce)\\b[^.\\n]{0,200}?((?:[A-Za-z]:)?(?:[A-Za-z0-9_.-]+[\\\\/])+[A-Za-z0-9_.-]+\\.(?:${PLAN_PATH_EXTENSIONS}))${PLAN_PATH_EXTENSION_BOUNDARY}`,
     'gi',
   ),
   new RegExp(
-    `\\badd\\b[^.\\n]{0,120}?\\b(?:new|dedicated|focused|separate)\\b[^.\\n]{0,160}?((?:[A-Za-z]:)?(?:[A-Za-z0-9_.-]+[\\\\/])+[A-Za-z0-9_.-]+\\.(?:${PLAN_PATH_EXTENSIONS}))`,
+    `\\badd\\b[^.\\n]{0,120}?\\b(?:new|dedicated|focused|separate)\\b[^.\\n]{0,160}?((?:[A-Za-z]:)?(?:[A-Za-z0-9_.-]+[\\\\/])+[A-Za-z0-9_.-]+\\.(?:${PLAN_PATH_EXTENSIONS}))${PLAN_PATH_EXTENSION_BOUNDARY}`,
     'gi',
   ),
 ];
