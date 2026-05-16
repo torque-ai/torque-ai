@@ -52,6 +52,7 @@ const { createVerifyStageRunner } = require('./stages/verify');
 const { createDecisionStore } = require('./stages/stores/decision');
 const { applyOutcome } = require('./stages/apply-outcome');
 const { derivePlanExecuteOutcome } = require('./stages/plan-execute-outcome');
+const { derivePrioritizeOutcome } = require('./stages/prioritize-outcome');
 const logger = require('../logger').child({ component: 'loop-controller' });
 const { prepareWorktreeVerifyDependencies } = require('../utils/worktree-verify-deps');
 const {
@@ -14619,6 +14620,20 @@ async function runAdvanceLoop(instance_id) {
         instance,
         currentState,
       });
+      // Phase 2c Step B: emit the uniform stage_complete decision.
+      // derivePrioritizeOutcome maps handlePrioritizeTransition's
+      // transition descriptor (nextState IDLE/STARVED/PLAN) to a
+      // StageOutcome; the helper itself is unchanged.
+      applyOutcome(
+        {
+          project,
+          instance: prioritizeTransition.instance || instance,
+          batchId: instance.batch_id ?? null,
+          decisionStore: stageDecisionStore,
+        },
+        currentState,
+        derivePrioritizeOutcome(prioritizeTransition),
+      );
       instance = prioritizeTransition.instance || instance;
       transitionWorkItem = prioritizeTransition.transitionWorkItem;
       stageResult = prioritizeTransition.stageResult;
