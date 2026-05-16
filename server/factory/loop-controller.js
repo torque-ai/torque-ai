@@ -2435,6 +2435,24 @@ function getLatestPlanFileIntakeForWorkItem(projectId, workItemId) {
   }
 }
 
+function sourcePlanPathsForMissingCheck(origin, latest) {
+  const sourcePaths = [
+    origin.source_plan_path,
+    latest?.plan_path,
+  ]
+    .filter((value) => typeof value === 'string' && value.trim())
+    .map((value) => path.resolve(value));
+  if (sourcePaths.length > 0) {
+    return [...new Set(sourcePaths)];
+  }
+
+  return [
+    origin.plan_path,
+  ]
+    .filter((value) => typeof value === 'string' && value.trim())
+    .map((value) => path.resolve(value));
+}
+
 function supersedeMissingSourcePlanFileWorkItem(project, instance, workItem) {
   if (!workItem || workItem.source !== 'plan_file') {
     return null;
@@ -2443,14 +2461,7 @@ function supersedeMissingSourcePlanFileWorkItem(project, instance, workItem) {
     ? workItem.origin
     : (parseJsonObject(workItem.origin_json) || {});
   const latest = getLatestPlanFileIntakeForWorkItem(project.id, workItem.id);
-  const candidatePaths = [
-    origin.plan_path,
-    origin.source_plan_path,
-    latest?.plan_path,
-  ]
-    .filter((value) => typeof value === 'string' && value.trim())
-    .map((value) => path.resolve(value));
-  const uniquePaths = [...new Set(candidatePaths)];
+  const uniquePaths = sourcePlanPathsForMissingCheck(origin, latest);
   if (uniquePaths.length === 0 || uniquePaths.some((planPath) => fs.existsSync(planPath))) {
     return null;
   }
@@ -9826,6 +9837,26 @@ async function handlePlanExecuteTransition({
           },
           reason: closedWorkItemReason,
         } };
+      }
+
+      const supersededMissingSourcePlan = supersedeMissingSourcePlanFileWorkItem(project, instance, targetItem);
+      if (supersededMissingSourcePlan) {
+        targetItem = supersededMissingSourcePlan;
+        transitionWorkItem = supersededMissingSourcePlan;
+        stageResult = {
+          status: 'superseded',
+          reason: 'source_plan_file_missing',
+          work_item_id: supersededMissingSourcePlan.id,
+        };
+        transitionReason = 'source plan file missing';
+        const moveToPrioritize = tryMoveInstanceToStage(instance, LOOP_STATES.PRIORITIZE, {
+          work_item_id: supersededMissingSourcePlan.id,
+        });
+        instance = moveToPrioritize.instance;
+        if (moveToPrioritize.blocked) {
+          transitionReason = 'stage_occupied';
+        }
+        return { earlyReturn: null, instance, transitionWorkItem, stageResult, transitionReason };
       }
 
       const preExecuteZeroDiff = maybeShortCircuitZeroDiffExecute({

@@ -2227,6 +2227,46 @@ describe('factory loop-controller EXECUTE for non-plan-file work items', () => {
     });
   });
 
+  it('supersedes orphaned plan_file work items when the mutable origin plan path points at an existing artifact', async () => {
+    const missingPlanPath = path.join(tempDir, 'deleted-source-plan-with-artifact.md');
+    const generatedPlanPath = path.join(tempDir, 'auto-generated-plan.md');
+    fs.writeFileSync(generatedPlanPath, '# Generated replacement\n## Task 1: generated\n- [ ] step\n');
+    const { project, workItem } = registerExecuteProject({
+      source: 'plan_file',
+      description: 'Old plan-file work item whose source markdown was deleted after a generated plan was attached.',
+      origin: {
+        content_hash: 'old-source-hash',
+        task_count: 0,
+        step_count: 3,
+        plan_path: generatedPlanPath,
+      },
+    });
+    db.prepare(`
+      INSERT INTO factory_plan_file_intake (project_id, plan_path, content_hash, work_item_id, created_at)
+      VALUES (?, ?, ?, ?, ?)
+    `).run(project.id, missingPlanPath, 'old-source-hash', workItem.id, '2026-05-16T00:00:00.000Z');
+
+    const executeAdvance = await loopController.advanceLoopForProject(project.id);
+    const updatedWorkItem = factoryIntake.getWorkItem(workItem.id);
+
+    expect(executeAdvance).toMatchObject({
+      new_state: LOOP_STATES.PRIORITIZE,
+      reason: 'source plan file missing',
+    });
+    expect(updatedWorkItem).toMatchObject({
+      status: 'superseded',
+      reject_reason: 'source_plan_file_missing',
+    });
+    expect(updatedWorkItem.origin).toMatchObject({
+      plan_path: generatedPlanPath,
+      source_plan_path: missingPlanPath,
+      missing_plan_file_reason: 'source_plan_file_missing',
+      missing_plan_paths: [path.resolve(missingPlanPath)],
+    });
+    expect(routingModule.handleSmartSubmitTask).not.toHaveBeenCalled();
+    expect(createPlanExecutorMock).not.toHaveBeenCalled();
+  });
+
   it('does not immediately reselect a claimed needs_replan item during cooldown', async () => {
     const { project, workItem } = registerExecuteProject({
       description: 'Create a focused plan for a cooling needs_replan claim.',

@@ -133,6 +133,24 @@ function createPlanFileIntake({ db, factoryIntake, shippedDetector }) {
     `).all(project_id, ...CLOSED);
   }
 
+  function sourcePlanPathsForMissingCheck(origin, latest) {
+    const sourcePaths = [
+      origin.source_plan_path,
+      latest?.plan_path,
+    ]
+      .filter((value) => typeof value === 'string' && value.trim())
+      .map((value) => path.resolve(value));
+    if (sourcePaths.length > 0) {
+      return [...new Set(sourcePaths)];
+    }
+
+    return [
+      origin.plan_path,
+    ]
+      .filter((value) => typeof value === 'string' && value.trim())
+      .map((value) => path.resolve(value));
+  }
+
   function reconcileMissingPlanFiles({ project_id, skipped }) {
     if (typeof factoryIntake.updateWorkItem !== 'function') {
       return [];
@@ -143,14 +161,7 @@ function createPlanFileIntake({ db, factoryIntake, shippedDetector }) {
     for (const item of listActivePlanFileWorkItems(project_id)) {
       const origin = parseOrigin(item);
       const latest = findLatestByWorkItem(project_id, item.id);
-      const candidatePaths = [
-        origin.plan_path,
-        origin.source_plan_path,
-        latest?.plan_path,
-      ]
-        .filter((value) => typeof value === 'string' && value.trim())
-        .map((value) => path.resolve(value));
-      const uniquePaths = [...new Set(candidatePaths)];
+      const uniquePaths = sourcePlanPathsForMissingCheck(origin, latest);
       if (uniquePaths.length === 0 || uniquePaths.some((planPath) => fs.existsSync(planPath))) {
         continue;
       }

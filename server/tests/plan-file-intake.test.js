@@ -246,6 +246,48 @@ describe('plan-file-intake', () => {
     });
   });
 
+  it('supersedes deleted source plan items even when origin.plan_path points at a generated artifact', () => {
+    const planPath = path.join(dir, 'deleted-source-with-artifact.md');
+    const generatedDir = path.join(path.dirname(dir), 'generated');
+    const generatedPath = path.join(generatedDir, 'artifact.md');
+    fs.mkdirSync(generatedDir, { recursive: true });
+    fs.writeFileSync(planPath, [
+      '# Deleted Source With Artifact',
+      '',
+      '**Goal:** Preserve source plan identity while generated artifacts exist.',
+      '',
+      '### Task 1: implement the thing',
+      '- [ ] Step 1: add the change',
+    ].join('\n'));
+    fs.writeFileSync(generatedPath, '# Generated replacement\n## Task 1: generated\n- [ ] step\n');
+
+    const firstScan = scanPlans();
+    const workItemId = firstScan.created[0].id;
+    factoryIntake.updateWorkItem(workItemId, {
+      status: 'executing',
+      origin_json: {
+        ...getOrigin(firstScan.created[0]),
+        plan_path: generatedPath,
+      },
+    });
+    fs.unlinkSync(planPath);
+
+    const secondScan = scanPlans();
+    const updated = factoryIntake.getWorkItem(workItemId);
+
+    expect(secondScan.reconciled).toHaveLength(1);
+    expect(updated).toMatchObject({
+      status: 'superseded',
+      reject_reason: 'source_plan_file_missing',
+    });
+    expect(getOrigin(updated)).toMatchObject({
+      plan_path: generatedPath,
+      source_plan_path: planPath,
+      missing_plan_file_reason: 'source_plan_file_missing',
+      missing_plan_paths: [path.resolve(planPath)],
+    });
+  });
+
   it('re-ingests when content hash changes after the prior item closes', () => {
     const filePath = path.join(dir, 'plan-c.md');
     fs.writeFileSync(filePath, '# C\n## Task 1: x\n- [ ] v1\n');
