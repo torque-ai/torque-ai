@@ -3204,6 +3204,50 @@ Edit server/factory/plan-executor.js and make the requested behavior change. Kee
     });
   });
 
+  it('awaitTaskToStructuredResult cancels a running task when await_task times out', async () => {
+    const taskId = 'task-await-timeout';
+    let task = { id: taskId, status: 'running', error_output: null };
+    const fakeTaskCore = {
+      getTask: vi.fn((id) => (id === taskId ? task : null)),
+      cancelTask: vi.fn((_id, reason, options) => {
+        task = {
+          ...task,
+          status: 'cancelled',
+          error_output: reason,
+          cancel_reason: options.cancel_reason,
+        };
+        return true;
+      }),
+    };
+    const handleAwaitTask = vi.fn(async () => ({
+      content: [{
+        type: 'text',
+        text: '## Task Timed Out\n\nTask is still running. Call `await_task` again to continue waiting.',
+      }],
+    }));
+
+    const result = await loopController._internalForTests.awaitTaskToStructuredResult(
+      handleAwaitTask,
+      fakeTaskCore,
+      { task_id: taskId, timeout_minutes: 1, heartbeat_minutes: 0 },
+    );
+
+    expect(fakeTaskCore.cancelTask).toHaveBeenCalledWith(
+      taskId,
+      'Factory task exceeded await timeout (1 minute).',
+      expect.objectContaining({
+        cancel_reason: 'factory_await_timeout',
+        terminal_status: 'cancelled',
+      }),
+    );
+    expect(result).toMatchObject({
+      status: 'cancelled',
+      verify_status: 'failed',
+      error: 'Factory task exceeded await timeout (1 minute).',
+      task_id: taskId,
+    });
+  });
+
   it('awaitFactoryLoop resolves immediately when the instance is already at the target state', async () => {
     const { project } = registerPlanProject();
 

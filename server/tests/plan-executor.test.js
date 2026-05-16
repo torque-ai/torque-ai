@@ -2,7 +2,10 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const { createPlanExecutor } = require('../factory/plan-executor');
+const {
+  createPlanExecutor,
+  resolveFactoryExecutionTimeoutPolicy,
+} = require('../factory/plan-executor');
 
 const PLAN = `# X
 
@@ -60,6 +63,38 @@ describe('plan-executor', () => {
     await exec.execute({ plan_path: planPath, project: 'p', working_directory: dir });
     expect(awaitMock.mock.calls[0][0].verify_command).toContain('vitest');
     expect(awaitMock.mock.calls[0][0].commit_message).toBe('feat: first');
+  });
+
+  it('bounds submitted and awaited factory execution tasks', async () => {
+    await exec.execute({ plan_path: planPath, project: 'p', working_directory: dir });
+
+    expect(submitMock.mock.calls[0][0]).toMatchObject({
+      timeout_minutes: 60,
+      task_metadata: expect.objectContaining({
+        factory_execution_timeout_minutes: 60,
+      }),
+    });
+    expect(awaitMock.mock.calls[0][0]).toMatchObject({
+      timeout_minutes: 60,
+      heartbeat_minutes: 5,
+    });
+  });
+
+  it('honors bounded project execution timeout policy', () => {
+    expect(resolveFactoryExecutionTimeoutPolicy({
+      plan_execution_timeout_minutes: 25,
+      plan_execution_heartbeat_minutes: 2,
+    })).toEqual({
+      timeout_minutes: 25,
+      heartbeat_minutes: 2,
+    });
+    expect(resolveFactoryExecutionTimeoutPolicy({
+      factory_plan_execution_timeout_minutes: 999,
+      factory_plan_execution_heartbeat_minutes: 90,
+    })).toEqual({
+      timeout_minutes: 60,
+      heartbeat_minutes: 30,
+    });
   });
 
   it('ticks checkboxes in the plan file after a task succeeds', async () => {

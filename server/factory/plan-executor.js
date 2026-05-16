@@ -34,6 +34,48 @@ const OLLAMA_EDIT_GUIDANCE = [
   '- For new files (no existing content), `write_file` is correct and `edit_file`/`replace_lines` do not apply.',
 ].join('\n');
 
+const DEFAULT_FACTORY_EXECUTION_TIMEOUT_MINUTES = 60;
+const MIN_FACTORY_EXECUTION_TIMEOUT_MINUTES = 1;
+const MAX_FACTORY_EXECUTION_TIMEOUT_MINUTES = 60;
+const DEFAULT_FACTORY_EXECUTION_HEARTBEAT_MINUTES = 5;
+
+function normalizeFactoryExecutionTimeoutMinutes(value, fallback = DEFAULT_FACTORY_EXECUTION_TIMEOUT_MINUTES) {
+  const numeric = Number(value);
+  const candidate = Number.isFinite(numeric) && numeric > 0 ? numeric : fallback;
+  return Math.min(
+    MAX_FACTORY_EXECUTION_TIMEOUT_MINUTES,
+    Math.max(MIN_FACTORY_EXECUTION_TIMEOUT_MINUTES, Math.ceil(candidate))
+  );
+}
+
+function normalizeFactoryExecutionHeartbeatMinutes(value, timeoutMinutes) {
+  const numeric = Number(value);
+  const candidate = Number.isFinite(numeric) && numeric >= 0
+    ? numeric
+    : DEFAULT_FACTORY_EXECUTION_HEARTBEAT_MINUTES;
+  const bounded = Math.min(30, Math.max(0, candidate));
+  return timeoutMinutes > 0 ? Math.min(bounded, timeoutMinutes) : bounded;
+}
+
+function resolveFactoryExecutionTimeoutPolicy(projectDefaults = {}) {
+  const timeoutMinutes = normalizeFactoryExecutionTimeoutMinutes(
+    projectDefaults.plan_execution_timeout_minutes
+      ?? projectDefaults.factory_plan_execution_timeout_minutes
+      ?? projectDefaults.factory_task_timeout_minutes
+      ?? projectDefaults.task_execution_timeout_minutes
+  );
+  const heartbeatMinutes = normalizeFactoryExecutionHeartbeatMinutes(
+    projectDefaults.plan_execution_heartbeat_minutes
+      ?? projectDefaults.factory_plan_execution_heartbeat_minutes
+      ?? projectDefaults.factory_task_heartbeat_minutes,
+    timeoutMinutes
+  );
+  return {
+    timeout_minutes: timeoutMinutes,
+    heartbeat_minutes: heartbeatMinutes,
+  };
+}
+
 function buildTaskPrompt(task, planTitle, opts = {}) {
   const lines = [`Plan: ${planTitle}`, `Task ${task.task_number}: ${task.task_title}`, ''];
   for (const step of task.steps) {
@@ -467,6 +509,7 @@ function createPlanExecutor({ submit, awaitTask, findReusableTask = null, projec
     let failed_task = null;
     let task_count = 0;
     let violation = null;
+    const executionTimeoutPolicy = resolveFactoryExecutionTimeoutPolicy(projectDefaults);
 
     for (const task of parsed.tasks) {
       if (task.completed) {
@@ -643,6 +686,7 @@ function createPlanExecutor({ submit, awaitTask, findReusableTask = null, projec
           verify_command,
           commit_message: task.commit_message || `feat: plan task ${task.task_number}`,
           working_directory,
+          ...executionTimeoutPolicy,
         });
 
         if (reusedResult.status !== 'completed' || (reusedResult.verify_status && reusedResult.verify_status !== 'passed')) {
@@ -677,12 +721,14 @@ function createPlanExecutor({ submit, awaitTask, findReusableTask = null, projec
         plan_task_number: task.task_number,
         plan_task_title: task.task_title,
         file_paths,
+        timeout_minutes: executionTimeoutPolicy.timeout_minutes,
         task_metadata: {
           plan_path,
           plan_title: parsed.title,
           plan_task_number: task.task_number,
           plan_task_title: task.task_title,
           file_paths,
+          factory_execution_timeout_minutes: executionTimeoutPolicy.timeout_minutes,
         },
         initial_status: mode === 'pending_approval' ? 'pending_approval' : undefined,
       });
@@ -715,6 +761,7 @@ function createPlanExecutor({ submit, awaitTask, findReusableTask = null, projec
         verify_command,
         commit_message: task.commit_message || `feat: plan task ${task.task_number}`,
         working_directory,
+        ...executionTimeoutPolicy,
       });
 
       if (result.status !== 'completed' || (result.verify_status && result.verify_status !== 'passed')) {
@@ -782,4 +829,5 @@ module.exports = {
   verifyCompletedTaskArtifacts,
   countCommitsAheadOfBase,
   extractEditTargetPaths,
+  resolveFactoryExecutionTimeoutPolicy,
 };
