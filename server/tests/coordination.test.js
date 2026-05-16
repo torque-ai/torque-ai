@@ -310,6 +310,24 @@ describe('coordination module', () => {
       expect(withExpired.find(c => c.id === claim.id)).toBeTruthy();
     });
 
+    it('listClaims exposes the joined task status as task_status without clobbering claim status', () => {
+      const agent = makeAgent({ id: 'list-claims-ts-agent', name: 'TSAgent' });
+      const task = makeTask({ id: 'list-claims-ts-task', status: 'queued' });
+      const claim = mod.claimTask(task.id, agent.id);
+
+      let row = mod.listClaims({ status: 'active' }).find(c => c.id === claim.id);
+      expect(row).toBeTruthy();
+      expect(row.task_status).toBe('queued');
+      // The `t.status AS task_status` alias must not overwrite the claim's
+      // own `status` column (selected via `c.*`).
+      expect(row.status).toBe('active');
+
+      patchTask(task.id, { status: 'running' });
+      row = mod.listClaims({ status: 'active' }).find(c => c.id === claim.id);
+      expect(row.task_status).toBe('running');
+      expect(row.status).toBe('active');
+    });
+
     it('expireStaleLeases expires old active claims and requeues running tasks', () => {
       const agent = makeAgent({ id: 'stale-lease-agent', name: 'LeaseAgent' });
       const task = makeTask({ id: 'stale-lease-task', status: 'queued' });

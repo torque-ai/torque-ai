@@ -289,12 +289,13 @@ function startCoordinationScheduler() {
     } catch (err) {
       debugLog(`expireStaleLeases error: ${err.message}`);
     }
-    // Renew active claims for running tasks
+    // Renew active claims for running tasks. listClaims already JOINs tasks
+    // and exposes the task status as `task_status`, so this avoids a per-claim
+    // getTask() N+1 on every 30s tick.
     try {
       const activeClaims = db.listClaims({ status: 'active' });
       for (const claim of activeClaims) {
-        const task = db.getTask(claim.task_id);
-        if (task && task.status === 'running') {
+        if (claim.task_status === 'running') {
           db.renewLease(claim.id, 600);
         }
       }
