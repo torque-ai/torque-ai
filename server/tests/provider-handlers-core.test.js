@@ -181,6 +181,56 @@ describe('Provider Handlers', () => {
     });
   });
 
+  // ============================================
+  // PROVIDER ENABLE/DISABLE BOOLEAN VALIDATION
+  // ============================================
+
+  describe('provider enable/disable boolean validation', () => {
+    it('rejects string "false" for enabled field', async () => {
+      const result = await safeTool('configure_provider', { provider: 'ollama', enabled: 'false' });
+      expect(result.isError).toBe(true);
+      const text = getText(result);
+      expect(text).toContain('boolean');
+    });
+
+    it('rejects string "true" for enabled field', async () => {
+      const result = await safeTool('configure_provider', { provider: 'ollama', enabled: 'true' });
+      expect(result.isError).toBe(true);
+      const text = getText(result);
+      expect(text).toContain('boolean');
+    });
+
+    it('rejects numeric 0 for enabled field', async () => {
+      const result = await safeTool('configure_provider', { provider: 'ollama', enabled: 0 });
+      expect(result.isError).toBe(true);
+      const text = getText(result);
+      expect(text).toContain('boolean');
+    });
+
+    it('rejects numeric 1 for enabled field', async () => {
+      const result = await safeTool('configure_provider', { provider: 'ollama', enabled: 1 });
+      expect(result.isError).toBe(true);
+      const text = getText(result);
+      expect(text).toContain('boolean');
+    });
+
+    it('accepts boolean true for enabled field', async () => {
+      const result = await safeTool('configure_provider', { provider: 'ollama', enabled: true });
+      expect(result.isError).toBeFalsy();
+      const text = getText(result);
+      expect(text).toContain('Provider Updated');
+    });
+
+    it('accepts boolean false for enabled field and disables provider', async () => {
+      const result = await safeTool('configure_provider', { provider: 'ollama', enabled: false });
+      expect(result.isError).toBeFalsy();
+      const text = getText(result);
+      expect(text).toContain('No');
+      // Re-enable for subsequent tests
+      await safeTool('configure_provider', { provider: 'ollama', enabled: true });
+    });
+  });
+
   describe('set_default_provider', () => {
     it('rejects missing provider', async () => {
       const result = await safeTool('set_default_provider', {});
