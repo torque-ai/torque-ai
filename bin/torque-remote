@@ -1468,6 +1468,25 @@ compute_lane_workspace_path() {
   printf '%s-lane-%s\n' "$base" "$index"
 }
 
+ensure_lane_workspace_origin_url() {
+  local lane_path="$1"
+  local origin_url="${REMOTE_LANE_ORIGIN_URL:-}"
+
+  if [[ -z "${SSH_USER:-}" || -z "${SSH_HOST:-}" || -z "$origin_url" ]]; then
+    return 0
+  fi
+
+  local set_origin_cmd
+  if [[ "$REMOTE_OS" == "linux" ]]; then
+    set_origin_cmd="git -C $(shell_quote "$lane_path") remote set-url origin $(shell_quote "$origin_url")"
+  else
+    set_origin_cmd="$(remote_git_bash_command "git -C $(shell_quote "$lane_path") remote set-url origin $(shell_quote "$origin_url")")"
+  fi
+
+  ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" "$set_origin_cmd" >/dev/null 2>&1 || \
+    warn "Could not reset origin remote for lane workspace $lane_path; sync may use a stale clone source"
+}
+
 # After a lane is claimed, ensure the lane workspace has a .git directory.
 # If missing, clone from the sibling lane-1 (warm — fastest, hardlinks where
 # possible) or fall back to cloning from origin.
@@ -1490,6 +1509,7 @@ provision_lane_workspace_if_needed() {
     "$(TORQUE_REMOTE_EMIT_ONLY=1 remote_probe_path_yesno "${lane_path}${sep}.git")" \
     2>/dev/null | tr -d '\r' | tail -1)
   if [[ "$probe_result" == "YES" ]]; then
+    ensure_lane_workspace_origin_url "$lane_path"
     return 0
   fi
 
@@ -1516,8 +1536,11 @@ provision_lane_workspace_if_needed() {
     clone_cmd="git clone \"$REMOTE_LANE_ORIGIN_URL\" \"$lane_path\""
   fi
 
-  ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" "$clone_cmd" >/dev/null 2>&1 || \
+  if ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" "$clone_cmd" >/dev/null 2>&1; then
+    ensure_lane_workspace_origin_url "$lane_path"
+  else
     warn "Provisioning clone failed for $lane_path; sync chain will retry"
+  fi
 }
 
 # Compute the per-lane lock dir. Lock dirs live in a sibling directory next

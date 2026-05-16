@@ -197,7 +197,7 @@ reset_stub_env() {
   unset GIT_VERIFY_EXISTS GIT_VERIFY_DEFAULT_EXIT_CODE
   unset GIT_DIFF_BASE_OUTPUT GIT_DIFF_HEAD_OUTPUT GIT_DIFF_EXIT_CODE
   unset GIT_LS_FILES_OUTPUT GIT_LS_FILES_EXIT_CODE
-  unset GIT_LS_REMOTE_OUTPUT GIT_LS_REMOTE_EXIT_CODE
+  unset GIT_LS_REMOTE_OUTPUT GIT_LS_REMOTE_EXIT_CODE GIT_REMOTE_URL GIT_REMOTE_URL_EXIT_CODE
   unset GIT_FETCH_EXIT_CODE GIT_WORKTREE_ADD_EXIT_CODE GIT_WORKTREE_REMOVE_EXIT_CODE GIT_WORKTREE_REMOVE_OUTPUT
   unset SSH_CONNECT_OUTPUT SSH_CONNECT_EXIT_CODE SSH_REMOTE_OS_PROBE_OUTPUT
   unset SSH_WMIC_OUTPUT SSH_WMIC_EXIT_CODE
@@ -2104,6 +2104,33 @@ test_default_workspace_path_targets_lane_1() {
   finish_test "test_default_workspace_path_targets_lane_1"
 }
 
+test_existing_lane_resets_origin_to_primary_repo() {
+  echo "Test: existing lane workspace resets origin to primary repo URL before sync"
+  TEST_ERRORS=()
+  reset_stub_env
+
+  make_test_env
+  local tmp="$LAST_TEST_ENV"
+  set_linux_lane_config "$tmp"
+  export GIT_REV_PARSE_OUTPUT="main"
+  export GIT_REMOTE_URL="https://github.com/example/project.git"
+  export GIT_VERIFY_EXISTS=$'origin/main\norigin/pre-push-gate/test'
+  export TORQUE_REMOTE_LANE_COUNT=2
+  export SSH_LOCK_ACQUIRE_SEQUENCE="HELD,ACQUIRED"
+  local owner_host
+  owner_host="$(printf '%s' "${COMPUTERNAME:-$(hostname 2>/dev/null || echo unknown)}" | tr '[:upper:]' '[:lower:]' | tr -cd '[:alnum:]_.:-')"
+  export SSH_LOCK_OWNER_OUTPUT=$'host='"$owner_host"$'\npid=1\nstarted_at_epoch=9999999999\nlane_index=1'
+  export SSH_LANE_GIT_EXISTS_OUTPUT="lane-2:yes"
+
+  run_torque_remote "$tmp" --branch pre-push-gate/test echo hi
+
+  expect_eq "exit code is 0" "0" "$RUN_EXIT"
+  expect_contains "existing lane origin is reset to primary origin" "$RUN_REMOTE_COMMANDS" "git -C '$(linux_lane_path "$tmp" 2)' remote set-url origin 'https://github.com/example/project.git'"
+  expect_contains "sync still fetches branch from origin" "$RUN_REMOTE_COMMANDS" "git fetch --prune origin +refs/heads/pre-push-gate/test:refs/remotes/origin/pre-push-gate/test"
+
+  finish_test "test_existing_lane_resets_origin_to_primary_repo"
+}
+
 test_cold_start_provisions_from_sibling_lane_1() {
   echo "Test: claiming lane-3 with no .git provisions from lane-1 sibling clone"
   TEST_ERRORS=()
@@ -2127,6 +2154,7 @@ test_cold_start_provisions_from_sibling_lane_1() {
   expect_contains "provision command clones from lane-1 sibling" "$RUN_REMOTE_COMMANDS" "git clone --local"
   expect_contains "provision target is lane-3" "$RUN_REMOTE_COMMANDS" "$(linux_lane_path "$tmp" 3)"
   expect_contains "provision source is lane-1" "$RUN_REMOTE_COMMANDS" "$(linux_lane_path "$tmp" 1)"
+  expect_contains "sibling clone origin is reset to primary origin" "$RUN_REMOTE_COMMANDS" "remote set-url origin 'https://example.invalid/fake.git'"
 
   finish_test "test_cold_start_provisions_from_sibling_lane_1"
 }
