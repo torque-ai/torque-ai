@@ -89,6 +89,23 @@ describe('runDeterministicRules — structural', () => {
     expect(hardFails.find(f => f.rule === 'plan_has_task_heading')).toBeUndefined();
   });
 
+  it('rule 1: h3 task headings match executor-supported plan syntax', () => {
+    const plan = [
+      '# Historical Plan',
+      '',
+      '### Task 1: Edit provider quotas',
+      '',
+      'Change server/db/provider-quotas.js and validate with npx vitest server/tests/provider-quotas.test.js so the existing provider quota behavior remains covered.',
+      '',
+      '### Task 2: Update provider dashboard',
+      '',
+      'Change dashboard/src/views/Providers.jsx and validate with npx vitest dashboard/src/views/Providers.test.jsx so the dashboard renders the new quota state.',
+    ].join('\n');
+
+    const { hardFails } = runDeterministicRules(plan);
+    expect(hardFails.find(f => f.rule === 'plan_has_task_heading')).toBeUndefined();
+  });
+
   it('rule 2: 16 tasks hard-fails on plan_task_count_upper_bound', () => {
     const bodies = Array(16).fill('body '.repeat(30));
     const { hardFails } = runDeterministicRules(buildTasks(bodies));

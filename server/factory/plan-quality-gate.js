@@ -383,9 +383,10 @@ function isDarkTrustProject(project) {
 }
 
 function parseTasks(planMarkdown) {
-  // Returns [{ number, title, body }] splitting the plan at each ## Task N: heading.
+  // Returns [{ number, title, body }] splitting at each Task N heading.
+  // Keep this aligned with plan-parser.js, which accepts h2-h4 task headings.
   if (typeof planMarkdown !== 'string' || !planMarkdown) return [];
-  const headingRe = /^## Task (\d+):\s*(.*)$/gm;
+  const headingRe = /^#{2,4}\s+Task\s+(\d+)\s*[:.]\s*(.*)$/gm;
   const matches = Array.from(planMarkdown.matchAll(headingRe)).map((m) => ({
     number: Number(m[1]),
     title: (m[2] || '').trim(),
@@ -418,11 +419,11 @@ function runDeterministicRules(planMarkdown, options = {}) {
     });
   }
 
-  // Rule 9 — detect non-standard task grammar BEFORE parseTasks, which only matches "## Task N:" with N ≥ 1.
-  if (/^## (Step \d+|Task 0):/m.test(planMarkdown || '')) {
+  // Rule 9 — detect non-standard task grammar BEFORE parseTasks.
+  if (/^#{2,4}\s+(Step\s+\d+|Task\s+0)\s*[:.]/m.test(planMarkdown || '')) {
     hardFails.push({
       rule: 'task_heading_grammar',
-      detail: 'Plan uses "## Step N:" or "## Task 0:" grammar; only "## Task N:" (N≥1) is accepted.',
+      detail: 'Plan uses "Step N:" or "Task 0:" grammar; only "Task N:" headings (N>=1) are accepted.',
     });
   }
 
@@ -431,7 +432,7 @@ function runDeterministicRules(planMarkdown, options = {}) {
 
   // Rule 1
   if (tasks.length === 0) {
-    hardFails.push({ rule: 'plan_has_task_heading', detail: 'Plan contains no "## Task N:" heading.' });
+    hardFails.push({ rule: 'plan_has_task_heading', detail: 'Plan contains no "Task N:" heading.' });
     return { hardFails, warnings };
   }
 
@@ -765,11 +766,12 @@ function augmentPlanMarkdown(planMarkdown, projectConfig, logger) {
     : '';
   if (!verify || typeof planMarkdown !== 'string') return { plan: planMarkdown, augmented: 0 };
 
-  const headingRe = /^## Task \d+:/m;
+  const headingRe = /^#{2,4}\s+Task\s+\d+\s*[:.]/m;
   if (!headingRe.test(planMarkdown)) return { plan: planMarkdown, augmented: 0 };
 
   // Split at task headings, augment bodies that lack acceptance criterion.
-  const parts = planMarkdown.split(/(^## Task \d+:.*$)/m);
+  const taskHeadingRe = /^#{2,4}\s+Task\s+\d+\s*[:.].*$/;
+  const parts = planMarkdown.split(/(^#{2,4}\s+Task\s+\d+\s*[:.].*$)/m);
   // parts alternates: [pre, heading, body, heading, body, ...]
   let augmented = 0;
   const out = [];
@@ -777,9 +779,9 @@ function augmentPlanMarkdown(planMarkdown, projectConfig, logger) {
   for (let i = 0; i < parts.length; i++) {
     const part = parts[i];
     // Is this part a task heading?
-    if (/^## Task \d+:/.test(part)) {
+    if (taskHeadingRe.test(part)) {
       out.push(part);
-    } else if (i > 0 && /^## Task \d+:/.test(parts[i - 1])) {
+    } else if (i > 0 && taskHeadingRe.test(parts[i - 1])) {
       // This part is the body following a heading.
       if (!ACCEPTANCE_RE.test(part)) {
         const verifyLine = deterministicVerify(verify);

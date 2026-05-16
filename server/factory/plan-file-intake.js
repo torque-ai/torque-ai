@@ -10,7 +10,7 @@ function parsePlan(content) {
   const title = (lines.find((line) => /^#\s+/.test(line)) || '').replace(/^#\s+/, '').trim();
   const goalMatch = content.match(/\*\*Goal:\*\*\s*([^\n]+)/);
   const techMatch = content.match(/\*\*Tech Stack:\*\*\s*([^\n]+)/);
-  const tasks = (content.match(/^##\s+Task\s+/gm) || []).length;
+  const tasks = (content.match(/^#{2,4}\s+Task\s+/gm) || []).length;
   const steps = (content.match(/^\s*-\s*\[\s*\]/gm) || []).length;
 
   return {
