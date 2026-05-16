@@ -996,6 +996,14 @@ describe('tool-mapping', () => {
       })).toEqual({ valid: true });
     });
 
+    it('accepts torque.stream.poll with valid cursor_token that has surrounding whitespace', () => {
+      const result = validateToolArgumentsSemantics('torque.stream.poll', {
+        subscription_id: 'sub-1',
+        cursor_token: '  2026-05-01T12:00:00.000Z  ',
+      });
+      expect(result).toEqual({ valid: true });
+    });
+
     it('accepts torque.stream.poll without cursor_token', () => {
       expect(validateToolArgumentsSemantics('torque.stream.poll', {
         subscription_id: 'sub-1',
