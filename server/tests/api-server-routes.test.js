@@ -35,6 +35,20 @@ describe('api/routes/factory-routes', () => {
       }
     }
   });
+
+  it('maps resume_project request bodies so operator pause clearing is explicit', () => {
+    const resumeRoute = FACTORY_V2_ROUTES.find((route) => (
+      route.method === 'POST'
+      && route.tool === 'resume_project'
+      && route.path instanceof RegExp
+      && route.path.test('/api/v2/factory/projects/project-1/resume')
+    ));
+
+    expect(resumeRoute).toMatchObject({
+      mapParams: ['project'],
+      mapBody: true,
+    });
+  });
 });
 
 describe('api/routes/special-routes', () => {

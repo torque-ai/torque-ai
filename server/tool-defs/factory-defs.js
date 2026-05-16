@@ -118,11 +118,18 @@ const tools = [
   },
   {
     name: 'resume_project',
-    description: 'Resume a paused factory project. The factory loop restarts from the Sense stage.',
+    description: 'Resume a paused factory project. Operator-paused projects require clear_operator_pause=true.',
     inputSchema: {
       type: 'object',
       properties: {
         project: { type: 'string', description: 'Project ID or path' },
+        clear_operator_pause: {
+          type: 'boolean',
+          description: 'Required to explicitly clear an operator pause marker before resuming.',
+        },
+        reason: { type: 'string', description: 'Optional operator reason for the resume audit log.' },
+        actor: { type: 'string', description: 'Optional actor recorded in the resume audit log.' },
+        source: { type: 'string', description: 'Optional source recorded in the resume audit log.' },
       },
       required: ['project'],
     },

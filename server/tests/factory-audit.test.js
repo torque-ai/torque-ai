@@ -83,8 +83,8 @@ function loadHandlersWithMockedFactoryHealth(project) {
     updateProject: vi.fn((id, updates) => {
       if (id !== projectState.id) return null;
       Object.assign(projectState, updates);
-      db.prepare("UPDATE factory_projects SET status = ?, updated_at = datetime('now') WHERE id = ?")
-        .run(projectState.status, id);
+      db.prepare("UPDATE factory_projects SET status = ?, config_json = ?, updated_at = datetime('now') WHERE id = ?")
+        .run(projectState.status, projectState.config_json || null, id);
       return { ...projectState };
     }),
   };
@@ -257,5 +257,63 @@ describe('factory pause/resume audit handlers', () => {
         source: 'mcp',
       }),
     ]);
+  });
+
+  it('resume handler refuses operator-paused projects without an explicit clear flag', async () => {
+    setProjectStatus(projectId, 'paused');
+    const configJson = JSON.stringify({
+      loop: {
+        auto_continue: false,
+        operator_paused: true,
+        operator_paused_at: '2026-05-16T00:00:00.000Z',
+        operator_pause_reason: 'maintenance',
+      },
+    });
+    db.prepare('UPDATE factory_projects SET config_json = ? WHERE id = ?').run(configJson, projectId);
+
+    const { handlers, mockFactoryHealth } = loadHandlersWithMockedFactoryHealth(getProjectRow(projectId));
+    const result = await handlers.handleResumeProject({
+      project: projectId,
+      reason: 'accidental stale resume',
+      actor: 'alice',
+      source: 'rest',
+    });
+
+    expect(mockFactoryHealth.updateProject).not.toHaveBeenCalled();
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain('operator-paused');
+    expect(listRows()).toEqual([]);
+  });
+
+  it('resume handler clears operator pause only when explicitly requested', async () => {
+    setProjectStatus(projectId, 'paused');
+    const configJson = JSON.stringify({
+      loop: {
+        auto_continue: false,
+        operator_paused: true,
+        operator_paused_at: '2026-05-16T00:00:00.000Z',
+        operator_pause_reason: 'maintenance',
+      },
+    });
+    db.prepare('UPDATE factory_projects SET config_json = ? WHERE id = ?').run(configJson, projectId);
+
+    const { handlers, mockFactoryHealth } = loadHandlersWithMockedFactoryHealth(getProjectRow(projectId));
+    await handlers.handleResumeProject({
+      project: projectId,
+      clear_operator_pause: true,
+      reason: 'manual resume',
+      actor: 'alice',
+      source: 'mcp',
+    });
+
+    expect(mockFactoryHealth.updateProject).toHaveBeenCalledWith(projectId, expect.objectContaining({
+      status: 'running',
+      config_json: expect.any(String),
+    }));
+    const resumeConfig = JSON.parse(mockFactoryHealth.updateProject.mock.calls[0][1].config_json);
+    expect(resumeConfig.loop).toMatchObject({ auto_continue: false });
+    expect(resumeConfig.loop.operator_paused).toBeUndefined();
+    expect(resumeConfig.loop.operator_paused_at).toBeUndefined();
+    expect(resumeConfig.loop.operator_pause_reason).toBeUndefined();
   });
 });

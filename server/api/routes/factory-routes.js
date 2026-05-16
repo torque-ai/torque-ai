@@ -148,6 +148,7 @@ const FACTORY_V2_ROUTES = [
     path: /^\/api\/v2\/factory\/projects\/([^/]+)\/resume$/,
     tool: 'resume_project',
     mapParams: ['project'],
+    mapBody: true,
   },
   { method: 'POST', path: '/api/v2/factory/pause-all', tool: 'pause_all_projects' },
   // Intake

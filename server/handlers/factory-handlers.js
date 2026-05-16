@@ -201,6 +201,11 @@ function clearOperatorPausedConfig(project) {
   return JSON.stringify(cfg);
 }
 
+function hasOperatorPauseIntent(project) {
+  const cfg = parseProjectConfig(project?.config_json);
+  return cfg?.loop?.operator_paused === true;
+}
+
 function getBaselineResumeJobsByProject(projectId) {
   let jobs = baselineResumeJobs.get(projectId);
   if (!jobs) {
@@ -1537,6 +1542,12 @@ async function handlePauseProject(args) {
 async function handleResumeProject(args) {
   const project = resolveProject(args.project);
   const previous_status = project.status;
+  if (hasOperatorPauseIntent(project) && args.clear_operator_pause !== true) {
+    return makeError(
+      ErrorCodes.CONFLICT,
+      `Project "${project.name}" is operator-paused. Pass clear_operator_pause=true to resume it explicitly.`,
+    );
+  }
   const updated = factoryHealth.updateProject(project.id, {
     status: 'running',
     config_json: clearOperatorPausedConfig(project),
