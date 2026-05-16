@@ -218,16 +218,24 @@ repo_coord_lock_pid_alive() {
     ''|*[!0-9]*|0) return 1 ;;
   esac
 
-  if repo_coord_lock_is_windows_platform; then
-    if [ -n "$windows_pid" ]; then
-      repo_coord_lock_windows_pid_alive "$windows_pid"
-      windows_status=$?
-      case "$windows_status" in
-        0) return 0 ;;
-        1) return 1 ;;
-      esac
-    fi
+  if [ -n "$windows_pid" ]; then
+    repo_coord_lock_windows_pid_alive "$windows_pid"
+    windows_status=$?
+    case "$windows_status" in
+      0) return 0 ;;
+      1) return 1 ;;
+    esac
 
+    if ! repo_coord_lock_is_windows_platform; then
+      # A Windows-origin lock can be inspected from WSL or another shell that
+      # shares the host name but not the PID namespace. If no Windows PID
+      # checker is available, treat the owner as alive and let stale-time
+      # reaping handle true orphans instead of deleting a live Git Bash lock.
+      return 0
+    fi
+  fi
+
+  if repo_coord_lock_is_windows_platform; then
     mapped_windows_pid="$(repo_coord_lock_msys_windows_pid "$pid" 2>/dev/null || true)"
     if [ -n "$mapped_windows_pid" ]; then
       repo_coord_lock_windows_pid_alive "$mapped_windows_pid"
