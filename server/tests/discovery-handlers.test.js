@@ -225,6 +225,43 @@ describe('discovery handlers', () => {
     expect(result).toContain('Top scored: deepseek/deepseek-r1 (98), qwen/qwen3-32b (91)');
   });
 
+  it('propagates errors from discoverFromAdapter when the adapter throws', async () => {
+    discoverFromAdapter.mockRejectedValue(new Error('Connection refused'));
+    const { handleDiscoverModels } = loadSubject();
+
+    await expect(handleDiscoverModels({ provider: 'ollama' }))
+      .rejects.toThrow('Connection refused');
+  });
+
+  it('propagates errors from discoverAllModels when the all-provider path throws', async () => {
+    discoverAllModels.mockRejectedValue(new Error('Bulk discovery failed'));
+    const { handleDiscoverModels } = loadSubject();
+
+    await expect(handleDiscoverModels({}))
+      .rejects.toThrow('Bulk discovery failed');
+  });
+
+  it('propagates errors when resolveDatabaseFacade throws', () => {
+    resolveDatabaseFacade.mockImplementation(() => {
+      throw new Error('DB unavailable');
+    });
+    const { handleDiscoverModels } = loadSubject();
+
+    expect(() => handleDiscoverModels({ provider: 'ollama' }))
+      .toThrow('DB unavailable');
+  });
+
+  it('handles null results from discoverAllModels gracefully', async () => {
+    discoverAllModels.mockResolvedValue(null);
+    const { handleDiscoverModels } = loadSubject();
+
+    const result = await handleDiscoverModels({});
+
+    expect(result).toBe(
+      '## Model Discovery\n\nNo providers available for discovery. Enable providers with API keys first.',
+    );
+  });
+
   it('createDiscoveryHandlers exposes handleDiscoverModels', () => {
     const { createDiscoveryHandlers, handleDiscoverModels } = loadSubject();
 
