@@ -244,6 +244,28 @@ Create \`server/tests/cost-ceiling.test.js\` with Vitest coverage for budget cei
     expect(hardFails.find(f => f.rule === 'task_edit_targets_exist')).toBeUndefined();
   }));
 
+  it('allows later tasks to edit files created earlier in the same plan', () => withTempRepo((repoPath) => {
+    const plan = `## Task 1: Create tool registry module
+
+Create \`server/tool-registry.js\` as a pure metadata module exporting CORE_TOOLS. Acceptance criteria: requiring \`server/tool-registry.js\` should return the registry object and npx vitest run server/tests/tool-registry.test.js should pass.
+
+## Task 2: Wire registry helpers
+
+Update \`server/tool-registry.js\` to add getToolNames and expose the tier map after Task 1 creates the file. Acceptance criteria: npx vitest run server/tests/tool-registry.test.js should pass with the helper assertions.`;
+    const { hardFails } = runDeterministicRules(plan, { repoPath });
+
+    expect(hardFails.find(f => f.rule === 'task_edit_targets_exist')).toBeUndefined();
+  }));
+
+  it('allows a task to edit a file it explicitly creates in the same task body', () => withTempRepo((repoPath) => {
+    const plan = `## Task 1: Create performance runner
+
+Create \`server/perf/run.js\` and update \`server/perf/run.js\` in the same task to print a baseline comparison table. Acceptance criteria: node server/perf/run.js should exit 0 and npx vitest run server/tests/perf-runner.test.js should pass.`;
+    const { hardFails } = runDeterministicRules(plan, { repoPath });
+
+    expect(hardFails.find(f => f.rule === 'task_edit_targets_exist')).toBeUndefined();
+  }));
+
   it('does not truncate .json references to missing .js edit targets', () => withTempRepo((repoPath) => {
     writeFixtureFiles(repoPath, [
       'server/perf/baseline.json',

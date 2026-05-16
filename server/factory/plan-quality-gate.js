@@ -283,7 +283,7 @@ function findDuplicateValidationCommandTargets(text) {
   return [...new Set(duplicates)];
 }
 
-function findMissingEditTargets(task, repoPath) {
+function findMissingEditTargets(task, repoPath, options = {}) {
   if (!repoPath || typeof repoPath !== 'string') {
     return { targets: [], missing: [] };
   }
@@ -302,7 +302,13 @@ function findMissingEditTargets(task, repoPath) {
   if (!fs.existsSync(repoRoot)) {
     return { targets, missing: [] };
   }
+  const createdTargets = options.createdTargets instanceof Set
+    ? options.createdTargets
+    : new Set();
   const missing = targets.filter((target) => {
+    if (createdTargets.has(target)) {
+      return false;
+    }
     const absolute = path.resolve(repoRoot, target);
     if (!absolute.startsWith(repoRoot + path.sep) && absolute !== repoRoot) {
       return true;
@@ -319,6 +325,25 @@ function findMissingEditTargets(task, repoPath) {
   }
 
   return { targets, missing, alternatives };
+}
+
+function collectCreatedTargetsAvailableByTask(tasks) {
+  const availableByTask = new Map();
+  const cumulativeCreatedTargets = new Set();
+
+  for (const task of tasks) {
+    const createdTargets = extractCreateTargetFilePaths(`${task.title || ''}\n${task.body || ''}`);
+    const availableTargets = new Set(cumulativeCreatedTargets);
+    for (const target of createdTargets) {
+      availableTargets.add(target);
+    }
+    availableByTask.set(task.number, availableTargets);
+    for (const target of createdTargets) {
+      cumulativeCreatedTargets.add(target);
+    }
+  }
+
+  return availableByTask;
 }
 
 function formatMissingEditTargetAlternatives(alternatives = {}) {
@@ -398,6 +423,7 @@ function runDeterministicRules(planMarkdown, options = {}) {
   }
 
   const tasks = parseTasks(planMarkdown);
+  const createdTargetsAvailableByTask = collectCreatedTargetsAvailableByTask(tasks);
 
   // Rule 1
   if (tasks.length === 0) {
@@ -487,7 +513,9 @@ function runDeterministicRules(planMarkdown, options = {}) {
       });
     }
 
-    const editTargetCheck = findMissingEditTargets(task, repoPath);
+    const editTargetCheck = findMissingEditTargets(task, repoPath, {
+      createdTargets: createdTargetsAvailableByTask.get(task.number),
+    });
     if (editTargetCheck.missing.length > 0) {
       const alternatives = formatMissingEditTargetAlternatives(editTargetCheck.alternatives);
       hardFails.push({
