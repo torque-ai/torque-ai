@@ -174,6 +174,7 @@ function collectPriorMissingTargetFiles(workItem) {
     missingTargetRe.lastIndex = 0;
     for (const match of source.matchAll(missingTargetRe)) {
       const targetList = String(match[1] || '')
+        .replace(/\s+Existing nearby candidate\(s\):.*$/i, '')
         .replace(/\s+Pick existing repository files.*$/i, '')
         .replace(/\s+Choose existing repository files.*$/i, '')
         .replace(/\s+Use existing repository files.*$/i, '');
