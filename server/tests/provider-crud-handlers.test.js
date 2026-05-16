@@ -702,4 +702,88 @@ describe('provider-crud-handlers', () => {
       details: { field: 'max_concurrent', value: 1.5 },
     });
   });
+
+  it('handleAddProvider catches database errors and returns an error object', async () => {
+    const failingDb = createMockDb();
+    const originalPrepare = failingDb.prepare;
+    failingDb.prepare = vi.fn((sql) => {
+      const normalized = normalizeSql(sql);
+      // Let the first prepare (existence check) succeed, then blow up on the INSERT
+      if (normalized.includes('INSERT INTO provider_config')) {
+        return {
+          get: vi.fn(),
+          all: vi.fn(),
+          run: vi.fn(() => { throw new Error('disk I/O error'); }),
+        };
+      }
+      return originalPrepare(sql);
+    });
+
+    await loadProviderCrudHandlers({ db: failingDb });
+
+    const result = handlers.handleAddProvider({
+      name: 'boom-provider',
+      provider_type: 'custom',
+    });
+
+    expect(result).toMatchObject({
+      isError: true,
+      error_code: 'OPERATION_FAILED',
+      code: 'operation_failed',
+      status: 500,
+    });
+    expect(result.content[0].text).toContain('disk I/O error');
+  });
+
+  it('handleRemoveProvider catches database errors and returns an error object', async () => {
+    const failingDb = createMockDb({
+      providers: [
+        { provider: 'doomed', provider_type: 'custom', transport: 'api' },
+      ],
+    });
+    const originalPrepare = failingDb.prepare;
+    failingDb.prepare = vi.fn((sql) => {
+      const normalized = normalizeSql(sql);
+      // Let the provider-existence check succeed but blow up on DELETE
+      if (normalized.includes('DELETE FROM provider_config')) {
+        return {
+          get: vi.fn(),
+          all: vi.fn(),
+          run: vi.fn(() => { throw new Error('constraint violation'); }),
+        };
+      }
+      return originalPrepare(sql);
+    });
+
+    await loadProviderCrudHandlers({ db: failingDb });
+
+    const result = handlers.handleRemoveProvider({
+      provider: 'doomed',
+      confirm: true,
+    });
+
+    expect(result).toMatchObject({
+      isError: true,
+      error_code: 'OPERATION_FAILED',
+      code: 'operation_failed',
+      status: 500,
+    });
+    expect(result.content[0].text).toContain('constraint violation');
+  });
+
+  it('handleSetApiKey returns error when provider does not exist', async () => {
+    await loadProviderCrudHandlers();
+
+    const result = handlers.handleSetApiKey({
+      provider: 'nonexistent',
+      api_key: 'sk-test-key-1234',
+    });
+
+    expect(result).toMatchObject({
+      isError: true,
+      error_code: 'RESOURCE_NOT_FOUND',
+      code: 'provider_not_found',
+      status: 404,
+    });
+  });
 });
