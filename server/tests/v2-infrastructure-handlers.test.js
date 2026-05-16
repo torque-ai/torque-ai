@@ -51,6 +51,7 @@ const mockHostManagement = {
   recordHostHealthCheck: vi.fn(),
   getHostSettings: vi.fn(),
   listCredentials: vi.fn(),
+  getCredential: vi.fn(),
   saveCredential: vi.fn(),
   deleteCredential: vi.fn(),
   deleteAllHostCredentials: vi.fn(),
@@ -387,6 +388,12 @@ function resetMockDefaults() {
       const { value: _value, ...safe } = entry;
       return clone(safe);
     });
+  });
+  mockHostManagement.getCredential.mockReset().mockImplementation((hostName, hostType, credType) => {
+    const bucket = state.credentials.get(credentialKey(hostName, hostType));
+    if (!bucket) return null;
+    const entry = bucket.get(credType);
+    return entry?.value ? clone(entry.value) : null;
   });
   mockHostManagement.saveCredential.mockReset().mockImplementation((hostName, hostType, credType, label, value) => {
     const bucket = ensureCredentialBucket(hostName, hostType);
@@ -1219,7 +1226,7 @@ describe('api/v2-infrastructure-handlers', () => {
 
       expect(mockHostManagement.listCredentials).toHaveBeenCalledWith('peek-a', 'peek');
       expectList(res, {
-        items: [{ host_name: 'peek-a', host_type: 'peek', credential_type: 'ssh', label: 'Peek SSH' }],
+        items: [{ host_name: 'peek-a', host_type: 'peek', credential_type: 'ssh', label: 'Peek SSH', has_value: false }],
         total: 1,
       });
     });
@@ -1266,6 +1273,7 @@ describe('api/v2-infrastructure-handlers', () => {
             host_type: 'peek',
             credential_type: 'ssh',
             label: 'Unsafe SSH',
+            has_value: false,
           }],
           total: 1,
         });
@@ -1286,7 +1294,7 @@ describe('api/v2-infrastructure-handlers', () => {
 
       expect(mockHostManagement.listCredentials).toHaveBeenCalledWith('ollama-a', 'ollama');
       expectList(res, {
-        items: [{ host_name: 'ollama-a', host_type: 'ollama', credential_type: 'http_auth', label: 'API token' }],
+        items: [{ host_name: 'ollama-a', host_type: 'ollama', credential_type: 'http_auth', label: 'API token', has_value: false }],
         total: 1,
       });
     });
@@ -1306,7 +1314,23 @@ describe('api/v2-infrastructure-handlers', () => {
       expect(mockHostManagement.listCredentials).toHaveBeenCalledWith('shared-host', 'peek');
       expect(mockHostManagement.listCredentials).not.toHaveBeenCalledWith('shared-host', 'ollama');
       expectList(res, {
-        items: [{ host_name: 'shared-host', host_type: 'peek', credential_type: 'ssh', label: 'Peek SSH' }],
+        items: [{ host_name: 'shared-host', host_type: 'peek', credential_type: 'ssh', label: 'Peek SSH', has_value: false }],
+        total: 1,
+      });
+    });
+
+    it('includes has_value true when a credential value exists', async () => {
+      seedPeekHost({ name: 'peek-val', url: 'http://peek-val:9876' });
+      seedCredential('peek-val', 'peek', { credential_type: 'ssh', label: 'With Value', value: { user: 'root', key_path: '/root/.ssh/id_rsa' } });
+      const res = createMockRes();
+
+      await handlers.handleListCredentials(
+        createReq({ params: { host_name: 'peek-val' } }),
+        res,
+      );
+
+      expectList(res, {
+        items: [{ host_name: 'peek-val', host_type: 'peek', credential_type: 'ssh', label: 'With Value', has_value: true }],
         total: 1,
       });
     });
@@ -1513,6 +1537,118 @@ describe('api/v2-infrastructure-handlers', () => {
         status: 404,
         code: 'credential_not_found',
         message: 'Credential not found',
+      });
+    });
+  });
+
+  describe('handleRevealCredential', () => {
+    it('returns the decrypted credential value for a known host and type', async () => {
+      seedPeekHost({ name: 'peek-a', url: 'http://peek-a:9876' });
+      seedCredential('peek-a', 'peek', { credential_type: 'ssh', label: 'SSH Key', value: { user: 'admin', key_path: '/home/<user>/.ssh/id_rsa' } });
+      const res = createMockRes();
+
+      await handlers.handleRevealCredential(
+        createReq({ params: { host_name: 'peek-a', credential_type: 'ssh' } }),
+        res,
+      );
+
+      expect(mockHostManagement.getCredential).toHaveBeenCalledWith('peek-a', 'peek', 'ssh');
+      expect(expectSuccess(res)).toEqual({
+        host_name: 'peek-a',
+        credential_type: 'ssh',
+        value: { user: 'admin', key_path: '/home/<user>/.ssh/id_rsa' },
+      });
+    });
+
+    it('returns the decrypted credential value for an ollama host', async () => {
+      seedOllamaHost({ id: 'ollama-a', url: 'http://ollama-a:11434' });
+      seedCredential('ollama-a', 'ollama', { credential_type: 'http_auth', label: 'Token', value: { token: 'secret-token' } });
+      const res = createMockRes();
+
+      await handlers.handleRevealCredential(
+        createReq({ params: { host_name: 'ollama-a', credential_type: 'http_auth' } }),
+        res,
+      );
+
+      expect(mockHostManagement.getCredential).toHaveBeenCalledWith('ollama-a', 'ollama', 'http_auth');
+      expect(expectSuccess(res)).toEqual({
+        host_name: 'ollama-a',
+        credential_type: 'http_auth',
+        value: { token: 'secret-token' },
+      });
+    });
+
+    it('returns 404 when the host does not exist', async () => {
+      const res = createMockRes();
+
+      await handlers.handleRevealCredential(
+        createReq({ params: { host_name: 'missing-host', credential_type: 'ssh' } }),
+        res,
+      );
+
+      expectError(res, {
+        status: 404,
+        code: 'host_not_found',
+        message: 'Host not found: missing-host',
+      });
+    });
+
+    it('returns 400 for an unsupported credential type', async () => {
+      seedPeekHost({ name: 'peek-a', url: 'http://peek-a:9876' });
+      const res = createMockRes();
+
+      await handlers.handleRevealCredential(
+        createReq({ params: { host_name: 'peek-a', credential_type: 'oauth' } }),
+        res,
+      );
+
+      expectError(res, {
+        code: 'validation_error',
+        message: 'Unsupported credential type',
+      });
+    });
+
+    it('returns 404 when the credential does not exist', async () => {
+      seedPeekHost({ name: 'peek-a', url: 'http://peek-a:9876' });
+      const res = createMockRes();
+
+      await handlers.handleRevealCredential(
+        createReq({ params: { host_name: 'peek-a', credential_type: 'ssh' } }),
+        res,
+      );
+
+      expectError(res, {
+        status: 404,
+        code: 'credential_not_found',
+        message: 'Credential not found',
+      });
+    });
+
+    it('returns 400 when host_name param is missing', async () => {
+      const res = createMockRes();
+
+      await handlers.handleRevealCredential(
+        createReq({ params: { credential_type: 'ssh' } }),
+        res,
+      );
+
+      expectError(res, {
+        code: 'validation_error',
+        message: 'host_name and credential_type are required',
+      });
+    });
+
+    it('returns 400 when credential_type param is missing', async () => {
+      const res = createMockRes();
+
+      await handlers.handleRevealCredential(
+        createReq({ params: { host_name: 'peek-a' } }),
+        res,
+      );
+
+      expectError(res, {
+        code: 'validation_error',
+        message: 'host_name and credential_type are required',
       });
     });
   });

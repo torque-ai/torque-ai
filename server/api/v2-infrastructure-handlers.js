@@ -493,7 +493,15 @@ async function handleListCredentials(req, res) {
   }
 
   const creds = hostManagement.listCredentials ? hostManagement.listCredentials(hostName, hostType) : [];
-  const redacted = creds.map(redactCredential);
+  const redacted = creds.map((cred) => {
+    const safe = redactCredential(cred);
+    const credType = cred.credential_type;
+    const hasValue = hostManagement.getCredential
+      ? hostManagement.getCredential(hostName, hostType, credType) !== null
+      : false;
+    safe.has_value = hasValue;
+    return safe;
+  });
   sendList(res, requestId, redacted, redacted.length, req);
 }
 
@@ -545,6 +553,35 @@ async function handleDeleteCredential(req, res) {
   }
 
   sendSuccess(res, requestId, { removed: true, host: hostName, credential_type: credType }, 200, req);
+}
+
+async function handleRevealCredential(req, res) {
+  const requestId = resolveRequestId(req);
+  const hostName = req.params?.host_name;
+  const credType = req.params?.credential_type;
+
+  if (!hostName || !credType) {
+    return sendError(res, requestId, 'validation_error', 'host_name and credential_type are required', 400, {}, req);
+  }
+
+  const hostType = resolveHostType(hostName);
+  if (!hostType) {
+    return sendError(res, requestId, 'host_not_found', `Host not found: ${hostName}`, 404, {}, req);
+  }
+
+  if (!VALID_CREDENTIAL_TYPES.has(credType)) {
+    return sendError(res, requestId, 'validation_error', 'Unsupported credential type', 400, {}, req);
+  }
+
+  const value = hostManagement.getCredential
+    ? hostManagement.getCredential(hostName, hostType, credType)
+    : null;
+
+  if (value === null) {
+    return sendError(res, requestId, 'credential_not_found', 'Credential not found', 404, {}, req);
+  }
+
+  sendSuccess(res, requestId, { host_name: hostName, credential_type: credType, value }, 200, req);
 }
 
 // ─── Remote Agents ──────────────────────────────────────────────────────────
@@ -855,6 +892,7 @@ function createV2InfrastructureHandlers(_deps) {
     handleListCredentials,
     handleSaveCredential,
     handleDeleteCredential,
+    handleRevealCredential,
     handleListAgents,
     handleCreateAgent,
     handleGetAgent,
@@ -897,6 +935,7 @@ module.exports = {
   handleListCredentials,
   handleSaveCredential,
   handleDeleteCredential,
+  handleRevealCredential,
   // Remote Agents
   handleListAgents,
   handleCreateAgent,
