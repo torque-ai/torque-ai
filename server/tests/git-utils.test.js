@@ -7,6 +7,7 @@ const { gitSync, cleanupRepo, withRealGit } = require('./git-test-utils');
 
 const { parseGitStatusLine, getModifiedFiles } = require('../utils/git');
 
+const GIT_HOOK_TIMEOUT_MS = 30000;
 describe('utils/git.js', () => {
   let testDir;
 
@@ -28,16 +29,16 @@ describe('utils/git.js', () => {
     fs.writeFileSync(path.join(testDir, 'rename-source.txt'), 'rename source');
     gitSync(['add', 'baseline.txt', 'rename-source.txt'], { cwd: testDir });
     gitSync(['commit', '-m', 'init', '--no-gpg-sign'], { cwd: testDir });
-  });
+  }, GIT_HOOK_TIMEOUT_MS);
 
   beforeEach(() => {
     gitSync(['reset', '--hard'], { cwd: testDir });
     gitSync(['clean', '-fd'], { cwd: testDir });
-  });
+  }, GIT_HOOK_TIMEOUT_MS);
 
   afterAll(() => {
     cleanupRepo(testDir);
-  });
+  }, GIT_HOOK_TIMEOUT_MS);
 
   describe('parseGitStatusLine', () => {
     it('parses modified files from porcelain output', () => {

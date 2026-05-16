@@ -256,10 +256,20 @@ function listWorkflows(options = {}) {
 
   let sql = 'SELECT * FROM workflows WHERE 1=1';
   const params = [];
+  const statusList = Array.isArray(options.status)
+    ? [...new Set(options.status.map(value => String(value).trim()).filter(Boolean))]
+    : (typeof options.status === 'string' && options.status.trim() ? [options.status.trim()] : []);
 
-  if (options.status) {
+  if (Array.isArray(options.status) && statusList.length === 0) {
+    return [];
+  }
+
+  if (statusList.length === 1) {
     sql += ' AND status = ?';
-    params.push(options.status);
+    params.push(statusList[0]);
+  } else if (statusList.length > 1) {
+    sql += ` AND status IN (${statusList.map(() => '?').join(', ')})`;
+    params.push(...statusList);
   }
   if (options.template_id) {
     sql += ' AND template_id = ?';

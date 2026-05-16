@@ -2,6 +2,7 @@
 
 const childProcess = require('child_process');
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 
 const CONFIG_RELATIVE_PATH = path.join('infrastructure', 'hosts', 'torque-remote.local.json');
@@ -172,24 +173,79 @@ function applyRestrictedPermissions(filePath) {
   }
 
   if (process.platform === 'win32') {
-    const username = process.env.USERNAME;
-    if (username) {
+    const principals = [];
+    const addPrincipal = (value) => {
+      const next = typeof value === 'string' ? value.trim() : '';
+      if (next && !principals.includes(next)) principals.push(next);
+    };
+
+    try {
+      const whoami = childProcess.spawnSync('whoami', [], {
+        encoding: 'utf8',
+        windowsHide: true,
+      });
+      if (!whoami.error && whoami.status === 0) addPrincipal(whoami.stdout);
+    } catch {
+      // Fall back to process/env names below.
+    }
+
+    try {
+      addPrincipal(os.userInfo().username);
+    } catch {
+      // Ignore; service contexts may not expose userInfo.
+    }
+
+    if (process.env.USERDOMAIN && process.env.USERNAME) {
+      addPrincipal(`${process.env.USERDOMAIN}\\${process.env.USERNAME}`);
+    }
+    addPrincipal(process.env.USERNAME);
+
+    if (principals.length === 0) {
+      warnings.push('No Windows user principal found; skipped Windows ACL restriction');
+      return warnings;
+    }
+
+    let grantSucceeded = false;
+    const grantErrors = [];
+    for (const principal of principals) {
       let result;
       try {
         result = childProcess.spawnSync(
           'icacls',
-          [filePath, '/inheritance:r', '/grant:r', `${username}:F`],
-          { encoding: 'utf8' }
+          [filePath, '/grant:r', `${principal}:F`],
+          { encoding: 'utf8', windowsHide: true }
         );
       } catch (err) {
-        warnings.push(`icacls failed: ${err.message}`);
-        return warnings;
+        grantErrors.push(`${principal}: ${err.message}`);
+        continue;
       }
-      if (result.error || result.status !== 0) {
-        warnings.push(`icacls failed: ${result.error?.message || result.stderr || result.status}`);
+
+      if (!result.error && result.status === 0) {
+        grantSucceeded = true;
+      } else {
+        grantErrors.push(`${principal}: ${result.error?.message || result.stderr || result.status}`);
       }
-    } else {
-      warnings.push('USERNAME is not set; skipped Windows ACL restriction');
+    }
+
+    if (!grantSucceeded) {
+      warnings.push(`icacls grant failed: ${grantErrors.join('; ')}`);
+      return warnings;
+    }
+
+    let inheritanceResult;
+    try {
+      inheritanceResult = childProcess.spawnSync(
+        'icacls',
+        [filePath, '/inheritance:r'],
+        { encoding: 'utf8', windowsHide: true }
+      );
+    } catch (err) {
+      warnings.push(`icacls inheritance restriction failed: ${err.message}`);
+      return warnings;
+    }
+
+    if (inheritanceResult.error || inheritanceResult.status !== 0) {
+      warnings.push(`icacls inheritance restriction failed: ${inheritanceResult.error?.message || inheritanceResult.stderr || inheritanceResult.status}`);
     }
   }
 
@@ -219,7 +275,7 @@ function saveRemoteHostLocalConfig(payload, projectRoot = getProjectRoot()) {
   const permissionWarnings = applyRestrictedPermissions(filePath);
 
   return {
-    ...readRemoteHostLocalConfig(projectRoot),
+    ...toResponse({ exists: true, value: normalized }, projectRoot),
     saved: true,
     permission_warnings: permissionWarnings,
   };

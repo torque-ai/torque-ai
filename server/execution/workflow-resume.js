@@ -133,7 +133,7 @@ function getRunningWorkflowRows() {
   }
 
   if (typeof dbHandle.listWorkflows === 'function') {
-    return (dbHandle.listWorkflows({ status: 'running' }) || []).map(workflow => ({ id: workflow.id }));
+    return (dbHandle.listWorkflows({ status: ['running'] }) || []).map(workflow => ({ id: workflow.id }));
   }
 
   return [];

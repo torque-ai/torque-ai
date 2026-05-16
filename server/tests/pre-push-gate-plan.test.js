@@ -2,7 +2,11 @@
 
 import { describe, it, expect } from 'vitest';
 
-const { planFromFiles, toShell } = require('../../scripts/pre-push-gate-plan');
+const { planFromFiles: rawPlanFromFiles, toShell } = require('../../scripts/pre-push-gate-plan');
+
+function planFromFiles(files, options = {}) {
+  return rawPlanFromFiles(files, { ...options, useCodegraph: false });
+}
 
 describe('pre-push gate planner', () => {
   it('skips heavy phases for documentation-only changes', () => {

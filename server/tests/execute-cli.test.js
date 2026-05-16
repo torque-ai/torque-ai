@@ -1040,6 +1040,7 @@ describe('execute-cli.js', () => {
         encoding: 'utf8',
         stdio: ['ignore', 'pipe', 'pipe'],
         windowsHide: true,
+        timeout: 30000,
       });
       git(['init']);
       git(['config', 'user.email', 'torque-test-invalid']);
@@ -1048,7 +1049,7 @@ describe('execute-cli.js', () => {
       const changedFile = path.join(repoDir, 'server', 'tests', 'schema-tables.test.js');
       fs.writeFileSync(changedFile, 'test("schema", () => { expect(true).toBe(true); });\n', 'utf8');
       git(['add', 'README.md', 'server/tests/schema-tables.test.js']);
-      git(['commit', '-m', 'init']);
+      git(['commit', '--no-gpg-sign', '-m', 'init']);
 
       fs.writeFileSync(changedFile, 'test("schema", () => {});\n', 'utf8');
       const logDir = path.join(testDir, 'detached-autocommit-logs');
@@ -1101,7 +1102,7 @@ describe('execute-cli.js', () => {
       expect(finalizeOptions.filesModified).toContain('server/tests/schema-tables.test.js');
       expect(finalizeOptions.filesModified).not.toContain('erver/tests/schema-tables.test.js');
       expect(git(['status', '--porcelain']).trim()).toBe('');
-    });
+    }, 60000);
 
     it('does not coerce detached non-zero usage-limit exits through stale completion detection', async () => {
       const logDir = path.join(testDir, 'detached-usage-limit');

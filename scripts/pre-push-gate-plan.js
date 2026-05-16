@@ -419,7 +419,8 @@ function planFromFiles(files, options = {}) {
   // TORQUE_GATE_USE_CODEGRAPH=0 disables it; any other value (unset,
   // '1', anything) enables. The internal safety contract above prevents
   // narrowing, so default-on cannot reduce gate coverage.
-  if (process.env.TORQUE_GATE_USE_CODEGRAPH !== '0'
+  const useCodegraph = options.useCodegraph !== false && process.env.TORQUE_GATE_USE_CODEGRAPH !== '0';
+  if (useCodegraph
       && plan.mode === 'affected'
       && plan.run_server
       && plan.server_args.length > 0

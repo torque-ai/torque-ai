@@ -1,18 +1,22 @@
 // server/tests/torque-remote-probe.test.js
 import { describe, it, expect } from 'vitest';
 import { execFileSync } from 'node:child_process';
+import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const RUNNER = path.join(__dirname, '_torque-remote-test-runner.sh');
+const RUNNER = path.join(__dirname, '_torque-remote-test-runner.sh').replace(/\\/g, '/');
+const GIT_BASH_PATH = path.join('C:', 'Program Files', 'Git', 'bin', 'bash.exe');
+const BASH = process.env.TORQUE_REMOTE_BASH
+  || (process.platform === 'win32' && fs.existsSync(GIT_BASH_PATH) ? GIT_BASH_PATH : 'bash');
 
 // Invoke the probe classifier with a synthetic uname output, return REMOTE_OS.
 function classify(probeOutput) {
   const out = execFileSync(
-    'bash',
+    BASH,
     [RUNNER, 'classify_and_print', 'unset', probeOutput],
-    { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }
+    { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 15000, windowsHide: true }
   );
   return out.trim();
 }
@@ -52,7 +56,7 @@ describe('remote OS probe classifier', () => {
 
   it('remote_probe_os function is defined when sourced', () => {
     const out = execFileSync(
-      'bash',
+      BASH,
       [RUNNER, 'declare_and_print', 'unset', 'remote_probe_os'],
       { encoding: 'utf8' }
     );

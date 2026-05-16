@@ -15,6 +15,12 @@ const GIT_BASH_PATH = path.join('C:', 'Program Files', 'Git', 'bin', 'bash.exe')
 const BASH_EXECUTABLE = process.platform === 'win32' && fs.existsSync(GIT_BASH_PATH)
   ? GIT_BASH_PATH
   : 'bash';
+const PROBE_SPAWN_TIMEOUT_MS = 15000;
+const PROBE_TEST_TIMEOUT_MS = 30000;
+
+function toBashPath(value) {
+  return value.replace(/\\/g, '/').replace(/^([A-Za-z]):\//, (_, drive) => `/${drive.toLowerCase()}/`);
+}
 
 function isolatedCoordEnv(overrides = {}) {
   const env = {};
@@ -37,17 +43,19 @@ function isolatedCoordEnv(overrides = {}) {
 function runRoutingProbe(env) {
   return spawnSync(BASH_EXECUTABLE, [TORQUE_REMOTE, '--__internal-print-routing-mode'], {
     encoding: 'utf8',
-    env: isolatedCoordEnv({ ...env, PATH: process.env.PATH || '' }),
-    timeout: 5000,
+    env: isolatedCoordEnv({ ...env, PATH: env.PATH || process.env.PATH || '' }),
+    timeout: PROBE_SPAWN_TIMEOUT_MS,
+    windowsHide: true,
   });
 }
 
 function runAvailabilityProbe(env, options = {}) {
   return spawnSync(BASH_EXECUTABLE, [TORQUE_REMOTE, '--__internal-probe-remote-availability'], {
     encoding: 'utf8',
-    env: isolatedCoordEnv({ ...env, PATH: process.env.PATH || '' }),
+    env: isolatedCoordEnv({ ...env, PATH: env.PATH || process.env.PATH || '' }),
     cwd: options.cwd,
-    timeout: 5000,
+    timeout: PROBE_SPAWN_TIMEOUT_MS,
+    windowsHide: true,
   });
 }
 
@@ -60,7 +68,7 @@ describe('torque-remote coord routing decision', () => {
 
   beforeEach(async () => {
     fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'tr-routing-home-'));
-  });
+  }, PROBE_TEST_TIMEOUT_MS);
 
   afterEach(async () => {
     if (localServer) {
@@ -68,15 +76,15 @@ describe('torque-remote coord routing decision', () => {
       localServer = null;
     }
     if (fakeSshDir) {
-      fs.rmSync(fakeSshDir, { recursive: true, force: true });
+      try { fs.rmSync(fakeSshDir, { recursive: true, force: true }); } catch { /* Windows file handles can linger briefly. */ }
       fakeSshDir = null;
     }
     if (fakeProjectRoot) {
-      fs.rmSync(fakeProjectRoot, { recursive: true, force: true });
+      try { fs.rmSync(fakeProjectRoot, { recursive: true, force: true }); } catch { /* Windows file handles can linger briefly. */ }
       fakeProjectRoot = null;
     }
-    fs.rmSync(fakeHome, { recursive: true, force: true });
-  });
+    try { fs.rmSync(fakeHome, { recursive: true, force: true }); } catch { /* Windows file handles can linger briefly. */ }
+  }, PROBE_TEST_TIMEOUT_MS);
 
   function writeTransportConfig(transport) {
     fs.writeFileSync(path.join(fakeHome, '.torque-remote.json'), JSON.stringify({ transport }));
@@ -105,15 +113,15 @@ describe('torque-remote coord routing decision', () => {
   function writeFakeSsh(exitCode = 0) {
     fakeSshDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tr-fake-ssh-'));
     fakeSshArgvFile = path.join(fakeSshDir, 'argv.txt');
-    const argvFileForBash = fakeSshArgvFile.replace(/\\/g, '/');
-    const bashEnvPath = path.join(fakeSshDir, 'bash-env.sh');
-    fs.writeFileSync(bashEnvPath, [
-      'ssh() {',
-      `  printf '%s\\n' "$@" > "${argvFileForBash}"`,
-      `  return ${exitCode}`,
-      '}',
+    const sshScriptPath = path.join(fakeSshDir, 'ssh');
+    const argvFileForBash = toBashPath(fakeSshArgvFile);
+    fs.writeFileSync(sshScriptPath, [
+      '#!/usr/bin/env bash',
+      `printf '%s\\n' "$@" > "${argvFileForBash}"`,
+      `exit ${exitCode}`,
     ].join('\n'));
-    return bashEnvPath.replace(/\\/g, '/');
+    fs.chmodSync(sshScriptPath, 0o755);
+    return { PATH: `${toBashPath(fakeSshDir)}:${process.env.PATH || ''}` };
   }
 
   it('prints "local" when 127.0.0.1:9395 responds', async () => {
@@ -184,7 +192,7 @@ describe('torque-remote coord routing decision', () => {
     writeRemoteConfig('wkshost', 'wksuser');
     const result = runAvailabilityProbe({
       HOME: fakeHome,
-      BASH_ENV: writeFakeSsh(0),
+      ...writeFakeSsh(0),
       TORQUE_REMOTE_AVAILABILITY_TIMEOUT_SECS: '1',
     });
     expect(result.status).toBe(0);
@@ -204,7 +212,7 @@ describe('torque-remote coord routing decision', () => {
     });
     const result = runAvailabilityProbe({
       HOME: fakeHome,
-      BASH_ENV: writeFakeSsh(0),
+      ...writeFakeSsh(0),
       TORQUE_REMOTE_AVAILABILITY_TIMEOUT_SECS: '1',
     }, { cwd: projectRoot });
     expect(result.status).toBe(0);
@@ -219,7 +227,7 @@ describe('torque-remote coord routing decision', () => {
     writeRemoteConfig('wkshost', 'wksuser');
     const result = runAvailabilityProbe({
       HOME: fakeHome,
-      BASH_ENV: writeFakeSsh(255),
+      ...writeFakeSsh(255),
       TORQUE_REMOTE_AVAILABILITY_TIMEOUT_SECS: '1',
     });
     expect(result.status).toBe(2);

@@ -487,17 +487,19 @@ function isTaskPidAlive(task) {
     return true;
   }
 
+  if (process.platform !== 'win32') {
+    return isProcessAlive(parsedPid);
+  }
+
   try {
-    return process.platform === 'win32'
-      ? queryWindowsProcessExists(parsedPid)
-      : isProcessAlive(parsedPid);
+    return queryWindowsProcessExists(parsedPid);
   } catch (error) {
     logger.debug({
       task_id: task?.id || null,
       pid: parsedPid,
       err: error && error.message,
-    }, 'Unable to verify worktree owner PID liveness; treating owner as live');
-    return true;
+    }, 'Unable to query Windows worktree owner PID liveness; falling back to process signal probe');
+    return isProcessAlive(parsedPid);
   }
 }
 

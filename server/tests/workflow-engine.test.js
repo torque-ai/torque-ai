@@ -192,6 +192,26 @@ describe('Workflow Engine Module', () => {
       expect(list.every(w => w.status === 'pending')).toBe(true);
     });
 
+    it('filters by multiple statuses', () => {
+      const running = createWorkflow({ id: `wf-list-running-${Date.now()}` });
+      const paused = createWorkflow({ id: `wf-list-paused-${Date.now()}` });
+      const completed = createWorkflow({ id: `wf-list-completed-${Date.now()}` });
+
+      workflowEngine.updateWorkflow(running.id, { status: 'running' });
+      workflowEngine.updateWorkflow(paused.id, { status: 'paused' });
+      workflowEngine.updateWorkflow(completed.id, { status: 'completed' });
+
+      const list = workflowEngine.listWorkflows({ status: ['running', 'paused'] });
+      expect(list.map(w => w.id).sort()).toEqual([paused.id, running.id].sort());
+      expect(list.map(w => w.id)).not.toContain(completed.id);
+    });
+
+    it('returns no workflows for an empty status list', () => {
+      createWorkflow({ id: `wf-list-empty-${Date.now()}` });
+
+      expect(workflowEngine.listWorkflows({ status: [] })).toEqual([]);
+    });
+
     it('respects limit', () => {
       const list = workflowEngine.listWorkflows({ limit: 2 });
       expect(list.length).toBeLessThanOrEqual(2);

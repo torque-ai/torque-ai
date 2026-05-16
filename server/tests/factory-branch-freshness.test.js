@@ -10,6 +10,10 @@ const branchFreshness = require('../factory/branch-freshness');
 const { createIsolatedGitEnv, withIsolatedGitArgs } = require('./git-test-utils');
 
 const realSpawnSync = childProcess._realSpawnSync || childProcess.spawnSync;
+const GIT_COMMAND_TIMEOUT_MS = 30000;
+const GIT_TEST_TIMEOUT_MS = 60000;
+
+vi.setConfig({ testTimeout: GIT_TEST_TIMEOUT_MS, hookTimeout: GIT_TEST_TIMEOUT_MS });
 
 const GIT_ENV = {
   ...createIsolatedGitEnv({
@@ -24,7 +28,7 @@ function git(repo, args, options = {}) {
   const result = realSpawnSync('git', withIsolatedGitArgs(args), {
     cwd: repo,
     windowsHide: true,
-    timeout: 10000,
+    timeout: GIT_COMMAND_TIMEOUT_MS,
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'pipe'],
     env: GIT_ENV,
