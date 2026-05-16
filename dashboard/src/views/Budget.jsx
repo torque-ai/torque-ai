@@ -147,6 +147,48 @@ export default function Budget() {
     );
   }
 
+  // Empty state: API succeeded but no budget data exists yet
+  const hasBudgetData = summary && (
+    (summary.total_cost || summary.totalCost || 0) > 0 ||
+    (summary.task_count || summary.taskCount || summary.total_tasks || 0) > 0 ||
+    (summary.daily && summary.daily.length > 0) ||
+    (summary.dailyCosts && summary.dailyCosts.length > 0) ||
+    Object.keys(summary.by_provider || summary.byProvider || summary.providers || {}).length > 0
+  );
+
+  if (!hasBudgetData) {
+    return (
+      <div className="p-6" data-testid="budget-empty-state" role="status">
+        <div className="flex items-center justify-between mb-6">
+          <h2 className="heading-lg text-white">Budget & Usage</h2>
+          <select
+            aria-label="Filter budget stats by time range"
+            value={days}
+            onChange={(e) => { setDays(parseInt(e.target.value)); setLoading(true); }}
+            className="bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
+          >
+            <option value={7}>Last 7 days</option>
+            <option value={14}>Last 14 days</option>
+            <option value={30}>Last 30 days</option>
+          </select>
+        </div>
+        <div className="flex-1 flex items-center justify-center p-12">
+          <div className="text-center max-w-md">
+            <div className="w-12 h-12 rounded-full bg-slate-700/50 flex items-center justify-center mx-auto mb-4">
+              <svg className="w-6 h-6 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            </div>
+            <h3 className="text-lg font-semibold text-white mb-2">No budget data available</h3>
+            <p className="text-sm text-slate-400">
+              No cost or usage data has been recorded for the selected time range. Budget data will appear here once tasks are executed through API providers.
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   // Extract data for charts from summary
   const totalCost = summary?.total_cost ?? summary?.totalCost ?? 0;
   const providerBreakdown = summary?.by_provider || summary?.byProvider || summary?.providers || {};

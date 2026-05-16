@@ -183,6 +183,38 @@ describe('Budget', () => {
     });
   });
 
+  it('shows empty state when summary has no budget data', async () => {
+    budgetApi.summary.mockResolvedValue({ total_cost: 0, by_provider: {}, daily: [], task_count: 0 });
+    budgetApi.status.mockResolvedValue({ limit: 0, used: 0 });
+    renderWithProviders(<Budget />, { route: '/budget' });
+    await waitFor(() => {
+      expect(screen.getByTestId('budget-empty-state')).toBeInTheDocument();
+    });
+    expect(screen.getByTestId('budget-empty-state')).toHaveAttribute('role', 'status');
+    expect(screen.getByText('No budget data available')).toBeInTheDocument();
+    expect(screen.getByText(/No cost or usage data has been recorded/)).toBeInTheDocument();
+    // Should still show the heading and time range selector
+    expect(screen.getByText('Budget & Usage')).toBeInTheDocument();
+    expect(screen.getByLabelText('Filter budget stats by time range')).toBeInTheDocument();
+  });
+
+  it('shows empty state when summary is null', async () => {
+    budgetApi.summary.mockResolvedValue(null);
+    budgetApi.status.mockResolvedValue(null);
+    renderWithProviders(<Budget />, { route: '/budget' });
+    await waitFor(() => {
+      expect(screen.getByTestId('budget-empty-state')).toBeInTheDocument();
+    });
+  });
+
+  it('does not show empty state when budget data exists', async () => {
+    renderWithProviders(<Budget />, { route: '/budget' });
+    await waitFor(() => {
+      expect(screen.getByText('Total Cost')).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId('budget-empty-state')).toBeNull();
+  });
+
   it('shows error state when budget API fails and no data is cached', async () => {
     budgetApi.summary.mockRejectedValue(new Error('Network error'));
 
