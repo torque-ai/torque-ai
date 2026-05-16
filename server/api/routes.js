@@ -1290,6 +1290,15 @@ const routes = [
       params: validateDecodedParamField('host_name', 'host name'),
     }),
   },
+  {
+    method: 'GET',
+    path: /^\/api\/v2\/hosts\/([^/]+)\/credentials\/(ssh|http_auth|windows)\/reveal$/,
+    handlerName: 'handleV2CpRevealCredential',
+    mapParams: ['host_name', 'credential_type'],
+    middleware: buildV2Middleware({
+      params: validateDecodedParamField('host_name', 'host name'),
+    }),
+  },
 
   // Remote Agents
   {

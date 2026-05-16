@@ -620,6 +620,7 @@ const V2_CP_HANDLER_LOOKUP = {
   handleV2CpListCredentials: v2InfrastructureHandlers.handleListCredentials,
   handleV2CpSaveCredential: v2InfrastructureHandlers.handleSaveCredential,
   handleV2CpDeleteCredential: v2InfrastructureHandlers.handleDeleteCredential,
+  handleV2CpRevealCredential: v2InfrastructureHandlers.handleRevealCredential,
   handleV2CpListAgents: v2InfrastructureHandlers.handleListAgents,
   handleV2CpCreateAgent: v2InfrastructureHandlers.handleCreateAgent,
   handleV2CpGetAgent: v2InfrastructureHandlers.handleGetAgent,
