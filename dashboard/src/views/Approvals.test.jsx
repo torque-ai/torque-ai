@@ -272,6 +272,26 @@ describe('Approvals', () => {
     expect(within(section).getByText('First factory approval task for alpha')).toBeInTheDocument();
   });
 
+  it('shows factory empty state with accessible attributes when no factory tasks', async () => {
+    tasksApi.list.mockResolvedValue({ tasks: [], total: 0 });
+    renderWithProviders(<Approvals />, { route: '/approvals' });
+    const section = await screen.findByRole('region', { name: 'Factory Task Approvals' });
+    await waitFor(() => {
+      expect(within(section).getByText('No tasks awaiting approval.')).toBeInTheDocument();
+    });
+    const emptyState = within(section).getByTestId('factory-approvals-empty-state');
+    expect(emptyState).toBeInTheDocument();
+    expect(emptyState).toHaveAttribute('role', 'status');
+  });
+
+  it('does not show approvals-empty-state when pending approvals exist', async () => {
+    renderWithProviders(<Approvals />, { route: '/approvals' });
+    await waitFor(() => {
+      expect(screen.getByText('Review task lifecycle changes for invariant drift')).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId('approvals-empty-state')).toBeNull();
+  });
+
   it('displays Pending stat card with correct count', async () => {
     renderWithProviders(<Approvals />, { route: '/approvals' });
     await waitFor(() => {
@@ -364,6 +384,9 @@ describe('Approvals', () => {
     await waitFor(() => {
       expect(screen.getByText('No pending approvals')).toBeInTheDocument();
     });
+    const emptyState = screen.getByTestId('approvals-empty-state');
+    expect(emptyState).toBeInTheDocument();
+    expect(emptyState).toHaveAttribute('role', 'status');
   });
 
   it('switches to history tab on click', async () => {
@@ -442,6 +465,9 @@ describe('Approvals', () => {
     await waitFor(() => {
       expect(screen.getByText('No approval history')).toBeInTheDocument();
     });
+    const emptyState = screen.getByTestId('history-empty-state');
+    expect(emptyState).toBeInTheDocument();
+    expect(emptyState).toHaveAttribute('role', 'status');
   });
 
   it('calls approve API when Approve button is clicked', async () => {
