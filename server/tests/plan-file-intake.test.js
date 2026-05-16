@@ -202,6 +202,50 @@ describe('plan-file-intake', () => {
     });
   });
 
+  it('supersedes active plan_file work items when the source plan file was deleted', () => {
+    const planPath = path.join(dir, 'deleted-source.md');
+    fs.writeFileSync(planPath, [
+      '# Deleted Source Plan',
+      '',
+      '**Goal:** Avoid re-planning deleted plan files forever.',
+      '',
+      '### Task 1: implement the thing',
+      '- [ ] Step 1: add the change',
+    ].join('\n'));
+
+    const firstScan = scanPlans();
+    const workItemId = firstScan.created[0].id;
+    factoryIntake.updateWorkItem(workItemId, {
+      status: 'needs_replan',
+      origin_json: {
+        content_hash: getOrigin(firstScan.created[0]).content_hash,
+        task_count: 0,
+        step_count: 1,
+      },
+    });
+    fs.unlinkSync(planPath);
+
+    const secondScan = scanPlans();
+    const updated = factoryIntake.getWorkItem(workItemId);
+
+    expect(secondScan.created).toHaveLength(0);
+    expect(secondScan.reconciled).toHaveLength(1);
+    expect(secondScan.skipped).toContainEqual(expect.objectContaining({
+      plan_path: planPath,
+      reason: 'source_plan_file_missing_superseded',
+      work_item_id: workItemId,
+      prior_status: 'needs_replan',
+    }));
+    expect(updated).toMatchObject({
+      status: 'superseded',
+      reject_reason: 'source_plan_file_missing',
+    });
+    expect(getOrigin(updated)).toMatchObject({
+      source_plan_path: planPath,
+      missing_plan_file_reason: 'source_plan_file_missing',
+    });
+  });
+
   it('re-ingests when content hash changes after the prior item closes', () => {
     const filePath = path.join(dir, 'plan-c.md');
     fs.writeFileSync(filePath, '# C\n## Task 1: x\n- [ ] v1\n');

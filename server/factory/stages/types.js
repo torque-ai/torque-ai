@@ -146,7 +146,7 @@
 
 // --- Per-stage stage_result shapes ------------------------------------
 
-/** @typedef {{ plans_dir: string|null, scanned: number, created_count: number, shipped_count: number, skipped_count: number }} SenseStageResult */
+/** @typedef {{ plans_dir: string|null, scanned: number, created_count: number, shipped_count: number, skipped_count: number, reconciled_count?: number }} SenseStageResult */
 /** @typedef {{ work_item_id: string|number|null, open_count: number }} PrioritizeStageResult */
 /** @typedef {{ plan_path: string|null, plan_generation_task_id: string|null, status: 'materialized'|'deferred'|'failed' }} PlanStageResult */
 /** @typedef {{ batch_id: string, tasks_submitted: number, mode: 'plan_file'|'non_plan_file' }} ExecuteStageResult */
