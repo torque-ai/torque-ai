@@ -316,6 +316,66 @@ describe('detectEnvironmentFailure', () => {
     expect(r.signals).toEqual([]);
     expect(r.reason).toBeNull();
   });
+
+  // .NET test-host-abort / missing-assembly (SpudgetBooks 2026-05-16 incident).
+  it('detects ".NET active test run aborted" as dotnet_test_host_abort', () => {
+    const r = detectEnvironmentFailure({
+      exitCode: 1,
+      stdout: '',
+      stderr: 'The active test run was aborted. Reason: Test host process crashed\n',
+      timedOut: false,
+    });
+    expect(r.detected).toBe(true);
+    expect(r.signals).toContain('stderr_dotnet_test_run_aborted');
+    expect(r.reason).toBe('dotnet_test_host_abort');
+  });
+
+  it('detects "Testhost process exited" as dotnet_test_host_abort', () => {
+    const r = detectEnvironmentFailure({
+      exitCode: 1,
+      stdout: '',
+      stderr: 'Testhost process exited with error: stack overflow\n',
+      timedOut: false,
+    });
+    expect(r.detected).toBe(true);
+    expect(r.signals).toContain('stderr_dotnet_testhost_died');
+    expect(r.reason).toBe('dotnet_test_host_abort');
+  });
+
+  it('detects "Could not load file or assembly" as missing_assembly', () => {
+    const r = detectEnvironmentFailure({
+      exitCode: 1,
+      stdout: '',
+      stderr: "Could not load file or assembly 'AWSSDK.Core, Version=3.7.0.0'. The system cannot find the file specified.\n",
+      timedOut: false,
+    });
+    expect(r.detected).toBe(true);
+    expect(r.signals).toContain('stderr_dotnet_assembly_load_failure');
+    expect(r.reason).toBe('missing_assembly');
+  });
+
+  it('detects the AWSSDK.Core test-host-abort incident shape as an environment failure', () => {
+    const r = detectEnvironmentFailure({
+      exitCode: 1,
+      stdout: 'No test matches the given testcase filter `FullyQualifiedName~EntityAnnotation`',
+      stderr: "Could not load file or assembly 'AWSSDK.Core'.\nThe active test run was aborted. Reason: test host for SpudgetBooks.Testing.dll terminated\n",
+      timedOut: false,
+    });
+    expect(r.detected).toBe(true);
+    expect(['dotnet_test_host_abort', 'missing_assembly']).toContain(r.reason);
+  });
+
+  it('does not flag a normal .NET test assertion failure as an environment failure', () => {
+    const r = detectEnvironmentFailure({
+      exitCode: 1,
+      stdout: '  Failed SpudgetBooks.Domain.Tests.EntityAnnotationTests.When_Created_Then_CompanyIdImmutable [12 ms]\n  Assert.Throws() Failure',
+      stderr: '',
+      timedOut: false,
+    });
+    expect(r.detected).toBe(false);
+    expect(r.signals).toEqual([]);
+    expect(r.reason).toBeNull();
+  });
 });
 
 const { parseFailingTests } = require('../factory/verify-review');

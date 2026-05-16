@@ -46,6 +46,17 @@ const ENVIRONMENT_STDERR_PATTERNS = [
   /\bkex_exchange_identification:\s*(?:Connection closed by remote host|read:\s*Connection reset)/i,
   /\bremote (?:execution )?(?:host|workstation|agent)\s+\S+\s+(?:was )?unreachable\b/i,
   /\btorque-remote:.*(?:unreachable|refused|no route|could not resolve)\b/i,
+  // .NET test-host-abort / missing-assembly patterns (SpudgetBooks 2026-05-16
+  // incident). A solution-wide `dotnet test` whose test host crashes — e.g. a
+  // transitive assembly like AWSSDK.Core fails to load in an unrelated project —
+  // aborts the run with a non-zero exit. That is an environmental failure (broken
+  // restore/build of a project the work item never touched), not task-caused.
+  // Without these the LLM judge speculated `task_caused` from the diff, three
+  // auto-retries burned, and the loop paused at VERIFY_FAIL. Route the shape to
+  // environment_failure so it reaches the baseline-broken / auto-baseline-fix path.
+  /\bThe active test run was aborted\b/i,
+  /\bTesthost process\b[^\n]*\b(?:exited|crashed|terminated)\b/i,
+  /\bCould not load file or assembly\b/i,
 ];
 const REVIEW_TASK_TIMEOUT_RE = /\btimeout exceeded\b/i;
 const ACTIVE_VERIFY_REVIEW_STATUSES = new Set(['pending', 'pending_approval', 'queued', 'running', 'waiting']);
@@ -374,6 +385,23 @@ function detectEnvironmentFailure(verifyOutput) {
       re: /\btorque-remote:.*(?:unreachable|refused|no route|could not resolve)\b/i,
       signal: 'stderr_torque_remote_wrapper',
       reason: 'host_unreachable',
+    },
+    // .NET test-host-abort / missing-assembly (SpudgetBooks 2026-05-16 incident
+    // — see ENVIRONMENT_STDERR_PATTERNS comment above for rationale).
+    {
+      re: /\bThe active test run was aborted\b/i,
+      signal: 'stderr_dotnet_test_run_aborted',
+      reason: 'dotnet_test_host_abort',
+    },
+    {
+      re: /\bTesthost process\b[^\n]*\b(?:exited|crashed|terminated)\b/i,
+      signal: 'stderr_dotnet_testhost_died',
+      reason: 'dotnet_test_host_abort',
+    },
+    {
+      re: /\bCould not load file or assembly\b/i,
+      signal: 'stderr_dotnet_assembly_load_failure',
+      reason: 'missing_assembly',
     },
   ];
   for (const check of stderrChecks) {
