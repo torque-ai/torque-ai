@@ -601,3 +601,120 @@ describe('handleAddImportStatement', () => {
     expect(result.error_code).toBe('RESOURCE_NOT_FOUND');
   });
 });
+
+// ════════════════════════════════════════════════════════════════════════════════
+// Workspace path boundary enforcement
+// ════════════════════════════════════════════════════════════════════════════════
+describe('workspace path boundary enforcement', () => {
+  it('rejects absolute path outside working_directory', async () => {
+    // Use a path that exists on every OS but is outside the temp workspace
+    const outsidePath = process.platform === 'win32'
+      ? 'C:\\Windows\\System32\\drivers\\etc\\hosts'
+      : '/etc/passwd';
+
+    const result = await handlers.handleAddTsInterfaceMembers({
+      file_path: outsidePath,
+      interface_name: 'Config',
+      members: [{ name: 'a', type_definition: 'string' }],
+      working_directory: tmpDir,
+    });
+
+    expect(result.isError).toBe(true);
+    expect(result.error_code).toBe('PATH_TRAVERSAL');
+  });
+
+  it('rejects when no working_directory is provided (fail-closed)', async () => {
+    const absPath = path.join(tmpDir, 'some.ts');
+
+    const result = await handlers.handleAddTsInterfaceMembers({
+      file_path: absPath,
+      interface_name: 'Config',
+      members: [{ name: 'a', type_definition: 'string' }],
+      // no working_directory, no __taskId
+    });
+
+    expect(result.isError).toBe(true);
+    expect(result.error_code).toBe('INVALID_PARAM');
+    expect(result.content[0].text).toContain('working_directory');
+  });
+
+  it('accepts path inside working_directory', async () => {
+    const fp = tmpFile('valid.ts', [
+      'export interface Config {',
+      '  name: string;',
+      '}',
+    ].join('\n'));
+
+    const result = await handlers.handleAddTsInterfaceMembers({
+      file_path: fp,
+      interface_name: 'Config',
+      members: [{ name: 'age', type_definition: 'number' }],
+      working_directory: tmpDir,
+    });
+
+    expect(result.isError).toBeFalsy();
+    const content = read(fp);
+    expect(content).toContain('age: number;');
+  });
+
+  it('rejects traversal that escapes workspace via ../ normalization', async () => {
+    // Construct a path that uses ../ to escape the working directory
+    const escapePath = path.join(tmpDir, '..', '..', '..', 'tmp', 'evil.ts');
+
+    const result = await handlers.handleAddTsInterfaceMembers({
+      file_path: escapePath,
+      interface_name: 'Config',
+      members: [{ name: 'a', type_definition: 'string' }],
+      working_directory: tmpDir,
+    });
+
+    expect(result.isError).toBe(true);
+    // Could be INVALID_PARAM (path traversal detected in raw path) or PATH_TRAVERSAL
+    expect(['INVALID_PARAM', 'PATH_TRAVERSAL']).toContain(result.error_code);
+  });
+
+  it('enforces boundary across multiple handlers', async () => {
+    const outsidePath = process.platform === 'win32'
+      ? 'C:\\Windows\\System32\\drivers\\etc\\hosts'
+      : '/etc/passwd';
+
+    // handleAddTsUnionMembers
+    const r1 = await handlers.handleAddTsUnionMembers({
+      file_path: outsidePath,
+      type_name: 'Evt',
+      members: ['a'],
+      working_directory: tmpDir,
+    });
+    expect(r1.isError).toBe(true);
+    expect(r1.error_code).toBe('PATH_TRAVERSAL');
+
+    // handleAddTsEnumMembers
+    const r2 = await handlers.handleAddTsEnumMembers({
+      file_path: outsidePath,
+      enum_name: 'Status',
+      members: [{ name: 'X', value: 'x' }],
+      working_directory: tmpDir,
+    });
+    expect(r2.isError).toBe(true);
+    expect(r2.error_code).toBe('PATH_TRAVERSAL');
+
+    // handleInjectMethodCalls
+    const r3 = await handlers.handleInjectMethodCalls({
+      file_path: outsidePath,
+      before_marker: 'marker',
+      code: 'x();',
+      working_directory: tmpDir,
+    });
+    expect(r3.isError).toBe(true);
+    expect(r3.error_code).toBe('PATH_TRAVERSAL');
+
+    // handleAddImportStatement
+    const r4 = await handlers.handleAddImportStatement({
+      file_path: outsidePath,
+      import_statement: 'import { X } from "./X";',
+      working_directory: tmpDir,
+    });
+    expect(r4.isError).toBe(true);
+    expect(r4.error_code).toBe('PATH_TRAVERSAL');
+  });
+});
