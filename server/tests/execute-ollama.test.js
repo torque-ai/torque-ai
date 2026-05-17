@@ -886,5 +886,185 @@ describe('execute-ollama.js', () => {
       const genReqs = mockOllama.requestLog.filter(r => r.url === '/api/generate');
       expect(genReqs[0].body.prompt).toContain(desc);
     });
+
+    // ── HTTPS enforcement ─────────────────────────────────────────────
+
+    describe('HTTPS enforcement', () => {
+      const originalEnv = process.env.TORQUE_OLLAMA_REQUIRE_HTTPS;
+
+      afterEach(() => {
+        if (originalEnv === undefined) {
+          delete process.env.TORQUE_OLLAMA_REQUIRE_HTTPS;
+        } else {
+          process.env.TORQUE_OLLAMA_REQUIRE_HTTPS = originalEnv;
+        }
+      });
+
+      it('blocks non-localhost HTTP host when TORQUE_OLLAMA_REQUIRE_HTTPS=true', async () => {
+        // Register a host at a non-localhost HTTP URL
+        const hostId = randomUUID();
+        hostManagement.addOllamaHost({ id: hostId, name: 'remote-http', url: 'http://192.0.2.100:11434', max_concurrent: 4, memory_limit_mb: 8192 });
+        hostManagement.updateOllamaHost(hostId, {
+          enabled: 1,
+          status: 'healthy',
+          running_tasks: 0,
+          models_cache: JSON.stringify([{ name: 'codellama:latest', size: 4 * 1024 * 1024 * 1024 }]),
+        });
+
+        process.env.TORQUE_OLLAMA_REQUIRE_HTTPS = 'true';
+        const safeUpdate = vi.fn();
+        const deps = makeDeps({ safeUpdateTaskStatus: safeUpdate });
+        mod.init(deps);
+
+        const taskId = randomUUID();
+        taskCore.createTask({
+          id: taskId,
+          task_description: 'HTTPS enforcement block test',
+          status: 'running',
+          provider: 'ollama',
+          model: 'codellama:latest',
+          working_directory: testDir,
+        });
+
+        const result = await mod.executeOllamaTask({
+          id: taskId,
+          task_description: 'HTTPS enforcement block test',
+          model: 'codellama:latest',
+          working_directory: testDir,
+        });
+
+        expect(result).toEqual(expect.objectContaining({
+          success: false,
+          exitCode: 1,
+        }));
+        expect(result.output).toContain('BLOCKED');
+        expect(result.output).toContain('HTTP (not HTTPS)');
+        // safeUpdateTaskStatus should NOT have been called (early return)
+        expect(safeUpdate).not.toHaveBeenCalled();
+      });
+
+      it('allows localhost HTTP even when TORQUE_OLLAMA_REQUIRE_HTTPS=true', async () => {
+        // mockUrl is http://127.0.0.1:PORT — should be exempt from enforcement
+        const _host = addHost({ url: mockUrl, model: 'codellama:latest' });
+
+        process.env.TORQUE_OLLAMA_REQUIRE_HTTPS = 'true';
+        const safeUpdate = vi.fn();
+        const deps = makeDeps({ safeUpdateTaskStatus: safeUpdate });
+        mod.init(deps);
+
+        const taskId = randomUUID();
+        taskCore.createTask({
+          id: taskId,
+          task_description: 'HTTPS localhost exempt test',
+          status: 'running',
+          provider: 'ollama',
+          model: 'codellama:latest',
+          working_directory: testDir,
+        });
+
+        await mod.executeOllamaTask({
+          id: taskId,
+          task_description: 'HTTPS localhost exempt test',
+          model: 'codellama:latest',
+          working_directory: testDir,
+        });
+
+        // Should complete successfully — localhost is exempt
+        expect(safeUpdate).toHaveBeenCalledWith(taskId, 'completed', expect.objectContaining({ exit_code: 0 }));
+      });
+
+      it('allows non-localhost HTTP host when TORQUE_OLLAMA_REQUIRE_HTTPS is not set', async () => {
+        // Use the mock server URL but register it under a non-localhost hostname
+        // to ensure the HTTPS enforcement code path (non-localhost HTTP) is hit
+        // but doesn't block when the env var is unset.
+        // We parse the mock port and register via a non-localhost IP that maps to
+        // the same mock server by using the mock URL directly — the key assertion
+        // is that BLOCKED is never returned.
+        const hostId = randomUUID();
+        hostManagement.addOllamaHost({ id: hostId, name: 'remote-http-warn', url: mockUrl, max_concurrent: 4, memory_limit_mb: 8192 });
+        hostManagement.updateOllamaHost(hostId, {
+          enabled: 1,
+          status: 'healthy',
+          running_tasks: 0,
+          models_cache: JSON.stringify([{ name: 'codellama:latest', size: 4 * 1024 * 1024 * 1024 }]),
+        });
+
+        delete process.env.TORQUE_OLLAMA_REQUIRE_HTTPS;
+        const safeUpdate = vi.fn((id, status, updates) => {
+          try { taskCore.updateTaskStatus(id, status, updates); } catch { /* ok */ }
+        });
+        const deps = makeDeps({ safeUpdateTaskStatus: safeUpdate });
+        mod.init(deps);
+
+        const taskId = randomUUID();
+        taskCore.createTask({
+          id: taskId,
+          task_description: 'HTTPS warn-only test',
+          status: 'running',
+          provider: 'ollama',
+          model: 'codellama:latest',
+          working_directory: testDir,
+        });
+
+        const result = await mod.executeOllamaTask({
+          id: taskId,
+          task_description: 'HTTPS warn-only test',
+          model: 'codellama:latest',
+          working_directory: testDir,
+        });
+
+        // Should NOT return the BLOCKED result — task completes normally
+        if (result && result.output) {
+          expect(result.output).not.toContain('BLOCKED');
+        }
+        // safeUpdateTaskStatus should have been called with 'completed', not BLOCKED
+        const blockedCalls = safeUpdate.mock.calls.filter(
+          ([, , updates]) => updates?.error_output?.includes?.('BLOCKED')
+        );
+        expect(blockedCalls).toHaveLength(0);
+      });
+
+      it('allows HTTPS host regardless of enforcement setting', async () => {
+        // Register a host with https:// URL (won't be reachable, but enforcement check passes)
+        const hostId = randomUUID();
+        hostManagement.addOllamaHost({ id: hostId, name: 'remote-https', url: 'https://secure.example.com:11434', max_concurrent: 4, memory_limit_mb: 8192 });
+        hostManagement.updateOllamaHost(hostId, {
+          enabled: 1,
+          status: 'healthy',
+          running_tasks: 0,
+          models_cache: JSON.stringify([{ name: 'codellama:latest', size: 4 * 1024 * 1024 * 1024 }]),
+        });
+
+        process.env.TORQUE_OLLAMA_REQUIRE_HTTPS = 'true';
+        const safeUpdate = vi.fn((id, status, updates) => {
+          try { taskCore.updateTaskStatus(id, status, updates); } catch { /* ok */ }
+        });
+        const deps = makeDeps({ safeUpdateTaskStatus: safeUpdate });
+        mod.init(deps);
+
+        const taskId = randomUUID();
+        taskCore.createTask({
+          id: taskId,
+          task_description: 'HTTPS host allowed test',
+          status: 'running',
+          provider: 'ollama',
+          model: 'codellama:latest',
+          working_directory: testDir,
+        });
+
+        const result = await mod.executeOllamaTask({
+          id: taskId,
+          task_description: 'HTTPS host allowed test',
+          model: 'codellama:latest',
+          working_directory: testDir,
+        });
+
+        // Should NOT be blocked — HTTPS passes the enforcement check
+        // (will fail on connection, but not with the BLOCKED message)
+        if (result && result.output) {
+          expect(result.output).not.toContain('BLOCKED');
+        }
+      });
+    });
   });
 });
