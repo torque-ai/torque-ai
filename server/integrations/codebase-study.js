@@ -131,16 +131,6 @@ function createCodebaseStudy({ db: _db, taskCore, logger, batchSize } = {}) {
   });
   const scanner = symbolExtraction.scanner;
   const buildModuleEntryMap = symbolExtraction.buildModuleEntryMap;
-  const buildModuleExportLookup = symbolExtraction.buildModuleExportLookup;
-  const buildInterfaceImplementationMap = symbolExtraction.buildInterfaceImplementationMap;
-  const buildServiceRegistrationLookup = symbolExtraction.buildServiceRegistrationLookup;
-  const extractCSharpExplicitExports = symbolExtraction.extractCSharpExplicitExports;
-  const extractCSharpImplementedInterfaces = symbolExtraction.extractCSharpImplementedInterfaces;
-  const extractCSharpReferenceHints = symbolExtraction.extractCSharpReferenceHints;
-  const extractServiceRegistrations = symbolExtraction.extractServiceRegistrations;
-  const resolveCSharpDependencyCandidates = symbolExtraction.resolveCSharpDependencyCandidates;
-  const enrichModuleEntries = symbolExtraction.enrichModuleEntries;
-  const buildModuleEntry = symbolExtraction.buildModuleEntry;
   const formatInlineList = symbolExtraction.formatInlineList;
   const artifactFiles = createArtifactFiles({
     ensureStudyDocs,
@@ -154,11 +144,6 @@ function createCodebaseStudy({ db: _db, taskCore, logger, batchSize } = {}) {
     STUDY_BENCHMARK_FILE_LOCAL,
     SUMMARY_FILE,
   });
-  const readModuleIndex = artifactFiles.readModuleIndex;
-  const writeModuleIndex = artifactFiles.writeModuleIndex;
-  const writeKnowledgePack = artifactFiles.writeKnowledgePack;
-  const writeStudyDelta = artifactFiles.writeStudyDelta;
-  const writeStudyBenchmark = artifactFiles.writeStudyBenchmark;
 
   const subsystems = createSubsystems({
     ROOT_DOC_FILES,
@@ -171,12 +156,9 @@ function createCodebaseStudy({ db: _db, taskCore, logger, batchSize } = {}) {
     formatInlineList,
     formatCodeList,
   });
-  const buildSubsystemRows = subsystems.buildSubsystemRows;
   const getSubsystemForFile = subsystems.getSubsystemForFile;
-  const buildSubsystemLookup = subsystems.buildSubsystemLookup;
   const getSubsystemPriority = subsystems.getSubsystemPriority;
   const buildDetectionSummary = subsystems.buildDetectionSummary;
-  const buildSubsystemRelationships = subsystems.buildSubsystemRelationships;
 
   flowDefinitions = createFlowDefinitions({
     GENERIC_FLOW_IDS,
@@ -193,8 +175,6 @@ function createCodebaseStudy({ db: _db, taskCore, logger, batchSize } = {}) {
     uniqueStrings,
     uniquePaths,
   });
-  const buildFlowSummaries = flowDefinitions.buildFlowSummaries;
-  const buildEntrypoints = flowDefinitions.buildEntrypoints;
 
   hotspotsAnalyzer = createHotspotsAnalyzer({
     HOTSPOT_LIMIT,
@@ -218,7 +198,6 @@ function createCodebaseStudy({ db: _db, taskCore, logger, batchSize } = {}) {
     uniqueStrings,
     uniquePaths,
   });
-  const buildTestInventory = testsIndex.buildTestInventory;
   const findTestsForFiles = testsIndex.findTestsForFiles;
   const buildValidationCommands = testsIndex.buildValidationCommands;
 
@@ -245,7 +224,6 @@ function createCodebaseStudy({ db: _db, taskCore, logger, batchSize } = {}) {
     createStudyProfileOverrideTemplate,
     uniqueStrings,
   });
-  const serializeStudyProfile = profileSerializer.serializeStudyProfile;
   const maybeWriteStudyProfileOverrideScaffold = profileSerializer.maybeWriteStudyProfileOverrideScaffold;
   const describeStudyProfile = profileSerializer.describeStudyProfile;
 
@@ -434,13 +412,13 @@ function createCodebaseStudy({ db: _db, taskCore, logger, batchSize } = {}) {
     bootstrapStudy: flows.bootstrapStudy,
     resetStudy: flows.resetStudy,
     _testing: {
-      buildInterfaceImplementationMap,
+      buildInterfaceImplementationMap: symbolExtraction.buildInterfaceImplementationMap,
       buildModuleEntryMap,
-      buildModuleExportLookup,
-      buildServiceRegistrationLookup,
-      extractCSharpReferenceHints,
-      extractServiceRegistrations,
-      resolveCSharpDependencyCandidates,
+      buildModuleExportLookup: symbolExtraction.buildModuleExportLookup,
+      buildServiceRegistrationLookup: symbolExtraction.buildServiceRegistrationLookup,
+      extractCSharpReferenceHints: symbolExtraction.extractCSharpReferenceHints,
+      extractServiceRegistrations: symbolExtraction.extractServiceRegistrations,
+      resolveCSharpDependencyCandidates: symbolExtraction.resolveCSharpDependencyCandidates,
     },
   };
 }

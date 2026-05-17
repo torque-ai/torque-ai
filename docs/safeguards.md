@@ -90,6 +90,17 @@ All 9 TypeScript automation tools (`add_ts_interface_members`, `add_ts_method_to
 
 **Regression tests:** `server/tests/shared-path-validation.test.js` covers boundary enforcement, traversal attempts, and the fail-closed default.
 
+## Codebase Study Module Decomposition
+
+The `server/integrations/codebase-study.js` god module (work item #2290, originally ~4,791 lines) was split into focused sub-modules under `server/integrations/codebase-study/`:
+
+- **`symbol-extraction.js`** — language-specific symbol extraction (JS/TS/Python/C#), module entry building, export lookups, interface/service registration maps
+- **`repo-scanner.js`** — repository scanning/indexing orchestration, study-doc generation, status reporting
+- **`evaluation.js`** — evaluation and benchmarking logic, study artifact scoring
+- **`proposal-scheduler.js`** — proposal task submission with approval-rule integration, deduplication against active proposals
+
+The main file is now a thin orchestrator (~440 lines) that initializes sub-modules and wires them together via dependency injection.
+
 ## Configuration
 
 Quality gates are configured via `/torque-config safeguards` or the `set_project_defaults` MCP tool. Key settings:
