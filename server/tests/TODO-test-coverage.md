@@ -7,4 +7,4 @@ From bug hunt 2026-03-18. Issues that need new test files.
 - [x] executeApiProviderWithAgentic (execution.js:530) — covered in agentic-execution-fixes.test.js
 - [x] OOM/memory-error path (execute-ollama.js:415) — covered in task-distribution-runtime-truth.test.js
 - [ ] Context limit exceeded (execute-ollama.js:554) — no unit test
-- [ ] Host-slot decrement on task failure (execute-ollama.js) — no test
+- [x] Host-slot decrement on task failure (execute-ollama.js) — covered in task-distribution-runtime-truth.test.js (test: "releases host slot exactly once when the HTTP request rejects")

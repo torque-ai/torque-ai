@@ -377,4 +377,88 @@ describe('provider execution attempted-start cleanup', () => {
     );
     expect(recordTaskStartedAuditEvent).not.toHaveBeenCalled();
   });
+
+  // work-item #2334 — host-slot release on failure path
+  it('releases host slot exactly once when the HTTP request rejects (failure-path slot decrement)', async () => {
+    const http = require('http');
+    const { EventEmitter } = require('events');
+    const mod = require('../providers/execute-ollama');
+    const decrementHostTasks = vi.fn();
+    const safeUpdateTaskStatus = vi.fn();
+    const recordTaskStartedAuditEvent = vi.fn();
+
+    const host = { id: 'host-1', name: 'host-1', url: 'http://127.0.0.1:11434', enabled: 1, status: 'healthy', models: [TEST_MODELS.SMALL] };
+
+    mod.init({
+      db: {
+        listOllamaHosts: vi.fn(() => [host]),
+        getOllamaHost: vi.fn(() => host),
+        selectOllamaHostForModel: vi.fn(() => ({ host, model: TEST_MODELS.SMALL, reason: 'exact match' })),
+        selectHostWithModelVariant: vi.fn(() => ({ host: null })),
+        getConfig: vi.fn(() => null),
+        getHostSettings: vi.fn(() => null),
+        getAggregatedModels: vi.fn(() => [TEST_MODELS.SMALL]),
+        recordHostModelUsage: vi.fn(),
+        updateTaskStatus: vi.fn(),
+        getOrCreateTaskStream: vi.fn(() => 'stream-1'),
+        addStreamChunk: vi.fn(),
+        getTask: vi.fn(() => ({ id: 'slot-release-task', status: 'running' })),
+        isProviderQuotaError: vi.fn(() => false),
+        recordProviderUsage: vi.fn(),
+        decrementHostTasks,
+        requeueTaskAfterAttemptedStart: vi.fn(),
+      },
+      dashboard: {
+        notifyTaskUpdated: vi.fn(),
+        notifyTaskOutput: vi.fn(),
+      },
+      safeUpdateTaskStatus,
+      tryReserveHostSlotWithFallback: vi.fn(() => ({ success: true })),
+      tryOllamaCloudFallback: vi.fn(() => false),
+      isLargeModelBlockedOnHost: vi.fn(() => ({ blocked: false })),
+      buildFileContext: vi.fn().mockResolvedValue(''),
+      processQueue: vi.fn(),
+      recordTaskStartedAuditEvent,
+    });
+
+    // Spy on http.request to simulate a connection failure after slot is reserved
+    vi.spyOn(http, 'request').mockImplementation((_options, _callback) => {
+      const req = new EventEmitter();
+      req.write = vi.fn();
+      req.end = vi.fn(() => {
+        process.nextTick(() => req.emit('error', new Error('connection refused')));
+      });
+      req.destroy = vi.fn();
+      return req;
+    });
+
+    const task = {
+      id: 'slot-release-task',
+      task_description: 'Test host-slot release on failure',
+      provider: 'ollama',
+      model: TEST_MODELS.SMALL,
+      ollama_host_id: 'host-1',
+      metadata: null,
+      error_output: '',
+      working_directory: taskWorkspace(),
+    };
+
+    await mod.executeOllamaTask(task);
+
+    // The host slot must be decremented exactly once — not zero (leak) or twice (double-release)
+    expect(decrementHostTasks).toHaveBeenCalledTimes(1);
+    expect(decrementHostTasks).toHaveBeenCalledWith('host-1');
+
+    // The slot reservation happened before the failure
+    expect(recordTaskStartedAuditEvent).toHaveBeenCalledTimes(1);
+
+    // Task was marked failed (not silently swallowed)
+    expect(safeUpdateTaskStatus).toHaveBeenCalledWith(
+      'slot-release-task',
+      'failed',
+      expect.objectContaining({
+        error_output: expect.stringContaining('connection refused'),
+      })
+    );
+  });
 });
