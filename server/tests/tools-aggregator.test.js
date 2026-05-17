@@ -862,6 +862,8 @@ describe('tools.js live registry integration', () => {
     ['register_specialist', 'handleRegisterSpecialist'],
     ['route_turn', 'handleRouteTurn'],
     ['get_session_history', 'handleGetSessionHistory'],
+    ['resume_workflow', 'handleResumeWorkflow'],
+    ['resume_all_workflows', 'handleResumeAllWorkflows'],
   ])('contains %s routed to %s', (toolName, handlerName) => {
     expect(realTools.routeMap.has(toolName)).toBe(true);
     expect(realTools.routeMap.get(toolName)).toEqual(expect.any(Function));
@@ -882,6 +884,13 @@ describe('tools.js live registry integration', () => {
       'register_specialist',
       'route_turn',
       'get_session_history',
+    ]));
+  });
+
+  it('includes workflow resume MCP tool defs in the live TOOLS catalog', () => {
+    expect(getToolNames()).toEqual(expect.arrayContaining([
+      'resume_workflow',
+      'resume_all_workflows',
     ]));
   });
 

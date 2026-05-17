@@ -168,7 +168,7 @@ Cancels all running and queued tasks in the workflow.
 
     pause_workflow { workflow_id: "<workflow-id>" }
 
-Pauses all running tasks. Workflows cannot be resumed mid-run; if you cancel work with `cancel_task` or `cancel_workflow`, re-submit the cancelled tasks with `submit_task` or `smart_submit_task`.
+Pauses all running tasks. To resume a paused or stuck workflow, use `resume_workflow` — it re-evaluates the DAG, unblocking tasks whose dependencies are now satisfied. See [Resume / replay](#resume--replay) below for details.
 
 ## Workflow Templates
 
@@ -387,13 +387,9 @@ If TORQUE restarts mid-workflow, all running workflows are automatically re-eval
 - Tasks that are `blocked` and now have all dependencies satisfied → moved to `queued`
 - Workflows where every task is terminal → finalized as `completed` or `failed`
 
-To manually re-evaluate a stuck workflow:
+To manually re-evaluate a stuck workflow, call the `resume_workflow` tool with the workflow ID.
 
-    resume_workflow { workflow_id: "<workflow-id>" }
-
-To re-evaluate every running workflow at once (e.g., after a long DB outage):
-
-    resume_all_workflows {}
+To re-evaluate every running workflow at once (e.g., after a long DB outage), call `resume_all_workflows`.
 
 This is safe to call repeatedly — re-evaluation is idempotent.
 
