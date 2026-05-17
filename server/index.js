@@ -29,7 +29,26 @@ const ciWatcher = require('./ci/watcher');
 const apiServer = require('./api-server');
 const mcpGateway = require('./mcp');
 // Use dynamic accessors so hot-reload can refresh tools without full restart
+
+/**
+ * Returns the current array of MCP tool definitions.
+ * Uses a dynamic require so that hot-reload can refresh tools without a full server restart.
+ * @returns {Array<Object>} The TOOLS array from `./tools` — each element is a tool definition object with `name`, `description`, and `inputSchema`.
+ * @example
+ * const tools = getTools();
+ * const names = tools.map(t => t.name);
+ */
 function getTools() { return require('./tools').TOOLS; }
+
+/**
+ * Dispatches a tool call by name, delegating to the appropriate handler.
+ * Uses a dynamic require so that hot-reload can pick up handler changes without a full restart.
+ * @param {string} name - The registered tool name (e.g. `'submit_task'`, `'ping'`).
+ * @param {Object} args - The input arguments for the tool, validated against its schema.
+ * @returns {Promise<Object>} The tool call result object (shape varies per tool).
+ * @example
+ * const result = await callTool('ping', {});
+ */
 function callTool(name, args) { return require('./tools').handleToolCall(name, args); }
 const discovery = require('./providers/ollama-mdns-discovery');
 const gpuMetricsServer = require('./scripts/gpu-metrics-server');
@@ -2419,6 +2438,16 @@ function main() {
   });
 }
 
+/**
+ * Returns the singleton TestRunnerRegistry instance used for routing verify/test commands.
+ * Returns `null` if the server has not yet been initialized via `init()`.
+ * @returns {Object|null} The TestRunnerRegistry instance, or `null` before initialization.
+ * @example
+ * const registry = getTestRunnerRegistry();
+ * if (registry) {
+ *   await registry.runVerifyCommand('npm test', cwd);
+ * }
+ */
 function getTestRunnerRegistry() {
   return testRunnerRegistry;
 }
