@@ -404,7 +404,7 @@ describe('integration/index handlers', () => {
     expect(testRow).toEqual(expect.objectContaining({
       integration_type: 'slack',
       status: 'failed',
-      test_message: 'timeout test',
+      request_payload: 'timeout test',
     }));
     expect(testRow.error).toContain('ETIMEDOUT');
     expect(testRow.latency_ms).toBeGreaterThanOrEqual(0);
@@ -444,7 +444,7 @@ describe('integration/index handlers', () => {
     expect(testRow).toEqual(expect.objectContaining({
       integration_type: 'slack',
       status: 'failed',
-      test_message: 'connrefused test',
+      request_payload: 'connrefused test',
     }));
     expect(testRow.error).toContain('ECONNREFUSED');
   });
@@ -575,7 +575,7 @@ describe('integration/index handlers', () => {
     expect(testRow).toEqual(expect.objectContaining({
       integration_type: 'slack',
       status: 'failed',
-      test_message: 'http error test',
+      request_payload: 'http error test',
     }));
     expect(testRow.error).toContain('HTTP 403');
     expect(testRow.error).toContain('invalid_token');
