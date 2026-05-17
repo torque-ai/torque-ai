@@ -5,7 +5,7 @@ const { PROVIDER_DEFAULT_TIMEOUTS } = require('../constants');
 const adapterRegistry = require('../providers/adapter-registry');
 const { createV2Router } = require('../api/v2-router');
 
-const getDefaultTimeoutMs = (providerId) => PROVIDER_DEFAULT_TIMEOUTS[providerId] * 1000;
+const getDefaultTimeoutMs = (providerId) => PROVIDER_DEFAULT_TIMEOUTS[providerId] * 60 * 1000;
 
 let listProvidersSpy;
 let getDefaultProviderSpy;
