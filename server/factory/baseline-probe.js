@@ -12,8 +12,8 @@ function normalizeBaselineProbeTimeoutMinutes(timeoutMinutes, fallbackMinutes = 
     ? Number(fallbackMinutes)
     : DEFAULT_BASELINE_PROBE_TIMEOUT_MINUTES;
   const numeric = timeoutMinutes == null ? fallback : Number(timeoutMinutes);
-  if (!Number.isFinite(numeric)) {
-    return fallback;
+  if (!Number.isFinite(numeric) || numeric <= 0) {
+    return 1; // Always fallback to 1 minute for invalid inputs
   }
   return Math.min(Math.max(numeric, 1), MAX_BASELINE_PROBE_TIMEOUT_MINUTES);
 }
@@ -32,12 +32,12 @@ function resolveBaselineProbeTimeoutMs({ timeout_minutes, config } = {}) {
 // `baseline_verify_command` exists so the probe can run a fast smoke subset
 // while per-task verification keeps the broader `verify_command`.
 function resolveBaselineVerifyCommand({ cfg, defaults } = {}) {
-  if (cfg && cfg.baseline_verify_command) return cfg.baseline_verify_command;
-  if (defaults && defaults.baseline_verify_command) return defaults.baseline_verify_command;
+  if (cfg && cfg.baseline_verify_command && cfg.baseline_verify_command.trim()) return cfg.baseline_verify_command;
+  if (defaults && defaults.baseline_verify_command && defaults.baseline_verify_command.trim()) return defaults.baseline_verify_command;
   const evidenceCommand = cfg?.baseline_broken_evidence?.verify_command;
   if (typeof evidenceCommand === 'string' && evidenceCommand.trim()) return evidenceCommand;
-  if (cfg && cfg.verify_command) return cfg.verify_command;
-  if (defaults && defaults.verify_command) return defaults.verify_command;
+  if (cfg && cfg.verify_command && cfg.verify_command.trim()) return cfg.verify_command;
+  if (defaults && defaults.verify_command && defaults.verify_command.trim()) return defaults.verify_command;
   return null;
 }
 

@@ -31,6 +31,9 @@ function getBlockedWorkItemId(config) {
 }
 
 function normalizeComparableVerifyCommand(command) {
+  if (typeof command === 'string' && command.trim() === '') {
+    return null;
+  }
   return normalizeVerifyCommand(command) || null;
 }
 
