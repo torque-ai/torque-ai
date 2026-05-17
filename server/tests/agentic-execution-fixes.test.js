@@ -4315,3 +4315,145 @@ describe('providers/execution agentic fixes', () => {
     );
   });
 });
+
+describe('executeApiProvider agentic wrapper', () => {
+  it('delegates to the agentic worker and marks the task completed on success', async () => {
+    const { mod, configMock } = loadSubject();
+    configMock.getApiKey.mockImplementation((provider) => (provider === 'cerebras' ? 'cerebras-key' : null));
+
+    const task = {
+      id: 'task-api-wrap-success',
+      provider: 'cerebras',
+      model: 'llama-4-scout-17b-16e-instruct',
+      task_description: 'Add a license header to server/foo.js.',
+      working_directory: 'C:/repo',
+      timeout_minutes: 1,
+      metadata: {},
+    };
+    const tasks = new Map([[task.id, { ...task, status: 'queued' }]]);
+    const db = {
+      updateTaskStatus: vi.fn((taskId, status, patch = {}) => {
+        const current = tasks.get(taskId) || { id: taskId };
+        const next = { ...current, ...patch, status };
+        tasks.set(taskId, next);
+        return next;
+      }),
+      getTask: vi.fn((taskId) => tasks.get(taskId) || null),
+      getOrCreateTaskStream: vi.fn(() => 'stream-1'),
+      addStreamChunk: vi.fn(),
+      updateTask: vi.fn(),
+    };
+    const safeUpdateTaskStatus = vi.fn((taskId, status, patch = {}) => db.updateTaskStatus(taskId, status, patch));
+    mod.init({
+      db,
+      dashboard: {
+        notifyTaskUpdated: vi.fn(),
+        notifyTaskOutput: vi.fn(),
+      },
+      safeUpdateTaskStatus,
+      processQueue: vi.fn(),
+      handleWorkflowTermination: vi.fn(),
+      apiAbortControllers: new Map(),
+      runningProcesses: Object.assign(new Map(), { stallAttempts: new Map() }),
+    });
+
+    vi.spyOn(require('worker_threads'), 'Worker').mockImplementation(function MockWorker(_filename, options) {
+      const emitter = new EventEmitter();
+      this.postMessage = vi.fn();
+      this.terminate = vi.fn();
+      this.on = (eventName, handler) => emitter.on(eventName, handler);
+      queueMicrotask(() => emitter.emit('message', {
+        type: 'result',
+        output: 'License header added successfully.',
+        toolLog: [{ name: 'read_file', error: false }, { name: 'edit_file', error: false }],
+        tokenUsage: { prompt_tokens: 100, completion_tokens: 50 },
+        changedFiles: ['C:/repo/server/foo.js'],
+        iterations: 2,
+        stopReason: 'model_finished',
+      }));
+    });
+
+    await mod.executeApiProvider(task, { name: 'cerebras' });
+
+    expect(safeUpdateTaskStatus).toHaveBeenCalledWith(
+      'task-api-wrap-success',
+      'completed',
+      expect.objectContaining({
+        output: expect.stringContaining('License header added successfully.'),
+        exit_code: 0,
+        progress_percent: 100,
+        files_modified: expect.arrayContaining(['C:/repo/server/foo.js']),
+      })
+    );
+    expect(tasks.get(task.id).status).toBe('completed');
+  });
+
+  it('records failure metadata when the agentic worker throws an error', async () => {
+    const { mod, configMock } = loadSubject();
+    configMock.getApiKey.mockImplementation((provider) => (provider === 'cerebras' ? 'cerebras-key' : null));
+
+    const task = {
+      id: 'task-api-wrap-failure',
+      provider: 'cerebras',
+      model: 'llama-4-scout-17b-16e-instruct',
+      task_description: 'Refactor database module.',
+      working_directory: 'C:/repo',
+      timeout_minutes: 1,
+      metadata: {},
+    };
+    const tasks = new Map([[task.id, { ...task, status: 'queued' }]]);
+    const db = {
+      updateTaskStatus: vi.fn((taskId, status, patch = {}) => {
+        const current = tasks.get(taskId) || { id: taskId };
+        const next = { ...current, ...patch, status };
+        tasks.set(taskId, next);
+        return next;
+      }),
+      getTask: vi.fn((taskId) => tasks.get(taskId) || null),
+      getOrCreateTaskStream: vi.fn(() => 'stream-1'),
+      addStreamChunk: vi.fn(),
+      updateTask: vi.fn(),
+    };
+    const safeUpdateTaskStatus = vi.fn((taskId, status, patch = {}) => db.updateTaskStatus(taskId, status, patch));
+    mod.init({
+      db,
+      dashboard: {
+        notifyTaskUpdated: vi.fn(),
+        notifyTaskOutput: vi.fn(),
+      },
+      safeUpdateTaskStatus,
+      processQueue: vi.fn(),
+      handleWorkflowTermination: vi.fn(),
+      apiAbortControllers: new Map(),
+      runningProcesses: Object.assign(new Map(), { stallAttempts: new Map() }),
+    });
+
+    vi.spyOn(require('worker_threads'), 'Worker').mockImplementation(function MockWorker(_filename, options) {
+      const emitter = new EventEmitter();
+      this.postMessage = vi.fn();
+      this.terminate = vi.fn();
+      this.on = (eventName, handler) => emitter.on(eventName, handler);
+      queueMicrotask(() => emitter.emit('message', {
+        type: 'error',
+        message: 'HTTP 500 Internal Server Error from cerebras',
+      }));
+    });
+
+    await mod.executeApiProvider(task, { name: 'cerebras' });
+
+    expect(safeUpdateTaskStatus).toHaveBeenCalledWith(
+      'task-api-wrap-failure',
+      'failed',
+      expect.objectContaining({
+        error_output: expect.stringContaining('500'),
+        exit_code: 1,
+      })
+    );
+    expect(tasks.get(task.id).status).toBe('failed');
+    // Must NOT have been marked completed
+    const completedCalls = safeUpdateTaskStatus.mock.calls.filter(
+      ([id, status]) => id === 'task-api-wrap-failure' && status === 'completed'
+    );
+    expect(completedCalls).toHaveLength(0);
+  });
+});
