@@ -42,18 +42,18 @@ function validateProbeProvedBlockedCommand({ config, probeVerifyCommand } = {}) 
   const blockedVerifyCommand = normalizeComparableVerifyCommand(evidence?.verify_command);
   const provedVerifyCommand = normalizeComparableVerifyCommand(probeVerifyCommand);
   const configuredBaselineVerifyCommand = normalizeComparableVerifyCommand(config?.baseline_verify_command);
-  if (
-    configuredBaselineVerifyCommand
-    && provedVerifyCommand
-    && configuredBaselineVerifyCommand === provedVerifyCommand
-  ) {
+  
+  // If we have a configured baseline verify command, it must match the probe command
+  if (configuredBaselineVerifyCommand && provedVerifyCommand && configuredBaselineVerifyCommand !== provedVerifyCommand) {
     return {
-      proved: true,
+      proved: false,
+      reason: 'baseline_probe_command_mismatch',
       blocked_verify_command: blockedVerifyCommand,
       probe_verify_command: provedVerifyCommand,
-      proof_source: 'baseline_verify_command',
     };
   }
+  
+  // If we have a blocked verify command and a probe command, they must match
   if (blockedVerifyCommand && provedVerifyCommand && blockedVerifyCommand !== provedVerifyCommand) {
     return {
       proved: false,
@@ -62,6 +62,17 @@ function validateProbeProvedBlockedCommand({ config, probeVerifyCommand } = {}) 
       probe_verify_command: provedVerifyCommand,
     };
   }
+  
+  // If there's a blocked command but no probe command, it's not proved
+  if (blockedVerifyCommand && !provedVerifyCommand) {
+    return {
+      proved: false,
+      reason: 'baseline_probe_command_mismatch',
+      blocked_verify_command: blockedVerifyCommand,
+      probe_verify_command: provedVerifyCommand,
+    };
+  }
+  
   return {
     proved: true,
     blocked_verify_command: blockedVerifyCommand,
