@@ -39,7 +39,7 @@ function resolveBaselineProbeTimeoutMs({ timeout_minutes, config } = {}) {
 // `baseline_verify_command` exists so the probe can run a fast smoke subset
 // while per-task verification keeps the broader `verify_command`.
 function resolveBaselineVerifyCommand({ cfg, defaults } = {}) {
-  if (cfg && cfg.baseline_verify_command && cfg.baseline_verify_command.trim()) return cfg.baseline_verify_command;
+  if (cfg && cfg.baseline_verify_command !== null && cfg.baseline_verify_command !== undefined && cfg.baseline_verify_command.trim()) return cfg.baseline_verify_command;
   if (defaults && defaults.baseline_verify_command && defaults.baseline_verify_command.trim()) return defaults.baseline_verify_command;
   const evidenceCommand = cfg?.baseline_broken_evidence?.verify_command;
   if (typeof evidenceCommand === 'string' && evidenceCommand.trim()) return evidenceCommand;
