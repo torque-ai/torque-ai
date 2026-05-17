@@ -146,6 +146,63 @@ describe('integration/index handlers', () => {
     }));
   });
 
+  it('handleExportReportJSON with empty dataset returns zero-row structure without crashing', () => {
+    const result = handleExportReportJSON({ project: 'nonexistent-project', limit: 10 });
+    const text = getText(result);
+    const exportRow = rawDb().prepare('SELECT * FROM report_exports ORDER BY created_at DESC LIMIT 1').get();
+
+    expect(result.isError).not.toBe(true);
+    expect(text).toContain('JSON Export');
+    expect(text).toContain('**Rows:** 0');
+    expect(text).toContain('**Size:**');
+    expect(exportRow).toEqual(expect.objectContaining({
+      report_type: 'tasks',
+      format: 'json',
+      status: 'completed',
+      row_count: 0,
+    }));
+  });
+
+  it('handleExportReportJSON with <=3 tasks returns full JSON in data block', () => {
+    createTask({
+      task_description: 'single-export task',
+      project: 'small-project',
+      working_directory: tempDir,
+      status: 'completed',
+    });
+
+    const result = handleExportReportJSON({ project: 'small-project', limit: 10 });
+    const text = getText(result);
+
+    expect(result.isError).not.toBe(true);
+    expect(text).toContain('**Rows:** 1');
+    // With <=3 rows, the handler uses the "### Data" heading with full JSON
+    expect(text).toContain('### Data');
+    expect(text).toContain('single-export task');
+  });
+
+  it('handleExportReportJSON with >3 tasks shows preview of first 3 records', () => {
+    for (let i = 0; i < 5; i++) {
+      createTask({
+        task_description: `batch-task-${i}`,
+        project: 'batch-project',
+        working_directory: tempDir,
+        status: 'completed',
+      });
+    }
+
+    const result = handleExportReportJSON({ project: 'batch-project', limit: 10 });
+    const text = getText(result);
+    const payload = parseJsonCodeBlock(text);
+
+    expect(result.isError).not.toBe(true);
+    expect(text).toContain('**Rows:** 5');
+    expect(text).toContain('Preview (first 3 records)');
+    expect(Array.isArray(payload)).toBe(true);
+    expect(payload).toHaveLength(3);
+    expect(text).toContain('and 2 more records');
+  });
+
   it('handleIntegrationHealth returns the expected structured summary shape', async () => {
     providerRoutingCore.saveIntegrationConfig({
       id: 'slack-config',
@@ -171,6 +228,94 @@ describe('integration/index handlers', () => {
       integration_type: 'slack',
       status: 'reachable',
     }));
+  });
+
+  it('handleIntegrationHealth with no configured integrations returns informative empty message', async () => {
+    const result = await handleIntegrationHealth({ integration_type: 'slack' });
+    const text = getText(result);
+
+    expect(result.isError).not.toBe(true);
+    expect(text).toContain('Integration Health');
+    expect(text).toContain('No slack integrations configured or enabled');
+    expect(result.structuredData).toBeUndefined();
+  });
+
+  it('handleIntegrationHealth with invalid webhook URL reports error status', async () => {
+    providerRoutingCore.saveIntegrationConfig({
+      id: 'bad-slack-config',
+      integration_type: 'slack',
+      config: { webhook_url: 'not-a-valid-url' },
+      enabled: true,
+    });
+
+    const result = await handleIntegrationHealth({ integration_type: 'slack' });
+    const historyRow = rawDb().prepare('SELECT * FROM integration_health ORDER BY checked_at DESC LIMIT 1').get();
+
+    expect(result.structuredData).toEqual({
+      count: 1,
+      integrations: [
+        expect.objectContaining({
+          name: 'slack',
+          status: 'error',
+          latency_ms: null,
+        }),
+      ],
+    });
+    expect(historyRow).toEqual(expect.objectContaining({
+      integration_type: 'slack',
+      status: 'error',
+    }));
+    expect(getText(result)).toContain('✗ error');
+  });
+
+  it('handleIntegrationHealth without webhook_url reports configured status with zero latency', async () => {
+    providerRoutingCore.saveIntegrationConfig({
+      id: 'no-webhook-config',
+      integration_type: 'discord',
+      config: { channel_id: '12345' },
+      enabled: true,
+    });
+
+    const result = await handleIntegrationHealth({ integration_type: 'discord' });
+    const historyRow = rawDb().prepare('SELECT * FROM integration_health ORDER BY checked_at DESC LIMIT 1').get();
+
+    expect(result.structuredData).toEqual({
+      count: 1,
+      integrations: [
+        expect.objectContaining({
+          name: 'discord',
+          status: 'configured',
+          latency_ms: 0,
+        }),
+      ],
+    });
+    expect(historyRow).toEqual(expect.objectContaining({
+      integration_type: 'discord',
+      status: 'configured',
+      latency_ms: 0,
+    }));
+    expect(getText(result)).toContain('✓ configured');
+  });
+
+  it('handleIntegrationHealth with include_history returns recent health check records', async () => {
+    providerRoutingCore.saveIntegrationConfig({
+      id: 'slack-hist-config',
+      integration_type: 'slack',
+      config: { webhook_url: 'https://hooks.slack.com/services/T999/B999/X999' },
+      enabled: true,
+    });
+
+    // Run health check once to seed history
+    await handleIntegrationHealth({ integration_type: 'slack' });
+
+    // Run again with include_history
+    const result = await handleIntegrationHealth({ integration_type: 'slack', include_history: true });
+    const text = getText(result);
+
+    expect(result.isError).not.toBe(true);
+    expect(text).toContain('Recent Health Checks');
+    expect(text).toContain('slack');
+    expect(text).toContain('reachable');
   });
 
   it('handleTestIntegration posts to the configured webhook and records the test result', async () => {
