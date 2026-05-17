@@ -73,6 +73,23 @@ These belong to Claude's / Codex's session judgment and cannot be reduced to rul
 - Investigate before deleting unknown files — they may be work products from other sessions.
 - Prefer structural / semantic edit tools over raw search-replace when TORQUE offers them.
 
+## TypeScript Automation Tool Path Boundaries
+
+All 9 TypeScript automation tools (`add_ts_interface_members`, `add_ts_method_to_class`, `replace_ts_method_body`, `add_import_statement`, `inject_class_dependency`, `add_ts_union_members`, `inject_method_calls`, `normalize_interface_formatting`, `add_ts_enum_members`) enforce workspace-bounded path validation via `resolveAndValidateWorkspacePath`.
+
+**How it works:**
+
+- Each tool resolves the target `file_path` against the task's `working_directory` (from task context or project defaults) which serves as the allowed workspace root.
+- The resolved absolute path must fall within the allowed base directory. Paths that escape the workspace boundary (e.g., absolute paths pointing elsewhere, `..` traversal) are rejected before any file I/O occurs.
+- **Fail-closed behavior:** if no `working_directory` or allowed base is available, the tool rejects the operation rather than allowing unrestricted filesystem access.
+
+**Implementation files:**
+
+- `server/handlers/shared.js` — contains `resolveAndValidateWorkspacePath`, the core validation helper
+- `server/handlers/automation-ts-tools.js` — integrates the validation into all 9 handler entry points
+
+**Regression tests:** `server/tests/shared-path-validation.test.js` covers boundary enforcement, traversal attempts, and the fail-closed default.
+
 ## Configuration
 
 Quality gates are configured via `/torque-config safeguards` or the `set_project_defaults` MCP tool. Key settings:
