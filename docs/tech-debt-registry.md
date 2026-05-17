@@ -47,7 +47,7 @@ but represent opportunities for future cleanup sprints.
 | `server/api/v2-task-handlers.js` | 416 | `try { db.deleteTask(newTaskId); } catch {}` — same pattern repeated |
 | `server/execution/command-builders.js` | 75 | `buildCodexCommand` defined here AND at `providers/execute-cli.js:163` — two independent implementations |
 | `server/db/analytics.js` | 30 | `safeJsonParse` defined locally — 17th copy (see category 5) |
-| `server/logger.js` | 224 | `// TODO: share size counter between parent and child loggers` — acknowledged design flaw |
+| ~~`server/logger.js`~~ | ~~224~~ | ~~`// TODO: share size counter between parent and child loggers`~~ — **resolved**: child loggers now delegate `_currentSize` to the root logger via `_parent` / `_sizeOwner()`; covered by `server/tests/logger.test.js` |
 | `server/handlers/concurrency-handlers.js` | 60 | `// TODO: replace with db.listProviderConfigs() abstraction` — direct DB query bypassing abstraction |
 | `server/dashboard/dashboard.js` | 4 | Uses `var` throughout (lines 4–30) — pre-ES6 style in an otherwise modern codebase |
 | `server/dashboard/dashboard.js` | 5 | `var POLL_INTERVAL = 10000` — 10-second fallback poll interval defined as `var` |
