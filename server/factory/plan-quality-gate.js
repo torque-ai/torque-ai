@@ -6,7 +6,8 @@ const path = require('node:path');
 const { findHeavyLocalValidationCommand } = require('../utils/heavy-validation-guard');
 const { deterministicVerify } = require('./plan-augmenter');
 const { checkPlanImpact } = require('./codegraph-plan-augmenter');
-const { discoverExistingFileAlternates } = require('./shared/scope-search');
+const { discoverExistingFileAlternates, collectArchitectScopeDetails } = require('./shared/scope-search');
+const { extractPlanDescriptionFilePaths, normalizePlanProjectRelativePath, projectFileExists } = require('./shared/plan-path');
 
 const MAX_REPLAN_ATTEMPTS = 1;
 // Plan-quality semantic review is an advisory second opinion after the
@@ -582,7 +583,7 @@ async function runLlmSemanticCheck({ plan, workItem, project, timeoutMs = LLM_TI
   const { handleAwaitTask } = require('../handlers/workflow/await');
   const taskCore = require('../db/task-core');
 
-  const prompt = buildLlmPrompt({ plan, workItem });
+  const prompt = buildLlmPrompt({ plan, workItem, project });
   const planHash = getPlanSemanticCheckHash(plan);
   let taskId;
   let taskStatus = null;
@@ -697,23 +698,63 @@ function findExistingLlmSemanticCheckTask(taskCore, { project, workItem, planHas
     || null;
 }
 
-function buildLlmPrompt({ plan, workItem }) {
+function buildLlmPrompt({ plan, workItem, project }) {
+  const scopeEvidence = buildLlmScopeEvidence({ plan, workItem, projectPath: project?.path });
   return `You are a quality reviewer for a software factory's auto-generated implementation plans.
 
 Work item title: ${workItem?.title || '(none)'}
 Work item description: ${workItem?.description || '(none)'}
+${scopeEvidence}
 
 Return ONLY valid JSON in this shape: {"verdict":"go"|"no-go","critique":"one sentence explaining the verdict"}
 
 Factory execution already creates an isolated git worktree and feature branch for each batch.
 Do NOT reject a plan because it omits worktree or branch setup instructions.
 Do reject a plan only for semantic mismatch with the work item, missing concrete implementation scope, or unsafe/incorrect execution guidance.
+Use the verified repository paths below as the source of truth for path-existence questions. Work-item prose can contain stale historical paths; do not reject a plan for using a verified repository path or an explicitly created new file when the requested behavior matches the work item.
 Reject plans that use test runners against config or metadata files such as \`.torque-remote.json\`.
 Reject plans that edit remote execution, routing, or provider configuration unless the work item explicitly asks for those changes.
 
 Plan:
 ${plan}
 `;
+}
+
+function buildLlmScopeEvidence({ plan, workItem, projectPath }) {
+  if (!projectPath) return '';
+
+  let details = null;
+  try {
+    details = collectArchitectScopeDetails(workItem, projectPath);
+  } catch (_err) {
+    details = null;
+  }
+
+  const planFiles = extractPlanDescriptionFilePaths(plan)
+    .map((file) => normalizePlanProjectRelativePath(file, projectPath))
+    .filter(Boolean);
+  const uniquePlanFiles = [...new Set(planFiles)];
+  const verifiedPlanFiles = [];
+  const missingPlanFiles = [];
+  for (const file of uniquePlanFiles) {
+    (projectFileExists(projectPath, file) ? verifiedPlanFiles : missingPlanFiles).push(file);
+  }
+
+  const lines = [];
+  const pushList = (heading, files, limit = 12) => {
+    const values = [...new Set(files || [])].filter(Boolean).slice(0, limit);
+    if (values.length === 0) return;
+    lines.push(heading);
+    for (const file of values) lines.push(`- \`${file}\``);
+  };
+
+  pushList('Verified repository paths referenced by this plan:', verifiedPlanFiles);
+  pushList('New or missing paths referenced by this plan (valid only when the task explicitly creates them):', missingPlanFiles);
+  pushList('Verified work-item scope files from the current repository:', details?.scopeFiles);
+  pushList('Candidate paths from work-item prose that are not present at their stated path:', details?.candidateFiles);
+  pushList('Related existing repository files discovered for this work item:', details?.relatedFiles, 8);
+
+  return lines.length > 0 ? `\nRepository path evidence:\n${lines.join('\n')}\n` : '';
 }
 
 function buildFeedbackPrompt(hardFails, warnings, llmCritique) {

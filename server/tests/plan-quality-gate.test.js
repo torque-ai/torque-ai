@@ -700,6 +700,60 @@ describe('runLlmSemanticCheck', () => {
     }));
   });
 
+  it('includes verified repository path evidence in the submitted semantic review prompt', async () => {
+    const repoPath = fs.mkdtempSync(path.join(os.tmpdir(), 'plan-quality-scope-'));
+    try {
+      for (const repoFile of [
+        'server/db/file/baselines.js',
+        'server/tests/file-baselines-boundary.test.js',
+      ]) {
+        const absolute = path.join(repoPath, repoFile);
+        fs.mkdirSync(path.dirname(absolute), { recursive: true });
+        fs.writeFileSync(absolute, '// fixture\n');
+      }
+      const submitMock = vi.fn().mockResolvedValue({ task_id: 'tid-scope' });
+      installMock(submitPath, {
+        submitFactoryInternalTask: submitMock,
+      });
+      installMock(awaitPath, {
+        handleAwaitTask: vi.fn().mockResolvedValue({ status: 'completed' }),
+      });
+      installMock(taskCorePath, {
+        getTask: vi.fn().mockReturnValue({
+          status: 'completed',
+          output: '{"verdict":"go","critique":"Plan uses verified paths."}',
+        }),
+      });
+      const { runLlmSemanticCheck } = require('../factory/plan-quality-gate');
+      const plan = [
+        '## Task 1: Fix boundary check',
+        '',
+        'Edit `server/db/file/baselines.js` and run `npx vitest run server/tests/file-baselines-boundary.test.js`.',
+      ].join('\n');
+      const result = await runLlmSemanticCheck({
+        plan,
+        workItem: {
+          id: 2301,
+          title: 'SEC-NEW-04: Expected-output enforcement can be bypassed with sibling-prefix paths',
+          description: 'File: `server/db/file-baselines.js:737`. Replace the prefix check in checkFileLocationAnomalies.',
+        },
+        project: { id: 'p', path: repoPath },
+      });
+
+      expect(result).toBe('Plan uses verified paths.');
+      const prompt = submitMock.mock.calls[0][0].task;
+      expect(prompt).toContain('Repository path evidence:');
+      expect(prompt).toContain('Verified repository paths referenced by this plan:');
+      expect(prompt).toContain('`server/db/file/baselines.js`');
+      expect(prompt).toContain('`server/tests/file-baselines-boundary.test.js`');
+      expect(prompt).toContain('Candidate paths from work-item prose that are not present at their stated path:');
+      expect(prompt).toContain('`server/db/file-baselines.js`');
+      expect(prompt).toContain('do not reject a plan for using a verified repository path');
+    } finally {
+      fs.rmSync(repoPath, { recursive: true, force: true });
+    }
+  });
+
   it('returns the raw string when the task output is unparseable (treated as go)', async () => {
     installMock(submitPath, {
       submitFactoryInternalTask: vi.fn().mockResolvedValue({ task_id: 'tid-3' }),
