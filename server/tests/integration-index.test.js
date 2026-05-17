@@ -16,6 +16,7 @@ const {
   handleRollbackFile,
   handleStashChanges,
   handleSubmitChunkedReview,
+  handleViewDependencies,
 } = require('../handlers/integration');
 
 function parseJsonCodeBlock(text) {
@@ -1151,5 +1152,94 @@ describe('integration/index handlers', () => {
     expect(aggregationTask.status).toBe('pending');
     // Aggregation inherits the review_type
     expect(aggregationTask.metadata.review_type).toBe('bug_hunt');
+  });
+
+  // ============ handleViewDependencies behavior tests ============
+
+  it('handleViewDependencies with a valid task_id returns a Mermaid diagram containing the task and its dependents', () => {
+    // Create a "parent" task that other tasks depend on
+    const parentTask = createTask({
+      task_description: 'parent dependency task',
+      working_directory: tempDir,
+      status: 'running',
+    });
+
+    // Create a "child" task whose depends_on references the parent
+    createTask({
+      task_description: 'child dependency task',
+      working_directory: tempDir,
+      status: 'pending',
+      metadata: JSON.stringify({ some: 'data' }),
+    });
+    // Manually set depends_on on the child to reference parent's id
+    const childId = rawDb().prepare(
+      "SELECT id FROM tasks WHERE task_description = 'child dependency task' ORDER BY created_at DESC LIMIT 1"
+    ).get().id;
+    rawDb().prepare('UPDATE tasks SET depends_on = ? WHERE id = ?').run(
+      JSON.stringify([parentTask.id]),
+      childId
+    );
+
+    const result = handleViewDependencies({ task_id: parentTask.id });
+    const text = getText(result);
+
+    expect(result.isError).not.toBe(true);
+    expect(text).toContain('Task Dependencies');
+    expect(text).toContain('```mermaid');
+    expect(text).toContain('graph TD');
+    // The parent's short ID should appear as a node
+    const parentShort = parentTask.id.substring(0, 8);
+    const childShort = childId.substring(0, 8);
+    expect(text).toContain(parentShort);
+    // The label should contain the truncated description (substring(0,20) + "...")
+    expect(text).toContain('parent dependency ta...');
+    // The child node and the dependency edge should also appear
+    expect(text).toContain(childShort);
+    expect(text).toContain(`${parentShort} --> ${childShort}`);
+  });
+
+  it('handleViewDependencies returns TASK_NOT_FOUND when task_id does not exist', () => {
+    const result = handleViewDependencies({ task_id: 'nonexistent-dep-task-id' });
+
+    expect(result.isError).toBe(true);
+    expect(result.error_code).toBe('TASK_NOT_FOUND');
+    expect(getText(result)).toContain('Task not found');
+    expect(getText(result)).toContain('nonexistent-dep-task-id');
+  });
+
+  it('handleViewDependencies without task_id lists active project tasks and produces a valid Mermaid diagram', () => {
+    // Create tasks with various statuses for a specific project
+    createTask({
+      task_description: 'active queued task',
+      working_directory: tempDir,
+      status: 'queued',
+      project: 'dep-viz-project',
+    });
+    createTask({
+      task_description: 'active running task',
+      working_directory: tempDir,
+      status: 'running',
+      project: 'dep-viz-project',
+    });
+    // completed task should NOT appear by default (include_completed=false)
+    createTask({
+      task_description: 'completed hidden task',
+      working_directory: tempDir,
+      status: 'completed',
+      project: 'dep-viz-project',
+    });
+
+    const result = handleViewDependencies({ project: 'dep-viz-project' });
+    const text = getText(result);
+
+    expect(result.isError).not.toBe(true);
+    expect(text).toContain('Task Dependencies');
+    expect(text).toContain('```mermaid');
+    expect(text).toContain('graph TD');
+    // Active tasks should be present
+    expect(text).toContain('active queued task...');
+    expect(text).toContain('active running task...');
+    // Completed task should NOT appear
+    expect(text).not.toContain('completed hidden tas');
   });
 });
