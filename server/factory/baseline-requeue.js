@@ -73,6 +73,24 @@ function validateProbeProvedBlockedCommand({ config, probeVerifyCommand } = {}) 
     };
   }
   
+  // If there's no blocked command but there is a probe command, it's proved
+  if (!blockedVerifyCommand && provedVerifyCommand) {
+    return {
+      proved: true,
+      blocked_verify_command: blockedVerifyCommand,
+      probe_verify_command: provedVerifyCommand,
+    };
+  }
+  
+  // If both are null/empty, it's proved
+  if (!blockedVerifyCommand && !provedVerifyCommand) {
+    return {
+      proved: true,
+      blocked_verify_command: blockedVerifyCommand,
+      probe_verify_command: provedVerifyCommand,
+    };
+  }
+  
   return {
     proved: true,
     blocked_verify_command: blockedVerifyCommand,
