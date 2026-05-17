@@ -682,6 +682,248 @@ describe('integration/index handlers', () => {
     expect(changeRow.stash_ref).toContain('stash@{0}');
   });
 
+  // ============ handleTaskChanges error/edge-case tests ============
+
+  it('handleTaskChanges returns TASK_NOT_FOUND when the task ID does not exist in DB', () => {
+    const result = handleTaskChanges({ task_id: 'nonexistent-task-id-000' });
+
+    expect(result.isError).toBe(true);
+    expect(result.error_code).toBe('TASK_NOT_FOUND');
+    expect(getText(result)).toContain('Task not found');
+    expect(getText(result)).toContain('nonexistent-task-id-000');
+  });
+
+  it('handleTaskChanges returns INVALID_PARAM when task_id is empty or missing', () => {
+    const resultEmpty = handleTaskChanges({ task_id: '' });
+    expect(resultEmpty.isError).toBe(true);
+    expect(resultEmpty.error_code).toBe('INVALID_PARAM');
+    expect(getText(resultEmpty)).toContain('task_id is required');
+
+    const resultMissing = handleTaskChanges({});
+    expect(resultMissing.isError).toBe(true);
+    expect(resultMissing.error_code).toBe('INVALID_PARAM');
+  });
+
+  it('handleTaskChanges returns RESOURCE_NOT_FOUND when task has no git tracking data', () => {
+    const task = createTask({
+      task_description: 'no git data task',
+      working_directory: tempDir,
+      // no git_before_sha or git_after_sha
+    });
+
+    const result = handleTaskChanges({ task_id: task.id });
+
+    expect(result.isError).toBe(true);
+    expect(result.error_code).toBe('RESOURCE_NOT_FOUND');
+    expect(getText(result)).toContain('No git tracking data');
+  });
+
+  it('handleTaskChanges with format=full passes the correct diff args', () => {
+    initRepo('task-changes-full-repo');
+    writeRepoFile('file.txt', 'line1\n');
+    commitAll('initial');
+    const beforeSha = gitSync(['rev-parse', 'HEAD'], { cwd: repoDir });
+    writeRepoFile('file.txt', 'line1\nline2\n');
+    commitAll('add line2');
+    const afterSha = gitSync(['rev-parse', 'HEAD'], { cwd: repoDir });
+
+    const task = createTask({
+      task_description: 'full format task',
+      working_directory: repoDir,
+      git_before_sha: beforeSha,
+      git_after_sha: afterSha,
+    });
+
+    const result = handleTaskChanges({ task_id: task.id, format: 'full' });
+    const text = getText(result);
+
+    expect(result.isError).not.toBe(true);
+    expect(text).toContain('Task Changes (full)');
+    // Full diff shows actual content changes with +/- lines
+    expect(text).toContain('+line2');
+  });
+
+  it('handleTaskChanges with format=stat shows file stats', () => {
+    initRepo('task-changes-stat-repo');
+    writeRepoFile('data.txt', 'original\n');
+    commitAll('initial');
+    const beforeSha = gitSync(['rev-parse', 'HEAD'], { cwd: repoDir });
+    writeRepoFile('data.txt', 'modified content\n');
+    commitAll('modify data');
+    const afterSha = gitSync(['rev-parse', 'HEAD'], { cwd: repoDir });
+
+    const task = createTask({
+      task_description: 'stat format task',
+      working_directory: repoDir,
+      git_before_sha: beforeSha,
+      git_after_sha: afterSha,
+    });
+
+    const result = handleTaskChanges({ task_id: task.id, format: 'stat' });
+    const text = getText(result);
+
+    expect(result.isError).not.toBe(true);
+    expect(text).toContain('Task Changes (stat)');
+    expect(text).toContain('data.txt');
+    // Stat format shows insertions/deletions
+    expect(text).toMatch(/\d+ insertion|\d+ deletion|\d+ file/);
+  });
+
+  // ============ handleRollbackFile error/edge-case tests ============
+
+  it('handleRollbackFile returns TASK_NOT_FOUND when the task ID does not exist', () => {
+    const result = handleRollbackFile({ task_id: 'missing-task-id-123', file_path: 'some.txt' });
+
+    expect(result.isError).toBe(true);
+    expect(result.error_code).toBe('TASK_NOT_FOUND');
+    expect(getText(result)).toContain('Task not found');
+  });
+
+  it('handleRollbackFile returns INVALID_PARAM when task_id is empty', () => {
+    const result = handleRollbackFile({ task_id: '', file_path: 'some.txt' });
+
+    expect(result.isError).toBe(true);
+    expect(result.error_code).toBe('INVALID_PARAM');
+    expect(getText(result)).toContain('task_id is required');
+  });
+
+  it('handleRollbackFile returns RESOURCE_NOT_FOUND when task has no git_before_sha', () => {
+    const task = createTask({
+      task_description: 'no baseline task',
+      working_directory: tempDir,
+      // no git_before_sha set
+    });
+
+    const result = handleRollbackFile({ task_id: task.id, file_path: 'any-file.txt' });
+
+    expect(result.isError).toBe(true);
+    expect(result.error_code).toBe('RESOURCE_NOT_FOUND');
+    expect(getText(result)).toContain('No git tracking data available for rollback');
+  });
+
+  it('handleRollbackFile returns MISSING_REQUIRED_PARAM when file_path is missing', () => {
+    initRepo('rollback-no-filepath');
+    writeRepoFile('dummy.txt', 'content\n');
+    commitAll('initial');
+    const beforeSha = gitSync(['rev-parse', 'HEAD'], { cwd: repoDir });
+
+    const task = createTask({
+      task_description: 'rollback no filepath',
+      working_directory: repoDir,
+      git_before_sha: beforeSha,
+    });
+
+    const result = handleRollbackFile({ task_id: task.id });
+
+    expect(result.isError).toBe(true);
+    expect(result.error_code).toBe('MISSING_REQUIRED_PARAM');
+    expect(getText(result)).toContain('file_path is required');
+  });
+
+  it('handleRollbackFile returns PATH_TRAVERSAL error for unsafe path', () => {
+    initRepo('rollback-traversal');
+    writeRepoFile('safe.txt', 'content\n');
+    commitAll('initial');
+    const beforeSha = gitSync(['rev-parse', 'HEAD'], { cwd: repoDir });
+
+    const task = createTask({
+      task_description: 'rollback traversal test',
+      working_directory: repoDir,
+      git_before_sha: beforeSha,
+    });
+
+    const result = handleRollbackFile({ task_id: task.id, file_path: '../../etc/passwd' });
+
+    expect(result.isError).toBe(true);
+    expect(result.error_code).toBe('PATH_TRAVERSAL');
+    expect(getText(result)).toContain('path traversal not allowed');
+  });
+
+  it('handleRollbackFile returns OPERATION_FAILED when git checkout fails for nonexistent file in history', () => {
+    initRepo('rollback-bad-file');
+    writeRepoFile('exists.txt', 'content\n');
+    commitAll('initial');
+    const beforeSha = gitSync(['rev-parse', 'HEAD'], { cwd: repoDir });
+
+    const task = createTask({
+      task_description: 'rollback nonexistent file',
+      working_directory: repoDir,
+      git_before_sha: beforeSha,
+    });
+
+    // File 'never-existed.txt' was not in the commit, so git checkout will fail
+    const result = handleRollbackFile({ task_id: task.id, file_path: 'never-existed.txt' });
+
+    expect(result.isError).toBe(true);
+    expect(result.error_code).toBe('OPERATION_FAILED');
+    expect(getText(result)).toContain('Rollback failed');
+  });
+
+  // ============ handleStashChanges error/edge-case tests ============
+
+  it('handleStashChanges returns TASK_NOT_FOUND when task_id references a nonexistent task', () => {
+    const result = handleStashChanges({ task_id: 'nonexistent-stash-task-999' });
+
+    expect(result.isError).toBe(true);
+    expect(result.error_code).toBe('TASK_NOT_FOUND');
+    expect(getText(result)).toContain('Task not found');
+  });
+
+  it('handleStashChanges returns OPERATION_FAILED when there are no changes to stash', () => {
+    initRepo('stash-empty-repo');
+    writeRepoFile('clean.txt', 'initial\n');
+    commitAll('seed clean repo');
+
+    // No modifications — working tree is clean
+    const task = createTask({
+      task_description: 'stash empty tree',
+      working_directory: repoDir,
+    });
+
+    const result = handleStashChanges({ task_id: task.id });
+
+    expect(result.isError).toBe(true);
+    expect(result.error_code).toBe('OPERATION_FAILED');
+    expect(getText(result)).toContain('Stash failed');
+  });
+
+  it('handleStashChanges without task_id uses working_directory arg', () => {
+    initRepo('stash-no-task-repo');
+    const filePath = writeRepoFile('file.txt', 'base\n');
+    commitAll('seed');
+
+    fs.writeFileSync(filePath, 'modified content\n', 'utf8');
+
+    const result = handleStashChanges({ working_directory: repoDir, message: 'no-task stash' });
+    const status = gitSync(['status', '--porcelain'], { cwd: repoDir });
+    const stashList = gitSync(['stash', 'list', '-n', '1'], { cwd: repoDir });
+
+    expect(result.isError).not.toBe(true);
+    expect(status).toBe('');
+    expect(stashList).toContain('no-task stash');
+    expect(getText(result)).toContain('Changes stashed successfully');
+  });
+
+  it('handleStashChanges with custom message includes it in the stash entry', () => {
+    initRepo('stash-msg-repo');
+    const filePath = writeRepoFile('msg.txt', 'original\n');
+    commitAll('seed');
+
+    fs.writeFileSync(filePath, 'edited\n', 'utf8');
+
+    const task = createTask({
+      task_description: 'stash message test',
+      working_directory: repoDir,
+    });
+
+    const result = handleStashChanges({ task_id: task.id, message: 'custom-stash-message-xyz' });
+    const stashList = gitSync(['stash', 'list', '-n', '1'], { cwd: repoDir });
+
+    expect(result.isError).not.toBe(true);
+    expect(stashList).toContain('custom-stash-message-xyz');
+    expect(getText(result)).toContain('Changes stashed successfully');
+  });
+
   it('handleSubmitChunkedReview creates chunk tasks and an aggregation task in the test DB', async () => {
     const reviewFile = path.join(tempDir, 'large-file.js');
     const reviewContent = Array.from(
