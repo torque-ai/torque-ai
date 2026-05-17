@@ -4,8 +4,147 @@ const path = require('path');
 const fs = require('fs');
 const childProcess = require('child_process');
 const { DEFAULT_PROMOTION_CONFIG } = require('./promotion-policy');
+const {
+  extractPlanDescriptionFilePaths,
+  normalizePlanProjectRelativePath,
+} = require('./shared/plan-path');
 
 const PROBE_TIMEOUT_MS = 3000;
+const TOOL_NAME_RE = /`([a-z][a-z0-9]*(?:_[a-z0-9]+)+)`/gi;
+const TOOL_REGISTRY_LIMIT = 250;
+const PROSE_FILE_PATH_RE = new RegExp(
+  String.raw`(?:^|[\s\`'"([])((?:[A-Za-z]:)?(?:[A-Za-z0-9_.-]+[\\/])+[A-Za-z0-9_.-]+\.[A-Za-z0-9]+)(?::\d+(?::\d+)?|#L\d+(?:-L\d+)?)?`,
+  'gi'
+);
+const MISSING_TOOL_CLAIM_FORWARD_RE = /\b(?:tool|mcp|tool-def|tooling|handler)\b[\s\S]{0,180}\b(?:does not exist|doesn't exist|not exist|no live|tool-not-found|missing|unregistered|not registered)\b/i;
+const MISSING_TOOL_CLAIM_REVERSE_RE = /\b(?:does not exist|doesn't exist|not exist|no live|tool-not-found|missing|unregistered|not registered)\b[\s\S]{0,180}\b(?:tool|mcp|tool-def|tooling|handler)\b/i;
+
+function escapeRegExp(value) {
+  return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function getWorkItemProbeText(item) {
+  const origin = item?.origin && typeof item.origin === 'object' ? item.origin : {};
+  return [
+    item?.title,
+    item?.description,
+    origin.title,
+    origin.description,
+    origin.summary,
+    origin.finding,
+    origin.evidence,
+    origin.details,
+    origin.reason,
+    origin.why,
+  ].filter((value) => typeof value === 'string' && value.trim().length > 0).join('\n');
+}
+
+function collectDescriptionFilePaths(text) {
+  const out = new Set(extractPlanDescriptionFilePaths(text));
+  PROSE_FILE_PATH_RE.lastIndex = 0;
+  for (const match of String(text || '').matchAll(PROSE_FILE_PATH_RE)) {
+    if (match[1]) out.add(match[1]);
+  }
+  return [...out];
+}
+
+function resolveProbeTargetFile(item, projectPath) {
+  const explicit = typeof item?.origin?.target_file === 'string'
+    ? item.origin.target_file.trim()
+    : '';
+  if (explicit) {
+    return { targetFile: explicit, source: 'origin.target_file' };
+  }
+
+  for (const candidate of collectDescriptionFilePaths(getWorkItemProbeText(item))) {
+    const normalized = normalizePlanProjectRelativePath(candidate, projectPath);
+    if (normalized) {
+      return { targetFile: normalized, source: 'description' };
+    }
+  }
+
+  return { targetFile: null, source: null };
+}
+
+function isMissingToolClaim(text) {
+  const value = String(text || '');
+  return MISSING_TOOL_CLAIM_FORWARD_RE.test(value)
+    || MISSING_TOOL_CLAIM_REVERSE_RE.test(value);
+}
+
+function extractMissingToolNames(text) {
+  if (!isMissingToolClaim(text)) return [];
+  TOOL_NAME_RE.lastIndex = 0;
+  return [...new Set(
+    [...String(text || '').matchAll(TOOL_NAME_RE)]
+      .map((match) => match[1])
+      .filter(Boolean)
+  )];
+}
+
+function collectToolRegistryFiles(projectPath) {
+  const root = path.resolve(projectPath);
+  const out = [];
+  const pushFile = (filePath) => {
+    if (out.length < TOOL_REGISTRY_LIMIT && fs.existsSync(filePath)) {
+      out.push(filePath);
+    }
+  };
+  const walk = (dir) => {
+    if (out.length >= TOOL_REGISTRY_LIMIT || !fs.existsSync(dir)) return;
+    let entries = [];
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      if (out.length >= TOOL_REGISTRY_LIMIT) return;
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        walk(full);
+      } else if (entry.isFile() && entry.name.endsWith('.js')) {
+        out.push(full);
+      }
+    }
+  };
+
+  walk(path.join(root, 'server', 'tool-defs'));
+  pushFile(path.join(root, 'server', 'tool-metadata.js'));
+  pushFile(path.join(root, 'server', 'tools.js'));
+  return out;
+}
+
+function findRegisteredTool(projectPath, toolName) {
+  if (!projectPath || !toolName) return null;
+  const quotedName = new RegExp(`['"\`]${escapeRegExp(toolName)}['"\`]`);
+  for (const filePath of collectToolRegistryFiles(projectPath)) {
+    let content = '';
+    try {
+      content = fs.readFileSync(filePath, 'utf8');
+    } catch {
+      continue;
+    }
+    if (quotedName.test(content)) {
+      return filePath;
+    }
+  }
+  return null;
+}
+
+function probeMissingToolClaim(item, projectPath) {
+  const text = getWorkItemProbeText(item);
+  for (const toolName of extractMissingToolNames(text)) {
+    const match = findRegisteredTool(projectPath, toolName);
+    if (match) {
+      return {
+        tool_name: toolName,
+        registry_file: path.relative(path.resolve(projectPath), match).replace(/\\/g, '/'),
+      };
+    }
+  }
+  return null;
+}
 
 function defaultGitRunner(cwd, args, { timeoutMs } = {}) {
   return new Promise((resolve, reject) => {
@@ -83,12 +222,22 @@ async function probeStaleness(item, {
   if (!item || item.source !== 'scout') {
     return makeResult({ reason: 'not_scout_eligible' });
   }
-  const targetFile = item.origin?.target_file;
-  if (typeof targetFile !== 'string' || targetFile.length === 0) {
-    return makeResult({ reason: 'no_target_file' });
-  }
   if (promotionConfig?.stale_probe_enabled === false) {
     return makeResult({ reason: 'probe_disabled' });
+  }
+  const target = resolveProbeTargetFile(item, projectPath);
+  const registeredMissingTool = projectPath ? probeMissingToolClaim(item, projectPath) : null;
+  if (registeredMissingTool) {
+    return makeResult({
+      stale: true,
+      reason: 'missing_tool_now_registered',
+      commits_since_scan: 0,
+      ...registeredMissingTool,
+    });
+  }
+  const targetFile = target.targetFile;
+  if (typeof targetFile !== 'string' || targetFile.length === 0) {
+    return makeResult({ reason: 'no_target_file' });
   }
   if (!projectPath) {
     return makeResult({ reason: 'no_project_path' });

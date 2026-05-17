@@ -16,6 +16,13 @@ function mkScoutItem(over = {}) {
   };
 }
 
+function writeProjectFile(root, rel, content = 'content') {
+  const abs = path.join(root, ...rel.split('/'));
+  fs.mkdirSync(path.dirname(abs), { recursive: true });
+  fs.writeFileSync(abs, content);
+  return abs;
+}
+
 describe('stale-probe.probeStaleness', () => {
   let tmpDir;
 
@@ -36,6 +43,54 @@ describe('stale-probe.probeStaleness', () => {
 
   it('Gate 1: missing target_file skips with reason no_target_file', async () => {
     const item = mkScoutItem({ origin: { severity: 'HIGH' } });
+    const out = await probeStaleness(item, { projectPath: tmpDir });
+    expect(out.stale).toBe(false);
+    expect(out.reason).toBe('no_target_file');
+  });
+
+  it('Gate 1: derives missing target_file from scout description file paths', async () => {
+    writeProjectFile(tmpDir, 'server/docs/guides/workflows.md', 'content');
+    const item = mkScoutItem({
+      description: 'Location: `server/docs/guides/workflows.md:176`; verify the stale workflow prose.',
+      origin: { severity: 'HIGH', variant: 'docs' },
+    });
+    const gitRunner = vi.fn().mockResolvedValue({ stdout: '' });
+    const out = await probeStaleness(item, { projectPath: tmpDir, gitRunner });
+    expect(out.stale).toBe(false);
+    expect(out.reason).toBe('no_commits_since_scan');
+    expect(gitRunner).toHaveBeenCalledWith(
+      tmpDir,
+      expect.arrayContaining(['server/docs/guides/workflows.md']),
+      expect.objectContaining({ timeoutMs: expect.any(Number) }),
+    );
+  });
+
+  it('Gate 1: marks stale missing-tool claims when the tool is already registered', async () => {
+    writeProjectFile(
+      tmpDir,
+      'server/tool-defs/workflow-resume-defs.js',
+      "module.exports = [{ name: 'resume_workflow' }];\n"
+    );
+    const item = mkScoutItem({
+      title: 'Docs mention `resume_workflow`, but the tool does not exist',
+      description: 'No live MCP tool named `resume_workflow` is registered.',
+      origin: { severity: 'CRITICAL', variant: 'docs' },
+    });
+    const gitRunner = vi.fn().mockResolvedValue({ stdout: 'abc123\n' });
+    const out = await probeStaleness(item, { projectPath: tmpDir, gitRunner });
+    expect(out.stale).toBe(true);
+    expect(out.reason).toBe('missing_tool_now_registered');
+    expect(out.tool_name).toBe('resume_workflow');
+    expect(out.registry_file).toBe('server/tool-defs/workflow-resume-defs.js');
+    expect(gitRunner).not.toHaveBeenCalled();
+  });
+
+  it('Gate 1: missing-tool claims remain fail-open when no matching tool is registered', async () => {
+    const item = mkScoutItem({
+      title: 'Docs mention `resume_workflow`, but the tool does not exist',
+      description: 'No live MCP tool named `resume_workflow` is registered.',
+      origin: { severity: 'CRITICAL', variant: 'docs' },
+    });
     const out = await probeStaleness(item, { projectPath: tmpDir });
     expect(out.stale).toBe(false);
     expect(out.reason).toBe('no_target_file');
