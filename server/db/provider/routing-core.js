@@ -476,6 +476,15 @@ function listProviders() {
   return stmt.all().map((p) => enrichProviderRow(p));
 }
 
+/**
+ * Return all provider_config rows with only concurrency-relevant columns.
+ * @returns {{ provider: string, max_concurrent: number, enabled: number }[]}
+ */
+function getAllProviderConfigs() {
+  if (!db || (db.open === false)) return [];
+  return db.prepare('SELECT provider, max_concurrent, enabled FROM provider_config ORDER BY provider').all();
+}
+
 function parsePositiveInt(value, fallback = 0) {
   const parsed = parseInt(value, 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
@@ -1854,6 +1863,7 @@ module.exports = {
   getTask,
   getProvider,
   listProviders,
+  getAllProviderConfigs,
   getEnabledProviderMaxConcurrentSum,
   getEffectiveMaxConcurrent,
   updateProvider,
