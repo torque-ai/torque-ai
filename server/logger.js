@@ -125,6 +125,18 @@ class Logger {
     this._currentSize = 0;
     this._rotating = false;
     this._pendingWrites = [];
+    this._parent = null; // Set by child() — root loggers own the size counter
+  }
+
+  /**
+   * Returns the root logger that owns the rotation size counter.
+   * Child loggers delegate _currentSize tracking to the root so
+   * rotation triggers at the correct cumulative byte threshold.
+   */
+  _sizeOwner() {
+    let owner = this;
+    while (owner._parent) owner = owner._parent;
+    return owner;
   }
 
   _getStream() {
@@ -212,8 +224,9 @@ class Logger {
   }
 
   _writeLine(line) {
-    if (this._rotating) {
-      this._pendingWrites.push(line);
+    const root = this._sizeOwner();
+    if (root._rotating) {
+      root._pendingWrites.push(line);
       return;
     }
     const stream = this._getStream();
@@ -222,7 +235,7 @@ class Logger {
       return;
     }
     stream.write(line);
-    this._currentSize += Buffer.byteLength(line);
+    root._currentSize += Buffer.byteLength(line);
   }
 
   _flushPendingWrites() {
@@ -268,13 +281,14 @@ class Logger {
     // Write to file (not stderr — MCP servers must not write to stderr
     // as it renders directly in the parent Claude Code terminal)
     try {
-      if (this._rotating) {
-        this._pendingWrites.push(line);
+      const root = this._sizeOwner();
+      if (root._rotating) {
+        root._pendingWrites.push(line);
         return;
       }
 
-      if (this._currentSize > this.maxSize) {
-        this._rotate();
+      if (root._currentSize > this.maxSize) {
+        root._rotate();
       }
 
       this._writeLine(line);
@@ -301,7 +315,7 @@ class Logger {
       context: { ...this.context, ...context },
     });
     child._stream = this._stream; // Share file handle
-    child._currentSize = this._currentSize;
+    child._parent = this; // Delegate size tracking to root logger
     return child;
   }
 

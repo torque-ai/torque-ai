@@ -270,7 +270,7 @@ describe('Logger with mocked fs streams', () => {
     expect(child.maxSize).toBe(logger.maxSize);
     expect(child.maxFiles).toBe(logger.maxFiles);
     expect(child._stream).toBe(logger._stream);
-    expect(child._currentSize).toBe(logger._currentSize);
+    expect(child._parent).toBe(logger);
   });
 
   it('child logger merges parent and child context correctly when logging', () => {
@@ -358,6 +358,114 @@ describe('Logger with mocked fs streams', () => {
     logger._write('warn', 'failing write');
     expect(mockStream.write).toHaveBeenCalledTimes(1);
     expect(logger._currentSize).toBe(0);
+  });
+});
+
+describe('child logger rotation accounting', () => {
+  let mockStream;
+  let createWriteStreamSpy;
+  let lstatSyncSpy;
+  let renameSyncSpy;
+
+  beforeEach(() => {
+    mockChunkBuffer = [];
+    mockStream = createMockStream();
+    createWriteStreamSpy = vi
+      .spyOn(fs, 'createWriteStream')
+      .mockReturnValue(mockStream);
+    lstatSyncSpy = vi.spyOn(fs, 'lstatSync').mockReturnValue({
+      size: 0,
+      isSymbolicLink: () => false,
+    });
+    renameSyncSpy = vi.spyOn(fs, 'renameSync').mockReturnValue(undefined);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('child logger writes increment parent size counter', () => {
+    const parent = new Logger({
+      level: 'debug',
+      logDir: '/tmp/logger-tests',
+      logFile: 'torque.log',
+      maxSize: 10000,
+      maxFiles: 3,
+    });
+    const child = parent.child({ component: 'worker' });
+
+    const beforeSize = parent._currentSize;
+    child.info('child write');
+
+    const line = mockChunkBuffer[0];
+    const expectedBytes = Buffer.byteLength(line);
+    expect(parent._currentSize).toBe(beforeSize + expectedBytes);
+  });
+
+  it('rotation triggers when child writes push past threshold', () => {
+    const parent = new Logger({
+      level: 'debug',
+      logDir: '/tmp/logger-tests',
+      logFile: 'torque.log',
+      maxSize: 200,
+      maxFiles: 3,
+    });
+    const rotateSpy = vi.spyOn(parent, '_rotate');
+    const child = parent.child({ component: 'worker' });
+
+    // Write enough data via child to exceed 200-byte threshold
+    for (let i = 0; i < 5; i++) {
+      child.info(`fill message number ${i} with padding to exceed rotation threshold`);
+    }
+
+    expect(rotateSpy).toHaveBeenCalled();
+    // After rotation, parent's _currentSize should have been reset
+    // (it may have accumulated post-rotation writes too)
+    expect(parent._currentSize).toBeLessThan(200 * 2);
+  });
+
+  it('mixed parent and child writes accumulate correctly', () => {
+    const parent = new Logger({
+      level: 'debug',
+      logDir: '/tmp/logger-tests',
+      logFile: 'torque.log',
+      maxSize: 100000,
+      maxFiles: 3,
+    });
+    const child = parent.child({ component: 'worker' });
+
+    parent.info('parent write 1');
+    const afterParent1 = parent._currentSize;
+    expect(afterParent1).toBeGreaterThan(0);
+
+    child.info('child write 1');
+    const afterChild1 = parent._currentSize;
+    expect(afterChild1).toBeGreaterThan(afterParent1);
+
+    parent.info('parent write 2');
+    const afterParent2 = parent._currentSize;
+    expect(afterParent2).toBeGreaterThan(afterChild1);
+
+    // Total bytes on parent matches the sum of all written lines
+    const totalBytes = mockChunkBuffer.reduce((sum, chunk) => sum + Buffer.byteLength(chunk), 0);
+    expect(parent._currentSize).toBe(totalBytes);
+  });
+
+  it('grandchild writes propagate size to the root logger', () => {
+    const root = new Logger({
+      level: 'debug',
+      logDir: '/tmp/logger-tests',
+      logFile: 'torque.log',
+      maxSize: 100000,
+      maxFiles: 3,
+    });
+    const child = root.child({ component: 'child' });
+    const grandchild = child.child({ component: 'grandchild' });
+
+    grandchild.info('deep write');
+
+    const line = mockChunkBuffer[0];
+    expect(root._currentSize).toBe(Buffer.byteLength(line));
   });
 });
 
