@@ -52,7 +52,7 @@ This merges your branch into `main`, holds a TORQUE restart barrier while the qu
         providers/       14 execution providers (Ollama, Codex, Codex-Spark, Claude CLI / Claude-Code-SDK, claude-ollama, cloud APIs)
         plugins/         7 default plugins (snapscope, version-control, remote-agents, model-freshness, auto-recovery-core, codegraph, optional auth)
         tool-defs/       53 tool definition files (JSON Schema)
-        db/              ~60 database modules across db/, db/schema/, db/provider/
+        db/              ~84 database modules across db/, db/factory/, db/file/, db/host/, db/peek/, db/provider/, db/schema/
         execution/       Workflow runtime, queue scheduler, restart barrier
       cli/               CLI client (api-client, commands, formatter)
       bin/               Entry points (torque, torque-remote, torque-coord, torque-push, torque-status)
