@@ -369,6 +369,230 @@ describe('integration/index handlers', () => {
     }));
   });
 
+  it('handleTestIntegration reports failure with ETIMEDOUT on network timeout', async () => {
+    providerRoutingCore.saveIntegrationConfig({
+      id: 'slack-timeout-config',
+      integration_type: 'slack',
+      config: { webhook_url: 'https://hooks.slack.com/services/T222/B222/X222' },
+      enabled: true,
+    });
+
+    const https = require('https');
+    vi.spyOn(https, 'request').mockImplementation((_options, _callback) => {
+      const request = new EventEmitter();
+      request.write = vi.fn();
+      request.end = vi.fn(() => {
+        const err = new Error('connect ETIMEDOUT 1.2.3.4:443');
+        err.code = 'ETIMEDOUT';
+        request.emit('error', err);
+      });
+      return request;
+    });
+
+    const result = await handleTestIntegration({
+      integration_type: 'slack',
+      message: 'timeout test',
+    });
+    const text = getText(result);
+    const testRow = rawDb().prepare('SELECT * FROM integration_tests ORDER BY tested_at DESC LIMIT 1').get();
+
+    expect(result.isError).not.toBe(true);
+    expect(text).toContain('Integration Test: slack');
+    expect(text).toContain('✗ Failed');
+    expect(text).toContain('ETIMEDOUT');
+    expect(testRow).toEqual(expect.objectContaining({
+      integration_type: 'slack',
+      status: 'failed',
+      test_message: 'timeout test',
+    }));
+    expect(testRow.error).toContain('ETIMEDOUT');
+    expect(testRow.latency_ms).toBeGreaterThanOrEqual(0);
+  });
+
+  it('handleTestIntegration reports failure with ECONNREFUSED on connection refused', async () => {
+    providerRoutingCore.saveIntegrationConfig({
+      id: 'slack-connrefused-config',
+      integration_type: 'slack',
+      config: { webhook_url: 'https://hooks.slack.com/services/T333/B333/X333' },
+      enabled: true,
+    });
+
+    const https = require('https');
+    vi.spyOn(https, 'request').mockImplementation((_options, _callback) => {
+      const request = new EventEmitter();
+      request.write = vi.fn();
+      request.end = vi.fn(() => {
+        const err = new Error('connect ECONNREFUSED 127.0.0.1:443');
+        err.code = 'ECONNREFUSED';
+        request.emit('error', err);
+      });
+      return request;
+    });
+
+    const result = await handleTestIntegration({
+      integration_type: 'slack',
+      message: 'connrefused test',
+    });
+    const text = getText(result);
+    const testRow = rawDb().prepare('SELECT * FROM integration_tests ORDER BY tested_at DESC LIMIT 1').get();
+
+    expect(result.isError).not.toBe(true);
+    expect(text).toContain('Integration Test: slack');
+    expect(text).toContain('✗ Failed');
+    expect(text).toContain('ECONNREFUSED');
+    expect(testRow).toEqual(expect.objectContaining({
+      integration_type: 'slack',
+      status: 'failed',
+      test_message: 'connrefused test',
+    }));
+    expect(testRow.error).toContain('ECONNREFUSED');
+  });
+
+  it('handleTestIntegration with invalid integration_type returns validation error', async () => {
+    const result = await handleTestIntegration({
+      integration_type: 'github',
+      message: 'bad type test',
+    });
+    const text = getText(result);
+
+    expect(result.isError).toBe(true);
+    expect(result.error_code).toBe('INVALID_PARAM');
+    expect(text).toContain('integration_type');
+    expect(text).toContain('slack');
+    expect(text).toContain('discord');
+  });
+
+  it('handleTestIntegration with missing webhook_url returns missing param error', async () => {
+    providerRoutingCore.saveIntegrationConfig({
+      id: 'discord-no-webhook',
+      integration_type: 'discord',
+      config: { channel_id: '99999' },
+      enabled: true,
+    });
+
+    const result = await handleTestIntegration({
+      integration_type: 'discord',
+      message: 'no webhook test',
+    });
+    const text = getText(result);
+
+    expect(result.isError).toBe(true);
+    expect(result.error_code).toBe('MISSING_REQUIRED_PARAM');
+    expect(text).toContain('discord');
+    expect(text).toContain('webhook_url');
+  });
+
+  it('handleTestIntegration records discord payload format with content field', async () => {
+    providerRoutingCore.saveIntegrationConfig({
+      id: 'discord-config',
+      integration_type: 'discord',
+      config: { webhook_url: 'https://discord.com/api/webhooks/123/abc' },
+      enabled: true,
+    });
+
+    const https = require('https');
+    let requestBody = '';
+
+    vi.spyOn(https, 'request').mockImplementation((options, callback) => {
+      const response = new EventEmitter();
+      response.statusCode = 204;
+
+      const request = new EventEmitter();
+      request.write = vi.fn((chunk) => {
+        requestBody += chunk;
+      });
+      request.end = vi.fn(() => {
+        callback(response);
+        response.emit('data', '');
+        response.emit('end');
+      });
+
+      expect(options).toEqual(expect.objectContaining({
+        hostname: 'discord.com',
+        method: 'POST',
+        path: '/api/webhooks/123/abc',
+      }));
+
+      return request;
+    });
+
+    const result = await handleTestIntegration({
+      integration_type: 'discord',
+      message: 'Discord ping',
+    });
+    const text = getText(result);
+    const testRow = rawDb().prepare('SELECT * FROM integration_tests ORDER BY tested_at DESC LIMIT 1').get();
+
+    expect(result.isError).not.toBe(true);
+    expect(text).toContain('Integration Test: discord');
+    expect(text).toContain('✓ Success');
+    expect(JSON.parse(requestBody)).toEqual({
+      content: '\uD83E\uDDEA Test: Discord ping',
+    });
+    expect(testRow).toEqual(expect.objectContaining({
+      integration_type: 'discord',
+      status: 'success',
+    }));
+  });
+
+  it('handleTestIntegration with non-2xx HTTP response records failure with status code', async () => {
+    providerRoutingCore.saveIntegrationConfig({
+      id: 'slack-http-err-config',
+      integration_type: 'slack',
+      config: { webhook_url: 'https://hooks.slack.com/services/T444/B444/X444' },
+      enabled: true,
+    });
+
+    const https = require('https');
+    vi.spyOn(https, 'request').mockImplementation((_options, callback) => {
+      const response = new EventEmitter();
+      response.statusCode = 403;
+
+      const request = new EventEmitter();
+      request.write = vi.fn();
+      request.end = vi.fn(() => {
+        callback(response);
+        response.emit('data', 'invalid_token');
+        response.emit('end');
+      });
+
+      return request;
+    });
+
+    const result = await handleTestIntegration({
+      integration_type: 'slack',
+      message: 'http error test',
+    });
+    const text = getText(result);
+    const testRow = rawDb().prepare('SELECT * FROM integration_tests ORDER BY tested_at DESC LIMIT 1').get();
+
+    expect(result.isError).not.toBe(true);
+    expect(text).toContain('Integration Test: slack');
+    expect(text).toContain('✗ Failed');
+    expect(text).toContain('HTTP 403');
+    expect(text).toContain('invalid_token');
+    expect(testRow).toEqual(expect.objectContaining({
+      integration_type: 'slack',
+      status: 'failed',
+      test_message: 'http error test',
+    }));
+    expect(testRow.error).toContain('HTTP 403');
+    expect(testRow.error).toContain('invalid_token');
+  });
+
+  it('handleTestIntegration with unconfigured integration returns not-found error', async () => {
+    const result = await handleTestIntegration({
+      integration_type: 'slack',
+      message: 'no integration configured',
+    });
+    const text = getText(result);
+
+    expect(result.isError).toBe(true);
+    expect(result.error_code).toBe('RESOURCE_NOT_FOUND');
+    expect(text).toContain('slack');
+    expect(text).toContain('not configured or not enabled');
+  });
+
   it('handleTaskChanges shows the tracked diff between the before/after git SHAs', () => {
     initRepo('task-changes-repo');
     writeRepoFile('notes.txt', 'base\n');
