@@ -51,6 +51,8 @@ TORQUE is configured automatically when you open the project in Claude Code:
 | [Safeguards](safeguards.md) | Quality gates, validation, rollback |
 | [Tool Reference](api/tool-reference.md) | Complete reference for all ~590 MCP tools |
 | [Troubleshooting](runbooks/troubleshooting.md) | Common issues and solutions |
+| [Adding a Provider](../../docs/guides/adding-a-provider.md) | Maintainer guide for adding an execution provider |
+| [Adding a Plugin](../../docs/guides/adding-a-plugin.md) | Maintainer guide for adding a plugin |
 
 Maintainers: add or recategorize providers in `server/providers/registry.js`. Plugin contracts are validated in `server/plugins/plugin-contract.js`, and plugin discovery/loading is wired in `server/plugins/loader.js`.
 
