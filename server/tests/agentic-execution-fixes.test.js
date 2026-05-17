@@ -4457,3 +4457,88 @@ describe('executeApiProvider agentic wrapper', () => {
     expect(completedCalls).toHaveLength(0);
   });
 });
+
+describe('executeOllamaTask wrapper contract', () => {
+  it('records agentic metadata in task_metadata via the completion path', async () => {
+    const { mod } = loadSubject();
+    const host = { id: 'host-1', url: 'http://ollama-host:11434' };
+    const task = {
+      id: 'task-ollama-metadata-cleanup',
+      provider: 'ollama',
+      model: TEST_MODELS.DEFAULT,
+      task_description: 'Add error handling to parser module',
+      working_directory: 'C:/repo',
+      timeout_minutes: 1,
+      metadata: {},
+    };
+    const tasks = new Map([[task.id, { ...task, status: 'queued' }]]);
+    const db = {
+      listOllamaHosts: vi.fn(() => [host]),
+      selectOllamaHostForModel: vi.fn(() => ({ host })),
+      tryReserveHostSlot: vi.fn(() => ({ acquired: true })),
+      releaseHostSlot: vi.fn(),
+      decrementHostTasks: vi.fn(),
+      updateTaskStatus: vi.fn((taskId, status, patch = {}) => {
+        const current = tasks.get(taskId) || { id: taskId };
+        const next = { ...current, ...patch, status };
+        tasks.set(taskId, next);
+        return next;
+      }),
+      getTask: vi.fn((taskId) => tasks.get(taskId) || null),
+      getOrCreateTaskStream: vi.fn(() => 'stream-1'),
+      addStreamChunk: vi.fn(),
+    };
+    const safeUpdateTaskStatus = vi.fn((taskId, status, patch = {}) => db.updateTaskStatus(taskId, status, patch));
+    mod.init({
+      db,
+      dashboard: {
+        notifyTaskUpdated: vi.fn(),
+        notifyTaskOutput: vi.fn(),
+      },
+      safeUpdateTaskStatus,
+      processQueue: vi.fn(),
+      handleWorkflowTermination: vi.fn(),
+      apiAbortControllers: new Map(),
+      runningProcesses: Object.assign(new Map(), { stallAttempts: new Map() }),
+    });
+
+    const toolLog = [{ name: 'read_file', error: false }, { name: 'edit_file', error: false }, { name: 'edit_file', error: false }];
+    const tokenUsage = { prompt_tokens: 500, completion_tokens: 200 };
+
+    vi.spyOn(require('worker_threads'), 'Worker').mockImplementation(function MockWorker(_filename, options) {
+      const emitter = new EventEmitter();
+      this.postMessage = vi.fn();
+      this.terminate = vi.fn();
+      this.on = (eventName, handler) => emitter.on(eventName, handler);
+      queueMicrotask(() => emitter.emit('message', {
+        type: 'result',
+        output: 'Added error handling to parser.',
+        toolLog,
+        tokenUsage,
+        changedFiles: ['C:/repo/src/parser.js'],
+        iterations: 3,
+        stopReason: 'model_finished',
+      }));
+    });
+
+    await mod.executeOllamaTask(task);
+
+    // Verify the completion status update includes agentic metadata
+    const completedCall = safeUpdateTaskStatus.mock.calls.find(
+      ([id, status]) => id === task.id && status === 'completed'
+    );
+    expect(completedCall).toBeDefined();
+    const patch = completedCall[2];
+    expect(patch.exit_code).toBe(0);
+    expect(patch.progress_percent).toBe(100);
+    expect(patch.files_modified).toEqual(expect.arrayContaining(['C:/repo/src/parser.js']));
+
+    // task_metadata must contain agentic telemetry fields
+    const metadata = JSON.parse(patch.task_metadata);
+    expect(metadata.agentic_log).toEqual(toolLog);
+    expect(metadata.agentic_token_usage).toEqual(tokenUsage);
+
+    // Finally block must have run cleanup: host slot released, abort controller removed
+    expect(db.releaseHostSlot).toHaveBeenCalledWith('host-1');
+  });
+});
