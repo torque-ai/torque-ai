@@ -201,6 +201,64 @@ describe('validation handler index', () => {
       expect(result.error_code).toBe('INVALID_PARAM');
       expect(getText(result)).toContain('Not a git repository');
     });
+
+    it('rejects missing working_directory parameter', () => {
+      const result = validationModule.handleSetupPrecommitHook({});
+
+      expect(result.isError).toBe(true);
+      expect(result.error_code).toBe('MISSING_REQUIRED_PARAM');
+      expect(getText(result)).toContain('working_directory is required');
+    });
+
+    it('rejects paths containing ".." traversal segments', () => {
+      const result = validationModule.handleSetupPrecommitHook({
+        working_directory: path.join(repoDir, '..', 'evil'),
+      });
+
+      expect(result.isError).toBe(true);
+      expect(result.error_code).toBe('INVALID_PARAM');
+      expect(getText(result)).toContain('must not contain ".." path segments');
+    });
+
+    it('uses default checks (validation, syntax) when no checks arg provided', () => {
+      const result = validationModule.handleSetupPrecommitHook({
+        working_directory: repoDir,
+      });
+
+      expect(result.isError).toBeFalsy();
+      const text = getText(result);
+      expect(text).toContain('Pre-Commit Hook Installed');
+      expect(text).toContain('validation');
+      expect(text).toContain('syntax');
+
+      const configPath = path.join(repoDir, '.git', 'hooks', 'pre-commit.config.json');
+      const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+      expect(config.checks).toEqual(['validation', 'syntax']);
+    });
+
+    it('filters out unknown check names, keeping only valid ones', () => {
+      const result = validationModule.handleSetupPrecommitHook({
+        working_directory: repoDir,
+        checks: ['validation', 'bogus', 'build', 'unknown'],
+      });
+
+      expect(result.isError).toBeFalsy();
+      const configPath = path.join(repoDir, '.git', 'hooks', 'pre-commit.config.json');
+      const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+      expect(config.checks).toEqual(['validation', 'build']);
+    });
+
+    it('deduplicates repeated check names', () => {
+      const result = validationModule.handleSetupPrecommitHook({
+        working_directory: repoDir,
+        checks: ['syntax', 'syntax', 'SYNTAX', 'build'],
+      });
+
+      expect(result.isError).toBeFalsy();
+      const configPath = path.join(repoDir, '.git', 'hooks', 'pre-commit.config.json');
+      const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+      expect(config.checks).toEqual(['syntax', 'build']);
+    });
   });
 
   describe('handleValidateTaskOutput', () => {
@@ -294,6 +352,35 @@ describe('validation handler index', () => {
       const result = validationModule.handlePreviewTaskDiff({ task_id: 'missing-task-id' });
       expect(result.isError).toBe(true);
       expect(result.error_code).toBe('TASK_NOT_FOUND');
+    });
+
+    it('returns error when task_id is missing', () => {
+      const result = validationModule.handlePreviewTaskDiff({});
+      expect(result.isError).toBe(true);
+      expect(result.error_code).toBe('MISSING_REQUIRED_PARAM');
+    });
+
+    it('creates a diff preview from task.output when none exists', () => {
+      const diffContent = '--- a/file.js\n+++ b/file.js\n@@ -1 +1 @@\n-old\n+new\n';
+      const task = createTask({ output: diffContent });
+
+      const result = validationModule.handlePreviewTaskDiff({ task_id: task.id });
+      const text = getText(result);
+
+      expect(result.isError).toBeFalsy();
+      expect(text).toContain(`## Diff Preview for ${task.id}`);
+      expect(text).toContain('```diff');
+      expect(text).toContain(diffContent.trim());
+    });
+
+    it('uses "No diff available" message when task has no output and no prior preview', () => {
+      const task = createTask({ output: null });
+
+      const result = validationModule.handlePreviewTaskDiff({ task_id: task.id });
+      const text = getText(result);
+
+      expect(result.isError).toBeFalsy();
+      expect(text).toContain('No diff available');
     });
   });
 
