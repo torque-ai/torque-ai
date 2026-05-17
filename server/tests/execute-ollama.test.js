@@ -382,7 +382,9 @@ describe('execute-ollama.js', () => {
     });
 
     it('uses pre-routed host when ollama_host_id is set', async () => {
+      // Register the mock as the pre-routed host and a decoy that would fail if hit
       const host = addHost({ url: mockUrl, model: 'codellama:latest' });
+      addHost({ name: 'decoy-host', url: 'http://127.0.0.1:1', model: 'codellama:latest' });
       const safeUpdate = vi.fn();
       const deps = makeDeps({ safeUpdateTaskStatus: safeUpdate });
       mod.init(deps);
@@ -397,6 +399,7 @@ describe('execute-ollama.js', () => {
         working_directory: testDir,
       });
 
+      mockOllama.clearLog();
       await mod.executeOllamaTask({
         id: taskId,
         task_description: 'Pre-routed host test',
@@ -406,9 +409,9 @@ describe('execute-ollama.js', () => {
       });
 
       expect(safeUpdate).toHaveBeenCalledWith(taskId, 'completed', expect.anything());
-      // TODO: verify request was sent to pre-routed host URL
-      // The mock Ollama server does not expose lastRequest or a URL capture mechanism,
-      // so we cannot assert the exact host URL used without refactoring the mock setup.
+      // Verify request was sent to the pre-routed host (the mock), not the decoy
+      const genReqs = mockOllama.requestLog.filter(r => r.url === '/api/generate');
+      expect(genReqs.length).toBeGreaterThanOrEqual(1);
     });
 
     it('persists the resolved model and selected host on running tasks', async () => {
