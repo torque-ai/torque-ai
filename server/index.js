@@ -29,7 +29,26 @@ const ciWatcher = require('./ci/watcher');
 const apiServer = require('./api-server');
 const mcpGateway = require('./mcp');
 // Use dynamic accessors so hot-reload can refresh tools without full restart
+
+/**
+ * Returns the current array of MCP tool definitions.
+ * Uses a dynamic require so that hot-reload can refresh tools without a full server restart.
+ * @returns {Array<Object>} The TOOLS array from `./tools` — each element is a tool definition object with `name`, `description`, and `inputSchema`.
+ * @example
+ * const tools = getTools();
+ * const names = tools.map(t => t.name);
+ */
 function getTools() { return require('./tools').TOOLS; }
+
+/**
+ * Dispatches a tool call by name, delegating to the appropriate handler.
+ * Uses a dynamic require so that hot-reload can pick up handler changes without a full restart.
+ * @param {string} name - The registered tool name (e.g. `'submit_task'`, `'ping'`).
+ * @param {Object} args - The input arguments for the tool, validated against its schema.
+ * @returns {Promise<Object>} The tool call result object (shape varies per tool).
+ * @example
+ * const result = await callTool('ping', {});
+ */
 function callTool(name, args) { return require('./tools').handleToolCall(name, args); }
 const discovery = require('./providers/ollama-mdns-discovery');
 const gpuMetricsServer = require('./scripts/gpu-metrics-server');
@@ -2095,6 +2114,36 @@ function init() {
 }
 
 // Maintenance, coordination, and budget schedulers — extracted to maintenance/scheduler.js
+
+/**
+ * Starts the maintenance scheduler, which runs a 60-second tick handling due maintenance tasks,
+ * disk-space checks, budget alerts, and cron schedule execution, plus a separate slower retention sweep.
+ * Idempotent — safe to call multiple times (clears existing intervals before creating new ones).
+ * @param {Object} [opts={}] - Options object.
+ * @param {Function} [opts.runWorkflow] - Optional workflow runner passed to scheduled-task execution.
+ * @returns {void}
+ */
+
+/**
+ * Starts the coordination scheduler, which manages agent health checks (marking stale agents offline),
+ * distributed-lock expiry cleanup, and periodic agent-load metric recording.
+ * Idempotent — safe to call multiple times.
+ * @returns {void}
+ */
+
+/**
+ * Starts the provider-quota inference timer, which periodically analyzes task completion patterns
+ * to infer provider rate-limit quotas and updates the configuration accordingly.
+ * Idempotent — safe to call multiple times.
+ * @returns {void}
+ */
+
+/**
+ * Returns the list of task statuses eligible for auto-archiving.
+ * Reads from the `auto_archive_status` config key (JSON array or CSV string);
+ * defaults to `['completed', 'failed', 'cancelled']` when unconfigured.
+ * @returns {string[]} Array of task status strings that should be auto-archived.
+ */
 const { startMaintenanceScheduler, startCoordinationScheduler, startProviderQuotaInferenceTimer, getAutoArchiveStatuses } = maintenanceScheduler;
 
 /**
@@ -2419,6 +2468,16 @@ function main() {
   });
 }
 
+/**
+ * Returns the singleton TestRunnerRegistry instance used for routing verify/test commands.
+ * Returns `null` if the server has not yet been initialized via `init()`.
+ * @returns {Object|null} The TestRunnerRegistry instance, or `null` before initialization.
+ * @example
+ * const registry = getTestRunnerRegistry();
+ * if (registry) {
+ *   await registry.runVerifyCommand('npm test', cwd);
+ * }
+ */
 function getTestRunnerRegistry() {
   return testRunnerRegistry;
 }

@@ -56,6 +56,29 @@ TORQUE is configured automatically when you open the project in Claude Code:
 
 Maintainers: add or recategorize providers in `server/providers/registry.js`. Plugin contracts are validated in `server/plugins/plugin-contract.js`, and plugin discovery/loading is wired in `server/plugins/loader.js`.
 
+## Public Export JSDoc Coverage
+
+The following two source files form the documented public-export surface of the TORQUE server runtime:
+
+- `server/index.js` — server lifecycle, tool dispatch, and maintenance scheduling
+- `server/container.js` — DI container module registration and resolution
+
+### Documented functions
+
+| Function | File | Purpose |
+|----------|------|---------|
+| `getTools` | `server/index.js` | Returns the current MCP tool definitions array |
+| `callTool` | `server/index.js` | Dispatches a tool call by name to the appropriate handler |
+| `getTestRunnerRegistry` | `server/index.js` | Returns the singleton test-runner registry instance |
+| `startMaintenanceScheduler` | `server/index.js` | Starts the periodic maintenance job scheduler |
+| `startCoordinationScheduler` | `server/index.js` | Starts the coordination/heartbeat scheduler |
+| `startProviderQuotaInferenceTimer` | `server/index.js` | Starts the provider quota inference polling timer |
+| `getAutoArchiveStatuses` | `server/index.js` | Returns the set of task statuses eligible for auto-archive |
+| `initModules` | `server/container.js` | Initializes all registered DI container modules |
+| `getModule` | `server/container.js` | Resolves a module by name from the DI container |
+
+JSDoc on these functions is authoritative for parameter types, return types, and side-effect documentation.
+
 ## Version
 
 TORQUE v2.0.0 — Node.js 24+ — SQLite (better-sqlite3)
