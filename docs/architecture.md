@@ -18,8 +18,8 @@ How TORQUE works, from request entry to task completion.
 │       └──────────────┼──────────────┘                           │
 │                      ▼                                          │
 │              ┌──────────────┐                                   │
-│              │  tools.js    │  explicit TOOLS list              │
-│              │ 582 built-in │  + enumerated routeMap wiring     │
+│              │  tools.js    │  explicit TOOLS array             │
+│              │ 671 built-in │  + explicit HANDLER_MODULES list  │
 │              └──────┬───────┘                                   │
 │                     │                                           │
 │       ┌─────────────┼─────────────┐                            │
@@ -89,7 +89,7 @@ REST API → route match       → semantic handler         → handleToolCall()
    4. routeMap.get(name) → handler function
 ```
 
-The built-in tool catalog now comes from the explicit `TOOLS` array in `server/tools.js`. Dispatch is wired from the curated `HANDLER_MODULES` list, with `handle*` exports converted via `pascalToSnake()` and additional manual `routeMap.set(...)` registrations for tools that need explicit routing, so new tools must be added to those lists rather than appearing automatically.
+The built-in tool catalog is assembled from an explicit `TOOLS` array of imported definition modules in `server/tools.js` (sourced from `server/tool-defs/`). Dispatch is wired from a curated `HANDLER_MODULES` list — each handler module's `handle*` exports are converted to snake_case tool names via `pascalToSnake()` and registered in the `routeMap`. Additional route aliases are registered via manual `routeMap.set(...)` calls. To add a new tool: (1) create a definition module in `server/tool-defs/`, (2) import it into the `TOOLS` array in `server/tool-metadata.js`, (3) add the handler module to `HANDLER_MODULES` in `server/tools.js`, and (4) optionally register route aliases via `routeMap.set(...)`. Handler exports alone do not automatically expose a tool — both the definition and handler must be explicitly listed.
 
 ---
 
@@ -428,8 +428,8 @@ database.js (facade)
 | MCP stdio entry | `server/index.js` | ~1,300 |
 | MCP SSE entry | `server/mcp-sse.js` | ~1,600 |
 | REST API | `server/api-server.js` | ~2,650 |
-| Tool dispatch | `server/tools.js` | ~820, 582 built-in |
-| Tool definitions | `server/tool-defs/` | 44 files |
+| Tool dispatch | `server/tools.js` | ~820, 671 built-in |
+| Tool definitions | `server/tool-defs/` | 53 files |
 | Handlers | `server/handlers/` | 22 files |
 | Task manager | `server/task-manager.js` | ~2,780 |
 | Provider registry | `server/providers/registry.js` | ~200 |
