@@ -56,6 +56,7 @@ describe('handleAddTsInterfaceMembers', () => {
         { name: 'timeout', type_definition: 'number' },
         { name: 'debug', type_definition: 'boolean' },
       ],
+      working_directory: tmpDir,
     });
 
     expect(result.isError).toBeFalsy();
@@ -70,6 +71,7 @@ describe('handleAddTsInterfaceMembers', () => {
       file_path: path.join(tmpDir, 'nonexistent.ts'),
       interface_name: 'Config',
       members: [{ name: 'a', type_definition: 'string' }],
+      working_directory: tmpDir,
     });
     expect(result.isError).toBe(true);
     expect(result.error_code).toBe('RESOURCE_NOT_FOUND');
@@ -86,6 +88,7 @@ describe('handleAddTsInterfaceMembers', () => {
       file_path: fp,
       interface_name: 'Config',
       members: [{ name: 'timeout', type_definition: 'number' }],
+      working_directory: tmpDir,
     });
 
     expect(result.isError).toBe(true);
@@ -110,6 +113,7 @@ describe('handleAddTsInterfaceMembers', () => {
       file_path: fp,
       interface_name: 'AppEvents',
       members: [{ name: 'hover', payload: { x: 'number', y: 'number' } }],
+      working_directory: tmpDir,
     });
 
     expect(result.isError).toBeFalsy();
@@ -147,6 +151,7 @@ describe('handleInjectClassDependency', () => {
       field_declaration: 'private fooSystem!: FooSystem;',
       initialization: 'this.fooSystem = new FooSystem();',
       getter: '  public getFooSystem(): FooSystem {\n    return this.fooSystem;\n  }',
+      working_directory: tmpDir,
     });
 
     expect(result.isError).toBeFalsy();
@@ -163,6 +168,7 @@ describe('handleInjectClassDependency', () => {
       import_statement: 'import { X } from "./X";',
       field_declaration: 'private x!: X;',
       initialization: 'this.x = new X();',
+      working_directory: tmpDir,
     });
     expect(result.isError).toBe(true);
     expect(result.error_code).toBe('RESOURCE_NOT_FOUND');
@@ -176,6 +182,7 @@ describe('handleInjectClassDependency', () => {
       import_statement: 'import { EventBus } from "./EventBus";',
       field_declaration: 'private eventBus2!: EventBus;',
       initialization: 'this.eventBus2 = new EventBus();',
+      working_directory: tmpDir,
     });
 
     expect(result.isError).toBeFalsy();
@@ -185,6 +192,7 @@ describe('handleInjectClassDependency', () => {
   it('returns error for missing required params', async () => {
     const result = await handlers.handleInjectClassDependency({
       file_path: tmpFile('empty.ts', ''),
+      working_directory: tmpDir,
     });
     expect(result.isError).toBe(true);
     expect(result.error_code).toBe('MISSING_REQUIRED_PARAM');
@@ -209,6 +217,7 @@ describe('handleAddTsUnionMembers', () => {
       file_path: fp,
       type_name: 'NotificationEvent',
       members: ['scroll', 'resize'],
+      working_directory: tmpDir,
     });
 
     expect(result.isError).toBeFalsy();
@@ -223,6 +232,7 @@ describe('handleAddTsUnionMembers', () => {
       file_path: path.join(tmpDir, 'missing.ts'),
       type_name: 'X',
       members: ['a'],
+      working_directory: tmpDir,
     });
     expect(result.isError).toBe(true);
     expect(result.error_code).toBe('RESOURCE_NOT_FOUND');
@@ -235,6 +245,7 @@ describe('handleAddTsUnionMembers', () => {
       file_path: fp,
       type_name: 'NotificationEvent',
       members: ['click'],
+      working_directory: tmpDir,
     });
 
     expect(result.isError).toBe(true);
@@ -260,6 +271,7 @@ describe('handleInjectMethodCalls', () => {
       file_path: fp,
       before_marker: 'this.connected = true;',
       code: '    this.init();\n',
+      working_directory: tmpDir,
     });
 
     expect(result.isError).toBeFalsy();
@@ -277,6 +289,7 @@ describe('handleInjectMethodCalls', () => {
       file_path: fp,
       before_marker: 'nonexistent marker',
       code: 'x();',
+      working_directory: tmpDir,
     });
 
     expect(result.isError).toBe(true);
@@ -311,6 +324,7 @@ describe('handleAddTsEnumMembers', () => {
         { name: 'Pending', value: 'pending' },
         { name: 'Archived', value: 'archived' },
       ],
+      working_directory: tmpDir,
     });
 
     expect(result.isError).toBeFalsy();
@@ -324,6 +338,7 @@ describe('handleAddTsEnumMembers', () => {
       file_path: path.join(tmpDir, 'nope.ts'),
       enum_name: 'Status',
       members: [{ name: 'X', value: 'x' }],
+      working_directory: tmpDir,
     });
     expect(result.isError).toBe(true);
     expect(result.error_code).toBe('RESOURCE_NOT_FOUND');
@@ -336,6 +351,7 @@ describe('handleAddTsEnumMembers', () => {
       file_path: fp,
       enum_name: 'Status',
       members: [{ name: 'Active', value: 'active' }],
+      working_directory: tmpDir,
     });
 
     expect(result.isError).toBe(true);
@@ -362,6 +378,7 @@ describe('handleNormalizeInterfaceFormatting', () => {
       file_path: fp,
       interface_name: 'AppEvents',
       indent: '  ',
+      working_directory: tmpDir,
     });
 
     expect(result.isError).toBeFalsy();
@@ -379,6 +396,7 @@ describe('handleNormalizeInterfaceFormatting', () => {
     const result = await handlers.handleNormalizeInterfaceFormatting({
       file_path: fp,
       interface_name: 'NonExistent',
+      working_directory: tmpDir,
     });
 
     expect(result.isError).toBe(true);
@@ -397,6 +415,7 @@ describe('handleNormalizeInterfaceFormatting', () => {
       file_path: fp,
       interface_name: 'Config',
       indent: '  ',
+      working_directory: tmpDir,
     });
     const first = read(fp);
 
@@ -404,6 +423,7 @@ describe('handleNormalizeInterfaceFormatting', () => {
       file_path: fp,
       interface_name: 'Config',
       indent: '  ',
+      working_directory: tmpDir,
     });
     const second = read(fp);
 
@@ -441,6 +461,7 @@ describe('handleAddTsMethodToClass', () => {
       file_path: fp,
       class_name: 'MyService',
       method_code: 'public newMethod() {\n  return 42;\n}',
+      working_directory: tmpDir,
     });
 
     expect(result.isError).toBeFalsy();
@@ -456,6 +477,7 @@ describe('handleAddTsMethodToClass', () => {
       file_path: fp,
       class_name: 'NoSuchClass',
       method_code: 'public foo() {}',
+      working_directory: tmpDir,
     });
 
     expect(result.isError).toBe(true);
@@ -470,6 +492,7 @@ describe('handleAddTsMethodToClass', () => {
       file_path: fp,
       class_name: 'MyService',
       method_code: 'public getData() {\n  return "new";\n}',
+      working_directory: tmpDir,
     });
 
     expect(result.isError).toBeFalsy();
@@ -504,6 +527,7 @@ describe('handleReplaceTsMethodBody', () => {
       class_name: 'Calculator',
       method_name: 'add',
       new_body: 'console.log("adding");\nreturn a + b + 1;',
+      working_directory: tmpDir,
     });
 
     expect(result.isError).toBeFalsy();
@@ -522,6 +546,7 @@ describe('handleReplaceTsMethodBody', () => {
       class_name: 'Calculator',
       method_name: 'multiply',
       new_body: 'return a * b;',
+      working_directory: tmpDir,
     });
 
     expect(result.isError).toBe(true);
@@ -533,6 +558,7 @@ describe('handleReplaceTsMethodBody', () => {
     const result = await handlers.handleReplaceTsMethodBody({
       file_path: tmpFile('empty.ts', 'export class X {}'),
       class_name: 'X',
+      working_directory: tmpDir,
     });
     expect(result.isError).toBe(true);
     expect(result.error_code).toBe('MISSING_REQUIRED_PARAM');
@@ -558,6 +584,7 @@ describe('handleAddImportStatement', () => {
     const result = await handlers.handleAddImportStatement({
       file_path: fp,
       import_statement: 'import { C } from "./C";',
+      working_directory: tmpDir,
     });
 
     expect(result.isError).toBeFalsy();
@@ -572,6 +599,7 @@ describe('handleAddImportStatement', () => {
     const result = await handlers.handleAddImportStatement({
       file_path: fp,
       import_statement: 'import { A2 } from "./A";',
+      working_directory: tmpDir,
     });
 
     expect(result.isError).toBeFalsy();
@@ -586,6 +614,7 @@ describe('handleAddImportStatement', () => {
     const result = await handlers.handleAddImportStatement({
       file_path: fp,
       import_statement: 'const x = 42;',
+      working_directory: tmpDir,
     });
 
     expect(result.isError).toBe(true);
@@ -596,6 +625,7 @@ describe('handleAddImportStatement', () => {
     const result = await handlers.handleAddImportStatement({
       file_path: path.join(tmpDir, 'nope.ts'),
       import_statement: 'import { X } from "./X";',
+      working_directory: tmpDir,
     });
     expect(result.isError).toBe(true);
     expect(result.error_code).toBe('RESOURCE_NOT_FOUND');

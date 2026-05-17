@@ -50,7 +50,7 @@ function resolveScopedFilePath(args, filePath) {
   }
 
   if (!isPathTraversalSafe(filePath)) {
-    return makeError(ErrorCodes.INVALID_PARAM, 'file_path contains path traversal');
+    return makeError(ErrorCodes.PATH_TRAVERSAL, 'file_path contains path traversal');
   }
 
   const workspaceRoot = resolveWorkspaceRoot(args);
