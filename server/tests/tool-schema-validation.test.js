@@ -10,9 +10,11 @@
  * 1. validateArgsAgainstSchema — required fields, type checks, enum checks
  * 2. Integration — handleToolCall returns errors for invalid args
  * 3. Schema map — all tools with inputSchema are indexed
+ * 4. Schema hash change detection helpers
  */
 
 const { validateArgsAgainstSchema, schemaMap, TOOLS, handleToolCall } = require('../tools');
+const { hashToolSchema, hashAllToolSchemas, detectChangedTools } = require('../mcp/schema-hash');
 
 // ─── validateArgsAgainstSchema unit tests ──────────────────────────────────
 
@@ -457,5 +459,200 @@ describe('handleToolCall schema validation integration', () => {
     expect(result.content[0].text).toContain('must be one of');
     expect(result.content[0].text).toContain('push');
     expect(result.content[0].text).toContain('pull');
+  });
+});
+
+// ─── schema hash functions ──────────────────────────────────────────────────
+
+describe('schema hash functions', () => {
+  describe('hashToolSchema', () => {
+    it('generates stable hashes for equivalent schemas with identical content', () => {
+      const schemaA = {
+        type: 'object',
+        properties: {
+          name: { type: 'string' },
+          count: { type: 'number' },
+        },
+        required: ['name'],
+      };
+      const schemaB = {
+        type: 'object',
+        properties: {
+          name: { type: 'string' },
+          count: { type: 'number' },
+        },
+        required: ['name'],
+      };
+
+      const hashA = hashToolSchema({ name: 'test', inputSchema: schemaA });
+      const hashB = hashToolSchema({ name: 'test', inputSchema: schemaB });
+
+      expect(hashA).toBe(hashB);
+      expect(hashA).toMatch(/^[a-f0-9]{16}$/);
+    });
+
+    it('generates different hashes for different schemas', () => {
+      const stringSchema = {
+        type: 'object',
+        properties: {
+          name: { type: 'string' },
+        },
+        required: ['name'],
+      };
+      const numberSchema = {
+        type: 'object',
+        properties: {
+          name: { type: 'number' },
+        },
+        required: ['name'],
+      };
+
+      expect(hashToolSchema({ name: 'same_tool', inputSchema: stringSchema }))
+        .not.toBe(hashToolSchema({ name: 'same_tool', inputSchema: numberSchema }));
+    });
+
+    it('handles empty schemas as hashable schema content', () => {
+      const emptyHash = hashToolSchema({ name: 'empty', inputSchema: {} });
+
+      expect(emptyHash).toBe(hashToolSchema({ name: 'another_empty', inputSchema: {} }));
+      expect(emptyHash).toMatch(/^[a-f0-9]{16}$/);
+    });
+
+    it('handles null and undefined schemas as empty schema content', () => {
+      const emptyHash = hashToolSchema({ name: 'empty', inputSchema: {} });
+
+      expect(hashToolSchema({ name: 'null_schema', inputSchema: null })).toBe(emptyHash);
+      expect(hashToolSchema({ name: 'undefined_schema', inputSchema: undefined })).toBe(emptyHash);
+      expect(hashToolSchema({ name: 'missing_schema' })).toBe(emptyHash);
+    });
+  });
+
+  describe('hashAllToolSchemas', () => {
+    it('generates named hashes for multiple tools', () => {
+      const tools = [
+        { name: 'tool1', inputSchema: { type: 'object', properties: { a: { type: 'string' } } } },
+        { name: 'tool2', inputSchema: { type: 'object', properties: { b: { type: 'number' } } } },
+        { name: 'tool3', inputSchema: null },
+      ];
+
+      const hashes = hashAllToolSchemas(tools);
+
+      expect(hashes).toEqual({
+        tool1: hashToolSchema(tools[0]),
+        tool2: hashToolSchema(tools[1]),
+        tool3: hashToolSchema(tools[2]),
+      });
+      expect(Object.values(hashes)).toEqual([
+        expect.stringMatching(/^[a-f0-9]{16}$/),
+        expect.stringMatching(/^[a-f0-9]{16}$/),
+        expect.stringMatching(/^[a-f0-9]{16}$/),
+      ]);
+    });
+
+    it('produces consistent results across calls', () => {
+      const tools = [
+        { name: 'tool1', inputSchema: { type: 'object', properties: { a: { type: 'string' } } } },
+        { name: 'tool2', inputSchema: { type: 'object', properties: { b: { type: 'number' } } } },
+      ];
+
+      const hashes1 = hashAllToolSchemas(tools);
+      const hashes2 = hashAllToolSchemas(tools);
+
+      expect(hashes1).toEqual(hashes2);
+    });
+
+    it('handles tools without inputSchema', () => {
+      const tools = [
+        { name: 'tool1', inputSchema: { type: 'object', properties: { a: { type: 'string' } } } },
+        { name: 'tool2' },
+      ];
+
+      const hashes = hashAllToolSchemas(tools);
+
+      expect(Object.keys(hashes)).toEqual(['tool1', 'tool2']);
+      expect(hashes.tool2).toBe(hashToolSchema({ name: 'empty_schema', inputSchema: {} }));
+    });
+  });
+
+  describe('detectChangedTools', () => {
+    it('detects added tools correctly', () => {
+      const previous = { tool1: 'hash1' };
+      const current = { tool1: 'hash1', tool2: 'hash2' };
+
+      const result = detectChangedTools(previous, current);
+
+      expect(result.added).toEqual(['tool2']);
+      expect(result.changed).toEqual([]);
+      expect(result.removed).toEqual([]);
+      expect(result.hasChanges).toBe(true);
+    });
+
+    it('detects changed tools correctly', () => {
+      const previous = { tool1: 'hash1', tool2: 'hash2' };
+      const current = { tool1: 'hash1', tool2: 'hash3' };
+
+      const result = detectChangedTools(previous, current);
+
+      expect(result.added).toEqual([]);
+      expect(result.changed).toEqual(['tool2']);
+      expect(result.removed).toEqual([]);
+      expect(result.hasChanges).toBe(true);
+    });
+
+    it('detects removed tools correctly', () => {
+      const previous = { tool1: 'hash1', tool2: 'hash2' };
+      const current = { tool1: 'hash1' };
+
+      const result = detectChangedTools(previous, current);
+
+      expect(result.added).toEqual([]);
+      expect(result.changed).toEqual([]);
+      expect(result.removed).toEqual(['tool2']);
+      expect(result.hasChanges).toBe(true);
+    });
+
+    it('detects multiple changes correctly', () => {
+      const previous = { tool1: 'hash1', tool2: 'hash2', tool3: 'hash3' };
+      const current = { tool1: 'hash1', tool2: 'hash4', tool4: 'hash5' };
+
+      const result = detectChangedTools(previous, current);
+
+      expect(result.added).toEqual(['tool4']);
+      expect(result.changed).toEqual(['tool2']);
+      expect(result.removed).toEqual(['tool3']);
+      expect(result.hasChanges).toBe(true);
+    });
+
+    it('reports no changes when hashes are identical', () => {
+      const result = detectChangedTools(
+        { tool1: 'hash1', tool2: 'hash2' },
+        { tool1: 'hash1', tool2: 'hash2' }
+      );
+
+      expect(result.added).toEqual([]);
+      expect(result.changed).toEqual([]);
+      expect(result.removed).toEqual([]);
+      expect(result.hasChanges).toBe(false);
+    });
+
+    it('handles empty comparisons correctly', () => {
+      const result1 = detectChangedTools({}, {});
+      expect(result1.added).toEqual([]);
+      expect(result1.changed).toEqual([]);
+      expect(result1.removed).toEqual([]);
+      expect(result1.hasChanges).toBe(false);
+
+      const result2 = detectChangedTools({}, { tool1: 'hash1' });
+      expect(result2.added).toEqual(['tool1']);
+      expect(result2.changed).toEqual([]);
+      expect(result2.removed).toEqual([]);
+      expect(result2.hasChanges).toBe(true);
+
+      const result3 = detectChangedTools({ tool1: 'hash1' }, {});
+      expect(result3.added).toEqual([]);
+      expect(result3.changed).toEqual([]);
+      expect(result3.removed).toEqual(['tool1']);
+      expect(result3.hasChanges).toBe(true);
+    });
   });
 });
