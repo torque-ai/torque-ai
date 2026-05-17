@@ -7,6 +7,13 @@ const DEFAULT_BASELINE_PROBE_TIMEOUT_MINUTES = 60;
 const MAX_BASELINE_PROBE_TIMEOUT_MINUTES = 240;
 const DEFAULT_BASELINE_PROBE_TIMEOUT_MS = DEFAULT_BASELINE_PROBE_TIMEOUT_MINUTES * 60 * 1000;
 
+/**
+ * Normalizes a timeout value in minutes to a valid range.
+ * 
+ * @param {number} timeoutMinutes - The timeout in minutes to normalize
+ * @param {number} fallbackMinutes - The fallback timeout in minutes if input is invalid
+ * @returns {number} The normalized timeout in minutes (clamped between 1 and 240)
+ */
 function normalizeBaselineProbeTimeoutMinutes(timeoutMinutes, fallbackMinutes = DEFAULT_BASELINE_PROBE_TIMEOUT_MINUTES) {
   const fallback = Number.isFinite(Number(fallbackMinutes)) && Number(fallbackMinutes) > 0
     ? Number(fallbackMinutes)
