@@ -257,10 +257,14 @@ function isPathTraversalSafe(filePath, allowedBase = null) {
   }
 
   const lowerNormalized = normalizedSlashes.toLowerCase();
+  // OS-sensitive directories that file tools must never touch. User home
+  // directories are intentionally NOT listed: on Linux the project and test
+  // trees live under them, so blanket-blocking that prefix rejects every
+  // legitimate workspace path. Keep this list to true system locations.
   const dangerousPaths = [
     '/etc', '/root', '/var/log', '/proc', '/sys', '/dev',
     '/windows/system32', '/program files', '/programdata',
-    '/users/administrator', '/boot', '/home'
+    '/users/administrator', '/boot'
   ];
   for (const dangerous of dangerousPaths) {
     if (lowerNormalized.startsWith(dangerous) || lowerNormalized.includes(dangerous + '/')) {
