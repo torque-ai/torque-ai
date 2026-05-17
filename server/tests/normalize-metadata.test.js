@@ -23,6 +23,11 @@ describe('normalizeMetadata', () => {
       expect(normalizeMetadata('')).toEqual({});
     });
 
+    it('returns {} for whitespace-only string', () => {
+      expect(normalizeMetadata('   ')).toEqual({});
+      expect(normalizeMetadata('\n\t\n')).toEqual({});
+    });
+
     it('returns {} for the string "null"', () => {
       // safeJsonParse returns null, which fails the typeof object guard.
       expect(normalizeMetadata('null')).toEqual({});
@@ -44,6 +49,22 @@ describe('normalizeMetadata', () => {
       expect(result.provider_lane_policy).toBe(nested);
     });
 
+    it('copies enumerable own properties from object instances into a plain object', () => {
+      class TaskMetadata {
+        constructor() {
+          this.kind = 'instance';
+          this.factory_internal = true;
+        }
+      }
+
+      const input = new TaskMetadata();
+      const result = normalizeMetadata(input);
+
+      expect(result).toEqual({ kind: 'instance', factory_internal: true });
+      expect(result).not.toBe(input);
+      expect(result).not.toBeInstanceOf(TaskMetadata);
+    });
+
     it('returns {} for an empty object', () => {
       expect(normalizeMetadata({})).toEqual({});
     });
@@ -62,8 +83,17 @@ describe('normalizeMetadata', () => {
       expect(result).toEqual({ factory_internal: true, kind: 'scout' });
     });
 
+    it('parses a JSON object string with surrounding whitespace', () => {
+      const result = normalizeMetadata('\n\t{"kind": "spaced", "priority": 2}  ');
+      expect(result).toEqual({ kind: 'spaced', priority: 2 });
+    });
+
     it('returns {} when the string parses to an array', () => {
       expect(normalizeMetadata('[1, 2, 3]')).toEqual({});
+    });
+
+    it('returns {} when the string parses to an array of objects', () => {
+      expect(normalizeMetadata('[{"kind": "not-metadata"}]')).toEqual({});
     });
 
     it('returns {} when the string parses to a number', () => {
@@ -82,6 +112,10 @@ describe('normalizeMetadata', () => {
 
     it('returns {} for a JSON string that parses to null', () => {
       expect(normalizeMetadata('null')).toEqual({});
+    });
+
+    it('returns {} for a quoted JSON string literal', () => {
+      expect(normalizeMetadata('"metadata"')).toEqual({});
     });
 
     it('parses and clones — the parse result is not the returned object', () => {
