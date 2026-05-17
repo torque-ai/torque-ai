@@ -110,6 +110,7 @@ describe('post-tool hooks', () => {
 
     const result = await safeTool('add_import_statement', {
       file_path: targetFile,
+      working_directory: testDir,
       import_statement: 'import fs from "fs";',
     });
 

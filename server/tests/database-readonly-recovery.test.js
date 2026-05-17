@@ -148,8 +148,9 @@ describe('database SQLITE_READONLY recovery path', () => {
         // The data dir should have moved away from the read-only location
         const resolvedDir = db.getDataDir();
         expect(resolvedDir).not.toBe(readonlyDir);
-        // It should be the tmpdir fallback
-        expect(resolvedDir).toContain(os.tmpdir().replace(/\\/g, '/').split('/')[0] ? '' : '/tmp');
+        // It should be a writable fallback (OS tmpdir or ~/.torque — both are
+        // valid recovery targets; assert writability, not a hard-coded path).
+        expect(() => fs.accessSync(resolvedDir, fs.constants.W_OK)).not.toThrow();
       }
     }
   );

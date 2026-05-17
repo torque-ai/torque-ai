@@ -25,6 +25,12 @@ function makeDeps(overrides = {}) {
     db: {},
     logger: { info() {}, warn() {}, debug() {} },
     factoryHealth: {
+      getProject() {
+        // No operator-pause registry in these unit tests — returning null
+        // makes latestOperatorPausedProject fall back to the passed project,
+        // which has no operator_paused config, so the normal flow runs.
+        return null;
+      },
       updateProject(id, fields) {
         calls.updateProject.push({ id, fields });
         return { id, ...fields };
