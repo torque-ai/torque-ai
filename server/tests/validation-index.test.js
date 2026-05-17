@@ -539,6 +539,44 @@ describe('validation handler index', () => {
       expect(text).toContain('npm run build');
       expect(text).toContain('intentional build failure');
     });
+
+    it('returns error when working_directory is missing', async () => {
+      const result = await validationModule.handleRunBuildCheck({ task_id: 'build-no-dir' });
+
+      expect(result.isError).toBe(true);
+      expect(result.error_code).toBe('MISSING_REQUIRED_PARAM');
+      expect(getText(result)).toContain('working_directory is required');
+    });
+
+    it('reports "not checked" when no build system is detected', async () => {
+      // Create a directory with no package.json, Cargo.toml, go.mod, or *.csproj
+      const emptyDir = path.join(repoDir, 'no-build-system');
+      fs.mkdirSync(emptyDir, { recursive: true });
+      fs.writeFileSync(path.join(emptyDir, 'readme.txt'), 'just a text file\n');
+
+      const result = await validationModule.handleRunBuildCheck({
+        task_id: 'build-no-system',
+        working_directory: emptyDir,
+      });
+      const text = getText(result);
+
+      expect(result.isError).toBeFalsy();
+      expect(text).toContain('Not checked');
+      expect(text).toContain('No build system detected');
+    });
+
+    it('uses "manual" as task_id when none is provided', async () => {
+      const fixtureDir = createBuildFixture('manual-id-fixture', "console.log('ok');\n");
+
+      const result = await validationModule.handleRunBuildCheck({
+        working_directory: fixtureDir,
+      });
+      const text = getText(result);
+
+      // Should succeed without error — the handler defaults task_id to 'manual'
+      expect(result.isError).toBeFalsy();
+      expect(text).toContain('PASSED');
+    });
   });
 
   describe('handleGetBudgetStatus', () => {
@@ -565,6 +603,40 @@ describe('validation handler index', () => {
           period: 'weekly',
         }),
       ]));
+    });
+
+    it('returns zero count and empty budgets array when no budgets are configured', () => {
+      const result = validationModule.handleGetBudgetStatus({});
+
+      expect(result.isError).toBeFalsy();
+      expect(result.structuredData).toEqual({ count: 0, budgets: [] });
+      expect(getText(result)).toContain('"count": 0');
+    });
+
+    it('filters to a specific budget when budget_id is provided', () => {
+      costTracking.setBudget('budget-a', 50, null, 'monthly', 80);
+      costTracking.setBudget('budget-b', 200, 'codex', 'weekly', 90);
+
+      // getBudgetStatus with a specific ID returns a single row (or null)
+      const resultAll = validationModule.handleGetBudgetStatus({});
+      expect(resultAll.structuredData.count).toBe(2);
+
+      // Query with a budget_id that matches one of the inserted budgets
+      const budgetId = resultAll.structuredData.budgets[0].id;
+      const resultFiltered = validationModule.handleGetBudgetStatus({ budget_id: budgetId });
+
+      expect(resultFiltered.isError).toBeFalsy();
+      expect(resultFiltered.structuredData.count).toBe(1);
+      expect(resultFiltered.structuredData.budgets[0].id).toBe(budgetId);
+    });
+
+    it('returns count 0 when budget_id does not match any budget', () => {
+      costTracking.setBudget('budget-exists', 100, null, 'monthly', 80);
+
+      const result = validationModule.handleGetBudgetStatus({ budget_id: 99999 });
+
+      expect(result.isError).toBeFalsy();
+      expect(result.structuredData).toEqual({ count: 0, budgets: [] });
     });
   });
 
