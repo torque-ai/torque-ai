@@ -249,6 +249,82 @@ describe('provider execution attempted-start cleanup', () => {
     expect(updatedTask.mcp_instance_id).toBeNull();
   });
 
+  it('fails task with OOM Protection when model exceeds host memory and cloud fallback declines', async () => {
+    const mod = require('../providers/execute-ollama');
+    const safeUpdateTaskStatus = vi.fn();
+    const tryOllamaCloudFallback = vi.fn(() => false);
+    const tryReserveHostSlotWithFallback = vi.fn();
+    const recordTaskStartedAuditEvent = vi.fn();
+
+    mod.init({
+      db: {
+        listOllamaHosts: vi.fn(() => [{ id: 'host-1', name: 'host-1', url: 'http://127.0.0.1:11434', enabled: 1, status: 'healthy' }]),
+        selectOllamaHostForModel: vi.fn(() => ({
+          host: null,
+          memoryError: true,
+          reason: 'Model requires 48 GB but host-1 only has 8 GB VRAM',
+          suggestedModels: [
+            { name: 'qwen2.5-coder:7b', sizeGb: 4.5 },
+            { name: 'deepseek-coder:6.7b', sizeGb: 3.8 },
+          ],
+        })),
+        selectHostWithModelVariant: vi.fn(() => ({ host: null })),
+        getOllamaHost: vi.fn(() => null),
+        requeueTaskAfterAttemptedStart: vi.fn(),
+        updateTaskStatus: vi.fn(),
+        recordHostModelUsage: vi.fn(),
+        decrementHostTasks: vi.fn(),
+      },
+      dashboard: {
+        notifyTaskUpdated: vi.fn(),
+        notifyTaskOutput: vi.fn(),
+      },
+      safeUpdateTaskStatus,
+      tryReserveHostSlotWithFallback,
+      tryOllamaCloudFallback,
+      isLargeModelBlockedOnHost: vi.fn(() => ({ blocked: false })),
+      buildFileContext: vi.fn().mockResolvedValue(''),
+      processQueue: vi.fn(),
+      recordTaskStartedAuditEvent,
+    });
+
+    const task = {
+      id: 'ollama-oom-task',
+      task_description: 'Test OOM rejection path',
+      provider: 'ollama',
+      model: TEST_MODELS.SMALL,
+      metadata: null,
+      error_output: '',
+    };
+
+    const result = await mod.executeOllamaTask(task);
+
+    // OOM path returns undefined (bare return)
+    expect(result).toBeUndefined();
+
+    // Cloud fallback was attempted with the OOM error message
+    expect(tryOllamaCloudFallback).toHaveBeenCalledWith(
+      task.id,
+      task,
+      expect.stringContaining('OOM Protection')
+    );
+
+    // Since cloud fallback returned false, task was marked failed
+    expect(safeUpdateTaskStatus).toHaveBeenCalledWith(
+      task.id,
+      'failed',
+      expect.objectContaining({
+        error_output: expect.stringMatching(/OOM Protection[\s\S]*Suggested alternatives[\s\S]*qwen2\.5-coder:7b[\s\S]*4\.5 GB[\s\S]*deepseek-coder:6\.7b[\s\S]*3\.8 GB/),
+      })
+    );
+
+    // No host slot was ever reserved — tryReserveHostSlotWithFallback should not have been called
+    expect(tryReserveHostSlotWithFallback).not.toHaveBeenCalled();
+
+    // task_started audit event should NOT fire — execution never began
+    expect(recordTaskStartedAuditEvent).not.toHaveBeenCalled();
+  });
+
   it('does not emit task_started when Ollama unwinds before actual execution begins', async () => {
     const mod = require('../providers/execute-ollama');
     const requeueTaskAfterAttemptedStart = vi.fn();
