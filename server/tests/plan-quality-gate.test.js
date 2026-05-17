@@ -190,6 +190,29 @@ describe('runDeterministicRules — per-task content', () => {
     expect(hardFails.some(f => f.rule === 'task_has_acceptance_criterion' && f.taskNumber === 1)).toBe(true);
   });
 
+  it('rejects standalone read-only tasks before a real edit task', () => {
+    const plan = `## Task 1: Read ollama-tools coverage to identify covered groups
+
+Read \`server/tests/ollama-tools-coverage.test.js\` and identify which TODO coverage entries are already covered. Run npx vitest run server/tests/ollama-tools-coverage.test.js and confirm the suite passes before moving on.
+
+## Task 2: Prune completed Ollama tools coverage TODOs
+
+Edit \`server/tests/TODO-test-coverage.md\` to remove only completed Ollama tools coverage entries backed by the coverage suite. Acceptance criteria: npx vitest run server/tests/ollama-tools-coverage.test.js should pass and the TODO file should still list uncovered work.`;
+    const { hardFails } = runDeterministicRules(plan);
+
+    expect(hardFails.some(f => f.rule === 'task_requires_repository_change' && f.taskNumber === 1)).toBe(true);
+    expect(hardFails.find(f => f.rule === 'task_requires_repository_change' && f.taskNumber === 2)).toBeUndefined();
+  });
+
+  it('allows reading and validation inside the task that edits the repository', () => {
+    const plan = `## Task 1: Prune completed Ollama tools coverage TODOs
+
+Read \`server/tests/ollama-tools-coverage.test.js\`, then edit \`server/tests/TODO-test-coverage.md\` to remove only completed Ollama tools coverage entries backed by the coverage suite. Acceptance criteria: npx vitest run server/tests/ollama-tools-coverage.test.js should pass and the TODO file should still list uncovered work.`;
+    const { hardFails } = runDeterministicRules(plan);
+
+    expect(hardFails.find(f => f.rule === 'task_requires_repository_change')).toBeUndefined();
+  });
+
   it('rejects heavyweight local dotnet validation in task bodies', () => {
     const plan = `## Task 1: Record evidence\n\nUpdate docs/status/evidence.md with the touched files, then run dotnet build example-project.sln and dotnet test example-project.sln --no-build before committing.`;
     const { hardFails } = runDeterministicRules(plan);

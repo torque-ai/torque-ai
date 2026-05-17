@@ -57,6 +57,10 @@ const RULES = {
     severity: 'hard', scope: 'task',
     description: 'Factory plan tasks must not instruct workers to create or switch to another git worktree; factory execution already runs in an isolated worktree.',
   },
+  task_requires_repository_change: {
+    severity: 'hard', scope: 'task',
+    description: 'Every task must include a concrete repository change; read-only, analysis-only, and validation-only tasks must be folded into the task that edits files.',
+  },
   task_edit_targets_exist: {
     severity: 'hard', scope: 'task',
     description: 'Edit-style tasks must target files that already exist in the repository.',
@@ -125,6 +129,8 @@ const NESTED_WORKTREE_SETUP_PATTERNS = [
   },
 ];
 const WORKTREE_SETUP_CRITIQUE_RE = /\b(?:omit(?:s|ted|ting)?|missing|lack(?:s|ed|ing)?|without|does\s+not\s+(?:include|mention|require)|no\s+(?:dedicated\s+)?worktree)\b[\s\S]{0,180}\b(?:worktree|feature\s+branch|branch)\b/i;
+const REPOSITORY_CHANGE_INTENT_RE = /\b(?:add|adjust|change|codify|cover|create|delete|document|edit|extend|fix|implement|introduce|modify|prune|record|refactor|remove|rename|repair|replace|rewrite|update|wire)\b/i;
+const READ_ONLY_TASK_TITLE_RE = /^(?:analy[sz]e|confirm|examine|identify|inspect|investigate|locate|read|research|review|run|search|verify)\b/i;
 const VAGUE_PHRASES = [
   { label: 'appropriately', re: /\bappropriately\b/gi },
   { label: 'as needed', re: /\bas\s+needed\b/gi },
@@ -178,6 +184,19 @@ function findNestedWorktreeSetup(text) {
     }
   }
   return null;
+}
+
+function hasRepositoryChangeIntent(task) {
+  const title = String(task?.title || '').trim();
+  const body = String(task?.body || '').trim();
+  const combined = `${title}\n${body}`;
+  if (!REPOSITORY_CHANGE_INTENT_RE.test(combined)) {
+    return false;
+  }
+  if (!READ_ONLY_TASK_TITLE_RE.test(title)) {
+    return true;
+  }
+  return REPOSITORY_CHANGE_INTENT_RE.test(body);
 }
 
 function findConfigFileTestTargets(text) {
@@ -516,6 +535,14 @@ function runDeterministicRules(planMarkdown, options = {}) {
         rule: 'task_avoids_nested_worktree_setup',
         taskNumber: task.number,
         detail: `Task ${task.number} instructs the worker to create or switch to another git worktree (${nestedWorktreeSetup}). Factory execution already provides the isolated worktree; remove the nested worktree setup.`,
+      });
+    }
+
+    if (!hasRepositoryChangeIntent(task)) {
+      hardFails.push({
+        rule: 'task_requires_repository_change',
+        taskNumber: task.number,
+        detail: `Task ${task.number} has no concrete repository-change instruction. Fold reading, inspection, and validation into the same task that edits or creates repository files.`,
       });
     }
 
