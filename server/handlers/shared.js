@@ -260,7 +260,7 @@ function isPathTraversalSafe(filePath, allowedBase = null) {
   const dangerousPaths = [
     '/etc', '/root', '/var/log', '/proc', '/sys', '/dev',
     '/windows/system32', '/program files', '/programdata',
-    '/users/administrator', '/boot', '/home/root'
+    '/users/administrator', '/boot', '/home'
   ];
   for (const dangerous of dangerousPaths) {
     if (lowerNormalized.startsWith(dangerous) || lowerNormalized.includes(dangerous + '/')) {
@@ -277,6 +277,58 @@ function isPathTraversalSafe(filePath, allowedBase = null) {
     return resolved.startsWith(resolvedBase);
   }
   return true;
+}
+
+/**
+ * Validates that a file path resolves to within at least one of the provided
+ * allowed base directories. Fail-closed: rejects if allowedBases is empty or
+ * not provided.
+ *
+ * @param {string} filePath - The path to validate (absolute or relative).
+ * @param {string[]} allowedBases - Array of absolute directory paths that the
+ *   resolved path must fall within. At least one must match.
+ * @returns {{ valid: boolean, resolved?: string, reason?: string }}
+ */
+function resolveAndValidateWorkspacePath(filePath, allowedBases) {
+  // Fail-closed: reject if no bases provided
+  if (!Array.isArray(allowedBases) || allowedBases.length === 0) {
+    return { valid: false, reason: 'No allowed workspace bases provided (fail-closed)' };
+  }
+
+  if (typeof filePath !== 'string' || filePath.length === 0) {
+    return { valid: false, reason: 'File path must be a non-empty string' };
+  }
+
+  // Run existing traversal safety checks (null bytes, .., dangerous system paths)
+  if (!isPathTraversalSafe(filePath)) {
+    return { valid: false, reason: 'Path failed traversal safety checks' };
+  }
+
+  const resolved = path.resolve(filePath);
+
+  for (const base of allowedBases) {
+    if (typeof base !== 'string' || base.length === 0) {
+      continue;
+    }
+    const resolvedBase = path.resolve(base);
+    // Append path.sep to avoid prefix collisions (e.g., /workspace2 matching /workspace)
+    const baseWithSep = resolvedBase.endsWith(path.sep) ? resolvedBase : resolvedBase + path.sep;
+
+    let isWithin;
+    if (process.platform === 'win32') {
+      isWithin = resolved.toLowerCase() === resolvedBase.toLowerCase() ||
+                 resolved.toLowerCase().startsWith(baseWithSep.toLowerCase());
+    } else {
+      isWithin = resolved === resolvedBase ||
+                 resolved.startsWith(baseWithSep);
+    }
+
+    if (isWithin) {
+      return { valid: true, resolved };
+    }
+  }
+
+  return { valid: false, reason: `Path '${filePath}' resolves outside all allowed workspaces` };
 }
 
 function safeDate(dateStr) {
@@ -973,6 +1025,7 @@ module.exports = {
   safeLimit,
   safeOffset,
   isPathTraversalSafe,
+  resolveAndValidateWorkspacePath,
   safeDate,
   getWorkflowTaskCounts,
   getWorkflowRestartGuardError,
