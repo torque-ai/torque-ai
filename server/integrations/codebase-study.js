@@ -2,11 +2,9 @@
 
 const { STUDY_PROFILE_OVERRIDE_FILE, resolveStudyProfile, getStudyProfileOverridePath, readStudyProfileOverride, createStudyProfileOverrideTemplate, detectStudyProfileSignals } = require('./codebase-study-profiles');
 const { STUDY_EVALUATION_FILE, STUDY_BENCHMARK_FILE, DEFAULT_PROPOSAL_SIGNIFICANCE_LEVEL, DEFAULT_PROPOSAL_MIN_SCORE, normalizeStudyThresholdLevel, evaluateStudyArtifacts, benchmarkStudyArtifacts, buildStudyBootstrapPlan } = require('./codebase-study-engine');
-const symbolIndexer = require('../utils/symbol-indexer');
-const { createScanner } = require('./codebase-study/scan');
+const { createSymbolExtraction } = require('./codebase-study/symbol-extraction');
 const { createEvaluator } = require('./codebase-study/evaluate');
 const { createProposer } = require('./codebase-study/proposal');
-const { createParsers } = require('./codebase-study/parsers');
 const { createProfileManager } = require('./codebase-study/profile');
 const { createFlows } = require('./codebase-study/flows');
 const { createHotspotsAnalyzer } = require('./codebase-study/hotspots');
@@ -88,20 +86,9 @@ function createCodebaseStudy({ db: _db, taskCore, logger, batchSize } = {}) {
   const effectiveBatchSize = Number.isInteger(batchSize) && batchSize > 0
     ? batchSize
     : DEFAULT_LOCAL_BATCH_SIZE;
-  const scanner = createScanner({ symbolIndexer, logger: studyLogger });
   const evaluator = createEvaluator({ db: _db, logger: studyLogger });
   const proposer = createProposer({ taskCore, logger: studyLogger, db: _db });
-  const parsers = createParsers({ logger: studyLogger });
   const profileManager = createProfileManager({ db: _db, logger: studyLogger });
-  const buildModuleEntryMap = parsers.buildModuleEntryMap;
-  const buildModuleExportLookup = parsers.buildModuleExportLookup;
-  const buildInterfaceImplementationMap = parsers.buildInterfaceImplementationMap;
-  const buildServiceRegistrationLookup = parsers.buildServiceRegistrationLookup;
-  const extractCSharpExplicitExports = parsers.extractCSharpExplicitExports;
-  const extractCSharpImplementedInterfaces = parsers.extractCSharpImplementedInterfaces;
-  const extractCSharpReferenceHints = parsers.extractCSharpReferenceHints;
-  const extractServiceRegistrations = parsers.extractServiceRegistrations;
-  const resolveCSharpDependencyCandidates = parsers.resolveCSharpDependencyCandidates;
   let flowDefinitions = null;
   let hotspotsAnalyzer = null;
   let testsIndex = null;
@@ -117,17 +104,7 @@ function createCodebaseStudy({ db: _db, taskCore, logger, batchSize } = {}) {
     GENERATED_STUDY_FILES,
     ALLOWED_EXTENSIONS,
     MAX_RUN_BATCH_COUNT,
-    scanner,
     logger: studyLogger,
-    buildModuleExportLookup,
-    buildModuleEntryMap,
-    buildInterfaceImplementationMap,
-    buildServiceRegistrationLookup,
-    extractCSharpExplicitExports,
-    extractCSharpImplementedInterfaces,
-    extractCSharpReferenceHints,
-    extractServiceRegistrations,
-    resolveCSharpDependencyCandidates,
     toRepoPath,
     uniqueStrings,
     uniquePaths,
@@ -141,10 +118,28 @@ function createCodebaseStudy({ db: _db, taskCore, logger, batchSize } = {}) {
   const loadDeltaChanges = orchestratorHelpers.loadDeltaChanges;
   const mergeUnique = orchestratorHelpers.mergeUnique;
   const buildScanLookup = orchestratorHelpers.buildScanLookup;
-  const enrichModuleEntries = orchestratorHelpers.enrichModuleEntries;
-  const buildModuleEntry = orchestratorHelpers.buildModuleEntry;
-  const formatInlineList = orchestratorHelpers.formatInlineList;
   const formatCodeList = orchestratorHelpers.formatCodeList;
+
+  const symbolExtraction = createSymbolExtraction({
+    logger: studyLogger,
+    toRepoPath,
+    uniqueStrings,
+    uniquePaths,
+    buildScanLookup,
+  });
+  const scanner = symbolExtraction.scanner;
+  const buildModuleEntryMap = symbolExtraction.buildModuleEntryMap;
+  const buildModuleExportLookup = symbolExtraction.buildModuleExportLookup;
+  const buildInterfaceImplementationMap = symbolExtraction.buildInterfaceImplementationMap;
+  const buildServiceRegistrationLookup = symbolExtraction.buildServiceRegistrationLookup;
+  const extractCSharpExplicitExports = symbolExtraction.extractCSharpExplicitExports;
+  const extractCSharpImplementedInterfaces = symbolExtraction.extractCSharpImplementedInterfaces;
+  const extractCSharpReferenceHints = symbolExtraction.extractCSharpReferenceHints;
+  const extractServiceRegistrations = symbolExtraction.extractServiceRegistrations;
+  const resolveCSharpDependencyCandidates = symbolExtraction.resolveCSharpDependencyCandidates;
+  const enrichModuleEntries = symbolExtraction.enrichModuleEntries;
+  const buildModuleEntry = symbolExtraction.buildModuleEntry;
+  const formatInlineList = symbolExtraction.formatInlineList;
   const artifactFiles = createArtifactFiles({
     ensureStudyDocs,
     normalizeModuleIndex,

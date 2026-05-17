@@ -1,6 +1,5 @@
 'use strict';
 
-const fs = require('fs');
 const fsPromises = require('node:fs/promises');
 const path = require('path');
 const { spawnSync } = require('child_process');
@@ -45,7 +44,6 @@ function createNoopLogger() {
 }
 
 function createOrchestratorHelpers(deps = {}) {
-  const scanner = deps.scanner || null;
   const studyLogger = deps.logger || createNoopLogger();
   const toRepoPath = typeof deps.toRepoPath === 'function' ? deps.toRepoPath : defaultToRepoPath;
   const uniqueStrings = typeof deps.uniqueStrings === 'function' ? deps.uniqueStrings : defaultUniqueStrings;
@@ -55,38 +53,6 @@ function createOrchestratorHelpers(deps = {}) {
   const MAX_RUN_BATCH_COUNT = Number.isInteger(deps.MAX_RUN_BATCH_COUNT) && deps.MAX_RUN_BATCH_COUNT > 0
     ? deps.MAX_RUN_BATCH_COUNT
     : Number.MAX_SAFE_INTEGER;
-  const buildModuleExportLookup = typeof deps.buildModuleExportLookup === 'function'
-    ? deps.buildModuleExportLookup
-    : (() => new Map());
-  const buildModuleEntryMap = typeof deps.buildModuleEntryMap === 'function'
-    ? deps.buildModuleEntryMap
-    : (() => new Map());
-  const buildInterfaceImplementationMap = typeof deps.buildInterfaceImplementationMap === 'function'
-    ? deps.buildInterfaceImplementationMap
-    : (() => new Map());
-  const buildServiceRegistrationLookup = typeof deps.buildServiceRegistrationLookup === 'function'
-    ? deps.buildServiceRegistrationLookup
-    : (() => new Map());
-  const extractCSharpExplicitExports = typeof deps.extractCSharpExplicitExports === 'function'
-    ? deps.extractCSharpExplicitExports
-    : (() => []);
-  const extractCSharpImplementedInterfaces = typeof deps.extractCSharpImplementedInterfaces === 'function'
-    ? deps.extractCSharpImplementedInterfaces
-    : (() => []);
-  const extractCSharpReferenceHints = typeof deps.extractCSharpReferenceHints === 'function'
-    ? deps.extractCSharpReferenceHints
-    : (() => ({
-        namespaceName: null,
-        usingNamespaces: [],
-        dependencyTokens: [],
-        constructorInjectedTokens: [],
-      }));
-  const extractServiceRegistrations = typeof deps.extractServiceRegistrations === 'function'
-    ? deps.extractServiceRegistrations
-    : (() => []);
-  const resolveCSharpDependencyCandidates = typeof deps.resolveCSharpDependencyCandidates === 'function'
-    ? deps.resolveCSharpDependencyCandidates
-    : (() => []);
 
   function isStudyCandidate(filePath) {
     const normalized = toRepoPath(filePath);
@@ -259,192 +225,12 @@ function createOrchestratorHelpers(deps = {}) {
     };
   }
 
-  async function hydrateCSharpModuleEntries(entries, workingDirectory) {
-    const hydratedEntries = [];
-
-    for (const rawEntry of Array.isArray(entries) ? entries : []) {
-      const entry = rawEntry && typeof rawEntry === 'object' ? { ...rawEntry } : rawEntry;
-      const extension = entry?._extension || path.extname(entry?.file || '').toLowerCase();
-      if (!entry || extension !== '.cs') {
-        hydratedEntries.push(entry);
-        continue;
-      }
-
-      let content = typeof entry._content === 'string' ? entry._content : null;
-      if (content === null && workingDirectory && entry.file) {
-        const fullPath = path.join(workingDirectory, entry.file);
-        if (fs.existsSync(fullPath)) {
-          content = await fsPromises.readFile(fullPath, 'utf8');
-        }
-      }
-
-      if (typeof content !== 'string') {
-        hydratedEntries.push({
-          ...entry,
-          _extension: extension,
-        });
-        continue;
-      }
-
-      const cSharpHints = extractCSharpReferenceHints(content, entry.file);
-      hydratedEntries.push({
-        ...entry,
-        exports: uniqueStrings([...(entry.exports || []), ...extractCSharpExplicitExports(content)]),
-        _content: content,
-        _extension: extension,
-        _namespace: cSharpHints.namespaceName || entry._namespace || null,
-        _using_namespaces: uniqueStrings([...(entry._using_namespaces || []), ...(cSharpHints.usingNamespaces || [])]),
-        _dependency_tokens: uniqueStrings([...(entry._dependency_tokens || []), ...(cSharpHints.dependencyTokens || [])]),
-        _constructor_dependency_tokens: uniqueStrings([
-          ...(entry._constructor_dependency_tokens || []),
-          ...(cSharpHints.constructorInjectedTokens || []),
-        ]),
-        _implemented_interfaces: uniqueStrings([
-          ...(entry._implemented_interfaces || []),
-          ...extractCSharpImplementedInterfaces(content),
-        ]),
-        _service_registrations: extractServiceRegistrations(content),
-      });
-    }
-
-    return hydratedEntries;
-  }
-
-  async function enrichModuleEntries(entries, workingDirectory) {
-    const normalizedEntries = Array.isArray(entries) ? entries.slice() : [];
-    const hydratedEntries = await hydrateCSharpModuleEntries(normalizedEntries, workingDirectory);
-    const exportLookup = buildModuleExportLookup(hydratedEntries);
-    const entryLookup = buildModuleEntryMap(hydratedEntries);
-    const interfaceImplementationMap = buildInterfaceImplementationMap(hydratedEntries);
-    const serviceRegistrationLookup = buildServiceRegistrationLookup(hydratedEntries);
-
-    return hydratedEntries.map((entry) => {
-      const extension = entry._extension || path.extname(entry.file).toLowerCase();
-      const inferredDeps = extension === '.cs'
-        ? resolveCSharpDependencyCandidates(entry, exportLookup, {
-          entryLookup,
-          interfaceImplementationMap,
-          serviceRegistrationLookup,
-        })
-        : [];
-      const deps = uniquePaths([...(entry.deps || []), ...inferredDeps]);
-      const exports = uniqueStrings(entry.exports || []);
-      return {
-        ...entry,
-        exports,
-        deps,
-        purpose: buildPurpose(entry.file, { exports, deps }),
-      };
-    });
-  }
-
-  function getRoleLabel(repoPath, extension) {
-    const normalized = toRepoPath(repoPath);
-    if (normalized.startsWith('.claude-plugin/')) return 'Claude plugin module';
-    if (normalized.startsWith('agent/tests/') || /\.test\.[^.]+$/.test(path.basename(normalized))) return 'Test module';
-    if (normalized.startsWith('agent/')) return 'Agent module';
-    if (normalized.startsWith('bin/') || normalized.startsWith('cli/')) return 'CLI module';
-    if (normalized.startsWith('dashboard/')) return 'Dashboard module';
-    if (normalized.startsWith('server/tests/')) return 'Server test module';
-    if (normalized.startsWith('server/')) return 'Server module';
-    if (normalized.startsWith('scripts/')) return 'Automation script';
-    if (extension === '.cs') {
-      if (/program\.cs$/i.test(normalized)) return 'C# startup module';
-      if (/app\.xaml\.cs$/i.test(normalized)) return 'Desktop startup module';
-      return 'C# module';
-    }
-    if (extension === '.py') {
-      if (/(^|\/)__main__\.py$/i.test(normalized) || /(?:^|\/)(cli|server|main)\.py$/i.test(normalized)) {
-        return 'Python entrypoint module';
-      }
-      return normalized.startsWith('tools/') ? 'Python automation module' : 'Python module';
-    }
-    if (extension === '.json') return 'JSON data/config file';
-    return 'Project module';
-  }
-
   function formatInlineList(values) {
     const items = (values || []).filter(Boolean);
     if (items.length === 0) return '';
     if (items.length === 1) return items[0];
     if (items.length === 2) return `${items[0]} and ${items[1]}`;
     return `${items.slice(0, -1).join(', ')}, and ${items[items.length - 1]}`;
-  }
-
-  function summarizePlainList(values, maxItems = 3) {
-    const items = uniqueStrings(values).slice(0, maxItems);
-    return items.length === 0 ? '' : formatInlineList(items);
-  }
-
-  function buildPurpose(repoPath, details) {
-    const extension = path.extname(repoPath).toLowerCase();
-    const roleLabel = getRoleLabel(repoPath, extension);
-    const exportSummary = summarizePlainList(details.exports, 3);
-    const dependencySummary = summarizePlainList(details.deps, 3);
-
-    if (extension === '.json') {
-      return exportSummary ? `${roleLabel} exposing ${exportSummary}.` : `${roleLabel}.`;
-    }
-    if (roleLabel === 'Test module' || roleLabel === 'Server test module') {
-      if (dependencySummary) return `${roleLabel} covering ${dependencySummary}.`;
-      if (exportSummary) return `${roleLabel} exporting ${exportSummary}.`;
-      return `${roleLabel}.`;
-    }
-    if (exportSummary && dependencySummary) return `${roleLabel} exporting ${exportSummary} and depending on ${dependencySummary}.`;
-    if (exportSummary) return `${roleLabel} exporting ${exportSummary}.`;
-    if (dependencySummary) return `${roleLabel} depending on ${dependencySummary}.`;
-    return `${roleLabel}.`;
-  }
-
-  async function buildModuleEntry(workingDirectory, repoPath, scanLookup = null) {
-    const fullPath = path.join(workingDirectory, repoPath);
-    if (!fs.existsSync(fullPath)) return null;
-
-    const extension = path.extname(repoPath).toLowerCase();
-    const scannedFile = scanLookup?.scannedFiles?.has(repoPath) === true;
-    const scannedSymbolsEntry = scanLookup?.symbolLookup?.get(repoPath) || null;
-    const scannedImportEntry = scanLookup?.importLookup?.get(repoPath) || null;
-    const fallbackScanLookup = scannedFile || !scanner
-      ? null
-      : buildScanLookup(await scanner.scanRepo(workingDirectory, { files: [repoPath] }));
-    const hasScanData = scannedFile || fallbackScanLookup?.scannedFiles?.has(repoPath) === true;
-    const symbolsEntry = scannedSymbolsEntry || fallbackScanLookup?.symbolLookup?.get(repoPath) || null;
-    const importEntry = scannedImportEntry || fallbackScanLookup?.importLookup?.get(repoPath) || null;
-    const needsContent = extension === '.cs' || !hasScanData;
-    const content = needsContent ? await fsPromises.readFile(fullPath, 'utf8') : null;
-    const symbols = Array.isArray(symbolsEntry?.symbols) ? symbolsEntry.symbols : [];
-    const cSharpHints = extension === '.cs'
-      ? extractCSharpReferenceHints(content, repoPath)
-      : {
-        namespaceName: null,
-        usingNamespaces: [],
-        dependencyTokens: [],
-        constructorInjectedTokens: [],
-      };
-    const symbolExports = symbols
-      .filter(symbol => symbol && symbol.exported && typeof symbol.name === 'string' && !(extension === '.cs' && symbol.kind === 'method'))
-      .map(symbol => symbol.name);
-    const explicitExports = Array.isArray(symbolsEntry?.exports) ? uniqueStrings(symbolsEntry.exports) : [];
-    const dependencies = Array.isArray(importEntry?.imports) ? uniquePaths(importEntry.imports) : [];
-    const exportsList = uniqueStrings([...symbolExports, ...explicitExports]);
-
-    return {
-      file: repoPath,
-      purpose: buildPurpose(repoPath, {
-        exports: exportsList,
-        deps: dependencies,
-      }),
-      exports: exportsList,
-      deps: dependencies,
-      _extension: extension,
-      _namespace: cSharpHints.namespaceName,
-      _using_namespaces: uniqueStrings(cSharpHints.usingNamespaces || []),
-      _dependency_tokens: uniqueStrings(cSharpHints.dependencyTokens || []),
-      _constructor_dependency_tokens: uniqueStrings(cSharpHints.constructorInjectedTokens || []),
-      _implemented_interfaces: extension === '.cs' ? extractCSharpImplementedInterfaces(content) : [],
-      _service_registrations: extension === '.cs' ? extractServiceRegistrations(content) : [],
-      _content: extension === '.cs' ? content : null,
-    };
   }
 
   function formatCodeList(values, maxItems = 3) {
@@ -467,12 +253,6 @@ function createOrchestratorHelpers(deps = {}) {
     loadDeltaChanges,
     mergeUnique,
     buildScanLookup,
-    hydrateCSharpModuleEntries,
-    enrichModuleEntries,
-    getRoleLabel,
-    summarizePlainList,
-    buildPurpose,
-    buildModuleEntry,
     formatInlineList,
     formatCodeList,
   };
