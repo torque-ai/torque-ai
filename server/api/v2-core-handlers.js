@@ -221,9 +221,12 @@ const SECURITY_HEADERS = {
   'X-XSS-Protection': '1; mode=block',
 };
 const dashboardPort = serverConfig.getInt('dashboard_port', 3456);
+const apiPort = serverConfig.getInt('api_port', 3457);
 const ALLOWED_ORIGINS = new Set([
   `http://127.0.0.1:${dashboardPort}`,
   `http://localhost:${dashboardPort}`,
+  `http://127.0.0.1:${apiPort}`,
+  `http://localhost:${apiPort}`,
 ]);
 
 function sendV2SseHeaders(res, req = null) {
