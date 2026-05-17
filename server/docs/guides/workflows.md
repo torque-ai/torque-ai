@@ -168,7 +168,7 @@ Cancels all running and queued tasks in the workflow.
 
     pause_workflow { workflow_id: "<workflow-id>" }
 
-Pauses all running tasks. Workflows cannot be resumed mid-run; if you cancel work with `cancel_task` or `cancel_workflow`, re-submit the cancelled tasks with `submit_task` or `smart_submit_task`.
+Pauses all running tasks. To resume a paused or stuck workflow, use `resume_workflow` — it re-evaluates the DAG, unblocking tasks whose dependencies are now satisfied. See [Resume / replay](#resume--replay) below for details.
 
 ## Workflow Templates
 
