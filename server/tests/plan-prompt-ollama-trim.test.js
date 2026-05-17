@@ -110,7 +110,9 @@ describe('Phase G: ollama-friendly architect prompt', () => {
     expect(out).toContain('`simtests/Foo.cs`');
     expect(out).toContain('A test work item description.');
     expect(out).toContain('Use `## Task N:` headings');
-    expect(out).toContain('Do not create analysis-only tasks');
+    // The scope rule expanded to "...analysis-only, read-only, search-only,
+    // or validation-only tasks" — match the stable prefix.
+    expect(out).toContain('Do not create analysis-only');
     expect(out).toContain('Do not include commit steps');
     expect(out).not.toContain('git commit -m');
   });
