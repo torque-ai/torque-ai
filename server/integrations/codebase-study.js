@@ -18,6 +18,7 @@ const { createProposals } = require('./codebase-study/proposals');
 const { createOrchestratorHelpers } = require('./codebase-study/orchestrator-helpers');
 const { createArtifactFiles } = require('./codebase-study/artifact-files');
 const { createRepoScanner } = require('./codebase-study/repo-scanner');
+const { createEvaluation } = require('./codebase-study/evaluation');
 const {
   STUDY_DIR,
   STATE_FILE,
@@ -345,7 +346,34 @@ function createCodebaseStudy({ db: _db, taskCore, logger, batchSize } = {}) {
     DEFAULT_PROPOSAL_MIN_SCORE,
   });
   const updateStudyDocs = repoScanner.updateStudyDocs;
-  const benchmarkStudy = repoScanner.benchmarkStudy;
+
+  const evaluation = createEvaluation({
+    // Services
+    evaluator,
+
+    // Sub-modules
+    artifactFiles,
+    summaryModule: summary,
+
+    // Engine functions
+    evaluateStudyArtifacts,
+    benchmarkStudyArtifacts,
+
+    // State-docs functions
+    resolveWorkingDirectory,
+    readStudyState,
+    writeStudyState,
+    readJsonIfPresent,
+    normalizeState,
+
+    // Utility
+    safeHeadSha,
+
+    // Constants
+    STUDY_EVALUATION_FILE,
+    STUDY_BENCHMARK_FILE_LOCAL,
+  });
+  const benchmarkStudy = evaluation.benchmarkStudy;
 
   const flows = createFlows({
     db: _db,
@@ -396,7 +424,7 @@ function createCodebaseStudy({ db: _db, taskCore, logger, batchSize } = {}) {
   return {
     runStudyCycle: flows.runStudyCycle,
     getStudyStatus: repoScanner.getStudyStatus,
-    evaluateStudy: repoScanner.evaluateStudy,
+    evaluateStudy: evaluation.evaluateStudy,
     benchmarkStudy,
     getStudyProfileOverrideStatus: (workingDirectory) => profileManager.getOverrideStatus(workingDirectory),
     saveStudyProfileOverride: (workingDirectory, overrideValue, options = {}) => (
