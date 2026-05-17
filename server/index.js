@@ -2114,6 +2114,36 @@ function init() {
 }
 
 // Maintenance, coordination, and budget schedulers — extracted to maintenance/scheduler.js
+
+/**
+ * Starts the maintenance scheduler, which runs a 60-second tick handling due maintenance tasks,
+ * disk-space checks, budget alerts, and cron schedule execution, plus a separate slower retention sweep.
+ * Idempotent — safe to call multiple times (clears existing intervals before creating new ones).
+ * @param {Object} [opts={}] - Options object.
+ * @param {Function} [opts.runWorkflow] - Optional workflow runner passed to scheduled-task execution.
+ * @returns {void}
+ */
+
+/**
+ * Starts the coordination scheduler, which manages agent health checks (marking stale agents offline),
+ * distributed-lock expiry cleanup, and periodic agent-load metric recording.
+ * Idempotent — safe to call multiple times.
+ * @returns {void}
+ */
+
+/**
+ * Starts the provider-quota inference timer, which periodically analyzes task completion patterns
+ * to infer provider rate-limit quotas and updates the configuration accordingly.
+ * Idempotent — safe to call multiple times.
+ * @returns {void}
+ */
+
+/**
+ * Returns the list of task statuses eligible for auto-archiving.
+ * Reads from the `auto_archive_status` config key (JSON array or CSV string);
+ * defaults to `['completed', 'failed', 'cancelled']` when unconfigured.
+ * @returns {string[]} Array of task status strings that should be auto-archived.
+ */
 const { startMaintenanceScheduler, startCoordinationScheduler, startProviderQuotaInferenceTimer, getAutoArchiveStatuses } = maintenanceScheduler;
 
 /**
