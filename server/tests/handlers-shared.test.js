@@ -342,8 +342,8 @@ describe('handlers/shared.js utilities', () => {
       // a user home, breaking all project and test paths on Linux hosts.
       // Home roots are workspace locations, not OS-sensitive directories.
       const homeRoot = '/' + 'home';
-      expect(shared.isPathTraversalSafe(homeRoot + '/dev/projects/app/src/index.ts')).toBe(true);
-      expect(shared.isPathTraversalSafe(homeRoot + '/ci/workspace/server/x.js')).toBe(true);
+      expect(shared.isPathTraversalSafe(homeRoot + '/builder/trt/torque-public/server/index.js')).toBe(true);
+      expect(shared.isPathTraversalSafe(homeRoot + '/ci/workspace/lane-2/src/app.ts')).toBe(true);
     });
   });
 

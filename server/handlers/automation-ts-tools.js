@@ -70,7 +70,10 @@ function resolveScopedFilePath(args, filePath) {
   // Use workspace-bounded validation from shared.js
   const validation = resolveAndValidateWorkspacePath(resolvedPath, [workspaceRoot]);
   if (!validation.valid) {
-    return makeError(ErrorCodes.PATH_TRAVERSAL, validation.reason || 'file_path is outside workspace root');
+    // Surface a parameter-named message (matches hashline-handlers.js and the
+    // path-scoping tests). validation.reason is always set when invalid, so a
+    // `reason || fallback` ordering would never reach the intended message.
+    return makeError(ErrorCodes.PATH_TRAVERSAL, 'file_path is outside workspace root');
   }
 
   return validation.resolved;
