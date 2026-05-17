@@ -156,10 +156,10 @@ function parseConfiguredPositiveInt(value) {
 }
 
 function getV2ProviderDefaultTimeoutMs(providerId) {
-  const timeoutSeconds = PROVIDER_DEFAULT_TIMEOUTS[providerId];
-  const safeSeconds = Number(timeoutSeconds);
-  if (Number.isFinite(safeSeconds) && safeSeconds > 0) {
-    return safeSeconds * 1000;
+  const timeoutMinutes = PROVIDER_DEFAULT_TIMEOUTS[providerId];
+  const safeMinutes = Number(timeoutMinutes);
+  if (Number.isFinite(safeMinutes) && safeMinutes > 0) {
+    return safeMinutes * 60 * 1000;
   }
   return 30000;
 }
