@@ -120,6 +120,8 @@ TORQUE also has a REST API on port 3457 and a direct CLI (`torque-cli`) for scri
 
 - [CLAUDE.md](CLAUDE.md) — Full reference for MCP tools, providers, workflows, and configuration
 - [CONTRIBUTING.md](CONTRIBUTING.md) — Development setup, code style, and PR process
+- [Adding a Provider](docs/guides/adding-a-provider.md) — Maintainer guide for adding a new execution provider
+- [Adding a Plugin](docs/guides/adding-a-plugin.md) — Maintainer guide for adding a new plugin
 
 Maintainers: add or recategorize providers in `server/providers/registry.js`. Plugin contracts are validated in `server/plugins/plugin-contract.js`, and plugin discovery/loading is wired in `server/plugins/loader.js`.
 
