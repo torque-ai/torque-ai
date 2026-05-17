@@ -38,6 +38,16 @@ function expectInvalidParam(result) {
   expect(getText(result).toLowerCase()).toContain('path traversal');
 }
 
+// The automation-ts-tools handlers report path-traversal rejections with the
+// dedicated PATH_TRAVERSAL error code (factory-2299 workspace-scoping batch),
+// consistent with task/project.js and integration/index.js. Other handlers in
+// this file still use the generic INVALID_PARAM code.
+function expectPathTraversal(result) {
+  expect(result.isError).toBe(true);
+  expect(result.error_code).toBe('PATH_TRAVERSAL');
+  expect(getText(result).toLowerCase()).toContain('path traversal');
+}
+
 describe('Path traversal hardening', () => {
   beforeAll(() => {
     const env = setupTestDbOnly('p0-path-traversal');
@@ -69,7 +79,7 @@ describe('Path traversal hardening', () => {
         interface_name: 'Config',
         members: [{ name: 'foo', type_definition: 'string' }],
       });
-      expectInvalidParam(result);
+      expectPathTraversal(result);
     });
 
     it('rejects Windows traversal in handleInjectClassDependency', async () => {
@@ -79,7 +89,7 @@ describe('Path traversal hardening', () => {
         field_declaration: 'private foo!: Foo;',
         initialization: 'this.foo = new Foo();',
       });
-      expectInvalidParam(result);
+      expectPathTraversal(result);
     });
 
     it('rejects null-byte file path in handleAddTsUnionMembers', async () => {
@@ -88,7 +98,7 @@ describe('Path traversal hardening', () => {
         type_name: 'EventType',
         members: ['test_event'],
       });
-      expectInvalidParam(result);
+      expectPathTraversal(result);
     });
 
     it('rejects path traversal in handleAddTsEnumMembers', async () => {
@@ -97,7 +107,7 @@ describe('Path traversal hardening', () => {
         enum_name: 'EventState',
         members: [{ name: 'bad', value: 1 }],
       });
-      expectInvalidParam(result);
+      expectPathTraversal(result);
     });
 
     it('rejects traversal in handleNormalizeInterfaceFormatting', async () => {
@@ -105,7 +115,7 @@ describe('Path traversal hardening', () => {
         file_path: '../../../etc/passwd',
         interface_name: 'Config',
       });
-      expectInvalidParam(result);
+      expectPathTraversal(result);
     });
 
     it('rejects traversal in handleAddTsMethodToClass', async () => {
@@ -114,7 +124,7 @@ describe('Path traversal hardening', () => {
         class_name: 'AppService',
         method_code: 'public test() {}',
       });
-      expectInvalidParam(result);
+      expectPathTraversal(result);
     });
 
     it('rejects traversal in handleReplaceTsMethodBody', async () => {
@@ -124,7 +134,7 @@ describe('Path traversal hardening', () => {
         method_name: 'setup',
         new_body: 'console.log("ok");',
       });
-      expectInvalidParam(result);
+      expectPathTraversal(result);
     });
 
     it('rejects path traversal in handleAddImportStatement', async () => {
@@ -132,7 +142,7 @@ describe('Path traversal hardening', () => {
         file_path: '../../../etc/passwd',
         import_statement: 'import { Foo } from "./Foo";',
       });
-      expectInvalidParam(result);
+      expectPathTraversal(result);
     });
 
   });

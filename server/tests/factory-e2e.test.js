@@ -221,8 +221,9 @@ describe('factory end-to-end flow', () => {
     await handlers.handlePauseProject({ project: projectId });
     expect(factoryHealth.getProject(projectId).status).toBe('paused');
 
-    // Resume
-    await handlers.handleResumeProject({ project: projectId });
+    // Resume — handlePauseProject records an operator-pause intent, so an
+    // explicit clear_operator_pause is required to resume the project.
+    await handlers.handleResumeProject({ project: projectId, clear_operator_pause: true });
     expect(factoryHealth.getProject(projectId).status).toBe('running');
 
     // Trust level

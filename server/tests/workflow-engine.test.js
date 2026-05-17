@@ -202,8 +202,13 @@ describe('Workflow Engine Module', () => {
       workflowEngine.updateWorkflow(completed.id, { status: 'completed' });
 
       const list = workflowEngine.listWorkflows({ status: ['running', 'paused'] });
-      expect(list.map(w => w.id).sort()).toEqual([paused.id, running.id].sort());
-      expect(list.map(w => w.id)).not.toContain(completed.id);
+      const listIds = list.map(w => w.id);
+      // Assert this test's workflows are filtered correctly without assuming
+      // the shared test DB holds no other running/paused workflows.
+      expect(listIds).toContain(running.id);
+      expect(listIds).toContain(paused.id);
+      expect(listIds).not.toContain(completed.id);
+      expect(list.every(w => ['running', 'paused'].includes(w.status))).toBe(true);
     });
 
     it('returns no workflows for an empty status list', () => {
