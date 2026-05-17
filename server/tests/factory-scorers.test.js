@@ -308,6 +308,301 @@ describe('user_facing scorer', () => {
   });
 });
 
+describe('dependency_health scorer', () => {
+  const depHealthScorer = require('../factory/scorers/dependency-health');
+
+  function createFindingsDir(markdownContent) {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'torque-dep-health-'));
+    fs.writeFileSync(path.join(dir, 'dependency-scout-findings.md'), markdownContent);
+    return dir;
+  }
+
+  test('scores realistic outdated dependencies with mixed severities', () => {
+    const dir = createFindingsDir(`
+### [Critical] Dependency \`lodash\` has known prototype pollution CVE-2021-23337
+- File: package.json
+- Description: lodash 4.17.15 is vulnerable
+
+### [High] Dependency \`express\` is 3 major versions behind
+- File: package.json
+- Description: express 4.x should be upgraded to 5.x
+
+### [Medium] Dependency \`uuid\` is 1 minor version behind
+- File: package.json
+- Description: uuid 9.0.0 available, using 8.3.2
+
+### [Low] Dependency \`chalk\` has newer major version
+- File: package.json
+- Description: chalk 6.x available
+`);
+
+    try {
+      const result = depHealthScorer.score('/fake', {}, dir);
+      // 100 - 20 (critical) - 10 (high) - 3 (medium) - 3 (low) = 64
+      expect(result.score).toBe(64);
+      expect(result.details.source).toBe('scout_findings');
+      expect(result.details.openFindings).toBe(4);
+      expect(result.findings).toHaveLength(4);
+      expect(result.findings[0].severity).toBe('critical');
+      expect(result.findings[0].file).toBe('package.json');
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('returns perfect score when all findings are resolved', () => {
+    const dir = createFindingsDir(`
+### [Critical] Dependency \`lodash\` has known CVE
+- File: package.json
+- Status: RESOLVED
+
+### [High] Dependency \`express\` is outdated
+- File: package.json
+- Status: RESOLVED
+`);
+
+    try {
+      const result = depHealthScorer.score('/fake', {}, dir);
+      expect(result.score).toBe(100);
+      expect(result.details.openFindings).toBe(0);
+      expect(result.findings).toHaveLength(0);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('returns fallback score of 50 when no findings directory exists', () => {
+    const result = depHealthScorer.score('/fake', {}, null);
+    expect(result.score).toBe(50);
+    expect(result.details.source).toBe('no_findings');
+    expect(result.findings).toEqual([]);
+  });
+
+  test('clamps to zero when overwhelmed by critical findings', () => {
+    const dir = createFindingsDir(`
+### [Critical] CVE-2024-0001 in pkg-a
+- File: package.json
+### [Critical] CVE-2024-0002 in pkg-b
+- File: package.json
+### [Critical] CVE-2024-0003 in pkg-c
+- File: package.json
+### [Critical] CVE-2024-0004 in pkg-d
+- File: package.json
+### [Critical] CVE-2024-0005 in pkg-e
+- File: package.json
+### [Critical] CVE-2024-0006 in pkg-f
+- File: package.json
+`);
+
+    try {
+      const result = depHealthScorer.score('/fake', {}, dir);
+      // 100 - 6*20 = -20, clamped to 0
+      expect(result.score).toBe(0);
+      expect(result.details.openFindings).toBe(6);
+      expect(result.findings).toHaveLength(5); // capped at 5
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('documentation scorer', () => {
+  const docScorer = require('../factory/scorers/documentation');
+
+  function createFindingsDir(markdownContent) {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'torque-doc-'));
+    fs.writeFileSync(path.join(dir, 'documentation-scout-findings.md'), markdownContent);
+    return dir;
+  }
+
+  test('scores project with a few documentation gaps', () => {
+    const dir = createFindingsDir(`
+### [Medium] README missing installation section
+- File: README.md
+- Description: No install instructions found
+
+### [Low] API endpoint /users undocumented
+- File: src/api/users.js
+- Description: No JSDoc or route documentation
+`);
+
+    try {
+      const result = docScorer.score('/fake', {}, dir);
+      // 100 - 2*8 = 84
+      expect(result.score).toBe(84);
+      expect(result.details.source).toBe('scout_findings');
+      expect(result.details.openFindings).toBe(2);
+      expect(result.findings).toHaveLength(2);
+      expect(result.findings[0].title).toContain('README');
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('returns perfect score when all documentation issues resolved', () => {
+    const dir = createFindingsDir(`
+### [Medium] Missing CHANGELOG
+- File: CHANGELOG.md
+- Status: RESOLVED
+
+### [Medium] Missing contributing guide
+- File: CONTRIBUTING.md
+- Status: RESOLVED
+`);
+
+    try {
+      const result = docScorer.score('/fake', {}, dir);
+      expect(result.score).toBe(100);
+      expect(result.details.openFindings).toBe(0);
+      expect(result.findings).toHaveLength(0);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('returns fallback score of 50 when findings directory is missing', () => {
+    const result = docScorer.score('/fake', {}, null);
+    expect(result.score).toBe(50);
+    expect(result.details.source).toBe('no_findings');
+    expect(result.findings).toEqual([]);
+  });
+
+  test('clamps to zero with many unresolved documentation issues', () => {
+    const dir = createFindingsDir(`
+### [High] No API documentation at all
+- File: docs/api.md
+### [Medium] Missing architecture diagram
+- File: docs/architecture.md
+### [Medium] No deployment guide
+- File: docs/deploy.md
+### [Medium] Missing environment setup docs
+- File: docs/env.md
+### [Medium] No testing guide
+- File: docs/testing.md
+### [Medium] Missing security policy
+- File: SECURITY.md
+### [Medium] No error code reference
+- File: docs/errors.md
+### [Medium] Missing changelog entries for v2.x
+- File: CHANGELOG.md
+### [Medium] No troubleshooting guide
+- File: docs/troubleshooting.md
+### [Medium] Missing migration guide v1 to v2
+- File: docs/migration.md
+### [Medium] No release process docs
+- File: docs/release.md
+### [Medium] Missing config reference
+- File: docs/config.md
+### [Medium] No monitoring/observability guide
+- File: docs/monitoring.md
+`);
+
+    try {
+      const result = docScorer.score('/fake', {}, dir);
+      // 100 - 13*8 = -4, clamped to 0
+      expect(result.score).toBe(0);
+      expect(result.details.openFindings).toBe(13);
+      expect(result.findings).toHaveLength(5); // capped at 5
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('performance scorer', () => {
+  const perfScorer = require('../factory/scorers/performance');
+
+  function createFindingsDir(markdownContent) {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'torque-perf-'));
+    fs.writeFileSync(path.join(dir, 'performance-scout-findings.md'), markdownContent);
+    return dir;
+  }
+
+  test('scores project with mixed performance findings', () => {
+    const dir = createFindingsDir(`
+### [Critical] N+1 query in /api/invoices endpoint
+- File: src/api/invoices.js
+- Description: Each invoice fetches customer individually
+
+### [High] Unbounded result set in search handler
+- File: src/api/search.js
+- Description: No pagination on full-text search
+
+### [Medium] Synchronous file read in request handler
+- File: src/middleware/logger.js
+- Description: fs.readFileSync blocks event loop
+`);
+
+    try {
+      const result = perfScorer.score('/fake', {}, dir);
+      // 100 - 20 (critical) - 10 (high) - 4 (medium) = 66
+      expect(result.score).toBe(66);
+      expect(result.details.source).toBe('scout_findings');
+      expect(result.details.openFindings).toBe(3);
+      expect(result.findings).toHaveLength(3);
+      expect(result.findings[0].severity).toBe('critical');
+      expect(result.findings[0].file).toBe('src/api/invoices.js');
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('returns perfect score when all performance issues resolved', () => {
+    const dir = createFindingsDir(`
+### [Critical] Memory leak in WebSocket handler
+- File: src/ws.js
+- Status: RESOLVED
+
+### [High] Missing database index on frequently queried column
+- File: src/db/schema.sql
+- Status: RESOLVED
+`);
+
+    try {
+      const result = perfScorer.score('/fake', {}, dir);
+      expect(result.score).toBe(100);
+      expect(result.details.openFindings).toBe(0);
+      expect(result.findings).toHaveLength(0);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('returns fallback score of 50 when no findings exist', () => {
+    const result = perfScorer.score('/fake', {}, null);
+    expect(result.score).toBe(50);
+    expect(result.details.source).toBe('no_findings');
+    expect(result.findings).toEqual([]);
+  });
+
+  test('clamps to zero when many critical performance issues exist', () => {
+    const dir = createFindingsDir(`
+### [Critical] Memory leak in connection pool
+- File: src/db/pool.js
+### [Critical] Unbounded cache growth causes OOM
+- File: src/cache.js
+### [Critical] Blocking I/O in hot path
+- File: src/handlers/upload.js
+### [High] No connection timeout configured
+- File: src/http-client.js
+### [High] Redundant full-table scans
+- File: src/db/queries.js
+### [Low] Console.log in production code
+- File: src/utils/debug.js
+`);
+
+    try {
+      const result = perfScorer.score('/fake', {}, dir);
+      // 100 - 3*20 - 2*10 - 1*4 = 100 - 60 - 20 - 4 = 16
+      expect(result.score).toBe(16);
+      expect(result.details.openFindings).toBe(6);
+      expect(result.findings).toHaveLength(5); // capped at 5
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('scoreAll on real TORQUE codebase', () => {
   test('scores mixed dotnet and WPF fixtures from ecosystem-aware scan inputs', () => {
     const projectDir = createTempDashboardProject({
