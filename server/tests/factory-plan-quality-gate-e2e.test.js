@@ -474,6 +474,22 @@ describe('auto-generated plan description quality scoring', () => {
     expect(prompt).not.toContain('server/.tmp/worktrees');
     expect(prompt).not.toContain('task-factory-internal-architect_cycle-123');
   });
+
+  it('normalizes managed factory worktree paths to repo-relative plan paths', () => {
+    const loopController = require('../factory/loop-controller');
+    const projectPath = fs.mkdtempSync(path.join(os.tmpdir(), 'pqg-managed-worktree-project-'));
+    const managedPath = path.join(
+      projectPath,
+      '.worktrees',
+      'feat-factory-2296-hardcoded-paths',
+      'server',
+      'tests',
+      'handler-workflow-handlers.test.js'
+    );
+
+    expect(loopController._internalForTests.normalizePlanProjectRelativePath(managedPath, projectPath))
+      .toBe('server/tests/handler-workflow-handlers.test.js');
+  });
 });
 
 describe('executeNonPlanFileStage plan-quality-gate integration', () => {

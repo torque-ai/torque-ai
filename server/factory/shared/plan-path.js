@@ -150,6 +150,25 @@ function isInternalTempWorktreePlanPath(filePath) {
     || normalized.includes('/.tmp/worktrees/');
 }
 
+function extractManagedWorktreePlanPath(filePath) {
+  const normalized = String(filePath || '').trim().replace(/\\/g, '/').replace(/^\.\//, '');
+  if (!normalized) return null;
+  const segments = normalized.split('/').filter(Boolean);
+  const worktreesIndex = segments.findIndex((segment) => segment === '.worktrees');
+  if (worktreesIndex < 0 || worktreesIndex + 2 >= segments.length) return null;
+  const rel = segments.slice(worktreesIndex + 2).join('/');
+  if (!rel || rel.startsWith('..') || rel.includes('/.worktrees/') || isInternalTempWorktreePlanPath(rel)) {
+    return null;
+  }
+  return rel;
+}
+
+function isManagedWorktreePlanPath(filePath) {
+  const normalized = String(filePath || '').trim().replace(/\\/g, '/').replace(/^\.\//, '');
+  return normalized.startsWith('.worktrees/')
+    || normalized.includes('/.worktrees/');
+}
+
 function getPlanPathExtension(filePath) {
   return path.extname(String(filePath || '').replace(/\\/g, '/')).toLowerCase();
 }
@@ -192,6 +211,9 @@ function normalizePlanProjectRelativePath(filePath, projectPath = null) {
   if (!raw) return null;
   if (!projectPath) {
     const normalizedRaw = raw.replace(/\\/g, '/');
+    const managedRel = extractManagedWorktreePlanPath(normalizedRaw);
+    if (managedRel) return managedRel;
+    if (isManagedWorktreePlanPath(normalizedRaw)) return null;
     return isInternalTempWorktreePlanPath(normalizedRaw) ? null : normalizedRaw;
   }
   // Filter out PascalCase module-style names mentioned in prose (e.g.
@@ -211,6 +233,11 @@ function normalizePlanProjectRelativePath(filePath, projectPath = null) {
     return null;
   }
   const normalizedRel = rel.replace(/\\/g, '/');
+  const managedRel = extractManagedWorktreePlanPath(normalizedRel);
+  if (managedRel) return managedRel;
+  if (isManagedWorktreePlanPath(normalizedRel)) {
+    return null;
+  }
   if (isInternalTempWorktreePlanPath(normalizedRel)) {
     return null;
   }
@@ -252,6 +279,8 @@ module.exports = {
   PLAN_RELATED_SKIP_DIRS,
   PLAN_RELATED_GENERATED_ARTIFACT_RE,
   isInternalTempWorktreePlanPath,
+  isManagedWorktreePlanPath,
+  extractManagedWorktreePlanPath,
   getPlanPathExtension,
   getPlanPathLanguageFamily,
   getRequestedPlanLanguageFamilies,
