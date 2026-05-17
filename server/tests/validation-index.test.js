@@ -319,6 +319,128 @@ describe('validation handler index', () => {
       expect(text).toContain('Validation Results');
       expect(text).toContain(expectedRule);
     });
+
+    it('returns error when task_id is missing', async () => {
+      const result = await validationModule.handleValidateTaskOutput({});
+      expect(result.isError).toBe(true);
+      expect(result.error_code).toBe('MISSING_REQUIRED_PARAM');
+      expect(getText(result)).toContain('task_id');
+    });
+
+    it('returns error when task_id is empty string', async () => {
+      const result = await validationModule.handleValidateTaskOutput({ task_id: '' });
+      expect(result.isError).toBe(true);
+      expect(result.error_code).toBe('MISSING_REQUIRED_PARAM');
+    });
+
+    it('returns TASK_NOT_FOUND for non-existent task', async () => {
+      const result = await validationModule.handleValidateTaskOutput({ task_id: 'non-existent-task-xyz' });
+      expect(result.isError).toBe(true);
+      expect(result.error_code).toBe('TASK_NOT_FOUND');
+      expect(getText(result)).toContain('non-existent-task-xyz');
+    });
+
+    it('passes validation when task has no working_directory', async () => {
+      seedValidationRules();
+      const task = createTask({ working_directory: null });
+
+      const result = await validationModule.handleValidateTaskOutput({ task_id: task.id });
+
+      expect(result.isError).toBeFalsy();
+      expect(getText(result)).toContain('Validation Passed');
+    });
+
+    it('passes validation when working_directory does not exist on disk', async () => {
+      seedValidationRules();
+      const nonExistentDir = path.join(os.tmpdir(), `torque-no-exist-${randomUUID()}`);
+      const task = createTask({ working_directory: nonExistentDir });
+
+      const result = await validationModule.handleValidateTaskOutput({ task_id: task.id });
+
+      expect(result.isError).toBeFalsy();
+      expect(getText(result)).toContain('Validation Passed');
+    });
+
+    it('detects committed changes via HEAD~1 diff path', async () => {
+      seedValidationRules();
+      // Create a second commit so HEAD~1 exists
+      stageRepoFile('src/app.js', '// TODO: stub committed\n');
+      gitSync(['commit', '-m', 'second commit with stub', '--no-gpg-sign'], { cwd: repoDir });
+      const task = createTask();
+
+      const result = await validationModule.handleValidateTaskOutput({ task_id: task.id });
+      const text = getText(result);
+
+      expect(result.isError).toBeFalsy();
+      expect(text).toContain('Validation Results');
+      expect(text).toContain('No TODO stubs');
+    });
+
+    it('reports multiple severity levels in grouped output', async () => {
+      // Seed rules at different severity levels
+      validationRules.saveValidationRule({
+        id: 'rule-critical-console',
+        name: 'No console.error',
+        description: 'Critical: no console.error in production',
+        rule_type: 'pattern',
+        pattern: 'console\\.error',
+        severity: 'critical',
+      });
+      validationRules.saveValidationRule({
+        id: 'rule-warn-console-log',
+        name: 'No console.log',
+        description: 'Warning: no console.log',
+        rule_type: 'pattern',
+        pattern: 'console\\.log',
+        severity: 'warning',
+      });
+      validationRules.saveValidationRule({
+        id: 'rule-info-fixme',
+        name: 'FIXME marker',
+        description: 'Info: FIXME comments detected',
+        rule_type: 'pattern',
+        pattern: 'FIXME',
+        severity: 'info',
+      });
+
+      stageRepoFile('src/app.js', [
+        'console.error("critical failure");',
+        'console.log("debug info");',
+        '// FIXME: cleanup later',
+        '',
+      ].join('\n'));
+      const task = createTask();
+
+      const result = await validationModule.handleValidateTaskOutput({ task_id: task.id });
+      const text = getText(result);
+
+      expect(result.isError).toBeFalsy();
+      expect(text).toContain('Validation Results');
+      expect(text).toContain('Critical (1)');
+      expect(text).toContain('No console.error');
+      expect(text).toContain('Warnings (1)');
+      expect(text).toContain('No console.log');
+      expect(text).toContain('Info (1)');
+      expect(text).toContain('FIXME marker');
+    });
+
+    it('validates multiple changed files independently', async () => {
+      seedValidationRules();
+      // One file is clean, one has a TODO stub
+      stageRepoFile('src/app.js', 'module.exports = { valid: true };\n');
+      stageRepoFile('src/helper.js', '// TODO: implement helper\nmodule.exports = {};\n');
+      gitSync(['commit', '-m', 'multi-file commit', '--no-gpg-sign'], { cwd: repoDir });
+      const task = createTask();
+
+      const result = await validationModule.handleValidateTaskOutput({ task_id: task.id });
+      const text = getText(result);
+
+      expect(result.isError).toBeFalsy();
+      expect(text).toContain('Validation Results');
+      expect(text).toContain('No TODO stubs');
+      // The violation should reference the helper file, not app.js
+      expect(text).toContain('src/helper.js');
+    });
   });
 
   describe('handlePreviewTaskDiff', () => {
