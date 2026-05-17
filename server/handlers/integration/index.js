@@ -549,7 +549,12 @@ function handleStashChanges(args) {
     }
 
     const { safeGitExec: sgit } = require('../../utils/git');
-    sgit(stashArgs, { cwd: workDir, maxBuffer: 10 * 1024 * 1024, timeout: 15000 });
+    const stashOutput = sgit(stashArgs, { cwd: workDir, maxBuffer: 10 * 1024 * 1024, timeout: 15000 });
+
+    // git stash push exits 0 with "No local changes to save" on clean trees
+    if (typeof stashOutput === 'string' && stashOutput.includes('No local changes to save')) {
+      return makeError(ErrorCodes.OPERATION_FAILED, 'Stash failed: No local changes to save');
+    }
 
     // Get the stash ref
     const stashRef = sgit(['stash', 'list', '-n', '1'], { cwd: workDir }).trim();
