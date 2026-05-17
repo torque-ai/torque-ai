@@ -798,6 +798,14 @@ require('./mcp/protocol').register(_defaultContainer);          // mcpProtocol (
 require('./providers/agentic-capability').register(_defaultContainer); // agenticCapability [db, serverConfig]
 
 
+/**
+ * Retrieve a service from the default container by name.
+ * Falls back to peek() if get() throws (e.g. container not yet booted
+ * or service not registered), returning undefined instead of throwing.
+ *
+ * @param {string} name - The registered service name to retrieve.
+ * @returns {*} The service instance, or undefined if not available.
+ */
 function getModule(name) {
   try {
     return _defaultContainer.get(name);
