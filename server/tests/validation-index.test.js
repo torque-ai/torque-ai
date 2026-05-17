@@ -700,5 +700,304 @@ describe('validation handler index', () => {
         expect(handlers[key]).toBe(validationModule[key]);
       }
     });
+
+    it('returns an object where all expected handler keys are functions', () => {
+      const handlers = validationModule.createValidationHandlers();
+
+      const expectedHandlerKeys = [
+        'handleSetupPrecommitHook',
+        'handleValidateTaskOutput',
+        'handlePreviewTaskDiff',
+        'handleRunBuildCheck',
+        'handleGetBudgetStatus',
+        'handleListValidationRules',
+        'handleAddValidationRule',
+        'handleUpdateValidationRule',
+        'handleGetValidationResults',
+        'handleRejectTask',
+        'handleCaptureFileBaselines',
+        'handleCompareFileBaseline',
+        'handleRunSyntaxCheck',
+        'handleListSyntaxValidators',
+        'handleRegisterHook',
+        'handleListHooks',
+        'handleRemoveHook',
+        'handleCheckApprovalGate',
+        'handleApproveDiff',
+        'handleConfigureDiffPreview',
+        'handleGetQualityScore',
+        'handleGetProviderQuality',
+        'handleGetProviderStats',
+        'handleGetBestProvider',
+        'handleListRollbacks',
+        'handleGetBuildResult',
+        'handleConfigureBuildCheck',
+        'handleGetCostSummary',
+        'handleSetBudget',
+        'handleGetCostForecast',
+        'handleSetScopeBudget',
+        'handleGetScopeSpend',
+        'handleListScopeBudgets',
+      ];
+
+      for (const key of expectedHandlerKeys) {
+        expect(typeof handlers[key]).toBe('function');
+      }
+    });
+
+    it('routes CRUD through an injected validationRules store', () => {
+      const rulesStore = new Map();
+      const fakeValidationRules = {
+        saveValidationRule: vi.fn((rule) => { rulesStore.set(rule.id, rule); }),
+        getValidationRules: vi.fn((enabledOnly) => [...rulesStore.values()]),
+        getValidationRule: vi.fn((id) => rulesStore.get(id) || null),
+      };
+
+      const handlers = validationModule.createValidationHandlers({ validationRules: fakeValidationRules });
+
+      // Add a rule
+      const addResult = handlers.handleAddValidationRule({
+        name: 'test-rule',
+        description: 'A test pattern rule',
+        rule_type: 'pattern',
+        pattern: 'console\\.log',
+        severity: 'warning',
+      });
+
+      expect(addResult.isError).toBeFalsy();
+      expect(getText(addResult)).toContain('Validation Rule Added');
+      expect(getText(addResult)).toContain('test-rule');
+      expect(fakeValidationRules.saveValidationRule).toHaveBeenCalledTimes(1);
+
+      // List rules — should include the newly added rule
+      const listResult = handlers.handleListValidationRules({ enabled_only: false });
+      expect(listResult.isError).toBeFalsy();
+      expect(getText(listResult)).toContain('test-rule');
+      expect(fakeValidationRules.getValidationRules).toHaveBeenCalled();
+    });
+  });
+
+  describe('handleAddValidationRule', () => {
+    it('adds a pattern rule and confirms via list', () => {
+      const addResult = validationModule.handleAddValidationRule({
+        name: 'no-debugger',
+        description: 'Disallow debugger statements',
+        rule_type: 'pattern',
+        pattern: 'debugger',
+        severity: 'error',
+        auto_fail: true,
+      });
+
+      expect(addResult.isError).toBeFalsy();
+      const addText = getText(addResult);
+      expect(addText).toContain('Validation Rule Added');
+      expect(addText).toContain('no-debugger');
+      expect(addText).toContain('pattern');
+      expect(addText).toContain('error');
+      expect(addText).toContain('Auto-Fail:** Yes');
+
+      // Confirm the rule appears in the list
+      const listResult = validationModule.handleListValidationRules({ enabled_only: false });
+      expect(listResult.isError).toBeFalsy();
+      expect(getText(listResult)).toContain('no-debugger');
+      expect(getText(listResult)).toContain('pattern');
+    });
+
+    it('adds a second rule with the same name (no unique constraint on name)', () => {
+      validationModule.handleAddValidationRule({
+        name: 'dup-rule',
+        description: 'First instance',
+        rule_type: 'pattern',
+        pattern: 'foo',
+      });
+
+      // Adding again with same name but different generated ID should succeed
+      const secondResult = validationModule.handleAddValidationRule({
+        name: 'dup-rule',
+        description: 'Second instance',
+        rule_type: 'pattern',
+        pattern: 'bar',
+      });
+
+      expect(secondResult.isError).toBeFalsy();
+      expect(getText(secondResult)).toContain('Validation Rule Added');
+
+      // Both should appear in the list
+      const listResult = validationModule.handleListValidationRules({ enabled_only: false });
+      expect(getText(listResult)).toContain('dup-rule');
+      expect(getText(listResult)).toContain('**Total:** 2');
+    });
+
+    it('returns error when required fields are missing', () => {
+      const result = validationModule.handleAddValidationRule({
+        name: 'incomplete-rule',
+      });
+
+      expect(result.isError).toBe(true);
+      expect(result.error_code).toBe('MISSING_REQUIRED_PARAM');
+      expect(getText(result)).toContain('name, description, and rule_type are required');
+    });
+
+    it('returns error when pattern-type rule lacks a pattern', () => {
+      const result = validationModule.handleAddValidationRule({
+        name: 'missing-pattern',
+        description: 'Should fail',
+        rule_type: 'pattern',
+      });
+
+      expect(result.isError).toBe(true);
+      expect(result.error_code).toBe('MISSING_REQUIRED_PARAM');
+      expect(getText(result)).toContain('pattern is required');
+    });
+
+    it('returns error when size-type rule lacks a condition', () => {
+      const result = validationModule.handleAddValidationRule({
+        name: 'missing-condition',
+        description: 'Should fail',
+        rule_type: 'size',
+      });
+
+      expect(result.isError).toBe(true);
+      expect(result.error_code).toBe('MISSING_REQUIRED_PARAM');
+      expect(getText(result)).toContain('condition is required');
+    });
+  });
+
+  describe('handleUpdateValidationRule', () => {
+    it('updates severity and auto_fail on an existing rule', () => {
+      // First add a rule to get an ID
+      const addResult = validationModule.handleAddValidationRule({
+        name: 'updatable-rule',
+        description: 'Will be updated',
+        rule_type: 'pattern',
+        pattern: 'eval\\(',
+        severity: 'warning',
+        auto_fail: false,
+      });
+
+      // Extract the ID from the response text
+      const idMatch = getText(addResult).match(/\*\*ID:\*\* (val-\d+)/);
+      expect(idMatch).not.toBeNull();
+      const ruleId = idMatch[1];
+
+      // Update the rule
+      const updateResult = validationModule.handleUpdateValidationRule({
+        rule_id: ruleId,
+        severity: 'critical',
+        auto_fail: true,
+      });
+
+      expect(updateResult.isError).toBeFalsy();
+      const updateText = getText(updateResult);
+      expect(updateText).toContain('Validation Rule Updated');
+      expect(updateText).toContain(ruleId);
+      expect(updateText).toContain('severity=critical');
+      expect(updateText).toContain('auto_fail=true');
+    });
+
+    it('returns RESOURCE_NOT_FOUND for a non-existent rule_id', () => {
+      const result = validationModule.handleUpdateValidationRule({
+        rule_id: 'non-existent-rule-xyz',
+        severity: 'error',
+      });
+
+      expect(result.isError).toBe(true);
+      expect(result.error_code).toBe('RESOURCE_NOT_FOUND');
+      expect(getText(result)).toContain('non-existent-rule-xyz');
+    });
+
+    it('returns error when rule_id is missing', () => {
+      const result = validationModule.handleUpdateValidationRule({});
+
+      expect(result.isError).toBe(true);
+      expect(result.error_code).toBe('MISSING_REQUIRED_PARAM');
+      expect(getText(result)).toContain('rule_id is required');
+    });
+
+    it('disables a rule via enabled=false and confirms via list', () => {
+      const addResult = validationModule.handleAddValidationRule({
+        name: 'disableable-rule',
+        description: 'Will be disabled',
+        rule_type: 'pattern',
+        pattern: 'alert\\(',
+        severity: 'warning',
+      });
+
+      const idMatch = getText(addResult).match(/\*\*ID:\*\* (val-\d+)/);
+      const ruleId = idMatch[1];
+
+      // Disable the rule
+      const disableResult = validationModule.handleUpdateValidationRule({
+        rule_id: ruleId,
+        enabled: false,
+      });
+      expect(disableResult.isError).toBeFalsy();
+      expect(getText(disableResult)).toContain('enabled=false');
+
+      // List enabled-only rules — disabled rule should not appear
+      const listEnabled = validationModule.handleListValidationRules({ enabled_only: true });
+      expect(getText(listEnabled)).not.toContain('disableable-rule');
+
+      // List all rules — disabled rule should still appear
+      const listAll = validationModule.handleListValidationRules({ enabled_only: false });
+      expect(getText(listAll)).toContain('disableable-rule');
+    });
+  });
+
+  describe('handleListValidationRules', () => {
+    it('returns "No validation rules found" when no rules exist', () => {
+      const result = validationModule.handleListValidationRules({ enabled_only: false });
+
+      expect(result.isError).toBeFalsy();
+      expect(getText(result)).toContain('No validation rules found');
+    });
+
+    it('filters rules by minimum severity level', () => {
+      validationModule.handleAddValidationRule({
+        name: 'info-rule',
+        description: 'Info level',
+        rule_type: 'pattern',
+        pattern: 'info',
+        severity: 'info',
+      });
+      validationModule.handleAddValidationRule({
+        name: 'error-rule',
+        description: 'Error level',
+        rule_type: 'pattern',
+        pattern: 'error',
+        severity: 'error',
+      });
+
+      // Filter to error severity and above
+      const result = validationModule.handleListValidationRules({
+        enabled_only: false,
+        severity: 'error',
+      });
+
+      expect(result.isError).toBeFalsy();
+      const text = getText(result);
+      expect(text).toContain('error-rule');
+      expect(text).not.toContain('info-rule');
+    });
+
+    it('includes rule metadata columns in the table output', () => {
+      validationModule.handleAddValidationRule({
+        name: 'table-test-rule',
+        description: 'For table format verification',
+        rule_type: 'delta',
+        condition: 'delta:>50%',
+        severity: 'critical',
+        auto_fail: true,
+      });
+
+      const result = validationModule.handleListValidationRules({ enabled_only: false });
+      const text = getText(result);
+
+      expect(text).toContain('| Name | Type | Severity | Auto-Fail | Enabled |');
+      expect(text).toContain('table-test-rule');
+      expect(text).toContain('delta');
+      expect(text).toContain('critical');
+      expect(text).toContain('**Total:** 1');
+    });
   });
 });
