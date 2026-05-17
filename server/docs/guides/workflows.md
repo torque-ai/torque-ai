@@ -387,13 +387,9 @@ If TORQUE restarts mid-workflow, all running workflows are automatically re-eval
 - Tasks that are `blocked` and now have all dependencies satisfied → moved to `queued`
 - Workflows where every task is terminal → finalized as `completed` or `failed`
 
-To manually re-evaluate a stuck workflow:
+To manually re-evaluate a stuck workflow, call the `resume_workflow` tool with the workflow ID.
 
-    resume_workflow { workflow_id: "<workflow-id>" }
-
-To re-evaluate every running workflow at once (e.g., after a long DB outage):
-
-    resume_all_workflows {}
+To re-evaluate every running workflow at once (e.g., after a long DB outage), call `resume_all_workflows`.
 
 This is safe to call repeatedly — re-evaluation is idempotent.
 
