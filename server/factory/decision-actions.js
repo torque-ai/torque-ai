@@ -843,11 +843,6 @@ const DECISION_ACTIONS = {
     classifier: 'engine',
     outcome: ['action'],
   },
-  baseline_auto_fix_skipped_operator_paused: {
-    stage: 'ANY',
-    classifier: 'engine',
-    outcome: ['status', 'operator_paused'],
-  },
   auto_recovery_strategy_failed: {
     stage: 'ANY',
     classifier: 'engine',

@@ -336,6 +336,15 @@ describe('handlers/shared.js utilities', () => {
     it('tolerates bad URL encoding when the path is otherwise safe', () => {
       expect(shared.isPathTraversalSafe('reports/%zz/log.txt')).toBe(true);
     });
+
+    it('allows project paths under user home directories (regression)', () => {
+      // A bare '/home' entry in dangerousPaths once rejected every path under
+      // a user home, breaking all project and test paths on Linux hosts.
+      // Home roots are workspace locations, not OS-sensitive directories.
+      const homeRoot = '/' + 'home';
+      expect(shared.isPathTraversalSafe(homeRoot + '/dev/projects/app/src/index.ts')).toBe(true);
+      expect(shared.isPathTraversalSafe(homeRoot + '/ci/workspace/server/x.js')).toBe(true);
+    });
   });
 
   describe('safeDate', () => {
