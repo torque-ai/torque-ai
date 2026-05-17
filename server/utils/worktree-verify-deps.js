@@ -2,6 +2,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { spawnSync } = require('child_process');
 
 const PACKAGE_DIRS = ['', 'server', 'dashboard'];
 const DEPENDENCY_FIELDS = [
@@ -55,8 +56,58 @@ function readPackageDependencies(packageJsonPath) {
   }
 }
 
+function dependencyRelativePath(dependencyName) {
+  return path.join('node_modules', ...String(dependencyName).split('/').filter(Boolean));
+}
+
+function normalizeLockPackagePath(packagePath) {
+  const text = String(packagePath || '').replace(/\\/g, '/');
+  if (!text || text === '.') return null;
+  if (!text.startsWith('node_modules/')) return null;
+  return path.join(...text.split('/').filter(Boolean));
+}
+
+function readPackageLockDependencyPaths(packageLockPath) {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(packageLockPath, 'utf8'));
+    const packages = parsed && parsed.packages && typeof parsed.packages === 'object'
+      ? parsed.packages
+      : null;
+    if (!packages || Array.isArray(packages)) return [];
+
+    const paths = new Set();
+    for (const [packagePath, metadata] of Object.entries(packages)) {
+      const relativePath = normalizeLockPackagePath(packagePath);
+      if (!relativePath) continue;
+      if (metadata && metadata.optional === true) continue;
+      paths.add(relativePath);
+    }
+    return [...paths].sort();
+  } catch {
+    return [];
+  }
+}
+
+function readExpectedDependencyPaths(packageJsonPath, packageLockPath) {
+  const paths = new Set();
+  for (const dependency of readPackageDependencies(packageJsonPath)) {
+    paths.add(dependencyRelativePath(dependency));
+  }
+  for (const dependencyPath of readPackageLockDependencyPaths(packageLockPath)) {
+    paths.add(dependencyPath);
+  }
+  return [...paths].sort();
+}
+
 function dependencyInstallPath(nodeModulesPath, dependencyName) {
   return path.join(nodeModulesPath, ...String(dependencyName).split('/').filter(Boolean));
+}
+
+function dependencyPathsMissing(packageRoot, dependencyPaths) {
+  return dependencyPaths.filter((relativePath) => {
+    const fullPath = path.join(packageRoot, relativePath);
+    return !fs.existsSync(fullPath);
+  });
 }
 
 function readPackageJson(packageJsonPath) {
@@ -197,8 +248,16 @@ function ensurePackageBins(nodeModulesPath, dependencies, logger) {
   return repaired;
 }
 
-function nodeModulesUsable(targetNodeModules, sourceNodeModules, dependencies) {
+function nodeModulesUsable(targetNodeModules, sourceNodeModules, dependencies, expectedDependencyPaths = []) {
   if (!fs.existsSync(targetNodeModules)) return false;
+  const sourcePackageRoot = path.dirname(sourceNodeModules);
+  const targetPackageRoot = path.dirname(targetNodeModules);
+  for (const relativePath of expectedDependencyPaths) {
+    const sourceDep = path.join(sourcePackageRoot, relativePath);
+    if (!fs.existsSync(sourceDep)) continue;
+    const targetDep = path.join(targetPackageRoot, relativePath);
+    if (!fs.existsSync(targetDep)) return false;
+  }
   for (const dependency of dependencies) {
     const sourceDep = dependencyInstallPath(sourceNodeModules, dependency);
     if (!fs.existsSync(sourceDep)) continue;
@@ -207,6 +266,98 @@ function nodeModulesUsable(targetNodeModules, sourceNodeModules, dependencies) {
     if (!packageBinsUsable(targetNodeModules, dependency)) return false;
   }
   return true;
+}
+
+function defaultInstallPackageDependencies(packageRoot) {
+  const npmArgs = ['install', '--silent', '--include=dev', '--prefer-offline', '--no-audit', '--no-fund'];
+  const command = process.platform === 'win32' ? (process.env.ComSpec || 'cmd.exe') : 'npm';
+  const args = process.platform === 'win32' ? ['/d', '/s', '/c', 'npm', ...npmArgs] : npmArgs;
+  const result = spawnSync(command, args, {
+    cwd: packageRoot,
+    encoding: 'utf8',
+    windowsHide: true,
+    timeout: 5 * 60 * 1000,
+  });
+  return {
+    status: typeof result.status === 'number' ? result.status : 1,
+    stdout: result.stdout || '',
+    stderr: result.stderr || '',
+    error: result.error || null,
+  };
+}
+
+function ensureSourceNodeModulesComplete({
+  sourcePackageRoot,
+  packageJsonPath,
+  packageLockPath,
+  sourceNodeModules,
+  label,
+  logger,
+  installDependencies = defaultInstallPackageDependencies,
+}) {
+  const expectedDependencyPaths = readExpectedDependencyPaths(packageJsonPath, packageLockPath);
+  if (!fs.existsSync(sourceNodeModules)) {
+    return {
+      sourceUsable: false,
+      installed: false,
+      expectedDependencyPaths,
+      missingDependencies: expectedDependencyPaths,
+      reason: 'missing_source_node_modules',
+    };
+  }
+
+  let missingDependencies = dependencyPathsMissing(sourcePackageRoot, expectedDependencyPaths);
+  if (missingDependencies.length === 0) {
+    return {
+      sourceUsable: true,
+      installed: false,
+      expectedDependencyPaths,
+      missingDependencies: [],
+    };
+  }
+
+  if (logger && typeof logger.warn === 'function') {
+    logger.warn('factory worktree verify: shared node_modules missing dependencies; refreshing', {
+      package_dir: label,
+      package_root: sourcePackageRoot,
+      missing_dependencies: missingDependencies.slice(0, 20),
+      missing_dependency_count: missingDependencies.length,
+    });
+  }
+
+  const installResult = installDependencies(sourcePackageRoot, {
+    label,
+    missingDependencies,
+  });
+  missingDependencies = dependencyPathsMissing(sourcePackageRoot, expectedDependencyPaths);
+
+  if (installResult.status !== 0 || missingDependencies.length > 0) {
+    if (logger && typeof logger.warn === 'function') {
+      logger.warn('factory worktree verify: shared node_modules refresh incomplete', {
+        package_dir: label,
+        package_root: sourcePackageRoot,
+        status: installResult.status,
+        error: installResult.error && installResult.error.message ? installResult.error.message : null,
+        stderr: installResult.stderr ? installResult.stderr.slice(-1000) : '',
+        missing_dependencies: missingDependencies.slice(0, 20),
+        missing_dependency_count: missingDependencies.length,
+      });
+    }
+    return {
+      sourceUsable: false,
+      installed: true,
+      expectedDependencyPaths,
+      missingDependencies,
+      reason: installResult.status === 0 ? 'missing_dependencies_after_install' : 'install_failed',
+    };
+  }
+
+  return {
+    sourceUsable: true,
+    installed: true,
+    expectedDependencyPaths,
+    missingDependencies: [],
+  };
 }
 
 function removeTargetNodeModules(targetNodeModules, worktreeRoot) {
@@ -228,10 +379,18 @@ function linkTypeForPlatform() {
   return process.platform === 'win32' ? 'junction' : 'dir';
 }
 
-function preparePackageNodeModules({ repoRoot, worktreeRoot, packageDir, logger }) {
+function preparePackageNodeModules({
+  repoRoot,
+  worktreeRoot,
+  packageDir,
+  logger,
+  installDependencies,
+}) {
   const relativeDir = packageDir || '';
   const sourcePackageRoot = path.join(repoRoot, relativeDir);
   const targetPackageRoot = path.join(worktreeRoot, relativeDir);
+  const sourcePackageJson = path.join(sourcePackageRoot, 'package.json');
+  const sourcePackageLock = path.join(sourcePackageRoot, 'package-lock.json');
   const targetPackageJson = path.join(targetPackageRoot, 'package.json');
   const sourceNodeModules = path.join(sourcePackageRoot, 'node_modules');
   const targetNodeModules = path.join(targetPackageRoot, 'node_modules');
@@ -245,9 +404,38 @@ function preparePackageNodeModules({ repoRoot, worktreeRoot, packageDir, logger 
   }
 
   const dependencies = readPackageDependencies(targetPackageJson);
+  const sourceStatus = ensureSourceNodeModulesComplete({
+    sourcePackageRoot,
+    packageJsonPath: sourcePackageJson,
+    packageLockPath: sourcePackageLock,
+    sourceNodeModules,
+    label,
+    logger,
+    installDependencies,
+  });
+  if (!sourceStatus.sourceUsable) {
+    return {
+      packageDir: label,
+      action: 'error',
+      reason: sourceStatus.reason || 'incomplete_source_node_modules',
+      missingDependencies: sourceStatus.missingDependencies,
+      installed: sourceStatus.installed,
+    };
+  }
+
   const repairedBins = ensurePackageBins(sourceNodeModules, dependencies, logger);
-  if (nodeModulesUsable(targetNodeModules, sourceNodeModules, dependencies)) {
-    return { packageDir: label, action: 'unchanged', repairedBins };
+  if (nodeModulesUsable(
+    targetNodeModules,
+    sourceNodeModules,
+    dependencies,
+    sourceStatus.expectedDependencyPaths
+  )) {
+    return {
+      packageDir: label,
+      action: 'unchanged',
+      repairedBins,
+      installed: sourceStatus.installed,
+    };
   }
 
   try {
@@ -260,6 +448,7 @@ function preparePackageNodeModules({ repoRoot, worktreeRoot, packageDir, logger 
       source: sourceNodeModules,
       target: targetNodeModules,
       repairedBins,
+      installed: sourceStatus.installed,
     };
   } catch (error) {
     if (logger && typeof logger.warn === 'function') {
@@ -278,7 +467,7 @@ function preparePackageNodeModules({ repoRoot, worktreeRoot, packageDir, logger 
   }
 }
 
-function prepareWorktreeVerifyDependencies(cwd, logger) {
+function prepareWorktreeVerifyDependencies(cwd, logger, options = {}) {
   const managed = findManagedWorktree(cwd);
   if (!managed) {
     return { prepared: false, reason: 'not_managed_worktree', packages: [] };
@@ -289,6 +478,7 @@ function prepareWorktreeVerifyDependencies(cwd, logger) {
     worktreeRoot: managed.worktreeRoot,
     packageDir,
     logger,
+    installDependencies: options.installDependencies,
   }));
 
   const linked = packages.filter((entry) => entry.action === 'linked');
@@ -312,6 +502,9 @@ module.exports = {
   _internalForTests: {
     PACKAGE_DIRS,
     dependencyInstallPath,
+    dependencyPathsMissing,
+    dependencyRelativePath,
+    ensureSourceNodeModulesComplete,
     ensurePackageBins,
     findManagedWorktree,
     isSubpath,
@@ -319,7 +512,9 @@ module.exports = {
     packageBinEntries,
     packageBinsUsable,
     preparePackageNodeModules,
+    readExpectedDependencyPaths,
     readPackageDependencies,
+    readPackageLockDependencyPaths,
     removeTargetNodeModules,
   },
 };

@@ -116,6 +116,78 @@ describe('worktree verify dependency preparation', () => {
     expect(_internalForTests.packageBinsUsable(targetNodeModules, 'vitest')).toBe(true);
   });
 
+  it('refreshes shared node_modules when a lockfile transitive dependency is missing', () => {
+    const repoRoot = makeTempDir();
+    const worktreeRoot = path.join(repoRoot, '.worktrees', 'feat-example');
+    const sourceNodeModules = path.join(repoRoot, 'server', 'node_modules');
+    const targetNodeModules = path.join(worktreeRoot, 'server', 'node_modules');
+    const logger = { info: vi.fn(), warn: vi.fn() };
+
+    const packageJson = {
+      devDependencies: {
+        vitest: '^4.0.0',
+      },
+    };
+    const packageLock = {
+      lockfileVersion: 3,
+      packages: {
+        '': {
+          devDependencies: {
+            vitest: '^4.0.0',
+          },
+        },
+        'node_modules/vitest': {
+          version: '4.0.18',
+          dev: true,
+          dependencies: {
+            '@vitest/utils': '4.0.18',
+          },
+        },
+        'node_modules/@vitest/utils': {
+          version: '4.0.18',
+          dev: true,
+        },
+      },
+    };
+    writeJson(path.join(repoRoot, 'server', 'package.json'), packageJson);
+    writeJson(path.join(repoRoot, 'server', 'package-lock.json'), packageLock);
+    writeJson(path.join(worktreeRoot, 'server', 'package.json'), packageJson);
+    writeJson(path.join(worktreeRoot, 'server', 'package-lock.json'), packageLock);
+    writeJson(path.join(sourceNodeModules, 'vitest', 'package.json'), {
+      name: 'vitest',
+    });
+
+    const installDependencies = vi.fn((packageRoot, context) => {
+      expect(packageRoot).toBe(path.join(repoRoot, 'server'));
+      expect(context.missingDependencies).toEqual(expect.arrayContaining([
+        path.join('node_modules', '@vitest', 'utils'),
+      ]));
+      writeJson(path.join(sourceNodeModules, '@vitest', 'utils', 'package.json'), {
+        name: '@vitest/utils',
+      });
+      return { status: 0, stdout: '', stderr: '', error: null };
+    });
+
+    const result = prepareWorktreeVerifyDependencies(worktreeRoot, logger, { installDependencies });
+
+    expect(installDependencies).toHaveBeenCalledTimes(1);
+    expect(result.packages).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        packageDir: 'server',
+        action: 'linked',
+        installed: true,
+      }),
+    ]));
+    expect(fs.existsSync(path.join(targetNodeModules, '@vitest', 'utils', 'package.json'))).toBe(true);
+    expect(logger.warn).toHaveBeenCalledWith(
+      'factory worktree verify: shared node_modules missing dependencies; refreshing',
+      expect.objectContaining({
+        package_dir: 'server',
+        missing_dependency_count: 1,
+      })
+    );
+  });
+
   it('does nothing outside managed worktrees', () => {
     const projectRoot = makeTempDir();
 
