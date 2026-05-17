@@ -3501,6 +3501,42 @@ Edit server/factory/plan-executor.js and make the requested behavior change. Kee
     });
   });
 
+  it('does not recover STARVED loop advance for cooling needs_replan-only intake', async () => {
+    const { project, workItem: fixtureWorkItem } = registerPlanProject();
+    factoryIntake.updateWorkItem(fixtureWorkItem.id, { status: 'shipped' });
+    const workItem = factoryIntake.createWorkItem({
+      project_id: project.id,
+      title: 'Cooling needs replan item',
+      source: 'scout',
+      status: 'needs_replan',
+    });
+    const started = loopController.startLoopForProject(project.id);
+    factoryLoopInstances.updateInstance(started.instance_id, {
+      loop_state: LOOP_STATES.STARVED,
+      paused_at_stage: null,
+      last_action_at: new Date().toISOString(),
+    });
+
+    const advanceResult = await loopController.advanceLoop(started.instance_id);
+
+    expect(advanceResult).toMatchObject({
+      previous_state: LOOP_STATES.STARVED,
+      new_state: LOOP_STATES.STARVED,
+      reason: 'loop_starved',
+    });
+    expect(advanceResult.stage_result).toBeNull();
+    expect(factoryIntake.getWorkItem(workItem.id)).toMatchObject({
+      status: 'needs_replan',
+      claimed_by_instance_id: null,
+    });
+    expect(factoryLoopInstances.getInstance(started.instance_id)).toMatchObject({
+      loop_state: LOOP_STATES.STARVED,
+      paused_at_stage: null,
+      batch_id: null,
+      work_item_id: null,
+    });
+  });
+
   it('allows async STARVED advance when intake has been replenished', async () => {
     const { project } = registerPlanProject();
     factoryHealth.updateProject(project.id, { trust_level: 'autonomous' });

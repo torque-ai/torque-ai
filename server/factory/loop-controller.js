@@ -2874,9 +2874,27 @@ function countOpenWorkItems(project_id) {
   }
 }
 
+function countSelectableWorkItemsForPrioritize(project_id) {
+  try {
+    return factoryIntake.listOpenWorkItems({ project_id, limit: 1000 })
+      .filter((item) => {
+        if (!item || item.claimed_by_instance_id || CLOSED_WORK_ITEM_STATUSES.has(item.status)) {
+          return false;
+        }
+        if (getNeedsReplanCooldownInfo(item).active) {
+          return false;
+        }
+        return true;
+      }).length;
+  } catch (error) {
+    logger.debug({ err: error.message, project_id }, 'Unable to count selectable work items for starvation recovery');
+    return 0;
+  }
+}
+
 function recoverStarvedInstanceForAdvance(project, instance) {
-  const openWorkItems = countOpenWorkItems(project.id);
-  if (openWorkItems <= 0) {
+  const selectableWorkItems = countSelectableWorkItemsForPrioritize(project.id);
+  if (selectableWorkItems <= 0) {
     return null;
   }
 
@@ -2903,7 +2921,8 @@ function recoverStarvedInstanceForAdvance(project, instance) {
       from_state: LOOP_STATES.STARVED,
       to_state: getCurrentLoopState(moved.instance),
       paused_at_stage: getPausedAtStage(moved.instance),
-      open_work_items: openWorkItems,
+      open_work_items: selectableWorkItems,
+      selectable_work_items: selectableWorkItems,
       target_state: targetStage,
     },
     confidence: 1,
@@ -2912,7 +2931,8 @@ function recoverStarvedInstanceForAdvance(project, instance) {
 
   return {
     instance: moved.instance,
-    openWorkItems,
+    openWorkItems: selectableWorkItems,
+    selectableWorkItems,
     blocked: moved.blocked,
   };
 }
