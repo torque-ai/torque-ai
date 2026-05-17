@@ -1000,4 +1000,139 @@ describe('validation handler index', () => {
       expect(text).toContain('**Total:** 1');
     });
   });
+
+  describe('handleRegisterHook / handleListHooks / handleRemoveHook', () => {
+    let postToolHooks;
+
+    beforeEach(() => {
+      postToolHooks = require('../hooks/post-tool-hooks');
+      postToolHooks.resetHooksForTest();
+    });
+
+    it('registers a built-in hook and confirms it appears in list', () => {
+      // Clear hooks first to get a clean state
+      postToolHooks.resetHooksForTest();
+
+      // Register a known built-in hook (task_complete:manifest_enforcement is registered as factory but not in defaults)
+      const result = validationModule.handleRegisterHook({
+        event_type: 'task_complete',
+        hook_name: 'manifest_enforcement',
+      });
+
+      expect(result.isError).toBeFalsy();
+      expect(getText(result)).toContain('Hook Registered');
+      expect(result.hook).toEqual(expect.objectContaining({
+        event_type: 'task_complete',
+        hook_name: 'manifest_enforcement',
+        built_in: true,
+      }));
+
+      // Confirm it appears in the list
+      const listResult = validationModule.handleListHooks({ event_type: 'task_complete' });
+      expect(listResult.isError).toBeFalsy();
+      const hookNames = listResult.hooks.map(h => h.hook_name);
+      expect(hookNames).toContain('manifest_enforcement');
+    });
+
+    it('returns error for an unsupported event type', () => {
+      const result = validationModule.handleRegisterHook({
+        event_type: 'unsupported_event',
+        hook_name: 'some_hook',
+      });
+
+      expect(result.isError).toBe(true);
+      expect(result.error_code).toBe('INVALID_PARAM');
+      expect(getText(result)).toContain('unsupported_event');
+    });
+
+    it('returns error when event_type is missing', () => {
+      const result = validationModule.handleRegisterHook({});
+
+      expect(result.isError).toBe(true);
+      expect(result.error_code).toBe('MISSING_REQUIRED_PARAM');
+      expect(getText(result)).toContain('event_type');
+    });
+
+    it('removes a hook and confirms it is no longer listed', () => {
+      postToolHooks.resetHooksForTest();
+
+      // Register a hook to have a known ID
+      const regResult = validationModule.handleRegisterHook({
+        event_type: 'task_complete',
+        hook_name: 'manifest_enforcement',
+      });
+      expect(regResult.isError).toBeFalsy();
+      const hookId = regResult.hook.id;
+
+      // Remove it
+      const removeResult = validationModule.handleRemoveHook({ hook_id: hookId });
+      expect(removeResult.isError).toBeFalsy();
+      expect(getText(removeResult)).toContain('Hook Removed');
+      expect(removeResult.hook).toEqual(expect.objectContaining({
+        id: hookId,
+        event_type: 'task_complete',
+        hook_name: 'manifest_enforcement',
+      }));
+
+      // Confirm it is no longer in the list
+      const listResult = validationModule.handleListHooks({ event_type: 'task_complete' });
+      const hookIds = listResult.hooks.map(h => h.id);
+      expect(hookIds).not.toContain(hookId);
+    });
+
+    it('returns RESOURCE_NOT_FOUND when removing a non-existent hook', () => {
+      const result = validationModule.handleRemoveHook({ hook_id: 'non-existent-hook-id' });
+
+      expect(result.isError).toBe(true);
+      expect(result.error_code).toBe('RESOURCE_NOT_FOUND');
+      expect(getText(result)).toContain('non-existent-hook-id');
+    });
+
+    it('returns error when hook_id is missing from remove call', () => {
+      const result = validationModule.handleRemoveHook({});
+
+      expect(result.isError).toBe(true);
+      expect(result.error_code).toBe('MISSING_REQUIRED_PARAM');
+      expect(getText(result)).toContain('hook_id');
+    });
+
+    it('lists hooks filtered by event_type', () => {
+      postToolHooks.resetHooksForTest();
+
+      // Default hooks include file_write:syntax_check and task_complete:validate_task_output and task_fail:learn_failure_pattern
+      const fileWriteResult = validationModule.handleListHooks({ event_type: 'file_write' });
+      expect(fileWriteResult.isError).toBeFalsy();
+      expect(fileWriteResult.hooks.length).toBeGreaterThan(0);
+      expect(fileWriteResult.hooks.every(h => h.event_type === 'file_write')).toBe(true);
+
+      const taskCompleteResult = validationModule.handleListHooks({ event_type: 'task_complete' });
+      expect(taskCompleteResult.isError).toBeFalsy();
+      expect(taskCompleteResult.hooks.every(h => h.event_type === 'task_complete')).toBe(true);
+    });
+
+    it('lists all hooks when no event_type filter is provided', () => {
+      postToolHooks.resetHooksForTest();
+
+      const result = validationModule.handleListHooks({});
+      expect(result.isError).toBeFalsy();
+      // Should have at least the 3 default built-in hooks
+      expect(result.hooks.length).toBeGreaterThanOrEqual(3);
+      expect(getText(result)).toContain('| ID | Event | Hook | Built-in |');
+    });
+
+    it('returns "No hooks registered" message for an event with no hooks', () => {
+      // Clear all hooks
+      postToolHooks.resetHooksForTest();
+      // Remove the default task_fail hook
+      const listResult = validationModule.handleListHooks({ event_type: 'task_fail' });
+      for (const hook of listResult.hooks) {
+        postToolHooks.removeHook(hook.id);
+      }
+
+      const result = validationModule.handleListHooks({ event_type: 'task_fail' });
+      expect(result.isError).toBeFalsy();
+      expect(result.hooks).toEqual([]);
+      expect(getText(result)).toContain('No hooks registered');
+    });
+  });
 });
