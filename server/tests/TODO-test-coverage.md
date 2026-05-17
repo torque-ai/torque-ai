@@ -8,4 +8,3 @@ From bug hunt 2026-03-18. Issues that need new test files.
 - [ ] OOM/memory-error path (execute-ollama.js:345) — no unit test
 - [ ] Context limit exceeded (execute-ollama.js:554) — no unit test
 - [ ] Host-slot decrement on task failure (execute-ollama.js) — no test
-- [ ] Pre-routed host URL verification (execute-ollama.test.js:342)
