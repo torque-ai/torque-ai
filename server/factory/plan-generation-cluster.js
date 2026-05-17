@@ -1428,9 +1428,16 @@ function createPlanGenerationCluster(deps = {}) {
       .concat(details.relatedFiles || [])
       .filter((file, index, arr) => file && arr.indexOf(file) === index);
     for (const rawPath of [...new Set(rawPaths)]) {
+      const creationContext = hasPlanPathCreationContext(out, rawPath);
       const exactBasenameMatch = findUniqueProjectFileByBasename(projectPath, rawPath);
       if (exactBasenameMatch) {
-        out = replacePlanPathLiteral(out, rawPath, exactBasenameMatch);
+        // A bare generated filename like `run.test.js` may also exist in an
+        // unrelated architecture slice. If the model is explicitly creating a
+        // new file, keep that intended target instead of hijacking it to the
+        // existing basename match and causing duplicate create-target rejects.
+        if (!creationContext) {
+          out = replacePlanPathLiteral(out, rawPath, exactBasenameMatch);
+        }
         continue;
       }
 
@@ -1443,11 +1450,10 @@ function createPlanGenerationCluster(deps = {}) {
         : chooseMissingPlanPathReplacement(normalized, alternateFilesForPath, relatedPool, workItem);
       if (!replacement || replacement === normalized) continue;
 
-      const creationContext = hasPlanPathCreationContext(out, rawPath);
       const ephemeralGeneratedTarget = isEphemeralGeneratedPlanTarget(normalized);
       const shouldReplace = exists
         ? shouldReplaceExistingPlanPath(normalized, replacement, workItem, hardScopeFiles)
-        : (ephemeralGeneratedTarget || !creationContext || (isPlanTestPath(normalized) && isPlanTestPath(replacement)));
+        : (ephemeralGeneratedTarget || !creationContext);
       if (!shouldReplace) continue;
 
       out = replacePlanPathLiteral(out, rawPath, replacement);
