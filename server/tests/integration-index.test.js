@@ -981,4 +981,175 @@ describe('integration/index handlers', () => {
       chunkTasks.map((row) => row.id).slice().sort()
     );
   });
+
+  // ============ handleSubmitChunkedReview additional behavior tests ============
+
+  it('handleSubmitChunkedReview with a small file creates a single review task without chunking', async () => {
+    const reviewFile = path.join(tempDir, 'small-file.js');
+    // Small file: 5 lines, well within any token limit
+    const reviewContent = [
+      'function hello() {',
+      '  return "world";',
+      '}',
+      '',
+      'module.exports = { hello };',
+    ].join('\n');
+    fs.writeFileSync(reviewFile, reviewContent, 'utf8');
+
+    vi.spyOn(providerRoutingCore, 'analyzeTaskForRouting').mockReturnValue({
+      provider: 'codex',
+      model: 'single-review-model',
+    });
+    const processQueueSpy = vi.spyOn(taskManager, 'processQueue').mockImplementation(() => {});
+
+    const result = await handleSubmitChunkedReview({
+      file_path: reviewFile,
+      review_type: 'code_review',
+      // default token_limit (32000) is far above this file's size
+    });
+    const text = getText(result);
+
+    const createdTasks = rawDb().prepare('SELECT id, status, priority, model, metadata FROM tasks ORDER BY created_at ASC').all();
+    const parsedTasks = createdTasks.map((row) => ({
+      ...row,
+      metadata: row.metadata ? JSON.parse(row.metadata) : null,
+    }));
+
+    expect(result.isError).not.toBe(true);
+    expect(text).toContain('Single Review Task Submitted');
+    expect(text).toContain('small enough for single review');
+    expect(processQueueSpy).toHaveBeenCalledTimes(1);
+    expect(parsedTasks).toHaveLength(1);
+    expect(parsedTasks[0].status).toBe('queued');
+    expect(parsedTasks[0].model).toBe('single-review-model');
+    expect(parsedTasks[0].metadata).toEqual(expect.objectContaining({
+      intended_provider: 'codex',
+      chunked_review: false,
+      file_path: reviewFile,
+      review_type: 'code_review',
+    }));
+  });
+
+  it('handleSubmitChunkedReview returns MISSING_REQUIRED_PARAM when file_path is missing', async () => {
+    const result = await handleSubmitChunkedReview({
+      review_type: 'code_review',
+    });
+
+    expect(result.isError).toBe(true);
+    expect(result.error_code).toBe('MISSING_REQUIRED_PARAM');
+    expect(getText(result)).toContain('file_path');
+  });
+
+  it('handleSubmitChunkedReview returns MISSING_REQUIRED_PARAM when file_path is empty string', async () => {
+    const result = await handleSubmitChunkedReview({
+      file_path: '',
+      review_type: 'security_audit',
+    });
+
+    expect(result.isError).toBe(true);
+    expect(result.error_code).toBe('MISSING_REQUIRED_PARAM');
+    expect(getText(result)).toContain('file_path');
+  });
+
+  it('handleSubmitChunkedReview returns OPERATION_FAILED when file does not exist', async () => {
+    const nonExistentFile = path.join(tempDir, 'does-not-exist.js');
+
+    const result = await handleSubmitChunkedReview({
+      file_path: nonExistentFile,
+      review_type: 'code_review',
+    });
+
+    expect(result.isError).toBe(true);
+    expect(result.error_code).toBe('OPERATION_FAILED');
+    expect(getText(result)).toContain('Cannot read file');
+  });
+
+  it('handleSubmitChunkedReview with custom_prompt uses the provided prompt instead of default review type', async () => {
+    const reviewFile = path.join(tempDir, 'custom-prompt-file.js');
+    // Small file that won't need chunking
+    const reviewContent = 'const x = 1;\nconst y = 2;\n';
+    fs.writeFileSync(reviewFile, reviewContent, 'utf8');
+
+    vi.spyOn(providerRoutingCore, 'analyzeTaskForRouting').mockReturnValue({
+      provider: 'ollama',
+      model: 'custom-model',
+    });
+    vi.spyOn(taskManager, 'processQueue').mockImplementation(() => {});
+
+    const customPrompt = 'Check this code for memory leaks and resource management issues.';
+    const result = await handleSubmitChunkedReview({
+      file_path: reviewFile,
+      review_type: 'code_review',
+      custom_prompt: customPrompt,
+    });
+
+    expect(result.isError).not.toBe(true);
+    expect(getText(result)).toContain('Single Review Task Submitted');
+
+    const createdTasks = rawDb().prepare('SELECT task_description FROM tasks ORDER BY created_at ASC').all();
+    expect(createdTasks).toHaveLength(1);
+    // The custom prompt should be used in the task description instead of the default code_review prompt
+    expect(createdTasks[0].task_description).toContain(customPrompt);
+    expect(createdTasks[0].task_description).not.toContain('Code quality and readability');
+  });
+
+  it('handleSubmitChunkedReview aggregation task chunk_task_ids contains exactly the IDs of all chunk tasks', async () => {
+    const reviewFile = path.join(tempDir, 'multi-chunk-verify.js');
+    // Generate a file large enough to require chunking with a very small token limit
+    const reviewContent = Array.from(
+      { length: 300 },
+      (_, index) => `function handler${index}() { return ${index}; }`
+    ).join('\n');
+    fs.writeFileSync(reviewFile, reviewContent, 'utf8');
+
+    vi.spyOn(providerRoutingCore, 'analyzeTaskForRouting').mockReturnValue({
+      provider: 'codex',
+      model: 'chunk-verify-model',
+    });
+    vi.spyOn(taskManager, 'processQueue').mockImplementation(() => {});
+
+    const result = await handleSubmitChunkedReview({
+      file_path: reviewFile,
+      review_type: 'bug_hunt',
+      token_limit: 150,
+      priority: 3,
+    });
+    const text = getText(result);
+
+    expect(result.isError).not.toBe(true);
+    expect(text).toContain('Chunked Review Submitted');
+    expect(text).toContain('bug_hunt');
+
+    const createdTasks = rawDb().prepare('SELECT id, status, priority, metadata FROM tasks ORDER BY created_at ASC').all();
+    const parsedTasks = createdTasks.map((row) => ({
+      ...row,
+      metadata: row.metadata ? JSON.parse(row.metadata) : null,
+    }));
+
+    const chunkTasks = parsedTasks.filter((row) => row.metadata && row.metadata.chunked_review && !row.metadata.is_aggregation);
+    const aggregationTask = parsedTasks.find((row) => row.metadata && row.metadata.is_aggregation);
+
+    // At least 2 chunks expected for 300 functions with token_limit 150
+    expect(chunkTasks.length).toBeGreaterThanOrEqual(2);
+    // All chunks should have sequential chunk_number from 1..N
+    const chunkNumbers = chunkTasks.map((t) => t.metadata.chunk_number).sort((a, b) => a - b);
+    expect(chunkNumbers).toEqual(Array.from({ length: chunkTasks.length }, (_, i) => i + 1));
+    // Each chunk should report total_chunks matching the actual count
+    expect(chunkTasks.every((t) => t.metadata.total_chunks === chunkTasks.length)).toBe(true);
+    // Each chunk should have the correct review_type
+    expect(chunkTasks.every((t) => t.metadata.review_type === 'bug_hunt')).toBe(true);
+    // Each chunk should have priority 3
+    expect(chunkTasks.every((t) => t.priority === 3)).toBe(true);
+
+    // Aggregation task references exactly the chunk task IDs
+    expect(aggregationTask).toBeDefined();
+    expect(aggregationTask.metadata.chunk_task_ids).toHaveLength(chunkTasks.length);
+    expect(aggregationTask.metadata.chunk_task_ids.slice().sort()).toEqual(
+      chunkTasks.map((row) => row.id).slice().sort()
+    );
+    // Aggregation is pending, not queued
+    expect(aggregationTask.status).toBe('pending');
+    // Aggregation inherits the review_type
+    expect(aggregationTask.metadata.review_type).toBe('bug_hunt');
+  });
 });
