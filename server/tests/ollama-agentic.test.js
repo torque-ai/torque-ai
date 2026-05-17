@@ -869,3 +869,103 @@ describe('ollama-agentic', () => {
     });
   });
 });
+
+describe('truncateOldestToolResults', () => {
+  it('returns empty messages array unchanged', () => {
+    const messages = [];
+    truncateOldestToolResults(messages, 100);
+    expect(messages).toEqual([]);
+  });
+
+  it('does not truncate when only system and user messages exist (no tool messages)', () => {
+    const messages = [
+      { role: 'system', content: 'A'.repeat(2000) },
+      { role: 'user', content: 'B'.repeat(2000) },
+    ];
+    const original = JSON.parse(JSON.stringify(messages));
+
+    // Budget is tiny (10 tokens ~ 40 chars), but there are no tool messages to truncate
+    truncateOldestToolResults(messages, 10);
+
+    expect(messages).toEqual(original);
+  });
+
+  it('preserves _wasError status in truncation placeholder', () => {
+    const messages = [
+      { role: 'system', content: 'sys' },
+      { role: 'user', content: 'task' },
+      { role: 'tool', content: 'X'.repeat(8000), tool_call_id: 'call-1', _wasError: true },
+      { role: 'assistant', content: 'continuing' },
+      { role: 'tool', content: 'latest result', tool_call_id: 'call-2' },
+    ];
+
+    // Budget small enough to force truncation of the first tool message
+    truncateOldestToolResults(messages, 50);
+
+    expect(messages[2]._truncated).toBe(true);
+    expect(messages[2].content).toContain('[result truncated');
+    expect(messages[2].content).toContain('returned ERROR');
+    // Last 2 messages (assistant + tool) remain untouched
+    expect(messages[4].content).toBe('latest result');
+    expect(messages[4]._truncated).toBeUndefined();
+  });
+
+  it('does not re-truncate already-truncated messages', () => {
+    const messages = [
+      { role: 'system', content: 'sys' },
+      { role: 'user', content: 'task' },
+      { role: 'tool', content: '[result truncated — 5000 bytes, returned OK]', tool_call_id: 'call-1', _truncated: true },
+      { role: 'tool', content: 'C'.repeat(6000), tool_call_id: 'call-2' },
+      { role: 'assistant', content: 'next' },
+      { role: 'tool', content: 'final', tool_call_id: 'call-3' },
+    ];
+
+    truncateOldestToolResults(messages, 50);
+
+    // The already-truncated message keeps its content unchanged
+    expect(messages[2].content).toBe('[result truncated — 5000 bytes, returned OK]');
+    // The second tool message (index 3) gets truncated since it's not in the protected tail
+    expect(messages[3]._truncated).toBe(true);
+    expect(messages[3].content).toContain('[result truncated');
+    expect(messages[3].content).toContain('6000 bytes');
+  });
+
+  it('stops truncating once within budget (does not truncate all tool messages)', () => {
+    // Each tool message is ~400 chars = ~100 tokens. With budget of 250 tokens,
+    // truncating the first tool message should bring us under budget.
+    const messages = [
+      { role: 'system', content: 'system' },          // ~2 tokens
+      { role: 'user', content: 'task' },               // ~1 token
+      { role: 'tool', content: 'D'.repeat(400), tool_call_id: 'call-1' },  // ~100 tokens
+      { role: 'tool', content: 'E'.repeat(400), tool_call_id: 'call-2' },  // ~100 tokens
+      { role: 'assistant', content: 'mid' },           // ~1 token
+      { role: 'tool', content: 'F'.repeat(400), tool_call_id: 'call-3' },  // ~100 tokens (protected tail)
+    ];
+
+    // Total before: ~304 tokens. Budget: 250. After truncating call-1 (~100 -> ~15 tokens): ~219.
+    truncateOldestToolResults(messages, 250);
+
+    // First tool truncated
+    expect(messages[2]._truncated).toBe(true);
+    // Second tool NOT truncated (budget satisfied after first truncation)
+    expect(messages[3]._truncated).toBeUndefined();
+    expect(messages[3].content).toBe('E'.repeat(400));
+  });
+
+  it('includes byte length in truncation placeholder', () => {
+    const content = 'Hello world — special chars: é à ü';
+    const expectedBytes = Buffer.byteLength(content, 'utf-8');
+    const messages = [
+      { role: 'system', content: 'sys' },
+      { role: 'user', content: 'task' },
+      { role: 'tool', content, tool_call_id: 'call-1' },
+      { role: 'assistant', content: 'A'.repeat(2000) },
+      { role: 'tool', content: 'fin', tool_call_id: 'call-2' },
+    ];
+
+    truncateOldestToolResults(messages, 10);
+
+    expect(messages[2].content).toContain(`${expectedBytes} bytes`);
+    expect(messages[2].content).toContain('returned OK');
+  });
+});
