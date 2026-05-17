@@ -6,6 +6,10 @@ function dashboardOrigin(host = '127.0.0.1') {
   return `http://${host}:${process.env.TORQUE_DASHBOARD_PORT || '3456'}`;
 }
 
+function apiOrigin(host = '127.0.0.1') {
+  return `http://${host}:${process.env.TORQUE_API_PORT || '3457'}`;
+}
+
 function makeRes() {
   return {
     writeHead: vi.fn(),
@@ -36,6 +40,41 @@ describe('sendV2SseHeaders CORS allowlist', () => {
     const headers = res.writeHead.mock.calls[0][1];
     expect(headers['Access-Control-Allow-Origin']).toBe(origin);
     expect(headers['Access-Control-Allow-Credentials']).toBe('true');
+  });
+
+  it('allowlisted 127.0.0.1 API-port origin gets credentialed reflection', () => {
+    const res = makeRes();
+    const origin = apiOrigin();
+    const req = { headers: { origin } };
+
+    sendV2SseHeaders(res, req);
+
+    const headers = res.writeHead.mock.calls[0][1];
+    expect(headers['Access-Control-Allow-Origin']).toBe(origin);
+    expect(headers['Access-Control-Allow-Credentials']).toBe('true');
+  });
+
+  it('allowlisted localhost API-port origin gets credentialed reflection', () => {
+    const res = makeRes();
+    const origin = apiOrigin('localhost');
+    const req = { headers: { origin } };
+
+    sendV2SseHeaders(res, req);
+
+    const headers = res.writeHead.mock.calls[0][1];
+    expect(headers['Access-Control-Allow-Origin']).toBe(origin);
+    expect(headers['Access-Control-Allow-Credentials']).toBe('true');
+  });
+
+  it('disallowed origin https://evil.com omits CORS headers', () => {
+    const res = makeRes();
+    const req = { headers: { origin: 'https://evil.com' } };
+
+    sendV2SseHeaders(res, req);
+
+    const headers = res.writeHead.mock.calls[0][1];
+    expect(headers['Access-Control-Allow-Origin']).toBeUndefined();
+    expect(headers['Access-Control-Allow-Credentials']).toBeUndefined();
   });
 
   it('disallowed origin http://attacker.example omits CORS headers', () => {
