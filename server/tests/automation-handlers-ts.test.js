@@ -6,10 +6,20 @@
  * semantic TS tools, and error paths for remaining tools.
  */
 
-const { setupTestDb, teardownTestDb, safeTool, getText } = require('./vitest-setup');
+const { setupTestDb, teardownTestDb, safeTool: baseSafeTool, getText } = require('./vitest-setup');
 const path = require('path');
 const os = require('os');
 const fs = require('fs');
+
+// TS automation tools now require an explicit workspace root. Default it to
+// the fixture file's directory so existing tool calls stay valid; calls with
+// no file_path (config tools, etc.) pass through untouched.
+function safeTool(name, args) {
+  const callArgs = args && args.file_path && !args.working_directory
+    ? { ...args, working_directory: path.dirname(args.file_path) }
+    : args;
+  return baseSafeTool(name, callArgs);
+}
 
 describe('Automation Handlers', () => {
   let tempDir;

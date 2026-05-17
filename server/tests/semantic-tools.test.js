@@ -14,8 +14,13 @@ const toolHandlers = {
 };
 
 async function callTool(name, args) {
+  // TS automation tools now require an explicit workspace root; default it to
+  // the fixture file's directory so these core-behavior tests stay valid.
+  const callArgs = args && args.file_path && !args.working_directory
+    ? { ...args, working_directory: path.dirname(args.file_path) }
+    : args;
   try {
-    return await toolHandlers[name](args);
+    return await toolHandlers[name](callArgs);
   } catch (err) {
     return { content: [{ type: 'text', text: err.message }], isError: true };
   }
