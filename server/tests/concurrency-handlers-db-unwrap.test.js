@@ -69,6 +69,8 @@ describe('concurrency-handlers — unwraps facade before raw SQL', () => {
       // Common facade helper (irrelevant to this test, but documenting the
       // shape so future maintainers don't add .prepare here).
       getConfig: (key) => rawDb.prepare('SELECT value FROM config WHERE key = ?').get(key)?.value,
+      // Facade abstraction for provider_config listing (used by getConcurrencyLimits).
+      getAllProviderConfigs: () => rawDb.prepare('SELECT provider, max_concurrent, enabled FROM provider_config ORDER BY provider').all(),
     };
 
     const mockContainer = {

@@ -1007,7 +1007,7 @@ const _LEGACY_EXPORT_MODULES = [
     'deleteIntegrationConfig', 'deleteRateLimit', 'deleteRoutingRule', 'deleteTaskQuota', 'deleteTemplateCondition', 'detectWSL2HostIP',
     'enrichProviderRow', 'findOllamaBinary', 'getDefaultProvider', 'getEffectiveMaxConcurrent', 'getEnabledIntegration', 'getEnabledProviderMaxConcurrentSum',
     'getHealthTrend', 'getIntegrationConfig', 'getNextFallbackProvider', 'getProjectQuotas', 'getProjectRateLimits', 'getPrometheusMetrics',
-    'getProvider', 'getProviderFallbackChain', 'getProviderHealth', 'getProviderHealthScore', 'getProviderStats', 'getRateLimit',
+    'getAllProviderConfigs', 'getProvider', 'getProviderFallbackChain', 'getProviderHealth', 'getProviderHealthScore', 'getProviderStats', 'getRateLimit',
     'getRoutingRule', 'getRoutingRules', 'getTaskQuota', 'getTaskReplay', 'getTemplateCondition', 'getWorkflowFork',
     'hasHealthyOllamaHost', 'invalidateOllamaHealth', 'isCodexExhausted', 'isOllamaHealthy', 'isProviderHealthy', 'isProviderQuotaError',
     'listIntegrationConfigs', 'listProviders', 'listTaskReplays', 'listTemplateConditions', 'listWorkflowForks', 'markTaskPendingProviderSwitch',

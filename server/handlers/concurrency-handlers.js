@@ -81,13 +81,11 @@ function getDb() {
 
 function getConcurrencyLimits() {
   try {
-    const db = getDb();
+    const facade = resolveDatabaseFacade({ serviceName: 'concurrency handlers' });
 
     const vramOverheadFactor = hostManagement.getVramOverheadFactor();
 
-    const providers = db
-      .prepare('SELECT provider, max_concurrent, enabled FROM provider_config ORDER BY provider')
-      .all();
+    const providers = facade.getAllProviderConfigs();
 
     let workstations = [];
     try {
