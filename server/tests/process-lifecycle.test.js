@@ -1037,11 +1037,11 @@ describe('process-lifecycle', () => {
       }
     });
 
-    if (process.platform === 'win32') {
-      it.todo('sends SIGTERM then SIGKILL for orphan PID on non-Windows platform - Windows implementation needed');
-      it.todo('swallows ESRCH from orphan SIGTERM without scheduling SIGKILL - Windows implementation needed');
-    } else {
-      it('sends SIGTERM then SIGKILL for orphan PID on non-Windows platform', () => {
+    it('sends SIGTERM then SIGKILL for orphan PID on non-Windows platform', () => {
+      const platformDescriptor = Object.getOwnPropertyDescriptor(process, 'platform');
+      try {
+        Object.defineProperty(process, 'platform', { value: 'linux' });
+
         const processKillSpy = vi.spyOn(process, 'kill');
         processKillSpy.mockImplementation(() => undefined);
 
@@ -1050,9 +1050,18 @@ describe('process-lifecycle', () => {
         vi.advanceTimersByTime(50);
         expect(processKillSpy).toHaveBeenCalledWith(9001, 'SIGKILL');
         processKillSpy.mockRestore();
-      });
+      } finally {
+        if (platformDescriptor) {
+          Object.defineProperty(process, 'platform', platformDescriptor);
+        }
+      }
+    });
 
-      it('swallows ESRCH from orphan SIGTERM without scheduling SIGKILL', () => {
+    it('swallows ESRCH from orphan SIGTERM without scheduling SIGKILL', () => {
+      const platformDescriptor = Object.getOwnPropertyDescriptor(process, 'platform');
+      try {
+        Object.defineProperty(process, 'platform', { value: 'linux' });
+
         const processKillSpy = vi.spyOn(process, 'kill');
         processKillSpy.mockImplementation(() => {
           const err = new Error('no such process');
@@ -1064,8 +1073,12 @@ describe('process-lifecycle', () => {
         expect(processKillSpy).toHaveBeenCalledWith(9002, 'SIGTERM');
         expect(processKillSpy).toHaveBeenCalledTimes(1);
         processKillSpy.mockRestore();
-      });
-    }
+      } finally {
+        if (platformDescriptor) {
+          Object.defineProperty(process, 'platform', platformDescriptor);
+        }
+      }
+    });
 
     it('returns early when no pid is provided', () => {
       const processKillSpy = vi.spyOn(process, 'kill');
@@ -1078,16 +1091,21 @@ describe('process-lifecycle', () => {
 
   // ── pauseProcess ──
   describe('pauseProcess', () => {
-    if (process.platform === 'win32') {
-      it.todo('uses SIGSTOP on non-Windows processes - Windows implementation needed');
-    } else {
-      it('uses SIGSTOP on non-Windows processes', () => {
+    it('uses SIGSTOP on non-Windows processes', () => {
+      const platformDescriptor = Object.getOwnPropertyDescriptor(process, 'platform');
+      try {
+        Object.defineProperty(process, 'platform', { value: 'linux' });
+
         const mockChild = createSpyableChild();
         const pauseResult = lifecycle.pauseProcess({ process: mockChild }, 'task-1');
         expect(pauseResult).toBeUndefined();
         expect(mockChild.kill).toHaveBeenCalledWith('SIGSTOP');
-      });
-    }
+      } finally {
+        if (platformDescriptor) {
+          Object.defineProperty(process, 'platform', platformDescriptor);
+        }
+      }
+    });
 
     it('no-ops when proc is null', () => {
       expect(() => lifecycle.pauseProcess(null, 'task-1')).not.toThrow();
