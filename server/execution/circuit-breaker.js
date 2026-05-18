@@ -157,19 +157,32 @@ class CircuitBreaker {
   recordSuccess(provider) {
     const normalizedProvider = normalizeProvider(provider);
     const entry = this._getStateEntry(normalizedProvider);
-    const wasHalfOpen = entry.state === STATES.HALF_OPEN;
+    // A success closes the circuit regardless of where it came from. If the
+    // breaker was tripped (OPEN) or probing (HALF_OPEN), that close IS a
+    // recovery — it must persist and announce, not just mutate memory.
+    const wasTripped = entry.state !== STATES.CLOSED;
 
     entry.state = STATES.CLOSED;
     entry.consecutiveFailures = 0;
     entry.lastFailureCategory = null;
     entry.trippedAt = null;
     entry.currentProbeAllowed = false;
-    if (wasHalfOpen) {
+    if (wasTripped) {
       entry.recoveryTimeoutMs = this._config.baseRecoveryTimeoutMs;
       this._persist(normalizedProvider, {
         state: 'CLOSED',
         untrippedAt: new Date().toISOString(),
       });
+      // Emit circuit:recovered so routing/failover observers re-engage the
+      // provider. Without this, a canary probe that succeeds after a Codex
+      // token-limit reset leaves Codex permanently sidelined: the
+      // codex-down-failover template is never restored, parked work items
+      // are never resumed, and the canary scheduler never disarms — all
+      // three wait on this event. recordSuccess can be called while the
+      // breaker is still OPEN (a probe runs via explicit provider override
+      // before any allowRequest/getState lazily transitions it to
+      // HALF_OPEN), so gate on "was not CLOSED", not "was HALF_OPEN".
+      this._emit('circuit:recovered', { provider: normalizedProvider });
     }
 
     return this.getState(normalizedProvider);

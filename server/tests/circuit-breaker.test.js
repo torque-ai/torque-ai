@@ -139,6 +139,58 @@ describe('circuit-breaker', () => {
     });
   });
 
+  it('recordSuccess emits circuit:recovered when closing a HALF_OPEN circuit', () => {
+    tripCircuit(breaker, 'codex');
+    vi.advanceTimersByTime(TEST_CONFIG.baseRecoveryTimeoutMs);
+    expect(breaker.allowRequest('codex')).toBe(true); // OPEN -> HALF_OPEN
+    eventBus.emit.mockClear();
+
+    breaker.recordSuccess('codex');
+
+    expect(eventBus.emit).toHaveBeenCalledWith('circuit:recovered', {
+      provider: 'codex',
+    });
+  });
+
+  it('recordSuccess emits circuit:recovered when closing an OPEN circuit directly', () => {
+    // A canary probe (explicit provider override) can succeed while the
+    // breaker is still OPEN — no prior HALF_OPEN transition. This is the
+    // path that left Codex permanently sidelined after a token-limit reset.
+    tripCircuit(breaker, 'codex');
+    expect(breaker.getState('codex').state).toBe(STATES.OPEN);
+    eventBus.emit.mockClear();
+
+    breaker.recordSuccess('codex');
+
+    expect(eventBus.emit).toHaveBeenCalledWith('circuit:recovered', {
+      provider: 'codex',
+    });
+  });
+
+  it('recordSuccess persists CLOSED state when closing an OPEN circuit', () => {
+    const persisted = new Map();
+    const store = {
+      getState: vi.fn((id) => persisted.get(id) ?? null),
+      persist: vi.fn((id, patch) => persisted.set(id, { ...persisted.get(id), ...patch })),
+      listAll: vi.fn(() => []),
+    };
+    const storeBreaker = createCircuitBreaker({ eventBus, config: TEST_CONFIG, store });
+    tripCircuit(storeBreaker, 'codex');
+    store.persist.mockClear();
+
+    storeBreaker.recordSuccess('codex');
+
+    expect(store.persist).toHaveBeenCalledWith('codex', expect.objectContaining({
+      state: 'CLOSED',
+    }));
+  });
+
+  it('recordSuccess on an already-CLOSED circuit does not emit circuit:recovered', () => {
+    eventBus.emit.mockClear();
+    breaker.recordSuccess('codex');
+    expect(eventBus.emit).not.toHaveBeenCalledWith('circuit:recovered', expect.anything());
+  });
+
   it('recordFailure in HALF_OPEN re-trips with doubled timeout', () => {
     tripCircuit(breaker, 'deepinfra');
     vi.advanceTimersByTime(TEST_CONFIG.baseRecoveryTimeoutMs);
