@@ -318,6 +318,60 @@ describe('remote-test-routing', () => {
     });
   });
 
+  it('normalizeDotnetTestSourceTargets rewrites source-file test targets to the containing project', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'torque-dotnet-source-target-'));
+    try {
+      const testProjectDir = path.join(tmp, 'tests', 'SpudgetBooks.Tools.XamlLint.Tests');
+      fs.mkdirSync(testProjectDir, { recursive: true });
+      fs.writeFileSync(path.join(testProjectDir, 'SpudgetBooks.Tools.XamlLint.Tests.csproj'), '<Project />');
+      fs.writeFileSync(path.join(testProjectDir, 'XamlLintAccessibilityRuleTests.cs'), 'public class XamlLintAccessibilityRuleTests {}');
+
+      expect(
+        remoteTestRouting.normalizeDotnetTestSourceTargets(
+          'dotnet test tests/SpudgetBooks.Tools.XamlLint.Tests/XamlLintAccessibilityRuleTests.cs --filter Accessibility',
+          tmp
+        )
+      ).toBe(
+        'dotnet test tests/SpudgetBooks.Tools.XamlLint.Tests/SpudgetBooks.Tools.XamlLint.Tests.csproj --filter Accessibility'
+      );
+      expect(
+        remoteTestRouting.normalizeDotnetTestSourceTargets(
+          'torque-remote dotnet test tests/SpudgetBooks.Tools.XamlLint.Tests/XamlLintAccessibilityRuleTests.cs',
+          tmp
+        )
+      ).toBe(
+        'torque-remote dotnet test tests/SpudgetBooks.Tools.XamlLint.Tests/SpudgetBooks.Tools.XamlLint.Tests.csproj'
+      );
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it('normalizeDotnetTestSourceTargets leaves valid project and missing source targets unchanged', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'torque-dotnet-source-unchanged-'));
+    try {
+      const testProjectDir = path.join(tmp, 'tests', 'Example.Tests');
+      fs.mkdirSync(testProjectDir, { recursive: true });
+      fs.writeFileSync(path.join(testProjectDir, 'Example.Tests.csproj'), '<Project />');
+      fs.writeFileSync(path.join(testProjectDir, 'ExampleTests.cs'), 'public class ExampleTests {}');
+
+      expect(
+        remoteTestRouting.normalizeDotnetTestSourceTargets(
+          'dotnet test tests/Example.Tests/Example.Tests.csproj',
+          tmp
+        )
+      ).toBe('dotnet test tests/Example.Tests/Example.Tests.csproj');
+      expect(
+        remoteTestRouting.normalizeDotnetTestSourceTargets(
+          'dotnet test tests/Example.Tests/MissingTests.cs',
+          tmp
+        )
+      ).toBe('dotnet test tests/Example.Tests/MissingTests.cs');
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
   it('findTestRunnerWorkstation returns the first healthy workstation with test_runners', async () => {
     const workstationModule = {
       listWorkstations: vi.fn().mockReturnValue([
@@ -717,6 +771,43 @@ describe('remote-test-routing', () => {
         stdio: ['ignore', 'pipe', 'pipe'],
       })
     );
+  });
+
+  it('runVerifyCommand normalizes dotnet test source targets before local execution', async () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'torque-dotnet-run-verify-'));
+    try {
+      const testProjectDir = path.join(tmp, 'tests', 'Example.Tests');
+      fs.mkdirSync(path.join(tmp, '.git'), { recursive: true });
+      fs.mkdirSync(testProjectDir, { recursive: true });
+      fs.writeFileSync(path.join(testProjectDir, 'Example.Tests.csproj'), '<Project />');
+      fs.writeFileSync(path.join(testProjectDir, 'ExampleTests.cs'), 'public class ExampleTests {}');
+
+      const router = remoteTestRouting.createRemoteTestRouter({
+        agentRegistry: createAgentRegistry(),
+        db: createDb(),
+        logger: createLogger(),
+      });
+      mockSpawn.mockReturnValueOnce(createMockChildProcess({
+        code: 0,
+        stdout: 'verify ok\n',
+      }));
+
+      const result = await router.runVerifyCommand(
+        'torque-remote dotnet test tests/Example.Tests/ExampleTests.cs',
+        tmp
+      );
+
+      expect(result.success).toBe(true);
+      expect(mockSpawn).toHaveBeenCalledWith(
+        'torque-remote dotnet test tests/Example.Tests/Example.Tests.csproj',
+        expect.objectContaining({
+          cwd: tmp,
+          shell: true,
+        })
+      );
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
   });
 
   it('runVerifyCommand isolates pytest temp roots for local Windows verifies', async () => {

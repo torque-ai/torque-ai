@@ -109,6 +109,153 @@ function buildShellCommand(command, args = []) {
   return [command, ...(args || [])].map(quoteShellArg).join(' ');
 }
 
+function tokenizeShellCommandWithSpans(command) {
+  const text = String(command || '');
+  const tokens = [];
+  let i = 0;
+
+  while (i < text.length) {
+    while (i < text.length && /\s/.test(text[i])) i += 1;
+    if (i >= text.length) break;
+
+    const start = i;
+    let value = '';
+    let quote = null;
+
+    while (i < text.length) {
+      const ch = text[i];
+      if (!quote && /\s/.test(ch)) break;
+
+      if ((ch === '"' || ch === "'") && (!quote || quote === ch)) {
+        quote = quote === ch ? null : ch;
+        i += 1;
+        continue;
+      }
+
+      if (ch === '\\' && quote !== "'") {
+        if (i + 1 < text.length) {
+          value += text[i + 1];
+          i += 2;
+          continue;
+        }
+      }
+
+      value += ch;
+      i += 1;
+    }
+
+    tokens.push({ value, start, end: i });
+  }
+
+  return tokens;
+}
+
+function isCommandSeparatorToken(value) {
+  return ['&&', '||', ';', '|'].includes(value);
+}
+
+function isPathInside(parent, child) {
+  const relative = path.relative(parent, child);
+  return relative === '' || (
+    relative
+    && !relative.startsWith('..')
+    && !path.isAbsolute(relative)
+  );
+}
+
+function findContainingCsproj(sourcePath, cwd) {
+  if (!sourcePath || path.extname(sourcePath).toLowerCase() !== '.cs') return null;
+
+  const root = path.resolve(cwd || process.cwd());
+  const sourceAbsolute = path.resolve(root, sourcePath);
+  if (!isPathInside(root, sourceAbsolute)) return null;
+
+  try {
+    const stat = fs.statSync(sourceAbsolute);
+    if (!stat.isFile()) return null;
+  } catch {
+    return null;
+  }
+
+  let current = path.dirname(sourceAbsolute);
+  while (isPathInside(root, current)) {
+    let projects = [];
+    try {
+      projects = fs.readdirSync(current)
+        .filter(name => path.extname(name).toLowerCase() === '.csproj')
+        .map(name => path.join(current, name));
+    } catch {
+      return null;
+    }
+
+    if (projects.length === 1) {
+      return projects[0];
+    }
+
+    if (projects.length > 1) {
+      const directoryName = path.basename(current).toLowerCase();
+      const matching = projects.find(project =>
+        path.basename(project, '.csproj').toLowerCase() === directoryName
+      );
+      if (matching) return matching;
+      return null;
+    }
+
+    const next = path.dirname(current);
+    if (next === current) break;
+    current = next;
+  }
+
+  return null;
+}
+
+function renderProjectPathForCommand(projectPath, cwd) {
+  const root = path.resolve(cwd || process.cwd());
+  const absoluteProjectPath = path.resolve(projectPath);
+  const rendered = isPathInside(root, absoluteProjectPath)
+    ? path.relative(root, absoluteProjectPath)
+    : absoluteProjectPath;
+  return rendered.replace(/\\/g, '/');
+}
+
+function normalizeDotnetTestSourceTargets(command, cwd) {
+  const text = String(command || '');
+  if (!/\bdotnet\s+test\b/i.test(text) || !/\.cs(?:\s|$|["'])/i.test(text)) {
+    return text;
+  }
+
+  const tokens = tokenizeShellCommandWithSpans(text);
+  const replacements = [];
+
+  for (let i = 0; i < tokens.length - 1; i += 1) {
+    if (tokens[i].value.toLowerCase() !== 'dotnet' || tokens[i + 1].value.toLowerCase() !== 'test') continue;
+
+    for (let j = i + 2; j < tokens.length; j += 1) {
+      const token = tokens[j];
+      if (isCommandSeparatorToken(token.value)) break;
+      if (path.extname(token.value).toLowerCase() !== '.cs') continue;
+
+      const projectPath = findContainingCsproj(token.value, cwd);
+      if (!projectPath) continue;
+
+      replacements.push({
+        start: token.start,
+        end: token.end,
+        value: quoteShellArg(renderProjectPathForCommand(projectPath, cwd)),
+      });
+      break;
+    }
+  }
+
+  if (replacements.length === 0) return text;
+
+  let normalized = text;
+  for (const replacement of replacements.reverse()) {
+    normalized = `${normalized.slice(0, replacement.start)}${replacement.value}${normalized.slice(replacement.end)}`;
+  }
+  return normalized;
+}
+
 /**
  * Find a healthy workstation with test_runners capability for codex verification routing.
  * @returns {object|null} Workstation record or null
@@ -739,6 +886,10 @@ function createRemoteTestRouter({ agentRegistry, db, logger }) {
         remote: false,
       };
     }
+    const normalizedCommand = normalizeDotnetTestSourceTargets(command, cwd);
+    if (normalizedCommand !== command) {
+      logger.info(`[remote-routing] Normalized dotnet test source-file target: ${command} -> ${normalizedCommand}`);
+    }
 
     const remoteConfig = getRemoteConfig(cwd, { provider: options.provider });
 
@@ -772,12 +923,12 @@ function createRemoteTestRouter({ agentRegistry, db, logger }) {
           logger.info(`[remote-routing] Syncing project="${projectName}" branch=${branch}...`);
           await client.sync(projectName, branch);
 
-          logger.info(`[remote-routing] Running remotely: ${command}`);
+          logger.info(`[remote-routing] Running remotely: ${normalizedCommand}`);
           const safeEnv = filterSensitiveEnv(options.env);
           // `command` may be a compound shell string (e.g. "npx vitest run --reporter=json").
           // The `undefined` second argument passes no extra args — the client.run
           // implementation is expected to execute the command string via a shell.
-          const result = await client.run(command, undefined, {
+          const result = await client.run(normalizedCommand, undefined, {
             cwd: remoteConfig.remotePath,
             env: safeEnv,
             timeout: options.timeout || 120000,
@@ -806,13 +957,13 @@ function createRemoteTestRouter({ agentRegistry, db, logger }) {
       return toRemoteFailureResult(new Error('Remote execution required but agent registry is unavailable'), Date.now());
     }
 
-    if (shouldUseTorqueRemoteWrapper(command, cwd, options)) {
+    if (shouldUseTorqueRemoteWrapper(normalizedCommand, cwd, options)) {
       logTorqueRemoteConfigSource(cwd, logger);
-      logger.info(`[remote-routing] Running via torque-remote wrapper: ${command}`);
-      const preparedEnv = prepareLocalVerifyEnv(command);
+      logger.info(`[remote-routing] Running via torque-remote wrapper: ${normalizedCommand}`);
+      const preparedEnv = prepareLocalVerifyEnv(normalizedCommand);
       try {
         const wrapperResult = await runTorqueRemoteWrapper(
-          command,
+          normalizedCommand,
           cwd,
           options,
           remoteConfig?.requireRemote ? withRemoteRequiredEnv(preparedEnv.env) : preparedEnv.env
@@ -835,11 +986,11 @@ function createRemoteTestRouter({ agentRegistry, db, logger }) {
       }
     }
 
-    logger.info(`[remote-routing] Running locally (async): ${command}`);
+    logger.info(`[remote-routing] Running locally (async): ${normalizedCommand}`);
     const startMs = Date.now();
     const timeout = options.timeout || 300000; // 5 minutes default
     prepareWorktreeVerifyDependencies(cwd, logger);
-    const preparedEnv = prepareLocalVerifyEnv(command);
+    const preparedEnv = prepareLocalVerifyEnv(normalizedCommand);
     try {
       const localResult = await new Promise((resolve) => {
         let stdout = '';
@@ -848,7 +999,7 @@ function createRemoteTestRouter({ agentRegistry, db, logger }) {
         let settled = false;
         let closeEventFired = false;
 
-        const child = spawn(command, {
+        const child = spawn(normalizedCommand, {
           cwd,
           windowsHide: true,
           shell: true,
@@ -943,6 +1094,7 @@ module.exports = {
   resolveTorqueRemoteTransportConfig,
   hasTorqueRemoteTransportConfig,
   buildTorqueRemoteInvocation,
+  normalizeDotnetTestSourceTargets,
   getRemoteOs,
   getHealthResponse,
   SENSITIVE_ENV_PATTERNS,
