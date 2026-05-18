@@ -49,6 +49,30 @@ function createRunDirManager({ db, rootDir, promotedDir = null }) {
     const files = [];
     walkRunDir(dir, dir, files);
 
+    persistArtifactRecords(normalizedTaskId, files, { workflowId });
+    return { count: files.length };
+  }
+
+  async function indexFilesAsync(taskId, { workflowId = null } = {}) {
+    const normalizedTaskId = normalizeTaskId(taskId);
+    const dir = runDirFor(normalizedTaskId);
+    try {
+      await fs.promises.access(dir);
+    } catch (err) {
+      if (err && err.code === 'ENOENT') {
+        return { count: 0 };
+      }
+      throw err;
+    }
+
+    const files = [];
+    await walkRunDirAsync(dir, dir, files);
+
+    persistArtifactRecords(normalizedTaskId, files, { workflowId });
+    return { count: files.length };
+  }
+
+  function persistArtifactRecords(normalizedTaskId, files, { workflowId = null } = {}) {
     const selectExisting = db.prepare(`
       SELECT artifact_id
       FROM run_artifacts
@@ -92,7 +116,6 @@ function createRunDirManager({ db, rootDir, promotedDir = null }) {
     });
 
     persistFiles(files);
-    return { count: files.length };
   }
 
   function listArtifacts(taskId) {
@@ -215,7 +238,51 @@ function createRunDirManager({ db, rootDir, promotedDir = null }) {
     return { tasksScanned, artifactsIndexed };
   }
 
-  return { openRunDir, indexFiles, listArtifacts, getArtifact, promoteArtifact, sweepRunDir, runDirFor, reindexAllRunDirs };
+  async function reindexAllRunDirsAsync() {
+    let entries;
+    try {
+      entries = await fs.promises.readdir(rootPath, { withFileTypes: true });
+    } catch (err) {
+      if (err && err.code === 'ENOENT') {
+        return { tasksScanned: 0, artifactsIndexed: 0 };
+      }
+      throw err;
+    }
+
+    let tasksScanned = 0;
+    let artifactsIndexed = 0;
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      try {
+        normalizeTaskId(entry.name);
+      } catch {
+        continue;
+      }
+      try {
+        const result = await indexFilesAsync(entry.name);
+        tasksScanned += 1;
+        artifactsIndexed += result.count || 0;
+      } catch {
+        // Skip failures and keep sweeping; one bad dir must not abort the rest.
+      }
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+
+    return { tasksScanned, artifactsIndexed };
+  }
+
+  return {
+    openRunDir,
+    indexFiles,
+    indexFilesAsync,
+    listArtifacts,
+    getArtifact,
+    promoteArtifact,
+    sweepRunDir,
+    runDirFor,
+    reindexAllRunDirs,
+    reindexAllRunDirsAsync,
+  };
 }
 
 function normalizeArtifactRow(row) {
@@ -246,6 +313,41 @@ function walkRunDir(rootDir, currentDir, out) {
       sizeBytes: fs.statSync(absolutePath).size,
       mimeType: inferMimeType(absolutePath),
     });
+  }
+}
+
+async function walkRunDirAsync(rootDir, currentDir, out) {
+  let entries;
+  try {
+    entries = await fs.promises.readdir(currentDir, { withFileTypes: true });
+  } catch (err) {
+    if (err && err.code === 'ENOENT') return;
+    throw err;
+  }
+
+  for (const entry of entries) {
+    const absolutePath = path.join(currentDir, entry.name);
+    if (entry.isDirectory()) {
+      await walkRunDirAsync(rootDir, absolutePath, out);
+      continue;
+    }
+    if (!entry.isFile()) {
+      continue;
+    }
+
+    try {
+      const stat = await fs.promises.stat(absolutePath);
+      out.push({
+        relativePath: path.relative(rootDir, absolutePath).split(path.sep).join('/'),
+        absolutePath,
+        sizeBytes: stat.size,
+        mimeType: inferMimeType(absolutePath),
+      });
+    } catch (err) {
+      if (!err || err.code !== 'ENOENT') {
+        throw err;
+      }
+    }
   }
 }
 

@@ -83,6 +83,7 @@ const DEFAULT_MCP_SSE_PORT = 3458;
 const DEFAULT_PLUGIN_NAMES = Object.freeze(['snapscope', 'version-control', 'remote-agents', 'model-freshness', 'auto-recovery-core', 'codegraph']);
 const LOCAL_MCP_DESCRIPTION = 'TORQUE - Task Orchestration System with local LLM routing';
 const STARTUP_WORKTREE_CLEANUP_DELAY_MS = 5000;
+const RUN_ARTIFACTS_REINDEX_DELAY_MS = 5000;
 
 let testRunnerRegistry = null;
 let mcpPlatform = null;
@@ -522,6 +523,32 @@ function scheduleStartupWorktreeCleanup(createdBeforeMs) {
       debugLog(`Startup worktree cleanup schedule error: ${err.message}`);
     }
   }, STARTUP_WORKTREE_CLEANUP_DELAY_MS));
+  if (typeof handle.unref === 'function') handle.unref();
+}
+
+function scheduleRunArtifactsReindex() {
+  const handle = timerRegistry.trackTimeout(setTimeout(() => {
+    timerRegistry.remove(handle);
+
+    try {
+      if (!defaultContainer.has('runDirManager')) return;
+      const runDirManager = defaultContainer.get('runDirManager');
+      if (!runDirManager || typeof runDirManager.reindexAllRunDirsAsync !== 'function') return;
+
+      debugLog('Run artifacts reindex: async sweep started after port binding');
+      Promise.resolve(runDirManager.reindexAllRunDirsAsync())
+        .then((result) => {
+          if (result.tasksScanned > 0) {
+            debugLog(`Run artifacts reindex: scanned ${result.tasksScanned} task dir(s), indexed ${result.artifactsIndexed} file(s)`);
+          }
+        })
+        .catch((err) => {
+          debugLog(`Run artifacts reindex skipped: ${err.message}`);
+        });
+    } catch (err) {
+      debugLog(`Run artifacts reindex schedule error: ${err.message}`);
+    }
+  }, RUN_ARTIFACTS_REINDEX_DELAY_MS));
   if (typeof handle.unref === 'function') handle.unref();
 }
 
@@ -1475,25 +1502,8 @@ function init() {
     logger.warn(`[startup] config-to-registry migration failed (non-fatal): ${err.message}`);
   }
 
-  // Backfill artifact index for pre-existing run dirs. The run-scoped-artifacts
-  // feature was shipped with its container registration buried in a legacy init
-  // path that never ran, so nothing was indexed on finalization. indexFiles is
-  // idempotent (upserts by task_id + relative_path), so the sweep is safe to run
-  // on every startup; tasks with nothing to index are skipped at the fs.existsSync
-  // check inside indexFiles.
-  try {
-    if (defaultContainer.has('runDirManager')) {
-      const runDirManager = defaultContainer.get('runDirManager');
-      if (runDirManager && typeof runDirManager.reindexAllRunDirs === 'function') {
-        const result = runDirManager.reindexAllRunDirs();
-        if (result.tasksScanned > 0) {
-          debugLog(`Run artifacts reindex: scanned ${result.tasksScanned} task dir(s), indexed ${result.artifactsIndexed} file(s)`);
-        }
-      }
-    }
-  } catch (err) {
-    debugLog(`Run artifacts reindex skipped: ${err.message}`);
-  }
+  // Backfill artifact index after API/MCP bind. The sweep is idempotent, but
+  // large run directories must not block the control plane during startup.
 
   // Install built-in plugins plus any mode-specific plugins the loader adds.
   // plugin-contract.md #12 — operator-extensible plugin list via
@@ -2020,6 +2030,7 @@ function init() {
   // sweep stale worktrees in the background so large deletes cannot block startup.
   Promise.allSettled([apiPromise, ssePromise]).then(() => {
     checkCriticalPorts();
+    scheduleRunArtifactsReindex();
     scheduleStartupWorktreeCleanup(startupWorktreeCleanupCutoffMs);
   });
 
