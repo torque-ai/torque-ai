@@ -30,8 +30,19 @@ function normalizeProviderName(value) {
   return typeof value === 'string' ? value.trim().toLowerCase() : '';
 }
 
-function hasRecoveredProviderCapacity() {
+function bindCapacityCheckStores(db) {
+  if (!db || typeof db.prepare !== 'function') return;
+  if (typeof configCore.setDb === 'function') {
+    configCore.setDb(db);
+  }
+  if (typeof providerRoutingCore.setDb === 'function') {
+    providerRoutingCore.setDb(db);
+  }
+}
+
+function hasRecoveredProviderCapacity({ db } = {}) {
   try {
+    bindCapacityCheckStores(db);
     const codexExhausted = configCore.getConfig('codex_exhausted') === '1';
     const providers = typeof providerRoutingCore.listProviders === 'function'
       ? providerRoutingCore.listProviders()
@@ -161,7 +172,7 @@ function recoverNoProviderChainExhaustedWorkItemsForProject({
   if (openItems.length > 0) {
     return { scanned: 0, reopened: 0, skipped_reason: 'open_work_exists' };
   }
-  if (!hasRecoveredCapacity()) {
+  if (!hasRecoveredCapacity({ db })) {
     return { scanned: 0, reopened: 0, skipped_reason: 'provider_capacity_unavailable' };
   }
 

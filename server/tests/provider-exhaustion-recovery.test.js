@@ -5,6 +5,7 @@ const factoryIntake = require('../db/factory/intake');
 const {
   RECOVERY_ACTION,
   getNoProviderChainEvidence,
+  hasRecoveredProviderCapacity,
   recoverNoProviderChainExhaustedWorkItemsForProject,
 } = require('../factory/provider-exhaustion-recovery');
 const { rawDb, setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
@@ -133,6 +134,36 @@ describe('provider-exhaustion recovery', () => {
     expect(factoryIntake.listOpenWorkItems({ project_id: project.id }).map((item) => item.id))
       .toEqual([first.id, second.id]);
     expect(countRecoveryDecisions()).toBe(2);
+  });
+
+  it('uses the supplied db when checking recovered provider capacity', () => {
+    const project = createProject();
+    const item = createExhaustedItem(project.id);
+
+    db.prepare(`
+      UPDATE provider_config
+      SET enabled = CASE WHEN provider = 'claude-cli' THEN 1 ELSE 0 END
+    `).run();
+    db.prepare(`
+      INSERT OR REPLACE INTO config (key, value)
+      VALUES ('codex_exhausted', '1')
+    `).run();
+
+    expect(hasRecoveredProviderCapacity({ db })).toBe(true);
+
+    const result = recoverNoProviderChainExhaustedWorkItemsForProject({
+      db,
+      project,
+      maxReopens: 1,
+    });
+
+    expect(result).toMatchObject({
+      scanned: 1,
+      reopened: 1,
+      reopened_work_item_ids: [item.id],
+    });
+    expect(factoryIntake.getWorkItem(item.id).status).toBe('pending');
+    expect(countRecoveryDecisions()).toBe(1);
   });
 
   it('does not reopen terminal items while normal open work exists', () => {
