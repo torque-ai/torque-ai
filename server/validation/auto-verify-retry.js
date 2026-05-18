@@ -966,4 +966,6 @@ module.exports = {
   // for production use; the raw export is here for sibling modules that still
   // require() it directly. Self-bootstraps deps via ensureDeps() at first use.
   handleAutoVerifyRetry,
+  // Exported for reuse by factory verify stage (deflaker classification).
+  extractTestNames,
 };
