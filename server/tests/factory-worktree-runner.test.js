@@ -75,9 +75,12 @@ describe('sanitizeSlug', () => {
 
 describe('resolveSystemShellCommand', () => {
   const originalComSpec = process.env.ComSpec;
+  const originalGitBash = process.env.GIT_BASH;
   afterEach(() => {
     if (originalComSpec === undefined) delete process.env.ComSpec;
     else process.env.ComSpec = originalComSpec;
+    if (originalGitBash === undefined) delete process.env.GIT_BASH;
+    else process.env.GIT_BASH = originalGitBash;
   });
 
   it('uses process.env.ComSpec on win32 when set', () => {
@@ -98,6 +101,32 @@ describe('resolveSystemShellCommand', () => {
     const resolved = resolveSystemShellCommand('linux', 'echo hello');
     expect(resolved.cmd).toBe('sh');
     expect(resolved.args).toEqual(['-lc', 'echo hello']);
+  });
+
+  it('uses Git Bash for Windows local verify fallback when available', () => {
+    process.env.GIT_BASH = process.execPath;
+    const command = 'bash -c "test -f docs/plan.md && echo PASS"';
+    const resolved = _internalForTests.resolveLocalVerifyShellCommand('win32', command);
+    expect(resolved.cmd).toBe(process.execPath);
+    expect(resolved.args).toEqual(['-lc', command]);
+  });
+});
+
+describe('local verify fallback shell', () => {
+  it.skipIf(process.platform !== 'win32')('preserves nested bash -c quotes on Windows', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'factory-local-verify-shell-'));
+    try {
+      fs.writeFileSync(path.join(dir, 'marker.txt'), 'ok\n');
+      const result = await _internalForTests.spawnInLocalVerifyShellAsync(
+        'bash -c "test -f marker.txt && echo PASS"',
+        { cwd: dir, timeout: 10000 },
+      );
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain('PASS');
+      expect(result.stderr).not.toContain('unexpected EOF');
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 

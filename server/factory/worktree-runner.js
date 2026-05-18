@@ -408,8 +408,21 @@ function resolveSystemShellCommand(platform, command) {
   return { cmd: 'sh', args: ['-lc', command] };
 }
 
+function resolveLocalVerifyShellCommand(platform, command) {
+  if (platform === 'win32') {
+    const bashPath = resolveBashOnWindows();
+    if (bashPath) return { cmd: bashPath, args: ['-lc', command] };
+  }
+  return resolveSystemShellCommand(platform, command);
+}
+
 function spawnInSystemShellAsync(command, options = {}) {
   const { cmd, args } = resolveSystemShellCommand(process.platform, command);
+  return spawnTrackedProcessAsync(cmd, args, options);
+}
+
+function spawnInLocalVerifyShellAsync(command, options = {}) {
+  const { cmd, args } = resolveLocalVerifyShellCommand(process.platform, command);
   return spawnTrackedProcessAsync(cmd, args, options);
 }
 
@@ -559,7 +572,7 @@ async function defaultRunLocalVerify({ branch, command, cwd, logger, fallbackRea
   }
   const preparedEnv = prepareLocalVerifyEnv(command);
   try {
-    const result = await spawnInSystemShellAsync(command, {
+    const result = await spawnInLocalVerifyShellAsync(command, {
       cwd: resolvedCwd,
       timeout: 30 * 60 * 1000,
       ...(preparedEnv.env ? { env: preparedEnv.env } : {}),
@@ -940,6 +953,8 @@ module.exports = {
     isNonCodeOnlyDiff,
     spawnTrackedProcessAsync,
     spawnInBashAsync,
+    resolveLocalVerifyShellCommand,
+    spawnInLocalVerifyShellAsync,
     spawnInSystemShellAsync,
     withRepoCoordinationLock,
   },
