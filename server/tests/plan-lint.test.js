@@ -73,6 +73,21 @@ describe('factory plan lint', () => {
     expect(result.warnings).toEqual([]);
   });
 
+  it('rejects plans that author tests with Vitest imports', () => {
+    const result = lintPlanContent([
+      '# Test plan',
+      '',
+      '    import { describe, it, expect } from \'vitest\';',
+      '    const vitest = await import(\'vitest\');',
+    ].join('\n'));
+
+    expect(result.ok).toBe(false);
+    expect(result.errors).toEqual([
+      "Plan authors a test that imports from 'vitest' — banned pattern; rely on vitest globals.",
+    ]);
+    expect(result.warnings).toEqual([]);
+  });
+
   it('warns on async handlers that skip makeError', () => {
     const result = lintPlanContent([
       '# Handler plan',

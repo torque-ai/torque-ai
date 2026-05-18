@@ -164,6 +164,10 @@ function lintPlanContent(planMarkdown) {
     errors.push("Plan authors a test that calls require('vitest') — banned pattern; rely on vitest globals.");
   }
 
+  if (codeBlocks.some((block) => /\bfrom\s*['"]vitest['"]/.test(block) || /\bimport\s*\(\s*['"]vitest['"]\s*\)/.test(block))) {
+    errors.push("Plan authors a test that imports from 'vitest' — banned pattern; rely on vitest globals.");
+  }
+
   const expectedDomains = loadExpectedDomains();
   for (const domain of findRouteDomains(content)) {
     if (!expectedDomains.has(domain)) {
