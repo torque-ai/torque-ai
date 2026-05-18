@@ -29,6 +29,8 @@ const { enrichFixPromptWithCodegraph } = require('../utils/codegraph-fix-enrichm
 const { isScoutStructuredOutputTask } = require('../execution/completion-policy');
 const { wrapVerifyCommandForTestLane } = require('../factory/test-lane-verify');
 const { createTestDeflaker } = require('../db/test-deflaker');
+const { createFaultLocalization } = require('./fault-localization');
+const { createCandidatePatches } = require('./candidate-patches');
 
 // Providers that get auto-verify by default.
 // Built via character join to avoid the repo's PII scrub, which case-
@@ -434,6 +436,35 @@ async function handleAutoVerifyRetry(ctx) {
   const verifyOutput = (verifyResult.output || '') + (verifyResult.error || '');
   const verifyExitCode = verifyResult.exitCode;
 
+  // ── Candidate recording (surgical repair loop) ──────────────────────
+  // Record every verify attempt as a candidate patch so the orchestrator
+  // can select the best one when multiple repair attempts are made.
+  try {
+    if (_db) {
+      const cp = createCandidatePatches({ db: _db, logger });
+      const retryCount = task.retry_count || 0;
+      // Best-effort diff: use baseline_snapshot from metadata if available.
+      let taskDiff = '';
+      try {
+        const baselineSnapshot = getTaskMetadata(task).baseline_snapshot;
+        if (baselineSnapshot && typeof baselineSnapshot === 'string') {
+          taskDiff = baselineSnapshot;
+        }
+      } catch { /* baseline unavailable — diff stays empty */ }
+      cp.recordCandidate({
+        taskId: task.id || taskId,
+        attempt: retryCount + 1,
+        diffText: taskDiff,
+        validatorScore: verifyExitCode === 0 ? 1.0 : 0.0,
+        verifyExitCode,
+        verifyOutput: (verifyOutput || '').slice(0, 8000),
+      });
+      logger.info(`[auto-verify] Task ${taskId}: recorded candidate patch (attempt ${retryCount + 1}, exit ${verifyExitCode})`);
+    }
+  } catch (candidateRecordErr) {
+    logger.warn(`[auto-verify] Task ${taskId}: candidate recording failed: ${candidateRecordErr.message}`);
+  }
+
   // ── Deflaker: record test outcomes ───────────────────────────────────
   // Extract test names from verify output and record pass/fail outcomes
   // so the deflaker can build a sliding window for flaky-test detection.
@@ -816,6 +847,30 @@ async function handleAutoVerifyRetry(ctx) {
     }
   } catch (cgErr) {
     logger.info(`[auto-verify] Task ${taskId}: cg enrichment failed: ${cgErr.message}`);
+  }
+
+  // ── SBFL fault localization: seed fix-task with ranked suspect files ──
+  // Runs the Ochiai spectrum-based localization on the verify output to
+  // identify the most likely fault sites. Appended to the fix description
+  // so the repair agent focuses edits on high-suspicion files.
+  try {
+    if (_db) {
+      const fl = createFaultLocalization({ db: _db, logger });
+      const rankedFiles = fl.rankSuspiciousFiles({
+        taskId: task.id || taskId,
+        verifyOutput: verifyOutput || errors,
+        workingDirectory: task.working_directory,
+      });
+      if (rankedFiles.length > 0) {
+        const locContext = fl.formatLocalizationContext(rankedFiles);
+        if (locContext) {
+          fixDescription += '\n\n' + locContext;
+          logger.info(`[auto-verify] Task ${taskId}: SBFL localization attached ${rankedFiles.length} ranked file(s) to fix prompt`);
+        }
+      }
+    }
+  } catch (sbflErr) {
+    logger.warn(`[auto-verify] Task ${taskId}: SBFL fault localization failed: ${sbflErr.message}`);
   }
 
   // stall-and-retry.md #6 — operators can override the fix-task provider
