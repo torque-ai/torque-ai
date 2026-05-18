@@ -1,11 +1,17 @@
 'use strict';
 
 const { findRelatedExperiences, recordExperience } = require('../experience/store');
-const { defaultContainer } = require('../container');
+const { resolveDatabaseFacade } = require('../db/database-facade-resolver');
+const { unwrapDbHandle } = require('../utils/db-accessor');
 
 function getRawDb() {
-  const db = defaultContainer.peek('db') || require('../database');
-  return typeof db.getDbInstance === 'function' ? db.getDbInstance() : db;
+  const rawDb = unwrapDbHandle(resolveDatabaseFacade({
+    serviceName: 'experience handlers',
+  }));
+  if (!rawDb || typeof rawDb.prepare !== 'function') {
+    throw new Error('experience handlers require a registered raw database handle');
+  }
+  return rawDb;
 }
 
 function handleFindRelatedExperiences(args = {}) {

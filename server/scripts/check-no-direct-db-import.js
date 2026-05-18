@@ -216,10 +216,19 @@ function countSourceFiles() {
   return count;
 }
 
+function formatMigrationProgress(migratedCount, totalSourceFiles) {
+  if (totalSourceFiles <= 0) return '100';
+  if (migratedCount >= totalSourceFiles) return '100';
+  const rawPct = (migratedCount / totalSourceFiles) * 100;
+  const flooredPct = Math.floor(rawPct * 10) / 10;
+  return flooredPct.toFixed(1).replace(/\.0$/, '');
+}
+
 module.exports = {
   classifyDirectDatabaseImports,
   countFactoryModules,
   countSourceFiles,
+  formatMigrationProgress,
   getAllowedDirectDatabaseImportFiles,
   getAllowedDirectDatabaseImportProblems,
   getAllowedTestDirectDatabaseImportFiles,
@@ -237,9 +246,7 @@ if (require.main === module) {
   const factoryCount = countFactoryModules();
   const totalSourceFiles = countSourceFiles();
   const migratedCount = totalSourceFiles - sourceViolations.length;
-  const progressPct = totalSourceFiles > 0
-    ? Math.round((migratedCount / totalSourceFiles) * 100)
-    : 100;
+  const progressPct = formatMigrationProgress(migratedCount, totalSourceFiles);
 
   // Always show metrics
   console.log('\nDI Migration Progress:');

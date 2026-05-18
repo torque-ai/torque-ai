@@ -51,6 +51,12 @@ describe('check-no-direct-db-import', () => {
     )).toBe(false);
   });
 
+  it('does not round an incomplete migration up to 100 percent', () => {
+    expect(guard.formatMigrationProgress(999, 1000)).toBe('99.9');
+    expect(guard.formatMigrationProgress(998, 1000)).toBe('99.8');
+    expect(guard.formatMigrationProgress(1000, 1000)).toBe('100');
+  });
+
   it('surfaces stale allowlist state through scan and CLI summary output', () => {
     expect(guard.scan().staleAllowed).toEqual([]);
 

@@ -19,14 +19,14 @@ How TORQUE works, from request entry to task completion.
 │                      ▼                                          │
 │              ┌──────────────┐                                   │
 │              │  tools.js    │  explicit TOOLS array             │
-│              │ 671 built-in │  + explicit HANDLER_MODULES list  │
+│              │ 685 built-in │  + explicit HANDLER_MODULES list  │
 │              └──────┬───────┘                                   │
 │                     │                                           │
 │       ┌─────────────┼─────────────┐                            │
 │       ▼             ▼             ▼                             │
 │  ┌─────────┐  ┌──────────┐  ┌──────────┐                      │
 │  │Handlers │  │Task Mgr  │  │Scheduler │                      │
-│  │(22 files)│  │startTask │  │slot-pull │                      │
+│  │(90 files)│  │startTask │  │slot-pull │                      │
 │  └─────────┘  └────┬─────┘  └────┬─────┘                      │
 │                     │             │                              │
 │                     ▼             ▼                              │
@@ -53,7 +53,7 @@ How TORQUE works, from request entry to task completion.
 │       ▼             ▼              ▼                            │
 │  ┌─────────┐  ┌──────────┐  ┌──────────┐                     │
 │  │Workflow │  │Dashboard │  │  SQLite  │                     │
-│  │Engine   │  │ :3456    │  │(15 sub-  │                     │
+│  │Engine   │  │ :3456    │  │(90 db    │                     │
 │  │(DAGs)   │  │(WebSocket)│  │ modules) │                     │
 │  └─────────┘  └──────────┘  └──────────┘                     │
 └─────────────────────────────────────────────────────────────────┘
@@ -428,9 +428,9 @@ database.js (facade)
 | MCP stdio entry | `server/index.js` | ~1,300 |
 | MCP SSE entry | `server/mcp-sse.js` | ~1,600 |
 | REST API | `server/api-server.js` | ~2,650 |
-| Tool dispatch | `server/tools.js` | ~820, 671 built-in |
+| Tool dispatch | `server/tools.js` | ~820, 685 built-in |
 | Tool definitions | `server/tool-defs/` | 53 files |
-| Handlers | `server/handlers/` | 22 files |
+| Handlers | `server/handlers/` | 90 files |
 | Task manager | `server/task-manager.js` | ~2,780 |
 | Provider registry | `server/providers/registry.js` | ~200 |
 | Slot-pull scheduler | `server/execution/slot-pull-scheduler.js` | ~260 |
