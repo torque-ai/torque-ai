@@ -56,6 +56,7 @@ const EXECUTE_DEFERRED_PAUSED_AT_STAGE = loopController.EXECUTE_DEFERRED_PAUSED_
 const { detectStuckLoops } = require('./stuck-loop-detector');
 const { sweepStrandedNeedsReviewForProject } = require('./sweep-stranded-needs-review');
 const { runRejectedRecoverySweep } = require('./rejected-recovery');
+const { recoverNoProviderChainExhaustedWorkItemsForProject } = require('./provider-exhaustion-recovery');
 const { recoverStalledVerifyLoops, resetRecoveryAttempts } = require('./verify-stall-recovery');
 const { reconcileProject: reconcileOrphanWorktrees } = require('./worktree-reconcile');
 const baselineRequeue = require('./baseline-requeue');
@@ -1051,6 +1052,29 @@ async function tickProject(project) {
       await cancelOrphanInternalTasksForIdleProject(freshProject || project);
     } catch (err) {
       logger.debug('Factory tick: orphan internal task cleanup failed', {
+        project_id: project.id,
+        err: err.message,
+      });
+    }
+
+    try {
+      const db = resolveDatabase().getDbInstance();
+      if (db) {
+        const recovery = recoverNoProviderChainExhaustedWorkItemsForProject({
+          db,
+          project: freshProject || project,
+          logger,
+        });
+        if (recovery.reopened > 0) {
+          logger.info('Factory tick: provider-exhaustion recovery replenished intake', {
+            project_id: project.id,
+            reopened: recovery.reopened,
+            reopened_work_item_ids: recovery.reopened_work_item_ids,
+          });
+        }
+      }
+    } catch (err) {
+      logger.debug('Factory tick: provider-exhaustion recovery failed', {
         project_id: project.id,
         err: err.message,
       });
