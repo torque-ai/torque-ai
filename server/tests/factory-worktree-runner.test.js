@@ -337,6 +337,45 @@ describe('createWorktreeRunner.verify', () => {
     }));
   });
 
+  it('normalizes dotnet test source-file targets before remote and fallback local verify', async () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'factory-dotnet-source-normalize-'));
+    try {
+      const testProjectDir = path.join(tmp, 'tests', 'Example.Tests');
+      fs.mkdirSync(testProjectDir, { recursive: true });
+      fs.writeFileSync(path.join(testProjectDir, 'Example.Tests.csproj'), '<Project />');
+      fs.writeFileSync(path.join(testProjectDir, 'ExampleTests.cs'), 'public class ExampleTests {}');
+
+      const runRemoteVerify = vi.fn(() => ({
+        exitCode: 78,
+        stdout: '',
+        stderr: '[torque-remote] WARNING: [adapter:remote_probe_os] ssh failed rc=255',
+      }));
+      const runLocalVerify = vi.fn(() => ({ exitCode: 0, stdout: 'local ok', stderr: '' }));
+      const runner = createWorktreeRunner({
+        worktreeManager: makeWorktreeManagerMock(),
+        runRemoteVerify,
+        runLocalVerify,
+        countCommitsAhead: nonEmptyCountCommitsAhead,
+      });
+
+      const result = await runner.verify({
+        worktreePath: tmp,
+        branch: 'feat/dotnet-source',
+        verifyCommand: 'dotnet test tests/Example.Tests/ExampleTests.cs --filter Accessibility',
+      });
+
+      expect(result.passed).toBe(true);
+      expect(runRemoteVerify).toHaveBeenCalledWith(expect.objectContaining({
+        command: 'dotnet test tests/Example.Tests/Example.Tests.csproj --filter Accessibility',
+      }));
+      expect(runLocalVerify).toHaveBeenCalledWith(expect.objectContaining({
+        command: 'dotnet test tests/Example.Tests/Example.Tests.csproj --filter Accessibility',
+      }));
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
   it('fails when runner returns non-zero exit', async () => {
     const runner = createWorktreeRunner({
       worktreeManager: makeWorktreeManagerMock(),
