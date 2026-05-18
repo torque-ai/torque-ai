@@ -431,7 +431,9 @@ function createStarvationRecovery({
 
     const lastActionMs = parseLastActionMs(project.loop_last_action_at);
     const elapsedMs = lastActionMs === null ? Infinity : now() - lastActionMs;
-    if (!force && elapsedMs < effectiveDwellMs) {
+    // Initial STARVED entry should actively recover on the next factory tick.
+    // Dwell is a backoff after no-yield scouts, not an operator-nudge window.
+    if (!force && noYieldScoutCount > 0 && elapsedMs < effectiveDwellMs) {
       return {
         recovered: false,
         reason: 'dwell_not_elapsed',

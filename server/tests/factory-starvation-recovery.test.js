@@ -30,9 +30,9 @@ describe('factory starvation recovery', () => {
     expect(updateLoopState).not.toHaveBeenCalled();
   });
 
-  it('waits for the dwell interval before submitting recovery scouts', async () => {
-    const submitScout = vi.fn();
-    const updateLoopState = vi.fn();
+  it('submits the initial STARVED recovery scout without waiting for operator-style dwell', async () => {
+    const submitScout = vi.fn().mockResolvedValue({ task_id: 'task-1' });
+    const updateLoopState = vi.fn().mockResolvedValue({});
     const countOpenWorkItems = vi.fn().mockResolvedValue(0);
     const recovery = createStarvationRecovery({
       submitScout,
@@ -51,12 +51,13 @@ describe('factory starvation recovery', () => {
 
     expect(result).toMatchObject({
       recovered: false,
-      reason: 'dwell_not_elapsed',
-      elapsed_ms: 500,
-      dwell_ms: 1000,
+      reason: 'scout_submitted_waiting_for_intake',
+      scout: { task_id: 'task-1' },
     });
-    expect(submitScout).not.toHaveBeenCalled();
-    expect(updateLoopState).not.toHaveBeenCalled();
+    expect(submitScout).toHaveBeenCalledTimes(1);
+    expect(updateLoopState).toHaveBeenCalledWith('project-1', expect.objectContaining({
+      loop_state: LOOP_STATES.STARVED,
+    }));
   });
 
   it('can bypass dwell when an explicit recovery trigger asks for immediate scout seeding', async () => {

@@ -365,8 +365,11 @@ describe('scout output intake — exemplar_files existence guard', () => {
   beforeEach(() => {
     tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'scout-existence-guard-'));
     fs.mkdirSync(path.join(tmpRoot, 'server', 'factory'), { recursive: true });
+    fs.mkdirSync(path.join(tmpRoot, 'server', 'factory', 'shared'), { recursive: true });
+    fs.mkdirSync(path.join(tmpRoot, 'server', 'tests'), { recursive: true });
     fs.writeFileSync(path.join(tmpRoot, 'server', 'factory', 'real-file.js'), '// real');
     fs.writeFileSync(path.join(tmpRoot, 'server', 'factory', 'another-real.js'), '// real');
+    fs.writeFileSync(path.join(tmpRoot, 'server', 'factory', 'shared', 'plan-path.js'), '// real');
   });
 
   afterEach(() => {
@@ -665,6 +668,128 @@ describe('scout output intake — exemplar_files existence guard', () => {
         reason: 'allowed_files_hallucinated',
         dropped_files: ['docs/imagined.md', 'src/imagined.ts'],
       })]);
+    });
+
+    it('accepts create-file concrete items when the scout cites an existing source file', () => {
+      const factoryIntake = makeFactoryIntake();
+      const logger = { warn: vi.fn(), info: vi.fn() };
+      const intake = createScoutOutputIntake({ factoryIntake, logger });
+
+      const result = intake.promoteTask({
+        id: 'task-create-test',
+        status: 'completed',
+        working_directory: tmpRoot,
+        metadata: { mode: 'scout', reason: 'factory_starvation_recovery', project_id: 'project-1' },
+        output: [
+          '__SCOUT_COMPLETE__',
+          JSON.stringify({
+            concrete_factory_work_items: [{
+              title: 'Add unit tests for plan-path.js',
+              why: 'server/factory/shared/plan-path.js has path normalization behavior without focused direct coverage.',
+              description: 'Create server/tests/plan-path.test.js with focused coverage for server/factory/shared/plan-path.js normalization and managed worktree filtering.',
+              allowed_files: ['server/tests/plan-path.test.js'],
+              verification: 'cd server; npx vitest run tests/plan-path.test.js',
+            }],
+          }),
+          '__SCOUT_COMPLETE_END__',
+        ].join('\n'),
+      });
+
+      expect(result.created).toHaveLength(1);
+      expect(result.skipped).toEqual([]);
+      expect(factoryIntake.createWorkItem).toHaveBeenCalledWith(expect.objectContaining({
+        origin: expect.objectContaining({
+          allowed_files: [
+            'server/factory/shared/plan-path.js',
+            'server/tests/plan-path.test.js',
+          ],
+          sources: expect.arrayContaining(['server/factory/shared/plan-path.js']),
+        }),
+      }));
+      expect(logger.info).toHaveBeenCalledWith(
+        'Scout concrete item: accepted create-file allowed_files with existing evidence',
+        expect.objectContaining({
+          evidence_files: ['server/factory/shared/plan-path.js'],
+          create_targets: ['server/tests/plan-path.test.js'],
+        }),
+      );
+      expect(logger.warn).not.toHaveBeenCalled();
+    });
+
+    it('uses scout narrative evidence to validate create-file concrete items', () => {
+      const factoryIntake = makeFactoryIntake();
+      const logger = { warn: vi.fn(), info: vi.fn() };
+      const intake = createScoutOutputIntake({ factoryIntake, logger });
+
+      const result = intake.promoteTask({
+        id: 'task-narrative-evidence',
+        status: 'completed',
+        working_directory: tmpRoot,
+        metadata: { mode: 'scout', reason: 'factory_starvation_recovery', project_id: 'project-1' },
+        output: [
+          'Observed server/factory/shared/plan-path.js via repository search; it needs direct coverage.',
+          '__SCOUT_COMPLETE__',
+          JSON.stringify({
+            concrete_factory_work_items: [{
+              title: 'Add direct path helper tests',
+              description: 'Create focused coverage for path helper behavior.',
+              allowed_files: ['server/tests/plan-path.test.js'],
+              verification: 'cd server; npx vitest run tests/plan-path.test.js',
+            }],
+          }),
+          '__SCOUT_COMPLETE_END__',
+        ].join('\n'),
+      });
+
+      expect(result.created).toHaveLength(1);
+      expect(factoryIntake.createWorkItem).toHaveBeenCalledWith(expect.objectContaining({
+        origin: expect.objectContaining({
+          allowed_files: [
+            'server/factory/shared/plan-path.js',
+            'server/tests/plan-path.test.js',
+          ],
+        }),
+      }));
+      expect(logger.warn).not.toHaveBeenCalled();
+    });
+
+    it('preserves new create targets when allowed_files also includes existing evidence', () => {
+      const factoryIntake = makeFactoryIntake();
+      const logger = { warn: vi.fn(), info: vi.fn() };
+      const intake = createScoutOutputIntake({ factoryIntake, logger });
+
+      const result = intake.promoteTask({
+        id: 'task-mixed-create',
+        status: 'completed',
+        working_directory: tmpRoot,
+        metadata: { mode: 'scout', reason: 'factory_starvation_recovery', project_id: 'project-1' },
+        output: [
+          '__SCOUT_COMPLETE__',
+          JSON.stringify({
+            concrete_factory_work_items: [{
+              title: 'Add real-file behavior tests',
+              description: 'Create server/tests/real-file.test.js for behavior in server/factory/real-file.js.',
+              allowed_files: ['server/factory/real-file.js', 'server/tests/real-file.test.js'],
+              verification: 'cd server; npx vitest run tests/real-file.test.js',
+            }],
+          }),
+          '__SCOUT_COMPLETE_END__',
+        ].join('\n'),
+      });
+
+      expect(result.created).toHaveLength(1);
+      expect(factoryIntake.createWorkItem).toHaveBeenCalledWith(expect.objectContaining({
+        origin: expect.objectContaining({
+          allowed_files: ['server/factory/real-file.js', 'server/tests/real-file.test.js'],
+        }),
+      }));
+      expect(logger.info).toHaveBeenCalledWith(
+        'Scout concrete item: preserved create-file allowed_files with existing evidence',
+        expect.objectContaining({
+          create_targets: ['server/tests/real-file.test.js'],
+          dropped_count: 0,
+        }),
+      );
     });
 
     it('falls back to metadata.project_path when task.working_directory is absent', () => {

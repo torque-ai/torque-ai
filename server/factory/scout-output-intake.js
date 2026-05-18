@@ -4,6 +4,13 @@ const fs = require('fs');
 const path = require('path');
 const { StreamSignalParser } = require('../diffusion/stream-signal-parser');
 const { normalizeMetadata } = require('../utils/normalize-metadata');
+const {
+  PLAN_RELATED_FILE_EXT_RE,
+  extractPlanDescriptionFilePaths,
+  normalizePlanProjectRelativePath,
+  projectFileExists,
+} = require('./shared/plan-path');
+const { findUniqueProjectFileByBasename } = require('./shared/scope-search');
 
 const STARVATION_RECOVERY_REASON = 'factory_starvation_recovery';
 const MAX_TITLE_LENGTH = 140;
@@ -267,6 +274,169 @@ function filterExistingFiles(filePaths, baseDir) {
   return { kept, dropped, unchecked: false };
 }
 
+function uniquePathList(filePaths) {
+  const seen = new Set();
+  const out = [];
+  for (const raw of filePaths || []) {
+    if (typeof raw !== 'string') continue;
+    const normalized = normalizePlanProjectRelativePath(raw, null);
+    if (!normalized || seen.has(normalized)) continue;
+    seen.add(normalized);
+    out.push(normalized);
+  }
+  return out;
+}
+
+function isLikelyCreateFileTarget(filePath, baseDir) {
+  const normalized = normalizePlanProjectRelativePath(filePath, null);
+  if (!normalized || !baseDir || typeof baseDir !== 'string') {
+    return false;
+  }
+  if (!PLAN_RELATED_FILE_EXT_RE.test(normalized)) {
+    return false;
+  }
+  const resolved = path.resolve(baseDir, normalized);
+  const root = path.resolve(baseDir);
+  if (!resolved.startsWith(root + path.sep) && resolved !== root) {
+    return false;
+  }
+  try {
+    if (fs.existsSync(resolved)) {
+      return false;
+    }
+    return fs.existsSync(path.dirname(resolved));
+  } catch {
+    return false;
+  }
+}
+
+function evidenceFileMatchesItem(filePath, item) {
+  const normalized = String(filePath || '').replace(/\\/g, '/').toLowerCase();
+  const basename = path.posix.basename(normalized);
+  const stem = basename.replace(/\.[a-z0-9]+$/i, '');
+  const itemText = [
+    item?.title,
+    item?.why,
+    item?.description,
+    item?.verification,
+  ].filter((value) => typeof value === 'string').join('\n').toLowerCase();
+  if (!normalized || !itemText) {
+    return false;
+  }
+  if ((basename && itemText.includes(basename)) || (stem.length >= 4 && itemText.includes(stem))) {
+    return true;
+  }
+  return false;
+}
+
+function resolveExistingEvidenceCandidate(candidate, baseDir, basenameCache = null) {
+  const raw = String(candidate || '');
+  const basename = path.posix.basename(raw.replace(/\\/g, '/'));
+  const findByBasename = (value) => {
+    if (!value) return null;
+    const cacheKey = `${path.resolve(baseDir)}\0${String(value).toLowerCase()}`;
+    if (basenameCache instanceof Map && basenameCache.has(cacheKey)) {
+      return basenameCache.get(cacheKey);
+    }
+    const found = findUniqueProjectFileByBasename(baseDir, value);
+    if (basenameCache instanceof Map) {
+      basenameCache.set(cacheKey, found);
+    }
+    return found;
+  };
+  let normalized = raw && !/[\\/]/.test(raw)
+    ? findByBasename(raw)
+    : normalizePlanProjectRelativePath(raw, baseDir);
+  if (normalized && !projectFileExists(baseDir, normalized) && basename) {
+    normalized = findByBasename(basename);
+  }
+  return normalized && projectFileExists(baseDir, normalized) ? normalized : null;
+}
+
+function collectTextFileCandidates(text) {
+  const candidates = new Set();
+  for (const filePath of extractPlanDescriptionFilePaths(text)) {
+    candidates.add(filePath);
+  }
+  for (const token of String(text).match(/\b[A-Za-z0-9_.-]+\.(?:cjs|cs|css|go|html|java|js|json|jsx|md|mjs|ps1|py|rs|sh|sql|ts|tsx|txt|xml|ya?ml)\b/gi) || []) {
+    candidates.add(token);
+  }
+  return candidates;
+}
+
+function collectExistingEvidenceFiles(item, baseDir, extraText = null, basenameCache = null) {
+  if (!baseDir || typeof baseDir !== 'string') {
+    return [];
+  }
+
+  const itemText = [
+    item?.title,
+    item?.why,
+    item?.description,
+    item?.source,
+    Array.isArray(item?.sources) ? item.sources.join('\n') : null,
+    item?.verification,
+  ].filter((value) => typeof value === 'string' && value.trim());
+
+  const out = [];
+  for (const candidate of collectTextFileCandidates(itemText.join('\n'))) {
+    const normalized = resolveExistingEvidenceCandidate(candidate, baseDir, basenameCache);
+    if (normalized) {
+      out.push(normalized);
+    }
+  }
+  for (const candidate of collectTextFileCandidates(extraText || '')) {
+    const normalized = resolveExistingEvidenceCandidate(candidate, baseDir, basenameCache);
+    if (normalized && evidenceFileMatchesItem(normalized, item)) {
+      out.push(normalized);
+    }
+  }
+  return uniquePathList(out);
+}
+
+function reconcileConcreteAllowedFilesForCreation(concreteItem, existence, workingDir, extraText = null, basenameCache = null) {
+  if (!existence || existence.unchecked || existence.dropped.length === 0) {
+    return {
+      allowedFiles: uniquePathList(concreteItem.allowed_files),
+      createTargets: [],
+      evidenceFiles: [],
+      acceptedCreateTargets: false,
+    };
+  }
+
+  const createTargets = uniquePathList(
+    existence.dropped.filter((filePath) => isLikelyCreateFileTarget(filePath, workingDir))
+  );
+  if (createTargets.length === 0) {
+    return {
+      allowedFiles: uniquePathList(existence.kept),
+      createTargets,
+      evidenceFiles: [],
+      acceptedCreateTargets: false,
+    };
+  }
+
+  const evidenceFiles = uniquePathList([
+    ...existence.kept,
+    ...collectExistingEvidenceFiles(concreteItem, workingDir, extraText, basenameCache),
+  ]);
+  if (evidenceFiles.length === 0) {
+    return {
+      allowedFiles: uniquePathList(existence.kept),
+      createTargets,
+      evidenceFiles,
+      acceptedCreateTargets: false,
+    };
+  }
+
+  return {
+    allowedFiles: uniquePathList([...evidenceFiles, ...createTargets]),
+    createTargets,
+    evidenceFiles,
+    acceptedCreateTargets: true,
+  };
+}
+
 function priorityForConcreteItem(item) {
   if (typeof item.priority === 'string') {
     const normalized = item.priority.trim().toLowerCase();
@@ -343,6 +513,7 @@ function createScoutOutputIntake({ factoryIntake, logger = console, resolveProje
     const patterns = collectPatterns(task.output || '');
     const concreteItems = collectConcreteWorkItems(task.output || '');
     const workingDir = resolveScoutWorkingDir(task, metadata);
+    const evidenceBasenameCache = new Map();
     const created = [];
     const skipped = [];
 
@@ -438,34 +609,73 @@ function createScoutOutputIntake({ factoryIntake, logger = console, resolveProje
       // Existence guard for concrete work items — same rationale as the
       // pattern loop above. allowed_files is the ground truth for what
       // the EXECUTE stage will be allowed to touch; if all entries are
-      // hallucinated, the work item can't possibly be executed.
+      // hallucinated, the work item can't possibly be executed. Additive
+      // test/doc work is different: a scout can legitimately name a new
+      // create target. Accept those only when the item text also cites a
+      // real existing source file, and carry both paths into allowed_files
+      // so the architect has evidence plus the create target.
       if (concreteItem.allowed_files.length > 0) {
         const existence = filterExistingFiles(concreteItem.allowed_files, workingDir);
+        const createResolution = reconcileConcreteAllowedFilesForCreation(
+          concreteItem,
+          existence,
+          workingDir,
+          task.output || '',
+          evidenceBasenameCache
+        );
         if (!existence.unchecked && existence.kept.length === 0 && existence.dropped.length > 0) {
-          logger.warn?.('Scout concrete item dropped: all allowed_files non-existent', {
-            project_id: projectId,
-            title,
-            dropped_files: existence.dropped,
-            working_directory: workingDir,
-            scout_task_id: task?.id || null,
-          });
-          skipped.push({
-            reason: 'allowed_files_hallucinated',
-            title,
-            dropped_files: existence.dropped,
-          });
-          continue;
+          if (createResolution.acceptedCreateTargets) {
+            logger.info?.('Scout concrete item: accepted create-file allowed_files with existing evidence', {
+              project_id: projectId,
+              title,
+              evidence_files: createResolution.evidenceFiles,
+              create_targets: createResolution.createTargets,
+              working_directory: workingDir,
+              scout_task_id: task?.id || null,
+            });
+            concreteItem.allowed_files = createResolution.allowedFiles;
+            concreteItem.sources = uniquePathList([
+              ...(Array.isArray(concreteItem.sources) ? concreteItem.sources : []),
+              ...createResolution.evidenceFiles,
+            ]);
+          } else {
+            logger.warn?.('Scout concrete item dropped: all allowed_files non-existent', {
+              project_id: projectId,
+              title,
+              dropped_files: existence.dropped,
+              working_directory: workingDir,
+              scout_task_id: task?.id || null,
+            });
+            skipped.push({
+              reason: 'allowed_files_hallucinated',
+              title,
+              dropped_files: existence.dropped,
+            });
+            continue;
+          }
         }
-        if (!existence.unchecked && existence.dropped.length > 0) {
-          logger.info?.('Scout concrete item: filtered hallucinated allowed_files', {
-            project_id: projectId,
-            title,
-            kept_count: existence.kept.length,
-            dropped_count: existence.dropped.length,
-            dropped_files: existence.dropped,
-            scout_task_id: task?.id || null,
-          });
-          concreteItem.allowed_files = existence.kept;
+        if (!existence.unchecked && existence.kept.length > 0 && existence.dropped.length > 0) {
+          if (createResolution.acceptedCreateTargets) {
+            logger.info?.('Scout concrete item: preserved create-file allowed_files with existing evidence', {
+              project_id: projectId,
+              title,
+              kept_count: existence.kept.length,
+              create_targets: createResolution.createTargets,
+              dropped_count: existence.dropped.length - createResolution.createTargets.length,
+              scout_task_id: task?.id || null,
+            });
+            concreteItem.allowed_files = createResolution.allowedFiles;
+          } else {
+            logger.info?.('Scout concrete item: filtered hallucinated allowed_files', {
+              project_id: projectId,
+              title,
+              kept_count: existence.kept.length,
+              dropped_count: existence.dropped.length,
+              dropped_files: existence.dropped,
+              scout_task_id: task?.id || null,
+            });
+            concreteItem.allowed_files = existence.kept;
+          }
         }
       }
 
@@ -548,10 +758,13 @@ module.exports = {
   STARVATION_RECOVERY_REASON,
   collectConcreteWorkItems,
   collectPatterns,
+  collectExistingEvidenceFiles,
   createScoutOutputIntake,
   filterExistingFiles,
+  isLikelyCreateFileTarget,
   isStarvationRecoveryScoutTask,
   promoteScoutSignalToIntake,
   promoteScoutTaskOutputToIntake,
+  reconcileConcreteAllowedFilesForCreation,
   resolveScoutWorkingDir,
 };
