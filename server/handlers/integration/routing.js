@@ -1450,6 +1450,10 @@ async function handleSmartSubmitTask(args) {
       });
     } else {
       logger.warn('[SmartRouting] Codex exhausted but no enabled non-Codex fallback was available');
+      return makeError(
+        ErrorCodes.NO_HOSTS_AVAILABLE,
+        'No providers available: Codex quota exhausted and no non-Codex fallback is healthy or configured.'
+      );
     }
   }
 

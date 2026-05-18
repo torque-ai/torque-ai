@@ -361,6 +361,12 @@ describe('factory loop-controller EXECUTE modes', () => {
     expect(getAutoAdvanceDelayMs({ stage_result: { status: 'deferred' } }, nowMs)).toBe(30000);
     expect(getAutoAdvanceDelayMs({
       stage_result: {
+        status: 'waiting',
+        reason: 'plan_generation_task_active',
+      },
+    }, nowMs)).toBe(30000);
+    expect(getAutoAdvanceDelayMs({
+      stage_result: {
         retry_after: '5',
       },
     }, nowMs)).toBe(5000);

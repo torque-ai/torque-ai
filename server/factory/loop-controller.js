@@ -134,6 +134,11 @@ const AUTO_ADVANCE_DEFAULT_DELAY_MS = 100;
 const AUTO_ADVANCE_DEFERRED_MIN_DELAY_MS = 2500;
 const AUTO_ADVANCE_DEFERRED_FALLBACK_DELAY_MS = 30 * 1000;
 const AUTO_ADVANCE_DEFERRED_MAX_DELAY_MS = 60 * 1000;
+const AUTO_ADVANCE_WAITING_REASONS = new Set([
+  'plan_generation_task_active',
+  'plan_generation_file_lock_wait',
+  'active_worktree_owner_running',
+]);
 const AUTO_GENERATED_PLAN_DIR_SEGMENT = `${path.sep}auto-generated${path.sep}`;
 
 // Phase X1: minimum delay between a needs_replan rejection and PRIORITIZE
@@ -1441,8 +1446,11 @@ function parseRetryAfterDelayMs(retryAfter, nowMs = Date.now()) {
 function getAutoAdvanceDelayMs(result, nowMs = Date.now()) {
   const stageResult = result?.stage_result || {};
   const status = normalizeOptionalString(stageResult.status);
+  const reason = normalizeOptionalString(stageResult.reason);
   const retryAfter = normalizeOptionalString(stageResult.retry_after);
-  const isDeferred = status === 'deferred' || Boolean(retryAfter);
+  const isDeferred = status === 'deferred'
+    || Boolean(retryAfter)
+    || (status === 'waiting' && AUTO_ADVANCE_WAITING_REASONS.has(reason));
 
   if (!isDeferred) {
     return AUTO_ADVANCE_DEFAULT_DELAY_MS;
@@ -1460,6 +1468,16 @@ function getAutoAdvanceDelayMs(result, nowMs = Date.now()) {
   }
 
   return AUTO_ADVANCE_DEFERRED_FALLBACK_DELAY_MS;
+}
+
+function isAutoAdvanceablePausedResult(project, instance, result) {
+  if (!result?.paused_at_stage) return false;
+  if (!isDeferredExecutePause(project, instance)) return false;
+  const stageResult = result?.stage_result || {};
+  const status = normalizeOptionalString(stageResult.status);
+  const reason = normalizeOptionalString(stageResult.reason);
+  return status === 'deferred'
+    || (status === 'waiting' && AUTO_ADVANCE_WAITING_REASONS.has(reason));
 }
 
 function clearScheduledAutoAdvance(instance_id) {
@@ -6622,10 +6640,12 @@ function advanceLoopAsync(instance_id, { autoAdvance = false } = {}) {
       job.paused_at_stage = result.paused_at_stage ?? null;
       job.stage_result = result.stage_result ?? null;
       job.reason = result.reason ?? null;
+      const latestInstance = getInstanceOrThrow(instance.id);
+      const autoAdvanceablePause = isAutoAdvanceablePausedResult(project, latestInstance, result);
       const shouldAutoAdvance = autoAdvanceRequested
         && result.new_state !== LOOP_STATES.IDLE
         && result.new_state !== LOOP_STATES.STARVED
-        && !result.paused_at_stage
+        && (!result.paused_at_stage || autoAdvanceablePause)
         && !isProjectStatusPaused(project.id);
       job.auto_advance_delay_ms = shouldAutoAdvance ? getAutoAdvanceDelayMs(result) : null;
       job.completed_at = nowIso();

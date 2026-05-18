@@ -413,6 +413,24 @@ describe('provider-routing-core', () => {
       expect(core.normalizeProviderTransport(undefined, 'anthropic')).toBe('api');
     });
 
+    it('requires a healthy local host before treating ollama as routable', () => {
+      const downHostManagement = createHostManagement({
+        hasHealthyOllamaHost: vi.fn(() => false),
+      });
+      const down = loadCore({ hostManagement: downHostManagement });
+
+      expect(down.core.isProviderAvailableForRouting('ollama')).toBe(false);
+      expect(downHostManagement.hasHealthyOllamaHost).toHaveBeenCalled();
+
+      const healthyHostManagement = createHostManagement({
+        hasHealthyOllamaHost: vi.fn(() => true),
+      });
+      const healthy = loadCore({ hostManagement: healthyHostManagement });
+
+      expect(healthy.core.isProviderAvailableForRouting('ollama')).toBe(true);
+      expect(healthyHostManagement.hasHealthyOllamaHost).toHaveBeenCalled();
+    });
+
     it('enriches provider rows with parsed quota patterns and booleans', () => {
       const { core } = loadCore();
 

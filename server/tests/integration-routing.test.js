@@ -108,6 +108,7 @@ const ErrorCodes = {
   PROVIDER_ERROR: 'PROVIDER_ERROR',
   OPERATION_FAILED: 'OPERATION_FAILED',
   INTERNAL_ERROR: 'INTERNAL_ERROR',
+  NO_HOSTS_AVAILABLE: 'NO_HOSTS_AVAILABLE',
 };
 
 const mockErrorCodes = {
@@ -856,6 +857,33 @@ describe('integration routing handlers', () => {
       expect(task.metadata.routing_reason).toContain('Factory inherited provider');
       expect(task.metadata.routing_reason).toContain('Codex exhausted');
       expect(mockDb.analyzeTaskForRouting).not.toHaveBeenCalled();
+    });
+
+    it('rejects Codex-exhausted routing instead of falling back to unavailable Ollama', async () => {
+      mockDb.isCodexExhausted.mockReturnValue(true);
+      mockDb.analyzeTaskForRouting.mockReturnValueOnce(baseRoutingResult({
+        provider: 'codex',
+        complexity: 'normal',
+        reason: "Template 'Codex Primary': default -> codex",
+        chain: [
+          { provider: 'codex', model: null },
+          { provider: 'ollama', model: null },
+        ],
+      }));
+      mockDb.getProviderFallbackChain.mockImplementationOnce(() => ['ollama']);
+      mockDb.isProviderAvailableForRouting.mockImplementation((providerName) => {
+        if (providerName === 'ollama') return false;
+        const config = providerConfigs[providerName];
+        return Boolean(config && config.enabled);
+      });
+
+      const result = await routing.handleSmartSubmitTask({
+        task: 'Implement queue telemetry in server/factory/factory-tick.js',
+      });
+
+      expect(result.isError).toBe(true);
+      expect(textOf(result)).toContain('Codex quota exhausted');
+      expect(mockDb.createTask).not.toHaveBeenCalled();
     });
 
     it('reroutes template-selected Codex Spark provider when Spark is disabled', async () => {

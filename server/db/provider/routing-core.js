@@ -1234,6 +1234,14 @@ function isProviderAvailableForRouting(provider) {
   const providerName = typeof provider === 'string' ? provider.trim() : '';
   if (!providerName) return false;
   const providerConfig = getProvider(providerName);
+  if (providerName === 'ollama') {
+    return Boolean(
+      providerConfig
+      && providerConfig.enabled
+      && ollamaHealth.hasHealthyOllamaHost()
+      && isProviderHealthy(providerName)
+    );
+  }
   return Boolean(
     providerConfig
     && providerConfig.enabled

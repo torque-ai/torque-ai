@@ -1768,6 +1768,59 @@ describe('factory loop-controller EXECUTE for non-plan-file work items', () => {
     expect(createPlanExecutorMock).not.toHaveBeenCalled();
   });
 
+  it('keeps auto-advance armed while waiting on an active plan-generation task', async () => {
+    const { project, workItem } = registerExecuteProject({
+      description: 'Add coverage for async deferred plan generation.',
+    });
+    const batchId = `factory-${project.id}-${workItem.id}`;
+    const instance = factoryLoopInstances.createInstance({
+      project_id: project.id,
+      work_item_id: workItem.id,
+      batch_id: batchId,
+    });
+    factoryLoopInstances.updateInstance(instance.id, {
+      loop_state: LOOP_STATES.EXECUTE,
+      paused_at_stage: null,
+      work_item_id: workItem.id,
+      batch_id: batchId,
+    });
+    factoryIntake.updateWorkItem(workItem.id, {
+      batch_id: batchId,
+      claimed_by_instance_id: instance.id,
+      origin_json: {
+        plan_generation_task_id: 'async-active-plan-gen-task',
+      },
+    });
+    taskCore.getTask = vi.fn((taskId) => {
+      if (taskId === 'async-active-plan-gen-task') {
+        return {
+          id: taskId,
+          status: 'running',
+          output: '',
+          error_output: '',
+          tags: planGenerationTags(project.id, workItem.id),
+          metadata: planGenerationMetadata(project.id, workItem.id),
+        };
+      }
+      return null;
+    });
+
+    const job = loopController.advanceLoopAsync(instance.id, { autoAdvance: true });
+
+    await vi.waitFor(() => {
+      const completed = loopController.getLoopAdvanceJobStatus(instance.id, job.job_id);
+      expect(completed).toMatchObject({
+        status: 'completed',
+        paused_at_stage: LOOP_STATES.EXECUTE,
+        reason: 'plan generation deferred while task remains active',
+      });
+    });
+
+    const scheduled = loopController._internalForTests.getScheduledAutoAdvanceForTests(instance.id);
+    expect(scheduled).toMatchObject({ delay_ms: 30000 });
+    loopController._internalForTests.clearScheduledAutoAdvanceForTests(instance.id);
+  });
+
   it('defers an active plan-generation task discovered by work-item tags before submitting a duplicate', async () => {
     const { project, workItem } = registerExecuteProject({
       description: 'Add coverage for active plan generation without origin metadata.',
