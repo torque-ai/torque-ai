@@ -140,9 +140,35 @@ function normalizeInitialTaskStatus(initialStatus) {
 
 const BUILTIN_AGENTIC_PROVIDERS = new Set(['codex', 'codex-spark', 'claude-cli', 'claude-code-sdk']);
 const CODEX_SPARK_MODEL = 'gpt-5.3-codex-spark';
+const CODEX_EXHAUSTION_RETRY_AT_KEY = 'codex_exhaustion_retry_at';
+
+function isCodexProviderName(providerName) {
+  const normalized = typeof providerName === 'string' ? providerName.trim().toLowerCase() : '';
+  return normalized === 'codex' || normalized === 'codex-spark';
+}
 
 function isCodexSparkProvider(providerName) {
   return String(providerName || '').trim().toLowerCase() === 'codex-spark';
+}
+
+function getCodexExhaustionRetryIntervalMs() {
+  const configuredMinutes = Number.parseInt(configCore.getConfig('codex_probe_interval_minutes') || '15', 10);
+  const intervalMinutes = Number.isFinite(configuredMinutes) && configuredMinutes > 0
+    ? configuredMinutes
+    : 15;
+  return intervalMinutes * 60 * 1000;
+}
+
+function isCodexExhaustionRetryDue(nowMs = Date.now()) {
+  const lastRetry = configCore.getConfig(CODEX_EXHAUSTION_RETRY_AT_KEY);
+  if (!lastRetry) return true;
+  const lastRetryMs = Date.parse(lastRetry);
+  if (!Number.isFinite(lastRetryMs)) return true;
+  return nowMs - lastRetryMs >= getCodexExhaustionRetryIntervalMs();
+}
+
+function markCodexExhaustionRetry(now = new Date()) {
+  configCore.setConfig(CODEX_EXHAUSTION_RETRY_AT_KEY, now.toISOString());
 }
 
 function isCodexSparkAvailable() {
@@ -943,8 +969,15 @@ async function handleSmartSubmitTask(args) {
 
   }
 
+  const codexExhaustionRetryCandidate = !hasExplicitProviderOverride
+    && providerRoutingCore.isCodexExhausted()
+    && isCodexProviderName(selectedProvider);
+
   // Both-providers-down gate: reject if Codex exhausted AND no local LLM available (RB-031)
-  const availCheck = checkProviderAvailability({ hasExplicitProvider: hasExplicitProviderOverride });
+  const availCheck = checkProviderAvailability({
+    hasExplicitProvider: hasExplicitProviderOverride,
+    allowCodexExhaustionRetry: codexExhaustionRetryCandidate,
+  });
   if (availCheck) return availCheck.error;
 
   if (isCodexSparkProvider(selectedProvider) && !isCodexSparkAvailable()) {
@@ -1403,10 +1436,6 @@ async function handleSmartSubmitTask(args) {
   if (codexExhausted) {
     logger.info('[SmartRouting] Codex exhausted — routing will skip Codex before fallback');
   }
-  const isCodexProviderName = (providerName) => {
-    const normalized = typeof providerName === 'string' ? providerName.trim().toLowerCase() : '';
-    return normalized === 'codex' || normalized === 'codex-spark';
-  };
   const selectCodexExhaustionFallback = () => {
     const candidateSources = [
       Array.isArray(routingResult?.chain) ? routingResult.chain : [],
@@ -1434,6 +1463,7 @@ async function handleSmartSubmitTask(args) {
     }
     return null;
   };
+  let codexExhaustionRetry = false;
   if (!hasExplicitProviderOverride && codexExhausted && isCodexProviderName(selectedProvider)) {
     const fallback = selectCodexExhaustionFallback();
     if (fallback) {
@@ -1448,11 +1478,23 @@ async function handleSmartSubmitTask(args) {
         to: selectedProvider,
         reason: `Codex exhausted — skipped ${previousProvider} and used ${selectedProvider}`,
       });
+    } else if (isCodexExhaustionRetryDue()) {
+      codexExhaustionRetry = true;
+      markCodexExhaustionRetry();
+      modRoutingReason = `Codex exhausted retry → ${selectedProvider}`;
+      routingResult.reason += ' (Codex exhausted, no non-Codex fallback available; allowing rate-limited Codex retry)';
+      logger.warn(`[SmartRouting] Codex exhausted and no enabled non-Codex fallback is available — allowing rate-limited retry on ${selectedProvider}`);
+      recordRoutingDecision(routingTrace, {
+        stage: ROUTING_TRACE_STAGES.FALLBACK,
+        from: selectedProvider,
+        to: selectedProvider,
+        reason: `Codex exhausted but every non-Codex fallback is unavailable — retrying ${selectedProvider} on the configured interval`,
+      });
     } else {
       logger.warn('[SmartRouting] Codex exhausted but no enabled non-Codex fallback was available');
       return makeError(
         ErrorCodes.NO_HOSTS_AVAILABLE,
-        'No providers available: Codex quota exhausted and no non-Codex fallback is healthy or configured.'
+        'No providers available: Codex quota exhausted, no non-Codex fallback is healthy or configured, and the Codex retry interval has not elapsed.'
       );
     }
   }
@@ -1789,7 +1831,8 @@ async function handleSmartSubmitTask(args) {
     // grepping logs. Persisted as JSON in task metadata.
     routing_decision_trace: routingTrace.length > 0 ? routingTrace : undefined,
     complexity: complexity,
-    routing_mode: codexExhausted ? 'codex_exhausted' : (!providerRoutingCore.hasHealthyOllamaHost() ? 'local_offline' : 'normal'),
+    routing_mode: codexExhaustionRetry ? 'codex_exhausted_retry' : (codexExhausted ? 'codex_exhausted' : (!providerRoutingCore.hasHealthyOllamaHost() ? 'local_offline' : 'normal')),
+    codex_exhaustion_retry: codexExhaustionRetry || undefined,
     tuning_overrides: Object.keys(tuningOverrides).length > 0 ? tuningOverrides : null,
     _routing_chain: routingChainMetadata,
     _routing_template: effectiveRoutingTemplate || undefined,
@@ -1847,7 +1890,8 @@ async function handleSmartSubmitTask(args) {
         // See identical comment in the slot-pull metadata branch above.
         routing_decision_trace: routingTrace.length > 0 ? routingTrace : undefined,
         complexity: complexity,
-        routing_mode: codexExhausted ? 'codex_exhausted' : (!providerRoutingCore.hasHealthyOllamaHost() ? 'local_offline' : 'normal'),
+        routing_mode: codexExhaustionRetry ? 'codex_exhausted_retry' : (codexExhausted ? 'codex_exhausted' : (!providerRoutingCore.hasHealthyOllamaHost() ? 'local_offline' : 'normal')),
+        codex_exhaustion_retry: codexExhaustionRetry || undefined,
         tuning_overrides: Object.keys(tuningOverrides).length > 0 ? tuningOverrides : null,
         _routing_chain: routingChainMetadata,
         _routing_template: effectiveRoutingTemplate || undefined,

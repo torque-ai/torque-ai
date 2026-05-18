@@ -47,6 +47,7 @@ const VALID_CONFIG_KEYS = new Set([
   'codex_enabled',
   'codex_exhausted',
   'codex_exhausted_at',
+  'codex_exhaustion_retry_at',
   'codex_overflow_to_local',
   'codex_probe_interval_minutes',
   'codex_spark_exhausted',

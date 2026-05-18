@@ -91,6 +91,18 @@ function setCodexExhausted() {
   configCore.setConfig('codex_exhausted_at', new Date().toISOString());
 }
 
+function disableNonCodexProviders() {
+  rawDb().prepare(`
+    UPDATE provider_config
+    SET enabled = 0
+    WHERE provider NOT IN ('codex', 'codex-spark')
+  `).run();
+}
+
+function resetProviderConfig() {
+  rawDb().prepare('UPDATE provider_config SET enabled = 1').run();
+}
+
 /** Extract taskId from result and get task from DB to check provider/model */
 function extractTaskFromResult(result) {
   // The result has __subscribe_task_id and content
@@ -128,8 +140,10 @@ describe('Smart Routing — Codex Exhaustion Gate & Local-First Routing', () => 
 
   beforeEach(() => {
     clearHosts();
+    resetProviderConfig();
     disableCodexExhaustion();
     enableCodex();
+    configCore.setConfig('codex_exhaustion_retry_at', '');
   });
 
   describe('Simple/normal greenfield routing when Ollama healthy', () => {
@@ -240,6 +254,42 @@ describe('Smart Routing — Codex Exhaustion Gate & Local-First Routing', () => 
       expect(task).toBeTruthy();
       const meta = typeof task.metadata === 'string' ? JSON.parse(task.metadata) : (task.metadata || {});
       expect(task.provider || meta.intended_provider || '').not.toMatch(/^codex/);
+    });
+
+    it('allows a rate-limited Codex retry when exhausted and no non-Codex fallback is available', async () => {
+      setCodexExhausted();
+      disableNonCodexProviders();
+      clearHosts(); // No Ollama hosts
+
+      const result = await mod.handleSmartSubmitTask({
+        task: 'Create a simple string formatting utility',
+        working_directory: testDir,
+      });
+
+      expect(result.isError).not.toBe(true);
+      const task = extractTaskFromResult(result);
+      expect(task).toBeTruthy();
+      const meta = typeof task.metadata === 'string' ? JSON.parse(task.metadata) : (task.metadata || {});
+      expect(task.provider || meta.intended_provider).toBe('codex');
+      expect(meta.codex_exhaustion_retry).toBe(true);
+      expect(meta.routing_mode).toBe('codex_exhausted_retry');
+      expect(configCore.getConfig('codex_exhaustion_retry_at')).toBeTruthy();
+    });
+
+    it('rejects exhausted Codex retry attempts until the retry interval elapses', async () => {
+      setCodexExhausted();
+      disableNonCodexProviders();
+      clearHosts(); // No Ollama hosts
+      configCore.setConfig('codex_exhaustion_retry_at', new Date().toISOString());
+
+      const result = await mod.handleSmartSubmitTask({
+        task: 'Create a simple string formatting utility',
+        working_directory: testDir,
+      });
+
+      expect(result.isError).toBe(true);
+      expect(result.error_code).toBe('NO_HOSTS_AVAILABLE');
+      expect(result.content?.[0]?.text || '').toContain('retry interval has not elapsed');
     });
 
     it('does not block Codex routing when not exhausted', async () => {

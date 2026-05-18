@@ -43,6 +43,7 @@ const mockDb = {
   checkOllamaHealth: vi.fn(),
   analyzeTaskForRouting: vi.fn(),
   getConfig: vi.fn(),
+  setConfig: vi.fn(),
   getProjectDefaults: vi.fn(),
   getProvider: vi.fn(),
   getDefaultProvider: vi.fn(),
@@ -376,6 +377,11 @@ function resetMockState() {
 
   mockDb.getConfig.mockReset();
   setMockDbConfig();
+
+  mockDb.setConfig.mockReset();
+  mockDb.setConfig.mockImplementation((key, value) => {
+    configValues[key] = String(value);
+  });
 
   mockDb.getProvider.mockReset();
   mockDb.getProvider.mockImplementation((name) => providerConfigs[name] || null);
@@ -859,7 +865,7 @@ describe('integration routing handlers', () => {
       expect(mockDb.analyzeTaskForRouting).not.toHaveBeenCalled();
     });
 
-    it('rejects Codex-exhausted routing instead of falling back to unavailable Ollama', async () => {
+    it('allows a rate-limited Codex retry instead of falling back to unavailable Ollama', async () => {
       mockDb.isCodexExhausted.mockReturnValue(true);
       mockDb.analyzeTaskForRouting.mockReturnValueOnce(baseRoutingResult({
         provider: 'codex',
@@ -881,9 +887,13 @@ describe('integration routing handlers', () => {
         task: 'Implement queue telemetry in server/factory/factory-tick.js',
       });
 
-      expect(result.isError).toBe(true);
-      expect(textOf(result)).toContain('Codex quota exhausted');
-      expect(mockDb.createTask).not.toHaveBeenCalled();
+      expect(result.isError).not.toBe(true);
+      const task = taskFromResult(result);
+      expect(task).toBeTruthy();
+      expect(task.provider).toBe('codex');
+      expect(task.metadata.routing_mode).toBe('codex_exhausted_retry');
+      expect(task.metadata.codex_exhaustion_retry).toBe(true);
+      expect(mockDb.setConfig).toHaveBeenCalledWith('codex_exhaustion_retry_at', expect.any(String));
     });
 
     it('reroutes template-selected Codex Spark provider when Spark is disabled', async () => {

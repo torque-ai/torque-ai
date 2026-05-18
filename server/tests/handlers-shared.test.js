@@ -1054,6 +1054,14 @@ describe('handlers/shared.js utilities', () => {
       expect(shared.checkProviderAvailability()).toBeNull();
       expect(providerRoutingCore.isProviderAvailableForRouting).toHaveBeenCalledWith('claude-cli');
     });
+
+    it('returns null for an intentional rate-limited Codex retry', () => {
+      providerRoutingCore.isCodexExhausted.mockReturnValue(true);
+      hostManagement.hasHealthyOllamaHost.mockReturnValue(false);
+      providerRoutingCore.listProviders.mockReturnValue([]);
+
+      expect(shared.checkProviderAvailability({ allowCodexExhaustionRetry: true })).toBeNull();
+    });
   });
 
   describe('probeOllamaEndpoint', () => {

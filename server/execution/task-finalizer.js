@@ -1045,6 +1045,28 @@ function recordProviderPerformance(ctx) {
   }
 }
 
+function clearCodexExhaustionAfterSuccess(ctx) {
+  if (ctx?.status !== 'completed') return;
+  const provider = String(ctx?.task?.provider || '').trim().toLowerCase();
+  if (provider !== 'codex' && provider !== 'codex-spark') return;
+  const db = getDeps().db;
+  if (!db) return;
+
+  try {
+    if (typeof db.setCodexExhausted === 'function') {
+      db.setCodexExhausted(false);
+    } else if (typeof db.setConfig === 'function') {
+      db.setConfig('codex_exhausted', '0');
+    }
+    if (typeof db.setConfig === 'function') {
+      db.setConfig('codex_exhaustion_retry_at', '');
+    }
+    logger.info(`[Codex Exhaustion] Successful ${provider} task ${ctx.taskId} cleared Codex exhaustion state`);
+  } catch (err) {
+    logger.info(`[Codex Exhaustion] Failed to clear exhaustion state after ${provider} success: ${err.message}`);
+  }
+}
+
 function handleDiffusionSignalDetection(ctx) {
   try {
     const signal = parseDiffusionSignal(ctx.output || '');
@@ -1372,6 +1394,7 @@ async function finalizeTask(taskId, options = {}) {
     }
 
     recordProviderPerformance(ctx);
+    clearCodexExhaustionAfterSuccess(ctx);
 
     ctx.code = ctx.status === 'completed'
       ? 0

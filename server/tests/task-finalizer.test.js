@@ -222,6 +222,23 @@ describe('task-finalizer', () => {
     expect(handlePostCompletion).toHaveBeenCalledWith(expect.objectContaining({ status: 'completed' }));
   });
 
+  it('clears Codex exhaustion after a successful Codex task', async () => {
+    const dbBundle = createTaskDb({ provider: 'codex' });
+    dbBundle.db.setCodexExhausted = vi.fn();
+    dbBundle.db.setConfig = vi.fn();
+    initFinalizer({ dbBundle });
+
+    const result = await finalizer.finalizeTask(dbBundle.taskId, {
+      exitCode: 0,
+      output: 'codex succeeded',
+      errorOutput: '',
+    });
+
+    expect(result.finalized).toBe(true);
+    expect(dbBundle.db.setCodexExhausted).toHaveBeenCalledWith(false);
+    expect(dbBundle.db.setConfig).toHaveBeenCalledWith('codex_exhaustion_retry_at', '');
+  });
+
   it('keeps createTaskFinalizer dependencies active across async finalization awaits', async () => {
     const dbBundle = createTaskDb();
     const { db } = dbBundle;

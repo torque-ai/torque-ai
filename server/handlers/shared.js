@@ -901,6 +901,7 @@ function probeOllamaEndpoint(hostUrl, timeoutMs) {
  * @param {Object} db - database module
  * @param {Object} [options]
  * @param {boolean} [options.hasExplicitProvider] - true if user specified a provider override
+ * @param {boolean} [options.allowCodexExhaustionRetry] - true when caller is deliberately submitting a rate-limited Codex retry
  * @returns {{ error: Object } | null}
  */
 function checkProviderAvailability(options = {}) {
@@ -931,6 +932,8 @@ function checkProviderAvailability(options = {}) {
       // Fall through to the conservative no-hosts error below.
     }
   }
+
+  if (options.allowCodexExhaustionRetry) return null;
 
   return {
     error: makeError(ErrorCodes.NO_HOSTS_AVAILABLE,
