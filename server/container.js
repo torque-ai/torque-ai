@@ -27,6 +27,7 @@ const logger = require('./logger').child({ component: 'container' });
 const path = require('path');
 
 const { createFamilyTemplates } = require('./db/family-templates');
+const { createRetrospectivesCrud } = require('./db/retrospectives');
 const { createActionRegistry } = require('./dispatch/action-registry');
 const { createConstructionCache } = require('./dispatch/construction-cache');
 const { createExecutor } = require('./dispatch/executor');
@@ -365,6 +366,11 @@ function unwrapDb(db) {
   return db && typeof db.getDbInstance === 'function' ? db.getDbInstance() : db;
 }
 _defaultContainer.register('familyTemplates', ['db'], ({ db }) => createFamilyTemplates({ db: unwrapDb(db) }));
+_defaultContainer.register('retrospectives', ['db'], ({ db }) => {
+  const crud = createRetrospectivesCrud({ db: unwrapDb(db) });
+  crud.ensureTable();
+  return crud;
+});
 _defaultContainer.register('actionRegistry', [], () => createActionRegistry());
 // ProcessTracker is the single source of truth for running-process state
 // (process records + stallAttempts + abortControllers + retryTimeouts +
