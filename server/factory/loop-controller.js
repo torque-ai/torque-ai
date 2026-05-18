@@ -160,6 +160,19 @@ const PLAN_QUALITY_ESCALATION_REASON_SHAPES = new Set([
   'pre_written_plan_rejected_by_quality_gate',
   'materialized_generated_plan_rejected_by_quality_gate',
 ]);
+const ARCHITECT_PROVIDER_CONFIG_FALLBACKS = new Set([
+  'anthropic',
+  'claude-cli',
+  'claude-code-sdk',
+  'claude-ollama',
+  'codex',
+  'codex-spark',
+  'deepinfra',
+  'hyperbolic',
+  'ollama',
+  'ollama-cloud',
+  'openrouter',
+]);
 
 const SQLITE_UTC_TIMESTAMP_PATTERN = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?$/;
 
@@ -4479,34 +4492,103 @@ function isDeferredExecutePause(project, instance) {
     && Boolean(getDeferredPlanGenerationWaitState(project, instance));
 }
 
+function normalizeEscalationProviderName(value) {
+  if (typeof value !== 'string') return null;
+  const normalized = value.trim().toLowerCase();
+  return normalized || null;
+}
+
+function normalizeProviderChainEntries(entries) {
+  const normalized = Array.isArray(entries)
+    ? entries.map(normalizeEscalationProviderName).filter(Boolean)
+    : [];
+  return [...new Set(normalized)];
+}
+
+function hasExplicitProviderChainJson(project) {
+  return Object.prototype.hasOwnProperty.call(project, 'provider_chain_json')
+    && project.provider_chain_json !== null
+    && project.provider_chain_json !== undefined
+    && String(project.provider_chain_json).trim() !== '';
+}
+
+function readEnabledProviderConfigChain() {
+  try {
+    const db = getDatabaseHandle();
+    if (!db || typeof db.prepare !== 'function') return [];
+    const rows = db.prepare(`
+      SELECT provider
+      FROM provider_config
+      WHERE enabled = 1
+      ORDER BY
+        CASE UPPER(COALESCE(quality_band, 'C'))
+          WHEN 'A' THEN 0
+          WHEN 'B' THEN 1
+          WHEN 'C' THEN 2
+          WHEN 'D' THEN 3
+          ELSE 4
+        END,
+        COALESCE(priority, 9999) ASC,
+        provider ASC
+    `).all();
+    return normalizeProviderChainEntries(rows
+      .map((row) => row?.provider)
+      .filter((provider) => ARCHITECT_PROVIDER_CONFIG_FALLBACKS.has(
+        normalizeEscalationProviderName(provider)
+      )));
+  } catch (_e) {
+    return [];
+  }
+}
+
+function buildEffectiveProviderConfigEscalationChain(chain, currentProvider) {
+  const normalizedChain = normalizeProviderChainEntries(chain);
+  const normalizedCurrent = normalizeEscalationProviderName(currentProvider);
+  if (!normalizedCurrent) return normalizedChain;
+  return [
+    normalizedCurrent,
+    ...normalizedChain.filter((provider) => provider !== normalizedCurrent),
+  ];
+}
+
 function readProjectProviderChain(projectId) {
   try {
     const project = factoryHealth.getProject(projectId);
-    if (!project) return [];
+    if (!project) return { providers: [], source: 'none' };
 
-    if (project.provider_chain_json) {
+    if (hasExplicitProviderChainJson(project)) {
       const parsed = JSON.parse(project.provider_chain_json);
       if (Array.isArray(parsed)) {
-        return parsed.filter((p) => typeof p === 'string' && p);
+        return {
+          providers: normalizeProviderChainEntries(parsed),
+          source: 'provider_chain_json',
+        };
       }
+      return { providers: [], source: 'provider_chain_json' };
     }
 
     const policy = specializePolicyForKind(
       getProviderLanePolicyFromProject(project),
       'architect_cycle'
     );
-    if (!policy) return [];
+    if (!policy) {
+      return {
+        providers: readEnabledProviderConfigChain(),
+        source: 'provider_config',
+      };
+    }
 
     const chain = [
       policy.expected_provider,
       ...(Array.isArray(policy.allowed_fallback_providers) ? policy.allowed_fallback_providers : []),
       ...(Array.isArray(policy.allowed_providers) ? policy.allowed_providers : []),
-    ]
-      .filter((p) => typeof p === 'string' && p.trim())
-      .map((p) => p.trim().toLowerCase());
-    return [...new Set(chain)];
+    ];
+    return {
+      providers: normalizeProviderChainEntries(chain),
+      source: 'provider_lane_policy',
+    };
   } catch (_e) {
-    return [];
+    return { providers: [], source: 'none' };
   }
 }
 
@@ -4608,7 +4690,9 @@ function routeWorkItemToNeedsReplan(workItem, {
         : workItem.constraints_json) || {}
       : {};
   } catch (_e) { constraints = {}; }
-  const currentProvider = constraints.architect_provider_override || null;
+  const currentProvider = normalizeEscalationProviderName(constraints.architect_provider_override)
+    || normalizeEscalationProviderName(existingOrigin.plan_generator_provider)
+    || null;
 
   // Same-shape escalation check.
   let escalation = null;
@@ -4620,13 +4704,16 @@ function routeWorkItemToNeedsReplan(workItem, {
     });
   if (shouldTrackEscalation
     && (detectSameShapeEscalation(priorHistory, currentEntry) || planQualityAttemptEscalation)) {
-    const chain = readProjectProviderChain(workItem.project_id);
+    const chainInfo = readProjectProviderChain(workItem.project_id);
+    const chain = chainInfo.source === 'provider_config'
+      ? buildEffectiveProviderConfigEscalationChain(chainInfo.providers, currentProvider)
+      : normalizeProviderChainEntries(chainInfo.providers);
     if (chain.length > 0) {
       // When no override is set, the project defaults to chain[0] — so
       // the first escalation must move PAST chain[0] to chain[1]. Mirrors
       // recovery-strategies/escalate-architect.js logic.
       let currentIdx = currentProvider ? chain.indexOf(currentProvider) : 0;
-      if (currentIdx < 0) currentIdx = 0;
+      if (currentIdx < 0) currentIdx = -1;
       const nextIdx = currentIdx + 1;
       if (nextIdx < chain.length) {
         const nextProvider = chain[nextIdx];

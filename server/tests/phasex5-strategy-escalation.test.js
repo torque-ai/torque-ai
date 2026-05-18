@@ -3,6 +3,7 @@
 const Database = require('better-sqlite3');
 const factoryIntake = require('../db/factory/intake');
 const factoryHealth = require('../db/factory/health');
+const { defaultContainer } = require('../container');
 const {
   routeWorkItemToNeedsReplan,
   detectSameShapeEscalation,
@@ -41,6 +42,12 @@ function createMinimalSchema(database) {
     "  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),",
     "  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
     ");",
+    "CREATE TABLE IF NOT EXISTS provider_config (",
+    "  provider TEXT PRIMARY KEY,",
+    "  enabled INTEGER NOT NULL DEFAULT 1,",
+    "  priority INTEGER NOT NULL DEFAULT 100,",
+    "  quality_band TEXT DEFAULT 'C'",
+    ");",
   ].join('\n');
   database.exec(sql);
 }
@@ -57,12 +64,28 @@ function makeProjectWithConfig(database, config) {
   database.prepare(insertSql).run(JSON.stringify(config || {}));
 }
 
+function seedProviderConfig(database, providers) {
+  const stmt = database.prepare(
+    'INSERT INTO provider_config (provider, enabled, priority, quality_band) VALUES (?, ?, ?, ?)'
+  );
+  for (const provider of providers) {
+    stmt.run(
+      provider.provider,
+      provider.enabled === undefined ? 1 : provider.enabled,
+      provider.priority === undefined ? 100 : provider.priority,
+      provider.quality_band || 'C'
+    );
+  }
+}
+
 describe('Phase X5: same-shape escalation in routeWorkItemToNeedsReplan', () => {
   let db;
 
   beforeEach(() => {
     db = new Database(':memory:');
     createMinimalSchema(db);
+    defaultContainer.resetForTest();
+    defaultContainer.override('db', db);
     factoryIntake.setDb(db);
     factoryHealth.setDb(db);
   });
@@ -70,6 +93,8 @@ describe('Phase X5: same-shape escalation in routeWorkItemToNeedsReplan', () => 
   afterEach(() => {
     factoryIntake.setDb(null);
     factoryHealth.setDb(null);
+    defaultContainer.override('db', null);
+    defaultContainer.resetForTest();
     db.close();
   });
 
@@ -228,6 +253,60 @@ describe('Phase X5: same-shape escalation in routeWorkItemToNeedsReplan', () => 
       const after = rejectN(item, SAME_SHAPE_THRESHOLD);
       expect(after.status).toBe('escalation_exhausted');
       expect(after.origin?.last_escalation).toMatchObject({ kind: 'no_provider_chain' });
+    });
+
+    it('uses enabled provider_config rows when no project chain or lane policy is configured', () => {
+      makeProjectWithConfig(db, {});
+      seedProviderConfig(db, [
+        { provider: 'ollama', priority: 3, quality_band: 'C' },
+        { provider: 'codex', priority: 1, quality_band: 'A' },
+        { provider: 'claude-cli', priority: 2, quality_band: 'A' },
+        { provider: 'groq', priority: 1, quality_band: 'D' },
+      ]);
+      const item = factoryIntake.createWorkItem({ project_id: 'p1', source: 'scout', title: 'X' });
+      const after = routeWorkItemToNeedsReplan(item, {
+        reason: 'plan_quality_gate_rejected_after_intrabatch_retries',
+        attempt: SAME_SHAPE_THRESHOLD,
+      });
+
+      expect(after.status).toBe('needs_replan');
+      expect(after.origin?.last_escalation).toMatchObject({
+        kind: 'provider_switch',
+        from: null,
+        to: 'claude-cli',
+        basis: 'plan_quality_attempt_window',
+      });
+      const constraints = JSON.parse(after.constraints_json || '{}');
+      expect(constraints.architect_provider_override).toBe('claude-cli');
+    });
+
+    it('starts provider_config escalation from the provider that generated the rejected plan', () => {
+      makeProjectWithConfig(db, {});
+      seedProviderConfig(db, [
+        { provider: 'codex', priority: 1, quality_band: 'A' },
+        { provider: 'claude-cli', priority: 2, quality_band: 'A' },
+        { provider: 'codex-spark', priority: 3, quality_band: 'A' },
+      ]);
+      const item = factoryIntake.createWorkItem({
+        project_id: 'p1',
+        source: 'scout',
+        title: 'X',
+        origin: { plan_generator_provider: 'claude-cli' },
+      });
+      const after = routeWorkItemToNeedsReplan(item, {
+        reason: 'plan_quality_gate_rejected_after_intrabatch_retries',
+        attempt: SAME_SHAPE_THRESHOLD,
+      });
+
+      expect(after.status).toBe('needs_replan');
+      expect(after.origin?.last_escalation).toMatchObject({
+        kind: 'provider_switch',
+        from: 'claude-cli',
+        to: 'codex',
+        basis: 'plan_quality_attempt_window',
+      });
+      const constraints = JSON.parse(after.constraints_json || '{}');
+      expect(constraints.architect_provider_override).toBe('codex');
     });
 
     it('escalates exhausted plan-quality attempt windows even before history has enough batch entries', () => {
