@@ -1418,6 +1418,29 @@ const MIGRATIONS = [
     },
     down: 'DROP TABLE IF EXISTS plugin_migrations',
   },
+  {
+    version: 60,
+    name: 'add_candidate_patches_table',
+    up: function(sqliteDb) {
+      sqliteDb.prepare([
+        'CREATE TABLE IF NOT EXISTS candidate_patches (',
+        '  id INTEGER PRIMARY KEY AUTOINCREMENT,',
+        '  task_id INTEGER NOT NULL,',
+        '  attempt INTEGER NOT NULL,',
+        '  diff_text TEXT,',
+        '  validator_score REAL DEFAULT 0,',
+        '  verify_exit_code INTEGER,',
+        '  verify_output TEXT,',
+        '  selected INTEGER DEFAULT 0,',
+        "  created_at TEXT DEFAULT (datetime('now'))",
+        ')',
+      ].join('\n')).run();
+      sqliteDb.prepare(
+        'CREATE INDEX IF NOT EXISTS idx_candidate_patches_task_score ON candidate_patches(task_id, validator_score DESC)'
+      ).run();
+    },
+    down: 'DROP TABLE IF EXISTS candidate_patches',
+  },
 ];
 
 function ensureMigrationTable(sqliteDb) {

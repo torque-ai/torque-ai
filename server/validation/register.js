@@ -31,6 +31,7 @@ const closePhases = require('./close-phases');                 // [db, dashboard
 const autoVerifyRetry = require('./auto-verify-retry');        // [db, taskManager, testRunnerRegistry]
 const outputSafeguards = require('./output-safeguards');       // [db]
 const postTask = require('./post-task');                       // [db, testRunnerRegistry]
+const faultLocalization = require('./fault-localization');      // [db]
 
 // Mirrors execution/register.js + factory/register.js: skip mocked
 // modules that lack a register function so container.js stays loadable
@@ -49,6 +50,7 @@ function register(container) {
   tryRegister(autoVerifyRetry, container);
   tryRegister(outputSafeguards, container);
   tryRegister(postTask, container);
+  tryRegister(faultLocalization, container);
 }
 
 module.exports = { register };

@@ -98,6 +98,7 @@ const TOOLS = [
   ...require('./tool-defs/diffusion-defs'),
   ...require('./tool-defs/factory-defs'),
   ...require('./tool-defs/coord-defs'),
+  ...require('./tool-defs/repair-defs'),
 ];
 
 function toBehavioralAnnotationSnapshot(tool) {
