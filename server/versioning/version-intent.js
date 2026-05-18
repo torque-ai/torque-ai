@@ -206,6 +206,34 @@ function enforceVersionIntent({ versionIntent, projectId, db: explicitDb } = {})
   return validateVersionIntentValue(versionIntent);
 }
 
+/**
+ * HTTP-aware version-intent enforcement for handler entry points.
+ *
+ * Wraps `enforceVersionIntent` and returns a flat result object:
+ *   - `{ ok: true }` when enforcement passes (or versioning is not enabled)
+ *   - `{ ok: false, status: 400, error: "<message>" }` on validation failure
+ *
+ * This gives HTTP handlers a clean call-and-respond pattern without
+ * try/catch boilerplate, while `enforceVersionIntent` (the throwing variant
+ * via `enforceVersionIntentForProject`) remains available for non-HTTP callers.
+ *
+ * @param {object} db - SQLite database handle
+ * @param {string|null} projectId - Working directory / project path
+ * @param {string|undefined} versionIntent - The version_intent value to validate
+ * @returns {{ ok: true } | { ok: false, status: number, error: string }}
+ */
+function enforceVersionIntentHttp(db, projectId, versionIntent) {
+  const result = enforceVersionIntent({ versionIntent, projectId, db });
+  if (result.valid) {
+    return { ok: true };
+  }
+  return {
+    ok: false,
+    status: result.error?.status || 400,
+    error: result.error?.message || 'Invalid version_intent',
+  };
+}
+
 module.exports = {
   VALID_INTENTS,
   INTENT_PRIORITY,
@@ -214,6 +242,7 @@ module.exports = {
   validateVersionIntentValue,
   enforceVersionIntentForProject,
   enforceVersionIntent,
+  enforceVersionIntentHttp,
   isProjectVersioned,
   resolveVersionedProject,
   getVersioningConfig,

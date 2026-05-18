@@ -21,7 +21,7 @@ const { resolveContextFiles } = require('../../utils/smart-scan');
 const { buildTaskStudyContextEnvelope } = require('../../integrations/codebase-study-engine');
 const { resolveOllamaModel } = require('../../providers/ollama-shared');
 const { shouldDecompose, decomposeTask: buildDecomposedTasks, GUIDED_FILE_THRESHOLD, GUIDED_MIN_FUNCTIONS } = require('../../execution/task-decomposition');
-const { enforceVersionIntent } = require('../../versioning/version-intent');
+const { enforceVersionIntentHttp } = require('../../versioning/version-intent');
 const { buildOllamaCloudProposalApplyMetadata } = require('../../routing/ollama-cloud-proposal-policy');
 const {
   getProviderLanePolicyFromMetadata,
@@ -416,9 +416,9 @@ function extractSmartSubmitInputs(args) {
     };
   }
   if (working_directory) {
-    const intentResult = enforceVersionIntent({ versionIntent: version_intent, projectId: working_directory });
-    if (!intentResult.valid) {
-      return { error: makeError(ErrorCodes.INVALID_PARAM, intentResult.error.message) };
+    const intentCheck = enforceVersionIntentHttp(null, working_directory, version_intent);
+    if (!intentCheck.ok) {
+      return { error: makeError(ErrorCodes.INVALID_PARAM, intentCheck.error) };
     }
   }
 
