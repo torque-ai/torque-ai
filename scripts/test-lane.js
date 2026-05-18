@@ -261,6 +261,13 @@ function hasShellControlOperator(command) {
   return /(?:&&|\|\||[;|`<>])/.test(String(command || ''));
 }
 
+function normalizeRootScopedRequirePaths(command) {
+  return String(command || '').replace(
+    /\brequire\(\s*(['"])((?:server|dashboard)[\\/][^'"]+)\1\s*\)/g,
+    (_match, quote, filePath) => `require(${quote}./${filePath.replace(/\\/g, '/')}${quote})`
+  );
+}
+
 function isFocusedVitestCoverageCommand(command) {
   const text = String(command || '').replace(/\\/g, '/');
   return /(?:^|&&\s*)(?:npx\s+)?vitest\s+run\b/.test(text)
@@ -270,7 +277,7 @@ function isFocusedVitestCoverageCommand(command) {
 
 function normalizeServerVitestCommand(command, options = {}) {
   const repoRoot = options.repoRoot || repoRootFromScript();
-  const text = String(command || '').trim();
+  const text = normalizeRootScopedRequirePaths(command).trim();
   const focusedCoverage = isFocusedVitestCoverageCommand(text);
   if (!text) return { cwd: repoRoot, command: text, focusedCoverage };
   if (hasShellControlOperator(text)) return { cwd: repoRoot, command: text, focusedCoverage };
@@ -429,6 +436,7 @@ module.exports = {
   normalizeServerVitestCommand,
   isPidAlive,
   isAutoLane,
+  normalizeRootScopedRequirePaths,
   parseArgs,
   releaseLaneLock,
   resolveLaneConfig,

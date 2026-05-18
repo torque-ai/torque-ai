@@ -7,6 +7,7 @@ const path = require('path');
 const {
   RAW_DEFAULT_VERIFY_COMMAND,
   defaultVerifyCommandForProject,
+  normalizeRootScopedRequirePaths,
   normalizeVerifyCommandForTestLane,
   wrapVerifyCommandForTestLane,
 } = require('../factory/test-lane-verify');
@@ -64,6 +65,19 @@ describe('factory test lane verify command wrapping', () => {
     );
     expect(decodeWrappedCommand(command)).toBe(
       'cd server && npx vitest run tests/tool-mapping.test.js --coverage'
+    );
+  });
+
+  test('normalizes root-scoped node require probes before lane wrapping', () => {
+    const projectPath = makeProjectWithLauncher();
+    const raw = 'node -e "require(\'server/db/adversarial-reviews.js\')" && npx vitest run server/tests/retrospectives.test.js';
+    const command = wrapVerifyCommandForTestLane(raw, { projectPath });
+
+    expect(normalizeRootScopedRequirePaths(raw)).toBe(
+      'node -e "require(\'./server/db/adversarial-reviews.js\')" && npx vitest run server/tests/retrospectives.test.js'
+    );
+    expect(decodeWrappedCommand(command)).toBe(
+      'node -e "require(\'./server/db/adversarial-reviews.js\')" && npx vitest run server/tests/retrospectives.test.js'
     );
   });
 

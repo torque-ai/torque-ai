@@ -11,6 +11,7 @@ const {
   getPresetCommand,
   isAutoLane,
   isFocusedVitestCoverageCommand,
+  normalizeRootScopedRequirePaths,
   normalizeServerVitestCommand,
   parseArgs,
   releaseLaneLock,
@@ -177,6 +178,15 @@ describe('test-lane script helpers', () => {
     expect(selected.cwd.replace(/\\/g, '/')).toBe('C:/repo/torque-public/server');
     expect(selected.command).toBe('npx vitest run tests/tool-mapping.test.js --coverage');
     expect(selected.focusedCoverage).toBe(true);
+  });
+
+  test('normalizes root-scoped node require probes in decoded lane commands', () => {
+    const command = 'node -e "require(\'server/db/adversarial-reviews.js\')" && npx vitest run server/tests/retrospectives.test.js';
+    const selected = normalizeServerVitestCommand(command, { repoRoot: 'C:\\repo\\torque-public' });
+
+    expect(normalizeRootScopedRequirePaths(command)).toContain("require('./server/db/adversarial-reviews.js')");
+    expect(selected.cwd.replace(/\\/g, '/')).toBe('C:/repo/torque-public');
+    expect(selected.command).toContain("require('./server/db/adversarial-reviews.js')");
   });
 
   test('detects focused coverage commands without marking full-suite coverage', () => {

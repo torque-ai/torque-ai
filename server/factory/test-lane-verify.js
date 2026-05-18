@@ -32,8 +32,15 @@ function hasShellControlOperator(command) {
   return /(?:&&|\|\||[;|`<>])/.test(String(command || ''));
 }
 
+function normalizeRootScopedRequirePaths(command) {
+  return String(command || '').replace(
+    /\brequire\(\s*(['"])((?:server|dashboard)[\\/][^'"]+)\1\s*\)/g,
+    (_match, quote, filePath) => `require(${quote}./${filePath.replace(/\\/g, '/')}${quote})`
+  );
+}
+
 function normalizeVerifyCommandForTestLane(command) {
-  const text = String(command || '').trim();
+  const text = normalizeRootScopedRequirePaths(command).trim();
   if (!text) return text;
   if (hasShellControlOperator(text)) return text;
   if (!/^(?:npx\s+)?vitest\s+run\b/.test(text)) return text;
@@ -65,6 +72,7 @@ module.exports = {
   hasTestLaneLauncher,
   isAlreadyLaneCommand,
   isRemoteVerifyCommand,
+  normalizeRootScopedRequirePaths,
   normalizeVerifyCommandForTestLane,
   wrapVerifyCommandForTestLane,
 };
