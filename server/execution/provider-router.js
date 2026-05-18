@@ -259,7 +259,7 @@ function buildProviderDecisionTrace(task, taskMeta, requestedProvider, chosenPro
   const now = new Date().toISOString();
   const normalizedRequestedProvider = typeof requestedProvider === 'string' ? requestedProvider.trim().toLowerCase() : null;
   const normalizedChosenProvider = typeof chosenProvider === 'string' ? chosenProvider.trim().toLowerCase() : null;
-  const blocked = blockedProviders instanceof Set ? blockedProviders : new Set();
+  const blocked = normalizeBlockedProviderReasons(blockedProviders);
   const isUserOverride = Boolean(taskMeta.user_provider_override);
   const intentInfo = getProviderIntentInfo(taskMeta);
   const selectionReason = switchReason
@@ -281,7 +281,7 @@ function buildProviderDecisionTrace(task, taskMeta, requestedProvider, chosenPro
           switch_reason: candidate.switchReason || null,
           selected: provider === normalizedChosenProvider,
           blocked: blocked.has(provider),
-          blocked_reason: blocked.has(provider) ? 'circuit_breaker_open' : null,
+          blocked_reason: blocked.get(provider) || null,
         };
       })
       .filter(Boolean)
@@ -314,6 +314,127 @@ function buildProviderDecisionTrace(task, taskMeta, requestedProvider, chosenPro
   };
 }
 
+function normalizeProviderName(provider) {
+  return typeof provider === 'string' && provider.trim()
+    ? provider.trim().toLowerCase()
+    : null;
+}
+
+function normalizeBlockedProviderReasons(blockedProviders) {
+  if (blockedProviders instanceof Map) {
+    return blockedProviders;
+  }
+  if (blockedProviders instanceof Set) {
+    return new Map([...blockedProviders].map((provider) => [provider, 'circuit_breaker_open']));
+  }
+  return new Map();
+}
+
+function getProviderConfigForRouting(provider) {
+  ensureDeps();
+  const normalized = normalizeProviderName(provider);
+  if (!normalized || !_db || typeof _db.getProvider !== 'function') {
+    return null;
+  }
+  try {
+    return _db.getProvider(normalized) || null;
+  } catch (err) {
+    logger.debug(`[Routing] Failed to read provider config for ${normalized}: ${err.message}`);
+    return null;
+  }
+}
+
+function isProviderConfigDisabled(providerConfig) {
+  if (!providerConfig) return false;
+  const enabled = providerConfig.enabled;
+  return enabled === false || enabled === 0 || enabled === '0';
+}
+
+function isProviderExplicitlyDisabledForRouting(provider) {
+  return isProviderConfigDisabled(getProviderConfigForRouting(provider));
+}
+
+function isProviderAvailableForDisabledFallback(provider) {
+  ensureDeps();
+  const normalized = normalizeProviderName(provider);
+  if (!normalized || isProviderExplicitlyDisabledForRouting(normalized)) {
+    return false;
+  }
+
+  if (_db && typeof _db.isProviderAvailableForRouting === 'function') {
+    try {
+      return Boolean(_db.isProviderAvailableForRouting(normalized));
+    } catch (err) {
+      logger.debug(`[Routing] Provider availability check failed for ${normalized}: ${err.message}`);
+    }
+  }
+
+  const providerConfig = getProviderConfigForRouting(normalized);
+  return providerConfig ? !isProviderConfigDisabled(providerConfig) : true;
+}
+
+function canFallbackFromDisabledProvider(taskMeta = {}) {
+  return !taskMeta.user_provider_override
+    && !taskMeta.provider_selection_locked
+    && !taskMeta.agentic_handoff;
+}
+
+function appendProviderCandidate(candidates, provider) {
+  const normalized = normalizeProviderName(provider);
+  if (!normalized || candidates.includes(normalized)) return;
+  candidates.push(normalized);
+}
+
+function listDisabledProviderFallbackCandidates() {
+  ensureDeps();
+  const candidates = [];
+  try {
+    appendProviderCandidate(candidates, _db?.getDefaultProvider?.());
+  } catch { /* default provider lookup is best-effort */ }
+
+  appendProviderCandidate(candidates, 'codex');
+  appendProviderCandidate(candidates, 'ollama');
+
+  if (_db && typeof _db.listProviders === 'function') {
+    try {
+      for (const provider of _db.listProviders() || []) {
+        appendProviderCandidate(candidates, provider?.provider);
+      }
+    } catch (err) {
+      logger.debug(`[Routing] Failed to list provider fallback candidates: ${err.message}`);
+    }
+  }
+
+  return candidates;
+}
+
+function findDisabledProviderFallback(requestedProvider, taskMeta, taskId) {
+  const requested = normalizeProviderName(requestedProvider);
+  if (!requested || !isProviderExplicitlyDisabledForRouting(requested)) {
+    return null;
+  }
+
+  if (!canFallbackFromDisabledProvider(taskMeta)) {
+    logger.info(`[Routing] Provider ${requested} is disabled for task ${taskId}, but provider intent is locked; preserving explicit route`);
+    return null;
+  }
+
+  for (const candidate of listDisabledProviderFallbackCandidates()) {
+    if (candidate === requested) continue;
+    if (!isProviderAvailableForDisabledFallback(candidate)) continue;
+    return {
+      provider: candidate,
+      switchReason: `${requested} -> ${candidate} (requested provider disabled)`,
+      role: 'fallback',
+      reason: `Fallback candidate because ${requested} is disabled`,
+      cause: 'provider_disabled',
+    };
+  }
+
+  logger.warn(`[Routing] Provider ${requested} is disabled for task ${taskId}, but no enabled fallback provider is available`);
+  return null;
+}
+
 /**
  * Resolve final provider with cost-aware routing and review-task detection.
  * @returns {{ provider: string, switchReason: string|null, decisionTrace: object }}
@@ -341,21 +462,29 @@ function resolveProviderRouting(task, taskId) {
     reason: hasProviderSelectionLock ? intentInfo.reason : 'Requested/default provider',
     cause: hasProviderSelectionLock ? intentInfo.cause : 'requested_provider',
   }];
-  if (!hasProviderSelectionLock && PAID_PROVIDERS.has(normalizedRequestedProvider)) {
-    const budgetStatus = _db.isBudgetExceeded(normalizedRequestedProvider);
+  const blockedProviders = new Map();
+  const disabledFallback = findDisabledProviderFallback(normalizedRequestedProvider, taskMeta, taskId);
+  if (disabledFallback) {
+    fallbackCandidates.push(disabledFallback);
+    blockedProviders.set(normalizedRequestedProvider, 'provider_disabled');
+  }
+
+  const budgetProvider = disabledFallback?.provider || normalizedRequestedProvider;
+  if (!hasProviderSelectionLock && PAID_PROVIDERS.has(budgetProvider)) {
+    const budgetStatus = _db.isBudgetExceeded(budgetProvider);
     if (budgetStatus.exceeded) {
       const ollamaHosts = _db.listOllamaHosts().filter(h => h.enabled && h.status === 'healthy');
-      if (ollamaHosts.length > 0) {
-        logger.info(`[Routing] Budget exceeded for ${normalizedRequestedProvider}, auto-routing to ollama for task ${taskId}`);
+      if (ollamaHosts.length > 0 && budgetProvider !== 'ollama') {
+        logger.info(`[Routing] Budget exceeded for ${budgetProvider}, auto-routing to ollama for task ${taskId}`);
         fallbackCandidates.push({
           provider: 'ollama',
-          switchReason: `${normalizedRequestedProvider} -> ollama (budget exceeded)`,
+          switchReason: `${budgetProvider} -> ollama (budget exceeded)`,
           role: 'fallback',
-          reason: `Fallback candidate because ${normalizedRequestedProvider} exceeded budget`,
+          reason: `Fallback candidate because ${budgetProvider} exceeded budget`,
           cause: 'budget_exceeded',
         });
       } else {
-        logger.info(`[Routing] Budget exceeded for ${normalizedRequestedProvider} but no healthy Ollama hosts — proceeding with ${normalizedRequestedProvider}`);
+        logger.info(`[Routing] Budget exceeded for ${budgetProvider} but no healthy Ollama hosts — proceeding with ${budgetProvider}`);
       }
     } else if (budgetStatus.warning) {
       // P-overflow: Only reroute on budget-warning if task was smart-routed (not user-overridden).
@@ -364,13 +493,13 @@ function resolveProviderRouting(task, taskId) {
         const isNonCritical = /\b(document|comment|explain|summarize|review|test|boilerplate|format)\b/.test(desc);
         if (isNonCritical) {
           const ollamaHosts = _db.listOllamaHosts().filter(h => h.enabled && h.status === 'healthy');
-          if (ollamaHosts.length > 0) {
-            logger.info(`[Routing] Budget warning for ${normalizedRequestedProvider}, routing non-critical task to ollama for task ${taskId}`);
+          if (ollamaHosts.length > 0 && budgetProvider !== 'ollama') {
+            logger.info(`[Routing] Budget warning for ${budgetProvider}, routing non-critical task to ollama for task ${taskId}`);
             fallbackCandidates.push({
               provider: 'ollama',
-              switchReason: `${normalizedRequestedProvider} -> ollama (budget warning, non-critical task)`,
+              switchReason: `${budgetProvider} -> ollama (budget warning, non-critical task)`,
               role: 'fallback',
-              reason: `Fallback candidate because ${normalizedRequestedProvider} is near budget and task is non-critical`,
+              reason: `Fallback candidate because ${budgetProvider} is near budget and task is non-critical`,
               cause: 'budget_warning_non_critical',
             });
           }
@@ -383,7 +512,6 @@ function resolveProviderRouting(task, taskId) {
   let provider = normalizedRequestedProvider;
   let switchReason = null;
   let selectedCandidate = fallbackCandidates[0];
-  const blockedProviders = new Set();
   if (circuitBreaker) {
     selectedCandidate = null;
     for (let i = fallbackCandidates.length - 1; i >= 0; i--) {
@@ -391,7 +519,9 @@ function resolveProviderRouting(task, taskId) {
         selectedCandidate = fallbackCandidates[i];
         break;
       }
-      blockedProviders.add(fallbackCandidates[i].provider);
+      if (!blockedProviders.has(fallbackCandidates[i].provider)) {
+        blockedProviders.set(fallbackCandidates[i].provider, 'circuit_breaker_open');
+      }
       logger.info(`Circuit open for ${fallbackCandidates[i].provider}, skipping`);
     }
 

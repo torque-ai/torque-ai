@@ -11,6 +11,7 @@ describe('provider-router', () => {
   let mockExecFile;
   let configValues;
   let boolValues;
+  let providerRows;
 
   async function loadProviderRouter() {
     vi.resetModules();
@@ -18,8 +19,20 @@ describe('provider-router', () => {
     configValues = new Map();
     boolValues = new Map();
 
+    providerRows = new Map([
+      ['ollama', { provider: 'ollama', enabled: true, priority: 10 }],
+      ['codex', { provider: 'codex', enabled: true, priority: 20 }],
+      ['claude-cli', { provider: 'claude-cli', enabled: true, priority: 30 }],
+      ['anthropic', { provider: 'anthropic', enabled: true, priority: 40 }],
+      ['groq', { provider: 'groq', enabled: true, priority: 50 }],
+      ['openrouter', { provider: 'openrouter', enabled: true, priority: 60 }],
+    ]);
+
     mockDb = {
       getDefaultProvider: vi.fn().mockReturnValue('codex'),
+      getProvider: vi.fn((provider) => providerRows.get(provider) || null),
+      listProviders: vi.fn(() => [...providerRows.values()].sort((a, b) => a.priority - b.priority)),
+      isProviderAvailableForRouting: vi.fn((provider) => Boolean(providerRows.get(provider)?.enabled)),
       patchTaskMetadata: vi.fn().mockReturnValue(true),
       updateTaskStatus: vi.fn(),
       isBudgetExceeded: vi.fn().mockReturnValue({ exceeded: false, warning: false }),
@@ -425,6 +438,104 @@ describe('provider-router', () => {
           cause: 'routing_template_health_gate',
         }),
       }));
+    });
+
+    it('falls back from a disabled auto-routed intended provider to the enabled default', () => {
+      providerRows.set('claude-cli', { provider: 'claude-cli', enabled: false, priority: 30 });
+      mockParseTaskMetadata.mockReturnValue({
+        smart_routing: true,
+        intended_provider: 'claude-cli',
+        requested_provider: 'claude-cli',
+        user_provider_override: false,
+      });
+
+      const task = {
+        provider: null,
+        metadata: {},
+        task_description: 'Fix API key validation in a factory plan task',
+      };
+
+      const result = providerRouter.resolveProviderRouting(task, 'task-disabled-auto');
+      const persisted = mockDb.patchTaskMetadata.mock.calls.at(-1)?.[1];
+
+      expect(result).toEqual(expect.objectContaining({
+        provider: 'codex',
+        switchReason: 'claude-cli -> codex (requested provider disabled)',
+      }));
+      expect(mockDb.isProviderAvailableForRouting).toHaveBeenCalledWith('codex');
+      expect(mockDb.isBudgetExceeded).toHaveBeenCalledWith('codex');
+      expect(persisted).toEqual(expect.objectContaining({
+        requested_provider: 'claude-cli',
+        original_requested_provider: 'claude-cli',
+        intended_provider: 'codex',
+        _provider_switch_reason: 'claude-cli -> codex (requested provider disabled)',
+        provider_decision_trace: expect.objectContaining({
+          selected_provider: 'codex',
+          requested_provider: 'claude-cli',
+          switch_reason: 'claude-cli -> codex (requested provider disabled)',
+          candidates: expect.arrayContaining([
+            expect.objectContaining({
+              provider: 'claude-cli',
+              role: 'primary',
+              blocked: true,
+              blocked_reason: 'provider_disabled',
+            }),
+            expect.objectContaining({
+              provider: 'codex',
+              role: 'fallback',
+              selected: true,
+              cause: 'provider_disabled',
+            }),
+          ]),
+          blocked_candidates: [
+            expect.objectContaining({
+              provider: 'claude-cli',
+              blocked_reason: 'provider_disabled',
+            }),
+          ],
+        }),
+      }));
+      expect(task.metadata).toEqual(expect.objectContaining({
+        requested_provider: 'claude-cli',
+        intended_provider: 'codex',
+      }));
+    });
+
+    it('does not silently reroute a disabled user-overridden provider', () => {
+      providerRows.set('claude-cli', { provider: 'claude-cli', enabled: false, priority: 30 });
+      mockParseTaskMetadata.mockReturnValue({
+        intended_provider: 'claude-cli',
+        requested_provider: 'claude-cli',
+        user_provider_override: true,
+      });
+
+      const task = {
+        provider: 'claude-cli',
+        metadata: {},
+        task_description: 'Run this task on the explicit provider',
+      };
+
+      const result = providerRouter.resolveProviderRouting(task, 'task-disabled-user');
+      const persisted = mockDb.patchTaskMetadata.mock.calls.at(-1)?.[1];
+
+      expect(result).toEqual(expect.objectContaining({
+        provider: 'claude-cli',
+        switchReason: null,
+      }));
+      expect(mockDb.isProviderAvailableForRouting).not.toHaveBeenCalled();
+      expect(mockDb.isBudgetExceeded).not.toHaveBeenCalled();
+      expect(persisted).toEqual(expect.objectContaining({
+        requested_provider: 'claude-cli',
+        original_requested_provider: 'claude-cli',
+        intended_provider: 'claude-cli',
+        provider_decision_trace: expect.objectContaining({
+          selected_provider: 'claude-cli',
+          user_provider_override: true,
+          provider_selection_locked: true,
+          blocked_candidates: [],
+        }),
+      }));
+      expect(persisted).not.toHaveProperty('_provider_switch_reason');
     });
   });
 
