@@ -141,4 +141,28 @@ describe('schema-migrations: ollama_model_settings merge semantics', () => {
       'Fast tier — simple/medium tasks, speed over completeness'
     );
   });
+
+  it('does not force-enable ollama when a user disabled the provider', () => {
+    const preparedSql = [];
+    const prepareStub = {
+      run: function () {},
+      get: function () { return null; },
+      all: function () { return []; },
+    };
+    const dbWithRecorder = {
+      exec: function () {},
+      prepare: function (sql) {
+        preparedSql.push(sql);
+        return prepareStub;
+      },
+      pragma: function () {},
+    };
+    const { getConfig, setConfig } = makeConfig();
+
+    runMigrations(dbWithRecorder, logger, safeAddColumn, { getConfig, setConfig });
+
+    expect(preparedSql).not.toContain(
+      "UPDATE provider_config SET enabled = 1 WHERE provider = 'ollama'"
+    );
+  });
 });

@@ -665,7 +665,6 @@ function runMigrations(db, logger, safeAddColumn, extras = {}) {
     }
     // Increase keep_alive to reduce cold-start latency between tasks
     setConfig('ollama_keep_alive', '30m');
-    db.prepare(`UPDATE provider_config SET enabled = 1 WHERE provider = 'ollama'`).run();
     logger.debug('Schema migration (local routing): consolidated to best models and ollama routing');
   } catch (e) {
     logger.debug(`Schema migration (local routing): ${e.message}`);
