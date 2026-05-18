@@ -99,7 +99,9 @@ function createPlanFileIntake({ db, factoryIntake, shippedDetector }) {
     }
 
     const origin = parseOrigin(item);
-    const needsRepair = origin.plan_path !== plan_path
+    const hasSourcePlanPath = origin.source_plan_path === plan_path;
+    const hasPlanPath = origin.plan_path === plan_path;
+    const needsRepair = (!hasPlanPath && !hasSourcePlanPath)
       || origin.content_hash !== content_hash
       || origin.task_count !== parsed.task_count
       || origin.step_count !== parsed.step_count;
@@ -107,16 +109,20 @@ function createPlanFileIntake({ db, factoryIntake, shippedDetector }) {
       return false;
     }
 
+    const nextOrigin = {
+      ...origin,
+      content_hash,
+      task_count: parsed.task_count,
+      step_count: parsed.step_count,
+      goal: parsed.goal,
+      tech_stack: parsed.tech_stack,
+    };
+    if (!hasSourcePlanPath) {
+      nextOrigin.plan_path = plan_path;
+    }
+
     factoryIntake.updateWorkItem(item.id, {
-      origin_json: {
-        ...origin,
-        plan_path,
-        content_hash,
-        task_count: parsed.task_count,
-        step_count: parsed.step_count,
-        goal: parsed.goal,
-        tech_stack: parsed.tech_stack,
-      },
+      origin_json: nextOrigin,
     });
     skipped.push({ plan_path, reason, work_item_id: item.id, repaired: true });
     return true;

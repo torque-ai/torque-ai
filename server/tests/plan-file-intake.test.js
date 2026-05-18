@@ -202,6 +202,52 @@ describe('plan-file-intake', () => {
     });
   });
 
+  it('does not refresh needs_replan cooldown when source_plan_path already preserves the source plan', () => {
+    const planPath = path.join(dir, 'needs-replan-source.md');
+    fs.writeFileSync(planPath, [
+      '# Needs Replan Source Plan',
+      '',
+      '**Goal:** Keep the cooldown from being reset by duplicate SENSE scans.',
+      '',
+      '## Task 1: x',
+      '- [ ] step one',
+    ].join('\n'));
+
+    const firstScan = scanPlans();
+    const created = firstScan.created[0];
+    const workItemId = created.id;
+    const origin = getOrigin(created);
+    factoryIntake.updateWorkItem(workItemId, {
+      status: 'needs_replan',
+      origin_json: {
+        ...origin,
+        source_plan_path: planPath,
+        plan_path: undefined,
+      },
+    });
+    const oldUpdatedAt = '2026-05-04 07:00:00';
+    db.prepare('UPDATE factory_work_items SET updated_at = ? WHERE id = ?')
+      .run(oldUpdatedAt, workItemId);
+
+    const secondScan = scanPlans();
+    const scanned = factoryIntake.getWorkItem(workItemId);
+
+    expect(secondScan.created).toHaveLength(0);
+    expect(secondScan.skipped).toContainEqual(expect.objectContaining({
+      plan_path: planPath,
+      reason: 'duplicate',
+      work_item_id: workItemId,
+    }));
+    expect(scanned.updated_at).toBe(oldUpdatedAt);
+    expect(getOrigin(scanned)).toMatchObject({
+      source_plan_path: planPath,
+      content_hash: origin.content_hash,
+      task_count: 1,
+      step_count: 1,
+    });
+    expect(getOrigin(scanned).plan_path).toBeUndefined();
+  });
+
   it('supersedes active plan_file work items when the source plan file was deleted', () => {
     const planPath = path.join(dir, 'deleted-source.md');
     fs.writeFileSync(planPath, [
