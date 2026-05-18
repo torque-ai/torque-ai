@@ -281,6 +281,17 @@ function didTorqueRemoteFallback(stdout, stderr) {
   return /\[torque-remote\].*(falling back to local|running locally)|"transport"\s*:\s*"local"|transport=local/i.test(text);
 }
 
+function shouldFallbackFromTorqueRemoteWrapper(result) {
+  if (!result || result.success || result.remote === false || result.timedOut) return false;
+  const text = `${result.output || ''}\n${result.error || ''}`.toLowerCase();
+  if (!text.includes('torque-remote')) return false;
+  return (
+    /\b(?:bash|sh): line \d+: [\w.-]+: command not found\b/.test(text)
+    || /\b[\w.-]+: command not found\b/.test(text)
+    || text.includes('dotnet sdk not installed')
+  );
+}
+
 function shouldUseTorqueRemoteWrapper(command, cwd, options = {}) {
   if (!command || !cwd) return false;
   if (/^\s*torque-remote\b/i.test(command)) return false;
@@ -814,7 +825,11 @@ function createRemoteTestRouter({ agentRegistry, db, logger }) {
             error: wrapperResult.error || 'Remote verification required but torque-remote used local fallback',
           };
         }
-        return wrapperResult;
+        if (!remoteConfig?.requireRemote && shouldFallbackFromTorqueRemoteWrapper(wrapperResult)) {
+          logger.warn(`[remote-routing] torque-remote wrapper failed due to remote environment, falling back to local: ${wrapperResult.error || wrapperResult.output || 'unknown error'}`);
+        } else {
+          return wrapperResult;
+        }
       } finally {
         preparedEnv.cleanup();
       }

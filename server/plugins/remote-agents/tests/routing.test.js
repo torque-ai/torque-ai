@@ -902,6 +902,72 @@ describe('remote-test-routing', () => {
       }
     });
 
+    it('falls back locally when torque-remote lacks the verify executable', async () => {
+      const db = {
+        getProjectFromPath: vi.fn().mockReturnValue('example-project'),
+        getProjectConfig: vi.fn().mockReturnValue(null),
+      };
+
+      const wsModelPath = require.resolve('../../../workstation/model');
+      const originalWsCache = require.cache[wsModelPath];
+      require.cache[wsModelPath] = {
+        id: wsModelPath, filename: wsModelPath, loaded: true,
+        exports: {
+          listWorkstations: vi.fn().mockReturnValue([]),
+          hasCapability: vi.fn().mockReturnValue(false),
+        },
+      };
+
+      const existsSpy = vi.spyOn(fs, 'existsSync').mockImplementation((filePath) => {
+        const normalized = String(filePath).replace(/\\/g, '/');
+        return normalized.endsWith('/.torque-remote.json')
+          || normalized === 'C:/Program Files/Git/bin/bash.exe';
+      });
+      const readFileSpy = vi.spyOn(fs, 'readFileSync').mockImplementation((filePath) => {
+        const normalized = String(filePath).replace(/\\/g, '/');
+        if (normalized.endsWith('/.torque-remote.json')) {
+          return JSON.stringify({ transport: 'ssh' });
+        }
+        return '';
+      });
+      mockSpawn.mockImplementation((cmd, args) => {
+        const argText = Array.isArray(args) ? args.join(' ') : '';
+        if (argText.includes('torque-remote')) {
+          return makeMockChild(
+            127,
+            '',
+            'bash: line 1: dotnet: command not found\n[torque-remote] Running on host: bash -lc dotnet\\ test\n',
+          );
+        }
+        return makeMockChild(0, 'local-dotnet-ok\n', '');
+      });
+
+      try {
+        const logger = makeLogger();
+        const router = createRemoteTestRouter({ agentRegistry: null, db, logger });
+        const result = await router.runVerifyCommand(
+          'dotnet test tests/Example.Tests/Example.Tests.csproj --nologo',
+          '/repo',
+          { provider: 'codex' }
+        );
+
+        expect(result.success).toBe(true);
+        expect(result.remote).toBe(false);
+        expect(result.output).toBe('local-dotnet-ok\n');
+        expect(mockSpawn).toHaveBeenCalledTimes(2);
+        expect(mockSpawn.mock.calls[1][0]).toBe('dotnet test tests/Example.Tests/Example.Tests.csproj --nologo');
+        expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('falling back to local'));
+      } finally {
+        existsSpy.mockRestore();
+        readFileSpy.mockRestore();
+        if (originalWsCache) {
+          require.cache[wsModelPath] = originalWsCache;
+        } else {
+          delete require.cache[wsModelPath];
+        }
+      }
+    });
+
     it('does NOT auto-discover workstation for non-codex provider verify', async () => {
       const db = {
         getProjectFromPath: vi.fn().mockReturnValue('torque'),
