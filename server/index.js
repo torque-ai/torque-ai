@@ -82,6 +82,7 @@ const DEFAULT_MCP_HOST = '127.0.0.1';
 const DEFAULT_MCP_SSE_PORT = 3458;
 const DEFAULT_PLUGIN_NAMES = Object.freeze(['snapscope', 'version-control', 'remote-agents', 'model-freshness', 'auto-recovery-core', 'codegraph']);
 const LOCAL_MCP_DESCRIPTION = 'TORQUE - Task Orchestration System with local LLM routing';
+const STARTUP_WORKTREE_CLEANUP_DELAY_MS = 5000;
 
 let testRunnerRegistry = null;
 let mcpPlatform = null;
@@ -493,6 +494,35 @@ function collectProtectedTaskWorktreePaths(baseDir) {
   }
 
   return protectedPaths;
+}
+
+function scheduleStartupWorktreeCleanup(createdBeforeMs) {
+  const handle = timerRegistry.trackTimeout(setTimeout(() => {
+    timerRegistry.remove(handle);
+
+    try {
+      const { cleanupOrphanedWorktreesAsync, WORKTREE_BASE_DIR } = require('./utils/git-worktree');
+      const protectedPaths = collectProtectedTaskWorktreePaths(WORKTREE_BASE_DIR);
+      if (protectedPaths.length > 0) {
+        debugLog(`Startup worktree cleanup: preserving ${protectedPaths.length} active task worktree(s)`);
+      }
+      debugLog('Startup worktree cleanup: async sweep started after port binding');
+      Promise.resolve(cleanupOrphanedWorktreesAsync(undefined, { protectedPaths, createdBeforeMs }))
+        .then((result) => {
+          debugLog(
+            `Startup worktree cleanup: async sweep complete ` +
+            `(cleaned=${result.cleaned.length}, preserved=${result.preserved.length}, ` +
+            `skipped=${result.skipped.length}, failed=${result.failed.length}, total=${result.totalEntries})`
+          );
+        })
+        .catch((err) => {
+          debugLog(`Startup worktree cleanup async error: ${err.message}`);
+        });
+    } catch (err) {
+      debugLog(`Startup worktree cleanup schedule error: ${err.message}`);
+    }
+  }, STARTUP_WORKTREE_CLEANUP_DELAY_MS));
+  if (typeof handle.unref === 'function') handle.unref();
 }
 
 // MCP Protocol version
@@ -1822,17 +1852,7 @@ function init() {
     debugLog(`Startup orphan cleanup error: ${err.message}`);
   }
 
-  // Clean up orphaned git worktrees from previous crashed server runs
-  try {
-    const { cleanupOrphanedWorktrees, WORKTREE_BASE_DIR } = require('./utils/git-worktree');
-    const protectedPaths = collectProtectedTaskWorktreePaths(WORKTREE_BASE_DIR);
-    if (protectedPaths.length > 0) {
-      debugLog(`Startup worktree cleanup: preserving ${protectedPaths.length} active task worktree(s)`);
-    }
-    cleanupOrphanedWorktrees(undefined, { protectedPaths });
-  } catch (err) {
-    debugLog(`Startup worktree cleanup error: ${err.message}`);
-  }
+  const startupWorktreeCleanupCutoffMs = Date.now();
 
   // Wire quota quota tracker to REST API and dashboard routes
   if (apiServer.setQuotaTrackerGetter && taskManager.getFreeQuotaTracker) {
@@ -1996,8 +2016,12 @@ function init() {
     process.stderr.write(`[TORQUE] MCP SSE transport failed to start: ${err.message}\n`);
   });
 
-  // After both port binding attempts resolve, check if we're a zombie
-  Promise.allSettled([apiPromise, ssePromise]).then(checkCriticalPorts);
+  // After both port binding attempts resolve, check if we're a zombie and then
+  // sweep stale worktrees in the background so large deletes cannot block startup.
+  Promise.allSettled([apiPromise, ssePromise]).then(() => {
+    checkCriticalPorts();
+    scheduleStartupWorktreeCleanup(startupWorktreeCleanupCutoffMs);
+  });
 
   const enableMcpGateway = String(process.env.TORQUE_ENABLE_MCP_GATEWAY || '').toLowerCase();
   if (enableMcpGateway === '1' || enableMcpGateway === 'true' || enableMcpGateway === 'yes' || enableMcpGateway === 'on') {
