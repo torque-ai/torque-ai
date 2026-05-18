@@ -40,11 +40,13 @@ const logger = require('../../logger').child({ component: 'factory-learn-stage' 
 // `maybeShipWorkItemAfterLearn` are loop-controller-internal and injected.
 
 const LEARN_EXECUTOR_DEPS = ['safeLogDecision', 'maybeShipWorkItemAfterLearn'];
+const LEARN_EXECUTOR_OPTIONAL_DEPS = ['retrospectiveGenerator'];
 
 /**
  * @param {{
  *   safeLogDecision: (entry: object) => any,
  *   maybeShipWorkItemAfterLearn: (projectId, batchId, instance) => Promise<any>,
+ *   retrospectiveGenerator?: { generateRetrospective: (workflowId: string, projectId: string|number) => Promise<any> },
  * }} deps
  * @returns {(projectId: number|string, batchId: string|null, instance: object|null) => Promise<any>}
  */
@@ -55,6 +57,7 @@ function createLearnStage(deps = {}) {
     }
   }
   const { safeLogDecision, maybeShipWorkItemAfterLearn } = deps;
+  const retrospectiveGenerator = deps.retrospectiveGenerator || null;
 
   return async function executeLearnStage(project_id, batch_id, instance) {
     try {
@@ -91,6 +94,21 @@ function createLearnStage(deps = {}) {
         shipping_reason: shippingResult?.reason || null,
         work_item_id: shippingResult?.work_item_id || null,
       });
+
+      // Generate a retrospective for the completed batch/workflow.
+      // Failures are logged but never block the factory loop.
+      if (retrospectiveGenerator && batch_id) {
+        try {
+          await retrospectiveGenerator.generateRetrospective(batch_id, project_id);
+          logger.info('LEARN stage: retrospective generated', { project_id, batch_id });
+        } catch (retroErr) {
+          logger.warn(`LEARN stage: retrospective generation failed: ${retroErr.message}`, {
+            project_id,
+            batch_id,
+          });
+        }
+      }
+
       return analysis;
     } catch (err) {
       logger.warn(`LEARN stage analysis failed: ${err.message}`, { project_id });
