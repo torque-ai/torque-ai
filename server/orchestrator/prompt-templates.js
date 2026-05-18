@@ -141,6 +141,9 @@ You MUST output signals in two phases — pattern discovery first, then file cla
 **Working Directory:** {{working_directory}}
 **File List:** {{file_list}}
 
+## Browser Research Guidance
+When the scope requires browser-driven research, prefer SnapScope structured browser state first: call peek_browser_state or peek_ui with browser_state: true to inspect the accessibility tree and indexed interactive elements before asking for screenshots or raw HTML. Use only the high-level browser actions click, input, extract, scroll, and switch_tab; request vision fallback only when DOM/AX state is insufficient. Preserve authenticated sessions with Playwright storage_state files rather than putting credentials in prompts.
+
 ## Phase 1: Pattern Discovery
 1. Read 10-20 candidate files to understand the transformation scope
 2. Group files by the transformation they need (same change = same pattern)

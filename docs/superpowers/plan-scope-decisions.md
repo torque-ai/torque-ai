@@ -8,7 +8,7 @@ Compiled 2026-05-01 from the spirit-of-TORQUE audit of 74 unimplemented plans (t
 >
 > TORQUE is **not** a generic Temporal/Inngest/Prefect clone, **not** a generic agent SDK, **not** infrastructure (sandbox/container hosting), **not** an APM platform.
 
-The audit produced 45 explicit **DROP** decisions. They cluster into five themes; treat the themes as the durable reasons. Specific plans are illustrative, not exhaustive.
+The audit produced 44 remaining explicit **DROP** decisions after Fabro #93 was revived and shipped. They cluster into five themes; treat the themes as the durable reasons. Specific plans are illustrative, not exhaustive.
 
 ---
 
@@ -91,8 +91,9 @@ The audit produced 45 explicit **DROP** decisions. They cluster into five themes
 - Firecrawl SaaS integration (fabro-74)
 - Zep time-aware knowledge graph (fabro-77)
 - Dust team-spaces + synced data sources (fabro-81)
-- Browser Use AX-tree tool (fabro-93) — peek/snapscope already gives Claude eyes
 - Chroma archival memory (fabro-94)
+
+**Revived after audit:** Browser Use AX-tree tool (fabro-93) is now a shipped SnapScope browser-state contract, not a DROP decision. The implementation lives in `server/plugins/snapscope/handlers/browser-capture.js` and exposes `peek_browser_state`, `peek_browser_action`, and `peek_ui` with `browser_state: true`. The accepted shape is accessibility-tree-first state, high-level actions (`click`, `input`, `extract`, `scroll`, `switch_tab`), tab indexes, and Playwright `storage_state_path`; screenshots are fallback evidence rather than the primary browser state.
 
 ---
 

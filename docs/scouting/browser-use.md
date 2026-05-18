@@ -31,3 +31,6 @@
 
 ## Verdict
 Browser Use is most interesting as an agent layer on top of browser automation, not as another scraping or research tool. Its standout ideas are the accessibility-aware page model, the DOM-plus-vision hybrid loop, and the decision to expose browser work as compact agent primitives rather than raw scripting. For TORQUE, the best takeaway is not "add another Playwright wrapper," but "add a structured browser-state contract that makes browser control legible to LLMs."
+
+## TORQUE implementation note
+Fabro #93 is now revived as a SnapScope browser-state contract in `server/plugins/snapscope/handlers/browser-capture.js`. Agents can call `peek_browser_state`, or `peek_ui` with `browser_state: true`, to inspect accessibility-tree state with indexed interactive elements before spending tokens on screenshots. `peek_browser_action` exposes the safe verbs `click`, `input`, `extract`, `scroll`, and `switch_tab`; it rejects missing or stale element indexes instead of falling through to raw browser scripting. Multi-tab work is represented through tab indexes, and `storage_state_path` is the supported Playwright session handoff for cookies and local storage. Do not place credentials in prompts; store authenticated browser session state in the operator-controlled storage-state file.

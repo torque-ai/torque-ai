@@ -141,8 +141,8 @@ const PEEK_CAPTURE_PROVIDERS = Object.freeze({
     name: 'browser',
     description: 'Browser capture via Chrome DevTools Protocol (Playwright/Puppeteer)',
     platforms: Object.freeze(['windows', 'linux', 'darwin']),
-    capabilities: Object.freeze(['window_capture', 'dom_tree', 'network_interception']),
-    status: 'planned',
+    capabilities: Object.freeze(['accessibility_tree', 'dom_tree', 'browser_actions', 'multi_tab', 'storage_state', 'vision_fallback']),
+    status: 'implemented',
   }),
 });
 

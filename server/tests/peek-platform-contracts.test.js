@@ -16,7 +16,12 @@ describe('peek platform contracts', () => {
     expect(PEEK_CAPTURE_PROVIDERS.x11.status).toBe('planned');
     expect(PEEK_CAPTURE_PROVIDERS.wayland.status).toBe('planned');
     expect(PEEK_CAPTURE_PROVIDERS.macos.status).toBe('planned');
-    expect(PEEK_CAPTURE_PROVIDERS.browser.status).toBe('planned');
+    expect(PEEK_CAPTURE_PROVIDERS.browser.status).toBe('implemented');
+    expect(PEEK_CAPTURE_PROVIDERS.browser.capabilities).toEqual(expect.arrayContaining([
+      'accessibility_tree',
+      'browser_actions',
+      'storage_state',
+    ]));
   });
 
   it('defines platform support state and prerequisites for non-windows hosts', () => {

@@ -314,6 +314,134 @@ const tools = [
           type: 'string',
           description: 'Overlay UI Automation element bounding boxes on the screenshot. Set to "true" for all elements, or a comma-separated list of types (e.g. "Button,Edit,Text") to filter. Color-coded by type with labels. Returns both raw and annotated images.',
           default: ''
+        },
+        browser_state: {
+          type: 'boolean',
+          description: 'Return accessibility-tree-first browser state instead of a desktop screenshot. Uses Playwright/CDP when available.',
+          default: false
+        },
+        cdp_url: {
+          type: 'string',
+          description: 'Chrome DevTools Protocol endpoint, e.g. http://127.0.0.1:9222. Used when browser_state is true.'
+        },
+        tab_index: {
+          type: 'integer',
+          description: 'Browser tab index to inspect when browser_state is true.',
+          default: 0
+        },
+        storage_state_path: {
+          type: 'string',
+          description: 'Optional Playwright storage_state JSON path to load/save authenticated browser session state.'
+        },
+        vision_fallback: {
+          type: 'boolean',
+          description: 'Include a screenshot only when the accessibility tree has no usable interactive elements.',
+          default: false
+        },
+        include_screenshot: {
+          type: 'boolean',
+          description: 'Include a screenshot alongside structured browser state.',
+          default: false
+        }
+      }
+    }
+  },
+  {
+    name: 'peek_browser_state',
+    description: 'Inspect a browser through Playwright/CDP and return accessibility-tree-first page state with indexed interactive elements. Screenshots are optional fallback evidence, not the default observation.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        cdp_url: {
+          type: 'string',
+          description: 'Chrome DevTools Protocol endpoint, e.g. http://127.0.0.1:9222'
+        },
+        host: {
+          type: 'string',
+          description: 'CDP host when cdp_url is not supplied.',
+          default: '127.0.0.1'
+        },
+        port: {
+          type: 'integer',
+          description: 'CDP port when cdp_url is not supplied.',
+          default: 9222
+        },
+        url: {
+          type: 'string',
+          description: 'Optional URL to open when launching a local headless browser.'
+        },
+        launch: {
+          type: 'boolean',
+          description: 'Launch a local Chromium instance instead of connecting to an existing CDP browser.',
+          default: false
+        },
+        tab_index: {
+          type: 'integer',
+          description: 'Browser tab index to inspect.',
+          default: 0
+        },
+        storage_state_path: {
+          type: 'string',
+          description: 'Optional Playwright storage_state JSON path to load/save authenticated session state.'
+        },
+        vision_fallback: {
+          type: 'boolean',
+          description: 'Include a screenshot only when the accessibility tree has no usable interactive elements.',
+          default: false
+        },
+        include_screenshot: {
+          type: 'boolean',
+          description: 'Include a screenshot alongside structured browser state.',
+          default: false
+        }
+      }
+    }
+  },
+  {
+    name: 'peek_browser_action',
+    description: 'Run a safe high-level browser action against structured browser state. Supports click, input, extract, scroll, and switch_tab. Targets elements by accessibility-state index or by role/name; arbitrary scripting is not exposed.',
+    inputSchema: {
+      type: 'object',
+      required: ['action'],
+      properties: {
+        action: {
+          type: 'string',
+          enum: ['click', 'input', 'extract', 'scroll', 'switch_tab'],
+          description: 'High-level browser action to perform.'
+        },
+        element_index: {
+          type: 'integer',
+          description: 'Indexed interactive element from peek_browser_state.'
+        },
+        role: {
+          type: 'string',
+          description: 'Fallback accessible role target when element_index is not supplied.'
+        },
+        name: {
+          type: 'string',
+          description: 'Fallback accessible name/text target when element_index is not supplied.'
+        },
+        text: {
+          type: 'string',
+          description: 'Text for input action.'
+        },
+        delta: {
+          type: 'number',
+          description: 'Scroll delta in CSS pixels for scroll action.',
+          default: 600
+        },
+        tab_index: {
+          type: 'integer',
+          description: 'Tab index for switch_tab or initial page selection.',
+          default: 0
+        },
+        cdp_url: {
+          type: 'string',
+          description: 'Chrome DevTools Protocol endpoint, e.g. http://127.0.0.1:9222'
+        },
+        storage_state_path: {
+          type: 'string',
+          description: 'Optional Playwright storage_state JSON path to preserve authenticated session state.'
         }
       }
     }

@@ -46,6 +46,8 @@ TORQUE can inspect rendered UI through the optional `@torque-ai/peek` companion.
 
 By default, Peek binds to `127.0.0.1:9876`. When TORQUE can reach that host, tools such as `peek_ui`, `peek_diagnose`, and `peek_interact` can capture screenshots, read UI element trees, and send basic input events for visual verification.
 
+For browser-native work, SnapScope also exposes an accessibility-tree-first contract in `server/plugins/snapscope/handlers/browser-capture.js`. Use `peek_browser_state` or `peek_ui` with `browser_state: true` to get indexed interactive elements from Playwright/CDP, and use `peek_browser_action` for the safe action vocabulary: `click`, `input`, `extract`, `scroll`, and `switch_tab`. Screenshots are a fallback via `vision_fallback` or `include_screenshot`, not the default browser observation. `storage_state_path` can preserve Playwright session cookies and local storage without putting credentials in prompts.
+
 For a separate display host, expose Peek with a shared token and register the host in TORQUE:
 
     torque-peek start --host 0.0.0.0 --token <shared-secret>

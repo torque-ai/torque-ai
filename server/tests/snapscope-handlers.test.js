@@ -191,6 +191,44 @@ function installHttpRequestMock() {
   });
 }
 
+function makeBrowserAxNode({ nodeId, role, name, focusable = true }) {
+  return {
+    nodeId,
+    backendDOMNodeId: nodeId + 1000,
+    role: { value: role },
+    name: { value: name },
+    properties: [
+      { name: 'focusable', value: { value: focusable } },
+      { name: 'disabled', value: { value: false } },
+    ],
+  };
+}
+
+function makeBrowserPage(nodes) {
+  const locator = {
+    click: vi.fn(async () => {}),
+    fill: vi.fn(async () => {}),
+    textContent: vi.fn(async () => 'button text'),
+  };
+  const context = {
+    newCDPSession: vi.fn(async () => ({
+      send: vi.fn(async () => ({ nodes })),
+    })),
+  };
+  return {
+    page: {
+      title: vi.fn(async () => 'Browser Task'),
+      url: vi.fn(() => 'http://browser.test/'),
+      context: vi.fn(() => context),
+      getByRole: vi.fn(() => locator),
+      getByText: vi.fn(() => locator),
+      screenshot: vi.fn(async () => Buffer.from('browser-image')),
+      mouse: { wheel: vi.fn(async () => {}) },
+    },
+    locator,
+  };
+}
+
 // ─── Suite ───────────────────────────────────────────────────────────────────
 describe('Snapscope Handlers', () => {
   beforeAll(() => {
@@ -991,6 +1029,54 @@ describe('Snapscope Handlers', () => {
       expect(result.content[0].text).toContain('Peek host not found: missing-host');
       expect(http.get).not.toHaveBeenCalled();
     });
+
+    it('routes browser_state requests through structured browser capture instead of the peek host', async () => {
+      const { page } = makeBrowserPage([
+        makeBrowserAxNode({ nodeId: 1, role: 'button', name: 'Save' }),
+      ]);
+
+      const result = await handlers.handlePeekUi({ browser_state: true, page });
+
+      expect(result.isError).toBe(false);
+      expect(result.content[0].text).toContain('## Browser State');
+      expect(result.content[0].text).toContain('1. button — Save');
+      expect(result.structuredData.elements[0]).toMatchObject({ index: 1, role: 'button', name: 'Save' });
+      expect(http.get).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('handlePeekBrowserAction', () => {
+    it('runs a safe click action against an indexed AX element', async () => {
+      const { page, locator } = makeBrowserPage([
+        makeBrowserAxNode({ nodeId: 1, role: 'button', name: 'Save' }),
+      ]);
+
+      const result = await handlers.handlePeekBrowserAction({
+        page,
+        action: 'click',
+        element_index: 1,
+      });
+
+      expect(result.isError).toBeFalsy();
+      expect(result.structuredData).toMatchObject({ success: true, action: 'click' });
+      expect(locator.click).toHaveBeenCalledTimes(1);
+    });
+
+    it('rejects stale browser element indexes', async () => {
+      const { page, locator } = makeBrowserPage([
+        makeBrowserAxNode({ nodeId: 1, role: 'button', name: 'Save' }),
+      ]);
+
+      const result = await handlers.handlePeekBrowserAction({
+        page,
+        action: 'click',
+        element_index: 2,
+      });
+
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain('No current browser element with index 2');
+      expect(locator.click).not.toHaveBeenCalled();
+    });
   });
 
   describe('handlePeekDiagnose', () => {
@@ -1188,6 +1274,27 @@ describe('Snapscope Handlers', () => {
         default: false,
         description: 'Automatically diff against the last capture of the same target'
       });
+    });
+
+    it('declares browser-state inputs on peek_ui', () => {
+      const peekUiDef = snapscopeDefs.find((tool) => tool.name === 'peek_ui');
+      const props = peekUiDef?.inputSchema?.properties || {};
+
+      expect(props.browser_state).toMatchObject({ type: 'boolean', default: false });
+      expect(props.cdp_url).toMatchObject({ type: 'string' });
+      expect(props.storage_state_path.description).toContain('storage_state');
+      expect(props.vision_fallback.default).toBe(false);
+    });
+
+    it('declares dedicated browser state and action tools', () => {
+      const stateDef = snapscopeDefs.find((tool) => tool.name === 'peek_browser_state');
+      const actionDef = snapscopeDefs.find((tool) => tool.name === 'peek_browser_action');
+
+      expect(stateDef.description).toContain('accessibility-tree-first');
+      expect(stateDef.inputSchema.properties.include_screenshot.default).toBe(false);
+      expect(actionDef.inputSchema.required).toEqual(['action']);
+      expect(actionDef.inputSchema.properties.action.enum).toEqual(['click', 'input', 'extract', 'scroll', 'switch_tab']);
+      expect(actionDef.description).toContain('arbitrary scripting is not exposed');
     });
   });
 });

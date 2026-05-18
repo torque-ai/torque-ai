@@ -15,6 +15,13 @@ describe('prompt-templates', () => {
       expect(TEMPLATES.review).toBeDefined();
       expect(TEMPLATES.review.system).toContain('review');
     });
+    it('guides scout research toward structured browser state before screenshots', () => {
+      expect(TEMPLATES.scout.user).toContain('peek_browser_state');
+      expect(TEMPLATES.scout.user).toContain('accessibility tree');
+      expect(TEMPLATES.scout.user).toContain('vision fallback only');
+      expect(TEMPLATES.scout.user).toContain('storage_state');
+      expect(TEMPLATES.scout.user).toContain('click, input, extract, scroll, and switch_tab');
+    });
     it('each template has system, user, and schema fields', () => {
       for (const [name, template] of Object.entries(TEMPLATES)) {
         expect(template.system, `${name}.system`).toBeDefined();

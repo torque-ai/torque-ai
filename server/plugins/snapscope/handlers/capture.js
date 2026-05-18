@@ -78,6 +78,11 @@ function getCompareImage(compareData) {
 
 async function handlePeekUi(args) {
   try {
+    if (args?.browser_state === true) {
+      const { handlePeekBrowserState } = require('./browser-capture');
+      return handlePeekBrowserState(args);
+    }
+
     const timeoutMs = ((args.timeout_seconds || 30) * 1000);
     const resolvedHost = resolvePeekHost(args);
     if (resolvedHost.error) {
