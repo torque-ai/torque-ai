@@ -1225,6 +1225,7 @@ Object.assign(module.exports, {
   createTaskStartupResourceLifecycle,
   evaluateClaimedStartupPolicy,
   buildProviderStartupCommand,
+  resolveProviderRouting,
   // Internal state (exported for testing only)
   _testing: {
     get runningProcesses() { return runningProcesses; },
