@@ -7,6 +7,7 @@ const {
   validateVersionIntent,
   validateVersionIntentValue,
   enforceVersionIntent,
+  enforceVersionIntentHttp,
   inferIntentFromCommitMessage,
   highestIntent,
   intentToBump,
@@ -188,5 +189,148 @@ describe('server/versioning/version-intent — route-level regression', () => {
       status: 400,
       message: 'version_intent is required for versioned project. Use: feature, fix, breaking, or internal',
     });
+  });
+});
+
+describe('server/versioning/version-intent — enforceVersionIntentHttp', () => {
+  /**
+   * Tests for the HTTP-aware enforcement helper that wraps enforceVersionIntent
+   * and returns a flat { ok, status?, error? } shape for handler call sites.
+   */
+
+  function makeVersionedDb(projectPath) {
+    return {
+      prepare: (sql) => {
+        if (sql.includes('project = ?') && sql.includes('versioning_enabled')) {
+          return { get: (p) => (p === projectPath ? { project: p } : null) };
+        }
+        if (sql.includes('DISTINCT project')) {
+          return { all: () => [{ project: projectPath }] };
+        }
+        return { get: () => null, all: () => [] };
+      },
+    };
+  }
+
+  function makeUnversionedDb() {
+    return {
+      prepare: () => ({ get: () => null, all: () => [] }),
+    };
+  }
+
+  it('returns { ok: true } when versioning is disabled for the project', () => {
+    const db = makeUnversionedDb();
+    const result = enforceVersionIntentHttp(db, '/unversioned/project', undefined);
+    expect(result).toEqual({ ok: true });
+  });
+
+  it('returns { ok: false, status: 400 } with "required" message when versioning is enabled but intent is undefined', () => {
+    const db = makeVersionedDb('/my/project');
+    const result = enforceVersionIntentHttp(db, '/my/project', undefined);
+    expect(result).toEqual({
+      ok: false,
+      status: 400,
+      error: 'version_intent is required for versioned project. Use: feature, fix, breaking, or internal',
+    });
+  });
+
+  it('returns { ok: false, status: 400 } with "required" message when versioning is enabled but intent is null', () => {
+    const db = makeVersionedDb('/my/project');
+    const result = enforceVersionIntentHttp(db, '/my/project', null);
+    expect(result).toEqual({
+      ok: false,
+      status: 400,
+      error: 'version_intent is required for versioned project. Use: feature, fix, breaking, or internal',
+    });
+  });
+
+  it('returns { ok: false, status: 400 } with "Invalid" message when intent is an unrecognized string', () => {
+    const db = makeVersionedDb('/my/project');
+    const result = enforceVersionIntentHttp(db, '/my/project', 'not-a-real-intent');
+    expect(result.ok).toBe(false);
+    expect(result.status).toBe(400);
+    expect(result.error).toContain('Invalid version_intent');
+  });
+
+  it('returns { ok: true } for each valid intent when versioning is enabled', () => {
+    const db = makeVersionedDb('/my/project');
+    for (const intent of ['feature', 'fix', 'breaking', 'internal']) {
+      const result = enforceVersionIntentHttp(db, '/my/project', intent);
+      expect(result).toEqual({ ok: true });
+    }
+  });
+
+  it('returns { ok: true } when db is null (graceful skip)', () => {
+    const result = enforceVersionIntentHttp(null, '/my/project', 'feature');
+    expect(result).toEqual({ ok: true });
+  });
+
+  it('returns { ok: true } when projectId is null (graceful skip)', () => {
+    const db = makeVersionedDb('/my/project');
+    const result = enforceVersionIntentHttp(db, null, 'feature');
+    expect(result).toEqual({ ok: true });
+  });
+});
+
+describe('server/versioning/version-intent — enforceVersionIntent caller consistency', () => {
+  /**
+   * Verifies that all three call paths (submit_task, smart_submit/workflow, cron)
+   * produce identical error messages when version_intent enforcement fails.
+   */
+
+  function makeVersionedDb(projectPath) {
+    return {
+      prepare: (sql) => {
+        if (sql.includes('project = ?') && sql.includes('versioning_enabled')) {
+          return { get: (p) => (p === projectPath ? { project: p } : null) };
+        }
+        if (sql.includes('DISTINCT project')) {
+          return { all: () => [{ project: projectPath }] };
+        }
+        return { get: () => null, all: () => [] };
+      },
+    };
+  }
+
+  it('submit_task and smart_submit paths produce identical "required" error messages via enforceVersionIntentHttp', () => {
+    const db = makeVersionedDb('/project');
+    // Both submit_task and smart_submit use enforceVersionIntentHttp at their entry point
+    const submitResult = enforceVersionIntentHttp(db, '/project', undefined);
+    const smartSubmitResult = enforceVersionIntentHttp(db, '/project', null);
+    expect(submitResult.ok).toBe(false);
+    expect(smartSubmitResult.ok).toBe(false);
+    // Both should produce the same error message
+    expect(submitResult.error).toBe(smartSubmitResult.error);
+    expect(submitResult.error).toBe('version_intent is required for versioned project. Use: feature, fix, breaking, or internal');
+  });
+
+  it('cron path via enforceVersionIntent produces same "required" message as HTTP paths', () => {
+    const db = makeVersionedDb('/project');
+    // Cron path uses enforceVersionIntent directly (the throwing variant)
+    const cronResult = enforceVersionIntent({ versionIntent: undefined, projectId: '/project', db });
+    // HTTP path uses enforceVersionIntentHttp
+    const httpResult = enforceVersionIntentHttp(db, '/project', undefined);
+    expect(cronResult.valid).toBe(false);
+    expect(httpResult.ok).toBe(false);
+    // The message strings should be identical
+    expect(cronResult.error.message).toBe(httpResult.error);
+  });
+
+  it('all paths produce identical "invalid" error message structure for bogus intents', () => {
+    const db = makeVersionedDb('/project');
+    const bogusIntent = 'definitely-not-valid';
+
+    // HTTP path (submit_task / smart_submit / workflow)
+    const httpResult = enforceVersionIntentHttp(db, '/project', bogusIntent);
+    // Direct path (cron)
+    const directResult = enforceVersionIntent({ versionIntent: bogusIntent, projectId: '/project', db });
+
+    expect(httpResult.ok).toBe(false);
+    expect(directResult.valid).toBe(false);
+
+    // Both messages should contain the same intent string and same phrasing
+    expect(httpResult.error).toBe(directResult.error.message);
+    expect(httpResult.error).toContain('Invalid version_intent');
+    expect(httpResult.error).toContain(bogusIntent);
   });
 });
