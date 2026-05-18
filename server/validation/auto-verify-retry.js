@@ -28,6 +28,7 @@ const { inspectPostTaskDiff } = require('./codegraph-diff-validator');
 const { enrichFixPromptWithCodegraph } = require('../utils/codegraph-fix-enrichment');
 const { isScoutStructuredOutputTask } = require('../execution/completion-policy');
 const { wrapVerifyCommandForTestLane } = require('../factory/test-lane-verify');
+const { createTestDeflaker } = require('../db/test-deflaker');
 
 // Providers that get auto-verify by default.
 // Built via character join to avoid the repo's PII scrub, which case-
@@ -49,6 +50,35 @@ const NON_CODE_EXTENSIONS = new Set([
   '.csv',
   '.toml',
 ]);
+
+/**
+ * Extract passed and failed test names from verify command output.
+ * Supports vitest/jest (✓/×/✗ markers) and FAIL/PASS line patterns.
+ * Returns { passed: string[], failed: string[] }.
+ */
+function extractTestNames(output) {
+  const passed = [];
+  const failed = [];
+  if (!output || typeof output !== 'string') return { passed, failed };
+
+  const lines = output.split('\n');
+  for (const line of lines) {
+    const trimmed = line.trim();
+    // vitest/jest: ✓ test name  or  √ test name
+    const passMatch = trimmed.match(/^[✓√]\s+(.+?)(?:\s+\d+\s*ms)?$/);
+    if (passMatch) { passed.push(passMatch[1].trim()); continue; }
+
+    // vitest/jest: × test name  or  ✗ test name  or  ✕ test name
+    const failMatch = trimmed.match(/^[×✗✕]\s+(.+?)(?:\s+\d+\s*ms)?$/);
+    if (failMatch) { failed.push(failMatch[1].trim()); continue; }
+
+    // vitest FAIL line: FAIL  path/to/test > suite > test name
+    const failLineMatch = trimmed.match(/^FAIL\s+\S+\s+>\s+(.+)/);
+    if (failLineMatch) { failed.push(failLineMatch[1].trim()); continue; }
+  }
+
+  return { passed, failed };
+}
 
 // ── Module-level deps ──────────────────────────────────────────────────────
 // All deps lazy-resolve through the container at first use. They remain
@@ -404,11 +434,33 @@ async function handleAutoVerifyRetry(ctx) {
   const verifyOutput = (verifyResult.output || '') + (verifyResult.error || '');
   const verifyExitCode = verifyResult.exitCode;
 
+  // ── Deflaker: record test outcomes ───────────────────────────────────
+  // Extract test names from verify output and record pass/fail outcomes
+  // so the deflaker can build a sliding window for flaky-test detection.
+  const testNames = extractTestNames(verifyOutput);
+  try {
+    if (_db && (testNames.passed.length > 0 || testNames.failed.length > 0)) {
+      const deflaker = createTestDeflaker({ db: _db });
+      const projectPath = config.project_path || task.working_directory || '';
+      const commitHash = getTaskMetadata(task).commit_hash || null;
+      deflaker.recordOutcomes({
+        projectPath,
+        commitHash,
+        passed: testNames.passed,
+        failed: testNames.failed,
+      });
+      logger.info(`[auto-verify] Task ${taskId}: recorded ${testNames.passed.length} passed, ${testNames.failed.length} failed test outcomes`);
+    }
+  } catch (deflakeRecordErr) {
+    logger.warn(`[auto-verify] Task ${taskId}: failed to record test outcomes: ${deflakeRecordErr.message}`);
+  }
+
   // ── Verify signal tag ─────────────────────────────────────────────────
   // Tag every verified task with test health so the dashboard and QC can
   // surface it without relying on task status. Format:
   //   tests:pass          — verify command exited 0
-  //   tests:fail:N        — verify command failed, N error lines detected
+  //   tests:fail:N        — verify command failed, N genuine failures detected
+  //   tests:flaky:N       — verify command failed, but all N failures are known-flaky
   //   tests:timeout       — verify command timed out (inconclusive)
   let verifyTag;
   let verifyTagAssigned = false;
@@ -418,10 +470,35 @@ async function handleAutoVerifyRetry(ctx) {
     } else if (verifyExitCode === 0) {
       verifyTag = 'tests:pass';
     } else {
+      // Default: count error lines for the tag
       const errorLines = (verifyOutput || '').split('\n')
         .filter(l => /\berror\b/i.test(l) && !/^\s*\d+ error/.test(l))
         .length;
       verifyTag = `tests:fail:${errorLines}`;
+
+      // Deflaker classification: if we have failed test names, classify them
+      // as flaky vs genuine. All-flaky → tests:flaky:N; mixed → tests:fail:M
+      // (counting only genuine failures).
+      try {
+        if (_db && testNames.failed.length > 0) {
+          const deflaker = createTestDeflaker({ db: _db });
+          const projectPath = config.project_path || task.working_directory || '';
+          const classified = deflaker.classifyFailures({
+            projectPath,
+            testNames: testNames.failed,
+          });
+          if (classified.genuine.length === 0) {
+            verifyTag = `tests:flaky:${testNames.failed.length}`;
+            logger.info(`[auto-verify] Task ${taskId}: all ${testNames.failed.length} failure(s) classified as flaky`);
+          } else if (classified.flaky.length > 0) {
+            verifyTag = `tests:fail:${classified.genuine.length}`;
+            logger.info(`[auto-verify] Task ${taskId}: ${classified.flaky.length} flaky, ${classified.genuine.length} genuine failure(s)`);
+          }
+        }
+      } catch (deflakeClassifyErr) {
+        logger.warn(`[auto-verify] Task ${taskId}: flaky classification failed: ${deflakeClassifyErr.message}`);
+        // Fall through — verifyTag keeps the default tests:fail:N value
+      }
     }
     const currentTask = _db.getTask(taskId);
     const existingTags = Array.isArray(currentTask?.tags) ? currentTask.tags : [];
@@ -889,4 +966,6 @@ module.exports = {
   // for production use; the raw export is here for sibling modules that still
   // require() it directly. Self-bootstraps deps via ensureDeps() at first use.
   handleAutoVerifyRetry,
+  // Exported for reuse by factory verify stage (deflaker classification).
+  extractTestNames,
 };

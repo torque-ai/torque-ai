@@ -42,6 +42,9 @@ const { emitAutoShipped, AUTO_SHIPPED_REASONS } = require('../auto-ship');
 const { detectDefaultBranch } = require('../worktree-runner');
 const { getEffectiveProjectProvider } = require('../shared/project-config');
 const { countPriorVerifyRetryTasksForBatch, detectVerifyStack } = require('../verify-helpers');
+const { createTestDeflaker } = require('../../db/test-deflaker');
+const { extractTestNames } = require('../../validation/auto-verify-retry');
+const { resolveContainerDbHandle } = require('../../db/db-handle-resolver');
 
 const REQUIRED_DEPS = [
   'executeVerifyStage',
@@ -469,6 +472,56 @@ function createVerifyStage(deps = {}) {
               batch_id,
             });
             break;
+          }
+
+          // tests:flaky bypass — if all failing tests are known-flaky, treat
+          // the verify result as a soft pass and skip the remediation loop.
+          // This avoids wasting retry budget on non-actionable failures.
+          try {
+            const dbHandle = resolveContainerDbHandle();
+            if (dbHandle) {
+              const verifyTestNames = extractTestNames(res.output || '');
+              if (verifyTestNames.failed.length > 0) {
+                const deflaker = createTestDeflaker({ db: dbHandle });
+                const projectPath = project?.path || worktreeRecord.worktreePath || '';
+                const classified = deflaker.classifyFailures({
+                  projectPath,
+                  testNames: verifyTestNames.failed,
+                });
+                if (classified.genuine.length === 0) {
+                  // tests:flaky is handled above — flaky failures skip remediation
+                  logger.info('[verify] All test failures are known-flaky, skipping remediation', {
+                    project_id,
+                    batch_id,
+                    flaky_count: verifyTestNames.failed.length,
+                    branch: worktreeRecord.branch,
+                  });
+                  safeLogDecision({
+                    project_id,
+                    stage: LOOP_STATES.VERIFY,
+                    action: 'worktree_verify_flaky_pass',
+                    reasoning: `All ${verifyTestNames.failed.length} test failure(s) are known-flaky; treating verify as soft pass and skipping remediation.`,
+                    outcome: {
+                      branch: worktreeRecord.branch,
+                      worktree_path: worktreeRecord.worktreePath,
+                      flaky_count: verifyTestNames.failed.length,
+                      flaky_tests: verifyTestNames.failed.slice(0, 10),
+                      duration_ms: res.durationMs,
+                      verify_command: verifyCommand,
+                      verify_command_source: resolvedVerify.source,
+                      retry_attempt: retryAttempt,
+                    },
+                    confidence: 1,
+                    batch_id,
+                  });
+                  break;
+                }
+              }
+            }
+          } catch (flakyErr) {
+            logger.warn('[verify] flaky-test bypass check failed; continuing to normal retry path', {
+              project_id, err: flakyErr.message,
+            });
           }
 
           if (!postFailureFreshnessChecked) {

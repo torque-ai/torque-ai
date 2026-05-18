@@ -3762,6 +3762,23 @@ function createTables(db, logger) {
     END
   `);
 
+  // Test outcome tracking for deflaker (flaky-test detection)
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS test_outcomes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        project_path TEXT NOT NULL,
+        test_name TEXT NOT NULL,
+        result TEXT NOT NULL CHECK (result IN ('pass','fail')),
+        commit_hash TEXT,
+        recorded_at TEXT NOT NULL DEFAULT (datetime('now'))
+      )
+    `);
+    db.exec('CREATE INDEX IF NOT EXISTS idx_test_outcomes_lookup ON test_outcomes(project_path, test_name, recorded_at)');
+  } catch (e) {
+    logger.debug(`Schema migration (test_outcomes): ${e.message}`);
+  }
+
   try {
     db.exec(`
       CREATE TABLE IF NOT EXISTS provider_circuit_breaker (
