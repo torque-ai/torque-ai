@@ -1346,6 +1346,52 @@ describe('factory loop-controller EXECUTE for non-plan-file work items', () => {
     expect(decisions.find((row) => row.action === 'cannot_generate_plan_routed_to_needs_replan')).toBeUndefined();
   });
 
+  it('defers no-provider plan generation failures without routing to needs_replan', async () => {
+    const { project, workItem } = registerExecuteProject({
+      description: 'Create a plan once a non-Claude provider becomes healthy again.',
+    });
+    const noHostsError = Object.assign(
+      new Error('smart_submit_task failed [NO_HOSTS_AVAILABLE]: NO_HOSTS_AVAILABLE: No providers available: Codex quota exhausted and no non-Codex fallback is healthy or configured.'),
+      { code: 'NO_HOSTS_AVAILABLE' }
+    );
+    routingModule.handleSmartSubmitTask = vi.fn(async () => {
+      throw noHostsError;
+    });
+
+    const executeAdvance = await loopController.advanceLoopForProject(project.id);
+    const updatedWorkItem = factoryIntake.getWorkItem(workItem.id);
+
+    expect(routingModule.handleSmartSubmitTask).toHaveBeenCalledTimes(1);
+    expect(awaitModule.handleAwaitTask).not.toHaveBeenCalled();
+    expect(executeAdvance).toMatchObject({
+      new_state: LOOP_STATES.IDLE,
+      stage_result: {
+        status: 'deferred',
+        reason: 'provider_unavailable',
+      },
+    });
+    expect(updatedWorkItem).toMatchObject({
+      id: workItem.id,
+      status: 'planned',
+      reject_reason: null,
+      origin: expect.objectContaining({
+        plan_generation_status: 'provider_unavailable',
+        plan_generation_provider_unavailable_error: expect.stringContaining('NO_HOSTS_AVAILABLE'),
+      }),
+    });
+
+    const decisions = listDecisionRows(db, project.id);
+    expect(decisions.find((row) => row.action === 'plan_generation_provider_unavailable_deferred')).toMatchObject({
+      stage: 'execute',
+      outcome: expect.objectContaining({
+        reason: 'no_hosts_available',
+        work_item_id: workItem.id,
+        next_status: 'planned',
+      }),
+    });
+    expect(decisions.find((row) => row.action === 'cannot_generate_plan_routed_to_needs_replan')).toBeUndefined();
+  });
+
   it('submits scoped scout files and disables ambient context for plan generation', async () => {
     const allowedFiles = ['server/factory/loop-controller.js', 'server/tests/plan-prompt-scope-files.test.js'];
     const { project, workItem } = registerExecuteProject({

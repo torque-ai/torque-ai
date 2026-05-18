@@ -77,6 +77,8 @@ function clearPlanGenerationWaitFields(origin = {}) {
   delete next.plan_generation_provider_fallback_from;
   delete next.plan_generation_provider_fallback_to;
   delete next.plan_generation_provider_fallback_error;
+  delete next.plan_generation_provider_unavailable_at;
+  delete next.plan_generation_provider_unavailable_error;
   return next;
 }
 

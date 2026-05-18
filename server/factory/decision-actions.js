@@ -136,6 +136,11 @@ const DECISION_ACTIONS = {
     classifier: 'benign',
     outcome: ['work_item_id', 'reason'],
   },
+  plan_generation_provider_unavailable_deferred: {
+    stage: 'PLAN',
+    classifier: 'benign',
+    outcome: ['work_item_id', 'reason', 'plan_path', 'generation_task_id'],
+  },
   skipped_for_plan_file: {
     stage: 'PLAN',
     classifier: 'benign',
@@ -644,6 +649,11 @@ const DECISION_ACTIONS = {
     stage: 'VERIFY',
     classifier: 'benign',
     outcome: ['work_item_id', 'verify_output'],
+  },
+  worktree_verify_flaky_pass: {
+    stage: 'VERIFY',
+    classifier: 'benign',
+    outcome: ['branch', 'worktree_path', 'flaky_count', 'flaky_tests', 'duration_ms', 'verify_command'],
   },
   worktree_verify_failed: {
     stage: 'VERIFY',

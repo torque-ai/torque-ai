@@ -205,6 +205,7 @@ const BENIGN_FLOW_ACTION_EXACT = new Set([
   'plan_generation_worktree_missing_abandoned', // plan generation abandoned a missing item-scoped worktree row
   'plan_generation_worktree_created', // plan generation created isolated artifact worktree
   'plan_generation_provider_fallback_submitted', // transient plan-generation provider error fell back to another provider
+  'plan_generation_provider_unavailable_deferred', // no enabled healthy provider; wait without recovery churn
 
   // ── EXECUTE ──────────────────────────────────────────────────────────────────
   'worktree_created',        // EXECUTE created an isolated worktree
@@ -237,6 +238,7 @@ const BENIGN_FLOW_ACTION_EXACT = new Set([
   // ── VERIFY ───────────────────────────────────────────────────────────────────
   'verified_batch',          // VERIFY guardrails passed
   'worktree_verify_passed',  // verify_command passed remotely
+  'worktree_verify_flaky_pass', // known-flaky test failures treated as a soft pass
   'verify_empty_branch_routed_to_needs_replan',  // factory-level routing decision
   'cannot_generate_plan_routed_to_needs_replan',  // post-cancel routing
   'baseline_auto_fix_work_item_created',  // Fix B: red-baseline remediation work item generated (benign forward progress)

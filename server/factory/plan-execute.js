@@ -131,6 +131,23 @@ const PLAN_EXECUTE_CLUSTER_DEPS = [
   ]],
 ];
 
+function getPlanGenerationErrorText(error) {
+  return [
+    error && typeof error.code === 'string' ? error.code : '',
+    error && typeof error.error_code === 'string' ? error.error_code : '',
+    error && typeof error.message === 'string' ? error.message : '',
+    error?.cause && typeof error.cause.message === 'string' ? error.cause.message : '',
+    typeof error === 'string' ? error : '',
+  ].filter(Boolean).join('\n');
+}
+
+function isNoHostsAvailablePlanGenerationError(error) {
+  const text = getPlanGenerationErrorText(error);
+  return /\bNO_HOSTS_AVAILABLE\b/i.test(text)
+    || /No providers available:/i.test(text)
+    || /no non-Codex fallback is healthy or configured/i.test(text);
+}
+
 function createPlanExecuteStage(deps = {}) {
   for (const name of PLAN_EXECUTE_FN_DEPS) {
     if (typeof deps[name] !== 'function') {
@@ -723,6 +740,85 @@ function createPlanExecuteStage(deps = {}) {
       reason: 'architect cycle completed',
       work_item: workItem,
       stage_result: cycle,
+    };
+  }
+
+  function buildPlanGenerationProviderUnavailableResult({
+    project,
+    instance,
+    targetItem,
+    planPath,
+    generationTaskId,
+    error,
+  }) {
+    const errorText = String(error?.message || error || 'no providers available').slice(0, 1000);
+    const deferredOrigin = {
+      ...clearPlanGenerationWaitFields(getWorkItemOriginObject(targetItem)),
+      plan_path: planPath,
+      plan_generation_status: 'provider_unavailable',
+      plan_generation_provider_unavailable_at: nowIso(),
+      plan_generation_provider_unavailable_error: errorText,
+    };
+    if (generationTaskId) {
+      deferredOrigin.plan_generation_task_id = generationTaskId;
+    }
+
+    let updatedWorkItem = targetItem;
+    try {
+      updatedWorkItem = factoryIntake.updateWorkItem(targetItem.id, {
+        origin_json: deferredOrigin,
+        status: targetItem.status || 'planned',
+      });
+      rememberSelectedWorkItem(instance.id, updatedWorkItem);
+    } catch (persistErr) {
+      logger.warn('EXECUTE stage: failed to persist provider-unavailable plan-generation state', {
+        project_id: project.id,
+        work_item_id: targetItem.id,
+        generation_task_id: generationTaskId || null,
+        err: persistErr.message,
+      });
+    }
+
+    logger.warn('EXECUTE stage: deferred plan generation because no providers are available', {
+      project_id: project.id,
+      work_item_id: targetItem.id,
+      plan_path: planPath,
+      generation_task_id: generationTaskId || null,
+      error: errorText.slice(0, 500),
+    });
+    safeLogDecision({
+      project_id: project.id,
+      stage: LOOP_STATES.EXECUTE,
+      action: 'plan_generation_provider_unavailable_deferred',
+      reasoning: 'No healthy enabled providers are available for plan generation; deferring without changing the work item to needs_replan.',
+      inputs: {
+        ...getWorkItemDecisionContext(targetItem),
+      },
+      outcome: {
+        reason: 'no_hosts_available',
+        error: errorText,
+        plan_path: planPath,
+        generation_task_id: generationTaskId || null,
+        next_status: updatedWorkItem.status,
+        ...getWorkItemDecisionContext(updatedWorkItem),
+      },
+      confidence: 1,
+      batch_id: getDecisionBatchId(project, updatedWorkItem, null, instance),
+    });
+
+    return {
+      reason: 'plan generation deferred: no providers available',
+      work_item: updatedWorkItem,
+      stop_execution: true,
+      next_state: LOOP_STATES.IDLE,
+      paused_at_stage: null,
+      stage_result: {
+        status: 'deferred',
+        reason: 'provider_unavailable',
+        error: errorText,
+        plan_path: planPath,
+        generation_task_id: generationTaskId || null,
+      },
     };
   }
 
@@ -1892,6 +1988,17 @@ function createPlanExecuteStage(deps = {}) {
       });
       if (fallbackResult) {
         return fallbackResult;
+      }
+
+      if (isNoHostsAvailablePlanGenerationError(error)) {
+        return buildPlanGenerationProviderUnavailableResult({
+          project,
+          instance,
+          targetItem,
+          planPath,
+          generationTaskId,
+          error,
+        });
       }
 
       logger.warn('EXECUTE stage: failed to generate plan for non-plan-file work item', {
