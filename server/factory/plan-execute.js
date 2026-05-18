@@ -300,6 +300,60 @@ function createPlanExecuteStage(deps = {}) {
     }
   }
 
+  function restoreMissingPlanFilePathFromIntake(project, instance, workItem, stage) {
+    if (!project?.id || !workItem?.id || workItem.source !== 'plan_file') {
+      return workItem;
+    }
+
+    const origin = workItem.origin && typeof workItem.origin === 'object'
+      ? workItem.origin
+      : (parseJsonObject(workItem.origin_json) || {});
+    if (origin.plan_path && typeof origin.plan_path === 'string') {
+      return workItem;
+    }
+
+    if (
+      workItem.status === 'needs_replan'
+      && origin.source_plan_path
+      && typeof origin.source_plan_path === 'string'
+    ) {
+      return workItem;
+    }
+
+    const latest = getLatestPlanFileIntakeForWorkItem(project.id, workItem.id);
+    const candidatePaths = [
+      origin.source_plan_path,
+      latest?.plan_path,
+    ].filter((value) => typeof value === 'string' && value.trim());
+    const restoredPlanPath = candidatePaths.find((candidate) => fs.existsSync(candidate));
+    if (!restoredPlanPath) {
+      return workItem;
+    }
+
+    const nextOrigin = {
+      ...origin,
+      plan_path: restoredPlanPath,
+    };
+    if (latest?.content_hash && !nextOrigin.content_hash) {
+      nextOrigin.content_hash = latest.content_hash;
+    }
+
+    const updated = factoryIntake.updateWorkItem(workItem.id, {
+      origin_json: nextOrigin,
+    });
+    if (instance?.id) {
+      rememberSelectedWorkItem(instance.id, updated);
+      updateInstanceAndSync(instance.id, { work_item_id: updated.id });
+    }
+    logger.info('Restored missing plan_file origin.plan_path from intake history', {
+      project_id: project.id,
+      work_item_id: workItem.id,
+      plan_path: restoredPlanPath,
+      stage,
+    });
+    return updated;
+  }
+
   function sourcePlanPathsForMissingCheck(origin, latest) {
     const sourcePaths = [
       origin.source_plan_path,
@@ -506,6 +560,7 @@ function createPlanExecuteStage(deps = {}) {
     if (workItem) {
       rememberSelectedWorkItem(instance.id, workItem);
       updateInstanceAndSync(instance.id, { work_item_id: workItem.id });
+      workItem = restoreMissingPlanFilePathFromIntake(project, instance, workItem, LOOP_STATES.PLAN);
     }
 
     if (workItem?.origin?.plan_path && fs.existsSync(workItem.origin.plan_path)) {
@@ -823,7 +878,7 @@ function createPlanExecuteStage(deps = {}) {
   }
 
   async function executeNonPlanFileStage(project, instance, workItem) {
-    const targetItem = workItem || getSelectedWorkItem(instance, project.id, {
+    let targetItem = workItem || getSelectedWorkItem(instance, project.id, {
       fallbackToLoopSelection: true,
     });
     if (!targetItem) {
@@ -843,6 +898,25 @@ function createPlanExecuteStage(deps = {}) {
           status: 'superseded',
           reason: 'source_plan_file_missing',
           work_item_id: supersededMissingSourcePlan.id,
+        },
+      };
+    }
+    targetItem = restoreMissingPlanFilePathFromIntake(project, instance, targetItem, LOOP_STATES.EXECUTE);
+    if (
+      !getStoredPlanGenerationTaskId(targetItem)
+      && targetItem?.origin?.plan_path
+      && fs.existsSync(targetItem.origin.plan_path)
+    ) {
+      return {
+        reason: 'plan file path restored from intake history',
+        work_item: targetItem,
+        stop_execution: true,
+        next_state: LOOP_STATES.EXECUTE,
+        stage_result: {
+          status: 'restored',
+          reason: 'plan_file_path_restored',
+          work_item_id: targetItem.id,
+          plan_path: targetItem.origin.plan_path,
         },
       };
     }
@@ -2208,6 +2282,9 @@ function createPlanExecuteStage(deps = {}) {
           } };
         }
 
+        targetItem = restoreMissingPlanFilePathFromIntake(project, instance, targetItem, LOOP_STATES.EXECUTE);
+        transitionWorkItem = targetItem;
+
         const targetPlanPath = targetItem.origin?.plan_path || null;
         const hasPendingPlanGeneration = Boolean(getStoredPlanGenerationTaskId(targetItem));
         if (hasPendingPlanGeneration || !targetPlanPath || !fs.existsSync(targetPlanPath)) {
@@ -2464,6 +2541,7 @@ function createPlanExecuteStage(deps = {}) {
     let targetItem = workItem || getSelectedWorkItem(instance, project.id, {
       fallbackToLoopSelection: true,
     });
+    targetItem = restoreMissingPlanFilePathFromIntake(project, instance, targetItem, LOOP_STATES.EXECUTE);
     if (!targetItem?.origin?.plan_path || !fs.existsSync(targetItem.origin.plan_path)) {
       return null;
     }
@@ -3551,22 +3629,55 @@ function createPlanExecuteStage(deps = {}) {
     // commits, and (2) lets phantom [x] markers carried over from a prior
     // corrupted run be treated as "already done", which causes plan-executor
     // to skip every task and ship an empty batch.
+    const sourcePlanPathForExecutor = targetItem.origin?.plan_path || null;
     const planPathForExecutor = (() => {
+      if (!sourcePlanPathForExecutor) {
+        return null;
+      }
       if (!executionWorkingDirectory || executionWorkingDirectory === project.path) {
-        return targetItem.origin.plan_path;
+        return sourcePlanPathForExecutor;
       }
       try {
-        const relative = path.relative(project.path, targetItem.origin.plan_path);
+        const relative = path.relative(project.path, sourcePlanPathForExecutor);
         if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) {
-          return targetItem.origin.plan_path;
+          return sourcePlanPathForExecutor;
         }
         const worktreeCopy = path.join(executionWorkingDirectory, relative);
-        return fs.existsSync(worktreeCopy) ? worktreeCopy : targetItem.origin.plan_path;
+        return fs.existsSync(worktreeCopy) ? worktreeCopy : sourcePlanPathForExecutor;
       } catch (_err) {
         void _err;
-        return targetItem.origin.plan_path;
+        return sourcePlanPathForExecutor;
       }
     })();
+
+    if (!planPathForExecutor) {
+      const routed = routeWorkItemToNeedsReplan(targetItem, {
+        reason: 'plan_path_missing_before_execute',
+        details: {
+          worktree_path: executionWorkingDirectory || null,
+        },
+      });
+      if (instance?.id) {
+        rememberSelectedWorkItem(instance.id, routed);
+        updateInstanceAndSync(instance.id, { work_item_id: routed.id });
+      }
+      logger.warn('EXECUTE stage: plan path missing before executor invocation; routing to needs_replan', {
+        project_id: project.id,
+        work_item_id: targetItem.id,
+        worktree_path: executionWorkingDirectory || null,
+      });
+      return {
+        next_state: LOOP_STATES.PRIORITIZE,
+        stop_execution: true,
+        reason: 'plan path missing before execution',
+        work_item: routed,
+        stage_result: {
+          status: routed.status,
+          reason: 'plan_path_missing_before_execute',
+          work_item_id: routed.id,
+        },
+      };
+    }
 
     if (
       planPathForExecutor

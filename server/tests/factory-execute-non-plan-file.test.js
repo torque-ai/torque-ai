@@ -1084,6 +1084,63 @@ describe('factory loop-controller EXECUTE for non-plan-file work items', () => {
     });
   });
 
+  it('restores a legacy plan_file plan_path from intake history before execution', async () => {
+    const { project, workItem, projectDir } = registerExecuteProject({
+      source: 'plan_file',
+      description: 'Execute the source plan instead of generating a replacement for a legacy plan_file row.',
+      origin: {
+        content_hash: 'legacy-source-hash',
+        task_count: 1,
+        step_count: 2,
+      },
+    });
+    const targetPath = path.join(projectDir, 'server', 'factory', 'plan-executor.js');
+    fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+    fs.writeFileSync(targetPath, '// stub for legacy plan-file execution regression\n', 'utf8');
+
+    const planPath = path.join(tempDir, 'legacy-source-plan.md');
+    fs.writeFileSync(planPath, `# Simulated plan
+
+**Tech Stack:** Node.js, vitest.
+
+## Task 1: Simulated task
+
+- [ ] **Step 1: Implement the helper in plan-executor.js**
+
+    Edit server/factory/plan-executor.js to add a \`runSimulatedFactoryStep(input)\` helper that returns \`{ ok: true, payload: input }\`. The helper must be exported alongside the existing public helpers without disturbing call sites. Acceptance criterion: \`expect(runSimulatedFactoryStep('seed').ok).toBe(true)\` in a colocated unit test.
+
+- [ ] **Step 2: Commit the helper change**
+
+    Run \`git add server/factory/plan-executor.js && git commit -m "feat: simulated task"\` after the helper lands. Acceptance criterion: \`git log -1 --format=%s\` reports the conventional-commit subject and the working tree is clean.
+`, 'utf8');
+    db.prepare(`
+      INSERT INTO factory_plan_file_intake (project_id, plan_path, content_hash, work_item_id, created_at)
+      VALUES (?, ?, ?, ?, ?)
+    `).run(project.id, planPath, 'legacy-source-hash', workItem.id, '2026-05-18T00:00:00.000Z');
+
+    const executeAdvance = await loopController.advanceLoopForProject(project.id);
+    const updatedWorkItem = factoryIntake.getWorkItem(workItem.id);
+
+    expect(routingModule.handleSmartSubmitTask).toHaveBeenCalledTimes(1);
+    expect(routingModule.handleSmartSubmitTask.mock.calls[0][0]).toEqual(expect.objectContaining({
+      project: project.name,
+      plan_path: planPath,
+      version_intent: 'feature',
+      tags: expect.not.arrayContaining(['factory:plan_generation']),
+    }));
+    expect(awaitModule.handleAwaitTask).not.toHaveBeenCalled();
+    expect([LOOP_STATES.EXECUTE, LOOP_STATES.VERIFY]).toContain(executeAdvance.new_state);
+    expect(executeAdvance.reason).not.toBe('pre-written plan rejected by quality gate');
+    expect(updatedWorkItem).toMatchObject({
+      id: workItem.id,
+      origin: expect.objectContaining({
+        plan_path: planPath,
+        content_hash: 'legacy-source-hash',
+      }),
+    });
+    expect(['executing', 'verifying']).toContain(updatedWorkItem.status);
+  });
+
   it('records cannot_generate_plan when the work item has no description and skips execution', async () => {
     const { project, workItem } = registerExecuteProject({ description: null });
 
