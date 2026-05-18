@@ -4,7 +4,8 @@
  *   - runSafeguardPreChecks
  *   - resolveProviderRouting
  *
- * These are NOT exported — they're exercised indirectly through startTask().
+ * These are mostly exercised indirectly through startTask(); provider routing is
+ * also exported for focused tests that must avoid provider execution fallback.
  * Uses setupE2eDb for an isolated real DB + fresh task-manager module.
  */
 const path = require('path');
@@ -739,10 +740,7 @@ describe('resolveProviderRouting (via startTask)', () => {
     budgetSpy.mockRestore();
   });
 
-  // TODO: These 3 tests fail because startTask's async execution path
-  // reaches fallback routing even with codex_enabled=0. Need to test
-  // resolveProviderRouting directly instead of via full startTask pipeline.
-  it.skip('keeps ollama review tasks on ollama when budget is healthy', async () => {
+  it('keeps ollama review tasks on ollama when budget is healthy', () => {
     db.setConfig('rate_limit_enabled', '0');
     db.setConfig('duplicate_check_enabled', '0');
     db.setConfig('budget_check_enabled', '0');
@@ -759,19 +757,35 @@ describe('resolveProviderRouting (via startTask)', () => {
       provider: 'ollama',
       task_description: 'review the code and report any bugs found',
     });
-    try {
-      await tm.startTask(id);
-    } catch {
-      // May fail in execution
-    }
+    const result = tm.resolveProviderRouting(db.getTask(id), id);
 
     const task = db.getTask(id);
+    expect(result.provider).toBe('ollama');
+    expect(result.switchReason).toBeNull();
+    expect(result.decisionTrace).toEqual(expect.objectContaining({
+      selected_provider: 'ollama',
+      requested_provider: 'ollama',
+      switch_reason: null,
+      user_provider_override: false,
+      provider_selection_locked: false,
+    }));
     expect(task.provider).toBe('ollama');
+    expect(task.metadata).toEqual(expect.objectContaining({
+      requested_provider: 'ollama',
+      intended_provider: 'ollama',
+      provider_decision_trace: expect.objectContaining({
+        selected_provider: 'ollama',
+        requested_provider: 'ollama',
+        switch_reason: null,
+      }),
+    }));
+    expect(task.metadata._provider_switch_reason).toBeUndefined();
+    expect(budgetSpy).not.toHaveBeenCalled();
 
     budgetSpy.mockRestore();
   });
 
-  it.skip('keeps ollama for edit/fix tasks (not review)', async () => {
+  it('keeps ollama for edit/fix tasks (not review)', () => {
     db.setConfig('rate_limit_enabled', '0');
     db.setConfig('duplicate_check_enabled', '0');
     db.setConfig('budget_check_enabled', '0');
@@ -788,20 +802,35 @@ describe('resolveProviderRouting (via startTask)', () => {
       task_description: 'fix the login bug and add error handling',
     });
 
-    try {
-      await tm.startTask(id);
-    } catch {
-      // Will fail trying to execute ollama (no real binary)
-    }
+    const result = tm.resolveProviderRouting(db.getTask(id), id);
 
-    // Provider should remain ollama since it's an edit task
     const task = db.getTask(id);
+    expect(result.provider).toBe('ollama');
+    expect(result.switchReason).toBeNull();
+    expect(result.decisionTrace).toEqual(expect.objectContaining({
+      selected_provider: 'ollama',
+      requested_provider: 'ollama',
+      switch_reason: null,
+      user_provider_override: false,
+      provider_selection_locked: false,
+    }));
     expect(task.provider).toBe('ollama');
+    expect(task.metadata).toEqual(expect.objectContaining({
+      requested_provider: 'ollama',
+      intended_provider: 'ollama',
+      provider_decision_trace: expect.objectContaining({
+        selected_provider: 'ollama',
+        requested_provider: 'ollama',
+        switch_reason: null,
+      }),
+    }));
+    expect(task.metadata._provider_switch_reason).toBeUndefined();
+    expect(budgetSpy).not.toHaveBeenCalled();
 
     budgetSpy.mockRestore();
   });
 
-  it.skip('keeps ollama review tasks when user_provider_override is set', async () => {
+  it('keeps ollama review tasks when user_provider_override is set', () => {
     db.setConfig('rate_limit_enabled', '0');
     db.setConfig('duplicate_check_enabled', '0');
     db.setConfig('budget_check_enabled', '0');
@@ -818,15 +847,34 @@ describe('resolveProviderRouting (via startTask)', () => {
       task_description: 'review the code and report any bugs found',
       metadata: JSON.stringify({ user_provider_override: true }),
     });
-    try {
-      await tm.startTask(id);
-    } catch {
-      // May fail in execution
-    }
+    const result = tm.resolveProviderRouting(db.getTask(id), id);
 
-    // Provider should remain ollama since user explicitly chose it
     const task = db.getTask(id);
+    expect(result.provider).toBe('ollama');
+    expect(result.switchReason).toBeNull();
+    expect(result.decisionTrace).toEqual(expect.objectContaining({
+      selected_provider: 'ollama',
+      requested_provider: 'ollama',
+      switch_reason: null,
+      user_provider_override: true,
+      provider_selection_locked: true,
+      provider_selection_lock_reason: 'user_provider_override',
+    }));
     expect(task.provider).toBe('ollama');
+    expect(task.metadata).toEqual(expect.objectContaining({
+      user_provider_override: true,
+      requested_provider: 'ollama',
+      intended_provider: 'ollama',
+      provider_decision_trace: expect.objectContaining({
+        selected_provider: 'ollama',
+        requested_provider: 'ollama',
+        switch_reason: null,
+        user_provider_override: true,
+        provider_selection_locked: true,
+      }),
+    }));
+    expect(task.metadata._provider_switch_reason).toBeUndefined();
+    expect(budgetSpy).not.toHaveBeenCalled();
 
     budgetSpy.mockRestore();
   });
