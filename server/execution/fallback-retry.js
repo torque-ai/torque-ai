@@ -65,6 +65,18 @@ let _runningProcesses = null;
 let _pendingProcessQueueTimer = null;
 let _getFreeQuotaTracker = null;
 
+function clearCleanupGuardForRestartedTask(taskId) {
+  try {
+    if (_runningProcesses && typeof _runningProcesses.clearCleanupGuard === 'function') {
+      _runningProcesses.clearCleanupGuard(taskId);
+      return;
+    }
+    if (_runningProcesses?.cleanupGuard && typeof _runningProcesses.cleanupGuard.delete === 'function') {
+      _runningProcesses.cleanupGuard.delete(taskId);
+    }
+  } catch { /* non-critical restart bookkeeping */ }
+}
+
 function ensureDeps() {
   let container = null;
   try { container = require('../container').defaultContainer; } catch { /* not available */ }
@@ -679,6 +691,7 @@ function tryStallRecovery(taskId, activity) {
       persistStallRecoveryAttempts(taskId, recovery.attempts);
       if (_markTaskCleanedUp) _markTaskCleanedUp(taskId);
       _stopTaskForRestart(taskId, `Stall recovery - ${strategy}`);
+      clearCleanupGuardForRestartedTask(taskId);
       tryLocalFirstFallback(taskId, task, `Stall recovery: no larger model available after ${activity.lastActivitySeconds}s stall`, { skipSameModel: true });
       return true;
     }
@@ -692,6 +705,7 @@ function tryStallRecovery(taskId, activity) {
     persistStallRecoveryAttempts(taskId, recovery.attempts);
     if (_markTaskCleanedUp) _markTaskCleanedUp(taskId);
     _stopTaskForRestart(taskId, `Stall recovery - ${strategy}`);
+    clearCleanupGuardForRestartedTask(taskId);
     tryLocalFirstFallback(taskId, task, `Stall recovery: attempt ${recovery.attempts} after ${activity.lastActivitySeconds}s stall`);
     return true;
   }
@@ -707,6 +721,7 @@ function tryStallRecovery(taskId, activity) {
 
   // Stop the current process without marking as cancelled
   _stopTaskForRestart(taskId, `Stall recovery - ${strategy}`);
+  clearCleanupGuardForRestartedTask(taskId);
 
   // Record structured failover event (RB-029)
   db.recordFailoverEvent({ task_id: taskId, from_provider: task.provider, to_provider: newSettings.provider || task.provider, from_model: task.model, to_model: newSettings.model || task.model, reason: `Stall: ${activity.lastActivitySeconds}s idle, strategy: ${strategy}`, failover_type: 'stall', attempt_num: recovery.attempts });

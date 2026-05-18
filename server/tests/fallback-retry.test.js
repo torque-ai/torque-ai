@@ -55,6 +55,7 @@ function setup() {
   restartCalls = [];
   stallRecoveryAttempts = new Map();
   runningProcesses = new Map();
+  runningProcesses.clearCleanupGuard = vi.fn();
 
   mod = require('../execution/fallback-retry');
   mod.init({
@@ -894,6 +895,7 @@ describe('fallback-retry module', () => {
       expect(ok).toBe(true);
       expect(restartCalls).toHaveLength(1);
       expect(restartCalls[0].reason).toContain('switch_edit_format');
+      expect(runningProcesses.clearCleanupGuard).toHaveBeenCalledWith(task.id);
 
       const recovery = stallRecoveryAttempts.get(task.id);
       expect(recovery.attempts).toBe(1);
@@ -1025,6 +1027,7 @@ describe('fallback-retry module', () => {
         expect(ok).toBe(true);
         expect(restartCalls).toHaveLength(1);
         expect(restartCalls[0].reason).toContain('local_first_fallback');
+        expect(runningProcesses.clearCleanupGuard).toHaveBeenCalledWith(task.id);
         expect(stallRecoveryAttempts.get(task.id).attempts).toBe(1);
         expect(stallRecoveryAttempts.get(task.id).lastStrategy).toBe('local_first_fallback');
         expect(taskCore.getTask(task.id).provider).toBe('codex');
