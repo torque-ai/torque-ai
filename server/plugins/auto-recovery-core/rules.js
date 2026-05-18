@@ -172,6 +172,40 @@ module.exports = [
     suggested_strategies: ['retry_with_fresh_session', 'escalate'],
   },
   {
+    // VERIFY found that all failing tests are known-flaky (via the test
+    // deflaker classification in auto-verify-retry or verify.js).  The
+    // verify stage already treats this as a soft pass and continues to
+    // LEARN, but the decision still lands in the decision log. If
+    // auto-recovery sees it (e.g. during rearm scanning), it should be
+    // treated as benign — no retry, no escalation.
+    //
+    // This rule also catches the resilience case where a
+    // worktree_verify_failed decision fires but the task's
+    // verify_signal_tag (stored in outcome or reasoning) indicates
+    // tests:flaky — meaning the deflaker classified all failures as
+    // flaky but the verify stage's bypass didn't fire (DB error, race,
+    // etc.).  Empty suggested_strategies routes the engine through the
+    // no_strategy branch (same pattern as
+    // execute_paused_active_worktree_owner), marking
+    // auto_recovery_exhausted without touching the project.
+    name: 'verify_flaky_tests_only',
+    category: 'await_self_heal',
+    priority: 88,
+    confidence: 0.95,
+    match_fn: (d) => {
+      if (!d || d.stage !== 'verify') return false;
+      // Direct match: the verify stage's flaky-pass bypass fired
+      if (d.action === 'worktree_verify_flaky_pass') return true;
+      // Resilience: worktree_verify_failed but outcome/reasoning contains tests:flaky
+      if (d.action === 'worktree_verify_failed') {
+        const text = `${d.reasoning || ''} ${JSON.stringify(d.outcome || {})}`;
+        return /tests:flaky:\d+/.test(text);
+      }
+      return false;
+    },
+    suggested_strategies: [],
+  },
+  {
     name: 'verify_fail_unclassified',
     category: 'unknown',
     priority: 10,
